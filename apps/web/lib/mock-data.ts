@@ -4,6 +4,8 @@
  * 现在只为把布局与交互跑通，字段尽量贴近真实产品形态。
  */
 import type { ComponentType, SVGProps } from "react";
+import { appTranslator, type AppMessageKey } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import {
   GaugeIcon,
   BellBadgeIcon,
@@ -40,9 +42,9 @@ export interface ExploreItem {
   icon: Icon;
 }
 
-export const exploreItems: ExploreItem[] = [
-  { id: "discover", label: "发现", icon: SparklesIcon },
-];
+export const exploreItems = [
+  { id: "discover", label: "nav.main.discover", icon: SparklesIcon },
+] as const;
 
 /** 最近会话（类 Codex / ChatGPT 的会话列表） */
 export type RunStatus = "running" | "done" | "failed";
@@ -134,7 +136,10 @@ export interface SettingsSectionGroup {
  * 通知与集成（系统怎么告诉外界）→ 系统（运维）。文件到手之前的事归「资源与下载」，
  * 到手之后归「媒体库」，这条边界决定了刮削、播放的归属。
  */
-export const settingsSectionGroups: SettingsSectionGroup[] = [
+type SettingsSectionSpec = Omit<SettingsSection, "label" | "description"> & { label: AppMessageKey; description: AppMessageKey };
+type SettingsGroupSpec = { label: AppMessageKey | ""; items: SettingsSectionSpec[] };
+
+export const settingsSectionGroups: SettingsGroupSpec[] = [
   {
     // 概览不属于任何分组、不设组标题（侧栏对空标题不渲染小节头）：
     // 它是管理员进设置的落地页——未配齐必要件时是开局清单（哪些必须配、
@@ -144,8 +149,8 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     items: [
       {
         id: "overview",
-        label: "概览",
-        description: "配置状态一览：缺什么、有什么问题、下一步做什么",
+        label: "settings.overview.title",
+        description: "settings.overview.description",
         icon: GaugeIcon,
       },
     ],
@@ -155,55 +160,55 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     // 「我在哪些地方登录着」，所以跟个人信息放在一起、对成员同样开放
     // （docs/design/login-devices.md §8）。「通知」同理：每个人自己选收哪些
     // 手机通知，成员只需要这一个入口，不用知道云和中继（docs/design/cloud-push.md §1）。
-    label: "账号",
+    label: "settings.groups.account",
     items: [
-      { id: "profile", label: "个人信息", description: "头像、昵称与登录密码", icon: UserCircleIcon },
+      { id: "profile", label: "settings.profile.title", description: "settings.profile.description", icon: UserCircleIcon },
       {
         id: "devices",
-        label: "设备",
-        description: "登录着你的账号的浏览器、App、命令行与转码器",
+        label: "settings.devices.title",
+        description: "settings.devices.description",
         icon: LaptopPhoneIcon,
       },
       {
         id: "notifications",
-        label: "通知",
-        description: "选你想收到的通知，手机 App 和 IM 都按这里推送",
+        label: "settings.notifications.title",
+        description: "settings.notifications.description",
         icon: BellBadgeIcon,
       },
-      { id: "appearance", label: "外观", description: "首页背景与界面质感", icon: PaletteIcon },
+      { id: "appearance", label: "settings.appearance.title", description: "settings.appearance.description", icon: PaletteIcon },
     ],
   },
   {
     // 成员权限（能力开关 + 库/站点白名单）的写入口唯一在这里，库页面零改动
     // （docs/design/member-management.md §3.9.1）。
-    label: "成员",
+    label: "settings.groups.members",
     items: [
-      { id: "members", label: "成员", description: "家庭成员账号、能力开关与可见范围", icon: MembersKeyIcon },
+      { id: "members", label: "settings.members.title", description: "settings.members.description", icon: MembersKeyIcon },
     ],
   },
   {
     // 组内按资源接入链路排序：订阅规则（消费整条链路）→ 站点（含浏览器扩展
     // Cookie 同步）→ 下载器 → 自动入库（下载完成的收尾）。
-    label: "资源与下载",
+    label: "settings.groups.downloads",
     items: [
-      { id: "subscription", label: "订阅规则", description: "管理智能选择偏好与自定义规则", icon: BookmarkIcon },
-      { id: "sites", label: "资源站点", description: "站点接入与鉴权、搜索分类、浏览器扩展 Cookie 同步", icon: ServerIcon },
-      { id: "downloaders", label: "下载器", description: "qBittorrent / Transmission 接入", icon: DownloadCircleIcon },
-      { id: "import-watch", label: "自动入库", description: "监听下载目录，下载完成后自动整理进媒体库", icon: FolderGearIcon },
+      { id: "subscription", label: "settings.subscription.title", description: "settings.subscription.description", icon: BookmarkIcon },
+      { id: "sites", label: "settings.sites.title", description: "settings.sites.description", icon: ServerIcon },
+      { id: "downloaders", label: "settings.downloaders.title", description: "settings.downloaders.description", icon: DownloadCircleIcon },
+      { id: "import-watch", label: "settings.importWatch.title", description: "settings.importWatch.description", icon: FolderGearIcon },
     ],
   },
   {
     // 刮削的每库级覆盖在「编辑库 → 刮削设置」里，这里是全局默认口味；
     // 「播放」按功能命名而非按当前唯一的实现叫「远程转码」——给未来的
     // 转码策略、字幕偏好等播放域设置留好家。
-    label: "媒体库",
+    label: "settings.groups.library",
     items: [
-      { id: "scrape", label: "刮削与整理", description: "海报、简介、命名与目录整理的全局默认", icon: PhotosStackIcon },
-      { id: "playback", label: "播放", description: "远程转码与播放体验", icon: PlayRectangleIcon },
+      { id: "scrape", label: "settings.scrape.title", description: "settings.scrape.description", icon: PhotosStackIcon },
+      { id: "playback", label: "settings.playback.title", description: "settings.playback.description", icon: PlayRectangleIcon },
       {
         id: "drives",
-        label: "网盘",
-        description: "网盘账号：媒体库可以放在网盘上",
+        label: "settings.drives.title",
+        description: "settings.drives.description",
         icon: CloudDriveIcon,
         requires: "drive-backends",
       },
@@ -214,19 +219,19 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     // AI 紧挨着它最大的消费方（推送里的 AI 对话）。接入与设定是两件事：
     // 「模型接入」回答怎么连上，「AI 设定」回答什么场景用哪个模型。
     // App 推送管通道与设备覆盖，连接 MovieClaw Cloud 在「系统」组（cloud-push.md §0.1）。
-    label: "通知与集成",
+    label: "settings.groups.integrations",
     items: [
       {
         id: "app-push",
-        label: "App 推送",
-        description: "给 iPhone、iPad 上的 MovieClaw App 发通知",
+        label: "settings.appPush.title",
+        description: "settings.appPush.description",
         icon: AppBadgeIcon,
       },
-      { id: "im-push", label: "IM 推送", description: "微信、Telegram 等 IM 通道的推送与 AI 对话，可装插件接入更多通道", icon: ChatBubblesIcon },
-      { id: "webhook", label: "Webhook", description: "向外部服务推送播放、收藏等事件", icon: PaperplaneIcon },
-      { id: "llm", label: "模型接入", description: "接入 OpenAI、百炼等模型供应商，可同时接入多家", icon: SparklesIcon },
-      { id: "mcp", label: "MCP 服务", description: "把 movieclaw 的能力开放给 Claude Code、Cursor 等 AI 客户端", icon: PlugIcon },
-      { id: "ai", label: "AI 设定", description: "智能体与字幕处理使用的默认模型", icon: WandIcon },
+      { id: "im-push", label: "settings.imPush.title", description: "settings.imPush.description", icon: ChatBubblesIcon },
+      { id: "webhook", label: "settings.webhook.title", description: "settings.webhook.description", icon: PaperplaneIcon },
+      { id: "llm", label: "settings.llm.title", description: "settings.llm.description", icon: SparklesIcon },
+      { id: "mcp", label: "settings.mcp.title", description: "settings.mcp.description", icon: PlugIcon },
+      { id: "ai", label: "settings.ai.title", description: "settings.ai.description", icon: WandIcon },
     ],
   },
   {
@@ -234,29 +239,29 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     // 连接，以后云端的能力（远程访问等）都挂在它下面，所以放这里而不是推送旁边。
     // 「插件」独立成分区：第三方插件的安装管理与内置插件的运行状态都在这里，
     // 不再藏在「更新与维护」的页签里（概念见 lib/plugins-display.ts 文件头）
-    label: "系统",
+    label: "settings.groups.system",
     items: [
       {
         id: "cloud",
-        label: "MovieClaw Cloud",
-        description: "把这台服务器连到你的 MovieClaw 账号，使用官方推送等云端服务",
+        label: "settings.cloud.title",
+        description: "settings.cloud.description",
         icon: CloudIcon,
       },
-      { id: "app", label: "更新与维护", description: "版本更新与应用重启", icon: GearsIcon },
+      { id: "app", label: "settings.app.title", description: "settings.app.description", icon: GearsIcon },
       {
         id: "plugins",
-        label: "插件",
-        description: "官方插件与第三方插件的安装和运行状态",
+        label: "settings.plugins.title",
+        description: "settings.plugins.description",
         icon: PuzzleIcon,
       },
-      { id: "network", label: "网络", description: "代理、镜像与外部访问地址，解决 TMDB 等不可达", icon: GlobeIcon },
-      { id: "logs", label: "系统日志", description: "后端运行日志，按天存档", icon: TerminalIcon },
+      { id: "network", label: "settings.network.title", description: "settings.network.description", icon: GlobeIcon },
+      { id: "logs", label: "settings.logs.title", description: "settings.logs.description", icon: TerminalIcon },
     ],
   },
 ];
 
 /** 扁平分区列表：路由校验、默认分区等按 id 消费的场景继续用它 */
-export const settingsSections: SettingsSection[] = settingsSectionGroups.flatMap(
+export const settingsSections = settingsSectionGroups.flatMap(
   (group) => group.items,
 );
 
@@ -274,17 +279,23 @@ const MEMBER_SECTION_IDS = new Set(["profile", "devices", "notifications", "appe
 export function settingsSectionGroupsFor(
   role: "admin" | "member",
   active: ReadonlySet<ExtensionPoint> | "all" = new Set(),
+  locale: AppLocale = "zh-Hans",
 ): SettingsSectionGroup[] {
+  const t = appTranslator(locale);
+  const groups = settingsSectionGroups.map((group) => ({
+    label: group.label ? t(group.label) : "",
+    items: group.items.map((section) => ({ ...section, label: t(section.label), description: t(section.description) })),
+  }));
   if (role === "admin") {
-    if (active === "all") return settingsSectionGroups;
-    return settingsSectionGroups
+    if (active === "all") return groups;
+    return groups
       .map((group) => ({
         ...group,
         items: group.items.filter((s) => s.requires == null || active.has(s.requires)),
       }))
       .filter((group) => group.items.length > 0);
   }
-  return settingsSectionGroups
+  return groups
     .map((group) => ({
       ...group,
       items: group.items.filter((s) => MEMBER_SECTION_IDS.has(s.id)),

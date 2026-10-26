@@ -1,0 +1,13 @@
+{
+  "date": {
+    "monthDayPattern": "M 月 d 日",
+    "absolutePattern": "yyyy/MM/dd HH:mm"
+  },
+  "year": {
+    "parenthesized": "（{year}）"
+  },
+  "duration": {
+    "days": "{count} 天",
+    "minutes": "{count} 分钟"
+  }
+}

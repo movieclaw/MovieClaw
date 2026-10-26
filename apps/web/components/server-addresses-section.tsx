@@ -1,5 +1,10 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
 import { useCallback, useEffect, useState } from "react";
 
 import { StatusPill } from "@/components/cloud-push-ui";
@@ -31,34 +36,40 @@ import { formatRelativeTime } from "@/lib/time";
  * 这里，但改它在下面的「外部访问」里。
  */
 
-function sourceText(item: ServerAddressItem): string {
-  const seen = item.last_seen ? `${formatRelativeTime(item.last_seen)}用过` : null;
+function sourceText(item: ServerAddressItem, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  const seen = item.last_seen ? t("settings.network.addresses.seen", { when: formatRelativeTime(item.last_seen, locale) }) : null;
   switch (item.source) {
     case "manual":
-      return ["手动添加，不会过期", seen].filter(Boolean).join(" · ");
+      return [t("settings.network.addresses.manualSource"), seen].filter(Boolean).join(" · ");
     case "configured":
-      return ["外部访问地址，在下方「外部访问」修改", seen].filter(Boolean).join(" · ");
+      return [t("settings.network.addresses.configuredSource"), seen].filter(Boolean).join(" · ");
     default:
-      return seen ? `自动记录 · ${seen}` : "自动记录";
+      return seen ? t("settings.network.addresses.autoSeen", { seen }) : t("settings.network.addresses.automatic");
   }
 }
 
 function KindPill({ kind }: { kind: ServerAddressKind }) {
+  const t = useTranslations();
+
   return kind === "lan" ? (
-    <StatusPill tone="ok" label="内网" />
+    <StatusPill tone="ok" label={t("settings.network.addresses.lan")} />
   ) : (
-    <StatusPill tone="info" label="外网" />
+    <StatusPill tone="info" label={t("settings.network.addresses.wan")} />
   );
 }
 
 export function ServerAddressesSection() {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const [items, setItems] = useState<ServerAddressItem[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<ServerAddressKind>("wan");
   const [kindTouched, setKindTouched] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const [busy, setBusy] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
@@ -91,7 +102,7 @@ export function ServerAddressesSection() {
   const save = async () => {
     const url = draft.trim();
     if (!/^https?:\/\/[^\s/]+/.test(url)) {
-      setError("地址要以 http:// 或 https:// 开头");
+      setError({ key: "settings.network.addresses.invalid" });
       return;
     }
     setBusy(true);
@@ -118,19 +129,19 @@ export function ServerAddressesSection() {
   const guessed = guessKind(draft);
   const hint =
     guessed === "lan"
-      ? "看起来是内网地址"
+      ? t("settings.network.addresses.looksLan")
       : guessed === "wan"
-        ? "看起来是外网地址；家里 DNS 把它解析到内网的话，改成内网"
+        ? t("settings.network.addresses.looksWan")
         : null;
 
   return (
     <SettingsSection
-      title="访问地址"
-      description="各端 App 在家自动走内网、出门自动走外网。管理员用过的地址会自动出现在这里。"
+      title={t("settings.network.addresses.title")}
+      description={t("settings.network.addresses.hint")}
       action={
         !adding && items !== null ? (
           <button type="button" className={SETTINGS_BUTTON_CLASS} onClick={() => setAdding(true)}>
-            添加地址
+            {t("settings.network.addresses.add")}
           </button>
         ) : null
       }
@@ -138,30 +149,30 @@ export function ServerAddressesSection() {
     >
       <SettingsList>
         {failed && (
-          <SettingsRow label="读取访问地址失败" description="检查网络后重试">
+          <SettingsRow stackOnMobile={locale === "en"} label={t("settings.network.addresses.failed")} description={t("settings.network.addresses.failedHint")}>
             <button type="button" className={SETTINGS_BUTTON_CLASS} onClick={reload}>
-              重试
+              {t("settings.network.ui.retry")}
             </button>
           </SettingsRow>
         )}
         {items?.length === 0 && !adding && (
-          <SettingsRow
-            label="还没有记录到地址"
-            description="用管理员账号在浏览器或 App 里登录一次，用的地址就会出现在这里。"
+          <SettingsRow stackOnMobile={locale === "en"}
+            label={t("settings.network.addresses.empty")}
+            description={t("settings.network.addresses.emptyHint")}
           />
         )}
         {items?.map((item) => (
-          <SettingsRow
+          <SettingsRow stackOnMobile={locale === "en"}
             key={item.url}
             leading={<KindPill kind={item.kind} />}
             label={<span className="break-all font-mono text-sub">{item.url}</span>}
-            description={sourceText(item)}
+            description={sourceText(item, locale)}
           >
             {item.source !== "configured" && (
               <button
                 type="button"
-                aria-label={`删除 ${item.url}`}
-                title="删除"
+                aria-label={t("settings.network.addresses.deleteAria", { url: item.url })}
+                title={t("settings.network.addresses.delete")}
                 onClick={() => void remove(item.url)}
                 className="grid size-8 place-items-center rounded-full text-[var(--text-faint)] transition-colors hover:bg-white/[0.06] hover:text-[var(--text)]"
               >
@@ -181,12 +192,12 @@ export function ServerAddressesSection() {
                 if (e.key === "Escape") closeForm();
               }}
               placeholder="https://nas.home.example.com"
-              aria-label="要添加的地址"
+              aria-label={t("settings.network.addresses.address")}
               className={`${SETTINGS_INPUT_CLASS} w-full font-mono`}
             />
             {error && <p className="text-sub text-[var(--danger)]">{error}</p>}
             <div className="flex flex-wrap items-center gap-2">
-              <div role="radiogroup" aria-label="地址类型" className="flex gap-2">
+              <div role="radiogroup" aria-label={t("settings.network.addresses.kind")} className="flex gap-2">
                 {(["lan", "wan"] as const).map((value) => (
                   <button
                     key={value}
@@ -199,7 +210,7 @@ export function ServerAddressesSection() {
                     }}
                     className={`${SETTINGS_BUTTON_CLASS} ${kind === value ? "!border-[var(--accent)] !text-[var(--text)]" : "!text-[var(--text-muted)]"}`}
                   >
-                    {value === "lan" ? "内网（在家用）" : "外网（出门用）"}
+                    {value === "lan" ? t("settings.network.addresses.lanChoice") : t("settings.network.addresses.wanChoice")}
                   </button>
                 ))}
               </div>
@@ -207,7 +218,7 @@ export function ServerAddressesSection() {
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" className={SETTINGS_BUTTON_CLASS} onClick={closeForm}>
-                取消
+                {t("settings.network.ui.cancel")}
               </button>
               <button
                 type="button"
@@ -215,7 +226,7 @@ export function ServerAddressesSection() {
                 disabled={busy}
                 onClick={() => void save()}
               >
-                保存
+                {t("settings.network.ui.save")}
               </button>
             </div>
           </div>

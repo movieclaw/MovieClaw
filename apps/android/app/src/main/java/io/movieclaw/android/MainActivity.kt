@@ -34,6 +34,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var debugLaunch: io.movieclaw.android.core.playback.DebugLaunch
 
+    @Inject
+    lateinit var addressBook: io.movieclaw.android.core.network.ServerAddressBook
+
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 拒绝则仅无通知,播放不受影响 */ }
 
@@ -58,6 +61,18 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         deepLinkBus.parse(intent.dataString)?.let(deepLinkBus::publish)
         if (!debugLaunch.handle(intent)) handleNotificationTab(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // 回前台且在后台超过 10 分钟 → 重选一次入口（设计稿 §4.5）
+        addressBook.onAppForeground()
+    }
+
+    override fun onStop() {
+        // 旋转/配置变更不算「进后台」
+        if (!isChangingConfigurations) addressBook.onAppBackground()
+        super.onStop()
     }
 
     /** 通知点按落点：有具体条目就投路由（AppNav 消费），否则退到底栏页（见 core/notify） */

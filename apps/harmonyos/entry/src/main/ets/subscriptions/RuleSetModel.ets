@@ -63,6 +63,11 @@ export const CODEC_FAMILIES: CodecFamily[] = [
 
 export const HDR_OPTIONS: string[] = ['DV', 'HDR10+', 'HDR10', 'HLG', 'SDR'];
 
+// 只能「排除」的 HDR 项：「DV P5」= 只标了 DV、没有 HDR10 兼容层的杜比视界（Profile 5），服务器转码会偏绿偏紫。
+// 它是后端按命名约定与站点标记得出的判定，不是标题里的记号；「只要 P5」没有意义，所以不进三态循环，
+// 只在「不限 ↔ 排除」之间切。
+export const HDR_BLOCK_ONLY: string[] = ['DV P5'];
+
 export const SUBTITLE_LANGUAGES: RuleOption[] = [
   new RuleOption('zh', '中文（不限简繁）'),
   new RuleOption('zh-Hans', '简体中文'),

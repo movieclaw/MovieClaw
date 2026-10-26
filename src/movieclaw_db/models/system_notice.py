@@ -53,6 +53,9 @@ class SystemNotice(TimestampMixin, table=True):
         index=True, description="来源域：subscription / ingest / downloader / site"
     )
     title: str = Field(description="一句话标题（面板列表行）")
+    title_key: str | None = Field(default=None)
+    message_key: str | None = Field(default=None)
+    message_params: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     message: str = Field(
         sa_column=Column(Text, nullable=False),
         description="完整中文陈述（含修复引导），与日志/时间线同文案",

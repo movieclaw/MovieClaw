@@ -2,8 +2,11 @@
 
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
+import { useMessageState } from "@/lib/i18n/use-message-state";
+import { LanguageSettings } from "@/components/language-picker";
 import { LiquidGlassButton } from "@/components/liquid-glass";
 
 import { AppPushSection } from "@/components/app-push-section";
@@ -66,6 +69,7 @@ import { changePassword, updateProfile, uploadAvatar } from "@/lib/api/auth";
 import { listLoginDevices } from "@/lib/api/devices";
 import { clearPlaybackHistory } from "@/lib/api/playback";
 import { DEFAULT_UI_PREFS } from "@/lib/api/ui";
+import type { ConfiguredSite } from "@/lib/api/extension";
 import { HttpError } from "@/lib/http";
 import { catalogTheme, subscribeThemeCatalog, themeCatalogVersion } from "@/lib/theme-catalog";
 import { refreshThemeCatalog } from "@/lib/theme-catalog-sync";
@@ -75,7 +79,7 @@ import { useSession } from "@/lib/session";
 import { appNavId, isAppNavId, pruneAppNavIds } from "@/lib/plugin-apps";
 import { usePluginApps } from "@/lib/plugin-apps-context";
 import { applyNavOrder, mergeNavOrder, sameNavOrder } from "@/lib/sidebar-nav";
-import { settingsSectionGroupsFor, settingsSections } from "@/lib/mock-data";
+import { settingsSectionGroupsFor } from "@/lib/mock-data";
 import { useActiveExtensionPoints } from "@/lib/use-extension-points";
 import { useIsPhone, useLayout, useUiPrefs } from "@/lib/ui-prefs";
 import { useResolvedTheme } from "@/themes/registry";
@@ -92,11 +96,13 @@ export interface SettingsSidebarProps {
 }
 
 export function SettingsSidebar({ active, onSelect, onBack }: SettingsSidebarProps) {
+  const t = useTranslations();
+  const locale = useLocale();
   const { backdrop } = useBackdrop();
   // 成员只看到「账号」组（个人信息/设备/通知/外观）；管理分区后端一律 403，前端不给入口
   const { session } = useSession();
   const extensionPoints = useActiveExtensionPoints(session.role === "admin");
-  const sectionGroups = settingsSectionGroupsFor(session.role, extensionPoints);
+  const sectionGroups = settingsSectionGroupsFor(session.role, extensionPoints, locale);
   // 与工作台侧栏共用同一份用户偏好（透明度/明暗）；外观分区拖动滑杆时，
   // 这块面板就是实时预览的对象。
   const { prefs } = useUiPrefs();
@@ -123,7 +129,7 @@ export function SettingsSidebar({ active, onSelect, onBack }: SettingsSidebarPro
           className="btn-glass px-3.5 py-1.5 text-sub font-medium text-[var(--text-muted)] hover:text-[var(--text)]"
         >
           <ChevronLeftIcon className="size-4" />
-          <span>返回工作台</span>
+          <span>{t("nav.actions.workspace")}</span>
         </button>
       </div>
 
@@ -172,6 +178,8 @@ export interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ active, item }: SettingsPanelProps) {
+  const locale = useLocale();
+  const [sites, setSites] = useState<ConfiguredSite[] | null>(null);
   // 成员直达管理分区地址（书签/手输 URL，含裸 /settings 服务端兜底到的概览）
   // 时回退到首个可见分区——界面兜底，真正的安全边界在后端 403
   const { session } = useSession();
@@ -180,9 +188,9 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
   // 银玻璃无分区菜单，居中即全宽居中（mx-auto px-6）。分区菜单固定 300px 宽
   // （见 app-shell 的设置分支），列不与菜单重叠
   const cinema = useLayout() === "cinema";
-  const allowed = settingsSectionGroupsFor(session.role, "all").flatMap((g) => g.items);
+  const allowed = settingsSectionGroupsFor(session.role, "all", locale).flatMap((g) => g.items);
   const section =
-    allowed.find((s) => s.id === active) ?? allowed[0] ?? settingsSections[0];
+    allowed.find((s) => s.id === active) ?? allowed[0] ?? settingsSectionGroupsFor("admin", "all", locale)[0].items[0];
   const Icon = section.icon;
   // 手机端页顶的返回条已有分区名：订阅分区自带头部，子详情页（插件详情）有自己的标题
   const hideHeadOnMobile = section.id === "subscription" || item != null;
@@ -231,7 +239,7 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
             <p className="text-on-image mt-0.5 text-ui text-[var(--text-muted)]">
               {/* 资源站点分区的副标题是活的：有站点时显示健康统计，无站点回落介绍 */}
               {section.id === "sites" ? (
-                <SitesSectionSubtitle fallback={section.description} />
+                <SitesSectionSubtitle fallback={section.description} sites={sites} />
               ) : (
                 section.description
               )}
@@ -251,7 +259,7 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
         ) : section.id === "subscription" ? (
           <SubscriptionSettingsSection />
         ) : section.id === "sites" ? (
-          <SiteConfigSection />
+          <SiteConfigSection onSitesChange={setSites} />
         ) : section.id === "downloaders" ? (
           <DownloaderConfigSection />
         ) : section.id === "import-watch" ? (
@@ -300,29 +308,30 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
 
 /* —— 个人信息分区（真实账号数据，来自登录会话） —— */
 function ProfileSection() {
+  const t = useTranslations();
   const { session } = useSession();
   return (
     <div className="space-y-10">
-      <SettingsSection title="个人资料">
+      <SettingsSection title={t("settings.profile.details")}>
         <SettingsList>
           <AvatarRow />
           <NicknameRow />
-          <SettingsRow label="用户名" description="登录时使用，不可修改">
+          <SettingsRow label={t("auth.fields.username")} description={t("settings.profile.usernameHint")}>
             <span className="text-ui text-[var(--text-muted)]">{session.username}</span>
           </SettingsRow>
-          <SettingsRow label="身份">
+          <SettingsRow label={t("settings.profile.role")}>
             <span className="text-ui text-[var(--text-muted)]">
-              {session.role === "member" ? "成员" : "超级管理员"}
+              {session.role === "member" ? t("auth.role.member") : t("auth.role.superAdmin")}
             </span>
           </SettingsRow>
         </SettingsList>
       </SettingsSection>
 
-      <SettingsSection title="安全">
+      <SettingsSection title={t("settings.profile.security")}>
         <ChangePasswordCard />
       </SettingsSection>
 
-      <SettingsSection title="危险操作">
+      <SettingsSection title={t("settings.profile.danger")}>
         <WatchHistoryCard />
       </SettingsSection>
     </div>
@@ -332,11 +341,12 @@ function ProfileSection() {
 /** 头像行：点头像选图，前端压到 512px JPEG 再上传（头像不需要大图），成功即同步
  *  会话上下文——avatar_url 带新版本号，侧栏用户菜单等所有展示处立即换新图。 */
 function AvatarRow() {
+  const t = useTranslations();
   const { session, setSession } = useSession();
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
 
   const handlePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -348,21 +358,21 @@ function AvatarRow() {
     try {
       const blob = await fileToCompressedJpeg(file, 512);
       setSession(await uploadAvatar(blob));
-      toast.success("头像已更新");
+      toast.success(t("settings.profile.avatarUpdated"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "上传失败，请重试");
+      setError(err instanceof Error ? err.message : { key: "settings.profile.uploadFailed" });
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <SettingsRow label="头像" description="点击头像更换图片" error={error}>
+    <SettingsRow label={t("settings.profile.avatar")} description={t("settings.profile.avatarHint")} error={error}>
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={busy}
-        aria-label="更换头像"
+        aria-label={t("settings.profile.changeAvatar")}
         className="group relative rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
       >
         <AvatarBadge
@@ -375,7 +385,7 @@ function AvatarRow() {
             busy ? "opacity-100" : "touch-reveal opacity-0 group-hover:opacity-100"
           }`}
         >
-          {busy ? "上传中" : "更换"}
+          {busy ? t("settings.profile.uploading") : t("settings.profile.change")}
         </span>
       </button>
       <input
@@ -394,11 +404,13 @@ function AvatarRow() {
  * Esc 放弃修改。保存后同步会话上下文，侧栏立即更新。
  */
 function NicknameRow() {
+  const locale = useLocale();
+  const t = useTranslations();
   const { session, setSession } = useSession();
   const toast = useToast();
   const [draft, setDraft] = useState(session.nickname);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   // Esc 放弃：随后的失焦不再提交（失焦回调读到的还是改过的 draft）
   const discardRef = useRef(false);
 
@@ -416,7 +428,7 @@ function NicknameRow() {
       return;
     }
     if (!nickname) {
-      setError("昵称不能为空");
+      setError({ key: "settings.profile.nicknameEmpty" });
       setDraft(session.nickname);
       return;
     }
@@ -424,9 +436,9 @@ function NicknameRow() {
     setError(null);
     try {
       setSession(await updateProfile(nickname));
-      toast.success("昵称已更新");
+      toast.success(t("settings.profile.nicknameUpdated"));
     } catch (err) {
-      setError(err instanceof HttpError ? err.message : "网络异常，请稍后重试");
+      setError(err instanceof HttpError ? err.message : { key: "common.networkRetry" });
       setDraft(session.nickname);
     } finally {
       setBusy(false);
@@ -434,10 +446,10 @@ function NicknameRow() {
   };
 
   return (
-    <SettingsRow label="昵称" error={error}>
+    <SettingsRow label={t("settings.profile.nickname")} error={error} stackOnMobile={locale === "en"}>
       <input
         type="text"
-        aria-label="昵称"
+        aria-label={t("settings.profile.nickname")}
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value);
@@ -455,7 +467,7 @@ function NicknameRow() {
         }}
         maxLength={32}
         disabled={busy}
-        className={`${SETTINGS_INPUT_CLASS} w-48`}
+        className={`${SETTINGS_INPUT_CLASS} w-48${locale === "en" ? " max-sm:w-full" : ""}`}
       />
     </SettingsRow>
   );
@@ -472,12 +484,13 @@ function NicknameRow() {
  * 三个字段一起提交：页脚右侧唯一的提交按钮，没填全时置灰。
  */
 function ChangePasswordCard() {
+  const t = useTranslations();
   const toast = useToast();
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const [signOutPaired, setSignOutPaired] = useState(false);
   // 配对类设备（命令行、转码器、手工令牌）的台数
   const [pairedCount, setPairedCount] = useState(0);
@@ -491,11 +504,11 @@ function ChangePasswordCard() {
 
   const submit = async () => {
     if (newPassword.length < 8) {
-      setError("新密码至少 8 位");
+      setError({ key: "settings.profile.shortPassword" });
       return;
     }
     if (newPassword !== confirm) {
-      setError("两次输入的新密码不一致");
+      setError({ key: "settings.profile.passwordMismatch" });
       return;
     }
     setBusy(true);
@@ -511,7 +524,7 @@ function ChangePasswordCard() {
       if (withPaired) setPairedCount(0);
       toast.success(message);
     } catch (err) {
-      setError(err instanceof HttpError ? err.message : "网络异常，请稍后重试");
+      setError(err instanceof HttpError ? err.message : { key: "common.networkRetry" });
     } finally {
       setBusy(false);
     }
@@ -541,9 +554,9 @@ function ChangePasswordCard() {
 
   return (
     <SettingsCard
-      title="修改密码"
-      description="修改后，用密码登录的其他设备（网页、App、播放器）会全部下线，当前设备保持登录。"
-      hint="新密码至少 8 位"
+      title={t("settings.profile.changePassword")}
+      description={t("settings.profile.passwordHint")}
+      hint={t("settings.profile.shortPassword")}
       action={
         <button
           type="button"
@@ -551,14 +564,14 @@ function ChangePasswordCard() {
           disabled={busy || !oldPassword || !newPassword || !confirm}
           className={SETTINGS_PRIMARY_BUTTON_CLASS}
         >
-          {busy ? "提交中…" : "修改密码"}
+          {busy ? t("settings.profile.submitting") : t("settings.profile.changePassword")}
         </button>
       }
     >
       <div className="space-y-3.5">
-        {field("当前密码", oldPassword, setOldPassword, "current-password")}
-        {field("新密码", newPassword, setNewPassword, "new-password")}
-        {field("确认新密码", confirm, setConfirm, "new-password")}
+        {field(t("settings.profile.currentPassword"), oldPassword, setOldPassword, "current-password")}
+        {field(t("settings.profile.newPassword"), newPassword, setNewPassword, "new-password")}
+        {field(t("settings.profile.confirmPassword"), confirm, setConfirm, "new-password")}
         {pairedCount > 0 && (
           <label className="flex cursor-pointer items-start gap-2.5 pt-1">
             <input
@@ -569,10 +582,10 @@ function ChangePasswordCard() {
             />
             <span className="min-w-0">
               <span className="block text-sub text-[var(--text)]">
-                同时注销命令行和转码器（{pairedCount} 台）
+                {t("settings.profile.revokePaired", { count: pairedCount })}
               </span>
               <span className="mt-0.5 block text-caption leading-5 text-[var(--text-faint)]">
-                转码器常年无人值守，改密一般不需要停掉它；怀疑密码泄露时请勾上。
+                {t("settings.profile.pairedHint")}
               </span>
             </span>
           </label>
@@ -585,15 +598,16 @@ function ChangePasswordCard() {
 
 /** 清空自己全部观看记录（docs/design/library-access.md 2.6）：只删当前登录身份自己的行。 */
 function WatchHistoryCard() {
+  const t = useTranslations();
   const confirm = useConfirm();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const clearAll = async () => {
     const ok = await confirm({
-      title: "清空全部观看记录？",
+      title: t("settings.profile.clearHistoryTitle"),
       description:
-        "所有作品的续播进度、已看标记和播放次数都会清除，首页「最近观看」与播放器的「继续观看」随即清空，无法恢复。只影响你自己的记录；应用更新前的自动备份仍包含历史记录。",
-      confirmLabel: "清空",
+        t("settings.profile.clearHistoryDescription"),
+      confirmLabel: t("common.clear"),
       tone: "danger",
     });
     if (!ok) return;
@@ -610,9 +624,9 @@ function WatchHistoryCard() {
   return (
     <SettingsCard
       tone="danger"
-      title="清空全部观看记录"
-      description="续播进度、已看标记与播放次数一并清除，无法恢复。只想清单部作品或单个库，到对应页面的 ⋯ 菜单里操作。"
-      hint="只影响你自己的记录"
+      title={t("settings.profile.clearHistory")}
+      description={t("settings.profile.historyHint")}
+      hint={t("settings.profile.historyOwnOnly")}
       action={
         <button
           type="button"
@@ -620,7 +634,7 @@ function WatchHistoryCard() {
           disabled={busy}
           className={SETTINGS_DANGER_BUTTON_CLASS}
         >
-          {busy ? "清空中…" : "清空观看记录"}
+          {busy ? t("settings.profile.clearing") : t("settings.profile.clearHistoryAction")}
         </button>
       }
     />
@@ -648,6 +662,7 @@ function WatchHistoryCard() {
  * 标签上点一颗小蓝点，与设置侧栏的「更新与维护」行同款。
  */
 function AppSection() {
+  const t = useTranslations();
   // ?tab=storage 深链直达缓存管理，切换时写回地址栏（见 useTabParam）。旧的
   // ?tab=maintain 不再是合法值，会落到默认的「版本与更新」——重启入口正好在那；
   // 旧的 ?tab=remote 深链在路由层重定向到 /settings/playback，到不了这里。
@@ -659,13 +674,12 @@ function AppSection() {
       id: "update" as const,
       label: (
         <>
-          版本与更新
-          {pendingUpdate && <AppUpdateDot />}
+          {t("settings.app.versionUpdates")}{pendingUpdate && <AppUpdateDot />}
         </>
       ),
     },
-    { id: "storage" as const, label: "缓存管理" },
-    { id: "tasks" as const, label: "定时任务" },
+    { id: "storage" as const, label: t("settings.app.cache") },
+    { id: "tasks" as const, label: t("settings.app.tasks") },
   ];
 
   return (
@@ -688,13 +702,14 @@ function AppSection() {
  * 「设备」分区，靠 onOpenDevices 一键直达。
  */
 function PlaybackSection() {
+  const t = useTranslations();
   const router = useRouter();
   return (
     <div className="space-y-10">
       {/* 进度条预览与转码缓存各只有一颗开关：同属「拿服务器资源换播放体验」，并成一组 */}
       <SettingsSection
-        title="播放体验"
-        description="用服务器的算力与磁盘换更顺手的播放；开关改完即生效。"
+        title={t("settings.playback.experience")}
+        description={t("settings.playback.experienceHint")}
       >
         <SettingsList>
           <TrickplayToggleRow />
@@ -724,12 +739,13 @@ function PlaybackSection() {
  * 草稿自动撤销（组件卸载即触发既有的清理逻辑）。
  */
 function AppearanceSection() {
+  const t = useTranslations();
   // ?tab= 深链 + 切换写回地址栏，与其余胶囊标签分区同一套（useTabParam）
   const [tab, setTab] = useTabParam(["backdrop", "texture", "nav"] as const, "backdrop");
   const tabs = [
-    { id: "backdrop" as const, label: "背景图" },
-    { id: "texture" as const, label: "界面质感" },
-    { id: "nav" as const, label: "导航顺序" },
+    { id: "backdrop" as const, label: t("settings.appearance.backdropTab") },
+    { id: "texture" as const, label: t("settings.appearance.textureTab") },
+    { id: "nav" as const, label: t("settings.appearance.navTab") },
   ] as const;
   // Netflix 主题是纯色平铺设计（docs/design/web-themes.md §3.5）：背景大图与
   // 玻璃/蒙版整体停用，这两组设置置灰标注，prefs 字段保留不丢。
@@ -739,12 +755,13 @@ function AppearanceSection() {
 
   return (
     <div className="space-y-10">
+      <LanguageSettings />
       <ThemeGroup />
       <div className="space-y-6">
         <SettingsTabs tabs={tabs} value={tab} onChange={setTab} />
         {tab === "backdrop" ? (
           glassDisabled ? (
-            <DisabledGlassGroup label="首页背景">
+            <DisabledGlassGroup label={t("settings.appearance.homeBackground")}>
               <BackdropGroup />
             </DisabledGlassGroup>
           ) : (
@@ -752,7 +769,7 @@ function AppearanceSection() {
           )
         ) : tab === "texture" ? (
           glassDisabled ? (
-            <DisabledGlassGroup label="界面质感">
+            <DisabledGlassGroup label={t("settings.appearance.textureTab")}>
               <InterfaceTextureGroup />
             </DisabledGlassGroup>
           ) : (
@@ -772,6 +789,7 @@ function AppearanceSection() {
  * 切回银玻璃后原样恢复可调。
  */
 function DisabledGlassGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  const t = useTranslations();
   const themeLabel = useResolvedTheme().meta.label;
   return (
     <div>
@@ -782,7 +800,7 @@ function DisabledGlassGroup({ label, children }: { label: string; children: Reac
         {children}
       </div>
       <p className="mt-2.5 px-1 text-caption text-[var(--text-faint)]">
-        {label}仅「银玻璃」主题生效——{themeLabel} 主题是纯色平铺设计，没有背景大图与玻璃质感。
+        {t("settings.appearance.glassDisabled", { label, theme: themeLabel })}
       </p>
     </div>
   );
@@ -806,12 +824,13 @@ function DisabledGlassGroup({ label, children }: { label: string; children: Reac
  * 点击即所见即所得，无需「拖动预览 → 保存落库」的两段式。
  */
 function ThemeGroup() {
+  const t = useTranslations();
   const { savedPrefs, savePrefs, loading } = useUiPrefs();
   const phone = useIsPhone();
   // 在哪个设备类上设置，就落哪个端的覆盖字段
   const field = phone ? ("theme_mobile" as const) : ("theme_desktop" as const);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const current = normalizeThemeId(savedPrefs[field] ?? savedPrefs.theme);
   // 打开外观设置就重拉一次主题目录：刚在插件页装上的主题立刻出卡
   useEffect(() => {
@@ -830,14 +849,15 @@ function ThemeGroup() {
       const entry = catalogTheme(id);
       // 用户主动选：之前失败过的也再试一次（网络抖动、慢盘超时不该让它永远选不上）
       if (entry?.script && !(await loadTheme(id, entry.script, { retry: true }))) {
-        setError(`主题「${entry.label}」加载失败：${themeLoadError(id) ?? "未知原因"}`);
+        const reason = themeLoadError(id);
+        setError({ key: "settings.appearance.themeFailed", values: { theme: entry.label, reason: reason ?? "", hasReason: reason ? "yes" : "no" } });
         return;
       }
       // 本页加载后才装的主题不在聚合样式表里：先挂上样式，不画出「有外框没样式」的一帧
       if (entry?.css) await ensureThemeStylesheet(entry.css);
       await savePrefs({ ...savedPrefs, [field]: id });
     } catch (err) {
-      setError(err instanceof HttpError ? err.message : "保存失败，请稍后重试");
+      setError(err instanceof HttpError ? err.message : { key: "settings.appearance.saveFailedGeneral" });
     } finally {
       setBusyId(null);
     }
@@ -845,10 +865,8 @@ function ThemeGroup() {
 
   return (
     <SettingsSection
-      title="主题"
-      footnote={`主题跟随账号保存，所有设备同步；切换立即生效。当前设置的是${
-        phone ? "移动端" : "桌面端"
-      }的主题，两端可分别设置。`}
+      title={t("settings.appearance.theme")}
+      footnote={t("settings.appearance.themeHint", { device: phone ? "mobile" : "desktop" })}
     >
       <ThemeCards
         current={current}
@@ -874,10 +892,11 @@ function ThemeCards({
   onPick: (id: string) => void;
 }) {
   // 已装主题的目录变了（拉到服务端的整表）就重画：内置主题之外，装了的插件主题也出卡
+  const locale = useLocale();
   useSyncExternalStore(subscribeThemeCatalog, themeCatalogVersion, () => 0);
   return (
     <div className="grid grid-cols-2 gap-3 max-[420px]:grid-cols-1">
-      {availableThemes().map((theme) => {
+      {availableThemes(locale).map((theme) => {
         const active = theme.id === current;
         const busy = busyId === theme.id;
         return (
@@ -931,11 +950,12 @@ function ThemeCards({
  * 生效图同时驱动 body::before 铺底与所有液态玻璃面板的折射纹理（见 lib/backdrop.tsx）。
  */
 function BackdropGroup() {
+  const t = useTranslations();
   const { backdrop, isCustom, loading, items, activeId, uploadBackdrop, selectBackdrop, deleteBackdrop } =
     useBackdrop();
   const confirm = useConfirm();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
 
@@ -952,7 +972,7 @@ function BackdropGroup() {
     }
   };
 
-  const handleFile = (file: File) => guard(() => uploadBackdrop(file), "上传失败，请重试");
+  const handleFile = (file: File) => guard(() => uploadBackdrop(file), t("settings.appearance.uploadFailed"));
 
   const handlePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -963,18 +983,18 @@ function BackdropGroup() {
 
   /** 点选切换生效图（含切回默认）：不删任何图，无需确认。 */
   const handleSelect = (backdropId: string | null) =>
-    guard(() => selectBackdrop(backdropId), "切换失败，请重试");
+    guard(() => selectBackdrop(backdropId), t("settings.appearance.switchFailed"));
 
   /** 删除图库中的一张图：不可恢复，需二次确认；删的是生效图时后端自动回退默认。 */
   const handleDelete = async (backdropId: string) => {
     const ok = await confirm({
-      title: "删除这张背景图？",
-      description: "删除后不可恢复。",
-      confirmLabel: "删除",
+      title: t("settings.appearance.deleteBackdropTitle"),
+      description: t("settings.appearance.deleteBackdropHint"),
+      confirmLabel: t("common.delete"),
       tone: "danger",
     });
     if (!ok) return;
-    void guard(() => deleteBackdrop(backdropId), "删除失败，请重试");
+    void guard(() => deleteBackdrop(backdropId), t("settings.appearance.deleteFailed"));
   };
 
   return (
@@ -985,7 +1005,7 @@ function BackdropGroup() {
         <div
           role="button"
           tabIndex={0}
-          aria-label="点击或拖入图片更换首页背景"
+          aria-label={t("settings.appearance.changeBackdrop")}
           onClick={() => !busy && !loading && inputRef.current?.click()}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
@@ -1011,7 +1031,7 @@ function BackdropGroup() {
         >
           <img
             src={backdrop}
-            alt="当前首页背景预览"
+            alt={t("settings.appearance.currentPreview")}
             loading="lazy"
             decoding="async"
             /* object-top：与真实背景（globals.css 的 body::before）同一锚点。
@@ -1023,23 +1043,23 @@ function BackdropGroup() {
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/65 to-transparent" />
           <div className="pointer-events-none absolute bottom-4 left-5 text-white">
             <p className="text-on-image text-body font-semibold">
-              {isCustom ? "自定义背景" : "默认背景 · 深色调"}
+              {isCustom ? t("settings.appearance.customBackdrop") : t("settings.appearance.defaultBackdropTone")}
             </p>
             <p className="text-on-image mt-0.5 text-caption text-white/75">
-              点击或拖入图片即可更换
+              {t("settings.appearance.dropHint")}
             </p>
           </div>
           {/* hover：轻压暗 + 中央浮出更换按钮 */}
           <div className="touch-reveal pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition duration-300 group-hover:bg-black/25 group-hover:opacity-100">
             <span className="btn-accent rounded-full px-4.5 py-2 text-sub font-semibold">
-              更换图片
+              {t("settings.appearance.changeImage")}
             </span>
           </div>
           {/* 拖拽投放态 */}
           {dragging && (
             <div className="absolute inset-2 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-[var(--accent)] bg-black/50 backdrop-blur-sm">
               <p className="text-body font-semibold text-[var(--accent-strong)]">
-                松开，设为首页背景
+                {t("settings.appearance.dropToApply")}
               </p>
             </div>
           )}
@@ -1047,7 +1067,7 @@ function BackdropGroup() {
           {(busy || loading) && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 backdrop-blur-sm">
               <p className="text-body font-medium text-white/90">
-                {busy ? "正在应用…" : "加载中…"}
+                {busy ? t("settings.appearance.applying") : t("common.loading")}
               </p>
             </div>
           )}
@@ -1059,7 +1079,7 @@ function BackdropGroup() {
         <div className="scroll-none -mx-1.5 -mt-1.5 flex items-start gap-3.5 overflow-x-auto px-1.5 pt-1.5 pb-1">
           <BackdropTile
             src={BACKDROP}
-            label="默认"
+            label={t("settings.appearance.defaultBackdrop")}
             active={!isCustom}
             disabled={busy || loading}
             onSelect={() => void handleSelect(null)}
@@ -1068,7 +1088,7 @@ function BackdropGroup() {
             <BackdropTile
               key={item.id}
               src={item.url}
-              label={`自定义 ${i + 1}`}
+              label={t("settings.appearance.customBackdropNumber", { number: i + 1 })}
               active={item.id === activeId}
               disabled={busy}
               onSelect={() => void handleSelect(item.id)}
@@ -1085,7 +1105,7 @@ function BackdropGroup() {
               <PlusIcon className="size-5 text-[var(--text-muted)] transition-colors group-hover/tile:text-[var(--text)]" />
             </span>
             <span className="text-on-image mt-1.5 block text-center text-caption text-[var(--text-muted)]">
-              上传
+              {t("common.upload")}
             </span>
           </button>
         </div>
@@ -1095,7 +1115,7 @@ function BackdropGroup() {
         {error && <ErrorBanner>{error}</ErrorBanner>}
       </div>
       <p className="mt-2 px-1 text-caption leading-5 text-[var(--text-faint)]">
-        建议使用 16:9、分辨率较高的横图。上传的图全部保留在服务端图库（最多 20 张），点选即切换、hover 缩略图可删除；玻璃面板的折射随生效图一并更新，跨设备访问同一实例保持一致。
+        {t("settings.appearance.backdropHint")}
       </p>
     </div>
   );
@@ -1117,12 +1137,13 @@ function BackdropGroup() {
  * 「保存」才落库，离开本分区时未保存的草稿自动撤销；「恢复默认」一键回默认并保存。
  */
 function InterfaceTextureGroup() {
+  const t = useTranslations();
   const { savedPrefs, savePrefs, setPreview, loading } = useUiPrefs();
   // 草稿覆盖本组管理的两个分组（侧栏玻璃 + 蒙版），其余分组保持 savedPrefs 原样
   const saved = { sidebar: savedPrefs.sidebar, scrim: savedPrefs.scrim };
   const [draft, setDraft] = useState(saved);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
 
   // 已保存值变化（首次拉取完成 / 保存成功）时，把草稿对齐到最新落库值
   useEffect(() => setDraft(saved), [saved.sidebar, saved.scrim]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1146,7 +1167,7 @@ function InterfaceTextureGroup() {
     try {
       await savePrefs({ ...savedPrefs, ...next });
     } catch (err) {
-      setError(err instanceof HttpError ? err.message : "保存失败，请稍后重试");
+      setError(err instanceof HttpError ? err.message : { key: "settings.appearance.saveFailedGeneral" });
     } finally {
       setBusy(false);
     }
@@ -1174,28 +1195,28 @@ function InterfaceTextureGroup() {
     <div className="overflow-hidden rounded-xl">
       <SettingsList>
         <SliderRow
-          label="侧栏透明度"
-          hint="玻璃材质的整体浓度：0% 为标准玻璃卡片，100% 玻璃完全隐去、直接透出页面背景"
-          minLabel="标准"
-          maxLabel="全透"
+          label={t("settings.appearance.sidebarTransparency")}
+          hint={t("settings.appearance.sidebarTransparencyHint")}
+          minLabel={t("settings.appearance.standard")}
+          maxLabel={t("settings.appearance.transparent")}
           value={Math.round(draft.sidebar.transparency * 100)}
           disabled={loading || busy}
           onChange={(v) => update({ sidebar: { transparency: v / 100 } })}
         />
         <SliderRow
-          label="侧栏明暗"
-          hint="玻璃底色的亮度：向左更暗、向右更亮"
-          minLabel="暗"
-          maxLabel="亮"
+          label={t("settings.appearance.sidebarBrightness")}
+          hint={t("settings.appearance.sidebarBrightnessHint")}
+          minLabel={t("settings.appearance.dark")}
+          maxLabel={t("settings.appearance.bright")}
           value={Math.round(((draft.sidebar.brightness + 1) / 2) * 100)}
           disabled={loading || busy}
           onChange={(v) => update({ sidebar: { brightness: (v / 100) * 2 - 1 } })}
         />
         <SliderRow
-          label="侧栏厚度"
-          hint="玻璃的边缘曲率带宽度：越大越像厚玻璃、边缘折射带越宽"
-          minLabel="薄"
-          maxLabel="厚"
+          label={t("settings.appearance.sidebarDepth")}
+          hint={t("settings.appearance.sidebarDepthHint")}
+          minLabel={t("settings.appearance.thin")}
+          maxLabel={t("settings.appearance.thick")}
           min={10}
           max={90}
           unit=""
@@ -1204,10 +1225,10 @@ function InterfaceTextureGroup() {
           onChange={(v) => update({ sidebar: { depth: v } })}
         />
         <SliderRow
-          label="蒙版模糊度"
-          hint="全站背景蒙版的模糊程度：0 背景清晰透出，越大背景越朦胧"
-          minLabel="清晰"
-          maxLabel="朦胧"
+          label={t("settings.appearance.scrimBlur")}
+          hint={t("settings.appearance.scrimBlurHint")}
+          minLabel={t("settings.appearance.sharp")}
+          maxLabel={t("settings.appearance.blurred")}
           min={0}
           max={40}
           unit=""
@@ -1216,17 +1237,17 @@ function InterfaceTextureGroup() {
           onChange={(v) => update({ scrim: { blur: v } })}
         />
         <SliderRow
-          label="蒙版暗度"
-          hint="蒙版把背景压暗的程度：0% 完全不压暗，100% 全黑"
-          minLabel="透亮"
-          maxLabel="全黑"
+          label={t("settings.appearance.scrimDarkness")}
+          hint={t("settings.appearance.scrimDarknessHint")}
+          minLabel={t("settings.appearance.clear")}
+          maxLabel={t("settings.appearance.black")}
           value={Math.round(draft.scrim.dark * 100)}
           disabled={loading || busy}
           onChange={(v) => update({ scrim: { dark: v / 100 } })}
         />
 
         <DraftFooter
-          hint={dirty ? "调节实时预览中，保存后对所有设备生效" : "设置已保存，跨设备一致"}
+          hint={dirty ? t("settings.appearance.previewHint") : t("settings.appearance.savedHint")}
           error={error}
           busy={busy}
           resetDisabled={loading || busy || isDefault}
@@ -1256,6 +1277,7 @@ function InterfaceTextureGroup() {
  * 窄屏侧栏是抽屉，长按拖拽要和纵向滚动、抽屉滑动关闭抢同一串触摸事件。
  */
 function NavOrderGroup() {
+  const t = useTranslations();
   const { savedPrefs, savePrefs, setPreview, loading } = useUiPrefs();
   const items = useVisibleNavItems();
   // 还装着的插件网页项（含没加到侧边栏的）：保存时据此清掉已卸载插件留下的 id
@@ -1268,7 +1290,7 @@ function NavOrderGroup() {
     [apps],
   );
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   // 拖拽中的行下标；null = 没在拖
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -1336,7 +1358,7 @@ function NavOrderGroup() {
         },
       });
     } catch (err) {
-      setError(err instanceof HttpError ? err.message : "保存失败，请稍后重试");
+      setError(err instanceof HttpError ? err.message : { key: "settings.appearance.saveFailedGeneral" });
     } finally {
       setBusy(false);
     }
@@ -1351,7 +1373,7 @@ function NavOrderGroup() {
     setBusy(true);
     setError(null);
     savePrefs({ ...savedPrefs, nav: { order: [], hidden: null } })
-      .catch((err) => setError(err instanceof HttpError ? err.message : "保存失败，请稍后重试"))
+      .catch((err) => setError(err instanceof HttpError ? err.message : { key: "settings.appearance.saveFailedGeneral" }))
       .finally(() => setBusy(false));
   };
 
@@ -1364,7 +1386,7 @@ function NavOrderGroup() {
     // 页签名就是标题：页签下直接是说明 + 行组，不再套同名小节
     <div>
       <p className="mb-3 px-1 text-sub leading-5 text-[var(--text-muted)]">
-        调整左侧栏主导航的排列次序：拖动条目，或用右侧的上下按钮。插件页面可以移出侧边栏，移出后仍能从插件详情打开。待处理与更新入口有事才出现，位置固定，不参与排序。
+        {t("settings.appearance.navHint")}
       </p>
       <div className="overflow-hidden rounded-xl">
         <SettingsList>
@@ -1402,7 +1424,7 @@ function NavOrderGroup() {
                     }`}
                   >
                     {item.label}
-                    {hidden && <span className="ml-2 text-caption font-normal">已移出</span>}
+                    {hidden && <span className="ml-2 text-caption font-normal">{t("settings.appearance.removed")}</span>}
                   </span>
                   {removable && (
                     <button
@@ -1411,7 +1433,7 @@ function NavOrderGroup() {
                       onClick={() => toggleHidden(item.id)}
                       className="shrink-0 rounded-md px-2 py-1 text-caption text-[var(--text-muted)] transition hover:bg-[var(--glass-fill-hover)] hover:text-[var(--text)] disabled:opacity-25"
                     >
-                      {hidden ? "放回侧边栏" : "移出"}
+                      {hidden ? t("settings.appearance.restoreNav") : t("common.remove")}
                     </button>
                   )}
                   <span className="tnum shrink-0 text-caption text-[var(--text-faint)]">
@@ -1419,13 +1441,13 @@ function NavOrderGroup() {
                   </span>
                   <div className="flex shrink-0 items-center gap-1">
                     <MoveButton
-                      label={`把「${item.label}」上移`}
+                      label={t("settings.appearance.moveUp", { item: item.label })}
                       disabled={disabled || index === 0}
                       up
                       onClick={() => move(index, index - 1)}
                     />
                     <MoveButton
-                      label={`把「${item.label}」下移`}
+                      label={t("settings.appearance.moveDown", { item: item.label })}
                       disabled={disabled || index === rows.length - 1}
                       onClick={() => move(index, index + 1)}
                     />
@@ -1436,7 +1458,7 @@ function NavOrderGroup() {
           </ul>
 
           <DraftFooter
-            hint={dirty ? "左侧栏实时预览中，保存后对所有设备生效" : "设置已保存，跨设备一致"}
+            hint={dirty ? t("settings.appearance.navPreviewHint") : t("settings.appearance.savedHint")}
             error={error}
             busy={busy}
             resetDisabled={disabled || isDefault}
@@ -1472,6 +1494,7 @@ function DraftFooter({
   onReset: () => void;
   onSave: () => void;
 }) {
+  const t = useTranslations();
   return (
     <div className="bg-black/20 px-4 py-2.5">
       {error && <p className="pb-2 text-sub text-[var(--danger)]">{error}</p>}
@@ -1484,7 +1507,7 @@ function DraftFooter({
             disabled={resetDisabled}
             className={SETTINGS_BUTTON_CLASS}
           >
-            恢复默认
+            {t("settings.appearance.restoreDefaults")}
           </button>
           <button
             type="button"
@@ -1492,7 +1515,7 @@ function DraftFooter({
             disabled={saveDisabled}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {busy ? "保存中…" : "保存"}
+            {busy ? t("settings.appearance.saving") : t("common.save")}
           </button>
         </div>
       </div>
@@ -1607,13 +1630,14 @@ function BackdropTile({
   onSelect?: () => void;
   onDelete?: () => void;
 }) {
+  const t = useTranslations();
   const selectable = !active && !disabled;
   return (
     <div className={`group/tile w-[120px] shrink-0 ${disabled && !active ? "opacity-50" : ""}`}>
       <div
         role="button"
         tabIndex={selectable ? 0 : -1}
-        aria-label={`使用${label}背景`}
+        aria-label={t("settings.appearance.useBackdrop", { label })}
         aria-disabled={!selectable}
         onClick={selectable ? onSelect : undefined}
         onKeyDown={(e) => {
@@ -1630,7 +1654,7 @@ function BackdropTile({
       >
         <img
           src={src}
-          alt={`${label}背景缩略图`}
+          alt={t("settings.appearance.backdropThumbnail", { label })}
           loading="lazy"
           decoding="async"
           /* object-top：同大预览，与真实背景同一锚点，挑图时看到的就是铺上去的样子 */
@@ -1644,7 +1668,7 @@ function BackdropTile({
         {onDelete && !disabled && (
           <button
             type="button"
-            aria-label={`删除${label}背景图`}
+            aria-label={t("settings.appearance.deleteBackdrop", { label })}
             onClick={(e) => {
               // 阻止冒泡到瓷砖本体的「点选切换」
               e.stopPropagation();
@@ -1669,12 +1693,13 @@ function BackdropTile({
 
 /* —— 其它分区：通用骨架（含真实液态玻璃开关，展示 WebGL 控件） —— */
 function GenericSection({ sectionId }: { sectionId: string }) {
+  const t = useTranslations();
   const { backdrop } = useBackdrop();
-  const toggles = ["启用此模块", "记录审计日志"];
+  const toggles = [t("settings.placeholder.enableModule"), t("settings.placeholder.auditLog")];
 
   return (
     <div className="space-y-5">
-      <SettingsSection title="偏好">
+      <SettingsSection title={t("settings.placeholder.preferences")}>
         <div className="css-glass divide-y divide-white/[0.055] !rounded-2xl">
           {toggles.map((label, i) => (
             <div
@@ -1698,7 +1723,7 @@ function GenericSection({ sectionId }: { sectionId: string }) {
       </SettingsSection>
 
       <p className="text-sub leading-6 text-[var(--text-faint)]">
-        这是「{sectionId}」分区的占位内容。后续会接入真实配置项与后端接口。
+        {t("settings.placeholder.description", { section: sectionId })}
       </p>
     </div>
   );

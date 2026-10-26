@@ -20,6 +20,12 @@ import SwiftUI
 /// 不让这一条放不出来。服务端流里没有内封字幕轨：图形字幕由服务端压进画面，文字字幕暂不显示。
 @MainActor
 final class ReelPlayer {
+    /// 转码路数满：新服务端按错误键判断；旧服务端没有键，只能认它的中文原文
+    nonisolated static func isTranscodeLimit(_ error: APIError) -> Bool {
+        if let key = error.messageKey { return key == "errors.playback.transcodeLimit" }
+        return error.localizedDescription.contains("转码会话已满") // i18n-ignore: legacy server message
+    }
+
     enum State: Equatable {
         /// loading = 还没出第一帧；buffering = 出过画面后缓冲见底在等数据（转圈 + 实时加载速度）
         case loading, buffering, playing, paused, ended
@@ -163,7 +169,7 @@ final class ReelPlayer {
     /// 普通文件与光盘镜像给取流地址；原盘目录先取目录清单，引擎按服务端选的主播放列表逐个剪辑取字节
     private func loadOriginal(api: APIClient, autoplay: Bool, from: Double?) {
         guard let raw = item.play.streamUrl, let url = api.server.resolve(raw) else {
-            state = .failed("这一条缺少取流地址")
+            state = .failed(String(localized: .reelsMissingStream))
             return
         }
         transcoding = false
@@ -180,7 +186,7 @@ final class ReelPlayer {
                     self.load(disc, autoplay: autoplay, from: from)
                 } catch {
                     guard !self.destroyed, !Task.isCancelled else { return }
-                    self.state = .failed("原盘目录清单读取失败：\(error.localizedDescription)")
+                    self.state = .failed(String(localized: .reelsDiscListFailed(error.localizedDescription)))
                 }
             }
         default:
@@ -191,7 +197,7 @@ final class ReelPlayer {
     /// 预切片段：时间原点是片段起点（引擎时间 + 起点 = 原片时间，进度、终点、事件、「接着看」都照原片算）
     private func loadClip(api: APIClient, autoplay: Bool, from: Double?) {
         guard let raw = item.play.clipUrl, let url = api.server.resolve(raw) else {
-            state = .failed("这一条缺少片段地址")
+            state = .failed(String(localized: .reelsMissingClip))
             return
         }
         transcoding = false
@@ -215,7 +221,7 @@ final class ReelPlayer {
     /// 主播放列表由服务端选（诱饵判定与挑点同一口径），片段的时间轴才对得上
     private func discFolder(api: APIClient, listing: URL) async throws -> AetherPlayback.Source {
         guard let token = PlaybackAPI.token(in: listing.absoluteString) else {
-            throw APIError.decoding("取流地址缺少令牌")
+            throw APIError.decoding(String(localized: .reelsMissingToken))
         }
         // 走播放专用的连接池，不排在页面请求后面（同转码会话）
         let client = APIClient(server: api.server, token: api.token, session: APIClient.playbackSession)
@@ -255,15 +261,15 @@ final class ReelPlayer {
             let session: API.PlaybackSessionView
             do {
                 session = try await scope.startSession(body).0
-            } catch let error as APIError where error.status == 503 && error.localizedDescription.contains("转码会话已满") {
+            } catch let error as APIError where error.status == 503 && Self.isTranscodeLimit(error) {
                 // 服务端同时转码的路数满了（别人也在转码，或正片播放器占着）：服务端原文带着「请停止其它播放」，
                 // 在片段里读着奇怪，换成一句说明
                 guard !destroyed else { return }
-                fallBackToOriginal(api: api, autoplay: autoplay, from: from, reason: "服务器同时转码的路数满了")
+                fallBackToOriginal(api: api, autoplay: autoplay, from: from, reason: String(localized: .reelsTranscodeFull))
                 return
             } catch {
                 guard !destroyed else { return }
-                fallBackToOriginal(api: api, autoplay: autoplay, from: from, reason: "转码没开起来（\(error.localizedDescription)）")
+                fallBackToOriginal(api: api, autoplay: autoplay, from: from, reason: String(localized: .reelsTranscodeStartFailed(error.localizedDescription)))
                 return
             }
             guard !destroyed else {
@@ -278,7 +284,7 @@ final class ReelPlayer {
             }
             if decision.outcome == "consent" || decision.outcome == "rejected" {
                 fallBackToOriginal(api: api, autoplay: autoplay, from: from,
-                                   reason: decision.outcome == "consent" ? "服务端没开启软件转码" : "服务端没法转这一条")
+                                   reason: decision.outcome == "consent" ? String(localized: .reelsSoftwareTranscodeOff) : String(localized: .reelsCannotTranscode))
                 return
             }
             // 源本来就不超所选档（视频直通）：不必转码，释放会话、直出原文件
@@ -288,7 +294,7 @@ final class ReelPlayer {
                 return
             }
             guard let url = scope.streamURL(session.streamUrl) else {
-                fallBackToOriginal(api: api, autoplay: autoplay, from: from, reason: "服务端没有给出转码地址")
+                fallBackToOriginal(api: api, autoplay: autoplay, from: from, reason: String(localized: .reelsNoTranscodeUrl))
                 return
             }
             self.scope = scope
@@ -307,7 +313,7 @@ final class ReelPlayer {
     }
 
     private func fallBackToOriginal(api: APIClient, autoplay: Bool, from: Double?, reason: String) {
-        onNotice?("\(reason)，这一条先放原画")
+        onNotice?(String(localized: .reelsFallbackOriginal(reason)))
         loadOriginal(api: api, autoplay: autoplay, from: from)
     }
 

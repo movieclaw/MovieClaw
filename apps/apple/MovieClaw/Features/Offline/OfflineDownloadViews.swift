@@ -28,7 +28,7 @@ struct OfflineDownloadControl: View {
     private struct PickTarget: Identifiable { let id: Int }
 
     private var title: String {
-        detail.kind == "tv" ? "\(detail.title) 第 \(season) 季第 \(episode) 集" : detail.title
+        detail.kind == "tv" ? String(localized: .offlineTitleSeasonEpisode(detail.title, season, episode)) : detail.title
     }
 
     @ViewBuilder
@@ -39,20 +39,20 @@ struct OfflineDownloadControl: View {
             switch unit.state {
             case .done:
                 if !reachability.isOffline, permissions.canDownloadVideo, files.contains(where: { $0.id == unit.fileId }) {
-                    Button("改下其他画质", systemImage: "arrow.triangle.2.circlepath") { picking = unit.fileId }
+                    Button(String(localized: .offlineChangeQuality), systemImage: "arrow.triangle.2.circlepath") { picking = unit.fileId }
                 }
             case .preparing, .queued, .downloading:
                 if unit.state != .preparing {
-                    Button("暂停", systemImage: "pause") { downloader.pause(fileId: unit.fileId) }
+                    Button(String(localized: .playerControlsPause), systemImage: "pause") { downloader.pause(fileId: unit.fileId) }
                 }
             case .paused:
-                Button("继续下载", systemImage: "play") { downloader.resume(fileId: unit.fileId) }
+                Button(String(localized: .offlineResumeDownload), systemImage: "play") { downloader.resume(fileId: unit.fileId) }
             case .failed:
                 if !unit.waitingForTranscode {
-                    Button("重试", systemImage: "arrow.clockwise") { downloader.resume(fileId: unit.fileId) }
+                    Button(String(localized: .commonRetry), systemImage: "arrow.clockwise") { downloader.resume(fileId: unit.fileId) }
                 }
             }
-            Button(unit.state == .done ? "删除下载" : "取消下载", systemImage: "trash", role: .destructive) { confirmDelete = true }
+            Button(unit.state == .done ? String(localized: .offlineDeleteDownload) : String(localized: .offlineCancelDownload), systemImage: "trash", role: .destructive) { confirmDelete = true }
         } label: {
             OfflineDownloadStatusBar(unit: unit)
                 .frame(maxWidth: .infinity)
@@ -61,12 +61,12 @@ struct OfflineDownloadControl: View {
         .controlSize(.regular)
         .accessibilityIdentifier("item-download")
         .accessibilityValue("\(unit.state.rawValue)|\(unit.profile)")
-        .confirmationDialog(unit.state == .done ? "删除这份下载？" : "取消下载？", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button(unit.state == .done ? "删除下载（\(Formatters.bytes(Int(unit.receivedBytes)))）" : "取消下载", role: .destructive) {
+        .confirmationDialog(unit.state == .done ? String(localized: .offlineDeleteThisTitle) : String(localized: .offlineCancelTitle), isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button(unit.state == .done ? String(localized: .offlineDeleteWithSize(Formatters.bytes(Int(unit.receivedBytes)))) : String(localized: .offlineCancelDownload), role: .destructive) {
                 downloader.delete(fileId: unit.fileId)
             }
         } message: {
-            Text("只删 \(ClientPlatform.deviceName) 上的副本，观看进度会保留。")
+            Text(String(localized: .offlineDeleteCopyHint(ClientPlatform.deviceName)))
         }
         .sheet(item: Binding(mcGet: { picking.map(PickTarget.init) }, set: { picking = $0?.id })) { target in
             OfflineProfileSheet(fileId: target.id, title: title)
@@ -86,7 +86,7 @@ struct OfflineDownloadStatusBar: View {
         let tint = warning ? Theme.warning : Theme.info
         let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
         let text = unit.state == .failed && !unit.waitingForTranscode
-            ? "\(OfflineDownloadStrip.status(unit))，点按重试" : OfflineDownloadStrip.status(unit)
+            ? String(localized: .offlineTapToRetry(OfflineDownloadStrip.status(unit))) : OfflineDownloadStrip.status(unit)
         HStack(spacing: 10) {
             icon(tint)
             Text(text).lineLimit(1)
@@ -172,15 +172,17 @@ struct OfflineDownloadChoices {
     static func make(
         episodes: [Episode], selected: (season: Int, episode: Int)?, selectedFile: Int?, multiSeason: Bool, nextCount: Int = 5
     ) -> OfflineDownloadChoices {
-        func name(_ season: Int, _ episode: Int) -> String { multiSeason ? "第 \(season) 季第 \(episode) 集" : "第 \(episode) 集" }
+        func name(_ season: Int, _ episode: Int) -> String { multiSeason ? String(localized: .offlineSeasonEpisode(season, episode)) : String(localized: .mediaEpisodeNumber(episode)) }
         /// 范围下方的说明：哪几集、共几集
         func describe(_ list: [Episode]) -> String {
             guard let first = list.first, let last = list.last else { return "" }
             if list.count == 1 { return name(first.season, first.episode) }
             if first.season == last.season, last.episode - first.episode + 1 == list.count {
-                return "\(multiSeason ? "第 \(first.season) 季" : "")第 \(first.episode)～\(last.episode) 集，共 \(list.count) 集"
+                return multiSeason
+                    ? String(localized: .offlineSeasonEpisodeRange(first.season, first.episode, last.episode, list.count))
+                    : String(localized: .offlineEpisodeRange(first.episode, last.episode, list.count))
             }
-            return "\(name(first.season, first.episode)) 起，共 \(list.count) 集"
+            return String(localized: .offlineFromEpisode(name(first.season, first.episode), list.count))
         }
         let candidates = episodes.filter { $0.file != nil && $0.local == nil }
         let done = episodes.filter { $0.local == .done }.count, active = episodes.filter { $0.local == .active }.count
@@ -189,10 +191,11 @@ struct OfflineDownloadChoices {
         if let selected, let index = episodes.firstIndex(where: { $0.season == selected.season && $0.episode == selected.episode }) {
             let current = episodes[index]
             if let local = current.local {
-                notes.append("\(name(current.season, current.episode))\(local == .done ? "已下载" : "正在下载")")
+                notes.append(local == .done ? String(localized: .offlineEpisodeDownloaded(name(current.season, current.episode)))
+                    : String(localized: .offlineEpisodeDownloading(name(current.season, current.episode))))
                 let next = Array(episodes[(index + 1)...].filter { $0.file != nil && $0.local == nil }.prefix(nextCount))
                 if !next.isEmpty, next.count < candidates.count {  // 正好是剩下的全部：只留「剩余」
-                    scopes.append(.init(id: "next", label: "接下来 \(next.count) 集", fileIds: next.compactMap(\.file), detail: describe(next)))
+                    scopes.append(.init(id: "next", label: String(localized: .offlineNextEpisodes(next.count)), fileIds: next.compactMap(\.file), detail: describe(next)))
                 }
             } else if let file = selectedFile ?? current.file {
                 scopes.append(.init(id: "selected", label: name(current.season, current.episode), fileIds: [file],
@@ -200,16 +203,17 @@ struct OfflineDownloadChoices {
             }
         }
         if done + active > 0 {
-            let parts = [done > 0 ? "已下载 \(done) 集" : nil, active > 0 ? "正在下载 \(active) 集" : nil].compactMap { $0 }
-            notes.append(parts.joined(separator: "、") + "，不会重复下载")
+            let parts = [done > 0 ? String(localized: .offlineDownloadedCount(done)) : nil,
+                         active > 0 ? String(localized: .offlineDownloadingCount(active)) : nil].compactMap { $0 }
+            notes.append(String(localized: .offlineNoRedownload(AppFormatting.list(parts))))
         }
         let unwatched = candidates.filter { !$0.played }
         if !unwatched.isEmpty, unwatched.count < candidates.count {
-            scopes.append(.init(id: "unwatched", label: "未看 \(unwatched.count) 集", fileIds: unwatched.compactMap(\.file),
+            scopes.append(.init(id: "unwatched", label: String(localized: .offlineUnwatchedEpisodes(unwatched.count)), fileIds: unwatched.compactMap(\.file),
                                 detail: describe(unwatched), preferred: true))
         }
         if !candidates.isEmpty {
-            let label = done + active == 0 ? "全部 \(candidates.count) 集" : "剩余 \(candidates.count) 集"
+            let label = done + active == 0 ? String(localized: .libraryItemAllEpisodeCount(candidates.count)) : String(localized: .offlineRemainingEpisodes(candidates.count))
             scopes.append(.init(id: "all", label: label, fileIds: candidates.compactMap(\.file), detail: describe(candidates)))
         }
         // 内容相同的只留前一个（比如只剩选中的这一集）
@@ -279,24 +283,24 @@ struct OfflineProfileSheet: View {
         NavigationStack {
             Group {
                 if let scopes, scopes.isEmpty {
-                    ContentUnavailableView("都已下载", systemImage: "checkmark.circle", description: Text("这部剧能下的集都已在 \(ClientPlatform.deviceName) 上"))
+                    ContentUnavailableView(String(localized: .offlineAllDownloaded), systemImage: "checkmark.circle", description: Text(String(localized: .offlineAllEpisodesHere(ClientPlatform.deviceName))))
                 } else if let scopes {
                     content(scopes)
                 } else if let error {
-                    ContentUnavailableView("拿不到下载信息", systemImage: "exclamationmark.triangle", description: Text(error))
+                    ContentUnavailableView(String(localized: .offlineNoDownloadInfo), systemImage: "exclamationmark.triangle", description: Text(error))
                 } else {
-                    ProgressView("正在读取可下载的集").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProgressView(String(localized: .offlineLoadingEpisodes)).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .navigationTitle("下载到 \(ClientPlatform.deviceName)")
+            .navigationTitle(String(localized: .offlineDownloadToDevice(ClientPlatform.deviceName)))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(String(localized: .commonCancel)) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     if starting {
                         ProgressView()
                     } else {
-                        Button("下载") { Task { await start() } }
+                        Button(String(localized: .searchDownloadIdle)) { Task { await start() } }
                             .fontWeight(.semibold)
                             .disabled(!canStart)
                             .accessibilityIdentifier("offline-profile-confirm")
@@ -343,9 +347,9 @@ struct OfflineProfileSheet: View {
                 .padding(.vertical, 2)
             }
             if ranged, let scope {
-                Section("下载范围") {
+                Section(String(localized: .offlineScope)) {
                     if scopes.count > 1 {
-                        Picker("下载范围", selection: Binding(mcGet: { scopeId ?? "" }, set: { scopeId = $0; startError = nil })) {
+                        Picker(String(localized: .offlineScope), selection: Binding(mcGet: { scopeId ?? "" }, set: { scopeId = $0; startError = nil })) {
                             ForEach(scopes) { Text($0.label).tag($0.id) }
                         }
                         .pickerStyle(.segmented)
@@ -354,7 +358,7 @@ struct OfflineProfileSheet: View {
                         Text(scope.label).accessibilityIdentifier("offline-scope-only")
                     }
                     if let detail = scope.detail {
-                        let skipped = ready && missing > 0 ? "（其中 \(missing) 集取不到下载信息，会跳过）" : ""
+                        let skipped = ready && missing > 0 ? String(localized: .offlineMissingInfoSkipped(missing)) : ""
                         Text(detail + skipped).font(.footnote).foregroundStyle(Theme.textMuted).monospacedDigit()
                             .accessibilityIdentifier("offline-scope-detail")
                     }
@@ -363,10 +367,10 @@ struct OfflineProfileSheet: View {
             if ready, let first = current.first {
                 profiles(first, current, free: free)
             } else if ready {
-                Section { Text(error ?? "拿不到下载信息").foregroundStyle(Theme.warning) }
+                Section { Text(error ?? String(localized: .offlineNoDownloadInfo)).foregroundStyle(Theme.warning) }
             } else {
                 Section {
-                    ProgressView(batch ? "正在计算 \(fileIds.count) 集的大小" : "正在读取可下载的画质")
+                    ProgressView(batch ? String(localized: .offlineCalculatingSizes(fileIds.count)) : String(localized: .offlineLoadingQualities))
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -388,12 +392,12 @@ struct OfflineProfileSheet: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(profile.label).foregroundStyle(Theme.text)
-                                Text(profile.profile == "original" ? "原文件，画质最好" : "服务器转码后下载，边转边下")
+                                Text(profile.profile == "original" ? String(localized: .offlineOriginalHint) : String(localized: .offlineTranscodeHint))
                                     .font(.caption).foregroundStyle(Theme.textMuted)
                             }
                             Spacer()
                             // 原画是文件实际大小，写准数；转码档是预计，前面带 ≈
-                            Text("\(batch ? "共 " : "")\(Self.isEstimate(profile.profile, files) ? "≈ " : "")\(Formatters.bytes(Int(total)))")
+                            Text((batch ? String(localized: .offlineTotalPrefix) : "") + (Self.isEstimate(profile.profile, files) ? "≈ " : "") + Formatters.bytes(Int(total)))
                                 .monospacedDigit().foregroundStyle(Theme.textMuted)
                             Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(Theme.info)
                                 .opacity(profile.profile == selected(first) ? 1 : 0)
@@ -405,14 +409,14 @@ struct OfflineProfileSheet: View {
                     .accessibilityIdentifier("offline-profile-\(profile.profile)")
                 }
             } header: {
-                Text("画质")
+                Text(String(localized: .libraryFiltersQuality))
             } footer: {
                 if let free, needed(first, files) > free {
-                    Text("空间不够：需要 \(Self.isEstimate(selected(first), files) ? "≈ " : "")\(Formatters.bytes(Int(needed(first, files))))（含预留 2 GB），\(ClientPlatform.deviceName) 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
+                    Text(String(localized: .offlineNotEnoughSpace((Self.isEstimate(selected(first), files) ? "≈ " : "") + Formatters.bytes(Int(needed(first, files))), ClientPlatform.deviceName, Formatters.bytes(Int(free)))))
                         .foregroundStyle(Theme.danger)
                 } else {
-                    let network = OfflineSettings.allowCellular ? "会使用蜂窝网络下载" : "只在 Wi-Fi 下下载，可在「我的 → 下载」里改"
-                    Text(free.map { "\(ClientPlatform.deviceName) 剩余 \(Formatters.bytes(Int($0))) · \(network)" } ?? network)
+                    let network = OfflineSettings.allowCellular ? String(localized: .offlineUsesCellular) : String(localized: .offlineWifiOnly)
+                    Text(free.map { String(localized: .offlineFreeSpaceNetwork(ClientPlatform.deviceName, Formatters.bytes(Int($0)), network)) } ?? network)
                 }
             }
         }
@@ -511,7 +515,7 @@ struct OfflineProfileSheet: View {
         let profile = selected(first)
         let files = current.filter { $0.unavailableReason == nil }
         guard let lead = files.first else {
-            startError = first.unavailableReason ?? "没能开始下载"
+            startError = first.unavailableReason ?? String(localized: .offlineCouldNotStart)
             return
         }
         starting = true
@@ -528,7 +532,7 @@ struct OfflineProfileSheet: View {
             return
         }
         guard let leadProfile = manifest.profiles.first(where: { $0.profile == profile }) ?? manifest.profiles.first else {
-            startError = manifest.unavailableReason ?? "没能开始下载"
+            startError = manifest.unavailableReason ?? String(localized: .offlineCouldNotStart)
             return
         }
         do {
@@ -557,7 +561,7 @@ struct OfflineProfileSheet: View {
             }
         }
         let skipped = failures.count + missing + (current.count - files.count)
-        feedback.success(skipped > 0 ? "已开始下载 \(started) 集，\(skipped) 集没能开始" : "已开始下载 \(started) 集")
+        feedback.success(skipped > 0 ? String(localized: .offlineStartedSkipped(started, skipped)) : String(localized: .offlineStarted(started)))
         dismiss()
     }
 }
@@ -571,9 +575,9 @@ enum OfflineDownloadCleanup {
         guard let owner = store.owner, !store.items.isEmpty else { return }
         let count = store.items.count
         let size = Formatters.bytes(Int(store.totalBytes))
-        guard await feedback.confirm("同时删除本机下载的 \(count) 部（\(size)）？",
-                                     message: "不删的话，下次登录这个账号还能接着看。",
-                                     confirmTitle: "删除下载", cancelTitle: "保留", destructive: true) else { return }
+        guard await feedback.confirm(String(localized: .offlineAlsoDeleteLocal(count, size)),
+                                     message: String(localized: .offlineKeepHint),
+                                     confirmTitle: String(localized: .offlineDeleteDownload), cancelTitle: String(localized: .offlineKeep), destructive: true) else { return }
         for item in store.items.keys { OfflineDownloader.shared.deleteItem(item) }
         OfflineOwners.remove(owner)
     }
@@ -581,9 +585,9 @@ enum OfflineDownloadCleanup {
     static func askOnLogoutEverywhere(feedback: Feedback) async {
         let owners = await Task.detached { OfflineOwners.scan() }.value
         guard !owners.isEmpty else { return }
-        guard await feedback.confirm("同时删除这台 \(ClientPlatform.deviceName) 上的全部下载？",
-                                     message: "共用设备交还前建议删除。不删的话，重新登录对应账号还能接着看。",
-                                     confirmTitle: "全部删除", cancelTitle: "保留", destructive: true) else { return }
+        guard await feedback.confirm(String(localized: .offlineAlsoDeleteAll(ClientPlatform.deviceName)),
+                                     message: String(localized: .offlineSharedDeviceHint),
+                                     confirmTitle: String(localized: .offlineDeleteAll), cancelTitle: String(localized: .offlineKeep), destructive: true) else { return }
         for item in OfflineStore.shared.items.keys { OfflineDownloader.shared.deleteItem(item) }
         for owner in owners { OfflineOwners.remove(owner) }
     }
@@ -598,11 +602,11 @@ struct OfflineDeleteMenuButton: View {
     var body: some View {
         let store = OfflineStore.shared
         if store.downloadedItemIds.contains(itemId) || !store.units(ofItem: itemId).isEmpty {
-            Button("删除下载", systemImage: "trash", role: .destructive) {
+            Button(String(localized: .offlineDeleteDownload), systemImage: "trash", role: .destructive) {
                 Task {
                     let size = Formatters.bytes(Int(store.bytes(ofItem: itemId)))
-                    guard await feedback.confirm("删除「\(title)」的下载？", message: "释放 \(size)，只删 \(ClientPlatform.deviceName) 上的副本，观看进度会保留。",
-                                                 confirmTitle: "删除下载", destructive: true) else { return }
+                    guard await feedback.confirm(String(localized: .offlineDeleteTitleDownload(title)), message: String(localized: .offlineFreeAndDeleteHint(size, ClientPlatform.deviceName)),
+                                                 confirmTitle: String(localized: .offlineDeleteDownload), destructive: true) else { return }
                     OfflineDownloader.shared.deleteItem(itemId)
                 }
             }

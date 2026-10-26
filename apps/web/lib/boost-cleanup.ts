@@ -5,35 +5,44 @@
 import dayjs from "dayjs";
 
 import type { BoostCleanupResult } from "@/lib/api/sites";
-import { formatBytes } from "@/lib/format";
+import { formatBytes } from "./format.ts";
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+import { formatDate } from "./i18n/format.ts";
 
 /** 保留期到期时刻「9月29日 14:00」 */
-export function formatCleanupDeadline(iso: string | null | undefined): string | null {
-  return iso ? dayjs(iso).format("M月D日 HH:mm") : null;
+export function formatCleanupDeadline(iso: string | null | undefined, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
+  if (!iso) return null;
+  const value = dayjs(iso);
+  // i18n-ignore: preserve the existing zh-Hans date pattern; English uses Intl below.
+  if (locale === "zh-Hans" || !value.isValid()) return value.format("M月D日 HH:mm");
+  return formatDate(value.toDate(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }, locale);
 }
 
 /** 清理结果的一句话回执 */
-export function boostCleanupSummary(result: BoostCleanupResult): string {
+export function boostCleanupSummary(result: BoostCleanupResult, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   const parts: string[] = [];
   if (result.deleted_count > 0) {
-    parts.push(`已删除 ${result.deleted_count} 个刷流种子，释放 ${formatBytes(result.deleted_bytes)}`);
+    parts.push(t("activity.boost.cleanupDeleted", { count: result.deleted_count, size: formatBytes(result.deleted_bytes) }));
   }
   if (result.scheduled_count > 0) {
-    const until = formatCleanupDeadline(result.scheduled_until);
-    parts.push(`${result.scheduled_count} 个还在保留期内，到期后自动删除${until ? `（最晚 ${until}）` : ""}`);
+    const until = formatCleanupDeadline(result.scheduled_until, locale);
+    parts.push(t("activity.boost.cleanupScheduled", { count: result.scheduled_count, hasDate: until ? "yes" : "no", until: until ?? "" }));
   }
   if (result.failed_count > 0) {
-    parts.push(`${result.failed_count} 个因下载器暂时连不上没删成，稍后自动重试`);
+    parts.push(t("activity.boost.cleanupFailed", { count: result.failed_count }));
   }
-  return parts.length > 0 ? parts.join("；") : "没有需要清理的刷流种子";
+  return parts.length > 0 ? parts.join(locale === "zh-Hans" ? "；" : "; ") : t("activity.boost.noneToClean");
 }
 
 /** 关闭刷流 / 删除站点确认框里的「同时清理」勾选项（该站还有在池种子时才出现） */
-export function boostCleanupCheckbox(count: number, bytes: number) {
+export function boostCleanupCheckbox(count: number, bytes: number, locale: AppLocale = requestLocale() ?? "zh-Hans") {
+  const t = appTranslator(locale);
   return {
-    label: `同时清理该站的 ${count} 个刷流种子（${formatBytes(bytes)}）`,
+    label: t("activity.boost.cleanupCheckbox", { count, size: formatBytes(bytes) }),
     description:
-      "连数据文件一起删除，无法恢复；还没做满站点要求做种时长的，等到期后再自动删，避免被记 H&R。不勾选则种子继续做种，之后可在「活动 → 任务 → 刷流做种」清理。",
+      t("activity.boost.cleanupCheckboxHint"),
     defaultChecked: false,
   };
 }

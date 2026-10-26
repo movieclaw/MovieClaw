@@ -17,6 +17,8 @@ from sqlmodel import select
 
 import movieclaw_api.services.download_progress as progress_mod
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n import use_locale
+from movieclaw_api.i18n.stored import reference, stored_message
 from movieclaw_api.services.download_health import (
     landing_brake,
     landing_group_key,
@@ -314,7 +316,7 @@ async def test_stalled_events_fold_by_subscription_and_units(db):
                 info_hash=hash_,
                 units=[[1, 16]],
                 reason="no_byte_progress",
-                message="下载已连续 15 分钟没有进度",
+                message=reference("activity.subscription.noProgress"),
             )
         await record_stalled(  # 另一集：独立一条
             session,
@@ -322,7 +324,7 @@ async def test_stalled_events_fold_by_subscription_and_units(db):
             info_hash="4" * 40,
             units=[[1, 17]],
             reason="no_byte_progress",
-            message="下载已连续 15 分钟没有进度",
+            message=reference("activity.subscription.noProgress"),
         )
         rows = (
             (
@@ -339,9 +341,14 @@ async def test_stalled_events_fold_by_subscription_and_units(db):
         folded, other = rows
         assert folded.payload["occurrences"] == 3
         assert folded.payload["info_hash"] == "3" * 40  # 指向最近一次
-        assert "3 次" in folded.message
+        assert folded.message.startswith("下载已连续 15 分钟没有进度")
+        assert folded.message.endswith("（24 小时内已发生 3 次）")
         assert other.payload["occurrences"] == 1
-        assert "次" not in other.message
+        assert "次）" not in other.message
+        with use_locale("en"):
+            text = stored_message(folded.message, folded.message_key, folded.message_params)
+        assert text.startswith("No download progress for 15 minutes.")
+        assert text.endswith("(3 times in the last 24 hours)")
 
 
 @pytest.mark.asyncio

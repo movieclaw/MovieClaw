@@ -173,6 +173,19 @@ class Subscription(TimestampMixin, table=True):
         description="集数证据（站点集号/豆瓣集数/已忽略值），只用于提示",
     )
 
+    # -- 订阅窗口（docs/design/subscription-episode-cap.md）-------------------
+    # 一季上千集时用户只想先订阅一段。窗口是 E 定义的一部分：{季号: {start, end}}，
+    # 「从第 start 集起到第 end 集」——完结季订前 N 集（end 设值），在播季订
+    # 最新一批（end 不设，之后播出的集照常进来，追新与上限不互斥）。窗口外的集
+    # 不在 E，所以被截断的季不会判「已收齐」，订阅留在订阅中等用户决定要不要
+    # 继续订阅。与 episode_floors 方向相反：下限纠正「这季其实有几集」（事实），
+    # 窗口是「我先订阅这一段」（节奏）。只存确实截断了本季的窗口。
+    episode_caps: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON(none_as_null=True), nullable=True),
+        description="每季的订阅窗口 {季号: {start, end}}；NULL=整季",
+    )
+
     # -- 归属（docs/design/member-management.md §3.5）-----------------------
     # NULL = 超管发起。成员被删除时外键 SET NULL——订阅自动转为超管发起，
     # 绝不连带删除订阅与下载任务（资源是全家的）。
@@ -316,6 +329,9 @@ class WantedItem(TimestampMixin, table=True):
     )
 
     selection_state: dict | None = Field(
+        default=None, sa_column=Column(JSON(none_as_null=True), nullable=True)
+    )
+    selection_messages: dict | None = Field(
         default=None, sa_column=Column(JSON(none_as_null=True), nullable=True)
     )
     selection_version: int = Field(default=0)
@@ -511,3 +527,8 @@ class SubscriptionDownloadAttempt(TimestampMixin, table=True):
     search_attempts: int = Field(default=0, description="成功执行但没找到替代源的次数")
     last_search_at: datetime | None = Field(default=None)
     cleanup_note: str | None = Field(default=None, description="旧任务清理或保留原因")
+    cleanup_note_ref: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="清理/保留原因的文案引用（按读者语言渲染）；NULL=旧记录，只有中文原文",
+    )

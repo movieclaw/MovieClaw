@@ -106,6 +106,18 @@
           ],
           "default": null
         },
+        "error_ref": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "member_id": {
           "type": "integer"
         },
@@ -136,6 +148,18 @@
               "type": "null"
             }
           ]
+        },
+        "title_ref": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -150,7 +174,7 @@
     },
     "result": null,
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.2"
   },
   "dl.downloader.select": {
     "doc": "选下载器：按体积 / 站点 / 类型分流（只在没有显式指定时询问；须启用且可用）",
@@ -665,7 +689,7 @@
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.1"
+    "version": "1.2"
   },
   "ingest-steps": {
     "doc": "入库流水线槽位的步骤：暂存完成后为每个步骤建一个挂在入库任务下的持久化任务",
@@ -4060,14 +4084,16 @@
         "default_interval_seconds": "int | None",
         "default_trigger_type": "TriggerType",
         "description": "str",
+        "description_key": "str | None",
         "handler": "TaskHandler",
         "key": "str",
-        "title": "str"
+        "title": "str",
+        "title_key": "str | None"
       }
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "site-classes": {
     "doc": "站点类：插件贡献 BaseSite 子类，站点 YAML 的 custom_class 按贡献 id 引用",
@@ -4173,8 +4199,26 @@
         "acceptable": {
           "type": "string"
         },
+        "acceptable_languages": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "language": {
           "type": "string"
+        },
+        "language_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "media": {
           "$ref": "#/$defs/MediaRef"
@@ -4208,7 +4252,7 @@
     },
     "result": null,
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "subscription.candidates.filter": {
     "doc": "候选淘汰：规则评估之后按插件规则再淘汰（只能淘汰不能添加，淘汰原因写进订阅动态）",
@@ -6095,6 +6139,21 @@
         "message": {
           "type": "string"
         },
+        "message_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "message_params": {
+          "additionalProperties": true,
+          "type": "object"
+        },
         "payload": {
           "additionalProperties": true,
           "type": "object"
@@ -6107,6 +6166,17 @@
         },
         "title": {
           "type": "string"
+        },
+        "title_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -6120,7 +6190,7 @@
     },
     "result": null,
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "system.alert.resolved": {
     "doc": "问题已消退",
@@ -6132,11 +6202,26 @@
         "dedupe_key": {
           "type": "string"
         },
+        "message_params": {
+          "additionalProperties": true,
+          "type": "object"
+        },
         "source": {
           "type": "string"
         },
         "title": {
           "type": "string"
+        },
+        "title_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -6148,7 +6233,7 @@
     },
     "result": null,
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "system.tip.suggested": {
     "doc": "使用建议",

@@ -18,6 +18,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    monkeypatch.setenv("TMDB_LANGUAGE", "zh-CN")
     get_settings.cache_clear()
     reset_setting_store()
     reset_secret_box()
@@ -28,7 +29,7 @@ def client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     app = create_app()
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         c.post(
             "/api/v1/auth/bootstrap",
             json={"username": "admin", "password": "s3cret-pass"},
@@ -376,6 +377,7 @@ def test_partial_update_still_validates(client: TestClient) -> None:
     assert resp.status_code == 422
     # 报错必须说人话：CLI 与 Agent 只能靠这句话自我纠正
     assert "default" in resp.json()["details"][0]["message"]
-    assert client.get("/api/v1/scrape/config").json()["data"]["setting"][
-        "naming_entry_dir"
-    ] == "{title}.{year}"
+    assert (
+        client.get("/api/v1/scrape/config").json()["data"]["setting"]["naming_entry_dir"]
+        == "{title}.{year}"
+    )

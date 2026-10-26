@@ -17,7 +17,7 @@ from movieclaw_kernel.contracts import Contract, Stability
 
 THEME_CONTRACT = Contract(
     "ui.theme",
-    version="1.1",
+    version="1.3",  # 1.3：主题设置侧栏可复用宿主的扩展点可用状态
     stability=Stability.EXPERIMENTAL,
     doc="网页主题：外框坑位、主题 SDK、CSS 契约与版式（docs/design/theme-plugins.md）",
 )

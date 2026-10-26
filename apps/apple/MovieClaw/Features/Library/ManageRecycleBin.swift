@@ -105,7 +105,7 @@ struct ManageRecycleBinTab: View {
         defer { busy = false }
         do {
             let result = try await api.libraryRecycleRestore(body: API.TrashedRestorePayload(ids: ids))
-            let text = ManageRecycleText.batchResult("恢复", result)
+            let text = ManageRecycleText.batchResult(restored: true, result)
             if result.failed.isEmpty { feedback.success(text) } else { feedback.error(text) }
             selected.subtract(ids)
             await reload()
@@ -131,17 +131,17 @@ struct ManageRecycleBinTab: View {
     private func runPurge(_ payload: API.TrashedPurgePayload, _ facts: PurgeFacts) async {
         guard facts.files > 0, !busy else { return }
         var bullets = [
-            "\(facts.files) 个文件" + (facts.items > 1 ? "，涉及 \(facts.items) 个条目" : ""),
-            "释放空间 \(libraryBytes(facts.bytes))",
+            String(localized: .libraryStatusFileCount(facts.files)) + (facts.items > 1 ? String(localized: .libraryRecycleAffectedItems(facts.items)) : ""),
+            String(localized: .libraryRecycleSpaceFreed(libraryBytes(facts.bytes))),
         ]
-        if facts.kept > 0 { bullets.append("\(facts.kept) 个仍在原位（移入回收站失败的文件，按当前路径删除）") }
-        let description = (facts.wholeFilter ? "会立即从磁盘删除当前筛选命中的全部文件，不只是本页。" : "会立即从磁盘删除。")
-            + " 删除不可撤销；若其中有文件仍在下载器里做种，删除会中断做种任务。"
+        if facts.kept > 0 { bullets.append(String(localized: .libraryRecycleKeptWarning(facts.kept))) }
+        let description = (facts.wholeFilter ? String(localized: .libraryRecyclePurgeAllDescription) : String(localized: .libraryRecyclePurgeDescription))
+            + String(localized: .libraryRecyclePurgeWarning)
         let ok = await feedback.confirm(
             facts.title,
             message: manageBinMessage(description, bullets: bullets),
-            confirmTitle: "清理 \(facts.files) 个文件",
-            cancelTitle: "先不",
+            confirmTitle: String(localized: .libraryRecyclePurgeCount(facts.files)),
+            cancelTitle: String(localized: .libraryItemNotNow),
             destructive: true
         )
         guard ok else { return }
@@ -149,7 +149,7 @@ struct ManageRecycleBinTab: View {
         defer { busy = false }
         do {
             let result = try await api.libraryRecyclePurge(body: payload)
-            let text = ManageRecycleText.batchResult("清理", result)
+            let text = ManageRecycleText.batchResult(restored: false, result)
             if result.failed.isEmpty { feedback.success(text) } else { feedback.error(text) }
             selected = []
             await reload()
@@ -176,11 +176,11 @@ struct ManageRecycleBinTab: View {
         let libraryName = filter.libraryId.flatMap { id in data.byLibrary.first { $0.libraryId == id }?.name }
         let title: String
         if let libraryName {
-            title = "清理「\(libraryName)」库的全部待回收文件？"
+            title = String(localized: .libraryRecyclePurgeLibrary(libraryName))
         } else if filterActive {
-            title = "清理当前筛选下的全部待回收文件？"
+            title = String(localized: .libraryRecyclePurgeFilteredTitle)
         } else {
-            title = "清理全部待回收文件？"
+            title = String(localized: .libraryRecyclePurgeAllTitle)
         }
         await runPurge(
             API.TrashedPurgePayload(filter: filter.apiFilter),
@@ -194,7 +194,7 @@ struct ManageRecycleBinTab: View {
     private func purgeSelected(_ items: [API.TrashedItemView]) async {
         let files = items.flatMap { $0.files.filter { selected.contains($0.id) } }
         let itemCount = items.filter { $0.files.contains { selected.contains($0.id) } }.count
-        await purgeFiles(files, title: "清理所选的 \(files.count) 个文件？", itemCount: itemCount)
+        await purgeFiles(files, title: String(localized: .libraryRecyclePurgeSelectionTitle(files.count)), itemCount: itemCount)
     }
 
     private func toggleItem(_ item: API.TrashedItemView) {
@@ -216,8 +216,8 @@ struct ManageRecycleBinTab: View {
             if data.totalFiles == 0, !filterActive {
                 EmptyState(
                     systemImage: "trash",
-                    title: "回收站是空的",
-                    message: "洗版替换下来的旧版本会先停在这里 7 天再自动删除，期间可以恢复；文件本身放在各库根目录的 .movieclaw-trash 里。"
+                    title: String(localized: .libraryRecycleEmpty),
+                    message: String(localized: .libraryRecycleEmptyDescription)
                 )
                 .padding(.top, 40)
                 .accessibilityIdentifier("recycle-empty")
@@ -226,8 +226,8 @@ struct ManageRecycleBinTab: View {
             }
         } else if failed {
             VStack(spacing: 12) {
-                Text("回收站加载失败").font(.subheadline).foregroundStyle(Theme.textMuted)
-                Button("重试") { Task { await reload() } }
+                Text(String(localized: .libraryRecycleLoadFailed)).font(.subheadline).foregroundStyle(Theme.textMuted)
+                Button(String(localized: .commonRetry)) { Task { await reload() } }
                     .buttonStyle(.glass)
                     .accessibilityIdentifier("recycle-retry")
             }
@@ -236,7 +236,7 @@ struct ManageRecycleBinTab: View {
         } else {
             HStack(spacing: 10) {
                 ProgressView()
-                Text("正在加载回收站…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .libraryRecycleLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 64)
@@ -249,7 +249,7 @@ struct ManageRecycleBinTab: View {
         let pageIndex = offset / Self.pageSize
         return VStack(alignment: .leading, spacing: 12) {
             if failed {
-                ManageBinWarningBanner(text: "与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据")
+                ManageBinWarningBanner(text: String(localized: .libraryHomeStale))
             }
 
             // 摘要行：一句话回答"多少、多大、多急"；右侧是页面唯一的页级动作
@@ -260,7 +260,7 @@ struct ManageRecycleBinTab: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("recycle-summary")
-                ManageBinButton(title: "立即清理全部 · \(data.totalFiles)", tone: .danger) {
+                ManageBinButton(title: String(localized: .libraryRecycleDeleteAll(data.totalFiles)), tone: .danger) {
                     Task { await purgeAll(data) }
                 }
                 .disabled(busy || data.totalFiles == 0)
@@ -268,10 +268,10 @@ struct ManageRecycleBinTab: View {
             }
 
             // 筛选：搜索 / 库胶囊 / 原因胶囊（分面计数，切换一组不归零另一组）
-            ManageBinSearchField(text: $queryDraft, placeholder: "按片名、剧名或文件名搜索", identifier: "recycle-search")
+            ManageBinSearchField(text: $queryDraft, placeholder: String(localized: .libraryRecycleSearchPlaceholder), identifier: "recycle-search")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ManageBinChip(title: "全部库 \(data.byLibrary.reduce(0) { $0 + $1.count })", active: filter.libraryId == nil) {
+                    ManageBinChip(title: String(localized: .libraryRecycleAllLibrariesCount(data.byLibrary.reduce(0) { $0 + $1.count })), active: filter.libraryId == nil) {
                         filter.libraryId = nil
                     }
                     .accessibilityIdentifier("recycle-library-all")
@@ -299,8 +299,8 @@ struct ManageRecycleBinTab: View {
             VStack(spacing: 0) {
                 if items.isEmpty {
                     HStack(spacing: 8) {
-                        Text("没有符合条件的待回收文件").foregroundStyle(Theme.textMuted)
-                        Button("清除筛选") {
+                        Text(String(localized: .libraryRecycleNoMatches)).foregroundStyle(Theme.textMuted)
+                        Button(String(localized: .libraryManageClearFilters)) {
                             queryDraft = ""
                             filter = ManageRecycleFilter()
                         }
@@ -338,8 +338,8 @@ struct ManageRecycleBinTab: View {
             // 页脚：范围 + 保留期说明 + 页码
             VStack(alignment: .leading, spacing: 8) {
                 Text(
-                    (items.isEmpty ? "" : "第 \(offset + 1)–\(offset + items.count) 个条目，共 \(data.totalItems) 个条目 · \(data.totalFiles) 个文件 · ")
-                        + "回收站内文件保留 7 天后自动删除"
+                    (items.isEmpty ? "" : String(localized: .libraryRecyclePageRange(offset + 1, offset + items.count, data.totalItems, data.totalFiles)))
+                        + String(localized: .libraryRecycleRetention)
                 )
                 .font(.caption)
                 .monospacedDigit()
@@ -366,30 +366,30 @@ struct ManageRecycleBinTab: View {
         let summary = ManageRecycleText.selectionSummary(items, selected)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                ManageBinCheckbox(state: pageAll ? .all : pageSome ? .some : .none, label: "全选本页") {
+                ManageBinCheckbox(state: pageAll ? .all : pageSome ? .some : .none, label: String(localized: .libraryRecycleSelectPage)) {
                     selected = pageAll ? [] : Set(items.flatMap { $0.files.map(\.id) })
                 }
                 .accessibilityIdentifier("recycle-select-all")
                 if summary.count > 0 {
-                    Text("已选 **\(summary.count)** 个文件 · \(libraryBytes(summary.bytes))")
+                    Text(LocalizedStringKey(String(localized: .libraryRecycleSelectedSummary(summary.count, libraryBytes(summary.bytes)))))
                         .font(.subheadline)
                         .monospacedDigit()
                         .foregroundStyle(Theme.text)
                         .accessibilityIdentifier("recycle-selection-summary")
                 } else {
-                    Text("全选本页").font(.caption).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .libraryRecycleSelectPage)).font(.caption).foregroundStyle(Theme.textFaint)
                 }
                 Spacer(minLength: 0)
             }
             if summary.count > 0 {
                 HStack(spacing: 6) {
-                    ManageBinButton(title: "恢复") { Task { await runRestore(Array(selected)) } }
+                    ManageBinButton(title: String(localized: .libraryIssuesRestore)) { Task { await runRestore(Array(selected)) } }
                         .disabled(busy)
                         .accessibilityIdentifier("recycle-restore")
-                    ManageBinButton(title: "清理", tone: .danger) { Task { await purgeSelected(items) } }
+                    ManageBinButton(title: String(localized: .libraryRecyclePurge), tone: .danger) { Task { await purgeSelected(items) } }
                         .disabled(busy)
                         .accessibilityIdentifier("recycle-purge")
-                    ManageBinButton(title: "取消", tone: .ghost) { selected = [] }
+                    ManageBinButton(title: String(localized: .commonCancel), tone: .ghost) { selected = [] }
                         .accessibilityIdentifier("recycle-selection-cancel")
                 }
             }
@@ -448,7 +448,7 @@ private struct ManageRecycleItemCard: View {
         let selection = ManageRecycleText.selection(item, selected)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
-                ManageBinCheckbox(state: selection, label: "选择「\(ManageRecycleText.itemTitle(item))」", action: onToggleItem)
+                ManageBinCheckbox(state: selection, label: String(localized: .libraryRecycleSelectNamed(ManageRecycleText.itemTitle(item))), action: onToggleItem)
                     .accessibilityIdentifier("recycle-select-item-\(item.key)")
                 ManageRecycleIdentity(item: item)
             }
@@ -465,7 +465,7 @@ private struct ManageRecycleItemCard: View {
                         Text(ManageRecycleText.itemFilesSummary(item))
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.text)
-                        Text(expanded ? "收起" : "展开").font(.caption).foregroundStyle(Theme.textFaint)
+                        Text(expanded ? String(localized: .commonCollapse) : String(localized: .commonExpand)).font(.caption).foregroundStyle(Theme.textFaint)
                     }
                     .expandedHitArea(vertical: 12)
                 }
@@ -478,19 +478,19 @@ private struct ManageRecycleItemCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             if single?.keptInPlace == true { ManageRecycleKeptBadge() }
             if let error = single?.lastError {
-                Text("上次清理失败：\(error)").font(.caption).foregroundStyle(Theme.danger)
+                Text(String(localized: .libraryRecycleLastPurgeFailed(error))).font(.caption).foregroundStyle(Theme.danger)
             }
             Text(ManageRecycleText.itemReasonText(item))
                 .font(.footnote)
                 .foregroundStyle(Theme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                ManageRecycleDueText(due: due, suffix: "自动清理")
+                ManageRecycleDueText(due: due, suffix: String(localized: .libraryRecycleAutomatic))
                 Spacer(minLength: 0)
-                ManageBinButton(title: "恢复" + (multi ? " \(item.fileCount)" : "")) { onRestore(item.files) }
+                ManageBinButton(title: String(localized: .libraryIssuesRestore) + (multi ? " \(item.fileCount)" : "")) { onRestore(item.files) }
                     .disabled(busy)
                     .accessibilityIdentifier("recycle-item-restore-\(item.key)")
-                ManageBinButton(title: "清理" + (multi ? " \(item.fileCount)" : ""), tone: .danger) {
+                ManageBinButton(title: String(localized: .libraryRecyclePurge) + (multi ? " \(item.fileCount)" : ""), tone: .danger) {
                     onPurge(item.files, ManageRecycleText.purgeTitle(item))
                 }
                 .disabled(busy)
@@ -516,7 +516,7 @@ private struct ManageRecycleItemCard: View {
     private func fileRow(_ file: API.TrashedFileView) -> some View {
         let code = ManageRecycleText.episodeCode(file.seasonNumber, file.episodeNumber)
         return HStack(alignment: .top, spacing: 8) {
-            ManageBinCheckbox(state: selected.contains(file.id) ? .all : .none, label: "选择「\(file.fileName)」") {
+            ManageBinCheckbox(state: selected.contains(file.id) ? .all : .none, label: String(localized: .libraryRecycleSelectNamed(file.fileName))) {
                 onToggleFile(file.id)
             }
             .padding(.top, 1)
@@ -527,13 +527,13 @@ private struct ManageRecycleItemCard: View {
                     .font(.caption)
                     .fixedSize(horizontal: false, vertical: true)
                 if let error = file.lastError {
-                    Text("上次清理失败：\(error)").font(.caption).foregroundStyle(Theme.danger)
+                    Text(String(localized: .libraryRecycleLastPurgeFailed(error))).font(.caption).foregroundStyle(Theme.danger)
                 }
                 HStack(spacing: 6) {
-                    ManageBinButton(title: "恢复", mini: true) { onRestore([file]) }
+                    ManageBinButton(title: String(localized: .libraryIssuesRestore), mini: true) { onRestore([file]) }
                         .disabled(busy)
                         .accessibilityIdentifier("recycle-file-restore-\(file.id)")
-                    ManageBinButton(title: "清理", tone: .danger, mini: true) { onPurge([file], "清理「\(file.fileName)」？") }
+                    ManageBinButton(title: String(localized: .libraryRecyclePurge), tone: .danger, mini: true) { onPurge([file], String(localized: .libraryRecyclePurgeNamed(file.fileName))) }
                         .disabled(busy)
                         .accessibilityIdentifier("recycle-file-purge-\(file.id)")
                     if file.keptInPlace { ManageRecycleKeptBadge() }
@@ -622,17 +622,17 @@ private struct ManageRecycleFileName: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("查看「\(file.fileName)」的存放路径")
+        .accessibilityLabel(String(localized: .libraryRecycleViewPath(file.fileName)))
         .accessibilityIdentifier("recycle-file-name-\(file.id)")
         .popover(isPresented: $showPath) {
             VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("原路径（恢复回这里）").foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .libraryRecycleOriginalPath)).foregroundStyle(Theme.textFaint)
                     Text(file.trashOriginalPath ?? file.filePath).font(.caption.monospaced()).foregroundStyle(Theme.text)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("现在的位置").foregroundStyle(Theme.textFaint)
-                    Text(file.keptInPlace ? "仍在原路径（移入回收站失败，清理时按这个路径删除）" : file.filePath)
+                    Text(String(localized: .libraryRecycleCurrentPath)).foregroundStyle(Theme.textFaint)
+                    Text(file.keptInPlace ? String(localized: .libraryRecycleKeptPath) : file.filePath)
                         .font(.caption.monospaced())
                         .foregroundStyle(Theme.text)
                 }
@@ -650,12 +650,12 @@ private struct ManageRecycleFileName: View {
 /// 「原地」徽标：移入回收站失败，文件仍在原路径；清理按当前路径删除
 private struct ManageRecycleKeptBadge: View {
     var body: some View {
-        Text("原地")
+        Text(String(localized: .libraryRecycleKept))
             .font(.caption2)
             .foregroundStyle(Theme.warning)
             .padding(.horizontal, 6)
             .overlay(Capsule().strokeBorder(Theme.warning.opacity(0.4)))
-            .accessibilityHint("移入回收站失败，文件仍在原路径；清理按当前路径删除")
+            .accessibilityHint(String(localized: .libraryRecycleKeptTooltip))
     }
 }
 
@@ -667,8 +667,10 @@ private struct ManageRecycleDueText: View {
 
     var body: some View {
         var text = due.text
-        if short {
+        if short, AppLanguage.identifier == "zh-Hans" {
+            // i18n-ignore: trims the Chinese countdown wording only; other languages keep the full phrase.
             if text.hasSuffix("后") { text.removeLast() }
+            // i18n-ignore: see above.
             if text.hasPrefix("最早 ") { text.removeFirst(3) }
         }
         if let suffix, due.tone != .never { text += suffix }
@@ -700,34 +702,34 @@ struct ManageRecycleQualityLine {
 enum ManageRecycleText {
     /// 单个到期时间 → 倒计时文案（直读 purge_after）
     static func countdown(_ purgeAfter: String?, now: Date = .now) -> ManageRecycleCountdown {
-        guard let purgeAfter, let date = Formatters.date(purgeAfter) else { return .init(text: "不自动清理", tone: .never) }
+        guard let purgeAfter, let date = Formatters.date(purgeAfter) else { return .init(text: String(localized: .libraryItemNoAutoPurge), tone: .never) }
         let ms = date.timeIntervalSince(now) * 1000
-        if ms <= 0 { return .init(text: "即将清理", tone: .soon) }
+        if ms <= 0 { return .init(text: String(localized: .libraryRecycleDueNow), tone: .soon) }
         let hour = 3_600_000.0, day = 24 * hour
         let days = Int(ms / day)
         let hours = Int(ms.truncatingRemainder(dividingBy: day) / hour)
         let tone: ManageRecycleCountdown.Tone = ms <= day ? .soon : .normal
-        if days > 0 { return .init(text: hours > 0 ? "\(days) 天 \(hours) 小时后" : "\(days) 天后", tone: tone) }
-        if hours > 0 { return .init(text: "\(hours) 小时后", tone: tone) }
-        return .init(text: "1 小时内", tone: tone)
+        if days > 0 { return .init(text: hours > 0 ? String(localized: .libraryRecycleDueDaysHoursShort(days, hours)) : String(localized: .libraryRecycleDueDays(days)), tone: tone) }
+        if hours > 0 { return .init(text: String(localized: .libraryRecycleDueHours(hours)), tone: tone) }
+        return .init(text: String(localized: .libraryRecycleWithinHour), tone: tone)
     }
 
     /// 条目行的倒计时：取组内最早到期；多文件时带「最早」前缀
     static func itemCountdown(_ item: API.TrashedItemView) -> ManageRecycleCountdown {
         var base = countdown(item.earliestPurgeAfter)
-        if item.fileCount > 1, base.tone != .never { base.text = "最早 \(base.text)" }
+        if item.fileCount > 1, base.tone != .never { base.text = String(localized: .libraryRecycleEarliest(base.text)) }
         return base
     }
 
     /// 摘要行：`N 个文件 · M 个条目 · 总大小 · K 个将在 24 小时内自动清理 · J 个仍在原位`
     static func summary(_ data: API.TrashedFilesData) -> AttributedString {
         var segments: [(String, Color)] = [
-            ("\(data.totalFiles) 个文件", Theme.text),
-            ("\(data.totalItems) 个条目", Theme.text),
+            (String(localized: .libraryStatusFileCount(data.totalFiles)), Theme.text),
+            (String(localized: .libraryStatusItemCount(data.totalItems)), Theme.text),
             (libraryBytes(data.totalBytes), Theme.text),
         ]
-        if data.dueWithin24h > 0 { segments.append(("\(data.dueWithin24h) 个将在 24 小时内自动清理", Theme.warning)) }
-        if data.keptInPlace > 0 { segments.append(("\(data.keptInPlace) 个仍在原位", Theme.textFaint)) }
+        if data.dueWithin24h > 0 { segments.append((String(localized: .libraryRecycleDueCount(data.dueWithin24h)), Theme.warning)) }
+        if data.keptInPlace > 0 { segments.append((String(localized: .libraryRecycleKeptCount(data.keptInPlace)), Theme.textFaint)) }
         var out = AttributedString()
         for (i, seg) in segments.enumerated() {
             if i > 0 { out += manageBinRun(" · ", Theme.textMuted) }
@@ -739,11 +741,11 @@ enum ManageRecycleText {
     /// 审计快照 reason 词表 → 胶囊 / 原因文案；未知值原样返回
     static func reasonLabel(_ reason: String) -> String {
         switch reason {
-        case "upgrade_replaced": "洗版替换"
-        case "upgrade_refuted": "洗版证伪"
-        case "manual": "手动删除"
-        case "duplicate_cleanup": "重复清理"
-        case "unknown": "其他"
+        case "upgrade_replaced": String(localized: .libraryRecycleReasonUpgraded)
+        case "upgrade_refuted": String(localized: .libraryRecycleReasonRefuted)
+        case "manual": String(localized: .libraryRecycleReasonManual)
+        case "duplicate_cleanup": String(localized: .libraryRecycleReasonDuplicate)
+        case "unknown": String(localized: .libraryKindOther)
         default: reason
         }
     }
@@ -774,7 +776,7 @@ enum ManageRecycleText {
     /// 单个文件的品质档位「分辨率 片源」，两者都没探到时写「未知规格」
     static func fileTier(_ file: API.TrashedFileView) -> String {
         let tier = [file.resolution, file.mediaSource].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
-        return tier.isEmpty ? "未知规格" : tier
+        return tier.isEmpty ? String(localized: .libraryRecycleUnknownSpec) : tier
     }
 
     /// 单个文件的品质行（电影单文件、展开的每集）
@@ -840,18 +842,18 @@ enum ManageRecycleText {
     /// 多文件条目的文件摘要：剧集 `24 集 · 3 季`，其余 `2 个版本`
     static func itemFilesSummary(_ item: API.TrashedItemView) -> String {
         if item.mediaItem?.kind == "tv" {
-            return item.seasons.isEmpty ? "\(item.fileCount) 集" : "\(item.fileCount) 集 · \(item.seasons.count) 季"
+            return item.seasons.isEmpty ? String(localized: .libraryIssuesEpisodeCount(item.fileCount)) : String(localized: .libraryItemEpisodeCount(item.fileCount)) + " · " + String(localized: .libraryItemSeasonCount(item.seasons.count))
         }
-        return "\(item.fileCount) 个版本"
+        return String(localized: .libraryItemVersionCount(item.fileCount))
     }
 
     static func itemTitle(_ item: API.TrashedItemView) -> String {
-        item.mediaItem?.title ?? item.files.first?.fileName ?? "未识别文件"
+        item.mediaItem?.title ?? item.files.first?.fileName ?? String(localized: .libraryRecycleUnrecognized)
     }
 
     static func purgeTitle(_ item: API.TrashedItemView) -> String {
         let title = itemTitle(item)
-        return item.fileCount > 1 ? "清理「\(title)」的 \(item.fileCount) 个待回收文件？" : "清理「\(title)」的待回收文件？"
+        return item.fileCount > 1 ? String(localized: .libraryRecyclePurgeItemMany(title, item.fileCount)) : String(localized: .libraryRecyclePurgeItemOne(title))
     }
 
     /// 条目复选框的三态：整组选中 / 部分选中 / 未选
@@ -874,10 +876,10 @@ enum ManageRecycleText {
     }
 
     /// 批量结果 → 一句回执：「已清理 55 个文件，2 个失败，还有 N 个未处理，再点一次即可」
-    static func batchResult(_ verb: String, _ result: API.TrashedBatchResultView) -> String {
-        var text = "已\(verb) \(result.done) 个文件"
-        if !result.failed.isEmpty { text += "，\(result.failed.count) 个失败" }
-        if result.remaining > 0 { text += "，还有 \(result.remaining) 个未处理，再点一次即可" }
+    static func batchResult(restored: Bool, _ result: API.TrashedBatchResultView) -> String {
+        var text = restored ? String(localized: .libraryRecycleBatchRestored(result.done)) : String(localized: .libraryRecycleBatchPurged(result.done))
+        if !result.failed.isEmpty { text += String(localized: .libraryRecycleBatchFailures(String(result.failed.count))) }
+        if result.remaining > 0 { text += String(localized: .libraryRecycleBatchRemaining(result.remaining)) }
         return text
     }
 }
@@ -942,7 +944,7 @@ struct ManageBinSearchField: View {
                         .contentShape(Rectangle().inset(by: -12))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("清除搜索")
+                .accessibilityLabel(String(localized: .libraryManageClearSearch))
                 .accessibilityIdentifier("\(identifier)-clear")
             }
         }
@@ -1056,7 +1058,7 @@ struct ManageBinCheckbox: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
-        .accessibilityValue(state == .all ? "已选" : state == .some ? "部分选中" : "未选")
+        .accessibilityValue(state == .all ? String(localized: .libraryRecycleAllSelected) : state == .some ? String(localized: .libraryRecyclePartlySelected) : String(localized: .libraryRecycleUnselected))
     }
 }
 
@@ -1072,7 +1074,7 @@ struct ManageBinPager: View {
     var body: some View {
         HStack(spacing: 4) {
             arrow("chevron.left", disabled: page == 0, id: "\(idPrefix)-prev") { onChange(page - 1) }
-                .accessibilityLabel("上一页")
+                .accessibilityLabel(String(localized: .libraryRecyclePrevious))
             if numbered {
                 ForEach(Array(pages.enumerated()), id: \.offset) { _, p in
                     if let p {
@@ -1100,7 +1102,7 @@ struct ManageBinPager: View {
                     .accessibilityIdentifier("\(idPrefix)-label")
             }
             arrow("chevron.right", disabled: page >= count - 1, id: "\(idPrefix)-next") { onChange(page + 1) }
-                .accessibilityLabel("下一页")
+                .accessibilityLabel(String(localized: .libraryRecycleNext))
         }
     }
 

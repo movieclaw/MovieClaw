@@ -22,6 +22,8 @@ export interface JobProgress {
   mode: "determinate" | "indeterminate" | "waiting" | "paused";
   phase: string;
   message: string;
+  message_key?: string | null;
+  message_params?: Record<string, unknown>;
   current: number | null;
   total: number | null;
   percent: number | null;

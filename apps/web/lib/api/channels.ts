@@ -1,4 +1,5 @@
 import { request } from "@/lib/http";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
 interface ApiEnvelope<T> {
@@ -111,9 +112,10 @@ export function startChannelBinding(
   );
 }
 
-export function getChannelBinding(bindingId: string): Promise<ChannelBinding> {
+export function getChannelBinding(bindingId: string, locale?: AppLocale): Promise<ChannelBinding> {
   return unwrap(
-    request<ApiEnvelope<ChannelBinding>>(`/channels/bindings/${encodeURIComponent(bindingId)}`),
+    request<ApiEnvelope<ChannelBinding>>(`/channels/bindings/${encodeURIComponent(bindingId)}`,
+      locale ? { headers: { "Accept-Language": locale } } : undefined),
   );
 }
 

@@ -25,6 +25,8 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import stored_fields
+from movieclaw_api.services.subscription.matching import units_reference
 from movieclaw_db.models import (
     ActivityType,
     MediaItem,
@@ -92,7 +94,6 @@ async def close_fulfilled_wanted(session: AsyncSession, media_item_id: int) -> i
 
     # 时间线与派生状态：逐订阅补记（对账可能一次关闭多个订阅的工单）
     from movieclaw_api.services.subscription import recompute_subscription_status
-    from movieclaw_api.services.subscription.matching import units_text
 
     item = await session.get(MediaItem, media_item_id)
     repo = SubscriptionRepository(session)
@@ -119,8 +120,10 @@ async def close_fulfilled_wanted(session: AsyncSession, media_item_id: int) -> i
                 subscription_id=subscription_id,
                 wanted_item_id=wanted_rows[0].id,
                 type=ActivityType.IMPORTED,
-                message=f"{units_text(wanted_rows)}已入库（媒体库对账确认）",
                 payload={"units": [[w.season_number, w.episode_number] for w in wanted_rows]},
+                **stored_fields(
+                    "activity.subscription.reconciledImport", units=units_reference(wanted_rows)
+                ),
             )
         )
         await recompute_subscription_status(session, subscription, item)
@@ -213,7 +216,6 @@ async def reopen_unfulfilled_wanted(
     await session.commit()
 
     from movieclaw_api.services.subscription import recompute_subscription_status
-    from movieclaw_api.services.subscription.matching import units_text
 
     item = await session.get(MediaItem, media_item_id)
     repo = SubscriptionRepository(session)
@@ -226,10 +228,10 @@ async def reopen_unfulfilled_wanted(
                 subscription_id=subscription_id,
                 wanted_item_id=wanted_rows[0].id,
                 type=ActivityType.REOPENED,
-                message=(
-                    f"{units_text(wanted_rows)}的文件已不属于本条目（身份被改正），重新开始寻找资源"
-                ),
                 payload={"units": [[w.season_number, w.episode_number] for w in wanted_rows]},
+                **stored_fields(
+                    "activity.subscription.identityCorrected", units=units_reference(wanted_rows)
+                ),
             )
         )
         await recompute_subscription_status(session, subscription, item)

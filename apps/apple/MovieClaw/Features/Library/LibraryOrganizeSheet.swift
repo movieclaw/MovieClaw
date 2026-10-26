@@ -39,12 +39,12 @@ struct LibraryOrganizeSheet: View {
     var body: some View {
         NavigationStack {
             content
-                .navigationTitle("整理文件名")
+                .navigationTitle(String(localized: .libraryActionsOrganize))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("关闭") { dismiss() }
-                            .accessibilityLabel("关闭对话框")
+                        Button(String(localized: .commonClose)) { dismiss() }
+                            .accessibilityLabel(String(localized: .libraryOrganizeCloseDialog))
                     }
                 }
         }
@@ -58,7 +58,7 @@ struct LibraryOrganizeSheet: View {
         case .loading:
             VStack(spacing: 12) {
                 ProgressView()
-                Text("正在核对台账与磁盘，生成整理预览…")
+                Text(String(localized: .libraryOrganizeLoading))
                     .font(.callout)
                     .foregroundStyle(Theme.textMuted)
             }
@@ -69,7 +69,7 @@ struct LibraryOrganizeSheet: View {
                     .font(.callout)
                     .foregroundStyle(Theme.danger)
                     .multilineTextAlignment(.center)
-                Button("关闭") { dismiss() }.buttonStyle(.glass)
+                Button(String(localized: .commonClose)) { dismiss() }.buttonStyle(.glass)
             }
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -173,16 +173,16 @@ struct LibraryOrganizeSheet: View {
                     if let name = library?.name {
                         Text(name).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.textMuted)
                     }
-                    Text("按刮削结果把存量文件改名归位为「标题 (年份)\(seasonPart)/规范文件名」，Plex / Emby 零歧义识别；字幕等附属文件同步改名。")
+                    Text(String(localized: .libraryOrganizeIntroNamed(seasonPart)))
                         .font(.subheadline)
                         .foregroundStyle(Theme.textMuted)
                     // 统计条：一眼看清这次整理的规模
                     OrganizeFlowLayout(spacing: 6) {
-                        statChip("\(renameCount) 个文件将改名归位", tone: renameCount > 0 ? .white : Theme.textMuted)
-                        if sidecarCount > 0 { statChip("\(sidecarCount) 个附属文件同步改名", tone: Theme.textMuted) }
-                        if entryAssetCount > 0 { statChip("\(entryAssetCount) 个海报/NFO 跟随条目目录", tone: Theme.textMuted) }
-                        statChip("\(preview.alreadyOk) 个已符合规范", tone: Theme.success)
-                        if !preview.skips.isEmpty { statChip("\(preview.skips.count) 个跳过", tone: Theme.warning) }
+                        statChip(String(localized: .libraryOrganizeRenameCount(renameCount)), tone: renameCount > 0 ? .white : Theme.textMuted)
+                        if sidecarCount > 0 { statChip(String(localized: .libraryOrganizeSidecarCount(sidecarCount)), tone: Theme.textMuted) }
+                        if entryAssetCount > 0 { statChip(String(localized: .libraryOrganizeAssetCount(entryAssetCount)), tone: Theme.textMuted) }
+                        statChip(String(localized: .libraryOrganizeAlreadyCount(preview.alreadyOk)), tone: Theme.success)
+                        if !preview.skips.isEmpty { statChip(String(localized: .libraryOrganizeSkipCount(preview.skips.count)), tone: Theme.warning) }
                     }
                 }
                 .listRowBackground(Color.clear)
@@ -191,11 +191,11 @@ struct LibraryOrganizeSheet: View {
             if renameCount == 0 {
                 Section {
                     VStack(spacing: 4) {
-                        Text("这个库已经很规整了，没有需要改名的文件 🎉")
+                        Text(String(localized: .libraryOrganizeAlreadyNeat))
                             .font(.callout)
                             .foregroundStyle(Theme.textMuted)
                         if !preview.skips.isEmpty {
-                            Text("（\(preview.skips.count) 个文件因下方原因未参与整理）")
+                            Text(String(localized: .libraryOrganizeSkippedHint(preview.skips.count)))
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.textFaint)
                         }
@@ -208,10 +208,10 @@ struct LibraryOrganizeSheet: View {
                 // 风险告知：批量改名是半不可逆操作，三条风险必须看到
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("开始前请确认").font(.subheadline.weight(.semibold))
-                        bullet("改名直接发生在磁盘上，**无法一键撤销**；下方清单就是将要发生的全部变更。")
-                        bullet("**正在下载器中做种的文件，改名后做种会失败**——请确认这些文件已不在做种，或接受改名后到下载器里重新校验。")
-                        bullet("Emby / Plex 会把改名视为内容变更并重新识别，观看记录可能受影响。")
+                        Text(String(localized: .libraryOrganizeBeforeStart)).font(.subheadline.weight(.semibold))
+                        bullet(LocalizedStringKey(String(localized: .libraryOrganizeNoUndoMarkdown)))
+                        bullet(LocalizedStringKey(String(localized: .libraryOrganizeSeedingMarkdown)))
+                        bullet(LocalizedStringKey(String(localized: .libraryOrganizePlayerHint)))
                     }
                     .foregroundStyle(Theme.warning)
                     .listRowBackground(Theme.warning.opacity(0.08))
@@ -227,7 +227,7 @@ struct LibraryOrganizeSheet: View {
                         HStack(spacing: 8) {
                             Text(group.title + (group.year.map { " (\($0))" } ?? ""))
                                 .foregroundStyle(.white.opacity(0.85))
-                            Text("\(group.actions.count) 个文件")
+                            Text(String(localized: .libraryStatusFileCount(group.actions.count)))
                                 .foregroundStyle(Theme.textFaint)
                         }
                         .font(.subheadline.weight(.semibold))
@@ -239,7 +239,7 @@ struct LibraryOrganizeSheet: View {
             // 跳过清单：默认收起，展开逐条看原因——用户对"没动的"也心里有数
             if !preview.skips.isEmpty {
                 Section {
-                    DisclosureGroup("跳过 \(preview.skips.count) 个文件（点击查看原因）") {
+                    DisclosureGroup(String(localized: .libraryOrganizeShowSkips(preview.skips.count))) {
                         ForEach(preview.skips, id: \.filePath) { skip in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(skip.filePath)
@@ -285,7 +285,7 @@ struct LibraryOrganizeSheet: View {
                     .foregroundStyle(Theme.textFaint)
             }
             if !action.sidecars.isEmpty {
-                Text("+\(action.sidecars.count) 个附属文件（字幕等）同步改名")
+                Text(String(localized: .libraryOrganizeSidecarsRenamed(action.sidecars.count)))
                     .font(.caption2)
                     .foregroundStyle(Theme.textFaint)
                     .padding(.leading, 13)
@@ -304,13 +304,13 @@ struct LibraryOrganizeSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if renameCount > 0 {
-                Toggle("我已核对清单并了解上述风险", isOn: $agreed)
+                Toggle(String(localized: .libraryOrganizeAcknowledge), isOn: $agreed)
                     .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
                 Button {
                     Task { await start() }
                 } label: {
-                    Text("开始整理 \(renameCount) 个文件")
+                    Text(String(localized: .libraryOrganizeStart(renameCount)))
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                 }
@@ -321,7 +321,7 @@ struct LibraryOrganizeSheet: View {
                 Button {
                     dismiss()
                 } label: {
-                    Text("关闭").frame(maxWidth: .infinity)
+                    Text(String(localized: .commonClose)).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
@@ -341,10 +341,10 @@ struct LibraryOrganizeSheet: View {
             ProgressView(value: fraction ?? 0.08)
                 .tint(.white.opacity(0.85))
                 .frame(maxWidth: 320)
-            Text("正在整理…" + (progress.map { $0.total > 0 ? " \($0.processed) / \($0.total)" : "" } ?? ""))
+            Text(String(localized: .libraryOrganizeRunning) + (progress.map { $0.total > 0 ? " \($0.processed) / \($0.total)" : "" } ?? ""))
                 .font(.callout.weight(.medium))
                 .foregroundStyle(.white)
-            Text("每改名一个文件即同步台账，中断也不会账实不符；期间扫描自动让路。\n关闭窗口不影响整理，库卡片上可继续查看进度。")
+            Text(String(localized: .libraryOrganizeRunningHint))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
                 .multilineTextAlignment(.center)
@@ -361,7 +361,7 @@ struct LibraryOrganizeSheet: View {
                     .foregroundStyle(Theme.success)
                     .frame(width: 44, height: 44)
                     .background(Theme.success.opacity(0.15), in: .circle)
-                Text("整理完成")
+                Text(String(localized: .libraryOrganizeDone))
                     .font(.headline)
                     .foregroundStyle(.white)
                 Text(summary)
@@ -370,7 +370,7 @@ struct LibraryOrganizeSheet: View {
                     .multilineTextAlignment(.center)
                 if let result, !result.errors.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("\(result.errors.count) 个文件处理时遇到问题（未被改动）")
+                        Text(String(localized: .libraryOrganizeErrors(result.errors.count)))
                             .font(.subheadline.weight(.semibold))
                         ForEach(Array(result.errors.enumerated()), id: \.offset) { _, message in
                             Text(message).font(.caption).textSelection(.enabled)
@@ -382,7 +382,7 @@ struct LibraryOrganizeSheet: View {
                     .background(Theme.warning.opacity(0.08), in: .rect(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.warning.opacity(0.3)))
                 }
-                Button("完成") { dismiss() }
+                Button(String(localized: .commonDone)) { dismiss() }
                     .buttonStyle(.glassProminent)
                     .padding(.top, 8)
             }
@@ -391,14 +391,14 @@ struct LibraryOrganizeSheet: View {
     }
 
     private var summary: String {
-        var text = "改名归位 \(result?.renamed ?? 0) 个文件"
+        var text = String(localized: .libraryOrganizeRenamedFiles(result?.renamed ?? 0))
         if let result {
-            if result.sidecarsRenamed > 0 { text += "，附属文件 \(result.sidecarsRenamed) 个随迁" }
-            if result.entryAssetsMoved > 0 { text += "，海报/NFO \(result.entryAssetsMoved) 个随条目目录搬迁" }
-            if result.removedDirs > 0 { text += "，清理搬空目录 \(result.removedDirs) 个" }
+            if result.sidecarsRenamed > 0 { text += String(localized: .libraryOrganizeSidecarsMoved(result.sidecarsRenamed)) }
+            if result.entryAssetsMoved > 0 { text += String(localized: .libraryOrganizeAssetsMoved(result.entryAssetsMoved)) }
+            if result.removedDirs > 0 { text += String(localized: .libraryOrganizeDirsRemoved(result.removedDirs)) }
         }
-        text += "。"
-        if let result, result.skipped > 0 { text += "跳过 \(result.skipped) 个（原因见预览）。" }
+        text += String(localized: .libraryOrganizeSentenceEnd)
+        if let result, result.skipped > 0 { text += String(localized: .libraryOrganizeSkipped(result.skipped)) }
         return text
     }
 

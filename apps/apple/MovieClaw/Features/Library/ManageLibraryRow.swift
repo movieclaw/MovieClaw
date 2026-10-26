@@ -44,7 +44,7 @@ struct ManageLibraryRow: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("manage-row-name-\(library.id)")
-                        if library.isDefault { ManageBadge(text: "默认") }
+                        if library.isDefault { ManageBadge(text: String(localized: .libraryManageDefault)) }
                         if ManageLibraryRules.accessRestricted(library) {
                             ManageBadge(text: ManageLibraryRules.accessLabel(library), locked: !library.viewerAccess)
                         }
@@ -68,7 +68,7 @@ struct ManageLibraryRow: View {
                     .lineLimit(1)
                     .truncationMode(.head)
                 if library.rootPaths.count > 1 {
-                    Text("+\(library.rootPaths.count - 1) 个根目录")
+                    Text(String(localized: .libraryManageExtraRoots(library.rootPaths.count - 1)))
                         .font(.caption)
                         .foregroundStyle(Theme.textFaint)
                         .fixedSize()
@@ -160,19 +160,19 @@ struct ManageLibraryRow: View {
 
         return Menu {
             Section {
-                Button(!scanning ? "扫描库" : stoppable ? "停止扫描\(pct)" : "\(ScanPhase.label(library.scanProgress?.phase))…") {
+                Button(!scanning ? String(localized: .libraryActionsScan) : stoppable ? String(localized: .libraryActionsStopScan(pct)) : "\(ScanPhase.label(library.scanProgress?.phase))…") {
                     actions.toggleScan(library)
                 }
                 .disabled((busy && !scanning) || (scanning && !stoppable))
                 // 待处理常驻：计数为 0 也可进（已忽略清单只有这里能到）
                 if caps.scraped {
-                    Button("待处理\(pendingFiles > 0 ? " · \(pendingFiles) 个文件" : "")") { actions.openPending(library) }
+                    Button(String(localized: .libraryManagePendingButton) + (pendingFiles > 0 ? String(localized: .libraryManagePendingFiles(pendingFiles)) : "")) { actions.openPending(library) }
                 }
                 if caps.naming {
-                    Button(organizing ? "整理中…\(pct)" : "整理文件名") { actions.organize(library) }
+                    Button(organizing ? String(localized: .libraryActionsOrganizing(pct)) : String(localized: .libraryActionsOrganize)) { actions.organize(library) }
                         .disabled(busy && !organizing)
                 }
-                Button(refreshing ? "停止刷新\(pct)" : caps.scraped ? "刷新元数据" : caps.playable ? "重新读取 NFO 与封面" : "重新生成封面") {
+                Button(refreshing ? String(localized: .libraryActionsStopRefresh(pct)) : caps.scraped ? String(localized: .libraryStatusRefreshing) : caps.playable ? String(localized: .libraryActionsRereadNfo) : String(localized: .libraryConfirmRegenerateCover)) {
                     actions.toggleRefresh(library)
                 }
                 .disabled(busy && !refreshing)
@@ -184,19 +184,19 @@ struct ManageLibraryRow: View {
             }
             Section {
                 // 扫描 / 整理正按当前根路径读写台账，期间不允许改库配置
-                Button("编辑库") { actions.edit(library) }
+                Button(String(localized: .libraryActionsEdit)) { actions.edit(library) }
                     .disabled(scanning || organizing)
-                Button(library.isDefault ? "已是默认库" : "设为默认库") { actions.setDefault(library) }
+                Button(library.isDefault ? String(localized: .libraryActionsAlreadyDefault) : String(localized: .libraryActionsSetDefault)) { actions.setDefault(library) }
                     .disabled(library.isDefault)
-                Button(library.excludeFromHome ? "在首页展示" : "从首页排除") { actions.toggleHome(library) }
-                Button("调整顺序") { actions.reorder() }
+                Button(library.excludeFromHome ? String(localized: .libraryActionsShowHome) : String(localized: .libraryActionsExcludeHome)) { actions.toggleHome(library) }
+                Button(String(localized: .libraryManageOrder)) { actions.reorder() }
             }
             Section {
                 Button(role: .destructive) {
                     actions.delete(library)
                 } label: {
-                    Text("删除库")
-                    Text("不动磁盘")
+                    Text(String(localized: .libraryActionsDelete))
+                    Text(String(localized: .libraryActionsKeepFiles))
                 }
                 .disabled(scanning || organizing)
             }
@@ -209,7 +209,7 @@ struct ManageLibraryRow: View {
                 .overlay(Circle().strokeBorder(Color.white.opacity(0.09)))
                 .contentShape(.circle)
         }
-        .accessibilityLabel("「\(library.name)」的操作")
+        .accessibilityLabel(String(localized: .libraryManageActions(library.name)))
         .accessibilityIdentifier("manage-row-menu-\(library.id)")
     }
 }
@@ -231,7 +231,7 @@ struct ManageBadge: View {
         .background(Color.white.opacity(0.08), in: .capsule)
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.14)))
         .fixedSize()
-        .accessibilityLabel(locked ? "\(text)，你不在浏览范围内" : text)
+        .accessibilityLabel(locked ? String(localized: .libraryManageNoBrowseAria(text)) : text)
     }
 }
 

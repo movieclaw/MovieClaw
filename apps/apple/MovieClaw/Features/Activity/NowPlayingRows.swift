@@ -13,12 +13,12 @@ final class ActivityDeviceActions {
     func end(deviceId: String, label: String, api: APIClient, feedback: Feedback, store: MediaActivityStore) {
         Task {
             let confirmed = await feedback.confirm(
-                "结束「\(label)」本次播放？",
-                message: "这台设备正在进行的播放会立刻中断，一分钟内不能续播；登录凭据与观看进度都不受影响，之后重新点播放即可继续。",
-                confirmTitle: "结束播放"
+                String(localized: .activityWatchEndTitle(label)),
+                message: String(localized: .activityWatchEndExplanation),
+                confirmTitle: String(localized: .activityWatchEndPlayback)
             )
             guard confirmed else { return }
-            await perform(deviceId, feedback: feedback, store: store, fallback: "结束播放失败") {
+            await perform(deviceId, feedback: feedback, store: store, fallback: String(localized: .activityWatchEndFailed)) {
                 try await api.activityEndPlayback(deviceId: deviceId)
             }
         }
@@ -28,13 +28,13 @@ final class ActivityDeviceActions {
     func revoke(deviceId: String, label: String, api: APIClient, feedback: Feedback, store: MediaActivityStore) {
         Task {
             let confirmed = await feedback.confirm(
-                "注销这台设备？",
-                message: "「\(label)」的登录凭据会立刻失效，正在进行的播放与下载一并停止，该设备下次使用需要重新登录。\n\n已看进度、收藏这些观看记录按账号保存，不会因为注销设备而丢失。",
-                confirmTitle: "注销设备",
+                String(localized: .activityWatchRevokeTitle),
+                message: String(localized: .activityWatchRevokeExplanation(label)),
+                confirmTitle: String(localized: .activityWatchRevoke),
                 destructive: true
             )
             guard confirmed else { return }
-            await perform(deviceId, feedback: feedback, store: store, fallback: "注销设备失败") {
+            await perform(deviceId, feedback: feedback, store: store, fallback: String(localized: .activityWatchRevokeFailed)) {
                 try await api.activityRevokeDevice(deviceId: deviceId)
             }
         }
@@ -57,12 +57,12 @@ final class ActivityDeviceActions {
 nonisolated extension APIClient {
     /// 结束一台设备本次播放（Web 把后端 message 当 Toast，这里同样返回它）
     func activityEndPlayback(deviceId: String) async throws -> String {
-        try await activityDeviceAction("POST", ["playback", "activity", "sessions", deviceId, "end"], fallback: "已结束播放")
+        try await activityDeviceAction("POST", ["playback", "activity", "sessions", deviceId, "end"], fallback: String(localized: .activityWatchEnded))
     }
 
     /// 注销一台播放设备
     func activityRevokeDevice(deviceId: String) async throws -> String {
-        try await activityDeviceAction("DELETE", ["playback", "devices", deviceId], fallback: "设备已注销")
+        try await activityDeviceAction("DELETE", ["playback", "devices", deviceId], fallback: String(localized: .activityWatchRevoked))
     }
 
     /// 设备 id 进路径前必须整段百分号编码（Web `encodeURIComponent(deviceId)`）：
@@ -74,10 +74,10 @@ nonisolated extension APIClient {
         // 发到当前选中的地址（在家内网、出门外网），不用登录地址
         let base = ServerRoutes.shared.origin(for: server).appending(path: "api/v1")
         guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
-            throw APIError.network("服务器地址异常")
+            throw APIError.network(String(localized: .errorsNetworkBadServerAddress))
         }
         components.percentEncodedPath += "/" + encoded.joined(separator: "/")
-        guard let url = components.url else { throw APIError.network("服务器地址异常") }
+        guard let url = components.url else { throw APIError.network(String(localized: .errorsNetworkBadServerAddress)) }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -100,7 +100,7 @@ enum WatchFormat {
     /// 「iOS」+「iPhone · iOS 27.0」→「iPhone · iOS 27.0」）
     static func deviceLabel(client: String, deviceName: String) -> String {
         let name = client.hasPrefix("MovieClaw ") ? String(client.dropFirst("MovieClaw ".count)) : client
-        if deviceName.isEmpty { return name.isEmpty ? "未知设备" : name }
+        if deviceName.isEmpty { return name.isEmpty ? String(localized: .activityOverviewUnknownDevice) : name }
         let repeats = deviceName.components(separatedBy: " · ").contains { $0 == name || $0.hasPrefix("\(name) ") }
         if name.isEmpty || repeats { return deviceName }
         return "\(name) · \(deviceName)"
@@ -144,7 +144,7 @@ struct ActivityTitleText: View {
     }
 
     private var titleText: Text {
-        var parts = [Text(media.title.isEmpty ? "（条目已删除）" : media.title)]
+        var parts = [Text(media.title.isEmpty ? String(localized: .activityOverviewDeletedItem) : media.title)]
         if showYear, let year = media.year {
             parts.append(Text(" \(String(year))").fontWeight(.regular).foregroundStyle(Theme.textFaint))
         }
@@ -156,7 +156,7 @@ struct ActivityTitleText: View {
         }
         // 会话卡（带年份）范围外即标「仅管理」；记录 / 统计行只在有落点库时标（同 Web TitleText）
         if !media.browsable, media.libraryId != nil || showYear {
-            parts.append(Text("  仅管理").font(.caption2.weight(.medium)).foregroundStyle(Theme.textFaint))
+            parts.append(Text("  " + String(localized: .activityWatchAdminOnly)).font(.caption2.weight(.medium)).foregroundStyle(Theme.textFaint))
         }
         return Text.activityJoin(parts)
     }
@@ -239,20 +239,20 @@ struct ActivityPlaybackSessionRow: View {
         }
         .padding(.vertical, 4)
         .swipeActions(allowsFullSwipe: false) {
-            Button("结束播放", systemImage: "stop.fill") { end(device) }
+            Button(String(localized: .activityWatchEndPlayback), systemImage: "stop.fill") { end(device) }
                 .tint(.red)
                 .disabled(actions.busyDevice != nil)
         }
         .contextMenu {
             if let reason = session.delivery?.reason, !reason.isEmpty {
-                Section("为什么是\(session.delivery?.label ?? "这个播放方式")") { Text(reason) }
+                Section(String(localized: .activityWatchWhyDelivery(session.delivery?.label ?? String(localized: .activityWatchThisDelivery)))) { Text(reason) }
             }
             if let route = WatchFormat.detailRoute(session.media) {
-                Button("打开影片详情", systemImage: "film") { router.open(route) }
+                Button(String(localized: .activityWatchOpenDetails), systemImage: "film") { router.open(route) }
             }
-            Button("结束播放", systemImage: "stop.circle") { end(device) }
+            Button(String(localized: .activityWatchEndPlayback), systemImage: "stop.circle") { end(device) }
             if session.revocable {
-                Button("注销此设备", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                Button(String(localized: .activityWatchRevokeDevice), systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                     actions.revoke(deviceId: session.deviceId, label: device, api: api, feedback: feedback, store: store)
                 }
             }
@@ -277,7 +277,13 @@ struct ActivityPlaybackSessionRow: View {
         case "direct": return Theme.success
         case "remux", "audio": return Theme.info
         default:
+            if let kind = delivery.executionKind {
+                if kind == "remote" { return .purple }
+                return kind == "software" ? Theme.danger : Theme.warning
+            }
+            // i18n-ignore: legacy server response without an executor classification.
             if delivery.label == "远程转码" { return .purple }
+            // i18n-ignore: legacy server response without an executor classification.
             return delivery.label == "软件转码" ? Theme.danger : Theme.warning
         }
     }
@@ -293,11 +299,11 @@ struct ActivityPlaybackSessionRow: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
                     .background(color.opacity(0.16), in: .capsule)
-                    .accessibilityLabel("播放方式：\(delivery.label)")
+                    .accessibilityLabel(String(localized: .activityWatchDeliveryAria(delivery.label)))
             }
             HStack(spacing: 4) {
                 Image(systemName: session.paused ? "pause.fill" : "play.fill").font(.caption2)
-                Text(session.paused ? "已暂停" : "播放中")
+                Text(session.paused ? String(localized: .activityDownloadStatePaused) : String(localized: .activityOverviewPlayingState))
             }
             .foregroundStyle(session.paused ? Theme.textMuted : Theme.success)
             .accessibilityElement(children: .combine)
@@ -306,7 +312,7 @@ struct ActivityPlaybackSessionRow: View {
             }
             Spacer(minLength: 8)
             if session.playMethod != "local" {
-                Text("网盘直链").foregroundStyle(Theme.textFaint)
+                Text(String(localized: .activityWatchCloudLink)).foregroundStyle(Theme.textFaint)
             } else if let rate = session.rateBytesPerSecond, rate > 0 {
                 Text("↓ \(ActivityFormat.rate(rate))").foregroundStyle(Theme.info)
             }
@@ -323,7 +329,7 @@ struct ActivityPlaybackSessionRow: View {
                 Text(ActivityFormat.playClock(ms: position))
                 Spacer(minLength: 8)
                 if let duration = session.durationMs, duration > position {
-                    Text("还剩 \(ActivityFormat.watched(duration - position))")
+                    Text(String(localized: .activityWatchRemaining(ActivityFormat.watched(duration - position))))
                 }
             }
             .font(.caption)
@@ -377,14 +383,14 @@ struct ActivityFileDownloadRow: View {
         .padding(.vertical, 4)
         .swipeActions(allowsFullSwipe: false) {
             if download.revocable {
-                Button("注销设备", systemImage: "rectangle.portrait.and.arrow.right") { revoke(device) }
+                Button(String(localized: .activityWatchRevoke), systemImage: "rectangle.portrait.and.arrow.right") { revoke(device) }
                     .tint(.red)
                     .disabled(actions.busyDevice != nil)
             }
         }
         .contextMenu {
             if download.revocable {
-                Button("注销此设备", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { revoke(device) }
+                Button(String(localized: .activityWatchRevokeDevice), systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { revoke(device) }
             }
         }
     }
@@ -397,17 +403,17 @@ struct ActivityFileDownloadRow: View {
 /// 范围外记录的折叠行：只报个数，不出片名；就地可切到「全部」
 struct HiddenCountRow: View {
     let count: Int
-    let noun: String
+    let text: (Int) -> String
     var onShowAll: (() -> Void)?
 
     var body: some View {
         if count > 0 {
             HStack(spacing: 6) {
-                Text("另有 \(count) \(noun)不在你的浏览范围内")
+                Text(text(count))
                 if let onShowAll {
                     Text("·").foregroundStyle(Theme.textFaint.opacity(0.5))
                     Button(action: onShowAll) {
-                        Text("显示全部")
+                        Text(String(localized: .activityOverviewShowAll))
                             .fontWeight(.medium)
                             .foregroundStyle(Theme.info)
                             .expandedHitArea(vertical: 12)

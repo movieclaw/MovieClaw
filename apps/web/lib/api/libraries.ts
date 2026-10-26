@@ -1,3 +1,6 @@
+import { requestLocale } from "../i18n/negotiate.ts";
+import { appTranslator } from "../i18n/translate.ts";
+import type { AppLocale } from "../i18n/negotiate.ts";
 import { publicEnv } from "@/lib/env";
 import { request, resolveRequestUrl } from "@/lib/http";
 import { snapWidth } from "@/lib/image-width";
@@ -199,24 +202,32 @@ export type ScanPhase =
   | "organizing"; // 批量规范化改名
 
 /** 各阶段的界面文案（唯一出处，卡片与详情页共用）。 */
-export const SCAN_PHASE_LABELS: Record<ScanPhase, string> = {
-  walking: "正在盘点文件",
-  ingesting: "正在扫描",
-  probing: "正在补探画质与音轨",
-  assets: "正在补齐海报与剧照",
-  reidentifying: "正在重新识别条目",
-  organizing: "正在整理文件名",
-};
+export function scanPhaseLabels(locale?: AppLocale): Record<ScanPhase, string> {
+  const t = appTranslator(locale);
+  return {
+    walking: t("library.scan.walking"),
+    ingesting: t("library.status.scanning"),
+    probing: t("library.scan.probing"),
+    assets: t("library.scan.assets"),
+    reidentifying: t("library.scan.reidentifying"),
+    organizing: t("library.status.organizing"),
+  };
+}
+export const SCAN_PHASE_LABELS = scanPhaseLabels("zh-Hans");
 
 /** 阶段对应的一句补充说明（详情页胶囊用，讲清"现在等的是什么"）。 */
-export const SCAN_PHASE_HINTS: Record<ScanPhase, string> = {
-  walking: "正在统计待处理的文件数",
-  ingesting: "识别到的内容会自动入库",
-  probing: "文件已全部入库，正在读取文件本体的规格",
-  assets: "文件已全部入库，正在下载图片",
-  reidentifying: "完成后条目身份会更新",
-  organizing: "完成后自动刷新",
-};
+export function scanPhaseHints(locale?: AppLocale): Record<ScanPhase, string> {
+  const t = appTranslator(locale);
+  return {
+    walking: t("library.status.counting"),
+    ingesting: t("library.scan.ingestingHint"),
+    probing: t("library.scan.probingHint"),
+    assets: t("library.scan.assetsHint"),
+    reidentifying: t("library.scan.reidentifyingHint"),
+    organizing: t("library.scan.organizingHint"),
+  };
+}
+export const SCAN_PHASE_HINTS = scanPhaseHints("zh-Hans");
 
 /** 扫描/整理的实时进度。 */
 export interface ScanProgress {
@@ -478,19 +489,21 @@ export interface RoutingOptions {
   country_names: Record<string, string>;
 }
 
-let _routingOptionsCache: Promise<RoutingOptions> | null = null;
+const routingOptionsCache = new Map<AppLocale, Promise<RoutingOptions>>();
 
-/** 收藏范围可选项（进程内缓存：静态常量，一次拉取全程复用）。 */
-export function listLibraryRoutingOptions(): Promise<RoutingOptions> {
-  if (!_routingOptionsCache) {
-    _routingOptionsCache = unwrap(
-      request<ApiEnvelope<RoutingOptions>>("/libraries/routing-options"),
-    ).catch((e) => {
-      _routingOptionsCache = null;
-      throw e;
+/** 收藏范围标签按语言缓存；条件里的 ID 和国家码不变。 */
+export function listLibraryRoutingOptions(locale: AppLocale = requestLocale() ?? "en"): Promise<RoutingOptions> {
+  let pending = routingOptionsCache.get(locale);
+  if (!pending) {
+    pending = unwrap(
+      request<ApiEnvelope<RoutingOptions>>("/libraries/routing-options", { headers: { "Accept-Language": locale } }),
+    ).catch((error) => {
+      routingOptionsCache.delete(locale);
+      throw error;
     });
+    routingOptionsCache.set(locale, pending);
   }
-  return _routingOptionsCache;
+  return pending;
 }
 
 /**
@@ -2128,6 +2141,8 @@ export interface TrashedFile {
 export interface TrashedQuality {
   /** 「分辨率 片源」→ 文件数 */
   tiers: Record<string, number>;
+  /** Display labels indexed by the original grouping keys. */
+  tier_labels?: Record<string, string>;
   hdr: string[];
   video_codecs: string[];
   audio_labels: string[];
@@ -2247,6 +2262,8 @@ export interface DuplicateFile {
   file_path: string;
   /** 版本签名的质量部分：「分辨率 片源[ HDR]」 */
   quality_label: string;
+  quality_key?: string | null;
+  origin_key?: string | null;
   size_bytes: number;
   bit_rate: number | null;
   resolution: string | null;
@@ -2276,6 +2293,8 @@ export interface DuplicateUnit {
 export interface DuplicateVersion {
   key: string;
   quality_label: string;
+  quality_key?: string | null;
+  origin_key?: string | null;
   origin_label: string;
   episodes: number[];
   bytes: number;

@@ -8,6 +8,7 @@ movieclaw_media 是不感知配置来源的独立领域包（不 import moviecla
 from __future__ import annotations
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n import t
 from movieclaw_api.services.network_egress import (
     effective_douban_api_base_url,
     effective_tmdb_api_base_url,
@@ -39,10 +40,7 @@ def get_tmdb_client() -> TmdbClient:
     if _tmdb_client is None:
         settings = get_settings()
         if not settings.tmdb_api_key:
-            raise TmdbNotConfiguredError(
-                "尚未配置 TMDB API Key，订阅功能不可用。请在 .env（或环境变量）中设置 "
-                "TMDB_API_KEY 后重启服务；Key 可在 themoviedb.org 的账户设置 → API 页免费申请"
-            )
+            raise TmdbNotConfiguredError(t("errors.tmdb.notConfiguredSubscriptions"))
         _tmdb_client = TmdbClient(
             settings.tmdb_api_key,
             base_url=effective_tmdb_api_base_url(),
@@ -57,10 +55,7 @@ def get_media_service() -> MediaDiscoverService:
     if _service is None:
         settings = get_settings()
         if not settings.tmdb_api_key:
-            raise TmdbNotConfiguredError(
-                "尚未配置 TMDB API Key，发现页暂不可用。请在 .env（或环境变量）中设置 "
-                "TMDB_API_KEY 后重启服务；Key 可在 themoviedb.org 的账户设置 → API 页免费申请"
-            )
+            raise TmdbNotConfiguredError(t("errors.tmdb.notConfiguredDiscover"))
         _service = MediaDiscoverService(
             # 交互档位：发现页是用户在等的请求，超时/重试压小；线路不通时由
             # 出口层熔断器把后续失败压到毫秒级，前端立刻拿到引导错误
@@ -110,6 +105,14 @@ async def close_media_service() -> None:
     if _tmdb_client is not None:
         await _tmdb_client.aclose()
         _tmdb_client = None
+
+
+async def invalidate_discover_language() -> None:
+    """Refresh the discovery service that captures the configured metadata language."""
+    global _service
+    if _service is not None:
+        await _service.aclose()
+        _service = None
 
 
 def reset_media_service() -> None:

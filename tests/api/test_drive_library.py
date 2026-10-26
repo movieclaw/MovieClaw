@@ -267,7 +267,7 @@ def client(request, tmp_path, monkeypatch):
     )
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as test_client:
         assert test_client.post("/api/v1/auth/bootstrap", json=ADMIN).status_code == 200
         login = test_client.post(
             "/api/v1/drives/accounts/cookie", json={"backend": "fake", "cookie": "UID=u1"}

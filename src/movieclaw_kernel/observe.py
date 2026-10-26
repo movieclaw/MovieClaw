@@ -18,6 +18,10 @@ MAX_CAUSE_DEPTH = 8
 #: 之后经事件、插件、宿主操作一路原样带着（可靠事件随行持久化），插件据此不能再发起 Agent
 AGENT_MARK = "@agent"
 
+current_locale: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "current_locale", default="zh-Hans"
+)
+
 current_entry: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "movieclaw_kernel_entry", default=None
 )

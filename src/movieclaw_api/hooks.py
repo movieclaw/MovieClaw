@@ -204,6 +204,7 @@ SEARCH_KEYWORDS = _hook(
     Mode.WATERFALL,
     Keywords,
     tuple,
+    # i18n-ignore: contract documentation for plugin developers
     "搜索关键词：在内部推导的关键词基础上追加或替换（核心截到 6 个以内）",
 )
 CANDIDATES_FILTER = _hook(
@@ -211,6 +212,7 @@ CANDIDATES_FILTER = _hook(
     Mode.WATERFALL,
     CandidateBatch,
     FilterResult,
+    # i18n-ignore: contract documentation for plugin developers
     "候选淘汰：规则评估之后按插件规则再淘汰（只能淘汰不能添加，淘汰原因写进订阅动态）",
 )
 CANDIDATES_RANK = _hook(
@@ -218,6 +220,7 @@ CANDIDATES_RANK = _hook(
     Mode.WATERFALL,
     CandidateBatch,
     RankResult,
+    # i18n-ignore: contract documentation for plugin developers
     "候选排序：在核心排序的基础上重排（必须是原集合的重排）",
 )
 DOWNLOADER_SELECT = _hook(
@@ -225,6 +228,7 @@ DOWNLOADER_SELECT = _hook(
     Mode.BAIL,
     DownloaderQuery,
     DownloaderChoice,
+    # i18n-ignore: contract documentation for plugin developers
     "选下载器：按体积 / 站点 / 类型分流（只在没有显式指定时询问；须启用且可用）",
 )
 TORRENT_BEFORE_DELETE = _hook(
@@ -232,6 +236,7 @@ TORRENT_BEFORE_DELETE = _hook(
     Mode.BAIL,
     TorrentDeletion,
     Veto,
+    # i18n-ignore: contract documentation for plugin developers
     "删种前否决：例如 H&R 未达标不许删（否决后删除返回 409）",
 )
 
@@ -240,6 +245,7 @@ STRM_DIRECT_LINK = _hook(
     Mode.BAIL,
     MountedFile,
     DirectLink,
+    # i18n-ignore: contract documentation for plugin developers
     "网盘挂载直链：strm 指向服务器挂载目录里的文件时，给播放器换一个能直连的网盘地址"
     "（302 过去，视频流量不经服务器）；不认领返回 None。只读查询可以，但要快",
 )

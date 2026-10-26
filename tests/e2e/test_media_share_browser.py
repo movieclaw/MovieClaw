@@ -211,6 +211,7 @@ def _login(page, base: str) -> None:
     page.goto(f"{base}/")
     page.wait_for_url(lambda u: "/setup" in u or "/login" in u)
     if "/setup" in page.url:
+        page.get_by_role("button", name="开始使用", exact=True).click()
         page.locator("input[type=text]").fill(ADMIN["username"])
         page.locator("input[type=password]").nth(0).fill(ADMIN["password"])
         page.locator("input[type=password]").nth(1).fill(ADMIN["password"])
@@ -219,6 +220,7 @@ def _login(page, base: str) -> None:
     page.goto(f"{base}/login")
     page.wait_for_load_state("networkidle")
     if "/login" in page.url:
+        page.get_by_role("button", name="登录", exact=True).click()
         page.locator("input[type=text]").fill(ADMIN["username"])
         page.locator("input[type=password]").first.fill(ADMIN["password"])
         page.locator("button[type=submit]").click()
@@ -258,7 +260,9 @@ def test_media_share_full_flow(stack) -> None:  # noqa: PLR0915
     movie_root: Path = stack["movie_root"]
 
     def api(ctx, method: str, path: str, **kw):
-        return getattr(ctx.request, method)(f"{base}/api/v1{path}", **kw)
+        kw.setdefault("headers", {"Accept-Language": "zh-Hans"})
+        url = path if path.startswith(f"{base}/") else f"{base}/api/v1{path}"
+        return getattr(ctx.request, method)(url, **kw)
 
     def api_json(ctx, path: str) -> dict:
         resp = api(ctx, "get", path)
@@ -281,12 +285,15 @@ def test_media_share_full_flow(stack) -> None:  # noqa: PLR0915
             admin, "post", "/libraries",
             data={
                 "name": "电影", "kind": "movie", "root_paths": [str(movie_root)],
-                "extract_chapter_images": True,
+                "extract_chapter_images": True, "realtime_watch": False,
             },
         ).json()["data"]["id"]
         tv_lib = api(
             admin, "post", "/libraries",
-            data={"name": "剧集", "kind": "tv", "root_paths": [str(stack["tv_root"])]},
+            data={
+                "name": "剧集", "kind": "tv", "root_paths": [str(stack["tv_root"])],
+                "realtime_watch": False,
+            },
         ).json()["data"]["id"]
 
         def scanned(lib_id: int, title: str):
@@ -365,6 +372,7 @@ def test_media_share_full_flow(stack) -> None:  # noqa: PLR0915
             "unlocked": False,
             "expires_at": probe.json()["data"]["expires_at"],
             "media_item_id": None,
+            "collection_id": None,
         }
         assert "某电影" not in probe.text(), "密码之前探针不能露片名"
         assert api(visitor_ctx, "get", f"/share/{slug}/item").status == 401

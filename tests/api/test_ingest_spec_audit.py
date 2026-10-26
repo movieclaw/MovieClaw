@@ -11,6 +11,8 @@ import pytest_asyncio
 from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n import use_locale
+from movieclaw_api.i18n.stored import stored_message
 from movieclaw_api.services.subscription.wanted_fulfillment import close_fulfilled_wanted
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
@@ -162,6 +164,14 @@ async def test_measured_below_rule_set_raises_notice(db):
         ).scalar_one_or_none()
         assert notice is not None
         assert "2160p/1080p" in notice.message
+        with use_locale("en"):
+            activity = stored_message(
+                mismatch[0].message, mismatch[0].message_key, mismatch[0].message_params
+            )
+            body = stored_message(notice.message, notice.message_key, notice.message_params)
+        assert activity.startswith("Feature: the imported file doesn’t match")
+        assert "measured resolution 540p, the torrent claims 1080p" in activity
+        assert "isn’t allowed by the rule set (2160p/1080p)" in body
 
 
 @pytest.mark.asyncio

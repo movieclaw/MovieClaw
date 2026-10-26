@@ -7,6 +7,8 @@
  * 提示刷新——部分渲染会漏掉必填项。值的真正校验在服务端（插件的配置模型），这里只做基本类型转换。
  */
 
+import { useTranslations } from "next-intl";
+
 import { Toggle } from "@/components/cloud-push-ui";
 import { SETTINGS_INPUT_CLASS } from "@/components/settings-ui";
 import type { ConfigSchema, SchemaField } from "@/lib/api/plugins";
@@ -71,6 +73,7 @@ export function SchemaForm({
   disabled?: boolean;
   onChange: (name: string, value: unknown) => void;
 }) {
+  const t = useTranslations();
   const required = new Set(schema.required ?? []);
   return (
     <div className="space-y-5">
@@ -107,7 +110,7 @@ export function SchemaForm({
               onChange={(e) => onChange(name, e.target.value)}
             >
               {fieldType(field).nullable && (
-                <option value="">（不设置）</option>
+                <option value="">{t("settings.schema.unset")}</option>
               )}
               {field.enum.map((option) => (
                 <option key={option} value={option}>
@@ -122,7 +125,7 @@ export function SchemaForm({
               id={id}
               rows={kind === "array" ? 3 : 4}
               className={`${SETTINGS_INPUT_CLASS} w-full resize-y`}
-              placeholder={kind === "array" ? "每行一个" : undefined}
+              placeholder={kind === "array" ? t("settings.schema.onePerLine") : undefined}
               value={value == null ? "" : String(value)}
               disabled={disabled}
               onChange={(e) => onChange(name, e.target.value)}
@@ -141,8 +144,8 @@ export function SchemaForm({
               placeholder={
                 secret && secretsSet
                   ? secretsSet.includes(name)
-                    ? "已设置（留空不改）"
-                    : "未设置"
+                    ? t("settings.schema.secretSet")
+                    : t("settings.schema.secretUnset")
                   : undefined
               }
               value={value == null ? "" : String(value)}

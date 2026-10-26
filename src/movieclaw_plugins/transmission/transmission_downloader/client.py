@@ -90,21 +90,26 @@ def _translate_errors(url: str, *, operation: str = "submit") -> Iterator[None]:
         yield
     except TransmissionAuthError as exc:
         raise DownloaderAuthError(
-            "Transmission 认证失败：用户名或密码错误", details={"url": url}
+            "Transmission 认证失败：用户名或密码错误",
+            message_key="errors.downloader.trAuth",
+            details={"url": url},
         ) from exc
     except TransmissionConnectError as exc:
         raise DownloaderConnectError(
             "无法连接到 Transmission，请检查 RPC 地址和端口",
+            message_key="errors.downloader.trConnect",
             details={"url": url, "error": str(exc)},
         ) from exc
     except TransmissionError as exc:
         if operation == "delete":
             raise DownloaderDeleteError(
                 "删除 Transmission 任务失败，请检查下载器状态",
+                message_key="errors.downloader.trDelete",
                 details={"url": url, "error": str(exc)},
             ) from exc
         raise DownloaderSubmitError(
             "Transmission 拒绝了该请求（种子无效或下载器返回错误）",
+            message_key="errors.downloader.trRejected",
             details={"url": url, "error": str(exc)},
         ) from exc
 
@@ -125,6 +130,7 @@ class TransmissionDownloader(BaseDownloader):
             if parts.scheme not in ("http", "https") or not parts.hostname:
                 raise DownloaderConnectError(
                     "Transmission 地址格式错误，应形如 http://主机:9091",
+                    message_key="errors.downloader.trUrl",
                     details={"url": self.config.url},
                 )
             with _translate_errors(self.config.url):

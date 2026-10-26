@@ -10,7 +10,7 @@ struct AirPlayButton: UIViewRepresentable {
         picker.tintColor = .white
         picker.activeTintColor = .systemBlue
         picker.prioritizesVideoDevices = true
-        picker.accessibilityLabel = "隔空播放"
+        picker.accessibilityLabel = String(localized: .playerControlsAirplay)
         return picker
     }
 

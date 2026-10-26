@@ -100,13 +100,13 @@ struct SettingsBLLMProviderForm: View {
     }
 
     private var submitHint: String? {
-        if name.contains("/") { return "实例名不能包含斜杠 /。" }
+        if name.contains("/") { return String(localized: .settingsLlmUiNameInvalid) }
         if apiKeyRequired && apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
-            return provider == nil ? "请填写 API Key。" : "更换了供应商或 API 端点，请重新填写 API Key。"
+            return provider == nil ? String(localized: .settingsLlmUiKeyRequired) : String(localized: .settingsLlmUiKeyChanged)
         }
-        if !baseUrlValid { return "请填写以 http:// 或 https:// 开头的完整 API 端点。" }
-        if isCustomEndpoint && extras.isEmpty { return "请至少添加一个模型（接入后才有模型可用）。" }
-        if !userAgentValid { return "User-Agent 包含不支持的字符，请检查高级设置。" }
+        if !baseUrlValid { return String(localized: .settingsLlmUiEndpointInvalid) }
+        if isCustomEndpoint && extras.isEmpty { return String(localized: .settingsLlmFormNeedModel) }
+        if !userAgentValid { return String(localized: .settingsLlmUiUaInvalid) }
         return nil
     }
 
@@ -121,9 +121,9 @@ struct SettingsBLLMProviderForm: View {
     // MARK: - 界面
 
     var body: some View {
-        SubsSheetScaffold(title: provider == nil ? "接入模型供应商" : "编辑供应商", onClose: {
+        SubsSheetScaffold(title: provider == nil ? String(localized: .settingsLlmUiAddTitle) : String(localized: .settingsLlmFormEditTitle), onClose: {
             if dirty { discarding = true } else { dismiss() }
-        }, confirm: SubsSheetConfirm(title: "保存并测试连接",
+        }, confirm: SubsSheetConfirm(title: String(localized: .settingsLlmUiSave),
                                      enabled: submitHint == nil,
                                      busy: busy, identifier: "llm-form-save") {
             Task { await submit() }
@@ -151,9 +151,9 @@ struct SettingsBLLMProviderForm: View {
         }
         .disabled(busy)
         .interactiveDismissDisabled(busy || dirty)
-        .alert("放弃未保存的修改？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃修改", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsFormDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+            Button(String(localized: .settingsScrapeDiscardChanges), role: .destructive) { dismiss() }
         }
         .onChange(of: providerType) { _, _ in
             // 换供应商：端点 / UA / 高级设置 / 参数子表单都与上一家无关，一并清掉
@@ -168,9 +168,9 @@ struct SettingsBLLMProviderForm: View {
     /// 供应商（下拉）+ 所选供应商的提示卡
     private var providerSection: some View {
         SettingsFormSection {
-            Picker("供应商", selection: $providerType) {
+            Picker(String(localized: .settingsLlmUiProvider), selection: $providerType) {
                 if presets.isEmpty {
-                    Text("正在加载供应商…").tag(providerType)
+                    Text(String(localized: .settingsLlmUiLoadingProviders)).tag(providerType)
                 }
                 ForEach(presets, id: \.id) { item in
                     Text(item.displayName).tag(item.id)
@@ -188,9 +188,9 @@ struct SettingsBLLMProviderForm: View {
                 .accessibilityIdentifier("llm-form-provider-hint")
             }
         } header: {
-            Text("供应商")
+            Text(String(localized: .settingsLlmUiProvider))
         } footer: {
-            Text("保存后系统会自动测试连接。")
+            Text(String(localized: .settingsLlmUiAutoTest))
         }
     }
 
@@ -198,20 +198,20 @@ struct SettingsBLLMProviderForm: View {
     private var connectionSection: some View {
         SettingsFormSection {
             SettingsBTextField(
-                label: "实例名（可选）",
+                label: String(localized: .settingsLlmUiName),
                 text: $name,
-                placeholder: preset?.displayName ?? "如：官方 OpenAI / 家里的 vLLM",
-                hint: "接入多家时用来区分：同一模型在多家都有时，对话框会以「模型（实例名）」标注。留空按供应商名保存。",
+                placeholder: preset?.displayName ?? String(localized: .settingsLlmUiNamePlaceholder),
+                hint: String(localized: .settingsLlmUiNameHint),
                 identifier: "llm-form-name"
             )
 
             // 端点固定的官方渠道不展示端点输入；OpenAI 保留可选输入（代理/镜像），通用兼容端点必填
             if canCustomizeEndpoint {
                 SettingsBTextField(
-                    label: "API 端点" + (needBaseUrl ? " *" : "（可选）"),
+                    label: String(localized: .settingsLlmUiEndpoint) + (needBaseUrl ? " *" : String(localized: .settingsLlmUiOptional)),
                     text: $baseUrl,
-                    placeholder: needBaseUrl ? "http://192.168.1.5:8000/v1" : "官方默认端点",
-                    hint: needBaseUrl ? nil : "留空使用官方端点；使用代理或镜像时填写完整地址。",
+                    placeholder: needBaseUrl ? "http://192.168.1.5:8000/v1" : String(localized: .settingsLlmFormOfficialEndpoint),
+                    hint: needBaseUrl ? nil : String(localized: .settingsLlmFormEndpointHint),
                     mono: true,
                     keyboard: .URL,
                     identifier: "llm-form-base-url"
@@ -225,44 +225,44 @@ struct SettingsBLLMProviderForm: View {
                 DisclosureGroup(isExpanded: $advancedOpen) {
                     if canChooseProtocol {
                         VStack(alignment: .leading, spacing: 6) {
-                            Picker("API 协议", selection: Binding(
+                            Picker(String(localized: .settingsLlmUiProtocol), selection: Binding(
                                 mcGet: { apiProtocol.isEmpty ? (preset?.protocol ?? protocolOptions[0]) : apiProtocol },
                                 set: { apiProtocol = $0 }
                             )) {
                                 ForEach(protocolOptions, id: \.self) { id in
-                                    Text(SettingsBLLMFormat.protocolLabel(id) + (id == preset?.protocol ? "（默认）" : ""))
+                                    Text(SettingsBLLMFormat.protocolLabel(id) + (id == preset?.protocol ? String(localized: .settingsLlmUiDefaultSuffix) : ""))
                                         .tag(id)
                                 }
                             }
                             .pickerStyle(.menu)
                             .accessibilityIdentifier("llm-form-api-protocol")
-                            Text("GPT-5.6 等推理模型要在调用工具时调节思维链强度，需选 Responses API；端点不支持 /v1/responses 时选 Chat Completions。")
+                            Text(String(localized: .settingsLlmFormApiHint))
                                 .font(.caption)
                                 .foregroundStyle(Theme.textFaint)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("User-Agent（可选）").font(.subheadline).foregroundStyle(Theme.textMuted)
+                        Text(String(localized: .settingsLlmUiUserAgent)).font(.subheadline).foregroundStyle(Theme.textMuted)
                         // 占位符直接展示留空时实际发送的 SDK 自带 UA（后端按 SDK 版本现算）
-                        TextField(preset?.defaultUserAgent ?? "留空使用 SDK 默认标识", text: $userAgent)
+                        TextField(preset?.defaultUserAgent ?? String(localized: .settingsLlmUiUaPlaceholder), text: $userAgent)
                             .font(.body.monospaced())
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .accessibilityIdentifier("llm-form-user-agent")
                         Text(userAgentValid
-                             ? "仅当网关或 WAF 对请求标识有要求时填写，留空使用上方显示的 SDK 默认值。"
-                             : "只能包含可打印的 ASCII 字符（不能含换行或中文）。")
+                             ? String(localized: .settingsLlmUiUaHint)
+                             : String(localized: .settingsLlmUiUaAscii))
                             .font(.caption)
                             .foregroundStyle(userAgentValid ? Theme.textFaint : Theme.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } label: {
                     HStack {
-                        Text("高级设置")
+                        Text(String(localized: .settingsLlmUiAdvanced))
                         Spacer()
                         if !advancedOpen {
-                            Text(canChooseProtocol ? "API 协议 · User-Agent" : "User-Agent")
+                            Text(canChooseProtocol ? String(localized: .settingsLlmUiAdvancedSummary) : "User-Agent")
                                 .font(.caption).foregroundStyle(Theme.textFaint)
                         }
                     }
@@ -279,9 +279,9 @@ struct SettingsBLLMProviderForm: View {
             HStack {
                 Group {
                     if showApiKey {
-                        TextField(apiKeyRequired ? "sk-…" : "留空保持原密钥不变", text: $apiKey)
+                        TextField(apiKeyRequired ? "sk-…" : String(localized: .settingsLlmUiKeepKey), text: $apiKey)
                     } else {
-                        SecureField(apiKeyRequired ? "sk-…" : "留空保持原密钥不变", text: $apiKey)
+                        SecureField(apiKeyRequired ? "sk-…" : String(localized: .settingsLlmUiKeepKey), text: $apiKey)
                     }
                 }
                 .font(.body.monospaced())
@@ -289,14 +289,14 @@ struct SettingsBLLMProviderForm: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .accessibilityIdentifier("llm-form-api-key")
-                Button(showApiKey ? "隐藏" : "显示") { showApiKey.toggle() }
+                Button(showApiKey ? String(localized: .settingsLlmUiHide) : String(localized: .settingsLlmUiShow)) { showApiKey.toggle() }
                     .font(.subheadline.weight(.medium))
                     .buttonStyle(.borderless)
-                    .accessibilityLabel(showApiKey ? "隐藏 API Key" : "显示 API Key")
+                    .accessibilityLabel(showApiKey ? String(localized: .settingsLlmUiHideKey) : String(localized: .settingsLlmUiShowKey))
                     .accessibilityIdentifier("llm-form-api-key-toggle")
             }
             if provider != nil {
-                Text(apiKeyRequired ? "更换了供应商或 API 端点，需要重新填写密钥。" : "已保存的密钥不会回显；留空则继续使用原密钥。")
+                Text(apiKeyRequired ? String(localized: .settingsLlmUiKeyChangedHint) : String(localized: .settingsLlmUiKeyPrivacy))
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
@@ -316,13 +316,13 @@ struct SettingsBLLMProviderForm: View {
                             Text(m.id).font(.subheadline.weight(.medium)).lineLimit(1)
                             let detail = [SettingsBLLMFormat.specs(m), SettingsBLLMFormat.hints(m)]
                                 .filter { !$0.isEmpty }.joined(separator: " · ")
-                            Text(detail.isEmpty ? "参数以官方文档为准" : detail)
+                            Text(detail.isEmpty ? String(localized: .settingsLlmUiSpecsFallback) : detail)
                                 .font(.caption)
                                 .foregroundStyle(Theme.textFaint)
                                 .lineLimit(2)
                         }
                         Spacer(minLength: 8)
-                        Button("移除") { extraModels.removeAll { $0.id == m.id } }
+                        Button(String(localized: .settingsDrivesRemove)) { extraModels.removeAll { $0.id == m.id } }
                             .font(.caption)
                             .buttonStyle(.borderless)
                             .foregroundStyle(Theme.textMuted)
@@ -333,26 +333,26 @@ struct SettingsBLLMProviderForm: View {
                 Menu {
                     // 其它预设目录的模型：选中即入列，参数复用
                     ForEach(borrowedGroups, id: \.label) { group in
-                        SettingsFormSection("\(group.label) 目录（同名模型参数复用）") {
+                        SettingsFormSection(String(localized: .settingsLlmUiBorrowedCatalog(group.label))) {
                             ForEach(group.models, id: \.id) { m in
                                 let hints = SettingsBLLMFormat.hints(m)
                                 Button(m.id + (hints.isEmpty ? "" : "（\(hints)）")) { borrow(m) }
                             }
                         }
                     }
-                    Button("自定义模型（填写参数）…") { addingCustom = true }
+                    Button(String(localized: .settingsLlmUiCustomModelOption)) { addingCustom = true }
                 } label: {
-                    Label("添加模型…", systemImage: "plus")
+                    Label(String(localized: .settingsLlmFormAddModel), systemImage: "plus")
                 }
                 .accessibilityIdentifier("llm-form-add-model")
             } header: {
-                Text("模型目录 *")
+                Text(String(localized: .settingsLlmFormCatalog))
             } footer: {
-                Text("兼容端点没有内置目录，请把端点上部署的模型添加进来（含参数）。接入后这些模型可在 AI 设定与对话框里选用；连接测试用第一个。")
+                Text(String(localized: .settingsLlmFormCustomCatalogHint))
             }
         } else if let preset {
             SettingsFormSection {
-                Text("模型目录以「\(preset.displayName)」预设为准，共 \(catalog.count) 个模型，接入后可在 AI 设定与对话框里选用；连接测试用目录里第一个。")
+                Text(String(localized: .settingsLlmFormPresetCatalog(preset.displayName, catalog.count)))
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
@@ -364,43 +364,43 @@ struct SettingsBLLMProviderForm: View {
     /// 自定义模型参数子表单：这些参数是 agent 做上下文 / 思考预算决策的依据，必填项带 *
     private var customModelSection: some View {
         SettingsFormSection {
-            SettingsBTextField(label: "模型 id *", text: $draft.id, placeholder: "如：my-vllm-model", mono: true, identifier: "llm-custom-id")
-            SettingsBNumberField(label: "上下文长度 *", text: $draft.contextWindow, placeholder: "131072", identifier: "llm-custom-context")
-            SettingsBNumberField(label: "最大输出 *", text: $draft.maxOutput, placeholder: "8192", identifier: "llm-custom-max-output")
-            SettingsBNumberField(label: "最大输入（可选）", text: $draft.maxInput, placeholder: "不单独限制可留空", identifier: "llm-custom-max-input")
+            SettingsBTextField(label: String(localized: .settingsLlmUiModelId), text: $draft.id, placeholder: String(localized: .settingsLlmUiModelPlaceholder), mono: true, identifier: "llm-custom-id")
+            SettingsBNumberField(label: String(localized: .settingsLlmUiContextWindow), text: $draft.contextWindow, placeholder: "131072", identifier: "llm-custom-context")
+            SettingsBNumberField(label: String(localized: .settingsLlmUiMaxOutput), text: $draft.maxOutput, placeholder: "8192", identifier: "llm-custom-max-output")
+            SettingsBNumberField(label: String(localized: .settingsLlmUiMaxInput), text: $draft.maxInput, placeholder: String(localized: .settingsLlmUiInputPlaceholder), identifier: "llm-custom-max-input")
 
-            Toggle("支持工具调用", isOn: Binding(
+            Toggle(String(localized: .settingsLlmUiTools), isOn: Binding(
                 get: { draft.supportsTools },
                 set: { draft.supportsTools = $0; draft.parallel = $0 && draft.parallel }
             ))
             .accessibilityIdentifier("llm-custom-tools")
-            Toggle("支持并发工具调用", isOn: $draft.parallel)
+            Toggle(String(localized: .settingsLlmUiParallelTools), isOn: $draft.parallel)
                 .disabled(!draft.supportsTools)
                 .accessibilityIdentifier("llm-custom-parallel")
-            Toggle("输出思考内容", isOn: Binding(
+            Toggle(String(localized: .settingsLlmUiThinkingOutput), isOn: Binding(
                 get: { draft.thinking },
                 set: { draft.thinking = $0; if !$0 { draft.thinkingKind = .none } }
             ))
             .accessibilityIdentifier("llm-custom-thinking")
-            Toggle("支持图片输入", isOn: $draft.vision).accessibilityIdentifier("llm-custom-vision")
-            Toggle("支持视频输入", isOn: $draft.video).accessibilityIdentifier("llm-custom-video")
+            Toggle(String(localized: .settingsLlmUiImageInput), isOn: $draft.vision).accessibilityIdentifier("llm-custom-vision")
+            Toggle(String(localized: .settingsLlmUiVideoInput), isOn: $draft.video).accessibilityIdentifier("llm-custom-video")
 
             if draft.thinking {
                 VStack(alignment: .leading, spacing: 4) {
-                    SettingsBNumberField(label: "思考预算上限 *", text: $draft.thinkingBudget, placeholder: "如：81920", identifier: "llm-custom-thinking-budget")
-                    Text("思维链可用的最大 token 数（thinking_budget 上限），超配供应商会直接报错。")
+                    SettingsBNumberField(label: String(localized: .settingsLlmFormThinkingBudget), text: $draft.thinkingBudget, placeholder: String(localized: .settingsLlmUiBudgetPlaceholder), identifier: "llm-custom-thinking-budget")
+                    Text(String(localized: .settingsLlmUiBudgetHint))
                         .font(.caption).foregroundStyle(Theme.textFaint)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    Picker("思考强度控制", selection: $draft.thinkingKind) {
+                    Picker(String(localized: .settingsLlmUiThinkingControl), selection: $draft.thinkingKind) {
                         ForEach(SettingsBLLMModelDraft.ThinkingKind.allCases) { kind in
                             Text(kind.label).tag(kind)
                         }
                     }
                     .pickerStyle(.menu)
                     .accessibilityIdentifier("llm-custom-thinking-kind")
-                    Text("按端点方言选择；声明后会话输入框出现思考档位选择器，档位只从声明的菜单里选（不做就近换算）。")
+                    Text(String(localized: .settingsLlmFormThinkingHint))
                         .font(.caption).foregroundStyle(Theme.textFaint)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -420,9 +420,9 @@ struct SettingsBLLMProviderForm: View {
                 }
                 if draft.thinkingKind == .effort || draft.thinkingKind == .budget {
                     VStack(alignment: .leading, spacing: 4) {
-                        Toggle("支持关闭思考", isOn: $draft.supportsOff)
+                        Toggle(String(localized: .settingsLlmUiSupportsOff), isOn: $draft.supportsOff)
                             .accessibilityIdentifier("llm-custom-supports-off")
-                        Text("仅当端点有真正的关闭参数时勾选（如 enable_thinking=false）；勾选后档位菜单多出「关」。")
+                        Text(String(localized: .settingsLlmFormOffHint))
                             .font(.caption).foregroundStyle(Theme.textFaint)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -436,7 +436,7 @@ struct SettingsBLLMProviderForm: View {
                 Button {
                     addCustomModel()
                 } label: {
-                    Text("添加到目录").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
+                    Text(String(localized: .settingsLlmUiAddToCatalog)).font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
                 }
                 .discoverProminentButton()
                 .disabled(!draft.isValid)
@@ -445,15 +445,15 @@ struct SettingsBLLMProviderForm: View {
                     draft = SettingsBLLMModelDraft()
                     addingCustom = false
                 } label: {
-                    Text("取消").font(.subheadline.weight(.medium)).frame(maxWidth: .infinity)
+                    Text(String(localized: .commonCancel)).font(.subheadline.weight(.medium)).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.glass)
                 .accessibilityIdentifier("llm-custom-cancel")
             }
         } header: {
-            Text("自定义模型参数")
+            Text(String(localized: .settingsLlmUiCustomParameters))
         } footer: {
-            Text("按端点实际部署的模型规格填写，添加后计入本实例的模型目录")
+            Text(String(localized: .settingsLlmUiCustomParametersHint))
         }
     }
 

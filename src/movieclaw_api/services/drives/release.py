@@ -55,12 +55,14 @@ Gate = Callable[[AsyncSession, Library, LibraryFile], Awaitable[str | None]]
 
 async def _specs_probed(session: AsyncSession, library: Library, file: LibraryFile) -> str | None:
     if file.probe_version is None or file.audio_streams is None:
+        # i18n-ignore: release gate reason for logs only
         return "规格还没探出来"
     return None
 
 
 async def _chapters_done(session: AsyncSession, library: Library, file: LibraryFile) -> str | None:
     if library.extract_chapter_images and file.chapter_images is None:
+        # i18n-ignore: release gate reason for logs only
         return "章节图还没生成"
     return None
 
@@ -72,6 +74,7 @@ async def _segments_done(session: AsyncSession, library: Library, file: LibraryF
         return None
     state = await session.get(MediaSegmentState, file.id)
     if state is None or state.fingerprint_status == "pending":
+        # i18n-ignore: release gate reason for logs only
         return "片头片尾指纹还没算"
     return None
 
@@ -119,21 +122,27 @@ async def try_release(file_id: int) -> str | None:
     async with get_database().session() as session:
         file = await session.get(LibraryFile, file_id)
         if file is None or file.state != FileState.IN_PLACE or not file.local_bytes:
+            # i18n-ignore: release gate reason for logs only
             return "不是在位的本地文件"
         if is_strm(file.file_path):
+            # i18n-ignore: release gate reason for logs only
             return "strm 占位文件不腾空"
         library = await session.get(Library, file.library_id)
         repo = LibraryCloudRepository(session)
         folder = await repo.primary_folder(file.library_id)
         if library is None or folder is None:
+            # i18n-ignore: release gate reason for logs only
             return "库的主根不在网盘"
         if library.keep_local:
+            # i18n-ignore: release gate reason for logs only
             return "这个库开着「本地也保留一份」"
         replica = await repo.replica_of(file_id)
         if replica is None or replica.state != REPLICA_VERIFIED:
+            # i18n-ignore: release gate reason for logs only
             return "网盘副本还没核验"
         fingerprint = await repo.fingerprint_of(file_id)
         if fingerprint is None:
+            # i18n-ignore: release gate reason for logs only
             return "没有本地指纹"
         timed_out = (
             replica.verified_at is not None and utcnow() - replica.verified_at > GATE_TIMEOUT
@@ -148,25 +157,31 @@ async def try_release(file_id: int) -> str | None:
         account_id, remote_id = replica.account_id, replica.remote_id
         remote_size = replica.size_bytes
     if _in_use(file_id):
+        # i18n-ignore: release gate reason for logs only
         return "有人正在读这个文件"
     stat = await asyncio.to_thread(_stat, path)
     if stat is None:
+        # i18n-ignore: release gate reason for logs only
         return "本地文件不见了"
     if (stat.st_size, stat.st_mtime_ns) != (fingerprint.size_bytes, fingerprint.file_mtime_ns):
+        # i18n-ignore: release gate reason for logs only
         return "本地文件在指纹之后变过"
     try:
         remote = await gateway.call(
             account_id, "stat", priority=gateway.Priority.BACKGROUND, remote_id=remote_id
         )
     except dv.DriveError as exc:
+        # i18n-ignore: release gate reason for logs only
         return f"网盘那份核对不了：{exc.message}"
     if remote.size != stat.st_size or (remote_size is not None and remote.size != remote_size):
+        # i18n-ignore: release gate reason for logs only
         return "网盘那份大小对不上"
     hardlinked = stat.st_nlink > 1
     # 先记台账，再删文件
     async with get_database().session() as session:
         file = await session.get(LibraryFile, file_id)
         if file is None or not file.local_bytes:
+            # i18n-ignore: release gate reason for logs only
             return "台账已经变了"
         file.local_bytes = False
         file.local_released_at = utcnow()
@@ -185,6 +200,7 @@ async def try_release(file_id: int) -> str | None:
                 session.add(file)
                 await session.commit()
         logger.warning("腾空本地失败（已改回本地在）：%s（%s）", path, exc)
+        # i18n-ignore: release gate reason for logs only
         return f"删不掉本地文件：{exc}"
     # 只清变空的目录：还有旁车或别的文件就非空，rmdir 不动它
     await asyncio.to_thread(_prune_emptied_dirs, {path.parent}, roots)
@@ -236,12 +252,14 @@ async def candidates(limit: int = SWEEP_BATCH) -> list[int]:
 @register_task(
     "drive_release_sweep",
     title="网盘库腾空本地",
+    title_key="settings.scheduledTasks.catalog.driveReleaseSweepTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=600,
     description=(
         "主根在网盘的库：已上传并核验、本地派生活做完、没人在读的文件，删掉本地那份（旁车文件保留）。"
         "开了「本地也保留一份」的库不腾空。"
     ),
+    description_key="settings.scheduledTasks.catalog.driveReleaseSweepDescription",
 )
 async def release_sweep() -> int:
     released = 0

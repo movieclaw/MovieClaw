@@ -137,7 +137,7 @@ final class TVStageClipPlayer: TVStagePlayback {
                 }
             }
         case .failed:
-            state = .failed(error ?? "片段放不了")
+            state = .failed(error ?? String(localized: .reelsCannotPlay))
         default:
             break
         }

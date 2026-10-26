@@ -1,3 +1,6 @@
+import { appTranslator } from "../i18n/translate.ts";
+import { requestLocale, type AppLocale } from "../i18n/negotiate.ts";
+
 /**
  * 音轨菜单（docs/design/web-player.md §6.9）。
  *
@@ -25,16 +28,12 @@ export interface AudioOption {
 }
 
 /** 声道数 → 人话。5.1 / 7.1 是通用写法，别写「6 声道」。 */
-const CHANNEL_LABELS: Record<number, string> = {
-  1: "单声道",
-  2: "立体声",
-  6: "5.1",
-  8: "7.1",
-};
-
-function channelLabel(channels: number | null): string | null {
+function channelLabel(channels: number | null, locale: AppLocale): string | null {
   if (!channels) return null;
-  return CHANNEL_LABELS[channels] ?? `${channels} 声道`;
+  const t = appTranslator(locale);
+  if (channels === 1) return t("player.tracks.mono");
+  if (channels === 2) return t("player.tracks.stereo");
+  return ({ 6: "5.1", 8: "7.1" } as Record<number, string>)[channels] ?? t("player.tracks.channels", { count: channels });
 }
 
 /**
@@ -44,17 +43,18 @@ function channelLabel(channels: number | null): string | null {
  * 信息。没有语言标记时退回序号，不能一律叫「未知语言」：那样多条无标记的轨
  * 会长得一模一样，菜单等于没得选。
  */
-export function audioTrackLabel(track: AudioTrack): string {
-  const name = languageLabel(track.language) ?? refLabel(track.ref);
-  const rest = [(track.codec || "").toUpperCase() || null, channelLabel(track.channels)].filter(
+export function audioTrackLabel(track: AudioTrack, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const name = languageLabel(track.language, locale) ?? refLabel(track.ref, locale);
+  const rest = [(track.codec || "").toUpperCase() || null, channelLabel(track.channels, locale)].filter(
     Boolean,
   );
   return rest.length ? `${name} · ${rest.join(" · ")}` : name;
 }
 
-function refLabel(ref: string): string {
-  if (ref.startsWith("embedded:")) return `音轨 ${ref.slice("embedded:".length)}`;
-  return "未知音轨";
+function refLabel(ref: string, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  if (ref.startsWith("embedded:")) return t("player.tracks.audioIndex", { index: ref.slice("embedded:".length) });
+  return t("player.tracks.unknownAudio");
 }
 
 /**
@@ -63,11 +63,11 @@ function refLabel(ref: string): string {
  * **只有一条轨时返回空列表**：没得选的菜单是纯噪音，调用方据此把整个按钮
  * 藏起来。绝大多数片子只有一条音轨，多音轨才是需要这个入口的那少数。
  */
-export function planAudioOptions(tracks: AudioTrack[] | undefined): AudioOption[] {
+export function planAudioOptions(tracks: AudioTrack[] | undefined, locale: AppLocale = requestLocale() ?? "zh-Hans"): AudioOption[] {
   if (!tracks || tracks.length < 2) return [];
   return tracks.map((track) => ({
     ref: track.ref,
-    label: audioTrackLabel(track),
+    label: audioTrackLabel(track, locale),
     isDefault: track.is_default,
   }));
 }

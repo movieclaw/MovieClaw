@@ -16,6 +16,16 @@ from movieclaw_api.app import create_app
 from movieclaw_api.services import media_discover
 from movieclaw_media.service import MediaDiscoverService
 
+# Isolated i18n wait scenarios use unambiguous ASCII original titles for TV releases.
+if os.environ.get("MC_LAB_SMART_SELECTION") == "1":
+    for identity, original in (
+        (801, "Selection Alpha"),
+        (802, "Selection Beta"),
+        (805, "Selection Gamma"),
+    ):
+        SHOWS[identity]["original_name"] = original
+
+
 media_discover.get_tmdb_client = lambda: _fake_tmdb(ROUTES)
 subscriptions.get_tmdb_client = media_discover.get_tmdb_client
 media_discover.get_media_service = lambda: MediaDiscoverService(
@@ -34,9 +44,18 @@ if os.environ.get("MC_LAB_LEGACY_SERVER") == "1":
 
 @app.post("/__lab/release/{kind}/{tmdb_id}")
 async def release(
-    kind: str, tmdb_id: int, name: str = "RAW", subs: str = "", hours_ago: int = 0
+    kind: str,
+    tmdb_id: int,
+    name: str = "RAW",
+    subs: str = "",
+    hours_ago: int = 0,
+    hdr: str = "",
+    labels: str = "",
 ):
-    """站点上出现一个资源（默认 4K WEB-DL、不带字幕声明），并立即走一遍真实匹配。"""
+    """站点上出现一个资源（默认 4K WEB-DL、不带字幕声明），并立即走一遍真实匹配。
+
+    ``hdr``（逗号分隔，如 ``DV`` / ``DV,HDR10``）是标题里的 HDR 记号，``labels`` 是站点标记
+    （如 ``中字,DoVi``），用来造「不要杜比视界 Profile 5」的验收场景。"""
     from sqlmodel import select
 
     from movieclaw_api.services.subscription.matching import evaluate_and_dispatch
@@ -56,6 +75,10 @@ async def release(
         "release_group": name,
         "subtitle_languages": [s for s in subs.split(",") if s],
     }
+    if hdr:
+        attrs["hdr"] = [h for h in hdr.split(",") if h]
+    if labels:
+        attrs["site_labels"] = [label for label in labels.split(",") if label]
     episode = ""
     if kind == "tv":
         attrs.update(seasons=[1], episodes=[1])
@@ -64,7 +87,8 @@ async def release(
         row = SiteTorrent(
             site_id="lab",
             torrent_id=f"{kind}-{tmdb_id}-{name}",
-            title=f"{original}{episode} {attrs['year']} 2160p WEB-DL-{name}",
+            title=f"{original}{episode} {attrs['year']} 2160p WEB-DL"
+            f"{' ' + ' '.join(attrs['hdr']) if hdr else ''}-{name}",
             subtitle="",
             attrs=attrs,
             enrich_version=1,

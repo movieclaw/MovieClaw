@@ -71,7 +71,7 @@ struct ActivityHandoffButton: View {
                 Button {
                     Task { await handoff() }
                 } label: {
-                    Text(busy ? "正在整理上下文…" : "交给 AI 分析")
+                    Text(busy ? String(localized: .agentHandoffPreparing) : String(localized: .agentHandoffAnalyze))
                         .font(.subheadline.weight(.medium))
                 }
                 .buttonStyle(.glass)
@@ -90,7 +90,7 @@ struct ActivityHandoffButton: View {
             onBeforeNavigate?()
             router.open(.session(id: sessionId))
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "无法发起 AI 分析" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .agentHandoffFailed) : error.localizedDescription)
         }
     }
 }

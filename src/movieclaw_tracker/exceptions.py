@@ -11,10 +11,20 @@ class TrackerException(Exception):
         message: str = "tracker operation failed",
         *,
         details: dict[str, Any] | None = None,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
         self.details = details
+        self.message_key = message_key
+        self.params = params or {}
+
+    @property
+    def message_ref(self) -> dict | None:
+        if not self.message_key:
+            return None
+        return {"message": self.message, "message_key": self.message_key, "params": self.params}
 
 
 class TrackerAuthError(TrackerException):
@@ -25,8 +35,10 @@ class TrackerAuthError(TrackerException):
         message: str = "authentication failed",
         *,
         details: dict[str, Any] | None = None,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, details=details)
+        super().__init__(message, details=details, message_key=message_key, params=params)
 
 
 class TrackerNetworkError(TrackerException):

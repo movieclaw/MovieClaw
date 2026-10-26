@@ -41,7 +41,7 @@ struct TaskCenterPanel: View {
             if activity.activeTotal > 0 {
                 activeTimeline(activity)
             } else {
-                placeholder(title: "当前没有进行中的任务", message: "新任务启动后会自动出现在这里。")
+                placeholder(title: String(localized: .activityTaskCenterEmptyActive), message: String(localized: .activityTaskCenterEmptyActiveAppears))
             }
         case .history:
             if !activity.standaloneHistoricalJobs.isEmpty {
@@ -52,7 +52,7 @@ struct TaskCenterPanel: View {
                     onUndismiss: { actions.undismiss($0, api: api, feedback: feedback, store: store) }
                 )
             } else {
-                placeholder(title: "还没有历史记录", message: "完成、取消，以及被你忽略的后台作业都会保留在这里。")
+                placeholder(title: String(localized: .activityTaskCenterEmptyHistory), message: String(localized: .activityTaskCenterEmptyHistoryHint))
             }
         }
     }
@@ -91,7 +91,7 @@ struct TaskCenterPanel: View {
         if store.downloadsLoading || !store.jobsLoaded {
             HStack(spacing: 10) {
                 ProgressView()
-                Text("正在汇总任务…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .activityTaskCenterLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 70)
@@ -111,10 +111,13 @@ struct TaskSourceWarning: View {
         let failed = store.sources.filter { $0.status != "active" }
         if !failed.isEmpty || store.downloadsError != nil {
             let message = store.downloadsError
-                ?? failed.map { "「\($0.name)」\($0.message.flatMap { $0.isEmpty ? nil : $0 } ?? "当前不可用")" }.joined(separator: "；")
+                ?? AppFormatting.clauses(failed.map { source in
+                    source.message.flatMap { $0.isEmpty ? nil : String(localized: .activityTaskCenterSourceMessage(source.name, $0)) }
+                        ?? String(localized: .activityTaskCenterSourceUnavailable(source.name))
+                })
             ActivityWarningBanner(message: message) {
                 Button { router.open(.settingsSection(.downloaders)) } label: {
-                    Text("检查设置")
+                    Text(String(localized: .activityTaskCenterCheckSettings))
                         .font(.subheadline.weight(.semibold))
                         .expandedHitArea(vertical: 12)
                 }
@@ -143,10 +146,10 @@ final class TaskCenterActions {
             defer { replacingTaskId = nil }
             do {
                 _ = try await api.dlTorrentReplace(downloaderId: downloaderId, infoHash: task.infoHash)
-                feedback.success("已开始寻找同品质替代源；旧任务会保留到新源产生真实进度")
+                feedback.success(String(localized: .activityTaskCenterReplacementStarted))
                 store.refreshDownloads()
             } catch {
-                feedback.error(error.localizedDescription.isEmpty ? "立即换种失败" : error.localizedDescription)
+                feedback.error(error.localizedDescription.isEmpty ? String(localized: .activityTaskCenterReplacementFailed) : error.localizedDescription)
             }
         }
     }
@@ -155,11 +158,11 @@ final class TaskCenterActions {
         guard let downloaderId = task.downloaderId else { return }
         do {
             let result = try await api.dlTorrentDelete(downloaderId: downloaderId, infoHash: task.infoHash, deleteFiles: deleteFiles)
-            feedback.success(result.deleteFiles ? "种子任务和数据文件已删除" : "种子任务已删除，数据文件已保留")
+            feedback.success(result.deleteFiles ? String(localized: .activityTaskCenterRemovedFiles) : String(localized: .activityTaskCenterRemovedKeepFiles))
             pendingDelete = nil
             store.refreshDownloads()
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "删除种子任务失败" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .activityTaskCenterRemoveFailed) : error.localizedDescription)
         }
     }
 
@@ -170,9 +173,9 @@ final class TaskCenterActions {
             defer { cancellingJobId = nil }
             do {
                 store.upsert(try await api.jobsCancel(jobId: job.id).job)
-                feedback.success("已提交取消请求")
+                feedback.success(String(localized: .activityTaskCenterCancelRequested))
             } catch {
-                feedback.error(error.localizedDescription.isEmpty ? "取消任务失败" : error.localizedDescription)
+                feedback.error(error.localizedDescription.isEmpty ? String(localized: .activityTaskCenterCancelFailed) : error.localizedDescription)
             }
         }
     }
@@ -186,9 +189,9 @@ final class TaskCenterActions {
             do {
                 let result = try await api.jobsDismissAll()
                 for job in result.jobs { store.upsert(job) }
-                feedback.success(result.jobs.isEmpty ? "当前没有需要忽略的失败任务" : "已忽略 \(result.jobs.count) 个失败任务")
+                feedback.success(result.jobs.isEmpty ? String(localized: .activityTaskCenterDismissNone) : String(localized: .activityTaskCenterDismissedCount(result.jobs.count)))
             } catch {
-                feedback.error(error.localizedDescription.isEmpty ? "批量忽略失败" : error.localizedDescription)
+                feedback.error(error.localizedDescription.isEmpty ? String(localized: .activityTaskCenterDismissAllFailed) : error.localizedDescription)
             }
         }
     }
@@ -200,9 +203,9 @@ final class TaskCenterActions {
             defer { undismissingJobId = nil }
             do {
                 store.upsert(try await api.jobsUndismiss(jobId: job.id).job)
-                feedback.success("已撤销忽略，任务回到「需要处理」")
+                feedback.success(String(localized: .activityTaskCenterRestoredAttention))
             } catch {
-                feedback.error(error.localizedDescription.isEmpty ? "撤销忽略失败" : error.localizedDescription)
+                feedback.error(error.localizedDescription.isEmpty ? String(localized: .activityTaskCenterRestoreFailed) : error.localizedDescription)
             }
         }
     }
@@ -214,9 +217,9 @@ final class TaskCenterActions {
             defer { retryingJobId = nil }
             do {
                 store.upsert(try await api.jobsRetry(jobId: job.id).job)
-                feedback.success("任务已重新加入队列")
+                feedback.success(String(localized: .activityTaskCenterRequeued))
             } catch {
-                feedback.error(error.localizedDescription.isEmpty ? "重新执行失败" : error.localizedDescription)
+                feedback.error(error.localizedDescription.isEmpty ? String(localized: .activityTaskCenterRetryFailed) : error.localizedDescription)
             }
         }
     }
@@ -321,7 +324,7 @@ struct ActiveJobFeedItem: View {
                 Spacer(minLength: 0)
                 if job.status != "cancelling" {
                     Button(action: onCancel) {
-                        Text(cancelling ? "正在取消…" : "取消任务")
+                        Text(cancelling ? String(localized: .activityJobsCancellingAction) : String(localized: .activityJobsCancelAction))
                             .font(.caption.weight(.medium))
                             .foregroundStyle(Theme.textFaint)
                             .expandedHitArea(vertical: 14)
@@ -353,7 +356,8 @@ struct ActiveJobFeedItem: View {
             if let amount = TaskCenter.feedProgressAmount(job) {
                 Text(amount).font(.caption).monospacedDigit().foregroundStyle(Theme.textFaint)
             }
-            Text("\(TaskCenter.feedOriginLabel(job)) · \(job.startedAt.map { "\(ActivityFormat.clock($0)) 开始" } ?? "\(ActivityFormat.clock(job.createdAt)) 发起")")
+            Text(TaskCenter.feedOriginLabel(job) + " · " + (job.startedAt.map { String(localized: .activityTaskCenterStartedAt(ActivityFormat.clock($0))) }
+                ?? String(localized: .activityTaskCenterCreatedAt(ActivityFormat.clock(job.createdAt)))))
                 .font(.caption)
                 .foregroundStyle(Theme.textFaint.opacity(0.8))
                 .padding(.top, 2)
@@ -403,9 +407,9 @@ struct TaskHistorySection: View {
                     } label: {
                         HStack(spacing: 8) {
                             Text(group.label).fontWeight(.semibold)
-                            Text("\(group.jobs.count) 项").font(.caption).monospacedDigit().foregroundStyle(Theme.textFaint)
+                            Text(String(localized: .activityTaskCenterItemCount(group.jobs.count))).font(.caption).monospacedDigit().foregroundStyle(Theme.textFaint)
                             Spacer()
-                            Text(open ? "收起" : "展开").font(.caption).foregroundStyle(Theme.textFaint)
+                            Text(open ? String(localized: .commonCollapse) : String(localized: .commonExpand)).font(.caption).foregroundStyle(Theme.textFaint)
                             Image(systemName: "chevron.right").font(.caption).rotationEffect(.degrees(open ? 90 : 0))
                         }
                         .font(.subheadline)
@@ -477,7 +481,7 @@ struct HistoricalJobFeedItem: View {
             Spacer(minLength: 0)
             if dismissed {
                 Button(action: onUndismiss) {
-                    Text(undismissing ? "撤销中…" : "撤销忽略")
+                    Text(undismissing ? String(localized: .activityJobsRestoringAction) : String(localized: .activityJobsRestoreAction))
                         .font(.caption.weight(.medium)).foregroundStyle(Theme.textFaint)
                         .expandedHitArea(vertical: 14)
                 }
@@ -487,7 +491,7 @@ struct HistoricalJobFeedItem: View {
             }
             if job.status == "cancelled", !TaskCenter.isSystemCancelled(job) {
                 Button(action: onRetry) {
-                    Text(retrying ? "重新执行中…" : "重新执行")
+                    Text(retrying ? String(localized: .activityTaskCenterRetrying) : String(localized: .activityJobsRetryAction))
                         .font(.caption.weight(.medium)).foregroundStyle(Theme.textFaint)
                         .expandedHitArea(vertical: 14)
                 }
@@ -515,8 +519,8 @@ struct IngestHistoryFiles: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(open ? 90 : 0))
-                        Text("查看文件明细")
-                        if fileCount > 0 { Text("\(fileCount) 个").monospacedDigit().foregroundStyle(Theme.textFaint.opacity(0.6)) }
+                        Text(String(localized: .activityTaskCenterFileDetails))
+                        if fileCount > 0 { Text(String(localized: .activityTaskCenterFileCount(fileCount))).monospacedDigit().foregroundStyle(Theme.textFaint.opacity(0.6)) }
                     }
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
@@ -529,7 +533,7 @@ struct IngestHistoryFiles: View {
                         if let context = detail.context { Text(context).foregroundStyle(Theme.textFaint) }
                         ForEach(detail.fileGroups, id: \.label) { group in
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("\(group.label) · \(group.files.count) 个").font(.caption2.weight(.medium)).foregroundStyle(Theme.textFaint)
+                                Text("\(group.label) · \(String(localized: .activityTaskCenterFileCount(group.files.count)))").font(.caption2.weight(.medium)).foregroundStyle(Theme.textFaint)
                                 ForEach(group.files, id: \.self) { file in
                                     Text(file).foregroundStyle(Theme.textMuted).textSelection(.enabled)
                                 }
@@ -563,7 +567,8 @@ struct DeleteDownloadTaskSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("将从「\(TaskCenter.nonEmpty(task.downloaderName) ?? "下载器 \(task.downloaderId ?? 0)")」停止并移除该任务。")
+                    Text(String(localized: .activityTaskCenterDeleteHint(TaskCenter.nonEmpty(task.downloaderName)
+                        ?? String(localized: .activityTaskCenterDownloaderFallback(String(task.downloaderId ?? 0))))))
                         .font(.subheadline).foregroundStyle(Theme.textMuted)
                     Text(TaskCenter.nonEmpty(task.name) ?? task.infoHash)
                         .font(.subheadline)
@@ -574,8 +579,8 @@ struct DeleteDownloadTaskSheet: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.08)))
                     Toggle(isOn: $deleteFiles) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("同时删除数据文件").font(.subheadline.weight(.semibold))
-                            Text("包括已下载和未完成的数据；若文件仍由下载器管理，即使已经入库也可能被删除，且无法恢复。")
+                            Text(String(localized: .activityTaskCenterDeleteFiles)).font(.subheadline.weight(.semibold))
+                            Text(String(localized: .activityTaskCenterDeleteFilesHint))
                                 .font(.caption).foregroundStyle(Theme.textMuted)
                         }
                     }
@@ -585,7 +590,7 @@ struct DeleteDownloadTaskSheet: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(deleteFiles ? Theme.danger.opacity(0.35) : Color.white.opacity(0.08)))
                     .accessibilityIdentifier("delete-files-toggle")
                     if task.source == "subscription" {
-                        Text("关联订阅会保留原工单身份；巡检确认任务无进度后会按换源策略寻找替代源。")
+                        Text(String(localized: .activityTaskCenterKeepSubscriptionHint))
                             .font(.caption).foregroundStyle(Color(red: 1, green: 0.95, blue: 0.8).opacity(0.65))
                     }
                     Button(role: .destructive) {
@@ -595,7 +600,7 @@ struct DeleteDownloadTaskSheet: View {
                             busy = false
                         }
                     } label: {
-                        Text(busy ? "正在删除…" : deleteFiles ? "删除任务和文件" : "仅删除任务")
+                        Text(busy ? String(localized: .activityTaskCenterDeleting) : deleteFiles ? String(localized: .activityTaskCenterDeleteWithFiles) : String(localized: .activityTaskCenterDeleteKeepFiles))
                             .font(.body.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 4)
@@ -608,11 +613,11 @@ struct DeleteDownloadTaskSheet: View {
                 }
                 .padding(20)
             }
-            .navigationTitle("删除种子任务？")
+            .navigationTitle(String(localized: .activityTaskCenterDeleteTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }.disabled(busy)
+                    Button(String(localized: .commonCancel)) { dismiss() }.disabled(busy)
                 }
             }
         }

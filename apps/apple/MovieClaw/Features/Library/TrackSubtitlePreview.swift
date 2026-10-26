@@ -48,16 +48,16 @@ struct TrackSubtitlePreviewPage: View {
         }
         .subsFormStyle()
         .navigationTitle(label)
-        .navigationSubtitle(data.map { "共 \($0.eventCount) 条对白" } ?? "")
+        .navigationSubtitle(data.map { String(localized: .librarySubtitlePreviewCues($0.eventCount)) } ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if calibratable, data != nil {
                 ToolbarItem(placement: .primaryAction) {
                     if calibrating {
-                        ProgressView().accessibilityLabel("正在校准时间轴")
+                        ProgressView().accessibilityLabel(String(localized: .librarySubtitlePreviewCalibratingTimeline))
                     } else {
                         // 以影片音轨校准时间轴，成功后覆盖当前这一个字幕文件，不会产生副本
-                        Button("校准时间轴") { Task { await calibrate() } }
+                        Button(String(localized: .librarySubtitlePreviewCalibrate)) { Task { await calibrate() } }
                     }
                 }
             }
@@ -70,7 +70,7 @@ struct TrackSubtitlePreviewPage: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                TrackPreviewBadge(text: stream.external ? "外挂" : "内封")
+                TrackPreviewBadge(text: stream.external ? String(localized: .librarySubtitleGenerationExternal) : String(localized: .librarySubtitleGenerationEmbedded))
                 if let format = data?.format, !format.isEmpty {
                     TrackPreviewBadge(text: format.uppercased())
                 }
@@ -89,13 +89,13 @@ struct TrackSubtitlePreviewPage: View {
     private var content: some View {
         if let error {
             Section {
-                SubsNoticeRow(text: "无法预览这条字幕：\(error)", tone: .error)
-                Button("重新加载") { retryKey += 1 }
+                SubsNoticeRow(text: String(localized: .librarySubtitlePreviewUnavailableReason(error)), tone: .error)
+                Button(String(localized: .librarySubtitlePreviewReload)) { retryKey += 1 }
             }
         } else if let data {
             Section {
                 if data.cues.isEmpty {
-                    Text("字幕已成功解析，但没有可显示的对白")
+                    Text(String(localized: .librarySubtitlePreviewEmpty))
                         .font(.subheadline)
                         .foregroundStyle(Theme.textMuted)
                 } else {
@@ -109,11 +109,11 @@ struct TrackSubtitlePreviewPage: View {
                 HStack(alignment: .top, spacing: 12) {
                     ProgressView()
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(pending ?? (stream.external ? "正在读取字幕…" : "正在抽取内封字幕…"))
+                        Text(pending ?? (stream.external ? String(localized: .librarySubtitlePreviewReading) : String(localized: .librarySubtitlePreviewExtracting)))
                             .font(.subheadline)
                             .foregroundStyle(Theme.text)
                         if pending != nil {
-                            Text("首次读取内封字幕需要通读整个视频文件，读好后会自动显示。")
+                            Text(String(localized: .librarySubtitlePreviewFirstReadHint))
                                 .font(.caption)
                                 .foregroundStyle(Theme.textMuted)
                         }
@@ -166,7 +166,7 @@ struct TrackSubtitlePreviewPage: View {
             } catch {
                 if Task.isCancelled { return }
                 pending = nil
-                self.error = error.localizedDescription.isEmpty ? "字幕预览加载失败，请稍后重试" : error.localizedDescription
+                self.error = error.localizedDescription.isEmpty ? String(localized: .librarySubtitlePreviewLoadFailed) : error.localizedDescription
                 return
             }
         }
@@ -188,7 +188,7 @@ struct TrackSubtitlePreviewPage: View {
             }
         } catch is CancellationError {
         } catch {
-            calibrationNotice = error.localizedDescription.isEmpty ? "校准失败，请稍后再试" : error.localizedDescription
+            calibrationNotice = error.localizedDescription.isEmpty ? String(localized: .librarySubtitlePreviewCalibrateFailed) : error.localizedDescription
         }
     }
 

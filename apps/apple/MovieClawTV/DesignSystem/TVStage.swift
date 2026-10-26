@@ -492,9 +492,9 @@ struct TVStageInfo: View {
 
     /// 「第 2 季 第 6 集 · 集名」：TMDB 没起名字的集（集名就是「第 6 集」「Episode 6」）不重复写
     static func episodeLine(season: Int, episode: Int, name: String?) -> String {
-        let number = "第 \(season) 季 第 \(episode) 集"
+        let number = String(localized: .offlineSeasonEpisode(season, episode))
         guard let name = name?.trimmingCharacters(in: .whitespaces), !name.isEmpty,
-              name.range(of: #"^(第\s*\d+\s*集|Episode\s*\d+)$"#, options: [.regularExpression, .caseInsensitive]) == nil
+              name.range(of: #"^(第\s*\d+\s*集|Episode\s*\d+)$"#, options: [.regularExpression, .caseInsensitive]) == nil // i18n-ignore: matches server episode names
         else { return number }
         return "\(number) · \(name)"
     }

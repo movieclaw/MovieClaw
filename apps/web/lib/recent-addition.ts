@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
+
 export interface RecentAddition {
   season_count: number;
   episode_count: number;
@@ -22,23 +25,24 @@ function pad(value: number): string {
  * 能用一个连续区间说清时保留精确集号；零散或跨季时改为计数，避免 hover
  * 信息层被长范围占满。
  */
-export function formatRecentAddition(addition: RecentAddition): string | null {
+export function formatRecentAddition(addition: RecentAddition, locale?: AppLocale): string | null {
+  const t = appTranslator(locale);
   if (addition.episode_count === 0 || addition.season_count === 0) return null;
   if (addition.season_count > 1) {
-    return `新增${addition.season_count}季 · ${addition.episode_count}集`;
+    return t("library.recentAddition.multiSeason", { seasons: addition.season_count, episodes: addition.episode_count });
   }
 
   const seasonNumber = addition.season_number;
   if (seasonNumber === null) return null;
   if (addition.complete_season) {
-    const seasonLabel = seasonNumber === 0 ? "特别篇" : `第${seasonNumber}季`;
-    return `${seasonLabel} · 全${addition.episode_count}集`;
+    const seasonLabel = seasonNumber === 0 ? t("library.recentAddition.specials") : t("library.recentAddition.season", { season: seasonNumber });
+    return t("library.recentAddition.complete", { season: seasonLabel, episodes: addition.episode_count });
   }
 
   const start = addition.first_episode_number;
   const end = addition.last_episode_number;
   if (start === null || end === null) {
-    return `S${pad(seasonNumber)} · 新增${addition.episode_count}集`;
+    return t("library.recentAddition.partial", { season: `S${pad(seasonNumber)}`, episodes: addition.episode_count });
   }
 
   return start === end
@@ -54,8 +58,9 @@ export function buildRecentAdditionOverlay(
   kind: "movie" | "tv" | "video" | "photo",
   addition: RecentAddition | null | undefined,
   addedTimeLabel: string | null,
+  locale?: AppLocale,
 ): RecentAdditionOverlay | undefined {
-  const episodeLabel = kind === "tv" && addition ? formatRecentAddition(addition) : null;
+  const episodeLabel = kind === "tv" && addition ? formatRecentAddition(addition, locale) : null;
   if (episodeLabel) {
     return addedTimeLabel
       ? { primary: episodeLabel, secondary: addedTimeLabel }

@@ -30,23 +30,23 @@ struct ProfileSettingsView: View {
                         .settingsRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                 }
-                SettingsFormSection("账号信息") {
-                    LabeledContent("用户名", value: session.username)
+                SettingsFormSection(String(localized: .settingsProfileUiAccount)) {
+                    LabeledContent(String(localized: .settingsMembersCredentialsUsername), value: session.username)
                     Button { editor = .nickname } label: {
-                        row("昵称", value: session.nickname)
+                        row(String(localized: .settingsProfileNickname), value: session.nickname)
                     }
                     .accessibilityIdentifier("profile-nickname-edit")
                 }
-                SettingsFormSection("安全") {
-                    Button { editor = .password } label: { row("修改密码") }
+                SettingsFormSection(String(localized: .settingsProfileSecurity)) {
+                    Button { editor = .password } label: { row(String(localized: .settingsProfileChangePassword)) }
                         .accessibilityIdentifier("profile-password-edit")
                 }
                 SettingsFormSection {
-                    Button { router.present(.accountSwitcher) } label: { row("切换账号") }
+                    Button { router.present(.accountSwitcher) } label: { row(String(localized: .authMenuSwitchAccount)) }
                         .accessibilityIdentifier("profile-switch-account")
-                } footer: { Text("长按底部头像也能切换账号。") }
+                } footer: { Text(String(localized: .settingsProfileUiSwitchHint)) }
                 SettingsFormSection {
-                    Button("退出登录", role: .destructive) { Task { await logout(session) } }
+                    Button(String(localized: .authMenuSignOut), role: .destructive) { Task { await logout(session) } }
                         .frame(maxWidth: .infinity)
                         .accessibilityIdentifier("logout")
                 }
@@ -57,12 +57,12 @@ struct ProfileSettingsView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     if clearing || loggingOut { ProgressView() } else {
                         Menu {
-                            Button("清空观看记录", systemImage: "clock.arrow.circlepath", role: .destructive) {
+                            Button(String(localized: .settingsProfileClearHistoryAction), systemImage: "clock.arrow.circlepath", role: .destructive) {
                                 Task { await clearHistory() }
                             }
                             .accessibilityIdentifier("profile-clear-history")
                         } label: { Image(systemName: "ellipsis") }
-                        .accessibilityLabel("个人信息操作")
+                        .accessibilityLabel(String(localized: .settingsProfileUiActions))
                         .accessibilityIdentifier("profile-actions")
                         .disabled(busy)
                     }
@@ -75,15 +75,15 @@ struct ProfileSettingsView: View {
                 case .nickname:
                     ProfileNicknameSheet(nickname: session.nickname) { updated in
                         model.update(session: updated)
-                        savedMessage = "昵称已保存"
+                        savedMessage = String(localized: .settingsProfileUiNicknameSaved)
                     }
                     .sheetFeedback()
                 case .password:
                     ProfilePasswordSheet { updated, revokedPaired in
                         model.update(session: updated)
                         savedMessage = revokedPaired
-                            ? "密码已修改，其他登录设备与配对设备已下线。本机保持登录。"
-                            : "密码已修改，其他密码登录设备已下线。本机保持登录。"
+                            ? String(localized: .settingsProfileUiPasswordChangedPaired)
+                            : String(localized: .settingsProfileUiPasswordChanged)
                     }
                     .sheetFeedback()
                 }
@@ -109,20 +109,20 @@ struct ProfileSettingsView: View {
                         }
                     }
                     .frame(width: 88, height: 88)
-                    Text(avatarBusy ? "正在上传…" : "更换头像").font(.subheadline)
+                    Text(avatarBusy ? String(localized: .settingsProfileUiUploading) : String(localized: .settingsProfileChangeAvatar)).font(.subheadline)
                 }
                 .frame(minHeight: 44)
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.accent)
-            .accessibilityLabel(avatarBusy ? "正在上传头像" : "更换头像")
+            .accessibilityLabel(avatarBusy ? String(localized: .settingsProfileUiUploadingAvatar) : String(localized: .settingsProfileChangeAvatar))
             .accessibilityIdentifier("profile-avatar")
             Text(session.nickname.isEmpty ? session.username : session.nickname)
                 .font(.title2.weight(.semibold))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("profile-nickname-display")
-            Text(session.role == "member" ? "成员" : "超级管理员")
+            Text(session.role == "member" ? String(localized: .settingsMembersTitle) : String(localized: .authRoleSuperAdmin))
                 .font(.subheadline).foregroundStyle(.secondary)
             if let avatarError {
                 Text(avatarError).font(.footnote).foregroundStyle(Theme.danger)
@@ -146,9 +146,9 @@ struct ProfileSettingsView: View {
     }
 
     private func logout(_ session: API.SessionView) async {
-        guard await feedback.confirm("退出当前账号？",
-            message: "将退出「\(session.nickname)」在本机的登录，其他已登录账号会保留。",
-            confirmTitle: "退出登录", destructive: true) else { return }
+        guard await feedback.confirm(String(localized: .settingsProfileUiSignOutTitle),
+            message: String(localized: .settingsProfileUiSignOutHint(session.nickname)),
+            confirmTitle: String(localized: .authMenuSignOut), destructive: true) else { return }
         await OfflineDownloadCleanup.askOnLogout(feedback: feedback)
         loggingOut = true
         await model.logout()
@@ -162,11 +162,11 @@ struct ProfileSettingsView: View {
         defer { avatarBusy = false }
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else {
-                avatarError = "读取图片失败"
+                avatarError = String(localized: .settingsImageUploadReadFailed)
                 return
             }
             guard let jpeg = APIClient.compressedJPEG(data, maxEdge: 512) else {
-                avatarError = "图片解码失败，请换一张试试"
+                avatarError = String(localized: .settingsImageUploadDecodeFailed)
                 return
             }
             let session = try await api.upload(
@@ -177,16 +177,16 @@ struct ProfileSettingsView: View {
             model.update(session: session)
         } catch is CancellationError {
         } catch {
-            avatarError = error.localizedDescription.isEmpty ? "上传失败，请重试" : error.localizedDescription
+            avatarError = error.localizedDescription.isEmpty ? String(localized: .settingsAppearanceUploadFailed) : error.localizedDescription
         }
     }
 
     /// 只删当前登录身份自己的记录；成功提示用后端返回的中文 message（同 Web）
     private func clearHistory() async {
         let ok = await feedback.confirm(
-            "清空全部观看记录？",
-            message: "所有作品的续播进度、已看标记和播放次数都会清除，首页「最近观看」与播放器的「继续观看」随即清空，无法恢复。只影响你自己的记录；应用更新前的自动备份仍包含历史记录。",
-            confirmTitle: "清空",
+            String(localized: .settingsProfileClearHistoryTitle),
+            message: String(localized: .settingsProfileClearHistoryDescription),
+            confirmTitle: String(localized: .commonClear),
             destructive: true
         )
         guard ok else { return }
@@ -196,7 +196,7 @@ struct ProfileSettingsView: View {
             let envelope: APIEnvelope<API.PlaybackHistoryClearView> = try await api.raw(
                 "DELETE", "/playback/history", query: [URLQueryItem(name: "scope", value: "all")]
             )
-            feedback.success(envelope.message ?? "观看记录已清空")
+            feedback.success(envelope.message ?? String(localized: .settingsProfileUiHistoryCleared))
         } catch {
             feedback.error(error)
         }

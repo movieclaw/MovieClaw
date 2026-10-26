@@ -140,7 +140,12 @@ class OpenAIProtocolBase(BaseLlmProtocol):
             return exc
         openai = _sdk()
         if isinstance(exc, openai.AuthenticationError | openai.PermissionDeniedError):
-            return LlmAuthError(f"认证失败，请检查 API Key 是否有效：{exc}", provider=name)
+            return LlmAuthError(
+                f"认证失败，请检查 API Key 是否有效：{exc}",
+                provider=name,
+                message_key="errors.llm.connection.auth",
+                params={"detail": str(exc)},
+            )
         if isinstance(exc, openai.RateLimitError):
             retry_after = None
             headers = getattr(exc.response, "headers", None)
@@ -150,27 +155,62 @@ class OpenAIProtocolBase(BaseLlmProtocol):
                     with contextlib.suppress(ValueError):
                         retry_after = float(raw)
             return LlmRateLimitError(
-                f"触发供应商限流，请稍后重试：{exc}", provider=name, retry_after=retry_after
+                f"触发供应商限流，请稍后重试：{exc}",
+                provider=name,
+                retry_after=retry_after,
+                message_key="errors.llm.connection.rate",
+                params={"detail": str(exc)},
             )
         if isinstance(exc, openai.APITimeoutError | openai.APIConnectionError):
             return LlmConnectError(
-                f"连接模型服务失败，请检查网络与 base_url 配置：{exc}", provider=name
+                f"连接模型服务失败，请检查网络与 base_url 配置：{exc}",
+                provider=name,
+                message_key="errors.llm.connection.connect",
+                params={"detail": str(exc)},
             )
         if isinstance(exc, openai.BadRequestError):
             code = getattr(exc, "code", None)
             if code in _CONTENT_FILTER_CODES:
-                return LlmContentFilterError(f"内容被供应商合规审查拦截：{exc}", provider=name)
+                return LlmContentFilterError(
+                    f"内容被供应商合规审查拦截：{exc}",
+                    provider=name,
+                    message_key="errors.llm.connection.filter",
+                    params={"detail": str(exc)},
+                )
             hint = _RESPONSES_REQUIRED_HINT if "/v1/responses" in str(exc) else ""
-            return LlmRequestError(f"请求参数错误：{exc}{hint}", provider=name)
+            return LlmRequestError(
+                f"请求参数错误：{exc}{hint}",
+                provider=name,
+                message_key="errors.llm.connection.request",
+                params={
+                    "detail": str(exc),
+                    "hint": (
+                        {"message_key": "errors.llm.connection.responsesHint", "params": {}}
+                        if hint
+                        else ""
+                    ),
+                },
+            )
         if isinstance(exc, openai.APIStatusError):
             if exc.status_code >= 500:
                 return LlmServerError(
-                    f"模型服务暂时出错（HTTP {exc.status_code}）：{exc}", provider=name
+                    f"模型服务暂时出错（HTTP {exc.status_code}）：{exc}",
+                    provider=name,
+                    message_key="errors.llm.connection.server",
+                    params={"status": exc.status_code, "detail": str(exc)},
                 )
             return LlmRequestError(
-                f"模型服务返回错误（HTTP {exc.status_code}）：{exc}", provider=name
+                f"模型服务返回错误（HTTP {exc.status_code}）：{exc}",
+                provider=name,
+                message_key="errors.llm.connection.http",
+                params={"status": exc.status_code, "detail": str(exc)},
             )
-        return LlmConnectError(f"调用模型服务时发生未知错误：{exc}", provider=name)
+        return LlmConnectError(
+            f"调用模型服务时发生未知错误：{exc}",
+            provider=name,
+            message_key="errors.llm.connection.unknown",
+            params={"detail": str(exc)},
+        )
 
     async def test_connection(self) -> ProviderInfo:
         try:
@@ -242,7 +282,7 @@ class StreamAccumulator:
         self._finalized[index] = tc
         return tc
 
-    def snapshot(self, error: str | None = None) -> ChatResponse:
+    def snapshot(self, error: str | None = None, error_ref: dict | None = None) -> ChatResponse:
         tool_calls = [
             self._finalized.get(i) or self.tool_snapshot(i) for i in self.tool_order
         ] or None
@@ -255,9 +295,16 @@ class StreamAccumulator:
             model=self.model_id,
             provider=self.provider,
             error=error,
+            error_ref=error_ref,
             native_output=self.native_output,
         )
 
-    def error_event(self, message: str) -> ChatStreamEvent:
+    def error_event(self, message: str | LlmError) -> ChatStreamEvent:
         self.finish_reason = "error"
-        return ChatStreamEvent(type="error", partial=self.snapshot(error=message))
+        return ChatStreamEvent(
+            type="error",
+            partial=self.snapshot(
+                error=str(message),
+                error_ref=message.message_ref if isinstance(message, LlmError) else None,
+            ),
+        )

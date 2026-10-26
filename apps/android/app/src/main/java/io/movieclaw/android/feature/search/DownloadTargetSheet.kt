@@ -52,6 +52,7 @@ import io.movieclaw.android.core.designsystem.Warning
 import io.movieclaw.android.core.model.DownloadTargetPrefView
 import io.movieclaw.android.core.model.ManualDownloadCandidateView
 import io.movieclaw.android.core.model.TorrentHit
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 private val SheetSurface = Color(0xFF15161A)
 private val SheetCard = Color.White.copy(alpha = 0.05f)
@@ -244,6 +245,7 @@ fun DownloadTargetSheet(
             Modifier
                 .fillMaxWidth()
                 .heightIn(max = 620.dp)
+                .formSheetScroll()
                 .verticalScroll(rememberScrollState())
                 .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
         ) {

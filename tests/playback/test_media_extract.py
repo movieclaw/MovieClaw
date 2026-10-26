@@ -17,6 +17,8 @@ from types import SimpleNamespace
 import pytest
 
 import movieclaw_api.services.media_extract as media_extract
+from movieclaw_api.i18n import use_locale
+from movieclaw_api.i18n.stored import render_value, source_render
 from movieclaw_db.models import FileSource, FileState, LibraryFile
 
 
@@ -639,7 +641,7 @@ async def test_failure_reason_tells_timeout_from_ffmpeg_error(
     monkeypatch.setattr(media_extract, "_PROCESS_KILL_TIMEOUT", 0.01)
     slow_file = make_multi_file(slow, ["subrip"], file_id=301)
     assert await media_extract.extract_track_async(slow_file, 0) is None
-    assert "读取超时" in (media_extract.failure_reason(slow_file, 0) or "")
+    assert "读取超时" in source_render(media_extract.failure_reason(slow_file, 0))
 
     broken = tmp_path / "broken.mkv"
     broken.write_bytes(b"source")
@@ -650,7 +652,10 @@ async def test_failure_reason_tells_timeout_from_ffmpeg_error(
     monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", failing_exec)
     broken_file = make_multi_file(broken, ["subrip"], file_id=302)
     assert await media_extract.extract_track_async(broken_file, 0) is None
-    assert media_extract.failure_reason(broken_file, 0) == "ffmpeg 报错：boom"
+    reason = media_extract.failure_reason(broken_file, 0)
+    assert source_render(reason) == "ffmpeg 报错：boom"
+    with use_locale("en"):
+        assert render_value(reason) == "ffmpeg error: boom"
     assert media_extract.needs_extraction(broken_file, 0) is False, "失败过就不再算「待读取」"
 
     # 换了片子（mtime 变了）就忘掉旧结论与原因，值得再读一次

@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import {
   createContext,
   useCallback,
@@ -10,6 +12,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+
+import { useLanguage } from "@/lib/i18n/provider";
 
 import { useToast } from "@/components/feedback";
 import {
@@ -133,6 +137,9 @@ function themeIsPending(requested: string, catalogSettled: boolean): boolean {
 }
 
 export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
+  const locale = useLocale();
+  const t = useTranslations();
+  const { setLanguage } = useLanguage();
   // 惰性初始化读缓存：本 Provider 只在 AuthGate 确认登录后于客户端渲染
   // （见 components/app-shell.tsx），不参与 SSR，故可直接读 localStorage。
   // 缓存内容不可信，统一过一遍 normalizeUiPreferences 补齐缺项（无缓存时
@@ -162,6 +169,10 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!loading) setLanguage(prefs.language);
+  }, [loading, prefs.language, setLanguage]);
+
   // 主题目录（docs/design/theme-plugins.md §4.3）：首帧先用上次的快照，这里拉服务端的
   // 整表替换。拉取失败也算「落定」：认不出的主题按默认渲染，不让外壳一直等。
   const catalogVersion = useSyncExternalStore(subscribeThemeCatalog, themeCatalogVersion, () => 0);
@@ -169,13 +180,13 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
   const [catalogSettled, setCatalogSettled] = useState(themeCatalogFresh);
   useEffect(() => {
     let cancelled = false;
-    refreshThemeCatalog()
+    refreshThemeCatalog(locale)
       .catch((err) => console.warn("读取主题目录失败，暂用上次的：", err))
       .finally(() => !cancelled && setCatalogSettled(true));
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [locale]);
 
   // 蒙版是全局 CSS（.page-scrim 的底色 + backdrop-filter），不像侧栏玻璃那样
   // 逐组件传参，因此这里把生效值（含预览草稿）写到 <html> 的 --scrim-blur /
@@ -222,8 +233,8 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
     if (!requestedFailed || warned.current.has(requestedTheme)) return;
     warned.current.add(requestedTheme);
     const label = catalogTheme(requestedTheme)?.label ?? requestedTheme;
-    toast.error(`主题「${label}」加载失败，已临时使用默认主题`);
-  }, [requestedFailed, requestedTheme, toast]);
+    toast.error(t("settings.appearance.loadFallback", { theme: label }));
+  }, [requestedFailed, requestedTheme, toast, t]);
 
   // 某个坑位渲染出错：那一处已回落基础实现（components/theme-slot-boundary.tsx），提示一次
   const slotErrorCount = themeSlotErrors(effectiveTheme).length;
@@ -231,8 +242,8 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
     const key = `${effectiveTheme}:slots`;
     if (slotErrorCount === 0 || warned.current.has(key)) return;
     warned.current.add(key);
-    toast.error(`主题「${themeMeta(effectiveTheme).label}」的部分界面出错，已改用默认样式`);
-  }, [effectiveTheme, slotErrorCount, toast]);
+    toast.error(t("settings.appearance.slotFallback", { theme: themeMeta(effectiveTheme, locale).label }));
+  }, [effectiveTheme, slotErrorCount, toast, t, locale]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -312,9 +323,10 @@ export function useUiPrefs(): UiPrefsContextValue {
  * 消费方必须改用 useThemeState()，原因见该函数说明。
  */
 export function useTheme(): ThemeMeta {
+  const locale = useLocale();
   const ctx = useContext(UiPrefsContext);
   // Provider 外（登录页等）没有偏好可依，按默认主题渲染
-  return themeMeta(ctx ? ctx.themeId : DEFAULT_THEME_ID);
+  return themeMeta(ctx ? ctx.themeId : DEFAULT_THEME_ID, locale);
 }
 
 /**
@@ -329,9 +341,10 @@ export function useTheme(): ThemeMeta {
  * 换路由的分支不会自愈：路由已经跳了。
  */
 export function useThemeState(): { theme: ThemeMeta; loading: boolean } {
+  const locale = useLocale();
   const ctx = useContext(UiPrefsContext);
   return {
-    theme: themeMeta(ctx ? ctx.themeId : DEFAULT_THEME_ID),
+    theme: themeMeta(ctx ? ctx.themeId : DEFAULT_THEME_ID, locale),
     // Provider 外（登录页等）没有偏好可等，直接按「已落定」处理；主题还在加载也算没落定
     loading: ctx ? ctx.loading || ctx.themePending : false,
   };

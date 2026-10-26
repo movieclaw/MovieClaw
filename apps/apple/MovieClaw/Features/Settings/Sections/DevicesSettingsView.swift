@@ -26,21 +26,21 @@ struct DevicesSettingsView: View {
         List {
             SettingsFormSection {
                 Button { router.push(.deviceApproval()) } label: {
-                    Label("批准新设备登录", systemImage: "qrcode.viewfinder")
+                    Label(String(localized: .settingsDevicesUiApprove), systemImage: "qrcode.viewfinder")
                 }
                 .accessibilityIdentifier("devices-approve-entry")
                 if permissions.isAdmin {
                     Button { creatingToken = true } label: {
-                        Label("创建访问令牌", systemImage: "key")
+                        Label(String(localized: .settingsDevicesUiCreateToken), systemImage: "key")
                     }
                     .accessibilityIdentifier("token-create-open")
                 }
             }
             if permissions.isAdmin {
                 SettingsFormSection {
-                    Picker("设备范围", selection: $showAll) {
-                        Text("我的设备").tag(false)
-                        Text("全部成员").tag(true)
+                    Picker(String(localized: .settingsDevicesUiScope), selection: $showAll) {
+                        Text(String(localized: .settingsDevicesUiMine)).tag(false)
+                        Text(String(localized: .settingsDevicesUiAll)).tag(true)
                     }
                     .modifier(DeviceScopeStyle(accessibility: typeSize.isAccessibilitySize))
                     .accessibilityIdentifier("devices-scope")
@@ -93,7 +93,7 @@ struct DevicesSettingsView: View {
         case let .loaded(list):
             if let error { SettingsFormSection { retryRow(error) } }
             if let current = list.first(where: \.current) {
-                SettingsFormSection("当前设备") { deviceLink(current) }
+                SettingsFormSection(String(localized: .settingsDevicesUiCurrent)) { deviceLink(current) }
             }
             SettingsFormSection {
                 ForEach(groups) { group in
@@ -115,8 +115,8 @@ struct DevicesSettingsView: View {
                                     ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
                                     : AnyLayout(HStackLayout(spacing: 8))
                                 layout {
-                                    Text("\(group.items.count) 台设备").foregroundStyle(.secondary)
-                                    DeviceOnlineLabel(online: online > 0, title: "\(online) 在线")
+                                    Text(String(localized: .settingsPushChannelsDeviceCount(group.items.count))).foregroundStyle(.secondary)
+                                    DeviceOnlineLabel(online: online > 0, title: String(localized: .settingsDevicesUiOnlineCount(online)))
                                 }
                                 .font(.subheadline)
                             }
@@ -129,9 +129,9 @@ struct DevicesSettingsView: View {
                     .accessibilityIdentifier("devices-all-\(group.id)")
                 }
             } header: {
-                Text(showAll ? "全部成员的设备" : "我的设备")
+                Text(showAll ? String(localized: .settingsDevicesUiAllMembers) : String(localized: .settingsDevicesUiMine))
             } footer: {
-                Text("包含在线和离线设备。点按设备可查看详情、改名或注销。")
+                Text(String(localized: .settingsDevicesUiListHint))
             }
         }
     }
@@ -140,7 +140,7 @@ struct DevicesSettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             Label(message, systemImage: "exclamationmark.triangle")
                 .font(.subheadline).foregroundStyle(.secondary)
-            Button("重试") { Task { await load() } }
+            Button(String(localized: .commonRetry)) { Task { await load() } }
         }
     }
 
@@ -152,12 +152,12 @@ struct DevicesSettingsView: View {
         return List {
             if let error { SettingsFormSection { retryRow(error) } }
             if !online.isEmpty {
-                SettingsFormSection("在线 · \(online.count)") {
+                SettingsFormSection(String(localized: .settingsDevicesUiOnlineSection(online.count))) {
                     ForEach(online, id: \.id) { deviceLink($0) }
                 }
             }
             if !offline.isEmpty {
-                SettingsFormSection("离线 · \(offline.count)") {
+                SettingsFormSection(String(localized: .settingsDevicesUiOfflineSection(offline.count))) {
                     ForEach(offline, id: \.id) { deviceLink($0) }
                 }
             }
@@ -167,8 +167,8 @@ struct DevicesSettingsView: View {
         .overlay {
             if filtered.isEmpty {
                 if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    ContentUnavailableView("暂无\(group.title)设备", systemImage: group.symbol,
-                                           description: Text("登录或配对后，设备会出现在这里。"))
+                    ContentUnavailableView(String(localized: .settingsDevicesUiEmptyGroup(group.title)), systemImage: group.symbol,
+                                           description: Text(String(localized: .settingsDevicesUiEmptyHint)))
                         .accessibilityIdentifier("devices-list-empty")
                 } else {
                     ContentUnavailableView.search(text: search)
@@ -179,13 +179,13 @@ struct DevicesSettingsView: View {
         .navigationTitle(group.title)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: showAll ? "搜索设备或成员" : "搜索设备")
+                    prompt: showAll ? String(localized: .settingsDevicesUiSearchAll) : String(localized: .settingsDevicesUiSearch))
         .navigationDestination(item: $selectedDevice) { device in deviceDetail(device) }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("清理", role: .destructive) { cleaning = true }
+                Button(String(localized: .settingsDevicesUiCleanup), role: .destructive) { cleaning = true }
                     .tint(Theme.danger)
-                    .accessibilityLabel("清理不活跃的\(group.title)设备")
+                    .accessibilityLabel(String(localized: .settingsDevicesUiCleanupAria(group.title)))
                     .accessibilityIdentifier("devices-cleanup-entry")
                     .popover(isPresented: Binding(get: { cleaning && !typeSize.isAccessibilitySize },
                                                   set: { cleaning = $0 }), arrowEdge: .top) {
@@ -225,7 +225,7 @@ struct DevicesSettingsView: View {
                     let identity = DeviceText.identityParts(device, showOwner: showAll).joined(separator: " · ")
                     if !identity.isEmpty { Text(identity).font(.subheadline).foregroundStyle(.secondary) }
                     DeviceOnlineLabel(online: DeviceText.isLive(device),
-                                      title: device.current ? "本机 · 正在使用" : DeviceText.isLive(device) ? "在线" : DeviceText.activity(device))
+                                      title: device.current ? String(localized: .settingsDevicesUiThisDevice) : DeviceText.isLive(device) ? String(localized: .settingsDevicesUiOnline) : DeviceText.activity(device))
                         .font(.caption)
                 }
                 Spacer(minLength: 8)
@@ -242,51 +242,51 @@ struct DevicesSettingsView: View {
         let device = devices.value?.first { $0.id == initial.id } ?? initial
         return Form {
             SettingsFormSection {
-                LabeledContent("名称", value: device.name)
-                LabeledContent("类型", value: device.kindLabel)
-                LabeledContent("状态") {
+                LabeledContent(String(localized: .settingsPushChannelsName), value: device.name)
+                LabeledContent(String(localized: .settingsDevicesApprovalType), value: device.kindLabel)
+                LabeledContent(String(localized: .settingsDevicesUiStatus)) {
                     DeviceOnlineLabel(online: DeviceText.isLive(device),
-                                      title: device.current ? "本机 · 正在使用" : DeviceText.isLive(device) ? "在线" : "离线")
+                                      title: device.current ? String(localized: .settingsDevicesUiThisDevice) : DeviceText.isLive(device) ? String(localized: .settingsDevicesUiOnline) : String(localized: .settingsDevicesUiOffline))
                 }
-                if showAll { LabeledContent("所属成员", value: device.ownerNickname) }
-                if let platform = device.platform, !platform.isEmpty { LabeledContent("系统", value: platform) }
-                if let version = device.clientVersion { LabeledContent("版本", value: version) }
+                if showAll { LabeledContent(String(localized: .settingsDevicesUiOwner), value: device.ownerNickname) }
+                if let platform = device.platform, !platform.isEmpty { LabeledContent(String(localized: .settingsGroupsSystem), value: platform) }
+                if let version = device.clientVersion { LabeledContent(String(localized: .settingsDevicesApprovalVersion), value: version) }
             }
-            SettingsFormSection("活动") {
-                LabeledContent("最近使用", value: DeviceText.activity(device))
-                if let ip = device.lastSeenIp { LabeledContent("来源地址", value: ip).textSelection(.enabled) }
-                LabeledContent("首次登录", value: SettingsTime.deviceRelative(device.createdAt))
+            SettingsFormSection(String(localized: .navMainActivity)) {
+                LabeledContent(String(localized: .settingsDevicesUiLastUsed), value: DeviceText.activity(device))
+                if let ip = device.lastSeenIp { LabeledContent(String(localized: .settingsDevicesUiSourceIp), value: ip).textSelection(.enabled) }
+                LabeledContent(String(localized: .settingsDevicesUiFirstSignIn), value: SettingsTime.deviceRelative(device.createdAt))
             }
             if let push = device.push {
-                SettingsFormSection("通知") {
+                SettingsFormSection(String(localized: .settingsNotificationsTitle)) {
                     Label(push.statusText, systemImage: push.status == "ok" ? "bell" : "bell.slash")
                         .accessibilityIdentifier("device-push-\(device.name)")
                 }
             }
             SettingsFormSection {
-                LabeledContent("访问权限", value: device.scope == "transcode" ? "仅限转码" : "与所属账号相同")
+                LabeledContent(String(localized: .settingsDevicesUiAccess), value: device.scope == "transcode" ? String(localized: .settingsDevicesManualTranscode) : String(localized: .settingsDevicesUiSameAsOwner))
             } footer: {
-                if DeviceText.isDormant(device) { Text("超过 90 天没有使用。不认识或不再使用的设备可以注销。") }
+                if DeviceText.isDormant(device) { Text(String(localized: .settingsDevicesUiDormantHint)) }
             }
             SettingsFormSection {
-                Button(device.current ? "退出本机登录" : "注销设备", role: .destructive) {
+                Button(device.current ? String(localized: .settingsDevicesUiSignOutThis) : String(localized: .activityWatchRevoke), role: .destructive) {
                     Task { await revoke(device) }
                 }
                 .disabled(busy != nil)
                 .accessibilityIdentifier("device-revoke")
             } footer: {
                 Text(device.kind == "worker" || device.scope == "transcode"
-                     ? "注销会断开转码器并中止正在进行的转码，再次使用需要重新配对。"
-                     : "注销会终止这台设备的访问和播放，再次使用需要重新登录。")
+                     ? String(localized: .settingsDevicesUiRevokeWorkerFooter)
+                     : String(localized: .settingsDevicesUiRevokeFooter))
             }
         }
         .appBackground()
-        .navigationTitle("设备详情")
+        .navigationTitle(String(localized: .settingsDevicesUiDetails))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if device.renamable {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("改名") { Task { await rename(device) } }
+                    Button(String(localized: .settingsDrivesRename)) { Task { await rename(device) } }
                         .disabled(busy != nil)
                         .accessibilityIdentifier("device-rename")
                 }
@@ -295,8 +295,8 @@ struct DevicesSettingsView: View {
     }
 
     private func rename(_ device: API.LoginDeviceView) async {
-        guard let name = await feedback.prompt("给设备改名", message: "例如：客厅的 iPad。", initial: device.name,
-                                              confirmTitle: "保存", maxLength: 64)?
+        guard let name = await feedback.prompt(String(localized: .settingsDevicesUiRenameTitle), message: String(localized: .settingsDevicesUiRenameExample), initial: device.name,
+                                              confirmTitle: String(localized: .commonSave), maxLength: 64)?
             .trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != device.name else { return }
         busy = device.id
         defer { busy = nil }
@@ -308,16 +308,16 @@ struct DevicesSettingsView: View {
 
     private func revoke(_ device: API.LoginDeviceView) async {
         if device.current {
-            guard await feedback.confirm("退出登录？", message: "这台设备需要重新登录才能再次访问。",
-                                         confirmTitle: "退出登录", destructive: true) else { return }
+            guard await feedback.confirm(String(localized: .settingsDevicesUiSignOutTitle), message: String(localized: .settingsDevicesUiSignOutHint),
+                                         confirmTitle: String(localized: .authMenuSignOut), destructive: true) else { return }
             await model.logout()
             return
         }
         let message = device.kind == "worker" || device.scope == "transcode"
-            ? "转码器会立即断开，正在进行的转码会中止，需要重新配对才能再次接入。"
-            : "这台设备会立即失去访问权限，正在播放的也会停止。其他设备不受影响。"
-        guard await feedback.confirm("注销「\(device.name)」？", message: message,
-                                     confirmTitle: "注销", destructive: true) else { return }
+            ? String(localized: .settingsDevicesUiRevokeWorkerHint)
+            : String(localized: .settingsDevicesUiRevokeHint)
+        guard await feedback.confirm(String(localized: .settingsDevicesUiRevokeTitle(device.name)), message: message,
+                                     confirmTitle: String(localized: .settingsDevicesUiRevoke), destructive: true) else { return }
         busy = device.id
         defer { busy = nil }
         do {
@@ -360,10 +360,10 @@ struct DeviceGroup: Identifiable {
 
     static func make(_ list: [API.LoginDeviceView]) -> [Self] {
         [
-            Self(id: "browser", title: "浏览器", symbol: "globe", items: list.filter { $0.kind == "web" }),
+            Self(id: "browser", title: String(localized: .settingsDevicesLabelsGroupBrowser), symbol: "globe", items: list.filter { $0.kind == "web" }),
             Self(id: "app", title: "App", symbol: "apps.iphone", items: list.filter { ["ios", "tvos", "macos", "android", "androidtv"].contains($0.kind) }),
-            Self(id: "paired", title: "命令行与转码器", symbol: "terminal", items: list.filter { !["web", "ios", "tvos", "macos", "android", "androidtv", "jellyfin"].contains($0.kind) }),
-            Self(id: "player", title: "播放器", symbol: "play.rectangle", items: list.filter { $0.kind == "jellyfin" }),
+            Self(id: "paired", title: String(localized: .settingsDevicesLabelsGroupPaired), symbol: "terminal", items: list.filter { !["web", "ios", "tvos", "macos", "android", "androidtv", "jellyfin"].contains($0.kind) }),
+            Self(id: "player", title: String(localized: .settingsDevicesLabelsGroupPlayer), symbol: "play.rectangle", items: list.filter { $0.kind == "jellyfin" }),
         ]
     }
 
@@ -391,62 +391,62 @@ enum DeviceText {
 
     static func clientType(_ type: String) -> String {
         switch type {
-        case "worker": "转码器"
-        case "cli": "命令行 / Agent"
+        case "worker": String(localized: .settingsDevicesLabelsWorker)
+        case "cli": String(localized: .settingsDevicesLabelsCli)
         case "tvos": "Apple TV"
         case "macos": "Mac"
         case "androidtv": "Android TV"
-        case "manual": "手工令牌"
-        default: "未知类型"
+        case "manual": String(localized: .settingsDevicesLabelsManual)
+        default: String(localized: .settingsDevicesLabelsUnknown)
         }
     }
 
     /// 「将获得」：令牌就是批准者本人的权限——超管批的是完全权限，成员批的是他自己的那份
     static func grant(_ type: String, isAdmin: Bool) -> Grant {
         if type == "worker" {
-            return Grant(title: "将获得：仅限转码", body: "这台机器不能查看或修改你的订阅、媒体库和设置。")
+            return Grant(title: String(localized: .settingsDevicesLabelsTranscodeTitle), body: String(localized: .settingsDevicesLabelsWorkerBody))
         }
         if type == "androidtv" {
             // Android TV 扫码登录（docs/design/androidtv-app.md §2，文案同 Web devices-display.ts）
             return Grant(
-                title: isAdmin ? "将获得：这台 Android TV 以你的超级管理员身份登录" : "将获得：这台 Android TV 以你的身份登录",
-                body: "等同你在这台电视上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。只批准你面前这台电视上显示的配对码。"
+                title: isAdmin ? String(localized: .settingsDevicesLabelsAndroidtvAdmin) : String(localized: .settingsDevicesLabelsAndroidtvMember),
+                body: String(localized: .settingsDevicesLabelsTvBody)
             )
         }
         if type == "tvos" {
             // Apple TV 扫码登录（docs/design/tvos-app.md §5.1，文案同 Web devices-display.ts）
             return Grant(
-                title: isAdmin ? "将获得：这台 Apple TV 以你的超级管理员身份登录" : "将获得：这台 Apple TV 以你的身份登录",
-                body: "等同你在这台电视上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。只批准你面前这台电视上显示的配对码。"
+                title: isAdmin ? String(localized: .settingsDevicesLabelsTvosAdmin) : String(localized: .settingsDevicesLabelsTvosMember),
+                body: String(localized: .settingsDevicesLabelsTvBody)
             )
         }
         if type == "macos" {
             // Mac App 扫码登录：与 Apple TV 同一口径（文案同 Web devices-display.ts）
             return Grant(
-                title: isAdmin ? "将获得：这台 Mac 以你的超级管理员身份登录" : "将获得：这台 Mac 以你的身份登录",
-                body: "等同你在这台 Mac 上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。只批准你面前这台 Mac 上显示的配对码。"
+                title: isAdmin ? String(localized: .settingsDevicesLabelsMacosAdmin) : String(localized: .settingsDevicesLabelsMacosMember),
+                body: String(localized: .settingsDevicesLabelsMacBody)
             )
         }
         if isAdmin {
             return Grant(
-                title: "将获得：与你相同的完全权限",
-                body: "这台机器上的程序将能做你在网页上能做的一切，包括删除媒体文件。只在你清楚这台机器上正在运行什么程序时才批准。"
+                title: String(localized: .settingsDevicesLabelsAdminTitle),
+                body: String(localized: .settingsDevicesLabelsAdminBody)
             )
         }
         return Grant(
-            title: "将获得：与你相同的权限",
-            body: "这台机器上的程序将以你的身份操作，能做你在网页上能做的一切。只在你清楚这台机器上正在运行什么程序时才批准。"
+            title: String(localized: .settingsDevicesLabelsMemberTitle),
+            body: String(localized: .settingsDevicesUiAdminTokenBody)
         )
     }
 
     static let manualGrant = Grant(
-        title: "将获得：与你相同的完全权限",
-        body: "持有这枚令牌的程序将能做你在网页上能做的一切，包括删除媒体文件。令牌不会自动过期，只能在这里注销——只把它放进你自己掌握的机器。"
+        title: String(localized: .settingsDevicesLabelsAdminTitle),
+        body: String(localized: .settingsDevicesLabelsManualFullBody)
     )
 
     static let transcodeManualGrant = Grant(
-        title: "将获得：仅限转码",
-        body: "给命令行模式（Headless）的转码器用：只能连转码链路，不能查看或修改你的订阅、媒体库和设置。令牌不会自动过期，只能在这里注销。"
+        title: String(localized: .settingsDevicesLabelsTranscodeTitle),
+        body: String(localized: .settingsDevicesUiTranscodeTokenBody)
     )
 
     /// 行首图标：形态一眼可辨，说明行里就不再重复「iOS App」「浏览器」
@@ -472,9 +472,9 @@ enum DeviceText {
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         let isApp = ["ios", "tvos", "macos", "android", "androidtv"].contains(device.kind)
         if device.kind != "web", !(isApp && !platform.isEmpty) { parts.append(device.kindLabel) }
-        if device.scope == "transcode", device.kind != "worker" { parts.append("仅转码") }
+        if device.scope == "transcode", device.kind != "worker" { parts.append(String(localized: .settingsDevicesLabelsBadgeTranscode)) }
         parts += platform
-        if let version = device.clientVersion { parts.append("版本 \(version)") }
+        if let version = device.clientVersion { parts.append(String(localized: .settingsDevicesLabelsVersion(version))) }
         return parts
     }
 
@@ -492,7 +492,7 @@ enum DeviceText {
 
     /// 活跃那一段：连着的转码器写「已连接」，其余写最近活跃的相对时间
     static func activity(_ device: API.LoginDeviceView) -> String {
-        if isTranscoder(device), device.connected { return "已连接" }
+        if isTranscoder(device), device.connected { return String(localized: .settingsDevicesLabelsConnected) }
         return SettingsTime.deviceRelative(device.lastSeenAt)
     }
 

@@ -20,6 +20,7 @@ wanted_search / wanted_fulfillment / subscription_health）互相成环、靠函
 """
 
 from movieclaw_api.services.subscription import wanted_search
+from movieclaw_api.services.subscription.attempt_notes import render_note, set_note
 from movieclaw_api.services.subscription.core import (
     FUTURE_GRACE,
     MOVIE_RELEASE_GRACE,
@@ -37,6 +38,7 @@ from movieclaw_api.services.subscription.matching import (
     REFRESH_PER_TICK,
     evaluate_and_dispatch,
     load_match_context,
+    units_reference,
     units_text,
     upgrade_ready,
 )
@@ -90,6 +92,8 @@ __all__ = [
     "evaluate_release_forecasts",
     "expected_units",
     "fail_trial",
+    "render_note",
+    "set_note",
     "forecast_probe_times_by_site",
     "forecast_refresh_pending",
     "kick_search_soon",
@@ -113,6 +117,7 @@ __all__ = [
     "run_replacement_search",
     "schedule_for",
     "search_wanted",
+    "units_reference",
     "units_text",
     "try_replacement_candidates",
     "wanted_search",

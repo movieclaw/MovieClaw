@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { SubscriptionWallView } from "@/components/subscription-wall-view";
@@ -10,7 +11,8 @@ export async function generateMetadata({
   params: Promise<{ kind: string }>;
 }): Promise<Metadata> {
   const { kind } = await params;
-  return { title: kind === "movie" ? "电影订阅" : "剧集订阅" };
+  const t = await getTranslations();
+  return { title: t(kind === "movie" ? "subscription.wall.moviePageTitle" : "subscription.wall.tvPageTitle") };
 }
 
 /**

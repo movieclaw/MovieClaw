@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import {
   useCallback,
   useDeferredValue,
@@ -56,12 +57,15 @@ export function CollectionGridView({
   /** 由发现页展示清单返回的稳定片单引用。 */
   collectionRef: string;
 }) {
-  const initialSnapshot = getCollectionGridSnapshot(collectionRef);
+  const t = useTranslations();
+  const locale = useLocale();
+  const snapshotKey = `${locale}:${collectionRef}`;
+  const initialSnapshot = getCollectionGridSnapshot(snapshotKey);
   const scrollRef = useScrollRestoration(`collection:${collectionRef}`);
   const cinema = useLayout() === "cinema";
   const fullGrid = cinema ? "mt-8" : "mx-auto mt-8 max-w-[1500px]";
   const [items, setItems] = useState<MediaItem[] | null>(() => initialSnapshot?.items ?? null);
-  const [title, setTitle] = useState(() => initialSnapshot?.title ?? "影视片单");
+  const [title, setTitle] = useState(() => initialSnapshot?.title ?? t("library.mediaList.title"));
   const [query, setQuery] = useState("");
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [nextPage, setNextPage] = useState(() => initialSnapshot?.nextPage ?? 2);
@@ -72,24 +76,24 @@ export function CollectionGridView({
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
   const pageControllerRef = useRef<AbortController | null>(null);
-  const activeCollectionRef = useRef(collectionRef);
+  const activeSnapshotKey = useRef(snapshotKey);
   const [provider, mediaType] = collectionRef.split(":");
 
   // 片单返回时先复用已加载窗口，避免滚动恢复目标对应的分页内容被重置掉。
   useLayoutEffect(() => {
-    if (activeCollectionRef.current !== collectionRef || !items) return;
-    rememberCollectionGridSnapshot(collectionRef, {
+    if (activeSnapshotKey.current !== snapshotKey || !items) return;
+    rememberCollectionGridSnapshot(snapshotKey, {
       items,
       title,
       nextPage,
       totalResults,
       hasMore,
     });
-  }, [collectionRef, hasMore, items, nextPage, title, totalResults]);
+  }, [collectionRef, snapshotKey, hasMore, items, nextPage, title, totalResults]);
 
   useEffect(() => {
     const controller = new AbortController();
-    activeCollectionRef.current = collectionRef;
+    activeSnapshotKey.current = snapshotKey;
     pageControllerRef.current?.abort();
     pageControllerRef.current = null;
     loadingMoreRef.current = false;
@@ -97,7 +101,7 @@ export function CollectionGridView({
     setQuery("");
     setSelectedGenres([]);
 
-    const cached = getCollectionGridSnapshot(collectionRef);
+    const cached = getCollectionGridSnapshot(snapshotKey);
     if (cached) {
       setItems(cached.items);
       setTitle(cached.title);
@@ -107,14 +111,14 @@ export function CollectionGridView({
       setLoadingMore(false);
       return () => {
         controller.abort();
-        if (activeCollectionRef.current === collectionRef) pageControllerRef.current?.abort();
+        if (activeSnapshotKey.current === snapshotKey) pageControllerRef.current?.abort();
       };
     }
 
     // 同一动态路由切换片单时组件可能被 React 复用，先清掉上一片单的展示态，
     // 避免新请求完成前短暂显示旧榜单，或失败后把旧数据误当成新结果。
     setItems(null);
-    setTitle("影视片单");
+    setTitle(t("library.mediaList.title"));
     setLoadingMore(false);
     setNextPage(2);
     setTotalResults(0);
@@ -134,17 +138,17 @@ export function CollectionGridView({
         setNextPage(collection.page + 1);
       })
       .catch((reason: Error) => {
-        if (!controller.signal.aborted) setError(reason.message || "榜单加载失败，请稍后重试");
+        if (!controller.signal.aborted) setError(reason.message || t("library.mediaList.loadFailed"));
       });
     return () => {
       controller.abort();
-      if (activeCollectionRef.current === collectionRef) pageControllerRef.current?.abort();
+      if (activeSnapshotKey.current === snapshotKey) pageControllerRef.current?.abort();
     };
-  }, [collectionRef, provider]);
+  }, [collectionRef, provider, snapshotKey, t]);
 
   const loadNextPage = useCallback(async () => {
     if (provider !== "tmdb" || !hasMore || loadingMoreRef.current) return;
-    const requestedCollectionRef = collectionRef;
+    const requestedCollectionRef = snapshotKey;
     const controller = new AbortController();
     pageControllerRef.current = controller;
     loadingMoreRef.current = true;
@@ -159,7 +163,7 @@ export function CollectionGridView({
       );
       if (
         controller.signal.aborted ||
-        activeCollectionRef.current !== requestedCollectionRef
+        activeSnapshotKey.current !== requestedCollectionRef
       ) {
         return;
       }
@@ -174,17 +178,17 @@ export function CollectionGridView({
       setHasMore(collection.hasMore);
       setNextPage(collection.page + 1);
     } catch (reason) {
-      if (!controller.signal.aborted && activeCollectionRef.current === requestedCollectionRef) {
-        setError((reason as Error).message || "下一页加载失败，请稍后重试");
+      if (!controller.signal.aborted && activeSnapshotKey.current === requestedCollectionRef) {
+        setError((reason as Error).message || t("library.mediaList.nextFailed"));
       }
     } finally {
       if (pageControllerRef.current === controller) {
         pageControllerRef.current = null;
         loadingMoreRef.current = false;
-        if (activeCollectionRef.current === requestedCollectionRef) setLoadingMore(false);
+        if (activeSnapshotKey.current === requestedCollectionRef) setLoadingMore(false);
       }
     }
-  }, [collectionRef, hasMore, nextPage, provider]);
+  }, [collectionRef, snapshotKey, hasMore, nextPage, provider, t]);
 
   const genres = useMemo(() => {
     if (!items) return [];
@@ -264,7 +268,7 @@ export function CollectionGridView({
       <PageNav
         title={title}
         fallback={{
-          label: "发现",
+          label: t("nav.main.discover"),
           href: `/discover/${mediaType === "tv" ? "tv" : "movie"}?source=${provider === "douban" ? "douban" : "tmdb"}` as Route,
         }}
         className="page-inset-bleed"
@@ -281,9 +285,9 @@ export function CollectionGridView({
             <p className="mt-2 text-body text-[var(--text-muted)]">
               {items
                 ? provider === "tmdb"
-                  ? `已加载 ${items.length} / ${totalResults.toLocaleString("zh-CN")} 部影片`
-                  : `完整收录 ${items.length} 部影片`
-                : "正在读取完整榜单…"}
+                  ? t("library.mediaList.loadedCount", { loaded: items.length, total: totalResults })
+                  : t("library.mediaList.fullCount", { count: items.length })
+                : t("library.mediaList.loading")}
             </p>
           </div>
           <label className="flex h-10 w-full items-center gap-2 rounded-full border border-white/10 bg-black/25 px-4 text-[var(--text-muted)] backdrop-blur-sm sm:w-72">
@@ -291,8 +295,8 @@ export function CollectionGridView({
             <input
               value={query}
               onChange={(event) => updateQuery(event.target.value)}
-              placeholder={provider === "tmdb" ? "搜索已加载片名" : "搜索片名"}
-              aria-label={provider === "tmdb" ? "搜索已加载的榜单片名" : "搜索榜单片名"}
+              placeholder={provider === "tmdb" ? t("library.mediaList.searchLoaded") : t("library.mediaList.search")}
+              aria-label={provider === "tmdb" ? t("library.mediaList.searchLoadedLabel") : t("library.mediaList.searchLabel")}
               className="min-w-0 flex-1 bg-transparent text-body text-[var(--text)] outline-none placeholder:text-[var(--text-muted)]"
             />
           </label>
@@ -300,7 +304,7 @@ export function CollectionGridView({
         {genres.length > 0 && (
           <div className="mt-6 flex flex-wrap items-center gap-2 max-md:mt-4">
             <span className="mr-1 text-sub font-semibold text-[var(--text-muted)]">
-              {provider === "tmdb" ? "已加载类型" : "类型"}
+              {provider === "tmdb" ? t("library.mediaList.loadedGenres") : t("library.filters.genres")}
             </span>
             <button
               type="button"
@@ -312,7 +316,7 @@ export function CollectionGridView({
                   : "border-white/[0.07] bg-black/20 text-[var(--text-muted)] hover:border-white/15 hover:text-white"
               }`}
             >
-              全部
+              {t("common.all")}
             </button>
             {genres.map(([name, count]) => (
               <button
@@ -336,7 +340,7 @@ export function CollectionGridView({
                 onClick={clearGenres}
                 className="ml-1 rounded-full px-2 py-1.5 text-sub font-semibold text-[var(--accent-2)] transition hover:text-white"
               >
-                清除筛选（{selectedGenres.length}）
+                {t("library.mediaList.clearCount", { count: selectedGenres.length })}
               </button>
             )}
           </div>
@@ -355,7 +359,7 @@ export function CollectionGridView({
         <main className={fullGrid}>
           {filtered.length === 0 ? (
             <div className="py-20 text-center text-body text-[var(--text-muted)]">
-              没有找到匹配的影片
+              {t("library.mediaList.empty")}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
@@ -376,7 +380,7 @@ export function CollectionGridView({
                   onClick={() => void loadNextPage()}
                   className="font-semibold text-[var(--accent-2)] transition hover:text-white"
                 >
-                  重试下一页
+                  {t("library.mediaList.retryNext")}
                 </button>
               )}
             </div>
@@ -385,9 +389,9 @@ export function CollectionGridView({
           <div ref={loadMoreRef} className="h-px" aria-hidden="true" />
           <p className="sr-only" role="status">
             {loadingMore
-              ? "正在加载下一页"
+              ? t("library.mediaList.loadingNext")
               : !hasMore && filtered.length > 0
-                ? `已加载全部 ${items.length} 部影片`
+                ? t("media.discovery.allLoaded", { count: items.length })
                 : ""}
           </p>
         </main>

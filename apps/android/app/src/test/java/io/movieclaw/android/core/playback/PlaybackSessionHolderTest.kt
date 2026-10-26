@@ -60,7 +60,7 @@ class PlaybackSessionHolderTest {
         )
         val images = ImageLoaders(context, vault, client, cookies)
         val cleaner = SessionCacheCleaner(context, images, LibraryHomeSnapshotStore(context, json))
-        val repository = SessionRepository(context, json, vault, api, client, cleaner)
+        val repository = SessionRepository(context, json, vault, api, client, cleaner, dagger.Lazy { throw UnsupportedOperationException() })
         val holder = PlaybackSessionHolder(context, api, repository, PlaybackDataEvents(), CorePlaybackPrefs(context))
         val field = SessionRepository::class.java.getDeclaredField("_ui").apply { isAccessible = true }
         return Fixture(holder, vault, field.get(repository) as MutableStateFlow<SessionUi>)

@@ -161,30 +161,30 @@ struct DownloadTargetSheet: View {
             let reason = t.routeReason ?? ""
             let detail: String? = switch t.mode {
             case "watch":
-                t.stagingPath.map { "\(reason)；投递到自动入库的监听目录 \(t.path ?? "")，完成后整理到 \($0)（外部流转回库根后入账）" }
-                    ?? "\(reason)；投递到自动入库的监听目录 \(t.path ?? "")，完成后自动整理入库"
+                t.stagingPath.map { String(localized: .downloadTargetWatchStaging(reason, t.path ?? "", $0)) }
+                    ?? String(localized: .downloadTargetWatch(reason, t.path ?? ""))
             case "inplace":
-                "\(reason)；直接下载到 \(DownloadTargetPrefs.trim(entryDir ?? ""))，完成后自动入账"
+                String(localized: .downloadTargetInplace(reason, DownloadTargetPrefs.trim(entryDir ?? "")))
             default: nil
             }
-            result.append(TargetOption(id: "smart", kind: .smart, label: "自动入库到「\(t.libraryName ?? "")」", detail: detail))
+            result.append(TargetOption(id: "smart", kind: .smart, label: String(localized: .downloadTargetAutomaticLibrary(t.libraryName ?? "")), detail: detail))
         }
         if showOther {
             var seen = Set<String>()
             var dirs: [(path: String, source: String)] = []
-            if let save = downloader?.savePath { dirs.append((save, "默认保存目录")) }
+            if let save = downloader?.savePath { dirs.append((save, String(localized: .downloadTargetDefaultPathSource))) }
             for m in downloader?.pathMappings ?? [] {
-                if !seen.contains(m.local), m.local != downloader?.savePath { dirs.append((m.local, "路径映射")) }
+                if !seen.contains(m.local), m.local != downloader?.savePath { dirs.append((m.local, String(localized: .downloadTargetMappingSource))) }
                 seen.insert(m.local)
             }
             for dir in dirs {
                 let remote = Self.remoteView(dir.path, downloader?.pathMappings)
                 result.append(TargetOption(
                     id: "dir:\(dir.path)", kind: .dir, savePath: dir.path, label: dir.path,
-                    detail: remote != dir.path ? "下载器视角：\(remote)（\(dir.source)）" : dir.source
+                    detail: remote != dir.path ? String(localized: .downloadTargetRemoteView(remote, dir.source)) : dir.source
                 ))
             }
-            result.append(TargetOption(id: "default", kind: .fallback, label: "下载器默认目录", detail: "不指定路径，由下载器按自身设置决定；movieclaw 不会自动整理入库"))
+            result.append(TargetOption(id: "default", kind: .fallback, label: String(localized: .downloadTargetDownloaderDirectory), detail: String(localized: .downloadTargetDefaultDirectoryHint)))
         }
         return result
     }
@@ -198,11 +198,11 @@ struct DownloadTargetSheet: View {
         var result = ordered.map { library in
             TargetOption(
                 id: "library:\(library.id)", kind: .library, libraryId: library.id,
-                label: "下载到「\(library.name)」",
-                detail: "\(LibraryKindMeta.label(library.kind))库；按库的设置决定保存目录，完成后自动入库"
+                label: String(localized: .downloadTargetLibraryDownload(library.name)),
+                detail: String(localized: .downloadTargetLibraryKindDetail(LibraryKindMeta.label(library.kind)))
             )
         }
-        result.append(TargetOption(id: "default", kind: .fallback, label: "下载器默认目录", detail: "由下载器按自身设置决定保存位置；不会自动整理入库"))
+        result.append(TargetOption(id: "default", kind: .fallback, label: String(localized: .downloadTargetDownloaderDirectory), detail: String(localized: .downloadTargetDownloaderDecides)))
         return result
     }
 
@@ -230,19 +230,19 @@ struct DownloadTargetSheet: View {
                         Button {
                             showOther = true
                         } label: {
-                            Label("其他保存位置", systemImage: "folder")
+                            Label(String(localized: .downloadTargetOtherDestinations), systemImage: "folder")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.glass)
                         .accessibilityIdentifier("download-other-targets")
                     }
                     if showOther, downloaders.count >= 2 {
-                        Picker("下载器", selection: Binding(mcGet: { downloaderId ?? -1 }, set: { id in
+                        Picker(String(localized: .downloadTargetDownloader), selection: Binding(mcGet: { downloaderId ?? -1 }, set: { id in
                             downloaderId = id
                             reloadManualTarget(downloaderId: id, candidate: selectedCandidate, hint: hint)
                         })) {
                             ForEach(downloaders, id: \.id) { d in
-                                Text(d.name + (d.isDefault ? "（默认）" : "")).tag(d.id)
+                                Text(d.name + (d.isDefault ? String(localized: .playerDiagnosticsDefault) : "")).tag(d.id)
                             }
                         }
                         .pickerStyle(.menu)
@@ -250,12 +250,12 @@ struct DownloadTargetSheet: View {
                     if permissions.isAdmin {
                         Toggle(isOn: $remember) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("记住本次选择，作为「\(TorrentCategories.label(request.category))」的默认位置")
+                                Text(String(localized: .downloadTargetRemember(TorrentCategories.label(request.category))))
                                     .font(.subheadline)
                                     .foregroundStyle(Theme.text)
                                 Text(remember
-                                    ? "之后点「下载」先给你确认一次落点，随时可以改，或在确认条上「不再记住」。"
-                                    : "不勾选就只对这一次下载生效，不会留下默认位置。")
+                                    ? String(localized: .downloadTargetRememberedHint)
+                                    : String(localized: .downloadTargetTemporaryHint))
                                     .font(.caption)
                                     .foregroundStyle(Theme.textFaint)
                             }
@@ -269,7 +269,7 @@ struct DownloadTargetSheet: View {
                             dismiss()
                             router.push(.settingsSection(.downloaders))
                         } label: {
-                            Text("movieclaw 与下载器不在同一容器/主机、看到的路径不同？到「设置 → 下载器」配置路径映射，提交时会自动翻译成下载器视角。")
+                            Text(String(localized: .downloadTargetMappingHintText))
                                 .font(.caption)
                                 .foregroundStyle(Theme.textFaint)
                                 .multilineTextAlignment(.leading)
@@ -280,14 +280,14 @@ struct DownloadTargetSheet: View {
                 .padding(cards.edge)
             }
             .background(Theme.background)
-            .navigationTitle("选择保存位置")
+            .navigationTitle(String(localized: .downloadTargetTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button(String(localized: .commonCancel)) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(busy ? "提交中…" : confirmTitle) { submit() }
+                    Button(busy ? String(localized: .searchDownloadSubmitting) : confirmTitle) { submit() }
                         .discoverProminentButton()
                         .disabled(busy || selected == nil)
                         .accessibilityIdentifier("download-confirm")
@@ -330,8 +330,8 @@ struct DownloadTargetSheet: View {
     }
 
     private var confirmTitle: String {
-        if selected == "smart", let name = manualTarget?.libraryName { return "下载到「\(name)」" }
-        return "确认下载"
+        if selected == "smart", let name = manualTarget?.libraryName { return String(localized: .downloadTargetLibraryDownload(name)) }
+        return String(localized: .downloadTargetConfirm)
     }
 
     @ViewBuilder
@@ -342,17 +342,17 @@ struct DownloadTargetSheet: View {
         if loadingTarget {
             HStack(spacing: 10) {
                 ProgressView()
-                Text(selectedCandidate != nil ? "正在预演自动入库…" : "正在识别影视条目并预演智能入库…").font(.caption).foregroundStyle(Theme.textFaint)
+                Text(selectedCandidate != nil ? String(localized: .downloadTargetPreviewing) : String(localized: .downloadTargetIdentifying)).font(.caption).foregroundStyle(Theme.textFaint)
             }
             .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
             .padding(.horizontal, 14)
             .cardStyle(radius: 12)
         } else if let t = manualTarget {
             if t.status == "ready", !t.ok {
-                notice("已识别资源，但当前不能自动入库：\(t.warning ?? "请检查媒体库和自动入库配置。")", tone: Theme.warning)
+                notice(String(localized: .downloadTargetBlocked(t.warning ?? String(localized: .downloadTargetCheckConfig))), tone: Theme.warning)
             }
         } else if canResolve {
-            notice("自动识别暂不可用；为避免投错库请手选保存目录后再下载。", tone: Theme.warning)
+            notice(String(localized: .downloadTargetUnavailable), tone: Theme.warning)
         }
     }
 
@@ -360,15 +360,15 @@ struct DownloadTargetSheet: View {
     private var candidatePicker: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("这是哪部作品？").font(.subheadline.weight(.medium)).foregroundStyle(Theme.text)
+                Text(String(localized: .downloadTargetWhichTitle)).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text)
                 Text(pickerCaption).font(.caption).foregroundStyle(Theme.textFaint)
             }
             if !candidates.isEmpty {
                 DiscoverFlowLayout(spacing: 8, lineSpacing: 8) {
                     ForEach(candidates, id: \.self) { c in
                         DiscoverChip(
-                            label: c.title + (c.year.map { " (\($0))" } ?? "") + " · " + (c.kind == "tv" ? "剧集" : "电影")
-                                + (c.episodeCount.map { " · \($0) 集" } ?? ""),
+                            label: c.title + (c.year.map { " (\($0))" } ?? "") + " · " + (c.kind == "tv" ? String(localized: .searchCategoriesTv) : String(localized: .searchCategoriesMovie))
+                                + (c.episodeCount.map { String(localized: .downloadTargetEpisodeSuffix($0)) } ?? ""),
                             active: selectedCandidate?.kind == c.kind && selectedCandidate?.tmdbId == c.tmdbId
                         ) {
                             selectedCandidate = c
@@ -378,12 +378,12 @@ struct DownloadTargetSheet: View {
                 }
             }
             HStack(spacing: 8) {
-                TextField(candidates.isEmpty ? "输入片名" : "都不对？换个片名搜", text: $hintDraft)
+                TextField(candidates.isEmpty ? String(localized: .downloadTargetEnterTitle) : String(localized: .downloadTargetSearchAgain), text: $hintDraft)
                     .textFieldStyle(.roundedBorder)
                     .submitLabel(.search)
                     .onSubmit(searchHint)
                     .accessibilityIdentifier("download-hint-field")
-                Button("搜索", action: searchHint)
+                Button(String(localized: .commonSearch), action: searchHint)
                     .buttonStyle(.glass)
                     .disabled(hintDraft.trimmingCharacters(in: .whitespaces).isEmpty || loadingTarget)
             }
@@ -395,12 +395,12 @@ struct DownloadTargetSheet: View {
 
     private var pickerCaption: String {
         if !loadingTarget, manualTarget?.status == "not_found" {
-            return hint.map { "没找到与「\($0)」匹配的作品，换个片名试试（中文名搜不到时可试英文/原名）。" }
-                ?? "输入片名搜索，确认后会自动分配媒体库。"
+            return hint.map { String(localized: .downloadTargetNoCandidates($0)) }
+                ?? String(localized: .downloadTargetSearchHint)
         }
         return candidates.isEmpty
-            ? "输入片名搜索，确认后会自动分配媒体库。"
-            : "没能自动认出这条资源。点选正确的作品，媒体库会按收藏范围自动分配。"
+            ? String(localized: .downloadTargetSearchHint)
+            : String(localized: .downloadTargetUnidentified)
     }
 
     private func searchHint() {
@@ -563,7 +563,7 @@ struct DownloadTargetSheet: View {
                 onSubmitted(result)
                 dismiss()
             } catch {
-                self.error = error.localizedDescription.isEmpty ? "提交失败，请重试" : error.localizedDescription
+                self.error = error.localizedDescription.isEmpty ? String(localized: .searchDownloadRetryHint) : error.localizedDescription
             }
             busy = false
         }
@@ -609,17 +609,17 @@ struct DownloadConfirmSheet: View {
                     .frame(width: 32, height: 32)
                     .background(Theme.accentSoft, in: .rect(cornerRadius: 9))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("保存到").font(.caption).tracking(1).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .downloadTargetSaveTo)).font(.caption).tracking(1).foregroundStyle(Theme.textFaint)
                     HStack(spacing: 6) {
                         Text(TorrentCategories.label(request.category)).font(.headline).foregroundStyle(.white)
                         Text("·").foregroundStyle(Theme.textFaint)
-                        Text(target.kind == "smart" ? "智能入库" : (target.downloaderName ?? "默认下载器"))
+                        Text(target.kind == "smart" ? String(localized: .downloadTargetSmart) : (target.downloaderName ?? String(localized: .downloadTargetDefaultDownloader)))
                             .font(.subheadline).foregroundStyle(Theme.textMuted)
                     }
                     if preflighting {
                         DiscoverSkeletonBlock(cornerRadius: 4).frame(height: 10).frame(maxWidth: 220)
                     } else {
-                        Text(headline ?? "由下载器决定")
+                        Text(headline ?? String(localized: .downloadTargetChosenByDownloader))
                             .font(.caption.monospaced())
                             .foregroundStyle(.white)
                             .fixedSize(horizontal: false, vertical: true)
@@ -627,16 +627,16 @@ struct DownloadConfirmSheet: View {
                 }
             }
             HStack(spacing: 4) {
-                Text("上次用过 · \(SubsFormat.relative(target.updatedAt)) ·")
-                Button("不再记住", action: onForget).underline()
+                Text(String(localized: .downloadTargetLastUsedPrefix(SubsFormat.relative(target.updatedAt))))
+                Button(String(localized: .downloadTargetForget), action: onForget).underline()
             }
             .font(.caption)
             .foregroundStyle(Theme.textFaint)
             HStack(spacing: 10) {
-                Button("更改", action: onChange)
+                Button(String(localized: .downloadTargetChange), action: onChange)
                     .buttonStyle(.glass)
                     .frame(maxWidth: .infinity)
-                Button(busy ? "提交中…" : "确认下载") {
+                Button(busy ? String(localized: .searchDownloadSubmitting) : String(localized: .downloadTargetConfirm)) {
                     busy = true
                     onConfirm()
                 }
@@ -662,7 +662,7 @@ struct DownloadConfirmSheet: View {
     private var headline: String? {
         switch target.kind {
         case "dir": target.savePath
-        case "default": "下载器的默认目录"
+        case "default": String(localized: .downloadTargetDefaultHeadline)
         default: resolvedPath
         }
     }

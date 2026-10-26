@@ -21,6 +21,7 @@ import pytest
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.services import app_update
 from movieclaw_api.settings.schemas import AppUpdatePrefsSetting
 
@@ -525,9 +526,13 @@ def test_overlay_state_reason_distinguishes_runtime_direction(updates_dir, monke
     future = _write_overlay_dir(updates_dir, "9.9.9", requires=9)
     monkeypatch.setenv("MOVIECLAW_RUNTIME_VERSION", "3")
     _version, usable, reason = app_update._overlay_state(stale)
-    assert usable is False and "已停用" in reason and "需升级镜像" not in reason
+    assert (
+        usable is False
+        and "已停用" in render_value(reason)
+        and "需升级镜像" not in render_value(reason)
+    )
     _version, usable, reason = app_update._overlay_state(future)
-    assert usable is False and "需升级镜像" in reason
+    assert usable is False and "需升级镜像" in render_value(reason)
 
 
 # ---------------------------------------------------------------------------
@@ -1474,3 +1479,67 @@ async def test_record_model_check_requires_installable(update_state):
 
     await app_update._record_model_check(view.model_copy(update={"installable": True}))
     assert (await app_update.read_pending()).model_tag == "torrent-ner-v2"
+
+
+def test_update_progress_uses_reader_language_without_changing_facts(updates_dir):
+    from copy import deepcopy
+
+    from movieclaw_api.i18n import use_locale
+    from movieclaw_api.i18n.stored import reference
+
+    progress = app_update._Progress()
+    with use_locale("en"):
+        error = app_update._UpdateError("settings.update.checksumFailed", name="raw 原名.tar.gz")
+    assert "校验和不匹配" in str(error)
+    progress.set(
+        "failed",
+        reference("settings.update.downloading", name="raw 原名.tar.gz"),
+        percent=37.5,
+        error=app_update._error_reference(error),
+        target_version="9.9.9",
+    )
+    facts = deepcopy(
+        (progress.detail, progress.error, progress.phase, progress.percent, progress.target_version)
+    )
+    for locale in ("en", "zh-Hans", "en"):
+        with use_locale(locale):
+            view = progress.view()
+            assert view.detail == (
+                "Downloading raw 原名.tar.gz…" if locale == "en" else "正在下载 raw 原名.tar.gz……"
+            )
+            assert ("checksum" if locale == "en" else "校验和不匹配") in view.error
+            assert (
+                view.phase == "failed" and view.percent == 37.5 and view.target_version == "9.9.9"
+            )
+    assert (
+        progress.detail,
+        progress.error,
+        progress.phase,
+        progress.percent,
+        progress.target_version,
+    ) == facts
+    progress.set("failed", error="Unknown 原始错误")
+    with use_locale("en"):
+        assert progress.view().error == "Unknown 原始错误"
+
+
+def test_exit_history_is_localized_at_read_time_and_never_rewritten(updates_dir):
+    from movieclaw_api.i18n import use_locale
+
+    path = updates_dir / "state/last-exit.json"
+    path.parent.mkdir(parents=True)
+    for detail, english in [
+        ("后端进程异常退出", "The backend process exited unexpectedly"),
+        ("原始第三方原因", "原始第三方原因"),
+    ]:
+        raw = json.dumps(
+            {"ts": int(time.time()), "reason": "api_crash", "exit_code": 3, "detail": detail},
+            ensure_ascii=False,
+        ).encode()
+        path.write_bytes(raw)
+        for locale in ("en", "zh-Hans", "en"):
+            with use_locale(locale):
+                result = app_update.build_status().last_abnormal_exit
+                assert result.detail == (english if locale == "en" else detail)
+                assert result.reason == "api_crash" and result.exit_code == 3
+            assert path.read_bytes() == raw

@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator, type AppMessageKey } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+import { ruleSetLabel } from "@/lib/rule-set-label";
 
 import { MediaSourceAnnotationDialog } from "@/components/media-source-annotation-dialog";
 import { PlusIcon } from "@/components/icons";
@@ -51,6 +56,8 @@ export function UpgradeRunDialog({
   /** 一轮洗版已触发成功（报告已看完关闭弹层）后回调，父组件刷新详情 */
   onFinished: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const { canManageSubscriptions } = usePermissions();
   const sheetForm = useSheetForm();
   const isMovie = detail.media.kind === "movie";
@@ -61,7 +68,7 @@ export function UpgradeRunDialog({
   // 范围外但库里有文件的季：默认不勾（并入会连带补缺下载）
   const [optedSeasons, setOptedSeasons] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const [report, setReport] = useState<UpgradeRunReport | null>(null);
 
   useEffect(() => {
@@ -79,8 +86,8 @@ export function UpgradeRunDialog({
           setRuleSetId(candidates.length === 1 ? candidates[0].id : null);
         }
       })
-      .catch(() => setError("未能加载规则组列表，请稍后重试"));
-  }, [canManageSubscriptions, detail.rule_set_id, isSmart]);
+      .catch(() => setError({ key: "subscription.upgrade.loadFailed" }));
+  }, [canManageSubscriptions, detail.rule_set_id, isSmart, setError]);
 
   const upgradeRules = useMemo(
     () => (ruleSets ?? []).filter((r) => upgradeTargetLabel(r.spec)),
@@ -128,7 +135,7 @@ export function UpgradeRunDialog({
         ),
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "触发洗版失败，请稍后重试");
+      setError(e instanceof Error ? e.message : { key: "subscription.upgrade.runFailed" });
     } finally {
       setBusy(false);
     }
@@ -165,10 +172,10 @@ export function UpgradeRunDialog({
       <>
         <SheetScaffold
           onClose={onClose}
-          title="洗一轮版"
-          subtitle={`逐集检查《${detail.media.title}》库里已有的版本，低于洗版目标的立即排入搜索；洗到新版本入库并验证通过后，旧文件自动替换。`}
+          title={t("subscription.upgrade.title")}
+          subtitle={t("subscription.upgrade.description", { title: detail.media.title })}
           confirm={{
-            label: paused ? "恢复并触发洗版" : "开始体检并洗版",
+            label: paused ? t("subscription.upgrade.resume") : t("subscription.upgrade.start"),
             enabled: canRun,
             busy,
             onConfirm: () => void run(),
@@ -176,35 +183,35 @@ export function UpgradeRunDialog({
         >
           {error && <SheetNotice tone="error">{error}</SheetNotice>}
           {paused && (
-            <SheetNotice tone="warn">该订阅已暂停。触发洗版会先恢复追踪，随后开始搜索。</SheetNotice>
+            <SheetNotice tone="warn">{t("subscription.upgrade.pausedHint")}</SheetNotice>
           )}
           {isSmart ? (
-            <p className="p-3 text-sub text-[var(--text-muted)]">按智能订阅保存的品质目标洗版，分辨率和片源同时达标并完成核验后停止。{!detail.smart_policy?.allow_upgrade && "本订阅未开启后续洗版。"}</p>
+            <p className="p-3 text-sub text-[var(--text-muted)]">{t("subscription.upgrade.smartDescription", { enabled: detail.smart_policy?.allow_upgrade ? "yes" : "no" })}</p>
           ) : !canManageSubscriptions ? (
-            <SheetSection title="洗版目标" footer={MEMBER_RULE_SET_HINT}>
-              <SheetRow label="按订阅当前的规则组洗版" />
+            <SheetSection title={t("subscription.upgrade.target")} footer={t(MEMBER_RULE_SET_HINT_KEY)}>
+              <SheetRow label={t("subscription.upgrade.currentRules")} />
             </SheetSection>
           ) : (
             <SheetSection
-              title="洗版目标"
+              title={t("subscription.upgrade.target")}
               footer={
                 ruleSets === null
                   ? null
                   : upgradeRules.length === 0
-                    ? "还没有配置洗版目标的规则组。新建一个，在编辑器里选择「洗到哪一档」即可。"
+                    ? t("subscription.upgrade.noRulesHint")
                     : !currentHasTarget &&
-                      "当前规则组未配置洗版目标，选一个带洗版目标的组，确认后一并换用。"
+                      t("subscription.upgrade.chooseRulesHint")
               }
             >
               {ruleSets === null ? (
-                <SheetRow label={<span className="text-[var(--text-muted)]">正在加载规则组…</span>} />
+                <SheetRow label={<span className="text-[var(--text-muted)]">{t("subscription.upgrade.loadingRules")}</span>} />
               ) : (
                 <>
                   {upgradeRules.map((rs) => (
                     <SheetChoiceRow
                       key={rs.id}
-                      label={`${rs.name}${rs.id === detail.rule_set_id ? "（当前使用）" : ""}`}
-                      detail={`洗到 ${upgradeTargetLabel(rs.spec)}`}
+                      label={t("subscription.upgrade.namedRules", { name: ruleSetLabel(rs, locale), current: rs.id === detail.rule_set_id ? "yes" : "no" })}
+                      detail={t("subscription.upgrade.upgradeTo", { target: upgradeTargetLabel(rs.spec, locale) ?? "" })}
                       selected={rs.id === ruleSetId}
                       disabled={busy}
                       onSelect={() => setRuleSetId(rs.id)}
@@ -212,7 +219,7 @@ export function UpgradeRunDialog({
                   ))}
                   <SheetRow
                     icon={<PlusIcon className="size-[18px]" />}
-                    label="新建规则组…"
+                    label={t("subscription.upgrade.newRules")}
                     onClick={() => setCreatingRuleSet(true)}
                   />
                 </>
@@ -221,18 +228,14 @@ export function UpgradeRunDialog({
           )}
           {outOfScopeOwned.length > 0 && (
             <SheetSection
-              title="范围外的库存季"
-              footer="这些季库里有文件但不在订阅范围内，勾选后并入订阅一起洗版；季内缺集会一并搜索补齐。"
+              title={t("subscription.upgrade.outsideSeasons")}
+              footer={t("subscription.upgrade.outsideHint")}
             >
               {outOfScopeOwned.map((s) => (
                 <SheetChoiceRow
                   key={s.season_number}
-                  label={s.season_number === 0 ? "特别篇" : `第 ${s.season_number} 季`}
-                  detail={`库存 ${s.owned_count}${
-                    s.episode_count != null && s.owned_count < s.episode_count
-                      ? ` / ${s.episode_count}`
-                      : ""
-                  }`}
+                  label={s.season_number === 0 ? t("media.season.specials") : t("media.season.title", { number: s.season_number })}
+                  detail={t("subscription.upgrade.owned", { count: s.owned_count, total: s.episode_count ?? 0, hasTotal: s.episode_count != null && s.owned_count < s.episode_count ? "yes" : "no" })}
                   selected={optedSeasons.has(s.season_number)}
                   disabled={busy}
                   onSelect={() => toggleOpted(s.season_number)}
@@ -250,7 +253,7 @@ export function UpgradeRunDialog({
     <Modal
       open
       onClose={report ? onFinished : onClose}
-      label="洗一轮版"
+      label={t("subscription.upgrade.title")}
       width="lg"
       panelClassName="max-h-[80dvh]"
     >
@@ -273,10 +276,9 @@ export function UpgradeRunDialog({
         // 触发态：规则组一多就得滚，标题与「开始体检」固定在两头
         <>
           <div className="border-b border-white/[0.07] px-6 pb-4 pt-6 max-md:px-5">
-            <h2 className="text-title font-bold text-white">洗一轮版</h2>
+            <h2 className="text-title font-bold text-white">{t("subscription.upgrade.title")}</h2>
             <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-              逐集检查《{detail.media.title}
-              》库里已有的版本，低于洗版目标的立即排入搜索；洗到新版本入库并验证通过后，旧文件自动替换。
+              {t("subscription.upgrade.description", { title: detail.media.title })}
             </p>
           </div>
 
@@ -289,38 +291,38 @@ export function UpgradeRunDialog({
 
             {paused && (
               <p className="mt-3 rounded-lg border border-amber-300/25 bg-amber-400/10 px-3.5 py-2.5 text-sub leading-6 text-amber-100/90">
-                该订阅已暂停。触发洗版会先恢复追踪，随后开始搜索。
+                {t("subscription.upgrade.pausedHint")}
               </p>
             )}
 
             {/* —— 规则组（洗版目标住在规则组上；只列带洗版目标的组）—— */}
             <div className="mt-4">
-              <p className="text-sub font-semibold text-white/85">洗版目标</p>
+              <p className="text-sub font-semibold text-white/85">{t("subscription.upgrade.target")}</p>
               {isSmart ? (
-            <p className="p-3 text-sub text-[var(--text-muted)]">按智能订阅保存的品质目标洗版，分辨率和片源同时达标并完成核验后停止。{!detail.smart_policy?.allow_upgrade && "本订阅未开启后续洗版。"}</p>
+            <p className="p-3 text-sub text-[var(--text-muted)]">{t("subscription.upgrade.smartDescription", { enabled: detail.smart_policy?.allow_upgrade ? "yes" : "no" })}</p>
           ) : !canManageSubscriptions ? (
                 <div className="mt-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sub leading-6 text-[var(--text-muted)]">
-                  <span className="font-medium text-white/85">按订阅当前的规则组洗版。</span>
-                  {MEMBER_RULE_SET_HINT}
+                  <span className="font-medium text-white/85">{t("subscription.upgrade.currentRulesSentence")}</span>
+                  {t(MEMBER_RULE_SET_HINT_KEY)}
                 </div>
               ) : ruleSets === null ? (
-                <p className="mt-2 text-sub text-[var(--text-muted)]">正在加载规则组…</p>
+                <p className="mt-2 text-sub text-[var(--text-muted)]">{t("subscription.upgrade.loadingRules")}</p>
               ) : upgradeRules.length === 0 ? (
                 <div className="mt-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sub leading-6 text-[var(--text-muted)]">
-                  还没有配置洗版目标的规则组。
+                  {t("subscription.upgrade.noRules")}
                   <button
                     type="button"
                     onClick={() => setCreatingRuleSet(true)}
                     className="ml-1 font-medium text-[var(--accent-2)] hover:underline"
                   >
-                    + 新建规则组
+                    {t("subscription.upgrade.addRules")}
                   </button>
                 </div>
               ) : (
                 <div className="mt-2 space-y-1.5">
                   {!currentHasTarget && (
                     <p className="mb-2 text-sub leading-6 text-[var(--text-muted)]">
-                      当前规则组未配置洗版目标，选一个带洗版目标的组，确认后一并换用。
+                      {t("subscription.upgrade.chooseRulesHint")}
                     </p>
                   )}
                   {upgradeRules.map((rs) => {
@@ -331,22 +333,22 @@ export function UpgradeRunDialog({
                         type="button"
                         disabled={busy}
                         onClick={() => setRuleSetId(rs.id)}
-                        className={`flex w-full items-center gap-2.5 rounded-xl border px-4 py-2.5 text-left transition disabled:opacity-50 ${
+                        className={`flex w-full items-center gap-2.5 rounded-xl border px-4 py-2.5 text-left transition disabled:opacity-50 ${locale === "en" ? "flex-wrap" : ""} ${
                           picked
                             ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/[0.08]"
                             : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07]"
                         }`}
                       >
                         <span className="min-w-0 flex-1 truncate text-ui font-medium text-white/90">
-                          {rs.name}
+                          {ruleSetLabel(rs, locale)}
                           {rs.id === detail.rule_set_id && (
                             <span className="ml-2 text-caption font-normal text-[var(--text-faint)]">
-                              当前使用
+                              {t("subscription.upgrade.currentBadge")}
                             </span>
                           )}
                         </span>
-                        <span className="shrink-0 rounded-md bg-[#2dd4bf]/15 px-1.5 py-0.5 text-caption font-medium text-[#2dd4bf]">
-                          洗到 {upgradeTargetLabel(rs.spec)}
+                        <span className={`shrink-0 rounded-md bg-[#2dd4bf]/15 px-1.5 py-0.5 text-caption font-medium text-[#2dd4bf] ${locale === "en" ? "basis-full" : ""}`}>
+                          {t("subscription.upgrade.upgradeTo", { target: upgradeTargetLabel(rs.spec, locale) ?? "" })}
                         </span>
                       </button>
                     );
@@ -356,7 +358,7 @@ export function UpgradeRunDialog({
                     onClick={() => setCreatingRuleSet(true)}
                     className="w-full rounded-xl border border-dashed border-white/[0.14] px-4 py-2 text-left text-sub text-[var(--text-muted)] transition hover:border-white/25 hover:text-white/80"
                   >
-                    + 新建规则组
+                    {t("subscription.upgrade.addRules")}
                   </button>
                 </div>
               )}
@@ -365,9 +367,9 @@ export function UpgradeRunDialog({
             {/* —— 范围外的库存季：如实展示，勾选才并入（会连带补缺）—— */}
             {outOfScopeOwned.length > 0 && (
               <div className="mt-4">
-                <p className="text-sub font-semibold text-white/85">范围外的库存季</p>
+                <p className="text-sub font-semibold text-white/85">{t("subscription.upgrade.outsideSeasons")}</p>
                 <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-                  这些季库里有文件但不在订阅范围内，勾选后并入订阅一起洗版；季内缺集会一并搜索补齐。
+                  {t("subscription.upgrade.outsideHint")}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {outOfScopeOwned.map((s) => {
@@ -385,12 +387,9 @@ export function UpgradeRunDialog({
                             : "border-white/[0.1] bg-white/[0.03] text-white/70 hover:bg-white/[0.07]"
                         }`}
                       >
-                        {s.season_number === 0 ? "特别篇" : `第 ${s.season_number} 季`}
+                        {s.season_number === 0 ? t("media.season.specials") : t("media.season.title", { number: s.season_number })}
                         <span className="tnum ml-1.5 text-caption text-[var(--text-faint)]">
-                          库存 {s.owned_count}
-                          {s.episode_count != null && s.owned_count < s.episode_count
-                            ? ` / ${s.episode_count}`
-                            : ""}
+                          {t("subscription.upgrade.owned", { count: s.owned_count, total: s.episode_count ?? 0, hasTotal: s.episode_count != null && s.owned_count < s.episode_count ? "yes" : "no" })}
                         </span>
                       </button>
                     );
@@ -401,24 +400,24 @@ export function UpgradeRunDialog({
 
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-white/[0.07] px-6 py-4 max-md:px-5">
+          <div className={`flex justify-end gap-2 border-t border-white/[0.07] px-6 py-4 max-md:px-5 ${locale === "en" ? "flex-wrap" : ""}`}>
             <button
               type="button"
               onClick={onClose}
               className="btn-glass h-10 px-4 text-ui font-medium"
             >
-              返回
+              {t("subscription.upgrade.back")}
             </button>
             <button
               type="button"
               disabled={busy || !canRun}
               onClick={() => void run()}
-              className="btn-accent inline-flex h-10 items-center gap-2 rounded-full px-5 text-ui font-semibold disabled:opacity-40"
+              className={`btn-accent inline-flex items-center gap-2 rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale === "en" ? "min-h-10 py-2" : "h-10"}`}
             >
               {busy && (
                 <span className="size-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white/90" />
               )}
-              {paused ? "恢复并触发洗版" : "开始体检并洗版"}
+              {paused ? t("subscription.upgrade.resume") : t("subscription.upgrade.start")}
             </button>
           </div>
         </>
@@ -430,34 +429,34 @@ export function UpgradeRunDialog({
 }
 
 /** 成员洗版时的规则组说明：成员不能选组，目标档位由管理员在规则组里配置。 */
-const MEMBER_RULE_SET_HINT =
-  "洗到哪一档由管理员在规则组里配置；若当前规则组还没有洗版目标，请联系管理员设置。";
+const MEMBER_RULE_SET_HINT_KEY = "subscription.upgrade.memberHint";
 
 /** 单元状态 → 报告徽标（与追踪明细的徽标语言同源）。 */
 const UNIT_STATE_META: Record<
   UpgradeRunUnit["state"],
-  { label: string; color: string }
+  { labelKey: AppMessageKey; color: string }
 > = {
-  upgradable: { label: "已排洗版", color: "#2dd4bf" },
-  in_flight: { label: "洗版中", color: "#34d399" },
-  at_cutoff: { label: "已达目标", color: "#4ade80" },
-  not_comparable: { label: "无法确认", color: "#9ca3af" },
-  missing: { label: "缺失", color: "#f5c451" },
+  upgradable: { labelKey: "subscription.upgrade.stateUpgradable", color: "#2dd4bf" },
+  in_flight: { labelKey: "subscription.upgrade.stateInFlight", color: "#34d399" },
+  at_cutoff: { labelKey: "subscription.upgrade.stateAtCutoff", color: "#4ade80" },
+  not_comparable: { labelKey: "subscription.upgrade.stateUnknown", color: "#9ca3af" },
+  missing: { labelKey: "subscription.upgrade.stateMissing", color: "#f5c451" },
 };
 
 /** 单元状态 → 说明行（标签由后端生成，前端只做排版）。 */
-function unitNote(u: UpgradeRunUnit): string {
+function unitNote(u: UpgradeRunUnit, locale: AppLocale): string {
+  const t = appTranslator(locale);
   switch (u.state) {
     case "upgradable":
-      return `当前 ${u.current_label ?? "未知"} → 目标 ${u.target_label}，已排入立即搜索`;
+      return t("subscription.upgrade.upgradableNote", { current: u.current_label ?? t("subscription.upgrade.unknown"), target: u.target_label });
     case "in_flight":
-      return "已投递新版本，等待入库验证";
+      return t("subscription.upgrade.inFlightNote");
     case "at_cutoff":
-      return `当前 ${u.current_label ?? "未知"}，已达洗版目标`;
+      return t("subscription.upgrade.atCutoffNote", { current: u.current_label ?? t("subscription.upgrade.unknown") });
     case "not_comparable":
-      return "无法确认当前版本是否低于目标，不自动洗；可「标注片源」告知系统，或用「手动选种」直接替换";
+      return t("subscription.upgrade.unknownNote");
     case "missing":
-      return "库里没有该单元，将照常搜索下载补齐";
+      return t("subscription.upgrade.missingNote");
   }
 }
 
@@ -483,6 +482,8 @@ export function UpgradeRunReportView({
   onAnnotated?: (message: string) => void | Promise<void>;
   onClose: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const { isAdmin } = usePermissions();
   const [annotateSeason, setAnnotateSeason] = useState<number | null>(null);
   const seasons = new Map<number, UpgradeRunUnit[]>();
@@ -498,9 +499,9 @@ export function UpgradeRunReportView({
       : new Set<number>();
   return (
     <>
-      <h2 className="text-title font-bold text-white">洗版体检报告</h2>
+      <h2 className="text-title font-bold text-white">{t("subscription.upgrade.reportTitle")}</h2>
       <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-        《{title}》· 目标 {report.target_label}
+        {t("subscription.upgrade.reportSubtitle", { title, target: report.target_label })}
       </p>
       <p className="mt-3 rounded-lg border border-[#2dd4bf]/25 bg-[#2dd4bf]/[0.08] px-3.5 py-2.5 text-sub leading-6 text-white/90">
         {report.summary}
@@ -517,7 +518,7 @@ export function UpgradeRunReportView({
               {(!isMovie || annotatable.has(season)) && (
                 <p className="flex items-center border-b border-white/[0.06] px-4 py-2 text-sub font-semibold text-white/80">
                   <span className="min-w-0 flex-1">
-                    {isMovie ? "正片" : season === 0 ? "特别篇" : `第 ${season} 季`}
+                    {isMovie ? t("media.kind.feature") : season === 0 ? t("media.season.specials") : t("media.season.title", { number: season })}
                   </span>
                   {annotatable.has(season) && (
                     <button
@@ -525,7 +526,7 @@ export function UpgradeRunReportView({
                       onClick={() => setAnnotateSeason(season)}
                       className="shrink-0 rounded-md border border-white/[0.12] px-2 py-0.5 text-caption font-medium text-white/75 transition hover:bg-white/[0.07] hover:text-white"
                     >
-                      标注片源
+                      {t("subscription.upgrade.annotateSource")}
                     </button>
                   )}
                 </p>
@@ -536,19 +537,19 @@ export function UpgradeRunReportView({
                   return (
                     <li
                       key={`${u.season_number}-${u.episode_number}`}
-                      className="flex items-center gap-3 px-4 py-2 max-md:items-start"
+                      className={`flex items-center gap-3 px-4 py-2 max-md:items-start ${locale === "en" ? "flex-wrap" : ""}`}
                     >
                       <span className="tnum w-12 shrink-0 text-sub font-medium text-white/90">
-                        {isMovie ? "正片" : `E${String(u.episode_number).padStart(2, "0")}`}
+                        {isMovie ? t("media.kind.feature") : `E${String(u.episode_number).padStart(2, "0")}`}
                       </span>
                       <span
                         className="shrink-0 rounded-full px-2 py-0.5 text-micro font-semibold"
                         style={{ backgroundColor: `${meta.color}22`, color: meta.color }}
                       >
-                        {meta.label}
+                        {t(meta.labelKey)}
                       </span>
-                      <span className="tnum min-w-0 flex-1 text-sub leading-5 text-[var(--text-muted)] md:truncate">
-                        {unitNote(u)}
+                      <span className={`tnum min-w-0 flex-1 text-sub leading-5 text-[var(--text-muted)] ${locale === "en" ? "basis-full [overflow-wrap:anywhere]" : "md:truncate"}`}>
+                        {unitNote(u, locale)}
                       </span>
                     </li>
                   );
@@ -559,7 +560,7 @@ export function UpgradeRunReportView({
       </div>
 
       <p className="mt-3 text-caption leading-5 text-[var(--text-faint)]">
-        后续进展在订阅详情的「追踪明细」里跟进：洗版中的单元带青色徽标，换版成功会记入活动记录。
+        {t("subscription.upgrade.followUp")}
       </p>
       <div className="mt-4 flex justify-end">
         <button
@@ -567,7 +568,7 @@ export function UpgradeRunReportView({
           onClick={onClose}
           className="btn-accent h-10 rounded-full px-5 text-ui font-semibold"
         >
-          完成
+          {t("subscription.upgrade.done")}
         </button>
       </div>
 

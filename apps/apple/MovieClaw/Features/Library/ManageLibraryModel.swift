@@ -27,11 +27,11 @@ struct ManageLibraryStatus: Equatable {
         if library.scanning {
             let p = library.scanProgress
             let percent = p.flatMap { percentOf($0.processed, $0.total) }
-            let label = p.map { ScanPhase.label($0.phase) } ?? "正在扫描"
+            let label = p.map { ScanPhase.label($0.phase) } ?? String(localized: .libraryStatusScanning)
             return .init(
                 tone: .busy, kind: .scan,
                 title: percent.map { "\(label) \($0)%" } ?? label,
-                detail: p.map { $0.total > 0 ? "\($0.processed) / \($0.total)" : "正在统计待处理的文件数" } ?? "正在统计待处理的文件数",
+                detail: p.map { $0.total > 0 ? "\($0.processed) / \($0.total)" : String(localized: .libraryStatusCounting) } ?? String(localized: .libraryStatusCounting),
                 percent: percent
             )
         }
@@ -40,48 +40,48 @@ struct ManageLibraryStatus: Equatable {
             let percent = p.flatMap { percentOf($0.processed, $0.total) }
             return .init(
                 tone: .busy, kind: .organize,
-                title: percent.map { "正在整理文件名 \($0)%" } ?? "正在整理文件名",
+                title: percent.map { String(localized: .libraryStatusOrganizeProgress($0)) } ?? String(localized: .libraryStatusOrganizing),
                 detail: p.map { $0.total > 0 ? "\($0.processed) / \($0.total)" : "" } ?? "",
                 percent: percent
             )
         }
         if let refresh = library.metadataRefresh, refresh.refreshing {
             let percent = percentOf(refresh.processed, refresh.total)
-            let title = refresh.stopping ? "正在停止刷新" : percent.map { "刷新元数据 \($0)%" } ?? "刷新元数据"
-            let detail = refresh.active.first.map { "正在处理「\($0.title)」· \($0.phase)" } ?? "\(refresh.processed) / \(refresh.total)"
+            let title = refresh.stopping ? String(localized: .libraryStatusStoppingRefresh) : percent.map { String(localized: .libraryStatusRefreshProgress($0)) } ?? String(localized: .libraryStatusRefreshing)
+            let detail = refresh.active.first.map { String(localized: .libraryStatusActive($0.title, $0.phase)) } ?? "\(refresh.processed) / \(refresh.total)"
             return .init(tone: .busy, kind: .refresh, title: title, detail: detail, percent: percent)
         }
         if let job = library.chapterJob {
             let running = chapterJobRunning(job)
             let detail: String
             if !running {
-                detail = "等前面的任务跑完再开始"
+                detail = String(localized: .libraryStatusQueued)
             } else if job.total > 0 {
-                detail = "\(job.processed) / \(job.total)" + (job.failed > 0 ? " · \(job.failed) 个失败" : "")
+                detail = "\(job.processed) / \(job.total)" + (job.failed > 0 ? String(localized: .libraryStatusFailedSuffix(job.failed)) : "")
             } else {
-                detail = "正在统计待处理的文件数"
+                detail = String(localized: .libraryStatusCounting)
             }
             return .init(tone: .busy, kind: .chapters, title: chapterJobLabel(job), detail: detail,
                          percent: running ? percentOf(job.processed, job.total) : nil)
         }
         let deferred = library.lastScan?.deferred ?? 0
         if deferred > 0 {
-            return .init(tone: .busy, kind: .importing, title: "\(deferred) 个新文件入库中", detail: "等文件写完自动补扫", percent: nil)
+            return .init(tone: .busy, kind: .importing, title: String(localized: .libraryStatusImporting(deferred)), detail: String(localized: .libraryStatusWaitForWrite), percent: nil)
         }
         let unidentified = library.stats.unidentifiedCount
         let missing = library.stats.missingCount
         if missing > 0 {
             return .init(
                 tone: .missing, kind: .missing,
-                title: unidentified > 0 ? "\(unidentified) 个待识别 · \(missing) 个缺失" : "\(missing) 个缺失",
+                title: unidentified > 0 ? String(localized: .libraryStatusPendingMissing(unidentified, missing)) : String(localized: .libraryStatusMissing(missing)),
                 detail: lastScanDetail(library), percent: nil
             )
         }
         if unidentified > 0 {
-            return .init(tone: .pending, kind: .unidentified, title: "\(unidentified) 个待识别", detail: lastScanDetail(library), percent: nil)
+            return .init(tone: .pending, kind: .unidentified, title: String(localized: .libraryStatusUnidentified(unidentified)), detail: lastScanDetail(library), percent: nil)
         }
         // 空闲不是需要看的状态：只留「最近扫描 X 前」这行事实
-        return .init(tone: .idle, kind: .idle, title: "空闲", detail: lastScanDetail(library), percent: nil)
+        return .init(tone: .idle, kind: .idle, title: String(localized: .libraryStatusIdle), detail: lastScanDetail(library), percent: nil)
     }
 
     static func percentOf(_ processed: Int, _ total: Int) -> Int? {
@@ -92,12 +92,12 @@ struct ManageLibraryStatus: Equatable {
     /// 「最近扫描 X 前 · 结论」：扫描常毫秒级完成，只写时间的话一个本就最新的库扫完前后长得一模一样，
     /// 用户会以为没点上——结论挑用户关心的：新增几个文件、标记几个缺失；都没有就明说「无新文件」
     static func lastScanDetail(_ library: API.LibraryView) -> String {
-        guard let scan = library.lastScan else { return "尚未扫描" }
-        var parts = ["最近扫描 \(libraryFromNow(scan.finishedAt))"]
-        if scan.cancelled { parts.append("手动停止") }
-        if scan.scanned > 0 { parts.append("新增 \(scan.scanned) 个文件") }
-        if scan.markedMissing > 0 { parts.append("标记缺失 \(scan.markedMissing)") }
-        if !scan.cancelled, scan.scanned == 0, scan.markedMissing == 0 { parts.append("无新文件") }
+        guard let scan = library.lastScan else { return String(localized: .libraryStatusUnscanned) }
+        var parts = [String(localized: .libraryStatusLastScan(libraryFromNow(scan.finishedAt)))]
+        if scan.cancelled { parts.append(String(localized: .libraryStatusStopped)) }
+        if scan.scanned > 0 { parts.append(String(localized: .libraryStatusAdded(scan.scanned))) }
+        if scan.markedMissing > 0 { parts.append(String(localized: .libraryStatusMarkedMissing(scan.markedMissing))) }
+        if !scan.cancelled, scan.scanned == 0, scan.markedMissing == 0 { parts.append(String(localized: .libraryStatusNoNewFiles)) }
         return parts.joined(separator: " · ")
     }
 
@@ -107,10 +107,10 @@ struct ManageLibraryStatus: Equatable {
 
     /// 「生成章节」菜单项与状态列共用的一句话：没作业时是动作名，有作业时如实说到哪了
     static func chapterJobLabel(_ job: API.ChapterJobView?) -> String {
-        guard let job else { return "生成章节" }
-        if job.stopping { return "正在停止生成章节" }
-        if !chapterJobRunning(job) { return "生成章节排队中" }
-        return percentOf(job.processed, job.total).map { "正在生成章节 \($0)%" } ?? "正在生成章节"
+        guard let job else { return String(localized: .libraryStatusGenerateChapters) }
+        if job.stopping { return String(localized: .libraryStatusStoppingChapters) }
+        if !chapterJobRunning(job) { return String(localized: .libraryStatusChaptersQueued) }
+        return percentOf(job.processed, job.total).map { String(localized: .libraryStatusChapterPercent($0)) } ?? String(localized: .libraryStatusChaptersRunning)
     }
 }
 
@@ -159,7 +159,7 @@ enum ManageLibraryRules {
         let bytes = libraries.reduce(0) { $0 + $1.stats.totalSizeBytes }
         let needing = libraries.filter(needsAttention)
         return (
-            "\(libraries.count) 个媒体库 · \(items) 个条目 · \(libraryBytes(bytes))",
+            String(localized: .libraryManageSummaryLine(libraries.count, items, libraryBytes(bytes))),
             libraries.filter(isBusy).count,
             needing.count,
             needing.contains { $0.stats.missingCount > 0 }
@@ -177,9 +177,9 @@ enum ManageLibraryRules {
 
     /// 可见范围文案：只说库开放给谁；「你本人在不在浏览范围内」由锁图标表达，不混进文字
     static func accessLabel(_ library: API.LibraryView) -> String {
-        if library.accessMode == "everyone" { return "全部成员" }
-        if !library.memberIds.isEmpty { return "指定成员 \(library.memberIds.count)" }
-        return library.adminVisible ? "仅自己" : "无人可见"
+        if library.accessMode == "everyone" { return String(localized: .libraryStatusEveryone) }
+        if !library.memberIds.isEmpty { return String(localized: .libraryStatusMembers(library.memberIds.count)) }
+        return library.adminVisible ? String(localized: .libraryStatusOnlyMe) : String(localized: .libraryStatusNobody)
     }
 
     /// 可见范围偏离默认（对全部成员开放、你自己也能看）才在行内挂胶囊
@@ -190,21 +190,23 @@ enum ManageLibraryRules {
     /// 库名下的配置备注：只说偏离默认的部分（首页展示、实时监控开是默认，关了才说）
     static func configNotes(_ library: API.LibraryView) -> [String] {
         var notes: [String] = []
-        if library.excludeFromHome { notes.append("从首页排除") }
-        if !library.realtimeWatch { notes.append("实时监控关") }
+        if library.excludeFromHome { notes.append(String(localized: .libraryActionsExcludeHome)) }
+        if !library.realtimeWatch { notes.append(String(localized: .libraryStatusWatchOff)) }
         return notes
     }
 
     /// 库存：影视库按「部」、图片库按「张」、其他库按「条目」
     static func inventory(_ library: API.LibraryView) -> (primary: String, secondary: String) {
-        let unit = library.kind == "photo" ? "张" : library.kind == "video" ? "个条目" : "部"
-        return ("\(library.stats.itemCount) \(unit)", "\(library.stats.fileCount) 个文件")
+        let count = library.stats.itemCount
+        let primary = library.kind == "photo" ? String(localized: .libraryManagePhotoCount(count))
+            : library.kind == "video" ? String(localized: .libraryManageItemCount(count)) : String(localized: .libraryManageTitleCount(count))
+        return (primary, String(localized: .libraryStatusFileCount(library.stats.fileCount)))
     }
 
     /// 同类型两库的收藏范围可能同时命中同一部作品且条件数相同——命中顺序只能靠创建先后。
     /// 只读提示（不阻断），并点名给创建更晚的那个库补上它缺的维度（Web `routingOverlapWarnings`）
     static func routingOverlapWarnings(_ libraries: [API.LibraryView]) -> [String] {
-        let fieldLabels: [(String, String)] = [("genres", "类型"), ("origin_countries", "区域")]
+        let fieldLabels: [(String, String)] = [("genres", String(localized: .libraryFiltersGenres)), ("origin_countries", String(localized: .libraryManageRegionsField))]
         let declared = libraries.filter { !$0.matchRules.isEmpty }
         var warnings: [String] = []
         func field(_ rule: [String: API.JSONValue]) -> String? { rule["field"]?.stringValue }
@@ -226,9 +228,9 @@ enum ManageLibraryRules {
                 let laterFields = Set(later.matchRules.compactMap(field))
                 let missing = fieldLabels.filter { !laterFields.contains($0.0) }.map(\.1)
                 let fix = missing.isEmpty
-                    ? "两库已声明相同的维度：错开重叠的取值即可消除歧义。"
-                    : "想让「\(later.name)」优先收这类作品：编辑它，补上「\(missing.joined(separator: "」或「"))」条件（用「全选」也可以）——条件多的库优先命中；想维持现状则无需改动。"
-                warnings.append("「\(a.name)」与「\(b.name)」的收藏范围可能同时命中同一部作品且条件数相同，届时优先进创建更早的「\(first.name)」。\(fix)")
+                    ? String(localized: .libraryManageOverlapSameFields)
+                    : String(localized: .libraryManageOverlapAddFields(later.name, missing.joined(separator: String(localized: .libraryManageFieldSeparator))))
+                warnings.append(String(localized: .libraryManageOverlapWarning(a.name, b.name, first.name, fix)))
             }
         }
         return warnings
@@ -241,34 +243,34 @@ enum ManageConfirmText {
         ([lead] + items.map { "• \($0)" }).joined(separator: "\n")
     }
 
-    static let scan = bullets("本次扫描会检查库文件夹的最新变化：", [
-        "找出新增的影片文件，自动识别并加入媒体库",
-        "标记已经不在硬盘上的文件（记录保留，文件回来自动恢复）",
-        "为新入库的影片补齐简介、海报等信息",
-        "首次扫描会读取每个文件的画质与音轨信息，文件多时较慢、可随时停止",
-        "不会移动、修改或删除你的任何文件",
+    static let scan = bullets(String(localized: .libraryConfirmScanIntro), [
+        String(localized: .libraryConfirmScanNew),
+        String(localized: .libraryConfirmScanMissing),
+        String(localized: .libraryConfirmScanMetadata),
+        String(localized: .libraryConfirmScanProbe),
+        String(localized: .libraryConfirmScanSafe),
     ])
 
-    static let refresh = bullets("本次刷新会为库里的全部影片：", [
-        "重新获取最新的简介、评分、演职员和剧集信息",
-        "海报或背景图有更新时重新下载（你手动锁定的不动）",
-        "同步更新影片文件夹里的海报和 NFO 信息文件",
-        "影片较多时需要一段时间，可随时停止",
-        "不会移动、修改或删除你的视频文件",
+    static let refresh = bullets(String(localized: .libraryConfirmRefreshLibraryIntro), [
+        String(localized: .libraryConfirmRefreshDetails),
+        String(localized: .libraryConfirmRefreshArtwork),
+        String(localized: .libraryConfirmSyncSidecars),
+        String(localized: .libraryConfirmRefreshTime),
+        String(localized: .libraryConfirmVideoSafe),
     ])
 
-    static let rereadNfo = bullets("本次会为库里的全部视频：", [
-        "重新读取视频旁同名的 NFO 文件，标题、简介、系列等以 NFO 为准",
-        "NFO 里写了系列（<set>）的，按库设置自动归进系列合集",
-        "重新生成封面",
-        "不联网，不会修改或删除你的文件",
+    static let rereadNfo = bullets(String(localized: .libraryConfirmReadLibraryIntro), [
+        String(localized: .libraryConfirmReadNfo),
+        String(localized: .libraryConfirmNfoCollections("<set>")),
+        String(localized: .libraryConfirmRegenerateCover),
+        String(localized: .libraryConfirmReadSafe),
     ])
 
-    static let chapters = bullets("后台低优先级执行，可在任务中心观察或取消：", [
-        "只处理章节图还缺的文件（含上次没抓完、图丢了的），已经齐的不动",
-        "每个文件按章节数定位读取若干次，网络挂载的库会有读取流量",
-        "不会移动、修改或删除你的视频文件",
-    ]) + "\n\n选「已有的章节也重新生成」会按当前章节与合成策略全部重新生成，你手动选定的图不会被覆盖。"
+    static let chapters = bullets(String(localized: .libraryConfirmChaptersIntro), [
+        String(localized: .libraryConfirmChaptersMissing),
+        String(localized: .libraryConfirmChaptersReads),
+        String(localized: .libraryConfirmVideoSafe),
+    ]) + "\n\n" + String(localized: .libraryConfirmChaptersForceExplain)
 }
 
 /// 库类型的展示名（Web `LIBRARY_KIND_LABELS`）。媒体库模块的 `LibraryKindMeta.label` 把 photo 叫「照片」，
@@ -278,10 +280,10 @@ enum ManageKind {
 
     static func label(_ kind: String) -> String {
         switch kind {
-        case "movie": "电影"
-        case "tv": "剧集"
-        case "video": "其他"
-        case "photo": "图片"
+        case "movie": String(localized: .libraryKindMovies)
+        case "tv": String(localized: .libraryKindSeries)
+        case "video": String(localized: .libraryKindOther)
+        case "photo": String(localized: .libraryFormImages)
         default: kind
         }
     }

@@ -1,5 +1,16 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
+import {
+  jobTypeLabel, detailStrings, subtitleLanguageLabel, subtitleUsageSummary,
+  formatInteger, formatModelDuration, originLabel, progressAmount,
+  jobDetailItems, jobPhaseLabel, jobStatusLabel,
+} from "@/lib/job-presentation";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
+import type { AppMessageKey } from "@/lib/i18n/translate";
+
 import { useState } from "react";
 
 import type { Route } from "next";
@@ -26,86 +37,13 @@ import {
   type JobView,
 } from "@/lib/api/jobs";
 import { isDismissed } from "@/lib/job-attention";
-import { formatBytes, formatDuration } from "@/lib/format";
+
 import { useJobs } from "@/lib/jobs";
 import { taskActivityBadge, useTaskActivity } from "@/lib/task-activity";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
 import { usePermissions } from "@/lib/permissions";
 
-export const JOB_TYPE_LABELS: Record<string, string> = {
-  "subtitle.generate": "生成 AI 字幕",
-  "library.scan": "扫描媒体库",
-  "library.metadata.refresh": "刷新媒体库元数据",
-  "media.metadata.refresh": "刷新条目元数据",
-  "library.chapter_images": "生成章节",
-  "library.skip_segments": "识别片头片尾",
-  "media.skip_segments": "识别片头片尾",
-  "reels.clips": "预切片段",
-  "library.organize": "整理媒体库文件",
-  "library.transfer": "转移媒体库条目",
-  "library.ingest": "自动整理入库",
-  "drive.upload": "上传到网盘",
-};
-
-/** 任务类型的显示名：内置类型用本地文案，插件任务用服务端给的名字，都没有显示原始类型 */
-export function jobTypeLabel(job: Pick<JobView, "job_type" | "job_type_label">): string {
-  return JOB_TYPE_LABELS[job.job_type] || job.job_type_label || job.job_type;
-}
-
-export const JOB_STATUS_LABELS: Record<string, string> = {
-  queued: "排队中",
-  running: "进行中",
-  retry_wait: "等待重试",
-  cancelling: "正在取消",
-  waiting: "等待前置任务",
-  blocked: "需要处理",
-  succeeded: "已完成",
-  failed: "未完成",
-  cancelled: "已取消",
-};
-
-const JOB_PHASE_LABELS: Record<string, string> = {
-  queued: "等待执行",
-  preparing: "准备",
-  ocr: "识别图形字幕",
-  syncing: "校准时间轴",
-  glossary: "整理术语",
-  translating: "翻译字幕",
-  validating: "检查译文",
-  compressing: "压缩字幕",
-  writing: "写入文件",
-  refreshing: "刷新元数据",
-  walking: "遍历文件",
-  ingesting: "识别入账",
-  probing: "分析媒体",
-  assets: "补齐资产",
-  analyzing: "识别片头片尾",
-  organizing: "整理文件",
-  transferring: "搬运文件",
-  identifying: "识别条目",
-  waiting_library: "等待媒体库",
-  waiting_stable: "等待下载稳定",
-  finalizing: "收尾",
-  retry_wait: "等待重试",
-  blocked: "等待处理",
-  completed: "已完成",
-  cancelled: "已取消",
-};
-
-const LANGUAGE_LABELS: Record<string, string> = {
-  chs: "简体中文",
-  cht: "繁体中文",
-  eng: "英语",
-  jpn: "日语",
-  kor: "韩语",
-  fre: "法语",
-  ger: "德语",
-  spa: "西班牙语",
-  ita: "意大利语",
-  por: "葡萄牙语",
-  rus: "俄语",
-  tha: "泰语",
-};
+export { jobTypeLabel, jobDetailItems, jobStatusLabel } from "@/lib/job-presentation";
 
 const STATUS_STYLE: Record<JobStatus, { dot: string; border?: string }> = {
   queued: { dot: "bg-white/40" },
@@ -133,195 +71,6 @@ const SUPPORTED_ACTIONS = new Set([
   "handoff_agent",
 ]);
 
-function detailNumber(details: Record<string, unknown>, key: string): number | null {
-  const value = details[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function detailString(details: Record<string, unknown>, key: string): string | null {
-  const value = details[key];
-  return typeof value === "string" && value ? value : null;
-}
-
-function detailStrings(details: Record<string, unknown>, key: string): string[] {
-  const value = details[key];
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
-}
-
-function detailCount(details: Record<string, unknown>, key: string): number {
-  const value = details[key];
-  if (Array.isArray(value)) return value.length;
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function jobString(job: JobView, key: string): string | null {
-  return detailString(job.progress.details, key) ?? detailString(job.input_data, key);
-}
-
-/** 字幕任务的目标语言来自已确认输入，运行期 details 只作为更新后的优先快照。 */
-function subtitleLanguageLabel(job: JobView): string | null {
-  if (job.job_type !== "subtitle.generate") return null;
-  const target = jobString(job, "target_language");
-  if (!target) return null;
-  const primary = LANGUAGE_LABELS[target] ?? target;
-  const secondary = jobString(job, "secondary_language");
-  return secondary
-    ? `${primary} + ${LANGUAGE_LABELS[secondary] ?? secondary}（双语）`
-    : primary;
-}
-
-interface SubtitleUsageSummary {
-  requests: number;
-  failedRequests: number;
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  cacheReadTokens: number;
-  totalDurationMs: number;
-  maxDurationMs: number;
-}
-
-function subtitleUsageSummary(job: JobView): SubtitleUsageSummary | null {
-  if (job.job_type !== "subtitle.generate") return null;
-  const summary = {
-    requests: detailNumber(job.usage, "request_count") ?? 0,
-    failedRequests: detailNumber(job.usage, "failed_request_count") ?? 0,
-    promptTokens: detailNumber(job.usage, "prompt_tokens") ?? 0,
-    completionTokens: detailNumber(job.usage, "completion_tokens") ?? 0,
-    totalTokens: detailNumber(job.usage, "total_tokens") ?? 0,
-    cacheReadTokens: detailNumber(job.usage, "cache_read_tokens") ?? 0,
-    totalDurationMs: detailNumber(job.usage, "total_duration_ms") ?? 0,
-    maxDurationMs: detailNumber(job.usage, "max_duration_ms") ?? 0,
-  };
-  return summary.requests > 0 || summary.totalTokens > 0 || summary.totalDurationMs > 0
-    ? summary
-    : null;
-}
-
-function formatInteger(value: number): string {
-  return new Intl.NumberFormat("zh-CN").format(value);
-}
-
-function formatModelDuration(milliseconds: number): string {
-  if (milliseconds <= 0) return "—";
-  if (milliseconds < 1000) return `${Math.round(milliseconds)} 毫秒`;
-  return formatDuration(Math.max(1, Math.round(milliseconds / 1000)));
-}
-
-function originLabel(job: JobView): string {
-  const origin =
-    job.origin === "cli"
-      ? "CLI"
-      : job.origin === "agent"
-        ? "智能体"
-        : job.origin === "plugin"
-          ? "插件"
-          : job.origin === "scheduler" || job.origin === "system"
-            ? "系统自动"
-            : "网页";
-  return job.actor_name ? `${origin} · ${job.actor_name}` : origin;
-}
-
-function progressAmount(job: JobView): string | null {
-  const { current, total } = job.progress;
-  if (current == null || total == null) return null;
-  if (job.job_type === "library.ingest") {
-    return `${formatBytes(current)} / ${formatBytes(total)}`;
-  }
-  const unit =
-    job.job_type === "subtitle.generate"
-      ? "个分块"
-      : job.job_type === "library.scan"
-        ? "个文件"
-        : job.job_type === "media.metadata.refresh"
-          ? "张图片"
-          : job.job_type === "library.metadata.refresh"
-            ? "个条目"
-          : job.job_type === "library.organize"
-            ? "个文件"
-            : job.job_type === "library.transfer"
-              ? "个路径"
-              : "项";
-  return `${current} / ${total} ${unit}`;
-}
-
-/** 元数据刷新的图片记账（details.images）：新下载 / 沿用 / 收编 / 本地缩图 / 失败 / 抓帧 / 字节数 */
-function imageTally(details: Record<string, unknown>) {
-  const raw = details.images;
-  const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  return {
-    downloaded: detailNumber(value, "downloaded") ?? 0,
-    reused: detailNumber(value, "reused") ?? 0,
-    // 不联网取到的图：从媒体目录收编同一张图 / 从本地更大档位缩出来（services/asset_reuse.py）
-    adopted: detailNumber(value, "adopted") ?? 0,
-    derived: detailNumber(value, "derived") ?? 0,
-    failed: detailNumber(value, "failed") ?? 0,
-    grabbed: detailNumber(value, "grabbed") ?? 0,
-    bytes: detailNumber(value, "bytes") ?? 0,
-  };
-}
-
-export function jobDetailItems(job: JobView): Array<{ label: string; alert?: boolean }> {
-  const details = job.progress.details;
-  const items: Array<{ label: string; alert?: boolean }> = [];
-
-  if (job.job_type === "subtitle.generate") {
-    const language = subtitleLanguageLabel(job);
-    const doneEvents = detailNumber(details, "done_events");
-    const totalEvents = detailNumber(details, "total_events");
-    const parallelism = detailNumber(details, "parallelism");
-    const rateLimits = detailNumber(details, "rate_limit_count");
-    // subtitleLanguageLabel 出来的已经是中文标签，不要再拿去查一次语言码表
-    if (language) items.push({ label: language });
-    if (doneEvents != null && totalEvents) {
-      items.push({ label: `${doneEvents} / ${totalEvents} 条字幕` });
-    }
-    if (details.uses_ocr === true) items.push({ label: "PGS OCR" });
-    if (parallelism && parallelism > 1) items.push({ label: `${parallelism} 路并行` });
-    if (rateLimits) items.push({ label: `限流重试 ${rateLimits} 次`, alert: true });
-  } else if (job.job_type === "library.scan") {
-    const identified = detailNumber(details, "identified");
-    const unidentified = detailNumber(details, "unidentified");
-    const probed = detailNumber(details, "probed");
-    const missing = detailNumber(details, "marked_missing");
-    const errors = detailCount(details, "errors");
-    if (identified) items.push({ label: `识别 ${identified} 个` });
-    if (probed) items.push({ label: `补探 ${probed} 个` });
-    if (unidentified) items.push({ label: `待识别 ${unidentified} 个`, alert: true });
-    if (missing) items.push({ label: `缺失 ${missing} 个`, alert: true });
-    if (errors) items.push({ label: `${errors} 个问题`, alert: true });
-  } else if (job.job_type.includes("metadata.refresh")) {
-    // 正在刷新哪部、到哪一步已写在摘要文案里（「正在刷新「XX」：下载图片 120 / 480」），
-    // 这里只补失败与图片记账。失败排在前面：标签最多显示 4 个
-    const failed = detailNumber(details, "failed");
-    if (failed) items.push({ label: `${failed} 个条目未完成`, alert: true });
-    const images = imageTally(details);
-    if (images.failed) items.push({ label: `${images.failed} 张图片未下载`, alert: true });
-    if (images.downloaded) {
-      items.push({ label: `新下载 ${images.downloaded} 张 · ${formatBytes(images.bytes)}` });
-    }
-    if (images.reused) items.push({ label: `沿用 ${images.reused} 张` });
-    if (images.adopted) items.push({ label: `从媒体目录收编 ${images.adopted} 张` });
-    if (images.derived) items.push({ label: `本地缩图 ${images.derived} 张` });
-    if (images.grabbed) items.push({ label: `截取 ${images.grabbed} 张剧照` });
-  } else if (job.job_type === "library.organize") {
-    const errors = detailCount(details, "errors");
-    if (errors) items.push({ label: `${errors} 个问题`, alert: true });
-  } else if (job.job_type === "library.transfer") {
-    const moved = detailNumber(details, "bytes_moved");
-    const totalBytes = detailNumber(details, "total_bytes");
-    if (moved) items.push({ label: `已搬运 ${formatBytes(moved)}` });
-    else if (totalBytes) items.push({ label: `共 ${formatBytes(totalBytes)}` });
-    if (details.cross_device === true) items.push({ label: "跨盘复制" });
-  } else if (job.job_type === "library.ingest") {
-    const fileName = detailString(details, "file_name");
-    if (fileName) items.push({ label: fileName });
-  }
-
-  return items.slice(0, 4);
-}
-
 /** 任务中心统一状态点：紧贴标题展示状态，完整文字通过 title 与无障碍标签保留。 */
 export function TaskStatusDot({
   label,
@@ -330,11 +79,13 @@ export function TaskStatusDot({
   label: string;
   dotClass: string;
 }) {
+  const t = useTranslations();
+
   return (
     <span
       title={label}
       role="img"
-      aria-label={`状态：${label}`}
+      aria-label={t("activity.jobs.statusAria", { label })}
       className={`size-2.5 shrink-0 rounded-full ${dotClass}`}
     >
       <span className="sr-only">{label}</span>
@@ -422,22 +173,27 @@ export function TaskActionsMenu({
 }
 
 function StatusDot({ status }: { status: JobStatus }) {
+  const locale = useLocale();
+
   const style = STATUS_STYLE[status];
   return (
     <TaskStatusDot
-      label={JOB_STATUS_LABELS[status] ?? status}
+      label={jobStatusLabel(status, locale)}
       dotClass={style.dot}
     />
   );
 }
 
 export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => void }) {
+  const locale = useLocale();
+  const t = useTranslations();
+
   const router = useRouter();
   const { start: startAgent } = useAgentConversations();
   const { upsert } = useJobs();
   const { state: llmState } = useLlmCapability();
   const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useMessageState();
   const [usageExpanded, setUsageExpanded] = useState(false);
   const [dismissOpen, setDismissOpen] = useState(false);
   const active = ["queued", "running", "retry_wait", "cancelling", "waiting"].includes(
@@ -458,7 +214,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
   const dismissed = isDismissed(job);
   const percent = job.progress.percent;
   const statusStyle = STATUS_STYLE[job.status];
-  const details = jobDetailItems(job);
+  const details = jobDetailItems(job, locale);
   const importedFiles =
     job.job_type === "library.ingest"
       ? detailStrings(job.progress.details, "imported_files")
@@ -477,20 +233,20 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
         : job.status === "retry_wait" || job.status === "cancelling"
           ? "bg-[var(--warn)]"
           : "bg-[var(--info)]";
-  const amount = progressAmount(job);
-  const phase = JOB_PHASE_LABELS[job.progress.phase] ?? job.progress.phase;
+  const amount = progressAmount(job, locale);
+  const phase = jobPhaseLabel(job.progress.phase, locale);
   const phaseStep =
     job.progress.phase_index != null && job.progress.phase_count != null
       ? `${job.progress.phase_index}/${job.progress.phase_count}`
       : null;
-  const typeLabel = jobTypeLabel(job);
+  const typeLabel = jobTypeLabel(job, locale);
   const title = job.subject || typeLabel;
   const completedSubtitleLanguage =
-    job.status === "succeeded" ? subtitleLanguageLabel(job) : null;
+    job.status === "succeeded" ? subtitleLanguageLabel(job, locale) : null;
   const completedLibraryScan =
     job.job_type === "library.scan" && job.status === "succeeded";
   const summaryMessage = completedSubtitleLanguage
-    ? `已生成${completedSubtitleLanguage}字幕`
+    ? t("activity.jobs.generatedSubtitles", { language: completedSubtitleLanguage })
     : job.error?.message ?? job.progress.message;
   const actions = (job.error?.actions ?? []).filter(
     (action) =>
@@ -504,7 +260,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
     !isSystemCancelled(job) &&
     !actions.some((action) => action.type === "retry_job")
   ) {
-    actions.unshift({ type: "retry_job", label: "重新执行" });
+    actions.unshift({ type: "retry_job", label: t("activity.jobs.retryAction") });
   }
 
   async function runAction(type: string, target?: string) {
@@ -533,7 +289,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
       onNavigate();
       router.push(`/settings/${section}` as Route);
     } catch (error) {
-      setActionError((error as Error).message || "操作未完成，请稍后重试");
+      setActionError((error as Error).message || { key: "activity.jobs.actionFailed" });
     } finally {
       setBusyAction(null);
     }
@@ -546,7 +302,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
       upsert(await dismissJob(job.id, muteSource));
       setDismissOpen(false);
     } catch (error) {
-      setActionError((error as Error).message || "忽略失败，请稍后重试");
+      setActionError((error as Error).message || { key: "activity.jobs.dismissFailed" });
     } finally {
       setBusyAction(null);
     }
@@ -558,7 +314,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
     try {
       upsert(await undismissJob(job.id));
     } catch (error) {
-      setActionError((error as Error).message || "撤销忽略失败，请稍后重试");
+      setActionError((error as Error).message || { key: "activity.jobs.restoreFailed" });
     } finally {
       setBusyAction(null);
     }
@@ -570,7 +326,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
     try {
       upsert(await cancelJob(job.id));
     } catch (error) {
-      setActionError((error as Error).message || "取消任务失败，请稍后重试");
+      setActionError((error as Error).message || { key: "activity.jobs.cancelFailed" });
     } finally {
       setBusyAction(null);
     }
@@ -581,14 +337,14 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
       ? [
           {
             id: "cancel",
-            label: busyAction === "cancel" ? "正在取消…" : "取消任务",
+            label: busyAction === "cancel" ? t("activity.jobs.cancellingAction") : t("activity.jobs.cancelAction"),
             onSelect: () => void cancelCurrentJob(),
           },
         ]
       : []),
     ...actions.map((action) => ({
       id: `${action.type}:${action.target ?? ""}`,
-      label: busyAction === action.type ? "处理中…" : action.label,
+      label: busyAction === action.type ? t("activity.jobs.processingAction") : action.label,
       onSelect: () => void runAction(action.type, action.target),
     })),
     // 「忽略」排在补救动作之后：先给出路（重试 / 看日志 / 交给 Agent），
@@ -598,7 +354,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
       ? [
           {
             id: "dismiss",
-            label: "忽略这个任务",
+            label: t("activity.jobs.dismissAction"),
             onSelect: () => setDismissOpen(true),
           },
         ]
@@ -607,7 +363,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
       ? [
           {
             id: "undismiss",
-            label: busyAction === "undismiss" ? "撤销中…" : "撤销忽略",
+            label: busyAction === "undismiss" ? t("activity.jobs.restoringAction") : t("activity.jobs.restoreAction"),
             onSelect: () => void undismissCurrentJob(),
           },
         ]
@@ -639,7 +395,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
           </div>
           {menuItems.length > 0 && (
             <TaskActionsMenu
-              ariaLabel={`${title}的更多操作`}
+              ariaLabel={t("activity.jobs.moreActions", { title })}
               disabled={busyAction !== null}
               items={menuItems}
             />
@@ -660,12 +416,12 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
             className={compact ? "break-words" : "min-h-10 break-words"}
             tooltipContent={
               <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                {attention && <span className="mr-1.5 font-semibold">需要处理：</span>}
+                {attention && <span className="mr-1.5 font-semibold">{t("activity.jobs.attentionPrefix")}</span>}
                 {summaryMessage}
               </span>
             }
           >
-            {attention && <span className="mr-1.5 font-semibold">需要处理：</span>}
+            {attention && <span className="mr-1.5 font-semibold">{t("activity.jobs.attentionPrefix")}</span>}
             {summaryMessage}
           </OverflowText>
         </div>
@@ -681,16 +437,16 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
               <div className="mb-1.5 flex items-center justify-between gap-3 text-caption">
                 <OverflowText className="font-medium text-white/60">
                   {phase}
-                  {phaseStep && <span className="ml-1.5 text-white/30">阶段 {phaseStep}</span>}
+                  {phaseStep && <span className="ml-1.5 text-white/30">{t("activity.jobs.phaseStep", { step: phaseStep })}</span>}
                 </OverflowText>
                 <span className="tnum shrink-0 text-white/50">
                   {percent != null
                     ? `${Math.round(percent)}%`
                     : job.status === "retry_wait"
-                      ? "等待继续"
+                      ? t("activity.jobs.continueWait")
                       : waitingProgress
-                        ? "等待中"
-                        : "处理中"}
+                        ? t("activity.jobs.waiting")
+                        : t("activity.jobs.processing")}
                 </span>
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
@@ -714,7 +470,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
                   {amount}
                   {amount && job.status === "retry_wait" ? " · " : ""}
                   {job.status === "retry_wait"
-                    ? `第 ${Math.max(1, job.attempt)} / ${job.max_attempts} 次尝试`
+                    ? t("activity.jobs.attempt", { current: Math.max(1, job.attempt), total: job.max_attempts })
                     : ""}
                 </p>
               )}
@@ -750,30 +506,30 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
                 <ChevronRightIcon
                   className={`size-3.5 transition-transform ${usageExpanded ? "rotate-90" : ""}`}
                 />
-                {usageExpanded ? "收起模型消耗" : "查看模型消耗"}
+                {usageExpanded ? t("activity.jobs.collapseUsage") : t("activity.jobs.expandUsage")}
               </span>
               <OverflowText focusable={false} className="tnum text-right text-white/35">
-                {formatInteger(subtitleUsage.totalTokens)} Token · {subtitleUsage.requests} 次请求
+                {t("activity.jobs.usageSummary", { tokens: formatInteger(subtitleUsage.totalTokens, locale), count: subtitleUsage.requests })}
               </OverflowText>
             </button>
             {usageExpanded && (
               <div className="mt-2.5 rounded-xl border border-white/[0.07] bg-black/15 p-3">
                 <div className="grid grid-cols-4 gap-3 max-md:grid-cols-2">
-                  <UsageMetric label="总 Token" value={formatInteger(subtitleUsage.totalTokens)} />
-                  <UsageMetric label="输入" value={formatInteger(subtitleUsage.promptTokens)} />
-                  <UsageMetric label="输出" value={formatInteger(subtitleUsage.completionTokens)} />
-                  <UsageMetric label="输入缓存" value={formatInteger(subtitleUsage.cacheReadTokens)} />
+                  <UsageMetric label={t("activity.jobs.totalTokens")} value={formatInteger(subtitleUsage.totalTokens, locale)} />
+                  <UsageMetric label={t("activity.jobs.inputTokens")} value={formatInteger(subtitleUsage.promptTokens, locale)} />
+                  <UsageMetric label={t("activity.jobs.outputTokens")} value={formatInteger(subtitleUsage.completionTokens, locale)} />
+                  <UsageMetric label={t("activity.jobs.cacheTokens")} value={formatInteger(subtitleUsage.cacheReadTokens, locale)} />
                 </div>
                 <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-white/[0.06] pt-2.5 text-caption text-white/35">
                   {job.provider_ref && <span>{job.provider_ref}</span>}
-                  <span>{subtitleUsage.requests} 次模型请求</span>
+                  <span>{t("activity.jobs.modelRequests", { count: subtitleUsage.requests })}</span>
                   {subtitleUsage.failedRequests > 0 && (
                     <span className="text-amber-200/70">
-                      {subtitleUsage.failedRequests} 次失败
+                      {t("activity.jobs.failedRequests", { count: subtitleUsage.failedRequests })}
                     </span>
                   )}
-                  <span>累计响应 {formatModelDuration(subtitleUsage.totalDurationMs)}</span>
-                  <span>最慢一次 {formatModelDuration(subtitleUsage.maxDurationMs)}</span>
+                  <span>{t("activity.jobs.totalResponseTime", { duration: formatModelDuration(subtitleUsage.totalDurationMs, locale) })}</span>
+                  <span>{t("activity.jobs.maxResponseTime", { duration: formatModelDuration(subtitleUsage.maxDurationMs, locale) })}</span>
                 </p>
               </div>
             )}
@@ -790,17 +546,16 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
       <footer className={`${compact ? "mt-1.5" : "mt-3"} flex flex-wrap items-center gap-2`}>
         <OverflowText
           alwaysShowTooltip
-          tooltipContent={`${originLabel(job)} · ${formatDateTime(job.created_at)}`}
+          tooltipContent={`${originLabel(job, locale)} · ${formatDateTime(job.created_at)}`}
           className="text-micro text-white/25"
         >
-          {originLabel(job)} · {formatRelativeTime(job.created_at)}
+          {originLabel(job, locale)} · {formatRelativeTime(job.created_at)}
         </OverflowText>
         {dismissed && (
           // 描边/填充换消费 token：--line 与 --glass-fill 的 :root 值与原字面量
           // 完全相同（白 0.08 / 白 0.04），银玻璃零变化，Netflix 主题自动换档
           <span className="ml-auto shrink-0 rounded-md border border-[var(--line)] bg-[var(--glass-fill)] px-1.5 py-0.5 text-micro text-white/40">
-            已忽略
-          </span>
+            {t("activity.jobs.dismissed")}</span>
         )}
       </footer>
       {dismissOpen && (
@@ -818,8 +573,8 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
 }
 
 /** 有自动来源的任务类型：系统会周期性地重新建同样的任务，光忽略一次不管用。 */
-const AUTO_RECREATED_JOB_TYPES: Record<string, string> = {
-  "subtitle.generate": "不再自动为这个文件生成字幕",
+const AUTO_RECREATED_JOB_TYPES: Record<string, AppMessageKey> = {
+  "subtitle.generate": "activity.jobs.muteSubtitle",
 };
 
 /**
@@ -846,18 +601,19 @@ function DismissJobDialog({
   onClose: () => void;
   onConfirm: (muteSource: boolean) => void;
 }) {
-  const muteLabel = AUTO_RECREATED_JOB_TYPES[job.job_type];
+  const locale = useLocale();
+  const t = useTranslations();
+
+  const muteLabel = Object.hasOwn(AUTO_RECREATED_JOB_TYPES, job.job_type) ? AUTO_RECREATED_JOB_TYPES[job.job_type] : undefined;
   const [muteSource, setMuteSource] = useState(muteLabel != null);
-  const title = job.subject || jobTypeLabel(job);
+  const title = job.subject || jobTypeLabel(job, locale);
 
   return (
-    <Modal open onClose={busy ? () => {} : onClose} label="忽略任务" topmost>
+    <Modal open onClose={busy ? () => {} : onClose} label={t("activity.jobs.dismissDialog")} topmost>
       <div className="p-6 max-md:p-5">
-        <h2 className="text-title-sm font-bold text-white">忽略这个任务？</h2>
+        <h2 className="text-title-sm font-bold text-white">{t("activity.jobs.dismissTitle")}</h2>
         <p className="mt-2 text-sub leading-6 text-[var(--text-muted)]">
-          它会从「需要处理」下架，移到「已结束」。任务记录、失败原因和重试入口都还在，
-          随时可以撤销忽略。
-        </p>
+          {t("activity.jobs.dismissHint")}</p>
         <p className="mt-3 break-words rounded-xl border border-white/[0.08] bg-white/[0.035] px-3.5 py-3 text-sub leading-6 text-white/75">
           {title}
         </p>
@@ -876,11 +632,9 @@ function DismissJobDialog({
               className="mt-1 size-4 shrink-0 accent-white/70"
             />
             <span className="min-w-0">
-              <span className="block text-ui font-semibold text-white/90">{muteLabel}</span>
+              <span className="block text-ui font-semibold text-white/90">{t(muteLabel)}</span>
               <span className="mt-0.5 block text-caption leading-5 text-white/50">
-                不勾选的话，下次扫描媒体库时系统还会自动重新生成一次、再失败一次。
-                手动生成不受影响，你随时可以自己再试。
-              </span>
+                {t("activity.jobs.muteHint")}</span>
             </span>
           </label>
         )}
@@ -891,15 +645,14 @@ function DismissJobDialog({
             disabled={busy}
             className="rounded-lg border border-white/10 bg-white/[0.06] px-4 py-2 text-ui text-white/80 transition hover:bg-white/[0.1] disabled:opacity-40"
           >
-            取消
-          </button>
+            {t("activity.jobs.cancel")}</button>
           <button
             type="button"
             onClick={() => onConfirm(muteSource)}
             disabled={busy}
             className="rounded-lg bg-white/90 px-4 py-2 text-ui font-medium text-black transition hover:bg-white disabled:opacity-40"
           >
-            {busy ? "正在忽略…" : "忽略"}
+            {busy ? t("activity.jobs.dismissing") : t("activity.jobs.dismiss")}
           </button>
         </div>
       </div>
@@ -909,10 +662,12 @@ function DismissJobDialog({
 
 /** 本次作业实际新增的文件：单文件直接展示，多文件保留首项并允许展开核对。 */
 function IngestImportedFiles({ files }: { files: string[] }) {
+  const t = useTranslations();
+
   if (files.length === 1) {
     return (
       <p className="mt-2.5 flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-caption">
-        <span className="shrink-0 text-white/40">本次新增文件</span>
+        <span className="shrink-0 text-white/40">{t("activity.jobs.importedFile")}</span>
         <OverflowText className="font-medium text-white/65">{files[0]}</OverflowText>
       </p>
     );
@@ -922,7 +677,7 @@ function IngestImportedFiles({ files }: { files: string[] }) {
     <details className="group mt-2.5 rounded-lg border border-white/[0.07] bg-white/[0.03]">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-caption [&::-webkit-details-marker]:hidden">
         <ChevronRightIcon className="size-3.5 shrink-0 transition-transform group-open:rotate-90" />
-        <span className="shrink-0 text-white/40">本次新增 {files.length} 个文件</span>
+        <span className="shrink-0 text-white/40">{t("activity.jobs.importedFiles", { count: files.length })}</span>
         <OverflowText className="font-medium text-white/65">{files[0]}</OverflowText>
       </summary>
       <ul className="space-y-1 border-t border-white/[0.06] px-3 py-2.5 text-caption text-white/55">
@@ -956,17 +711,19 @@ function UsageMetric({ label, value }: { label: string; value: string }) {
  * 计数走 useTaskActivity 这份共享口径，与活动页里的选项卡数字保证一致。
  */
 export function JobCenter({ collapsed, active = false }: { collapsed: boolean; active?: boolean }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const router = useRouter();
   const { isAdmin } = usePermissions();
   const activity = useTaskActivity();
   if (!isAdmin) return null;
-  const { alert, count: badgeCount, href, hint } = taskActivityBadge(activity);
+  const { alert, count: badgeCount, href, hint } = taskActivityBadge(activity, locale);
   return (
     <button
       type="button"
       onClick={() => router.push(href as Route)}
       data-active={active}
-      title={collapsed ? `活动（${hint}）` : undefined}
+      title={collapsed ? t("nav.badges.activityHint", { hint }) : undefined}
       className={`glass-row nav-item py-2 max-md:py-2.5 ${collapsed ? "justify-center px-0" : "px-3"}`}
     >
       <span className="relative shrink-0">
@@ -981,7 +738,7 @@ export function JobCenter({ collapsed, active = false }: { collapsed: boolean; a
       </span>
       {!collapsed && (
         <>
-          <span className="flex-1 text-ui font-medium">活动</span>
+          <span className="flex-1 text-ui font-medium">{t("nav.main.activity")}</span>
           {badgeCount > 0 && (
             <span
               className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold leading-none ${

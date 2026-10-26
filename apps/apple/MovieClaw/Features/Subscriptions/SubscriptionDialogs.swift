@@ -16,15 +16,15 @@ struct SeasonPickRow: View {
 
     private var progress: String {
         let total = season.episodeCount ?? 0
-        if total > 0, season.airedCount >= total { return "全 \(total) 集已播完" }
-        if total > 0 { return "已播 \(season.airedCount)/\(total) 集" }
-        return season.airedCount > 0 ? "已播 \(season.airedCount) 集" : "未播出"
+        if total > 0, season.airedCount >= total { return String(localized: .subscriptionSubscribeSeasonComplete(total)) }
+        if total > 0 { return String(localized: .subscriptionSubscribeSeasonProgress(season.airedCount, total)) }
+        return season.airedCount > 0 ? String(localized: .subscriptionSubscribeEpisodesAired(season.airedCount)) : String(localized: .subscriptionSubscribeNotAired)
     }
 
     private var owned: String? {
         let total = season.episodeCount ?? 0
         guard season.ownedCount > 0 else { return nil }
-        return total > 0 && season.ownedCount >= total ? "整季已在库" : "库里已有 \(season.ownedCount) 集"
+        return total > 0 && season.ownedCount >= total ? String(localized: .subscriptionSubscribeSeasonOwned) : String(localized: .subscriptionSubscribeEpisodesOwned(season.ownedCount))
     }
 
     var body: some View {
@@ -73,7 +73,7 @@ struct DispatchPreviewNote: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("dispatch-preview")
         } else {
-            Label(preview.warning ?? "按当前配置投递无法自动入库", systemImage: "exclamationmark.triangle.fill")
+            Label(preview.warning ?? String(localized: .subscriptionAdjustCannotAutoImport), systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
                 .foregroundStyle(SubsColor.warn)
                 .accessibilityIdentifier("dispatch-preview")
@@ -84,14 +84,14 @@ struct DispatchPreviewNote: View {
         if preview.mode == "watch" {
             let path = preview.path ?? ""
             if !adjusting, let staging = preview.stagingPath {
-                return "将投递到自动入库的监听目录 \(path)，下载完成后整理到 \(staging)，文件进入媒体库根目录后自动入账"
+                return String(localized: .subscriptionAdjustWatchStagingPreview(path, staging))
             }
-            return "将投递到自动入库的监听目录 \(path)，下载完成后自动整理入库"
+            return String(localized: .subscriptionAdjustWatchPreview(path))
         }
         // 条目目录由后端按命名模板渲染（entry_dir），不自己拼「标题 (年份)」
         var dir = preview.entryDir ?? preview.path ?? ""
         while !adjusting, dir.hasSuffix("/") { dir.removeLast() }
-        return "将直接下载到库内目录 \(dir)，完成后自动入账"
+        return String(localized: .subscriptionAdjustLibraryPreview(dir))
     }
 }
 
@@ -116,34 +116,34 @@ struct SubscriptionCancelSheet: View {
         let torrentCount = preview?.torrentCount ?? 0
         let fileCount = preview?.libraryFileCount ?? 0
         SubsSheetScaffold(
-            title: "取消订阅",
-            subtitle: "取消订阅《\(title)》将停止追踪剩余内容。默认只取消订阅，已经下载或入库的内容都会保留。",
-            closeTitle: "先不",
+            title: String(localized: .subscriptionCancelTitle),
+            subtitle: String(localized: .subscriptionCancelSubtitle(title)),
+            closeTitle: String(localized: .subscriptionCancelNotNow),
             ready: preview != nil
         ) {
             Section {
                 SubsCleanupToggle(
-                    label: preview == nil ? "同时删除相关的下载任务"
-                        : torrentCount == 0 ? "同时删除相关的下载任务（没有可删除的任务）" : "同时删除相关的下载任务（\(torrentCount) 个）",
-                    description: torrentCount == 0 ? nil : "从下载器移除任务，并删除下载目录里的文件，不可恢复。",
+                    label: preview == nil ? String(localized: .subscriptionCancelTasks)
+                        : torrentCount == 0 ? String(localized: .subscriptionCancelNoTasks) : String(localized: .subscriptionCancelTaskCount(torrentCount)),
+                    description: torrentCount == 0 ? nil : String(localized: .subscriptionCancelTaskWarning),
                     warning: deleteTorrents && (preview?.hitAndRunCount ?? 0) > 0
-                        ? "其中 \(preview?.hitAndRunCount ?? 0) 个种子仍在 H&R 考核或考核状态未知，删除后可能影响站点考核。" : nil,
+                        ? String(localized: .subscriptionCancelHitAndRun(preview?.hitAndRunCount ?? 0)) : nil,
                     isOn: $deleteTorrents,
                     disabled: preview == nil || torrentCount == 0
                 )
                 .accessibilityIdentifier("cancel-delete-torrents")
                 SubsCleanupToggle(
-                    label: preview == nil ? "同时删除媒体库里的资源"
-                        : fileCount == 0 ? "同时删除媒体库里的资源（媒体库中没有该作品）"
-                        : "同时删除媒体库里的资源（\(fileCount) 个文件 · \(SubsFormat.bytes(preview?.libraryBytes))）",
-                    description: fileCount == 0 ? nil : "文件会移入媒体库回收站，\(preview?.recycleRetentionDays ?? 7) 天内可以恢复。",
+                    label: preview == nil ? String(localized: .subscriptionCancelFiles)
+                        : fileCount == 0 ? String(localized: .subscriptionCancelNoFiles)
+                        : String(localized: .subscriptionCancelFileCount(fileCount, SubsFormat.bytes(preview?.libraryBytes))),
+                    description: fileCount == 0 ? nil : String(localized: .subscriptionCancelRetention(preview?.recycleRetentionDays ?? 7)),
                     isOn: $deleteFiles,
                     disabled: preview == nil || fileCount == 0
                 )
                 .accessibilityIdentifier("cancel-delete-files")
             } footer: {
                 if deleteTorrents || deleteFiles {
-                    Text("订阅会立刻取消，清理在后台进行——可以在「任务中心」查看进度和结果。")
+                    Text(String(localized: .subscriptionCancelBackground))
                 }
             }
             // 破坏性确认不放右上 ✓：列表末尾一组红色行按钮，与系统「删除」类操作同一形态
@@ -156,7 +156,7 @@ struct SubscriptionCancelSheet: View {
                     }
                 } label: {
                     HStack {
-                        Text(busy ? "处理中…" : "取消订阅")
+                        Text(busy ? String(localized: .subscriptionCancelProcessing) : String(localized: .subscriptionCancelTitle))
                         Spacer()
                         if busy { ProgressView() }
                     }
@@ -189,41 +189,44 @@ struct SeasonCleanupContent: View {
     @State private var deleteFiles = false
     @State private var busy = false
 
-    private func seasonText(_ values: [Int]) -> String { "第 \(values.sorted().map(String.init).joined(separator: "、")) 季" }
+    private func seasonText(_ values: [Int]) -> String { SubsFormat.seasonList(values) }
 
     var body: some View {
         let label = seasonText(seasons)
-        let them = seasons.count > 1 ? "这几季" : "这一季"
+        let several = seasons.count > 1
         SubsSheetScaffold(
-            title: "\(label)已移出订阅",
-            subtitle: "《\(title)》的\(them)不再追了。要不要把已经下载的内容也清理掉？不清理也没关系，种子和文件都原样留着。",
-            closeTitle: "保留内容",
+            title: String(localized: .subscriptionSeasonCleanupRemoved(label)),
+            subtitle: several ? String(localized: .subscriptionSeasonCleanupDescriptionMany(title)) : String(localized: .subscriptionSeasonCleanupDescriptionOne(title)),
+            closeTitle: String(localized: .subscriptionSeasonCleanupKeep),
             onClose: onKeep
         ) {
             Section {
                 SubsCleanupToggle(
-                    label: preview.torrentCount == 0 ? "同时删除\(label)的下载任务（没有可单独删除的任务）" : "同时删除\(label)的下载任务（\(preview.torrentCount) 个）",
-                    description: preview.torrentCount == 0 ? nil : "从下载器移除任务，并删除下载目录里的文件，不可恢复。以后重新勾选\(them)需要重新下载。",
-                    warning: deleteTorrents && preview.hitAndRunCount > 0 ? "其中 \(preview.hitAndRunCount) 个种子仍在 H&R 考核或考核状态未知，删除后可能影响站点考核。" : nil,
+                    label: preview.torrentCount == 0 ? String(localized: .subscriptionSeasonCleanupNoTasks(label)) : String(localized: .subscriptionSeasonCleanupTasks(label, preview.torrentCount)),
+                    description: preview.torrentCount == 0 ? nil
+                        : several ? String(localized: .subscriptionSeasonCleanupTaskConsequenceMany) : String(localized: .subscriptionSeasonCleanupTaskConsequenceOne),
+                    warning: deleteTorrents && preview.hitAndRunCount > 0 ? String(localized: .subscriptionCancelHitAndRun(preview.hitAndRunCount)) : nil,
                     isOn: $deleteTorrents,
                     disabled: preview.torrentCount == 0
                 )
                 SubsCleanupToggle(
-                    label: preview.libraryFileCount == 0 ? "同时删除\(label)在媒体库里的资源（媒体库中没有）"
-                        : "同时删除\(label)在媒体库里的资源（\(preview.libraryFileCount) 个文件 · \(SubsFormat.bytes(preview.libraryBytes))）",
-                    description: preview.libraryFileCount == 0 ? nil : "文件会移入媒体库回收站，\(preview.recycleRetentionDays) 天内可以恢复。",
+                    label: preview.libraryFileCount == 0 ? String(localized: .subscriptionSeasonCleanupNoFiles(label))
+                        : String(localized: .subscriptionSeasonCleanupFiles(label, preview.libraryFileCount, SubsFormat.bytes(preview.libraryBytes))),
+                    description: preview.libraryFileCount == 0 ? nil : String(localized: .subscriptionCancelRetention(preview.recycleRetentionDays)),
                     isOn: $deleteFiles,
                     disabled: preview.libraryFileCount == 0
                 )
             } footer: {
                 if deleteTorrents || deleteFiles {
-                    Text("清理在后台进行——可以在「任务中心」查看进度和结果。")
+                    Text(String(localized: .subscriptionSeasonCleanupBackground))
                 }
             }
             if let first = preview.retainedCrossSeason.first {
                 Section {
                     SubsNoticeRow(
-                        text: "另有 \(preview.retainedCrossSeason.count) 个跨季种子\(first.seasons.isEmpty ? "" : "（如 \(seasonText(first.seasons))合集）")仍被保留的季使用，不会删除。",
+                        text: first.seasons.isEmpty
+                            ? String(localized: .subscriptionSeasonCleanupRetainedCount(preview.retainedCrossSeason.count))
+                            : String(localized: .subscriptionSeasonCleanupRetainedExample(preview.retainedCrossSeason.count, seasonText(first.seasons))),
                         tone: .info
                     )
                 }
@@ -237,7 +240,7 @@ struct SeasonCleanupContent: View {
                     }
                 } label: {
                     HStack {
-                        Text(busy ? "处理中…" : "清理\(label)")
+                        Text(busy ? String(localized: .subscriptionCancelProcessing) : String(localized: .subscriptionSeasonCleanupConfirm(label)))
                         Spacer()
                         if busy { ProgressView() }
                     }
@@ -297,9 +300,9 @@ struct SubscriptionAdjustSheet: View {
                             subscriptionId: detail.id,
                             body: .init(seasons: cleanup.seasons, deleteTorrents: torrents, deleteLibraryFiles: files)
                         )
-                        feedback.success("正在后台清理，可在「任务中心」查看进度")
+                        feedback.success(String(localized: .subscriptionAdjustCleanupStarted))
                     } catch {
-                        feedback.error(error.localizedDescription.isEmpty ? "清理失败，请稍后重试" : error.localizedDescription)
+                        feedback.error(error.localizedDescription.isEmpty ? String(localized: .subscriptionAdjustCleanupFailed) : error.localizedDescription)
                     }
                     onSaved()
                     dismiss()
@@ -312,10 +315,10 @@ struct SubscriptionAdjustSheet: View {
 
     private var form: some View {
         SubsSheetScaffold(
-            title: "调整订阅",
-            subtitle: "《\(detail.media.title)》——加季会恢复或补建追踪；减季会让整季退出追踪范围，但不会删除下载器任务、已下载文件或入库内容。",
+            title: String(localized: .subscriptionAdjustTitle),
+            subtitle: String(localized: .subscriptionAdjustDescriptionText(detail.media.title)),
             confirm: SubsSheetConfirm(
-                title: "保存调整",
+                title: String(localized: .subscriptionAdjustSave),
                 enabled: (seasonsChanged || libraryChanged) && (isMovie || !selected.isEmpty),
                 busy: busy,
                 identifier: "adjust-save"
@@ -336,19 +339,21 @@ struct SubscriptionAdjustSheet: View {
                     } else {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
-                            Text("正在加载季集信息…").foregroundStyle(Theme.textMuted)
+                            Text(String(localized: .subscriptionAdjustLoading)).foregroundStyle(Theme.textMuted)
                         }
                     }
                 } header: {
-                    Text("选择要收录的季")
+                    Text(String(localized: .subscriptionSubscribeChooseSeasons))
                 } footer: {
-                    Text("勾选即要整季（含未播集）")
+                    Text(String(localized: .subscriptionAdjustChooseSeasonsHint))
                 }
                 if !droppedWithProgress.isEmpty {
                     Section {
                         SubsNoticeRow(
-                            text: "第 \(droppedWithProgress.map(String.init).joined(separator: "、")) 季已有下载进度：保存只让它退出追踪（停止进度关联、缺失搜索与自动换源），不会动任何文件"
-                                + (permissions.canManageSubscriptions ? "；保存后会问你要不要顺手清理这一季的内容" : ""),
+                            text: (droppedWithProgress.count == 1
+                                ? String(localized: .subscriptionAdjustDroppedProgressOne(AppFormatting.list(droppedWithProgress.map(String.init))))
+                                : String(localized: .subscriptionAdjustDroppedProgressMany(AppFormatting.list(droppedWithProgress.map(String.init)))))
+                                + (permissions.canManageSubscriptions ? String(localized: .subscriptionAdjustDroppedCleanupSuffix) : ""),
                             tone: .warn
                         )
                     }
@@ -356,10 +361,10 @@ struct SubscriptionAdjustSheet: View {
             }
             if permissions.canManageSubscriptions, !libraries.isEmpty {
                 Section {
-                    Picker("入库到", selection: $libraryId) {
-                        Text("按默认库路由").tag(Int?.none)
+                    Picker(String(localized: .subscriptionSubscribeLibrary), selection: $libraryId) {
+                        Text(String(localized: .subscriptionAdjustDefaultRoutingOption)).tag(Int?.none)
                         ForEach(libraries, id: \.id) { library in
-                            Text(library.name + (library.isDefault ? "（默认）" : "")).tag(Int?.some(library.id))
+                            Text(library.name + (library.isDefault ? String(localized: .settingsLlmUiDefaultSuffix) : "")).tag(Int?.some(library.id))
                         }
                     }
                     .pickerStyle(.menu)
@@ -383,7 +388,7 @@ struct SubscriptionAdjustSheet: View {
                 }
             } catch is CancellationError {
             } catch {
-                self.error = "加载季集与媒体库信息失败，请稍后重试"
+                self.error = String(localized: .subscriptionAdjustLoadFailed)
             }
         }
         .task(id: libraryId) {
@@ -406,7 +411,7 @@ struct SubscriptionAdjustSheet: View {
                     libraryId: libraryChanged ? .some(libraryId) : nil
                 )
             )
-            feedback.success("订阅已调整")
+            feedback.success(String(localized: .subscriptionAdjustSaved))
             if !dropped.isEmpty, permissions.canManageSubscriptions {
                 if let plan = try? await api.subscriptionsPreviewRemoval(subscriptionId: detail.id, seasons: dropped) {
                     if plan.torrentCount > 0 || plan.libraryFileCount > 0 {
@@ -415,7 +420,7 @@ struct SubscriptionAdjustSheet: View {
                         return
                     }
                 } else {
-                    feedback.info("订阅已调整；这一季的内容未作清理")
+                    feedback.info(String(localized: .subscriptionAdjustSavedWithoutCleanup))
                 }
             }
             onSaved()
@@ -441,8 +446,8 @@ struct RuleSetSwitchSheet: View {
 
     var body: some View {
         SubsSheetScaffold(
-            title: "更换规则组",
-            subtitle: "点选即应用，只影响之后的资源评估；已下载/已入库的内容不受影响。需要新的组合条件可去「设置 → 订阅规则 → 规则组」新建。"
+            title: String(localized: .subscriptionInspectorSwitchRule),
+            subtitle: String(localized: .subscriptionInspectorSwitchDescription)
         ) {
             if let error {
                 Section { SubsNoticeRow(text: error, tone: .error) }
@@ -451,8 +456,8 @@ struct RuleSetSwitchSheet: View {
                 ForEach(ruleSets, id: \.id) { rule in
                     let chips = RuleSetText.summary(rule.typedSpec)
                     SubsChoiceRow(
-                        title: rule.name + (rule.isDefault ? "（默认）" : ""),
-                        subtitle: chips.isEmpty ? "全不限" : chips.joined(separator: " · "),
+                        title: rule.name + (rule.isDefault ? String(localized: .settingsLlmUiDefaultSuffix) : ""),
+                        subtitle: chips.isEmpty ? String(localized: .subscriptionInspectorUnrestricted) : chips.joined(separator: " · "),
                         selected: rule.id == currentId
                     ) {
                         Task { await pick(rule.id) }
@@ -507,14 +512,14 @@ struct SubscriptionManageSheet: View {
         NavigationStack {
             List {
                 Section {
-                    if canTune { row("调整订阅", systemImage: "slider.horizontal.3", action: .adjust, chevron: true) }
-                    if canTune { row("洗一轮版", systemImage: "sparkles", action: .upgradeRun, chevron: true) }
+                    if canTune { row(String(localized: .subscriptionAdjustTitle), systemImage: "slider.horizontal.3", action: .adjust, chevron: true) }
+                    if canTune { row(String(localized: .subscriptionUpgradeTitle), systemImage: "sparkles", action: .upgradeRun, chevron: true) }
                     if canTune, let followFuture {
-                        row(followFuture ? "关闭自动续订" : "开启自动续订", systemImage: followFuture ? "bell.slash" : "bell", action: .toggleFollow)
+                        row(followFuture ? String(localized: .subscriptionInspectorDisableFollow) : String(localized: .subscriptionInspectorEnableFollow), systemImage: followFuture ? "bell.slash" : "bell", action: .toggleFollow)
                     }
-                    if canManage { row("更换规则组", systemImage: "list.bullet.rectangle", action: .switchRule, chevron: true) }
+                    if canManage { row(String(localized: .subscriptionInspectorSwitchRule), systemImage: "list.bullet.rectangle", action: .switchRule, chevron: true) }
                     if canTune {
-                        row(paused ? "恢复追踪" : "暂停追踪", systemImage: paused ? "play.circle" : "pause.circle", action: .togglePause, chevron: true)
+                        row(paused ? String(localized: .subscriptionInspectorResume) : String(localized: .subscriptionProgressPaused), systemImage: paused ? "play.circle" : "pause.circle", action: .togglePause, chevron: true)
                             .disabled(busy || completed)
                     }
                 }
@@ -524,7 +529,7 @@ struct SubscriptionManageSheet: View {
                             dismiss()
                             onAction(.remove)
                         } label: {
-                            Label("取消订阅", systemImage: "trash")
+                            Label(String(localized: .subscriptionCancelTitle), systemImage: "trash")
                         }
                         .disabled(busy)
                         .accessibilityIdentifier("manage-remove")
@@ -532,11 +537,11 @@ struct SubscriptionManageSheet: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .navigationTitle("管理订阅")
+            .navigationTitle(String(localized: .subscriptionInspectorManage))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭", systemImage: "xmark") { dismiss() }
+                    Button(String(localized: .commonClose), systemImage: "xmark") { dismiss() }
                 }
             }
         }

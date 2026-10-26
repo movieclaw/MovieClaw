@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 
 import pytest
@@ -13,19 +14,29 @@ from movieclaw_api.services import durable_events
 
 PLUGIN = """
 from fastapi import APIRouter
+from pydantic import BaseModel, ConfigDict
 
 from movieclaw_api import hooks
-from movieclaw_sdk.events import LIBRARY_INGEST_COMPLETED
+from movieclaw_sdk.events import LIBRARY_INGEST_COMPLETED, PLUGIN_EVENTS, plugin_event
 from movieclaw_api.plugins.keys import PLUGIN_DATA, PLUGIN_ROUTES
 from movieclaw_kernel import DURABLE_EVENTS
+from movieclaw_scheduler import SCHEDULED_TASKS, TaskDefinition, TriggerType
 from movieclaw_sdk import plugin
 from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS, CallbackResponse
+
+
+class GrabFailed(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    site: str
+
+
+GRAB_FAILED = plugin_event("acme-detail.grab.failed", GrabFailed, title="抓取失败")
 
 
 @plugin(
     "acme-detail",
     title="详情示例",
-    inject=(DURABLE_EVENTS, PLUGIN_ROUTES, PLUGIN_DATA, PLUGIN_CALLBACKS),
+    inject=(DURABLE_EVENTS, PLUGIN_ROUTES, PLUGIN_DATA, PLUGIN_CALLBACKS, PLUGIN_EVENTS),
 )
 async def apply(ctx) -> None:
     async def on_imported(event) -> None:
@@ -34,8 +45,24 @@ async def apply(ctx) -> None:
     def pick(query):
         return None
 
+    async def patrol() -> None:
+        return None
+
     ctx.on(LIBRARY_INGEST_COMPLETED, on_imported, id="imported", durable=True)
     ctx.on(hooks.DOWNLOADER_SELECT, pick)
+    await ctx.use(PLUGIN_EVENTS).register(ctx, GRAB_FAILED)
+    # 贡献 id 会带「插件id:」前缀，任务 key 不带——详情 href 必须用后者（回归见「定时任务」行）
+    ctx.contribute(
+        SCHEDULED_TASKS,
+        "acme_detail_patrol",
+        TaskDefinition(
+            key="acme_detail_patrol",
+            title="详情示例巡检",
+            handler=patrol,
+            default_trigger_type=TriggerType.INTERVAL,
+            default_interval_seconds=3600,
+        ),
+    )
     router = APIRouter()
 
     @router.get("/recent", operation_id="plugins.acme-detail.recent")
@@ -68,7 +95,19 @@ def app_env(tmp_path, monkeypatch):
     (tmp_path / "plugins").mkdir()
     (tmp_path / "plugins" / "acme_detail.py").write_text(PLUGIN, encoding="utf-8")
     (tmp_path / "plugins.yaml").write_text(
-        "- id: acme-detail\n  local: true\n  module: acme_detail\n", encoding="utf-8"
+        # events / notifications：本地插件在 plugins.yaml 里声明（domain-events.md §7），
+        # 详情页的「会发出」「会发通知」行与「账号 → 通知」的开关都由它而来
+        "- id: acme-detail\n"
+        "  local: true\n"
+        "  module: acme_detail\n"
+        "  events:\n"
+        "    - name: acme-detail.grab.failed\n"
+        "      title: 抓取失败\n"
+        "  notifications:\n"
+        "    - event: acme-detail.grab.failed\n"
+        "      title: \"{site} 抓取失败\"\n"
+        "      audience: admins\n",
+        encoding="utf-8",
     )
     folder = tmp_path / "plugins" / "data" / "acme-detail"
     folder.mkdir(parents=True)
@@ -91,7 +130,7 @@ def start() -> TestClient:
     admin = Principal(kind="admin", name="tester")
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[require_login] = lambda: admin
-    return TestClient(app)
+    return TestClient(app, headers={"Accept-Language": "zh-Hans"})
 
 
 def detail(client: TestClient, entry_id: str) -> dict:
@@ -116,6 +155,32 @@ def test_detail_translates_what_a_plugin_adds(app_env) -> None:
         assert data["disk_bytes"] == 2048
         # 管理接口的固定路径不会被当成插件 id
         assert client.get("/api/v1/app/plugins/callbacks").status_code == 200
+
+
+def test_row_links_land_on_the_row_itself(app_env) -> None:
+    """带「查看」的行直达具体那一行：通知行带 ?event=、定时任务行带 ?task=。
+
+    事件行落在 Webhook 页顶部（那一页的行是推送目标，事件订阅在编辑卡里，没有
+    可逐事件直达的行）；通知行的键与「账号 → 通知」的开关行键闭环核对。
+    """
+    with start() as client:
+        data = detail(client, "acme-detail")
+        by_kind = {a["kind"]: a for a in data["adds"]}
+        assert (
+            by_kind["notification"]["href"]
+            == "/settings/notifications?event=acme-detail.grab.failed"
+        )
+        assert by_kind["event"]["href"] == "/settings/webhook"
+        # 定位键是任务 key，不是带「插件id:」前缀的贡献 id
+        assert by_kind["task"]["href"] == "/settings/app?tab=tasks&task=acme_detail_patrol"
+        # 闭环：href 里的键就是「账号 → 通知」那一行的 key（通知规则的 pref_key = 事件名）
+        me = client.get("/api/v1/push/me").json()["data"]
+        assert "acme-detail.grab.failed" in {e["key"] for e in me["events"]}
+
+        hrefs = [a["href"] for a in detail(client, "library.core")["adds"] if a["kind"] == "task"]
+        assert hrefs
+        assert all(re.fullmatch(r"/settings/app\?tab=tasks&task=\w+", href) for href in hrefs)
+        assert "/settings/app?tab=tasks&task=library_reconcile" in hrefs
 
 
 def test_official_channel_and_system_module(app_env) -> None:

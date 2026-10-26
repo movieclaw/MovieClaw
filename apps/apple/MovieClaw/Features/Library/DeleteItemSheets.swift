@@ -33,9 +33,9 @@ struct DeleteItemSheet: View {
                     VStack(alignment: .leading, spacing: 0) {
                         if let result {
                             DeleteResultView(
-                                title: result.errors.isEmpty ? "已从磁盘彻底删除" : "部分删除完成",
+                                title: result.errors.isEmpty ? String(localized: .libraryItemDeletedPermanently) : String(localized: .libraryItemDeletePartial),
                                 result: result,
-                                emptyText: "没有删除任何磁盘路径"
+                                emptyText: String(localized: .libraryItemNoPathsDeleted)
                             )
                         } else {
                             confirmStep(detail)
@@ -46,11 +46,11 @@ struct DeleteItemSheet: View {
                 }
                 .safeAreaInset(edge: .bottom) { bottomBar }
             }
-            .navigationTitle("删除影片")
+            .navigationTitle(String(localized: .libraryItemDeleteMovie))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(result == nil ? "取消" : "关闭") { result == nil ? dismiss() : finish() }
+                    Button(result == nil ? String(localized: .commonCancel) : String(localized: .commonClose)) { result == nil ? dismiss() : finish() }
                         .disabled(busy)
                 }
             }
@@ -66,14 +66,17 @@ struct DeleteItemSheet: View {
     @ViewBuilder
     private func confirmStep(_ detail: API.LibraryItemDetailView) -> some View {
         Label {
-            Text("删除「\(title)」")
+            Text(String(localized: .libraryItemDeleteHeading(title)))
         } icon: {
             Image(systemName: "trash").foregroundStyle(Theme.danger)
         }
         .font(.headline)
         .foregroundStyle(Theme.text)
 
-        Text("这不是「从列表移除」——将把下列目录从磁盘\(Text("彻底删除").bold().foregroundStyle(Theme.danger))，包括视频文件、NFO、海报、字幕等全部刮削产物，共 \(Text("\(detail.fileCount)").bold()) 个媒体文件、\(Text(Formatters.bytes(detail.totalSizeBytes)).bold())。此操作不可恢复。")
+        (Text(String(localized: .libraryDeletionNotRemoveLead)) + Text(String(localized: .libraryDeletePermanently)).bold().foregroundStyle(Theme.danger)
+            + Text(String(localized: .libraryDeletionNotRemoveContent)) + Text("\(detail.fileCount)").bold()
+            + Text(String(localized: .libraryDeletionMediaFilesJoin)) + Text(Formatters.bytes(detail.totalSizeBytes)).bold()
+            + Text(String(localized: .libraryDeletionIrreversible)))
             .font(.body)
             .foregroundStyle(.white.opacity(0.8))
             .monospacedDigit()
@@ -85,7 +88,7 @@ struct DeleteItemSheet: View {
         DeleteOptionsSection(state: $options, disabled: busy)
             .padding(.top, 12)
 
-        AcknowledgeToggle(isOn: $confirmed, text: "我已明白：以上目录及其中全部文件将被永久删除，无法恢复。")
+        AcknowledgeToggle(isOn: $confirmed, text: String(localized: .libraryItemDeleteAcknowledge))
             .padding(.top, 16)
 
         if let error {
@@ -97,7 +100,7 @@ struct DeleteItemSheet: View {
         HStack {
             Spacer()
             if result != nil {
-                Button("回到库存页", action: finish).buttonStyle(.glassProminent)
+                Button(String(localized: .libraryItemBackToInventory), action: finish).buttonStyle(.glassProminent)
             } else {
                 DangerButton(busy: busy, enabled: confirmed && detail.value != nil) {
                     Task { await run() }
@@ -123,7 +126,7 @@ struct DeleteItemSheet: View {
             result = try await api.libraryItemsDelete(libraryId: libraryId, mediaItemId: mediaItemId, options: options.query)
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "删除失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .libraryItemDeleteFailedRetry) : error.localizedDescription
         }
     }
 
@@ -168,9 +171,9 @@ struct DeleteFileSheet: View {
                     VStack(alignment: .leading, spacing: 0) {
                         if let result {
                             DeleteResultView(
-                                title: result.errors.isEmpty ? "已从磁盘删除" : "删除失败",
+                                title: result.errors.isEmpty ? String(localized: .libraryItemDeleted) : String(localized: .libraryCollectionsDeleteFailed),
                                 result: result,
-                                emptyText: "没有删除任何磁盘路径" + (file.missing ? "（文件本就缺失，仅清除了台账记录）" : "")
+                                emptyText: String(localized: .libraryItemNoPathsDeleted) + (file.missing ? String(localized: .libraryDeletionAlreadyMissing) : "")
                             )
                         } else {
                             confirmStep(detail, isLast: isLast)
@@ -181,11 +184,11 @@ struct DeleteFileSheet: View {
                 }
                 .safeAreaInset(edge: .bottom) { bottomBar(isLast: isLast) }
             }
-            .navigationTitle("删除文件")
+            .navigationTitle(String(localized: .libraryItemDeleteFile))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(result == nil ? "取消" : "关闭") {
+                    Button(result == nil ? String(localized: .commonCancel) : String(localized: .commonClose)) {
                         if result == nil { dismiss() } else { finish(isLast: detail.value?.files.count == 1) }
                     }
                     .disabled(busy)
@@ -206,7 +209,7 @@ struct DeleteFileSheet: View {
     @ViewBuilder
     private func confirmStep(_ detail: API.LibraryItemDetailView, isLast: Bool) -> some View {
         Label {
-            Text("删除文件")
+            Text(String(localized: .libraryItemDeleteFile))
         } icon: {
             Image(systemName: "trash").foregroundStyle(Theme.danger)
         }
@@ -215,9 +218,10 @@ struct DeleteFileSheet: View {
 
         Group {
             if file.missing {
-                Text("该文件在磁盘上已缺失，删除只会清掉这条台账记录。")
+                Text(String(localized: .libraryItemDeleteMissingHint))
             } else {
-                Text("将把下列文件从磁盘\(Text("彻底删除").bold().foregroundStyle(Theme.danger))，同名的 NFO/字幕/图片附属文件一并清除。此操作不可恢复。")
+                (Text(String(localized: .libraryDeletionFilesLead)) + Text(String(localized: .libraryDeletePermanently)).bold().foregroundStyle(Theme.danger)
+            + Text(String(localized: .libraryDeletionFilesTail)))
             }
         }
         .font(.body)
@@ -240,7 +244,7 @@ struct DeleteFileSheet: View {
         .padding(.top, 16)
 
         if isLast {
-            Text("这是「\(detail.title)」在本库的最后一个文件——删除将升级为整条目删除，整个刮削目录（含 NFO/海报）一并清除，条目将从库存消失。")
+            Text(String(localized: .libraryDeletionLastFileWarning(detail.title)))
                 .font(.subheadline)
                 .foregroundStyle(Theme.warning)
                 .padding(.horizontal, 14)
@@ -251,7 +255,7 @@ struct DeleteFileSheet: View {
                 .padding(.top, 12)
         }
 
-        Text("若该作品有订阅且删除后此单元不再有其他拷贝，订阅会将其视为缺失并自动重新下载。")
+        Text(String(localized: .libraryItemRedownloadHint))
             .font(.caption)
             .foregroundStyle(Theme.textFaint)
             .padding(.top, 12)
@@ -263,7 +267,7 @@ struct DeleteFileSheet: View {
 
         AcknowledgeToggle(
             isOn: $confirmed,
-            text: "我已明白：\(isLast ? "整个条目目录及其中全部文件" : "该文件及其同名附属文件")将被永久删除，无法恢复。"
+            text: isLast ? String(localized: .libraryDeletionAckDirectory) : String(localized: .libraryDeletionAckFile)
         )
         .padding(.top, 16)
 
@@ -283,7 +287,7 @@ struct DeleteFileSheet: View {
         HStack {
             Spacer()
             if result != nil {
-                Button("完成") { finish(isLast: isLast) }.buttonStyle(.glassProminent)
+                Button(String(localized: .commonDone)) { finish(isLast: isLast) }.buttonStyle(.glassProminent)
             } else {
                 DangerButton(busy: busy, enabled: confirmed) {
                     Task { await run() }
@@ -311,7 +315,7 @@ struct DeleteFileSheet: View {
             )
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "删除失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .libraryItemDeleteFailedRetry) : error.localizedDescription
         }
     }
 
@@ -356,7 +360,7 @@ private struct DeleteResultView: View {
                 .font(.subheadline)
                 .foregroundStyle(Theme.danger)
             }
-            Text("已清理 \(result.rowsDeleted) 条台账，释放 \(Formatters.bytes(result.freedBytes))。")
+            Text(String(localized: .libraryItemDeleteResult(result.rowsDeleted, Formatters.bytes(result.freedBytes))))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
             ForEach(result.followUps ?? [], id: \.jobId) { FollowUpRow(item: $0) }
@@ -394,12 +398,13 @@ private struct DeleteOptionsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if state.failed {
-                Text("附加选项暂时加载不出来，这次只删除媒体库文件。")
+                Text(String(localized: .libraryDeletionOptionsUnavailable))
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
             } else if let preview = state.preview {
                 if preview.linkedBytes > 0 {
-                    Text("其中 \(Text(Formatters.bytes(preview.linkedBytes)).bold()) 与别处的文件是同一份数据（硬链接）：只删媒体库文件不会释放这部分空间。")
+                    (Text(String(localized: .libraryDeletionHardlinkLead)) + Text(Formatters.bytes(preview.linkedBytes)).bold()
+                + Text(String(localized: .libraryDeletionHardlinkTail)))
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.7))
                         .monospacedDigit()
@@ -420,7 +425,7 @@ private struct DeleteOptionsSection: View {
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("正在检查关联的下载任务…")
+                    Text(String(localized: .libraryDeletionChecking))
                 }
                 .font(.caption)
                 .foregroundStyle(Theme.textFaint)
@@ -462,7 +467,7 @@ private struct DeleteOptionRow: View {
                         Text(line.text).foregroundStyle(Self.color(line.tone))
                     }
                 } else {
-                    Text("这次不能勾选：\(option.reason ?? "不可用")").foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .libraryDeletionDisabledReason(option.reason ?? String(localized: .libraryDeletionUnavailable)))).foregroundStyle(Theme.textMuted)
                 }
             }
             .font(.caption)
@@ -506,10 +511,10 @@ private struct FollowUpRow: View {
 
     private var message: String {
         switch job?.status {
-        case "succeeded": job?.result?["message"]?.stringValue ?? "已完成"
-        case "failed": "没能完成：\(job?.error?["message"]?.stringValue ?? "未知原因")。可在「活动 → 任务」里重试"
-        case "cancelled": "已取消"
-        default: "正在处理…"
+        case "succeeded": job?.result?["message"]?.stringValue ?? String(localized: .libraryDeletionCompleted)
+        case "failed": String(localized: .libraryDeletionFailedRetry(job?.error?["message"]?.stringValue ?? String(localized: .libraryDeletionUnknownReason)))
+        case "cancelled": String(localized: .libraryDeletionCancelled)
+        default: String(localized: .libraryDetailProcessing)
         }
     }
 
@@ -583,7 +588,7 @@ private struct DangerButton: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if busy { ProgressView().controlSize(.small).tint(.white) }
-                Text(busy ? "正在删除…" : "彻底删除").font(.body.weight(.semibold))
+                Text(busy ? String(localized: .libraryItemDeleting) : String(localized: .libraryItemDeletePermanently)).font(.body.weight(.semibold))
             }
         }
         .buttonStyle(.glassProminent)

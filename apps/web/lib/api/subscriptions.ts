@@ -116,6 +116,7 @@ export interface SmartPlan {
   subtitle_line: string | null;
   /** 仅管理员、且这种语言还没回答过时给出 */
   question: SmartQuestion | null;
+  subtitle_edit_question?: SmartQuestion | null;
   scope_options: SmartScopeOption[];
   can_edit: boolean;
 }
@@ -154,6 +155,17 @@ export interface WantedUpgrade {
   indeterminate: boolean;
 }
 
+/**
+ * 被订阅窗口截断的一季：从第 start 集起到 end（null=不设上界，之后播出的
+ * 新集照常纳入），本季已录 total 集。
+ */
+export interface EpisodeWindow {
+  season_number: number;
+  start: number;
+  end: number | null;
+  total: number;
+}
+
 export interface Subscription {
   id: number;
   media: SubscriptionMedia;
@@ -170,6 +182,11 @@ export interface Subscription {
   progress: SubscriptionProgress;
   /** 剧集按季收录统计；电影为空数组 */
   season_collection: SeasonOverview[];
+  /**
+   * 被订阅窗口截断的季（只订阅了一季的一段）；没有窗口为空。有内容时订阅
+   * 不会判「已收齐」，用户可以继续订阅。旧服务端没有
+   */
+  episode_windows?: EpisodeWindow[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -281,6 +298,8 @@ export interface EpisodeSeason {
   tmdb_count: number;
   /** 已设的集数下限；null=以 TMDB 为准 */
   floor: number | null;
+  /** 已设的订阅窗口；null=订阅整季。旧服务端没有 */
+  window?: { start: number; end: number | null } | null;
 }
 
 /** 待确认的集数提示：站点或豆瓣显示本季比现在追的更多集。 */
@@ -378,6 +397,7 @@ export interface ScopeRule {
 export interface RuleSet {
   id: number;
   name: string;
+  name_key?: string | null;
   is_default: boolean;
   spec: RuleSetSpec;
   /** 适用范围；空 = 未声明（只能手选或作为默认兜底） */
@@ -413,6 +433,8 @@ export interface CreateSubscriptionPayload {
   library_id?: number | null;
   /** 每季集数下限 {季号: 集数}：确认「按豆瓣集数追」时带上 */
   episode_floors?: Record<number, number>;
+  /** 每季订阅窗口 {季号: {start, end}}：完结季前 N 集 / 在播季最新 N 集起 */
+  episode_caps?: Record<number, { start: number; end: number | null }>;
 }
 
 export interface CreateSubscriptionResult {
@@ -685,6 +707,8 @@ export function updateSubscription(
     library_id?: number | null;
     /** 整体替换每季集数下限 {季号: 集数}；{} 清除、改回以 TMDB 为准；缺省不变 */
     episode_floors?: Record<number, number>;
+    /** 整体替换每季订阅窗口 {季号: {start, end}}；{} 清除、改回订阅整季；缺省不变 */
+    episode_caps?: Record<number, { start: number; end: number | null }>;
   },
 ): Promise<SubscriptionDetail> {
   return unwrap(

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -28,6 +29,7 @@ from typing import Any, Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import source_render
 from movieclaw_api.services.library.sidecar import find_sidecars
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import FileState, LibraryFile, utcnow
@@ -93,7 +95,8 @@ async def recycle_file(
     *,
     reason: str,
     trigger: dict[str, Any],
-    note: str,
+    note: str | None = None,
+    note_ref: dict | None = None,
     purge_after: Any = _AUTO,
 ) -> RecycleOutcome:
     """把在位文件转入待回收（唯一入口）。只改行 + 移文件、不 commit。
@@ -124,7 +127,11 @@ async def recycle_file(
     if file.local_bytes and not src.exists():
         return "already_gone"
 
+    if note is None:
+        note = source_render(note_ref) if note_ref else ""
     context = {"reason": reason, "trigger": trigger, "note": note}
+    if note_ref:
+        context["note_ref"] = deepcopy(note_ref)
     retention = now + DEFAULT_RETENTION if purge_after is _AUTO else purge_after
 
     def _keep_in_place(why: str) -> RecycleOutcome:
@@ -139,6 +146,7 @@ async def recycle_file(
 
     if not file.local_bytes:
         # 只在网盘上（cloud-storage.md §10）：本地没东西可搬，原地待回收；网盘上的文件留到清理时再删
+        # i18n-ignore: log text
         outcome = _keep_in_place("只在网盘上")
         await _record(session, "trashed", file)
         return outcome
@@ -147,6 +155,7 @@ async def recycle_file(
         # 原盘目录不改名：内部可能住着其他在案文件行（监听导入按站点目录
         # 结构落盘的新版本），移动会让那些行的路径悬空；到期清理走
         # purge_file 的爆炸半径保护，账面未清空的目录会被拒绝
+        # i18n-ignore: log text
         outcome = _keep_in_place("原盘目录不改名")
         await _record(session, "trashed", file)
         return outcome
@@ -163,6 +172,7 @@ async def recycle_file(
         # （行删了而文件还在，扫描会把它当新文件重新收编）。倒计时照常，
         # 不因一次移动失败失去自动清理承诺
         logger.exception("移入回收站失败，降级为原地待回收：%s", src)
+        # i18n-ignore: log text
         outcome = _keep_in_place("移动失败降级")
         await _record(session, "trashed", file)
         return outcome
@@ -284,9 +294,11 @@ async def _has_other_files_under(session: AsyncSession, file: LibraryFile, direc
 @register_task(
     "library_recycle_purge",
     title="回收站到期清理",
+    title_key="settings.scheduledTasks.catalog.libraryRecyclePurgeTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=3600,
     description="删除超过保留期的待回收文件；待回收期间已消失的行顺带收敛",
+    description_key="settings.scheduledTasks.catalog.libraryRecyclePurgeDescription",
 )
 async def purge_due_files() -> None:
     """每小时：`purge_after <= now` 的删文件+删行；物理已消失的行删行收敛。
@@ -344,11 +356,9 @@ async def _notify_held(count: int, size: int) -> None:
             dedupe_key="library.recycle.cloud-guard",
             severity=NoticeSeverity.WARNING,
             source="library",
-            title="回收站里到期的网盘文件太多，先没删",
-            message=(
-                f"有 {count} 个只在网盘上（或也在网盘上）的文件到期（约 {size / 1024**3:.1f} GB），"
-                "超过一次自动删除的上限。确认要删就到回收站点「立即清理」；不想删就恢复它们"
-            ),
+            title_key="notify.recycleHeld.title",
+            message_key="notify.recycleHeld.body",
+            message_params={"count": count, "size": size / 1024**3},
             payload={"action_href": "/library/manage?tab=recycle"},
         )
 
@@ -356,9 +366,11 @@ async def _notify_held(count: int, size: int) -> None:
 @register_task(
     "library_recycle_orphan_sweep",
     title="回收站孤儿清扫",
+    title_key="settings.scheduledTasks.catalog.libraryRecycleOrphanSweepTitle",
     trigger_type=TriggerType.CRON,
     cron="40 4 * * *",
     description="按修改时间清理回收站目录里没有台账行的历史遗留文件",
+    description_key="settings.scheduledTasks.catalog.libraryRecycleOrphanSweepDescription",
 )
 async def sweep_orphan_trash() -> None:
     """每天：清理回收站目录中**没有台账行**的超期文件（机制上线前的旧版本

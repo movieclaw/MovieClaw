@@ -63,7 +63,7 @@ struct MorePage: View {
         .frame(maxWidth: .infinity)
         .environment(\.defaultMinListRowHeight, visibleSection == .conversations ? 44 : 60)
         .appBackground()
-        .navigationTitle("我的")
+        .navigationTitle(String(localized: .navTabsMy))
         .toolbarTitleDisplayMode(.inlineLarge)
         .task { await loadSessions() }
         .polling(every: 30, immediately: true) { await loadNotices() }
@@ -104,7 +104,7 @@ struct MorePage: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("\(session.nickname)，\(identityLine(session))")
         .accessibilityIdentifier("more-profile-card")
-        .accessibilityHint("查看和修改个人信息；长按底部头像可以切换账号")
+        .accessibilityHint(String(localized: .navMoreProfileHint))
     }
 
     private var sectionPicker: some View {
@@ -139,7 +139,7 @@ struct MorePage: View {
                 .accessibilityIdentifier("more-tab-\(section.rawValue)")
                 .accessibilityAddTraits(visibleSection == section ? .isSelected : [])
                 .accessibilityValue(section == .server && permissions.isAdmin
-                    ? [notices.isEmpty ? nil : "\(notices.count) 项待处理", badges.updateLabel].compactMap { $0 }.joined(separator: "，") : "")
+                    ? [notices.isEmpty ? nil : String(localized: .navMorePendingCount(notices.count)), badges.updateLabel].compactMap { $0 }.joined(separator: AppLanguage.identifier == "zh-Hans" ? "，" : ", ") : "")
             }
         }
         .padding(5)
@@ -152,8 +152,8 @@ struct MorePage: View {
             if sessions.isEmpty {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("还没有会话").font(.body.weight(.medium)).foregroundStyle(Theme.text)
-                        Text("在下方输入框里问点什么吧。")
+                        Text(String(localized: .navMoreNoSessionsYet)).font(.body.weight(.medium)).foregroundStyle(Theme.text)
+                        Text(String(localized: .navMoreAskBelow))
                             .font(.subheadline).foregroundStyle(Theme.textMuted)
                     }
                     .padding(.vertical, 8)
@@ -170,7 +170,7 @@ struct MorePage: View {
                                 }
                         }
                     } header: {
-                        Text(period.rawValue)
+                        Text(period.label)
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(Theme.textMuted)
                             .textCase(nil)
@@ -191,18 +191,18 @@ struct MorePage: View {
         Section {
             VStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("当前服务器").font(.footnote).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .navMoreCurrentServer)).font(.footnote).foregroundStyle(Theme.textMuted)
                     if let server = model.server {
                         Text(server.hostLabel)
                             .font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
-                            .accessibilityLabel("当前服务器 \(server.hostLabel)")
+                            .accessibilityLabel(String(localized: .navMoreCurrentServerValue(server.hostLabel)))
                             .accessibilityIdentifier("more-server-address")
                         ServerRouteLabel(server: server)
                     }
                     MoreRouteRow(routes: [.settings], tint: Theme.accent) {
-                        Text("服务器设置").font(.subheadline.weight(.medium))
+                        Text(String(localized: .settingsIndexServerSettings)).font(.subheadline.weight(.medium))
                             .frame(minHeight: 44)
                     }
                     .buttonStyle(.plain)
@@ -220,7 +220,7 @@ struct MorePage: View {
                     layout {
                         if !notices.isEmpty {
                             NavigationLink { NoticeCenterView() } label: {
-                                serverTile("待处理", value: "\(notices.count) 项", detail: "查看提醒", tint: Theme.danger)
+                                serverTile(String(localized: .libraryActionsPending), value: String(localized: .activityTaskCenterItemCount(notices.count)), detail: String(localized: .navMoreViewNotices), tint: Theme.danger)
                             }
                             .buttonStyle(.plain)
                             .navigationLinkIndicatorVisibility(.hidden)
@@ -229,7 +229,7 @@ struct MorePage: View {
                         }
                         if let label = badges.updateLabel {
                             MoreRouteRow(routes: [.settingsSection(.app)], showsChevron: false) {
-                                serverTile("可用更新", value: label, detail: "查看版本详情", tint: Theme.info)
+                                serverTile(String(localized: .settingsUpdateUiAvailable), value: label, detail: String(localized: .navMoreViewRelease), tint: Theme.info)
                             }
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity)
@@ -285,7 +285,7 @@ struct MorePage: View {
                 if item.running {
                     HStack(spacing: 5) {
                         MoreRunningDot()
-                        Text("进行中")
+                        Text(String(localized: .librarySubtitleGenerationInProgress))
                     }
                     .font(.footnote)
                     .foregroundStyle(Theme.info)
@@ -311,29 +311,29 @@ struct MorePage: View {
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { Task { await remove(item) } } label: { Image(systemName: "trash") }
                 .tint(.red)
-                .accessibilityLabel("删除会话")
+                .accessibilityLabel(String(localized: .navSessionsDelete))
             Button { Task { await rename(item) } } label: { Image(systemName: "pencil") }
                 .tint(.gray)
-                .accessibilityLabel("重命名")
+                .accessibilityLabel(String(localized: .navSessionsRename))
             Button { Task { await fork(item) } } label: { Image(systemName: "arrow.triangle.branch") }
                 .tint(.blue)
-                .accessibilityLabel("在新会话中继续")
+                .accessibilityLabel(String(localized: .navSessionsContinue))
         }
         .contextMenu { sessionActions(item) }
     }
 
     @ViewBuilder
     private func sessionActions(_ item: API.SessionSummary) -> some View {
-        Button("在新会话中继续", systemImage: "arrow.triangle.branch") { Task { await fork(item) } }
-        Button("重命名", systemImage: "pencil") { Task { await rename(item) } }
+        Button(String(localized: .navSessionsContinue), systemImage: "arrow.triangle.branch") { Task { await fork(item) } }
+        Button(String(localized: .navSessionsRename), systemImage: "pencil") { Task { await rename(item) } }
         Divider()
-        Button("删除会话", systemImage: "trash", role: .destructive) { Task { await remove(item) } }
+        Button(String(localized: .navSessionsDelete), systemImage: "trash", role: .destructive) { Task { await remove(item) } }
     }
 
     private func title(of item: API.SessionSummary) -> String {
         if let title = item.title, !title.isEmpty { return title }
         if let prompt = item.lastPrompt, !prompt.isEmpty { return prompt }
-        return "未命名会话"
+        return String(localized: .agentSessionUnnamed)
     }
 
     /// 取第一页（进页、从会话里回来时刷新）；失败保留上次结果
@@ -364,52 +364,58 @@ struct MorePage: View {
 
     private func fork(_ item: API.SessionSummary) async {
         guard await feedback.confirm(
-            "在新会话中继续「\(title(of: item))」？",
-            message: "会带上这段对话的上下文开一个新会话接着聊，原会话保留不变。",
-            confirmTitle: "创建新会话"
+            String(localized: .agentConversationForkTitle(title(of: item))),
+            message: String(localized: .agentConversationForkHint),
+            confirmTitle: String(localized: .agentConversationForkConfirm)
         ) else { return }
         do {
             let forked = try await api.sessionFork(sessionId: item.id)
             router.open(.session(id: forked.session.id))
         } catch {
-            feedback.error("创建续接会话失败：\(error.localizedDescription)")
+            feedback.error(String(localized: .navSessionsForkFailed(error.localizedDescription)))
         }
     }
 
     private func rename(_ item: API.SessionSummary) async {
         // 初值是界面上显示的标题；去空白、截 80 字，没变化就不发请求（同 Web）
         let current = title(of: item)
-        guard let input = await feedback.prompt("重命名会话", placeholder: "会话标题（最多 80 字）", initial: current, maxLength: 80) else { return }
+        guard let input = await feedback.prompt(String(localized: .navSessionsRenameTitle), placeholder: String(localized: .agentConversationTitlePlaceholder), initial: current, maxLength: 80) else { return }
         let name = String(input.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
         guard !name.isEmpty, name != current else { return }
         do {
             let updated = try await api.sessionRename(sessionId: item.id, body: .init(title: name))
             if let index = sessions.firstIndex(where: { $0.id == item.id }) { sessions[index] = updated }
         } catch {
-            feedback.error("重命名失败：\(error.localizedDescription)")
+            feedback.error(String(localized: .navSessionsRenameFailed(error.localizedDescription)))
         }
     }
 
     private func remove(_ item: API.SessionSummary) async {
         guard await feedback.confirm(
-            "彻底删除会话「\(title(of: item))」？",
-            message: "服务器上的完整对话记录将一并删除，此操作不可恢复。",
-            confirmTitle: "彻底删除", destructive: true
+            String(localized: .navSessionsDeleteTitle(title(of: item))),
+            message: String(localized: .navSessionsDeleteDescription),
+            confirmTitle: String(localized: .libraryItemDeletePermanently), destructive: true
         ) else { return }
         do {
             _ = try await api.sessionDelete(sessionId: item.id)
             sessions.removeAll { $0.id == item.id }
         } catch {
-            feedback.error("删除失败：\(error.localizedDescription)")
+            feedback.error(String(localized: .navSessionsDeleteFailed(error.localizedDescription)))
         }
     }
 }
 
 /// 以用户当地的自然日分组，跨午夜与夏令时不按固定 24 小时倒推。
-enum MoreConversationPeriod: String, CaseIterable {
-    case today = "今天"
-    case yesterday = "昨天"
-    case earlier = "更早"
+enum MoreConversationPeriod: CaseIterable {
+    case today, yesterday, earlier
+
+    var label: String {
+        switch self {
+        case .today: String(localized: .subscriptionArrivalsTodayBadge)
+        case .yesterday: String(localized: .commonYesterday)
+        case .earlier: String(localized: .navMoreEarlier)
+        }
+    }
 
     static func of(_ date: Date?, now: Date = .now, calendar: Calendar = .current) -> Self {
         guard let date else { return .earlier }
@@ -426,9 +432,9 @@ enum MorePageSection: String {
 
     var title: String {
         switch self {
-        case .conversations: "会话"
-        case .downloads: "下载"
-        case .server: "服务器"
+        case .conversations: String(localized: .navMoreSessions)
+        case .downloads: String(localized: .settingsMembersUiDownload)
+        case .server: String(localized: .authInputServer)
         }
     }
 
@@ -459,7 +465,7 @@ private struct MoreRunningDot: View {
             .phaseAnimator([false, true]) { dot, dim in
                 dot.opacity(dim ? 0.35 : 1)
             } animation: { _ in .easeInOut(duration: 1) }
-            .accessibilityLabel("运行中")
+            .accessibilityLabel(String(localized: .settingsMcpControlsRunning))
     }
 }
 

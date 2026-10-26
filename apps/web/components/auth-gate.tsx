@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
@@ -14,7 +18,7 @@ import { accessiblePathFor } from "@/lib/permissions";
 
 interface StartupFailure {
   endpoint: string;
-  message: string;
+  error: unknown;
 }
 
 /**
@@ -102,11 +106,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         // 401 已由 http.ts 发起整页跳转；此处继续保持启动态，避免跳转前闪出错误卡。
         if (error instanceof HttpError && error.status === 401) return;
+        // i18n-ignore: operational diagnostic prefix, not displayed in the interface.
         console.error(`工作台启动失败（${resolveRequestUrl(endpoint)}）：`, error);
         // 静默复验失败（多半是瞬时网络问题）不打断已经在用的界面：
         // 界面自己的 API 调用会把持续性故障暴露出来
         if (revalidating) return;
-        setFailure({ endpoint, message: startupFailureMessage(error) });
+        setFailure({ endpoint, error });
       }
     })();
     return () => {
@@ -155,12 +160,13 @@ export function SplashLayer({ leaving = false }: { leaving?: boolean }) {
 }
 
 /** 把启动异常收敛成部署用户能理解的中文信息；后端主动返回的业务消息原样保留。 */
-function startupFailureMessage(error: unknown): string {
+function startupFailureMessage(error: unknown, locale: AppLocale): string {
+  const t = appTranslator(locale);
   if (!(error instanceof HttpError)) {
-    return "无法连接到服务端，请检查 MovieClaw 是否正常运行以及当前访问地址。";
+    return t("auth.startup.connection");
   }
   if (error.message === `Request failed with status ${error.status}`) {
-    return `服务端请求失败（HTTP ${error.status}），请检查服务状态或反向代理配置。`;
+    return t("auth.startup.http", { status: error.status });
   }
   return error.message;
 }
@@ -185,11 +191,14 @@ function StartupStatus({
   failure: StartupFailure | null;
   onRetry: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   return (
     <main
       role={failure ? "alert" : "status"}
       aria-live="polite"
-      aria-label={failure ? "工作台加载失败" : "正在连接服务"}
+      aria-label={failure ? t("auth.startup.failed") : t("auth.startup.connecting")}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-[var(--bg)] p-6 [bottom:calc(-1*var(--vp-overshoot))]"
     >
       {!failure ? (
@@ -204,13 +213,13 @@ function StartupStatus({
             MovieClaw
           </p>
           <>
-            <h1 className="mt-2 text-title font-semibold text-[var(--text)]">工作台加载失败</h1>
+            <h1 className="mt-2 text-title font-semibold text-[var(--text)]">{t("auth.startup.failed")}</h1>
             {/* 部署出问题时这段报错是用户唯一能拿去求助的线索，PWA 下也必须可选可复制 */}
             <p className="selectable mt-2 text-ui leading-relaxed text-[var(--text-muted)]">
-              {failure.message}
+              {startupFailureMessage(failure.error, locale)}
             </p>
             <p className="mt-3 break-all rounded-lg bg-black/25 px-3 py-2 font-mono text-caption text-[var(--text-faint)]">
-              请求：{resolveRequestUrl(failure.endpoint)}
+              {t("auth.startup.request", { url: resolveRequestUrl(failure.endpoint) })}
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
               <button
@@ -218,14 +227,12 @@ function StartupStatus({
                 onClick={onRetry}
                 className="btn-accent h-9 rounded-full px-5 text-ui font-semibold"
               >
-                重新连接
-              </button>
+                {t("auth.startup.reconnect")}</button>
               <Link
                 href="/health"
                 className="btn-glass flex h-9 items-center rounded-full px-5 text-ui font-medium"
               >
-                查看系统状态
-              </Link>
+                {t("auth.startup.health")}</Link>
             </div>
           </>
         </section>

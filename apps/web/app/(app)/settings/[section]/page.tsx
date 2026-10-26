@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server";
 import type { Route } from "next";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
@@ -11,8 +12,9 @@ export async function generateMetadata({
   params: Promise<{ section: string }>;
 }): Promise<Metadata> {
   const { section } = await params;
-  const label = settingsSections.find((s) => s.id === section)?.label;
-  return { title: label ? `${label} · 设置` : "设置" };
+  const t = await getTranslations();
+  const key = settingsSections.find((s) => s.id === section)?.label;
+  return { title: key ? t("settings.metadata.sectionTitle", { section: t(key) }) : t("settings.metadata.title") };
 }
 
 /** 设置分区（/settings/[section]）：概览 / 个人信息 / 外观 / 站点 / 下载器 等。 */

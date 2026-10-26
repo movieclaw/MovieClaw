@@ -1,3 +1,5 @@
+import { writeLanguageCookie } from "@/lib/i18n/negotiate";
+
 import { getAppearance } from "@/lib/api/appearance";
 import { logout } from "@/lib/api/auth";
 import { fetchUiPreferences } from "@/lib/api/ui";
@@ -58,7 +60,10 @@ const PRIME_TIMEOUT_MS = 1500;
 /** 取当前（新）身份的界面偏好与外观写进首帧缓存；任一失败都不影响另一项 */
 async function primeFirstFrameCaches(): Promise<void> {
   await Promise.allSettled([
-    fetchUiPreferences().then(writeUiPrefsCache),
+    fetchUiPreferences().then((prefs) => {
+      writeUiPrefsCache(prefs);
+      writeLanguageCookie(prefs.language);
+    }),
     getAppearance().then((view) => {
       // 没设壁纸的账号保持清空：首帧就是内置默认图，本来就对
       if (!view.active_url) return;

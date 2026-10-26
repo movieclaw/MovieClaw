@@ -73,10 +73,10 @@ struct QualityOption: Identifiable, Hashable {
     var id: String { label }
 
     static let all: [QualityOption] = [
-        QualityOption(maxHeight: nil, label: "原画", hint: "不限画质：能直通就播原文件，放不了时按原分辨率转码"),
-        QualityOption(maxHeight: 1080, label: "1080p", hint: "约 6 Mbps"),
-        QualityOption(maxHeight: 720, label: "720p", hint: "约 3 Mbps，网络一般时选它"),
-        QualityOption(maxHeight: 480, label: "480p", hint: "约 1.5 Mbps，弱网救急"),
+        QualityOption(maxHeight: nil, label: String(localized: .playerQualityOriginal), hint: String(localized: .playerQualityOriginalHint)),
+        QualityOption(maxHeight: 1080, label: "1080p", hint: String(localized: .playerQualityFullHdHint)),
+        QualityOption(maxHeight: 720, label: "720p", hint: String(localized: .playerQualityHdHint)),
+        QualityOption(maxHeight: 480, label: "480p", hint: String(localized: .playerQualitySdHint)),
     ]
 }
 
@@ -87,7 +87,7 @@ enum PlaybackSpeed {
 
     /// 「正常」/「1.25×」
     static func label(_ rate: Float) -> String {
-        rate == 1 ? "正常" : short(rate)
+        rate == 1 ? String(localized: .playerSpeedNormal) : short(rate)
     }
 
     /// 「1×」「1.25×」：时间旁的角标、开播提示用
@@ -212,12 +212,12 @@ enum RememberedChoices {
         var parts: [String] = []
         if let quality {
             // 画质按网络环境分开记：点明是哪个环境下的选择，回到家看到原画不会以为记忆失灵
-            parts.append(network.label.map { "画质 \(quality)p（\($0)）" } ?? "画质 \(quality)p")
+            parts.append(network.label.map { String(localized: .playerMemoryNetworkQuality(String(quality), $0)) } ?? String(localized: .playerMemoryQuality(String(quality))))
         }
-        if let audio { parts.append("音轨 \(audio)") }
-        if let subtitle { parts.append("字幕 \(subtitle)") }
-        if let rate { parts.append("倍速 \(PlaybackSpeed.short(rate))") }
-        return parts.isEmpty ? nil : "已沿用上次的选择：" + parts.joined(separator: "，")
+        if let audio { parts.append(String(localized: .playerMemoryAudio(audio))) }
+        if let subtitle { parts.append(String(localized: .playerMemorySubtitles(subtitle))) }
+        if let rate { parts.append(String(localized: .playerMemorySpeed(PlaybackSpeed.short(rate)))) }
+        return parts.isEmpty ? nil : String(localized: .playerMemoryRestored(parts.joined(separator: String(localized: .playerMemorySeparator))))
     }
 
     /// 菜单标签（「日语 · AC3 · 5.1」「简体中文 · 文本」）在提示里只留语言；同语言有好几条时留全称才分得清

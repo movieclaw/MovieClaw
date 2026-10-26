@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import reference
+
 
 def template_rule(item: Any, spec: Any) -> Any:
     from movieclaw_api.services.push.rules import Audience, Rule
@@ -20,8 +23,9 @@ def template_rule(item: Any, spec: Any) -> Any:
     return Rule(
         event=spec.event,
         title=item.events.get(spec.event, spec.event),
-        description=spec.description or f"来自插件「{item.title}」",
-        group=f"插件 · {item.title}",
+        description=spec.description
+        or reference("notify.groups.pluginDescription", title=item.title),
+        group=reference("notify.groups.plugin", title=item.title),
         default=spec.default,
         audience=audience,
         render=_renderer(item, spec, audience),
@@ -62,7 +66,7 @@ def _renderer(item: Any, spec: Any, audience: Any):  # type: ignore[no-untyped-d
         return AlertContent(
             title=fill(spec.title, payload) or item.events.get(spec.event, spec.event),
             # 通知上标来源：插件不能冒充系统通知
-            subtitle=f"来自 {item.title}",
+            subtitle=t("notify.alert.fromPlugin", title=item.title),
             body=fill(spec.body, payload),
             open=open_path,
             thread=f"plugin:{item.entry_id}",

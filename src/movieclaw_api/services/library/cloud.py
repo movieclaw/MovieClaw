@@ -19,12 +19,15 @@ import logging
 import posixpath
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import source_text, stored_fields
 from movieclaw_api.services.drives import gateway
 from movieclaw_api.services.library.profile import LibraryProfile
 from movieclaw_db.models.base import utcnow
@@ -112,7 +115,7 @@ async def collect(
     library: Library,
     profile: LibraryProfile,
     folders: list[LibraryCloudFolder],
-    errors: list[str],
+    add_error: Callable[[dict], None],
 ) -> CloudRound:
     """整树列举这些文件夹，挑出视频，给每个视频定好台账路径。"""
     from movieclaw_api.services.library.scan import _stem_episode, classify_cloud_path
@@ -133,10 +136,16 @@ async def collect(
                 dir_id=folder.remote_dir_id,
             )
         except dv.DriveError as exc:
-            errors.append(f"网盘文件夹「{folder.display_path}」没列出来：{exc.message}")
+            add_error(
+                stored_fields(
+                    "library.cloud.listFailed", path=folder.display_path, detail=exc.message
+                )
+            )
             continue
         except Exception as exc:  # noqa: BLE001 -- 插件不在等情况：这个文件夹本轮跳过
-            errors.append(f"网盘文件夹「{folder.display_path}」没列出来：{exc}")
+            add_error(
+                stored_fields("library.cloud.listFailed", path=folder.display_path, detail=str(exc))
+            )
             continue
         listing.calls = gateway.usage_today(folder.account_id) - before
         listing.dir_ids = list(tree.dir_ids)
@@ -320,21 +329,21 @@ async def validate_folders(
         for s in specs
     ]
     if sum(1 for s in cleaned if s.is_primary) > 1:
-        raise ValueError("主根只能有一个")
+        raise ValueError(t("library.cloud.onePrimary"))
     accounts = DriveAccountRepository(session)
     for spec in cleaned:
         if not spec.remote_dir_id:
-            raise ValueError("网盘目录缺少 id")
+            raise ValueError(t("library.cloud.missingId"))
         if await accounts.get(spec.account_id) is None:
-            raise ValueError("网盘账号不存在（可能已被移除）")
+            raise ValueError(t("library.cloud.accountMissing"))
     for i, a in enumerate(cleaned):
         for b in cleaned[i + 1 :]:
             if a.account_id == b.account_id and (
                 a.remote_dir_id == b.remote_dir_id or _nested(a.display_path, b.display_path)
             ):
+                root = t("library.cloud.rootDir")
                 raise ValueError(
-                    f"「{a.display_path or '根目录'}」和「{b.display_path or '根目录'}」重叠了，"
-                    "选外层的一个就行"
+                    t("library.cloud.overlap", a=a.display_path or root, b=b.display_path or root)
                 )
     library_id = library.id if library is not None else None
     for other in await LibraryCloudRepository(session).all_folders():
@@ -348,8 +357,12 @@ async def validate_folders(
             ):
                 owner = await session.get(LibraryModel, other.library_id)
                 raise ValueError(
-                    f"「{spec.display_path or '根目录'}」与媒体库《{owner.name if owner else '?'}》"
-                    f"的网盘目录「{other.display_path}」重叠，同一份文件只能在一个库里"
+                    t(
+                        "library.cloud.overlapLibrary",
+                        path=spec.display_path or t("library.cloud.rootDir"),
+                        library=owner.name if owner else "?",
+                        other=other.display_path,
+                    )
                 )
     return cleaned
 
@@ -404,12 +417,14 @@ CHANGE_PAGES = 10
 @register_task(
     "drive_changes",
     title="网盘变化同步",
+    title_key="settings.scheduledTasks.catalog.driveChangesTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=300,
     description=(
         "拉网盘的操作动态（上传、转存、移动、删除），只处理落在媒体库网盘目录里的：删掉的标缺失，"
         "其余只重新列有变化的那个目录。网盘不支持操作动态时靠每周复查。"
     ),
+    description_key="settings.scheduledTasks.catalog.driveChangesDescription",
 )
 async def poll_drive_changes() -> None:
     from movieclaw_api.services.drives.registry import backends
@@ -515,7 +530,7 @@ async def apply_changes(
                 library_id,
                 library.name,
                 actor_kind="system",
-                actor_name="网盘变化同步",
+                actor_name=source_text("library.cloud.syncActor"),
                 origin="system",
                 cloud_folder_ids=folder_ids,
                 cloud_only=True,
@@ -538,12 +553,14 @@ PROBE_BATCH = 20
 @register_task(
     "drive_probe_specs",
     title="网盘片源规格补探",
+    title_key="settings.scheduledTasks.catalog.driveProbeSpecsTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=600,
     description=(
         "纳管进来的网盘文件入库时不读字节，分辨率、HDR、音轨在这里按每日预算的一小部分慢慢补齐"
         "（新入库的先探）；没补到的在起播时当场探。"
     ),
+    description_key="settings.scheduledTasks.catalog.driveProbeSpecsDescription",
 )
 async def probe_cloud_specs() -> int:
     """探一批还没有规格的只在网盘上的文件。返回这轮探成了几个。"""

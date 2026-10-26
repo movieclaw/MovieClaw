@@ -31,7 +31,7 @@ struct AgentNewSessionView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     AgentComposer(
                         draft: $draft,
-                        placeholder: locked ? "请先接入 AI 模型，再开始对话" : nil,
+                        placeholder: locked ? String(localized: .homeNewSessionConfigureModel) : nil,
                         busy: creating,
                         disabled: locked,
                         autoFocus: !locked,
@@ -47,7 +47,7 @@ struct AgentNewSessionView: View {
                     .agentCompanionAnchor()
                     if locked { AgentLLMSetupNotice() }
                     if let error {
-                        Text("创建会话失败：\(error)")
+                        Text(String(localized: .homeNewSessionCreateFailed(error)))
                             .font(.system(size: 14))
                             .foregroundStyle(Theme.danger)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -63,7 +63,7 @@ struct AgentNewSessionView: View {
             }
             .agentCompanion(error != nil ? .failed : creating ? .working : .idle, attentive: composerAttentive)
             .background(Theme.background.ignoresSafeArea())
-            .navigationTitle("新会话")
+            .navigationTitle(String(localized: .navMainNew))
             .navigationBarTitleDisplayMode(.inline)
             .background { HidesTabBarWhenPushed() }
             .sheet(isPresented: $askingConsent) {

@@ -47,7 +47,6 @@ import io.movieclaw.android.core.designsystem.Accent
 import io.movieclaw.android.core.designsystem.ErrorPane
 import io.movieclaw.android.core.designsystem.FlatCard
 import io.movieclaw.android.core.designsystem.Loadable
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.TextFaint
 import io.movieclaw.android.core.designsystem.TextMuted
@@ -66,6 +65,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import io.movieclaw.android.core.designsystem.mcCards
 
 /**
  * 「模型接入」（iOS `.settingsSection(.llm)` / Web `/settings/llm`）：
@@ -195,7 +195,7 @@ fun LlmSettingsScreen(onBack: () -> Unit, vm: LlmSettingsViewModel = hiltViewMod
                     Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = McMetrics.pagePadding)
+                        .padding(horizontal = mcCards.pagePadding)
                         .padding(bottom = 32.dp),
                 ) {
                     Spacer(Modifier.height(8.dp))

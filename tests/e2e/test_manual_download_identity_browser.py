@@ -125,6 +125,16 @@ def stack(tmp_path_factory):
         "APP_RELOAD": "false",
         "APP_PORT": str(api_port),
         "DATABASE_URL": database_url,
+        "MOVIECLAW_DATA_DIR": str(data),
+        "AGENT_SESSIONS_DIR": str(data / "agent-sessions"),
+        "AGENT_WORKSPACE_DIR": str(data / "agent-workspace"),
+        "AGENT_SKILLS_DIR": str(data / "agent-skills"),
+        "MOVIECLAW_PLAYBACK_SUBS_CACHE_DIR": str(data / "cache/subtitles"),
+        "MOVIECLAW_SUBTITLE_GEN_CACHE_DIR": str(data / "cache/subtitle-generation"),
+        "MOVIECLAW_TRANSCODE_DIR": str(data / "transcodes"),
+        "MOVIECLAW_TRICKPLAY_CACHE_DIR": str(data / "cache/trickplay"),
+        "IMAGE_CACHE_DIR": str(data / "cache/images"),
+        "PEOPLE_IMAGES_DIR": str(data / "metadata/people"),
         "METADATA_DIR": str(data / "metadata"),
         "LOG_DIR": str(data / "logs"),
         "SECRET_KEY_FILE": str(data / ".secret_key"),
@@ -292,7 +302,11 @@ def test_unidentified_torrent_confirm_then_auto_import(stack) -> None:  # noqa: 
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, **_chromium_kwargs())
-        context = browser.new_context(viewport={"width": 1440, "height": 900}, locale="zh-CN")
+        context = browser.new_context(
+            viewport={"width": 1440, "height": 900},
+            locale="zh-CN",
+            extra_http_headers={"Accept-Language": "zh-Hans"},
+        )
         page = context.new_page()
         page.set_default_timeout(20_000)
         page.set_default_navigation_timeout(120_000)

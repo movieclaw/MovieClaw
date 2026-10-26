@@ -153,6 +153,7 @@ def test_remote_payload_follows_the_declared_schema() -> None:
 # ---------------------------------------------------------------------- 插件包全链路
 def test_package_events_and_notifications_from_install_to_uninstall(data_dir) -> None:  # noqa: F811
     app, client = start()
+    client.headers["Accept-Language"] = "zh-Hans"
     with client:
         assert upload(client, events_package()).status_code == 200
         pending = client.get("/api/v1/app/plugins/packages").json()["data"]["pending"][0]
@@ -180,7 +181,19 @@ def test_package_events_and_notifications_from_install_to_uninstall(data_dir) ->
         assert detail.status_code == 200, detail.text
         adds = {(a["kind"], a["title"], a["detail"]) for a in detail.json()["data"]["adds"]}
         assert ("event", "会发出「站点配额超限」", "别的插件、Webhook 能订") in adds
-        assert ("notification", "会发通知：站点配额超限", "发给事件里的那个成员") in adds
+        assert (
+            "notification",
+            "会发通知：站点配额超限",
+            "发给事件里的那个成员；收不收在「账号 → 通知」里开",
+        ) in adds
+        # 每条事件 / 通知行都带自己的去处，前端逐行给「查看」（webhook 订它 / 通知设置收不收）；
+        # 通知行还带 ?event=<事件名>，「账号 → 通知」据此直达这条开关
+        assert [
+            a["href"] for a in detail.json()["data"]["adds"] if a["kind"] == "notification"
+        ] == ["/settings/notifications?event=acme-pkg.quota.exceeded"]
+        assert [a["href"] for a in detail.json()["data"]["adds"] if a["kind"] == "event"] == [
+            "/settings/webhook"
+        ]
 
         # 插件发出：宿主订阅方收到同一份载荷（按声明的 Schema 校验过）
         heard: list = []

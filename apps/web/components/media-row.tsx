@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { Route } from "next";
 import Link from "next/link";
 
@@ -14,7 +15,7 @@ import type { MediaItem, MediaRowData } from "@/lib/media-types";
 export function MediaRow({
   row,
   moreHref,
-  moreLabel = "查看完整榜单",
+  moreLabel,
   cardAction,
   cardHref,
   cardRevealInfoOnTouch = false,
@@ -46,6 +47,7 @@ export function MediaRow({
    */
   insetClassName?: string;
 }) {
+  const t = useTranslations();
   return (
     // content-visibility：视口外的整行（标题 + 几十张海报卡）跳过布局与绘制，
     // 发现页 16 行 / 库首页多行「最近添加」的首帧与滚动成本只与可见行相关；
@@ -62,7 +64,7 @@ export function MediaRow({
             href={moreHref}
             className="shrink-0 text-sub font-semibold text-[var(--text-muted)] transition hover:text-[var(--text)]"
           >
-            {moreLabel}
+            {moreLabel ?? t("media.discovery.fullList")}
           </Link>
         )}
       </div>

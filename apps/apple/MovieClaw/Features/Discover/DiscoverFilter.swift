@@ -16,12 +16,12 @@ enum DiscoverFilterDimension: CaseIterable, Identifiable {
 
     func title(mediaType: String) -> String {
         switch self {
-        case .genres: "类型"
-        case .country: "国家 / 地区"
-        case .year: mediaType == "movie" ? "上映年份" : "首播年份"
-        case .rating: "最低评分"
-        case .runtime: mediaType == "movie" ? "最长片长" : "最长单集时长"
-        case .sort: "排序"
+        case .genres: String(localized: .mediaDiscoveryType)
+        case .country: String(localized: .mediaFiltersCountry)
+        case .year: mediaType == "movie" ? String(localized: .mediaFiltersMovieYear) : String(localized: .mediaFiltersTvYear)
+        case .rating: String(localized: .mediaFiltersRating)
+        case .runtime: mediaType == "movie" ? String(localized: .mediaFiltersMovieRuntime) : String(localized: .mediaFiltersTvRuntime)
+        case .sort: String(localized: .mediaFiltersSort)
         }
     }
 
@@ -44,13 +44,13 @@ enum DiscoverFilterDimension: CaseIterable, Identifiable {
             let names = filters.genreIds.compactMap { genreNames[$0] }
             // 类型名还没到（深链进来时清单在路上）或选太多时给计数，胶囊不至于被撑成一长条
             guard names.count == filters.genreIds.count, names.count <= 2 else {
-                return names.first.map { "\($0)等 \(filters.genreIds.count) 个" } ?? "\(filters.genreIds.count) 个类型"
+                return names.first.map { String(localized: .mediaFiltersGenreSummary($0, filters.genreIds.count)) } ?? String(localized: .mediaFiltersGenreCount(filters.genreIds.count))
             }
             return names.joined(separator: "、")
         case .country: return filters.originCountry.map(DiscoveryFilters.countryLabel)
-        case .year: return filters.year.map { "\(String($0)) 年" }
-        case .rating: return filters.ratingGte.map { "\(DiscoveryFilters.format($0)) 分以上" }
-        case .runtime: return filters.runtimeLte.map { "\($0) 分钟以内" }
+        case .year: return filters.year.map { String(localized: .mediaFiltersYearValue(String($0))) }
+        case .rating: return filters.ratingGte.map { String(localized: .mediaFiltersRatingValue(DiscoveryFilters.format($0))) }
+        case .runtime: return filters.runtimeLte.map { String(localized: .mediaFiltersRuntimeValue($0)) }
         case .sort: return filters.sort == "popular" ? nil : DiscoveryFilters.sortLabel(filters.sort)
         }
     }
@@ -120,31 +120,31 @@ struct DiscoverFilterOptions: View {
                     .toggleStyle(.automatic)
                 }
             } else {
-                Button(genres == nil ? "类型加载失败，其他条件仍可使用" : "类型加载中…") {}
+                Button(genres == nil ? String(localized: .mediaFiltersGenresFailed) : String(localized: .mediaFiltersGenresLoading)) {}
                     .disabled(true)
             }
         case .country:
             Picker(title, selection: $filters.originCountry) {
-                Text("不限").tag(String?.none)
+                Text(String(localized: .mediaFiltersUnlimited)).tag(String?.none)
                 ForEach(DiscoveryFilters.countries, id: \.code) { Text($0.name).tag(String?.some($0.code)) }
             }
             .pickerStyle(.inline)
         case .year:
             Picker(title, selection: $filters.year) {
-                Text("不限").tag(Int?.none)
-                ForEach(Array((1874 ... currentYear).reversed()), id: \.self) { Text("\(String($0)) 年").tag(Int?.some($0)) }
+                Text(String(localized: .mediaFiltersUnlimited)).tag(Int?.none)
+                ForEach(Array((1874 ... currentYear).reversed()), id: \.self) { Text(String(localized: .mediaFiltersYearValue(String($0)))).tag(Int?.some($0)) }
             }
             .pickerStyle(.inline)
         case .rating:
             Picker(title, selection: $filters.ratingGte) {
-                Text("不限").tag(Double?.none)
-                ForEach([6.0, 7, 8, 9], id: \.self) { Text("\(Int($0)) 分以上").tag(Double?.some($0)) }
+                Text(String(localized: .mediaFiltersUnlimited)).tag(Double?.none)
+                ForEach([6.0, 7, 8, 9], id: \.self) { Text(String(localized: .mediaFiltersRatingValue(String(Int($0))))).tag(Double?.some($0)) }
             }
             .pickerStyle(.inline)
         case .runtime:
             Picker(title, selection: $filters.runtimeLte) {
-                Text("不限").tag(Int?.none)
-                ForEach([60, 90, 120, 150], id: \.self) { Text("\($0) 分钟以内").tag(Int?.some($0)) }
+                Text(String(localized: .mediaFiltersUnlimited)).tag(Int?.none)
+                ForEach([60, 90, 120, 150], id: \.self) { Text(String(localized: .mediaFiltersRuntimeValue($0))).tag(Int?.some($0)) }
             }
             .pickerStyle(.inline)
         case .sort:
@@ -177,19 +177,19 @@ struct DiscoverFilterMenu: View {
                     DiscoverFilterOptions(dimension: dimension, mediaType: mediaType, genres: genres, filters: $filters)
                 } label: {
                     Label(dimension.title(mediaType: mediaType), systemImage: dimension.systemImage)
-                    Text(dimension.summary(filters, genreNames: genreNames) ?? (dimension == .sort ? "热门优先" : "不限"))
+                    Text(dimension.summary(filters, genreNames: genreNames) ?? (dimension == .sort ? String(localized: .mediaFiltersPopular) : String(localized: .mediaFiltersUnlimited)))
                 }
             }
             if filters.activeCount > 0 {
                 Section {
-                    Button("清空条件", systemImage: "xmark.circle", role: .destructive) { filters = .empty }
+                    Button(String(localized: .mediaDiscoveryClearFilters), systemImage: "xmark.circle", role: .destructive) { filters = .empty }
                 }
             }
         } label: {
             Text(title)
                 .lineLimit(1)
         }
-        .accessibilityLabel("筛选：\(title)")
+        .accessibilityLabel(String(localized: .mediaFiltersButtonLabel(title)))
         .accessibilityIdentifier("discover-filter")
         .task(id: mediaType) {
             genres = DiscoverGenreCatalog.cached(mediaType)
@@ -199,10 +199,10 @@ struct DiscoverFilterMenu: View {
 
     /// 顶栏寸土寸金：多选只写第一个再带个数，不像结果页胶囊那样并排两个名字
     private func buttonTitle(genreNames: [Int: String]) -> String {
-        guard let first = filters.genreIds.first else { return "全部" }
+        guard let first = filters.genreIds.first else { return String(localized: .mediaFiltersAll) }
         let name = genreNames[first]
-        if filters.genreIds.count == 1 { return name ?? "1 个类型" }
-        return name.map { "\($0)等 \(filters.genreIds.count) 个" } ?? "\(filters.genreIds.count) 个类型"
+        if filters.genreIds.count == 1 { return name ?? String(localized: .mediaFiltersGenreCount(1)) }
+        return name.map { String(localized: .mediaFiltersGenreSummary($0, filters.genreIds.count)) } ?? String(localized: .mediaFiltersGenreCount(filters.genreIds.count))
     }
 }
 
@@ -233,7 +233,7 @@ struct DiscoverFilterChips: View {
         // 横滑出页边距：胶囊能滑到屏幕边缘再消失，而不是在 16pt 页边距处被一刀切掉
         .padding(.horizontal, -cards.edge)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("当前筛选条件")
+        .accessibilityLabel(String(localized: .mediaDiscoveryActiveFilters))
     }
 
     private func chip(_ dimension: DiscoverFilterDimension, summary: String?) -> some View {
@@ -242,7 +242,7 @@ struct DiscoverFilterChips: View {
             DiscoverFilterOptions(dimension: dimension, mediaType: mediaType, genres: genres, filters: $filters)
             if active {
                 Section {
-                    Button(dimension == .sort ? "恢复热门优先" : "移除此条件", systemImage: "xmark", role: .destructive) {
+                    Button(dimension == .sort ? String(localized: .mediaFiltersResetSort) : String(localized: .mediaFiltersRemove), systemImage: "xmark", role: .destructive) {
                         dimension.clear(&filters)
                     }
                 }
@@ -310,7 +310,7 @@ struct DiscoverFilteredGrid: View {
                     }
                 }
                 if !loading, error == nil, items.isEmpty {
-                    Text("没有符合条件的影片")
+                    Text(String(localized: .mediaDiscoveryNoMatches))
                         .font(.body)
                         .foregroundStyle(Theme.textMuted)
                         .frame(maxWidth: .infinity)
@@ -322,7 +322,7 @@ struct DiscoverFilteredGrid: View {
                 if let error {
                     VStack(spacing: 12) {
                         Text(error).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
-                        Button("重试") { Task { await loadMore() } }
+                        Button(String(localized: .commonRetry)) { Task { await loadMore() } }
                             .discoverProminentButton()
                     }
                     .frame(maxWidth: .infinity)
@@ -330,7 +330,7 @@ struct DiscoverFilteredGrid: View {
                     .cardStyle()
                 }
                 if !hasMore, !items.isEmpty {
-                    Text("已加载全部 \(items.count) 部影片")
+                    Text(String(localized: .mediaDiscoveryAllLoaded(items.count)))
                         .font(.caption)
                         .foregroundStyle(Theme.textFaint)
                         .frame(maxWidth: .infinity)
@@ -370,17 +370,17 @@ struct DiscoverFilteredGrid: View {
                         .font(.subheadline.weight(.semibold))
                         .tracking(2)
                         .foregroundStyle(Theme.accent2)
-                    Text("筛选结果")
+                    Text(String(localized: .mediaDiscoveryResults))
                         .font(.title.bold())
                         .foregroundStyle(Theme.text)
                     Text(totalResults > 0
-                        ? "找到 \(totalResults.formatted()) 部，已加载 \(items.count) 部"
-                        : "已启用 \(filters.activeCount) 项筛选")
+                        ? String(localized: .mediaDiscoveryResultsCount(totalResults, items.count))
+                        : String(localized: .mediaDiscoveryFilterCount(filters.activeCount)))
                         .font(.subheadline)
                         .foregroundStyle(Theme.textMuted)
                 }
                 Spacer(minLength: 12)
-                Button("清空条件") { filters = .empty }
+                Button(String(localized: .mediaDiscoveryClearFilters)) { filters = .empty }
                     .buttonStyle(.glass)
                     .accessibilityIdentifier("filtered-clear")
             }
@@ -417,7 +417,7 @@ struct DiscoverFilteredGrid: View {
         } catch is CancellationError {
         } catch {
             guard requested == filters else { return }
-            self.error = error.localizedDescription.isEmpty ? "筛选结果加载失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .mediaDiscoveryFilterFailed) : error.localizedDescription
         }
     }
 }

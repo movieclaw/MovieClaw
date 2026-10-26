@@ -48,7 +48,7 @@ struct AccountSwitcherSheet: View {
                         ForEach(saved.accounts, id: \.username) { account in
                             row(account, on: saved)
                                 .swipeActions {
-                                    Button("退出", role: .destructive) { Task { await remove(account, on: saved.address) } }
+                                    Button(String(localized: .authAccountsSignOut), role: .destructive) { Task { await remove(account, on: saved.address) } }
                                 }
                         }
                     } header: {
@@ -59,23 +59,23 @@ struct AccountSwitcherSheet: View {
                     Button {
                         card = CardRequest(server: model.server, username: nil)
                     } label: {
-                        Label("添加账号", systemImage: "person.badge.plus")
+                        Label(String(localized: .authLoginAddAccount), systemImage: "person.badge.plus")
                     }
                     .accessibilityIdentifier("account-add")
                     Button(role: .destructive) {
                         Task { await logoutEverywhere() }
                     } label: {
-                        Label("退出全部账号", systemImage: "rectangle.portrait.and.arrow.right")
+                        Label(String(localized: .authAccountsSignOutAll), systemImage: "rectangle.portrait.and.arrow.right")
                     }
                 } footer: {
-                    Text("添加账号时改一下服务器地址，就能登录到另一台 MovieClaw。")
+                    Text(String(localized: .authAccountsOtherServerHint))
                 }
             }
             .disabled(busy)
-            .navigationTitle("切换账号")
+            .navigationTitle(String(localized: .authMenuSwitchAccount))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(String(localized: .commonClose)) { dismiss() } }
             }
             .fullScreenCover(item: $card) { request in
                 WelcomeView(mode: .addAccount(server: request.server, username: request.username), phase: model.phase) {
@@ -100,14 +100,14 @@ struct AccountSwitcherSheet: View {
     private func header(_ saved: SavedServer, first: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if first {
-                Text("本机已登录的账号，点击即可切换，不用再输密码。")
+                Text(String(localized: .authAccountsSavedSwitchHint))
             }
             if multipleServers {
                 HStack(spacing: 6) {
                     Image(systemName: "server.rack")
                     Text(saved.address.hostLabel)
                     switch freshness[saved.id] {
-                    case .unreachable: Text("· 连不上").foregroundStyle(Theme.warning)
+                    case .unreachable: Text(String(localized: .authAccountsUnreachableSuffix)).foregroundStyle(Theme.warning)
                     default: EmptyView()
                     }
                 }
@@ -130,11 +130,11 @@ struct AccountSwitcherSheet: View {
                         .environment(\.api, APIClient(server: saved.address))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(account.nickname).foregroundStyle(Theme.text)
-                        Text("@\(account.username) · \(account.role == "admin" ? "超级管理员" : "成员")")
+                        Text("@\(account.username) · \(account.role == "admin" ? String(localized: .authRoleSuperAdmin) : String(localized: .authRoleMember))")
                             .font(.caption)
                             .foregroundStyle(Theme.textMuted)
                         if !isCurrent, !model.hasToken(for: account.username, on: saved.address) {
-                            Text("登录已失效，点一下重新输入密码")
+                            Text(String(localized: .authAccountsExpiredTapHint))
                                 .font(.caption)
                                 .foregroundStyle(Theme.warning)
                         }
@@ -143,7 +143,7 @@ struct AccountSwitcherSheet: View {
                     if isCurrent {
                         HStack(spacing: 3) {
                             Image(systemName: "checkmark").font(.caption2.weight(.bold))
-                            Text("当前")
+                            Text(String(localized: .libraryArtworkCurrent))
                         }
                         .font(.caption.weight(.medium))
                         .foregroundStyle(Theme.accent)
@@ -163,7 +163,7 @@ struct AccountSwitcherSheet: View {
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel("从本机移除 \(account.nickname)")
+            .accessibilityLabel(String(localized: .authAccountsRemoveFromDevice(account.nickname)))
         }
         // 一行两个按钮：各自 borderless，避免 List 把整行点击同时派给两者
         .buttonStyle(.borderless)
@@ -203,9 +203,9 @@ struct AccountSwitcherSheet: View {
     private func remove(_ account: API.AccountView, on address: ServerAddress) async {
         let isCurrent = address == model.server && account.username == model.session?.username
         let message = isCurrent
-            ? "这是当前账号。退出后本机不再保留它的登录状态，会自动切到其他账号；再回来需要重新输入密码。"
-            : "本机将不再保留它的登录状态，再回来需要重新输入密码。账号本身不受影响。"
-        guard await feedback.confirm("退出「\(account.nickname)」？", message: message, confirmTitle: "退出", destructive: true) else { return }
+            ? String(localized: .authAccountsRemoveCurrentDeviceHint)
+            : String(localized: .authAccountsRemoveDeviceHint)
+        guard await feedback.confirm(String(localized: .authAccountsRemoveTitle(account.nickname)), message: message, confirmTitle: String(localized: .authAccountsSignOut), destructive: true) else { return }
         if isCurrent { await OfflineDownloadCleanup.askOnLogout(feedback: feedback) }
         busy = true
         defer { busy = false }
@@ -220,11 +220,12 @@ struct AccountSwitcherSheet: View {
     private func logoutEverywhere() async {
         let count = model.savedAccountCount
         let serverCount = model.savedServers.filter { !$0.accounts.isEmpty }.count
-        let scope = serverCount > 1 ? "本机登录过的 \(count) 个账号（\(serverCount) 台服务器）" : "本机里的 \(count) 个账号"
+        let message = serverCount > 1 ? String(localized: .authAccountsSignOutAllServers(count, serverCount))
+            : String(localized: .authAccountsSignOutAllLocal(count))
         guard await feedback.confirm(
-            "退出全部账号？",
-            message: "\(scope)都会退出登录，再回来需要逐个重新输入密码。共用设备时建议这样做。",
-            confirmTitle: "全部退出", destructive: true
+            String(localized: .authAccountsSignOutAllTitle),
+            message: message,
+            confirmTitle: String(localized: .authAccountsSignOutAllAction), destructive: true
         ) else { return }
         await OfflineDownloadCleanup.askOnLogoutEverywhere(feedback: feedback)
         dismiss()

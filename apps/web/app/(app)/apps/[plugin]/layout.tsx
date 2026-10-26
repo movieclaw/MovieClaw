@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 
 import { PluginAppFrame } from "@/components/plugin-app-frame";
 
 /** 兜底标题；插件名在客户端拿到后由 usePageTitle 覆盖。 */
-export const metadata: Metadata = { title: "插件页面" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return { title: t("nav.cinema.pluginPages") };
+}
 
 /**
  * 插件网页（/apps/<插件 id>/<子路径>，docs/design/plugin-web-pages.md）。

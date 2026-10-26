@@ -21,6 +21,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from movieclaw_api.i18n import t
 from movieclaw_api.settings.mcp import McpEndpoint
 
 logger = logging.getLogger("movieclaw_mcp.selfcheck")
@@ -63,11 +64,11 @@ async def self_check(app: Any, endpoint: McpEndpoint, *, external_url: str = "")
     started = time.perf_counter()
     warnings: list[str] = []
     if not endpoint.enabled:
-        warnings.append("端点当前已停用，外部客户端会收到 404。")
+        warnings.append(t("mcp.check.endpointDisabled"))
     if not external_url:
-        warnings.append("还没配置外部访问地址，端点地址只有相对路径，外部客户端连不上。")
+        warnings.append(t("mcp.check.externalUrlMissing"))
     if endpoint.missing_services if hasattr(endpoint, "missing_services") else False:
-        warnings.append("配置里有当前版本已不存在的服务，已被忽略。")
+        warnings.append(t("mcp.check.servicesMissing"))
 
     try:
         async with Client(build_server(app, endpoint)) as client:
@@ -79,7 +80,7 @@ async def self_check(app: Any, endpoint: McpEndpoint, *, external_url: str = "")
                 protocol_version=protocol,
                 tool_count=len(listed.tools),
                 warnings=warnings,
-                message="协议握手与工具面正常",
+                message=t("mcp.check.handshakeOk"),
             )
             if probe is not None:
                 called = await client.call_tool(probe.name, {})
@@ -89,9 +90,9 @@ async def self_check(app: Any, endpoint: McpEndpoint, *, external_url: str = "")
                 result.probe_message = text[:160]
                 if called.is_error:
                     result.ok = False
-                    result.message = f"工具 {probe.name} 调用失败"
+                    result.message = t("mcp.check.probeFailed", tool=probe.name)
                 else:
-                    result.message = "协议、工具面与调用链路都正常"
+                    result.message = t("mcp.check.allOk")
             result.elapsed_ms = int((time.perf_counter() - started) * 1000)
             logger.info(
                 "MCP 端点自检 slug=%s ok=%s 工具=%d 用时=%dms",
@@ -103,6 +104,6 @@ async def self_check(app: Any, endpoint: McpEndpoint, *, external_url: str = "")
         return SelfCheckResult(
             ok=False,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
-            message=f"自检未能完成：{exc}",
+            message=t("mcp.check.failed", detail=str(exc)),
             warnings=warnings,
         )

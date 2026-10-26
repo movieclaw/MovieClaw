@@ -77,6 +77,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path / "media"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("METADATA_DIR", str(tmp_path / "metadata"))
     monkeypatch.setenv("MOVIECLAW_TRANSCODE_DIR", str(tmp_path / "transcodes"))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("TMDB_API_KEY", "test-key-not-used")
@@ -113,7 +115,7 @@ def client(tmp_path, monkeypatch):
 
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         c.post("/api/v1/auth/bootstrap", json=_ADMIN)
         yield c
 
@@ -309,7 +311,18 @@ def test_decide_route_forwards_all_playback_preferences(client, tmp_path, monkey
     assert unit_call["max_height"] == 480
 
 
-def test_execution_backend_uses_remote_when_local_backend_is_incompatible():
+@pytest.fixture
+def remote_workers_run_any_plan(monkeypatch):
+    """决策层单测不连真 Worker：在线的远程后端都当作装得出这条链。远程能不能装由接单
+    Worker 自己的申报决定（``remote_backend_can_run``，见 test_executor_isolation.py）。"""
+    monkeypatch.setattr(
+        routes_playback.playback_plan, "remote_backend_can_run", lambda _plan, _backend: True
+    )
+
+
+def test_execution_backend_uses_remote_when_local_backend_is_incompatible(
+    remote_workers_run_any_plan,
+):
     """PGS 烧录不能因 VAAPI 排在首位而错过可用的远程 VideoToolbox。"""
     decision = PlaybackPlan(
         tier=PlaybackTier.HARDWARE_TRANSCODE,
@@ -329,7 +342,63 @@ def test_execution_backend_uses_remote_when_local_backend_is_incompatible():
     ) == ("videotoolbox", True)
 
 
-def test_profile_5_transcode_prefers_a_transcoder_whose_tonemap_reads_the_rpu():
+def _hw_plan(**overrides) -> PlaybackPlan:
+    fields = dict(
+        tier=PlaybackTier.HARDWARE_TRANSCODE,
+        file_id=1,
+        container="hls-fmp4",
+        video=VideoPlan(action="transcode", codec="h264", height=1080),
+        audio=AudioPlan(action="copy"),
+    )
+    fields.update(overrides)
+    return PlaybackPlan(**fields)
+
+
+def test_prefer_hevc_output_needs_every_condition(monkeypatch):
+    """#1008：只把「已经定了硬件转码」的计划改成 HEVC，条件缺一不可。"""
+    from movieclaw_api.services.playback import plan as plan_mod
+    from movieclaw_api.services.playback.ffmpeg_args import register_hevc_encoder
+    from movieclaw_playback.capability import ClientCapability, VideoSupport
+
+    prefer = plan_mod.prefer_hevc_output
+    hevc_client = ClientCapability(
+        video=(VideoSupport("h264"), VideoSupport("hevc", max_height=1080)),
+        containers=frozenset({"mp4", "hls-fmp4"}),
+        hevc_transcode=True,
+    )
+    codec = lambda d: d.video.codec  # noqa: E731
+    register_hevc_encoder("vaapi", ())
+    try:
+        assert codec(prefer(_hw_plan(), hevc_client, "vaapi", remote=False)) == "hevc"
+        # 客户端没申报回退 / 解不了 HEVC / 高度不够
+        old = ClientCapability(video=hevc_client.video, containers=hevc_client.containers)
+        assert codec(prefer(_hw_plan(), old, "vaapi", remote=False)) == "h264"
+        short = ClientCapability(
+            video=(VideoSupport("hevc", max_height=720),), hevc_transcode=True
+        )
+        assert codec(prefer(_hw_plan(), short, "vaapi", remote=False)) == "h264"
+        # TS 分片只给第三方播放器，留 H.264
+        ts = _hw_plan(container="hls-ts")
+        assert codec(prefer(ts, hevc_client, "vaapi", remote=False)) == "h264"
+        # 软件档、直通档、没有执行者：不动
+        soft = _hw_plan(tier=PlaybackTier.SOFTWARE_TRANSCODE)
+        assert prefer(soft, hevc_client, None, remote=False) is soft
+        copy = _hw_plan(tier=PlaybackTier.REMUX, video=VideoPlan(action="copy", codec="hevc"))
+        assert prefer(copy, hevc_client, "vaapi", remote=False) is copy
+        # 本机没自检过 HEVC 的显卡
+        assert codec(prefer(_hw_plan(), hevc_client, "qsv", remote=False)) == "h264"
+    finally:
+        register_hevc_encoder("vaapi", None)
+    # 远程转码器：在线的都带 HEVC 编码器才出
+    monkeypatch.setattr(plan_mod, "remote_workers_have_encoder", lambda *_a: True)
+    assert codec(prefer(_hw_plan(), hevc_client, "videotoolbox", remote=True)) == "hevc"
+    monkeypatch.setattr(plan_mod, "remote_workers_have_encoder", lambda *_a: False)
+    assert codec(prefer(_hw_plan(), hevc_client, "videotoolbox", remote=True)) == "h264"
+
+
+def test_profile_5_transcode_prefers_a_transcoder_whose_tonemap_reads_the_rpu(
+    remote_workers_run_any_plan,
+):
     """P5 的 IPT 基础层要吃 RPU：VAAPI 的映射不认、出来整片发紫，Mac 转码器在线就交给它；
     不在线时照旧用本机（与原来相同）。不是 P5 的不受影响"""
     def p5(dolby_vision):
@@ -401,7 +470,7 @@ def test_profile_5_session_on_a_local_gpu_tells_the_user_why_the_colors_are_off(
     monkeypatch.setattr(hwprobe, "available_backends", backends)
     monkeypatch.setattr(routes_playback, "available_backends", backends)
     monkeypatch.setattr(routes_playback, "available_local_backends", backends)
-    monkeypatch.setattr(routes_playback, "remote_worker_available", lambda *_a, **_k: False)
+    monkeypatch.setattr(routes_playback, "remote_backends_available", lambda *_a, **_k: ())
     monkeypatch.setattr(plan_mod, "hardware_available", lambda: True)
     p5 = seed(
         client, tmp_path, container="mkv", codec="hevc", hdr="Dolby Vision",
@@ -548,21 +617,43 @@ def test_direct_play_releases_the_db_connection_before_streaming(client, tmp_pat
     若取流期间一直占着连接，十几条并发流就会耗尽连接池，整个服务的接口一起超时
     （2026-09-27 NAS 实测）。
     """
+    from sqlalchemy import text
+
     file_id = seed(client, tmp_path, container="mp4")
     url = start_session(client, file_id)["stream_url"]
-    pool = get_database().engine.sync_engine.pool
-    checked_out: list[int] = []
+    request_sessions = []
+    transaction_active: list[bool] = []
     original = routes_playback.DisconnectAwareFileResponse
+
+    async def tracked_session():
+        async for session in routes_playback.get_session():
+            request_sessions.append(session)
+            yield session
+
+    monkeypatch.setitem(
+        client.app.dependency_overrides, routes_playback.get_session, tracked_session
+    )
 
     class ProbeResponse(original):
         async def __call__(self, scope, receive, send):
-            checked_out.append(pool.checkedout())
+            assert len(request_sessions) == 1
+            transaction_active.append(request_sessions[0].in_transaction())
             await super().__call__(scope, receive, send)
 
+    # 后台任务可以合法占用别的连接；只检查这个取流请求是否已归还自己的连接。
+    async def hold_background_connection():
+        session = get_database().session()
+        await session.execute(text("SELECT 1"))
+        return session
+
+    background = client.portal.call(hold_background_connection)
     monkeypatch.setattr(routes_playback, "DisconnectAwareFileResponse", ProbeResponse)
-    resp = client.get(url, headers={"Range": "bytes=0-15"})
-    assert resp.status_code == 206
-    assert checked_out == [0]
+    try:
+        resp = client.get(url, headers={"Range": "bytes=0-15"})
+        assert resp.status_code == 206
+        assert transaction_active == [False]
+    finally:
+        client.portal.call(background.close)
 
 
 def test_strm_entry_redirects_to_cloud_url(client, tmp_path):
@@ -883,7 +974,7 @@ def test_remote_only_backend_is_never_sent_to_local_ffmpeg(client, tmp_path, mon
     monkeypatch.setattr(hwprobe, "available_backends", lambda: ("videotoolbox",))
     monkeypatch.setattr(routes_playback, "available_backends", lambda: ("videotoolbox",))
     monkeypatch.setattr(routes_playback, "available_local_backends", lambda: ())
-    monkeypatch.setattr(routes_playback, "remote_worker_available", lambda *_, **__: False)
+    monkeypatch.setattr(routes_playback, "remote_backends_available", lambda *_, **__: ())
 
     file_id = seed(client, tmp_path, container="mkv", codec="hevc")
     response = client.post(
@@ -904,8 +995,8 @@ def test_quality_switch_releases_remote_worker_before_final_decision(
 
     availability = {"value": False}
 
-    def remote_available(_backend: str, **_kwargs: object) -> bool:
-        return availability["value"]
+    def remote_available(*_args: object, **_kwargs: object) -> tuple[str, ...]:
+        return ("videotoolbox",) if availability["value"] else ()
 
     monkeypatch.setattr(
         hwprobe,
@@ -918,7 +1009,10 @@ def test_quality_switch_releases_remote_worker_before_final_decision(
         lambda: ("videotoolbox",) if availability["value"] else (),
     )
     monkeypatch.setattr(routes_playback, "available_local_backends", lambda: ())
-    monkeypatch.setattr(routes_playback, "remote_worker_available", remote_available)
+    monkeypatch.setattr(routes_playback, "remote_backends_available", remote_available)
+    monkeypatch.setattr(
+        routes_playback.playback_plan, "remote_backend_can_run", lambda _plan, _backend: True
+    )
     monkeypatch.setattr(
         routes_playback,
         "effective_remote_transcode_config",
@@ -997,10 +1091,13 @@ def test_reopening_a_tone_mapped_title_frees_its_own_worker_slot_first(
     monkeypatch.setattr(routes_playback, "available_backends", backends)
     monkeypatch.setattr(routes_playback, "available_local_backends", lambda: ())
     monkeypatch.setattr(
-        routes_playback, "remote_worker_available", lambda *_a, **_k: availability["value"]
+        routes_playback,
+        "remote_backends_available",
+        lambda *_a, **_k: ("videotoolbox",) if availability["value"] else (),
     )
     monkeypatch.setattr(plan_mod, "hardware_available", lambda: availability["value"])
-    monkeypatch.setattr(plan_mod, "remote_worker_busy", lambda _b: not availability["value"])
+    monkeypatch.setattr(plan_mod, "any_remote_worker_busy", lambda: not availability["value"])
+    monkeypatch.setattr(plan_mod, "remote_backend_can_run", lambda _plan, _backend: True)
     monkeypatch.setattr(
         routes_playback,
         "effective_remote_transcode_config",
@@ -1490,8 +1587,7 @@ def test_remote_source_supports_range_without_mounting_nas(client, tmp_path):
     file_id = seed(client, tmp_path, container="mkv")
     grants = _install_remote_session(client, tmp_path, file_id)
     response = client.get(
-        f"/api/v1/transcode-worker/sessions/{grants['session_id']}/source"
-        f"?token={grants['source']}",
+        f"/api/v1/transcode-worker/sessions/{grants['session_id']}/source?token={grants['source']}",
         headers={"Range": "bytes=0-15"},
     )
     assert response.status_code == 206
@@ -1504,8 +1600,7 @@ def test_remote_source_redirects_strm_to_the_cloud_url(client, tmp_path):
     file_id = seed(client, tmp_path, container="mkv", strm=True)
     grants = _install_remote_session(client, tmp_path, file_id)
     response = client.get(
-        f"/api/v1/transcode-worker/sessions/{grants['session_id']}/source"
-        f"?token={grants['source']}",
+        f"/api/v1/transcode-worker/sessions/{grants['session_id']}/source?token={grants['source']}",
         headers={"Range": "bytes=0-15"},
         follow_redirects=False,
     )
@@ -1606,8 +1701,7 @@ def test_remote_worker_source_relays_lan_strm(client, tmp_path, lan_drive):
     file_id = seed(client, tmp_path, container="mkv", strm=True, strm_url=lan)
     grants = _install_remote_session(client, tmp_path, file_id)
     response = client.get(
-        f"/api/v1/transcode-worker/sessions/{grants['session_id']}/source"
-        f"?token={grants['source']}",
+        f"/api/v1/transcode-worker/sessions/{grants['session_id']}/source?token={grants['source']}",
         headers={"Range": "bytes=0-15"},
         follow_redirects=False,
     )
@@ -1832,7 +1926,7 @@ def _request_with_chunked_body(body: bytes) -> Request:
 def test_remote_artifact_upload_accepts_complete_chunked_body(client, tmp_path):
     file_id = seed(client, tmp_path, container="mkv")
     grants = _install_remote_session(client, tmp_path, file_id)
-    body = b"#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n"
+    body = b'#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n'
     request = _request_with_chunked_body(body)
 
     response = client.portal.call(
@@ -2838,10 +2932,14 @@ def test_diagnostic_encoder_marks_vaapi_low_power():
     session = SimpleNamespace(
         plan=SimpleNamespace(video=VideoPlan(action="transcode", codec="h264")),
         hw_backend="vaapi",
+        remote=False,
     )
     assert routes_playback._diagnostic_encoder(session) == "h264_vaapi"
     register_encoder_options("vaapi", VAAPI_LOW_POWER)
     try:
         assert routes_playback._diagnostic_encoder(session) == "h264_vaapi（低功耗）"
+        # 远程会话不看本机自检：那是 NAS 这块核显的结论，不是接单的那台机器
+        remote = SimpleNamespace(**{**vars(session), "remote": True})
+        assert routes_playback._diagnostic_encoder(remote) == "h264_vaapi"
     finally:
         register_encoder_options("vaapi", ())

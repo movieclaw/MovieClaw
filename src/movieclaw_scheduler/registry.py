@@ -39,6 +39,9 @@ class TaskDefinition:
     default_cron: str | None = None
     default_enabled: bool = True
     description: str = ""
+    #: Read-time display references; source text stays available to logs and old consumers.
+    title_key: str | None = None
+    description_key: str | None = None
 
 
 # 声明目录：task_key -> TaskDefinition。模块导入时由 @register_task 填充。
@@ -53,6 +56,7 @@ _REGISTRY: dict[str, TaskDefinition] = {}
 SCHEDULED_TASKS: RegistryKey[TaskDefinition] = RegistryKey(
     "scheduled-tasks",
     schema=TaskDefinition,
+    version="1.1",
     stability=Stability.EXPERIMENTAL,
     doc="可调度的定时任务（领域插件贡献；第三方插件可用 override 整段替换内置任务）",
 )
@@ -82,6 +86,8 @@ def register_task(
     cron: str | None = None,
     enabled: bool = True,
     description: str = "",
+    title_key: str | None = None,
+    description_key: str | None = None,
 ) -> Callable[[TaskHandler], TaskHandler]:
     """把一个无参协程注册为可调度任务的装饰器。
 
@@ -117,6 +123,8 @@ def register_task(
             default_cron=cron,
             default_enabled=enabled,
             description=description,
+            title_key=title_key,
+            description_key=description_key,
         )
         _REGISTRY[key] = definition
         # 标记在函数上：插件据此把「本模块声明的任务」贡献进内核注册表

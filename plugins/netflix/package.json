@@ -1,6 +1,6 @@
 {
   "name": "@movieclaw/theme-netflix",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "private": true,
   "description": "MovieClaw 网页的 Netflix 主题插件（docs/design/theme-plugins.md）",
   "scripts": {
@@ -12,8 +12,8 @@
     "@tailwindcss/postcss": "^4.1.12",
     "@types/react": "^19.1.11",
     "@types/react-dom": "^19.1.7",
-    "esbuild": "0.28.1",
-    "next": "^15.5.27",
+    "esbuild": "0.28.2",
+    "next": "^15.5.28",
     "postcss": "^8.5.30",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

@@ -96,10 +96,10 @@ struct LibraryItemDetailView: View {
                 OfflineMinimalDetail(itemId: itemId)
             } else if failed {
                 VStack(spacing: 14) {
-                    Text("未能加载该条目").font(.headline).foregroundStyle(Theme.text)
-                    Text("条目可能已被删除或重新识别为其他作品，请返回后查看。")
+                    Text(String(localized: .libraryItemLoadFailed)).font(.headline).foregroundStyle(Theme.text)
+                    Text(String(localized: .libraryItemUnavailableHint))
                         .font(.subheadline).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
-                    Button { router.pop() } label: { Label("返回\(backLabel)", systemImage: "chevron.left") }
+                    Button { router.pop() } label: { Label(String(localized: .libraryItemBackTarget(backLabel)), systemImage: "chevron.left") }
                         .buttonStyle(.glass)
                 }
                 .padding(24)
@@ -109,7 +109,7 @@ struct LibraryItemDetailView: View {
             } else {
                 VStack(spacing: 10) {
                     ProgressView()
-                    Text("正在读取本地刮削信息…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .libraryItemLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -212,9 +212,9 @@ struct LibraryItemDetailView: View {
     private var backLabel: String {
         let stack = router.currentPath
         switch stack.dropLast().last {
-        case .mediaDetail?: return "发现详情"
-        case nil where router.selection == .tab(.library), .libraryHome?: return "媒体库"
-        default: return library?.name ?? "库存"
+        case .mediaDetail?: return String(localized: .libraryItemDiscoveryDetails)
+        case nil where router.selection == .tab(.library), .libraryHome?: return String(localized: .libraryCustomizeLibrary)
+        default: return library?.name ?? String(localized: .libraryFiltersStock)
         }
     }
 
@@ -403,7 +403,7 @@ struct LibraryItemDetailView: View {
                         .padding(.bottom, 8)
                 }
                 if !isMovie, let selectedEpisode {
-                    Text("第 \(selectedEpisode.season) 季 第 \(selectedEpisode.episode.episodeNumber) 集\(selectedEpisode.episode.name.map { " · \($0)" } ?? "")")
+                    Text(String(localized: .libraryItemSeasonEpisodeSpaced(selectedEpisode.season, selectedEpisode.episode.episodeNumber)) + (selectedEpisode.episode.name.map { " · \($0)" } ?? ""))
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.white.opacity(0.85))
                         .lineLimit(1)
@@ -484,7 +484,7 @@ struct LibraryItemDetailView: View {
             .accessibilityIdentifier("item-play")
             if state.resumable {
                 Button { play(start: 0) } label: {
-                    Label("从头播放", systemImage: "backward.end.fill").heroActionLabel()
+                    Label(String(localized: .libraryItemPlayFromStart), systemImage: "backward.end.fill").heroActionLabel()
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
@@ -492,10 +492,10 @@ struct LibraryItemDetailView: View {
             }
             if !readOnly {
                 wideCircleButton(favorite == true ? "heart.fill" : "heart", tint: favorite == true ? Theme.danger : nil,
-                                 label: favorite == true ? "取消收藏" : "收藏") { Task { await toggleFavorite() } }
+                                 label: favorite == true ? String(localized: .libraryGalleryUnfavorite) : String(localized: .libraryGalleryFavorite)) { Task { await toggleFavorite() } }
                     .accessibilityIdentifier("item-favorite")
                 wideCircleButton(state.finished ? "checkmark.circle.fill" : "checkmark", tint: state.finished ? Theme.success : nil,
-                                 label: state.finished ? "标记为未看" : "标记为已看") { Task { await togglePlayed() } }
+                                 label: state.finished ? String(localized: .libraryItemMarkUnwatched) : String(localized: .libraryItemMarkWatched)) { Task { await togglePlayed() } }
                     .accessibilityIdentifier("item-played")
             }
             if let progressText = state.progressText {
@@ -533,8 +533,8 @@ struct LibraryItemDetailView: View {
         if !directors.isEmpty || !actors.isEmpty {
             ViewThatFits(in: .horizontal) {
                 VStack(alignment: .leading, spacing: 6) {
-                    if let director = directors.first { creditLine("导演", [director]) }
-                    if !actors.isEmpty { creditLine("主演", Array(actors)) }
+                    if let director = directors.first { creditLine(String(localized: .libraryItemDirector), [director]) }
+                    if !actors.isEmpty { creditLine(String(localized: .libraryItemStarring), Array(actors)) }
                 }
                 .fixedSize()
                 Color.clear.frame(width: 0, height: 0)
@@ -555,7 +555,7 @@ struct LibraryItemDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             seriesCollectionRows(detail)
             if goneOnServer {
-                Text("服务器上已没有这个条目，下面是 iPad 上的副本，仍可播放与删除。")
+                Text(String(localized: .libraryItemOfflineOnlyPad))
                     .font(.footnote).foregroundStyle(Theme.warning)
             }
             MediaTrackSection(files: trackFiles, selectedFileId: $selectedTrackFileId) { await reload() }
@@ -578,7 +578,7 @@ struct LibraryItemDetailView: View {
                 .accessibilityValue(String(detail.mediaItemId))
                 .accessibilityIdentifier("item-title")
             if !isMovie, let selectedEpisode {
-                Text("第 \(selectedEpisode.season) 季 第 \(selectedEpisode.episode.episodeNumber) 集\(selectedEpisode.episode.name.map { " - \($0)" } ?? "")")
+                Text(String(localized: .libraryItemSeasonEpisodeSpaced(selectedEpisode.season, selectedEpisode.episode.episodeNumber)) + (selectedEpisode.episode.name.map { " - \($0)" } ?? ""))
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.65))
             }
@@ -596,14 +596,14 @@ struct LibraryItemDetailView: View {
             }
             seriesCollectionRows(detail)
             if goneOnServer {
-                Text("服务器上已没有这个条目，下面是 \(ClientPlatform.deviceName) 上的副本，仍可播放与删除。")
+                Text(String(localized: .libraryItemOfflineOnlyDevice(ClientPlatform.deviceName)))
                     .font(.footnote).foregroundStyle(Theme.warning)
                     .padding(.top, 4)
             }
             MediaTrackSection(files: trackFiles, selectedFileId: $selectedTrackFileId) { await reload() }
                 .padding(.top, 6)
             if !availableTrackFiles.isEmpty, isMovie || selectedEpisode != nil {
-                playAction(favoriteLabel: isMovie ? "这部电影" : "这部剧")
+                playAction(favoriteLabel: isMovie ? String(localized: .libraryItemThisMovie) : String(localized: .libraryItemThisSeries))
                     .padding(.top, 10)
             }
             statusBanners(detail)
@@ -614,7 +614,7 @@ struct LibraryItemDetailView: View {
     @ViewBuilder
     private func seriesCollectionRows(_ detail: API.LibraryItemDetailView) -> some View {
         if let seriesName = detail.seriesName {
-            metaLinkRow("系列") {
+            metaLinkRow(String(localized: .libraryCollectionsSeries)) {
                 if let cid = detail.seriesCollectionId {
                     NavigationLink(seriesName, value: AppRoute.collection(libraryId: libraryId, collectionId: cid))
                 } else {
@@ -623,14 +623,14 @@ struct LibraryItemDetailView: View {
             }
         }
         if !detail.collections.isEmpty {
-            metaLinkRow("合集") {
+            metaLinkRow(String(localized: .libraryCollectionsPageTitle)) {
                 ForEach(Array(detail.collections.prefix(3).enumerated()), id: \.element.id) { index, row in
                     if index > 0 { Text(" · ").foregroundStyle(.white.opacity(0.3)) }
                     NavigationLink(row.name, value: AppRoute.collection(libraryId: libraryId, collectionId: row.id))
                 }
                 if detail.collections.count > 3 {
                     Text(" · ").foregroundStyle(.white.opacity(0.3))
-                    NavigationLink("还有 \(detail.collections.count - 3) 个", value: AppRoute.library(id: libraryId, view: "collections"))
+                    NavigationLink(String(localized: .libraryItemMoreCollections(detail.collections.count - 3)), value: AppRoute.library(id: libraryId, view: "collections"))
                 }
             }
         }
@@ -642,9 +642,9 @@ struct LibraryItemDetailView: View {
         if detail.scraping || kicking {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small).tint(Theme.info)
-                Text("正在刷新元数据\(detail.scrapingPhase.map { " · \($0)" } ?? "")").lineLimit(1)
+                Text(String(localized: .libraryItemRefreshingMetadata) + (detail.scrapingPhase.map { " · \($0)" } ?? "")).lineLimit(1)
                 Spacer(minLength: 4)
-                Text("完成后自动更新本页").font(.caption).foregroundStyle(.white.opacity(0.45))
+                Text(String(localized: .libraryItemRefreshingHint)).font(.caption).foregroundStyle(.white.opacity(0.45))
             }
             .font(.footnote.weight(.medium))
             .foregroundStyle(Theme.info)
@@ -723,9 +723,9 @@ struct LibraryItemDetailView: View {
 
     static func runtimeText(_ minutes: Int) -> String {
         guard minutes > 0 else { return "—" }
-        if minutes < 60 { return "\(minutes) 分钟" }
+        if minutes < 60 { return String(localized: .libraryCloudReportMinutes(minutes)) }
         let h = minutes / 60, m = minutes % 60
-        return m > 0 ? "\(h) 小时 \(m) 分钟" : "\(h) 小时"
+        return m > 0 ? String(localized: .unitsDurationHoursMinutesLong(h, m)) : String(localized: .libraryRecycleShortHours(h))
     }
 
     static func resolutionLabel(_ raw: String) -> String {
@@ -750,7 +750,7 @@ struct LibraryItemDetailView: View {
     private var unitLabel: String? {
         guard !isMovie, let selectedEpisode else { return nil }
         let season = selectedEpisode.season, episode = selectedEpisode.episode.episodeNumber
-        return season == 0 ? "特别篇第 \(episode) 集" : "第 \(season) 季第 \(episode) 集"
+        return season == 0 ? String(localized: .libraryItemSpecialEpisode(episode)) : String(localized: .mediaEpisodeSeasonAndEpisode(season, episode))
     }
 
     /// 播放键的文案与进度（手机与 iPad 宽窗口共用）
@@ -772,11 +772,11 @@ struct LibraryItemDetailView: View {
         let remaining: Int? = resumable && (duration ?? 0) > position ? Int((Double(duration! - position) / 60000).rounded()) : nil
         // 看过一段：按钮直接写从哪里起播（点它就从这里接着放），下方进度条只说还剩多少。
         // 剧集写明是哪一集（同 Apple TV 版「继续 第 1 季第 3 集 · 46:56」）：只写「继续 46:56」看不出续的是第几集
-        let verb = resumable ? "继续" : finished ? "重新播放" : "播放"
+        let verb = resumable ? String(localized: .commonContinue) : finished ? String(localized: .libraryItemReplay) : String(localized: .libraryHeroPlay)
         let parts = [verb, unitLabel, resumable ? Formatters.clock(Double(position) / 1000) : nil].compactMap { $0 }
         let label = parts.count > 2 ? "\(parts[0]) \(parts[1]) · \(parts[2])" : parts.joined(separator: " ")
         let progressText: String? = resumable
-            ? remaining.map { $0 >= 1 ? "剩余 \(Self.runtimeText($0))" : "即将看完" } ?? (duration != nil ? "即将看完" : nil)
+            ? remaining.map { $0 >= 1 ? String(localized: .libraryItemRemaining(Self.runtimeText($0))) : String(localized: .libraryItemNearlyFinished) } ?? (duration != nil ? String(localized: .libraryItemNearlyFinished) : nil)
             : nil
         return PlayButtonState(label: label, resumable: resumable, finished: finished, percent: percent, progressText: progressText)
     }
@@ -808,24 +808,24 @@ struct LibraryItemDetailView: View {
             HStack(spacing: 10) {
                 if !readOnly {
                 Button { Task { await toggleFavorite() } } label: {
-                    Label(favorite == true ? "已收藏" : "收藏", systemImage: favorite == true ? "heart.fill" : "heart")
+                    Label(favorite == true ? String(localized: .libraryItemFavorited) : String(localized: .libraryGalleryFavorite), systemImage: favorite == true ? "heart.fill" : "heart")
                         .heroActionLabel()
                         .foregroundStyle(favorite == true ? Theme.danger : .white.opacity(0.85))
                 }
                 .buttonStyle(.glass)
                 .controlSize(.regular)
                 .disabled(marking)
-                .accessibilityLabel(favorite == true ? "取消收藏\(favoriteLabel)" : "收藏\(favoriteLabel)")
+                .accessibilityLabel(favorite == true ? String(localized: .libraryItemUnfavoriteTitle(favoriteLabel)) : String(localized: .libraryItemFavoriteTitle(favoriteLabel)))
                 .accessibilityIdentifier("item-favorite")
                 Button { Task { await togglePlayed() } } label: {
-                    Label(finished ? "已看完" : "标为已看", systemImage: "checkmark")
+                    Label(finished ? String(localized: .libraryItemWatched) : String(localized: .libraryItemSetWatched), systemImage: "checkmark")
                         .heroActionLabel()
                         .foregroundStyle(finished ? Theme.success : .white.opacity(0.85))
                 }
                 .buttonStyle(.glass)
                 .controlSize(.regular)
                 .disabled(marking)
-                .accessibilityLabel(finished ? "标记为未看" : "标记为已看")
+                .accessibilityLabel(finished ? String(localized: .libraryItemMarkUnwatched) : String(localized: .libraryItemMarkWatched))
                 .accessibilityIdentifier("item-played")
                 }
             }
@@ -843,7 +843,7 @@ struct LibraryItemDetailView: View {
                 .accessibilityIdentifier("item-progress")
             }
             if finished, !resumable, let watched, watched.playCount > 1 {
-                Text("看过 \(watched.playCount) 次").font(.caption).monospacedDigit().foregroundStyle(.white.opacity(0.55))
+                Text(String(localized: .libraryItemPlayCount(watched.playCount))).font(.caption).monospacedDigit().foregroundStyle(.white.opacity(0.55))
             }
         }
     }
@@ -864,12 +864,12 @@ struct LibraryItemDetailView: View {
     private func castRow(_ detail: API.LibraryItemDetailView) -> some View {
         if let meta = detail.localMeta {
             let directors: [CastPerson] = meta.directorCredits.isEmpty
-                ? Array(NSOrderedSet(array: meta.directors)).compactMap { $0 as? String }.map { CastPerson(name: $0, subtitle: "导演", avatar: nil, personId: nil) }
-                : meta.directorCredits.map { CastPerson(name: $0.name, subtitle: "导演", avatar: $0.thumbUrl, personId: $0.tmdbPersonId) }
-            let cast = directors + meta.actors.map { CastPerson(name: $0.name, subtitle: $0.role.map { "饰 \($0)" }, avatar: $0.thumbUrl, personId: $0.tmdbPersonId) }
+                ? Array(NSOrderedSet(array: meta.directors)).compactMap { $0 as? String }.map { CastPerson(name: $0, subtitle: String(localized: .libraryItemDirector), avatar: nil, personId: nil) }
+                : meta.directorCredits.map { CastPerson(name: $0.name, subtitle: String(localized: .libraryItemDirector), avatar: $0.thumbUrl, personId: $0.tmdbPersonId) }
+            let cast = directors + meta.actors.map { CastPerson(name: $0.name, subtitle: $0.role.map { String(localized: .mediaPersonCharacter($0)) }, avatar: $0.thumbUrl, personId: $0.tmdbPersonId) }
             if !cast.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    LibrarySectionHeader(title: "演职员")
+                    LibrarySectionHeader(title: String(localized: .mediaCardsCast))
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: cards.spacing) {
                             ForEach(Array(cast.enumerated()), id: \.offset) { _, person in
@@ -934,14 +934,14 @@ struct LibraryItemDetailView: View {
         let manage = permissions.canManageLibraries && !readOnly
         let inPlace = detail.files.filter { $0.state == "in_place" }
         let duplicateUnits = Dictionary(grouping: inPlace, by: { "\($0.seasonNumber):\($0.episodeNumber)" }).values.filter { $0.count > 1 }.count
-        let duplicateLabel: String? = duplicateUnits == 0 ? nil : detail.kind == "tv" ? "\(duplicateUnits) 集有重复" : "\(inPlace.count) 个版本"
+        let duplicateLabel: String? = duplicateUnits == 0 ? nil : detail.kind == "tv" ? String(localized: .libraryItemDuplicates(duplicateUnits)) : String(localized: .libraryItemVersionCount(inPlace.count))
         let localIds = files.map(\.id).filter(offlineStore.doneFileIds.contains)
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("文件").font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .libraryItemFiles)).font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
                 Text("\(files.count + localIds.count)").font(.caption).monospacedDigit().foregroundStyle(Theme.textFaint)
                 if manage, let duplicateLabel {
-                    Button("\(duplicateLabel) · 处理重复") { router.push(.libraryManage(tab: "duplicates", item: itemId)) }
+                    Button("\(duplicateLabel) · \(String(localized: .libraryItemHandleDuplicates))") { router.push(.libraryManage(tab: "duplicates", item: itemId)) }
                         .font(.caption)
                         .foregroundStyle(Theme.warning)
                 }
@@ -973,7 +973,7 @@ struct LibraryItemDetailView: View {
     /// 本机副本行「改下其他画质」的面板标题
     private func localTitle(_ detail: API.LibraryItemDetailView) -> String {
         guard !isMovie, let selectedEpisode else { return detail.title }
-        return "\(detail.title) 第 \(selectedEpisode.season) 季第 \(selectedEpisode.episode.episodeNumber) 集"
+        return "\(detail.title) \(String(localized: .mediaEpisodeSeasonAndEpisode(selectedEpisode.season, selectedEpisode.episode.episodeNumber)))"
     }
 
     @ViewBuilder
@@ -981,17 +981,17 @@ struct LibraryItemDetailView: View {
         let tmdb = detail.tmdbId ?? 0
         if tmdb > 0 || detail.imdbId != nil || detail.doubanId != nil {
             HStack(spacing: 16) {
-                Text("相关链接").foregroundStyle(Theme.textFaint)
+                Text(String(localized: .libraryItemRelatedLinks)).foregroundStyle(Theme.textFaint)
                 if tmdb > 0 { link("TMDB", "https://www.themoviedb.org/\(detail.kind)/\(tmdb)") }
                 if let imdb = detail.imdbId { link("IMDb", "https://www.imdb.com/title/\(imdb)/") }
                 if let douban = detail.doubanId {
-                    link("豆瓣", "https://movie.douban.com/subject/\(douban)/")
+                    link(String(localized: .libraryItemDouban), "https://movie.douban.com/subject/\(douban)/")
                 }
             }
             .font(.footnote)
             .padding(.horizontal, cards.edge)
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("外部词条")
+            .accessibilityLabel(String(localized: .libraryItemExternalEntry))
         }
     }
 
@@ -1023,18 +1023,18 @@ struct LibraryItemDetailView: View {
         return Menu {
             if isMovie, let unit = active.first {
                 Section {
-                    Button("取消下载", systemImage: "xmark.circle", role: .destructive) {
+                    Button(String(localized: .libraryOfflineCancelDownload), systemImage: "xmark.circle", role: .destructive) {
                         OfflineDownloader.shared.delete(fileId: unit.fileId)
                     }
                 }
             } else if !active.isEmpty {
                 Section {
                     if let activeSelected {
-                        Button("取消下载选中的集", systemImage: "xmark.circle") {
+                        Button(String(localized: .libraryOfflineCancelSelected), systemImage: "xmark.circle") {
                             OfflineDownloader.shared.delete(fileId: activeSelected.fileId)
                         }
                     }
-                    Button("取消全部下载（\(active.count) 集）", systemImage: "xmark.circle", role: .destructive) {
+                    Button(String(localized: .libraryOfflineCancelAll(active.count)), systemImage: "xmark.circle", role: .destructive) {
                         confirmCancelDownloads = true
                     }
                 }
@@ -1045,7 +1045,7 @@ struct LibraryItemDetailView: View {
                 ControlGroup {
                     if canDownload {
                         // 离线下载（docs/design/offline-download.md §8）：剧集在下载面板里选范围；电影直接选画质
-                        Button("下载", systemImage: "arrow.down.circle") {
+                        Button(String(localized: .subscriptionMilestoneDownload), systemImage: "arrow.down.circle") {
                             if isMovie {
                                 downloadingMovie = downloadableFiles.first?.id
                             } else {
@@ -1053,28 +1053,28 @@ struct LibraryItemDetailView: View {
                             }
                         }
                     }
-                    Button("加入合集", systemImage: "rectangle.stack.badge.plus") { sheet = .addToCollection }
+                    Button(String(localized: .libraryCollectionsAddTitle), systemImage: "rectangle.stack.badge.plus") { sheet = .addToCollection }
                     if canShare {
-                        Button("分享", systemImage: "square.and.arrow.up") { Task { await openShare() } }
+                        Button(String(localized: .libraryManageShares), systemImage: "square.and.arrow.up") { Task { await openShare() } }
                     }
                 }
             } else {
-                Button("加入合集", systemImage: "rectangle.stack.badge.plus") { sheet = .addToCollection }
+                Button(String(localized: .libraryCollectionsAddTitle), systemImage: "rectangle.stack.badge.plus") { sheet = .addToCollection }
             }
             if manage {
                 Menu {
                     Section {
-                        if identifiable { Button("修正识别", systemImage: "wand.and.stars") { sheet = .reidentify } }
-                        if scraped { Button("更换图片", systemImage: "photo") { sheet = .artwork } }
+                        if identifiable { Button(String(localized: .libraryItemCorrectIdentification), systemImage: "wand.and.stars") { sheet = .reidentify } }
+                        if scraped { Button(String(localized: .settingsAppearanceChangeImage), systemImage: "photo") { sheet = .artwork } }
                         Button(scraping
-                            ? (scraped ? "正在刷新元数据" : readsNfo ? "正在读取 NFO" : "正在生成封面")
-                            : (scraped ? "刷新元数据" : readsNfo ? "重读 NFO 与封面" : "重新生成封面"),
+                            ? (scraped ? String(localized: .libraryDetailRefreshing) : readsNfo ? String(localized: .libraryItemReadingNfoShort) : String(localized: .libraryItemGeneratingCoverShort))
+                            : (scraped ? String(localized: .libraryStatusRefreshing) : readsNfo ? String(localized: .libraryItemRereadNfoShort) : String(localized: .libraryConfirmRegenerateCover)),
                             systemImage: "arrow.clockwise") {
                             Task { await refreshMetadata(detail) }
                         }
                         .disabled(scraping)
                         if library?.extractChapterImages == true {
-                            Button(detail.chaptersPending ? "正在生成章节" : "重新生成章节", systemImage: "list.bullet.rectangle") {
+                            Button(detail.chaptersPending ? String(localized: .libraryStatusChaptersRunning) : String(localized: .libraryItemRegenerateChapters), systemImage: "list.bullet.rectangle") {
                                 Task { await regenerateChapters() }
                             }
                             .disabled(detail.chaptersPending)
@@ -1082,12 +1082,12 @@ struct LibraryItemDetailView: View {
                     }
                     Section {
                         if canUpgrade { upgradeButton(detail) }
-                        Button("转移到其他库", systemImage: "arrow.left.arrow.right") { sheet = .transfer }
+                        Button(String(localized: .libraryItemTransferShort), systemImage: "arrow.left.arrow.right") { sheet = .transfer }
                     }
                 } label: {
                     // 后台在刷新时右上角「⋯」带个蓝点，这里写明在忙什么
-                    Label("管理", systemImage: "gearshape")
-                    if scraping { Text(scraped ? "正在刷新元数据" : readsNfo ? "正在读取 NFO" : "正在生成封面") }
+                    Label(String(localized: .settingsExtensionManage), systemImage: "gearshape")
+                    if scraping { Text(scraped ? String(localized: .libraryDetailRefreshing) : readsNfo ? String(localized: .libraryItemReadingNfoShort) : String(localized: .libraryItemGeneratingCoverShort)) }
                 }
                 .accessibilityIdentifier("item-manage")
             } else if canUpgrade {
@@ -1096,7 +1096,7 @@ struct LibraryItemDetailView: View {
             }
             if manage {
                 Section {
-                    Button("从媒体库删除", systemImage: "trash", role: .destructive) { sheet = .delete }
+                    Button(String(localized: .libraryItemDeleteFromLibrary), systemImage: "trash", role: .destructive) { sheet = .delete }
                 }
             }
         } label: {
@@ -1105,16 +1105,16 @@ struct LibraryItemDetailView: View {
                     if scraping { Circle().fill(Theme.info).frame(width: 6, height: 6).offset(x: 6, y: -4) }
                 }
         }
-        .accessibilityLabel("更多操作")
+        .accessibilityLabel(String(localized: .libraryDetailMoreActions))
         .accessibilityIdentifier("item-actions")
         // 挂在「⋯」上：iOS 26 的确认框以气泡从触发它的按钮弹出（挂在整页上会浮在页面中间、箭头指向标题）
-        .confirmationDialog("取消这部剧正在进行的下载？", isPresented: $confirmCancelDownloads, titleVisibility: .visible) {
+        .confirmationDialog(String(localized: .libraryOfflineCancelShowTitle), isPresented: $confirmCancelDownloads, titleVisibility: .visible) {
             let active = offlineStore.activeByItem[itemId] ?? []
-            Button("取消 \(active.count) 集的下载", role: .destructive) {
+            Button(String(localized: .libraryOfflineCancelEpisodes(active.count)), role: .destructive) {
                 for unit in active { OfflineDownloader.shared.delete(fileId: unit.fileId) }
             }
         } message: {
-            Text("已下完的集会保留。")
+            Text(String(localized: .libraryOfflineKeepFinished))
         }
     }
 
@@ -1129,7 +1129,9 @@ struct LibraryItemDetailView: View {
                 LibraryShareSheet(
                     target: .item(libraryId: libraryId, mediaItemId: itemId), title: detail.title,
                     kind: detail.kind, year: detail.year, posterUrl: detail.posterUrl,
-                    seasonSummary: isMovie ? nil : "已入库 \(Set(detail.files.map(\.seasonNumber)).count) 季 \(Set(detail.files.map { "\($0.seasonNumber)-\($0.episodeNumber)" }).count) 集",
+                    seasonSummary: isMovie ? nil : String(localized: .libraryItemOwnedParts(
+                        String(localized: .libraryItemSeasonCount(Set(detail.files.map(\.seasonNumber)).count)),
+                        String(localized: .libraryItemEpisodeCount(Set(detail.files.map { "\($0.seasonNumber)-\($0.episodeNumber)" }).count)))),
                     initialShare: initial
                 )
             }
@@ -1259,7 +1261,7 @@ struct LibraryItemDetailView: View {
             favorite = try await api.librarySetMarks(mediaItemId: itemId, favorite: next).isFavorite
         } catch {
             favorite = !next
-            feedback.error(error.localizedDescription.isEmpty ? "收藏失败，请稍后重试" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryCollectionsFavoriteFailed) : error.localizedDescription)
         }
     }
 
@@ -1273,7 +1275,7 @@ struct LibraryItemDetailView: View {
             watched = try await api.playbackResume(mediaItemId: itemId, seasonNumber: unit.season, episodeNumber: unit.episode)
             episodesVersion += 1
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "标记失败，请稍后重试" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryItemMarkFailed) : error.localizedDescription)
         }
     }
 
@@ -1300,18 +1302,18 @@ struct LibraryItemDetailView: View {
     private func refreshMetadata(_ detail: API.LibraryItemDetailView) async {
         let ok: Bool
         if detail.kind == "video" {
-            ok = await feedback.confirm("重新读取《\(detail.title)》的 NFO 与封面？", message: LibraryDetailView.bullets("本次会：", [
-                "重新读取视频旁同名的 NFO 文件，标题、简介、系列等以 NFO 为准",
-                "重新生成封面",
-                "不联网，不会改动你的文件",
-            ]), confirmTitle: "读取")
+            ok = await feedback.confirm(String(localized: .libraryConfirmReadItemTitle(detail.title)), message: LibraryDetailView.bullets(String(localized: .libraryConfirmReadItemIntro), [
+                String(localized: .libraryConfirmReadNfo),
+                String(localized: .libraryConfirmRegenerateCover),
+                String(localized: .libraryConfirmReadItemSafe),
+            ]), confirmTitle: String(localized: .libraryConfirmRead))
         } else {
-            ok = await feedback.confirm("刷新《\(detail.title)》的元数据？", message: LibraryDetailView.bullets("本次刷新会：", [
-                "重新获取这部作品的简介、评分和演职员",
-                "重新下载海报和背景图（你手动锁定的不动）",
-                "同步更新影片文件夹里的海报和 NFO 信息文件",
-                "不会改动你的视频文件",
-            ]), confirmTitle: "刷新")
+            ok = await feedback.confirm(String(localized: .libraryConfirmRefreshItemTitle(detail.title)), message: LibraryDetailView.bullets(String(localized: .libraryConfirmRefreshItemIntro), [
+                String(localized: .libraryConfirmRefreshItemDetails),
+                String(localized: .libraryConfirmRefreshItemArtwork),
+                String(localized: .libraryConfirmSyncSidecars),
+                String(localized: .libraryConfirmItemSafe),
+            ]), confirmTitle: String(localized: .commonRefresh))
         }
         guard ok else { return }
         kicking = true
@@ -1322,14 +1324,14 @@ struct LibraryItemDetailView: View {
             try? await Task.sleep(for: .milliseconds(1500))
             await reload()
         } catch {
-            refreshError = error.localizedDescription.isEmpty ? "元数据刷新失败，请稍后重试" : error.localizedDescription
+            refreshError = error.localizedDescription.isEmpty ? String(localized: .libraryItemRefreshFailed) : error.localizedDescription
         }
     }
 
     private func regenerateChapters() async {
         do {
             _ = try await api.libraryItemsRegenerateChapterImages(libraryId: libraryId, mediaItemId: itemId)
-            feedback.success("已开始重新生成章节")
+            feedback.success(String(localized: .libraryItemChaptersStarted))
             await reload()
         } catch {
             feedback.error(error)
@@ -1337,7 +1339,7 @@ struct LibraryItemDetailView: View {
     }
 
     private func upgradeButton(_ detail: API.LibraryItemDetailView) -> some View {
-        Button("洗版", systemImage: "sparkles") { Task { await upgrade(detail) } }
+        Button(String(localized: .mediaCardsUpgrade), systemImage: "sparkles") { Task { await upgrade(detail) } }
     }
 
     /// 选中的这一集要下的文件（选中的版本在前）；已在本机的不算
@@ -1369,28 +1371,28 @@ struct LibraryItemDetailView: View {
     private func restore(_ file: API.LibraryFileView) async {
         do {
             _ = try await api.libraryItemsRestoreFile(libraryId: libraryId, mediaItemId: itemId, fileId: file.id)
-            feedback.success("「\(file.fileName)」已恢复为在位版本")
+            feedback.success(String(localized: .libraryItemRestored(file.fileName)))
             await reload()
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "恢复失败，请稍后重试" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryItemRestoreFailed) : error.localizedDescription)
         }
     }
 
     private func purge(_ file: API.LibraryFileView) async {
         let seeding = file.purgeAfter == nil
         guard await feedback.confirm(
-            "立即清理「\(file.fileName)」？",
+            String(localized: .libraryItemPurgeTitle(file.fileName)),
             message: seeding
-                ? "该文件留在原位置（原盘目录或没能移入回收站），清理会直接从磁盘删除，此操作不可恢复。若它仍被下载器做种，清理会中断做种任务（PT 站请留意保种要求）。"
-                : "将立即从回收站删除该文件，不再等待保留期，此操作不可恢复。",
-            confirmTitle: "立即清理", destructive: true
+                ? String(localized: .libraryItemPurgeOriginalHint)
+                : String(localized: .libraryItemPurgeTrashHint),
+            confirmTitle: String(localized: .libraryItemPurgeNow), destructive: true
         ) else { return }
         do {
             _ = try await api.libraryItemsPurgeFile(libraryId: libraryId, mediaItemId: itemId, fileId: file.id)
-            feedback.success("「\(file.fileName)」已清理")
+            feedback.success(String(localized: .libraryItemPurged(file.fileName)))
             await reload()
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "清理失败，请稍后重试" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryItemPurgeFailed) : error.localizedDescription)
         }
     }
 }
@@ -1423,7 +1425,7 @@ struct ExpandablePlot: View {
                     withAnimation(.snappy) { expanded.toggle() }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(expanded ? "收起" : "展开全文")
+                        Text(expanded ? String(localized: .commonCollapse) : String(localized: .libraryItemExpandPlot))
                         Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption2)
                     }
                     .font(.subheadline.weight(.medium))
@@ -1498,8 +1500,8 @@ struct SeasonEpisodesSection: View {
     }
 
     private func seasonLabel(_ s: Int) -> String {
-        let name = s == 0 ? "特别篇" : "第 \(s) 季"
-        return ownedSeasons.contains(s) ? name : "\(name) · 未入库"
+        let name = s == 0 ? String(localized: .libraryItemSpecials) : String(localized: .libraryItemSeason(s))
+        return ownedSeasons.contains(s) ? name : String(localized: .libraryItemSeasonNotOwned(name))
     }
 
     var body: some View {
@@ -1510,10 +1512,10 @@ struct SeasonEpisodesSection: View {
         let current = ranges.first { $0.index == range } ?? ranges.first
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Text("分集").font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+                Text(String(localized: .libraryItemEpisodes)).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
                 if detail.seasons.count > 1 {
                     Menu {
-                        Picker("季", selection: Binding(mcGet: { currentSeason }, set: { season = $0 })) {
+                        Picker(String(localized: .searchFiltersSeason), selection: Binding(mcGet: { currentSeason }, set: { season = $0 })) {
                             ForEach(detail.seasons, id: \.self) { Text(seasonLabel($0)).tag($0) }
                         }
                     } label: {
@@ -1534,7 +1536,7 @@ struct SeasonEpisodesSection: View {
                     Spacer(minLength: 0)
                     Button { showsAll = true } label: {
                         HStack(spacing: 2) {
-                            Text("全部 \(data.episodes.count) 集")
+                            Text(String(localized: .libraryItemAllEpisodeCount(data.episodes.count)))
                             Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                         }
                         .font(.subheadline).monospacedDigit().foregroundStyle(Theme.textMuted)
@@ -1544,13 +1546,13 @@ struct SeasonEpisodesSection: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("episode-ranges-all")
                 } else if let data {
-                    Text("在库 \(data.episodes.filter(\.owned).count) / \(data.episodes.count) 集")
+                    Text(String(localized: .libraryItemOwnedEpisodeCount(data.episodes.filter(\.owned).count, data.episodes.count)))
                         .font(.subheadline).monospacedDigit().foregroundStyle(Theme.textFaint)
                 }
             }
             .padding(.horizontal, cards.edge)
             if failed {
-                Text("分集信息加载失败，请稍后重试。").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .libraryItemEpisodesFailed)).font(.subheadline).foregroundStyle(Theme.textMuted)
                     .padding(.horizontal, cards.edge)
             } else if let data {
                 if let current {
@@ -1566,7 +1568,7 @@ struct SeasonEpisodesSection: View {
                         // 一排最多 50 集（分段后一段），不用懒加载：懒加载横排按估算的位置滚，远处的卡常停不准
                         HStack(alignment: .top, spacing: cards.spacing) {
                             if let previous {
-                                RangeEdgeCard(title: "← 上一段", range: previous) { switchRange(to: previous, anchor: anchor) }
+                                RangeEdgeCard(title: String(localized: .libraryItemPreviousRange), range: previous) { switchRange(to: previous, anchor: anchor) }
                                     .accessibilityIdentifier("episode-range-prev")
                             }
                             ForEach(shown, id: \.episodeNumber) { episode in
@@ -1581,7 +1583,7 @@ struct SeasonEpisodesSection: View {
                                 .id(episode.episodeNumber)
                             }
                             if let next {
-                                RangeEdgeCard(title: "下一段 →", range: next) { switchRange(to: next, anchor: anchor) }
+                                RangeEdgeCard(title: String(localized: .libraryItemNextRange), range: next) { switchRange(to: next, anchor: anchor) }
                                     .accessibilityIdentifier("episode-range-next")
                             }
                         }
@@ -1605,7 +1607,7 @@ struct SeasonEpisodesSection: View {
             } else {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("正在读取分集信息…")
+                    Text(String(localized: .libraryItemLoadingEpisodes))
                 }
                 .font(.subheadline).foregroundStyle(Theme.textMuted)
                 .padding(.horizontal, cards.edge).padding(.vertical, 20)
@@ -1687,18 +1689,18 @@ struct SeasonEpisodesSection: View {
         let unit = offlineStore.unit(mediaItemId: detail.mediaItemId, season: season, episode: episode.episodeNumber)
         if let unit {
             if unit.state == .queued || unit.state == .downloading {
-                Button("暂停", systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }
+                Button(String(localized: .playerControlsPause), systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }
             }
             // 排队等服务器转码不是出错：没有「继续下载」可点（到点自己会再去问）
             if unit.state == .paused || (unit.state == .failed && !unit.waitingForTranscode) {
-                Button("继续下载", systemImage: "play") { OfflineDownloader.shared.resume(fileId: unit.fileId) }
+                Button(String(localized: .libraryOfflineResume), systemImage: "play") { OfflineDownloader.shared.resume(fileId: unit.fileId) }
             }
-            Button(unit.state == .done ? "删除下载" : "取消下载", systemImage: "trash", role: .destructive) {
+            Button(unit.state == .done ? String(localized: .libraryOfflineDeleteDownload) : String(localized: .libraryOfflineCancelDownload), systemImage: "trash", role: .destructive) {
                 OfflineDownloader.shared.delete(fileId: unit.fileId)
             }
         } else if permissions.canDownloadVideo, offlineStore.serverSupported, !reachability.isOffline, let file = episode.fileIds.first {
-            Button("下载这一集", systemImage: "arrow.down.circle") {
-                pickFile = PickFile(id: file, title: "\(detail.title) 第 \(season) 季第 \(episode.episodeNumber) 集")
+            Button(String(localized: .libraryOfflineDownloadEpisode), systemImage: "arrow.down.circle") {
+                pickFile = PickFile(id: file, title: "\(detail.title) \(String(localized: .mediaEpisodeSeasonAndEpisode(season, episode.episodeNumber)))")
             }
         }
     }
@@ -1751,7 +1753,7 @@ private struct EpisodeCard: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? .white.opacity(0.85) : .white.opacity(0.08), lineWidth: selected ? 2 : 1))
                     .overlay(alignment: .topLeading) {
                         if resume {
-                            Text("接着看").font(.caption2.weight(.bold)).foregroundStyle(.black)
+                            Text(String(localized: .libraryItemContinue)).font(.caption2.weight(.bold)).foregroundStyle(.black)
                                 .padding(.horizontal, 6).padding(.vertical, 1)
                                 .background(Color.orange, in: .rect(cornerRadius: 5))
                                 .padding(6)
@@ -1762,15 +1764,15 @@ private struct EpisodeCard: View {
                             if download?.playable == true {
                                 HStack(spacing: 2) {
                                     Image(systemName: "arrow.down").font(.system(size: 9, weight: .heavy)).foregroundStyle(Theme.success)
-                                        .accessibilityLabel("已下载")
-                                    Text("已下载").font(.caption2.weight(.semibold)).foregroundStyle(.white)
+                                        .accessibilityLabel(String(localized: .activityBoostDownloaded))
+                                    Text(String(localized: .activityBoostDownloaded)).font(.caption2.weight(.semibold)).foregroundStyle(.white)
                                         .accessibilityHidden(true)
                                 }
                                 .padding(.horizontal, 6).frame(height: 18)
                                 .background(.black.opacity(0.6), in: .capsule)
                             }
                             if !episode.owned {
-                                Text("缺").font(.caption2.weight(.semibold)).foregroundStyle(Theme.warning)
+                                Text(String(localized: .libraryItemMissingBadge)).font(.caption2.weight(.semibold)).foregroundStyle(Theme.warning)
                                     .padding(.horizontal, 5).padding(.vertical, 1)
                                     .background(.black.opacity(0.6), in: .rect(cornerRadius: 4))
                             }
@@ -1783,7 +1785,7 @@ private struct EpisodeCard: View {
                     }
                     .overlay(alignment: .bottomLeading) {
                         if justFinished {
-                            badge("下载完成", tint: Theme.success.opacity(0.9))
+                            badge(String(localized: .activityLifecycleDownloadComplete), tint: Theme.success.opacity(0.9))
                                 .transition(.opacity)
                         }
                     }
@@ -1811,7 +1813,7 @@ private struct EpisodeCard: View {
                             Capsule().fill(Theme.accent2.opacity(0.6)).frame(height: 3).padding(6)
                         }
                     }
-                Text("\(episode.episodeNumber). \(episode.name ?? "第 \(episode.episodeNumber) 集")")
+                Text("\(episode.episodeNumber). \(episode.name ?? String(localized: .libraryItemEpisode(String(episode.episodeNumber))))")
                     .font(.footnote.weight(selected ? .semibold : .regular))
                     .monospacedDigit()
                     .foregroundStyle(selected ? .white : Theme.text)
@@ -1824,7 +1826,7 @@ private struct EpisodeCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityValue(resume ? "接着看" : "")
+        .accessibilityValue(resume ? String(localized: .libraryItemContinue) : "")
         .accessibilityIdentifier("episode-\(episode.episodeNumber)")
         .onChange(of: download?.playable) { old, new in
             guard old == false, new == true else { return }
@@ -1898,7 +1900,7 @@ private struct EpisodeRangeChips: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(on ? .isSelected : [])
-                        .accessibilityValue(resume ? "接着看" : "")
+                        .accessibilityValue(resume ? String(localized: .libraryItemContinue) : "")
                         .accessibilityIdentifier("\(idPrefix)-\(range.index)")
                         .id(range.index)
                     }
@@ -1941,11 +1943,11 @@ private struct EpisodeGridSheet: View {
         let shown = current.map { r in episodes.filter { r.contains($0.episodeNumber) } } ?? episodes
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("全部分集").font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
-                Text("在库 \(episodes.filter(\.owned).count) / \(episodes.count)")
+                Text(String(localized: .libraryItemAllEpisodes)).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+                Text(String(localized: .libraryItemOwnedEpisodeFraction(episodes.filter(\.owned).count, episodes.count)))
                     .font(.footnote).monospacedDigit().foregroundStyle(Theme.textFaint)
                 Spacer(minLength: 0)
-                Button("完成") { dismiss() }
+                Button(String(localized: .commonDone)) { dismiss() }
                     .font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
                     .accessibilityIdentifier("episode-grid-done")
             }
@@ -1989,8 +1991,8 @@ private struct EpisodeGridCell: View {
 
     var body: some View {
         let progress = episode.positionMs > 0 ? episode.progressPercent : nil
-        let states: [String?] = [anchor ? "接着看" : nil, episode.owned ? nil : "缺集", episode.played ? "已看" : nil,
-                                 progress.map { "看到 \($0)%" }]
+        let states: [String?] = [anchor ? String(localized: .libraryItemContinue) : nil, episode.owned ? nil : String(localized: .libraryItemMissingEpisode), episode.played ? String(localized: .libraryItemPlayedTag) : nil,
+                                 progress.map { String(localized: .activityOverviewWatchProgress($0)) }]
         let fill: Color = selected ? .white : !episode.owned ? .clear : episode.played ? .white.opacity(0.03) : .white.opacity(0.06)
         let ink: Color = selected ? .black : !episode.owned ? Theme.textFaint : episode.played ? Theme.textMuted : Theme.text
         Button(action: onSelect) {
@@ -2027,7 +2029,7 @@ private struct EpisodeGridCell: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("第 \(episode.episodeNumber) 集")
+        .accessibilityLabel(String(localized: .libraryItemEpisode(String(episode.episodeNumber))))
         .accessibilityValue(states.compactMap { $0 }.joined(separator: "，"))
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("episode-grid-\(episode.episodeNumber)")
@@ -2068,17 +2070,17 @@ struct LibraryFileRow: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("file-row-\(file.id)")
                 .contextMenu {
-                    Button { UIPasteboard.general.string = file.filePath } label: { Label("拷贝路径", systemImage: "doc.on.doc") }
+                    Button { UIPasteboard.general.string = file.filePath } label: { Label(String(localized: .libraryItemCopyPath), systemImage: "doc.on.doc") }
                 }
-                if file.missing { tag("文件缺失", color: Theme.warning) }
+                if file.missing { tag(String(localized: .libraryItemFileMissing), color: Theme.warning) }
                 if file.state == "trashed" {
-                    tag("待回收", color: Theme.textFaint)
-                    if let onRestore { Button("恢复", action: onRestore).font(.caption.weight(.semibold)) }
-                    if let onPurge { Button("立即清理", action: onPurge).font(.caption.weight(.semibold)).foregroundStyle(Theme.danger) }
+                    tag(String(localized: .libraryItemAwaitingRecycle), color: Theme.textFaint)
+                    if let onRestore { Button(String(localized: .libraryIssuesRestore), action: onRestore).font(.caption.weight(.semibold)) }
+                    if let onPurge { Button(String(localized: .libraryItemPurgeNow), action: onPurge).font(.caption.weight(.semibold)).foregroundStyle(Theme.danger) }
                 } else if let onDelete {
                     Button(action: onDelete) { Image(systemName: "trash").font(.footnote) }
                         .foregroundStyle(Theme.textFaint)
-                        .accessibilityLabel("删除此文件")
+                        .accessibilityLabel(String(localized: .libraryItemDeleteFileLabel))
                 }
             }
             .buttonStyle(.borderless)
@@ -2111,27 +2113,27 @@ struct LibraryFileRow: View {
         let codec = file.videoCodec.map { codecs[$0.lowercased()] ?? $0.uppercased() }
         let frameRate = file.frameRate.flatMap { $0 > 0 ? "\(($0 * 1000).rounded() / 1000) fps".replacingOccurrences(of: ".0 fps", with: " fps") : nil }
         let source: String = {
-            guard let s = file.mediaSource, !s.isEmpty else { return "未识别" }
-            let label = s == "user-lowest" ? "最低档（人工标注）" : s == "Disc" ? "原盘" : s
-            return label + (file.mediaSourceManual && s != "user-lowest" ? "（人工标注）" : "")
+            guard let s = file.mediaSource, !s.isEmpty else { return String(localized: .libraryDetailUnidentified) }
+            let label = s == "user-lowest" ? String(localized: .mediaSourcesLowestManual) : s == "Disc" ? String(localized: .mediaSourcesDisc) : s
+            return label + (file.mediaSourceManual && s != "user-lowest" ? String(localized: .libraryItemUserAnnotated) : "")
         }()
         return [
-            SpecRow(label: "片源", value: source),
-            SpecRow(label: "画面规格", value: picture.isEmpty ? "未能探测（文件不可达或尚未扫描）" : picture),
-            SpecRow(label: "视频编码", value: codec ?? "尚未探测"),
-            SpecRow(label: "色深", value: file.bitDepth.map { "\($0)-bit" } ?? "尚未探测"),
-            SpecRow(label: "帧率", value: frameRate ?? "尚未探测"),
-            SpecRow(label: "色彩空间", value: file.colorSpace ?? "尚未探测"),
-            SpecRow(label: "视频码率", value: file.bitRate.map { String(format: "%.1f Mbps", Double($0) / 1_000_000) } ?? "尚未探测"),
+            SpecRow(label: String(localized: .libraryItemReleaseSource), value: source),
+            SpecRow(label: String(localized: .libraryItemVideoSpec), value: picture.isEmpty ? String(localized: .libraryItemProbeUnavailable) : picture),
+            SpecRow(label: String(localized: .libraryItemVideoCodec), value: codec ?? String(localized: .libraryItemNotProbed)),
+            SpecRow(label: String(localized: .libraryItemBitDepth), value: file.bitDepth.map { "\($0)-bit" } ?? String(localized: .libraryItemNotProbed)),
+            SpecRow(label: String(localized: .libraryItemFrameRate), value: frameRate ?? String(localized: .libraryItemNotProbed)),
+            SpecRow(label: String(localized: .libraryItemColorSpace), value: file.colorSpace ?? String(localized: .libraryItemNotProbed)),
+            SpecRow(label: String(localized: .libraryItemVideoBitrate), value: file.bitRate.map { String(format: "%.1f Mbps", Double($0) / 1_000_000) } ?? String(localized: .libraryItemNotProbed)),
         ]
     }
 
     private var details: some View {
         Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
-            row("保存目录", Self.directory(file.filePath), mono: true)
-            row("入库时间", "\(Formatters.dateTime(file.addedAt)) · \(libraryFromNow(file.addedAt))")
+            row(String(localized: .libraryItemSaveDirectory), Self.directory(file.filePath), mono: true)
+            row(String(localized: .libraryRowsAddedHint), "\(Formatters.dateTime(file.addedAt)) · \(libraryFromNow(file.addedAt))")
             GridRow {
-                Text("来源").foregroundStyle(Theme.textFaint)
+                Text(String(localized: .libraryCollectionsSource)).foregroundStyle(Theme.textFaint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(file.origin.label).foregroundStyle(Theme.text)
                     if let detail = file.origin.detail {
@@ -2140,9 +2142,9 @@ struct LibraryFileRow: View {
                 }
             }
             if let kept = file.keptAt {
-                row("多版本", "你留下的 · \(Formatters.dateTime(kept))（不会再列为重复文件）")
+                row(String(localized: .libraryItemVersions), String(localized: .libraryItemKeptVersion(Formatters.dateTime(kept))))
             }
-            row("文件尺寸", libraryBytes(file.sizeBytes))
+            row(String(localized: .libraryItemFileSize), libraryBytes(file.sizeBytes))
             ForEach(Self.specRows(file), id: \.self) { item in row(item.label, item.value) }
         }
         .font(.footnote)
@@ -2170,13 +2172,13 @@ struct LibraryFileRow: View {
     }
 
     static func purgeCountdown(_ raw: String?) -> String {
-        guard let raw else { return "不自动清理" }
-        guard let date = Formatters.date(raw) else { return "即将自动清理" }
+        guard let raw else { return String(localized: .libraryItemNoAutoPurge) }
+        guard let date = Formatters.date(raw) else { return String(localized: .libraryItemPurgeSoon) }
         let ms = date.timeIntervalSinceNow * 1000
-        if ms <= 0 { return "即将自动清理" }
+        if ms <= 0 { return String(localized: .libraryItemPurgeSoon) }
         let days = Int(ms / 86_400_000), hours = Int(ms.truncatingRemainder(dividingBy: 86_400_000) / 3_600_000)
-        if days > 0 { return "预计 \(days) 天 \(hours) 小时后自动清理" }
-        if hours > 0 { return "预计 \(hours) 小时后自动清理" }
-        return "预计 1 小时内自动清理"
+        if days > 0 { return String(localized: .libraryItemPurgeInDaysHours(days, hours)) }
+        if hours > 0 { return String(localized: .libraryItemPurgeInHours(hours)) }
+        return String(localized: .libraryItemPurgeWithinHour)
     }
 }

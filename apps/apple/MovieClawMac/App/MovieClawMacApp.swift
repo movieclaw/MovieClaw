@@ -22,16 +22,29 @@ struct MovieClawMacApp: App {
 
     var body: some Scene {
         WindowGroup("MovieClaw", id: "main") {
-            MacRootView()
-                .environment(model)
-                .preferredColorScheme(.dark)
+            // GitHub 下载的版本没装进「应用程序」时，先引导安装（MacInstallGate.swift），不进主界面
+            if let problem = MacInstallLocation.problem {
+                MacInstallGateView(problem: problem)
+                    .frame(minWidth: 640, minHeight: 480)
+                    .preferredColorScheme(.dark)
+            } else {
+                MacRootView()
+                    .environment(model)
+                    .preferredColorScheme(.dark)
+            }
         }
         .defaultSize(width: 1320, height: 860)
         .windowResizability(.contentMinSize)
         .commands { MacCommands(model: model) }
 
+        // 设置（⌘,）：目前只有「通用 › 软件更新」
+        Settings {
+            MacSettingsView()
+                .preferredColorScheme(.dark)
+        }
+
         // 关于：版本号与开源组件许可（LGPL 合规必需，不能省）
-        Window("关于 MovieClaw", id: "about") {
+        Window(String(localized: .settingsAboutWindowTitle), id: "about") {
             MacAboutView()
                 .preferredColorScheme(.dark)
         }
@@ -40,7 +53,7 @@ struct MovieClawMacApp: App {
 
         // 添加账号：独立的小窗口（同 Apple Music 的登录窗口），不挂在主窗口上——登录成功那一刻主界面按新账号整棵重建，
         // 与它无关；只有红绿灯、系统半透明的窗口底
-        Window("添加账号", id: MacAddAccountView.windowID) {
+        Window(String(localized: .authLoginAddAccount), id: MacAddAccountView.windowID) {
             MacAddAccountView()
                 .environment(model)
                 .preferredColorScheme(.dark)
@@ -56,6 +69,11 @@ struct MovieClawMacApp: App {
 /// 正在播放时退出会同步补发一次「停止」（PlaybackController 监听 willTerminate），续播点不丢
 final class MacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // GitHub 直接分发版的自动更新（商店版、开发版里什么都不做）
+        MacUpdater.shared.launch()
+    }
 }
 
 /// 按 `AppModel.phase` 切换顶层界面：欢迎（连接、登录、选人）或主界面。

@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.i18n.metadata import localized_html
 from movieclaw_api.services import plugin_web
 from movieclaw_api.services.auth import Principal
 
@@ -57,7 +58,7 @@ def _plugin(request: Request, entry_id: str, principal: Principal) -> plugin_web
     found = plugin_web.find(get_settings(), entry_id)
     kernel = getattr(request.app.state, "kernel", None)
     if found is None or not plugin_web.visible_to(found, principal, kernel):
-        raise NotFoundException("没有这个插件页面")
+        raise NotFoundException(message_key="errors.plugins.pageMissing")
     return found
 
 
@@ -91,8 +92,15 @@ def plugin_web_file(
     if target is None and _is_navigation(request):
         target = plugin_web.resolve_file(found.root, plugin_web.INDEX)
     if target is None:
-        raise NotFoundException("文件不存在")
+        raise NotFoundException(message_key="errors.plugins.fileMissing")
     stat = target.stat()
+    if target.suffix.lower() in {".html", ".htm"}:
+        content = localized_html(target.read_text("utf-8")).encode("utf-8")
+        etag = '"' + hashlib.sha256(content).hexdigest() + '"'
+        headers = {**_FRAME_HEADERS, "ETag": etag}
+        if etag in request.headers.get("if-none-match", ""):
+            return Response(status_code=304, headers=headers)
+        return Response(content, media_type="text/html", headers=headers)
     etag = (
         '"'
         + hashlib.md5(  # noqa: S324 -- 只做缓存校验，不涉及安全

@@ -107,17 +107,17 @@ struct RuleSetEditorSheet: View {
         let min = parseInt(sizeMin), max = parseInt(sizeMax)
         if let min, min > 0 { next.sizeMinMb = min }
         if let max, max > 0 { next.sizeMaxMb = max }
-        if let min, let max, min > 0, max > 0, min > max { return (next, "体积下限不能大于上限") }
+        if let min, let max, min > 0, max > 0, min > max { return (next, String(localized: .subscriptionRulesSizeInvalid)) }
         next.releaseGroupsAllow = parseGroups(groupsAllow)
         next.releaseGroupsBlock = parseGroups(groupsBlock)
         if !upgradeSource.isEmpty {
             if !mediaSources.isEmpty, !mediaSources.contains(upgradeSource) {
-                return (next, "洗版目标片源必须在允许的片源范围内")
+                return (next, String(localized: .subscriptionRulesSourceInvalid))
             }
             next.upgradeSource = upgradeSource
             if !cutoffResolution.isEmpty, cutoffResolution != (resolutions.first ?? "") {
                 if !resolutions.isEmpty, !resolutions.contains(cutoffResolution) {
-                    return (next, "洗版目标分辨率必须在允许的分辨率范围内")
+                    return (next, String(localized: .subscriptionRulesResolutionInvalid))
                 }
                 next.cutoffResolution = cutoffResolution
             }
@@ -140,13 +140,13 @@ struct RuleSetEditorSheet: View {
         let parts = [
             codecFamilies.isEmpty ? "" : RuleSetVocabulary.codecFamilies.map(\.label).filter(codecFamilies.contains).joined(separator: "/"),
             platformsAllow.isEmpty ? "" : platformsAllow.map(RuleSetVocabulary.platformLabel).joined(separator: "/"),
-            platformsBlock.isEmpty ? "" : "排除 " + platformsBlock.map(RuleSetVocabulary.platformLabel).joined(separator: "/"),
+            platformsBlock.isEmpty ? "" : String(localized: .subscriptionRulesExcludeValues(platformsBlock.map(RuleSetVocabulary.platformLabel).joined(separator: "/"))),
             hdrLevels.isEmpty ? "" : RuleSetText.hdrChipText(hdrLevels),
-            hdrBlock.isEmpty ? "" : "排除 " + hdrBlock.joined(separator: "/"),
-            groupsAllow.trimmingCharacters(in: .whitespaces).isEmpty ? "" : "组 " + groupsAllow.trimmingCharacters(in: .whitespaces),
-            groupsBlock.trimmingCharacters(in: .whitespaces).isEmpty ? "" : "排除组 " + groupsBlock.trimmingCharacters(in: .whitespaces),
+            hdrBlock.isEmpty ? "" : String(localized: .subscriptionRulesExcludeValues(hdrBlock.joined(separator: "/"))),
+            groupsAllow.trimmingCharacters(in: .whitespaces).isEmpty ? "" : String(localized: .subscriptionRulesGroupSummary(groupsAllow.trimmingCharacters(in: .whitespaces))),
+            groupsBlock.trimmingCharacters(in: .whitespaces).isEmpty ? "" : String(localized: .subscriptionRulesBlockedGroupsSummary(groupsBlock.trimmingCharacters(in: .whitespaces))),
         ].filter { !$0.isEmpty }
-        return parts.isEmpty ? "未设置" : parts.joined(separator: " · ")
+        return parts.isEmpty ? String(localized: .subscriptionRulesUnset) : parts.joined(separator: " · ")
     }
 
     private var limitSummary: String {
@@ -155,14 +155,15 @@ struct RuleSetEditorSheet: View {
         }
         let min = sizeMin.trimmingCharacters(in: .whitespaces), max = sizeMax.trimmingCharacters(in: .whitespaces)
         let parts = [
-            subLangs.isEmpty ? "" : "字幕 " + labels(RuleSetVocabulary.subtitleLanguages, subLangs),
-            audioLangs.isEmpty ? "" : "音轨 " + labels(RuleSetVocabulary.audioLanguages, audioLangs),
-            freeOnly ? "仅免费" : "",
-            excludeHr ? "排除 H&R" : "",
-            minSeeders.trimmingCharacters(in: .whitespaces).isEmpty ? "" : "做种 ≥ \(minSeeders.trimmingCharacters(in: .whitespaces))",
-            min.isEmpty && max.isEmpty ? "" : "体积 \(min.isEmpty ? "0" : min)–\(max.isEmpty ? "∞" : max)MB",
+            subLangs.isEmpty ? "" : String(localized: .subscriptionRulesSubtitleSummary(labels(RuleSetVocabulary.subtitleLanguages, subLangs))),
+            audioLangs.isEmpty ? "" : String(localized: .subscriptionRulesAudioSummary(labels(RuleSetVocabulary.audioLanguages, audioLangs))),
+            freeOnly ? String(localized: .subscriptionRulesFreeOnly) : "",
+            excludeHr ? String(localized: .subscriptionRulesExcludeHr) : "",
+            minSeeders.trimmingCharacters(in: .whitespaces).isEmpty ? "" : String(localized: .subscriptionRulesSeedersChip(Int(minSeeders.trimmingCharacters(in: .whitespaces)) ?? 0)),
+            min.isEmpty && max.isEmpty ? "" : max.isEmpty ? String(localized: .subscriptionRulesSizeUnbounded(min.isEmpty ? "0" : min))
+                : String(localized: .subscriptionRulesSizeSummary(min.isEmpty ? "0" : min, max)),
         ].filter { !$0.isEmpty }
-        return parts.isEmpty ? "未设置" : parts.joined(separator: " · ")
+        return parts.isEmpty ? String(localized: .subscriptionRulesUnset) : parts.joined(separator: " · ")
     }
 
     // MARK: 视图
@@ -172,10 +173,10 @@ struct RuleSetEditorSheet: View {
         let ladderPreview = UpgradeLadderPreview(draft.spec)
         let draftChips = RuleSetText.summary(draft.spec, withoutUpgrade: ladderPreview != nil)
         SubsSheetScaffold(
-            title: ruleSet == nil ? "新建规则组" : "编辑规则组",
-            subtitle: "所有条件都可以留空 = 不限该维度；条件之间是「且」的关系。",
+            title: ruleSet == nil ? String(localized: .subscriptionRulesCreate) : String(localized: .subscriptionRulesEdit),
+            subtitle: String(localized: .subscriptionRulesEditorHint),
             confirm: SubsSheetConfirm(
-                title: "保存",
+                title: String(localized: .commonSave),
                 enabled: !name.trimmingCharacters(in: .whitespaces).isEmpty,
                 busy: busy,
                 identifier: "ruleset-save"
@@ -187,22 +188,22 @@ struct RuleSetEditorSheet: View {
             }
             if let ruleSet, ruleSet.referenceCount > 0 {
                 Section {
-                    SubsNoticeRow(text: "此组正被 \(ruleSet.referenceCount) 个订阅使用，保存后对它们之后的资源评估立即生效（已下载的内容不受影响）。", tone: .warn)
+                    SubsNoticeRow(text: String(localized: .subscriptionRulesReferencesNotice(ruleSet.referenceCount)), tone: .warn)
                 }
             }
             Section {
-                TextField("如：4K 免费、追剧省流", text: $name)
+                TextField(String(localized: .subscriptionRulesNamePlaceholder), text: $name)
                     .accessibilityIdentifier("ruleset-name")
             } header: {
-                Text("名称")
+                Text(String(localized: .subscriptionRulesName))
             }
 
-            collapsible("适用范围", key: "scope", summary: validScope.summary(routingOptions) ?? "未设置（只能手动选用，或作为默认组兜底）") {
-                Text("订阅的作品符合这里的条件时，自动选用本规则组；多个组都符合时条件更多的优先，都不符合时用默认组。只选「电影」或「剧集」即可让本组成为该类型的默认选择。")
+            collapsible(String(localized: .subscriptionRulesScope), key: "scope", summary: validScope.summary(routingOptions) ?? String(localized: .subscriptionRulesUnsetScope)) {
+                Text(String(localized: .subscriptionRulesScopeHintText))
                     .font(.footnote).foregroundStyle(Theme.textMuted)
-                field("作品类型") {
+                field(String(localized: .subscriptionRulesKind)) {
                     chips {
-                        ForEach([(String?.none, "不限"), ("movie", "电影"), ("tv", "剧集")], id: \.1) { value, label in
+                        ForEach([(String?.none, String(localized: .subscriptionRulesAny)), ("movie", String(localized: .subscriptionFilterMovie)), ("tv", String(localized: .subscriptionFilterTv))], id: \.1) { value, label in
                             SubsToggleChip(label: label, active: scope.kind == value) { scope.kind = value }
                         }
                     }
@@ -210,7 +211,7 @@ struct RuleSetEditorSheet: View {
                 scopeEditor
             }
 
-            fieldSection("分辨率", hint: "点击依次选择，先选的优先（选中顺序 = 下载偏好）；不选 = 不限。限定分辨率后，无法从种子名识别出分辨率的资源也会被排除，可用「手动选种」兜底") {
+            fieldSection(String(localized: .subscriptionSmartResolution), hint: String(localized: .subscriptionRulesResolutionHint)) {
                 chips {
                     ForEach(RuleSetVocabulary.resolutions, id: \.self) { option in
                         let index = resolutions.firstIndex(of: option)
@@ -221,7 +222,7 @@ struct RuleSetEditorSheet: View {
                 }
             }
 
-            fieldSection("片源", hint: "点击依次选择，先选的优先（选中顺序 = 下载偏好）；不选 = 不限。Rip 类 = WEBRip/BDRip，电视录制类 = HDTV/DVD。限定片源后，无法从种子名识别出片源的资源也会被排除，可用「手动选种」兜底") {
+            fieldSection(String(localized: .subscriptionSmartSource), hint: String(localized: .subscriptionRulesSourceHint)) {
                 chips {
                     ForEach(RuleSetVocabulary.mediaSources, id: \.value) { option in
                         let index = mediaSources.firstIndex(of: option.value)
@@ -234,8 +235,8 @@ struct RuleSetEditorSheet: View {
                 }
             }
 
-            collapsible("画质与来源", key: "quality", summary: qualitySummary) {
-                field("视频编码", hint: "按家族选择，等价写法（如 x265 / HEVC）一并计入；不选 = 不限") {
+            collapsible(String(localized: .subscriptionRulesQuality), key: "quality", summary: qualitySummary) {
+                field(String(localized: .subscriptionRulesCodec), hint: String(localized: .subscriptionRulesCodecHint)) {
                     chips {
                         ForEach(RuleSetVocabulary.codecFamilies, id: \.label) { family in
                             SubsToggleChip(label: family.label, active: codecFamilies.contains(family.label)) {
@@ -244,10 +245,10 @@ struct RuleSetEditorSheet: View {
                         }
                     }
                     if !codecExtras.isEmpty {
-                        Text("另有自定义值：\(codecExtras.joined(separator: "、"))（保留）").font(.caption).foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .subscriptionRulesCustomValues(AppFormatting.list(codecExtras)))).font(.caption).foregroundStyle(Theme.textFaint)
                     }
                 }
-                field("流媒体平台", hint: "点一下 = 只要，再点 = 排除，第三下取消。设了「只要」之后，识别不出平台的资源会被排除（与分辨率/编码口径一致）") {
+                field(String(localized: .subscriptionRulesPlatform), hint: String(localized: .subscriptionRulesPlatformHint)) {
                     chips {
                         ForEach(RuleSetVocabulary.platformOptions, id: \.self) { id in
                             SubsTriChip(label: RuleSetVocabulary.platformLabel(id), state: triState(id, allow: platformsAllow, block: platformsBlock)) {
@@ -257,62 +258,67 @@ struct RuleSetEditorSheet: View {
                     }
                     let extras = platformExtras.allow + platformExtras.block
                     if !extras.isEmpty {
-                        Text("另有自定义值：\(extras.map(RuleSetVocabulary.platformLabel).joined(separator: "、"))（保留）").font(.caption).foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .subscriptionRulesCustomValues(AppFormatting.list(extras.map(RuleSetVocabulary.platformLabel))))).font(.caption).foregroundStyle(Theme.textFaint)
                     }
                 }
-                field("HDR", hint: "点一下 = 只要，再点 = 排除，第三下取消。\"SDR\" 指资源没标注任何 HDR 格式；都不选 = 不限") {
+                field("HDR", hint: String(localized: .subscriptionRulesHdrHint)) {
                     chips {
                         ForEach(RuleSetVocabulary.hdrOptions, id: \.self) { value in
                             SubsTriChip(label: value, state: triState(value, allow: hdrLevels, block: hdrBlock)) {
                                 cycle(value, allow: &hdrLevels, block: &hdrBlock)
                             }
                         }
+                        ForEach(RuleSetVocabulary.hdrBlockOnly, id: \.self) { value in
+                            SubsTriChip(label: value, state: hdrBlock.contains(value) ? .exclude : .off) {
+                                toggle(&hdrBlock, value)
+                            }
+                        }
                     }
                 }
-                field("制作组白名单", hint: "只接受这些制作组的资源，逗号或空格分隔（如 FRDS, WiKi）；留空 = 不限") {
-                    textInput("留空不限", text: $groupsAllow)
+                field(String(localized: .subscriptionRulesGroupsAllow), hint: String(localized: .subscriptionRulesGroupsAllowHint)) {
+                    textInput(String(localized: .subscriptionRulesBlankAny), text: $groupsAllow)
                 }
-                field("制作组黑名单", hint: "这些制作组的资源一律不要") {
-                    textInput("留空不启用", text: $groupsBlock)
+                field(String(localized: .subscriptionRulesGroupsBlock), hint: String(localized: .subscriptionRulesGroupsBlockHint)) {
+                    textInput(String(localized: .subscriptionRulesBlankDisabled), text: $groupsBlock)
                 }
             }
 
-            collapsible("下载与限制", key: "limits", summary: limitSummary) {
-                field("字幕语言", hint: "任一命中即通过；按种子标题声明判断——未声明字幕的资源会被排除，不选 = 不限") {
+            collapsible(String(localized: .subscriptionRulesLimits), key: "limits", summary: limitSummary) {
+                field(String(localized: .subscriptionRulesSubtitleLanguage), hint: String(localized: .subscriptionRulesSubtitleHint)) {
                     chips {
                         ForEach(RuleSetVocabulary.subtitleLanguages, id: \.value) { option in
                             SubsToggleChip(label: option.label, active: subLangs.contains(option.value)) { toggle(&subLangs, option.value) }
                         }
                     }
                 }
-                field("音轨语言", hint: "任一命中即通过；按种子标题声明判断——未声明音轨的资源会被排除，不选 = 不限") {
+                field(String(localized: .subscriptionRulesAudioLanguage), hint: String(localized: .subscriptionRulesAudioHint)) {
                     chips {
                         ForEach(RuleSetVocabulary.audioLanguages, id: \.value) { option in
                             SubsToggleChip(label: option.label, active: audioLangs.contains(option.value)) { toggle(&audioLangs, option.value) }
                         }
                     }
                 }
-                SubsToggleRow(title: "只要免费资源", hint: "促销状态未知的按非免费处理", isOn: $freeOnly)
-                SubsToggleRow(title: "排除 H&R 考核种子", hint: "有做种考核要求的资源不下载", isOn: $excludeHr)
+                SubsToggleRow(title: String(localized: .subscriptionRulesFree), hint: String(localized: .subscriptionRulesFreeHint), isOn: $freeOnly)
+                SubsToggleRow(title: String(localized: .subscriptionRulesHr), hint: String(localized: .subscriptionRulesHrHint), isOn: $excludeHr)
                 if excludeHr {
-                    SubsToggleRow(title: "站点未提供 H&R 信息时，保守视作有考核而排除", isOn: $hrStrict)
+                    SubsToggleRow(title: String(localized: .subscriptionRulesHrStrictHint), isOn: $hrStrict)
                 }
-                numberField("做种数下限", text: $minSeeders)
-                numberField("单集体积下限 (MB)", text: $sizeMin)
-                numberField("单集体积上限 (MB)", text: $sizeMax)
-                Text("体积按「每集均摊」评估：整季包用总体积 ÷ 集数比较，整季合集不会被单集上限误杀。")
+                numberField(String(localized: .subscriptionRulesSeeders), text: $minSeeders)
+                numberField(String(localized: .subscriptionRulesMinSize), text: $sizeMin)
+                numberField(String(localized: .subscriptionRulesMaxSize), text: $sizeMax)
+                Text(String(localized: .subscriptionRulesSizeHint))
                     .font(.footnote).foregroundStyle(Theme.textMuted)
             }
 
             upgradeSection
 
             Section {
-                Text(draftChips.isEmpty ? "不限任何条件——身份对得上的资源都接受" : draftChips.joined(separator: " · "))
+                Text(draftChips.isEmpty ? String(localized: .subscriptionRulesNoConditions) : draftChips.joined(separator: " · "))
                     .font(.subheadline).foregroundStyle(Theme.text.opacity(0.85))
                     .accessibilityIdentifier("ruleset-draft-summary")
                 if let ladderPreview { ladderPreviewView(ladderPreview) }
             } header: {
-                Text(ladderPreview != nil ? "先这样筛掉不要的" : "这条规则会这样筛选")
+                Text(ladderPreview != nil ? String(localized: .subscriptionRulesFilterFirst) : String(localized: .subscriptionRulesFilterSummary))
             }
         }
         .interactiveDismissDisabled(busy)
@@ -330,7 +336,7 @@ struct RuleSetEditorSheet: View {
     @ViewBuilder
     private var scopeEditor: some View {
         if let options = routingOptions {
-            field("区域（勾选任一即匹配）") {
+            field(String(localized: .libraryFormMatchRegions)) {
                 let known = Set(options.countryNames.keys)
                 let countries = options.sortedCountries + scope.regions.filter { !known.contains($0) }.map { ($0, $0) }
                 chips {
@@ -339,10 +345,10 @@ struct RuleSetEditorSheet: View {
                     }
                 }
                 chips {
-                    Text("快捷组合").font(.caption).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .libraryFormRegionPresets)).font(.caption).foregroundStyle(Theme.textFaint)
                     let allCodes = Array(options.countryNames.keys)
                     let allOn = allCodes.allSatisfy(scope.regions.contains)
-                    SubsToggleChip(label: allOn ? "清空" : "全选", active: false) {
+                    SubsToggleChip(label: allOn ? String(localized: .commonClear) : String(localized: .commonSelectAll), active: false) {
                         scope.regions = allOn ? [] : Array(Set(scope.regions + allCodes)).sorted()
                     }
                     ForEach(options.regionPresets) { preset in
@@ -357,11 +363,11 @@ struct RuleSetEditorSheet: View {
                     }
                 }
             }
-            field("类型（勾选任一即匹配）") {
+            field(String(localized: .libraryFormMatchGenres)) {
                 let genres = options.genres(for: scope.kind)
                 let allOn = genres.allSatisfy { scope.genres.contains($0.id) }
                 chips {
-                    SubsToggleChip(label: allOn ? "清空" : "全选", active: false) {
+                    SubsToggleChip(label: allOn ? String(localized: .commonClear) : String(localized: .commonSelectAll), active: false) {
                         scope.genres = allOn ? [] : Array(Set(scope.genres + genres.map(\.id)))
                     }
                     ForEach(genres) { genre in
@@ -372,7 +378,7 @@ struct RuleSetEditorSheet: View {
                 }
             }
         } else {
-            Text("正在加载可选项…").font(.subheadline).foregroundStyle(Theme.textFaint)
+            Text(String(localized: .libraryFormLoadingOptions)).font(.subheadline).foregroundStyle(Theme.textFaint)
         }
     }
 
@@ -381,13 +387,13 @@ struct RuleSetEditorSheet: View {
     private var upgradeSection: some View {
         Section {
             chips {
-                SubsToggleChip(label: "不洗版", active: upgradeSource.isEmpty) { upgradeSource = "" }
+                SubsToggleChip(label: String(localized: .subscriptionRulesUpgradeOff), active: upgradeSource.isEmpty) { upgradeSource = "" }
                 ForEach(RuleSetVocabulary.upgradeOptions.filter { mediaSources.isEmpty || mediaSources.contains($0.value) }, id: \.value) { option in
                     SubsToggleChip(label: option.label, active: upgradeSource == option.value) { upgradeSource = option.value }
                 }
             }
             if !upgradeSource.isEmpty {
-                field("目标分辨率", hint: resolutions.isEmpty ? "未限定分辨率时缺省洗到 1080p（避免意外进入 4K 的磁盘占用）" : "缺省跟随上方分辨率偏好的第一位") {
+                field(String(localized: .subscriptionRulesCutoff), hint: resolutions.isEmpty ? String(localized: .subscriptionRulesCutoffUnrestricted) : String(localized: .subscriptionRulesCutoffHint)) {
                     chips {
                         let effective = cutoffResolution.isEmpty ? (resolutions.first ?? "1080p") : cutoffResolution
                         ForEach(resolutions.isEmpty ? RuleSetVocabulary.resolutions : resolutions, id: \.self) { option in
@@ -397,12 +403,12 @@ struct RuleSetEditorSheet: View {
                         }
                     }
                 }
-                SubsToggleRow(title: "洗到新版本后保留旧版本", hint: "多版本共存（收藏家模式）；关闭 = 旧版本进回收站保留 7 天", isOn: $upgradeKeepOld)
+                SubsToggleRow(title: String(localized: .subscriptionRulesKeepOld), hint: String(localized: .subscriptionRulesKeepOldHint), isOn: $upgradeKeepOld)
                 Button {
                     withAnimation(.snappy) { ladderOpen.toggle() }
                 } label: {
                     HStack {
-                        Text("洗版优先级").foregroundStyle(Theme.text)
+                        Text(String(localized: .subscriptionRulesPriority)).foregroundStyle(Theme.text)
                         Spacer()
                         Text(upgradeLadder.filter { !ladderUnconfigured($0) }.map { dim in RuleSetVocabulary.ladderOptions.first { $0.value == dim }?.label ?? dim }.joined(separator: " › "))
                             .font(.footnote).foregroundStyle(Theme.textMuted).lineLimit(1)
@@ -413,7 +419,7 @@ struct RuleSetEditorSheet: View {
                 .buttonStyle(.plain)
                 if ladderOpen {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("点击依次选择").font(.footnote).foregroundStyle(Theme.textMuted)
+                        Text(String(localized: .subscriptionRulesChooseOrder)).font(.footnote).foregroundStyle(Theme.textMuted)
                         chips {
                             ForEach(RuleSetVocabulary.ladderOptions, id: \.value) { dim in
                                 let index = upgradeLadder.firstIndex(of: dim.value)
@@ -421,7 +427,7 @@ struct RuleSetEditorSheet: View {
                                     label: dim.label,
                                     active: index != nil,
                                     order: index != nil && upgradeLadder.count > 1 ? (index ?? 0) + 1 : nil,
-                                    suffix: index != nil && ladderUnconfigured(dim.value) ? "· 未配置" : nil
+                                    suffix: index != nil && ladderUnconfigured(dim.value) ? String(localized: .subscriptionRulesUnconfigured) : nil
                                 ) {
                                     // 最后一维不允许移除：空阶梯与界面口径不一致
                                     if let index {
@@ -432,20 +438,20 @@ struct RuleSetEditorSheet: View {
                                 }
                             }
                         }
-                        Text("按顺序逐维度比较，先分出高低的那一维说了算。每多一维，就多一轮潜在的重复下载——缺省只比分辨率与片源。标「未配置」的维度会被自动跳过；全被跳过时按缺省的「分辨率 › 片源」比。")
+                        Text(String(localized: .subscriptionRulesPriorityHintText))
                             .font(.footnote).foregroundStyle(Theme.textMuted)
                     }
                     .padding(.vertical, 4)
                 }
                 let effective = upgradeLadder.filter { !ladderUnconfigured($0) }
                 if let index = effective.firstIndex(of: "platform"), index < effective.count - 1 {
-                    SubsNoticeRow(text: "很多资源的标题里根本没写平台。把平台排在前面，等于要求「先比平台再比别的」——没写平台的资源就全都分不出高低，洗版会大面积停住。建议把平台放到最后一位。", tone: .warn)
+                    SubsNoticeRow(text: String(localized: .subscriptionRulesPlatformOrderWarning), tone: .warn)
                 }
             }
         } header: {
-            Text("洗版")
+            Text(String(localized: .subscriptionRulesUpgrade))
         } footer: {
-            Text("收齐后继续追更高版本，直到达到目标档位为止。新版本入库后旧版本进回收站保留 7 天，做种中的任务不受影响；不开启 = 下到即止")
+            Text(String(localized: .subscriptionRulesUpgradeHint))
         }
     }
 
@@ -456,26 +462,26 @@ struct RuleSetEditorSheet: View {
                 withAnimation(.snappy) { ladderPreviewOpen.toggle() }
             } label: {
                 HStack {
-                    Text("再一级级洗到 \(Text(preview.target).bold().foregroundStyle(.white))").foregroundStyle(Theme.textMuted).font(.subheadline)
+                    (Text(String(localized: .subscriptionRulesUpgradeStepsLead)) + Text(preview.target).bold().foregroundStyle(.white)).foregroundStyle(Theme.textMuted).font(.subheadline)
                     Spacer()
-                    Text(ladderPreviewOpen ? "收起" : "看会经过哪些档").font(.caption).foregroundStyle(Theme.textFaint)
+                    Text(ladderPreviewOpen ? String(localized: .commonCollapse) : String(localized: .subscriptionRulesShowLadder)).font(.caption).foregroundStyle(Theme.textFaint)
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(Theme.textFaint).rotationEffect(.degrees(ladderPreviewOpen ? 90 : 0))
                 }
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
             if ladderPreviewOpen {
-                Text("按「\(preview.dimensions.joined(separator: " › "))」逐维比较，先分出高低的那一维说了算。").font(.caption).foregroundStyle(Theme.textFaint)
+                Text(String(localized: .subscriptionRulesLadderOrder(preview.dimensions.joined(separator: " › ")))).font(.caption).foregroundStyle(Theme.textFaint)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        Text("终点").font(.caption2.weight(.semibold)).foregroundStyle(.white)
+                        Text(String(localized: .subscriptionRulesTarget)).font(.caption2.weight(.semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 8).padding(.vertical, 2).background(Theme.accent2.opacity(0.25), in: .capsule)
                         Text(preview.target).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                     }
                     // 分段拼好再交给 Text：一整串 + 与 map/?? 混写，Xcode 26 类型推断超时
-                    let ceilingNote: String = preview.ceiling.map { "；比它更高的档（最高 \($0)）同样算达标，也会停" } ?? ""
-                    let keepNote: String = upgradeKeepOld ? "旧版本保留共存。" : "旧版本进回收站保留 7 天。"
-                    Text("到手即停，不再洗版\(ceilingNote)。\(keepNote)")
+                    let stopNote: String = preview.ceiling.map { String(localized: .subscriptionRulesTargetStopHigher($0)) } ?? String(localized: .subscriptionRulesTargetStopPlain)
+                    let keepNote: String = upgradeKeepOld ? String(localized: .subscriptionRulesOldKept) : String(localized: .subscriptionRulesOldRecycled)
+                    Text(AppFormatting.sentences([stopNote, keepNote]))
                         .font(.caption).foregroundStyle(Theme.textFaint)
                 }
                 .padding(10)
@@ -483,9 +489,9 @@ struct RuleSetEditorSheet: View {
                 .background(Theme.accent2.opacity(0.14), in: .rect(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.accent2.opacity(0.45)))
                 if preview.below.isEmpty {
-                    Text("终点已是最低档，不会有过渡版本。").font(.caption).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .subscriptionRulesLowestTarget)).font(.caption).foregroundStyle(Theme.textFaint)
                 } else {
-                    Text("到终点之前，先到手的可能是下面任意一档；之后每遇到更高的一档，就再下一次、换掉旧的：").font(.caption).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .subscriptionRulesBelowHint)).font(.caption).foregroundStyle(Theme.textFaint)
                     ForEach(preview.below, id: \.self) { label in
                         HStack(spacing: 8) {
                             Text("↑").foregroundStyle(Theme.textFaint)
@@ -494,7 +500,7 @@ struct RuleSetEditorSheet: View {
                         .font(.subheadline)
                     }
                     if preview.moreBelow > 0 {
-                        Text("↑ 更低的 \(preview.moreBelow) 档同理").font(.caption).foregroundStyle(Theme.textFaint)
+                        Text("↑ " + String(localized: .subscriptionRulesMoreBelow(preview.moreBelow))).font(.caption).foregroundStyle(Theme.textFaint)
                     }
                 }
             }
@@ -562,7 +568,7 @@ struct RuleSetEditorSheet: View {
     /// 数字行：左标题、右输入（原生设置页的「键 — 值」形态），留空 = 不限
     private func numberField(_ label: String, text: Binding<String>) -> some View {
         LabeledContent(label) {
-            TextField("不限", text: text)
+            TextField(String(localized: .subscriptionRulesAny), text: text)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.trailing)
         }
@@ -642,7 +648,7 @@ struct RuleSetEditorSheet: View {
             onSaved(saved)
             dismiss()
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "保存失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .subscriptionRulesSaveFailed) : error.localizedDescription
             busy = false
         }
     }

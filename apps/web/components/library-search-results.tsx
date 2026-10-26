@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
@@ -45,6 +47,7 @@ export function LibrarySearchResults({
   /** 切到「影视」垂直（空态时的出口：库里没有 → 去找来） */
   onSwitchToMedia?: () => void;
 }) {
+  const t = useTranslations();
   const scrollRef = useScrollRestoration(`search:library:${keyword}`);
   // 银玻璃手机端不重复关键词大标题：结果页顶栏的关键词胶囊已写着（同原生 App）；
   // 页头留空作与垂直选项卡之间的间距
@@ -75,10 +78,10 @@ export function LibrarySearchResults({
       })
       .catch((reason: Error) => {
         if (generation.current === current) {
-          setError(reason.message || "媒体库搜索失败，请稍后重试");
+          setError(reason.message || t("search.library.failed"));
         }
       });
-  }, [keyword]);
+  }, [keyword, t]);
 
   const loadMore = useCallback(() => {
     if (!cursor || loadingMore) return;
@@ -99,13 +102,13 @@ export function LibrarySearchResults({
       })
       .catch((reason: Error) => {
         if (generation.current === current) {
-          setError(reason.message || "媒体库搜索失败，请稍后重试");
+          setError(reason.message || t("search.library.failed"));
         }
       })
       .finally(() => {
         if (generation.current === current) setLoadingMore(false);
       });
-  }, [cursor, keyword, loadingMore]);
+  }, [cursor, keyword, loadingMore, t]);
 
   // 滚到底自动续页：哨兵进入视口（提前 600px）就取下一页
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -143,10 +146,10 @@ export function LibrarySearchResults({
         {(error || empty) && (
           <div className="flex flex-col items-center pt-24 text-center">
             <p className="text-on-image text-body-lg font-semibold text-white">
-              {error ? "媒体库搜索出错" : "媒体库中没有找到相关影片"}
+              {error ? t("search.library.errorTitle") : t("search.library.empty")}
             </p>
             <p className="text-on-image mt-1.5 text-sub text-[rgba(243,245,249,0.7)]">
-              {error ?? "支持片名、别名、拼音首字母和人物姓名；库里还没有的片子，去影视条目里找。"}
+              {error ?? t("search.library.emptyHint")}
             </p>
             {onSwitchToMedia && (
               <button
@@ -154,14 +157,14 @@ export function LibrarySearchResults({
                 onClick={onSwitchToMedia}
                 className="btn-accent mt-5 rounded-full px-4 py-1.5 text-sub font-semibold"
               >
-                搜索影视条目
+                {t("search.library.searchTitles")}
               </button>
             )}
           </div>
         )}
         {!error && people.length > 0 && (
           <section className="mb-6" data-testid="library-search-people">
-            <h2 className="text-on-image mb-3 text-body-lg font-semibold text-white">人物</h2>
+            <h2 className="text-on-image mb-3 text-body-lg font-semibold text-white">{t("search.library.people")}</h2>
             <HScroller className="-mx-1 gap-3 px-1 pb-1">
               {people.map((candidate) => (
                 <PersonChip key={candidate.id} person={candidate} />
@@ -172,7 +175,7 @@ export function LibrarySearchResults({
         {!error && hits !== null && hits.length > 0 && (
           <section data-testid="library-search-items">
             {people.length > 0 && (
-              <h2 className="text-on-image mb-3 text-body-lg font-semibold text-white">影片</h2>
+              <h2 className="text-on-image mb-3 text-body-lg font-semibold text-white">{t("search.library.titles")}</h2>
             )}
             <div className="grid gap-x-4 gap-y-7 pt-1 [grid-template-columns:repeat(auto-fill,minmax(148px,1fr))]">
               {hits.map((hit) => (
@@ -187,7 +190,7 @@ export function LibrarySearchResults({
                   disabled={loadingMore}
                   className="rounded-full bg-white/10 px-4 py-1.5 text-sub text-white backdrop-blur-sm hover:bg-white/15 disabled:opacity-60"
                 >
-                  {loadingMore ? "正在加载…" : "更多结果"}
+                  {loadingMore ? t("search.results.loading") : t("search.library.more")}
                 </button>
               </div>
             )}
@@ -212,6 +215,7 @@ function matchHint(hit: LibrarySearchHit): string | null {
 
 /** 一格结果：海报卡链到库内条目详情，格下标注库存概况与命中原因。 */
 function LibraryResultCell({ hit }: { hit: LibrarySearchHit }) {
+  const t = useTranslations();
   const { item } = hit;
   const visual: PosterVisualItem = {
     id: item.tmdb_id != null ? String(item.tmdb_id) : `local:${item.media_item_id}`,
@@ -227,8 +231,8 @@ function LibraryResultCell({ hit }: { hit: LibrarySearchHit }) {
   if (item.kind === "tv" && item.seasons.length > 0) {
     parts.push(
       item.seasons.length === 1
-        ? `第 ${item.seasons[0]} 季 · ${item.episode_count} 集`
-        : `${item.seasons.length} 季 · ${item.episode_count} 集`,
+        ? t("search.library.seasonSummary", { season: item.seasons[0], count: item.episode_count })
+        : t("search.library.seasonsSummary", { seasons: item.seasons.length, count: item.episode_count }),
     );
   }
   if (item.resolutions.length > 0) parts.push(item.resolutions.join("/"));
@@ -265,6 +269,7 @@ function LibraryResultCell({ hit }: { hit: LibrarySearchHit }) {
  * 与条目详情「演职员」（CastRow）同一个页面。旧服务端不返回 TMDB 影人 id 时不可点。
  */
 function PersonChip({ person }: { person: LibrarySearchPerson }) {
+  const t = useTranslations();
   // tapGuard：人物卡在横滚行里，滑动/刹车手势派发的 click 拦下不跳转（同 CastRow）
   const tapGuard = useTapGuard();
   const body = (
@@ -287,7 +292,7 @@ function PersonChip({ person }: { person: LibrarySearchPerson }) {
       </div>
       <p className="mt-1.5 w-full truncate text-sub font-medium text-white">{person.name}</p>
       <p className="w-full truncate text-caption text-[var(--text-faint)]">
-        库内 {person.item_count} 部
+        {t("search.library.personCount", { count: person.item_count })}
       </p>
     </>
   );
@@ -300,7 +305,7 @@ function PersonChip({ person }: { person: LibrarySearchPerson }) {
     <Link
       href={`/people/${person.tmdb_person_id}` as Route}
       {...tapGuard}
-      aria-label={`查看 ${person.name} 的影人页`}
+      aria-label={t("search.library.personLabel", { name: person.name })}
       className={className}
     >
       {body}

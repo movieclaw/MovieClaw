@@ -1,4 +1,5 @@
 import { request } from "@/lib/http";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import type {
   LibraryGalleryGroup,
   LibraryItem,
@@ -112,6 +113,7 @@ export interface CollectionSeries {
  * 只有管理界面才需要 includeEmpty。
  */
 export function listCollections(params?: {
+  locale?: AppLocale;
   libraryId?: number;
   includeEmpty?: boolean;
   includeHidden?: boolean;
@@ -121,7 +123,7 @@ export function listCollections(params?: {
   if (params?.includeEmpty) query.set("include_empty", "true");
   if (params?.includeHidden) query.set("include_hidden", "true");
   const suffix = query.size > 0 ? `?${query}` : "";
-  return unwrap(request<ApiEnvelope<Collection[]>>(`/collections${suffix}`));
+  return unwrap(request<ApiEnvelope<Collection[]>>(`/collections${suffix}`, params?.locale ? { headers: { "Accept-Language": params.locale } } : undefined));
 }
 
 export function getCollection(id: number): Promise<Collection> {

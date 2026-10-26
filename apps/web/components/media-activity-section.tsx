@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppMessageKey } from "@/lib/i18n/translate";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
@@ -18,7 +21,7 @@ import {
   formatWatched,
   HiddenCountRow,
   PlaybackHistoryList,
-  STATS_PERIODS,
+  statsPeriods,
 } from "@/components/playback-stats-section";
 import { PosterImage } from "@/components/poster-image";
 import { WatchStatsPanel } from "@/components/watch-stats-panel";
@@ -37,7 +40,7 @@ import { loadActivityScope, saveActivityScope } from "@/lib/activity-scope";
 import { deliveryColor, deliveryDetail, deviceLabel } from "@/lib/activity-overview";
 import { formatBytes } from "@/lib/format";
 import { imageUrl } from "@/lib/image-proxy";
-import { WATCH_VIEW_LABELS, type WatchViewName } from "@/lib/task-center";
+import { watchViewLabels, type WatchViewName } from "@/lib/task-center";
 import { useLayout } from "@/lib/ui-prefs";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 
@@ -84,12 +87,16 @@ export function mediaLiveCount(snapshot: MediaActivitySnapshot): number {
  * 多一路 8 秒一次的轻量请求，不值得为它再抽一层 Provider。
  */
 export function useMediaActivity(enabled: boolean): MediaActivityState {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const [snapshot, setSnapshot] = useState<MediaActivitySnapshot>(EMPTY_SNAPSHOT);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   // 惰性初始化读本地记忆：本 hook 只在登录后的客户端渲染，可直接读 localStorage
   const [scope, setScopeState] = useState<MediaActivityScope>(loadActivityScope);
   const pending = useRef(false);
+  const generation = useRef(0);
   const loaded = useRef(false);
   // 切口径时，仍在途的旧口径响应不能盖掉新口径的数据
   const requestScope = useRef(scope);
@@ -97,24 +104,35 @@ export function useMediaActivity(enabled: boolean): MediaActivityState {
   const refresh = useCallback(() => {
     if (!enabled || pending.current) return;
     pending.current = true;
+    const gen = ++generation.current;
     // 首次装载（含从非轮询视图切回）显示读取态，而不是闪一下空态
     if (!loaded.current) setLoading(true);
     const target = requestScope.current;
     void (async () => {
       try {
         const next = await fetchMediaActivity(target);
-        if (requestScope.current !== target) return;
+        if (gen !== generation.current || requestScope.current !== target) return;
         setSnapshot(next);
         setError(null);
         loaded.current = true;
       } catch (caught) {
-        setError((caught as Error).message || "媒体库活动加载失败");
+        if (gen === generation.current) {
+          setError((caught as Error).message || t("activity.watch.loadFailed"));
+        }
       } finally {
-        pending.current = false;
-        setLoading(false);
+        if (gen === generation.current) {
+          pending.current = false;
+          setLoading(false);
+        }
       }
     })();
-  }, [enabled]);
+  }, [enabled, t]);
+
+  useEffect(() => {
+    pending.current = false;
+    refresh();
+    return () => { generation.current += 1; };
+  }, [locale, refresh]);
 
   const setScope = useCallback(
     (next: MediaActivityScope) => {
@@ -193,6 +211,8 @@ export function MediaActivitySummaryNav({
   snapshot: MediaActivitySnapshot;
   onOpen: () => void;
 }) {
+  const t = useTranslations();
+
   // 范围外折叠的会话同样计数：汇总行只报数，不出片名
   const playing = snapshot.sessions.length + snapshot.hidden_session_count;
   const downloading = snapshot.downloads.length + snapshot.hidden_download_count;
@@ -202,8 +222,8 @@ export function MediaActivitySummaryNav({
     snapshot.sessions.reduce((sum, s) => sum + (s.rate_bytes_per_second ?? 0), 0) +
     snapshot.downloads.reduce((sum, d) => sum + d.rate_bytes_per_second, 0);
   const parts: string[] = [];
-  if (playing > 0) parts.push(`正在播放 ${playing}`);
-  if (downloading > 0) parts.push(`正在下载 ${downloading}`);
+  if (playing > 0) parts.push(t("activity.watch.playingCount", { count: playing }));
+  if (downloading > 0) parts.push(t("activity.watch.downloadingCount", { count: downloading }));
   if (totalRate > 0) parts.push(formatRate(totalRate));
   return (
     <button
@@ -218,12 +238,11 @@ export function MediaActivitySummaryNav({
         <span className="relative inline-flex size-2 rounded-full bg-[var(--info)]" />
       </span>
       <span className="min-w-0 flex-1 truncate text-sub text-white/85">
-        <span className="font-semibold">媒体库</span>
+        <span className="font-semibold">{t("activity.watch.library")}</span>
         <span className="tnum ml-2.5 text-white/60">{parts.join(" · ")}</span>
       </span>
       <span className="flex shrink-0 items-center gap-0.5 text-caption font-semibold text-[var(--info)]">
-        查看明细
-        <ChevronRightIcon className="size-3.5" />
+        {t("activity.watch.details")}<ChevronRightIcon className="size-3.5" />
       </span>
     </button>
   );
@@ -237,12 +256,14 @@ function ActivityPoster({
   media: MediaActivityTarget | null;
   className: string;
 }) {
+  const t = useTranslations();
+
   const image = (
     <PosterImage
       src={media?.poster_url ? imageUrl(media.poster_url) : null}
       // 海报位最大 64×96（w-16）
       width={64}
-      alt={media?.title ?? "未知内容"}
+      alt={media?.title ?? t("activity.watch.unknownContent")}
       className={`${className} rounded-lg object-cover ring-1 ring-white/10`}
     />
   );
@@ -257,6 +278,8 @@ function ActivityPoster({
 
 /** 作品标题（含年份 / 季集 / 单集名）；可跳详情时标题可点。 */
 function ActivityTitle({ media }: { media: MediaActivityTarget }) {
+  const t = useTranslations();
+
   const unit = unitLabel(media);
   const href = detailHref(media);
   const text = (
@@ -271,8 +294,7 @@ function ActivityTitle({ media }: { media: MediaActivityTarget }) {
       {!media.browsable && (
         // 角标描边消费 --line-strong：银玻璃 :root 同值（白 0.15）零变化
         <span className="ml-1.5 rounded-md border border-[var(--line-strong)] px-1.5 py-px text-[11px] font-medium text-white/50">
-          仅管理
-        </span>
+          {t("activity.watch.adminOnly")}</span>
       )}
     </>
   );
@@ -322,13 +344,15 @@ function DeviceActionsMenu({
   /** 菜单顶部的说明（银玻璃正在播放行：「为什么是硬件转码」） */
   header?: { title: string; body: string } | null;
 }) {
+  const t = useTranslations();
+
   const items = [
-    ...(onEnd ? [{ id: "end", label: "结束播放", onSelect: () => onEnd(deviceId, label) }] : []),
+    ...(onEnd ? [{ id: "end", label: t("activity.watch.endPlayback"), onSelect: () => onEnd(deviceId, label) }] : []),
     ...(onRevoke
       ? [
           {
             id: "revoke",
-            label: "注销此设备",
+            label: t("activity.watch.revokeDevice"),
             tone: "danger" as const,
             onSelect: () => onRevoke(deviceId, label),
           },
@@ -338,7 +362,7 @@ function DeviceActionsMenu({
   if (items.length === 0) return null;
   return (
     <TaskActionsMenu
-      ariaLabel={`「${label}」的设备操作`}
+      ariaLabel={t("activity.watch.deviceActions", { label })}
       disabled={busy}
       items={items}
       header={header}
@@ -347,12 +371,14 @@ function DeviceActionsMenu({
 }
 
 function StatusBadge({ paused }: { paused: boolean }) {
+  const t = useTranslations();
+
   const tone = paused
     ? { pill: "bg-white/[0.08] text-white/55", dot: "bg-white/40" }
     : { pill: "bg-[var(--ok)]/12 text-[var(--ok)]", dot: "bg-[var(--ok)]" };
   return (
     <span
-      title={paused ? "已暂停" : "播放中"}
+      title={paused ? t("activity.watch.paused") : t("activity.watch.playing")}
       className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-caption font-semibold max-md:bg-transparent max-md:p-0 ${tone.pill}`}
     >
       <span className="relative flex size-1.5 max-md:size-2" aria-hidden="true">
@@ -363,7 +389,7 @@ function StatusBadge({ paused }: { paused: boolean }) {
         )}
         <span className={`relative inline-flex size-1.5 rounded-full max-md:size-2 ${tone.dot}`} />
       </span>
-      <span className="max-md:sr-only">{paused ? "已暂停" : "播放中"}</span>
+      <span className="max-md:sr-only">{paused ? t("activity.watch.paused") : t("activity.watch.playing")}</span>
     </span>
   );
 }
@@ -403,9 +429,12 @@ export function SessionCard({
   busy,
   variant = "card",
 }: SessionCardProps & { variant?: "card" | "row" }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const media = session.media;
   const percent = session.progress_percent;
-  const device = deviceLabel(session.client, session.device_name);
+  const device = deviceLabel(session.client, session.device_name, locale);
   const delivery = session.delivery ?? null;
   const detail = delivery ? deliveryDetail(delivery) : null;
   const tone = delivery ? deliveryColor(delivery) : null;
@@ -425,7 +454,7 @@ export function SessionCard({
             busy={busy}
             header={
               delivery?.reason
-                ? { title: `为什么是${delivery.label}`, body: delivery.reason }
+                ? { title: t("activity.watch.whyDelivery", { label: delivery.label }), body: delivery.reason }
                 : null
             }
           />
@@ -434,7 +463,7 @@ export function SessionCard({
         <div className="tnum flex min-w-0 items-center gap-1.5 whitespace-nowrap text-caption">
           {delivery && tone && (
             <span
-              aria-label={`播放方式：${delivery.label}`}
+              aria-label={t("activity.watch.deliveryAria", { label: delivery.label })}
               className="shrink-0 rounded-full px-1.5 py-px font-semibold"
               style={{ color: tone, backgroundColor: `color-mix(in srgb, ${tone} 16%, transparent)` }}
             >
@@ -447,12 +476,12 @@ export function SessionCard({
             }`}
           >
             {!session.paused && <PlayIcon className="size-2.5" />}
-            {session.paused ? "已暂停" : "播放中"}
+            {session.paused ? t("activity.watch.paused") : t("activity.watch.playing")}
           </span>
           {percent != null && <span className="text-white/55">· {percent}%</span>}
           <span className="ml-auto min-w-0 truncate pl-2">
             {session.play_method !== "local" ? (
-              <span className="text-white/35">网盘直链</span>
+              <span className="text-white/35">{t("activity.watch.cloudLink")}</span>
             ) : session.rate_bytes_per_second != null && session.rate_bytes_per_second > 0 ? (
               <span className="font-medium text-[var(--info)]">
                 ↓ {formatRate(session.rate_bytes_per_second)}
@@ -480,7 +509,7 @@ export function SessionCard({
           <p className="tnum flex items-center justify-between gap-2 text-caption text-white/35">
             <span>{formatPlayClock(position)}</span>
             {duration != null && duration > position && (
-              <span>还剩 {formatWatched(duration - position)}</span>
+              <span>{t("activity.watch.remaining", { duration: formatWatched(duration - position, locale) })}</span>
             )}
           </p>
         )}
@@ -491,6 +520,9 @@ export function SessionCard({
 
 /** 正在播放（Netflix 主题）：原有版式，不随银玻璃改版。 */
 function CinemaSessionCard({ session, onEnd, onRevoke, busy }: SessionCardProps) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const media = session.media;
   const percent = session.progress_percent;
   const specParts = [
@@ -513,7 +545,7 @@ function CinemaSessionCard({ session, onEnd, onRevoke, busy }: SessionCardProps)
                 不给假菜单项 */}
             <DeviceActionsMenu
               deviceId={session.device_id}
-              deviceLabel={deviceLabel(session.client, session.device_name)}
+              deviceLabel={deviceLabel(session.client, session.device_name, locale)}
               onEnd={onEnd}
               onRevoke={session.revocable ? onRevoke : undefined}
               busy={busy}
@@ -523,7 +555,7 @@ function CinemaSessionCard({ session, onEnd, onRevoke, busy }: SessionCardProps)
         <MetaLine
           parts={[
             session.member_name,
-            deviceLabel(session.client, session.device_name),
+            deviceLabel(session.client, session.device_name, locale),
             session.client_version,
           ]}
         />
@@ -535,15 +567,15 @@ function CinemaSessionCard({ session, onEnd, onRevoke, busy }: SessionCardProps)
                   {formatRate(session.rate_bytes_per_second)}
                 </span>
               ) : (
-                <span className="text-white/55">本地直连</span>
+                <span className="text-white/55">{t("activity.watch.localDirect")}</span>
               )}
               {session.bytes_sent != null && session.bytes_sent > 0 && (
-                <span className="tnum">已传输 {formatBytes(session.bytes_sent)}</span>
+                <span className="tnum">{t("activity.watch.transferredSize", { size: formatBytes(session.bytes_sent) })}</span>
               )}
-              {session.connections > 1 && <span>{session.connections} 条连接</span>}
+              {session.connections > 1 && <span>{t("activity.watch.connectionCount", { count: session.connections })}</span>}
             </>
           ) : (
-            <span>网盘直链 · 流量不经过服务器</span>
+            <span>{t("activity.watch.cloudLinkHint")}</span>
           )}
           {/* 规格串在窄屏会折成孤字行，移动端交给详情页 */}
           {specParts.length > 0 && (
@@ -651,6 +683,9 @@ export function DownloadCard({
   /** row：活动总览（银玻璃）分组列表里的一行 */
   variant?: "card" | "row";
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const media = download.media;
   return (
     <ActivityCard percent={download.progress_percent} variant={variant}>
@@ -667,13 +702,13 @@ export function DownloadCard({
           {/* 分区标题已经写明「正在下载」，卡片不再重复一个同义徽标 */}
           <DeviceActionsMenu
             deviceId={download.device_id}
-            deviceLabel={deviceLabel(download.client, download.device_name)}
+            deviceLabel={deviceLabel(download.client, download.device_name, locale)}
             onRevoke={download.revocable ? onRevoke : undefined}
             busy={busy}
           />
         </div>
         <MetaLine
-          parts={[download.member_name, deviceLabel(download.client, download.device_name)]}
+          parts={[download.member_name, deviceLabel(download.client, download.device_name, locale)]}
         />
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-caption text-white/40">
           {download.rate_bytes_per_second > 0 && (
@@ -690,7 +725,7 @@ export function DownloadCard({
               <span className="ml-1.5 font-medium text-white/60">{download.progress_percent}%</span>
             )}
           </span>
-          {download.connections > 1 && <span>{download.connections} 条连接</span>}
+          {download.connections > 1 && <span>{t("activity.watch.connectionCount", { count: download.connections })}</span>}
         </div>
         {media && (
           <OverflowText lines={1} className="mt-auto pt-1 text-caption text-white/30">
@@ -726,9 +761,9 @@ function SectionHeading({
 }
 
 /** 可见范围口径的下拉选项：带一句说明，第一次用的人不必猜「范围」指什么。 */
-const SCOPE_OPTIONS: readonly { value: MediaActivityScope; label: string; hint: string }[] = [
-  { value: "visible", label: "我的浏览范围", hint: "对自己隐藏的库只报个数，不出片名" },
-  { value: "all", label: "全部", hint: "跨成员、跨库，管理视角" },
+const SCOPE_OPTIONS: readonly { value: MediaActivityScope; label: AppMessageKey; hint: AppMessageKey }[] = [
+  { value: "visible", label: "activity.watch.visibleScope", hint: "activity.watch.visibleScopeHint" },
+  { value: "all", label: "activity.watch.allScope", hint: "activity.watch.allScopeHint" },
 ] as const;
 
 /**
@@ -747,11 +782,12 @@ function WatchToolbar({
   liveCount: number;
   children: React.ReactNode;
 }) {
+  const locale = useLocale();
   return (
     <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-white/[0.08] max-md:mt-5">
       {/* 窄屏切片独占一行，筛选条件换到下一行；不然切片会被筛选挤到只剩两个字 */}
       <div className="scroll-thin flex min-w-0 flex-1 gap-1 overflow-x-auto pb-2 max-md:basis-full">
-        {WATCH_VIEW_LABELS.map((item) => (
+        {watchViewLabels(locale).map((item) => (
           <button
             key={item.id}
             type="button"
@@ -797,6 +833,9 @@ export function MediaActivityPanel({
   view: WatchViewName;
   onViewChange: (view: WatchViewName) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const cinema = useLayout() === "cinema";
   const devices = useDeviceActions(refresh);
   const [memberId, setMemberId] = useState<number | null>(null);
@@ -815,18 +854,18 @@ export function MediaActivityPanel({
   }, [enabled, view, members.length]);
   const memberOptions = useMemo(
     () => [
-      { value: -1, label: "全部成员" },
-      { value: 0, label: "超级管理员" },
+      { value: -1, label: t("activity.watch.allMembers") },
+      { value: 0, label: t("activity.watch.admin") },
       ...members.map((m) => ({ value: m.id, label: m.nickname || m.username })),
     ],
-    [members],
+    [members, t],
   );
 
   // 银玻璃用新版正在播放卡（播放方式小标、剩余时长），Netflix 主题保持原版式
   const Session = cinema ? CinemaSessionCard : SessionCard;
 
   const scopeFilter = (
-    <FilterMenu label="范围" value={scope} options={SCOPE_OPTIONS} onChange={setScope} />
+    <FilterMenu label={t("activity.watch.scope")} value={scope} options={SCOPE_OPTIONS.map((option) => ({ ...option, label: t(option.label), hint: t(option.hint) }))} onChange={setScope} />
   );
   const memberLabel =
     memberId == null ? null : (memberOptions.find((o) => o.value === memberId)?.label ?? null);
@@ -835,11 +874,11 @@ export function MediaActivityPanel({
     <div>
       <WatchToolbar view={view} onViewChange={onViewChange} liveCount={liveCount + hiddenLiveCount}>
         {view === "stats" && (
-          <FilterMenu label="周期" value={days} options={STATS_PERIODS} onChange={setDays} />
+          <FilterMenu label={t("activity.watch.period")} value={days} options={statsPeriods(locale)} onChange={setDays} />
         )}
         {view !== "playing" && (
           <FilterMenu
-            label="成员"
+            label={t("activity.watch.member")}
             value={memberId ?? -1}
             options={memberOptions}
             onChange={(value) => setMemberId(value < 0 ? null : value)}
@@ -859,15 +898,14 @@ export function MediaActivityPanel({
           {loading && liveCount === 0 && hiddenLiveCount === 0 ? (
             <div className="flex items-center justify-center gap-2.5 py-16 text-ui text-[var(--text-muted)]">
               <BrandLoader className="size-5" />
-              正在读取媒体库活动…
-            </div>
+              {t("activity.watch.reading")}</div>
           ) : snapshot.sessions.length === 0 && snapshot.hidden_session_count === 0 ? (
             <EmptyState
               icon={<PlayIcon className="size-5" />}
-              title="现在没有人在看"
-              description="设备开始播放后几秒内会出现在这里，网页播放器和 Jellyfin 客户端都算；想看之前谁看了什么，去最近播放。"
+              title={t("activity.watch.noWatching")}
+              description={t("activity.watch.noWatchingHint")}
               actions={
-                <EmptyAction onClick={() => onViewChange("plays")}>查看最近播放</EmptyAction>
+                <EmptyAction onClick={() => onViewChange("plays")}>{t("activity.watch.recentPlays")}</EmptyAction>
               }
             />
           ) : (
@@ -885,7 +923,7 @@ export function MediaActivityPanel({
                 <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02]">
                   <HiddenCountRow
                     count={snapshot.hidden_session_count}
-                    noun="台设备在播放的内容"
+                    kind="sessions"
                     onShowAll={showAll}
                   />
                 </div>
@@ -897,10 +935,10 @@ export function MediaActivityPanel({
               计数也会把不是播放的东西算进去。下载相对少见，因此「正在下载」
               只在真有下载时出现，常态下本片仍只有一组卡片。 */}
           {(snapshot.downloads.length > 0 || snapshot.hidden_download_count > 0) && (
-            <section className="mt-7" aria-label="正在下载">
+            <section className="mt-7" aria-label={t("activity.watch.downloading")}>
               <SectionHeading
                 icon={<DownloadIcon className="size-4 text-[var(--info)]" />}
-                title="正在下载"
+                title={t("activity.watch.downloading")}
                 count={snapshot.downloads.length + snapshot.hidden_download_count}
               />
               <div className="space-y-2.5">
@@ -916,7 +954,7 @@ export function MediaActivityPanel({
                   <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02]">
                     <HiddenCountRow
                       count={snapshot.hidden_download_count}
-                      noun="条下载"
+                      kind="downloads"
                       onShowAll={showAll}
                     />
                   </div>
@@ -968,6 +1006,8 @@ export function sessionKey(session: ActivePlaybackSession): string {
  * 返回请求函数与要挂进页面的确认框节点；写操作成功后调用 `refresh` 立即校准快照。
  */
 export function useDeviceActions(refresh: () => void) {
+  const t = useTranslations();
+
   const toast = useToast();
   const [pendingRevoke, setPendingRevoke] = useState<RevokeTarget | null>(null);
   const [pendingEnd, setPendingEnd] = useState<RevokeTarget | null>(null);
@@ -1009,7 +1049,7 @@ export function useDeviceActions(refresh: () => void) {
             if (revoking == null) setPendingEnd(null);
           }}
           onConfirm={() =>
-            void confirm(pendingEnd, endDevicePlayback, () => setPendingEnd(null), "结束播放失败")
+            void confirm(pendingEnd, endDevicePlayback, () => setPendingEnd(null), t("activity.watch.endFailed"))
           }
         />
       )}
@@ -1025,7 +1065,7 @@ export function useDeviceActions(refresh: () => void) {
               pendingRevoke,
               revokePlaybackDevice,
               () => setPendingRevoke(null),
-              "注销设备失败",
+              t("activity.watch.revokeFailed"),
             )
           }
         />
@@ -1048,14 +1088,14 @@ function EndPlaybackDialog({
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const t = useTranslations();
+
   return (
-    <Modal open onClose={busy ? () => {} : onClose} label="结束播放" topmost>
+    <Modal open onClose={busy ? () => {} : onClose} label={t("activity.watch.endPlayback")} topmost>
       <div className="p-6 max-md:p-5">
-        <h2 className="text-title-sm font-bold text-white">结束「{target.label}」本次播放？</h2>
+        <h2 className="text-title-sm font-bold text-white">{t("activity.watch.endTitle", { label: target.label })}</h2>
         <p className="mt-2 text-sub leading-6 text-[var(--text-muted)]">
-          这台设备正在进行的播放会立刻中断，一分钟内不能续播；登录凭据与观看进度都不受影响，
-          之后重新点播放即可继续。
-        </p>
+          {t("activity.watch.endHint")}</p>
         <div className="mt-5 flex justify-end gap-2.5">
           <button
             type="button"
@@ -1063,15 +1103,14 @@ function EndPlaybackDialog({
             disabled={busy}
             className="rounded-lg border border-white/10 bg-white/[0.06] px-4 py-2 text-ui text-white/80 transition hover:bg-white/[0.1] disabled:opacity-40"
           >
-            取消
-          </button>
+            {t("common.cancel")}</button>
           <button
             type="button"
             onClick={onConfirm}
             disabled={busy}
             className="rounded-lg bg-white/15 px-4 py-2 text-ui font-medium text-white transition hover:bg-white/25 disabled:opacity-40"
           >
-            {busy ? "正在结束…" : "结束播放"}
+            {busy ? t("activity.watch.ending") : t("activity.watch.endPlayback")}
           </button>
         </div>
       </div>
@@ -1096,17 +1135,17 @@ function RevokeDeviceDialog({
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const t = useTranslations();
+
   return (
-    <Modal open onClose={busy ? () => {} : onClose} label="注销设备" topmost>
+    <Modal open onClose={busy ? () => {} : onClose} label={t("activity.watch.revoke")} topmost>
       <div className="p-6 max-md:p-5">
-        <h2 className="text-title-sm font-bold text-white">注销这台设备？</h2>
+        <h2 className="text-title-sm font-bold text-white">{t("activity.watch.revokeTitle")}</h2>
         <p className="mt-2 text-sub leading-6 text-[var(--text-muted)]">
-          「{target.label}」的登录凭据会立刻失效，正在进行的播放与下载一并停止，
-          该设备下次使用需要重新登录。
+          {t("activity.watch.revokeHint", { label: target.label })}
         </p>
         <p className="mt-3 text-caption leading-5 text-white/45">
-          已看进度、收藏这些观看记录按账号保存，不会因为注销设备而丢失。
-        </p>
+          {t("activity.watch.revokeProgressHint")}</p>
         <div className="mt-5 flex justify-end gap-2.5">
           <button
             type="button"
@@ -1114,15 +1153,14 @@ function RevokeDeviceDialog({
             disabled={busy}
             className="rounded-lg border border-white/10 bg-white/[0.06] px-4 py-2 text-ui text-white/80 transition hover:bg-white/[0.1] disabled:opacity-40"
           >
-            取消
-          </button>
+            {t("common.cancel")}</button>
           <button
             type="button"
             onClick={onConfirm}
             disabled={busy}
             className="rounded-lg bg-red-500/85 px-4 py-2 text-ui font-medium text-white transition hover:bg-red-500 disabled:opacity-40"
           >
-            {busy ? "正在注销…" : "注销设备"}
+            {busy ? t("activity.watch.revoking") : t("activity.watch.revoke")}
           </button>
         </div>
       </div>

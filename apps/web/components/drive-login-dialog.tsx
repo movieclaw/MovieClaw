@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 /**
  * 「添加网盘账号」弹窗（docs/design/cloud-storage.md §2、§11.5、§11.7）。
  *
@@ -63,18 +65,19 @@ export interface DriveLoginDialogProps {
 }
 
 export function DriveLoginDialog({ backend, relogin, onClose, onDone }: DriveLoginDialogProps) {
+  const t = useTranslations();
   const form = backend.login.form ?? null;
   const tabs: { id: Tab; label: string }[] = [
-    ...(backend.login.scan ? [{ id: "scan" as const, label: "扫码登录" }] : []),
-    ...(form ? [{ id: "form" as const, label: "填写凭据" }] : []),
-    ...(backend.login.cookie ? [{ id: "extension" as const, label: "用浏览器扩展" }] : []),
+    ...(backend.login.scan ? [{ id: "scan" as const, label: t("settings.drives.scanLogin") }] : []),
+    ...(form ? [{ id: "form" as const, label: t("settings.drives.formLogin") }] : []),
+    ...(backend.login.cookie ? [{ id: "extension" as const, label: t("settings.drives.extensionLogin") }] : []),
   ];
   // 填表登录的账号重新登录时不该一进来就发起扫码
   const preferred = relogin ? METHOD_TAB[relogin.login_method] : undefined;
   const [tab, setTab] = useState<Tab>(
     tabs.find((t) => t.id === preferred)?.id ?? tabs[0]?.id ?? "scan",
   );
-  const title = relogin ? `重新登录「${relogin.name}」` : `添加 ${backend.title} 账号`;
+  const title = relogin ? t("settings.drives.reloginTitle", { name: relogin.name }) : t("settings.drives.addTitle", { name: backend.title });
 
   return (
     <Modal open onClose={onClose} label={title}>
@@ -99,7 +102,7 @@ export function DriveLoginDialog({ backend, relogin, onClose, onDone }: DriveLog
         </div>
         <div className="mt-6 flex justify-end">
           <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-            关闭
+            {t("settings.drives.close")}
           </button>
         </div>
       </div>
@@ -118,6 +121,7 @@ function ScanBody({
   relogin?: number;
   onDone: (account: DriveAccount, created: boolean) => void;
 }) {
+  const t = useTranslations();
   const defaults = useMemo(
     () => Object.fromEntries(backend.login.options.map((o) => [o.key, o.default])),
     [backend.login.options],
@@ -210,7 +214,7 @@ function ScanBody({
               {option.choices.map((c) => (
                 <option key={c.value} value={c.value}>
                   {c.label}
-                  {c.value === option.default ? "（推荐）" : ""}
+                  {c.value === option.default ? t("settings.drives.recommended") : ""}
                 </option>
               ))}
             </select>
@@ -235,7 +239,7 @@ function ScanBody({
             <div className="size-[200px] animate-pulse rounded-2xl bg-white/[0.06]" />
           ) : (
             <button type="button" onClick={() => void begin(options)} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
-              重试
+              {t("settings.drives.retry")}
             </button>
           )
         ) : (
@@ -243,15 +247,15 @@ function ScanBody({
             {!failed && login.qr_image && (
               <div className="rounded-2xl bg-white p-3">
                 {/* 服务端渲染的 SVG data URL，用原生 img 展示内联数据 */}
-                <img src={login.qr_image} alt={`${backend.title}登录二维码`} className="size-44" />
+                <img src={login.qr_image} alt={t("settings.drives.qrImage", { name: backend.title })} className="size-44" />
               </div>
             )}
             <div>
               <p className="text-body font-medium text-[var(--text)]">
-                {failed ? "登录未完成" : login.status === "scanned" ? "已扫描" : `用 ${backend.title} App 扫码`}
+                {failed ? t("settings.drives.loginIncomplete") : login.status === "scanned" ? t("settings.drives.scanned") : t("settings.drives.scanWithApp", { name: backend.title })}
               </p>
               <p className="mt-1 text-sub text-[var(--text-muted)]">
-                {login.message || (login.status === "pending" ? "扫码后在手机上确认登录" : "")}
+                {login.message || (login.status === "pending" ? t("settings.drives.confirmOnPhone") : "")}
               </p>
             </div>
             {failed && (
@@ -261,7 +265,7 @@ function ScanBody({
                 onClick={() => void begin(options)}
                 className={SETTINGS_PRIMARY_BUTTON_CLASS}
               >
-                重新扫码
+                {t("settings.drives.rescan")}
               </button>
             )}
           </>
@@ -282,6 +286,7 @@ function ExtensionBody({
   relogin?: number;
   onDone: (account: DriveAccount, created: boolean) => void;
 }) {
+  const t = useTranslations();
   const domain = backend.login.cookie_domains[0] ?? "";
   const [paste, setPaste] = useState(false);
   const [cookie, setCookie] = useState("");
@@ -328,28 +333,23 @@ function ExtensionBody({
     <div className="space-y-4 text-sub leading-6 text-[var(--text-muted)]">
       <ol className="list-decimal space-y-1 pl-5">
         <li>
-          在这台电脑的浏览器里打开 <span className="text-[var(--text)]">{domain}</span> 并登录；
+          {t.rich("settings.drives.extensionStepOne", { domain: domain, domainTag: (chunks) => <span className="text-[var(--text)]">{chunks}</span> })}
         </li>
-        <li>点工具栏上的 MovieClaw 扩展图标 →「同步当前站点」；</li>
-        <li>回到这里，账号会自动出现。</li>
+        <li>{t("settings.drives.extensionStepTwo")}</li>
+        <li>{t("settings.drives.extensionStepThree")}</li>
       </ol>
       <div className="rounded-xl border border-[var(--warn)]/30 bg-[var(--warn)]/[0.07] px-4 py-3 text-caption leading-5">
-        这种方式用的是<b className="text-[var(--text)]">网页端登录</b>
-        ，与浏览器共用：在别的电脑上登录网页版会让它失效（开着扩展的自动同步时，回到这台浏览器会自动恢复）。想更稳定请用扫码。
+        {t.rich("settings.drives.cookieWarning", { strong: (chunks) => <b className="text-[var(--text)]">{chunks}</b> })}
       </div>
       <p className="text-caption text-[var(--text-faint)]">
-        还没装扩展？在
-        <Link href={"/settings/sites" as Route} className={`mx-1 ${LINK_CLASS}`}>
-          设置 → 资源站点
-        </Link>
-        下载。
+        {t.rich("settings.drives.installExtension", { sites: (chunks) => <Link href={"/settings/sites" as Route} className={`mx-1 ${LINK_CLASS}`}>{chunks}</Link> })}
         {!paste && (
           <button
             type="button"
             onClick={() => setPaste(true)}
             className="ml-2 underline underline-offset-4 hover:text-[var(--text)]"
           >
-            扩展用不了？粘贴 Cookie
+            {t("settings.drives.pasteCookie")}
           </button>
         )}
       </p>
@@ -359,7 +359,7 @@ function ExtensionBody({
             value={cookie}
             onChange={(e) => setCookie(e.target.value)}
             rows={3}
-            placeholder="整页 Cookie：name=value; name2=value2"
+            placeholder={t("settings.drives.cookiePlaceholder")}
             className={`${SETTINGS_INPUT_CLASS} w-full font-mono text-caption`}
           />
           {error && <p className="text-caption text-[var(--danger)]">{error}</p>}
@@ -369,7 +369,7 @@ function ExtensionBody({
             onClick={() => void submit()}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {busy ? "校验中…" : "登录"}
+            {busy ? t("settings.drives.checking") : t("settings.drives.signIn")}
           </button>
         </div>
       )}
@@ -390,6 +390,7 @@ function FormBody({
   relogin?: number;
   onDone: (account: DriveAccount, created: boolean) => void;
 }) {
+  const t = useTranslations();
   // 敏感字段不带默认值（服务端也不给），其余字段用插件声明的默认值
   const [values, setValues] = useState<Record<string, unknown>>(() =>
     Object.fromEntries(
@@ -426,7 +427,7 @@ function FormBody({
   if (unknown) {
     return (
       <p className="text-sub text-[var(--text-muted)]">
-        这个网盘的登录表单有网页还不认识的字段（{unknown}），刷新页面后再试。
+        {t("settings.drives.unsupportedForm", { field: unknown })}
       </p>
     );
   }
@@ -446,11 +447,11 @@ function FormBody({
         onChange={(name, value) => setValues((prev) => ({ ...prev, [name]: value }))}
       />
       <p className="text-caption leading-5 text-[var(--text-faint)]">
-        提交后会用这组凭据登录一次 {backend.title} 来确认有效；密钥加密保存，之后不再显示。
+        {t("settings.drives.verifyCredentialsHint", { name: backend.title })}
       </p>
       {error && <p className="text-caption text-[var(--danger)]">{error}</p>}
       <button type="submit" disabled={busy} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
-        {busy ? "验证中…" : "验证并登录"}
+        {busy ? t("settings.drives.verifying") : t("settings.drives.verifyAndSignIn")}
       </button>
     </form>
   );

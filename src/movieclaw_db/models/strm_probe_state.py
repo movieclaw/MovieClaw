@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, ForeignKey, Integer
+from sqlalchemy import JSON, Column, ForeignKey, Integer
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -34,6 +34,11 @@ class StrmProbeState(TimestampMixin, table=True):
     )
     failures: int = Field(default=0, description="连续失败次数；成功清零")
     last_error: str | None = Field(default=None, description="最近一次失败的原因（给人看）")
+    last_error_ref: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="失败原因的文案引用（按读者语言渲染）；NULL=旧记录或解析器原话",
+    )
     last_attempt_at: datetime | None = Field(default=None, description="最近一次探测时间")
     next_retry_at: datetime | None = Field(
         default=None, index=True, description="失败退避：这之前后台预探不再探它；成功为空"

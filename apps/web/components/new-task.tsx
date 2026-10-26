@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useEffect, useState } from "react";
 
 import type { Route } from "next";
@@ -31,6 +33,7 @@ import { useIsMobile } from "@/lib/use-media-query";
 /** ``flat``：撰写台用纯色内嵌卡片而不是 WebGL 液态玻璃（会话页形态下恒为 flat：
  *  沉浸页是纯色底，WebGL 玻璃只会折射传给它的那张静态壁纸，与周围对不上）。 */
 export function NewTask({ flat = false }: { flat?: boolean } = {}) {
+  const t = useTranslations();
   const router = useRouter();
   const { start } = useAgentConversations();
   const [input, setInput] = useState("");
@@ -43,8 +46,8 @@ export function NewTask({ flat = false }: { flat?: boolean } = {}) {
   const chrome = usePageChrome();
   useEffect(() => {
     if (!chrome || !chatPage) return;
-    return chrome.setTopBarTitle("新会话", { backHref: "/my" as Route, hideSearch: true });
-  }, [chrome, chatPage]);
+    return chrome.setTopBarTitle(t("nav.main.new"), { backHref: "/my" as Route, hideSearch: true });
+  }, [chrome, chatPage, t]);
   // 新会话没有可沿用的历史：以本浏览器记住的上次选择为起点（null 即「默认」），
   // 用户一改就记下、并显式随消息提交。首帧按默认渲染、挂载后再读记忆，避免
   // 服务端渲染与浏览器首帧不一致
@@ -116,12 +119,12 @@ export function NewTask({ flat = false }: { flat?: boolean } = {}) {
         busy={creating}
         companion={error ? "failed" : creating ? "working" : "idle"}
         disabled={locked}
-        placeholder={locked ? "请先接入 AI 模型，再开始对话" : undefined}
+        placeholder={locked ? t("home.newSession.configureModel") : undefined}
       />
       {locked && <LlmSetupNotice />}
       {error && (
         <p className="notice-surface mt-3 rounded-xl border border-[#ff6b6b]/35 px-3.5 py-2.5 text-ui leading-5 text-[#ff6b6b]">
-          创建会话失败：{error}
+          {t("home.newSession.createFailed", { reason: error })}
         </p>
       )}
     </>

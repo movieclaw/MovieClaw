@@ -77,12 +77,12 @@ struct MacWelcomeCard<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let onBack {
                 MacDialogFooter {
-                    Button("返回", action: onBack)
+                    Button(String(localized: .commonBack), action: onBack)
                         .keyboardShortcut(.cancelAction)
                         .accessibilityIdentifier("mac-welcome-back")
                     Spacer(minLength: 0)
                     if let cancel {
-                        Button("取消", action: cancel)
+                        Button(String(localized: .commonCancel), action: cancel)
                     }
                 }
             }
@@ -98,14 +98,14 @@ struct MacWelcomeCard<Content: View>: View {
             VStack(alignment: .leading, spacing: 8) {
                 if let onBack {
                     Button(action: onBack) {
-                        Label("返回", systemImage: "chevron.left")
+                        Label(String(localized: .commonBack), systemImage: "chevron.left")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Theme.textMuted)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.cancelAction)
-                    .help("返回上一步（Esc）")
+                    .help(String(localized: .authServerBackHint))
                     .padding(.bottom, 4)
                     .accessibilityIdentifier("mac-welcome-back")
                 }
@@ -317,12 +317,12 @@ struct MacServerPicker: View {
     @FocusState private var addressFocused: Bool
 
     var body: some View {
-        MacWelcomeCard(title: "连接服务器",
-                       subtitle: "服务器地址就是在浏览器里打开 MovieClaw 时地址栏里的那一串。",
+        MacWelcomeCard(title: String(localized: .authServerConnect),
+                       subtitle: String(localized: .authServerAddressHint),
                        onBack: onBack) {
             VStack(alignment: .leading, spacing: 4) {
                 if let found = foundServer {
-                    MacWelcomeRow(title: found.name, subtitle: "局域网 · \(found.address.hostLabel)", action: { onPick(found.address) }) {
+                    MacWelcomeRow(title: found.name, subtitle: String(localized: .authServerLocalAddress(found.address.hostLabel)), action: { onPick(found.address) }) {
                         rowIcon("wifi")
                     }
                     .accessibilityIdentifier("mac-server-found")
@@ -343,11 +343,11 @@ struct MacServerPicker: View {
             .macWelcomeInset()
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("或者手动输入地址")
+                Text(String(localized: .authServerOrEnter))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.textMuted)
                 HStack(spacing: 10) {
-                    TextField("服务器地址", text: $manual, prompt: Text(verbatim: "例如 http://192.168.0.100:3000"))
+                    TextField(String(localized: .authInputServerAddress), text: $manual, prompt: Text(verbatim: String(localized: .authInputServerExample)))
                         .textFieldStyle(.roundedBorder)
                         .controlSize(.large)
                         .textContentType(.URL)
@@ -356,7 +356,7 @@ struct MacServerPicker: View {
                         .onSubmit(submitManual)
                         .accessibilityIdentifier("mac-server-address")
                     Button(action: submitManual) {
-                        Text("连接").frame(minWidth: 56)
+                        Text(String(localized: .authServerConnectAction)).frame(minWidth: 56)
                     }
                     .macWelcomePrimary()
                     .fixedSize()
@@ -387,9 +387,9 @@ struct MacServerPicker: View {
     /// 「登录过 · 小明、小红」
     private static func accountsLine(_ server: SavedServer) -> String {
         let names = server.accounts.map(\.nickname)
-        guard !names.isEmpty else { return "登录过" }
+        guard !names.isEmpty else { return String(localized: .authAccountsUsed) }
         let shown = names.prefix(3).joined(separator: "、")
-        return "登录过 · " + (names.count > 3 ? "\(shown) 等 \(names.count) 个账号" : shown)
+        return names.count > 3 ? String(localized: .authAccountsUsedMore(shown, names.count)) : String(localized: .authAccountsUsedNamed(shown))
     }
 
     private func rowIcon(_ symbol: String) -> some View {
@@ -406,7 +406,7 @@ struct MacServerPicker: View {
         case .searching:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("正在局域网里寻找 MovieClaw…")
+                Text(String(localized: .authServerSearching))
             }
             .font(.system(size: 12))
             .foregroundStyle(Theme.textMuted)
@@ -415,10 +415,10 @@ struct MacServerPicker: View {
         case .notFound:
             // 自动发现靠服务端监听 UDP 7359：关了「局域网发现」、或 Docker 没映射这个端口都找不到
             VStack(alignment: .leading, spacing: 4) {
-                Text("没在局域网里找到服务器。可能不在同一网络，或 Docker 部署没有映射 UDP 7359，请在下面手动填写地址。")
+                Text(String(localized: .authServerNotFoundMac))
                     .foregroundStyle(Theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("重新查找") { discoveryRun += 1 }
+                Button(String(localized: .authServerSearchAgain)) { discoveryRun += 1 }
                     .buttonStyle(.link)
                     .accessibilityIdentifier("mac-server-rediscover")
             }
@@ -473,8 +473,8 @@ struct MacUnreachableCard: View {
     @State private var retrying = false
 
     var body: some View {
-        MacWelcomeCard(title: "连不上服务器",
-                       subtitle: "登录状态还在。服务器恢复后点「重试」即可进入，不用重新输入密码。") {
+        MacWelcomeCard(title: String(localized: .authServerUnreachable),
+                       subtitle: String(localized: .authServerRetryHint)) {
             VStack(alignment: .leading, spacing: 8) {
                 if let server {
                     Label(server.displayString, systemImage: "server.rack")
@@ -482,7 +482,7 @@ struct MacUnreachableCard: View {
                         .foregroundStyle(Theme.text)
                         .textSelection(.enabled)
                 }
-                MacWelcomeError(message: reason ?? "请检查网络，或确认服务器正在运行。",
+                MacWelcomeError(message: reason ?? String(localized: .authServerCheckConnection),
                                 symbol: "wifi.exclamationmark", color: Theme.warning)
                     .accessibilityIdentifier("mac-unreachable-reason")
             }
@@ -493,7 +493,7 @@ struct MacUnreachableCard: View {
             Button {
                 Task { await retry() }
             } label: {
-                MacWelcomeButtonLabel(title: retrying ? "正在连接…" : "重试", busy: retrying)
+                MacWelcomeButtonLabel(title: retrying ? String(localized: .authServerConnecting) : String(localized: .commonRetry), busy: retrying)
             }
             .macWelcomePrimary()
             .disabled(retrying)
@@ -501,12 +501,12 @@ struct MacUnreachableCard: View {
 
             HStack(spacing: 10) {
                 Button(action: onChangeServer) {
-                    Text("换一台服务器").frame(maxWidth: .infinity)
+                    Text(String(localized: .authServerChooseAnother)).frame(maxWidth: .infinity)
                 }
                 .accessibilityIdentifier("mac-unreachable-change-server")
                 if let onChooseAccount {
                     Button(action: onChooseAccount) {
-                        Text("切换到其他账号").frame(maxWidth: .infinity)
+                        Text(String(localized: .authAccountsSwitchOther)).frame(maxWidth: .infinity)
                     }
                 }
             }
@@ -542,8 +542,8 @@ struct MacAccountChooser: View {
     @State private var error: String?
 
     var body: some View {
-        MacWelcomeCard(title: "选择账号",
-                       subtitle: "这些账号在这台 Mac 上还登录着，点一下直接进入，不用输密码。",
+        MacWelcomeCard(title: String(localized: .authAccountsChoose),
+                       subtitle: String(localized: .authAccountsSavedMacHint),
                        onBack: onBack) {
             VStack(spacing: 2) {
                 ForEach(accounts) { saved in
@@ -556,7 +556,7 @@ struct MacAccountChooser: View {
                                   name: saved.account.nickname, size: 36)
                     }
                     .disabled(switching != nil)
-                    .accessibilityLabel("进入 \(saved.account.nickname)，\(saved.server.hostLabel)")
+                    .accessibilityLabel(String(localized: .authAccountsEnter(saved.account.nickname, saved.server.hostLabel)))
                     .accessibilityIdentifier("mac-chooser-\(saved.account.username)")
                 }
             }
@@ -568,7 +568,7 @@ struct MacAccountChooser: View {
             }
 
             Button(action: onSignInAnother) {
-                Text("登录其他账号").frame(maxWidth: .infinity)
+                Text(String(localized: .authAccountsOther)).frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
             .controlSize(.large)

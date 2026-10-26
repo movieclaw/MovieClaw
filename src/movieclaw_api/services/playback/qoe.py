@@ -37,6 +37,8 @@ from typing import Any
 from sqlalchemy import DateTime, bindparam, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import source_text
 from movieclaw_db.models import LibraryFile, PlaybackMetric
 from movieclaw_db.models.base import utcnow
 
@@ -196,19 +198,26 @@ def sweep_serve_stats(now: float | None = None) -> int:
 #: 老格式容器：多半走软件解码通路
 _LEGACY_CONTAINERS = frozenset({"avi", "wmv", "rmvb", "rm", "mpg", "mpeg", "flv", "vob"})
 
+# 片源类型的展示名：需要翻译的给消息键，规格名本身（DVD/HDR/4K…）原样
 SOURCE_CLASS_LABELS = {
-    "uhd_bluray": "UHD 原盘",
-    "bluray": "蓝光原盘",
+    "uhd_bluray": "player.qoe.source.uhdBluray",
+    "bluray": "player.qoe.source.bluray",
     "dvd": "DVD",
-    "legacy": "老格式",
-    "dolby_vision": "杜比视界",
+    "legacy": "player.qoe.source.legacy",
+    "dolby_vision": "player.qoe.source.dolbyVision",
     "hdr": "HDR",
     "4k": "4K",
     "1080p": "1080p",
     "720p": "720p",
-    "sd": "标清",
-    "unknown": "未知",
+    "sd": "player.qoe.source.sd",
+    "unknown": "player.qoe.source.unknown",
 }
+
+
+def _label(labels: dict[str, str], key: str, render=t) -> str:
+    """码 → 展示名（按请求语言）；不认识的码原样给。"""
+    label = labels.get(key, key)
+    return render(label) if label.startswith("player.qoe.") else label
 
 
 def source_class(file: LibraryFile | None) -> str:
@@ -345,14 +354,19 @@ def disturb_reasons(row: PlaybackMetric, *, longest_seek_wait_ms: int = 0) -> li
 
 
 REASON_LABELS = {
-    "no_picture": "出画前退出",
-    "failed": "失败",
-    "abnormal_exit": "异常退出",
-    "startup_slow": "起播慢",
-    "seek_slow": "跳转慢",
-    "interrupted": "非自愿中断",
-    "avoidable_loss": "可避免的规格损失",
-    "misguess": "猜错音轨 / 字幕 / 续播位置",
+    "no_picture": "player.qoe.reason.noPicture",
+    "failed": "player.qoe.reason.failed",
+    "abnormal_exit": "player.qoe.reason.abnormalExit",
+    "startup_slow": "player.qoe.reason.startupSlow",
+    "seek_slow": "player.qoe.reason.seekSlow",
+    "interrupted": "player.qoe.reason.interrupted",
+    "avoidable_loss": "player.qoe.reason.avoidableLoss",
+    "misguess": "player.qoe.reason.misguess",
+}
+NETWORK_LABELS = {
+    "home": "player.qoe.network.home",
+    "away": "player.qoe.network.away",
+    "unknown": "player.qoe.network.unknown",
 }
 
 
@@ -618,7 +632,7 @@ async def qoe_stats(
         "overall": overall,
         "groups": grouped,
         "reasons": [
-            {"reason": reason, "label": REASON_LABELS.get(reason, reason), "count": count}
+            {"reason": reason, "label": _label(REASON_LABELS, reason), "count": count}
             for reason, count in sorted(reason_counts.items(), key=lambda item: -item[1])
         ],
         "worst": [_compact(r) for r in worst_rows],
@@ -803,9 +817,9 @@ def _severity(row: dict[str, Any]) -> tuple[int, int]:
 
 def _group_label(column: str | None, key: str) -> str:
     if column == "source_class":
-        return SOURCE_CLASS_LABELS.get(key, key)
+        return _label(SOURCE_CLASS_LABELS, key)
     if column == "network_class":
-        return {"home": "在家", "away": "在外", "unknown": "分不清"}.get(key, key)
+        return _label(NETWORK_LABELS, key)
     return key
 
 
@@ -836,6 +850,7 @@ def _sanitize(report: FinishReport) -> FinishReport:
     """上报校验：数值夹到上下界、枚举不认识的清空、列表与明细有大小上限。超限截断并警告，不拒收。"""
     trimmed: list[str] = []
     if report.outcome not in OUTCOMES:
+        # i18n-ignore: QoE summary log line
         trimmed.append(f"结局 {report.outcome!r}")
         report.outcome = "exited"
     for name in ("first_frame_ms", "playing_ms", "user_wait_ms", "rebuffer_ms", "watched_ms"):
@@ -855,13 +870,16 @@ def _sanitize(report: FinishReport) -> FinishReport:
     for key, limit in _MAX_LIST.items():
         items = detail.get(key)
         if isinstance(items, list) and len(items) > limit:
+            # i18n-ignore: QoE summary log line
             trimmed.append(f"{key} {len(items)} 条")
             detail[key] = items[:limit]
     if len(json.dumps(detail, ensure_ascii=False, default=str)) > _MAX_DETAIL_BYTES:
+        # i18n-ignore: QoE summary log line
         trimmed.append("明细超过 256 KB，丢掉时间线")
         detail.pop("timeline", None)
     report.detail = detail
     if len(report.log_tail) > _MAX_LOG_TAIL:
+        # i18n-ignore: QoE summary log line
         trimmed.append("日志尾巴超过 32 KB")
         report.log_tail = report.log_tail[-_MAX_LOG_TAIL:]
     if trimmed:
@@ -874,32 +892,52 @@ def _sanitize(report: FinishReport) -> FinishReport:
 def _summary_line(row: PlaybackMetric, reasons: list[str], losses: list[str] | None) -> str:
     """收尾时的一行摘要：用户说「刚才那次不对劲」时，按编号在日志里一搜就是这一行。"""
     outcome = {
+        # i18n-ignore: QoE summary log line
         "watched": "看完", "exited": "中途退出", "exit_before_start": "出画前退出",
+        # i18n-ignore: QoE summary log line
         "failed": "失败", "abnormal_exit": "异常退出",
+    # i18n-ignore: QoE summary log line
     }.get(row.outcome, row.outcome or "未知")
     seeks = row.seek_in_count + row.seek_out_count
-    source = SOURCE_CLASS_LABELS.get(row.source_class, row.source_class or "-")
+    source = _label(SOURCE_CLASS_LABELS, row.source_class or "-", source_text)
     parts = [
+        # i18n-ignore: QoE summary log line
         f"播放记录 attempt={row.attempt_id} 结局={outcome}",
+        # i18n-ignore: QoE summary log line
         f"档 {row.tier} {row.route or row.engine or '-'} {source}",
+        # i18n-ignore: QoE summary log line
         f"首帧 {row.first_frame_ms} 毫秒" if row.first_frame_ms is not None else "未出画",
         (
+            # i18n-ignore: QoE summary log line
             f"跳转 {seeks} 次（缓冲内最长 {row.seek_in_max_ms or 0}、"
+            # i18n-ignore: QoE summary log line
             f"缓冲外最长 {row.seek_out_max_ms or 0} 毫秒）"
             if seeks
+            # i18n-ignore: QoE summary log line
             else "无跳转"
         ),
+        # i18n-ignore: QoE summary log line
         f"中断 {row.interrupt_count} 次（卡顿 {row.rebuffer_count} 次 {row.rebuffer_ms} 毫秒、"
+        # i18n-ignore: QoE summary log line
         f"冻帧 {row.freeze_count} 次）",
+        # i18n-ignore: QoE summary log line
         f"规格损失 {'、'.join(losses)}" if losses else "规格无损",
+        # i18n-ignore: QoE summary log line
         f"猜错 {row.misguess_count} 次" if row.misguess_count else "未猜错",
+        # i18n-ignore: QoE summary log line
         f"观看 {row.watched_ms // 1000} 秒",
-        "无打扰" if not reasons else "打扰：" + "、".join(REASON_LABELS.get(r, r) for r in reasons),
+        # i18n-ignore: QoE summary log line
+        "无打扰"
+        if not reasons
+        # i18n-ignore: QoE summary log line
+        else "打扰：" + "、".join(_label(REASON_LABELS, r, source_text) for r in reasons),
     ]
     if row.error_kind:
         category, stage = row.error_category or "-", row.error_stage or "-"
+        # i18n-ignore: QoE summary log line
         parts.append(f"错误 {row.error_kind}（{category}，{stage}）")
     if row.lab_scenario:
+        # i18n-ignore: QoE summary log line
         parts.append(f"实验室 {row.lab_scenario}")
     return " · ".join(parts)
 

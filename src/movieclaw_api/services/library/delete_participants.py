@@ -25,6 +25,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import reference
 from movieclaw_kernel import Registry, RegistryKey, Stability
 
 logger = logging.getLogger("movieclaw_api.library.delete_participants")
@@ -82,12 +84,15 @@ class DeleteParticipant:
     """用户勾选后要建的后续任务类型（在 ``JOB_HANDLERS`` 里登记的处理器）。"""
     applies_to: frozenset[str] = frozenset({"item", "file"})
     """``item`` = 删除整部影片的弹窗；``file`` = 删除单个文件的弹窗。"""
+    label_key: str | None = None
+    help_key: str | None = None
 
 
 LIBRARY_DELETE_PARTICIPANTS: RegistryKey[DeleteParticipant] = RegistryKey(
     "library.delete-participants",
     schema=DeleteParticipant,
     stability=Stability.EXPERIMENTAL,
+    # i18n-ignore: developer registry doc
     doc="删除影片 / 文件时的附加选项：勾选项 + 只读预览 + 勾选后的后续任务",
 )
 
@@ -134,13 +139,13 @@ async def _one(key: str, participant: DeleteParticipant, request: DeleteRequest)
         result = await asyncio.wait_for(participant.preview(request), PREVIEW_TIMEOUT)
     except TimeoutError:
         logger.warning("删除参与方 %s 预览超时", key)
-        return Preview(available=False, reason="暂时无法预览（超时），这次不能勾选")
+        return Preview(available=False, reason=t("library.deleteOptions.previewTimeout"))
     except Exception:  # noqa: BLE001 -- 参与方出错只影响它自己的选项
         logger.exception("删除参与方 %s 预览出错", key)
-        return Preview(available=False, reason="暂时无法预览（出错），这次不能勾选")
+        return Preview(available=False, reason=t("library.deleteOptions.previewError"))
     if not isinstance(result, Preview):
         logger.warning("删除参与方 %s 预览返回了 %r", key, type(result).__name__)
-        return Preview(available=False, reason="暂时无法预览，这次不能勾选")
+        return Preview(available=False, reason=t("library.deleteOptions.previewUnavailable"))
     return result
 
 
@@ -161,8 +166,15 @@ async def preview_options(
         if task in done and not task.cancelled():
             preview = task.result()
         else:
-            preview = Preview(available=False, reason="暂时无法预览（超时），这次不能勾选")
-        results.append(OptionPreview(key, participant.label, participant.help, preview))
+            preview = Preview(available=False, reason=t("library.deleteOptions.previewTimeout"))
+        results.append(
+            OptionPreview(
+                key,
+                t(participant.label_key) if participant.label_key else participant.label,
+                t(participant.help_key) if participant.help_key else participant.help,
+                preview,
+            )
+        )
     return results
 
 
@@ -178,11 +190,14 @@ async def check_options(request: DeleteRequest, scope: str, keys: list[str]) -> 
     found = participants(scope)
     unknown = [k for k in keys if k not in found]
     if unknown:
-        raise OptionError(f"没有这个删除选项：{'、'.join(unknown)}")
+        keys_text = t("common.list.separator").join(unknown)
+        raise OptionError(t("library.deleteOptions.unknown", keys=keys_text))
     for option in await preview_options(request, scope, keys):
         if not option.preview.available:
-            reason = option.preview.reason or "不可用"
-            raise OptionError(f"「{option.label}」这次不能勾选：{reason}")
+            reason = option.preview.reason or t("library.deleteOptions.unavailable")
+            raise OptionError(
+                t("library.deleteOptions.notSelectable", label=option.label, reason=reason)
+            )
     return keys
 
 
@@ -200,11 +215,24 @@ async def enqueue_follow_ups(
             session,
             job_type=participant.job_type,
             input_data={"option": key, "request": request.model_dump(mode="json")},
-            subject=f"{participant.label}：{request.title}",
+            subject_ref=reference(
+                "library.delete.followUpSubject",
+                label=reference(participant.label_key)
+                if participant.label_key
+                else participant.label,
+                title=request.title,
+            ),
             origin="library.delete",
             conflict_policy="queue",
             commit=False,
         )
         assert created.job.id is not None
-        follow_ups.append({"option": key, "label": participant.label, "job_id": created.job.id})
+        follow_ups.append(
+            {
+                "option": key,
+                "label": participant.label,
+                "job_id": created.job.id,
+                **({"label_key": participant.label_key} if participant.label_key else {}),
+            }
+        )
     return follow_ups

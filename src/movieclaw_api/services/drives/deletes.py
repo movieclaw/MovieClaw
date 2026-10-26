@@ -15,7 +15,10 @@ from collections.abc import Iterable
 
 from sqlmodel import select
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.services.drives import gateway
+from movieclaw_api.services.drives.messages import error_reference
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.library_file_replica import (
     REPLICA_DELETING,
@@ -97,11 +100,11 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
                 )
             except dv.DriveError as exc:
                 await _restore(chunk)
-                error = f"网盘上的文件没删掉：{exc.message}"
+                error = t("errors.drives.deleteFailed", reason=render_value(error_reference(exc)))
                 break
             except Exception as exc:  # noqa: BLE001 -- 插件不在等：这次不删
                 await _restore(chunk)
-                error = f"网盘上的文件没删掉：{exc}"
+                error = t("errors.drives.deleteFailed", reason=str(exc))
                 break
             done.extend(chunk)
             for replica in chunk:

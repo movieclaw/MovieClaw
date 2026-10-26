@@ -124,3 +124,35 @@ def test_changed_payload_without_a_version_bump_fails(monkeypatch) -> None:
     # 升了主版本：通过
     changed["subscription.candidates.filter"]["version"] = "2.0"
     test_open_contracts_match_the_snapshot()
+
+
+def test_i18n_contract_fields_are_optional_for_existing_publishers():
+    """The minor versions preserve construction without localization metadata."""
+    import dataclasses
+
+    from movieclaw_db.models.scheduled_task import TriggerType
+    from movieclaw_scheduler import TaskDefinition
+    from movieclaw_sdk.events import RunFinished
+    from movieclaw_sdk.events.subscription import SubscriptionAwaitingSubtitles
+    from movieclaw_sdk.events.system import AlertRaised, AlertResolved
+
+    for model, fields in [
+        (RunFinished, ["error_ref"]),
+        (SubscriptionAwaitingSubtitles, ["language_code", "acceptable_languages"]),
+        (AlertRaised, ["title_key", "message_key", "message_params"]),
+        (AlertResolved, ["title_key", "message_params"]),
+    ]:
+        assert all(not model.model_fields[name].is_required() for name in fields)
+
+    async def old_handler(_context):
+        pass
+
+    definition = TaskDefinition(
+        key="legacy-task",
+        title="Legacy title",
+        handler=old_handler,
+        default_trigger_type=TriggerType.INTERVAL,
+    )
+    assert definition.title_key is None and definition.description_key is None
+    fields = {field.name: field for field in dataclasses.fields(TaskDefinition)}
+    assert fields["title_key"].default is None and fields["description_key"].default is None

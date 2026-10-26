@@ -10,22 +10,33 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.services.media_probe import probe_keyframe_interval
 from movieclaw_api.services.playback.disc_source import disc_source_for_file
 from movieclaw_api.services.playback.ffmpeg_args import (
+    HW_BACKENDS,
     effective_hw_backend,
+    hevc_encoder,
+    is_mpegts,
     tonemap_ignores_dolby_vision,
     tonemap_reads_dolby_vision,
 )
 from movieclaw_api.services.playback.hwprobe import BACKEND_LABELS, hardware_available
 from movieclaw_api.services.playback.iso_source import iso_disc_source
 from movieclaw_api.services.playback.limits import MAX_TRANSCODE_HEIGHT
-from movieclaw_api.services.playback.remote_worker import remote_worker_busy
+from movieclaw_api.services.playback.remote_worker import (
+    REMOTE_BACKENDS,
+    any_remote_worker_busy,
+    remote_backend_can_run,
+    remote_workers_have_encoder,
+)
 from movieclaw_api.services.playback.strm_probe import ensure_strm_spec
 from movieclaw_api.services.playback.track_context import track_contexts
 from movieclaw_api.settings import PlaybackPolicySetting
@@ -200,7 +211,8 @@ async def load_policy() -> PlaybackPolicy:
     return PlaybackPolicy(
         software_transcode_enabled=stored.software_transcode_enabled,
         hardware_available=available,
-        hardware_busy=not available and remote_worker_busy("videotoolbox"),
+        # 本机无硬件但远程有（Mac 或 Windows GPU），提示「忙」而不是「没有」
+        hardware_busy=not available and any_remote_worker_busy(),
         max_transcode_height=MAX_TRANSCODE_HEIGHT,
     )
 
@@ -217,8 +229,8 @@ def select_execution_backend(
     ``available`` 是给决策层用的合并能力快照，``local_backends`` 则只包含
     NAS 本机实际探测通过的后端。两者不能按列表首项直接使用：列表顺序是
     全局优先级，不代表该计划（尤其是 PGS 烧录）的滤镜链兼容性。先选能在
-    NAS 执行当前计划的后端；只有本地都不兼容时，才把在线 VideoToolbox
-    Worker 作为候选。返回值的第二项明确标出是否需要远程会话。
+    NAS 执行当前计划的后端；只有本地都不兼容时，才把在线的远程 Worker
+    （``REMOTE_BACKENDS``）作为候选。返回值的第二项明确标出是否需要远程会话。
 
     网页播放器与 Jellyfin 兼容层的转码入口共用这一个函数——两条链路起的是
     同一种会话，执行后端的选法不能有两套。
@@ -226,21 +238,65 @@ def select_execution_backend(
     if decision.tier is not Tier.HARDWARE_TRANSCODE or decision.video.action != "transcode":
         return None, False
 
-    remote_ok = (
-        remote_video_available
-        and "videotoolbox" in available
-        and effective_hw_backend(decision, "videotoolbox") is not None
+    # 兼容性按接单 Worker 自己申报的能力判（不是 NAS 本机的自检）
+    remote_online = tuple(
+        backend
+        for backend in REMOTE_BACKENDS
+        if remote_video_available
+        and backend in available
+        and remote_backend_can_run(decision, backend)
     )
     usable = [b for b in local_backends if effective_hw_backend(decision, b) is not None]
-    if decision.video.dolby_vision == "apply" and remote_ok:
+    if decision.video.dolby_vision == "apply" and remote_online:
         # P5 的 IPT 基础层只有吃 RPU 才出得了对的颜色。本机只有 VAAPI / QSV（硬件色调映射
-        # 不认 RPU，整片发紫）而 Mac 转码器在线时，交给它
+        # 不认 RPU，整片发紫）而远程转码器在线时，交给它
         usable = [b for b in usable if tonemap_reads_dolby_vision(b)]
     if usable:
         return usable[0], False
-    if remote_ok:
-        return "videotoolbox", True
+    if remote_online:
+        return remote_online[0], True
     return None, False
+
+
+def backend_outputs_hevc(backend: str, *, remote: bool) -> bool:
+    """这个执行者能出 HEVC：VideoToolbox（Mac 转码器在线的都带 HEVC 编码器才算）与自检真编过
+    HEVC 的 NAS 显卡。NAS 软件一律 H.264（libx265 在 NAS 的 CPU 上太慢）。"""
+    if backend not in HW_BACKENDS:
+        return False
+    if remote:
+        encoder = HW_BACKENDS[backend].hevc_encoder
+        return encoder is not None and remote_workers_have_encoder(encoder, backend)
+    return hevc_encoder(HW_BACKENDS[backend]) is not None
+
+
+def prefer_hevc_output(
+    decision: PlaybackDecision,
+    capability: ClientCapability,
+    backend: str | None,
+    *,
+    remote: bool,
+) -> PlaybackDecision:
+    """硬件转码能出 HEVC 就出（#1008）：同画质码率约为 H.264 的三分之二，外网省流量、省上行。
+
+    原流优先不变——只改「已经定了要硬件转码」的计划的输出编码。条件缺一不可：客户端申报了
+    ``hevc_transcode``（带回退）、能解 HEVC 到输出高度；fMP4 分片（TS 只给第三方播放器，留
+    H.264）；执行者能出 HEVC。在按带宽收紧码率之前调：收紧按实际编码的码率阶梯算。
+    """
+    if not isinstance(decision, PlaybackPlan) or backend is None:
+        return decision
+    video = decision.video
+    if decision.tier is not Tier.HARDWARE_TRANSCODE or video.action != "transcode":
+        return decision
+    support = capability.video_support("hevc")
+    if (
+        not capability.hevc_transcode
+        or support is None
+        or (video.height or 0) > support.max_height
+        or is_mpegts(decision)
+        or not backend_outputs_hevc(backend, remote=remote)
+    ):
+        return decision
+    return replace(decision, video=replace(video, codec="hevc"))
 
 
 def dolby_vision_caveat(
@@ -262,11 +318,7 @@ def dolby_vision_caveat(
         or not tonemap_ignores_dolby_vision(hw_used)
     ):
         return None
-    return (
-        "杜比视界 P5 的色彩要按动态元数据还原，"
-        f"但本机的 {BACKEND_LABELS.get(hw_used, hw_used)}色调映射做不到，画面会偏绿或偏紫；"
-        "连接转码器可正确转码"
-    )
+    return t("player.plan.dvP5Caveat", backend=render_value(BACKEND_LABELS.get(hw_used, hw_used)))
 
 
 def _best(decisions: list[tuple[PlaybackDecision, int | None]]) -> PlaybackDecision:
@@ -330,6 +382,7 @@ def to_view(decision: PlaybackDecision) -> PlaybackDecisionView:
     翻译放在服务层而不是领域层：``movieclaw_playback`` 要保持协议无关，
     Jellyfin 兼容层与网页端各自翻各自的（与观看状态、字幕轨同一分层原则）。
     """
+    from movieclaw_api.i18n.stored import render_value
     from movieclaw_api.schemas.playback import (  # 局部导入避免 schemas ↔ services 循环
         AudioPlanView,
         AudioTrackView,
@@ -351,7 +404,7 @@ def to_view(decision: PlaybackDecision) -> PlaybackDecisionView:
             degraded_from=(
                 int(decision.degraded_from) if decision.degraded_from is not None else None
             ),
-            reason=decision.reason,
+            reason=render_value(decision.reason),
             disc=decision.disc,
             disc_playlist=decision.disc_playlist,
         )
@@ -359,14 +412,16 @@ def to_view(decision: PlaybackDecision) -> PlaybackDecisionView:
         return PlaybackDecisionView(
             outcome="consent",
             tier=int(decision.tier),
-            reason=decision.reason,
-            cost_hint=decision.cost_hint,
+            reason=render_value(decision.reason),
+            cost_hint=render_value(decision.cost_hint),
             can_self_enable=decision.can_self_enable,
             setting_namespace=decision.setting_namespace,
             setting_key=decision.setting_key,
         )
     return PlaybackDecisionView(
-        outcome="rejected", reason=decision.reason, suggestion=decision.suggestion
+        outcome="rejected",
+        reason=render_value(decision.reason),
+        suggestion=render_value(decision.suggestion),
     )
 
 
@@ -391,4 +446,5 @@ def capability_from_request(payload) -> ClientCapability:  # noqa: ANN001
         dolby_vision_base_layer_profiles=frozenset(payload.dolby_vision_base_layer_profiles),
         dolby_vision_record_audit=payload.dolby_vision_record_audit,
         mp4_sample_limit=payload.mp4_sample_limit,
+        hevc_transcode=payload.hevc_transcode,
     )

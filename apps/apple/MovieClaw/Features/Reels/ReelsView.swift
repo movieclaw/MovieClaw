@@ -52,7 +52,7 @@ struct ReelsView: View {
                 if store.map(Self.waitingForFirstPage) ?? true {
                     VStack(spacing: 14) {
                         ProgressView()
-                        Text("正在挑片段…")
+                        Text(String(localized: .reelsPicking))
                     }
                     .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
@@ -210,11 +210,11 @@ struct ReelsView: View {
             Image(systemName: "checkmark.circle")
                 .font(.system(size: 36, weight: .light))
                 .foregroundStyle(.white.opacity(0.7))
-            Text("没有更多了")
+            Text(String(localized: .reelsNoMore))
                 .font(.headline)
                 .foregroundStyle(.white)
             if let clips = store.clips, clips.state != "done", clips.ready < clips.total {
-                Text("其余 \(clips.total - clips.ready) 部的片段还在预切，晚点再来")
+                Text(String(localized: .reelsRemainingPrecut(clips.total - clips.ready)))
                     .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
             }
@@ -232,16 +232,16 @@ struct ReelsView: View {
             Image(systemName: "arrow.up.circle")
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(.white.opacity(0.8))
-            Text("服务器需要升级")
+            Text(String(localized: .reelsServerUpdateNeeded))
                 .font(.headline)
                 .foregroundStyle(.white)
             Text(permissions.isAdmin
-                 ? "片段是新功能，当前服务器版本还不支持。把服务器升级到最新版后就能使用。"
-                 : "片段是新功能，当前服务器版本还不支持。请联系管理员把服务器升级到最新版。")
+                 ? String(localized: .reelsServerUnsupportedAdmin)
+                 : String(localized: .reelsServerUnsupportedMember))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
             if permissions.isAdmin {
-                Button("去更新服务器") { router.push(.settingsSection(.app)) }
+                Button(String(localized: .reelsGoUpdateServer)) { router.push(.settingsSection(.app)) }
                     .buttonStyle(.glass)
                     .padding(.top, 4)
                     .accessibilityIdentifier("reels-server-update")
@@ -260,21 +260,21 @@ struct ReelsView: View {
                 serverOutdatedNotice
             } else if let message = store.errorMessage {
                 Text(message)
-                Button("重试") { Task { await store.retry() } }
+                Button(String(localized: .commonRetry)) { Task { await store.retry() } }
                     .buttonStyle(.glass)
             } else if let clips = store.clips, clips.state != "done", clips.ready < clips.total {
                 // 开了片段预切、这些条件下一部都还没切好
-                Text("片段正在预切，已完成 \(clips.ready) / \(clips.total)")
-                Text(clips.state == "paused" ? "有人在观看，预切暂停中，稍后再来" : "稍后再来就能刷了")
+                Text(String(localized: .reelsPrecutProgress(clips.ready, clips.total)))
+                Text(clips.state == "paused" ? String(localized: .reelsPrecutPaused) : String(localized: .reelsComeBackLater))
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
             } else if !store.filter.isEmpty || store.kind != nil {
-                Text("这些条件下还没有能刷的片子")
-                Button("清空条件") { store.applyFilter(LibraryFilter(), kind: nil) }
+                Text(String(localized: .reelsNoneForFilters))
+                Button(String(localized: .mediaDiscoveryClearFilters)) { store.applyFilter(LibraryFilter(), kind: nil) }
                     .buttonStyle(.glass)
             } else {
-                Text("片库里还没有能刷的片子")
-                Text("目前支持 MKV / MP4 的电影与剧集")
+                Text(String(localized: .reelsNoneInLibrary))
+                Text(String(localized: .reelsSupportedFormats))
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
             }
@@ -468,7 +468,7 @@ private struct ReelPage: View {
         ZStack {
             if store.holdSpeedActive {
                 PlayerHUD {
-                    Text("2× 快进中").monospacedDigit()
+                    Text(String(localized: .playerControlsSpeedFastForward)).monospacedDigit()
                     Image(systemName: "forward.fill")
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -502,7 +502,7 @@ private struct ReelPage: View {
         // 读屏：横带就是暂停 / 继续键（明眼用户点页面任意处，见 body）
         .accessibilityElement()
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(isCurrent && store.playerState == .playing ? "暂停" : "播放")
+        .accessibilityLabel(isCurrent && store.playerState == .playing ? String(localized: .playerControlsPause) : String(localized: .libraryHeroPlay))
         .accessibilityAction { if isCurrent { store.togglePause() } }
         .accessibilityIdentifier("reels-video")
     }
@@ -520,7 +520,7 @@ private struct ReelPage: View {
             case let .failed(message):
                 VStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle")
-                    Text("这一段放不出来，往下滑换一条")
+                    Text(String(localized: .reelsClipFailed))
                         .font(.footnote)
                     Text(message)
                         .font(.caption2)
@@ -541,7 +541,7 @@ private struct ReelPage: View {
     /// 按家里 / 外网记（`ReelsQuality`），竖屏与全屏共用；选了当前这条从刚才的位置按新画质重开
     private var qualityMenu: some View {
         Menu {
-            Picker("画质", selection: Binding(get: { store.quality }, set: { store.selectQuality($0) })) {
+            Picker(String(localized: .libraryFiltersQuality), selection: Binding(get: { store.quality }, set: { store.selectQuality($0) })) {
                 ForEach(ReelsQuality.options) { option in
                     Text(option.label).tag(option.maxHeight)
                 }
@@ -559,7 +559,7 @@ private struct ReelPage: View {
             .overlay(Capsule().stroke(.white.opacity(0.35 * controlsAlpha), lineWidth: 1))
             .contentShape(Capsule())
         }
-        .accessibilityLabel("画质：\(ReelsQuality.label(store.quality))")
+        .accessibilityLabel(String(localized: .reelsQualityValue(ReelsQuality.label(store.quality))))
         .accessibilityIdentifier("reels-quality")
     }
 
@@ -578,7 +578,7 @@ private struct ReelPage: View {
     /// 横带下方的「全屏观看」：描边小胶囊（不用毛玻璃，与右下角按钮同一种「融在画面里」的做法）
     private var fullscreenButton: some View {
         Button(action: onFullscreen) {
-            Label("全屏观看", systemImage: "arrow.up.left.and.arrow.down.right")
+            Label(String(localized: .reelsFullScreen), systemImage: "arrow.up.left.and.arrow.down.right")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.92 * controlsAlpha))
                 .padding(.horizontal, 14)
@@ -599,32 +599,32 @@ private struct ReelPage: View {
         let played = store.isPlayed(item)
         let progress = played ? nil : store.progressPercent(item)
         return VStack(spacing: 18) {
-            ReelActionButton(symbol: favorite ? "heart.fill" : "heart", title: "收藏",
+            ReelActionButton(symbol: favorite ? "heart.fill" : "heart", title: String(localized: .libraryGalleryFavorite),
                              tint: favorite ? Color(red: 1, green: 0.27, blue: 0.35) : .white) {
                 Task { await store.toggleFavorite(item) }
             }
-            .accessibilityValue(favorite ? "已收藏" : "未收藏")
+            .accessibilityValue(favorite ? String(localized: .mediaCardsFavorited) : String(localized: .reelsNotFavorited))
             .accessibilityIdentifier("reels-favorite")
             // 详情：刷到感兴趣的片，最常做的是去条目页看看详细信息（2026-09-30 用户要求，替换原来的「播放」）。
             // 图标用胶片：info.circle 在手机上像叹号，读成「提示」。胶片是横向宽矩形，同字号下比心形、
             // 对勾圈、箭头都显大，缩到 21pt 视觉上才一样重（2026-09-30 用户确认）
-            ReelActionButton(symbol: "film", title: "详情", symbolSize: 21, action: onOpenDetail)
+            ReelActionButton(symbol: "film", title: String(localized: .searchTorrentDetails), symbolSize: 21, action: onOpenDetail)
                 .accessibilityIdentifier("reels-detail")
             // 已看跟着真实观看进度画（2026-09-30 用户要求）：没看完时是暗圈，看了多少白色弧就描多少
             // （没看过 = 一圈暗的）；看完是绿色实心。没看过不用亮白整圈：那样和「快看完」分不开
-            ReelActionButton(symbol: "checkmark.circle.fill", title: "已看",
+            ReelActionButton(symbol: "checkmark.circle.fill", title: String(localized: .libraryItemPlayedTag),
                              tint: played ? Theme.success : .white,
                              progress: played ? nil : Double(progress ?? 0) / 100) {
                 Task { await store.togglePlayed(item) }
             }
-            .accessibilityValue(played ? "已看过" : progress.map { "看到 \($0)%" } ?? "没看过")
+            .accessibilityValue(played ? String(localized: .reelsWatched) : progress.map { String(localized: .subscriptionFeedWatchedPercent($0)) } ?? String(localized: .reelsNotWatched))
             .accessibilityIdentifier("reels-played")
             if canCreateShareLink {
-                ReelActionButton(symbol: "arrowshape.turn.up.right", title: "分享", action: onShare)
+                ReelActionButton(symbol: "arrowshape.turn.up.right", title: String(localized: .libraryManageShares), action: onShare)
                     .accessibilityIdentifier("reels-share")
             } else {
                 ShareLink(item: shareText) {
-                    ReelActionLabel(symbol: "arrowshape.turn.up.right", title: "分享", tint: .white)
+                    ReelActionLabel(symbol: "arrowshape.turn.up.right", title: String(localized: .libraryManageShares), tint: .white)
                 }
                 .accessibilityIdentifier("reels-share")
             }
@@ -634,7 +634,7 @@ private struct ReelPage: View {
     private var shareText: String {
         var text = "《\(item.title.name)》"
         if let year = item.title.year { text += "（\(year)）" }
-        if let episode = item.title.episode { text += " 第 \(episode.season) 季第 \(episode.episode) 集" }
+        if let episode = item.title.episode { text += " " + String(localized: .offlineSeasonEpisode(episode.season, episode.episode)) }
         return text
     }
 
@@ -665,7 +665,7 @@ private struct ReelPage: View {
     private var directorRow: some View {
         let people = item.title.directors
         let lead = people[0]
-        let role = item.title.kind == "tv" ? "主创" : "导演"
+        let role = item.title.kind == "tv" ? String(localized: .mediaDetailCreator) : String(localized: .mediaDetailDirector)
         return Button {
             if let id = lead.tmdbPersonId { onOpenPerson(id) }
         } label: {
@@ -695,7 +695,7 @@ private struct ReelPage: View {
         guard let episode = item.title.episode else {
             return body.map { (Text($0), $0) }
         }
-        var head = "第 \(episode.season) 季第 \(episode.episode) 集"
+        var head = String(localized: .offlineSeasonEpisode(episode.season, episode.episode))
         if let name = episode.name, !name.isEmpty { head += "「\(name)」" }
         guard let body else { return (Text(head).fontWeight(.semibold), head) }
         return (Text("\(Text(head).fontWeight(.semibold))\(body)"), head + body)
@@ -712,7 +712,7 @@ private struct ReelPage: View {
     private func captionView(_ caption: (text: Text, plain: String)) -> some View {
         Group {
             if expanded {
-                Text("\(caption.text)  \(Text("收起").fontWeight(.semibold))")
+                Text("\(caption.text)  \(Text(String(localized: .commonCollapse)).fontWeight(.semibold))")
                     .lineLimit(8)
             } else {
                 caption.text
@@ -741,7 +741,7 @@ private struct ReelPage: View {
                     }
                     .overlay(alignment: .bottomTrailing) {
                         if truncated {
-                            Text("展开").fontWeight(.semibold)
+                            Text(String(localized: .commonExpand)).fontWeight(.semibold)
                         }
                     }
             }
@@ -755,7 +755,7 @@ private struct ReelPage: View {
         .allowsHitTesting(expanded || truncated)
         .accessibilityElement()
         .accessibilityLabel(caption.plain)
-        .accessibilityHint(expanded ? "收起简介" : "展开简介")
+        .accessibilityHint(expanded ? String(localized: .reelsCollapseOverview) : String(localized: .reelsExpandOverview))
         .accessibilityIdentifier("reels-caption")
     }
 }
@@ -772,7 +772,7 @@ private struct ReelTitle: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 1) {
-                Text(item?.title.name ?? "片段")
+                Text(item?.title.name ?? String(localized: .libraryHomeReelsAria))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                 if let year = item?.title.year {
@@ -792,8 +792,8 @@ private struct ReelTitle: View {
         }
         .buttonStyle(.plain)
         .disabled(item == nil)
-        .accessibilityLabel([item?.title.name ?? "片段", item?.title.year.map(String.init)].compactMap { $0 }.joined(separator: "，"))
-        .accessibilityHint(item == nil ? "" : "查看详情")
+        .accessibilityLabel([item?.title.name ?? String(localized: .libraryHomeReelsAria), item?.title.year.map(String.init)].compactMap { $0 }.joined(separator: "，"))
+        .accessibilityHint(item == nil ? "" : String(localized: .searchTorrentViewDetails))
         .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("reels-title")
     }
@@ -820,7 +820,7 @@ struct ReelProgressRow: View {
                 }
                 .frame(height: 2)
                 .accessibilityElement()
-            .accessibilityLabel("片段进度")
+            .accessibilityLabel(String(localized: .reelsProgress))
                 .accessibilityValue(timeText)
                 .accessibilityIdentifier("reels-time")
         }

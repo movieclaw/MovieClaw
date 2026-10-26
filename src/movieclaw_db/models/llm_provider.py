@@ -54,6 +54,7 @@ class LlmProvider(TimestampMixin, table=True):
     # 验证状态机（语义见 ConfigStatus）
     status: ConfigStatus = Field(default=ConfigStatus.PENDING, description="连接验证状态")
     last_error: str | None = Field(default=None, description="最近一次测试失败原因（中文）")
+    last_error_ref: dict | None = Field(default=None, sa_column=Column(JSON))
     last_checked_at: datetime | None = Field(default=None, description="最近一次测试时间")
     # 最近一次验证成功时端点上报的可用模型列表（JSON 数组），供设置页选择
     available_models: list[str] | None = Field(

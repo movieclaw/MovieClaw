@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DiscoveryFilterChips, useDiscoveryGenres } from "@/components/discovery-filter-dialog";
@@ -38,6 +40,8 @@ export function FilteredDiscoveryView({
   currentYear: number;
   onChange: (filters: DiscoveryFilters) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [items, setItems] = useState<MediaItem[]>([]);
   const [nextPage, setNextPage] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
@@ -79,7 +83,7 @@ export function FilteredDiscoveryView({
       setNextPage(result.page + 1);
     } catch (reason) {
       if (!controller.signal.aborted) {
-        setError((reason as Error).message || "筛选结果加载失败，请稍后重试");
+        setError((reason as Error).message || t("media.discovery.filterFailed"));
       }
     } finally {
       // 只有仍是当前那次请求才收尾：被新条件顶掉的旧请求不能把新请求的加载态清掉
@@ -88,7 +92,7 @@ export function FilteredDiscoveryView({
         loadingRef.current = false;
       }
     }
-  }, [filters, mediaType]);
+  }, [filters, mediaType, t]);
 
   // 条件变化（loadPage 随 filters 换新）：清空重查。首次进入不必等防抖
   useEffect(() => {
@@ -135,8 +139,8 @@ export function FilteredDiscoveryView({
     [genres],
   );
   const filterLabels = useMemo(
-    () => discoveryFilterLabels(filters, genreNames),
-    [filters, genreNames],
+    () => discoveryFilterLabels(filters, genreNames, locale),
+    [filters, genreNames, locale],
   );
   const clearAll = () => onChange(EMPTY_DISCOVERY_FILTERS);
   const allLoaded = !hasMore && items.length > 0;
@@ -153,15 +157,15 @@ export function FilteredDiscoveryView({
               TMDB DISCOVER
             </p>
             <h1 className="mt-1 text-3xl font-bold tracking-[-0.03em] text-[var(--text)] max-md:text-2xl">
-              筛选结果
+              {t("media.discovery.results")}
             </h1>
             <p className="mt-2 text-body text-[var(--text-muted)]">
               {totalResults > 0
-                ? `找到 ${totalResults.toLocaleString("zh-CN")} 部，已加载 ${items.length} 部`
-                : `已启用 ${activeCount} 项筛选`}
+                ? t("media.discovery.resultsCount", { total: totalResults, loaded: items.length })
+                : t("media.discovery.filterCount", { count: activeCount })}
             </p>
             {cinema && (
-              <div className="mt-3 flex flex-wrap gap-2" aria-label="当前筛选条件">
+              <div className="mt-3 flex flex-wrap gap-2" aria-label={t("media.discovery.activeFilters")}>
                 {filterLabels.map((label) => (
                   <span
                     key={label}
@@ -179,7 +183,7 @@ export function FilteredDiscoveryView({
               onClick={clearAll}
               className="shrink-0 text-ui font-semibold text-[var(--accent-2)] transition hover:text-white"
             >
-              清除全部
+              {t("media.discovery.clearAll")}
             </button>
           ) : (
             <button
@@ -187,7 +191,7 @@ export function FilteredDiscoveryView({
               onClick={clearAll}
               className="btn-glass h-9 shrink-0 px-4 text-sub font-semibold"
             >
-              清空条件
+              {t("media.discovery.clearFilters")}
             </button>
           )}
         </div>
@@ -215,13 +219,13 @@ export function FilteredDiscoveryView({
 
       {loading && items.length === 0 && <FilteredSkeleton />}
       {!loading && !error && items.length === 0 && (
-        <div className="py-24 text-center text-body text-[var(--text-muted)]">没有符合条件的影片</div>
+        <div className="py-24 text-center text-body text-[var(--text-muted)]">{t("media.discovery.noMatches")}</div>
       )}
       {error && (
         <div className="mt-12 rounded-2xl border border-white/10 bg-black/25 p-8 text-center">
           <p className="text-body text-[var(--text-muted)]">{error}</p>
           <button type="button" onClick={() => void loadPage(nextPage)} className="btn-accent mt-4 h-9 rounded-full px-5 text-ui font-semibold">
-            重试
+            {t("common.retry")}
           </button>
         </div>
       )}
@@ -232,9 +236,9 @@ export function FilteredDiscoveryView({
         role="status"
       >
         {loading && items.length > 0
-          ? "正在加载更多影片"
+          ? t("media.discovery.loadingMore")
           : allLoaded
-            ? `已加载全部 ${items.length} 部影片`
+            ? t("media.discovery.allLoaded", { count: items.length })
             : ""}
       </p>
     </main>

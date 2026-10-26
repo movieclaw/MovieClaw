@@ -41,6 +41,7 @@ from movieclaw_kernel import (
     Plugin,
     ServiceKey,
 )
+from movieclaw_kernel.observe import current_locale
 from movieclaw_sdk import rpc
 from movieclaw_sdk.http import UnixHttp
 from movieclaw_sdk.ops import (
@@ -320,6 +321,8 @@ def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
             "default_cron": item.default_cron,
             "default_enabled": item.default_enabled,
             "description": item.description,
+            "title_key": getattr(item, "title_key", None),
+            "description_key": getattr(item, "description_key", None),
         }, item.handler
     if registry == "ingest-steps":
         return dataclasses.asdict(item), None
@@ -571,6 +574,10 @@ class RemoteContext:
     支持事件与钩子（含可靠事件与 ``ctx.delivery``）、后台任务、清理；宿主操作、插件数据、
     健康上报三种服务；往任务处理器、入库槽位、站点数据包三个注册表贡献；插件路由与签名链接。
     """
+
+    @property
+    def locale(self) -> str:
+        return current_locale.get()
 
     def __init__(
         self,
@@ -840,16 +847,21 @@ class Runner:
         """按路径分流；请求带的调用号放进上下文，处理期间发出的宿主调用原样带回。"""
         if scope["type"] != "http":
             return
-        for name, value in scope.get("headers") or ():
-            if name == _CALL_HEADER:
-                rpc.current_call.set(value.decode("latin-1"))
-                break
-        if scope["path"].startswith("/_mc/"):
-            await self._control(scope, receive, send)
-        elif self._app is not None:
-            await self._app(scope, receive, send)
-        else:
-            await _respond(send, 404, {"code": "NOT_FOUND", "message": "没有这个地址"})
+        headers = dict(scope.get("headers") or ())
+        call_token = rpc.current_call.set(headers.get(_CALL_HEADER, b"").decode("latin-1") or None)
+        # The host sends a normalized locale. Missing headers preserve old-host behavior.
+        language = headers.get(b"accept-language", b"zh-Hans").decode("latin-1")
+        locale_token = current_locale.set(language if language in {"en", "zh-Hans"} else "en")
+        try:
+            if scope["path"].startswith("/_mc/"):
+                await self._control(scope, receive, send)
+            elif self._app is not None:
+                await self._app(scope, receive, send)
+            else:
+                await _respond(send, 404, {"code": "NOT_FOUND", "message": "没有这个地址"})
+        finally:
+            current_locale.reset(locale_token)
+            rpc.current_call.reset(call_token)
 
     async def _control(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         """宿主调进来：``POST /_mc/{kind}/{target}``，或体面停止一次调用 ``/_mc/cancel``。
@@ -1050,6 +1062,8 @@ class Runner:
             reply.update(ok=True, result=result)
         except dl.DownloaderException as exc:
             reply.update(ok=False, error=exc.message, error_kind=type(exc).__name__)
+            if getattr(exc, "message_ref", None):
+                reply["message_ref"] = exc.message_ref
         except Exception as exc:  # noqa: BLE001 -- 未知错误原样报给宿主
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
         return reply
@@ -1235,6 +1249,8 @@ class Runner:
             )
             message_text = str(exc) if kind != "error" else f"{type(exc).__name__}: {exc}"
             reply.update(ok=False, error=message_text, error_kind=kind)
+            if getattr(exc, "message_ref", None):
+                reply["message_ref"] = exc.message_ref
         return reply
 
     def _account(self, cid: str, data: dict[str, Any]) -> Any:

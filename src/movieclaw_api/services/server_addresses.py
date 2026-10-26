@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
+from movieclaw_api.i18n import t
 from movieclaw_api.settings import AppServerSetting, get_setting_store
 from movieclaw_api.settings.base import SettingSchema, register_setting
 
@@ -81,13 +82,13 @@ def normalize_url(raw: str) -> str:
     parts = urlsplit(value)
     scheme = parts.scheme.lower()
     if scheme not in ("http", "https") or not parts.hostname:
-        raise ValueError("地址要以 http:// 或 https:// 开头")
+        raise ValueError(t("errors.addresses.scheme"))
     if parts.username or parts.password:
-        raise ValueError("地址里不能带用户名和密码")
+        raise ValueError(t("errors.addresses.credentials"))
     try:
         port = parts.port
     except ValueError as exc:
-        raise ValueError("端口不正确") from exc
+        raise ValueError(t("errors.addresses.port")) from exc
     host = parts.hostname.lower()
     if ":" in host:
         host = f"[{host}]"

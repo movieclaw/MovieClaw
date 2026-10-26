@@ -64,7 +64,7 @@ def client(tmp_path, monkeypatch):
 
     app = create_app()
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
     get_settings.cache_clear()
     reset_agent_session_store()
@@ -133,3 +133,9 @@ def test_invalid_level_rejected(client) -> None:
     r = client.post("/api/v1/sessions", json={"content": "问", "thinking_level": "turbo"})
     assert r.status_code == 422
     assert "思维链档位" in r.text
+    english = client.post(
+        "/api/v1/sessions",
+        json={"content": "问", "thinking_level": "turbo"},
+        headers={"Accept-Language": "en"},
+    )
+    assert "Thinking level “turbo” isn’t supported" in english.text

@@ -6,10 +6,13 @@
 """
 
 import asyncio
+import os
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import movieclaw_api.services.site_search as site_search
 from movieclaw_api.app import create_app
+from movieclaw_tracker.exceptions import TrackerParseError
 from movieclaw_tracker.models import SearchQuery, SearchResult, TorrentListItem
 
 SITES = ("fast", "slow", "flaky")
@@ -40,9 +43,43 @@ class _FakeSite:
         if self._site_id == "slow":
             await _slow_gate().wait()
         if self._site_id == "flaky" and len(search_log["flaky"]) == 1:
-            raise RuntimeError("登录已过期")
+            raise TrackerParseError(details={"login_redirect": True})
         title = f"{query.keyword}.2021.1080p.BluRay.x264-{self._site_id.upper()}"
         items = [TorrentListItem(torrent_id=f"{self._site_id}-1", title=title, seeders=10)]
+        if os.environ.get("E2E_SEARCH_I18N"):
+            group = self._site_id.upper()
+            items = [
+                TorrentListItem(
+                    torrent_id=f"{self._site_id}-series",
+                    title=f"Example.Series.S02.COMPLETE.2021.2160p.WEB-DL.x265.DDP5.1-{group}",
+                    subtitle="全12集 简繁英字幕 国粤双语",
+                    category="tv",
+                    seeders=30,
+                    leechers=2,
+                    snatched=7,
+                    free=True,
+                    size_bytes=12 * 1024**3,
+                    upload_time=datetime(2026, 10, 20, tzinfo=UTC),
+                    detail_url="https://fixture.invalid/series",
+                ),
+                TorrentListItem(
+                    torrent_id=f"{self._site_id}-episode",
+                    title=f"Example.Series.S02E03.2021.1080p.WEB-DL.H264-{group}",
+                    category="tv",
+                    seeders=20,
+                    size_bytes=1024**3,
+                    upload_volume_factor=2,
+                    detail_url="https://fixture.invalid/episode",
+                ),
+                TorrentListItem(
+                    torrent_id=f"{self._site_id}-movie",
+                    title=f"Original.Movie.2020.720p.BluRay.x264-{group}",
+                    category="movie",
+                    seeders=10,
+                    size_bytes=2 * 1024**3,
+                    detail_url="https://fixture.invalid/movie",
+                ),
+            ]
         return SearchResult(items=items, page=query.page, total_pages=1, has_more=False)
 
 
@@ -78,3 +115,53 @@ async def hold_slow():
 async def release_slow():
     _slow_gate().set()
     return {"ok": True}
+
+
+if os.environ.get("E2E_SEARCH_I18N"):
+    from tests.api.test_subscription_pipeline import _fake_tmdb
+
+    from movieclaw_api.api.routes import discover, subscriptions
+    from movieclaw_api.services import title_discovery
+    from movieclaw_media import MediaSearchItem, MediaSource
+
+    class _TitleProvider:
+        def __init__(self, source):
+            self.source = source
+
+        async def search(self, query):
+            if query == "no-matches":
+                return []
+            return [
+                MediaSearchItem(
+                    id="123",
+                    source=self.source,
+                    title="原始影片名",
+                    year=2021,
+                    type="movie",
+                    rating=8,
+                    poster_url="",
+                )
+            ]
+
+    app.dependency_overrides[discover.get_title_discovery_service] = lambda: (
+        title_discovery.TitleDiscoveryService(
+            lambda: _TitleProvider(MediaSource.TMDB), lambda: _TitleProvider(MediaSource.DOUBAN)
+        )
+    )
+
+    subscriptions.get_tmdb_client = lambda: _fake_tmdb({})
+
+    @app.post("/__lab/library")
+    async def seed_library():
+        from tests.api.test_library_search import _seed_advanced
+
+        from movieclaw_db.engine import get_database
+
+        await _seed_advanced(get_database())
+        return {"ok": True}
+
+    @app.post("/__lab/reset")
+    async def reset_calls():
+        for calls in search_log.values():
+            calls.clear()
+        return {"ok": True}

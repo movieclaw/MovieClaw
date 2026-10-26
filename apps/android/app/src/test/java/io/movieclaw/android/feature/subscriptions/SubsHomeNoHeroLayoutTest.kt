@@ -64,7 +64,8 @@ class SubsHomeNoHeroLayoutTest {
         val cookies = ShareCookieJar()
         val api = ApiFactory(json, client, client, vault, cookies)
         val repository = SessionRepository(context, json, vault, api, client,
-            SessionCacheCleaner(context, ImageLoaders(context, vault, client, cookies), LibraryHomeSnapshotStore(context, json)))
+            SessionCacheCleaner(context, ImageLoaders(context, vault, client, cookies), LibraryHomeSnapshotStore(context, json)),
+            dagger.Lazy { throw UnsupportedOperationException() })
         val origin = server.url("/").toString().trimEnd('/')
         vault.activate(origin, "alice", "token")
         @Suppress("UNCHECKED_CAST")

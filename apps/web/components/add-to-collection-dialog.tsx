@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 
 import { useToast } from "@/components/feedback";
@@ -33,6 +34,7 @@ export function AddToCollectionDialog({
   title: string;
   onClose: () => void;
 }) {
+  const t = useTranslations();
   const toast = useToast();
   const [rows, setRows] = useState<Collection[] | null>(null);
   const [name, setName] = useState("");
@@ -57,14 +59,14 @@ export function AddToCollectionDialog({
       setBusy(true);
       try {
         await addCollectionItems(collection.id, [mediaItemId]);
-        toast.success(`《${title}》已加入「${collection.name}」`);
+        toast.success(t("library.collections.added", { title, name: collection.name }));
         onClose();
       } catch (error) {
         toast.error((error as Error).message);
         setBusy(false);
       }
     },
-    [mediaItemId, onClose, title, toast],
+    [mediaItemId, onClose, title, toast, t],
   );
 
   const createAndAdd = useCallback(async () => {
@@ -78,13 +80,13 @@ export function AddToCollectionDialog({
         library_id: libraryId,
         item_ids: [mediaItemId],
       });
-      toast.success(`已新建「${created.name}」并加入《${title}》`);
+      toast.success(t("library.collections.createdAndAdded", { title, name: created.name }));
       onClose();
     } catch (error) {
       toast.error((error as Error).message);
       setBusy(false);
     }
-  }, [libraryId, mediaItemId, name, onClose, title, toast]);
+  }, [libraryId, mediaItemId, name, onClose, title, toast, t]);
 
   return (
     <div
@@ -95,17 +97,17 @@ export function AddToCollectionDialog({
         className="menu-surface w-full max-w-sm rounded-2xl p-4 max-md:rounded-b-none max-md:pb-8"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 className="text-ui font-semibold text-[var(--text-strong)]">加入合集</h2>
+        <h2 className="text-ui font-semibold text-[var(--text-strong)]">{t("library.collections.addTitle")}</h2>
         <p className="mt-1 text-sub text-[var(--text-faint)]">
-          手动合集不会自动收录新片，加进去的就是你挑的那些。
+          {t("library.collections.addHint")}
         </p>
 
         <div className="mt-3 flex max-h-64 flex-col gap-1 overflow-y-auto">
           {rows === null ? (
-            <p className="py-6 text-center text-sub text-[var(--text-faint)]">正在读取合集…</p>
+            <p className="py-6 text-center text-sub text-[var(--text-faint)]">{t("library.collections.loading")}</p>
           ) : rows.length === 0 ? (
             <p className="py-4 text-center text-sub text-[var(--text-faint)]">
-              还没有手动合集。下面新建一个。
+              {t("library.collections.noManual")}
             </p>
           ) : (
             rows.map((row) => (
@@ -118,7 +120,7 @@ export function AddToCollectionDialog({
               >
                 <span className="truncate text-[var(--text-strong)]">{row.name}</span>
                 <span className="shrink-0 text-caption text-[var(--text-faint)]">
-                  {row.item_count} 部
+                  {t("library.collections.itemCount", { count: row.item_count })}
                 </span>
               </button>
             ))
@@ -129,7 +131,7 @@ export function AddToCollectionDialog({
           <input
             type="text"
             value={name}
-            placeholder="新建合集，取个名字"
+            placeholder={t("library.collections.newName")}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") void createAndAdd();
@@ -142,7 +144,7 @@ export function AddToCollectionDialog({
             onClick={() => void createAndAdd()}
             className="h-9 shrink-0 rounded-lg bg-white/10 px-3 text-ui font-medium text-white transition hover:bg-white/20 disabled:opacity-40"
           >
-            新建并加入
+            {t("library.collections.createAndAdd")}
           </button>
         </div>
       </div>

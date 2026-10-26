@@ -11,9 +11,9 @@ enum DiscoverPosterAction: Hashable {
 
     var subscribeMeta: (label: String, icon: String)? {
         switch self {
-        case .subscribe: ("订阅影片", "plus")
-        case .follow: ("自动续订", "bell")
-        case .backfill: ("补齐缺集", "arrow.down.circle")
+        case .subscribe: (String(localized: .mediaDiscoverySubscribe), "plus")
+        case .follow: (String(localized: .mediaCardsAutoRenew), "bell")
+        case .backfill: (String(localized: .mediaCardsFillMissing), "arrow.down.circle")
         case .owned, .none: nil
         }
     }
@@ -57,8 +57,8 @@ struct DiscoverPosterCard: View {
 
     private var ribbon: DiscoverRibbon? {
         if let ribbon = item.ribbon { return ribbon }
-        if item.libraryStatus != nil { return DiscoverRibbon(label: "已入库", tone: .owned) }
-        if showsSubscribedRibbon, subscription != nil { return DiscoverRibbon(label: "已订阅", tone: .subscribed) }
+        if item.libraryStatus != nil { return DiscoverRibbon(label: String(localized: .mediaCardsInLibrary), tone: .owned) }
+        if showsSubscribedRibbon, subscription != nil { return DiscoverRibbon(label: String(localized: .mediaDiscoverySubscribed), tone: .subscribed) }
         return nil
     }
 
@@ -106,7 +106,7 @@ struct DiscoverPosterCard: View {
         // 无障碍标识只挂在卡片按钮上：信息层里的订阅键要作为独立元素可达
         .accessibilityIdentifier("poster-card")
         .accessibilityLabel(accessibilityText)
-        .accessibilityHint(revealsOnTap && !revealed ? "轻点展开简介与订阅操作，再次轻点查看详情" : "")
+        .accessibilityHint(revealsOnTap && !revealed ? String(localized: .mediaCardsRevealHint) : "")
         // 信息层叠在按钮之外：里面的操作键是独立按钮；文字部分不接收点按，点它等于点卡片（进详情）
         .overlay(alignment: .top) {
             if revealed {
@@ -138,10 +138,10 @@ struct DiscoverPosterCard: View {
     }
 
     private var accessibilityText: String {
-        var parts = ["《\(item.title)》"]
+        var parts = [String(localized: .mediaCardsQuotedTitle(item.title))]
         if let ribbon { parts.append(ribbon.label) }
-        if item.rating > 0 { parts.append(String(format: "评分 %.1f", item.rating)) }
-        return parts.joined(separator: "，")
+        if item.rating > 0 { parts.append(String(localized: .mediaCardsRatingValue(String(format: "%.1f", item.rating)))) }
+        return parts.joined(separator: AppLanguage.identifier == "zh-Hans" ? "，" : ", ")
     }
 
     private var poster: some View {
@@ -164,7 +164,7 @@ struct DiscoverPosterCard: View {
                             .foregroundStyle(Theme.danger)
                             .padding(.horizontal, 4).padding(.vertical, 3)
                             .background(.black.opacity(0.7), in: .rect(cornerRadius: 6))
-                            .accessibilityLabel("已收藏")
+                            .accessibilityLabel(String(localized: .mediaCardsFavorited))
                     }
                     if item.rating > 0 {
                         RatingBadge(rating: item.rating)
@@ -221,7 +221,7 @@ struct DiscoverPosterCard: View {
                     Image(systemName: subscribed ? "checkmark" : meta.icon)
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(subscribed ? Theme.success : .black)
-                    Text(subscribed ? "已订阅" : meta.label)
+                    Text(subscribed ? String(localized: .mediaDiscoverySubscribed) : meta.label)
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(subscribed ? .white.opacity(0.9) : .black)
@@ -231,13 +231,13 @@ struct DiscoverPosterCard: View {
                 .contentShape(Capsule().inset(by: -8))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(subscribed ? "管理《\(item.title)》的订阅" : "\(meta.label)《\(item.title)》")
+            .accessibilityLabel(subscribed ? String(localized: .mediaDiscoveryManageSubscription(item.title)) : "\(meta.label)《\(item.title)》")
             .accessibilityIdentifier("poster-card-subscribe")
         } else {
             // 在库标识：非交互
             HStack(spacing: 6) {
                 Circle().fill(Theme.success).frame(width: 6, height: 6)
-                Text("在库")
+                Text(String(localized: .libraryStatusInLibrary))
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.white.opacity(0.9))
@@ -255,7 +255,7 @@ struct DiscoverPosterCard: View {
                 // 发现页的「订阅影片」在已订阅时切成状态键（打开订阅弹层的管理态）；媒体库动作已订阅时隐藏
                 if action == .subscribe {
                     Button(action: presentSubscribe) {
-                        Label("已订阅 · \(SubscriptionStatusMeta.label(sub.status))", systemImage: "checkmark.circle")
+                        Label(String(localized: .mediaDetailSubscribedStatus(SubscriptionStatusMeta.label(sub.status))), systemImage: "checkmark.circle")
                     }
                 }
             } else {
@@ -264,10 +264,10 @@ struct DiscoverPosterCard: View {
                 }
             }
         } else if action == .owned {
-            Label("在库", systemImage: "checkmark.seal")
+            Label(String(localized: .libraryStatusInLibrary), systemImage: "checkmark.seal")
         }
         Button(action: open) {
-            Label("查看详情", systemImage: "info.circle")
+            Label(String(localized: .searchTorrentViewDetails), systemImage: "info.circle")
         }
     }
 
@@ -412,7 +412,7 @@ struct DiscoverPosterInfoPreview: View {
                     Text(item.overview).font(.caption).foregroundStyle(Theme.textMuted).lineLimit(6)
                 }
                 if item.libraryStatus != nil {
-                    Label("在库", systemImage: "circle.fill")
+                    Label(String(localized: .libraryStatusInLibrary), systemImage: "circle.fill")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Theme.success)
                         .labelStyle(.titleAndIcon)
@@ -478,7 +478,7 @@ struct RatingBadge: View {
 struct DiscoverPosterRow: View {
     let title: String
     let items: [DiscoverPosterItem]
-    var moreTitle = "查看完整榜单"
+    var moreTitle = String(localized: .mediaDiscoveryFullList)
     var onMore: (() -> Void)?
     var action: DiscoverPosterAction = .subscribe
     /// 不传按窗口宽度取（`CardMetrics.discoverPoster`）
@@ -541,7 +541,7 @@ struct DiscoverRowSkeleton: View {
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             .clipped()
         }
-        .accessibilityLabel("「\(title)」加载中")
+        .accessibilityLabel(String(localized: .mediaDiscoveryLoadingRow(title)))
     }
 }
 

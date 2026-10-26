@@ -64,6 +64,12 @@ GitHub Release 是唯一事实源；官网 api 维护一张派生的发布表（
 `iphone`（ios-v）、`appletv`（tvos-v）、`mac`（macos-v）、`transcoder`、`android`、`androidtv`、`windows`。
 客户端 changelog 的标题行写 `## <产品名> X.Y.Z: 标题`，拆分规则与服务器相同。
 
+Mac 版（macos-v）加了安装盘之后有两个包：安装盘 `MovieClaw-macos-arm64.dmg`（`variant: installer`，官网下载页给它）与同名的更新包
+`MovieClaw-macos-arm64.zip`（`variant: update`，App 自动更新用，下载页不单列）。安装盘的版本、芯片、最低系统取自更新包，在 macOS 上挂载
+核对里面是同一个构建，并复核 DMG 自己的签名与公证；缺同名 zip 的安装盘拒绝生成清单。只有 zip 的旧版本没有 `variant`。
+更新包有签名附件 `MovieClaw-macos-arm64.zip.edsig` 时，它的条目多一个 `edSignature`（Sparkle 的 EdDSA 签名，base64）；
+官网只把带签名的更新包放进 Mac 版自动更新的更新源 `/updates/mac/appcast.xml`。
+
 `downloads.json` 里 iPhone（ios-v）记录未签名 IPA 的版本、构建号与最低 iOS（`product: iphone`）；Windows（windows-v）
 按 Desktop CI 的 `release-manifest.json` 记录安装版与便携版两个包（`product: windows`，`variant: installer / portable`），
 带构建号的 ZIP 不进清单。

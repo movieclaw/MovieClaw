@@ -23,6 +23,7 @@ from movieclaw_agent import AgentRunner, AgentStartParams, discover_skills, expa
 from movieclaw_agent.events import AgentEvent
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.i18n import t
 from movieclaw_api.services.agent_session_recorder import AgentSessionRecorder
 from movieclaw_api.services.agent_sessions import get_agent_session_store
 from movieclaw_api.services.agent_toolkit import agent_system_prompt, profile_tools
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("movieclaw_api.channel_agent")
 
 #: 收到消息后的即时回执（先让用户知道已收到，再慢慢生成）
-ACK_TEXT = "思考中💭"
+ACK_TEXT_KEY = "agent.channel.thinking"
 
 
 async def ensure_agent_session(driver: ChannelDriver, account: Account, msg: InboundMessage) -> str:
@@ -74,8 +75,21 @@ async def run_agent(
     msg: InboundMessage,
     emit: Callable[[str], Awaitable[None]],
 ) -> None:
+    from movieclaw_api.i18n import use_locale
+    from movieclaw_api.services.locale_preferences import member_locale
+
+    with use_locale(await member_locale(account.member_id)):
+        await _run_agent(driver, account, msg, emit)
+
+
+async def _run_agent(
+    driver: ChannelDriver,
+    account: HostAccount,
+    msg: InboundMessage,
+    emit: Callable[[str], Awaitable[None]],
+) -> None:
     """dispatcher 的 run_agent 回调：一条入站消息驱动一次 AI 助手运行，分步回复。"""
-    await emit(ACK_TEXT)
+    await emit(t(ACK_TEXT_KEY))
     try:
         async with get_database().session() as session:
             llm_router = await acquire_llm_router(session)

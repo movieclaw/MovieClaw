@@ -291,6 +291,7 @@ class LibraryCloudRepository:
         replica.origin = REPLICA_ORIGIN_UPLOADED
         replica.state = REPLICA_UPLOADING
         replica.error = None
+        replica.error_ref = None
         replica.updated_at = now
         self._session.add(replica)
         await self._session.commit()
@@ -316,18 +317,20 @@ class LibraryCloudRepository:
         replica.sha1 = sha1
         replica.state = REPLICA_VERIFIED
         replica.error = None
+        replica.error_ref = None
         replica.verified_at = now
         replica.checked_at = now
         replica.updated_at = now
         self._session.add(replica)
         await self._session.commit()
 
-    async def fail_upload(self, file_id: int, error: str) -> None:
+    async def fail_upload(self, file_id: int, error: str, error_ref: dict | None = None) -> None:
         replica = await self.replica_of(file_id)
         if replica is None or replica.state == REPLICA_VERIFIED:
             return
         replica.state = REPLICA_FAILED
         replica.error = error
+        replica.error_ref = error_ref
         replica.updated_at = utcnow()
         self._session.add(replica)
         await self._session.commit()

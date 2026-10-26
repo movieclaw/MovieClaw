@@ -30,7 +30,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api import hooks
-from movieclaw_api.exceptions import BadRequestException, UpstreamServiceException
+from movieclaw_api.exceptions import BadRequestException, UpstreamServiceException, exception_fields
+from movieclaw_api.i18n.stored import exception_reference, keyed_error
 from movieclaw_api.services.site_access import SiteUnavailableError, get_site_access
 from movieclaw_db.models import DownloaderClient, DownloadHint, ManualDownloadIntent, utcnow
 from movieclaw_db.models.manual_download_intent import MANUAL_DOWNLOAD_INTENT_TTL
@@ -200,6 +201,7 @@ async def submit_torrent(
     selection_owner: str | None = None,
     route_hint: hooks.DownloaderQuery | None = None,
     before_resume=None,
+    strict_selection: bool = False,
 ) -> tuple[SubmitResult, DownloaderClient]:
     """从站点取回种子并提交到下载器，返回（提交结果, 所用下载器记录）。
 
@@ -216,26 +218,32 @@ async def submit_torrent(
     select_units 非空时启用**选择性下载**：种子以暂停态提交，按文件清单
     只保留覆盖这些 (季, 集) 单元的文件，其余标记不下载后恢复——整季包
     只补缺口集用。known_seasons 是条目真实存在的季号，借给规划器做季号
-    守卫。规划或写入失败一律回退全量下载，绝不影响投递本身。
+    守卫。规划或写入失败默认回退全量下载，绝不影响投递本身。
+
+    ``strict_selection``（需同时给 ``selection_owner`` 作任务标签）：带订阅上限的
+    订阅用，整包可能是上千集，"多下几个 GB 只是浪费"的前提不再成立。全新任务的
+    文件取舍走严格路径：规划不出结论、写入失败都**不回落全量**，抛错让投递退回
+    队列重试，刚加进来的暂停任务一并移除。已存在的任务照旧不碰。
     """
     if not download_url:
-        raise BadRequestException("该种子没有可用的下载入口（download_url 缺失）")
+        raise BadRequestException(message_key="errors.torrent.downloadUrlMissing")
 
     # 1. 选下载器（先于取种：注定投不出去时不白打站点请求）。
     # 指定 id 时要求该台"启用 + 验证通过"，否则给指向明确的中文错误
     if downloader_id is not None:
         row = await session.get(DownloaderClient, downloader_id)
         if row is None:
-            raise BadRequestException(f"下载器不存在：#{downloader_id}")
+            raise BadRequestException(
+                message_key="errors.torrent.downloaderMissing", params={"id": downloader_id}
+            )
         if not row.enabled or row.status != ConfigStatus.ACTIVE:
             raise BadRequestException(
-                f"下载器「{row.name}」当前不可用（已停用或连接验证未通过），"
-                "请在「设置 → 下载器」里检查后重试，或改用其他下载器"
+                message_key="errors.torrent.downloaderUnavailable", params={"name": row.name}
             )
     else:
         row = await pick_downloader(session, route_hint)
     if row is None:
-        raise BadRequestException("没有可用的默认下载器（请在「设置 → 下载器」里添加并设为默认）")
+        raise BadRequestException(message_key="errors.torrent.defaultDownloaderMissing")
 
     # 2. 保存目录（库推导路径 > 下载器配置默认目录，均为 movieclaw 视角）+
     # 守门：下载器配了路径映射（跨容器部署的声明），保存目录却不在任何映射
@@ -249,10 +257,8 @@ async def submit_torrent(
         and not mapping_covers(effective_save_path, row.path_mappings)
     ):
         raise BadRequestException(
-            f"保存目录 {effective_save_path} 不在下载器「{row.name}」的路径映射覆盖范围内，"
-            "下载器可能无法访问该目录——请在「设置 → 下载器」为它补一条路径映射"
-            "（下载器实际可直达同名路径时，添加一条两边相同的映射即可），"
-            "或改用监听导入规则"
+            message_key="errors.torrent.pathUnmapped",
+            params={"path": effective_save_path, "name": row.name},
         )
     submit_save_path = translate_save_path(effective_save_path, row.path_mappings)
 
@@ -260,11 +266,13 @@ async def submit_torrent(
     try:
         site = await get_site_access().get(site_id)
     except SiteUnavailableError as exc:
-        raise BadRequestException(str(exc)) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     try:
         torrent_bytes = await site.download_torrent(download_url)
     except Exception as exc:
-        raise UpstreamServiceException(f"从站点 {site_id} 取回种子失败：{exc}") from exc
+        raise UpstreamServiceException(
+            message_key="errors.torrent.fetchFailed", params={"id": site_id, "error": exc}
+        ) from exc
 
     # 4. 提交（幂等，重复种子不报错）
     repo = DownloaderRepository(session)
@@ -299,7 +307,7 @@ async def submit_torrent(
         # 的目标目录（否则文件留在刷流目录，入库监听永远看不见），台账转出。
         # 迁移失败不连累提交——留给刷流的认领转出兜底，订阅按"非自有任务"
         # 的既有路径处理
-        if selection_owner and select_units and submit_result.info_hash:
+        if selection_owner and select_units and submit_result.info_hash and not strict_selection:
             submit_result = await apply_strict_file_selection(
                 downloader,
                 submit_result,
@@ -307,6 +315,20 @@ async def submit_torrent(
                 known_seasons=known_seasons,
                 owner=selection_owner,
                 before_resume=before_resume,
+            )
+        elif (
+            strict_selection
+            and selection_owner
+            and select_units
+            and submit_result.info_hash
+            and not submit_result.already_exists
+        ):
+            submit_result = await _apply_strict_to_new_task(
+                downloader,
+                submit_result,
+                select_units,
+                known_seasons=known_seasons,
+                owner=selection_owner,
             )
         elif submit_result.already_exists and category != "movieclaw-boost":
             submit_result = await _reclaim_boost_task(
@@ -323,18 +345,24 @@ async def submit_torrent(
             )
     except Exception as exc:
         from movieclaw_api.services.subscription.file_selection import UnsatisfiableSelection
+        from movieclaw_api.services.subscription.smart_submission import SubmissionRejected
 
-        if isinstance(exc, UnsatisfiableSelection):
-            raise  # 文件清单的确定结论，调用方要据此收窄投递，不能当网络故障
-        raise UpstreamServiceException(f"提交到下载器「{row.name}」失败：{exc}") from exc
+        if isinstance(exc, UnsatisfiableSelection | SubmissionRejected):
+            # 文件清单的确定结论 / 提交前钩子的领域拒绝：调用方要据此收窄或
+            # 终止投递，包成上游故障会进入无限退避重试（issue #998）
+            raise
+        raise UpstreamServiceException(
+            message_key="errors.torrent.submitFailed",
+            params={"name": row.name, "error": exception_reference(exc)},
+        ) from exc
     finally:
         await downloader.close()
 
     # 目录日志：有映射翻译时同时打两个视角，方便核对跨容器部署是否配对
     if submit_save_path != effective_save_path:
-        dir_text = f"{effective_save_path} →（映射）{submit_save_path}"
+        dir_text = f"{effective_save_path} →（映射）{submit_save_path}"  # i18n-ignore: log
     else:
-        dir_text = effective_save_path or "（下载器默认）"
+        dir_text = effective_save_path or "（下载器默认）"  # i18n-ignore: log
     logger.info(
         "种子已提交到下载器「%s」：site=%s name=%s hash=%s 已存在=%s 目录=%s",
         row.name,
@@ -380,7 +408,7 @@ async def apply_strict_file_selection(
         await asyncio.sleep(0.2)
         status = await downloader.get_torrent(info_hash, include_files=True)
     if status is None or owner not in status.tags:
-        raise ValueError("无法确认该任务属于本次智能投递，不修改已有任务，等待对账")
+        raise keyed_error(ValueError, "errors.torrent.selectionOwnerUnconfirmed")
     plan = plan_strict_file_selection(
         [f.path for f in status.files],
         needed_units,
@@ -390,7 +418,7 @@ async def apply_strict_file_selection(
     actual = {i for i, f in enumerate(status.files) if f.selected}
     if actual != expected:
         if status.state != "paused":
-            raise ValueError("文件选择尚未核验且任务不是暂停状态，请在下载器暂停后重试")
+            raise keyed_error(ValueError, "errors.torrent.selectionNotPaused")
         indices = [
             status.files[i].index if status.files[i].index is not None else i
             for i in plan.keep_indices
@@ -404,10 +432,10 @@ async def apply_strict_file_selection(
         != [(f.index, f.path, f.size_bytes) for f in status.files]
         or {i for i, f in enumerate(verified.files) if f.selected} != expected
     ):
-        raise ValueError("下载器文件选择回读不一致，未恢复下载；稍后重试同一任务")
+        raise keyed_error(ValueError, "errors.torrent.selectionReadbackMismatch")
     if not verified.completed:
         if verified.state not in {"paused", "downloading", "queued", "stalled", "checking"}:
-            raise ValueError("下载器状态尚未确认，等待重试同一任务")
+            raise keyed_error(ValueError, "errors.torrent.stateUnconfirmed")
         if before_resume is not None:
             await before_resume()
         # 校验恢复数据时也可能仍处于添加时的暂停态；恢复是幂等操作。
@@ -416,6 +444,36 @@ async def apply_strict_file_selection(
     return submit_result.model_copy(
         update={"already_exists": False, "skipped_file_count": len(plan.skip_indices)}
     )
+
+
+async def _apply_strict_to_new_task(
+    downloader,  # noqa: ANN001 -- BaseDownloader，避免顶层引入适配器依赖
+    submit_result: SubmitResult,
+    select_units: set[tuple[int, int]],
+    *,
+    known_seasons: Collection[int] | None,
+    owner: str,
+) -> SubmitResult:
+    """严格版文件取舍（``strict_selection``）：任何一步失败都不恢复下载，并移除刚加的任务。
+
+    移除是安全的：任务由本次提交刚创建、一直停在暂停态；``delete_files=False`` 连
+    落点上可能预先存在的文件也不碰。不移除的话，下一轮重试会把它当成「已存在的
+    任务」直接认领，工单就挂在一个什么都没选的任务上。
+    """
+    try:
+        return await apply_strict_file_selection(
+            downloader,
+            submit_result,
+            select_units,
+            known_seasons=known_seasons,
+            owner=owner,
+        )
+    except Exception:
+        try:
+            await downloader.delete_torrent(submit_result.info_hash, delete_files=False)
+        except Exception:  # noqa: BLE001 -- 清理失败只记录，原始错误才是要抛的
+            logger.warning("严格取舍失败后移除新任务失败：hash=%s", submit_result.info_hash)
+        raise
 
 
 async def _apply_file_selection(
@@ -509,6 +567,7 @@ async def _reclaim_boost_task(
             return submit_result
     task.state = BoostTaskState.MISSING
     task.evicted_at = utcnow()
+    # i18n-ignore: ledger note (evict_reason), not rendered
     task.evict_reason = "已被订阅/手动下载接管，数据已迁至媒体目标目录"
     task.updated_at = utcnow()
     await session.commit()

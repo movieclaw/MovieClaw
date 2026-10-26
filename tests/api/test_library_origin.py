@@ -53,7 +53,11 @@ async def client(db):
     admin = Principal(kind="admin", name="tester")
     app.dependency_overrides[require_login] = lambda: admin
     app.dependency_overrides[require_admin] = lambda: admin
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        headers={"Accept-Language": "zh-Hans"},
+    ) as c:
         yield c
 
 
@@ -120,7 +124,8 @@ def test_manual_watch_and_scan_origins():
     assert watch["kind"] == "watch_import"
     assert watch["detail"] == "/downloads/complete · 复制入库 · 未匹配到任何下载任务"
 
-    assert scan_origin("manual") == {
+    scan = scan_origin("manual")
+    assert {k: scan[k] for k in ("kind", "label", "detail")} == {
         "kind": "scan",
         "label": "存量扫描发现（非本系统入库）",
         "detail": "手动扫描发现",
@@ -226,13 +231,13 @@ async def test_derive_origins_for_legacy_rows(db, tmp_path):
             "hdsky-test · Nine.Gates.2025.S01.2160p.WEB-DL-CHDWEB"
         )
         assert "qb@NAS" in derived[a.id]["detail"]
-        assert derived[b.id] == {
+        assert {k: derived[b.id][k] for k in ("kind", "label", "detail")} == {
             "kind": "watch_import",
             "label": "手动或监听导入",
             "detail": "hdsky-test · Nine.Gates.2025.1080p.WEB-DL-XXX",
         }
         assert derived[c.id]["kind"] == "scan" and derived[c.id]["detail"] is None
-        assert derived[d.id] == {
+        assert {k: derived[d.id][k] for k in ("kind", "label", "detail")} == {
             "kind": "watch_import",
             "label": "监听目录导入",
             "detail": "来源种子未记录",

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
 
 import { HistoryIcon, XIcon } from "@/components/icons";
@@ -45,6 +46,7 @@ export function WallLoadMore({
    */
   rootMargin?: string;
 }) {
+  const t = useTranslations();
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const target = sentinel.current;
@@ -72,7 +74,7 @@ export function WallLoadMore({
             aria-hidden="true"
             className="mr-2 size-3.5 animate-spin rounded-full border-2 border-white/15 border-t-white/60 motion-reduce:animate-none"
           />
-          {`加载中…（第 ${start + 1}–${start + loaded} 部 / 共 ${Math.max(total, start + loaded)}）`}
+          {t("library.detail.loadingRange", { start: start + 1, end: start + loaded, total: Math.max(total, start + loaded) })}
         </>
       ) : null}
     </div>
@@ -129,6 +131,7 @@ export function WallLoadPrev({ start, onReach }: { start: number; onReach: () =>
  * 「全部收藏」页弹的是同一枚胶囊。
  */
 export function WallRecallPill({ onJump, onDismiss }: { onJump: () => void; onDismiss: () => void }) {
+  const t = useTranslations();
   return (
     <div
       aria-live="polite"
@@ -141,12 +144,12 @@ export function WallRecallPill({ onJump, onDismiss }: { onJump: () => void; onDi
           className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sub font-medium text-white/90 transition hover:bg-white/[0.1] active:scale-[0.98]"
         >
           <HistoryIcon className="size-4 shrink-0 text-[var(--accent)]" />
-          回到上次浏览的位置
+          {t("library.detail.recallPosition")}
         </button>
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="不用了"
+          aria-label={t("library.detail.dismissRecall")}
           className="flex size-7 shrink-0 items-center justify-center rounded-full text-white/45 transition hover:bg-white/[0.1] hover:text-white/80"
         >
           <XIcon className="size-3.5" />

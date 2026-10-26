@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useEffect, useId, useState } from "react";
 
 import { SmartDefaultsCard, smartSummary } from "@/components/smart-subscription-settings";
@@ -60,6 +62,8 @@ export function SmartPlanCard({ plan, choice, setChoice, onSettingsSaved, onEdit
   /** 正在改智能设置时不能提交订阅（还没保存的设置不算数） */
   onEditingChange?: (editing: boolean) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const id = useId();
   const [editingDefaults, setEditingDefaultsState] = useState(false);
   const setEditingDefaults = (editing: boolean) => {
@@ -71,21 +75,21 @@ export function SmartPlanCard({ plan, choice, setChoice, onSettingsSaved, onEdit
   const [editingQuality, setEditingQuality] = useState(false);
   const [editingSubtitle, setEditingSubtitle] = useState(false);
 
-  if (!plan) return <section aria-label="智能选择" className="rounded-2xl border border-[var(--line)] bg-[var(--surface-inset)] p-4">
-    <p className="text-sub text-[var(--text-muted)]">正在读取设置…</p>
+  if (!plan) return <section aria-label={t("subscription.smart.title")} className="rounded-2xl border border-[var(--line)] bg-[var(--surface-inset)] p-4">
+    <p className="text-sub text-[var(--text-muted)]">{t("subscription.smart.loading")}</p>
   </section>;
 
   const heading = <div className="flex items-center justify-between gap-3">
-    <h3 className="text-sub text-[var(--text-muted)]">智能选择</h3>
-    {plan.configured && plan.can_edit && !editingDefaults && <button type="button" onClick={() => setEditingDefaults(true)} className="min-h-11 -my-2 -mr-2 px-2 text-sub text-[var(--accent)]">修改设置</button>}
+    <h3 className="text-sub text-[var(--text-muted)]">{t("subscription.smart.title")}</h3>
+    {plan.configured && plan.can_edit && !editingDefaults && <button type="button" onClick={() => setEditingDefaults(true)} className="min-h-11 -my-2 -mr-2 px-2 text-sub text-[var(--accent)]">{t("subscription.smart.editSettings")}</button>}
   </div>;
 
   if (!plan.configured || editingDefaults) {
-    return <section aria-label="智能选择" className="rounded-2xl border border-[var(--line)] bg-[var(--surface-inset)] p-4">
+    return <section aria-label={t("subscription.smart.title")} className="rounded-2xl border border-[var(--line)] bg-[var(--surface-inset)] p-4">
       {heading}
       {plan.can_edit
         ? <SmartDefaultsCard compact startEditing onSaved={() => { setEditingDefaults(false); onSettingsSaved(); }} onCancel={plan.configured ? () => setEditingDefaults(false) : undefined} />
-        : <p className="mt-3 text-sub text-[var(--text-muted)]">请管理员先完成智能设置，或选择规则模式。</p>}
+        : <p className="mt-3 text-sub text-[var(--text-muted)]">{t("subscription.smart.adminRequired")}</p>}
     </section>;
   }
 
@@ -95,31 +99,31 @@ export function SmartPlanCard({ plan, choice, setChoice, onSettingsSaved, onEdit
   const answer = choice.language ?? (plan.subtitle_understood ? "understood" : "subtitles");
   const language = plan.subtitle_language_label;
   const askLanguage = plan.can_edit && language && (plan.question || editingSubtitle);
-  const question = plan.question ?? (language ? {
-    prompt: `${language}看得懂吗？`,
-    subtitles_label: plan.subtitle_understood ? `要，只下带字幕的` : (plan.subtitle_line ?? "").replace(`${language} · `, "要，"),
-    understood_label: `不用，我看得懂${language}`,
+  const question = plan.question ?? plan.subtitle_edit_question ?? (language ? {
+    prompt: t("subscription.smart.editLanguageQuestion", { language }),
+    subtitles_label: t("subscription.smart.genericRequireSubtitles"),
+    understood_label: t("subscription.smart.understoodAnswer", { language }),
   } : null);
-  const subtitleLine = choice.language === "understood" ? `${language} · 不需要字幕`
-    : choice.language === "subtitles" && plan.subtitle_understood ? `${language} · 只下带字幕的` : plan.subtitle_line;
+  const subtitleLine = choice.language === "understood" ? t("subscription.smart.understoodLine", { language: language ?? "" })
+    : choice.language === "subtitles" && plan.subtitle_understood ? t("subscription.smart.genericSubtitlesLine", { language: language ?? "" }) : plan.subtitle_line;
 
-  return <section aria-label="智能选择" className="rounded-2xl border border-[var(--line)] bg-[var(--surface-inset)] p-4 text-[var(--text)]">
+  return <section aria-label={t("subscription.smart.title")} className="rounded-2xl border border-[var(--line)] bg-[var(--surface-inset)] p-4 text-[var(--text)]">
     {heading}
     <div className="mt-2 flex items-start justify-between gap-3">
       <div className="min-w-0 space-y-1">
-        <p className="text-title font-semibold">{qualityChanged ? `优先 ${smartSummary({ resolution, source })}` : plan.quality_label}</p>
+        <p className="text-title font-semibold">{qualityChanged ? t("subscription.smart.prefer", { quality: smartSummary({ resolution, source }, locale) }) : plan.quality_label}</p>
         {!qualityChanged && plan.quality_note && <p className="text-caption text-[var(--text-muted)]">{plan.quality_note}</p>}
         {!qualityChanged && plan.quality_shadow && <p className="text-caption text-[var(--text-muted)]">{plan.quality_shadow}</p>}
         <p className="text-sub text-[var(--text-muted)]">{plan.wait_label}</p>
       </div>
-      {plan.can_edit && <button type="button" aria-expanded={editingQuality} onClick={() => setEditingQuality((v) => !v)} className="min-h-11 -my-2 -mr-2 shrink-0 px-2 text-sub text-[var(--accent)]">{editingQuality ? "收起" : "改画质"}</button>}
+      {plan.can_edit && <button type="button" aria-expanded={editingQuality} onClick={() => setEditingQuality((v) => !v)} className="min-h-11 -my-2 -mr-2 shrink-0 px-2 text-sub text-[var(--accent)]">{editingQuality ? t("subscription.smart.collapse") : t("subscription.smart.editQuality")}</button>}
     </div>
     {editingQuality && <div className="mt-3 space-y-2">
-      <Segmented label="分辨率" value={resolution} onChange={(value) => setChoice({ ...choice, resolution: value })}
+      <Segmented label={t("subscription.smart.resolution")} value={resolution} onChange={(value) => setChoice({ ...choice, resolution: value })}
         options={[{ value: "2160p", label: "4K" }, { value: "1080p", label: "1080p" }]} />
-      <Segmented label="片源" value={source} onChange={(value) => setChoice({ ...choice, source: value })}
-        options={[{ value: "web-dl", label: "WEB-DL" }, { value: "blu-ray", label: "蓝光" }, { value: "remux", label: "Remux" }]} />
-      {qualityChanged && <Choices name={`${id}-scope`} legend="以后也这样吗？" value={choice.scope}
+      <Segmented label={t("subscription.smart.source")} value={source} onChange={(value) => setChoice({ ...choice, source: value })}
+        options={[{ value: "web-dl", label: "WEB-DL" }, { value: "blu-ray", label: t("subscription.smart.bluray") }, { value: "remux", label: "Remux" }]} />
+      {qualityChanged && <Choices name={`${id}-scope`} legend={t("subscription.smart.rememberScope")} value={choice.scope}
         options={plan.scope_options} onChange={(value) => setChoice({ ...choice, scope: value })} />}
     </div>}
     {askLanguage && question
@@ -128,7 +132,7 @@ export function SmartPlanCard({ plan, choice, setChoice, onSettingsSaved, onEdit
           onChange={(value) => setChoice({ ...choice, language: value as SmartChoice["language"] })} />
       : subtitleLine && <div className="mt-3 flex items-center justify-between gap-3 border-t border-[var(--line)] pt-3">
           <p className="text-sub">{subtitleLine}</p>
-          {plan.can_edit && <button type="button" onClick={() => setEditingSubtitle(true)} className="min-h-11 -my-2 -mr-2 shrink-0 px-2 text-sub text-[var(--accent)]" aria-label="改字幕要求">改</button>}
+          {plan.can_edit && <button type="button" onClick={() => setEditingSubtitle(true)} className="min-h-11 -my-2 -mr-2 shrink-0 px-2 text-sub text-[var(--accent)]" aria-label={t("subscription.smart.editSubtitleLabel")}>{t("subscription.smart.editSubtitle")}</button>}
         </div>}
   </section>;
 }

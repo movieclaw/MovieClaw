@@ -132,15 +132,18 @@ async def agent_system_prompt(
     workspace = "read" in names
     lines = []
     if speaker is not None and (nickname := await _nickname(speaker)):
+        # i18n-ignore: model-facing system prompt (design §8.4)
         lines.append(f"- 当前用户的昵称：{nickname}")
     if workspace:
         log_dir = Path(get_settings().log_dir).resolve()
         lines.append(
+            # i18n-ignore: model-facing system prompt (design §8.4)
             f"- 运行日志目录：{log_dir}，按天一个文件（movieclaw-YYYY-MM-DD.log）。"
             "排查问题时用 bash 的 grep/tail 直接检索日志。"
         )
     external_url = (await get_setting_store().get(AppServerSetting)).external_url
     if external_url:
+        # i18n-ignore: model-facing system prompt (design §8.4)
         lines.append(f"- 本应用的外部访问地址：{external_url}。")
     sections = [build_system_prompt("\n".join(lines) or None, workspace=workspace)]
     if workspace:
@@ -150,4 +153,10 @@ async def agent_system_prompt(
             sections.append(fragment)
     if "mclaw" in names:
         sections.append(render_service_block())
+    from movieclaw_api.i18n import current_locale
+
+    language = "Simplified Chinese" if current_locale.get() == "zh-Hans" else "English"
+    sections.insert(
+        1, f"Reply to the user in {language}. Use the same language for generated session titles."
+    )
     return "\n\n".join(sections)

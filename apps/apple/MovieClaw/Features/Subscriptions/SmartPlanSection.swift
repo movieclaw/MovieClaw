@@ -15,13 +15,13 @@ struct SmartPlanSection: View {
                     if plan.canEdit {
                         NavigationLink(value: SubscribeSheet.Page.smart) {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("智能选择").font(.subheadline).foregroundStyle(.secondary)
-                                Text("设置智能偏好").font(.headline)
-                                Text("设置一次，电影和剧集都按它来").font(.subheadline).foregroundStyle(.secondary)
+                                Text(String(localized: .subscriptionSmartTitle)).font(.subheadline).foregroundStyle(.secondary)
+                                Text(String(localized: .subscriptionSmartSetupTitle)).font(.headline)
+                                Text(String(localized: .subscriptionSmartSetupOnce)).font(.subheadline).foregroundStyle(.secondary)
                             }.padding(.vertical, 4)
                         }.accessibilityIdentifier("smart-edit")
                     } else {
-                        Text("请管理员先完成智能设置，或选择规则模式。")
+                        Text(String(localized: .subscriptionSmartAdminRequired))
                             .font(.subheadline).foregroundStyle(.secondary)
                             .accessibilityIdentifier("smart-needs-admin")
                     }
@@ -30,9 +30,9 @@ struct SmartPlanSection: View {
                         NavigationLink(value: SubscribeSheet.Page.smart) { summary(plan) }
                             .accessibilityIdentifier("smart-edit")
                         NavigationLink(value: SubscribeSheet.Page.quality) {
-                            LabeledContent("改画质") {
+                            LabeledContent(String(localized: .subscriptionSmartEditQuality)) {
                                 if choice.qualityChanged(plan) {
-                                    Text(choice.scope == "only" ? "只这部" : plan.scopeOptions.first { $0.value == choice.scope }?.label ?? "")
+                                    Text(choice.scope == "only" ? String(localized: .subscriptionSmartOnlyThis) : plan.scopeOptions.first { $0.value == choice.scope }?.label ?? "")
                                 }
                             }
                         }.accessibilityIdentifier("smart-quality")
@@ -42,7 +42,7 @@ struct SmartPlanSection: View {
                 }
             } else {
                 // 只在预检完成后渲染：没有摘要说明服务器早于 0.42.0
-                Text("服务器尚未支持智能选择，请在更多选项中使用规则模式。")
+                Text(String(localized: .subscriptionSmartServerUnsupported))
                     .font(.subheadline).foregroundStyle(.secondary)
                     .accessibilityIdentifier("smart-unsupported")
             }
@@ -55,8 +55,8 @@ struct SmartPlanSection: View {
     private func summary(_ plan: API.SmartPlanView) -> some View {
         let changed = choice.qualityChanged(plan)
         return VStack(alignment: .leading, spacing: 6) {
-            Text("智能选择").font(.subheadline).foregroundStyle(.secondary)
-            Text(changed ? "优先 \(SmartLabels.quality(resolution: choice.resolution ?? plan.resolution, source: choice.source ?? plan.source))" : plan.qualityLabel ?? "")
+            Text(String(localized: .subscriptionSmartTitle)).font(.subheadline).foregroundStyle(.secondary)
+            Text(changed ? String(localized: .subscriptionSmartPrefer(SmartLabels.quality(resolution: choice.resolution ?? plan.resolution, source: choice.source ?? plan.source))) : plan.qualityLabel ?? "")
                 .font(.headline).accessibilityIdentifier("smart-quality-label")
             if !changed, let note = plan.qualityNote {
                 Text(note).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("smart-quality-note")
@@ -79,25 +79,25 @@ struct SmartPlanSection: View {
         if plan.canEdit, plan.question != nil || editingSubtitle {
             let question = plan.question
             Section {
-                Picker(question?.prompt ?? "\(language)看得懂吗？", selection: answer) {
-                    Text(question?.subtitlesLabel ?? (plan.subtitleUnderstood == true ? "要，只下带字幕的" : line.replacingOccurrences(of: "\(language) · ", with: "要，")))
+                Picker(question?.prompt ?? String(localized: .subscriptionSmartEditLanguageQuestion(language)), selection: answer) {
+                    Text(question?.subtitlesLabel ?? (plan.subtitleUnderstood == true ? String(localized: .subscriptionSmartGenericRequireSubtitles) : line.replacingOccurrences(of: "\(language) · ", with: String(localized: .subscriptionSmartYesPrefix))))
                         .tag("subtitles")
-                    Text(question?.understoodLabel ?? "不用，我看得懂\(language)").tag("understood")
+                    Text(question?.understoodLabel ?? String(localized: .subscriptionSmartUnderstoodAnswer(language))).tag("understood")
                 }
                 .pickerStyle(.inline).labelsHidden()
                 .accessibilityIdentifier("smart-language")
             } header: {
-                Text(question?.prompt ?? "\(language)看得懂吗？").accessibilityIdentifier("smart-language-prompt")
+                Text(question?.prompt ?? String(localized: .subscriptionSmartEditLanguageQuestion(language))).accessibilityIdentifier("smart-language-prompt")
             }
         } else {
             Section {
                 HStack {
-                    Text(choice.language == "understood" ? "\(language) · 不需要字幕" : line)
+                    Text(choice.language == "understood" ? String(localized: .subscriptionSmartUnderstoodLine(language)) : line)
                         .accessibilityIdentifier("smart-subtitle-line")
                     Spacer(minLength: 8)
                     if plan.canEdit {
-                        Button("改") { editingSubtitle = true }
-                            .buttonStyle(.borderless).accessibilityLabel("改字幕要求")
+                        Button(String(localized: .subscriptionSmartEditSubtitle)) { editingSubtitle = true }
+                            .buttonStyle(.borderless).accessibilityLabel(String(localized: .subscriptionSmartEditSubtitleLabel))
                             .accessibilityIdentifier("smart-language-edit")
                     }
                 }
@@ -116,31 +116,31 @@ struct SmartQualityPage: View {
         let source = Binding<String>(mcGet: { choice.source ?? plan.source ?? "web-dl" }, set: { choice.source = $0 })
         Form {
             Section {
-                Picker("分辨率", selection: resolution) {
+                Picker(String(localized: .subscriptionSmartResolution), selection: resolution) {
                     Text("4K").tag("2160p"); Text("1080p").tag("1080p")
                 }.pickerStyle(.segmented).accessibilityIdentifier("smart-quality-resolution")
-                Picker("片源", selection: source) {
-                    Text("WEB-DL").tag("web-dl"); Text("蓝光").tag("blu-ray"); Text("Remux").tag("remux")
+                Picker(String(localized: .subscriptionSmartSource), selection: source) {
+                    Text("WEB-DL").tag("web-dl"); Text(String(localized: .subscriptionSmartBluray)).tag("blu-ray"); Text("Remux").tag("remux")
                 }.pickerStyle(.segmented).accessibilityIdentifier("smart-quality-source")
             } footer: {
-                if let note = plan.qualityNote { Text("现在\(note)") }
+                if let note = plan.qualityNote { Text(String(localized: .subscriptionSmartCurrentNote(note))) }
             }
             if choice.qualityChanged(plan) {
                 Section {
-                    Picker("以后也这样吗？", selection: $choice.scope) {
+                    Picker(String(localized: .subscriptionSmartRememberScope), selection: $choice.scope) {
                         ForEach(plan.scopeOptions, id: \.value) { option in Text(option.label).tag(option.value) }
                     }
                     .pickerStyle(.inline).labelsHidden()
                     .accessibilityIdentifier("smart-quality-scope")
                 } header: {
-                    Text("以后也这样吗？")
+                    Text(String(localized: .subscriptionSmartRememberScope))
                 } footer: {
-                    Text("选「只这部」只改这一部；其他选项会记住，同类作品以后都这样。")
+                    Text(String(localized: .subscriptionSmartScopeFooter))
                 }
             }
         }
         .subsFormStyle()
-        .navigationTitle("画质")
+        .navigationTitle(String(localized: .libraryFiltersQuality))
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -162,7 +162,7 @@ struct SmartDefaultsEditor: View {
             if let error {
                 Section {
                     SubsNoticeRow(text: error, tone: .error)
-                    Button("重新读取设置") {
+                    Button(String(localized: .subscriptionSmartReload)) {
                         Task {
                             await load()
                             // 订阅页的摘要也跟着刷新，取消回去看到的是最新设置
@@ -173,46 +173,46 @@ struct SmartDefaultsEditor: View {
             }
             if let draft = Binding($draft) {
                 Section {
-                    Picker("优先分辨率", selection: draft.resolution) {
+                    Picker(String(localized: .subscriptionSmartPreferredResolution), selection: draft.resolution) {
                         Text("4K").tag("2160p"); Text("1080p").tag("1080p")
                     }.accessibilityIdentifier("smart-resolution")
-                    Picker("优先片源", selection: draft.source) {
-                        Text("WEB-DL").tag("web-dl"); Text("蓝光").tag("blu-ray"); Text("Remux").tag("remux")
+                    Picker(String(localized: .subscriptionSmartPreferredSource), selection: draft.source) {
+                        Text("WEB-DL").tag("web-dl"); Text(String(localized: .subscriptionSmartBluray)).tag("blu-ray"); Text("Remux").tag("remux")
                     }.accessibilityIdentifier("smart-source")
                     // 选择器的状态在创建时取自草稿；重新读取设置后按新版本重建，显示的就是要保存的值
-                    SmartWaitPicker(title: "电影最多等", identifier: "smart-movie-wait", seconds: draft.movieWaitSeconds)
+                    SmartWaitPicker(title: String(localized: .subscriptionSmartMovieWait), identifier: "smart-movie-wait", seconds: draft.movieWaitSeconds)
                         .id("movie-\(defaults?.movieRevision ?? 0)-\(reloads)")
-                    SmartWaitPicker(title: "剧集每集最多等", identifier: "smart-tv-wait", seconds: draft.tvWaitSeconds)
+                    SmartWaitPicker(title: String(localized: .subscriptionSmartTvWait), identifier: "smart-tv-wait", seconds: draft.tvWaitSeconds)
                         .id("tv-\(defaults?.tvRevision ?? 0)-\(reloads)")
-                    Toggle("允许后续洗版", isOn: Binding(mcGet: { draft.wrappedValue.allowUpgrade ?? true }, set: { draft.wrappedValue.allowUpgrade = $0 }))
+                    Toggle(String(localized: .subscriptionSmartAllowUpgrade), isOn: Binding(mcGet: { draft.wrappedValue.allowUpgrade ?? true }, set: { draft.wrappedValue.allowUpgrade = $0 }))
                         .toggleStyle(SystemSwitchStyle()).accessibilityIdentifier("smart-upgrade")
                 } footer: {
-                    Text(defaults?.configured == true ? "新订阅和还在等待的订阅都会按新设置来，已经下载的不受影响。" : "只需设置一次，电影和剧集都按它来。")
+                    Text(defaults?.configured == true ? String(localized: .subscriptionSmartUpdateHint) : String(localized: .subscriptionSmartSetupHint))
                 }
-                Section("最低要求") {
-                    Toggle("只接受 \(draft.wrappedValue.resolution == "2160p" ? "4K" : "1080p")", isOn: Binding(mcGet: { draft.wrappedValue.strictResolution ?? false }, set: { draft.wrappedValue.strictResolution = $0 }))
+                Section(String(localized: .subscriptionSmartMinimum)) {
+                    Toggle(String(localized: .subscriptionSmartOnlyResolution(draft.wrappedValue.resolution == "2160p" ? "4K" : "1080p")), isOn: Binding(mcGet: { draft.wrappedValue.strictResolution ?? false }, set: { draft.wrappedValue.strictResolution = $0 }))
                         .toggleStyle(SystemSwitchStyle()).accessibilityIdentifier("smart-strict-resolution")
                 }
             } else if error == nil {
-                Section { HStack { ProgressView(); Text("正在读取智能设置…") } }
+                Section { HStack { ProgressView(); Text(String(localized: .subscriptionSmartLoadingSettings)) } }
             }
             if let memory, defaults?.configured == true { memorySections(memory) }
         }
         .pickerStyle(.menu)
         .subsFormStyle()
         .disabled(busy)
-        .navigationTitle("智能设置")
+        .navigationTitle(String(localized: .subscriptionSmartSettingsLabel))
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("取消", systemImage: "xmark", role: .cancel) { dismiss() }
+                Button(String(localized: .commonCancel), systemImage: "xmark", role: .cancel) { dismiss() }
                     .disabled(busy).accessibilityIdentifier("smart-cancel-edit")
             }
             ToolbarItem(placement: .confirmationAction) {
-                if busy { ProgressView().accessibilityLabel("正在保存") }
+                if busy { ProgressView().accessibilityLabel(String(localized: .subscriptionSmartSavingLabel)) }
                 else {
-                    Button("保存", systemImage: "checkmark", role: .confirm) { Task { await save() } }
+                    Button(String(localized: .commonSave), systemImage: "checkmark", role: .confirm) { Task { await save() } }
                         .discoverProminentButton().disabled(draft == nil).accessibilityIdentifier("smart-save")
                 }
             }
@@ -227,13 +227,13 @@ struct SmartDefaultsEditor: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(language.label)
-                        Text(language.removable ? (language.sourceTitle.map { "订阅《\($0)》时加入" } ?? "在设置里加入") : "默认")
+                        Text(language.removable ? (language.sourceTitle.map { String(localized: .subscriptionSmartLanguageAddedFrom($0)) } ?? String(localized: .subscriptionSmartAddedInSettings)) : String(localized: .subscriptionSmartDefault))
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if language.removable {
-                        Button("移除") { Task { await change(.init(revision: memory.revision, language: language.key, understood: false)) } }
-                            .buttonStyle(.borderless).accessibilityLabel("移除\(language.label)")
+                        Button(String(localized: .subscriptionSmartRemove)) { Task { await change(.init(revision: memory.revision, language: language.key, understood: false)) } }
+                            .buttonStyle(.borderless).accessibilityLabel(String(localized: .subscriptionSmartRemoveNamed(language.label)))
                             .accessibilityIdentifier("smart-language-remove-\(language.key)")
                     }
                 }
@@ -241,16 +241,16 @@ struct SmartDefaultsEditor: View {
                 .accessibilityIdentifier("smart-language-\(language.key)")
             }
             if !memory.addableLanguages.isEmpty {
-                Menu("添加一种语言") {
+                Menu(String(localized: .subscriptionSmartAddLanguageMenu)) {
                     ForEach(memory.addableLanguages, id: \.key) { option in
                         Button(option.label) { Task { await change(.init(revision: memory.revision, language: option.key, understood: true)) } }
                     }
                 }.accessibilityIdentifier("smart-language-add")
             }
         } header: {
-            Text("看得懂的语言")
+            Text(String(localized: .subscriptionSmartUnderstoodLanguages))
         } footer: {
-            Text("这些语言的作品不带字幕也能看；其他语言只下带字幕的版本。")
+            Text(String(localized: .subscriptionSmartUnderstoodHint))
         }
         if !memory.habits.isEmpty {
             Section {
@@ -258,20 +258,20 @@ struct SmartDefaultsEditor: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(habit.label) · \(habit.qualityLabel)")
-                            Text(habit.sourceTitle.map { "来自《\($0)》" } ?? "来自原来的剧集设置")
+                            Text(habit.sourceTitle.map { String(localized: .subscriptionSmartHabitFrom($0)) } ?? String(localized: .subscriptionSmartLegacyTvSource))
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("移除") { Task { await change(.init(revision: memory.revision, removeHabit: habit.key)) } }
-                            .buttonStyle(.borderless).accessibilityLabel("移除\(habit.label)")
+                        Button(String(localized: .subscriptionSmartRemove)) { Task { await change(.init(revision: memory.revision, removeHabit: habit.key)) } }
+                            .buttonStyle(.borderless).accessibilityLabel(String(localized: .subscriptionSmartRemoveNamed(habit.label)))
                     }
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("smart-habit")
                 }
             } header: {
-                Text("画质习惯")
+                Text(String(localized: .subscriptionSmartQualityHabits))
             } footer: {
-                Text("订阅时改过画质并选了「以后也这样」，就记在这里。")
+                Text(String(localized: .subscriptionSmartHabitsHint))
             }
         }
     }
@@ -340,11 +340,11 @@ private struct SmartWaitPicker: View {
 
     var body: some View {
         Picker(title, selection: $choice) {
-            Text("尽快下载 · 不等待").tag("0")
-            Text("可以等 · 最多 3 小时").tag("10800")
-            Text("更有耐心 · 最多 1 天").tag("86400")
-            Text("自定义").tag("custom")
-            if let legacy { Text("原有设置 · \(legacy / 3600) 小时").tag(String(legacy)) }
+            Text(String(localized: .subscriptionSmartWaitNow)).tag("0")
+            Text(String(localized: .subscriptionSmartWaitThreeHours)).tag("10800")
+            Text(String(localized: .subscriptionSmartWaitOneDay)).tag("86400")
+            Text(String(localized: .subscriptionSmartCustomWait)).tag("custom")
+            if let legacy { Text(String(localized: .subscriptionSmartLegacyWait(legacy / 3600))).tag(String(legacy)) }
         }
         .accessibilityIdentifier(identifier)
         .onChange(of: choice) { _, value in
@@ -353,7 +353,7 @@ private struct SmartWaitPicker: View {
         }
         if choice == "custom" {
             Stepper(value: Binding(mcGet: { Int(customDays) ?? 1 }, set: { customDays = String($0); seconds = $0 * 86400 }), in: 1...7) {
-                LabeledContent("最多等待", value: "\(customDays) 天")
+                LabeledContent(String(localized: .subscriptionSmartWaitLimit), value: String(localized: .libraryShareDays(Int(customDays) ?? 1)))
             }
             .accessibilityIdentifier("\(identifier)-days")
         }

@@ -59,7 +59,7 @@ struct TrackSubtitleGenButton: View {
                 Button {
                     router.open(.settingsSection(.llm))
                 } label: {
-                    Text("接入 AI 模型后即可解锁生成字幕能力。\(Text("去接入").foregroundStyle(Theme.accent))")
+                    (Text(String(localized: .librarySubtitleGenerationUnlockWithModel)) + Text(String(localized: .settingsLlmConnectModel)).foregroundStyle(Theme.accent))
                         .font(.caption)
                         .foregroundStyle(Theme.warning)
                         .padding(.horizontal, 8)
@@ -105,7 +105,7 @@ struct TrackSubtitleGenButton: View {
         .buttonStyle(.plain)
         .disabled(model.previewing)
         .opacity(model.previewing ? 0.5 : 1)
-        .accessibilityLabel(model.running ? "\(text)，\(model.job?.progress.message.nonEmpty ?? "正在运行")" : text)
+        .accessibilityLabel(model.running ? "\(text)，\(model.job?.progress.message.nonEmpty ?? String(localized: .librarySubtitleGenerationRunning))" : text)
     }
 }
 
@@ -184,15 +184,15 @@ private final class TrackGenModel {
 
     func badgeLabel(generated: Bool) -> String {
         // 已经生成过也不改口称「新建 AI 版本」：用户要的答案始终是同一句「让 AI 给这个片子做字幕」
-        var text = "AI 生成字幕"
+        var text = String(localized: .mediaSubtitlesGenerateBadge)
         if previewing {
-            text = "正在检查"
+            text = String(localized: .mediaSubtitlesCheckingBadge)
         } else if running {
             text = TrackGenText.runningBadgeText(progress)
         } else if generated || jobSucceeded {
             // 生成成功过的文件即便带着历史失败记录，也不该再顶着红色的未完成态
         } else if hasTerminalIssue {
-            text = "AI 未完成"
+            text = String(localized: .mediaSubtitlesUnfinishedBadge)
         }
         return running ? "\(activeOutputLabel) · \(text)" : text
     }
@@ -363,24 +363,24 @@ private final class TrackGenModel {
         let target = jobLanguage ?? targetLanguage
         let secondary = jobLanguage != nil ? progress?.secondaryLanguage : (bilingual ? secondaryLanguage : nil)
         let sourceKey = jobLanguage != nil ? progress?.sourceCandidateKey : sourceCandidateKey
-        var params = "对应参数：--target-language \(target)"
+        var params = "--target-language \(target)"
         if let secondary { params += " --secondary-language \(secondary)" }
         if let sourceKey { params += " --source-candidate-key \(sourceKey)" }
         var lines: [String] = [
-            "请帮我处理 MovieClaw 的 AI 字幕生成问题。",
-            "文件：\(file.fileName)",
-            "文件台账 ID：\(file.id)",
-            "文件路径：\(file.filePath)",
-            "期望输出：\(TrackGenText.outputLabel(target, secondary))",
-            params,
-            "当前问题：\(reason)",
+            String(localized: .librarySubtitleGenerationAgentIntro),
+            String(localized: .librarySubtitleGenerationAgentFile(file.fileName)),
+            String(localized: .librarySubtitleGenerationAgentId(String(file.id))),
+            String(localized: .librarySubtitleGenerationAgentPath(file.filePath)),
+            String(localized: .librarySubtitleGenerationAgentOutput(TrackGenText.outputLabel(target, secondary))),
+            String(localized: .librarySubtitleGenerationCliParams(params)),
+            String(localized: .librarySubtitleGenerationAgentIssue(reason)),
         ]
         if let conversion {
-            lines.append("预检环境：\(conversion.platform) \(conversion.architecture)" + (conversion.engine.map { " · \($0)" } ?? " · 未找到可用识别引擎"))
-            if !conversion.message.isEmpty { lines.append("预检诊断：\(conversion.message)") }
+            lines.append(String(localized: .librarySubtitleGenerationAgentPreflight(conversion.platform, conversion.architecture)) + (conversion.engine.map { " · \($0)" } ?? String(localized: .librarySubtitleGenerationNoEngine)))
+            if !conversion.message.isEmpty { lines.append(String(localized: .librarySubtitleGenerationAgentDiagnostic(conversion.message))) }
         }
-        lines += (preview?.blocker?.suggestions ?? []).map { "已有建议：\($0)" }
-        lines.append("请先判断原因；如果能通过 MovieClaw 的工具安全解决，请按上面的「对应参数」直接执行（不要换回默认参数），否则给出明确的操作步骤。不要修改影片原文件。")
+        lines += (preview?.blocker?.suggestions ?? []).map { String(localized: .librarySubtitleGenerationAgentSuggestion($0)) }
+        lines.append(String(localized: .librarySubtitleGenerationAgentInstructions))
         do {
             let accepted = try await api.sessionStart(body: API.SessionStartPayload(content: lines.joined(separator: "\n")))
             mode = nil
@@ -388,7 +388,7 @@ private final class TrackGenModel {
         } catch is CancellationError {
             return nil
         } catch {
-            requestError = "无法启动 Agent：\(error.localizedDescription)"
+            requestError = String(localized: .librarySubtitleGenerationAgentFailed(error.localizedDescription))
             return nil
         }
     }
@@ -539,27 +539,27 @@ private struct TrackGenProgress {
 
 private enum TrackGenText {
     static let outputLanguages: [(token: String, label: String)] = [
-        ("chs", "简体中文"), ("cht", "繁体中文"), ("eng", "英语"), ("jpn", "日语"),
-        ("kor", "韩语"), ("fre", "法语"), ("ger", "德语"), ("spa", "西班牙语"),
-        ("ita", "意大利语"), ("por", "葡萄牙语"), ("rus", "俄语"), ("tha", "泰语"),
+        ("chs", String(localized: .mediaLanguagesSimplifiedChinese)), ("cht", String(localized: .mediaLanguagesTraditionalChinese)), ("eng", String(localized: .mediaLanguagesEnglish)), ("jpn", String(localized: .mediaLanguagesJapanese)),
+        ("kor", String(localized: .mediaLanguagesKorean)), ("fre", String(localized: .mediaLanguagesFrench)), ("ger", String(localized: .mediaLanguagesGerman)), ("spa", String(localized: .mediaLanguagesSpanish)),
+        ("ita", String(localized: .mediaLanguagesItalian)), ("por", String(localized: .mediaLanguagesPortuguese)), ("rus", String(localized: .mediaLanguagesRussian)), ("tha", String(localized: .mediaLanguagesThai)),
     ]
 
     static let stages: [(phases: [String], label: String)] = [
-        (["preparing", "extracting", "ocr", "syncing"], "准备并检查字幕"),
-        (["glossary"], "统一人名与术语"),
-        (["translating"], "翻译对白"),
-        (["validating", "compressing"], "检查字幕质量"),
-        (["writing", "refreshing"], "保存并更新字幕"),
+        (["preparing", "extracting", "ocr", "syncing"], String(localized: .librarySubtitleGenerationPrepareStage)),
+        (["glossary"], String(localized: .librarySubtitleGenerationGlossaryStage)),
+        (["translating"], String(localized: .librarySubtitleGenerationTranslateStage)),
+        (["validating", "compressing"], String(localized: .librarySubtitleGenerationQualityStage)),
+        (["writing", "refreshing"], String(localized: .librarySubtitleGenerationSaveStage)),
     ]
 
     static func outputLanguageLabel(_ token: String?) -> String {
-        outputLanguages.first { $0.token == token }?.label ?? token ?? "字幕"
+        outputLanguages.first { $0.token == token }?.label ?? token ?? String(localized: .librarySubtitleGenerationSubtitle)
     }
 
     static func outputLabel(_ target: String, _ secondary: String?) -> String {
         let primary = outputLanguageLabel(target)
         guard let secondary else { return primary }
-        return "\(primary) + \(outputLanguageLabel(secondary))双语"
+        return String(localized: .librarySubtitleGenerationBilingual(primary, outputLanguageLabel(secondary)))
     }
 
     static func nextSecondary(target: String, current: String) -> String {
@@ -574,16 +574,16 @@ private enum TrackGenText {
 
     static func languageLabel(_ language: String?) -> String {
         let labels = [
-            "chi": "中文", "chs": "简体中文", "cht": "繁体中文", "eng": "英语", "fre": "法语", "fra": "法语",
-            "ger": "德语", "ita": "意大利语", "jpn": "日语", "kor": "韩语", "por": "葡萄牙语", "rus": "俄语",
-            "spa": "西班牙语", "tha": "泰语",
+            "chi": String(localized: .libraryArtworkLanguageChinese), "chs": String(localized: .mediaLanguagesSimplifiedChinese), "cht": String(localized: .mediaLanguagesTraditionalChinese), "eng": String(localized: .mediaLanguagesEnglish), "fre": String(localized: .mediaLanguagesFrench), "fra": String(localized: .mediaLanguagesFrench),
+            "ger": String(localized: .mediaLanguagesGerman), "ita": String(localized: .mediaLanguagesItalian), "jpn": String(localized: .mediaLanguagesJapanese), "kor": String(localized: .mediaLanguagesKorean), "por": String(localized: .mediaLanguagesPortuguese), "rus": String(localized: .mediaLanguagesRussian),
+            "spa": String(localized: .mediaLanguagesSpanish), "tha": String(localized: .mediaLanguagesThai),
         ]
-        guard let language else { return "未知语言" }
+        guard let language else { return String(localized: .librarySubtitleGenerationUnknownLanguage) }
         return labels[language] ?? language.uppercased()
     }
 
     static func formatLabel(_ format: String?) -> String {
-        guard let format else { return "未知格式" }
+        guard let format else { return String(localized: .librarySubtitleGenerationUnknownFormat) }
         let labels = [
             "hdmv_pgs_subtitle": "PGS", "dvd_subtitle": "VobSub", "subrip": "SRT", "srt": "SRT",
             "ass": "ASS", "ssa": "SSA", "webvtt": "VTT", "vtt": "VTT",
@@ -593,11 +593,11 @@ private enum TrackGenText {
 
     static func candidateLabel(_ candidate: API.SourceCandidateView) -> String {
         let embedded = candidate.kind == "embedded"
-        let location = embedded ? "内封" : "外挂"
-        let identity = embedded ? "轨道 \((Int(candidate.key) ?? 0) + 1)" : candidate.key
-        let conversion = candidate.requiresOcr ? " · 需先识别" : ""
+        let location = embedded ? String(localized: .librarySubtitleGenerationEmbedded) : String(localized: .librarySubtitleGenerationExternal)
+        let identity = embedded ? String(localized: .librarySubtitleGenerationTrack((Int(candidate.key) ?? 0) + 1)) : candidate.key
+        let conversion = candidate.requiresOcr ? String(localized: .librarySubtitleGenerationOcrSuffix) : ""
         let provenance = [
-            "original": "原始字幕", "pgs_ocr": "图片字幕识别结果", "ai": "AI 字幕", "ai_bilingual": "AI 双语成品",
+            "original": String(localized: .librarySubtitleGenerationOriginal), "pgs_ocr": String(localized: .librarySubtitleGenerationPgsOcr), "ai": String(localized: .librarySubtitleGenerationAi), "ai_bilingual": String(localized: .librarySubtitleGenerationAiBilingual),
         ][candidate.provenance] ?? candidate.provenance
         return "\(languageLabel(candidate.language)) · \(formatLabel(candidate.format)) · \(provenance) · \(location) \(identity)\(conversion)"
     }
@@ -611,53 +611,53 @@ private enum TrackGenText {
     }
 
     static func tokenEstimate(_ tokens: Int) -> String {
-        if tokens < 1000 { return "约 \(grouped(tokens)) token" }
+        if tokens < 1000 { return String(localized: .librarySubtitleGenerationTokenEstimate(grouped(tokens))) }
         let k = Double(tokens) / 1000
-        return tokens < 10_000 ? "约 \(String(format: "%.1f", k))k token" : "约 \(Int(k.rounded()))k token"
+        return tokens < 10_000 ? String(localized: .librarySubtitleGenerationTokenEstimateDecimalK(String(format: "%.1f", k))) : String(localized: .librarySubtitleGenerationTokenEstimateK(String(Int(k.rounded()))))
     }
 
     /// 确认区的成本行：读过的字幕按实际对白估算；内封轨还没读过时按片长粗估（同 Web）
     static func costLine(_ preview: API.GenPreviewView) -> String {
         if preview.referenceNotice != nil {
             return preview.estimatedTokens > 0
-                ? "按片长粗估\(tokenEstimate(preview.estimatedTokens))"
-                : "读取字幕后按实际对白估算"
+                ? String(localized: .librarySubtitleGenerationRuntimeEstimate(tokenEstimate(preview.estimatedTokens)))
+                : String(localized: .librarySubtitleGenerationAfterReadEstimate)
         }
-        return "\(grouped(preview.eventCount)) 条对白 · \(tokenEstimate(preview.estimatedTokens))"
+        return String(localized: .librarySubtitleGenerationDialogueEstimateText(grouped(preview.eventCount), tokenEstimate(preview.estimatedTokens)))
     }
 
     static func elapsed(_ seconds: Int) -> String {
         let safe = max(0, seconds)
-        if safe < 60 { return "\(safe) 秒" }
+        if safe < 60 { return String(localized: .librarySubtitleGenerationElapsedSeconds(safe)) }
         let minutes = safe / 60
-        if minutes < 60 { return "\(minutes) 分 \(safe % 60) 秒" }
-        return "\(minutes / 60) 小时 \(minutes % 60) 分"
+        if minutes < 60 { return String(localized: .librarySubtitleGenerationElapsedMinutes(minutes, safe % 60)) }
+        return String(localized: .librarySubtitleGenerationElapsedHours(minutes / 60, minutes % 60))
     }
 
     static func sourceKeyLabel(_ key: String?) -> String? {
         guard let key else { return nil }
         if key.hasPrefix("embedded:") {
-            if let index = Int(key.dropFirst("embedded:".count)) { return "内封轨道 \(index + 1)" }
-            return "内封字幕"
+            if let index = Int(key.dropFirst("embedded:".count)) { return String(localized: .librarySubtitleGenerationSourceTrack(String(index + 1))) }
+            return String(localized: .librarySubtitleGenerationSourceEmbedded)
         }
         return key.hasPrefix("external:") ? String(key.dropFirst("external:".count)) : key
     }
 
     static func runningBadgeText(_ progress: TrackGenProgress?) -> String {
         let phaseLabels = [
-            "preparing": "准备中", "ocr": "识别中", "syncing": "同步检查", "glossary": "术语分析",
-            "validating": "质量检查", "compressing": "质量优化", "writing": "保存中", "refreshing": "更新中",
+            "preparing": String(localized: .librarySubtitleGenerationPreparing), "ocr": String(localized: .librarySubtitleGenerationRecognizing), "syncing": String(localized: .librarySubtitleGenerationSyncing), "glossary": String(localized: .librarySubtitleGenerationGlossary),
+            "validating": String(localized: .librarySubtitleGenerationValidating), "compressing": String(localized: .librarySubtitleGenerationCompressing), "writing": String(localized: .librarySubtitleGenerationWriting), "refreshing": String(localized: .librarySubtitleGenerationRefreshing),
         ]
         if progress?.phase == "translating" {
             if let percent = progress?.percentValue { return "AI \(percent)%" }
-            return "翻译中"
+            return String(localized: .librarySubtitleGenerationTranslating)
         }
         if let progress, progress.phase == "extracting" {
-            if progress.extractQueued { return "排队读取" }
-            if let percent = progress.percentValue { return "读取 \(percent)%" }
-            return "读取字幕"
+            if progress.extractQueued { return String(localized: .librarySubtitleGenerationQueuedRead) }
+            if let percent = progress.percentValue { return String(localized: .librarySubtitleGenerationReadPercent(String(percent))) }
+            return String(localized: .librarySubtitleGenerationReading)
         }
-        return phaseLabels[progress?.phase ?? "preparing"] ?? "生成中"
+        return phaseLabels[progress?.phase ?? "preparing"] ?? String(localized: .librarySubtitleGenerationGenerating)
     }
 }
 
@@ -703,21 +703,21 @@ private struct TrackGenSheet: View {
 
     private var title: String {
         if model.mode == .status {
-            return model.running ? "正在生成\(model.activeOutputLabel)" : "AI 字幕任务"
+            return model.running ? String(localized: .librarySubtitleGenerationGeneratingOutput(model.activeOutputLabel)) : String(localized: .librarySubtitleGenerationTaskTitle)
         }
-        return "生成 AI 字幕"
+        return String(localized: .librarySubtitleGenerationGenerateTitle)
     }
 
     private var subtitle: String {
         if model.mode == .status {
-            return model.running ? "后台运行，离开页面不会中断。" : "任务详情与处理建议。"
+            return model.running ? String(localized: .librarySubtitleGenerationBackgroundHint) : String(localized: .librarySubtitleGenerationResultHint)
         }
-        return "确认后才调用 AI，并在后台生成。"
+        return String(localized: .librarySubtitleGenerationConfirmHint)
     }
 
     private var closeTitle: String {
-        if model.mode == .status { return "关闭" }
-        return model.blockedWithoutPgs || model.requestError != nil ? "关闭" : "取消"
+        if model.mode == .status { return String(localized: .commonClose) }
+        return model.blockedWithoutPgs || model.requestError != nil ? String(localized: .commonClose) : String(localized: .commonCancel)
     }
 
     /// 右上 ✓：只在预检通过（或图片字幕可以先识别）时出现，读屏名说清楚要生成哪种语言
@@ -725,7 +725,7 @@ private struct TrackGenSheet: View {
         guard model.mode != .status, !model.previewing else { return nil }
         if model.canPreparePgs {
             return SubsSheetConfirm(
-                title: "开始生成\(model.currentOutputLabel)",
+                title: String(localized: .librarySubtitleGenerationStartOutput(model.currentOutputLabel)),
                 enabled: model.canConvertPgs,
                 busy: model.starting,
                 identifier: "track-gen-start"
@@ -733,7 +733,7 @@ private struct TrackGenSheet: View {
         }
         if let preview = model.preview, preview.blocker == nil, model.chosen != nil {
             return SubsSheetConfirm(
-                title: "确认生成\(model.currentOutputLabel)",
+                title: String(localized: .librarySubtitleGenerationConfirmOutput(model.currentOutputLabel)),
                 busy: model.starting,
                 identifier: "track-gen-start"
             ) { Task { await model.start(api: api, fileId: file.id) } }
@@ -756,7 +756,7 @@ private struct TrackGenSheet: View {
                 Label {
                     VStack(alignment: .leading, spacing: 4) {
                         // 结束态也报一句目标输出：Agent、CLI 发起的任务用户没在这里选过语言
-                        Text("\(model.activeOutputLabel)\(succeeded ? "字幕生成完成" : "字幕生成未完成")")
+                        Text(succeeded ? String(localized: .librarySubtitleGenerationCompleted(model.activeOutputLabel)) : String(localized: .librarySubtitleGenerationIncomplete(model.activeOutputLabel)))
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.text)
                         Text(resultMessage)
@@ -774,10 +774,10 @@ private struct TrackGenSheet: View {
     }
 
     private var resultMessage: String {
-        guard let job = model.job else { return "任务已经结束。" }
+        guard let job = model.job else { return String(localized: .librarySubtitleGenerationEnded) }
         if let message = job.error?["message"]?.stringValue { return message }
         if case let .string(message)? = job.result?["message"] { return message }
-        return "任务已经结束。"
+        return String(localized: .librarySubtitleGenerationEnded)
     }
 
     // MARK: 预检模式
@@ -791,12 +791,12 @@ private struct TrackGenSheet: View {
                 HStack(alignment: .top, spacing: 12) {
                     ProgressView()
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(model.pendingNotice ?? "正在检查参考字幕，不会调用 AI…")
+                        Text(model.pendingNotice ?? String(localized: .librarySubtitleGenerationChecking))
                             .font(.subheadline)
                             .foregroundStyle(Theme.text)
                         // 内封字幕要把整个视频通读一遍，大文件是分钟级；说清楚为什么慢
                         if model.pendingNotice != nil {
-                            Text("首次读取内封字幕需要通读整个视频文件，读好后会自动继续；这一步不会调用 AI，也不产生费用。")
+                            Text(String(localized: .librarySubtitleGenerationFirstReadContinue))
                                 .font(.caption)
                                 .foregroundStyle(Theme.textMuted)
                         }
@@ -822,14 +822,14 @@ private struct TrackGenSheet: View {
 
     private var outputLanguageSection: some View {
         Section {
-            Picker(model.bilingual ? "第一行语言" : "目标语言", selection: Binding(
+            Picker(model.bilingual ? String(localized: .librarySubtitleGenerationFirstLanguage) : String(localized: .librarySubtitleGenerationTargetLanguage), selection: Binding(
                 get: { model.targetLanguage },
                 set: { model.changeTarget($0, api: api, fileId: file.id) }
             )) {
                 ForEach(TrackGenText.outputLanguages, id: \.token) { Text($0.label).tag($0.token) }
             }
             if model.bilingual {
-                Picker("第二行语言", selection: Binding(
+                Picker(String(localized: .librarySubtitleGenerationSecondLanguage), selection: Binding(
                     get: { model.secondaryLanguage },
                     set: { model.changeSecondary($0, api: api, fileId: file.id) }
                 )) {
@@ -838,15 +838,15 @@ private struct TrackGenSheet: View {
                     }
                 }
             }
-            Toggle("生成双语字幕", isOn: Binding(
+            Toggle(String(localized: .librarySubtitleGenerationGenerateBilingual), isOn: Binding(
                 get: { model.bilingual },
                 set: { model.changeBilingual($0, api: api, fileId: file.id) }
             ))
         } header: {
-            Text("输出语言")
+            Text(String(localized: .librarySubtitleGenerationOutputLanguage))
         } footer: {
             if model.bilingual {
-                Text("每条字幕固定两行，上下顺序按这里的选择生成。")
+                Text(String(localized: .librarySubtitleGenerationBilingualHint))
             }
         }
         .pickerStyle(.menu)
@@ -866,7 +866,7 @@ private struct TrackGenSheet: View {
                         model.loadPreview(api: api, fileId: file.id, sourceKey: key)
                     } label: {
                         let text = TrackGenText.candidateLabel(candidate)
-                            + (candidate.selectable ? "" : "（不可用：\(candidate.excluded ?? "不支持")）")
+                            + (candidate.selectable ? "" : String(localized: .librarySubtitleGenerationUnavailableCandidate(candidate.excluded ?? String(localized: .librarySubtitleGenerationUnsupported))))
                         if key == model.sourceCandidateKey {
                             Label(text, systemImage: "checkmark")
                         } else {
@@ -877,7 +877,7 @@ private struct TrackGenSheet: View {
                 }
             } label: {
                 HStack {
-                    Text(current.map(TrackGenText.candidateLabel) ?? "没有可用的参考字幕")
+                    Text(current.map(TrackGenText.candidateLabel) ?? String(localized: .librarySubtitleGenerationNoReference))
                         .foregroundStyle(Theme.text)
                         .multilineTextAlignment(.leading)
                     Spacer(minLength: 8)
@@ -889,12 +889,12 @@ private struct TrackGenSheet: View {
             }
             .disabled(model.starting || !anySelectable)
             if model.selectedCandidate?.requiresOcr == true {
-                SubsNoticeRow(text: "当前选择的是图片字幕，需要先完成文字识别。", tone: .warn)
+                SubsNoticeRow(text: String(localized: .librarySubtitleGenerationImageSelected), tone: .warn)
             }
         } header: {
-            Text("参考字幕")
+            Text(String(localized: .librarySubtitleGenerationReferenceLanguage))
         } footer: {
-            Text("默认优先英语。也可以指定其他内封或外挂字幕；选择 PGS 时会先识别文字，再开始 AI 翻译。")
+            Text(String(localized: .librarySubtitleGenerationSourceHint))
         }
     }
 
@@ -902,28 +902,28 @@ private struct TrackGenSheet: View {
     private func pgsSections(_ conversion: API.PgsConversionView) -> some View {
         Section {
             SubsNoticeRow(
-                text: "这份字幕是图片。MovieClaw 会先识别其中的文字，确认内容完整后再生成\(model.currentOutputLabel)字幕。",
+                text: String(localized: .librarySubtitleGenerationImageHint(model.currentOutputLabel)),
                 tone: .warn
             )
         } header: {
-            Text(conversion.languageConfirmationRequired ? "请选择原字幕语言" : "先识别图片字幕")
+            Text(conversion.languageConfirmationRequired ? String(localized: .librarySubtitleGenerationChooseOriginal) : String(localized: .librarySubtitleGenerationRecognizeFirst))
         }
         Section {
             if conversion.languageConfirmationRequired {
-                Picker("原字幕语言", selection: $model.pgsOcrLanguage) {
+                Picker(String(localized: .librarySubtitleGenerationOriginalLanguage), selection: $model.pgsOcrLanguage) {
                     if !conversion.languageOptions.contains(where: { $0.code == model.pgsOcrLanguage }) {
-                        Text("请选择").tag(model.pgsOcrLanguage)
+                        Text(String(localized: .librarySubtitleGenerationChoose)).tag(model.pgsOcrLanguage)
                     }
                     ForEach(conversion.languageOptions, id: \.code) { Text($0.label).tag($0.code) }
                 }
                 .pickerStyle(.menu)
                 .tint(Theme.textMuted)
             } else {
-                LabeledContent("原字幕语言", value: conversion.ocrLanguageLabel ?? "已自动识别")
+                LabeledContent(String(localized: .librarySubtitleGenerationOriginalLanguage), value: conversion.ocrLanguageLabel ?? String(localized: .librarySubtitleGenerationAutoDetected))
             }
         } footer: {
-            Text((conversion.languageConfirmationRequired ? "请选择画面中实际显示的语言。" : "")
-                + "原影片和字幕不会被修改。识别结果可能有少量错字，完成后建议抽查人名与特殊字体。")
+            Text((conversion.languageConfirmationRequired ? String(localized: .librarySubtitleGenerationActualLanguageHint) : "")
+                + String(localized: .librarySubtitleGenerationOcrHint))
         }
     }
 
@@ -941,7 +941,7 @@ private struct TrackGenSheet: View {
             }
         }
         if !blocker.suggestions.isEmpty {
-            Section("可以这样处理") {
+            Section(String(localized: .librarySubtitleGenerationSuggestions)) {
                 ForEach(blocker.suggestions, id: \.self) { suggestion in
                     Text(suggestion)
                         .font(.subheadline)
@@ -951,9 +951,9 @@ private struct TrackGenSheet: View {
         }
         if let conversion = model.preview?.pgsConversion {
             Section {
-                DisclosureGroup("查看诊断信息") {
+                DisclosureGroup(String(localized: .librarySubtitleGenerationDiagnostics)) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("运行环境：\(conversion.platform) \(conversion.architecture)" + (conversion.engine.map { " · \($0)" } ?? " · 未找到可用识别引擎"))
+                        Text(String(localized: .librarySubtitleGenerationRuntimeEnvironment(conversion.platform, conversion.architecture)) + (conversion.engine.map { " · \($0)" } ?? String(localized: .librarySubtitleGenerationNoEngine)))
                         if conversion.message != blocker.message {
                             Text(conversion.message)
                         }
@@ -978,7 +978,7 @@ private struct TrackGenSheet: View {
                     .foregroundStyle(Theme.textMuted)
             }
         } footer: {
-            Text("生成同目录 \(preview.outputFilename ?? "规范命名的 AI 字幕文件")，原字幕不变；离开页面不影响生成。")
+            Text(String(localized: .librarySubtitleGenerationOutputNamed(preview.outputFilename ?? String(localized: .librarySubtitleGenerationDefaultOutputName))))
         }
         // 内封字幕首次使用：说清楚任务第一步要通读整个视频、可能要几分钟、这一步不花钱
         if let notice = preview.referenceNotice {
@@ -988,7 +988,7 @@ private struct TrackGenSheet: View {
         }
         if preview.alreadyGenerated {
             Section {
-                SubsNoticeRow(text: "已有 AI 字幕，将被覆盖。", tone: .warn)
+                SubsNoticeRow(text: String(localized: .librarySubtitleGenerationOverwrite), tone: .warn)
             }
         }
     }
@@ -1012,13 +1012,13 @@ private struct TrackGenSheet: View {
                     Button(role: .destructive) {
                         Task { await model.stop(api: api) }
                     } label: {
-                        busyLabel(model.stopping ? "正在请求停止…" : "停止生成", busy: model.stopping)
+                        busyLabel(model.stopping ? String(localized: .librarySubtitleGenerationStopping) : String(localized: .librarySubtitleGenerationStop), busy: model.stopping)
                     }
                     .disabled(model.stopping)
                 }
             } else if !model.jobSucceeded {
                 Section {
-                    Button("重新预检") { model.loadPreview(api: api, fileId: file.id) }
+                    Button(String(localized: .librarySubtitleGenerationRetryPreview)) { model.loadPreview(api: api, fileId: file.id) }
                     agentRow(reason: resultMessage)
                 }
             }
@@ -1029,10 +1029,10 @@ private struct TrackGenSheet: View {
             if recheck || agent {
                 Section {
                     if recheck {
-                        Button("重新检查") { model.loadPreview(api: api, fileId: file.id) }
+                        Button(String(localized: .librarySubtitleGenerationRecheck)) { model.loadPreview(api: api, fileId: file.id) }
                     }
                     if agent {
-                        agentRow(reason: model.requestError ?? model.preview?.blocker?.message ?? "字幕生成预检没有通过")
+                        agentRow(reason: model.requestError ?? model.preview?.blocker?.message ?? String(localized: .librarySubtitleGenerationPreflightFailed))
                     }
                 }
             }
@@ -1047,7 +1047,7 @@ private struct TrackGenSheet: View {
                 }
             }
         } label: {
-            busyLabel(model.agentStarting ? "正在交给 Agent…" : "交给 Agent 处理", busy: model.agentStarting)
+            busyLabel(model.agentStarting ? String(localized: .librarySubtitleGenerationHandingOff) : String(localized: .librarySubtitleGenerationHandoff), busy: model.agentStarting)
         }
         .disabled(model.agentStarting)
     }
@@ -1068,7 +1068,7 @@ private struct TrackGenProgressView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
-                Text(progress.message.isEmpty ? "正在准备生成任务" : progress.message)
+                Text(progress.message.isEmpty ? String(localized: .librarySubtitleGenerationPreparingTask) : progress.message)
                     .font(.callout.weight(.semibold))
                 Spacer(minLength: 8)
                 if let percent = progress.percentValue {
@@ -1084,29 +1084,30 @@ private struct TrackGenProgressView: View {
             }
 
             TrackFlowLayout(spacing: 14, lineSpacing: 4) {
-                if progress.totalBlocks > 0 { Text("翻译块 \(progress.doneBlocks)/\(progress.totalBlocks)") }
-                if progress.totalEvents > 0 { Text("对白 \(progress.doneEvents)/\(progress.totalEvents) 条") }
+                if progress.totalBlocks > 0 { Text(String(localized: .librarySubtitleGenerationBlocks(progress.doneBlocks, progress.totalBlocks))) }
+                if progress.totalEvents > 0 { Text(String(localized: .librarySubtitleGenerationEvents(progress.doneEvents, progress.totalEvents))) }
                 if let reference = TrackGenText.sourceKeyLabel(progress.sourceCandidateKey) {
-                    Text("参考 \(reference)").lineLimit(1).truncationMode(.middle)
+                    Text(String(localized: .librarySubtitleGenerationReference(reference))).lineLimit(1).truncationMode(.middle)
                 }
                 if progress.modelRequests > 0 {
-                    Text("模型调用 \(progress.modelRequests) 次" + (progress.modelTokens > 0 ? " · \(TrackGenText.grouped(progress.modelTokens)) token" : ""))
+                    Text(String(localized: .librarySubtitleGenerationCalls(progress.modelRequests)) + (progress.modelTokens > 0 ? " · \(TrackGenText.grouped(progress.modelTokens)) token" : ""))
                 }
-                Text("已用时 \(TrackGenText.elapsed(progress.elapsedSeconds))")
+                Text(String(localized: .librarySubtitleGenerationElapsed(TrackGenText.elapsed(progress.elapsedSeconds))))
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(Theme.textMuted)
 
             if !progress.activeBlocks.isEmpty {
-                Text((progress.parallelism > 1 ? "并发上限 \(progress.parallelism) 路 · " : "")
-                    + "正在处理第 \(progress.activeBlocks.map(String.init).joined(separator: "、")) 块"
-                    + (progress.oldestActiveSeconds > 0 ? " · 最早一块已等待 \(TrackGenText.elapsed(progress.oldestActiveSeconds))" : ""))
+                Text((progress.parallelism > 1 ? String(localized: .librarySubtitleGenerationParallelLimit(progress.parallelism)) : "")
+                    + String(localized: .librarySubtitleGenerationActiveBlockList(progress.activeBlocks.map(String.init)
+                        .joined(separator: AppLanguage.identifier == "zh-Hans" ? "、" : ", ")))
+                    + (progress.oldestActiveSeconds > 0 ? String(localized: .librarySubtitleGenerationOldestWait(TrackGenText.elapsed(progress.oldestActiveSeconds))) : ""))
                     .font(.caption)
                     .foregroundStyle(Theme.info.opacity(0.85))
             }
             if progress.rateLimitCount > 0 || progress.validationRetries > 0 {
-                Text((progress.rateLimitCount > 0 ? "模型服务繁忙 \(progress.rateLimitCount) 次，系统已自动降速重试。" : "")
-                    + (progress.validationRetries > 0 ? "有 \(progress.validationRetries) 次返回格式不完整，系统已自动纠正。" : ""))
+                Text((progress.rateLimitCount > 0 ? String(localized: .librarySubtitleGenerationRateLimits(progress.rateLimitCount)) : "")
+                    + (progress.validationRetries > 0 ? String(localized: .librarySubtitleGenerationValidationRetries(progress.validationRetries)) : ""))
                     .font(.caption)
                     .foregroundStyle(Color(red: 1, green: 0.85, blue: 0.6))
             }
@@ -1126,10 +1127,10 @@ private struct TrackGenProgressView: View {
                                 .foregroundStyle(completed ? Color(red: 0.49, green: 0.94, blue: 0.64) : Color.primary)
                         }
                         .frame(width: 16, height: 16)
-                        Text(index == 0 && progress.usesOcr ? "识别并检查图片字幕" : stage.label)
+                        Text(index == 0 && progress.usesOcr ? String(localized: .librarySubtitleGenerationOcrStage) : stage.label)
                         if current {
                             Spacer(minLength: 8)
-                            Text("进行中").foregroundStyle(Theme.textMuted)
+                            Text(String(localized: .librarySubtitleGenerationInProgress)).foregroundStyle(Theme.textMuted)
                         }
                     }
                     .font(current ? .caption.weight(.medium) : .caption)
@@ -1137,7 +1138,7 @@ private struct TrackGenProgressView: View {
                 }
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("字幕生成阶段")
+            .accessibilityLabel(String(localized: .librarySubtitleGenerationStages))
         }
     }
 }

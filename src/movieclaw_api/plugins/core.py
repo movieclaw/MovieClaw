@@ -19,6 +19,7 @@ from movieclaw_kernel import Context, plugin
 logger = logging.getLogger("movieclaw_api.plugins.core")
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("core.database", title="数据库", provides=(DB,), critical=True)
 async def database(ctx: Context) -> None:
     """打开应用数据库，启动时自动升级表结构；几乎所有功能都依赖它。"""
@@ -43,6 +44,7 @@ async def database(ctx: Context) -> None:
     ctx.provide(DB, db)
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("core.registries", title="任务与处理器注册表", critical=True)
 async def registries(ctx: Context) -> None:
     """汇总各模块登记的定时任务和后台任务类型，让调度器与任务执行器知道有哪些活可干。
@@ -91,6 +93,7 @@ async def registries(ctx: Context) -> None:
     ctx.watch(jobs.JOB_HANDLERS, on_handlers_changed)
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("core.secrets", title="凭据加密", provides=(SECRETS,), critical=True)
 async def secrets(ctx: Context) -> None:
     """准备加密密钥：站点登录凭据等敏感信息都加密后才存入数据库。"""
@@ -102,6 +105,7 @@ async def secrets(ctx: Context) -> None:
 
 @plugin(
     "core.settings",
+    # i18n-ignore: source default of plugins.builtins.* (guarded by test)
     title="配置存储",
     inject=(DB, SECRETS),
     provides=(SETTING_STORE,),
@@ -117,6 +121,7 @@ async def setting_store(ctx: Context) -> None:
 
 @plugin(
     "core.egress",
+    # i18n-ignore: source default of plugins.builtins.* (guarded by test)
     title="网络出口",
     inject=(SETTING_STORE,),
     provides=(EGRESS,),
@@ -130,6 +135,7 @@ async def egress(ctx: Context) -> None:
     ctx.provide(EGRESS, await load_network_egress())
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("core.scrape-runtime", title="刮削与发现偏好", inject=(SETTING_STORE,), critical=True)
 async def scrape_runtime(ctx: Context) -> None:
     """启动时载入刮削偏好（语言优先级、选图、院线地区），供元数据刮削和发现页使用。"""
@@ -139,6 +145,7 @@ async def scrape_runtime(ctx: Context) -> None:
     await load_scrape_runtime()
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("core.http-clients", title="共享 HTTP 客户端", inject=(EGRESS,), reloadable=True)
 async def http_clients(ctx: Context) -> None:
     """管理发现页与图片代理共用的网络连接，关闭应用时统一释放。
@@ -154,6 +161,7 @@ async def http_clients(ctx: Context) -> None:
     ctx.effect(close_media_service, label="close-media-service")
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("tracker.sites", title="站点目录", provides=(SITES,), critical=True)
 async def sites(ctx: Context) -> None:
     """加载 PT 站点目录（内置、插件提供和用户自定义的站点配置），决定系统支持哪些站点。"""
@@ -190,6 +198,7 @@ async def sites(ctx: Context) -> None:
 
 @plugin(
     "tracker.site-access",
+    # i18n-ignore: source default of plugins.builtins.* (guarded by test)
     title="站点访问",
     inject=(SITES, EGRESS, DB),
     provides=(SITE_ACCESS,),
@@ -205,6 +214,7 @@ async def site_access(ctx: Context) -> None:
     ctx.provide(SITE_ACCESS, manager)
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("selfheal.credentials", title="凭据状态自愈", inject=(DB, SECRETS), reloadable=True)
 async def selfheal_credentials(ctx: Context) -> None:
     """启动时复位上次卡在「验证中」的站点与 AI 模型配置，并加密遗留的明文站点凭据。

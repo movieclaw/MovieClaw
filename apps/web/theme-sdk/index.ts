@@ -29,6 +29,7 @@ export { useIsMobile } from "@/lib/use-media-query";
 export { useScrollRestoration } from "@/lib/use-scroll-restoration";
 export { useThemeState, useUiPrefs } from "@/lib/ui-prefs";
 export { settingsSectionGroupsFor } from "@/lib/mock-data";
+export { useActiveExtensionPoints } from "@/lib/use-extension-points";
 
 // —— 导航 ——
 export { usePluginNavItems } from "@/components/sidebar";
@@ -99,3 +100,5 @@ export { BrandLoader } from "@/components/brand-loader";
 export { ContentEmptyState } from "@/components/content-empty-state";
 export { HScroller } from "@/components/h-scroller";
 export { formatRelativeTime } from "@/lib/time";
+
+export { useLocale as useAppLocale, useTranslations as useAppTranslations } from "next-intl";

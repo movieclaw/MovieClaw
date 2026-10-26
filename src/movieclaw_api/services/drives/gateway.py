@@ -24,6 +24,7 @@ from datetime import date, timedelta
 from enum import IntEnum
 from typing import Any
 
+from movieclaw_api.services.drives.messages import keyed
 from movieclaw_api.services.drives.registry import backend as get_backend
 from movieclaw_api.services.system_notice import resolve_notices, upsert_notice
 from movieclaw_db.engine import get_database
@@ -214,10 +215,12 @@ class _Meter:
             self.priority is Priority.BACKGROUND
             and usage_today(self.account_id) >= self.budget * BACKGROUND_SHARE
         ):
-            raise dv.RateLimited(
-                f"「{self.name}」今天的后台调用额度已用到 {int(BACKGROUND_SHARE * 100)}%，"
-                "余量留给播放，明天继续",
+            raise keyed(
+                dv.RateLimited,
+                "errors.drives.backgroundBudget",
                 _seconds_to_midnight(),
+                name=self.name,
+                percent=int(BACKGROUND_SHARE * 100),
             )
         limiter = _limiters.get(self.account_id)
         if limiter is None or limiter.loop is not asyncio.get_running_loop():
@@ -236,7 +239,7 @@ class _Meter:
             async with get_database().session() as session:
                 row = await DriveAccountRepository(session).get(self.account_id)
             if row is None:
-                raise dv.NotFound("网盘账号不存在")
+                raise keyed(dv.NotFound, "errors.drives.accountMissing")
             _check_status(row.status, row.status_until, self.priority, self.name)
             await self.acquire()
         except dv.DriveError:
@@ -281,7 +284,7 @@ async def call(
     async with get_database().session() as session:
         row = await DriveAccountRepository(session).get(account_id)
         if row is None:
-            raise dv.NotFound("网盘账号不存在")
+            raise keyed(dv.NotFound, "errors.drives.accountMissing")
         credentials = DriveAccountRepository.credentials(row)
         status, status_until, backend_type = row.status, row.status_until, row.backend
         name = row.name
@@ -302,7 +305,7 @@ async def call(
         )
     except TimeoutError:
         await _persist_credentials(account_id, credentials, account.credentials)
-        raise dv.Transient(f"「{name}」响应超时") from None
+        raise keyed(dv.Transient, "errors.drives.timeout", name=name) from None
     except dv.DriveError as exc:
         await _persist_credentials(account_id, credentials, account.credentials)
         if not meter.stopped:
@@ -331,16 +334,16 @@ async def call_backend(backend: dv.DriveBackend, method: str, **args: Any) -> An
             getattr(backend, method)(**args), TIMEOUTS.get(method, DEFAULT_TIMEOUT)
         )
     except TimeoutError:
-        raise dv.Transient(f"{backend.title}响应超时") from None
+        raise keyed(dv.Transient, "errors.drives.backendTimeout", name=backend.title) from None
 
 
 def _check_status(status: str, until: Any, priority: Priority, name: str) -> None:
     if status == DRIVE_STATUS_AUTH_EXPIRED:
-        raise dv.AuthExpired(f"「{name}」的登录已失效，需要重新登录")
+        raise keyed(dv.AuthExpired, "errors.drives.signInExpired", name=name)
     if status == DRIVE_STATUS_DISABLED:
-        raise dv.AuthExpired(f"「{name}」已停用")
+        raise keyed(dv.AuthExpired, "errors.drives.disabled", name=name)
     if status == DRIVE_STATUS_API_BROKEN and priority is Priority.BACKGROUND:
-        raise dv.ApiChanged(f"「{name}」的接口有变化，插件暂时不认识，请更新插件")
+        raise keyed(dv.ApiChanged, "errors.drives.apiChanged", name=name)
     if (
         status == DRIVE_STATUS_RATE_LIMITED
         and priority is not Priority.PLAYBACK
@@ -349,8 +352,12 @@ def _check_status(status: str, until: Any, priority: Priority, name: str) -> Non
     ):
         # 用户操作也不打出去：每多一次被拒，网盘的冷却就往后推
         left = (until - utcnow()).total_seconds()
-        raise dv.RateLimited(
-            f"「{name}」被网盘限流，约 {max(1, math.ceil(left / 60))} 分钟后恢复", left
+        raise keyed(
+            dv.RateLimited,
+            "errors.drives.rateLimitedFor",
+            left,
+            name=name,
+            minutes=max(1, math.ceil(left / 60)),
         )
 
 
@@ -383,17 +390,13 @@ async def _record_failure(account_id: int, name: str, exc: dv.DriveError) -> Non
     async with get_database().session() as session:
         await DriveAccountRepository(session).set_status(account_id, status, exc.message, until)
         if status in (DRIVE_STATUS_AUTH_EXPIRED, DRIVE_STATUS_API_BROKEN):
-            title = (
-                f"网盘「{name}」需要重新登录"
-                if status == DRIVE_STATUS_AUTH_EXPIRED
-                else f"网盘「{name}」的接口有变化"
-            )
             await upsert_notice(
                 session,
                 dedupe_key=_notice_key(account_id),
                 severity=NoticeSeverity.WARNING,
                 source="drive",
-                title=title,
+                title_key="notify.driveFailure.title",
+                message_params={"name": name, "status": status},
                 message=exc.message,
                 payload={"account_id": account_id, "status": status},
             )

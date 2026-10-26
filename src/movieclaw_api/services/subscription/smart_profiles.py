@@ -15,7 +15,9 @@ from movieclaw_matcher.smart import SmartPolicy, SmartPreferences
 
 def conflict() -> AppException:
     return AppException(
-        status_code=409, code="SMART_VERSION_CONFLICT", message="设置或等待状态已改变，请刷新后重试"
+        status_code=409,
+        code="SMART_VERSION_CONFLICT",
+        message_key="errors.subscription.settingsChanged",
     )
 
 
@@ -23,11 +25,11 @@ async def save_profile(
     session: AsyncSession, kind: str, preferences: SmartPreferences, revision: int
 ) -> SmartProfile:
     if kind not in {"movie", "tv"}:
-        raise BadRequestException("设置类型必须是电影或剧集")
+        raise BadRequestException(message_key="errors.subscription.smartKindRequired")
     # SmartPreferences 已限制 0–7 天；保留整小时输入，兼容已有偏好和旧客户端。
     # 不收紧历史策略的解析，已冻结订阅仍按创建时的预算执行。
     if preferences.wait_seconds % 3600:
-        raise BadRequestException("等待时长请选择不等待，或不超过 7 天的整数小时")
+        raise BadRequestException(message_key="errors.subscription.waitLimit")
     if revision == 0:
         row = SmartProfile(kind=kind, preferences=preferences.model_dump(), revision=1)
         session.add(row)
@@ -74,7 +76,7 @@ async def save_defaults(
     ):
         preferences = shared.model_copy(update={"wait_seconds": wait})
         if wait % 3600 or not 0 <= wait <= 604800:
-            raise BadRequestException("等待时长请选择不等待，或不超过 7 天的整数小时")
+            raise BadRequestException(message_key="errors.subscription.waitLimit")
         if revision == 0:
             if await session.get(SmartProfile, kind) is not None:
                 await session.rollback()
@@ -111,7 +113,7 @@ async def save_defaults(
 async def freeze_policy(session: AsyncSession, kind: str, revision: int | None) -> dict:
     row = await session.get(SmartProfile, kind)
     if row is None:
-        raise BadRequestException("请先保存该类型的智能设置")
+        raise BadRequestException(message_key="errors.subscription.smartSettingsRequired")
     if revision != row.revision:
         raise conflict()
     return SmartPolicy(**row.preferences, kind=kind, profile_revision=row.revision).model_dump(

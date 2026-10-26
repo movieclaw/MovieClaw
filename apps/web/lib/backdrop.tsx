@@ -9,6 +9,8 @@ import {
   useState,
 } from "react";
 
+import { appTranslator } from "@/lib/i18n/translate";
+
 import * as appearanceApi from "@/lib/api/appearance";
 import type { BackdropItem } from "@/lib/api/appearance";
 import { BACKDROP_CACHE_KEY } from "@/lib/backdrop-cache";
@@ -272,16 +274,17 @@ export function useBackdrop(): BackdropContextValue {
  * maxEdge 可按用途调小：头像等小图传 512 即可，进一步压缩上传体积。
  */
 export function fileToCompressedJpeg(file: File, maxEdge = 2560): Promise<Blob> {
+  const t = appTranslator();
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith("image/")) {
-      reject(new Error("请选择图片文件"));
+      reject(new Error(t("settings.imageUpload.selectImage")));
       return;
     }
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.onerror = () => reject(new Error(t("settings.imageUpload.readFailed")));
     reader.onload = () => {
       const img = new Image();
-      img.onerror = () => reject(new Error("图片解码失败，请换一张试试"));
+      img.onerror = () => reject(new Error(t("settings.imageUpload.decodeFailed")));
       img.onload = () => {
         const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
         const w = Math.round(img.width * scale);
@@ -291,14 +294,14 @@ export function fileToCompressedJpeg(file: File, maxEdge = 2560): Promise<Blob> 
         canvas.height = h;
         const ctx = canvas.getContext("2d");
         if (!ctx) {
-          reject(new Error("当前浏览器不支持图片处理"));
+          reject(new Error(t("settings.imageUpload.unsupported")));
           return;
         }
         ctx.drawImage(img, 0, 0, w, h);
         canvas.toBlob(
           (blob) => {
             if (blob) resolve(blob);
-            else reject(new Error("图片编码失败，请重试"));
+            else reject(new Error(t("settings.imageUpload.encodeFailed")));
           },
           "image/jpeg",
           0.9,

@@ -22,22 +22,22 @@ struct DiscoveryFilters: Hashable {
     /// 当前筛选的可读标签（结果页 chips）；类型名由后端本地化清单补齐
     func labels(genreNames: [Int: String]) -> [String] {
         var labels = genreIds.compactMap { genreNames[$0] }
-        if !genreIds.isEmpty, labels.isEmpty { labels.append("\(genreIds.count) 个类型") }
+        if !genreIds.isEmpty, labels.isEmpty { labels.append(String(localized: .mediaFiltersGenreCount(genreIds.count))) }
         if let originCountry { labels.append(Self.countryLabel(originCountry)) }
-        if let year { labels.append("\(year) 年") }
-        if let ratingGte { labels.append("\(Self.format(ratingGte)) 分以上") }
-        if let runtimeLte { labels.append("\(runtimeLte) 分钟以内") }
+        if let year { labels.append(String(localized: .mediaFiltersYearValue(String(year)))) }
+        if let ratingGte { labels.append(String(localized: .mediaFiltersRatingValue(Self.format(ratingGte)))) }
+        if let runtimeLte { labels.append(String(localized: .mediaFiltersRuntimeValue(runtimeLte))) }
         if sort != "popular" { labels.append(Self.sortLabel(sort)) }
         return labels
     }
 
     static let countries: [(code: String, name: String)] = [
-        ("CN", "中国大陆"), ("US", "美国"), ("JP", "日本"), ("KR", "韩国"), ("GB", "英国"),
-        ("FR", "法国"), ("HK", "中国香港"), ("TW", "中国台湾"), ("IN", "印度"),
+        ("CN", String(localized: .mediaRegionsMainlandChina)), ("US", String(localized: .mediaRegionsUnitedStates)), ("JP", String(localized: .mediaRegionsJapan)), ("KR", String(localized: .mediaRegionsSouthKorea)), ("GB", String(localized: .mediaRegionsUnitedKingdom)),
+        ("FR", String(localized: .mediaRegionsFrance)), ("HK", String(localized: .mediaRegionsChinaHongKong)), ("TW", String(localized: .mediaRegionsChinaTaiwan)), ("IN", String(localized: .mediaRegionsIndia)),
     ]
 
     static let sorts: [(value: String, label: String)] = [
-        ("popular", "热门优先"), ("rating", "评分优先"), ("newest", "最新优先"), ("most-rated", "最多评分"),
+        ("popular", String(localized: .mediaFiltersPopular)), ("rating", String(localized: .mediaFiltersRated)), ("newest", String(localized: .mediaFiltersNewest)), ("most-rated", String(localized: .mediaFiltersMostRated)),
     ]
 
     static func countryLabel(_ code: String) -> String {
@@ -100,8 +100,8 @@ struct DiscoverViewpoint: Equatable {
 /// 院线地区（ISO 3166-1，与后端 TMDB region 参数一致）
 enum DiscoverRegions {
     static let all: [(code: String, name: String)] = [
-        ("CN", "中国大陆"), ("HK", "香港"), ("TW", "台湾"), ("US", "美国"),
-        ("JP", "日本"), ("KR", "韩国"), ("GB", "英国"),
+        ("CN", String(localized: .mediaRegionsMainlandChina)), ("HK", String(localized: .mediaRegionsHongKong)), ("TW", String(localized: .mediaRegionsTaiwan)), ("US", String(localized: .mediaRegionsUnitedStates)),
+        ("JP", String(localized: .mediaRegionsJapan)), ("KR", String(localized: .mediaRegionsSouthKorea)), ("GB", String(localized: .mediaRegionsUnitedKingdom)),
     ]
 
     static func name(_ code: String) -> String {
@@ -151,7 +151,7 @@ struct TitleRefParts {
 extension APIError {
     /// 后端统一错误码（UPSTREAM_UNREACHABLE = 网络级不可达，发现页据此给「前往网络设置」）
     var discoverErrorCode: String? {
-        if case let .http(_, _, code) = self { return code }
+        if case let .http(_, _, code, _) = self { return code }
         return nil
     }
 }

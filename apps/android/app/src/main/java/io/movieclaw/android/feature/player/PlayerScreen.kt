@@ -317,6 +317,8 @@ private fun PlayingSurface(
     var menuOpen by remember { mutableStateOf(false) }
     var episodePickerOpen by remember(controller) { mutableStateOf(false) }
     var settingsOpen by remember(controller) { mutableStateOf(false) }
+    // 画面缩放（iOS VideoDisplayMode 同款三档）：fit=完整显示 / fill=铺满裁切 / stretch=拉伸铺满
+    var displayMode by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("fit") }
     var diagnosticsOpen by remember(controller) { mutableStateOf(false) }
     LaunchedEffect(controller, diagnosticsOpen) { controller.setDiagnosticsOpen(diagnosticsOpen) }
     val diagnostics by controller.diagnostics.collectAsState()
@@ -412,7 +414,12 @@ private fun PlayingSurface(
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // 画面：统一引擎的播放器；ASS 特效字幕由 libass 画在它自己的叠加层上
-        ContentFrame(player = controller.player, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit, keepContentOnReset = true)
+        val frameScale = when (displayMode) {
+            "fill" -> ContentScale.Crop
+            "stretch" -> ContentScale.FillBounds
+            else -> ContentScale.Fit
+        }
+        ContentFrame(player = controller.player, modifier = Modifier.fillMaxSize(), contentScale = frameScale, keepContentOnReset = true)
         AndroidView(factory = controller::assOverlay, modifier = Modifier.fillMaxSize())
 
         // 文本 / 图形字幕：服务端流的文本字幕与直连时引擎解出的字幕，都按用户的字幕外观画
@@ -1012,9 +1019,11 @@ private fun PlayingSurface(
             qualityReason = controller.decision?.reason.orEmpty(),
             canPickQuality = !controller.isGuest,
             speed = state.speed,
+            displayMode = displayMode,
             diagnosticsOpen = diagnosticsOpen,
             onSelectQuality = controller::selectQuality,
             onSelectSpeed = controller::selectSpeed,
+            onSelectDisplayMode = { displayMode = it },
             onToggleDiagnostics = { diagnosticsOpen = !diagnosticsOpen },
             onDismiss = { settingsOpen = false },
         )

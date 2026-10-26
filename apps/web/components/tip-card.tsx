@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { SparklesIcon, XIcon } from "@/components/icons";
 import type { TipDefinition } from "@/lib/tips/engine";
 import { useTip } from "@/lib/tips/use-tip";
@@ -18,6 +20,7 @@ interface TipCardProps<P> {
  * 关闭按钮按 closed 作废，动作按钮按 action_performed 作废。
  */
 export function TipCard<P = undefined>({ tip, params, onAction, className = "" }: TipCardProps<P>) {
+  const t = useTranslations();
   const { visible, invalidate } = useTip(tip, params);
   if (!visible) return null;
 
@@ -53,7 +56,7 @@ export function TipCard<P = undefined>({ tip, params, onAction, className = "" }
       </div>
       <button
         type="button"
-        aria-label="关闭提示"
+        aria-label={t("settings.playback.controls.closeTip")}
         onClick={() => invalidate("closed")}
         className="-mr-1 shrink-0 rounded-md p-1 text-white/50 transition hover:bg-white/[0.08] hover:text-white"
       >

@@ -16,6 +16,9 @@ work = "2.10.0"
 haze = "1.6.1"
 retrofit = "3.0.0"
 coil = "3.2.0"
+camera = "1.4.2"
+mlkit-barcode = "17.3.0"
+eddsa = "0.3.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -36,6 +39,12 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 retrofit-kotlinx = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
+camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camera" }
+camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camera" }
+camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camera" }
+camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camera" }
+mlkit-barcode = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkit-barcode" }
+eddsa = { group = "net.i2p.crypto", name = "eddsa", version.ref = "eddsa" }
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
 hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version = "1.2.0" }

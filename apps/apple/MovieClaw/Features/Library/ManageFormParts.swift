@@ -129,13 +129,13 @@ enum ManageMatchRules {
     static func summary(kind: String, regions: [String], genres: [Int], options: ManageRoutingOptions?) -> (declared: Bool, text: String) {
         guard let options else {
             let declared = !regions.isEmpty || !genres.isEmpty
-            return (declared, declared ? "已声明收藏范围" : "未声明")
+            return (declared, declared ? String(localized: .libraryFormScopeSet) : String(localized: .libraryFormScopeUnset))
         }
         let parts = [
             options.regionLabels(regions).joined(separator: " / "),
             options.genres(for: kind).filter { genres.contains($0.id) }.map(\.label).joined(separator: " / "),
         ].filter { !$0.isEmpty }
-        return parts.isEmpty ? (false, "未声明") : (true, parts.joined(separator: " 的 "))
+        return parts.isEmpty ? (false, String(localized: .libraryFormScopeUnset)) : (true, parts.joined(separator: String(localized: .libraryFormScopeJoiner)))
     }
 }
 
@@ -176,15 +176,15 @@ struct ManageRootsEditor: View {
                         .expandedHitArea(vertical: 10)
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("点击更改：从当前路径开始重新选择目录")
+                .accessibilityHint(String(localized: .libraryFormChangeFolderAria))
                 if index == 0 {
-                    Text("主根")
+                    Text(String(localized: .libraryFormPrimaryRoot))
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Theme.accent)
                         .padding(.horizontal, 7).padding(.vertical, 2)
                         .background(Theme.accent.opacity(0.15), in: .capsule)
                 } else {
-                    Button("设为主根") { roots = [root] + roots.filter { $0 != root } }
+                    Button(String(localized: .libraryFormMakePrimary)) { roots = [root] + roots.filter { $0 != root } }
                         .font(.caption)
                         .buttonStyle(.borderless)
                         .foregroundStyle(Theme.textMuted)
@@ -195,13 +195,13 @@ struct ManageRootsEditor: View {
                     Image(systemName: "xmark").font(.caption.weight(.semibold)).foregroundStyle(Theme.textFaint)
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel("移除 \(root)")
+                .accessibilityLabel(String(localized: .libraryFormRemoveEntry(root)))
             }
         }
         Button {
             target = .add
         } label: {
-            Label(roots.isEmpty ? "浏览服务器目录并添加" : "添加目录", systemImage: "plus")
+            Label(roots.isEmpty ? String(localized: .libraryFormBrowseServer) : String(localized: .libraryFormAddFolder), systemImage: "plus")
                 .font(.subheadline.weight(.medium))
         }
         .accessibilityIdentifier("form-add-root")
@@ -249,7 +249,7 @@ struct ManageScopeEditor: View {
             // 已选中但不在内置映射里的码补进列表，保证选了就能看见、能取消
             let countryChips = options.countries + regions.filter { c in !allCountries.contains(c) }.map { ($0, $0) }
             VStack(alignment: .leading, spacing: 8) {
-                Text("区域（勾选任一即匹配）").font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .libraryFormMatchRegions)).font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
                 ManageFlow(spacing: 6, lineSpacing: 6) {
                     ForEach(countryChips, id: \.code) { item in
                         ManageToggleChip(title: item.name, on: regions.contains(item.code)) {
@@ -258,9 +258,9 @@ struct ManageScopeEditor: View {
                     }
                 }
                 ManageFlow(spacing: 6, lineSpacing: 6) {
-                    Text("快捷组合").font(.caption).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .libraryFormRegionPresets)).font(.caption).foregroundStyle(Theme.textFaint)
                     let allOn = allCountries.allSatisfy(regions.contains)
-                    ManageToggleChip(title: allOn ? "清空" : "全选", on: false, small: true) {
+                    ManageToggleChip(title: allOn ? String(localized: .commonClear) : String(localized: .commonSelectAll), on: false, small: true) {
                         regions = allOn ? [] : regions + allCountries.filter { !regions.contains($0) }
                     }
                     ForEach(options.regionPresets, id: \.key) { preset in
@@ -273,10 +273,10 @@ struct ManageScopeEditor: View {
             }
             .padding(.vertical, 4)
             VStack(alignment: .leading, spacing: 8) {
-                Text("类型（勾选任一即匹配）").font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .libraryFormMatchGenres)).font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
                 ManageFlow(spacing: 6, lineSpacing: 6) {
                     let allOn = genreOptions.allSatisfy { genres.contains($0.id) }
-                    ManageToggleChip(title: allOn ? "清空" : "全选", on: false, small: true) {
+                    ManageToggleChip(title: allOn ? String(localized: .commonClear) : String(localized: .commonSelectAll), on: false, small: true) {
                         genres = allOn ? [] : genres + genreOptions.map(\.id).filter { !genres.contains($0) }
                     }
                     ForEach(genreOptions, id: \.id) { genre in
@@ -286,14 +286,15 @@ struct ManageScopeEditor: View {
                     }
                 }
                 if !regions.isEmpty, !genres.isEmpty {
-                    Text("区域与类型须\(Text("同时满足").foregroundStyle(Theme.textMuted).fontWeight(.medium))（如「日韩 + 动画」= 只收日韩的动画）。")
+                    (Text(String(localized: .libraryFormBothLead)) + Text(String(localized: .libraryFormBothEmphasis)).foregroundStyle(Theme.textMuted).fontWeight(.medium)
+                    + Text(String(localized: .libraryFormBothTail)))
                         .font(.caption)
                         .foregroundStyle(Theme.textFaint)
                 }
             }
             .padding(.vertical, 4)
         } else {
-            Text("正在加载可选项…").font(.subheadline).foregroundStyle(Theme.textFaint)
+            Text(String(localized: .libraryFormLoadingOptions)).font(.subheadline).foregroundStyle(Theme.textFaint)
         }
     }
 
@@ -341,30 +342,30 @@ struct ManageAccessEditor: View {
     @State private var query = ""
 
     var body: some View {
-        Picker("可见范围", selection: $mode) {
-            Text("所有成员").tag("everyone")
-            Text("指定成员").tag("selected")
+        Picker(String(localized: .libraryFormAccessScope), selection: $mode) {
+            Text(String(localized: .libraryFormAllMembers)).tag("everyone")
+            Text(String(localized: .libraryFormSelectedMembers)).tag("selected")
         }
         .pickerStyle(.segmented)
         .accessibilityIdentifier("form-access-mode")
         Text(mode == "everyone"
-            ? "对全部成员开放，包括以后新建的成员；成员管理页里切到「指定库」的成员除外。"
-            : "只有选中的人能浏览这个库的内容；其他人在首页、搜索、最近观看和播放器里都看不到它。你始终可以管理它。")
+            ? String(localized: .libraryFormEveryoneHint)
+            : String(localized: .libraryFormSelectedHint))
             .font(.caption)
             .foregroundStyle(Theme.textFaint)
             .fixedSize(horizontal: false, vertical: true)
         if mode == "selected" {
-            TextField("输入昵称或用户名搜索，选择可浏览的人", text: $query)
+            TextField(String(localized: .libraryFormViewerPlaceholder), text: $query)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .font(.subheadline)
             if let members {
-                let options = [(id: -1, label: "超管（我自己）", hint: "你自己")]
+                let options = [(id: -1, label: String(localized: .libraryFormAdminSelf), hint: String(localized: .libraryFormYourself))]
                     + members.map { (id: $0.id, label: $0.nickname.isEmpty ? $0.username : $0.nickname, hint: "@\($0.username)") }
                 let keyword = query.trimmingCharacters(in: .whitespaces).lowercased()
                 let matches = options.filter { keyword.isEmpty || $0.label.lowercased().contains(keyword) || $0.hint.lowercased().contains(keyword) }
                 if matches.isEmpty {
-                    Text("没有匹配的成员").font(.caption).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .libraryFormNoMembersMatch)).font(.caption).foregroundStyle(Theme.textFaint)
                 }
                 ForEach(matches, id: \.id) { option in
                     let on = option.id == -1 ? adminVisible : memberIds.contains(option.id)
@@ -391,12 +392,12 @@ struct ManageAccessEditor: View {
                     .accessibilityIdentifier("form-viewer-\(option.id)")
                 }
             } else {
-                Text("正在读取成员…").font(.caption).foregroundStyle(Theme.textFaint)
+                Text(String(localized: .libraryFormLoadingMembers)).font(.caption).foregroundStyle(Theme.textFaint)
                     .task { await loadMembers() }
             }
         }
         if mode == "selected", !adminVisible, memberIds.isEmpty {
-            Text("当前没有任何人能浏览这个库的内容，包括你自己。你仍然可以在这里管理它。")
+            Text(String(localized: .libraryFormNoViewersWarning))
                 .font(.caption)
                 .foregroundStyle(Theme.warning)
                 .fixedSize(horizontal: false, vertical: true)
@@ -410,9 +411,9 @@ struct ManageAccessEditor: View {
 
     /// 可见范围的一句话摘要（编辑表单的分区摘要行）
     static func summary(mode: String, adminVisible: Bool, memberCount: Int) -> String {
-        if mode == "everyone" { return "所有成员" }
-        let parts = [adminVisible ? "我自己" : nil, memberCount > 0 ? "\(memberCount) 位成员" : nil].compactMap { $0 }
-        return parts.isEmpty ? "指定成员：暂无任何人可浏览" : "指定成员：\(parts.joined(separator: " + "))"
+        if mode == "everyone" { return String(localized: .libraryFormAllMembers) }
+        let parts = [adminVisible ? String(localized: .libraryFormMyself) : nil, memberCount > 0 ? String(localized: .libraryFormMemberCount(memberCount)) : nil].compactMap { $0 }
+        return parts.isEmpty ? String(localized: .libraryFormNoSelectedViewers) : String(localized: .libraryFormSelectedViewers(parts.joined(separator: " + ")))
     }
 }
 
@@ -436,7 +437,7 @@ struct ManageCoverEditor: View {
 
     var body: some View {
         // 加载失败写「暂无封面」（同 Web），不是一个意义不明的图标
-        MeasuredRemoteImage(raw: "/libraries/\(libraryId)/cover?v=\(stamp)", aspect: 21 / 10, placeholderText: "暂无封面")
+        MeasuredRemoteImage(raw: "/libraries/\(libraryId)/cover?v=\(stamp)", aspect: 21 / 10, placeholderText: String(localized: .libraryFormNoCover))
             .aspectRatio(21 / 10, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .clipShape(.rect(cornerRadius: 12))
@@ -444,24 +445,24 @@ struct ManageCoverEditor: View {
             .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
         VStack(alignment: .leading, spacing: 6) {
             Text(custom
-                ? "当前用的是你上传的封面。恢复后会重新按库内最近入库的作品自动拼贴。"
-                : "当前是自动拼贴：取库内最近入库的 4 部作品的海报。上传一张图即可换掉它。")
+                ? String(localized: .libraryFormCustomCoverHint)
+                : String(localized: .libraryFormAutoCoverHint))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
-            Text("推荐 21:10 的横图（如 1260×600）。上传的图会自动压缩（长边 1600 的 JPEG），控制台与播放器（Jellyfin 客户端）用的是同一张。上传后立即生效，无需点保存。")
+            Text(String(localized: .libraryFormCoverHint))
                 .font(.caption)
                 .foregroundStyle(Theme.textFaint)
         }
         .fixedSize(horizontal: false, vertical: true)
         HStack(spacing: 10) {
             PhotosPicker(selection: $picked, matching: .images) {
-                Text(busy ? "处理中…" : custom ? "换一张" : "上传封面").font(.subheadline.weight(.medium))
+                Text(busy ? String(localized: .libraryFormProcessingCover) : custom ? String(localized: .libraryFormReplaceCover) : String(localized: .libraryFormUploadCover)).font(.subheadline.weight(.medium))
             }
             .buttonStyle(.glass)
             .disabled(busy)
             .accessibilityIdentifier("form-cover-upload")
             if custom {
-                Button("恢复自动拼贴") { Task { await restore() } }
+                Button(String(localized: .libraryFormRestoreAutoCover)) { Task { await restore() } }
                     .font(.subheadline)
                     .buttonStyle(.glass)
                     .disabled(busy)
@@ -486,7 +487,7 @@ struct ManageCoverEditor: View {
         }
         do {
             guard let raw = try await item.loadTransferable(type: Data.self), let jpeg = Self.compress(raw) else {
-                error = "读取图片失败，请换一张再试"
+                error = String(localized: .libraryFormImageReadFailed)
                 return
             }
             let _: [String: API.JSONValue] = try await api.upload(
@@ -549,7 +550,7 @@ struct ManageSwitchRow: View {
                     Image(systemName: "info.circle").font(.footnote).foregroundStyle(Theme.textFaint)
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel("\(title)的说明")
+                .accessibilityLabel(String(localized: .libraryFormAboutSetting(title)))
                 .popover(isPresented: $showDetail) {
                     Text(detail)
                         .font(.footnote)

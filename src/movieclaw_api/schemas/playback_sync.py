@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_db.models.base import utcnow
 
@@ -58,9 +59,9 @@ class SyncCatalog(BaseModel):
 
 def _aware_past(value: datetime | None) -> datetime | None:
     if value is not None and (value.tzinfo is None or value.utcoffset() is None):
-        raise ValueError("时间必须包含时区")
+        raise ValueError(t("errors.playbackSync.timezoneRequired"))
     if value is not None and value.timestamp() > utcnow().replace(tzinfo=UTC).timestamp() + 5:
-        raise ValueError("不能使用未来时间")
+        raise ValueError(t("errors.playbackSync.futureTime"))
     return value
 
 
@@ -124,20 +125,20 @@ class SyncChangeIn(BaseModel):
     @model_validator(mode="after")
     def shape(self):
         if self.played is None and self.position_ms is None and self.is_favorite is None:
-            raise ValueError("played、position_ms、is_favorite 至少要给一个")
+            raise ValueError(t("errors.playbackSync.nothingToWrite"))
         if self.season is None and self.episode is not None:
-            raise ValueError("给了集号就必须同时给季号")
+            raise ValueError(t("errors.playbackSync.seasonRequired"))
         if self.kind == "movie" and (self.season or self.episode):
-            raise ValueError("电影的季集只能为 0 或省略")
+            raise ValueError(t("errors.playbackSync.movieUnits"))
         if self.kind == "tv" and self.episode == 0:
-            raise ValueError("集号从 1 开始")
+            raise ValueError(t("errors.playbackSync.episodeFromOne"))
         folder = self.kind == "tv" and self.episode is None
         if folder and (
             self.played is not None or self.position_ms is not None or self.last_played_at
         ):
-            raise ValueError("整剧 / 整季只能写收藏；已看与续播请逐集写")
+            raise ValueError(t("errors.playbackSync.favoriteOnly"))
         if self.played and self.position_ms:
-            raise ValueError("已看的单元不能带续播位置")
+            raise ValueError(t("errors.playbackSync.watchedNoPosition"))
         return self
 
 

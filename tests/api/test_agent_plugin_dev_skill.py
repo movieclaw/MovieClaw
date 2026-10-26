@@ -263,7 +263,7 @@ def test_scaffolded_plugin_installs_serves_and_uninstalls(data_dir) -> None:
     admin = Principal(kind="admin", name="tester", is_admin=True)
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[require_login] = lambda: admin
-    with TestClient(app) as client:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as client:
         reply = client.post(
             "/api/v1/app/plugins/packages",
             files={"file": ("media-stats.mcplugin", _zip(plugin_dir), "application/zip")},
@@ -323,7 +323,7 @@ def test_scaffolded_web_page_checks_installs_and_is_served(data_dir) -> None:
     admin = Principal(kind="admin", name="tester", is_admin=True)
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[require_login] = lambda: admin
-    with TestClient(app) as client:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as client:
         reply = client.post(
             "/api/v1/app/plugins/packages",
             files={"file": ("weekly-board.mcplugin", _zip(plugin_dir), "application/zip")},
@@ -381,7 +381,7 @@ def test_scaffolded_theme_checks_installs_and_is_served(data_dir) -> None:
     admin = Principal(kind="admin", name="tester", is_admin=True)
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[require_login] = lambda: admin
-    with TestClient(app) as client:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as client:
         reply = client.post(
             "/api/v1/app/plugins/packages",
             files={"file": ("ocean.mcplugin", _zip(plugin_dir), "application/zip")},

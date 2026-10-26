@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
@@ -50,6 +52,9 @@ export function ActivityView({
   initialWatchView?: WatchViewName;
   page?: ActivityPageName | null;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const router = useRouter();
   const pathname = usePathname();
   // 页面左右留白随主题走栅格：Netflix 主题放弃居中窄栏、整幅铺开并对齐全站
@@ -121,7 +126,7 @@ export function ActivityView({
   // 一级切换器必须原样把它接住——否则从观看视角看过去，任务那边有什么事
   // 完全不可见（就是"点进来不知道为什么有提醒"的由来）。
   const taskActivity = useTaskActivity();
-  const taskBadge = taskActivityBadge(taskActivity);
+  const taskBadge = taskActivityBadge(taskActivity, locale);
 
   const switcher = useMemo(
     () => (
@@ -180,13 +185,12 @@ export function ActivityView({
             <div className="flex items-center gap-2.5">
               <ActivityIcon className="size-6 text-[var(--info)]" />
               <h1 className="text-on-image text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[21px]">
-                活动
-              </h1>
+                {t("activity.nav.title")}</h1>
             </div>
             <p className="text-on-image mt-1.5 max-w-2xl text-ui leading-6 text-[var(--text-muted)]">
               {scope === "media"
-                ? "谁在看什么、用哪台设备、速率如何，媒体库的实时动静都在这里。"
-                : "观察下载、入库和后台作业的完整过程，需要处理的任务会优先出现。"}
+                ? t("activity.nav.watchHint")
+                : t("activity.nav.taskHint")}
             </p>
           </div>
           {!isMobile && switcher}
@@ -222,6 +226,8 @@ function ScopeSwitcher({
   taskAlert: boolean;
   onChange: (scope: ActivityScope) => void;
 }) {
+  const t = useTranslations();
+
   return (
     // 胶囊底材与订阅页 MediaTypeSwitcher 逐类一致（不加 solid-popover 浮层钩子）：
     // 2026-09-20 用户拍板——切换胶囊全站一套材质，Netflix 主题下保持玻璃底，
@@ -239,7 +245,7 @@ function ScopeSwitcher({
               : "text-[var(--text-muted)] hover:text-white"
           }`}
         >
-          {scope === "media" ? "观看" : "任务"}
+          {scope === "media" ? t("activity.nav.watch") : t("activity.nav.tasks")}
           {scope === "media" && liveCount > 0 && (
             <span className="relative flex size-1.5" aria-hidden="true">
               <span className="absolute inline-flex size-1.5 motion-safe:animate-ping rounded-full bg-[var(--ok)]/60" />
@@ -248,7 +254,7 @@ function ScopeSwitcher({
           )}
           {scope === "tasks" && taskCount > 0 && (
             <span
-              aria-label={taskAlert ? `${taskCount} 项需要处理` : `${taskCount} 个进行中`}
+              aria-label={taskAlert ? t("activity.nav.taskAttentionCount", { count: taskCount }) : t("activity.nav.taskActiveCount", { count: taskCount })}
               className={`tnum rounded-full px-1.5 py-0.5 text-[11px] font-semibold leading-none ${
                 taskAlert
                   ? "bg-[var(--danger)]/20 text-[var(--danger)]"

@@ -3,10 +3,10 @@ import Foundation
 /// 语言代码 → 中文名（对应 Web `lib/language-labels.ts`，同一条轨在详情页与播放器里叫同一个名字）。
 enum LanguageLabel {
     private static let labels: [String: String] = [
-        "chs": "简体中文", "cht": "繁体中文", "chi": "中文", "zho": "中文", "cmn": "中文",
-        "yue": "粤语", "eng": "英语", "jpn": "日语", "kor": "韩语", "fre": "法语", "fra": "法语",
-        "ger": "德语", "deu": "德语", "spa": "西班牙语", "rus": "俄语", "ita": "意大利语",
-        "por": "葡萄牙语", "tha": "泰语", "hin": "印地语",
+        "chs": String(localized: .mediaLanguagesSimplifiedChinese), "cht": String(localized: .mediaLanguagesTraditionalChinese), "chi": String(localized: .mediaLanguagesChinese), "zho": String(localized: .mediaLanguagesChinese), "cmn": String(localized: .mediaLanguagesChinese),
+        "yue": String(localized: .mediaLanguagesCantonese), "eng": String(localized: .mediaLanguagesEnglish), "jpn": String(localized: .mediaLanguagesJapanese), "kor": String(localized: .mediaLanguagesKorean), "fre": String(localized: .mediaLanguagesFrench), "fra": String(localized: .mediaLanguagesFrench),
+        "ger": String(localized: .mediaLanguagesGerman), "deu": String(localized: .mediaLanguagesGerman), "spa": String(localized: .mediaLanguagesSpanish), "rus": String(localized: .mediaLanguagesRussian), "ita": String(localized: .mediaLanguagesItalian),
+        "por": String(localized: .mediaLanguagesPortuguese), "tha": String(localized: .mediaLanguagesThai), "hin": String(localized: .mediaLanguagesHindi),
     ]
 
     /// 未知语言（und）与空值返回 nil，由调用方决定占位文案
@@ -33,20 +33,20 @@ struct SubtitleOption: Identifiable, Hashable {
 
     var displayTitle: String {
         if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { return title }
-        if let embeddedIndex { return "内封轨 \(embeddedIndex + 1)" }
+        if let embeddedIndex { return String(localized: .playerSubtitlesEmbeddedTrack(embeddedIndex + 1)) }
         if ref.hasPrefix("external:") { return String(ref.dropFirst("external:".count)) }
         return label
     }
 
     var detail: String {
-        let formats = ["vtt": "WebVTT", "ass": "ASS", "pgs": "PGS 图形", "text": "文本"]
-        var parts = [LanguageLabel.of(language) ?? "未知语言", formats[kind] ?? kind]
+        let formats = ["vtt": "WebVTT", "ass": "ASS", "pgs": String(localized: .playerSubtitlesPgs), "text": String(localized: .playerSubtitlesText)]
+        var parts = [LanguageLabel.of(language) ?? String(localized: .playerSubtitlesUnknownLanguage), formats[kind] ?? kind]
         if let embeddedIndex {
-            parts.append(displayTitle == "内封轨 \(embeddedIndex + 1)" ? "内封" : "内封轨 \(embeddedIndex + 1)")
-        } else if ref.hasPrefix("external:") { parts.append("外挂") }
-        if isAI { parts.append("AI 翻译") }
-        if isDefault { parts.append("默认") }
-        if isForced { parts.append("强制") }
+            parts.append(displayTitle == String(localized: .playerSubtitlesEmbeddedTrack(embeddedIndex + 1)) ? String(localized: .playerSubtitlesEmbedded) : String(localized: .playerSubtitlesEmbeddedTrack(embeddedIndex + 1)))
+        } else if ref.hasPrefix("external:") { parts.append(String(localized: .playerSubtitlesExternal)) }
+        if isAI { parts.append(String(localized: .playerSubtitlesAiTranslated)) }
+        if isDefault { parts.append(String(localized: .playerSubtitlesDefault)) }
+        if isForced { parts.append(String(localized: .playerSubtitlesForced)) }
         return parts.joined(separator: " · ")
     }
 
@@ -74,11 +74,11 @@ struct SubtitleTracks: Equatable {
         for (index, plan) in plans.enumerated() {
             let label = trackLabel(plan)
             guard index < urls.count else {
-                result.unavailable.append(.init(ref: plan.trackRef, label: label, reason: "服务端没有给出这条轨的地址"))
+                result.unavailable.append(.init(ref: plan.trackRef, label: label, reason: String(localized: .playerSubtitlesNoUrl)))
                 continue
             }
             guard ["vtt", "ass", "pgs"].contains(plan.kind) else {
-                result.unavailable.append(.init(ref: plan.trackRef, label: label, reason: "暂不支持的字幕格式：\(plan.kind)"))
+                result.unavailable.append(.init(ref: plan.trackRef, label: label, reason: String(localized: .playerSubtitlesUnsupported(plan.kind))))
                 continue
             }
             result.options.append(SubtitleOption(
@@ -90,7 +90,7 @@ struct SubtitleTracks: Equatable {
         return result
     }
 
-    private static let kindLabels = ["vtt": "文本", "ass": "特效", "pgs": "图形"]
+    private static let kindLabels = ["vtt": String(localized: .playerSubtitlesText), "ass": String(localized: .playerSubtitlesStyled), "pgs": String(localized: .playerSubtitlesImage)]
 
     private static func trackLabel(_ plan: API.SubtitlePlanView) -> String {
         let title = plan.title?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -101,8 +101,8 @@ struct SubtitleTracks: Equatable {
     /// 没有语言标记时的兜底名：外挂轨用文件名，内封轨用序号
     private static func refLabel(_ ref: String) -> String {
         if ref.hasPrefix("external:") { return String(ref.dropFirst("external:".count)) }
-        if ref.hasPrefix("embedded:"), let index = Int(ref.dropFirst("embedded:".count)) { return "内封轨 \(index + 1)" }
-        return "未知语言"
+        if ref.hasPrefix("embedded:"), let index = Int(ref.dropFirst("embedded:".count)) { return String(localized: .playerSubtitlesEmbeddedTrack(index + 1)) }
+        return String(localized: .playerSubtitlesUnknownLanguage)
     }
 
     /// 把自研引擎读到、清单里还没有的内封字幕轨补进来（光盘镜像的全部轨，DVB / ARIB / VobSub 这类服务端不提供的轨）。
@@ -133,7 +133,7 @@ struct SubtitleTracks: Equatable {
             }
             // 引擎从画面里读出的隐藏字幕（CEA-608，美剧常见）没有语言标记，直接叫它的名字
             let title = track.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let name = title.flatMap { $0.isEmpty ? nil : $0 } ?? (track.codec == "eia_608" ? "隐藏字幕（CC）" : (LanguageLabel.of(track.language) ?? "内封轨 \(index + 1)"))
+            let name = title.flatMap { $0.isEmpty ? nil : $0 } ?? (track.codec == "eia_608" ? String(localized: .playerSubtitlesClosedCaptions) : (LanguageLabel.of(track.language) ?? String(localized: .playerSubtitlesEmbeddedTrack(index + 1))))
             if let reason = Self.undecodableReasons[track.codec] {
                 // 引擎里没有这种字幕的解码器（编码名退回成描述名）：置灰给原因，而不是给一个选了不出字的选项
                 if !unavailable.contains(where: { $0.ref == ref }) {
@@ -159,8 +159,8 @@ struct SubtitleTracks: Equatable {
 
     /// 引擎解不了的字幕（FFmpeg 没编进这些解码器，引擎报的是编码描述名）
     private static let undecodableReasons = [
-        "arib_caption": "暂不支持 ARIB 字幕（日本电视台的字幕格式）",
-        "dvb_teletext": "暂不支持图文电视（Teletext）字幕",
+        "arib_caption": String(localized: .playerSubtitlesAribUnavailable),
+        "dvb_teletext": String(localized: .playerSubtitlesTeletextUnavailable),
     ]
 
     /// 引擎报的编码名归到菜单的三类：图形（位图字幕）、特效（ASS）、其余都算文本。
@@ -227,9 +227,9 @@ struct AudioOption: Identifiable, Hashable {
         return codec == "none" || codec == "unknown"
     }
 
-    static let unrecognizedReason = "音频编码无法识别（常见于菁彩声 Audio Vivid），没有可用的解码器"
+    static let unrecognizedReason = String(localized: .playerTracksUnrecognized)
 
-    private static let channelLabels = [1: "单声道", 2: "立体声", 6: "5.1", 8: "7.1"]
+    private static let channelLabels = [1: String(localized: .playerTracksMono), 2: String(localized: .playerTracksStereo), 6: "5.1", 8: "7.1"]
 
     static func label(_ track: API.AudioTrackView) -> String {
         label(ref: track.ref, language: track.language, codec: track.codec, channels: track.channels)
@@ -238,10 +238,10 @@ struct AudioOption: Identifiable, Hashable {
     /// 语言 · 编码 · 声道（语言放最前：用户找的是「国语还是日语」）
     private static func label(ref: String, language: String?, codec: String?, channels: Int?) -> String {
         let name = LanguageLabel.of(language)
-            ?? (ref.hasPrefix("embedded:") ? "音轨 \(ref.dropFirst("embedded:".count))" : "未知音轨")
+            ?? (ref.hasPrefix("embedded:") ? String(localized: .playerTracksAudioIndex(String(ref.dropFirst("embedded:".count)))) : String(localized: .playerTracksUnknownAudio))
         var rest: [String] = []
         if let codec, !codec.isEmpty { rest.append(codec.uppercased()) }
-        if let channels, channels > 0 { rest.append(channelLabels[channels] ?? "\(channels) 声道") }
+        if let channels, channels > 0 { rest.append(channelLabels[channels] ?? String(localized: .playerTracksChannels(channels))) }
         return rest.isEmpty ? name : ([name] + rest).joined(separator: " · ")
     }
 }

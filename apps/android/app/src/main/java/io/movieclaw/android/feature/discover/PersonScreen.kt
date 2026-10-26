@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -73,6 +72,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
+import io.movieclaw.android.core.designsystem.CardMetrics
+import io.movieclaw.android.core.designsystem.mcGridCells
+import io.movieclaw.android.core.designsystem.mcCards
 
 @Composable
 internal fun TitleCell(t: DiscTitle, origin: String?, onClick: () -> Unit) {
@@ -157,7 +159,7 @@ fun PersonScreen(
         if (state.loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = TextMuted) }
         } else {
-            Row(Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 6.dp)) {
+            Row(Modifier.padding(horizontal = mcCards.pagePadding, vertical = 6.dp)) {
                 Box(
                     Modifier.width(92.dp).height(138.dp)
                         .clip(RoundedCornerShape(12.dp)).background(Color(0xFF101219)),
@@ -170,8 +172,8 @@ fun PersonScreen(
                 }
             }
             LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                contentPadding = PaddingValues(horizontal = McMetrics.pagePadding, vertical = 12.dp),
+                columns = mcGridCells(phoneColumns = 3, minColumn = CardMetrics.Phone.castWidth),
+                contentPadding = PaddingValues(horizontal = mcCards.pagePadding, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize(),

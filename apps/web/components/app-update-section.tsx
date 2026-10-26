@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { type AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner, ErrorBanner } from "@/components/cloud-push-ui";
@@ -72,22 +76,28 @@ type RestartWait = "idle" | "waiting" | "timeout";
 type RestartKind = "version" | "app";
 
 /** 等待页文案：两种重启的耗时量级与"迟迟不恢复"时的补救办法都不同，分开写清楚 */
-const RESTART_COPY: Record<RestartKind, Record<"waiting" | "timeout", [string, string]>> = {
-  version: {
-    waiting: ["正在重启并切换版本…", "前后端会一起重启，服务恢复后页面自动刷新，通常需要几十秒。"],
-    timeout: [
-      "等待超时，应用尚未恢复",
-      "请稍后手动刷新页面。若反复无法恢复，容器会自动回落到更新前的版本，数据不受影响。",
+const RESTART_COPY = {
+  "version": {
+    "waiting": [
+      "settings.update.ui.versionWaiting",
+      "settings.update.ui.versionWaitingHint"
     ],
+    "timeout": [
+      "settings.update.ui.restartTimeout",
+      "settings.update.ui.versionTimeoutHint"
+    ]
   },
-  app: {
-    waiting: ["正在重启应用…", "服务恢复后页面会自动刷新，通常需要几秒到几十秒。"],
-    timeout: [
-      "等待超时，应用尚未恢复",
-      "Docker 部署通常几秒内自动拉起，请稍后手动刷新页面；源码部署且无 systemd 等守护时，需要到服务器上手动启动。",
+  "app": {
+    "waiting": [
+      "settings.update.ui.appWaiting",
+      "settings.update.ui.appWaitingHint"
     ],
-  },
-};
+    "timeout": [
+      "settings.update.ui.restartTimeout",
+      "settings.update.ui.appTimeoutHint"
+    ]
+  }
+} as const;
 
 /** 新版本卡片的数据：手动检查结果与服务端快照两个来源归一到同一形状 */
 interface AvailableUpdate {
@@ -100,13 +110,15 @@ interface AvailableUpdate {
 }
 
 export function AppUpdateSection() {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const [status, setStatus] = useState<UpdateStatusView | null>(null);
   const [failed, setFailed] = useState(false);
   const [check, setCheck] = useState<UpdateCheckView | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [progress, setProgress] = useState<UpdateProgressView | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useMessageState();
   const [modelCheck, setModelCheck] = useState<ModelUpdateCheckView | null>(null);
   const [modelChecking, setModelChecking] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -132,13 +144,26 @@ export function AppUpdateSection() {
   // 进度轮询的连续失败计数：单次瞬时错误（反代 502、网络抖动）绝不能被
   // 误判成「后端已进入重启」——那会提前刷新页面并永久丢失更新跟踪
   const pollFailStreak = useRef(0);
+  const statusGeneration = useRef(0);
 
   const reload = useCallback(() => {
+    const generation = ++statusGeneration.current;
     setFailed(false);
     getUpdateStatus()
-      .then(setStatus)
-      .catch(() => setFailed(true));
+      .then(value => { if (generation === statusGeneration.current) setStatus(value); })
+      .catch(() => { if (generation === statusGeneration.current) setFailed(true); });
   }, []);
+
+  const previousLocale = useRef(locale);
+  useEffect(() => {
+    if (previousLocale.current === locale) return;
+    previousLocale.current = locale;
+    let current = true;
+    reload();
+    // Refresh reader-localized facts without restarting an update or its restart timer.
+    getUpdateProgress().then(value => { if (current) setProgress(value); }).catch(() => undefined);
+    return () => { current = false; };
+  }, [locale, reload]);
 
   /** 「知道了」：让后端清掉异常退出记录，成功后就地隐藏横幅；失败走
    *  actionError 提示、横幅保留——记录还在，下次进页仍会展示。 */
@@ -147,9 +172,9 @@ export function AppUpdateSection() {
       await dismissLastAbnormalExit();
       setStatus((s) => (s ? { ...s, last_abnormal_exit: null } : s));
     } catch {
-      setActionError("确认告警失败，请稍后重试");
+      setActionError({key: "settings.update.ui.dismissFailed"});
     }
-  }, []);
+  }, [setActionError]);
 
   /** 全量重启的等待：先观察到服务不可达（sawDown）、再观察到恢复才算完成
    *  一次真实重启——否则可能命中「还没退出的旧进程」提前刷新，刷新后再无
@@ -325,11 +350,10 @@ export function AppUpdateSection() {
   const doRestart = async () => {
     // 重启会中断正在进行的任务，走全站统一的确认弹窗（与回退等破坏性动作一致）
     const ok = await confirm({
-      title: "重启应用？",
+      title: t("settings.update.ui.restartTitle"),
       description:
-        "重启期间服务短暂不可用，正在进行的下载投递/整理任务会中断。" +
-        "Docker 部署通常几秒内自动拉起；源码部署需有 systemd 等守护。",
-      confirmLabel: "确认重启",
+        t("settings.update.ui.restartConfirmHint"),
+      confirmLabel: t("settings.update.ui.restartConfirm"),
       tone: "danger",
     });
     if (!ok) return;
@@ -375,15 +399,14 @@ export function AppUpdateSection() {
   if (failed) {
     return (
       <div className="flex items-center gap-3">
-        <p className="text-ui text-[var(--text-muted)]">版本信息加载失败</p>
+        <p className="text-ui text-[var(--text-muted)]">{t("settings.update.ui.loadFailed")}</p>
         <button type="button" onClick={reload} className={SETTINGS_BUTTON_CLASS}>
-          重试
-        </button>
+          {t("common.retry")}</button>
       </div>
     );
   }
   if (!status) {
-    return <p className="text-ui text-[var(--text-muted)]">正在加载版本信息…</p>;
+    return <p className="text-ui text-[var(--text-muted)]">{t("settings.update.ui.loading")}</p>;
   }
 
   // 重启等待态：全区替换为状态页，避免用户在服务不可用期间继续操作
@@ -391,8 +414,8 @@ export function AppUpdateSection() {
     const [title, detail] = RESTART_COPY[restartKind][restartWait];
     return (
       <SettingsEmpty
-        title={title}
-        description={detail}
+        title={t(title)}
+        description={t(detail)}
         action={
           restartWait === "timeout" && (
             <button
@@ -400,8 +423,7 @@ export function AppUpdateSection() {
               onClick={() => window.location.reload()}
               className={SETTINGS_BUTTON_CLASS}
             >
-              刷新页面
-            </button>
+              {t("settings.update.ui.refresh")}</button>
           )
         }
       />
@@ -430,31 +452,32 @@ export function AppUpdateSection() {
     : pendingModelTag;
   const sourceLabel =
     status.code_source === "overlay"
-      ? `应用内更新版本${status.overlay_version ? ` v${status.overlay_version}` : ""}`
+      ? t("settings.update.ui.overlaySource", {version: status.overlay_version ? ` v${status.overlay_version}` : ""})
       : status.code_source === "baseline"
-        ? "Docker 镜像内置"
-        : "源码部署";
+        ? t("settings.update.ui.baselineSource")
+        : t("settings.update.ui.devSource");
 
   return (
     <div className="space-y-10">
       {/* —— 版本（状态与动作同行：「检查更新」就挂在当前版本行的右侧，
              与 macOS 软件更新/Windows Update 的版式一致）—— */}
-      <SettingsSection title="版本">
+      <SettingsSection title={t("settings.update.ui.versionTitle")}>
         <div className="space-y-3">
           <SettingsList>
             <SettingsRow
-              label="当前版本"
+              stackOnMobile={locale === "en"}
+              label={t("settings.update.ui.currentVersion")}
               description={
                 <>
-                  来源：{sourceLabel}
+                  {t("settings.update.ui.source", {source: sourceLabel})}
                   {/* 手动检查的即时反馈：跟在动作所在的行下方 */}
                   {check && !check.update_available && (
                     <span className="block text-emerald-300/90">
-                      已是最新版本（v{check.current_version}）
+                      {t("settings.update.ui.latest", {version: check.current_version})}
                     </span>
                   )}
                   {!status.can_update && (
-                    <span className="block">仅 Docker 镜像部署支持应用内更新；源码部署请用 git pull 更新</span>
+                    <span className="block">{t("settings.update.ui.sourceHint")}</span>
                   )}
                 </>
               }
@@ -471,7 +494,7 @@ export function AppUpdateSection() {
                   className={SETTINGS_BUTTON_CLASS}
                 >
                   <RefreshIcon className={`size-4 ${checking ? "animate-spin" : ""}`} />
-                  <span>{checking ? "正在检查…" : "检查更新"}</span>
+                  <span>{checking ? t("settings.update.ui.checking") : t("settings.update.ui.check")}</span>
                 </button>
               )}
             </SettingsRow>
@@ -479,14 +502,12 @@ export function AppUpdateSection() {
 
           {status.inactive_overlay_version && (
             <Banner tone="info">
-              已安装的 v{status.inactive_overlay_version} 未在运行
-              {status.inactive_overlay_reason ? `：${status.inactive_overlay_reason}` : ""}
+              {t("settings.update.ui.inactive", {version: status.inactive_overlay_version, reason: status.inactive_overlay_reason ? t("settings.update.ui.inactiveReason", {reason: status.inactive_overlay_reason}) : ""})}
             </Banner>
           )}
           {status.bad_versions.length > 0 && (
             <Banner tone="warn">
-              版本 {status.bad_versions.map((v) => `v${v}`).join("、")} 曾连续启动失败，
-              已被自动回落保护。可在新版本发布后重新更新。
+              {t("settings.update.ui.badVersions", {versions: status.bad_versions.map(v => `v${v}`).join(locale === "zh-Hans" ? "、" : ", ")})}
             </Banner>
           )}
           {status.last_abnormal_exit && (
@@ -495,21 +516,18 @@ export function AppUpdateSection() {
               action={
                 // 偶发的单次自愈事件看完即可确认消除；真再崩溃会重新落盘再次提醒
                 <button type="button" onClick={dismissExit} className={SETTINGS_BUTTON_CLASS}>
-                  知道了
-                </button>
+                  {t("settings.update.ui.acknowledge")}</button>
               }
             >
-              应用曾于 {formatUnixDateTime(status.last_abnormal_exit.at)}{" "}
-              异常退出并被容器自动恢复：{status.last_abnormal_exit.detail}
-              （exit={status.last_abnormal_exit.exit_code}）。若频繁出现，请查看容器日志排查。
+              {t("settings.update.ui.abnormalExit", {at: formatUnixDateTime(status.last_abnormal_exit.at, locale), detail: status.last_abnormal_exit.detail, code: status.last_abnormal_exit.exit_code})}
             </Banner>
           )}
 
           {/* 更新进度：紧跟版本行，替换新版本卡片的位置 */}
           {updating && progress && (
             <SettingsCard
-              title={progress.detail || "正在更新…"}
-              hint="更新在后台执行，完成后会自动重启并刷新页面。"
+              title={progress.detail || t("settings.update.ui.updating")}
+              hint={t("settings.update.ui.updatingHint")}
             >
               {progress.phase === "downloading" && progress.percent != null && (
                 <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
@@ -525,27 +543,23 @@ export function AppUpdateSection() {
           {/* 新版本卡片：进页由快照预填，手动检查后以检查结果为准 */}
           {!updating && available && (
             <SettingsCard
-              title={`发现新版本 v${available.version}`}
+              title={t("settings.update.ui.available", {version: available.version})}
               hint={
                 available.compatible ? undefined : (
                   <span className="text-amber-300/90">
-                    本次更新包含依赖变化，需拉取新的 Docker 镜像升级
-                  </span>
+                    {t("settings.update.ui.dependencyChange")}</span>
                 )
               }
               action={
                 available.compatible && (
                   <button type="button" onClick={doApply} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
-                    立即更新
-                  </button>
+                    {t("settings.update.ui.apply")}</button>
                 )
               }
             >
               {available.knownBad && (
                 <p className="mb-3 text-sub text-amber-300/90">
-                  注意：v{available.version} 此前曾在本机连续启动失败被自动回落。
-                  重新更新会清除失败标记再试一次；若问题依旧，容器会再次自动回落，
-                  建议等待修复版本。
+                  {t("settings.update.ui.knownBad", {version: available.version})}
                 </p>
               )}
               {/* 更新说明是 GitHub Release 的 Markdown 原文，复用全站的
@@ -562,8 +576,7 @@ export function AppUpdateSection() {
               发起的后台任务里，放在共享位置避免归属混乱 */}
           {progress?.phase === "failed" && progress.error && (
             <ErrorBanner>
-              上次更新{progress.target_version ? `（${progress.target_version}）` : ""}失败：
-              {progress.error}
+              {t("settings.update.ui.updateFailed", {version: progress.target_version ? t("settings.update.ui.failedVersion", {version: progress.target_version}) : "", error: progress.error})}
             </ErrorBanner>
           )}
         </div>
@@ -572,23 +585,24 @@ export function AppUpdateSection() {
       {/* —— NER 模型 ——（独立于代码更新；生效需重新解析模型指针，走全量重启） */}
       {status.can_update && (
         <SettingsSection
-          title="NER 识别模型"
-          description="种子名识别（NER）模型独立更新，无需升级镜像；更新后应用会自动重启并刷新页面。"
+          title={t("settings.update.ui.modelTitle")}
+          description={t("settings.update.ui.modelHint")}
         >
           <SettingsList>
             <SettingsRow
-              label={`当前模型：${status.model_tag ?? "无法识别（较早的镜像）"}`}
+              stackOnMobile={locale === "en"}
+              label={t("settings.update.ui.currentModel", {tag: status.model_tag ?? t("settings.update.ui.unknownModel")})}
               description={
                 // 手动检查后的两种"装不了"的结论：只有点过按钮才说，避免进页就
                 // 冒出一句无从触发的结论
                 modelCheck && !availableModelTag ? (
                   !modelCheck.update_available ? (
                     <span className="text-emerald-300/90">
-                      模型已是最新（{modelCheck.latest_tag}）
+                      {t("settings.update.ui.modelLatest", {tag: modelCheck.latest_tag})}
                     </span>
                   ) : (
                     <span className="text-amber-300/90">
-                      发现新模型 {modelCheck.latest_tag}，但该发布未携带更新清单，暂无法应用内安装
+                      {t("settings.update.ui.modelUnavailable", {tag: modelCheck.latest_tag})}
                     </span>
                   )
                 ) : undefined
@@ -602,21 +616,20 @@ export function AppUpdateSection() {
                   disabled={modelChecking}
                   className={SETTINGS_BUTTON_CLASS}
                 >
-                  {modelChecking ? "正在检查…" : "检查模型更新"}
+                  {modelChecking ? t("settings.update.ui.checking") : t("settings.update.ui.checkModel")}
                 </button>
               )}
             </SettingsRow>
             {/* 有可装的新模型：进页就摆出来（快照预填），手动检查后以检查结果为准 */}
             {availableModelTag && (
-              <SettingsRow label={`发现新模型 ${availableModelTag}`}>
+              <SettingsRow stackOnMobile={locale === "en"} label={t("settings.update.ui.modelAvailable", {tag: availableModelTag})}>
                 <button
                   type="button"
                   onClick={doModelApply}
                   disabled={updating}
                   className={SETTINGS_PRIMARY_BUTTON_CLASS}
                 >
-                  更新模型
-                </button>
+                  {t("settings.update.ui.applyModel")}</button>
               </SettingsRow>
             )}
           </SettingsList>
@@ -625,12 +638,13 @@ export function AppUpdateSection() {
 
       {/* —— 回退与版本保留 ——（有候选版本才出现回退入口；保留数设置常驻） */}
       {status.can_update && rollback && (
-        <SettingsSection title="回退">
+        <SettingsSection title={t("settings.update.ui.rollbackTitle")}>
           <SettingsList>
             {rollback.targets.length > 0 && (
               <SettingsRow
-                label="回退到历史版本"
-                description="更新后遇到问题时，可切换到本机保留的历史版本；跨数据库升级的回退会恢复对应时点的自动备份。"
+                stackOnMobile={locale === "en"}
+                label={t("settings.update.ui.rollbackRow")}
+                description={t("settings.update.ui.rollbackHint")}
               >
                 <button
                   type="button"
@@ -638,21 +652,17 @@ export function AppUpdateSection() {
                   disabled={updating}
                   className={SETTINGS_BUTTON_CLASS}
                 >
-                  选择版本回退…
-                </button>
+                  {t("settings.update.ui.rollbackOpen")}</button>
               </SettingsRow>
             )}
             <SettingsRow
-              label="本地保留版本数"
-              description={`保留越多可回退的范围越大，占用磁盘越多${
-                rollback.versions_dir_bytes > 0
-                  ? `（当前占用 ${formatBytes(rollback.versions_dir_bytes)}）`
-                  : ""
-              }`}
+              stackOnMobile={locale === "en"}
+              label={t("settings.update.ui.retention")}
+              description={t("settings.update.ui.retentionHint", {usage: rollback.versions_dir_bytes > 0 ? t("settings.update.ui.retentionUsage", {size: formatBytes(rollback.versions_dir_bytes)}) : ""})}
             >
               <button
                 type="button"
-                aria-label="减少保留版本数"
+                aria-label={t("settings.update.ui.retentionDecrease")}
                 onClick={() => doSetRetention(rollback.keep_versions - 1)}
                 disabled={retentionBusy || rollback.keep_versions <= 2}
                 className="btn-glass !size-8 justify-center !p-0 text-body disabled:opacity-40"
@@ -664,7 +674,7 @@ export function AppUpdateSection() {
               </span>
               <button
                 type="button"
-                aria-label="增加保留版本数"
+                aria-label={t("settings.update.ui.retentionIncrease")}
                 onClick={() => doSetRetention(rollback.keep_versions + 1)}
                 disabled={retentionBusy || rollback.keep_versions >= 20}
                 className="btn-glass !size-8 justify-center !p-0 text-body disabled:opacity-40"
@@ -680,13 +690,13 @@ export function AppUpdateSection() {
              走代理时与同节点所有人共用，极易被"限流"；配令牌后改按自己账号计 5000 次）
              凭据是显式提交：卡片页脚唯一的保存按钮，没填时置灰 */}
       <SettingsSection
-        title="GitHub 访问令牌"
-        description="检查更新时提示「GitHub 限流」，多半是代理出口 IP 被大量用户共用、匿名额度（60 次/小时）已被用光。填入自己的令牌后，额度改按你的账号计算。"
+        title={t("settings.update.ui.githubTitle")}
+        description={t("settings.update.ui.githubHint")}
       >
         <SettingsCard
-          title="访问令牌"
-          description={tokenView?.configured ? `已配置 ${tokenView.masked}` : "未配置"}
-          hint="只需能读公开仓库：在 GitHub 生成 Fine-grained token，不勾选任何权限即可；仅用于检查更新，加密保存在本机。"
+          title={t("settings.update.ui.tokenTitle")}
+          description={tokenView?.configured ? t("settings.update.ui.tokenConfigured", {masked: tokenView.masked}) : t("settings.update.ui.tokenUnset")}
+          hint={t("settings.update.ui.tokenHint")}
           action={
             <button
               type="button"
@@ -694,8 +704,7 @@ export function AppUpdateSection() {
               disabled={tokenBusy || !tokenInput.trim()}
               className={SETTINGS_PRIMARY_BUTTON_CLASS}
             >
-              保存
-            </button>
+              {t("common.save")}</button>
           }
         >
           <div className="flex items-center gap-2">
@@ -704,10 +713,10 @@ export function AppUpdateSection() {
               value={tokenInput}
               onChange={(e) => setTokenInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && tokenInput.trim() && void doSaveToken(tokenInput)}
-              placeholder={tokenView?.configured ? "填写新令牌以替换" : "github_pat_… 或 ghp_…"}
+              placeholder={tokenView?.configured ? t("settings.update.ui.tokenReplace") : t("settings.update.ui.tokenPlaceholder")}
               autoComplete="new-password"
               spellCheck={false}
-              aria-label="GitHub 访问令牌"
+              aria-label={t("settings.update.ui.githubTitle")}
               className={`${SETTINGS_INPUT_CLASS} min-w-0 flex-1`}
             />
             {tokenView?.configured && (
@@ -717,8 +726,7 @@ export function AppUpdateSection() {
                 disabled={tokenBusy}
                 className={SETTINGS_BUTTON_CLASS}
               >
-                清除
-              </button>
+                {t("settings.update.ui.tokenClear")}</button>
             )}
           </div>
         </SettingsCard>
@@ -726,12 +734,12 @@ export function AppUpdateSection() {
 
       {/* —— 维护 ——（重启应用会打断正在进行的任务：放在本页最后、用危险卡片，
              与上面的更新动作隔开，避免顺手误点；点击后先确认） */}
-      <SettingsSection title="维护">
+      <SettingsSection title={t("settings.update.ui.maintenance")}>
         <SettingsCard
           tone="danger"
-          title="重启应用"
-          description="优雅停机后重新启动后端服务，正在进行的任务会中断。"
-          hint="Docker 部署由容器入口自动拉起新进程，通常几秒内恢复；源码部署需有 systemd 等守护，否则退出后要到服务器上手动启动。"
+          title={t("settings.update.ui.restart")}
+          description={t("settings.update.ui.restartHint")}
+          hint={t("settings.update.ui.restartDeploymentHint")}
           action={
             <button
               type="button"
@@ -739,8 +747,7 @@ export function AppUpdateSection() {
               disabled={updating}
               className={SETTINGS_DANGER_BUTTON_CLASS}
             >
-              重启应用
-            </button>
+              {t("settings.update.ui.restart")}</button>
           }
         />
       </SettingsSection>
@@ -775,6 +782,8 @@ function RollbackDialog({
   targets: RollbackTargetView[];
   onConfirm: (target: RollbackTargetView) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   // 选中项按索引记（targets 来自快照数据，弹窗生命周期内不变）
   const [selected, setSelected] = useState<number | null>(null);
   useEffect(() => {
@@ -782,32 +791,30 @@ function RollbackDialog({
   }, [open]);
 
   const pick = selected != null ? targets[selected] : null;
-  const label = (t: RollbackTargetView) =>
-    t.kind === "baseline"
-      ? `镜像内置版本${t.version ? ` v${t.version}` : ""}`
-      : `v${t.version}`;
+  const label = (target: RollbackTargetView) =>
+    target.kind === "baseline"
+      ? t("settings.update.ui.baselineVersion", {version: target.version ? ` v${target.version}` : ""})
+      : `v${target.version}`;
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      label="选择回退版本"
+      label={t("settings.update.ui.selectRollback")}
       width="lg"
       panelClassName="flex max-h-[76dvh] flex-col"
     >
       <div className="px-5 pb-3 pt-5">
-        <h2 className="text-title-sm font-semibold text-[var(--text)]">选择回退版本</h2>
+        <h2 className="text-title-sm font-semibold text-[var(--text)]">{t("settings.update.ui.selectRollback")}</h2>
         <p className="mt-1 text-sub text-[var(--text-muted)]">
-          回退会重启应用；是否需要恢复数据备份取决于目标版本的数据结构差异，
-          结论已在每一项里标明。
-        </p>
+          {t("settings.update.ui.rollbackDialogHint")}</p>
       </div>
       <div className="scroll-thin flex-1 space-y-2 overflow-y-auto px-5 pb-4">
-        {targets.map((t, i) => (
+        {targets.map((target, i) => (
           // 展开区不放进 <button>：更新说明里可能有链接（Markdown），交互元素
           // 嵌套交互元素是非法结构。头部行是按钮，详情是它下方的兄弟块
           <div
-            key={`${t.kind}-${t.version ?? "?"}`}
+            key={`${target.kind}-${target.version ?? "?"}`}
             className={`rounded-xl border transition-colors ${
               i === selected
                 ? "border-white/[0.18] bg-white/[0.07]"
@@ -819,20 +826,20 @@ function RollbackDialog({
               onClick={() => setSelected(i === selected ? null : i)}
               className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left"
             >
-              <span className="text-ui font-semibold text-[var(--text)]">{label(t)}</span>
-              {t.schema_action === "switch" ? (
-                <span className="text-caption text-emerald-300/90">可直接切换，数据保留</span>
-              ) : t.schema_action === "restore" ? (
+              <span className="text-ui font-semibold text-[var(--text)]">{label(target)}</span>
+              {target.schema_action === "switch" ? (
+                <span className="text-caption text-emerald-300/90">{t("settings.update.ui.switchSafe")}</span>
+              ) : target.schema_action === "restore" ? (
                 <span className="text-caption text-amber-300/90">
-                  需恢复 {formatDateTime(t.backup_taken_at)} 的数据备份
+                  {t("settings.update.ui.restoreBackup", {at: formatDateTime(target.backup_taken_at, locale)})}
                 </span>
               ) : (
-                <span className="text-caption text-red-300/90">无对应数据备份</span>
+                <span className="text-caption text-red-300/90">{t("settings.update.ui.backupMissing")}</span>
               )}
               <span className="ml-auto text-caption text-[var(--text-faint)]">
                 {[
-                  t.installed_at ? `装于 ${formatDateTime(t.installed_at)}` : null,
-                  t.size_bytes != null ? formatBytes(t.size_bytes) : null,
+                  target.installed_at ? t("settings.update.ui.installedAt", {at: formatDateTime(target.installed_at, locale)}) : null,
+                  target.size_bytes != null ? formatBytes(target.size_bytes) : null,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
@@ -846,26 +853,20 @@ function RollbackDialog({
             {/* 选中展开：数据后果 + 该版本的更新说明 */}
             {i === selected && (
               <div className="border-t border-white/[0.06] px-4 py-2.5">
-                {t.schema_action === "switch" ? (
+                {target.schema_action === "switch" ? (
                   <p className="text-sub text-emerald-300/90">
-                    该版本与当前的数据结构一致：直接切换代码，全部数据原样保留。
-                  </p>
-                ) : t.schema_action === "restore" ? (
+                    {t("settings.update.ui.switchSafeHint")}</p>
+                ) : target.schema_action === "restore" ? (
                   <p className="text-sub text-amber-300/90">
-                    当前数据结构比该版本新（中间经过数据库升级）。回退将恢复{" "}
-                    {formatDateTime(t.backup_taken_at)} 自动备份的数据，
-                    此后产生的数据（订阅活动、入库记录等）将丢失；回退前会再自动
-                    备份一次当前数据，切回新版本时可完整还原。
+                    {t("settings.update.ui.restoreHint", {at: formatDateTime(target.backup_taken_at, locale)})}
                   </p>
                 ) : (
                   <p className="text-sub text-red-300/90">
-                    没有可对应时点的数据备份：切换后该版本将直接使用当前数据，
-                    若中间经过数据库升级可能无法正常运行（启动失败时会自动回落）。
-                  </p>
+                    {t("settings.update.ui.backupMissingHint")}</p>
                 )}
-                {t.changelog && (
+                {target.changelog && (
                   <div className="scroll-thin mt-2.5 max-h-48 overflow-y-auto pr-1">
-                    <Markdown text={t.changelog} compact />
+                    <Markdown text={target.changelog} compact />
                   </div>
                 )}
               </div>
@@ -876,19 +877,18 @@ function RollbackDialog({
       {/* 底栏：确认按钮写明落点与数据后果，这是点下去前看到的最后一句话 */}
       <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-3.5">
         <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-          取消
-        </button>
+          {t("common.cancel")}</button>
         <button
           type="button"
           disabled={pick == null}
           onClick={() => pick && onConfirm(pick)}
-          className={SETTINGS_DANGER_BUTTON_CLASS}
+          className={`${SETTINGS_DANGER_BUTTON_CLASS} ${locale === "en" ? "!h-auto min-h-8 min-w-0 !shrink whitespace-normal py-1.5" : ""}`}
         >
           {pick == null
-            ? "选择一个版本"
+            ? t("settings.update.ui.selectVersion")
             : pick.schema_action === "restore"
-              ? `回退到 ${label(pick)} 并恢复备份`
-              : `回退到 ${label(pick)} 并重启`}
+              ? t("settings.update.ui.rollbackRestore", {version: label(pick)})
+              : t("settings.update.ui.rollbackRestart", {version: label(pick)})}
         </button>
       </div>
     </Modal>

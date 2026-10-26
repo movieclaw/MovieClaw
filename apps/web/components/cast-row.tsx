@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -55,7 +56,7 @@ function initialsOf(name: string): string {
 
 export function CastRow({
   cast,
-  title = "演职员",
+  title,
   personHrefPrefix = "/people",
 }: {
   cast: CastRowPerson[];
@@ -63,11 +64,12 @@ export function CastRow({
   /** 媒体库默认进入库内人物页；发现详情显式改为 TMDB 全作品页。 */
   personHrefPrefix?: PersonHrefPrefix;
 }) {
+  const t = useTranslations();
   if (cast.length === 0) return null;
   return (
     <section>
       <h2 className="text-on-image mb-3 text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
-        {title}
+        {title ?? t("media.cards.cast")}
       </h2>
       {/* pt-1.5：演职员卡悬停上浮 4px 的头部余量（横滚容器连带裁纵向溢出，削顶角） */}
       <HScroller className="-mx-1 gap-3 px-1 pt-1.5 pb-1">
@@ -93,7 +95,8 @@ function CastCard({
   person: CastRowPerson;
   personHrefPrefix: PersonHrefPrefix;
 }) {
-  const subtitle = person.credit ?? (person.role ? `饰 ${person.role}` : null);
+  const t = useTranslations();
+  const subtitle = person.credit ?? (person.role ? t("media.person.character", { character: person.role }) : null);
   // tapGuard：演员卡在横滚行里，滑动/刹车手势派发的 click 拦下不跳人物页
   // （Link 分支不传动作，放行的点击走默认导航——同 PosterCard 的接法）。
   // 无 tmdbPersonId 的静态块用不到，但 hook 必须无条件先调
@@ -131,7 +134,7 @@ function CastCard({
     <Link
       href={`${personHrefPrefix}/${person.tmdbPersonId}` as Route}
       {...tapGuard}
-      aria-label={`查看 ${person.name} 的影人页`}
+      aria-label={t("media.cards.personPage", { name: person.name })}
       className="group/cast w-[104px] shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
     >
       {body}

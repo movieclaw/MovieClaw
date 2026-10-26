@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
+
 /**
  * 影视数据的前端核心类型（发现页 / 详情页 / 订阅页共用）。
  *
@@ -19,6 +22,10 @@ export const LIBRARY_KIND_LABELS: Record<LibraryKind, string> = {
   video: "其他",
   photo: "图片",
 };
+export function libraryKindLabels(locale?: AppLocale): Record<LibraryKind, string> {
+  const t = appTranslator(locale);
+  return { movie: t("media.kind.movie"), tv: t("media.kind.tv"), video: t("library.kind.other"), photo: t("media.kind.photo") };
+}
 export type MediaSource = "tmdb" | "douban";
 
 /** 发现列表的轻量库存摘要；只用于入库标记，不携带文件详情。 */

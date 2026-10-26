@@ -1,9 +1,10 @@
 import type { SearchQuery } from "@/components/search-results";
 import {
   CATEGORY_LABEL,
+  type SearchCategoryLabelKey,
   type SearchVertical,
   type TorrentCategory,
-} from "@/lib/categories";
+} from "./categories.ts";
 
 /**
  * 搜索页的 URL 序列化：一次搜索的全部输入（关键词 + 范围 + 快照）都编码进
@@ -40,6 +41,7 @@ export function buildSearchPath(query: SearchQuery, vertical?: SearchVertical): 
   if (vertical === "media" || vertical === "library") params.set("tab", vertical);
   const { scope } = query;
   if (scope.label) params.set("label", scope.label);
+  if (scope.labelKey) params.set("label_key", scope.labelKey);
   if (scope.categories.length > 0) params.set("cats", scope.categories.join(","));
   if (scope.siteIds.length > 0) params.set("sites", scope.siteIds.join(","));
   if (scope.posterMode) params.set("poster", "1");
@@ -83,6 +85,8 @@ export function parseSearchQuery(params: URLSearchParams): SearchQuery | null {
     also: keyword && also.length > 0 ? also : undefined,
     scope: {
       label: params.get("label"),
+      ...(params.get("label_key") && /^search\.categories\.(movie|tv|documentary|anime|music|game|av|other)$/.test(params.get("label_key")!)
+        ? { labelKey: params.get("label_key") as SearchCategoryLabelKey } : {}),
       categories,
       siteIds,
       posterMode: params.get("poster") === "1",

@@ -273,14 +273,14 @@ private struct TVShowcaseInfo: View {
     static func meta(_ entry: TVShowcaseEntry, _ detail: API.LibraryItemShowcaseView?) -> String {
         var parts: [String] = []
         switch entry.kind {
-        case "movie": parts.append("电影")
-        case "tv": parts.append("剧集")
+        case "movie": parts.append(String(localized: .mediaKindMovie))
+        case "tv": parts.append(String(localized: .mediaKindTv))
         default: break
         }
         parts += (detail?.genres ?? []).prefix(2)
         if let year = entry.year { parts.append(String(year)) }
         if entry.kind == "tv" {
-            if entry.seasonCount > 0 { parts.append("\(entry.seasonCount) 季") }
+            if entry.seasonCount > 0 { parts.append(String(localized: .subscriptionCollectionSeasons(entry.seasonCount))) }
         } else if let minutes = detail?.runtimeMinutes, minutes > 0 {
             parts.append(TVItemDetailView.runtimeText(minutes))
         }

@@ -1,3 +1,5 @@
+import type { AppLocale, LanguagePreference } from "@/lib/i18n/negotiate";
+
 import { request } from "@/lib/http";
 import type { HomeUiPrefs } from "@/lib/home-rows";
 import type { PluginApp } from "@/lib/plugin-apps";
@@ -53,6 +55,7 @@ export interface NavUiPrefs {
 }
 
 export interface UiPreferences {
+  language: LanguagePreference;
   /** 主题 id，取值来自 lib/themes.ts 的注册表；未知值由 normalizeThemeId 兜底为 silver */
   theme: string;
   /**
@@ -73,6 +76,7 @@ export interface UiPreferences {
  *  设置页「恢复默认」也回到这一组值。改动时须同步后端
  *  SidebarUiPrefs / ScrimUiPrefs 与 globals.css 里 .page-scrim 的变量兜底值。 */
 export const DEFAULT_UI_PREFS: UiPreferences = {
+  language: "auto",
   // 默认主题 = 银玻璃（现有观感）。主题列表见 lib/themes.ts 的 THEMES。
   theme: "silver",
   // 按端覆盖未设置（null = 跟随 theme）；见 lib/ui-prefs.tsx 的 resolveThemeId
@@ -101,6 +105,7 @@ export function normalizeUiPreferences(
 ): UiPreferences {
   return {
     // 老后端不认识 theme 字段时返回 undefined，兜底为默认主题（天然向前兼容）
+    language: data?.language === "en" || data?.language === "zh-Hans" ? data.language : "auto",
     theme: normalizeThemeId(data?.theme),
     theme_desktop: normalizeThemeOverride(data?.theme_desktop),
     theme_mobile: normalizeThemeOverride(data?.theme_mobile),
@@ -141,8 +146,8 @@ export async function updateUiPreferences(prefs: UiPreferences): Promise<UiPrefe
 
 /** 当前用户可见的插件网页与它们的侧边栏入口。失败时抛错，由调用方决定沿用上一份还是当作没有。 */
 /** 已安装的网页主题（docs/design/theme-plugins.md §4.6）：设置页选择卡与加载器都认它。 */
-export async function fetchThemes(): Promise<CatalogTheme[]> {
-  return unwrap(request<ApiEnvelope<CatalogTheme[]>>("/ui/themes"));
+export async function fetchThemes(locale?: AppLocale): Promise<CatalogTheme[]> {
+  return unwrap(request<ApiEnvelope<CatalogTheme[]>>("/ui/themes", locale ? { headers: { "Accept-Language": locale } } : undefined));
 }
 
 export async function fetchPluginApps(): Promise<PluginApp[]> {

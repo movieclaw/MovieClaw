@@ -12,6 +12,11 @@
  * 判定全在服务端（episode_hints / episode_seasons），这里只渲染与提交。
  */
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
 import { useState } from "react";
 
 import { useToast } from "@/components/feedback";
@@ -45,6 +50,7 @@ export function EpisodeFloorDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations();
   const toast = useToast();
   const sheetForm = useSheetForm();
   const seasons = detail.episode_seasons ?? [];
@@ -53,7 +59,7 @@ export function EpisodeFloorDialog({
     Object.fromEntries(seasons.map((s) => [s.season_number, String(s.floor ?? s.tmdb_count)])),
   );
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
 
   const parsed = seasons.map((s) => {
     const text = (values[s.season_number] ?? "").trim();
@@ -73,22 +79,22 @@ export function EpisodeFloorDialog({
     setError(null);
     try {
       await updateSubscription(detail.id, { episode_floors: nextFloors });
-      toast.success(Object.keys(nextFloors).length ? "已按新的集数继续追踪" : "已改回以 TMDB 集数为准");
+      toast.success(Object.keys(nextFloors).length ? t("subscription.episodeFloor.saved") : t("subscription.episodeFloor.reset"));
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "保存失败，请稍后重试");
+      setError(e instanceof Error ? e.message : { key: "subscription.episodeFloor.saveFailed" });
       setBusy(false);
     }
   };
 
-  const intro = "TMDB 对部分剧集只录了一部分集数。在这里填这一季实际共几集，超出 TMDB 的集会先占位追踪，TMDB 补全后自动对上。";
+  const intro = t("subscription.episodeFloor.intro");
   const input = (seasonNumber: number, tmdbCount: number) => (
     <input
       type="number"
       inputMode="numeric"
       min={0}
       max={FLOOR_MAX}
-      aria-label={`第 ${seasonNumber} 季集数`}
+      aria-label={t("subscription.episodeFloor.inputLabel", { season: seasonNumber })}
       value={values[seasonNumber] ?? ""}
       placeholder={String(tmdbCount)}
       onChange={(e) => setValues((prev) => ({ ...prev, [seasonNumber]: e.target.value }))}
@@ -96,22 +102,22 @@ export function EpisodeFloorDialog({
     />
   );
   const seasonDetail = (tmdbCount: number, floor: number | null) =>
-    floor ? `TMDB 录了 ${tmdbCount} 集 · 当前按 ${floor} 集追` : `TMDB 录了 ${tmdbCount} 集`;
+    floor ? t("subscription.episodeFloor.currentCounts", { tmdb: tmdbCount, count: floor }) : t("subscription.episodeFloor.tmdbCount", { count: tmdbCount });
 
   if (sheetForm) {
     return (
       <SheetScaffold
         onClose={onClose}
-        title="调整集数"
-        subtitle={<>《{detail.media.title}》——{intro}</>}
-        confirm={{ label: "保存", enabled: dirty && !invalid && !busy, busy, onConfirm: () => void save() }}
+        title={t("subscription.episodeFloor.title")}
+        subtitle={<>{t("subscription.episodeFloor.subtitle", { title: detail.media.title, intro })}</>}
+        confirm={{ label: t("common.save"), enabled: dirty && !invalid && !busy, busy, onConfirm: () => void save() }}
       >
         {error && <SheetNotice tone="error">{error}</SheetNotice>}
-        <SheetSection footer="填回 TMDB 的集数即恢复以 TMDB 为准">
+        <SheetSection footer={t("subscription.episodeFloor.resetHint")}>
           {seasons.map((s) => (
             <SheetRow
               key={s.season_number}
-              label={`第 ${s.season_number} 季`}
+              label={t("media.season.title", { number: s.season_number })}
               trailing={input(s.season_number, s.tmdb_count)}
             >
               <span className="mt-0.5 block text-caption text-[var(--text-muted)]">
@@ -125,11 +131,11 @@ export function EpisodeFloorDialog({
   }
 
   return (
-    <Modal open onClose={onClose} label="调整集数" width="md">
+    <Modal open onClose={onClose} label={t("subscription.episodeFloor.title")} width="md">
       <div className="border-b border-white/[0.07] px-6 pb-4 pt-6 max-md:px-5">
-        <h2 className="text-title font-bold text-white">调整集数</h2>
+        <h2 className="text-title font-bold text-white">{t("subscription.episodeFloor.title")}</h2>
         <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-          《{detail.media.title}》——{intro}
+          {t("subscription.episodeFloor.subtitle", { title: detail.media.title, intro })}
         </p>
       </div>
       <div className="space-y-1.5 p-6 max-md:p-5">
@@ -144,20 +150,20 @@ export function EpisodeFloorDialog({
             className="flex items-center gap-3 rounded-xl bg-white/[0.03] px-4 py-3"
           >
             <span className="min-w-0 flex-1">
-              <span className="block text-ui font-medium text-white/90">第 {s.season_number} 季</span>
+              <span className="block text-ui font-medium text-white/90">{t("media.season.title", { number: s.season_number })}</span>
               <span className="mt-0.5 block text-caption text-[var(--text-muted)]">
                 {seasonDetail(s.tmdb_count, s.floor)}
               </span>
             </span>
             {input(s.season_number, s.tmdb_count)}
-            <span className="text-sub text-[var(--text-muted)]">集</span>
+            <span className="text-sub text-[var(--text-muted)]">{t("subscription.episodeFloor.episodeUnit")}</span>
           </label>
         ))}
-        <p className="pt-1 text-caption text-[var(--text-faint)]">填回 TMDB 的集数即恢复以 TMDB 为准</p>
+        <p className="pt-1 text-caption text-[var(--text-faint)]">{t("subscription.episodeFloor.resetHint")}</p>
       </div>
       <div className="flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5">
         <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
-          取消
+          {t("common.cancel")}
         </button>
         <button
           type="button"
@@ -165,7 +171,7 @@ export function EpisodeFloorDialog({
           onClick={() => void save()}
           className="btn-accent h-9 rounded-full px-5 text-ui font-semibold disabled:opacity-40"
         >
-          {busy ? "保存中…" : "保存"}
+          {busy ? t("subscription.episodeFloor.saving") : t("common.save")}
         </button>
       </div>
     </Modal>
@@ -173,12 +179,12 @@ export function EpisodeFloorDialog({
 }
 
 /** 证据来源的一句话：站点优先（更直接），豆瓣次之。 */
-function hintReason(hint: EpisodeHint): string {
-  const tmdb = `TMDB 只录了 ${hint.tmdb_count} 集`;
+function hintReason(hint: EpisodeHint, locale: AppLocale): string {
+  const t = appTranslator(locale);
   if (hint.site_episode && hint.site_episode >= (hint.douban_count ?? 0)) {
-    return `站点上已出现第 ${hint.site_episode} 集的资源，${tmdb}`;
+    return t("subscription.episodeFloor.siteEvidence", { episode: hint.site_episode, tmdb: hint.tmdb_count });
   }
-  return `豆瓣显示共 ${hint.douban_count} 集，${tmdb}`;
+  return t("subscription.episodeFloor.doubanEvidence", { count: hint.douban_count ?? 0, tmdb: hint.tmdb_count });
 }
 
 export function EpisodeHintBanner({
@@ -191,6 +197,8 @@ export function EpisodeHintBanner({
   canTune: boolean;
   onChanged: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const hints = detail.episode_hints ?? [];
@@ -202,10 +210,10 @@ export function EpisodeHintBanner({
       await updateSubscription(detail.id, {
         episode_floors: { ...currentFloors(detail), [hint.season_number]: hint.suggested },
       });
-      toast.success(`已按 ${hint.suggested} 集继续追踪第 ${hint.season_number} 季`);
+      toast.success(t("subscription.episodeFloor.accepted", { count: hint.suggested, season: hint.season_number }));
       onChanged();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "保存失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("subscription.episodeFloor.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -215,10 +223,10 @@ export function EpisodeHintBanner({
     setBusy(true);
     try {
       await dismissSubscriptionEpisodeHint(detail.id, hint.season_number);
-      toast.success("已忽略，继续以 TMDB 集数为准");
+      toast.success(t("subscription.episodeFloor.dismissed"));
       onChanged();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "操作失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("subscription.episodeFloor.actionFailed"));
     } finally {
       setBusy(false);
     }
@@ -233,9 +241,9 @@ export function EpisodeHintBanner({
         >
           <div className="min-w-0 flex-1 basis-64">
             <p className="text-ui font-semibold text-amber-100">
-              第 {hint.season_number} 季可能还没收齐
+              {t("subscription.episodeFloor.possiblyMissing", { season: hint.season_number })}
             </p>
-            <p className="mt-0.5 text-sub leading-6 text-amber-100/75">{hintReason(hint)}</p>
+            <p className="mt-0.5 text-sub leading-6 text-amber-100/75">{hintReason(hint, locale)}</p>
             {hint.site_title && hint.site_episode && hint.site_episode >= (hint.douban_count ?? 0) && (
               <p className="truncate text-caption text-amber-100/50" title={hint.site_title}>
                 {hint.site_title}
@@ -243,14 +251,14 @@ export function EpisodeHintBanner({
             )}
           </div>
           {canTune && (
-            <div className="flex shrink-0 gap-2">
+            <div className={locale === "en" ? "flex min-w-0 flex-wrap gap-2" : "flex shrink-0 gap-2"}>
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => void dismiss(hint)}
                 className="btn-glass h-9 px-4 text-sub font-medium disabled:opacity-40"
               >
-                忽略
+                {t("subscription.episodeFloor.ignore")}
               </button>
               <button
                 type="button"
@@ -258,7 +266,7 @@ export function EpisodeHintBanner({
                 onClick={() => void accept(hint)}
                 className="btn-accent h-9 rounded-full px-4 text-sub font-semibold disabled:opacity-40"
               >
-                按 {hint.suggested} 集继续追
+                {t("subscription.episodeFloor.continue", { count: hint.suggested })}
               </button>
             </div>
           )}

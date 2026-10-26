@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from movieclaw_api.i18n.stored import source_text
 from movieclaw_api.services.push.dispatcher import Outcome
 
 logger = logging.getLogger("movieclaw_api.push.im")
@@ -80,8 +81,15 @@ async def deliver(messages: list[ImMessage]) -> list[Outcome]:
                 0,
                 "IM",
                 "ok" if sent else "failed",
-                f"已交给 {sent} 个 IM 账号发送" if sent else "IM 账号没有推送目标，重新绑定试试",
+                source_text("push.outcome.imSent", count=sent)
+                if sent
+                else source_text("push.outcome.imMissing"),
                 "im",
+                message_ref=(
+                    {"message_key": "push.outcome.imSent", "params": {"count": sent}}
+                    if sent
+                    else {"message_key": "push.outcome.imMissing"}
+                ),
             )
         )
     return outcomes

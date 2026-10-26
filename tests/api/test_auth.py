@@ -48,7 +48,7 @@ def client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     app = create_app()
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
 
     reset_setting_store()
@@ -75,6 +75,18 @@ def test_bootstrap_status_flips_after_init(client: TestClient) -> None:
     assert resp.json()["data"]["username"] == "admin"
 
     assert client.get(f"{_AUTH}/bootstrap").json()["data"]["initialized"] is True
+
+
+def test_bootstrap_reports_static_native_app_kinds_without_account_data(client: TestClient) -> None:
+    expected = {"ios", "tvos", "macos", "android", "androidtv", "windows"}
+    before = client.get(f"{_AUTH}/bootstrap").json()["data"]
+    assert set(before) == {"initialized", "native_device_kinds"}
+    assert before["initialized"] is False
+    assert set(before["native_device_kinds"]) == expected
+    assert _bootstrap(client).status_code == 200
+    anonymous = TestClient(client.app)
+    after = anonymous.get(f"{_AUTH}/bootstrap").json()["data"]
+    assert after == {"initialized": True, "native_device_kinds": before["native_device_kinds"]}
 
 
 def test_bootstrap_rejects_second_attempt(client: TestClient) -> None:

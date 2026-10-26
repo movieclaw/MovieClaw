@@ -74,14 +74,14 @@ struct TVHomeView: View {
         Group {
             if store.libraries == nil {
                 if store.failed {
-                    TVStateView(symbol: "wifi.exclamationmark", title: "连不上服务器", message: "首页加载失败，请检查网络后重试。",
-                                actionTitle: "重试") { Task { await reload() } }
+                    TVStateView(symbol: "wifi.exclamationmark", title: String(localized: .authServerUnreachable), message: String(localized: .libraryHomeLoadFailedRetry),
+                                actionTitle: String(localized: .commonRetry)) { Task { await reload() } }
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else if rows.allSatisfy(isEmpty) {
-                TVStateView(symbol: "film.stack", title: "媒体库里还没有内容",
-                            message: "在网页或手机上添加媒体库并扫描后，影片会出现在这里。")
+                TVStateView(symbol: "film.stack", title: String(localized: .libraryMediaEmpty),
+                            message: String(localized: .libraryAddOnWebOrPhoneHint))
             } else {
                 content
             }
@@ -309,7 +309,7 @@ struct TVHomeView: View {
     private func stageActions(_ stage: API.UpNextItemView) -> some View {
         HStack(spacing: 24) {
             Button { resume(stage) } label: {
-                Label(stage.positionMs > 0 ? "继续播放" : "播放", systemImage: "play.fill")
+                Label(stage.positionMs > 0 ? String(localized: .subscriptionFeedResume) : String(localized: .libraryHeroPlay), systemImage: "play.fill")
                     .padding(.horizontal, 8)
             }
             .focused($focus, equals: .play)
@@ -318,7 +318,7 @@ struct TVHomeView: View {
             Button {
                 router.push(.item(libraryId: stage.libraryId, itemId: stage.mediaItemId))
             } label: {
-                Label("详情", systemImage: "info.circle")
+                Label(String(localized: .searchTorrentDetails), systemImage: "info.circle")
                     .padding(.horizontal, 8)
             }
             .focused($focus, equals: .details)
@@ -382,7 +382,7 @@ struct TVHomeView: View {
     /// 「第 1 季 第 3 集 · 剩 23 分钟」「剩 1 小时 5 分」
     static func upNextSubtitle(_ item: API.UpNextItemView) -> String? {
         var parts: [String] = []
-        if item.kind == "tv" { parts.append("第 \(item.seasonNumber) 季 第 \(item.episodeNumber) 集") }
+        if item.kind == "tv" { parts.append(String(localized: .offlineSeasonEpisode(item.seasonNumber, item.episodeNumber))) }
         if item.positionMs > 0, let remaining = Formatters.remaining(positionMs: item.positionMs, durationMs: item.durationMs) {
             parts.append(remaining)
         }
@@ -480,7 +480,7 @@ private struct TVUpNextRow: View {
     @FocusState private var focused: Int?
 
     var body: some View {
-        TVShelf(title: "接下来继续", titleHidden: rowYielded) {
+        TVShelf(title: String(localized: .libraryRowsUpNext), titleHidden: rowYielded) {
             ForEach(Array(items.enumerated()), id: \.element.mediaItemId) { index, item in
                 let current = item.mediaItemId == stageId
                 TVContinueCard(item: item, resume: resume, details: details)
@@ -528,7 +528,7 @@ private struct TVContinueCard: View, Equatable {
             subtitle: nil,
             imageURL: api.image(still, width: ImageWidth.tvCard(TVMetrics.landscapeWidth)),
             progress: item.progressPercent.map { Double($0) / 100 },
-            badge: item.advanced ? "下一集" : nil,
+            badge: item.advanced ? String(localized: .playerControlsNextEpisode) : nil,
             // 第几集、剩多久压在图片底部；片名一直写在剧照下面——剧照上认不出是哪部
             detail: TVHomeView.upNextBand(item),
             caption: .always
@@ -536,8 +536,8 @@ private struct TVContinueCard: View, Equatable {
             resume(item)
         }
         .contextMenu {
-            Button(item.positionMs > 0 ? "继续播放" : "播放", systemImage: "play.fill") { resume(item) }
-            Button("查看详情", systemImage: "info.circle") { details(item) }
+            Button(item.positionMs > 0 ? String(localized: .subscriptionFeedResume) : String(localized: .libraryHeroPlay), systemImage: "play.fill") { resume(item) }
+            Button(String(localized: .searchTorrentViewDetails), systemImage: "info.circle") { details(item) }
         }
     }
 }

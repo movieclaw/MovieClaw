@@ -166,6 +166,7 @@ class PushEventView(BaseModel):
     title: str
     description: str
     group: str
+    group_id: str | None = Field(default=None, description="Stable source group identifier.")
     enabled: bool
     default: bool
 

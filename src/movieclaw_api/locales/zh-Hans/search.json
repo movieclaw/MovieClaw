@@ -1,0 +1,30 @@
+{
+  "presets": {
+    "saved": "资源搜索预设已保存",
+    "deleted": "已删除"
+  },
+  "history": {
+    "cleared": "已清空 {count} 条搜索历史"
+  },
+  "categories": {
+    "movie": "电影",
+    "tv": "剧集",
+    "documentary": "纪录片",
+    "anime": "动漫",
+    "music": "音乐",
+    "game": "游戏",
+    "av": "成人",
+    "other": "其他"
+  },
+  "match": {
+    "text": "名称匹配",
+    "pinyin": "拼音匹配",
+    "initials": "首字母匹配",
+    "mixed": "文字与拼音混合匹配",
+    "words": "名称词组匹配",
+    "alias": "别名匹配",
+    "aliasReason": "别名 · {reason}",
+    "personWorks": "人物作品",
+    "person": "{role, select, director {导演} other {演员}}：{name}"
+  }
+}

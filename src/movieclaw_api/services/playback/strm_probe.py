@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 
 from sqlalchemy.orm.attributes import set_committed_value
 
+from movieclaw_api.i18n.stored import reference, source_render
 from movieclaw_api.services.media_probe import PROBE_SCHEMA_VERSION, MediaSpec, probe_media
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LibraryFile, StrmProbeState
@@ -73,7 +74,8 @@ _inflight: dict[int, asyncio.Task[_Outcome]] = {}
 class _Outcome:
     #: 探出的台账列；失败为 None
     values: dict[str, Any] | None
-    error: str | None = None
+    #: 失败原因：自己的话是文案引用，strm 解析器的原话是文本
+    error: dict | str | None = None
     next_retry_at: datetime | None = None
 
 
@@ -138,7 +140,7 @@ class ProbeResult:
     #: probed：这次探出了规格；ready：本来就有；failed：探了没成功；
     #: backoff：还在失败退避期，没探；not_strm：不是网盘条目；missing：没有这个文件
     status: str
-    error: str | None = None
+    error: dict | str | None = None
     next_retry_at: datetime | None = None
 
 
@@ -160,7 +162,9 @@ async def probe_file(file_id: int, *, respect_backoff: bool = True) -> ProbeResu
         and state.next_retry_at is not None
         and state.next_retry_at > utcnow()
     ):
-        return ProbeResult("backoff", state.last_error, state.next_retry_at)
+        return ProbeResult(
+            "backoff", state.last_error_ref or state.last_error, state.next_retry_at
+        )
     outcome = await _probe_once(file_id, file_path, background=respect_backoff)
     if outcome.values is None:
         return ProbeResult("failed", outcome.error, outcome.next_retry_at)
@@ -192,7 +196,9 @@ async def _probe_and_store(file_id: int, file_path: str, *, background: bool = F
     if spec is None or spec.video_codec is None:
         _failed_at[file_path] = time.monotonic()
         logger.warning("网盘条目探测失败（%.1f 秒），按乐观直连处理：%s", elapsed, file_path)
-        reason = await _failure_reason(source) if spec is None else "没有视频流"
+        reason = (
+            await _failure_reason(source) if spec is None else reference("player.strm.noVideo")
+        )
         return await _record_failure(file_id, file_path, url, reason)
     _failed_at.pop(file_path, None)
     # 网盘直链的路径不一定带扩展名：只在网盘上的文件按台账路径（原文件名）定容器
@@ -200,7 +206,7 @@ async def _probe_and_store(file_id: int, file_path: str, *, background: bool = F
     async with get_database().session() as session:
         row = await session.get(LibraryFile, file_id)
         if row is None or row.file_path != file_path:
-            return _Outcome(None, "文件已不在台账里")
+            return _Outcome(None, reference("player.strm.fileGone"))
         for key, value in values.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
@@ -208,6 +214,7 @@ async def _probe_and_store(file_id: int, file_path: str, *, background: bool = F
         state.target = strm_target(url)
         state.failures = 0
         state.last_error = None
+        state.last_error_ref = None
         state.last_attempt_at = utcnow()
         state.next_retry_at = None
         state.updated_at = utcnow()
@@ -235,21 +242,23 @@ async def _cloud_source(file_path: str, background: bool) -> StrmLink:
     except Exception as exc:  # noqa: BLE001 -- 取不到直链按这次探测失败记
         raise StrmError(stream_error(exc)) from exc
     if link is None:
-        raise StrmError("网盘副本现在不可用")
+        raise StrmError(source_render(reference("player.strm.cloudUnavailable")))
     return link
 
 
-async def _failure_reason(source: StrmLink | Path) -> str:
+async def _failure_reason(source: StrmLink | Path) -> dict:
     """读不出媒体信息时给用户看的原因：直链过期 / 没权限要提示重新生成 strm。"""
     if isinstance(source, Path):
-        return "读不出媒体信息（挂载掉线或文件损坏、格式不支持）"
+        return reference("player.strm.mountUnreadable")
     status = await asyncio.to_thread(strm_link_status, source)
     if status in (401, 403, 404, 410):
-        return f"直链已失效或无权访问（HTTP {status}），请重新生成 strm"
-    return "读不出媒体信息（直链失效、网盘连不上或格式不支持）"
+        return reference("player.strm.linkExpired", status=status)
+    return reference("player.strm.linkUnreadable")
 
 
-async def _record_failure(file_id: int, file_path: str, url: str | None, reason: str) -> _Outcome:
+async def _record_failure(
+    file_id: int, file_path: str, url: str | None, reason: dict | str
+) -> _Outcome:
     """记一次失败并排下次可重试的时间；文件已不在台账里就不记。"""
     now = utcnow()
     async with get_database().session() as session:
@@ -262,7 +271,8 @@ async def _record_failure(file_id: int, file_path: str, url: str | None, reason:
         failures = (state.failures or 0) if state.target == target else 0
         state.failures = failures + 1
         state.target = target
-        state.last_error = reason
+        state.last_error = source_render(reason)
+        state.last_error_ref = reason if isinstance(reason, dict) else None
         state.last_attempt_at = now
         state.next_retry_at = now + backoff_after(state.failures)
         state.updated_at = now

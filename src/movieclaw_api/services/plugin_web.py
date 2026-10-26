@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
+from movieclaw_api.i18n.metadata import localized_text
+
 logger = logging.getLogger("movieclaw_api.plugin_web")
 
 WEB_DIR = "web"
@@ -170,10 +172,13 @@ def web_plugins(settings: object) -> list[WebPlugin]:
     for record in pkg.installed(settings).values():
         directory = pkg.version_dir(settings, record.id, record.version)
         if has_web(directory):
+            manifest = pkg.read_manifest(directory)
             found.append(
                 WebPlugin(
                     id=record.id,
-                    title=record.title,
+                    title=localized_text(record.title, manifest.plugin.title_localized)
+                    if manifest
+                    else record.title,
                     source=pkg.SOURCE,
                     root=directory / WEB_DIR,
                     consent=Consent.parse(record.web),
@@ -244,7 +249,7 @@ def _read_manifest(root: Path) -> tuple[dict[str, Any] | None, str | None]:
             continue
         try:
             if path.stat().st_size > MAX_MANIFEST_BYTES:
-                raise ValueError(f"超过 {MAX_MANIFEST_BYTES // 1024} KB")
+                raise ValueError(f"超过 {MAX_MANIFEST_BYTES // 1024} KB")  # i18n-ignore: logged
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             logger.warning("插件网页的 %s 读不出来，按没有 manifest 处理：%s", path, exc)
@@ -268,7 +273,7 @@ def _in_scope(base: str, manifest_url: str, value: Any) -> str | None:
 
 def _label(raw: dict[str, Any], fallback: str) -> str:
     for key in ("short_name", "name"):
-        value = raw.get(key)
+        value = localized_text(raw.get(key, ""), raw.get(f"{key}_localized"))
         if isinstance(value, str) and value.strip():
             return value.strip()[:MAX_LABEL]
     return fallback[:MAX_LABEL]
@@ -325,7 +330,7 @@ def read_manifest(plugin: WebPlugin) -> AppManifest:
                 monochrome=own_mono if own_icon else monochrome,
             )
         )
-    name_value = raw.get("name")
+    name_value = localized_text(raw.get("name", ""), raw.get("name_localized"))
     full_name = name_value.strip() if isinstance(name_value, str) and name_value.strip() else title
     return AppManifest(name=full_name[:MAX_LABEL], entries=entries)
 

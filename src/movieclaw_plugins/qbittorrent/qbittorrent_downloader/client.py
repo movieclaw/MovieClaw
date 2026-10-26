@@ -124,21 +124,26 @@ def _translate_errors(url: str) -> Iterator[None]:
         yield
     except qbittorrentapi.LoginFailed as exc:
         raise DownloaderAuthError(
-            "qBittorrent 登录失败：用户名或密码错误", details={"url": url}
+            "qBittorrent 登录失败：用户名或密码错误",
+            message_key="errors.downloader.qbLogin",
+            details={"url": url},
         ) from exc
     except (qbittorrentapi.Unauthorized401Error, qbittorrentapi.Forbidden403Error) as exc:
         raise DownloaderAuthError(
             "qBittorrent 拒绝访问：请检查凭证，多次失败可能触发了 IP 封禁",
+            message_key="errors.downloader.qbAccessDenied",
             details={"url": url},
         ) from exc
     except qbittorrentapi.UnsupportedMediaType415Error as exc:
         raise DownloaderSubmitError(
             "qBittorrent 无法识别提交的种子文件（文件损坏或不是 .torrent 格式）",
+            message_key="errors.downloader.qbInvalidTorrent",
             details={"url": url},
         ) from exc
     except qbittorrentapi.APIConnectionError as exc:
         raise DownloaderConnectError(
             "无法连接到 qBittorrent，请检查 WebUI 地址和端口",
+            message_key="errors.downloader.qbConnect",
             details={"url": url, "error": str(exc)},
         ) from exc
 
@@ -195,6 +200,7 @@ class QBittorrentDownloader(BaseDownloader):
             if isinstance(result, str) and not result.startswith("Ok"):
                 raise DownloaderSubmitError(
                     "qBittorrent 拒绝了该种子（文件无效或触发下载器自身的限制）",
+                    message_key="errors.downloader.qbRejectedTorrent",
                     details={"url": self.config.url, "response": result},
                 )
 
@@ -365,6 +371,7 @@ class QBittorrentDownloader(BaseDownloader):
         except qbittorrentapi.APIError as exc:
             raise DownloaderDeleteError(
                 "删除 qBittorrent 任务失败，请检查下载器状态",
+                message_key="errors.downloader.qbDelete",
                 details={"url": self.config.url, "error": str(exc)},
             ) from exc
         logger.info(
@@ -478,6 +485,7 @@ class QBittorrentDownloader(BaseDownloader):
         except qbittorrentapi.APIError as exc:
             raise DownloaderSubmitError(
                 "移动 qBittorrent 任务目录失败，请检查目标目录是否可写",
+                message_key="errors.downloader.qbMove",
                 details={"url": self.config.url, "save_path": save_path, "error": str(exc)},
             ) from exc
         logger.info("已移动 qBittorrent 任务目录: hash=%s -> %s", info_hash, save_path)

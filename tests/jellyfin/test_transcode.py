@@ -462,11 +462,12 @@ def _only_remote_worker(monkeypatch, *, ts_capable: bool) -> None:
     monkeypatch.setattr(jf_playback, "available_local_backends", lambda: ())
     monkeypatch.setattr(
         jf_playback,
-        "remote_worker_available",
-        lambda _backend="videotoolbox", segment_type="fmp4": (
-            ts_capable or segment_type == "fmp4"
+        "remote_backends_available",
+        lambda segment_type="fmp4": (
+            ("videotoolbox",) if ts_capable or segment_type == "fmp4" else ()
         ),
     )
+    monkeypatch.setattr(playback_plan, "remote_backend_can_run", lambda _plan, _backend: True)
 
 
 def test_infuse_ts_never_goes_to_outdated_remote_worker(

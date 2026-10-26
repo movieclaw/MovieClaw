@@ -419,3 +419,31 @@ def test_version_key_follows_semver() -> None:
     assert key("1.0.0") > key("1.0.0-rc.1") > key("1.0.0-beta.10") > key("1.0.0-beta.2")
     assert key("0.1.0-beta.2") > key("0.1.0-beta.1")
     assert key("2.0.0-beta.1") > key("1.5.0")
+
+
+def test_market_localized_metadata_preserves_signed_cached_source(github):
+    document = publish(github)
+    document["plugins"][0].update(
+        {
+            "name_localized": {"en": "Package plugin"},
+            "summary_localized": {"en-US": "A plugin summary"},
+            "description_localized": {"en": {"value": "Plugin description", "dir": "ltr"}},
+        }
+    )
+    raw = json.dumps(document, ensure_ascii=False).encode()
+    github.files[INDEX_URL] = raw
+    github.files[INDEX_URL + ".sig"] = base64.b64encode(github.key.sign(raw)) + b"\n"
+    _app, client = start()
+    with client:
+        for locale, name in (
+            ("en", "Package plugin"),
+            ("zh-Hans", "包插件"),
+            ("en", "Package plugin"),
+        ):
+            client.headers["Accept-Language"] = locale
+            row = acme(client)
+            assert row["name"] == name
+            if locale == "en":
+                assert row["summary"] == "A plugin summary"
+                assert row["description"] == "Plugin description"
+    assert json.loads(github.files[INDEX_URL])["plugins"][0]["name"] == "包插件"

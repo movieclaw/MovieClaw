@@ -20,7 +20,7 @@ struct MembersSettingsView: View {
                 ForEach([true, false], id: \.self) { active in
                     let group = matches.filter { ($0.status == "active") == active }
                     if !group.isEmpty {
-                        SettingsFormSection("\(active ? "已启用" : "已停用") · \(group.count)") {
+                        SettingsFormSection((active ? String(localized: .settingsMembersUiEnabled) : String(localized: .settingsMembersUiDisabled)) + " · \(group.count)") {
                             ForEach(group) { member in
                                 Button { selectedID = member.id } label: { MemberListRow(member: member) }
                                     .accessibilityIdentifier("member-row-\(member.username)")
@@ -37,19 +37,19 @@ struct MembersSettingsView: View {
             if let rows = members.value, MemberPresentation.matching(rows, search: search).isEmpty {
                 if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     ContentUnavailableView {
-                        Label("还没有成员", systemImage: "person.2")
+                        Label(String(localized: .settingsMembersUiNone), systemImage: "person.2")
                     } description: {
-                        Text("为家人或朋友创建独立账号，分别管理权限和可见内容。")
+                        Text(String(localized: .settingsMembersUiNoneHint))
                     } actions: {
-                        Button("添加成员") { creating = true }.buttonStyle(.borderedProminent)
+                        Button(String(localized: .settingsMembersUiAdd)) { creating = true }.buttonStyle(.borderedProminent)
                     }
                 } else { ContentUnavailableView.search(text: search) }
             }
         }
-        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索昵称或用户名")
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: String(localized: .settingsMembersUiSearchMembers))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("添加成员", systemImage: "plus") { creating = true }
+                Button(String(localized: .settingsMembersUiAdd), systemImage: "plus") { creating = true }
                     .accessibilityIdentifier("member-add")
             }
         }
@@ -73,7 +73,7 @@ struct MembersSettingsView: View {
     private func retry(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(message).font(.subheadline).foregroundStyle(.secondary)
-            Button("重试") { Task { await load() } }
+            Button(String(localized: .commonRetry)) { Task { await load() } }
         }
     }
 
@@ -99,12 +99,12 @@ enum MemberPresentation {
     }
 
     static func libraries(_ member: API.MemberView) -> String {
-        if member.allLibraries { return member.libraryIds.isEmpty ? "全部共享库" : "全部共享库及单独授权" }
-        return member.libraryIds.isEmpty ? "未分配" : "\(member.libraryIds.count) 个媒体库"
+        if member.allLibraries { return member.libraryIds.isEmpty ? String(localized: .settingsMembersAccessShared) : String(localized: .settingsMembersUiSharedPlus) }
+        return member.libraryIds.isEmpty ? String(localized: .settingsMembersUiUnassigned) : String(localized: .settingsMembersUiLibraryCount(member.libraryIds.count))
     }
 
     static func age(_ member: API.MemberView) -> String {
-        member.contentAgeLimit.map { "\($0) 岁以下" } ?? "不限"
+        member.contentAgeLimit.map { String(localized: .settingsMembersAccessUnderAge($0)) } ?? String(localized: .settingsMembersAccessUnlimited)
     }
 }
 
@@ -121,7 +121,7 @@ private struct MemberListRow: View {
                     Text("\(member.nickname) \(Text("· @\(member.username)").foregroundStyle(.secondary))")
                         .font(.body).foregroundStyle(.primary).lineLimit(1)
                 }
-                Text(member.deviceCount == 0 ? "暂无登录设备" : "\(member.deviceCount) 台登录设备")
+                Text(member.deviceCount == 0 ? String(localized: .settingsMembersUiNoDevices) : String(localized: .settingsMembersUiDeviceCount(member.deviceCount)))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
@@ -137,7 +137,7 @@ struct SettingsSheetScaffold<Content: View>: View {
     var confirmTitle: String?
     var confirmDisabled = false
     var busy = false
-    var cancelTitle = "取消"
+    var cancelTitle = String(localized: .commonCancel)
     var confirmIdentifier = "sheet-confirm"
     var onConfirm: (() -> Void)?
     @ViewBuilder let content: () -> Content

@@ -802,7 +802,7 @@ async def test_translate_rate_limit_reduces_concurrency_and_retries(
         "chs",
         file_id=32,
         progress=snapshots.append,
-        phase=lambda _phase, message: messages.append(message),
+        phase=lambda _phase, message: messages.append(message["message"]),
     )
 
     assert len(out) == 500 and stats.failed_blocks == 0

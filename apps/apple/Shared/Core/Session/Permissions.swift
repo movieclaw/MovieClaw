@@ -33,7 +33,7 @@ struct Permissions: Equatable {
 }
 
 extension API.SessionView {
-    var roleLabel: String { role == "admin" ? "超级管理员" : "成员" }
+    var roleLabel: String { role == "admin" ? String(localized: .authRoleSuperAdmin) : String(localized: .authRoleMember) }
 
     /// 头像徽标字：中文取首字，拉丁字母取前两位大写（同 Web initialsOf）
     var initials: String {

@@ -40,6 +40,7 @@ from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from movieclaw_agent import CompactionResult, strip_skill_blocks
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.i18n.stored import reference
 from movieclaw_llm import ChatMessage, ImagePart, TextPart, TokenUsage, ToolCall
 
 logger = logging.getLogger("movieclaw_api.agent_sessions")
@@ -54,12 +55,15 @@ PREVIEW_MAX_CHARS = 80
 #: 中断收尾的来源分级（决定合成回执的文案，见 seal_pending_tool_calls）
 SealReason = Literal["user_cancelled", "service_interrupted"]
 
+# i18n-ignore: model-facing tool receipts (design §8.4)
 _SEAL_TEXTS: dict[str, str] = {
     "user_cancelled": (
+        # i18n-ignore: model-facing tool receipt
         "用户停止了本次运行，此工具调用被中断。它可能已产生部分效果；"
         "如需确认实际结果，请先用查询类操作核实，不要盲目重发。"
     ),
     "service_interrupted": (
+        # i18n-ignore: model-facing tool receipt
         "运行被中断（服务重启或异常），此工具调用的结果未知。"
         "继续任务前请先查询相关状态确认它是否已生效，避免重复执行有副作用的操作。"
     ),
@@ -106,6 +110,7 @@ class SessionMessageEntry(BaseModel):
     parent_uuid: str | None = None
     timestamp: str
     message: ChatMessage
+    generated_skill_instruction: bool | None = None
     model: str | None = None
     usage: TokenUsage | None = None
     finish_reason: str | None = None
@@ -149,6 +154,7 @@ class SessionHandoffEntry(BaseModel):
     source_session_id: str
     source_leaf_uuid: str | None = None
     source_title: str | None = None
+    source_title_ref: dict | None = None
     replacement_history: list[ChatMessage]
 
 
@@ -171,6 +177,8 @@ class SessionSummary(BaseModel):
     leaf_uuid: str | None
     #: 首条 user 消息的截断文本；作为无自定义标题时的会话标题
     title: str | None
+    title_ref: dict | None = None
+    last_prompt_ref: dict | None = None
     #: 最后一条 user 消息的截断文本（列表页副标题）
     last_prompt: str | None
     #: 最后一条 entry 的时间戳（文件为空时取头的 created_at）
@@ -258,15 +266,58 @@ def message_preview(message: ChatMessage) -> str:
     if text:
         skill_names, rest = strip_skill_blocks(text)
         if skill_names:
-            return f"[技能] {rest}".strip()
+            return f"[技能] {rest}".strip()  # i18n-ignore: source beside the preview reference
         return text
     if isinstance(message.content, list):
         images = sum(1 for p in message.content if isinstance(p, ImagePart))
         if images == 1:
-            return "[图片]"
+            return "[图片]"  # i18n-ignore: source beside the preview reference
         if images > 1:
-            return f"[图片 ×{images}]"
+            return f"[图片 ×{images}]"  # i18n-ignore: source beside the preview reference
     return ""
+
+
+def message_preview_reference(
+    message: ChatMessage, *, generated_skill_instruction: bool = False
+) -> dict | None:
+    """Only mark placeholders derived from content facts, never from user text."""
+    text = message.text().strip()
+    if text:
+        names, rest = strip_skill_blocks(text)
+        if names:
+            if generated_skill_instruction:
+                return reference(
+                    "agent.session.skill", text=reference("agent.session.defaultInstruction")
+                )
+            if rest:
+                return reference("agent.session.skill", text=rest[:PREVIEW_MAX_CHARS])
+            return reference("agent.session.skillOnly")
+    elif isinstance(message.content, list):
+        count = sum(isinstance(part, ImagePart) for part in message.content)
+        if count == 1:
+            return reference("agent.session.image")
+        if count > 1:
+            return reference("agent.session.images", count=count)
+    return None
+
+
+def continuation_title(
+    source_title: str | None, source_ref: dict | None = None
+) -> tuple[str | None, dict | None]:
+    """Preserve legacy prefix rules; only a known generated prefix may be translated."""
+    if not source_title:
+        return None, None
+    if source_ref and source_ref.get("message_key") == "agent.session.continued":
+        return source_title[:PREVIEW_MAX_CHARS], source_ref
+    if source_title.startswith("续："):  # i18n-ignore: legacy title prefix
+        return source_title[:PREVIEW_MAX_CHARS], None
+    return (
+        f"续：{source_title}"[:PREVIEW_MAX_CHARS],  # i18n-ignore: source beside the reference
+        reference(
+            "agent.session.continued",
+            title={**source_ref, "message": source_title} if source_ref else source_title,
+        ),
+    )
 
 
 def _repair_unpaired_tool_messages(
@@ -289,6 +340,7 @@ def _repair_unpaired_tool_messages(
 
 
 #: 空助手消息的占位正文：只有思考、没有正文与工具调用的助手消息（流式中途被取消落盘的半截）
+# i18n-ignore: model-facing history placeholder
 INTERRUPTED_REPLY_TEXT = "（这一轮回复被中断，没有产出内容）"
 
 
@@ -353,8 +405,9 @@ def _repair_handoff_history(history: list[ChatMessage]) -> list[ChatMessage]:
             repaired.append(
                 ChatMessage(
                     role="tool",
+                    # i18n-ignore: model-facing tool receipt
                     content=(
-                        f"会话在此处异常中断，工具「{tool_call.name}」的结果未知。"
+                        f"会话在此处异常中断，工具「{tool_call.name}」的结果未知。"  # i18n-ignore
                         "继续前请先查询实际状态，避免重复操作。"
                     ),
                     tool_call_id=tool_call.id,
@@ -380,6 +433,7 @@ def _repair_handoff_history(history: list[ChatMessage]) -> list[ChatMessage]:
                     ChatMessage(
                         role="user",
                         content=(
+                            # i18n-ignore: model-facing history text
                             f"【历史中的孤立工具回执：{message.name or '未知工具'}】\n"
                             f"{message.text()}"
                         ),
@@ -446,11 +500,12 @@ class AgentSessionStore:
         usage: TokenUsage | None = None,
         finish_reason: str | None = None,
         thinking_level: str | None = None,
+        generated_skill_instruction: bool | None = None,
     ) -> SessionMessageEntry:
         """追加一条定稿消息，自动接到当前链尾，返回写入的 entry。"""
         path = self.path(session_id)
         if not path.is_file():
-            raise NotFoundException("Agent 会话不存在或转录文件已被删除")
+            raise NotFoundException(message_key="errors.agent.transcriptMissing")
         if session_id not in self._leaf_cache:
             _, entries, _ = self._read(path)
             self._leaf_cache[session_id] = entries[-1].uuid if entries else None
@@ -463,6 +518,7 @@ class AgentSessionStore:
             usage=usage,
             finish_reason=finish_reason,
             thinking_level=thinking_level,
+            generated_skill_instruction=generated_skill_instruction,
         )
         with path.open("a", encoding="utf-8") as f:
             f.write(entry.model_dump_json(exclude_none=True) + "\n")
@@ -475,7 +531,7 @@ class AgentSessionStore:
         """追加一条压缩行，与 append 同款接到当前链尾（parent 链线性穿过压缩行）。"""
         path = self.path(session_id)
         if not path.is_file():
-            raise NotFoundException("Agent 会话不存在或转录文件已被删除")
+            raise NotFoundException(message_key="errors.agent.transcriptMissing")
         if session_id not in self._leaf_cache:
             _, entries, _ = self._read(path)
             self._leaf_cache[session_id] = entries[-1].uuid if entries else None
@@ -501,11 +557,12 @@ class AgentSessionStore:
         source_leaf_uuid: str | None,
         source_title: str | None,
         replacement_history: list[ChatMessage],
+        source_title_ref: dict | None = None,
     ) -> SessionHandoffEntry:
         """给新建的空会话写入首条交接快照。"""
         path = self.path(session_id)
         if not path.is_file():
-            raise NotFoundException("Agent 会话不存在或转录文件已被删除")
+            raise NotFoundException(message_key="errors.agent.transcriptMissing")
         if session_id not in self._leaf_cache:
             _, entries, _ = self._read(path)
             self._leaf_cache[session_id] = entries[-1].uuid if entries else None
@@ -516,6 +573,7 @@ class AgentSessionStore:
             source_session_id=source_session_id,
             source_leaf_uuid=source_leaf_uuid,
             source_title=source_title,
+            source_title_ref=source_title_ref,
             replacement_history=[dehydrate_message(m) for m in replacement_history],
         )
         with path.open("a", encoding="utf-8") as f:
@@ -524,7 +582,11 @@ class AgentSessionStore:
         return entry
 
     def fork(
-        self, source_session_id: str, *, source_title: str | None = None
+        self,
+        source_session_id: str,
+        *,
+        source_title: str | None = None,
+        source_title_ref: dict | None = None,
     ) -> tuple[SessionHeader, SessionHandoffEntry]:
         """从源会话的有效上下文创建一个完全独立的新会话。
 
@@ -534,7 +596,7 @@ class AgentSessionStore:
         _, source_entries = self.read(source_session_id)
         history = _repair_handoff_history(self.build_history(source_session_id))
         if not history:
-            raise BadRequestException("源会话没有可继承的上下文")
+            raise BadRequestException(message_key="errors.agent.noInheritedContext")
         source_leaf_uuid = source_entries[-1].uuid if source_entries else None
         header = self.create()
         handoff = self.append_handoff(
@@ -542,6 +604,7 @@ class AgentSessionStore:
             source_session_id=source_session_id,
             source_leaf_uuid=source_leaf_uuid,
             source_title=source_title,
+            source_title_ref=source_title_ref,
             replacement_history=history,
         )
         return header, handoff
@@ -605,12 +668,12 @@ class AgentSessionStore:
         header, entries = self.read(session_id)
         index = next((i for i, e in enumerate(entries) if e.uuid == message_id), None)
         if index is None:
-            raise NotFoundException("会话中没有这条记录，可能已被改写")
+            raise NotFoundException(message_key="errors.agent.recordMissing")
         target = entries[index]
         # 只允许从 user message 重试：从 assistant/tool 中间切一刀会留下没有
         # 回执的 tool_call，重建出的上下文喂回模型直接 400
         if not isinstance(target, SessionMessageEntry) or target.message.role != "user":
-            raise BadRequestException("只能重试用户消息")
+            raise BadRequestException(message_key="errors.agent.retryUserOnly")
 
         kept = entries[:index]
         path = self.path(session_id)
@@ -640,7 +703,7 @@ class AgentSessionStore:
         """读取整个会话（头 + 全部 entry，含压缩/交接行），坏行静默跳过。"""
         path = self.path(session_id)
         if not path.is_file():
-            raise NotFoundException("Agent 会话不存在或转录文件已被删除")
+            raise NotFoundException(message_key="errors.agent.transcriptMissing")
         header, entries, bad = self._read(path)
         if bad:
             logger.warning(
@@ -683,22 +746,27 @@ class AgentSessionStore:
         # 交接会话的标题固定为「续：源标题」——与 DB 索引只在 title 为空时
         # 回填的口径一致，用户后续发言不覆盖标题，重建索引时也保持同一语义。
         # 压缩/交接行都计入 entry_count 与链尾，但不伪造 last_prompt。
-        user_texts = [
-            message_preview(e.message)
+        user_entries = [
+            e
             for e in entries
             if isinstance(e, SessionMessageEntry)
             and e.message.role == "user"
             and message_preview(e.message)
         ]
-        handoff_title = next(
+        user_texts = [message_preview(e.message) for e in user_entries]
+        preview_refs = [
+            message_preview_reference(
+                e.message, generated_skill_instruction=bool(e.generated_skill_instruction)
+            )
+            for e in user_entries
+        ]
+        handoff_title, handoff_ref = next(
             (
-                (e.source_title if e.source_title.startswith("续：") else f"续：{e.source_title}")[
-                    :PREVIEW_MAX_CHARS
-                ]
+                continuation_title(e.source_title, e.source_title_ref)
                 for e in entries
                 if isinstance(e, SessionHandoffEntry) and e.source_title
             ),
-            None,
+            (None, None),
         )
         return SessionSummary(
             session_id=header.session_id,
@@ -706,6 +774,8 @@ class AgentSessionStore:
             entry_count=len(entries),
             leaf_uuid=entries[-1].uuid if entries else None,
             title=handoff_title or (user_texts[0][:PREVIEW_MAX_CHARS] if user_texts else None),
+            title_ref=handoff_ref if handoff_title else (preview_refs[0] if preview_refs else None),
+            last_prompt_ref=preview_refs[-1] if preview_refs else None,
             last_prompt=user_texts[-1][:PREVIEW_MAX_CHARS] if user_texts else None,
             last_timestamp=entries[-1].timestamp if entries else header.created_at,
             owner=header.owner,
@@ -753,7 +823,7 @@ class AgentSessionStore:
                 except (ValidationError, json.JSONDecodeError):
                     bad += 1
         if header is None:
-            raise NotFoundException("Agent 会话文件为空或头记录损坏")
+            raise NotFoundException(message_key="errors.agent.transcriptInvalid")
         return header, entries, bad
 
 

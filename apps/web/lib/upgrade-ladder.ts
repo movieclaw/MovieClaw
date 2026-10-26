@@ -1,4 +1,6 @@
 import type { RuleSetSpec } from "@/lib/api/subscriptions";
+import { appTranslator } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
 
 /**
  * 洗版阶梯预览（docs/design/quality-upgrade.md §2.1 / §14.3）：把规则组的洗版
@@ -23,13 +25,18 @@ import type { RuleSetSpec } from "@/lib/api/subscriptions";
  */
 
 /** 参与洗版比较的维度选项（顺序即编辑器里的芯片顺序），值域与后端一致。 */
-export const LADDER_OPTIONS: { value: string; label: string }[] = [
-  { value: "resolution", label: "分辨率" },
-  { value: "source", label: "片源" },
-  { value: "hdr", label: "HDR" },
-  { value: "video_codec", label: "编码" },
-  { value: "platform", label: "平台" },
-];
+const LADDER_OPTIONS = [
+  { value: "resolution", labelKey: "subscription.rules.resolution" },
+  { value: "source", labelKey: "subscription.rules.source" },
+  { value: "hdr", labelKey: null },
+  { value: "video_codec", labelKey: "subscription.rules.dimensionCodec" },
+  { value: "platform", labelKey: "subscription.rules.dimensionPlatform" },
+] as const;
+
+export function ladderOptions(locale: AppLocale) {
+  const t = appTranslator(locale);
+  return LADDER_OPTIONS.map(({ value, labelKey }) => ({ value, label: labelKey ? t(labelKey) : "HDR" }));
+}
 
 /** 与后端 decision._DEFAULT_LADDER 同值：不配 upgrade_ladder 时的二元组。 */
 export const DEFAULT_LADDER = ["resolution", "source"];
@@ -50,20 +57,26 @@ export const CODEC_FAMILIES: { label: string; values: string[] }[] = [
  * 同档的多种写法（WEBRip/BDRip 都是 T2）合成一项，用户不需要认识全部词；
  * T0（人工标注"按最低档"）不是一类可下载的资源，不进选项。
  */
-export const MEDIA_SOURCE_OPTIONS: { value: string; label: string; hint: string }[] = [
-  { value: "remux", label: "Remux", hint: "原盘直封" },
-  { value: "blu-ray", label: "蓝光", hint: "Blu-ray / UHD Blu-ray" },
-  { value: "web-dl", label: "WEB-DL", hint: "流媒体原流" },
-  { value: "rip", label: "Rip 类", hint: "WEBRip / BDRip" },
-  { value: "tv", label: "电视录制类", hint: "HDTV / DVD" },
-];
+const MEDIA_SOURCE_OPTIONS = [
+  { value: "remux", labelKey: "subscription.rules.sourceRemux", hintKey: "subscription.rules.hintRemux" },
+  { value: "blu-ray", labelKey: "subscription.rules.sourceBluray", hintKey: "subscription.rules.hintBluray" },
+  { value: "web-dl", labelKey: "subscription.rules.sourceWeb", hintKey: "subscription.rules.hintWeb" },
+  { value: "rip", labelKey: "subscription.rules.sourceRip", hintKey: "subscription.rules.hintRip" },
+  { value: "tv", labelKey: "subscription.rules.sourceTv", hintKey: "subscription.rules.hintTv" },
+] as const;
+
+export function mediaSourceOptions(locale: AppLocale) {
+  const t = appTranslator(locale);
+  return MEDIA_SOURCE_OPTIONS.map(({ value, labelKey, hintKey }) => ({ value, label: t(labelKey), hint: t(hintKey) }));
+}
+
+export function mediaSourceLabel(value: string, locale: AppLocale): string {
+  const option = MEDIA_SOURCE_OPTIONS.find((option) => option.value === value);
+  return option ? appTranslator(locale)(option.labelKey) : value;
+}
 
 /** 洗版目标可选的三档——没人会把终点设成"洗到 Rip"。 */
 export const UPGRADE_SOURCE_VALUES = ["web-dl", "blu-ray", "remux"];
-
-const SOURCE_LABEL: Record<string, string> = Object.fromEntries(
-  MEDIA_SOURCE_OPTIONS.map((option) => [option.value, option.label]),
-);
 
 /** 未配置 resolutions 时的内置偏好序，与后端 _DEFAULT_RESOLUTION_LADDER 同值。 */
 const DEFAULT_RESOLUTION_LADDER = [
@@ -83,7 +96,7 @@ const FALLBACK_CUTOFF_RESOLUTION = "1080p";
 const MAX_RUNGS_BELOW = 5;
 
 export interface UpgradeLadderPreview {
-  /** 生效的比较维度（中文名，顺序即位次） */
+  /** 生效的比较维度（展示名，顺序即位次） */
   dimensions: string[];
   /** 终点档标签，如 "1080p · 蓝光 · DV" */
   target: string;
@@ -125,6 +138,7 @@ function axisOf(
   dim: string,
   spec: RuleSetSpec,
   platformLabel: (id: string) => string,
+  locale: AppLocale,
 ): string[] {
   if (dim === "resolution") {
     return spec.resolutions?.length ? spec.resolutions : DEFAULT_RESOLUTION_LADDER;
@@ -133,7 +147,7 @@ function axisOf(
     // 配了片源白名单就按用户序（后端 media_source_rank 同口径），否则内置档序
     const chosen = spec.media_sources?.length ? spec.media_sources : null;
     return (chosen ?? MEDIA_SOURCE_OPTIONS.map((o) => o.value)).map(
-      (value) => SOURCE_LABEL[value] ?? value,
+      (value) => mediaSourceLabel(value, locale),
     );
   }
   if (dim === "hdr") return spec.hdr_levels ?? [];
@@ -142,14 +156,14 @@ function axisOf(
 }
 
 /** 终点在某一维上的取值：分辨率取 cutoff、片源取洗版目标，其余维取偏好首项。 */
-function targetIndexOf(dim: string, axis: string[], spec: RuleSetSpec): number {
+function targetIndexOf(dim: string, axis: string[], spec: RuleSetSpec, locale: AppLocale): number {
   if (dim === "resolution") {
     const resolution =
       spec.cutoff_resolution || spec.resolutions?.[0] || FALLBACK_CUTOFF_RESOLUTION;
     return axis.indexOf(resolution);
   }
   if (dim === "source") {
-    return axis.indexOf(SOURCE_LABEL[spec.upgrade_source ?? ""] ?? "");
+    return axis.indexOf(mediaSourceLabel(spec.upgrade_source ?? "", locale));
   }
   // 只有分辨率与片源会成数量级地改变磁盘占用，才需要"接受但不主动洗"的
   // 区分；其余维度的终点就是偏好首项（后端 target_vector 同口径）
@@ -160,18 +174,19 @@ function targetIndexOf(dim: string, axis: string[], spec: RuleSetSpec): number {
  * spec → 洗版阶梯预览；未开洗版（或配置自相矛盾，如目标分辨率不在偏好序里）
  * 返回 null——这两种情况下没有"终点"可言，界面退回纯筛选摘要。
  *
- * `platformLabel` 由调用方注入：本模块要保持零运行时依赖（`node --test`
- * 直接跑 .ts，路径别名在那里解析不了）。
+ * `platformLabel` 由调用方注入；运行时依赖使用相对路径，让 `node --test`
+ * 可直接测试 .ts。语言只影响展示，不改变维度顺序与排名。
  */
 export function upgradeLadderPreview(
   spec: RuleSetSpec,
   platformLabel: (id: string) => string = (id) => id,
+  locale: AppLocale = "zh-Hans",
 ): UpgradeLadderPreview | null {
   if (!spec.upgrade_source) return null;
 
   const dimensions = effectiveDimensions(spec);
-  const axes = dimensions.map((dim) => axisOf(dim, spec, platformLabel));
-  const digits = dimensions.map((dim, i) => targetIndexOf(dim, axes[i], spec));
+  const axes = dimensions.map((dim) => axisOf(dim, spec, platformLabel, locale));
+  const digits = dimensions.map((dim, i) => targetIndexOf(dim, axes[i], spec, locale));
   // 任一维取不到终点值 = 配置矛盾（校验层已拦，这里只做防御性静默）
   if (digits.some((index) => index < 0) || axes.some((axis) => !axis.length)) return null;
 
@@ -199,7 +214,7 @@ export function upgradeLadderPreview(
 
   return {
     dimensions: dimensions.map(
-      (dim) => LADDER_OPTIONS.find((option) => option.value === dim)?.label ?? dim,
+      (dim) => ladderOptions(locale).find((option) => option.value === dim)?.label ?? dim,
     ),
     target: label(digits),
     ceiling: ordinalOfTarget > 0 ? label(axes.map(() => 0)) : null,

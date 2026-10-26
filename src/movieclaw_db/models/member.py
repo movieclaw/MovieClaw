@@ -73,6 +73,7 @@ class Member(TimestampMixin, table=True):
     # ---- 个人界面偏好（P2）----
     # 整体覆盖式 JSON（结构同 ui.preferences 配置域）；None = 尚未设置，
     # 读取时回退默认值。超管继续用全局配置域，成员各存各的。
+    last_locale: str | None = Field(default=None)
     ui_prefs: dict | None = Field(
         default=None,
         sa_column=Column(JSON, nullable=True),

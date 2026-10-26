@@ -125,7 +125,7 @@ struct OfflinePackager {
     /// 清单里的地址是 `/api/v1/...` 的绝对路径（字幕、字体带了签名 token）
     private func fetch(_ path: String, timeout: TimeInterval) async throws -> Data {
         guard let url = api.server.resolve(path) else {
-            throw APIError.decoding("地址无效：\(path)")
+            throw APIError.decoding(String(localized: .offlineErrorInvalidPath(path)))
         }
         var request = URLRequest(url: url, timeoutInterval: timeout)
         request = api.authorized(request)
@@ -137,7 +137,7 @@ struct OfflinePackager {
         }
         guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw APIError.http(status: status, message: "下载附带文件失败（HTTP \(status)）", code: nil)
+            throw APIError.http(status: status, message: String(localized: .offlineErrorAttachmentHttp(String(status))), code: nil)
         }
         return data
     }

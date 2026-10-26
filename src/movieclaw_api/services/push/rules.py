@@ -138,8 +138,9 @@ class Rule:
     event: str
     title: str
     """偏好开关上的名字。"""
-    description: str
-    group: str
+    description: str | dict
+    """目录键、引用（``reference``）或插件声明的原文。"""
+    group: str | dict
     default: bool
     audience: Audience
     render: Render
@@ -196,7 +197,7 @@ _entries: dict[str, Entry] = {}
 
 def register(entry: Entry) -> None:
     if entry.pref_key in _entries:
-        raise ValueError(f"通知 {entry.pref_key} 重复登记")
+        raise ValueError(f"通知 {entry.pref_key} 重复登记")  # i18n-ignore: developer error
     _entries[entry.pref_key] = entry
 
 

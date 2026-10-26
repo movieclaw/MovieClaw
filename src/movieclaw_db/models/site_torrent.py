@@ -189,6 +189,7 @@ class SiteSyncCursor(TimestampMixin, table=True):
     last_full_page: bool | None = Field(default=None, description="上次首页是否全为新种")
     # 上次同步失败原因（可读文本）；成功为 NULL
     last_error: str | None = Field(default=None, description="上次同步失败原因；成功为 NULL")
+    last_error_ref: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     # 连续失败次数——驱动失败退避（指数放疏重试节奏），成功即清零
     consecutive_failures: int = Field(default=0, description="连续同步失败次数；成功清零")
 

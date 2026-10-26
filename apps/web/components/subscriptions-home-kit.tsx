@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import type { Route } from "next";
 import Link from "next/link";
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -112,13 +113,15 @@ export function SubsHomeSectionHeader({
   href?: Route;
   id?: string;
 }) {
+  const t = useTranslations();
+
   return (
     <div className={`flex items-baseline justify-between gap-3 ${SUBS_HOME_INSET}`}>
       <h3 id={id} className="min-w-0 text-[20px] font-bold leading-tight text-[var(--text)]">
         {href ? (
           <Link
             href={href}
-            aria-label={`${title}，查看全部`}
+            aria-label={t("subscription.feed.seeAllSection", { title })}
             className="group inline-flex items-baseline gap-1 outline-none focus-visible:underline"
           >
             {title}
@@ -219,6 +222,8 @@ export function SubsHomePosterCard({
   /** 已暂停 / 已完成是否压暗：首页一排靠压暗衬出分隔线；海报墙已按分段标题分组，保持原色 */
   dimsResting?: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const tapGuard = useTapGuard();
   const { sub, chip, meta } = item;
   const dimmed = dimsResting && item.resting;
@@ -226,7 +231,7 @@ export function SubsHomePosterCard({
     <Link
       href={`/subscriptions/${sub.id}` as Route}
       data-subscription-id={sub.id}
-      aria-label={[`《${sub.media.title}》`, chip?.text, meta, flow].filter(Boolean).join("，")}
+      aria-label={[t("subscription.feed.heroTitle", { title: sub.media.title }), chip?.text, meta, flow].filter(Boolean).join(locale === "zh-Hans" ? "，" : ", ")}
       {...tapGuard}
       className="group/poster block outline-none"
     >
@@ -263,15 +268,17 @@ export function SubsHomePosterCard({
 
 /** 横滑末尾的「查看全部」：与海报同尺寸的一块透明玻璃，排在最后一张之后 */
 export function SubsHomeSeeAllCard({ href, total }: { href: Route; total: number }) {
+  const t = useTranslations();
+
   return (
     <Link
       href={href}
-      aria-label={`查看全部 ${total} 部`}
+      aria-label={t("subscription.feed.seeAllCount", { count: total })}
       className="flex aspect-[2/3] flex-col items-center justify-center gap-2 rounded-xl bg-white/[0.045] ring-1 ring-white/[0.09] transition hover:bg-white/[0.08] active:scale-[0.97]"
     >
       <PosterGridIcon className="size-[22px] text-[var(--text-muted)]" />
-      <span className="text-[13px] font-semibold text-[var(--text)]">查看全部</span>
-      <span className="tnum text-[12px] text-[var(--text-faint)]">{total} 部</span>
+      <span className="text-[13px] font-semibold text-[var(--text)]">{t("subscription.feed.seeAll")}</span>
+      <span className="tnum text-[12px] text-[var(--text-faint)]">{t("subscription.feed.titleCount", { count: total })}</span>
     </Link>
   );
 }

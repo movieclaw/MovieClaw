@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import {
   type ReactNode,
   useCallback,
@@ -13,8 +14,8 @@ import { ActivityIcon, CheckIcon, ExpandIcon, MoreIcon, ShrinkIcon } from "@/com
 import type { PlaybackChapterMark } from "@/lib/api/playback";
 import type { AudioOption } from "@/lib/player/audio-tracks";
 import { SUBTITLE_OFFSET_STEP, clampSubtitleOffset } from "@/lib/player/subtitles";
-import { DISPLAY_MODES, type DisplayMode } from "@/lib/player/display-mode";
-import { QUALITY_OPTIONS } from "@/lib/player/quality";
+import { displayModes, type DisplayMode } from "@/lib/player/display-mode";
+import { qualityOptions } from "@/lib/player/quality";
 import {
   SCRUB_INPUT_STEP_MS,
   acceptsNativeScrubValue,
@@ -316,6 +317,8 @@ export interface PlayerControlsProps {
 }
 
 export function PlayerControls(props: PlayerControlsProps) {
+  const t = useTranslations();
+  const locale = useLocale();
   const {
     positionMs,
     video,
@@ -808,7 +811,7 @@ export function PlayerControls(props: PlayerControlsProps) {
             // （scrub-follow.ts 的 scrubInputValue / acceptsNativeScrubValue）。
             value={scrubInputValue(shown, durationMs)}
             disabled={!durationMs}
-            aria-label="播放进度"
+            aria-label={t("player.controls.progress")}
             // 只剩键盘（Home / End / PageUp / PageDown）走这条：方向键被全局快捷键
             // 接管，指针拖动由下面的 pointer 事件自己算。原生滑块跟着指针跑出来的
             // 那些 input / change 一律不收，理由见 acceptsNativeScrubValue。
@@ -991,14 +994,14 @@ export function PlayerControls(props: PlayerControlsProps) {
               {audioOptions.length > 0 ? (
                 <div className="relative">
                   <IconButton
-                    tip="音轨"
+                    tip={t("player.controls.audio")}
                     open={menu === "audio"}
                     onClick={() => openMenu(menu === "audio" ? "none" : "audio")}
                   >
                     <AudioGlyph />
                   </IconButton>
                   {menu === "audio" ? (
-                    <MenuPanel title="音轨" onClose={() => openMenu("none")}>
+                    <MenuPanel title={t("player.controls.audio")} onClose={() => openMenu("none")}>
                       {audioOptions.map((option) => (
                         <MenuItem
                           key={option.ref}
@@ -1015,7 +1018,7 @@ export function PlayerControls(props: PlayerControlsProps) {
                         </MenuItem>
                       ))}
                       <p className="mt-1 border-t border-white/[0.08] px-3 pb-1 pt-2 text-[12px] leading-relaxed text-white/40">
-                        换音轨需要重新起流，会从当前位置续上，中间大约停顿一秒。
+                        {t("player.subtitles.audioRestartHint")}
                       </p>
                     </MenuPanel>
                   ) : null}
@@ -1024,7 +1027,7 @@ export function PlayerControls(props: PlayerControlsProps) {
 
               <div className="relative">
                 <IconButton
-                  tip="字幕"
+                  tip={t("player.controls.subtitles")}
                   active={Boolean(selectedSubtitle)}
                   open={menu === "subtitles"}
                   onClick={() => openMenu(menu === "subtitles" ? "none" : "subtitles")}
@@ -1046,7 +1049,7 @@ export function PlayerControls(props: PlayerControlsProps) {
 
               <div className="relative">
                 <IconButton
-                  tip="设置"
+                  tip={t("player.controls.settings")}
                   open={menu === "settings"}
                   onClick={() => openMenu(menu === "settings" ? "none" : "settings")}
                 >
@@ -1057,9 +1060,9 @@ export function PlayerControls(props: PlayerControlsProps) {
                   <MoreIcon className={ICON} />
                 </IconButton>
                 {menu === "settings" ? (
-                  <MenuPanel title="设置" onClose={() => openMenu("none")}>
-                    <div className="px-4 pb-1 pt-0.5 text-[12px] font-medium text-white/45">画面缩放</div>
-                    {DISPLAY_MODES.map((option) => (
+                  <MenuPanel title={t("player.controls.settings")} onClose={() => openMenu("none")}>
+                    <div className="px-4 pb-1 pt-0.5 text-[12px] font-medium text-white/45">{t("player.controls.display")}</div>
+                    {displayModes(locale).map((option) => (
                       <MenuItem key={option.id} active={displayMode === option.id} onClick={() => {
                         onSelectDisplayMode(option.id);
                         openMenu("none");
@@ -1071,8 +1074,8 @@ export function PlayerControls(props: PlayerControlsProps) {
                     <div className="my-1.5 h-px bg-white/10" />
                     {/* 画质：语义是上限——源不超所选档就照常直通（无损），
                         超了才转码降下去。弱网选低档换低带宽（§10）。 */}
-                    <div className="px-4 pb-1 pt-0.5 text-[12px] font-medium text-white/45">画质</div>
-                    {QUALITY_OPTIONS.map((option) => (
+                    <div className="px-4 pb-1 pt-0.5 text-[12px] font-medium text-white/45">{t("player.controls.quality")}</div>
+                    {qualityOptions(locale).map((option) => (
                       <MenuItem
                         key={option.label}
                         active={quality === option.maxHeight}
@@ -1096,7 +1099,7 @@ export function PlayerControls(props: PlayerControlsProps) {
                         openMenu("none");
                       }}
                     >
-                      播放诊断
+                      {t("player.controls.diagnostics")}
                     </MenuItem>
                   </MenuPanel>
                 ) : null}
@@ -1118,11 +1121,11 @@ export function PlayerControls(props: PlayerControlsProps) {
                 「上一集」改由详情页承担。 */}
             <div className="player-glass flex items-center gap-1 rounded-full px-1.5 py-1">
               {canRotate ? (
-                <IconButton tip={landscape ? "退出横屏" : "横屏"} onClick={onToggleLandscape}>
+                <IconButton tip={landscape ? t("player.controls.exitLandscape") : t("player.controls.landscape")} onClick={onToggleLandscape}>
                   <RotateGlyph active={landscape} />
                 </IconButton>
               ) : null}
-              <IconButton tip={fullscreen ? "退出全屏" : "全屏"} onClick={onToggleFullscreen}>
+              <IconButton tip={fullscreen ? t("player.controls.exitFullscreen") : t("player.controls.fullscreen")} onClick={onToggleFullscreen}>
                 {fullscreen ? <ShrinkIcon className={ICON} /> : <ExpandIcon className={ICON} />}
               </IconButton>
             </div>
@@ -1151,6 +1154,7 @@ export function PlayerCenterControls({
   onTogglePlay: () => void;
   onSeekBy: (seconds: number) => void;
 }) {
+  const t = useTranslations();
   return (
     <div
       // z-20：要压在诊断面板（z-10）**之上**。手机横屏只有 320~390pt 高，
@@ -1160,13 +1164,13 @@ export function PlayerCenterControls({
         visible ? "opacity-100" : "opacity-0"
       }`}
     >
-      <CenterButton label="后退 10 秒" visible={visible} onClick={() => onSeekBy(-10)}>
+      <CenterButton label={t("player.controls.seekBack")} visible={visible} onClick={() => onSeekBy(-10)}>
         <SkipGlyph forward={false} />
       </CenterButton>
-      <CenterButton label={paused ? "播放" : "暂停"} visible={visible} onClick={onTogglePlay} primary>
+      <CenterButton label={paused ? t("player.controls.play") : t("player.controls.pause")} visible={visible} onClick={onTogglePlay} primary>
         <PlayGlyph paused={paused} />
       </CenterButton>
-      <CenterButton label="前进 10 秒" visible={visible} onClick={() => onSeekBy(10)}>
+      <CenterButton label={t("player.controls.seekForward")} visible={visible} onClick={() => onSeekBy(10)}>
         <SkipGlyph forward />
       </CenterButton>
     </div>
@@ -1263,8 +1267,9 @@ function SubtitleMenu({
   systemRendered: boolean;
   onClose: () => void;
 }) {
+  const t = useTranslations();
   return (
-    <MenuPanel title="字幕" onClose={onClose}>
+    <MenuPanel title={t("player.controls.subtitles")} onClose={onClose}>
       <div className="scroll-thin max-h-[240px] overflow-y-auto">
         {/* 选完即关（音轨/画质菜单同款）：换轨是一次决定，不是连续调节；
             要调时间轴/样式的用户重新打开菜单，此时样式区因已选中而展开 */}
@@ -1275,7 +1280,7 @@ function SubtitleMenu({
             onClose();
           }}
         >
-          关闭
+          {t("player.subtitles.off")}
         </MenuItem>
         {tracks.options.map((option) => (
           <MenuItem
@@ -1299,7 +1304,7 @@ function SubtitleMenu({
           </div>
         ))}
         {tracks.options.length === 0 && tracks.unavailable.length === 0 ? (
-          <div className="px-4 py-2 text-white/45">这个文件没有可用字幕</div>
+          <div className="px-4 py-2 text-white/45">{t("player.subtitles.empty")}</div>
         ) : null}
       </div>
 
@@ -1307,7 +1312,7 @@ function SubtitleMenu({
         // 用户点之前就该知道代价：选图形字幕会换成转码播放（约一秒切换），
         // 换来的是画中画/投屏里也带字幕——与 Emby 的「字幕压制」同语义
         <p className="mt-2 border-t border-white/10 px-4 pt-2.5 text-[12px] leading-relaxed text-white/55">
-          图形字幕会转码压制进画面（切换约一秒），画中画等场景也能看到
+          {t("player.subtitles.bitmapHint")}
         </p>
       ) : null}
 
@@ -1315,14 +1320,14 @@ function SubtitleMenu({
         // 调了没反应比没有选项更糟——iOS 上系统渲染字幕，样式跟随系统的
         // 辅助功能设置，时间轴微调也不经过我们，如实告知去哪调
         <p className="mt-2 border-t border-white/10 px-4 pt-2.5 text-[12px] leading-relaxed text-white/55">
-          字幕由 iOS 系统渲染，样式在系统设置 → 辅助功能 → 字幕与隐藏式字幕中调整
+          {t("player.subtitles.systemHint")}
         </p>
       ) : null}
       {selected && !systemRendered ? (
         <div className="mt-2 space-y-2 border-t border-white/10 pt-3">
           <StepRow
-            label="时间轴"
-            value={`${style.offsetSeconds > 0 ? "+" : ""}${style.offsetSeconds.toFixed(1)} 秒`}
+            label={t("player.subtitles.offset")}
+            value={t("player.subtitles.offsetValue", { value: `${style.offsetSeconds > 0 ? "+" : ""}${style.offsetSeconds.toFixed(1)}` })}
             onMinus={() =>
               onStyleChange({
                 ...style,
@@ -1337,7 +1342,7 @@ function SubtitleMenu({
             }
           />
           <StepRow
-            label="字号"
+            label={t("player.subtitles.fontSize")}
             value={`${style.fontScale.toFixed(1)}`}
             onMinus={() =>
               onStyleChange({ ...style, fontScale: Math.max(2, style.fontScale - 0.4) })
@@ -1347,7 +1352,7 @@ function SubtitleMenu({
             }
           />
           <StepRow
-            label="位置"
+            label={t("player.subtitles.position")}
             value={`${style.bottomPercent}%`}
             onMinus={() =>
               onStyleChange({ ...style, bottomPercent: Math.max(0, style.bottomPercent - 2) })
@@ -1361,7 +1366,7 @@ function SubtitleMenu({
               on={style.background}
               onClick={() => onStyleChange({ ...style, background: !style.background })}
             >
-              背景
+              {t("player.subtitles.background")}
             </Toggle>
           </div>
         </div>
@@ -1469,6 +1474,7 @@ function MenuItem({
  * 分不出来。用户有权在**选中之前**就知道这条是机器产的。
  */
 function AiChip() {
+  const t = useTranslations();
   return (
     <span className="ai-chip">
       {/* 四角星：业界通用的「AI」手势（站内 WandIcon 在 10px 下糊成一团） */}
@@ -1476,7 +1482,7 @@ function AiChip() {
         <path d="M12 1.5c.9 4.6 2.9 6.7 8 7.6-5.1.9-7.1 3-8 7.6-.9-4.6-2.9-6.7-8-7.6 5.1-.9 7.1-3 8-7.6Z" />
         <path d="M18.6 15c.45 2.3 1.45 3.35 4 3.8-2.55.45-3.55 1.5-4 3.8-.45-2.3-1.45-3.35-4-3.8 2.55-.45 3.55-1.5 4-3.8Z" />
       </svg>
-      AI 生成
+      {t("player.subtitles.ai")}
     </span>
   );
 }

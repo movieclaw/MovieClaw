@@ -21,6 +21,10 @@
  * 没有芯片带标，列表顶上写明为什么不开。原盘、没探测过轨道的文件服务端不给，退回按旗标展示。
  */
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
+import { languageLabel } from "@/lib/language-labels";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -97,33 +101,6 @@ const SUBTITLE_CODEC_LABELS: Record<string, string> = {
   sup: "PGS",
 };
 
-const LANGUAGE_LABELS: Record<string, string> = {
-  chs: "简体中文",
-  cht: "繁体中文",
-  chi: "中文",
-  zho: "中文",
-  cmn: "中文",
-  yue: "粤语",
-  eng: "英语",
-  jpn: "日语",
-  kor: "韩语",
-  fre: "法语",
-  fra: "法语",
-  ger: "德语",
-  deu: "德语",
-  spa: "西班牙语",
-  rus: "俄语",
-  ita: "意大利语",
-  por: "葡萄牙语",
-  tha: "泰语",
-  hin: "印地语",
-};
-
-function languageLabel(code: string | null): string | null {
-  if (!code || code === "und") return null;
-  return LANGUAGE_LABELS[code.toLowerCase()] ?? code;
-}
-
 /**
  * 语言组的排序权重，越小越靠前。
  *
@@ -144,7 +121,6 @@ const LANGUAGE_RANK: Record<string, number> = {
 const OTHER_LANGUAGE_RANK = 40;
 const BILINGUAL_RANK = 80;
 const UNKNOWN_LANGUAGE_RANK = 90;
-const UNKNOWN_LANGUAGE = "未标语言";
 
 function languageRank(code: string | null): number {
   if (!code || code === "und") return UNKNOWN_LANGUAGE_RANK;
@@ -152,12 +128,13 @@ function languageRank(code: string | null): number {
 }
 
 /** 声道数 → 惯用布局标签（channel_layout 可用时优先，去掉 (side) 等后缀）。 */
-function channelsLabel(stream: AudioStream): string | null {
+function channelsLabel(stream: AudioStream, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
+  const t = appTranslator(locale);
   const layout = stream.channel_layout?.split("(")[0]?.trim();
   if (layout && /^\d/.test(layout)) return layout;
-  const map: Record<number, string> = { 1: "单声道", 2: "2.0", 6: "5.1", 7: "6.1", 8: "7.1" };
+  const map: Record<number, string> = { 1: t("media.tracks.mono"), 2: "2.0", 6: "5.1", 7: "6.1", 8: "7.1" };
   if (stream.channels == null) return null;
-  return map[stream.channels] ?? `${stream.channels} 声道`;
+  return map[stream.channels] ?? t("media.tracks.channels", { count: stream.channels });
 }
 
 // 这些 profile 值只是编码内部档次（如 AAC 的 LC、HEVC 的 Main 10），单独展示
@@ -170,11 +147,12 @@ function informativeProfile(stream: AudioStream): string | null {
 }
 
 /** 音轨 → 列表行主文案：格式（有信息量的 profile 优先）· 声道。 */
-function audioSpecLabel(stream: AudioStream): string {
+function audioSpecLabel(stream: AudioStream, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   const codec =
     informativeProfile(stream) ||
-    (stream.codec ? (AUDIO_CODEC_LABELS[stream.codec.toLowerCase()] ?? stream.codec.toUpperCase()) : "未知格式");
-  return [codec, channelsLabel(stream)].filter(Boolean).join(" · ");
+    (stream.codec ? (AUDIO_CODEC_LABELS[stream.codec.toLowerCase()] ?? stream.codec.toUpperCase()) : t("media.tracks.unknownFormat"));
+  return [codec, channelsLabel(stream, locale)].filter(Boolean).join(" · ");
 }
 
 /**
@@ -195,7 +173,7 @@ const AUDIO_CODEC_TIER: Record<string, number> = {
   mp3: 0,
 };
 
-function topAudioSpec(streams: AudioStream[]): string | null {
+function topAudioSpec(streams: AudioStream[], locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
   // 只有一条音轨时芯片本身已经写了格式，再挂一枚徽章纯属重复
   if (streams.length < 2) return null;
   let best: AudioStream | null = null;
@@ -212,31 +190,32 @@ function topAudioSpec(streams: AudioStream[]): string | null {
   const codec =
     informativeProfile(best) ||
     (best.codec ? (AUDIO_CODEC_LABELS[best.codec.toLowerCase()] ?? best.codec.toUpperCase()) : null);
-  return [codec, channelsLabel(best)].filter(Boolean).join(" ") || null;
+  return [codec, channelsLabel(best, locale)].filter(Boolean).join(" ") || null;
 }
 
 /** AI 生成字幕的标题里编了目标语言，翻译回中文读法（双语保留两个语言）。 */
-function generatedSubtitleLabel(stream: SubtitleStream): string | null {
+function generatedSubtitleLabel(stream: SubtitleStream, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
   const title = stream.title?.toLowerCase();
   if (!title) return null;
   if (title.startsWith("ai-bilingual-")) {
     const languages = title.slice("ai-bilingual-".length).split("-");
     if (languages.length === 2) {
-      return `${languageLabel(languages[0]) ?? languages[0]} + ${languageLabel(languages[1]) ?? languages[1]}`;
+      return `${languageLabel(languages[0], locale) ?? languages[0]} + ${languageLabel(languages[1], locale) ?? languages[1]}`;
     }
   }
-  if (title === "ai-chs") return "简体中文";
-  if (title === "ai-cht") return "繁体中文";
+  if (title === "ai-chs") return languageLabel("chs", locale)!;
+  if (title === "ai-cht") return languageLabel("cht", locale)!;
   return null;
 }
 
 /** 字幕 → 分组用的语言名（AI 产物的语言写在标题里，优先认它）。 */
-function subtitleLanguageName(stream: SubtitleStream): string {
-  return generatedSubtitleLabel(stream) ?? languageLabel(stream.language) ?? UNKNOWN_LANGUAGE;
+function subtitleLanguageName(stream: SubtitleStream, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return generatedSubtitleLabel(stream, locale) ?? languageLabel(stream.language, locale) ?? appTranslator(locale)("media.tracks.unknownLanguage");
 }
 
-function subtitleFormatToken(stream: SubtitleStream): string {
-  if (!stream.codec) return "字幕";
+function subtitleFormatToken(stream: SubtitleStream, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  if (!stream.codec) return t("media.tracks.subtitle");
   return SUBTITLE_CODEC_LABELS[stream.codec.toLowerCase()] ?? stream.codec.toUpperCase();
 }
 
@@ -316,11 +295,12 @@ function audioTone(stream: AudioStream): TrackTone {
   }
 }
 
-function externalSubtitleSuffix(stream: SubtitleStream): string {
+function externalSubtitleSuffix(stream: SubtitleStream, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   const tokens = stream.file_name?.toLowerCase().split(".") ?? [];
-  if (tokens.some((token) => token === "ai" || token.startsWith("ai-"))) return "AI 外挂";
-  if (tokens.includes("pgs-ocr")) return "PGS 转换";
-  return "外挂";
+  if (tokens.some((token) => token === "ai" || token.startsWith("ai-"))) return t("media.tracks.aiExternal");
+  if (tokens.includes("pgs-ocr")) return t("media.tracks.pgsConverted");
+  return t("media.tracks.external");
 }
 
 /**
@@ -331,8 +311,9 @@ function externalSubtitleSuffix(stream: SubtitleStream): string {
  * （chs / ai-chs / 简体.default）全在被截掉的尾部。手机抽屉里尤其致命：
  * 删除要的就是"我删的是哪一条"。完整路径仍会在删除确认框里给全。
  */
-function externalSubtitleLabel(fileName: string | null, videoStem: string): string {
-  if (!fileName) return "外挂字幕";
+function externalSubtitleLabel(fileName: string | null, videoStem: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  if (!fileName) return t("media.tracks.externalSubtitle");
   if (videoStem && fileName.toLowerCase().startsWith(videoStem.toLowerCase())) {
     const rest = fileName.slice(videoStem.length).replace(/^\./, "");
     if (rest) return rest;
@@ -385,22 +366,23 @@ interface TrackEntry {
  * 「默认」标给哪条：有服务端的 `playback_defaults` 就标起播时真会放的那条，没有（原盘、
  * 没探测过、分享页）退回片源的默认旗标。
  */
-function audioEntries(streams: AudioStream[], defaults?: TrackDefaults | null): TrackEntry[] {
+function audioEntries(streams: AudioStream[], defaults?: TrackDefaults | null, locale: AppLocale = requestLocale() ?? "zh-Hans"): TrackEntry[] {
+  const t = appTranslator(locale);
   return streams.map((stream, index) => {
     const isDefault = defaults ? defaults.audio_track === `embedded:${index}` : stream.default;
-    const spec = audioSpecLabel(stream);
+    const spec = audioSpecLabel(stream, locale);
     const title = stream.title?.trim();
     return {
       key: `audio:${index}`,
-      language: languageLabel(stream.language) ?? UNKNOWN_LANGUAGE,
+      language: languageLabel(stream.language, locale) ?? appTranslator(locale)("media.tracks.unknownLanguage"),
       rank: languageRank(stream.language),
       format: stream.codec
         ? (AUDIO_FORMAT_TOKENS[stream.codec.toLowerCase()] ?? stream.codec.toUpperCase())
-        : "音轨",
+        : t("media.tracks.audio"),
       tone: audioTone(stream),
       primary: title ? `${spec} · ${title}` : spec,
-      secondary: `轨 ${index + 1}`,
-      flags: isDefault ? ["默认"] : [],
+      secondary: t("media.tracks.number", { index: index + 1 }),
+      flags: isDefault ? [t("media.tracks.default")] : [],
       external: null,
       order: isDefault ? 0 : 1,
       deletable: null,
@@ -412,14 +394,15 @@ function audioEntries(streams: AudioStream[], defaults?: TrackDefaults | null): 
 function subtitleEntries(
   streams: SubtitleStream[],
   videoStem: string,
-  defaults?: TrackDefaults | null,
+  defaults?: TrackDefaults | null, locale: AppLocale = requestLocale() ?? "zh-Hans"
 ): TrackEntry[] {
+  const t = appTranslator(locale);
   // 内封轨在界面上按"内封里的第几条"编号，而不是在混合数组里的下标——
   // subtitle_streams 里内封与外挂是混在一起的，直接用下标会给出错误的轨号
   let embeddedOrdinal = 0;
   return streams.map((stream, index) => {
-    const language = subtitleLanguageName(stream);
-    const format = subtitleFormatToken(stream);
+    const language = subtitleLanguageName(stream, locale);
+    const format = subtitleFormatToken(stream, locale);
     const external = stream.external;
     if (!external) embeddedOrdinal += 1;
     const track = subtitleTrackRef(stream, index);
@@ -428,18 +411,18 @@ function subtitleEntries(
       : stream.default;
     const title = stream.title?.trim();
     const primary = external
-      ? externalSubtitleLabel(stream.file_name, videoStem)
-      : title || `内封轨 ${embeddedOrdinal}`;
+      ? externalSubtitleLabel(stream.file_name, videoStem, locale)
+      : title || t("media.tracks.embeddedNumber", { index: embeddedOrdinal });
     const label = [primary, language, format].filter(Boolean).join(" · ");
     return {
       key: `subtitle:${track ?? `unknown:${index}`}`,
       language,
-      rank: subtitleRank(stream, language),
+      rank: subtitleRank(stream, language, locale),
       format,
       tone: subtitleTone(stream),
       primary,
-      secondary: external ? externalSubtitleSuffix(stream) : title ? `内封轨 ${embeddedOrdinal}` : "内封",
-      flags: [isDefault ? "默认" : null, stream.forced ? "强制" : null].filter(
+      secondary: external ? externalSubtitleSuffix(stream, locale) : title ? t("media.tracks.embeddedNumber", { index: embeddedOrdinal }) : t("media.tracks.embedded"),
+      flags: [isDefault ? t("media.tracks.default") : null, stream.forced ? t("media.tracks.forced") : null].filter(
         (flag): flag is string => flag !== null,
       ),
       external,
@@ -453,24 +436,25 @@ function subtitleEntries(
 }
 
 /** 列表顶上的说明：会放哪条（标「默认」的那条）、为什么；字幕默认不开时说为什么不开。 */
-function defaultNote(defaults: TrackDefaults, kind: "audio" | "subtitle"): string | null {
+function defaultNote(defaults: TrackDefaults, kind: "audio" | "subtitle", locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
+  const t = appTranslator(locale);
   if (kind === "audio") {
     if (!defaults.audio_track || !defaults.audio_note) return null;
-    return `标「默认」的这条会自动播放：${defaults.audio_note}`;
+    return t("media.tracks.audioDefaultNote", { reason: defaults.audio_note });
   }
   if (!defaults.subtitle_note) return null;
   return defaults.subtitle_track
-    ? `标「默认」的这条会自动打开：${defaults.subtitle_note}`
+    ? t("media.tracks.subtitleDefaultNote", { reason: defaults.subtitle_note })
     : defaults.subtitle_note;
 }
 
-function subtitleRank(stream: SubtitleStream, language: string): number {
+function subtitleRank(stream: SubtitleStream, language: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): number {
   if (language.includes(" + ")) return BILINGUAL_RANK;
-  if (language === UNKNOWN_LANGUAGE) return UNKNOWN_LANGUAGE_RANK;
+  if (language === appTranslator(locale)("media.tracks.unknownLanguage")) return UNKNOWN_LANGUAGE_RANK;
   const byCode = languageRank(stream.language);
   if (byCode !== UNKNOWN_LANGUAGE_RANK) return byCode;
   // AI 产物的 language 字段常常是空的，语言只写在标题里，按中文名反查权重
-  const code = Object.keys(LANGUAGE_LABELS).find((key) => LANGUAGE_LABELS[key] === language);
+  const code = Object.keys(LANGUAGE_RANK).find((key) => languageLabel(key, locale) === language);
   return code ? languageRank(code) : OTHER_LANGUAGE_RANK;
 }
 
@@ -488,7 +472,7 @@ interface LanguageGroup {
  * 双语与未标语言垫底。组内：默认 → 内封 → 外挂 → AI 生成。
  * ffprobe 的原始顺序本身就是"看起来乱"的一部分，这里统一重排。
  */
-function groupByLanguage(entries: TrackEntry[]): LanguageGroup[] {
+function groupByLanguage(entries: TrackEntry[], locale: AppLocale = requestLocale() ?? "zh-Hans"): LanguageGroup[] {
   const buckets = new Map<string, TrackEntry[]>();
   for (const entry of entries) {
     const bucket = buckets.get(entry.language);
@@ -506,7 +490,7 @@ function groupByLanguage(entries: TrackEntry[]): LanguageGroup[] {
       Number(b.hasDefault) - Number(a.hasDefault) ||
       a.rank - b.rank ||
       b.entries.length - a.entries.length ||
-      a.language.localeCompare(b.language, "zh-Hans-CN"),
+      a.language.localeCompare(b.language, locale === "zh-Hans" ? "zh-Hans-CN" : "en"),
   );
   return groups;
 }
@@ -526,6 +510,8 @@ export function MediaTrackRows({
   onSelectedFileIdChange: (fileId: number) => void;
   onChanged?: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   // 只认在位文件：缺失与待回收的版本都不该出现在音轨/字幕选择器里
   const availableFiles = files.filter((file) => file.state === "in_place");
   const [previewTarget, setPreviewTarget] = useState<{
@@ -545,15 +531,15 @@ export function MediaTrackRows({
 
   const defaults = selectedFile?.playback_defaults ?? null;
   const audioGroups = useMemo(
-    () => groupByLanguage(audioEntries(selectedFile?.audio_streams ?? [], defaults)),
-    [selectedFile?.audio_streams, defaults],
+    () => groupByLanguage(audioEntries(selectedFile?.audio_streams ?? [], defaults, locale), locale),
+    [selectedFile?.audio_streams, defaults, locale],
   );
   // 外挂字幕的行内标签要减掉这段前缀（见 externalSubtitleLabel）
   const videoStem = (selectedFile?.file_name ?? "").replace(/\.[^.]+$/, "");
   const subtitleGroups = useMemo(
     () =>
-      groupByLanguage(subtitleEntries(selectedFile?.subtitle_streams ?? [], videoStem, defaults)),
-    [selectedFile?.subtitle_streams, videoStem, defaults],
+      groupByLanguage(subtitleEntries(selectedFile?.subtitle_streams ?? [], videoStem, defaults, locale), locale),
+    [selectedFile?.subtitle_streams, videoStem, defaults, locale],
   );
 
   /**
@@ -566,19 +552,19 @@ export function MediaTrackRows({
     const filename = entry.deletable;
     if (!filename || !selectedFile) return;
     const agreed = await confirm({
-      title: "删除这个字幕文件？",
-      description: "将从磁盘直接删除下面的文件，删除后无法恢复：",
+      title: t("media.tracks.deleteTitle"),
+      description: t("media.tracks.deleteWarning"),
       bullets: [siblingPath(selectedFile.file_path, filename)],
-      confirmLabel: "删除字幕",
+      confirmLabel: t("media.tracks.deleteAction"),
       tone: "danger",
     });
     if (!agreed) return;
     try {
       await deleteExternalSubtitle(selectedFile.id, filename);
-      toast.success(`已删除字幕：${filename}`);
+      toast.success(t("media.tracks.deleted", { file: filename }));
       onChanged?.();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "字幕删除失败，请稍后重试");
+      toast.error(error instanceof Error ? error.message : t("media.tracks.deleteFailed"));
     }
   };
 
@@ -588,14 +574,14 @@ export function MediaTrackRows({
     const resolution = file.resolution ? formatVideoResolution(file.resolution) : null;
     return resolution ? `${resolution} — ${file.file_name}` : file.file_name;
   };
-  const audioSpec = topAudioSpec(selectedFile.audio_streams ?? []);
+  const audioSpec = topAudioSpec(selectedFile.audio_streams ?? [], locale);
 
   return (
     <>
       <div className="mt-4 max-w-4xl space-y-2.5">
         {multipleVersions && (
           <select
-            aria-label="选择视频文件"
+            aria-label={t("media.tracks.selectFile")}
             value={selectedFile.id}
             onChange={(event) => onSelectedFileIdChange(Number(event.target.value))}
             className="w-full rounded-xl border border-white/[0.08] bg-white/[0.055] px-3.5 py-2 text-sub text-white/90 outline-none transition focus:border-white/25 focus:bg-white/[0.08] [&>option]:bg-[#181c28]"
@@ -610,11 +596,11 @@ export function MediaTrackRows({
 
         <TrackRow
           key={`${selectedFile.id}:audio`}
-          label="音轨"
-          kind="音轨"
+          label={t("media.tracks.audio")}
+          kind={t("media.tracks.audio")}
           groups={audioGroups}
           marksDefault={defaults !== null}
-          defaultNote={defaults ? defaultNote(defaults, "audio") : null}
+          defaultNote={defaults ? defaultNote(defaults, "audio", locale) : null}
           trailing={
             audioSpec ? (
               <span className="tnum shrink-0 rounded-[7px] md:ml-auto border border-white/[0.14] bg-white/[0.04] px-2.5 py-1 text-caption font-semibold text-white/80">
@@ -623,21 +609,21 @@ export function MediaTrackRows({
             ) : null
           }
           empty={
-            selectedFile.audio_streams === null ? "尚未探测" : "文件内没有音轨"
+            selectedFile.audio_streams === null ? t("media.tracks.notProbed") : t("media.tracks.noAudio")
           }
         />
 
         <TrackRow
           key={`${selectedFile.id}:subtitle`}
-          label="字幕"
-          kind="字幕"
+          label={t("media.tracks.subtitle")}
+          kind={t("media.tracks.subtitle")}
           groups={subtitleGroups}
           marksDefault={defaults !== null}
-          defaultNote={defaults ? defaultNote(defaults, "subtitle") : null}
+          defaultNote={defaults ? defaultNote(defaults, "subtitle", locale) : null}
           footer={
             canManageLibraries
-              ? "点任意一条打开字幕预览；外挂字幕可就地删除"
-              : "点任意一条打开字幕预览"
+              ? t("media.tracks.previewDeleteHint")
+              : t("media.tracks.previewHint")
           }
           onSelect={(entry) => {
             if (!entry.preview) return;
@@ -648,11 +634,11 @@ export function MediaTrackRows({
           // 它是对「这一行的字幕」动手，挨着它作用的对象才读得通；行尾那个位置
           // 在音轨行放的是只读规格，动作跑过去反而像另一件事。
           trailing={
-            <div className="flex shrink-0 items-center">
+            <div className={`flex items-center ${locale === "zh-Hans" ? "shrink-0" : "min-w-0 max-w-full"}`}>
               <SubtitleGenPanel key={selectedFile.id} file={selectedFile} onChanged={onChanged} />
             </div>
           }
-          empty="无内封或外挂字幕"
+          empty={t("media.tracks.noSubtitles")}
         />
       </div>
 
@@ -685,17 +671,19 @@ export function ReadOnlyTrackRows({
   audioStreams: AudioStream[] | null;
   subtitleStreams: SubtitleStream[];
 }) {
-  const audioGroups = useMemo(() => groupByLanguage(audioEntries(audioStreams ?? [])), [audioStreams]);
+  const t = useTranslations();
+  const locale = useLocale();
+  const audioGroups = useMemo(() => groupByLanguage(audioEntries(audioStreams ?? [], undefined, locale), locale), [audioStreams, locale]);
   const subtitleGroups = useMemo(
-    () => groupByLanguage(subtitleEntries(subtitleStreams, "")),
-    [subtitleStreams],
+    () => groupByLanguage(subtitleEntries(subtitleStreams, "", undefined, locale), locale),
+    [subtitleStreams, locale],
   );
-  const audioSpec = topAudioSpec(audioStreams ?? []);
+  const audioSpec = topAudioSpec(audioStreams ?? [], locale);
   return (
     <div className="mt-4 max-w-4xl space-y-2.5">
       <TrackRow
-        label="音轨"
-        kind="音轨"
+        label={t("media.tracks.audio")}
+        kind={t("media.tracks.audio")}
         groups={audioGroups}
         trailing={
           audioSpec ? (
@@ -704,9 +692,9 @@ export function ReadOnlyTrackRows({
             </span>
           ) : null
         }
-        empty={audioStreams === null ? "尚未探测" : "文件内没有音轨"}
+        empty={audioStreams === null ? t("media.tracks.notProbed") : t("media.tracks.noAudio")}
       />
-      <TrackRow label="字幕" kind="字幕" groups={subtitleGroups} empty="无内封或外挂字幕" />
+      <TrackRow label={t("media.tracks.subtitle")} kind={t("media.tracks.subtitle")} groups={subtitleGroups} empty={t("media.tracks.noSubtitles")} />
     </div>
   );
 }
@@ -754,6 +742,8 @@ function TrackRow({
   onSelect?: (entry: TrackEntry) => void;
   onDelete?: (entry: TrackEntry) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   // 打开时高亮被点的那个语言组，让"点了哪个芯片"和"在看哪一组"对得上
@@ -776,6 +766,8 @@ function TrackRow({
   };
 
   const { refs, floatingStyles, context } = useFloating({
+    // menu-surface animates transform; positioning must use left/top instead.
+    transform: false,
     open: open && !isMobile,
     onOpenChange: changeOpen,
     placement: "bottom-start",
@@ -847,7 +839,7 @@ function TrackRow({
 
   return (
     <div className="flex items-baseline gap-4">
-      <span className="w-10 shrink-0 text-sub text-[var(--text-faint)]">{label}</span>
+      <span className={`shrink-0 text-sub text-[var(--text-faint)] ${locale === "zh-Hans" ? "w-10" : "w-[72px]"}`}>{label}</span>
       <div ref={refs.setReference} className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
         {groups.length === 0 ? (
           <span className="text-sub text-[var(--text-muted)]">{empty}</span>
@@ -865,7 +857,7 @@ function TrackRow({
                 {marksDefault && group.hasDefault && (
                   <>
                     <PlayIcon aria-hidden="true" className="size-2 text-[var(--accent-2)]" />
-                    <span className="sr-only">默认播放：</span>
+                    <span className="sr-only">{t("media.tracks.defaultPrefix")}</span>
                   </>
                 )}
                 <span>{group.language}</span>
@@ -886,7 +878,7 @@ function TrackRow({
                 aria-expanded={open && focusLanguage === hidden[0]!.language}
                 onClick={(event) => toggleAt(hidden[0]!.language, event.currentTarget)}
               >
-                +{hidden.length} 种
+                {t("media.tracks.moreLanguages", { count: hidden.length })}
               </button>
             )}
           </>
@@ -900,7 +892,7 @@ function TrackRow({
             <div
               ref={refs.setFloating}
               style={floatingStyles}
-              aria-label={`${kind}列表`}
+              aria-label={t("media.tracks.listTitle", { kind })}
               className="menu-surface z-50 flex w-[27rem] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden"
               {...getFloatingProps()}
             >
@@ -914,7 +906,7 @@ function TrackRow({
         <Modal
           open={open}
           onClose={() => changeOpen(false)}
-          label={`${kind}列表`}
+          label={t("media.tracks.listTitle", { kind })}
           width="lg"
           panelClassName="flex max-h-[78dvh] flex-col"
         >
@@ -949,6 +941,7 @@ function TrackList({
   onSelect?: (entry: TrackEntry) => void;
   onDelete?: (entry: TrackEntry) => void;
 }) {
+  const t = useTranslations();
   const entries = groups.flatMap((group) => group.entries);
   // 音轨的 external 恒为 null：它没有内封/外挂之分，表头就不占这一格
   const hasSource = entries.some((entry) => entry.external !== null);
@@ -974,11 +967,11 @@ function TrackList({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-baseline justify-between gap-4 border-b border-white/[0.08] px-4 py-2.5">
         <strong className="text-ui font-semibold text-[var(--text)]">
-          {kind} · 共 {total} 条
+          {t("media.tracks.countTitle", { kind, count: total })}
         </strong>
         {hasSource && (
           <span className="tnum text-caption text-[var(--text-faint)]">
-            内封 {total - external} · 外挂 {external}
+            {t("media.tracks.sources", { embedded: total - external, external })}
           </span>
         )}
       </div>
@@ -1046,6 +1039,7 @@ function TrackLine({
   onSelect?: () => void;
   onDelete?: () => void;
 }) {
+  const t = useTranslations();
   const subtitle = entry.key.startsWith("subtitle:");
   const metadata = (
     <span className="flex flex-wrap items-center gap-1.5">
@@ -1110,7 +1104,7 @@ function TrackLine({
         <button
           type="button"
           onClick={onSelect}
-          aria-label={`预览字幕：${entry.language} · ${entry.format} · ${entry.primary} · ${entry.secondary}`}
+          aria-label={t("media.tracks.preview", { language: entry.language, format: entry.format, primary: entry.primary, secondary: entry.secondary })}
           className={`group/line ${className} focus-visible:outline-none`}
         >
           {content}
@@ -1127,8 +1121,8 @@ function TrackLine({
         <button
           type="button"
           onClick={onDelete}
-          title="删除这个字幕文件"
-          aria-label={`删除字幕文件：${entry.primary}`}
+          title={t("media.tracks.deleteTooltip")}
+          aria-label={t("media.tracks.deleteFile", { file: entry.primary })}
           className="touch-reveal touch-target !absolute right-2.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-[7px] text-white/35 opacity-0 transition hover:bg-[var(--danger)]/15 hover:text-[#ff9f9f] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--danger)]/50 group-hover/row:opacity-100 max-md:size-7"
         >
           <TrashIcon className="size-3.5 max-md:size-4" />

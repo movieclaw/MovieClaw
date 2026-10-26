@@ -10,7 +10,7 @@ struct OfflineStorageView: View {
             .listSectionSpacing(8)
             .contentMargins(.bottom, 24, for: .scrollContent)
             .appBackground()
-            .navigationTitle("下载")
+            .navigationTitle(String(localized: .searchDownloadIdle))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { OfflineStorageSettingsMenu() }
             }
@@ -56,21 +56,21 @@ struct OfflineStorageSections: View {
                     }
                 } header: {
                     // 标识只挂在标题上：挂在 Section 上会盖掉每一行自己的标识
-                    Text("下载中").font(.headline).foregroundStyle(Theme.text)
+                    Text(String(localized: .downloadStatusDownloading)).font(.headline).foregroundStyle(Theme.text)
                         .accessibilityIdentifier("offline-storage-downloading")
                 }
             }
             if !watched.isEmpty {
-                Section("建议") {
+                Section(String(localized: .offlineSuggestions)) {
                     HStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(Theme.success)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("删除已看完的").font(.body.weight(.medium))
-                            Text("\(watched.count) 个已看完，占用 \(Formatters.bytes(Int(watched.reduce(0) { $0 + $1.receivedBytes })))")
+                            Text(String(localized: .offlineDeleteWatchedAction)).font(.body.weight(.medium))
+                            Text(String(localized: .offlineWatchedUsage(watched.count, Formatters.bytes(Int(watched.reduce(0) { $0 + $1.receivedBytes })))))
                                 .font(.footnote).foregroundStyle(Theme.textMuted)
                         }
                         Spacer(minLength: 8)
-                        Button("删除") { confirm = .watched }
+                        Button(String(localized: .commonDelete)) { confirm = .watched }
                             .buttonStyle(.bordered).tint(.red).controlSize(.small)
                             .accessibilityIdentifier("offline-delete-watched")
                             .modifier(confirmation(.watched))
@@ -80,7 +80,7 @@ struct OfflineStorageSections: View {
             }
             Section {
                 if items.isEmpty {
-                    Text(active.isEmpty ? "还没有下载。在影片详情页点「下载」，没网的时候也能看。" : "下完的会出现在这里。")
+                    Text(active.isEmpty ? String(localized: .offlineStorageEmpty) : String(localized: .offlineFinishedAppearHere))
                         .font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
                 ForEach(items) { item in
@@ -89,15 +89,15 @@ struct OfflineStorageSections: View {
                     }
                     .swipeActions { deleteAction { confirm = .items([item.mediaItemId]) } }
                     .contextMenu {
-                        Button("删除下载", systemImage: "trash", role: .destructive) { confirm = .items([item.mediaItemId]) }
+                        Button(String(localized: .offlineDeleteDownload), systemImage: "trash", role: .destructive) { confirm = .items([item.mediaItemId]) }
                     }
                     .modifier(confirmation(.items([item.mediaItemId])))
                 }
             } header: {
                 HStack(spacing: 8) {
-                    Text("已下载").font(.headline).foregroundStyle(Theme.text)
+                    Text(String(localized: .subscriptionWantedDownloaded)).font(.headline).foregroundStyle(Theme.text)
                     if !items.isEmpty {
-                        Text("\(items.count) 部").font(.subheadline).foregroundStyle(Theme.textMuted)
+                        Text(String(localized: .libraryStatusTitleCount(items.count))).font(.subheadline).foregroundStyle(Theme.textMuted)
                     }
                     if embedded {
                         Spacer()
@@ -113,7 +113,7 @@ struct OfflineStorageSections: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(entry.owner.username)
-                                Text("\(entry.owner.origin.host() ?? entry.owner.origin.absoluteString) · \(entry.items) 部")
+                                Text(String(localized: .libraryDetailInitialCount(entry.owner.origin.host() ?? entry.owner.origin.absoluteString, entry.items)))
                                     .font(.caption).foregroundStyle(Theme.textMuted)
                             }
                             Spacer()
@@ -123,9 +123,9 @@ struct OfflineStorageSections: View {
                         .modifier(confirmation(.owner(entry.owner)))
                     }
                 } header: {
-                    Text("其他账号")
+                    Text(String(localized: .offlineOtherAccounts))
                 } footer: {
-                    Text("这台 \(ClientPlatform.deviceName) 上其他账号的下载，重新登录那个账号就能看。")
+                    Text(String(localized: .offlineOtherAccountsHint(ClientPlatform.deviceName)))
                 }
             }
             // 容量放最后：这一页先管下载，剩余空间是参考（空间不够时选档面板会直接提示）
@@ -146,7 +146,7 @@ struct OfflineStorageSections: View {
     private func confirmation(_ target: Confirm) -> ConfirmDelete {
         ConfirmDelete(
             title: title(of: target),
-            action: "删除（释放 \(Formatters.bytes(Int(bytes(of: target))))）",
+            action: String(localized: .offlineDeleteFreeing(Formatters.bytes(Int(bytes(of: target))))),
             isPresented: Binding(mcGet: { confirm?.id == target.id }, set: { if !$0, confirm?.id == target.id { confirm = nil } }),
             perform: { perform(target) }
         )
@@ -154,7 +154,7 @@ struct OfflineStorageSections: View {
 
     /// 左滑删除：不用 role: .destructive（那会让系统先把行做删除动画移走，这里还要等确认框），显式染成系统红
     private func deleteAction(_ action: @escaping () -> Void) -> some View {
-        Button("删除", systemImage: "trash", action: action).tint(.red)
+        Button(String(localized: .commonDelete), systemImage: "trash", action: action).tint(.red)
     }
 
     private func row(_ item: OfflineItemSummary) -> some View {
@@ -185,11 +185,11 @@ struct OfflineStorageSections: View {
     private func detailLine(_ item: OfflineItemSummary, done: [OfflineUnit], active: [OfflineUnit]) -> String {
         var parts: [String] = []
         if item.kind == "tv" {
-            parts.append("已下载 \(done.count) 集")
+            parts.append(String(localized: .offlineDownloadedCount(done.count)))
         } else if let unit = done.first {
             parts.append(unit.profileLabel)
         }
-        if !active.isEmpty { parts.append("还有 \(active.count) 个在下载") }
+        if !active.isEmpty { parts.append(String(localized: .offlineStillDownloading(active.count))) }
         return parts.joined(separator: " · ")
     }
 
@@ -202,9 +202,10 @@ struct OfflineStorageSections: View {
 
     private func title(of target: Confirm) -> String {
         switch target {
-        case let .items(ids): ids.count == 1 ? "删除「\(store.items[ids[0]]?.title ?? "")」的下载？" : "删除 \(ids.count) 部的下载？"
-        case .watched: "删除 \(watchedUnits.count) 个已看完的下载？"
-        case let .owner(owner): "删除「\(owner.username)」在这台 \(ClientPlatform.deviceName) 上的全部下载？"
+        case let .items(ids): ids.count == 1 ? String(localized: .offlineDeleteTitleDownload(store.items[ids[0]]?.title ?? ""))
+            : String(localized: .offlineDeleteTitlesDownload(ids.count))
+        case .watched: String(localized: .offlineDeleteWatched(watchedUnits.count))
+        case let .owner(owner): String(localized: .offlineDeleteOwnerDownloads(owner.username, ClientPlatform.deviceName))
         }
     }
 
@@ -262,8 +263,8 @@ private struct OfflineStorageSettingsMenu: View {
 
     var body: some View {
         Menu {
-            Section("关闭时只在 Wi-Fi 下下载") {
-                Toggle("使用蜂窝网络下载", systemImage: "antenna.radiowaves.left.and.right", isOn: $allowCellular)
+            Section(String(localized: .offlineCellularFooter)) {
+                Toggle(String(localized: .offlineUseCellular), systemImage: "antenna.radiowaves.left.and.right", isOn: $allowCellular)
                     .toggleStyle(.automatic)
             }
         } label: {
@@ -271,7 +272,7 @@ private struct OfflineStorageSettingsMenu: View {
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
-        .accessibilityLabel("下载设置")
+        .accessibilityLabel(String(localized: .offlineSettings))
         .accessibilityIdentifier("offline-settings")
         .onChange(of: allowCellular) { _, value in
             OfflineSettings.allowCellular = value
@@ -303,7 +304,7 @@ private struct OfflineDownloadingStorageRow: View {
                     Text(item.title).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text([unit.isMovie ? nil : "第 \(unit.season) 季第 \(unit.episode) 集", unit.profileLabel]
+                    Text([unit.isMovie ? nil : String(localized: .offlineSeasonEpisode(unit.season, unit.episode)), unit.profileLabel]
                         .compactMap { $0 }.joined(separator: " · "))
                         .font(.footnote).foregroundStyle(Theme.textMuted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -329,11 +330,11 @@ private struct OfflineDownloadingStorageRow: View {
         if unit.waitingForTranscode {
             // 排队等服务器转码：到点自己会再去问，只给取消
         } else if unit.state == .paused || unit.state == .failed {
-            Button("继续下载", systemImage: "play") { OfflineDownloader.shared.resume(fileId: unit.fileId) }.tint(Theme.info)
+            Button(String(localized: .offlineResumeDownload), systemImage: "play") { OfflineDownloader.shared.resume(fileId: unit.fileId) }.tint(Theme.info)
         } else {
-            Button("暂停", systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }.tint(.gray)
+            Button(String(localized: .playerControlsPause), systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }.tint(.gray)
         }
-        Button("取消下载", systemImage: "xmark") { OfflineDownloader.shared.delete(fileId: unit.fileId) }.tint(.red)
+        Button(String(localized: .offlineCancelDownload), systemImage: "xmark") { OfflineDownloader.shared.delete(fileId: unit.fileId) }.tint(.red)
     }
 }
 
@@ -364,10 +365,10 @@ private struct StorageUsageBar: View {
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
                 : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
             layout {
-                Text("本机储存空间").font(.subheadline.weight(.medium)).foregroundStyle(Theme.text)
+                Text(String(localized: .offlineDeviceStorage)).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text)
                 if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
                 if let free {
-                    Text("可用 \(Formatters.bytes(Int(free)))")
+                    Text(String(localized: .offlineAvailable(Formatters.bytes(Int(free)))))
                         .font(.footnote).monospacedDigit().foregroundStyle(Theme.textMuted)
                 }
             }
@@ -387,12 +388,12 @@ private struct StorageUsageBar: View {
                 }
                 .frame(height: 6)
                 layout {
-                    legend(Theme.info, "下载 \(Formatters.bytes(Int(downloads)))")
+                    legend(Theme.info, String(localized: .offlineDownloadsLegend(Formatters.bytes(Int(downloads)))))
                     if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
-                    legend(.white.opacity(0.25), "其他已用")
+                    legend(.white.opacity(0.25), String(localized: .offlineOtherUsed))
                 }
             } else {
-                Text("MovieClaw 下载 \(Formatters.bytes(Int(downloads)))").font(.subheadline).monospacedDigit()
+                Text(String(localized: .offlineMovieclawDownloads(Formatters.bytes(Int(downloads))))).font(.subheadline).monospacedDigit()
             }
         }
         .padding(16)
@@ -419,7 +420,7 @@ private struct ConfirmDelete: ViewModifier {
         content.confirmationDialog(title, isPresented: isPresented, titleVisibility: .visible) {
             Button(action, role: .destructive, action: perform)
         } message: {
-            Text("只删 \(ClientPlatform.deviceName) 上的副本，观看进度会保留。")
+            Text(String(localized: .offlineDeleteCopyHint(ClientPlatform.deviceName)))
         }
     }
 }

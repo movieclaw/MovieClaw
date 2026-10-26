@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -16,7 +18,7 @@ import {
 import { ComposerEditor, type ComposerEditorHandle } from "@/components/composer-editor";
 import { listSkills, type AgentSkill } from "@/lib/api/agent";
 import type { LlmModelOption } from "@/lib/api/llm";
-import { THINKING_LEVEL_LABELS, resolveModelOption } from "@/lib/llm-thinking";
+import { resolveModelOption } from "@/lib/llm-thinking";
 import {
   steppedStopIndex,
   stopIndexAtPointer,
@@ -106,6 +108,7 @@ export function Composer({
   flat = false,
   companion,
 }: ComposerProps) {
+  const t = useTranslations();
   const { backdrop } = useBackdrop();
   // 未受控时的内部状态（纯展示场景仍可直接 <Composer />）
   const [inner, setInner] = useState("");
@@ -135,14 +138,14 @@ export function Composer({
     setUploadError(null);
     const accepted = [...files].filter(isAcceptedImage);
     if (accepted.length === 0) {
-      setUploadError("不支持的图片格式，请选择 JPG / PNG / WebP / GIF 图片");
+      setUploadError(t("agent.composer.imageUnsupported"));
       return;
     }
     // 按当前渲染值算余量即可：超发由服务端「单消息 ≤4 张」硬限兜底
     const room = Math.max(0, MAX_IMAGES_PER_MESSAGE - images.length - uploading);
     const taking = accepted.slice(0, room);
     if (accepted.length > taking.length) {
-      setUploadError(`一条消息最多发送 ${MAX_IMAGES_PER_MESSAGE} 张图片`);
+      setUploadError(t("agent.composer.imageLimit", { count: MAX_IMAGES_PER_MESSAGE }));
     }
     for (const file of taking) {
       setUploading((n) => n + 1);
@@ -193,8 +196,7 @@ export function Composer({
           {uploading > 0 && (
             <span className="flex h-9 items-center gap-2 rounded-lg bg-white/[0.05] px-2.5 text-caption text-[var(--text-faint)]">
               <span className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              上传中…
-            </span>
+              {t("agent.composer.uploading")}</span>
           )}
           {uploadError && (
             <span role="status" className="text-caption text-[#ff6b6b]">
@@ -224,7 +226,7 @@ export function Composer({
         }
         // 锁定态的占位符是提示语（说明为何不可用）而非装饰，按 muted 档渲染保证可读
         placeholder={
-          placeholder ?? (busy ? "生成中，可先输入下一条…" : "随心输入，描述一个新任务…")
+          placeholder ?? (busy ? t("agent.composer.busyPlaceholder") : t("agent.composer.placeholder"))
         }
       />
       {/* 工具行：左控件簇 + 右发送簇，单行永不换行 */}
@@ -267,11 +269,10 @@ export function Composer({
         <div className="flex shrink-0 items-center gap-2">
           <span className="hidden text-caption text-[var(--text-faint)] sm:block">
             {showStop ? (
-              "生成中"
+              t("agent.composer.generating")
             ) : (
               <>
-                <kbd className="tnum rounded bg-white/[0.06] px-1 py-0.5 font-sans">⏎</kbd> 发送
-              </>
+                <kbd className="tnum rounded bg-white/[0.06] px-1 py-0.5 font-sans">⏎</kbd> {t("agent.composer.send")}</>
             )}
           </span>
           {flat ? (
@@ -280,7 +281,7 @@ export function Composer({
               type="button"
               disabled={!showStop && !canSubmit}
               onClick={() => (showStop ? onStop?.() : submit())}
-              aria-label={showStop ? "停止生成" : "发送"}
+              aria-label={showStop ? t("agent.composer.stop") : t("agent.composer.send")}
               // 移动端 44px：iOS HIG 最小可点目标
               className="flex size-9 items-center justify-center rounded-[12px] bg-white/[0.1] text-[var(--text)] transition-colors hover:bg-white/[0.16] disabled:opacity-40 disabled:hover:bg-white/[0.1] max-md:size-11"
             >
@@ -301,7 +302,7 @@ export function Composer({
               active={false}
               disabled={!showStop && !canSubmit}
               onActiveChange={() => (showStop ? onStop?.() : submit())}
-              aria-label={showStop ? "停止生成" : "发送"}
+              aria-label={showStop ? t("agent.composer.stop") : t("agent.composer.send")}
               // WebGL 画布几何跟 width/height 入参走死 36px，视觉不便放大，
               // 用 .touch-target 在移动端把命中区扩到 44px（iOS HIG）
               className="lg-send touch-target !size-9"
@@ -356,6 +357,7 @@ export function Composer({
 /* —— 附件 chip：小缩略图 + 截断名 + 移除键（maka Token 的紧凑节奏） —— */
 
 function AttachmentChip({ image, onRemove }: { image: ComposerImage; onRemove: () => void }) {
+  const t = useTranslations();
   return (
     <span className="group/chip flex h-9 max-w-[13rem] items-center gap-2 rounded-lg bg-white/[0.05] py-1 pl-1 pr-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
       <img
@@ -368,7 +370,7 @@ function AttachmentChip({ image, onRemove }: { image: ComposerImage; onRemove: (
       </span>
       <button
         type="button"
-        aria-label={`移除图片 ${image.name}`}
+        aria-label={t("agent.composer.removeImage", { name: image.name })}
         onClick={onRemove}
         className="flex size-5 shrink-0 items-center justify-center rounded-md text-[11px] leading-none text-[var(--text-faint)] transition-colors hover:bg-white/[0.08] hover:text-[var(--text)]"
       >
@@ -397,6 +399,7 @@ function ComposerPlusMenu({
   onPickImage: () => void;
   onPickSkill: (name: string) => void;
 }) {
+  const t = useTranslations();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -447,7 +450,7 @@ function ComposerPlusMenu({
     <div
       ref={menuRef}
       role="menu"
-      aria-label="添加内容"
+      aria-label={t("agent.composer.addContent")}
       className="menu-surface max-h-72 min-w-[15rem] max-w-[22rem] overflow-y-auto p-1.5"
       style={{ position: "fixed", left: menuPos.left, bottom: menuPos.bottom, zIndex: 50 }}
     >
@@ -461,19 +464,18 @@ function ComposerPlusMenu({
           }}
           className="flex w-full items-center gap-2 rounded-[10px] px-2.5 py-1.5 text-left text-ui text-[var(--text)] transition-colors hover:bg-white/[0.06]"
         >
-          上传图片
-        </button>
+          {t("agent.composer.uploadImage")}</button>
       )}
       {skillPicker && (
         <>
           {imageUpload && <div className="mx-2.5 my-1 h-px bg-white/[0.08]" />}
-          <p className="px-2.5 pb-0.5 pt-1 text-caption text-[var(--text-faint)]">使用技能</p>
+          <p className="px-2.5 pb-0.5 pt-1 text-caption text-[var(--text-faint)]">{t("agent.composer.useSkill")}</p>
           {skills === null && (
-            <p className="px-2.5 py-1.5 text-caption text-[var(--text-faint)]">加载中…</p>
+            <p className="px-2.5 py-1.5 text-caption text-[var(--text-faint)]">{t("agent.composer.loading")}</p>
           )}
           {skills != null && skills.length === 0 && (
             <p className="px-2.5 py-1.5 text-caption text-[var(--text-faint)]">
-              {skillsError ? "技能列表加载失败" : "暂无可用技能"}
+              {skillsError ? t("agent.composer.skillsFailed") : t("agent.composer.noSkills")}
             </p>
           )}
           {skills?.map((skill) => (
@@ -504,7 +506,7 @@ function ComposerPlusMenu({
       {menu && createPortal(menu, document.body)}
       <button
         type="button"
-        aria-label="添加图片或技能"
+        aria-label={t("agent.composer.addImageOrSkill")}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
@@ -625,6 +627,7 @@ function ModelMenu({
   /** 不传 = 调用方没接思维链能力，菜单下半整段不渲染 */
   onThinkingChange?: (level: string | null) => void;
 }) {
+  const t = useTranslations();
   const { open, toggle, close, rootRef, popoverRef, pos } = useAnchoredPopover();
   // 未显式选择（value=null）时显示全局默认项；同 id 跨实例冲突的项 label 已带
   // 「（实例名）」，不冲突的就是裸模型 id——前端不做去重判断，照单渲染。
@@ -644,14 +647,14 @@ function ModelMenu({
     <div
       ref={popoverRef}
       role="group"
-      aria-label="模型与思维链"
+      aria-label={t("agent.composer.modelThinking")}
       // .menu-surface 自带 position:relative，须整体覆盖为 fixed
       style={{ position: "fixed", left: pos.left, bottom: pos.bottom, zIndex: 50 }}
       className="menu-surface w-[19rem] max-w-[calc(100vw-1rem)] p-1.5"
     >
-      <p className="px-2.5 pb-0.5 pt-1 text-caption text-[var(--text-faint)]">模型</p>
+      <p className="px-2.5 pb-0.5 pt-1 text-caption text-[var(--text-faint)]">{t("agent.composer.model")}</p>
       {/* 模型清单单独限高滚动：下半的强度控件要一直贴在菜单底部，不随清单滚走 */}
-      <div role="listbox" aria-label="模型" className="max-h-56 overflow-y-auto">
+      <div role="listbox" aria-label={t("agent.composer.model")} className="max-h-56 overflow-y-auto">
         {options.map((option) => {
           const selected = option.ref === current?.ref;
           return (
@@ -688,21 +691,20 @@ function ModelMenu({
           {/* 不可控的模型：下半空着会让人以为控件丢了，留一行灰字交代它去哪了 */}
           {shape === "hidden" && (
             <p className="px-2.5 pb-1.5 pt-0.5 text-caption text-[var(--text-faint)]">
-              该模型不支持调节思考强度
-            </p>
+              {t("agent.composer.thinkingUnsupported")}</p>
           )}
         </>
       )}
     </div>
   );
 
-  const label = current?.label ?? "模型";
+  const label = current?.label ?? t("agent.composer.model");
   return (
     <div ref={rootRef} className="relative min-w-0 shrink">
       {panel && createPortal(panel, document.body)}
       <button
         type="button"
-        aria-label={`模型与思维链：${label}`}
+        aria-label={t("agent.composer.modelThinkingLabel", { model: label })}
         // 弹层里不只是一列选项（下半还有强度滑杆），不是 menu/listbox
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -740,11 +742,13 @@ function ThinkingSlider({
   value: string | null;
   onChange: (level: string | null) => void;
 }) {
+  const t = useTranslations();
   const trackRef = useRef<HTMLDivElement>(null);
   // 指针按下到抬起之间为拖拽态；用 ref 而不是 state，move 事件里读最新值且不触发重渲染
   const dragging = useRef(false);
   const index = value === null ? -1 : stops.indexOf(value);
-  const currentLabel = thinkingValueLabel(value);
+  const locale = useLocale();
+  const currentLabel = thinkingValueLabel(value, locale);
   const percent = (i: number) => stopPercent(i, stops.length);
   const stopLeft = (i: number) =>
     `calc(${TRACK_INSET_PX}px + (100% - ${TRACK_INSET_PX * 2}px) * ${percent(i) / 100})`;
@@ -787,11 +791,10 @@ function ThinkingSlider({
   };
 
   return (
-    <div role="group" aria-label="思维链强度" className="px-2.5 pb-2 pt-0.5">
+    <div role="group" aria-label={t("agent.composer.reasoningEffort")} className="px-2.5 pb-2 pt-0.5">
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-ui text-[var(--text-muted)]">
-          思维链强度
-          <span className="ml-2 text-body font-medium text-[var(--text)]">{currentLabel}</span>
+          {t("agent.composer.reasoningEffort")}<span className="ml-2 text-body font-medium text-[var(--text)]">{currentLabel}</span>
         </p>
         {value !== null ? (
           <button
@@ -799,15 +802,14 @@ function ThinkingSlider({
             onClick={() => onChange(null)}
             className="shrink-0 rounded-md px-1.5 py-0.5 text-caption text-[var(--text-faint)] transition-colors hover:bg-white/[0.06] hover:text-[var(--text)]"
           >
-            恢复默认
-          </button>
+            {t("agent.composer.resetDefault")}</button>
         ) : (
-          <span className="shrink-0 text-caption text-[var(--text-faint)]">由模型自行决定</span>
+          <span className="shrink-0 text-caption text-[var(--text-faint)]">{t("agent.composer.modelDecides")}</span>
         )}
       </div>
       <div className="mt-2.5 flex items-center justify-between text-caption text-[var(--text-faint)]">
-        <span>更快</span>
-        <span>更聪明</span>
+        <span>{t("agent.composer.faster")}</span>
+        <span>{t("agent.composer.smarter")}</span>
       </div>
       {/* 轨道：横向，刻度点均布；整条轨道是一个指针目标，按下即选、按住可拖。
           touch-none 让触屏拖动不被当成页面滚动；刻度点与滑块都是纯装饰 */}
@@ -839,7 +841,7 @@ function ThinkingSlider({
           <span
             key={level}
             aria-hidden
-            title={THINKING_LEVEL_LABELS[level] ?? level}
+            title={thinkingValueLabel(level, locale)}
             className={`pointer-events-none absolute top-1/2 block size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${
               i <= index ? "bg-black/40" : "bg-white/25"
             }`}
@@ -872,14 +874,16 @@ function ThinkingToggle({
   value: string | null;
   onChange: (level: string | null) => void;
 }) {
-  const items = thinkingListItems(stops);
+  const t = useTranslations();
+  const locale = useLocale();
+  const items = thinkingListItems(stops, locale);
   const current = items.find((item) => item.level === value) ?? items[0];
   return (
     <div className="px-2.5 pb-2 pt-0.5">
-      <p className="text-ui text-[var(--text-muted)]">思维链</p>
+      <p className="text-ui text-[var(--text-muted)]">{t("agent.composer.reasoning")}</p>
       <div
         role="group"
-        aria-label="思维链开关"
+        aria-label={t("agent.composer.reasoningToggle")}
         className="mt-2 flex gap-1 rounded-xl bg-white/[0.05] p-[3px]"
       >
         {items.map((item) => {

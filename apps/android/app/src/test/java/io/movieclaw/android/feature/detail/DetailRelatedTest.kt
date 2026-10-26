@@ -86,7 +86,8 @@ class DetailRelatedTest {
         val cookies = ShareCookieJar()
         val api = ApiFactory(json, client, client, vault, cookies)
         val repository = SessionRepository(context, json, vault, api, client,
-            SessionCacheCleaner(context, ImageLoaders(context, vault, client, cookies), LibraryHomeSnapshotStore(context, json)))
+            SessionCacheCleaner(context, ImageLoaders(context, vault, client, cookies), LibraryHomeSnapshotStore(context, json)),
+            dagger.Lazy { throw UnsupportedOperationException() })
         val origin = server.url("/").toString().trimEnd('/')
         vault.activate(origin, "alice", "token")
         @Suppress("UNCHECKED_CAST")
@@ -96,6 +97,14 @@ class DetailRelatedTest {
         val vm = ItemDetailViewModel(
             SavedStateHandle(mapOf("libraryId" to "1", "itemId" to "7")),
             repository, api, PlaybackPreconnect(api, repository), EventStream(client, repository, api),
+            io.movieclaw.android.core.offline.OfflineStore(context, repository).also {},
+            io.movieclaw.android.core.offline.OfflineDownloader(
+                context,
+                api,
+                io.movieclaw.android.core.offline.OfflineStore(context, repository),
+                io.movieclaw.android.core.offline.OfflinePrefs(context),
+            ),
+        io.movieclaw.android.core.offline.OfflinePrefs(context),
         )
         try {
             block(vm, similarCalls)

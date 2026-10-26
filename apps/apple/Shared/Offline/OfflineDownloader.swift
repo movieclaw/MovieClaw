@@ -62,7 +62,7 @@ final class OfflineDownloader {
     /// 到点重试的定时（前台时；后台靠系统的定时开始）
     private var retryTimer: Task<Void, Never>?
 
-    static let signedOutMessage = "这个账号在本机的登录已失效，重新登录后会接着下"
+    static var signedOutMessage: String { String(localized: .offlineErrorSignedOut) }
 
     /// App 启动时调：重建同名的后台会话，系统据此把上次没交付的事件（后台完成的下载）交给我们
     func activate() {
@@ -104,9 +104,10 @@ final class OfflineDownloader {
 
         var errorDescription: String? {
             switch self {
-            case .unsupported: "这台服务器还不支持下载到 \(ClientPlatform.deviceName)，请先把服务器升级到最新版本"
+            case .unsupported: String(localized: .offlineErrorUnsupported(ClientPlatform.deviceName))
             case let .noSpace(needed, available, estimated):
-                "\(ClientPlatform.deviceName) 空间不足：需要 \(estimated ? "≈ " : "")\(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file))（含预留 2 GB），只剩 \(ByteCountFormatter.string(fromByteCount: available, countStyle: .file))"
+                String(localized: .offlineErrorNoSpace(ClientPlatform.deviceName, (estimated ? "≈ " : "") + ByteCountFormatter.string(fromByteCount: needed, countStyle: .file),
+                                                ByteCountFormatter.string(fromByteCount: available, countStyle: .file)))
             case let .unavailable(reason): reason
             }
         }
@@ -216,14 +217,14 @@ final class OfflineDownloader {
             guard store.key == owner.key else { return }
             switch error.status {
             case 400, 422: fail(unit.fileId, error.localizedDescription, retryable: false)
-            case 403: fail(unit.fileId, "管理员未对你开放下载影片到设备", retryable: false)
-            case 404: fail(unit.fileId, "服务器上已没有这个文件", retryable: false)
+            case 403: fail(unit.fileId, String(localized: .offlineErrorNotAllowed), retryable: false)
+            case 404: fail(unit.fileId, String(localized: .offlineErrorMissingOnServer), retryable: false)
             default: fail(unit.fileId, error.localizedDescription, retryable: true)
             }
         } catch is CancellationError {
             // 不是这个任务本身被取消（APIClient 把 URLError.cancelled 也映射成它）：按可重试失败退避，
             // 不然对账立刻又来准备一次，原地打转
-            if !Task.isCancelled, store.key == owner.key { fail(unit.fileId, "准备下载时被中断", retryable: true) }
+            if !Task.isCancelled, store.key == owner.key { fail(unit.fileId, String(localized: .offlineErrorPrepareInterrupted), retryable: true) }
         } catch {
             guard store.key == owner.key else { return }
             fail(unit.fileId, error.localizedDescription, retryable: true)
@@ -480,7 +481,7 @@ final class OfflineDownloader {
             updateUnit(tag) { unit in
                 unit.state = .failed
                 unit.retryable = true
-                unit.error = "服务器正在排队转码"
+                unit.error = String(localized: .offlineErrorQueued)
                 unit.transcodeWait = note
                 unit.nextRetryAt = Date().addingTimeInterval(retryAfter ?? 60)
             }
@@ -488,22 +489,23 @@ final class OfflineDownloader {
             // 可重试：重新登录后对账会接着下（退避到最长一小时，不会一直打服务器）
             failTag(tag, Self.signedOutMessage, retryable: true)
         case 403:
-            failTag(tag, "管理员未对你开放下载影片到设备", retryable: false)
+            failTag(tag, String(localized: .offlineErrorNotAllowed), retryable: false)
         case 404, 410:
-            failTag(tag, "服务器上已没有这个文件（可能被删除、移动或回收了导出）", retryable: tag.owner == store.key && store.units[tag.file]?.profile != "original")
+            failTag(tag, String(localized: .offlineErrorGone), retryable: tag.owner == store.key && store.units[tag.file]?.profile != "original",
+                    resetExport: true)
         case 422:
-            failTag(tag, message ?? "服务器转码失败", retryable: false)
+            failTag(tag, message ?? String(localized: .offlineErrorTranscodeFailed), retryable: false)
         default:
-            failTag(tag, "服务器出错了（HTTP \(status)）", retryable: true)
+            failTag(tag, String(localized: .offlineErrorHttp(String(status))), retryable: true)
         }
         reconcile(reason: "http-failed")
     }
 
     func failedTransport(tag: OfflineTaskTag, error: URLError?, noSpace: Bool) {
         if noSpace {
-            failTag(tag, "\(ClientPlatform.deviceName) 空间不足，清理一些空间后点「重试」", retryable: false)
+            failTag(tag, String(localized: .offlineErrorDiskFull(ClientPlatform.deviceName)), retryable: false)
         } else {
-            failTag(tag, error.map { APIClient.networkMessage($0) } ?? "下载中断", retryable: true)
+            failTag(tag, error.map { APIClient.networkMessage($0) } ?? String(localized: .offlineErrorInterrupted), retryable: true)
         }
         reconcile(reason: "transport-failed")
     }
@@ -515,12 +517,12 @@ final class OfflineDownloader {
 
     /// 排队转码时界面上的一句话（服务端 503 的 x-export-wait / x-export-ahead；旧服务端没有，就只说在排队）
     nonisolated static func transcodeWaitNote(wait: String?, ahead: Int?) -> String {
-        if wait == "transcoder" { return "等待转码器空闲" }
-        if let ahead, ahead > 0 { return "等待转码，前面还有 \(ahead) 个" }
-        return wait == "queue" ? "即将开始转码" : "等待转码"
+        if wait == "transcoder" { return String(localized: .offlineWaitingTranscoder) }
+        if let ahead, ahead > 0 { return String(localized: .offlineTranscodeAhead(ahead)) }
+        return wait == "queue" ? String(localized: .offlineTranscodeStartingSoon) : String(localized: .offlineWaitingTranscode)
     }
 
-    private func failTag(_ tag: OfflineTaskTag, _ message: String, retryable: Bool) {
+    private func failTag(_ tag: OfflineTaskTag, _ message: String, retryable: Bool, resetExport: Bool = false) {
         updateUnit(tag) { unit in
             unit.state = .failed
             unit.transcodeWait = nil
@@ -532,7 +534,7 @@ final class OfflineDownloader {
                 unit.nextRetryAt = Date().addingTimeInterval(steps[min(unit.attempts - 1, steps.count - 1)])
             }
             // 待删的旧档（换档时）在 404 后不会被重试：转码档 404 = 导出被回收，回到准备阶段重建导出
-            if retryable, unit.profile != "original", message.contains("没有这个文件") { unit.exportId = nil }
+            if retryable, resetExport, unit.profile != "original" { unit.exportId = nil }
         }
     }
 

@@ -11,6 +11,8 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.i18n.stored import reference
 from movieclaw_api.services.subtitle_gen import extract
 from movieclaw_api.services.subtitle_gen.source import _TEXT_CODECS, SourceCandidate
 from movieclaw_db.models import LibraryFile
@@ -19,11 +21,11 @@ from movieclaw_playback.subtitles import parse_embedded_track, parse_external_tr
 logger = logging.getLogger("movieclaw_api.subtitle_preview")
 
 
-class SubtitleTrackNotFound(Exception):
+class SubtitleTrackNotFound(NotFoundException):
     """轨引用没有命中当前文件的内封轨或外挂字幕台账。"""
 
 
-class SubtitlePreviewError(Exception):
+class SubtitlePreviewError(BadRequestException):
     """字幕存在，但其格式、文件状态或解析结果不支持文本预览。"""
 
 
@@ -46,13 +48,13 @@ def _candidate_for_track(file: LibraryFile, track: str) -> SourceCandidate:
     if embedded_index is not None:
         streams = file.subtitle_streams or []
         if embedded_index >= len(streams):
-            raise SubtitleTrackNotFound("这条内封字幕已不存在，请重新扫描媒体库")
+            raise SubtitleTrackNotFound(message_key="errors.subtitles.previewEmbeddedMissing")
         raw = streams[embedded_index]
         codec = str(raw.get("codec") or "").lower()
         if codec not in _TEXT_CODECS:
-            label = codec.upper() if codec else "未知格式"
+            label = codec.upper() if codec else reference("errors.subtitles.previewUnknownFormat")
             raise SubtitlePreviewError(
-                f"{label} 是图形字幕，无法直接显示为文本；请先通过 OCR 转换为 SRT"
+                message_key="errors.subtitles.previewGraphic", params={"format": label}
             )
         return SourceCandidate(
             kind="embedded",
@@ -66,15 +68,11 @@ def _candidate_for_track(file: LibraryFile, track: str) -> SourceCandidate:
     filename = parse_external_track(track)
     if filename is not None:
         entry = next(
-            (
-                raw
-                for raw in (file.external_subtitles or [])
-                if raw.get("filename") == filename
-            ),
+            (raw for raw in (file.external_subtitles or []) if raw.get("filename") == filename),
             None,
         )
         if entry is None:
-            raise SubtitleTrackNotFound("这条外挂字幕已不存在，请重新扫描媒体库")
+            raise SubtitleTrackNotFound(message_key="errors.subtitles.previewExternalMissing")
         fmt = str(entry.get("format") or Path(filename).suffix.lstrip(".")).lower() or None
         return SourceCandidate(
             kind="external",
@@ -85,7 +83,7 @@ def _candidate_for_track(file: LibraryFile, track: str) -> SourceCandidate:
             format=fmt,
         )
 
-    raise SubtitleTrackNotFound("字幕轨标识无效")
+    raise SubtitleTrackNotFound(message_key="errors.subtitles.previewInvalidTrack")
 
 
 async def load_subtitle_preview(
@@ -104,16 +102,10 @@ async def load_subtitle_preview(
             file, candidate, preserve_linebreaks=True, wait=wait
         )
     except extract.SourceExtractionPending as pending:
-        return SubtitlePreview(
-            format=candidate.format, events=[], pending=pending.message
-        )
+        return SubtitlePreview(format=candidate.format, events=[], pending=pending.message)
     except extract.SourceLoadError as exc:
         # SourceLoadError 会包含磁盘绝对路径，便于部署者排障，但该接口也对普通
         # 成员开放，不能把服务端目录结构透传到响应中。
-        logger.warning(
-            "字幕预览加载失败：file_id=%s track=%s（%s）", file.id, track, exc
-        )
-        raise SubtitlePreviewError(
-            "字幕文件无法读取或解析，请确认文件仍然存在且内容完整"
-        ) from exc
+        logger.warning("字幕预览加载失败：file_id=%s track=%s（%s）", file.id, track, exc)
+        raise SubtitlePreviewError(message_key="errors.subtitles.previewUnreadable") from exc
     return SubtitlePreview(format=candidate.format, events=events)

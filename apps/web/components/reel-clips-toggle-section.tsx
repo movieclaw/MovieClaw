@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useState } from "react";
 
 import { Toggle } from "@/components/cloud-push-ui";
@@ -12,26 +14,24 @@ import {
   savePlaybackPolicy,
   type ReelClipProgress,
 } from "@/lib/api/playback";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import { formatBytes } from "@/lib/format";
 
 /** 开着且还在切时多久刷新一次进度 */
 const PROGRESS_POLL_MS = 15_000;
 
-const OFF_DESCRIPTION =
-  "后台把每部影片的精彩片段提前转成 1080p 小文件。开启后，电视首页和详情页的大图预告起播快、不卡顿，" +
-  "刷片更流畅，外网刷片也不用实时转码。首次开启要在后台处理一段时间（有人观看时自动暂停），每部约占 20 MB。";
-
-function progressText(progress: ReelClipProgress | null): string {
-  if (!progress) return "正在准备……";
+export function progressText(progress: ReelClipProgress | null, locale: AppLocale = "zh-Hans"): string {
+  const t = appTranslator(locale);
+  if (!progress) return t("settings.playback.controls.preparing");
   const { ready, total, state } = progress;
   if (state === "done") {
     const skipped = total - ready;
     return skipped > 0
-      ? `已切好 ${ready} 部，其余 ${skipped} 部无法预切（网盘文件或片子太短）；新入库的会自动补切`
-      : `已切好全部 ${ready} 部；新入库的会自动补切`;
+      ? t("settings.playback.controls.clipsSkipped", { ready, skipped })
+      : t("settings.playback.controls.clipsDone", { ready });
   }
-  if (state === "paused") return `已切好 ${ready} / ${total} 部，有人在观看，暂停中`;
-  return `已切好 ${ready} / ${total} 部，正在后台处理；没切好的预告先显示剧照`;
+  return t(state === "paused" ? "settings.playback.controls.clipsPaused" : "settings.playback.controls.clipsRunning", { ready, total });
 }
 
 /**
@@ -44,6 +44,8 @@ function progressText(progress: ReelClipProgress | null): string {
  * 关闭时若已有切好的片段，问一句要不要一并删除（默认保留，重新打开即可直接用）。
  */
 export function ReelClipsToggleRow() {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [progress, setProgress] = useState<ReelClipProgress | null>(null);
@@ -93,12 +95,12 @@ export function ReelClipsToggleRow() {
         }
         if (stats.count > 0) {
           const result = await confirm({
-            title: "关闭片段预切？",
-            description: "关闭后预告和刷片改回直接播放原片，后台不再切新的片段。",
-            confirmLabel: "关闭",
+            title: t("settings.playback.controls.disableClipsTitle"),
+            description: t("settings.playback.controls.disableClipsHint"),
+            confirmLabel: t("settings.playback.controls.turnOff"),
             checkbox: {
-              label: `同时删除已切好的 ${stats.count} 个片段（${formatBytes(stats.bytes)}）`,
-              description: "不删的话，重新打开即可直接使用。",
+              label: t("settings.playback.controls.deleteClips", { count: stats.count, bytes: formatBytes(stats.bytes) }),
+              description: t("settings.playback.controls.keepClipsHint"),
               defaultChecked: false,
             },
           });
@@ -121,19 +123,19 @@ export function ReelClipsToggleRow() {
         setBusy(false);
       }
     },
-    [confirm, enabled],
+    [confirm, enabled, t],
   );
 
   return (
     <SettingsRow
-      label="片段预切"
-      description={enabled ? progressText(progress) : OFF_DESCRIPTION}
+      label={t("settings.playback.controls.clipsTitle")}
+      description={enabled ? progressText(progress, locale) : t("settings.playback.controls.clipsOff")}
       error={error}
     >
       {enabled !== null && (
         <Toggle
           checked={enabled}
-          label="片段预切"
+          label={t("settings.playback.controls.clipsTitle")}
           disabled={busy}
           onChange={(next) => void toggle(next)}
         />

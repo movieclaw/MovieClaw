@@ -120,3 +120,14 @@ test("同一组条件的合集与当前墙对得上，改一条就对不上了",
   assert.equal(filterKey(rulesToFilter(collectionRules)), filterKey(wall));
   assert.notEqual(filterKey(rulesToFilter(collectionRules)), filterKey({ ...wall, decades: ["2010s"] }));
 });
+
+test("route query parsing preserves all filters without reading the outgoing browser URL", async () => {
+  const { readLibraryFilter } = await import("../lib/library-filter.ts");
+  const params = new URLSearchParams("g=16,878,NaN&c=US,JP&d=2020s&w=played&rating_gte=8&rt=gt120&lang=ja&res=2160p&hdr=false&stock=missing");
+  const parsed = readLibraryFilter(params);
+  assert.deepEqual(parsed, { genres: [16, 878], countries: ["US", "JP"], decades: ["2020s"], watch: "played", ratingGte: 8, runtimes: ["gt120"], languages: ["ja"], resolutions: ["2160p"], hdr: false, stock: ["missing"] });
+  const restored = new URLSearchParams();
+  filterQuery(parsed, restored);
+  assert.deepEqual(readLibraryFilter(restored), parsed);
+  assert.equal(isFilterEmpty(readLibraryFilter(new URLSearchParams())), true);
+});

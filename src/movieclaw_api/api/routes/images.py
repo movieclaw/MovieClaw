@@ -132,15 +132,15 @@ async def get_metadata_asset(
     # 越权判定（含 resolve）结果按相对路径缓存，见 resolve_asset_path
     target = resolve_asset_path(path)
     if target is None:
-        raise NotFoundException("图片资产不存在")
+        raise NotFoundException(message_key="errors.images.assetMissing")
     # 一次 stat 走完「存在吗 + 是文件吗 + 版本戳 + 能不能永久缓存」四问：
     # 这四问原本各 stat 一次，而海报墙一屏就是上百个这样的请求
     try:
         stat = target.stat()
     except OSError:
-        raise NotFoundException("图片资产不存在") from None
+        raise NotFoundException(message_key="errors.images.assetMissing") from None
     if not S_ISREG(stat.st_mode):
-        raise NotFoundException("图片资产不存在")
+        raise NotFoundException(message_key="errors.images.assetMissing")
     head = path.split("/", 1)[0]
     if head.isdigit() and principal.kind != "admin":
         await assert_item_visible(session, principal, int(head))
@@ -190,7 +190,7 @@ async def get_person_avatar(
 
     target = await asyncio.to_thread(resolve_avatar_path, path)
     if target is None:
-        raise NotFoundException("头像不存在")
+        raise NotFoundException(message_key="errors.images.avatarMissing")
     return await sized_file(
         target,
         source_key=f"person:{path}",

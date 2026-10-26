@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections import Counter
+
 from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.llm import (
     LlmDefaultsPayload,
@@ -74,7 +77,7 @@ async def finish_chatgpt(
     service = LlmConfigService(session)
     row = await service.start_verification(row.id)
     background_tasks.add_task(verify_llm_provider, row.id)
-    return ok(LlmProviderView.from_model(row), message="ChatGPT 已连接，正在验证模型")
+    return ok(LlmProviderView.from_model(row), message=t("settings.llm.chatgptConnected"))
 
 
 @router.post(
@@ -116,7 +119,24 @@ async def list_llm_models(
     有时 ref 是裸 id；出现在多个实例里时 ref 为「实例名/模型id」、label 带括号
     标注实例名。把 ref 原样填进 session.start 的 model 或 AI 设定即可；
     is_default 标记智能体默认模型。"""
-    return ok(await LlmConfigService(session).list_model_options())
+    options = await LlmConfigService(session).list_model_options()
+    counts = Counter(option.model_id for option in options)
+    return ok(
+        [
+            option.model_copy(
+                update={
+                    "label": t(
+                        "settings.llm.modelWithProvider",
+                        model=option.model_id,
+                        provider=option.provider_name,
+                    )
+                }
+            )
+            if counts[option.model_id] > 1
+            else option
+            for option in options
+        ]
+    )
 
 
 @router.get(
@@ -147,7 +167,7 @@ async def update_llm_defaults(
     view = await LlmConfigService(session).update_defaults(
         agent_model=payload.agent_model, subtitle_model=payload.subtitle_model
     )
-    return ok(view, message="AI 设定已保存")
+    return ok(view, message=t("settings.ai.saved"))
 
 
 @router.get(
@@ -192,7 +212,7 @@ async def create_llm_provider(
     assert row.id is not None
     row = await service.start_verification(row.id)
     background_tasks.add_task(verify_llm_provider, row.id)
-    return ok(LlmProviderView.from_model(row), message="已保存，正在测试模型连接")
+    return ok(LlmProviderView.from_model(row), message=t("settings.llm.connectionSaved"))
 
 
 @router.get(
@@ -237,7 +257,7 @@ async def update_llm_provider(
     )
     row = await service.start_verification(provider_id)
     background_tasks.add_task(verify_llm_provider, provider_id)
-    return ok(LlmProviderView.from_model(row), message="已保存，正在测试模型连接")
+    return ok(LlmProviderView.from_model(row), message=t("settings.llm.connectionSaved"))
 
 
 @router.post(
@@ -255,7 +275,7 @@ async def reverify_llm_provider(
     并在后台重新测试。"""
     row = await LlmConfigService(session).start_verification(provider_id)
     background_tasks.add_task(verify_llm_provider, provider_id)
-    return ok(LlmProviderView.from_model(row), message="已重新发起连接测试")
+    return ok(LlmProviderView.from_model(row), message=t("settings.llm.connectionRetested"))
 
 
 @router.delete(
@@ -272,8 +292,8 @@ async def delete_llm_provider(
     """AI 设定里指向它的默认模型会自动改指最早剩下的实例；全部删除时清空。"""
     revoked = await LlmConfigService(session).delete(provider_id)
     return ok(
-        {},
-        message="已删除"
+        {"remote_revoked": revoked},
+        message=t("settings.llm.connectionDeleted")
         if revoked
-        else "本地接入已删除；远端撤销未确认，请在 ChatGPT 设置中断开此 App",
+        else t("settings.llm.remoteRevocationPending"),
     )

@@ -160,11 +160,93 @@ interface McApi {
     @POST("app/update/check")
     suspend fun checkUpdate(): McEnvelope<UpdateCheck>
 
+    /** 确认上一次异常退出告警：后端清除记录，横幅不再展示 */
+    @POST("app/update/last-exit/dismiss")
+    suspend fun dismissLastAbnormalExit(): McEnvelope<JsonElement>
+
     @POST("app/update/apply")
     suspend fun applyUpdate(): McEnvelope<UpdateProgress>
 
     @GET("app/update/progress")
     suspend fun updateProgress(): McEnvelope<UpdateProgress>
+
+    /** 回退候选与保留策略（读盘）；失败时回退区不显示 */
+    @GET("app/update/rollback/options")
+    suspend fun rollbackOptions(): McEnvelope<io.movieclaw.android.core.model.RollbackOptions>
+
+    /** 回退到指定版本（"baseline" = 镜像内置版本） */
+    @POST("app/update/rollback")
+    suspend fun rollbackTo(@Body body: io.movieclaw.android.core.model.RollbackRequest): McEnvelope<JsonElement>
+
+    /** 设置本地保留的版本目录数（立即按新策略清理） */
+    @PUT("app/update/retention")
+    suspend fun saveUpdateRetention(@Body body: io.movieclaw.android.core.model.RetentionRequest): McEnvelope<JsonElement>
+
+    @GET("app/update/github-token")
+    suspend fun githubToken(): McEnvelope<io.movieclaw.android.core.model.GithubToken>
+
+    /** 保存 GitHub 访问令牌；空串 = 清除 */
+    @PUT("app/update/github-token")
+    suspend fun saveGithubToken(@Body body: io.movieclaw.android.core.model.GithubTokenPayload): McEnvelope<io.movieclaw.android.core.model.GithubToken>
+
+    @POST("app/update/model/check")
+    suspend fun checkModelUpdate(): McEnvelope<io.movieclaw.android.core.model.ModelUpdateCheck>
+
+    @POST("app/update/model/apply")
+    suspend fun applyModelUpdate(): McEnvelope<UpdateProgress>
+
+    /* ---------------- 离线下载（routes/offline.py；下载能力开关由服务端把守） ---------------- */
+
+    /** 一个播放单元打包所需的一切：展示数据 + 档位 + 字幕清单 */
+    @GET("offline/manifest")
+    suspend fun offlineManifest(
+        @Query("file_id") fileId: Long,
+    ): McEnvelope<io.movieclaw.android.core.model.OfflineManifest>
+
+    /** 选档表单一次问一批文件的可选档位与预计大小 */
+    @POST("offline/profiles")
+    suspend fun offlineProfiles(
+        @Body body: io.movieclaw.android.core.model.OfflineProfilesRequest,
+    ): McEnvelope<io.movieclaw.android.core.model.OfflineProfilesView>
+
+    /** 建或复用一个转码导出（1080p / 720p / 480p） */
+    @POST("offline/exports")
+    suspend fun offlineExportCreate(
+        @Body body: io.movieclaw.android.core.model.OfflineExportRequest,
+    ): McEnvelope<io.movieclaw.android.core.model.OfflineExport>
+
+    /** 导出进度（转码中边转边发） */
+    @GET("offline/exports/{exportId}")
+    suspend fun offlineExportGet(
+        @Path("exportId") exportId: String,
+    ): McEnvelope<io.movieclaw.android.core.model.OfflineExport>
+
+    /** 下载完了：通知服务端可以回收导出 */
+    @DELETE("offline/exports/{exportId}")
+    suspend fun offlineExportRelease(@Path("exportId") exportId: String): McEnvelope<kotlinx.serialization.json.JsonElement>
+
+    /** 本机播放的观看记录补传（含离线），按 viewing_id 幂等合并 */
+    @POST("playback/viewings")
+    suspend fun playbackViewings(
+        @Body body: io.movieclaw.android.core.model.OfflineViewingsRequest,
+    ): McEnvelope<kotlinx.serialization.json.JsonElement>
+
+    /** 这台服务器的访问地址簿（内网 / 外网），自动选连用 */
+    @GET("server/addresses")
+    suspend fun serverAddresses(): McEnvelope<io.movieclaw.android.core.network.ServerAddressesView>
+
+    /** 优雅重启应用（Docker 由 entrypoint 拉起） */
+    @POST("app/restart")
+    suspend fun restartApp(): McEnvelope<JsonElement>
+
+    @GET("scheduled-tasks")
+    suspend fun scheduledTasks(): McEnvelope<List<io.movieclaw.android.core.model.ScheduledTask>>
+
+    @PUT("scheduled-tasks/{key}")
+    suspend fun updateScheduledTask(
+        @Path("key") key: String,
+        @Body body: io.movieclaw.android.core.model.ScheduledTaskUpdate,
+    ): McEnvelope<io.movieclaw.android.core.model.ScheduledTask>
 
     @GET("app/storage")
     suspend fun storageState(): McEnvelope<StorageState>
@@ -185,11 +267,29 @@ interface McApi {
     @GET("network/config")
     suspend fun networkConfig(): McEnvelope<NetworkConfig>
 
+    /** 应用设置：外部访问地址 + 对外端口状态（设置 → 网络 → 外部访问） */
+    @GET("app/config")
+    suspend fun appConfigShow(): McEnvelope<io.movieclaw.android.core.model.AppConfig>
+
+    /** 保存外部访问地址（即时生效） */
+    @PUT("app/config")
+    suspend fun appConfigSave(
+        @Body body: io.movieclaw.android.core.model.AppConfigPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.AppConfig>
+
+    /** 改对外端口（保存后全量重启生效）；port=null/0 恢复默认 */
+    @PUT("app/port")
+    suspend fun appPortSave(
+        @Body body: io.movieclaw.android.core.model.WebPortPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.AppConfig>
+
     @PUT("network/config")
     suspend fun saveNetworkConfig(@Body body: NetworkConfig): McEnvelope<NetworkConfig>
 
     @POST("network/test")
-    suspend fun testNetwork(): McEnvelope<NetworkTestResult>
+    suspend fun testNetwork(
+        @Body body: io.movieclaw.android.core.model.NetworkTestPayload,
+    ): McEnvelope<NetworkTestResult>
 
     /* ---------------- 家庭成员(P2 设置区) ---------------- */
 
@@ -272,6 +372,10 @@ interface McApi {
     @GET("libraries")
     suspend fun libraries(): McEnvelope<List<LibraryView>>
 
+    /** 收藏范围 / 规则组适用范围的选项（电影/剧集类型、国家码、区域预设） */
+    @GET("libraries/routing-options")
+    suspend fun routingOptions(): McEnvelope<io.movieclaw.android.core.model.RoutingOptionsView>
+
     /** 单个媒体库详情（Agent 媒体库卡与 iOS `libraryGet` 同口子） */
     @GET("libraries/{libraryId}")
     suspend fun library(@Path("libraryId") libraryId: Long): McEnvelope<LibraryView>
@@ -331,8 +435,8 @@ interface McApi {
         @Query("seed") seed: Long? = null,
         @Query("offset") offset: Int = 0,
         @Query("limit") limit: Int = 10,
-        /** App 会放的方式；一期只有 seek（为将来预剪的 clip 留口子） */
-        @Query("modes") modes: String = "seek",
+        /** App 会放的方式：原片起播 + 服务端预切片段（服务端开了「片段预切」就只出切好的） */
+        @Query("modes") modes: String = "seek,clip",
         @Query("kind") kind: String? = null,
         @Query("g") genres: String? = null,
         @Query("c") countries: String? = null,
@@ -844,6 +948,16 @@ interface McApi {
     @GET("search/history")
     suspend fun searchHistory(): McEnvelope<List<SearchHistoryItem>>
 
+    /* 资源搜索分类栏预设（设置 → 资源站点 → 搜索分类；整体覆盖保存） */
+
+    @GET("search/presets")
+    suspend fun searchPresets(): McEnvelope<io.movieclaw.android.core.model.SearchPresetsView>
+
+    @PUT("search/presets")
+    suspend fun updateSearchPresets(
+        @Body body: io.movieclaw.android.core.model.SearchPresetsPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.SearchPresetsView>
+
     @DELETE("search/history")
     suspend fun clearSearchHistory(): McEnvelope<JsonElement>
 
@@ -872,6 +986,201 @@ interface McApi {
     suspend fun forgetDownloadTargetPref(
         @Path("category") category: String,
     ): McEnvelope<JsonElement>
+
+    /* ---------------- 自动入库（导入监听；全管理员） ---------------- */
+
+    @GET("import-watch")
+    suspend fun importWatch(): McEnvelope<List<io.movieclaw.android.core.model.ImportWatchView>>
+
+    @POST("import-watch")
+    suspend fun createImportWatch(
+        @Body body: io.movieclaw.android.core.model.ImportWatchPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.ImportWatchView>
+
+    @PUT("import-watch/{id}")
+    suspend fun updateImportWatch(
+        @Path("id") id: Long,
+        @Body body: io.movieclaw.android.core.model.ImportWatchPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.ImportWatchView>
+
+    @DELETE("import-watch/{id}")
+    suspend fun deleteImportWatch(@Path("id") id: Long): McEnvelope<kotlinx.serialization.json.JsonElement>
+
+    /** 某条规则的台账：status = imported / pending / failed / skipped / ignored（省 = 全部） */
+    @GET("import-watch/{id}/entries")
+    suspend fun importWatchEntries(
+        @Path("id") id: Long,
+        @Query("status") status: String? = null,
+    ): McEnvelope<io.movieclaw.android.core.model.IngestEntriesView>
+
+    /** 忽略一个待处理/失败条目（清单里可随时恢复） */
+    @POST("import-watch/entries/{entryId}/ignore")
+    suspend fun ignoreIngestEntry(
+        @Path("entryId") entryId: Long,
+    ): McEnvelope<io.movieclaw.android.core.model.IngestEntryView>
+
+    /** 恢复被忽略的条目，下轮巡检重新处理 */
+    @POST("import-watch/entries/{entryId}/restore")
+    suspend fun restoreIngestEntry(
+        @Path("entryId") entryId: Long,
+    ): McEnvelope<io.movieclaw.android.core.model.IngestEntryView>
+
+    /** 认领：挂到某个 TMDB 条目（电影合集按文件认领时带 entryFile） */
+    @POST("import-watch/entries/{entryId}/claim")
+    suspend fun claimIngestEntry(
+        @Path("entryId") entryId: Long,
+        @Body body: io.movieclaw.android.core.model.ClaimPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.IngestEntryView>
+
+    /* ---------------- 资源站点（设置 → 资源站点；全管理员） ---------------- */
+
+    /* ---------------- 订阅规则（规则组；全管理员） ---------------- */
+
+    /** 新建规则组；spec 为整份规则，match_rules 为适用范围（空 = 不限） */
+    @POST("rule-sets")
+    suspend fun createRuleSet(
+        @Body body: io.movieclaw.android.core.model.RuleSetPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.RuleSetView>
+
+    @PUT("rule-sets/{id}")
+    suspend fun updateRuleSet(
+        @Path("id") id: Long,
+        @Body body: io.movieclaw.android.core.model.RuleSetPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.RuleSetView>
+
+    @POST("rule-sets/{id}/default")
+    suspend fun setDefaultRuleSet(
+        @Path("id") id: Long,
+    ): McEnvelope<io.movieclaw.android.core.model.RuleSetView>
+
+    @DELETE("rule-sets/{id}")
+    suspend fun deleteRuleSet(@Path("id") id: Long): McEnvelope<kotlinx.serialization.json.JsonElement>
+
+    /** 可接入的站点目录（含每种授权方式要填的字段） */
+    @GET("sites/catalog")
+    suspend fun sitesCatalog(): McEnvelope<List<io.movieclaw.android.core.model.SiteCatalogItem>>
+
+    @GET("sites")
+    suspend fun sites(): McEnvelope<List<io.movieclaw.android.core.model.ConfiguredSite>>
+
+    /** 各站点的种子缓存与同步节奏（展开详情的「索引」段） */
+    @GET("sites/sync-stats")
+    suspend fun siteSyncStats(): McEnvelope<Map<String, io.movieclaw.android.core.model.SiteSyncStatsView>>
+
+    /** 各站点的刷流运行统计（展开详情的「刷流」段） */
+    @GET("sites/boost-stats")
+    suspend fun siteBoostStats(): McEnvelope<Map<String, io.movieclaw.android.core.model.SiteBoostStatsView>>
+
+    /** 新增站点：保存后服务端异步验证（返回 status=verifying） */
+    @POST("sites")
+    suspend fun createSite(
+        @Body body: io.movieclaw.android.core.model.SiteConfigCreate,
+    ): McEnvelope<io.movieclaw.android.core.model.ConfiguredSite>
+
+    /** 更新授权并重新验证（cookie / api key / 密码都不回显，需重填） */
+    @PUT("sites/{siteId}")
+    suspend fun updateSite(
+        @Path("siteId") siteId: String,
+        @Body body: io.movieclaw.android.core.model.SiteConfigUpdate,
+    ): McEnvelope<io.movieclaw.android.core.model.ConfiguredSite>
+
+    @PATCH("sites/{siteId}/status")
+    suspend fun setSiteEnabled(
+        @Path("siteId") siteId: String,
+        @Body body: io.movieclaw.android.core.model.SiteEnabledPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.ConfiguredSite>
+
+    /** 站点保护：开启后订阅不会自动从该站拉种（下载量归零），手动搜索不受影响 */
+    @PATCH("sites/{siteId}/protection")
+    suspend fun setSiteProtection(
+        @Path("siteId") siteId: String,
+        @Body body: io.movieclaw.android.core.model.SiteProtectedPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.ConfiguredSite>
+
+    /** 刷流：开/关、预算、保留期、用哪台下载器 */
+    @PATCH("sites/{siteId}/ratio-boost")
+    suspend fun setSiteBoost(
+        @Path("siteId") siteId: String,
+        @Body body: io.movieclaw.android.core.model.SiteBoostPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.ConfiguredSite>
+
+    /** 暂停 / 恢复刷流（做种限速让出上行） */
+    @PATCH("sites/{siteId}/ratio-boost/pause")
+    suspend fun setSiteBoostPaused(
+        @Path("siteId") siteId: String,
+        @Body body: io.movieclaw.android.core.model.SitePausePayload,
+    ): McEnvelope<io.movieclaw.android.core.model.ConfiguredSite>
+
+    /** 手动重新验证（返回 verifying；验证中重复调用 409） */
+    @POST("sites/{siteId}/verify")
+    suspend fun verifySite(
+        @Path("siteId") siteId: String,
+    ): McEnvelope<io.movieclaw.android.core.model.ConfiguredSite>
+
+    @DELETE("sites/{siteId}")
+    suspend fun deleteSite(
+        @Path("siteId") siteId: String,
+    ): McEnvelope<kotlinx.serialization.json.JsonElement>
+
+    /* ---------------- 下载器配置（设置 → 下载器；全管理员） ---------------- */
+
+    /** 可接入的下载器类型：内置 qBittorrent / Transmission，插件可追加 */
+    @GET("downloaders/types")
+    suspend fun downloaderTypes(): McEnvelope<List<io.movieclaw.android.core.model.DownloaderTypeInfo>>
+
+    @GET("downloaders/{id}")
+    suspend fun downloader(@Path("id") id: Long): McEnvelope<io.movieclaw.android.core.model.DownloaderView>
+
+    /** 新增：保存后服务端异步测试连接（返回 status=verifying） */
+    @POST("downloaders")
+    suspend fun createDownloader(
+        @Body body: io.movieclaw.android.core.model.DownloaderPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.DownloaderView>
+
+    /** 更新：全字段覆盖并重新测试（密码不回显，留空 = 无密码） */
+    @PUT("downloaders/{id}")
+    suspend fun updateDownloader(
+        @Path("id") id: Long,
+        @Body body: io.movieclaw.android.core.model.DownloaderPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.DownloaderView>
+
+    /** 启用 / 停用（不触发重测） */
+    @PATCH("downloaders/{id}/status")
+    suspend fun setDownloaderEnabled(
+        @Path("id") id: Long,
+        @Body body: io.movieclaw.android.core.model.DownloaderStatusPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.DownloaderView>
+
+    /** 设为默认（其他条目的默认标记会被清掉） */
+    @POST("downloaders/{id}/default")
+    suspend fun setDefaultDownloader(
+        @Path("id") id: Long,
+    ): McEnvelope<io.movieclaw.android.core.model.DownloaderView>
+
+    /** 手动重新测试连接（返回 status=verifying；测试中重复调用 409） */
+    @POST("downloaders/{id}/verify")
+    suspend fun verifyDownloader(
+        @Path("id") id: Long,
+    ): McEnvelope<io.movieclaw.android.core.model.DownloaderView>
+
+    /** 删除配置（下载器里的任务不受影响） */
+    @DELETE("downloaders/{id}")
+    suspend fun deleteDownloader(
+        @Path("id") id: Long,
+    ): McEnvelope<io.movieclaw.android.core.model.DownloaderDeleteResult>
+
+    /** 实时读取下载器的限速 / 队列 */
+    @GET("downloaders/{id}/limits")
+    suspend fun downloaderLimits(
+        @Path("id") id: Long,
+    ): McEnvelope<io.movieclaw.android.core.model.DownloaderLimits>
+
+    /** 写入限速 / 队列（返回生效值，下载器可能钳制） */
+    @PUT("downloaders/{id}/limits")
+    suspend fun setDownloaderLimits(
+        @Path("id") id: Long,
+        @Body body: io.movieclaw.android.core.model.DownloaderLimits,
+    ): McEnvelope<io.movieclaw.android.core.model.DownloaderLimits>
 
     /** 下载器列表（脱敏）：落点弹窗的「其他保存位置」用它列目录候选 */
     @GET("downloaders")
@@ -924,6 +1233,19 @@ interface McApi {
 
     @GET("subscriptions/automation-readiness")
     suspend fun automationReadiness(): McEnvelope<PipelineHealth>
+
+    /* 智能选择：电影 / 剧集各自的品质目标与等待耐心（设置 → 订阅规则 → 智能选择） */
+
+    @GET("subscriptions/smart-profiles/{kind}")
+    suspend fun smartProfile(
+        @Path("kind") kind: String,
+    ): McEnvelope<io.movieclaw.android.core.model.SmartProfileView>
+
+    @PUT("subscriptions/smart-profiles/{kind}")
+    suspend fun saveSmartProfile(
+        @Path("kind") kind: String,
+        @Body body: io.movieclaw.android.core.model.SmartProfilePayload,
+    ): McEnvelope<io.movieclaw.android.core.model.SmartProfileView>
 
     @POST("subscriptions/title-preview")
     suspend fun titlePreview(@Body body: TitlePreviewRequest): McEnvelope<PrepareView>
@@ -1201,8 +1523,139 @@ interface McApi {
     suspend fun stopAgentSession(@Path("sessionId") sessionId: String): McEnvelope<JsonElement>
 
     /** 对话框可选的全部模型（跨实例，`GET /llm/models`）；composer 的模型 chip 用它 */
+    // ---- MovieClaw Cloud（iOS `cloudStatus` / `cloudRenew` / `cloudSettingsSet`）----
+
+    /** Cloud 连接状态：GET /cloud */
+    @GET("cloud")
+    suspend fun cloudStatus(): McEnvelope<io.movieclaw.android.core.model.CloudStatusView>
+
+    /** 续期：POST /cloud/renew */
+    @POST("cloud/renew")
+    suspend fun cloudRenew(): McEnvelope<io.movieclaw.android.core.model.CloudStatusView>
+
+    /** 统计上报开关：PUT /cloud/settings */
+    @PUT("cloud/settings")
+    suspend fun cloudSettingsSet(
+        @Body body: io.movieclaw.android.core.model.CloudSettingsRequest,
+    ): McEnvelope<io.movieclaw.android.core.model.CloudStatusView>
+    // ---- 刮削与整理（iOS `scrapeShow`；写入口 `/scrape/config` 的 payload 是嵌套整份配置，
+    //      为避免"部分保存把别的字段重置"，本版只做只读展示）----
+
+    /** 保存刮削配置：PUT /scrape/config（**整份** setting 提交） */
+    @PUT("scrape/config")
+    suspend fun scrapeSet(
+        @Body body: io.movieclaw.android.core.model.ScrapeSetting,
+    ): McEnvelope<io.movieclaw.android.core.model.ScrapeConfigView>
+
+    /** Fanart 密钥状态：GET /scrape/fanart */
+    @GET("scrape/fanart")
+    suspend fun scrapeFanartShow(): McEnvelope<io.movieclaw.android.core.model.ScrapeFanartView>
+
+    /** 保存 Fanart 密钥：PUT /scrape/fanart */
+    @PUT("scrape/fanart")
+    suspend fun scrapeFanartSetKey(
+        @Body body: io.movieclaw.android.core.model.ScrapeFanartKeyPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.ScrapeFanartView>
+
+    /** 图片存储估算：GET /scrape/storage-estimate */
+    @GET("scrape/storage-estimate")
+    suspend fun scrapeStorageEstimate(): McEnvelope<io.movieclaw.android.core.model.ScrapeStorageEstimate>
+    /** 语言选项：GET /scrape/language-options */
+    @GET("scrape/language-options")
+    suspend fun scrapeLanguages(): McEnvelope<List<io.movieclaw.android.core.model.ScrapeLanguageOption>>
+
+    /** 地区选项：GET /scrape/country-options */
+    @GET("scrape/country-options")
+    suspend fun scrapeCountries(): McEnvelope<List<io.movieclaw.android.core.model.ScrapeCountryOption>>
+    /** 刮削配置与生效值：GET /scrape/config */
+    @GET("scrape/config")
+    suspend fun scrapeShow(): McEnvelope<io.movieclaw.android.core.model.ScrapeConfigView>
+    // ---- Webhook（iOS `webhookShow` / `webhookTest` / `webhookDeliveries`）----
+
+    /** Webhook 配置：GET /webhook */
+    @GET("webhook")
+    suspend fun webhookShow(): McEnvelope<io.movieclaw.android.core.model.WebhookConfigView>
+
+    /** 整体保存 Webhook 总开关与端点（现有端点按 id 保留 secret） */
+    @PUT("webhook")
+    suspend fun webhookSet(
+        @Body body: io.movieclaw.android.core.model.WebhookConfigPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.WebhookConfigView>
+
+    /** 测试某个端点：POST /webhook/endpoints/{id}/test */
+    @POST("webhook/endpoints/{endpointId}/test")
+    suspend fun webhookTest(
+        @Path("endpointId") endpointId: String,
+    ): McEnvelope<io.movieclaw.android.core.model.WebhookDeliveryView>
+
+    /** 某端点的投递记录：GET /webhook/endpoints/{id}/deliveries */
+    @GET("webhook/endpoints/{endpointId}/deliveries")
+    suspend fun webhookDeliveries(
+        @Path("endpointId") endpointId: String,
+    ): McEnvelope<List<io.movieclaw.android.core.model.WebhookDeliveryView>>
+    // ---- MCP（iOS `mcpStatus` / `mcpToggle`）----
+
+    /** MCP 总状态（开关、地址前缀、端点清单）：GET /mcp/status */
+    @GET("mcp/status")
+    suspend fun mcpStatus(): McEnvelope<io.movieclaw.android.core.model.McpStatusView>
+
+    /** MCP 总开关：PUT /mcp/status */
+    @PUT("mcp/status")
+    suspend fun mcpToggle(
+        @Body body: io.movieclaw.android.core.model.McpToggleRequest,
+    ): McEnvelope<io.movieclaw.android.core.model.McpStatusView>
+    // ---- 推送（iOS `pushChannelsList` / `pushChannelsOfficialSet` / `channelsImPushConfig*`）----
+
+    /** 推送通道与设备覆盖：GET /push/channels */
+    @GET("push/channels")
+    suspend fun pushChannelsList(): McEnvelope<io.movieclaw.android.core.model.PushChannelsView>
+
+    /** 启用 / 停用官方推送通道：PUT /push/channels/official */
+    @PUT("push/channels/official")
+    suspend fun pushChannelsOfficialSet(
+        @Body body: io.movieclaw.android.core.model.OfficialChannelRequest,
+    ): McEnvelope<io.movieclaw.android.core.model.PushChannelsView>
+
+    /** 读取 IM 推送内容开关：GET /channels/im/push-config */
+    @GET("channels/im/push-config")
+    suspend fun channelsImPushConfigGet(): McEnvelope<io.movieclaw.android.core.model.ChannelPushConfigView>
+
+    /** 保存 IM 推送内容开关：PUT /channels/im/push-config */
+    @PUT("channels/im/push-config")
+    suspend fun channelsImPushConfigUpdate(
+        @Body body: io.movieclaw.android.core.model.ChannelPushConfigView,
+    ): McEnvelope<io.movieclaw.android.core.model.ChannelPushConfigView>
+    /** AI 设定（各用途默认模型）：GET /llm/defaults */
+    @GET("llm/defaults")
+    suspend fun llmDefaultsShow(): McEnvelope<io.movieclaw.android.core.model.LlmDefaultsView>
+
+    /** 保存 AI 设定：PUT /llm/defaults */
+    @PUT("llm/defaults")
+    suspend fun llmDefaultsUpdate(
+        @Body body: io.movieclaw.android.core.model.LlmDefaultsPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.LlmDefaultsView>
     @GET("llm/models")
     suspend fun llmModels(): McEnvelope<List<io.movieclaw.android.core.model.LlmModelOption>>
+
+    /** 智能体网页搜索的接入状态（不含密钥明文）；老服务端 404 → 整节隐藏 */
+    @GET("llm/web-search")
+    suspend fun webSearchShow(): McEnvelope<io.movieclaw.android.core.model.WebSearchConfig>
+
+    /** 验证并保存（服务端先用这把 Key 搜索一次，通过才落库）；编辑时留空沿用原密钥 */
+    @PUT("llm/web-search")
+    suspend fun webSearchUpdate(
+        @Body body: io.movieclaw.android.core.model.WebSearchSavePayload,
+    ): McEnvelope<io.movieclaw.android.core.model.WebSearchConfig>
+
+    /** 关闭智能体网页搜索并清除已保存的 API Key */
+    @DELETE("llm/web-search")
+    suspend fun webSearchClear(): McEnvelope<io.movieclaw.android.core.model.WebSearchConfig>
+
+    /** 测试搜索供应商的 API Key（不保存） */
+    @POST("llm/web-search/test")
+    suspend fun webSearchTest(
+        @Body body: io.movieclaw.android.core.model.WebSearchTestPayload,
+    ): McEnvelope<io.movieclaw.android.core.model.WebSearchTestResult>
 
     /** Agent 技能清单（composer 的数据源；气泡里的 `/skill:名字` chip 也按它做门禁） */
     @GET("skills")

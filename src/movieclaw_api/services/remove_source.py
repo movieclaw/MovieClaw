@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
@@ -24,6 +25,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import AppException
+from movieclaw_api.i18n import messages, t
+from movieclaw_api.i18n.stored import (
+    exception_reference,
+    reference,
+    reference_fields,
+    render_value,
+    source_render,
+)
 from movieclaw_api.services import jobs
 from movieclaw_api.services.download_sources import FileTorrent, torrents_for_files
 from movieclaw_api.services.library.delete_participants import (
@@ -49,7 +58,11 @@ JOB_TYPE = "downloads.remove-source"
 NOTICE_PREFIX = "downloads.remove-source:"
 
 
-async def _others(session: AsyncSession, file_ids: tuple[int, ...], media_item_id: int) -> str:
+def _listed(parts: list, separator: str = "common.list.separator") -> dict:
+    return {"message_list": parts, "separator_key": separator}
+
+
+async def _others(session: AsyncSession, file_ids: tuple[int, ...], media_item_id: int) -> dict:
     """种子还供着的别的文件，说成人话：「同一部片的另外 3 个文件」「《电影乙》」「没识别的文件」。
 
     不按插件 / 条目定制，只按文件归属分三类。"""
@@ -63,30 +76,32 @@ async def _others(session: AsyncSession, file_ids: tuple[int, ...], media_item_i
     same = sum(1 for item_id, _ in rows if item_id == media_item_id)
     titles = sorted({title for item_id, title in rows if item_id not in (None, media_item_id)})
     unknown = sum(1 for item_id, _ in rows if item_id is None)
-    parts = []
+    parts: list = []
     if same:
-        parts.append(f"同一部片的另外 {same} 个文件")
+        parts.append(reference("download.removal.sameItemFiles", count=same))
     if titles:
-        shown = "、".join(f"《{t}》" for t in titles[:3])
-        parts.append(shown + (f"等 {len(titles)} 部" if len(titles) > 3 else ""))
+        shown = _listed([reference("download.removal.workTitle", title=t) for t in titles[:3]])
+        if len(titles) > 3:
+            shown = reference("download.removal.titlesMore", titles=shown, count=len(titles))
+        parts.append(shown)
     if unknown:
-        parts.append(f"{unknown} 个没识别的文件")
-    return "、".join(parts) or "媒体库里别的文件"
+        parts.append(reference("download.removal.unknownFiles", count=unknown))
+    return _listed(parts) if parts else reference("download.removal.otherLibraryFiles")
 
 
 async def _skip_reason(
     session: AsyncSession, torrent: FileTorrent, request: DeleteRequest
-) -> str | None:
-    """这个任务为什么不能删；能删返回 None。"""
+) -> dict | None:
+    """这个任务为什么不能删（文案引用）；能删返回 None。"""
     if torrent.downloader_id is None:
-        return "下载器配置已删除，找不到这个任务"
+        return reference("download.removal.skipNoDownloader")
     if torrent.owned_by_movieclaw is False:
-        return "不是 MovieClaw 投递的种子"
+        return reference("download.removal.skipNotOwned")
     if torrent.hit_and_run:
-        return "有 H&R 考核风险，删了可能违反站点规则"
+        return reference("download.removal.skipHitAndRun")
     if torrent.other_file_ids:
         others = await _others(session, torrent.other_file_ids, request.media_item_id)
-        return f"这个种子还供着{others}，删了会连带删掉它们"
+        return reference("download.removal.skipSharedFiles", others=others)
     return None
 
 
@@ -96,18 +111,20 @@ def _name(torrent: FileTorrent) -> str:
 
 async def _assess(
     session: AsyncSession, request: DeleteRequest
-) -> list[tuple[FileTorrent, str | None]]:
+) -> list[tuple[FileTorrent, dict | None]]:
     torrents = await torrents_for_files(session, [f.id for f in request.files])
     return [(t, await _skip_reason(session, t, request)) for t in torrents]
 
 
-def _counted(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+def _counted(items: list[tuple[Any, str]]) -> list[tuple[Any, str]]:
     """同一句合并成一行，重复的注明「（N 个任务）」；保持首次出现的顺序。"""
-    counts: dict[tuple[str, str], int] = {}
-    for item in items:
-        counts[item] = counts.get(item, 0) + 1
+    counts: dict[str, list] = {}
+    for text, tone in items:
+        slot = counts.setdefault(json.dumps([text, tone], sort_keys=True), [text, tone, 0])
+        slot[2] += 1
     return [
-        (text if n == 1 else f"{text}（{n} 个任务）", tone) for (text, tone), n in counts.items()
+        (text if n == 1 else reference("download.removal.taskCount", text=text, count=n), tone)
+        for text, tone, n in counts.values()
     ]
 
 
@@ -142,15 +159,15 @@ async def preview(request: DeleteRequest) -> Preview:
         if not assessed:
             return Preview(
                 available=False,
-                reason="没找到对应的下载任务（扫描进来的文件或来源已不可考），只会删除媒体库文件",
+                reason=t("download.removal.noTask"),
             )
         lines: list[PreviewLine] = []
-        found: list[tuple[str, str]] = []
+        found: list[tuple[dict, str]] = []
         deletable: list[FileTorrent] = []
-        kept: list[str] = []
+        kept: list[dict] = []
         for torrent, reason in assessed:
             if reason is not None:
-                kept.append(f"保留「{_name(torrent)}」：{reason}")
+                kept.append(reference("download.removal.kept", name=_name(torrent), reason=reason))
                 continue
             assert torrent.downloader_id is not None
             try:
@@ -158,46 +175,70 @@ async def preview(request: DeleteRequest) -> Preview:
                     session, downloader_id=torrent.downloader_id, info_hash=torrent.info_hash
                 )
             except AppException as exc:
-                kept.append(f"保留「{_name(torrent)}」：{exc.message}")
+                kept.append(
+                    reference(
+                        "download.removal.kept",
+                        name=_name(torrent),
+                        reason=exception_reference(exc),
+                    )
+                )
                 continue
             if plan.exists is False:
-                kept.append(f"「{_name(torrent)}」已经不在下载器「{plan.downloader_name}」里了")
+                kept.append(
+                    reference(
+                        "download.removal.missingInDownloader",
+                        name=_name(torrent),
+                        downloader=plan.downloader_name,
+                    )
+                )
                 continue
             deletable.append(torrent)
-            where = f"下载器「{plan.downloader_name}」"
             if plan.exists is None:
                 found.append(
                     (
-                        f"{where}暂时连不上，确认不了「{_name(torrent)}」还在不在；"
-                        "删不掉时可在「活动 → 任务」里重试",
+                        reference(
+                            "download.removal.downloaderUnreachable",
+                            downloader=plan.downloader_name,
+                            name=_name(torrent),
+                        ),
                         "warn",
                     )
                 )
             else:
-                found.append((f"{where}：删除「{plan.title or _name(torrent)}」", "info"))
+                found.append(
+                    (
+                        reference(
+                            "download.removal.willDelete",
+                            downloader=plan.downloader_name,
+                            name=plan.title or _name(torrent),
+                        ),
+                        "info",
+                    )
+                )
         tracking = await _subscription_tracking(session, deletable)
 
     # 追更的剧常是同名季包重发多次（hash 不同、名字相同）：同一句只列一次，后面注明个数
-    lines.extend(PreviewLine(text=text, tone=tone) for text, tone in _counted(found))
-    kept_lines = [text for text, _ in _counted([(k, "warn") for k in kept])]
+    lines.extend(PreviewLine(text=render_value(text), tone=tone) for text, tone in _counted(found))
+    kept_lines = [render_value(text) for text, _ in _counted([(k, "warn") for k in kept])]
     lines.extend(PreviewLine(text=text, tone="warn") for text in kept_lines)
     if not deletable:
-        reason = kept_lines[0] if len(kept_lines) == 1 else "；".join(kept_lines)
-        return Preview(available=False, reason=reason)
+        return Preview(available=False, reason=t("common.list.issueSeparator").join(kept_lines))
     if _hardlinked(request):
         # 媒体库的预览已经说了「只删库文件不释放空间」，这里只说勾上之后的事
-        lines.append(PreviewLine(text="下载目录里的那份会一起删掉，空间才真正腾出来"))
+        lines.append(PreviewLine(text=t("download.removal.hardlinkedFreed")))
     else:
-        lines.append(PreviewLine(text="下载目录里的源文件会一起删除"))
+        lines.append(PreviewLine(text=t("download.removal.sourceDeleted")))
     if tracking:
-        lines.append(PreviewLine(text="这部片的订阅还在追：删除后对应的集会重新下载", tone="warn"))
-    lines.append(PreviewLine(text="源文件删除后不可恢复", tone="danger"))
+        lines.append(PreviewLine(text=t("download.removal.subscriptionTracking"), tone="warn"))
+    lines.append(PreviewLine(text=t("download.removal.irreversible"), tone="danger"))
     return Preview(available=True, lines=tuple(lines))
 
 
 PARTICIPANT = DeleteParticipant(
-    label="同时删除下载任务和源文件",
-    help="把下载器里对应的任务连同下载目录里的数据一起删掉，真正腾出空间；源文件删除不可恢复",
+    label=messages("zh-Hans")["download.removal.optionLabel"],
+    label_key="download.removal.optionLabel",
+    help=messages("zh-Hans")["download.removal.optionHelp"],
+    help_key="download.removal.optionHelp",
     preview=preview,
     job_type=JOB_TYPE,
 )
@@ -214,12 +255,12 @@ async def run_remove_source(context: jobs.JobContext, input_data: dict[str, Any]
     async with db.session() as session:
         assessed = await _assess(session, request)
     removed: list[str] = []
-    kept: list[str] = []
-    failures: list[str] = []
+    kept: list[dict] = []
+    failures: list[dict] = []
     for torrent, reason in assessed:
         await context.raise_if_cancelled()
         if reason is not None:
-            kept.append(f"保留「{_name(torrent)}」：{reason}")
+            kept.append(reference("download.removal.kept", name=_name(torrent), reason=reason))
             continue
         assert torrent.downloader_id is not None
         try:
@@ -232,30 +273,42 @@ async def run_remove_source(context: jobs.JobContext, input_data: dict[str, Any]
                 )
             removed.append(_name(torrent))
         except AppException as exc:
-            failures.append(f"「{_name(torrent)}」删除失败：{exc.message}")
+            failures.append(
+                reference(
+                    "download.removal.deleteFailed",
+                    name=_name(torrent),
+                    error=exception_reference(exc),
+                )
+            )
             logger.warning("删片联动删种失败 hash=%s：%s", torrent.info_hash, exc.message)
         except Exception as exc:  # noqa: BLE001 -- 单项异常不中断其余
-            failures.append(f"「{_name(torrent)}」删除失败：{exc}")
+            failures.append(
+                reference("download.removal.deleteFailed", name=_name(torrent), error=str(exc))
+            )
             logger.warning("删片联动删种异常 hash=%s", torrent.info_hash, exc_info=True)
 
-    parts = []
+    parts: list = []
     if removed:
-        names = "、".join(text for text, _ in _counted([(name, "") for name in removed]))
-        parts.append(f"已删除 {len(removed)} 个下载任务和源文件：{names}")
+        names = _listed([text for text, _ in _counted([(name, "") for name in removed])])
+        parts.append(reference("download.removal.removed", count=len(removed), names=names))
     parts.extend(text for text, _ in _counted([(k, "") for k in kept]))
     if failures:
-        message = "；".join([*parts, *failures])
+        message = reference(
+            "download.removal.summary",
+            parts=_listed([*parts, *failures], "common.list.issueSeparator"),
+        )
         async with db.session() as session:
             await upsert_notice(
                 session,
                 dedupe_key=f"{NOTICE_PREFIX}{context.job_id}",
                 severity=NoticeSeverity.WARNING,
                 source="downloads",
-                title=f"《{request.title}》的下载任务没能全部删除",
-                message="媒体库文件已删除；" + message + "。可在「活动 → 任务」里重试",
+                title_key="notify.removeSourceFailed.title",
+                message_key="notify.removeSourceFailed.body",
+                message_params={"title": request.title, "detail": message},
                 payload={"job_id": context.job_id, "action_href": "/activity"},
             )
-        raise jobs.JobFailed(message, code="REMOVE_SOURCE_FAILED")
+        raise jobs.JobFailed(**reference_fields(message), code="REMOVE_SOURCE_FAILED")
 
     # 处理完了：这些文件的来源记录不再需要（谁的数据谁清理）
     async with db.session() as session:
@@ -267,8 +320,16 @@ async def run_remove_source(context: jobs.JobContext, input_data: dict[str, Any]
             )
         )
         await session.commit()
-    message = "；".join(parts) or "没有需要删除的下载任务"
-    return {"message": message, "removed": removed, "kept": kept}
+    message = (
+        reference("download.removal.summary", parts=_listed(parts, "common.list.issueSeparator"))
+        if parts
+        else reference("download.removal.nothingToDelete")
+    )
+    return {
+        **reference_fields(message),
+        "removed": removed,
+        "kept": [source_render(k) for k in kept],
+    }
 
 
 # ---------------------------------------------------------------------- 网盘库腾空本地之后
@@ -346,8 +407,13 @@ async def after_local_released(released: Any) -> None:
                 dedupe_key=f"{NOTICE_PREFIX}released:{released.file_id}",
                 severity=NoticeSeverity.WARNING,
                 source="downloads",
-                title="文件已传到网盘，但下载任务没删掉",
-                message="；".join(failures)
-                + "。可以在下载器里手动删除，或关掉「设置 → 网盘」里的自动删除",
+                title_key="notify.cloudSourceKept.title",
+                message_key="notify.cloudSourceKept.body",
+                message_params={
+                    "detail": {
+                        "message_list": failures,
+                        "separator_key": "notify.details.separator",
+                    }
+                },
                 payload={"action_href": "/downloads"},
             )

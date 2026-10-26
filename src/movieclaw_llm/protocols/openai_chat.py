@@ -48,6 +48,7 @@ def sdk_default_user_agent() -> str:
     openai = _sdk()
     return f"{openai.AsyncOpenAI.__name__}/Python {openai.__version__}"
 
+
 # OpenAI 的 finish_reason → 统一枚举；未知值按 stop 兜底
 _FINISH_REASON_MAP: dict[str, FinishReason] = {
     "stop": "stop",
@@ -55,6 +56,7 @@ _FINISH_REASON_MAP: dict[str, FinishReason] = {
     "length": "length",
     "content_filter": "content_filter",
 }
+
 
 class OpenAIChatProtocol(OpenAIProtocolBase):
     # -- 请求转换 -----------------------------------------------------------
@@ -128,6 +130,8 @@ class OpenAIChatProtocol(OpenAIProtocolBase):
                 f"模型「{model_id}」的工具调用需要 Responses API，"
                 "请在模型接入的高级设置中切换 API 协议",
                 provider=self.config.name,
+                message_key="errors.llm.connection.responsesTools",
+                params={"model": model_id},
             )
         payload: dict[str, Any] = {
             "model": model_id,
@@ -184,6 +188,8 @@ class OpenAIChatProtocol(OpenAIProtocolBase):
                     f"模型「{model_id}」在 Chat Completions 中调用工具必须关闭推理；"
                     "如需推理，请切换 Responses API",
                     provider=self.config.name,
+                    message_key="errors.llm.connection.chatToolsNoReasoning",
+                    params={"model": model_id},
                 )
             extra["reasoning_effort"] = "none"
         if (
@@ -268,7 +274,7 @@ class OpenAIChatProtocol(OpenAIProtocolBase):
             stream = await self._client.chat.completions.create(**payload)
         except Exception as exc:  # noqa: BLE001
             err = self._translate_error(exc)
-            yield acc.error_event(str(err))
+            yield acc.error_event(err)
             return
 
         yield ChatStreamEvent(type="start", partial=acc.snapshot())
@@ -314,7 +320,7 @@ class OpenAIChatProtocol(OpenAIProtocolBase):
         except Exception as exc:  # noqa: BLE001 - 流中断以 error 事件收尾，保留 partial
             err = self._translate_error(exc)
             logger.warning("流式调用中断：%s", err)
-            yield acc.error_event(str(err))
+            yield acc.error_event(err)
             return
 
         # 收尾：工具参数完整了，逐个解析并发 toolcall_end

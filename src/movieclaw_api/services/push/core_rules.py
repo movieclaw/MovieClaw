@@ -10,6 +10,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.labels import device_kind, language_name
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.services.push.notify import AlertContent, server_identity
 from movieclaw_api.services.push.rules import Aggregator, Audience, Rule, register
 
@@ -35,8 +38,8 @@ def _alert_resolved(_name: str, payload: Any) -> None:
 # ---------------------------------------------------------------------- 订阅、媒体库
 async def _identity_skipped(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
     return AlertContent(
-        title=f"《{p.media.title}》仍在寻找资源",
-        body="发现同名影片，部分资源暂时无法确认，已跳过。订阅会继续寻找，无需你处理。",
+        title=t("notify.identitySkipped.title", title=p.media.title),
+        body=t("notify.identitySkipped.body"),
         open=f"/subscriptions/{p.subscription_id}",
         thread=f"subscription:{p.subscription_id}",
     )
@@ -47,11 +50,8 @@ async def _stuck(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
 
     which = units_text([(u.season, u.episode) for u in p.units])
     return AlertContent(
-        title=f"《{p.media.title}》{which}下载卡住了",
-        body=(
-            f"下载停滞，自动换源暂时没找到同品质的替代资源，约 {p.retry_hours} 小时后再找；"
-            "也可以在订阅里手动换一个。"
-        ),
+        title=t("notify.stuck.title", title=p.media.title, units=which),
+        body=t("notify.stuck.body", hours=p.retry_hours),
         open=f"/subscriptions/{p.subscription_id}",
         thread=f"subscription:{p.subscription_id}",
     )
@@ -62,10 +62,17 @@ async def _awaiting_subtitles(_s: AsyncSession, _member: int, p: Any) -> AlertCo
 
     which = units_text([(u.season, u.episode) for u in p.units])
     return AlertContent(
-        title=f"《{p.media.title}》{which}还没有字幕版",
-        body=(
-            f"等了 {p.waited_hours} 小时，还没有带{p.acceptable}字幕的版本，"
-            f"{p.language}原版已有 {p.originals} 个。可以继续等，也可以在订阅里先下原版。"
+        title=t("notify.subtitles.title", title=p.media.title, units=which),
+        body=t(
+            "notify.subtitles.body",
+            hours=p.waited_hours,
+            acceptable=(
+                t("media.language.or").join(language_name(code) for code in p.acceptable_languages)
+                if p.acceptable_languages
+                else p.acceptable
+            ),
+            language=language_name(p.language_code) if p.language_code is not None else p.language,
+            count=p.originals,
         ),
         open=f"/subscriptions/{p.subscription_id}",
         thread=f"subscription:{p.subscription_id}",
@@ -73,13 +80,11 @@ async def _awaiting_subtitles(_s: AsyncSession, _member: int, p: Any) -> AlertCo
 
 
 async def _more_episodes(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
-    where = "站点上出现了后面的集" if p.source == "site" else "豆瓣的集数更多"
     return AlertContent(
-        title=f"《{p.media.title}》第 {p.season} 季可能有 {p.hinted_count} 集",
-        body=(
-            f"TMDB 只录了 {p.known_count} 集，但{where}。在订阅里确认集数后，"
-            "会继续追后面的集。"
+        title=t(
+            "notify.moreEpisodes.title", title=p.media.title, season=p.season, count=p.hinted_count
         ),
+        body=t("notify.moreEpisodes.body", count=p.known_count, source=p.source),
         open=f"/subscriptions/{p.subscription_id}",
         thread=f"subscription:{p.subscription_id}",
     )
@@ -89,12 +94,15 @@ async def _more_episodes(_s: AsyncSession, _member: int, p: Any) -> AlertContent
 async def _new_device(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
     # 安全提醒一定要说清是哪台服务器：不知道在哪，就没法判断是不是自己、去哪注销
     server = (await server_identity())["name"]
-    where = f"，来源 {p.ip}" if p.ip else ""
     return AlertContent(
-        title="新设备登录了你的账号",
-        body=(
-            f"你在「{server}」上的账号刚在新设备登录：「{p.device_name}」（{p.kind_label}）{where}。"
-            "不是你本人的话，去「账号 → 设备」注销它。"
+        title=t("notify.device.title"),
+        body=t(
+            "notify.device.body",
+            server=server,
+            device=p.device_name,
+            kind=p.kind_label if p.kind == "player" else device_kind(p.kind, p.kind_label),
+            hasSource="yes" if p.ip else "no",
+            ip=p.ip or "",
         ),
         open="/settings/devices",
         thread="account",
@@ -106,13 +114,9 @@ async def _new_device(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
 
 # ---------------------------------------------------------------------- 管理员
 async def _new_version(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
-    how = (
-        "在「设置 → 更新与维护」里一键更新"
-        if p.compatible
-        else "这个版本要更新 Docker 镜像，步骤见「设置 → 更新与维护」"
-    )
+    how = t("notify.update.inApp") if p.compatible else t("notify.update.docker")
     return AlertContent(
-        title=f"MovieClaw {p.version} 可以更新了",
+        title=t("notify.update.title", version=p.version),
         body=how,
         open="/settings/app",
         thread="update",
@@ -123,9 +127,8 @@ async def _new_version(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
 #: 使用建议的文案（``system.tip.suggested`` 的 ``tip``）
 TIPS: dict[str, dict[str, str]] = {
     "reel-clips": {
-        "title": "开启片段预切，预告和刷片更流畅",
-        "body": "家里已经有人在刷片或看电视大图预告了。在「设置 → 播放」打开片段预切，"
-        "起播更快、不卡顿。",
+        "title": "notify.tips.prewarmTitle",
+        "body": "notify.tips.prewarmBody",
         "open": "/settings/playback",
     },
 }
@@ -136,7 +139,11 @@ async def _tip(_s: AsyncSession, _member: int, p: Any) -> AlertContent | None:
     if text is None:
         return None
     return AlertContent(
-        title=text["title"], body=text["body"], open=text["open"], thread="tips", source="server"
+        title=t(text["title"]),
+        body=t(text["body"]),
+        open=text["open"],
+        thread="tips",
+        source="server",
     )
 
 
@@ -144,11 +151,20 @@ async def _agent_finished(_s: AsyncSession, _member: int, p: Any) -> AlertConten
     # 只留最该看的：标题 = 哪个会话，正文 = 回答开头；出错时正文开头就说「没能完成」。
     # 不写「AI 助手已回复」——来源有 App 图标交代，多个会话同时跑时靠标题区分（2026-10-13 用户定）
     if p.status == "done":
-        body = p.answer or "已回复，点开查看"
+        body = p.answer or t("notify.agent.replied")
     else:
-        body = f"没能完成：{p.error or '原因未知'}"
+        error_ref = getattr(p, "error_ref", None)
+        body = t(
+            "notify.agent.failed",
+            reason=render_value(error_ref) if error_ref else p.error or t("notify.agent.unknown"),
+        )
     return AlertContent(
-        title=p.title or "AI 助手",
+        title=(
+            render_value({**p.title_ref, "message": p.title or ""}).strip()[:80]
+            if getattr(p, "title_ref", None)
+            else p.title
+        )
+        or t("notify.agent.title"),
         body=body,
         open=f"/sessions/{p.session_id}",
         thread=f"agent:{p.session_id}",
@@ -160,9 +176,9 @@ def register_all() -> None:
     register(
         Aggregator(
             key="subscription.fulfilled",
-            title="入库完成",
-            description="你订阅或手动下载的电影、剧集整理进媒体库时",
-            group="我的订阅",
+            title="notify.preferences.importedTitle",
+            description="notify.preferences.importedDescription",
+            group="notify.groups.subscriptions",
             default=True,
             events=("subscription.fulfilled", "download.imported"),
             handle=_cards,
@@ -171,9 +187,9 @@ def register_all() -> None:
     register(
         Aggregator(
             key="subscription.download_started",
-            title="开始下载",
-            description="你订阅的内容找到资源、交给下载器时",
-            group="我的订阅",
+            title="notify.preferences.startedTitle",
+            description="notify.preferences.startedDescription",
+            group="notify.groups.subscriptions",
             default=False,
             events=("subscription.download_started",),
             handle=_cards,
@@ -182,9 +198,9 @@ def register_all() -> None:
     register(
         Rule(
             event="subscription.identity_skipped",
-            title="已跳过同名资源",
-            description="订阅发现无法确认身份的同名资源时知会一次，无需处理",
-            group="我的订阅",
+            title="notify.preferences.identitySkippedTitle",
+            description="notify.preferences.identitySkippedDescription",
+            group="notify.groups.subscriptions",
             default=True,
             audience=Audience.subscribers("subscription_id"),
             render=_identity_skipped,
@@ -194,9 +210,9 @@ def register_all() -> None:
     register(
         Rule(
             event="subscription.awaiting_subtitles",
-            title="等不到字幕版",
-            description="智能订阅等到期仍没有你看得懂的字幕版本时；原版不会自动下载",
-            group="我的订阅",
+            title="notify.preferences.subtitlesTitle",
+            description="notify.preferences.subtitlesDescription",
+            group="notify.groups.subscriptions",
             default=True,
             audience=Audience.subscribers("subscription_id"),
             render=_awaiting_subtitles,
@@ -209,9 +225,9 @@ def register_all() -> None:
     register(
         Aggregator(
             key="subscription.upgraded",
-            title="洗版完成",
-            description="你订阅的内容换成了更好的版本时",
-            group="我的订阅",
+            title="notify.preferences.upgradedTitle",
+            description="notify.preferences.upgradedDescription",
+            group="notify.groups.subscriptions",
             default=False,
             events=("subscription.upgraded",),
             handle=_cards,
@@ -220,9 +236,9 @@ def register_all() -> None:
     register(
         Aggregator(
             key="subscription.completed",
-            title="订阅收齐了",
-            description="你订阅的剧全部入库、没有要等的了（剧卡已经说过全部到齐的不再重复）",
-            group="我的订阅",
+            title="notify.preferences.completedTitle",
+            description="notify.preferences.completedDescription",
+            group="notify.groups.subscriptions",
             default=True,
             events=("subscription.status_changed",),
             handle=_cards,
@@ -231,9 +247,9 @@ def register_all() -> None:
     register(
         Rule(
             event="subscription.download_stuck",
-            title="下载卡住了",
-            description="你订阅的内容下载停滞、自动换源也没找到替代资源时（每个下载只提醒一次）",
-            group="我的订阅",
+            title="notify.preferences.stuckTitle",
+            description="notify.preferences.stuckDescription",
+            group="notify.groups.subscriptions",
             default=True,
             audience=Audience.subscribers("subscription_id"),
             render=_stuck,
@@ -243,9 +259,9 @@ def register_all() -> None:
     register(
         Rule(
             event="subscription.more_episodes",
-            title="可能还有更多集",
-            description="站点或豆瓣显示这一季比 TMDB 录的集数多，要你确认后才继续追",
-            group="我的订阅",
+            title="notify.preferences.moreEpisodesTitle",
+            description="notify.preferences.moreEpisodesDescription",
+            group="notify.groups.subscriptions",
             default=True,
             audience=Audience.subscribers("subscription_id"),
             render=_more_episodes,
@@ -255,9 +271,9 @@ def register_all() -> None:
     register(
         Aggregator(
             key="library.items.arrived",
-            title="媒体库有新片",
-            description="你关心的媒体库来了新片或新剧集，不管是谁下载的",
-            group="媒体库",
+            title="notify.preferences.libraryArrivedTitle",
+            description="notify.preferences.libraryArrivedDescription",
+            group="notify.groups.library",
             default=False,
             events=("library.items.arrived",),
             handle=_cards,
@@ -266,9 +282,9 @@ def register_all() -> None:
     register(
         Rule(
             event="account.device.signed_in",
-            title="新设备登录",
-            description="有新的 App、播放器、命令行或转码器登录了你的账号",
-            group="账号安全",
+            title="notify.preferences.deviceSignedInTitle",
+            description="notify.preferences.deviceSignedInDescription",
+            group="notify.groups.security",
             default=True,
             audience=Audience.member("member_id"),
             render=_new_device,
@@ -281,9 +297,9 @@ def register_all() -> None:
     register(
         Aggregator(
             key="system.alert.raised",
-            title="需要处理的问题",
-            description="下载器、站点、导入出错这类需要管理员处理的问题",
-            group="管理员",
+            title="notify.preferences.alertRaisedTitle",
+            description="notify.preferences.alertRaisedDescription",
+            group="notify.groups.admin",
             default=True,
             admin_only=True,
             events=("system.alert.raised",),
@@ -293,9 +309,9 @@ def register_all() -> None:
     register(
         Aggregator(
             key="system.alert.resolved",
-            title="问题已恢复",
-            description="推过的问题自动消失时，那条通知原地改成「已恢复」（安静送达）",
-            group="管理员",
+            title="notify.preferences.alertResolvedTitle",
+            description="notify.preferences.alertResolvedDescription",
+            group="notify.groups.admin",
             default=True,
             admin_only=True,
             events=("system.alert.resolved",),
@@ -305,9 +321,9 @@ def register_all() -> None:
     register(
         Rule(
             event="system.update.available",
-            title="有新版本",
-            description="MovieClaw 发布了新版本时，每个版本只提醒一次",
-            group="管理员",
+            title="notify.preferences.updateTitle",
+            description="notify.preferences.updateDescription",
+            group="notify.groups.admin",
             default=True,
             admin_only=True,
             audience=Audience.admins(),
@@ -318,12 +334,9 @@ def register_all() -> None:
     register(
         Rule(
             event="system.tip.suggested",
-            title="使用建议",
-            description=(
-                "发现有设置能改善体验时（比如家里有人在用刷片、电视大图预告，建议开启片段预切），"
-                "每条只提醒一次"
-            ),
-            group="管理员",
+            title="notify.preferences.tipTitle",
+            description=("notify.preferences.tipDescription"),
+            group="notify.groups.admin",
             default=True,
             admin_only=True,
             audience=Audience.admins(),
@@ -334,12 +347,9 @@ def register_all() -> None:
     register(
         Rule(
             event="agent.run.finished",
-            title="AI 回复完成",
-            description=(
-                "AI 助手回答完你在 App、网页里的提问（或运行出错）时提醒，切到别的 App 也能知道；"
-                "在 IM 里聊的回复本来就在聊天里，不另外提醒"
-            ),
-            group="AI 助手",
+            title="notify.preferences.agentFinishedTitle",
+            description=("notify.preferences.agentFinishedDescription"),
+            group="notify.groups.agent",
             default=True,
             admin_only=True,
             audience=Audience.member("member_id"),

@@ -172,7 +172,7 @@ final class ReelsStore {
             serverOutdated = true
             exhausted = true
         } catch {
-            errorMessage = "片段加载失败：\(error.localizedDescription)"
+            errorMessage = String(localized: .reelsLoadFailed(error.localizedDescription))
         }
     }
 
@@ -216,7 +216,7 @@ final class ReelsStore {
                 resumeAt = nil
                 player.start(api: api, from: from, after: releasing)
             } catch {
-                playerState = .failed("播放器创建失败")
+                playerState = .failed(String(localized: .reelsPlayerFailed))
                 record(item, kind: "fail", detail: ["reason": .string("engine_init")])
                 schedulePrefetch(after: index)
             }

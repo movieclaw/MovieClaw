@@ -37,7 +37,7 @@ def client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     monkeypatch.setattr(routes, "get_tmdb_client", _tmdb)
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as test_client:
         assert (
             test_client.post(
                 "/api/v1/auth/bootstrap", json={"username": "admin", "password": "s3cret-pass"}

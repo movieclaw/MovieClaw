@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.i18n import t
 from movieclaw_api.services.push.images import image_path
 
 
@@ -89,7 +90,9 @@ def subscribers(subscription_id: int):  # type: ignore[no-untyped-def]
 
 
 def display_title(title: str, year: int | None) -> str:
-    return title.strip() or (f"{year} 年的作品" if year else "一部作品")
+    if title.strip():
+        return title.strip()
+    return t("notify.alert.untitledYear", year=year) if year else t("notify.alert.untitled")
 
 
 def lazy_image(image_url: str | None):  # type: ignore[no-untyped-def]

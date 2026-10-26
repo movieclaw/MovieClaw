@@ -14,12 +14,12 @@ struct OfflineBanner: View {
             Image(systemName: "wifi.slash")
                 .foregroundStyle(Theme.warning)
             VStack(alignment: .leading, spacing: 2) {
-                Text("离线浏览").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
-                Text("显示 \(ClientPlatform.deviceName) 上已下载的 \(store.downloadedItemIds.count) 部")
+                Text(String(localized: .offlineBrowseOffline)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
+                Text(String(localized: .offlineShowingDownloaded(ClientPlatform.deviceName, store.downloadedItemIds.count)))
                     .font(.caption).foregroundStyle(Theme.textMuted)
             }
             Spacer(minLength: 8)
-            Button("重新连接") { reachability.reconnect() }
+            Button(String(localized: .settingsCloudConnectReconnect)) { reachability.reconnect() }
                 .font(.subheadline.weight(.medium))
                 .buttonStyle(.glass)
                 .accessibilityIdentifier("offline-reconnect")
@@ -35,7 +35,7 @@ struct OfflineBanner: View {
 
 /// 离线时页签的占位：订阅、发现、活动、搜索这些都要连服务器
 struct OfflinePlaceholder: View {
-    var title = "离线中"
+    var title = String(localized: .offlineOfflineTitle)
     @Environment(Router.self) private var router
     @State private var reachability = ServerReachability.shared
 
@@ -43,12 +43,12 @@ struct OfflinePlaceholder: View {
         ContentUnavailableView {
             Label(title, systemImage: "wifi.slash")
         } description: {
-            Text("这里需要连接服务器。\(ClientPlatform.deviceName) 上已下载的影片在「媒体库」里，可以照常播放。")
+            Text(String(localized: .offlineNeedsServer(ClientPlatform.deviceName)))
         } actions: {
             // App 的 tint 是冷银（近白），裸 .glassProminent 会白底白字看不清
-            Button("去媒体库") { router.selectTab(.library) }
+            Button(String(localized: .mediaPersonOpenLibrary)) { router.selectTab(.library) }
                 .discoverProminentButton()
-            Button("重新连接") { reachability.reconnect() }
+            Button(String(localized: .settingsCloudConnectReconnect)) { reachability.reconnect() }
                 .buttonStyle(.glass)
         }
         .appBackground()
@@ -83,7 +83,7 @@ struct OfflinePosterCell: View {
         NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId)) {
             LibraryPosterCell(
                 title: item.title, year: item.year,
-                extent: item.kind == "tv" ? "已下载 \(store.units(ofItem: item.mediaItemId).filter(\.playable).count) 集" : nil,
+                extent: item.kind == "tv" ? String(localized: .offlineDownloadedCount(store.units(ofItem: item.mediaItemId).filter(\.playable).count)) : nil,
                 url: api.image(item.posterUrl, width: ImageWidth.points(width)),
                 imageAspect: item.primaryAspect,
                 placeholderSymbol: LibraryKindMeta.symbol(item.kind)
@@ -92,16 +92,16 @@ struct OfflinePosterCell: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("删除下载", systemImage: "trash", role: .destructive) { confirmDelete = true }
+            Button(String(localized: .offlineDeleteDownload), systemImage: "trash", role: .destructive) { confirmDelete = true }
         }
         .confirmationDialog(
-            "删除「\(item.title)」的下载？", isPresented: $confirmDelete, titleVisibility: .visible
+            String(localized: .offlineDeleteTitleDownload(item.title)), isPresented: $confirmDelete, titleVisibility: .visible
         ) {
-            Button("删除下载（\(Formatters.bytes(Int(store.bytes(ofItem: item.mediaItemId))))）", role: .destructive) {
+            Button(String(localized: .offlineDeleteWithSize(Formatters.bytes(Int(store.bytes(ofItem: item.mediaItemId))))), role: .destructive) {
                 OfflineDownloader.shared.deleteItem(item.mediaItemId)
             }
         } message: {
-            Text("只删 \(ClientPlatform.deviceName) 上的副本，观看进度会保留。")
+            Text(String(localized: .offlineDeleteCopyHint(ClientPlatform.deviceName)))
         }
         .accessibilityIdentifier("offline-item-\(item.mediaItemId)")
     }
@@ -118,15 +118,15 @@ struct OfflineLibraryHomeView: View {
         VStack(alignment: .leading, spacing: 0) {
             OfflineBanner().padding(.top, 12)
             if items.isEmpty {
-                EmptyState(systemImage: "arrow.down.circle", title: "\(ClientPlatform.deviceName) 上还没有下载",
-                           message: "连上服务器后，在影片详情页点「下载」，没网的时候也能看。")
+                EmptyState(systemImage: "arrow.down.circle", title: String(localized: .offlineNoneOnDevice(ClientPlatform.deviceName)),
+                           message: String(localized: .offlineEmptyHint))
                     .padding(.top, 40)
             } else {
                 resumeRow
                 ForEach(groups(items), id: \.libraryId) { group in
                     VStack(alignment: .leading, spacing: 12) {
                         LibrarySectionHeader(title: group.name) {
-                            NavigationLink(value: AppRoute.library(id: group.libraryId)) { Text("全部") }
+                            NavigationLink(value: AppRoute.library(id: group.libraryId)) { Text(String(localized: .commonFiltersAll)) }
                         }
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(alignment: .top, spacing: 12) {
@@ -182,7 +182,7 @@ struct OfflineLibraryHomeView: View {
         let entries = resumeEntries
         if !entries.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                LibrarySectionHeader(title: "接着看") { EmptyView() }
+                LibrarySectionHeader(title: String(localized: .libraryItemContinue)) { EmptyView() }
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(entries, id: \.unit.fileId) { entry in
@@ -229,7 +229,7 @@ private struct OfflineResumeCard: View {
                         }
                     }
                 Text(item.title).font(.footnote.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(unit.isMovie ? Formatters.clock(Double(progress.positionMs) / 1000) : "第 \(unit.season) 季第 \(unit.episode) 集 · \(Formatters.clock(Double(progress.positionMs) / 1000))")
+                Text(unit.isMovie ? Formatters.clock(Double(progress.positionMs) / 1000) : String(localized: .offlineSeasonEpisode(unit.season, unit.episode)) + " · " + Formatters.clock(Double(progress.positionMs) / 1000))
                     .font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
             }
             .frame(width: 260)
@@ -252,7 +252,7 @@ struct OfflineLibraryWall: View {
             VStack(alignment: .leading, spacing: 16) {
                 OfflineBanner().padding(.top, 8)
                 if sorted.isEmpty {
-                    EmptyState(systemImage: "arrow.down.circle", title: "这个库在 \(ClientPlatform.deviceName) 上没有下载")
+                    EmptyState(systemImage: "arrow.down.circle", title: String(localized: .offlineLibraryNoneOnDevice(ClientPlatform.deviceName)))
                         .padding(.top, 40)
                 } else {
                     LibraryPosterGrid(items: sorted) { item in
@@ -263,18 +263,18 @@ struct OfflineLibraryWall: View {
             .padding(.bottom, 32)
         }
         .appBackground()
-        .navigationTitle(items.first?.libraryName ?? "媒体库")
+        .navigationTitle(items.first?.libraryName ?? String(localized: .searchVerticalLibrary))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Picker("排序", selection: $sortByTitle) {
-                        Text("最近下载").tag(false)
-                        Text("片名").tag(true)
+                    Picker(String(localized: .mediaFiltersSort), selection: $sortByTitle) {
+                        Text(String(localized: .offlineRecent)).tag(false)
+                        Text(String(localized: .libraryRowsTitleHint)).tag(true)
                     }
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                 }
-                .accessibilityLabel("排序")
+                .accessibilityLabel(String(localized: .mediaFiltersSort))
             }
         }
     }
@@ -340,14 +340,14 @@ struct OfflineDownloadSummary {
         if speed > 0 {
             parts.append("\(Formatters.bytes(Int(speed)))/s")
         } else if !failed.isEmpty, downloading.isEmpty {
-            parts.append("\(failed.count) 个下载中断")
+            parts.append(String(localized: .offlineInterruptedCount(failed.count)))
         } else if !waitingTranscode.isEmpty, downloading.isEmpty {
-            parts.append("等待转码")
+            parts.append(String(localized: .offlineWaitingTranscode))
         } else if !allPaused, downloading.isEmpty {
-            parts.append("等待下载")
+            parts.append(String(localized: .offlineWaitingDownload))
         }
         if let fraction { parts.append("\(Int(fraction * 100))%") }
-        detail = parts.isEmpty ? "点按查看" : parts.joined(separator: " · ")
+        detail = parts.isEmpty ? String(localized: .offlineTapToView) : parts.joined(separator: " · ")
     }
 
     /// 标题写清在下什么：「正在下载《沙丘》」「正在下载《兰香如故》5 集」「3 部电影正在下载」
@@ -356,20 +356,25 @@ struct OfflineDownloadSummary {
         let movies = Set(units.filter(\.isMovie).map(\.mediaItemId))
         let episodes = units.filter { !$0.isMovie }
         let shows = Set(episodes.map(\.mediaItemId))
-        let named: (Int) -> String? = { id in titles[id].map { "《\($0)》" } }
-        let single: String? = switch (movies.count, shows.count) {
-        case (1, 0): named(movies.first!)
-        case (0, 1): named(shows.first!).map { "\($0)\(episodes.count) 集" }
-        default: nil
+        switch (movies.count, shows.count) {
+        case (1, 0):
+            if let title = titles[movies.first!] {
+                return paused ? String(localized: .offlineRingPausedTitle(title)) : String(localized: .offlineRingDownloadingTitle(title))
+            }
+        case (0, 1):
+            if let title = titles[shows.first!] {
+                return paused ? String(localized: .offlineRingPausedEpisodes(title, episodes.count))
+                    : String(localized: .offlineRingDownloadingEpisodes(title, episodes.count))
+            }
+        default: break
         }
-        if let single { return (paused ? "已暂停下载" : "正在下载") + single }
         let subject = switch (movies.count, shows.count) {
-        case (_, 0): "\(movies.count) 部电影"
-        case (0, 1): "\(episodes.count) 集剧集"
-        case (0, _): "\(shows.count) 部剧共 \(episodes.count) 集"
-        default: "\(movies.count) 部电影、\(episodes.count) 集剧集"
+        case (_, 0): String(localized: .offlineRingMovies(movies.count))
+        case (0, 1): String(localized: .offlineRingEpisodes(episodes.count))
+        case (0, _): String(localized: .offlineRingShowEpisodes(shows.count, episodes.count))
+        default: AppFormatting.list([String(localized: .offlineRingMovies(movies.count)), String(localized: .offlineRingEpisodes(episodes.count))])
         }
-        return subject + (paused ? "已暂停下载" : "正在下载")
+        return paused ? String(localized: .offlineRingSubjectPaused(subject)) : String(localized: .offlineRingSubjectDownloading(subject))
     }
 }
 
@@ -451,14 +456,14 @@ struct OfflineDownloadStrip: View {
     /// 一行状态（卡片窄，比通用文案短）
     static func status(_ unit: OfflineUnit) -> String {
         let percent = unit.expectedBytes > 0 ? " \(Int(unit.progressFraction * 100))%" : ""
-        if unit.damaged { return "文件损坏，请重新下载" }
+        if unit.damaged { return String(localized: .offlineDamaged) }
         return switch unit.state {
-        case .preparing: "准备下载"
-        case .queued: "等待下载"
-        case .downloading: "下载中\(percent)"
-        case .paused: "已暂停\(percent)"
-        case .failed: unit.waitingForTranscode ? unit.transcodeWait ?? "等待转码" : unit.retryable ? "下载中断，稍后重试" : "下载失败"
-        case .done: "已下载"
+        case .preparing: String(localized: .offlinePreparing)
+        case .queued: String(localized: .offlineWaitingDownload)
+        case .downloading: String(localized: .subscriptionArrivalsStatusDownloading) + percent
+        case .paused: String(localized: .subscriptionSectionsPaused) + percent
+        case .failed: unit.waitingForTranscode ? unit.transcodeWait ?? String(localized: .offlineWaitingTranscode) : unit.retryable ? String(localized: .offlineInterruptedRetry) : String(localized: .settingsPluginMarketDownloadFailed)
+        case .done: String(localized: .subscriptionWantedDownloaded)
         }
     }
 }
@@ -467,15 +472,15 @@ struct OfflineDownloadStrip: View {
 enum OfflineUnitStatus {
     static func text(_ unit: OfflineUnit) -> String {
         switch unit.state {
-        case .preparing: "正在准备…"
-        case .queued: "等待下载"
+        case .preparing: String(localized: .offlinePreparingEllipsis)
+        case .queued: String(localized: .offlineWaitingDownload)
         case .downloading:
-            unit.expectedBytes > 0 ? "下载中 \(Int(unit.progressFraction * 100))%" : "下载中 \(Formatters.bytes(Int(unit.receivedBytes)))"
-        case .paused: "已暂停"
+            unit.expectedBytes > 0 ? String(localized: .subscriptionArrivalsStatusDownloading) + " \(Int(unit.progressFraction * 100))%" : String(localized: .offlineDownloadingBytes(Formatters.bytes(Int(unit.receivedBytes))))
+        case .paused: String(localized: .playerControlsPaused)
         case .failed:
-            unit.waitingForTranscode ? unit.transcodeWait ?? "等待转码"
-                : unit.retryable ? "下载中断，稍后自动重试" : (unit.error ?? "下载失败")
-        case .done: unit.damaged ? "文件损坏，请重新下载" : "已下载"
+            unit.waitingForTranscode ? unit.transcodeWait ?? String(localized: .offlineWaitingTranscode)
+                : unit.retryable ? String(localized: .offlineInterruptedAutoRetry) : (unit.error ?? String(localized: .settingsPluginMarketDownloadFailed))
+        case .done: unit.damaged ? String(localized: .offlineDamaged) : String(localized: .subscriptionWantedDownloaded)
         }
     }
 }
@@ -500,7 +505,7 @@ struct OfflineMinimalDetail: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.title).font(.title3.weight(.semibold))
                             if let year = item.year { Text(String(year)).foregroundStyle(Theme.textMuted) }
-                            Text("\(ClientPlatform.deviceName) 上的副本").font(.caption).foregroundStyle(Theme.textFaint)
+                            Text(String(localized: .offlineCopyOnDevice(ClientPlatform.deviceName))).font(.caption).foregroundStyle(Theme.textFaint)
                         }
                     }
                 }
@@ -511,13 +516,13 @@ struct OfflineMinimalDetail: View {
                                 router.play(PlayRequest(mediaItemId: itemId, season: unit.isMovie ? nil : unit.season,
                                                         episode: unit.isMovie ? nil : unit.episode, startSeconds: nil))
                             } label: {
-                                Label(unit.isMovie ? "播放" : "第 \(unit.season) 季第 \(unit.episode) 集", systemImage: "play.fill")
+                                Label(unit.isMovie ? String(localized: .libraryHeroPlay) : String(localized: .offlineSeasonEpisode(unit.season, unit.episode)), systemImage: "play.fill")
                             }
                             Spacer()
                             Text(Formatters.bytes(Int(unit.receivedBytes))).font(.caption).foregroundStyle(Theme.textMuted)
                         }
                         .swipeActions {
-                            Button("删除", role: .destructive) { OfflineDownloader.shared.delete(fileId: unit.fileId) }
+                            Button(String(localized: .commonDelete), role: .destructive) { OfflineDownloader.shared.delete(fileId: unit.fileId) }
                         }
                     }
                 }

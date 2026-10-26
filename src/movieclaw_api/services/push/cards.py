@@ -33,6 +33,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
 from movieclaw_api.services.push import card_content, hub
 from movieclaw_api.services.push.card_content import Snapshot
 from movieclaw_api.services.push.hub import (
@@ -291,8 +292,8 @@ async def _on_completed(event: Completed) -> None:
         async def build(session: AsyncSession, recipient: int) -> AlertContent:
             page = await library_path(session, recipient, event.item_id, None)
             return AlertContent(
-                title=f"《{event.title}》订阅已收齐",
-                body="订阅的内容都已入库，没有要等的了。",
+                title=t("notify.alert.subscriptionCompleteTitle", title=event.title),
+                body=t("notify.alert.subscriptionCompleteBody"),
                 open=page or f"/subscriptions/{event.subscription_id}",
                 thread=f"subscription:{event.subscription_id}",
                 level="passive",
@@ -605,8 +606,9 @@ async def _flush_upgrade(subscription_id: int) -> None:
 
     async def build(_session: AsyncSession, _member_id: int) -> AlertContent:
         return AlertContent(
-            title=f"洗版完成：{name}",
-            body=" · ".join(part for part in (label, change) if part) or "换成了更好的版本",
+            title=t("notify.alert.upgradedTitle", name=name),
+            body=" · ".join(part for part in (label, change) if part)
+            or t("notify.alert.upgradedBody"),
             image=await image(),
             open=f"/subscriptions/{subscription_id}",
             thread=f"item-{merging.item_id}",

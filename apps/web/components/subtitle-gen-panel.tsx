@@ -1,5 +1,11 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
+import { formatList, formatNumber } from "@/lib/i18n/format";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 /**
  * 字幕规格行里的 AI 翻译入口。
  *
@@ -32,28 +38,23 @@ import { usePermissions } from "@/lib/permissions";
 import { useJobs } from "@/lib/jobs";
 
 const OUTPUT_LANGUAGES = [
-  { token: "chs", label: "简体中文" },
-  { token: "cht", label: "繁体中文" },
-  { token: "eng", label: "英语" },
-  { token: "jpn", label: "日语" },
-  { token: "kor", label: "韩语" },
-  { token: "fre", label: "法语" },
-  { token: "ger", label: "德语" },
-  { token: "spa", label: "西班牙语" },
-  { token: "ita", label: "意大利语" },
-  { token: "por", label: "葡萄牙语" },
-  { token: "rus", label: "俄语" },
-  { token: "tha", label: "泰语" },
+  { token: "chs" }, { token: "cht" }, { token: "eng" }, { token: "jpn" },
+  { token: "kor" }, { token: "fre" }, { token: "ger" }, { token: "spa" },
+  { token: "ita" }, { token: "por" }, { token: "rus" }, { token: "tha" },
 ] as const;
 type OutputLanguage = (typeof OUTPUT_LANGUAGES)[number]["token"];
 
-function outputLanguageLabel(token: string | null | undefined): string {
-  return OUTPUT_LANGUAGES.find((language) => language.token === token)?.label ?? token ?? "字幕";
+function outputLanguageLabel(token: string | null | undefined, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  return OUTPUT_LANGUAGES.some((language) => language.token === token)
+    ? languageLabel(token ?? null, locale)
+    : token ?? t("library.subtitleGeneration.subtitle");
 }
 
-function outputLabel(target: string, secondary: string | null): string {
-  const primary = outputLanguageLabel(target);
-  return secondary ? `${primary} + ${outputLanguageLabel(secondary)}双语` : primary;
+function outputLabel(target: string, secondary: string | null, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  const primary = outputLanguageLabel(target, locale);
+  return secondary ? t("library.subtitleGeneration.bilingual", { primary, secondary: outputLanguageLabel(secondary, locale) }) : primary;
 }
 
 function nextSecondary(target: string, current: string): OutputLanguage {
@@ -102,32 +103,35 @@ const AGENT_BUTTON =
   "font-medium text-[var(--info)] transition hover:bg-[var(--info)]/[0.14] " +
   "disabled:pointer-events-none disabled:opacity-40";
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "请求失败，请稍后再试";
+function errorMessage(error: unknown, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  return error instanceof Error ? error.message : t("library.subtitleGeneration.requestFailed");
 }
 
-function languageLabel(language: string | null): string {
+function languageLabel(language: string | null, locale: AppLocale): string {
+  const t = appTranslator(locale);
   const labels: Record<string, string> = {
-    chi: "中文",
-    chs: "简体中文",
-    cht: "繁体中文",
-    eng: "英语",
-    fre: "法语",
-    fra: "法语",
-    ger: "德语",
-    ita: "意大利语",
-    jpn: "日语",
-    kor: "韩语",
-    por: "葡萄牙语",
-    rus: "俄语",
-    spa: "西班牙语",
-    tha: "泰语",
+    chi: t("media.languages.chinese"),
+    chs: t("media.languages.simplifiedChinese"),
+    cht: t("media.languages.traditionalChinese"),
+    eng: t("media.languages.english"),
+    fre: t("media.languages.french"),
+    fra: t("media.languages.french"),
+    ger: t("media.languages.german"),
+    ita: t("media.languages.italian"),
+    jpn: t("media.languages.japanese"),
+    kor: t("media.languages.korean"),
+    por: t("media.languages.portuguese"),
+    rus: t("media.languages.russian"),
+    spa: t("media.languages.spanish"),
+    tha: t("media.languages.thai"),
   };
-  return language ? (labels[language] ?? language.toUpperCase()) : "未知语言";
+  return language ? (labels[language] ?? language.toUpperCase()) : t("library.subtitleGeneration.unknownLanguage");
 }
 
-function formatLabel(format: string | null): string {
-  if (!format) return "未知格式";
+function formatLabel(format: string | null, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  if (!format) return t("library.subtitleGeneration.unknownFormat");
   const labels: Record<string, string> = {
     hdmv_pgs_subtitle: "PGS",
     dvd_subtitle: "VobSub",
@@ -141,37 +145,42 @@ function formatLabel(format: string | null): string {
   return labels[format.toLowerCase()] ?? format.toUpperCase();
 }
 
-function candidateLabel(candidate: SubtitleSourceCandidate): string {
-  const location = candidate.kind === "embedded" ? "内封" : "外挂";
+function candidateLabel(candidate: SubtitleSourceCandidate, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  const location = candidate.kind === "embedded" ? t("library.subtitleGeneration.embedded") : t("library.subtitleGeneration.external");
   const identity =
     candidate.kind === "embedded"
-      ? `轨道 ${Number(candidate.key) + 1}`
+      ? t("library.subtitleGeneration.track", { index: Number(candidate.key) + 1 })
       : candidate.key;
-  const conversion = candidate.requires_ocr ? " · 需先识别" : "";
+  const conversion = candidate.requires_ocr ? t("library.subtitleGeneration.ocrSuffix") : "";
   const provenanceLabels: Record<SubtitleSourceCandidate["provenance"], string> = {
-    original: "原始字幕",
-    pgs_ocr: "图片字幕识别结果",
-    ai: "AI 字幕",
-    ai_bilingual: "AI 双语成品",
+    original: t("library.subtitleGeneration.original"),
+    pgs_ocr: t("library.subtitleGeneration.pgsOcr"),
+    ai: t("library.subtitleGeneration.ai"),
+    ai_bilingual: t("library.subtitleGeneration.aiBilingual"),
   };
-  return `${languageLabel(candidate.language)} · ${formatLabel(candidate.format)} · ${provenanceLabels[candidate.provenance]} · ${location} ${identity}${conversion}`;
+  return t("library.subtitleGeneration.candidate", {
+    language: languageLabel(candidate.language, locale), format: formatLabel(candidate.format, locale),
+    provenance: provenanceLabels[candidate.provenance], location, identity, conversion,
+  });
 }
 
 function candidateKey(candidate: SubtitleSourceCandidate): string {
   return `${candidate.kind}:${candidate.key}`;
 }
 
-function tokenEstimate(tokens: number): string {
-  if (tokens < 1000) return `约 ${tokens.toLocaleString()} token`;
-  return `约 ${(tokens / 1000).toFixed(tokens < 10_000 ? 1 : 0)}k token`;
+function tokenEstimate(tokens: number, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  if (tokens < 1000) return t("library.subtitleGeneration.tokenEstimate", { amount: formatNumber(tokens, undefined, locale) });
+  return t("library.subtitleGeneration.tokenEstimateK", { amount: formatNumber(tokens / 1000, { minimumFractionDigits: tokens < 10_000 ? 1 : 0, maximumFractionDigits: tokens < 10_000 ? 1 : 0 }, locale) });
 }
 
 const PROGRESS_STAGES = [
-  { phases: ["preparing", "extracting", "ocr", "syncing"], label: "准备并检查字幕" },
-  { phases: ["glossary"], label: "统一人名与术语" },
-  { phases: ["translating"], label: "翻译对白" },
-  { phases: ["validating", "compressing"], label: "检查字幕质量" },
-  { phases: ["writing", "refreshing"], label: "保存并更新字幕" },
+  { phases: ["preparing", "extracting", "ocr", "syncing"], labelKey: "library.subtitleGeneration.prepareStage" },
+  { phases: ["glossary"], labelKey: "library.subtitleGeneration.glossaryStage" },
+  { phases: ["translating"], labelKey: "library.subtitleGeneration.translateStage" },
+  { phases: ["validating", "compressing"], labelKey: "library.subtitleGeneration.qualityStage" },
+  { phases: ["writing", "refreshing"], labelKey: "library.subtitleGeneration.saveStage" },
 ] as const;
 
 interface SubtitleProgress {
@@ -276,44 +285,47 @@ function progressStageIndex(progress: SubtitleProgress): number {
   return index >= 0 ? index : 0;
 }
 
-function formatElapsed(seconds: number): string {
+function formatElapsed(seconds: number, locale: AppLocale): string {
+  const t = appTranslator(locale);
   const safeSeconds = Math.max(0, Math.floor(seconds || 0));
-  if (safeSeconds < 60) return `${safeSeconds} 秒`;
+  if (safeSeconds < 60) return t("library.subtitleGeneration.elapsedSeconds", { count: safeSeconds });
   const minutes = Math.floor(safeSeconds / 60);
-  if (minutes < 60) return `${minutes} 分 ${safeSeconds % 60} 秒`;
-  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`;
+  if (minutes < 60) return t("library.subtitleGeneration.elapsedMinutes", { minutes, seconds: safeSeconds % 60 });
+  return t("library.subtitleGeneration.elapsedHours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
-function sourceKeyLabel(key: string | null): string | null {
+function sourceKeyLabel(key: string | null, locale: AppLocale): string | null {
+  const t = appTranslator(locale);
   if (!key) return null;
   if (key.startsWith("embedded:")) {
     const index = Number(key.slice("embedded:".length));
-    return Number.isFinite(index) ? `内封轨道 ${index + 1}` : "内封字幕";
+    return Number.isFinite(index) ? t("library.subtitleGeneration.sourceTrack", { index: index + 1 }) : t("library.subtitleGeneration.sourceEmbedded");
   }
   return key.startsWith("external:") ? key.slice("external:".length) : key;
 }
 
-function runningBadgeText(progress: SubtitleProgress | null): string {
+function runningBadgeText(progress: SubtitleProgress | null, locale: AppLocale): string {
+  const t = appTranslator(locale);
   const phaseLabels: Record<string, string> = {
-    preparing: "准备中",
-    ocr: "识别中",
-    syncing: "同步检查",
-    glossary: "术语分析",
-    validating: "质量检查",
-    compressing: "质量优化",
-    writing: "保存中",
-    refreshing: "更新中",
+    preparing: t("library.subtitleGeneration.preparing"),
+    ocr: t("library.subtitleGeneration.recognizing"),
+    syncing: t("library.subtitleGeneration.syncing"),
+    glossary: t("library.subtitleGeneration.glossary"),
+    validating: t("library.subtitleGeneration.validating"),
+    compressing: t("library.subtitleGeneration.compressing"),
+    writing: t("library.subtitleGeneration.writing"),
+    refreshing: t("library.subtitleGeneration.refreshing"),
   };
   if (progress?.phase === "translating") {
     const percent = progressPercent(progress);
-    return percent === null ? "翻译中" : `AI ${percent}%`;
+    return percent === null ? t("library.subtitleGeneration.translating") : `AI ${percent}%`;
   }
   if (progress?.phase === "extracting") {
-    if (progress.extract_queued) return "排队读取";
+    if (progress.extract_queued) return t("library.subtitleGeneration.queuedRead");
     const percent = progressPercent(progress);
-    return percent === null ? "读取字幕" : `读取 ${percent}%`;
+    return percent === null ? t("library.subtitleGeneration.reading") : t("library.subtitleGeneration.readPercent", { percent });
   }
-  return phaseLabels[progress?.phase ?? "preparing"] ?? "生成中";
+  return phaseLabels[progress?.phase ?? "preparing"] ?? t("library.subtitleGeneration.generating");
 }
 
 function ProgressDetails({
@@ -323,17 +335,19 @@ function ProgressDetails({
   progress: SubtitleProgress;
   compact?: boolean;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const percent = progressPercent(progress);
   const currentStage = progressStageIndex(progress);
   const activeBlocks = progress.active_blocks ?? [];
   const doneEvents = progress.done_events ?? 0;
   const totalEvents = progress.total_events ?? 0;
-  const reference = sourceKeyLabel(progress.source_candidate_key);
+  const reference = sourceKeyLabel(progress.source_candidate_key, locale);
 
   return (
     <div className={compact ? "space-y-2.5" : "space-y-3.5"}>
       <div className="flex items-start justify-between gap-3">
-        <p className="font-semibold text-[var(--info)]">{progress.message || "正在准备生成任务"}</p>
+        <p className="font-semibold text-[var(--info)]">{progress.message || t("library.subtitleGeneration.preparingTask")}</p>
         {percent !== null && <span className="tnum shrink-0 font-semibold text-[var(--info)]">{percent}%</span>}
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
@@ -344,45 +358,46 @@ function ProgressDetails({
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-caption text-[var(--text-muted)]">
         {progress.total_blocks > 0 && (
-          <span className="tnum">翻译块 {progress.done_blocks}/{progress.total_blocks}</span>
+          <span className="tnum">{t("library.subtitleGeneration.blocks", { done: progress.done_blocks, total: progress.total_blocks })}</span>
         )}
-        {totalEvents > 0 && <span className="tnum">对白 {doneEvents}/{totalEvents} 条</span>}
-        {reference && <span className="max-w-full truncate" title={reference}>参考 {reference}</span>}
+        {totalEvents > 0 && <span className="tnum">{t("library.subtitleGeneration.events", { done: doneEvents, total: totalEvents })}</span>}
+        {reference && <span className="max-w-full truncate" title={reference}>{t("library.subtitleGeneration.reference", { reference })}</span>}
         {progress.model_requests > 0 && (
           <span className="tnum">
-            模型调用 {progress.model_requests} 次
-            {progress.model_tokens > 0 ? ` · ${progress.model_tokens.toLocaleString()} token` : ""}
+            {t("library.subtitleGeneration.calls", { count: progress.model_requests })}
+            {progress.model_tokens > 0 ? t("library.subtitleGeneration.modelTokens", { count: progress.model_tokens }) : ""}
           </span>
         )}
-        <span className="tnum">已用时 {formatElapsed(progress.elapsed_seconds ?? 0)}</span>
+        <span className="tnum">{t("library.subtitleGeneration.elapsed", { elapsed: formatElapsed(progress.elapsed_seconds ?? 0, locale) })}</span>
       </div>
       {activeBlocks.length > 0 && (
         <p className="text-caption text-[var(--info)]/85">
-          {progress.parallelism > 1 ? `并发上限 ${progress.parallelism} 路 · ` : ""}
-          正在处理第 {activeBlocks.join("、")} 块
-          {progress.oldest_active_seconds > 0
-            ? ` · 最早一块已等待 ${formatElapsed(progress.oldest_active_seconds)}`
-            : ""}
+          {t("library.subtitleGeneration.activeBlocks", {
+            parallel: progress.parallelism > 1 ? "yes" : "no", limit: progress.parallelism,
+            blocks: formatList(activeBlocks.map(String), locale),
+            waiting: progress.oldest_active_seconds > 0 ? "yes" : "no",
+            elapsed: formatElapsed(progress.oldest_active_seconds, locale),
+          })}
         </p>
       )}
       {(progress.rate_limit_count > 0 || progress.validation_retries > 0) && (
         <p className="text-caption leading-5 text-[#ffd89a]">
           {progress.rate_limit_count > 0
-            ? `模型服务繁忙 ${progress.rate_limit_count} 次，系统已自动降速重试。`
+            ? t("library.subtitleGeneration.rateLimits", { count: progress.rate_limit_count })
             : ""}
           {progress.validation_retries > 0
-            ? `有 ${progress.validation_retries} 次返回格式不完整，系统已自动纠正。`
+            ? t("library.subtitleGeneration.validationRetries", { count: progress.validation_retries })
             : ""}
         </p>
       )}
-      <ol className={compact ? "space-y-1" : "space-y-1.5"} aria-label="字幕生成阶段">
+      <ol className={compact ? "space-y-1" : "space-y-1.5"} aria-label={t("library.subtitleGeneration.stages")}>
         {PROGRESS_STAGES.map((stage, index) => {
           const completed = index < currentStage;
           const current = index === currentStage;
-          const label = index === 0 && progress.uses_ocr ? "识别并检查图片字幕" : stage.label;
+          const label = index === 0 && progress.uses_ocr ? t("library.subtitleGeneration.ocrStage") : t(stage.labelKey);
           return (
             <li
-              key={stage.label}
+              key={stage.labelKey}
               className={`flex items-center gap-2 text-caption ${
                 current
                   ? "font-medium text-[var(--info)]"
@@ -403,7 +418,7 @@ function ProgressDetails({
                 {completed ? "✓" : index + 1}
               </span>
               <span>{label}</span>
-              {current && <span className="ml-auto text-[var(--text-muted)]">进行中</span>}
+              {current && <span className="ml-auto text-[var(--text-muted)]">{t("library.subtitleGeneration.inProgress")}</span>}
             </li>
           );
         })}
@@ -420,6 +435,8 @@ export function SubtitleGenPanel({
   /** 产物落盘后回调（详情页借此重拉字幕清单，新字幕立刻可见） */
   onChanged?: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const router = useRouter();
   const { start: startAgent } = useAgentConversations();
   const { isAdmin } = usePermissions();
@@ -509,10 +526,10 @@ export function SubtitleGenPanel({
     } catch (error) {
       // 主动取消（换轨/关弹窗/离开页面）不是错误，别弹红框
       if (!isCurrent() || controller.signal.aborted) return;
-      setRequestError(errorMessage(error));
+      setRequestError(errorMessage(error, locale));
       setPreviewing(false);
     }
-  }, [file.id, cancelPreview]);
+  }, [file.id, cancelPreview, locale]);
 
   // 弹窗关闭即收掉在途预检：否则用户关掉后徽章会一直卡在「正在检查」。
   useEffect(() => {
@@ -550,7 +567,7 @@ export function SubtitleGenPanel({
       setDialogOpen(false);
     } catch (error) {
       // 确认到真正入队之间文件可能变化，错误留在弹窗里让用户看清。
-      setRequestError(errorMessage(error));
+      setRequestError(errorMessage(error, locale));
     } finally {
       setStarting(false);
     }
@@ -563,6 +580,7 @@ export function SubtitleGenPanel({
     sourceCandidateKey,
     targetLanguage,
     upsert,
+    locale,
   ]);
 
   const onStop = useCallback(async () => {
@@ -572,11 +590,11 @@ export function SubtitleGenPanel({
       if (!sharedJobId) return;
       upsert(await cancelJob(sharedJobId));
     } catch (error) {
-      setRequestError(errorMessage(error));
+      setRequestError(errorMessage(error, locale));
     } finally {
       setStopping(false);
     }
-  }, [sharedJobId, upsert]);
+  }, [sharedJobId, upsert, locale]);
 
   // 状态弹窗是在给一个已经存在的任务收尾，语言与参考源以任务入参为准（Agent、
   // CLI 发起的任务在这里也看得到）；预检弹窗还没有任务，用弹窗里当前的选择。
@@ -606,22 +624,23 @@ export function SubtitleGenPanel({
           : null;
       const sourceKey = jobLanguage ? jobSourceKey : sourceCandidateKey;
       const prompt = [
-        "请帮我处理 MovieClaw 的 AI 字幕生成问题。",
-        `文件：${file.file_name}`,
-        `文件台账 ID：${file.id}`,
-        `文件路径：${file.file_path}`,
-        `期望输出：${outputLabel(target, secondary)}`,
-        `对应参数：--target-language ${target}` +
+        t("library.subtitleGeneration.agentIntro"),
+        t("library.subtitleGeneration.agentFile", { name: file.file_name }),
+        t("library.subtitleGeneration.agentId", { id: file.id }),
+        t("library.subtitleGeneration.agentPath", { path: file.file_path }),
+        t("library.subtitleGeneration.agentOutput", { output: outputLabel(target, secondary, locale) }),
+        t("library.subtitleGeneration.agentArguments", { arguments:
+          `--target-language ${target}` +
           (secondary ? ` --secondary-language ${secondary}` : "") +
           (sourceKey ? ` --source-candidate-key ${sourceKey}` : ""),
-        `当前问题：${reason}`,
+        }),
+        t("library.subtitleGeneration.agentIssue", { reason }),
         conversion
-          ? `预检环境：${conversion.platform} ${conversion.architecture}${conversion.engine ? ` · ${conversion.engine}` : " · 未找到可用识别引擎"}`
+          ? t("library.subtitleGeneration.agentEnvironment", { platform: conversion.platform, architecture: conversion.architecture, engine: conversion.engine ? ` · ${conversion.engine}` : t("library.subtitleGeneration.noEngine") })
           : null,
-        conversion?.message ? `预检诊断：${conversion.message}` : null,
-        ...(preview?.blocker?.suggestions.map((suggestion) => `已有建议：${suggestion}`) ?? []),
-        "请先判断原因；如果能通过 MovieClaw 的工具安全解决，请按上面的「对应参数」直接执行" +
-          "（不要换回默认参数），否则给出明确的操作步骤。不要修改影片原文件。",
+        conversion?.message ? t("library.subtitleGeneration.agentDiagnostic", { message: conversion.message }) : null,
+        ...(preview?.blocker?.suggestions.map((suggestion) => t("library.subtitleGeneration.agentSuggestion", { suggestion })) ?? []),
+        t("library.subtitleGeneration.agentInstructions"),
       ]
         .filter(Boolean)
         .join("\n");
@@ -631,7 +650,7 @@ export function SubtitleGenPanel({
         setDialogOpen(false);
         router.push(`/sessions/${id}` as Route);
       } catch (error) {
-        setRequestError(`无法启动 Agent：${errorMessage(error)}`);
+        setRequestError(t("library.subtitleGeneration.agentFailed", { message: errorMessage(error, locale) }));
       } finally {
         setAgentStarting(false);
       }
@@ -651,6 +670,8 @@ export function SubtitleGenPanel({
       sourceCandidateKey,
       startAgent,
       targetLanguage,
+      locale,
+      t,
     ],
   );
 
@@ -660,7 +681,7 @@ export function SubtitleGenPanel({
   const resultMessage =
     sharedJob?.error?.message ??
     (typeof sharedJob?.result?.message === "string" ? sharedJob.result.message : null) ??
-    "任务已经结束。";
+    t("library.subtitleGeneration.ended");
   const generated = file.subtitle_streams.some(
     (subtitle) => subtitle.external && isAiSubtitle(subtitle.file_name),
   );
@@ -681,22 +702,22 @@ export function SubtitleGenPanel({
   let badgeClass = AI_BADGE_IDLE;
   // 已经生成过也不改口称「新建 AI 版本」：那是在讲实现（又加一个文件），
   // 用户要的答案始终是同一句「让 AI 给这个片子做字幕」。
-  let badgeText = "AI 生成字幕";
+  let badgeText = t("media.subtitles.generateBadge");
   if (previewing) {
-    badgeText = "正在检查";
+    badgeText = t("media.subtitles.checkingBadge");
   } else if (running) {
     badgeClass = AI_BADGE_RUNNING;
-    badgeText = runningBadgeText(progress);
+    badgeText = runningBadgeText(progress, locale);
   } else if (generated || jobSucceeded) {
     // 生成成功过的文件即便带着历史失败记录，也不该再顶着红色的未完成态
     badgeClass = AI_BADGE_IDLE;
   } else if (hasTerminalIssue) {
     badgeClass = AI_BADGE_FAILED;
-    badgeText = "AI 未完成";
+    badgeText = t("media.subtitles.unfinishedBadge");
   }
   const runningTarget = progress?.target_language || targetLanguage;
   const runningSecondary = progress?.secondary_language ?? null;
-  const activeOutputLabel = outputLabel(runningTarget, runningSecondary);
+  const activeOutputLabel = outputLabel(runningTarget, runningSecondary, locale);
   const badgeLabel = running ? `${activeOutputLabel} · ${badgeText}` : badgeText;
 
   const runningTooltip = running && progress ? <ProgressDetails progress={progress} compact /> : null;
@@ -706,7 +727,7 @@ export function SubtitleGenPanel({
       type="button"
       className={`${AI_BADGE_BASE} ${badgeClass}`}
       disabled={previewing}
-      aria-label={running ? `${badgeLabel}，${progress?.message || "正在运行"}` : badgeLabel}
+      aria-label={running ? t("library.subtitleGeneration.badgeRunning", { label: badgeLabel, message: progress?.message || t("library.subtitleGeneration.running") }) : badgeLabel}
       onClick={openAction}
     >
       {running ? (
@@ -732,7 +753,7 @@ export function SubtitleGenPanel({
           actionButton
         )
       ) : (
-        <LlmCapabilityGate feature="生成字幕能力" noticeVariant="inline">
+        <LlmCapabilityGate feature={t("media.subtitles.generationFeature")} noticeVariant="inline">
           {actionButton}
         </LlmCapabilityGate>
       )}
@@ -740,7 +761,7 @@ export function SubtitleGenPanel({
       <Modal
         open={dialogOpen}
         onClose={() => !starting && !agentStarting && setDialogOpen(false)}
-        label={dialogMode === "status" ? "AI 字幕生成状态" : "生成 AI 字幕"}
+        label={dialogMode === "status" ? t("library.subtitleGeneration.statusTitle") : t("library.subtitleGeneration.generateTitle")}
         width="lg"
         panelClassName="max-h-[88vh] overflow-y-auto"
       >
@@ -753,16 +774,16 @@ export function SubtitleGenPanel({
               <h2 className="text-title-sm font-bold text-white">
                 {dialogMode === "status"
                   ? running
-                    ? `正在生成${activeOutputLabel}`
-                    : "AI 字幕任务"
-                  : "生成 AI 字幕"}
+                    ? t("library.subtitleGeneration.generatingOutput", { output: activeOutputLabel })
+                    : t("library.subtitleGeneration.taskTitle")
+                  : t("library.subtitleGeneration.generateTitle")}
               </h2>
               <p className="mt-1 text-sub leading-5 text-[var(--text-muted)]">
                 {dialogMode === "status"
                   ? running
-                    ? "后台运行，离开页面不会中断。"
-                    : "任务详情与处理建议。"
-                  : "确认后才调用 AI，并在后台生成。"}
+                    ? t("library.subtitleGeneration.backgroundHint")
+                    : t("library.subtitleGeneration.resultHint")
+                  : t("library.subtitleGeneration.confirmHint")}
               </p>
             </div>
           </div>
@@ -781,7 +802,7 @@ export function SubtitleGenPanel({
                   )}
                   <div className="flex justify-end gap-2.5">
                     <button type="button" className={CANCEL_BUTTON} onClick={() => setDialogOpen(false)}>
-                      关闭
+                      {t("common.close")}
                     </button>
                     <button
                       type="button"
@@ -789,7 +810,7 @@ export function SubtitleGenPanel({
                       disabled={stopping}
                       onClick={() => void onStop()}
                     >
-                      {stopping ? "正在请求停止…" : "停止生成"}
+                      {stopping ? t("library.subtitleGeneration.stopping") : t("library.subtitleGeneration.stop")}
                     </button>
                   </div>
                 </>
@@ -805,8 +826,9 @@ export function SubtitleGenPanel({
                     {/* 结束态也报一句目标输出：Agent、CLI 发起的任务用户没在这个
                         弹窗里选过语言，不写出来就看不出生成的到底是单语还是双语 */}
                     <p className="text-ui font-semibold">
-                      {activeOutputLabel}
-                      {jobSucceeded ? "字幕生成完成" : "字幕生成未完成"}
+                      {jobSucceeded
+                        ? t("library.subtitleGeneration.completed", { output: activeOutputLabel })
+                        : t("library.subtitleGeneration.incomplete", { output: activeOutputLabel })}
                     </p>
                     <p className="mt-1.5 text-sub leading-5 opacity-85">
                       {resultMessage}
@@ -830,7 +852,7 @@ export function SubtitleGenPanel({
                             )
                           }
                         >
-                          重新预检
+                          {t("library.subtitleGeneration.retryPreview")}
                         </button>
                         <button
                           type="button"
@@ -838,12 +860,12 @@ export function SubtitleGenPanel({
                           disabled={agentStarting}
                           onClick={() => void handOffToAgent(resultMessage)}
                         >
-                          {agentStarting ? "正在交给 Agent…" : "交给 Agent 处理"}
+                          {agentStarting ? t("library.subtitleGeneration.handingOff") : t("library.subtitleGeneration.handoff")}
                         </button>
                       </>
                     )}
                     <button type="button" className={CANCEL_BUTTON} onClick={() => setDialogOpen(false)}>
-                      关闭
+                      {t("common.close")}
                     </button>
                   </div>
                 </>
@@ -852,11 +874,11 @@ export function SubtitleGenPanel({
           ) : (
             <div className="mt-5">
               <div className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.035] p-3.5">
-                <p className="mb-3 text-sub font-semibold text-white/85">输出语言</p>
+                <p className="mb-3 text-sub font-semibold text-white/85">{t("library.subtitleGeneration.outputLanguage")}</p>
                 <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
                   <label className="block">
                     <span className="mb-1.5 block text-caption text-[var(--text-muted)]">
-                      {bilingual ? "第一行语言" : "目标语言"}
+                      {bilingual ? t("library.subtitleGeneration.firstLanguage") : t("library.subtitleGeneration.targetLanguage")}
                     </span>
                     <select
                       value={targetLanguage}
@@ -872,7 +894,7 @@ export function SubtitleGenPanel({
                     >
                       {OUTPUT_LANGUAGES.map((language) => (
                         <option key={language.token} value={language.token}>
-                          {language.label}
+                          {outputLanguageLabel(language.token, locale)}
                         </option>
                       ))}
                     </select>
@@ -881,7 +903,7 @@ export function SubtitleGenPanel({
                   {bilingual && (
                     <label className="block">
                       <span className="mb-1.5 block text-caption text-[var(--text-muted)]">
-                        第二行语言
+                        {t("library.subtitleGeneration.secondLanguage")}
                       </span>
                       <select
                         value={secondaryLanguage}
@@ -899,7 +921,7 @@ export function SubtitleGenPanel({
                             value={language.token}
                             disabled={language.token === targetLanguage}
                           >
-                            {language.label}
+                            {outputLanguageLabel(language.token, locale)}
                           </option>
                         ))}
                       </select>
@@ -920,11 +942,11 @@ export function SubtitleGenPanel({
                     }}
                     className="size-4 accent-[var(--info)]"
                   />
-                  生成双语字幕
+                  {t("library.subtitleGeneration.generateBilingual")}
                 </label>
                 {bilingual && (
                   <p className="mt-2 text-caption text-[var(--text-faint)]">
-                    每条字幕固定两行，上下顺序按这里的选择生成。
+                    {t("library.subtitleGeneration.bilingualHint")}
                   </p>
                 )}
               </div>
@@ -933,7 +955,7 @@ export function SubtitleGenPanel({
                 <div className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-4">
                   <BrandLoader className="size-5" />
                   <p className="text-ui font-medium text-white">
-                    正在检查参考字幕，不会调用 AI…
+                    {t("library.subtitleGeneration.checking")}
                   </p>
                 </div>
               )}
@@ -942,7 +964,7 @@ export function SubtitleGenPanel({
                 <div className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.035] p-3.5">
                   <label className="block">
                     <span className="mb-1.5 block text-sub font-semibold text-white/85">
-                      参考字幕
+                      {t("library.subtitleGeneration.referenceLanguage")}
                     </span>
                     <select
                       value={sourceCandidateKey ?? ""}
@@ -956,26 +978,25 @@ export function SubtitleGenPanel({
                       }
                       className="w-full rounded-lg border border-white/10 bg-[#151820] px-3 py-2 text-ui text-white outline-none focus:border-[var(--info)]/60 disabled:opacity-50"
                     >
-                      {!sourceCandidateKey && <option value="">没有可用的参考字幕</option>}
+                      {!sourceCandidateKey && <option value="">{t("library.subtitleGeneration.noReference")}</option>}
                       {preview.candidates.map((candidate) => (
                         <option
                           key={candidateKey(candidate)}
                           value={candidateKey(candidate)}
                           disabled={!candidate.selectable}
                         >
-                          {candidateLabel(candidate)}
-                          {!candidate.selectable ? `（不可用：${candidate.excluded ?? "不支持"}）` : ""}
+                          {candidateLabel(candidate, locale)}
+                          {!candidate.selectable ? t("library.subtitleGeneration.excluded", { reason: candidate.excluded ?? t("library.subtitleGeneration.unsupported") }) : ""}
                         </option>
                       ))}
                     </select>
                   </label>
                   <p className="mt-2 text-caption leading-5 text-[var(--text-faint)]">
-                    默认优先英语。也可以指定其他内封或外挂字幕；选择 PGS 时会先识别文字，再开始
-                    AI 翻译。
+                    {t("library.subtitleGeneration.sourceHint")}
                   </p>
                   {selectedCandidate?.requires_ocr && (
                     <p className="mt-1.5 text-caption text-[var(--warn)]/85">
-                      当前选择的是图片字幕，需要先完成文字识别。
+                      {t("library.subtitleGeneration.imageSelected")}
                     </p>
                   )}
                 </div>
@@ -992,24 +1013,23 @@ export function SubtitleGenPanel({
                   <div className="rounded-xl border border-[var(--warn)]/30 bg-[var(--warn)]/[0.08] p-3.5">
                     <p className="text-ui font-semibold text-[var(--warn)]">
                       {pgsConversion.language_confirmation_required
-                        ? "请选择原字幕语言"
-                        : "先识别图片字幕"}
+                        ? t("library.subtitleGeneration.chooseOriginal")
+                        : t("library.subtitleGeneration.recognizeFirst")}
                     </p>
                     <p className="mt-1 text-sub leading-5 text-[var(--warn)]/85">
-                      这份字幕是图片。MovieClaw 会先识别其中的文字，确认内容完整后再生成
-                      {outputLabel(targetLanguage, bilingual ? secondaryLanguage : null)}字幕。
+                      {t("library.subtitleGeneration.imageHint", { output: outputLabel(targetLanguage, bilingual ? secondaryLanguage : null, locale) })}
                     </p>
                   </div>
                   <div className="rounded-xl border border-white/[0.08] bg-white/[0.035] px-3.5 py-3 text-sub leading-5 text-[var(--text-muted)]">
                     {pgsConversion.language_confirmation_required ? (
                       <label className="block">
-                        <span className="mb-1.5 block font-medium text-white/85">原字幕语言</span>
+                        <span className="mb-1.5 block font-medium text-white/85">{t("library.subtitleGeneration.originalLanguage")}</span>
                         <select
                           value={pgsOcrLanguage}
                           onChange={(event) => setPgsOcrLanguage(event.target.value)}
                           className="w-full rounded-lg border border-white/10 bg-[#151820] px-3 py-2 text-ui text-white outline-none focus:border-[var(--info)]/60"
                         >
-                          <option value="">请选择字幕语言</option>
+                          <option value="">{t("library.subtitleGeneration.chooseLanguage")}</option>
                           {pgsConversion.language_options.map((option) => (
                             <option key={option.code} value={option.code}>
                               {option.label}
@@ -1017,16 +1037,16 @@ export function SubtitleGenPanel({
                           ))}
                         </select>
                         <span className="mt-1.5 block text-caption text-[var(--text-faint)]">
-                          请选择画面中实际显示的语言。
+                          {t("library.subtitleGeneration.actualLanguageHint")}
                         </span>
                       </label>
                     ) : (
                       <p className="text-white/75">
-                        原字幕语言：{pgsConversion.ocr_language_label ?? "已自动识别"}
+                        {t("library.subtitleGeneration.detectedLanguage", { language: pgsConversion.ocr_language_label ?? t("library.subtitleGeneration.autoDetected") })}
                       </p>
                     )}
                     <p className="mt-2 border-t border-white/[0.07] pt-2">
-                      原影片和字幕不会被修改。识别结果可能有少量错字，完成后建议抽查人名与特殊字体。
+                      {t("library.subtitleGeneration.ocrHint")}
                     </p>
                   </div>
                 </div>
@@ -1042,7 +1062,7 @@ export function SubtitleGenPanel({
                   </div>
                   {preview.blocker.suggestions.length > 0 && (
                     <div>
-                      <p className="mb-1.5 text-sub font-medium text-white/85">可以这样处理</p>
+                      <p className="mb-1.5 text-sub font-medium text-white/85">{t("library.subtitleGeneration.suggestions")}</p>
                       <ul className="list-disc space-y-1 pl-5 text-sub leading-5 text-white/75">
                         {preview.blocker.suggestions.map((suggestion) => (
                           <li key={suggestion}>{suggestion}</li>
@@ -1052,11 +1072,12 @@ export function SubtitleGenPanel({
                   )}
                   {pgsConversion && (
                     <details className="rounded-xl border border-white/[0.08] bg-white/[0.025] px-3.5 py-2.5 text-sub text-[var(--text-muted)]">
-                      <summary className="cursor-pointer select-none text-white/70">查看诊断信息</summary>
+                      <summary className="cursor-pointer select-none text-white/70">{t("library.subtitleGeneration.diagnostics")}</summary>
                       <div className="mt-2 space-y-1 border-t border-white/[0.07] pt-2 leading-5">
                         <p>
-                          运行环境：{pgsConversion.platform} {pgsConversion.architecture}
-                          {pgsConversion.engine ? ` · ${pgsConversion.engine}` : " · 未找到可用识别引擎"}
+                          {t("library.subtitleGeneration.environment", { platform: pgsConversion.platform, architecture: pgsConversion.architecture,
+                            engine: pgsConversion.engine ? ` · ${pgsConversion.engine}` : t("library.subtitleGeneration.noEngine"),
+                          })}
                         </p>
                         {pgsConversion.message !== preview.blocker.message && (
                           <p>{pgsConversion.message}</p>
@@ -1071,18 +1092,18 @@ export function SubtitleGenPanel({
                 <div className="space-y-3.5">
                   <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-3.5">
                     <div className="flex flex-wrap items-center gap-2 text-ui font-semibold text-white">
-                      <span>{candidateLabel(chosen)}</span>
+                      <span>{candidateLabel(chosen, locale)}</span>
                       <span className="text-[var(--text-faint)]">→</span>
                       <span className="text-[var(--info)]">
-                        {outputLabel(targetLanguage, bilingual ? secondaryLanguage : null)}
+                        {outputLabel(targetLanguage, bilingual ? secondaryLanguage : null, locale)}
                       </span>
                     </div>
                     <p className="tnum mt-1.5 text-sub text-[var(--text-muted)]">
                       {preview.reference_notice
                         ? preview.estimated_tokens > 0
-                          ? `按片长粗估${tokenEstimate(preview.estimated_tokens)}`
-                          : "读取字幕后按实际对白估算"
-                        : `${preview.event_count.toLocaleString()} 条对白 · ${tokenEstimate(preview.estimated_tokens)}`}
+                          ? t("library.subtitleGeneration.runtimeEstimate", { estimate: tokenEstimate(preview.estimated_tokens, locale) })
+                          : t("library.subtitleGeneration.afterReadEstimate")
+                        : t("library.subtitleGeneration.dialogueEstimate", { count: preview.event_count, estimate: tokenEstimate(preview.estimated_tokens, locale) })}
                     </p>
                   </div>
 
@@ -1095,16 +1116,16 @@ export function SubtitleGenPanel({
                   )}
 
                   <p className="text-sub leading-5 text-[var(--text-muted)]">
-                    生成同目录
-                    <span className="tnum ml-1 break-all text-white/80">
-                      {preview.output_filename ?? "规范命名的 AI 字幕文件"}
-                    </span>
-                    ，原字幕不变；离开页面不影响生成。
+                    {t.rich("library.subtitleGeneration.outputHint", { filename: () => (
+                      <span className="tnum ml-1 break-all text-white/80">
+                        {preview.output_filename ?? t("library.subtitleGeneration.defaultFilename")}
+                      </span>
+                    ) })}
                   </p>
 
                   {preview.already_generated && (
                     <p className="rounded-lg border border-[var(--warn)]/25 bg-[var(--warn)]/[0.07] px-3 py-2 text-sub text-[var(--warn)]/90">
-                      已有 AI 字幕，将被覆盖。
+                      {t("library.subtitleGeneration.overwrite")}
                     </p>
                   )}
                 </div>
@@ -1113,7 +1134,7 @@ export function SubtitleGenPanel({
               {!previewing && (
                 <div className="mt-5 flex justify-end gap-2.5">
                   <button type="button" className={CANCEL_BUTTON} onClick={() => setDialogOpen(false)}>
-                    {(preview?.blocker && !canPreparePgs) || requestError ? "关闭" : "取消"}
+                    {(preview?.blocker && !canPreparePgs) || requestError ? t("common.close") : t("common.cancel")}
                   </button>
                   {((preview?.blocker && !canPreparePgs) || (!preview && requestError)) && (
                     <button
@@ -1126,7 +1147,7 @@ export function SubtitleGenPanel({
                         )
                       }
                     >
-                      重新检查
+                      {t("library.subtitleGeneration.recheck")}
                     </button>
                   )}
                   {((preview?.blocker && !canPreparePgs) || requestError) && (
@@ -1136,11 +1157,11 @@ export function SubtitleGenPanel({
                       disabled={agentStarting}
                       onClick={() =>
                         void handOffToAgent(
-                          requestError ?? preview?.blocker?.message ?? "字幕生成预检没有通过",
+                          requestError ?? preview?.blocker?.message ?? t("library.subtitleGeneration.preflightFailed"),
                         )
                       }
                     >
-                      {agentStarting ? "正在交给 Agent…" : "交给 Agent 处理"}
+                      {agentStarting ? t("library.subtitleGeneration.handingOff") : t("library.subtitleGeneration.handoff")}
                     </button>
                   )}
                   {canPreparePgs && (
@@ -1151,8 +1172,8 @@ export function SubtitleGenPanel({
                       onClick={() => void onStart()}
                     >
                       {starting
-                        ? "正在启动…"
-                        : `开始生成${outputLabel(targetLanguage, bilingual ? secondaryLanguage : null)}`}
+                        ? t("library.subtitleGeneration.starting")
+                        : t("library.subtitleGeneration.startOutput", { output: outputLabel(targetLanguage, bilingual ? secondaryLanguage : null, locale) })}
                     </button>
                   )}
                   {preview && !preview.blocker && chosen && (
@@ -1163,8 +1184,8 @@ export function SubtitleGenPanel({
                       onClick={() => void onStart()}
                     >
                       {starting
-                        ? "正在启动…"
-                        : `确认生成${outputLabel(targetLanguage, bilingual ? secondaryLanguage : null)}`}
+                        ? t("library.subtitleGeneration.starting")
+                        : t("library.subtitleGeneration.confirmOutput", { output: outputLabel(targetLanguage, bilingual ? secondaryLanguage : null, locale) })}
                     </button>
                   )}
                 </div>

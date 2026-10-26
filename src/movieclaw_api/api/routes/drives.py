@@ -20,7 +20,15 @@ import logging
 from fastapi import APIRouter, Query
 
 from movieclaw_api.api.routes.channels import _qrcode_data_url
-from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
+from movieclaw_api.exceptions import (
+    BadRequestException,
+    ConflictException,
+    NotFoundException,
+    exception_fields,
+)
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.metadata import localized_schema
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.schemas.drives import (
     DriveAccountUpdatePayload,
     DriveAccountView,
@@ -54,7 +62,8 @@ router = APIRouter(prefix="/drives", tags=["drives"])
 
 def _form_schema(item: dv.DriveBackend) -> dict | None:
     try:
-        return dv.form_schema(item.login)
+        schema = dv.form_schema(item.login)
+        return localized_schema(schema) if schema is not None else None
     except SchemaNotSupported as exc:
         # 插件的表单模型写错了：不让它拖垮整个网盘列表，只是不提供填表登录
         logger.warning("网盘 %s 的登录表单界面画不了：%s", item.type, exc)
@@ -117,7 +126,9 @@ def account_view(row: DriveAccount) -> DriveAccountView:
         accent_color=backend.accent_color if backend is not None else "",
         name=row.name,
         login_method=row.login_method,
-        login_detail=row.login_detail,
+        login_detail=t("settings.driveLogin.webLogin")
+        if row.login_method == "cookie"
+        else row.login_detail,
         status=row.status,
         status_message=row.status_message,
         status_until=row.status_until,
@@ -191,7 +202,8 @@ async def update_settings_view(payload: DriveSettingsPayload) -> ApiResponse[Dri
         )
         await store.set(current)
     return ok(
-        DriveSettingsView(remove_download_tasks=current.remove_download_tasks), message="已保存"
+        DriveSettingsView(remove_download_tasks=current.remove_download_tasks),
+        message=t("settings.drives.saved"),
     )
 
 
@@ -226,10 +238,10 @@ async def update_account(
             reset=frozenset(payload.reset),
         )
     except LookupError as exc:
-        raise NotFoundException(str(exc)) from exc
+        raise NotFoundException(message_key="errors.drives.accountMissing") from exc
     except ValueError as exc:
-        raise BadRequestException(str(exc)) from exc
-    return ok(account_view(row), message="已保存")
+        raise BadRequestException(**exception_fields(exc)) from exc
+    return ok(account_view(row), message=t("settings.drives.saved"))
 
 
 @router.get(
@@ -252,11 +264,11 @@ async def list_dirs(
             account_id, "list_dir", priority=gateway.Priority.USER, dir_id=parent_id
         )
     except BackendUnavailable as exc:
-        raise ConflictException(str(exc)) from exc
+        raise ConflictException(**exception_fields(exc)) from exc
     except dv.NotFound as exc:
-        raise NotFoundException(exc.message) from exc
+        raise NotFoundException(**exception_fields(exc)) from exc
     except dv.DriveError as exc:
-        raise BadRequestException(exc.message) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     base = "/".join(p for p in path.split("/") if p)
     async with get_database().session() as session:
         mounted = []
@@ -302,10 +314,10 @@ async def delete_account(account_id: int) -> ApiResponse[dict]:
     try:
         removed = await accounts.delete_account(account_id)
     except ValueError as exc:
-        raise ConflictException(str(exc)) from exc
+        raise ConflictException(**exception_fields(exc)) from exc
     if not removed:
-        raise NotFoundException("网盘账号不存在")
-    return ok({"removed": True}, message="已移除")
+        raise NotFoundException(message_key="errors.drives.accountMissing")
+    return ok({"removed": True}, message=t("settings.drives.removed"))
 
 
 @router.post(
@@ -318,11 +330,11 @@ async def refresh_account(account_id: int) -> ApiResponse[DriveAccountView]:
     try:
         row = await accounts.refresh_profile(account_id)
     except BackendUnavailable as exc:
-        raise ConflictException(str(exc)) from exc
+        raise ConflictException(**exception_fields(exc)) from exc
     except dv.NotFound as exc:
-        raise NotFoundException(exc.message) from exc
+        raise NotFoundException(**exception_fields(exc)) from exc
     except dv.DriveError as exc:
-        raise BadRequestException(exc.message) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     return ok(account_view(row))
 
 
@@ -339,9 +351,9 @@ async def import_cookie(payload: DriveCookiePayload) -> ApiResponse[DriveLoginVi
             payload.backend, payload.cookie, relogin=payload.relogin
         )
     except BackendUnavailable as exc:
-        raise ConflictException(str(exc)) from exc
+        raise ConflictException(**exception_fields(exc)) from exc
     except ValueError as exc:
-        raise BadRequestException(str(exc)) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     return _done_view(payload.backend, row, created)
 
 
@@ -358,9 +370,9 @@ async def login_with_form(payload: DriveFormLoginPayload) -> ApiResponse[DriveLo
             payload.backend, payload.values, relogin=payload.relogin
         )
     except BackendUnavailable as exc:
-        raise ConflictException(str(exc)) from exc
+        raise ConflictException(**exception_fields(exc)) from exc
     except ValueError as exc:
-        raise BadRequestException(str(exc)) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     return _done_view(payload.backend, row, created)
 
 
@@ -370,7 +382,10 @@ def _done_view(backend: str, row: DriveAccount, created: bool) -> ApiResponse[Dr
         login_id="",
         backend=backend,
         status="confirmed",
-        message=f"已添加：{row.name}" if created else f"已重新登录：{row.name}",
+        message=t(
+            "settings.driveLogin.added" if created else "settings.driveLogin.relogged",
+            name=row.name,
+        ),
         qr_image="",
         account=account_view(row),
         created=created,
@@ -381,7 +396,7 @@ def _done_view(backend: str, row: DriveAccount, created: bool) -> ApiResponse[Dr
 async def _login_view(login_id: str) -> DriveLoginView:
     item = accounts.login_session(login_id)
     if item is None:
-        raise NotFoundException("登录不存在或已过期，请重新扫码")
+        raise NotFoundException(message_key="errors.drives.loginExpired")
     account = None
     if item.status == "confirmed" and item.account_id is not None:
         async with get_database().session() as session:
@@ -392,7 +407,7 @@ async def _login_view(login_id: str) -> DriveLoginView:
         login_id=item.login_id,
         backend=item.backend,
         status=item.status,
-        message=item.message,
+        message=render_value(item.message_ref) if item.message_ref else item.message,
         qr_image=_qrcode_data_url(item.qr or "") if not item.terminal else "",
         account=account,
         created=item.created,
@@ -410,12 +425,14 @@ async def start_login(payload: DriveLoginPayload) -> ApiResponse[DriveLoginView]
     try:
         item = await accounts.begin_login(payload.backend, payload.options, relogin=payload.relogin)
     except BackendUnavailable as exc:
-        raise ConflictException(str(exc)) from exc
+        raise ConflictException(**exception_fields(exc)) from exc
     except ValueError as exc:
-        raise BadRequestException(str(exc)) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     except dv.DriveError as exc:
-        raise BadRequestException(f"发起扫码失败：{exc.message}") from exc
-    return ok(await _login_view(item.login_id), message="请用手机扫码")
+        raise BadRequestException(
+            message_key="errors.drives.qrStartFailed", params={"error": exc.message}
+        ) from exc
+    return ok(await _login_view(item.login_id), message=t("settings.drives.scanPrompt"))
 
 
 @router.get(

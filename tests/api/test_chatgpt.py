@@ -119,7 +119,13 @@ def test_authorization_code_exchange_and_account_catalog(client, monkeypatch):
     assert mismatch.status_code == 400
 
 
-def test_delete_clears_local_credentials_and_reports_unconfirmed_revocation(client, monkeypatch):
+@pytest.mark.parametrize(
+    "locale, warning",
+    [("zh-Hans", "远端撤销未确认"), ("en", "Remote revocation is unconfirmed")],
+)
+def test_delete_clears_local_credentials_and_reports_unconfirmed_revocation(
+    client, monkeypatch, locale, warning
+):
     from unittest.mock import AsyncMock
 
     from tests.llm.unit.test_chatgpt import credentials
@@ -141,8 +147,12 @@ def test_delete_clears_local_credentials_and_reports_unconfirmed_revocation(clie
         },
     )
     assert created.status_code == 200
-    deleted = c.delete(f"/api/v1/llm/providers/{created.json()['data']['id']}")
-    assert deleted.status_code == 200 and "远端撤销未确认" in deleted.json()["message"]
+    deleted = c.delete(
+        f"/api/v1/llm/providers/{created.json()['data']['id']}",
+        headers={"Accept-Language": locale},
+    )
+    assert deleted.status_code == 200 and warning in deleted.json()["message"]
+    assert deleted.json()["data"] == {"remote_revoked": False}
     assert c.get("/api/v1/llm/providers").json()["data"] == []
     assert revoke.await_count == 1
 
@@ -289,8 +299,11 @@ def test_authorization_rejects_invalid_route_names_before_oauth(client, name):
     assert result.status_code == 400 and "名称" in result.text
 
 
-@pytest.mark.parametrize("failure", ["missing_scope", "different_account", "empty_catalog"])
-def test_rejected_grants_keep_specific_error_and_are_revoked(client, monkeypatch, failure):
+@pytest.mark.parametrize("locale", ["zh-Hans", "en"])
+@pytest.mark.parametrize(
+    "failure", ["missing_scope", "different_account", "empty_catalog", "service_down"]
+)
+def test_rejected_grants_keep_specific_error_and_are_revoked(client, monkeypatch, failure, locale):
     from unittest.mock import AsyncMock
 
     from tests.llm.unit.test_chatgpt import credentials
@@ -335,7 +348,7 @@ def test_rejected_grants_keep_specific_error_and_are_revoked(client, monkeypatch
                 },
             )
         if request.url.path.endswith("jwks.json"):
-            return httpx.Response(200, json=keys)
+            return httpx.Response(503 if failure == "service_down" else 200, json=keys)
         return httpx.Response(200, json={"models": []})
 
     monkeypatch.setattr(chatgpt_auth, "egress_transport", lambda _: httpx.MockTransport(handle))
@@ -343,6 +356,7 @@ def test_rejected_grants_keep_specific_error_and_are_revoked(client, monkeypatch
     monkeypatch.setattr(chatgpt_auth, "revoke_credentials", revoke)
     result = c.post(
         "/api/v1/llm/chatgpt/complete",
+        headers={"Accept-Language": locale},
         json={
             "attempt_id": flow["attempt_id"],
             "state": flow["state"],
@@ -355,7 +369,15 @@ def test_rejected_grants_keep_specific_error_and_are_revoked(client, monkeypatch
         "missing_scope": "允许使用订阅额度",
         "different_account": "不是原来的",
         "empty_catalog": "没有可用模型",
+        "service_down": "暂时不可用",
     }
+    if locale == "en":
+        expected = {
+            "missing_scope": "Allow subscription usage",
+            "different_account": "different ChatGPT account",
+            "empty_catalog": "No models are available",
+            "service_down": "temporarily unavailable",
+        }
     assert expected[failure] in result.json()["message"]
     assert revoke.await_count == 1
     assert revoke.call_args.args[0].refresh_token == "new-grant-refresh"

@@ -48,6 +48,7 @@ def name_forms(raw: str) -> NameForms:
     # 逐字读音走持久记忆（pinyin.py）：建索引、匹配前须先 prepare_names
     syllables = pinyin_memo.syllables(text)
     words = tuple(_WORDS.findall(normalized(raw)))
+    # i18n-ignore: CJK range bounds
     has_han = any("\u3400" <= ch <= "\u9fff" for ch in text)
     initials = "".join(part[:1] for part in syllables)
     if not has_han:
@@ -76,6 +77,7 @@ def _can_mix(query: str, text: str) -> bool:
         len(query) >= 2
         and (len(query) > 2 or not query.isascii())
         and re.search("[a-z]", query) is not None
+        # i18n-ignore: CJK range bounds
         and any("\u3400" <= ch <= "\u9fff" for ch in text)
     )
 

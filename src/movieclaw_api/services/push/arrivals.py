@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n import t
 from movieclaw_api.services.push.audience import lazy_image
 from movieclaw_api.services.push.notify import AlertContent, notify
 from movieclaw_api.settings.cloud import ArrivalsProgress
@@ -291,12 +292,21 @@ def announce_summary(
         if library is None or not found:
             return None
         videos = library.kind not in ("movie", "tv")  # 「其他」库：家庭录像、课程这类，不叫「片」
-        names = "、".join(item.title for item in found[:NAMED_IN_SUMMARY])
-        more = "等" if len(found) > NAMED_IN_SUMMARY else ""
-        unit = "个视频" if videos else "部"
+        names = t(
+            "notify.summary.names",
+            titles=t("notify.summary.separator").join(
+                item.title for item in found[:NAMED_IN_SUMMARY]
+            ),
+            more="yes" if len(found) > NAMED_IN_SUMMARY else "no",
+        )
         return AlertContent(
-            title=f"「{library.name}」新增 {len(found)} {unit}",
-            body=f"{names}{more}",
+            title=t(
+                "notify.summary.libraryTitle",
+                library=library.name,
+                count=len(found),
+                kind="video" if videos else "media",
+            ),
+            body=names,
             image=await lazy_image(_image_url(found[0]))(),
             open=f"/library/{library_id}",
             thread=f"library-{library_id}",

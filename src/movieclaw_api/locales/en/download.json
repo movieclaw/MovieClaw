@@ -1,0 +1,63 @@
+{
+  "operations": {
+    "targetPreviewed": "Release identified and automatic library destination previewed",
+    "replacementStarted": "Searching across sites for an alternative of the same quality. The old task stays until the new source makes real progress.",
+    "deletePreview": "Preview: nothing was deleted (downloader \"{name}\")",
+    "torrentAndFilesDeleted": "Torrent task and data files deleted",
+    "torrentDeleted": "Torrent task deleted; data files kept",
+    "identityNeedsConfirmation": "Could not determine the title automatically. Confirm a candidate before choosing the automatic library destination.",
+    "identityNotFound": "Could not reliably identify this release. Search with another title or choose the save folder manually.",
+    "alreadyAdded": "This torrent is already in the downloader; it was not added again",
+    "submittedToLibrary": "Submitted to \"{downloader}\" for library \"{library}\"",
+    "submitted": "Submitted to \"{name}\"",
+    "routedLibrary": "{receipt} ({reason})"
+  },
+  "removal": {
+    "optionLabel": "Also delete download tasks and source files",
+    "optionHelp": "Delete the matching downloader tasks and their data to free disk space. Source files cannot be recovered.",
+    "noTask": "No matching download task was found (the file was scanned or its source is unknown). Only library files will be deleted.",
+    "sameItemFiles": "{count, plural, one {# other file} other {# other files}} of the same title",
+    "workTitle": "“{title}”",
+    "titlesMore": "{titles} and others ({count} titles)",
+    "unknownFiles": "{count, plural, one {# unidentified file} other {# unidentified files}}",
+    "otherLibraryFiles": "other files in the library",
+    "skipNoDownloader": "The downloader was removed, so this task can’t be found",
+    "skipNotOwned": "This torrent wasn’t added by MovieClaw",
+    "skipHitAndRun": "This torrent has a hit-and-run requirement; deleting it may break site rules",
+    "skipSharedFiles": "This torrent also provides {others}; deleting it would remove them too",
+    "taskCount": "{text} ({count} tasks)",
+    "kept": "Keeping “{name}”: {reason}",
+    "missingInDownloader": "“{name}” is no longer in the downloader “{downloader}”",
+    "downloaderUnreachable": "The downloader “{downloader}” can’t be reached, so it’s unclear whether “{name}” is still there; if deleting fails, retry it from Activity → Tasks",
+    "willDelete": "Downloader “{downloader}”: delete “{name}”",
+    "hardlinkedFreed": "The copy in the download folder is deleted too, so the space is actually freed",
+    "sourceDeleted": "Source files in the download folder are deleted too",
+    "subscriptionTracking": "This title’s subscription is still active; deleted episodes will be downloaded again",
+    "irreversible": "Deleted source files can’t be recovered",
+    "removed": "Deleted {count, plural, one {# download task} other {# download tasks}} and their source files: {names}",
+    "deleteFailed": "Couldn’t delete “{name}”: {error}",
+    "nothingToDelete": "No download tasks needed deleting",
+    "summary": "{parts}"
+  },
+  "preview": {
+    "downloaderMissing": "Downloader #{id} does not exist",
+    "defaultMissing": "No default downloader is available. Add one in Settings → Downloaders and ensure its connection test passes.",
+    "downloaderUnavailable": "Downloader “{name}” is unavailable (disabled or not verified).",
+    "noRoot": "No library or library root is available. Downloads will use the downloader’s default directory and will not be imported automatically.",
+    "noStagingLibrary": "No library is available. Downloads will be organized into the custom directory, but returning files cannot be registered and subscriptions cannot complete. Create a library first.",
+    "noWatchLibrary": "No library is available. Torrents will download into the watched directory, but completed files cannot be imported automatically. Create a library first.",
+    "unmapped": "Directory {path} is not covered by downloader “{name}”’s path mappings, so submission will be rejected. Add a mapping for this directory or a shared parent directory, or configure a watched import rule for this library."
+  },
+  "rescue": {
+    "trial": "Verifying a same-quality replacement; the old source is switched only after the new one makes at least 1 MiB of real progress",
+    "submitted": "A same-quality replacement was submitted; waiting for real download progress",
+    "searching": "Keeping the old source while searching other sites for a same-quality replacement",
+    "backoff": "No same-quality replacement yet; the old source is kept and other sites will be searched again on schedule",
+    "retained": "Replacement finished; the old task was kept because it wasn’t safe to remove",
+    "cleanupPending": "The replacement took over; safely cleaning up the old task",
+    "noProgress": "No download progress for 15 minutes. You can replace it now; it’s handled automatically at 30 minutes",
+    "downloaderDisabled": "The downloader is disabled",
+    "downloaderUnverified": "The downloader hasn’t passed the connection check",
+    "listFailed": "Couldn’t read tasks. Check the downloader connection."
+  }
+}

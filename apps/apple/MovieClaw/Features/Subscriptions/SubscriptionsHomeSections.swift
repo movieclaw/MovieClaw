@@ -29,7 +29,7 @@ struct SubsHomeSectionHeader: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("查看全部")
+                .accessibilityHint(String(localized: .subscriptionFeedSeeAll))
                 .accessibilityIdentifier(actionIdentifier ?? "section-more")
             } else {
                 Text(title)
@@ -58,7 +58,7 @@ struct SubsHomeRecentRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SubsHomeSectionHeader(title: "刚刚入库", trailing: cards.count > 1 ? "\(cards.count) 部" : nil)
+            SubsHomeSectionHeader(title: String(localized: .subscriptionSectionsRecent), trailing: cards.count > 1 ? String(localized: .subscriptionArrivalsTitleCount(cards.count)) : nil)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(cards, id: \.subscriptionId) { card in
@@ -88,9 +88,9 @@ private struct SubsHomeRecentCard: View {
     /// 第三行：什么时候到的、这一批还有几集、看到哪了
     private var note: String {
         var parts: [String] = []
-        if let date = SubscriptionsHome.importedAt(card) { parts.append("\(Formatters.fromNow(date))入库") }
-        if card.units.count > 1 { parts.append("共 \(card.units.count) 集新内容") }
-        if let percent = card.progressPercent { parts.append("看到 \(percent)%") }
+        if let date = SubscriptionsHome.importedAt(card) { parts.append(String(localized: .subscriptionFeedImportedAgo(Formatters.fromNow(date)))) }
+        if card.units.count > 1 { parts.append(String(localized: .subscriptionFeedNewContent(card.units.count))) }
+        if let percent = card.progressPercent { parts.append(String(localized: .subscriptionFeedWatchedPercent(percent))) }
         return parts.joined(separator: " · ")
     }
 
@@ -123,14 +123,14 @@ private struct SubsHomeRecentCard: View {
         }
         .buttonStyle(SubsHomePressStyle())
         .contextMenu {
-            Button("播放", systemImage: "play.fill") { router.play(SubscriptionsHome.playRequest(card)) }
-            Button("查看订阅详情", systemImage: "list.bullet.rectangle") { router.push(.subscription(id: card.subscriptionId)) }
-            Button("查看影片详情", systemImage: "info.circle") {
+            Button(String(localized: .libraryHeroPlay), systemImage: "play.fill") { router.play(SubscriptionsHome.playRequest(card)) }
+            Button(String(localized: .subscriptionSubscribeViewDetails), systemImage: "list.bullet.rectangle") { router.push(.subscription(id: card.subscriptionId)) }
+            Button(String(localized: .subscriptionFeedViewTitleDetails), systemImage: "info.circle") {
                 router.push(.mediaDetail(titleRef: "tmdb:\(card.media.kind):\(card.media.tmdbId)"))
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("播放《\(card.media.title)》，\(SubscriptionsHome.recentDetail(card))，\(note)")
+        .accessibilityLabel(String(localized: .subscriptionFeedPlayRecentNote(card.media.title, SubscriptionsHome.recentDetail(card), note)))
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("recent-card")
     }
@@ -158,7 +158,7 @@ private struct SubsHomeRecentCard: View {
             }
             .overlay(alignment: .topLeading) {
                 if card.units.count > 1 {
-                    SubsHomeChipView(chip: SubsHomeChip(text: "新 \(card.units.count) 集", tone: .ok))
+                    SubsHomeChipView(chip: SubsHomeChip(text: String(localized: .subscriptionFeedNewEpisodes(card.units.count)), tone: .ok))
                         .padding(9)
                 }
             }
@@ -212,7 +212,7 @@ struct SubsHomeSchedule: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SubsHomeSectionHeader(title: "日程", trailing: current.map(caption))
+            SubsHomeSectionHeader(title: String(localized: .subscriptionFeedSchedule), trailing: current.map(caption))
             strip
             agenda
         }
@@ -222,7 +222,7 @@ struct SubsHomeSchedule: View {
     }
 
     private func caption(_ day: SubsHomeScheduleDay) -> String {
-        day.entries.isEmpty ? day.dateLabel : "\(day.dateLabel) · \(day.entries.count) 部"
+        day.entries.isEmpty ? day.dateLabel : String(localized: .subscriptionFeedScheduleCaption(day.dateLabel, day.entries.count))
     }
 
     private var strip: some View {
@@ -274,7 +274,9 @@ struct SubsHomeSchedule: View {
         .buttonStyle(SubsHomePressStyle(scale: 0.92))
         .disabled(day.entries.isEmpty)
         .opacity(day.entries.isEmpty ? 0.36 : 1)
-        .accessibilityLabel("\(day.weekday)，\(day.dateLabel)，\(day.entries.isEmpty ? "没有更新" : "\(day.entries.count) 部更新")")
+        .accessibilityLabel(day.entries.isEmpty
+            ? String(localized: .subscriptionFeedDayEmpty(day.weekday, day.dateLabel))
+            : String(localized: .subscriptionFeedDayReleases(day.weekday, day.dateLabel, day.entries.count)))
         .accessibilityAddTraits(on ? .isSelected : [])
         .accessibilityIdentifier("schedule-day-\(day.daysAhead)")
     }
@@ -319,7 +321,7 @@ private struct SubsHomeAgendaRow: View {
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(entry.time ?? "待定")
+                    Text(entry.time ?? String(localized: .subscriptionFeedTbd))
                         .font(.system(size: 20, weight: entry.time == nil ? .regular : .semibold))
                         .monospacedDigit()
                         .foregroundStyle(entry.time == nil ? Theme.textFaint : Theme.text)
@@ -356,7 +358,7 @@ private struct SubsHomeAgendaRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("《\(entry.title)》\(entry.episodeLabel)，\(entry.status)，\(entry.time ?? "时间待定")")
+        .accessibilityLabel("《\(entry.title)》\(entry.episodeLabel)，\(entry.status)，\(entry.time ?? String(localized: .subscriptionFeedTimePending))")
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("schedule-row")
     }
@@ -455,10 +457,10 @@ private struct SubsHomeSeeAllCard: View {
                         Image(systemName: "square.grid.2x2")
                             .font(.system(size: 22, weight: .regular))
                             .foregroundStyle(Theme.textMuted)
-                        Text("查看全部")
+                        Text(String(localized: .subscriptionFeedSeeAll))
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(Theme.text)
-                        Text("\(total) 部")
+                        Text(String(localized: .subscriptionArrivalsTitleCount(total)))
                             .font(.caption)
                             .monospacedDigit()
                             .foregroundStyle(Theme.textFaint)
@@ -469,7 +471,7 @@ private struct SubsHomeSeeAllCard: View {
             .contentShape(.rect)
         }
         .buttonStyle(SubsHomePressStyle())
-        .accessibilityLabel("查看全部 \(total) 部")
+        .accessibilityLabel(String(localized: .subscriptionFeedSeeAllCount(total)))
         .accessibilityIdentifier("shelf-see-all")
     }
 }
@@ -514,8 +516,8 @@ struct SubsHomePosterCard: View {
         }
         .buttonStyle(SubsHomePressStyle())
         .contextMenu {
-            Button("查看订阅详情", systemImage: "list.bullet.rectangle") { router.push(.subscription(id: item.sub.id)) }
-            Button("查看影片详情", systemImage: "info.circle") {
+            Button(String(localized: .subscriptionSubscribeViewDetails), systemImage: "list.bullet.rectangle") { router.push(.subscription(id: item.sub.id)) }
+            Button(String(localized: .subscriptionFeedViewTitleDetails), systemImage: "info.circle") {
                 router.push(.mediaDetail(titleRef: "tmdb:\(item.sub.media.kind):\(item.sub.media.tmdbId)"))
             }
         }

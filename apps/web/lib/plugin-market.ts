@@ -1,3 +1,7 @@
+import { appTranslator, type AppMessageKey } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+import { formatList } from "./i18n/format.ts";
+import { formatNumber } from "./i18n/format.ts";
 /**
  * 插件市场的展示口径（设置 → 插件 → 插件市场）。纯逻辑，单独成文件好用测试锁住
  * （test/plugin-market.test.mjs）：分类与筛选、一张卡片该给什么按钮、版本的标记、权限翻成人话、
@@ -13,27 +17,29 @@ import type { Tone } from "./cloud-push-display";
 import { formatBytes, formatCompact } from "./format.ts";
 import { pluginStateLabel, pluginStateTone } from "./plugins-display.ts";
 
-export const CATEGORY_LABELS: Record<string, string> = {
-  storage: "网盘",
-  downloader: "下载器",
-  messaging: "消息通道",
-  sites: "站点",
-  library: "媒体库",
-  tools: "工具",
+const CATEGORY_LABEL_KEYS: Record<string, AppMessageKey> = {
+  storage: "settings.pluginMarket.storage",
+  downloader: "settings.pluginMarket.downloader",
+  messaging: "settings.pluginMarket.messaging",
+  sites: "settings.pluginMarket.sites",
+  library: "settings.pluginMarket.library",
+  tools: "settings.pluginMarket.tools",
 };
 
-export function categoryLabel(category: string): string {
-  return CATEGORY_LABELS[category] ?? "其他";
+export function categoryLabel(category: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  return t(CATEGORY_LABEL_KEYS[category] ?? "settings.pluginMarket.other");
 }
 
 /** 筛选条：只列有插件的分类（固定顺序），只有一个分类时不出筛选条 */
-export function marketCategories(plugins: MarketPlugin[]): { id: string; label: string }[] {
+export function marketCategories(plugins: MarketPlugin[], locale: AppLocale = requestLocale() ?? "zh-Hans"): { id: string; label: string }[] {
+  const t = appTranslator(locale);
   const present = new Set(plugins.map((p) => p.category));
-  const known = Object.keys(CATEGORY_LABELS).filter((id) => present.has(id));
-  const other = [...present].filter((id) => !(id in CATEGORY_LABELS)).sort();
+  const known = Object.keys(CATEGORY_LABEL_KEYS).filter((id) => present.has(id));
+  const other = [...present].filter((id) => !(id in CATEGORY_LABEL_KEYS)).sort();
   const all = [...known, ...other];
   if (all.length < 2) return [];
-  return [{ id: "all", label: "全部" }, ...all.map((id) => ({ id, label: categoryLabel(id) }))];
+  return [{ id: "all", label: t("settings.pluginMarket.all") }, ...all.map((id) => ({ id, label: categoryLabel(id, locale) }))];
 }
 
 export function filterMarket(
@@ -68,27 +74,28 @@ export interface MarketAction {
 }
 
 /** 卡片 / 详情上的主操作 */
-export function marketAction(plugin: MarketPlugin): MarketAction {
+export function marketAction(plugin: MarketPlugin, locale: AppLocale = requestLocale() ?? "zh-Hans"): MarketAction {
+  const t = appTranslator(locale);
   if (plugin.blocked) {
     return { kind: "blocked", label: "", version: null, note: plugin.blocked };
   }
   if (plugin.installed) {
     if (plugin.update) {
-      return { kind: "update", label: "更新", version: plugin.update, note: null };
+      return { kind: "update", label: t("settings.pluginMarket.update"), version: plugin.update, note: null };
     }
     if (plugin.installed.source === "bundled") {
-      return { kind: "bundled", label: "", version: null, note: "随应用提供" };
+      return { kind: "bundled", label: "", version: null, note: t("settings.pluginMarket.bundled") };
     }
-    return { kind: "installed", label: "", version: null, note: "已安装" };
+    return { kind: "installed", label: "", version: null, note: t("settings.pluginMarket.installed") };
   }
   if (plugin.recommended) {
-    return { kind: "install", label: "安装", version: plugin.recommended, note: null };
+    return { kind: "install", label: t("settings.pluginMarket.install"), version: plugin.recommended, note: null };
   }
   const reason = plugin.versions.find((v) => !v.compatible)?.incompatible_reason;
   if (plugin.versions.length > 0 && plugin.versions.every((v) => !v.compatible)) {
-    return { kind: "incompatible", label: "", version: null, note: reason ?? "本机装不了" };
+    return { kind: "incompatible", label: "", version: null, note: reason ?? t("settings.pluginMarket.incompatible") };
   }
-  return { kind: "unavailable", label: "", version: null, note: "没有可安装的版本" };
+  return { kind: "unavailable", label: "", version: null, note: t("settings.pluginMarket.unavailable") };
 }
 
 /** 卡片上显示的版本：推荐的那一版，没有就是最新一版 */
@@ -103,12 +110,13 @@ export interface VersionBadge {
 }
 
 /** 版本行的标记：测试版、当前安装、已撤回、装不了 */
-export function versionBadges(version: MarketVersion, plugin: MarketPlugin): VersionBadge[] {
+export function versionBadges(version: MarketVersion, plugin: MarketPlugin, locale: AppLocale = requestLocale() ?? "zh-Hans"): VersionBadge[] {
+  const t = appTranslator(locale);
   const badges: VersionBadge[] = [];
-  if (plugin.installed?.version === version.version) badges.push({ label: "当前安装", tone: "info" });
-  if (version.prerelease) badges.push({ label: "测试版", tone: "warn" });
-  if (version.yanked) badges.push({ label: "已撤回", tone: "danger" });
-  if (!version.compatible) badges.push({ label: "装不了", tone: "neutral" });
+  if (plugin.installed?.version === version.version) badges.push({ label: t("settings.pluginMarket.currentVersion"), tone: "info" });
+  if (version.prerelease) badges.push({ label: t("settings.pluginMarket.prerelease"), tone: "warn" });
+  if (version.yanked) badges.push({ label: t("settings.pluginMarket.yanked"), tone: "danger" });
+  if (!version.compatible) badges.push({ label: t("settings.pluginMarket.cannotInstall"), tone: "neutral" });
   return badges;
 }
 
@@ -119,15 +127,16 @@ export function canInstallVersion(version: MarketVersion, plugin: MarketPlugin):
 }
 
 /** 装某一版是升级、降级还是安装（按钮上的字） */
-export function installVerb(version: string, plugin: MarketPlugin): string {
+export function installVerb(version: string, plugin: MarketPlugin, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   const current = plugin.installed?.version;
-  if (!current) return "安装";
+  if (!current) return t("settings.pluginMarket.install");
   const index = (v: string) => plugin.versions.findIndex((item) => item.version === v);
   const a = index(version);
   const b = index(current);
   // versions 已按新到旧排好；当前装的版本不在索引里时按升级说
-  if (b === -1 || a < b) return "升级到这一版";
-  return "换回这一版";
+  if (b === -1 || a < b) return t("settings.pluginMarket.upgradeVersion");
+  return t("settings.pluginMarket.switchVersion");
 }
 
 export interface PermissionLine {
@@ -137,92 +146,94 @@ export interface PermissionLine {
 }
 
 /** 详情「权限」页：这一版要什么，按风险从高到低 */
-export function permissionLines(version: MarketVersion): PermissionLine[] {
+export function permissionLines(version: MarketVersion, locale: AppLocale = requestLocale() ?? "zh-Hans"): PermissionLine[] {
+  const t = appTranslator(locale);
   const lines: PermissionLine[] = [];
   const p = version.permissions;
   if (version.runtime === "inline") {
     lines.push({
-      title: "在主进程里运行",
-      detail: "拥有与主程序相同的系统权限，崩溃会影响整个应用。安装时须单独确认。",
+      title: t("settings.pluginMarket.inline"),
+      detail: t("settings.pluginMarket.inlineRisk"),
       tone: "danger",
     });
   } else if (version.runtime === "exec") {
     lines.push({
-      title: "运行自带的可执行文件",
-      detail: "在独立进程里以低权限用户运行，只能用下面列出的权限。",
+      title: t("settings.pluginMarket.exec"),
+      detail: t("settings.pluginMarket.execHint"),
       tone: "neutral",
     });
   } else {
     lines.push({
-      title: "在独立进程里运行",
-      detail: "和主程序隔离，以低权限用户运行，崩溃只影响它自己。",
+      title: t("settings.pluginMarket.process"),
+      detail: t("settings.pluginMarket.processHint"),
       tone: "neutral",
     });
   }
   if (p.events.length > 0) {
     lines.push({
-      title: "知道谁在什么时候看了什么",
-      detail: `订阅敏感事件：${p.events.join("、")}`,
+      title: t("settings.pluginMarket.watching"),
+      detail: t("settings.pluginMarket.events", { events: formatList(p.events, locale) }),
       tone: "warn",
     });
   }
   if (version.web) {
     lines.push({
-      title: "带网页",
-      detail: "网页以正在使用它的人的身份运行（管理员打开时拥有管理员的权限），安装时须单独确认。",
+      title: t("settings.pluginMarket.web"),
+      detail: t("settings.pluginMarket.webRisk"),
       tone: "warn",
     });
   }
   if (p.callbacks.length > 0) {
     lines.push({
-      title: "开放回调地址",
-      detail: `外部平台不用登录就能调进来：${p.callbacks.join("、")}`,
+      title: t("settings.pluginMarket.callbacks"),
+      detail: t("settings.pluginMarket.callbacksHint", { callbacks: formatList(p.callbacks, locale) }),
       tone: "warn",
     });
   }
   if (p.operations.length > 0) {
     lines.push({
-      title: `调用 ${p.operations.length} 项宿主操作`,
-      detail: p.operations.join("、"),
+      title: t("settings.pluginMarket.operations", { count: p.operations.length }),
+      detail: formatList(p.operations, locale),
       tone: "neutral",
     });
   }
   for (const grant of p.paths) {
     lines.push({
-      title: grant.mode === "rw" ? "读写目录" : "只读目录",
+      title: grant.mode === "rw" ? t("settings.pluginMarket.readWrite") : t("settings.pluginMarket.readOnly"),
       detail: grant.path,
       tone: grant.mode === "rw" ? "warn" : "neutral",
     });
   }
   if (p.network) {
     lines.push({
-      title: "访问互联网",
-      detail: "请求走「网络与代理」里的出口，代理与限速对它生效。",
+      title: t("settings.pluginMarket.network"),
+      detail: t("settings.pluginMarket.networkHint"),
       tone: "neutral",
     });
   }
   if (version.dependencies.length > 0) {
     const native = version.dependencies.filter((d) => d.native).map((d) => d.name);
     lines.push({
-      title: `安装时下载 ${version.dependencies.length} 个第三方包`,
+      title: t("settings.pluginMarket.dependencies", { count: version.dependencies.length }),
       detail:
-        "从 PyPI 镜像下载，版本与哈希钉死在锁文件里。" +
-        (native.length ? `含本机代码：${native.join("、")}` : ""),
+        native.length
+          ? t("settings.pluginMarket.dependencyWithNative", { packages: formatList(native, locale) })
+          : t("settings.pluginMarket.dependencyHint"),
       tone: native.length ? "warn" : "neutral",
     });
   }
   if (lines.length === 1 && version.runtime !== "inline") {
-    lines.push({ title: "不申请其他权限", detail: "只用它接入的接口本身提供的能力。", tone: "neutral" });
+    lines.push({ title: t("settings.pluginMarket.noExtraPermissions"), detail: t("settings.pluginMarket.noExtraHint"), tone: "neutral" });
   }
   return lines;
 }
 
 /** 卡片底部的一行：版本 · 大小 · 下载次数（没有下载数就不写） */
-export function versionMeta(version: MarketVersion | null, downloads?: number | null): string {
+export function versionMeta(version: MarketVersion | null, downloads?: number | null, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   if (!version) return "";
   const parts = [`v${version.version}`];
   if (version.size) parts.push(formatBytes(version.size));
-  const count = formatDownloadCount(downloads);
+  const count = formatDownloadCount(downloads, locale);
   if (count) parts.push(count);
   return parts.join(" · ");
 }
@@ -231,12 +242,13 @@ export function versionMeta(version: MarketVersion | null, downloads?: number | 
  * 累计下载次数。万以下用分组数字（1,200），再往上用中文紧凑格式（1.2万），和全站魔力值同一套。
  * 没有这个数（旧索引）返回 null，调用方什么都不显示。
  */
-export function formatDownloadCount(count: number | null | undefined): string | null {
+export function formatDownloadCount(count: number | null | undefined, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
+  const t = appTranslator(locale);
   if (typeof count !== "number" || !Number.isFinite(count) || count < 0) return null;
   const rounded = Math.floor(count);
   const formatted =
-    rounded >= 10000 ? formatCompact(rounded) : new Intl.NumberFormat("zh-CN").format(rounded);
-  return `${formatted} 次下载`;
+    rounded >= 10000 ? formatCompact(rounded, locale) : formatNumber(rounded, {}, locale);
+  return t("settings.pluginMarket.downloads", { value: formatted, count: rounded });
 }
 
 const MOVIECLAW_PLUGINS_ISSUE_FORM = "/movieclaw/movieclaw-plugins/issues/new";
@@ -305,10 +317,11 @@ export function pendingUpdates(plugins: MarketPlugin[]): MarketPlugin[] {
 }
 
 /** 装着的插件现在的状态（「unloaded」= 有安装记录但没加载，例如依赖还没装好） */
-export function installedStatus(state: string): { label: string; tone: Tone } {
-  if (state === "unloaded") return { label: "未加载", tone: "neutral" };
+export function installedStatus(state: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): { label: string; tone: Tone } {
+  const t = appTranslator(locale);
+  if (state === "unloaded") return { label: t("settings.pluginMarket.unloaded"), tone: "neutral" };
   return {
-    label: pluginStateLabel(state as PluginState),
+    label: pluginStateLabel(state as PluginState, locale),
     tone: pluginStateTone(state as PluginState),
   };
 }

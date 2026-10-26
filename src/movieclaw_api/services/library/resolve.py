@@ -52,6 +52,7 @@ import logging
 import re
 from dataclasses import dataclass, field, replace
 
+from movieclaw_api.i18n.stored import stored_fields
 from movieclaw_media.models import MediaKind
 from movieclaw_media.tmdb import TmdbClient
 
@@ -110,6 +111,7 @@ class ResolveCandidate:
     year: int | None
     episode_count: int | None = None  # 对应季集数（剧集）：同名双版本的肉眼区分点
     reasons: list[str] = field(default_factory=list)  # 本地证据对它的佐证
+    reason_messages: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -120,6 +122,13 @@ class ResolveOutcome:
     candidates: list[ResolveCandidate] = field(default_factory=list)
     # 放弃的具体原因（中文短语，由调用方拼进面向用户的完整文案）
     reason: str | None = None
+    reason_message: dict | None = None
+
+    @classmethod
+    def from_message(
+        cls, message: dict, *, candidates: list[ResolveCandidate] | None = None
+    ) -> ResolveOutcome:
+        return cls(reason=message["message"], reason_message=message, candidates=candidates or [])
 
 
 @dataclass
@@ -204,12 +213,14 @@ def _degraded_evidences(evidence: LocalEvidence) -> list[tuple[LocalEvidence, st
         year = int(match.group("year"))
         if evidence.year in (None, year):
             split_form = replace(evidence, title=match.group("stem"), year=year, alt_title=None)
+            # i18n-ignore: identification log text
             forms.append((split_form, "尾部年份拆分"))
     tokens = spaced.split()
     half = len(tokens) // 2
     if len(tokens) >= 2 and len(tokens) % 2 == 0 and (
         [t.casefold() for t in tokens[:half]] == [t.casefold() for t in tokens[half:]]
     ):
+        # i18n-ignore: identification log text
         forms.append((replace(evidence, title=" ".join(tokens[:half]), alt_title=None), "双写折叠"))
     return forms
 
@@ -248,6 +259,9 @@ async def _verify_query(
             outcome,
             candidates=_dedupe_candidates(outcome.candidates + extra_outcome.candidates),
             reason=outcome.reason or extra_outcome.reason,
+            reason_message=outcome.reason_message
+            if outcome.reason
+            else extra_outcome.reason_message,
         )
     # 补搜池本身按年份过滤而来，"年份相同"在这里是循环论证、零信息量；
     # 必须另有非平凡佐证才可采信（实测反例：「Never Give Up」剧集种子
@@ -264,7 +278,10 @@ async def _verify_query(
             candidates=_dedupe_candidates(
                 outcome.candidates + [_to_user_candidate(kind, evidence, picked)]
             ),
-            reason=outcome.reason or "候选除年份外没有其它佐证，不敢自动采信",
+            reason=outcome.reason or stored_fields("library.identification.yearOnly")["message"],
+            reason_message=outcome.reason_message
+            if outcome.reason
+            else stored_fields("library.identification.yearOnly"),
         )
     return extra_outcome
 
@@ -328,7 +345,7 @@ async def _verify_pool(
     language: str,
 ) -> ResolveOutcome:
     if not candidates:
-        return ResolveOutcome(reason="TMDB 搜索没有任何结果")
+        return ResolveOutcome.from_message(stored_fields("library.identification.noSearchResults"))
     wanted = normalize_title(evidence.title)
     for candidate in candidates:
         await _load_detail(client, kind, candidate, language)
@@ -359,8 +376,8 @@ async def _verify_pool(
             candidates[0].title,
         )
         # 搜索结果照样带回：片名被 enrich 截断/改写时，人眼往往一眼认得
-        return ResolveOutcome(
-            candidates=users(candidates), reason="搜索结果里没有片名对得上的条目"
+        return ResolveOutcome.from_message(
+            stored_fields("library.identification.titleMismatch"), candidates=users(candidates)
         )
 
     # ② 反证淘汰
@@ -377,8 +394,8 @@ async def _verify_pool(
         survivors.append(c)
     if not survivors:
         # 同名候选都被本地证据反证：大概率是本地命名有误，交给人判断
-        return ResolveOutcome(
-            candidates=users(rejected), reason="同名候选都与本地的年份/季数对不上"
+        return ResolveOutcome.from_message(
+            stored_fields("library.identification.localMismatch"), candidates=users(rejected)
         )
 
     # ③ 裁决：唯一幸存 → 逐级收窄 → 歧义放弃
@@ -390,10 +407,11 @@ async def _verify_pool(
             len(survivors),
             "、".join(f"《{c.title}》({c.year})" for c in survivors[:3]),
         )
-        return ResolveOutcome(
+        return ResolveOutcome.from_message(
+            stored_fields("library.identification.ambiguous", count=len(survivors)),
             candidates=users(survivors),
-            reason=f"有 {len(survivors)} 个同样可信的候选，机器不敢替你选",
         )
+    # i18n-ignore: identification log text
     reasons = _corroborations(kind, evidence, picked) or ["唯一过标题门槛"]
     logger.info(
         "扫描收敛命中：「%s」→《%s》(%s, tmdb=%d)，佐证：%s",
@@ -410,6 +428,7 @@ def _to_user_candidate(
     kind: MediaKind, evidence: LocalEvidence, c: _Candidate
 ) -> ResolveCandidate:
     """内部候选 → 带给用户的候选（附上佐证与对应季集数，供肉眼区分）。"""
+    reasons = _corroboration_messages(kind, evidence, c)
     return ResolveCandidate(
         tmdb_id=c.tmdb_id,
         title=c.title,
@@ -417,7 +436,8 @@ def _to_user_candidate(
         episode_count=(
             c.episode_counts.get(evidence.season or 1) if kind is MediaKind.TV else None
         ),
-        reasons=_corroborations(kind, evidence, c),
+        reasons=[message["message"] for message in reasons],
+        reason_messages=reasons,
     )
 
 
@@ -487,6 +507,7 @@ def _counter_evidence(kind: MediaKind, evidence: LocalEvidence, c: _Candidate) -
         and c.year is not None
         and abs(c.year - evidence.year) >= 2
     ):
+        # i18n-ignore: identification log text
         return f"年份反证（本地 {evidence.year} vs 候选 {c.year}）"
     if (
         kind is MediaKind.TV
@@ -495,6 +516,7 @@ def _counter_evidence(kind: MediaKind, evidence: LocalEvidence, c: _Candidate) -
         and c.season_count < evidence.season
         and not _anime_season_exempt(evidence, c)
     ):
+        # i18n-ignore: identification log text
         return f"季数反证（本地 S{evidence.season:02d} vs 候选共 {c.season_count} 季）"
     return None
 
@@ -515,27 +537,41 @@ def _anime_season_exempt(evidence: LocalEvidence, c: _Candidate) -> bool:
 
 
 def _corroborations(kind: MediaKind, evidence: LocalEvidence, c: _Candidate) -> list[str]:
+    return [message["message"] for message in _corroboration_messages(kind, evidence, c)]
+
+
+def _corroboration_messages(kind: MediaKind, evidence: LocalEvidence, c: _Candidate) -> list[dict]:
     """收集本地证据对该候选的全部佐证（供裁决与日志）。"""
-    reasons: list[str] = []
+    reasons: list[dict] = []
     if evidence.year is not None and c.year is not None and abs(c.year - evidence.year) <= 1:
-        reasons.append("年份相同" if c.year == evidence.year else "年份±1")
+        reasons.append(
+            stored_fields("library.identification.yearExact")
+            if c.year == evidence.year
+            else stored_fields("library.identification.yearNear")
+        )
     if kind is MediaKind.MOVIE and evidence.duration_seconds and c.runtime_seconds:
         gap = abs(c.runtime_seconds - evidence.duration_seconds)
         if gap <= _RUNTIME_STRONG_SECONDS:
-            reasons.append("时长吻合")
+            reasons.append(stored_fields("library.identification.runtimeExact"))
         elif gap <= _RUNTIME_WEAK_SECONDS:
-            reasons.append("时长接近")
+            reasons.append(stored_fields("library.identification.runtimeNear"))
     if kind is MediaKind.TV:
         if evidence.season and c.season_count is not None and c.season_count >= evidence.season:
-            reasons.append(f"季数≥{evidence.season}")
+            reasons.append(
+                stored_fields("library.identification.seasonCoverage", count=evidence.season)
+            )
         if evidence.season and evidence.episode:
             count = c.episode_counts.get(evidence.season)
             if count is not None and count >= evidence.episode:
-                reasons.append("集数覆盖")
+                reasons.append(stored_fields("library.identification.episodeCoverage"))
         if _total_episodes_match(evidence, c):
-            reasons.append(f"全{evidence.total_episodes}集吻合")
+            reasons.append(
+                stored_fields("library.identification.totalEpisodes", count=evidence.total_episodes)
+            )
         if _local_episodes_match(evidence, c):
-            reasons.append(f"本地 {evidence.local_episodes} 集吻合")
+            reasons.append(
+                stored_fields("library.identification.localEpisodes", count=evidence.local_episodes)
+            )
     return reasons
 
 
@@ -567,6 +603,7 @@ def _strong_corroborations(kind: MediaKind, evidence: LocalEvidence, c: _Candida
         and c.runtime_seconds
         and abs(c.runtime_seconds - evidence.duration_seconds) <= _RUNTIME_WEAK_SECONDS
     ):
+        # i18n-ignore: identification log text
         reasons.append("时长")
     if kind is MediaKind.TV:
         if (
@@ -575,14 +612,18 @@ def _strong_corroborations(kind: MediaKind, evidence: LocalEvidence, c: _Candida
             and c.season_count is not None
             and c.season_count >= evidence.season
         ):
+            # i18n-ignore: identification log text
             reasons.append(f"季数≥{evidence.season}")
         if evidence.season and evidence.episode and evidence.episode >= 2:
             count = c.episode_counts.get(evidence.season)
             if count is not None and count >= evidence.episode:
+                # i18n-ignore: identification log text
                 reasons.append("集数覆盖")
         if _total_episodes_match(evidence, c):
+            # i18n-ignore: identification log text
             reasons.append(f"全{evidence.total_episodes}集吻合")
         if _local_episodes_match(evidence, c):
+            # i18n-ignore: identification log text
             reasons.append(f"本地 {evidence.local_episodes} 集吻合")
     return reasons
 

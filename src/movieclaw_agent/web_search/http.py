@@ -40,9 +40,18 @@ _BREAKER = (
 class WebSearchError(Exception):
     """给模型和设置页看的失败。``kind`` 供设置页区分「线路不通」和「Key 不对」。"""
 
-    def __init__(self, message: str, *, kind: str = "upstream") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str = "upstream",
+        message_key: str | None = None,
+        params: dict | None = None,
+    ) -> None:
         super().__init__(message)
         self.kind = kind
+        self.message_key = message_key
+        self.params = params or {}
 
 
 def redact(text: str, secret: str) -> str:
@@ -91,14 +100,18 @@ def _detail(response: httpx.Response, secret: str) -> str:
 
 def _status_error(response: httpx.Response, secret: str) -> WebSearchError:
     if response.status_code in (401, 403):
-        return WebSearchError(_AUTH, kind="auth")
+        return WebSearchError(_AUTH, kind="auth", message_key="errors.webSearch.authFailed")
     if response.status_code == 429:
-        return WebSearchError(_RATE, kind="rate")
+        return WebSearchError(_RATE, kind="rate", message_key="errors.webSearch.rateLimited")
     detail = _detail(response, secret)
     message = f"搜索服务返回 HTTP {response.status_code}。"
     if detail:
         message = f"{message}{detail}"
-    return WebSearchError(message)
+    return WebSearchError(
+        message,
+        message_key="errors.webSearch.httpDetail" if detail else "errors.webSearch.http",
+        params={"status": response.status_code, **({"detail": detail} if detail else {})},
+    )
 
 
 async def request_json(
@@ -118,11 +131,17 @@ async def request_json(
             response = await client.request(method, url, headers=headers, json=json, params=params)
         except CircuitOpenError:
             # 熔断期间再试也是立刻失败，直接说明是暂停中
-            raise WebSearchError(_BREAKER, kind="network") from None
+            raise WebSearchError(
+                _BREAKER, kind="network", message_key="errors.webSearch.paused"
+            ) from None
         except httpx.TimeoutException:
-            last_network = WebSearchError(_TIMEOUT, kind="network")
+            last_network = WebSearchError(
+                _TIMEOUT, kind="network", message_key="errors.webSearch.timedOut"
+            )
         except httpx.HTTPError:
-            last_network = WebSearchError(_CONNECT, kind="network")
+            last_network = WebSearchError(
+                _CONNECT, kind="network", message_key="errors.webSearch.connectFailed"
+            )
         else:
             if response.status_code in _RETRY_STATUSES and attempt == 0:
                 await asyncio.sleep(RETRY_DELAY_SECONDS)
@@ -132,9 +151,13 @@ async def request_json(
             try:
                 data = response.json()
             except ValueError:
-                raise WebSearchError("搜索服务返回了无法解析的内容。") from None
+                raise WebSearchError(
+                    "搜索服务返回了无法解析的内容。", message_key="errors.webSearch.invalidResponse"
+                ) from None
             if not isinstance(data, dict):
-                raise WebSearchError("搜索服务返回了无法解析的内容。")
+                raise WebSearchError(
+                    "搜索服务返回了无法解析的内容。", message_key="errors.webSearch.invalidResponse"
+                )
             return data
         if attempt == 0:
             await asyncio.sleep(RETRY_DELAY_SECONDS)

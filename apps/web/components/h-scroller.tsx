@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
@@ -134,10 +136,11 @@ function ScrollArrow({
   onClick: () => void;
 }) {
   const Icon = dir === -1 ? ChevronLeftIcon : ChevronRightIcon;
+  const t = useTranslations();
   return (
     <button
       type="button"
-      aria-label={dir === -1 ? "向左滚动" : "向右滚动"}
+      aria-label={dir === -1 ? t("media.detail.scrollLeft") : t("media.detail.scrollRight")}
       onClick={onClick}
       // !absolute：.surface-raised 自带 position:relative 且声明在工具类之后，
       // 会盖掉普通 absolute，导致按钮掉出定位流、堆到行底部

@@ -1,0 +1,95 @@
+{
+  "close": {
+    "sourceHash": "3fd47edce45b3603d4192f61dbf3e51162589b0951042a18d244132ac92e7bb7"
+  },
+  "networkRetry": {
+    "sourceHash": "9343a2458521b8afb0634054046335ccb19352d1fda51a20a93185a1a91af092"
+  },
+  "networkInterrupted": {
+    "sourceHash": "0c38a45c9db32cbd07d66a18d69353b2d186d95ab8a8e71ad33111ecfa049a65"
+  },
+  "networkTimeout": {
+    "sourceHash": "03b19e68c100ec37d171eb90773b9567d0c82e9d967d7157870361d1ab0d5686"
+  },
+  "never": {
+    "sourceHash": "5594f4797ae55d1a203f79ecc95cfb9b4b378cfe1c81fff06373b0ced6f88471",
+    "comment": "An event has never happened; shown instead of a relative timestamp."
+  },
+  "earlierToday": {
+    "sourceHash": "4a2a51619165b181c6c8d03da0e6c7cb340e3dbc5fce993d87b983b5f5ac9b19",
+    "comment": "Timeline group heading for earlier events on the same local day."
+  },
+  "yesterday": {
+    "sourceHash": "0c184871f658375afc6e0d4f2c2616bce1395c280a5a1e75a17a7bdebcbff8c5",
+    "comment": "Timeline group heading for the previous local day."
+  },
+  "cancel": {
+    "sourceHash": "2cd0f3be8738a86cede1a1452f874f31d569864bbb00cacd4130990f4610cb5c"
+  },
+  "confirm": {
+    "sourceHash": "fac2a67ad87807c4112af2b9201ef929d8c1c80214a6ad5198423398369371a4"
+  },
+  "clear": {
+    "sourceHash": "1ef3de06b32e521bd52421e0fcc282ff33c8d4866268bf79e26831e4382f3ce1"
+  },
+  "delete": {
+    "sourceHash": "2f9daa828907b93ff8a00d41a16828e0c6388bf3a95dadf816c8ee9c3bdac37d"
+  },
+  "remove": {
+    "sourceHash": "95861c4b5cd64436a93a89a56d83dd4323d56b7f46aed28480929332b69318d3"
+  },
+  "save": {
+    "sourceHash": "a3030bf8f16dc63c6b277564c68f78a3be5abe5f2907c51826dee7184ff793fd"
+  },
+  "upload": {
+    "sourceHash": "9e07e3c0532d49765d558d66095bc48e2f9f34e8a8e9ad35d73e4bf2ca224bfc"
+  },
+  "loading": {
+    "sourceHash": "4927a53bcc886afb9211eb1143351cf8e32ec830c381832e6060223c8b84f3d6"
+  },
+  "retry": {
+    "sourceHash": "b8784c8dd5636ff231b121892144e4a3977d5b874f21934c53f850cde7bac0ea"
+  },
+  "back": {
+    "sourceHash": "572cf45ba43634b3448aadbc48d5398a1b32ad8a97bf42b689c394de222c30a1"
+  },
+  "all": {
+    "sourceHash": "5c55a67935af8f4508ba05d6d81c9eb240a2ea0ba886d8428b985e305470da3f"
+  },
+  "selectAll": {
+    "sourceHash": "3a5040b68abf75f96f27ffe441fe8876250befeb6b51b0232c347e58fc42bb28"
+  },
+  "stop": {
+    "sourceHash": "ca4d973c0b006b758c0766235c74abca876c5c7842200234aebb2af0fa69a7c4"
+  },
+  "search": {
+    "sourceHash": "44ce7ae909bbb28bbbe3cbbba8d617b71217869d62741b4c104dc123a6ef603d"
+  },
+  "done": {
+    "sourceHash": "c0b3fbff51ccc40b8bf1a81666e7ecced016187cbe2ac6f1d627e0d7a287e04d"
+  },
+  "notSelected": {
+    "sourceHash": "1182c5454f113db566b4120738cfc51bdd839f3ee3649f6d37d93ee8b838f9db"
+  },
+  "copy": {
+    "sourceHash": "63d90d977348ab1f9aa34ebb42b103216ce161feb0a1c08e237607bf42c3cf79"
+  },
+  "copied": {
+    "sourceHash": "8f6f8d979c981ced1cf17ae96e27690b8a33b9dff1c98c8ce651764ffe9cf235"
+  },
+  "clipboardDenied": {
+    "sourceHash": "8dc87f6351b11799c71b11ecaf53f68e3971d1464e0f26d029c78f0ea1abd252"
+  },
+  "off": {
+    "sourceHash": "3fd47edce45b3603d4192f61dbf3e51162589b0951042a18d244132ac92e7bb7"
+  },
+  "healthPageTitle": {
+    "sourceHash": "e8a4f7c09d1604eb4e6c4780ef635d78cd3f9291d0bc4f9859c6b587d06994e1"
+  },
+  "avatarLabel": {
+    "sourceHash": "ebd2a31c890ed6972a79b6aa79e185af061569abca7f572262f4ebf4b7d5f34a"
+  },
+  "streamUnsupported": {
+    "sourceHash": "4151155186ca38af1c4a7386c6b9defcb7dadf8206b4cfa9864f10eba2d86202"
+  }
+}

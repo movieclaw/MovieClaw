@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import reference
 from movieclaw_api.services import jobs
 from movieclaw_api.services.library.search_matching import (
     compact,
@@ -187,7 +188,8 @@ async def _refresh_job(context: jobs.JobContext, input_data: dict[str, object]) 
             await context.update_progress(
                 mode="indeterminate",
                 phase="indexing",
-                message=f"已更新 {total} 个搜索文档",
+                message_key="library.searchIndex.progress",
+                message_params={"count": total},
                 current=total,
             )
 
@@ -202,7 +204,7 @@ async def _enqueue_refresh() -> None:
                 session,
                 job_type="library.search-index.refresh",
                 input_data={},
-                subject="更新媒体库搜索索引",
+                subject_ref=reference("library.searchIndex.subject"),
                 dedupe_key="library.search-index.refresh",
                 resources=[jobs.ResourceRef("library_search", "index", "lock")],
                 priority=-10,

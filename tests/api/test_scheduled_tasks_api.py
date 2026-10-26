@@ -61,13 +61,13 @@ def client(tmp_path: Path, monkeypatch):
 
 
 def _reconcile(client: TestClient) -> dict:
-    tasks = client.get("/api/v1/scheduled-tasks").json()["data"]
+    tasks = client.get("/api/v1/scheduled-tasks", headers={"Accept-Language": "en"}).json()["data"]
     return next(t for t in tasks if t["key"] == "library_reconcile")
 
 
 def test_lists_registered_tasks_with_defaults(client: TestClient) -> None:
     task = _reconcile(client)
-    assert task["title"] == "媒体库对账"
+    assert task["title"] == "Library reconciliation"
     assert task["enabled"] is True
     assert task["trigger_type"] == "interval" and task["interval_seconds"] == 6 * 3600
 

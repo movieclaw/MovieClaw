@@ -113,6 +113,8 @@ private struct MacPlayerContent: View {
     @State private var pointer: CGPoint?
     @State private var size: CGSize = .zero
     @State private var panel: MacPlayerPanelKind?
+    /// ⋯ 的系统菜单正开着：指针移进菜单时追踪区报的「指针离开」不作数，否则控制层连同菜单本身一起被收掉
+    @State private var menuOpen = false
     @State private var scrubMs: Int?
     @State private var trickplay = TrickplayImages()
     @State private var flash: MacPlayerFlash?
@@ -194,7 +196,7 @@ private struct MacPlayerContent: View {
                 // 每个单元出画面时窗口贴合它的比例（换集、降档换了片源比例也跟着变）
                 if let video = controller.engine?.videoSize { window.fit(to: video) }
             }
-            debugLog("状态 \(phase) 位置 \(controller.positionMs / 1000) 秒")
+            debugLog("状态 \(phase) 位置 \(controller.positionMs / 1000) 秒") // i18n-ignore: debug log
         }
         .onChange(of: controller.paused, initial: true) { _, paused in
             sleepGuard.update(playing: !paused)
@@ -207,7 +209,7 @@ private struct MacPlayerContent: View {
             volume.apply(to: controller.engine)
         }
         .onChange(of: controller.session?.segments?.count) {
-            debugLog("片段标记 \(controller.session?.segments?.map { "\($0.type) \($0.startMs / 1000)～\($0.endMs / 1000) 秒" } ?? [])")
+            debugLog("片段标记 \(controller.session?.segments?.map { "\($0.type) \($0.startMs / 1000)～\($0.endMs / 1000) 秒" } ?? [])") // i18n-ignore: debug log
         }
         .onAppear {
             // 接过键盘：空格、方向键直接给播放器（侧边栏搜索框之前拿着焦点时也一样）
@@ -220,6 +222,9 @@ private struct MacPlayerContent: View {
             pointerMoved(MacPlayerDebug.point(from: String(raw.dropLast(MacPlayerDebug.directory.count + 1))))
         }
         #endif
+        // 只认 App 里有菜单开着，不细分是哪个（菜单栏的菜单开着时控制层多留一会儿无妨）
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in menuOpen = true }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in menuOpen = false }
         .onDisappear {
             sleepGuard.update(playing: false)
         }
@@ -261,7 +266,7 @@ private struct MacPlayerContent: View {
                 showChrome()
             }
             .accessibilityElement()
-            .accessibilityLabel("画面")
+            .accessibilityLabel(String(localized: .playerMacVideo))
             .accessibilityValue(stateSummary)
             .accessibilityIdentifier("mac-player-surface")
     }
@@ -283,6 +288,7 @@ private struct MacPlayerContent: View {
             VStack(spacing: 0) {
                 HStack {
                     MacPlayerTopBar(controller: controller, showsWindowControls: !window.isFullScreen, close: close)
+                        .onTapGesture(perform: doubleClickToggleFullScreen)
                     Spacer(minLength: 0)
                 }
                 // 窗口模式：红绿灯落在系统标题栏原来的位置（左 19、中线距顶 26），打开播放器时不跳
@@ -294,6 +300,9 @@ private struct MacPlayerContent: View {
                     pointer: pointer, scrubMs: $scrubMs, panel: $panel, togglePlay: { togglePlay(flashes: false) },
                     skip: { seek(by: $0, flashes: false) }, toggleFullScreen: toggleFullScreen
                 )
+                // 双击控制面板的空白处也全屏（同 Infuse：双击播放器任意位置）；按钮、进度条、音量自己接点击，不受影响
+                .contentShape(.rect(cornerRadius: MacPlayerMetrics.panelCorner))
+                .onTapGesture(perform: doubleClickToggleFullScreen)
                 .overlay(alignment: .bottomTrailing) {
                     // 面板从胶囊右上角往左上长：宽不超出窗口左边，高不顶出窗口（小窗口里列表自己滚）
                     panelView(maxWidth: (size.width + panelWidth(size)) / 2 - 12,
@@ -380,10 +389,10 @@ private struct MacPlayerContent: View {
     private var dialogs: some View {
         if let infoError = controller.infoError {
             // 条目信息都拿不到（无权访问、已删除）：整页换成原因 +「返回」
-            MacPlayerDialog(title: infoError, message: nil, primary: ("返回", close), secondary: nil)
+            MacPlayerDialog(title: infoError, message: nil, primary: (String(localized: .commonBack), close), secondary: nil)
         } else if controller.phase == .error, let message = controller.errorMessage {
-            MacPlayerDialog(title: message, message: controller.errorSuggestion, primary: ("重试", controller.retry),
-                            secondary: ("关闭", close))
+            MacPlayerDialog(title: message, message: controller.errorSuggestion, primary: (String(localized: .commonRetry), controller.retry),
+                            secondary: (String(localized: .commonClose), close))
         } else if controller.phase == .consent, let decision = controller.pendingDecision {
             MacConsentDialog(decision: decision, grant: controller.grantConsent, cancel: close)
         }
@@ -404,9 +413,9 @@ private struct MacPlayerContent: View {
         controller.paused && !controller.wantsPlay && !controller.phase.isBusy && controller.session != nil
     }
 
-    /// 控制层必须常显：暂停时用户在找进度；正在拖；面板开着；鼠标停在控件上；正在起播 / 缓冲（看得到进度与返回键）；播完了
+    /// 控制层必须常显：暂停时用户在找进度；正在拖；面板或菜单开着；鼠标停在控件上；正在起播 / 缓冲（看得到进度与返回键）；播完了
     private var chromeMustStayVisible: Bool {
-        userPaused || scrubMs != nil || panel != nil || pointerOnChrome || isModal || controller.phase.isBusy
+        userPaused || scrubMs != nil || panel != nil || menuOpen || pointerOnChrome || isModal || controller.phase.isBusy
             || controller.phase == .ended
     }
 
@@ -474,9 +483,9 @@ private struct MacPlayerContent: View {
         pointer = point
         if point != nil {
             showChrome()
-        } else if chromeVisible, scrubMs == nil, panel == nil, !isModal, !controller.phase.isBusy, controller.phase != .ended {
+        } else if chromeVisible, scrubMs == nil, panel == nil, !menuOpen, !isModal, !controller.phase.isBusy, controller.phase != .ended {
             // 指针离开播放器：控制层（含左上角返回）立刻淡出，不等 3 秒无操作。
-            // 拖进度条拖出窗口、面板或对话框开着、起播中、播完时照旧留着
+            // 拖进度条拖出窗口、面板 / 菜单或对话框开着、起播中、播完时照旧留着
             chromeVisible = false
         }
     }
@@ -502,6 +511,11 @@ private struct MacPlayerContent: View {
         if flashes { flash = MacPlayerFlash(symbol: seconds < 0 ? "gobackward.10" : "goforward.10") }
     }
 
+    /// 控件之间的空白处：单击不做事，双击全屏（连击数按 AppKit 事件认，同画面上的双击）
+    private func doubleClickToggleFullScreen() {
+        if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { toggleFullScreen() }
+    }
+
     private func toggleFullScreen() {
         window.toggleFullScreen()
         showChrome()
@@ -514,7 +528,7 @@ private struct MacPlayerContent: View {
 
     private func toggleMute() {
         volume.toggleMute()
-        flash = MacPlayerFlash(symbol: volume.symbol, text: volume.muted ? "静音" : "\(Int((volume.level * 100).rounded()))%")
+        flash = MacPlayerFlash(symbol: volume.symbol, text: volume.muted ? String(localized: .playerControlsMuted) : "\(Int((volume.level * 100).rounded()))%")
     }
 
     /// Esc：收起面板 → 退出全屏 → 关闭播放器

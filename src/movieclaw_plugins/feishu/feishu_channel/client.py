@@ -29,6 +29,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from movieclaw_sdk import net
+from movieclaw_sdk.channels import ChannelInputError
 
 #: 404 = 机器人已被移除(Webhook 随之失效),对应通道层的凭据失效语义
 _AUTH_ERROR_STATUS = (404,)
@@ -56,12 +57,25 @@ def normalize_webhook_url(raw: str) -> str:
     url = raw.strip()
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.netloc:
-        raise ValueError("Webhook 地址不合法:需要完整的 https:// 链接")
+        raise ChannelInputError(
+            "Webhook 地址不合法:需要完整的 https:// 链接",
+            message_localized={"en": "Invalid Webhook URL: enter a complete https:// link"},
+        )
     host = parts.hostname or ""
     if not any(host == s or host.endswith("." + s) for s in _ALLOWED_HOST_SUFFIXES):
-        raise ValueError("Webhook 地址不合法:主机不是飞书/Lark 官方域名")
+        raise ChannelInputError(
+            "Webhook 地址不合法:主机不是飞书/Lark 官方域名",
+            message_localized={
+                "en": "Invalid Webhook URL: the host is not an official Feishu or Lark domain"
+            },
+        )
     if _WEBHOOK_PATH_MARK not in parts.path or not parts.path.split(_WEBHOOK_PATH_MARK)[-1]:
-        raise ValueError("Webhook 地址不合法:路径里找不到机器人 hook 令牌")
+        raise ChannelInputError(
+            "Webhook 地址不合法:路径里找不到机器人 hook 令牌",
+            message_localized={
+                "en": "Invalid Webhook URL: the path does not contain a bot hook token"
+            },
+        )
     return url
 
 

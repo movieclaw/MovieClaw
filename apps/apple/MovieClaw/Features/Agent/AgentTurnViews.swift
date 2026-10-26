@@ -68,7 +68,7 @@ struct AgentAnswerBubbleSlice<Content: View>: View {
 
     var body: some View {
         let shape = AgentBubbleStyle.shape(top: bubble.first, bottom: bubble.last)
-        let menu = Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = bubble.text }
+        let menu = Button(String(localized: .commonCopy), systemImage: "doc.on.doc") { UIPasteboard.general.string = bubble.text }
         Group {
             if bubble.first && bubble.last {
                 sliced.contentShape(.contextMenuPreview, shape).contextMenu { menu }
@@ -131,7 +131,7 @@ struct AgentTypingBubble: View {
         .padding(.vertical, 14)
         .background(AgentBubbleStyle.assistantFill, in: .capsule)
         // 圆点没有可读内容，用一段文字代表整个气泡，旁白读「正在输入」
-        .accessibilityRepresentation { Text("正在输入") }
+        .accessibilityRepresentation { Text(String(localized: .agentConversationTyping)) }
         .accessibilityIdentifier("agent-turn-running")
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -165,9 +165,9 @@ struct AgentUserBubble: View {
             bubble(parsed)
                 .contentShape(.contextMenuPreview, AgentBubbleStyle.shape())
                 .contextMenu {
-                    Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = text }
+                    Button(String(localized: .commonCopy), systemImage: "doc.on.doc") { UIPasteboard.general.string = text }
                     if let onEdit {
-                        Button("改写这条提问", systemImage: "pencil", action: onEdit)
+                        Button(String(localized: .agentConversationEditQuestion), systemImage: "pencil", action: onEdit)
                     }
                 }
         }
@@ -196,13 +196,13 @@ struct AgentUserBubble: View {
                             lightbox = DiscoverLightboxContent(
                                 urls: images.map { api.agentAttachmentURL(sessionId: sessionId, attachmentId: $0.attachmentId) },
                                 initialIndex: index,
-                                title: image.name ?? "图片"
+                                title: image.name ?? String(localized: .mediaKindPhoto)
                             )
                         } label: {
                             AgentAttachmentThumb(image: image, url: api.agentAttachmentURL(sessionId: sessionId, attachmentId: image.attachmentId))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("放大预览：\(image.name ?? "图片")")
+                        .accessibilityLabel(String(localized: .agentConversationPreviewImage(image.name ?? String(localized: .mediaKindPhoto))))
                     }
                 }
             }
@@ -386,7 +386,7 @@ struct AgentToolRow: View {
                         .frame(maxHeight: 176)
                         .fixedSize(horizontal: false, vertical: output.count < 400)
                     } else {
-                        Text("执行中…").font(.system(size: 13)).foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .agentConversationExecuting)).font(.system(size: 13)).foregroundStyle(Theme.textFaint)
                     }
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
@@ -426,7 +426,7 @@ struct AgentCompactionCard: View {
             if open {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(summary).font(.system(size: 14)).foregroundStyle(Theme.textFaint).textSelection(.enabled)
-                    Text("此前的对话已由交接摘要替代。多次压缩可能降低模型准确性，建议适时开启新会话。")
+                    Text(String(localized: .agentConversationCompactionHint))
                         .font(.system(size: 13)).foregroundStyle(Theme.textFaint)
                 }
                 .padding(.leading, 12)
@@ -436,8 +436,8 @@ struct AgentCompactionCard: View {
     }
 
     private var label: String {
-        if let tokensBefore, let tokensAfter { return "已压缩上下文（\(tokensBefore) → \(tokensAfter) tokens）" }
-        return "已压缩上下文"
+        if let tokensBefore, let tokensAfter { return String(localized: .agentConversationCompactedTokens("\(tokensBefore) → \(tokensAfter) tokens")) }
+        return String(localized: .agentConversationCompacted)
     }
 }
 
@@ -450,10 +450,10 @@ struct AgentHandoffCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("已从「\(sourceTitle?.isEmpty == false ? sourceTitle! : "会话 \(sourceId.prefix(8))")」续接上下文")
+                Text(String(localized: .agentConversationHandoff(sourceTitle?.isEmpty == false ? sourceTitle! : String(localized: .agentConversationSessionFallback(String(sourceId.prefix(8)))))))
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.text)
-                Text("这是一个独立的新会话；后续操作不会改写原会话。")
+                Text(String(localized: .agentConversationHandoffHint))
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.textFaint)
             }
@@ -462,7 +462,7 @@ struct AgentHandoffCard: View {
                 router.push(.session(id: sourceId))
             } label: {
                 HStack(spacing: 2) {
-                    Text("查看原会话")
+                    Text(String(localized: .agentConversationOriginal))
                     Image(systemName: "chevron.right").font(.system(size: 11))
                 }
                 .font(.system(size: 13))
@@ -491,9 +491,9 @@ struct AgentTurnFooter: View {
     var body: some View {
         Group {
             if turn.stopped {
-                Text("已停止").accessibilityIdentifier("agent-turn-stopped")
+                Text(String(localized: .agentConversationStopped)).accessibilityIdentifier("agent-turn-stopped")
             } else if turn.interrupted {
-                Text("已中断").accessibilityIdentifier("agent-turn-interrupted")
+                Text(String(localized: .agentConversationInterrupted)).accessibilityIdentifier("agent-turn-interrupted")
             }
         }
         .font(.system(size: 13))

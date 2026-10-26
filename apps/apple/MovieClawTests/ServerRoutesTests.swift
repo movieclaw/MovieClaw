@@ -159,9 +159,10 @@ struct ServerRoutesTests {
     }
 
     @Test func statusLine() {
-        #expect(ServerRouteLabel.text(.init(origin: Self.lan.origin, route: .lan)) == "家里网络 · 192.168.1.10:3300")
-        #expect(ServerRouteLabel.text(.init(origin: Self.wan.origin, route: .wan)) == "外网 · movie.example.com")
-        #expect(ServerRouteLabel.text(.init(origin: Self.lan.origin, route: .vpn)) == "外网（经 VPN）· 192.168.1.10:3300")
+        let english = AppLanguage.identifier == "en"
+        #expect(ServerRouteLabel.text(.init(origin: Self.lan.origin, route: .lan)) == (english ? "Home network · 192.168.1.10:3300" : "家里网络 · 192.168.1.10:3300"))
+        #expect(ServerRouteLabel.text(.init(origin: Self.wan.origin, route: .wan)) == (english ? "External network · movie.example.com" : "外网 · movie.example.com"))
+        #expect(ServerRouteLabel.text(.init(origin: Self.lan.origin, route: .vpn)) == (english ? "External network (via VPN) · 192.168.1.10:3300" : "外网（经 VPN）· 192.168.1.10:3300"))
         #expect(ServerRouteLabel.text(.init(origin: Self.lan.origin, route: nil)) == nil)
     }
 

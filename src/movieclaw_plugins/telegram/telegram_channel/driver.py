@@ -10,6 +10,7 @@ from movieclaw_sdk.channels import (
     Binding,
     BindResult,
     Capabilities,
+    ChannelInputError,
     FormField,
 )
 
@@ -20,6 +21,7 @@ from .client import TelegramClient
 class TelegramDriver(AdapterDriver):
     title = "Telegram"
     description = "接入你用 @BotFather 创建的 bot"
+    description_localized = {"en": "Link a bot you created with @BotFather"}
     capabilities = Capabilities(receive=True, photo=True, max_text_len=TelegramAdapter.max_text_len)
     binding = Binding.form(
         (
@@ -29,6 +31,7 @@ class TelegramDriver(AdapterDriver):
                 secret=True,
                 placeholder="123456789:AA…",
                 help="在 Telegram 里找 @BotFather 创建 bot 后获得",
+                help_localized={"en": "Create a bot with @BotFather on Telegram to get this token"},
             ),
         ),
         pairing="code",
@@ -36,17 +39,31 @@ class TelegramDriver(AdapterDriver):
             "在 Telegram 搜索 @BotFather 创建 bot 并复制 token；国内网络请先在「设置 → 网络」"
             "为 Telegram 开启代理。提交后私聊 bot 发送配对码，发码人即唯一可对话的用户与推送目标。"
         ),
+        hint_localized={
+            "en": (
+                "Find @BotFather on Telegram, create a bot and copy its token. If "
+                "your network requires a proxy, enable one for Telegram in "
+                "Settings \u2192 Network first. After submitting, send the pairing code "
+                "to your bot in a private chat. The sender becomes the only user "
+                "who can chat with the bot and receive notifications."
+            )
+        },
     )
 
     async def validate(self, fields: dict[str, str]) -> BindResult:
         token = (fields.get("token") or "").strip()
         if len(token) < 8:
-            raise ValueError("请填写 bot token")
+            raise ChannelInputError(
+                "请填写 bot token", message_localized={"en": "Enter the bot token"}
+            )
         client = TelegramClient(token)
         try:
             me = await client.get_me()
         except Exception as exc:  # noqa: BLE001 -- 原因直接展示给用户
-            raise ValueError(f"Telegram bot token 校验失败：{exc}") from exc
+            raise ChannelInputError(
+                f"Telegram bot token 校验失败：{exc}",
+                message_localized={"en": f"Could not validate the Telegram bot token: {exc}"},
+            ) from exc
         finally:
             await client.aclose()
         name = str(me.get("username") or me.get("first_name") or me["id"])

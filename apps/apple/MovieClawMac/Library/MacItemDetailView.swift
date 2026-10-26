@@ -52,7 +52,7 @@ struct MacItemDetailView: View {
     var body: some View {
         Group {
             if let failed {
-                MacStateView(symbol: "questionmark.folder", title: "未能加载该条目", message: failed, actionTitle: "返回") { router.pop() }
+                MacStateView(symbol: "questionmark.folder", title: String(localized: .libraryItemLoadFailed), message: failed, actionTitle: String(localized: .commonBack)) { router.pop() }
             } else if let detail {
                 content(detail)
             } else {
@@ -161,7 +161,7 @@ struct MacItemDetailView: View {
     /// 主按钮上的「第 1 季第 3 集」；特别篇写「特别篇第 2 集」；电影没有
     private var unitLabel: String? {
         guard !isMovie, let season, let episode = selectedEpisode?.episodeNumber else { return nil }
-        return season == 0 ? "特别篇第 \(episode) 集" : "第 \(season) 季第 \(episode) 集"
+        return season == 0 ? String(localized: .librarySpecialEpisode(episode)) : String(localized: .offlineSeasonEpisode(season, episode))
     }
 
     /// 一排按钮：主按钮（醒目玻璃）写明播哪一集、从哪儿接着播；「从头播放」；收藏、标为已看是圆形玻璃钮
@@ -170,16 +170,16 @@ struct MacItemDetailView: View {
         let finished = watched?.played ?? false
         // 有续播点就接着播（与服务端起播同一口径）：看完后重看到一半的也算，已看标记保留
         let resumable = canPlay && position > 0
-        let verb = resumable ? "继续" : finished ? "重新播放" : "播放"
+        let verb = resumable ? String(localized: .commonContinue) : finished ? String(localized: .libraryItemReplay) : String(localized: .libraryHeroPlay)
         let parts = [verb, unitLabel, resumable ? Formatters.clock(Double(position) / 1000) : nil].compactMap { $0 }
         let label = parts.count > 2 ? "\(parts[0]) \(parts[1]) · \(parts[2])" : parts.joined(separator: " ")
         return VStack(alignment: .leading, spacing: 10) {
             if !canPlay, !isMovie, detail.seasons.isEmpty || episodes.allSatisfy({ !$0.owned }) {
-                Text(detail.seasons.isEmpty ? "这部剧还没有可播放的分集" : "这一集还没有片源，在下面挑别的集")
+                Text(detail.seasons.isEmpty ? String(localized: .libraryNoPlayableEpisodes) : String(localized: .libraryNoSourcePickBelowMac))
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.7))
             } else if isMovie, !canPlay {
-                Text("片源已移除，暂时不能播放")
+                Text(String(localized: .librarySourceRemovedCannotPlay))
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.7))
             }
@@ -194,19 +194,19 @@ struct MacItemDetailView: View {
                     .accessibilityIdentifier("mac-item-play")
                     if resumable {
                         Button { play(start: 0) } label: {
-                            Label("从头播放", systemImage: "backward.end.fill")
+                            Label(String(localized: .libraryItemPlayFromStart), systemImage: "backward.end.fill")
                         }
                         .buttonStyle(.glass)
                         .controlSize(.extraLarge)
                         .accessibilityIdentifier("mac-item-restart")
                     }
                 }
-                circleButton(favorite == true ? "heart.fill" : "heart", help: favorite == true ? "取消收藏" : "收藏") {
+                circleButton(favorite == true ? "heart.fill" : "heart", help: favorite == true ? String(localized: .libraryGalleryUnfavorite) : String(localized: .libraryGalleryFavorite)) {
                     Task { await toggleFavorite() }
                 }
                 .accessibilityIdentifier("mac-item-favorite")
                 if canPlay {
-                    circleButton(finished ? "checkmark.circle.fill" : "checkmark", help: finished ? "标为未看" : "标为已看") {
+                    circleButton(finished ? "checkmark.circle.fill" : "checkmark", help: finished ? String(localized: .libraryMarkUnwatched) : String(localized: .libraryItemSetWatched)) {
                         Task { await togglePlayed() }
                     }
                     .accessibilityIdentifier("mac-item-played")
@@ -239,8 +239,8 @@ struct MacItemDetailView: View {
         if !directors.isEmpty || !actors.isEmpty {
             ViewThatFits(in: .horizontal) {
                 VStack(alignment: .leading, spacing: 6) {
-                    if let director = directors.first { creditLine("导演", [director]) }
-                    if !actors.isEmpty { creditLine("主演", Array(actors)) }
+                    if let director = directors.first { creditLine(String(localized: .mediaDetailDirector), [director]) }
+                    if !actors.isEmpty { creditLine(String(localized: .libraryItemStarring), Array(actors)) }
                 }
                 .fixedSize()
                 Color.clear.frame(width: 0, height: 0)
@@ -270,7 +270,7 @@ struct MacItemDetailView: View {
         }
         let people = Self.castPeople(detail)
         if !people.isEmpty {
-            MacShelf(title: "演职员", artHeight: MacMetrics.castWidth * 1.5) {
+            MacShelf(title: String(localized: .mediaCardsCast), artHeight: MacMetrics.castWidth * 1.5) {
                 ForEach(Array(people.enumerated()), id: \.offset) { _, person in
                     MacPersonCard(name: person.name, role: person.role,
                                   avatarURL: api.image(person.avatar, width: ImageWidth.points(MacMetrics.castWidth)),
@@ -294,7 +294,7 @@ struct MacItemDetailView: View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(detail.seasons, id: \.self) { number in
-                    Button(number == 0 ? "特别篇" : "第 \(number) 季") {
+                    Button(number == 0 ? String(localized: .mediaSeasonSpecials) : String(localized: .mediaSeasonTitle(number))) {
                         Task { await loadBrowse(number) }
                     }
                     .buttonStyle(MacSeasonTabStyle(selected: number == browseSeason))
@@ -317,12 +317,12 @@ struct MacItemDetailView: View {
         let next = position.flatMap { $0 + 1 < ranges.count ? ranges[$0 + 1] : nil }
         // 「接着看」只在这一季有观看记录时标：一集没碰过的季，锚点只是第一集，不标
         let watchedAny = browseEpisodes.contains { $0.played || $0.positionMs > 0 }
-        return MacShelf(title: browseSeason.map { $0 == 0 ? "特别篇" : "第 \($0) 季" } ?? "分集",
+        return MacShelf(title: browseSeason.map { $0 == 0 ? String(localized: .mediaSeasonSpecials) : String(localized: .mediaSeasonTitle($0)) } ?? String(localized: .libraryItemEpisodes),
                         detail: Self.seasonSummary(browseEpisodes),
                         artHeight: MacMetrics.landscapeWidth * 9 / 16,
                         scrollTo: entryEpisode) {
             if let previous {
-                MacRangeEdgeCard(title: "上一段", symbol: "chevron.backward", range: previous) { switchRange(previous) }
+                MacRangeEdgeCard(title: String(localized: .libraryPreviousRangeShort), symbol: "chevron.backward", range: previous) { switchRange(previous) }
                     .accessibilityIdentifier("episode-range-prev")
             }
             ForEach(shown, id: \.episodeNumber) { episode in
@@ -340,7 +340,7 @@ struct MacItemDetailView: View {
                 .accessibilityIdentifier("mac-episode-\(episode.episodeNumber)")
             }
             if let next {
-                MacRangeEdgeCard(title: "下一段", symbol: "chevron.forward", range: next) { switchRange(next) }
+                MacRangeEdgeCard(title: String(localized: .libraryNextRangeShort), symbol: "chevron.forward", range: next) { switchRange(next) }
                     .accessibilityIdentifier("episode-range-next")
             }
         }
@@ -365,7 +365,7 @@ struct MacItemDetailView: View {
             MacRangeChips(ranges: ranges, current: current?.index, anchor: browseAnchor) { switchRange($0) }
             Button { showsAllEpisodes = true } label: {
                 HStack(spacing: 3) {
-                    Text("全部 \(browseEpisodes.count) 集")
+                    Text(String(localized: .libraryItemAllEpisodeCount(browseEpisodes.count)))
                     Image(systemName: "chevron.forward").font(.system(size: 11, weight: .bold))
                 }
                 .font(.system(size: 13, weight: .medium))
@@ -375,7 +375,7 @@ struct MacItemDetailView: View {
             }
             .buttonStyle(.plain)
             .fixedSize()
-            .help("全部分集")
+            .help(String(localized: .libraryItemAllEpisodes))
             .accessibilityIdentifier("episode-ranges-all")
             .popover(isPresented: $showsAllEpisodes, arrowEdge: .bottom) {
                 MacEpisodeGridPanel(episodes: browseEpisodes, ranges: ranges, anchor: browseAnchor,
@@ -391,17 +391,17 @@ struct MacItemDetailView: View {
     /// 分集横排标题旁的小字：「共 10 集 · 已看 3 集 · 缺 2 集」
     private static func seasonSummary(_ episodes: [API.EpisodeView]) -> String? {
         guard !episodes.isEmpty else { return nil }
-        var parts = ["共 \(episodes.count) 集"]
+        var parts = [String(localized: .activityTaskCenterSeasonEpisodes(episodes.count))]
         let played = episodes.filter(\.played).count
-        if played > 0 { parts.append("已看 \(played) 集") }
+        if played > 0 { parts.append(String(localized: .libraryWatchedEpisodes(played))) }
         let missing = episodes.filter { !$0.owned }.count
-        if missing > 0 { parts.append("缺 \(missing) 集") }
+        if missing > 0 { parts.append(String(localized: .subscriptionProgressMissing(missing))) }
         return parts.joined(separator: " · ")
     }
 
     /// 相似推荐：只推自己库里有的片，点进那一部的详情
     private var similarShelf: some View {
-        MacShelf(title: "相似推荐", artHeight: MacMetrics.posterWidth * 1.5) {
+        MacShelf(title: String(localized: .mediaDetailSimilar), artHeight: MacMetrics.posterWidth * 1.5) {
             ForEach(similar, id: \.mediaItemId) { item in
                 MacPosterCard(
                     title: item.title,
@@ -418,7 +418,7 @@ struct MacItemDetailView: View {
 
     /// 电影的作品系列：整个系列按上映顺序，库里没有的置灰标「未入库」，这一部标「本片」
     private func seriesShelf(_ series: API.CollectionSeriesView) -> some View {
-        MacShelf(title: series.seriesName ?? "系列", detail: "已有 \(series.ownedCount) / 共 \(series.total)",
+        MacShelf(title: series.seriesName ?? String(localized: .libraryCollectionsSeries), detail: String(localized: .libraryItemSeriesOwnedFraction(series.ownedCount, series.total)),
                  artHeight: MacMetrics.posterWidth * 1.5) {
             ForEach(series.parts, id: \.tmdbId) { part in
                 let current = part.mediaItemId == itemId
@@ -427,7 +427,7 @@ struct MacItemDetailView: View {
                     title: part.title,
                     subtitle: part.releaseDate.map { String($0.prefix(4)) },
                     imageURL: api.image(part.posterUrl, width: ImageWidth.macCard(MacMetrics.posterWidth)),
-                    badge: current ? "本片" : missing ? "未入库" : nil,
+                    badge: current ? String(localized: .libraryItemCurrentTitle) : missing ? String(localized: .libraryCollectionsNotOwned) : nil,
                     play: missing || current ? nil : { if let id = part.mediaItemId { router.play(PlayRequest(mediaItemId: id)) } }
                 ) {
                     if !current, let id = part.mediaItemId {
@@ -443,7 +443,7 @@ struct MacItemDetailView: View {
     /// 「所属合集」：一排玻璃胶囊，点进合集的海报墙（一部片通常只在一两个合集里，入口用文字就够，同 Apple TV 版）
     private func collectionsRow(_ detail: API.LibraryItemDetailView) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("所属合集").font(.system(size: 20, weight: .bold))
+            Text(String(localized: .libraryBelongsToCollection)).font(.system(size: 20, weight: .bold))
             HStack(spacing: 8) {
                 ForEach(otherCollections(detail), id: \.id) { row in
                     Button { router.push(.collection(id: row.id, name: row.name)) } label: {
@@ -460,20 +460,20 @@ struct MacItemDetailView: View {
     private func infoSection(_ detail: API.LibraryItemDetailView) -> some View {
         let meta = detail.localMeta
         var facts: [(String, String)] = []
-        if !detail.originalTitle.isEmpty, detail.originalTitle != detail.title { facts.append(("原名", detail.originalTitle)) }
-        if let year = detail.year { facts.append(("年份", String(year))) }
-        if let genres = meta?.genres, !genres.isEmpty { facts.append(("类型", genres.joined(separator: " / "))) }
-        if let rating = meta?.rating, rating > 0 { facts.append(("评分", String(format: "%.1f", rating))) }
-        if isMovie, let runtime = meta?.runtimeMinutes, runtime > 0 { facts.append(("片长", Formatters.runtime(runtime))) }
+        if !detail.originalTitle.isEmpty, detail.originalTitle != detail.title { facts.append((String(localized: .settingsScrapeOriginalTitle), detail.originalTitle)) }
+        if let year = detail.year { facts.append((String(localized: .searchFiltersYear), String(year))) }
+        if let genres = meta?.genres, !genres.isEmpty { facts.append((String(localized: .mediaDiscoveryType), genres.joined(separator: " / "))) }
+        if let rating = meta?.rating, rating > 0 { facts.append((String(localized: .libraryRowsRatingHint), String(format: "%.1f", rating))) }
+        if isMovie, let runtime = meta?.runtimeMinutes, runtime > 0 { facts.append((String(localized: .libraryFiltersRuntime), Formatters.runtime(runtime))) }
         if !isMovie {
             let seasons = detail.seasons.filter { $0 > 0 }.count
-            if seasons > 0 { facts.append(("季数", "\(seasons) 季")) }
+            if seasons > 0 { facts.append((String(localized: .librarySeasonsFact), String(localized: .subscriptionCollectionSeasons(seasons)))) }
         }
         let inPlace = detail.files.filter { $0.state == "in_place" }
-        facts.append(("文件", inPlace.isEmpty ? "没有在位的文件" : "\(inPlace.count) 个 · \(Formatters.bytes(inPlace.reduce(0) { $0 + $1.sizeBytes }))"))
+        facts.append((String(localized: .libraryItemFiles), inPlace.isEmpty ? String(localized: .libraryNoFilesInPlace) : String(localized: .libraryIssuesGroupSize(inPlace.count, Formatters.bytes(inPlace.reduce(0) { $0 + $1.sizeBytes })))))
         let versions = isMovie ? inPlace : []
         return VStack(alignment: .leading, spacing: 12) {
-            Text("信息").font(.system(size: 20, weight: .bold))
+            Text(String(localized: .settingsLogsViewerInfo)).font(.system(size: 20, weight: .bold))
             HStack(alignment: .top, spacing: 56) {
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 7) {
                     ForEach(facts, id: \.0) { fact in
@@ -485,7 +485,7 @@ struct MacItemDetailView: View {
                 }
                 if !versions.isEmpty {
                     VStack(alignment: .leading, spacing: 7) {
-                        Text("版本").foregroundStyle(.secondary)
+                        Text(String(localized: .settingsDevicesApprovalVersion)).foregroundStyle(.secondary)
                         ForEach(versions, id: \.id) { file in
                             Text(Self.versionLine(file))
                                 .lineLimit(1)
@@ -518,9 +518,9 @@ struct MacItemDetailView: View {
     static func castPeople(_ detail: API.LibraryItemDetailView) -> [CastPerson] {
         guard let meta = detail.localMeta else { return [] }
         let directors: [CastPerson] = meta.directorCredits.isEmpty
-            ? Array(NSOrderedSet(array: meta.directors)).compactMap { $0 as? String }.map { ($0, "导演", nil, nil) }
-            : meta.directorCredits.map { ($0.name, "导演", $0.thumbUrl, $0.tmdbPersonId) }
-        return directors + meta.actors.map { ($0.name, $0.role.flatMap { $0.isEmpty ? nil : "饰 \($0)" }, $0.thumbUrl, $0.tmdbPersonId) }
+            ? Array(NSOrderedSet(array: meta.directors)).compactMap { $0 as? String }.map { ($0, String(localized: .mediaDetailDirector), nil, nil) }
+            : meta.directorCredits.map { ($0.name, String(localized: .mediaDetailDirector), $0.thumbUrl, $0.tmdbPersonId) }
+        return directors + meta.actors.map { ($0.name, $0.role.flatMap { $0.isEmpty ? nil : String(localized: .mediaPersonCharacter($0)) }, $0.thumbUrl, $0.tmdbPersonId) }
     }
 
     // MARK: 派生
@@ -540,7 +540,7 @@ struct MacItemDetailView: View {
             if let runtime, runtime > 0 { facts.append(Formatters.runtime(runtime)) }
         } else {
             let seasons = detail.seasons.filter { $0 > 0 }.count
-            if seasons >= 2 { facts.append("共 \(seasons) 季") }
+            if seasons >= 2 { facts.append(String(localized: .subscriptionCollectionSeasons(seasons))) }
         }
         return facts.joined(separator: " · ")
     }
@@ -576,7 +576,7 @@ struct MacItemDetailView: View {
             failed = nil
         } catch is CancellationError {
         } catch {
-            if detail == nil { failed = "条目可能已被删除或重新识别为其他作品。（\(error.localizedDescription)）" }
+            if detail == nil { failed = String(localized: .libraryItemMissingDetail(error.localizedDescription)) }
         }
     }
 
@@ -732,13 +732,13 @@ private struct MacEpisodeCard: View {
     var body: some View {
         Button(action: select) {
             VStack(alignment: .leading, spacing: 9) {
-                RemoteImage(url: imageURL, placeholderText: "第 \(episode.episodeNumber) 集")
+                RemoteImage(url: imageURL, placeholderText: String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
                     .frame(width: width, height: width * 9 / 16)
                     .overlay(alignment: .bottomLeading) { stillBand }
                     .overlay(alignment: .topLeading) {
                         HStack(spacing: 5) {
                             if isResume {
-                                Text("接着看")
+                                Text(String(localized: .libraryItemContinue))
                                     .font(.system(size: 10, weight: .bold))
                                     .foregroundStyle(.black)
                                     .padding(.horizontal, 7)
@@ -746,7 +746,7 @@ private struct MacEpisodeCard: View {
                                     .background(Color.orange, in: .capsule)
                             }
                             if episode.played {
-                                Label("已看", systemImage: "checkmark")
+                                Label(String(localized: .libraryItemPlayedTag), systemImage: "checkmark")
                                     .font(.system(size: 10, weight: .bold))
                                     .padding(.horizontal, 7)
                                     .padding(.vertical, 3)
@@ -769,8 +769,8 @@ private struct MacEpisodeCard: View {
                                 }
                                 .buttonStyle(.plain)
                                 .glassEffect(.regular.interactive(), in: .circle)
-                                .help("播放")
-                                .accessibilityLabel("播放第 \(episode.episodeNumber) 集")
+                                .help(String(localized: .libraryHeroPlay))
+                                .accessibilityLabel(String(localized: .libraryPlayEpisode(episode.episodeNumber)))
                                 .accessibilityIdentifier("mac-episode-play-\(episode.episodeNumber)")
                             }
                             .transition(.opacity)
@@ -783,10 +783,10 @@ private struct MacEpisodeCard: View {
                     }
                     .shadow(color: .black.opacity(hovering ? 0.35 : 0.2), radius: hovering ? 10 : 4, y: hovering ? 5 : 2)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("第 \(episode.episodeNumber) 集")
+                    Text(String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
-                    Text(episode.name ?? "第 \(episode.episodeNumber) 集")
+                    Text(episode.name ?? String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
                     Text(episode.overview ?? "")
@@ -794,7 +794,7 @@ private struct MacEpisodeCard: View {
                         .foregroundStyle(.white.opacity(0.72))
                         .lineLimit(3)
                         .frame(height: 46, alignment: .top)
-                    Text(episode.owned ? (episode.airDate.map { String($0.prefix(10)) } ?? "") : "缺集")
+                    Text(episode.owned ? (episode.airDate.map { String($0.prefix(10)) } ?? "") : String(localized: .libraryItemMissingEpisode))
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                 }
@@ -808,13 +808,13 @@ private struct MacEpisodeCard: View {
         .onHover { inside in withAnimation(.easeOut(duration: 0.15)) { hovering = inside } }
         .contextMenu {
             if episode.owned {
-                Button("播放", systemImage: "play.fill", action: play)
-                Button(episode.played ? "标为未看" : "标为已看", systemImage: episode.played ? "circle" : "checkmark.circle", action: toggleWatched)
+                Button(String(localized: .libraryHeroPlay), systemImage: "play.fill", action: play)
+                Button(episode.played ? String(localized: .libraryMarkUnwatched) : String(localized: .libraryItemSetWatched), systemImage: episode.played ? "circle" : "checkmark.circle", action: toggleWatched)
             }
         }
-        .help(episode.owned ? "第 \(episode.episodeNumber) 集" : "这一集还没有片源")
-        .accessibilityLabel("第 \(episode.episodeNumber) 集 \(episode.name ?? "")")
-        .accessibilityValue(isResume ? "接着看" : "")
+        .help(episode.owned ? String(localized: .mediaEpisodeNumber(episode.episodeNumber)) : String(localized: .libraryEpisodeNoSource))
+        .accessibilityLabel(String(localized: .mediaEpisodeNumber(episode.episodeNumber)) + " " + (episode.name ?? ""))
+        .accessibilityValue(isResume ? String(localized: .libraryItemContinue) : "")
         .accessibilityAddTraits(isStage ? .isSelected : [])
     }
 
@@ -822,7 +822,7 @@ private struct MacEpisodeCard: View {
     @ViewBuilder
     private var stillBand: some View {
         let inProgress = episode.positionMs > 0  // 含看完后重看到一半的
-        let text: String? = inProgress ? "看到 \(Formatters.clock(Double(episode.positionMs) / 1000))"
+        let text: String? = inProgress ? String(localized: .libraryItemPosition(String(Formatters.clock(Double(episode.positionMs) / 1000))))
             : runtimeMinutes.flatMap { $0 > 0 ? Formatters.runtime($0) : nil }
         if text != nil || inProgress {
             VStack(alignment: .leading, spacing: 5) {
@@ -890,7 +890,7 @@ struct MacPersonCard: View {
         }
         .buttonStyle(MacCardButtonStyle())
         .onHover { inside in withAnimation(.easeOut(duration: 0.15)) { hovering = inside } }
-        .help(linked ? "查看\(name)在库里的作品" : name)
+        .help(linked ? String(localized: .libraryPersonTitlesHelp(name)) : name)
         .accessibilityLabel([name, role].compactMap { $0 }.joined(separator: "，"))
     }
 }
@@ -921,7 +921,7 @@ private struct MacRangeEdgeCard: View {
             }
             .buttonStyle(MacCardButtonStyle())
             .onHover { inside in withAnimation(.easeOut(duration: 0.15)) { hovering = inside } }
-            .help("\(title)：第 \(range.label) 集")
+            .help(String(localized: .libraryRangeHelp(title, range.label)))
             // 同 MacEpisodeCard 的文字区：集号、集名、三行简介、首播日期
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: " ").font(.system(size: 11, weight: .semibold))
@@ -960,7 +960,7 @@ private struct MacRangeChips: View {
                                 }
                             }
                             .accessibilityAddTraits(range.index == current ? .isSelected : [])
-                            .accessibilityValue(resume ? "接着看" : "")
+                            .accessibilityValue(resume ? String(localized: .libraryItemContinue) : "")
                             .accessibilityIdentifier("\(idPrefix)-\(range.index)")
                             .id(range.index)
                     }
@@ -1003,8 +1003,8 @@ private struct MacEpisodeGridPanel: View {
         let shown = current.map { r in episodes.filter { r.contains($0.episodeNumber) } } ?? episodes
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("全部分集").font(.system(size: 17, weight: .bold))
-                Text("在库 \(episodes.filter(\.owned).count) / \(episodes.count)")
+                Text(String(localized: .libraryItemAllEpisodes)).font(.system(size: 17, weight: .bold))
+                Text(String(localized: .libraryItemOwnedEpisodeFraction(episodes.filter(\.owned).count, episodes.count)))
                     .font(.system(size: 12))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -1036,8 +1036,8 @@ private struct MacEpisodeGridCell: View {
 
     var body: some View {
         let progress = episode.positionMs > 0 ? episode.progressPercent : nil
-        let states: [String?] = [anchor ? "接着看" : nil, episode.owned ? nil : "缺集", episode.played ? "已看" : nil,
-                                 progress.map { "看到 \($0)%" }]
+        let states: [String?] = [anchor ? String(localized: .libraryItemContinue) : nil, episode.owned ? nil : String(localized: .libraryItemMissingEpisode), episode.played ? String(localized: .libraryItemPlayedTag) : nil,
+                                 progress.map { String(localized: .subscriptionFeedWatchedPercent($0)) }]
         let fill: Color = selected ? .white.opacity(0.92) : !episode.owned ? .clear
             : .white.opacity(hovering ? 0.16 : episode.played ? 0.04 : 0.08)
         let ink: Color = selected ? .black : !episode.owned ? .white.opacity(0.35) : episode.played ? .white.opacity(0.6) : .white
@@ -1075,8 +1075,8 @@ private struct MacEpisodeGridCell: View {
         .buttonStyle(.plain)
         .disabled(!episode.owned)
         .onHover { inside in hovering = inside && episode.owned }
-        .help(episode.owned ? (episode.name ?? "第 \(episode.episodeNumber) 集") : "这一集还没有片源")
-        .accessibilityLabel("第 \(episode.episodeNumber) 集")
+        .help(episode.owned ? (episode.name ?? String(localized: .mediaEpisodeNumber(episode.episodeNumber))) : String(localized: .libraryEpisodeNoSource))
+        .accessibilityLabel(String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
         .accessibilityValue(states.compactMap { $0 }.joined(separator: "，"))
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("episode-grid-\(episode.episodeNumber)")

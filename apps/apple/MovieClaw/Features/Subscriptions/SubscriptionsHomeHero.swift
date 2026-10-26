@@ -92,7 +92,7 @@ struct SubsHomeHero: View {
     }
 
     private var indicator: some View {
-        ImmersiveHeroIndicator(count: slides.count, index: $index, fill: fill) { "切换到《\(slides[$0].media.title)》" }
+        ImmersiveHeroIndicator(count: slides.count, index: $index, fill: fill) { String(localized: .subscriptionFeedSwitchTitle(slides[$0].media.title)) }
     }
 }
 
@@ -102,7 +102,7 @@ struct SubsHomeHeroSkeleton: View {
         DiscoverSkeletonBlock(cornerRadius: 0)
             .frame(height: SubsHomeHero.height)
             .stretchesOnPull()
-            .accessibilityLabel("订阅首页加载中")
+            .accessibilityLabel(String(localized: .subscriptionOverviewLoadingHome))
     }
 }
 
@@ -261,7 +261,7 @@ private struct SubsHomeHeroSlideView: View {
             Button {
                 router.play(play)
             } label: {
-                Label(slide.resumePercent == nil ? "播放" : "继续播放", systemImage: "play.fill")
+                Label(slide.resumePercent == nil ? String(localized: .libraryHeroPlay) : String(localized: .subscriptionFeedResume), systemImage: "play.fill")
                     .heroActionLabel()
             }
             // 尺寸统一见 HeroActionButton.swift；白底黑字同影片页的播放键
@@ -269,18 +269,18 @@ private struct SubsHomeHeroSlideView: View {
             .controlSize(.regular)
             .tint(.white)
             .foregroundStyle(.black)
-            .accessibilityLabel("播放《\(slide.media.title)》\(slide.detail.map { " \($0)" } ?? "")")
+            .accessibilityLabel(slide.detail.map { String(localized: .subscriptionFeedPlayTitleDetail(slide.media.title, $0)) } ?? String(localized: .subscriptionFeedPlayTitleOnly(slide.media.title)))
             .accessibilityIdentifier("hero-play")
         } else {
             Button {
                 router.push(.subscription(id: slide.subscriptionId))
             } label: {
-                Text("查看订阅")
+                Text(String(localized: .subscriptionFeedViewSubscription))
                     .heroActionLabel()
             }
             .buttonStyle(.glass)
             .controlSize(.regular)
-            .accessibilityLabel("查看《\(slide.media.title)》的订阅")
+            .accessibilityLabel(String(localized: .subscriptionFeedViewTitleSubscription(slide.media.title)))
             .accessibilityIdentifier("hero-detail")
         }
     }

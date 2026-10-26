@@ -10,6 +10,7 @@ from movieclaw_sdk.channels import (
     Binding,
     BindResult,
     Capabilities,
+    ChannelInputError,
     FormField,
 )
 
@@ -20,6 +21,7 @@ from .client import DiscordClient
 class DiscordDriver(AdapterDriver):
     title = "Discord"
     description = "接入你在开发者后台创建的 bot"
+    description_localized = {"en": "Link a bot you created in the developer portal"}
     capabilities = Capabilities(receive=True, photo=True, max_text_len=DiscordAdapter.max_text_len)
     binding = Binding.form(
         (
@@ -28,6 +30,12 @@ class DiscordDriver(AdapterDriver):
                 "Bot Token",
                 secret=True,
                 help="在 Discord 开发者后台创建应用 → Bot 页获得；需要打开 Message Content Intent",
+                help_localized={
+                    "en": (
+                        "Create an application in the Discord developer portal and open "
+                        "Bot to get the token. Enable Message Content Intent"
+                    )
+                },
             ),
         ),
         pairing="code",
@@ -36,17 +44,32 @@ class DiscordDriver(AdapterDriver):
             "「设置 → 网络」为 Discord 开启代理。提交后私信 bot 发送配对码，发码人即唯一可对话的"
             "用户与推送目标。"
         ),
+        hint_localized={
+            "en": (
+                "Create an application at discord.com/developers, open Bot \u2192 Reset "
+                "Token and copy the token. If your network requires a proxy, "
+                "enable one for Discord in Settings \u2192 Network first. After "
+                "submitting, send the pairing code to the bot in a private "
+                "message. The sender becomes the only user who can chat with the "
+                "bot and receive notifications."
+            )
+        },
     )
 
     async def validate(self, fields: dict[str, str]) -> BindResult:
         token = (fields.get("token") or "").strip()
         if len(token) < 8:
-            raise ValueError("请填写 bot token")
+            raise ChannelInputError(
+                "请填写 bot token", message_localized={"en": "Enter the bot token"}
+            )
         client = DiscordClient(token)
         try:
             me = await client.get_me()
         except Exception as exc:  # noqa: BLE001 -- 原因直接展示给用户
-            raise ValueError(f"Discord bot token 校验失败：{exc}") from exc
+            raise ChannelInputError(
+                f"Discord bot token 校验失败：{exc}",
+                message_localized={"en": f"Could not validate the Discord bot token: {exc}"},
+            ) from exc
         finally:
             await client.aclose()
         name = str(me.get("username") or me["id"])

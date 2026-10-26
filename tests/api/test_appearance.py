@@ -50,7 +50,7 @@ def client(tmp_path: Path, media_dir: Path, monkeypatch):
     app = create_app()
     # 背景图上传/删除需要管理员登录，这里用依赖覆盖绕过（鉴权本身在 test_auth 覆盖）
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
 
     reset_setting_store()
@@ -127,9 +127,7 @@ def test_switch_active_between_gallery_and_default(client: TestClient):
     assert len(data["backdrops"]) == 2
 
     # 切换到不存在的 id → 404
-    assert (
-        client.put(f"{_BASE}/active", json={"backdrop_id": "f" * 32}).status_code == 404
-    )
+    assert client.put(f"{_BASE}/active", json={"backdrop_id": "f" * 32}).status_code == 404
 
 
 def test_delete_inactive_keeps_active(client: TestClient):

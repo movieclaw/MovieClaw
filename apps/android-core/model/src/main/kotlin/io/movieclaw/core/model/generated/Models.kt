@@ -77,11 +77,15 @@ data class AudioTrackView(
 )
 
 /**
- * 首次初始化状态：前端据此决定进引导页（/setup）还是登录页（/login）。
+ * 首次初始化状态及公开的原生设备登录能力，不包含账号或凭据信息。
  */
 @Serializable
 data class BootstrapStatus(
     @SerialName("initialized") val initialized: Boolean = false,
+    /**
+     * 服务端接受的原生 App 设备类型；旧服务端可能不提供
+     */
+    @SerialName("native_device_kinds") val nativeDeviceKinds: List<String>? = null,
 )
 
 /**
@@ -172,6 +176,7 @@ data class ClientCapabilityIn(
     @SerialName("dolby_vision_base_layer_profiles") val dolbyVisionBaseLayerProfiles: List<Long>? = null,
     @SerialName("dolby_vision_record_audit") val dolbyVisionRecordAudit: Boolean? = null,
     @SerialName("mp4_sample_limit") val mp4SampleLimit: Long? = null,
+    @SerialName("hevc_transcode") val hevcTranscode: Boolean? = null,
 )
 
 /**
@@ -426,7 +431,7 @@ data class CollectionView(
 @Serializable
 data class DeviceAuthorizeRequest(
     /**
-     * 客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、macos（Mac App）、androidtv（Android TV App）
+     * 客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、macos（Mac App）、windows（Windows App）、androidtv（Android TV App）
      */
     @SerialName("client_type") val clientType: String,
     /**
@@ -1479,6 +1484,8 @@ data class LibrarySearchMatch(
     @SerialName("source_field") val sourceField: String = "",
     @SerialName("matched_name") val matchedName: String = "",
     @SerialName("label") val label: String = "",
+    @SerialName("label_key") val labelKey: String? = null,
+    @SerialName("label_params") val labelParams: JsonObject? = null,
     @SerialName("person_id") val personId: Long? = null,
 )
 
@@ -2814,6 +2821,7 @@ data class TrickplayView(
  */
 @Serializable
 data class UiPreferencesSetting(
+    @SerialName("language") val language: String = "",
     /**
      * 主题 id，取值见前端 lib/themes.ts 的注册表（silver / netflix）。存纯字符串并放宽校验：未知值由前端 normalizeThemeId 兜底为默认主题，老后端读到新主题 id 也不会整体拒绝（前向兼容）。
      */

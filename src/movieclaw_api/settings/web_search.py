@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pydantic import Field, field_validator
 
+from movieclaw_api.i18n import t
 from movieclaw_api.settings.base import SettingSchema, register_setting
 
 WEB_SEARCH_NAMESPACE = "agent.web_search"
@@ -33,7 +34,7 @@ class WebSearchSetting(SettingSchema):
         from movieclaw_agent.web_search import provider_ids
 
         if value not in provider_ids():
-            raise ValueError("不支持的搜索供应商")
+            raise ValueError(t("settings.validation.searchProvider"))
         return value
 
     @field_validator("api_key")

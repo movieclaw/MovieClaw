@@ -45,7 +45,7 @@ struct TVRowWallView: View {
     @State private var pager = LibraryWallPager<API.LibraryItemView>(pageSize: TVWallLayout.pageSize)
 
     var body: some View {
-        TVPosterWall(title: title, subtitle: total.map { "\($0) 部" }, pager: pager, fallbackLibrary: fallbackLibrary, total: total,
+        TVPosterWall(title: title, subtitle: total.map { String(localized: .libraryStatusTitleCount($0)) }, pager: pager, fallbackLibrary: fallbackLibrary, total: total,
                      retry: { await reload() })
             .task { await reload() }
             .accessibilityIdentifier("tv-row-wall")

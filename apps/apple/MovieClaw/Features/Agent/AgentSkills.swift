@@ -164,7 +164,7 @@ struct AgentComposerPrefs: Equatable, Codable {
 enum AgentThinking {
     static let order = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
     static let labels: [String: String] = [
-        "off": "关", "minimal": "最少", "low": "低", "medium": "中", "high": "高", "xhigh": "超高", "max": "最高",
+        "off": String(localized: .agentThinkingOff), "minimal": String(localized: .agentThinkingMinimal), "low": String(localized: .agentThinkingLow), "medium": String(localized: .agentThinkingMedium), "high": String(localized: .agentThinkingHigh), "xhigh": String(localized: .agentThinkingXhigh), "max": String(localized: .agentThinkingMax),
     ]
 
     enum Shape { case hidden, toggle, slider }
@@ -177,7 +177,7 @@ enum AgentThinking {
     }
 
     static func label(_ value: String?) -> String {
-        guard let value else { return "默认" }
+        guard let value else { return String(localized: .mediaTracksDefault) }
         return labels[value] ?? value
     }
 
@@ -192,11 +192,11 @@ enum AgentThinking {
     static func listItems(_ stops: [String]) -> [ListItem] {
         if stops == ["off"] {
             return [
-                ListItem(level: nil, label: "开启（模型默认）", description: "不发送思考参数，沿用模型自身的默认行为"),
-                ListItem(level: "off", label: "关闭", description: "发送关闭指令，不再输出思考过程，响应更快"),
+                ListItem(level: nil, label: String(localized: .agentThinkingEnabled), description: String(localized: .agentThinkingEnabledDescription)),
+                ListItem(level: "off", label: String(localized: .commonOff), description: String(localized: .agentThinkingDisabledDescription)),
             ]
         }
-        return [ListItem(level: nil, label: "默认", description: "不发送思考参数，由模型自行决定强度")]
-            + stops.map { ListItem(level: $0, label: label($0), description: "按「\(label($0))」强度思考") }
+        return [ListItem(level: nil, label: String(localized: .mediaTracksDefault), description: String(localized: .agentThinkingDefaultDescription))]
+            + stops.map { ListItem(level: $0, label: label($0), description: String(localized: .agentThinkingLevelDescription(label($0)))) }
     }
 }

@@ -173,7 +173,6 @@ async def render(
     info: DeliveryInfo, data: dict, server: dict, template: str
 ) -> list[tuple[bytes, dict[str, str]]]:
     """渲染用户模板为请求体；没有 Jellyfin 对应物的事件返回空列表。模板错误抛 ``ValueError``。"""
-    from movieclaw_api.services.webhook.handlebars import TemplateError
     from movieclaw_api.services.webhook.handlebars import render as render_template
 
     test = info.name == "webhook.test"
@@ -200,10 +199,7 @@ async def render(
             completed=bool(data.get("completed")),
             favorite=info.name == "library.item.favorited",
         )
-        try:
-            body = render_template(template, values)
-        except TemplateError as exc:
-            raise ValueError(str(exc)) from exc
+        body = render_template(template, values)
         out.append((body.encode("utf-8"), headers))
     return out
 

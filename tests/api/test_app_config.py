@@ -35,7 +35,7 @@ def client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     app = create_app()
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         c.post(
             "/api/v1/auth/bootstrap",
             json={"username": "admin", "password": "s3cret-pass"},
@@ -393,3 +393,18 @@ def test_rejected_port_is_surfaced_and_cleared_on_save(client, managed, no_resta
     client.put("/api/v1/app/port", json={"port": 9000})
     assert not rejected.exists()
     assert client.get("/api/v1/app/config").json()["data"]["web_port_rejected"] is None
+
+
+def test_port_reset_target_respects_environment_override(client, managed, no_restart, monkeypatch):
+    """清除设置会回到环境端口，恢复提示不能把固定默认值当成实际目标。"""
+    monkeypatch.setenv("MOVIECLAW_WEB_PORT", "18880")
+    initial = client.get("/api/v1/app/config").json()["data"]
+    assert initial["web_port_default"] == 3000
+    assert initial["web_port_reset_target"] == 18880
+    changed = client.put("/api/v1/app/port", json={"port": 18881}).json()["data"]
+    assert changed["web_port"] == 18881
+    assert changed["web_port_reset_target"] == 18880
+    restored = client.put("/api/v1/app/port", json={"port": None}).json()["data"]
+    assert restored["web_port"] == restored["web_port_reset_target"] == 18880
+    assert restored["web_port_source"] == "env"
+    assert no_restart == [43, 43]

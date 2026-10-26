@@ -177,7 +177,7 @@ def make_client() -> TestClient:
     admin = Principal(kind="admin", name="tester")
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[require_login] = lambda: admin
-    return TestClient(app)
+    return TestClient(app, headers={"Accept-Language": "zh-Hans"})
 
 
 def wait(predicate, timeout: float = 15.0) -> None:
@@ -254,6 +254,12 @@ def test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it(env, 
         # 通道 id 沿用 weixin，已绑定账号由插件包接着跑
         channels = client.get("/api/v1/channels").json()["data"]
         assert [c["id"] for c in channels["channels"] if c["title"] == "微信"] == ["weixin"]
+        english = client.get("/api/v1/channels", headers={"Accept-Language": "en"}).json()["data"]
+        [translated] = [c for c in english["channels"] if c["id"] == "weixin"]
+        assert translated["title"] == "WeChat"
+        assert translated["binding"]["hint"].startswith("Scan the QR code below with WeChat")
+        assert translated["entry_id"] == "weixin-channel"
+        assert english["accounts"] == channels["accounts"]
         assert [(a["account_id"], a["channel_available"]) for a in channels["accounts"]] == [
             ("bot-1", True)
         ]

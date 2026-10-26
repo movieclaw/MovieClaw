@@ -103,6 +103,7 @@ def world(tmp_path, monkeypatch):
 def test_im_channel_runs_the_same_agent_as_the_web(world, ntfy) -> None:
     fake, server = ntfy
     with make_client() as client:
+        client.headers["Accept-Language"] = "zh-Hans"
         client.put("/api/v1/app/config", json={"port": 0, "external_url": "http://nas.local:3000"})
         client.post("/api/v1/auth/bootstrap", json={"username": "admin", "password": "s3cret-pass"})
         client.put("/api/v1/auth/profile", json={"nickname": "小鹏"})

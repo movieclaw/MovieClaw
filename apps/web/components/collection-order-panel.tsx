@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useCallback, useState } from "react";
 
 import { useToast } from "@/components/feedback";
@@ -30,6 +31,7 @@ export function CollectionOrderPanel({
   /** 保存或移出之后让详情页重新取一遍成员 */
   onSaved: () => void;
 }) {
+  const t = useTranslations();
   const toast = useToast();
   const [rows, setRows] = useState<LibraryItem[]>(items);
   const [dragging, setDragging] = useState<number | null>(null);
@@ -52,14 +54,14 @@ export function CollectionOrderPanel({
         collectionId,
         rows.map((row) => row.media_item_id),
       );
-      toast.success("顺序已保存");
+      toast.success(t("library.collections.orderSaved"));
       onSaved();
       onClose();
     } catch (error) {
       toast.error((error as Error).message);
       setBusy(false);
     }
-  }, [collectionId, onClose, onSaved, rows, toast]);
+  }, [collectionId, onClose, onSaved, rows, toast, t]);
 
   const drop = useCallback(
     async (mediaItemId: number) => {
@@ -86,10 +88,9 @@ export function CollectionOrderPanel({
         className="menu-surface flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl p-4 max-md:rounded-b-none max-md:pb-8"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 className="text-ui font-semibold text-[var(--text-strong)]">整理顺序</h2>
+        <h2 className="text-ui font-semibold text-[var(--text-strong)]">{t("library.collections.orderTitle")}</h2>
         <p className="mt-1 text-sub text-[var(--text-faint)]">
-          拖动调整先后；顺序在网页、播放器和分享页三处一致。移出去只是从名单里
-          去掉，影片一部都不会少。
+          {t("library.collections.orderHint")}
         </p>
 
         <div className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
@@ -124,7 +125,7 @@ export function CollectionOrderPanel({
               {/* 手机上拖不顺手，补一对上下键——同一份状态，两种操作方式 */}
               <button
                 type="button"
-                aria-label="上移"
+                aria-label={t("library.collections.up")}
                 disabled={index === 0}
                 onClick={() => move(index, index - 1)}
                 className="size-7 shrink-0 rounded text-white/50 transition hover:bg-white/10 hover:text-white disabled:opacity-20"
@@ -133,7 +134,7 @@ export function CollectionOrderPanel({
               </button>
               <button
                 type="button"
-                aria-label="下移"
+                aria-label={t("library.collections.down")}
                 disabled={index === rows.length - 1}
                 onClick={() => move(index, index + 1)}
                 className="size-7 shrink-0 rounded text-white/50 transition hover:bg-white/10 hover:text-white disabled:opacity-20"
@@ -142,7 +143,7 @@ export function CollectionOrderPanel({
               </button>
               <button
                 type="button"
-                aria-label={`移出 ${row.title}`}
+                aria-label={t("library.collections.removeTitle", { title: row.title })}
                 disabled={busy}
                 onClick={() => void drop(row.media_item_id)}
                 className="size-7 shrink-0 rounded text-white/40 transition hover:bg-white/10 hover:text-[var(--danger,#ff6b6b)] disabled:opacity-20"
@@ -153,7 +154,7 @@ export function CollectionOrderPanel({
           ))}
           {rows.length === 0 && (
             <p className="py-6 text-center text-sub text-[var(--text-faint)]">
-              这个合集现在一部都没有。
+              {t("library.collections.empty")}
             </p>
           )}
         </div>
@@ -164,7 +165,7 @@ export function CollectionOrderPanel({
             onClick={onClose}
             className="h-9 rounded-lg px-3 text-ui text-white/70 transition hover:bg-white/10 hover:text-white"
           >
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -172,7 +173,7 @@ export function CollectionOrderPanel({
             onClick={() => void save()}
             className="h-9 rounded-lg bg-white/10 px-3 text-ui font-medium text-white transition hover:bg-white/20 disabled:opacity-40"
           >
-            保存顺序
+            {t("library.collections.saveOrder")}
           </button>
         </div>
       </div>

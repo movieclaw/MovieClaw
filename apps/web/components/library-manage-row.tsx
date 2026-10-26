@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 
 import type { Route } from "next";
@@ -9,8 +10,8 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 import { CloudImportReport } from "@/components/cloud-import-report";
 import { GripIcon, LockIcon, MoreIcon } from "@/components/icons";
-import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
-import { libraryCoverUrl, type MediaLibrary, SCAN_PHASE_LABELS } from "@/lib/api/libraries";
+import { libraryKindMeta } from "@/components/library-kind-meta";
+import { libraryCoverUrl, type MediaLibrary, scanPhaseLabels } from "@/lib/api/libraries";
 import { responsiveImage } from "@/lib/image-proxy";
 import {
   type LibraryStatus,
@@ -22,7 +23,7 @@ import {
   chapterJobLabel,
   libraryStatus,
 } from "@/lib/library-manage";
-import { LIBRARY_KIND_LABELS } from "@/lib/media-types";
+import { libraryKindLabels } from "@/lib/media-types";
 import { formatRelativeTime } from "@/lib/time";
 
 /**
@@ -76,8 +77,6 @@ export interface LibraryRowDrag {
   onMoveKey: (offset: -1 | 1) => void;
 }
 
-const STATUS_CTX = { phaseLabels: SCAN_PHASE_LABELS, relativeTime: formatRelativeTime };
-
 /**
  * 管理页的一行：桌面端是列表行（grid 四区），手机端同一组件切成卡片。
  *
@@ -96,9 +95,10 @@ export function LibraryManageRow({
   actions: LibraryRowActions;
   drag: LibraryRowDrag | null;
 }) {
-  const status = libraryStatus(library, STATUS_CTX);
+  const t = useTranslations();
+  const status = libraryStatus(library, { phaseLabels: scanPhaseLabels(), relativeTime: formatRelativeTime });
   const inventory = inventoryLabel(library);
-  const meta = LIBRARY_KIND_META[library.kind];
+  const meta = libraryKindMeta()[library.kind];
   const notes = configNotes(library);
 
   return (
@@ -136,7 +136,7 @@ export function LibraryManageRow({
                 drag.onMoveKey(1);
               }
             }}
-            aria-label={`拖动调整「${library.name}」的展示顺序（或按 Alt + 上下方向键）`}
+            aria-label={t("library.manage.drag", { name: library.name })}
             className="grid size-7 cursor-grab place-items-center rounded-md text-white/40 opacity-0 outline-none transition hover:bg-white/[0.06] hover:text-white/80 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)] active:cursor-grabbing group-hover/row:opacity-100"
           >
             <GripIcon className="size-4" />
@@ -158,14 +158,14 @@ export function LibraryManageRow({
             >
               {library.name}
             </Link>
-            {library.is_default && <span className={BADGE}>默认</span>}
+            {library.is_default && <span className={BADGE}>{t("library.manage.default")}</span>}
             {accessRestricted(library) && <AccessChip library={library} />}
           </div>
           {/* 第二行小字的顺序是「类型 · 备注 · 根目录」：根目录最长，放最后，窄屏下
               整体换到下一行而不是把备注拆散，只有一行都放不下时才截尾（悬停 title
               里有全文）。手机端根目录不在这里：库名块只留两行，与缩略图等高 */}
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-caption text-[var(--text-faint)]">
-            <span>{LIBRARY_KIND_LABELS[library.kind]}</span>
+            <span>{libraryKindLabels()[library.kind]}</span>
             {/* 手机端没有库存列，主数字并进这行 */}
             <span className="hidden max-md:inline">· {inventory.primary}</span>
             {notes.map((note) => (
@@ -213,12 +213,13 @@ const BADGE =
 
 /** 可见范围胶囊：只在偏离默认时出现；文案只说库开放给谁，你本人不在范围内时前面带一把锁。 */
 function AccessChip({ library }: { library: MediaLibrary }) {
+  const t = useTranslations();
   return (
     <span
       className={BADGE}
-      title={library.viewer_access ? undefined : "你不在这个库的浏览范围内，只能管理"}
+      title={library.viewer_access ? undefined : t("library.manage.managementOnlyHint")}
     >
-      {!library.viewer_access && <LockIcon className="size-2.5" aria-label="你不在浏览范围内" />}
+      {!library.viewer_access && <LockIcon className="size-2.5" aria-label={t("library.manage.noBrowse")} />}
       {accessLabel(library)}
     </span>
   );
@@ -227,6 +228,7 @@ function AccessChip({ library }: { library: MediaLibrary }) {
 /** 主根目录（等宽）+ 多根时的「+N 个根目录」；桌面端接在小字行末，手机端独占一行，两处共用。
  *  挂了网盘目录的另起一段写「115 · 影视/电影」（本地目录不加标签，保持原样）。 */
 function RootPath({ library }: { library: MediaLibrary }) {
+  const t = useTranslations();
   const cloud = library.cloud_folders ?? [];
   const extra = library.root_paths.length - 1 + Math.max(0, cloud.length - 1);
   const others = [
@@ -248,7 +250,7 @@ function RootPath({ library }: { library: MediaLibrary }) {
       )}
       {extra > 0 && (
         <span className="shrink-0" title={others.join("\n")}>
-          +{extra} 个根目录
+          {t("library.manage.extraRoots", { count: extra })}
         </span>
       )}
     </>
@@ -286,9 +288,11 @@ function LibraryThumb({ library, Icon }: { library: MediaLibrary; Icon: typeof L
  * - 待识别 / 缺失：一枚带色胶囊，有刮削能力的库点它直达待处理清单。
  */
 function StatusCell({ library, status }: { library: MediaLibrary; status: LibraryStatus }) {
+  const t = useTranslations();
+  const locale = useLocale();
   if (status.kind === "idle") {
     return (
-      <div className="min-w-0 truncate text-caption text-[var(--text-faint)] max-md:col-span-2">
+      <div className={`min-w-0 ${locale === "en" ? "line-clamp-2" : "truncate"} text-caption text-[var(--text-faint)] max-md:col-span-2`}>
         {status.detail}
       </div>
     );
@@ -329,7 +333,7 @@ function StatusCell({ library, status }: { library: MediaLibrary; status: Librar
       {library.capabilities.scraped ? (
         <Link
           href={`/library/${library.id}?pending=1` as Route}
-          title="打开待处理清单"
+          title={t("library.manage.openPending")}
           className={`${pillClass} outline-none transition hover:brightness-125 focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]`}
         >
           {inner}
@@ -357,6 +361,7 @@ function RowMenu({
   status: LibraryStatus;
   actions: LibraryRowActions;
 }) {
+  const t = useTranslations();
   const itemClass =
     "glass-row nav-item cursor-pointer px-3 py-2 text-ui font-medium outline-none " +
     "data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)] " +
@@ -380,7 +385,7 @@ function RowMenu({
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label={`「${library.name}」的操作`}
+          aria-label={t("library.manage.actions", { name: library.name })}
           className="relative grid size-8 place-items-center rounded-full border border-white/[0.09] bg-white/[0.04] text-white/80 transition hover:bg-white/[0.1] hover:text-white data-[state=open]:bg-white/[0.14] data-[state=open]:text-white"
         >
           <MoreIcon className="size-[18px]" />
@@ -399,15 +404,15 @@ function RowMenu({
             className={itemClass}
           >
             {!scanning
-              ? "扫描库"
+              ? t("library.actions.scan")
               : stoppable
-                ? `停止扫描${pct}`
-                : `${SCAN_PHASE_LABELS[library.scan_progress?.phase ?? "ingesting"]}…`}
+                ? t("library.actions.stopScan", { progress: pct })
+                : `${scanPhaseLabels()[library.scan_progress?.phase ?? "ingesting"]}…`}
           </DropdownMenu.Item>
           {/* 待处理常驻：计数为 0 也可进（已忽略清单只有这里能到） */}
           {caps.scraped && (
             <DropdownMenu.Item onSelect={() => actions.onOpenPending(library)} className={itemClass}>
-              待处理{pendingFiles > 0 ? ` · ${pendingFiles} 个文件` : ""}
+              {t("library.actions.pending")}{pendingFiles > 0 ? t("library.manage.pendingSuffix", { count: pendingFiles }) : ""}
             </DropdownMenu.Item>
           )}
           {caps.naming && (
@@ -416,7 +421,7 @@ function RowMenu({
               disabled={busy && !organizing}
               className={itemClass}
             >
-              {organizing ? `整理中…${pct}` : "整理文件名"}
+              {organizing ? t("library.actions.organizing", { progress: pct }) : t("library.actions.organize")}
             </DropdownMenu.Item>
           )}
           <DropdownMenu.Item
@@ -425,16 +430,16 @@ function RowMenu({
             className={itemClass}
           >
             {refreshing
-              ? `停止刷新${pct}`
+              ? t("library.actions.stopRefresh", { progress: pct })
               : caps.scraped
-                ? "刷新元数据"
+                ? t("library.actions.refreshMetadata")
                 : caps.playable
-                  ? "重新读取 NFO 与封面"
-                  : "重新生成封面"}
+                  ? t("library.actions.rereadNfo")
+                  : t("library.actions.regenerateCover")}
           </DropdownMenu.Item>
           {hasCloud && (
             <DropdownMenu.Item onSelect={() => setReportOpen(true)} className={itemClass}>
-              纳管报告
+              {t("library.actions.importReport")}
             </DropdownMenu.Item>
           )}
           {library.extract_chapter_images && (
@@ -454,21 +459,21 @@ function RowMenu({
             disabled={scanning || organizing}
             className={itemClass}
           >
-            编辑库
+            {t("library.actions.edit")}
           </DropdownMenu.Item>
           <DropdownMenu.Item
             onSelect={() => actions.onSetDefault(library)}
             disabled={library.is_default}
             className={itemClass}
           >
-            {library.is_default ? "已是默认库" : "设为默认库"}
+            {library.is_default ? t("library.actions.alreadyDefault") : t("library.actions.setDefault")}
           </DropdownMenu.Item>
           <DropdownMenu.Item onSelect={() => actions.onToggleHome(library)} className={itemClass}>
-            {library.exclude_from_home ? "在首页展示" : "从首页排除"}
+            {library.exclude_from_home ? t("library.actions.showHome") : t("library.actions.excludeHome")}
           </DropdownMenu.Item>
           {actions.onReorder && (
             <DropdownMenu.Item onSelect={actions.onReorder} className={itemClass}>
-              调整顺序
+              {t("library.manage.order")}
             </DropdownMenu.Item>
           )}
           <DropdownMenu.Separator className="my-1 h-px bg-white/[0.07]" />
@@ -477,8 +482,8 @@ function RowMenu({
             disabled={scanning || organizing}
             className={`${itemClass} !text-[var(--danger)] data-[highlighted]:!bg-[rgba(255,107,107,0.12)]`}
           >
-            删除库
-            <span className="ml-auto pl-3 text-caption text-[var(--text-faint)]">不动磁盘</span>
+            {t("library.actions.delete")}
+            <span className="ml-auto pl-3 text-caption text-[var(--text-faint)]">{t("library.actions.keepFiles")}</span>
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

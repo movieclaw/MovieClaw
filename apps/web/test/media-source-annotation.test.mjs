@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  MEDIA_SOURCE_OPTIONS,
+  mediaSourceOptions,
   USER_LOWEST_SOURCE,
   mediaSourceDisplayLabel,
   seasonsNeedingAnnotation,
   seasonsWithIndeterminate,
 } from "../lib/media-source-annotation.ts";
+
+const MEDIA_SOURCE_OPTIONS = mediaSourceOptions("zh-Hans");
 
 test("选项表：五个真实档位 + 唯一的警示性最低档兜底", () => {
   assert.equal(MEDIA_SOURCE_OPTIONS.length, 6);

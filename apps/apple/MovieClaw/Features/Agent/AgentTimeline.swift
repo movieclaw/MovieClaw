@@ -181,7 +181,7 @@ enum AgentTimeline {
             turn.result = event.result
         case "agent_error":
             turn.status = .error
-            turn.error = event.error ?? "运行失败，原因未知"
+            turn.error = event.error ?? String(localized: .agentConversationRunUnknown)
         case "agent_cancelled":
             turn.status = .done
             turn.stopped = true
@@ -252,10 +252,10 @@ enum AgentTimeline {
 
     /// 进行中的处理块此刻在做什么：取末尾条目推导
     static func processStatus(_ items: [AgentProcessItem]) -> String {
-        guard case let .tool(tail) = items.last else { return "思考中…" }
-        if tail.argsDone == false { return "准备调用 \(tail.name)…" }
-        if tail.output == nil { return "正在执行 \(tail.name)…" }
-        return "思考中…" // 工具已返回，正在等模型的下一步
+        guard case let .tool(tail) = items.last else { return String(localized: .agentConversationThinking) }
+        if tail.argsDone == false { return String(localized: .agentConversationPreparingTool(tail.name)) }
+        if tail.output == nil { return String(localized: .agentConversationRunningTool(tail.name)) }
+        return String(localized: .agentConversationThinking) // 工具已返回，正在等模型的下一步
     }
 
     /// 已完成处理块的一句话总结，如「已思考，执行 1 次命令，调用 2 次工具」
@@ -270,10 +270,10 @@ enum AgentTimeline {
             }
         }
         var parts: [String] = []
-        if hasThinking { parts.append("思考") }
-        if commands > 0 { parts.append("执行 \(commands) 次命令") }
-        if others > 0 { parts.append("调用 \(others) 次工具") }
-        return parts.isEmpty ? "处理过程" : "已" + parts.joined(separator: "，")
+        if hasThinking { parts.append(String(localized: .settingsLlmUiThinking)) }
+        if commands > 0 { parts.append(String(localized: .agentConversationRanCommands(commands))) }
+        if others > 0 { parts.append(String(localized: .agentConversationCalledTools(others))) }
+        return parts.isEmpty ? String(localized: .agentConversationProcess) : String(localized: .agentConversationProcessDone(parts.joined(separator: AppLanguage.identifier == "zh-Hans" ? "，" : "; ")))
     }
 
     // MARK: 组时间
@@ -297,7 +297,7 @@ enum AgentTimeline {
     static func listTime(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
         if calendar.isDate(date, inSameDayAs: now) { return groupTime(date, now: now, calendar: calendar) }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
-            return "昨天"
+            return String(localized: .commonYesterday)
         }
         let formatter = calendar.isDate(date, equalTo: now, toGranularity: .year) ? monthDayOnly : yearMonthDayShort
         formatter.calendar = calendar
@@ -305,18 +305,18 @@ enum AgentTimeline {
         return formatter.string(from: date)
     }
 
-    private static func formatter(_ format: String) -> DateFormatter {
+    private static func formatter(_ format: String, template: String) -> DateFormatter {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = format
+        f.locale = AppLanguage.locale
+        if AppLanguage.identifier == "zh-Hans" { f.dateFormat = format } else { f.setLocalizedDateFormatFromTemplate(template) }
         return f
     }
 
-    private static let timeOnly = formatter("HH:mm")
-    private static let monthDay = formatter("M月d日 HH:mm")
-    private static let yearMonthDay = formatter("yyyy年M月d日 HH:mm")
-    private static let monthDayOnly = formatter("M月d日")
-    private static let yearMonthDayShort = formatter("yyyy/M/d")
+    private static let timeOnly = formatter("HH:mm", template: "HHmm")
+    private static let monthDay = formatter("M月d日 HH:mm", template: "MMMdHHmm") // i18n-ignore: Chinese date pattern
+    private static let yearMonthDay = formatter("yyyy年M月d日 HH:mm", template: "yyyyMMMdHHmm") // i18n-ignore: Chinese date pattern
+    private static let monthDayOnly = formatter("M月d日", template: "MMMd") // i18n-ignore: Chinese date pattern
+    private static let yearMonthDayShort = formatter("yyyy/M/d", template: "yyyyMd")
 }
 
 // MARK: - 工具参数的展示
@@ -359,5 +359,5 @@ extension AgentToolCall {
     }
 
     /// 已失败：流式期间由回执标记，回放数据靠 runner 的失败前缀识别
-    var failed: Bool { isError || (output?.hasPrefix("工具执行失败：") ?? false) }
+    var failed: Bool { isError || (output?.hasPrefix("工具执行失败：") ?? false) } // i18n-ignore: server tool-failure prefix
 }

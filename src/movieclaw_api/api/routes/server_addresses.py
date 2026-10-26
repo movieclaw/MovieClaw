@@ -71,5 +71,5 @@ async def remove_address(payload: ServerAddressRemovePayload) -> ApiResponse[Ser
     except ValueError as exc:
         raise BadRequestException(str(exc)) from exc
     if not removed:
-        raise NotFoundException("没有这个地址；外部访问地址请在下方修改")
+        raise NotFoundException(message_key="errors.serverAddresses.missing")
     return ok(await _view())

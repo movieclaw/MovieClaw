@@ -352,6 +352,23 @@ async def test_facet_labels_use_the_builtin_mapping(db) -> None:
         assert {row.value: row.label for row in facets.decades}["earlier"] == "更早"
 
 
+async def test_kind_genre_tiles_follow_the_reader_language(db) -> None:
+    """首页「按类型找」色块的名字按读者语言给（App 直接显示服务端的 label）。"""
+    from movieclaw_api.i18n import use_locale
+    from movieclaw_api.services.library.items import build_kind_genres
+
+    async with db.session() as session:
+        library_id, _ = await _seed(session)
+        for locale, expected in (("zh-Hans", "动画"), ("en", "Animation")):
+            with use_locale(locale):
+                tiles = await build_kind_genres(
+                    session, frozenset({library_id}), "movie", member_id=_ME
+                )
+            labels = {tile.value: tile.label for tile in tiles}
+            assert labels["16"] == expected
+            assert {tile.value for tile in tiles} == {"16", "14", "10749", "18", "53", "878", "28"}
+
+
 async def test_facet_excludes_its_own_dimension(db) -> None:
     """这是整个 facet 的关键：算某一维时**排除该维自身**的条件。
 

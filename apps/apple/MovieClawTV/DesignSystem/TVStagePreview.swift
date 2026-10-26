@@ -232,7 +232,7 @@ final class TVStagePreview {
             // 开发期：量预起耗时（装载发出 → 停在起点）与引擎各阶段，模拟器 / 真机日志里核对各种片源起播快不快
             if let player = player as? ReelPlayer {
                 let stages = player.stageMs.sorted { $0.value < $1.value }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
-                NSLog("[TVStagePreview] 预起完成 %@ disc=%@ start=%.1fs 引擎位置=%.1fs 引擎片长=%.0fs｜%@", item.title.name,
+                NSLog("[TVStagePreview] 预起完成 %@ disc=%@ start=%.1fs 引擎位置=%.1fs 引擎片长=%.0fs｜%@", item.title.name, // i18n-ignore: debug log
                       item.play.disc ?? "file", Double(item.segment.startMs) / 1000, player.core.currentTime, player.core.duration ?? -1, stages)
             }
             #endif
@@ -258,7 +258,7 @@ final class TVStagePreview {
                 self.teardown(keepEnded: true)
             }
         case let .failed(message):
-            NSLog("[TVStagePreview] 预告放不了，保持剧照：%@", message)
+            NSLog("[TVStagePreview] 预告放不了，保持剧照：%@", message) // i18n-ignore: debug log
             teardown(keepEnded: true)
         case .playing, .buffering:
             // 刚按下播放、还在起播时大图就滚走了：那一刻暂停不了（还没在放），真开播时再核对一次，别在看不见的地方出声

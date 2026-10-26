@@ -72,6 +72,9 @@ export interface PlayerState {
   failedTiers: number[];
   /** 同一文件连续失败次数 */
   failureCount: number;
+  /** 服务端转出的 HEVC 放不了过（#1008）：之后的请求不再申报 hevc_transcode，硬件转码改出
+   *  H.264。不算档位失败——HEVC 解不了不等于显卡转不了 */
+  hevcRefused: boolean;
   /** 起播位置（文件时间，毫秒）。降档重来要落回同一位置，不能从头放。
    *  **null = 交给服务端按观看状态定**（§6.10 续播并入开会话）；会话响应
    *  回来后被解析出的实际起点覆盖，null 只存在于首次请求在途期间。 */
@@ -86,7 +89,11 @@ export interface PlayerState {
    * 降档路径不受影响是因为它每次都改 failedTiers/failureCount，指纹天然不同。
    */
   attempt: number;
-  error: { message: string; suggestion: string | null } | null;
+  error: {
+    message: string;
+    suggestion: string | null;
+    suggestionKey?: "player.errors.nativePlayerHint";
+  } | null;
 }
 
 export const initialPlayerState: PlayerState = {
@@ -95,6 +102,7 @@ export const initialPlayerState: PlayerState = {
   decision: null,
   failedTiers: [],
   failureCount: 0,
+  hevcRefused: false,
   startMs: 0,
   attempt: 0,
   error: null,
@@ -253,6 +261,15 @@ export function playerReducer(state: PlayerState, event: PlayerEvent): PlayerSta
           error: { message: event.reason, suggestion: null },
         };
       }
+      if (
+        !state.hevcRefused &&
+        state.decision.video?.action === "transcode" &&
+        state.decision.video.codec === "hevc"
+      ) {
+        // 服务端转出的 HEVC 放不了（浏览器报能解、实际解不了，或解得太慢掉帧）：同一档改要
+        // H.264 再来一次。不记失败档，否则会白白降到软件转码（或弹同意框）
+        return { ...state, phase: "degrading", hevcRefused: true, session: null };
+      }
       const failedTiers = nextFailedTiers(state, tier);
       // 兜底档本身都失败了：没有更低的档可退，只能报错并建议换播放器。
       // session 必须一并置空（与 fatal/degrading 同一不变式，见
@@ -268,7 +285,8 @@ export function playerReducer(state: PlayerState, event: PlayerEvent): PlayerSta
           failureCount: state.failureCount + 1,
           error: {
             message: event.reason,
-            suggestion: "这个文件在浏览器里放不出来，建议用 Infuse、VidHub 等原生播放器打开。",
+            suggestion: null,
+            suggestionKey: "player.errors.nativePlayerHint",
           },
         };
       }

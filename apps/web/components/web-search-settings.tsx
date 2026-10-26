@@ -6,8 +6,11 @@
  * 按设置页规范（docs/design/settings-ui.md）：小节里一行状态，行尾「接入」/「编辑」+「⋯」菜单
  * （重新测试连接、关闭网页搜索）；供应商和密钥在右侧抽屉里一起提交。
  * 提交即「验证并保存」：服务端先用这把 Key 搜索一次，通过才落库，失败不动已保存的配置。
- * 密钥不回显，只显示末四位。设置页没有语言包，文案与同页其他小节一样用中文。
+ * 密钥不回显，只显示末四位；界面文案随当前语言渲染。
  */
+
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 
 import { useEffect, useState } from "react";
 
@@ -33,6 +36,8 @@ import {
 } from "@/lib/api/web-search";
 
 export function WebSearchSettings() {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const toast = useToast();
   const confirm = useConfirm();
   const [config, setConfig] = useState<WebSearchConfig | null>(null);
@@ -66,17 +71,17 @@ export function WebSearchSettings() {
 
   async function clear() {
     const accepted = await confirm({
-      title: "关闭网页搜索？",
+      title: t("settings.webSearch.ui.disableTitle"),
       description:
-        "已保存的 API Key 会从这台服务器删除。智能体将不再上网搜索，直到你重新接入。",
-      confirmLabel: "关闭",
+        t("settings.webSearch.ui.disableHint"),
+      confirmLabel: t("settings.webSearch.ui.disableConfirm"),
       tone: "danger",
     });
     if (!accepted) return;
     setBusy(true);
     try {
       setConfig(await clearWebSearchConfig());
-      toast.success("已关闭网页搜索");
+      toast.success(t("settings.webSearch.ui.disabled"));
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -86,8 +91,8 @@ export function WebSearchSettings() {
 
   return (
     <SettingsSection
-      title="网页搜索"
-      description="接入一家搜索服务后，智能体能上网查最新信息。不接入就没有这个工具，对话和现在一样。"
+      title={t("settings.webSearch.ui.title")}
+      description={t("settings.webSearch.ui.intro")}
     >
       {config == null && loadError ? (
         <div className="css-glass space-y-3 !rounded-xl p-5 max-sm:p-4">
@@ -97,8 +102,7 @@ export function WebSearchSettings() {
             onClick={load}
             className={SETTINGS_BUTTON_CLASS}
           >
-            重试
-          </button>
+            {t("common.retry")}</button>
         </div>
       ) : config == null ? (
         <div className="h-[72px] animate-pulse rounded-xl bg-white/[0.04]" />
@@ -106,18 +110,18 @@ export function WebSearchSettings() {
         <SettingsList>
           {config.configured && current ? (
             <SettingsRow
+              stackOnMobile={locale === "en"}
               leading={<RowIcon />}
               label={
                 <span className="flex items-center gap-2">
                   {current.label}
                   <span className="flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--ok)_12%,transparent)] px-2 py-0.5 text-caption font-medium text-[var(--ok)]">
                     <span className="size-1.5 rounded-full bg-current" />
-                    已接入
-                  </span>
+                    {t("settings.webSearch.ui.connected")}</span>
                 </span>
               }
               description={
-                config.key_hint ? `密钥末四位 ${config.key_hint}` : "密钥已保存"
+                config.key_hint ? t("settings.webSearch.ui.keyHint", {hint: config.key_hint}) : t("settings.webSearch.ui.savedKey")
               }
             >
               <button
@@ -126,15 +130,14 @@ export function WebSearchSettings() {
                 onClick={() => setEditing(true)}
                 className={SETTINGS_BUTTON_CLASS}
               >
-                编辑
-              </button>
+                {t("settings.webSearch.ui.editButton")}</button>
               <SettingsMoreMenu
-                label="网页搜索的更多操作"
+                label={t("settings.webSearch.ui.more")}
                 disabled={busy}
                 items={[
-                  { label: "重新测试连接", onSelect: () => void retest() },
+                  { label: t("settings.webSearch.ui.retest"), onSelect: () => void retest() },
                   {
-                    label: "关闭网页搜索",
+                    label: t("settings.webSearch.ui.disable"),
                     onSelect: () => void clear(),
                     danger: true,
                   },
@@ -144,16 +147,15 @@ export function WebSearchSettings() {
           ) : (
             <SettingsRow
               leading={<RowIcon />}
-              label="未接入"
-              description="支持 Tavily、Exa、Brave Search，需要一个 API Key。"
+              label={t("settings.webSearch.ui.notConnected")}
+              description={t("settings.webSearch.ui.supported")}
             >
               <button
                 type="button"
                 onClick={() => setEditing(true)}
                 className={SETTINGS_BUTTON_CLASS}
               >
-                接入
-              </button>
+                {t("settings.webSearch.ui.connect")}</button>
             </SettingsRow>
           )}
         </SettingsList>
@@ -168,7 +170,7 @@ export function WebSearchSettings() {
             const label = next.providers.find(
               (item) => item.id === next.provider,
             )?.label;
-            toast.success(label ? `网页搜索已接入 ${label}` : "网页搜索已接入");
+            toast.success(label ? t("settings.webSearch.ui.connectedProvider", {provider: label}) : t("settings.webSearch.ui.saved"));
           }}
         />
       )}
@@ -194,6 +196,8 @@ function WebSearchDrawer({
   onClose: () => void;
   onSaved: (next: WebSearchConfig) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const [provider, setProvider] = useState(
     config.provider ?? config.providers[0]?.id ?? "",
   );
@@ -227,9 +231,9 @@ function WebSearchDrawer({
       onClose={() => {
         if (!busy) onClose();
       }}
-      title={config.configured ? "编辑网页搜索" : "接入网页搜索"}
-      description="选一家搜索服务并填入它的 API Key。"
-      hint="保存前会先用这把 Key 搜索一次，通过才保存。"
+      title={config.configured ? t("settings.webSearch.ui.edit") : t("settings.webSearch.ui.add")}
+      description={t("settings.webSearch.ui.drawerHint")}
+      hint={locale === "en" ? <span className="max-md:hidden">{t("settings.webSearch.ui.verifyHint")}</span> : t("settings.webSearch.ui.verifyHint")}
       actions={
         <>
           <button
@@ -238,15 +242,14 @@ function WebSearchDrawer({
             disabled={busy}
             className={SETTINGS_BUTTON_CLASS}
           >
-            取消
-          </button>
+            {t("common.cancel")}</button>
           <button
             type="button"
             onClick={() => void submit()}
             disabled={busy || !canSubmit}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {busy ? "验证中…" : "验证并保存"}
+            {busy ? t("settings.webSearch.ui.verifying") : t("settings.webSearch.ui.verifySave")}
           </button>
         </>
       }
@@ -259,14 +262,14 @@ function WebSearchDrawer({
         }}
       >
         {error && <ErrorBanner>{error}</ErrorBanner>}
+        {locale === "en" && <p className="text-caption leading-5 text-[var(--text-faint)] md:hidden">{t("settings.webSearch.ui.verifyHint")}</p>}
 
         <fieldset>
           <legend className="mb-2 text-sub font-medium text-[var(--text-muted)]">
-            搜索服务
-          </legend>
+            {t("settings.webSearch.ui.provider")}</legend>
           <div
             role="radiogroup"
-            aria-label="搜索服务"
+            aria-label={t("settings.webSearch.ui.provider")}
             className="css-glass divide-y divide-[var(--line)] !rounded-xl"
           >
             {config.providers.map((item) => {
@@ -318,8 +321,8 @@ function WebSearchDrawer({
               disabled={busy}
               placeholder={
                 keepsSaved && config.key_hint
-                  ? `填入新的 Key 才会更换（当前末四位 ${config.key_hint}）`
-                  : "粘贴 API Key"
+                  ? t("settings.webSearch.ui.replaceKey", {hint: config.key_hint})
+                  : t("settings.webSearch.ui.keyPlaceholder")
               }
               onChange={(e) => {
                 setApiKey(e.target.value);
@@ -330,17 +333,17 @@ function WebSearchDrawer({
             <button
               type="button"
               onClick={() => setShowKey((v) => !v)}
-              aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}
+              aria-label={showKey ? t("settings.webSearch.ui.hideKey") : t("settings.webSearch.ui.showKey")}
               className="absolute inset-y-0 right-1 my-auto h-7 rounded-md px-2.5 text-sub font-medium text-[var(--text-muted)] hover:bg-white/[0.06] hover:text-[var(--text)]"
             >
-              {showKey ? "隐藏" : "显示"}
+              {showKey ? t("settings.webSearch.ui.hide") : t("settings.webSearch.ui.show")}
             </button>
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-caption leading-5 text-[var(--text-faint)]">
             <span>
               {config.configured && !keepsSaved
-                ? "更换搜索服务需要它自己的 Key。"
-                : "密钥只存在这台服务器上，保存后不再显示完整内容。"}
+                ? t("settings.webSearch.ui.changedProvider")
+                : t("settings.webSearch.ui.keyPrivacy")}
             </span>
             {selected && (
               <a
@@ -349,7 +352,7 @@ function WebSearchDrawer({
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-[var(--accent)] hover:underline"
               >
-                申请 {selected.label} API Key
+                {t("settings.webSearch.ui.signup", {provider: selected.label})}
                 <OpenIcon className="size-3.5" />
               </a>
             )}

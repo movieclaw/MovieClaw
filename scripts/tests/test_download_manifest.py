@@ -177,6 +177,69 @@ class DownloadManifestTest(unittest.TestCase):
             # 转码器 Release 不能夹带 Mac 版 App
             self.assertNotEqual(run("transcoder-v0.5.0").returncode, 0)
 
+    def test_mac_dmg_pairs_with_its_update_zip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            update = module.describe(self.archive(directory, "MovieClaw-macos-arm64.zip"))
+            dmg = directory / "MovieClaw-macos-arm64.dmg"
+            dmg.write_bytes(b"dmg")
+
+            def contents(build):
+                found = ("0.5.0", build, True, True)
+                return patch.object(module, "dmg_contents", return_value=found)
+
+            with contents("202610051230"):
+                entry = module.describe_dmg(dmg, update)
+            self.assertEqual((entry["variant"], entry["asset"], entry["size"]),
+                             ("installer", dmg.name, 3))
+            self.assertEqual((entry["version"], entry["build"], entry["arch"]),
+                             ("0.5.0", "202610051230", "arm64"))
+            self.assertEqual(entry["sha256"], hashlib.sha256(b"dmg").hexdigest())
+            self.assertTrue(entry["signed"] and entry["notarized"])
+            # 安装盘里装的不是同一个构建：拒绝
+            with contents("202610051231"), self.assertRaises(ValueError):
+                module.describe_dmg(dmg, update)
+            # 非 macOS 读不了 DMG：签名与公证记为未知
+            with patch.object(module, "dmg_contents", return_value=None):
+                self.assertIsNone(module.describe_dmg(dmg, update)["notarized"])
+
+    def test_mac_release_with_dmg_lists_installer_and_update(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            self.archive(directory, "MovieClaw-macos-arm64.zip")
+            (directory / "MovieClaw-macos-arm64.dmg").write_bytes(b"dmg")
+            argv = ["x", "--directory", tmp, "--tag", "macos-v0.5.0"]
+            with patch.object(module, "dmg_contents", return_value=None), \
+                    patch.object(module, "verification", return_value=(None, None)), \
+                    patch.object(sys, "argv", argv):
+                module.main()
+            packages = json.loads((directory / "downloads.json").read_text())["packages"]
+            self.assertEqual([(p["asset"], p["variant"]) for p in packages],
+                             [("MovieClaw-macos-arm64.zip", "update"),
+                              ("MovieClaw-macos-arm64.dmg", "installer")])
+            # 没有签名附件：不带 edSignature
+            self.assertNotIn("edSignature", packages[0])
+            # 有签名附件：只写进更新包
+            signature = "A" * 86 + "=="
+            (directory / "MovieClaw-macos-arm64.zip.edsig").write_text(signature + "\n")
+            with patch.object(module, "dmg_contents", return_value=None), \
+                    patch.object(module, "verification", return_value=(None, None)), \
+                    patch.object(sys, "argv", argv):
+                module.main()
+            packages = json.loads((directory / "downloads.json").read_text())["packages"]
+            self.assertEqual([p.get("edSignature") for p in packages], [signature, None])
+            (directory / "MovieClaw-macos-arm64.zip.edsig").write_text("not a signature")
+            with patch.object(module, "dmg_contents", return_value=None), \
+                    patch.object(module, "verification", return_value=(None, None)), \
+                    patch.object(sys, "argv", argv), self.assertRaises(SystemExit):
+                module.main()
+            (directory / "MovieClaw-macos-arm64.zip.edsig").unlink()
+            # 安装盘必须有同名的更新包
+            (directory / "MovieClaw-macos-arm64.zip").unlink()
+            with patch.object(module, "dmg_contents", return_value=None), \
+                    patch.object(sys, "argv", argv), self.assertRaises(SystemExit):
+                module.main()
+
     def test_iphone_ipa_reads_version_and_minimum_ios(self):
         with tempfile.TemporaryDirectory() as tmp:
             ipa = Path(tmp) / "MovieClaw-iOS-unsigned.ipa"

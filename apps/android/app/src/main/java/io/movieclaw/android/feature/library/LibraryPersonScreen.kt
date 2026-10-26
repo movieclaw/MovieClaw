@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -40,7 +39,6 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.movieclaw.android.core.designsystem.Accent2
 import io.movieclaw.android.core.designsystem.Bg
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.PosterCard
 import io.movieclaw.android.core.designsystem.RemoteImage
@@ -61,6 +59,9 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import io.movieclaw.android.core.designsystem.CardMetrics
+import io.movieclaw.android.core.designsystem.mcGridCells
+import io.movieclaw.android.core.designsystem.mcCards
 
 /**
  * 库内影人页（`GET /people/{tmdbPersonId}`；iOS `PersonDetailView`、网页 `person-detail-view.tsx`）：
@@ -176,9 +177,9 @@ fun LibraryPersonScreen(
                 onAction = { vm.load() },
             )
             else -> LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
+                columns = mcGridCells(phoneColumns = 3, minColumn = CardMetrics.Phone.castWidth),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    horizontal = McMetrics.pagePadding, vertical = 12.dp,
+                    horizontal = mcCards.pagePadding, vertical = 12.dp,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -188,7 +189,7 @@ fun LibraryPersonScreen(
                     onRefresh = { vm.load(refresh = true) },
                 ),
             ) {
-                item(span = { GridItemSpan(3) }) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     PersonHeader(
                         name = ui.name,
                         avatarUrl = ui.avatarUrl,
@@ -218,7 +219,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.creditSection(
     origin: String?,
 ) {
     if (credits.isEmpty()) return
-    item(span = { GridItemSpan(3) }) {
+    item(span = { GridItemSpan(maxLineSpan) }) {
         Row(
             Modifier.fillMaxWidth().padding(top = 6.dp),
             verticalAlignment = Alignment.Bottom,

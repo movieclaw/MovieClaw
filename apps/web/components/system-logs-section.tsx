@@ -1,5 +1,10 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { type AppMessageKey } from "@/lib/i18n/translate";
+import { type AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -9,7 +14,7 @@ import { ExpandIcon, ShrinkIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { SETTINGS_BUTTON_CLASS, SETTINGS_INPUT_CLASS } from "@/components/settings-ui";
 import { fetchLogContent, fetchLogDays, type LogContent, type LogDay } from "@/lib/api/logs";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatNumber } from "@/lib/format";
 
 /**
  * 设置页「系统日志」分区：结构化的在线日志查看器。
@@ -106,19 +111,19 @@ const LEVEL_BADGE_LABEL: Record<LogLevel, string> = {
 
 type LevelFilter = "ALL" | LogLevel;
 
-const LEVEL_FILTERS: { id: LevelFilter; label: string }[] = [
-  { id: "ALL", label: "全部" },
-  { id: "ERROR", label: "错误" },
-  { id: "WARNING", label: "警告" },
-  { id: "INFO", label: "信息" },
-  { id: "DEBUG", label: "调试" },
+const LEVEL_FILTERS: { id: LevelFilter; label: AppMessageKey }[] = [
+  { id: "ALL", label: "settings.logs.viewer.all" },
+  { id: "ERROR", label: "settings.logs.viewer.errors" },
+  { id: "WARNING", label: "settings.logs.viewer.warnings" },
+  { id: "INFO", label: "settings.logs.viewer.info" },
+  { id: "DEBUG", label: "settings.logs.viewer.debug" },
 ];
 
-const REFRESH_OPTIONS: { label: string; value: number }[] = [
-  { label: "关闭", value: 0 },
-  { label: "3s", value: 3_000 },
-  { label: "10s", value: 10_000 },
-  { label: "30s", value: 30_000 },
+const REFRESH_OPTIONS: { label: AppMessageKey; value: number }[] = [
+  { label: "common.off", value: 0 },
+  { label: "settings.logs.viewer.threeSeconds", value: 3_000 },
+  { label: "settings.logs.viewer.tenSeconds", value: 10_000 },
+  { label: "settings.logs.viewer.thirtySeconds", value: 30_000 },
 ];
 
 const REFRESH_STORAGE_KEY = "movieclaw.log-refresh-interval";
@@ -144,11 +149,14 @@ function loadRefreshInterval(): number {
 // ---------------------------------------------------------------------------
 
 export function SystemLogsSection() {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const [days, setDays] = useState<LogDay[]>([]);
   const [activeDay, setActiveDay] = useState<string | null>(null);
   const [content, setContent] = useState<LogContent | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
 
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("ALL");
   const [query, setQuery] = useState("");
@@ -188,13 +196,13 @@ export function SystemLogsSection() {
     } catch (err) {
       if (!opts?.silent) {
         setContent(null);
-        setError(err instanceof Error ? err.message : "日志加载失败，请重试");
+        setError(err instanceof Error ? err.message : { key: "settings.logs.viewer.loadFailed" });
       }
     } finally {
       inFlightRef.current = false;
       if (!opts?.silent) setLoading(false);
     }
-  }, []);
+  }, [setError]);
 
   /** 刷新日期列表；首次进入或手动刷新时自动选中最新一天并加载内容 */
   const refresh = useCallback(
@@ -216,11 +224,11 @@ export function SystemLogsSection() {
           setLoading(false);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "日志列表加载失败，请重试");
+        setError(err instanceof Error ? err.message : { key: "settings.logs.viewer.listFailed" });
         setLoading(false);
       }
     },
-    [loadDay],
+    [loadDay, setError],
   );
 
   useEffect(() => {
@@ -355,11 +363,11 @@ export function SystemLogsSection() {
         <select
           value={activeDay ?? ""}
           disabled={loading || days.length === 0}
-          aria-label="选择日志日期"
+          aria-label={t("settings.logs.viewer.day")}
           onChange={(e) => switchDay(e.target.value)}
           className={`${SETTINGS_INPUT_CLASS} [&>option]:bg-[#1a1e28]`}
         >
-          {days.length === 0 && <option value="">暂无日志</option>}
+          {days.length === 0 && <option value="">{t("settings.logs.viewer.noLogs")}</option>}
           {days.map((d) => (
             <option key={d.day} value={d.day}>
               {d.day}
@@ -369,13 +377,13 @@ export function SystemLogsSection() {
         {activeMeta && (
           <span className="tnum text-sub text-[var(--text-muted)]">
             {formatBytes(activeMeta.size_bytes)}
-            {content && ` · 共 ${content.total_lines} 行`}
+            {content && t("settings.logs.viewer.lines", { count: content.total_lines })}
           </span>
         )}
         <div className="flex-1" />
 
         {/* 自动刷新分段：关闭 / 3s / 10s / 30s；生效时点亮呼吸绿点 */}
-        <div className="flex items-center gap-2">
+        <div className={`flex items-center gap-2 ${locale === "en" ? "max-w-full flex-wrap" : ""}`}>
           <span className="flex items-center gap-1.5 text-sub text-[var(--text-muted)]">
             {refreshMs > 0 && isLatestDay && (
               <span className="relative flex size-1.5">
@@ -383,11 +391,10 @@ export function SystemLogsSection() {
                 <span className="relative inline-flex size-1.5 rounded-full bg-[var(--ok)]/90" />
               </span>
             )}
-            自动刷新
-          </span>
+            {t("settings.logs.viewer.autoRefresh")}</span>
           <div
             role="radiogroup"
-            aria-label="自动刷新频率"
+            aria-label={t("settings.logs.viewer.frequency")}
             className="flex shrink-0 gap-0.5 rounded-lg bg-white/[0.06] p-0.5"
           >
             {REFRESH_OPTIONS.map((opt) => {
@@ -405,7 +412,7 @@ export function SystemLogsSection() {
                       : "text-[var(--text-muted)] hover:text-[var(--text)]"
                   }`}
                 >
-                  {opt.label}
+                  {t(opt.label)}
                 </button>
               );
             })}
@@ -418,7 +425,7 @@ export function SystemLogsSection() {
           disabled={loading}
           className={SETTINGS_BUTTON_CLASS}
         >
-          {loading ? "加载中…" : "刷新"}
+          {loading ? t("settings.logs.viewer.loading") : t("settings.logs.viewer.refresh")}
         </button>
       </div>
   );
@@ -434,7 +441,7 @@ export function SystemLogsSection() {
     >
         {/* 过滤条：级别 chip（带条数）+ 关键字搜索 */}
         <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-white/[0.03] px-3 py-2">
-          <div role="radiogroup" aria-label="按级别过滤" className="flex items-center gap-0.5">
+          <div role="radiogroup" aria-label={t("settings.logs.viewer.filter")} className={`flex items-center gap-0.5 ${locale === "en" ? "flex-wrap" : ""}`}>
             {LEVEL_FILTERS.map((f) => {
               const active = f.id === levelFilter;
               const count = f.id === "ALL" ? entries.length : levelCounts[f.id];
@@ -451,8 +458,8 @@ export function SystemLogsSection() {
                       : "text-[var(--text-muted)] hover:bg-white/[0.06] hover:text-[var(--text)]"
                   } ${f.id === "ERROR" && count > 0 ? "!text-[#ff8a8a]" : ""}`}
                 >
-                  {f.label}
-                  {count > 0 && <span className="tnum ml-1 opacity-70">{count}</span>}
+                  {t(f.label)}
+                  {count > 0 && <span className="tnum ml-1 opacity-70">{locale === "zh-Hans" ? count : formatNumber(count, undefined, locale)}</span>}
                 </button>
               );
             })}
@@ -462,15 +469,15 @@ export function SystemLogsSection() {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索日志…"
-            aria-label="搜索日志"
+            placeholder={t("settings.logs.viewer.searchPlaceholder")}
+            aria-label={t("settings.logs.viewer.search")}
             className="w-40 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-sub text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:border-[var(--accent)]/60 sm:w-52"
           />
           <button
             type="button"
             onClick={() => setFullscreen((f) => !f)}
-            aria-label={fullscreen ? "退出全屏" : "全屏查看"}
-            title={fullscreen ? "退出全屏（Esc）" : "全屏查看"}
+            aria-label={fullscreen ? t("settings.logs.viewer.exitFullscreen") : t("settings.logs.viewer.fullscreen")}
+            title={fullscreen ? t("settings.logs.viewer.exitFullscreenHint") : t("settings.logs.viewer.fullscreen")}
             className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-white/[0.08] hover:text-[var(--text)]"
           >
             {fullscreen ? <ShrinkIcon className="size-4" /> : <ExpandIcon className="size-4" />}
@@ -481,7 +488,7 @@ export function SystemLogsSection() {
         {content?.truncated && (
           <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] bg-white/[0.02] px-4 py-1.5">
             <p className="text-caption text-[var(--text-faint)]">
-              日志较长，仅加载末尾 {content.lines.length} 行（全天共 {content.total_lines} 行）
+              {t("settings.logs.viewer.truncated", { loaded: content.lines.length, total: content.total_lines })}
             </p>
             <button
               type="button"
@@ -489,8 +496,7 @@ export function SystemLogsSection() {
               disabled={loading}
               className="shrink-0 rounded-full px-2.5 py-0.5 text-caption font-medium text-[var(--text-muted)] transition-colors hover:bg-white/[0.08] hover:text-[var(--text)] disabled:opacity-40"
             >
-              加载全部
-            </button>
+              {t("settings.logs.viewer.loadAll")}</button>
           </div>
         )}
 
@@ -526,12 +532,12 @@ export function SystemLogsSection() {
             ) : (
               <p className="px-6 py-12 text-center font-sans text-sub text-[var(--text-faint)]">
                 {loading
-                  ? "日志加载中…"
+                  ? t("settings.logs.viewer.loadingLogs")
                   : days.length === 0
-                    ? "还没有任何日志文件。日志随后端运行按天写入服务端 data/logs 目录，稍后再来看看。"
+                    ? t("settings.logs.viewer.noFiles")
                     : entries.length === 0
-                      ? "这一天的日志是空的。"
-                      : "没有匹配的日志，换个级别或关键字试试。"}
+                      ? t("settings.logs.viewer.emptyDay")
+                      : t("settings.logs.viewer.noMatch")}
               </p>
             )}
           </div>
@@ -544,7 +550,7 @@ export function SystemLogsSection() {
               className="btn-glass absolute bottom-4 right-4 flex items-center gap-1.5 !rounded-full px-3.5 py-1.5 text-sub font-medium shadow-lg"
             >
               <span aria-hidden>↓</span>
-              {pendingNew} 条新日志
+              {t("settings.logs.viewer.newLogs", { count: pendingNew })}
             </button>
           )}
         </div>
@@ -558,7 +564,7 @@ export function SystemLogsSection() {
       <Modal
         open
         onClose={() => setFullscreen(false)}
-        label="系统日志（全屏）"
+        label={t("settings.logs.viewer.fullscreenTitle")}
         width="full"
         panelClassName="h-full"
       >
@@ -577,14 +583,11 @@ export function SystemLogsSection() {
       {errorBanner}
       {logWindow}
 
-      <div className="flex items-start justify-between gap-4 px-1">
+      <div className={`flex items-start justify-between gap-4 px-1 ${locale === "en" ? "max-sm:flex-col" : ""}`}>
         <p className="text-on-image text-caption leading-5 text-[var(--text-faint)]">
-          日志按天存档在服务端 data/logs 目录（Docker 部署挂载 data 卷即可持久化），
-          超过保留天数的旧日志会自动清理；保留天数与目录位置可通过 LOG_RETENTION_DAYS、LOG_DIR
-          环境变量调整。
-        </p>
+          {t("settings.logs.viewer.archiveHint")}</p>
         {!isLatestDay && activeDay && refreshMs > 0 && (
-          <p className="shrink-0 text-caption text-[var(--text-faint)]">正在查看历史日志，自动刷新已暂停</p>
+          <p className={`shrink-0 text-caption text-[var(--text-faint)] ${locale === "en" ? "max-w-full" : ""}`}>{t("settings.logs.viewer.historical")}</p>
         )}
       </div>
     </div>

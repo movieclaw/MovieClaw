@@ -128,3 +128,13 @@ test("单档但不是「关」的罕见声明退回通用「默认 / 该档」�
   assert.equal(thinkingValueLabel("high"), "高");
   assert.equal(thinkingValueLabel("off"), "关");
 });
+
+
+test("English reasoning controls keep defaults distinct from the off setting", () => {
+  assert.equal(thinkingValueLabel(null, "en"), "Default");
+  assert.equal(thinkingValueLabel("high", "en"), "High");
+  const items = thinkingListItems(["off"], "en");
+  assert.equal(items[0].label, "On (model default)");
+  assert.equal(items[1].label, "Off");
+  assert.equal(thinkingListItems(["max"], "en")[1].description, "Use Maximum reasoning effort");
+});

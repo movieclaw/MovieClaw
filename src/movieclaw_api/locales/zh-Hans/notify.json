@@ -1,0 +1,231 @@
+{
+  "test": {
+    "title": "测试通知",
+    "body": "能看到这条，说明这台设备能收到这台服务器的通知。"
+  },
+  "identitySkipped": {
+    "title": "《{title}》仍在寻找资源",
+    "body": "发现同名影片，部分资源暂时无法确认，已跳过。订阅会继续寻找，无需你处理。"
+  },
+  "stuck": {
+    "title": "《{title}》{units}下载卡住了",
+    "body": "下载停滞，自动换源暂时没找到同品质的替代资源，约 {hours} 小时后再找；也可以在订阅里手动换一个。"
+  },
+  "subtitles": {
+    "title": "《{title}》{units}还没有字幕版",
+    "body": "等了 {hours} 小时，还没有带{acceptable}字幕的版本，{language}原版已有 {count} 个。可以继续等，也可以在订阅里先下原版。"
+  },
+  "moreEpisodes": {
+    "title": "《{title}》第 {season} 季可能有 {count} 集",
+    "body": "TMDB 只录了 {count} 集，但{source, select, site {站点上出现了后面的集} other {豆瓣的集数更多}}。在订阅里确认集数后，会继续追后面的集。"
+  },
+  "device": {
+    "title": "新设备登录了你的账号",
+    "body": "你在「{server}」上的账号刚在新设备登录：「{device}」（{kind}）{hasSource, select, yes {，来源 {ip}} other {}}。不是你本人的话，去「账号 → 设备」注销它。"
+  },
+  "update": {
+    "inApp": "在「设置 → 更新与维护」里一键更新",
+    "docker": "这个版本要更新 Docker 镜像，步骤见「设置 → 更新与维护」",
+    "title": "MovieClaw {version} 可以更新了"
+  },
+  "agent": {
+    "replied": "已回复，点开查看",
+    "failed": "没能完成：{reason}",
+    "unknown": "原因未知",
+    "title": "AI 助手"
+  },
+  "tips": {
+    "prewarmTitle": "开启片段预切，预告和刷片更流畅",
+    "prewarmBody": "家里已经有人在刷片或看电视大图预告了。在「设置 → 播放」打开片段预切，起播更快、不卡顿。"
+  },
+  "preferences": {
+    "importedTitle": "入库完成",
+    "importedDescription": "你订阅或手动下载的电影、剧集整理进媒体库时",
+    "startedTitle": "开始下载",
+    "startedDescription": "你订阅的内容找到资源、交给下载器时",
+    "identitySkippedTitle": "已跳过同名资源",
+    "identitySkippedDescription": "订阅发现无法确认身份的同名资源时知会一次，无需处理",
+    "subtitlesTitle": "等不到字幕版",
+    "subtitlesDescription": "智能订阅等到期仍没有你看得懂的字幕版本时；原版不会自动下载",
+    "upgradedTitle": "洗版完成",
+    "upgradedDescription": "你订阅的内容换成了更好的版本时",
+    "completedTitle": "订阅收齐了",
+    "completedDescription": "你订阅的剧全部入库、没有要等的了（剧卡已经说过全部到齐的不再重复）",
+    "stuckTitle": "下载卡住了",
+    "stuckDescription": "你订阅的内容下载停滞、自动换源也没找到替代资源时（每个下载只提醒一次）",
+    "moreEpisodesTitle": "可能还有更多集",
+    "moreEpisodesDescription": "站点或豆瓣显示这一季比 TMDB 录的集数多，要你确认后才继续追",
+    "libraryArrivedTitle": "媒体库有新片",
+    "libraryArrivedDescription": "你关心的媒体库来了新片或新剧集，不管是谁下载的",
+    "deviceSignedInTitle": "新设备登录",
+    "deviceSignedInDescription": "有新的 App、播放器、命令行或转码器登录了你的账号",
+    "alertRaisedTitle": "需要处理的问题",
+    "alertRaisedDescription": "下载器、站点、导入出错这类需要管理员处理的问题",
+    "alertResolvedTitle": "问题已恢复",
+    "alertResolvedDescription": "推过的问题自动消失时，那条通知原地改成「已恢复」（安静送达）",
+    "updateTitle": "有新版本",
+    "updateDescription": "MovieClaw 发布了新版本时，每个版本只提醒一次",
+    "tipTitle": "使用建议",
+    "tipDescription": "发现有设置能改善体验时（比如家里有人在用刷片、电视大图预告，建议开启片段预切），每条只提醒一次",
+    "agentFinishedTitle": "AI 回复完成",
+    "agentFinishedDescription": "AI 助手回答完你在 App、网页里的提问（或运行出错）时提醒，切到别的 App 也能知道；在 IM 里聊的回复本来就在聊天里，不另外提醒"
+  },
+  "groups": {
+    "subscriptions": "我的订阅",
+    "library": "媒体库",
+    "security": "账号安全",
+    "admin": "管理员",
+    "agent": "AI 助手",
+    "plugin": "插件 · {title}",
+    "pluginDescription": "来自插件「{title}」"
+  },
+  "alert": {
+    "resolvedTitle": "已恢复：{title}",
+    "resolvedBody": "问题已经自动消失，不用处理了。",
+    "pendingTitle": "有 {count} 个问题需要处理",
+    "separator": "；",
+    "summary": "{titles}{overflow, select, yes {等} other {}}",
+    "fromPlugin": "来自 {title}",
+    "subscriptionCompleteTitle": "《{title}》订阅已收齐",
+    "subscriptionCompleteBody": "订阅的内容都已入库，没有要等的了。",
+    "upgradedTitle": "洗版完成：{name}",
+    "upgradedBody": "换成了更好的版本",
+    "untitledYear": "{year} 年的作品",
+    "untitled": "一部作品"
+  },
+  "downloader": {
+    "connectionTitle": "下载器「{name}」连接失败",
+    "connectionBody": "下载器「{name}」连接测试失败：{reason}"
+  },
+  "cards": {
+    "watch": "点开就能看",
+    "startAt": "点开从{episode}开始",
+    "continueAt": "点开接着看{episode}",
+    "movieImported": "{title} 已入库",
+    "partialTitle": "{title} 可以先看了",
+    "partialBody": "{episodes}已入库，其余 {count} 集还在下载",
+    "episodesImported": "{title} {episodes}已入库",
+    "waitingBody": "{episodes}还没下好，下好了再告诉你",
+    "playEpisode": "播放{episode}",
+    "allEpisodes": "查看全部剧集",
+    "mute": "{kind, select, movie {这部片不再提醒} other {这部剧不再提醒}}",
+    "newTitle": "{kind, select, video {新视频} tv {新剧} other {新片}}：{title}",
+    "newBody": "{hasScope, select, yes {已加入「{library}」，{episodes}，{action}} other {已加入「{library}」，{action}}}",
+    "startedTitle": "{title} {upgrade, select, yes {开始洗版下载} other {开始下载}}",
+    "upgradeBody": "换成更好的版本",
+    "startedBody": "{hasDetail, select, yes {{detail}，} other {}}{batch, select, yes {第一批下好就告诉你} other {下好就告诉你}}",
+    "seriesCompleteTitle": "{title} 全剧已入库",
+    "seriesCompleteBody": "{seasons, plural, =1 {全 {episodes} 集} other {{seasons} 季 {episodes} 集}}都能看了，{action}",
+    "seasonCompleteTitle": "{title} {season}已全部入库",
+    "seasonCompleteBody": "{count} 集都能看了，{action}",
+    "missingBody": "{episodes}还没找到资源，找到了再告诉你",
+    "updatedThrough": "{title} 更新到{episode}了",
+    "availableBody": "{episodes}都能看，点开从{episode}开始",
+    "arrivedTitle": "{title} {episodes}来了",
+    "behindBody": "你还有{episodes}没看，点开接着看{episode}",
+    "caughtUpBody": "你看到{episode}，正好接上",
+    "nextAir": "{body} · {episode} {date}更新"
+  },
+  "summary": {
+    "separator": "、",
+    "names": "{titles}{more, select, yes {等} other {}}",
+    "libraryTitle": "「{library}」新增 {count} {kind, select, video {个视频} other {部}}",
+    "downloadTitle": "你下载的 {count} {kind, select, video {个视频} other {部}}已入库",
+    "downloadBody": "{titles}，点开就能看"
+  },
+  "pluginStartup": {
+    "title": "「{title}」启动失败",
+    "body": "{reason}。其余功能不受影响；修复后重启应用即可恢复，详情见「设置 → 插件」。",
+    "unknown": "未知原因"
+  },
+  "safeMode": {
+    "title": "已进入插件安全模式",
+    "body": "{reason}。本次跳过的插件：{plugins}。排查后到「设置 → 插件」退出安全模式，被跳过的插件会当场重新加载。"
+  },
+  "callbackFailure": {
+    "title": "插件 {plugin} 的回调地址连续验证失败",
+    "body": "回调端点 {endpoint} 连续 {count} 次没通过插件的验证：可能是平台后台填的令牌 / 密钥和插件里的不一致，也可能有人在试探这个地址。必要时在插件页换一个回调地址。"
+  },
+  "siteVerification": {
+    "title": "站点「{site}」验证失败",
+    "body": "站点「{site}」凭据验证失败：{reason}。该站点已不参与搜索与投递，请到「设置 → 站点」更新凭据",
+    "unknown": "原因未知"
+  },
+  "downloaderPaths": {
+    "title": "下载器「{name}」的下载目录 movieclaw 看不到",
+    "body": "连接正常，但 {count} 条路径映射的本地侧不可用，下载完成的内容将无法入库。{detail}"
+  },
+  "siteSyncStopped": {
+    "title": "站点「{site}」同步已熔断",
+    "body": "站点「{site}」{reason}。该站点已不参与搜索与投递，请到「设置 → 站点」检查凭据并重新验证"
+  },
+  "channelStale": {
+    "title": "{channel}账号失效，IM 通知发不出去了",
+    "body": "{channel}的登录凭据已失效，重新绑定后通知和 AI 对话才会恢复。"
+  },
+  "pluginUnhealthy": {
+    "title": "插件「{title}」运行异常"
+  },
+  "recycleHeld": {
+    "title": "回收站里到期的网盘文件太多，先没删",
+    "body": "有 {count} 个只在网盘上（或也在网盘上）的文件到期（约 {size, number, 0.0} GB），超过一次自动删除的上限。确认要删就到回收站点「立即清理」；不想删就恢复它们"
+  },
+  "driveFailure": {
+    "title": "{status, select, auth_expired {网盘「{name}」需要重新登录} other {网盘「{name}」的接口有变化}}"
+  },
+  "landingGroup": {
+    "title": "下载器「{name}」的目录 {path} movieclaw 看不到",
+    "body": "{detail}。已有 {count} 个下载完成的任务卡在这个目录里无法入库（共 {size, number, 0.0} GB），涉及 {subscriptions} 个订阅。修好之前这些订阅的自动换源已暂停——目录都看不见，换再多源也只是重复下载同一内容"
+  },
+  "landingFailed": {
+    "title": "「{name}」下载完成但无法入库",
+    "body": "{healthy, select, yes {「{name}」已下载完成，movieclaw 能看到目录 {path}，但里面没有「{root}」——文件可能已在下载器「{downloader}」中被移动或改名。请在下载器里核对该任务的保存位置，或删除任务后重新下载} other {「{name}」已下载完成，但 movieclaw 在 {path} 看不到它。{detail}}}"
+  },
+  "ingestFailed": {
+    "title": "监听目录 {path} 有 {count} 个条目导入失败",
+    "body": "{names}{overflow, select, yes { 等 {count} 个条目} other {}}处理失败，将自动退避重试；具体原因见「设置 → 监听导入」的清单。",
+    "names": "{count, plural, =1 {「{first}」} =2 {「{first}」、「{second}」} other {「{first}」、「{second}」、「{third}」}}"
+  },
+  "pluginRollback": {
+    "title": "插件「{title}」已自动回滚"
+  },
+  "upgradePaused": {
+    "title": "洗版连续证伪，已暂停该单元",
+    "body": "《{title}》{unit}连续 {count} 次抓到标称与实测不符的资源，洗版已转入 30 天冷却。可在订阅详情检查候选质量或调整规则组。"
+  },
+  "specMismatch": {
+    "title": "入库文件规格与种子声称不符",
+    "body": "《{title}》{unit}{detail}。{violation}，请复查该文件。"
+  },
+  "removeSourceFailed": {
+    "title": "《{title}》的下载任务没能全部删除",
+    "body": "媒体库文件已删除；{detail}。可在「活动 → 任务」里重试"
+  },
+  "cloudSourceKept": {
+    "title": "文件已传到网盘，但下载任务没删掉",
+    "body": "{detail}。可以在下载器里手动删除，或关掉「设置 → 网盘」里的自动删除"
+  },
+  "details": {
+    "separator": "；"
+  },
+  "cloudRevoked": {
+    "title": "这台服务器已和 MovieClaw Cloud 断开",
+    "body": "{reason}。手机上的官方推送已停止；要继续使用，请在「设置 → MovieClaw Cloud」重新连接。",
+    "reason": "这台服务器已经和 MovieClaw 账号断开"
+  },
+  "cloudVersion": {
+    "title": "官方推送已暂停：需要升级",
+    "body": "{reason}。升级后会自动恢复，不用重新连接。",
+    "reason": "这个版本已不再受 MovieClaw 官方推送支持，请升级"
+  },
+  "cloudUnreachable": {
+    "title": "连不上 MovieClaw Cloud",
+    "body": "{reason}。{expired, select, yes {令牌已经过期，官方推送暂停；} other {令牌快要过期，过期后官方推送会暂停；}}请检查这台服务器能不能上网，或在「设置 → 网络」里让 MovieClaw Cloud 走代理。"
+  },
+  "notices": {
+    "dismissed": "已忽略该事项"
+  },
+  "channels": {
+    "testSent": "已推送到 {count} 个账号"
+  }
+}

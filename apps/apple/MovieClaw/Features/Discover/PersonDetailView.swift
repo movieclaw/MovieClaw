@@ -23,7 +23,7 @@ struct PersonDetailView: View {
             } else {
                 VStack(spacing: 12) {
                     ProgressView().controlSize(.large)
-                    Text("正在读取影人档案…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .mediaPersonLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -52,12 +52,12 @@ struct PersonDetailView: View {
                 PersonHeader(
                     name: person.name,
                     avatarUrl: person.avatarUrl,
-                    eyebrow: "影人",
+                    eyebrow: String(localized: .mediaPersonPerson),
                     subtitle: person.originalName.flatMap { $0 != person.name ? $0 : nil },
-                    summary: "库内 \(person.credits.count) 部" + (!cast.isEmpty && !directed.isEmpty ? "（参演 \(cast.count) · 执导 \(directed.count)）" : "")
+                    summary: String(localized: .mediaPersonLibraryCount(person.credits.count)) + (!cast.isEmpty && !directed.isEmpty ? String(localized: .mediaPersonCreditSummary(String(cast.count), String(directed.count))) : "")
                 )
-                creditGrid("参演", cast, showCharacter: true)
-                creditGrid("执导", directed, showCharacter: false)
+                creditGrid(String(localized: .mediaPersonCast), cast, showCharacter: true)
+                creditGrid(String(localized: .mediaPersonDirected), directed, showCharacter: false)
             }
             .padding(.horizontal, cards.edge)
             .padding(.bottom, 40)
@@ -91,13 +91,13 @@ struct PersonDetailView: View {
                 .clipShape(.rect(cornerRadius: Theme.posterRadius))
                 .padding(.bottom, 4)
             Text(credit.title).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-            Text(showCharacter && credit.character != nil ? "饰 \(credit.character!)" : credit.year.map(String.init) ?? " ")
+            Text(showCharacter && credit.character != nil ? String(localized: .mediaPersonCharacter(credit.character!)) : credit.year.map(String.init) ?? " ")
                 .font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
         }
         if let libraryId = credit.libraryId {
             Button { router.push(.libraryItem(libraryId: libraryId, itemId: credit.mediaItemId)) } label: { body.contentShape(.rect) }
                 .buttonStyle(.plain)
-                .accessibilityLabel("查看《\(credit.title)》")
+                .accessibilityLabel(String(localized: .mediaPersonViewTitle(credit.title)))
         } else {
             // 文件已全部删除、只剩档案：不可点
             body
@@ -109,19 +109,19 @@ struct PersonDetailView: View {
         switch failure {
         case .missing:
             ContentUnavailableView {
-                Label("库内没有这位影人的作品", systemImage: "person.crop.rectangle")
+                Label(String(localized: .mediaPersonEmptyLibrary), systemImage: "person.crop.rectangle")
             } description: {
-                Text("可能是他参演的片都已从库里移除；也可能这个库是早前扫描的——影人档案随入库刮削一并建立，对它执行一次「刷新元数据」即可补齐，之后这里就会列出他在库内的全部作品。")
+                Text(String(localized: .mediaPersonEmptyLibraryHintText))
             } actions: {
-                Button("去媒体库") { router.open(.libraryHome) }.buttonStyle(.glass)
+                Button(String(localized: .mediaPersonOpenLibrary)) { router.open(.libraryHome) }.buttonStyle(.glass)
             }
         case .error:
             ContentUnavailableView {
-                Label("未能加载影人档案", systemImage: "exclamationmark.triangle")
+                Label(String(localized: .mediaPersonLoadFailed), systemImage: "exclamationmark.triangle")
             } description: {
-                Text("请稍后重试；若持续失败，请查看系统日志。")
+                Text(String(localized: .mediaPersonRetryHint))
             } actions: {
-                Button("重试") { Task { await load() } }.buttonStyle(.glass)
+                Button(String(localized: .commonRetry)) { Task { await load() } }.buttonStyle(.glass)
             }
         }
     }

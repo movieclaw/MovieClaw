@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import {
   createContext,
   useCallback,
@@ -85,18 +87,19 @@ interface LlmSetupNoticeProps {
 
 /** 未配置模型时的公共引导：解释能解锁什么，并提供唯一的设置入口。 */
 export function LlmSetupNotice({
-  feature = "AI 对话能力",
+  feature,
   variant = "surface",
 }: LlmSetupNoticeProps) {
+  const t = useTranslations();
   const className =
     variant === "inline"
       ? "inline-flex flex-wrap items-center gap-x-1 rounded-md border border-[var(--warn)]/30 bg-[var(--warn)]/10 px-2 py-0.5 text-caption leading-5 text-[var(--warn)]"
       : "notice-surface mt-3 rounded-xl border border-[var(--line)] px-3.5 py-2.5 text-ui leading-5 text-[var(--text-muted)]";
   return (
     <p role="status" className={className}>
-      接入 AI 模型后即可解锁{feature}。
+      {t("agent.modelGate.description", { feature: feature ?? t("agent.modelGate.defaultFeature") })}
       <Link href="/settings/llm" className="mx-0.5 text-[var(--accent)] hover:underline">
-        去接入
+        {t("agent.modelGate.connect")}
       </Link>
     </p>
   );

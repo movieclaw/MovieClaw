@@ -27,8 +27,12 @@ def _build_error_response(
     code: str,
     message: str,
     details: list[dict[str, Any]] | None = None,
+    message_key: str | None = None,
+    params: dict[str, Any] | None = None,
 ) -> JSONResponse:
-    payload = ErrorResponse(code=code, message=message, details=details)
+    payload = ErrorResponse(
+        code=code, message=message, details=details, message_key=message_key, params=params
+    )
     return JSONResponse(status_code=status_code, content=payload.model_dump(exclude_none=True))
 
 
@@ -52,6 +56,8 @@ def register_exception_handlers(app: FastAPI) -> None:
             code=exc.code,
             message=exc.message,
             details=exc.details,
+            message_key=exc.message_key,
+            params=exc.params if exc.message_key else None,
         )
 
     @app.exception_handler(RequestValidationError)

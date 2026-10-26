@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -95,6 +97,7 @@ interface DiscoverErrorInfo {
 
 /** 从任意异常提取结构化错误信息（HttpError 携带后端信封的 code/details）。 */
 function toErrorInfo(err: unknown): DiscoverErrorInfo {
+  const t = appTranslator();
   if (err instanceof HttpError) {
     const payload = err.details as
       | { code?: string; details?: { service?: string; hint?: string }[] }
@@ -105,7 +108,7 @@ function toErrorInfo(err: unknown): DiscoverErrorInfo {
       hint: payload?.details?.[0]?.hint,
     };
   }
-  return { message: (err as Error)?.message || "加载失败，请稍后重试" };
+  return { message: (err as Error)?.message || t("media.discovery.loadFailed") };
 }
 
 /**
@@ -166,13 +169,15 @@ export function DiscoverView({
   /** 服务端确定年份，避免跨年瞬间 SSR 与浏览器水合生成不同选项。 */
   currentYear: number;
 }) {
+  const locale = useLocale();
   const router = useRouter();
   const cinema = useLayout() === "cinema";
-  const cacheKey = `${mediaType}:${source}`;
+  const viewKey = `${mediaType}:${source}`;
+  const cacheKey = `${locale}:${viewKey}`;
   const { filters, changeFilters } = useUrlSyncedFilters(urlFilters, mediaType, cinema);
   const filtering = source === "tmdb" && discoveryFilterCount(filters) > 0;
   // 滚动位置按「首页 / 结果页」两档记：条件在结果页里就地改，不该每改一次就跳去另一份位置
-  const scrollRef = useScrollRestoration(`discover:${cacheKey}:${filtering ? "filtered" : "home"}`);
+  const scrollRef = useScrollRestoration(`discover:${viewKey}:${filtering ? "filtered" : "home"}`);
   // 银玻璃 Hero 的滚动联动：滚动距离写成页面根上的 --hero-scroll（视差、文字淡出、氛围底退淡都读它）
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
   const pageScrollRef = useCallback(
@@ -210,7 +215,7 @@ export function DiscoverView({
     setHero(undefined);
 
     const cacheKeyFor = (section: DiscoveryPageSection) =>
-      `${section.collectionRef}:${section.previewLimit}`;
+      `${locale}:${section.collectionRef}:${section.previewLimit}`;
 
     // 已缓存的片单直接进入初始状态，未缓存的保持 undefined（骨架）等待逐项到达。
     const seedRows = (sections: DiscoveryPageSection[]) => {
@@ -294,7 +299,7 @@ export function DiscoverView({
         });
     }
     return () => controller.abort();
-  }, [cacheKey, filtering, mediaType, reloadKey, source]);
+  }, [cacheKey, filtering, locale, mediaType, reloadKey, source]);
 
   const switchSource = useCallback(
     (nextSource: MediaSource) => {
@@ -582,6 +587,7 @@ function SourceSwitcher({
   value: MediaSource;
   onChange: (source: MediaSource) => void;
 }) {
+  const t = useTranslations();
   return (
     // 胶囊底材与订阅页 MediaTypeSwitcher 逐类一致（不加 solid-popover 浮层钩子）：
     // 2026-09-20 用户拍板——切换胶囊全站一套材质，Netflix 主题下保持玻璃底，
@@ -599,7 +605,7 @@ function SourceSwitcher({
               : "text-[var(--text-muted)] hover:text-white"
           }`}
         >
-          {source === "tmdb" ? "TMDB" : "豆瓣"}
+          {source === "tmdb" ? "TMDB" : t("media.source.douban")}
         </button>
       ))}
     </div>
@@ -625,8 +631,9 @@ function DiscoverTitleMenu({
   onSourceChange: (source: MediaSource) => void;
   variant?: "mobile" | "desktop" | "compact";
 }) {
-  const typeLabel = mediaType === "tv" ? "剧集" : "电影";
-  const sourceLabel = source === "douban" ? "豆瓣" : "TMDB";
+  const t = useTranslations();
+  const typeLabel = mediaType === "tv" ? t("media.kind.tv") : t("media.kind.movie");
+  const sourceLabel = source === "douban" ? t("media.source.douban") : "TMDB";
   const groupLabel = "px-3 pb-1 pt-1.5 text-caption text-[var(--text-faint)]";
   const check = (
     <DropdownMenu.ItemIndicator className="ml-auto">
@@ -638,7 +645,7 @@ function DiscoverTitleMenu({
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label={`正在看${typeLabel}，数据源${sourceLabel}；切换类型或数据源`}
+          aria-label={t("media.discovery.switchSource", { type: typeLabel, source: sourceLabel })}
           className={`flex min-w-0 items-baseline gap-1.5 outline-none transition-opacity active:opacity-60 focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)] ${
             variant === "compact"
               ? "rounded-full border border-white/10 bg-black/35 px-4 py-2 backdrop-blur-xl"
@@ -669,24 +676,24 @@ function DiscoverTitleMenu({
           collisionPadding={12}
           className="menu-surface z-50 min-w-[12rem] p-1"
         >
-          <DropdownMenu.Label className={groupLabel}>类型</DropdownMenu.Label>
+          <DropdownMenu.Label className={groupLabel}>{t("media.discovery.type")}</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
             value={mediaType}
             onValueChange={(value) => onMediaTypeChange(value as MediaType)}
           >
             <DropdownMenu.RadioItem value="movie" className={DISCOVER_MENU_ITEM_CLASS}>
               <FilmIcon className="size-4 shrink-0 text-white/55" />
-              电影
+              {t("media.kind.movie")}
               {check}
             </DropdownMenu.RadioItem>
             <DropdownMenu.RadioItem value="tv" className={DISCOVER_MENU_ITEM_CLASS}>
               <TvIcon className="size-4 shrink-0 text-white/55" />
-              剧集
+              {t("media.kind.tv")}
               {check}
             </DropdownMenu.RadioItem>
           </DropdownMenu.RadioGroup>
           <DropdownMenu.Separator className="my-1 h-px bg-white/[0.07]" />
-          <DropdownMenu.Label className={groupLabel}>数据源</DropdownMenu.Label>
+          <DropdownMenu.Label className={groupLabel}>{t("media.discovery.source")}</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
             value={source}
             onValueChange={(value) => onSourceChange(value as MediaSource)}
@@ -696,7 +703,7 @@ function DiscoverTitleMenu({
               {check}
             </DropdownMenu.RadioItem>
             <DropdownMenu.RadioItem value="douban" className={DISCOVER_MENU_ITEM_CLASS}>
-              豆瓣
+              {t("media.source.douban")}
               {check}
             </DropdownMenu.RadioItem>
           </DropdownMenu.RadioGroup>
@@ -719,11 +726,12 @@ function MediaTypeSwitcher({
   value: MediaType;
   onChange: (type: MediaType) => void;
 }) {
-  const labels: Record<MediaType, string> = { movie: "电影", tv: "剧集" };
+  const t = useTranslations();
+  const labels: Record<MediaType, string> = { movie: t("media.kind.movie"), tv: t("media.kind.tv") };
   return (
     <div
       className="flex shrink-0 rounded-full border border-white/10 bg-black/35 p-1 backdrop-blur-xl"
-      aria-label="内容类型"
+      aria-label={t("media.discovery.contentType")}
     >
       {(["movie", "tv"] as const).map((type) => (
         <button
@@ -746,8 +754,9 @@ function MediaTypeSwitcher({
 
 /** 布局到达前的整页骨架（Hero 大块 + 两行海报）；布局是毫秒级的，一闪而过。 */
 function DiscoverSkeleton({ fullBleed = false }: { fullBleed?: boolean }) {
+  const t = useTranslations();
   return (
-    <div className="flex-1 overflow-hidden pb-10" aria-busy="true" aria-label="发现页加载中">
+    <div className="flex-1 overflow-hidden pb-10" aria-busy="true" aria-label={t("media.discovery.loading")}>
       <HeroBleed>
         <HeroSkeleton fullBleed={fullBleed} />
       </HeroBleed>
@@ -783,9 +792,10 @@ function HeroSkeleton({ fullBleed = false }: { fullBleed?: boolean }) {
  * 这一行行「亮着名字等数据」的骨架就是页面的分区加载进度。
  */
 function RowSkeleton({ stub }: { stub: { title: string } }) {
+  const t = useTranslations();
   const inset = "page-inset";
   return (
-    <section aria-busy="true" aria-label={`「${stub.title}」加载中`}>
+    <section aria-busy="true" aria-label={t("media.discovery.loadingRow", { title: stub.title })}>
       <div className={`mb-3 max-md:mb-2 ${inset}`}>
         <h3 className="text-on-image text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
           {stub.title}
@@ -820,6 +830,7 @@ function RowItemsSkeleton() {
  * 说明原因 + 后端 hint + 「前往网络设置」按钮，替代干等骨架屏。
  */
 function DiscoverError({ error, onRetry }: { error: DiscoverErrorInfo; onRetry: () => void }) {
+  const t = useTranslations();
   const unreachable = error.code === "UPSTREAM_UNREACHABLE";
   // 网络设置是超管页面：成员只给「重试」
   const { isAdmin } = usePermissions();
@@ -833,7 +844,7 @@ function DiscoverError({ error, onRetry }: { error: DiscoverErrorInfo; onRetry: 
           </span>
         )}
         <p className="text-body-lg font-semibold text-[var(--text)]">
-          {unreachable ? "无法连接数据源" : "发现页加载失败"}
+          {unreachable ? t("media.discovery.sourceUnreachable") : t("media.discovery.pageFailed")}
         </p>
         <p className="mt-2 break-all text-ui leading-6 text-[var(--text-muted)]">{error.message}</p>
         {unreachable && error.hint && (
@@ -845,7 +856,7 @@ function DiscoverError({ error, onRetry }: { error: DiscoverErrorInfo; onRetry: 
               href={"/settings/network" as Route}
               className="btn-accent flex h-9 items-center rounded-full px-5 text-ui font-semibold"
             >
-              前往网络设置
+              {t("media.discovery.networkSettings")}
             </Link>
           )}
           <button
@@ -853,7 +864,7 @@ function DiscoverError({ error, onRetry }: { error: DiscoverErrorInfo; onRetry: 
             onClick={onRetry}
             className={`${unreachable && isAdmin ? "btn-glass" : "btn-accent"} h-9 rounded-full px-5 text-ui font-semibold`}
           >
-            重试
+            {t("common.retry")}
           </button>
         </div>
       </div>
@@ -873,6 +884,7 @@ const HERO_INTERVAL = 8000;
  * 首屏不必一次下载解码全部 6 张；已展示过的帧保持已加载，交叉淡出不闪白。
  */
 function HeroBanner({ items }: { items: MediaItem[] }) {
+  const t = useTranslations();
   const [index, setIndex] = useState(0);
   // 触屏滑动切换的起点（无悬停设备不显示箭头，滑动是唯一的大面积切换手势）
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -930,7 +942,7 @@ function HeroBanner({ items }: { items: MediaItem[] }) {
         <>
           <button
             type="button"
-            aria-label="切换到上一部"
+            aria-label={t("media.discovery.previous")}
             onClick={() => switchSlide(-1)}
             className="absolute left-3 top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/35 text-white/80 opacity-0 ring-1 ring-white/15 backdrop-blur-sm transition hover:bg-black/55 hover:text-white group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 [@media(hover:none)]:hidden"
           >
@@ -938,7 +950,7 @@ function HeroBanner({ items }: { items: MediaItem[] }) {
           </button>
           <button
             type="button"
-            aria-label="切换到下一部"
+            aria-label={t("media.discovery.next")}
             onClick={() => switchSlide(1)}
             className="absolute right-3 top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/35 text-white/80 opacity-0 ring-1 ring-white/15 backdrop-blur-sm transition hover:bg-black/55 hover:text-white group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 [@media(hover:none)]:hidden"
           >
@@ -954,7 +966,7 @@ function HeroBanner({ items }: { items: MediaItem[] }) {
             <button
               key={item.id}
               type="button"
-              aria-label={`切换到《${item.title}》`}
+              aria-label={t("media.discovery.switchTitle", { title: item.title })}
               onClick={() => setIndex(i)}
               className={`h-1.5 rounded-full transition-all duration-300 ${
                 i === index ? "w-5 bg-white/85" : "w-1.5 bg-white/30 hover:bg-white/55"
@@ -978,6 +990,7 @@ function HeroSlide({
   /** 是否该装载大图（当前帧或下一帧）；一旦装载过就保持，淡出时不闪白 */
   preload: boolean;
 }) {
+  const t = useTranslations();
   const { open } = useMediaDetail();
   // 首帧挂载时就带着 active=true，推镜 <img> 一出生就是终态 scale-[1.06]，
   // 没有「1.0 → 1.06」的变化过程，transition 不起播——推镜在首个驻留期缺席
@@ -1006,7 +1019,7 @@ function HeroSlide({
       // 非当前帧虽然透明但仍占满同一块区域，必须关掉命中测试，否则点击可能落到它身上
       role={active ? "button" : undefined}
       tabIndex={active ? 0 : -1}
-      aria-label={`查看《${item.title}》详情`}
+      aria-label={t("media.discovery.viewTitle", { title: item.title })}
       {...tapGuard}
       onKeyDown={(e) => {
         // 只认落在 Hero 自身上的回车/空格；内部订阅键的按键由它自己处理，
@@ -1024,7 +1037,7 @@ function HeroSlide({
       {/* 宽幅剧照 + 双层渐变蒙版：左侧压暗保文字可读，底部渐隐融入页面 */}
       <PosterImage
         src={backdropSrc}
-        alt={`${item.title} 剧照`}
+        alt={t("media.discovery.backdrop", { title: item.title })}
         className={`absolute inset-0 size-full object-cover object-top transition-transform duration-[9000ms] ease-linear ${
           push ? "scale-[1.06]" : "scale-100"
         }`}
@@ -1050,6 +1063,7 @@ function HeroSlide({
  * Netflix 的横幅是 HeroSlide，银玻璃是通用沉浸 Hero（SilverDiscoverHero）。
  */
 function HeroCopy({ item, fullBleed }: { item: MediaItem; fullBleed: boolean }) {
+  const t = useTranslations();
   const { canSubscribe, open: openSubscribe, subscriptionOf } = useSubscribeEntry();
   // 该影片是否已有订阅（数据来自 SubscribeEntryProvider 的全站订阅列表，Hero 自身不发请求）
   const existingSub = subscriptionOf(item);
@@ -1057,7 +1071,7 @@ function HeroCopy({ item, fullBleed }: { item: MediaItem; fullBleed: boolean }) 
   return (
     <>
       <p className="text-caption font-semibold uppercase tracking-[0.22em] text-[var(--accent-2)]">
-        今日精选 · {item.type === "movie" ? "电影" : "剧集"}
+        {t("media.discovery.featuredPrefix")} {item.type === "movie" ? t("media.kind.movie") : t("media.kind.tv")}
       </p>
       <h2
         className={`text-on-image mt-2 text-[34px] font-bold leading-[1.1] tracking-[-0.02em] text-white max-md:mt-1 sm:text-[40px] ${
@@ -1082,7 +1096,7 @@ function HeroCopy({ item, fullBleed }: { item: MediaItem; fullBleed: boolean }) 
         {item.libraryStatus && (
           <span className="flex items-center gap-1.5 text-emerald-300/90">
             <span className="size-1.5 rounded-full bg-[var(--ok)]" />
-            在库
+            {t("library.status.inLibrary")}
           </span>
         )}
         {item.badges.length > 0 && (
@@ -1109,7 +1123,7 @@ function HeroCopy({ item, fullBleed }: { item: MediaItem; fullBleed: boolean }) 
       <div className="mt-5 flex flex-wrap items-center gap-3 max-md:mt-3.5 max-md:gap-2">
         {canSubscribe && <button
           type="button"
-          aria-label={existingSub ? `管理《${item.title}》的订阅` : `订阅影片《${item.title}》`}
+          aria-label={existingSub ? t("media.discovery.manageSubscription", { title: item.title }) : t("media.discovery.subscribeTitle", { title: item.title })}
           onPointerDown={subscribeTapGuard.onPointerDown}
           onPointerUp={subscribeTapGuard.onPointerUp}
           onPointerCancel={subscribeTapGuard.onPointerCancel}
@@ -1130,12 +1144,12 @@ function HeroCopy({ item, fullBleed }: { item: MediaItem; fullBleed: boolean }) 
           {existingSub ? (
             <>
               <CheckIcon className="size-4 text-[var(--ok)]" />
-              已订阅
+              {t("media.discovery.subscribed")}
             </>
             ) : (
               <>
                 <PlusIcon className="size-4" />
-                订阅影片
+                {t("media.discovery.subscribe")}
               </>
             )}
           </button>}
@@ -1171,6 +1185,7 @@ function SilverDiscoverHero({
   index: number;
   onIndexChange: (index: number) => void;
 }) {
+  const t = useTranslations();
   const { open } = useMediaDetail();
   return (
     <ImmersiveHero
@@ -1180,8 +1195,8 @@ function SilverDiscoverHero({
       slideKey={(item) => item.id}
       imageOf={heroBackdropOf}
       onActivate={(item) => open(item)}
-      activateLabel={(item) => `查看《${item.title}》详情`}
-      indicatorLabel={(item) => `切换到《${item.title}》`}
+      activateLabel={(item) => t("media.discovery.viewTitle", { title: item.title })}
+      indicatorLabel={(item) => t("media.discovery.switchTitle", { title: item.title })}
       renderContent={(item) => (
         // 底部留出指示器那一行（居中、距底 16px）
         // 文字从内容区左缘起排：沉浸外框下大图伸到了侧栏底下，左边补上 --immersive-inset

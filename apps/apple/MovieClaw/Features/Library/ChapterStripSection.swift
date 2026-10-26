@@ -35,7 +35,7 @@ struct ChapterStripSection: View {
                 strip
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("章节")
+            .accessibilityLabel(String(localized: .libraryFormChapters))
             .fullScreenCover(item: $lightbox, onDismiss: {
                 if let seconds = pendingPlay { onPlayFrom(seconds) }
                 pendingPlay = nil
@@ -49,17 +49,17 @@ struct ChapterStripSection: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("章节")
+            Text(String(localized: .libraryFormChapters))
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(Theme.text)
-            Text("\(chapters.count) 个章节")
+            Text(String(localized: .libraryItemChapterCount(chapters.count)))
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(Theme.textFaint)
             Spacer(minLength: 0)
             if pending {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text("正在生成章节")
+                    Text(String(localized: .libraryStatusChaptersRunning))
                 }
                 .font(.caption)
                 .foregroundStyle(Theme.textMuted)
@@ -157,7 +157,7 @@ private struct ChapterCard: View {
 
     var body: some View {
         let clock = ChapterStripSection.clock(chapter)
-        let label = chapter.title ?? "第 \(chapter.index + 1) 章"
+        let label = chapter.title ?? String(localized: .libraryItemChapterLabel(String(chapter.index + 1)))
         VStack(alignment: .leading, spacing: 8) {
             Button(action: onOpen) {
                 ZStack {
@@ -184,7 +184,7 @@ private struct ChapterCard: View {
                 }
                 .overlay(alignment: .topTrailing) {
                     if resumeHere {
-                        Text("上次看到这里")
+                        Text(String(localized: .libraryItemResumeChapter))
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6)
@@ -199,7 +199,7 @@ private struct ChapterCard: View {
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.08)))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(chapter.imageUrl != nil ? "查看章节图：\(label) \(clock)" : "从 \(clock) 播放")
+            .accessibilityLabel(chapter.imageUrl != nil ? String(localized: .libraryItemViewChapterAt(label, clock)) : String(localized: .libraryItemPlayAt(clock)))
 
             Text(label)
                 .font(.subheadline.weight(.medium))
@@ -221,7 +221,7 @@ private struct ChapterLightbox: View {
 
     var body: some View {
         LibraryZoomableImage.Lightbox(slides: slides, index: $index) {
-            LibraryZoomableImage.ActionButton(systemImage: "play.fill", label: "从此处播放") {
+            LibraryZoomableImage.ActionButton(systemImage: "play.fill", label: String(localized: .libraryGalleryPlayHere)) {
                 guard chapters.indices.contains(index) else { return }
                 onPlay(ChapterStripSection.seconds(of: chapters[index]))
                 dismiss()

@@ -95,7 +95,7 @@ enum AgentMediaCards {
     static func subscriptionRibbon(_ sub: API.SubscriptionView, inLibrary: Bool) -> DiscoverRibbon? {
         let base = SubscriptionSummary.ribbon(sub)
         if base?.tone == .owned || !inLibrary { return base }
-        return DiscoverRibbon(label: "已入库", tone: .owned)
+        return DiscoverRibbon(label: String(localized: .mediaCardsInLibrary), tone: .owned)
     }
 
     /// 处理过程块里所有 show_media_cards 调用的卡片组（参数未生成完或调用已失败的不画）
@@ -153,7 +153,7 @@ struct AgentMediaCard: View {
 private struct AgentCardPlaceholder: View {
     var aspect: CGFloat
     var failed: Bool
-    var failedText = "未找到"
+    var failedText = String(localized: .agentCardsNotFound)
 
     var body: some View {
         RoundedRectangle(cornerRadius: 16)
@@ -228,7 +228,7 @@ private struct AgentLibraryCard: View {
         Group {
             switch state {
             case .loading: AgentCardPlaceholder(aspect: 21 / 10, failed: false)
-            case .failed: AgentCardPlaceholder(aspect: 21 / 10, failed: true, failedText: "未找到媒体库 #\(libraryId)")
+            case .failed: AgentCardPlaceholder(aspect: 21 / 10, failed: true, failedText: String(localized: .agentCardsLibraryMissing(String(libraryId))))
             case let .ready(library): content(library)
             }
         }
@@ -247,7 +247,7 @@ private struct AgentLibraryCard: View {
         let kind = LibraryKindMeta.label(library.kind)
         let summary = [
             kind,
-            "\(library.stats.itemCount) 部",
+            String(localized: .libraryStatusTitleCount(library.stats.itemCount)),
             library.stats.totalSizeBytes > 0 ? Formatters.bytes(library.stats.totalSizeBytes) : nil,
         ].compactMap { $0 }.joined(separator: " · ")
         return Button {
@@ -280,7 +280,7 @@ private struct AgentLibraryCard: View {
                     }
                     .overlay(alignment: .topTrailing) {
                         if library.isDefault {
-                            Text("默认")
+                            Text(String(localized: .mediaTracksDefault))
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(.white.opacity(0.85))
                                 .padding(.horizontal, 8).padding(.vertical, 3)
@@ -309,7 +309,7 @@ private struct AgentLibraryCard: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("打开媒体库「\(library.name)」，\(summary)")
+        .accessibilityLabel(String(localized: .agentCardsOpenLibrary(library.name, summary)))
     }
 }
 
@@ -334,7 +334,7 @@ private struct AgentLibraryItemCard: View {
         Group {
             switch state {
             case .loading: AgentCardPlaceholder(aspect: 16 / 9, failed: false)
-            case .failed: AgentCardPlaceholder(aspect: 16 / 9, failed: true, failedText: "未找到条目 #\(mediaItemId)")
+            case .failed: AgentCardPlaceholder(aspect: 16 / 9, failed: true, failedText: String(localized: .agentCardsItemMissing(String(mediaItemId))))
             case let .ready(data): content(data)
             }
         }
@@ -368,7 +368,7 @@ private struct AgentLibraryItemCard: View {
             return min(1, Double(watch.positionMs) / Double(duration))
         }()
         // 有续播点优先「继续播放」：看完后重看到一半的也接着播（与服务端起播同一口径）
-        let verb = (watch?.positionMs ?? 0) > 0 ? "继续播放" : watch?.played == true ? "重新播放" : "播放"
+        let verb = (watch?.positionMs ?? 0) > 0 ? String(localized: .agentCardsResume) : watch?.played == true ? String(localized: .libraryItemReplay) : String(localized: .libraryHeroPlay)
         let backdrop = data.detail?.backdropUrl
         let poster = data.detail?.posterUrl ?? info.posterUrl
 
@@ -392,7 +392,7 @@ private struct AgentLibraryItemCard: View {
                     }
                     .overlay(alignment: .topTrailing) {
                         if watch?.played == true {
-                            Text("已看完")
+                            Text(String(localized: .libraryItemWatched))
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(Color(red: 0.03, green: 0.07, blue: 0.05))
                                 .padding(.horizontal, 8).padding(.vertical, 3)
@@ -465,7 +465,7 @@ private struct AgentLibraryItemCard: View {
                 tags.append(tag)
             }
         }
-        if detail.fileCount > 0 { tags.append("\(detail.fileCount) 个文件") }
+        if detail.fileCount > 0 { tags.append(String(localized: .libraryStatusFileCount(detail.fileCount))) }
         if detail.totalSizeBytes > 0 { tags.append(Formatters.bytes(detail.totalSizeBytes)) }
         return tags.joined(separator: " · ")
     }
@@ -506,7 +506,7 @@ private struct AgentSubscriptionCard: View {
         Group {
             switch state {
             case .loading: AgentCardPlaceholder(aspect: 2 / 3, failed: false)
-            case .failed: AgentCardPlaceholder(aspect: 2 / 3, failed: true, failedText: "未找到订阅 #\(subscriptionId)")
+            case .failed: AgentCardPlaceholder(aspect: 2 / 3, failed: true, failedText: String(localized: .agentCardsSubscriptionMissing(String(subscriptionId))))
             case let .ready(data): content(data.sub, link: data.link)
             }
         }

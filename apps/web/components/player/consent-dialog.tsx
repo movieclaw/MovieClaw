@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -30,6 +31,7 @@ export function ConsentDialog({
   onGranted: () => void;
   onCancel: () => void;
 }) {
+  const t = useTranslations();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canSelfEnable = decision.can_self_enable === true;
@@ -43,11 +45,11 @@ export function ConsentDialog({
       // 绝不能 onGranted——重新决策还会弹回同一个窗，用户只会觉得「点了没
       // 反应」。把失败明确说出来，让人知道该去查什么。
       if (!saved.software_transcode_enabled) {
-        throw new Error("软件转码开关保存后未生效，请刷新页面重试或查看服务端日志");
+        throw new Error(t("player.consent.saveFailed"));
       }
       onGranted();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "开启失败，请稍后重试");
+      setError(err instanceof Error ? err.message : t("player.consent.enableFailed"));
       setSaving(false);
     }
   };
@@ -71,16 +73,16 @@ export function ConsentDialog({
           Netflix 主题由钩子接管为 #181818 实底 + --line 描边 + 关 blur（圆角
           走 rounded-2xl 换档），银玻璃下无基样式零变化 */}
       <div className="solid-popover w-full max-w-[460px] rounded-2xl border border-white/10 bg-[rgba(16,18,26,0.92)] p-7 text-white shadow-[0_32px_90px_rgba(0,0,0,0.7)] backdrop-blur-2xl">
-        <h2 className="text-[19px] font-semibold leading-snug">这部片需要软件转码才能在浏览器里播放</h2>
+        <h2 className="text-[19px] font-semibold leading-snug">{t("player.consent.title")}</h2>
 
         <dl className="mt-4 space-y-3 text-[13px] leading-relaxed text-white/70">
           <div>
-            <dt className="text-white/45">原因</dt>
+            <dt className="text-white/45">{t("player.consent.reason")}</dt>
             <dd className="mt-0.5 text-white/85">{decision.reason}</dd>
           </div>
           {decision.cost_hint ? (
             <div>
-              <dt className="text-white/45">代价</dt>
+              <dt className="text-white/45">{t("player.consent.cost")}</dt>
               <dd className="mt-0.5 text-white/85">{decision.cost_hint}</dd>
             </div>
           ) : null}
@@ -97,24 +99,23 @@ export function ConsentDialog({
                 不在这里说一句就几乎没人会发现。只对能改全局设置的管理员显示：给成员
                 一个点进去必然 403 的链接毫无意义。 */}
             <p className="mt-4 rounded-xl bg-white/[0.06] px-3 py-2.5 text-[12px] leading-relaxed text-white/60">
-              局域网里有 Apple Silicon Mac 的话，可以让它替 NAS 做硬件转码，省下这里的
-              CPU 开销。
+              {t("player.consent.remoteHint")}
               <Link
                 href={{ pathname: "/settings/playback" }}
                 className="ml-1 text-[var(--player-accent)] underline decoration-dotted underline-offset-2"
               >
-                去设置远程转码
+                {t("player.consent.remoteSettings")}
               </Link>
             </p>
             {/* 独立播放设置页已撤（2026-08-25），这里如实告知开启即长期生效 */}
-            <p className="mt-3 text-[12px] text-white/45">开启后长期生效，之后不再询问。</p>
+            <p className="mt-3 text-[12px] text-white/45">{t("player.consent.persistent")}</p>
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={onCancel}
                 className="rounded-full px-5 py-2.5 text-[14px] text-white/70 transition-colors hover:bg-white/10"
               >
-                取消
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -122,14 +123,14 @@ export function ConsentDialog({
                 disabled={saving}
                 className="rounded-full bg-[var(--player-accent)] px-5 py-2.5 text-[14px] font-semibold text-black transition-colors hover:bg-[var(--player-accent-hover)] disabled:opacity-50"
               >
-                {saving ? "正在开启…" : "开启并播放"}
+                {saving ? t("player.consent.enabling") : t("player.consent.enableAndPlay")}
               </button>
             </div>
           </>
         ) : (
           <>
             <p className="mt-4 text-[13px] leading-relaxed text-white/70">
-              当前未开启软件转码。请联系管理员开启（管理员播放此类影片时会收到开启询问）。
+              {t("player.consent.adminRequired")}
             </p>
             <div className="mt-5 flex justify-end">
               <button
@@ -137,7 +138,7 @@ export function ConsentDialog({
                 onClick={onCancel}
                 className="rounded-full bg-white/15 px-5 py-2.5 text-[14px] text-white transition-colors hover:bg-white/25"
               >
-                知道了
+                {t("player.consent.acknowledge")}
               </button>
             </div>
           </>

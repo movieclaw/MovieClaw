@@ -40,8 +40,14 @@ def _sub(language: str | None, codec: str = "subrip", **extra) -> dict:
 
 def _external(filename: str, language: str | None, **extra) -> dict:
     fmt = filename.rsplit(".", 1)[-1]
-    return {"filename": filename, "format": fmt, "language": language, "title": None,
-            "forced": False, **extra}
+    return {
+        "filename": filename,
+        "format": fmt,
+        "language": language,
+        "title": None,
+        "forced": False,
+        **extra,
+    }
 
 
 def _file(**fields) -> LibraryFile:
@@ -85,10 +91,18 @@ def test_audio_without_language_evidence_is_not_translated():
 
 def test_external_subtitle_follows_language_across_filenames():
     """外挂字幕每集文件名都不同：按语言找本集的同类外挂字幕。"""
-    ep1 = _file(external_subtitles=[_external("Show.S01E01.en.srt", "eng"),
-                                    _external("Show.S01E01.chs.srt", "chi")])
-    ep2 = _file(external_subtitles=[_external("Show.S01E02.chs.srt", "chi"),
-                                    _external("Show.S01E02.en.srt", "eng")])
+    ep1 = _file(
+        external_subtitles=[
+            _external("Show.S01E01.en.srt", "eng"),
+            _external("Show.S01E01.chs.srt", "chi"),
+        ]
+    )
+    ep2 = _file(
+        external_subtitles=[
+            _external("Show.S01E02.chs.srt", "chi"),
+            _external("Show.S01E02.en.srt", "eng"),
+        ]
+    )
     got = translate_subtitle("external:Show.S01E01.chs.srt", ep1, ep2)
     assert got == "external:Show.S01E02.chs.srt"
 
@@ -119,12 +133,16 @@ def test_subtitle_off_stays_off_and_unknown_is_dropped():
 
 def test_default_choices_are_not_carried_over():
     """记着的是那一集的默认挑选（进度上报每次都记正在放的轨）：不是用户选的，新的一集照自己的默认走。"""
-    ep1 = _file(audio_streams=[_audio("eng", default=True), _audio("chi")],
-                subtitle_streams=[_sub("eng")],
-                external_subtitles=[_external("Show.S01E01.chs.srt", "chi")])
-    ep2 = _file(audio_streams=[_audio("chi", default=True), _audio("eng")],
-                subtitle_streams=[_sub("eng")],
-                external_subtitles=[_external("Show.S01E02.chs.srt", "chi")])
+    ep1 = _file(
+        audio_streams=[_audio("eng", default=True), _audio("chi")],
+        subtitle_streams=[_sub("eng")],
+        external_subtitles=[_external("Show.S01E01.chs.srt", "chi")],
+    )
+    ep2 = _file(
+        audio_streams=[_audio("chi", default=True), _audio("eng")],
+        subtitle_streams=[_sub("eng")],
+        external_subtitles=[_external("Show.S01E02.chs.srt", "chi")],
+    )
     assert translate_audio("embedded:0", ep1, ep2) is None
     # 装了外挂字幕就默认选外挂：记着它不代表用户选过
     assert translate_subtitle("external:Show.S01E01.chs.srt", ep1, ep2) is None
@@ -141,6 +159,7 @@ def test_default_choices_are_not_carried_over():
 @pytest_asyncio.fixture
 async def db(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'memory.db'}")
+    monkeypatch.setenv("TMDB_LANGUAGE", "zh-CN")
     get_settings.cache_clear()
     init_db(get_settings().database_url, echo=False)
     await run_migrations()
@@ -165,8 +184,14 @@ def _episode(library_id: int, item_id: int, episode: int, audio: list[dict]) -> 
 
 
 def _state(item_id: int, episode: int, played_at: datetime, **tracks) -> PlaybackState:
-    return PlaybackState(member_id=1, media_item_id=item_id, season_number=1,
-                         episode_number=episode, last_played_at=played_at, **tracks)
+    return PlaybackState(
+        member_id=1,
+        media_item_id=item_id,
+        season_number=1,
+        episode_number=episode,
+        last_played_at=played_at,
+        **tracks,
+    )
 
 
 async def test_latest_episode_choice_carries_to_a_new_episode(db):
@@ -195,8 +220,13 @@ async def test_latest_episode_choice_carries_to_a_new_episode(db):
 
         states = {
             (show.id, 1, 1): _state(show.id, 1, datetime(2026, 9, 1), audio_track="embedded:2"),
-            (show.id, 1, 2): _state(show.id, 2, datetime(2026, 9, 2), audio_track="embedded:1",
-                                    subtitle_track="embedded:0"),
+            (show.id, 1, 2): _state(
+                show.id,
+                2,
+                datetime(2026, 9, 2),
+                audio_track="embedded:1",
+                subtitle_track="embedded:0",
+            ),
         }
         assert await series_track_memory(session, states, (show.id, 1, 3)) == (
             "embedded:2",

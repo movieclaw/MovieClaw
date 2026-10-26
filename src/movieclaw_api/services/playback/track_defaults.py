@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from movieclaw_api.i18n import t
 from movieclaw_api.services.playback.track_memory import inherit_tracks, inheritance_source
 from movieclaw_db.models import LibraryFile, PlaybackState
 from movieclaw_playback.subtitles import SUBTITLE_OFF, parse_embedded_track
@@ -31,29 +32,29 @@ from movieclaw_playback.track_policy import (
 Unit = tuple[int, int, int]
 
 _AUDIO_NOTES = {
-    "remembered": "你上次看时换的音轨",
-    "series": "沿用这部剧上一集换的音轨",
-    "original_language": "影片原声",
-    "default_flag": "片源标注的默认音轨",
-    "first": "第一条音轨",
-    "none": "没有音轨",
+    "remembered": "player.defaults.audioRemembered",
+    "series": "player.defaults.audioSeries",
+    "original_language": "player.defaults.audioOriginalLanguage",
+    "default_flag": "player.defaults.audioDefaultFlag",
+    "first": "player.defaults.audioFirst",
+    "none": "player.defaults.audioNone",
 }
 _SUBTITLE_NOTES = {
-    "remembered": "你上次看时选的字幕",
-    "series": "沿用这部剧上一集选的字幕",
-    "library_language": "媒体库语言的字幕",
-    "forced": "原声就是媒体库语言，只开强制字幕（片中外语对白的翻译）",
-    "same_language_off": "原声就是媒体库语言，默认不开字幕",
-    "no_language_match": "原声就是媒体库语言、又没有这种语言的字幕，默认不开",
-    "external": "外挂字幕优先",
-    "default_flag": "片源标注的默认字幕",
-    "forced_only": "只有强制字幕",
-    "none": "没有要自动开的字幕",
+    "remembered": "player.defaults.subtitleRemembered",
+    "series": "player.defaults.subtitleSeries",
+    "library_language": "player.defaults.subtitleLibraryLanguage",
+    "forced": "player.defaults.subtitleForced",
+    "same_language_off": "player.defaults.subtitleSameLanguageOff",
+    "no_language_match": "player.defaults.subtitleNoLanguageMatch",
+    "external": "player.defaults.subtitleExternal",
+    "default_flag": "player.defaults.subtitleDefaultFlag",
+    "forced_only": "player.defaults.subtitleForcedOnly",
+    "none": "player.defaults.subtitleNone",
 }
 #: 记着「关」时的说法（ref 为 off）
 _SUBTITLE_OFF_NOTES = {
-    "remembered": "你上次看时关掉了字幕",
-    "series": "沿用这部剧上一集：不开字幕",
+    "remembered": "player.defaults.subtitleOffRemembered",
+    "series": "player.defaults.subtitleOffSeries",
 }
 
 
@@ -72,13 +73,16 @@ class FileTrackDefaults:
 
     @property
     def audio_note(self) -> str:
-        return _AUDIO_NOTES.get(self.audio.reason, "")
+        key = _AUDIO_NOTES.get(self.audio.reason)
+        return t(key) if key else ""
 
     @property
     def subtitle_note(self) -> str:
         if self.subtitle.ref == SUBTITLE_OFF:
-            return _SUBTITLE_OFF_NOTES.get(self.subtitle.reason, "")
-        return _SUBTITLE_NOTES.get(self.subtitle.reason, "")
+            key = _SUBTITLE_OFF_NOTES.get(self.subtitle.reason)
+            return t(key) if key else ""
+        key = _SUBTITLE_NOTES.get(self.subtitle.reason)
+        return t(key) if key else ""
 
 
 def file_track_defaults(

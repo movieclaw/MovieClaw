@@ -235,9 +235,9 @@ async def test_search_offloads_enrichment_to_worker_thread(monkeypatch) -> None:
     worker_threads: list[int] = []
     real_enrich = site_search.enrich
 
-    def spy_enrich(title, subtitle="", category=None):
+    def spy_enrich(title, subtitle="", category=None, site_labels=None):
         worker_threads.append(threading.get_ident())
-        return real_enrich(title, subtitle, category)
+        return real_enrich(title, subtitle, category, site_labels)
 
     monkeypatch.setattr(site_search, "enrich", spy_enrich)
     fake_sites = {"mteam": _FakeSite(items=[_item("m1", "沙丘"), _item("m2", "沙丘2")])}
@@ -273,6 +273,23 @@ def test_search_items_carry_enriched_attrs(client: TestClient, monkeypatch) -> N
     assert attrs["release_group"] == "CHD"
     # H&R 未配置选择器时保持三态里的"未知"，不误报成"无考核"
     assert data["items"][0]["hit_and_run"] is None
+
+
+def test_search_items_carry_site_labels_in_attrs_only(client: TestClient, monkeypatch) -> None:
+    """站点自己的结构化标记（M-Team labelsNew）进 ``attrs.site_labels``——「不要杜比视界
+    Profile 5」靠它认只标 DoVi 的资源；条目本身的输出字段不多出 ``labels``。"""
+    item = TorrentListItem(
+        torrent_id="p5",
+        title="Mayday 2026 2160p ATVP WEB-DL DDP 5.1 Atmos DV H.265-FLUX",
+        labels=["中字", "4k", "DoVi"],
+    )
+    _wire(monkeypatch, {"mteam": _FakeSite(items=[item])})
+
+    data = client.get("/api/v1/search/torrents", params={"keyword": "mayday"}).json()["data"]
+
+    hit = data["items"][0]
+    assert hit["attrs"]["site_labels"] == ["中字", "4k", "DoVi"]
+    assert "labels" not in hit
 
 
 class _ByKeywordSite:

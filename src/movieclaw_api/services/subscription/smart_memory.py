@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n.stored import reference, source_text, stored_fields
 from movieclaw_api.services.subscription.smart_profiles import conflict
 from movieclaw_db.models import (
     ActivityType,
@@ -189,7 +190,7 @@ async def freeze_smart(
     """
     plan = await plan_for(session, item)
     if plan.profile is None or plan.prefs is None:
-        raise BadRequestException("请先保存智能设置")
+        raise BadRequestException(message_key="errors.subscription.smartSettingsRequiredGeneral")
     if revision != plan.profile.revision:
         raise conflict()
     memory, facts = plan.memory, plan.facts
@@ -224,7 +225,7 @@ async def freeze_smart(
             else:
                 parsed = parse_scope(scope, facts)
                 if parsed is None:
-                    raise BadRequestException("这部作品没有这个习惯范围")
+                    raise BadRequestException(message_key="errors.subscription.memoryScopeMissing")
                 key = f"{parsed[0]}:{facts.kind}:{parsed[1]}"
                 existing = next((h for h in memory.habits if h.key == key), None)
                 merged = {
@@ -261,10 +262,6 @@ def _override_of(sub: Subscription) -> QualityOverride | None:
         return QualityOverride.model_validate(sub.smart_overrides)
     except ValueError:
         return None
-
-
-def _wait_text(seconds: int) -> str:
-    return "不等待" if seconds == 0 else f"最多等 {seconds // 3600} 小时"
 
 
 async def resolve_subscription(
@@ -326,15 +323,22 @@ async def apply_to_subscriptions(
         if sub.status == SubscriptionStatus.COMPLETED:
             continue
         target = f"{policy.resolution} {policy.source}"
-        subtitles = "，只下看得懂的字幕版本" if policy.watchable_languages else ""
+        message = stored_fields(
+            "subscription.smart.policyAdjusted",
+            wait=reference("subscription.smart.noWait")
+            if policy.wait_seconds == 0
+            else reference("subscription.smart.waitHours", count=policy.wait_seconds // 3600),
+            target=target,
+            subtitles="yes" if policy.watchable_languages else "no",
+            upgrade="yes" if policy.allow_upgrade else "no",
+        )
         session.add(
             SubscriptionActivity(
                 subscription_id=sub.id,
                 type=ActivityType.ADJUSTED,
-                message=(
-                    f"已跟随当前智能设置与记忆：{_wait_text(policy.wait_seconds)}，目标 {target}"
-                    f"{subtitles}{'，达标后停止洗版' if policy.allow_upgrade else '，不洗版'}"
-                ),
+                message=message["message"],
+                message_key=message["message_key"],
+                message_params=message["message_params"],
                 payload={"smart_policy": payload},
             )
         )
@@ -365,8 +369,12 @@ async def notify_awaiting_subtitles(
             subscription_id=sub.id,
             media=media,
             units=event_refs.units(sorted(states)),
-            language=language_label(facts.language) if facts.language else "外语",
+            language=language_label(facts.language)
+            if facts.language
+            else source_text("subscription.smart.foreignLanguage"),
             acceptable=acceptable_text(policy.watchable_languages),
+            language_code=facts.language,
+            acceptable_languages=policy.watchable_languages,
             originals=max(s.subtitle_blocked for s in states.values()),
             waited_hours=max(1, int((now - first.anchor).total_seconds() // 3600)),
         ),

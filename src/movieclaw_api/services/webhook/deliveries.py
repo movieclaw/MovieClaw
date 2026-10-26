@@ -11,6 +11,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from movieclaw_api.i18n.stored import stored_message
+
 _MAX_RECORDS_PER_ENDPOINT = 50
 
 
@@ -28,6 +30,9 @@ class DeliveryRecord:
     failed: bool = False
     """发出去了但目标没收下（网络错误、非 2xx）：可靠投递会重试。"""
 
+    error_key: str | None = None
+    error_params: dict | None = None
+
     @property
     def ok(self) -> bool:
         return self.status_code is not None and 200 <= self.status_code < 300
@@ -37,9 +42,16 @@ _records: dict[str, deque[DeliveryRecord]] = {}
 
 
 def record_delivery(endpoint_id: str, record: DeliveryRecord) -> None:
-    _records.setdefault(endpoint_id, deque(maxlen=_MAX_RECORDS_PER_ENDPOINT)).append(
-        record
+    _records.setdefault(endpoint_id, deque(maxlen=_MAX_RECORDS_PER_ENDPOINT)).append(record)
+
+
+def error_text(record: DeliveryRecord) -> str:
+    text = (
+        stored_message(record.error, record.error_key, record.error_params)
+        if record.error_key
+        else record.error
     )
+    return text[:200] if record.error_key == "settings.webhook.errors.requestFailed" else text
 
 
 def recent_deliveries(endpoint_id: str) -> list[dict]:
@@ -52,7 +64,7 @@ def recent_deliveries(endpoint_id: str) -> list[dict]:
             "status_code": r.status_code,
             "duration_ms": r.duration_ms,
             "attempts": r.attempts,
-            "error": r.error,
+            "error": error_text(r),
             "at": r.at.isoformat(),
         }
         for r in reversed(_records.get(endpoint_id, ()))

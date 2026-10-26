@@ -54,7 +54,7 @@ struct LLMSettingsView: View {
                             }
                             .accessibilityIdentifier("llm-provider-\(provider.id)")
                         }
-                    } header: { Text("模型供应商") } footer: { Text(introText) }
+                    } header: { Text(String(localized: .settingsLlmUiProvidersSection)) } footer: { Text(introText) }
 
                 }
             } else {
@@ -66,7 +66,7 @@ struct LLMSettingsView: View {
         .settingsBFormStyle()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("接入模型供应商", systemImage: "plus") { editing = SettingsBLLMEditing() }
+                Button(String(localized: .settingsLlmUiAddTitle), systemImage: "plus") { editing = SettingsBLLMEditing() }
                     .disabled(busy || editablePresets.isEmpty)
                     .accessibilityIdentifier("llm-create")
             }
@@ -103,10 +103,10 @@ struct LLMSettingsView: View {
     }
 
     private var introText: String {
-        guard let providers else { return "加载中…" }
+        guard let providers else { return String(localized: .commonLoadingProgress) }
         return providers.isEmpty
-            ? "接入一个或多个大语言模型供应商，AI 能力（对话助手、字幕处理、智能识别等）将由它们驱动。"
-            : "接入后该供应商目录里的全部模型都可在对话框里选用；各场景默认用哪个模型，在「AI 设定」里配置。"
+            ? String(localized: .settingsLlmUiEmptyIntro)
+            : String(localized: .settingsLlmUiConnectedIntro)
     }
 
     /// 空态：一个都没接入
@@ -117,15 +117,15 @@ struct LLMSettingsView: View {
                     .font(.title2)
                     .frame(width: 48, height: 48)
                     .background(Color.white.opacity(0.07), in: .rect(cornerRadius: 14))
-                Text("还没有接入模型供应商").font(.body.weight(.medium))
-                Text("支持 OpenAI、阿里云百炼，以及任何 OpenAI 兼容端点（如自建 vLLM / Ollama）。")
+                Text(String(localized: .settingsLlmUiEmpty)).font(.body.weight(.medium))
+                Text(String(localized: .settingsLlmUiSupportedHint))
                     .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
                     .multilineTextAlignment(.center)
                 Button {
                     editing = SettingsBLLMEditing()
                 } label: {
-                    Text("接入模型供应商").font(.body.weight(.semibold)).frame(maxWidth: .infinity)
+                    Text(String(localized: .settingsLlmUiAddTitle)).font(.body.weight(.semibold)).frame(maxWidth: .infinity)
                 }
                 .discoverProminentButton()
                 .disabled(editablePresets.isEmpty)
@@ -177,9 +177,9 @@ struct LLMSettingsView: View {
 
     private func remove(_ provider: API.LlmProviderView) async {
         guard await feedback.confirm(
-            "删除「\(provider.name)」？",
-            message: "它目录里的模型将不可再选；AI 设定中指向它的默认模型会自动兜底到其它已接入的供应商。",
-            confirmTitle: "删除",
+            String(localized: .settingsWebhookUiDeleteTitle(provider.name)),
+            message: String(localized: .settingsLlmUiDeleteHint),
+            confirmTitle: String(localized: .commonDelete),
             destructive: true
         ) else { return }
         busy = true

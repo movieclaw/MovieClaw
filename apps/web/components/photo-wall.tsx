@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
 import {
   memo,
   useCallback,
@@ -109,13 +112,20 @@ export function usePhotoWallDensity(): [PhotoWallDensity, (next: PhotoWallDensit
 
 /** 条目的月份档名（与服务端 build_library_index 的 release_date 分档同口径） */
 export function photoMonthOf(item: Pick<LibraryItem, "release_date">): string {
+  // i18n-ignore: stable month bucket shared with the API index
   return item.release_date ? item.release_date.slice(0, 7) : "未知";
 }
 
-export function formatPhotoMonth(month: string): string {
-  if (month === "未知") return "日期未知";
+export function formatPhotoMonth(month: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  // i18n-ignore: stable month bucket shared with the API index
+  if (month === "未知") return t("library.gallery.dateUnknown");
   const [year, mon] = month.split("-");
-  return `${year} 年 ${Number(mon)} 月`;
+  if (locale === "en") {
+    return new Intl.DateTimeFormat(locale, { year: "numeric", month: "long", timeZone: "UTC" })
+      .format(new Date(Date.UTC(Number(year), Number(mon) - 1)));
+  }
+  return t("library.gallery.month", { year, month: Number(mon) });
 }
 
 interface Placement {
@@ -363,6 +373,8 @@ export function PhotoTimelineScrubber({
   scrollElement: HTMLElement | null;
   onJump: (offset: number) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [scrolling, setScrolling] = useState(false);
   const [hover, setHover] = useState<string | null>(null);
   useEffect(() => {
@@ -380,17 +392,22 @@ export function PhotoTimelineScrubber({
     };
   }, [scrollElement]);
 
-  const total = useMemo(() => index.reduce((sum, entry) => sum + entry.count, 0), [index]);
+  // The first request can still carry the title index while the library switches to date sorting.
+  const months = useMemo(() => index.filter((entry) =>
+    // i18n-ignore: stable month bucket shared with the API index
+    entry.initial === "未知" || /^\d{4}-(?:0[1-9]|1[0-2])$/.test(entry.initial)), [index]);
+  const total = useMemo(() => months.reduce((sum, entry) => sum + entry.count, 0), [months]);
   const segments = useMemo(() => {
     let acc = 0;
-    return index.map((entry) => {
+    return months.map((entry) => {
+      // i18n-ignore: stable month bucket shared with the API index
       const year = entry.initial === "未知" ? null : entry.initial.slice(0, 4);
       const start = acc / Math.max(total, 1);
       acc += entry.count;
       return { ...entry, year, start, size: entry.count / Math.max(total, 1) };
     });
-  }, [index, total]);
-  if (index.length === 0) return null;
+  }, [months, total]);
+  if (months.length === 0) return null;
   const shown = scrolling || hover !== null;
   const hovered = hover ? segments.find((s) => s.initial === hover) : undefined;
 
@@ -399,7 +416,7 @@ export function PhotoTimelineScrubber({
     // 宽 36px + 与墙之间的 8px 列间距，右缘恰与墙的右缘对齐）
     <div className="relative w-0 shrink-0 self-stretch max-md:hidden">
       <nav
-        aria-label="按月份跳转"
+        aria-label={t("library.gallery.jumpMonth")}
         onPointerEnter={() => setHover((h) => h ?? "")}
         onPointerLeave={() => setHover(null)}
         // 浮现时带一层向右加深的暗色渐变垫底：刻度与年份叠在亮色照片上也读得清
@@ -414,7 +431,7 @@ export function PhotoTimelineScrubber({
             <button
               key={seg.initial}
               type="button"
-              aria-label={`${formatPhotoMonth(seg.initial)} · ${seg.count} 张`}
+              aria-label={t("library.gallery.monthCount", { month: formatPhotoMonth(seg.initial, locale), count: seg.count })}
               onPointerEnter={() => setHover(seg.initial)}
               onClick={() => onJump(seg.offset)}
               className="group/tick relative flex min-h-[10px] items-start justify-end pr-2"
@@ -442,7 +459,7 @@ export function PhotoTimelineScrubber({
             className="tnum pointer-events-none absolute right-10 whitespace-nowrap rounded-full bg-[rgba(16,18,26,0.92)] px-2.5 py-1 text-caption font-semibold text-white shadow-[0_6px_18px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.12]"
             style={{ top: `calc(${(hovered.start + hovered.size / 2) * 100}% - 12px)` }}
           >
-            {formatPhotoMonth(hovered.initial)} · {hovered.count} 张
+            {t("library.gallery.monthCount", { month: formatPhotoMonth(hovered.initial, locale), count: hovered.count })}
           </span>
         )}
       </nav>
@@ -466,9 +483,10 @@ function sameEntries(a: readonly WallEntry[], b: readonly WallEntry[]): boolean 
 }
 
 /** 极端比例的角标：夹紧后被裁的那类 */
-function extremeLabel(aspect: number): string | null {
-  if (aspect > MAX_ASPECT) return "全景";
-  if (aspect < MIN_ASPECT) return "长图";
+function extremeLabel(aspect: number, locale: AppLocale): string | null {
+  const t = appTranslator(locale);
+  if (aspect > MAX_ASPECT) return t("library.gallery.panorama");
+  if (aspect < MIN_ASPECT) return t("library.gallery.tallImage");
   return null;
 }
 
@@ -590,6 +608,8 @@ const PhotoMonthSection = memo(function PhotoMonthSection({
   onOpen: (index: number) => void;
   workingLabelOf?: (item: LibraryItem) => string | undefined;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const layout = useMemo(() => {
     const aspects = entries.map(({ item }) => item.primary_aspect);
     const masonry = layoutMasonry(aspects, width, spec.column, spec.gap, spec.minColumns);
@@ -610,9 +630,9 @@ const PhotoMonthSection = memo(function PhotoMonthSection({
       {month !== "" && (
         <div className="mb-3 flex items-baseline gap-2.5">
           <h3 className="text-on-image text-body-lg font-semibold text-white/85">
-            {formatPhotoMonth(month)}
+            {formatPhotoMonth(month, locale)}
           </h3>
-          <span className="tnum text-caption text-[var(--text-faint)]">{count} 张</span>
+          <span className="tnum text-caption text-[var(--text-faint)]">{t("library.gallery.imageCount", { count })}</span>
         </div>
       )}
       <div ref={tilesRef} className="relative" style={{ height: layout.height }}>
@@ -669,7 +689,9 @@ const PhotoTile = memo(function PhotoTile({
   onOpen: (index: number) => void;
   workingLabel?: string;
 }) {
-  const badge = extremeLabel(item.primary_aspect);
+  const locale = useLocale();
+  const t = useTranslations();
+  const badge = extremeLabel(item.primary_aspect, locale);
   const date = formatDate(item.release_date);
   const size = item.resolutions[0] ?? null;
   const dead = item.file_count > 0 && item.missing_count >= item.file_count;
@@ -684,7 +706,7 @@ const PhotoTile = memo(function PhotoTile({
       // 位置锚点：会话内的滚动恢复（lib/use-scroll-restoration.ts）与跨会话的
       // 「回到上次位置」（lib/library-wall-recall.ts）都按它认这一屏是哪几张
       data-library-item-id={item.media_item_id}
-      aria-label={`查看 ${item.title}`}
+      aria-label={t("library.gallery.viewPhoto", { title: item.title })}
       onClick={() => onOpen(index)}
       className="group/tile absolute left-0 top-0 block overflow-hidden rounded-xl bg-[var(--poster-placeholder)] text-left shadow-[0_8px_22px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.07] transition-[transform,width,height,box-shadow] duration-300 ease-out hover:z-[2] hover:shadow-[0_18px_44px_rgba(0,0,0,0.6)] hover:ring-white/25 focus-visible:z-[2] focus-visible:ring-2 focus-visible:ring-[var(--accent)] motion-reduce:transition-none"
       style={{
@@ -735,7 +757,7 @@ const PhotoTile = memo(function PhotoTile({
       )}
       {dead && (
         <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-[rgba(7,12,20,0.85)] px-2 py-1 text-micro text-[var(--text-muted)]">
-          文件已缺失
+          {t("library.gallery.fileMissing")}
         </span>
       )}
     </button>

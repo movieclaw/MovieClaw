@@ -43,7 +43,7 @@ from movieclaw_api.schemas.search import (
     TorrentHit,
 )
 from movieclaw_api.services.site_access import get_site_access
-from movieclaw_api.services.verification import friendly_error
+from movieclaw_api.services.verification import friendly_error, friendly_error_message
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.site_credential import ConfigStatus, SiteCredential
 from movieclaw_db.repositories.credential_repo import CredentialRepository
@@ -99,6 +99,7 @@ def _build_hits(site_id: str, name: str, items: list[TorrentListItem]) -> list[T
                 item.title,
                 item.subtitle,
                 item.category.value if item.category else None,
+                item.labels,
             ),
             **item.model_dump(),
         )
@@ -160,7 +161,7 @@ async def _fetch_one(
     items: list[TorrentListItem] = []
     seen: set[str] = set()
     pages_more: list[bool | None] = []
-    reason: str | None = None
+    reason: dict | None = None
     for term in terms:
         try:
             site = await get_site_access().get(site_id)  # 已认证共享实例，勿 close
@@ -173,7 +174,7 @@ async def _fetch_one(
                 listed = await site.list_torrents(categories=categories or None, page=page)
                 found, has_more = listed.items, listed.has_more
         except Exception as exc:  # noqa: BLE001 —— 单站失败必须隔离，不能拖垮整次搜索
-            reason = reason or friendly_error(exc)
+            reason = reason or friendly_error_message(exc)
             logger.warning(
                 "站点 %s %s失败：%s",
                 site_id,
@@ -188,16 +189,28 @@ async def _fetch_one(
                 items.append(item)
     if not pages_more:  # 每个词都失败了
         return [], SiteSearchStatus(
-            site_id=site_id, site_name=name, count=0, error=reason, elapsed_ms=elapsed()
+            site_id=site_id,
+            site_name=name,
+            count=0,
+            error=reason["message"] if reason else None,
+            error_key=reason["message_key"] if reason else None,
+            error_params=reason["message_params"] if reason else None,
+            elapsed_ms=elapsed(),
         )
     try:
         # 给每条结果挂上来源站点标识 + 扩充属性；扩充含 NER 推理，整批进工作线程
         hits = await asyncio.to_thread(_build_hits, site_id, name, items)
     except Exception as exc:  # noqa: BLE001 —— 同上，富化失败也只算这一站失败
-        reason = friendly_error(exc)
+        reason = friendly_error_message(exc)
         logger.warning("站点 %s 结果处理失败：%s", site_id, reason)
         return [], SiteSearchStatus(
-            site_id=site_id, site_name=name, count=0, error=reason, elapsed_ms=elapsed()
+            site_id=site_id,
+            site_name=name,
+            count=0,
+            error=reason["message"] if reason else None,
+            error_key=reason["message_key"] if reason else None,
+            error_params=reason["message_params"] if reason else None,
+            elapsed_ms=elapsed(),
         )
     return hits, SiteSearchStatus(
         site_id=site_id,
@@ -306,6 +319,8 @@ async def stream_search_all_sites(
                         site_id=status.site_id,
                         site_name=status.site_name,
                         error=status.error,
+                        error_key=status.error_key,
+                        error_params=status.error_params,
                         elapsed_ms=elapsed_ms,
                     ),
                 )

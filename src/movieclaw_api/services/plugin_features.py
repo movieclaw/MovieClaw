@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from movieclaw_api.i18n import t
 from movieclaw_api.plugins.features import FEATURES, Feature, feature
 from movieclaw_kernel import Patch, State
 
@@ -115,10 +116,10 @@ def feature_patches(settings: object) -> list[Patch]:
 # ---------------------------------------------------------------------- 查询
 def locked_text(source: str) -> str:
     if source.startswith("env:"):
-        return f"已按环境变量 {source[4:]} 关闭"
+        return t("plugins.switches.lockedEnv", name=source[4:])
     if source == "patch":
-        return "已在 data/plugins.yaml 中关闭"
-    return f"已被 {source} 关闭"
+        return t("plugins.switches.lockedPatch")
+    return t("plugins.switches.lockedBy", source=source)
 
 
 def _lock_source(kernel: Any, f: Feature) -> str | None:
@@ -162,16 +163,21 @@ async def set_enabled(
 ) -> None:
     f = feature(key)
     if f is None:
-        raise FeatureSwitchError(404, "FEATURE_NOT_FOUND", f"没有这个功能：{key}")
+        raise FeatureSwitchError(
+            404, "FEATURE_NOT_FOUND", t("plugins.switches.featureMissing", feature=key)
+        )
+    title = t(f.title_key) if f.title_key else f.title
     if not f.switchable:
-        raise FeatureSwitchError(400, "FEATURE_NOT_SWITCHABLE", f"「{f.title}」不能停用")
+        raise FeatureSwitchError(
+            400, "FEATURE_NOT_SWITCHABLE", t("plugins.switches.notSwitchable", title=title)
+        )
     async with _lock:
         lock = _lock_source(kernel, f)
         if lock:
             raise FeatureSwitchError(
                 409,
                 "FEATURE_LOCKED",
-                f"「{f.title}」{locked_text(lock)}，要在那里改回来并重启应用",
+                t("plugins.switches.locked", title=title, lock=locked_text(lock)),
             )
         before = read_disabled(settings)
         if (key not in before) == enabled:
@@ -186,11 +192,12 @@ async def set_enabled(
             _write_disabled(settings, after)
         except OSError as exc:
             raise FeatureSwitchError(
-                500, "FEATURE_STATE_WRITE_FAILED", f"开关状态写不进去：{exc}"
+                500, "FEATURE_STATE_WRITE_FAILED", t("plugins.switches.writeFailed", error=str(exc))
             ) from exc
         try:
             await _apply(kernel, f, enabled)
         except Exception:
+            # i18n-ignore: log text
             action = "开启" if enabled else "停用"
             logger.exception("功能「%s」%s失败，开关状态已回滚", f.title, action)
             with contextlib.suppress(OSError):

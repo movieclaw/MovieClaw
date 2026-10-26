@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import render_value, source_render, stored_message
 from movieclaw_db.models import PushPreference, utcnow
 
 
@@ -24,6 +25,7 @@ class PushEvent:
     default: bool
     #: 只有管理员会收到（成员看不到这个开关）
     admin_only: bool = False
+    group_id: str | None = None
 
 
 #: 旧版偏好键 → 现在的键（老 App 还会发旧键；库里的旧键已由迁移改名）
@@ -47,14 +49,21 @@ def push_events() -> list[PushEvent]:
     return [
         PushEvent(
             key=entry.pref_key,
-            title=entry.title,
-            description=entry.description,
-            group=entry.group,
+            title=_label(entry.title),
+            description=_label(entry.description),
+            group=_label(entry.group),
+            # 分组 id 是稳定标识：插件分组按中文原文（与旧版一致）
+            group_id=source_render(entry.group) if isinstance(entry.group, dict) else entry.group,
             default=entry.default,
             admin_only=entry.admin_only,
         )
         for entry in rules.entries()
     ]
+
+
+def _label(value: str | dict) -> str:
+    """规则表里的名字：目录键、引用（插件规则带插件名）或插件自带的原文。"""
+    return render_value(value) if isinstance(value, dict) else stored_message(value, value)
 
 
 def spec(key: str) -> PushEvent | None:

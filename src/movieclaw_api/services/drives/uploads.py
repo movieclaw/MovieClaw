@@ -24,8 +24,10 @@ from datetime import timedelta
 from pathlib import Path, PurePath
 from typing import Any
 
+from movieclaw_api.i18n.stored import reference, source_render, source_text, stored_fields
 from movieclaw_api.services import jobs
 from movieclaw_api.services.drives import gateway, uplink
+from movieclaw_api.services.drives.messages import error_reference, keyed
 from movieclaw_api.services.drives.registry import BackendUnavailable
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.base import utcnow
@@ -57,7 +59,21 @@ VERIFY_INTERVAL_S = 5.0
 
 
 class LocalChanged(Exception):
-    """本地文件在上传过程中变了或不见了：这次放弃，等扫描对齐台账后再说。"""
+    """本地文件在上传过程中变了或不见了：这次放弃，等扫描对齐台账后再说。
+
+    ``ref`` 是原因的文案引用（记在副本上，按读者语言渲染）；``str()`` 是中文原文。
+    """
+
+    def __init__(self, key: str) -> None:
+        self.ref = reference(key)
+        super().__init__(source_render(self.ref))
+
+
+async def _fail(file_id: int, key: str, /, **params: object) -> None:
+    """记一次上传失败：中文原文 + 引用。"""
+    ref = reference(key, **params)
+    async with get_database().session() as session:
+        await LibraryCloudRepository(session).fail_upload(file_id, source_render(ref), ref)
 
 
 # ---------------------------------------------------------------------- 读本地文件
@@ -110,7 +126,7 @@ async def fingerprint_for(file: LibraryFile) -> tuple[dv.Fingerprint, tuple[int,
     path = Path(file.file_path)
     before = await asyncio.to_thread(_stat, path)
     if before is None:
-        raise LocalChanged("本地文件不见了")
+        raise LocalChanged("cloud.upload.localMissing")
     async with get_database().session() as session:
         stored = await LibraryCloudRepository(session).fingerprint_of(file.id)
     if (
@@ -122,7 +138,7 @@ async def fingerprint_for(file: LibraryFile) -> tuple[dv.Fingerprint, tuple[int,
         return dv.Fingerprint(stored.size_bytes, stored.sha1, stored.md5, stored.head_sha1), before
     fingerprint = await asyncio.to_thread(compute_fingerprint, path)
     if await asyncio.to_thread(_stat, path) != before or fingerprint.size != before[0]:
-        raise LocalChanged("算指纹的时候文件还在变（可能还在写入）")
+        raise LocalChanged("cloud.upload.changingWhileHashing")
     async with get_database().session() as session:
         await LibraryCloudRepository(session).save_fingerprint(
             file.id,
@@ -181,9 +197,9 @@ async def enqueue(library_id: int | None = None, *, origin: str = "system") -> l
                 handler_revision="drive.upload.v1",
                 max_attempts=10,
                 actor_kind="system",
-                actor_name="网盘上传",
+                actor_name=source_text("cloud.upload.actor"),
                 origin=origin,
-                progress=jobs.default_progress("等待上传到网盘"),
+                progress=jobs.default_progress(message_key="cloud.upload.queued"),
             )
             created.append(result.job.id)
     return created
@@ -192,12 +208,14 @@ async def enqueue(library_id: int | None = None, *, origin: str = "system") -> l
 @register_task(
     "drive_upload_sweep",
     title="网盘上传巡检",
+    title_key="settings.scheduledTasks.catalog.driveUploadSweepTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=600,
     description=(
         "主根在网盘的库：还没传上去的本地文件（新入库的、上次失败过一段时间的）排进上传任务。"
         "新文件入库时会立即排，这里兜底。"
     ),
+    description_key="settings.scheduledTasks.catalog.driveUploadSweepDescription",
 )
 async def upload_sweep() -> None:
     await enqueue()
@@ -206,41 +224,48 @@ async def upload_sweep() -> None:
 # ---------------------------------------------------------------------- 任务
 
 
+def _action(kind: str, key: str, **extra: str) -> dict[str, str]:
+    return {"type": kind, "label": source_text(key), "label_key": key, **extra}
+
+
 def _drive_error_to_job(exc: dv.DriveError, account_name: str) -> jobs.JobControlError:
+    reason = error_reference(exc)
     if isinstance(exc, dv.AuthExpired):
         return jobs.JobBlocked(
-            f"网盘「{account_name}」需要重新登录，登录后上传自动继续",
+            **stored_fields("cloud.upload.reloginNeeded", account=account_name),
             code="DRIVE_AUTH_EXPIRED",
             actions=[
-                {"type": "open_settings", "label": "去重新登录", "target": "drives"},
-                {"type": "retry_job", "label": "登录后重试"},
+                _action("open_settings", "cloud.upload.action.relogin", target="drives"),
+                _action("retry_job", "cloud.upload.action.retryAfterLogin"),
             ],
         )
     if isinstance(exc, dv.QuotaExceeded):
         return jobs.JobBlocked(
-            f"网盘「{account_name}」空间不够了：{exc.message}",
+            **stored_fields("cloud.upload.quotaExceeded", account=account_name, reason=reason),
             code="DRIVE_QUOTA_EXCEEDED",
-            actions=[{"type": "retry_job", "label": "腾出空间后重试"}],
+            actions=[_action("retry_job", "cloud.upload.action.retryAfterSpace")],
         )
     if isinstance(exc, dv.RateLimited):
         return jobs.JobRetry(
-            f"网盘「{account_name}」限流：{exc.message}",
+            **stored_fields("cloud.upload.rateLimited", account=account_name, reason=reason),
             delay_seconds=int(exc.retry_after or gateway.RATE_LIMIT_PAUSE),
             code="DRIVE_RATE_LIMITED",
         )
     if isinstance(exc, dv.RiskControl):
         return jobs.JobRetry(
-            f"网盘「{account_name}」触发风控，稍后再传：{exc.message}",
+            **stored_fields("cloud.upload.riskControl", account=account_name, reason=reason),
             delay_seconds=int(gateway.RISK_CONTROL_PAUSE),
             code="DRIVE_RISK_CONTROL",
         )
     if isinstance(exc, dv.ApiChanged):
         return jobs.JobBlocked(
-            f"网盘接口变了，需要更新网盘插件：{exc.message}",
+            **stored_fields("cloud.upload.apiChanged", reason=reason),
             code="DRIVE_API_CHANGED",
-            actions=[{"type": "retry_job", "label": "更新插件后重试"}],
+            actions=[_action("retry_job", "cloud.upload.action.retryAfterUpdate")],
         )
-    return jobs.JobRetry(f"网盘暂时连不上：{exc.message}", delay_seconds=60)
+    return jobs.JobRetry(
+        **stored_fields("cloud.upload.unreachable", reason=reason), delay_seconds=60
+    )
 
 
 class _Uploader:
@@ -269,7 +294,12 @@ class _Uploader:
         )
 
     async def progress(
-        self, message: str, *, percent: float | None = None, checkpoint: dict | None = None
+        self,
+        key: str,
+        *,
+        percent: float | None = None,
+        checkpoint: dict | None = None,
+        **params: object,
     ) -> None:
         details = {"done": self.done, "rapid": self.rapid, "failed": self.failed}
         if checkpoint is not None:
@@ -277,7 +307,8 @@ class _Uploader:
         await self.context.update_progress(
             mode="determinate",
             phase="uploading",
-            message=message,
+            message_key=key,
+            message_params=params,
             current=self.done,
             total=self.total,
             percent=percent,
@@ -298,7 +329,7 @@ class _Uploader:
         announced = False
         while uplink.busy():
             if not announced:
-                await self.progress("外网有人在看片，上传先让路")
+                await self.progress("cloud.upload.yielding")
                 announced = True
             await self.context.raise_if_cancelled()
             await asyncio.sleep(YIELD_POLL_S)
@@ -312,7 +343,7 @@ class _Uploader:
             await LibraryCloudRepository(session).start_upload(
                 file, account_id=self.folder.account_id, folder_id=self.folder.id or 0
             )
-        await self.progress(f"读取「{name}」算指纹")
+        await self.progress("cloud.upload.hashing", name=name)
         fingerprint, seen_stat = await fingerprint_for(file)
         relative = remote_dir_for(self.library, file.file_path)
         dir_id = await self.dir_id(relative)
@@ -329,7 +360,7 @@ class _Uploader:
         while step.need_range is not None:
             offset, length = step.need_range
             if length <= 0 or length > MAX_CHALLENGE_BYTES or offset + length > fingerprint.size:
-                raise dv.ApiChanged(f"网盘要校验的字节段不合理（{offset}+{length}）")
+                raise keyed(dv.ApiChanged, "errors.drives.rangeInvalid", range=f"{offset}+{length}")
             data = await asyncio.to_thread(read_range, path, offset, length)
             step = await self.call(
                 "begin_upload",
@@ -357,7 +388,7 @@ class _Uploader:
     ) -> dv.RemoteFile:
         part_size = min(step.part_size or fingerprint.size, max(fingerprint.size, 1))
         if part_size <= 0 or part_size > MAX_PART_BYTES:
-            raise dv.ApiChanged(f"网盘给的分片大小不合理（{part_size} 字节）")
+            raise keyed(dv.ApiChanged, "errors.drives.partSizeInvalid", size=part_size)
         parts = max(1, -(-fingerprint.size // part_size))
         state = step.state
         name = path.name
@@ -365,17 +396,18 @@ class _Uploader:
             await self.wait_for_uplink()
             await self.context.raise_if_cancelled()
             if await asyncio.to_thread(_stat, path) != seen_stat:
-                raise LocalChanged("上传过程中本地文件变了")
+                raise LocalChanged("cloud.upload.changedDuringUpload")
             data = await asyncio.to_thread(read_range, path, index * part_size, part_size)
             state = await self.call("upload_part", state=state, index=index, data=data)
             sent = min((index + 1) * part_size, fingerprint.size)
             await self.progress(
-                f"上传「{name}」",
+                "cloud.upload.uploading",
+                name=name,
                 percent=round(sent * 100 / max(fingerprint.size, 1), 1),
                 checkpoint={"file_id": file.id, "state": state, "next_part": index + 1},
             )
         if await asyncio.to_thread(_stat, path) != seen_stat:
-            raise LocalChanged("上传过程中本地文件变了")
+            raise LocalChanged("cloud.upload.changedDuringUpload")
         return await self.call("finish_upload", state=state)
 
     async def _verify(
@@ -401,9 +433,7 @@ class _Uploader:
         if seen.size != fingerprint.size or (
             seen.sha1 is not None and seen.sha1.upper() != fingerprint.sha1
         ):
-            raise LocalChanged(
-                "网盘上的文件和本地对不上（大小或哈希不同），没有记为已上传；网盘上那份请自行检查"
-            )
+            raise LocalChanged("cloud.upload.mismatch")
         async with get_database().session() as session:
             await LibraryCloudRepository(session).finish_upload(
                 file.id,
@@ -424,7 +454,7 @@ async def run_upload_job(
         folder = await LibraryCloudRepository(session).primary_folder(library_id)
         account = await DriveAccountRepository(session).get(folder.account_id) if folder else None
     if library is None or folder is None or account is None:
-        return {"message": "这个库的新内容已不再存到网盘，没有要传的"}
+        return stored_fields("cloud.upload.nothingToUpload")
     uploader = _Uploader(context, library, folder, account.name)
     details = (await context.current_progress()).get("details") or {}
     checkpoint = details.get("checkpoint") if isinstance(details, dict) else None
@@ -460,31 +490,31 @@ async def run_upload_job(
             skipped.add(file.id)
             uploader.failed += 1
             async with get_database().session() as session:
-                await LibraryCloudRepository(session).fail_upload(file.id, str(exc))
+                await LibraryCloudRepository(session).fail_upload(file.id, str(exc), exc.ref)
             logger.info("「%s」这次不上传：%s", PurePath(file.file_path).name, exc)
         except dv.Conflict as exc:
             skipped.add(file.id)
             uploader.failed += 1
-            async with get_database().session() as session:
-                await LibraryCloudRepository(session).fail_upload(
-                    file.id, f"网盘上已有同名的不同文件：{exc.message}"
-                )
+            await _fail(file.id, "cloud.upload.conflict", reason=error_reference(exc))
         except OSError as exc:
             skipped.add(file.id)
             uploader.failed += 1
-            async with get_database().session() as session:
-                await LibraryCloudRepository(session).fail_upload(file.id, f"本地文件读不了：{exc}")
+            await _fail(file.id, "cloud.upload.localUnreadable", reason=str(exc))
         except BackendUnavailable as exc:
             raise jobs.JobRetry(str(exc), delay_seconds=300) from exc
         except dv.DriveError as exc:
             raise _drive_error_to_job(exc, uploader.account_name) from exc
         checkpoint = None
-        await uploader.progress(f"已上传 {uploader.done} 个（秒传 {uploader.rapid}）")
-    message = f"上传完成：{uploader.done} 个文件（秒传 {uploader.rapid}）"
-    if uploader.failed:
-        message += f"，{uploader.failed} 个没传成（原因记在文件上，过一段时间再试）"
+        await uploader.progress(
+            "cloud.upload.progress", done=uploader.done, rapid=uploader.rapid
+        )
     return {
-        "message": message,
+        **stored_fields(
+            "cloud.upload.done",
+            done=uploader.done,
+            rapid=uploader.rapid,
+            failed=uploader.failed,
+        ),
         "uploaded": uploader.done,
         "rapid": uploader.rapid,
         "failed": uploader.failed,

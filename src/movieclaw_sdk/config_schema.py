@@ -19,6 +19,8 @@ _SCALARS = {"boolean", "string", "integer", "number"}
 _KEEP = (
     "title",
     "description",
+    "title_localized",
+    "description_localized",
     "default",
     "enum",
     "minLength",
@@ -50,8 +52,9 @@ def config_schema(model: type) -> dict[str, Any]:
         name: _field(name, prop, defs) for name, prop in (raw.get("properties") or {}).items()
     }
     schema: dict[str, Any] = {"type": "object", "properties": properties}
-    if raw.get("title"):
-        schema["title"] = raw["title"]
+    for annotation in ("title", "description", "title_localized", "description_localized"):
+        if annotation in raw:
+            schema[annotation] = raw[annotation]
     required = [name for name in raw.get("required", []) if name in properties]
     if required:
         schema["required"] = required

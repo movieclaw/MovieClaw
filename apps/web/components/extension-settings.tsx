@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 import { useCallback, useEffect, useState } from "react";
 
 import { ErrorBanner } from "@/components/cloud-push-ui";
@@ -36,34 +39,37 @@ import { formatDateTime } from "@/lib/time";
  * 各站点的同步与验证状态直接看上方站点列表，不在这里重复展示。
  */
 export function ExtensionCard() {
+  const locale = useLocale();
+  const t = useTranslations();
   const { installed } = useExtensionInstalled();
   const [tokenOpen, setTokenOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
 
   const badge =
     installed === null
-      ? { label: "检测中…", color: "#c0c4cc" }
+      ? { label: t("settings.extension.detecting"), color: "#c0c4cc" }
       : installed
-        ? { label: "已安装", color: "var(--ok)" }
-        : { label: "未检测到", color: "#c0c4cc" };
+        ? { label: t("settings.extension.installed"), color: "var(--ok)" }
+        : { label: t("settings.extension.notDetected"), color: "#c0c4cc" };
 
   return (
     <SettingsSection
-      title="浏览器扩展"
-      description="在站点页面一键读取登录 Cookie（含 httpOnly）并同步到本服务，免去手动复制粘贴，还能随 Cookie 变化自动保持最新。"
+      title={t("settings.extension.title")}
+      description={t("settings.extension.intro")}
     >
       <SettingsList>
         <SettingsRow
+          stackOnMobile={locale === "en"}
           leading={
             <span className="icon-chip size-9 shrink-0 !rounded-xl">
               <PuzzleIcon className="size-[18px]" />
             </span>
           }
-          label="MovieClaw 浏览器扩展"
+          label={t("settings.extension.name")}
           description={
             installed
-              ? "打开站点页面，点浏览器工具栏的 MovieClaw 图标即可同步；首次使用先生成同步令牌填入扩展。"
-              : "支持 Chrome / Edge 等 Chromium 内核浏览器及 Firefox。"
+              ? t("settings.extension.installedHint")
+              : t("settings.extension.browsers")
           }
         >
           <span className="flex items-center gap-1.5 text-sub text-[var(--text-muted)]">
@@ -80,13 +86,14 @@ export function ExtensionCard() {
               className={`${SETTINGS_BUTTON_CLASS} flex items-center gap-1.5`}
             >
               <DownloadIcon className="size-4" />
-              安装扩展
+              {t("settings.extension.install")}
             </button>
           )}
         </SettingsRow>
         <SettingsRow
-          label="同步令牌"
-          description="在扩展的设置里填入此令牌，即可把站点 Cookie 同步到本服务。"
+          stackOnMobile={locale === "en"}
+          label={t("settings.extension.token")}
+          description={t("settings.extension.tokenHint")}
         >
           <button
             type="button"
@@ -94,7 +101,7 @@ export function ExtensionCard() {
             className={`${SETTINGS_BUTTON_CLASS} flex items-center gap-1.5`}
           >
             <ShieldIcon className="size-4" />
-            管理
+            {t("settings.extension.manage")}
           </button>
         </SettingsRow>
       </SettingsList>
@@ -126,13 +133,12 @@ function InstallModal({
   onClose: () => void;
   onOpenToken: () => void;
 }) {
+  const t = useTranslations();
   const steps: { text: React.ReactNode; action?: React.ReactNode }[] = [
     {
       text: (
         <>
-          下载安装包并解压，得到{" "}
-          <code className="rounded bg-white/[0.06] px-1 font-mono text-sub">chrome-mv3</code>{" "}
-          文件夹。
+          {t.rich("settings.extension.downloadStep", { folder: (chunks) => <code className="rounded bg-white/[0.06] px-1 font-mono text-sub">{chunks}</code> })}
         </>
       ),
       action: (
@@ -142,26 +148,22 @@ function InstallModal({
           className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex w-fit items-center gap-1.5`}
         >
           <DownloadIcon className="size-4" />
-          下载安装包
+          {t("settings.extension.download")}
         </a>
       ),
     },
     {
       text: (
         <>
-          浏览器地址栏打开{" "}
-          <code className="rounded bg-white/[0.06] px-1 font-mono text-sub">
-            chrome://extensions
-          </code>
-          ，右上角开启「开发者模式」。
+          {t.rich("settings.extension.extensionsStep", { address: (chunks) => <code className="rounded bg-white/[0.06] px-1 font-mono text-sub">{chunks}</code> })}
         </>
       ),
     },
     {
-      text: <>点「加载已解压的扩展程序」，选择第 1 步解压出的文件夹。</>,
+      text: <>{t("settings.extension.loadStep")}</>,
     },
     {
-      text: <>生成同步令牌并填入扩展设置，之后切回本页会自动识别为「已安装」。</>,
+      text: <>{t("settings.extension.tokenStep")}</>,
       action: (
         <button
           type="button"
@@ -169,20 +171,19 @@ function InstallModal({
           className={`${SETTINGS_BUTTON_CLASS} flex w-fit items-center gap-1.5`}
         >
           <ShieldIcon className="size-4" />
-          去生成令牌
+          {t("settings.extension.generateAction")}
         </button>
       ),
     },
   ];
 
   return (
-    <Modal open={open} onClose={onClose} label="安装浏览器扩展" width="lg">
+    <Modal open={open} onClose={onClose} label={t("settings.extension.installTitle")} width="lg">
       <div className="space-y-4 p-6">
         <div>
-          <h2 className="text-title font-bold text-[var(--text)]">安装浏览器扩展</h2>
+          <h2 className="text-title font-bold text-[var(--text)]">{t("settings.extension.installTitle")}</h2>
           <p className="mt-1 text-sub leading-5 text-[var(--text-muted)]">
-            按下面四步操作，全程约一分钟。Chrome 应用商店政策不允许商店外扩展一键安装，
-            所以需要手动加载一次，之后升级会自动提示。
+            {t("settings.extension.installHint")}
           </p>
         </div>
 
@@ -201,26 +202,19 @@ function InstallModal({
         </ol>
 
         <p className="text-sub leading-5 text-[var(--text-muted)]">
-          Firefox 不能用上面的 Chrome 安装包（会提示「已损坏」），请下载{" "}
-          <a href={EXTENSION_FIREFOX_ZIP_URL} download className="text-[var(--text)] underline">
-            Firefox 安装包
-          </a>
-          ，在{" "}
-          <code className="rounded bg-white/[0.06] px-1 font-mono text-sub">about:debugging</code>{" "}
-          →「此 Firefox」→「临时载入附加组件」中直接选择该 zip（不用解压）。安装包未经 Mozilla
-          签名，正式版 Firefox 重启后需重新载入；开发者版 / Nightly / ESR 可把{" "}
-          <code className="rounded bg-white/[0.06] px-1 font-mono text-sub">
-            xpinstall.signatures.required
-          </code>{" "}
-          设为 false 后从附加组件管理器「从文件安装」长期使用。
+          {t.rich("settings.extension.firefoxHint", {
+            download: (chunks) => <a href={EXTENSION_FIREFOX_ZIP_URL} download className="text-[var(--text)] underline">{chunks}</a>,
+            debug: (chunks) => <code className="rounded bg-white/[0.06] px-1 font-mono text-sub">{chunks}</code>,
+            setting: (chunks) => <code className="rounded bg-white/[0.06] px-1 font-mono text-sub">{chunks}</code>,
+          })}
         </p>
 
         <div className="flex items-center justify-between gap-3 pt-1">
           <p className="text-caption text-[var(--text-faint)]">
-            支持 Chrome / Edge 等 Chromium 内核浏览器及 Firefox；安装检测仅对 Chromium 生效。
+            {t("settings.extension.detectionHint")}
           </p>
           <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-            完成
+            {t("settings.extension.done")}
           </button>
         </div>
       </div>
@@ -235,6 +229,7 @@ function InstallModal({
  * 生成 / 查看 / 复制 / 重新生成 / 关闭同步都收在这里。
  */
 function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useTranslations();
   const confirm = useConfirm();
   const [token, setToken] = useState<SyncTokenView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -261,9 +256,9 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
     if (
       token?.enabled &&
       !(await confirm({
-        title: "重新生成同步令牌？",
-        description: "重新生成将使旧令牌立即失效，已配置的扩展需要更新令牌。",
-        confirmLabel: "重新生成",
+        title: t("settings.extension.regenerateTitle"),
+        description: t("settings.extension.regenerateHint"),
+        confirmLabel: t("settings.extension.regenerate"),
         tone: "danger",
       }))
     ) {
@@ -283,9 +278,9 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   async function onRevoke() {
     if (
       !(await confirm({
-        title: "关闭 Cookie 同步？",
-        description: "关闭同步将撤销令牌，所有扩展都将无法再同步。",
-        confirmLabel: "关闭同步",
+        title: t("settings.extension.revokeTitle"),
+        description: t("settings.extension.revokeHint"),
+        confirmLabel: t("settings.extension.revoke"),
         tone: "danger",
       }))
     ) {
@@ -303,13 +298,13 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} label="同步令牌" width="lg">
+    <Modal open={open} onClose={onClose} label={t("settings.extension.token")} width="lg">
       <div className="space-y-4 p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-title font-bold text-[var(--text)]">同步令牌</h2>
+            <h2 className="text-title font-bold text-[var(--text)]">{t("settings.extension.token")}</h2>
             <p className="mt-1 text-sub leading-5 text-[var(--text-muted)]">
-              在浏览器扩展的设置里填入此令牌，即可把站点 Cookie 同步到本服务。令牌长期有效，除非你重新生成。
+              {t("settings.extension.tokenLongHint")}
             </p>
           </div>
           <StatusDot on={Boolean(token?.enabled)} />
@@ -325,7 +320,7 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
           <TokenRow token={token.token ?? ""} createdAt={token.created_at} />
         ) : (
           <p className="rounded-xl bg-white/[0.03] px-4 py-3 text-body text-[var(--text-muted)]">
-            尚未启用同步。点击下方「生成令牌」创建一个。
+            {t("settings.extension.noToken")}
           </p>
         )}
 
@@ -338,11 +333,11 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
               disabled={busy || loading}
               className={SETTINGS_DANGER_BUTTON_CLASS}
             >
-              关闭同步
+              {t("settings.extension.revoke")}
             </button>
           )}
           <button type="button" onClick={onClose} className={`${SETTINGS_BUTTON_CLASS} ml-auto`}>
-            完成
+            {t("settings.extension.done")}
           </button>
           <button
             type="button"
@@ -350,7 +345,7 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
             disabled={busy || loading}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {token?.enabled ? "重新生成" : "生成令牌"}
+            {token?.enabled ? t("settings.extension.regenerate") : t("settings.extension.generate")}
           </button>
         </div>
       </div>
@@ -359,18 +354,21 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
 }
 
 function StatusDot({ on }: { on: boolean }) {
+  const t = useTranslations();
   return (
     <span className="flex shrink-0 items-center gap-1.5 text-sub text-[var(--text-muted)]">
       <span
         className="size-2 rounded-full"
         style={{ background: on ? "var(--ok)" : "#c0c4cc" }}
       />
-      {on ? "已启用" : "未启用"}
+      {on ? t("settings.extension.enabled") : t("settings.extension.notEnabled")}
     </span>
   );
 }
 
 function TokenRow({ token, createdAt }: { token: string; createdAt: string | null }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -397,12 +395,12 @@ function TokenRow({ token, createdAt }: { token: string; createdAt: string | nul
           onClick={() => setRevealed((v) => !v)}
           className="btn-glass shrink-0 px-2.5 py-1 text-sub font-medium"
         >
-          {revealed ? "隐藏" : "显示"}
+          {revealed ? t("settings.extension.hide") : t("settings.extension.show")}
         </button>
         <button
           type="button"
           onClick={copy}
-          aria-label="复制令牌"
+          aria-label={t("settings.extension.copy")}
           className="btn-glass shrink-0 px-2 py-1 text-sub font-medium"
         >
           {copied ? <CheckIcon className="size-4 text-[var(--ok)]" /> : <CopyIcon className="size-4" />}
@@ -410,7 +408,7 @@ function TokenRow({ token, createdAt }: { token: string; createdAt: string | nul
       </div>
       {createdAt && (
         <p className="mt-1.5 text-caption text-[var(--text-faint)]">
-          生成于 {formatDateTime(createdAt)}
+          {t("settings.extension.created", { time: formatDateTime(createdAt, locale) })}
         </p>
       )}
     </div>

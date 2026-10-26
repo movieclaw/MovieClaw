@@ -155,7 +155,7 @@ struct AudioMenu: View {
     let close: () -> Void
 
     var body: some View {
-        PlayerMenuPanel(title: "音轨") {
+        PlayerMenuPanel(title: String(localized: .playerControlsAudio)) {
             ForEach(controller.audioOptions) { option in
                 if let reason = option.unavailableReason {
                     // 放不了的轨置灰并写明原因（样式同字幕菜单的「不可用」）
@@ -180,7 +180,7 @@ struct AudioMenu: View {
             }
             if controller.audioSwitchRestarts {
                 MenuDivider()
-                MenuNote(text: "换音轨需要重新起流，会从当前位置续上，中间大约停顿一秒。")
+                MenuNote(text: String(localized: .playerSubtitlesAudioRestartHint))
             }
         }
     }
@@ -193,9 +193,9 @@ struct SubtitleMenu: View {
     let close: () -> Void
 
     var body: some View {
-        PlayerMenuPanel(title: "字幕") {
+        PlayerMenuPanel(title: String(localized: .playerControlsSubtitles)) {
             // 选完即关：换轨是一次决定，不是连续调节；要调样式的重新打开菜单（同 Web）
-            PlayerMenuRow(title: "关闭", active: controller.selectedSubtitle == nil, identifier: "subtitle-off") {
+            PlayerMenuRow(title: String(localized: .commonOff), active: controller.selectedSubtitle == nil, identifier: "subtitle-off") {
                 controller.selectSubtitle(nil)
                 close()
             }
@@ -219,7 +219,7 @@ struct SubtitleMenu: View {
                 .padding(.vertical, 6)
             }
             if controller.subtitles.options.isEmpty, controller.subtitles.unavailable.isEmpty {
-                Text("这个文件没有可用字幕")
+                Text(String(localized: .playerSubtitlesEmpty))
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.45))
                     .padding(.leading, MenuMetrics.titleLeading)
@@ -229,7 +229,7 @@ struct SubtitleMenu: View {
             if controller.graphicSubtitlesBurnIn, controller.subtitles.options.contains(where: { $0.kind == "pgs" }) {
                 // 用户点之前就该知道代价：系统播放器（放服务端流时）渲染不了图形字幕，要转码压制进画面
                 MenuDivider()
-                MenuNote(text: "图形字幕会转码压制进画面（切换约一秒），画中画等场景也能看到")
+                MenuNote(text: String(localized: .playerSubtitlesBitmapHint))
             }
             if controller.selectedSubtitle != nil {
                 MenuDivider()
@@ -247,23 +247,23 @@ private struct SubtitleStyleEditor: View {
         let style = controller.subtitleStyle
         // 行距 12：32pt 的步进键各向外扩 6pt 成 44pt 触控区，上下两行正好首尾相接、互不抢点
         VStack(spacing: 12) {
-            StepRow(label: "时间轴", value: String(format: "%@%.1f 秒", style.offsetSeconds > 0 ? "+" : "", style.offsetSeconds)) {
+            StepRow(id: "subtitle-时间轴-value", label: String(localized: .playerSubtitlesOffset), value: String(localized: .playerSubtitlesSignedOffset(style.offsetSeconds > 0 ? "+" : "", style.offsetSeconds))) { // i18n-ignore: UI test identifier
                 controller.subtitleStyle.offsetSeconds = SubtitleStyle.clampOffset(style.offsetSeconds - SubtitleStyle.offsetStep)
             } plus: {
                 controller.subtitleStyle.offsetSeconds = SubtitleStyle.clampOffset(style.offsetSeconds + SubtitleStyle.offsetStep)
             }
-            StepRow(label: "字号", value: String(format: "%.1f", style.fontScale)) {
+            StepRow(id: "subtitle-字号-value", label: String(localized: .playerSubtitlesFontSize), value: String(format: "%.1f", style.fontScale)) { // i18n-ignore: UI test identifier
                 controller.subtitleStyle.fontScale = max(2, style.fontScale - 0.4)
             } plus: {
                 controller.subtitleStyle.fontScale = min(10, style.fontScale + 0.4)
             }
-            StepRow(label: "位置", value: "\(Int(style.bottomPercent))%") {
+            StepRow(id: "subtitle-位置-value", label: String(localized: .playerSubtitlesPosition), value: "\(Int(style.bottomPercent))%") { // i18n-ignore: UI test identifier
                 controller.subtitleStyle.bottomPercent = max(0, style.bottomPercent - 2)
             } plus: {
                 controller.subtitleStyle.bottomPercent = min(40, style.bottomPercent + 2)
             }
             HStack(spacing: 8) {
-                StyleToggle(title: "背景", on: style.background) { controller.subtitleStyle.background.toggle() }
+                StyleToggle(title: String(localized: .playerSubtitlesBackground), on: style.background) { controller.subtitleStyle.background.toggle() }
                 Spacer()
             }
             .padding(.horizontal, MenuMetrics.edge)
@@ -273,6 +273,7 @@ private struct SubtitleStyleEditor: View {
 }
 
 private struct StepRow: View {
+    let id: String
     let label: String
     let value: String
     let minus: () -> Void
@@ -282,13 +283,13 @@ private struct StepRow: View {
         HStack {
             Text(label).foregroundStyle(.white.opacity(0.65))
             Spacer()
-            StepButton(symbol: "minus", label: "\(label)减", action: minus)
+            StepButton(symbol: "minus", label: String(localized: .playerSubtitlesDecrease(label)), action: minus)
             Text(value)
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.9))
                 .frame(width: 72)
-                .accessibilityIdentifier("subtitle-\(label)-value")
-            StepButton(symbol: "plus", label: "\(label)加", action: plus)
+                .accessibilityIdentifier(id)
+            StepButton(symbol: "plus", label: String(localized: .playerSubtitlesIncrease(label)), action: plus)
         }
         .font(.subheadline)
         .padding(.horizontal, MenuMetrics.edge)
@@ -337,7 +338,7 @@ private struct StyleToggle: View {
 /// 「AI 生成」标记：AI 字幕的译文与时间轴都可能有偏差，用户有权在选中之前就知道
 struct AIChip: View {
     var body: some View {
-        Label("AI 生成", systemImage: "sparkles")
+        Label(String(localized: .playerSubtitlesAi), systemImage: "sparkles")
             .font(.system(size: 10, weight: .semibold))
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 6)

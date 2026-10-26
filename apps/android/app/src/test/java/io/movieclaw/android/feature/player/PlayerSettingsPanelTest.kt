@@ -51,9 +51,11 @@ class PlayerSettingsPanelTest {
                         qualityReason = "原文件直连",
                         canPickQuality = !guest,
                         speed = speed,
+                        displayMode = "fit",
                         diagnosticsOpen = false,
                         onSelectQuality = {},
                         onSelectSpeed = { picked = it; speed = it },
+                        onSelectDisplayMode = {},
                         onToggleDiagnostics = {},
                         onDismiss = { open = false },
                     )

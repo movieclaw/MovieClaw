@@ -61,9 +61,9 @@ struct MediaTrackSection: View {
             }
 
             TrackRowView(
-                label: "音轨",
+                label: String(localized: .mediaTracksAudio),
                 groups: audioGroups,
-                empty: file.audioStreams == nil ? "尚未探测" : "文件内没有音轨",
+                empty: file.audioStreams == nil ? String(localized: .libraryItemNotProbed) : String(localized: .mediaTracksNoAudio),
                 marksDefault: defaults != nil,
                 onOpen: { listTarget = TrackListTarget(kind: .audio, focusLanguage: $0) }
             ) {
@@ -79,9 +79,9 @@ struct MediaTrackSection: View {
             }
 
             TrackRowView(
-                label: "字幕",
+                label: String(localized: .librarySubtitleGenerationSubtitle),
                 groups: subtitleGroups,
-                empty: "无内封或外挂字幕",
+                empty: String(localized: .mediaTracksNoSubtitles),
                 marksDefault: defaults != nil,
                 onOpen: { listTarget = TrackListTarget(kind: .subtitle, focusLanguage: $0) }
             ) {
@@ -107,7 +107,7 @@ struct MediaTrackSection: View {
                 focusLanguage: target.focusLanguage,
                 defaultNote: currentDefaults.flatMap { TrackModel.defaultNote($0, kind: target.kind) },
                 footer: target.kind == .subtitle
-                    ? (permissions.canManageLibraries ? "点任意一条打开字幕预览；外挂字幕可左滑删除" : "点任意一条打开字幕预览")
+                    ? (permissions.canManageLibraries ? String(localized: .libraryTracksPreviewDeleteHint) : String(localized: .mediaTracksPreviewHint))
                     : nil,
                 canDelete: permissions.canManageLibraries,
                 file: currentFile,
@@ -121,7 +121,7 @@ struct MediaTrackSection: View {
     /// 版本选择：「分辨率 — 文件名」
     private func versionPicker(_ file: API.LibraryFileView) -> some View {
         Menu {
-            Picker("选择视频文件", selection: Binding(
+            Picker(String(localized: .mediaTracksSelectFile), selection: Binding(
                 get: { file.id },
                 set: { selectedFileId = $0 }
             )) {
@@ -145,7 +145,7 @@ struct MediaTrackSection: View {
             .background(Color.white.opacity(0.055), in: .rect(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.08)))
         }
-        .accessibilityLabel("选择视频文件")
+        .accessibilityLabel(String(localized: .mediaTracksSelectFile))
     }
 
     /// 删除一条外挂字幕（确认已在列表弹层里做过：确认框列出完整路径，删除不进回收站也无法撤销）
@@ -153,11 +153,11 @@ struct MediaTrackSection: View {
         guard let filename = entry.deletable else { return }
         do {
             _ = try await api.librarySubtitlesDelete(fileId: file.id, filename: filename)
-            feedback.success("已删除字幕：\(filename)")
+            feedback.success(String(localized: .mediaTracksDeleted(filename)))
             await onChanged()
         } catch is CancellationError {
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "字幕删除失败，请稍后重试" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .mediaTracksDeleteFailed) : error.localizedDescription)
         }
     }
 }
@@ -182,9 +182,9 @@ struct MediaTrackReadOnlyRows: View {
         let audioSpec = TrackModel.topAudioSpec(audioStreams ?? [])
         VStack(alignment: .leading, spacing: 10) {
             TrackRowView(
-                label: "音轨",
+                label: String(localized: .mediaTracksAudio),
                 groups: audioGroups,
-                empty: audioStreams == nil ? "尚未探测" : "文件内没有音轨",
+                empty: audioStreams == nil ? String(localized: .libraryItemNotProbed) : String(localized: .mediaTracksNoAudio),
                 marksDefault: false,
                 onOpen: { listTarget = TrackListTarget(kind: .audio, focusLanguage: $0) }
             ) {
@@ -199,9 +199,9 @@ struct MediaTrackReadOnlyRows: View {
                 }
             }
             TrackRowView(
-                label: "字幕",
+                label: String(localized: .librarySubtitleGenerationSubtitle),
                 groups: subtitleGroups,
-                empty: "无内封或外挂字幕",
+                empty: String(localized: .mediaTracksNoSubtitles),
                 marksDefault: false,
                 onOpen: { listTarget = TrackListTarget(kind: .subtitle, focusLanguage: $0) }
             ) {
@@ -230,7 +230,7 @@ struct MediaTrackReadOnlyRows: View {
 private enum TrackKind {
     case audio, subtitle
 
-    var title: String { self == .audio ? "音轨" : "字幕" }
+    var title: String { self == .audio ? String(localized: .mediaTracksAudio) : String(localized: .librarySubtitleGenerationSubtitle) }
 }
 
 private struct TrackListTarget: Identifiable {
@@ -326,10 +326,10 @@ private enum TrackModel {
     ]
     /// 有序：按中文名反查语言码时取第一个命中（同 Web Object.keys 的插入顺序）
     static let languageLabels: [(code: String, label: String)] = [
-        ("chs", "简体中文"), ("cht", "繁体中文"), ("chi", "中文"), ("zho", "中文"), ("cmn", "中文"),
-        ("yue", "粤语"), ("eng", "英语"), ("jpn", "日语"), ("kor", "韩语"), ("fre", "法语"), ("fra", "法语"),
-        ("ger", "德语"), ("deu", "德语"), ("spa", "西班牙语"), ("rus", "俄语"), ("ita", "意大利语"),
-        ("por", "葡萄牙语"), ("tha", "泰语"), ("hin", "印地语"),
+        ("chs", String(localized: .mediaLanguagesSimplifiedChinese)), ("cht", String(localized: .mediaLanguagesTraditionalChinese)), ("chi", String(localized: .libraryArtworkLanguageChinese)), ("zho", String(localized: .libraryArtworkLanguageChinese)), ("cmn", String(localized: .libraryArtworkLanguageChinese)),
+        ("yue", String(localized: .mediaLanguagesCantonese)), ("eng", String(localized: .mediaLanguagesEnglish)), ("jpn", String(localized: .mediaLanguagesJapanese)), ("kor", String(localized: .mediaLanguagesKorean)), ("fre", String(localized: .mediaLanguagesFrench)), ("fra", String(localized: .mediaLanguagesFrench)),
+        ("ger", String(localized: .mediaLanguagesGerman)), ("deu", String(localized: .mediaLanguagesGerman)), ("spa", String(localized: .mediaLanguagesSpanish)), ("rus", String(localized: .mediaLanguagesRussian)), ("ita", String(localized: .mediaLanguagesItalian)),
+        ("por", String(localized: .mediaLanguagesPortuguese)), ("tha", String(localized: .mediaLanguagesThai)), ("hin", String(localized: .mediaLanguagesHindi)),
     ]
     /// 这是一款中文软件：中文优先；简繁刻意不合并——它们正是用户真正要区分的东西
     static let languageRanks = [
@@ -338,7 +338,7 @@ private enum TrackModel {
     static let otherLanguageRank = 40
     static let bilingualRank = 80
     static let unknownLanguageRank = 90
-    static let unknownLanguage = "未标语言"
+    static let unknownLanguage = String(localized: .mediaTracksUnknownLanguage)
 
     /// 这些 profile 只是编码内部档次，单独展示反而让人困惑；只有 DTS-HD MA 这类更有信息量的才顶替 codec
     static let genericProfiles: Set<String> = ["lc", "main", "high", "baseline", "main 10"]
@@ -367,8 +367,8 @@ private enum TrackModel {
             return layout
         }
         guard let channels = stream.channels else { return nil }
-        let map = [1: "单声道", 2: "2.0", 6: "5.1", 7: "6.1", 8: "7.1"]
-        return map[channels] ?? "\(channels) 声道"
+        let map = [1: String(localized: .mediaTracksMono), 2: "2.0", 6: "5.1", 7: "6.1", 8: "7.1"]
+        return map[channels] ?? String(localized: .mediaTracksChannels(channels))
     }
 
     static func informativeProfile(_ stream: API.AudioStreamView) -> String? {
@@ -383,7 +383,7 @@ private enum TrackModel {
 
     /// 音轨 → 列表行主文案：格式（有信息量的 profile 优先）· 声道
     static func audioSpecLabel(_ stream: API.AudioStreamView) -> String {
-        let codec = informativeProfile(stream) ?? audioCodecName(stream) ?? "未知格式"
+        let codec = informativeProfile(stream) ?? audioCodecName(stream) ?? String(localized: .librarySubtitleGenerationUnknownFormat)
         return [codec, channelsLabel(stream)].compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -415,8 +415,8 @@ private enum TrackModel {
                 return "\(languageLabel(languages[0]) ?? languages[0]) + \(languageLabel(languages[1]) ?? languages[1])"
             }
         }
-        if title == "ai-chs" { return "简体中文" }
-        if title == "ai-cht" { return "繁体中文" }
+        if title == "ai-chs" { return String(localized: .mediaLanguagesSimplifiedChinese) }
+        if title == "ai-cht" { return String(localized: .mediaLanguagesTraditionalChinese) }
         return nil
     }
 
@@ -428,7 +428,7 @@ private enum TrackModel {
     }
 
     static func subtitleFormatToken(_ stream: API.SubtitleStreamView) -> String {
-        guard let codec = stream.codec, !codec.isEmpty else { return "字幕" }
+        guard let codec = stream.codec, !codec.isEmpty else { return String(localized: .librarySubtitleGenerationSubtitle) }
         return subtitleCodecLabels[codec.lowercased()] ?? codec.uppercased()
     }
 
@@ -467,15 +467,15 @@ private enum TrackModel {
 
     static func externalSubtitleSuffix(_ stream: API.SubtitleStreamView) -> String {
         let tokens = fileTokens(stream)
-        if tokens.contains(where: { $0 == "ai" || $0.hasPrefix("ai-") }) { return "AI 外挂" }
-        if tokens.contains("pgs-ocr") { return "PGS 转换" }
-        return "外挂"
+        if tokens.contains(where: { $0 == "ai" || $0.hasPrefix("ai-") }) { return String(localized: .mediaTracksAiExternal) }
+        if tokens.contains("pgs-ocr") { return String(localized: .mediaTracksPgsConverted) }
+        return String(localized: .librarySubtitleGenerationExternal)
     }
 
     /// 外挂字幕的行内标签：去掉与视频同名的那段前缀，只留区分用的 token 段。
     /// 外挂字幕全都以视频文件名开头，完整文件名截断后几条长得一模一样；完整路径仍在删除确认框里给全。
     static func externalSubtitleLabel(_ fileName: String?, videoStem: String) -> String {
-        guard let fileName else { return "外挂字幕" }
+        guard let fileName else { return String(localized: .mediaTracksExternalSubtitle) }
         if !videoStem.isEmpty, fileName.lowercased().hasPrefix(videoStem.lowercased()) {
             var rest = String(fileName.dropFirst(videoStem.count))
             if rest.hasPrefix(".") { rest.removeFirst() }
@@ -523,7 +523,7 @@ private enum TrackModel {
             let spec = audioSpecLabel(stream)
             let title = stream.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let format: String = {
-                guard let codec = stream.codec, !codec.isEmpty else { return "音轨" }
+                guard let codec = stream.codec, !codec.isEmpty else { return String(localized: .mediaTracksAudio) }
                 return audioFormatTokens[codec.lowercased()] ?? codec.uppercased()
             }()
             return TrackEntry(
@@ -533,8 +533,8 @@ private enum TrackModel {
                 format: format,
                 tone: audioTone(stream),
                 primary: title.isEmpty ? spec : "\(spec) · \(title)",
-                secondary: "轨 \(index + 1)",
-                flags: isDefault ? ["默认"] : [],
+                secondary: String(localized: .mediaTracksNumber(String(index + 1))),
+                flags: isDefault ? [String(localized: .libraryManageDefault)] : [],
                 external: nil,
                 order: isDefault ? 0 : 1,
                 deletable: nil,
@@ -558,11 +558,11 @@ private enum TrackModel {
             let isDefault = defaults.map { track != nil && $0.subtitleTrack == track } ?? stream.default
             let title = stream.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let hasTitle = !title.isEmpty
-            let primary = external ? externalSubtitleLabel(stream.fileName, videoStem: videoStem) : hasTitle ? title : "内封轨 \(embeddedOrdinal)"
+            let primary = external ? externalSubtitleLabel(stream.fileName, videoStem: videoStem) : hasTitle ? title : String(localized: .mediaTracksEmbeddedNumber(embeddedOrdinal))
             let label = "\(primary) · \(language) · \(format)"
             var flags: [String] = []
-            if isDefault { flags.append("默认") }
-            if stream.forced { flags.append("强制") }
+            if isDefault { flags.append(String(localized: .libraryManageDefault)) }
+            if stream.forced { flags.append(String(localized: .mediaTracksForced)) }
             return TrackEntry(
                 id: "subtitle:\(track ?? "unknown:\(index)")",
                 language: language,
@@ -570,7 +570,7 @@ private enum TrackModel {
                 format: format,
                 tone: subtitleTone(stream),
                 primary: primary,
-                secondary: external ? externalSubtitleSuffix(stream) : hasTitle ? "内封轨 \(embeddedOrdinal)" : "内封",
+                secondary: external ? externalSubtitleSuffix(stream) : hasTitle ? String(localized: .mediaTracksEmbeddedNumber(embeddedOrdinal)) : String(localized: .librarySubtitleGenerationEmbedded),
                 flags: flags,
                 external: external,
                 order: isDefault ? 0 : isAiSubtitle(stream) ? 3 : external ? 2 : 1,
@@ -586,11 +586,11 @@ private enum TrackModel {
         switch kind {
         case .audio:
             guard defaults.audioTrack != nil, !defaults.audioNote.isEmpty else { return nil }
-            return "标「默认」的这条会自动播放：\(defaults.audioNote)"
+            return String(localized: .mediaTracksAudioDefaultNote(defaults.audioNote))
         case .subtitle:
             guard !defaults.subtitleNote.isEmpty else { return nil }
             return defaults.subtitleTrack != nil
-                ? "标「默认」的这条会自动打开：\(defaults.subtitleNote)"
+                ? String(localized: .mediaTracksSubtitleDefaultNote(defaults.subtitleNote))
                 : defaults.subtitleNote
         }
     }
@@ -685,12 +685,12 @@ private struct TrackRowView<Trailing: View>: View {
                             .modifier(TrackChipStyle(background: Color.white.opacity(0.075), foreground: Color.white.opacity(0.85)))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityValue(playing ? "默认播放" : "")
+                        .accessibilityValue(playing ? String(localized: .libraryTracksPlaysByDefault) : "")
                     }
                     let hidden = groups.dropFirst(maxChips)
                     if let first = hidden.first {
                         Button { onOpen(first.language) } label: {
-                            Text("+\(hidden.count) 种")
+                            Text(String(localized: .mediaTracksMoreLanguages(hidden.count)))
                                 .modifier(TrackChipStyle(background: Color.white.opacity(0.045), foreground: Theme.textMuted))
                         }
                         .buttonStyle(.plain)
@@ -750,9 +750,9 @@ private struct TrackListSheet: View {
     /// 导航栏副标题：总条数，字幕再拆内封 / 外挂（音轨没有这个区分，不占位）
     private var summary: String {
         let total = entries.count
-        guard entries.contains(where: { $0.external != nil }) else { return "共 \(total) 条" }
+        guard entries.contains(where: { $0.external != nil }) else { return String(localized: .libraryTracksTotal(total)) }
         let external = entries.filter { $0.external == true }.count
-        return "共 \(total) 条 · 内封 \(total - external) · 外挂 \(external)"
+        return String(localized: .libraryTracksTotalSplit(total, total - external, external))
     }
 
     var body: some View {
@@ -798,7 +798,7 @@ private struct TrackListSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭", systemImage: "xmark", role: .close) { dismiss() }
+                    Button(String(localized: .commonClose), systemImage: "xmark", role: .close) { dismiss() }
                         .accessibilityIdentifier("sheet-close")
                 }
             }
@@ -814,19 +814,19 @@ private struct TrackListSheet: View {
                 }
             }
             .alert(
-                "删除这个字幕文件？",
+                String(localized: .mediaTracksDeleteTitle),
                 isPresented: Binding(mcGet: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
                 presenting: pendingDelete
             ) { entry in
-                Button("取消", role: .cancel) { pendingDelete = nil }
-                Button("删除字幕", role: .destructive) {
+                Button(String(localized: .commonCancel), role: .cancel) { pendingDelete = nil }
+                Button(String(localized: .mediaTracksDeleteAction), role: .destructive) {
                     pendingDelete = nil
                     // 删除不收起列表：删完还能接着清理同一组里的其他字幕
                     Task { await onDelete(entry) }
                 }
             } message: { entry in
                 // 列真实路径而不是「这条字幕」：同一部影片常有一堆同语言字幕，只有路径能确认删的是哪个
-                Text("将从磁盘直接删除下面的文件，删除后无法恢复：\n\(TrackModel.siblingPath(file?.filePath ?? "", entry.deletable ?? ""))")
+                Text(String(localized: .libraryTracksDeleteFileWarning(TrackModel.siblingPath(file?.filePath ?? "", entry.deletable ?? ""))))
             }
         }
     }
@@ -839,7 +839,7 @@ private struct TrackListSheet: View {
         Group {
             if selectable {
                 NavigationLink(value: entry.id) { lineContent(entry) }
-                    .accessibilityLabel("预览字幕：\(entry.language) · \(entry.format) · \(entry.primary) · \(entry.secondary)")
+                    .accessibilityLabel(String(localized: .mediaTracksPreview(entry.language, entry.format, entry.primary, entry.secondary)))
             } else {
                 lineContent(entry)
             }
@@ -847,9 +847,9 @@ private struct TrackListSheet: View {
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if canDelete, entry.deletable != nil {
                 // 不用 role: .destructive：那会让系统先把行删掉动画走，而这里还要等确认框
-                Button("删除", systemImage: "trash") { pendingDelete = entry }
+                Button(String(localized: .commonDelete), systemImage: "trash") { pendingDelete = entry }
                     .tint(.red)
-                    .accessibilityLabel("删除字幕文件：\(entry.primary)")
+                    .accessibilityLabel(String(localized: .mediaTracksDeleteFile(entry.primary)))
             }
         }
     }

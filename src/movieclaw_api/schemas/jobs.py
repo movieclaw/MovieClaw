@@ -15,6 +15,8 @@ class JobProgressView(BaseModel):
     mode: str = Field(description="determinate / indeterminate / waiting / paused")
     phase: str = Field(description="当前领域阶段的稳定标识")
     message: str = Field(description="面向用户的即时进展")
+    message_key: str | None = None
+    message_params: dict[str, Any] = Field(default_factory=dict)
     current: int | None = Field(default=None, description="当前完成量")
     total: int | None = Field(default=None, description="总量；未知时为空")
     percent: float | None = Field(default=None, description="真实可计算时才返回百分比")

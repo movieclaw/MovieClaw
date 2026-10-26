@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.cloud import (
     MyPushView,
     OfficialChannelRequest,
@@ -95,7 +96,7 @@ async def probe_relay(payload: RelayProbeRequest) -> ApiResponse[RelayProbeView]
 )
 async def create_relay(payload: RelayCreateRequest) -> ApiResponse[PushChannelsView]:
     await admin.create_relay(name=payload.name, url=payload.url, token=payload.token)
-    return ok(await admin.build_channels_view(), message="已添加自建中继")
+    return ok(await admin.build_channels_view(), message=t("settings.appPush.relayAdded"))
 
 
 @admin_router.patch(
@@ -125,7 +126,7 @@ async def update_relay(relay_id: str, payload: RelayUpdateRequest) -> ApiRespons
 )
 async def delete_relay(relay_id: str) -> ApiResponse[PushChannelsView]:
     await admin.delete_relay(relay_id)
-    return ok(await admin.build_channels_view(), message="已删除自建中继")
+    return ok(await admin.build_channels_view(), message=t("settings.appPush.relayDeleted"))
 
 
 @admin_router.post(
@@ -198,7 +199,7 @@ async def mute_item(
     from movieclaw_db.models import MediaItem
 
     if await session.get(MediaItem, item_id) is None:
-        raise NotFoundException("没有这部片")
+        raise NotFoundException(message_key="errors.push.mediaMissing")
     await preferences.set_muted(session, principal.owner_id, item_id, True)
     return ok(await me.build_view(session, principal))
 
@@ -350,7 +351,7 @@ async def push_image(token: str) -> FileResponse:
 
     url = await resolve_image(token)
     if url is None:
-        raise NotFoundException("图片不存在")
+        raise NotFoundException(message_key="errors.push.imageMissing")
     # 条目图已落本地就用本地母版缩到推送宽度（图床被墙也带得出图），否则回源
     local = await local_push_image(url)
     if local is not None:
@@ -363,7 +364,7 @@ async def push_image(token: str) -> FileResponse:
     try:
         cached = await get_image_cache().get_or_fetch(url)
     except Exception as exc:  # noqa: BLE001 -- 取不到图对通知扩展来说就是「不带图」
-        raise NotFoundException("图片不存在") from exc
+        raise NotFoundException(message_key="errors.push.imageMissing") from exc
     return FileResponse(
         cached.path,
         media_type=cached.content_type,

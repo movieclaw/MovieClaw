@@ -33,6 +33,7 @@ _BATCH = 40
 @register_task(
     "backfill_nfo_absorption",
     title="本地 NFO 吸收回填",
+    title_key="settings.scheduledTasks.catalog.backfillNfoAbsorptionTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=300,
     description=(
@@ -40,6 +41,7 @@ _BATCH = 40
         "此前这些字段是每次打开详情页时现读 NFO 得到的，现在改为入库时读一次、"
         "之后只读库。纯本地读盘，不联网、不重下图；全部补完后本任务自动空转。"
     ),
+    description_key="settings.scheduledTasks.catalog.backfillNfoAbsorptionDescription",
 )
 async def backfill_nfo_absorption() -> None:
     from movieclaw_api.services.media_scrape import absorb_local_nfo

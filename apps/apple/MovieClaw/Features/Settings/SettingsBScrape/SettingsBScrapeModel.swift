@@ -19,28 +19,28 @@ struct SettingsBScrapeChipOption: Hashable {
 enum SettingsBScrapeCatalog {
     /// 常用语种快捷芯片（元数据语言，值为带地区的语言标签）
     static let commonMetaLangs: [SettingsBScrapeChipOption] = [
-        .init(id: "zh-CN", name: "中文（简体）"),
-        .init(id: "zh-TW", name: "中文（繁體）"),
+        .init(id: "zh-CN", name: String(localized: .settingsScrapeSimplifiedChinese)),
+        .init(id: "zh-TW", name: String(localized: .settingsScrapeTraditionalChinese)),
         .init(id: "en-US", name: "English"),
-        .init(id: "ja-JP", name: "日本語"),
+        .init(id: "ja-JP", name: String(localized: .settingsScrapeJapaneseLanguage)),
         .init(id: "ko-KR", name: "한국어"),
         .init(id: "fr-FR", name: "Français"),
     ]
 
     /// 图片语言的特殊 token + 常用语种（值为 TMDB 图片语言码）
     static let commonImageLangs: [SettingsBScrapeChipOption] = [
-        .init(id: "meta", name: "跟随元数据主语言", tip: "引用「元数据」里语言优先级的第 1 位，改语言时选图自动跟随"),
-        .init(id: "orig", name: "原始语言", tip: "作品的原声语言（随条目自动解析：《寄生虫》为韩语、日本动画为日语）"),
+        .init(id: "meta", name: String(localized: .settingsScrapeMetadataPrimary), tip: String(localized: .settingsScrapeMetadataPrimaryHint)),
+        .init(id: "orig", name: String(localized: .settingsScrapeOriginalLanguage), tip: String(localized: .settingsScrapeOriginalLanguageHint)),
         .init(id: "en", name: "English"),
-        .init(id: "null", name: "无文字", tip: "没有烧录任何文字的干净图（TMDB 语言标记为 null）"),
-        .init(id: "ja", name: "日本語"),
+        .init(id: "null", name: String(localized: .settingsScrapeTextless), tip: String(localized: .settingsScrapeTextlessHint)),
+        .init(id: "ja", name: String(localized: .settingsScrapeJapaneseLanguage)),
     ]
 
     static let commonCertCountries: [SettingsBScrapeChipOption] = [
-        .init(id: "CN", name: "中国"),
-        .init(id: "US", name: "美国"),
-        .init(id: "JP", name: "日本"),
-        .init(id: "GB", name: "英国"),
+        .init(id: "CN", name: String(localized: .settingsScrapeChina)),
+        .init(id: "US", name: String(localized: .settingsScrapeUnitedStates)),
+        .init(id: "JP", name: String(localized: .settingsScrapeJapan)),
+        .init(id: "GB", name: String(localized: .settingsScrapeUnitedKingdom)),
     ]
 
     /// 可选的 TMDB 图床档位：后端 settings/metadata.py 合法集合里实用的那部分（同 Web，过小的档位不提供）；
@@ -60,19 +60,19 @@ enum SettingsBScrapeCatalog {
     }
 
     static let imageQualities: [ImageQuality] = [
-        .init(id: "original", title: "原图（默认）", desc: "所有图存 TMDB 原图，各设备都最清楚"),
-        .init(id: "standard", title: "标准", desc: "各设备都清楚，头像与海报不存原图，省约四成空间"),
-        .init(id: "compact", title: "节省空间", desc: "手机和网页够用；电视上剧照、头像会发虚"),
-        .init(id: "custom", title: "自定义", desc: "分别指定海报、背景、剧照、头像下载到本地的档位"),
+        .init(id: "original", title: String(localized: .settingsScrapeOriginalDefault), desc: String(localized: .settingsScrapeOriginalHint)),
+        .init(id: "standard", title: String(localized: .settingsAppearanceStandard), desc: String(localized: .settingsScrapeStandardHint)),
+        .init(id: "compact", title: String(localized: .settingsScrapeCompact), desc: String(localized: .settingsScrapeCompactHint)),
+        .init(id: "custom", title: String(localized: .settingsScrapeCustom), desc: String(localized: .settingsScrapeModelCustomQualityHint)),
     ]
 
     /// 画质档的简称（折叠头摘要用）
     static func imageQualityName(_ id: String) -> String {
         switch id {
-        case "original": "原图"
-        case "standard": "标准"
-        case "compact": "节省空间"
-        default: "自定义"
+        case "original": String(localized: .settingsScrapeOriginalSummary)
+        case "standard": String(localized: .settingsAppearanceStandard)
+        case "compact": String(localized: .settingsScrapeCompact)
+        default: String(localized: .settingsScrapeCustom)
         }
     }
 
@@ -128,8 +128,8 @@ enum SettingsBScrapeSummary {
     /// 海报卡把「模式 + 语言优先级」并成一句：默认模式下语言优先级不生效，列出来只会误导
     static func poster(_ s: API.MetadataScrapeSetting) -> String {
         s.posterMode == "default"
-            ? "TMDB 默认"
-            : "按语言：\(join(SettingsBScrapeCatalog.commonImageLangs, s.posterLanguagePriority))"
+            ? String(localized: .settingsScrapeTmdbDefault)
+            : String(localized: .settingsScrapeLanguageSummary(join(SettingsBScrapeCatalog.commonImageLangs, s.posterLanguagePriority)))
     }
 
     static func backdrop(_ s: API.MetadataScrapeSetting) -> String {
@@ -142,28 +142,28 @@ enum SettingsBScrapeSummary {
         let sizes = [s.posterSize, s.backdropSize, s.stillSize, s.profileSize]
         let quality: String
         if !s.imageQuality.isEmpty, s.imageQuality != "custom" {
-            quality = "画质 \(SettingsBScrapeCatalog.imageQualityName(s.imageQuality))"
+            quality = String(localized: .settingsScrapeModelQualityNamed(SettingsBScrapeCatalog.imageQualityName(s.imageQuality)))
         } else if s.imageQuality.isEmpty, sizes.allSatisfy(\.isEmpty) {
-            quality = "画质 原图"
+            quality = String(localized: .settingsScrapeModelQualityOriginal)
         } else {
-            quality = "画质自定义 \(sizes.map { $0.isEmpty ? "环境" : $0 }.joined(separator: "/"))"
+            quality = String(localized: .settingsScrapeModelQualityCustom(sizes.map { $0.isEmpty ? String(localized: .settingsScrapeModelEnv) : $0 }.joined(separator: "/")))
         }
         return [
             quality,
-            s.posterMinWidth > 0 ? "海报 ≥\(s.posterMinWidth)" : "海报不限宽",
-            s.backdropMinWidth > 0 ? "背景 ≥\(s.backdropMinWidth)" : "背景不限宽",
+            s.posterMinWidth > 0 ? String(localized: .settingsScrapePosterWidth(String(s.posterMinWidth))) : String(localized: .settingsScrapePosterUnlimited),
+            s.backdropMinWidth > 0 ? String(localized: .settingsScrapeBackdropWidth(String(s.backdropMinWidth))) : String(localized: .settingsScrapeBackdropUnlimited),
         ].joined(separator: " · ")
     }
 
     /// 四个模板并成一句：逐个列模板串太长，只说哪几项不是默认
     static func naming(_ s: API.MetadataScrapeSetting) -> String {
         let changed = SettingsBScrapeNaming.fields.filter { !s[keyPath: $0.keyPath].trimmingCharacters(in: .whitespaces).isEmpty }
-        return changed.isEmpty ? "全部默认模板" : "已改：\(changed.map(\.label).joined(separator: "、"))"
+        return changed.isEmpty ? String(localized: .settingsScrapeAllDefaultTemplates) : String(localized: .settingsScrapeModelChanged(AppFormatting.list(changed.map(\.label))))
     }
 
     static func mirror(_ s: API.MetadataScrapeSetting) -> String {
         let off = SettingsBScrapeMirrorRow.all.filter { !s[keyPath: $0.keyPath] }
-        return off.isEmpty ? "三项全写" : "不写：\(off.map(\.label).joined(separator: "、"))"
+        return off.isEmpty ? String(localized: .settingsScrapeAllMirrorsEnabled) : String(localized: .settingsScrapeModelNotWritten(AppFormatting.list(off.map(\.label))))
     }
 }
 
@@ -176,9 +176,9 @@ struct SettingsBScrapeMirrorRow {
     let keyPath: WritableKeyPath<API.MetadataScrapeSetting, Bool>
 
     static let all: [SettingsBScrapeMirrorRow] = [
-        .init(key: "mirror_images", label: "条目图片", hint: "poster.jpg / fanart.jpg / 季海报", keyPath: \.mirrorImages),
-        .init(key: "mirror_nfo", label: "NFO 元数据", hint: "tvshow.nfo / movie.nfo / 分集 NFO，含 tmdbid 精确身份", keyPath: \.mirrorNfo),
-        .init(key: "mirror_episode_thumbs", label: "分集剧照", hint: "每集一张 -thumb.jpg，长剧集写入量最大，可单独关闭", keyPath: \.mirrorEpisodeThumbs),
+        .init(key: "mirror_images", label: String(localized: .settingsScrapeEntryImages), hint: String(localized: .settingsScrapeModelImagesHint), keyPath: \.mirrorImages),
+        .init(key: "mirror_nfo", label: String(localized: .settingsScrapeNfoMetadata), hint: String(localized: .settingsScrapeNfoHint), keyPath: \.mirrorNfo),
+        .init(key: "mirror_episode_thumbs", label: String(localized: .settingsScrapeEpisodeStills), hint: String(localized: .settingsScrapeEpisodeStillsHint), keyPath: \.mirrorEpisodeThumbs),
     ]
 }
 
@@ -207,21 +207,21 @@ enum SettingsBScrapeNaming {
 
     /// 占位符按类别分组展示，按钮上写中文名（与 Web TOKEN_GROUPS 同一份）
     static let tokenGroups: [(label: String, tokens: [(key: String, name: String)])] = [
-        ("片名与编号", [("title", "片名"), ("original_title", "原名"), ("english_title", "英文名"), ("year", "年份"),
-                    ("tmdb_id", "TMDB ID"), ("imdb_id", "IMDb ID"), ("douban_id", "豆瓣 ID")]),
-        ("季集", [("season", "季号"), ("season_name", "季名"), ("episode", "集号"), ("episode_title", "集名")]),
-        ("文件规格", [("resolution", "分辨率"), ("video_codec", "视频编码"), ("hdr", "HDR"), ("bit_depth", "位深"), ("audio", "音轨")]),
-        ("来源", [("media_source", "片源"), ("release_group", "发布组"), ("site", "站点"), ("release_name", "原始文件名")]),
+        (String(localized: .settingsScrapeTitleTokens), [("title", String(localized: .settingsScrapeTitleToken)), ("original_title", String(localized: .settingsScrapeOriginalTitle)), ("english_title", String(localized: .settingsScrapeEnglishTitle)), ("year", String(localized: .settingsScrapeYear)),
+                    ("tmdb_id", "TMDB ID"), ("imdb_id", "IMDb ID"), ("douban_id", String(localized: .settingsScrapeDoubanId))]),
+        (String(localized: .settingsScrapeEpisodeTokens), [("season", String(localized: .settingsScrapeSeasonNumber)), ("season_name", String(localized: .settingsScrapeSeasonName)), ("episode", String(localized: .settingsScrapeEpisodeNumber)), ("episode_title", String(localized: .settingsScrapeEpisodeTitle))]),
+        (String(localized: .settingsScrapeFileTokens), [("resolution", String(localized: .settingsScrapeResolution)), ("video_codec", String(localized: .settingsScrapeVideoCodec)), ("hdr", "HDR"), ("bit_depth", String(localized: .settingsScrapeBitDepth)), ("audio", String(localized: .settingsScrapeAudio))]),
+        (String(localized: .settingsDevicesApprovalSource), [("media_source", String(localized: .settingsScrapeMediaSource)), ("release_group", String(localized: .settingsScrapeReleaseGroup)), ("site", String(localized: .settingsScrapeSite)), ("release_name", String(localized: .settingsScrapeReleaseName))]),
     ]
 
     static let fields: [Field] = [
-        .init(key: "naming_entry_dir", label: "条目目录", note: "电影与剧集共用",
+        .init(key: "naming_entry_dir", label: String(localized: .settingsScrapeEntryDirectory), note: String(localized: .settingsScrapeSharedNamingHint),
               fallback: "{title} ({year})", tokens: commonTokens, keyPath: \.namingEntryDir),
-        .init(key: "naming_movie_file", label: "电影文件名", note: "",
+        .init(key: "naming_movie_file", label: String(localized: .settingsScrapeMovieFilename), note: "",
               fallback: "{title} ({year})", tokens: commonTokens + fileAttrTokens, keyPath: \.namingMovieFile),
-        .init(key: "naming_season_dir", label: "季目录", note: "",
+        .init(key: "naming_season_dir", label: String(localized: .settingsScrapeSeasonDirectory), note: "",
               fallback: "Season {season:02d}", tokens: commonTokens + ["season", "season_name"], keyPath: \.namingSeasonDir),
-        .init(key: "naming_episode_file", label: "剧集文件名", note: "",
+        .init(key: "naming_episode_file", label: String(localized: .settingsScrapeEpisodeFilename), note: "",
               fallback: "{title} ({year}) - S{season:02d}E{episode:02d}",
               tokens: commonTokens + fileAttrTokens + ["season", "season_name", "episode", "episode_title"],
               keyPath: \.namingEpisodeFile),
@@ -229,7 +229,7 @@ enum SettingsBScrapeNaming {
 
     /// 预览样例：一部电影 + 一集剧集，字段齐全便于看清每个占位符的效果（与 Web 同一组样例）
     static let sampleMovie: [String: String] = [
-        "title": "沙丘：第二部",
+        "title": String(localized: .settingsScrapeSampleMovieTitle),
         "original_title": "Dune: Part Two",
         "english_title": "Dune: Part Two",
         "year": "2024",
@@ -248,17 +248,17 @@ enum SettingsBScrapeNaming {
     ]
     /// 剧集样例是 SDR：不给 hdr，演示 {hdr} 渲染为空后的收缩
     static let sampleEpisode: [String: String] = [
-        "title": "风筝",
-        "original_title": "风筝",
+        "title": String(localized: .settingsScrapeSampleTvTitle),
+        "original_title": String(localized: .settingsScrapeSampleTvTitle),
         "english_title": "Kite",
         "year": "2017",
         "tmdb_id": "68035",
         "imdb_id": "tt6952510",
         "douban_id": "26340419",
         "season": "1",
-        "season_name": "第 1 季",
+        "season_name": String(localized: .settingsScrapeSampleSeason),
         "episode": "3",
-        "episode_title": "延安来的姑娘",
+        "episode_title": String(localized: .settingsScrapeSampleEpisodeTitle),
         "resolution": "1080p",
         "video_codec": "H.264",
         "bit_depth": "8bit",
@@ -280,7 +280,7 @@ enum SettingsBScrapeNaming {
     // 与 Web 的正则逐字对应（JS 的 \w 只含 ASCII，这里显式写成 [A-Za-z0-9_]）
     private static let tokenRE = try! NSRegularExpression(pattern: #"\{([A-Za-z0-9_]+)(?::0(\d)d)?\}"#)
     private static let bracketGroupRE = try! NSRegularExpression(pattern: #"[(\[【][^()\[\]【】]*[)\]】]"#)
-    private static let forbiddenRE = try! NSRegularExpression(pattern: #"[\\/:*?"<>|]"#)
+    private static let forbiddenRE = try! NSRegularExpression(pattern: "[\\\\/:*?\"<>|]")
 
     /// 模板里出现的占位符名（按出现顺序）
     static func tokens(in template: String) -> [String] {
@@ -290,11 +290,11 @@ enum SettingsBScrapeNaming {
     /// 前端侧轻校验：与后端同口径，只为即时反馈；能否保存以后端返回为准
     static func error(for field: Field, template: String) -> String? {
         if template.trimmingCharacters(in: .whitespaces).isEmpty { return nil } // 空 = 用默认模板
-        if template.contains("/") || template.contains("\\") { return "不能包含路径分隔符（目录层级是固定的）" }
+        if template.contains("/") || template.contains("\\") { return String(localized: .settingsScrapeNoPathSeparators) }
         let used = tokens(in: template)
         let unknown = used.filter { !field.tokens.contains($0) }
         if !unknown.isEmpty {
-            return "不可用的占位符：\(unknown.map { "{\($0)}" }.joined(separator: "、"))"
+            return String(localized: .settingsScrapeModelUnknownTokens(AppFormatting.list(unknown.map { "{\($0)}" })))
         }
         return nil
     }
@@ -326,7 +326,7 @@ enum SettingsBScrapeNaming {
             text = renderOnce(template, context)
         }
         let result = sanitize(cutBytes(text, maxSegmentBytes))
-        return result.isEmpty ? "未命名" : result
+        return result.isEmpty ? "未命名" : result // i18n-ignore: matches the server’s on-disk naming fallback
     }
 
     /// 按 UTF-8 字节截断，不切坏多字节字符
@@ -364,7 +364,7 @@ enum SettingsBScrapeNaming {
         collapsed = regexReplace(#"\s{2,}"#, in: collapsed, with: " ")
         collapsed = regexReplace(#"^[\s\-–.]+|[\s\-–.]+$"#, in: collapsed, with: "")
         let result = sanitize(collapsed)
-        return result.isEmpty ? "未命名" : result
+        return result.isEmpty ? "未命名" : result // i18n-ignore: matches the server’s on-disk naming fallback
     }
 
     private static func sanitize(_ value: String) -> String {

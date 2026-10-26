@@ -1,5 +1,10 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator, type AppMessageKey } from "@/lib/i18n/translate";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
+import { formatDate, formatNumber } from "@/lib/i18n/format";
+
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ActivityIcon, LockIcon, StarIcon } from "@/components/icons";
@@ -61,34 +66,39 @@ const sum = (rows: PlaybackStatsDayRow[], pick: (d: PlaybackStatsDayRow) => numb
   rows.reduce((acc, d) => acc + pick(d), 0);
 
 /** 小时数：一位小数，过百取整。 */
-const hours = (ms: number) => (ms / 3_600_000).toFixed(ms >= 360_000_000 ? 0 : 1);
+const hours = (ms: number, locale: AppLocale) => {
+  const digits = ms >= 360_000_000 ? 0 : 1;
+  return formatNumber(Number((ms / 3_600_000).toFixed(digits)), { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false }, locale);
+};
 
-const METRICS: readonly MetricDef[] = [
+function watchMetrics(locale: AppLocale = requestLocale() ?? "zh-Hans"): readonly MetricDef[] {
+  const t = appTranslator(locale);
+  return [
   {
     key: "watched_ms",
-    label: "观看时长",
+    label: t("activity.watchStats.watched"),
     ofDays: (rows) => sum(rows, (d) => d.watched_ms),
     ofTotals: (t) => t.watched_ms,
     // 「45 小时 28 分钟」在指标卡上占不下一行，满一小时就按「45.5 小时」
-    format: (v) => (v >= 3_600_000 ? `${hours(v)} 小时` : formatWatched(v)),
+    format: (v) => (v >= 3_600_000 ? t("activity.watchStats.hoursValue", { value: hours(v, locale), count: Number(hours(v, locale)) }) : formatWatched(v, locale)),
     parts: (v) =>
       v >= 3_600_000
-        ? [hours(v), "小时"]
-        : [`${Math.max(v > 0 ? 1 : 0, Math.round(v / 60_000))}`, "分钟"],
+        ? [hours(v, locale), t("activity.watchStats.hoursUnit")]
+        : [formatNumber(Math.max(v > 0 ? 1 : 0, Math.round(v / 60_000)), { useGrouping: false }, locale), t("activity.watchStats.minutesUnit")],
     axis: (v) => `${(v / 3_600_000).toFixed(v >= 36_000_000 ? 0 : 1)}h`,
   },
   {
     key: "plays",
-    label: "播放场次",
+    label: t("activity.watchStats.plays"),
     ofDays: (rows) => sum(rows, (d) => d.plays),
     ofTotals: (t) => t.plays,
-    format: (v) => `${v} 场`,
-    parts: (v) => [`${v}`, "场"],
+    format: (v) => t("activity.watchStats.playsValue", { count: v }),
+    parts: (v) => [formatNumber(v, { useGrouping: false }, locale), t("activity.watchStats.playsUnit", { count: v })],
     axis: (v) => `${Math.round(v)}`,
   },
   {
     key: "completion",
-    label: "看完率",
+    label: t("activity.watchStats.completion"),
     ofDays: (rows) => {
       const plays = sum(rows, (d) => d.plays);
       return plays > 0 ? sum(rows, (d) => d.completed) / plays : 0;
@@ -101,16 +111,17 @@ const METRICS: readonly MetricDef[] = [
   },
   {
     key: "active_members",
-    label: "活跃成员",
+    label: t("activity.watchStats.members"),
     // 按天是当天的去重人数；折成一周没法从日数据里去重，退而取日均
     ofDays: (rows) => (rows.length > 0 ? sum(rows, (d) => d.members) / rows.length : 0),
     ofTotals: (t) => t.active_members,
-    format: (v) => `${Math.round(v * 10) / 10} 人`,
-    parts: (v) => [`${Math.round(v * 10) / 10}`, "人"],
+    format: (v) => t("activity.watchStats.membersValue", { count: Math.round(v * 10) / 10 }),
+    parts: (v) => [formatNumber(Math.round(v * 10) / 10, { useGrouping: false }, locale), t("activity.watchStats.membersUnit", { count: Math.round(v * 10) / 10 })],
     axis: (v) => `${Math.round(v)}`,
-    bucketNote: "日均",
+    bucketNote: t("activity.watchStats.dailyAverage"),
   },
 ] as const;
+}
 
 /**
  * 把按天的序列折成若干桶：从末尾往前每 size 天一桶，最新的桶一定是满的，
@@ -124,9 +135,9 @@ function bucketize(rows: PlaybackStatsDayRow[], size: number): PlaybackStatsDayR
   return out;
 }
 
-function bucketLabel(rows: PlaybackStatsDayRow[]): string {
-  if (rows.length === 1) return dayLabel(rows[0].date);
-  return `${dayLabel(rows[0].date)} – ${dayLabel(rows[rows.length - 1].date)}`;
+function bucketLabel(rows: PlaybackStatsDayRow[], locale: AppLocale): string {
+  if (rows.length === 1) return dayLabel(rows[0].date, locale);
+  return `${dayLabel(rows[0].date, locale)} – ${dayLabel(rows[rows.length - 1].date, locale)}`;
 }
 
 /** 顶部圆角的柱子：圆角只在数据端，底边贴着基线。 */
@@ -145,14 +156,15 @@ function barPath(x: number, y: number, w: number, h: number): string {
 
 const SERIES_COLOR = "var(--info)";
 const PREVIOUS_COLOR = "rgba(255,255,255,0.32)";
-const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
-
-function dayLabel(date: string): string {
-  const [, month, day] = date.split("-");
-  return `${Number(month)}月${Number(day)}日`;
+function weekday(day: number, locale: AppLocale, narrow: boolean) {
+  return formatDate(new Date(2026, 9, 19 + day), { weekday: narrow && locale === "zh-Hans" ? "narrow" : "short" }, locale);
 }
 
-/** 坐标轴的整齐上限：1 / 2 / 5 × 10^n 里第一个不小于最大值的。 */
+function dayLabel(date: string, locale: AppLocale): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return formatDate(new Date(year, month - 1, day), { month: "short", day: "numeric" }, locale);
+}
+
 function niceMax(max: number): number {
   if (max <= 0) return 1;
   const exponent = Math.floor(Math.log10(max));
@@ -197,22 +209,25 @@ function DeltaChip({
   inPoints?: boolean;
   title: string;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   if (!available) return null;
   let text: string;
   let direction: 1 | 0 | -1;
   if (inPoints) {
     const points = Math.round((current - previous) * 100);
     direction = points > 0 ? 1 : points < 0 ? -1 : 0;
-    text = `${Math.abs(points)} 个百分点`;
+    text = t("activity.watchStats.points", { count: Math.abs(points) });
   } else if (previous <= 0) {
     // 两期都是 0，没什么可比的，不出标签
     if (current <= 0) return null;
     direction = 1;
-    text = "新增";
+    text = t("activity.watchStats.new");
   } else {
     const ratio = (current - previous) / previous;
     direction = ratio > 0 ? 1 : ratio < 0 ? -1 : 0;
-    text = direction === 0 ? "持平" : `${Math.round(Math.abs(ratio) * 100)}%`;
+    text = direction === 0 ? t("activity.watchStats.flat") : `${Math.round(Math.abs(ratio) * 100)}%`;
   }
   const tone =
     direction > 0
@@ -224,10 +239,10 @@ function DeltaChip({
   return (
     <span
       title={title}
-      className={`tnum inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold leading-4 ${tone}`}
+      className={`tnum inline-flex ${locale === "en" ? "min-w-0 max-w-full shrink-0" : "shrink-0"} items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold leading-4 ${tone}`}
     >
       {arrow && <span className="text-[9px]">{arrow}</span>}
-      {text}
+      {locale === "en" ? <span className="min-w-0 whitespace-normal">{text}</span> : text}
     </span>
   );
 }
@@ -243,6 +258,9 @@ function MetricCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const current = metric.ofTotals(stats.current);
   const previous = metric.ofTotals(stats.previous);
   const [value, unit] = metric.parts(current);
@@ -262,16 +280,16 @@ function MetricCard({
         <span className="tnum text-[26px] font-bold tracking-tight text-white">{value}</span>
         <span className="ml-1 text-sub font-medium text-white/45">{unit}</span>
       </p>
-      <div className="mt-2.5 flex min-w-0 items-center gap-2">
+      <div className={`mt-2.5 flex min-w-0 items-center gap-2 ${locale === "en" ? "max-md:flex-col max-md:items-start max-md:gap-1" : ""}`}>
         <DeltaChip
           current={current}
           previous={previous}
           available={stats.previous_available}
           inPoints={metric.deltaInPoints}
-          title="较上一周期"
+          title={t("activity.watchStats.versusPrevious")}
         />
-        <span className="tnum truncate text-[11px] text-white/35">
-          {stats.previous_available ? `上期 ${metric.format(previous)}` : "暂无上一周期数据"}
+        <span className={`tnum truncate text-[11px] text-white/35 ${locale === "en" ? "max-md:max-w-full" : ""}`}>
+          {stats.previous_available ? t("activity.watchStats.previousValue", { value: metric.format(previous) }) : t("activity.watchStats.noPrevious")}
         </span>
       </div>
     </button>
@@ -288,6 +306,9 @@ const PAD = { top: 14, right: 12, bottom: 26, left: 46 };
 const MIN_SLOT = 6;
 
 function TrendChart({ stats, metric }: { stats: PlaybackWatchStats; metric: MetricDef }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const [ref, width] = useElementWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const innerWidth = Math.max(0, width - PAD.left - PAD.right);
@@ -329,14 +350,14 @@ function TrendChart({ stats, metric }: { stats: PlaybackWatchStats; metric: Metr
     <div ref={ref} className="relative">
       <p className="mb-1 px-1 text-caption font-semibold text-white/55">
         {metric.label}
-        <span className="ml-1.5 font-normal text-white/35">{weekly ? "按周" : "按天"}</span>
+        <span className="ml-1.5 font-normal text-white/35">{weekly ? t("activity.watchStats.weekly") : t("activity.watchStats.daily")}</span>
       </p>
       {width > 0 && (
         <svg
           width={width}
           height={CHART_HEIGHT}
           role="img"
-          aria-label={`${metric.label}走势`}
+          aria-label={t("activity.watchStats.trendAria", { metric: metric.label })}
           onMouseMove={onMove}
           onMouseLeave={() => setHover(null)}
         >
@@ -374,7 +395,7 @@ function TrendChart({ stats, metric }: { stats: PlaybackWatchStats; metric: Metr
               fontSize={10}
               fill="rgba(255,255,255,0.4)"
             >
-              {dayLabel(buckets[i][0].date)}
+              {dayLabel(buckets[i][0].date, locale)}
             </text>
           ))}
           {current.map((v, i) =>
@@ -423,7 +444,7 @@ function TrendChart({ stats, metric }: { stats: PlaybackWatchStats; metric: Metr
       {width > 0 && current.every((v) => v <= 0) && (
         <p className="pointer-events-none absolute inset-x-0 top-[44px] text-center">
           <span className="rounded-full bg-[#0b0d13]/85 px-3 py-1 text-caption text-white/50 ring-1 ring-white/[0.08]">
-            本周期没有播放{showPrevious ? "，虚线是上一周期" : ""}
+            {t("activity.watchStats.noChartPlays", { showPrevious: showPrevious ? "yes" : "no" })}
           </span>
         </p>
       )}
@@ -438,9 +459,9 @@ function TrendChart({ stats, metric }: { stats: PlaybackWatchStats; metric: Metr
         >
           <div className="menu-surface min-w-[10rem] px-3 py-2 text-caption">
             <p className="font-semibold text-white/85">
-              {bucketLabel(buckets[hover])}
+              {bucketLabel(buckets[hover], locale)}
               {weekly && buckets[hover].length < 7 && (
-                <span className="ml-1 font-normal text-white/35">{buckets[hover].length} 天</span>
+                <span className="ml-1 font-normal text-white/35">{t("activity.watchStats.dayCount", { count: buckets[hover].length })}</span>
               )}
             </p>
             <p className="tnum mt-1 flex items-center gap-1.5 text-white/80">
@@ -448,7 +469,7 @@ function TrendChart({ stats, metric }: { stats: PlaybackWatchStats; metric: Metr
                 className="inline-block size-2 rounded-[2px]"
                 style={{ background: SERIES_COLOR }}
               />
-              本周期 {bucketNote}
+              {t("activity.watchStats.currentPeriod")}{bucketNote}
               {metric.format(current[hover])}
             </p>
             {showPrevious && (
@@ -457,9 +478,9 @@ function TrendChart({ stats, metric }: { stats: PlaybackWatchStats; metric: Metr
                   className="inline-block h-0 w-2 border-t border-dashed"
                   style={{ borderColor: PREVIOUS_COLOR }}
                 />
-                上一周期 {bucketNote}
+                {t("activity.watchStats.previousPeriod")}{bucketNote}
                 {metric.format(previous[hover])}
-                <span className="text-white/35">{bucketLabel(prevBuckets[hover])}</span>
+                <span className="text-white/35">{bucketLabel(prevBuckets[hover], locale)}</span>
               </p>
             )}
           </div>
@@ -471,16 +492,14 @@ function TrendChart({ stats, metric }: { stats: PlaybackWatchStats; metric: Metr
             className="inline-block size-2.5 rounded-[3px]"
             style={{ background: SERIES_COLOR }}
           />
-          本周期
-        </span>
+          {t("activity.watchStats.currentPeriod")}</span>
         {showPrevious && (
           <span className="flex items-center gap-1.5">
             <span
               className="inline-block h-0 w-4 border-t-2 border-dashed"
               style={{ borderColor: PREVIOUS_COLOR }}
             />
-            上一周期
-          </span>
+            {t("activity.watchStats.previousPeriod")}</span>
         )}
       </div>
     </div>
@@ -519,8 +538,8 @@ function BreakdownPanel({
   rows,
   total,
   footer,
-  emptyText = "本周期没有数据",
-  unit,
+  emptyText,
+  kind,
   formatValue,
   fold = "other",
   limit = 5,
@@ -533,12 +552,16 @@ function BreakdownPanel({
   /** 没有行时的说明；传 null 表示由 footer（如范围外折叠行）自己解释 */
   emptyText?: string | null;
   /** 行的量词：「个成员」「部」，用在「其他 3 个成员」「展开全部 10 部」 */
-  unit: string;
+  kind: "members" | "clients" | "titles" | "tiers";
   /** 合成「其他」行时给值配文案 */
   formatValue: (value: number) => string;
   fold?: "other" | "expand";
   limit?: number;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
+  const resolvedEmptyText = emptyText === undefined ? t("activity.watchStats.noData") : emptyText;
   const [expanded, setExpanded] = useState(false);
   let visible = rows;
   let tail: React.ReactNode = null;
@@ -551,7 +574,7 @@ function BreakdownPanel({
           onClick={() => setExpanded((v) => !v)}
           className="w-full px-4 py-2.5 text-left text-caption font-medium text-[var(--info)] transition hover:text-white max-md:px-3.5"
         >
-          {expanded ? "收起" : `展开全部 ${rows.length} ${unit}`}
+          {expanded ? t("activity.watchStats.collapse") : t("activity.watchStats.expandAll", { count: rows.length, kind })}
         </button>
       );
     } else {
@@ -561,7 +584,7 @@ function BreakdownPanel({
         ...rows.slice(0, limit),
         {
           key: "__other",
-          label: `其他 ${rest.length} ${unit}`,
+          label: t("activity.watchStats.otherCount", { count: rest.length, kind }),
           value,
           valueLabel: formatValue(value),
           muted: true,
@@ -576,8 +599,8 @@ function BreakdownPanel({
         {note && <p className="text-[11px] text-white/30">{note}</p>}
       </div>
       <div className="flex flex-1 flex-col divide-y divide-white/[0.06] rounded-2xl border border-white/[0.08] bg-white/[0.02]">
-        {rows.length === 0 && emptyText && (
-          <p className="px-4 py-3 text-caption text-white/40">{emptyText}</p>
+        {rows.length === 0 && resolvedEmptyText && (
+          <p className="px-4 py-3 text-caption text-white/40">{resolvedEmptyText}</p>
         )}
         {visible.map((row) => {
           const share = total > 0 ? Math.round((row.value / total) * 100) : 0;
@@ -585,10 +608,10 @@ function BreakdownPanel({
             <>
               {row.leading}
               <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-3">
+                <div className={`flex items-baseline justify-between gap-3 ${locale === "en" ? "max-md:flex-col max-md:items-start max-md:gap-1" : ""}`}>
                   {/* 附注跟在名称后面而不是另起一行：四块面板的行高才一致，
                       同一行两块面板的高矮只由行数决定 */}
-                  <div className="flex min-w-0 items-baseline gap-2">
+                  <div className={`flex min-w-0 items-baseline gap-2 ${locale === "en" ? "max-md:flex-col max-md:items-start max-md:gap-0.5" : ""}`}>
                     <div
                       className={`min-w-0 text-ui font-medium ${row.muted ? "text-white/50" : "text-white/85"}`}
                     >
@@ -653,20 +676,22 @@ function BreakdownPanel({
 // ---------------------------------------------------------------------------
 
 function HourHeatmap({ matrix }: { matrix: number[][] }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const max = Math.max(1e-9, ...matrix.flat());
   const total = matrix.flat().reduce((a, b) => a + b, 0);
   return (
-    <section aria-label="观看时段">
+    <section aria-label={t("activity.watchStats.heatmap")}>
       <div className="mb-1.5 flex items-baseline gap-2">
-        <p className="text-caption font-semibold text-white/55">观看时段</p>
-        <p className="text-[11px] text-white/30">星期 × 小时的观看时长，越深越多</p>
+        <p className="text-caption font-semibold text-white/55">{t("activity.watchStats.heatmap")}</p>
+        <p className="text-[11px] text-white/30">{t("activity.watchStats.heatmapHint")}</p>
       </div>
       <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
         {/* 没数据也把 7×24 的格子画出来：空格子本身就在说明这里会是什么 */}
         {total === 0 && (
           <p className="mb-2 text-caption text-white/40">
-            本周期还没有累计到观看时长；有人看过之后这里会显示星期 × 小时的分布
-          </p>
+            {t("activity.watchStats.noHeatmap")}</p>
         )}
         {
           <div className="min-w-[520px]">
@@ -679,12 +704,12 @@ function HourHeatmap({ matrix }: { matrix: number[][] }) {
             </div>
             {matrix.map((row, day) => (
               <div key={day} className="mt-[2px] flex items-center gap-[2px]">
-                <span className="w-6 shrink-0 text-[10px] text-white/40">{WEEKDAYS[day]}</span>
+                <span className="w-6 shrink-0 text-[10px] text-white/40">{weekday(day, locale, true)}</span>
                 <div className="grid flex-1 grid-cols-24 gap-[2px]">
                   {row.map((v, h) => (
                     <div
                       key={h}
-                      title={`周${WEEKDAYS[day]} ${String(h).padStart(2, "0")}:00 · ${formatWatched(v)}`}
+                      title={t("activity.watchStats.heatmapCell", { weekday: weekday(day, locale, false), hour: String(h).padStart(2, "0"), duration: formatWatched(v, locale) })}
                       className="h-4 rounded-[3px]"
                       style={{
                         background:
@@ -713,18 +738,20 @@ function rankChange(
   row: PlaybackStatsTitleRow,
   rank: number,
   previous: PlaybackStatsTitleRow[],
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): { text: string; tone: string } | null {
+  const t = appTranslator(locale);
   if (previous.length === 0) return null;
   const was = previous.findIndex((p) => p.media.media_item_id === row.media.media_item_id);
-  if (was === rank) return { text: "蝉联", tone: "bg-[var(--ok)]/15 text-[var(--ok)]" };
-  if (was === -1) return { text: "新上榜", tone: "bg-[var(--info)]/15 text-[var(--info)]" };
+  if (was === rank) return { text: t("activity.watchStats.sameRank"), tone: "bg-[var(--ok)]/15 text-[var(--ok)]" };
+  if (was === -1) return { text: t("activity.watchStats.newRank"), tone: "bg-[var(--info)]/15 text-[var(--info)]" };
   return {
-    text: `${was > rank ? "▲" : "▼"} 上期第 ${was + 1}`,
+    text: t("activity.watchStats.previousRank", { arrow: was > rank ? "▲" : "▼", rank: was + 1 }),
     tone: was > rank ? "bg-[var(--ok)]/15 text-[var(--ok)]" : "bg-white/[0.08] text-white/55",
   };
 }
 
-const KIND_LABELS: Partial<Record<string, string>> = { movie: "电影", tv: "剧集" };
+const KIND_LABELS: Partial<Record<string, AppMessageKey>> = { movie: "media.kind.movie", tv: "media.kind.tv" };
 
 /**
  * 一个名次：巨大的描边数字压在海报左后方，海报盖住数字的右侧——Netflix 的 TOP 10
@@ -743,12 +770,16 @@ function TopEntry({
   drilled: boolean;
   previous: PlaybackStatsTitleRow[];
 }) {
-  const change = rankChange(row, rank, previous);
-  const kind = KIND_LABELS[row.media.kind];
+  const t = useTranslations();
+  const locale = useLocale();
+
+  const change = rankChange(row, rank, previous, locale);
+  const kindKey = Object.hasOwn(KIND_LABELS, row.media.kind) ? KIND_LABELS[row.media.kind] : undefined;
+  const kind = kindKey ? t(kindKey) : undefined;
   const facts = [row.media.year, kind].filter(Boolean).join(" · ");
-  const watched = formatWatched(row.watched_ms);
-  const plays = `${row.plays} 场`;
-  const audience = drilled ? null : `${row.members} 人看过`;
+  const watched = formatWatched(row.watched_ms, locale);
+  const plays = t("activity.watchStats.playsValue", { count: row.plays });
+  const audience = drilled ? null : t("activity.watchStats.audience", { count: row.members });
   // 文字栏窄：人数与场次并一行、时长单独一行，别让「· 7 场」孤零零折到下一行
   const meta = [[audience, plays].filter(Boolean).join(" · "), watched];
   return (
@@ -757,7 +788,7 @@ function TopEntry({
       <span
         aria-hidden="true"
         className={`relative inline-block shrink-0 select-none text-left font-black leading-[0.78] tracking-[-0.06em] text-transparent [-webkit-text-stroke:2px_rgba(255,255,255,0.62)] ${
-          hero ? "-mr-[0.12em] w-[0.6em] text-[128px]" : "-mr-[0.12em] w-[0.6em] text-[96px]"
+          hero ? `-mr-[0.12em] w-[0.6em] text-[128px] ${locale === "en" ? "max-md:text-[96px]" : ""}` : "-mr-[0.12em] w-[0.6em] text-[96px]"
         }`}
       >
         {rank + 1}
@@ -768,12 +799,12 @@ function TopEntry({
         width={hero ? 120 : 80}
         alt={row.media.title}
         className={`relative z-10 shrink-0 rounded-lg object-cover shadow-[0_18px_40px_rgba(0,0,0,0.6)] ring-1 ring-white/15 ${
-          hero ? "h-[180px] w-[120px]" : "h-[120px] w-[80px]"
+          hero ? `h-[180px] w-[120px] ${locale === "en" ? "max-md:h-[120px] max-md:w-[80px]" : ""}` : "h-[120px] w-[80px]"
         }`}
       />
       <div className="relative z-10 ml-3 min-w-0 flex-1 self-center">
         <p className="mb-1 text-[10px] font-bold tracking-[0.2em] text-white/40">
-          {["冠军", "亚军", "季军"][rank]}
+          {[t("activity.watchStats.first"), t("activity.watchStats.second"), t("activity.watchStats.third")][rank]}
         </p>
         <TitleText media={row.media} episode={false} large={hero} />
         {facts && <p className="tnum mt-0.5 text-caption text-white/45">{facts}</p>}
@@ -816,6 +847,9 @@ function FavoritePodium({
   hiddenCount: number;
   onShowAll: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   if (favorites.length === 0) {
     // 有播放却没有上榜作品：要么都在范围外，要么条目已被删除；说清去向，不留空白
     return (
@@ -826,15 +860,15 @@ function FavoritePodium({
             hiddenCount > 0 ? <LockIcon className="size-3.5" /> : <StarIcon className="size-3.5" />
           }
           title={
-            hiddenCount > 0 ? "本期最受欢迎的作品都在你的浏览范围外" : "本期还没有可以上榜的作品"
+            hiddenCount > 0 ? t("activity.watchStats.popularOutside") : t("activity.watchStats.noRankedTitles")
           }
           description={
             hiddenCount > 0
-              ? `${hiddenCount} 部作品来自你设为不可见的库`
-              : "播放过的条目已被删除，不再进榜"
+              ? t("activity.watchStats.hiddenTitles", { count: hiddenCount })
+              : t("activity.watchStats.deletedNoRanking")
           }
           actions={
-            hiddenCount > 0 ? <EmptyAction onClick={onShowAll}>显示全部</EmptyAction> : undefined
+            hiddenCount > 0 ? <EmptyAction onClick={onShowAll}>{t("activity.watchStats.showAll")}</EmptyAction> : undefined
           }
         />
       </div>
@@ -848,7 +882,7 @@ function FavoritePodium({
   const columns = ["1.5fr", ...rest.map(() => "1fr")].join(" ");
   return (
     <section
-      aria-label={drilled ? "本期看得最多" : "本期最受欢迎"}
+      aria-label={drilled ? t("activity.watchStats.mostWatchedThis") : t("activity.watchStats.mostPopularThis")}
       className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]"
     >
       {ambient && (
@@ -863,15 +897,15 @@ function FavoritePodium({
         </div>
       )}
       <div className="relative p-4 md:p-5">
-        <div className="flex items-center gap-2.5">
+        <div className={`flex items-center gap-2.5 ${locale === "en" ? "max-md:flex-wrap" : ""}`}>
           <span className="rounded-[3px] bg-[var(--info)] px-1.5 py-[3px] text-[10px] font-black leading-none tracking-[0.12em] text-[#0b0d13]">
             TOP 3
           </span>
           <p className="text-ui font-semibold text-white/90">
-            {drilled ? "本期看得最多" : "本期最受欢迎"}
+            {drilled ? t("activity.watchStats.mostWatchedThis") : t("activity.watchStats.mostPopularThis")}
           </p>
-          <p className="text-caption text-white/35">
-            {drilled ? "按观看时长" : "按看过的人数，并列看时长"}
+          <p className={`text-caption text-white/35 ${locale === "en" ? "max-md:basis-full" : ""}`}>
+            {drilled ? t("activity.watchStats.byWatchTime") : t("activity.watchStats.byAudience")}
           </p>
         </div>
         <div
@@ -901,8 +935,10 @@ function FavoritePodium({
 
 /** 读取中的骨架：与真实布局同形（指标卡、主图、TOP 3、四块分解），内容到达时不跳动。 */
 function StatsSkeleton() {
+  const t = useTranslations();
+
   return (
-    <div aria-busy="true" aria-label="正在读取观看统计" className="space-y-4">
+    <div aria-busy="true" aria-label={t("activity.watchStats.reading")} className="space-y-4">
       <div className="grid grid-cols-4 gap-2.5 max-md:grid-cols-2">
         {Array.from({ length: 4 }, (_, i) => (
           <div
@@ -955,10 +991,14 @@ export function WatchStatsPanel({
   onDaysChange: (days: number) => void;
   onShowAll: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const [stats, setStats] = useState<PlaybackWatchStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [metricKey, setMetricKey] = useState<MetricKey>("watched_ms");
-  const metric = useMemo(() => METRICS.find((m) => m.key === metricKey) ?? METRICS[0], [metricKey]);
+  const metrics = useMemo(() => watchMetrics(locale), [locale]);
+  const metric = metrics.find((m) => m.key === metricKey) ?? metrics[0];
 
   useEffect(() => {
     let cancelled = false;
@@ -969,12 +1009,12 @@ export function WatchStatsPanel({
         setError(null);
       })
       .catch((caught) => {
-        if (!cancelled) setError((caught as Error).message || "观看统计加载失败");
+        if (!cancelled) setError((caught as Error).message || t("activity.watchStats.loadFailed"));
       });
     return () => {
       cancelled = true;
     };
-  }, [days, scope, memberId]);
+  }, [days, scope, memberId, t]);
 
   if (error) {
     return (
@@ -991,20 +1031,20 @@ export function WatchStatsPanel({
   const widenActions = (
     <>
       {memberId != null && (
-        <EmptyAction onClick={() => onMemberSelect(null)}>查看全部成员</EmptyAction>
+        <EmptyAction onClick={() => onMemberSelect(null)}>{t("activity.watchStats.allMembers")}</EmptyAction>
       )}
-      {days < 90 && <EmptyAction onClick={() => onDaysChange(90)}>看最近 90 天</EmptyAction>}
+      {days < 90 && <EmptyAction onClick={() => onDaysChange(90)}>{t("activity.watchStats.last90")}</EmptyAction>}
     </>
   );
-  const who = memberId != null ? (memberLabel ?? "这位成员") : null;
+  const who = memberId != null ? (memberLabel ?? t("activity.watchStats.memberFallback")) : null;
 
   if (stats.current.plays === 0 && !stats.previous_available) {
     // 两个周期都没有日志：整块用一个空状态承接，不摆一排 0
     return (
       <EmptyState
         icon={<ActivityIcon className="size-5" />}
-        title={who ? `${who}最近 ${days} 天没有播放` : `最近 ${days} 天没有播放记录`}
-        description="统计从播放日志来：从现在起每一场播放都会计入，看得越久这里越有得看。"
+        title={t("activity.watchStats.noRecent", { hasMember: who ? "yes" : "no", name: who ?? "", days })}
+        description={t("activity.watchStats.emptyHint")}
         actions={widenActions}
       />
     );
@@ -1014,7 +1054,7 @@ export function WatchStatsPanel({
   const tierTotal = stats.by_tier.reduce((sum, r) => sum + r.plays, 0);
   const cards = (
     <div className="grid grid-cols-4 gap-2.5 max-md:grid-cols-2">
-      {METRICS.map((m) => (
+      {metrics.map((m) => (
         <MetricCard
           key={m.key}
           metric={m}
@@ -1040,8 +1080,8 @@ export function WatchStatsPanel({
         {chart}
         <EmptyState
           icon={<ActivityIcon className="size-5" />}
-          title={who ? `${who}本周期没有播放` : "本周期没有播放"}
-          description={`上一周期有 ${stats.previous.plays} 场；本周期一场都没有，没有可以分解的数据。`}
+          title={who ? t("activity.watchStats.noMemberCurrent", { name: who }) : t("activity.watchStats.noCurrent")}
+          description={t("activity.watchStats.onlyPrevious", { count: stats.previous.plays })}
           actions={widenActions}
         />
       </div>
@@ -1065,46 +1105,46 @@ export function WatchStatsPanel({
 
       <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
         <BreakdownPanel
-          title="按成员"
-          note={memberId != null ? "已钻取到一个成员，再点一次取消" : "点成员名钻取"}
+          title={t("activity.watchStats.byMember")}
+          note={memberId != null ? t("activity.watchStats.memberSelected") : t("activity.watchStats.memberDrill")}
           total={totalWatched}
-          unit="个成员"
-          formatValue={formatWatched}
+          kind="members"
+          formatValue={(value) => formatWatched(value, locale)}
           rows={stats.by_member.map((row) => ({
             key: String(row.member_id),
             label: row.member_name,
             value: row.watched_ms,
-            valueLabel: formatWatched(row.watched_ms),
-            secondary: `${row.plays} 场 · 看完 ${row.completed}`,
+            valueLabel: formatWatched(row.watched_ms, locale),
+            secondary: t("activity.watchStats.playsCompleted", { count: row.plays, completed: row.completed }),
             selected: memberId === row.member_id,
             onSelect: () => onMemberSelect(memberId === row.member_id ? null : row.member_id),
           }))}
         />
         <BreakdownPanel
-          title="按客户端"
+          title={t("activity.watchStats.byClient")}
           total={totalWatched}
-          unit="个客户端"
+          kind="clients"
           formatValue={formatWatched}
           rows={stats.by_client.map((row) => ({
             key: row.client,
             label: row.client,
             value: row.watched_ms,
-            valueLabel: formatWatched(row.watched_ms),
-            secondary: `${row.plays} 场`,
+            valueLabel: formatWatched(row.watched_ms, locale),
+            secondary: t("activity.watchStats.playsValue", { count: row.plays }),
           }))}
         />
         <BreakdownPanel
-          title="看得最多"
+          title={t("activity.watchStats.mostWatched")}
           total={totalWatched}
-          unit="部"
+          kind="titles"
           formatValue={formatWatched}
           fold="expand"
           rows={stats.top_titles.map((row, index) => ({
             key: `${row.media.media_item_id}-${index}`,
             label: <TitleText media={row.media} />,
             value: row.watched_ms,
-            valueLabel: formatWatched(row.watched_ms),
-            secondary: `${row.plays} 场`,
+            valueLabel: formatWatched(row.watched_ms, locale),
+            secondary: t("activity.watchStats.playsValue", { count: row.plays }),
             leading: (
               <PosterImage
                 src={row.media.poster_url ? imageUrl(row.media.poster_url) : null}
@@ -1115,22 +1155,22 @@ export function WatchStatsPanel({
             ),
           }))}
           footer={
-            <HiddenCountRow count={stats.hidden_title_count} noun="部作品" onShowAll={onShowAll} />
+            <HiddenCountRow count={stats.hidden_title_count} kind="items" onShowAll={onShowAll} />
           }
-          emptyText={stats.hidden_title_count > 0 ? null : "播放过的条目已被删除"}
+          emptyText={stats.hidden_title_count > 0 ? null : t("activity.watchStats.deletedItems")}
         />
         <BreakdownPanel
-          title="按播放方式"
-          note="仅 MovieClaw 网页与 App 播放；Jellyfin 客户端恒为直连"
+          title={t("activity.watchStats.byDelivery")}
+          note={t("activity.watchStats.deliveryHint")}
           total={tierTotal}
-          unit="种"
-          formatValue={(v) => `${v} 场`}
-          emptyText="本周期没有 MovieClaw 网页与 App 播放；Jellyfin 客户端不经过转码，不在这里分解"
+          kind="tiers"
+          formatValue={(v) => t("activity.watchStats.playsValue", { count: v })}
+          emptyText={t("activity.watchStats.noDelivery")}
           rows={stats.by_tier.map((row) => ({
             key: String(row.tier),
             label: row.label,
             value: row.plays,
-            valueLabel: `${row.plays} 场`,
+            valueLabel: t("activity.watchStats.playsValue", { count: row.plays }),
           }))}
         />
       </div>

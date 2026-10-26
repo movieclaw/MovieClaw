@@ -49,6 +49,8 @@ export interface NetworkTestResult {
   ok: boolean;
   latency_ms: number | null;
   message: string;
+  message_key?: string | null;
+  message_params?: Record<string, string | number> | null;
 }
 
 /** 读取网络与代理配置。 */

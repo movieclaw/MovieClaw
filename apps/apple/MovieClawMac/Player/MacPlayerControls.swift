@@ -44,8 +44,8 @@ struct MacPlayerTopBar: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .circle)
-            .help("关闭播放器（Esc）")
-            .accessibilityLabel("关闭播放器")
+            .help(String(localized: .playerMacCloseShortcut))
+            .accessibilityLabel(String(localized: .playerMacClose))
             .accessibilityIdentifier("mac-player-close")
 
             VStack(alignment: .leading, spacing: 2) {
@@ -70,7 +70,7 @@ struct MacPlayerTopBar: View {
     static func episodeLine(_ controller: PlaybackController) -> String? {
         let unit = controller.unit
         guard unit.isEpisode else { return nil }
-        let code = "第 \(unit.season) 季第 \(unit.episode) 集"
+        let code = String(localized: .mediaEpisodeSeasonAndEpisode(unit.season, unit.episode))
         if let name = controller.currentEpisode?.name, !name.isEmpty { return "\(code) · \(name)" }
         return code
     }
@@ -194,7 +194,7 @@ struct MacPlayerTransport: View {
                 // 不是正常速度时常驻一个角标，免得忘了自己开着倍速
                 if controller.rate != 1 {
                     Text(PlaybackSpeed.short(controller.rate))
-                        .help("倍速（[ 减慢，] 加快）")
+                        .help(String(localized: .playerMacSpeedShortcut))
                         .accessibilityIdentifier("mac-player-rate-badge")
                 }
                 Button {
@@ -207,7 +207,7 @@ struct MacPlayerTransport: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .help(showsTotal ? "显示剩余时间" : "显示总时长")
+                .help(showsTotal ? String(localized: .playerMacShowRemaining) : String(localized: .playerMacShowDuration))
                 .accessibilityIdentifier("mac-player-remaining")
             }
             .frame(height: 30)
@@ -227,23 +227,23 @@ struct MacPlayerTransport: View {
     private func centerButtons(skips: Bool) -> some View {
         HStack(spacing: 22) {
             if controller.unit.isEpisode {
-                MacPlayerIconButton(symbol: "backward.end.fill", size: 17, help: "上一集（⌘←）", id: "mac-player-previous") {
+                MacPlayerIconButton(symbol: "backward.end.fill", size: 17, help: String(localized: .playerMacPreviousShortcut), id: "mac-player-previous") {
                     controller.playPrevious()
                 }
                 .disabled(controller.previousEpisode == nil)
             }
             if skips {
-                MacPlayerIconButton(symbol: "gobackward.10", size: 21, help: "后退 10 秒（←）", id: "mac-player-back10") { skip(-10) }
+                MacPlayerIconButton(symbol: "gobackward.10", size: 21, help: String(localized: .playerMacBackShortcut), id: "mac-player-back10") { skip(-10) }
             }
             MacPlayerIconButton(symbol: playSymbol, size: 30, diameter: 48,
-                                help: controller.paused ? "播放（空格）" : "暂停（空格）",
+                                help: controller.paused ? String(localized: .playerMacPlayShortcut) : String(localized: .playerMacPauseShortcut),
                                 id: "mac-player-play", action: togglePlay)
-                .accessibilityLabel(controller.paused ? "播放" : "暂停")
+                .accessibilityLabel(controller.paused ? String(localized: .playerControlsPlay) : String(localized: .playerControlsPause))
             if skips {
-                MacPlayerIconButton(symbol: "goforward.10", size: 21, help: "前进 10 秒（→）", id: "mac-player-fwd10") { skip(10) }
+                MacPlayerIconButton(symbol: "goforward.10", size: 21, help: String(localized: .playerMacForwardShortcut), id: "mac-player-fwd10") { skip(10) }
             }
             if controller.unit.isEpisode {
-                MacPlayerIconButton(symbol: "forward.end.fill", size: 17, help: "下一集（⌘→）", id: "mac-player-next") {
+                MacPlayerIconButton(symbol: "forward.end.fill", size: 17, help: String(localized: .playerMacNextShortcut), id: "mac-player-next") {
                     controller.noteUserActivity()
                     controller.playNext()
                 }
@@ -256,12 +256,12 @@ struct MacPlayerTransport: View {
     private var trailingButtons: some View {
         HStack(spacing: 6) {
             MacPlayerIconButton(symbol: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
-                                size: 18, help: "字幕与音轨", id: "mac-player-tracks", active: panel == .tracks) {
+                                size: 18, help: String(localized: .playerMacTracks), id: "mac-player-tracks", active: panel == .tracks) {
                 panel = panel == .tracks ? nil : .tracks
             }
             moreMenu
             MacPlayerIconButton(symbol: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                                size: 17, help: isFullScreen ? "退出全屏（F）" : "全屏（F）", id: "mac-player-fullscreen",
+                                size: 17, help: isFullScreen ? String(localized: .playerMacExitFullscreenShortcut) : String(localized: .playerMacFullscreenShortcut), id: "mac-player-fullscreen",
                                 action: toggleFullScreen)
         }
     }
@@ -274,7 +274,7 @@ struct MacPlayerTransport: View {
     /// ⋯：画质、倍速两个子菜单（docs/design/playback-speed.md）。用系统菜单而不是自绘面板：悬停就展开二级、
     /// 当前项打勾，是 Mac 用户的习惯；子菜单标题下一行小字写着当前值。访客分享不能选画质（服务端按分享的设定给流）
     private var moreMenu: some View {
-        let quality = QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "原画"
+        let quality = QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? String(localized: .playerQualityOriginal)
         return Menu {
             if controller.scope.shareSlug == nil {
                 Menu {
@@ -286,7 +286,7 @@ struct MacPlayerTransport: View {
                         }
                     }
                 } label: {
-                    Text("画质")
+                    Text(String(localized: .playerControlsQuality))
                     Text(quality)
                 }
             }
@@ -296,7 +296,7 @@ struct MacPlayerTransport: View {
                                                                      set: { _ in controller.selectRate(rate) }))
                 }
             } label: {
-                Text("倍速")
+                Text(String(localized: .playerControlsSpeed))
                 Text(PlaybackSpeed.label(controller.rate))
             }
         } label: {
@@ -309,8 +309,8 @@ struct MacPlayerTransport: View {
         .buttonStyle(MacPlayerButtonStyle())
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("更多")
-        .accessibilityLabel("更多：画质与倍速")
+        .help(String(localized: .commonMore))
+        .accessibilityLabel(String(localized: .playerMacMore))
         .accessibilityIdentifier("mac-player-more")
     }
 }
@@ -378,9 +378,9 @@ struct MacVolumeControl: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            MacPlayerIconButton(symbol: volume.symbol, size: 17, help: volume.muted ? "取消静音（M）" : "静音（M）",
+            MacPlayerIconButton(symbol: volume.symbol, size: 17, help: volume.muted ? String(localized: .playerMacUnmuteShortcut) : String(localized: .playerMacMuteShortcut),
                                 id: "mac-player-mute") { volume.toggleMute() }
-                .accessibilityValue(volume.muted ? "已静音" : "\(Int(volume.level * 100))%")
+                .accessibilityValue(volume.muted ? String(localized: .playerMacMuted) : "\(Int(volume.level * 100))%")
             if showsSlider { slider }
         }
         .accessibilityElement(children: .contain)
@@ -409,7 +409,7 @@ struct MacVolumeControl: View {
         }
         .frame(width: Self.sliderWidth, height: 34)
         .accessibilityElement()
-        .accessibilityLabel("音量")
+        .accessibilityLabel(String(localized: .playerMacVolume))
         .accessibilityValue("\(Int(volume.level * 100))%")
         .accessibilityIdentifier("mac-player-volume-slider")
     }
@@ -505,7 +505,7 @@ struct MacScrubber: View {
         }
         .frame(height: 34)
         .accessibilityElement()
-        .accessibilityLabel("播放进度")
+        .accessibilityLabel(String(localized: .playerControlsProgress))
         .accessibilityValue(Formatters.clock(Double(controller.timelineMs(fromFileMs: controller.positionMs)) / 1000))
         .accessibilityIdentifier("mac-player-scrubber")
     }

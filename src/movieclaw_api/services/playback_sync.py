@@ -64,7 +64,7 @@ async def target(session: AsyncSession, member_id: int) -> Principal:
         return Principal(kind="admin", name="admin")
     member = await session.get(Member, member_id)
     if member is None or member.status != "active":
-        raise NotFoundException("成员不存在或已停用")
+        raise NotFoundException(message_key="errors.playbackSync.memberInactive")
     return Principal(
         kind="member", name=member.username, member_id=member_id, is_admin=False, member=member
     )
@@ -92,7 +92,7 @@ async def catalog(
             if min(m, s, e) < 0:
                 raise ValueError
         except ValueError as exc:
-            raise BadRequestException("游标无效") from exc
+            raise BadRequestException(message_key="errors.playbackSync.cursorInvalid") from exc
         query = query.where(
             or_(
                 cols[0] > m,

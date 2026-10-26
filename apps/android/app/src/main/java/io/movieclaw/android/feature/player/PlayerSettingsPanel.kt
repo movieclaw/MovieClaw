@@ -52,7 +52,7 @@ import io.movieclaw.core.playback.PlaybackSpeeds
 import io.movieclaw.core.playback.QualityOption
 
 /** ⋮ 面板的页：一级（画质 / 倍速 / 播放诊断），或进了哪一项的二级 */
-private enum class SettingsPage { Root, Quality, Speed }
+private enum class SettingsPage { Root, Quality, Speed, Display }
 
 /**
  * 播放器的 ⋮ 设置面板（docs/design/playback-speed.md）：横屏从右侧滑出、占满高度，同 B 站 / 腾讯视频等的横屏侧边栏——
@@ -69,9 +69,12 @@ internal fun PlayerSettingsPanel(
     /** 访客分享不能选画质（服务端按分享的设定给流） */
     canPickQuality: Boolean,
     speed: Float,
+    /** 画面缩放模式：fit（完整显示）/ fill（铺满裁切）/ stretch（拉伸铺满），iOS `VideoDisplayMode` 同款 */
+    displayMode: String,
     diagnosticsOpen: Boolean,
     onSelectQuality: (Int?) -> Unit,
     onSelectSpeed: (Float) -> Unit,
+    onSelectDisplayMode: (String) -> Unit,
     onToggleDiagnostics: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -122,6 +125,7 @@ internal fun PlayerSettingsPanel(
                                     }
                                 }
                                 EntryRow("倍速", PlaybackSpeeds.label(speed), "settings-speed") { page = SettingsPage.Speed }
+                                EntryRow("画面缩放", displayModeLabel(displayMode), "settings-display") { page = SettingsPage.Display }
                                 HorizontalDivider(color = LineColor, modifier = Modifier.padding(vertical = 6.dp))
                                 ToggleRow("播放诊断", diagnosticsOpen, "settings-diagnostics") {
                                     onToggleDiagnostics()
@@ -151,6 +155,15 @@ internal fun PlayerSettingsPanel(
                                 PlaybackSpeeds.ALL.forEach { value ->
                                     OptionRow(PlaybackSpeeds.label(value), null, value == speed, "speed-${PlaybackSpeeds.short(value)}") {
                                         if (value != speed) onSelectSpeed(value)
+                                        onDismiss()
+                                    }
+                                }
+                            }
+                            SettingsPage.Display -> {
+                                PageHeader("画面缩放") { page = SettingsPage.Root }
+                                DisplayModes.forEach { mode ->
+                                    OptionRow(mode.label, mode.hint, mode.id == displayMode, "display-${mode.id}") {
+                                        if (mode.id != displayMode) onSelectDisplayMode(mode.id)
                                         onDismiss()
                                     }
                                 }
@@ -243,3 +256,14 @@ private fun OptionRow(title: String, hint: String?, active: Boolean, tag: String
         }
     }
 }
+
+/** 画面缩放模式（iOS `VideoDisplayMode` 的对应物：同一套文案） */
+internal data class VideoDisplayModeOption(val id: String, val label: String, val hint: String)
+
+internal val DisplayModes = listOf(
+    VideoDisplayModeOption("fit", "完整显示", "保持比例，显示完整画面"),
+    VideoDisplayModeOption("fill", "铺满裁切", "保持比例，填满屏幕，可能裁去边缘"),
+    VideoDisplayModeOption("stretch", "拉伸铺满", "填满屏幕，画面比例会改变"),
+)
+
+internal fun displayModeLabel(id: String): String = DisplayModes.firstOrNull { it.id == id }?.label ?: "完整显示"

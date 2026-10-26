@@ -162,8 +162,8 @@
      拆主题时两者各自保值，Netflix 归一成白后图例与条带不再错色 */
   --info-legend: #7fb0ff;
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
-    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-sans: var(--font-inter), "PingFang SC", "Noto Sans SC", "Microsoft YaHei",
+    ui-sans-serif, system-ui, -apple-system, "Hiragino Sans GB", sans-serif;
 
   /* —— 安全区（刘海 / 胶囊 / 底部指示条） ——
      layout.tsx 里 viewport-fit=cover 让页面铺满整块屏幕后，凡是「贴边固定」

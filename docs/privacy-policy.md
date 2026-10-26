@@ -2,6 +2,8 @@
 
 更新日期：2026-10-10
 
+[English](privacy-policy.en.md)
+
 MovieClaw 是源码公开的自托管影音服务器及其客户端（iOS App、网页端、Mac 转码器、命令行）。
 本政策说明 MovieClaw 客户端如何处理你的信息。
 

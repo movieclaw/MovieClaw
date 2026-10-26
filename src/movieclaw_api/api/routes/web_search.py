@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import Field
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.web_search_config import (
@@ -87,7 +88,7 @@ async def show_web_search() -> ApiResponse[WebSearchConfigView]:
 async def update_web_search(payload: WebSearchSavePayload) -> ApiResponse[WebSearchConfigView]:
     """先向供应商做一次最小搜索，通过了才保存。失败不改已有密钥。"""
     data = await save_web_search(provider=payload.provider, api_key=payload.api_key)
-    return ok(_view(data), message="网页搜索已验证并保存")
+    return ok(_view(data), message=t("settings.webSearch.saved"))
 
 
 @router.delete(
@@ -98,7 +99,7 @@ async def update_web_search(payload: WebSearchSavePayload) -> ApiResponse[WebSea
     openapi_extra={**_HIDDEN, "x-cli-dangerous": "confirm"},
 )
 async def delete_web_search() -> ApiResponse[WebSearchConfigView]:
-    return ok(_view(await clear_web_search()), message="已关闭网页搜索")
+    return ok(_view(await clear_web_search()), message=t("settings.webSearch.disabled"))
 
 
 @router.post(

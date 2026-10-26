@@ -14,6 +14,9 @@ import logging
 from typing import Any
 
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.metadata import localized_schema
+from movieclaw_api.i18n.stored import reference, render_value
 from movieclaw_api.plugins import settings_store
 from movieclaw_kernel import Kernel
 from movieclaw_kernel.kernel import State
@@ -31,7 +34,7 @@ def description(kernel: Kernel, entry_id: str) -> dict[str, Any] | None:
 
     fiber = kernel.fiber(entry_id)
     if fiber is None:
-        raise NotFoundException(f"没有插件 {entry_id}")
+        raise NotFoundException(message_key="errors.plugins.missing", params={"id": entry_id})
     # 进程外插件的模型在子进程里，主进程只有它报上来的描述
     if entry_id in plugin_runtime.config_descriptions:
         return plugin_runtime.config_descriptions[entry_id]
@@ -62,7 +65,7 @@ def view(kernel: Kernel, settings: Any, entry_id: str) -> dict[str, Any]:
     return {
         "editable": True,
         "reason": None,
-        "schema": schema,
+        "schema": localized_schema(schema),
         "values": values,
         "secrets_set": sorted(name for name in secrets if merged.get(name) not in (None, "")),
     }
@@ -74,13 +77,18 @@ async def update(
     """保存界面填的值并重启插件；返回保存后的 :func:`view`。"""
     desc = description(kernel, entry_id)
     if not desc or "schema" not in desc:
-        reason = (desc or {}).get("unsupported") or "这个插件没有可在界面上修改的设置"
-        raise BadRequestException(reason)
+        reason = (desc or {}).get("unsupported")
+        if reason:
+            raise BadRequestException(reason)
+        raise BadRequestException(message_key="plugins.settings.notEditable")
     schema = desc["schema"]
     properties = schema["properties"]
     unknown = sorted(set(values) - set(properties))
     if unknown:
-        raise BadRequestException(f"没有这些设置项：{'、'.join(unknown)}")
+        raise BadRequestException(
+            message_key="errors.plugins.unknownSettings",
+            params={"fields": {"message_list": unknown, "separator_key": "common.list.separator"}},
+        )
     secrets = secret_fields(schema)
     stored = settings_store.read(settings, entry_id)
     new = dict(stored)
@@ -98,7 +106,9 @@ async def update(
         settings_store.restore(settings, entry_id, before)
         await _restart(kernel, entry_id)
         logger.warning("插件 %s 用新设置没能启动，已恢复原设置：%s", entry_id, error)
-        raise BadRequestException(f"新设置没能让插件启动，已恢复原设置：{error}")
+        raise BadRequestException(
+            message_key="errors.plugins.settingsRolledBack", params={"error": error}
+        )
     logger.info("插件 %s 的设置已保存并重启", entry_id)
     return view(kernel, settings, entry_id)
 
@@ -137,60 +147,77 @@ def _validate(
         except ValidationError as exc:
             errors = exc.errors(include_url=False, include_input=False)
     if errors:
-        raise BadRequestException(f"设置不合规：{describe_errors(errors, schema)}")
+        raise BadRequestException(
+            message_key="errors.plugins.settingsInvalid",
+            params={"detail": error_references(errors, schema)},
+        )
 
 
 #: pydantic 错误类型 → 中文说明（取不到就用原文）
 _MESSAGES = {
-    "missing": "必填",
-    "greater_than_equal": "不能小于 {ge}",
-    "greater_than": "必须大于 {gt}",
-    "less_than_equal": "不能大于 {le}",
-    "less_than": "必须小于 {lt}",
-    "int_parsing": "要填整数",
-    "int_type": "要填整数",
-    "int_from_float": "要填整数",
-    "float_parsing": "要填数字",
-    "float_type": "要填数字",
-    "bool_parsing": "要填是或否",
-    "bool_type": "要填是或否",
-    "string_type": "要填文本",
-    "string_too_short": "至少 {min_length} 个字",
-    "string_too_long": "最多 {max_length} 个字",
-    "string_pattern_mismatch": "格式不对",
-    "enum": "只能是 {expected}",
-    "literal_error": "只能是 {expected}",
-    "list_type": "要填一组文本",
+    "missing": "errors.validation.required",
+    "greater_than_equal": "errors.validation.minimum",
+    "greater_than": "errors.validation.greaterThan",
+    "less_than_equal": "errors.validation.maximum",
+    "less_than": "errors.validation.lessThan",
+    "int_parsing": "errors.validation.integer",
+    "int_type": "errors.validation.integer",
+    "int_from_float": "errors.validation.integer",
+    "float_parsing": "errors.validation.number",
+    "float_type": "errors.validation.number",
+    "bool_parsing": "errors.validation.boolean",
+    "bool_type": "errors.validation.boolean",
+    "string_type": "errors.validation.text",
+    "string_too_short": "errors.validation.minLength",
+    "string_too_long": "errors.validation.maxLength",
+    "string_pattern_mismatch": "errors.validation.pattern",
+    "enum": "errors.validation.allowedValues",
+    "literal_error": "errors.validation.allowedValues",
+    "list_type": "errors.validation.list",
 }
 
 
-def describe_errors(errors: list[dict[str, Any]], schema: dict[str, Any]) -> str:
-    """把 pydantic 的错误列表写成「同步间隔（秒）：不能小于 5；……」。"""
+def error_references(errors: list[dict[str, Any]], schema: dict[str, Any]) -> dict:
     properties = schema.get("properties") or {}
     parts = []
     for err in errors:
         loc = [str(p) for p in err.get("loc") or ()]
         field = loc[0] if loc else ""
-        label = (properties.get(field) or {}).get("title") or field or "设置"
-        template = _MESSAGES.get(str(err.get("type")))
+        annotation = properties.get(field) or {}
+        label = annotation.get("title") or field
+        label_ref = (
+            {"message_text": label, "message_localized": annotation.get("title_localized")}
+            if label
+            else reference("errors.validation.settings")
+        )
+        key = _MESSAGES.get(str(err.get("type")))
         try:
-            message = template.format(**(err.get("ctx") or {})) if template else None
+            reason = (
+                reference(key, **(err.get("ctx") or {}))
+                if key
+                else err.get("msg") or reference("errors.validation.invalid")
+            )
+            render_value(reason)
         except (KeyError, IndexError):
-            message = None
-        parts.append(f"{label}：{message or err.get('msg') or '不合规'}")
-    return "；".join(parts)
+            reason = err.get("msg") or reference("errors.validation.invalid")
+        parts.append(reference("errors.validation.field", label=label_ref, reason=reason))
+    return {"message_list": parts, "separator_key": "common.list.issueSeparator"}
+
+
+def describe_errors(errors: list[dict[str, Any]], schema: dict[str, Any]) -> str:
+    return render_value(error_references(errors, schema))
 
 
 async def _restart(kernel: Kernel, entry_id: str) -> str | None:
     """让插件按新配置重新启动；返回失败原因（成功为 None）。用户停用中的插件只存不启。"""
     fiber = kernel.fiber(entry_id)
     if fiber is None:
-        return "插件已不存在"
+        return t("errors.plugins.noLongerExists")
     if fiber.state is State.DISABLED and fiber.disabled_by not in (None, RESTART_SOURCE):
         return None
     await kernel.disable(entry_id, source=RESTART_SOURCE)
     await kernel.enable(entry_id)
     fiber = kernel.fiber(entry_id)
     if fiber is not None and fiber.state is State.FAILED:
-        return fiber.error or "启动失败"
+        return fiber.error or t("errors.plugins.startupFailed")
     return None

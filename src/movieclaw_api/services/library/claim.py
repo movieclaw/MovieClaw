@@ -73,30 +73,35 @@ async def claim_files(
     if not rows:
         # 单个认领报出具体 id（便于排障），整组认领用集合措辞
         if len(file_ids) == 1:
-            raise NotFoundException(f"台账记录不存在：id={file_ids[0]}")
-        raise NotFoundException("这些台账记录都不存在（可能已被认领或忽略）")
+            raise NotFoundException(
+                message_key="errors.library.recordMissing", params={"id": file_ids[0]}
+            )
+        raise NotFoundException(message_key="errors.library.claimRecordsMissing")
     library_ids = {row.library_id for row in rows}
     if len(library_ids) > 1:
-        raise BadRequestException("一次只能认领同一个媒体库内的文件")
+        raise BadRequestException(message_key="errors.library.claimSameLibrary")
     library = await LibraryConfigService(session).get(rows[0].library_id)
     profile = profile_of(library)
     kind = profile.kind
     if not profile.scraped:
-        raise BadRequestException(f"「{library.name}」是本地内容库，其中的文件没有可认领的外部身份")
+        raise BadRequestException(
+            message_key="errors.library.localClaimUnsupported", params={"name": library.name}
+        )
     if target_kind is not None and target_kind is not kind:
         raise BadRequestException(
-            f"影视条目类型 {target_kind.value} 与媒体库类型 {kind.value} 不一致"
+            message_key="errors.library.claimKindMismatch",
+            params={"target": target_kind.value, "library": kind.value},
         )
     if explicit_unit is not None and kind is MediaKind.MOVIE and any(explicit_unit):
-        raise BadRequestException("电影文件不需要季集号")
+        raise BadRequestException(message_key="errors.library.movieEpisodeUnneeded")
     if season_override is not None and kind is MediaKind.MOVIE:
-        raise BadRequestException("电影文件不需要季号")
+        raise BadRequestException(message_key="errors.library.movieSeasonUnneeded")
     if (
         explicit_unit is None
         and season_override is None
         and any(row.unidentified_code == UnidentifiedCode.UNIT_UNRESOLVED for row in rows)
     ):
-        raise BadRequestException("这些文件解析不出季号，认领时请指定第几季")
+        raise BadRequestException(message_key="errors.library.claimSeasonRequired")
 
     # 经模块属性取 TMDB 客户端（而非 from-import 绑定名），保证测试可打桩
     tmdb = media_discover.get_tmdb_client()
@@ -209,7 +214,7 @@ async def resolve_review(
     rows = [row for fid in file_ids if (row := await session.get(LibraryFile, fid))]
     pending = [row for row in rows if row.review_suggestion]
     if not pending:
-        raise NotFoundException("这些文件没有待拍板的复核建议（可能已被处理）")
+        raise NotFoundException(message_key="errors.library.reviewAlreadyHandled")
     accepted_items: set[int] = set()
     displaced: set[int] = set()
     moved_file_ids: list[int] = []

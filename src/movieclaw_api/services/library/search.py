@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n.stored import reference, stored_fields, stored_message
 from movieclaw_api.schemas.library_search import (
     LibrarySearchHit,
     LibrarySearchMatch,
@@ -62,12 +63,13 @@ _NAME = table(
 _FTS = table("library_search_fts", column("rowid"), column("name_tokens"))
 _DIRTY = table("library_search_dirty", column("entity_kind"), column("entity_id"))
 _LABELS = {
-    "text": "名称匹配",
-    "pinyin": "拼音匹配",
-    "initials": "首字母匹配",
-    "mixed": "文字与拼音混合匹配",
-    "words": "名称词组匹配",
+    "text": "search.match.text",
+    "pinyin": "search.match.pinyin",
+    "initials": "search.match.initials",
+    "mixed": "search.match.mixed",
+    "words": "search.match.words",
 }
+
 _FIELD_ORDER = {"title": 0, "original_title": 1, "english_title": 2, "alias": 3}
 # 人物行最多展示几位：首字母这类短输入常命中一批同档人物，8 位时主演也可能被挤掉；
 # 只有这些人会读取姓名与头像，关系与排名仍覆盖全部候选
@@ -105,16 +107,22 @@ class MatchEvidence:
     label: str
     person_id: int | None = None
     department: str | None = None
+    label_key: str | None = None
+    label_params: dict | None = None
 
     def view(self, person_name: str = "") -> LibrarySearchMatch:
-        label = self.label
+        key, params = self.label_key, self.label_params
         if self.department is not None:
-            label = f"{'导演' if self.department == 'director' else '演员'}：{person_name}"
+            key = "search.match.person"
+            params = {"role": self.department, "name": person_name}
+        label = stored_message(self.label, key, params) if key else self.label
         return LibrarySearchMatch(
             type=self.type,
             source_field=self.source_field,
             matched_name=self.matched_name,
             label=label,
+            label_key=key,
+            label_params=params,
             person_id=self.person_id,
         )
 
@@ -336,9 +344,15 @@ def _match_rows(query, rows):
         previous = result[kind].get(entity_id)
         if previous is not None and previous.order <= order:
             continue
-        label = _LABELS.get(matched.kind.split("_")[0], "名称匹配")
+        key = _LABELS.get(matched.kind.split("_")[0], "search.match.text")
+        params = {}
         if field == "alias":
-            label = "别名匹配" if matched.kind.startswith("text") else f"别名 · {label}"
+            if matched.kind.startswith("text"):
+                key = "search.match.alias"
+            else:
+                params = {"reason": reference(key)}
+                key = "search.match.aliasReason"
+        message = stored_fields(key, **params)
         candidate = Candidate(
             entity_id,
             order,
@@ -346,7 +360,9 @@ def _match_rows(query, rows):
                 type=matched.kind,
                 source_field=field,
                 matched_name=raw,
-                label=label,
+                label=message["message"],
+                label_key=message["message_key"],
+                label_params=message["message_params"],
             ),
         )
         result[kind][entity_id] = candidate
@@ -366,7 +382,8 @@ async def search_candidates(session, query, library_ids, member_id, content_limi
                         type="person",
                         source_field="person_name",
                         matched_name="",
-                        label="人物作品",
+                        label=stored_fields("search.match.personWorks")["message"],
+                        label_key="search.match.personWorks",
                         person_id=person_id,
                     ),
                 )
@@ -499,9 +516,9 @@ async def search_library(
             offset = int(offset_raw)
             browsing = _sessions[token]
         except (ValueError, KeyError) as exc:
-            raise BadRequestException("搜索结果已过期，请重新搜索") from exc
+            raise BadRequestException(message_key="errors.library.searchExpired") from exc
         if browsing.binding != binding or not 0 <= offset <= len(browsing.candidates):
-            raise BadRequestException("分页游标与当前搜索不匹配，请重新搜索")
+            raise BadRequestException(message_key="errors.library.searchCursorMismatch")
         candidates = browsing.candidates
     else:
         candidates, people, pending = await search_candidates(
@@ -513,7 +530,7 @@ async def search_library(
             person_id,
         )
         if len(candidates) > 100000:
-            raise BadRequestException("搜索结果过多，请补充片名或人物名称")
+            raise BadRequestException(message_key="errors.library.searchTooBroad")
         offset = 0
         token = secrets.token_urlsafe(24)
     eligible = _eligible(library_ids, member_id, content_limit, person_id)

@@ -18,6 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from movieclaw_api.i18n.stored import source_text
 from movieclaw_api.services.push import channels as channel_registry
 from movieclaw_api.services.push import registration, relay
 from movieclaw_api.services.push.channels import Channel
@@ -61,6 +62,7 @@ class Outcome:
     result: str
     message: str = ""
     channel_id: str | None = None
+    message_ref: dict | None = None
 
 
 def build_message(
@@ -146,21 +148,30 @@ async def deliver(items: list[Outgoing], *, attempt: int = 0) -> list[Outcome]:
                             item.device_id,
                             item.device_name,
                             "no_channel",
-                            "没有能推这个 App 的可用通道",
+                            source_text("push.outcome.noChannel"),
+                            message_ref={"message_key": "push.outcome.noChannel"},
                         )
                     )
                 continue
             if not available:
                 state = channel_registry.runtime(candidates[0].id)
+                blocked = state.blocked()
+                message = state.blocked_message if blocked else None
+                message_ref = state.blocked_message_ref if blocked else None
+                if not message:
+                    message = state.device_block(item.token)
+                    message_ref = state.device_block_refs.get(item.token)
+                if not message:
+                    message = source_text("push.channels.quotaExhausted")
+                    message_ref = {"message_key": "push.channels.quotaExhausted"}
                 outcomes.append(
                     Outcome(
                         item.device_id,
                         item.device_name,
                         "rate_limited",
-                        (state.blocked_message if state.blocked() else None)
-                        or state.device_block(item.token)
-                        or "今天的推送额度已经用完",
+                        message,
                         candidates[0].id,
+                        message_ref=message_ref,
                     )
                 )
                 continue
@@ -189,12 +200,24 @@ async def deliver(items: list[Outgoing], *, attempt: int = 0) -> list[Outcome]:
                 item.failed_channels.clear()
             spawn(_retry_later(retry, attempt))
             final.extend(
-                Outcome(i.device_id, i.device_name, "queued", "通道暂时不可用，稍后自动重试")
+                Outcome(
+                    i.device_id,
+                    i.device_name,
+                    "queued",
+                    source_text("push.outcome.queued"),
+                    message_ref={"message_key": "push.outcome.queued"},
+                )
                 for i in retry
             )
         else:
             final.extend(
-                Outcome(i.device_id, i.device_name, "failed", "通道一直不可用，重试后仍没发出去")
+                Outcome(
+                    i.device_id,
+                    i.device_name,
+                    "failed",
+                    source_text("push.outcome.failed"),
+                    message_ref={"message_key": "push.outcome.failed"},
+                )
                 for i in retry
             )
     return final
@@ -236,7 +259,9 @@ async def _send_batch(channel: Channel, batch: list[Outgoing]) -> list[Outcome] 
                 break
     if response is None:
         assert error is not None
-        state.record_failure(error.message, unreachable=error.network)
+        state.record_failure(
+            error.message, unreachable=error.network, message_ref=error.message_ref
+        )
         if channel.kind == "official" and error.code in ("unauthorized", "forbidden"):
             # 官方中继每次都查实例状态：拒绝说明令牌失效或在官网解绑了。马上续签一次——
             # 解绑了尽快显示「已断开」，令牌失效就换新的，稍后的重试用新令牌
@@ -246,7 +271,15 @@ async def _send_batch(channel: Channel, batch: list[Outgoing]) -> list[Outcome] 
         if error.retryable:
             return None
         return [
-            Outcome(i.device_id, i.device_name, "failed", error.message, channel.id) for i in batch
+            Outcome(
+                i.device_id,
+                i.device_name,
+                "failed",
+                error.message,
+                channel.id,
+                message_ref=error.message_ref,
+            )
+            for i in batch
         ]
 
     state.record_success(response.quota)
@@ -283,17 +316,27 @@ async def _handle_result(channel: Channel, item: Outgoing, result: dict) -> Outc
         if (result.get("limit") or result.get("reason")) == "day":
             # 整台服务器当天的额度用完：这个通道到点之前不再发
             state.blocked_until = until
-            state.blocked_message = message or "今天的推送额度已经用完"
+            state.blocked_message = message or source_text("push.channels.quotaExhausted")
+            state.blocked_message_ref = (
+                None if message else {"message_key": "push.channels.quotaExhausted"}
+            )
         else:
             # 按设备（device_day）或别的维度的限制：只挡这台设备，家里别的设备照常收
             state.device_blocks[item.token] = (
                 until,
-                message or "这台设备今天的推送已达上限",
+                message or source_text("push.outcome.deviceQuota"),
             )
+            if message:
+                state.device_block_refs.pop(item.token, None)
+            else:
+                state.device_block_refs[item.token] = {"message_key": "push.outcome.deviceQuota"}
     elif code == "apns_error" and result.get("retryable"):
         outcome.result = "retry"
     elif code == "topic_not_allowed":
-        state.record_failure(message or "中继不推这个 App")
+        state.record_failure(
+            message or source_text("push.channels.topicNotAllowed"),
+            message_ref=None if message else {"message_key": "push.channels.topicNotAllowed"},
+        )
     else:
         logger.warning("推送 %s 被拒：%s %s", item.message["id"], code, message)
     return outcome

@@ -35,12 +35,22 @@ async def run_task(definition: TaskDefinition) -> None:
     # 2. 执行任务体，捕获一切异常
     status = TaskRunStatus.SUCCESS
     error: str | None = None
+    error_key: str | None = None
+    error_params: dict = {}
     try:
         await definition.handler()
         logger.info("定时任务执行成功：%s（%s）", definition.key, definition.title)
     except Exception as exc:  # noqa: BLE001 -- 定时任务需吞掉所有异常并记录原因
         status = TaskRunStatus.FAILED
-        error = f"{type(exc).__name__}：{exc}"
+        error_key = getattr(exc, "message_key", None)
+        error_params = getattr(exc, "params", {})
+        reason = str(exc)
+        if error_key:
+            from movieclaw_api.i18n import t, use_locale
+
+            with use_locale("zh-Hans"):
+                reason = t(error_key, **error_params)
+        error = f"{type(exc).__name__}：{reason}"
         # 日志保留完整堆栈供开发者排查，落库的 error 是精简可读文本
         logger.warning(
             "定时任务执行失败：%s，原因：%s", definition.key, error, exc_info=True
@@ -56,5 +66,7 @@ async def run_task(definition: TaskDefinition) -> None:
             finished_at=finished,
             duration_ms=duration_ms,
             error=error,
+            error_key=error_key,
+            error_params=error_params,
         )
         await ScheduledTaskRepository(session).mark_run(definition.key, finished)

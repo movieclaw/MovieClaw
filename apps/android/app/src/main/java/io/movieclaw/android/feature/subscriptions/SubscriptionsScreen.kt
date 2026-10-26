@@ -99,6 +99,8 @@ import io.movieclaw.android.core.designsystem.TextFaint
 import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.Warning
 import io.movieclaw.android.core.model.SubscriptionView
+import io.movieclaw.android.core.designsystem.mcCards
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /**
  * 下一集英雄 —— 实测：高 500、整幅剧照铺满，图片带遮罩
@@ -142,7 +144,7 @@ private fun ArrivalHero(
             Modifier
                 .align(Alignment.Center)
                 .fillMaxWidth()
-                .padding(horizontal = McMetrics.pagePadding),
+                .padding(horizontal = mcCards.pagePadding),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
@@ -222,7 +224,7 @@ private fun ScheduleSection(
     Spacer(Modifier.height(12.dp))
 
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding),
+        Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         days.forEach { day ->
@@ -267,7 +269,7 @@ private fun ScheduleSection(
         val sub = remember(first.subscriptionId) { null }
         Column(
             Modifier
-                .padding(horizontal = McMetrics.pagePadding)
+                .padding(horizontal = mcCards.pagePadding)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(McMetrics.panelRadius))
                 .background(Color.White.copy(alpha = 0.045f))
@@ -329,8 +331,8 @@ private fun SubscriptionRow(
     SectionHeaderLarge(title = title, counter = "共 ${items.size} 部")
     Spacer(Modifier.height(16.dp))
     LazyRow(
-        contentPadding = PaddingValues(horizontal = McMetrics.pagePadding),
-        horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+        contentPadding = PaddingValues(horizontal = mcCards.pagePadding),
+        horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
     ) {
         items(items, key = { it.id }) { sub ->
             SubscriptionPosterCard(sub, origin) { onOpen(sub.id) }
@@ -352,7 +354,7 @@ private fun SubscriptionPosterCard(
 ) {
     val searching = sub.status == "wanted" || sub.status == "searching"
     val pillText = if (searching) "找资源中" else "已入库"
-    Column(Modifier.width(McMetrics.rowCardWidth).clickable(onClick = onClick)) {
+    Column(Modifier.width(mcCards.posterWidth).clickable(onClick = onClick)) {
         Box(
             Modifier
                 .fillMaxWidth()
@@ -424,7 +426,7 @@ private fun subLine(sub: SubscriptionView): String {
 private fun EmptySubscriptions(onDiscover: () -> Unit) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(McMetrics.cardRadius))
             .background(GlassCard)
@@ -611,7 +613,7 @@ fun SubscribeScreen(
                     Modifier
                         .fillMaxWidth()
                         .weight(1f, fill = false)
-                        .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                        .formSheetScroll().verticalScroll(androidx.compose.foundation.rememberScrollState()),
                 ) {
                 Column(Modifier.padding(horizontal = 16.dp)) {
                     Row {

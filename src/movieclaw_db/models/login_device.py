@@ -45,6 +45,8 @@ class LoginDevice(MemberScopedMixin, TimestampMixin, table=True):
     client_version: str | None = Field(default=None, description="客户端版本")
     platform: str | None = Field(default=None, description="系统与机型，如 iOS 26.0 · iPhone18,4")
     user_agent: str | None = Field(default=None, description="最近一次请求的 User-Agent")
+    locale: str | None = Field(default=None)
+    timezone: str | None = Field(default=None)
     last_seen_at: datetime | None = Field(default=None, description="最近活跃时间（分钟粒度）")
     last_seen_ip: str | None = Field(default=None, description="最近活跃的来源地址")
     # 只有网页会话有过期时间（沿用 7 天 / 记住我 30 天）；App、命令行、转码器

@@ -133,7 +133,8 @@ from movieclaw_downloader.models import (  # noqa: E402
 
 ingest_mod.QUIET_SECONDS = 0
 # 假字节视频：本机装了 ffprobe 时入库前终检会判它损坏；按「没装 ffprobe」放行
-ingest_mod.ffprobe_available = lambda: False
+if not os.environ.get("E2E_REAL_DOWNLOAD_MEDIA"):
+    ingest_mod.ffprobe_available = lambda: False
 scan_mod.NEW_FILE_QUIET_SECONDS = 0
 
 _DL_LOG = Path(os.environ["E2E_DL_LOG"])

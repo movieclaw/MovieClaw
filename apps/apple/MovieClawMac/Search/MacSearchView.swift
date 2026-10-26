@@ -52,7 +52,7 @@ struct MacSearchView: View {
         .background(Color.macPage)
         .animation(.easeOut(duration: 0.2), value: model.searching)
         .animation(.easeOut(duration: 0.25), value: model.items.map(\.item.mediaItemId))
-        .navigationTitle("搜索")
+        .navigationTitle(String(localized: .commonSearch))
         .toolbar(removing: .title)
         .task(id: input) {
             await model.search(api: api, input: input)
@@ -71,13 +71,13 @@ struct MacSearchView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(trimmed.isEmpty ? "搜索" : "「\(trimmed)」")
+            Text(trimmed.isEmpty ? String(localized: .commonSearch) : "「\(trimmed)」")
                 .font(.system(size: 28, weight: .bold))
                 .lineLimit(1)
             if model.searching, !showsSkeleton {
                 ProgressView().controlSize(.small)
             } else if !trimmed.isEmpty, model.loadedInput == input, selectedPerson == nil {
-                Text(model.nextCursor == nil ? "\(model.items.count) 部" : "\(model.items.count)+ 部")
+                Text(model.nextCursor == nil ? String(localized: .libraryStatusTitleCount(model.items.count)) : String(localized: .librarySearchMoreTitles(model.items.count)))
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.secondary)
             }
@@ -93,14 +93,14 @@ struct MacSearchView: View {
         HStack(spacing: 12) {
             MacAvatar(url: Self.avatarURL(person), name: person.name, size: 44)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(person.name)的库内作品").font(.system(size: 17, weight: .semibold))
-                Text("库内 \(person.itemCount) 部").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(String(localized: .libraryPersonLibraryTitles(person.name))).font(.system(size: 17, weight: .semibold))
+                Text(String(localized: .mediaPersonLibraryCount(person.itemCount))).font(.system(size: 12)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             Button {
                 selectedPerson = nil
             } label: {
-                Label("返回搜索结果", systemImage: "chevron.backward")
+                Label(String(localized: .libraryBackToResults), systemImage: "chevron.backward")
             }
             .buttonStyle(.glass)
             .accessibilityIdentifier("mac-search-person-back")
@@ -110,7 +110,7 @@ struct MacSearchView: View {
     /// 「人物」一行：头像 + 姓名 + 库内几部，点一下看这个人在库里的全部作品
     private var peopleRow: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("人物").font(.system(size: 20, weight: .bold))
+            Text(String(localized: .searchPalettePerson)).font(.system(size: 20, weight: .bold))
             ScrollView(.horizontal) {
                 HStack(spacing: 10) {
                     ForEach(model.people, id: \.id) { person in
@@ -130,7 +130,7 @@ struct MacSearchView: View {
     private var itemsGrid: some View {
         VStack(alignment: .leading, spacing: 14) {
             if selectedPerson == nil {
-                Text("影片").font(.system(size: 20, weight: .bold))
+                Text(String(localized: .searchPaletteTitle)).font(.system(size: 20, weight: .bold))
             }
             LazyVGrid(columns: MacPosterWall<EmptyView>.columns, alignment: .leading, spacing: 26) {
                 ForEach(model.items, id: \.item.mediaItemId) { hit in
@@ -171,14 +171,14 @@ struct MacSearchView: View {
     @ViewBuilder
     private var states: some View {
         if let failed = model.failed {
-            MacStateView(symbol: "wifi.exclamationmark", title: "搜索失败", message: failed, actionTitle: "重试") {
+            MacStateView(symbol: "wifi.exclamationmark", title: String(localized: .librarySearchFailed), message: failed, actionTitle: String(localized: .commonRetry)) {
                 Task { await model.search(api: api, input: input, immediately: true) }
             }
             .frame(height: 360)
         } else if model.items.isEmpty, model.people.isEmpty || selectedPerson != nil, !model.searching, model.loadedInput == input,
                   !trimmed.isEmpty || selectedPerson != nil {
-            MacStateView(symbol: "magnifyingglass", title: "没有找到相关影片",
-                         message: "试试片名、别名、拼音首字母（如 xjcy），或演员、导演的名字。")
+            MacStateView(symbol: "magnifyingglass", title: String(localized: .librarySearchNoResults),
+                         message: String(localized: .librarySearchTipsMac))
                 .frame(height: 360)
         } else if trimmed.isEmpty, selectedPerson == nil {
             idle
@@ -191,9 +191,9 @@ struct MacSearchView: View {
             if !recents.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("最近搜索").font(.system(size: 20, weight: .bold))
+                        Text(String(localized: .searchHistoryRecent)).font(.system(size: 20, weight: .bold))
                         Spacer()
-                        Button("清除") {
+                        Button(String(localized: .libraryItemClear)) {
                             recents = []
                             UserDefaults.standard.removeObject(forKey: recentsKey)
                         }
@@ -208,8 +208,8 @@ struct MacSearchView: View {
                     }
                 }
             }
-            MacStateView(symbol: "magnifyingglass", title: "搜索你的媒体库",
-                         message: "片名、别名、拼音首字母都行：输入 xjcy、星际cy 或诺兰试试。按 ⌘F 随时回到搜索框。")
+            MacStateView(symbol: "magnifyingglass", title: String(localized: .librarySearchYourLibrary),
+                         message: String(localized: .librarySearchIntroMac))
                 .frame(height: 300)
         }
     }
@@ -269,7 +269,7 @@ private struct MacSearchPersonChip: View {
                 MacAvatar(url: avatarURL, name: person.name, size: 40)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(person.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                    Text([person.match.label.isEmpty ? nil : person.match.label, "库内 \(person.itemCount) 部"].compactMap { $0 }.joined(separator: " · "))
+                    Text([person.match.label.isEmpty ? nil : person.match.label, String(localized: .mediaPersonLibraryCount(person.itemCount))].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -284,7 +284,7 @@ private struct MacSearchPersonChip: View {
         }
         .buttonStyle(MacCardButtonStyle())
         .onHover { inside in withAnimation(.easeOut(duration: 0.12)) { hovering = inside } }
-        .help("查看\(person.name)在库里的全部作品")
+        .help(String(localized: .libraryPersonAllTitlesHelp(person.name)))
     }
 }
 

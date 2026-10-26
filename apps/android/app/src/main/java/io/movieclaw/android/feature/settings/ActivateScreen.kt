@@ -3,6 +3,7 @@ package io.movieclaw.android.feature.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Button
@@ -32,6 +34,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -187,10 +190,36 @@ class ActivateViewModel @Inject constructor(
 @Composable
 fun ActivateScreen(
     onBack: () -> Unit,
+    /** 站内链接 / 扫码带来的已知配对码（iOS `DeviceApprovalLaunch.code`）；非空直接查询 */
+    presetCode: String? = null,
+    /** 「我的」页扫码钮进来：一打开就是相机（iOS `scanFirst` 同款） */
+    scanFirst: Boolean = false,
     vm: ActivateViewModel = hiltViewModel(),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
-    var code by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf(presetCode.orEmpty()) }
+    // 扫码阶段（iOS `PairingScannerScreen` 的对应物）：扫到的码规整后填进输入框，仍走同一套核对批准
+    var scanning by remember { mutableStateOf(scanFirst) }
+    // 「我的」页扫码钮进来：一打开就是相机（iOS `scanFirst` 同款）；带码进来直接查询
+    LaunchedEffect(presetCode) {
+        if (presetCode != null && presetCode.isNotBlank()) vm.lookup(presetCode)
+    }
+    // 二维码里的服务器（主机:端口）：查不到请求时提示「设备连的可能是另一台服务器」
+    var scannedHost by remember { mutableStateOf<String?>(null) }
+
+    if (scanning) {
+        PairingScannerScreen(
+            onScanned = { scannedCode, host ->
+                code = scannedCode
+                scannedHost = host
+                scanning = false
+                vm.lookup(scannedCode)
+            },
+            onManualEntry = { scanning = false },
+            onClose = { scanning = false },
+        )
+        return
+    }
 
     Column(
         Modifier
@@ -208,9 +237,9 @@ fun ActivateScreen(
         when (val step = ui.step) {
             ActivateViewModel.Step.Input -> Column(Modifier.padding(horizontal = 24.dp)) {
                 Spacer(Modifier.height(18.dp))
-                // 说明照 Web `device-approval.tsx` 原文（本端暂无扫码，故不带 iOS 那句「或者扫它旁边的二维码」）
+                // 说明照 iOS `DeviceApprovalFlow` / Web `device-approval.tsx` 原文
                 Text(
-                    "输入 Apple TV、命令行（mclaw login）或转码器上显示的配对码。",
+                    "输入 Apple TV、Android TV、Mac、命令行或转码器上显示的配对码，或者扫它旁边的二维码。",
                     style = McType.footnote, color = TextMuted, lineHeight = 20.sp,
                 )
                 Spacer(Modifier.height(20.dp))
@@ -238,13 +267,30 @@ fun ActivateScreen(
                 ui.error?.let {
                     Spacer(Modifier.height(8.dp))
                     Text(it, style = McType.footnote, color = Danger, lineHeight = 18.sp)
+                    // 二维码带着别的服务器地址、而这台服务器上查不到请求时，说清原因（iOS 同款提示）
+                    val originHost = runCatching { java.net.URI(vm.origin ?: "").host }.getOrNull()
+                    scannedHost?.let { host ->
+                        if (originHost == null || !host.startsWith(originHost)) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "扫到的二维码来自 $host,设备连的可能是另一台服务器。",
+                                style = McType.footnote, color = Warning, lineHeight = 18.sp,
+                            )
+                        }
+                    }
                 }
                 Spacer(Modifier.height(18.dp))
                 Button(
                     onClick = { vm.lookup(code) },
                     enabled = !ui.loading && code.isNotBlank(),
                     shape = RoundedCornerShape(999.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color(0xFF141821)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Transparent,
+                        contentColor = Color(0xFF141821),
+                        // 禁用时默认会用半透明灰白，压在自绘的银色渐变上几乎看不见（实机：空输入时「继续」像消失了）
+                        disabledContainerColor = Color.Transparent,
+                        disabledContentColor = Color(0xFF141821).copy(alpha = 0.45f),
+                    ),
                     elevation = null,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -259,6 +305,28 @@ fun ActivateScreen(
                         Spacer(Modifier.width(8.dp))
                     }
                     Text("继续", style = McType.bodySemibold)
+                }
+                Spacer(Modifier.height(10.dp))
+                // 扫描二维码（iOS `device-approval-scan` 同款入口）：进全屏取景页
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color.White.copy(alpha = 0.08f))
+                        .clickable { scannedHost = null; scanning = true }
+                        .padding(horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.QrCodeScanner,
+                        contentDescription = null,
+                        tint = TextPrimary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("扫描二维码", style = McType.bodySemibold, color = TextPrimary)
                 }
             }
 

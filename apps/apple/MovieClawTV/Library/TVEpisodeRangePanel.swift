@@ -86,9 +86,9 @@ struct TVEpisodeRangePanel: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 24) {
-            Text("全部分集")
+            Text(String(localized: .libraryItemAllEpisodes))
                 .font(.system(size: 44, weight: .bold))
-            Text(([seasonLabel, "在库 \(ownedCount) / \(total)"] + (anchor.map { ["接着看第 \($0) 集"] } ?? []))
+            Text(([seasonLabel, String(localized: .libraryItemOwnedEpisodeFraction(ownedCount, total))] + (anchor.map { [String(localized: .libraryContinueEpisode($0))] } ?? []))
                 .joined(separator: " · "))
                 .font(.system(size: 26))
                 .foregroundStyle(.white.opacity(0.6))
@@ -110,7 +110,7 @@ struct TVEpisodeRangePanel: View {
                                 Spacer(minLength: 0)
                                 if range.index == anchorRange {
                                     Circle().fill(TVEpisodeRangeStyle.anchorColor).frame(width: 12, height: 12)
-                                        .accessibilityLabel("接着看")
+                                        .accessibilityLabel(String(localized: .libraryItemContinue))
                                 }
                             }
                         }
@@ -180,14 +180,14 @@ struct TVEpisodeRangePanel: View {
     private var caption: some View {
         VStack(alignment: .leading, spacing: 8) {
             if case let .cell(number) = focus, let episode = byNumber[number] {
-                Text("第 \(number) 集 · \(episode.name ?? "第 \(number) 集")")
+                Text(String(localized: .mediaEpisodeNumber(number)) + " · " + (episode.name ?? String(localized: .mediaEpisodeNumber(number))))
                     .font(.system(size: 28, weight: .semibold))
                     .lineLimit(1)
-                Text(Self.status(episode) + " · 按确认回到详情页，焦点落在这一集")
+                Text(Self.status(episode) + " · " + String(localized: .libraryTvRangeSelectHint))
                     .font(.system(size: 24))
                     .foregroundStyle(.white.opacity(0.6))
             } else {
-                Text("上下换段，往右进宫格")
+                Text(String(localized: .libraryTvRangeNavHint))
                     .font(.system(size: 24))
                     .foregroundStyle(.white.opacity(0.6))
             }
@@ -197,9 +197,9 @@ struct TVEpisodeRangePanel: View {
     }
 
     static func status(_ episode: API.EpisodeView) -> String {
-        if !episode.owned { return "还没有片源" }
-        if episode.positionMs > 0, let percent = episode.progressPercent { return "看到 \(percent)%" }
-        return episode.played ? "已看完" : "未看"
+        if !episode.owned { return String(localized: .libraryNoSourceYet) }
+        if episode.positionMs > 0, let percent = episode.progressPercent { return String(localized: .subscriptionFeedWatchedPercent(percent)) }
+        return episode.played ? String(localized: .libraryItemWatched) : String(localized: .libraryUnwatched)
     }
 }
 

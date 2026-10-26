@@ -10,6 +10,7 @@ import {
   CODEC_FAMILIES,
   CodecFamily,
   DEFAULT_LADDER,
+  HDR_BLOCK_ONLY,
   HDR_OPTIONS,
   LADDER_OPTIONS,
   LibraryRoutingOptions,
@@ -474,6 +475,14 @@ export struct RuleSetEditorBody {
     this.hdrLevels = this.hdrLevels.concat([value]);
   }
 
+  private toggleHdrBlock(value: string): void {
+    if (this.hdrBlock.indexOf(value) >= 0) {
+      this.hdrBlock = this.hdrBlock.filter((v: string): boolean => v !== value);
+      return;
+    }
+    this.hdrBlock = this.hdrBlock.concat([value]);
+  }
+
   private cyclePlatform(value: string): void {
     if (this.platformsAllow.indexOf(value) >= 0) {
       this.platformsAllow = this.platformsAllow.filter((v: string): boolean => v !== value);
@@ -838,6 +847,15 @@ export struct RuleSetEditorBody {
             : (this.hdrBlock.indexOf(value) >= 0 ? 'exclude' : 'off'),
           onTap: (): void => {
             this.cycleHdr(value);
+          }
+        })
+      }, (value: string) => value)
+      ForEach(HDR_BLOCK_ONLY, (value: string) => {
+        RuleTriChip({
+          label: value,
+          state: this.hdrBlock.indexOf(value) >= 0 ? 'exclude' : 'off',
+          onTap: (): void => {
+            this.toggleHdrBlock(value);
           }
         })
       }, (value: string) => value)

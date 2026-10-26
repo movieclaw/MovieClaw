@@ -14,6 +14,10 @@
  * 经「更多」搜索面板加入（全量表来自后端代理的 TMDB configuration 接口）。
  */
 
+import { useLocale, useTranslations } from "next-intl";
+import { type AppLocale } from "@/lib/i18n/negotiate";
+import { formatList } from "@/lib/format";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandLoader } from "@/components/brand-loader";
@@ -56,38 +60,44 @@ interface ChipOption {
 }
 
 /** 常用语种快捷芯片（元数据语言，值为带地区的语言标签）。 */
-const COMMON_META_LANGS: ChipOption[] = [
-  { id: "zh-CN", name: "中文（简体）" },
-  { id: "zh-TW", name: "中文（繁體）" },
-  { id: "en-US", name: "English" },
-  { id: "ja-JP", name: "日本語" },
-  { id: "ko-KR", name: "한국어" },
-  { id: "fr-FR", name: "Français" },
-];
+function commonMetaLangs(t: ReturnType<typeof appTranslator>): ChipOption[] {
+  return [
+    { id: "zh-CN", name: t("settings.scrape.simplifiedChinese") },
+    { id: "zh-TW", name: t("settings.scrape.traditionalChinese") },
+    { id: "en-US", name: "English" },
+    { id: "ja-JP", name: t("settings.scrape.japaneseLanguage") },
+    { id: "ko-KR", name: t("settings.scrape.koreanLanguage") },
+    { id: "fr-FR", name: t("settings.scrape.frenchLanguage") },
+  ];
+}
 
 /** 图片语言的特殊 token + 常用语种（值为 TMDB 图片语言码）。 */
-const COMMON_IMAGE_LANGS: ChipOption[] = [
-  {
-    id: "meta",
-    name: "跟随元数据主语言",
-    tip: "引用「元数据」里语言优先级的第 1 位，改语言时选图自动跟随",
-  },
-  {
-    id: "orig",
-    name: "原始语言",
-    tip: "作品的原声语言（随条目自动解析：《寄生虫》为韩语、日本动画为日语）",
-  },
-  { id: "en", name: "English" },
-  { id: "null", name: "无文字", tip: "没有烧录任何文字的干净图（TMDB 语言标记为 null）" },
-  { id: "ja", name: "日本語" },
-];
+function commonImageLangs(t: ReturnType<typeof appTranslator>): ChipOption[] {
+  return [
+    {
+      id: "meta",
+      name: t("settings.scrape.metadataPrimary"),
+      tip: t("settings.scrape.metadataPrimaryHint"),
+    },
+    {
+      id: "orig",
+      name: t("settings.scrape.originalLanguage"),
+      tip: t("settings.scrape.originalLanguageHint"),
+    },
+    { id: "en", name: "English" },
+    { id: "null", name: t("settings.scrape.textless"), tip: t("settings.scrape.textlessHint") },
+    { id: "ja", name: t("settings.scrape.japaneseLanguage") },
+  ];
+}
 
-const COMMON_CERT_COUNTRIES: ChipOption[] = [
-  { id: "CN", name: "中国" },
-  { id: "US", name: "美国" },
-  { id: "JP", name: "日本" },
-  { id: "GB", name: "英国" },
-];
+function commonCertCountries(t: ReturnType<typeof appTranslator>): ChipOption[] {
+  return [
+    { id: "CN", name: t("settings.scrape.china") },
+    { id: "US", name: t("settings.scrape.unitedStates") },
+    { id: "JP", name: t("settings.scrape.japan") },
+    { id: "GB", name: t("settings.scrape.unitedKingdom") },
+  ];
+}
 
 /** 可选的 TMDB 图床档位：后端 settings/metadata.py 合法集合里实用的那部分（过小的档位不提供）；
  *  空 = 跟随上一级（全局设置页是环境变量，库设置页是全局设置）。 */
@@ -98,20 +108,24 @@ const STILL_SIZES = ["w185", "w300", "original"];
 const PROFILE_SIZES = ["w185", "h632", "original"];
 
 /** 「本地图片画质」四档的名字与一句话说明（docs/design/image-sizing.md §8.1）。 */
-const IMAGE_QUALITY_OPTIONS: { id: ImageQuality; title: string; desc: string }[] = [
-  { id: "original", title: "原图（默认）", desc: "所有图存 TMDB 原图，各设备都最清楚" },
-  { id: "standard", title: "标准", desc: "各设备都清楚，头像与海报不存原图，省约四成空间" },
-  { id: "compact", title: "节省空间", desc: "手机和网页够用；电视上剧照、头像会发虚" },
-  { id: "custom", title: "自定义", desc: "海报、背景、剧照、头像逐项指定 TMDB 档位" },
-];
+function imageQualityOptions(t: ReturnType<typeof appTranslator>): { id: ImageQuality; title: string; desc: string }[] {
+  return [
+    { id: "original", title: t("settings.scrape.originalDefault"), desc: t("settings.scrape.originalHint") },
+    { id: "standard", title: t("settings.scrape.standard"), desc: t("settings.scrape.standardHint") },
+    { id: "compact", title: t("settings.scrape.compact"), desc: t("settings.scrape.compactHint") },
+    { id: "custom", title: t("settings.scrape.custom"), desc: t("settings.scrape.customHint") },
+  ];
+}
 
 /** 自定义画质的四个档位下拉：字段、名字、可选档位 */
-const IMAGE_SIZE_FIELDS = [
-  { key: "poster_size", label: "海报", sizes: POSTER_SIZES },
-  { key: "backdrop_size", label: "背景", sizes: BACKDROP_SIZES },
-  { key: "still_size", label: "剧照", sizes: STILL_SIZES },
-  { key: "profile_size", label: "头像", sizes: PROFILE_SIZES },
-] as const;
+function imageSizeFields(t: ReturnType<typeof appTranslator>) {
+  return [
+    { key: "poster_size", label: t("settings.scrape.poster"), sizes: POSTER_SIZES },
+    { key: "backdrop_size", label: t("settings.scrape.backdrop"), sizes: BACKDROP_SIZES },
+    { key: "still_size", label: t("settings.scrape.still"), sizes: STILL_SIZES },
+    { key: "profile_size", label: t("settings.scrape.portrait"), sizes: PROFILE_SIZES },
+  ] as const;
+}
 
 /** 画质卡管的字段：选档本身 + 自定义时的四个档位（库设置页按这一组整体跟随 / 覆盖） */
 const IMAGE_QUALITY_KEYS: (keyof ScrapeSetting)[] = [
@@ -138,44 +152,49 @@ const SOURCE_KEYS: (keyof ScrapeSetting)[] = [
 ];
 
 /** 来源顺序的四行：字段、名字、默认谁在前、默认值的理由（行下小字） */
-const SOURCE_ROWS = [
-  { key: "poster_source_order", label: "海报", first: "tmdb", why: "TMDB 在前" },
-  { key: "backdrop_source_order", label: "背景", first: "tmdb", why: "TMDB 在前（常有 4K）" },
-  { key: "logo_source_order", label: "片名 Logo", first: "fanart", why: "Fanart 在前（中文多）" },
-  { key: "season_poster_source_order", label: "季海报", first: "fanart", why: "Fanart 在前" },
-] as const;
+function sourceRows(t: ReturnType<typeof appTranslator>) {
+  return [
+    { key: "poster_source_order", label: t("settings.scrape.poster"), first: "tmdb", why: t("settings.scrape.tmdbFirst") },
+    { key: "backdrop_source_order", label: t("settings.scrape.backdrop"), first: "tmdb", why: t("settings.scrape.tmdb4kFirst") },
+    { key: "logo_source_order", label: t("settings.scrape.titleLogo"), first: "fanart", why: t("settings.scrape.fanartChineseFirst") },
+    { key: "season_poster_source_order", label: t("settings.scrape.seasonPoster"), first: "fanart", why: t("settings.scrape.fanartFirst") },
+  ] as const;
+}
 
 /** 来源卡的人话摘要：「TMDB + Fanart.tv · 片名 Logo、季海报优先 Fanart」/「仅 TMDB」 */
-function describeSources(setting: ScrapeSetting): string {
-  if (!setting.fanart_enabled) return "仅 TMDB";
-  const fanartFirst = SOURCE_ROWS.filter((row) => setting[row.key][0] === "fanart").map(
+function describeSources(setting: ScrapeSetting, locale?: AppLocale): string {
+  const t = appTranslator(locale);
+  if (!setting.fanart_enabled) return t("settings.scrape.tmdbOnly");
+  const fanartFirst = sourceRows(t).filter((row) => setting[row.key][0] === "fanart").map(
     (row) => row.label,
   );
   const lead = fanartFirst.length
-    ? fanartFirst.length === SOURCE_ROWS.length
-      ? "全部优先 Fanart"
-      : `${fanartFirst.join("、")}优先 Fanart`
-    : "全部优先 TMDB";
+    ? fanartFirst.length === sourceRows(t).length
+      ? t("settings.scrape.allFanartFirst")
+      : t("settings.scrape.fanartPreferred", { images: formatList(fanartFirst, locale) })
+    : t("settings.scrape.allTmdbFirst");
   return `TMDB + Fanart.tv · ${lead}`;
 }
 
 /** 估算字节数 → 「约 2.6 GB」；不足 1 GB 用 MB（取整），量级参考不需要更多精度 */
 function formatEstimate(bytes: number): string {
+  const t = appTranslator();
   const gb = bytes / 1024 ** 3;
-  if (gb >= 10) return `约 ${Math.round(gb)} GB`;
-  if (gb >= 1) return `约 ${gb.toFixed(1)} GB`;
-  return `约 ${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
+  if (gb >= 10) return t("settings.scrape.estimateGb", { amount: Math.round(gb) });
+  if (gb >= 1) return t("settings.scrape.estimateDecimalGb", { amount: gb });
+  return t("settings.scrape.estimateMb", { amount: Math.max(1, Math.round(bytes / 1024 ** 2)) });
 }
 
 /** 画质档的人话摘要（折叠头用）：预设只说名字，自定义把四个档位列出来 */
-function describeImageQuality(setting: ScrapeSetting): string {
-  const option = IMAGE_QUALITY_OPTIONS.find((o) => o.id === setting.image_quality);
-  if (!option) return "按档位逐项跟随";
-  if (option.id !== "custom") return option.title.replace("（默认）", "");
-  const sizes = IMAGE_SIZE_FIELDS.map(
-    (field) => `${field.label} ${setting[field.key] || "跟随"}`,
+function describeImageQuality(setting: ScrapeSetting, locale?: AppLocale): string {
+  const t = appTranslator(locale);
+  const option = imageQualityOptions(t).find((o) => o.id === setting.image_quality);
+  if (!option) return t("settings.scrape.inheritSizes");
+  if (option.id !== "custom") return option.id === "original" ? t("settings.scrape.originalSummary") : option.title;
+  const sizes = imageSizeFields(t).map(
+    (field) => `${field.label} ${setting[field.key] || t("settings.scrape.inherit")}`,
   ).join(" / ");
-  return `自定义（${sizes}）`;
+  return t("settings.scrape.customSummary", { sizes });
 }
 
 /* ------------------------------------------------------------------ */
@@ -200,15 +219,17 @@ function joinPriority(options: ChipOption[], values: string[]): string {
 export function describeScrapeValues(
   keys: (keyof ScrapeSetting)[],
   setting: ScrapeSetting,
+  locale?: AppLocale,
 ): string {
+  const t = appTranslator(locale);
   const parts: string[] = [];
   for (const key of keys) {
     switch (key) {
       case "language_priority":
-        parts.push(joinPriority(COMMON_META_LANGS, setting.language_priority));
+        parts.push(joinPriority(commonMetaLangs(t), setting.language_priority));
         break;
       case "cert_country_priority":
-        parts.push(joinPriority(COMMON_CERT_COUNTRIES, setting.cert_country_priority));
+        parts.push(joinPriority(commonCertCountries(t), setting.cert_country_priority));
         break;
       case "poster_mode":
         // 海报卡把「模式 + 语言优先级」并成一句：默认模式下语言优先级不生效，
@@ -217,13 +238,13 @@ export function describeScrapeValues(
         parts.push(
           setting.poster_mode === "default"
             ? setting.fanart_enabled
-              ? `TMDB 默认 · 与 Fanart 按 ${joinPriority(COMMON_IMAGE_LANGS, setting.poster_language_priority)} 比较`
-              : "TMDB 默认"
-            : `按语言：${joinPriority(COMMON_IMAGE_LANGS, setting.poster_language_priority)}`,
+              ? t("settings.scrape.defaultFanartComparison", { languages: joinPriority(commonImageLangs(t), setting.poster_language_priority) })
+              : t("settings.scrape.tmdbDefault")
+            : t("settings.scrape.languageSummary", { languages: joinPriority(commonImageLangs(t), setting.poster_language_priority) }),
         );
         break;
       case "fanart_enabled":
-        parts.push(describeSources(setting));
+        parts.push(describeSources(setting, locale));
         break;
       case "poster_source_order":
       case "backdrop_source_order":
@@ -235,28 +256,28 @@ export function describeScrapeValues(
         }
         break;
       case "logo_language_priority":
-        parts.push(joinPriority(COMMON_IMAGE_LANGS, setting.logo_language_priority));
+        parts.push(joinPriority(commonImageLangs(t), setting.logo_language_priority));
         break;
       case "poster_language_priority":
         if (!keys.includes("poster_mode")) {
-          parts.push(joinPriority(COMMON_IMAGE_LANGS, setting.poster_language_priority));
+          parts.push(joinPriority(commonImageLangs(t), setting.poster_language_priority));
         }
         break;
       case "backdrop_language_priority":
-        parts.push(joinPriority(COMMON_IMAGE_LANGS, setting.backdrop_language_priority));
+        parts.push(joinPriority(commonImageLangs(t), setting.backdrop_language_priority));
         break;
       case "poster_min_width":
         parts.push(
-          setting.poster_min_width > 0 ? `海报 ≥${setting.poster_min_width}` : "海报不限宽",
+          setting.poster_min_width > 0 ? t("settings.scrape.posterWidth", { width: setting.poster_min_width }) : t("settings.scrape.posterUnlimited"),
         );
         break;
       case "backdrop_min_width":
         parts.push(
-          setting.backdrop_min_width > 0 ? `背景 ≥${setting.backdrop_min_width}` : "背景不限宽",
+          setting.backdrop_min_width > 0 ? t("settings.scrape.backdropWidth", { width: setting.backdrop_min_width }) : t("settings.scrape.backdropUnlimited"),
         );
         break;
       case "image_quality":
-        parts.push(describeImageQuality(setting));
+        parts.push(describeImageQuality(setting, locale));
         break;
       case "poster_size":
       case "backdrop_size":
@@ -266,16 +287,16 @@ export function describeScrapeValues(
         // 三个档位并成一句「档位 …」，空串统一说成"跟随环境"
         if (key !== "poster_size" || keys.includes("image_quality")) break;
         const sizes = [setting.poster_size, setting.backdrop_size, setting.still_size];
-        parts.push(sizes.every((v) => !v) ? "档位跟随环境" : `档位 ${sizes.map((v) => v || "环境").join("/")}`);
+        parts.push(sizes.every((v) => !v) ? t("settings.scrape.environmentSizes") : t("settings.scrape.sizesSummary", { sizes: sizes.map((v) => v || t("settings.scrape.environment")).join("/") }));
         break;
       }
       case "naming_entry_dir": {
         // 四个模板并成一句：逐个列模板串太长，只说"哪几项不是默认"
-        const changed = NAMING_FIELDS.filter((f) => setting[f.key].trim());
+        const changed = namingFields(t).filter((f) => setting[f.key].trim());
         parts.push(
           changed.length === 0
-            ? "全部默认模板"
-            : `已改：${changed.map((f) => f.label).join("、")}`,
+            ? t("settings.scrape.allDefaultTemplates")
+            : t("settings.scrape.changedTemplates", { fields: formatList(changed.map((f) => f.label), locale) }),
         );
         break;
       }
@@ -284,8 +305,8 @@ export function describeScrapeValues(
       case "naming_episode_file":
         break; // 已在 naming_entry_dir 一并表达
       case "mirror_images": {
-        const off = MIRROR_ROWS.filter((r) => !setting[r.key]);
-        parts.push(off.length === 0 ? "三项全写" : `不写：${off.map((r) => r.label).join("、")}`);
+        const off = mirrorRows(t).filter((r) => !setting[r.key]);
+        parts.push(off.length === 0 ? t("settings.scrape.allMirrorsEnabled") : t("settings.scrape.disabledMirrors", { fields: formatList(off.map((r) => r.label), locale) }));
         break;
       }
       case "mirror_nfo":
@@ -322,6 +343,7 @@ function OrderChips({
   primaryTag: string;
   onChange: (next: string[]) => void;
 }) {
+  const t = useTranslations();
   const [moreOpen, setMoreOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -400,7 +422,7 @@ function OrderChips({
             <span className="flex size-4.5 items-center justify-center rounded-full bg-white/10 text-micro">
               …
             </span>
-            更多{moreLabel}
+            {t("settings.scrape.moreOptions", { label: moreLabel })}
           </button>
         )}
       </div>
@@ -408,14 +430,14 @@ function OrderChips({
         <div className="mt-2.5 rounded-xl border border-white/[0.12] bg-white/[0.04] p-3">
           <input
             className={`${SETTINGS_INPUT_CLASS} mb-2.5 w-full`}
-            placeholder={`搜索${moreLabel}（名称或代码）…`}
+            placeholder={t("settings.scrape.searchOptions", { label: moreLabel })}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
           <div className="flex max-h-44 flex-wrap content-start gap-1.5 overflow-y-auto">
             {filteredExtra.length === 0 ? (
               <span className="px-1 text-caption text-[var(--text-faint)]">
-                没有匹配的{moreLabel}
+                {t("settings.scrape.noMatchingOptions", { label: moreLabel })}
               </span>
             ) : (
               filteredExtra.map((option) => (
@@ -458,7 +480,7 @@ function OrderChips({
                 <button
                   type="button"
                   disabled={i === 0}
-                  aria-label={`把「${name}」上移一位`}
+                  aria-label={t("settings.scrape.moveUp", { name })}
                   onClick={() => {
                     const next = [...value];
                     [next[i - 1], next[i]] = [next[i], next[i - 1]];
@@ -471,7 +493,7 @@ function OrderChips({
                 <button
                   type="button"
                   disabled={value.length <= 1}
-                  aria-label={`移除「${name}」`}
+                  aria-label={t("settings.scrape.removeOption", { name })}
                   onClick={() => onChange(value.filter((v) => v !== id))}
                   className="flex size-5 items-center justify-center rounded-full text-caption text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-[var(--text)] disabled:pointer-events-none disabled:opacity-25"
                 >
@@ -481,12 +503,12 @@ function OrderChips({
             );
           })}
           <span className="text-caption text-[var(--text-faint)]">
-            按此顺序回落（最多 {max} 项）
+            {t("settings.scrape.priorityHint", { max })}
           </span>
         </div>
       ) : (
         <p className="mt-2 text-caption text-[var(--text-faint)]">
-          点击上方候选加入，加入后可在这里排序
+          {t("settings.scrape.addAndReorder")}
         </p>
       )}
     </div>
@@ -513,16 +535,17 @@ export interface CardFollowState {
 }
 
 function CardFollowSwitch({ follow }: { follow: CardFollowState }) {
+  const t = useTranslations();
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-2.5">
       <span className="min-w-0 text-caption text-[var(--text-faint)]">
-        全局：{follow.globalSummary}
+        {t("settings.scrape.globalSummary", { summary: follow.globalSummary })}
       </span>
       <div className="flex shrink-0 gap-1">
         {(
           [
-            [false, "跟随全局"],
-            [true, "自定义"],
+            [false, t("settings.scrape.followGlobal")],
+            [true, t("settings.scrape.custom")],
           ] as const
         ).map(([option, label]) => (
           <button
@@ -587,6 +610,7 @@ export function Card({
   desc: string;
   children: React.ReactNode;
 }) {
+  const t = useTranslations();
   const effectiveFollow = shell?.follow ?? follow;
   const body = (
     <>
@@ -618,10 +642,10 @@ export function Card({
         <h3 className="text-title-sm font-semibold">{title}</h3>
         {overriddenBy && overriddenBy.length > 0 && (
           <span
-            title={`${overriddenBy.join("、")}不跟随此处的设置`}
+            title={t("settings.scrape.overrideLibrariesHint", { libraries: formatList(overriddenBy) })}
             className="rounded-full bg-[var(--accent-soft)] px-2 py-px text-micro text-[var(--accent)]"
           >
-            {overriddenBy.length} 个库已覆盖
+            {t("settings.scrape.overrideLibrariesCount", { count: overriddenBy.length })}
           </span>
         )}
       </div>
@@ -652,6 +676,7 @@ function CollapsibleCard({
   overriddenBy?: string[];
   children: React.ReactNode;
 }) {
+  const t = useTranslations();
   const ref = useRef<HTMLElement | null>(null);
   const wasOpen = useRef(shell.open);
 
@@ -685,10 +710,10 @@ function CollapsibleCard({
                 的答案，藏在展开态里等于没有 */}
             {overriddenBy && overriddenBy.length > 0 && (
               <span
-                title={`${overriddenBy.join("、")}不跟随此处的设置`}
+                title={t("settings.scrape.overrideLibrariesHint", { libraries: formatList(overriddenBy) })}
                 className="rounded-full bg-[var(--accent-soft)] px-2 py-px text-micro font-normal text-[var(--accent)]"
               >
-                {overriddenBy.length} 个库已覆盖
+                {t("settings.scrape.overrideLibrariesCount", { count: overriddenBy.length })}
               </span>
             )}
           </span>
@@ -847,133 +872,143 @@ const FILE_ATTR_TOKENS = [
 ];
 
 /** 占位符按类别分组展示，按钮上写中文名（悬停看占位符原文）。 */
-const TOKEN_GROUPS: { label: string; tokens: Record<string, string> }[] = [
-  {
-    label: "片名与编号",
-    tokens: {
-      title: "片名",
-      original_title: "原名",
-      english_title: "英文名",
-      year: "年份",
-      tmdb_id: "TMDB ID",
-      imdb_id: "IMDb ID",
-      douban_id: "豆瓣 ID",
-    },
-  },
-  {
-    label: "季集",
-    tokens: { season: "季号", season_name: "季名", episode: "集号", episode_title: "集名" },
-  },
-  {
-    label: "文件规格",
-    tokens: {
-      resolution: "分辨率",
-      video_codec: "视频编码",
-      hdr: "HDR",
-      bit_depth: "位深",
-      audio: "音轨",
-    },
-  },
-  {
-    label: "来源",
-    tokens: {
-      media_source: "片源",
-      release_group: "发布组",
-      site: "站点",
-      release_name: "原始文件名",
-    },
-  },
-];
+function tokenGroups(t: ReturnType<typeof appTranslator>): { label: string; tokens: Record<string, string> }[] {
 
-const NAMING_FIELDS = [
-  {
-    key: "naming_entry_dir" as const,
-    label: "条目目录",
-    note: "电影与剧集共用",
-    fallback: "{title} ({year})",
-    tokens: COMMON_TOKENS,
-  },
-  {
-    key: "naming_movie_file" as const,
-    label: "电影文件名",
-    note: "",
-    fallback: "{title} ({year})",
-    tokens: [...COMMON_TOKENS, ...FILE_ATTR_TOKENS],
-  },
-  {
-    key: "naming_season_dir" as const,
-    label: "季目录",
-    note: "",
-    fallback: "Season {season:02d}",
-    tokens: [...COMMON_TOKENS, "season", "season_name"],
-  },
-  {
-    key: "naming_episode_file" as const,
-    label: "剧集文件名",
-    note: "",
-    fallback: "{title} ({year}) - S{season:02d}E{episode:02d}",
-    tokens: [
-      ...COMMON_TOKENS,
-      ...FILE_ATTR_TOKENS,
-      "season",
-      "season_name",
-      "episode",
-      "episode_title",
-    ],
-  },
-];
+  return [
+    {
+      label: t("settings.scrape.titleTokens"),
+      tokens: {
+        title: t("settings.scrape.titleToken"),
+        original_title: t("settings.scrape.originalTitle"),
+        english_title: t("settings.scrape.englishTitle"),
+        year: t("settings.scrape.year"),
+        tmdb_id: "TMDB ID",
+        imdb_id: "IMDb ID",
+        douban_id: t("settings.scrape.doubanId"),
+      },
+    },
+    {
+      label: t("settings.scrape.episodeTokens"),
+      tokens: { season: t("settings.scrape.seasonNumber"), season_name: t("settings.scrape.seasonName"), episode: t("settings.scrape.episodeNumber"), episode_title: t("settings.scrape.episodeTitle") },
+    },
+    {
+      label: t("settings.scrape.fileTokens"),
+      tokens: {
+        resolution: t("settings.scrape.resolution"),
+        video_codec: t("settings.scrape.videoCodec"),
+        hdr: "HDR",
+        bit_depth: t("settings.scrape.bitDepth"),
+        audio: t("settings.scrape.audio"),
+      },
+    },
+    {
+      label: t("settings.scrape.source"),
+      tokens: {
+        media_source: t("settings.scrape.mediaSource"),
+        release_group: t("settings.scrape.releaseGroup"),
+        site: t("settings.scrape.site"),
+        release_name: t("settings.scrape.releaseName"),
+      },
+    },
+  ];
+}
+
+function namingFields(t: ReturnType<typeof appTranslator>) {
+  return [
+    {
+      key: "naming_entry_dir" as const,
+      label: t("settings.scrape.entryDirectory"),
+      note: t("settings.scrape.sharedNamingHint"),
+      fallback: "{title} ({year})",
+      tokens: COMMON_TOKENS,
+    },
+    {
+      key: "naming_movie_file" as const,
+      label: t("settings.scrape.movieFilename"),
+      note: "",
+      fallback: "{title} ({year})",
+      tokens: [...COMMON_TOKENS, ...FILE_ATTR_TOKENS],
+    },
+    {
+      key: "naming_season_dir" as const,
+      label: t("settings.scrape.seasonDirectory"),
+      note: "",
+      fallback: "Season {season:02d}",
+      tokens: [...COMMON_TOKENS, "season", "season_name"],
+    },
+    {
+      key: "naming_episode_file" as const,
+      label: t("settings.scrape.episodeFilename"),
+      note: "",
+      fallback: "{title} ({year}) - S{season:02d}E{episode:02d}",
+      tokens: [
+        ...COMMON_TOKENS,
+        ...FILE_ATTR_TOKENS,
+        "season",
+        "season_name",
+        "episode",
+        "episode_title",
+      ],
+    },
+  ];
+}
 
 /** 预览样例：一部电影 + 一集剧集，字段齐全便于看清每个占位符的效果。 */
-const SAMPLE_MOVIE = {
-  title: "沙丘：第二部",
-  original_title: "Dune: Part Two",
-  english_title: "Dune: Part Two",
-  year: 2024,
-  tmdb_id: 693134,
-  imdb_id: "tt15239678",
-  douban_id: "35575567",
-  resolution: "2160p",
-  video_codec: "HEVC",
-  hdr: "DV",
-  bit_depth: "10bit",
-  audio: "TrueHD Atmos 7.1",
-  media_source: "BluRay",
-  release_group: "FRDS",
-  site: "hdsky",
-  release_name: "Dune.Part.Two.2024.2160p.BluRay.DV.HEVC.TrueHD.7.1.Atmos-FRDS",
-};
-const SAMPLE_EPISODE = {
-  title: "风筝",
-  original_title: "风筝",
-  english_title: "Kite",
-  year: 2017,
-  tmdb_id: 68035,
-  imdb_id: "tt6952510",
-  douban_id: "26340419",
-  season: 1,
-  season_name: "第 1 季",
-  episode: 3,
-  episode_title: "延安来的姑娘",
-  resolution: "1080p",
-  video_codec: "H.264",
-  hdr: null, // SDR：{hdr} 渲染为空，演示收缩
-  bit_depth: "8bit",
-  audio: "AAC 2.0",
-  media_source: "WEB-DL",
-  release_group: "CHDWEB",
-  site: "chdbits",
-  release_name: "Kite.2017.S01E03.1080p.WEB-DL.H264.AAC-CHDWEB",
-};
+function sampleMovie(t: ReturnType<typeof appTranslator>) {
+  return {
+    title: t("settings.scrape.sampleMovieTitle"),
+    original_title: "Dune: Part Two",
+    english_title: "Dune: Part Two",
+    year: 2024,
+    tmdb_id: 693134,
+    imdb_id: "tt15239678",
+    douban_id: "35575567",
+    resolution: "2160p",
+    video_codec: "HEVC",
+    hdr: "DV",
+    bit_depth: "10bit",
+    audio: "TrueHD Atmos 7.1",
+    media_source: "BluRay",
+    release_group: "FRDS",
+    site: "hdsky",
+    release_name: "Dune.Part.Two.2024.2160p.BluRay.DV.HEVC.TrueHD.7.1.Atmos-FRDS",
+    };
+}
+function sampleEpisode(t: ReturnType<typeof appTranslator>) {
+  return {
+    title: t("settings.scrape.sampleTvTitle"),
+    original_title: t("settings.scrape.sampleTvTitle"),
+    english_title: "Kite",
+    year: 2017,
+    tmdb_id: 68035,
+    imdb_id: "tt6952510",
+    douban_id: "26340419",
+    season: 1,
+    season_name: t("settings.scrape.sampleSeason"),
+    episode: 3,
+    episode_title: t("settings.scrape.sampleEpisodeTitle"),
+    resolution: "1080p",
+    video_codec: "H.264",
+    hdr: null, // SDR：{hdr} 渲染为空，演示收缩
+    bit_depth: "8bit",
+    audio: "AAC 2.0",
+    media_source: "WEB-DL",
+    release_group: "CHDWEB",
+    site: "chdbits",
+    release_name: "Kite.2017.S01E03.1080p.WEB-DL.H264.AAC-CHDWEB",
+    };
+}
 
-type NamingValues = Pick<ScrapeSetting, (typeof NAMING_FIELDS)[number]["key"]>;
+type NamingValues = Pick<ScrapeSetting, ReturnType<typeof namingFields>[number]["key"]>;
 
 /** 前端侧轻校验：与后端同口径，只为即时反馈；能否保存以后端返回为准。 */
 function templateError(template: string, allowed: string[]): string | null {
+  const t = appTranslator();
   if (!template.trim()) return null; // 空 = 用默认模板
-  if (/[\\/]/.test(template)) return "不能包含路径分隔符（目录层级是固定的）";
+  if (/[\\/]/.test(template)) return t("settings.scrape.noPathSeparators");
   const used = [...template.matchAll(TOKEN_RE)].map((m) => m[1]);
   const unknown = used.filter((t) => !allowed.includes(t));
-  if (unknown.length) return `不可用的占位符：${unknown.map((t) => `{${t}}`).join("、")}`;
+  if (unknown.length) return t("settings.scrape.unknownTokens", { tokens: formatList(unknown.map((token) => `{${token}}`)) });
   return null;
 }
 
@@ -988,6 +1023,7 @@ function NamingTab({
   overriddenBy?: (keys: (keyof ScrapeSetting)[]) => string[];
   shellFor?: (title: string, keys: (keyof ScrapeSetting)[]) => CardShell;
 }) {
+  const t = useTranslations();
   const [focused, setFocused] = useState<string>("naming_episode_file");
   const refs = useRef<Record<string, HTMLInputElement | null>>({});
   // 模板是文本：边打字边存会把写到一半的模板落库，所以四个字段攒成草稿，
@@ -1000,31 +1036,31 @@ function NamingTab({
   );
   const [draft, setDraft] = useState(saved);
   useEffect(() => setDraft(saved), [saved]);
-  const dirty = NAMING_FIELDS.some((f) => draft[f.key] !== saved[f.key]);
+  const dirty = namingFields(t).some((f) => draft[f.key] !== saved[f.key]);
   const edit = (changes: Partial<NamingValues>) => setDraft((current) => ({ ...current, ...changes }));
 
-  const errors = NAMING_FIELDS.map((f) => templateError(draft[f.key], f.tokens));
+  const errors = namingFields(t).map((f) => templateError(draft[f.key], f.tokens));
   const valid = errors.every((e) => e === null);
 
-  const tpl = (key: (typeof NAMING_FIELDS)[number]["key"]) =>
-    draft[key].trim() || NAMING_FIELDS.find((f) => f.key === key)!.fallback;
+  const tpl = (key: ReturnType<typeof namingFields>[number]["key"]) =>
+    draft[key].trim() || namingFields(t).find((f) => f.key === key)!.fallback;
 
   const moviePath = valid
-    ? `${renderTemplate(tpl("naming_entry_dir"), SAMPLE_MOVIE)}/${renderTemplate(
+    ? `${renderTemplate(tpl("naming_entry_dir"), sampleMovie(t))}/${renderTemplate(
         tpl("naming_movie_file"),
-        SAMPLE_MOVIE,
+        sampleMovie(t),
       )}.mkv`
     : "";
   const episodePath = valid
-    ? `${renderTemplate(tpl("naming_entry_dir"), SAMPLE_EPISODE)}/${renderTemplate(
+    ? `${renderTemplate(tpl("naming_entry_dir"), sampleEpisode(t))}/${renderTemplate(
         tpl("naming_season_dir"),
-        SAMPLE_EPISODE,
-      )}/${renderTemplate(tpl("naming_episode_file"), SAMPLE_EPISODE)}.mkv`
+        sampleEpisode(t),
+      )}/${renderTemplate(tpl("naming_episode_file"), sampleEpisode(t))}.mkv`
     : "";
 
   const insertToken = (token: string) => {
     const key = focused;
-    const field = NAMING_FIELDS.find((f) => f.key === key);
+    const field = namingFields(t).find((f) => f.key === key);
     if (!field) return;
     const input = refs.current[key];
     const current = draft[field.key] || field.fallback;
@@ -1041,19 +1077,19 @@ function NamingTab({
     });
   };
 
-  const focusedField = NAMING_FIELDS.find((f) => f.key === focused) ?? NAMING_FIELDS[3];
+  const focusedField = namingFields(t).find((f) => f.key === focused) ?? namingFields(t)[3];
 
   return (
     <Card
-      title="命名模板"
-      overriddenBy={overriddenBy?.(NAMING_FIELDS.map((f) => f.key))}
+      title={t("settings.scrape.namingTemplates")}
+      overriddenBy={overriddenBy?.(namingFields(t).map((f) => f.key))}
       shell={shellFor?.(
-        "命名模板",
-        NAMING_FIELDS.map((f) => f.key),
+        t("settings.scrape.namingTemplates"),
+        namingFields(t).map((f) => f.key),
       )}
-      desc="整理与入库的目录/文件命名。留空即使用默认模板；字段缺失时会连同相邻括号自动收缩。目录层级固定为「条目目录 / 季目录 / 文件」，不可自定义。"
+      desc={t("settings.scrape.namingHint")}
     >
-      {NAMING_FIELDS.map((field, i) => (
+      {namingFields(t).map((field, i) => (
         <div key={field.key} className="mt-3.5 first:mt-0">
           <label
             htmlFor={field.key}
@@ -1086,10 +1122,10 @@ function NamingTab({
 
       <div className="mt-4">
         <p className="mb-1.5 text-micro uppercase tracking-widest text-[var(--text-faint)]">
-          可用占位符（点击插入到「{focusedField.label}」）
+          {t("settings.scrape.insertTokenHint", { field: focusedField.label })}
         </p>
         <div className="flex flex-col gap-2">
-          {TOKEN_GROUPS.map((group) => {
+          {tokenGroups(t).map((group) => {
             const tokens = Object.keys(group.tokens).filter((t) => focusedField.tokens.includes(t));
             if (tokens.length === 0) return null;
             return (
@@ -1115,7 +1151,7 @@ function NamingTab({
         </div>
         {focusedField.tokens.includes("site") && (
           <p className="mt-2 text-caption text-[var(--text-faint)]">
-            站点与原始文件名只有经本系统入库的文件才有；存量扫描发现的文件这两项为空，会自动收缩。
+            {t("settings.scrape.importTokensHint")}
           </p>
         )}
       </div>
@@ -1123,29 +1159,29 @@ function NamingTab({
       <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.08]">
         <div className="flex items-center justify-between bg-white/[0.04] px-3.5 py-2">
           <span className="text-micro uppercase tracking-widest text-[var(--text-faint)]">
-            实时预览
+            {t("settings.scrape.livePreview")}
           </span>
           <span className={`text-caption ${valid ? "text-[var(--ok)]" : "text-[var(--danger)]"}`}>
-            {valid ? "✓ 模板有效" : "✕ 模板有误"}
+            {valid ? t("settings.scrape.templateValid") : t("settings.scrape.templateInvalid")}
           </span>
         </div>
         {valid && (
           <div className="flex flex-col gap-3 overflow-x-auto px-3.5 py-3">
             <div>
               <p className="mb-1 text-caption text-[var(--text-faint)]">
-                电影 · 沙丘：第二部（2024）· 2160p DV TrueHD Atmos · BluRay FRDS
+                {t("settings.scrape.movieExample")}
               </p>
               <p className="whitespace-nowrap font-mono text-sub leading-relaxed">
-                <span className="text-[var(--text-faint)]">/media/电影/</span>
+                <span className="text-[var(--text-faint)]">{t("settings.scrape.movieExampleRoot")}</span>
                 <span className="text-[var(--accent)]">{moviePath}</span>
               </p>
             </div>
             <div>
               <p className="mb-1 text-caption text-[var(--text-faint)]">
-                剧集 · 风筝（2017）第 1 季第 3 集 · 1080p SDR AAC · WEB-DL CHDWEB
+                {t("settings.scrape.episodeExample")}
               </p>
               <p className="whitespace-nowrap font-mono text-sub leading-relaxed">
-                <span className="text-[var(--text-faint)]">/media/剧集/</span>
+                <span className="text-[var(--text-faint)]">{t("settings.scrape.episodeExampleRoot")}</span>
                 <span className="text-[var(--accent)]">{episodePath}</span>
               </p>
             </div>
@@ -1154,7 +1190,7 @@ function NamingTab({
       </div>
 
       <p className="mt-3 text-caption text-[var(--text-faint)]">
-        同条目多版本会自动追加「 - 版本标签」后缀，无需写进模板
+        {t("settings.scrape.versionSuffixHint")}
       </p>
 
       {/* 卡片页脚：左边恢复默认（只改草稿），右边唯一的提交按钮 */}
@@ -1171,12 +1207,12 @@ function NamingTab({
           }
           className={SETTINGS_BUTTON_CLASS}
         >
-          恢复默认模板
+          {t("settings.scrape.resetTemplates")}
         </button>
         <div className="flex items-center gap-2">
           {dirty && (
             <button type="button" onClick={() => setDraft(saved)} className={SETTINGS_BUTTON_CLASS}>
-              放弃修改
+              {t("settings.scrape.discardChanges")}
             </button>
           )}
           <button
@@ -1185,7 +1221,7 @@ function NamingTab({
             onClick={() => patch(draft)}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            保存
+            {t("settings.scrape.save")}
           </button>
         </div>
       </div>
@@ -1197,23 +1233,25 @@ function NamingTab({
 /* 目录写入                                                            */
 /* ------------------------------------------------------------------ */
 
-const MIRROR_ROWS = [
-  {
-    key: "mirror_images" as const,
-    label: "条目图片",
-    hint: "poster.jpg / fanart.jpg / clearlogo.png / 季海报",
-  },
-  {
-    key: "mirror_nfo" as const,
-    label: "NFO 元数据",
-    hint: "tvshow.nfo / movie.nfo / 分集 NFO，含 tmdbid 精确身份",
-  },
-  {
-    key: "mirror_episode_thumbs" as const,
-    label: "分集剧照",
-    hint: "每集一张 -thumb.jpg，长剧集写入量最大，可单独关闭",
-  },
-];
+function mirrorRows(t: ReturnType<typeof appTranslator>) {
+  return [
+    {
+      key: "mirror_images" as const,
+      label: t("settings.scrape.entryImages"),
+      hint: t("settings.scrape.entryImagesHint"),
+    },
+    {
+      key: "mirror_nfo" as const,
+      label: t("settings.scrape.nfoMetadata"),
+      hint: t("settings.scrape.nfoHint"),
+    },
+    {
+      key: "mirror_episode_thumbs" as const,
+      label: t("settings.scrape.episodeStills"),
+      hint: t("settings.scrape.episodeStillsHint"),
+    },
+  ];
+}
 
 /** 三个开关直接是行组里的三行：开关不需要折叠，改完即存 */
 function MirrorTab({
@@ -1223,9 +1261,10 @@ function MirrorTab({
   setting: ScrapeSetting;
   patch: (changes: Partial<ScrapeSetting>) => void;
 }) {
+  const t = useTranslations();
   return (
     <>
-      {MIRROR_ROWS.map((row) => (
+      {mirrorRows(t).map((row) => (
         <SettingsRow key={row.key} label={row.label} description={row.hint}>
           <Toggle
             checked={setting[row.key]}
@@ -1268,6 +1307,8 @@ export function ScrapeSection({
 }
 
 export function useScrapeChipOptions() {
+  const t = useTranslations();
+  const locale = useLocale();
   const [languages, setLanguages] = useState<LanguageOption[]>([]);
   const [countries, setCountries] = useState<CountryOption[]>([]);
 
@@ -1276,31 +1317,37 @@ export function useScrapeChipOptions() {
     listLanguageOptions()
       .then(setLanguages)
       .catch(() => {});
-    listCountryOptions()
-      .then(setCountries)
-      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCountries([]);
+    listCountryOptions(locale)
+      .then((options) => { if (!cancelled) setCountries(options); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [locale]);
 
   const metaLangs = useMemo<ChipOption[]>(
     () =>
       languages
-        .filter((l) => !COMMON_META_LANGS.some((c) => c.id.startsWith(`${l.code}-`)))
-        .map((l) => ({ id: l.code, name: l.name || l.english_name || l.code })),
-    [languages],
+        .filter((l) => !commonMetaLangs(t).some((c) => c.id.startsWith(`${l.code}-`)))
+        .map((l) => ({ id: l.code, name: (locale === "en" ? l.english_name : l.name) || l.english_name || l.code })),
+    [languages, locale, t],
   );
   const imageLangs = useMemo<ChipOption[]>(
     () =>
       languages
-        .filter((l) => !COMMON_IMAGE_LANGS.some((c) => c.id === l.code))
-        .map((l) => ({ id: l.code, name: l.name || l.english_name || l.code })),
-    [languages],
+        .filter((l) => !commonImageLangs(t).some((c) => c.id === l.code))
+        .map((l) => ({ id: l.code, name: (locale === "en" ? l.english_name : l.name) || l.english_name || l.code })),
+    [languages, locale, t],
   );
   const certCountries = useMemo<ChipOption[]>(
     () =>
       countries
-        .filter((c) => !COMMON_CERT_COUNTRIES.some((k) => k.id === c.code))
+        .filter((c) => !commonCertCountries(t).some((k) => k.id === c.code))
         .map((c) => ({ id: c.code, name: c.name })),
-    [countries],
+    [countries, t],
   );
 
   return { metaLangs, imageLangs, certCountries };
@@ -1323,34 +1370,35 @@ export function MetaTab({
   /** 库设置页的卡片壳（折叠 + 三态）工厂；全局设置页不传 */
   shellFor?: (title: string, keys: (keyof ScrapeSetting)[]) => CardShell;
 }) {
+  const t = useTranslations();
   return (
     <>
       <Card
-        title="元数据语言"
+        title={t("settings.scrape.metadataLanguage")}
         overriddenBy={overriddenBy?.(["language_priority"])}
-        shell={shellFor?.("元数据语言", ["language_priority"])}
-        desc="标题、简介、类型名等文本的语言。点选语言即加入优先级，第 1 位是主语言（决定向 TMDB 请求的语言），缺失的字段按顺序回落——回落基于已拉取的翻译数据，不产生额外请求。"
+        shell={shellFor?.(t("settings.scrape.metadataLanguage"), ["language_priority"])}
+        desc={t("settings.scrape.metadataLanguageHint")}
       >
         <OrderChips
-          options={COMMON_META_LANGS}
+          options={commonMetaLangs(t)}
           extraOptions={extraMetaLangs}
-          moreLabel="语言"
+          moreLabel={t("settings.scrape.languageOptions")}
           value={setting.language_priority}
           max={3}
-          primaryTag="主语言"
+          primaryTag={t("settings.scrape.primaryLanguage")}
           onChange={(next) => patch({ language_priority: next })}
         />
       </Card>
       <Card
-        title="内容分级"
+        title={t("settings.scrape.contentRating")}
         overriddenBy={overriddenBy?.(["cert_country_priority"])}
-        shell={shellFor?.("内容分级", ["cert_country_priority"])}
-        desc="条目分级（如 PG-13、TV-MA）按顺序取第一个有数据的地区。"
+        shell={shellFor?.(t("settings.scrape.contentRating"), ["cert_country_priority"])}
+        desc={t("settings.scrape.contentRatingHint")}
       >
         <OrderChips
-          options={COMMON_CERT_COUNTRIES}
+          options={commonCertCountries(t)}
           extraOptions={extraCountries}
-          moreLabel="地区"
+          moreLabel={t("settings.scrape.regionOptions")}
           value={setting.cert_country_priority}
           max={6}
           primaryTag=""
@@ -1385,6 +1433,7 @@ function ImageSourcesCard({
   overriddenBy?: (keys: (keyof ScrapeSetting)[]) => string[];
   shellFor?: (title: string, keys: (keyof ScrapeSetting)[]) => CardShell;
 }) {
+  const t = useTranslations();
   const { status, setStatus } = useFanartStatus();
   const [keyForm, setKeyForm] = useState(false);
   // 刚打开 Fanart：卡片里提示存量条目要手动刷新（关掉、或关闭提示即消失）
@@ -1407,39 +1456,34 @@ function ImageSourcesCard({
 
   const pill = !status?.configured ? (
     <span className="rounded-full border border-[var(--warn)]/30 px-2 py-px text-micro font-normal text-[var(--warn)]">
-      需要 API Key
+      {t("settings.scrape.keyRequired")}
     </span>
   ) : status.key_invalid ? (
     <span className="rounded-full border border-[var(--danger)]/35 px-2 py-px text-micro font-normal text-[var(--danger)]">
-      Key 已失效
+      {t("settings.scrape.keyInvalid")}
     </span>
   ) : (
     <span className="rounded-full border border-[var(--ok)]/30 px-2 py-px text-micro font-normal text-[var(--ok)]">
-      Key 已配置
+      {t("settings.scrape.keyConfigured")}
     </span>
   );
 
   return (
     <Card
-      title="图片来源"
+      title={t("settings.scrape.imageSources")}
       overriddenBy={overriddenBy?.(SOURCE_KEYS)}
-      shell={shellFor?.("图片来源", SOURCE_KEYS)}
-      desc="海报、背景、片名 Logo、季海报可以从多个图库挑选。TMDB 是元数据的主来源，始终开启；Fanart.tv 是社区维护的高清图库，中文片名 Logo、季海报往往比 TMDB 全。你在条目详情页手动选定的图始终优先，不受这里影响。"
+      shell={shellFor?.(t("settings.scrape.imageSources"), SOURCE_KEYS)}
+      desc={t("settings.scrape.imageSourcesHint")}
     >
       {justEnabled && enabled && (
         <div className="mb-2.5 flex items-start gap-2.5 rounded-xl border border-[var(--info)]/30 bg-[var(--info)]/[0.07] px-3 py-2.5 text-caption leading-relaxed text-[var(--text-muted)]">
           <span className="text-[var(--info)]">ℹ︎</span>
           <span className="min-w-0 flex-1">
-            <strong className="font-semibold text-[var(--text)]">Fanart.tv 已启用。</strong>
-            之后新入库的条目会自动用上；
-            <strong className="font-semibold text-[var(--text)]">
-              已入库的条目需要你在媒体库执行「刷新元数据」
-            </strong>
-            后才会按新来源重选图片，不刷新就保持原样。
+            {t.rich("settings.scrape.fanartEnabledHint", { strong: (chunks) => <strong className="font-semibold text-[var(--text)]">{chunks}</strong> })}
           </span>
           <button
             type="button"
-            aria-label="关闭提示"
+            aria-label={t("settings.scrape.dismissHint")}
             onClick={() => setJustEnabled(false)}
             className="shrink-0 text-[var(--text-faint)] hover:text-[var(--text)]"
           >
@@ -1454,10 +1498,10 @@ function ImageSourcesCard({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-ui font-semibold">TMDB</span>
-          <span className="block text-caption text-[var(--text-faint)]">元数据与图片的主来源</span>
+          <span className="block text-caption text-[var(--text-faint)]">{t("settings.scrape.primarySource")}</span>
         </span>
         <span className="shrink-0 rounded-full border border-white/[0.08] px-2 py-px text-micro text-[var(--text-faint)]">
-          始终开启
+          {t("settings.scrape.alwaysEnabled")}
         </span>
       </div>
 
@@ -1473,16 +1517,16 @@ function ImageSourcesCard({
             <span className="block text-caption text-[var(--text-faint)]">
               {status?.configured
                 ? library
-                  ? "Key 全站共用，在「设置 → 刮削与整理」里可以更换"
-                  : "社区高清图库 · 电影按 TMDB 编号、剧集按 TVDB 编号取图（TVDB 编号从 TMDB 自动获取）"
-                : "社区高清图库 · 打开开关时填一次你自己的 API Key 即可"}
+                  ? t("settings.scrape.sharedKeyHint")
+                  : t("settings.scrape.fanartConfiguredHint")
+                : t("settings.scrape.fanartUnconfiguredHint")}
             </span>
           </span>
           <button
             type="button"
             role="switch"
             aria-checked={enabled}
-            aria-label="启用 Fanart.tv"
+            aria-label={t("settings.scrape.enableFanart")}
             onClick={toggle}
             className={`relative h-[21px] w-9 shrink-0 rounded-full transition-colors ${
               enabled ? "bg-[var(--accent-2)]" : "bg-white/[0.14]"
@@ -1512,7 +1556,7 @@ function ImageSourcesCard({
           <div className="flex flex-wrap items-center gap-2.5 border-t border-white/[0.06] px-3 py-2 pl-14 text-caption text-[var(--text-faint)] max-sm:pl-3">
             {status.key_invalid ? (
               <span className="text-[var(--danger)]">
-                Fanart.tv 拒绝了这个 Key（可能已撤销或填错），已暂停使用 Fanart 选图
+                {t("settings.scrape.fanartRejected")}
               </span>
             ) : (
               <span>
@@ -1525,7 +1569,7 @@ function ImageSourcesCard({
                 onClick={() => setKeyForm(true)}
                 className="text-[var(--accent)] underline underline-offset-2"
               >
-                {status.key_invalid ? "重新填写" : "更换"}
+                {status.key_invalid ? t("settings.scrape.reenterKey") : t("settings.scrape.replaceKey")}
               </button>
             )}
           </div>
@@ -1533,22 +1577,22 @@ function ImageSourcesCard({
       </div>
 
       <p className="mb-1.5 mt-4 flex flex-wrap items-baseline gap-2 text-sub font-semibold">
-        来源顺序
+        {t("settings.scrape.sourceOrder")}
         <span className="text-caption font-normal text-[var(--text-faint)]">
-          每种图单独排，点 ⇄ 交换先后
+          {t("settings.scrape.sourceOrderHint")}
         </span>
       </p>
       <div
         className={`overflow-hidden rounded-xl border border-white/[0.08] ${enabled ? "" : "opacity-40"}`}
       >
-        {SOURCE_ROWS.map((row) => {
+        {sourceRows(t).map((row) => {
           const order = setting[row.key];
           const isDefault = order[0] === row.first;
           const note =
             row.key === "poster_source_order" && setting.poster_mode === "default"
-              ? "海报卡是「TMDB 默认」：TMDB 只出它指定的那一张，和 Fanart 的海报按语言比"
+              ? t("settings.scrape.defaultPosterHint")
               : row.key === "season_poster_source_order"
-                ? "只对剧集生效；语言跟随海报卡"
+                ? t("settings.scrape.seasonPosterHint")
                 : null;
           return (
             <div
@@ -1560,7 +1604,7 @@ function ImageSourcesCard({
                 <span
                   className={`block text-micro ${isDefault ? "text-[var(--src-fanart)]" : "text-[var(--text-faint)]"}`}
                 >
-                  {isDefault ? `默认 · ${row.why}` : "已调整"}
+                  {isDefault ? t("settings.scrape.defaultSource", { reason: row.why }) : t("settings.scrape.adjusted")}
                 </span>
               </span>
               <span className="flex flex-wrap items-center gap-1.5">
@@ -1587,7 +1631,7 @@ function ImageSourcesCard({
               <button
                 type="button"
                 disabled={!enabled}
-                aria-label={`交换${row.label}的来源先后`}
+                aria-label={t("settings.scrape.swapSources", { image: row.label })}
                 onClick={() => patch({ [row.key]: [...order].reverse() } as Partial<ScrapeSetting>)}
                 className="rounded-lg bg-white/[0.06] px-2.5 py-1 text-sub text-[var(--text-muted)] transition-colors hover:bg-white/[0.12] hover:text-[var(--text)] disabled:pointer-events-none disabled:opacity-30"
               >
@@ -1601,8 +1645,7 @@ function ImageSourcesCard({
         })}
       </div>
       <p className="mt-2.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-caption leading-relaxed text-[var(--text-muted)]">
-        <strong className="font-semibold text-[var(--text)]">先看语言，再看来源。</strong>
-        每种图按自己的语言优先级（海报、背景、片名 Logo 卡里配置）逐档找；同一档语言两个来源都有图时，才按上面的来源顺序挑。所以把中文排第一，就不会因为来源顺序拿到英文图。
+        {t.rich("settings.scrape.languageBeforeSource", { strong: (chunks) => <strong className="font-semibold text-[var(--text)]">{chunks}</strong> })}
       </p>
     </Card>
   );
@@ -1656,6 +1699,7 @@ export function ImagesTab({
   overriddenBy?: (keys: (keyof ScrapeSetting)[]) => string[];
   shellFor?: (title: string, keys: (keyof ScrapeSetting)[]) => CardShell;
 }) {
+  const t = useTranslations();
   // 界面选中的画质档：显式选过就是它，没选过按已保存配置反推（后端 effective 给）
   const quality: ImageQuality = setting.image_quality || effective?.image_quality || "original";
   // 档位下拉留空的含义：全局页是环境变量，库页是全局设置。留空的实际档位只有在
@@ -1663,8 +1707,8 @@ export function ImagesTab({
   // 是预设的档位，不是留空会落到的值），其它时候不写数字，免得说错
   const fallbackKnown = effective?.image_quality === "custom";
   const inheritLabel = (fallback: string) => {
-    const base = inheritsGlobal ? "跟随全局" : "跟随环境变量";
-    return fallbackKnown && fallback ? `${base}（${fallback}）` : base;
+    const base = inheritsGlobal ? t("settings.scrape.followGlobal") : t("settings.scrape.followEnvironment");
+    return fallbackKnown && fallback ? t("settings.scrape.inheritValue", { base, value: fallback }) : base;
   };
   const chooseQuality = (next: ImageQuality) => {
     if (next !== "custom") {
@@ -1683,16 +1727,16 @@ export function ImagesTab({
   const customEstimateFresh =
     estimate?.current_quality === "custom" &&
     effective?.image_quality === "custom" &&
-    IMAGE_SIZE_FIELDS.every(
+    imageSizeFields(t).every(
       (field) => (setting[field.key] || effective[field.key]) === effective[field.key],
     );
   const estimateText = (id: ImageQuality): string | null => {
     if (!estimate) return null;
-    if (id !== "custom") return `按当前媒体库估算${formatEstimate(estimate.presets[id])}`;
+    if (id !== "custom") return t("settings.scrape.storageEstimate", { estimate: formatEstimate(estimate.presets[id]) });
     if (quality !== "custom") return null;
     return customEstimateFresh
-      ? `按当前媒体库估算${formatEstimate(estimate.current_bytes)}`
-      : "保存后按所选档位估算";
+      ? t("settings.scrape.storageEstimate", { estimate: formatEstimate(estimate.current_bytes) })
+      : t("settings.scrape.estimateAfterSave");
   };
 
   return (
@@ -1705,23 +1749,23 @@ export function ImagesTab({
         shellFor={shellFor}
       />
       <Card
-        title="海报"
+        title={t("settings.scrape.poster")}
         overriddenBy={overriddenBy?.(["poster_mode", "poster_language_priority"])}
-        shell={shellFor?.("海报", ["poster_mode", "poster_language_priority"])}
-        desc="海报和文本一样有语言：中文版、原版、无文字干净版是不同的候选图。你在条目详情页手动选定的图始终优先，不受这里影响。"
+        shell={shellFor?.(t("settings.scrape.poster"), ["poster_mode", "poster_language_priority"])}
+        desc={t("settings.scrape.posterHint")}
       >
         <div className="grid gap-2 md:grid-cols-2">
           {(
             [
               {
                 id: "default",
-                title: "TMDB 默认",
-                desc: "与发现页看到的一致，订阅前后海报不跳变（默认）",
+                title: t("settings.scrape.tmdbDefault"),
+                desc: t("settings.scrape.defaultPosterDescription"),
               },
               {
                 id: "language",
-                title: "按语言优先级挑选",
-                desc: "逐级取第一档有候选图的语言，档内按分辨率与票数排序",
+                title: t("settings.scrape.languagePoster"),
+                desc: t("settings.scrape.languagePosterDescription"),
               },
             ] as const
           ).map((mode) => (
@@ -1757,65 +1801,64 @@ export function ImagesTab({
           }`}
         >
           <OrderChips
-            options={COMMON_IMAGE_LANGS}
+            options={commonImageLangs(t)}
             extraOptions={extraImageLangs}
-            moreLabel="语言"
+            moreLabel={t("settings.scrape.languageOptions")}
             value={setting.poster_language_priority}
             max={4}
-            primaryTag="首选"
+            primaryTag={t("settings.scrape.preferred")}
             onChange={(next) => patch({ poster_language_priority: next })}
           />
           {setting.poster_mode === "default" && setting.fanart_enabled && (
             <p className="mt-2 text-caption leading-relaxed text-[var(--text-faint)]">
-              已启用 Fanart.tv：TMDB 默认的那张海报会和 Fanart 的海报按上面的语言优先级比较，Fanart
-              有更靠前语言的海报时才会换掉它。季海报同样按这个语言优先级挑。
+              {t("settings.scrape.fanartPosterHint")}
             </p>
           )}
         </div>
       </Card>
       <Card
-        title="背景图（fanart）"
+        title={t("settings.scrape.fanartBackdrop")}
         overriddenBy={overriddenBy?.(["backdrop_language_priority"])}
-        shell={shellFor?.("背景图（fanart）", ["backdrop_language_priority"])}
-        desc="铺在详情页全屏的沉浸底图。「无文字」是没有烧录任何片名文字的干净图——排第 1 位即无文字优先；想要带片名 logo 的横图，把语言排到前面。"
+        shell={shellFor?.(t("settings.scrape.fanartBackdrop"), ["backdrop_language_priority"])}
+        desc={t("settings.scrape.backdropHint")}
       >
         <OrderChips
-          options={COMMON_IMAGE_LANGS}
+          options={commonImageLangs(t)}
           extraOptions={extraImageLangs}
-          moreLabel="语言"
+          moreLabel={t("settings.scrape.languageOptions")}
           value={setting.backdrop_language_priority}
           max={4}
-          primaryTag="首选"
+          primaryTag={t("settings.scrape.preferred")}
           onChange={(next) => patch({ backdrop_language_priority: next })}
         />
       </Card>
       <Card
-        title="片名 Logo"
+        title={t("settings.scrape.titleLogo")}
         overriddenBy={overriddenBy?.(["logo_language_priority"])}
-        shell={shellFor?.("片名 Logo", ["logo_language_priority"])}
-        desc="详情页、首页大图上叠在背景图上的片名字标（透明底）。按顺序逐档找第一张有图的语言；全部落空就不显示 Logo，改为显示文字标题。"
+        shell={shellFor?.(t("settings.scrape.titleLogo"), ["logo_language_priority"])}
+        desc={t("settings.scrape.logoHint")}
       >
         <OrderChips
-          options={COMMON_IMAGE_LANGS}
+          options={commonImageLangs(t)}
           extraOptions={extraImageLangs}
-          moreLabel="语言"
+          moreLabel={t("settings.scrape.languageOptions")}
           value={setting.logo_language_priority}
           max={4}
-          primaryTag="首选"
+          primaryTag={t("settings.scrape.preferred")}
           onChange={(next) => patch({ logo_language_priority: next })}
         />
       </Card>
       <Card
-        title="最低分辨率门槛"
+        title={t("settings.scrape.minResolution")}
         overriddenBy={overriddenBy?.(["poster_min_width", "backdrop_min_width"])}
-        shell={shellFor?.("最低分辨率门槛", ["poster_min_width", "backdrop_min_width"])}
-        desc="管的是「选哪张图」：低于门槛的候选图不选，候选全部不达标时自动放宽。图片存多大由下面的「本地图片画质」决定。"
+        shell={shellFor?.(t("settings.scrape.minResolution"), ["poster_min_width", "backdrop_min_width"])}
+        desc={t("settings.scrape.minResolutionHint")}
       >
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 text-sub text-[var(--text-muted)]">
           {(
             [
-              ["poster_min_width", "海报"],
-              ["backdrop_min_width", "背景"],
+              ["poster_min_width", t("settings.scrape.poster")],
+              ["backdrop_min_width", t("settings.scrape.backdrop")],
             ] as const
           ).map(([key, label]) => (
             <span key={key} className="flex items-center gap-1.5">
@@ -1823,20 +1866,20 @@ export function ImagesTab({
               <WidthInput value={setting[key]} onCommit={(next) => patch({ [key]: next })} />
               {/* 0 在输入框里看不出是"不限制"还是"没填"，补一句 */}
               {setting[key] === 0 && (
-                <span className="text-caption text-[var(--text-faint)]">不限制</span>
+                <span className="text-caption text-[var(--text-faint)]">{t("settings.scrape.unlimited")}</span>
               )}
             </span>
           ))}
         </div>
       </Card>
       <Card
-        title="本地图片画质"
+        title={t("settings.scrape.localQuality")}
         overriddenBy={overriddenBy?.(IMAGE_QUALITY_KEYS)}
-        shell={shellFor?.("本地图片画质", IMAGE_QUALITY_KEYS)}
-        desc="刮削时存到本地的图片有多大。各设备看图时由服务端从这份本地图按需缩小，所以这里只决定「最清楚能到多清楚」。改了画质，存量图片在媒体库「刷新元数据」后按新画质更新。"
+        shell={shellFor?.(t("settings.scrape.localQuality"), IMAGE_QUALITY_KEYS)}
+        desc={t("settings.scrape.localQualityHint")}
       >
         <div className="grid gap-2 md:grid-cols-2">
-          {IMAGE_QUALITY_OPTIONS.map((option) => {
+          {imageQualityOptions(t).map((option) => {
             const hint = estimateText(option.id);
             return (
               <label
@@ -1871,7 +1914,7 @@ export function ImagesTab({
         {/* 自定义才展开四个档位；预设下档位字段被后端忽略，摆出来只会让人以为还能改 */}
         {quality === "custom" && (
           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {IMAGE_SIZE_FIELDS.map((field) => (
+            {imageSizeFields(t).map((field) => (
               <label key={field.key} className="flex flex-col gap-1">
                 <span className="text-caption text-[var(--text-muted)]">{field.label}</span>
                 <select
@@ -1882,7 +1925,7 @@ export function ImagesTab({
                   <option value="">{inheritLabel(effective?.[field.key] ?? "")}</option>
                   {field.sizes.map((size) => (
                     <option key={size} value={size}>
-                      {size === "original" ? "original（原图）" : size}
+                      {size === "original" ? t("settings.scrape.originalSize") : size}
                     </option>
                   ))}
                 </select>
@@ -1896,9 +1939,11 @@ export function ImagesTab({
 }
 
 export function ScrapeSettingsSection() {
+  const t = useTranslations();
   const toast = useToast();
   const [view, setView] = useState<ScrapeConfigView | null>(null);
   const [setting, setSetting] = useState<ScrapeSetting | null>(null);
+  const locale = useLocale();
   const chipOptions = useScrapeChipOptions();
   // 各库的覆盖情况：卡片上标「N 个库已覆盖」，避免"在全局改了不生效"的困惑
   const [libraryOverrides, setLibraryOverrides] = useState<
@@ -1940,7 +1985,7 @@ export function ScrapeSettingsSection() {
       };
       setSetting(latest.current);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "加载失败，请重试");
+      setError(err instanceof Error ? err.message : appTranslator()("settings.scrape.loadFailed"));
     }
   }, []);
 
@@ -1971,8 +2016,8 @@ export function ScrapeSettingsSection() {
       note:
         open === title && saveState !== "idle"
           ? saveState === "saving"
-            ? "保存中…"
-            : "已保存"
+            ? t("settings.scrape.saving")
+            : t("settings.scrape.saved")
           : undefined,
       // 全局页没有"跟随/覆盖"这个静默态（它就是被跟随的那一层），折叠头只报
       // 当前值；点亮与否交给「N 个库已覆盖」徽标表达
@@ -1982,10 +2027,10 @@ export function ScrapeSettingsSection() {
         ? describeScrapeValues(keys, {
             ...setting,
             image_quality: setting.image_quality || view?.effective.image_quality || "",
-          })
+          }, locale)
         : "",
     }),
-    [open, setting, view, saveState],
+    [open, setting, view, saveState, locale, t],
   );
 
   const overriddenBy = useCallback(
@@ -2013,7 +2058,7 @@ export function ScrapeSettingsSection() {
     } catch (err) {
       if (mine !== seq.current) return;
       setSaveState("idle");
-      toast.error(err instanceof Error ? err.message : "保存失败，请重试");
+      toast.error(err instanceof Error ? err.message : appTranslator()("settings.scrape.saveFailed"));
       // 失败不猜怎么回滚，重读服务端的真实值
       void load();
     }
@@ -2056,7 +2101,7 @@ export function ScrapeSettingsSection() {
       <div className="rounded-xl bg-white/[0.03] px-4 py-6 text-center text-ui text-[var(--text-muted)]">
         {error}
         <button type="button" className="btn-glass ml-3 px-3 py-1.5 text-sub" onClick={load}>
-          重试
+          {t("settings.scrape.retry")}
         </button>
       </div>
     );
@@ -2065,27 +2110,25 @@ export function ScrapeSettingsSection() {
     return (
       <p className="flex items-center gap-2.5 rounded-xl bg-white/[0.03] px-4 py-5 text-ui text-[var(--text-muted)]">
         <BrandLoader className="size-5" />
-        正在加载刮削配置…
+        {t("settings.scrape.loading")}
       </p>
     );
   }
 
-  const mirrorOverrides = overriddenBy(MIRROR_ROWS.map((row) => row.key));
+  const mirrorOverrides = overriddenBy(mirrorRows(t).map((row) => row.key));
 
   return (
     <div className="space-y-10">
       {/* 「可按库覆盖」这件事在分区顶部统一说一句：P4 之后所有字段都能按库
           覆盖，逐卡贴徽标不区分任何东西，只是噪音（设计文档 §14.5） */}
       <p className="px-1 text-sub leading-relaxed text-[var(--text-muted)]">
-        全站默认的刮削口味，改动自动保存，对新刮削立即生效；已入库的条目在媒体库执行「刷新元数据」后按新配置更新。
-        <strong className="font-medium text-[var(--text)]">任意一项</strong>
-        都可以在「编辑库 → 刮削设置」里单独覆盖，没被覆盖的库跟随这里。
+        {t.rich("settings.scrape.globalIntro", { strong: (chunks) => <strong className="font-medium text-[var(--text)]">{chunks}</strong> })}
       </p>
 
       {/* 分节 + 行组：与「编辑库 → 刮削设置」同一套结构与控件。
           分节顺序沿用刮削管线的先后，只为读起来顺——四组之间没有依赖，
           所以不编号（编号会把并列分组伪装成必须按序完成的向导）。 */}
-      <ScrapeSection label="元数据" description="标题、简介等文本的语言，以及内容分级取哪个地区">
+      <ScrapeSection label={t("settings.scrape.metadataSection")} description={t("settings.scrape.metadataSectionHint")}>
         <MetaTab
           setting={setting}
           patch={patch}
@@ -2096,7 +2139,7 @@ export function ScrapeSettingsSection() {
         />
       </ScrapeSection>
 
-      <ScrapeSection label="图片" description="从哪些图库挑图、各类图按什么语言挑，以及本地存多大">
+      <ScrapeSection label={t("settings.scrape.imagesSection")} description={t("settings.scrape.imagesSectionHint")}>
         <ImagesTab
           setting={setting}
           patch={patch}
@@ -2108,19 +2151,19 @@ export function ScrapeSettingsSection() {
         />
       </ScrapeSection>
 
-      <ScrapeSection label="命名与整理" description="整理入库时的目录与文件命名">
+      <ScrapeSection label={t("settings.scrape.namingSection")} description={t("settings.scrape.namingSectionHint")}>
         <NamingTab setting={setting} patch={patch} overriddenBy={overriddenBy} shellFor={shellFor} />
       </ScrapeSection>
 
       <ScrapeSection
-        label="目录写入"
+        label={t("settings.scrape.mirrorSection")}
         description={
           <>
-            把刮削成果写入媒体目录，反哺 Emby / Jellyfin / Kodi。只增不删，已存在的 NFO 绝不覆盖；每个媒体库还有一个总开关。
+            {t("settings.scrape.mirrorSectionHint")}
             {mirrorOverrides.length > 0 && (
               <span className="text-[var(--accent)]">
                 {" "}
-                {mirrorOverrides.join("、")}已单独覆盖。
+                {t("settings.scrape.mirrorOverrides", { libraries: formatList(mirrorOverrides) })}
               </span>
             )}
           </>

@@ -51,7 +51,7 @@ def app_client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     app = create_app()
-    yield app, TestClient(app)
+    yield app, TestClient(app, headers={"Accept-Language": "zh-Hans"})
     get_settings.cache_clear()
 
 

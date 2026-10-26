@@ -28,7 +28,7 @@ def client(tmp_path, monkeypatch):
 
     app = create_app()
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
     deliveries.clear_deliveries()
     get_settings.cache_clear()
@@ -198,3 +198,128 @@ def test_send_test_and_deliveries(client: TestClient, monkeypatch):
     # 列表页的最近投递状态也随之出现
     shown = client.get(BASE).json()["data"]["endpoints"][0]
     assert shown["last_delivery"]["ok"] is True
+
+
+def test_catalog_languages_preserve_event_facts_and_plugin_titles(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from movieclaw_api.services.webhook import catalog
+    from movieclaw_sdk.events import core_events
+
+    builtins = list(core_events())
+    facts = [(e.name, e.title, e.group, e.high_frequency) for e in builtins]
+    plugin = SimpleNamespace(name="acme.custom", title="播放", group="播放", high_frequency=False)
+    monkeypatch.setattr(catalog, "event_types", lambda: {e.name: e for e in [*builtins, plugin]})
+    assert {e.name for e in builtins} == catalog._BUILTIN_TEXT.keys()
+    snapshots = []
+    for language in ("en", "zh-Hans", "en"):
+        rows = client.get(BASE, headers={"Accept-Language": language}).json()["data"]["catalog"]
+        assert rows[-1]["label"] == rows[-1]["group"] == "播放"
+        snapshots.append(rows)
+    assert snapshots[0] == snapshots[2]
+    assert snapshots[0][0]["label"] == "Device signed in"
+    assert [(r["event"], r["label"], r["group"]) for r in snapshots[1][:-1]] == [
+        fact[:3] for fact in facts
+    ]
+    for english, chinese in zip(snapshots[0], snapshots[1], strict=True):
+        assert {k: v for k, v in english.items() if k not in {"label", "group"}} == {
+            k: v for k, v in chinese.items() if k not in {"label", "group"}
+        }
+    assert facts == [(e.name, e.title, e.group, e.high_frequency) for e in builtins]
+
+
+def test_delivery_reasons_render_at_read_without_rewriting_records(client):
+    endpoint = _create_endpoint(client)["endpoints"][0]
+    record = deliveries.DeliveryRecord(
+        event_id="raw-event",
+        event="playback.started",
+        status_code=503,
+        error="目标返回 HTTP 503",
+        error_key="settings.webhook.errors.http",
+        error_params={"status": 503},
+    )
+    deliveries.record_delivery(endpoint["id"], record)
+    for language, expected in (
+        ("en", "Destination returned HTTP 503"),
+        ("zh-Hans", "目标返回 HTTP 503"),
+        ("en", "Destination returned HTTP 503"),
+    ):
+        headers = {"Accept-Language": language}
+        rows = client.get(f"{BASE}/endpoints/{endpoint['id']}/deliveries", headers=headers).json()[
+            "data"
+        ]
+        view = client.get(BASE, headers=headers).json()["data"]["endpoints"][0]
+        assert rows[0]["error"] == view["last_delivery"]["error"] == expected
+        assert rows[0]["event_id"] == "raw-event" and rows[0]["status_code"] == 503
+    assert record.error == "目标返回 HTTP 503"
+    assert record.error_params == {"status": 503}
+    legacy = deliveries.DeliveryRecord(
+        event_id="legacy", event="acme.custom", error="目标返回 HTTP 503"
+    )
+    deliveries.record_delivery(endpoint["id"], legacy)
+    rows = client.get(
+        f"{BASE}/endpoints/{endpoint['id']}/deliveries", headers={"Accept-Language": "en"}
+    ).json()["data"]
+    assert rows[0]["error"] == legacy.error
+
+
+def test_test_delivery_creates_localizable_failure_and_keeps_raw_exception(client, monkeypatch):
+    endpoint = _create_endpoint(client)["endpoints"][0]
+
+    def refused(request):
+        raise httpx.ConnectError("Raw failure 原始错误", request=request)
+
+    monkeypatch.setattr(
+        delivery, "egress_transport", lambda *args, **kwargs: httpx.MockTransport(refused)
+    )
+    response = client.post(
+        f"{BASE}/endpoints/{endpoint['id']}/test", headers={"Accept-Language": "en"}
+    )
+    assert response.status_code == 200
+    row = response.json()["data"]
+    assert row["error"] == "Request failed: Raw failure 原始错误"
+    assert row["status_code"] is None and not row["ok"]
+    chinese = client.get(f"{BASE}/endpoints/{endpoint['id']}/deliveries").json()["data"][0]
+    assert chinese["error"] == "请求失败：Raw failure 原始错误"
+
+
+@pytest.mark.parametrize(
+    ("template", "english", "chinese"),
+    [
+        (
+            "{{unknown Name}}",
+            "Unsupported template helper: unknown",
+            "模板使用了不支持的助手：unknown",
+        ),
+        (
+            "{{#unknown Name}}x{{/unknown}}",
+            "Unsupported block helper: unknown",
+            "模板使用了不支持的块助手：unknown",
+        ),
+        (
+            "{{/if_exist}}",
+            "Closing tag {{/if_exist}} does not match",
+            "模板的闭合标签 {{/if_exist}} 与当前打开的块不匹配",
+        ),
+        ("{{else}}", "Template tag {{else}} is outside", "模板的 {{else}} 不在任何块助手内"),
+        (
+            "{{#if_exist Name}}x{{else}}y{{else}}z{{/if_exist}}",
+            "Duplicate {{else}}",
+            "同一个块助手里出现了重复的 {{else}}",
+        ),
+        ("{{#if_exist Name}}x", "Unclosed template block helper", "模板存在未闭合的块助手"),
+    ],
+)
+def test_template_errors_keep_references_through_formatter(client, template, english, chinese):
+    endpoint = _create_endpoint(
+        client, format="jellyfin", events=["playback.stopped"], template=template
+    )["endpoints"][0]
+    path = f"{BASE}/endpoints/{endpoint['id']}"
+    response = client.post(path + "/test", headers={"Accept-Language": "en"})
+    assert response.status_code == 200
+    error = response.json()["data"]["error"]
+    assert error.startswith("Template rendering failed: ") and english in error
+    raw = client.get(path + "/deliveries").json()["data"][0]
+    assert raw["error"].startswith("模板渲染失败：") and chinese in raw["error"]
+    reread = client.get(path + "/deliveries", headers={"Accept-Language": "en"}).json()["data"][0]
+    assert reread["error"] == error and reread["event_id"] == raw["event_id"]

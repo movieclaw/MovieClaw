@@ -332,3 +332,33 @@ test("已安装插件包的行内说明", () => {
     "v1.2.0 · 独立进程 · 替换了内置版本，卸载即恢复",
   );
 });
+
+test("English plugin states and summaries render without a browser and preserve machine data", () => {
+  const labels = ["Running", "Failed to start", "Waiting for dependencies", "Disabled", "Incompatible version", "Starting", "Stopping", "Stopped"];
+  ["active", "failed", "pending", "disabled", "incompatible", "loading", "unloading", "disposed"].forEach((state, index) => {
+    assert.equal(pluginStateLabel(state, "en"), labels[index]);
+  });
+  assert.equal(pluginStateLabel("future-state", "en"), "future-state");
+  assert.equal(pluginDetail(plugin(), "en"), "Started in 12 ms");
+  assert.equal(pluginDetail(plugin({ state: "disabled", disabled_by: "env:TEST_ENABLED" }), "en"), "Disabled by environment variable TEST_ENABLED");
+  assert.equal(pluginDetail(plugin({ state: "failed", error: "第三方的原始错误" }), "en"), "第三方的原始错误");
+  assert.equal(formatMs(1234, "en"), "1.2 s");
+  assert.equal(formatMs(12_345, "en"), "12 s");
+  const list = [plugin(), plugin({ id: "failed", state: "failed" })];
+  const before = structuredClone(list);
+  assert.equal(pluginsSummary(list, "en"), "2 system modules · 1 running · 1 needs attention");
+  assert.deepEqual(systemModulesLine(list, "en"), { text: "2 additional system modules; 1 needs attention", tone: "warn" });
+  assert.equal(groupBuiltins([plugin()], [], "en")[0].label, "Other");
+  assert.deepEqual(list, before);
+});
+
+test("English permission and feature descriptions keep paths, actors and third-party reasons intact", () => {
+  const grant = { path: "/mnt/原文件", mode: "read" };
+  assert.equal(pathGrantLabel(grant, "en"), "/mnt/原文件 (Read only)");
+  assert.deepEqual(grant, { path: "/mnt/原文件", mode: "read" });
+  assert.equal(pathGrantLabel({ path: "library:3", mode: "rw" }, "en"), "Library #3 (Read and write)");
+  assert.equal(featureOffText({ enabled: false, changed_by: "用户原名" }, "en"), "Disabled by 用户原名");
+  assert.equal(featureOffText({ enabled: false, locked_by: "未知插件原因" }, "en"), "未知插件原因");
+  assert.equal(runtimeLabel("process", "en"), "Separate process");
+  assert.equal(officialSourceText(plugin(), "en"), "Bundled version; can be replaced by a plugin package");
+});

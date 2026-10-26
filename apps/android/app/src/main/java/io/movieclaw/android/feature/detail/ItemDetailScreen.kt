@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material.icons.Icons
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -71,6 +73,7 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -87,11 +90,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import io.movieclaw.android.core.designsystem.Accent2
 import io.movieclaw.android.core.designsystem.AccentStrong
 import io.movieclaw.android.core.designsystem.GlassCapsule
 import io.movieclaw.android.core.designsystem.LineSoft
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McNavButton
 import io.movieclaw.android.core.designsystem.RemoteImage
 import io.movieclaw.android.core.designsystem.Accent
@@ -109,6 +112,7 @@ import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.Warning
 import io.movieclaw.android.core.model.EpisodeView
 import io.movieclaw.android.core.model.LibraryItemDetailView
+import io.movieclaw.android.feature.offline.OfflineDownloadStatusBar
 import io.movieclaw.android.core.model.LibraryItemView
 import io.movieclaw.android.core.model.CollectionSeriesView
 import io.movieclaw.android.core.api.McApi
@@ -153,6 +157,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import io.movieclaw.android.core.designsystem.mcCards
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 @HiltViewModel
 class ItemDetailViewModel @Inject constructor(
@@ -161,7 +170,89 @@ class ItemDetailViewModel @Inject constructor(
     private val apiFactory: ApiFactory,
     private val preconnect: io.movieclaw.android.core.playback.PlaybackPreconnect,
     private val eventStream: io.movieclaw.android.core.network.EventStream,
+    /** 离线下载（iOS `OfflineDownloadControl` 的数据源） */
+    private val offlineStore: io.movieclaw.android.core.offline.OfflineStore,
+    private val offlineDownloader: io.movieclaw.android.core.offline.OfflineDownloader,
+    private val offlinePrefs: io.movieclaw.android.core.offline.OfflinePrefs,
 ) : ViewModel() {
+
+    /** 本机副本（下完的） */
+    val offlinePacks: kotlinx.coroutines.flow.StateFlow<List<io.movieclaw.android.core.offline.OfflineStore.Pack>> =
+        offlineStore.packs
+
+    /** 在下的（排队 / 下载中 / 暂停 / 失败）：详情页状态条与分集卡小条用它 */
+    val offlineTasks: kotlinx.coroutines.flow.StateFlow<Map<Long, io.movieclaw.android.core.offline.OfflineDownloader.TaskState>> =
+        offlineDownloader.tasks
+
+    /** 开始过（含暂停/失败）的单元：文件 id → 副本记录 */
+    val offlineKnown: kotlinx.coroutines.flow.StateFlow<Map<Long, io.movieclaw.android.core.offline.OfflineStore.Pack>> =
+        offlineDownloader.known
+
+    /** 上次选的下载档位：选档面板默认带出（iOS `OfflineSettings.lastProfile`） */
+    val lastDownloadProfile = offlinePrefs.lastProfile
+
+    /** 机器名（「下载到 <设备名>」「只删 <设备名> 上的副本」） */
+    val deviceName: String = android.os.Build.MODEL ?: "本机"
+
+    fun freeBytes(): Long = offlineStore.freeBytes()
+
+    /** 选档面板的批量询问：一次问完所有范围的文件（iOS 同款） */
+    suspend fun offlineProfiles(fileIds: List<Long>): Map<Long, io.movieclaw.android.core.model.OfflineFileProfiles> {
+        val origin = repository.ui.value.origin ?: return emptyMap()
+        val api = apiFactory.forOrigin(origin)
+        val view = runCatching {
+            api.offlineProfiles(io.movieclaw.android.core.model.OfflineProfilesRequest(fileIds)).dataOrThrow()
+        }.getOrNull() ?: return emptyMap()
+        return view.files.orEmpty().associateBy { it.fileId }
+    }
+
+    /**
+     * 按范围 + 档位开始下载（iOS `OfflineDownloader.start`）：清单在下载器的应用级 scope 里逐集取，
+     * 断网时等网络恢复再继续，不会把范围里还没轮到的集静默跳过。
+     */
+    fun startOfflineDownload(
+        detail: LibraryItemDetailView,
+        fileIds: List<Long>,
+        profile: String,
+    ) {
+        val origin = repository.ui.value.origin ?: return
+        viewModelScope.launch { offlinePrefs.setLastProfile(profile) }
+        offlineDownloader.enqueueBatch(origin, fileIds, profile) { manifest ->
+            val epLabel = manifest.seasonNumber.takeIf { it > 0 }?.let {
+                "S%02dE%02d".format(it, manifest.episodeNumber)
+            }
+            val itemObj = manifest.item as? kotlinx.serialization.json.JsonObject
+            val libObj = manifest.library as? kotlinx.serialization.json.JsonObject
+            fun jsonStr(obj: kotlinx.serialization.json.JsonObject?, key: String): String? =
+                obj?.get(key)?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            fun jsonLong(obj: kotlinx.serialization.json.JsonObject?, key: String): Long? =
+                obj?.get(key)?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() }
+            io.movieclaw.android.core.offline.OfflineStore.Pack(
+                mediaItemId = manifest.mediaItemId,
+                fileId = manifest.fileId,
+                seasonNumber = manifest.seasonNumber,
+                episodeNumber = manifest.episodeNumber,
+                title = detail.title,
+                subtitle = epLabel,
+                libraryName = jsonStr(libObj, "name").orEmpty(),
+                posterUrl = jsonStr(itemObj, "poster_url"),
+                container = if (profile == "original") manifest.container else "mp4",
+                profile = profile,
+                durationMs = manifest.durationMs,
+                libraryId = jsonLong(libObj, "id") ?: 0L,
+            )
+        }
+    }
+
+    fun pauseOffline(fileId: Long) = offlineDownloader.pause(fileId)
+
+    fun resumeOffline(pack: io.movieclaw.android.core.offline.OfflineStore.Pack) {
+        repository.ui.value.origin?.let { offlineDownloader.resumePack(it, pack) }
+    }
+
+    fun deleteOffline(pack: io.movieclaw.android.core.offline.OfflineStore.Pack) {
+        repository.ui.value.origin?.let { offlineDownloader.deleteLocal(it, pack) }
+    }
 
     val libraryId: Long = savedStateHandle.get<String>("libraryId")?.toLongOrNull() ?: -1L
     val itemId: Long = savedStateHandle.get<String>("itemId")?.toLongOrNull() ?: -1L
@@ -1064,6 +1155,8 @@ fun ItemDetailScreen(
     onSubscribe: (String) -> Unit = {},
     /** 「转移到其他库」完成后「去目标库查看」（iOS `goToTarget`） */
     onOpenLibrary: (Long) -> Unit = {},
+    /** 播放本机副本（离线下载的文件在「文件」区点播放时走这里） */
+    onPlayLocal: ((mediaItemId: Long, fileId: Long) -> Unit)? = null,
     vm: ItemDetailViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -1076,6 +1169,77 @@ fun ItemDetailScreen(
     val origin = vm.origin
     val feedback = LocalFeedback.current
     val permissions = io.movieclaw.android.core.session.LocalPermissions.current
+    // 离线下载（iOS `OfflineDownloadControl`）：本机副本 + 在下的任务，随进度实时刷新
+    val offlinePacks by vm.offlinePacks.collectAsStateWithLifecycle()
+    val offlineTasks by vm.offlineTasks.collectAsStateWithLifecycle()
+    val offlineKnown by vm.offlineKnown.collectAsStateWithLifecycle()
+    // 下载选档面板：电影 = 单文件；剧集 = 先算范围
+    var downloadSheet by remember { mutableStateOf<DownloadSheetTarget?>(null) }
+    var deleteDownload by remember { mutableStateOf<Pair<io.movieclaw.android.core.offline.OfflineStore.Pack, Boolean>?>(null) }
+    var offlineMenuFor by remember { mutableStateOf<io.movieclaw.android.core.offline.OfflineStore.Pack?>(null) }
+    /** 「取消全部下载」的二次确认（iOS `confirmCancelDownloads`） */
+    var cancelAllConfirm by remember { mutableStateOf(false) }
+    AndroidDownloadScopeHost(
+        vm = vm,
+        detail = (state as? Loadable.Ready)?.value?.item,
+        episodes = (state as? Loadable.Ready)?.value?.episodes.orEmpty(),
+        target = downloadSheet,
+        offlinePacks = offlinePacks,
+        offlineKnown = offlineKnown,
+        onDismiss = { downloadSheet = null },
+    )
+    // 下载状态条点开的操作菜单（iOS 的 Menu）：暂停 / 继续 / 重试 / 改下其他画质 / 取消下载
+    offlineMenuFor?.let { pack ->
+        io.movieclaw.android.feature.offline.OfflineDownloadActionsMenu(
+            expanded = true,
+            pack = pack,
+            task = offlineTasks[pack.fileId],
+            canChangeQuality = permissions.canDownloadVideo && offlinePacks.none { it.fileId == pack.fileId },
+            onDismiss = { offlineMenuFor = null },
+            onPause = { vm.pauseOffline(pack.fileId) },
+            onResume = { vm.resumeOffline(pack) },
+            onChangeQuality = { downloadSheet = DownloadSheetTarget.Movie(pack.fileId) },
+            onDelete = { deleteDownload = pack to (offlinePacks.any { it.fileId == pack.fileId }) },
+        )
+    }
+    // 删除 / 取消下载的二次确认（iOS 同款文案：只删本机副本，观看进度保留）
+    if (cancelAllConfirm) {
+        val packs = offlineKnown.values.filter { (state as? Loadable.Ready)?.value?.item?.mediaItemId == it.mediaItemId }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { cancelAllConfirm = false },
+            containerColor = Color(0xFF15161A),
+            titleContentColor = TextPrimary,
+            textContentColor = TextMuted,
+            title = { Text("取消这部剧正在进行的下载？", style = McType.title3) },
+            text = {
+                Text(
+                    "取消 ${packs.size} 集的下载，本机上的半成品会删除；观看进度会保留。",
+                    style = McType.footnote,
+                    color = TextMuted,
+                    lineHeight = 20.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    cancelAllConfirm = false
+                    packs.forEach { vm.deleteOffline(it) }
+                }) { Text("取消下载", color = io.movieclaw.android.core.designsystem.Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { cancelAllConfirm = false }) { Text("保留", color = TextPrimary) }
+            },
+        )
+    }
+    deleteDownload?.let { (pack, isDone) ->
+        io.movieclaw.android.feature.offline.OfflineDeleteDialog(
+            pack = pack,
+            isDone = isDone,
+            deviceName = vm.deviceName,
+            onDismiss = { deleteDownload = null },
+            onConfirm = { vm.deleteOffline(pack) },
+        )
+    }
+
     // 文件区动作：删除走底部确认单（iOS `DeleteFileSheet`），立即清理走确认弹窗
     var trashTarget by remember { mutableStateOf<io.movieclaw.android.core.model.LibraryFileView?>(null) }
     var purgeTarget by remember { mutableStateOf<io.movieclaw.android.core.model.LibraryFileView?>(null) }
@@ -1148,9 +1312,25 @@ fun ItemDetailScreen(
             animationSpec = androidx.compose.animation.core.tween(420),
             label = "detail-tint",
         )
+        // 把当前剧照/底色发布给外壳：宽窗口时外壳在最底层铺一张**全屏**剧照，
+        // 半透明侧边栏透出它（iOS `PadBackdropUnderSidebar` 的等价物）。离开本页清空。
+        val setShellBackdrop = io.movieclaw.android.routing.LocalShellBackdropSetter.current
+        val shellBackdropUrl = s.value.item.backdropUrl ?: s.value.item.posterUrl
+        // heroHeight() 是 @Composable（读 LocalConfiguration），必须在组合里取，不能进 effect 里
+        val shellHeroHeight = heroHeight()
+        androidx.compose.runtime.LaunchedEffect(shellBackdropUrl, origin, detailTint, shellHeroHeight) {
+            setShellBackdrop(
+                io.movieclaw.android.routing.ShellBackdrop(shellBackdropUrl, origin, detailTint),
+            )
+        }
+        androidx.compose.runtime.DisposableEffect(Unit) {
+            onDispose { setShellBackdrop(null) }
+        }
         Column(
             Modifier
                 .fillMaxSize()
+                // 整页铺不透明底色：**宽屏也铺**。之前这里在宽屏返回 Transparent，
+                // 结果外壳那层全屏剧照从 hero 以下透出来（下半屏又出现一张图、沉浸式底色没了）。
                 .background(detailTint)
                 .verticalScroll(rememberScrollState()),
         ) {
@@ -1172,6 +1352,23 @@ fun ItemDetailScreen(
                 onToggleFavorite = { vm.toggleFavorite(s.value.item.mediaItemId) },
                 onTogglePlayed = { season, episode ->
                     vm.togglePlayed(s.value.item.mediaItemId, season, episode)
+                },
+                downloadStatus = {
+                    // 电影的下载状态条（在播放键上方）：本机有副本时才出现（开始下载在右上角「⋯」）
+                    val itemIdNow = s.value.item.mediaItemId
+                    val activePack = offlineKnown.values.firstOrNull {
+                        it.mediaItemId == itemIdNow && it.seasonNumber == 0 && it.episodeNumber == 0
+                    }
+                    val donePack = offlinePacks.firstOrNull {
+                        it.mediaItemId == itemIdNow && it.seasonNumber == 0 && it.episodeNumber == 0
+                    }
+                    if (activePack != null && donePack == null) {
+                        OfflineDownloadStatusBar(
+                            pack = activePack,
+                            task = offlineTasks[activePack.fileId],
+                            onOpenMenu = { offlineMenuFor = activePack },
+                        )
+                    }
                 },
                 // AI 字幕生成：状态 + 动作集（Hero 拿不到 VM，与其它回调同一个路子）
                 subtitleGen = subtitleGen,
@@ -1215,6 +1412,14 @@ fun ItemDetailScreen(
                         libraryId = libraryId,
                         itemId = itemId,
                         itemTitle = s.value.item.title,
+                        // 分集卡的下载状态（iOS `OfflineDownloadStrip` / 绿箭头「已下载」）
+                        offlineByEpisode = offlinePacks
+                            .filter { it.mediaItemId == s.value.item.mediaItemId }
+                            .associate { it.episodeNumber to EpisodeOfflineState(it.fileId, done = true, task = null) } +
+                            offlineKnown.values
+                                .filter { it.mediaItemId == s.value.item.mediaItemId }
+                                .filter { pack -> offlinePacks.none { it.fileId == pack.fileId } }
+                                .associate { it.episodeNumber to EpisodeOfflineState(it.fileId, done = false, task = offlineTasks[it.fileId]) },
                     )
                 }
                 CastSection(detail = s.value.item, origin = origin, onOpenPerson = onOpenPerson)
@@ -1237,6 +1442,21 @@ fun ItemDetailScreen(
                     FilesSection(
                         detail = s.value.item,
                         files = sectionFiles,
+                        // 本机副本（iOS `localIds`）：排在最前，标「本机」，可播放 / 改档 / 删除
+                        localPacks = offlinePacks
+                            .filter { it.mediaItemId == s.value.item.mediaItemId }
+                            .filter { pack ->
+                                // 剧集只显示选中那一集的副本；电影显示整条
+                                s.value.item.kind != "tv" ||
+                                    (selectedUnit?.let { pack.seasonNumber == it.season && pack.episodeNumber == it.episode } == true)
+                            },
+                        onPlayLocal = { pack ->
+                            onPlayLocal?.invoke(pack.mediaItemId, pack.fileId)
+                        },
+                        onChangeQuality = { pack ->
+                            downloadSheet = DownloadSheetTarget.Movie(pack.fileId)
+                        },
+                        onDeleteLocal = { pack -> deleteDownload = pack to true },
                         canManage = permissions.canManageLibraries,
                         onOpenDuplicates = onOpenDuplicates,
                         onTrash = { trashTarget = it },
@@ -1313,14 +1533,23 @@ fun ItemDetailScreen(
     LaunchedEffect(readyDetail?.mediaItemId) {
         if (readyDetail != null) vm.loadLibrary()
     }
-    // 菜单本体独立成一层（Popup）：11 行比 hero 高，摆在 hero 里会被正文盖住
-    if (menuOpen && readyDetail != null) {
+    // 菜单本体独立成一层（Popup）：11 行比 hero 高，摆在 hero 里会被正文盖住。
+    // 一直组合、只切 visible——收起时 Popup 多留 150ms 播完缩回动画。
+    if (readyDetail != null) {
         ItemActionsMenuPopup(
+            visible = menuOpen,
             entries = itemMenuEntries(
                 detail = readyDetail,
                 library = library,
                 permissions = permissions,
                 scraping = readyDetail.scraping || kicking,
+                // 电影：本机已有（下着或下完）就不再给「下载」，状态条上管（iOS `movieLocal`）
+                canDownload = permissions.canDownloadVideo && (
+                    if (readyDetail.kind == "tv") true
+                    else offlineKnown.values.none { it.mediaItemId == readyDetail.mediaItemId } &&
+                        offlinePacks.none { it.mediaItemId == readyDetail.mediaItemId }
+                    ),
+                activeDownloads = offlineKnown.values.count { it.mediaItemId == readyDetail.mediaItemId },
             ),
             onPick = { id ->
                 menuOpen = false
@@ -1332,6 +1561,20 @@ fun ItemDetailScreen(
     picking?.let { action ->
         if (readyDetail != null) {
             when (action) {
+                ItemActionId.DOWNLOAD -> {
+                    picking = null
+                    downloadSheet = if (readyDetail.kind == "tv") {
+                        DownloadSheetTarget.Series
+                    } else {
+                        readyDetail.files.firstOrNull { !it.missing }?.let { DownloadSheetTarget.Movie(it.id) }
+                    }
+                }
+
+                ItemActionId.CANCEL_DOWNLOADS -> {
+                    picking = null
+                    cancelAllConfirm = true
+                }
+
                 ItemActionId.SEARCH -> {
                     picking = null
                     onSearch(
@@ -1515,6 +1758,8 @@ private fun Hero(
     onResumeUnitChanged: (Int, Int) -> Unit,
     onToggleFavorite: () -> Unit,
     onTogglePlayed: (Int?, Int?) -> Unit,
+    /** 下载状态条（iOS `OfflineDownloadControl`）：放在播放键上方；参数是当前单元（季, 集），电影 null */
+    downloadStatus: @Composable (unit: Pair<Int, Int>?) -> Unit = {},
     /** AI 字幕生成的状态与动作（同 iOS `TrackSubtitleGenButton`：仅管理员 + 文件在盘才出现） */
     subtitleGen: SubtitleGenUiState,
     isAdmin: Boolean,
@@ -1587,28 +1832,174 @@ private fun Hero(
     // hero 内部一份玻璃取样源（剧照 = 模糊源）：返回圆钮压在剧照上，
     // 走的就是顶栏那套玻璃（iOS 详情页的返回也是 .glass）
     val heroHaze = dev.chrisbanes.haze.rememberHazeState()
-    Column {
-        androidx.compose.runtime.CompositionLocalProvider(LocalTabHazeState provides heroHaze) {
-        Box(Modifier.fillMaxWidth().height(heroHeight())) {
-            RemoteImage(
-                url = detail.backdropUrl ?: detail.posterUrl,
-                origin = origin,
-                contentDescription = detail.title,
-                modifier = Modifier.fillMaxSize().hazeSource(heroHaze),
+    val wideHero = io.movieclaw.android.core.designsystem.LocalCardMetrics.current.isWide
+    // iPad 那套参数是按 1024dp 高的屏定的。这块屏横屏只有 608dp——照搬会把剧照压到只剩半张、
+    // 左列内容比 16:9 大图区还高（大图被撑高后渐变又按撑高后的高度算，图就提前淡尽）。
+    // 所以按屏高等比缩：iPad 上 120dp≈11.7% 屏高、顶部压暗条 112dp≈11%。
+    val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+    val wideTopPad = minOf(120f, screenH * 0.15f).dp
+    // 宽屏：简介移出 hero（跟音轨/字幕同区），左列才压得进剧照
+    // 宽窗口：信息块要压在剧照上（iOS `wideStage` 的 `.bottomLeading` 叠法）。
+    // 这里不动 Box 的子元素顺序，而是先量出信息块自身高度，再把它**上提**进图片区：
+    // `dy = -(信息块高 + 28dp)` 让它的底边落在剧照底部上方 28dp（= iOS `.padding(.bottom, 28)`）。
+    // 好处是窄/宽两套共用同一段信息块代码，不必把它抽成函数或复制一遍。
+    var infoHeight by remember { mutableStateOf(0) }
+    // 音轨 / 字幕两行（含「无可选」时的置灰）。窄屏摆在左列原位；
+    // 宽屏整块挪到 hero 下方，左列才能矮到压进剧照里。
+    @androidx.compose.runtime.Composable
+    fun tracksBlock() {
+        Spacer(Modifier.height(13.dp))
+        TrackRow("音轨", audioText, onClick = if (audioOptions.isEmpty()) null else {{ sheet = "audio" }})
+        Spacer(Modifier.height(13.dp))
+        TrackRow(
+            "字幕",
+            subtitleText,
+            dim = subtitleOptions.isEmpty(),
+            onClick = if (subtitleOptions.isEmpty()) null else {{ sheet = "subtitle" }},
+        )
+        // AI 生成字幕入口（iOS `TrackSubtitleGenButton`：仅管理员 + 文件在盘）。
+        // iOS 把它放在 `wideExtras`（大图下方的轨道区），所以跟着音轨/字幕一起走。
+        // 三态：未接 AI = 「接入… 去接入」引导；运行中 / 有终态问题 = 状态徽章；空闲 = 「AI 生成字幕」。
+        if (isAdmin && file != null && !file.missing) {
+            Spacer(Modifier.height(12.dp))
+            SubtitleGenEntry(
+                generated = file.subtitleStreams.any { it.external && SubtitleGenText.isAiSubtitle(it.fileName.orEmpty()) },
+                gate = subtitleGen.gate,
+                job = subtitleGen.job,
+                previewing = subtitleGen.previewing,
+                targetLanguage = subtitleGen.targetLanguage,
+                secondaryLanguage = subtitleGen.secondaryLanguage.takeIf { subtitleGen.bilingual },
+                onClick = { subtitleGenActions.onEntryClick(file.id) },
             )
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
+        }
+    }
+    // 大图右下角的一行演职员：标签压 55% 白、人名全白（iOS `stageCredits` 的层次）
+    @androidx.compose.runtime.Composable
+    fun stageCreditLine(label: String, value: String) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = McType.sub, color = Color.White.copy(alpha = 0.55f))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                value,
+                style = McType.sub,
+                color = Color.White.copy(alpha = 0.92f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+    // 宽屏文字阴影：iOS `wideStage` 给整块文字加了
+    // `.shadow(color: .black.opacity(0.4), radius: 8)`——压在剧照上靠它保证可读性，
+    // 而不是靠把背景压黑（压黑会和大图之间出现硬边）。Compose 的阴影只能落在 `TextStyle.shadow`。
+    @androidx.compose.runtime.Composable
+    fun wt(style: androidx.compose.ui.text.TextStyle) = if (wideHero) {
+        style.copy(
+            shadow = androidx.compose.ui.graphics.Shadow(
+                color = Color.Black.copy(alpha = 0.4f),
+                offset = androidx.compose.ui.geometry.Offset.Zero,
+                blurRadius = 8f,
+            ),
+        )
+    } else {
+        style
+    }
+    // 剧照 + 四层压暗/淡出（iOS `wideStage` 的背景叠法）。抽成函数是因为宽窗口要把它画在
+    // **信息块自己的 Box** 里——那样信息块才是大图的子元素、可以 `BottomStart` 对齐
+    // （iOS 的 `.background{…}` + `.frame(alignment: .bottomLeading)` 就是这个关系）。
+    @androidx.compose.runtime.Composable
+    fun androidx.compose.foundation.layout.BoxScope.heroBg() {
+        // 底色垫在**图片外面**，图片自己开一个离屏层跑 DstIn 蒙版——
+        // 否则 DstIn 会把同一层里先前画的底色一起清掉（实测交界处 avg 掉到 0，露出黑底）。
+        Box(Modifier.fillMaxSize().background(tint)) {
+        // 宽屏：图由**外壳**按 hero 高度整屏画（同一张图的同一段像素），
+        // 页面这里不再画 —— 否则内容区盖住外壳那层，侧栏边界又会出现竖线。
+        RemoteImage(
+            url = detail.backdropUrl ?: detail.posterUrl,
+            origin = origin,
+            contentDescription = detail.title,
+            // **让图片自己淡出**，而不是在上面盖一层页面底色。
+            // 盖色的做法实测压不到底（图底 avg=(101,76,64)，页面底色 (84,65,53)，
+            // 那条 Δ≈39 的台阶就是肉眼看到的分界线）。`DstIn` 蒙版是让图片的 alpha 真的降到 0，
+            // 底下垫的页面底色自然透出来，物理上不可能有接缝。
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(heroHaze)
+                .graphicsLayer {
+                    compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                }
+                .drawWithContent {
+                    drawContent()
+                    val h = size.height.coerceAtLeast(1f)
+                    val infoTop = (h - 28.dp.toPx() - infoHeight).coerceIn(0f, h)
+                    val fadeStart = (infoTop / h).coerceIn(0.10f, 0.80f)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.Black,
+                            fadeStart to Color.Black,
+                            // 到底部 alpha 归零 → 图片完全让位给下面的页面底色
+                            1f to Color.Transparent,
+                        ),
+                        blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                    )
+                },
+        )
+        }
+        //   ① 径向：左下角黑 0.55 → 透明（iOS `endRadius: 1000`）——文字区托底
+        //   ② 左右线性：黑 0.35 → 透明（iOS leading → (0.6, 0.5)）——左侧文字再压一道
+        //   ③ 顶部 112dp 条：黑 0.45 → 透明——返回/⋯ 可读
+        //   ④ 底部溶进页面底色：clear@0.62 → tint α0.6@0.83 → tint@1.0
+        Box(
+            Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    drawRect(
+                        Brush.radialGradient(
+                            colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
+                            center = androidx.compose.ui.geometry.Offset(0f, size.height),
+                            radius = 1000f,
+                        )
+                    )
+                    drawRect(
+                        Brush.linearGradient(
+                            colors = listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent),
+                            start = androidx.compose.ui.geometry.Offset.Zero,
+                            end = androidx.compose.ui.geometry.Offset(size.width * 0.6f, size.height * 0.5f),
+                        )
+                    )
+                    // （不画顶部压暗条：iOS 那条 112dp 黑 0.45 在 1024dp 高的屏上是薄薄一层，
+                    // 到 608dp 的屏上就是一条明显的黑带，很违和。返回/⋯ 是自带玻璃底的圆钮，
+                    // 不靠这条压暗也能看清。）
+                    // 底部溶进页面底色。iOS 是固定 `clear@0.62 → tint@0.83 → tint@1.0`（按大图区高度），
+                    // 那在 1024dp 高的 iPad 上没问题；这块屏横屏只有 400dp 的大图区，
+                    // 62% = 248dp，而文字从 ~130dp 排到 ~398dp —— **整块文字都掉进渐隐区**，
+                    // 于是再怎么减字都难看。这里改成**跟着信息块顶边走**：文字上方是干净剧照，
+                    // 文字所在的那段开始溶进页面底色。文字变多/变少时自动跟随，不必再为好看去砍文字。
+                    val boxH = size.height.coerceAtLeast(1f)
+                    val infoTop = (boxH - 28.dp.toPx() - infoHeight).coerceIn(0f, boxH)
+                    val fadeStart = (infoTop / boxH).coerceIn(0.10f, 0.80f)
+                    // 实测（采样像素）：收到 0.94 时，图底仍是 (59,44,36)，而页面底色是 (86,67,54)，
+                    // Δ≈+27 就是肉眼看到的那条分界线。原因是横屏渐变拉得长，底部那几行还没落到
+                    // 纯底色图就结束了。所以提前到 0.85 落底，留 15% 纯底色把边吃掉。
+                    val settleAt = 0.85f
+                    drawRect(
                         Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.42f),
-                            0.22f to Color.Transparent,
-                            0.52f to Color.Black.copy(alpha = 0.28f),
-                            0.84f to Color.Black.copy(alpha = 0.8f),
+                            0f to Color.Transparent,
+                            fadeStart to Color.Transparent,
+                            (fadeStart + (settleAt - fadeStart) * 0.55f) to tint.copy(alpha = 0.72f),
+                            settleAt to tint,
                             1f to tint,
                         )
-                    ),
-            )
+                    )
+                },
+        )
+    }
+    Column {
+        androidx.compose.runtime.CompositionLocalProvider(LocalTabHazeState provides heroHaze) {
+        // 窄屏：大图自成一块，信息块在它下面（offset 上提 124 叠一点点）。
+        // 宽屏：不画这块——大图挪进信息块的 Box 里，信息块才能压在图的下沿（iOS `wideStage`）。
+        if (!wideHero) {
+        Box(Modifier.fillMaxWidth().height(heroHeight())) {
+            heroBg()
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1627,16 +2018,98 @@ private fun Hero(
             heroOverlay()
         }
         }
+        }
 
-        Column(Modifier.padding(horizontal = McMetrics.pagePadding).offset(y = (-124).dp)) {
+        Column(
+            Modifier
+                // 宽屏：这一列**不再留水平内边距**，剧照才能铺到侧边栏右边（iOS
+                // `.ignoresSafeArea(.container, edges: .horizontal)` 的效果）；边距改由
+                // 信息 Row / 简介 / 正文各自补，见下面几处。窄屏保持原来的 16dp。
+                .padding(horizontal = if (wideHero) 0.dp else mcCards.pagePadding)
+                .offset {
+                    // 窄屏：整列（信息 + 正文）一起上提 124，与改动前逐像素一致；
+                    // 宽屏：整列不偏移——上提交给上面那个只包信息块的 Box，
+                    // 否则 `content()` 会被一起拖上去、压在剧照上。
+                    androidx.compose.ui.unit.IntOffset(
+                        0,
+                        if (wideHero) 0 else (-124).dp.roundToPx(),
+                    )
+                },
+        ) {
+            // iOS `wideStage`：左列 `maxWidth 640` + `Spacer` + 右下角演职员。
+            // iOS 用 `.bottom` 对齐（那边 hero 会长高把左列包住，底边就是屏幕内的 hero 底边）；
+            // 安卓这里信息块是 hero 的**兄弟节点**，比可视区还高，底部对齐会把它推出屏幕，
+            // 所以演职员按**顶部**对齐，落在片名同一行的右侧——位置仍在大图右下区域。
+            //
+            // 这个 Box 只包住「信息块」，**不含 `content()`**：宽屏上提只作用在这里，
+            // 正文因此不会被一起拖到剧照上。
+            Box(
+                Modifier
+                    // 宽屏：这块 Box 就是大图区本身（高 = 页宽×9/16 夹区间，文字更高时长高），
+                    // 信息 Row 在里面 `BottomStart` 对齐 —— 等价于 iOS
+                    // `.background{ 剧照+渐变 }` + `.frame(maxWidth:.infinity, minHeight: heroHeight,
+                    // alignment: .bottomLeading)`。不再用 offset 位移。
+                    .then(
+                        if (wideHero) {
+                            Modifier.fillMaxWidth().height(heroHeight())
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                if (wideHero) {
+                    heroBg()
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopStart)
+                            .statusBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        McNavButton(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", onClick = onBack)
+                        Spacer(Modifier.weight(1f))
+                        trailingActions()
+                    }
+                }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    // 宽屏：信息块压到大图下沿——`BottomStart` + 上 120 / 下 28 内边距
+                    // （iOS `wideStage` 的 `.padding(.top, 120)` `.padding(.bottom, 28)`）。
+                    .then(
+                        if (wideHero) {
+                            // 剧照已全宽，信息列自己补左右边距（iOS `.padding(.horizontal, cards.edge)`）
+                            Modifier.align(Alignment.BottomStart).padding(
+                                start = mcCards.pagePadding,
+                                end = mcCards.pagePadding,
+                                top = wideTopPad,
+                                bottom = 28.dp,
+                            )
+                        } else {
+                            Modifier
+                        },
+                    ),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .then(if (wideHero) Modifier.widthIn(max = 640.dp) else Modifier)
+                    // 左列真实高度 → 底部渐变的起点（跟着文字走，而不是固定 62%）
+                    .onSizeChanged { if (wideHero) infoHeight = it.height },
+            ) {
             // 片名 Logo（网页/iOS 同款，iOS titleArt）：区高固定 96dp——加载前后下面的
             // 元信息/类型行不跳；本地资产存的是给电视端用的原图；**加载失败或没有
             // Logo 都回退文字片名**（RemoteImage 的 fallback 正是失败回落）
-            Box(Modifier.fillMaxWidth().height(96.dp), contentAlignment = Alignment.BottomStart) {
+            Box(
+                Modifier.fillMaxWidth().height(96.dp),
+                contentAlignment = Alignment.BottomStart,
+            ) {
                 if (detail.logoUrl.isNullOrBlank()) {
                     Text(
                         detail.title,
-                        style = McType.title.copy(lineHeight = 36.sp),
+                        style = wt(McType.title.copy(lineHeight = 36.sp)),
                         color = TextPrimary,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
@@ -1651,7 +2124,7 @@ private fun Hero(
                         fallback = {
                             Text(
                                 detail.title,
-                                style = McType.title.copy(lineHeight = 36.sp),
+                                style = wt(McType.title.copy(lineHeight = 36.sp)),
                                 color = TextPrimary,
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis,
@@ -1663,7 +2136,7 @@ private fun Hero(
             Spacer(Modifier.height(10.dp))
             Text(
                 metaLine(detail),
-                style = McType.sub,
+                style = wt(McType.sub),
                 color = TextMuted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1676,22 +2149,16 @@ private fun Hero(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     genres.joinToString(" · "),
-                    style = McType.sub,
+                    style = wt(McType.sub),
                     color = Color.White.copy(alpha = 0.72f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            Spacer(Modifier.height(13.dp))
-            TrackRow("音轨", audioText, onClick = if (audioOptions.isEmpty()) null else {{ sheet = "audio" }})
-            Spacer(Modifier.height(13.dp))
-            TrackRow(
-                "字幕",
-                subtitleText,
-                dim = subtitleOptions.isEmpty(),
-                onClick = if (subtitleOptions.isEmpty()) null else {{ sheet = "subtitle" }},
-            )
+            // 音轨 / 字幕：**窄屏留在左列原位**；宽屏挪到 hero 下方（iOS `wideStage` 把轨道放在
+            // `wideExtras`，左列因此只有片名→事实行→类型→简介→按钮，才压得进剧照里）。
+            if (!wideHero) tracksBlock()
 
             // 轨选择面板：列出这个文件的全部音轨/字幕，选中的打勾（与播放器菜单同一套对勾约定）
             sheet?.let { kind ->
@@ -1710,21 +2177,8 @@ private fun Hero(
                 )
             }
 
-            // ── AI 生成字幕入口（iOS `TrackSubtitleGenButton`：仅管理员 + 文件在盘）──
-            // 三态：未接 AI = 「接入… 去接入」引导（点了进「模型接入」）；运行中 / 有终态问题 =
-            // 状态徽章（忽略门禁，永远显示）；空闲 = 「AI 生成字幕」按钮（点开预检弹层）。
-            if (isAdmin && file != null && !file.missing) {
-                Spacer(Modifier.height(12.dp))
-                SubtitleGenEntry(
-                    generated = file.subtitleStreams.any { it.external && SubtitleGenText.isAiSubtitle(it.fileName.orEmpty()) },
-                    gate = subtitleGen.gate,
-                    job = subtitleGen.job,
-                    previewing = subtitleGen.previewing,
-                    targetLanguage = subtitleGen.targetLanguage,
-                    secondaryLanguage = subtitleGen.secondaryLanguage.takeIf { subtitleGen.bilingual },
-                    onClick = { subtitleGenActions.onEntryClick(file.id) },
-                )
-            }
+            // ── AI 生成字幕入口已挪到 `tracksBlock()`（iOS 里它属于 `wideExtras`，
+            // 跟音轨/字幕一起在大图下方；宽屏左列只放片名→事实行→类型→简介→按钮排）──
 
             // 能力探测 + 任务跟踪（换文件重建；从「模型接入」回来时这条 effect 会重跑 → 门禁自动刷新）
             LaunchedEffect(file?.id) { subtitleGenActions.onTrack(file?.id) }
@@ -1746,6 +2200,11 @@ private fun Hero(
                 )
             }
 
+            // 未下完的下载状态条（iOS：电影在播放键上方；剧集画在分集卡上，这里不出现）
+            if (detail.kind != "tv") {
+                downloadStatus(null)
+                Spacer(Modifier.height(10.dp))
+            }
             Spacer(Modifier.height(18.dp))
             Button(
                 onClick = {
@@ -1778,7 +2237,9 @@ private fun Hero(
                 contentPadding = PaddingValues(0.dp),
                 elevation = null,
                 modifier = Modifier
-                    .fillMaxWidth()
+                    // 宽屏：主按钮不占满整行，跟后面的「从头播放 / 收藏 / 已看 / 剩余 X」并成一排
+                    // （iOS `wideActions` 是 `HStack(spacing: 10)`）；窄屏仍是整行主按钮。
+                    .then(if (wideHero) Modifier.widthIn(min = 240.dp) else Modifier.fillMaxWidth())
                     .height(48.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(Brush.linearGradient(listOf(Color(0xFFF6F8FC), Color(0xFFCCD6E6)))),
@@ -1789,26 +2250,89 @@ private fun Hero(
             }
 
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GlassPill(
-                    "收藏",
-                    if (marks.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                    marks.isFavorite,
-                ) { onToggleFavorite() }
-                // 已看时换文案（iOS / 网页同口径）：选中色与正文白几乎一样，只靠颜色看不出点没点上
-                GlassPill(if (marks.played) "已看完" else "标为已看", Icons.Rounded.CheckCircle, marks.played) {
-                    onTogglePlayed(resumeSeason.takeIf { it > 0 }, resumeEpisode.takeIf { it > 0 })
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 宽屏：看过一段时多一颗「从头播放」（iOS `wideActions`：`state.resumable` 时那颗
+                // `.glass` 钮）。`PlayTarget.startMs = 0` 让服务端别按续播点接，而是从 0 起。
+                if (wideHero && resumable) {
+                    GlassPill("从头播放", Icons.Rounded.Replay, false) {
+                        val (season, episode, subtitle) = detailEpisodeOf(detail, episodes, unit)
+                            ?: pickResumeEpisode(detail, episodes)
+                        onPlay(
+                            PlayTarget(
+                                mediaItemId = detail.mediaItemId,
+                                libraryId = libraryId,
+                                kind = detail.kind,
+                                title = detail.title,
+                                subtitle = subtitle,
+                                seasonNumber = season,
+                                episodeNumber = episode,
+                                preferredAudio = effectiveAudio,
+                                preferredSubtitle = effectiveSubtitle,
+                                startMs = 0L,
+                            )
+                        )
+                    }
+                }
+                // 宽屏：收藏 / 已看是**圆形玻璃钮**（iOS `wideCircleButton`：`.glass` +
+                // `.buttonBorderShape(.circle)`），复用顶栏那颗圆钮的玻璃样式；窄屏仍是带文字的胶囊。
+                if (wideHero) {
+                    McNavButton(
+                        if (marks.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        contentDescription = if (marks.isFavorite) "取消收藏" else "收藏",
+                        onClick = { onToggleFavorite() },
+                    )
+                    McNavButton(
+                        // 未看/已看要看得出区别：之前图标恒为 CheckCircle，点了也不变
+                        // （状态其实变了，只是画面上没反馈）。两个图标依赖里都有。
+                        if (marks.played) Icons.Rounded.CheckCircle else Icons.Rounded.Check,
+                        contentDescription = if (marks.played) "标记为未看" else "标记为已看",
+                        onClick = {
+                            onTogglePlayed(resumeSeason.takeIf { it > 0 }, resumeEpisode.takeIf { it > 0 })
+                        },
+                    )
+                } else {
+                    GlassPill(
+                        "收藏",
+                        if (marks.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        marks.isFavorite,
+                    ) { onToggleFavorite() }
+                    // 已看时换文案（iOS / 网页同口径）：选中色与正文白几乎一样，只靠颜色看不出点没点上
+                    GlassPill(if (marks.played) "已看完" else "标为已看", Icons.Rounded.CheckCircle, marks.played) {
+                        onTogglePlayed(resumeSeason.takeIf { it > 0 }, resumeEpisode.takeIf { it > 0 })
+                    }
+                }
+                // 宽屏：「剩余 X」是**独立文本**放在按钮排末尾（iOS `wideActions` 末尾那个
+                // `Text(progressText)`，字号 footnote、白 65%），不拼进主按钮文案。
+                if (wideHero) {
+                    remainingMs?.let {
+                        Text(
+                            "剩余 " + McFormat.clock(it),
+                            style = McType.footnote,
+                            color = Color.White.copy(alpha = 0.65f),
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
                 }
             }
 
+            // 短屏：简介整块搬到大图下方（跟音轨/字幕同区）。左列只剩
+            // 片名→事实行→类型→按钮排，高度才能落进固定的大图区里，
+            // 不会把图撑高、也不会溢出到页面底色上（溢出会在大图下沿留下一道分界）。
+            if (!wideHero) {
             detail.localMeta?.plot?.takeIf { it.isNotBlank() }?.let { plot ->
                 Spacer(Modifier.height(18.dp))
                 Text(
                     plot,
-                    style = McType.body.copy(lineHeight = 30.sp),
+                style = wt(McType.body.copy(lineHeight = 30.sp)),
                     color = TextMuted,
                     maxLines = if (expanded) Int.MAX_VALUE else 4,
                     overflow = TextOverflow.Ellipsis,
+                    // iOS `wideStage`：`ExpandablePlot ... .frame(maxWidth: 560)`。
+                    // 宽窗口一行的字数控制住，长行读起来才不费劲（窄屏不限宽）。
+                    modifier = if (wideHero) Modifier.widthIn(max = 560.dp) else Modifier,
                 )
                 Spacer(Modifier.height(9.dp))
                 Row(
@@ -1824,20 +2348,95 @@ private fun Hero(
                     )
                 }
             }
+            }
+            }
+            // 大图右下角演职员：跟左列同处一个 `Row`（对齐方式 `Bottom`），靠 `Spacer` 顶到右边。
+            // iOS `wideStage` 就是 `HStack(alignment: .bottom) { 左列; Spacer(); stageCredits }`。
+            if (wideHero) {
+                val meta = detail.localMeta
+                val directors = meta?.directorCredits?.mapNotNull { it.name.takeIf(String::isNotBlank) }
+                    .orEmpty()
+                    .ifEmpty { meta?.directors?.filter { it.isNotBlank() }.orEmpty() }
+                val actors = meta?.actors?.mapNotNull { it.name?.takeIf(String::isNotBlank) }.orEmpty()
+                if (directors.isNotEmpty() || actors.isNotEmpty()) {
+                    androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                        Column(
+                            Modifier.align(Alignment.BottomEnd).padding(bottom = 6.dp),
+                            horizontalAlignment = Alignment.End,
+                        ) {
+                            if (directors.isNotEmpty()) stageCreditLine("导演", directors.joinToString(" / "))
+                            if (actors.isNotEmpty()) stageCreditLine("主演", actors.take(3).joinToString(" / "))
+                        }
+                    }
+                }
+            }
+            }
+            }
+
+            // 短屏：简介在大图下方（见左列里的同名条件），限宽 560
+            if (wideHero) {
+                detail.localMeta?.plot?.takeIf { it.isNotBlank() }?.let { plot ->
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = if (wideHero) mcCards.pagePadding else 0.dp)
+                            .padding(bottom = 18.dp),
+                    ) {
+                        Text(
+                            plot,
+                            style = wt(McType.body.copy(lineHeight = 30.sp)),
+                            color = TextMuted,
+                            maxLines = if (expanded) Int.MAX_VALUE else 4,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                        Spacer(Modifier.height(9.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { expanded = !expanded },
+                        ) {
+                            Text(if (expanded) "收起" else "展开全文", style = McType.sub, color = TextPrimary)
+                            Icon(
+                                if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = TextMuted,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 宽屏：轨道在 hero 下方（iOS `wideExtras`），限宽 720 居中。
+            if (wideHero) {
+                io.movieclaw.android.core.designsystem.McReadableWidthBox(
+                    Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding),
+                ) {
+                    Column { tracksBlock() }
+                }
+            }
 
             // 正文其余部分都挂在这块**上提 124** 的列里：偏移只作用到这里，
             // 整块一起上提，简介与下一段之间才不会留下一个 124 高的空洞
             // （之前分集/文件在偏移列之外，那块空白就是它）
-            content()
+            // content 是 ColumnScope 的槽位，这里用 Column 包（Box 会丢接收者）。
+            // 宽屏正文各 Section 自己已有 pagePadding，这里不能再加一层，否则变成双倍边距。
+            Column { content() }
         }
     }
 }
 
 @Composable
 private fun heroHeight(): androidx.compose.ui.unit.Dp {
-    // iOS ImmersiveHero：min(屏宽 × 1.15, 屏高 × 0.62)。旧口径「屏高 52%、封顶 420」
-    // 比 iOS 矮一截（393dp 宽的手机上 iOS 是 452，旧口径 420）
     val c = androidx.compose.ui.platform.LocalConfiguration.current
+    val m = io.movieclaw.android.core.designsystem.LocalCardMetrics.current
+    // 宽屏对齐 iPad：**内容宽 × 9/16**，clamp 到 420dp ..(屏高 × 82%)。
+    // 旧口径 min(整屏宽×1.15, 屏高×0.62) 在这块屏只算出 377dp，比 iPad 的 436dp 矮一截。
+    if (m.isWide && m.contentWidth > 0.dp) {
+        val byWidth = m.contentWidth * 9f / 16f
+        return minOf(maxOf(byWidth, 420.dp), (c.screenHeightDp * 0.82f).dp)
+    }
+    // 窄屏保持原口径
     return minOf(c.screenWidthDp * 1.15f, c.screenHeightDp * 0.62f).dp
 }
 
@@ -2106,18 +2705,18 @@ private fun CastSection(detail: LibraryItemDetailView, origin: String?, onOpenPe
             "演职员",
             style = McType.title3,
             color = TextPrimary,
-            modifier = Modifier.padding(horizontal = McMetrics.pagePadding),
+            modifier = Modifier.padding(horizontal = mcCards.pagePadding),
         )
         Spacer(Modifier.height(10.dp))
         LazyRow(
-            contentPadding = PaddingValues(horizontal = McMetrics.pagePadding),
+            contentPadding = PaddingValues(horizontal = mcCards.pagePadding),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             items(people, key = { "${it.name}-${it.role}" }) { person ->
                 Column(
                     Modifier
-                        .width(104.dp)
+                        .width(mcCards.castWidth)
                         // 有 TMDB 影人 id 才可点（进库内影人页）；老条目只有姓名时保持静态（iOS 同款）
                         .clickable(enabled = person.personId != null) { person.personId?.let(onOpenPerson) },
                 ) {
@@ -2187,7 +2786,7 @@ private fun SimilarSection(
                 origin = origin,
                 title = item.title,
                 meta = item.year?.toString(),
-                modifier = Modifier.width(McMetrics.rowCardWidth),
+                modifier = Modifier.width(mcCards.posterWidth),
                 onClick = { onOpenItem(item.libraryId ?: libraryId, item.mediaItemId) },
             )
         }
@@ -2222,7 +2821,7 @@ private fun SeriesSection(
                 origin = origin,
                 title = part.title,
                 meta = listOfNotNull(year, note).joinToString(" · ").ifEmpty { null },
-                modifier = Modifier.width(McMetrics.rowCardWidth).alpha(if (owned == null) 0.45f else 1f),
+                modifier = Modifier.width(mcCards.posterWidth).alpha(if (owned == null) 0.45f else 1f),
                 onClick = when {
                     owned == itemId -> null
                     owned != null -> ({ onOpenItem(libraryId, owned) })
@@ -2242,7 +2841,7 @@ private fun RelatedRow(
 ) {
     Column(Modifier.padding(top = 18.dp)) {
         Row(
-            Modifier.padding(horizontal = McMetrics.pagePadding),
+            Modifier.padding(horizontal = mcCards.pagePadding),
             verticalAlignment = Alignment.Bottom,
         ) {
             Text(title, style = McType.title3, color = TextPrimary, modifier = Modifier.weight(1f, fill = false))
@@ -2253,8 +2852,8 @@ private fun RelatedRow(
         }
         Spacer(Modifier.height(10.dp))
         LazyRow(
-            contentPadding = PaddingValues(horizontal = McMetrics.pagePadding),
-            horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+            contentPadding = PaddingValues(horizontal = mcCards.pagePadding),
+            horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
             modifier = Modifier.fillMaxWidth(),
             content = content,
         )
@@ -2274,7 +2873,7 @@ private fun ExternalLinks(detail: LibraryItemDetailView) {
     if (links.isEmpty()) return
     val ctx = LocalContext.current
     Row(
-        Modifier.padding(start = McMetrics.pagePadding, end = McMetrics.pagePadding, top = 24.dp),
+        Modifier.padding(start = mcCards.pagePadding, end = mcCards.pagePadding, top = 24.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("相关链接", style = McType.sub, color = TextFaint)
@@ -2318,6 +2917,8 @@ private fun SeasonSection(
     libraryId: Long,
     itemId: Long,
     itemTitle: String,
+    /** 分集号的下载状态（本机已下载 / 下载中）：画在分集卡上 */
+    offlineByEpisode: Map<Int, EpisodeOfflineState> = emptyMap(),
 ) {
     val seasonLabel = { season: Int ->
         val name = if (season == 0) "特别篇" else "第 $season 季"
@@ -2447,7 +3048,7 @@ private fun SeasonSection(
         }
         LazyRow(
             state = strip,
-            contentPadding = PaddingValues(horizontal = McMetrics.pagePadding),
+            contentPadding = PaddingValues(horizontal = mcCards.pagePadding),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -2461,6 +3062,7 @@ private fun SeasonSection(
                     origin = origin,
                     onSelect = { onPickEpisode(episode.episodeNumber) },
                     resumeTag = watched && episode.episodeNumber == anchor,
+                    offline = offlineByEpisode[episode.episodeNumber],
                 )
             }
             nextRange?.let { range ->
@@ -2488,6 +3090,13 @@ private fun SeasonSection(
  * 扫一眼就知道追到哪了；缺集整卡压暗 + 右上角「缺」；选中那集套一圈亮环。
  * 点一集**只切换选中**（网页行为），要播的是详情页那颗播放键。
  */
+/** 分集卡上的下载状态（本机已下载 / 在下的任务） */
+private data class EpisodeOfflineState(
+    val fileId: Long,
+    val done: Boolean,
+    val task: io.movieclaw.android.core.offline.OfflineDownloader.TaskState?,
+)
+
 @Composable
 private fun EpisodeCard(
     episode: EpisodeView,
@@ -2496,11 +3105,13 @@ private fun EpisodeCard(
     onSelect: () -> Unit,
     /** 锚点那张卡左上角标「接着看」（本季有观看记录才标，长短季一样；橙点 / 面板橙边不受此限） */
     resumeTag: Boolean = false,
+    /** 这一集的下载状态（iOS：下载中叠小条，下完右上角绿箭头「已下载」） */
+    offline: EpisodeOfflineState? = null,
 ) {
     val progress = if (episode.played) 100f else episode.progressPercent?.toFloat()
     Column(
         Modifier
-            .width(200.dp)
+            .width(mcCards.episodeWidth)
             .testTag("ep-card-${episode.episodeNumber}")
             .semantics { this.selected = selected }
             .clickable(onClick = onSelect)
@@ -2536,6 +3147,19 @@ private fun EpisodeCard(
                 },
             )
             if (resumeTag) ResumeTag(Modifier.align(Alignment.TopStart).padding(6.dp))
+            // 下载状态（iOS 同款位置）：下载中 / 暂停 / 失败叠在右下角；下完标「已下载」
+            offline?.let { st ->
+                if (st.done) {
+                    io.movieclaw.android.feature.offline.OfflineDownloadedBadge(
+                        Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                    )
+                } else if (st.task != null) {
+                    io.movieclaw.android.feature.offline.OfflineEpisodeStrip(
+                        task = st.task,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                    )
+                }
+            }
             // 右上角状态位：缺集与已看对勾同排（看过之后文件丢了两者会同时出现）
             if (!episode.owned || episode.played) {
                 Row(
@@ -2640,6 +3264,11 @@ private fun FilesSection(
     detail: LibraryItemDetailView,
     files: List<LibraryFileView>,
     canManage: Boolean,
+    /** 本机副本行（iOS `localIds`）：为空的条目不显示这一块 */
+    localPacks: List<io.movieclaw.android.core.offline.OfflineStore.Pack> = emptyList(),
+    onPlayLocal: (io.movieclaw.android.core.offline.OfflineStore.Pack) -> Unit = {},
+    onChangeQuality: (io.movieclaw.android.core.offline.OfflineStore.Pack) -> Unit = {},
+    onDeleteLocal: (io.movieclaw.android.core.offline.OfflineStore.Pack) -> Unit = {},
     onOpenDuplicates: () -> Unit,
     onTrash: (LibraryFileView) -> Unit,
     onRestore: (LibraryFileView) -> Unit,
@@ -2656,7 +3285,7 @@ private fun FilesSection(
         detail.kind == "tv" -> "$duplicateUnits 集有重复"
         else -> "${inPlace.size} 个版本"
     }
-    Column(Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 10.dp)) {
+    Column(Modifier.padding(horizontal = mcCards.pagePadding, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("文件", style = McType.subheadlineSemibold, color = TextMuted)
             Text("${files.size}", fontSize = 12.sp, color = TextFaint)
@@ -2680,6 +3309,15 @@ private fun FilesSection(
                 .background(Color.White.copy(alpha = 0.015f))
                 .border(1.dp, Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp)),
         ) {
+            localPacks.forEach { pack ->
+                io.movieclaw.android.feature.offline.OfflineLocalFileRow(
+                    pack = pack,
+                    onPlay = { onPlayLocal(pack) },
+                    onChangeQuality = { onChangeQuality(pack) },
+                    onDelete = { onDeleteLocal(pack) },
+                )
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.035f)))
+            }
             files.forEachIndexed { index, file ->
                 FileRow(
                     file = file,
@@ -2893,8 +3531,8 @@ private fun DeleteFileSheet(
         // 附加选项是别的模块登记的、条数不定：内容超出一屏时可滚，删除按钮不会被挤出屏幕
         Column(
             Modifier.fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = McMetrics.pagePadding, vertical = 4.dp),
+                .formSheetScroll().verticalScroll(rememberScrollState())
+                .padding(horizontal = mcCards.pagePadding, vertical = 4.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Rounded.Delete, contentDescription = null, tint = Danger, modifier = Modifier.size(18.dp))

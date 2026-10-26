@@ -1,0 +1,72 @@
+{
+  "main": {
+    "new": "New session",
+    "library": "Library",
+    "subscriptions": "My subscriptions",
+    "activity": "Activity",
+    "discover": "Discover"
+  },
+  "actions": {
+    "home": "Go to home",
+    "expandSidebar": "Expand sidebar",
+    "collapseSidebar": "Collapse sidebar",
+    "back": "Back",
+    "library": "Go to library",
+    "workspace": "Back to dashboard",
+    "backFallback": "Go back; return to {page} if there is no history"
+  },
+  "sessions": {
+    "renameTitle": "Rename session",
+    "renameFailed": "Could not rename session: {reason}",
+    "forkFailed": "Could not continue in a new session: {reason}",
+    "idCopied": "Session ID copied",
+    "copyFailed": "Could not copy: {reason}",
+    "deleteTitle": "Permanently delete session \"{title}\"?",
+    "deleteDescription": "The complete conversation on the server will also be deleted. This cannot be undone.",
+    "deleteConfirm": "Delete permanently",
+    "deleteFailed": "Could not delete session: {reason}",
+    "recent": "Recent sessions",
+    "empty": "No sessions yet. Start with New session.",
+    "loading": "Loading…",
+    "updated": "Updated {time}",
+    "pluginOwner": "Started by plugin {plugin}",
+    "plugin": "Plugin",
+    "actions": "Session actions",
+    "continue": "Continue in a new session",
+    "copyId": "Copy session ID",
+    "rename": "Rename",
+    "delete": "Delete session"
+  },
+  "tabs": {
+    "subscriptions": "Subscriptions",
+    "my": "Me",
+    "primary": "Main navigation",
+    "expand": "Expand tab bar"
+  },
+  "badges": {
+    "watching": "Someone is watching",
+    "update": "Update available",
+    "attention": "{count, plural, one {# item needs attention} other {# items need attention}}",
+    "active": "{count, plural, one {# task running} other {# tasks running}}",
+    "noActive": "No tasks running",
+    "activityHint": "Activity ({hint})"
+  },
+  "cinema": {
+    "browse": "Browse",
+    "sessions": "AI conversations",
+    "emptySessions": "No conversations yet. Start with New task.",
+    "myEntries": "My shortcuts",
+    "pluginPages": "Plugin pages",
+    "accountActions": "Account actions",
+    "back": "Go back",
+    "newTask": "New task",
+    "accountMenu": "Account menu"
+  },
+  "more": {
+    "quickAccess": "Quick access",
+    "account": "Account",
+    "noSessions": "No sessions yet. Select “New session” above to start.",
+    "loadingMore": "Loading more sessions…",
+    "profileAria": "{name}, view and edit profile"
+  }
+}

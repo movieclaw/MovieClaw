@@ -43,7 +43,7 @@ def make_admin_client() -> tuple[object, TestClient]:
     admin = Principal(kind="admin", name="tester")
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[require_login] = lambda: admin
-    return app, TestClient(app)
+    return app, TestClient(app, headers={"Accept-Language": "zh-Hans"})
 
 
 def test_plugins_endpoint_lists_every_entry_and_contract(env) -> None:
@@ -55,9 +55,12 @@ def test_plugins_endpoint_lists_every_entry_and_contract(env) -> None:
         assert by_id["core.database"]["state"] == "active"
         assert by_id["core.database"]["critical"] is True
         assert by_id["core.database"]["apply_ms"] > 0
-        # 每个内置插件都归进了「设置 → 插件 → 内置」的某个分组（新增内置插件别忘了归组）
+        # 系统模块都有分组；官方主题等插件在官方区展示，不要求进入系统模块清单。
         assert body["groups"][0] == "基础"
-        ungrouped = [p["id"] for p in body["plugins"] if p["group"] not in body["groups"]]
+        ungrouped = [
+            p["id"] for p in body["plugins"]
+            if p["tier"] == "system" and p["group"] not in body["groups"]
+        ]
         assert ungrouped == []
         assert by_id["core.database"]["group"] == "基础"
         assert by_id["boost.sentinel"]["group"] == "资源站点与下载"

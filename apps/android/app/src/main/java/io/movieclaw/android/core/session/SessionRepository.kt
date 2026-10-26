@@ -84,6 +84,7 @@ class SessionRepository @Inject constructor(
     private val apiFactory: ApiFactory,
     @GeneralChannel private val rawClient: OkHttpClient,
     private val cacheCleaner: SessionCacheCleaner,
+    private val addressBook: dagger.Lazy<io.movieclaw.android.core.network.ServerAddressBook>,
 ) {
 
     /**
@@ -140,7 +141,11 @@ class SessionRepository @Inject constructor(
             )
             server.origin
         }
-        restored?.let { revalidate(it) }
+        restored?.let {
+            revalidate(it)
+            // 内外双地址自动选连：冷启动恢复会话后选一次入口（§4.5 事件驱动，之后靠网络回调）
+            addressBook.get().selectAndApply(it)
+        }
     }
 
     /** 播放/实时请求捕获同一份身份，回调只允许更新仍活跃的这一代。 */
@@ -221,6 +226,8 @@ class SessionRepository @Inject constructor(
             setActive = true,
         )
         _ui.value = SessionUi(phase = SessionPhase.READY, origin = origin, session = view.session, cached = false)
+        // 首次登录也立刻拿一次地址簿（§1）：之后在家/出门由网络回调与久别回前台事件驱动
+        addressBook.get().selectAndApply(origin)
         view.session
     }
 
@@ -260,6 +267,8 @@ class SessionRepository @Inject constructor(
         _servers.value = emptyList()
         persistServers(emptyList())
         vault.deactivateActive()
+        // 账号切换/退出：路由可信地址不能跨账号沿用（否则新账号的令牌会发到上一个账号验证过的入口）
+        io.movieclaw.android.core.network.ServerTrust.clear()
         cacheCleaner.clear()
         _ui.value = SessionUi(phase = SessionPhase.NEEDS_LOGIN)
     }
@@ -303,6 +312,7 @@ class SessionRepository @Inject constructor(
             clearActiveFlag(origin)
         }
         vault.deactivateActive()
+        io.movieclaw.android.core.network.ServerTrust.clear()
         cacheCleaner.clear()
         _ui.value = SessionUi(phase = SessionPhase.NEEDS_LOGIN, presetUsername = preset)
     }

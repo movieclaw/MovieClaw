@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
@@ -101,6 +103,8 @@ function ThemeGate({ children }: { children: React.ReactNode }) {
 }
 
 function AppShellBody({ children }: { children: React.ReactNode }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const router = useRouter();
   const pathname = usePathname();
   // PageNav 用这份会话标记在 Safari 判断「真实上一页是否仍在站内」；Chromium
@@ -207,7 +211,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   // 成员的清单里没有概览，落「个人信息」——避免把成员送进一个 403 分区
   const { session } = useSession();
   const defaultSettingsSection =
-    settingsSectionGroupsFor(session.role)[0]?.items[0]?.id ?? settingsSections[0].id;
+    settingsSectionGroupsFor(session.role, undefined, locale)[0]?.items[0]?.id ?? settingsSections[0].id;
   const openSettings = (sectionId: string = defaultSettingsSection) => {
     try {
       sessionStorage.setItem(
@@ -291,8 +295,8 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
         <MobileSettingsNav
           title={
             isSettingsIndex
-              ? "设置"
-              : (settingsSections.find((s) => s.id === activeSettings)?.label ?? "设置")
+              ? t("settings.metadata.title")
+              : (settingsSectionGroupsFor(session.role, "all", locale).flatMap((g) => g.items).find((s) => s.id === activeSettings)?.label ?? t("settings.metadata.title"))
           }
           // 设置从「更多」页进（银玻璃是底栏头像页签、Netflix 是「我的」页签）：列表页的
           // 返回在银玻璃下按历史回（多半就是 /my），无历史时两个主题都落「更多 / 我的」页
@@ -358,7 +362,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
               />
             )}
             <main className="absolute inset-0">{mobileMainContent}</main>
-            <slots.mobileTabBar />
+            {!isImmersive && <slots.mobileTabBar />}
           </div>
         ) : (
           /* —— Netflix 桌面：顶栏 + 全宽内容 ——
@@ -536,6 +540,7 @@ function MobileTopBar({
   /** 标题的附加选项：返回落点、大字、隐藏搜索 */
   titleOptions?: TopBarTitleOptions;
 }) {
+  const t = useTranslations();
   const router = useRouter();
   const pathname = usePathname();
   const backHref = titleOptions?.backHref;
@@ -559,7 +564,7 @@ function MobileTopBar({
               <button
                 type="button"
                 onClick={back}
-                aria-label="返回"
+                aria-label={t("nav.actions.back")}
                 className={`${PAGE_NAV_BUTTON_CLASS} shrink-0`}
               >
                 <ChevronLeftIcon className="size-[22px]" />
@@ -584,7 +589,7 @@ function MobileTopBar({
           <button
             type="button"
             onClick={() => router.push("/library")}
-            aria-label="回到媒体库"
+            aria-label={t("nav.actions.library")}
             className="flex h-11 shrink-0 items-center transition-opacity active:opacity-60"
           >
             {/* 全站统一用 M 标：M 标 24px 方正得下，全字标 ≈125px 宽会占掉近三分之一顶栏 */}

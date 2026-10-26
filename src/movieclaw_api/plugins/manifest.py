@@ -43,15 +43,21 @@ logger = logging.getLogger("movieclaw_api.plugins.manifest")
 #: （自身或 ``名字.`` 开头的子条目）；先到先得。新增内置插件忘了归组，
 #: tests/api/test_plugin_diagnostics.py 会失败。
 BUILTIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # i18n-ignore: group id; label via plugins.groups.*
     ("基础", ("core.", "jobs", "scheduler", "storage.", "app-update", "selfheal.")),
     (
+        # i18n-ignore: group id; label via plugins.groups.*
         "资源站点与下载",
         ("tracker.", "downloads", "boost", "qbittorrent-downloader", "transmission-downloader"),
     ),
+    # i18n-ignore: group id; label via plugins.groups.*
     ("订阅", ("subscription",)),
+    # i18n-ignore: group id; label via plugins.groups.*
     ("媒体库", ("library.", "media.", "enrich.")),
+    # i18n-ignore: group id; label via plugins.groups.*
     ("播放与字幕", ("playback.", "subtitle.", "jellyfin.", "strm-prefetch", "drives.")),
     (
+        # i18n-ignore: group id; label via plugins.groups.*
         "通知与推送",
         (
             "channels.",
@@ -64,7 +70,9 @@ BUILTIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "feishu-channel",
         ),
     ),
+    # i18n-ignore: group id; label via plugins.groups.*
     ("AI 助手", ("agent.",)),
+    # i18n-ignore: group id; label via plugins.groups.*
     ("插件系统", ("kernel.",)),
 )
 

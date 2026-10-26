@@ -25,17 +25,20 @@ import logging
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+from movieclaw_api.i18n.stored import reference, source_render, source_text
 from movieclaw_api.services.playback.ffmpeg_args import (
     HW_BACKENDS,
     NVENC_TONEMAP,
     VAAPI_LOW_POWER,
+    encoder_options,
     register_encoder_options,
+    register_hevc_encoder,
     register_native_tonemap,
 )
-from movieclaw_api.services.playback.remote_worker import remote_worker_available
+from movieclaw_api.services.playback.remote_worker import remote_backends_available
 
 logger = logging.getLogger("movieclaw_api.playback.hwprobe")
 
@@ -70,6 +73,14 @@ _VAAPI_LOW_POWER_PROBE_ARGS: list[str] = [
     "-b:v", "0", "-maxrate", "8M", "-bufsize", "16M",
 ]  # fmt: skip
 
+#: HEVC 编码的探测参数：带上离线导出真实会用的 profile 与码率控制（8-bit Main、只给上限），
+#: 数值取 1080p 档的量级。理由同 ``_VAAPI_LOW_POWER_PROBE_ARGS``：只探「能不能开」会探得通、
+#: 真用时再被参数拒掉。
+_HEVC_PROBE_ARGS: list[str] = [
+    "-profile:v", "main",
+    "-b:v", "0", "-maxrate", "4M", "-bufsize", "8M",
+]  # fmt: skip
+
 #: 需要真跑一遍才敢启用的原生 tone-map 链：``tonemap_cuda`` 是 jellyfin-ffmpeg
 #: 的补丁，上游 ffmpeg 没有；即便滤镜在，老驱动也可能初始化不起来。值是一对：
 #: 给命令装配层用的滤镜串，以及探测用的完整滤镜链模板（``{filter}`` 处填前者）。
@@ -88,22 +99,27 @@ _NATIVE_TONEMAP_PROBES: dict[str, tuple[str, str]] = {
 }
 
 #: 后端 → 面向用户的名字。设置页里「vaapi」不如「Intel/AMD 核显」好懂。
-BACKEND_LABELS: dict[str, str] = {
-    "vaapi": "Intel / AMD 显卡（VAAPI）",
-    "qsv": "Intel 核显（QSV）",
-    "nvenc": "NVIDIA 显卡（NVENC）",
-    "videotoolbox": "Apple 芯片（VideoToolbox）",
+BACKEND_LABELS: dict[str, dict] = {
+    "vaapi": reference("player.hw.backend.vaapi"),
+    "qsv": reference("player.hw.backend.qsv"),
+    "nvenc": reference("player.hw.backend.nvenc"),
+    "videotoolbox": reference("player.hw.backend.videotoolbox"),
 }
 
 
 @dataclass(frozen=True)
 class HwBackendStatus:
-    """一个后端的自检结论。``detail`` 是给用户看的中文，不是给日志看的。"""
+    """一个后端的自检结论（结果进进程缓存，展示文字存引用、读时按读者语言渲染）。
+
+    ``detail`` 是给用户看的话，不是给日志看的。
+    """
 
     name: str
-    label: str
+    label: dict | str
     available: bool
-    detail: str
+    detail: dict | str
+    #: 远程 Worker 的能力（不是 NAS 本机探测的）。同名后端两边可以并存，各是各的
+    remote: bool = False
 
 
 _cache: list[HwBackendStatus] | None = None
@@ -118,7 +134,7 @@ def probe_backends(*, force: bool = False) -> list[HwBackendStatus]:
     """
     global _cache
     if _cache is not None and not force:
-        return _with_remote_backend(_cache)
+        return _cache
 
     if shutil.which("ffmpeg") is None:
         _cache = [
@@ -126,14 +142,14 @@ def probe_backends(*, force: bool = False) -> list[HwBackendStatus]:
                 name=name,
                 label=BACKEND_LABELS.get(name, name),
                 available=False,
-                detail="系统中未找到 ffmpeg，无法检测硬件加速。",
+                detail=reference("player.hw.noFfmpeg"),
             )
             for name in HW_BACKENDS
         ]
-        return _with_remote_backend(_cache)
+        return _cache
 
     encoders = _list_encoders()
-    _cache = [_probe_one(name, encoders) for name in HW_BACKENDS]
+    _cache = [_probe_hevc(_probe_one(name, encoders), encoders) for name in HW_BACKENDS]
     for status in _cache:
         _probe_native_tonemap(status.name, available=status.available)
     usable = [s.name for s in _cache if s.available]
@@ -143,24 +159,50 @@ def probe_backends(*, force: bool = False) -> list[HwBackendStatus]:
         logger.info(
             "未检测到可用的硬件加速——需要转码的片子只能走软件转码"
             "（默认关闭，播放此类影片时会弹窗征求开启）。逐后端原因如下：%s",
-            "；".join(f"{s.label}：{s.detail}" for s in _cache if not s.available),
+            "；".join(
+                f"{source_render(s.label)}：{source_render(s.detail)}"
+                for s in _cache
+                if not s.available
+            ),
         )
-    return _with_remote_backend(_cache)
+    return _cache
+
+
+def remote_backend_statuses() -> list[HwBackendStatus]:
+    """在线远程 Worker 的能力，按后端各一条（设置页与本机探测结果并列展示）。
+
+    远程 Worker 不参与 NAS 容器内的一秒探测；它在连接 hello 中已经完成了 ffmpeg 能力
+    探测。每次现取而不是写进本机缓存：Worker 断线后，下一次决策立即回到真实的本机
+    结果；同名后端（NAS 也插着 NVIDIA 卡）也不会互相覆盖。
+    """
+    return [
+        HwBackendStatus(
+            name=name,
+            label=reference("player.hw.remoteLabel", backend=BACKEND_LABELS.get(name, name)),
+            available=True,
+            detail=reference("player.hw.remoteWorker"),
+            remote=True,
+        )
+        for name in remote_backends_available()
+    ]
 
 
 def available_backends() -> tuple[str, ...]:
-    """可用后端名，按优先级。决策引擎的 ``PlaybackPolicy`` 输入之一。"""
-    return tuple(s.name for s in probe_backends() if s.available)
+    """可用后端名（本机在前、远程独有的在后）。决策引擎的 ``PlaybackPolicy`` 输入之一。
+
+    只回答「这种硬件链有没有人能跑」，不回答「由谁跑」：生成 NAS 进程的 ffmpeg 参数
+    必须用 ``available_local_backends``，远程执行由会话路由单独选择。
+    """
+    local = available_local_backends()
+    return (*local, *(name for name in remote_backends_available() if name not in local))
 
 
 def available_local_backends() -> tuple[str, ...]:
     """只返回 NAS 当前进程实际探测通过的后端。
 
-    ``available_backends()`` 会叠加外置 Worker 的 VideoToolbox 能力，供播放
-    决策判断「是否存在硬件转码能力」。但这个合并结果不能直接拿来生成 NAS
-    进程的 ffmpeg 参数，否则 Worker 短暂断线的竞态会把
-    ``h264_videotoolbox`` 错交给 Linux ffmpeg。执行层必须使用这份本地快照，
-    远程执行则由会话路由单独选择。
+    远程 Worker 的能力不在这里：拿合并结果生成 NAS 进程的 ffmpeg 参数，Worker 短暂
+    断线的竞态会把 ``h264_videotoolbox`` 错交给 Linux ffmpeg。执行层必须使用这份
+    本地快照，远程执行则由会话路由单独选择。
     """
     if _cache is None:
         probe_backends()
@@ -179,42 +221,18 @@ def reset_probe_cache() -> None:
         register_native_tonemap(name, None)
     for name in HW_BACKENDS:
         register_encoder_options(name, ())
+        register_hevc_encoder(name, None)
 
 
 async def probe_backends_async(*, force: bool = False) -> list[HwBackendStatus]:
     return await asyncio.to_thread(probe_backends, force=force)
 
 
-def _with_remote_backend(statuses: list[HwBackendStatus]) -> list[HwBackendStatus]:
-    """把在线远程 Worker 映射为决策层可识别的 VideoToolbox 后端。
-
-    远程 Worker 不参与 NAS 容器内的一秒探测；它在连接 hello 中已经完成了
-    ffmpeg 能力探测。动态追加而不是写入本地缓存，保证 Worker 断线后下一次
-    决策立即回到真实的本机结果。
-    """
-    if not remote_worker_available("videotoolbox"):
-        return statuses
-    remote_status = HwBackendStatus(
-        name="videotoolbox",
-        label=BACKEND_LABELS["videotoolbox"],
-        available=True,
-        detail="已连接远程 Worker，并通过其 VideoToolbox 能力声明。",
-    )
-    # Linux 探测矩阵也会包含 videotoolbox=False；在线 Worker 应覆盖这个
-    # “本机没有该后端”的诊断，而不是重复返回两个同名后端。
-    if any(status.name == "videotoolbox" for status in statuses):
-        return [
-            remote_status if status.name == "videotoolbox" else status
-            for status in statuses
-        ]
-    return [*statuses, remote_status]
-
-
 def _probe_one(name: str, encoders: frozenset[str]) -> HwBackendStatus:
     backend = HW_BACKENDS[name]
     label = BACKEND_LABELS.get(name, name)
 
-    def status(available: bool, detail: str) -> HwBackendStatus:
+    def status(available: bool, detail: dict | str) -> HwBackendStatus:
         return HwBackendStatus(name=name, label=label, available=available, detail=detail)
 
     # 上一次自检的结论作废，本轮探到什么算什么（设置页「重新检测」会走到这里）
@@ -223,12 +241,12 @@ def _probe_one(name: str, encoders: frozenset[str]) -> HwBackendStatus:
     if backend.encoder not in encoders:
         # VideoToolbox 只存在于 macOS，Linux 容器里查不到是正常的，别让用户
         # 以为自己漏配了什么。
-        hint = (
-            "这是 macOS 专有的加速方式，Linux 上不存在，属正常情况。"
-            if name == "videotoolbox"
-            else "官方镜像已内置支持；自行编译或使用发行版 ffmpeg 时可能缺少。"
+        hint = reference(
+            "player.hw.macOnly" if name == "videotoolbox" else "player.hw.buildHint"
         )
-        return status(False, f"当前 ffmpeg 构建不含 {backend.encoder} 编码器。{hint}")
+        return status(
+            False, reference("player.hw.missingEncoder", encoder=backend.encoder, hint=hint)
+        )
     device_problem = _device_problem(name)
     if device_problem is not None:
         return status(False, device_problem)
@@ -241,13 +259,51 @@ def _probe_one(name: str, encoders: frozenset[str]) -> HwBackendStatus:
         )
         if low_power is not None and low_power.returncode == 0:
             register_encoder_options(name, VAAPI_LOW_POWER)
-            return status(True, "已通过一秒钟的真实编码验证（低功耗编码），可用于硬件转码。")
-    proc = _run_probe(backend.encoder, _PROBE_FILTERS.get(name, []))
+            return status(True, reference("player.hw.verifiedLowPower"))
+    # 带上真实转码会加的 forced_idr：参数不认（过老的 ffmpeg）要在这里探出来，而不是播放时才炸
+    proc = _run_probe(
+        backend.encoder, _PROBE_FILTERS.get(name, []), encoder_args=list(backend.forced_idr)
+    )
     if proc is None:
-        return status(False, "硬件编码探测超时——设备可能被占用或驱动无响应。")
+        return status(False, reference("player.hw.probeTimeout"))
     if proc.returncode == 0:
-        return status(True, "已通过一秒钟的真实编码验证，可用于硬件转码。")
+        return status(True, reference("player.hw.verified"))
     return status(False, _explain_failure(proc.stderr.decode(errors="replace")))
+
+
+def _probe_hevc(status: HwBackendStatus, encoders: frozenset[str]) -> HwBackendStatus:
+    """H.264 可用的后端再真编一秒 HEVC，过了才让离线导出出 HEVC（同画质体积小三分之一）。
+
+    沿用 H.264 探出来的编码方式：H.264 走了低功耗，HEVC 也只试低功耗——#763 那类机器普通
+    编码合成画面能过、真实片子挂 GPU，退回普通编码去探等于没探。探不通不影响硬件转码，
+    只是导出照旧出 H.264。VideoToolbox 不用探（见 ``ffmpeg_args.hevc_encoder``）。
+    """
+    backend = HW_BACKENDS[status.name]
+    if status.name == "videotoolbox" or backend.hevc_encoder is None:
+        return status
+    register_hevc_encoder(status.name, None)
+    if not status.available or backend.hevc_encoder not in encoders:
+        return status
+    options = encoder_options(backend)
+    proc = _run_probe(
+        backend.hevc_encoder,
+        _PROBE_FILTERS.get(status.name, []),
+        encoder_args=[*options, *backend.forced_idr, *_HEVC_PROBE_ARGS],
+    )
+    if proc is None or proc.returncode != 0:
+        reason = (
+            source_text("player.hw.hevcProbeTimeout")
+            if proc is None
+            else " ".join(proc.stderr.decode(errors="replace").split())[:200]
+        )
+        logger.info(
+            "%s 的 HEVC 编码探测不通，离线下载照旧出 H.264。原因：%s",
+            status.label,
+            reason or "（ffmpeg 未给出原因）",
+        )
+        return status
+    register_hevc_encoder(status.name, options)
+    return replace(status, detail=reference("player.hw.withHevc", base=status.detail))
 
 
 def _run_probe(
@@ -286,23 +342,24 @@ def _probe_native_tonemap(name: str, *, available: bool) -> None:
         register_native_tonemap(name, filter_expr)
         logger.info(
             "%s 的原生色调映射可用，HDR 转码全程留在显卡上。",
-            BACKEND_LABELS.get(name, name),
+            source_render(BACKEND_LABELS.get(name, name)),
         )
         return
     register_native_tonemap(name, None)
     reason = (
+        # i18n-ignore: log text
         "探测超时"
         if proc is None
         else " ".join(proc.stderr.decode(errors="replace").split())[:200]
     )
     logger.info(
         "%s 没有可用的原生色调映射，HDR 片改用软件色调映射（画质一致，多占些 CPU）。原因：%s",
-        BACKEND_LABELS.get(name, name),
-        reason or "（ffmpeg 未给出原因）",
+        source_render(BACKEND_LABELS.get(name, name)),
+        reason or source_text("player.hw.noReason"),
     )
 
 
-def _device_problem(name: str) -> str | None:
+def _device_problem(name: str) -> dict | None:
     """设备节点层面的问题；没问题返回 None。
 
     这一层单独拿出来说，是因为它的修法与「驱动装没装」完全不同：一个是改
@@ -312,32 +369,19 @@ def _device_problem(name: str) -> str | None:
         return None  # 不依赖固定节点
     if name == "nvenc":
         if not Path("/dev/nvidia0").exists() and not Path("/dev/nvidiactl").exists():
-            return (
-                "未检测到 NVIDIA 设备节点。Docker 部署需要先在宿主机装 NVIDIA "
-                "Container Toolkit，再在 compose 里加 `runtime: nvidia` 与 "
-                "`NVIDIA_VISIBLE_DEVICES=all`（或声明 "
-                "`deploy.resources.reservations.devices`、`docker run --gpus all`）。"
-                "注意 NVIDIA 独显不走 /dev/dri，宿主机没有核显时别去挂它。"
-            )
+            return reference("player.hw.noNvidia")
         return None
     # vaapi / qsv 都走 /dev/dri
     dri = Path("/dev/dri")
     if not dri.is_dir():
-        return (
-            "未检测到 /dev/dri。容器部署需要把显卡设备挂进容器——在 compose 的"
-            "服务下加 `devices: [\"/dev/dri:/dev/dri\"]` 后重启。"
-        )
+        return reference("player.hw.noDri")
     render_nodes = sorted(dri.glob("renderD*"))
     if not render_nodes:
-        return "/dev/dri 里没有 renderD* 渲染节点，宿主机可能没有可用的显卡驱动。"
+        return reference("player.hw.noRenderNode")
     if not any(os.access(node, os.R_OK | os.W_OK) for node in render_nodes):
         gid = _node_gid(render_nodes[0])
-        hint = f"（宿主机上该节点属组 GID 是 {gid}）" if gid is not None else ""
-        return (
-            f"{render_nodes[0]} 存在但当前用户无读写权限{hint}。请在 compose 里加 "
-            "`group_add: [\"<render 组 GID>\"]` 后重启容器——这个 GID 在群晖、"
-            "unRAID 与各发行版上并不相同，需按宿主机实际值填。"
-        )
+        hint = reference("player.hw.gidHint", gid=gid) if gid is not None else ""
+        return reference("player.hw.noPermission", node=render_nodes[0], hint=hint)
     return None
 
 
@@ -348,22 +392,21 @@ def _node_gid(node: Path) -> int | None:
         return None
 
 
-def _explain_failure(stderr: str) -> str:
-    """ffmpeg 的英文报错 → 可操作的中文。命中不了就原样带上摘要，别装懂。"""
+def _explain_failure(stderr: str) -> dict:
+    """ffmpeg 的英文报错 → 可操作的说明。命中不了就原样带上摘要，别装懂。"""
     lowered = stderr.lower()
     if "permission denied" in lowered:
-        return (
-            "驱动报权限不足。请把容器用户加入宿主机的 render 组"
-            "（compose 里的 `group_add`）后重启。"
-        )
+        return reference("player.hw.driverPermission")
     if "no such file or directory" in lowered or "cannot open" in lowered:
-        return "驱动打不开设备节点，请确认显卡设备已挂进容器且宿主机驱动正常。"
+        return reference("player.hw.driverCannotOpen")
     if "not supported" in lowered or "unsupported" in lowered:
-        return "驱动不支持这种编码，可能是显卡代次过旧或驱动版本过低。"
+        return reference("player.hw.driverUnsupported")
     if "failed to initialise" in lowered or "failed to initialize" in lowered:
-        return "驱动初始化失败，通常是宿主机显卡驱动缺失或版本不匹配。"
+        return reference("player.hw.driverInitFailed")
     summary = " ".join(stderr.split())[:200]
-    return f"硬件编码探测失败：{summary or '（ffmpeg 未给出原因）'}"
+    return reference(
+        "player.hw.probeFailed", summary=summary or reference("player.hw.noReason")
+    )
 
 
 def _list_encoders() -> frozenset[str]:

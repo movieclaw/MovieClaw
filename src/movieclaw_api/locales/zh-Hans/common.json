@@ -1,0 +1,14 @@
+{
+  "list": {
+    "separator": "、",
+    "emptySeparator": "",
+    "issueSeparator": "；",
+    "slashSeparator": " / ",
+    "dotSeparator": " · ",
+    "paragraphSeparator": "\n\n"
+  },
+  "value": {
+    "missing": "（缺失）",
+    "none": "无"
+  }
+}

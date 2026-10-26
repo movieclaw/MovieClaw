@@ -24,6 +24,7 @@ from movieclaw_api.services.playback.ffmpeg_args import (
     build_hls_command,
     effective_hw_backend,
     register_encoder_options,
+    register_hevc_encoder,
     register_native_tonemap,
 )
 from movieclaw_playback.decide import (
@@ -949,6 +950,23 @@ def test_hardware_h264_transcode_lets_encoder_choose_level(backend):
     assert "-level:v" not in argv
 
 
+@pytest.mark.parametrize(
+    ("backend", "forced_idr"),
+    [("nvenc", "1"), ("qsv", None), ("vaapi", None), ("videotoolbox", None), (None, None)],
+)
+def test_only_nvenc_turns_forced_key_frames_into_idr(backend, forced_idr):
+    """NVENC 默认把 -force_key_frames 强制的帧当普通 I 帧：封装器看不到关键帧，4 秒栅格上
+    没有分片边界，分片被拖成一整个 -g 那么长（Windows 转码器样片矩阵实测 10 秒一段）。"""
+    tier = PlaybackTier.SOFTWARE_TRANSCODE if backend is None else PlaybackTier.HARDWARE_TRANSCODE
+    argv = argv_of(
+        plan(tier, video=VideoPlan(action="transcode", codec="h264", height=1080)),
+        hw_backend=backend,
+    )
+
+    assert pair(argv, "-forced-idr") == forced_idr
+    assert pair(argv, "-force_key_frames") is not None
+
+
 def test_software_h264_transcode_keeps_level_4_1():
     argv = argv_of(
         plan(
@@ -1020,8 +1038,11 @@ def test_burn_uses_filter_complex_with_overlay_before_scale():
     字幕的位置和大小全错。"""
     argv = argv_of(_burn_plan())
     graph = argv[argv.index("-filter_complex") + 1]
+    # eof_action=pass:repeatlast=0：字幕流读完后主画面原样通过（ffmpeg 8.1 上默认的重复最后一帧
+    # 会带出一帧溢出时间戳的画面，mp4 muxer 拒收，整条命令失败）
     assert graph == (
-        "[0:v:0][0:s:2]overlay[burned];[burned]scale=-2:1080[pre];[pre]format=yuv420p[vout]"
+        "[0:v:0][0:s:2]overlay=eof_action=pass:repeatlast=0[burned];"
+        "[burned]scale=-2:1080[pre];[pre]format=yuv420p[vout]"
     )
     assert argv[argv.index("-map") + 1] == "[vout]"
     assert "0:v:0" not in [argv[i + 1] for i, a in enumerate(argv) if a == "-map"]
@@ -1050,7 +1071,7 @@ def test_burn_with_tonemap_runs_tonemap_before_overlay():
     assert graph.index("tonemapx") < graph.index("overlay")
     # 末端钉 8-bit：10-bit 源经 overlay 的位深靠协商、随 ffmpeg 版本漂，
     # 协商出 10-bit 就是 iPhone 不认的 High 10（2026-08-25 真机事故）
-    assert graph.endswith("overlay[pre];[pre]format=yuv420p[vout]")
+    assert graph.endswith("overlay=eof_action=pass:repeatlast=0[pre];[pre]format=yuv420p[vout]")
 
 
 def test_burn_forces_software_pipeline_for_vaapi():
@@ -1303,6 +1324,70 @@ def test_bt2020_sdr_stays_on_the_software_color_path():
     assert (pair(argv, "-vf") or "").startswith("colorspace=")
 
 
+# ---------------------------------------------------------------------------
+# 远程 Windows（NVENC）：显卡硬解不了的片源整段软解，只有编码留在 NVENC 上
+# ---------------------------------------------------------------------------
+
+#: 一台 RTX 20 系 Windows 机器的典型申报：NVDEC 没有 AV1，CUDA 滤镜与软件 tone-map 齐全
+WIN_CAPS = WorkerVideoCaps(
+    hw_decoders=frozenset({"h264", "hevc", "vp9", "mpeg2video"}),
+    filters=frozenset({"scale_cuda", "tonemap_cuda", "tonemapx"}),
+)
+
+
+def test_windows_keeps_what_nvdec_decodes_entirely_on_the_gpu():
+    argv = argv_of(
+        vt_transcode("hevc", bit_depth=10), hw_backend="nvenc", worker_caps=WIN_CAPS
+    )
+    assert pair(argv, "-hwaccel") == "cuda"
+    assert pair(argv, "-hwaccel_output_format") == "cuda"
+    assert pair(argv, "-vf") == "scale_cuda=format=yuv420p:w=-2:h=1080"
+    assert "-pix_fmt" not in argv  # 硬件链上 8-bit 由 scale_cuda 的 format 保证
+
+
+@pytest.mark.parametrize("codec", ["av1", "vc1", "mpeg4", None])
+def test_windows_software_decodes_what_nvdec_cannot(codec):
+    """硬解起不来时软件帧撞上 scale_cuda 整条命令失败（RTX 20 没有 AV1 硬解，矩阵实测 -22），
+    AV1 的硬解初始化失败还是致命错误、不会自己退回软解：这类片源不发 -hwaccel。"""
+    argv = argv_of(vt_transcode(codec), hw_backend="nvenc", worker_caps=WIN_CAPS)
+    assert "-hwaccel" not in argv
+    assert "-hwaccel_output_format" not in argv
+    assert pair(argv, "-vf") == "scale=-2:1080"
+    assert pair(argv, "-pix_fmt") == "yuv420p"
+    assert pair(argv, "-c:v") == "h264_nvenc"  # 编码仍在 NVENC 上
+
+
+def test_windows_software_decodes_10bit_h264_although_nvdec_decodes_8bit_h264():
+    """Worker 申报的 h264 说的是 8-bit 的那条路；Hi10P 各代显卡都硬解不了。位深未知按 8-bit 算。"""
+    hi10p = argv_of(
+        vt_transcode("h264", bit_depth=10), hw_backend="nvenc", worker_caps=WIN_CAPS
+    )
+    assert "-hwaccel" not in hi10p
+    assert pair(hi10p, "-vf") == "scale=-2:1080"
+    for depth in (8, None):
+        gpu = argv_of(
+            vt_transcode("h264", bit_depth=depth), hw_backend="nvenc", worker_caps=WIN_CAPS
+        )
+        assert pair(gpu, "-hwaccel_output_format") == "cuda"
+
+
+def test_windows_software_decode_of_hdr_uses_cpu_tonemap_although_the_worker_has_tonemap_cuda():
+    """tonemap_cuda 只收显存里的帧：软解出来的 10-bit AV1 HDR 走 CPU 色调映射，编码仍用显卡。"""
+    argv = argv_of(
+        vt_transcode("av1", bit_depth=10, hdr=True), hw_backend="nvenc", worker_caps=WIN_CAPS
+    )
+    assert "-hwaccel" not in argv
+    assert (pair(argv, "-vf") or "").startswith("tonemapx=")
+    assert pair(argv, "-pix_fmt") == "yuv420p"
+
+
+def test_nas_local_nvenc_ignores_the_worker_decoder_rules():
+    """没有 Worker 申报就是 NAS 本机的显卡，命令照旧。"""
+    argv = argv_of(vt_transcode("av1"), hw_backend="nvenc")
+    assert pair(argv, "-hwaccel") == "cuda"
+    assert pair(argv, "-hwaccel_output_format") == "cuda"
+
+
 def test_remote_disc_reads_the_concat_list_over_http():
     """原盘远程任务：-f concat -safe 0 读 NAS 下发的清单，清单地址也走断线续读。"""
     argv = argv_of(
@@ -1318,7 +1403,7 @@ def test_remote_disc_reads_the_concat_list_over_http():
 
 
 # ---------------------------------------------------------------------------
-# 离线导出的 HEVC 输出（offline-download.md §5.1）：只在 VideoToolbox 上出
+# 离线导出的 HEVC 输出（offline-download.md §5.1）：VideoToolbox 与自检过 HEVC 的 NAS 显卡
 # ---------------------------------------------------------------------------
 
 
@@ -1357,11 +1442,68 @@ def test_hevc_export_on_the_mac_gpu_chain_keeps_hardware_frames():
 
 @pytest.mark.parametrize("backend", [None, "vaapi"])
 def test_hevc_plan_without_a_hevc_encoder_stays_h264(backend):
-    """没有 HEVC 编码器的后端（NAS 软件、其他显卡）：照旧出 H.264，不会报错。"""
+    """没有 HEVC 编码器的后端（NAS 软件、自检没过 HEVC 的显卡）：照旧出 H.264，不会报错。"""
     argv = argv_of(_hevc_plan(), hw_backend=backend, start_number=0)
     assert pair(argv, "-c:v") in {"libx264", "h264_vaapi"}
     assert pair(argv, "-tag:v") == "avc1"
     assert pair(argv, "-maxrate") == "6M"  # 码率也按 H.264 给
+
+
+_FORCED_IDR = {"qsv": ("-forced_idr", "1"), "nvenc": ("-forced-idr", "1")}
+
+
+@pytest.mark.parametrize("backend", ["vaapi", "qsv", "nvenc", "videotoolbox"])
+@pytest.mark.parametrize("codec", ["h264", "hevc"])
+def test_forced_keyframes_are_idr_on_every_hardware_encoder(backend, codec):
+    """HLS 只在带关键帧标记的包上切分片。QSV / NVENC 的 -force_key_frames 默认只插普通 I 帧
+    （FFmpeg 7.1：qsvenc 只在帧带 KEY 标记或 forced_idr 时出 IDR，nvenc 没开 forced-idr 时是
+    FORCEINTRA；两家都只给 IDR 包打关键帧标记），4 秒栅格对不上；要显式打开。VAAPI 与
+    VideoToolbox 强制关键帧本来就是 IDR，不加。"""
+    p = _hevc_plan() if codec == "hevc" else plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(action="transcode", codec="h264", height=1080, source_bit_depth=8),
+    )
+    if codec == "hevc" and backend != "videotoolbox":
+        register_hevc_encoder(backend, ())
+    try:
+        argv = argv_of(p, hw_backend=backend, start_number=0)
+    finally:
+        register_hevc_encoder(backend, None)
+    encoder = pair(argv, "-c:v")
+    assert encoder is not None and encoder.startswith(codec) and encoder.endswith(backend)
+    at = argv.index(encoder)
+    expected = _FORCED_IDR.get(backend)
+    if expected is None:
+        assert "-forced_idr" not in argv and "-forced-idr" not in argv
+    else:
+        assert tuple(argv[at + 1 : at + 3]) == expected  # 紧跟编码器，作用于它
+    assert "-force_key_frames" in argv
+
+
+@pytest.mark.parametrize(
+    ("backend", "encoder", "options"),
+    [
+        ("vaapi", "hevc_vaapi", ("-low_power", "1")),
+        ("qsv", "hevc_qsv", ()),
+        ("nvenc", "hevc_nvenc", ()),
+    ],
+)
+def test_hevc_export_on_nas_gpus_after_self_test(backend, encoder, options):
+    """issue #1008：自检真编过 HEVC 的 NAS 显卡出 HEVC。帧留在显存里（硬件 scale 已钉 8-bit），
+    不能再要 -pix_fmt；自检探出的参数紧跟编码器。"""
+    register_hevc_encoder(backend, options)
+    try:
+        argv = argv_of(_hevc_plan(), hw_backend=backend, start_number=0)
+    finally:
+        register_hevc_encoder(backend, None)
+    at = argv.index(encoder)
+    assert argv[at - 1] == "-c:v"
+    # 自检探出的参数与强制 IDR 紧跟编码器
+    tail = (*options, *_FORCED_IDR.get(backend, ()))
+    assert tuple(argv[at + 1 : at + 1 + len(tail)]) == tail
+    assert pair(argv, "-profile:v") == "main" and pair(argv, "-tag:v") == "hvc1"
+    assert pair(argv, "-maxrate") == "4M" and pair(argv, "-bufsize") == "8M"
+    assert "-pix_fmt" not in argv and "-a53cc" not in argv
 
 
 # ---------------------------------------------------------------------------

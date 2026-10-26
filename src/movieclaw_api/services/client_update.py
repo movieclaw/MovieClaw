@@ -49,7 +49,9 @@ def reset_cache_for_tests() -> None:
 def _product(product: str) -> _Product:
     found = PRODUCTS.get(product)
     if found is None:
-        raise NotFoundException(f"未知的客户端：{product}")
+        raise NotFoundException(
+            message_key="errors.clientUpdate.unknown", params={"product": product}
+        )
     return found
 
 
@@ -60,13 +62,16 @@ def _version_key(tag: str, prefix: str) -> tuple[int, ...]:
 async def _latest_release(spec: _Product) -> dict:
     pattern = re.compile(rf"^{re.escape(spec.tag_prefix)}\d+(?:\.\d+)*$")
     release = await app_update._find_release(
-        spec.tag_prefix, pattern, lambda tag: _version_key(tag, spec.tag_prefix), "客户端更新"
+        spec.tag_prefix,
+        pattern,
+        lambda tag: _version_key(tag, spec.tag_prefix),
+        app_update.CLIENT_SCOPE,
     )
     if release is None:
         # 反代不认 matching-refs 时退回整页列表
         candidates = [
             r
-            for r in await app_update._fetch_releases("客户端更新")
+            for r in await app_update._fetch_releases(app_update.CLIENT_SCOPE)
             if pattern.match(r.get("tag_name") or "")
             and not r.get("draft")
             and not r.get("prerelease")
@@ -77,14 +82,17 @@ async def _latest_release(spec: _Product) -> dict:
             default=None,
         )
     if release is None:
-        raise BadRequestException("还没有这个客户端的正式发布")
+        raise BadRequestException(message_key="errors.clientUpdate.noRelease")
     return release
 
 
 def _asset_url(release: dict, name: str) -> str:
     asset = next((a for a in release.get("assets", []) if a.get("name") == name), None)
     if asset is None:
-        raise BadRequestException(f"发布（{release.get('tag_name', '?')}）缺少 {name}")
+        raise BadRequestException(
+            message_key="errors.clientUpdate.assetMissing",
+            params={"tag": release.get("tag_name", "?"), "name": name},
+        )
     return str(asset["browser_download_url"])
 
 
@@ -113,7 +121,9 @@ async def _latest_with_apk(product: str, *, force: bool = False) -> tuple[Client
             resp.raise_for_status()
             info = resp.json()
         except httpx.HTTPError as exc:
-            raise BadRequestException(app_update._describe_github_error(exc, "客户端更新")) from exc
+            raise BadRequestException(
+                **app_update._github_error_reference(exc, app_update.CLIENT_SCOPE)
+            ) from exc
     try:
         view = ClientReleaseView(
             product=product,
@@ -128,7 +138,9 @@ async def _latest_with_apk(product: str, *, force: bool = False) -> tuple[Client
             release_url=release.get("html_url") or "",
         )
     except (KeyError, TypeError, ValueError) as exc:
-        raise BadRequestException(f"发布（{release['tag_name']}）的包信息格式不对") from exc
+        raise BadRequestException(
+            message_key="errors.clientUpdate.metadataInvalid", params={"tag": release["tag_name"]}
+        ) from exc
     apk_url = _asset_url(release, str(info["asset"]))
     _cache[product] = (time.monotonic(), view, apk_url)
     return view, apk_url
@@ -150,7 +162,9 @@ async def open_apk(product: str) -> tuple[ClientReleaseView, AsyncIterator[bytes
         resp.raise_for_status()
     except httpx.HTTPError as exc:
         await client.aclose()
-        raise BadRequestException(app_update._describe_github_error(exc, "客户端更新")) from exc
+        raise BadRequestException(
+            **app_update._github_error_reference(exc, app_update.CLIENT_SCOPE)
+        ) from exc
 
     async def body() -> AsyncIterator[bytes]:
         try:

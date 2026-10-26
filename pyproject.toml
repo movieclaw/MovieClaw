@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "movieclaw"
-version = "0.42.0"
+version = "0.43.0"
 description = "Best-practice Python HTTP service template powered by FastAPI."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,8 @@ authors = [
   { name = "MovieClaw" }
 ]
 dependencies = [
+  "babel>=2.17,<3.0",
+  "pyicumessageformat>=1.0,<2.0",
   "fastapi>=0.116.0,<1.0.0",
   # 库封面拼贴（氛围光货架，双端共用）与 Jellyfin 图片缩放（docs/design/jellyfin-compat.md 5.6）
   "pillow>=10.4.0,<12.0.0",
@@ -115,7 +117,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 # 基线 spec：构建期由 movieclaw_api.export_openapi 现场导出。服务端运行期读它
 # 渲染 Agent 的 mclaw 工具描述，Go CLI 在自己的构建期把同一份嵌进二进制。
-movieclaw_api = ["data/spec.json"]
+movieclaw_api = ["data/spec.json", "locales/**/*.json"]
 # 内置技能层（docs/design/agent-skills.md）：Docker 部署整棵 src 拷贝本就带上，
 # 这行给 wheel 形态兜底。
 movieclaw_agent = ["builtin-skills/**/*"]

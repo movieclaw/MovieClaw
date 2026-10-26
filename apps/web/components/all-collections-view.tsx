@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useEffect, useMemo, useState } from "react";
 
 import { LibraryCollectionsView } from "@/components/library-collections-view";
@@ -22,7 +24,9 @@ import { usePageTitle } from "@/lib/use-page-title";
  * 总览页要如实反映这件事，而不是把所有合集拍平成一片。
  */
 export function AllCollectionsView() {
-  usePageTitle("全部合集");
+  const t = useTranslations();
+  const locale = useLocale();
+  usePageTitle(t("library.collections.allTitle"));
   const [rows, setRows] = useState<Collection[] | null>(null);
   const [libraries, setLibraries] = useState<MediaLibrary[]>([]);
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
@@ -48,7 +52,7 @@ export function AllCollectionsView() {
 
   useEffect(() => {
     let alive = true;
-    listCollections()
+    listCollections({ locale })
       .then((all) => alive && setRows(all))
       .catch(() => alive && setRows([]));
     listLibraries()
@@ -57,7 +61,7 @@ export function AllCollectionsView() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [locale]);
 
   // 类型筛选：合集自己没有「是电影还是剧集」这个字段，也不该为此让后端逐个数成员——
   // 合集挂在库下面（这套 IA 的基本决策），库的 kind 就是它的类型，直接用。
@@ -118,18 +122,18 @@ export function AllCollectionsView() {
   const filtered = kindFilter !== "all" || sourceFilter !== "all";
   const summary =
     rows === null
-      ? "正在读取合集…"
+      ? t("library.collections.loading")
       : all.length === 0
-        ? "还没有合集"
+        ? t("library.collections.none")
         : filtered
-          ? `${shown.length} / ${all.length} 个合集 · 按库分组`
-          : `${all.length} 个合集 · 按库分组`;
+          ? t("library.collections.filteredSummary", { shown: shown.length, total: all.length })
+          : t("library.collections.groupedSummary", { count: all.length });
 
   const header = (
     <div className={`flex items-start justify-between gap-4 pt-7 page-inset max-md:pt-4`}>
       <div className="min-w-0">
         <h2 className="text-on-image text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[21px]">
-          媒体库
+          {t("nav.main.library")}
         </h2>
         <p className="text-on-image mt-1.5 text-ui text-[var(--text-muted)] max-md:mt-1 max-md:text-sub">
           {summary}
@@ -147,15 +151,15 @@ export function AllCollectionsView() {
   const filterBar = (
     <div className={`flex flex-wrap items-center gap-x-5 gap-y-2 pt-4 page-inset max-md:pt-3`}>
       <ChipGroup
-        label="类型"
-        options={KIND_OPTIONS}
+        label={t("media.discovery.type")}
+        options={kindOptions(t)}
         value={kindFilter}
         counts={kindCounts}
         onChange={setKindFilter}
       />
       <ChipGroup
-        label="来源"
-        options={SOURCE_OPTIONS}
+        label={t("library.collections.source")}
+        options={sourceOptions(t)}
         value={sourceFilter}
         counts={sourceCounts}
         onChange={setSourceFilter}
@@ -170,11 +174,11 @@ export function AllCollectionsView() {
       {header}
       {rows === null ? (
         <p className="mt-16 text-center text-ui text-[var(--text-muted)]">
-          正在读取合集…
+          {t("library.collections.loading")}
         </p>
       ) : all.length === 0 ? (
         <p className="mt-16 text-center text-ui leading-7 text-[var(--text-muted)]">
-          还没有合集。在某个库里筛出一批片，点「存为合集」就能把这组条件留下来。
+          {t("library.collections.emptyAll")}
         </p>
       ) : (
         /* 没有「筛完为空」这一态：数为 0 的档在筛选条上就点不动（「永不空货架」，
@@ -186,10 +190,10 @@ export function AllCollectionsView() {
               <section>
                 {/* 页头现在有「媒体库」这个 h2，分区标题降一级，标题层级才是连着的 */}
                 <h3 className={`pb-1 text-ui font-semibold text-[var(--text-strong)] page-inset`}>
-                  跨库
+                  {t("library.collections.crossLibrary")}
                 </h3>
                 <p className={`pb-3 text-sub text-[var(--text-faint)] page-inset`}>
-                  不属于任何一个库的手动名单
+                  {t("library.collections.crossLibraryHint")}
                 </p>
                 <LibraryCollectionsView collections={cross} libraryId={null} />
               </section>
@@ -218,17 +222,21 @@ type KindFilter = "all" | "tv" | "movie";
 /** 来源筛选的取值：user=自己攒的；auto=刮出来的系列 + 内置的「我的收藏」。 */
 type SourceFilter = "all" | "user" | "auto";
 
-const KIND_OPTIONS: readonly { value: KindFilter; label: string }[] = [
-  { value: "all", label: "全部" },
-  { value: "tv", label: "剧集" },
-  { value: "movie", label: "电影" },
-];
+function kindOptions(t: ReturnType<typeof appTranslator>): readonly { value: KindFilter; label: string }[] {
+  return [
+    { value: "all", label: t("common.all") },
+    { value: "tv", label: t("media.kind.tv") },
+    { value: "movie", label: t("media.kind.movie") },
+  ];
+}
 
-const SOURCE_OPTIONS: readonly { value: SourceFilter; label: string }[] = [
-  { value: "all", label: "全部" },
-  { value: "user", label: "自建" },
-  { value: "auto", label: "自动" },
-];
+function sourceOptions(t: ReturnType<typeof appTranslator>): readonly { value: SourceFilter; label: string }[] {
+  return [
+    { value: "all", label: t("common.all") },
+    { value: "user", label: t("library.collections.userSource") },
+    { value: "auto", label: t("library.collections.autoSource") },
+  ];
+}
 
 /**
  * 一个筛选维度：标签 + 一排带计数的胶囊。

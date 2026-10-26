@@ -152,6 +152,16 @@ def stack(tmp_path_factory):
         "APP_RELOAD": "false",
         "APP_PORT": str(api_port),
         "DATABASE_URL": database_url,
+        "MOVIECLAW_DATA_DIR": str(data),
+        "AGENT_SESSIONS_DIR": str(data / "agent-sessions"),
+        "AGENT_WORKSPACE_DIR": str(data / "agent-workspace"),
+        "AGENT_SKILLS_DIR": str(data / "agent-skills"),
+        "MOVIECLAW_PLAYBACK_SUBS_CACHE_DIR": str(data / "cache/subtitles"),
+        "MOVIECLAW_SUBTITLE_GEN_CACHE_DIR": str(data / "cache/subtitle-generation"),
+        "MOVIECLAW_TRANSCODE_DIR": str(data / "transcodes"),
+        "MOVIECLAW_TRICKPLAY_CACHE_DIR": str(data / "cache/trickplay"),
+        "IMAGE_CACHE_DIR": str(data / "cache/images"),
+        "PEOPLE_IMAGES_DIR": str(data / "metadata/people"),
         "METADATA_DIR": str(data / "metadata"),
         "LOG_DIR": str(data / "logs"),
         "SECRET_KEY_FILE": str(data / ".secret_key"),
@@ -242,10 +252,26 @@ def _ensure_libraries(page, stack) -> tuple[int, dict[str, int]]:
     for key, name, kind in (("movies", "电影库", "movie"), ("shows", "剧集库", "tv")):
         resp = page.request.post(
             f"{base}/api/v1/libraries",
-            data={"name": name, "kind": kind, "root_paths": [str(stack["roots"][key])]},
+            data={
+                "name": name,
+                "kind": kind,
+                "root_paths": [str(stack["roots"][key])],
+                "realtime_watch": False,
+            },
         )
         assert resp.ok, resp.text()
         library_ids[key] = resp.json()["data"]["id"]
+    # SQL-seeded facts must not race the initial empty scan or filesystem watchers.
+    from .test_library_manage_browser import _wait_for
+
+    _wait_for(
+        lambda: all(
+            not row["scanning"] and row["last_scan"]
+            for row in page.request.get(f"{base}/api/v1/libraries").json()["data"]
+        ),
+        timeout=90,
+        what="initial empty library scans",
+    )
     ids = _seed(stack["database_url"], library_ids, stack["roots"], stack["metadata_dir"])
     return library_ids["movies"], ids
 
@@ -587,9 +613,14 @@ def test_gallery_mode_is_per_library(stack, viewport) -> None:
         check_mode(True)
 
         # 同一库的合集无论从库内还是跨库合集列表进入，都读所属库的模式。
-        response = page.request.post(f"{base}/api/v1/collections", data={
-            "name": "模式隔离验收", "library_id": movie_lib, "item_ids": [ids["你的名字"]],
-        })
+        response = page.request.post(
+            f"{base}/api/v1/collections",
+            data={
+                "name": "模式隔离验收",
+                "library_id": movie_lib,
+                "item_ids": [ids["你的名字"]],
+            },
+        )
         assert response.ok, response.text()
         collection_id = response.json()["data"]["id"]
         try:
@@ -641,6 +672,7 @@ def test_filtering_and_collections_end_to_end(stack) -> None:  # noqa: PLR0915
         page.on("pageerror", lambda e: page_errors.append(str(e)))
 
         def api(method: str, path: str, **kwargs) -> dict:
+            kwargs["headers"] = {"Accept-Language": "zh-Hans", **kwargs.get("headers", {})}
             resp = getattr(page.request, method)(f"{base}/api/v1{path}", **kwargs)
             assert resp.ok, f"{method} {path}: {resp.status} {resp.text()}"
             return resp.json()
@@ -777,7 +809,7 @@ def test_filtering_and_collections_end_to_end(stack) -> None:  # noqa: PLR0915
         page.get_by_role("button", name=re.compile("^文件失联")).click()
         page.get_by_role("button", name=re.compile("^没刮到档案")).click()
         expect(wall_cells).to_have_count(1)
-        assert UNSCRAPED_TITLE in page.content()
+        expect(wall_cells.filter(has_text=UNSCRAPED_TITLE)).to_have_count(1)
         page.get_by_role("button", name="清空").click()
 
         # 观看状态是个划分：未看 / 在看 / 已看完三档相加恰好是全库
@@ -1078,7 +1110,9 @@ def test_filtering_and_collections_end_to_end(stack) -> None:  # noqa: PLR0915
             MISSING_PART_TITLE
         )
         missing_cell.hover()
-        expect(page.get_by_role("button", name=f"订阅影片《{MISSING_PART_TITLE}》")).to_be_visible()
+        expect(
+            page.get_by_role("button", name=f"订阅影片《{MISSING_PART_TITLE}》", exact=True)
+        ).to_be_visible()
         # 系列按**上映正序**排：先看《你的名字》(2016) 再看《天气之子》(2019)。
         # 墙上默认的 release_date 是倒序（新的在前，浏览的语义），系列不能跟着
         # ——规则条上写着"按上映顺序排列"，那句话必须是真的

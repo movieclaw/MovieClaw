@@ -36,6 +36,11 @@ def stack(tmp_path_factory):
         "SUBSCRIPTION_DISPATCH_DRY_RUN": "true",
         "METADATA_DIR": str(root / "metadata"),
         "LOG_DIR": str(root / "logs"),
+        "AGENT_WORKSPACE_DIR": str(root / "agent-workspace"),
+        "AGENT_SESSIONS_DIR": str(root / "agent-sessions"),
+        "AGENT_SKILLS_DIR": str(root / "agent-skills"),
+        "IMAGE_CACHE_DIR": str(root / "cache/images"),
+        "MOVIECLAW_SUBTITLE_GEN_CACHE_DIR": str(root / "cache/subtitle-gen"),
         "PYTHONPATH": f"{REPO / 'src'}:{REPO}",
     }
     api = subprocess.Popen(
@@ -110,7 +115,10 @@ def detail(context, base, sub_id):
 
 def test_memory_follows_the_whole_household_journey(stack, browser):
     base, api = stack
-    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    context = browser.new_context(
+        locale="zh-CN", extra_http_headers={"Accept-Language": "zh-Hans"},
+        viewport={"width": 1440, "height": 1000},
+    )
     assert context.request.post(f"{base}/api/v1/auth/bootstrap", data=ADMIN).status == 200
     page = context.new_page()
     errors = []
@@ -232,8 +240,11 @@ def test_memory_follows_the_whole_household_journey(stack, browser):
     page.get_by_role("list", name="看得懂的语言").get_by_text("日语").wait_for(state="detached")
 
     # 9 手机：同一张卡片，问题照样只问一次
-    phone = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True,
-                                has_touch=True, storage_state=context.storage_state())
+    phone = browser.new_context(
+        locale="zh-CN", extra_http_headers={"Accept-Language": "zh-Hans"},
+        viewport={"width": 390, "height": 844}, is_mobile=True,
+        has_touch=True, storage_state=context.storage_state(),
+    )
     mobile = phone.new_page()
     mobile.on("pageerror", lambda error: errors.append(str(error)))
     card = open_dialog(mobile, base, "tmdb:movie:702")
@@ -246,13 +257,18 @@ def test_memory_follows_the_whole_household_journey(stack, browser):
 
 def test_members_only_see_conclusions(stack, browser):
     base, _api = stack
-    admin = browser.new_context()
+    admin = browser.new_context(
+        locale="zh-CN", extra_http_headers={"Accept-Language": "zh-Hans"},
+    )
     assert admin.request.post(f"{base}/api/v1/auth/login", data=ADMIN).status == 200
     assert admin.request.post(
         f"{base}/api/v1/members", data={"username": "kid", "password": "member-pass-1"}
     ).status == 200
     admin.close()
-    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    context = browser.new_context(
+        locale="zh-CN", extra_http_headers={"Accept-Language": "zh-Hans"},
+        viewport={"width": 1440, "height": 1000},
+    )
     assert context.request.post(
         f"{base}/api/v1/auth/login", data={"username": "kid", "password": "member-pass-1"}
     ).status == 200
@@ -270,7 +286,10 @@ def test_members_only_see_conclusions(stack, browser):
 def test_switching_modes_never_leaves_submit_stuck(stack, browser):
     """改到一半切到规则模式再切回来：没保存的编辑作废，确认订阅不会一直灰着。"""
     base, _api = stack
-    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    context = browser.new_context(
+        locale="zh-CN", extra_http_headers={"Accept-Language": "zh-Hans"},
+        viewport={"width": 1440, "height": 1000},
+    )
     assert context.request.post(f"{base}/api/v1/auth/login", data=ADMIN).status == 200
     page = context.new_page()
     card = open_dialog(page, base, "tmdb:movie:706")

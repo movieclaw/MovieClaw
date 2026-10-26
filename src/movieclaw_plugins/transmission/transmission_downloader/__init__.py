@@ -18,11 +18,31 @@ from .client import TransmissionDownloader
 class Connection(BaseModel):
     url: str = Field(
         title="RPC 地址",
+        json_schema_extra={
+            "title_localized": {"en": "RPC URL"},
+            "description_localized": {"en": "The path defaults to /transmission/rpc when omitted"},
+        },
         description="路径缺省时自动补全为 /transmission/rpc",
         examples=["http://192.168.1.10:9091"],
     )
-    username: str | None = Field(None, title="用户名", description="未开鉴权可留空")
-    password: SecretStr | None = Field(None, title="密码", description="未开鉴权可留空")
+    username: str | None = Field(
+        None,
+        title="用户名",
+        description="未开鉴权可留空",
+        json_schema_extra={
+            "title_localized": {"en": "Username"},
+            "description_localized": {"en": "Leave empty if authentication is disabled"},
+        },
+    )
+    password: SecretStr | None = Field(
+        None,
+        title="密码",
+        description="未开鉴权可留空",
+        json_schema_extra={
+            "title_localized": {"en": "Password"},
+            "description_localized": {"en": "Leave empty if authentication is disabled"},
+        },
+    )
 
 
 ADAPTER = DownloaderAdapter(

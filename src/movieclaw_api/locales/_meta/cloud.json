@@ -1,0 +1,140 @@
+{
+  "network.timeout": {
+    "sourceHash": "ae5ead4d8907472701d1e90e0ed803b8a7ad276ce138053ce16facb62c4d0f24"
+  },
+  "network.connect": {
+    "sourceHash": "7ddcb71cb7873594e949ebb95ac958c44e4bbf8173c1cb1a3b268c74d1f07630"
+  },
+  "network.proxy": {
+    "sourceHash": "e67ac00c4ad58eec83c6d15ac9733d896fdd516a62207661ded70e57068a1e37"
+  },
+  "network.unknown": {
+    "sourceHash": "8922af34a3d0a4f8f9aafd0001fe36abc1e02bac82a59c1dcd71ae3e0fdf53ea"
+  },
+  "network.failed": {
+    "sourceHash": "f2a4af3f3624185855895cf954238a83d458271998bf110299b9e76ebd1ade2a"
+  },
+  "network.http": {
+    "sourceHash": "9bc3c07eda7211f3ac051fc224aa75093a151229a0fc4c0661dd2821d3c87fe6"
+  },
+  "network.discovery": {
+    "sourceHash": "1914d5ea0dafcae234ff7bce0a38f8303fe8c295c956569af443a67135d4dc31"
+  },
+  "pairing.connectFailed": {
+    "sourceHash": "101401a6a67470cdb9b590e6dee000f8787904ae9fee913c1a1a04a2295aad88"
+  },
+  "pairing.expired": {
+    "sourceHash": "1fd4724569a8d5213db47471a58721188bfc725460b0676e7adf5c2cdefcf684"
+  },
+  "pairing.retrying": {
+    "sourceHash": "c51beff07c0d108e1360780a5d39f9828fb7f6173e328b61818cf010100d3b3c"
+  },
+  "pairing.denied": {
+    "sourceHash": "dad7d141d91fd7dcb2f4c84e558470b2378012ee341c75250d7f6d97dcad5ca9"
+  },
+  "pairing.failed": {
+    "sourceHash": "812bcdade1ecd03f2c5d9514810bcdfb139d49f21aa36e0dfb0d2a067025d3fc"
+  },
+  "pairing.error": {
+    "sourceHash": "12811295bf81b423a60cf31e778d25c27d902758fe8b2b3c52e032e643714575"
+  },
+  "pairing.credentials": {
+    "sourceHash": "12ec56c494901de3109e9fb812117c3be5b8a75e781014ca4d8bc150e40f1c2b"
+  },
+  "health.reason": {
+    "sourceHash": "941ed908c32b43f49b1f3a1c2914bdef2532bd258b6e2caba338c36b417de7c0"
+  },
+  "health.expired": {
+    "sourceHash": "9036a3f927430b9cfa539537e83f910d0a95a25120080f87b2bd2aa40f19b202"
+  },
+  "health.unreachable": {
+    "sourceHash": "2de2299b0ba0727841a07d74e51dc0c472f613306dff766b151aff95a6bb0c55"
+  },
+  "health.cannotConnect": {
+    "sourceHash": "e34027cc976018d4376801f901a3d5f6e2bd4d29907303fb8c6a7a4aacae26bd"
+  },
+  "health.revoked": {
+    "sourceHash": "87320ca19d307d236f12535da33e850a0f81c5e42aa759599d93b2a36aff4efc"
+  },
+  "health.unsupported": {
+    "sourceHash": "c017fcd23663a8fb4798a591b84fe3dc86c5fc18fa85fcdb9b631c99d3e89b0e"
+  },
+  "disconnect.unreachable": {
+    "sourceHash": "1414979720f85679e3a0dd6953c68f022438886d228fe5fe6218553819f40696"
+  },
+  "upload.actor": {
+    "sourceHash": "0abe8012ff07e1ce8e7d1cde387be7266f810c1155298f9d89594cdad60bf6ec"
+  },
+  "upload.queued": {
+    "sourceHash": "00eec014380dba37fca71f5b2cf813a1de9ebd1282b9f8f9ea2c59b90d9df902"
+  },
+  "upload.reloginNeeded": {
+    "sourceHash": "4777fb81341c36c368cf75d74fd403df709bbc1e625f0b27f57629b79f8143c1"
+  },
+  "upload.quotaExceeded": {
+    "sourceHash": "69f6b2ddb71b5519bb6fa300ffb8fd9266f5b6da72f78a3855adf8989113571b"
+  },
+  "upload.rateLimited": {
+    "sourceHash": "444c6b4a1500f23c31bc4524d86325869201945a8a99d0fbbe4a8b1e6c22f438"
+  },
+  "upload.riskControl": {
+    "sourceHash": "dc3a7597425508a50d69bd341bf1fb23a9fdf7fa15e3ee7dc413ef0ec5ba204f"
+  },
+  "upload.apiChanged": {
+    "sourceHash": "38bcaf41b5723304f784c45706df925443991ac6adbe09b2c49f93d25c2e03ec"
+  },
+  "upload.unreachable": {
+    "sourceHash": "955524f39669cdc2a094c2f1f8929de13111738632d3c130a0fa3248d49c044f"
+  },
+  "upload.action.relogin": {
+    "sourceHash": "5ee2723d30e169221125340b0e2119daf5218d214f306433644807261f0ff0f2"
+  },
+  "upload.action.retryAfterLogin": {
+    "sourceHash": "3e02cfc4a2f7b6639e426ae27365dc9241780c6cf72bf971181571b5748f0ba1"
+  },
+  "upload.action.retryAfterSpace": {
+    "sourceHash": "a8e2d1bc3b2575693bb453293b9611b29d2dc8a73443c1c94226b176647956af"
+  },
+  "upload.action.retryAfterUpdate": {
+    "sourceHash": "d7149c80a53cd5c5d9cbefa3cb4e1819012a29f06a6c1e5c6a44e5a7ca9e88f3"
+  },
+  "upload.localMissing": {
+    "sourceHash": "e714c96ca3a20af8dac0d24ec4adf7780adf5a42e5600b44a84047de4577e504"
+  },
+  "upload.changingWhileHashing": {
+    "sourceHash": "ea26ec154c5a2e25b83b002b02999e171360b42581c611cad4c0d79adbcb26fd"
+  },
+  "upload.changedDuringUpload": {
+    "sourceHash": "cb78ec2e874ab8b17abfa8b2e9cdcd049516ef49d637b82c2a24f5dac979ebc8"
+  },
+  "upload.mismatch": {
+    "sourceHash": "b8e7d64d22fe525b32d747a6b727e1327b9fd6227e376284fe49e86606c812d5"
+  },
+  "upload.conflict": {
+    "sourceHash": "a1ba1b506f43a9579020584df9032e304433051ba84be8559b46ad5a01e74797"
+  },
+  "upload.localUnreadable": {
+    "sourceHash": "01682660f1613fdef3d7172e20da5029564baeafc4cdc76ef5adbdfb8ab610d3"
+  },
+  "upload.yielding": {
+    "sourceHash": "e4ba83f1e5e61518fa500b1872457f5a9fa75a656219512c5ae4bd1a6e5aaf1c"
+  },
+  "upload.hashing": {
+    "sourceHash": "a68a7fdafa62c842d35895cd1c86d1614994147ea612541b56c5549a8176032e"
+  },
+  "upload.uploading": {
+    "sourceHash": "5a5c3dc346d23f1c8198548535e1964c18df1337a15818beb361f8ed294ce75c"
+  },
+  "upload.progress": {
+    "sourceHash": "7f41c68b72e6923a15592e2b6cabbda36a278c00ca1675177edfb82340b9fa4a"
+  },
+  "upload.done": {
+    "sourceHash": "3a7e399780fd86934bd83b9470f168e473d7af326f3da382f3d85ae77d1715c7"
+  },
+  "upload.nothingToUpload": {
+    "sourceHash": "254562d89545ed0c009ce4af835f0994564e7d117de337db4e16c33627c1ddd2"
+  },
+  "drives.pluginNotRunning": {
+    "sourceHash": "4d6c420d864d9ad887e0c08d9d9e4c4aee3724d80dc2f6440334538ce011f425"
+  }
+}

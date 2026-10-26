@@ -41,7 +41,7 @@ async def assert_site_usable(session: AsyncSession, principal: Principal, site_i
     """断言请求主体可以使用这个站点；成员白名单外的站点一律 403。"""
     allowed = await usable_site_ids(session, principal)
     if allowed is not None and site_id not in allowed:
-        raise ForbiddenException("管理员没有对你开放这个站点，无法从它下载")
+        raise ForbiddenException(message_key="errors.sites.downloadNotAllowed")
 
 
 def _host_of(url: str | None) -> str:
@@ -97,4 +97,4 @@ async def assert_download_url_on_site(
     }
     if host and any(host == d or host.endswith("." + d) for d in domains):
         return
-    raise ForbiddenException("下载链接不属于该站点，已拒绝提交")
+    raise ForbiddenException(message_key="errors.sites.downloadLinkMismatch")

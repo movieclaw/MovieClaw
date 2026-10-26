@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CheckIcon, ChevronRightIcon, XIcon } from "@/components/icons";
@@ -40,6 +41,8 @@ export function LibraryOrganizeDialog({
   /** 整理结束（或启动）后通知父组件刷新库列表 */
   onChanged: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   type Phase = "loading" | "preview" | "running" | "done" | "failed";
   const [phase, setPhase] = useState<Phase>("loading");
   const [preview, setPreview] = useState<OrganizePreview | null>(null);
@@ -131,8 +134,8 @@ export function LibraryOrganizeDialog({
       group.actions.push(action);
       byItem.set(action.media_item_id, group);
     }
-    return Array.from(byItem.values()).sort((a, b) => a.title.localeCompare(b.title, "zh"));
-  }, [preview]);
+    return Array.from(byItem.values()).sort((a, b) => a.title.localeCompare(b.title, locale));
+  }, [preview, locale]);
 
   if (library === null) return null;
 
@@ -162,7 +165,7 @@ export function LibraryOrganizeDialog({
     <Modal
       open
       onClose={onClose}
-      label={`整理「${library.name}」的文件名`}
+      label={t("library.organize.dialogTitle", { name: library.name })}
       width="2xl"
       panelClassName="flex max-h-[84dvh] flex-col"
     >
@@ -170,20 +173,19 @@ export function LibraryOrganizeDialog({
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] px-6 pb-4 pt-5">
           <div className="min-w-0">
             <h2 className="text-title font-bold text-white">
-              整理文件名
+              {t("library.organize.title")}
               <span className="ml-2 text-ui font-normal text-[var(--text-muted)]">
                 {library.name}
               </span>
             </h2>
             <p className="mt-1 text-sub leading-5 text-[var(--text-muted)]">
-              按刮削结果把存量文件改名归位为「标题 (年份){library.kind === "tv" ? "/Season NN" : ""}
-              /规范文件名」，Plex / Emby 零歧义识别；字幕等附属文件同步改名。
+              {t("library.organize.intro", { series: library.kind === "tv" ? "yes" : "no" })}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="关闭对话框"
+            aria-label={t("library.organize.closeDialog")}
             className="btn-glass flex size-8 shrink-0 items-center justify-center !rounded-full"
           >
             <XIcon className="size-4" />
@@ -195,7 +197,7 @@ export function LibraryOrganizeDialog({
           <div className="flex flex-col items-center gap-3 px-6 py-16">
             <span className="size-5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
             <p className="text-ui text-[var(--text-muted)]">
-              正在核对台账与磁盘，生成整理预览…
+              {t("library.organize.loading")}
             </p>
           </div>
         )}
@@ -203,7 +205,7 @@ export function LibraryOrganizeDialog({
           <div className="flex flex-col items-center gap-4 px-6 py-14">
             <p className="max-w-md text-center text-ui leading-6 text-red-200">{error}</p>
             <button type="button" onClick={onClose} className="btn-glass px-4 py-2 text-ui font-medium">
-              关闭
+              {t("common.close")}
             </button>
           </div>
         )}
@@ -216,26 +218,26 @@ export function LibraryOrganizeDialog({
               <div className="flex flex-wrap gap-2">
                 <StatChip
                   tone={renameCount > 0 ? "accent" : "muted"}
-                  label={`${renameCount} 个文件将改名归位`}
+                  label={t("library.organize.renameCount", { count: renameCount })}
                 />
                 {sidecarCount > 0 && (
-                  <StatChip tone="muted" label={`${sidecarCount} 个附属文件同步改名`} />
+                  <StatChip tone="muted" label={t("library.organize.sidecarCount", { count: sidecarCount })} />
                 )}
                 {entryAssetCount > 0 && (
-                  <StatChip tone="muted" label={`${entryAssetCount} 个海报/NFO 跟随条目目录`} />
+                  <StatChip tone="muted" label={t("library.organize.assetCount", { count: entryAssetCount })} />
                 )}
-                <StatChip tone="ok" label={`${preview.already_ok} 个已符合规范`} />
+                <StatChip tone="ok" label={t("library.organize.alreadyCount", { count: preview.already_ok })} />
                 {preview.skips.length > 0 && (
-                  <StatChip tone="warn" label={`${preview.skips.length} 个跳过`} />
+                  <StatChip tone="warn" label={t("library.organize.skipCount", { count: preview.skips.length })} />
                 )}
               </div>
 
               {renameCount === 0 ? (
                 <p className="rounded-xl bg-white/[0.03] px-4 py-8 text-center text-ui leading-7 text-[var(--text-muted)]">
-                  这个库已经很规整了，没有需要改名的文件 🎉
+                  {t("library.organize.alreadyNeat")}
                   {preview.skips.length > 0 && (
                     <span className="block text-sub text-[var(--text-faint)]">
-                      （{preview.skips.length} 个文件因下方原因未参与整理）
+                      {t("library.organize.skippedHint", { count: preview.skips.length })}
                     </span>
                   )}
                 </p>
@@ -243,17 +245,16 @@ export function LibraryOrganizeDialog({
                 <>
                   {/* 风险告知：批量改名是半不可逆操作，三条风险必须看到 */}
                   <div className="rounded-xl border border-[var(--warn)]/30 bg-[var(--warn)]/[0.08] px-4 py-3">
-                    <p className="text-sub font-semibold text-[var(--warn)]">开始前请确认</p>
+                    <p className="text-sub font-semibold text-[var(--warn)]">{t("library.organize.beforeStart")}</p>
                     <ul className="mt-1.5 list-disc space-y-1 pl-4 text-sub leading-5 text-[var(--warn)]/85">
                       <li>
-                        改名直接发生在磁盘上，<strong>无法一键撤销</strong>；下方清单就是将要发生的全部变更。
+                        {t.rich("library.organize.noUndo", { em: (chunks) => <strong>{chunks}</strong> })}
                       </li>
                       <li>
-                        <strong>正在下载器中做种的文件，改名后做种会失败</strong>
-                        ——请确认这些文件已不在做种，或接受改名后到下载器里重新校验。
+                        {t.rich("library.organize.seedingHint", { em: (chunks) => <strong>{chunks}</strong> })}
                       </li>
                       <li>
-                        Emby / Plex 会把改名视为内容变更并重新识别，观看记录可能受影响。
+                        {t("library.organize.playerHint")}
                       </li>
                     </ul>
                   </div>
@@ -266,7 +267,7 @@ export function LibraryOrganizeDialog({
                           {group.title}
                           {group.year ? ` (${group.year})` : ""}
                           <span className="ml-2 font-normal text-[var(--text-faint)]">
-                            {group.actions.length} 个文件
+                            {t("library.organize.fileCount", { count: group.actions.length })}
                           </span>
                         </p>
                         <div className="divide-y divide-white/[0.04] px-3.5">
@@ -290,7 +291,7 @@ export function LibraryOrganizeDialog({
                               </p>
                               {action.sidecars.length > 0 && (
                                 <p className="mt-0.5 pl-4 text-micro text-[var(--text-faint)]">
-                                  +{action.sidecars.length} 个附属文件（字幕等）同步改名
+                                  +{t("library.organize.sidecarDetails", { count: action.sidecars.length })}
                                 </p>
                               )}
                             </div>
@@ -313,7 +314,7 @@ export function LibraryOrganizeDialog({
                     <ChevronRightIcon
                       className={`size-3.5 transition-transform ${showSkips ? "rotate-90" : ""}`}
                     />
-                    跳过 {preview.skips.length} 个文件（点击查看原因）
+                    {t("library.organize.showSkips", { count: preview.skips.length })}
                   </button>
                   {showSkips && (
                     <div className="divide-y divide-white/[0.04] border-t border-white/[0.06] px-3.5">
@@ -350,11 +351,11 @@ export function LibraryOrganizeDialog({
                       onChange={(e) => setAgreed(e.target.checked)}
                       className="size-4 accent-[var(--accent)]"
                     />
-                    我已核对清单并了解上述风险
+                    {t("library.organize.acknowledge")}
                   </label>
                   <div className="flex items-center gap-3">
                     <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
-                      取消
+                      {t("common.cancel")}
                     </button>
                     <button
                       type="button"
@@ -362,14 +363,14 @@ export function LibraryOrganizeDialog({
                       onClick={start}
                       className="btn-accent h-9 rounded-full px-5 text-ui font-semibold disabled:opacity-40"
                     >
-                      开始整理 {renameCount} 个文件
+                      {t("library.organize.start", { count: renameCount })}
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="flex justify-end">
                   <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
-                    关闭
+                    {t("common.close")}
                   </button>
                 </div>
               )}
@@ -387,15 +388,12 @@ export function LibraryOrganizeDialog({
               />
             </div>
             <p className="text-ui font-medium text-white">
-              正在整理…
-              {progress && progress.total > 0
-                ? ` ${progress.processed} / ${progress.total}`
-                : ""}
+              {t("library.organize.progress", { known: progress && progress.total > 0 ? "yes" : "no", processed: progress?.processed ?? 0, total: progress?.total ?? 0 })}
             </p>
             <p className="text-center text-sub leading-5 text-[var(--text-muted)]">
-              每改名一个文件即同步台账，中断也不会账实不符；期间扫描自动让路。
+              {t("library.organize.runningSafe")}
               <br />
-              关闭窗口不影响整理，库卡片上可继续查看进度。
+              {t("library.organize.runningBackground")}
             </p>
           </div>
         )}
@@ -407,25 +405,14 @@ export function LibraryOrganizeDialog({
               <span className="flex size-11 items-center justify-center rounded-full bg-[var(--ok)]/15">
                 <CheckIcon className="size-5 text-[var(--ok)]" />
               </span>
-              <p className="text-body-lg font-semibold text-white">整理完成</p>
+              <p className="text-body-lg font-semibold text-white">{t("library.organize.done")}</p>
               <p className="text-center text-ui leading-6 text-[var(--text-muted)]">
-                改名归位 {result?.renamed ?? 0} 个文件
-                {result && result.sidecars_renamed > 0
-                  ? `，附属文件 ${result.sidecars_renamed} 个随迁`
-                  : ""}
-                {result && result.entry_assets_moved > 0
-                  ? `，海报/NFO ${result.entry_assets_moved} 个随条目目录搬迁`
-                  : ""}
-                {result && result.removed_dirs > 0
-                  ? `，清理搬空目录 ${result.removed_dirs} 个`
-                  : ""}
-                。
-                {result && result.skipped > 0 ? `跳过 ${result.skipped} 个（原因见预览）。` : ""}
+                {t("library.organize.result", { renamed: result?.renamed ?? 0, sidecars: result?.sidecars_renamed ?? 0, assets: result?.entry_assets_moved ?? 0, removed: result?.removed_dirs ?? 0, skipped: result?.skipped ?? 0 })}
               </p>
               {result && result.errors.length > 0 && (
                 <div className="w-full rounded-xl border border-[var(--warn)]/30 bg-[var(--warn)]/[0.08] px-4 py-3">
                   <p className="text-sub font-semibold text-[var(--warn)]">
-                    {result.errors.length} 个文件处理时遇到问题（未被改动）
+                    {t("library.organize.errors", { count: result.errors.length })}
                   </p>
                   <ul className="mt-1.5 space-y-1 text-caption leading-5 text-[var(--warn)]/85">
                     {result.errors.map((message) => (
@@ -441,7 +428,7 @@ export function LibraryOrganizeDialog({
                 onClick={onClose}
                 className="btn-accent mt-2 h-9 rounded-full px-6 text-ui font-semibold"
               >
-                完成
+                {t("common.done")}
               </button>
             </div>
           </div>

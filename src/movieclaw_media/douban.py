@@ -500,6 +500,12 @@ class DoubanDiscoverService:
             overview=(data.get("intro") or "").strip(),
             poster_url=cover,
         )
+        if kind is MediaKind.TV and isinstance(episodes, int) and episodes > 0:
+            card.extent_key = "media.extent.episodes"
+            card.extent_params = {"count": episodes}
+        elif kind is MediaKind.MOVIE and (duration := re.fullmatch(r"(\d+)分钟", extent)):
+            card.extent_key = "media.extent.compactMinutes"
+            card.extent_params = {"count": int(duration[1])}
         # 演职员优先用带头像的完整名单；该接口不可用时分别退回详情里的导演和
         # 演员信息。不能因为多打的这一跳失败就让整个详情页失败。
         celebrities = await self._celebrity_people(douban_id)

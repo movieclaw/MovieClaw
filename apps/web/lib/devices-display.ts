@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+
 /**
  * 「设备」分区的展示口径（docs/design/device-auth.md §7、docs/design/login-devices.md）。
  *
@@ -9,17 +12,18 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** 客户端形态 → 给人看的说法。内部值不上屏。 */
-const CLIENT_TYPE_LABEL: Record<string, string> = {
-  worker: "转码器",
-  cli: "命令行 / Agent",
-  tvos: "Apple TV",
-  macos: "Mac",
-  androidtv: "Android TV",
-  manual: "手工令牌",
+const CLIENT_TYPE_LABEL: Record<string, import("./i18n/translate.ts").AppMessageKey> = {
+  worker: "settings.devices.labels.worker",
+  cli: "settings.devices.labels.cli",
+  tvos: "settings.devices.labels.tvos",
+  macos: "settings.devices.labels.macos",
+  windows: "settings.devices.labels.windows",
+  androidtv: "settings.devices.labels.androidtv",
+  manual: "settings.devices.labels.manual",
 };
 
-export function clientTypeLabel(type: string): string {
-  return CLIENT_TYPE_LABEL[type] ?? "未知类型";
+export function clientTypeLabel(type: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return Object.hasOwn(CLIENT_TYPE_LABEL, type) ? appTranslator(locale)(CLIENT_TYPE_LABEL[type]) : appTranslator(locale)("settings.devices.labels.unknown");
 }
 
 export interface GrantSummary {
@@ -39,54 +43,56 @@ export type ViewerRole = "admin" | "member";
  *   闸也就没了；
  * - 不认识的形态按最危险的一档解释；role 缺省也按超管，同样是往重里说。
  */
-export function grantSummary(type: string, role: ViewerRole = "admin"): GrantSummary {
+export function grantSummary(type: string, role: ViewerRole = "admin", locale: AppLocale = requestLocale() ?? "zh-Hans"): GrantSummary {
   if (type === "worker") {
     return {
-      title: "将获得：仅限转码",
-      body: "这台机器不能查看或修改你的订阅、媒体库和设置。",
+      title: appTranslator(locale)("settings.devices.labels.transcodeTitle"),
+      body: appTranslator(locale)("settings.devices.labels.workerBody"),
     };
   }
   if (type === "androidtv") {
     // Android TV 扫码登录（docs/design/androidtv-app.md §2）：与 Apple TV 同一口径
     return {
-      title: role === "member" ? "将获得：这台 Android TV 以你的身份登录" : "将获得：这台 Android TV 以你的超级管理员身份登录",
+      title: role === "member" ? appTranslator(locale)("settings.devices.labels.androidtvMember") : appTranslator(locale)("settings.devices.labels.androidtvAdmin"),
       body:
-        "等同你在这台电视上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。" +
-        "只批准你面前这台电视上显示的配对码。",
+        appTranslator(locale)("settings.devices.labels.tvBody"),
     };
   }
   if (type === "tvos") {
     // Apple TV 扫码登录（docs/design/tvos-app.md §5.1）：等同在这台电视上用你的账号密码登录。
     // 钓鱼的样子是「别人的电视显示一个码、骗你去批」，所以要人核对码就在自己面前的电视上
     return {
-      title: role === "member" ? "将获得：这台 Apple TV 以你的身份登录" : "将获得：这台 Apple TV 以你的超级管理员身份登录",
+      title: role === "member" ? appTranslator(locale)("settings.devices.labels.tvosMember") : appTranslator(locale)("settings.devices.labels.tvosAdmin"),
       body:
-        "等同你在这台电视上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。" +
-        "只批准你面前这台电视上显示的配对码。",
+        appTranslator(locale)("settings.devices.labels.tvBody"),
     };
   }
   if (type === "macos") {
     // Mac App 扫码登录：与 Apple TV 同一口径，等同在这台 Mac 上用你的账号密码登录
     return {
-      title: role === "member" ? "将获得：这台 Mac 以你的身份登录" : "将获得：这台 Mac 以你的超级管理员身份登录",
+      title: role === "member" ? appTranslator(locale)("settings.devices.labels.macosMember") : appTranslator(locale)("settings.devices.labels.macosAdmin"),
       body:
-        "等同你在这台 Mac 上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。" +
-        "只批准你面前这台 Mac 上显示的配对码。",
+        appTranslator(locale)("settings.devices.labels.macBody"),
+    };
+  }
+  if (type === "windows") {
+    return {
+      title: role === "member" ? appTranslator(locale)("settings.devices.labels.windowsMember") : appTranslator(locale)("settings.devices.labels.windowsAdmin"),
+      body:
+        appTranslator(locale)("settings.devices.labels.windowsBody"),
     };
   }
   if (role === "member") {
     return {
-      title: "将获得：与你相同的权限",
+      title: appTranslator(locale)("settings.devices.labels.memberTitle"),
       body:
-        "这台机器上的程序将能以你的身份做你在网页上能做的一切，管理员给你开放的能力它都有。" +
-        "只在你清楚这台机器上正在运行什么程序时才批准。",
+        appTranslator(locale)("settings.devices.labels.memberBody"),
     };
   }
   return {
-    title: "将获得：与你相同的完全权限",
+    title: appTranslator(locale)("settings.devices.labels.adminTitle"),
     body:
-      "这台机器上的程序将能做你在网页上能做的一切，包括删除媒体文件。" +
-      "只在你清楚这台机器上正在运行什么程序时才批准。",
+      appTranslator(locale)("settings.devices.labels.adminBody"),
   };
 }
 
@@ -100,20 +106,18 @@ export function grantSummary(type: string, role: ViewerRole = "admin"): GrantSum
  * scope=transcode 给命令行模式（Headless）的转码器用：碰不到订阅、媒体库和
  * 设置，与配对出来的转码器同一档。
  */
-export function manualGrantSummary(scope: "full" | "transcode" = "full"): GrantSummary {
+export function manualGrantSummary(scope: "full" | "transcode" = "full", locale: AppLocale = requestLocale() ?? "zh-Hans"): GrantSummary {
   if (scope === "transcode") {
     return {
-      title: "将获得：仅限转码",
+      title: appTranslator(locale)("settings.devices.labels.transcodeTitle"),
       body:
-        "持有这枚令牌的程序只能领取和执行转码任务，不能查看或修改你的订阅、媒体库和设置。" +
-        "令牌不会自动过期，只能在这里注销。",
+        appTranslator(locale)("settings.devices.labels.manualTranscodeBody"),
     };
   }
   return {
-    title: "将获得：与你相同的完全权限",
+    title: appTranslator(locale)("settings.devices.labels.adminTitle"),
     body:
-      "持有这枚令牌的程序将能做你在网页上能做的一切，包括删除媒体文件。" +
-      "令牌不会自动过期，只能在这里注销——只把它放进你自己掌握的机器。",
+      appTranslator(locale)("settings.devices.labels.manualFullBody"),
   };
 }
 
@@ -123,9 +127,9 @@ export function manualGrantSummary(scope: "full" | "transcode" = "full"): GrantS
  * 成员自己的权限（谁批准令牌就是谁的），一律写「完全权限」就说错了。
  * 不认识的 scope 按最危险的一档解释。
  */
-export function grantBadge(scope: string, ownerId: number): string {
-  if (scope === "transcode") return "仅转码";
-  return ownerId === 0 ? "完全权限" : "成员权限";
+export function grantBadge(scope: string, ownerId: number, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  if (scope === "transcode") return appTranslator(locale)("settings.devices.labels.badgeTranscode");
+  return ownerId === 0 ? appTranslator(locale)("settings.devices.labels.badgeFull") : appTranslator(locale)("settings.devices.labels.badgeMember");
 }
 
 // ---------------------------------------------------------------------------
@@ -168,11 +172,11 @@ export interface DeviceGroup<T> {
  * 手工令牌）其次，Jellyfin 播放器最后。组内保持服务端顺序（当前设备置顶，
  * 其余按最近活跃）。
  */
-const DEVICE_GROUPS: { key: string; label: string }[] = [
-  { key: "browser", label: "浏览器" },
-  { key: "app", label: "App" },
-  { key: "paired", label: "命令行与转码器" },
-  { key: "player", label: "播放器" },
+const DEVICE_GROUPS: { key: string; label: import("./i18n/translate.ts").AppMessageKey }[] = [
+  { key: "browser", label: "settings.devices.labels.groupBrowser" },
+  { key: "app", label: "settings.devices.labels.groupApp" },
+  { key: "paired", label: "settings.devices.labels.groupPaired" },
+  { key: "player", label: "settings.devices.labels.groupPlayer" },
 ];
 
 /**
@@ -182,15 +186,16 @@ const DEVICE_GROUPS: { key: string; label: string }[] = [
  */
 export function deviceGroupKey(kind: string): string {
   if (kind === "web") return "browser";
-  if (kind === "ios" || kind === "tvos" || kind === "macos" || kind === "android" || kind === "androidtv") return "app";
+  if (kind === "ios" || kind === "tvos" || kind === "macos" || kind === "windows" || kind === "android" || kind === "androidtv") return "app";
   if (kind === "jellyfin") return "player";
   return "paired";
 }
 
 /** 四类始终保留，让没有在线设备与没有设备记录的状态也有明确归属。 */
-export function groupDevices<T extends { kind: string }>(devices: T[]): DeviceGroup<T>[] {
+export function groupDevices<T extends { kind: string }>(devices: T[], locale: AppLocale = requestLocale() ?? "zh-Hans"): DeviceGroup<T>[] {
   return DEVICE_GROUPS.map((group) => ({
     ...group,
+    label: appTranslator(locale)(group.label),
     devices: devices.filter((device) => deviceGroupKey(device.kind) === group.key),
   }));
 }
@@ -209,7 +214,7 @@ export function deviceGlyph(kind: string, scope: string): DeviceGlyph {
   if (kind === "worker" || scope === "transcode") return "transcoder";
   if (kind === "ios" || kind === "android") return "phone";
   if (kind === "tvos" || kind === "androidtv") return "tv";
-  if (kind === "macos") return "computer";
+  if (kind === "macos" || kind === "windows") return "computer";
   if (kind === "web") return "browser";
   if (kind === "jellyfin") return "player";
   return "terminal";
@@ -225,7 +230,7 @@ export function identityParts(device: {
   kind_label: string;
   platform: string | null;
   client_version: string | null;
-}): string[] {
+}, locale: AppLocale = requestLocale() ?? "zh-Hans"): string[] {
   const platform = (device.platform ?? "")
     .split(" · ")
     .map((part) => part.trim())
@@ -236,7 +241,7 @@ export function identityParts(device: {
       ? []
       : [device.kind_label];
   parts.push(...platform);
-  if (device.client_version) parts.push(`版本 ${device.client_version}`);
+  if (device.client_version) parts.push(appTranslator(locale)("settings.devices.labels.version", { version: device.client_version }));
   return parts;
 }
 
@@ -261,29 +266,29 @@ export function isStale(
 }
 
 /** 凭证怎么来的就怎么说：手工令牌「创建于」、配对的「配对于」、密码换来的「登录于」。 */
-export function issuedVerb(kind: string, family: string): string {
-  if (kind === "manual") return "创建于";
-  return family === "paired" ? "配对于" : "登录于";
+export function issuedVerb(kind: string, family: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  if (kind === "manual") return appTranslator(locale)("settings.devices.labels.issuedManual");
+  return family === "paired" ? appTranslator(locale)("settings.devices.labels.issuedPaired") : appTranslator(locale)("settings.devices.labels.issuedLogin");
 }
 
 /**
  * 注销前的后果说明：按类型说清「注销之后要怎样才能再用」——这才是人决定
  * 按不按下去时真正想知道的。
  */
-export function revokeConsequence(kind: string, family: string): string {
+export function revokeConsequence(kind: string, family: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   switch (kind) {
     case "cli":
-      return "这台机器上的命令行会立即失去访问权限，要再用得重新运行 mclaw login 配对。";
+      return appTranslator(locale)("settings.devices.labels.revokeCli");
     case "worker":
-      return "这台转码器会立即断开，正在进行的转码一并停止；要再用得在转码器里重新配对。";
+      return appTranslator(locale)("settings.devices.labels.revokeWorker");
     case "manual":
-      return "持有这枚令牌的程序会立即失去访问权限。令牌无法恢复，只能重新创建。";
+      return appTranslator(locale)("settings.devices.labels.revokeManual");
     case "jellyfin":
-      return "这个播放器会立即退出登录，正在进行的播放一并停止；要再用得在播放器里重新登录。";
+      return appTranslator(locale)("settings.devices.labels.revokeJellyfin");
     default:
       return family === "paired"
-        ? "这台设备会立即失去访问权限，要再用得重新配对。"
-        : "这台设备会立即退出登录，正在进行的播放一并停止；要再用得重新输入密码登录。";
+        ? appTranslator(locale)("settings.devices.labels.revokePaired")
+        : appTranslator(locale)("settings.devices.labels.revokeLogin");
   }
 }
 
@@ -294,16 +299,16 @@ export function revokeConsequence(kind: string, family: string): string {
  * 关掉」，所以宁可粗一点也要读得懂——令牌的活跃时间本身就按分钟粒度落盘，
  * 再精确没有意义。
  */
-export function relativeTime(iso: string | null, now: number = Date.now()): string {
-  if (!iso) return "从未使用";
+export function relativeTime(iso: string | null, now: number = Date.now(), locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  if (!iso) return appTranslator(locale)("settings.devices.labels.never");
   const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "未知";
+  if (Number.isNaN(then)) return appTranslator(locale)("settings.devices.labels.unknownTime");
   const minutes = Math.floor((now - then) / 60000);
-  if (minutes < 1) return "刚刚活跃";
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1) return appTranslator(locale)("settings.devices.labels.justNow");
+  if (minutes < 60) return appTranslator(locale)("settings.devices.labels.minutes", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
+  if (hours < 24) return appTranslator(locale)("settings.devices.labels.hours", { count: hours });
+  return appTranslator(locale)("settings.devices.labels.days", { count: Math.floor(hours / 24) });
 }
 
 /** 最近 5 分钟内用过就算在线——落盘粒度是分钟，阈值再小就是假精度。 */
@@ -339,9 +344,9 @@ export function deviceLive(device: LivenessFields, now: number = Date.now()): bo
 }
 
 /** 活跃那一栏的第一段：连着的转码器写「已连接」，其余写最近活跃的相对时间。 */
-export function activityLabel(device: LivenessFields, now: number = Date.now()): string {
-  if (isTranscoder(device) && device.connected) return "已连接";
-  return relativeTime(device.last_seen_at, now);
+export function activityLabel(device: LivenessFields, now: number = Date.now(), locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  if (isTranscoder(device) && device.connected) return appTranslator(locale)("settings.devices.labels.connected");
+  return relativeTime(device.last_seen_at, now, locale);
 }
 
 // ---------------------------------------------------------------------------

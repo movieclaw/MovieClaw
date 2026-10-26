@@ -15,6 +15,8 @@
  */
 
 import { useMemo } from "react";
+import { appTranslator } from "./i18n/translate";
+import type { AppLocale } from "./i18n/negotiate";
 
 import type { DownloadTask } from "@/lib/api/downloaders";
 import type { JobView } from "@/lib/api/jobs";
@@ -159,20 +161,21 @@ export interface TaskActivityBadge {
   hint: string;
 }
 
-export function taskActivityBadge(activity: TaskActivity): TaskActivityBadge {
+export function taskActivityBadge(activity: TaskActivity, locale: AppLocale = "zh-Hans"): TaskActivityBadge {
+  const t = appTranslator(locale);
   const alert = activity.attentionTotal > 0;
   if (alert) {
     return {
       alert: true,
       count: activity.attentionTotal,
       href: "/activity?view=attention",
-      hint: `${activity.attentionTotal} 项需要处理`,
+      hint: t("nav.badges.attention", { count: activity.attentionTotal }),
     };
   }
   return {
     alert: false,
     count: activity.activeTotal,
     href: activity.activeTotal > 0 ? "/activity?view=active" : "/activity",
-    hint: activity.activeTotal > 0 ? `${activity.activeTotal} 个进行中` : "暂无进行中的任务",
+    hint: activity.activeTotal > 0 ? t("nav.badges.active", { count: activity.activeTotal }) : t("nav.badges.noActive"),
   };
 }

@@ -65,22 +65,22 @@ enum SkipSegments {
     /// 文案只依赖服务端类型；其他或未来类型不猜成片头或广告。
     static func label(_ segment: API.PlaybackSegmentView) -> String {
         switch segment.type {
-        case "intro": "跳过片头"
-        case "outro": "跳过片尾"
-        case "ad": "跳过广告"
-        case "preview": "跳过预告"
-        default: "跳过此段"
+        case "intro": String(localized: .playerSkipIntro)
+        case "outro": String(localized: .playerSkipOutro)
+        case "ad": String(localized: .playerSkipAd)
+        case "preview": String(localized: .playerSkipPreview)
+        default: String(localized: .playerSkipOther)
         }
     }
 
     /// 跳过后的提示里怎么称呼这一段：「已跳过片头」
     static func name(_ segment: API.PlaybackSegmentView) -> String {
         switch segment.type {
-        case "intro": "片头"
-        case "outro": "片尾"
-        case "ad": "广告"
-        case "preview": "预告"
-        default: "此段"
+        case "intro": String(localized: .playerSegmentIntro)
+        case "outro": String(localized: .playerSegmentOutro)
+        case "ad": String(localized: .playerSegmentAd)
+        case "preview": String(localized: .playerSegmentPreview)
+        default: String(localized: .playerSegmentOther)
         }
     }
 

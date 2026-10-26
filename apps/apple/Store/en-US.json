@@ -1,0 +1,11 @@
+{
+  "locale": "en-US",
+  "name": "MovieClaw",
+  "subtitle": "Your self-hosted media library",
+  "promotionalText": "Connect to your own MovieClaw server. Browse your library, keep your place across devices, and enjoy your movies and shows on iPhone, iPad, Mac and Apple TV.",
+  "keywords": "NAS,home,cinema,library,streaming,watch,episodes,collections,private,server",
+  "description": "Your library. Your server. Your screen.\n\nMovieClaw is the client for a MovieClaw media server that you host on your own hardware, such as a NAS or Mac. Connect to your server to browse and play your own movies and shows. A MovieClaw server and a server account are required; the app does not provide media content.\n\nBROWSE YOUR COLLECTION\nExplore your media libraries, collections, favorites and recently added titles. Find something to watch with posters, summaries and episode information supplied by your server.\n\nPICK UP WHERE YOU LEFT OFF\nKeep your watch progress on your server and continue across your devices. Choose available audio and subtitle tracks, and let your server handle playback when conversion is needed.\n\nMANAGE YOUR SERVER\nWith the permissions your administrator grants you, search releases, manage downloads on your server and follow movies or new episodes with subscriptions. Optional notifications let your server tell you when something arrives.\n\nAN OPTIONAL AI ASSISTANT\nIf your administrator connects an AI provider, ask the assistant to help with your library and server. The app explains which provider will receive your conversation before you first use it.\n\nBUILT FOR YOUR DEVICES\nUse MovieClaw on iPhone, iPad, Mac and Apple TV. Available features and controls vary by device and server configuration.\n\nYour library, account and watch history stay on your own server. Push notification content is encrypted on your server before it reaches the relay. The app has no advertising or third-party tracking SDKs.\n\nSource code and setup: https://github.com/movieclaw/movieclaw\nPrivacy: https://github.com/movieclaw/movieclaw/blob/main/docs/privacy-policy.en.md",
+  "supportURL": "https://github.com/movieclaw/movieclaw/issues",
+  "marketingURL": "https://movieclaw.io/en",
+  "privacyPolicyURL": "https://github.com/movieclaw/movieclaw/blob/main/docs/privacy-policy.en.md"
+}

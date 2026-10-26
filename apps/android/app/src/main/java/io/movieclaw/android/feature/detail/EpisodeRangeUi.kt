@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -55,13 +54,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.Success
 import io.movieclaw.android.core.designsystem.TextFaint
 import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.TextPrimary
 import io.movieclaw.android.core.model.EpisodeView
+import io.movieclaw.android.core.designsystem.mcGridCells
+import io.movieclaw.android.core.designsystem.mcCards
 
 /*
  * 长剧集分段的界面件（docs/design/long-season-episode-ranges.md §4，手机版）：
@@ -97,7 +97,7 @@ internal fun EpisodeRangeChips(
     }
     LazyRow(
         state = state,
-        contentPadding = PaddingValues(horizontal = McMetrics.pagePadding),
+        contentPadding = PaddingValues(horizontal = mcCards.pagePadding),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -207,7 +207,7 @@ internal fun AllEpisodesSheet(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding),
             ) {
                 Text("全部分集", style = McType.headline, color = TextPrimary)
                 Spacer(Modifier.width(8.dp))
@@ -251,7 +251,7 @@ internal fun AllEpisodesSheet(
                 grid.scrollBy((cell.offset.y + cell.size.height / 2 - center).toFloat())
             }
             LazyVerticalGrid(
-                columns = GridCells.Fixed(5),
+                columns = mcGridCells(phoneColumns = 5),
                 state = grid,
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 30.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -102,7 +102,10 @@ class ChatGPTCredentials(BaseModel):
         try:
             result = cls.model_validate_json(value)
         except (ValidationError, ValueError):
-            raise LlmAuthError("ChatGPT 授权无效，请通过电脑重新连接") from None
+            raise LlmAuthError(
+                "ChatGPT 授权无效，请通过电脑重新连接",
+                message_key="errors.llm.connection.invalidGrant",
+            ) from None
         if (
             not result.client_id.startswith("oaiapp_")
             or PLAN_SCOPE not in result.scopes
@@ -110,7 +113,10 @@ class ChatGPTCredentials(BaseModel):
             or not result.refresh_token
             or not result.access_token
         ):
-            raise LlmAuthError("尚未授权使用 ChatGPT 订阅，请重新连接并允许使用订阅")
+            raise LlmAuthError(
+                "尚未授权使用 ChatGPT 订阅，请重新连接并允许使用订阅",
+                message_key="errors.llm.connection.subscriptionGrant",
+            )
         return result
 
 
@@ -153,7 +159,9 @@ def verify_id_token(token: str, jwks: dict, client_id: str, nonce: str) -> dict:
             raise ValueError("claims")
         return claims
     except Exception as exc:  # noqa: BLE001 -- 不把令牌或第三方响应放入诊断
-        raise LlmAuthError("无法验证 ChatGPT 登录身份，请重新连接") from exc
+        raise LlmAuthError(
+            "无法验证 ChatGPT 登录身份，请重新连接", message_key="errors.llm.connection.identity"
+        ) from exc
 
 
 async def token_request(client: httpx.AsyncClient, form: dict[str, str]) -> dict[str, Any]:
@@ -165,7 +173,10 @@ async def token_request(client: httpx.AsyncClient, form: dict[str, str]) -> dict
             raise ValueError("missing access token")
         return data
     except (httpx.HTTPError, ValueError) as exc:
-        raise LlmAuthError("ChatGPT 授权已失效或暂时无法续期，请重试或重新连接") from exc
+        raise LlmAuthError(
+            "ChatGPT 授权已失效或暂时无法续期，请重试或重新连接",
+            message_key="errors.llm.connection.renew",
+        ) from exc
 
 
 async def refresh_credentials(
@@ -183,7 +194,9 @@ async def refresh_credentials(
     )
     scopes = data.get("scope", " ".join(credentials.scopes)).split()
     if PLAN_SCOPE not in scopes:
-        raise LlmAuthError("ChatGPT 订阅授权已撤销，请重新连接")
+        raise LlmAuthError(
+            "ChatGPT 订阅授权已撤销，请重新连接", message_key="errors.llm.connection.revoked"
+        )
     return credentials.model_copy(
         update={
             "access_token": data["access_token"],

@@ -1,0 +1,617 @@
+{
+  "controls.play": {
+    "sourceHash": "c3396195e91ccdd8468b38f08c58e5a7f13220f16ed29e668ffd4f58ef04f443"
+  },
+  "decision.discImage": {
+    "sourceHash": "87490cac5639e81994804476abd228bdf0bcb6be02dbc8fa68429d479ff35a3c"
+  },
+  "decision.discImageUnreadable": {
+    "sourceHash": "adf260cb81e26fd380d50f8027ca9fbf9e988b5bfb791142ba290f45ecfa497e"
+  },
+  "decision.discImageHint": {
+    "sourceHash": "d4562957fe378e5db692b825223ba7f005f4f4245468bf102a3a4a3477ba1cac"
+  },
+  "decision.discClips": {
+    "sourceHash": "282a5f180b190ea8cee057320908c824df92041571bd95b00130860d34c87d9e"
+  },
+  "decision.discFolder": {
+    "sourceHash": "4d9631e3d6de03913580dc6218da8250549dd5d169116934897755854c8bd2e6"
+  },
+  "decision.dvdFolder": {
+    "sourceHash": "ce85fb1fda376cbd57408122f79e6b64575b02a72b9c10c2bb54cf49c48c84df"
+  },
+  "decision.discRemux": {
+    "sourceHash": "8059e7db6a42b9e962315192eb6542a91a503076bd800ffca536f2af1fc5e095"
+  },
+  "decision.universal": {
+    "sourceHash": "af987a41ba7cdf2b9691229b7fa974f518996df28ec5b7489ad98fe722b6e3e3"
+  },
+  "decision.burnPgs": {
+    "sourceHash": "7c787053c8fa110c0837e4a4031cc1c6e28acb1c1345c15591ef12626f6a5fef"
+  },
+  "decision.softwareCost": {
+    "sourceHash": "42f20ec2024791d0b13976b88c89f41c3cfdaeb3ab021b7fb5cff99cd5a3ff2b"
+  },
+  "decision.unknown": {
+    "sourceHash": "4d8c1c5b42830791a4ce99f630fb9f02ba08c67c5299d46d6cf76661bfd03584"
+  },
+  "decision.audioContainer": {
+    "sourceHash": "3041ec975ac80a04ce2f8ee7cbd18253ee754522d664e08efa62e7d8c465f259"
+  },
+  "decision.degradedAudioPrefix": {
+    "sourceHash": "26a67e06a0e4e3c14dd5cd3d7fc5806b2e04f19b082cec29aba4d226d16e3ee5"
+  },
+  "decision.hardwareBusy": {
+    "sourceHash": "52a29c24372e30cb46dc6fec5735d612d1e3c3b011f4580a4bb7a44c0ee3e05d"
+  },
+  "decision.hardwareMissing": {
+    "sourceHash": "545a39fb91681ce3d38c8e9d31495f28ad4397b7c48f4afe33a0ba54528a925e"
+  },
+  "decision.videoUnsupported": {
+    "sourceHash": "2438d88e55150f2dad7d3ebb5b59182ec9b0439e2f97857f6c076cecfd8e6c58"
+  },
+  "decision.resolutionUnsupported": {
+    "sourceHash": "ed575567d737cc2caf14d2c3dd87b84f91a1b73de07c91beb85f8cc64a04810f"
+  },
+  "decision.nativeHlsResolution": {
+    "sourceHash": "81e6be60cab01a50aebbafd22a76c50eec7bf38eadd56bf41e0c68b114c1eb95"
+  },
+  "decision.qualityCap": {
+    "sourceHash": "2386c6591cf8bffd0e69cbfe514e7163f397f6caa8e647502214a5ff4bd85ee3"
+  },
+  "decision.dolbyDirect": {
+    "sourceHash": "1c6a7873fc08b1134fea739928d582d9ce53af17dbbf13e29aaef55ff0c0dba2"
+  },
+  "decision.dolbyBaseLayer": {
+    "sourceHash": "673cffc1236994dd6f52eaac381ac14be4e76a0a91e53e2d1a6762dcd2cfe97c"
+  },
+  "decision.dolbySevenBaseLayer": {
+    "sourceHash": "2731275e6fef2b93f633d531732e6ffb58f5bb513c4185f8528ba45f6a42f88e"
+  },
+  "decision.dolbyColorConversion": {
+    "sourceHash": "f5d4a8ce91692dff9dc7c657f90def2c0bb7c0d0123d2434dc5b41ef4a487c65"
+  },
+  "decision.dolbyHardwareRequired": {
+    "sourceHash": "88374620e2d7788f892808f8ffd865d6c983c99eb997d2fd10b6dd10b676424f"
+  },
+  "decision.dolbySdr": {
+    "sourceHash": "d88aa26372ed29d54d425dcf380364c9602fcd1827f5fdd39872d9475cafb31f"
+  },
+  "decision.hdrConversionRequired": {
+    "sourceHash": "822d0754c2fe22730d018ccad13863de3efee6cb7b199110d88ca0d919108580"
+  },
+  "decision.hdrHardwareRequired": {
+    "sourceHash": "f872cc70cb461f89e0b8f5748a87b3323318536f9da49ad10bed6b84ef0d984b"
+  },
+  "decision.hdrSdr": {
+    "sourceHash": "536a5ac9729888ebf63e13895791840c8798f634220f918a7fcf64ab7342ad76"
+  },
+  "decision.hdrDirectNote": {
+    "sourceHash": "5c0c841fb6d177eb6ffa5f7ec0e138e16cb075bf4d8d8e3e3d7088f7a9c5efb6"
+  },
+  "decision.videoCopy": {
+    "sourceHash": "d080aa73de0cd407a47a4ba7fd5021bc36cace5a4e3b999e2aa2acba4b02e9d0"
+  },
+  "decision.noAudio": {
+    "sourceHash": "e23611241fc5de01dcb00c09309f024c4c66a92301cd5ea67ca07857b960c58f"
+  },
+  "decision.audioAlreadyAac": {
+    "sourceHash": "c9f3666bdcd2ec527fef2bd99e579737dab0fb0e9e83b7eee078589f2250214b"
+  },
+  "decision.nativeHlsAudioPrefix": {
+    "sourceHash": "556c0fb8c024ef1f1d9863756dcc6e51be9848c6e5d8c8b4f01dbda8971323e0"
+  },
+  "decision.audioCopy": {
+    "sourceHash": "055f5c7916fa071145bd7473ee0e2d4cb6995ff83227ddcf9fb1f4a54a1d521a"
+  },
+  "decision.selectedAudioPrefix": {
+    "sourceHash": "44b98d71aaa84ea34a4303228b43af2c42d56cc05f2a834ed3f7771cf732f008"
+  },
+  "decision.audioSwitched": {
+    "sourceHash": "ad6cf9091613f222d3dbc04504015fac0006eb08be3d95546a1b21e7e22da7c0"
+  },
+  "decision.audioCodecCopy": {
+    "sourceHash": "96bc46f10ed2edd02315b167fdfe3f47e022a13910f1a683e6152551801065da"
+  },
+  "decision.audioPrefix": {
+    "sourceHash": "138d91dbd202e8809b3878fc96032392fe85036d07b126d21c97c44520ba829b"
+  },
+  "decision.audioFixedStereo": {
+    "sourceHash": "79a9be6ee6bfa6d4a961aaf60b87eddf66deed83521ea425d6cbb49bb876c07f"
+  },
+  "decision.audioTranscoded": {
+    "sourceHash": "d4173ed0689375a9ec804ef70f13bad6942d120176a43dfda6b6c55643f7c51f"
+  },
+  "decision.channels": {
+    "sourceHash": "c966bbb51d56c8e5e728bb7ba5168021c4eaab74084da8bd91fb776bf273e856"
+  },
+  "decision.nativePlayerHint": {
+    "sourceHash": "c6514b93ba594c4efa50c0bcabe76576f78362a944c6aa1cfdf8dbf753b0475e"
+  },
+  "decision.invalidDolbyRecord": {
+    "sourceHash": "2b6e5b24dceaf1c545fa2b72f7a042ca795fdfd5989fd59d48eedc0bad57192d"
+  },
+  "decision.dolbyEnhancementRemoved": {
+    "sourceHash": "3832a216ca824b982699459e144f81ee7ae756371ba19b150a80cfb10c89d035"
+  },
+  "decision.sampleTableTooLarge": {
+    "sourceHash": "04c6af342d1b5cfb9a2df59d393259aef443a1bf0c25f65ef0d61a4687cbf417"
+  },
+  "decision.nonDefaultAudio": {
+    "sourceHash": "2cd0a6753d05e8b813ad63c9881e991b9daf1a14d6797d1d7867e6adeccfe877"
+  },
+  "decision.containerRemux": {
+    "sourceHash": "9d6dc341ca8218265b048e4f56b037f709125d72239ad1df82cfdc81e9a8f21c"
+  },
+  "decision.sparseKeyframes": {
+    "sourceHash": "fd656d3aa4aba265ff824641ee61de556bcaef73c914f4876bd9dd5e8c4f0af9"
+  },
+  "decision.keyframesPending": {
+    "sourceHash": "bbf3de37ad860fe565c8ea58ce83ed3d49e257d4d6ba7d209ac53334881a569f"
+  },
+  "decision.allMethodsFailed": {
+    "sourceHash": "64a40c6b7b96bf3cec59b0252594d212d7028969a88ec9ad3f2e9fcb52638d46"
+  },
+  "decision.allMethodsHint": {
+    "sourceHash": "4ed50b10a00ba463fb5f7bdabc7bb53a1d8386b73d2119cc771258b89754b984"
+  },
+  "decision.hdrHardwareFailed": {
+    "sourceHash": "2bfce7663fd3342376c19e9b7ffa93dffd3f5cc699a663f104589abaae4927a5"
+  },
+  "decision.retryNativeHint": {
+    "sourceHash": "cfe13b6918f16b587e734d8fccb1dc835346f15c4744d4fb8335a2c79928c3f9"
+  },
+  "decision.degraded": {
+    "sourceHash": "4cf2f3dc2380cba9c2f1db56fc0eb79bfff3e065fccf7f90c0d297c61e25c9c6"
+  },
+  "decision.strmSpecsMissing": {
+    "sourceHash": "04b0ec5db09c638e7a305bedae460deabf5b2b9d7bcd4a4b68a5d92457727cfc"
+  },
+  "decision.strmSpecsHint": {
+    "sourceHash": "b49062b2ce360594f488de01cd9448825eb49b2389cba31091095f63881da67a"
+  },
+  "decision.discBitrateUnsupported": {
+    "sourceHash": "5413647e5beffdcb5703f7a62316f80cd042eb55bbe2773a428d3c92357b97c9"
+  },
+  "decision.originalQualityHint": {
+    "sourceHash": "74a3cc738f37cc46a25f91e4fa7499204c9dde5b2445328268e9e686935bb031"
+  },
+  "decision.noTranscoder": {
+    "sourceHash": "44b459fd3b9b708e848b7c709dac5c208da75366330970e2b7ba11167545ac06"
+  },
+  "decision.noTranscoderHint": {
+    "sourceHash": "f1ee512da53c50c9e414859c05baacfddd97c169ac675efed35bbb858d8ad3c5"
+  },
+  "decision.hdrNoHardware": {
+    "sourceHash": "e5af4110125f32a441c2d4cfa1e9731b81fd685ade27ca47b534504e187c01b8"
+  },
+  "decision.hdrNoHardwareHint": {
+    "sourceHash": "c0f8e99de7daa6d391e39a5582da87d6991516b823cc1d5aeeb24be8557e1983"
+  },
+  "decision.cappedVideo": {
+    "sourceHash": "620dab0110a77119bc446453376794d3850c0a90071c7f5ac2b6996c3232d79f"
+  },
+  "decision.audioKept": {
+    "sourceHash": "3110d319c7ca4a3d3c8c7d3d56fe128146a8f4a2fa94a456f3f72461e04f68e9"
+  },
+  "decision.audioChannels": {
+    "sourceHash": "fbe73c14e8e9cafb61a3d21f5a84f15d952bd681121e37b750b70bddacf84e85"
+  },
+  "decision.audioTarget": {
+    "sourceHash": "33c4823d7c9eaa6948c2da7bef71a11d386850c2f175d2664b66944b85a95024"
+  },
+  "decision.strmUnplayable": {
+    "sourceHash": "b20577cfd1ff7d63bc545743fbe6feddb7d01a9ae91935894229887d4ebeb1ff"
+  },
+  "decision.strmUnplayableHint": {
+    "sourceHash": "3caf8a72479a816a49006a37cf0544a994854427afd494eb7c8fa374c1c19f81"
+  },
+  "decision.strmDirect": {
+    "sourceHash": "cada5990f590e5699c392b6edd12b70c358c19d49b17b2ff9ae806ded6b8aaf3"
+  },
+  "decision.combined": {
+    "sourceHash": "432ea3ddaaaa6bb8a1621e67ce40ddeaa80e88095d9570cdbcc5e418e6762b09"
+  },
+  "decision.noSeparator": {
+    "sourceHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "decision.spaceSeparator": {
+    "sourceHash": "36a9e7f1c95b82ffb99743e0c5c4ce95d83c9a430aac59f84ef3cbfab6145068"
+  },
+  "decision.adapted": {
+    "sourceHash": "8bc9ca9285c64e68e8c6f1c4c60b60021670db6bd93c5444c85a932725f4e3ba"
+  },
+  "decision.bandwidthLimit": {
+    "sourceHash": "5d90178147dd432357e2e9c43c193c14d8cb2b99a14b2dda0112fd6c38ae5eb6"
+  },
+  "decision.measuredLink": {
+    "sourceHash": "fae7cf64b56077082d7b15fc7783608ccdf71bc3e3c28d15208969b1213cc1de"
+  },
+  "decision.declaredLimit": {
+    "sourceHash": "715a3fb48d35a8e9c653eca8ebcb5ef254764c59c75159f400fa16446cb7a221"
+  },
+  "decision.lowerHeight": {
+    "sourceHash": "47fa75b8fba791970b2362f72091e18379bb433b0df1b801f111a766c2fc0c74"
+  },
+  "decision.jellyfinCap": {
+    "sourceHash": "c1a1374ff4e17565abdda62a8c52b57dd40a2de4ed2aa8f9e8ac93ee3d7fd582"
+  },
+  "decision.hardwareFallback": {
+    "sourceHash": "590bbb32f36a1e7a10d77759de6330e9d6c7c470e87b9c8b4cee706456df8dba"
+  },
+  "sessions.ended": {
+    "sourceHash": "51dd37b36962081bcd43e59b95679f6758343432e7ef79f2661c849ee6252792"
+  },
+  "history.itemCleared": {
+    "sourceHash": "fd118dbd6ce65ca192bb3e39cc6a9b6a4f0ca6ae9f66b6833d9d9dc01766bad6"
+  },
+  "history.libraryCleared": {
+    "sourceHash": "03128f6f82bf0bd188a8900037d434debd241e8a8e7484a6f68b8624a3ffb05e"
+  },
+  "history.periodCleared": {
+    "sourceHash": "ac1879f8b81d840f17a4a249b795057666c0c6bd6bd2df86e42222826dd48666"
+  },
+  "history.allCleared": {
+    "sourceHash": "daa130124838c8e36e80827d6c38e2acdec9978fe660f84967b79ae6d7455b65"
+  },
+  "delivery.direct": {
+    "sourceHash": "b06325c5660f0c295b1fcdbf9e2dbe645d7fa65ab4ac0128c1f5e8afd106feed"
+  },
+  "delivery.remote": {
+    "sourceHash": "2e14513e7a456952f0cb57b8c8c900528cc0999cf20cc631f949541d447f0972"
+  },
+  "delivery.hardware": {
+    "sourceHash": "4d1dbf8c26285f1671d47467b02bbfe09c4d389afa870879881f16713219b1de"
+  },
+  "delivery.software": {
+    "sourceHash": "44afccb494a6f7c5c100f6c614f828740dae974b38bbc5f39b2e085e0e5d958f"
+  },
+  "delivery.workerNamed": {
+    "sourceHash": "1de4864a590dc8545646206eb76efe5d8db851ccd3fa2daaae5ab2b9ad682868"
+  },
+  "delivery.worker": {
+    "sourceHash": "7c210fc76aac3cacac3fd87a5dd52504d2429fdcbd92f523760ddc0dc48be662"
+  },
+  "delivery.cpu": {
+    "sourceHash": "304318f31e18bbf5431ca3b8f8e368efaf261d29d7a5168fa290792cd6701dc9"
+  },
+  "delivery.downmix": {
+    "sourceHash": "e249180b21dc8a5263b22a45349ce7e7abfe73d4a7ac261798c842e2557af724"
+  },
+  "delivery.audioTarget": {
+    "sourceHash": "83ceb8938ddb60ce97613e02b40b110c6421f77e2b19253c089b9d176a9980d8"
+  },
+  "delivery.audio": {
+    "sourceHash": "9de21d95d9b85c4fb49d0f9f4899d12168986b104ca5607d7d694db11d9032d8"
+  },
+  "delivery.remux": {
+    "sourceHash": "033bde86a4e44b1a8758b6bb66e5930f9115d9e5922bad75434d272bd168e8f5"
+  },
+  "defaults.audioRemembered": {
+    "sourceHash": "00a606d020443e3d16eafe979333d624fc905ab379718d5c16943081e34039b4"
+  },
+  "defaults.audioSeries": {
+    "sourceHash": "e58bc563cc0db1d289cdca5ca174c6dbf82a42c544791cba2e155c63fc036292"
+  },
+  "defaults.audioOriginalLanguage": {
+    "sourceHash": "477587621def120eb523aba5f208b28a263e92440be865857ebb58fe93a94363"
+  },
+  "defaults.audioDefaultFlag": {
+    "sourceHash": "13d2c3869d72cbbd0c6a3c6b59b9854474d36d798f4bdda54d37e6b23bfc7e5a"
+  },
+  "defaults.audioFirst": {
+    "sourceHash": "7835ca7584b88252fd5fe64c05211f9e45ee8cc923e33018f9abff7c3cfaba1f"
+  },
+  "defaults.audioNone": {
+    "sourceHash": "4017851cf3da20b02d1cbbb5dedcc353252cf2bb410694203002bcba65a721c1"
+  },
+  "defaults.subtitleRemembered": {
+    "sourceHash": "112ae4523b3d504f7e11dd1d5246bb38e0f6c4e75ab360199a52ce15716b91aa"
+  },
+  "defaults.subtitleSeries": {
+    "sourceHash": "6e590d0e26e71deb696662268b0d30d4fa5ad4ffa5871c6aef8c19060e827106"
+  },
+  "defaults.subtitleLibraryLanguage": {
+    "sourceHash": "c6e67f007b5f6d228629740bc7665c9bfab7290b9b62ba8f061fffb113134526"
+  },
+  "defaults.subtitleForced": {
+    "sourceHash": "eb70419b139d3bdefd010d5e32749a9f8bfb6c88c6638fb0f4e96618dd6535de"
+  },
+  "defaults.subtitleSameLanguageOff": {
+    "sourceHash": "7d118966c8456f846a5a74f342cf107a56cb61de40115ad543debe8425ae07b8"
+  },
+  "defaults.subtitleNoLanguageMatch": {
+    "sourceHash": "275020ba6eeeea6f34f6ab36bfdb8ec8176c844ebd6e078e20616915f1add9f5"
+  },
+  "defaults.subtitleExternal": {
+    "sourceHash": "5275104fe6afae990d9104dca05cb0e6af471776e4652c220b35b342e72992a2"
+  },
+  "defaults.subtitleDefaultFlag": {
+    "sourceHash": "d86c00f2c00df938c351ce84d39b448e8cc9eea879317d18db627187d5e585bd"
+  },
+  "defaults.subtitleForcedOnly": {
+    "sourceHash": "ba3329e2536f5059f9f601a5a187ed09bdeb09d54d516cdf134d30e1a915162a"
+  },
+  "defaults.subtitleNone": {
+    "sourceHash": "c7e0c467d9ddbae0e30e9397e9103eee536cbbeffe25296aa16a3142c6808cc8"
+  },
+  "defaults.subtitleOffRemembered": {
+    "sourceHash": "5dc38597a76356242e29d3d08e11f6db17547aa1fa16d33a2cbc0111db146541"
+  },
+  "defaults.subtitleOffSeries": {
+    "sourceHash": "ee3b3f53b9530f72f697c9b84e9028a7b8897d0306c6bf39604ff831c479ec33"
+  },
+  "qoe.source.uhdBluray": {
+    "sourceHash": "2e493703bc6202fa11d84fb8e46223e2eee96d12e31866963082f4eb174dd904"
+  },
+  "qoe.source.bluray": {
+    "sourceHash": "dee88a4b63d46941f655b08f165b29ec22c74b249cab17c4076de05b32f66be4"
+  },
+  "qoe.source.legacy": {
+    "sourceHash": "8b7a144fe7b30462ff242862583c6ccbbfd4f770657c7bcc8cb8d9177a8adb83"
+  },
+  "qoe.source.dolbyVision": {
+    "sourceHash": "7963e073e1d86d8965b99c5bbf476f0dd11a8f0f1ad3e29fc5ba1fbc735d35a1"
+  },
+  "qoe.source.sd": {
+    "sourceHash": "6d110f09ffeb8ed621ccabece247f86076b2ffa5f4deb22544eebf3b616c815d"
+  },
+  "qoe.source.unknown": {
+    "sourceHash": "4d8c1c5b42830791a4ce99f630fb9f02ba08c67c5299d46d6cf76661bfd03584"
+  },
+  "qoe.reason.noPicture": {
+    "sourceHash": "010400b53a5369c5583fdacfbf7650b6fd162a9c5d878172fc0b5c2e3dcaa55c"
+  },
+  "qoe.reason.failed": {
+    "sourceHash": "28384d7afd2e4fa66084f6803b9d3cb3b1c1ebb0a4ecc4cc97706745405e5df4"
+  },
+  "qoe.reason.abnormalExit": {
+    "sourceHash": "206aef655681c972a053445a77a2e0c289856ca9eff686b907ed73ab3055ee88"
+  },
+  "qoe.reason.startupSlow": {
+    "sourceHash": "6978145b50978f25c67dc3804e46cb6e1f163365bd49d2a9cfa5e80b10d4186e"
+  },
+  "qoe.reason.seekSlow": {
+    "sourceHash": "0b5c0bb4ab111c0fdb8c36323ae6e077643a6ec9695161b8e44e15ad52f2cf3c"
+  },
+  "qoe.reason.interrupted": {
+    "sourceHash": "6237c40edb4378a00a8fd8413b24e379762a83f90388c7380b191cb02e74dbdf"
+  },
+  "qoe.reason.avoidableLoss": {
+    "sourceHash": "403f3f3503f255b0c97ac6553001620b9a61bc65d512aa8e41fbfdef0d67836f"
+  },
+  "qoe.reason.misguess": {
+    "sourceHash": "cecc78ccaf567a4df3d9bd70848c89f6f49fe2320dbc1498beb5e2c23c9658fb"
+  },
+  "qoe.network.home": {
+    "sourceHash": "5879c0bf32bb823f3ed464a13cdbfbd4c676b52954fd6b05b7ef85782371cb6c"
+  },
+  "qoe.network.away": {
+    "sourceHash": "b234a64ac3e2d285cc507c47bef74de4820cd290500b096ce2758bed8a65686f"
+  },
+  "qoe.network.unknown": {
+    "sourceHash": "dc93931264c3016c9f01a1b80a3e8643ed69532ac89bcd07b40bf067d1e88c8e"
+  },
+  "session.remoteNoSegment": {
+    "sourceHash": "c730e2a17f6e46337049dcb9130cd81ee551c7da262bfb84296b735ad0b5d78c"
+  },
+  "session.exitCode": {
+    "sourceHash": "538362a4344472a40d8c32752f60c868cdd05443271482927e26bfd349bf8ec1"
+  },
+  "session.stderr": {
+    "sourceHash": "c79aed59278b2af5353b44c30f60ead8ed03953363d70f5364b435da8772c270"
+  },
+  "session.failure": {
+    "sourceHash": "caf3c2c2d54bd31628c0c633710cabfbc23a2f978a77647ff9c3a71e88024616"
+  },
+  "session.cloudFileUnavailable": {
+    "sourceHash": "dcd4f76a3efffb398b5e294263b2ff228d49ebd6d0589544f005248b309025f1"
+  },
+  "session.cloudLinkUnavailable": {
+    "sourceHash": "104c099749106e1f6e915f1d7c43e2446bbca73c7d743fa67299f15ebbfc69b0"
+  },
+  "session.strmUnusable": {
+    "sourceHash": "af1bf97830439bc9cefacb9d1c064b4c56fa5db2b6fcd08c33c32d45e55a0b11"
+  },
+  "session.remoteRejected": {
+    "sourceHash": "f87194ec971101476d4caa217f8d63a497d7b35c873327a907c54d6a5454ed52"
+  },
+  "session.remoteSeekRejected": {
+    "sourceHash": "c41b2ebcfbb359183f3e1073220b683dfc8f8d572057fae7faf7bb4d9ece4fcd"
+  },
+  "session.remoteDisconnected": {
+    "sourceHash": "c99568fb6c45c57138464bde974b96ce4d04e8811dc5a18ad58fc521546745bd"
+  },
+  "session.remotePlaylistTimeout": {
+    "sourceHash": "98205996d0080d1a50308534f8a3465985f2d8b1f3a4be40320876fd61ad6a43"
+  },
+  "session.processExit": {
+    "sourceHash": "31371bb211d1db97ff66b74136943396a939d3c01ad58fdfffd884e7fb42f3c1"
+  },
+  "session.playlistTimeout": {
+    "sourceHash": "630422f755b621dc66adc4df68a161c0b34ab051f4718545c9b24df5412f538d"
+  },
+  "session.startupExit": {
+    "sourceHash": "29187f0de12f4e43bd6c79a467d90f8fe845dead13c06fdebabfd7a7bf0a884b"
+  },
+  "session.noOutput": {
+    "sourceHash": "f5a74af823f58ac240f61553691d829f5e0e684961969d81fdf4ec7add0b30ce"
+  },
+  "hw.backend.vaapi": {
+    "sourceHash": "d5ab372873cee3b0a3da3aa0160778ef8fe857980f4802c2788388cf0d70a850"
+  },
+  "hw.backend.qsv": {
+    "sourceHash": "4a86557c1352553e42f4b894160f9ffbcc3d27c457894f732a308ddcc8c00404"
+  },
+  "hw.backend.nvenc": {
+    "sourceHash": "27ca4c5cb895d1d4538ecb28de3a311eb0c14a3873f6b70e1a3ebfca4dedf55a"
+  },
+  "hw.backend.videotoolbox": {
+    "sourceHash": "2f0376f80713cef70e6891f8ee9524eead51cd775d45ed65f8afab25420c18c4"
+  },
+  "hw.noFfmpeg": {
+    "sourceHash": "6991beb0280cadc5b4268b0e13c42f0a69f6dfe4d4206778c8b20a5d6bd4e9bc"
+  },
+  "hw.remoteWorker": {
+    "sourceHash": "0b8b8089425d33f23589c93d5ea12af418475dfe4f882d35943c920a19ab0cf0"
+  },
+  "hw.macOnly": {
+    "sourceHash": "65178d704004163965ae5be20c9f91a6669527db4f66b97168a35abcd2553e5d"
+  },
+  "hw.buildHint": {
+    "sourceHash": "c62350e1b48eeb5d65f87e07a0b3c60b431bc69e0518c953d78e0b16df537917"
+  },
+  "hw.missingEncoder": {
+    "sourceHash": "9e56b9209cab5ce07071de5caf965d495add2cc153bdfdcf24d693a94f30bace"
+  },
+  "hw.verifiedLowPower": {
+    "sourceHash": "5d5e752a0c641263ae9b27a5199f36e21b85c76882ca57b852e83551e16794d6"
+  },
+  "hw.probeTimeout": {
+    "sourceHash": "40af771b33a8fdc038a0fbccafa5636a8a4284bcab37e1dbcf56212a101c6c11"
+  },
+  "hw.verified": {
+    "sourceHash": "4dbcb4c503e64b5733c0de056d0b8027b55e9320d34d05b6e75f76b223944331"
+  },
+  "hw.noNvidia": {
+    "sourceHash": "00a88e769bd70c94c03d84f0e2cae96b0667cc4e00906e7717f276727a39f0a0"
+  },
+  "hw.noDri": {
+    "sourceHash": "4143c0b57888db5dadcca860cd160a37c30d879dfdd763af88f7efffef00231a"
+  },
+  "hw.noRenderNode": {
+    "sourceHash": "05ac3d6b3d5857245c39ebb0374eb9e5c72c58fcb1d6fa2bf531ce2bfe3c98c4"
+  },
+  "hw.gidHint": {
+    "sourceHash": "357483cc1b1c0316e44107bec74355b99982e33f498d6d0a91cb6194487563ff"
+  },
+  "hw.noPermission": {
+    "sourceHash": "ed8e666005cb01277efdce5abed727e31a53b9388be55a38e3b1c99ee5ba1132"
+  },
+  "hw.driverPermission": {
+    "sourceHash": "099f0de9d5d662e99c434655396472871a2ecacd690c949248a032b7f45de930"
+  },
+  "hw.driverCannotOpen": {
+    "sourceHash": "68a74fbdd83c4248a8a59a6239852c6455948a715c655503da37375260e3b4bc"
+  },
+  "hw.driverUnsupported": {
+    "sourceHash": "02118e20dfd22cf877e1d00818e430a79b896ba4ad08621214b1bc0c8134e46f"
+  },
+  "hw.driverInitFailed": {
+    "sourceHash": "1f51210420e45c53f804d428d0040705a89d0d248813d7731af9269b9a266745"
+  },
+  "hw.probeFailed": {
+    "sourceHash": "920e3c203a17ab41e6c324b2c51d16de9fa8d54972991997e8a837c36c7376cd"
+  },
+  "hw.noReason": {
+    "sourceHash": "e0f6db6caec8c32b10bd36e1ccd2fd1aff78864a85bbd49c8e9b40076264246d"
+  },
+  "worker.waiterMissing": {
+    "sourceHash": "d5417ebc7586af82218456643ae03736014fef6c9728642af2b404a06dc8693a"
+  },
+  "worker.acceptTimeout": {
+    "sourceHash": "ca3bffb623cae30a9f6523cbdf59c446e55656b8b7e44362f8f049d6561ac7d0"
+  },
+  "worker.jobExists": {
+    "sourceHash": "38406a3606b44f321a1014da46cf295646ff0ce31e82c5fbf6288483b2e10209"
+  },
+  "worker.discTooOld": {
+    "sourceHash": "538cffbf6a7c046a22137857e79709b429538a6b2e00e9e7d28186ddf2bec040"
+  },
+  "worker.segmentTooOld": {
+    "sourceHash": "2f4251f8d99e55030afd5e1637fb64606b104b542749c11a4a9e22345e688599"
+  },
+  "worker.noneIdle": {
+    "sourceHash": "8fe55bef1dc6a99538920f87dbf73c8ed5ae1c2bf2163a557e50e7c98fc564d9"
+  },
+  "worker.dispatchFailed": {
+    "sourceHash": "d08ed394e24ca9a54b28ad0fdbd23a72cd10354c5c522911598aa0bdab29572a"
+  },
+  "worker.disconnected": {
+    "sourceHash": "c99568fb6c45c57138464bde974b96ce4d04e8811dc5a18ad58fc521546745bd"
+  },
+  "worker.replaced": {
+    "sourceHash": "a3978388d06101d80350d7f73c51c558145e03aa54bb69988b6a266d3ca093da"
+  },
+  "worker.configChanged": {
+    "sourceHash": "583304c5fbbf293e7d138ed3ea5e2c21b8042b7cb45eb0d416be032593672490"
+  },
+  "strm.cloudUnavailable": {
+    "sourceHash": "643d0bea00cba4223204612b4091ce8d9e12feaa660caacab9d99ac2cdefb55d"
+  },
+  "strm.mountUnreadable": {
+    "sourceHash": "99469d211be31bc0a5159fb866ea9356e9a80b3954c1fd2c82753bbf0077f7a0"
+  },
+  "strm.linkExpired": {
+    "sourceHash": "87be4d243eb4ea068be00d9098303fd4b6f9cc6df0e711ad3118e32582026f64"
+  },
+  "strm.linkUnreadable": {
+    "sourceHash": "e10be3b367aa00531c0f522c6bccb8968aad94de0f8a5d136f02357bbc79c36e"
+  },
+  "strm.noVideo": {
+    "sourceHash": "2dc36a504da7bf1ea1492c311932fa0537115e683a09f5d1e6ed2f1d15f9296d"
+  },
+  "strm.fileGone": {
+    "sourceHash": "937aa93368b587c5ee175c3e2f0b51ae88bcd4f0ab3b7aeaacb8b51102b71177"
+  },
+  "watch.browser": {
+    "sourceHash": "e19c3b9e266c69c952f9f265334bb14bceeb2f6869305d1a44447c5e09e64105"
+  },
+  "subtitleName.chinese": {
+    "sourceHash": "72726d8818f693066ceb69afa364218b692e62ea92b385782363780f47529c21"
+  },
+  "subtitleName.english": {
+    "sourceHash": "348ea84c60466c775ef76b536818a2148fa706b722e60373969b9291703275d9"
+  },
+  "subtitleName.japanese": {
+    "sourceHash": "ffb5f47363d4eeddd56535279f99dd80122586b7c78f889c943571ecaa860baa"
+  },
+  "subtitleName.korean": {
+    "sourceHash": "9adb531f355ad086199d3474ab5e4818b94ab56f457e76770e50147dbddb15b9"
+  },
+  "subtitleName.generic": {
+    "sourceHash": "60033a3bf561e656bd4d70070fba680e0fc1ecd08117e38656e14dad3a1b0a60"
+  },
+  "hw.lowPower": {
+    "sourceHash": "fc67c77611bc70ee13a63660999e916d89c0c29dc259adf866eb5a90d0d6d663"
+  },
+  "offline.transcoded": {
+    "sourceHash": "25ce932204c14646dbc0b045d4b3086679b1140c3651ff20e409432455b4e70f"
+  },
+  "offline.queued": {
+    "sourceHash": "ab61ebe65ff09bdf3d54b8ed8403408e45134a2ca8b004954f8db15791843753"
+  },
+  "offline.failed": {
+    "sourceHash": "8080cb24a3a4ce1c28c52cc825842bec70c298d3c8c31c8473db611e6d3cff22"
+  },
+  "offline.transcoding": {
+    "sourceHash": "c140ab8d94f2bedba8b97e7d9275616fc7568df5180d285458bb13775c8f4ff2"
+  },
+  "offline.speed": {
+    "sourceHash": "e1c5aa1031df66f96ad44bd1f3b223d80b0266ab80dac6610ab23e6f8baba95d"
+  },
+  "offline.percent": {
+    "sourceHash": "73037f32aba09e6f2aa4ec97d1f06389a54e5afc7fe750e0d503337eaee72470"
+  },
+  "offline.nasGpu": {
+    "sourceHash": "078bbe368bff43304f3ca524171dc0ea2cf5d9822b2aa8fb78dc957c1a8774ad"
+  },
+  "offline.nasSoftware": {
+    "sourceHash": "5f8a2b7a4f67a0e71ffac9a400b9c2c33af6b891ac568e2baec79e1e079ef164"
+  },
+  "offline.original": {
+    "sourceHash": "e890613e4c15b168444cc43eda24eda7672729bd13aeee5c61cb4329e6db1496"
+  },
+  "hw.withHevc": {
+    "sourceHash": "f4ba2d570b1202268f22167e98e87e21f8ebfdfb7b0638b5468c61555e797179"
+  },
+  "hw.hevcProbeTimeout": {
+    "sourceHash": "0d387173a6eec97087e41e95a464f3d29aeeda646a1c093315c3d64a8e5c2bcf"
+  },
+  "plan.dvP5Caveat": {
+    "sourceHash": "2c094c782c5a108c280c382c1118c8e63fc9407a9bd00dbfcd24c0361d0b0151"
+  },
+  "hw.remoteLabel": {
+    "sourceHash": "05dac27f0b17a077022523e3e220f165a331fdcbd4f88224add9c7434b02ff2f"
+  }
+}

@@ -24,6 +24,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n import t
 from movieclaw_api.services.agent_attachments import (
     MAX_ATTACHMENTS_PER_MESSAGE,
     AttachmentMeta,
@@ -51,13 +52,8 @@ class IngestResult:
 
 
 def _vision_notice(model_info: ModelInfo) -> str:
-    """默认模型不支持看图时的确定性提醒（IM 侧唯一的反馈渠道）。"""
-    return (
-        f"当前模型「{model_info.id}」不支持看图，这张图我看不了"
-        "（文字部分照常处理）。可在设置里把默认模型换成视觉模型"
-        "（如 qwen3-vl-plus）；若它其实支持看图，在供应商设置的「补录模型」里"
-        "为它勾上「视觉」后重发即可。"
-    )
+    """默认模型不支持看图时的确定性提醒（IM 侧唯一的反馈渠道；按收件人语言）。"""
+    return t("agent.im.visionUnsupported", model=model_info.id)
 
 
 async def ingest_inbound_images(
@@ -88,10 +84,7 @@ async def ingest_inbound_images(
 
     kept = list(images)
     if len(kept) > MAX_ATTACHMENTS_PER_MESSAGE:
-        notices.append(
-            f"一次最多处理 {MAX_ATTACHMENTS_PER_MESSAGE} 张图片，"
-            f"本轮只看前 {MAX_ATTACHMENTS_PER_MESSAGE} 张。"
-        )
+        notices.append(t("agent.im.tooManyImages", max=MAX_ATTACHMENTS_PER_MESSAGE))
         kept = kept[:MAX_ATTACHMENTS_PER_MESSAGE]
 
     attachment_ids: list[str] = []
@@ -102,7 +95,7 @@ async def ingest_inbound_images(
             meta = await asyncio.to_thread(store.save_staging, data, image.name)
         except BadRequestException as exc:
             logger.warning("IM 图片入库失败，已跳过：%s", exc.message)
-            notices.append(f"有一张图片没能处理（{exc.message}）。")
+            notices.append(t("agent.im.imageFailed", error=exc.message))
             continue
         attachment_ids.append(meta.attachment_id)
 

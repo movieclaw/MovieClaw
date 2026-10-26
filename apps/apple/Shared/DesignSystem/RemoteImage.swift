@@ -230,7 +230,7 @@ extension ImageWidth {
 
 /// 旧的图片尺寸预设（同 Web `lib/image-proxy.ts` 的 ImageVariant）：按「设备 × 场景」命名，尺寸按网页定，
 /// iPhone 3 倍屏、4K 电视上都偏小。客户端已全部改用宽度阶梯（`ImageWidth`），这里只为旧路径保留，新代码不要再用
-@available(*, deprecated, message: "改用宽度阶梯：api.image(raw, width: ImageWidth.points(...))")
+@available(*, deprecated, message: "改用宽度阶梯：api.image(raw, width: ImageWidth.points(...))") // i18n-ignore: developer message
 nonisolated enum ImageVariant: String {
     case landscapeCard = "landscape-card"
     case posterCard = "poster-card"
@@ -261,7 +261,7 @@ nonisolated extension ServerAddress {
     }
 
     /// 旧的按预设取图（只有刮削资产与代理认）；保留给旧路径
-    @available(*, deprecated, message: "改用 imageURL(_:width:)")
+    @available(*, deprecated, message: "改用 imageURL(_:width:)") // i18n-ignore: developer message
     func imageURL(_ raw: String?, variant: ImageVariant?) -> URL? {
         guard var components = imageComponents(raw) else { return nil }
         if let variant, components.path.hasSuffix("/images/proxy") || components.path.contains("/images/assets/") {

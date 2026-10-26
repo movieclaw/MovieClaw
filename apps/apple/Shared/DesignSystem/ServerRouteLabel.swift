@@ -21,9 +21,9 @@ struct ServerRouteLabel: View {
         guard let route = current.route else { return nil }
         let host = ServerAddress(origin: current.origin).hostLabel
         return switch route {
-        case .lan: "家里网络 · \(host)"
-        case .vpn: "外网（经 VPN）· \(host)"
-        case .wan: "外网 · \(host)"
+        case .lan: String(localized: .settingsNetworkRouteLan(host))
+        case .vpn: String(localized: .settingsNetworkRouteVpn(host))
+        case .wan: String(localized: .settingsNetworkRouteWan(host))
         }
     }
 }

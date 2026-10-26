@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 /**
  * 「MovieClaw Cloud」设置分区（docs/design/cloud-push.md §0、§2、§7.1、§8）。
  *
@@ -67,6 +69,8 @@ import { useVisiblePolling } from "@/lib/use-visible-polling";
 type Run = (action: () => Promise<CloudStatusView>) => Promise<CloudStatusView>;
 
 export function CloudSection() {
+  const t = useTranslations();
+  const locale = useLocale();
   const [status, setStatus] = useState<CloudStatusView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pairingOpen, setPairingOpen] = useState(false);
@@ -80,7 +84,7 @@ export function CloudSection() {
   const refresh = useCallback((reportError: boolean) => {
     if (writingRef.current > 0) return;
     const epoch = epochRef.current;
-    getCloudStatus().then(
+    getCloudStatus(locale).then(
       (next) => {
         if (epoch === epochRef.current && writingRef.current === 0) setStatus(next);
       },
@@ -89,7 +93,7 @@ export function CloudSection() {
         if (reportError) setLoadError(e.message);
       },
     );
-  }, []);
+  }, [locale]);
 
   const run = useCallback<Run>(async (action) => {
     epochRef.current += 1;
@@ -104,6 +108,7 @@ export function CloudSection() {
   }, []);
 
   useEffect(() => {
+    epochRef.current += 1;
     refresh(true);
   }, [refresh]);
 
@@ -131,7 +136,7 @@ export function CloudSection() {
           }}
           className="btn-glass px-4 py-1.5 text-sub font-medium"
         >
-          重试
+          {t("common.retry")}
         </button>
       </div>
     ) : (
@@ -157,9 +162,9 @@ export function CloudSection() {
         <p className="flex items-start gap-2 px-1 text-caption leading-5 text-[var(--text-faint)]">
           <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
           <span className="min-w-0">
-            开发者设置：这台服务器连的是{" "}
+            {t("settings.cloudConnect.developerPrefix")}{" "}
             <span className="break-words font-mono text-[var(--text-muted)]">{status.cloud_url}</span>
-            （环境变量 MOVIECLAW_CLOUD_URL）
+            {t("settings.cloudConnect.developerEnv")}
           </span>
         </p>
       )}
@@ -178,51 +183,51 @@ function DisconnectedView({
   status: CloudStatusView;
   onConnect: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const lastDisconnect = status.last_disconnect;
 
   return (
     <div className="space-y-5">
       {/* 被动断开（在官网解绑、账号删除）：平静地说明，不用警告色——这是结果，不是故障 */}
       {lastDisconnect && (
-        <Banner tone="neutral" title="这台服务器已和 MovieClaw 账号断开">
-          {lastDisconnect.message?.trim() || "在 MovieClaw 官网上断开了连接，需要的话可以重新连接。"}
+        <Banner tone="neutral" title={t("settings.cloudConnect.disconnectedTitle")}>
+          {lastDisconnect.message?.trim() || t("settings.cloudConnect.disconnectedHint")}
           {lastDisconnect.at && (
-            <span className="text-[var(--text-faint)]"> · {formatRelativeTime(lastDisconnect.at)}</span>
+            <span className="text-[var(--text-faint)]"> · {formatRelativeTime(lastDisconnect.at, locale)}</span>
           )}
         </Banner>
       )}
 
       <div>
         <SettingsCard
-          title="还没有连接"
-          description="连接后，家人手机上的 MovieClaw App 就能收到通知。连接需要一个 MovieClaw 账号（Apple、Google 或邮箱都行），只有你（管理员）需要，家人不用。"
+          title={t("settings.cloudConnect.notConnected")}
+          description={t("settings.cloudConnect.connectHint")}
           hint={
             <a
-              href={cloudReportsInfoUrl(status.cloud_url)}
+              href={cloudReportsInfoUrl(status.cloud_url, locale)}
               target="_blank"
               rel="noopener noreferrer"
               className={LINK_CLASS}
             >
-              会向 MovieClaw Cloud 上报哪些信息？
-            </a>
+              {t("settings.cloudConnect.reportsLink")}</a>
           }
           action={
             <button type="button" onClick={onConnect} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
-              连接到 MovieClaw 账号
+              {t("settings.cloudConnect.connect")}
             </button>
           }
         />
         {/* 给不连接的人留出口：卡片下方一行补充说明，不再另起一条横幅 */}
         <p className="mt-2 px-1 text-caption leading-5 text-[var(--text-faint)]">
-          只想用微信、Telegram 收通知？不用连接，去{" "}
+          {t("settings.cloudConnect.imAlternative")}{" "}
           <Link href="/settings/im-push" className={LINK_CLASS}>
-            IM 推送
+            {t("settings.cloudConnect.imPush")}
           </Link>
-          。自己打包了 App？去{" "}
+          {t("settings.cloudConnect.appAlternative")}{" "}
           <Link href="/settings/app-push" className={LINK_CLASS}>
-            App 推送
-          </Link>{" "}
-          添加自建中继。
+            {t("settings.cloudConnect.appPush")}</Link>{" "}
+          {t("settings.cloudConnect.relayAlternative")}
         </p>
       </div>
     </div>
@@ -238,33 +243,34 @@ function PairingCard({
   pairing: CloudPairingView | null;
   onOpen: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const pending = pairing == null || pairing.status === "pending";
   return (
     <SettingsCard
-      title={pending ? "正在等待在官网批准" : "这次连接没有完成"}
+      title={pending ? t("settings.cloudConnect.waitingWebsite") : t("settings.cloudConnect.incomplete")}
       description={
         pairing == null ? (
-          "正在申请配对码…"
+          t("settings.cloudConnect.requestingCode")
         ) : pending ? (
           <>
-            配对码 <span className="font-mono text-[var(--text)]">{pairing.user_code}</span>
-            ，在官网批准后这里会自动变成已连接。
-          </>
+            {t("settings.cloudConnect.pairingCode")} <span className="font-mono text-[var(--text)]">{pairing.user_code}</span>
+            {t("settings.cloudConnect.pairingAutoConnect")}</>
         ) : (
-          pairingFailureText(pairing.status, pairing.message)
+          pairingFailureText(pairing.status, pairing.message, locale)
         )
       }
       hint={
         pending && (
           <span className="flex items-center gap-2">
             <Spinner />
-            等待批准中
+            {t("settings.cloudConnect.waitingApproval")}
           </span>
         )
       }
       action={
         <button type="button" onClick={onOpen} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
-          {pending ? "查看配对码" : "重新连接"}
+          {pending ? t("settings.cloudConnect.viewCode") : t("settings.cloudConnect.reconnect")}
         </button>
       }
     />
@@ -274,6 +280,8 @@ function PairingCard({
 /* —— 已连接 —— */
 
 function ConnectedView({ status, run }: { status: CloudStatusView; run: Run }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const toast = useToast();
   const [busy, setBusy] = useState<"renew" | "disconnect" | null>(null);
@@ -294,8 +302,8 @@ function ConnectedView({ status, run }: { status: CloudStatusView; run: Run }) {
       const next = await run(renewCloud);
       // 同步时发现已在官网解绑：页面自己切到未连接并说明原因，不再弹回执
       if (next.state !== "connected") return;
-      if (next.health === "ok") toast.success("已和 MovieClaw Cloud 同步");
-      else toast.error(healthMessage(next.health, next.health_message) || "同步没有成功");
+      if (next.health === "ok") toast.success(t("settings.cloudConnect.synced"));
+      else toast.error(healthMessage(next.health, next.health_message, locale) || t("settings.cloudConnect.syncFailed"));
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -330,17 +338,17 @@ function ConnectedView({ status, run }: { status: CloudStatusView; run: Run }) {
 
   const disconnect = async () => {
     const ok = await confirm({
-      title: "断开与 MovieClaw 账号的连接？",
+      title: t("settings.cloudConnect.disconnectTitle"),
       description:
-        "家人手机上的官方推送会立即停止；自建中继和 IM 推送不受影响。以后可以随时重新连接。",
-      confirmLabel: "断开",
+        t("settings.cloudConnect.disconnectHint"),
+      confirmLabel: t("settings.cloudConnect.disconnect"),
       tone: "danger",
     });
     if (!ok) return;
     setBusy("disconnect");
     try {
       await run(() => disconnectCloud());
-      toast.success("已断开连接");
+      toast.success(t("settings.cloudConnect.disconnected"));
     } catch (e) {
       if (!isCloudUnreachable(e)) {
         toast.error((e as Error).message);
@@ -348,18 +356,18 @@ function ConnectedView({ status, run }: { status: CloudStatusView; run: Run }) {
       }
       // 云端连不上：只能删本地凭证，官网上还会挂着这台服务器，要管理员自己去删
       const force = await confirm({
-        title: "云端暂时连不上，仍要断开吗？",
+        title: t("settings.cloudConnect.forceTitle"),
         description:
-          "这台服务器会删掉自己的凭证、不再使用官方推送，但 MovieClaw 官网上还会列着它。断开后请到官网把这台服务器也删掉。",
-        confirmLabel: "仍要断开",
+          t("settings.cloudConnect.forceHint"),
+        confirmLabel: t("settings.cloudConnect.forceDisconnect"),
         tone: "danger",
       });
       if (!force) return;
       try {
         await run(() => disconnectCloud(true));
-        toast.info("已断开。记得到 MovieClaw 官网把这台服务器也删掉", {
+        toast.info(t("settings.cloudConnect.forceReceipt"), {
           action: {
-            label: "打开官网",
+            label: t("settings.cloudConnect.openWebsite"),
             onClick: () => window.open(manageUrl, "_blank", "noopener,noreferrer"),
           },
         });
@@ -385,11 +393,11 @@ function ConnectedView({ status, run }: { status: CloudStatusView; run: Run }) {
                   onClick={() => void renew()}
                   className={SETTINGS_BUTTON_CLASS}
                 >
-                  {busy === "renew" ? "同步中…" : "立即同步"}
+                  {busy === "renew" ? t("settings.cloudConnect.syncing") : t("settings.cloudConnect.syncNow")}
                 </button>
               }
             >
-              {healthMessage(status.health, status.health_message)}
+              {healthMessage(status.health, status.health_message, locale)}
             </Banner>
           )}
 
@@ -397,9 +405,9 @@ function ConnectedView({ status, run }: { status: CloudStatusView; run: Run }) {
             <Banner
               key={notice.id}
               tone={noticeTone(notice.level)}
-              title="来自 MovieClaw 的通知"
+              title={t("settings.cloudConnect.noticeTitle")}
               onDismiss={() => void dismiss(notice.id)}
-              dismissLabel="关闭这条通知"
+              dismissLabel={t("settings.cloudConnect.dismissNotice")}
             >
               {notice.message}
             </Banner>
@@ -410,26 +418,25 @@ function ConnectedView({ status, run }: { status: CloudStatusView; run: Run }) {
       <SummaryCard status={status} connection={connection} manageUrl={manageUrl} />
 
       <SettingsSection
-        title="上报"
+        title={t("settings.cloudConnect.reporting")}
         footnote={
           <a
-            href={cloudReportsInfoUrl(status.cloud_url)}
+            href={cloudReportsInfoUrl(status.cloud_url, locale)}
             target="_blank"
             rel="noopener noreferrer"
             className={LINK_CLASS}
           >
-            连接后会向 MovieClaw Cloud 上报哪些信息？
-          </a>
+            {t("settings.cloudConnect.connectedReportsLink")}</a>
         }
       >
         <SettingsList>
           <SettingsRow
-            label="上报统计信息"
-            description="按平台和 App 版本汇总的设备数、官方推送能不能连通。关掉后只上报版本信息，推送不受影响，只是官网上少一些展示"
+            label={t("settings.cloudConnect.reportStats")}
+            description={t("settings.cloudConnect.reportStatsHint")}
           >
             <Toggle
               checked={reportStats}
-              label="上报统计信息"
+              label={t("settings.cloudConnect.reportStats")}
               disabled={statsDraft != null}
               onChange={(next) => void toggleStats(next)}
             />
@@ -437,11 +444,11 @@ function ConnectedView({ status, run }: { status: CloudStatusView; run: Run }) {
         </SettingsList>
       </SettingsSection>
 
-      <SettingsSection title="危险操作">
+      <SettingsSection title={t("settings.cloudConnect.danger")}>
         <SettingsCard
           tone="danger"
-          title="断开连接"
-          description="家人手机上的官方推送会立即停止。自建中继不受影响"
+          title={t("settings.cloudConnect.disconnectAction")}
+          description={t("settings.cloudConnect.disconnectShortHint")}
           action={
             <button
               type="button"
@@ -449,7 +456,7 @@ function ConnectedView({ status, run }: { status: CloudStatusView; run: Run }) {
               onClick={() => void disconnect()}
               className={SETTINGS_DANGER_BUTTON_CLASS}
             >
-              {busy === "disconnect" ? "断开中…" : "断开"}
+              {busy === "disconnect" ? t("settings.cloudConnect.disconnecting") : t("settings.cloudConnect.disconnect")}
             </button>
           }
         />
@@ -468,17 +475,20 @@ function SummaryCard({
   connection: CloudConnectionView | null;
   manageUrl: string;
 }) {
-  const rows = capabilityRows(connection?.scopes ?? [], connection?.capabilities ?? []);
+  const t = useTranslations();
+  const locale = useLocale();
+  const rows = capabilityRows(connection?.scopes ?? [], connection?.capabilities ?? [], locale);
   const dailyLimit = connection?.limits?.day;
   const timeline = connection?.connected_at
-    ? `连接于 ${formatDateTime(connection.connected_at)}`
+    ? t("settings.cloudConnect.connectedAt", { time: formatDateTime(connection.connected_at, locale) })
     : null;
 
   return (
     <>
-      <SettingsSection title="账号">
+      <SettingsSection title={t("settings.cloudConnect.account")}>
         <SettingsList>
           <SettingsRow
+            stackOnMobile={locale === "en"}
             leading={
               <span className="icon-chip size-10 !rounded-xl">
                 <CloudIcon className="size-5" />
@@ -489,12 +499,12 @@ function SummaryCard({
                 <span className="min-w-0 truncate">
                   {connection?.instance_name || status.server_name}
                 </span>
-                <StatusPill tone="ok" label="已连接" />
+                <StatusPill tone="ok" label={t("settings.cloudConnect.connected")} />
               </span>
             }
             description={
               <>
-                {connectedAccountLine(connection?.account_display)}
+                {connectedAccountLine(connection?.account_display, locale)}
                 {timeline && <span className="block">{timeline}</span>}
               </>
             }
@@ -505,17 +515,17 @@ function SummaryCard({
               rel="noopener noreferrer"
               className={`${SETTINGS_BUTTON_CLASS} inline-flex items-center`}
             >
-              在官网管理 ↗
-            </a>
+              {t("settings.cloudConnect.manageWebsite")}</a>
           </SettingsRow>
         </SettingsList>
       </SettingsSection>
 
-      <SettingsSection title="权限与能力">
+      <SettingsSection title={t("settings.cloudConnect.capabilities")}>
         <SettingsList>
           {rows.map((row) => (
             <SettingsRow
               key={row.id}
+              stackOnMobile={locale === "en"}
               label={
                 <span className={row.granted ? undefined : "text-[var(--text-muted)]"}>
                   {row.label}
@@ -524,20 +534,20 @@ function SummaryCard({
               description={
                 row.id === "push"
                   ? row.granted
-                    ? `给登录了这台服务器的手机发通知${dailyLimit != null && dailyLimit > 0 ? ` · 每天最多 ${dailyLimit} 条` : ""}`
-                    : "这台服务器没有使用官方推送的权限"
+                    ? t("settings.cloudConnect.pushHint", { quota: dailyLimit != null && dailyLimit > 0 ? t("settings.cloudConnect.dailyQuota", { count: dailyLimit }) : "" })
+                    : t("settings.cloudConnect.pushDenied")
                   : row.granted
-                    ? "已授予这台服务器"
-                    : "即将推出。推出后在这里单独开启，不用重新连接"
+                    ? t("settings.cloudConnect.grantedHint")
+                    : t("settings.cloudConnect.upcomingHint")
               }
             >
               <StatusPill
                 tone={row.granted ? "ok" : "neutral"}
-                label={row.granted ? "已授予" : row.id === "push" ? "未授予" : "即将推出"}
+                label={row.granted ? t("settings.cloudConnect.granted") : row.id === "push" ? t("settings.cloudConnect.notGranted") : t("settings.cloudConnect.comingSoon")}
               />
               {row.id === "push" && (
                 <Link href="/settings/app-push" className={`text-sub ${LINK_CLASS}`}>
-                  App 推送设置
+                  {t("settings.cloudConnect.appPushSettings")}
                 </Link>
               )}
             </SettingsRow>

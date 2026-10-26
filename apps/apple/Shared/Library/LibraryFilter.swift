@@ -45,16 +45,16 @@ nonisolated struct LibraryFilter: Hashable, Codable, Sendable {
     /// 维度的显示顺序与叫法（条件 chip 行用）。**十个维度一个都不能少**：条件行的职责是
     /// 「收起面板之后仍看得见自己筛了什么」，漏画一维，用户就不知道那一维怎么取消。
     static let dimensions: [(key: String, label: String)] = [
-        ("genres", "类型"),
-        ("decades", "年代"),
-        ("countries", "地区"),
-        ("watch", "观看"),
-        ("rating_gte", "评分"),
-        ("runtimes", "片长"),
-        ("languages", "语言"),
-        ("resolutions", "画质"),
-        ("hdr", "动态范围"),
-        ("stock", "库存"),
+        ("genres", String(localized: .mediaDiscoveryType)),
+        ("decades", String(localized: .libraryFiltersDecades)),
+        ("countries", String(localized: .libraryFiltersRegions)),
+        ("watch", String(localized: .libraryFiltersWatch)),
+        ("rating_gte", String(localized: .libraryRowsRatingHint)),
+        ("runtimes", String(localized: .libraryFiltersRuntime)),
+        ("languages", String(localized: .libraryFiltersLanguage)),
+        ("resolutions", String(localized: .libraryFiltersQuality)),
+        ("hdr", String(localized: .libraryFiltersDynamicRange)),
+        ("stock", String(localized: .libraryFiltersStock)),
     ]
 
     /// 是否为空——为空时一切按「未筛选」走（不显示条件行、不请求计数）。

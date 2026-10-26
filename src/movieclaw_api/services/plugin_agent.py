@@ -88,18 +88,23 @@ class PluginAgent:
 
         if self._tier is None:
             raise AgentNotGranted(
+                # i18n-ignore: plugin developer contract error over IPC
                 f"插件 {self.entry_id} 没有获得调用 AI 助手的授权（权限 agent:<档位>，需用户批准）"
             )
         if self._act_as:
             raise AgentNotGranted(
+                # i18n-ignore: plugin developer contract error over IPC
                 "代表成员运行的插件不能调用 AI 助手（Agent 只能以管理员身份运行）"
             )
         if current_origin.get().via_agent:
+            # i18n-ignore: plugin developer contract error over IPC
             raise AgentNotGranted("由 AI 助手引起的调用不能再发起 AI 助手（防止递归）")
         tier = requested or self._tier
         if tier not in TOOL_TIERS:
+            # i18n-ignore: plugin developer contract error over IPC
             raise ValueError(f"未知的工具档位：{tier}（none / mclaw / full）")
         if TOOL_TIERS.index(tier) > TOOL_TIERS.index(self._tier):
+            # i18n-ignore: plugin developer contract error over IPC
             raise AgentNotGranted(f"工具档位 {tier} 超出授权的 {self._tier}")
         zone = current_zone.get()
         if zone is not None and zone != "admin":
@@ -121,12 +126,14 @@ class PluginAgent:
         async with get_database().session() as db:
             row = await AgentSessionRepository(db).get(session_id)
         if row is None or row.owner != self.owner:
+            # i18n-ignore: plugin developer contract error over IPC
             raise AgentSessionNotFound(f"会话 {session_id} 不存在")
         return row
 
     def _run(self, session_id: str, message_id: str) -> str:
         found = self._turns.get(message_id)
         if found is None or found[0] != session_id:
+            # i18n-ignore: plugin developer contract error over IPC
             raise AgentSessionNotFound(f"会话 {session_id} 没有这一轮（{message_id}）")
         return found[1]
 
@@ -150,8 +157,10 @@ class PluginAgent:
 
         tier = self._tier_for(tools)
         if self._active() >= MAX_CONCURRENT:
+            # i18n-ignore: plugin developer contract error over IPC
             raise AgentBusy(f"插件 {self.entry_id} 同时进行的对话已达上限（{MAX_CONCURRENT} 轮）")
         if session_id is not None and is_running(await self._own(session_id)):
+            # i18n-ignore: plugin developer contract error over IPC
             raise AgentBusy("这个会话正有一轮在进行，等它结束或先取消")
         payload = SessionStartPayload(
             content=content,
@@ -294,6 +303,7 @@ class PluginAgent:
         )
 
         if is_running(await self._own(session_id)):
+            # i18n-ignore: plugin developer contract error over IPC
             raise AgentBusy("这个会话正有一轮在进行，先取消再删除")
         get_agent_session_store().delete(session_id)
         get_agent_attachment_store().delete_session_attachments(session_id)
@@ -327,6 +337,7 @@ class PluginAgent:
             _, entries = get_agent_session_store().read(session_id)
         except FileNotFoundError:
             return AgentReply(
+                # i18n-ignore: plugin developer contract error over IPC
                 session_id=session_id, message_id=message_id, status="error", error="会话已删除"
             )
         after = False

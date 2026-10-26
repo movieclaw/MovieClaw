@@ -11,27 +11,34 @@
  * 非管理员只读展示（后端 PUT 挂 require_admin）。
  */
 
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 
 import { useToast } from "@/components/feedback";
 import { getDiscoverRegion, setDiscoverRegion } from "@/lib/api/scrape";
 
 /** 常用院线地区。取值是 ISO 3166-1，与后端 TMDB region 参数一致。 */
-const REGIONS: { code: string; name: string }[] = [
-  { code: "CN", name: "中国大陆" },
-  { code: "HK", name: "香港" },
-  { code: "TW", name: "台湾" },
-  { code: "US", name: "美国" },
-  { code: "JP", name: "日本" },
-  { code: "KR", name: "韩国" },
-  { code: "GB", name: "英国" },
-];
+const REGIONS = [
+  { code: "CN", name: "media.regions.mainlandChina" },
+  { code: "HK", name: "media.regions.hongKong" },
+  { code: "TW", name: "media.regions.taiwan" },
+  { code: "US", name: "media.regions.unitedStates" },
+  { code: "JP", name: "media.regions.japan" },
+  { code: "KR", name: "media.regions.southKorea" },
+  { code: "GB", name: "media.regions.unitedKingdom" },
+] as const;
 
-function regionName(code: string): string {
-  return REGIONS.find((r) => r.code === code)?.name ?? code;
+function regionName(code: string, locale: AppLocale): string {
+  const key = REGIONS.find((r) => r.code === code)?.name;
+  return key ? appTranslator(locale)(key) : code;
 }
 
 export function DiscoverRegionFooter({ onChanged }: { onChanged?: () => void }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const toast = useToast();
   const [region, setRegion] = useState<string | null>(null);
   const [canEdit, setCanEdit] = useState(false);
@@ -77,10 +84,10 @@ export function DiscoverRegionFooter({ onChanged }: { onChanged?: () => void }) 
         onChanged?.();
       } catch (err) {
         setRegion(previous);
-        toast.error(err instanceof Error ? err.message : "切换地区失败，请重试");
+        toast.error(err instanceof Error ? err.message : t("media.discovery.saveRegionFailed"));
       }
     },
-    [region, onChanged, toast],
+    [region, onChanged, toast, t],
   );
 
   if (region === null) return null;
@@ -90,7 +97,7 @@ export function DiscoverRegionFooter({ onChanged }: { onChanged?: () => void }) 
       ref={wrapRef}
       className="relative mt-6 flex items-center justify-center gap-1.5 border-t border-white/[0.08] px-6 pt-3.5 text-caption text-[var(--text-faint)] max-md:px-4"
     >
-      <span>院线地区：</span>
+      <span>{t("media.discovery.region")}</span>
       {canEdit ? (
         <button
           type="button"
@@ -102,12 +109,12 @@ export function DiscoverRegionFooter({ onChanged }: { onChanged?: () => void }) 
           }}
           className="rounded-md border-b border-dashed border-white/[0.15] px-1 py-0.5 font-medium text-[var(--text-muted)] transition-colors hover:bg-white/[0.06] hover:text-[var(--text)]"
         >
-          {regionName(region)}
+          {regionName(region, locale)}
         </button>
       ) : (
-        <span className="font-medium text-[var(--text-muted)]">{regionName(region)}</span>
+        <span className="font-medium text-[var(--text-muted)]">{regionName(region, locale)}</span>
       )}
-      {saved && <span className="text-[var(--ok)]">✓ 已保存</span>}
+      {saved && <span className="text-[var(--ok)]">{t("media.discovery.regionSaved")}</span>}
       {open && (
         <div
           role="menu"
@@ -127,7 +134,7 @@ export function DiscoverRegionFooter({ onChanged }: { onChanged?: () => void }) 
                   : "text-[var(--text-muted)]"
               }`}
             >
-              {item.name}
+              {t(item.name)}
               {item.code === region && <span className="text-[var(--accent-2)]">✓</span>}
             </button>
           ))}

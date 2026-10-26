@@ -270,4 +270,17 @@ struct SubscriptionsHomeModelTests {
         #expect(SubscriptionsHome.clockText(noon.addingTimeInterval(20 * 3600), now: noon) == "明天 08:00")
         #expect(SubscriptionsHome.weekday(of: "2026-09-26") == "周六")
     }
+
+    @Test func chineseSubscriptionCopyKeepsLegacyWording() throws {
+        #expect(SubsFormat.seasonList([2, 1]) == "第 1、2 季")
+        let timing: API.ResourceTimingView = try decode([
+            "site_id": "mteam", "torrent_id": "1", "submitted_at": "2026-01-01T00:00:00Z",
+            "publish_to_seen_seconds": 30, "seen_to_submit_seconds": 120, "publish_to_submit_seconds": 150, "dry_run": true,
+        ])
+        #expect(WantedLogic.resourceTimingNote(timing, previous: true) == "上次 · 模拟 · mteam：资源发布后 不到 1 分钟进入索引，2 分钟后提交下载器（总耗时 3 分钟）")
+        let unit: API.UpgradeRunUnitView = try decode([
+            "season_number": 1, "episode_number": 2, "state": "upgradable", "current_label": NSNull(), "target_label": "1080p WEB-DL",
+        ])
+        #expect(UpgradeRunReportView.note(unit) == "当前 未知 → 目标 1080p WEB-DL，已排入立即搜索")
+    }
 }

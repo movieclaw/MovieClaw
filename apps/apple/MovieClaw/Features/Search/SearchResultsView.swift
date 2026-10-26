@@ -44,7 +44,7 @@ struct SearchResultsView: View {
         VStack(alignment: .leading, spacing: 0) {
             if access.ready, visibleVerticals.isEmpty {
                 // 同 Web：只有一行说明，不带标题与图标
-                Text("当前账号没有可用的搜索入口，请联系管理员调整成员权限。")
+                Text(String(localized: .searchPageNoAccess))
                     .font(.body)
                     .foregroundStyle(Theme.textMuted)
                     .multilineTextAlignment(.center)
@@ -87,7 +87,7 @@ struct SearchResultsView: View {
             }
         }
         .appBackground()
-        .navigationTitle(browsing ? "最新资源" : "搜索“\(keyword)”")
+        .navigationTitle(browsing ? String(localized: .searchResultsLatest) : String(localized: .searchPaletteSearchKeyword(keyword)))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // 居中位没有系统玻璃底（打开 sharedBackgroundVisibility 也不画，真机/模拟器实测），
@@ -97,9 +97,9 @@ struct SearchResultsView: View {
             if showsScopeMenu {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu { scopeMenu } label: {
-                        Text(scope.label ?? "全部").lineLimit(1)
+                        Text(scope.label ?? String(localized: .commonAll)).lineLimit(1)
                     }
-                    .accessibilityLabel("搜索范围：\(scope.label ?? "全部分类")")
+                    .accessibilityLabel(String(localized: .searchPageScopeHint(scope.label ?? String(localized: .searchPaletteAllCategories))))
                     .accessibilityIdentifier("search-scope-menu")
                 }
             }
@@ -141,7 +141,7 @@ struct SearchResultsView: View {
     private var selector: some View {
         VStack(alignment: .leading, spacing: 10) {
             if visibleVerticals.count > 1 {
-                Picker("搜索垂直类别", selection: Binding(mcGet: { vertical }, set: { switchTo($0) })) {
+                Picker(String(localized: .searchPageVerticals), selection: Binding(mcGet: { vertical }, set: { switchTo($0) })) {
                     ForEach(visibleVerticals, id: \.self) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
@@ -162,7 +162,7 @@ struct SearchResultsView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.textMuted)
-                Text(browsing ? "最新资源" : keyword)
+                Text(browsing ? String(localized: .searchResultsLatest) : keyword)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Theme.text)
                     .lineLimit(1)
@@ -175,7 +175,7 @@ struct SearchResultsView: View {
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(browsing ? "最新资源，点按重新搜索" : "搜索词：\(keyword)，点按修改")
+        .accessibilityLabel(browsing ? String(localized: .searchPageLatestHint) : String(localized: .searchPageKeywordHint(keyword)))
         .accessibilityIdentifier("search-keyword-capsule")
     }
 
@@ -190,10 +190,10 @@ struct SearchResultsView: View {
     @ViewBuilder
     private var scopeMenu: some View {
         let presets = tabs.filter(\.isPreset)
-        Picker("搜索范围", selection: Binding(mcGet: { scope }, set: { switchScope($0) })) {
-            Label("全部分类", systemImage: TorrentCategories.allSymbol).tag(SearchScope.all)
+        Picker(String(localized: .searchPaletteScope), selection: Binding(mcGet: { scope }, set: { switchScope($0) })) {
+            Label(String(localized: .searchPaletteAllCategories), systemImage: TorrentCategories.allSymbol).tag(SearchScope.all)
             if scope != .all, !tabs.contains(where: { $0.scope == scope }) {
-                Label(scope.label ?? "当前范围", systemImage: "clock.arrow.circlepath").tag(scope)
+                Label(scope.label ?? String(localized: .searchPageCurrentScope), systemImage: "clock.arrow.circlepath").tag(scope)
             }
             Section {
                 ForEach(tabs.filter { !$0.isPreset }, id: \.key) { tab in
@@ -201,7 +201,7 @@ struct SearchResultsView: View {
                 }
             }
             if !presets.isEmpty {
-                Section("自定义分类") {
+                Section(String(localized: .searchPageCustom)) {
                     ForEach(presets, id: \.key) { tab in
                         Label(tab.label, systemImage: tab.symbol).tag(tab.scope)
                     }
@@ -262,9 +262,9 @@ struct MediaSearchResultsView: View {
                 // 关键词不在这里重复（顶栏的搜索词胶囊已经写着），只在快照回放时给快照时间与「重新搜索」
                 if let snapshotAt {
                     HStack(spacing: 8) {
-                        Label("\(SubsFormat.relative(snapshotAt))的快照", systemImage: "clock")
+                        Label(String(localized: .searchResultsSnapshotAge(SubsFormat.relative(snapshotAt))), systemImage: "clock")
                             .font(.caption).foregroundStyle(Theme.textMuted)
-                        Button("重新搜索", action: onResearch)
+                        Button(String(localized: .searchResultsResearch), action: onResearch)
                             .font(.caption.weight(.semibold))
                             .accessibilityIdentifier("media-research")
                     }
@@ -274,11 +274,11 @@ struct MediaSearchResultsView: View {
                 if settled, empty {
                     let error = doubanError ?? tmdbError
                     VStack(spacing: 8) {
-                        Text(error != nil ? "影视搜索出错" : "没有找到相关影视条目").font(.headline).foregroundStyle(.white)
-                        Text(error ?? "换个关键词试试；如果找的是非影视资源，可以直接搜索站点。")
+                        Text(error != nil ? String(localized: .searchMediaErrorTitle) : String(localized: .searchMediaEmpty)).font(.headline).foregroundStyle(.white)
+                        Text(error ?? String(localized: .searchMediaEmptyHint))
                             .font(.subheadline).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
                         if let onSwitchToTorrent {
-                            Button("搜索站点资源", action: onSwitchToTorrent)
+                            Button(String(localized: .searchPaletteTorrentSearch), action: onSwitchToTorrent)
                                 .discoverProminentButton()
                                 .padding(.top, 8)
                         }
@@ -287,7 +287,7 @@ struct MediaSearchResultsView: View {
                     .padding(.top, 60)
                     .discoverContainer("media-empty")
                 } else {
-                    section("豆瓣", items: douban, error: doubanError)
+                    section(String(localized: .searchMediaDouban), items: douban, error: doubanError)
                     section("TMDB", items: tmdb, error: tmdbError)
                 }
             }
@@ -303,7 +303,7 @@ struct MediaSearchResultsView: View {
             HStack(spacing: 10) {
                 DiscoverTag(text: label, foreground: Theme.accent, background: .black.opacity(0.3))
                 if let items, !items.isEmpty {
-                    Text("共 \(items.count) 条结果").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .searchResultsCount(items.count))).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
             }
             if items == nil, error == nil {
@@ -318,7 +318,7 @@ struct MediaSearchResultsView: View {
             }
             if let items {
                 if items.isEmpty {
-                    Text("该来源没有找到相关条目").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .searchMediaProviderEmpty)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 } else {
                     LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
                         ForEach(items) { DiscoverPosterCard(item: $0) }
@@ -344,14 +344,14 @@ struct MediaSearchResultsView: View {
             douban = items.filter { $0.source == "douban" }
             tmdb = items.filter { $0.source == "tmdb" }
             if let status = result.providers.first(where: { $0.provider == "douban" }), !status.success {
-                doubanError = status.message ?? "豆瓣搜索失败"
+                doubanError = status.message ?? String(localized: .searchMediaDoubanFailed)
             }
             if let status = result.providers.first(where: { $0.provider == "tmdb" }), !status.success {
-                tmdbError = status.message ?? "TMDB 搜索失败"
+                tmdbError = status.message ?? String(localized: .searchMediaTmdbFailed)
             }
         } catch is CancellationError {
         } catch {
-            let message = error.localizedDescription.isEmpty ? "影视搜索失败，请稍后重试" : error.localizedDescription
+            let message = error.localizedDescription.isEmpty ? String(localized: .searchMediaFailed) : error.localizedDescription
             doubanError = message
             tmdbError = message
         }
@@ -395,11 +395,11 @@ struct LibrarySearchResultsView: View {
                 }
                 if model.error != nil || model.isEmpty {
                     VStack(spacing: 8) {
-                        Text(model.error != nil ? "媒体库搜索出错" : "媒体库中没有找到相关影片").font(.headline).foregroundStyle(.white)
-                        Text(model.error ?? "支持片名、别名、拼音首字母和人物姓名；库里还没有的片子，去影视条目里找。")
+                        Text(model.error != nil ? String(localized: .searchLibraryErrorTitle) : String(localized: .searchLibraryEmpty)).font(.headline).foregroundStyle(.white)
+                        Text(model.error ?? String(localized: .searchLibraryEmptyHint))
                             .font(.subheadline).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
                         if let onSwitchToMedia {
-                            Button("搜索影视条目", action: onSwitchToMedia)
+                            Button(String(localized: .searchPaletteMediaSearch), action: onSwitchToMedia)
                                 .discoverProminentButton()
                                 .padding(.top, 8)
                         }
@@ -413,7 +413,7 @@ struct LibrarySearchResultsView: View {
                 }
                 if model.error == nil, !model.people.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("人物").font(.headline).foregroundStyle(.white)
+                        Text(String(localized: .searchPalettePerson)).font(.headline).foregroundStyle(.white)
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach(model.people, id: \.id) { person in
@@ -427,7 +427,7 @@ struct LibrarySearchResultsView: View {
                 if model.error == nil, let hits = model.hits, !hits.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         if !model.people.isEmpty {
-                            Text("影片").font(.headline).foregroundStyle(.white)
+                            Text(String(localized: .searchPaletteTitle)).font(.headline).foregroundStyle(.white)
                         }
                         LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
                             ForEach(hits, id: \.item.mediaItemId) { hit in
@@ -437,7 +437,7 @@ struct LibrarySearchResultsView: View {
                     }
                     .discoverContainer("library-items")
                     if model.nextCursor != nil {
-                        Button(model.loadingMore ? "正在加载…" : "更多结果") {
+                        Button(model.loadingMore ? String(localized: .commonLoadingActive) : String(localized: .searchLibraryMore)) {
                             Task { await model.loadMore(api: api) }
                         }
                         .disabled(model.loadingMore)
@@ -475,7 +475,7 @@ struct LibrarySearchResultsView: View {
     /// 联想的命中原因只在有信息量时写：直接按片名命中（「名称匹配」）就是用户在输入的那几个字，不必解释；
     /// 人物带出（「演员：李一桐」）、拼音、首字母、别名才写
     private func suggestionReason(_ suggestion: API.LibrarySearchSuggestion) -> String? {
-        guard let label = suggestion.label, label != "名称匹配" else { return nil }
+        guard let label = suggestion.label, label != "名称匹配" else { return nil } // i18n-ignore: server label
         return label
     }
 
@@ -505,7 +505,7 @@ struct LibrarySearchResultsView: View {
                             .contentShape(.capsule)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(reason.map { "搜索「\(suggestion.text)」，\($0)" } ?? "搜索「\(suggestion.text)」")
+                        .accessibilityLabel(reason.map { String(localized: .searchPaletteSuggestionReason(suggestion.text, $0)) } ?? String(localized: .searchPaletteSearchSuggestion(suggestion.text)))
                         .accessibilityIdentifier("library-search-suggestion")
                     }
                 }
@@ -534,14 +534,14 @@ struct LibrarySearchResultsView: View {
             .frame(width: 72, height: 72)
             .clipShape(.circle)
             Text(person.name).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-            Text("库内 \(person.itemCount) 部").font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
+            Text(String(localized: .searchLibraryPersonCount(person.itemCount))).font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
         }
         .frame(width: 96)
         .contentShape(.rect)
         if let tmdbId = person.tmdbPersonId {
             Button { router.push(.person(tmdbId: tmdbId)) } label: { body }
                 .buttonStyle(.plain)
-                .accessibilityLabel("查看 \(person.name) 的影人页")
+                .accessibilityLabel(String(localized: .searchLibraryPersonLabel(person.name)))
                 .accessibilityIdentifier("library-search-person-\(person.id)")
         } else {
             body
@@ -569,7 +569,7 @@ struct LibrarySearchResultsView: View {
         )
         var parts: [String] = []
         if item.kind == "tv", !item.seasons.isEmpty {
-            parts.append(item.seasons.count == 1 ? "第 \(item.seasons[0]) 季 · \(item.episodeCount) 集" : "\(item.seasons.count) 季 · \(item.episodeCount) 集")
+            parts.append(item.seasons.count == 1 ? String(localized: .searchLibrarySeasonSummary(item.seasons[0], item.episodeCount)) : String(localized: .searchLibraryMultiSeasonSummary(item.seasons.count, item.episodeCount)))
         }
         if !item.resolutions.isEmpty { parts.append(item.resolutions.joined(separator: "/")) }
         return VStack(alignment: .leading, spacing: 2) {
@@ -636,7 +636,7 @@ private final class LibrarySearchModel {
                 loadedKeyword = nil
                 return
             }
-            self.error = error.localizedDescription.isEmpty ? "媒体库搜索失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .searchLibraryFailed) : error.localizedDescription
         }
     }
 
@@ -654,7 +654,7 @@ private final class LibrarySearchModel {
         } catch is CancellationError {
         } catch {
             guard generation == request else { return }
-            self.error = error.localizedDescription.isEmpty ? "媒体库搜索失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .searchLibraryFailed) : error.localizedDescription
         }
     }
 

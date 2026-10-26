@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n.stored import source_text
 from movieclaw_api.services.subtitle_gen import source, tasks
 from movieclaw_api.services.subtitle_gen.source import normalize_language
 from movieclaw_db.engine import get_database
@@ -242,7 +243,7 @@ async def _run_batch(library_id: int) -> None:
                         setting.target_language,
                         origin="scheduler",
                         actor_kind="scheduler",
-                        actor_name="入库后自动生成字幕",
+                        actor_name=source_text("library.subtitleJob.autoActor"),
                     )
                 except Exception as exc:  # noqa: BLE001 -- 单文件不可行不断批次
                     logger.info("自动字幕生成跳过 %s：%s", row.file_path, exc)

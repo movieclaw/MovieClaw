@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { type AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner, ErrorBanner, Toggle } from "@/components/cloud-push-ui";
 import {
@@ -27,6 +31,7 @@ import {
   suggestReconcileInterval,
   toggleUpdate,
 } from "@/lib/scheduled-tasks";
+import { ROW_ANCHOR_CLASS, useRowAnchor } from "@/lib/row-anchor";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
 
 /**
@@ -39,36 +44,49 @@ import { formatDateTime, formatRelativeTime } from "@/lib/time";
  * 频繁一点换来"新文件更快出现"。只建议，不替用户改。
  */
 export function ScheduledTasksSection() {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const [tasks, setTasks] = useState<ScheduledTask[] | null>(null);
   const [anyNetwork, setAnyNetwork] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  // 插件详情「定时任务」行的深链：?task=<task.key> 落到这个任务的那一行
+  useRowAnchor("task", "data-task-key", tasks != null);
 
+  const readGeneration = useRef(0);
   const reload = useCallback(() => {
+    const id = ++readGeneration.current;
     Promise.all([listScheduledTasks(), listLibraries().catch(() => [])])
       .then(([rows, libs]) => {
+        if (id !== readGeneration.current) return;
         setTasks(rows);
         setAnyNetwork(libs.some((lib) => lib.network_mount));
         setError(null);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "加载失败"));
-  }, []);
+      .catch((err: unknown) => {
+        if (id === readGeneration.current)
+          setError(err instanceof Error ? err.message : { key: "settings.scheduledTasks.ui.loadFailed" });
+      });
+  }, [setError]);
   useEffect(() => {
     reload();
-  }, [reload]);
+    return () => { readGeneration.current += 1; };
+  }, [reload, locale]);
 
   const save = useCallback(async (task: ScheduledTask, body: ScheduledTaskUpdate) => {
     setBusyKey(task.key);
     try {
       const updated = await updateScheduledTask(task.key, body);
-      setTasks((prev) => prev?.map((t) => (t.key === task.key ? updated : t)) ?? null);
+      setTasks((prev) => prev?.map((current) => current.key === task.key
+        ? { ...updated, title: current.title, description: current.description } : current) ?? null);
       setError(null);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "保存失败");
+      setError(err instanceof Error ? err.message : { key: "settings.scheduledTasks.ui.saveFailed" });
     } finally {
       setBusyKey(null);
     }
-  }, []);
+  }, [setError]);
 
   const reconcile = tasks?.find((t) => t.key === "library_reconcile") ?? null;
   const suggest = reconcile !== null && suggestReconcileInterval(reconcile, anyNetwork);
@@ -76,11 +94,10 @@ export function ScheduledTasksSection() {
   return (
     <div className="space-y-10">
       <p className="px-1 text-sub leading-relaxed text-[var(--text-muted)]">
-        后台任务各自按周期运行；改动立即生效，不用重启。周期与启停按任务记在服务器上。
-      </p>
+        {t("settings.scheduledTasks.ui.intro")}</p>
       <SettingsSection
-        title="后台任务"
-        description={tasks && tasks.length > 0 ? `${tasks.length} 个任务` : undefined}
+        title={t("settings.scheduledTasks.ui.title")}
+        description={tasks && tasks.length > 0 ? t("settings.scheduledTasks.ui.count", { count: tasks.length }) : undefined}
       >
         <div className="space-y-3">
           {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -100,20 +117,18 @@ export function ScheduledTasksSection() {
                     })
                   }
                 >
-                  调到每 1 小时
-                </button>
+                  {t("settings.scheduledTasks.ui.applySuggestion")}</button>
               }
             >
-              有媒体库放在网络挂载上：实时监控收不到远端变化，新文件全靠「媒体库对账」发现。
-              现在是{describeSchedule(reconcile)}，建议调到每 1 小时——增量对账通常只需几秒。
+              {t("settings.scheduledTasks.ui.networkHint", { schedule: describeSchedule(reconcile, locale) })}
             </Banner>
           )}
           {tasks === null ? (
-            !error && <p className="px-1 text-sub text-[var(--text-muted)]">正在加载…</p>
+            !error && <p className="px-1 text-sub text-[var(--text-muted)]">{t("settings.scheduledTasks.ui.loading")}</p>
           ) : tasks.length === 0 ? (
             <SettingsEmpty
-              title="还没有定时任务"
-              description="后台调度启动时会登记各项任务；调度未启用时这里为空。"
+              title={t("settings.scheduledTasks.ui.empty")}
+              description={t("settings.scheduledTasks.ui.emptyHint")}
             />
           ) : (
             <SettingsList>
@@ -144,6 +159,9 @@ function TaskRow({
   busy: boolean;
   onSave: (task: ScheduledTask, body: ScheduledTaskUpdate) => Promise<void>;
 }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const [mode, setMode] = useState<Mode>(() => modeOf(task));
   const [hours, setHours] = useState(() =>
     task.interval_seconds ? Math.max(1, Math.round(task.interval_seconds / 3600)) : 6,
@@ -187,13 +205,14 @@ function TaskRow({
       : draft.cron_expr !== task.cron_expr);
 
   return (
-    <div>
+    <div data-task-key={task.key} className={ROW_ANCHOR_CLASS}>
       <SettingsRow
+        stackOnMobile={locale === "en"}
         label={
           <span className="flex flex-wrap items-baseline gap-x-2">
             {task.title}
             <span className="text-sub font-normal text-[var(--text-muted)]">
-              {describeSchedule(task)}
+              {describeSchedule(task, locale)}
             </span>
           </span>
         }
@@ -201,9 +220,12 @@ function TaskRow({
           <>
             {task.description && <span className="block">{task.description}</span>}
             <span className="block">
-              上次 {task.last_run_at ? formatRelativeTime(task.last_run_at) : "还没跑过"}
-              {task.enabled && task.next_run_at ? ` · 下次 ${formatDateTime(task.next_run_at)}` : ""}
-              {!task.enabled ? " · 已停用" : ""}
+              {t("settings.scheduledTasks.ui.lastRun", {
+                last: task.last_run_at ? formatRelativeTime(task.last_run_at, locale) : t("settings.scheduledTasks.ui.neverRun"),
+                next: task.enabled && task.next_run_at ? "yes" : "no",
+                when: task.next_run_at ? formatDateTime(task.next_run_at, locale) : "",
+                enabled: task.enabled ? "yes" : "no",
+              })}
             </span>
           </>
         }
@@ -212,7 +234,7 @@ function TaskRow({
             下方没点保存的周期草稿原样留在界面上 */}
         <Toggle
           checked={task.enabled}
-          label={`启用「${task.title}」`}
+          label={t("settings.scheduledTasks.ui.enable", { title: task.title })}
           disabled={busy}
           onChange={(next) => void onSave(task, toggleUpdate(task, next))}
         />
@@ -223,11 +245,11 @@ function TaskRow({
           value={mode}
           onChange={(e) => setMode(e.target.value as Mode)}
           className={SETTINGS_INPUT_CLASS}
-          aria-label="周期方式"
+          aria-label={t("settings.scheduledTasks.ui.mode")}
         >
-          <option value="interval">每隔</option>
-          <option value="daily">每天固定时刻</option>
-          <option value="cron">cron 表达式</option>
+          <option value="interval">{t("settings.scheduledTasks.ui.interval")}</option>
+          <option value="daily">{t("settings.scheduledTasks.ui.daily")}</option>
+          <option value="cron">{t("settings.scheduledTasks.ui.cron")}</option>
         </select>
         {mode === "interval" && (
           <label className="flex items-center gap-1.5">
@@ -238,10 +260,9 @@ function TaskRow({
               value={hours}
               onChange={(e) => setHours(Math.max(1, Math.min(168, Number(e.target.value) || 1)))}
               className={`${SETTINGS_INPUT_CLASS} w-20`}
-              aria-label="间隔小时数"
+              aria-label={t("settings.scheduledTasks.ui.intervalHours")}
             />
-            小时
-          </label>
+            {t("settings.scheduledTasks.ui.hoursUnit", { count: hours })}</label>
         )}
         {mode === "daily" && (
           <input
@@ -249,7 +270,7 @@ function TaskRow({
             value={time}
             onChange={(e) => setTime(e.target.value || "03:00")}
             className={SETTINGS_INPUT_CLASS}
-            aria-label="每天几点"
+            aria-label={t("settings.scheduledTasks.ui.dailyTime")}
           />
         )}
         {mode === "cron" && (
@@ -257,9 +278,9 @@ function TaskRow({
             type="text"
             value={cron}
             onChange={(e) => setCron(e.target.value)}
-            placeholder="分 时 日 月 周，如 0 3 * * *"
+            placeholder={t("settings.scheduledTasks.ui.cronPlaceholder")}
             className={`${SETTINGS_INPUT_CLASS} w-56 font-mono`}
-            aria-label="cron 表达式"
+            aria-label={t("settings.scheduledTasks.ui.cron")}
           />
         )}
         <button
@@ -268,7 +289,7 @@ function TaskRow({
           disabled={busy || !dirty}
           onClick={() => onSave(task, draft)}
         >
-          {busy ? "保存中…" : "保存"}
+          {busy ? t("settings.scheduledTasks.ui.saving") : t("settings.scheduledTasks.ui.save")}
         </button>
       </div>
     </div>

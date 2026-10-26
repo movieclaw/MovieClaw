@@ -25,6 +25,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import reference, render_value
 from movieclaw_api.services.auth import Principal
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import Library, LibraryFile
@@ -98,8 +99,15 @@ def view(snapshot: _Snapshot | None, viewer: Viewer) -> dict | None:
     return {
         "server": snapshot.server,
         "today": {"imported": len(units), "updated": len({unit[0] for unit in units})},
-        "downloads": snapshot.downloads if viewer.is_admin else None,
+        "downloads": _render_downloads(snapshot.downloads) if viewer.is_admin else None,
     }
+
+
+def _render_downloads(downloads: dict | None) -> dict | None:
+    if downloads is None:
+        return None
+    items = [{**i, "episode": render_value(i["episode"])} for i in downloads["items"]]
+    return {**downloads, "items": items}
 
 
 def _ensure_fresh(is_admin: bool) -> asyncio.Task | None:
@@ -190,13 +198,16 @@ def summarize(items: list[dict[str, Any]]) -> dict:
     }
 
 
-def _episode_label(item: dict[str, Any]) -> str:
+def _episode_label(item: dict[str, Any]) -> str | dict:
     """订阅任务覆盖的集：``E12`` / ``E12 等 3 集``；电影、手动下载、外部任务没有。"""
     units = [u for sub in item.get("subscriptions") or () for u in sub.get("units") or ()]
     episodes = sorted({u["episode_number"] for u in units if u.get("episode_number")})
     if not episodes:
         return ""
-    return f"E{episodes[0]}" if len(episodes) == 1 else f"E{episodes[0]} 等 {len(episodes)} 集"
+    if len(episodes) == 1:
+        return f"E{episodes[0]}"
+    # 共享快照里存引用，按每条连接的语言渲染（见 view）
+    return reference("push.status.episodes", first=episodes[0], count=len(episodes))
 
 
 def _shape(data: dict) -> tuple:

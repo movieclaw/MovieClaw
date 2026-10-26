@@ -68,8 +68,11 @@ const EXPECTED = [
   "tmdbImageForWidth",
   "TodayArrivalGroup",
   "UpNextItem",
+  "useActiveExtensionPoints",
   "useAgentConversations",
+  "useAppLocale",
   "useAppNavLinks",
+  "useAppTranslations",
   "useDownloadTasks",
   "useElementCoverWidth",
   "useIsMobile",
@@ -97,7 +100,7 @@ function exportedNames(src) {
   for (const m of code.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}/g)) {
     for (const raw of m[1].split(",")) {
       const name = raw.replace(/^\s*type\s+/, "").trim();
-      if (name) names.push(name);
+      if (name) names.push(name.split(/\s+as\s+/).at(-1));
     }
   }
   return [...new Set(names)].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));

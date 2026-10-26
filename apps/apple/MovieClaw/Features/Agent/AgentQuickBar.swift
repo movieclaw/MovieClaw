@@ -92,7 +92,7 @@ struct AgentQuickInput: View {
         @Bindable var quick = quick
         AgentComposer(
             draft: $quick.draft,
-            placeholder: "给 AI 助手发消息",
+            placeholder: String(localized: .agentComposerMessagePlaceholder),
             busy: quick.sending,
             expansion: $quick.editing,
             modelOptions: quick.modelOptions,

@@ -59,7 +59,7 @@ struct ActivityActiveDownloadRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(group.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
                     if group.tasks.count > 1 {
-                        Text("\(group.tasks.count) 个资源").font(.caption).foregroundStyle(Theme.textFaint).fixedSize()
+                        Text(String(localized: .activityTaskCenterResourceCount(group.tasks.count))).font(.caption).foregroundStyle(Theme.textFaint).fixedSize()
                     }
                     Spacer(minLength: 4)
                     if let percent {
@@ -95,7 +95,7 @@ struct ActivityActiveDownloadRow: View {
         } else {
             if let speed = task.dlspeedBytes, speed > 0 { parts.append("↓ \(ActivityFormat.rate(Double(speed)))") }
             if let eta = task.etaSeconds, eta > 0, task.state == "downloading" {
-                parts.append("剩 \(ActivityFormat.duration(seconds: Double(eta)))")
+                parts.append(String(localized: .activityTaskCenterRemainingShort(String(ActivityFormat.duration(seconds: Double(eta))))))
             }
         }
         return parts.joined(separator: " · ")
@@ -148,15 +148,15 @@ struct ActivityBoostSummaryRow: View {
                 .foregroundStyle(allOff ? Theme.textFaint : allPaused ? Theme.warning : Theme.success)
                 .frame(width: 26)
             VStack(alignment: .leading, spacing: 3) {
-                Text(allOff ? "刷流已关闭" : allPaused ? "刷流已暂停" : "刷流做种")
+                Text(allOff ? String(localized: .activityBoostOff) : allPaused ? String(localized: .activityBoostPaused) : String(localized: .activityNavBoost))
                     .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
                 Text(WatchFormat.metaLine([
-                    allOff ? "\(totals.count) 个种子仍在做种" : allPaused ? "\(totals.count) 个种子限速做种" : "\(totals.count) 个种子",
+                    allOff ? String(localized: .activityOverviewBoostSeeding(totals.count)) : allPaused ? String(localized: .activityOverviewBoostLimited(totals.count)) : String(localized: .activityBoostTorrentCount(totals.count)),
                     "↑ \(ActivityFormat.rate(Double(totals.upSpeed)))",
-                    !allOff && off > 0 ? "\(off) 个来自已关闭刷流的站点" : nil,
-                    !allPaused && paused > 0 ? "\(paused) 个已暂停" : nil,
-                    scheduled > 0 ? "\(scheduled) 个等待到期删除" : nil,
-                    allOff || off > 0 || paused > 0 || scheduled > 0 ? nil : "已上传 \(ActivityFormat.bytes(Double(totals.uploaded)))",
+                    !allOff && off > 0 ? String(localized: .activityOverviewBoostSiteOff(off)) : nil,
+                    !allPaused && paused > 0 ? String(localized: .activityOverviewBoostPaused(paused)) : nil,
+                    scheduled > 0 ? String(localized: .activityOverviewBoostScheduled(scheduled)) : nil,
+                    allOff || off > 0 || paused > 0 || scheduled > 0 ? nil : String(localized: .activityBoostUploadedSize(ActivityFormat.bytes(Double(totals.uploaded)))),
                 ]))
                 .font(.footnote).monospacedDigit().foregroundStyle(Theme.textMuted).lineLimit(2)
             }
@@ -191,11 +191,11 @@ struct ActivityRecentPlayRow: View {
             // 结果在上（与片名同一行、字重高一档），时间在下（与副标题同一行、更淡）
             VStack(alignment: .trailing, spacing: 2) {
                 if playing {
-                    Text("播放中").fontWeight(.medium).foregroundStyle(Theme.success)
+                    Text(String(localized: .activityOverviewPlayingState)).fontWeight(.medium).foregroundStyle(Theme.success)
                 } else if entry.completed {
-                    Label("看完", systemImage: "checkmark").labelStyle(.titleAndIcon).fontWeight(.medium).foregroundStyle(Theme.success)
+                    Label(String(localized: .activityOverviewWatched), systemImage: "checkmark").labelStyle(.titleAndIcon).fontWeight(.medium).foregroundStyle(Theme.success)
                 } else if let percent = entry.progressPercent {
-                    Text("看到 \(percent)%").fontWeight(.medium).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .activityOverviewWatchProgress(percent))).fontWeight(.medium).foregroundStyle(Theme.textMuted)
                 }
                 if !playing {
                     Text(ActivityFormat.relative(entry.startedAt)).foregroundStyle(Theme.textFaint)
@@ -208,7 +208,7 @@ struct ActivityRecentPlayRow: View {
     }
 
     private var title: Text {
-        var text = Text(entry.media.title.isEmpty ? "（条目已删除）" : entry.media.title)
+        var text = Text(entry.media.title.isEmpty ? String(localized: .activityOverviewDeletedItem) : entry.media.title)
         if let unit = WatchFormat.unitLabel(entry.media) {
             text = text + Text(" \(unit)").fontWeight(.regular).foregroundStyle(Theme.textMuted)
         }
@@ -220,7 +220,12 @@ struct ActivityRecentPlayRow: View {
 struct ActivityWeeklyWatchCard: View {
     let stats: API.PlaybackWatchStatsView
 
-    private static let weekdays = ["日", "一", "二", "三", "四", "五", "六"]
+    /// 周日开头（与 Calendar.weekday 对齐）：中文「日…六」，其它语言用系统的短名
+    private static let weekdays: [String] = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = AppLanguage.locale
+        return AppLanguage.identifier == "zh-Hans" ? calendar.veryShortStandaloneWeekdaySymbols : calendar.shortStandaloneWeekdaySymbols
+    }()
 
     var body: some View {
         // 服务端按「含今天往前 N 天」给，可能多出一天；只画最近 7 根。x 用日期（星期几会重名），轴上再换成星期
@@ -229,14 +234,14 @@ struct ActivityWeeklyWatchCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("最近 7 天").font(.footnote).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .activityOverviewLastWeek)).font(.footnote).foregroundStyle(Theme.textMuted)
                     total
                 }
                 Spacer()
                 if let delta { Text(delta.text).font(.footnote.weight(.semibold)).foregroundStyle(delta.color) }
             }
             Chart(bars, id: \.date) { bar in
-                BarMark(x: .value("日期", bar.date), y: .value("小时", bar.hours), width: .ratio(0.55))
+                BarMark(x: .value(String(localized: .activityWatchStatsChartDate), bar.date), y: .value(String(localized: .activityOverviewHoursUnit), bar.hours), width: .ratio(0.55))
                     .foregroundStyle(bar.date == today ? Theme.info : Theme.info.opacity(0.45))
                     .clipShape(.rect(cornerRadius: 4))
             }
@@ -262,11 +267,11 @@ struct ActivityWeeklyWatchCard: View {
         return HStack(alignment: .firstTextBaseline, spacing: 3) {
             if hours > 0 {
                 Text("\(hours)").font(.system(size: 30, weight: .bold, design: .rounded))
-                Text("小时").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .activityOverviewHoursUnit)).font(.subheadline).foregroundStyle(Theme.textMuted)
             }
             if minutes % 60 > 0 || hours == 0 {
                 Text("\(minutes % 60)").font(.system(size: 30, weight: .bold, design: .rounded))
-                Text("分钟").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .activityOverviewMinutesUnit)).font(.subheadline).foregroundStyle(Theme.textMuted)
             }
         }
         .monospacedDigit()
@@ -275,10 +280,10 @@ struct ActivityWeeklyWatchCard: View {
     private var delta: (text: String, color: Color)? {
         guard stats.previousAvailable else { return nil }
         let current = Double(stats.current.watchedMs), previous = Double(stats.previous.watchedMs)
-        if previous <= 0 { return current > 0 ? ("比前 7 天新增", Theme.success) : nil }
+        if previous <= 0 { return current > 0 ? (String(localized: .activityOverviewWeeklyNew), Theme.success) : nil }
         let ratio = Int(((current - previous) / previous * 100).rounded())
-        if ratio == 0 { return ("与前 7 天持平", Theme.textFaint) }
-        return ratio > 0 ? ("比前 7 天 ↑ \(ratio)%", Theme.success) : ("比前 7 天 ↓ \(-ratio)%", Theme.textMuted)
+        if ratio == 0 { return (String(localized: .activityOverviewWeeklyFlat), Theme.textFaint) }
+        return ratio > 0 ? (String(localized: .activityOverviewWeeklyUp(ratio)), Theme.success) : (String(localized: .activityOverviewWeeklyDown(-ratio)), Theme.textMuted)
     }
 
     /// "2026-09-26" → 「六」

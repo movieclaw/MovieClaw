@@ -21,12 +21,12 @@ struct MacTracksPanel: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            column(title: "字幕", count: controller.subtitles.options.count + controller.subtitles.unavailable.count) {
+            column(title: String(localized: .playerControlsSubtitles), count: controller.subtitles.options.count + controller.subtitles.unavailable.count) {
                 subtitleRows
             }
             if !controller.audioOptions.isEmpty {
                 Divider().overlay(.white.opacity(0.12)).padding(.vertical, 14)
-                column(title: "音轨", count: controller.audioOptions.count) {
+                column(title: String(localized: .playerControlsAudio), count: controller.audioOptions.count) {
                     audioRows
                 }
             }
@@ -64,7 +64,7 @@ struct MacTracksPanel: View {
 
     @ViewBuilder
     private var subtitleRows: some View {
-        MacPanelRow(id: "mac-panel-subtitle-off", title: "关闭", detail: nil, active: controller.selectedSubtitle == nil) {
+        MacPanelRow(id: "mac-panel-subtitle-off", title: String(localized: .commonOff), detail: nil, active: controller.selectedSubtitle == nil) {
             controller.selectSubtitle(nil)
             close()
         }
@@ -79,7 +79,7 @@ struct MacTracksPanel: View {
             }
         }
         if !controller.subtitles.unavailable.isEmpty {
-            MacPanelHeader(title: "暂时放不了")
+            MacPanelHeader(title: String(localized: .playerTracksUnavailable))
             ForEach(controller.subtitles.unavailable) { item in
                 MacPanelRow(id: "mac-panel-subtitle-\(item.ref)", title: item.label,
                             detail: item.reason, active: false, disabled: true) {}
@@ -93,7 +93,7 @@ struct MacTracksPanel: View {
             let active = item.ref == controller.currentAudio || (controller.currentAudio == nil && item.isDefault)
             let parts = MacTrackText.split(item.label)
             MacPanelRow(id: "mac-panel-audio-\(item.ref)", title: parts.title,
-                        detail: [parts.detail, item.isDefault ? "默认" : nil, item.unavailableReason].compactMap { $0 }
+                        detail: [parts.detail, item.isDefault ? String(localized: .playerSubtitlesDefault) : nil, item.unavailableReason].compactMap { $0 }
                             .joined(separator: " · "),
                         active: active, disabled: item.unavailableReason != nil) {
                 controller.selectAudio(item.ref)
@@ -172,7 +172,7 @@ struct MacPanelRow: View {
         .opacity(disabled ? 0.4 : 1)
         .onHover { hovering = $0 }
         .accessibilityIdentifier(id)
-        .accessibilityValue(active ? "已选中" : "")
+        .accessibilityValue(active ? String(localized: .playerTracksSelected) : "")
     }
 }
 
@@ -193,8 +193,8 @@ enum MacSubtitleGroups {
             case .other: others.append(option)
             }
         }
-        return [Group(id: "zh", title: "中文", options: chinese), Group(id: "en", title: "英语", options: english),
-                Group(id: "other", title: "其他语言", options: others)].filter { !$0.options.isEmpty }
+        return [Group(id: "zh", title: String(localized: .mediaLanguagesChinese), options: chinese), Group(id: "en", title: String(localized: .mediaLanguagesEnglish), options: english),
+                Group(id: "other", title: String(localized: .playerTracksOtherLanguages), options: others)].filter { !$0.options.isEmpty }
     }
 
     private enum Kind { case chinese, english, other }

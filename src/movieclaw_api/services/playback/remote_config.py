@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n.stored import reference, render_value
 from movieclaw_api.schemas.transcode_worker import (
     RemoteTranscodeBaseUrlSource,
     RemoteTranscodeConfigPayload,
@@ -66,14 +67,14 @@ def _normalize_base_url(value: str) -> str:
     return value.strip().rstrip("/")
 
 
-def remote_transcode_issues(config: RemoteTranscodeRuntimeConfig) -> list[str]:
+def _remote_transcode_issue_refs(config: RemoteTranscodeRuntimeConfig) -> list[dict]:
     """返回启用远程转码所缺少的前置条件，内容可直接展示给管理员。
 
     地址**留空不是问题**：那是默认路径，运行时会用接单 Worker 自己连上来的
     地址。这里只校验「填了但填错」——填了个连不上的地址比没填更危险，因为
     它会静默覆盖掉那个一定可用的推断值。
     """
-    issues: list[str] = []
+    issues: list[dict] = []
     if not config.base_url.strip():
         return issues
     try:
@@ -83,17 +84,18 @@ def remote_transcode_issues(config: RemoteTranscodeRuntimeConfig) -> list[str]:
     if parsed is None or not parsed.netloc:
         # 漏写 scheme 的地址（如 192.168.1.10:3000）会被 urlsplit 解析成空
         # netloc；用户明明填了却被告知「未配置」会让人完全找不到方向。
-        issues.append(
-            "远程转码覆盖地址必须以 http:// 或 https:// 开头，"
-            f"当前填写的是「{config.base_url.strip()}」"
-        )
+        issues.append(reference("errors.workers.urlSchemeRequired", url=config.base_url.strip()))
     elif parsed.scheme not in {"http", "https"}:
-        issues.append("远程转码覆盖地址必须使用 HTTP 或 HTTPS")
+        issues.append(reference("errors.workers.urlProtocolInvalid"))
     elif parsed.username or parsed.password:
-        issues.append("远程转码覆盖地址不能包含账号或密码")
+        issues.append(reference("errors.workers.urlCredentialsForbidden"))
     elif parsed.query or parsed.fragment:
-        issues.append("远程转码覆盖地址不能包含查询参数或片段")
+        issues.append(reference("errors.workers.urlComponentsForbidden"))
     return issues
+
+
+def remote_transcode_issues(config: RemoteTranscodeRuntimeConfig) -> list[str]:
+    return [render_value(issue) for issue in _remote_transcode_issue_refs(config)]
 
 
 def _runtime_from_setting(
@@ -174,22 +176,26 @@ async def save_remote_transcode_config(
         max_artifact_bytes=payload.max_artifact_bytes,
     )
     runtime = _runtime_from_setting(next_setting)
-    issues = remote_transcode_issues(runtime)
+    issues = _remote_transcode_issue_refs(runtime)
     if next_setting.enabled and issues:
-        raise BadRequestException("无法启用远程转码：" + "；".join(issues))
+        raise BadRequestException(
+            message_key="errors.workers.enableFailed",
+            params={
+                "issues": {"message_list": issues, "separator_key": "common.list.issueSeparator"}
+            },
+        )
 
     previous = effective_remote_transcode_config()
     await store.set(next_setting)
     _apply(next_setting)
-    if (
-        previous.enabled != runtime.enabled
-        or previous.base_url != runtime.base_url
-    ):
+    if previous.enabled != runtime.enabled or previous.base_url != runtime.base_url:
         # 修改地址或关闭功能时，旧 WebSocket 不能继续持有旧配置；断开后
         # 远程 Worker 会按既有重连逻辑重新握手。局部导入避免配置服务与注册表循环依赖。
         from movieclaw_api.services.playback.remote_worker import get_remote_worker_registry
 
-        await get_remote_worker_registry().disconnect_all("远程转码配置已变更")
+        await get_remote_worker_registry().disconnect_all(
+        reference("player.worker.configChanged")
+    )
     return await build_remote_transcode_config_view()
 
 

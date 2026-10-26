@@ -1,3 +1,5 @@
+import { useLocale } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import { GlassTabBar } from "@/components/glass-tab-bar";
 import { MobileSettingsNav } from "@/components/mobile-settings-nav";
 import { MorePage } from "@/components/more-page";
@@ -66,9 +68,9 @@ function PageNavAdapter({ title, fallback, actions, className }: DetailNavProps)
  * - 缺失坑位 / 整页 → BASE_SLOTS / BASE_PAGES 基础实现；主题的坑位与整页都套错误边界，
  *   渲染出错只让那一处回落基础实现。
  */
-export function getResolvedTheme(id: string): ResolvedTheme {
+export function getResolvedTheme(id: string, locale: AppLocale = "zh-Hans"): ResolvedTheme {
   const def = loadedDefinition(id);
-  const meta = themeMeta(id);
+  const meta = themeMeta(id, locale);
   return {
     meta,
     capabilities: { glass: meta.glass },
@@ -91,5 +93,5 @@ function guardAll<T extends object>(themeId: string, own: T | undefined, base: P
 
 /** 便捷钩子：当前主题的解析结果（组件层统一从这里拿坑位与能力） */
 export function useResolvedTheme(): ResolvedTheme {
-  return getResolvedTheme(useTheme().id);
+  return getResolvedTheme(useTheme().id, useLocale());
 }

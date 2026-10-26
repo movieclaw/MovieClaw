@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
 
@@ -70,6 +73,8 @@ import { formatDateTime, formatRelativeTime } from "@/lib/time";
  * （已安装的插件点「管理」）。
  */
 export function PluginMarket({ onChanged }: { onChanged: () => void }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const toast = useToast();
   const [overview, setOverview] = useState<MarketOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,8 +94,8 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
         setOverview(value);
         setError(null);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "加载失败"));
-  }, []);
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : t("settings.pluginMarket.loadFailed")));
+  }, [t]);
   useEffect(() => {
     reload();
   }, [reload]);
@@ -106,9 +111,9 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
       .then((value) => {
         setOverview(value);
         setError(null);
-        toast.success(value.updates ? `${value.updates} 个插件有更新` : "已是最新");
+        toast.success(value.updates ? t("settings.pluginMarket.updatesFound", { count: value.updates }) : t("settings.pluginMarket.upToDate"));
       })
-      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : "检查失败"))
+      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : t("settings.pluginMarket.checkFailed")))
       .finally(() => setChecking(false));
   };
 
@@ -119,7 +124,7 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
       setOpenId(null);
       setReviewing(pending);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "下载失败");
+      toast.error(err instanceof Error ? err.message : t("settings.pluginMarket.downloadFailed"));
     } finally {
       setDownloading(null);
     }
@@ -137,16 +142,16 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
       const result = await approvePackage(item, allowInline, allowMembers, web, allowTheme);
       setReviewing(null);
       if (result.status === "active") {
-        toast.success(`「${item.title}」v${item.version} 已安装并运行`);
+        toast.success(t("settings.pluginMarket.installedRunning", { name: item.title, version: item.version }));
       } else {
         toast.error(
-          `「${item.title}」v${item.version} 没能运行，已自动${
-            result.version ? `回到 v${result.version}` : "撤销安装"
-          }：${result.error ?? "未知原因"}`,
+          result.version
+            ? t("settings.pluginMarket.failedRollback", { name: item.title, version: item.version, previous: result.version, reason: result.error ?? t("settings.pluginMarket.unknownReason") })
+            : t("settings.pluginMarket.failedUninstall", { name: item.title, version: item.version, reason: result.error ?? t("settings.pluginMarket.unknownReason") }),
         );
       }
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "安装失败");
+      toast.error(err instanceof Error ? err.message : t("settings.pluginMarket.installFailed"));
     } finally {
       setApproving(false);
       reload();
@@ -159,16 +164,16 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
     try {
       await discardPackage(item.id);
       setReviewing(null);
-      toast.success("已放弃");
+      toast.success(t("settings.pluginMarket.discarded"));
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "操作失败");
+      toast.error(err instanceof Error ? err.message : t("settings.pluginMarket.actionFailed"));
     } finally {
       setApproving(false);
     }
   };
 
   const plugins = useMemo(() => overview?.plugins ?? [], [overview]);
-  const categories = useMemo(() => marketCategories(plugins), [plugins]);
+  const categories = useMemo(() => marketCategories(plugins, locale), [plugins, locale]);
   const shown = filterMarket(plugins, { category, query });
   const updates = pendingUpdates(plugins);
   const open = plugins.find((p) => p.id === openId) ?? null;
@@ -178,11 +183,10 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
       <div className="space-y-3">
         <ErrorBanner>{error}</ErrorBanner>
         <button type="button" onClick={reload} className={SETTINGS_BUTTON_CLASS}>
-          重试
-        </button>
+          {t("settings.pluginMarket.retry")}</button>
       </div>
     ) : (
-      <p className="px-1 text-sub text-[var(--text-muted)]">正在读取插件仓库…</p>
+      <p className="px-1 text-sub text-[var(--text-muted)]">{t("settings.pluginMarket.reading")}</p>
     );
   }
 
@@ -190,13 +194,13 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
     <div className="space-y-8">
       <SourceLine overview={overview} checking={checking} onCheck={check} />
       {overview.source.error && (
-        <Banner tone="warn" title="没能连上插件仓库，显示的是上次取到的列表">
+        <Banner tone="warn" title={t("settings.pluginMarket.stale")}>
           {overview.source.error}
         </Banner>
       )}
 
       {updates.length > 0 && (
-        <SettingsSection title="可更新" description={`${updates.length} 个已安装的插件有新版本`}>
+        <SettingsSection title={t("settings.pluginMarket.updates")} description={t("settings.pluginMarket.updatesHint", { count: updates.length })}>
           <SettingsList>
             {updates.map((plugin) => {
               const target = plugin.versions.find((v) => v.version === plugin.update);
@@ -220,7 +224,7 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
                     onClick={() => plugin.update && void install(plugin, plugin.update)}
                     className={SETTINGS_PRIMARY_BUTTON_CLASS}
                   >
-                    {downloading === `${plugin.id}@${plugin.update}` ? "正在下载…" : "更新"}
+                    {downloading === `${plugin.id}@${plugin.update}` ? t("settings.pluginMarket.downloading") : t("settings.pluginMarket.update")}
                   </button>
                 </SettingsRow>
               );
@@ -238,7 +242,7 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索插件、作者"
+              placeholder={t("settings.pluginMarket.search")}
               className="min-w-0 flex-1 bg-transparent text-ui text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]"
             />
           </label>
@@ -248,7 +252,7 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
         </div>
         {shown.length === 0 ? (
           <p className="css-glass !rounded-xl px-4 py-10 text-center text-sub text-[var(--text-faint)]">
-            {plugins.length === 0 ? "插件仓库里还没有插件。" : "没有符合条件的插件。"}
+            {plugins.length === 0 ? t("settings.pluginMarket.empty") : t("settings.pluginMarket.noMatch")}
           </p>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(270px,1fr))] gap-3">
@@ -302,27 +306,27 @@ function SourceLine({
   checking: boolean;
   onCheck: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const { source } = overview;
   return (
     <div className="css-glass flex flex-wrap items-center gap-x-3 gap-y-2 !rounded-xl px-4 py-2.5 text-sub text-[var(--text-muted)]">
       <GitHubMark className="size-4 shrink-0 text-[var(--text)]" />
       {source.repository ? (
         <a href={source.repository} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
-          官方插件仓库
-        </a>
+          {t("settings.pluginMarket.officialCatalog")}</a>
       ) : (
-        <span className="text-[var(--text)]">插件仓库</span>
+        <span className="text-[var(--text)]">{t("settings.pluginMarket.catalog")}</span>
       )}
       {source.signed ? (
         <span className="inline-flex items-center gap-1 text-[var(--ok)]">
           <ShieldIcon className="size-3.5" />
-          签名已验证
-        </span>
+          {t("settings.pluginMarket.verified")}</span>
       ) : (
-        <StatusPill tone="warn" label="未签名的自建索引" />
+        <StatusPill tone="warn" label={t("settings.pluginMarket.unsigned")} />
       )}
       <span className="text-[var(--text-faint)]">
-        {overview.plugins.length} 个插件 · 检查于 {formatRelativeTime(source.checked_at)}
+        {t("settings.pluginMarket.sourceSummary", { count: overview.plugins.length, time: formatRelativeTime(source.checked_at, locale) })}
       </span>
       <button
         type="button"
@@ -331,7 +335,7 @@ function SourceLine({
         className={`${SETTINGS_BUTTON_CLASS} ml-auto`}
       >
         <RefreshIcon className={`size-3.5 ${checking ? "animate-spin" : ""}`} />
-        {checking ? "正在检查…" : "检查更新"}
+        {checking ? t("settings.pluginMarket.checking") : t("settings.pluginMarket.check")}
       </button>
     </div>
   );
@@ -382,7 +386,9 @@ function ActionButton({
   downloading: string | null;
   onInstall: (version: string) => void;
 }) {
-  const action = marketAction(plugin);
+  const t = useTranslations();
+  const locale = useLocale();
+  const action = marketAction(plugin, locale);
   if (action.version) {
     const busy = downloading === `${plugin.id}@${action.version}`;
     return (
@@ -395,7 +401,7 @@ function ActionButton({
         }}
         className={SETTINGS_PRIMARY_BUTTON_CLASS}
       >
-        {busy ? "正在下载…" : action.label}
+        {busy ? t("settings.pluginMarket.downloading") : action.label}
       </button>
     );
   }
@@ -404,12 +410,12 @@ function ActionButton({
     return state === "active" ? (
       <span className="shrink-0 text-sub text-[var(--text-muted)]">{action.note}</span>
     ) : (
-      <StatusPill {...installedStatus(state)} />
+      <StatusPill {...installedStatus(state, locale)} />
     );
   }
   return (
     <span className="shrink-0 text-sub text-[var(--warn)]" title={action.note ?? undefined}>
-      {action.kind === "incompatible" ? "需要更新 MovieClaw" : "不能安装"}
+      {action.kind === "incompatible" ? t("settings.pluginMarket.updateApp") : t("settings.pluginMarket.installBlocked")}
     </span>
   );
 }
@@ -425,6 +431,8 @@ function MarketCard({
   onOpen: () => void;
   onInstall: (version: string) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const version = shownVersion(plugin);
   return (
     <div
@@ -444,11 +452,11 @@ function MarketCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5 text-body font-semibold text-[var(--text)]">
             {plugin.name}
-            {version?.prerelease && <StatusPill tone="warn" label="测试版" />}
-            {plugin.deprecated && <StatusPill tone="neutral" label="已停止维护" />}
+            {version?.prerelease && <StatusPill tone="warn" label={t("settings.pluginMarket.prerelease")} />}
+            {plugin.deprecated && <StatusPill tone="neutral" label={t("settings.pluginMarket.deprecated")} />}
           </div>
           <div className="mt-0.5 truncate text-caption text-[var(--text-faint)]">
-            {plugin.author.name} · {categoryLabel(plugin.category)}
+            {plugin.author.name} · {categoryLabel(plugin.category, locale)}
           </div>
         </div>
       </div>
@@ -457,7 +465,7 @@ function MarketCard({
       </p>
       <div className="mt-auto flex items-center justify-between gap-3">
         <span className="min-w-0 truncate text-caption tabular-nums text-[var(--text-faint)]">
-          {versionMeta(version, plugin.downloads)}
+          {versionMeta(version, plugin.downloads, locale)}
         </span>
         <ActionButton plugin={plugin} downloading={downloading} onInstall={onInstall} />
       </div>
@@ -480,6 +488,8 @@ function PluginDrawer({
   onClose: () => void;
   onInstall: (version: string) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [tab, setTab] = useState<DetailTab>("about");
   const [detail, setDetail] = useState<MarketPluginDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -488,13 +498,13 @@ function PluginDrawer({
     setDetailError(null);
     getMarketPlugin(plugin.id)
       .then(setDetail)
-      .catch((err: unknown) => setDetailError(err instanceof Error ? err.message : "加载失败"));
-  }, [plugin.id]);
+      .catch((err: unknown) => setDetailError(err instanceof Error ? err.message : t("settings.pluginMarket.loadFailed")));
+  }, [plugin.id, t]);
 
   const version = shownVersion(plugin);
-  const action = marketAction(plugin);
+  const action = marketAction(plugin, locale);
   const installed = plugin.installed;
-  const downloads = formatDownloadCount(plugin.downloads);
+  const downloads = formatDownloadCount(plugin.downloads, locale);
   const feedback = feedbackLink(plugin, appVersion);
   const shots = plugin.screenshots ?? [];
   return (
@@ -505,15 +515,14 @@ function PluginDrawer({
       description={plugin.summary}
       hint={
         installed
-          ? `已安装 v${installed.version}${installed.source === "bundled" ? "（随应用提供）" : ""}`
+          ? installed.source === "bundled" ? t("settings.pluginMarket.installedBundledVersion", { version: installed.version }) : t("settings.pluginMarket.installedVersion", { version: installed.version })
           : action.note ?? undefined
       }
       actions={
         <>
           {installed && (
             <Link href={pluginHref(plugin.id) as never} className={SETTINGS_BUTTON_CLASS}>
-              管理
-            </Link>
+              {t("settings.pluginMarket.manage")}</Link>
           )}
           <ActionButton plugin={plugin} downloading={downloading} onInstall={onInstall} />
         </>
@@ -539,30 +548,30 @@ function PluginDrawer({
               )}
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {version?.prerelease && <StatusPill tone="warn" label="测试版" />}
+              {version?.prerelease && <StatusPill tone="warn" label={t("settings.pluginMarket.prerelease")} />}
               {installed && (
-                <StatusPill {...installedStatus(installed.state)} />
+                <StatusPill {...installedStatus(installed.state, locale)} />
               )}
             </div>
           </div>
         </div>
 
         {plugin.deprecated && (
-          <Banner tone="warn" title="作者已停止维护这个插件">
+          <Banner tone="warn" title={t("settings.pluginMarket.deprecatedTitle")}>
             {plugin.deprecated.reason}
-            {plugin.deprecated.replaced_by && `建议改用 ${plugin.deprecated.replaced_by}。`}
+            {plugin.deprecated.replaced_by && t("settings.pluginMarket.replacement", { name: plugin.deprecated.replaced_by })}
           </Banner>
         )}
         {installed?.yanked && (
-          <Banner tone="danger" title={`你装的 v${installed.version} 已被作者撤回`}>
+          <Banner tone="danger" title={t("settings.pluginMarket.yankedTitle", { version: installed.version })}>
             {installed.yanked}
             {plugin.recommended && plugin.recommended !== installed.version
-              ? ` 建议换到 v${plugin.recommended}。`
+              ? t("settings.pluginMarket.recommended", { version: plugin.recommended })
               : ""}
           </Banner>
         )}
         {(action.kind === "incompatible" || action.kind === "blocked") && (
-          <Banner tone="warn" title="这台服务器装不了">
+          <Banner tone="warn" title={t("settings.pluginMarket.serverIncompatible")}>
             {action.note}
           </Banner>
         )}
@@ -571,7 +580,7 @@ function PluginDrawer({
 
         {version?.notes.trim() && (
           <section className="space-y-2">
-            <h3 className="text-caption text-[var(--text-faint)]">v{version.version} 更新说明</h3>
+            <h3 className="text-caption text-[var(--text-faint)]">v{version.version} {t("settings.pluginMarket.changelog")}</h3>
             <Markdown text={version.notes} compact />
           </section>
         )}
@@ -584,22 +593,21 @@ function PluginDrawer({
             data-plugin-feedback
             className="css-glass flex min-h-[56px] items-center justify-between gap-4 !rounded-xl px-4 py-3 text-body font-medium text-[var(--text)] transition-colors hover:bg-white/[0.04]"
           >
-            反馈问题
-            <span aria-hidden className="text-caption text-[var(--text-faint)]">
+            {t("settings.pluginMarket.feedback")}<span aria-hidden className="text-caption text-[var(--text-faint)]">
               ↗
             </span>
           </a>
         )}
 
         {version && (
-          <p className="text-caption leading-5 text-[var(--text-faint)]">{technicalLine(plugin, version)}</p>
+          <p className="text-caption leading-5 text-[var(--text-faint)]">{technicalLine(plugin, version, locale)}</p>
         )}
 
         <SettingsTabs
           tabs={[
-            { id: "about", label: "介绍" },
-            { id: "permissions", label: "权限" },
-            { id: "versions", label: `版本 ${plugin.versions.length}` },
+            { id: "about", label: t("settings.pluginMarket.about") },
+            { id: "permissions", label: t("settings.pluginMarket.permissions") },
+            { id: "versions", label: t("settings.pluginMarket.versions", { count: plugin.versions.length }) },
           ]}
           value={tab}
           onChange={setTab}
@@ -616,14 +624,14 @@ function PluginDrawer({
   );
 }
 
-function technicalLine(plugin: MarketPlugin, version: MarketVersion): string {
-  const released = version.released_at ? formatDateTime(version.released_at) : "";
+function technicalLine(plugin: MarketPlugin, version: MarketVersion, locale: AppLocale): string {
+  const released = version.released_at ? formatDateTime(version.released_at, locale) : "";
   return [
     `v${version.version}`,
     released === "—" ? "" : released,
     version.size ? formatBytes(version.size) : "",
-    runtimeLabel(version.runtime),
-    categoryLabel(plugin.category),
+    runtimeLabel(version.runtime, locale),
+    categoryLabel(plugin.category, locale),
     plugin.license,
     plugin.id,
   ]
@@ -632,6 +640,7 @@ function technicalLine(plugin: MarketPlugin, version: MarketVersion): string {
 }
 
 function ScreenshotStrip({ urls, name }: { urls: string[]; name: string }) {
+  const t = useTranslations();
   const [broken, setBroken] = useState<Record<number, boolean>>({});
   const visible = urls.some((_, index) => !broken[index]);
   if (!visible) return null;
@@ -642,7 +651,7 @@ function ScreenshotStrip({ urls, name }: { urls: string[]; name: string }) {
           <img
             key={url}
             src={url}
-            alt={`${name} 截图 ${index + 1}`}
+            alt={t("settings.pluginMarket.screenshot", { name, index: index + 1 })}
             decoding="async"
             onError={() => setBroken((current) => ({ ...current, [index]: true }))}
             className="h-40 w-auto max-w-[85%] shrink-0 rounded-xl bg-white/[0.04] object-cover shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
@@ -662,8 +671,9 @@ function AboutTab({
   detail: MarketPluginDetail | null;
   error: string | null;
 }) {
+  const t = useTranslations();
   if (error) return <p className="text-sub text-[var(--danger)]">{error}</p>;
-  if (!detail) return <p className="text-sub text-[var(--text-muted)]">正在读取说明…</p>;
+  if (!detail) return <p className="text-sub text-[var(--text-muted)]">{t("settings.pluginMarket.readingReadme")}</p>;
   const blurb =
     plugin.description && plugin.description !== plugin.summary ? plugin.description : "";
   return (
@@ -674,7 +684,7 @@ function AboutTab({
       ) : detail.readme_error ? (
         <p className="text-sub leading-6 text-[var(--danger)]">{detail.readme_error}</p>
       ) : (
-        !blurb && <p className="text-sub leading-6 text-[var(--text-muted)]">作者没有写说明。</p>
+        !blurb && <p className="text-sub leading-6 text-[var(--text-muted)]">{t("settings.pluginMarket.noReadme")}</p>
       )}
       {plugin.repository && (
         <a
@@ -684,8 +694,7 @@ function AboutTab({
           className="inline-flex items-center gap-1.5 text-caption text-[var(--text-faint)] hover:text-[var(--text)]"
         >
           <GitHubMark className="size-3.5" />
-          在 GitHub 上看源码
-        </a>
+          {t("settings.pluginMarket.sourceCode")}</a>
       )}
     </div>
   );
@@ -698,13 +707,15 @@ function PermissionsTab({
   version: MarketVersion;
   detail: MarketPluginDetail | null;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const deps = detail?.selected === version.version ? detail.dependencies : null;
   const tone = { neutral: "text-[var(--text)]", warn: "text-[var(--warn)]", danger: "text-[var(--danger)]" };
   return (
     <div className="space-y-4">
-      <p className="text-caption text-[var(--text-faint)]">v{version.version} 申请的权限。安装时会再逐项确认。</p>
+      <p className="text-caption text-[var(--text-faint)]">{t("settings.pluginMarket.permissionsHint", { version: version.version })}</p>
       <SettingsList>
-        {permissionLines(version).map((line) => (
+        {permissionLines(version, locale).map((line) => (
           <div key={line.title} className="px-4 py-3">
             <div className={`text-ui font-medium ${tone[line.tone]}`}>{line.title}</div>
             <div className="mt-0.5 break-words text-caption leading-5 text-[var(--text-faint)]">
@@ -716,7 +727,7 @@ function PermissionsTab({
       {deps && deps.packages.length > 0 && (
         <div className="space-y-2">
           <p className="text-caption text-[var(--text-faint)]">
-            这台服务器要下载约 {formatBytes(deps.total_size)}（来自 {deps.index_label}）
+            {t("settings.pluginMarket.dependencySize", { size: formatBytes(deps.total_size), index: deps.index_label })}
           </p>
           <SettingsList>
             {deps.packages.map((dep) => (
@@ -724,9 +735,9 @@ function PermissionsTab({
                 <span className="min-w-0 flex-1 truncate text-[var(--text)]">
                   {dep.name} <span className="text-[var(--text-faint)]">{dep.version}</span>
                 </span>
-                {dep.native && <StatusPill tone="warn" label="本机代码" />}
+                {dep.native && <StatusPill tone="warn" label={t("settings.pluginMarket.nativeCode")} />}
                 <span className="shrink-0 tabular-nums text-[var(--text-faint)]">
-                  {dep.size != null ? formatBytes(dep.size) : dep.available ? "—" : "没有适用的轮子"}
+                  {dep.size != null ? formatBytes(dep.size) : dep.available ? "—" : t("settings.pluginMarket.noWheel")}
                 </span>
               </div>
             ))}
@@ -746,6 +757,8 @@ function VersionsTab({
   downloading: string | null;
   onInstall: (version: string) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   return (
     <SettingsList>
       {plugin.versions.map((version) => {
@@ -756,11 +769,11 @@ function VersionsTab({
               <span className="text-ui font-semibold tabular-nums text-[var(--text)]">
                 v{version.version}
               </span>
-              {versionBadges(version, plugin).map((badge) => (
+              {versionBadges(version, plugin, locale).map((badge) => (
                 <StatusPill key={badge.label} tone={badge.tone} label={badge.label} />
               ))}
               <span className="text-caption tabular-nums text-[var(--text-faint)]">
-                {formatDateTime(version.released_at)}
+                {formatDateTime(version.released_at, locale)}
               </span>
               {canInstallVersion(version, plugin) && (
                 <button
@@ -769,12 +782,12 @@ function VersionsTab({
                   onClick={() => onInstall(version.version)}
                   className={`${SETTINGS_BUTTON_CLASS} ml-auto`}
                 >
-                  {busy ? "正在下载…" : installVerb(version.version, plugin)}
+                  {busy ? t("settings.pluginMarket.downloading") : installVerb(version.version, plugin, locale)}
                 </button>
               )}
             </div>
             {version.yanked && (
-              <p className="text-caption text-[var(--danger)]">撤回原因：{version.yanked}</p>
+              <p className="text-caption text-[var(--danger)]">{t("settings.pluginMarket.withdrawalReason", { reason: version.yanked })}</p>
             )}
             {!version.compatible && version.incompatible_reason && (
               <p className="text-caption text-[var(--warn)]">{version.incompatible_reason}</p>
@@ -782,7 +795,7 @@ function VersionsTab({
             {version.notes ? (
               <Markdown text={version.notes} compact />
             ) : (
-              <p className="text-caption text-[var(--text-faint)]">这一版没有写更新说明。</p>
+              <p className="text-caption text-[var(--text-faint)]">{t("settings.pluginMarket.noReleaseNotes")}</p>
             )}
             {version.changelog_url && (
               <a

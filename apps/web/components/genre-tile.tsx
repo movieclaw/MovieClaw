@@ -1,3 +1,6 @@
+"use client";
+
+import { useTranslations } from "next-intl";
 import type { Route } from "next";
 import Link from "next/link";
 
@@ -31,11 +34,12 @@ export function GenreTile({
   href: Route;
   className?: string;
 }) {
-  const countLabel = `${count} 部${mediaKind === "tv" ? "剧集" : "电影"}`;
+  const t = useTranslations();
+  const countLabel = t("library.genreTile.count", { count, kind: mediaKind });
   return (
     <Link
       href={href}
-      aria-label={`浏览${label}，${countLabel}`}
+      aria-label={t("library.genreTile.browse", { label, countLabel })}
       className={`genre-tile group relative isolate block aspect-[236/150] overflow-hidden rounded-[calc(12px*var(--genre-scale))] [--genre-scale:calc(240/236)] max-md:[--genre-scale:calc(196/236)] bg-[#202023] text-white outline-none ring-inset shadow-[0_10px_28px_rgba(0,0,0,0.4)] transition-all duration-300 ease-out hover:-translate-y-1.5 hover:shadow-[0_22px_50px_rgba(0,0,0,0.6)] hover:ring-1 hover:ring-white/25 focus-visible:ring-2 focus-visible:ring-white/80 motion-reduce:transition-none ${className}`}
     >
       {/* 悬停三件套与竖图海报卡（poster-card.tsx）同规格：整格上浮 6px +

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
+from sqlalchemy import JSON, Column
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -122,3 +123,4 @@ class SiteCredential(TimestampMixin, table=True):
     last_checked_at: datetime | None = Field(default=None, description="最近验证尝试时间")
     # 最近一次验证失败的原因，已归类为清晰中文，直接展示给用户帮助非开发者排查
     last_error: str | None = Field(default=None, description="最近验证失败原因")
+    last_error_ref: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))

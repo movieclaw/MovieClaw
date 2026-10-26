@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { formatList } from "@/lib/i18n/format";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import type { Route } from "next";
@@ -66,9 +69,9 @@ export type PosterCardAction = "subscribe" | "follow" | "backfill" | "owned" | "
  *  订阅是「加入追踪清单」，图标用 +（加入）与 🔔（追新）表意——
  *  不能用播放三角：它承诺的是「点了就能看」，会误导用户以为是播放键。 */
 const SUBSCRIBE_ACTION_META = {
-  subscribe: { label: "订阅影片", Icon: PlusIcon },
-  follow: { label: "自动续订", Icon: BellIcon },
-  backfill: { label: "补齐缺集", Icon: DownloadIcon },
+  subscribe: { label: "media.discovery.subscribe", title: "media.discovery.subscribeTitle", Icon: PlusIcon },
+  follow: { label: "media.cards.autoRenew", title: "media.cards.followTitle", Icon: BellIcon },
+  backfill: { label: "media.cards.fillMissing", title: "media.cards.fillMissingTitle", Icon: DownloadIcon },
 } as const;
 
 /**
@@ -143,6 +146,7 @@ export interface PosterVisualItem {
 function resolveRibbon(
   item: PosterVisualItem,
 ): { label: string; compactLeft: boolean; tone: "owned" | "subscribed" } | null {
+  const t = appTranslator();
   if (item.ribbon) {
     return {
       label: item.ribbon,
@@ -150,7 +154,7 @@ function resolveRibbon(
       tone: item.ribbonTone ?? "subscribed",
     };
   }
-  if (item.libraryStatus) return { label: "已入库", compactLeft: true, tone: "owned" };
+  if (item.libraryStatus) return { label: t("media.cards.inLibrary"), compactLeft: true, tone: "owned" };
   return null;
 }
 
@@ -192,6 +196,8 @@ export function PosterCardVisual({
   /** 触摸端首次点按是否先展开纯信息层；默认仍单击直达详情。 */
   revealInfoOnTouch?: boolean;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const { canSubscribe, subscriptionOf } = useSubscribeEntry();
   const hasSubscribeAction =
     action === "subscribe" || action === "follow" || action === "backfill";
@@ -266,16 +272,16 @@ export function PosterCardVisual({
     const accessibilityDetails = [
       resolveRibbon(item)?.label,
       item.posterFooter
-        ? `${item.posterFooter.label}，收录 ${item.posterFooter.value}` +
+        ? t("media.cards.footer", { label: item.posterFooter.label, value: item.posterFooter.value }) +
           (item.posterFooter.upgrading
             ? item.posterFooter.upgradingCount
-              ? `，${item.posterFooter.upgradingCount} 集洗版中`
-              : "，洗版中"
+              ? t("media.cards.upgradingEpisodes", { count: item.posterFooter.upgradingCount })
+              : t("media.cards.upgrading")
             : "")
         : undefined,
       item.overlayDetails?.primary,
       item.overlayDetails?.secondary,
-      item.genres?.join("、"),
+      item.genres && formatList(item.genres, locale, { type: "unit", style: "short" }),
       item.overlayMeta,
     ].filter(Boolean);
     return (
@@ -287,7 +293,7 @@ export function PosterCardVisual({
         onClick={onLinkClick}
         data-revealed={revealed}
         className={interactiveClass}
-        aria-label={`查看《${item.title}》详情${accessibilityDetails.length > 0 ? `，${accessibilityDetails.join("，")}` : ""}`}
+        aria-label={t("media.cards.viewDetails", { title: item.title, details: accessibilityDetails.length > 0 ? t("media.cards.detailsSuffix", { details: accessibilityDetails.join(t("media.cards.separator")) }) : "" })}
       >
         {content}
       </Link>
@@ -318,6 +324,7 @@ function PosterCardContent({
   showOverlay: boolean;
   showOverlayAction: boolean;
 }) {
+  const t = useTranslations();
   const badges = item.badges ?? [];
   const genres = item.genres ?? [];
   const overlayPrimary = item.overlayDetails?.primary.trim() ?? "";
@@ -370,7 +377,7 @@ function PosterCardContent({
                   src={item.posterUrl}
                   width={imageWidth}
                   zoom={HOVER_ZOOM}
-                  alt={`${item.title} 海报`}
+                  alt={t("media.artwork.posterLabel", { title: item.title })}
                   className="size-full"
                 />
               </div>
@@ -381,7 +388,7 @@ function PosterCardContent({
             src={item.posterUrl}
             width={imageWidth}
             zoom={HOVER_ZOOM}
-            alt={`${item.title} 海报`}
+            alt={t("media.artwork.posterLabel", { title: item.title })}
             className="absolute inset-0 size-full transition-transform duration-500 ease-out group-hover/card:scale-[1.06]"
           />
         )}
@@ -418,7 +425,7 @@ function PosterCardContent({
               aria-hidden="true"
               className="size-1.5 rounded-full bg-[#2dd4bf] shadow-[0_0_6px_rgba(45,212,191,0.7)]"
             />
-            洗版 {item.posterFooter.upgradingCount}
+            {t("media.cards.upgrade")} {item.posterFooter.upgradingCount}
           </span>
         )}
         {/* 右上角状态位：收藏的心 + 评分徽章（评分为 0 不渲染，避免展示 0.0）。
@@ -430,7 +437,7 @@ function PosterCardContent({
           >
             {item.favorite && (
               <span
-                aria-label="已收藏"
+                aria-label={t("media.cards.favorited")}
                 className="flex items-center rounded-md bg-black/70 px-1 py-0.5 text-[var(--danger)]"
               >
                 <HeartIcon className="size-3.5" fill="currentColor" />
@@ -548,6 +555,7 @@ function PosterCardActionButton({
   item: PosterVisualItem;
   action: PosterCardAction;
 }) {
+  const t = useTranslations();
   const { canSubscribe, open: openSubscribe, subscriptionOf } = useSubscribeEntry();
   const subscribeMeta =
     action === "subscribe" || action === "follow" || action === "backfill"
@@ -564,7 +572,7 @@ function PosterCardActionButton({
     return (
       <span className="flex h-7 items-center gap-1.5 rounded-full bg-white/[0.18] px-3 text-caption font-semibold text-white/90">
         <span className="size-1.5 rounded-full bg-[var(--ok)]" />
-        在库
+        {t("library.status.inLibrary")}
       </span>
     );
   }
@@ -573,8 +581,8 @@ function PosterCardActionButton({
   if (!canSubscribe || (existingSub && action !== "subscribe")) return null;
 
   const label = existingSub
-    ? `管理《${item.title}》的订阅`
-    : `${subscribeMeta.label}《${item.title}》`;
+    ? t("media.discovery.manageSubscription", { title: item.title })
+    : t(subscribeMeta.title, { title: item.title });
 
   return (
     <span
@@ -609,12 +617,12 @@ function PosterCardActionButton({
       {existingSub ? (
         <>
           <CheckIcon className="size-3 text-[var(--ok)]" />
-          已订阅
+          {t("media.discovery.subscribed")}
         </>
       ) : (
         <>
           <subscribeMeta.Icon className="size-3" />
-          {subscribeMeta.label}
+          {t(subscribeMeta.label)}
         </>
       )}
     </span>

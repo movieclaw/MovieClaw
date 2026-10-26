@@ -243,6 +243,14 @@ data class UpgradeRunView(
     val counts: Map<String, Int> = emptyMap(),
 )
 
+/** 新建 / 更新规则组（`RuleSetPayload`）：spec 整份提交，match_rules 为 null = 不改、[] = 清空 */
+@Serializable
+data class RuleSetPayload(
+    val name: String,
+    val spec: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap()),
+    val matchRules: kotlinx.serialization.json.JsonArray? = null,
+)
+
 /** `GET /rule-sets`：过滤规则组（订阅换绑用） */
 @Serializable
 data class RuleSetView(
@@ -252,6 +260,8 @@ data class RuleSetView(
     val referenceCount: Int = 0,
     /** 规则内容（摘要由 `specSummary` 渲染，口径同网页） */
     val spec: kotlinx.serialization.json.JsonObject? = null,
+    /** 适用范围（field: kind / origin_countries / genres，op 固定 any_of） */
+    val matchRules: List<kotlinx.serialization.json.JsonObject> = emptyList(),
 )
 
 @Serializable
@@ -448,3 +458,35 @@ data class TrackingStateRequest(val state: String)
  */
 @Serializable
 data class UpgradeRunPayload(val ruleSetId: Long? = null)
+
+/* ---------------- 订阅「智能选择」（设置 → 订阅规则 → 智能选择） ---------------- */
+
+/**
+ * 电影/剧集各自的智能选版偏好（服务端 `movieclaw_matcher.smart.SmartPreferences`）。
+ * 优先分辨率 › 优先片源；等待耐心决定等更优版本的窗口，到期可降档（strict_resolution 关闭时）。
+ */
+@Serializable
+data class SmartPreferences(
+    /** 1080p / 2160p */
+    val resolution: String = "2160p",
+    /** web-dl / blu-ray / remux */
+    val source: String = "web-dl",
+    /** 等待上限（秒）：0 = 尽快下载；最多 7 天 */
+    val waitSeconds: Int = 7200,
+    val allowUpgrade: Boolean = true,
+    val strictResolution: Boolean = false,
+)
+
+/** GET/PUT /subscriptions/smart-profiles/{kind} */
+@Serializable
+data class SmartProfileView(
+    val kind: String = "movie",
+    val revision: Long = 0,
+    val preferences: SmartPreferences? = null,
+)
+
+@Serializable
+data class SmartProfilePayload(
+    val revision: Long,
+    val preferences: SmartPreferences,
+)

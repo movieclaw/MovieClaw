@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
@@ -22,11 +25,11 @@ import { PAGE_NAV_BUTTON_CLASS } from "@/components/page-nav";
 import { fetchDiscoveryGenres, type DiscoveryGenre } from "@/lib/api/discover";
 import {
   clearDiscoveryDimension,
-  DISCOVERY_COUNTRIES,
+  discoveryCountries,
   DISCOVERY_FILTER_DIMENSIONS,
   DISCOVERY_RATING_STEPS,
   DISCOVERY_RUNTIME_STEPS,
-  DISCOVERY_SORTS,
+  discoverySorts,
   discoveryDimensionSummary,
   discoveryDimensionTitle,
   discoveryDimensionValue,
@@ -151,11 +154,13 @@ function DimensionOptions({
   filters: DiscoveryFilters;
   onChange: (filters: DiscoveryFilters) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   if (dimension === "genres") {
     if (!genres || genres.length === 0) {
       return (
         <DropdownMenu.Item disabled className={DISCOVER_MENU_ITEM_CLASS}>
-          {genres === null ? "类型加载失败，其他条件仍可使用" : "类型加载中…"}
+          {genres === null ? t("media.filters.genresFailed") : t("media.filters.genresLoading")}
         </DropdownMenu.Item>
       );
     }
@@ -179,23 +184,23 @@ function DimensionOptions({
       </>
     );
   }
-  const unlimited: Array<[string, string]> = [["", "不限"]];
+  const unlimited: Array<[string, string]> = [["", t("media.filters.unlimited")]];
   const options: Array<[string, string]> =
     dimension === "country"
-      ? [...unlimited, ...DISCOVERY_COUNTRIES.map(([code, label]): [string, string] => [code, label])]
+      ? [...unlimited, ...discoveryCountries(locale).map(([code, label]): [string, string] => [code, label])]
       : dimension === "year"
         ? [
             ...unlimited,
             ...Array.from({ length: Math.max(1, currentYear - 1873) }, (_, index): [string, string] => {
               const year = currentYear - index;
-              return [String(year), `${year} 年`];
+              return [String(year), t("media.filters.yearValue", { year })];
             }),
           ]
         : dimension === "rating"
-          ? [...unlimited, ...DISCOVERY_RATING_STEPS.map((v): [string, string] => [String(v), `${v} 分以上`])]
+          ? [...unlimited, ...DISCOVERY_RATING_STEPS.map((v): [string, string] => [String(v), t("media.filters.ratingValue", { rating: v })])]
           : dimension === "runtime"
-            ? [...unlimited, ...DISCOVERY_RUNTIME_STEPS.map((v): [string, string] => [String(v), `${v} 分钟以内`])]
-            : DISCOVERY_SORTS;
+            ? [...unlimited, ...DISCOVERY_RUNTIME_STEPS.map((v): [string, string] => [String(v), t("media.filters.runtimeValue", { minutes: v })])]
+            : discoverySorts(locale);
   const value = discoveryDimensionValue(filters, dimension);
   return (
     // Radix 点已选中的那一项也会回调 onValueChange：同值直接忽略
@@ -216,8 +221,9 @@ function DimensionOptions({
 }
 
 /** 维度未启用时的占位文字（排序停在默认档也写出来） */
-function idleSummary(dimension: DiscoveryFilterDimension): string {
-  return dimension === "sort" ? "热门优先" : "不限";
+function idleSummary(dimension: DiscoveryFilterDimension, locale?: AppLocale): string {
+  const t = appTranslator(locale);
+  return dimension === "sort" ? t("media.filters.popular") : t("media.filters.unlimited");
 }
 
 /**
@@ -245,11 +251,13 @@ export function DiscoveryFilterMenu({
   /** 豆瓣源不支持筛选：桌面工具栏里禁用置灰原地保留（避免工具栏跳动） */
   disabled?: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const genres = useDiscoveryGenres(mediaType, !disabled);
   const genreNames = useGenreNames(genres);
   const [level, setLevel] = useState<DiscoveryFilterDimension | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const title = discoveryFilterButtonTitle(filters, genreNames);
+  const title = discoveryFilterButtonTitle(filters, genreNames, locale);
 
   /** 换一级：面板回到顶部，焦点落到新一级的第一项（键盘操作不断档） */
   const go = (next: DiscoveryFilterDimension | null) => {
@@ -268,8 +276,8 @@ export function DiscoveryFilterMenu({
         <button
           type="button"
           disabled={disabled}
-          title={disabled ? "筛选仅 TMDB 源支持" : undefined}
-          aria-label={`筛选：${title}`}
+          title={disabled ? t("media.filters.tmdbOnly") : undefined}
+          aria-label={t("media.filters.buttonLabel", { title })}
           className={`page-nav-btn flex min-w-0 max-w-[10rem] shrink-0 items-center gap-1.5 rounded-full border border-white/[0.09] bg-black/30 text-sub font-semibold text-white/85 backdrop-blur-md transition hover:bg-black/50 hover:text-white active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40 data-[state=open]:bg-black/50 ${
             compact ? "h-9 px-3.5 pointer-coarse:h-11 pointer-coarse:px-4" : "h-10 px-4"
           }`}
@@ -296,7 +304,7 @@ export function DiscoveryFilterMenu({
                 className={`${DISCOVER_MENU_ITEM_CLASS} font-semibold`}
               >
                 <ChevronLeftIcon className="size-4 shrink-0 text-white/55" />
-                {discoveryDimensionTitle(level, mediaType)}
+                {discoveryDimensionTitle(level, mediaType, locale)}
               </DropdownMenu.Item>
               <DropdownMenu.Separator className={MENU_SEPARATOR_CLASS} />
               <DimensionOptions
@@ -321,9 +329,9 @@ export function DiscoveryFilterMenu({
                     className={DISCOVER_MENU_ITEM_CLASS}
                   >
                     <Icon className="size-4 shrink-0 text-white/55" />
-                    <span className="shrink-0">{discoveryDimensionTitle(dimension, mediaType)}</span>
+                    <span className="shrink-0">{discoveryDimensionTitle(dimension, mediaType, locale)}</span>
                     <span className="ml-auto min-w-0 truncate text-caption text-[var(--text-muted)]">
-                      {discoveryDimensionSummary(dimension, filters, genreNames) ?? idleSummary(dimension)}
+                      {discoveryDimensionSummary(dimension, filters, genreNames, locale) ?? idleSummary(dimension, locale)}
                     </span>
                     <ChevronRightIcon className="size-3.5 shrink-0 text-white/40" />
                   </DropdownMenu.Item>
@@ -337,7 +345,7 @@ export function DiscoveryFilterMenu({
                     className={DANGER_ITEM_CLASS}
                   >
                     <XIcon className="size-4 shrink-0" />
-                    清空条件
+                    {t("media.discovery.clearFilters")}
                   </DropdownMenu.Item>
                 </>
               )}
@@ -367,23 +375,25 @@ export function DiscoveryFilterChips({
   filters: DiscoveryFilters;
   onChange: (filters: DiscoveryFilters) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const genreNames = useGenreNames(genres);
   return (
     // 横滑出页边距：胶囊滑到屏幕边缘才消失，而不是在页边距处被一刀切掉
     <div
       className="page-inset-bleed page-inset scroll-none flex gap-2 overflow-x-auto py-1"
       role="group"
-      aria-label="当前筛选条件"
+      aria-label={t("media.discovery.activeFilters")}
     >
       {DISCOVERY_FILTER_DIMENSIONS.map((dimension) => {
-        const summary = discoveryDimensionSummary(dimension, filters, genreNames);
-        const name = discoveryDimensionTitle(dimension, mediaType);
+        const summary = discoveryDimensionSummary(dimension, filters, genreNames, locale);
+        const name = discoveryDimensionTitle(dimension, mediaType, locale);
         return (
           <DropdownMenu.Root key={dimension}>
             <DropdownMenu.Trigger asChild>
               <button
                 type="button"
-                aria-label={summary ? `${name}：${summary}` : name}
+                aria-label={summary ? t("media.filters.dimensionLabel", { name, summary }) : name}
                 className={`flex h-[34px] shrink-0 items-center gap-1 rounded-full border px-3 text-sub backdrop-blur-md transition active:scale-[0.97] ${
                   summary
                     ? "border-white/20 bg-white/[0.16] font-semibold text-[var(--text)]"
@@ -416,7 +426,7 @@ export function DiscoveryFilterChips({
                       className={DANGER_ITEM_CLASS}
                     >
                       <XIcon className="size-4 shrink-0" />
-                      {dimension === "sort" ? "恢复热门优先" : "移除此条件"}
+                      {dimension === "sort" ? t("media.filters.resetSort") : t("media.filters.remove")}
                     </DropdownMenu.Item>
                   </>
                 )}
@@ -450,6 +460,8 @@ export function DiscoveryFilterControl({
   /** 豆瓣源不支持筛选：禁用置灰原地保留（不整体隐藏，避免顶栏跳动重排） */
   disabled?: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(filters);
   const loadedGenres = useDiscoveryGenres(mediaType, open);
@@ -487,11 +499,11 @@ export function DiscoveryFilterControl({
           type="button"
           onClick={() => setOpen(true)}
           disabled={disabled}
-          title={disabled ? "筛选仅 TMDB 源支持" : undefined}
+          title={disabled ? t("media.filters.tmdbOnly") : undefined}
           className={`relative shrink-0 ${PAGE_NAV_BUTTON_CLASS} ${
             disabled ? "pointer-events-none opacity-40" : ""
           }`}
-          aria-label={activeCount > 0 ? `筛选，已启用 ${activeCount} 项` : "筛选影片"}
+          aria-label={activeCount > 0 ? t("media.filters.activeLabel", { count: activeCount }) : t("media.filters.open")}
         >
           <FilterIcon className="size-[18px]" />
           {activeCount > 0 && (
@@ -505,13 +517,13 @@ export function DiscoveryFilterControl({
           type="button"
           onClick={() => setOpen(true)}
           disabled={disabled}
-          title={disabled ? "筛选仅 TMDB 源支持" : undefined}
+          title={disabled ? t("media.filters.tmdbOnly") : undefined}
           className={`relative flex h-10 shrink-0 items-center rounded-full border border-white/10 bg-black/35 px-4 text-sub font-semibold text-[var(--text-muted)] backdrop-blur-xl transition ${
             disabled ? "cursor-not-allowed opacity-40" : "hover:border-white/20 hover:text-white"
           }`}
-          aria-label={activeCount > 0 ? `筛选，已启用 ${activeCount} 项` : "筛选影片"}
+          aria-label={activeCount > 0 ? t("media.filters.activeLabel", { count: activeCount }) : t("media.filters.open")}
         >
-          筛选
+          {t("media.filters.filter")}
           {activeCount > 0 && (
             <span className="tnum ml-2 flex size-5 items-center justify-center rounded-full bg-[var(--accent)] text-micro font-bold text-black">
               {activeCount}
@@ -522,20 +534,20 @@ export function DiscoveryFilterControl({
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        label="组合筛选影片"
+        label={t("media.filters.combine")}
         width="2xl"
         panelClassName="flex max-h-[82vh] flex-col"
       >
         <div className="flex items-center justify-between border-b border-white/[0.07] px-6 py-5 max-md:px-4">
           <div>
-            <h2 className="text-body-lg font-semibold text-[var(--text)]">组合发现</h2>
-            <p className="mt-1 text-sub text-[var(--text-muted)]">筛选会写入网址，可直接分享或收藏</p>
+            <h2 className="text-body-lg font-semibold text-[var(--text)]">{t("media.filters.combinedTitle")}</h2>
+            <p className="mt-1 text-sub text-[var(--text-muted)]">{t("media.filters.shareHint")}</p>
           </div>
           <button
             type="button"
             onClick={() => setOpen(false)}
             className="icon-chip flex size-9"
-            aria-label="关闭筛选"
+            aria-label={t("media.filters.close")}
           >
             <XIcon className="size-4" />
           </button>
@@ -546,9 +558,9 @@ export function DiscoveryFilterControl({
             类型筹码 + 六个下拉一路长到快满屏（2026-09-24 用户反馈）。内容少时仍按内容高。 */}
         <div className="scroll-thin flex-1 space-y-6 overflow-y-auto px-6 py-5 max-md:max-h-[52svh] max-md:px-4">
           <fieldset>
-            <legend className="mb-3 text-sub font-semibold text-[var(--text-muted)]">类型（可多选）</legend>
+            <legend className="mb-3 text-sub font-semibold text-[var(--text-muted)]">{t("media.filters.multipleGenres")}</legend>
             {genreError ? (
-              <p className="text-sub text-red-300">类型加载失败，其他筛选仍可使用</p>
+              <p className="text-sub text-red-300">{t("media.filters.genresControlFailed")}</p>
             ) : genres.length === 0 ? (
               <div className="h-16 animate-pulse rounded-xl bg-white/[0.05]" />
             ) : (
@@ -577,41 +589,41 @@ export function DiscoveryFilterControl({
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <FilterSelect
-              label="国家 / 地区"
+              label={t("media.filters.country")}
               value={draft.originCountry ?? ""}
               onChange={(value) => setDraft((current) => ({ ...current, originCountry: value || undefined }))}
-              options={DISCOVERY_COUNTRIES.map(([value, label]) => ({ value, label }))}
+              options={discoveryCountries(locale).map(([value, label]) => ({ value, label }))}
             />
             <FilterSelect
-              label={mediaType === "movie" ? "上映年份" : "首播年份"}
+              label={mediaType === "movie" ? t("media.filters.movieYear") : t("media.filters.tvYear")}
               value={draft.year ? String(draft.year) : ""}
               onChange={(value) => setDraft((current) => ({ ...current, year: value ? Number(value) : undefined }))}
               options={Array.from({ length: Math.max(1, currentYear - 1873) }, (_, index) => {
                 const year = currentYear - index;
-                return { value: String(year), label: `${year} 年` };
+                return { value: String(year), label: t("media.filters.yearValue", { year }) };
               })}
             />
             <FilterSelect
-              label="最低评分"
+              label={t("media.filters.rating")}
               value={draft.ratingGte === undefined ? "" : String(draft.ratingGte)}
               onChange={(value) => setDraft((current) => ({ ...current, ratingGte: value ? Number(value) : undefined }))}
-              options={[6, 7, 8, 9].map((value) => ({ value: String(value), label: `${value} 分以上` }))}
+              options={[6, 7, 8, 9].map((value) => ({ value: String(value), label: t("media.filters.ratingValue", { rating: value }) }))}
             />
             <FilterSelect
-              label={mediaType === "movie" ? "最长片长" : "最长单集时长"}
+              label={mediaType === "movie" ? t("media.filters.movieRuntime") : t("media.filters.tvRuntime")}
               value={draft.runtimeLte ? String(draft.runtimeLte) : ""}
               onChange={(value) => setDraft((current) => ({ ...current, runtimeLte: value ? Number(value) : undefined }))}
-              options={[60, 90, 120, 150].map((value) => ({ value: String(value), label: `${value} 分钟以内` }))}
+              options={[60, 90, 120, 150].map((value) => ({ value: String(value), label: t("media.filters.runtimeValue", { minutes: value }) }))}
             />
             <FilterSelect
-              label="排序"
+              label={t("media.filters.sort")}
               value={draft.sort}
               onChange={(value) => setDraft((current) => ({ ...current, sort: value as DiscoveryFilters["sort"] }))}
               options={[
-                { value: "popular", label: "热门优先" },
-                { value: "rating", label: "评分优先" },
-                { value: "newest", label: "最新优先" },
-                { value: "most-rated", label: "最多评分" },
+                { value: "popular", label: t("media.filters.popular") },
+                { value: "rating", label: t("media.filters.rated") },
+                { value: "newest", label: t("media.filters.newest") },
+                { value: "most-rated", label: t("media.filters.mostRated") },
               ]}
               allowEmpty={false}
             />
@@ -624,10 +636,10 @@ export function DiscoveryFilterControl({
             onClick={() => setDraft(EMPTY_DISCOVERY_FILTERS)}
             className="text-ui font-semibold text-[var(--text-muted)] transition hover:text-white"
           >
-            清空
+            {t("media.filters.clear")}
           </button>
           <button type="button" onClick={apply} className="btn-accent h-10 rounded-full px-6 text-ui font-semibold">
-            查看结果
+            {t("media.filters.viewResults")}
           </button>
         </div>
       </Modal>
@@ -648,11 +660,12 @@ function FilterSelect({
   options: Array<{ value: string; label: string }>;
   allowEmpty?: boolean;
 }) {
+  const t = useTranslations();
   return (
     <label className="block">
       <span className="mb-2 block text-sub font-semibold text-[var(--text-muted)]">{label}</span>
       <select value={value} onChange={(event) => onChange(event.target.value)} className={selectClass}>
-        {allowEmpty && <option value="">不限</option>}
+        {allowEmpty && <option value="">{t("media.filters.unlimited")}</option>}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

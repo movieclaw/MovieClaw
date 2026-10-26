@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { responsiveImage } from "@/lib/image-width";
 import { initialsOf } from "@/lib/session";
 
@@ -25,6 +27,7 @@ export function AvatarBadge({
   /** 内联覆盖（目前只用于 borderRadius，见上方说明） */
   style?: React.CSSProperties;
 }) {
+  const t = useTranslations();
   return (
     <span
       className={`brand-badge flex shrink-0 items-center justify-center overflow-hidden rounded-full font-bold ${className}`}
@@ -34,7 +37,7 @@ export function AvatarBadge({
         <img
           // 全站头像最大 72 CSS px（设置页），小号徽标按它取也只落在最小一两档
           {...responsiveImage(avatarUrl, 72)}
-          alt={`${nickname} 的头像`}
+          alt={t("common.avatarLabel", { name: nickname })}
           decoding="async"
           className="h-full w-full object-cover"
         />

@@ -96,7 +96,7 @@ def start() -> tuple[TestClient, Who]:
 
     app.dependency_overrides[require_admin] = admin_only
     app.dependency_overrides[require_login] = lambda: who.current
-    return TestClient(app), who
+    return TestClient(app, headers={"Accept-Language": "zh-Hans"}), who
 
 
 def upload(client: TestClient, data: bytes):

@@ -52,6 +52,7 @@ import io.movieclaw.android.core.designsystem.Ok
 import io.movieclaw.android.core.designsystem.TextFaint
 import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.model.JobView
+import io.movieclaw.android.core.designsystem.mcCards
 
 /**
  * 活动二级页（网页 `/activity?view=`）：进行中 / 已结束 / 最近播放 / 观看统计。
@@ -183,7 +184,7 @@ private fun LazyListScope.historyView(
 private fun HistoryDayHeader(label: String, count: Int, open: Boolean, onToggle: () -> Unit) {
     Row(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .padding(top = 8.dp, bottom = 4.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
@@ -213,7 +214,7 @@ private fun HistoryJobRow(
     val succeeded = job.status == "succeeded"
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .padding(vertical = 5.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
@@ -290,7 +291,7 @@ private fun LazyListScope.statsView(state: ActivityViewModel.UiState, origin: St
     item {
         // 周期与钻取挂在页内（网页挂在二级页顶栏右上角的筛选菜单里）。
         // 副标题同网页：「最近 N 天 · <成员>」，钻取中把成员名写出来
-        Column(Modifier.padding(horizontal = McMetrics.pagePadding).padding(bottom = 12.dp)) {
+        Column(Modifier.padding(horizontal = mcCards.pagePadding).padding(bottom = 12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(7, 30, 90).forEach { days ->
                     val selected = state.watchStatsDays == days
@@ -342,7 +343,7 @@ private fun ActivityDetailTopBar(title: String, onBack: () -> Unit, modifier: Mo
 internal fun EmptyNote(title: String, note: String) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .padding(top = 40.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))

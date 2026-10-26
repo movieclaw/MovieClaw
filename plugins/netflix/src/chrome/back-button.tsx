@@ -3,6 +3,7 @@
 import {
   ChevronLeftIcon,
   PAGE_NAV_BUTTON_SIZE_CLASS,
+  useAppTranslations,
 } from "@movieclaw/theme-sdk";
 
 
@@ -30,12 +31,13 @@ export function NetflixBackButton({
    *  （isNfDesktop 分支），钩子又无银玻璃基样式，银玻璃不受影响。 */
   onPhoto?: boolean;
 }) {
+  const t = useAppTranslations();
   return (
     <button
       type="button"
       onClick={onBack}
-      aria-label="返回上一页"
-      title="返回上一页"
+      aria-label={t("nav.cinema.back")}
+      title={t("nav.cinema.back")}
       // calc 任意值的 +/- 两侧必须空白（下划线转义），无空格是无效 CSS。
       // 尺寸档与 PageNav 返回键同源（PAGE_NAV_BUTTON_SIZE_CLASS：size-9 /
       // pointer-coarse:size-11）：两颗键同在 4vw 基线上，键径不同就有 2px 级

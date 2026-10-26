@@ -300,7 +300,7 @@ def world(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
 def client(world):  # type: ignore[no-untyped-def]
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         c.post(f"{_AUTH}/bootstrap", json=_ADMIN)
         c.post(f"{_AUTH}/login", json=_ADMIN)
         yield c
@@ -356,7 +356,8 @@ def _as_app(client: TestClient, bearer: str, method: str, url: str, **kwargs) ->
     saved = dict(client.cookies)
     client.cookies.clear()
     try:
-        return client.request(method, url, headers={"Authorization": f"Bearer {bearer}"}, **kwargs)
+        headers = {"Authorization": f"Bearer {bearer}", **kwargs.pop("headers", {})}
+        return client.request(method, url, headers=headers, **kwargs)
     finally:
         for name, value in saved.items():
             client.cookies.set(name, value)
@@ -2207,9 +2208,7 @@ def test_new_device_rules(client: TestClient, world: World) -> None:
     time.sleep(0.6)
     assert relay.messages == []
 
-    header = (
-        'MediaBrowser Client="Infuse", Device="Living Room", DeviceId="atv-1", Version="8.2"'
-    )
+    header = 'MediaBrowser Client="Infuse", Device="Living Room", DeviceId="atv-1", Version="8.2"'
     resp = client.post(
         "/Users/AuthenticateByName",
         json={"Username": _ADMIN["username"], "Pw": _ADMIN["password"]},

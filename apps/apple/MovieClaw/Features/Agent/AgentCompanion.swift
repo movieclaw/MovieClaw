@@ -16,12 +16,12 @@ nonisolated enum AgentCompanionState: Int, CaseIterable {
 
     var label: String {
         switch self {
-        case .idle: "小幕，安静陪伴"
-        case .attentive: "小幕，正在听你说"
-        case .departing: "小幕，出发了"
-        case .working: "小幕，正在处理任务"
-        case .complete: "小幕，任务已完成"
-        case .failed: "小幕，任务遇到了问题"
+        case .idle: String(localized: .agentCompanionIdle)
+        case .attentive: String(localized: .agentCompanionAttentive)
+        case .departing: String(localized: .agentCompanionDeparting)
+        case .working: String(localized: .agentCompanionWorking)
+        case .complete: String(localized: .agentCompanionComplete)
+        case .failed: String(localized: .agentCompanionFailed)
         }
     }
 
@@ -93,7 +93,7 @@ struct AgentCompanion: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(pose.label)
-            .accessibilityHint("轻点和小幕打招呼")
+            .accessibilityHint(String(localized: .agentCompanionGreet))
             .accessibilityIdentifier("agent-companion")
             .accessibilityValue(Text(verbatim: "\(pose)-\(playback.animated && moving ? "animated" : "still")"))
             .offset(x: pose == .departing ? CGFloat(frame) * 5 : 0,

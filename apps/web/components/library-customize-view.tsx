@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
@@ -11,12 +14,12 @@ import { type Collection, listCollections } from "@/lib/api/collections";
 import { type MediaLibrary, listLibraries } from "@/lib/api/libraries";
 import {
   COLLECTION_SORTS,
-  FAVORITES_SORT_PRESETS,
+  favoritesSortPresets,
   type FavoritesSort,
   type HomeRow,
   type HomeRowSort,
-  MEDIA_KIND_LABELS,
-  SORT_PRESETS,
+  homeMediaKindLabels,
+  homeSortPresets,
   buildHomeRows,
   mediaKindGroups,
   mediaKindRowName,
@@ -72,6 +75,8 @@ interface DragState {
  * 并提示，用户改一下就会再试。
  */
 export function LibraryCustomizeView() {
+  const t = useTranslations();
+  const locale = useLocale();
   const { prefs, savePrefs } = useUiPrefs();
   const [libraries, setLibraries] = useState<MediaLibrary[] | null>(null);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -123,12 +128,12 @@ export function LibraryCustomizeView() {
           })
           .catch((err: unknown) => {
             setSaveError(
-              err instanceof Error ? err.message : "保存失败，请稍后再试",
+              err instanceof Error ? err.message : t("library.customize.saveFailed"),
             );
           });
       }, SAVE_DELAY_MS);
     },
-    [savePrefs],
+    [savePrefs, t],
   );
   useEffect(
     () => () => {
@@ -149,7 +154,7 @@ export function LibraryCustomizeView() {
     setExpanded(row.id);
   };
   const restoreDefaults = () => {
-    if (!window.confirm("恢复默认布局？你自己加的行会被移除。")) return;
+    if (!window.confirm(t("library.customize.resetConfirm"))) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     editSeq.current += 1;
     setExpanded(null);
@@ -158,7 +163,7 @@ export function LibraryCustomizeView() {
     savePrefs({ ...prefsRef.current, home: { rows: [] } }).catch(
       (err: unknown) => {
         setSaveError(
-          err instanceof Error ? err.message : "保存失败，请稍后再试",
+          err instanceof Error ? err.message : t("library.customize.saveFailed"),
         );
       },
     );
@@ -327,22 +332,21 @@ export function LibraryCustomizeView() {
           下面那层居中窄栏之外。「恢复默认」按全站约定留在标题行右端（同媒体库管理页的
           「创建媒体库」），顶栏只放返回与标题。 */}
       <PageNav
-        title="自定义首页"
-        fallback={{ label: "媒体库", href: "/library" as Route }}
+        title={t("library.customize.title")}
+        fallback={{ label: t("library.customize.library"), href: "/library" as Route }}
       />
       <div className="mx-auto w-full max-w-[680px] px-6 pt-3 max-md:px-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="text-on-image text-[24px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[21px]">
-              自定义首页
-            </h2>
+              {t("library.customize.title")}</h2>
             {/* 只报状态，不教操作：把手长得就是能拖的样子，可展开的行尾随一枚 ⌄，
                 affordance 自己会说话，再写一句「拖动把手调整顺序」是把界面已经
                 表达清楚的事又说了一遍 */}
             <p className="text-on-image mt-1 text-sub text-[var(--text-muted)]">
               {libraries === null
-                ? "正在读取…"
-                : `${shownCount} 行显示 · ${rows.length - shownCount} 行隐藏`}
+                ? t("library.customize.loading")
+                : t("library.customize.counts", { shown: shownCount, hidden: rows.length - shownCount })}
             </p>
           </div>
           <button
@@ -350,13 +354,13 @@ export function LibraryCustomizeView() {
             onClick={restoreDefaults}
             className="btn-glass mt-1 h-8 shrink-0 px-3 text-sub font-medium"
           >
-            恢复默认
+            {t("library.customize.reset")}
           </button>
         </div>
 
         {loadFailed && (
           <p className="mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sub text-amber-200">
-            读取媒体库与合集失败，行清单可能不完整；刷新页面重试。
+            {t("library.customize.loadFailed")}
           </p>
         )}
         {saveError && (
@@ -400,7 +404,7 @@ export function LibraryCustomizeView() {
             不进候选（首页已经有「我的收藏」这一行） */}
         <div className="mt-4 rounded-xl border border-dashed border-white/15 px-4 py-3">
           <p className="text-caption text-[var(--text-faint)]">
-            ＋ 添加一行 · 从哪来？
+            {t("library.customize.addSource")}
           </p>
           {/* 库与合集同属「从哪来」的候选，必须待在同一个 flex-wrap 里：拆成两个容器时
               gap 只在各自容器内生效，接缝那一行的行距是 0，两排胶囊的描边会贴死在一起
@@ -414,9 +418,9 @@ export function LibraryCustomizeView() {
                 onClick={() => add(newMediaKindRow(mediaKind, members))}
                 className="rounded-full border border-white/15 px-3 py-1 text-sub text-[var(--text-muted)] transition hover:bg-white/[0.07] hover:text-[var(--text)]"
               >
-                全部{MEDIA_KIND_LABELS[mediaKind]}
+                {t("library.customize.allKind", { kind: homeMediaKindLabels(locale)[mediaKind] })}
                 <span className="ml-1.5 text-caption text-[var(--text-faint)]">
-                  {members.length} 个库
+                  {t("library.customize.libraryCount", { count: members.length })}
                 </span>
               </button>
             ))}
@@ -427,7 +431,7 @@ export function LibraryCustomizeView() {
                 onClick={() => add(newLibraryRow(library))}
                 className="rounded-full border border-white/15 px-3 py-1 text-sub text-[var(--text-muted)] transition hover:bg-white/[0.07] hover:text-[var(--text)]"
               >
-                {library.name}库
+                {t("library.customize.libraryName", { name: library.name })}
               </button>
             ))}
             {pickableCollections.map((collection) => {
@@ -442,7 +446,7 @@ export function LibraryCustomizeView() {
                 >
                   {collection.name}
                   <span className="ml-1.5 text-caption text-[var(--text-faint)]">
-                    {onHome ? "已在首页" : `${collection.item_count} 部`}
+                    {onHome ? t("library.customize.alreadyAdded") : t("library.customize.itemCount", { count: collection.item_count })}
                   </span>
                 </button>
               );
@@ -450,7 +454,7 @@ export function LibraryCustomizeView() {
           </div>
         </div>
         <p className="mt-4 text-caption text-[var(--text-faint)]">
-          改动即时生效，只影响你自己的首页；效果回首页看。
+          {t("library.customize.hint")}
         </p>
       </div>
     </div>
@@ -465,6 +469,7 @@ export function LibraryCustomizeView() {
  */
 function sortOptions(
   row: HomeRow,
+  locale?: AppLocale,
 ): readonly (readonly [string, string])[] | null {
   const both = (
     key: string,
@@ -479,9 +484,9 @@ function sortOptions(
         ];
   switch (row.kind) {
     case "favorites":
-      return (Object.keys(FAVORITES_SORT_PRESETS) as FavoritesSort[]).flatMap(
+      return (Object.keys(favoritesSortPresets(locale)) as FavoritesSort[]).flatMap(
         (key) => {
-          const preset = FAVORITES_SORT_PRESETS[key];
+          const preset = favoritesSortPresets(locale)[key];
           return both(
             key,
             preset.name(false),
@@ -499,7 +504,7 @@ function sortOptions(
             ? sortPresetsFor(row.mediaKind)
             : COLLECTION_SORTS;
       return keys.flatMap((key) => {
-        const preset = SORT_PRESETS[key];
+        const preset = homeSortPresets(locale)[key];
         return both(
           key,
           preset.short(false),
@@ -541,8 +546,10 @@ function RowItem({
   onGripPointerDown: (e: React.PointerEvent<HTMLElement>) => void;
   onMoveKey: (offset: -1 | 1) => void;
 }) {
-  const title = rowTitle(row);
-  const options = sortOptions(row);
+  const t = useTranslations();
+  const locale = useLocale();
+  const title = rowTitle(row, locale);
+  const options = sortOptions(row, locale);
   const editable = options !== null;
   const sort =
     row.kind === "favorites" ||
@@ -573,23 +580,23 @@ function RowItem({
     row.kind === "library"
       ? {
           value: row.name,
-          placeholder: SORT_PRESETS[row.sort].name(
+          placeholder: homeSortPresets(locale)[row.sort].name(
             row.library.name,
             row.reversed,
           ),
-          hint: "留空跟随排序推荐",
+          hint: t("library.customize.followSort"),
         }
       : row.kind === "media-kind"
         ? {
             value: row.name,
-            placeholder: mediaKindRowName(row.mediaKind, row.sort, row.reversed),
-            hint: "留空跟随排序推荐",
+            placeholder: mediaKindRowName(row.mediaKind, row.sort, row.reversed, locale),
+            hint: t("library.customize.followSort"),
           }
       : row.kind === "collection"
         ? {
             value: row.name,
             placeholder: row.collection.name,
-            hint: "留空用合集自己的名字",
+            hint: t("library.customize.followCollection"),
           }
         : null;
   const open = expanded && editable;
@@ -619,8 +626,8 @@ function RowItem({
             行高 48px，44px 正好塞得下。 */}
         <button
           type="button"
-          aria-label={`拖动调整「${title}」的顺序（或按 Alt + 上下方向键）`}
-          title="拖动调整顺序"
+          aria-label={t("library.customize.dragLabel", { title })}
+          title={t("library.customize.dragTitle")}
           onPointerDown={onGripPointerDown}
           onKeyDown={(e) => {
             if (!e.altKey) return;
@@ -654,7 +661,7 @@ function RowItem({
           <span className="truncate">{title}</span>
           {row.hidden && (
             <span className="shrink-0 text-caption text-[var(--text-faint)]">
-              已隐藏
+              {t("library.customize.hidden")}
             </span>
           )}
           {editable && (
@@ -668,9 +675,9 @@ function RowItem({
         </button>
         <button
           type="button"
-          aria-label={row.hidden ? `显示「${title}」` : `隐藏「${title}」`}
+          aria-label={row.hidden ? t("library.customize.showNamed", { title }) : t("library.customize.hideNamed", { title })}
           aria-pressed={!row.hidden}
-          title={row.hidden ? "显示这一行" : "隐藏这一行"}
+          title={row.hidden ? t("library.customize.showRow") : t("library.customize.hideRow")}
           onClick={() => onChange((r) => ({ ...r, hidden: !r.hidden }))}
           className={`grid size-8 shrink-0 place-items-center rounded-md transition hover:bg-white/[0.08] hover:text-[var(--text)] ${
             row.hidden ? "text-[var(--text-faint)]" : "text-[var(--text-muted)]"
@@ -693,7 +700,7 @@ function RowItem({
               「最早添加」），点一条就是一步到位；控件复用海报墙的排序菜单，同一个东西
               站内一副长相。早先是 <select> 选指标 + 一颗方向按钮：iOS 上原生选择器
               收起的那一下会吞掉紧接着的点击，方向按钮总要点两次，两个控件也对不齐 */}
-          <span className="text-sub text-[var(--text-muted)]">排序</span>
+          <span className="text-sub text-[var(--text-muted)]">{t("library.customize.sort")}</span>
           <div className="min-w-0" data-testid="row-sort">
             <WallSortControl
               value={reversed ? `${sort}:rev` : sort}
@@ -735,14 +742,14 @@ function RowItem({
                 htmlFor={nameInputId}
                 className="text-sub text-[var(--text-muted)]"
               >
-                名字
+                {t("library.customize.name")}
               </label>
               <input
                 id={nameInputId}
                 value={naming.value}
                 placeholder={naming.placeholder}
                 maxLength={40}
-                aria-label={`「${title}」的名字`}
+                aria-label={t("library.customize.nameLabel", { title })}
                 title={naming.hint}
                 onChange={(e) => {
                   const name = e.target.value;
@@ -787,7 +794,7 @@ function RowItem({
                     className="size-4 accent-[#7fb0ff]"
                     data-testid="row-unwatched"
                   />
-                  只显示我没看过的
+                  {t("library.customize.unwatched")}
                 </label>
               ) : (
                 <span />
@@ -800,7 +807,7 @@ function RowItem({
                   data-testid="row-remove"
                 >
                   <TrashIcon className="size-3.5" />
-                  删除这一行
+                  {t("library.customize.remove")}
                 </button>
               )}
             </div>

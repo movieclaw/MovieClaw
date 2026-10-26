@@ -6,6 +6,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import {
   BrandLoader,
+  useAppTranslations,
   checkSubscriptionAutomationReadiness,
   ContentEmptyState,
   HScroller,
@@ -51,6 +52,7 @@ const COMING_CARD_W = "nf:w-[224px] nf:max-md:w-[168px]";
  *   today-arrivals 轮询（lib/use-today-arrivals），无新后端依赖。
  */
 export function NetflixSubscriptionsPage() {
+  const t = useAppTranslations();
   const { canManageSubscriptions, canSubscribe, isAdmin } = usePermissions();
   const restoreScrollRef = useScrollRestoration("subscriptions", {
     anchorAttribute: "data-subscription-id",
@@ -156,7 +158,7 @@ export function NetflixSubscriptionsPage() {
     return [
       {
         id: "tracking-tv",
-        title: "追更中的剧集",
+        title: t("subscription.sections.trackingTv"),
         items: subs
           .filter(
             (sub) =>
@@ -170,7 +172,7 @@ export function NetflixSubscriptionsPage() {
       },
       {
         id: "tracking-movie",
-        title: "订阅的电影",
+        title: t("subscription.sections.movies"),
         items: subs
           .filter(
             (sub) =>
@@ -184,20 +186,20 @@ export function NetflixSubscriptionsPage() {
       },
       {
         id: "settled",
-        title: "已收齐",
+        title: t("subscription.sections.collected"),
         items: subs.filter((sub) => inKind(sub) && settled(sub)).sort(byUpdated),
         dim: true,
       },
       {
         id: "paused",
-        title: "已暂停",
+        title: t("subscription.sections.paused"),
         items: subs
           .filter((sub) => inKind(sub) && sub.status === "paused")
           .sort(byUpdated),
         dim: false,
       },
     ];
-  }, [mediaType, subs]);
+  }, [mediaType, subs, t]);
 
   const visibleCount =
     mediaType === "all" ? subs.length : (mediaType === "tv" ? tvCount : movieCount);
@@ -215,12 +217,12 @@ export function NetflixSubscriptionsPage() {
           元素必须写字面量） */}
       <div className="nf:px-[4vw] nf:pt-7 nf:max-md:pt-4">
         <h2 className="text-on-image nf:text-[26px] nf:font-bold nf:leading-tight nf:tracking-[-0.02em] nf:text-white nf:max-md:text-[21px]">
-          我的订阅
+          {t("subscription.overview.title")}
         </h2>
         <p className="text-on-image nf:mt-1.5 nf:text-ui nf:text-[var(--text-muted)] nf:max-md:mt-1 nf:max-md:text-sub">
           {mediaType === "all"
-            ? `共 ${subs.length} 部 · ${tvCount} 部剧集 · ${movieCount} 部电影`
-            : `共 ${visibleCount} 部${mediaType === "movie" ? "电影" : "剧集"}`}
+            ? t("subscription.overview.allCounts", { count: subs.length, tv: tvCount, movies: movieCount })
+            : t("subscription.overview.kindCounts", { count: visibleCount, kind: mediaType })}
         </p>
       </div>
 
@@ -240,30 +242,30 @@ export function NetflixSubscriptionsPage() {
           href={"/settings/overview" as Route}
           className="nf:mx-[4vw] nf:mt-4 nf:block nf:rounded-[4px] nf:border nf:border-[var(--warn)]/40 nf:bg-[#181818] nf:px-4 nf:py-3 nf:text-sub nf:leading-relaxed nf:text-white/80 nf:transition nf:hover:border-[var(--warn)]/70"
         >
-          <span className="nf:font-semibold nf:text-[var(--warn)]">订阅链路有待修复：</span>
+          <span className="nf:font-semibold nf:text-[var(--warn)]">{t("subscription.health.title")}</span>
           {healthIssue.libraryErrors > 0
-            ? `${healthIssue.libraryErrors} 个媒体库的入库链路有问题，相关订阅暂时无法自动下载入库（已下达的任务会自动重试）`
-            : "订阅链路尚未就绪（缺少可用的资源站点或下载器），订阅暂时只能记录意愿"}
-          ——点击查看体检详情与修复入口 →
+            ? t("subscription.health.libraryErrors", { count: healthIssue.libraryErrors })
+            : t("subscription.health.notReady")}
+          {t("subscription.health.details")}
         </Link>
       )}
 
       {subscriptions === null && !failed && (
         <div className="nf:mt-16 nf:flex nf:items-center nf:justify-center nf:gap-2.5 nf:text-ui nf:text-[var(--text-muted)]">
           <BrandLoader className="nf:size-5" />
-          正在加载订阅…
+          {t("subscription.overview.loading")}
         </div>
       )}
 
       {failed && (
         <div className="nf:mt-16 nf:flex nf:flex-col nf:items-center nf:gap-3 nf:text-center">
-          <p className="nf:text-ui nf:text-[var(--text-muted)]">订阅列表加载失败</p>
+          <p className="nf:text-ui nf:text-[var(--text-muted)]">{t("subscription.overview.failed")}</p>
           <button
             type="button"
             onClick={reload}
             className="btn-glass nf:px-4 nf:py-2 nf:text-ui nf:font-medium nf:text-[var(--text)]"
           >
-            重试
+            {t("common.retry")}
           </button>
         </div>
       )}
@@ -276,13 +278,13 @@ export function NetflixSubscriptionsPage() {
           variant="subscription"
           title={
             subscriptions.length === 0
-              ? "从一部想看的作品开始"
-              : `还没有${mediaType === "movie" ? "电影" : "剧集"}订阅`
+              ? t("subscription.overview.empty")
+              : t("subscription.overview.emptyKind", { kind: mediaType })
           }
           description={
             canSubscribe
-              ? `去发现页挑选一部${mediaType === "movie" ? "电影" : "剧集"}，打开详情并点击「订阅追踪」，有合适资源时会自动下载入库。`
-              : "当前账号暂未开启订阅权限，请联系管理员为你开启。"
+              ? t("subscription.overview.discoverHint", { kind: mediaType })
+              : t("subscription.overview.permissionHint")
           }
           action={
             canSubscribe ? (
@@ -290,7 +292,7 @@ export function NetflixSubscriptionsPage() {
                 href={`/discover/${mediaType === "movie" ? "movie" : "tv"}` as Route}
                 className="btn-accent nf:flex nf:items-center nf:gap-1.5 nf:rounded-full nf:px-4 nf:py-2 nf:text-ui nf:font-semibold"
               >
-                去发现{mediaType === "movie" ? "电影" : "剧集"}
+                {t("subscription.overview.discoverAction", { kind: mediaType })}
               </Link>
             ) : undefined
           }
@@ -355,20 +357,21 @@ function ComingSoonSection({
   canSubscribe: boolean;
   canOpenTasks: boolean;
 }) {
+  const t = useAppTranslations();
   const inset = "nf:px-[4vw]";
   const daysAhead = groups[0]?.daysAhead ?? 0;
 
   if (loading) {
     return (
       <p className={`${inset} nf:mt-7 nf:text-sub nf:text-[var(--text-faint)] nf:max-md:mt-6`}>
-        正在计算预计入库时间…
+        {t("subscription.arrivals.calculating")}
       </p>
     );
   }
   if (failed) {
     return (
       <p className={`${inset} nf:mt-7 nf:text-sub nf:text-[var(--text-faint)] nf:max-md:mt-6`}>
-        入库预告暂时不可用
+        {t("subscription.arrivals.failed")}
       </p>
     );
   }
@@ -376,28 +379,27 @@ function ComingSoonSection({
     return (
       <p className={`${inset} nf:mt-7 nf:text-sub nf:text-[var(--text-faint)] nf:max-md:mt-6`}>
         {trackingCount === 0
-          ? "订阅都已收齐或暂停了"
+          ? t(canSubscribe ? "subscription.arrivals.settled" : "subscription.arrivals.settledHint")
           : hasTvInView
-            ? `接下来 7 天没有已定档的更新，${trackingCount} 部订阅仍在追踪`
-            : `当前没有正在下载或整理的电影，${trackingCount} 部订阅仍在追踪`}
-        {!canSubscribe && trackingCount === 0 && "，有新的追踪目标时，这里会提前预告"}
+            ? t("subscription.arrivals.noTvUpdates", { count: trackingCount })
+            : t("subscription.arrivals.noMovies", { count: trackingCount })}
       </p>
     );
   }
 
   return (
     <section
-      aria-label={daysAhead === 0 ? "今日可能入库" : "即将入库"}
+      aria-label={t(daysAhead === 0 ? "subscription.arrivals.today" : "subscription.arrivals.upcoming")}
       className="nf:mt-7 nf:[content-visibility:auto] nf:[contain-intrinsic-size:auto_260px] nf:max-md:mt-6"
     >
       <div className={`nf:mb-3 nf:flex nf:items-baseline nf:justify-between nf:gap-4 nf:max-md:mb-2 ${inset}`}>
         <h3 className="text-on-image nf:text-body-lg nf:font-semibold nf:tracking-[-0.01em] nf:text-[var(--text)]">
           {daysAhead === 0
-            ? "今日可能入库"
-            : `即将入库 · ${daysAhead === 1 ? "明天" : `${daysAhead} 天后`}`}
+            ? t("subscription.arrivals.today")
+            : t(daysAhead === 1 ? "subscription.arrivals.tomorrowTitle" : "subscription.arrivals.futureTitle", { count: daysAhead })}
         </h3>
         <span className="tnum nf:shrink-0 nf:text-caption nf:text-[var(--text-faint)]">
-          {groups.length} 部
+          {t("subscription.arrivals.titleCount", { count: groups.length })}
         </span>
       </div>
       <HScroller className={`nf:gap-2 nf:pb-1 nf:pt-1 ${inset}`}>
@@ -412,17 +414,25 @@ function ComingSoonSection({
       </HScroller>
       {/* 「下载中」状态的任务中心入口：触屏上整卡已指向订阅详情，任务细节
           在详情页可见；桌面给一行深链，与银玻璃版「下载中 → 任务中心」一致 */}
+      {/* i18n-ignore: ui.theme 1.x 的兼容状态标识；展示使用翻译键。 */}
       {canOpenTasks && groups.some((g) => g.presentation.statusLabel === "下载中") && (
         <Link
           href={"/activity?view=active" as Route}
           className={`nf:mt-1.5 nf:inline-flex nf:text-caption nf:text-[var(--text-faint)] nf:transition nf:hover:text-white ${inset}`}
         >
-          查看下载中的任务 ›
+          {t("subscription.arrivals.downloadTasks")}
         </Link>
       )}
     </section>
   );
 }
+
+const arrivalStatusKeys = {
+  预计入库: "subscription.arrivals.statusExpected",
+  等待资源: "subscription.arrivals.statusWaiting",
+  下载中: "subscription.arrivals.statusDownloading",
+  整理中: "subscription.arrivals.statusOrganizing",
+} as const;
 
 /** 预告行的状态色：与银玻璃时间轨道同一语义（中性 → 警示 → 下载 → 收尾）。 */
 const comingStatusColor: Record<TodayArrivalGroup["presentation"]["statusLabel"], string> = {
@@ -446,8 +456,10 @@ function ComingSoonCard({
   posterUrl: string | null | undefined;
   progress: number | undefined;
 }) {
+  const t = useAppTranslations();
   const dayLabel =
-    group.daysAhead === 0 ? "今天" : group.daysAhead === 1 ? "明天" : `${group.daysAhead} 天后`;
+    t(group.daysAhead === 0 ? "subscription.arrivals.todayBadge" : group.daysAhead === 1 ? "subscription.arrivals.tomorrowBadge" : "subscription.arrivals.futureBadge", { count: group.daysAhead });
+  // i18n-ignore: ui.theme 1.x 的兼容状态标识；展示使用翻译键。
   const downloading = group.presentation.statusLabel === "下载中";
   const percent =
     downloading && progress != null ? Math.round(Math.max(0, Math.min(1, progress)) * 100) : null;
@@ -456,7 +468,7 @@ function ComingSoonCard({
     <Link
       href={`/subscriptions/${group.subscriptionId}` as Route}
       className={`nf:group nf:block nf:shrink-0 nf:cursor-pointer nf:outline-none ${COMING_CARD_W}`}
-      aria-label={`查看《${group.mediaTitle}》的订阅详情，${dayLabel}${group.episodeLabel ? ` ${group.episodeLabel}` : ""}`}
+      aria-label={t("subscription.arrivals.cardLabel", { title: group.mediaTitle, day: dayLabel, episode: group.episodeLabel ? ` ${group.episodeLabel}` : "" })}
     >
       {/* 6px 与全站卡片同一档（rounded-* 换档后的卡角；4px 是控件档） */}
       <div className="nf:relative nf:aspect-video nf:overflow-hidden nf:rounded-[6px] nf:bg-[#181818] nf:ring-1 nf:ring-white/[0.06] nf:transition-all nf:duration-150 nf:group-hover:ring-white/30">
@@ -476,7 +488,7 @@ function ComingSoonCard({
                 <PosterImage
                   src={imageUrl(posterUrl)}
                   width={72}
-                  alt={`${group.mediaTitle} 海报`}
+                  alt={t("media.artwork.posterLabel", { title: group.mediaTitle })}
                   className="nf:size-full"
                 />
               </div>
@@ -505,7 +517,7 @@ function ComingSoonCard({
           <span className="nf:shrink-0 nf:text-[var(--text-muted)]">{group.episodeLabel}</span>
         )}
         <span className={`nf:shrink-0 nf:font-medium ${comingStatusColor[group.presentation.statusLabel]}`}>
-          {group.presentation.statusLabel}
+          {t(arrivalStatusKeys[group.presentation.statusLabel])}
         </span>
         <span className="nf:min-w-0 nf:truncate nf:text-[var(--text-faint)]">
           {group.presentation.timeLabel}
@@ -529,6 +541,7 @@ function SubscriptionPosterRow({
   subscriptions: Subscription[];
   dim: boolean;
 }) {
+  const t = useAppTranslations();
   return (
     <section
       aria-label={title}
@@ -539,7 +552,7 @@ function SubscriptionPosterRow({
           {title}
         </h3>
         <span className="tnum nf:shrink-0 nf:text-caption nf:text-[var(--text-faint)]">
-          {subscriptions.length} 部
+          {t("subscription.arrivals.titleCount", { count: subscriptions.length })}
         </span>
       </div>
       {/* pt-2：海报卡悬停上浮 6px 的头部余量（media-row 同一规矩），缺了会削顶角 */}

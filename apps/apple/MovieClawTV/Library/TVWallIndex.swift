@@ -76,11 +76,11 @@ enum TVWallIndex {
             let decade = key.hasSuffix("s")
             return TVWallIndexEntry(key: key,
                                     label: decade ? String(key.dropFirst(2)) : key,
-                                    title: decade ? "\(key.dropLast()) 年代" : key,
+                                    title: decade ? String(localized: .libraryDecade(String(key.dropLast()))) : key,
                                     count: group?.count ?? 0, offset: group?.offset)
         }
         if let unknown {
-            entries.append(TVWallIndexEntry(key: "unknown", label: "?", title: "未知年份", count: unknown.count, offset: unknown.offset))
+            entries.append(TVWallIndexEntry(key: "unknown", label: "?", title: String(localized: .libraryUnknownYear), count: unknown.count, offset: unknown.offset))
         }
         return entries
     }
@@ -89,11 +89,11 @@ enum TVWallIndex {
     private static func ratings(_ raw: [API.LibraryIndexEntryView]) -> [TVWallIndexEntry] {
         raw.map { entry in
             let (label, title): (String, String) = switch entry.initial {
-            case "9+": ("9+", "9 分以上")
-            case "8+": ("8+", "8 分以上")
-            case "7+": ("7+", "7 分以上")
-            case "更低": ("<7", "7 分以下")
-            case "未评分": ("—", "未评分")
+            case "9+": ("9+", String(localized: .libraryRatingAtLeast(9)))
+            case "8+": ("8+", String(localized: .libraryRatingAtLeast(8)))
+            case "7+": ("7+", String(localized: .libraryRatingAtLeast(7)))
+            case "更低": ("<7", String(localized: .libraryRatingBelow(7))) // i18n-ignore: server bucket key
+            case "未评分": ("—", String(localized: .libraryUnrated)) // i18n-ignore: server bucket key
             default: (entry.initial, entry.initial)
             }
             return TVWallIndexEntry(key: entry.initial, label: label, title: title, count: entry.count, offset: entry.offset)

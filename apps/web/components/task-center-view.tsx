@@ -1,12 +1,16 @@
 "use client";
 
+import { jobFeedIdentity, jobProgressAmount, jobOriginLabel, activeJobStatus, historicalJobTitle, historicalJobSummary, groupHistoricalJobs, downloadTaskNote, downloadLifecycleSteps, downloadStateMeta, ingestStateMeta, type LifecycleTone } from "@/lib/task-presentation";
+
+import { useLocale, useTranslations } from "next-intl";
+import type { AppMessageKey } from "@/lib/i18n/translate";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
 import Link from "next/link";
 
 import {
-  JOB_STATUS_LABELS,
   jobTypeLabel,
   JobCard,
   jobDetailItems,
@@ -58,14 +62,12 @@ import {
   isSystemCancelled,
   retryJob,
   undismissJob,
-  type JobStatus,
   type JobView,
 } from "@/lib/api/jobs";
-import { isDismissed, ACTIVE_FEED_JOB_STATUSES, jobNeedsAttention } from "@/lib/job-attention";
+import { isDismissed, jobNeedsAttention } from "@/lib/job-attention";
 import { useJobs } from "@/lib/jobs";
 import type { TaskCenterViewName } from "@/lib/task-center";
 import {
-  contentMissingLabel,
   downloadTaskNeedsAttention,
   useTaskActivity,
   type DownloadTaskGroup,
@@ -73,15 +75,13 @@ import {
 import {
   formatClockTime,
   formatRelativeTime,
-  formatTimelineDayLabel,
-  timelineDayKey,
 } from "@/lib/time";
 
-const VIEW_LABELS: { id: TaskCenterViewName; label: string }[] = [
-  { id: "all", label: "全部" },
-  { id: "active", label: "进行中" },
-  { id: "attention", label: "需要处理" },
-  { id: "history", label: "已结束" },
+const VIEW_LABELS: { id: TaskCenterViewName; label: AppMessageKey }[] = [
+  { id: "all", label: "activity.nav.all" },
+  { id: "active", label: "activity.nav.active" },
+  { id: "attention", label: "activity.nav.attention" },
+  { id: "history", label: "activity.nav.history" },
 ];
 
 /**
@@ -92,6 +92,8 @@ const VIEW_LABELS: { id: TaskCenterViewName; label: string }[] = [
  * 一起返回（`deleteDialog`），调用方挂进自己的树里即可。
  */
 export function useTaskCenterActions() {
+  const t = useTranslations();
+
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [replacingTaskId, setReplacingTaskId] = useState<string | null>(null);
   const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
@@ -110,12 +112,12 @@ export function useTaskCenterActions() {
     try {
       const result = await deleteDownloadTask(task.downloader_id, task.info_hash, deleteFiles);
       toast.success(
-        result.delete_files ? "种子任务和数据文件已删除" : "种子任务已删除，数据文件已保留",
+        result.delete_files ? t("activity.taskCenter.removedFiles") : t("activity.taskCenter.removedKeepFiles"),
       );
       setPendingDeleteTask(null);
       refresh();
     } catch (caught) {
-      toast.error((caught as Error).message || "删除种子任务失败");
+      toast.error((caught as Error).message || t("activity.taskCenter.removeFailed"));
     } finally {
       setDeletingTaskId(null);
     }
@@ -126,10 +128,10 @@ export function useTaskCenterActions() {
     setReplacingTaskId(task.id);
     try {
       await replaceDownloadTask(task.downloader_id, task.info_hash);
-      toast.success("已开始寻找同品质替代源；旧任务会保留到新源产生真实进度");
+      toast.success(t("activity.taskCenter.replacementStarted"));
       refresh();
     } catch (caught) {
-      toast.error((caught as Error).message || "立即换种失败");
+      toast.error((caught as Error).message || t("activity.taskCenter.replacementFailed"));
     } finally {
       setReplacingTaskId(null);
     }
@@ -140,9 +142,9 @@ export function useTaskCenterActions() {
     setCancellingJobId(job.id);
     try {
       upsert(await cancelJob(job.id));
-      toast.success("已提交取消请求");
+      toast.success(t("activity.taskCenter.cancelRequested"));
     } catch (caught) {
-      toast.error((caught as Error).message || "取消任务失败");
+      toast.error((caught as Error).message || t("activity.taskCenter.cancelFailed"));
     } finally {
       setCancellingJobId(null);
     }
@@ -156,11 +158,11 @@ export function useTaskCenterActions() {
       for (const job of dismissed) upsert(job);
       toast.success(
         dismissed.length > 0
-          ? `已忽略 ${dismissed.length} 个失败任务`
-          : "当前没有需要忽略的失败任务",
+          ? t("activity.taskCenter.dismissedCount", { count: dismissed.length })
+          : t("activity.taskCenter.dismissNone"),
       );
     } catch (caught) {
-      toast.error((caught as Error).message || "批量忽略失败");
+      toast.error((caught as Error).message || t("activity.taskCenter.dismissAllFailed"));
     } finally {
       setBulkDismissing(false);
     }
@@ -171,9 +173,9 @@ export function useTaskCenterActions() {
     setUndismissingJobId(job.id);
     try {
       upsert(await undismissJob(job.id));
-      toast.success("已撤销忽略，任务回到「需要处理」");
+      toast.success(t("activity.taskCenter.restoredAttention"));
     } catch (caught) {
-      toast.error((caught as Error).message || "撤销忽略失败");
+      toast.error((caught as Error).message || t("activity.taskCenter.restoreFailed"));
     } finally {
       setUndismissingJobId(null);
     }
@@ -184,9 +186,9 @@ export function useTaskCenterActions() {
     setRetryingJobId(job.id);
     try {
       upsert(await retryJob(job.id));
-      toast.success("任务已重新加入队列");
+      toast.success(t("activity.taskCenter.requeued"));
     } catch (caught) {
-      toast.error((caught as Error).message || "重新执行失败");
+      toast.error((caught as Error).message || t("activity.taskCenter.retryFailed"));
     } finally {
       setRetryingJobId(null);
     }
@@ -268,6 +270,9 @@ export function TaskCenterView({
   onViewChange?: (view: TaskCenterViewName) => void;
   subPage?: boolean;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   // 选项卡在窄屏横向滚动：深链直达靠后的视图（如媒体库）时，激活项可能整个
   // 落在可视区之外，用户会以为该视图不存在。挂载与切换时把它滚进来。
   const activeTabRef = useRef<HTMLButtonElement | null>(null);
@@ -340,7 +345,7 @@ export function TaskCenterView({
                       : "text-[var(--text-muted)] hover:bg-white/[0.06] hover:text-white"
                   }`}
                 >
-                  {item.label}
+                  {t(item.label)}
                   {item.id !== "all" && (viewCounts[item.id] ?? 0) > 0 && (
                     <span className="tnum ml-1.5 text-caption text-white/45">
                       {viewCounts[item.id]}
@@ -351,10 +356,10 @@ export function TaskCenterView({
             </div>
             <p className="shrink-0 pb-2 text-caption text-[var(--text-faint)] max-md:hidden">
               {refreshedAt
-                ? `${formatRelativeTime(new Date(refreshedAt).toISOString())}更新`
+                ? t("activity.taskCenter.updatedWhen", { when: formatRelativeTime(new Date(refreshedAt).toISOString(), locale) })
                 : loading
-                  ? "正在读取下载器"
-                  : "等待刷新"}
+                  ? t("activity.taskCenter.readingDownloaders")
+                  : t("activity.taskCenter.waitRefresh")}
             </p>
           </div>
         )}
@@ -371,7 +376,7 @@ export function TaskCenterView({
         )}
 
         {showActive && activeTotal > 0 && (
-          <TaskTimelineSection title="现在" count={activeTotal} className={subPage ? "mt-4" : "mt-7"}>
+          <TaskTimelineSection title={t("activity.taskCenter.now")} count={activeTotal} className={subPage ? "mt-4" : "mt-7"}>
             {activeDownloadGroups.map((group) => (
               <TaskTimelineItem
                 key={group.key}
@@ -425,8 +430,7 @@ export function TaskCenterView({
         {loading && visibleCount === 0 && (
           <div className="flex items-center justify-center gap-2.5 py-20 text-ui text-[var(--text-muted)]">
             <BrandLoader className="size-5" />
-            正在汇总任务…
-          </div>
+            {t("activity.taskCenter.loading")}</div>
         )}
 
       {actions.deleteDialog}
@@ -446,15 +450,17 @@ function DeleteDownloadTaskDialog({
   onClose: () => void;
   onConfirm: (deleteFiles: boolean) => void;
 }) {
+  const t = useTranslations();
+
   const [deleteFiles, setDeleteFiles] = useState(false);
-  const downloaderName = task.downloader_name || `下载器 ${task.downloader_id}`;
+  const downloaderName = task.downloader_name || t("activity.taskCenter.downloaderFallback", { id: String(task.downloader_id) });
 
   return (
-    <Modal open onClose={busy ? () => {} : onClose} label="删除种子任务" topmost>
+    <Modal open onClose={busy ? () => {} : onClose} label={t("activity.taskCenter.deleteDialog")} topmost>
       <div className="p-6 max-md:p-5">
-        <h2 className="text-title-sm font-bold text-white">删除种子任务？</h2>
+        <h2 className="text-title-sm font-bold text-white">{t("activity.taskCenter.deleteTitle")}</h2>
         <p className="mt-2 text-sub leading-6 text-[var(--text-muted)]">
-          将从「{downloaderName}」停止并移除该任务。
+          {t("activity.taskCenter.deleteHint", { name: downloaderName })}
         </p>
         <p className="mt-3 break-words rounded-xl border border-white/[0.08] bg-white/[0.035] px-3.5 py-3 text-sub leading-6 text-white/75">
           {task.name || task.info_hash}
@@ -473,16 +479,14 @@ function DeleteDownloadTaskDialog({
             className="mt-1 size-4 shrink-0 accent-[#ff6b6b]"
           />
           <span className="min-w-0">
-            <span className="block text-ui font-semibold text-white/90">同时删除数据文件</span>
+            <span className="block text-ui font-semibold text-white/90">{t("activity.taskCenter.deleteFiles")}</span>
             <span className="mt-0.5 block text-caption leading-5 text-white/50">
-              包括已下载和未完成的数据；若文件仍由下载器管理，即使已经入库也可能被删除，且无法恢复。
-            </span>
+              {t("activity.taskCenter.deleteFilesHint")}</span>
           </span>
         </label>
         {task.source === "subscription" && (
           <p className="mt-3 text-caption leading-5 text-amber-100/65">
-            关联订阅会保留原工单身份；巡检确认任务无进度后会按换源策略寻找替代源。
-          </p>
+            {t("activity.taskCenter.keepSubscriptionHint")}</p>
         )}
         <div className="mt-5 flex justify-end gap-2.5">
           <button
@@ -491,15 +495,14 @@ function DeleteDownloadTaskDialog({
             disabled={busy}
             className="rounded-lg border border-white/10 bg-white/[0.06] px-4 py-2 text-ui text-white/80 transition hover:bg-white/[0.1] disabled:opacity-40"
           >
-            取消
-          </button>
+            {t("common.cancel")}</button>
           <button
             type="button"
             onClick={() => onConfirm(deleteFiles)}
             disabled={busy}
             className="rounded-lg bg-red-500/85 px-4 py-2 text-ui font-medium text-white transition hover:bg-red-500 disabled:opacity-40"
           >
-            {busy ? "正在删除…" : deleteFiles ? "删除任务和文件" : "仅删除任务"}
+            {busy ? t("activity.taskCenter.deleting") : deleteFiles ? t("activity.taskCenter.deleteWithFiles") : t("activity.taskCenter.deleteKeepFiles")}
           </button>
         </div>
       </div>
@@ -508,11 +511,14 @@ function DeleteDownloadTaskDialog({
 }
 
 export function SourceWarning({ sources, error }: { sources: DownloadTaskSource[]; error: string | null }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const message = error
     ? error
     : sources
-        .map((source) => `「${source.name}」${source.message || "当前不可用"}`)
-        .join("；");
+        .map((source) => t("activity.taskCenter.sourceWarning", { name: source.name, hasMessage: source.message ? "yes" : "no", message: source.message ?? "" }))
+        .join(locale === "zh-Hans" ? "；" : "; ");
   return (
     <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sub leading-6 text-amber-100">
       <InfoIcon className="mt-0.5 size-4 shrink-0" />
@@ -521,8 +527,7 @@ export function SourceWarning({ sources, error }: { sources: DownloadTaskSource[
         href={"/settings/downloaders" as Route}
         className="shrink-0 font-semibold text-amber-50 hover:underline"
       >
-        检查设置
-      </Link>
+        {t("activity.taskCenter.checkSettings")}</Link>
     </div>
   );
 }
@@ -542,13 +547,14 @@ function TaskAttentionSection({
   onDismissAll: () => void;
   children: React.ReactNode;
 }) {
+  const t = useTranslations();
+
   return (
     <section className="mt-6" aria-labelledby="attention-tasks-title">
       <div className="mb-3 flex items-center gap-2.5">
         <span className="size-2 rounded-full bg-[var(--danger)] ring-4 ring-[var(--danger)]/10" />
         <h2 id="attention-tasks-title" className="text-ui font-semibold text-[var(--danger)]">
-          需要你处理
-        </h2>
+          {t("activity.taskCenter.attentionTitle")}</h2>
         <span className="tnum rounded-full bg-[var(--danger)]/10 px-2 py-0.5 text-caption text-[var(--danger)]">
           {count}
         </span>
@@ -562,7 +568,7 @@ function TaskAttentionSection({
             disabled={dismissingAll}
             className="ml-auto shrink-0 rounded-lg px-2.5 py-1 text-caption font-medium text-white/40 transition hover:bg-white/[0.05] hover:text-white/70 disabled:cursor-wait disabled:opacity-40"
           >
-            {dismissingAll ? "正在忽略…" : "全部忽略"}
+            {dismissingAll ? t("activity.taskCenter.dismissing") : t("activity.taskCenter.dismissAll")}
           </button>
         )}
       </div>
@@ -654,132 +660,6 @@ function jobTimelineTone(job: JobView): "active" | "waiting" {
   return job.status === "running" ? "active" : "waiting";
 }
 
-const ACTIVE_JOB_ACTIONS: Record<string, string> = {
-  "subtitle.generate": "正在生成字幕",
-  "library.scan": "正在扫描",
-  "library.metadata.refresh": "正在刷新媒体库元数据",
-  "media.metadata.refresh": "正在刷新元数据",
-  "library.chapter_images": "正在生成章节",
-  "library.skip_segments": "正在识别片头片尾",
-  "media.skip_segments": "正在识别片头片尾",
-  "reels.clips": "正在预切片段",
-  "library.organize": "正在整理文件",
-  "library.transfer": "正在转移文件",
-  "library.ingest": "正在入库",
-  "drive.upload": "正在上传到网盘",
-};
-
-const COMPLETED_JOB_ACTIONS: Record<string, string> = {
-  "subtitle.generate": "字幕生成",
-  "library.scan": "扫描",
-  "library.metadata.refresh": "元数据刷新",
-  "media.metadata.refresh": "元数据刷新",
-  "library.chapter_images": "章节生成",
-  "library.skip_segments": "片头片尾识别",
-  "media.skip_segments": "片头片尾识别",
-  "reels.clips": "片段预切",
-  "library.organize": "文件整理",
-  "library.transfer": "文件转移",
-  "library.ingest": "入库",
-  "drive.upload": "网盘上传",
-};
-
-function jobDetailString(job: JobView, key: string): string | null {
-  const detail = job.progress.details[key] ?? job.input_data[key];
-  return typeof detail === "string" && detail ? detail : null;
-}
-
-function jobDetailNumber(job: JobView, key: string): number | null {
-  const detail = job.progress.details[key];
-  return typeof detail === "number" && Number.isFinite(detail) ? detail : null;
-}
-
-/** Feed 主标题优先使用执行结果确认过的作品名，避免把长 release 名当业务标题。 */
-function jobFeedIdentity(job: JobView): string | null {
-  const quotedTitle = job.progress.message.match(/《([^》]+)》/)?.[1] ?? null;
-  const title =
-    quotedTitle ||
-    jobDetailString(job, "media_title") ||
-    jobDetailString(job, "title") ||
-    job.subject;
-  if (!title) return null;
-  if (/^[《「].+[》」]$/.test(title)) return title;
-  if (job.job_type === "library.scan") return `「${title}」`;
-  if (
-    job.job_type === "library.ingest" ||
-    job.job_type === "subtitle.generate" ||
-    job.job_type.includes("metadata.refresh")
-  ) {
-    return `《${title}》`;
-  }
-  return title;
-}
-
-function jobProgressAmount(job: JobView): string | null {
-  const { current, total } = job.progress;
-  if (current == null || total == null) return null;
-  if (job.job_type === "library.ingest") {
-    return `已处理 ${formatBytes(current)} / ${formatBytes(total)}`;
-  }
-  const unit =
-    job.job_type === "subtitle.generate"
-      ? "个分块"
-      : job.job_type === "library.scan"
-        ? "个文件"
-        : job.job_type === "media.metadata.refresh"
-          ? "张图片"
-          : job.job_type === "library.metadata.refresh"
-            ? "个条目"
-            : "项";
-  return `已处理 ${current} / ${total} ${unit}`;
-}
-
-function jobOriginLabel(job: JobView): string {
-  const origin =
-    job.origin === "cli"
-      ? "CLI 发起"
-      : job.origin === "agent"
-        ? "Agent 发起"
-        : job.origin === "scheduler" || job.origin === "system"
-          ? "系统自动"
-          : "网页发起";
-  return job.actor_name ? `${origin} · ${job.actor_name}` : origin;
-}
-
-function activeJobStatus(job: JobView): string {
-  if (job.status === "running") {
-    return ACTIVE_JOB_ACTIONS[job.job_type] || "正在处理";
-  }
-  return JOB_STATUS_LABELS[job.status] || job.status;
-}
-
-function historicalJobTitle(job: JobView): string {
-  const identity = jobFeedIdentity(job);
-  const action = COMPLETED_JOB_ACTIONS[job.job_type];
-  // 忽略只是"不再提醒"，不是"做完了"。历史里如实写「未完成」，否则用户回头
-  // 翻记录会以为这件事已经成了。
-  const result =
-    job.status === "cancelled" ? "已取消" : job.status === "failed" ? "未完成" : "完成";
-  if (identity && action) return `${identity}${action}${result}`;
-  return `${identity || jobTypeLabel(job)}${result}`;
-}
-
-function historicalJobSummary(job: JobView): string {
-  if (job.job_type === "library.scan") {
-    const identified = jobDetailNumber(job, "identified");
-    const unidentified = jobDetailNumber(job, "unidentified");
-    const parts = [
-      identified != null ? `识别 ${identified} 个` : null,
-      unidentified != null ? `待识别 ${unidentified} 个` : null,
-    ].filter((item): item is string => item != null);
-    if (parts.length > 0) return parts.join(" · ");
-  }
-  if (job.status === "failed" && isDismissed(job)) {
-    return job.error?.message || job.progress.message || "任务失败，已被忽略";
-  }
-  return job.progress.message || (job.status === "cancelled" ? "任务已取消" : "任务已完成");
-}
-
 function ActiveJobFeedItem({
   job,
   cancelling,
@@ -789,12 +669,15 @@ function ActiveJobFeedItem({
   cancelling: boolean;
   onCancel: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const percent = job.progress.percent;
-  const amount = jobProgressAmount(job);
+  const amount = jobProgressAmount(job, locale);
   const cancellable = job.status !== "cancelling";
-  const title = jobFeedIdentity(job) || jobTypeLabel(job);
+  const title = jobFeedIdentity(job, locale) || jobTypeLabel(job, locale);
   // 元数据刷新的图片记账（新下载 / 沿用 / 失败）；其余类型的过程信息已在摘要里
-  const details = job.job_type.includes("metadata.refresh") ? jobDetailItems(job) : [];
+  const details = job.job_type.includes("metadata.refresh") ? jobDetailItems(job, locale) : [];
   return (
     <article className="min-w-0 py-1.5">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -803,7 +686,7 @@ function ActiveJobFeedItem({
             <OverflowText>{title}</OverflowText>
           </h3>
           <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-sub text-white/60">
-            <span className="font-medium text-white/70">{activeJobStatus(job)}</span>
+            <span className="font-medium text-white/70">{activeJobStatus(job, locale)}</span>
             {percent != null && (
               <>
                 <span aria-hidden="true" className="text-white/25">·</span>
@@ -819,7 +702,7 @@ function ActiveJobFeedItem({
             disabled={cancelling}
             className="shrink-0 rounded-lg px-2.5 py-1.5 text-caption font-medium text-white/45 transition hover:bg-white/[0.06] hover:text-white/75 disabled:cursor-wait disabled:opacity-45"
           >
-            {cancelling ? "正在取消…" : "取消任务"}
+            {cancelling ? t("activity.jobs.cancellingAction") : t("activity.jobs.cancelAction")}
           </button>
         )}
       </div>
@@ -858,33 +741,12 @@ function ActiveJobFeedItem({
       )}
       {amount && <p className="tnum mt-1.5 text-caption text-white/38">{amount}</p>}
       <p className="mt-2 text-caption text-white/30">
-        {jobOriginLabel(job)}
+        {jobOriginLabel(job, locale)}
         <span aria-hidden="true"> · </span>
-        {job.started_at ? `${formatClockTime(job.started_at)} 开始` : `${formatClockTime(job.created_at)} 发起`}
+        {job.started_at ? t("activity.taskCenter.startedAt", { time: formatClockTime(job.started_at, locale) }) : t("activity.taskCenter.createdAt", { time: formatClockTime(job.created_at, locale) })}
       </p>
     </article>
   );
-}
-
-interface HistoryDayGroup {
-  key: string;
-  label: string;
-  jobs: JobView[];
-}
-
-function groupHistoricalJobs(jobs: JobView[]): HistoryDayGroup[] {
-  const groups = new Map<string, HistoryDayGroup>();
-  for (const job of jobs) {
-    const timestamp = job.finished_at || job.created_at;
-    const key = timelineDayKey(timestamp);
-    const existing = groups.get(key);
-    if (existing) {
-      existing.jobs.push(job);
-    } else {
-      groups.set(key, { key, label: formatTimelineDayLabel(timestamp), jobs: [job] });
-    }
-  }
-  return [...groups.values()];
 }
 
 function HistoricalJobFeedItem({
@@ -903,21 +765,24 @@ function HistoricalJobFeedItem({
   undismissing: boolean;
   onUndismiss: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   // 忽略必须能反悔——用户是在信息不全时按下的它（"先不管这个"），
   // 撤销入口就得留在他能找回这条记录的地方，而不是只能靠重试再造一条新任务。
   const dismissed = job.status === "failed" && isDismissed(job);
-  const ingestDetail = buildIngestHistoryDetail(job);
+  const ingestDetail = buildIngestHistoryDetail(job, locale);
   return (
     <article className="group/history min-w-0 py-1.5">
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="text-ui font-medium leading-5 text-white/78">
-            <OverflowText>{historicalJobTitle(job)}</OverflowText>
+            <OverflowText>{historicalJobTitle(job, locale)}</OverflowText>
           </h3>
           <div className="mt-1 flex min-w-0 items-baseline gap-2 text-caption leading-5 text-white/40">
             <span className="tnum shrink-0 text-white/32">{time}</span>
             <OverflowText lines={2} className="min-w-0 flex-1">
-              {ingestDetail?.summary ?? historicalJobSummary(job)}
+              {ingestDetail?.summary ?? historicalJobSummary(job, locale)}
             </OverflowText>
           </div>
           {ingestDetail && <IngestHistoryFiles detail={ingestDetail} />}
@@ -929,7 +794,7 @@ function HistoricalJobFeedItem({
             disabled={undismissing}
             className="shrink-0 rounded-lg px-2.5 py-1.5 text-caption font-medium text-white/35 transition hover:bg-white/[0.05] hover:text-white/65 disabled:cursor-wait disabled:opacity-40"
           >
-            {undismissing ? "撤销中…" : "撤销忽略"}
+            {undismissing ? t("activity.jobs.restoringAction") : t("activity.jobs.restoreAction")}
           </button>
         )}
         {job.status === "cancelled" && !isSystemCancelled(job) && (
@@ -939,7 +804,7 @@ function HistoricalJobFeedItem({
             disabled={retrying}
             className="shrink-0 rounded-lg px-2.5 py-1.5 text-caption font-medium text-white/35 transition hover:bg-white/[0.05] hover:text-white/65 disabled:cursor-wait disabled:opacity-40"
           >
-            {retrying ? "重新执行中…" : "重新执行"}
+            {retrying ? t("activity.taskCenter.retrying") : t("activity.jobs.retryAction")}
           </button>
         )}
       </div>
@@ -949,14 +814,16 @@ function HistoricalJobFeedItem({
 
 /** 入库历史默认只占一行，需要核对时再展开真实文件名与目标媒体库。 */
 function IngestHistoryFiles({ detail }: { detail: IngestHistoryDetail }) {
+  const t = useTranslations();
+
   if (detail.fileGroups.length === 0 && detail.context == null) return null;
   const fileCount = detail.fileGroups.reduce((total, group) => total + group.files.length, 0);
   return (
     <details className="group/files mt-1.5 max-w-full text-caption">
       <summary className="flex w-fit max-w-full cursor-pointer list-none items-center gap-1.5 rounded-md py-1 pr-1 text-white/32 transition hover:text-white/60 [&::-webkit-details-marker]:hidden">
         <ChevronRightIcon className="size-3.5 shrink-0 transition-transform group-open/files:rotate-90" />
-        <span>查看文件明细</span>
-        {fileCount > 0 && <span className="tnum text-white/22">{fileCount} 个</span>}
+        <span>{t("activity.taskCenter.fileDetails")}</span>
+        {fileCount > 0 && <span className="tnum text-white/22">{t("activity.taskCenter.fileCount", { count: fileCount })}</span>}
       </summary>
       <div className="mt-1.5 hidden rounded-lg border border-white/[0.06] bg-white/[0.025] px-3 py-2.5 group-open/files:block">
         {detail.context && <p className="mb-2 text-white/38">{detail.context}</p>}
@@ -964,7 +831,7 @@ function IngestHistoryFiles({ detail }: { detail: IngestHistoryDetail }) {
           {detail.fileGroups.map((group) => (
             <section key={group.label} aria-label={group.label}>
               <p className="mb-1 text-micro font-medium text-white/35">
-                {group.label} · {group.files.length} 个
+                {group.label} · {t("activity.taskCenter.fileCount", { count: group.files.length })}
               </p>
               <ul className="space-y-1 text-white/52">
                 {group.files.map((file) => (
@@ -994,6 +861,9 @@ function IngestHistoryFiles({ detail }: { detail: IngestHistoryDetail }) {
  * 勾选才立即全删（可能被记 H&R）；还开着刷流的站点会一并关闭。
  */
 function BoostTaskSection({ tasks, onChanged }: { tasks: DownloadTask[]; onChanged: () => void }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const { pool, setPool } = useBoostPool(tasks);
   const { cleaning, cleanup } = useBoostCleanup({ onPool: setPool, onChanged });
   const poolSites = new Map((pool?.sites ?? []).map((site) => [site.site_id, site]));
@@ -1008,8 +878,8 @@ function BoostTaskSection({ tasks, onChanged }: { tasks: DownloadTask[]; onChang
   const offCount = tasks.filter((t) => modeOf(t) === "off").length;
   const pausedCount = tasks.filter((t) => modeOf(t) === "paused").length;
   const scheduledCount = (pool?.tasks ?? []).filter((t) => t.cleanup_scheduled).length;
-  const label =
-    offCount === tasks.length ? "刷流已关闭" : pausedCount === tasks.length ? "刷流已暂停" : "刷流做种";
+  const boostMode = offCount === tasks.length ? "off" : pausedCount === tasks.length ? "paused" : "running";
+  const label = boostMode === "off" ? t("activity.boost.off") : boostMode === "paused" ? t("activity.boost.paused") : t("activity.boost.heading");
 
   const sum = (pick: (task: DownloadTask) => number | null) =>
     tasks.reduce((total, task) => total + (pick(task) ?? 0), 0);
@@ -1031,20 +901,16 @@ function BoostTaskSection({ tasks, onChanged }: { tasks: DownloadTask[]; onChang
   );
 
   return (
-    <section className="mt-3" aria-label="刷流做种">
+    <section className="mt-3" aria-label={t("activity.boost.heading")}>
       <details className="group border-b border-white/[0.07] py-3.5 last:border-b-0">
         <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 rounded-lg py-1 text-ui transition [&::-webkit-details-marker]:hidden">
           <span
-            className={`font-semibold ${label === "刷流已关闭" ? "text-white/60" : label === "刷流已暂停" ? "text-[var(--warn)]" : "text-[var(--accent)]"}`}
+            className={`font-semibold ${boostMode === "off" ? "text-white/60" : boostMode === "paused" ? "text-[var(--warn)]" : "text-[var(--accent)]"}`}
           >
             {label}
           </span>
           <span className="tnum text-caption text-white/60">
-            {tasks.length} 个种子
-            {label === "刷流已关闭" && " 仍在做种"}
-            {label === "刷流做种" && offCount > 0 && ` · ${offCount} 个来自已关闭刷流的站点`}
-            {label !== "刷流已暂停" && pausedCount > 0 && ` · ${pausedCount} 个已暂停`}
-            {scheduledCount > 0 && ` · ${scheduledCount} 个等待到期删除`}
+            {t("activity.boost.summary", { count: tasks.length, mode: boostMode, off: offCount, paused: pausedCount, scheduled: scheduledCount, showOff: boostMode === "running" && offCount > 0 ? "yes" : "no", showPaused: boostMode !== "paused" && pausedCount > 0 ? "yes" : "no", showScheduled: scheduledCount > 0 ? "yes" : "no" })}
           </span>
           {/* 实时汇总：速度是"现在"，总量是"战果"——都放头部，折叠时也一眼可见。
               上传走 --ok 绿（刷流的战果就是上传量），下载走 --info 蓝，数值带淡辉光
@@ -1058,18 +924,18 @@ function BoostTaskSection({ tasks, onChanged }: { tasks: DownloadTask[]; onChang
             <SpeedStat direction="up" bytesPerSecond={upSpeed} glow placeholder="↑ 0 B/s" />
             <SpeedStat direction="down" bytesPerSecond={downSpeed} glow placeholder="↓ 0 B/s" />
             <span>
-              已上传 <span className="font-semibold text-[var(--ok)]">{formatBytes(uploaded)}</span>
+              {t("activity.boost.uploaded")}<span className="font-semibold text-[var(--ok)]">{formatBytes(uploaded)}</span>
             </span>
             <span>
-              已下载 <span className="font-semibold text-[var(--info)]">{formatBytes(downloaded)}</span>
+              {t("activity.boost.downloaded")}<span className="font-semibold text-[var(--info)]">{formatBytes(downloaded)}</span>
             </span>
           </span>
           {/* 展开态文案和箭头必须同进同退，所以包在一个不可换行的组里：上一版两者是
               summary 的兄弟节点，窄屏换行时箭头会被单独甩到下一行成为孤儿。
               窄屏 order-1 让它跟在"N 个种子"后面停在标题行右端。 */}
           <span className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap text-caption text-white/30 max-md:order-1">
-            <span className="group-open:hidden">展开</span>
-            <span className="hidden group-open:inline">收起</span>
+            <span className="group-open:hidden">{t("activity.taskCenter.expand")}</span>
+            <span className="hidden group-open:inline">{t("activity.taskCenter.collapse")}</span>
             <ChevronRightIcon className="size-4 transition-transform group-open:rotate-90" />
           </span>
         </summary>
@@ -1078,15 +944,15 @@ function BoostTaskSection({ tasks, onChanged }: { tasks: DownloadTask[]; onChang
             <BoostTaskRow
               key={task.id}
               task={task}
-              cleanupNote={boostCleanupNote(taskStates.get(task.info_hash.toLowerCase()))}
+              cleanupNote={boostCleanupNote(taskStates.get(task.info_hash.toLowerCase()), locale)}
             />
           ))}
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <p className="text-caption text-white/35">
             {offCount > 0
-              ? "关闭刷流不会删除已有种子：它们会继续满速做种，引擎也不再自动汰换。"
-              : "刷流种子由引擎在预算内自动汰换。"}
+              ? t("activity.boost.offHint")
+              : t("activity.boost.managedHint")}
           </p>
           <button
             type="button"
@@ -1094,7 +960,7 @@ function BoostTaskSection({ tasks, onChanged }: { tasks: DownloadTask[]; onChang
             disabled={cleaning}
             className="shrink-0 rounded-lg px-2 py-1 text-caption font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-50"
           >
-            {cleaning ? "正在清理…" : "清理刷流种子…"}
+            {cleaning ? t("activity.boost.cleaning") : t("activity.boost.cleanupAction")}
           </button>
         </div>
       </details>
@@ -1115,6 +981,8 @@ function BoostTaskSection({ tasks, onChanged }: { tasks: DownloadTask[]; onChang
  * 名称后面，只在真的在下载时出现。
  */
 function BoostTaskRow({ task, cleanupNote }: { task: DownloadTask; cleanupNote?: string | null }) {
+  const t = useTranslations();
+
   const downloading = task.state === "downloading";
   const percent = task.progress == null ? null : Math.floor(task.progress * 100);
   const showDownloadNote = (downloading && percent != null) || (task.dlspeed_bytes ?? 0) > 0;
@@ -1138,7 +1006,7 @@ function BoostTaskRow({ task, cleanupNote }: { task: DownloadTask; cleanupNote?:
           target="_blank"
           rel="noreferrer"
           className="flex min-w-0 flex-1 hover:text-white"
-          title="打开站点种子详情页"
+          title={t("activity.taskCenter.siteDetails")}
         >
           {name}
         </a>
@@ -1153,7 +1021,7 @@ function BoostTaskRow({ task, cleanupNote }: { task: DownloadTask; cleanupNote?:
         <SpeedStat direction="up" bytesPerSecond={task.upspeed_bytes} placeholder="—" />
         <span>
           {task.uploaded_bytes != null && task.uploaded_bytes > 0
-            ? `累计 ↑${formatBytes(task.uploaded_bytes)}`
+            ? t("activity.boost.uploadedTotal", { size: formatBytes(task.uploaded_bytes) })
             : "—"}
         </span>
         <span>{task.size_bytes != null ? formatBytes(task.size_bytes) : "—"}</span>
@@ -1189,11 +1057,14 @@ function TaskHistorySection({
   undismissingJobId: string | null;
   onUndismiss: (job: JobView) => void;
 }) {
-  const groups = groupHistoricalJobs(jobs);
+  const t = useTranslations();
+  const locale = useLocale();
+
+  const groups = groupHistoricalJobs(jobs, locale);
   return (
     <section
       className={separated ? "mt-6 border-t border-white/[0.1]" : "mt-3"}
-      aria-label="历史任务"
+      aria-label={t("activity.taskCenter.historyRegion")}
     >
       {groups.map((group, index) => (
         <details
@@ -1203,9 +1074,9 @@ function TaskHistorySection({
         >
           <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg py-1 text-ui text-white/55 transition hover:text-white/80 [&::-webkit-details-marker]:hidden">
             <span className="font-semibold">{group.label}</span>
-            <span className="tnum text-caption text-white/30">{group.jobs.length} 项</span>
-            <span className="ml-auto text-caption text-white/30 group-open:hidden">展开</span>
-            <span className="ml-auto hidden text-caption text-white/30 group-open:inline">收起</span>
+            <span className="tnum text-caption text-white/30">{t("activity.taskCenter.itemCount", { count: group.jobs.length })}</span>
+            <span className="ml-auto text-caption text-white/30 group-open:hidden">{t("activity.taskCenter.expand")}</span>
+            <span className="ml-auto hidden text-caption text-white/30 group-open:inline">{t("activity.taskCenter.collapse")}</span>
             <ChevronRightIcon className="size-4 transition-transform group-open:rotate-90" />
           </summary>
           <div className="mt-3">
@@ -1215,14 +1086,14 @@ function TaskHistorySection({
                 tone={
                   job.status !== "succeeded"
                     ? "cancelled"
-                    : jobDetailItems(job).some((item) => item.alert)
+                    : jobDetailItems(job, locale).some((item) => item.alert)
                       ? "partial"
                       : "success"
                 }
               >
                 <HistoricalJobFeedItem
                   job={job}
-                  time={formatClockTime(job.finished_at || job.created_at)}
+                  time={formatClockTime(job.finished_at || job.created_at, locale)}
                   retrying={retryingJobId === job.id}
                   onRetry={() => onRetry(job)}
                   undismissing={undismissingJobId === job.id}
@@ -1236,85 +1107,6 @@ function TaskHistorySection({
     </section>
   );
 }
-
-/**
- * 一个任务状态的展示三件套。``color`` 走内联样式（进度条与状态文字共用），
- * ``dot`` 是状态点的 class。
- *
- * 取色只从 globals.css 的状态四档里挑（--ok / --info / --warn / --danger），
- * 「没有 / 不会发生」不占状态色，用本表既有的中性灰。判断口径见 globals.css：
- * 颜色说的是「系统状态」还是「你该做什么」，只有后者用 --danger。
- *
- * 同一档里的多个状态长得一样是刻意的——「下载中」和「校验中」都是正在进行，
- * 区别由 label 承担；用色相去暗示它们是两类不同的东西，只会稀释颜色的信号。
- */
-interface TaskStateMeta {
-  label: string;
-  color: string;
-  dot: string;
-}
-
-const DOWNLOAD_STATE_META: Record<DownloadTask["state"], TaskStateMeta> = {
-  downloading: {
-    label: "下载中",
-    color: "var(--info)",
-    dot: "animate-pulse bg-[var(--info)]",
-  },
-  stalled: {
-    label: "等待连接",
-    color: "var(--warn)",
-    dot: "bg-[var(--warn)]",
-  },
-  paused: {
-    label: "已暂停",
-    color: "var(--warn)",
-    dot: "bg-[var(--warn)]",
-  },
-  queued: {
-    label: "排队中",
-    color: "#cbd5e1",
-    dot: "bg-white/40",
-  },
-  checking: {
-    label: "校验中",
-    color: "var(--info)",
-    dot: "animate-pulse bg-[var(--info)]",
-  },
-  completed: {
-    label: "等待入库",
-    color: "var(--ok)",
-    dot: "bg-[var(--ok)]",
-  },
-  error: {
-    label: "下载异常",
-    color: "var(--danger)",
-    dot: "bg-[var(--danger)]",
-  },
-  missing: {
-    label: "任务缺失",
-    color: "var(--danger)",
-    dot: "bg-[var(--danger)]",
-  },
-  unknown: {
-    label: "状态未知",
-    color: "#cbd5e1",
-    dot: "bg-white/40",
-  },
-};
-
-const INGEST_STATE_META: Record<JobStatus, TaskStateMeta> = {
-  queued: { label: "等待入库", color: "#cbd5e1", dot: "bg-white/40" },
-  running: { label: "正在入库", color: "var(--ok)", dot: "animate-pulse bg-[var(--ok)]" },
-  retry_wait: { label: "等待重试", color: "var(--warn)", dot: "bg-[var(--warn)]" },
-  cancelling: { label: "正在停止", color: "var(--warn)", dot: "bg-[var(--warn)]" },
-  waiting: { label: "等待条件", color: "#cbd5e1", dot: "bg-white/40" },
-  blocked: { label: "入库待处理", color: "var(--danger)", dot: "bg-[var(--danger)]" },
-  succeeded: { label: "入库完成", color: "var(--ok)", dot: "bg-[var(--ok)]" },
-  failed: { label: "入库待处理", color: "var(--danger)", dot: "bg-[var(--danger)]" },
-  // 已取消是终态，不会再有进展：归到本表的中性灰，和「等待入库 / 等待条件」
-  // 一样不占状态色——它们的区别本来就该由 label 说清楚。
-  cancelled: { label: "入库已取消", color: "#cbd5e1", dot: "bg-white/40" },
-};
 
 /**
  * 一个下载任务有两条独立进度轴：下载轴的事实源永远是下载器，入库轴的事实源
@@ -1344,43 +1136,16 @@ function isUpgradeTask(task: DownloadTask): boolean {
  * 订阅详情页的洗版专属色，跨页面同一概念同一颜色。
  */
 function UpgradeTaskBadge({ task }: { task: DownloadTask }) {
+  const t = useTranslations();
+
   if (!isUpgradeTask(task)) return null;
   return (
     <span
-      title="洗版任务：这些集库里已有旧版本，本次下载完成并校验后替换"
+      title={t("activity.taskCenter.upgradeHint")}
       className="shrink-0 rounded-full border border-[#2dd4bf]/30 bg-[#2dd4bf]/[0.12] px-1.5 py-0.5 text-[11px] font-semibold leading-none text-[#2dd4bf]"
     >
-      洗版
-    </span>
+      {t("activity.taskCenter.upgrade")}</span>
   );
-}
-
-/**
- * 按逐集工单汇总任务的交付进度；没有订阅上下文（手动/外部任务）时为 null。
- *
- * 补缺下载数「已入库」，洗版数「已替换」。洗版单元在投递那一刻就全是
- * imported（库里有旧版本），继续按 imported 汇总会让刚投递的种子直接显示
- * 「已入库 16/16 集、入库完成」，与 0% 的下载进度自相矛盾（真实教训）。
- */
-function ingestUnitSummary(
-  task: DownloadTask,
-): { done: number; total: number; upgrade: boolean } | null {
-  const subscription = task.subscriptions[0];
-  if (!subscription || subscription.units.length === 0) return null;
-  const upgrade = subscription.purpose === "upgrade";
-  return {
-    done: subscription.units.filter((unit) => (upgrade ? unit.replaced : unit.status === "imported"))
-      .length,
-    total: subscription.units.length,
-    upgrade,
-  };
-}
-
-/** 多集资源分批交付时的「已入库/已替换 N/M 集」；单集与电影没有分批语义，返回 null。 */
-function partialIngestLabel(task: DownloadTask): string | null {
-  const summary = ingestUnitSummary(task);
-  if (summary == null || summary.total <= 1) return null;
-  return `${summary.upgrade ? "已替换" : "已入库"} ${summary.done}/${summary.total} 集`;
 }
 
 function downloadGroupTimelineTone(
@@ -1410,6 +1175,8 @@ function DownloadTaskGroupFeed({
   onDelete: (task: DownloadTask) => void;
   onReplace: (task: DownloadTask) => void;
 }) {
+  const t = useTranslations();
+
   const grouped = group.mediaItemId != null;
   const firstSubscription = group.tasks.flatMap((task) => task.subscriptions)[0];
   return (
@@ -1419,14 +1186,13 @@ function DownloadTaskGroupFeed({
           <div className="min-w-0 flex-1">
             <h3 className="flex min-w-0 items-center gap-2 text-ui font-semibold leading-5 text-white/90">
               <span className="shrink-0 rounded-full border border-[var(--info)]/25 bg-[var(--info)]/[0.12] px-1.5 py-0.5 text-[11px] font-semibold leading-none text-[var(--info)]">
-                实时
-              </span>
+                {t("activity.taskCenter.live")}</span>
               <OverflowText className="flex-1">{group.title}</OverflowText>
             </h3>
             <p className="mt-1 text-caption text-white/35">
-              {group.kind === "tv" ? "剧集" : "电影"}
+              {group.kind === "tv" ? t("media.kind.tv") : t("media.kind.movie")}
               <span aria-hidden="true"> · </span>
-              {group.tasks.length} 个下载资源
+              {t("activity.taskCenter.releaseCount", { count: group.tasks.length })}
             </p>
           </div>
           {firstSubscription && (
@@ -1434,8 +1200,7 @@ function DownloadTaskGroupFeed({
               href={`/subscriptions/${firstSubscription.id}` as Route}
               className="shrink-0 rounded-lg px-2.5 py-1.5 text-caption font-medium text-white/40 transition hover:bg-white/[0.06] hover:text-white/70"
             >
-              查看订阅
-            </Link>
+              {t("activity.taskCenter.viewSubscription")}</Link>
           )}
         </div>
       )}
@@ -1480,11 +1245,14 @@ function DownloadTaskFeedItem({
   onDelete: (task: DownloadTask) => void;
   onReplace: (task: DownloadTask) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const ingestOwnsState = ingestOwnsTaskState(task, ingestJob);
   const meta =
     ingestOwnsState && ingestJob
-      ? INGEST_STATE_META[ingestJob.status]
-      : DOWNLOAD_STATE_META[task.state];
+      ? ingestStateMeta(ingestJob.status, locale)
+      : downloadStateMeta(task.state, locale);
   const downloadPercent = task.progress == null ? null : Math.floor(task.progress * 100);
   const percent =
     ingestOwnsState && ingestJob
@@ -1497,7 +1265,7 @@ function DownloadTaskFeedItem({
     : task.media_title || task.name || task.info_hash;
   // 有关联入库 Job 时不再单独出一行文字说明：入库阶段与解释由底部生命
   // 周期承担，覆盖集标签会标注已入库进度，feed 行只保留下载态/换源提示
-  const note = ingestJob != null ? null : downloadTaskNote(task, null);
+  const note = ingestJob != null ? null : downloadTaskNote(task, null, locale);
   const showReplace = shouldOfferInlineReplacement(task);
   const firstSubscription = task.subscriptions[0];
   // 种子名前用站点徽标回答"这个资源从哪来"；画面规格、片源与文件尺寸紧随
@@ -1533,8 +1301,7 @@ function DownloadTaskFeedItem({
           >
             {!grouped && (
               <span className="shrink-0 rounded-full border border-[var(--info)]/25 bg-[var(--info)]/[0.12] px-1.5 py-0.5 text-[11px] font-semibold leading-none text-[var(--info)]">
-                实时
-              </span>
+                {t("activity.taskCenter.live")}</span>
             )}
             {task.site_name && (
               <span className="shrink-0 rounded-full border border-white/[0.14] bg-white/[0.06] px-1.5 py-0.5 text-[11px] font-medium leading-none text-white/55">
@@ -1597,7 +1364,7 @@ function DownloadTaskFeedItem({
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-caption text-white/38">
           <SpeedStat direction="down" bytesPerSecond={downSpeed} />
           <SpeedStat direction="up" bytesPerSecond={upSpeed} />
-          {etaSeconds != null && <span>剩余约 {formatDuration(etaSeconds)}</span>}
+          {etaSeconds != null && <span>{t("activity.taskCenter.remaining", { duration: formatDuration(etaSeconds, locale) })}</span>}
         </div>
       )}
       <DownloadLifecycle task={task} ingestJob={ingestJob} variant="feed" />
@@ -1608,7 +1375,7 @@ function DownloadTaskFeedItem({
           disabled={replacing}
           className="mt-2 rounded-lg border border-[var(--danger)]/25 bg-[var(--danger)]/[0.07] px-2.5 py-1.5 text-caption font-semibold text-[#fee2e2] transition hover:bg-[var(--danger)]/[0.13] disabled:cursor-wait disabled:opacity-50"
         >
-          {replacing ? "正在换种…" : "立即换种"}
+          {replacing ? t("activity.taskCenter.replacing") : t("activity.taskCenter.replaceNow")}
         </button>
       )}
     </div>
@@ -1630,6 +1397,8 @@ function DownloadTaskGroupCard({
   onDelete: (task: DownloadTask) => void;
   onReplace: (task: DownloadTask) => void;
 }) {
+  const t = useTranslations();
+
   if (group.mediaItemId == null) {
     const task = group.tasks[0];
     return (
@@ -1656,7 +1425,7 @@ function DownloadTaskGroupCard({
             <PosterImage
               src={imageUrl(group.posterUrl)}
               width={40}
-              alt={`${group.title}海报`}
+              alt={t("activity.taskCenter.posterAria", { title: group.title })}
               className="size-full"
               fallback={
                 <div className="flex size-full items-center justify-center bg-gradient-to-b from-white/[0.07] to-[#11141c] text-white/25">
@@ -1671,9 +1440,9 @@ function DownloadTaskGroupCard({
             <OverflowText>{group.title}</OverflowText>
           </h3>
           <p className="mt-0.5 text-caption text-white/40">
-            {isTv ? "剧集" : "电影"}
+            {isTv ? t("media.kind.tv") : t("media.kind.movie")}
             <span aria-hidden="true"> · </span>
-            {group.tasks.length} 个下载资源
+            {t("activity.taskCenter.releaseCount", { count: group.tasks.length })}
           </p>
         </div>
         {firstSubscription && (
@@ -1681,8 +1450,7 @@ function DownloadTaskGroupCard({
             href={`/subscriptions/${firstSubscription.id}` as Route}
             className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-caption font-medium text-white/60 transition hover:bg-white/[0.06] hover:text-white"
           >
-            查看订阅
-          </Link>
+            {t("activity.taskCenter.viewSubscription")}</Link>
         )}
       </div>
       <div className="space-y-2 p-3.5 max-md:p-3">
@@ -1720,33 +1488,36 @@ function DownloadTaskCard({
   onDelete: (task: DownloadTask) => void;
   onReplace: (task: DownloadTask) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const ingestOwnsCardState = ingestOwnsTaskState(task, ingestJob);
   const meta =
     ingestOwnsCardState && ingestJob
-      ? INGEST_STATE_META[ingestJob.status]
-      : DOWNLOAD_STATE_META[task.state];
+      ? ingestStateMeta(ingestJob.status, locale)
+      : downloadStateMeta(task.state, locale);
   const title = grouped
     ? task.name || task.media_title || task.info_hash
     : task.media_title || task.name || task.info_hash;
   const torrentName = !grouped && task.name && task.name !== title ? task.name : null;
   const sourceLabel =
     task.source === "subscription"
-      ? "订阅投递"
+      ? t("activity.taskCenter.subscriptionSource")
       : task.source === "manual"
-        ? "手动下载"
-        : "下载器任务";
+        ? t("activity.taskCenter.manualSource")
+        : t("activity.taskCenter.downloaderSource");
   const percent = task.progress == null ? null : Math.floor(task.progress * 100);
   const displayPercent = ingestOwnsCardState
     ? ingestJob?.progress.percent == null
       ? null
       : Math.floor(ingestJob.progress.percent)
     : percent;
-  const progressLabel = ingestOwnsCardState ? "入库进度" : "下载进度";
+  const progressLabel = ingestOwnsCardState ? t("activity.taskCenter.importProgress") : t("activity.taskCenter.downloadProgress");
   const firstSubscription = task.subscriptions[0];
   const showInlineReplace = shouldOfferInlineReplacement(task);
   // 与侧栏角标、「需要处理」分区同一口径（download-attention）：外部任务只观察不报警
   const needsAttention = downloadTaskNeedsAttention(task, ingestJob);
-  const taskNote = downloadTaskNote(task, ingestJob);
+  const taskNote = downloadTaskNote(task, ingestJob, locale);
   const showDownloadRuntime = !ingestOwnsCardState && task.state === "downloading";
 
   return (
@@ -1789,14 +1560,14 @@ function DownloadTaskCard({
                   className="break-words"
                   tooltipContent={
                     <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                      {needsAttention && <span className="mr-1.5 font-semibold">需要处理：</span>}
+                      {needsAttention && <span className="mr-1.5 font-semibold">{t("activity.jobs.attentionPrefix")}</span>}
                       {torrentName && <span>{torrentName}</span>}
                       {torrentName && taskNote && <span aria-hidden="true"> · </span>}
                       {taskNote}
                     </span>
                   }
                 >
-                  {needsAttention && <span className="mr-1.5 font-semibold">需要处理：</span>}
+                  {needsAttention && <span className="mr-1.5 font-semibold">{t("activity.jobs.attentionPrefix")}</span>}
                   {torrentName && <span>{torrentName}</span>}
                   {torrentName && taskNote && <span aria-hidden="true"> · </span>}
                   {taskNote}
@@ -1809,7 +1580,7 @@ function DownloadTaskCard({
                   disabled={replacing}
                   className="shrink-0 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/[0.1] px-3 py-1.5 text-caption font-semibold text-[#fee2e2] transition hover:border-[var(--danger)]/45 hover:bg-[var(--danger)]/[0.16] disabled:cursor-wait disabled:opacity-55"
                 >
-                  {replacing ? "正在换种…" : "立即换种"}
+                  {replacing ? t("activity.taskCenter.replacing") : t("activity.taskCenter.replaceNow")}
                 </button>
               )}
             </div>
@@ -1823,7 +1594,7 @@ function DownloadTaskCard({
         )}
         <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-white/40">
           <span>{sourceLabel}</span>
-          <span>{task.downloader_name || "所有下载器均未找到"}</span>
+          <span>{task.downloader_name || t("activity.taskCenter.missingAllClients")}</span>
           {task.size_bytes != null && <span>{formatBytes(task.size_bytes)}</span>}
         </div>
       </div>
@@ -1846,7 +1617,7 @@ function DownloadTaskCard({
                     ·
                   </span>
                   <span className="text-white/45">
-                    剩余约 {formatDuration(task.eta_seconds)}
+                    {t("activity.taskCenter.remaining", { duration: formatDuration(task.eta_seconds, locale) })}
                   </span>
                 </>
               )}
@@ -1886,21 +1657,13 @@ function DownloadTaskCard({
               disabled={deleting}
               className="rounded-lg border border-[var(--danger)]/25 bg-[var(--danger)]/[0.07] px-3 py-1.5 text-caption font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/[0.14] disabled:cursor-wait disabled:opacity-55"
             >
-              {deleting ? "删除中…" : "删除下载任务"}
+              {deleting ? t("activity.taskCenter.deletingShort") : t("activity.taskCenter.deleteDownload")}
             </button>
           )}
         </footer>
       )}
     </article>
   );
-}
-
-type LifecycleTone = "done" | "current" | "waiting" | "attention" | "future";
-
-interface LifecycleStep {
-  label: string;
-  detail: string;
-  tone: LifecycleTone;
 }
 
 const LIFECYCLE_DOT_STYLE: Record<LifecycleTone, string> = {
@@ -1928,102 +1691,6 @@ const LIFECYCLE_DETAIL_STYLE: Record<LifecycleTone, string> = {
 };
 
 /**
- * 下载完成后**还没发生**的那几步，按后端推导的落点如实展开。
- *
- * 取代原来那句「等待入库 · 下一步」——它对每条任务都一样，等于没说。后端的
- * plan 来自投递/预检共用的 resolve_save_path，所以这里预告的搬运方式与落点
- * 就是真正会发生的事；推不出落点时才退回原来的兜底话术。
- *
- * 只在"什么都还没开始"时使用：一旦入库 Job 出现，事实源就是 Job 本身，
- * 步骤链收回到观测态，不再拿预测覆盖已经发生的事。
- */
-function plannedSteps(
-  task: DownloadTask,
-  { downloaded, upgrade, keepOld }: { downloaded: boolean; upgrade: boolean; keepOld: boolean },
-): LifecycleStep[] {
-  const plan = task.plan;
-  if (!plan) {
-    return [
-      { label: downloaded ? "等待入库" : "等待下载完成", detail: "下一步", tone: "future" },
-    ];
-  }
-  if (plan.mode === "downloader_default") {
-    // 唯一需要用户动手的分支：说清楚"不会自动发生"，别让它看着像在等
-    return [
-      {
-        label: "不会自动入库",
-        detail: "未配置媒体库或库缺少根路径，文件将留在下载器默认目录，需手动处理",
-        tone: "attention",
-      },
-    ];
-  }
-  // 库未定：命中的是按 kind 的自动路由规则，识别出作品后才按收藏范围选库
-  const libraryText = plan.library_name
-    ? `「${plan.library_name}」`
-    : "按收藏范围自动匹配的媒体库";
-  const steps: LifecycleStep[] = [];
-
-  if (plan.mode === "watch") {
-    // 搬运方式完全由监听规则的策略决定，不猜：拿不到策略时只说"整理"，绝不
-    // 默认成某一种——复制与硬链接对磁盘占用的含义完全不同
-    const verb =
-      plan.strategy === "hardlink" ? "硬链接" : plan.strategy === "copy" ? "复制" : "整理";
-    // 路径归搬运步骤、库名归入库步骤：各自回答"文件去哪"与"算进哪个库"，
-    // 同一条链里不重复同一个库名
-    steps.push({
-      label: `待${verb}`,
-      detail: plan.dest_path ? `${verb}到 ${plan.dest_path}` : `${verb}到目标目录`,
-      tone: "future",
-    });
-  }
-
-  if (!plan.enters_library) {
-    // 自定义目录规则：整理完就结束了，后面没有入库这一步
-    steps.push({
-      label: "不直接入库",
-      detail: "按规则整理到该目录后不写库台账，文件出现在库根时由扫描收尾",
-      tone: "future",
-    });
-    return steps;
-  }
-
-  steps.push({
-    label: "待入库",
-    detail:
-      plan.mode === "inplace" && plan.dest_path
-        ? `已下载在库内目录，扫描后入库到${libraryText}：${plan.dest_path}`
-        : `入库到${libraryText}并刮削元数据`,
-    tone: "future",
-  });
-
-  // 洗版的终点不是入库：新版本入库后还要比对档位，确认更优才替换掉旧版本
-  // （校验不通过会保留旧版本），是与入库分开的一次真实事件
-  if (upgrade) {
-    steps.push({
-      label: "待替换",
-      detail: `校验档位，确认新版本更优才替换${libraryText}中的旧版本`,
-      tone: "future",
-    });
-    // 替换真正对磁盘做的事：默认把旧版本移入回收站等待过期清理；开了收藏家
-    // 模式则多版本共存。这一步决定的是"要不要多占一份空间"，不能不说
-    steps.push(
-      keepOld
-        ? {
-            label: "旧版本保留",
-            detail: "按规则组的保留共存设置，旧版本不删除，与新版本并存",
-            tone: "future",
-          }
-        : {
-            label: "待回收",
-            detail: "旧版本移入回收站，保留期内可恢复，到期自动清理释放空间",
-            tone: "future",
-          },
-    );
-  }
-  return steps;
-}
-
-/**
  * 把下载器状态与关联入库 Job 投影成同一条业务过程。这里不生成新状态：每一步
  * 都能回溯到下载快照或 Job，因此刷新、重试与回退仍由原领域负责。
  */
@@ -2036,146 +1703,15 @@ function DownloadLifecycle({
   ingestJob: JobView | null;
   variant?: "card" | "feed";
 }) {
-  // 下载轴只认下载器：存在入库 Job 不等于下载完成——边下边入库会在 19% 时就
-  // 搬走已完整落盘的那一集
-  const downloaded = task.state === "completed";
-  const downloadAttention = task.state === "error" || task.state === "missing";
-  const downloadWaiting = ["stalled", "paused", "queued", "unknown"].includes(task.state);
-  const percent = task.progress == null ? null : Math.floor(task.progress * 100);
-  const source = task.downloader_name || "下载器";
-  let downloadStep: LifecycleStep;
-  if (downloadAttention) {
-    downloadStep = {
-      label: DOWNLOAD_STATE_META[task.state].label,
-      // error 是下载器里这条任务出了问题（多半是文件缺失），下载器本身并没有坏，
-      // 不能说"等待下载器恢复"——那会把用户引去检查一个正常的下载器
-      detail: task.state === "missing" ? "等待恢复关联" : "需要在下载器中处理",
-      tone: "attention",
-    };
-  } else if (downloaded) {
-    downloadStep = {
-      label: "下载完成",
-      detail: task.size_bytes == null ? "文件已就绪" : formatBytes(task.size_bytes),
-      tone: "done",
-    };
-  } else {
-    downloadStep = {
-      label: DOWNLOAD_STATE_META[task.state].label,
-      detail: percent == null ? "读取实时进度" : `${percent}%`,
-      tone: downloadWaiting ? "waiting" : "current",
-    };
-  }
+  const t = useTranslations();
+  const locale = useLocale();
 
-  // 入库进度来自工单而非 Job：分批入库的两批之间没有 Job，但「已入库 2/10
-  // 集」依然成立，这一步不能因为 Job 消失就退回「等待入库」
-  const partialLabel = partialIngestLabel(task);
-  const summary = ingestUnitSummary(task);
-  const missingLabel = contentMissingLabel(task);
-  // 拿不到工单上下文（手动/外部任务）时不做分批判断，沿用 Job 的结论
-  const fullyDelivered = summary == null || summary.done >= summary.total;
-  // 洗版任务的终点是"旧版本被换掉"，入库只是中间态：新文件入库后还要经过
-  // 档位校验才算替换成功，因此这一列整体改说替换
-  const upgrade = summary?.upgrade === true;
-
-  // 二选一：要么已经开始了（ingestStep，观测态），要么还没开始（futureSteps，预测态）
-  let ingestStep: LifecycleStep | null = null;
-  let futureSteps: LifecycleStep[] | null = null;
-  if (ingestJob && jobNeedsAttention(ingestJob)) {
-    ingestStep = {
-      label: "入库待处理",
-      detail: ingestJob.error?.message || ingestJob.progress.message,
-      tone: "attention",
-    };
-  } else if (ingestJob?.status === "failed" && isDismissed(ingestJob)) {
-    // 忽略了不等于没发生：这一步仍要如实讲清入库到此为止，只是不再报警，
-    // 否则会掉进最后的"什么都还没开始"，把已经失败的事说成还没开始。
-    ingestStep = {
-      label: "入库已忽略",
-      detail: "已按你的选择不再提醒；如需处理可在「已结束」里撤销忽略",
-      tone: "waiting",
-    };
-  } else if (ingestJob?.status === "running") {
-    ingestStep = {
-      label: "正在入库",
-      detail: ingestJob.progress.message,
-      tone: "current",
-    };
-  } else if (ingestJob && ACTIVE_FEED_JOB_STATUSES.has(ingestJob.status)) {
-    ingestStep = {
-      label: INGEST_STATE_META[ingestJob.status].label,
-      detail: ingestJob.progress.message,
-      tone: "waiting",
-    };
-  } else if (missingLabel != null) {
-    // 种子里根本没有这一集：继续等这个任务没有意义，说清事实并交代去向
-    ingestStep = {
-      label: "内容不符",
-      detail:
-        (partialLabel ? `${partialLabel}；` : "") +
-        `种子里没有 ${missingLabel}，已退回重新寻找资源`,
-      tone: "attention",
-    };
-  } else if (
-    (ingestJob?.status === "succeeded" && !upgrade) ||
-    (summary != null && summary.done > 0)
-  ) {
-    // 整包下完且全部交付才算走完；分批推进期间如实说明还差几集。洗版下
-    // 入库成功 ≠ 替换完成，Job succeeded 不能单独把这一步点亮
-    const done = downloaded && fullyDelivered;
-    ingestStep = {
-      label: done
-        ? upgrade
-          ? "替换完成"
-          : "入库完成"
-        : upgrade
-          ? "部分替换"
-          : "部分入库",
-      detail: done
-        ? upgrade
-          ? "已全部替换为新版本"
-          : (ingestJob?.progress.message ?? "已全部入库")
-        : upgrade
-          ? `${partialLabel ?? "已替换"}，其余等待下载与校验`
-          : `${partialLabel ?? "已入库"}，其余等待下载完成`,
-      tone: done ? "done" : "waiting",
-    };
-  } else if (ingestJob?.status === "cancelled") {
-    ingestStep = {
-      label: "入库已取消",
-      detail: "等待重新处理",
-      tone: "waiting",
-    };
-  } else if (task.landing_error) {
-    ingestStep = {
-      label: "无法入库",
-      detail: "movieclaw 看不到已下载的文件",
-      tone: "attention",
-    };
-  } else if (upgrade) {
-    ingestStep = {
-      label: downloaded ? "等待替换" : "等待下载完成",
-      detail: downloaded ? "新版本入库后校验档位再替换" : "下一步",
-      tone: "future",
-    };
-  } else {
-    // 什么都还没开始：把剩下的路按真实配置展开，而不是笼统说"下一步"
-    futureSteps = plannedSteps(task, {
-      downloaded,
-      upgrade,
-      keepOld: task.subscriptions[0]?.upgrade_keep_old === true,
-    });
-  }
-
-  const steps: LifecycleStep[] = [
-    { label: "已投递", detail: source, tone: "done" },
-    downloadStep,
-    ...(futureSteps ?? [ingestStep!]),
-  ];
+  const steps = downloadLifecycleSteps(task, ingestJob, locale);
   const feed = variant === "feed";
 
   return (
     <ol
-      aria-label="任务完整过程"
+      aria-label={t("activity.taskCenter.lifecycleAria")}
       className={
         feed
           ? "mt-3 space-y-1.5"
@@ -2228,16 +1764,18 @@ function DownloadTaskActionsMenu({
   replacing: boolean;
   onDelete: (task: DownloadTask) => void;
 }) {
+  const t = useTranslations();
+
   return (
     <TaskActionsMenu
-      ariaLabel={`${task.name || task.info_hash}的更多操作`}
+      ariaLabel={t("activity.jobs.moreActions", { title: task.name || task.info_hash })}
       disabled={deleting || replacing}
       items={[
         ...(task.page_url
           ? [
               {
                 id: "torrent-page",
-                label: "打开种子页",
+                label: t("activity.taskCenter.torrentPage"),
                 onSelect: () => {
                   window.open(task.page_url!, "_blank", "noopener,noreferrer");
                 },
@@ -2248,7 +1786,7 @@ function DownloadTaskActionsMenu({
           ? [
               {
                 id: "delete",
-                label: deleting ? "删除中…" : "删除任务",
+                label: deleting ? t("activity.taskCenter.deletingShort") : t("activity.taskCenter.deleteAction"),
                 onSelect: () => onDelete(task),
                 disabled: deleting,
                 tone: "danger" as const,
@@ -2258,71 +1796,6 @@ function DownloadTaskActionsMenu({
       ]}
     />
   );
-}
-
-function downloadTaskNote(
-  task: DownloadTask,
-  ingestJob: JobView | null,
-): string | null {
-  const missingLabel = contentMissingLabel(task);
-  if (missingLabel != null) {
-    // 内容核验的结论优先于入库 Job：Job 成功搬完了包里存在的集，但用户等的
-    // 那一集根本不在包里，这时说"入库已完成"是误导
-    return `种子里没有 ${missingLabel}（声明的覆盖范围与实际内容不符），这部分已退回重新寻找资源；包里其余集不受影响`;
-  }
-  if (ingestJob?.status === "succeeded") {
-    // 边下边入库：这一批搬完不代表整个种子搬完，剩下的集会在各自下完后
-    // 自动接着入库——不能笼统说「入库已完成」
-    const summary = ingestUnitSummary(task);
-    if (summary != null && summary.done < summary.total) {
-      return summary.upgrade
-        ? `已完成 ${summary.done}/${summary.total} 集替换，其余等待下载完成后自动校验替换`
-        : `已入库 ${summary.done}/${summary.total} 集，其余等待下载完成后自动入库`;
-    }
-    if (summary?.upgrade) {
-      return task.state !== "completed"
-        ? "已完成的部分已替换为新版本，其余等待下载完成"
-        : "替换已完成，等待活动页同步收尾";
-    }
-    if (task.state !== "completed") return "已完成的部分已入库，其余等待下载完成";
-    return "入库已完成，等待活动页同步收尾";
-  }
-  if (ingestJob?.status === "cancelled") {
-    return "上次入库已取消，等待重新处理";
-  }
-  if (ingestJob && ["blocked", "failed"].includes(ingestJob.status)) {
-    return ingestJob.error?.message ?? ingestJob.progress.message;
-  }
-  if (
-    ingestJob &&
-    ["queued", "running", "retry_wait", "cancelling", "waiting"].includes(ingestJob.status)
-  ) {
-    return ingestJob.progress.message;
-  }
-  if (task.landing_error) {
-    // 与侧栏「待处理事项」同一句话：下载完成但 movieclaw 看不到文件。放在最前，
-    // 否则下面会按 completed 说"等待自动入库"，和红灯自相矛盾
-    return task.landing_error;
-  }
-  if (task.state === "error") {
-    // 下载器给出的具体原因（文件缺失 / errorString）必须放在最前——它回答的是
-    // "错在哪"；换源提示只是"还能怎么办"，不能把原因盖掉。外部任务再补一句
-    // 它不归 MovieClaw 管，免得用户在这里找不到处理入口
-    const reason = task.error_message || "下载器报告该任务出错，请在下载器中查看具体原因";
-    if (task.source === "external") return `${reason}（非 MovieClaw 投递的任务，仅观察）`;
-    return task.rescue_message ? `${reason}；${task.rescue_message}` : reason;
-  }
-  if (task.rescue_message) return task.rescue_message;
-  if (task.state === "missing") {
-    return "已投递记录仍在，但下载器中找不到对应任务；系统确认后会自动退回重新寻找资源";
-  }
-  if (task.state === "completed") return "下载已完成，等待自动入库或媒体库扫描收尾";
-  if (task.state === "paused") return "已在下载器中暂停";
-  if (task.state === "queued") return "下载器正在排队，暂停无进度计时";
-  if (task.state === "checking") return "下载器正在校验数据，暂停无进度计时";
-  if (task.state === "stalled") return "暂无可用连接，等待继续下载";
-  if (task.state === "unknown") return "下载器未返回可识别的状态";
-  return null;
 }
 
 /**
@@ -2341,7 +1814,10 @@ function EpisodeUnitsLabel({
   units: DownloadTask["subscriptions"][number]["units"];
   purpose: DownloadTask["subscriptions"][number]["purpose"];
 }) {
-  const summary = summarizeEpisodeUnits(units);
+  const t = useTranslations();
+  const locale = useLocale();
+
+  const summary = summarizeEpisodeUnits(units, locale);
   if (!summary) return null;
   // 洗版口径：绿色标的是"已经被这个种子换掉的集"。沿用 imported 会把要洗
   // 的集全标绿（它们本来就在库里），读起来像任务已完成
@@ -2352,13 +1828,13 @@ function EpisodeUnitsLabel({
       .map((unit) => `${unit.season_number}:${unit.episode_number}`),
   );
   const doneCount = doneKeys.size;
-  const doneWord = upgrade ? "已替换" : "已入库";
+  const doneWord = upgrade ? t("activity.taskCenter.replaced") : t("activity.taskCenter.imported");
   if (summary.kind === "movie" || summary.episodeCount <= 1) {
     return (
       <span className="tnum">
         {summary.label}
         {summary.kind === "episodes" && doneCount > 0 && (
-          <span className="text-[var(--ok)]">（{doneWord}）</span>
+          <span className="text-[var(--ok)]">{t("activity.taskCenter.singleDone", { label: doneWord })}</span>
         )}
       </span>
     );
@@ -2367,13 +1843,7 @@ function EpisodeUnitsLabel({
   return (
     <details className="group min-w-0 max-w-full open:basis-full open:w-full">
       <summary
-        aria-label={`覆盖 ${summary.episodeCount} 集：${summary.fullLabel}。${
-          doneCount > 0
-            ? upgrade
-              ? `已完成 ${doneCount} 集替换。`
-              : `其中 ${doneCount} 集已入库。`
-            : ""
-        }展开查看全部集号`}
+        aria-label={t("activity.taskCenter.episodeCoverageAria", { count: summary.episodeCount, episodes: summary.fullLabel, hasDone: doneCount > 0 ? "yes" : "no", upgrade: upgrade ? "yes" : "no", done: doneCount })}
         className="flex w-fit max-w-full cursor-pointer list-none items-center gap-1 rounded text-white/88 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-ring)] [&::-webkit-details-marker]:hidden"
       >
         <OverflowText
@@ -2388,7 +1858,7 @@ function EpisodeUnitsLabel({
         </OverflowText>
         {doneCount > 0 && (
           <span className="tnum shrink-0 text-[var(--ok)]">
-            {upgrade ? `（已完成 ${doneCount} 集替换）` : `（有 ${doneCount} 集已入库）`}
+            {upgrade ? t("activity.taskCenter.doneEpisodes", { upgrade: "yes", count: doneCount }) : t("activity.taskCenter.doneEpisodes", { upgrade: "no", count: doneCount })}
           </span>
         )}
         <ChevronRightIcon className="size-3 shrink-0 rotate-90 opacity-45 transition-transform group-open:-rotate-90" />
@@ -2398,7 +1868,7 @@ function EpisodeUnitsLabel({
           <div key={season.seasonNumber}>
             <div className="mb-1.5 flex items-center gap-2 font-medium text-white/65">
               <span className="tnum">S{String(season.seasonNumber).padStart(2, "0")}</span>
-              <span className="font-normal text-white/35">共 {season.episodes.length} 集</span>
+              <span className="font-normal text-white/35">{t("activity.taskCenter.seasonEpisodes", { count: season.episodes.length })}</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {season.episodes.map((episode) => {
@@ -2422,7 +1892,7 @@ function EpisodeUnitsLabel({
         ))}
         {summary.seasons.length > 1 && (
           <p className="border-t border-white/[0.06] pt-2 text-right text-micro text-white/35">
-            合计 {summary.episodeCount} 集
+            {t("activity.taskCenter.totalEpisodes", { count: summary.episodeCount })}
           </p>
         )}
       </div>
@@ -2459,10 +1929,13 @@ export function ActiveDownloadRow({
   group: DownloadTaskGroup;
   ingestJobsByHash: Map<string, JobView>;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const task = group.tasks[0];
   const ingestJob = ingestJobsByHash.get(task.info_hash.toLowerCase()) ?? null;
   const ingesting = ingestOwnsTaskState(task, ingestJob) && ingestJob != null;
-  const meta = ingesting ? INGEST_STATE_META[ingestJob.status] : DOWNLOAD_STATE_META[task.state];
+  const meta = ingesting ? ingestStateMeta(ingestJob.status, locale) : downloadStateMeta(task.state, locale);
   const percent = ingesting
     ? ingestJob.progress.percent
     : task.progress == null
@@ -2475,7 +1948,7 @@ export function ActiveDownloadRow({
       : [
           (task.dlspeed_bytes ?? 0) > 0 ? `↓ ${formatBytes(task.dlspeed_bytes ?? 0)}/s` : null,
           task.state === "downloading" && (task.eta_seconds ?? 0) > 0
-            ? `剩 ${formatDuration(task.eta_seconds ?? 0)}`
+            ? t("activity.taskCenter.remainingShort", { duration: formatDuration(task.eta_seconds ?? 0, locale) })
             : null,
         ]),
   ].filter(Boolean);
@@ -2489,7 +1962,7 @@ export function ActiveDownloadRow({
         <span className="flex items-baseline gap-2">
           <span className="min-w-0 truncate text-ui font-semibold text-[var(--text)]">{group.title}</span>
           {group.tasks.length > 1 && (
-            <span className="shrink-0 text-caption text-[var(--text-faint)]">{group.tasks.length} 个资源</span>
+            <span className="shrink-0 text-caption text-[var(--text-faint)]">{t("activity.taskCenter.resourceCount", { count: group.tasks.length })}</span>
           )}
           {percent != null && (
             <span className="tnum ml-auto shrink-0 text-sub font-semibold text-[var(--text-muted)]">
@@ -2506,8 +1979,10 @@ export function ActiveDownloadRow({
 
 /** 进行中的后台作业（扫描、生成字幕、整理入库……） */
 export function ActiveJobRow({ job }: { job: JobView }) {
+  const locale = useLocale();
+
   const percent = job.progress.percent;
-  const status = [activeJobStatus(job), job.progress.message].filter(Boolean);
+  const status = [activeJobStatus(job, locale), job.progress.message].filter(Boolean);
   return (
     <>
       <span className="grid w-6 shrink-0 place-items-center text-[var(--info)]">
@@ -2516,7 +1991,7 @@ export function ActiveJobRow({ job }: { job: JobView }) {
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
           <span className="min-w-0 truncate text-ui font-semibold text-[var(--text)]">
-            {jobFeedIdentity(job) || jobTypeLabel(job)}
+            {jobFeedIdentity(job, locale) || jobTypeLabel(job, locale)}
           </span>
           {percent != null && (
             <span className="tnum ml-auto shrink-0 text-sub font-semibold text-[var(--text-muted)]">
@@ -2533,6 +2008,8 @@ export function ActiveJobRow({ job }: { job: JobView }) {
 
 /** 最近完成一行：结果图标 · 标题 / 摘要 · 右侧相对时间 */
 export function FinishedJobRow({ job }: { job: JobView }) {
+  const locale = useLocale();
+
   const succeeded = job.status === "succeeded";
   return (
     <>
@@ -2542,26 +2019,28 @@ export function FinishedJobRow({ job }: { job: JobView }) {
         {succeeded ? <CheckIcon className="size-[18px]" /> : <XIcon className="size-[18px]" />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-ui font-semibold text-[var(--text)]">{historicalJobTitle(job)}</span>
+        <span className="block truncate text-ui font-semibold text-[var(--text)]">{historicalJobTitle(job, locale)}</span>
         <span className="mt-0.5 block truncate text-sub text-[var(--text-muted)]">
-          {buildIngestHistoryDetail(job)?.summary ?? historicalJobSummary(job)}
+          {buildIngestHistoryDetail(job, locale)?.summary ?? historicalJobSummary(job, locale)}
         </span>
       </span>
       <span className="shrink-0 text-sub text-[var(--text-faint)]">
-        {formatRelativeTime(job.finished_at || job.created_at)}
+        {formatRelativeTime(job.finished_at || job.created_at, locale)}
       </span>
     </>
   );
 }
 
 function EmptyView({ view }: { view: TaskCenterViewName }) {
+  const t = useTranslations();
+
   const copy: Record<TaskCenterViewName, { title: string; note: string }> = {
-    all: { title: "当前没有任务", note: "新的后台作业或下载任务会自动出现在这里。" },
-    attention: { title: "当前无需处理", note: "异常或需要确认的任务会优先出现在这里。" },
-    active: { title: "当前没有进行中的任务", note: "新任务启动后会自动进入实时过程。" },
+    all: { title: t("activity.taskCenter.emptyAll"), note: t("activity.taskCenter.emptyAllHint") },
+    attention: { title: t("activity.taskCenter.emptyAttention"), note: t("activity.taskCenter.emptyAttentionHint") },
+    active: { title: t("activity.taskCenter.emptyActive"), note: t("activity.taskCenter.emptyActiveHint") },
     history: {
-      title: "还没有历史记录",
-      note: "完成、取消，以及被你忽略的后台作业都会保留在这里。",
+      title: t("activity.taskCenter.emptyHistory"),
+      note: t("activity.taskCenter.emptyHistoryHint"),
     },
   };
   return (

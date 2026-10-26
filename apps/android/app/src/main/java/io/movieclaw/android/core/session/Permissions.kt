@@ -15,6 +15,8 @@ data class Permissions(
     /** 资源搜索（PT 站点）。媒体库内搜索不受此开关限制 */
     val canSearch: Boolean = false,
     val canDirectDownload: Boolean = false,
+    /** 下载影片到设备（离线下载）；管理员恒可，成员看 allow_video_download（服务端同款判定） */
+    val canDownloadVideo: Boolean = false,
 ) {
     val canManageLibraries: Boolean get() = isAdmin
     val canManageSubscriptions: Boolean get() = isAdmin
@@ -38,6 +40,7 @@ data class Permissions(
                 canSubscribe = admin || session.capabilities.allowSubscribe,
                 canSearch = admin || session.capabilities.allowSearch,
                 canDirectDownload = admin || session.capabilities.allowDirectDownload,
+                canDownloadVideo = admin || session.capabilities.allowVideoDownload,
             )
         }
     }

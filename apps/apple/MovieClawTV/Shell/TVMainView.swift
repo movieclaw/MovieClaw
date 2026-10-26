@@ -166,7 +166,7 @@ struct TVMainView: View {
         TabView(selection: Binding(get: { router.selectedTab }, set: { router.select($0) })) {
             // 账号：选自己回首页，「关于」在本页签里压栈打开（选别人则整棵主界面按新账号重建）。
             // 头像放进侧边栏顶部（`tabViewSidebarHeader`）要 tvOS 27，先做成第一项
-            Tab(session?.nickname ?? "账号", systemImage: "person.crop.circle", value: MainTab.account) {
+            Tab(session?.nickname ?? String(localized: .navNativeAccount), systemImage: "person.crop.circle", value: MainTab.account) {
                 stack(.account) {
                     TVWhoIsWatchingView(onClose: { router.selectedTab = .home }, onAbout: { router.push(.about) },
                                         reclaimFocus: router.reclaimTabFocus)
@@ -175,7 +175,7 @@ struct TVMainView: View {
             Tab(value: MainTab.search, role: .search) {
                 stack(.search) { TVSearchRoot() }
             }
-            Tab("首页", systemImage: "house", value: MainTab.home) {
+            Tab(String(localized: .navNativeHome), systemImage: "house", value: MainTab.home) {
                 stack(.home) { TVHomeView(mainScope: mainScope) }
             }
         }

@@ -44,9 +44,9 @@ struct PlayerErrorView: View {
                 }
                 // 两颗按钮给同一个最小宽度：字数一样但字形宽窄不同，不等宽会让这一行显得歪
                 HStack(spacing: 12) {
-                    Button(action: exit) { Text("返回").frame(minWidth: 96) }
+                    Button(action: exit) { Text(String(localized: .commonBack)).frame(minWidth: 96) }
                         .buttonStyle(.glass)
-                    Button(action: retry) { Text("重试").frame(minWidth: 96) }
+                    Button(action: retry) { Text(String(localized: .commonRetry)).frame(minWidth: 96) }
                         .discoverProminentButton()
                         .accessibilityIdentifier("player-retry")
                 }
@@ -75,7 +75,7 @@ struct PlayerInfoErrorView: View {
                     .font(.subheadline)
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
-                Button("返回", action: exit)
+                Button(String(localized: .commonBack), action: exit)
                     .buttonStyle(.glass)
                     .controlSize(.large)
                     .accessibilityIdentifier("player-info-error-back")
@@ -128,12 +128,12 @@ struct PlayerConsentView: View {
 
     private var message: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("这部片需要软件转码才能播放")
+            Text(String(localized: .playerConsentNativeTitle))
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(.white)
             VStack(alignment: .leading, spacing: 10) {
-                labeled("原因", decision.reason)
-                if let cost = decision.costHint { labeled("代价", cost) }
+                labeled(String(localized: .playerConsentReason), decision.reason)
+                if let cost = decision.costHint { labeled(String(localized: .playerConsentCost), cost) }
             }
             if let error {
                 Text(error)
@@ -146,10 +146,10 @@ struct PlayerConsentView: View {
             if decision.canSelfEnable == true {
                 // 看到这个弹窗的一刻正是最需要远程硬件转码的时候——这里不说一句几乎没人会发现
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("局域网里有 Apple Silicon Mac 的话，可以让它替 NAS 做硬件转码，省下这里的 CPU 开销。")
+                    Text(String(localized: .playerConsentRemoteHint))
                     Button(action: openRemoteSettings) {
                         // 一行字只有 16pt 高：上下各扩 14pt 凑满 44pt 触控高度，外侧再收回去，不改变排版
-                        Text("去设置远程转码")
+                        Text(String(localized: .playerConsentRemoteSettings))
                             .padding(.vertical, 14)
                             .contentShape(.rect)
                     }
@@ -160,11 +160,11 @@ struct PlayerConsentView: View {
                 .foregroundStyle(.white.opacity(0.6))
                 .padding(12)
                 .background(.white.opacity(0.08), in: .rect(cornerRadius: 16))
-                Text("开启后长期生效，之后不再询问。")
+                Text(String(localized: .playerConsentPersistent))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.45))
             } else {
-                Text("当前未开启软件转码。请联系管理员开启（管理员播放此类影片时会收到开启询问）。")
+                Text(String(localized: .playerConsentAdminRequired))
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
             }
@@ -175,7 +175,7 @@ struct PlayerConsentView: View {
     private var buttons: some View {
         if decision.canSelfEnable == true {
             HStack(spacing: 10) {
-                Button(action: cancel) { Text("取消").frame(maxWidth: .infinity) }
+                Button(action: cancel) { Text(String(localized: .commonCancel)).frame(maxWidth: .infinity) }
                     .buttonStyle(.glass)
                 Button {
                     Task {
@@ -189,14 +189,14 @@ struct PlayerConsentView: View {
                         }
                     }
                 } label: {
-                    Text(saving ? "正在开启…" : "开启并播放").frame(maxWidth: .infinity)
+                    Text(saving ? String(localized: .playerConsentEnabling) : String(localized: .playerConsentEnableAndPlay)).frame(maxWidth: .infinity)
                 }
                 .discoverProminentButton()
                 .disabled(saving)
                 .accessibilityIdentifier("consent-enable")
             }
         } else {
-            Button(action: cancel) { Text("知道了").frame(maxWidth: .infinity) }
+            Button(action: cancel) { Text(String(localized: .playerConsentAcknowledge)).frame(maxWidth: .infinity) }
                 .buttonStyle(.glass)
         }
     }
@@ -269,10 +269,10 @@ struct PlayerUpNextCard: View {
     }
 
     private var eyebrow: String {
-        if stillWatching { return "还在看吗？" }
-        guard let countdown else { return "即将播放" }
+        if stillWatching { return String(localized: .playerControlsStillWatching) }
+        guard let countdown else { return String(localized: .playerControlsUpNextTitle) }
         let left = Double(SkipSegments.autoNextMs) * (1 - countdown) / 1000
-        return "即将播放 · \(max(1, Int(left.rounded(.up)))) 秒"
+        return String(localized: .playerControlsNativeUpNextCountdown(max(1, Int(left.rounded(.up)))))
     }
 
     private var dismissButton: some View {
@@ -289,13 +289,13 @@ struct PlayerUpNextCard: View {
         .buttonStyle(.plain)
         // 触控区不撑高、不挤开右边距
         .padding(-8)
-        .accessibilityLabel("不看下一集，继续看片尾")
+        .accessibilityLabel(String(localized: .playerControlsWatchCredits))
         .accessibilityIdentifier("upnext-dismiss")
     }
 
     private var playButton: some View {
         Button(action: play) {
-            Label("立即播放", systemImage: "play.fill")
+            Label(String(localized: .playerControlsPlayNow), systemImage: "play.fill")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.black)
                 .padding(.horizontal, 16)
@@ -386,16 +386,16 @@ struct PlayerSkipNotice: View {
 
     private var text: String {
         switch notice.kind {
-        case let .skipped(segment): "已跳过\(SkipSegments.name(segment))"
-        case .learned: "本剧以后自动跳过片头"
-        case .forgot: "本剧不再自动跳过片头"
+        case let .skipped(segment): String(localized: .playerControlsSkipped(SkipSegments.name(segment)))
+        case .learned: String(localized: .playerControlsAutoSkipLearned)
+        case .forgot: String(localized: .playerControlsAutoSkipDisabled)
         }
     }
 
     private var action: (label: String, run: () -> Void)? {
         switch notice.kind {
-        case .skipped: ("撤回", undo)
-        case .learned: ("不用", decline)
+        case .skipped: (String(localized: .playerControlsUndoSkip), undo)
+        case .learned: (String(localized: .playerControlsDeclineAutoSkip), decline)
         case .forgot: nil
         }
     }
@@ -413,10 +413,10 @@ struct PlayerClipEndCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("片段放完了")
+                Text(String(localized: .playerPreviewEnded))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.5))
-                Text("从这里接着看整部？")
+                Text(String(localized: .playerPreviewContinueMovie))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -425,13 +425,13 @@ struct PlayerClipEndCard: View {
             .padding(.top, 18)
             VStack(spacing: 8) {
                 Button(action: watchFull) {
-                    Label("看全片", systemImage: "play.fill").frame(maxWidth: .infinity)
+                    Label(String(localized: .playerControlsFullMovie), systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
                 .discoverProminentButton()
                 .controlSize(.large)
                 .accessibilityIdentifier("clipend-watch-full")
                 Button(action: replay) {
-                    Label("重播这一段", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
+                    Label(String(localized: .playerPreviewReplay), systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
@@ -454,7 +454,7 @@ struct PausedOverlay: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("已暂停")
+            Text(String(localized: .playerDiagnosticsPaused))
                 .font(.caption)
                 .tracking(3)
                 .foregroundStyle(.white.opacity(0.55))
@@ -501,16 +501,16 @@ struct PlayerQualityOfferView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("网速跟不上当前画质")
+            Text(String(localized: .playerControlsSlowNetwork))
                 .font(.subheadline.weight(.semibold))
             Text(detail)
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.8))
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Button(action: dismiss) { Text("继续当前画质") }
+                Button(action: dismiss) { Text(String(localized: .playerControlsKeepQuality)) }
                     .buttonStyle(.glass)
-                Button(action: accept) { Text("改用 \(offer.maxHeight)p") }
+                Button(action: accept) { Text(String(localized: .playerControlsUseQuality(String(offer.maxHeight)))) }
                     .discoverProminentButton()
                     .accessibilityIdentifier("quality-offer-accept")
             }
@@ -525,10 +525,9 @@ struct PlayerQualityOfferView: View {
     }
 
     private var detail: String {
-        let measured = PlaybackController.formatBandwidth(offer.measuredBps) ?? "很慢"
-        let required = PlaybackController.formatBandwidth(offer.requiredBps) ?? "更快"
-        return "实测约 \(measured)，这一版需要约 \(required)。可以暂停攒一会缓冲再看，"
-            + "或改用 \(offer.maxHeight)p（服务端转码，画质会降低）。"
+        let measured = PlaybackController.formatBandwidth(offer.measuredBps) ?? String(localized: .playerControlsSlowMeasured)
+        let required = PlaybackController.formatBandwidth(offer.requiredBps) ?? String(localized: .playerControlsSlowRequired)
+        return String(localized: .playerControlsSlowDescription(measured, required, String(offer.maxHeight)))
     }
 }
 

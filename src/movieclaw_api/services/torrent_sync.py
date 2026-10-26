@@ -26,6 +26,7 @@ from datetime import UTC, datetime, timedelta
 
 # 同步写入的新种与刷新都要维护检索文本（见 services/torrent_match_text.py）
 import movieclaw_api.services.torrent_match_text  # noqa: F401
+from movieclaw_api.i18n.stored import stored_fields
 from movieclaw_api.services.site_access import (
     get_site_access,
     invalidate_site_access,
@@ -34,7 +35,7 @@ from movieclaw_api.services.subscription import (
     effective_forecast_probe_at,
     forecast_probe_times_by_site,
 )
-from movieclaw_api.services.verification import friendly_error, is_transient_error
+from movieclaw_api.services.verification import friendly_error_message, is_transient_error
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.scheduled_task import TriggerType
@@ -149,7 +150,7 @@ def _to_observation(
         hit_and_run=item.hit_and_run,
         # 扩充属性在入库前算好（本地正则 + NER 推理）。exclude_defaults 只存
         # 真提取到的字段——没提取到任何字段时是 {}，与"从未扩充"（NULL）可区分
-        attrs=enrich(item.title, item.subtitle, category_value).model_dump(
+        attrs=enrich(item.title, item.subtitle, category_value, item.labels).model_dump(
             mode="json", exclude_defaults=True
         ),
         enrich_version=ENRICH_VERSION,
@@ -173,14 +174,13 @@ def _validate_page_times(
     """在写库前验证一页发布时间，解析失效或时区错误时整页熔断。"""
     values = [item.upload_time for item in items if item.upload_time is not None]
     if not values:
-        raise TrackerParseError(
+        raise TrackerParseError(  # i18n-ignore: diagnostic; users see errors.siteDiagnostic.parse
             f"站点 {site_id} 第 {page_num} 页未解析到任何种子发布时间，"
             "可能是页面结构已变化；本页已拒绝写入以保护同步游标"
         )
     if len(values) != len(items):
         logger.warning(
-            "站点 %s 第 %d 页有 %d/%d 条未解析到发布时间；已保留为未知，"
-            "请检查站点选择器",
+            "站点 %s 第 %d 页有 %d/%d 条未解析到发布时间；已保留为未知，请检查站点选择器",
             site_id,
             page_num,
             len(items) - len(values),
@@ -194,7 +194,7 @@ def _validate_page_times(
             else value
         )
         if normalized > ceiling:
-            raise TrackerParseError(
+            raise TrackerParseError(  # i18n-ignore: diagnostic, not shown
                 f"站点 {site_id} 第 {page_num} 页发布时间晚于当前时间超过 15 分钟，"
                 "可能是站点时区未正确归一化；本页已拒绝写入"
             )
@@ -365,6 +365,7 @@ async def _sync_one_site(cred: SiteCredential) -> None:
     updated_count = 0
     full_page = False
     error: str | None = None
+    error_ref: dict | None = None
     transient = False
     auth_failed = False
     newest_pt: datetime | None = None
@@ -392,7 +393,8 @@ async def _sync_one_site(cred: SiteCredential) -> None:
             "（首刷建立基线）" if is_first_sync else "",
         )
     except Exception as exc:  # noqa: BLE001 -- 背景任务吞掉异常并记录可读原因
-        error = friendly_error(exc)
+        error_ref = friendly_error_message(exc)
+        error = error_ref["message"]
         transient = is_transient_error(exc)
         auth_failed = isinstance(exc, TrackerAuthError)
         logger.warning("站点 %s 同步失败：%s", site_id, error, exc_info=True)
@@ -420,22 +422,22 @@ async def _sync_one_site(cred: SiteCredential) -> None:
         pinned=pinned,
     )
     if error is not None and transient:
-        # 瞬时故障对用户是「不用管」的：把重试计划写进原因里，安抚而非报警
-        error += (
-            f"；将于约 {max(1, next_interval // 60)} 分钟后自动重试（已连续失败 {failures} 次）"
+        error_ref = stored_fields(
+            "errors.siteDiagnostic.retrySync",
+            reason=error_ref,
+            minutes=max(1, next_interval // 60),
+            failures=failures,
         )
+        error = error_ref["message"]
     if tripped:
-        if auth_failed:
-            error += (
-                f"；已连续 {failures} 次认证失败，同步已暂停。"
-                "站点明确拒绝了当前凭据（账号可能被停用或凭据已失效），"
-                "请到「设置 → 站点」更新凭据并重新验证以恢复同步"
-            )
-        else:
-            error += (
-                f"；已连续失败 {failures} 次，同步已暂停。"
-                "站点可能已关站、改版或封禁了你的账号，确认站点可用后请重新验证以恢复同步"
-            )
+        error_ref = stored_fields(
+            "errors.siteDiagnostic.authSyncStopped"
+            if auth_failed
+            else "errors.siteDiagnostic.syncStopped",
+            reason=error_ref,
+            failures=failures,
+        )
+        error = error_ref["message"]
     async with db.session() as session:
         await TorrentRepository(session).update_cursor_after_sync(
             site_id,
@@ -444,6 +446,7 @@ async def _sync_one_site(cred: SiteCredential) -> None:
             new_count=new_count,
             full_page=full_page,
             error=error,
+            error_ref=error_ref,
             consecutive_failures=failures,
             next_interval_seconds=next_interval,
         )
@@ -451,7 +454,7 @@ async def _sync_one_site(cred: SiteCredential) -> None:
             # 熔断动作：凭据置 FAILED，站点从活跃列表消失、不再被同步。
             # 恢复路径复用既有机制：用户在站点页「重新验证」成功转 ACTIVE 即恢复
             await CredentialRepository(session).update_status(
-                site_id, ConfigStatus.FAILED, last_error=error
+                site_id, ConfigStatus.FAILED, last_error=error, last_error_ref=error_ref
             )
             # 与验证失败共用同一盏全局红灯（dedupe_key 一致）：熔断意味着该站点
             # 已静默退出搜索与投递，必须被用户感知；重新验证成功后红灯自动熄灭
@@ -463,9 +466,14 @@ async def _sync_one_site(cred: SiteCredential) -> None:
                 dedupe_key=f"site:{site_id}",
                 severity=NoticeSeverity.ERROR,
                 source="site",
-                title=f"站点「{site_id}」同步已熔断",
-                message=f"站点「{site_id}」{error or '原因未知'}。"
-                "该站点已不参与搜索与投递，请到「设置 → 站点」检查凭据并重新验证",
+                title_key="notify.siteSyncStopped.title",
+                message_key="notify.siteSyncStopped.body",
+                message_params={
+                    "site": site_id,
+                    "reason": error_ref
+                    or error
+                    or {"message_key": "notify.siteVerification.unknown"},
+                },
                 payload={"site_id": site_id},
             )
     if tripped:
@@ -479,9 +487,11 @@ async def _sync_one_site(cred: SiteCredential) -> None:
 @register_task(
     "sync_site_torrents",
     title="同步站点最新种子",
+    title_key="settings.scheduledTasks.catalog.syncSiteTorrentsTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=_TICK_SECONDS,
     description="全局 tick：扫描各站游标，只对到期站点拉取最新发布并前向同步进本地索引。",
+    description_key="settings.scheduledTasks.catalog.syncSiteTorrentsDescription",
 )
 async def sync_site_torrents() -> None:
     """全局 tick 任务体：找出到期站点，逐个串行同步。
@@ -496,6 +506,7 @@ async def sync_site_torrents() -> None:
     due, soonest_wait = await _plan_sync(sites)
     if not due:
         # 明说"为什么没同步"：都没到期，以及最近一个还差多久——避免"看着像没干活"
+        # i18n-ignore: log text
         wait_hint = f"，最近一个约 {soonest_wait} 秒后" if soonest_wait is not None else ""
         logger.info("本轮 tick：%d 个活跃站点均未到期%s", len(sites), wait_hint)
         return

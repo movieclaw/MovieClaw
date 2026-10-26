@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 /**
  * 「账号 → 通知」分区（docs/design/cloud-push.md §1、§5、§7.3、§8；交互稿 4.2）。
  *
@@ -42,11 +44,14 @@ import {
   testTargetHint,
   toggleLibrary,
 } from "@/lib/cloud-push-display";
+import { ROW_ANCHOR_CLASS, useRowAnchor } from "@/lib/row-anchor";
 
 /** 「媒体库有新片」的事件键：打开时在它下面选关心哪些库 */
 const LIBRARY_EVENT = "library.items.arrived";
 
 export function NotificationsSection() {
+  const t = useTranslations();
+  const locale = useLocale();
   const toast = useToast();
   const [view, setView] = useState<MyPushView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -54,15 +59,17 @@ export function NotificationsSection() {
   const [testing, setTesting] = useState(false);
   // 只采纳最后一次改开关的响应：连着拨两个开关时，先回来的那份不能把后一个拨回去
   const seqRef = useRef(0);
+  // 插件详情「会发通知」行的深链：?event=<事件名> 落到这条开关上（键就是事件名）
+  useRowAnchor("event", "data-event-key", view != null);
 
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      setView(await getMyPush());
+      setView(await getMyPush(locale));
     } catch (e) {
       setLoadError((e as Error).message);
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void load();
@@ -134,7 +141,7 @@ export function NotificationsSection() {
   const sendTest = async () => {
     setTesting(true);
     try {
-      const summary = summarizePushTest(await sendMyPushTest());
+      const summary = summarizePushTest(await sendMyPushTest(), locale);
       if (summary.tone === "success") toast.success(summary.message);
       else toast.error(summary.message);
     } catch (e) {
@@ -153,7 +160,7 @@ export function NotificationsSection() {
           onClick={() => void load()}
           className="btn-glass px-4 py-1.5 text-sub font-medium"
         >
-          重试
+          {t("common.retry")}
         </button>
       </div>
     ) : (
@@ -167,46 +174,45 @@ export function NotificationsSection() {
   return (
     <div className="space-y-10">
       <FeatureOffNotice feature="arrivals">
-        停用期间不会推送「媒体库有新片」，下面对它的设置暂不生效。
+        {t("settings.notificationPreferences.arrivalsDisabled")}
       </FeatureOffNotice>
       {!view.instance_ready &&
         (view.is_admin ? (
           <Banner
             tone="info"
-            title="这台服务器还没有开启手机通知"
+            title={t("settings.notificationPreferences.notReadyTitle")}
             action={
               <Link
                 href="/settings/cloud"
                 className="btn-accent inline-flex rounded-full px-4 py-1.5 text-sub font-semibold"
               >
-                去开启
+                {t("settings.notificationPreferences.enable")}
               </Link>
             }
           >
-            连接 MovieClaw Cloud 就能用官方推送；自己打包的 App 可以在{" "}
+            {t("settings.notificationPreferences.adminPrefix")}{" "}
             <Link href="/settings/app-push" className={LINK_CLASS}>
-              App 推送
-            </Link>{" "}
-            里添加自建中继。下面的开关现在就能改，开启后立刻生效。
+              {t("settings.notificationPreferences.appPush")}</Link>{" "}
+            {t("settings.notificationPreferences.adminSuffix")}
           </Banner>
         ) : (
-          <Banner tone="info">管理员还没有开启手机通知，开启后这里的设置会立刻生效。</Banner>
+          <Banner tone="info">{t("settings.notificationPreferences.memberNotReady")}</Banner>
         ))}
 
       {/* 自己有设备收不到才提示，逐台一句原因；设备的全貌在「设备」页 */}
       {view.attention.length > 0 && (
         <Banner
           tone="warn"
-          title={`有 ${view.attention.length} 台设备收不到通知`}
+          title={t("settings.notificationPreferences.attention", { count: view.attention.length })}
           action={
             <Link href="/settings/devices" className="btn-glass inline-flex px-3 py-1.5 text-sub font-medium">
-              查看设备
+              {t("settings.notificationPreferences.viewDevices")}
             </Link>
           }
         >
           <ul>
             {view.attention.map((item) => (
-              <li key={item.device_id}>{attentionLine(item)}</li>
+              <li key={item.device_id}>{attentionLine(item, locale)}</li>
             ))}
           </ul>
         </Banner>
@@ -215,16 +221,18 @@ export function NotificationsSection() {
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {groupEvents(view.events).map((group) => (
-        <SettingsSection key={group.group} title={group.group}>
+        <SettingsSection key={group.id ?? group.group} title={group.group}>
           <SettingsList>
             {group.items.map((event) => (
-              <SettingsRow key={event.key} label={event.title} description={event.description}>
-                <Toggle
-                  checked={event.enabled}
-                  label={`${event.title}通知`}
-                  onChange={(next) => toggle(event.key, next)}
-                />
-              </SettingsRow>
+              <div key={event.key} data-event-key={event.key} className={ROW_ANCHOR_CLASS}>
+                <SettingsRow label={event.title} description={event.description}>
+                  <Toggle
+                    checked={event.enabled}
+                    label={t("settings.notificationPreferences.eventToggle", { event: event.title })}
+                    onChange={(next) => toggle(event.key, next)}
+                  />
+                </SettingsRow>
+              </div>
             ))}
             {/* 「媒体库有新片」打开、而且能看到不止一个库时，就地选关心哪些库 */}
             {group.items.some((e) => e.key === LIBRARY_EVENT && e.enabled) &&
@@ -243,11 +251,11 @@ export function NotificationsSection() {
         <MutedItems items={view.muted_items} onUnmute={(id) => void unmute(id)} />
       )}
 
-      <SettingsSection title="测试">
+      <SettingsSection title={t("settings.notificationPreferences.test")}>
         <SettingsList>
           <SettingsRow
-            label="发送测试通知"
-            description={testTargetHint(view.ready_devices, view.im_accounts ?? 0)}
+            label={t("settings.notificationPreferences.sendTest")}
+            description={testTargetHint(view.ready_devices, view.im_accounts ?? 0, locale)}
           >
             <button
               type="button"
@@ -255,7 +263,7 @@ export function NotificationsSection() {
               onClick={() => void sendTest()}
               className={SETTINGS_BUTTON_CLASS}
             >
-              {testing ? "发送中…" : "发送"}
+              {testing ? t("settings.notificationPreferences.sending") : t("settings.notificationPreferences.send")}
             </button>
           </SettingsRow>
         </SettingsList>
@@ -277,6 +285,7 @@ function LibraryPicker({
   libraryIds: number[] | null;
   onPick: (id: number, checked: boolean) => void;
 }) {
+  const t = useTranslations();
   const all = libraryIds == null;
   return (
     <div className="px-4 pb-3 pt-2">
@@ -296,7 +305,7 @@ function LibraryPicker({
         ))}
       </ul>
       <p className="mt-1 text-caption leading-5 text-[var(--text-faint)]">
-        {all ? "全选时包括以后新建的库" : "只推勾上的库；全部勾上时也包括以后新建的库"}
+        {all ? t("settings.notificationPreferences.allLibrariesHint") : t("settings.notificationPreferences.selectedLibrariesHint")}
       </p>
     </div>
   );
@@ -310,11 +319,12 @@ function MutedItems({
   items: MyPushMutedItem[];
   onUnmute: (id: number) => void;
 }) {
+  const t = useTranslations();
   return (
     <SettingsSection
-      title="不再提醒"
-      description={`${items.length} 部作品`}
-      footnote="在手机通知上长按选「这部剧不再提醒」的片。只是不推送，订阅照常下载。"
+      title={t("settings.notificationPreferences.muted")}
+      description={t("settings.notificationPreferences.titles", { count: items.length })}
+      footnote={t("settings.notificationPreferences.mutedHint")}
     >
       <SettingsList>
         {items.map((item) => (
@@ -324,7 +334,7 @@ function MutedItems({
               <span className="block truncate">
                 {item.title}
                 {item.year != null && (
-                  <span className="text-[var(--text-faint)]">（{item.year}）</span>
+                  <span className="text-[var(--text-faint)]">{t("settings.notificationPreferences.year", { year: item.year })}</span>
                 )}
               </span>
             }
@@ -334,7 +344,7 @@ function MutedItems({
               onClick={() => onUnmute(item.id)}
               className={SETTINGS_BUTTON_CLASS}
             >
-              恢复
+              {t("settings.notificationPreferences.restore")}
             </button>
           </SettingsRow>
         ))}

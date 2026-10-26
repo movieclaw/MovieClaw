@@ -102,7 +102,9 @@ class AgentRunner:
         try:
             provider, model_id = self._router.resolve(params.model)
         except LlmError as exc:
-            yield AgentEvent(type="agent_error", run_id=run_id, error=str(exc))
+            yield AgentEvent(
+                type="agent_error", run_id=run_id, error=str(exc), error_ref=exc.message_ref
+            )
             return
 
         messages: list[ChatMessage] = [
@@ -176,6 +178,9 @@ class AgentRunner:
                             type="agent_error",
                             run_id=run_id,
                             error=event.partial.error or "模型调用失败，原因未知",
+                            error_ref=event.partial.error_ref
+                            if event.partial.error
+                            else {"message_key": "errors.agent.run.modelFailed", "params": {}},
                         )
                         return
                     elif event.type == "done":
@@ -183,7 +188,10 @@ class AgentRunner:
 
                 if final is None:
                     yield AgentEvent(
-                        type="agent_error", run_id=run_id, error="模型流异常终止，未返回结果"
+                        type="agent_error",
+                        run_id=run_id,
+                        error="模型流异常终止，未返回结果",
+                        error_ref={"message_key": "errors.agent.run.noResult", "params": {}},
                     )
                     return
 
@@ -218,6 +226,7 @@ class AgentRunner:
                         type="agent_error",
                         run_id=run_id,
                         error="我连续两次都没能生成回复，可能是临时故障。请稍后再发一遍试试。",
+                        error_ref={"message_key": "errors.agent.run.emptyTwice", "params": {}},
                     )
                     return
                 # 拿到了有效响应，重置重试计数
@@ -296,6 +305,10 @@ class AgentRunner:
                 run_id=run_id,
                 error=f"已达到最大执行步数上限（{self._max_steps} 步）仍未完成，运行终止。"
                 "请把任务拆小后重试，或检查是否陷入了循环。",
+                error_ref={
+                    "message_key": "errors.agent.run.stepLimit",
+                    "params": {"limit": self._max_steps},
+                },
             )
         except (asyncio.CancelledError, GeneratorExit):
             # 取消打断流式时的半截定稿：用户屏幕上已经看到多少，转录里就落多少，

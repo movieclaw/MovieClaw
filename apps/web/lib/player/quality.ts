@@ -1,3 +1,6 @@
+import { appTranslator } from "../i18n/translate.ts";
+import { requestLocale, type AppLocale } from "../i18n/negotiate.ts";
+
 /**
  * 画质选择（docs/design/web-player.md §10 预案的「手动选清晰度」）。
  *
@@ -17,12 +20,17 @@ export interface QualityOption {
   hint: string | null;
 }
 
-export const QUALITY_OPTIONS: readonly QualityOption[] = [
-  { maxHeight: null, label: "自动", hint: "原画质优先，能直通不转码" },
-  { maxHeight: 1080, label: "1080p", hint: "约 6 Mbps" },
-  { maxHeight: 720, label: "720p", hint: "约 3 Mbps，网络一般时选它" },
-  { maxHeight: 480, label: "480p", hint: "约 1.5 Mbps，弱网救急" },
-] as const;
+export function qualityOptions(locale: AppLocale = requestLocale() ?? "zh-Hans"): readonly QualityOption[] {
+  const t = appTranslator(locale);
+  return [
+    { maxHeight: null, label: t("player.quality.auto"), hint: t("player.quality.autoHint") },
+    { maxHeight: 1080, label: "1080p", hint: t("player.quality.fullHdHint") },
+    { maxHeight: 720, label: "720p", hint: t("player.quality.hdHint") },
+    { maxHeight: 480, label: "480p", hint: t("player.quality.sdHint") },
+  ];
+}
+
+export const QUALITY_OPTIONS = qualityOptions("zh-Hans");
 
 /**
  * 画质按影片记（与 iOS App 的 `QualityMemory` 同一口径，apps/apple/MovieClaw/Features/Player/PlayerPreferences.swift）。
@@ -137,6 +145,6 @@ export function qualityChangeNeedsRestart(input: {
   return qualityLimits(input.maxHeight, sourceHeightPx);
 }
 
-export function qualityLabel(maxHeight: number | null): string {
-  return QUALITY_OPTIONS.find((o) => o.maxHeight === maxHeight)?.label ?? "自动";
+export function qualityLabel(maxHeight: number | null, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return qualityOptions(locale).find((o) => o.maxHeight === maxHeight)?.label ?? appTranslator(locale)("player.quality.auto");
 }

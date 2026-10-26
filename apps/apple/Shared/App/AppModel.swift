@@ -349,7 +349,9 @@ final class AppModel {
             // 换完弹「已切换到「某某」」（主界面整棵重建，只能经 pendingNotice 带过去）；换到另一台服务器时
             // 写上是哪台——账户卡上不显示服务器，只在切换提示与切换抽屉里出现（2026-09-29 用户决定）
             let changesServer = address != server
-            pendingNotice = "已切换到「\(session.nickname)」" + (changesServer ? " · \(address.hostLabel)" : "")
+            pendingNotice = changesServer
+                ? String(localized: .authAccountsSwitchedServer(session.nickname, address.hostLabel))
+                : String(localized: .authAccountsSwitched(session.nickname))
             activate(address, session: session, token: saved)
         } catch let error as APIError where error.isUnauthorized {
             TokenVault.delete(server: address, username: username)
@@ -438,14 +440,14 @@ final class AppModel {
         switch await switchToAnotherAccount(on: server) {
         case let .switched(next):
             // 退出后人还在 App 里，很容易以为没退成：明确说出现在换成了谁
-            pendingNotice = "已退出「\(current.nickname)」，已切换到「\(next.nickname)」"
+            pendingNotice = String(localized: .authAccountsSignedOutSwitched(current.nickname, next.nickname))
             return next
         case let .unreachable(nextToken):
             // 服务器连不上，验证不了下一个账号：它的登录留着（不能因为断网把同一台服务器上的别的账号
             // 一起删掉），停在「连不上」，服务器恢复后点「重试」就进去
             token = nextToken
             AuthTokenRegistry.shared.setCurrent(nextToken, server: server)
-            launchError = "已退出「\(current.nickname)」。服务器暂时连不上，恢复后点「重试」进入其他账号"
+            launchError = String(localized: .authAccountsSignedOutUnreachable(current.nickname))
             phase = .unreachable
             return nil
         case .noneLeft:
@@ -608,12 +610,12 @@ final class AppModel {
 
         var errorDescription: String? {
             switch self {
-            case .notMovieClaw: "该地址能访问，但不是 MovieClaw 服务器（请填写浏览器打开 MovieClaw 时地址栏里的地址）"
-            case let .unhealthy(status): "服务器状态异常：\(status)"
-            case .alreadyInitialized: "这台服务器刚刚已在别处完成初始化，请用已有的账号登录"
+            case .notMovieClaw: String(localized: .authServerNotMovieClaw)
+            case let .unhealthy(status): String(localized: .authServerUnhealthy(status))
+            case .alreadyInitialized: String(localized: .authServerAlreadyInitialized)
             case let .serverTooOld(version):
-                "服务器版本\(version.map { " v\($0) " } ?? "")太旧，App 需要 v\(AppModel.minimumServerVersion) 或更新版本。"
-                    + "请先在网页「设置 → 更新与维护」里把服务器升级到最新版"
+                version.map { String(localized: .authServerTooOldVersion($0, AppModel.minimumServerVersion)) }
+                    ?? String(localized: .authServerTooOld(AppModel.minimumServerVersion))
             }
         }
     }
@@ -624,7 +626,7 @@ final class AppModel {
 
         var errorDescription: String? {
             switch self {
-            case let .needsPassword(_, username): "「\(username)」的登录已失效，请重新输入密码"
+            case let .needsPassword(_, username): String(localized: .authLoginExpiredPassword(username))
             }
         }
     }

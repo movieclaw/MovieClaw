@@ -85,6 +85,8 @@ export interface CalibrateResult {
   scale: number | null;
   offset_ms: number | null;
   score: number | null;
+  message_key?: string | null;
+  params?: Record<string, unknown>;
 }
 
 /**

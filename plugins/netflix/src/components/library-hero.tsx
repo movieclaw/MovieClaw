@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   formatRelativeTime,
+  useAppTranslations,
+  useAppLocale,
   IMAGE_ASPECT,
   imageUrl,
   InfoIcon,
@@ -126,6 +128,8 @@ function NetflixBillboard({
   upNextItem: UpNextItem | null;
   libraryItem: LibraryItem | null;
 }) {
+  const t = useAppTranslations();
+  const locale = useAppLocale();
   const router = useRouter();
   // 「问 AI」跳 Agent 新会话：Agent 只对超管开放，成员不给入口（手输 /new 也会被改道）
   const { isAdmin } = usePermissions();
@@ -133,12 +137,12 @@ function NetflixBillboard({
   const meta = upNextItem
     ? [
         upNextItem.year && upNextItem.year > 0 ? String(upNextItem.year) : null,
-        upNextItem.kind === "tv" ? "剧集" : "电影",
+        t(upNextItem.kind === "tv" ? "media.kind.tv" : "media.kind.movie"),
         upNextContext(upNextItem),
       ]
     : [
         libraryItem && libraryItem.year ? String(libraryItem.year) : null,
-        libraryItem ? kindLabel(libraryItem.kind) : null,
+        libraryItem ? t(libraryItem.kind === "tv" ? "media.kind.tv" : libraryItem.kind === "movie" ? "media.kind.movie" : "media.kind.video") : null,
       ]
   const metaText = meta.filter(Boolean).join(" · ");
   // 画面：横版背景图直出（billboard 的正确素材）——分集剧照的下载档位是
@@ -160,7 +164,7 @@ function NetflixBillboard({
   const progress = upNextItem?.progress_percent ?? null;
   // 入库时间做副文案（最近入库兜底时回答「为什么它在这儿」）
   const addedLabel =
-    !upNextItem && libraryItem?.added_at ? `${formatRelativeTime(libraryItem.added_at)}入库` : null;
+    !upNextItem && libraryItem?.added_at ? t("library.hero.added", { time: formatRelativeTime(libraryItem.added_at, locale) }) : null;
 
   // 沉浸画面只走高清（与发现详情页同一条「宁黑勿糊」决策）：取图宽度按画面框
   // 实测尺寸铺满算（lib/image-resolution.ts），本地资产直接带 w 由服务端从母版派生，
@@ -249,7 +253,7 @@ function NetflixBillboard({
   return (
     <section
       ref={attachSection}
-      aria-label={`正在展示《${title}》`}
+      aria-label={t("library.hero.featured", { title })}
       className="nf:relative nf:h-[40vh] nf:min-h-[320px] nf:w-full nf:max-md:min-h-[300px] nf:md:h-[clamp(480px,56.25vw,80vh)]"
     >
       {/* 画面：高清剧照直出（加载解码完成前保持黑场）；无剧照的条目用海报
@@ -265,14 +269,15 @@ function NetflixBillboard({
         ) : null}
       </div>
 
-      {/* 左下文案块 */}
-      <div className="nf:absolute nf:inset-x-0 nf:bottom-[12%] nf:px-[4vw] nf:max-md:bottom-[10%]">
+      {/* 左下文案块：底距 16%（移动端 10%）让按钮/进度条下方留出一段仍在渐变的
+          余量——渐变 45%→100%（theme.css），压到 12% 时按钮正落在渐变终点上 */}
+      <div className="nf:absolute nf:inset-x-0 nf:bottom-[16%] nf:px-[4vw] nf:max-md:bottom-[10%]">
         <h1 className="nf:max-w-[80%] nf:text-[clamp(28px,4.6vw,56px)] nf:font-bold nf:leading-[1.12] nf:tracking-[-0.02em] nf:text-white text-on-image nf:max-md:max-w-full">
           {title}
         </h1>
         {metaText && (
           <p className="tnum text-on-image nf:mt-2.5 nf:flex nf:flex-wrap nf:items-center nf:gap-x-2.5 nf:text-[14px] nf:font-medium nf:text-[#e5e5e5] nf:max-md:mt-2">
-            <span className="nf:font-bold nf:text-[var(--ok)]">在库</span>
+            <span className="nf:font-bold nf:text-[var(--ok)]">{t("library.status.inLibrary")}</span>
             {metaText}
           </p>
         )}
@@ -290,7 +295,7 @@ function NetflixBillboard({
               className="media-cta nf:flex nf:h-10 nf:items-center nf:gap-2 nf:rounded-[4px] nf:bg-white nf:px-5 nf:text-[15px] nf:font-bold nf:text-black nf:transition-colors nf:hover:bg-white/75 nf:max-md:h-11 nf:max-md:px-4"
             >
               <PlayIcon className="nf:size-5" fill="currentColor" />
-              播放
+              {t("library.hero.play")}
             </button>
           )}
           {detailHref && (
@@ -300,7 +305,7 @@ function NetflixBillboard({
               className="nf:flex nf:h-10 nf:items-center nf:gap-2 nf:rounded-[4px] nf:bg-[rgba(109,109,110,0.7)] nf:px-5 nf:text-[15px] nf:font-semibold nf:text-white nf:transition-colors nf:hover:bg-[rgba(109,109,110,0.4)] nf:max-md:h-11 nf:max-md:px-4"
             >
               <InfoIcon className="nf:size-5" />
-              更多信息
+              {t("library.hero.moreInfo")}
             </button>
           )}
           {/* AI 是本站差异能力：Netflix 没有但至少不破坏画面的第三个入口 */}
@@ -311,7 +316,7 @@ function NetflixBillboard({
               className="text-on-image nf:flex nf:h-10 nf:items-center nf:gap-1.5 nf:rounded-[4px] nf:px-3 nf:text-[15px] nf:font-medium nf:text-[var(--text-muted)] nf:transition-colors nf:hover:text-white nf:max-md:h-11"
             >
               <SparkIcon className="nf:size-4" />
-              问 AI
+              {t("library.hero.askAi")}
             </button>
           )}
         </div>
@@ -381,8 +386,4 @@ function itemHrefOf(item: UpNextItem): Route {
       ? `${base}?season=${item.season_number}&episode=${item.episode_number}&from=recent`
       : `${base}?from=recent`
   ) as Route;
-}
-
-function kindLabel(kind: LibraryItem["kind"]): string {
-  return kind === "tv" ? "剧集" : kind === "movie" ? "电影" : "视频";
 }

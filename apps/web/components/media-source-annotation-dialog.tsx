@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useEffect, useState } from "react";
 
 import { Modal } from "@/components/modal";
@@ -10,7 +12,7 @@ import {
 } from "@/lib/api/libraries";
 import { formatBytes } from "@/lib/format";
 import {
-  MEDIA_SOURCE_OPTIONS,
+  mediaSourceOptions,
   mediaSourceDisplayLabel,
   type AnnotatableSource,
 } from "@/lib/media-source-annotation";
@@ -41,12 +43,15 @@ export function MediaSourceAnnotationDialog({
   /** 标注成功后回调（父组件负责重跑体检/刷新与 toast），message 为结果句 */
   onApplied: (message: string) => void | Promise<void>;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const options = mediaSourceOptions(locale);
   const [candidates, setCandidates] = useState<MediaSourceAnnotationCandidate[] | null>(
     null,
   );
   const [picked, setPicked] = useState<AnnotatableSource | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | { key: "library.sourceAnnotation.loadFailed" | "library.sourceAnnotation.applyFailed" } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,15 +60,15 @@ export function MediaSourceAnnotationDialog({
         if (!cancelled) setCandidates(rows);
       })
       .catch(() => {
-        if (!cancelled) setError("未能加载待标注文件列表，请稍后重试");
+        if (!cancelled) setError({ key: "library.sourceAnnotation.loadFailed" });
       });
     return () => {
       cancelled = true;
     };
   }, [mediaItemId, seasonNumber]);
 
-  const scopeLabel = isMovie ? "正片" : seasonNumber === 0 ? "特别篇" : `第 ${seasonNumber} 季`;
-  const option = MEDIA_SOURCE_OPTIONS.find((o) => o.value === picked) ?? null;
+  const scopeLabel = isMovie ? t("library.sourceAnnotation.movie") : seasonNumber === 0 ? t("library.sourceAnnotation.specials") : t("library.sourceAnnotation.season", { season: seasonNumber });
+  const option = options.find((o) => o.value === picked) ?? null;
 
   const apply = async () => {
     if (!option || !candidates?.length) return;
@@ -72,10 +77,10 @@ export function MediaSourceAnnotationDialog({
     try {
       const result = await annotateMediaSource(mediaItemId, seasonNumber, option.value);
       await onApplied(
-        `已将 ${scopeLabel}的 ${result.files} 个文件片源标注为「${option.label}」`,
+        t("library.sourceAnnotation.applied", { scope: scopeLabel, count: result.files, source: option.label }),
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "标注失败，请稍后重试");
+      setError(e instanceof Error ? e.message : { key: "library.sourceAnnotation.applyFailed" });
       setBusy(false);
     }
   };
@@ -84,45 +89,44 @@ export function MediaSourceAnnotationDialog({
     <Modal
       open
       onClose={onClose}
-      label="标注片源"
+      label={t("library.sourceAnnotation.modalLabel")}
       width="lg"
       raised={raised}
       panelClassName="max-h-[80dvh]"
     >
       {/* 头部常驻 */}
       <div className="border-b border-white/[0.07] px-6 pb-4 pt-6 max-md:px-5">
-        <h2 className="text-title font-bold text-white">标注{scopeLabel}的片源</h2>
+        <h2 className="text-title font-bold text-white">{t("library.sourceAnnotation.title", { scope: scopeLabel })}</h2>
         <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-          这些文件的文件名里没有可识别的片源标记，系统无法确认它们是否低于洗版目标。
-          看一眼文件名，把你知道的来源告诉系统——标注一次，之后整季自动参与洗版判定。
+          {t("library.sourceAnnotation.hint")}
         </p>
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-6 max-md:p-5">
         {error && (
           <p className="mt-3 rounded-lg border border-red-400/25 bg-red-500/10 px-3.5 py-2.5 text-sub leading-6 text-red-200">
-            {error}
+            {typeof error === "string" ? error : t(error.key)}
           </p>
         )}
 
         {/* —— 待标注文件（扫一眼确认来源；已解析出片源的文件不在范围内）—— */}
         {candidates === null ? (
-          <p className="mt-4 text-sub text-[var(--text-muted)]">正在加载文件列表…</p>
+          <p className="mt-4 text-sub text-[var(--text-muted)]">{t("library.sourceAnnotation.loading")}</p>
         ) : candidates.length === 0 ? (
           <p className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sub leading-6 text-[var(--text-muted)]">
-            {scopeLabel}没有片源未知的文件——已从文件名解析出片源的文件不会被批量覆盖。
+            {t("library.sourceAnnotation.empty", { scope: scopeLabel })}
           </p>
         ) : (
           <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
             <ul className="scroll-thin max-h-48 divide-y divide-white/[0.05] overflow-y-auto">
               {candidates.map((c) => (
-                <li key={c.file_id} className="flex items-center gap-3 px-4 py-2">
-                  <span className="min-w-0 flex-1 truncate text-sub text-white/80">
+                <li key={c.file_id} className={`flex items-center gap-3 px-4 py-2${locale === "en" ? " max-md:flex-wrap" : ""}`}>
+                  <span className={`min-w-0 flex-1 truncate text-sub text-white/80${locale === "en" ? " max-md:basis-full" : ""}`}>
                     {c.file_name}
                   </span>
                   {c.media_source_manual && (
                     <span className="shrink-0 rounded-md bg-white/[0.07] px-1.5 py-0.5 text-caption text-[var(--text-muted)]">
-                      现为 {mediaSourceDisplayLabel(c.media_source)}
+                      {t("library.sourceAnnotation.current", { source: mediaSourceDisplayLabel(c.media_source, locale) ?? "" })}
                     </span>
                   )}
                   <span className="tnum shrink-0 text-caption text-[var(--text-faint)]">
@@ -132,14 +136,14 @@ export function MediaSourceAnnotationDialog({
               ))}
             </ul>
             <p className="border-t border-white/[0.06] px-4 py-2 text-caption text-[var(--text-faint)]">
-              共 {candidates.length} 个文件将被统一标注
+              {t("library.sourceAnnotation.count", { count: candidates.length })}
             </p>
           </div>
         )}
 
         {/* —— 档位单选（每项写明后果）—— */}
         <div className="mt-4 space-y-1.5">
-          {MEDIA_SOURCE_OPTIONS.map((o) => {
+          {options.map((o) => {
             const active = o.value === picked;
             return (
               <button
@@ -154,7 +158,7 @@ export function MediaSourceAnnotationDialog({
                       ? "border-amber-300/40 bg-amber-400/[0.08]"
                       : "border-[#2dd4bf]/40 bg-[#2dd4bf]/[0.08]"
                     : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07]"
-                }`}
+                }${locale === "en" ? " max-md:flex-col max-md:items-start" : ""}`}
               >
                 <span
                   className={`shrink-0 text-ui font-medium ${
@@ -175,7 +179,7 @@ export function MediaSourceAnnotationDialog({
       {/* 底栏常驻：文件一多就要滚，确认按钮不能被滚出屏幕 */}
       <div className="flex justify-end gap-2 border-t border-white/[0.07] px-6 py-4 max-md:px-5">
         <button type="button" onClick={onClose} className="btn-glass h-10 px-4 text-ui font-medium">
-          取消
+          {t("common.cancel")}
         </button>
         <button
           type="button"
@@ -186,7 +190,7 @@ export function MediaSourceAnnotationDialog({
           {busy && (
             <span className="size-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white/90" />
           )}
-          确认标注
+          {t("library.sourceAnnotation.confirm")}
         </button>
       </div>
     </Modal>

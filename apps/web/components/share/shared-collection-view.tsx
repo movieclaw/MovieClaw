@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
 import { PosterImage } from "@/components/poster-image";
@@ -24,6 +25,7 @@ export function SharedCollectionView({
   /** 点一格 → 由外层切到那一部的影片页（同一条链接，不换路由） */
   onOpen: (mediaItemId: number) => void;
 }) {
+  const t = useTranslations();
   const [data, setData] = useState<SharedCollection | null>(null);
   const [failed, setFailed] = useState(false);
   usePageTitle(data?.name);
@@ -40,20 +42,20 @@ export function SharedCollectionView({
 
   if (failed) {
     return (
-      <p className="mt-24 text-center text-ui text-white/60">这条分享暂时打不开，请稍后再试。</p>
+      <p className="mt-24 text-center text-ui text-white/60">{t("library.share.collectionUnavailable")}</p>
     );
   }
   if (data === null) {
-    return <p className="mt-24 text-center text-ui text-white/50">正在打开分享…</p>;
+    return <p className="mt-24 text-center text-ui text-white/50">{t("library.share.opening")}</p>;
   }
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-8 max-md:px-4 max-md:py-6">
       <h1 className="text-title font-semibold text-white">{data.name}</h1>
-      <p className="mt-1 text-ui text-white/50">{data.item_count} 部</p>
+      <p className="mt-1 text-ui text-white/50">{t("library.share.titleCount", { count: data.item_count })}</p>
 
       {data.items.length === 0 ? (
-        <p className="mt-16 text-center text-ui text-white/50">这个合集现在一部都没有。</p>
+        <p className="mt-16 text-center text-ui text-white/50">{t("library.share.collectionEmpty")}</p>
       ) : (
         <div className="mt-6 grid gap-x-4 gap-y-7 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] max-md:gap-x-3 max-md:gap-y-5 max-md:[grid-template-columns:repeat(auto-fill,minmax(120px,1fr))]">
           {data.items.map((item) => (
@@ -74,7 +76,7 @@ export function SharedCollectionView({
                   />
                 ) : (
                   <span className="flex h-full items-center justify-center text-sub text-white/30">
-                    暂无海报
+                    {t("library.share.noPoster")}
                   </span>
                 )}
               </div>

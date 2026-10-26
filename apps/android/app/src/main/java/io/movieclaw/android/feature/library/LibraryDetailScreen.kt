@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -103,6 +102,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import io.movieclaw.android.core.designsystem.mcGridCells
+import io.movieclaw.android.core.designsystem.mcCards
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 private const val PAGE_SIZE = 60
 
@@ -316,6 +318,8 @@ fun LibraryDetailScreen(
     val state by vm.ui.collectAsStateWithLifecycle()
     val facets by vm.facets.collectAsStateWithLifecycle()
     val index by vm.index.collectAsStateWithLifecycle()
+    // 宽窗口：A–Z 索引条是手机竖屏长列表的导航件，平板横屏上既没用又占宽度
+    val wide = io.movieclaw.android.core.designsystem.LocalCardMetrics.current.isWide
     val origin = vm.origin
     var showFilter by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
@@ -335,40 +339,60 @@ fun LibraryDetailScreen(
                 .fillMaxSize()
                 .padding(top = McMetrics.topBarHeight),
         ) {
-            // 库头（实测：名字 20/700 + 「默认」标签 13/600 白12% 底 + 一行统计 14/62%）
-            Column(Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, style = McType.title3, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.width(8.dp))
+            // 库头。手机是「标题行 → 统计行 → 操作行」三段堆叠；**宽窗口并成一行分栏**
+            // （标题+统计在左，筛选/排序靠右），否则 1024dp 下右侧会空出一大片。
+            val headerInfo: @Composable () -> Unit = {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, style = McType.title3, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "默认",
+                            style = McType.captionSemibold,
+                            color = TextPrimary.copy(alpha = 0.9f),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(Color.White.copy(alpha = 0.12f))
+                                .padding(horizontal = 10.dp, vertical = 2.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Text(
-                        "默认",
-                        style = McType.captionSemibold,
-                        color = TextPrimary.copy(alpha = 0.9f),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color.White.copy(alpha = 0.12f))
-                            .padding(horizontal = 10.dp, vertical = 2.dp),
+                        buildString {
+                            append("共 ${state.items.size} 部作品")
+                            if (!state.filter.isEmpty()) append(" · 已筛选")
+                        },
+                        style = McType.sub,
+                        color = TextMuted,
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    buildString {
-                        append("共 ${state.items.size} 部作品")
-                        if (!state.filter.isEmpty()) append(" · 已筛选")
-                    },
-                    style = McType.sub,
-                    color = TextMuted,
-                )
             }
+            if (wide) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = mcCards.pagePadding, vertical = 14.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    Box(Modifier.weight(1f)) { headerInfo() }
+                    FilterButton(activeCount = state.filter.activeCount) { vm.loadFacets(); showFilter = true }
+                    Spacer(Modifier.width(18.dp))
+                    SortMenu(current = state.filter) { sort, order -> vm.setSort(sort, order) }
+                }
+            } else {
+                Column(Modifier.padding(horizontal = mcCards.pagePadding, vertical = 14.dp)) {
+                    headerInfo()
+                }
 
-            // 筛选 / 排序行（实测：「筛选」76×32 圆角 14 白 4%；「按标题 ⌄」13/600）
-            Row(
-                Modifier.padding(horizontal = McMetrics.pagePadding).padding(bottom = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                FilterButton(activeCount = state.filter.activeCount) { vm.loadFacets(); showFilter = true }
-                SortMenu(current = state.filter) { sort, order -> vm.setSort(sort, order) }
+                // 筛选 / 排序行（实测：「筛选」76×32 圆角 14 白 4%；「按标题 ⌄」13/600）
+                Row(
+                    Modifier.padding(horizontal = mcCards.pagePadding).padding(bottom = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    FilterButton(activeCount = state.filter.activeCount) { vm.loadFacets(); showFilter = true }
+                    SortMenu(current = state.filter) { sort, order -> vm.setSort(sort, order) }
+                }
             }
         Box(Modifier.fillMaxSize()) {
             when {
@@ -389,15 +413,15 @@ fun LibraryDetailScreen(
                     }
                     LazyVerticalGrid(
                         state = gridState,
-                        columns = GridCells.Fixed(2),
+                        columns = mcGridCells(phoneColumns = 2),
                         contentPadding = PaddingValues(
-                            start = McMetrics.pagePadding,
-                            end = if (index.isNotEmpty()) 40.dp else McMetrics.pagePadding,
+                            start = mcCards.pagePadding,
+                            end = if (index.isNotEmpty() && !wide) 40.dp else mcCards.pagePadding,
                             top = 0.dp,
                             bottom = 24.dp,
                         ),
                         verticalArrangement = Arrangement.spacedBy(18.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(state.items, key = { it.mediaItemId }) { item ->
@@ -408,7 +432,7 @@ fun LibraryDetailScreen(
                             )
                         }
                         if (state.loadingMore) {
-                            item(span = { GridItemSpan(3) }) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
                                 Box(Modifier.fillMaxWidth().padding(14.dp), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator(color = TextMuted, modifier = Modifier.size(20.dp))
                                 }
@@ -419,7 +443,7 @@ fun LibraryDetailScreen(
             }
 
             // A–Z 索引条(iOS WallIndexBar:拖动选档 + 气泡预览)
-            if (index.isNotEmpty() && !state.loading) {
+            if (index.isNotEmpty() && !state.loading && !wide) {
                 AlphabetBar(
                     entries = index,
                     currentOffset = state.windowStart,
@@ -577,7 +601,7 @@ private fun FilterSheetContent(
                     Modifier
                         .fillMaxWidth()
                         .heightIn(max = 460.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .formSheetScroll().verticalScroll(rememberScrollState()),
                 ) {
                     FacetGroup("类型", data.genres, draft.genres) { draft = draft.copy(genres = it) }
                     FacetGroup("年代", data.decades, draft.decades) { draft = draft.copy(decades = it) }

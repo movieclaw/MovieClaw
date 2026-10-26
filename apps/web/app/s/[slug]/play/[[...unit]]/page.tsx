@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 
 import { SharePlayerPage } from "@/components/share/share-player-page";
 import { parseUnitSegment } from "@/lib/player/play-links";
 
-export const metadata: Metadata = { title: "播放" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return { title: t("player.controls.play") };
+}
 
 /** 只接受单个非负整数查询参数；重复、负数和非数字一律按缺失处理。 */
 function queryNumber(value: string | string[] | undefined): number | undefined {

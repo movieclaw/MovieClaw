@@ -24,7 +24,9 @@ from typing import Literal
 
 from sqlalchemy import select
 
+from movieclaw_api.i18n.stored import reference, render_value, source_text
 from movieclaw_api.services.drives import gateway
+from movieclaw_api.services.drives.messages import error_reference, keyed
 from movieclaw_api.services.drives.registry import backends
 from movieclaw_api.services.network_side import Side
 from movieclaw_db.engine import get_database
@@ -318,7 +320,7 @@ async def _account_view(account_id: int) -> _AccountView:
     async with get_database().session() as session:
         row = await DriveAccountRepository(session).get(account_id)
     if row is None:
-        raise dv.NotFound("网盘账号不存在")
+        raise keyed(dv.NotFound, "errors.drives.accountMissing")
     _qps, _budget, slots = gateway.effective(row, backends().get(row.backend))
     view = _AccountView(now + _LIMITS_TTL_S, slots, row.status, row.name, row.backend)
     _limits[account_id] = view
@@ -342,9 +344,7 @@ async def take_slot(account_id: int, holder: str, *, pinned: bool = False) -> No
         if key not in slots.pinned and now - last > PLAY_SLOT_IDLE_S:
             del slots.holders[key]
     if holder not in slots.holders and len(slots.holders) >= limit:
-        raise SlotsFull(
-            f"网盘「{name}」同时播放数已满（{limit}），稍后再试，或在「设置 → 网盘」里调整"
-        )
+        raise keyed(SlotsFull, "errors.drives.slotsFull", name=name, limit=limit)
     slots.holders[holder] = now
     if pinned:
         slots.pinned.add(holder)
@@ -450,11 +450,14 @@ async def stream_target(
 
     item = _paths.get(file_path)
     if item is None:
-        raise dv.NotFound("这个文件只在网盘上，但网盘副本现在不可用")
+        raise keyed(dv.NotFound, "errors.drives.cloudOnlyUnavailable")
     view = await _account_view(item.account_id)
     backend = backends().get(view.backend)
     if backend is None:
-        raise BackendUnavailable(f"没有安装能连接「{view.backend}」网盘的存储插件")
+        raise BackendUnavailable(
+            source_text("errors.driveLogin.backendUnavailable", type=view.backend),
+            backend_type=view.backend,
+        )
     if allow_direct and choose_direct(
         mode=await stream_mode(),
         account_id=item.account_id,
@@ -472,15 +475,18 @@ async def stream_target(
 
 
 def stream_error(exc: Exception) -> str:
-    """取流失败给用户看的一句话。"""
+    """取流失败给用户看的一句话（按当前语言渲染）。"""
+    return render_value(stream_error_reference(exc))
+
+
+def stream_error_reference(exc: Exception) -> dict | str:
+    """取流失败原因的文案引用。"""
     from movieclaw_api.services.drives.registry import BackendUnavailable
 
-    if isinstance(exc, SlotsFull):
-        return exc.message
-    if isinstance(exc, BackendUnavailable):
-        return str(exc)
+    if isinstance(exc, (SlotsFull, BackendUnavailable)):
+        return error_reference(exc)
     if isinstance(exc, dv.AuthExpired):
-        return f"网盘需要重新登录：{exc.message}"
+        return reference("errors.drives.reloginNeeded", reason=error_reference(exc))
     if isinstance(exc, dv.DriveError):
-        return f"网盘取不到这个文件：{exc.message}"
-    return f"网盘取流失败：{exc}"
+        return reference("errors.drives.fileUnavailable", reason=error_reference(exc))
+    return reference("errors.drives.streamFailed", reason=str(exc))

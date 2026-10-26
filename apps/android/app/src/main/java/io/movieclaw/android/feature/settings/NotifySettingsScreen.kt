@@ -94,6 +94,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import android.app.Application
 import retrofit2.HttpException
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /**
  * 「通知」设置（iOS 是「账号 → 通知」，但那条链路走 APNs + 服务端云中继；
@@ -726,7 +727,7 @@ private fun BackgroundGuideSheet(onDismiss: () -> Unit) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .formSheetScroll().verticalScroll(rememberScrollState())
                 .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
         ) {
             Text("保持通知在线", style = McType.title3)

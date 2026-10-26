@@ -1,0 +1,131 @@
+{
+  "relay.scheme": {
+    "sourceHash": "8fcb89322e8c5afe58241c8871f99389156608ab83ae3c98906e258a78699ae4"
+  },
+  "relay.query": {
+    "sourceHash": "b8616f25b281c48f5e019ba62dc3528dcba9fa9d2f8462f948f97d594847760f"
+  },
+  "relay.invalidInfo": {
+    "sourceHash": "f9da8634bd4667a6f1933223d0a29e3f9450ab5d7c6e47166072d17f96f26d1e"
+  },
+  "relay.network": {
+    "sourceHash": "8f471cfa6810866d7840da9539f8c9e105836319037b338f204d450194fec1f2"
+  },
+  "relay.response": {
+    "sourceHash": "87b1cc15e481ea4684e3521706423a57cccab09b8c45765386dbf198af99a19d"
+  },
+  "relay.notJson": {
+    "sourceHash": "d1e50503cf179deb71763fdaf3fae20c2f901a336bd52d993924a8e9fc33117e"
+  },
+  "relay.mismatch": {
+    "sourceHash": "0d30b58e9c0603e383f44415145c4f0b36cbd03fc4c82b18f98721c6174d0729"
+  },
+  "relay.unauthorized": {
+    "sourceHash": "3a00b3603d184d3b044680e17c23abf59558b6d101009a4b0e0dff143d62a4d0"
+  },
+  "relay.forbidden": {
+    "sourceHash": "0c39b5eff009a799470fa68adb44801e32b64862f706f08ecb34f9bd294b2da4"
+  },
+  "relay.unavailable": {
+    "sourceHash": "f82d7da9ab62fbaec6649020c8e77d6c55373b10fe14939336e773cf9691b33b"
+  },
+  "relay.rejected": {
+    "sourceHash": "06cc96b0157d549cad54005e133d94d9f6ba2af3c483fb4f5a8c036a8e486971"
+  },
+  "relay.noAddresses": {
+    "sourceHash": "c93cf81343b510d13ab18c8c88982aec306fd6229a328a846425d44fc5c5649f"
+  },
+  "relay.protocol": {
+    "sourceHash": "afdd5199b7a9bacaff079dc68de0b4d599a7edbbe2d5b3e55f9267f217c0928a"
+  },
+  "relay.issuerAdd": {
+    "sourceHash": "eb89da17109c710a3f17eecb09b9859be5f3238069e1cb19329e0bce5010285c"
+  },
+  "relay.issuerUse": {
+    "sourceHash": "aaf5c7e9cb73514e4d01952257dcc0710eeb9e6602c0bb33de47710894574e25"
+  },
+  "relay.neverConnected": {
+    "sourceHash": "46f1d3a18858c99972c2a6352f67428ba0ec1a289afadc3f408119732fdf5061"
+  },
+  "relay.missingToken": {
+    "sourceHash": "36bf7d00cbf7e3bb59568970c62c81e20908bbabacfbe20711e5f476a0670df2"
+  },
+  "channels.official": {
+    "sourceHash": "4b0449e5aa4a59ea6d9e19a2d0aaaf28abab255aa64efbbcba4abdf8be6a5c95"
+  },
+  "channels.disabled": {
+    "sourceHash": "a8c3698b5b8c485d8bd403c226a3dc594cd3196b8229ebc02338bab31a7bea44"
+  },
+  "channels.disconnected": {
+    "sourceHash": "1ea19f0b28ab13b2b3379a445be014a8b663a4a62d9db908630fcf35b2df6036"
+  },
+  "channels.connecting": {
+    "sourceHash": "f0414f7b68d8ce3faee3c8ff7c60801bec2108092d484272ef8e16808e031533"
+  },
+  "channels.noEndpoints": {
+    "sourceHash": "ae4837e62b720bf5d95edb1c6a2a3a0d67b49f3605a4925698fe06be1f7590c5"
+  },
+  "channels.noScope": {
+    "sourceHash": "15e10eb0fdc6ff80cae946d91db22430c53c1db74692266edf26f5026432e2e8"
+  },
+  "channels.expired": {
+    "sourceHash": "33370722fcb7b398f5b19d3e990f05199dfc28be88e7c22ef4f6055ad42c50cf"
+  },
+  "channels.quotaExhausted": {
+    "sourceHash": "bc114deaa1f25ff9ca209f744614890071c910da81206aea4108bd24de3d4c51"
+  },
+  "channels.lastFailure": {
+    "sourceHash": "86184dca1d0fa33ea05b07dbb54bafb53583981afc04351539bec0b34aba7211"
+  },
+  "channels.unreachable": {
+    "sourceHash": "82474864bd16973c6d9895942fd56029549dd69b14834ca2004ad3cdc60486f4"
+  },
+  "channels.ok": {
+    "sourceHash": "296de0e31f8c22d9343c1f07f7fcd2e88a425d769cb0c88d8b24cc865f2c0685"
+  },
+  "channels.topicNotAllowed": {
+    "sourceHash": "da118d71bb4f3c5a4dd87394605d12525c6c2213583d78e7ca6170c91a55a5ea"
+  },
+  "warnings.publicHttp": {
+    "sourceHash": "50d6c6599f5cd77cd5039efe15ca60c313076f6813865ef52fa5e4dfdb6dfc9c"
+  },
+  "warnings.publicNoAuth": {
+    "sourceHash": "63436739c4e9868387e6fbce2f5d9cce4b5a1fb9e17bf0c274ea05ab096f1faf"
+  },
+  "warnings.noDevices": {
+    "sourceHash": "73ff8cb6960edc30518a8785c75b7cd743be7db2ae7cfeff411f3128d8db42eb"
+  },
+  "warnings.undeclared": {
+    "sourceHash": "2da7995d8941cca44433586ffaf294b03ecf02790f95aabca55958a99be39664"
+  },
+  "outcome.noChannel": {
+    "sourceHash": "d7f346b9ccb7b5d45d88c97428f90eb2fb21671de6f7a000d79b962c412a8b11"
+  },
+  "outcome.queued": {
+    "sourceHash": "0efb34c9cc68f6ba12289aaf42ca2012c012a0ab72625fd32f5d44d0fd06548c"
+  },
+  "outcome.failed": {
+    "sourceHash": "d638fdb9e1f3f47042609c449ded2c6c30a85256166c4c621650d906d6401424"
+  },
+  "outcome.deviceQuota": {
+    "sourceHash": "896a32470601817aa07eecb2842d2a714de159b04179c834fc983a5d67cbb31c"
+  },
+  "outcome.delivered": {
+    "sourceHash": "c3433fe19ad074b7a33d6576b44e38081ef60a960a0c48ed7c12a06ae4805f12"
+  },
+  "outcome.streamSent": {
+    "sourceHash": "f4202c5408104fa5c4d072e596862e0ffdba0bd0788d825adcc495d840a27f07"
+  },
+  "outcome.streamQueued": {
+    "sourceHash": "9e33bab076bfc22ff0f28e28816844fa6af267d687c1555f57cd5d202883ae28"
+  },
+  "outcome.imSent": {
+    "sourceHash": "115712c952206f2c2fb8848a728a68b312da9f13c17588f947f2ec68614387ad"
+  },
+  "outcome.imMissing": {
+    "sourceHash": "5bee348b6e13ab58295421ca89d929757ee2f46f97c74f85dec2272e9f048747"
+  },
+  "status.episodes": {
+    "sourceHash": "04f9bb90832883e0dbe57038b3e48c523a466b7dc00885988e44f17e14df04fa"
+  }
+}

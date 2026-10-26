@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -23,6 +25,8 @@ export interface UserMenuProps {
 }
 
 export function UserMenu({ onOpenSettings, collapsed = false }: UserMenuProps) {
+  const locale = useLocale();
+  const t = useTranslations();
   const { session } = useSession();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -102,12 +106,12 @@ export function UserMenu({ onOpenSettings, collapsed = false }: UserMenuProps) {
       <div className="my-1" />
       <MenuItem
         icon={<GearIcon className="size-[18px] max-md:size-[22px]" />}
-        label="设置"
+        label={t("auth.menu.settings")}
         onClick={() => go()}
       />
       <MenuItem
         icon={<UsersIcon className="size-[18px] max-md:size-[22px]" />}
-        label="切换账号"
+        label={t("auth.menu.switchAccount")}
         onClick={() => {
           setOpen(false);
           setSwitcherOpen(true);
@@ -116,7 +120,7 @@ export function UserMenu({ onOpenSettings, collapsed = false }: UserMenuProps) {
       <div className="my-1" />
       <MenuItem
         icon={<LogoutIcon className="size-[18px] max-md:size-[22px]" />}
-        label="退出登录"
+        label={t("auth.menu.signOut")}
         danger
         onClick={handleLogout}
       />
@@ -149,7 +153,7 @@ export function UserMenu({ onOpenSettings, collapsed = false }: UserMenuProps) {
                 {session.nickname}
               </span>
               <span className="block truncate text-caption text-[var(--text-muted)]">
-                {roleLabel(session)}
+                {roleLabel(session, locale)}
               </span>
             </span>
             <svg

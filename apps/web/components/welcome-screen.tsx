@@ -1,11 +1,13 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import localFont from "next/font/local";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { CosmosBackdrop } from "@/components/cosmos-backdrop";
 import { XIcon } from "@/components/icons";
-import { shuffledScenes, type WelcomeScene } from "@/lib/welcome-scenes";
+import { sceneText, shuffledScenes, type WelcomeScene } from "@/lib/welcome-scenes";
 
 /**
  * 欢迎页的宋体：思源宋体（Noto Serif SC，SIL OFL 1.1）子集，与原生 App 同一份
@@ -40,11 +42,13 @@ const SCENE_MS = 9000;
  * 手机与桌面同一套版式：内容是一列最宽 440px 的竖排，桌面上整列在屏幕中间、限高。
  */
 export function WelcomeScreen({
+  footer,
   buttonLabel,
   initialStage = "home",
   ready = true,
   card,
 }: {
+  footer?: ReactNode;
   /** 首页按钮的文字（「登录」「开始使用」） */
   buttonLabel: string;
   /** 一进来就是卡片（会话过期回来、添加账号时）；挂载后才读 URL，所以允许后到 */
@@ -125,7 +129,11 @@ export function WelcomeScreen({
           ) : (
             <div
               className="welcome-card-rise mb-1"
-              onFocusCapture={() => setEditing(true)}
+              onFocusCapture={(event) => {
+                // Button focus must not move the card between pointer down and click.
+                const target = event.target;
+                if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.isContentEditable)) setEditing(true);
+              }}
               onBlurCapture={(event) => {
                 if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setEditing(false);
               }}
@@ -133,6 +141,7 @@ export function WelcomeScreen({
               {card({ close, autoFocus })}
             </div>
           )}
+          <div className="my-3 flex justify-center">{footer}</div>
         </div>
       </main>
     </div>
@@ -145,6 +154,7 @@ export function WelcomeScreen({
  * 打开卡片后整体缩小留在顶部。
  */
 function WelcomeMasthead({ compact }: { compact: boolean }) {
+  const t = useTranslations("auth");
   return (
     <header
       className="flex origin-top flex-col items-center gap-3.5 [text-shadow:0_0_16px_rgba(0,0,0,0.35)] transition-transform duration-600 ease-out"
@@ -161,7 +171,7 @@ function WelcomeMasthead({ compact }: { compact: boolean }) {
         className="welcome-reveal welcome-reveal--tagline pl-[8px] text-[13px] tracking-[8px] md:text-[14px] text-[var(--text-muted)]"
         style={{ fontFamily: WELCOME_SERIF }}
       >
-        智能影音服务器
+        {t("welcome.tagline")}
       </p>
     </header>
   );
@@ -173,6 +183,8 @@ function WelcomeMasthead({ compact }: { compact: boolean }) {
  * 新句稍晚从下方浮上来，读起来是一句接一句。固定最小高度，一行与三行的字幕不会把按钮顶来顶去。
  */
 function FilmSubtitles() {
+  const t = useTranslations();
+  const locale = useLocale();
   const [scenes, setScenes] = useState<WelcomeScene[] | null>(null);
   const [index, setIndex] = useState(0);
   // 第几次换句：给进出两句各自一个新 key，让 CSS 动画每次都重新播放
@@ -200,23 +212,33 @@ function FilmSubtitles() {
   }, [next, scenes]);
 
   const scene = scenes?.[index];
+  const text = scene && sceneText(scene, locale);
   return (
     <div className="welcome-reveal welcome-reveal--quote relative">
       <button
         type="button"
         onClick={next}
-        aria-label={scene ? `${scene.line.replace(/\n/g, "")}——《${scene.film}》。轻点换一句台词` : "台词"}
+        aria-label={
+          text
+            ? t("auth.welcome.quoteAria", {
+                // 断行处：中文直接连上，英文补一个空格
+                line: text.headline.replace(/\n/g, locale === "zh-Hans" ? "" : " "),
+                film: text.film,
+              })
+            : t("auth.welcome.quoteLabel")
+        }
         className="relative grid min-h-[150px] w-full cursor-pointer items-end text-center"
       >
         {leaving && (
           <FilmSubtitle
             key={`out-${leaving.key}`}
             scene={leaving.scene}
+            locale={locale}
             className="welcome-quote-out"
             onDone={() => setLeaving(null)}
           />
         )}
-        {scene && <FilmSubtitle key={`in-${turn}`} scene={scene} className="welcome-quote-in" />}
+        {scene && <FilmSubtitle key={`in-${turn}`} scene={scene} locale={locale} className="welcome-quote-in" />}
       </button>
     </div>
   );
@@ -224,13 +246,18 @@ function FilmSubtitles() {
 
 function FilmSubtitle({
   scene,
+  locale,
   className,
   onDone,
 }: {
   scene: WelcomeScene;
+  locale: string;
   className: string;
   onDone?: () => void;
 }) {
+  const { headline, subline, source } = sceneText(scene, locale);
+  // 小字：外语原句用拉丁衬线斜体；英文界面里华语片附的中文原句用宋体正体
+  const sublineFont = scene.original === null ? WELCOME_SERIF : LATIN_SERIF;
   return (
     <span
       aria-hidden="true"
@@ -238,21 +265,23 @@ function FilmSubtitle({
       className={`${className} col-start-1 row-start-1 flex flex-col items-center gap-2.5 whitespace-pre-line [text-shadow:0_0_10px_rgba(0,0,0,0.6)]`}
     >
       <span className="text-[18px] leading-[1.7] text-[var(--text)] md:text-[21px]" style={{ fontFamily: WELCOME_SERIF }}>
-        {scene.line}
+        {headline}
       </span>
-      {scene.original && (
+      {subline && (
         <span
-          className="text-[13px] italic leading-[1.45] text-[var(--text-muted)] md:text-[15px]"
-          style={{ fontFamily: LATIN_SERIF }}
+          className={`text-[13px] leading-[1.45] text-[var(--text-muted)] md:text-[15px] ${
+            scene.original === null ? "" : "italic"
+          }`}
+          style={{ fontFamily: sublineFont }}
         >
-          {scene.original}
+          {subline}
         </span>
       )}
       <span
         className="pt-1.5 text-[11px] tracking-[2px] text-[var(--text-faint)]"
         style={{ fontFamily: WELCOME_SERIF }}
       >
-        ——《{scene.film}》{scene.year}
+        {locale === "zh-Hans" ? `——${source}` : `— ${source}`}
       </span>
     </span>
   );
@@ -275,6 +304,7 @@ export function WelcomeCard({
   onClose?: () => void;
   children: ReactNode;
 }) {
+  const t = useTranslations("common");
   return (
     <section className="welcome-glass rounded-[30px] p-[22px]">
       <header className="mb-4 flex items-start gap-3">
@@ -288,7 +318,7 @@ export function WelcomeCard({
           <button
             type="button"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={t("close")}
             className="grid size-[30px] shrink-0 place-items-center rounded-full border border-white/[0.08] bg-white/[0.05] text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
           >
             <XIcon className="size-3.5" strokeWidth={2.6} />

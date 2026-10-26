@@ -90,7 +90,8 @@ class PlaybackHistoryRefreshTest {
         val cookies = ShareCookieJar()
         val api = ApiFactory(json, client, client, vault, cookies)
         val repository = SessionRepository(context, json, vault, api, client,
-            SessionCacheCleaner(context, ImageLoaders(context, vault, client, cookies), LibraryHomeSnapshotStore(context, json)))
+            SessionCacheCleaner(context, ImageLoaders(context, vault, client, cookies), LibraryHomeSnapshotStore(context, json)),
+            dagger.Lazy { throw UnsupportedOperationException() })
         val origin = server.url("/").toString().trimEnd('/')
         vault.activate(origin, "alice", "token")
         @Suppress("UNCHECKED_CAST")
@@ -103,7 +104,9 @@ class PlaybackHistoryRefreshTest {
         val library = io.movieclaw.android.feature.library.LibraryViewModel(repository, api,
             io.movieclaw.android.core.playback.ResumeBarPrefs(context),
             io.movieclaw.android.core.playback.PlaybackPreconnect(api, repository),
-            LibraryHomeSnapshotStore(context, json), io.movieclaw.android.core.designsystem.FeedbackBus(), events)
+            LibraryHomeSnapshotStore(context, json), io.movieclaw.android.core.designsystem.FeedbackBus(), events,
+            io.movieclaw.android.core.offline.OfflineStore(context, repository),
+            io.movieclaw.android.core.offline.ServerReachability(context, api))
         try {
             waitFor { firstHistory.count == 0L && !subs.ui.value.loading && library.state.value is io.movieclaw.android.core.designsystem.Loadable.Ready }
             val initialLibraries = libraryRequests.get()

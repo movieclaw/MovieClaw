@@ -54,6 +54,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n.stored import reference
 from movieclaw_db.models import LibraryFile
 from movieclaw_playback.streaming import file_stamp, is_remote, media_input, open_strm_range
 from movieclaw_playback.subtitle_cues import SubtitleTracks, build_subtitle_mkv
@@ -136,7 +137,8 @@ _SPARSE_TASKS: set[asyncio.Task[bool]] = set()
 _FAILED_EXTRACTIONS: dict[_JobKey, int] = {}
 # 失败原因（超时 / ffmpeg 报错 / 启动失败）：任务失败时直接告诉用户，而不是
 # 一句「具体原因见服务端日志」。随失败结论一起失效。
-_FAILURE_REASONS: dict[_JobKey, str] = {}
+#: 失败原因是文案引用：后台记下，按读者语言渲染
+_FAILURE_REASONS: dict[_JobKey, dict] = {}
 
 
 @dataclass(frozen=True)
@@ -250,7 +252,7 @@ def _read_gate() -> asyncio.Semaphore:
     return _READ_GATE[1]
 
 
-def _remember_failure(spec: _ExtractionSpec, index: int, reason: str) -> None:
+def _remember_failure(spec: _ExtractionSpec, index: int, reason: dict) -> None:
     """记下这条轨在当前视频版本上抽不出来及原因；视频换了（mtime 变）自然作废。"""
     stamp = _video_stamp(spec)
     if stamp is not None:
@@ -332,7 +334,7 @@ def _last_position(path: Path) -> float | None:
     return None
 
 
-def failure_reason(file: LibraryFile, index: int) -> str | None:
+def failure_reason(file: LibraryFile, index: int) -> dict | None:
     """这条轨上次抽取失败的原因（视频没换才有效）；没失败过返回 None。"""
     spec = _extraction_spec(file, index)
     if spec is None or not _known_failed(spec, index):
@@ -582,7 +584,7 @@ def schedule_extraction(file: LibraryFile, index: int) -> bool:
             stamp = _video_stamp(spec)
             if stamp is not None:
                 _FAILED_EXTRACTIONS[key] = stamp
-                _FAILURE_REASONS.setdefault(key, "读取过程中出错（详见服务端日志）")
+                _FAILURE_REASONS.setdefault(key, reference("library.subtitleSource.readError"))
         else:
             _FAILED_EXTRACTIONS.pop(key, None)
             _FAILURE_REASONS.pop(key, None)
@@ -696,12 +698,14 @@ def _new_progress_path() -> Path:
     return directory / f".read-{uuid.uuid4().hex}.progress"
 
 
-def _ffmpeg_failure(returncode: int | None, stderr: bytes) -> str:
-    """把 ffmpeg 的结局收敛成一句给用户看的原因。"""
+def _ffmpeg_failure(returncode: int | None, stderr: bytes) -> dict:
+    """把 ffmpeg 的结局收敛成一句给用户看的原因（文案引用）。"""
     if returncode not in (0, None):
         text = stderr.decode(errors="replace").strip().replace("\n", " ")[:200]
-        return f"ffmpeg 报错：{text}" if text else f"ffmpeg 异常退出（退出码 {returncode}）"
-    return "没有读出任何字幕内容，或写入缓存失败（详见服务端日志）"
+        if text:
+            return reference("library.subtitleSource.ffmpegError", error=text)
+        return reference("library.subtitleSource.ffmpegExit", code=returncode)
+    return reference("library.subtitleSource.noContent")
 
 
 async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path: Path) -> bool:
@@ -709,7 +713,7 @@ async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path:
     outputs = [(index, spec, _new_tmp_path(spec.out_path)) for index, spec in pending]
     timeout = _extract_timeout(video)
 
-    def _discard(reason: str | None) -> None:
+    def _discard(reason: dict | None) -> None:
         # reason 为空 = 不记失败（取消、多轨整趟失败待逐轨重试）
         for index, spec, tmp_path in outputs:
             _cleanup(tmp_path)
@@ -726,7 +730,7 @@ async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path:
             start_new_session=True,
         )
     except OSError as exc:
-        _discard(f"ffmpeg 无法启动：{exc}")
+        _discard(reference("library.subtitleSource.startFailed", error=str(exc)))
         logger.warning("内封字幕抽取进程启动失败：%s（%s）", video, exc)
         return True
 
@@ -741,10 +745,7 @@ async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path:
     except TimeoutError:
         await _terminate_async_process(proc, communicate)
         # 超时也要记住：不记的话每次打开播放器都会把这个文件再白读一遍。
-        _discard(
-            f"读取超时：{timeout / 60:.0f} 分钟内没读完整个视频（按每秒 20 MB 估算的上限），"
-            "存储读取太慢或文件损坏都会这样"
-        )
+        _discard(reference("library.subtitleSource.timeout", minutes=f"{timeout / 60:.0f}"))
         logger.warning(
             "内封字幕抽取超时（%.0f 秒）：%s（%d 条轨），视频文件不变就不再重试",
             timeout, video, len(outputs),

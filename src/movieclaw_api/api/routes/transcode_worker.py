@@ -29,6 +29,8 @@ from movieclaw_api.exceptions import (
     ServiceUnavailableException,
     UnauthorizedException,
 )
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import source_text
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.schemas.transcode_worker import (
     RemoteTranscodeConfigPayload,
@@ -112,7 +114,7 @@ def _warn_throttled(key: tuple[str, ...], message: str, *args: object) -> None:
 
 
 def _client_host(websocket: WebSocket) -> str:
-    return websocket.client.host if websocket.client else "未知地址"
+    return websocket.client.host if websocket.client else t("errors.workers.unknownAddress")
 
 
 async def _reject_before_hello(websocket: WebSocket, reason: str) -> None:
@@ -159,10 +161,7 @@ def _artifact_write_failure(
             errno_code,
             received_bytes,
         )
-        return InsufficientStorageException(
-            "远程转码缓存空间或磁盘配额不足，请在「设置 → 更新与维护 → 缓存管理」释放空间后重试。",
-            details=details,
-        )
+        return InsufficientStorageException(details=details, message_key="errors.workers.cacheFull")
     logger.error(
         "远程转码产物写入失败：缓存目录暂时不可写 session=%s name=%s "
         "errno=%s received_bytes=%s error=%s",
@@ -173,8 +172,7 @@ def _artifact_write_failure(
         exc,
     )
     return ServiceUnavailableException(
-        "远程转码缓存目录暂时不可写，请检查磁盘空间和权限后重试。",
-        details=details,
+        details=details, message_key="errors.workers.cacheUnwritable"
     )
 
 
@@ -205,7 +203,7 @@ async def save_transcode_worker_config(
 
 
 def _invalid_remote_grant() -> UnauthorizedException:
-    return UnauthorizedException("远程转码凭据无效或已过期")
+    return UnauthorizedException(message_key="errors.workers.credentialsInvalid")
 
 
 async def _verify_grant(
@@ -279,15 +277,21 @@ async def transcode_worker_websocket(websocket: WebSocket) -> None:
         user_agent=websocket.headers.get("user-agent"),
     )
     if principal is None:
+        # 关闭原因是转码器协议的一部分：Mac / Windows 转码器按这两句的措辞区分「凭证失效」
+        # 与「远程转码没开」，所以固定用中文原文，不跟请求语言走
+        # i18n-ignore: worker protocol
         reason = "凭证无效或已被吊销，请在网页「设置 → 设备」重新配对"
         _warn_throttled(
+            # i18n-ignore: throttled server log
             ("ws-auth", client), "拒绝远程转码 Worker 连接（来自 %s）：%s", client, reason
         )
         await _reject_before_hello(websocket, reason)
         return
     if not remote_worker_enabled():
+        # i18n-ignore: worker protocol (see above)
         reason = "服务端尚未启用远程转码，请在网页「应用 → 远程转码」打开开关并确认地址"
         _warn_throttled(
+            # i18n-ignore: throttled server log
             ("ws-disabled", client), "拒绝远程转码 Worker 连接（来自 %s）：%s", client, reason
         )
         await _reject_before_hello(websocket, reason)
@@ -302,22 +306,25 @@ async def transcode_worker_websocket(websocket: WebSocket) -> None:
         except TimeoutError:
             _warn_throttled(
                 ("ws-hello", client),
+                # i18n-ignore: throttled server log
                 "远程转码 Worker 握手超时（来自 %s）：10 秒内没发 hello",
                 client,
             )
-            await websocket.close(code=1008, reason="Worker hello 超时")
+            await websocket.close(code=1008, reason=source_text("errors.workers.helloTimeout"))
             return
         reason = None
         if not isinstance(hello, dict) or hello.get("type") != "worker.hello":
-            reason = "Worker hello 格式错误"
+            reason = source_text("errors.workers.helloInvalid")
         elif hello.get("protocol_version") != REMOTE_WORKER_PROTOCOL_VERSION:
             # 版本不一致单独说清楚：笼统的「格式错误」会让人以为是 Worker 坏了
-            reason = (
-                f"Worker 协议版本（{hello.get('protocol_version')}）与服务端"
-                f"（{REMOTE_WORKER_PROTOCOL_VERSION}）不一致，请把 Worker 与服务端更新到同一版本"
+            reason = source_text(
+                "errors.workers.protocolMismatch",
+                worker=str(hello.get("protocol_version")),
+                server=str(REMOTE_WORKER_PROTOCOL_VERSION),
             )
         if reason is not None:
             _warn_throttled(
+                # i18n-ignore: throttled server log
                 ("ws-hello", client), "拒绝远程转码 Worker 连接（来自 %s）：%s", client, reason
             )
             await websocket.close(code=1008, reason=reason)
@@ -338,6 +345,7 @@ async def transcode_worker_websocket(websocket: WebSocket) -> None:
             )
         except ValueError as exc:
             _warn_throttled(
+                # i18n-ignore: throttled server log
                 ("ws-register", client), "拒绝远程转码 Worker 连接（来自 %s）：%s", client, exc
             )
             await websocket.close(code=1008, reason=str(exc))
@@ -374,7 +382,10 @@ async def transcode_worker_websocket(websocket: WebSocket) -> None:
                             )
                         except ValueError:
                             await connection.send(
-                                {"type": "worker.config.error", "error": "并发上限必须为 1～4"}
+                                {
+                                    "type": "worker.config.error",
+                                    "error": t("errors.workers.maxJobsRange"),
+                                }
                             )
                         else:
                             await save_worker_limit(connection.login_device_id, payload.max_jobs)
@@ -442,7 +453,7 @@ async def configure_transcode_worker(
 ) -> ApiResponse[WorkerConfigPayload]:
     device = await login_devices.get_device(session, device_id)
     if device is None or device.scope != "transcode":
-        raise NotFoundException("转码器不存在")
+        raise NotFoundException(message_key="errors.workers.missing")
     await save_worker_limit(device_id, payload.max_jobs)
     return ok(payload)
 
@@ -458,10 +469,10 @@ async def _remote_source_file(
         or not playback_session.remote
         or playback_session.file_id != grant.file_id
     ):
-        raise NotFoundException("远程转码会话不存在")
+        raise NotFoundException(message_key="errors.workers.sessionMissing")
     file = await session.get(LibraryFile, grant.file_id)
     if file is None:
-        raise NotFoundException("远程转码源文件不存在")
+        raise NotFoundException(message_key="errors.workers.sourceMissing")
     return file
 
 
@@ -470,13 +481,14 @@ def _missing_source(session_id: str, file: LibraryFile, path: Path) -> NotFoundE
     NAS 这一侧（文件被移走/删除，或媒体目录的挂载静默失效），必须在这里说出来。"""
     _warn_throttled(
         ("source-missing", str(file.id)),
+        # i18n-ignore: throttled server log
         "远程转码源文件不在磁盘上：session=%s file_id=%s path=%s"
         "（文件已被移动或删除，或媒体目录挂载失效）",
         session_id,
         file.id,
         path,
     )
-    return NotFoundException("远程转码源文件已不在磁盘上")
+    return NotFoundException(message_key="errors.workers.sourceOffDisk")
 
 
 class _SourceReadMarks:
@@ -582,7 +594,9 @@ async def transcode_source(
         try:
             source = parse_strm(file.file_path)
         except StrmError as exc:
-            raise NotFoundException(f"strm 用不了：{exc}") from exc
+            raise NotFoundException(
+                message_key="errors.workers.strmUnavailable", params={"error": exc}
+            ) from exc
         if isinstance(source, StrmLink):
             target = await strm_redirect_target(source, request.headers.get("user-agent"))
             if target is None:
@@ -600,7 +614,7 @@ async def transcode_source(
         path = source
     elif file.is_disc():
         # 原盘是目录，没有单一源文件；新版 Worker 读 source.ffconcat，走不到这里
-        raise NotFoundException("原盘没有单一源文件，请改读 source.ffconcat 清单")
+        raise NotFoundException(message_key="errors.workers.discConcatRequired")
     if not path.is_file():
         raise _missing_source(session_id, file, path)
     return DisconnectAwareFileResponse(
@@ -632,7 +646,7 @@ async def transcode_disc_source(
     file = await _remote_source_file(session_id, token, session)
     disc = await asyncio.to_thread(resolve_transcode_disc, file) if file.is_disc() else None
     if disc is None:
-        raise NotFoundException("这个远程转码会话的源不是可读的原盘")
+        raise NotFoundException(message_key="errors.workers.discUnreadable")
     token_query = quote(token or "", safe="")
     playback_session = get_session_manager().get(session_id)
     caps = (
@@ -673,7 +687,7 @@ async def transcode_disc_clip(
     file = await _remote_source_file(session_id, token, session)
     disc = await asyncio.to_thread(resolve_transcode_disc, file) if file.is_disc() else None
     if disc is None or index >= len(disc.clips):
-        raise NotFoundException("原盘剪辑不存在")
+        raise NotFoundException(message_key="errors.workers.discClipMissing")
     clip = disc.clips[index]
     path = clip.path
     if not path.is_file():
@@ -717,7 +731,7 @@ async def transcode_poster(
     file = await _remote_source_file(session_id, token, session)
     item = await session.get(MediaItem, file.media_item_id) if file.media_item_id else None
     if item is None or item.id is None:
-        raise NotFoundException("这个转码任务没有对应的条目")
+        raise NotFoundException(message_key="errors.workers.mediaMissing")
     meta = await MediaItemRepository(session).get_metadata(item.id)
     poster_file = meta.poster_file if meta is not None else None
     target = media_scrape.resolve_asset_path(poster_file) if poster_file else None
@@ -736,7 +750,7 @@ async def transcode_poster(
             url, variant=ImageVariant.POSTER_CARD
         )
     else:
-        raise NotFoundException("这部片还没有海报")
+        raise NotFoundException(message_key="errors.workers.posterMissing")
     return FileResponse(
         variant.path, media_type=variant.content_type, headers={"Cache-Control": "no-store"}
     )
@@ -768,12 +782,13 @@ async def _append_progressive_part(
     """
     index = int(name[3:8]) if name.startswith("seg") else None
     if index is None or not playback_session.progressive:
-        raise NotFoundException("这个转码会话不是边产出边送")
+        raise NotFoundException(message_key="errors.workers.notStreaming")
     try:
         part = int(part_text)
     except ValueError:
         raise HTTPException(
-            status_code=400, detail={"code": "BAD_REQUEST", "message": "part 必须是整数"}
+            status_code=400,
+            detail={"code": "BAD_REQUEST", "message": t("errors.workers.partInteger")},
         ) from None
     partial = playback_session.partials.get(index)
     if partial is None or partial.job != job or partial.done:
@@ -805,7 +820,7 @@ async def _append_progressive_part(
                             status_code=413,
                             detail={
                                 "code": "PAYLOAD_TOO_LARGE",
-                                "message": "远程转码分片超过上传大小限制",
+                                "message": t("errors.workers.uploadTooLarge"),
                             },
                         )
                     await output.write(chunk)
@@ -865,12 +880,13 @@ async def put_transcode_artifact(
         if token and await verify_remote_grant(token, session_id=session_id, kind="artifact"):
             _warn_throttled(
                 ("artifact-name", session_id),
+                # i18n-ignore: throttled server log
                 "远程转码产物名不在服务端白名单内，已拒收：session=%s name=%s"
                 "（Worker 可能比服务端新，请把两边更新到同一版本）",
                 session_id,
                 name[:80],
             )
-        raise NotFoundException("远程转码产物名称无效")
+        raise NotFoundException(message_key="errors.workers.outputNameInvalid")
     grant = await _verify_grant(token, session_id=session_id, kind="artifact")
     playback_session = get_session_manager().get(session_id)
     if (
@@ -879,7 +895,7 @@ async def put_transcode_artifact(
         or playback_session.file_id != grant.file_id
         or grant.attempt_id != playback_session.remote_job_id
     ):
-        raise NotFoundException("远程转码会话不存在")
+        raise NotFoundException(message_key="errors.workers.sessionMissing")
     job_state = (
         get_remote_worker_registry().job_state(playback_session.remote_job_id or "")
         if playback_session.remote_job_id
@@ -888,15 +904,16 @@ async def put_transcode_artifact(
     if job_state and job_state.get("type") in {"job.failed", "job.finished"}:
         # Worker 断线/失败后，旧进程即使还持有短时 token，也不能继续覆盖 NAS
         # 缓存；seek 轮次则由 attempt_id 的相等性额外隔离。
-        raise NotFoundException("远程转码任务已结束")
+        raise NotFoundException(message_key="errors.workers.taskEnded")
     directory = playback_session.directory
     if not directory.is_dir():
         _warn_throttled(
             ("artifact-dir", session_id),
+            # i18n-ignore: throttled server log
             "远程转码产物无处落盘：session=%s 的缓存目录不存在（被删除，或数据目录挂载失效）",
             session_id,
         )
-        raise NotFoundException("远程转码会话目录不存在")
+        raise NotFoundException(message_key="errors.workers.sessionDirectoryMissing")
     limit = effective_remote_transcode_config().max_artifact_bytes
     part_text = request.query_params.get("part")
     if part_text is not None:
@@ -921,13 +938,13 @@ async def put_transcode_artifact(
                     status_code=413,
                     detail={
                         "code": "PAYLOAD_TOO_LARGE",
-                        "message": "远程转码分片超过上传大小限制",
+                        "message": t("errors.workers.uploadTooLarge"),
                     },
                 )
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail={"code": "BAD_REQUEST", "message": "Content-Length 无效"},
+                detail={"code": "BAD_REQUEST", "message": t("errors.workers.contentLengthInvalid")},
             ) from None
 
     temporary = directory / f".{name}.{new_ulid()}.upload"
@@ -944,7 +961,7 @@ async def put_transcode_artifact(
                         status_code=413,
                         detail={
                             "code": "PAYLOAD_TOO_LARGE",
-                            "message": "远程转码分片超过上传大小限制",
+                            "message": t("errors.workers.uploadTooLarge"),
                         },
                     )
                 await output.write(chunk)
@@ -1000,8 +1017,7 @@ async def put_transcode_artifact(
                 attempt_id=grant.attempt_id,
             )
             logger.warning(
-                "远程转码产物上传客户端提前断开，但请求体已完整接收："
-                "session=%s name=%s bytes=%s",
+                "远程转码产物上传客户端提前断开，但请求体已完整接收：session=%s name=%s bytes=%s",
                 session_id,
                 name,
                 written,

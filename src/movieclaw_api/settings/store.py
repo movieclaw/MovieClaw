@@ -194,6 +194,7 @@ def init_setting_store(
 def get_setting_store() -> SettingStore:
     """获取全局配置存储单例。未初始化时抛错，提示调用方检查启动流程。"""
     if _store is None:
+        # i18n-ignore: developer error
         raise RuntimeError("配置存储尚未初始化，请确认应用启动时已调用 init_setting_store()")
     return _store
 

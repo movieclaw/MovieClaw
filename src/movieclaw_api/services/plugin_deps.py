@@ -35,6 +35,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from movieclaw_api.i18n.stored import (
+    exception_reference,
+    keyed_error,
+    reference,
+    render_value,
+    source_text,
+)
 from movieclaw_sdk import deps
 
 logger = logging.getLogger("movieclaw_api.plugin_deps")
@@ -46,7 +53,10 @@ SERVICE = "pypi"
 DOWNLOAD_TIMEOUT = 120.0
 PIP_TIMEOUT = 600.0
 
-INDEX_LABELS = {deps.DEFAULT_INDEX: "PyPI", deps.TSINGHUA_INDEX: "PyPI 清华镜像"}
+INDEX_LABELS = {
+    deps.DEFAULT_INDEX: "PyPI",
+    deps.TSINGHUA_INDEX: source_text("plugins.dependencies.tsinghua"),
+}
 
 
 def index_url() -> str:
@@ -100,17 +110,28 @@ def view(lock: deps.Lock | None, approved: dict[str, Any] | None) -> dict[str, A
     }
 
 
-def summary(view: dict[str, Any]) -> str:
-    """一行说明：「需要下载并安装 6 个第三方包（共 4.2 MB，来自 PyPI）：…」。"""
-    packages = "、".join(
-        f"{r['name']} {r['version']}" + ("（含本机代码）" if r["native"] else "")
+def summary_reference(view: dict[str, Any]) -> dict:
+    """一行说明（文案引用）：「需要下载并安装 6 个第三方包（共 4.2 MB，来自 PyPI）：…」。"""
+    packages = [
+        reference(
+            "plugins.dependencies.nativePackage" if r["native"] else "plugins.dependencies.package",
+            name=r["name"],
+            version=r["version"],
+        )
         for r in view["packages"]
+    ]
+    return reference(
+        "plugins.dependencies.summary",
+        count=len(view["packages"]),
+        size=f"{view['total_size'] / 1024 / 1024:.1f}",
+        index=view["index_label"],
+        packages={"message_list": packages, "separator_key": "common.list.separator"},
     )
-    size = view["total_size"] / 1024 / 1024
-    return (
-        f"需要下载并安装 {len(view['packages'])} 个第三方包"
-        f"（共 {size:.1f} MB，来自 {view['index_label']}）：{packages}"
-    )
+
+
+def summary(view: dict[str, Any]) -> str:
+    """一行说明，按当前语言渲染。"""
+    return render_value(summary_reference(view))
 
 
 # ---------------------------------------------------------------------- 安装
@@ -124,13 +145,19 @@ class Progress:
 
     total: int
     done: int = 0
-    error: str | None = None
+    #: 失败原因（自家的话是文案引用，读时按读者语言渲染）
+    error: dict | str | None = None
     phase: str = "installing"
     """installing 正在安装 / failed 失败（等重试）。"""
     task: asyncio.Task[Any] | None = field(default=None, repr=False)
 
     def view(self) -> dict[str, Any]:
-        return {"phase": self.phase, "done": self.done, "total": self.total, "error": self.error}
+        return {
+            "phase": self.phase,
+            "done": self.done,
+            "total": self.total,
+            "error": render_value(self.error) if self.error else None,
+        }
 
 
 _progress: dict[str, Progress] = {}
@@ -190,9 +217,11 @@ async def install(
         picks = [(p, p.pick(tags)) for p in lock.packages]
         missing = [f"{p.name} {p.version}" for p, wheel in picks if wheel is None]
         if missing:
-            raise DependencyError(
-                f"没有适用于这台服务器（{_here()}）的轮子：{'、'.join(missing)}。"
-                "插件作者需要换用提供这个平台轮子的版本"
+            raise keyed_error(
+                DependencyError,
+                "plugins.dependencies.noWheels",
+                platform=_here(),
+                packages={"message_list": missing, "separator_key": "common.list.separator"},
             )
         state = _progress.get(entry_id) or Progress(total=0)
         state.total, state.done, state.phase, state.error = len(picks), 0, "installing", None
@@ -210,7 +239,7 @@ async def install(
                     state.done += 1
             await asyncio.to_thread(_pip_install, text, files, target)
         except DependencyError as exc:
-            state.phase, state.error = "failed", str(exc)
+            state.phase, state.error = "failed", exception_reference(exc)
             raise
         except Exception as exc:  # noqa: BLE001 -- 任何意外都写成原因，不让插件卡在「安装中」
             state.phase, state.error = "failed", f"{type(exc).__name__}: {exc}"
@@ -255,8 +284,8 @@ async def _fetch(
     bundled = package_dir / "wheels" / wheel.filename
     if bundled.is_file():
         if await asyncio.to_thread(_sha256, bundled) != wheel.sha256:
-            raise DependencyError(
-                f"插件包里的 wheels/{wheel.filename} 与锁文件的哈希不一致，插件包可能被改过"
+            raise keyed_error(
+                DependencyError, "plugins.dependencies.bundledHash", file=wheel.filename
             )
         return bundled
     cached = root(settings) / CACHE / wheel.sha256 / wheel.filename
@@ -272,9 +301,13 @@ async def _fetch(
             )
         found = next((f for f in pages[package.name] if f.filename == wheel.filename), None)
         if found is None:
-            raise DependencyError(
-                f"包索引 {index} 上找不到 {wheel.filename}（{package.name} {package.version}），"
-                "换个包索引（设置 → 网络）后重试"
+            raise keyed_error(
+                DependencyError,
+                "plugins.dependencies.notOnIndex",
+                index=index,
+                file=wheel.filename,
+                name=package.name,
+                version=package.version,
             )
         cached.parent.mkdir(parents=True, exist_ok=True)
         partial = cached.with_name(f".{wheel.filename}.{os.getpid()}.partial")
@@ -287,9 +320,12 @@ async def _fetch(
                         digest.update(chunk)
                         out.write(chunk)
             if digest.hexdigest() != wheel.sha256:
-                raise DependencyError(
-                    f"下载的 {wheel.filename} 哈希不对（锁文件 {wheel.sha256[:12]}…，"
-                    f"实际 {digest.hexdigest()[:12]}…）：文件可能被替换或镜像出错，已丢弃"
+                raise keyed_error(
+                    DependencyError,
+                    "plugins.dependencies.downloadHash",
+                    file=wheel.filename,
+                    expected=wheel.sha256[:12],
+                    actual=digest.hexdigest()[:12],
                 )
             os.replace(partial, cached)
         finally:
@@ -298,13 +334,20 @@ async def _fetch(
                 with contextlib.suppress(OSError):
                     cached.parent.rmdir()
     except httpx.HTTPStatusError as exc:
-        raise DependencyError(
-            f"下载 {package.name} 失败：包索引返回 {exc.response.status_code}（{exc.request.url}）"
+        raise keyed_error(
+            DependencyError,
+            "plugins.dependencies.downloadStatus",
+            name=package.name,
+            status=exc.response.status_code,
+            url=str(exc.request.url),
         ) from exc
     except httpx.HTTPError as exc:
-        raise DependencyError(
-            f"下载 {package.name} 失败：连不上包索引 {index}（{type(exc).__name__}: {exc}）。"
-            "检查网络与「设置 → 网络」里的代理、包索引地址后重试"
+        raise keyed_error(
+            DependencyError,
+            "plugins.dependencies.downloadUnreachable",
+            name=package.name,
+            index=index,
+            error=f"{type(exc).__name__}: {exc}",
         ) from exc
     return cached
 
@@ -338,10 +381,14 @@ def _pip_install(lock_text: str, files: list[Path], target: Path) -> None:
                 command, capture_output=True, text=True, env=env, timeout=PIP_TIMEOUT, check=False
             )
         except subprocess.TimeoutExpired as exc:
-            raise DependencyError(f"安装依赖超时（{int(PIP_TIMEOUT)} 秒）") from exc
+            raise keyed_error(
+                DependencyError, "plugins.dependencies.timeout", seconds=int(PIP_TIMEOUT)
+            ) from exc
         if proc.returncode != 0:
             tail = (proc.stderr or proc.stdout).strip().splitlines()[-6:]
-            raise DependencyError("pip 安装失败：" + " / ".join(tail))
+            raise keyed_error(
+                DependencyError, "plugins.dependencies.pipFailed", detail=" / ".join(tail)
+            )
         (out / COMPLETE).write_text(lock_text, encoding="utf-8")
         if target.exists():
             shutil.rmtree(target)

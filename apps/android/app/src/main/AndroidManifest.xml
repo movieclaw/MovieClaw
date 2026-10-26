@@ -3,6 +3,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 扫码批准设备登录（iOS「我的」页扫码钮 / 批准页扫描二维码） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 相机非必需：没有相机的设备（ChromeOS / 部分平板）仍可手动输入配对码 -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- 后台播放(MediaSessionService)与媒体通知 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />

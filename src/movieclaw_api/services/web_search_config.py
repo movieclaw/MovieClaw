@@ -18,6 +18,7 @@ from movieclaw_agent.web_search import (
 )
 from movieclaw_agent.web_search.types import SearchProvider
 from movieclaw_api.exceptions import BadRequestException, UpstreamUnreachableException
+from movieclaw_api.i18n import messages, t
 from movieclaw_api.settings.store import get_setting_store
 from movieclaw_api.settings.web_search import WebSearchSetting
 from movieclaw_net import egress_transport
@@ -36,11 +37,21 @@ def mask_key(api_key: str) -> str:
 
 
 def status_view(setting: WebSearchSetting) -> dict:
+    catalog = provider_catalog()
+    keys = {
+        "tavily": "settings.webSearch.noteTavily",
+        "exa": "settings.webSearch.noteExa",
+        "brave": "settings.webSearch.noteBrave",
+    }
+    for option in catalog:
+        key = keys.get(option["id"])
+        if key and option["note"] == messages("zh-Hans")[key]:
+            option["note"] = t(key)
     return {
         "provider": setting.provider or None,
         "configured": setting.configured,
         "key_hint": mask_key(setting.api_key) if setting.configured else "",
-        "providers": provider_catalog(),
+        "providers": catalog,
     }
 
 
@@ -63,7 +74,7 @@ async def save_web_search(*, provider: str, api_key: str | None) -> dict:
     provider_id, key = await _resolve_key(
         provider,
         api_key,
-        missing="请填写 API Key；更换供应商时需要新的密钥",
+        missing_key="errors.webSearch.keyForProvider",
     )
     await _probe_key(provider_id, key)
     saved = WebSearchSetting(provider=provider_id, api_key=key)
@@ -100,7 +111,7 @@ async def test_web_search(*, provider: str | None, api_key: str | None) -> dict:
     provider_id, key = await _resolve_key(
         provider or "",
         api_key,
-        missing="请先粘贴 API Key",
+        missing_key="errors.webSearch.keyPaste",
         allow_current_provider=True,
     )
     return await _probe_key(provider_id, key)
@@ -110,7 +121,7 @@ async def _resolve_key(
     provider: str,
     api_key: str | None,
     *,
-    missing: str,
+    missing_key: str,
     allow_current_provider: bool = False,
 ) -> tuple[str, str]:
     current = await get_setting_store().get(WebSearchSetting)
@@ -118,15 +129,15 @@ async def _resolve_key(
     if not provider_id and allow_current_provider:
         provider_id = current.provider
     if not provider_id:
-        raise BadRequestException("请先选择搜索供应商")
+        raise BadRequestException(message_key="errors.webSearch.providerRequired")
     if provider_id not in provider_ids():
-        raise BadRequestException("不支持的搜索供应商")
+        raise BadRequestException(message_key="errors.webSearch.providerUnsupported")
     key = (api_key or "").strip()
     if not key:
         if current.provider == provider_id and current.api_key:
             key = current.api_key
         else:
-            raise BadRequestException(missing)
+            raise BadRequestException(message_key=missing_key)
     return provider_id, key
 
 
@@ -140,14 +151,22 @@ async def _probe_key(provider_id: str, key: str) -> dict:
             raise UpstreamUnreachableException(
                 str(exc),
                 service="web_search",
-                hint="到「设置 → 网络」为「网页搜索」打开代理后再试",
+                hint=t("settings.webSearch.proxyHint"),
+                message_key=exc.message_key,
+                params=exc.params,
             ) from None
         if exc.kind == "auth":
             # 默认文案是写给智能体的（叫它去设置页核对）；这里人就在设置页上
-            raise BadRequestException("API Key 无效或没有权限，请核对后重新粘贴。") from None
-        raise BadRequestException(str(exc)) from None
+            raise BadRequestException(message_key="errors.webSearch.invalidKey") from None
+        raise BadRequestException(
+            str(exc), message_key=exc.message_key, params=exc.params
+        ) from None
     title = hits[0].title if hits else ""
-    message = "连接成功" if not title else f"连接成功，示例结果：{title}"
+    message = (
+        t("settings.webSearch.connectedSample", title=title)
+        if title
+        else t("settings.webSearch.connected")
+    )
     logger.info("网页搜索测试通过 provider=%s", provider_id)
     return {"ok": True, "message": message, "sample_title": title or None}
 

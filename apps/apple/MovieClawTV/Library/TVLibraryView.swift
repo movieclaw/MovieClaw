@@ -32,7 +32,7 @@ struct TVLibraryView: View {
     private var library: API.LibraryView? { directory.library(libraryId) }
 
     var body: some View {
-        TVPosterWall(title: library?.name ?? "媒体库", subtitle: summary,
+        TVPosterWall(title: library?.name ?? String(localized: .libraryCustomizeLibrary), subtitle: summary,
                      pager: pager, fallbackLibrary: libraryId, total: total, index: index,
                      positionTitle: positionTitle, emptyTitle: emptyTitle, emptyMessage: emptyMessage,
                      emptyActions: relaxActions, retry: { await reload() }) {
@@ -50,12 +50,12 @@ struct TVLibraryView: View {
     }
 
     private var emptyTitle: String {
-        filter.isEmpty ? "这个库里还没有内容" : "没有符合条件的影片"
+        filter.isEmpty ? String(localized: .libraryLibraryEmpty) : String(localized: .mediaDiscoveryNoMatches)
     }
 
     private var emptyMessage: String? {
         if filter.isEmpty { return nil }
-        return "「" + conditions.joined(separator: " · ") + "」下没有影片，换一个条件试试"
+        return String(localized: .libraryNoMatchesFor(conditions.joined(separator: " · ")))
     }
 
     /// 按添加时间排序没有索引条，位置提示写添加的年月
@@ -84,11 +84,11 @@ struct TVLibraryView: View {
     private var conditions: [String] {
         var parts: [String] = []
         if let genre = picks.genre {
-            parts.append(facets?.genres.first { $0.value == String(genre) }?.label ?? "类型")
+            parts.append(facets?.genres.first { $0.value == String(genre) }?.label ?? String(localized: .mediaDiscoveryType))
         }
         if let decade = picks.decade { parts.append(Self.decadeLabel(decade, facets?.decades)) }
         if let quality = picks.quality { parts.append(qualityLabel(quality)) }
-        if unwatched { parts.append("未看") }
+        if unwatched { parts.append(String(localized: .libraryUnwatched)) }
         return parts
     }
 
@@ -98,13 +98,13 @@ struct TVLibraryView: View {
     }
 
     private var summary: String? {
-        let parts = conditions + [total.map { "\($0) 部" }].compactMap { $0 }
+        let parts = conditions + [total.map { String(localized: .libraryStatusTitleCount($0)) }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// 年代档在电视上写成「2010 年代」（服务端的展示名是「2010s」）
     private static func decadeLabel(_ value: String, _ options: [API.FacetValueView]?) -> String {
-        if value.count == 5, value.hasSuffix("s"), Int(value.prefix(4)) != nil { return "\(value.prefix(4)) 年代" }
+        if value.count == 5, value.hasSuffix("s"), Int(value.prefix(4)) != nil { return String(localized: .libraryDecade(String(value.prefix(4)))) }
         return options?.first { $0.value == value }?.label ?? value
     }
 
@@ -134,25 +134,25 @@ struct TVLibraryView: View {
 
     private var sortMenu: some View {
         Menu {
-            Picker("排序", selection: $sort.sort) {
+            Picker(String(localized: .mediaFiltersSort), selection: $sort.sort) {
                 ForEach(Self.sorts, id: \.self) { key in
                     Text(HomeRows.preset(key).short(false)).tag(key)
                 }
             }
-            Toggle("只看没看过的", isOn: $unwatched)
-            Section("筛选") {
-                facetMenu("类型", options: facets?.genres, selected: picks.genre.map(String.init)) { value in
+            Toggle(String(localized: .libraryRowsOnlyUnwatched), isOn: $unwatched)
+            Section(String(localized: .mediaFiltersFilter)) {
+                facetMenu(String(localized: .mediaDiscoveryType), options: facets?.genres, selected: picks.genre.map(String.init)) { value in
                     picks.genre = value.flatMap { Int($0) }
                 }
-                facetMenu("年代", options: decadeOptions, selected: picks.decade) { picks.decade = $0 }
-                facetMenu("画质", options: facets == nil ? nil : qualityOptions, selected: picks.quality,
+                facetMenu(String(localized: .libraryFiltersDecades), options: decadeOptions, selected: picks.decade) { picks.decade = $0 }
+                facetMenu(String(localized: .libraryFiltersQuality), options: facets == nil ? nil : qualityOptions, selected: picks.quality,
                           selectedLabel: picks.quality.map(qualityLabel)) { picks.quality = $0 }
                 if !picks.isEmpty {
-                    Button("清除筛选", systemImage: "xmark.circle") { picks = TVWallPicks() }
+                    Button(String(localized: .libraryManageClearFilters), systemImage: "xmark.circle") { picks = TVWallPicks() }
                 }
             }
         } label: {
-            Label("排序与筛选 · \(HomeRows.preset(sort.sort).short(false))", systemImage: "line.3.horizontal.decrease")
+            Label(String(localized: .librarySortFilterValue(HomeRows.preset(sort.sort).short(false))), systemImage: "line.3.horizontal.decrease")
         }
         .accessibilityIdentifier("tv-library-sort")
     }
@@ -164,7 +164,7 @@ struct TVLibraryView: View {
             Button {
                 pick(nil)
             } label: {
-                if selected == nil { Label("全部", systemImage: "checkmark") } else { Text("全部") }
+                if selected == nil { Label(String(localized: .commonFiltersAll), systemImage: "checkmark") } else { Text(String(localized: .commonFiltersAll)) }
             }
             if let options {
                 ForEach(options, id: \.value) { option in
@@ -172,16 +172,16 @@ struct TVLibraryView: View {
                         pick(option.value)
                     } label: {
                         if selected == option.value { Label(option.label, systemImage: "checkmark") } else { Text(option.label) }
-                        Text("\(option.count) 部")
+                        Text(String(localized: .libraryStatusTitleCount(option.count)))
                     }
                     .disabled(option.count == 0 && selected != option.value)
                 }
             } else {
-                Text("正在统计…")
+                Text(String(localized: .libraryCounting))
             }
         } label: {
             Text(title)
-            Text(selectedLabel ?? selected.flatMap { value in options?.first { $0.value == value }?.label } ?? "全部")
+            Text(selectedLabel ?? selected.flatMap { value in options?.first { $0.value == value }?.label } ?? String(localized: .mediaFiltersAll))
         }
     }
 
@@ -192,11 +192,11 @@ struct TVLibraryView: View {
         guard !filter.isEmpty, pager.items?.isEmpty == true else { return [] }
         var actions = relax.map { suggestion in
             TVWallAction(id: "\(suggestion.dim):\(suggestion.value)",
-                         title: "去掉“\(relaxLabel(suggestion))”可看 \(suggestion.count) 部") {
+                         title: String(localized: .libraryRelaxSuggestion(relaxLabel(suggestion), suggestion.count))) {
                 remove(suggestion.dim)
             }
         }
-        actions.append(TVWallAction(id: "clear", title: "清除全部条件") {
+        actions.append(TVWallAction(id: "clear", title: String(localized: .libraryClearAllFilters)) {
             picks = TVWallPicks()
             unwatched = false
         })
@@ -252,7 +252,7 @@ struct TVLibraryView: View {
     private static func addedMonth(_ item: API.LibraryItemView) -> String? {
         guard let added = item.addedAt, added.count >= 7,
               let year = Int(added.prefix(4)), let month = Int(added.dropFirst(5).prefix(2)) else { return nil }
-        return "\(year) 年 \(month) 月"
+        return String(localized: .libraryGalleryMonth(String(year), month))
     }
 }
 
@@ -289,15 +289,15 @@ struct TVCollectionView: View {
     }
 
     var body: some View {
-        TVPosterWall(title: name, pager: pager, emptyTitle: "合集里还没有内容", retry: { await reload() }) {
+        TVPosterWall(title: name, pager: pager, emptyTitle: String(localized: .libraryCollectionEmpty), retry: { await reload() }) {
             Menu {
-                Picker("排序", selection: $sort.sort) {
+                Picker(String(localized: .mediaFiltersSort), selection: $sort.sort) {
                     ForEach(Self.sorts, id: \.self) { key in
                         Text(Self.label(key)).tag(key)
                     }
                 }
             } label: {
-                Label("排序 · \(Self.label(sort.sort))", systemImage: "line.3.horizontal.decrease")
+                Label(String(localized: .librarySortValue(Self.label(sort.sort))), systemImage: "line.3.horizontal.decrease")
             }
             .accessibilityIdentifier("tv-collection-sort")
         }
@@ -306,7 +306,7 @@ struct TVCollectionView: View {
     }
 
     private static func label(_ key: String) -> String {
-        key == ownOrder ? "合集顺序" : HomeRows.preset(key).short(false)
+        key == ownOrder ? String(localized: .libraryCollectionOrder) : HomeRows.preset(key).short(false)
     }
 
     private func reload() async {
@@ -363,7 +363,7 @@ struct TVPosterWall<Accessory: View>: View {
     var index: [TVWallIndexEntry] = []
     /// 没有索引条时，位置提示的大字写什么（按添加时间排序写「2026 年 8 月」）；nil = 不提示
     var positionTitle: ((API.LibraryItemView) -> String?)?
-    var emptyTitle = "这里还没有内容"
+    var emptyTitle = String(localized: .libraryNothingHere)
     var emptyMessage: String?
     /// 筛空时的出路（放宽建议、清除条件）；空 = 普通的空态
     var emptyActions: [TVWallAction] = []
@@ -499,7 +499,7 @@ struct TVPosterWall<Accessory: View>: View {
         if pager.items == nil {
             ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
         } else if let error = pager.failed {
-            TVStateView(symbol: "wifi.exclamationmark", title: "加载失败", message: error, actionTitle: "重试") {
+            TVStateView(symbol: "wifi.exclamationmark", title: String(localized: .libraryDeletionLoadFailed), message: error, actionTitle: String(localized: .commonRetry)) {
                 Task { await retry() }
             }
             .frame(height: 500)
@@ -668,7 +668,7 @@ struct TVPosterWall<Accessory: View>: View {
                 .font(.system(size: entry.title.count > 2 ? 52 : 88, weight: .bold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-            Text("\(entry.count) 部")
+            Text(String(localized: .libraryStatusTitleCount(entry.count)))
                 .font(.system(size: 24))
                 .foregroundStyle(.secondary)
         }
@@ -767,8 +767,8 @@ struct TVPosterWall<Accessory: View>: View {
     }
 
     private func positionDetail(_ offset: Int) -> String {
-        if let total { return "第 \(offset + 1) 部 / 共 \(total) 部" }
-        return "第 \(offset + 1) 部"
+        if let total { return String(localized: .libraryPositionOfTotal(offset + 1, total)) }
+        return String(localized: .libraryPosition(offset + 1))
     }
 
     private func hudView(_ hud: TVWallHud) -> some View {
@@ -797,7 +797,7 @@ struct TVPosterWall<Accessory: View>: View {
 
 extension TVPosterWall where Accessory == EmptyView {
     init(title: String, subtitle: String? = nil, pager: LibraryWallPager<API.LibraryItemView>, fallbackLibrary: Int? = nil,
-         total: Int? = nil, emptyTitle: String = "这里还没有内容", retry: @escaping () async -> Void) {
+         total: Int? = nil, emptyTitle: String = String(localized: .libraryNothingHere), retry: @escaping () async -> Void) {
         self.init(title: title, subtitle: subtitle, pager: pager, fallbackLibrary: fallbackLibrary, total: total,
                   emptyTitle: emptyTitle, retry: retry, accessory: { EmptyView() })
     }

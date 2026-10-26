@@ -100,8 +100,8 @@ struct TVItemDetailView: View {
                                                   width: ImageWidth.points(TVMetrics.blurredBackdropWidth)),
                             previewKey: itemId)
             if failed {
-                TVStateView(symbol: "questionmark.folder", title: "未能加载该条目",
-                            message: "条目可能已被删除或重新识别为其他作品。", actionTitle: "返回") { router.pop() }
+                TVStateView(symbol: "questionmark.folder", title: String(localized: .libraryItemLoadFailed),
+                            message: String(localized: .libraryItemMissing), actionTitle: String(localized: .commonBack)) { router.pop() }
             } else if let detail {
                 content(detail)
             } else {
@@ -139,7 +139,7 @@ struct TVItemDetailView: View {
         }
         .fullScreenCover(item: $panelRange) { range in
             TVEpisodeRangePanel(
-                seasonLabel: browseSeason == 0 ? "特别篇" : "第 \(browseSeason ?? 1) 季",
+                seasonLabel: browseSeason == 0 ? String(localized: .mediaSeasonSpecials) : String(localized: .mediaSeasonTitle(browseSeason ?? 1)),
                 episodes: browseEpisodes, ranges: browseRanges, start: range, anchor: browseAnchor,
                 ambientURL: api.image(detail?.backdropUrl ?? detail?.posterUrl, width: ImageWidth.points(TVMetrics.blurredBackdropWidth))
             ) { number in
@@ -291,7 +291,7 @@ struct TVItemDetailView: View {
     /// 主按钮上的「第 1 季第 3 集」：首屏讲的那一集；电影没有。特别篇（第 0 季）写「特别篇第 2 集」
     private var unitLabel: String? {
         guard !isMovie, let season, let episode = selectedEpisode?.episodeNumber else { return nil }
-        return season == 0 ? "特别篇第 \(episode) 集" : "第 \(season) 季第 \(episode) 集"
+        return season == 0 ? String(localized: .librarySpecialEpisode(episode)) : String(localized: .offlineSeasonEpisode(season, episode))
     }
 
     /// 一排按钮，照系统 Apple TV App 的详情页：跟播放有关的是宽按钮（播放 / 从头播放），
@@ -301,7 +301,7 @@ struct TVItemDetailView: View {
         let finished = watched?.played ?? false
         // 有续播点就接着播（与服务端起播同一口径）：看完后重看到一半的也算，已看标记保留
         let resumable = canPlay && position > 0
-        let verb = resumable ? "继续" : finished ? "重新播放" : "播放"
+        let verb = resumable ? String(localized: .commonContinue) : finished ? String(localized: .libraryItemReplay) : String(localized: .libraryHeroPlay)
         // 剧集在按钮上写明是哪一集（同 Netflix、系统 Apple TV App 的「继续 第 1 季第 3 集」）：只写「继续 46:56」
         // 看不出续的是第几集（2026-10-04 用户要求）。时间点跟在后面
         let parts = [verb, unitLabel, resumable ? Formatters.clock(Double(position) / 1000) : nil].compactMap { $0 }
@@ -309,7 +309,7 @@ struct TVItemDetailView: View {
         return VStack(alignment: .leading, spacing: 18) {
             // 不另画进度条和剩余时间：主按钮上已经写着「继续 第 1 季第 3 集 · mm:ss」（2026-10-03 用户要求去掉）
             if !canPlay, !isMovie, detail.seasons.isEmpty || episodes.allSatisfy({ !$0.owned }) {
-                Text(detail.seasons.isEmpty ? "这部剧还没有可播放的分集" : "这一集还没有片源，往下挑别的集")
+                Text(detail.seasons.isEmpty ? String(localized: .libraryNoPlayableEpisodes) : String(localized: .libraryNoSourcePickBelowTv))
                     .font(.system(size: 25))
                     .foregroundStyle(.white.opacity(0.7))
             }
@@ -325,7 +325,7 @@ struct TVItemDetailView: View {
                 }
                 if resumable {
                     Button { play(start: 0) } label: {
-                        Label("从头播放", systemImage: "backward.end.fill")
+                        Label(String(localized: .libraryItemPlayFromStart), systemImage: "backward.end.fill")
                     }
                     .focused($actionFocus, equals: .restart)
                     .accessibilityIdentifier("tv-item-restart")
@@ -339,7 +339,7 @@ struct TVItemDetailView: View {
                 .disabled(marking)
                 .focused($actionFocus, equals: .favorite)
                 .prefersDefaultFocus(returningToStage && !canPlay, in: focusScope)
-                .accessibilityLabel(favorite == true ? "已收藏" : "收藏")
+                .accessibilityLabel(favorite == true ? String(localized: .mediaCardsFavorited) : String(localized: .libraryGalleryFavorite))
                 .accessibilityIdentifier("tv-item-favorite")
                 if canPlay {
                     Button { Task { await togglePlayed() } } label: {
@@ -348,7 +348,7 @@ struct TVItemDetailView: View {
                     .buttonBorderShape(.circle)
                     .disabled(marking)
                     .focused($actionFocus, equals: .played)
-                    .accessibilityLabel(finished ? "已看完" : "标为已看")
+                    .accessibilityLabel(finished ? String(localized: .libraryItemWatched) : String(localized: .libraryItemSetWatched))
                     .accessibilityIdentifier("tv-item-played")
                 }
             }
@@ -492,7 +492,7 @@ struct TVItemDetailView: View {
         ScrollView(.horizontal) {
             HStack(spacing: 16) {
                 ForEach(detail.seasons, id: \.self) { number in
-                    Button(number == 0 ? "特别篇" : "第 \(number) 季") {
+                    Button(number == 0 ? String(localized: .mediaSeasonSpecials) : String(localized: .mediaSeasonTitle(number))) {
                         Task { await loadBrowse(number) }
                     }
                     .buttonStyle(TVSeasonTabStyle(selected: number == browseSeason))
@@ -511,7 +511,7 @@ struct TVItemDetailView: View {
 
     /// 焦点在段页签上时，右上方（片名或选季那一行的右端）提示按确认能看这一段的全部分集——首屏不加按钮，入口就是这里
     private var rangeHint: some View {
-        Text("按确认查看这一段的全部分集")
+        Text(String(localized: .libraryTvViewRangeHint))
             .font(.system(size: 22))
             .foregroundStyle(.white.opacity(0.55))
             .padding(.trailing, TVMetrics.edge)
@@ -551,7 +551,7 @@ struct TVItemDetailView: View {
     /// 用户嫌太重：一部片通常只在一两个合集里，一张孤零零的大卡不好看、各部之间也差不多，入口用文字就够
     private func collectionsRow(_ detail: API.LibraryItemDetailView) -> some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("所属合集")
+            Text(String(localized: .libraryBelongsToCollection))
                 .font(.system(size: 32, weight: .semibold))
             HStack(spacing: 24) {
                 ForEach(otherCollections(detail), id: \.id) { row in
@@ -618,10 +618,10 @@ struct TVItemDetailView: View {
         if !directors.isEmpty || !actors.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 if let director = directors.first {
-                    creditLine("导演", [director])
+                    creditLine(String(localized: .mediaDetailDirector), [director])
                 }
                 if !actors.isEmpty {
-                    creditLine("主演", Array(actors))
+                    creditLine(String(localized: .libraryItemStarring), Array(actors))
                 }
             }
             // 按内容收缩、右边贴页面边线（同 Apple TV：一块左对齐的字整体靠右）；只有三个名字，不会长到压住左边的文字
@@ -651,10 +651,10 @@ struct TVItemDetailView: View {
         guard let meta = detail.localMeta else { return [] }
         let directors: [CastPerson] = meta.directorCredits.isEmpty
             ? Array(NSOrderedSet(array: meta.directors)).compactMap { $0 as? String }
-                .map { CastPerson(name: $0, role: "导演", avatar: nil, personId: nil) }
-            : meta.directorCredits.map { CastPerson(name: $0.name, role: "导演", avatar: $0.thumbUrl, personId: $0.tmdbPersonId) }
+                .map { CastPerson(name: $0, role: String(localized: .mediaDetailDirector), avatar: nil, personId: nil) }
+            : meta.directorCredits.map { CastPerson(name: $0.name, role: String(localized: .mediaDetailDirector), avatar: $0.thumbUrl, personId: $0.tmdbPersonId) }
         return directors + meta.actors.map {
-            CastPerson(name: $0.name, role: $0.role.map { "饰 \($0)" }, avatar: $0.thumbUrl, personId: $0.tmdbPersonId)
+            CastPerson(name: $0.name, role: $0.role.map { String(localized: .mediaPersonCharacter($0)) }, avatar: $0.thumbUrl, personId: $0.tmdbPersonId)
         }
     }
 
@@ -676,7 +676,7 @@ struct TVItemDetailView: View {
             if let runtime, runtime > 0 { facts.append(Self.runtimeText(runtime)) }
         } else {
             let seasons = detail.seasons.filter { $0 > 0 }.count
-            if seasons >= 2 { facts.append("共 \(seasons) 季") }
+            if seasons >= 2 { facts.append(String(localized: .subscriptionCollectionSeasons(seasons))) }
         }
         return facts.joined(separator: " · ")
     }
@@ -723,9 +723,9 @@ struct TVItemDetailView: View {
     }
 
     static func runtimeText(_ minutes: Int) -> String {
-        if minutes < 60 { return "\(minutes) 分钟" }
+        if minutes < 60 { return String(localized: .libraryCloudReportMinutes(minutes)) }
         let h = minutes / 60, m = minutes % 60
-        return m > 0 ? "\(h) 小时 \(m) 分钟" : "\(h) 小时"
+        return m > 0 ? String(localized: .unitsDurationHoursMinutes(h, m)) : String(localized: .libraryRecycleShortHours(h))
     }
 
     // MARK: 加载与动作
@@ -963,7 +963,7 @@ private struct TVEpisodeRow: View {
                     .equatable()
                     .contextMenu {
                         if episode.owned {
-                            Button(episode.played ? "标为未看" : "标为已看") { togglePlayed(episode) }
+                            Button(episode.played ? String(localized: .libraryMarkUnwatched) : String(localized: .libraryItemSetWatched)) { togglePlayed(episode) }
                         }
                     }
                     .focused($focused, equals: episode.episodeNumber)
@@ -1016,7 +1016,7 @@ private struct TVCastRow: View, Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.people == rhs.people && lhs.itemId == rhs.itemId }
 
     var body: some View {
-        TVShelf(title: "演职员") {
+        TVShelf(title: String(localized: .mediaCardsCast)) {
             ForEach(Array(people.enumerated()), id: \.offset) { index, person in
                 TVPersonPortraitCard(name: person.name, role: person.role,
                                      imageURL: api.image(person.avatar, width: ImageWidth.tvCard(TVPersonPortraitCard.width))) {
@@ -1052,7 +1052,7 @@ private struct TVSeriesRow: View, Equatable {
     }
 
     var body: some View {
-        TVShelf(title: series.seriesName ?? "系列", detail: "已有 \(series.ownedCount) / 共 \(series.total)") {
+        TVShelf(title: series.seriesName ?? String(localized: .libraryCollectionsSeries), detail: String(localized: .libraryItemSeriesOwnedFraction(series.ownedCount, series.total))) {
             ForEach(series.parts, id: \.tmdbId) { part in
                 let current = part.mediaItemId == itemId
                 let missing = part.mediaItemId == nil
@@ -1060,7 +1060,7 @@ private struct TVSeriesRow: View, Equatable {
                     title: part.title,
                     subtitle: part.releaseDate.map { String($0.prefix(4)) },
                     imageURL: api.image(part.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth)),
-                    badge: current ? "本片" : missing ? "未入库" : nil
+                    badge: current ? String(localized: .libraryItemCurrentTitle) : missing ? String(localized: .libraryCollectionsNotOwned) : nil
                 ) {
                     if current {
                         backToStage()
@@ -1090,7 +1090,7 @@ private struct TVSimilarRow: View, Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.items == rhs.items && lhs.libraryId == rhs.libraryId }
 
     var body: some View {
-        TVShelf(title: "相似推荐") {
+        TVShelf(title: String(localized: .mediaDetailSimilar)) {
             ForEach(items, id: \.mediaItemId) { item in
                 TVPosterCard(
                     title: item.title,
@@ -1141,7 +1141,7 @@ private struct TVRangeTabs: View {
                             .disabled(!tabsFocused && !current)
                             .focused(focus, equals: .range(range.index))
                             .id(range.index)
-                            .accessibilityValue([current ? "当前" : nil, anchored ? "接着看" : nil].compactMap { $0 }.joined(separator: "，"))
+                            .accessibilityValue([current ? String(localized: .libraryArtworkCurrent) : nil, anchored ? String(localized: .libraryItemContinue) : nil].compactMap { $0 }.joined(separator: "，"))
                             .accessibilityIdentifier("tv-range-\(range.first)")
                     }
                 }
@@ -1232,12 +1232,12 @@ private struct TVEpisodeCard: View, Equatable {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 18) {
-                RemoteImage(url: imageURL, placeholderText: "第 \(episode.episodeNumber) 集")
+                RemoteImage(url: imageURL, placeholderText: String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
                     .frame(width: width, height: width * 9 / 16)
                     .overlay(alignment: .bottomLeading) { stillBand }
                     .overlay(alignment: .topLeading) {
                         if resumeTag {
-                            Text("接着看")
+                            Text(String(localized: .libraryItemContinue))
                                 .font(.caption2.weight(.bold))
                                 .foregroundStyle(.black)
                                 .padding(.horizontal, 12)
@@ -1245,7 +1245,7 @@ private struct TVEpisodeCard: View, Equatable {
                                 .background(TVEpisodeRangeStyle.anchorColor, in: .capsule)
                                 .padding(12)
                         } else if episode.played {
-                            Text("已看")
+                            Text(String(localized: .libraryItemPlayedTag))
                                 .font(.caption2.weight(.bold))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
@@ -1257,10 +1257,10 @@ private struct TVEpisodeCard: View, Equatable {
                     // 焦点效果要点名套在图上：图是 LazyImage 包出来的，`.borderless` 自己找不到它
                     .hoverEffect(.highlight)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("第 \(episode.episodeNumber) 集")
+                    Text(String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.6))
-                    Text(episode.name ?? "第 \(episode.episodeNumber) 集")
+                    Text(episode.name ?? String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
                         .font(.system(size: 26, weight: .semibold))
                         .lineLimit(1)
                     Text(episode.overview ?? "")
@@ -1268,7 +1268,7 @@ private struct TVEpisodeCard: View, Equatable {
                         .foregroundStyle(.white.opacity(0.78))
                         .lineLimit(4)
                         .frame(height: 116, alignment: .top)
-                    Text(episode.owned ? (episode.airDate.map { String($0.prefix(10)) } ?? "") : "缺集")
+                    Text(episode.owned ? (episode.airDate.map { String($0.prefix(10)) } ?? "") : String(localized: .libraryItemMissingEpisode))
                         .font(.system(size: 20))
                         .foregroundStyle(.white.opacity(0.55))
                 }
@@ -1283,7 +1283,7 @@ private struct TVEpisodeCard: View, Equatable {
     @ViewBuilder
     private var stillBand: some View {
         let inProgress = episode.positionMs > 0  // 含看完后重看到一半的
-        let text: String? = inProgress ? "看到 \(Formatters.clock(Double(episode.positionMs) / 1000))"
+        let text: String? = inProgress ? String(localized: .libraryItemPosition(String(Formatters.clock(Double(episode.positionMs) / 1000))))
             : runtimeMinutes.flatMap { $0 > 0 ? TVItemDetailView.runtimeText($0) : nil }
         if text != nil || inProgress {
             VStack(alignment: .leading, spacing: 10) {

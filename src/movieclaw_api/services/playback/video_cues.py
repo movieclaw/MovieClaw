@@ -206,6 +206,7 @@ async def _generate(file_id: int, file_path: str) -> None:
             data = b""
             if result is None:
                 meta["skip"] = True
+                # i18n-ignore: log note
                 note = "不是可用的 MKV 索引，记为不适用"
             else:
                 data = base64.b64decode(result["data"])
@@ -213,6 +214,7 @@ async def _generate(file_id: int, file_path: str) -> None:
                 if original - len(data) < MIN_SAVING_BYTES or len(data) > MAX_DATA_BYTES:
                     meta.update(skip=True, original=original)
                     note = (
+                        # i18n-ignore: log note
                         f"原索引 {original // 1024} KB、精简后 {len(data) // 1024} KB，"
                         "省得不多，不下发"
                     )
@@ -224,7 +226,9 @@ async def _generate(file_id: int, file_path: str) -> None:
                         points=int(result["points"]),
                     )
                     note = (
+                        # i18n-ignore: log note
                         f"原索引 {original // 1024} KB → 精简 {len(data) // 1024} KB"
+                        # i18n-ignore: log note
                         f"（{result['points']} 个视频索引点）"
                     )
             await asyncio.to_thread(_write_record, file_id, meta, data)
@@ -254,9 +258,11 @@ async def _run_worker(file_path: str) -> dict | None:
     except TimeoutError:
         proc.kill()
         await proc.wait()
+        # i18n-ignore: log note
         raise RuntimeError("解析索引超过 60 秒") from None
     if proc.returncode != 0:
         raise RuntimeError(
+            # i18n-ignore: log note
             f"解析子进程退出码 {proc.returncode}：{err.decode(errors='replace')[-300:]}"
         )
     return json.loads(out.decode().strip().splitlines()[-1])

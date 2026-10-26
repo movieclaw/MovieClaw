@@ -60,6 +60,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import stored_fields
 from movieclaw_api.services import foreground, jobs
 from movieclaw_api.services.library.layout import STRM_EXT
 from movieclaw_api.services.playback.session import get_session_manager
@@ -328,7 +330,7 @@ class _PauseNotice:
         await self.context.update_progress(
             mode="indeterminate",
             phase="analyzing",
-            message="正在转码播放，片头片尾识别先暂停，播完后自动继续",
+            message_key="library.segments.pausedForPlayback",
         )
 
     async def resume(self) -> None:
@@ -338,7 +340,9 @@ class _PauseNotice:
         self.paused = False
         logger.info("转码播放结束，片头片尾识别继续")
         await self.context.update_progress(
-            mode="indeterminate", phase="analyzing", message="转码播放结束，继续识别片头片尾"
+            mode="indeterminate",
+            phase="analyzing",
+            message_key="library.segments.resumedAfterPlayback",
         )
 
 
@@ -720,33 +724,47 @@ async def _fingerprint_audio_index(file: LibraryFile) -> int:
             *_niced(args), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
     except OSError as exc:
-        raise FingerprintError("无法启动音轨探测工具，请检查 ffprobe 是否可用") from exc
+        raise FingerprintError(
+            # i18n-ignore: diagnostic text, logged/stored only
+            "无法启动音轨探测工具，请检查 ffprobe 是否可用"
+        ) from exc
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
     except TimeoutError:
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
         await proc.wait()
-        raise FingerprintError("读取音轨信息超时，请检查磁盘或网络") from None
+        raise FingerprintError(
+            # i18n-ignore: diagnostic text, logged/stored only
+            "读取音轨信息超时，请检查磁盘或网络"
+        ) from None
     except asyncio.CancelledError:
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
         await proc.wait()
         raise
     if proc.returncode != 0:
-        raise FingerprintError("无法核对多音轨时长，请检查片源是否可读")
+        raise FingerprintError(
+            # i18n-ignore: diagnostic text, logged/stored only
+            "无法核对多音轨时长，请检查片源是否可读"
+        )
     try:
         payload = json.loads(out)
         streams = payload["streams"]
         if not isinstance(streams, list):
             raise ValueError
     except (ValueError, KeyError, TypeError) as exc:
-        raise FingerprintError("音轨探测结果无效，无法选择完整音轨") from exc
+        raise FingerprintError(
+            # i18n-ignore: diagnostic text, logged/stored only
+            "音轨探测结果无效，无法选择完整音轨"
+        ) from exc
     duration = float(file.duration_seconds or 0)
     index = _complete_audio_index(streams, duration)
     if index:
         logger.warning(
-            "文件 #%s 的第一条音轨时长不足，改用第 %s 条完整音轨识别片头片尾", file.id, index + 1
+            "文件 #%s 的第一条音轨时长不足，改用第 %s 条完整音轨识别片头片尾",
+            file.id,
+            index + 1,
         )
     decodable = _decodable_audio_index(streams, index, duration)
     if decodable != index:
@@ -786,25 +804,49 @@ async def _chromaprint_window(
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
         await proc.wait()
-        raise FingerprintError("读取超时（片源所在的磁盘或网络太慢）") from None
+        raise FingerprintError(
+            # i18n-ignore: diagnostic text, logged/stored only
+            "读取超时（片源所在的磁盘或网络太慢）"
+        ) from None
     except asyncio.CancelledError:
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
         raise
     if proc.returncode == 0 and not out:
-        raise FingerprintError("音轨太短，算不出指纹")
+        raise FingerprintError(
+            # i18n-ignore: diagnostic text, logged/stored only
+            "音轨太短，算不出指纹"
+        )
     if proc.returncode != 0 or not out:
         text = err.decode("utf-8", "replace").strip()
         if "matches no streams" in text or "does not contain any stream" in text:
-            raise FingerprintError("文件没有音轨")
+            raise FingerprintError(
+                # i18n-ignore: diagnostic text, logged/stored only
+                "文件没有音轨"
+            )
         if "No such file" in text:
-            raise FingerprintError("文件读不到（可能已被移走）")
+            raise FingerprintError(
+                # i18n-ignore: diagnostic text, logged/stored only
+                "文件读不到（可能已被移走）"
+            )
         if "no decoder found" in text:
-            raise FingerprintError("音轨编码无法解码（如 Audio Vivid），也没有可替代的音轨")
+            raise FingerprintError(
+                # i18n-ignore: diagnostic text, logged/stored only
+                "音轨编码无法解码（如 Audio Vivid），也没有可替代的音轨"
+            )
         if "Invalid data found" in text or "moov atom not found" in text:
-            raise FingerprintError("文件已损坏或不是可识别的视频")
-        tail = text.splitlines()[-1] if text else f"ffmpeg 退出码 {proc.returncode}"
-        raise FingerprintError(f"音频解码失败：{tail[:200]}")
+            raise FingerprintError(
+                # i18n-ignore: diagnostic text, logged/stored only
+                "文件已损坏或不是可识别的视频"
+            )
+        tail = (
+            # i18n-ignore: diagnostic text, logged/stored only
+            text.splitlines()[-1] if text else f"ffmpeg 退出码 {proc.returncode}"
+        )
+        raise FingerprintError(
+            # i18n-ignore: diagnostic text, logged/stored only
+            f"音频解码失败：{tail[:200]}"
+        )
     return out
 
 
@@ -908,10 +950,16 @@ class _OcrWorker:
         await self.proc.stdin.drain()
         line = await self.proc.stdout.readline()
         if not line:
-            raise RuntimeError(f"文字识别进程退出了（退出码 {await self.proc.wait()}）")
+            raise RuntimeError(
+                # i18n-ignore: diagnostic text, logged/stored only
+                f"文字识别进程退出了（退出码 {await self.proc.wait()}）"
+            )
         reply = json.loads(line)
         if "error" in reply:
-            raise RuntimeError(f"文字识别出错：{reply['error']}")
+            raise RuntimeError(
+                # i18n-ignore: diagnostic text, logged/stored only
+                f"文字识别出错：{reply['error']}"
+            )
         return reply
 
     async def stop(self) -> None:
@@ -1207,7 +1255,10 @@ async def _refine_episode(
                 )
                 if end < old_end:
                     segment["end_ms"] = round(end * 1000)
-                    notes.append(f"片头终点 {old_end:.1f}→{end:.1f}（文字卡后已回正文）")
+                    notes.append(
+                        # i18n-ignore: diagnostic text, logged/stored only
+                        f"片头终点 {old_end:.1f}→{end:.1f}（文字卡后已回正文）"
+                    )
         candidate = audio
         if audio is not None and outro and outro.get("lead_start_ms") is not None:
             start = await credits_logic.extend_lead(
@@ -1215,7 +1266,10 @@ async def _refine_episode(
             )
             if start < audio[0]:
                 candidate = (start, audio[1])
-                notes.append(f"片尾起点 {audio[0]:.0f}→{start:.0f}（前段是暗画面）")
+                notes.append(
+                    # i18n-ignore: diagnostic text, logged/stored only
+                    f"片尾起点 {audio[0]:.0f}→{start:.0f}（前段是暗画面）"
+                )
         decision = await credits_logic.refine_outro(candidate, duration, observe_outro)
         # 先核对声音结果，避免前面的演职员表把本来应否决的音频区间重新变成片尾。
         if (
@@ -1231,14 +1285,20 @@ async def _refine_episode(
                 )
             if earlier < start:
                 decision = credits_logic.OutroDecision(
-                    (earlier, end), "向前接黑底演职员表", to_end=decision.to_end
+                    (earlier, end),
+                    # i18n-ignore: diagnostic text, logged/stored only
+                    "向前接黑底演职员表",
+                    to_end=decision.to_end,
                 )
         if decision.segment != audio or (
             outro is not None
             and decision.to_end is not None
             and decision.to_end != outro.get("to_end", False)
         ):
-            notes.append(f"片尾：{decision.reason}")
+            notes.append(
+                # i18n-ignore: diagnostic text, logged/stored only
+                f"片尾：{decision.reason}"
+            )
         segments = [s for s in segments if s.get("type") != "outro"]
         if decision.segment is not None:
             start, end = decision.segment
@@ -1265,7 +1325,10 @@ async def _refine_episode(
                             "to_end": True,
                         }
                     )
-                    notes.append(f"片尾后 {preview[0]:.0f} 秒起是下集预告")
+                    notes.append(
+                        # i18n-ignore: diagnostic text, logged/stored only
+                        f"片尾后 {preview[0]:.0f} 秒起是下集预告"
+                    )
         if chinese:
             notes += await segment_labels.label_head_ads(segments, probe.observe_corners)
         await asyncio.to_thread(probe.save)
@@ -1359,7 +1422,10 @@ async def _run_detection(episodes: list[dict[str, Any]]) -> dict[str, Any]:
             raise
     if proc.returncode != 0:
         detail = err.decode("utf-8", "replace").strip().splitlines()
-        raise RuntimeError(f"片头片尾识别进程出错：{detail[-1] if detail else proc.returncode}")
+        raise RuntimeError(
+            # i18n-ignore: diagnostic text, logged/stored only
+            f"片头片尾识别进程出错：{detail[-1] if detail else proc.returncode}"
+        )
     return json.loads(out)
 
 
@@ -1397,7 +1463,10 @@ async def _fingerprint_one(
             except FingerprintError as exc:
                 error = str(exc)
                 logger.warning(
-                    "文件 #%s 算不了片头片尾指纹：%s（%s）", file.id, error, file.file_path
+                    "文件 #%s 算不了片头片尾指纹：%s（%s）",
+                    file.id,
+                    error,
+                    file.file_path,
                 )
         async with db.session() as session:
             row = await session.get(MediaSegmentState, file.id)
@@ -1657,7 +1726,11 @@ async def _bump(media_item_id: int, season_number: int, episode_number: int) -> 
             if not seasons:
                 return
             item = await session.get(MediaItem, media_item_id)
-            title = item.title if item is not None else f"条目 #{media_item_id}"
+            title = (
+                item.title
+                if item is not None
+                else t("library.segments.untitledItem", id=str(media_item_id))
+            )
             await enqueue_item_job(
                 session,
                 media_item_id,
@@ -1701,7 +1774,7 @@ async def enqueue_library_job(
         max_attempts=2,
         priority=-10,
         origin=origin,
-        progress=jobs.default_progress("等待识别片头片尾"),
+        progress=jobs.default_progress(message_key="library.segments.queued"),
     )
 
 
@@ -1735,7 +1808,9 @@ async def enqueue_item_job(
         max_attempts=2,
         priority=priority,
         origin=origin,
-        progress=jobs.default_progress(f"等待识别《{title}》的片头片尾"),
+        progress=jobs.default_progress(
+            message_key="library.segments.queuedTitle", message_params={"title": title}
+        ),
     )
 
 
@@ -1846,8 +1921,9 @@ async def apply_library_switch(
             await jobs.request_cancel(
                 session,
                 job.id,
-                requested_by="媒体库配置变更",
-                reason=f"「{library.name}」已关闭「识别片头片尾」，未完成的识别随之取消",
+                requested_by="媒体库配置变更",  # i18n-ignore: internal audit label
+                reason_key="library.segments.cancelledDisabled",
+                reason_params={"name": library.name},
             )
         return
     if rescan_queued:
@@ -1921,7 +1997,8 @@ async def _run_seasons(
                 await context.update_progress(
                     mode="determinate",
                     phase="analyzing",
-                    message=f"正在识别片头片尾：第 {done}/{total} 季",
+                    message_key="library.segments.progress",
+                    message_params={"done": done, "total": total},
                     current=done,
                     total=total,
                     percent=round(done * 100 / total, 1) if total else 100.0,
@@ -1931,19 +2008,14 @@ async def _run_seasons(
     return stats
 
 
-def _summary(stats: dict[str, Any]) -> str:
-    message = f"片头片尾识别完成：处理 {stats['seasons']} 季，新算指纹 {stats['fingerprinted']} 集"
-    if stats["failed"]:
-        message += f"，{stats['failed']} 集算不了（多为没有音轨或文件读不到）"
-    if stats["errors"]:
-        message += f"，{stats['errors']} 季出错（详见日志）"
-    return message
-
-
-_UNSUPPORTED = (
-    "当前 ffmpeg 不支持音频指纹（chromaprint），片头片尾识别已跳过。"
-    "Docker 镜像自带的 jellyfin-ffmpeg 支持；源码部署请换用 jellyfin-ffmpeg"
-)
+def _summary(stats: dict[str, Any]) -> dict[str, Any]:
+    return stored_fields(
+        "library.segments.summary",
+        seasons=stats["seasons"],
+        fingerprinted=stats["fingerprinted"],
+        failed=stats["failed"],
+        errors=stats["errors"],
+    )
 
 
 @jobs.register_job_handler(LIBRARY_JOB_TYPE)
@@ -1954,21 +2026,29 @@ async def _run_library_job(context: jobs.JobContext, input_data: dict[str, Any])
     library_id = int(input_data["library_id"])
     # 与整理 / 转移互斥：它们正在批量改文件路径（不占库租约，所以自己检查）
     if is_organizing(library_id) or is_transferring(library_id):
-        raise jobs.JobRetry("媒体库正在变更文件路径，片头片尾识别稍后自动继续", delay_seconds=30)
+        raise jobs.JobRetry(message_key="library.segments.pathsChanging", delay_seconds=30)
     async with get_database().session() as session:
         library = await session.get(Library, library_id)
         if library is None:
-            raise jobs.JobFailed("媒体库已不存在，无法识别片头片尾", code="LIBRARY_NOT_FOUND")
+            raise jobs.JobFailed(
+                message_key="library.segments.libraryMissing", code="LIBRARY_NOT_FOUND"
+            )
         if library.kind != "tv" or not library.detect_media_segments:
-            return {"message": f"「{library.name}」没有打开片头片尾识别，本次未处理"}
+            return stored_fields("library.segments.disabled", name=library.name)
         if not await fingerprint_supported():
-            return {"message": _UNSUPPORTED}
+            return stored_fields("library.segments.unsupported")
 
     async def find(session: AsyncSession) -> list[tuple[int, int]]:
         return await seasons_needing_work(session, library_id=library_id)
 
-    stats = await _run_seasons(context, find, subject=f"媒体库 #{library_id}", polite=True)
-    return {"message": _summary(stats), **stats}
+    stats = await _run_seasons(
+        context,
+        find,
+        # i18n-ignore: diagnostic text, logged/stored only
+        subject=f"媒体库 #{library_id}",
+        polite=True,
+    )
+    return {**stats, **_summary(stats)}
 
 
 @jobs.register_job_handler(ITEM_JOB_TYPE)
@@ -1977,7 +2057,7 @@ async def _run_item_job(context: jobs.JobContext, input_data: dict[str, Any]) ->
     season = input_data.get("season_number")
     episode = input_data.get("episode_number")
     if not await fingerprint_supported():
-        return {"message": _UNSUPPORTED}
+        return stored_fields("library.segments.unsupported")
 
     async def find(session: AsyncSession) -> list[tuple[int, int]]:
         return await seasons_needing_work(
@@ -1989,6 +2069,7 @@ async def _run_item_job(context: jobs.JobContext, input_data: dict[str, Any]) ->
     stats = await _run_seasons(
         context,
         find,
+        # i18n-ignore: diagnostic text, logged/stored only
         subject=f"条目 #{media_item_id}",
         budget=PRIORITY_BATCH,
         prefer_episode=int(episode) if episode is not None else None,
@@ -2016,4 +2097,4 @@ async def _run_item_job(context: jobs.JobContext, input_data: dict[str, Any]) ->
         )
     for library_id in library_ids:
         await enqueue_after_library_change(library_id)
-    return {"message": _summary(stats), **stats}
+    return {**stats, **_summary(stats)}

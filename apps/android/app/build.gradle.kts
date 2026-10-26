@@ -111,6 +111,13 @@ dependencies {
 
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    // 扫码批准设备登录（iOS PairingScannerScreen 的对应物）：CameraX 取景 + ML Kit 识别二维码
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+    implementation(libs.mlkit.barcode)
+    implementation(libs.eddsa)
 
     // 本机通知的周期检查（纯客户端，不动服务端）
     implementation(libs.androidx.work.runtime)

@@ -822,11 +822,24 @@ html[data-theme="netflix"] .sub-hero-card > .sub-hero-tint {
   }
 }
 
+/* 纵向渐隐（桌面档）：八段缓动 = 左侧 --hero-blend 曲线转 90°，45% 起渐、
+   到底边（100%）恰好收成纯黑。两档直线在照片上会读出一道「带」（同详情页
+   横遮罩的既有结论）；旧值 58%→88% 收黑太早，底边还留下一段 12% 的死黑。 */
 .nf-billboard-art::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 58%, #000 88%);
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0) 45%,
+    rgba(0, 0, 0, 0.07) 50.5%,
+    rgba(0, 0, 0, 0.19) 59%,
+    rgba(0, 0, 0, 0.37) 67%,
+    rgba(0, 0, 0, 0.56) 75%,
+    rgba(0, 0, 0, 0.74) 84%,
+    rgba(0, 0, 0, 0.89) 92%,
+    #000 100%
+  );
 }
 
 @media (max-width: 767px) {

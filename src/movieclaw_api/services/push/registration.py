@@ -77,31 +77,33 @@ def validate(
 ) -> Registration:
     """校验 App 交上来的登记；不合规抛 400（说明给开发者看，App 不会展示给用户）。"""
     if permission not in PERMISSIONS:
-        raise BadRequestException(f"permission 只能是 {' / '.join(PERMISSIONS)}")
+        raise BadRequestException(
+            message_key="errors.push.permissionInvalid", params={"values": " / ".join(PERMISSIONS)}
+        )
     provided = [v for v in (token, key_id, key) if v]
     if stream:
         if provided:
-            raise BadRequestException("实时通知不需要 token、key_id、key")
+            raise BadRequestException(message_key="errors.push.realtimeNoToken")
         return Registration(permission=permission, stream=True)
     if not provided:
         return Registration(
             permission=permission, stream=stream, unsupported_build=unsupported_build
         )
     if len(provided) != 3:
-        raise BadRequestException("token、key_id、key 三个要么都有，要么都没有")
+        raise BadRequestException(message_key="errors.push.keyFieldsIncomplete")
     assert token and key_id and key
     if not _TOKEN_PATTERN.fullmatch(token):
-        raise BadRequestException("token 必须是 32–400 位的十六进制字符串")
+        raise BadRequestException(message_key="errors.push.tokenInvalid")
     if not topic or not _TOPIC_PATTERN.fullmatch(topic):
-        raise BadRequestException("topic 必须是 App 的 Bundle ID")
+        raise BadRequestException(message_key="errors.push.topicInvalid")
     if environment not in ENVIRONMENTS:
-        raise BadRequestException("environment 只能是 production 或 development")
+        raise BadRequestException(message_key="errors.push.environmentInvalid")
     if not crypto.KEY_ID_PATTERN.fullmatch(key_id):
-        raise BadRequestException("key_id 必须是 11 个 base64url 字符")
+        raise BadRequestException(message_key="errors.push.keyIdInvalid")
     try:
         crypto.decode_key(key)
     except ValueError as exc:
-        raise BadRequestException("key 必须是 32 字节密钥的 base64url") from exc
+        raise BadRequestException(message_key="errors.push.keyInvalid") from exc
     kinds = tuple(t for t in dict.fromkeys(types or ["alert"]) if t in KNOWN_TYPES)
     return Registration(
         permission=permission,

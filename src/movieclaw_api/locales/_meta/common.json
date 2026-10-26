@@ -1,0 +1,26 @@
+{
+  "list.separator": {
+    "sourceHash": "c4a40ea8fe35627476f7f8cb9e1fc7f8898f428c6d1ff18b0bc5479d5db39c5f"
+  },
+  "list.emptySeparator": {
+    "sourceHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "value.missing": {
+    "sourceHash": "d83a494d6bd66b5e55b68ca63d5d8326fc50b77b5304386116021a30dde04e79"
+  },
+  "list.issueSeparator": {
+    "sourceHash": "b0d3c9cfa0e1ef6799ec266c5467a1dc04e54e2f22b853c2f35d1dec1bbd2e71"
+  },
+  "list.slashSeparator": {
+    "sourceHash": "005e1574a2b5c816304606c9672c7c18a7f1b343917e36fc1ed596dd80984650"
+  },
+  "list.dotSeparator": {
+    "sourceHash": "588da410532073f8daec0cc62c6904f9d8a150b41ae3b1565c10069742cb18fc"
+  },
+  "list.paragraphSeparator": {
+    "sourceHash": "75a11da44c802486bc6f65640aa48a730f0f684c5c07a42ba3cd1735eb3fb070"
+  },
+  "value.none": {
+    "sourceHash": "484d55613910eb8c0917fe308b499d474115ced993cd002a17d7cc75254330a4"
+  }
+}

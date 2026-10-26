@@ -1,11 +1,20 @@
-/** 与 Apple 客户端一致；选择只属于本次播放，连续剧换集保留，不写全局偏好。 */
-export const DISPLAY_MODES = [
-  { id: "fit", label: "完整显示", hint: "保持比例，显示完整画面" },
-  { id: "fill", label: "铺满裁切", hint: "保持比例，填满屏幕，可能裁去边缘" },
-  { id: "stretch", label: "拉伸铺满", hint: "填满屏幕，画面比例会改变" },
-] as const;
+import { appTranslator } from "../i18n/translate.ts";
+import { requestLocale, type AppLocale } from "../i18n/negotiate.ts";
 
-export type DisplayMode = (typeof DISPLAY_MODES)[number]["id"];
+/** 与 Apple 客户端一致；选择只属于本次播放，连续剧换集保留，不写全局偏好。 */
+export type DisplayMode = "fit" | "fill" | "stretch";
+
+export function displayModes(locale: AppLocale = requestLocale() ?? "zh-Hans") {
+  const t = appTranslator(locale);
+  return [
+    { id: "fit", label: t("player.display.fit"), hint: t("player.display.fitHint") },
+    { id: "fill", label: t("player.display.fill"), hint: t("player.display.fillHint") },
+    { id: "stretch", label: t("player.display.stretch"), hint: t("player.display.stretchHint") },
+  ] as const;
+}
+
+export const DISPLAY_MODES = displayModes("zh-Hans");
+
 export type DisplaySelection = { mediaItemId: number; mode: DisplayMode };
 
 export function currentDisplaySelection(selection: DisplaySelection | null, mediaItemId: number): DisplaySelection | null {

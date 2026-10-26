@@ -58,5 +58,16 @@
             android:authorities="${applicationId}.watchnext"
             android:exported="true"
             tools:ignore="ExportedContentProvider" />
+        <!-- 海报屏保（androidtv-mc-screensaver.md）：待机轮播媒体库剧照，设置→屏保 里可选 -->
+        <service
+            android:name=".dream.LibraryDream"
+            android:exported="true"
+            android:label="@string/dream_library"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

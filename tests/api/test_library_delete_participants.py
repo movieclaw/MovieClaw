@@ -101,7 +101,7 @@ def client(tmp_path, monkeypatch):
 
     reset_auth_state()
     app = create_app()
-    test_client = TestClient(app)
+    test_client = TestClient(app, headers={"Accept-Language": "zh-Hans"})
     with test_client:
         resp = test_client.post("/api/v1/auth/bootstrap", json=ADMIN)
         assert resp.status_code == 200, resp.text

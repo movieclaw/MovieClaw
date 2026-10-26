@@ -9,6 +9,7 @@ import {
   shelf,
   shelfCountSummary,
   shortenCandidates,
+  subscriptionStanding,
   wallSummary,
   weekdayOf,
 } from "../lib/subscriptions-home.ts";
@@ -364,4 +365,53 @@ test("未订阅的旧季缺集不抬高纯洗版；缺少库存但没有工单�
   const row = shelf("tv", [upgrade, missing], [], []);
   assert.deepEqual(row.active.map((item) => item.sub.id), [2, 1]);
   assert.deepEqual(row.active.map((item) => item.chip.text), ["缺 4 集", "洗版中"]);
+});
+
+
+// --- 订阅窗口：一季上千集只订阅了一段 ---
+
+function capped(
+  id,
+  { owned, windows = [{ season_number: 1, start: 1, end: 20, total: 1043 }], ...rest } = {},
+) {
+  const base = sub(id, { owned, progress: { total: 20, wanted: 0, imported: 20 }, ...rest });
+  base.season_collection = [
+    {
+      season_number: 1,
+      name: "第 1 季",
+      air_date: "2025-01-01",
+      episode_count: 1043,
+      aired_count: 1043,
+      owned_count: owned,
+    },
+  ];
+  base.follow_future = false;
+  base.media.status = "Ended";
+  base.episode_windows = windows;
+  return base;
+}
+
+test("只订阅了前 20 集：这一批已就绪就是「可继续订阅」，而不是缺一千多集", () => {
+  const standing = subscriptionStanding(capped(1, { owned: 20 }), null, null);
+  assert.equal(standing.phase, "active");
+  assert.deepEqual(standing.chip, { text: "可继续订阅", tone: "calm" });
+});
+
+test("订阅窗口内真有没入库的集，仍报缺的是窗口内的集数", () => {
+  const standing = subscriptionStanding(capped(2, { owned: 15 }), null, null);
+  assert.deepEqual(standing.chip, { text: "缺 5 集", tone: "warn" });
+});
+
+test("在播窗口只算从起点起的集数", () => {
+  const standing = subscriptionStanding(
+    capped(2, { owned: 10, windows: [{ season_number: 1, start: 1005, end: null, total: 1043 }] }),
+    null,
+    null,
+  );
+  assert.deepEqual(standing.chip, { text: "缺 29 集", tone: "warn" });
+});
+
+test("没有订阅窗口的长剧保持原样：整季都算缺集", () => {
+  const standing = subscriptionStanding(capped(3, { owned: 20, windows: null }), null, null);
+  assert.deepEqual(standing.chip, { text: "缺 1023 集", tone: "warn" });
 });

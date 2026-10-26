@@ -401,3 +401,22 @@ test("媒体库有新片：null 是全部（含以后新建的），取消一个
   // 看不见的库不算进列表
   assert.deepEqual(toggleLibrary([1, 9], visible, 2, true), { libraryIds: [1, 2], turnOff: false });
 });
+
+test("notification groups retain stable identities when translated headings coincide", () => {
+  const events = [{ key: "first", group: "Same heading", group_id: "source.first" },
+    { key: "second", group: "Same heading", group_id: "source.second" },
+    { key: "third", group: "Same heading", group_id: "source.first" }];
+  assert.deepEqual(groupEvents(events).map((g) => [g.id, g.group, g.items.map((e) => e.key)]),
+    [["source.first", "Same heading", ["first", "third"]], ["source.second", "Same heading", ["second"]]]);
+});
+
+test("test notification summaries and device attention accept an explicit language", () => {
+  assert.equal(testTargetHint(1, 1, "en"), "Send to 1 device and 1 IM account");
+  assert.equal(attentionLine({ device_name: "Fixture", status: "bad_token", status_text: "作者原文" }, "en"), "Fixture: 作者原文");
+  const result = { sent: 1, results: [{ device_id: "ld-1", device_name: "Fixture", result: "ok", message: "" }] };
+  const before = structuredClone(result);
+  assert.deepEqual(summarizePushTest(result, "en"), { tone: "success", message: "Test notification sent to 1 device. Check your phone" });
+  assert.deepEqual(result, before);
+  assert.equal(summarizePushTest({ sent: 0, results: [{ device_id: "ld-1", device_name: "Fixture", result: "failed", message: "作者原文" }] }, "en").message,
+    "Test notification was not sent. Fixture: 作者原文");
+});

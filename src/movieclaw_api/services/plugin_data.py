@@ -30,8 +30,10 @@ _SCOPE = re.compile(r"^(global|[a-z_]+:[A-Za-z0-9_.\-]{1,100})$")
 
 def _check(scope: str, key: str) -> None:
     if not _SCOPE.match(scope):
+        # i18n-ignore: developer error
         raise ValueError(f"作用域须是 global 或「实体:id」（如 subscription:35）：{scope!r}")
     if not key or len(key) > 200:
+        # i18n-ignore: developer error
         raise ValueError("键不能为空，且不超过 200 个字符")
 
 
@@ -59,6 +61,7 @@ class PluginStore:
         _check(scope, key)
         text = json.dumps(value, ensure_ascii=False)
         if len(text.encode("utf-8")) > MAX_VALUE_BYTES:
+            # i18n-ignore: developer error
             raise ValueError(f"值超过 {MAX_VALUE_BYTES // 1024} KB，请存文件、这里存引用")
         stored: Any = value
         if secret:

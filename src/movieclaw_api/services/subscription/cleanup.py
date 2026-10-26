@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import AppException
+from movieclaw_api.i18n.stored import reference, source_render, source_text, stored_fields
 from movieclaw_api.services import jobs
 from movieclaw_api.services.download_tasks import delete_download_task
 from movieclaw_api.services.library.recycle import recycle_file
@@ -176,7 +177,8 @@ async def build_cleanup_plan(
             TorrentTarget(
                 info_hash=attempt.info_hash.lower(),
                 downloader_id=attempt.downloader_id,
-                downloader_name=downloader_names.get(attempt.downloader_id) or "下载器",
+                downloader_name=downloader_names.get(attempt.downloader_id)
+                or source_text("subscription.cleanup.downloaderFallback"),
                 title=title,
                 hit_and_run=attempt.hit_and_run,
             )
@@ -261,7 +263,11 @@ async def _covered_seasons(session: AsyncSession, subscription: Subscription) ->
 async def _item_title(session: AsyncSession, media_item_id: int) -> str:
     """作品名——任务名与所有用户可读文案都用它（订阅删掉后条目仍在）。"""
     item = await session.get(MediaItem, media_item_id)
-    return item.title if item is not None else f"条目 #{media_item_id}"
+    return (
+        item.title
+        if item is not None
+        else source_text("subscription.cleanup.itemFallback", id=media_item_id)
+    )
 
 
 async def enqueue_cleanup_job(
@@ -271,7 +277,7 @@ async def enqueue_cleanup_job(
     delete_torrents: bool,
     delete_library_files: bool,
     origin: str = "web",
-    label: str = "取消订阅清理",
+    label: dict | None = None,
 ) -> jobs.CreateJobResult | None:
     """把选中的清理内容入队；两项都没选或都无内容时返回 None（不建空任务）。
 
@@ -279,7 +285,8 @@ async def enqueue_cleanup_job(
     删掉且清理已入队，要么两件事都没发生"（绝不会出现"订阅还在但文件已被回收"）；
     按季清理时是"要么工单退回且清理已入队，要么都没发生"。
 
-    ``label``：任务名后缀，让任务中心能一眼区分"整条退订"与"第 2 季退出追踪"。
+    ``label``：任务名后缀（文案引用），让任务中心能一眼区分"整条退订"与"第 2 季退出追踪"；
+    缺省为整条退订。
     """
     torrents = list(plan.torrents) if delete_torrents else []
     files = list(plan.files) if delete_library_files else []
@@ -288,7 +295,11 @@ async def enqueue_cleanup_job(
     return await jobs.create_job(
         session,
         job_type=JOB_TYPE,
-        subject=f"《{plan.title}》{label}",
+        subject_ref=reference(
+            "subscription.cleanup.subject",
+            title=plan.title,
+            label=label or reference("subscription.cleanup.unsubscribeLabel"),
+        ),
         input_data={
             "media_item_id": plan.media_item_id,
             "title": plan.title,
@@ -316,7 +327,7 @@ async def enqueue_cleanup_job(
         max_attempts=1,
         origin=origin,
         progress={
-            **jobs.default_progress("等待清理订阅关联内容"),
+            **jobs.default_progress(message_key="subscription.cleanup.queued"),
             "details": {
                 "torrent_total": len(torrents),
                 "file_total": len(files),
@@ -400,20 +411,22 @@ async def _run_subscription_cleanup_job(
     顺序有意如此：种子先走，下载器就不会在文件被搬进回收站后把任务判为
     "文件丢失"而报错，做种也不会在中途断在一个找不到文件的状态上。
     """
-    title = str(input_data.get("title") or "订阅")
+    title = str(input_data.get("title") or source_text("subscription.cleanup.titleFallback"))
     torrents = [t for t in input_data.get("torrents") or [] if isinstance(t, dict)]
     files = [f for f in input_data.get("files") or [] if isinstance(f, dict)]
     total = len(torrents) + len(files)
     done = 0
     torrent_removed = 0
     file_recycled = 0
-    failures: list[str] = []
+    # 每条失败是 message/message_key/message_params 三元组，任务结果按读者语言渲染
+    failures: list[dict] = []
 
-    async def _tick(phase: str, message: str) -> None:
+    async def _tick(phase: str, key: str, **params) -> None:
         await context.update_progress(
             mode="determinate",
             phase=phase,
-            message=message,
+            message_key=key,
+            message_params=params,
             current=done,
             total=total,
             percent=round(done / total * 100, 1) if total else 100.0,
@@ -446,14 +459,23 @@ async def _run_subscription_cleanup_job(
         except AppException as exc:
             # 下载器不可达 / 任务已不存在都不该中断其余清理：用户的诉求是
             # "尽量清干净"，剩下的失败项在任务结果里逐条讲明白
-            failures.append(f"种子「{name}」删除失败：{exc.message}")
+            failures.append(
+                stored_fields("subscription.cleanup.torrentFailed", name=name, error=exc.message)
+            )
             logger.warning("取消订阅清理：删除种子失败 hash=%s：%s", info_hash, exc.message)
         except Exception as exc:  # noqa: BLE001 -- 同上，单项异常不终止整条清理
-            failures.append(f"种子「{name}」删除失败：{exc}")
+            failures.append(
+                stored_fields("subscription.cleanup.torrentFailed", name=name, error=exc)
+            )
             logger.warning("取消订阅清理：删除种子异常 hash=%s", info_hash, exc_info=True)
         done += 1
         if done == total or context.progress_due():
-            await _tick("torrents", f"正在删除下载任务（{torrent_removed}/{len(torrents)}）")
+            await _tick(
+                "torrents",
+                "subscription.cleanup.progressTorrents",
+                done=torrent_removed,
+                total=len(torrents),
+            )
 
     library_ids: set[int] = set()
     for entry in files:
@@ -470,27 +492,40 @@ async def _run_subscription_cleanup_job(
                 file_recycled += 1
                 library_ids.add(recycled)
         except Exception as exc:  # noqa: BLE001 -- 单个文件失败不影响其余
-            failures.append(f"文件「{path}」回收失败：{exc}")
+            failures.append(
+                stored_fields("subscription.cleanup.fileFailed", path=path, error=exc)
+            )
             logger.warning("取消订阅清理：回收文件失败 id=%s", file_id, exc_info=True)
         done += 1
         if done == total or context.progress_due():
-            await _tick("library", f"正在回收媒体库文件（{file_recycled}/{len(files)}）")
+            await _tick(
+                "library",
+                "subscription.cleanup.progressFiles",
+                done=file_recycled,
+                total=len(files),
+            )
 
     if library_ids:
         async with db.session() as session:
             await LibraryRepository(session).refresh_stats(library_ids)
 
-    parts: list[str] = []
+    parts: list[dict] = []
     if torrents:
-        parts.append(f"删除 {torrent_removed} 个下载任务")
+        parts.append(reference("subscription.cleanup.removedTorrents", count=torrent_removed))
     if files:
-        parts.append(f"回收 {file_recycled} 个媒体库文件")
-    message = f"《{title}》清理完成：" + "、".join(parts or ["无可清理内容"])
-    if failures:
-        message += f"；{len(failures)} 项失败，详见任务结果"
-    logger.info("%s", message)
+        parts.append(reference("subscription.cleanup.recycledFiles", count=file_recycled))
+    summary = stored_fields(
+        "subscription.cleanup.done",
+        title=title,
+        parts={
+            "message_list": parts or [reference("subscription.cleanup.nothing")],
+            "separator_key": "common.list.separator",
+        },
+        failed=len(failures),
+    )
+    logger.info("%s", summary["message"])
     return {
-        "message": message,
+        **summary,
         "torrent_removed": torrent_removed,
         "file_recycled": file_recycled,
         "failed": len(failures),
@@ -508,12 +543,18 @@ async def _recycle_one(session: AsyncSession, file_id: int, title: str) -> int |
     if row is None or row.state == FileState.TRASHED:
         return None
     library_id = row.library_id
+    label_ref = reference("subscription.cleanup.trigger", title=title)
     outcome = await recycle_file(
         session,
         row,
         reason="subscription_cancelled",
-        trigger={"kind": "subscription", "id": None, "label": f"《{title}》取消订阅"},
-        note="取消订阅时选择了一并删除媒体库资源",
+        trigger={
+            "kind": "subscription",
+            "id": None,
+            "label": source_render(label_ref),
+            "label_ref": label_ref,
+        },
+        note_ref=reference("subscription.cleanup.recycleNote"),
     )
     if outcome == "already_gone":
         await session.delete(row)  # 文件早没了：行删掉与磁盘一致

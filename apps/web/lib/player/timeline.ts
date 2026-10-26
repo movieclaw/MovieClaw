@@ -1,3 +1,6 @@
+import { appTranslator } from "../i18n/translate.ts";
+import { requestLocale, type AppLocale } from "../i18n/negotiate.ts";
+
 /**
  * 会话时间轴 ↔ 文件时间轴的换算（docs/design/web-player.md §4.3）。
  *
@@ -244,13 +247,14 @@ export function autoNextArmed(
 }
 
 /** 按服务端确认的类型显示文案；其他或未来类型不猜成片头或广告。 */
-export function skipLabel(seg: SkipSegment): string {
+export function skipLabel(seg: SkipSegment, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   switch (seg.type) {
-    case "intro": return "跳过片头";
-    case "outro": return "跳过片尾";
-    case "ad": return "跳过广告";
-    case "preview": return "跳过预告";
-    default: return "跳过此段";
+    case "intro": return t("player.skip.intro");
+    case "outro": return t("player.skip.outro");
+    case "ad": return t("player.skip.ad");
+    case "preview": return t("player.skip.preview");
+    default: return t("player.skip.other");
   }
 }
 
@@ -274,13 +278,14 @@ export function autoSkips(seg: SkipSegment, enabled: boolean, introLearned: bool
 }
 
 /** 跳过后的提示里怎么称呼这一段：「已跳过片头」 */
-export function skipName(seg: SkipSegment): string {
+export function skipName(seg: SkipSegment, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   switch (seg.type) {
-    case "intro": return "片头";
-    case "outro": return "片尾";
-    case "ad": return "广告";
-    case "preview": return "预告";
-    default: return "此段";
+    case "intro": return t("player.segment.intro");
+    case "outro": return t("player.segment.outro");
+    case "ad": return t("player.segment.ad");
+    case "preview": return t("player.segment.preview");
+    default: return t("player.segment.other");
   }
 }
 

@@ -11,6 +11,10 @@
  * 同页还有「网页搜索」：接入了搜索服务才给智能体网页搜索工具。
  */
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import type { AppMessageKey } from "@/lib/i18n/translate";
+
 import { useEffect, useState } from "react";
 
 import Link from "next/link";
@@ -40,24 +44,26 @@ import { invalidateModelOptionsCache } from "@/lib/llm-thinking";
 const PURPOSES: {
   key: "agent_model" | "subtitle_model";
   effectiveKey: "effective_agent_model" | "effective_subtitle_model";
-  label: string;
-  desc: string;
+  label: AppMessageKey;
+  desc: AppMessageKey;
 }[] = [
   {
     key: "agent_model",
     effectiveKey: "effective_agent_model",
-    label: "智能体默认模型",
-    desc: "对话框未选模型时、微信 / Telegram / Discord 对话、命令行不带 --model 时使用",
+    label: "settings.ai.ui.agentLabel",
+    desc: "settings.ai.ui.agentHint",
   },
   {
     key: "subtitle_model",
     effectiveKey: "effective_subtitle_model",
-    label: "字幕处理默认模型",
-    desc: "字幕翻译与生成任务使用；任务创建时固定，改动不影响已开始的任务",
+    label: "settings.ai.ui.subtitleLabel",
+    desc: "settings.ai.ui.subtitleHint",
   },
 ];
 
 export function AiSettingsSection() {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const toast = useToast();
   const [defaults, setDefaults] = useState<LlmDefaults | null>(null);
   const [options, setOptions] = useState<LlmModelOption[]>([]);
@@ -90,7 +96,7 @@ export function AiSettingsSection() {
       setDefaults(next);
       // 对话框的模型清单里 is_default 跟随智能体默认模型，作废缓存
       invalidateModelOptionsCache();
-      toast.success("AI 设定已保存");
+      toast.success(t("settings.ai.ui.saved"));
     } catch (e) {
       setDefaults(previous);
       setError((e as Error).message);
@@ -107,11 +113,7 @@ export function AiSettingsSection() {
     <div className="space-y-10">
       {!noProviders && (
         <p className="px-1 text-sub leading-6 text-[var(--text-muted)]">
-          为不同场景各选一个默认模型。可选项来自
-          <Link href="/settings/llm" className="mx-0.5 text-[var(--accent)] hover:underline">
-            模型接入
-          </Link>
-          里所有已接入供应商的模型目录；首次接入时已自动设为该供应商目录里的第一个模型，可随时更改。
+          {t.rich("settings.ai.ui.intro", {providers: chunks => <Link href="/settings/llm" className="mx-0.5 text-[var(--accent)] hover:underline">{chunks}</Link>})}
         </p>
       )}
 
@@ -123,16 +125,15 @@ export function AiSettingsSection() {
         /* 空态：没有供应商就没有模型可选，引导先去接入 */
         <SettingsEmpty
           icon={<SparkIcon className="size-5" />}
-          title="还没有可选的模型"
-          description="先在「模型接入」接入至少一家供应商。接入后这里会自动把智能体和字幕处理的默认模型设为该供应商目录里的第一个模型，你可以随时改成别的。"
+          title={t("settings.ai.ui.empty")}
+          description={t("settings.ai.ui.emptyHint")}
           action={
             <Link href="/settings/llm" className={SETTINGS_PRIMARY_BUTTON_CLASS + " inline-flex items-center"}>
-              去接入模型供应商
-            </Link>
+              {t("settings.ai.ui.connect")}</Link>
           }
         />
       ) : (
-        <SettingsSection title="默认模型">
+        <SettingsSection title={t("settings.ai.ui.defaults")}>
           <SettingsList>
             {PURPOSES.map((purpose) => {
               const value = defaults[purpose.key];
@@ -142,36 +143,35 @@ export function AiSettingsSection() {
               const stale = value == null || !options.some((o) => o.ref === value);
               return (
                 <SettingsRow
+                  stackOnMobile={locale === "en"}
                   key={purpose.key}
-                  label={purpose.label}
+                  label={t(purpose.label)}
                   description={
                     <>
-                      {purpose.desc}
+                      {t(purpose.desc)}
                       {stale && (
                         <span className="mt-1 block text-[var(--warn)]">
-                          原设定的「{value ?? "（空）"}」已不在模型清单里，当前自动使用
-                          {labelOf(effective) ?? "无"}；请重新选择。
+                          {t("settings.ai.ui.stale", {previous: value ?? t("settings.ai.ui.emptyValue"), effective: labelOf(effective) ?? t("settings.ai.ui.none")})}
                         </span>
                       )}
                     </>
                   }
                 >
                   <select
-                    aria-label={purpose.label}
+                    aria-label={t(purpose.label)}
                     value={stale ? "" : value}
                     disabled={saving != null}
                     onChange={(e) => void save(purpose.key, e.target.value || null)}
-                    className={`${SETTINGS_INPUT_CLASS} w-72 max-sm:w-44`}
+                    className={`${SETTINGS_INPUT_CLASS} w-72 max-sm:w-44 ${locale === "en" ? "max-sm:!w-full max-sm:min-w-0" : ""}`}
                   >
                     {stale && (
                       <option value="" disabled>
-                        请重新选择…
-                      </option>
+                        {t("settings.ai.ui.chooseAgain")}</option>
                     )}
                     {options.map((o) => (
                       <option key={o.ref} value={o.ref}>
                         {o.label}
-                        {o.thinking_levels.length > 0 ? "（思考档位可控）" : ""}
+                        {o.thinking_levels.length > 0 ? t("settings.ai.ui.thinkingSuffix") : ""}
                       </option>
                     ))}
                   </select>

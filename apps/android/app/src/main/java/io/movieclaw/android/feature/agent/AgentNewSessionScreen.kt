@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -227,8 +229,15 @@ fun AgentNewSessionScreen(
         val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(
             androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
         ) { uri -> uri?.let(vm::attachImage) }
-        // 与对话页共用的 composer（附件 tray + 输入容器 + 工具行 + 模型菜单都在组件里）
-        AgentComposerBar(
+        // 与对话页共用同一个 composer；小幕趴在输入框右上角（iOS `agentCompanion` 同款）
+        var focused by remember { mutableStateOf(false) }
+        val companion = rememberCompanionActivity(
+            running = state.creating,
+            lastRunFailed = state.error != null,
+            unavailable = state.models.isEmpty(),
+        )
+        Box(Modifier.fillMaxWidth()) {
+            AgentComposerBar(
             input = state.input,
             onInput = vm::onInput,
             placeholder = "描述你的需求…",
@@ -255,6 +264,16 @@ fun AgentNewSessionScreen(
             maxLines = 8,
             horizontalPadding = 16.dp,
             menuLift = 210.dp,
-        )
+            onFocusChange = { focused = it },
+            )
+            AgentCompanion(
+                activity = companion,
+                attentive = focused && state.input.isNotEmpty(),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(y = (-62).dp)
+                    .padding(end = 14.dp),
+            )
+        }
     }
 }

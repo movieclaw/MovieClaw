@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { COMPANION_LABELS, COMPANION_POSES, type CompanionState } from "@/lib/agent-companion";
@@ -14,6 +16,7 @@ interface Picture { pose: CompanionState; frame: number; moving: boolean }
 
 /** 单张透明图集，只有宠物自身随帧更新；动作节奏与 iPhone 一致。 */
 export function AgentCompanion({ activity, attentive }: { activity: CompanionState; attentive: boolean }) {
+  const t = useTranslations();
   const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const visible = useSyncExternalStore(subscribeVisibility, () => !document.hidden, () => true);
   const [picture, setPicture] = useState<Picture>({ pose: "idle", frame: 0, moving: false });
@@ -89,8 +92,8 @@ export function AgentCompanion({ activity, attentive }: { activity: CompanionSta
   return (
     <button
       type="button"
-      aria-label={COMPANION_LABELS[pose]}
-      title="轻点和小幕打招呼"
+      aria-label={t(COMPANION_LABELS[pose])}
+      title={t("agent.companion.greet")}
       data-testid="agent-companion"
       data-pose={pose}
       data-moving={moving && visible && !reduceMotion}

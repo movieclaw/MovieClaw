@@ -75,7 +75,7 @@ final class PushCenter: NSObject {
     /// 拿不到令牌：模拟器、没有推送权限的包从来就没有，只上报权限；以前拿到过的（这次只是一时连不上 APNs）
     /// 接着用上次的
     func didFailToRegister(_ error: any Error) {
-        Self.log.info("APNs 注册失败：\(error.localizedDescription, privacy: .public)")
+        Self.log.info("APNs 注册失败：\(error.localizedDescription, privacy: .public)") // i18n-ignore: debug log
         apnsAnswered = true
         if Self.isMissingEntitlement(error) { unsupportedBuild = true }
         Task { await sync() }
@@ -106,7 +106,7 @@ final class PushCenter: NSObject {
             do {
                 _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             } catch {
-                Self.log.info("请求通知权限失败：\(error.localizedDescription, privacy: .public)")
+                Self.log.info("请求通知权限失败：\(error.localizedDescription, privacy: .public)") // i18n-ignore: debug log
             }
             await refreshPermission()
         }
@@ -187,7 +187,7 @@ final class PushCenter: NSObject {
                         return (job, .loginExpired)
                     } catch {
                         // 只记日志：服务器还不支持推送（404）、连不上都不打扰用户，回到前台再试
-                        Self.log.info("推送登记失败 \(job.server.hostLabel, privacy: .public)：\(error.localizedDescription, privacy: .public)")
+                        Self.log.info("推送登记失败 \(job.server.hostLabel, privacy: .public)：\(error.localizedDescription, privacy: .public)") // i18n-ignore: debug log
                         return (job, .failed)
                     }
                 }
@@ -203,7 +203,7 @@ final class PushCenter: NSObject {
             case .loginExpired:
                 // 这个登录在服务器上已经失效（被注销、改了密码）：令牌和推送密钥一起删掉，账号快照留着，
                 // 点它时重新输密码（同 AppModel.refreshAccounts）
-                Self.log.info("推送登记：\(job.server.hostLabel, privacy: .public) 上的登录已失效，删掉本机令牌")
+                Self.log.info("推送登记：\(job.server.hostLabel, privacy: .public) 上的登录已失效，删掉本机令牌") // i18n-ignore: debug log
                 TokenVault.delete(server: job.server, username: job.username)
             case .failed:
                 break

@@ -1,8 +1,12 @@
 "use client";
 
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 
+import { LanguagePicker } from "@/components/language-picker";
 import { LockIcon, UserIcon } from "@/components/icons";
 import {
   WelcomeCard,
@@ -27,7 +31,8 @@ import { HttpError } from "@/lib/http";
  * 改前端代码绕不过去。
  */
 export default function SetupPage() {
-  usePageTitle("初始化");
+  const t = useTranslations("setup");
+  usePageTitle(t("account.pageTitle"));
   const router = useRouter();
   const [ready, setReady] = useState(false);
 
@@ -50,7 +55,8 @@ export default function SetupPage() {
 
   return (
     <WelcomeScreen
-      buttonLabel="开始使用"
+      footer={<LanguagePicker />}
+      buttonLabel={t("account.start")}
       ready={ready}
       card={({ close, autoFocus }) => <SetupCard autoFocus={autoFocus} onClose={close} />}
     />
@@ -59,10 +65,11 @@ export default function SetupPage() {
 
 function SetupCard({ autoFocus, onClose }: { autoFocus: boolean; onClose: () => void }) {
   const router = useRouter();
+  const t = useTranslations("setup");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const [busy, setBusy] = useState(false);
   const usernameRef = useRef<HTMLInputElement>(null);
 
@@ -79,15 +86,15 @@ function SetupCard({ autoFocus, onClose }: { autoFocus: boolean; onClose: () => 
 
     const name = username.trim();
     if (name.length < 3) {
-      setError("用户名至少 3 个字符");
+      setError({ key: "setup.account.shortUsername" });
       return;
     }
     if (password.length < 8) {
-      setError("密码至少 8 位，建议混用字母与数字");
+      setError({ key: "setup.account.shortPassword" });
       return;
     }
     if (password !== confirm) {
-      setError("两次输入的密码不一致");
+      setError({ key: "setup.account.passwordMismatch" });
       return;
     }
 
@@ -103,15 +110,15 @@ function SetupCard({ autoFocus, onClose }: { autoFocus: boolean; onClose: () => 
         router.replace("/login");
         return;
       }
-      setError(err instanceof HttpError ? err.message : "网络异常，请稍后重试");
+      setError(err instanceof HttpError ? err.message : { key: "common.networkRetry" });
       setBusy(false);
     }
   };
 
   return (
     <WelcomeCard
-      title="初始化这台服务器"
-      subtitle="这是一台全新的服务器。将用下面的账号创建超级管理员——它是本站唯一的管理身份，此流程仅在首次部署时出现。"
+      title={t("account.title")}
+      subtitle={t("account.subtitle")}
       onClose={onClose}
     >
       <form onSubmit={submit} className="space-y-4">
@@ -119,7 +126,7 @@ function SetupCard({ autoFocus, onClose }: { autoFocus: boolean; onClose: () => 
           <WelcomeField
             ref={usernameRef}
             icon={<UserIcon className="size-[18px]" />}
-            placeholder="管理员用户名"
+            placeholder={t("account.username")}
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -131,7 +138,7 @@ function SetupCard({ autoFocus, onClose }: { autoFocus: boolean; onClose: () => 
           />
           <WelcomeField
             icon={<LockIcon className="size-[18px]" />}
-            placeholder="密码（至少 8 位）"
+            placeholder={t("account.password")}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -140,7 +147,7 @@ function SetupCard({ autoFocus, onClose }: { autoFocus: boolean; onClose: () => 
           />
           <WelcomeField
             icon={<LockIcon className="size-[18px]" />}
-            placeholder="确认密码"
+            placeholder={t("account.confirmPassword")}
             type="password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
@@ -150,7 +157,7 @@ function SetupCard({ autoFocus, onClose }: { autoFocus: boolean; onClose: () => 
         </WelcomeFields>
         <WelcomeError message={error} />
         <WelcomeSubmit busy={busy} disabled={busy || !username.trim() || !password || !confirm}>
-          {busy ? "创建中…" : "创建账号并进入"}
+          {busy ? t("account.pending") : t("account.submit")}
         </WelcomeSubmit>
       </form>
     </WelcomeCard>

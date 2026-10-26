@@ -50,7 +50,7 @@ async def list_file_sources(
     try:
         ids = [int(x) for x in file_ids.split(",") if x.strip()]
     except ValueError as exc:
-        raise BadRequestException("file_ids 须是逗号分隔的整数") from exc
+        raise BadRequestException(message_key="errors.downloadSources.fileIdsInvalid") from exc
     torrents = await torrents_for_files(session, ids)
     return ok([FileTorrentView(**t.__dict__) for t in torrents])
 
@@ -80,7 +80,7 @@ async def get_item_relations(
         .limit(1)
     )
     if item is None or has_files is None:
-        raise NotFoundException("条目不存在，或在该媒体库中没有库存文件")
+        raise NotFoundException(message_key="errors.downloadSources.itemMissing")
     relations = await item_relations(session, media_item_id)
     return ok(
         ItemRelationsView(

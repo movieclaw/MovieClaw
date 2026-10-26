@@ -40,6 +40,7 @@ def client(tmp_path, monkeypatch):
 
 # 各页面的默认样式（与 UiPreferencesSetting 各分组默认值一致）
 DEFAULT_PREFS = {
+    "language": "auto",
     # 主题 id：银玻璃为出厂主题，Netflix 主题切换后存 "netflix"
     "theme": "silver",
     # 按端主题覆盖：未单独设置（null）= 跟随 theme，前端 resolveThemeId 解析
@@ -321,3 +322,17 @@ def test_home_kind_rows_persist(client: TestClient) -> None:
     assert [r["id"] for r in saved] == ["kind:movie", "kind:video", "row:k1"]
     assert saved[0]["sort"] == "rating" and saved[0]["unwatched"] is True
     assert saved[2]["media_kind"] == "tv" and saved[2]["name"] == "今晚追哪部"
+
+
+def test_language_persists_and_old_clients_do_not_reset_it(client: TestClient) -> None:
+    saved = client.put("/api/v1/ui/preferences", json={"language": "en"})
+    assert saved.status_code == 200
+    assert saved.json()["data"]["language"] == "en"
+    assert client.get("/api/v1/ui/preferences").json()["data"]["language"] == "en"
+    legacy = client.put("/api/v1/ui/preferences", json={"theme": "silver"})
+    assert legacy.json()["data"]["language"] == "en"
+    auto = client.put("/api/v1/ui/preferences", json={"language": "auto"})
+    assert auto.json()["data"]["language"] == "auto"
+    invalid = client.put("/api/v1/ui/preferences", json={"language": "ja"})
+    assert invalid.status_code == 422
+    assert client.get("/api/v1/ui/preferences").json()["data"]["language"] == "auto"

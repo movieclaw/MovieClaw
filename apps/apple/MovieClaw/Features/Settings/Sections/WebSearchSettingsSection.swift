@@ -25,13 +25,13 @@ struct WebSearchSettingsSection: View {
             } else if let error {
                 SettingsFormSection {
                     SettingsNotice(text: error)
-                    Button("重试") { Task { await load() } }
+                    Button(String(localized: .commonRetry)) { Task { await load() } }
                         .accessibilityIdentifier("web-search-retry")
                 } header: {
-                    Text("网页搜索")
+                    Text(String(localized: .settingsNetworkServicesWebSearchLabel))
                 }
             } else {
-                SettingsFormSection { SettingsLoadingRow() } header: { Text("网页搜索") }
+                SettingsFormSection { SettingsLoadingRow() } header: { Text(String(localized: .settingsNetworkServicesWebSearchLabel)) }
             }
         }
         .task(id: reloadID) { await load() }
@@ -46,15 +46,15 @@ struct WebSearchSettingsSection: View {
                         SettingsBDot(tone: .ok, size: 8)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(current.label).foregroundStyle(Theme.text)
-                            Text(config.keyHint.isEmpty ? "已接入" : "已接入 · 密钥末四位 \(config.keyHint)")
+                            Text(config.keyHint.isEmpty ? String(localized: .settingsWebSearchUiConnected) : String(localized: .settingsWebSearchUiConnectedHint(config.keyHint)))
                                 .font(.caption).foregroundStyle(Theme.textMuted)
                         }
                     } else {
-                        Text("接入网页搜索").foregroundStyle(Theme.text)
+                        Text(String(localized: .settingsWebSearchUiAdd)).foregroundStyle(Theme.text)
                     }
                     Spacer()
                     if current == nil {
-                        Text("未接入").foregroundStyle(Theme.textMuted)
+                        Text(String(localized: .settingsWebSearchUiNotConnected)).foregroundStyle(Theme.textMuted)
                     }
                     Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                 }
@@ -65,27 +65,27 @@ struct WebSearchSettingsSection: View {
                 WebSearchSettingsSheet(config: config) { next in
                     self.config = next
                     let label = next.providers.first { $0.id == next.provider }?.label
-                    feedback.success(label.map { "网页搜索已接入 \($0)" } ?? "网页搜索已接入")
+                    feedback.success(label.map { String(localized: .settingsWebSearchUiConnectedProvider($0)) } ?? String(localized: .settingsWebSearchUiSaved))
                 }
                 .sheetFeedback()
             }
             if current != nil {
                 SettingsBAsyncButton(action: retest) {
-                    Label("重新测试连接", systemImage: "arrow.clockwise")
+                    Label(String(localized: .settingsWebSearchUiRetest), systemImage: "arrow.clockwise")
                 }
                 .accessibilityIdentifier("web-search-retest")
                 SettingsBAsyncButton(role: .destructive, action: clear) {
-                    Label("关闭网页搜索", systemImage: "xmark.circle")
+                    Label(String(localized: .settingsWebSearchUiDisable), systemImage: "xmark.circle")
                 }
                 .foregroundStyle(Theme.danger)
                 .accessibilityIdentifier("web-search-clear")
             }
         } header: {
-            Text("网页搜索")
+            Text(String(localized: .settingsNetworkServicesWebSearchLabel))
         } footer: {
             Text(current == nil
-                 ? "接入 Tavily、Exa 或 Brave Search 后，智能体能上网查最新信息。不接入就没有这个工具。"
-                 : "智能体需要最新信息时会自己上网搜索。")
+                 ? String(localized: .settingsWebSearchUiOffHint)
+                 : String(localized: .settingsWebSearchUiOnHint))
         }
     }
 
@@ -113,14 +113,14 @@ struct WebSearchSettingsSection: View {
 
     private func clear() async {
         guard await feedback.confirm(
-            "关闭网页搜索？",
-            message: "已保存的 API Key 会从这台服务器删除。智能体将不再上网搜索，直到你重新接入。",
-            confirmTitle: "关闭",
+            String(localized: .settingsWebSearchUiDisableTitle),
+            message: String(localized: .settingsWebSearchUiDisableHint),
+            confirmTitle: String(localized: .commonTurnOff),
             destructive: true
         ) else { return }
         do {
             config = try await api.llmWebSearchClear()
-            feedback.success("已关闭网页搜索")
+            feedback.success(String(localized: .settingsWebSearchUiDisabled))
         } catch {
             feedback.error(error)
         }
@@ -158,9 +158,9 @@ struct WebSearchSettingsSheet: View {
 
     var body: some View {
         SubsSheetScaffold(
-            title: config.configured ? "更换网页搜索" : "接入网页搜索",
+            title: config.configured ? String(localized: .settingsWebSearchUiChange) : String(localized: .settingsWebSearchUiAdd),
             onClose: { if dirty { discarding = true } else { dismiss() } },
-            confirm: SubsSheetConfirm(title: "验证并保存", enabled: canSubmit, busy: busy, identifier: "web-search-save") {
+            confirm: SubsSheetConfirm(title: String(localized: .settingsWebSearchUiVerifySave), enabled: canSubmit, busy: busy, identifier: "web-search-save") {
                 Task { await submit() }
             }
         ) {
@@ -193,7 +193,7 @@ struct WebSearchSettingsSheet: View {
                     .accessibilityIdentifier("web-search-provider-\(item.id)")
                 }
             } header: {
-                Text("搜索服务")
+                Text(String(localized: .settingsWebSearchUiProvider))
             }
             SettingsFormSection {
                 HStack {
@@ -211,14 +211,14 @@ struct WebSearchSettingsSheet: View {
                     .submitLabel(.done)
                     .onSubmit { if canSubmit { Task { await submit() } } }
                     .accessibilityIdentifier("web-search-key")
-                    Button(showKey ? "隐藏" : "显示") { showKey.toggle() }
+                    Button(showKey ? String(localized: .settingsLlmUiHide) : String(localized: .settingsLlmUiShow)) { showKey.toggle() }
                         .font(.subheadline.weight(.medium))
                         .buttonStyle(.borderless)
-                        .accessibilityLabel(showKey ? "隐藏 API Key" : "显示 API Key")
+                        .accessibilityLabel(showKey ? String(localized: .settingsLlmUiHideKey) : String(localized: .settingsLlmUiShowKey))
                 }
                 if let selected, let url = URL(string: selected.signupUrl) {
                     Link(destination: url) {
-                        Label("申请 \(selected.label) API Key", systemImage: "arrow.up.right.square")
+                        Label(String(localized: .settingsWebSearchUiSignup(selected.label)), systemImage: "arrow.up.right.square")
                     }
                     .accessibilityIdentifier("web-search-signup")
                 }
@@ -230,21 +230,21 @@ struct WebSearchSettingsSheet: View {
         }
         .disabled(busy)
         .interactiveDismissDisabled(busy || dirty)
-        .alert("放弃未保存的修改？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) {}
-            Button("放弃修改", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsFormDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) {}
+            Button(String(localized: .settingsScrapeDiscardChanges), role: .destructive) { dismiss() }
         }
     }
 
     private var keyPlaceholder: String {
-        keepsSaved && !config.keyHint.isEmpty ? "当前末四位 \(config.keyHint)" : "粘贴 API Key"
+        keepsSaved && !config.keyHint.isEmpty ? String(localized: .settingsWebSearchUiCurrentKey(config.keyHint)) : String(localized: .settingsScrapeFanartPlaceholder)
     }
 
     private var keyFooter: String {
-        let rule = "保存前会先用这把 Key 搜索一次，通过才保存。"
-        if keepsSaved { return "已保存的密钥不会回显，填入新的 Key 才会更换。" + rule }
-        if config.configured { return "更换搜索服务需要它自己的 Key。" + rule }
-        return rule + "密钥只存在服务器上。"
+        let rule = String(localized: .settingsWebSearchUiVerifyHint)
+        if keepsSaved { return String(localized: .settingsWebSearchUiKeepHint) + rule }
+        if config.configured { return String(localized: .settingsWebSearchUiChangedProvider) + rule }
+        return rule + String(localized: .settingsWebSearchUiServerOnly)
     }
 
     private func submit() async {

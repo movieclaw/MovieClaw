@@ -27,6 +27,7 @@ from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import AppException, BadRequestException
+from movieclaw_api.i18n.stored import reference
 from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services.auth import Principal, ShareGrant
 from movieclaw_api.settings.app_server import AppServerSetting
@@ -102,7 +103,8 @@ def _normalize_password(password: str | None) -> str | None:
         return None
     if not SHARE_PASSWORD_MIN <= len(cleaned) <= SHARE_PASSWORD_MAX:
         raise BadRequestException(
-            f"分享密码长度须在 {SHARE_PASSWORD_MIN}–{SHARE_PASSWORD_MAX} 位之间"
+            message_key="errors.share.passwordLength",
+            params={"minimum": SHARE_PASSWORD_MIN, "maximum": SHARE_PASSWORD_MAX},
         )
     return cleaned
 
@@ -193,10 +195,18 @@ async def create_share(
     入口断言。
     """
     if (media_item_id is None) == (collection_id is None):
-        raise BadRequestException("分享的范围只能是一个条目或一个合集")
+        raise BadRequestException(message_key="errors.share.scopeRequired")
     if expires_in_days not in SHARE_EXPIRY_DAYS:
         raise BadRequestException(
-            "有效期只能是 " + " / ".join(f"{d} 天" for d in SHARE_EXPIRY_DAYS)
+            message_key="errors.share.expiryInvalid",
+            params={
+                "days": {
+                    "message_list": [
+                        reference("units.duration.days", count=d) for d in SHARE_EXPIRY_DAYS
+                    ],
+                    "separator_key": "common.list.slashSeparator",
+                }
+            },
         )
     cleaned = _normalize_password(password)
     existing = (
@@ -284,7 +294,8 @@ async def check_password(row: MediaShare, password: str) -> None:
         raise AppException(
             status_code=exc.status_code,
             code=exc.code,
-            message=exc.message.replace("登录失败", "密码错误"),
+            message_key="errors.share.rateLimited",
+            params=exc.params,
         ) from None
     expected = password_of(row)
     if expected is None:
@@ -292,7 +303,7 @@ async def check_password(row: MediaShare, password: str) -> None:
     if not secrets.compare_digest(expected.encode(), password.strip().encode()):
         throttle.record_failure()
         raise AppException(
-            status_code=401, code="SHARE_PASSWORD_INVALID", message="密码不对，请重新输入"
+            status_code=401, code="SHARE_PASSWORD_INVALID", message_key="errors.share.wrongPassword"
         )
     throttle.reset()
 

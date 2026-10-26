@@ -18,9 +18,9 @@ enum GalleryDensity: String, CaseIterable, Identifiable {
     /// 菜单文案（照搬 Web）
     var label: String {
         switch self {
-        case .compact: "紧凑"
-        case .standard: "标准"
-        case .loose: "宽松"
+        case .compact: String(localized: .libraryGalleryCompact)
+        case .standard: String(localized: .libraryGalleryStandard)
+        case .loose: String(localized: .libraryGalleryLoose)
         }
     }
 
@@ -121,10 +121,10 @@ struct GalleryPrefMenuItems: View {
 
     var body: some View {
         if showsGrouping {
-            Toggle("按作品分组", isOn: $prefs.grouped)
+            Toggle(String(localized: .libraryGalleryGroupByTitle), isOn: $prefs.grouped)
         }
-        Section("瀑布流密度") {
-            Picker("瀑布流密度", selection: $prefs.density) {
+        Section(String(localized: .libraryGalleryDensity)) {
+            Picker(String(localized: .libraryGalleryDensity), selection: $prefs.density) {
                 ForEach(GalleryDensity.allCases) { density in
                     Text(density.label).tag(density)
                 }
@@ -325,7 +325,7 @@ struct LibraryGalleryWall: View {
                 .frame(minHeight: 280)
         case .loaded:
             if feed.entries.isEmpty {
-                EmptyState(systemImage: "photo.on.rectangle", title: "暂无图片")
+                EmptyState(systemImage: "photo.on.rectangle", title: String(localized: .libraryGalleryEmpty))
                     .frame(minHeight: 280)
             } else {
                 wall
@@ -372,7 +372,7 @@ struct LibraryGalleryWall: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.85))
                         .lineLimit(1)
-                    Text("\(group.images.count) 张")
+                    Text(String(localized: .libraryStatusPhotoCount(group.images.count)))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(Theme.textFaint)
                         .fixedSize()
@@ -416,7 +416,7 @@ struct LibraryGalleryWall: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.07)))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("查看 \(group.title) · \(image.label)\(group.isFavorite ? "（已收藏）" : "")")
+            .accessibilityLabel(String(localized: .libraryGalleryViewImageAria(group.title, image.label)) + (group.isFavorite ? String(localized: .libraryGalleryFavoriteSuffix) : ""))
         }
     }
 
@@ -629,7 +629,7 @@ private struct GalleryLightbox: View {
         ) {
             if let current {
                 let (group, image) = current
-                let playLabel = image.tSeconds != nil ? "从此处播放" : "播放"
+                let playLabel = image.tSeconds != nil ? String(localized: .libraryGalleryPlayHere) : String(localized: .libraryHeroPlay)
                 LibraryZoomableImage.ActionButton(systemImage: "play.fill", label: playLabel) {
                     // 章节图从那一帧起播，分集剧照播那一集，海报 / 剧照从头（或续播）
                     leave {
@@ -639,12 +639,12 @@ private struct GalleryLightbox: View {
                 // 收藏的是整部作品（与详情页那颗心同一落点），不是这张图或这一集
                 LibraryZoomableImage.ActionButton(
                     systemImage: group.isFavorite ? "heart.fill" : "heart",
-                    label: group.isFavorite ? "取消收藏" : "收藏",
+                    label: group.isFavorite ? String(localized: .libraryGalleryUnfavorite) : String(localized: .libraryGalleryFavorite),
                     tint: group.isFavorite ? Theme.danger : .white.opacity(0.85)
                 ) {
                     toggleFavorite(group)
                 }
-                LibraryZoomableImage.ActionButton(systemImage: "arrow.up.forward.square", label: "前往影片详情") {
+                LibraryZoomableImage.ActionButton(systemImage: "arrow.up.forward.square", label: String(localized: .libraryGalleryGoToTitle)) {
                     // 分集剧照 / 剧集章节图带季集号，详情页直接落到那一集；落点库取分组自带的
                     let unit = image.season != nil && image.episode != nil
                     leave {
@@ -695,7 +695,7 @@ private struct GalleryLightbox: View {
             } catch is CancellationError {
             } catch {
                 // 灯箱挂了自己的提示宿主（sheetFeedback），与全 App 同一种顶部提示
-                feedback.error(error.localizedDescription.isEmpty ? "收藏失败，请稍后重试" : error.localizedDescription)
+                feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryCollectionsFavoriteFailed) : error.localizedDescription)
             }
         }
     }

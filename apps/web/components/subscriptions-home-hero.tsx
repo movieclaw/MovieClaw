@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -15,6 +16,8 @@ import {
 import { imageUrl, screenImageWidth } from "@/lib/image-proxy";
 import { markPlayIntent, playHref, rememberPlayerReturnPath } from "@/lib/player/play-links";
 import { SUBS_HOME_TONE_COLOR, type SubsHomeHeroSlide } from "@/lib/subscriptions-home";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import { useTapGuard } from "@/lib/use-tap-guard";
 
 /**
@@ -48,6 +51,9 @@ export function SubsHomeHero({
   index: number;
   onIndexChange: (index: number) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
+
   const router = useRouter();
   const openSubscription = useCallback(
     (slide: SubsHomeHeroSlide) => router.push(`/subscriptions/${slide.subscriptionId}` as Route),
@@ -61,8 +67,8 @@ export function SubsHomeHero({
       slideKey={(slide) => slide.subscriptionId}
       imageOf={heroImageOf}
       onActivate={openSubscription}
-      activateLabel={heroAccessibilityText}
-      indicatorLabel={(slide) => `切换到《${slide.media.title}》`}
+      activateLabel={(slide) => heroAccessibilityText(slide, locale)}
+      indicatorLabel={(slide) => t("subscription.feed.switchTitle", { title: slide.media.title })}
       renderContent={(slide) => <HeroContent slide={slide} />}
       className={SUBS_HOME_HERO_HEIGHT}
     />
@@ -70,9 +76,10 @@ export function SubsHomeHero({
 }
 
 /** 整张 Hero 的读屏文字：状态文字只进这里（画面上状态只剩一颗小圆点） */
-function heroAccessibilityText(slide: SubsHomeHeroSlide): string {
+function heroAccessibilityText(slide: SubsHomeHeroSlide, locale: AppLocale): string {
+  const t = appTranslator(locale);
   return [
-    `《${slide.media.title}》`,
+    t("subscription.feed.heroTitle", { title: slide.media.title }),
     slide.eyebrow.text,
     slide.clockLabel,
     slide.clock,
@@ -80,7 +87,7 @@ function heroAccessibilityText(slide: SubsHomeHeroSlide): string {
     slide.footnote,
   ]
     .filter(Boolean)
-    .join("，");
+    .join(locale === "zh-Hans" ? "，" : ", ");
 }
 
 function HeroContent({ slide }: { slide: SubsHomeHeroSlide }) {
@@ -200,6 +207,8 @@ function TitleArt({ slide }: { slide: SubsHomeHeroSlide }) {
  * 否则会同时进订阅详情；横滑 Hero 时手指停在按钮上的误触由 useTapGuard 拦下。
  */
 function PrimaryButton({ slide }: { slide: SubsHomeHeroSlide }) {
+  const t = useTranslations();
+
   const playGuard = useTapGuard(() => {
     rememberPlayerReturnPath("/subscriptions");
     markPlayIntent();
@@ -212,7 +221,7 @@ function PrimaryButton({ slide }: { slide: SubsHomeHeroSlide }) {
     return (
       <Link
         href={playHref(mediaItemId, { season, episode }) as Route}
-        aria-label={`播放《${slide.media.title}》${slide.detail ? ` ${slide.detail}` : ""}`}
+        aria-label={t("subscription.feed.playTitle", { title: slide.media.title, hasDetail: slide.detail ? "yes" : "no", detail: slide.detail ?? "" })}
         onPointerDown={playGuard.onPointerDown}
         onPointerUp={playGuard.onPointerUp}
         onPointerCancel={playGuard.onPointerCancel}
@@ -223,14 +232,14 @@ function PrimaryButton({ slide }: { slide: SubsHomeHeroSlide }) {
         className={`${base} bg-white text-black hover:bg-white/90`}
       >
         <PlayIcon className="size-5" />
-        {slide.resumePercent == null ? "播放" : "继续播放"}
+        {slide.resumePercent == null ? t("player.controls.play") : t("subscription.feed.resume")}
       </Link>
     );
   }
   return (
     <Link
       href={`/subscriptions/${slide.subscriptionId}` as Route}
-      aria-label={`查看《${slide.media.title}》的订阅`}
+      aria-label={t("subscription.feed.viewTitleSubscription", { title: slide.media.title })}
       onPointerDown={detailGuard.onPointerDown}
       onPointerUp={detailGuard.onPointerUp}
       onPointerCancel={detailGuard.onPointerCancel}
@@ -240,7 +249,7 @@ function PrimaryButton({ slide }: { slide: SubsHomeHeroSlide }) {
       }}
       className={`${base} bg-white/[0.16] text-white ring-1 ring-white/20 backdrop-blur-md hover:bg-white/[0.24]`}
     >
-      查看订阅
+      {t("subscription.feed.viewSubscription")}
     </Link>
   );
 }

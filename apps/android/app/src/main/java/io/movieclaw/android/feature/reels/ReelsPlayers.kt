@@ -33,6 +33,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import io.movieclaw.android.core.network.ServerRoutes
 
 /**
  * 一条片段怎么放：直出与转码两条路统一成同一个形状。
@@ -298,6 +299,11 @@ class ReelsPlayers(
     private suspend fun openSource(item: ReelItemView): ReelSource? {
         val origin = originProvider() ?: return null
         openFailureReason = null
+        // 服务端预切好的片段：直接放小文件，第 0 秒 = segment.start_ms（与 iOS `loadClip` 同口径）。
+        // 没有片段地址时退回下面的原片起播/转码路径。
+        if (item.play.mode == "clip") {
+            clipSource(item, origin)?.let { return it }
+        }
         // 光盘片源（v0.32 起「大图预告」与「片段」也放开原盘 / 镜像 / DVD / TS / AVI）：本机引擎读不了盘内结构，
         // 与正片同一条路——开服务端会话，服务端读出正片后换封装或转码（不申报 disc_image / disc_folder）
         val disc = item.play.disc != null
@@ -328,7 +334,7 @@ class ReelsPlayers(
                 }
                 return@runCatching directSource(item, origin)
             }
-            val url = if (raw.startsWith("http")) raw else origin.trimEnd('/') + raw
+            val url = resolveForRoute(raw, origin)
             // 服务端也可能直出（源本来就在上限之内）：没有 session_id 就是直出语义
             val direct = view.sessionId == null
             // 时间轴两种语义（服务端 `PlaybackSessionView.timeline`）：
@@ -371,9 +377,48 @@ class ReelsPlayers(
         }
     }
 
+    /**
+     * 取流/字幕地址按**当前选中的入口**重拼（与 iOS `ServerAddress.resolve` 同口径）：
+     * 相对路径补当前 base；服务端回的是绝对地址（按其外部访问地址拼的）且路径是站内
+     * `/api/v1/…` 时，把协议/主机/端口换成当前入口——不然回家后接口走内网、片段还从外网拉。
+     */
+    private fun resolveForRoute(raw: String, origin: String): String {
+        val base = ServerRoutes.baseFor(origin)?.trimEnd('/') ?: origin.trimEnd('/')
+        if (!raw.startsWith("http")) return base + raw
+        val uri = runCatching { java.net.URI(raw) }.getOrNull() ?: return raw
+        val path = uri.rawPath ?: return raw
+        if (!path.startsWith("/api/v1/")) return raw
+        val baseUri = runCatching { java.net.URI(base) }.getOrNull() ?: return raw
+        return buildString {
+            append(baseUri.scheme).append("://").append(baseUri.rawAuthority)
+            append(path)
+            uri.rawQuery?.let { append('?').append(it) }
+        }
+    }
+
+    /** 预切片段：引擎从 0 播到片段长度，文件时间 = 片段起点 + 播放位置（进度/字幕/事件照原片算） */
+    private fun clipSource(item: ReelItemView, origin: String): ReelSource? {
+        val raw = item.play.clipUrl?.takeIf { it.isNotBlank() } ?: return null
+        val url = resolveForRoute(raw, origin)
+        val span = (item.segment.endMs - item.segment.startMs).coerceAtLeast(1L)
+        android.util.Log.i(
+            "McReels",
+            "预切片段 ${item.title.name}：${url.substringBefore('?')} 起始=${item.segment.startMs}ms 时长=${span}ms",
+        )
+        return ReelSource(
+            url = url,
+            hls = url.substringBefore('?').endsWith(".m3u8"),
+            playerStartMs = 0L,
+            playerEndMs = span,
+            fileOffsetMs = item.segment.startMs,
+            cacheKey = SourceByteCache.key(item.segment.fileId, item.play.clipSizeBytes, origin),
+            audioRef = null,
+        )
+    }
+
     private fun directSource(item: ReelItemView, origin: String): ReelSource? {
         val raw = item.play.streamUrl ?: return null
-        val url = if (raw.startsWith("http")) raw else origin.trimEnd('/') + raw
+        val url = resolveForRoute(raw, origin)
         return ReelSource(
             url = url,
             hls = url.substringBefore('?').endsWith(".m3u8"),
@@ -467,9 +512,8 @@ class ReelsPlayers(
     /** 这一条的字幕窗口文件（服务端给的相对路径，含令牌） */
     private fun subtitleUrlFor(item: ReelItemView): String? {
         val raw = item.play.subtitle?.url ?: return null
-        if (raw.startsWith("http")) return raw
         val origin = originProvider() ?: return null
-        return origin.trimEnd('/') + raw
+        return resolveForRoute(raw, origin)
     }
 
     /** 换画质档位：当前这条按新档位重开（同正片播放器换档的语义） */
@@ -615,8 +659,8 @@ class ReelsPlayers(
             val key = "${item.id}#${if (full) "full" else "light"}"
             if (prefetchJobs.containsKey(key) || prefetchJobs.containsKey("${item.id}#full")) return@forEachIndexed
             val raw = item.play.streamUrl ?: return@forEachIndexed
-            val url = if (raw.startsWith("http")) raw else (originProvider()?.trimEnd('/') ?: return@forEachIndexed) + raw
             val origin = originProvider() ?: return@forEachIndexed
+            val url = resolveForRoute(raw, origin)
             val cacheKey = SourceByteCache.key(item.segment.fileId, item.play.sizeBytes, origin) ?: return@forEachIndexed
             val ranges = item.play.prefetch
                 .filter { full || it.purpose != "start" }

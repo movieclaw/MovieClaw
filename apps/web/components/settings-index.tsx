@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 
@@ -24,6 +26,8 @@ import { useLayout } from "@/lib/ui-prefs";
  * 只在有指针的设备上出现，免得点过的行回来后一直亮着。
  */
 export function SettingsIndex() {
+  const locale = useLocale();
+  const t = useTranslations();
   const router = useRouter();
   const { session } = useSession();
   // 分区清单按角色过滤：成员只看到通用组，管理分区没有入口（后端 403 兜底）。
@@ -31,7 +35,7 @@ export function SettingsIndex() {
   // /settings/profile 深链照常可用；Netflix 的「我的」页没有头像卡入口，保留这一行
   const cinema = useLayout() === "cinema";
   const extensionPoints = useActiveExtensionPoints(session.role === "admin");
-  const groups = settingsSectionGroupsFor(session.role, extensionPoints)
+  const groups = settingsSectionGroupsFor(session.role, extensionPoints, locale)
     .map((group) =>
       cinema ? group : { ...group, items: group.items.filter((s) => s.id !== "profile") },
     )
@@ -47,7 +51,7 @@ export function SettingsIndex() {
               <h2 className="px-4 pb-2 text-caption text-[var(--text-muted)]">{group.label}</h2>
             )}
             <nav
-              aria-label={group.label || "设置分区"}
+              aria-label={group.label || t("settings.metadata.sections")}
               className="css-glass overflow-hidden"
             >
               {group.items.map((section, index) => {

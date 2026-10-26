@@ -36,6 +36,7 @@ from movieclaw_api.services.library.nfo import read_entry_metadata, read_tmdb_id
 from movieclaw_api.services.library.resolve import ResolveOutcome
 from movieclaw_api.services.library.scan import scan_library
 from movieclaw_api.services.media_probe import MediaSpec, _parse_probe
+from movieclaw_api.settings.store import init_setting_store, reset_setting_store
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
 from movieclaw_db.models import (
@@ -63,6 +64,8 @@ _ROUTES = {
         "id": 200,
         "name": "测试剧集",
         "original_name": "Test Show",
+        # 已刮削的剧集档案；空展示字段会触发详情页后台自愈，与分集合并读请求竞争。
+        "overview": "测试剧集简介",
         "first_air_date": "2024-01-01",
         "status": "Returning Series",
         "external_ids": {},
@@ -183,14 +186,18 @@ async def db(tmp_path, monkeypatch):
     # 图片资产目录也放进临时目录：默认的 ./data/metadata 是 xdist 各进程共用的，别的进程的
     # 刮削用例会给同号条目写回资产，孤儿清理「资产目录已删」的断言因此偶发失败
     monkeypatch.setenv("METADATA_DIR", str(tmp_path / "metadata"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path / "data"))
     get_settings.cache_clear()
+    reset_setting_store()
     init_db(get_settings().database_url, echo=False)
     await run_migrations()
+    init_setting_store(get_database())
     client = _fake_tmdb()
     monkeypatch.setattr(discover_mod, "get_tmdb_client", lambda: client)
     monkeypatch.setattr(scan_mod, "get_tmdb_client", lambda: client)
     monkeypatch.setattr(scan_mod, "NEW_FILE_QUIET_SECONDS", 0)
     yield get_database()
+    reset_setting_store()
     await dispose_db()
     get_settings.cache_clear()
 
@@ -833,7 +840,7 @@ async def test_library_refresh_is_full_and_reports_progress(db, tmp_path, monkey
     await scan_library(library.id)
 
     seen_force: list[bool] = []
-    seen_phases: list[str] = []
+    seen_phases: list[dict] = []
     real_scrape = media_scrape.scrape_media_item
 
     async def _spy(media_item_id, *, force=False, on_phase=None):
@@ -851,7 +858,8 @@ async def test_library_refresh_is_full_and_reports_progress(db, tmp_path, monkey
     await media_scrape.refresh_library_metadata(library.id)
 
     assert seen_force == [True]  # 全量：每部都按 force 走
-    assert "拉取 TMDB 档案" in seen_phases and "下载图片" in seen_phases
+    phase_keys = {phase["message_key"] for phase in seen_phases}
+    assert {"library.scrape.phase.fetch", "library.scrape.phase.images"} <= phase_keys
     # 跑完即清状态（前端据此收起进度面板）
     assert media_scrape.library_refresh_state(library.id) is None
     assert media_scrape.is_library_refreshing(library.id) is False
@@ -926,7 +934,10 @@ async def test_item_detail_reports_scraping_state(db, tmp_path) -> None:
 
         # 模拟后台正在刮：单飞字典（id → 阶段）是状态的唯一事实源，
         # 阶段文案与整库刷新同一套，两处状态语言因此一致
-        media_scrape._scraping[item_id] = "下载图片"
+        media_scrape._scraping[item_id] = {
+            "message_key": "library.scrape.phase.images",
+            "params": {},
+        }
         try:
             resp = await get_library_item(library.id, item_id, _ADMIN, session)
             assert resp.data.scraping is True

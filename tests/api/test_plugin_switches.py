@@ -40,7 +40,7 @@ def make_client() -> tuple[object, TestClient]:
     app = create_app()
     who = Principal(kind="admin", name="tester", is_admin=True)
     app.dependency_overrides[require_login] = lambda: who
-    return app, TestClient(app)
+    return app, TestClient(app, headers={"Accept-Language": "zh-Hans"})
 
 
 def listing(client: TestClient) -> dict:

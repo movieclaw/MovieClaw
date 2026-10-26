@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { useLocale } from "next-intl";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import type { Route } from "next";
@@ -53,7 +55,7 @@ import { usePermissions } from "@/lib/permissions";
 import type { MediaSource, MediaType } from "@/lib/media-types";
 import {
   subscriptionProgressNote,
-  subscriptionStatusMeta,
+  subscriptionStatusMetaFor,
 } from "@/lib/subscription-ui";
 
 /**
@@ -93,6 +95,9 @@ export function MediaDetailView({
   id: string;
   source?: MediaSource;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const subscriptionStatusMeta = subscriptionStatusMetaFor(locale);
   const { canSearch } = usePermissions();
   const [detail, setDetail] = useState<MediaDetailData | null>(null);
   // 详情拉取失败状态：仅在无 seed（硬刷新/分享直达）时才需要整页兜底
@@ -112,7 +117,7 @@ export function MediaDetailView({
   const listItem = getMediaSeed(source, id);
   const fallbackType = listItem?.type ?? type ?? "movie";
   const navFallback = {
-    label: "发现",
+    label: t("nav.main.discover"),
     href: `/discover/${fallbackType}` as Route,
   };
   const back = useBackNavigation(navFallback.href);
@@ -136,7 +141,7 @@ export function MediaDetailView({
         if (!controller.signal.aborted) setLoadFailed(true);
       });
     return () => controller.abort();
-  }, [reference]);
+  }, [reference, locale]);
 
   // 详情接口回填过 extent（片长/季数）等字段，未返回前先用列表字段渲染
   const item = detail?.item ?? listItem;
@@ -359,11 +364,11 @@ export function MediaDetailView({
     info?.directorCredits.length
       ? info.directorCredits.map((director) => ({
           ...director,
-          credit: isMovie ? "导演" : "主创",
+          credit: isMovie ? t("media.detail.director") : t("media.detail.creator"),
         }))
       : [...new Set(info?.directors ?? [])].map((name) => ({
           name,
-          credit: isMovie ? "导演" : "主创",
+          credit: isMovie ? t("media.detail.director") : t("media.detail.creator"),
         }));
   const people = info ? [...directorCast, ...info.cast] : [];
 
@@ -515,7 +520,7 @@ export function MediaDetailView({
           )}
           {info?.released && (
             <p className="tnum text-on-image mt-1.5 text-sub leading-6 text-white/55">
-              {isMovie ? "上映日期" : "首播日期"} · {info.released}
+              {isMovie ? t("media.detail.releaseDate") : t("media.detail.firstAirDate")} · {info.released}
             </p>
           )}
 
@@ -525,7 +530,7 @@ export function MediaDetailView({
               <div className="inline-flex max-w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-emerald-300/20 bg-emerald-400/[0.08] px-3.5 py-2.5 text-sub text-emerald-100/90 max-md:px-3">
                 <span className="flex shrink-0 items-center gap-1.5 font-medium text-emerald-200">
                   <FolderIcon className="size-4" />
-                  在库
+                  {t("library.status.inLibrary")}
                 </span>
                 {libraryLinks.map((libraryLink) => (
                   <Link
@@ -554,7 +559,7 @@ export function MediaDetailView({
                     className="size-4"
                     style={{ color: subscriptionStatusMeta[sub.status].color }}
                   />
-                  已订阅 · {subscriptionStatusMeta[sub.status].label}
+                  {t("media.detail.subscribedPrefix")} {subscriptionStatusMeta[sub.status].label}
                 </button>
               ) : (
                 <button
@@ -563,7 +568,7 @@ export function MediaDetailView({
                   className={`btn-accent media-cta flex h-10 items-center gap-2 rounded-full px-5 text-ui font-semibold ${actionSize}`}
                 >
                   <BellIcon className="size-4" />
-                  订阅追踪
+                  {t("media.detail.subscribe")}
                 </button>
               ))}
               {/* 搜索资源：不订阅、只想手动找种子下一次的直达口（此前只能回 ⌘K 重打片名）；
@@ -578,7 +583,7 @@ export function MediaDetailView({
                 className={`btn-glass flex h-10 items-center gap-2 bg-white/10 px-5 text-ui font-medium backdrop-blur-md transition hover:bg-white/15 ${actionSize}`}
               >
                 <SearchIcon className="size-4" />
-                搜索资源
+                {t("media.detail.search")}
               </Link>}
               {sub && (
                 <span className="text-on-image flex items-center gap-1.5 text-sub text-[var(--text-muted)]">
@@ -586,7 +591,7 @@ export function MediaDetailView({
                     className="size-1.5 rounded-full"
                     style={{ backgroundColor: subscriptionStatusMeta[sub.status].color }}
                   />
-                  {subscriptionProgressNote(sub)}
+                  {subscriptionProgressNote(sub, locale)}
                 </span>
               )}
             </div>
@@ -653,7 +658,7 @@ export function MediaDetailView({
       {related.length > 0 && (
         <div className="mt-9">
           <MediaRow
-            row={{ id: `related-${item.id}`, title: "相似推荐", items: related }}
+            row={{ id: `related-${item.id}`, title: t("media.detail.similar"), items: related }}
             insetClassName="content-inset"
           />
         </div>
@@ -662,10 +667,10 @@ export function MediaDetailView({
       {/* —— 10. 相关链接：与媒体库详情一致，固定在正文所有内容之后。 —— */}
       {(source === "tmdb" || info?.sourceUrl) && (
         <nav
-          aria-label="外部词条"
+          aria-label={t("media.detail.externalEntry")}
           className="mx-12 mt-9 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-white/[0.04] pt-4 text-caption max-md:mx-4"
         >
-          <span className="text-[var(--text-faint)]">相关链接</span>
+          <span className="text-[var(--text-faint)]">{t("media.detail.relatedLinks")}</span>
           {source === "tmdb" && (
             <SourceLink
               href={`https://www.themoviedb.org/${item.type}/${item.id}`}
@@ -673,7 +678,7 @@ export function MediaDetailView({
             />
           )}
           {info?.sourceUrl && (
-            <SourceLink href={doubanAppHref ?? info.sourceUrl} label="豆瓣" />
+            <SourceLink href={doubanAppHref ?? info.sourceUrl} label={t("media.source.douban")} />
           )}
         </nav>
       )}
@@ -687,6 +692,7 @@ export function MediaDetailView({
  * 异步回填或页内切换作品时恢复折叠并重新测量，避免沿用上一部影片的状态。
  */
 function ExpandablePlot({ text }: { text: string }) {
+  const t = useTranslations();
   // 「展开全文」默认 accent 色（同原生 App）；主题可经公开部件 .detail-more-toggle 换色
   const paragraphRef = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -732,7 +738,7 @@ function ExpandablePlot({ text }: { text: string }) {
           onClick={() => setExpanded((value) => !value)}
           className="detail-more-toggle mt-1.5 inline-flex items-center gap-1 text-sub font-medium text-[var(--accent)] transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-2)]"
         >
-          {expanded ? "收起" : "展开全文"}
+          {expanded ? t("media.detail.collapse") : t("media.detail.expandPlot")}
           <ChevronRightIcon
             className={`size-3.5 transition-transform ${expanded ? "-rotate-90" : "rotate-90"}`}
           />
@@ -768,12 +774,13 @@ function SourceLink({ href, label }: { href: string; label: string }) {
  *     而不是留给用户一个永远转圈的黑框。
  */
 function TrailerRow({ title, videos }: { title: string; videos: MediaVideo[] }) {
+  const t = useTranslations();
   const [playing, setPlaying] = useState<MediaVideo | null>(null);
 
   return (
     <section>
       <h2 className="text-on-image mb-3 text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
-        预告片
+        {t("media.detail.trailers")}
       </h2>
 
       <HScroller className="-mx-1 gap-3 px-1 pt-1.5 pb-1">
@@ -872,6 +879,7 @@ function TrailerPlayer({
   title: string;
   onClose: () => void;
 }) {
+  const t = useTranslations();
   const reach = useYoutubeReachable(video.key);
 
   return (
@@ -887,7 +895,7 @@ function TrailerPlayer({
         </div>
         <button
           type="button"
-          aria-label="关闭"
+          aria-label={t("common.close")}
           onClick={onClose}
           className="btn-glass -mr-1 flex size-8 shrink-0 items-center justify-center !rounded-full"
         >
@@ -898,12 +906,12 @@ function TrailerPlayer({
       <div className="aspect-video w-full bg-black">
         {reach === "blocked" ? (
           <div className="flex size-full flex-col items-center justify-center gap-3 px-6 text-center">
-            <p className="text-ui font-medium text-[var(--text)]">当前浏览器无法直连 YouTube</p>
+            <p className="text-ui font-medium text-[var(--text)]">{t("media.detail.youtubeUnavailable")}</p>
             {/* 整段写成单个字符串字面量：JSX 会把源码换行折成空格，中文句子里
                 会平白多出一个空格。 */}
             <p className="max-w-md text-sub leading-6 text-[var(--text-muted)]">
               {
-                "预告片由 YouTube 提供，播放需要浏览器本机能访问它。服务端在「设置 → 网络」配的代理只作用于服务端自己抓数据，不经过播放器；给浏览器挂上代理后即可正常播放。"
+                t("media.detail.youtubeHint")
               }
             </p>
             <a
@@ -912,7 +920,7 @@ function TrailerPlayer({
               rel="noreferrer"
               className="btn-glass flex h-9 items-center gap-2 px-4 text-sub font-medium text-[var(--text)]"
             >
-              在 YouTube 打开 ↗
+              {t("media.detail.openYoutube")}
             </a>
           </div>
         ) : (
@@ -949,9 +957,10 @@ function PhotoWall({
   backdrops: MediaImage[];
   posters: MediaImage[];
 }) {
+  const t = useTranslations();
   const tabs = [
-    { id: "backdrops" as const, label: "剧照", images: backdrops },
-    { id: "posters" as const, label: "海报", images: posters },
+    { id: "backdrops" as const, label: t("media.detail.backdrops"), images: backdrops },
+    { id: "posters" as const, label: t("media.detail.posters"), images: posters },
   ].filter((t) => t.images.length > 0);
   const [activeId, setActiveId] = useState(tabs[0].id);
   // 灯箱：记录打开时的图片下标；null = 关闭
@@ -966,9 +975,9 @@ function PhotoWall({
   const setAsBackdrop: LightboxAction | undefined =
     active.id === "backdrops"
       ? {
-          label: "设为背景",
-          busyLabel: "正在下载并设置…",
-          doneLabel: "已设为背景",
+          label: t("media.detail.setBackground"),
+          busyLabel: t("media.detail.settingBackground"),
+          doneLabel: t("media.detail.backgroundSet"),
           icon: <PhotoIcon className="size-3.5" />,
           run: async (i: number) => {
             const image = active.images[i];
@@ -981,7 +990,7 @@ function PhotoWall({
               if (!resp.ok) throw new Error();
               blob = await resp.blob();
             } catch {
-              throw new Error("下载剧照原图失败，请检查网络后重试");
+              throw new Error(t("media.detail.backgroundFailed"));
             }
             await uploadBackdrop(
               new File([blob], "backdrop.jpg", { type: blob.type || "image/jpeg" }),
@@ -1032,7 +1041,7 @@ function PhotoWall({
     <section className="group/photos">
       <div className="mb-3 flex items-center gap-3">
         <h2 className="text-on-image text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
-          剧照与海报
+          {t("media.detail.photos")}
         </h2>
         {tabs.length > 1 && (
           <div className="flex gap-1.5">
@@ -1105,11 +1114,12 @@ function PhotoArrow({
   visible: boolean;
   onClick: () => void;
 }) {
+  const t = useTranslations();
   const Icon = dir === -1 ? ChevronLeftIcon : ChevronRightIcon;
   return (
     <button
       type="button"
-      aria-label={dir === -1 ? "向左滚动" : "向右滚动"}
+      aria-label={dir === -1 ? t("media.detail.scrollLeft") : t("media.detail.scrollRight")}
       onClick={onClick}
       // 触屏隐藏箭头（同 HScroller）：本就只靠 hover 显形，触屏没有 hover
       // 会变成「看不见但能点」的隐形命中区，吃掉图片边缘的点击
@@ -1142,12 +1152,13 @@ function PhotoCard({
   title: string;
   onOpen: () => void;
 }) {
+  const t = useTranslations();
   const tapGuard = useTapGuard(onOpen);
   return (
     <button
       type="button"
       {...tapGuard}
-      aria-label={`查看${label}第 ${index + 1} 张`}
+      aria-label={t("media.detail.viewPhoto", { label, index: index + 1 })}
       className={`shrink-0 overflow-hidden rounded-xl bg-[var(--poster-placeholder)] ring-1 ring-white/[0.08] transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_16px_40px_rgba(0,0,0,0.55)] hover:ring-white/30 ${
         landscape ? "aspect-video h-[148px] max-md:h-[104px]" : "aspect-[2/3] h-[148px] max-md:h-[126px]"
       }`}
@@ -1169,6 +1180,7 @@ function PhotoCard({
  * 站内跳转有 seed 可秒开，直达则先转圈等接口；接口失败给出错误 + 返回入口。
  */
 function DetailFallback({ failed, onBack }: { failed: boolean; onBack: () => void }) {
+  const t = useTranslations();
   return (
     // ambient-fallback：本页豁免了全局蒙版（isHome），而此刻还没有沉浸背景可铺，
     // 文案会直接压在用户配的壁纸上——亮壁纸下就读不出来了，兜底态自己带一层底。
@@ -1176,9 +1188,9 @@ function DetailFallback({ failed, onBack }: { failed: boolean; onBack: () => voi
     <div className="ambient-fallback flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
       {failed ? (
         <>
-          <p className="text-body-lg font-semibold text-[var(--text)]">未能加载该影片详情</p>
+          <p className="text-body-lg font-semibold text-[var(--text)]">{t("media.detail.loadFailed")}</p>
           <p className="max-w-sm text-ui leading-6 text-[var(--text-muted)]">
-            资源可能已下线，或网络暂时不可达。请返回后重试。
+            {t("media.detail.loadHint")}
           </p>
           <button
             type="button"
@@ -1186,13 +1198,13 @@ function DetailFallback({ failed, onBack }: { failed: boolean; onBack: () => voi
             className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
           >
             <ChevronLeftIcon className="size-4" />
-            返回
+            {t("common.back")}
           </button>
         </>
       ) : (
         <div className="flex items-center gap-2.5 text-ui text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在加载详情…
+          {t("media.detail.loading")}
         </div>
       )}
     </div>

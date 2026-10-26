@@ -184,7 +184,8 @@ class ChatResponse(BaseModel):
     usage: TokenUsage = Field(default_factory=TokenUsage)
     model: str = ""  # 实际执行的模型 id
     provider: str = ""  # 实际执行的供应商实例名
-    error: str | None = None  # finish_reason=error 时的中文错误说明
+    error: str | None = None  # finish_reason=error 时的原始错误说明
+    error_ref: dict | None = None  # 在展示边界渲染，不参与重试/状态判断
     native_output: NativeOutput | None = None  # 原生输出快照，随 to_message 进历史
 
     def to_message(self) -> ChatMessage:

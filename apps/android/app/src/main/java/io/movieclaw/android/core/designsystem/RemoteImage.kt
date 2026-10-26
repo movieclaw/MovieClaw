@@ -3,6 +3,9 @@ package io.movieclaw.android.core.designsystem
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -13,6 +16,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
+import kotlinx.coroutines.delay
+
+/** 图片加载失败后的自动重试次数上限（退避 1s/2s/4s；仍失败停在占位，等界面重建再试） */
+private const val MAX_IMAGE_RETRIES = 3
 
 /**
  * 服务器图片：地址按 iOS `ServerAddress.imageURL` 的口径解析（远程图走服务端代理 + `w=` 尺寸档），
@@ -57,6 +64,18 @@ fun RemoteImage(
         if (guest) loaders.guestLoader else loaders.loader
     }
     var failed by remember(url, origin, guest) { mutableStateOf(false) }
+    // 失败自动重试：冷启动时服务端/网络常常还没热起来（图片代理批量超时、DNS 未就绪），
+    // 首批请求会整批失败；不重试的话页面就一直是无图占位，退出重进才恢复（实机反馈）。
+    // 重试期间 AsyncImage 离开组合 → failed=false 再回来即重新发起请求。
+    var attempt by remember(url, origin, guest) { mutableIntStateOf(0) }
+    LaunchedEffect(failed) {
+        if (failed && attempt < MAX_IMAGE_RETRIES) {
+            // 退避：1s / 3s / 6s
+            delay(1_000L * (1 shl attempt))
+            attempt += 1
+            failed = false
+        }
+    }
     if (failed) {
         if (fallback != null) fallback() else PosterPlaceholder(seed = url, modifier = modifier)
         return
@@ -74,27 +93,30 @@ fun RemoteImage(
                 else -> ImageWidth.pixels(w.value, density, zoom)
             }
         }
-        val base = origin?.trimEnd('/')
+        // 双地址自动选连：图片地址跟着当前选中的入口走（在家=内网，出门=外网）
+        val base = io.movieclaw.android.core.network.ServerRoutes.baseFor(origin?.trimEnd('/'))
         val resolved = remember(url, base, px) { resolveImageUrl(url, base, px) }
-        AsyncImage(
-            model = resolved,
-            imageLoader = loader,
-            contentDescription = contentDescription,
-            contentScale = contentScale,
-            colorFilter = colorFilter,
-            onState = { state ->
-                if (state is AsyncImagePainter.State.Error) {
-                    failed = true
-                    // 「图没了」这类问题只有 URL + 错误能定性（实机反馈：订阅 hero、订阅墙封面）。
-                    android.util.Log.w(
-                        "McImage",
-                        "加载失败 url=$resolved err=" +
-                            "${state.result.throwable::class.java.simpleName}: ${state.result.throwable.message}",
-                    )
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+        key(attempt) {
+            AsyncImage(
+                model = resolved,
+                imageLoader = loader,
+                contentDescription = contentDescription,
+                contentScale = contentScale,
+                colorFilter = colorFilter,
+                onState = { state ->
+                    if (state is AsyncImagePainter.State.Error) {
+                        failed = true
+                        // 「图没了」这类问题只有 URL + 错误能定性（实机反馈：订阅 hero、订阅墙封面）。
+                        android.util.Log.w(
+                            "McImage",
+                            "加载失败 attempt=$attempt url=$resolved err=" +
+                                "${state.result.throwable::class.java.simpleName}: ${state.result.throwable.message}",
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 
@@ -114,10 +136,12 @@ internal fun resolveImageUrl(raw: String?, base: String?, px: Int?): String? {
     // 自家服务器的绝对地址（服务端有些字段带域名，如库封面 `/{origin}/api/v1/libraries/1/cover`）
     // 剥掉域名按相对路径直连：包一层 `/images/proxy` 既绕远，又会被服务端的域名白名单打回 400
     // （实机日志抓到过：媒体库封面整批 400）。真正的远程图（TMDB 等）才走代理。
+    // 注意 origin 可能是**另一个入口**的域名（内网 IP 连访时服务端回外网域名），
+    // 所以只要路径是站内 `/api/v1/…`，就按当前入口重写，不能只认当前 base 前缀。
     val path = when {
         !absolute -> raw
         base != null && raw.startsWith(base) -> raw.removePrefix(base)
-        else -> null
+        else -> serverRelativePath(raw)
     }
     if (path != null) {
         if (base == null) return raw
@@ -136,6 +160,15 @@ internal fun resolveImageUrl(raw: String?, base: String?, px: Int?): String? {
         append(java.net.URLEncoder.encode(raw, "UTF-8"))
         if (width != null) append("&w=").append(width)
     }
+}
+
+/** 站内绝对地址 → 站内路径（保留查询）；不是 `/api/v1/…` 的第三方图返回 null，继续走代理 */
+private fun serverRelativePath(raw: String): String? {
+    val afterScheme = raw.substringAfter("://", "")
+    val slash = afterScheme.indexOf('/')
+    if (slash < 0) return null
+    val path = afterScheme.substring(slash)
+    return path.takeIf { it.startsWith("/api/v1/") }
 }
 
 /** 地址补/换 `w=`（同 iOS `URL.imageWidth`：已有的 `w` 换掉，不重复堆参数） */

@@ -45,6 +45,7 @@ def clip_client(client, tmp_path, monkeypatch):  # noqa: F811
     # 后台工作协程默认不跑：接口用例只看「排进了哪一档」；真切的用例自己放开
     monkeypatch.setattr(clips, "_start_worker", lambda _queue: None)
     monkeypatch.setattr(clips, "_JOB_POLL_S", 0.05)
+    client.headers["Accept-Language"] = "zh-Hans"
     yield client
     # 预切作业在测试里不会自己跑完（工作协程是空操作）：先取消、等它停稳再关应用。
     # 直接关会在它写进度的半途打断，留下 SQLite 写锁，下一个用例起不来

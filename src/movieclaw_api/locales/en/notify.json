@@ -1,0 +1,231 @@
+{
+  "test": {
+    "title": "Test notification",
+    "body": "If you can see this, this device can receive notifications from this server."
+  },
+  "identitySkipped": {
+    "title": "Still looking for a release of {title}",
+    "body": "Some releases share a title with another movie and could not be identified, so they were skipped. The subscription will keep searching; no action is needed."
+  },
+  "stuck": {
+    "title": "The download of {title} {units} has stalled",
+    "body": "The download has stalled and no alternative release of the same quality was found. Searching again in about {hours} hours; you can also select another release in the subscription."
+  },
+  "subtitles": {
+    "title": "No subtitled release of {title} {units} yet",
+    "body": "After {hours} hours, no release with {acceptable} subtitles is available. There are {count} releases in the original {language}. Keep waiting or download an original release from the subscription."
+  },
+  "moreEpisodes": {
+    "title": "Season {season} of {title} may have {count} episodes",
+    "body": "TMDB lists only {count} episodes, but {source, select, site {later episodes have appeared on a tracker} other {Douban lists more episodes}}. Confirm the episode count in the subscription to continue following later episodes."
+  },
+  "device": {
+    "title": "A new device signed in to your account",
+    "body": "Your account on {server} just signed in on {device} ({kind}){hasSource, select, yes {, from {ip}} other {}}. If this was not you, sign it out under Account > Devices."
+  },
+  "update": {
+    "inApp": "Update under Settings > Updates and maintenance.",
+    "docker": "This version requires updating the Docker image. See Settings > Updates and maintenance for instructions.",
+    "title": "MovieClaw {version} is available"
+  },
+  "agent": {
+    "replied": "Reply ready. Tap to read.",
+    "failed": "Could not finish: {reason}",
+    "unknown": "Unknown reason",
+    "title": "AI assistant"
+  },
+  "tips": {
+    "prewarmTitle": "Precut clips for smoother trailers and browsing",
+    "prewarmBody": "People are already browsing clips or watching trailers on your TV. Enable precut clips under Settings > Playback for faster starts and smoother playback."
+  },
+  "preferences": {
+    "importedTitle": "Import complete",
+    "importedDescription": "When a movie or show you subscribed to or downloaded is organized into your library",
+    "startedTitle": "Download started",
+    "startedDescription": "When a release is found for your subscription and sent to a downloader",
+    "identitySkippedTitle": "Ambiguous release skipped",
+    "identitySkippedDescription": "Notify once when a release with the same title cannot be identified; no action is needed",
+    "subtitlesTitle": "Subtitled release still unavailable",
+    "subtitlesDescription": "When a smart subscription reaches its deadline without suitable subtitles; original releases are not downloaded automatically",
+    "upgradedTitle": "Upgrade complete",
+    "upgradedDescription": "When your subscribed content is replaced by a better release",
+    "completedTitle": "Subscription complete",
+    "completedDescription": "When all episodes you subscribed to are in the library; no duplicate alert if the episode card already announced completion",
+    "stuckTitle": "Download stalled",
+    "stuckDescription": "When a subscribed download stalls and no alternative release is found; once per download",
+    "moreEpisodesTitle": "There may be more episodes",
+    "moreEpisodesDescription": "When a tracker or Douban lists more episodes than TMDB; confirm the count to continue following",
+    "libraryArrivedTitle": "New in your library",
+    "libraryArrivedDescription": "When a library you follow receives new movies or episodes, regardless of who downloaded them",
+    "deviceSignedInTitle": "New device signed in",
+    "deviceSignedInDescription": "When an app, player, command-line client or transcoder signs in to your account",
+    "alertRaisedTitle": "Action needed",
+    "alertRaisedDescription": "Downloader, tracker or import problems that need an administrator",
+    "alertResolvedTitle": "Problem resolved",
+    "alertResolvedDescription": "Replace the original notification with a quiet resolution notice when the problem disappears",
+    "updateTitle": "New version available",
+    "updateDescription": "Notify once for each new MovieClaw version",
+    "tipTitle": "Tips",
+    "tipDescription": "Notify once when a setting could improve your experience, such as precutting clips for browsing and TV trailers",
+    "agentFinishedTitle": "AI reply ready",
+    "agentFinishedDescription": "When the AI assistant finishes or fails in the app or browser, even if you switched apps; IM conversations already receive their replies in chat"
+  },
+  "groups": {
+    "subscriptions": "My subscriptions",
+    "library": "Library",
+    "security": "Account security",
+    "admin": "Administrator",
+    "agent": "AI assistant",
+    "plugin": "Plugin · {title}",
+    "pluginDescription": "From the plugin “{title}”"
+  },
+  "alert": {
+    "resolvedTitle": "Resolved: {title}",
+    "resolvedBody": "The problem has resolved itself. No action is needed.",
+    "pendingTitle": "{count, plural, one {# issue needs attention} other {# issues need attention}}",
+    "separator": "; ",
+    "summary": "{titles}{overflow, select, yes {; and more} other {}}",
+    "fromPlugin": "From {title}",
+    "subscriptionCompleteTitle": "“{title}” subscription complete",
+    "subscriptionCompleteBody": "Everything in the subscription is in the library; nothing left to wait for.",
+    "upgradedTitle": "Upgrade finished: {name}",
+    "upgradedBody": "Replaced with a better version",
+    "untitledYear": "A title from {year}",
+    "untitled": "A title"
+  },
+  "downloader": {
+    "connectionTitle": "Downloader {name} could not connect",
+    "connectionBody": "Connection test failed for downloader {name}: {reason}"
+  },
+  "cards": {
+    "watch": "Tap to watch",
+    "startAt": "Tap to start at {episode}",
+    "continueAt": "Tap to continue with {episode}",
+    "movieImported": "{title} is in your library",
+    "partialTitle": "You can start watching {title}",
+    "partialBody": "{episodes} ready to watch; {count, plural, one {# episode is} other {# episodes are}} still downloading",
+    "episodesImported": "{title}: {episodes} ready to watch",
+    "waitingBody": "{episodes} still downloading. We’ll let you know when they’re ready",
+    "playEpisode": "Play {episode}",
+    "allEpisodes": "View all episodes",
+    "mute": "{kind, select, movie {Mute notifications for this movie} other {Mute notifications for this series}}",
+    "newTitle": "{kind, select, video {New video} tv {New series} other {New movie}}: {title}",
+    "newBody": "{hasScope, select, yes {Added to \"{library}\": {episodes}. {action}} other {Added to \"{library}\". {action}}}",
+    "startedTitle": "{upgrade, select, yes {Downloading an upgrade for {title}} other {Downloading {title}}}",
+    "upgradeBody": "Getting a better version",
+    "startedBody": "{hasDetail, select, yes {{detail}. } other {}}{batch, select, yes {We’ll let you know when the first episodes are ready} other {We’ll let you know when it’s ready}}",
+    "seriesCompleteTitle": "{title}: the complete series is in your library",
+    "seriesCompleteBody": "{seasons, plural, =1 {All {episodes} episodes are ready} other {All {seasons} seasons ({episodes} episodes) are ready}}. {action}",
+    "seasonCompleteTitle": "{title}: all of {season} is in your library",
+    "seasonCompleteBody": "{count, plural, one {# episode is ready} other {All # episodes are ready}}. {action}",
+    "missingBody": "We haven’t found releases for {episodes} yet. We’ll let you know when we do",
+    "updatedThrough": "{title}: now available through {episode}",
+    "availableBody": "{episodes} ready to watch. Tap to start at {episode}",
+    "arrivedTitle": "{title}: {episodes} just arrived",
+    "behindBody": "You haven’t watched {episodes} yet. Tap to continue with {episode}",
+    "caughtUpBody": "You watched through {episode}. Pick up where you left off",
+    "nextAir": "{body} · {episode} airs {date}"
+  },
+  "summary": {
+    "separator": ", ",
+    "names": "{titles}{more, select, yes {, and more} other {}}",
+    "libraryTitle": "{count, plural, one {# new {kind, select, video {video} other {title}}} other {# new {kind, select, video {videos} other {titles}}}} in \"{library}\"",
+    "downloadTitle": "{count, plural, one {Your downloaded {kind, select, video {video is} other {title is}}} other {Your # downloaded {kind, select, video {videos are} other {titles are}}}} in your library",
+    "downloadBody": "{titles}. Tap to watch"
+  },
+  "pluginStartup": {
+    "title": "\"{title}\" failed to start",
+    "body": "{reason}. Other features are still available. Restart the app after fixing the issue. See Settings → Plugins for details.",
+    "unknown": "Unknown reason"
+  },
+  "safeMode": {
+    "title": "Plugin safe mode is active",
+    "body": "{reason}. Skipped plugins: {plugins}. After investigating, leave safe mode in Settings → Plugins to reload them immediately."
+  },
+  "callbackFailure": {
+    "title": "Callback verification keeps failing for plugin {plugin}",
+    "body": "Callback endpoint {endpoint} failed verification {count} times in a row. The token or key configured on the platform may differ from the plugin’s, or someone may be probing this address. If needed, replace the callback address on the plugin page."
+  },
+  "siteVerification": {
+    "title": "Tracker \"{site}\" failed verification",
+    "body": "Credentials for tracker \"{site}\" failed verification: {reason}. This tracker is excluded from search and downloads. Update its credentials in Settings → Trackers.",
+    "unknown": "Unknown reason"
+  },
+  "downloaderPaths": {
+    "title": "MovieClaw cannot see the download directory for \"{name}\"",
+    "body": "The connection works, but {count, plural, one {# mapped local path is} other {# mapped local paths are}} unavailable. Completed downloads cannot be imported. {detail}"
+  },
+  "siteSyncStopped": {
+    "title": "Sync is suspended for tracker \"{site}\"",
+    "body": "Tracker \"{site}\": {reason}. This tracker is excluded from search and downloads. Check its credentials and verify again in Settings → Trackers."
+  },
+  "channelStale": {
+    "title": "The {channel} account has expired; IM notifications cannot be sent",
+    "body": "Login credentials for {channel} have expired. Link the account again to restore notifications and AI conversations."
+  },
+  "pluginUnhealthy": {
+    "title": "Plugin \"{title}\" is having problems"
+  },
+  "recycleHeld": {
+    "title": "Automatic deletion paused: too many expired cloud files",
+    "body": "{count, plural, one {# expired file is} other {# expired files are}} stored in the cloud (about {size, number, 0.0} GB), exceeding the automatic deletion limit. Select Clean up now in the recycle bin to delete them, or restore them to keep them."
+  },
+  "driveFailure": {
+    "title": "{status, select, auth_expired {Sign in again to cloud drive \"{name}\"} other {The API for cloud drive \"{name}\" has changed}}"
+  },
+  "landingGroup": {
+    "title": "MovieClaw cannot see directory {path} for downloader \"{name}\"",
+    "body": "{detail}. {count, plural, one {# completed download is} other {# completed downloads are}} stuck in this directory ({size, number, 0.0} GB), affecting {subscriptions, plural, one {# subscription} other {# subscriptions}}. Automatic release replacement is paused for these subscriptions until the directory is accessible; downloading more releases would repeat the same content."
+  },
+  "landingFailed": {
+    "title": "\"{name}\" finished downloading but cannot be imported",
+    "body": "{healthy, select, yes {\"{name}\" finished downloading. MovieClaw can see {path}, but \"{root}\" is missing. The files may have been moved or renamed in downloader \"{downloader}\". Check the task’s save location, or delete the task and download again.} other {\"{name}\" finished downloading, but MovieClaw cannot find it at {path}. {detail}}}"
+  },
+  "ingestFailed": {
+    "title": "{count, plural, one {# entry failed} other {# entries failed}} to import from watch folder {path}",
+    "body": "{names}{overflow, select, yes { and other entries (# {count} total)} other {}} failed to process. MovieClaw will retry with backoff. See the list in Settings → Watch folders for details.",
+    "names": "{count, plural, =1 {\"{first}\"} =2 {\"{first}\", \"{second}\"} other {\"{first}\", \"{second}\", \"{third}\"}}"
+  },
+  "pluginRollback": {
+    "title": "Plugin \"{title}\" was rolled back automatically"
+  },
+  "upgradePaused": {
+    "title": "Upgrades paused after repeated specification mismatches",
+    "body": "\"{title}\" {unit}: {count} consecutive releases did not match their claimed specifications. Upgrades are paused for 30 days. Check candidate quality or adjust the rule set in subscription details."
+  },
+  "specMismatch": {
+    "title": "Imported file specifications differ from the release claims",
+    "body": "\"{title}\" {unit}: {detail}. {violation}. Please review the file."
+  },
+  "removeSourceFailed": {
+    "title": "Some download tasks for \"{title}\" could not be deleted",
+    "body": "The library files were deleted. {detail}. Retry in Activity → Tasks."
+  },
+  "cloudSourceKept": {
+    "title": "Files are in the cloud, but the download tasks could not be deleted",
+    "body": "{detail}. Delete the tasks manually in the downloader, or turn off automatic deletion in Settings → Cloud drives."
+  },
+  "details": {
+    "separator": "; "
+  },
+  "cloudRevoked": {
+    "title": "This server is disconnected from MovieClaw Cloud",
+    "body": "{reason}. Official push notifications to phones have stopped. Reconnect in Settings → MovieClaw Cloud to resume.",
+    "reason": "This server has been disconnected from the MovieClaw account"
+  },
+  "cloudVersion": {
+    "title": "Official push paused: update required",
+    "body": "{reason}. Push notifications will resume automatically after the update. There is no need to reconnect.",
+    "reason": "This version no longer supports MovieClaw official push notifications. Please update."
+  },
+  "cloudUnreachable": {
+    "title": "Cannot connect to MovieClaw Cloud",
+    "body": "{reason}. {expired, select, yes {The token has expired and official push notifications are paused.} other {The token will expire soon, which will pause official push notifications.}} Check this server’s internet connection or configure a proxy for MovieClaw Cloud in Settings → Network."
+  },
+  "notices": {
+    "dismissed": "This issue was dismissed"
+  },
+  "channels": {
+    "testSent": "Sent to {count, plural, one {# account} other {# accounts}}"
+  }
+}

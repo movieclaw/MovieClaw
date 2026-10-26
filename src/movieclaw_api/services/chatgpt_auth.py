@@ -15,6 +15,8 @@ import httpx
 from pydantic import Field
 
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.i18n.llm import error_reference
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.settings import get_setting_store
 from movieclaw_api.settings.base import SettingSchema, register_setting
 from movieclaw_db.crypto import get_secret_box
@@ -72,7 +74,10 @@ class DatabaseChatGPTTokenStore:
             repo = LlmProviderRepository(session)
             row = await repo.get(provider_id)
             if row is None or row.provider_type != "chatgpt":
-                raise LlmAuthError("ChatGPT 接入已移除，请重新连接")
+                raise LlmAuthError(
+                    "ChatGPT 接入已移除，请重新连接",
+                    message_key="errors.llm.connection.connectionRemoved",
+                )
             return repo.decrypted_api_key(row)
 
     async def save(self, provider_id: int, previous: str, updated: str) -> None:
@@ -80,9 +85,15 @@ class DatabaseChatGPTTokenStore:
             repo = LlmProviderRepository(session)
             row = await repo.get(provider_id)
             if row is None or row.provider_type != "chatgpt":
-                raise LlmAuthError("ChatGPT 接入已移除，请重新连接")
+                raise LlmAuthError(
+                    "ChatGPT 接入已移除，请重新连接",
+                    message_key="errors.llm.connection.connectionRemoved",
+                )
             if repo.decrypted_api_key(row) != previous:
-                raise LlmAuthError("ChatGPT 账号已更新，请重新发起请求")
+                raise LlmAuthError(
+                    "ChatGPT 账号已更新，请重新发起请求",
+                    message_key="errors.llm.connection.accountUpdated",
+                )
             row.api_key = get_secret_box().encrypt(updated)
             await session.commit()
 
@@ -127,12 +138,12 @@ def build_server_protocol(config, preset):
 async def start_sign_in(session, *, redirect_uri: str, name: str, app_name: str, provider_id=None):
     name = name.strip()
     if not name or "/" in name:
-        raise BadRequestException("模型接入名称不能为空或包含斜杠 /")
+        raise BadRequestException(message_key="errors.chatgpt.nameInvalid")
     try:
         callback = urlparse(redirect_uri)
         port = callback.port
     except ValueError:
-        raise BadRequestException("ChatGPT 回调端口无效") from None
+        raise BadRequestException(message_key="errors.chatgpt.callbackPortInvalid") from None
     if (
         callback.scheme != "http"
         or callback.hostname != "127.0.0.1"
@@ -143,15 +154,13 @@ async def start_sign_in(session, *, redirect_uri: str, name: str, app_name: str,
         or callback.username
         or callback.password
     ):
-        raise BadRequestException(
-            "ChatGPT 回调必须使用电脑的 http://127.0.0.1:<端口>/auth/callback"
-        )
+        raise BadRequestException(message_key="errors.chatgpt.callbackInvalid")
     repo = LlmProviderRepository(session)
     prior = None
     if provider_id is not None:
         row = await repo.get(provider_id)
         if row is None or row.provider_type != "chatgpt":
-            raise NotFoundException("找不到这个 ChatGPT 接入")
+            raise NotFoundException(message_key="errors.chatgpt.connectionMissing")
         prior = ChatGPTCredentials.parse(repo.decrypted_api_key(row))
         name = row.name
     async with _pending_lock:
@@ -159,7 +168,7 @@ async def start_sign_in(session, *, redirect_uri: str, name: str, app_name: str,
         for key in [key for key, item in _pending.items() if item.expires_at <= now]:
             _pending.pop(key)
         if len(_pending) >= 32:
-            raise BadRequestException("正在等待的 ChatGPT 授权过多，请稍后重试")
+            raise BadRequestException(message_key="errors.chatgpt.tooManyAuthorizations")
         store = get_setting_store()
         host = await store.get(ChatGPTHostSetting)
         await store.set(host)  # 首次生成的主机 ID 在重启后保持不变
@@ -215,15 +224,15 @@ async def complete_sign_in(
         pending = _pending.get(attempt_id)
         if pending is None or pending.expires_at <= time.time():
             _pending.pop(attempt_id, None)
-            raise BadRequestException("ChatGPT 授权已过期，请在电脑重新连接")
+            raise BadRequestException(message_key="errors.chatgpt.authorizationExpired")
         if not secrets.compare_digest(state, pending.state):
-            raise BadRequestException("ChatGPT 回调校验失败，请重新连接")
+            raise BadRequestException(message_key="errors.chatgpt.callbackVerificationFailed")
         _pending.pop(attempt_id)  # 一次性消费，失败后不能重放 authorization code
     issued_id = client_id or pending.client_id
     if not issued_id.startswith("oaiapp_") or (
         pending.client_id != "dynamic_agent_client" and issued_id != pending.client_id
     ):
-        raise BadRequestException("ChatGPT 返回的客户端身份不匹配，请重新连接")
+        raise BadRequestException(message_key="errors.chatgpt.identityMismatch")
     data = {}
     try:
         async with httpx.AsyncClient(transport=egress_transport("llm"), timeout=30) as client:
@@ -244,12 +253,18 @@ async def complete_sign_in(
                 or not data.get("refresh_token")
                 or not data.get("id_token")
             ):
-                raise LlmAuthError("请在 ChatGPT 授权页面允许使用订阅额度")
+                raise LlmAuthError(
+                    "请在 ChatGPT 授权页面允许使用订阅额度",
+                    message_key="errors.llm.connection.allowUsage",
+                )
             keys = await client.get(ISSUER + "/.well-known/jwks.json")
             keys.raise_for_status()
             claims = verify_id_token(data["id_token"], keys.json(), issued_id, pending.nonce)
             if pending.subject is not None and claims["sub"] != pending.subject:
-                raise LlmAuthError("本次登录不是原来的 ChatGPT 账号，请新增接入")
+                raise LlmAuthError(
+                    "本次登录不是原来的 ChatGPT 账号，请新增接入",
+                    message_key="errors.llm.connection.differentAccount",
+                )
             models_response = await client.get(
                 RESOURCE + "/models",
                 headers={
@@ -264,13 +279,12 @@ async def complete_sign_in(
             ]
     except (LlmAuthError, httpx.HTTPError, ValueError) as exc:
         await _revoke_rejected_grant(data, issued_id, pending.host_id)
-        message = (
-            str(exc) if isinstance(exc, LlmAuthError) else "ChatGPT 授权服务暂时不可用，请重新连接"
-        )
-        raise BadRequestException(message) from None
+        if isinstance(exc, LlmAuthError):
+            raise BadRequestException(render_value(error_reference(exc))) from None
+        raise BadRequestException(message_key="errors.llm.connection.authUnavailable") from None
     if not models:
         await _revoke_rejected_grant(data, issued_id, pending.host_id)
-        raise BadRequestException("这个 ChatGPT 账号暂时没有可用模型，请检查订阅或工作区权限")
+        raise BadRequestException(message_key="errors.chatgpt.noModels")
     credentials = ChatGPTCredentials(
         client_id=issued_id,
         subject=claims["sub"],
@@ -286,7 +300,7 @@ async def complete_sign_in(
     text_models = [m.id for m in catalog if "text" in m.modalities]
     if not text_models:
         await revoke_credentials(credentials)
-        raise BadRequestException("这个 ChatGPT 账号暂时没有可用的文本对话模型")
+        raise BadRequestException(message_key="errors.chatgpt.noTextModels")
     # Catalog ordering can change; prefer a known conversational model, preserving
     # the existing choice during reauthorization when it remains available.
     preferred = ["gpt-6.1-sol", "gpt-6-luna", "gpt-5.6-sol"]

@@ -91,7 +91,7 @@ def test_web_and_im_paths_load_the_provider_and_none_profile_does_not():
     assert profile.index('profile == "none"') < profile.index("load_web_search_provider")
     # 网页重问与 IM 都经 profile_tools 装配，搜索随档位一起挂上
     assert "profile_tools(" in inspect.getsource(agent_routes.retry_session_message)
-    assert "profile_tools(" in inspect.getsource(channel_agent.run_agent)
+    assert "profile_tools(" in inspect.getsource(channel_agent._run_agent)
     assert "make_web_search_tool" not in inspect.getsource(agent_toolkit.get_agent_tools)
 
 

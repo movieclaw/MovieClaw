@@ -55,6 +55,7 @@ class SearchHistoryRepository:
         vertical: str = "torrent",
         member_id: int = 0,
         also_keywords: list[str] | None = None,
+        label_key: str | None = None,
     ) -> int | None:
         """记录一次搜索：同 (keyword, 同搜词, 垂直, 组合快照) 已存在则累加次数，否则新建一行。
 
@@ -88,6 +89,7 @@ class SearchHistoryRepository:
         if row is not None:
             row.search_count += 1
             row.label = label
+            row.label_key = label_key
             row.poster_mode = poster_mode
             row.updated_at = utcnow()
         else:
@@ -95,6 +97,7 @@ class SearchHistoryRepository:
                 member_id=member_id,
                 keyword=keyword,
                 label=label,
+                label_key=label_key,
                 categories_json=categories_json,
                 site_ids_json=site_ids_json,
                 also_keywords_json=also_json,

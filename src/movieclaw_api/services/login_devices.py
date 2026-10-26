@@ -43,6 +43,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n.labels import device_kind
+from movieclaw_api.i18n.stored import reference
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.login_device import LoginDevice
@@ -63,19 +65,21 @@ class KindSpec:
     family: str
 
 
+# 中文名是日志与事件契约里的类型名；界面上的设备类型走 i18n.labels.device_kind
 KINDS: dict[str, KindSpec] = {
-    "web": KindSpec("浏览器", interactive=True, family="login"),
+    "web": KindSpec("浏览器", interactive=True, family="login"),  # i18n-ignore
     "ios": KindSpec("iOS App", interactive=True, family="login"),
     "tvos": KindSpec("Apple TV App", interactive=True, family="login"),
     "macos": KindSpec("Mac App", interactive=True, family="login"),
     "android": KindSpec("Android App", interactive=True, family="login"),
     "androidtv": KindSpec("Android TV App", interactive=True, family="login"),
-    "cli": KindSpec("命令行", interactive=False, family="paired"),
-    "worker": KindSpec("转码器", interactive=False, family="paired"),
-    "manual": KindSpec("手工令牌", interactive=False, family="paired"),
+    "windows": KindSpec("Windows App", interactive=True, family="login"),
+    "cli": KindSpec("命令行", interactive=False, family="paired"),  # i18n-ignore
+    "worker": KindSpec("转码器", interactive=False, family="paired"),  # i18n-ignore
+    "manual": KindSpec("手工令牌", interactive=False, family="paired"),  # i18n-ignore
 }
 #: 用账号密码登录的原生 App（``/auth/device/login`` 只接受这几种）
-APP_KINDS = ("ios", "tvos", "macos", "android", "androidtv")
+APP_KINDS = ("ios", "tvos", "macos", "android", "androidtv", "windows")
 #: 走配对码的客户端（``/auth/device/authorize`` 只接受这几种）。Apple TV 也在其中：
 #: 电视上打字太痛苦，默认是「电视显示码、手机批准」（docs/design/tvos-app.md §5.1）。
 #: 它配出来的仍是 ``tvos`` 这一种登录设备：人直接操作的客户端、改密时随之下线，
@@ -83,7 +87,7 @@ APP_KINDS = ("ios", "tvos", "macos", "android", "androidtv")
 #: Mac App 同理：在 Mac 上显示码、手机扫码批准，省得在新装的 App 里再输一遍密码；
 #: 配出来的是 ``macos`` 登录设备，与账号密码登录的 Mac 同构。Android TV 与 Apple TV 同理
 #: （docs/design/androidtv-app.md §2）
-PAIRING_KINDS = ("cli", "worker", "tvos", "macos", "androidtv")
+PAIRING_KINDS = ("cli", "worker", "tvos", "macos", "androidtv", "windows")
 
 #: 令牌明文前缀：肉眼可辨认来源，误提交扫描器也好识别；也用来区分升级前
 #: 签发的签名 Cookie（没有这个前缀）与表内令牌。
@@ -188,7 +192,7 @@ async def issue(
     row = LoginDevice(
         member_id=member_id,
         kind=kind,
-        name=_clip(name) or spec_of(kind).label,
+        name=_clip(name) or device_kind(kind, spec_of(kind).label),
         token_hash=hash_token(plaintext),
         scope=scope,
         installation_id=installation_id,
@@ -459,9 +463,10 @@ async def _after_revoke(rows: list[LoginDevice]) -> None:
         device_key = playback_device_id(row.id)
         activity.report_stop(device_key)
         stop_device_streams(device_key)
+        # i18n-ignore: log-only stop reason
         await get_session_manager().stop_for_device(device_key, reason="设备已被注销")
         if row.scope == "transcode":
-            await registry.disconnect_device(row.id, "转码器凭证已被注销，请重新配对")
+            await registry.disconnect_device(row.id, reference("errors.workers.deviceRevoked"))
 
 
 async def revoke(session: AsyncSession, device: LoginDevice) -> None:

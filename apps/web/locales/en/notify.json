@@ -1,0 +1,15 @@
+{
+  "center": {
+    "title": "Needs attention",
+    "ignore": "Dismiss",
+    "resolve": "Resolve",
+    "description": "Only runtime issues that need your attention appear here. They disappear automatically when resolved.",
+    "countTitle": "Needs attention ({count})",
+    "countShort": "Pending ({count})",
+    "pending": "Pending"
+  },
+  "update": {
+    "appVersion": "New version v{version}",
+    "modelVersion": "New recognition model {version}"
+  }
+}

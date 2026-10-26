@@ -491,3 +491,25 @@ test("只有看不懂的原版时显示等字幕，到期也不自动下载", ()
   assert.equal(smartWantedPresentation(row).label, "等字幕");
   assert.match(smartWantedPresentation(row).note, /不会自动下载/);
 });
+
+test("English arrival times, grouped movie label and subtitle waits follow the selected locale", () => {
+  const now = new Date(2026, 9, 23, 12, 0);
+  const pending = {
+    status: "downloaded", subscription_id: 12, media_title: "Example", media_kind: "movie",
+    season_number: 0, episode_number: 0, wanted_id: 9, days_ahead: 0,
+  };
+  const presentation = todayArrivalPresentation(pending, undefined, now, "en");
+  assert.equal(presentation.timeLabel, "Finishing soon");
+  // The SDK's legacy discriminator is stable; display copy follows the locale.
+  assert.equal(presentation.statusLabel, "整理中");
+  assert.equal(groupTodayArrivals([{ arrival: pending, presentation }], "en")[0].episodeLabel, "Movie");
+  const waiting = smartWantedPresentation({ status: "wanted", selection_state: {
+    reason: "awaiting_subtitles", subtitle_blocked: 1,
+  } }, "en");
+  assert.equal(waiting.label, "Waiting for subtitles");
+  assert.equal(waiting.note, "1 original release is available; waiting for a subtitled version");
+  const multiple = smartWantedPresentation({ status: "wanted", selection_state: {
+    reason: "awaiting_subtitles", subtitle_blocked: 2,
+  } }, "en");
+  assert.match(multiple.note, /^2 original releases are available/);
+});

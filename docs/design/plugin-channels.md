@@ -203,3 +203,19 @@ class ChannelDriver:
 - **进程外长连接**：收消息循环在插件进程里常驻，宿主重启 / 插件崩溃要能恢复；沿用中枢的退避重启，
   插件进程崩溃由第三阶段的自动重启兜底。
 - **体积**：图片随协议以 base64 传输，入站 10MB 上限下可接受；以后需要再走描述符传递。
+
+### 国际化补充（SDK / `im-channels` 1.2）
+
+驱动可声明 `title_localized` / `description_localized`，`FormField` 可声明
+`label_localized` / `placeholder_localized` / `help_localized`，`Binding.form` / `Binding.flow`
+可传 `hint_localized`。`FlowState` 可带 `message_localized` / `input_label_localized`。
+这些可选映射沿用清单的语言标签格式，如 `{"en": "Code"}` 或
+`{"en": {"value": "Code", "lang": "en", "dir": "ltr"}}`。
+
+原字段仍是作者原文；宿主按每次请求的语言生成展示副本，不改驱动、绑定快照、二维码内容或凭据。
+缺少译文时显示原文，不按通道 ID 猜译。进程内与独立进程都支持；未声明映射的旧驱动继续产生
+原有线上结构。使用新字段的插件应声明 `sdk = "^1.2"` 和 `"im-channels" = "^1.2"`。
+
+绑定输入错误可使用 `ChannelInputError("原始错误", message_localized={"en": "Translated error"})`。
+它仍是 `ValueError`，既有表单错误分类不变；独立进程会保留原文与可选消息引用，API 在响应边界
+选取语言。普通 `ValueError` 与未知作者错误仍按原文回退。

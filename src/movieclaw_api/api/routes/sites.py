@@ -12,7 +12,9 @@ from movieclaw_api.exceptions import (
     ConflictException,
     NotFoundException,
     ServiceUnavailableException,
+    exception_fields,
 )
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.schemas.site import (
     BoostCleanupRequest,
@@ -159,12 +161,19 @@ async def cleanup_boost_pool(
     result = await SiteConfigService(session).cleanup_boost_pool(
         site_ids=payload.site_ids, disable_boost=payload.disable_boost, force=payload.force
     )
-    parts = [f"已删除 {result.deleted_count} 个刷流种子"] if result.deleted_count else []
+    parts = (
+        [t("settings.sites.boostDeleted", count=result.deleted_count)]
+        if result.deleted_count
+        else []
+    )
     if result.scheduled_count:
-        parts.append(f"{result.scheduled_count} 个还在保留期内，到期后自动删除")
+        parts.append(t("settings.sites.boostDeferred", count=result.scheduled_count))
     if result.failed_count:
-        parts.append(f"{result.failed_count} 个因下载器暂时不可达没删成，稍后自动重试")
-    return ok(result, message="；".join(parts) or "没有需要清理的刷流种子")
+        parts.append(t("settings.sites.boostCleanupRetry", count=result.failed_count))
+    return ok(
+        result,
+        message=t("common.list.issueSeparator").join(parts) or t("settings.sites.noBoostCleanup"),
+    )
 
 
 @router.get(
@@ -230,7 +239,7 @@ async def configure_site(
     # 同步占位为 VERIFYING（关闭并发窗口），再排队后台任务执行真实验证
     row = await service.start_verification(payload.site_id)
     background_tasks.add_task(verify_site, payload.site_id)
-    return ok(await _to_view(service, row), message="已保存，正在验证")
+    return ok(await _to_view(service, row), message=t("settings.sites.created"))
 
 
 @router.put(
@@ -257,7 +266,7 @@ async def update_site(
     )
     row = await service.start_verification(site_id)
     background_tasks.add_task(verify_site, site_id)
-    return ok(await _to_view(service, row), message="已更新，正在验证")
+    return ok(await _to_view(service, row), message=t("settings.sites.updated"))
 
 
 @router.patch(
@@ -336,7 +345,9 @@ async def set_site_boost_paused(
     row = await service.set_boost_paused(site_id, payload.paused)
     return ok(
         await _to_view(service, row),
-        message="已暂停刷流，做种已限速让出上行带宽" if payload.paused else "已恢复刷流",
+        message=t("settings.sites.boostPaused")
+        if payload.paused
+        else t("settings.sites.boostResumed"),
     )
 
 
@@ -358,7 +369,7 @@ async def reverify_site(
     service = SiteConfigService(session)
     row = await service.start_verification(site_id)  # 404/409/占位一步到位
     background_tasks.add_task(verify_site, site_id)
-    return ok(await _to_view(service, row), message="已重新发起验证")
+    return ok(await _to_view(service, row), message=t("settings.sites.retested"))
 
 
 @router.post(
@@ -393,18 +404,22 @@ async def proxy_site_request(
     try:
         config = get_site_config(site_id)
     except SiteNotFoundError:
-        raise NotFoundException(f"未知站点：{site_id}") from None
+        raise NotFoundException(
+            message_key="errors.network.siteUnknown", params={"id": site_id}
+        ) from None
     base = proxy_base_url(config, payload.base)
     url = join_proxy_url(base, payload.path)
     if not proxy_same_origin(base, url):
-        raise BadRequestException("路径不允许指定主机（只能给站内相对路径）")
+        raise BadRequestException(message_key="errors.sites.relativePathRequired")
 
     try:
         site = await get_site_access().get(site_id)
     except SiteUnavailableError as exc:
-        raise ConflictException(str(exc)) from exc
+        raise ConflictException(**exception_fields(exc)) from exc
     except TrackerAuthError as exc:
-        raise ConflictException(f"认证失败：{exc.message}") from exc
+        raise ConflictException(
+            message_key="errors.sites.authenticationFailed", params={"error": exc.message}
+        ) from exc
 
     headers = sanitize_proxy_headers(payload.headers)
     # POST 体：字典按 JSON 发；字符串按原始内容发（调用方自带 content-type）
@@ -425,10 +440,13 @@ async def proxy_site_request(
         )
     except httpx.TimeoutException as exc:
         raise ServiceUnavailableException(
-            f"站点响应超时（{payload.timeout_seconds:g}s）"
+            message_key="errors.sites.requestTimeout",
+            params={"seconds": f"{payload.timeout_seconds:g}"},
         ) from exc
     except httpx.TransportError as exc:
-        raise ServiceUnavailableException(f"无法连接站点：{exc}") from exc
+        raise ServiceUnavailableException(
+            message_key="errors.sites.connectionFailed", params={"error": exc}
+        ) from exc
 
     content_type = str(response.headers.get("content-type", ""))
     text, truncated = proxy_response_text(response.content, content_type)
@@ -462,4 +480,4 @@ async def delete_site(
 ) -> ApiResponse[dict]:
     service = SiteConfigService(session)
     await service.delete(site_id)
-    return ok({"site_id": site_id}, message="已删除")
+    return ok({"site_id": site_id}, message=t("settings.sites.deleted"))

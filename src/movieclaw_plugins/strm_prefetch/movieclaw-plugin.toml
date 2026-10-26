@@ -1,11 +1,13 @@
 [plugin]
 id = "strm-prefetch"
 title = "网盘规格预探"
+title_localized = { en = "Cloud media specification checks" }
 version = "1.0.1"
 entry = "strm_prefetch"
 runtime = "process"
 sdk = "^1.0"
 description = "提前在后台探好网盘（strm）条目的格式与音轨字幕：首播不用现等，详情页直接有规格；看到下一集、收藏、打开详情时优先探"
+description_localized = { en = "Check cloud (STRM) media formats, audio tracks and subtitles in the background so they are ready before first playback. Prioritize the next episode, favorites and opened detail pages." }
 
 [requires]
 "job-handlers" = "^1.1"

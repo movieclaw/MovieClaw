@@ -49,7 +49,7 @@ struct TVPausedTitle: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("已暂停")
+            Text(String(localized: .playerDiagnosticsPaused))
                 .font(.caption.weight(.semibold))
                 .tracking(4)
                 .foregroundStyle(.white.opacity(0.6))
@@ -101,8 +101,8 @@ struct TVSkipNotice: View {
         case let .skipped(segment):
             Button(action: undo) {
                 HStack(spacing: 14) {
-                    Text("已跳过\(SkipSegments.name(segment))")
-                    Text("撤回")
+                    Text(String(localized: .playerControlsSkipped(SkipSegments.name(segment))))
+                    Text(String(localized: .playerControlsUndoSkip))
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(.black)
                         .padding(.horizontal, 16)
@@ -116,7 +116,7 @@ struct TVSkipNotice: View {
             .buttonStyle(.glass)
             .accessibilityIdentifier("tv-player-skip-undo")
         case .learned, .forgot:
-            Text(notice.kind == .learned ? "本剧以后自动跳过片头" : "本剧不再自动跳过片头")
+            Text(notice.kind == .learned ? String(localized: .playerControlsAutoSkipLearned) : String(localized: .playerControlsAutoSkipDisabled))
                 .font(.headline)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 28)
@@ -152,10 +152,10 @@ struct TVUpNextCard: View {
                     .frame(width: Self.stillWidth, height: Self.stillWidth * 9 / 16)
                     .clipShape(.rect(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(countdown == nil ? "下一集" : "即将播放")
+                    Text(countdown == nil ? String(localized: .playerControlsNextEpisode) : String(localized: .playerControlsUpNextTitle))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text("第 \(episode.episodeNumber) 集")
+                    Text(String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
                         .font(.headline)
                     if let name = episode.name, !name.isEmpty {
                         Text(name)
@@ -172,7 +172,7 @@ struct TVUpNextCard: View {
                     .prefersDefaultFocus(true, in: focusScope)
                     .buttonStyle(TVUpNextButtonStyle(progress: countdown))
                     .accessibilityIdentifier("tv-player-upnext")
-                Button("观看片尾", action: watchCredits)
+                Button(String(localized: .playerControlsWatchCreditsButton), action: watchCredits)
                     .focused(focus, equals: .watchCredits)
                     .buttonStyle(TVUpNextButtonStyle(progress: nil))
                     .accessibilityIdentifier("tv-player-upnext-credits")
@@ -186,9 +186,9 @@ struct TVUpNextCard: View {
     }
 
     private var nextTitle: String {
-        guard let countdown else { return "下一集" }
+        guard let countdown else { return String(localized: .playerControlsNextEpisode) }
         let left = Double(SkipSegments.autoNextMs) * (1 - countdown) / 1000
-        return "下一集 · \(max(1, Int(left.rounded(.up))))"
+        return String(localized: .playerControlsNextCountdown(max(1, Int(left.rounded(.up)))))
     }
 }
 
@@ -239,16 +239,16 @@ struct TVQualityOfferCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("网速跟不上当前画质")
+            Text(String(localized: .playerControlsSlowNetwork))
                 .font(.headline)
             Text(detail)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 20) {
-                Button("改用 \(offer.maxHeight)p", action: accept)
+                Button(String(localized: .playerControlsUseQuality(String(offer.maxHeight))), action: accept)
                     .accessibilityIdentifier("tv-quality-offer-accept")
-                Button("继续当前画质", action: dismiss)
+                Button(String(localized: .playerControlsKeepQuality), action: dismiss)
             }
         }
         .padding(32)
@@ -260,10 +260,9 @@ struct TVQualityOfferCard: View {
     }
 
     private var detail: String {
-        let measured = PlaybackController.formatBandwidth(offer.measuredBps) ?? "很慢"
-        let required = PlaybackController.formatBandwidth(offer.requiredBps) ?? "更快"
-        return "实测约 \(measured)，这一版需要约 \(required)。可以暂停攒一会缓冲再看，"
-            + "或改用 \(offer.maxHeight)p（服务端转码，画质会降低）。"
+        let measured = PlaybackController.formatBandwidth(offer.measuredBps) ?? String(localized: .playerControlsSlowMeasured)
+        let required = PlaybackController.formatBandwidth(offer.requiredBps) ?? String(localized: .playerControlsSlowRequired)
+        return String(localized: .playerControlsSlowDescription(measured, required, String(offer.maxHeight)))
     }
 }
 
@@ -325,23 +324,23 @@ struct TVConsentDialog: View {
         ZStack {
             Color.black.opacity(0.85).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 24) {
-                Text("这部片需要软件转码才能播放")
+                Text(String(localized: .playerConsentNativeTitle))
                     .font(.title3.weight(.semibold))
-                labeled("原因", decision.reason)
-                if let cost = decision.costHint { labeled("代价", cost) }
+                labeled(String(localized: .playerConsentReason), decision.reason)
+                if let cost = decision.costHint { labeled(String(localized: .playerConsentCost), cost) }
                 if let error {
                     Text(error)
                         .font(.callout)
                         .foregroundStyle(Theme.danger)
                 }
                 if decision.canSelfEnable != true {
-                    Text("当前未开启软件转码。请联系管理员开启（管理员播放此类影片时会收到开启询问）。")
+                    Text(String(localized: .playerConsentAdminRequired))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
                 HStack(spacing: 30) {
                     if decision.canSelfEnable == true {
-                        Button(saving ? "正在开启…" : "开启并播放") {
+                        Button(saving ? String(localized: .playerConsentEnabling) : String(localized: .playerConsentEnableAndPlay)) {
                             Task {
                                 saving = true
                                 error = nil
@@ -355,9 +354,9 @@ struct TVConsentDialog: View {
                         }
                         .disabled(saving)
                         .accessibilityIdentifier("tv-consent-enable")
-                        Button("取消", action: cancel)
+                        Button(String(localized: .commonCancel), action: cancel)
                     } else {
-                        Button("知道了", action: cancel)
+                        Button(String(localized: .playerConsentAcknowledge), action: cancel)
                     }
                 }
                 .padding(.top, 10)

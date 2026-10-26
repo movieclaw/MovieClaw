@@ -13,6 +13,7 @@
  */
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 
@@ -34,6 +35,7 @@ export function HandoffButton({
   onBeforeNavigate?: () => void;
   className?: string;
 }) {
+  const t = useTranslations();
   const router = useRouter();
   const toast = useToast();
   const { start } = useAgentConversations();
@@ -49,7 +51,7 @@ export function HandoffButton({
       onBeforeNavigate?.();
       router.push(`/sessions/${sessionId}` as Route);
     } catch (caught) {
-      toast.error((caught as Error).message || "无法发起 AI 分析");
+      toast.error((caught as Error).message || t("agent.handoff.failed"));
     } finally {
       setBusy(false);
     }
@@ -60,9 +62,9 @@ export function HandoffButton({
       type="button"
       onClick={handoff}
       disabled={busy}
-      className={`btn-glass gap-1 px-3 py-1.5 text-sub font-medium text-[var(--text)] disabled:cursor-wait disabled:opacity-55 max-md:py-2 ${className}`}
+      className={`btn-glass gap-1 whitespace-nowrap px-3 py-1.5 text-sub font-medium text-[var(--text)] disabled:cursor-wait disabled:opacity-55 max-md:py-2 ${className}`}
     >
-      {busy ? "正在整理上下文…" : "交给 AI 分析"}
+      {busy ? t("agent.handoff.preparing") : t("agent.handoff.analyze")}
     </button>
   );
 }

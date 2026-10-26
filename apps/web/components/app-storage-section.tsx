@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { type AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner } from "@/components/cloud-push-ui";
 import { useConfirm, useToast } from "@/components/feedback";
@@ -55,29 +59,37 @@ import { formatRelativeTime } from "@/lib/time";
 const POLL_MS = 2000;
 
 export function AppStorageSection() {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const [usage, setUsage] = useState<StorageUsage | null>(null);
   const [computing, setComputing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const confirm = useConfirm();
   const toast = useToast();
 
   /** 读一次状态：拿到新快照才替换页面数据，没算完就只更新「统计中」标记。 */
+  const readGeneration = useRef(0);
   const load = useCallback(async (refresh: boolean) => {
+    const id = ++readGeneration.current;
     try {
       const state = await getStorageState(refresh);
+      if (id !== readGeneration.current) return;
       if (state.usage) setUsage(state.usage);
       setComputing(state.computing);
       setError(state.error);
     } catch (e) {
+      if (id !== readGeneration.current) return;
       setComputing(false);
-      setError(e instanceof Error ? e.message : "读取占用信息失败");
+      setError(e instanceof Error ? e.message : { key: "settings.storage.ui.readFailed" });
     }
-  }, []);
+  }, [setError]);
 
   useEffect(() => {
     void load(false);
-  }, [load]);
+    return () => { readGeneration.current += 1; };
+  }, [load, locale]);
 
   // 后台正在统计时轮询，等新数据落地后自动替换页面上的旧数据
   useEffect(() => {
@@ -92,17 +104,17 @@ export function AppStorageSection() {
     const ok = await confirm(
       mode === "orphans"
         ? {
-            title: `清理「${dir.title}」的孤儿条目？`,
-            description: "只删除媒体库里已不存在的条目，正在使用的内容不受影响。",
-            confirmLabel: "清理孤儿条目",
+            title: t("settings.storage.ui.orphansTitle", { title: dir.title }),
+            description: t("settings.storage.ui.orphansHint"),
+            confirmLabel: t("settings.storage.ui.orphans"),
           }
         : {
-            title: `清空「${dir.title}」？`,
+            title: t("settings.storage.ui.clearTitle", { title: dir.title }),
             // 登记表的完整说明本身就写清了用途与重建代价，直接当后果说明；
             // 重建代价高的那几个另外靠红色确认键（tone: danger）加重提醒
             description: dir.description,
             confirmLabel:
-              dir.bytes > 0 ? `清空并释放 ${formatBytes(dir.bytes)}` : "全部清空",
+              dir.bytes > 0 ? t("settings.storage.ui.clearBytes", { bytes: formatBytes(dir.bytes) }) : t("settings.storage.ui.clear"),
             tone: expensive ? "danger" : "default",
           },
     );
@@ -113,16 +125,13 @@ export function AppStorageSection() {
     setBusyKey(key);
     try {
       const result = await cleanStorage(key, mode);
-      const parts = [
-        `已释放 ${formatBytes(result.freed_bytes)}，删除 ${result.removed} 项`,
-      ];
-      if (result.skipped_busy > 0)
-        parts.push(`跳过正在使用的 ${result.skipped_busy} 项`);
-      toast.success(parts.join("，"));
+      toast.success(t("settings.storage.ui.cleaned", {
+        bytes: formatBytes(result.freed_bytes), removed: result.removed, skipped: result.skipped_busy,
+      }));
       // 清理让后端快照标脏：这一次读取会拉起后台重算，占用数字随后被轮询替换
       await load(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "清理失败");
+      toast.error(e instanceof Error ? e.message : t("settings.storage.ui.cleanFailed"));
     } finally {
       setBusyKey(null);
     }
@@ -134,18 +143,18 @@ export function AppStorageSection() {
   // 数据是「上一次统计的结果」，因此时间与进行中状态必须始终摆在标题栏上；
   // 手机上这一行还要和刷新按钮挤在一起，文案保持短，超长时截断而不是挤走按钮。
   const computedAt = usage
-    ? formatRelativeTime(new Date(usage.computed_at * 1000).toISOString())
+    ? formatRelativeTime(new Date(usage.computed_at * 1000).toISOString(), locale)
     : null;
   const statusText = computedAt
-    ? `统计于 ${computedAt}${computing ? " · 更新中" : ""}`
+    ? t("settings.storage.ui.computedAt", { when: computedAt, updating: computing ? "yes" : "no" })
     : computing
-      ? "首次统计中，可能要几十秒…"
-      : "尚未统计";
+      ? t("settings.storage.ui.firstComputing")
+      : t("settings.storage.ui.notComputed");
 
   return (
     <div className="space-y-10">
       <SettingsSection
-        title="磁盘概览"
+        title={t("settings.storage.ui.overview")}
         description={statusText}
         action={
           <button
@@ -155,7 +164,7 @@ export function AppStorageSection() {
             className={SETTINGS_BUTTON_CLASS}
           >
             <RefreshIcon className={`size-3.5 ${computing ? "animate-spin" : ""}`} />
-            {computing ? "统计中" : "刷新"}
+            {computing ? t("settings.storage.ui.computing") : t("settings.storage.ui.refresh")}
           </button>
         }
       >
@@ -163,10 +172,9 @@ export function AppStorageSection() {
       </SettingsSection>
 
       {usage && usage.unregistered.length > 0 && (
-        <SettingsSection title="未登记目录">
+        <SettingsSection title={t("settings.storage.ui.unregistered")}>
           <Banner tone="warn">
-            数据目录下出现了程序未登记的条目，不会被统计或清理。请把路径反馈给开发者。
-            <ul className="mt-2 space-y-1">
+            {t("settings.storage.ui.unregisteredHint")}<ul className="mt-2 space-y-1">
               {usage.unregistered.map((u) => (
                 <li key={u.path} className="flex items-center justify-between gap-4">
                   <span className="truncate font-mono" title={u.path}>
@@ -181,8 +189,8 @@ export function AppStorageSection() {
       )}
 
       <SettingsSection
-        title="可清理的缓存"
-        description={usage ? `合计 ${formatBytes(usage.cache_bytes)}` : undefined}
+        title={t("settings.storage.ui.caches")}
+        description={usage ? t("settings.storage.ui.total", { bytes: formatBytes(usage.cache_bytes) }) : undefined}
       >
         <SettingsList>
           {!usage ? (
@@ -201,9 +209,9 @@ export function AppStorageSection() {
       </SettingsSection>
 
       <SettingsSection
-        title="应用数据"
+        title={t("settings.storage.ui.data")}
         description={
-          usage ? `合计 ${formatBytes(usage.data_bytes)} · 只展示，不提供删除` : undefined
+          usage ? t("settings.storage.ui.dataTotal", { bytes: formatBytes(usage.data_bytes) }) : undefined
         }
       >
         <SettingsList>
@@ -226,6 +234,8 @@ function DiskOverview({
   usage: StorageUsage | null;
   error: string | null;
 }) {
+  const t = useTranslations();
+
   const total = usage?.disk_total ?? 0;
   const cache = usage?.cache_bytes ?? 0;
   const data = usage?.data_bytes ?? 0;
@@ -234,10 +244,10 @@ function DiskOverview({
   const other = Math.max(0, (usage?.disk_used ?? 0) - cache - data);
   const pct = (n: number) => (total > 0 ? `${(n / total) * 100}%` : "0%");
   const segments = [
-    { label: "应用数据", value: data, color: "bg-sky-400/85" },
-    { label: "可回收缓存", value: cache, color: "bg-amber-400/85" },
-    { label: "其他占用", value: other, color: "bg-white/20" },
-    { label: "剩余", value: free, color: "bg-white/[0.07]" },
+    { label: t("settings.storage.ui.data"), value: data, color: "bg-sky-400/85" },
+    { label: t("settings.storage.ui.reclaimable"), value: cache, color: "bg-amber-400/85" },
+    { label: t("settings.storage.ui.other"), value: other, color: "bg-white/20" },
+    { label: t("settings.storage.ui.free"), value: free, color: "bg-white/[0.07]" },
   ];
 
   return (
@@ -245,8 +255,7 @@ function DiskOverview({
       <div className="flex items-end justify-between gap-4">
         <div className="min-w-0">
           <p className="text-ui font-medium text-[var(--text)]">
-            数据目录所在磁盘
-          </p>
+            {t("settings.storage.ui.disk")}</p>
           <p
             className="mt-0.5 truncate font-mono text-caption text-[var(--text-faint)]"
             title={usage?.data_root}
@@ -259,7 +268,7 @@ function DiskOverview({
             {usage ? formatBytes(free) : "—"}
           </p>
           <p className="mt-1 tnum text-caption text-[var(--text-faint)]">
-            剩余 · 共 {usage ? formatBytes(total) : "—"}
+            {t("settings.storage.ui.freeTotal", { bytes: usage ? formatBytes(total) : "—" })}
           </p>
         </div>
       </div>
@@ -305,13 +314,16 @@ function DirRow({
   /** 只有可清理的目录传；点菜单项即发起确认（弹窗在上层） */
   onClean?: (mode: CleanMode) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const expensive = dir.rebuild_cost === "expensive";
   const actionable = dir.group === "cache" && !!onClean;
   return (
     <SettingsRow
       label={
-        <span className="flex items-center gap-1.5">
-          <span className="truncate">{dir.title}</span>
+        <span className={`flex items-center gap-1.5 ${locale === "en" ? "min-w-0" : ""}`}>
+          <span className={locale === "en" ? "min-w-0 break-words" : "truncate"}>{dir.title}</span>
           <Tooltip
             content={
               <>
@@ -327,7 +339,7 @@ function DirRow({
           >
             <button
               type="button"
-              aria-label={`「${dir.title}」的说明`}
+              aria-label={t("settings.storage.ui.about", { title: dir.title })}
               className="flex shrink-0 text-[var(--text-faint)] transition-colors hover:text-[var(--text-muted)] focus-visible:text-[var(--text-muted)]"
             >
               <InfoIcon className="size-[14px]" />
@@ -336,13 +348,13 @@ function DirRow({
         </span>
       }
       description={
-        <span className="flex items-center gap-1.5">
+        <span className={`flex items-center gap-1.5 ${locale === "en" ? "max-sm:flex-col max-sm:items-start" : ""}`}>
           {expensive && (
             <span className="shrink-0 rounded-full bg-amber-400/10 px-1.5 py-px text-micro font-medium text-amber-300/90">
-              重建代价高
+              {t("settings.storage.ui.expensive")}
             </span>
           )}
-          <span className="truncate">{dir.summary}</span>
+          <span className={locale === "en" ? "min-w-0 break-words" : "truncate"}>{dir.summary}</span>
         </span>
       }
     >
@@ -361,14 +373,14 @@ function DirRow({
           </span>
         ) : (
           <SettingsMoreMenu
-            label={`「${dir.title}」的清理操作`}
+            label={t("settings.storage.ui.actions", { title: dir.title })}
             disabled={!dir.exists}
             items={[
               ...(dir.orphan_aware
-                ? [{ label: "清理孤儿条目", onSelect: () => onClean("orphans") }]
+                ? [{ label: t("settings.storage.ui.orphans"), onSelect: () => onClean("orphans") }]
                 : []),
               ...(dir.clearable
-                ? [{ label: "全部清空", onSelect: () => onClean("all"), danger: expensive }]
+                ? [{ label: t("settings.storage.ui.clear"), onSelect: () => onClean("all"), danger: expensive }]
                 : []),
             ]}
           />

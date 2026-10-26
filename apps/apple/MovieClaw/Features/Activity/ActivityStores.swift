@@ -107,7 +107,7 @@ final class TaskActivityStore {
                 } catch is CancellationError {
                     break
                 } catch {
-                    downloadsError = error.localizedDescription.isEmpty ? "下载任务加载失败" : error.localizedDescription
+                    downloadsError = error.localizedDescription.isEmpty ? String(localized: .activityTaskCenterDownloadsLoadFailed) : error.localizedDescription
                 }
             }
         }
@@ -257,7 +257,7 @@ final class MediaActivityStore {
                 if first || liveChanged { Task { await refreshExtras() } }
             } catch is CancellationError {
             } catch {
-                self.error = error.localizedDescription.isEmpty ? "媒体库活动加载失败" : error.localizedDescription
+                self.error = error.localizedDescription.isEmpty ? String(localized: .activityWatchLoadFailed) : error.localizedDescription
             }
         }
     }

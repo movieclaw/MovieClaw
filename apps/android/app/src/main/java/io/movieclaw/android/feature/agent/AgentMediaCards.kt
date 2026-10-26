@@ -55,6 +55,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import io.movieclaw.android.core.designsystem.mcCards
 
 /*
  * Agent 生成式 UI：行内媒体卡片（对应 iOS `AgentMediaCards.swift` + Web `agent-media-cards.tsx`）。
@@ -358,7 +359,7 @@ private fun AgentMediaCardItem(
             title = card.title,
             meta = card.meta.takeIf { it.isNotEmpty() },
             ribbon = card.ribbon,
-            modifier = Modifier.width(McMetrics.rowCardWidth),
+            modifier = Modifier.width(mcCards.posterWidth),
             onClick = card.open?.let { target -> { onOpen(target) } },
         )
     }
@@ -367,7 +368,7 @@ private fun AgentMediaCardItem(
 /** 加载 / 失败占位：与真实卡片同尺寸，中央一行小字（iOS `AgentCardPlaceholder` 同款） */
 @Composable
 private fun AgentCardPlaceholder(card: AgentMediaCardView) {
-    val width = if (card.wide) 212.dp else McMetrics.rowCardWidth
+    val width = if (card.wide) 212.dp else mcCards.posterWidth
     Box(
         Modifier
             .width(width)

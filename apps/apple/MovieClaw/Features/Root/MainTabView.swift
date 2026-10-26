@@ -85,7 +85,7 @@ struct MainTabView: View {
             } label: {
                 iconLabel(.library)
             }
-            .accessibilityLabel(Self.isPad ? "首页" : MainTab.library.title)
+            .accessibilityLabel(Self.isPad ? String(localized: .navNativeHome) : MainTab.library.title)
             if Self.isPad {
                 PadSidebarLibraryTabs()
             }
@@ -140,7 +140,7 @@ struct MainTabView: View {
             }
             .accessibilityLabel(MainTab.more.title)
             .accessibilityIdentifier("open-more")
-            .badge(Self.isPad && badges.updatePending ? Text("新版本") : nil)
+            .badge(Self.isPad && badges.updatePending ? Text(String(localized: .navBadgesUpdateAvailable)) : nil)
         }
         // iPad：顶部标签栏可展开成侧边栏（iPadOS 18 起的 sidebarAdaptable，同 Apple Music / TV 的 iPad 版）
         .modifier(PadSidebarTabStyle(enabled: Self.isPad))
@@ -261,10 +261,10 @@ struct MainTabView: View {
                 try? await Task.sleep(for: .seconds(reopenAfter))
                 let request = router.player
                 router.player = nil
-                FileHandle.standardError.write(Data("[AutoTest] 关闭播放器\n".utf8))
+                FileHandle.standardError.write(Data("[AutoTest] 关闭播放器\n".utf8)) // i18n-ignore: debug log
                 try? await Task.sleep(for: .seconds(2))
                 if let request {
-                    FileHandle.standardError.write(Data("[AutoTest] 重新打开播放器\n".utf8))
+                    FileHandle.standardError.write(Data("[AutoTest] 重新打开播放器\n".utf8)) // i18n-ignore: debug log
                     router.play(request)
                 }
             }
@@ -416,7 +416,7 @@ extension MainTabView {
             _ = try await model.switchToPreviousAccount()
         } catch AppModel.AccountError.needsPassword {
             // 那个账号的登录已失效：打开切换抽屉，它在那里标着「需要重新登录」，点一下输密码
-            feedback.error("那个账号的登录已失效，点它重新输入密码")
+            feedback.error(String(localized: .authAccountsExpiredHint))
             router.present(.accountSwitcher)
         } catch {
             feedback.error(error)
@@ -447,7 +447,7 @@ extension MainTabView {
                 try await model.switchAccount(to: target.login.username, on: address)
             } catch AppModel.AccountError.needsPassword {
                 push.pendingTap = nil
-                feedback.error("「\(target.login.accountName)」的登录已失效，点它重新输入密码")
+                feedback.error(String(localized: .authAccountsNamedExpiredHint(target.login.accountName)))
                 router.present(.accountSwitcher)
             } catch {
                 push.pendingTap = nil
@@ -483,7 +483,7 @@ extension MainTabView {
             // iPad 的顶部标签栏与侧边栏地方够：图标 + 文字（HIG：iPad 页签要写出名字）。
             // 媒体库页签在 iPad 上叫「首页」：各个库逐个列在侧边栏里（同 Mac 版）
             if tab == .library {
-                Label("首页", systemImage: "house")
+                Label(String(localized: .navNativeHome), systemImage: "house")
             } else {
                 Label(tab.title, systemImage: tab.systemImage)
             }
@@ -641,7 +641,7 @@ struct AppTopBar: ViewModifier {
                     } label: {
                         Image(systemName: "person.2")
                     }
-                    .accessibilityLabel("切换账号")
+                    .accessibilityLabel(String(localized: .authMenuSwitchAccount))
                     .accessibilityIdentifier("open-account-switcher")
                 }
             }
@@ -652,7 +652,7 @@ struct AppTopBar: ViewModifier {
                     } label: {
                         Image(systemName: "qrcode.viewfinder")
                     }
-                    .accessibilityLabel("扫码批准设备登录")
+                    .accessibilityLabel(String(localized: .authDevicesScanApproval))
                     .accessibilityIdentifier("open-scanner")
                 }
             }
@@ -664,7 +664,7 @@ struct AppTopBar: ViewModifier {
                     } label: {
                         Image(systemName: "magnifyingglass")
                     }
-                    .accessibilityLabel("搜索")
+                    .accessibilityLabel(String(localized: .commonSearch))
                     .accessibilityIdentifier("open-search")
                 }
             }
@@ -764,8 +764,8 @@ final class ShellBadges {
     /// 「更多」里更新行的文案（Web app-update-entry）：应用与模型都有更新时只说应用版本
     var updateLabel: String? {
         guard let pendingUpdate else { return nil }
-        if let version = pendingUpdate.appVersion { return "新版本 v\(version)" }
-        return pendingUpdate.modelTag.map { "新识别模型 \($0)" }
+        if let version = pendingUpdate.appVersion { return String(localized: .navBadgesAppVersion(version)) }
+        return pendingUpdate.modelTag.map { String(localized: .navBadgesModelVersion($0)) }
     }
     /// 任务活动（Job SSE + 下载器快照），活动页任务视角共用
     let tasks = TaskActivityStore()
@@ -786,21 +786,21 @@ final class ShellBadges {
         #if DEBUG
         // 开发期：-mcActivityDot red|green|blue 强制显示状态点（截图核对用）
         switch UserDefaults.standard.string(forKey: "mcActivityDot") {
-        case "red": return .init(color: UIColor(Theme.danger), label: "有需要处理的任务")
-        case "green": return .init(color: UIColor(Theme.success), label: "有人正在观看")
-        case "blue": return .init(color: UIColor(Theme.info), label: "有任务进行中")
+        case "red": return .init(color: UIColor(Theme.danger), label: String(localized: .navBadgesNeedsAction))
+        case "green": return .init(color: UIColor(Theme.success), label: String(localized: .navBadgesWatching))
+        case "blue": return .init(color: UIColor(Theme.info), label: String(localized: .navBadgesRunning))
         default: break
         }
         #endif
-        if needsAction > 0 { return .init(color: UIColor(Theme.danger), label: "有需要处理的任务") }
-        if watching > 0 { return .init(color: UIColor(Theme.success), label: "有人正在观看") }
-        if running > 0 { return .init(color: UIColor(Theme.info), label: "有任务进行中") }
+        if needsAction > 0 { return .init(color: UIColor(Theme.danger), label: String(localized: .navBadgesNeedsAction)) }
+        if watching > 0 { return .init(color: UIColor(Theme.success), label: String(localized: .navBadgesWatching)) }
+        if running > 0 { return .init(color: UIColor(Theme.info), label: String(localized: .navBadgesRunning)) }
         return nil
     }
 
     /// 头像页签的状态点：有待安装的新版本 / 识别模型时亮蓝点（原先画在左上角头像上，同 Web 头像圆点）
     var moreDot: TabBarDotBridge.Dot? {
-        updatePending ? .init(color: UIColor(Theme.info), label: "有可用更新") : nil
+        updatePending ? .init(color: UIColor(Theme.info), label: String(localized: .navBadgesUpdateReady)) : nil
     }
 
     func run(api: APIClient) async {
@@ -935,7 +935,7 @@ private struct OfflineShell: ViewModifier {
                 await store.refreshArchivedMetadataIfNeeded(api: api)
             }
             .onChange(of: reachability.reconnects) {
-                feedback.success("已连上服务器")
+                feedback.success(String(localized: .authConnectionRestored))
                 Task {
                     // 离线冷启动时没认出服务器的，连上后补认（不然下载入口、存档一直不出来）
                     if let username { await store.readoptIfNeeded(server: api.server, username: username) }

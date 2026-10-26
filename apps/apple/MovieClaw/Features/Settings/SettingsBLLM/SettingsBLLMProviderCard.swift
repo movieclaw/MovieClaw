@@ -13,35 +13,35 @@ struct SettingsBLLMProviderCard: View {
     var body: some View {
         Form {
             SettingsFormSection {
-                LabeledContent("连接状态") { SettingsBLLMStatusPill(status: provider.status) }
-                LabeledContent("供应商", value: serverManaged ? "服务器模型" : preset?.displayName ?? provider.providerType)
-                LabeledContent("上次检查", value: provider.lastCheckedAt.map { Formatters.relative($0) } ?? "尚未检查")
+                LabeledContent(String(localized: .settingsLlmCardStatus)) { SettingsBLLMStatusPill(status: provider.status) }
+                LabeledContent(String(localized: .settingsLlmUiProvider), value: serverManaged ? String(localized: .settingsLlmCardServerManaged) : preset?.displayName ?? provider.providerType)
+                LabeledContent(String(localized: .settingsLlmCardLastChecked), value: provider.lastCheckedAt.map { Formatters.relative($0) } ?? String(localized: .settingsLlmCardNeverChecked))
                 if failed, let reason = provider.lastError {
                     Text(reason).font(.footnote).foregroundStyle(Theme.danger)
                 }
                 if serverManaged {
-                    Text("此接入由服务器管理。已配置的模型可在对话中选用。")
+                    Text(String(localized: .settingsLlmCardServerHint))
                         .font(.footnote).foregroundStyle(Theme.textMuted)
                         .accessibilityIdentifier("llm-server-managed")
                 } else {
                     SettingsBAsyncButton(action: onReverify) {
-                        Label("重新测试连接", systemImage: "arrow.clockwise")
+                        Label(String(localized: .settingsWebSearchUiRetest), systemImage: "arrow.clockwise")
                     }
                     .disabled(busy || SettingsBLLMStatus.inProgress(provider.status))
                     .accessibilityIdentifier("llm-reverify-\(provider.id)")
                 }
             }
-            SettingsFormSection("连接信息") {
+            SettingsFormSection(String(localized: .settingsLlmCardConnection)) {
                 if !serverManaged {
-                    SettingsBValueRow(label: "API 端点", value: provider.baseUrl ?? preset?.baseUrl ?? "官方默认", mono: true)
+                    SettingsBValueRow(label: String(localized: .settingsLlmUiEndpoint), value: provider.baseUrl ?? preset?.baseUrl ?? String(localized: .settingsLlmUiOfficialDefault), mono: true)
                 }
-                SettingsBValueRow(label: "连接测试模型", value: provider.defaultModel, mono: true)
+                SettingsBValueRow(label: String(localized: .settingsLlmUiTestModel), value: provider.defaultModel, mono: true)
                 if !serverManaged, let ua = provider.userAgent { SettingsBValueRow(label: "User-Agent", value: ua, mono: true) }
                 if !serverManaged, let proto = provider.apiProtocol {
-                    SettingsBValueRow(label: "API 协议", value: SettingsBLLMFormat.protocolLabel(proto))
+                    SettingsBValueRow(label: String(localized: .settingsLlmUiProtocol), value: SettingsBLLMFormat.protocolLabel(proto))
                 }
                 if !provider.extraModels.isEmpty {
-                    LabeledContent(serverManaged ? "可用模型" : "自定义模型", value: "\(provider.extraModels.count) 个")
+                    LabeledContent(serverManaged ? String(localized: .settingsLlmCardAvailableModels) : String(localized: .settingsLlmCardCustomModels), value: String(localized: .settingsMcpControlsCountUnit(provider.extraModels.count)))
                 }
             }
             if let error { SettingsFormSection { SettingsBNotice(text: error, tone: .danger) } }
@@ -53,11 +53,11 @@ struct SettingsBLLMProviderCard: View {
             if !serverManaged {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("编辑配置", systemImage: "pencil", action: onEdit)
+                        Button(String(localized: .settingsLlmCardEdit), systemImage: "pencil", action: onEdit)
                             .accessibilityIdentifier("llm-edit-\(provider.id)")
-                        Button("删除供应商", systemImage: "trash", role: .destructive) { Task { await onDelete() } }
+                        Button(String(localized: .settingsLlmCardDelete), systemImage: "trash", role: .destructive) { Task { await onDelete() } }
                             .accessibilityIdentifier("llm-delete-\(provider.id)")
-                    } label: { Label("供应商操作", systemImage: "ellipsis") }
+                    } label: { Label(String(localized: .settingsLlmCardActions), systemImage: "ellipsis") }
                     .disabled(busy)
                     .accessibilityIdentifier("llm-provider-actions")
                 }

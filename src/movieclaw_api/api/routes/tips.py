@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_login
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services import tips
@@ -182,4 +183,4 @@ async def reset_state(
     await session.execute(delete(TipEvent).where(TipEvent.member_id == owner))
     await session.execute(delete(TipRecord).where(TipRecord.member_id == owner))
     await session.commit()
-    return ok(None, message="使用提示已重置")
+    return ok(None, message=t("settings.tips.reset"))

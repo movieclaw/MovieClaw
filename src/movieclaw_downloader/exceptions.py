@@ -11,10 +11,20 @@ class DownloaderException(Exception):
         message: str = "downloader operation failed",
         *,
         details: dict[str, Any] | None = None,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
         self.details = details
+        self.message_key = message_key
+        self.params = params or {}
+
+    @property
+    def message_ref(self) -> dict | None:
+        if not self.message_key:
+            return None
+        return {"message": self.message, "message_key": self.message_key, "params": self.params}
 
 
 class DownloaderConnectError(DownloaderException):
@@ -22,11 +32,16 @@ class DownloaderConnectError(DownloaderException):
 
     def __init__(
         self,
-        message: str = "无法连接到下载器，请检查地址和端口",
+        message: str | None = None,
         *,
         details: dict[str, Any] | None = None,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, details=details)
+        if message is None:
+            message = "无法连接到下载器，请检查地址和端口"
+            message_key = message_key or "errors.downloader.connectDefault"
+        super().__init__(message, details=details, message_key=message_key, params=params)
 
 
 class DownloaderAuthError(DownloaderException):
@@ -34,11 +49,16 @@ class DownloaderAuthError(DownloaderException):
 
     def __init__(
         self,
-        message: str = "下载器认证失败，请检查用户名和密码",
+        message: str | None = None,
         *,
         details: dict[str, Any] | None = None,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, details=details)
+        if message is None:
+            message = "下载器认证失败，请检查用户名和密码"
+            message_key = message_key or "errors.downloader.authDefault"
+        super().__init__(message, details=details, message_key=message_key, params=params)
 
 
 class DownloaderSubmitError(DownloaderException):
@@ -46,11 +66,16 @@ class DownloaderSubmitError(DownloaderException):
 
     def __init__(
         self,
-        message: str = "提交下载任务失败",
+        message: str | None = None,
         *,
         details: dict[str, Any] | None = None,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, details=details)
+        if message is None:
+            message = "提交下载任务失败"
+            message_key = message_key or "errors.downloader.submitDefault"
+        super().__init__(message, details=details, message_key=message_key, params=params)
 
 
 class DownloaderDeleteError(DownloaderException):
@@ -58,11 +83,16 @@ class DownloaderDeleteError(DownloaderException):
 
     def __init__(
         self,
-        message: str = "删除下载任务失败",
+        message: str | None = None,
         *,
         details: dict[str, Any] | None = None,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, details=details)
+        if message is None:
+            message = "删除下载任务失败"
+            message_key = message_key or "errors.downloader.deleteDefault"
+        super().__init__(message, details=details, message_key=message_key, params=params)
 
 
 class TorrentParseError(DownloaderException):
@@ -70,11 +100,16 @@ class TorrentParseError(DownloaderException):
 
     def __init__(
         self,
-        message: str = "种子内容解析失败",
+        message: str | None = None,
         *,
         details: dict[str, Any] | None = None,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, details=details)
+        if message is None:
+            message = "种子内容解析失败"
+            message_key = message_key or "errors.downloader.parseTorrent"
+        super().__init__(message, details=details, message_key=message_key, params=params)
 
 
 class DownloaderNotSupportedError(DownloaderException):
@@ -85,6 +120,13 @@ class DownloaderNotSupportedError(DownloaderException):
         downloader_type: str,
         *,
         details: dict[str, Any] | None = None,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(f"下载器类型 '{downloader_type}' 尚未支持", details=details)
+        super().__init__(
+            f"下载器类型 '{downloader_type}' 尚未支持",
+            details=details,
+            message_key=message_key or "errors.downloader.unsupported",
+            params=params or {"type": downloader_type},
+        )
         self.downloader_type = downloader_type

@@ -35,6 +35,8 @@ from urllib.parse import quote
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 
+from movieclaw_api.i18n import current_locale
+from movieclaw_api.i18n.stored import stored_fields
 from movieclaw_api.services.plugin_agent import PluginAgent
 from movieclaw_kernel import (
     DURABLE_EVENTS,
@@ -95,6 +97,7 @@ class RemoteCallError(RuntimeError):
         job: dict[str, Any] | None = None,
         kind: str | None = None,
         detail: str = "",
+        message_ref: dict | None = None,
     ) -> None:
         super().__init__(message)
         self.job = job
@@ -102,6 +105,7 @@ class RemoteCallError(RuntimeError):
         self.kind = kind
         #: 插件给出的原始错误信息（不带「插件 x 处理失败」前缀，可以直接给用户看）
         self.detail = detail or message
+        self.message_ref = message_ref
 
 
 def _child_env() -> dict[str, str]:
@@ -350,7 +354,9 @@ class Session:
             if self._handshake not in done:
                 exited.cancel()
                 if exited in done:
+                    # i18n-ignore: plugin runtime diagnostic or IPC contract error
                     raise PluginProcessGone(f"插件进程启动期间退出（退出码 {proc.returncode}）")
+                # i18n-ignore: plugin runtime diagnostic or IPC contract error
                 raise TimeoutError(f"插件 {self.entry_id} {HANDSHAKE_TIMEOUT:.0f} 秒内没有就绪")
             exited.cancel()
             ready = self._handshake.result()
@@ -376,6 +382,7 @@ class Session:
         """插件经网关报就绪 / 启动失败（``session`` 服务）。"""
         future = self._handshake
         if future is None or future.done():
+            # i18n-ignore: plugin runtime diagnostic or IPC contract error
             raise RuntimeError("插件已经报过就绪")
         if error is not None:
             future.set_exception(error)
@@ -409,11 +416,13 @@ class Session:
         """钩子里插件调 ``next()``：替它跑下游（``hooks`` 服务）。"""
         run = self._nexts.get(call_id)
         if run is None:
+            # i18n-ignore: plugin runtime diagnostic or IPC contract error
             raise LookupError("这次调用已经结束")
         return await run(payload)
 
     async def send_fd(self, token: str, fd: int) -> None:
         if self._fd_host is None:
+            # i18n-ignore: plugin runtime diagnostic or IPC contract error
             raise PluginProcessGone("文件通道已关闭")
         await asyncio.to_thread(socket.send_fds, self._fd_host, [token.encode()], [fd])
 
@@ -446,6 +455,7 @@ class Session:
         自己收尾（``/_mc/cancel``），照常等它回复。
         """
         if not self.online:
+            # i18n-ignore: plugin runtime diagnostic or IPC contract error
             raise PluginProcessGone(f"插件 {self.entry_id} 的进程不在运行")
         call_id = str(next(self._ids))
         self._contexts[call_id] = contextvars.copy_context()
@@ -469,7 +479,7 @@ class Session:
                 },
                 "attempt": delivery.attempt,
             }
-        headers = {CALL_HEADER: call_id}
+        headers = {CALL_HEADER: call_id, "Accept-Language": current_locale.get()}
         path = f"/_mc/{kind or 'listener'}/{quote(listener, safe='')}"
         watcher: asyncio.Task[None] | None = None
         if cancel is not None:
@@ -494,6 +504,7 @@ class Session:
                 message = reply.get("message") or f"HTTP {response.status_code}"
                 reply = {"ok": False, "error": message}
         except (ConnectionError, OSError) as exc:
+            # i18n-ignore: plugin runtime diagnostic or IPC contract error
             raise PluginProcessGone(f"插件 {self.entry_id} 的进程不在运行") from exc
         finally:
             if watcher is not None:
@@ -503,10 +514,12 @@ class Session:
             self.jobs.pop(call_id, None)
         if not reply.get("ok"):
             raise RemoteCallError(
+                # i18n-ignore: plugin runtime diagnostic or IPC contract error
                 f"插件 {self.entry_id} 处理失败：{reply.get('error')}",
                 job=reply.get("job"),
                 kind=reply.get("error_kind"),
                 detail=str(reply.get("error") or ""),
+                message_ref=reply.get("message_ref"),
             )
         return reply.get("result")
 
@@ -526,7 +539,9 @@ class Session:
                 self._crashes.popleft()
             if len(self._crashes) >= CRASH_LIMIT:
                 raise RuntimeError(
+                    # i18n-ignore: plugin runtime diagnostic or IPC contract error
                     f"插件进程 {CRASH_WINDOW / 60:.0f} 分钟内崩溃 {len(self._crashes)} 次"
+                    # i18n-ignore: plugin runtime diagnostic or IPC contract error
                     f"（最近一次退出码 {code}），已停止重启；修好后重新启用该插件"
                 )
             logger.warning(
@@ -578,6 +593,7 @@ def _remote_error(message: dict[str, Any]) -> Exception:
     text = message.get("error_message")
     if isinstance(name, str) and name.isidentifier() and isinstance(text, str):
         return type(name, (RuntimeError,), {})(text)
+    # i18n-ignore: plugin runtime diagnostic or IPC contract error
     return RuntimeError(message.get("error") or "插件启动失败")
 
 
@@ -634,7 +650,8 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
         return AppException(
             status_code=503,
             code="PLUGIN_UNAVAILABLE",
-            message=f"插件 {session.entry_id} 暂时不可用（进程不在运行或正在重启），请稍后再试",
+            message_key="errors.plugins.temporarilyUnavailable",
+            params={"id": session.entry_id},
         )
 
     from movieclaw_api.services.plugin_files import SENDFILE_HEADER, sendfile
@@ -651,9 +668,10 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
             for k, v in request.headers.items()
             if k.lower() not in _HOP_HEADERS
             and k.lower() not in _CREDENTIAL_HEADERS
-            and k.lower() != _CALL_HEADER
+            and k.lower() not in {_CALL_HEADER, "accept-language"}
         ]
         headers.append((CALL_HEADER, call_id))
+        headers.append(("Accept-Language", current_locale.get()))
         upstream = client.build_request(
             request.method,
             request.url.path,
@@ -745,7 +763,8 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
                 return await session.call(cid, data, timeout=None, job=context)
             except PluginProcessGone as exc:
                 raise jobs.JobRetry(
-                    f"插件 {session.entry_id} 的进程不在运行，稍后重试", delay_seconds=30
+                    **stored_fields("plugins.runtime.processGoneRetry", id=session.entry_id),
+                    delay_seconds=30,
                 ) from exc
             except RemoteCallError as exc:
                 raise _job_error(exc) from exc
@@ -769,6 +788,8 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
             default_cron=item.get("default_cron"),
             default_enabled=bool(item.get("default_enabled", True)),
             description=item.get("description") or "",
+            title_key=item.get("title_key"),
+            description_key=item.get("description_key"),
         )
     if registry == "im-channels":
         from movieclaw_api.plugins.keys import IM_CHANNELS
@@ -822,6 +843,7 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
         )
     if registry == SITE_DATA_PACKS.name:
         return SITE_DATA_PACKS, Path(item["path"])
+    # i18n-ignore: plugin runtime diagnostic or IPC contract error
     raise ValueError(f"进程外插件不能往注册表 {registry} 贡献")
 
 
@@ -833,6 +855,7 @@ def _proxy(session: Session, declaration: dict[str, Any]) -> tuple[Any, Callable
         declaration["event"]
     )
     if event is None:
+        # i18n-ignore: plugin runtime diagnostic or IPC contract error
         raise ValueError(f"事件 {declaration['event']} 不存在或没有开放给第三方插件")
     listener = declaration["id"]
     timeout = DURABLE_TIMEOUT if declaration.get("durable") else CALL_TIMEOUT
@@ -958,7 +981,9 @@ def describe(path: Path, module: str, entry_id: str, command: str | None = None)
         check=False,
     )
     if proc.returncode != 0:
+        # i18n-ignore: plugin runtime diagnostic or IPC contract error
         tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or ["无输出"]
+        # i18n-ignore: plugin runtime diagnostic or IPC contract error
         raise RuntimeError(f"读取插件声明失败：{tail[0]}")
     return json.loads(proc.stdout.decode("utf-8").splitlines()[-1])
 
@@ -983,7 +1008,9 @@ def validate_config(entry_id: str, config: dict[str, Any]) -> list[dict[str, Any
         check=False,
     )
     if proc.returncode != 0:
+        # i18n-ignore: plugin runtime diagnostic or IPC contract error
         tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or ["无输出"]
+        # i18n-ignore: plugin runtime diagnostic or IPC contract error
         raise RuntimeError(f"校验插件设置失败：{tail[0]}")
     return json.loads(proc.stdout.decode("utf-8").splitlines()[-1]).get("errors") or []
 
@@ -1116,6 +1143,7 @@ class _Files:
     async def open(self, path: str, mode: str = "rb") -> str:
         flags = _OPEN_FLAGS.get(mode.replace("br", "rb"))
         if flags is None:
+            # i18n-ignore: plugin runtime diagnostic or IPC contract error
             raise ValueError(f"不支持的打开模式：{mode}")
         real = await self._files.check(path, write=mode != "rb")
         fd = await asyncio.to_thread(os.open, real, flags | os.O_CLOEXEC, 0o644)
@@ -1184,6 +1212,7 @@ class _Job:
 
         context = self._session.jobs.get(current_call.get() or "")
         if context is None:
+            # i18n-ignore: plugin runtime diagnostic or IPC contract error
             raise LookupError("只能在任务处理器里汇报任务进度")
         return context
 
@@ -1204,6 +1233,7 @@ class _Channels:
     def _stub(self, channel: str) -> Any:
         stub = self._session.channels.get(channel)
         if stub is None:
+            # i18n-ignore: plugin runtime diagnostic or IPC contract error
             raise LookupError("这个插件没有贡献这个通道")
         return stub
 
@@ -1257,6 +1287,7 @@ class _Hooks:
 
         call = current_call.get()
         if call is None:
+            # i18n-ignore: plugin runtime diagnostic or IPC contract error
             raise LookupError("只能在钩子调用里调 next()")
         return await self._session.run_next(call, payload if replace else _UNSET)
 
@@ -1282,6 +1313,7 @@ class _Events:
 
         event = self._events.get(name)
         if event is None or self._publisher is None:
+            # i18n-ignore: plugin runtime diagnostic or IPC contract error
             raise ValueError(f"事件 {name} 没有登记，先 register")
         await self._publisher.publish(event, remote_payload(event, payload))
 
@@ -1398,6 +1430,7 @@ def remote_plugin(
     services = _open_services()
     unknown = [name for name in inject if name not in services]
     if unknown:
+        # i18n-ignore: plugin runtime diagnostic or IPC contract error
         raise ValueError(f"进程外插件暂不能使用服务：{'、'.join(unknown)}")
     process_entries.add(entry_id)
     # 配置模型在子进程里，主进程只拿到它的描述（describe）；界面设置据此渲染

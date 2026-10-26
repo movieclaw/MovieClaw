@@ -365,6 +365,7 @@ def hand_over_if_claimed(
         return False
     task.state = BoostTaskState.MISSING
     task.evicted_at = now
+    # i18n-ignore: ledger note (evict_reason), not rendered
     task.evict_reason = "已被订阅/手动下载认领，移出刷流管理（预算让出，任务与数据保留）"
     task.updated_at = now
     return True
@@ -413,6 +414,7 @@ def stop_loss_reason(
         and now > task.free_deadline
         and (1.0 - progress) > _ABANDON_REMAINING_FRACTION
     ):
+        # i18n-ignore: ledger note (evict_reason), not rendered
         return f"免费窗口已过仍未下完（进度 {progress:.0%}），止损放弃避免付费下载"
     if (
         task.free_deadline is not None
@@ -427,12 +429,16 @@ def stop_loss_reason(
         available = (task.free_deadline - now - _MIN_FREE_MARGIN).total_seconds()
         if remaining_seconds > available:
             return (
+                # i18n-ignore: ledger note (evict_reason), not rendered
                 f"免费窗口预计赶不上（进度 {progress:.0%}，"
+                # i18n-ignore: ledger note (evict_reason), not rendered
                 f"实测速度约 {dl_rate / 1024**2:.1f} MiB/s），提前止损避免付费下载"
             )
     if now - task.created_at >= _STUCK_AFTER:
         if queued:
+            # i18n-ignore: ledger note (evict_reason), not rendered
             return "排队 48 小时仍未获得下载机会（下载器活动任务已满），放弃让出预算"
+        # i18n-ignore: ledger note (evict_reason), not rendered
         return "下载 48 小时仍未完成（死种或无可用资源），放弃让出预算"
     return None
 
@@ -837,6 +843,7 @@ async def _refresh_tasks(
             # 下载器配置已被删除（外键 SET NULL）：任务无从管理，让出预算
             task.state = BoostTaskState.MISSING
             task.evicted_at = now
+            # i18n-ignore: ledger note (evict_reason), not rendered
             task.evict_reason = "下载器配置已删除，任务脱离管理"
             continue
         mapping = await pool.briefs(task.downloader_id)
@@ -848,6 +855,7 @@ async def _refresh_tasks(
                 continue  # 刚提交的任务可能还没出现在列表里
             task.state = BoostTaskState.MISSING
             task.evicted_at = now
+            # i18n-ignore: ledger note (evict_reason), not rendered
             task.evict_reason = "任务已从下载器中消失（通常是用户手动删除），让出刷流预算"
             logger.info("刷流任务失踪，让出预算：%s（%s）", task.title, task.site_id)
             continue
@@ -1307,10 +1315,13 @@ async def _admit_candidates(
                     victim,
                     now,
                     reason=(
+                        # i18n-ignore: ledger note (evict_reason), not rendered
                         "蜂群已死，让位给更高效的新免费种"
                         if swarm_dead(victim)
+                        # i18n-ignore: ledger note (evict_reason), not rendered
                         else "24 小时无上行产出，让位给更高效的新免费种"
                         if is_idle(victim)
+                        # i18n-ignore: ledger note (evict_reason), not rendered
                         else "新免费种的期望产出显著更高，换手（按单位存储产出比较）"
                     ),
                 ):
@@ -1347,6 +1358,7 @@ async def _admit_candidates(
                     size_bytes=size,
                     state=BoostTaskState.MISSING,
                     evicted_at=now,
+                    # i18n-ignore: ledger note (evict_reason), not rendered
                     evict_reason="提交时任务已在下载器中（非刷流所有，不纳入管理）",
                 )
             )
@@ -1391,12 +1403,14 @@ async def _admit_candidates(
 @register_task(
     "ratio_boost",
     title="自动刷分享率",
+    title_key="settings.scheduledTasks.catalog.ratioBoostTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=_TICK_SECONDS,
     description=(
         "盯各开启刷流站点的免费新种，第一时间抢下做种提高分享率；"
         "在站点各自的存储预算内自动汰换上传效率低的任务。"
     ),
+    description_key="settings.scheduledTasks.catalog.ratioBoostDescription",
 )
 async def run_ratio_boost() -> None:
     """tick 任务体：对账 → 预算收敛 → 准入。没有刷流站点且无在池任务时零成本返回。"""
@@ -1488,6 +1502,7 @@ async def run_ratio_boost() -> None:
                         if used <= cred.boost_budget_bytes:
                             break
                         if await _evict(
+                            # i18n-ignore: ledger note (evict_reason), not rendered
                             pool, victim, now, reason="预算调小后收敛（按上传效率从低到高让出空间）"
                         ):
                             used -= victim.size_bytes
@@ -1551,7 +1566,9 @@ async def wants_fast_sync(session: AsyncSession, cred: SiteCredential) -> bool:
 # - 下载器暂时不可达没删成的记请求时刻，下一轮巡检重试。
 # 台账行不物理删除（EVICTED 终态）：累计上传统计靠它，也防止同一种子被再次抢回。
 
+# i18n-ignore: ledger note (evict_reason), not rendered
 _CLEANUP_REASON = "用户清理刷流种子（连数据删除）"
+# i18n-ignore: ledger note (evict_reason), not rendered
 _CLEANUP_DUE_REASON = "用户请求清理，保留期已满，按约连数据删除"
 
 
@@ -1786,6 +1803,7 @@ async def release_site_tasks(session: AsyncSession, site_id: str) -> int:
             continue
         task.state = BoostTaskState.MISSING
         task.evicted_at = now
+        # i18n-ignore: ledger note (evict_reason), not rendered
         task.evict_reason = "站点配置已删除，转出刷流管理（任务与数据保留做种）"
         task.updated_at = now
         released += 1

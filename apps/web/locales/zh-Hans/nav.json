@@ -1,0 +1,72 @@
+{
+  "main": {
+    "new": "新会话",
+    "library": "媒体库",
+    "subscriptions": "我的订阅",
+    "activity": "活动",
+    "discover": "发现"
+  },
+  "actions": {
+    "home": "回到首页",
+    "expandSidebar": "展开侧栏",
+    "collapseSidebar": "收起侧栏",
+    "back": "返回",
+    "library": "回到媒体库",
+    "workspace": "返回工作台",
+    "backFallback": "返回上一页；无历史时返回{page}"
+  },
+  "sessions": {
+    "renameTitle": "重命名会话",
+    "renameFailed": "重命名失败：{reason}",
+    "forkFailed": "创建续接会话失败：{reason}",
+    "idCopied": "会话 ID 已复制",
+    "copyFailed": "复制失败：{reason}",
+    "deleteTitle": "彻底删除会话「{title}」？",
+    "deleteDescription": "服务器上的完整对话记录将一并删除，此操作不可恢复。",
+    "deleteConfirm": "彻底删除",
+    "deleteFailed": "删除失败：{reason}",
+    "recent": "最近会话",
+    "empty": "还没有会话，从「新会话」开始。",
+    "loading": "加载中…",
+    "updated": "更新于 {time}",
+    "pluginOwner": "由插件 {plugin} 发起",
+    "plugin": "插件",
+    "actions": "会话操作",
+    "continue": "在新会话中继续",
+    "copyId": "复制会话 ID",
+    "rename": "重命名",
+    "delete": "删除会话"
+  },
+  "tabs": {
+    "subscriptions": "订阅",
+    "my": "我的",
+    "primary": "主导航",
+    "expand": "展开标签栏"
+  },
+  "badges": {
+    "watching": "有人正在观看",
+    "update": "有可用更新",
+    "attention": "{count} 项需要处理",
+    "active": "{count} 个进行中",
+    "noActive": "暂无进行中的任务",
+    "activityHint": "活动（{hint}）"
+  },
+  "cinema": {
+    "browse": "浏览",
+    "sessions": "AI 会话",
+    "emptySessions": "还没有会话，从「新任务」开始。",
+    "myEntries": "我的入口",
+    "pluginPages": "插件页面",
+    "accountActions": "账号操作",
+    "back": "返回上一页",
+    "newTask": "新任务",
+    "accountMenu": "账号菜单"
+  },
+  "more": {
+    "quickAccess": "常用",
+    "account": "账号",
+    "noSessions": "还没有会话，点上方的「新会话」开始。",
+    "loadingMore": "正在加载更多会话…",
+    "profileAria": "{name}，查看和修改个人信息"
+  }
+}

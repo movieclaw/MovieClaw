@@ -53,9 +53,9 @@ struct MacSignInStep: View {
             }
 
             if !setup {
-                Picker("登录方式", selection: $method) {
-                    Text("账号密码").tag(Method.password)
-                    Text("扫码登录").tag(Method.qrCode)
+                Picker(String(localized: .authLoginMethod), selection: $method) {
+                    Text(String(localized: .authLoginPasswordMethod)).tag(Method.password)
+                    Text(String(localized: .authLoginQrMethod)).tag(Method.qrCode)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -74,13 +74,13 @@ struct MacSignInStep: View {
             if style == .dialog, method == .qrCode, !setup, let cancel {
                 MacDialogFooter {
                     Spacer(minLength: 0)
-                    Button("取消", action: cancel)
+                    Button(String(localized: .commonCancel), action: cancel)
                         .keyboardShortcut(.cancelAction)
                 }
             }
 
             if let onSwitchAccount {
-                Button("切换到本机登录过的其他账号", action: onSwitchAccount)
+                Button(String(localized: .authAccountsSwitchSaved), action: onSwitchAccount)
                     .buttonStyle(.link)
                     .font(.system(size: 12))
                     .frame(maxWidth: .infinity)
@@ -113,7 +113,7 @@ struct MacSignInStep: View {
                 .truncationMode(.middle)
                 .textSelection(.enabled)
             Spacer(minLength: 8)
-            Button("更换服务器", action: onChangeServer)
+            Button(String(localized: .authServerChangeServer), action: onChangeServer)
                 .buttonStyle(.link)
                 .font(.system(size: 12))
                 .accessibilityIdentifier("mac-signin-change-server")
@@ -125,38 +125,38 @@ struct MacSignInStep: View {
 
     /// 对话框排版的服务器一行：「服务器  192.168.1.10:3000  更换…」
     private var dialogServerRow: some View {
-        MacDialogRow(label: "服务器") {
+        MacDialogRow(label: String(localized: .authInputServer)) {
             Text(target.server.displayString)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
             Spacer(minLength: 8)
-            Button("更换…", action: onChangeServer)
+            Button(String(localized: .authServerChangeEllipsis), action: onChangeServer)
                 .buttonStyle(.link)
                 .accessibilityIdentifier("mac-signin-change-server")
         }
     }
 
     private var title: String {
-        if setup { return "初始化这台服务器" }
-        if method == .qrCode { return "用手机扫码登录" }
-        if target.expired { return "重新登录" }
-        return purpose == .addAccount ? "添加账号" : "登录 MovieClaw"
+        if setup { return String(localized: .authSetupServer) }
+        if method == .qrCode { return String(localized: .authPairingScan) }
+        if target.expired { return String(localized: .authLoginAgain) }
+        return purpose == .addAccount ? String(localized: .authAccountsAdd) : String(localized: .authLoginTitle)
     }
 
     private var subtitle: String {
         if setup {
-            return "这是一台全新的服务器。将用下面的账号创建超级管理员——它是本站唯一的管理身份，此流程仅在首次部署时出现。"
+            return String(localized: .authSetupIntro)
         }
         if method == .qrCode {
-            return "用手机相机或 iPhone 上 MovieClaw 的扫码扫一下，在手机上批准；也可以在 iPhone「设置 → 设备」或已登录的浏览器里输入配对码。谁批准，这台 Mac 就登录成谁。"
+            return String(localized: .authPairingMacHint)
         }
         if target.expired, let name = target.username {
-            return "「\(name)」在这台 Mac 上的登录已失效（可能在「我的设备」里被注销，或改过密码），请重新输入密码。"
+            return String(localized: .authLoginExpiredMac(name))
         }
         switch purpose {
-        case .welcome: return "输入这台服务器上的账号与密码。"
-        case .addAccount: return "登录这台或另一台服务器上的账号。\n原来的账号仍留在这台 Mac 上，随时切回。"
+        case .welcome: return String(localized: .authLoginCredentialsHint)
+        case .addAccount: return String(localized: .authAccountsAddMacHint)
         }
     }
 }
@@ -232,10 +232,10 @@ struct MacPasswordForm: View {
     private var dialogBody: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 10) {
-                MacDialogRow(label: "用户名") { usernameField }
-                MacDialogRow(label: "密码") { passwordField }
+                MacDialogRow(label: String(localized: .authInputUsername)) { usernameField }
+                MacDialogRow(label: String(localized: .authInputPassword)) { passwordField }
                 if setup {
-                    MacDialogRow(label: "确认密码") { confirmField }
+                    MacDialogRow(label: String(localized: .authInputConfirmPassword)) { confirmField }
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
@@ -250,7 +250,7 @@ struct MacPasswordForm: View {
             MacDialogFooter {
                 Spacer(minLength: 0)
                 if let cancel {
-                    Button("取消", action: cancel)
+                    Button(String(localized: .commonCancel), action: cancel)
                         .keyboardShortcut(.cancelAction)
                 }
                 Button(action: submit) {
@@ -270,7 +270,7 @@ struct MacPasswordForm: View {
     }
 
     private var usernameField: some View {
-        TextField("用户名", text: $username, prompt: Text(setup ? "管理员用户名（至少 3 个字符）" : "用户名"))
+        TextField(String(localized: .authInputUsername), text: $username, prompt: Text(setup ? String(localized: .authInputAdminUsernameLong) : String(localized: .authInputUsername)))
             .textContentType(Self.autofill ? .username : nil)
             .focused($focus, equals: .username)
             .onSubmit { focus = .password }
@@ -278,7 +278,7 @@ struct MacPasswordForm: View {
     }
 
     private var passwordField: some View {
-        SecureField("密码", text: $password, prompt: Text(setup ? "密码（至少 8 位）" : "密码"))
+        SecureField(String(localized: .authInputPassword), text: $password, prompt: Text(setup ? String(localized: .authInputPasswordMinimum) : String(localized: .authInputPassword)))
             .textContentType(Self.autofill ? (setup ? .newPassword : .password) : nil)
             .focused($focus, equals: .password)
             .onSubmit { if setup { focus = .confirm } else { submit() } }
@@ -286,7 +286,7 @@ struct MacPasswordForm: View {
     }
 
     private var confirmField: some View {
-        SecureField("确认密码", text: $confirm, prompt: Text("再输一遍密码"))
+        SecureField(String(localized: .authInputConfirmPassword), text: $confirm, prompt: Text(String(localized: .authInputRepeatPassword)))
             .textContentType(Self.autofill ? .newPassword : nil)
             .focused($focus, equals: .confirm)
             .onSubmit(submit)
@@ -298,8 +298,8 @@ struct MacPasswordForm: View {
     }
 
     private var buttonTitle: String {
-        if setup { return busy ? "创建中…" : "创建账号并进入" }
-        return busy ? "正在连接…" : "登录"
+        if setup { return busy ? String(localized: .authSetupCreating) : String(localized: .authSetupCreateAndEnter) }
+        return busy ? String(localized: .authServerConnecting) : String(localized: .authLoginSubmit)
     }
 
     private func submit() {
@@ -307,9 +307,9 @@ struct MacPasswordForm: View {
         let name = username.trimmingCharacters(in: .whitespaces)
         if setup {
             // 与 Web /setup 相同的前端校验，后端仍会再校验一次
-            if name.count < 3 { error = "用户名至少 3 个字符"; focus = .username; return }
-            if password.count < 8 { error = "密码至少 8 位，建议混用字母与数字"; focus = .password; return }
-            if password != confirm { error = "两次输入的密码不一致"; focus = .confirm; return }
+            if name.count < 3 { error = String(localized: .authValidationUsernameShort); focus = .username; return }
+            if password.count < 8 { error = String(localized: .authValidationPasswordShort); focus = .password; return }
+            if password != confirm { error = String(localized: .authValidationPasswordMismatch); focus = .confirm; return }
         }
         error = nil
         busy = true

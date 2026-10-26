@@ -16,11 +16,11 @@ struct ReelFilterMenu: View {
 
     /// 菜单里的维度（键是 `LibraryFilter` 的维度名，toggle / values(of:) 直接认）
     private static let dimensions: [(key: String, title: String, systemImage: String)] = [
-        ("genres", "类型", "theatermasks"),
-        ("decades", "年代", "calendar"),
-        ("countries", "国家 / 地区", "globe.asia.australia"),
-        ("rating_gte", "最低评分", "star"),
-        ("runtimes", "片长", "clock"),
+        ("genres", String(localized: .mediaDiscoveryType), "theatermasks"),
+        ("decades", String(localized: .libraryFiltersDecades), "calendar"),
+        ("countries", String(localized: .mediaFiltersCountry), "globe.asia.australia"),
+        ("rating_gte", String(localized: .mediaFiltersRating), "star"),
+        ("runtimes", String(localized: .libraryFiltersRuntime), "clock"),
     ]
 
     var body: some View {
@@ -36,7 +36,7 @@ struct ReelFilterMenu: View {
         Menu {
             if showKinds {
                 Menu {
-                    option("全部", count: nil, selected: kind == nil) { apply(filter, kind: nil) }
+                    option(String(localized: .mediaFiltersAll), count: nil, selected: kind == nil) { apply(filter, kind: nil) }
                     ForEach(facetValues("kinds"), id: \.value) { value in
                         option(value.label, count: value.count, selected: kind == value.value) {
                             let next = kind == value.value ? nil : value.value
@@ -46,14 +46,14 @@ struct ReelFilterMenu: View {
                     }
                 } label: {
                     Label(kindsTitle, systemImage: "film.stack")
-                    Text(kind.flatMap { label("kinds", $0) } ?? "不限")
+                    Text(kind.flatMap { label("kinds", $0) } ?? String(localized: .mediaFiltersUnlimited))
                 }
             }
             ForEach(filterable ? Self.dimensions : [], id: \.key) { dim in
                 Menu {
                     let values = facetValues(dim.key)
                     if values.isEmpty {
-                        Button(store?.facets == nil ? "加载中…" : "片库里没有可选的") {}
+                        Button(store?.facets == nil ? String(localized: .commonLoadingProgress) : String(localized: .reelsFilterNothing)) {}
                             .disabled(true)
                     }
                     ForEach(values, id: \.value) { value in
@@ -66,12 +66,12 @@ struct ReelFilterMenu: View {
                     }
                 } label: {
                     Label(dim.title, systemImage: dim.systemImage)
-                    Text(summary(dim.key, filter: filter) ?? "不限")
+                    Text(summary(dim.key, filter: filter) ?? String(localized: .mediaFiltersUnlimited))
                 }
             }
             Section {
                 let unwatched = facetValues("watch").first
-                option("只看没看过的", count: unwatched?.count, selected: filter.watch == "unwatched") {
+                option(String(localized: .libraryRowsOnlyUnwatched), count: unwatched?.count, selected: filter.watch == "unwatched") {
                     var next = filter
                     next.toggle("watch", "unwatched")
                     apply(next, kind: kind)
@@ -79,7 +79,7 @@ struct ReelFilterMenu: View {
             }
             if !filter.isEmpty || kind != nil {
                 Section {
-                    Button("清空条件", systemImage: "xmark.circle", role: .destructive) {
+                    Button(String(localized: .mediaDiscoveryClearFilters), systemImage: "xmark.circle", role: .destructive) {
                         apply(LibraryFilter(), kind: nil)
                     }
                 }
@@ -96,7 +96,7 @@ struct ReelFilterMenu: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 4)
         }
-        .accessibilityLabel("筛选：\(title)")
+        .accessibilityLabel(String(localized: .mediaFiltersButtonLabel(title)))
         .accessibilityIdentifier("reels-filter")
     }
 
@@ -104,7 +104,7 @@ struct ReelFilterMenu: View {
     private func option(_ title: String, count: Int?, selected: Bool, action: @escaping () -> Void) -> some View {
         Toggle(isOn: Binding(get: { selected }, set: { _ in action() })) {
             Text(title)
-            if let count { Text("\(count) 部") }
+            if let count { Text(String(localized: .libraryStatusTitleCount(count))) }
         }
         .disabled(count == 0 && !selected)
     }
@@ -112,7 +112,7 @@ struct ReelFilterMenu: View {
     /// 菜单里这一行的名字：有几类写几类（「电影 / 剧集」或「电影 / 剧集 / 其他」）
     private var kindsTitle: String {
         let labels = facetValues("kinds").map(\.label)
-        return labels.isEmpty ? "电影 / 剧集" : labels.joined(separator: " / ")
+        return labels.isEmpty ? String(localized: .reelsFilterMoviesSeries) : labels.joined(separator: " / ")
     }
 
     /// 只留观看状态：「其他」没有 TMDB 档案，别的维度带过去只会把它筛空
@@ -149,7 +149,7 @@ struct ReelFilterMenu: View {
         let values = filter.values(of: key)
         guard let first = values.first else { return nil }
         let name = label(key, first) ?? first
-        return values.count == 1 ? name : "\(name)等 \(values.count) 个"
+        return values.count == 1 ? name : String(localized: .mediaFiltersGenreSummary(name, values.count))
     }
 
     /// 顶栏寸土寸金：没条件写「全部」，只有一个条件写它的值，多个条件写「已筛选 N 项」
@@ -157,12 +157,12 @@ struct ReelFilterMenu: View {
         let active = Self.dimensions.map(\.key).filter { !filter.values(of: $0).isEmpty }
         let count = filter.count + (kind == nil ? 0 : 1)
         switch count {
-        case 0: return "全部"
+        case 0: return String(localized: .mediaFiltersAll)
         case 1:
-            if let kind { return label("kinds", kind) ?? (kind == "tv" ? "剧集" : "电影") }
-            if filter.watch == "unwatched" { return "没看过" }
-            return active.first.flatMap { summary($0, filter: filter) } ?? "已筛选 1 项"
-        default: return "已筛选 \(count) 项"
+            if let kind { return label("kinds", kind) ?? (kind == "tv" ? String(localized: .mediaKindTv) : String(localized: .mediaKindMovie)) }
+            if filter.watch == "unwatched" { return String(localized: .reelsNotWatched) }
+            return active.first.flatMap { summary($0, filter: filter) } ?? String(localized: .reelsFilterActiveCount(1))
+        default: return String(localized: .reelsFilterActiveCount(count))
         }
     }
 }

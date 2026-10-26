@@ -135,6 +135,10 @@ class PlaybackDeliveryView(BaseModel):
             "audio=只转音频（视频直通）；transcode=视频转码"
         )
     )
+    execution_kind: str | None = Field(
+        default=None,
+        description="Video transcode executor: hardware, software or remote; null otherwise",
+    )
     label: str = Field(
         description="简短中文标识：直连 / 重封装 / 音频转码 / 硬件转码 / 软件转码 / 远程转码"
     )
@@ -395,6 +399,10 @@ class ClientCapabilityIn(BaseModel):
     #: 直出 MP4 / MOV 原文件时能在内存里建下的样本表上限（各轨样本数合计，Android 的 ExoPlayer
     #: 按自己的堆算）：估算超出的片给换封装。老客户端不带 = 不受限
     mp4_sample_limit: int | None = None
+    #: 硬件转码时能接 HEVC 输出（fMP4、hvc1、8-bit Main），且 HEVC 放不了时会不带本字段重来、
+    #: 不把硬件档记成失败（#1008）。服务端还要 ``video`` 里有 HEVC、高度够、显卡能编，才出 HEVC
+    #: （决策的 ``video.codec`` 写 ``hevc``）。老客户端不带 = 一律 H.264
+    hevc_transcode: bool = False
 
 
 class PlaybackDecideRequest(BaseModel):
@@ -943,6 +951,8 @@ class HwBackendStatusView(BaseModel):
     label: str
     available: bool
     detail: str
+    #: 远程 Worker 的能力（不是 NAS 本机探测的）；同名后端两边可以各有一条
+    remote: bool = False
 
 
 class HwProbeView(BaseModel):

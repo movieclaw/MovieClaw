@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Column, Index, Text
+from sqlalchemy import JSON, BigInteger, Column, Index, Text
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -57,5 +57,10 @@ class LibraryFileReplica(TimestampMixin, table=True):
     # 上传没成的原因（给用户看）；为空表示没出过错。出错的过一段时间再试
     error: str | None = Field(
         default=None, sa_column=Column(Text, nullable=True), description="上次上传失败的原因"
+    )
+    error_ref: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="上传失败原因的文案引用（按读者语言渲染）；NULL=旧记录或原话",
     )
     checked_at: datetime | None = Field(default=None, description="最近一次对账时间")

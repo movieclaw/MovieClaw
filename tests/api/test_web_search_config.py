@@ -35,7 +35,7 @@ def client(tmp_path, monkeypatch):
 
     app = create_app()
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as test_client:
         yield test_client, tmp_path / "test.db"
     get_settings.cache_clear()
     reset_setting_store()
@@ -340,3 +340,77 @@ async def test_unreadable_config_drops_the_tool_without_breaking_the_turn(
     names = {tool.name for tool in await profile_tools("web", "s", None)}
     assert "web_search" not in names
     assert "bash" in names
+
+
+@pytest.mark.parametrize("case", ["rate", "server", "json", "network"])
+def test_search_failures_render_for_the_reader_without_changing_classification(
+    client, monkeypatch, case
+):
+    c, _ = client
+
+    def upstream(request):
+        if case == "network":
+            raise httpx.ConnectError("refused", request=request)
+        if case == "rate":
+            return httpx.Response(429, json={"error": "slow down"})
+        if case == "json":
+            return httpx.Response(200, text="not JSON")
+        return httpx.Response(503, json={"error": "Raw 原始原因 " + _KEY})
+
+    _install(monkeypatch, upstream)
+    for locale in ("en", "zh-Hans", "en"):
+        response = c.post(
+            "/api/v1/llm/web-search/test",
+            json={"provider": "tavily", "api_key": _KEY},
+            headers={"Accept-Language": locale},
+        )
+        assert response.status_code == (502 if case == "network" else 400)
+        body = response.json()
+        assert _KEY not in str(body)
+        assert body["message_key"].startswith("errors.webSearch.")
+        if case == "network":
+            assert body["code"] == "UPSTREAM_UNREACHABLE"
+            assert body["details"][0]["service"] == "web_search"
+            assert ("Settings > Network" if locale == "en" else "设置 → 网络") in body["details"][
+                0
+            ]["hint"]
+        expected = {
+            "rate": ("rate or quota limit", "速率或配额限制"),
+            "server": ("HTTP 503", "HTTP 503"),
+            "json": ("could not be parsed", "无法解析"),
+            "network": ("Could not connect", "无法连接"),
+        }
+        assert expected[case][0 if locale == "en" else 1] in body["message"]
+        if case == "server":
+            assert "Raw 原始原因 ***" in body["message"]
+
+
+def test_search_catalog_localization_does_not_mutate_definitions(client, monkeypatch):
+    from copy import deepcopy
+
+    from movieclaw_agent.web_search import provider_catalog
+    from movieclaw_api.services import web_search_config
+
+    c, _ = client
+    source = deepcopy(provider_catalog())
+    for locale in ("en", "zh-Hans", "en"):
+        response = c.get("/api/v1/llm/web-search", headers={"Accept-Language": locale})
+        assert response.status_code == 200
+        options = response.json()["data"]["providers"]
+        assert [option["id"] for option in options] == [option["id"] for option in source]
+        assert options[0]["note"] == (
+            "Search designed for AI agents, with summaries included in results"
+            if locale == "en"
+            else source[0]["note"]
+        )
+        assert provider_catalog() == source
+    unknown = {
+        "id": "custom",
+        "label": "原始名",
+        "note": "原始说明",
+        "signup_url": "https://example.com",
+    }
+    monkeypatch.setattr(web_search_config, "provider_catalog", lambda: [unknown.copy()])
+    assert c.get("/api/v1/llm/web-search", headers={"Accept-Language": "en"}).json()["data"][
+        "providers"
+    ] == [unknown]

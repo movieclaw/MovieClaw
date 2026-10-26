@@ -208,8 +208,8 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
         )
         sampleBandwidthFromLoading(loading, at: now)
         var details: [String] = []
-        if player.isExternalPlaybackActive { details.append("隔空播放中") }
-        if isPictureInPictureActive { details.append("画中画中") }
+        if player.isExternalPlaybackActive { details.append(String(localized: .playerEngineAirplayActive)) }
+        if isPictureInPictureActive { details.append(String(localized: .playerEnginePipActive)) }
         return EngineStats(
             engine: kind.rawValue,
             downlinkBps: bandwidthMeter.bps ?? observed,
@@ -234,14 +234,14 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
             let loadedAt = Date()
             for try await event in item.metrics(forType: AVMetricPlayerItemInitialLikelyToKeepUpEvent.self) {
                 func rel(_ date: Date?) -> String { date.map { String(Int($0.timeIntervalSince(loadedAt) * 1000)) } ?? "-" }
-                var lines = ["[AVStartup] 够播用时 \(Int(event.timeTaken * 1000)) 毫秒"]
+                var lines = ["[AVStartup] 够播用时 \(Int(event.timeTaken * 1000)) 毫秒"] // i18n-ignore: developer diagnostics
                 for playlist in event.playlistRequestEvents {
                     let request = playlist.mediaResourceRequestEvent
-                    lines.append("  列表 \(request?.url?.lastPathComponent ?? "?") \(rel(request?.requestStartTime))→\(rel(request?.responseEndTime))")
+                    lines.append("  列表 \(request?.url?.lastPathComponent ?? "?") \(rel(request?.requestStartTime))→\(rel(request?.responseEndTime))") // i18n-ignore: developer diagnostics
                 }
                 for segment in event.mediaSegmentRequestEvents {
                     let request = segment.mediaResourceRequestEvent
-                    lines.append("  分片 \(request?.url?.lastPathComponent ?? "?") \(rel(request?.requestStartTime))→\(rel(request?.responseEndTime)) \(request?.byteRange.length ?? 0) 字节")
+                    lines.append("  分片 \(request?.url?.lastPathComponent ?? "?") \(rel(request?.requestStartTime))→\(rel(request?.responseEndTime)) \(request?.byteRange.length ?? 0) 字节") // i18n-ignore: developer diagnostics
                 }
                 print(lines.joined(separator: "\n"))
                 break
@@ -376,7 +376,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
                       reason == nil || reason == .setRateFailed else { return }
                 self.rateFailureRetried = true
                 #if DEBUG
-                print("[AVPlayerEngine] 开播被系统退回暂停（缓冲还是空的），打开防卡顿等待后重新开播")
+                print("[AVPlayerEngine] 开播被系统退回暂停（缓冲还是空的），打开防卡顿等待后重新开播") // i18n-ignore: developer diagnostics
                 #endif
                 self.player.automaticallyWaitsToMinimizeStalling = true
                 self.player.rate = self.desiredRate
@@ -411,7 +411,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
             center.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main) { [weak self] note in
                 let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
                 MainActor.assumeIsolated {
-                    self?.onEvent?(.failed(reason: Self.describe(error, fallback: "播放中断"), cause: Self.cause(of: error)))
+                    self?.onEvent?(.failed(reason: Self.describe(error, fallback: String(localized: .playerEngineInterrupted)), cause: Self.cause(of: error)))
                 }
             },
         ]
@@ -439,7 +439,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
                 beginPlayback()
             }
         case .failed:
-            onEvent?(.failed(reason: Self.describe(error, fallback: "系统播放器无法播放这个流"), cause: Self.cause(of: error)))
+            onEvent?(.failed(reason: Self.describe(error, fallback: String(localized: .playerEngineSystemFailed)), cause: Self.cause(of: error)))
         default:
             break
         }
@@ -491,7 +491,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
     private static func describe(_ error: Error?, fallback: String) -> String {
         guard let error = error as NSError? else { return fallback }
         let detail = error.localizedFailureReason ?? error.localizedDescription
-        return "\(fallback)（\(detail)，代码 \(error.code)）"
+        return String(localized: .playerEngineDetailedError(fallback, detail, String(error.code)))
     }
 }
 

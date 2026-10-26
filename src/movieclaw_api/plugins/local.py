@@ -160,6 +160,7 @@ def _failing(entry_id: str, reason: str) -> Plugin:
 
     return Plugin(
         name=entry_id,
+        # i18n-ignore: local plugin developer diagnostic
         title=f"本地插件 {entry_id}",
         apply=apply,
         disableable=True,
@@ -191,6 +192,7 @@ def _import(root: Path, spec: LocalSpec) -> types.ModuleType:
         module_spec = importlib.util.spec_from_file_location(name, file)
     else:
         raise FileNotFoundError(
+            # i18n-ignore: local plugin developer diagnostic
             f"找不到 {LOCAL_DIR}/{spec.module}.py 或 {LOCAL_DIR}/{spec.module}/__init__.py"
         )
     assert module_spec is not None and module_spec.loader is not None
@@ -210,6 +212,7 @@ def _resolve(root: Path, spec: LocalSpec) -> Plugin:
         module = _import(root, spec)
     except Exception as exc:  # noqa: BLE001 -- 本地代码出什么错都只影响它自己
         logger.warning("本地插件 %s 导入失败：%s", spec.id, exc, exc_info=exc)
+        # i18n-ignore: local plugin developer diagnostic
         return _failing(spec.id, f"导入失败：{type(exc).__name__}: {exc}")
     found = [
         value
@@ -219,6 +222,7 @@ def _resolve(root: Path, spec: LocalSpec) -> Plugin:
     if not found:
         return _failing(
             spec.id,
+            # i18n-ignore: local plugin developer diagnostic
             f"模块 {spec.module} 里没有名为 {spec.id} 的插件"
             "（@plugin 的第一个参数须与条目 id 一致）",
         )
@@ -241,6 +245,7 @@ def load_local_entries(settings: object) -> list[Entry]:
     entries: list[Entry] = []
     for spec in specs:
         if spec.disabled:
+            # i18n-ignore: local plugin developer diagnostic
             plugin = _failing(spec.id, "已在 plugins.yaml 中关闭")
         elif _web_only(root, spec):
             from movieclaw_api.plugins.packages import web_only
@@ -281,6 +286,7 @@ def _remote(root: Path, spec: LocalSpec) -> Plugin:
     if spec.command is not None:
         program = root / spec.command
         if not (program.is_file() and os.access(program, os.X_OK)):
+            # i18n-ignore: local plugin developer diagnostic
             return _failing(spec.id, f"找不到可执行文件 {LOCAL_DIR}/{spec.command}")
     else:
         found = (root / f"{spec.module}.py").is_file() or (
@@ -289,12 +295,14 @@ def _remote(root: Path, spec: LocalSpec) -> Plugin:
         if not found:
             return _failing(
                 spec.id,
+                # i18n-ignore: local plugin developer diagnostic
                 f"找不到 {LOCAL_DIR}/{spec.module}.py 或 {LOCAL_DIR}/{spec.module}/__init__.py",
             )
     try:
         declared = describe(root, spec.module, spec.id, spec.command)
         return remote_plugin(
             spec.id,
+            # i18n-ignore: local plugin developer diagnostic
             title=f"{declared['title']}（独立进程）",
             path=root,
             module=spec.module,

@@ -16,16 +16,20 @@ from movieclaw_api.api.deps import (
     require_subscribe_capability,
 )
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import localize_fields, stored_fields, stored_message
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.schemas.search import (
     CategoryTabItem,
     PresetTabItem,
+    SearchCategoryLabelKey,
     SearchHistoryItem,
     SearchHistoryResultsView,
     SearchPresetListView,
     SearchPresetUpdate,
     SearchResponse,
     SearchStreamDone,
+    SearchStreamStart,
     SearchTabItem,
     SiteSearchStatus,
     SiteStreamResult,
@@ -99,6 +103,7 @@ async def search_torrents(
     page: int = Query(1, ge=1, description="页码（各站点独立分页）"),
     principal: Principal = Depends(require_search_capability),
     session: AsyncSession = Depends(get_session),
+    label_key: SearchCategoryLabelKey | None = None,
 ) -> ApiResponse[SearchResponse]:
     """对「已启用且验证通过」的站点（可用 ``sites`` 圈定子集）并发发起搜索，合并结果后返回。
 
@@ -110,6 +115,8 @@ async def search_torrents(
     （站点自身的浏览页排序，通常是最新发布在前），响应结构与搜索完全一致。
     """
     keyword = keyword.strip()
+    if label_key:
+        label = stored_fields(label_key)["message"]
     also = also_keywords_of(keyword, also_keywords)
     result = await search_all_sites(
         keyword=keyword,
@@ -133,10 +140,22 @@ async def search_torrents(
             poster_mode,
             member_id=_history_owner(principal),
             also_keywords=also,
+            label_key=label_key,
         )
         if history_id is not None:
             await _save_snapshot(history_id, result.items, result.sites, result.total)
-    return ok(result)
+    return ok(
+        result.model_copy(
+            update={
+                "label": stored_message(label or "", label_key) if label_key else label,
+                "label_key": label_key,
+                "sites": [
+                    SiteSearchStatus(**localize_fields(status.model_dump()))
+                    for status in result.sites
+                ],
+            }
+        )
+    )
 
 
 async def _record_history(
@@ -149,6 +168,7 @@ async def _record_history(
     poster_mode: bool = False,
     member_id: int = 0,
     also_keywords: list[str] | None = None,
+    label_key: str | None = None,
 ) -> int | None:
     """只在第 1 页记录搜索历史：翻页是同一次搜索的延续，不该重复计数。
 
@@ -162,6 +182,7 @@ async def _record_history(
         return await SearchHistoryRepository(session).record(
             keyword,
             label=label,
+            label_key=label_key,
             categories=[c.value for c in categories] if categories else None,
             site_ids=sites,
             poster_mode=poster_mode,
@@ -213,6 +234,7 @@ async def _run_search(
     allowed: set[str] | None,
     owner: int,
     record: bool,
+    label_key: str | None = None,
 ) -> AsyncIterator[tuple[str, str]]:
     """一次后台搜索：记历史 → 逐事件产出（已序列化）→ 走完回写快照。
 
@@ -232,6 +254,7 @@ async def _run_search(
                 poster_mode,
                 member_id=owner,
                 also_keywords=also,
+                label_key=label_key,
             )
     collected: list[TorrentHit] = []
     done: SearchStreamDone | None = None
@@ -248,6 +271,8 @@ async def _run_search(
             collected.extend(payload.items)
         elif isinstance(payload, SearchStreamDone):
             done = payload
+        if isinstance(payload, SearchStreamStart):
+            payload = payload.model_copy(update={"label_key": label_key})
         yield event, payload.model_dump_json()
     if history_id is not None and done is not None:
         await _save_snapshot(history_id, collected, done.sites, done.total, done.elapsed_ms)
@@ -299,6 +324,7 @@ async def search_torrents_stream(
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     principal: Principal = Depends(require_search_capability),
     session: AsyncSession = Depends(get_session),
+    label_key: SearchCategoryLabelKey | None = None,
 ) -> StreamingResponse:
     """``/search/torrents`` 的流式版本：以 SSE 逐事件推送搜索过程与结果。
 
@@ -315,6 +341,8 @@ async def search_torrents_stream(
     每个事件带 SSE ``id``（从 1 起的序号），断线重连带 ``Last-Event-ID`` 即从其后续传。
     """
     keyword = keyword.strip()
+    if label_key:
+        label = stored_fields(label_key)["message"]
     also = also_keywords_of(keyword, also_keywords)
     # 站点白名单在流开始前取：流式生成器运行时请求级 session 已不可用
     allowed = await usable_site_ids(session, principal)
@@ -329,6 +357,7 @@ async def search_torrents_stream(
         categories=tuple(sorted(c.value for c in categories or [])),
         site_ids=tuple(sorted(set(sites or []))),
         label=label,
+        label_key=label_key,
         page=page,
         record_history=record,
     )
@@ -345,6 +374,7 @@ async def search_torrents_stream(
                 categories=categories,
                 sites=sites,
                 label=label,
+                label_key=label_key,
                 page=page,
                 poster_mode=poster_mode,
                 allowed=allowed,
@@ -362,6 +392,8 @@ async def search_torrents_stream(
             batch, terminal = await registry.read(run, position, timeout_seconds=15)
             for event, data in batch:
                 position += 1
+                if event in {"start", "site_error", "done"}:
+                    data = json.dumps(localize_fields(json.loads(data)), ensure_ascii=False)
                 yield f"id: {position}\nevent: {event}\ndata: {data}\n\n"
             if terminal:
                 return
@@ -405,18 +437,22 @@ def _validate_presets(payload: SearchPresetUpdate) -> None:
     """保存前的业务校验（结构校验已由 Pydantic 完成），全部中文报错。"""
     category_ids = [t.id for t in payload.presets if isinstance(t, CategoryTabItem)]
     if len(category_ids) != len(set(category_ids)):
-        raise BadRequestException("分类列表存在重复项，请刷新页面后重试")
+        raise BadRequestException(message_key="errors.search.duplicateOrder")
 
     presets = [t for t in payload.presets if isinstance(t, PresetTabItem)]
     if len(presets) > MAX_SEARCH_PRESETS:
-        raise BadRequestException(f"自定义分类最多创建 {MAX_SEARCH_PRESETS} 个")
+        raise BadRequestException(
+            message_key="errors.search.presetLimit", params={"limit": MAX_SEARCH_PRESETS}
+        )
     preset_ids = [p.id for p in presets]
     if len(preset_ids) != len(set(preset_ids)):
-        raise BadRequestException("自定义分类的标识重复，请刷新页面后重试")
+        raise BadRequestException(message_key="errors.search.duplicatePresetId")
     names = [p.name for p in presets]
     if len(names) != len(set(names)):
         dup = next(n for n in names if names.count(n) > 1)
-        raise BadRequestException(f"已存在同名的自定义分类：{dup}")
+        raise BadRequestException(
+            message_key="errors.search.duplicatePresetName", params={"name": dup}
+        )
 
     # 站点存在性：只认站点目录里的 site_id（目录是静态受支持集合）。
     # 站点是否「已配置/可用」不在此校验——预设允许先建后配，搜索时自动跳过不可用站点。
@@ -425,7 +461,11 @@ def _validate_presets(payload: SearchPresetUpdate) -> None:
         unknown = [s for s in preset.site_ids if s not in known_sites]
         if unknown:
             raise BadRequestException(
-                f"自定义分类「{preset.name}」勾选了不存在的站点：{'、'.join(unknown)}"
+                message_key="errors.search.presetSitesMissing",
+                params={
+                    "name": preset.name,
+                    "sites": {"message_list": unknown, "separator_key": "common.list.separator"},
+                },
             )
 
 
@@ -481,7 +521,7 @@ async def update_search_presets(
                 )
             )
     saved = await save_search_tabs(tabs)
-    return ok(_preset_list_view(saved), message="资源搜索预设已保存")
+    return ok(_preset_list_view(saved), message=t("search.presets.saved"))
 
 
 @router.get(
@@ -527,9 +567,9 @@ async def get_search_history_results(
     repo = SearchHistoryRepository(session)
     row = await repo.get_by_id(history_id)
     if row is None or row.member_id != _history_owner(principal):
-        raise NotFoundException("该搜索历史不存在或已被删除")
+        raise NotFoundException(message_key="errors.search.historyMissing")
     if not row.snapshot_json or row.snapshot_at is None:
-        raise NotFoundException("该搜索历史还没有结果快照，重新搜索后会自动生成")
+        raise NotFoundException(message_key="errors.search.historySnapshotMissing")
     data = json.loads(row.snapshot_json)
     assert row.id is not None  # 从库里读出的记录必有主键
     if row.vertical == "torrent":
@@ -540,14 +580,17 @@ async def get_search_history_results(
                 history_id=row.id,
                 keyword=row.keyword,
                 also_keywords=repo.parse_snapshot(row.also_keywords_json) or None,
-                label=row.label,
+                label=stored_message(row.label or "", row.label_key)
+                if row.label_key
+                else row.label,
+                label_key=row.label_key,
                 categories=repo.parse_snapshot(row.categories_json),
                 site_ids=repo.parse_snapshot(row.site_ids_json),
                 snapshot_at=row.snapshot_at,
                 total=data["total"],
                 elapsed_ms=data.get("elapsed_ms"),
                 items=data["items"],
-                sites=data["sites"],
+                sites=localize_fields(data["sites"]),
             )
         )
     if row.vertical == "media":
@@ -561,7 +604,7 @@ async def get_search_history_results(
                 items=data["items"],
             )
         )
-    raise NotFoundException("该搜索历史的类型已不受支持")
+    raise NotFoundException(message_key="errors.search.historyKindUnsupported")
 
 
 @router.delete(
@@ -580,8 +623,8 @@ async def delete_search_history(
         history_id, member_id=_history_owner(principal)
     )
     if not deleted:
-        raise NotFoundException("该搜索历史不存在或已被删除")
-    return ok(None, message="已删除")
+        raise NotFoundException(message_key="errors.search.historyMissing")
+    return ok(None, message=t("search.presets.deleted"))
 
 
 @router.delete(
@@ -602,4 +645,4 @@ async def clear_search_history(
         member_id=_history_owner(principal),
         vertical={"titles": "media", "torrents": "torrent"}.get(vertical),
     )
-    return ok(None, message=f"已清空 {count} 条搜索历史")
+    return ok(None, message=t("search.history.cleared", count=count))

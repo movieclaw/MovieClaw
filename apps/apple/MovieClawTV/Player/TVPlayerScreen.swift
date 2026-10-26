@@ -251,7 +251,7 @@ private struct TVPlayerContent: View {
         .disabled(panel != nil || isModal)
         .onMoveCommand(perform: handleMove)
         .ignoresSafeArea()
-        .accessibilityLabel(controller.paused ? "播放" : "暂停")
+        .accessibilityLabel(controller.paused ? String(localized: .playerControlsPlay) : String(localized: .playerControlsPause))
         .accessibilityIdentifier("tv-player-surface")
     }
 
@@ -284,7 +284,7 @@ private struct TVPlayerContent: View {
                 VStack(spacing: 6) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 22, weight: .bold))
-                    Text(TVPlayerPanel.tabs(for: controller).map(\.rawValue).joined(separator: " · "))
+                    Text(TVPlayerPanel.tabs(for: controller).map(\.title).joined(separator: " · "))
                         .font(.caption)
                 }
                 .foregroundStyle(.white.opacity(0.7))
@@ -359,10 +359,10 @@ private struct TVPlayerContent: View {
     private var dialogs: some View {
         if let infoError = controller.infoError {
             // 条目信息都拿不到（无权访问、已删除）：整页换成原因 +「返回」
-            TVPlayerDialog(title: infoError, message: nil, primary: ("返回", exit), secondary: nil)
+            TVPlayerDialog(title: infoError, message: nil, primary: (String(localized: .commonBack), exit), secondary: nil)
                 .focused($focus, equals: .dialog)
         } else if controller.phase == .error, let message = controller.errorMessage {
-            TVPlayerDialog(title: message, message: controller.errorSuggestion, primary: ("重试", controller.retry), secondary: ("返回", exit))
+            TVPlayerDialog(title: message, message: controller.errorSuggestion, primary: (String(localized: .commonRetry), controller.retry), secondary: (String(localized: .commonBack), exit))
                 .focused($focus, equals: .dialog)
         } else if controller.phase == .consent, let decision = controller.pendingDecision {
             TVConsentDialog(decision: decision, grant: controller.grantConsent, cancel: exit)
@@ -370,13 +370,13 @@ private struct TVPlayerContent: View {
         } else if controller.asksStillWatching, let next = controller.nextEpisode {
             // 连播满上限后放完：停在这里问一句，不再自动接（返回键 = 不看了）
             TVPlayerDialog(
-                title: "还在看《\(controller.title)》吗？",
-                message: "已经连续自动播放 \(SkipSegments.autoNextMaxStreak) 集。下一集等你确认后再播。",
-                primary: ("继续看第 \(next.episodeNumber) 集", {
+                title: String(localized: .playerControlsStillWatchingTitle(controller.title)),
+                message: String(localized: .playerControlsAutoNextLimit(SkipSegments.autoNextMaxStreak)),
+                primary: (String(localized: .playerControlsContinueEpisode(next.episodeNumber)), {
                     controller.noteUserActivity()
                     controller.playNext()
                 }),
-                secondary: ("不看了", exit),
+                secondary: (String(localized: .playerControlsStopWatching), exit),
                 icon: nil
             )
             .focused($focus, equals: .dialog)
@@ -622,7 +622,7 @@ enum TVPlayerDebug {
                 guard let value = Double(spec) else { return }
                 let relative = spec.hasPrefix("+") || spec.hasPrefix("-")
                 let target = relative ? controller.positionMs + Int(value * 1000) : Int(value * 1000)
-                log("跳转 → \(target / 1000) 秒")
+                log("跳转 → \(target / 1000) 秒") // i18n-ignore: debug log
                 controller.seek(toFileMs: target, source: .auto)
             }
         }
@@ -630,7 +630,7 @@ enum TVPlayerDebug {
         if pauseAt > 0 {
             Task {
                 try? await Task.sleep(for: .seconds(pauseAt))
-                log("暂停")
+                log(String(localized: .playerControlsPause))
                 controller.pause()
             }
         }
@@ -638,7 +638,7 @@ enum TVPlayerDebug {
         if closeAt > 0 {
             Task {
                 try? await Task.sleep(for: .seconds(closeAt))
-                log("自动退出播放器")
+                log("自动退出播放器") // i18n-ignore: debug log
                 exit()
             }
         }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DownloadTask } from "@/lib/api/downloaders";
@@ -87,6 +88,7 @@ export function useTodayArrivalGroups(
   mediaKind: SubscriptionFilter,
   tasks: DownloadTask[],
 ): TodayArrivalGroup[] {
+  const locale = useLocale();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -105,10 +107,10 @@ export function useTodayArrivalGroups(
           : undefined;
         return {
           arrival,
-          presentation: todayArrivalPresentation(arrival, task, now),
+          presentation: todayArrivalPresentation(arrival, task, now, locale),
         };
       });
-    const groups = groupTodayArrivals(presented).toSorted((left, right) => {
+    const groups = groupTodayArrivals(presented, locale).toSorted((left, right) => {
       const leftTime = left.presentation.estimatedAt ?? Number.MAX_SAFE_INTEGER;
       const rightTime = right.presentation.estimatedAt ?? Number.MAX_SAFE_INTEGER;
       if (leftTime !== rightTime) return leftTime - rightTime;
@@ -116,5 +118,5 @@ export function useTodayArrivalGroups(
     });
     const nearest = Math.min(...groups.map((group) => group.daysAhead));
     return groups.filter((group) => group.daysAhead === nearest);
-  }, [arrivals, mediaKind, now, tasks]);
+  }, [arrivals, mediaKind, now, tasks, locale]);
 }

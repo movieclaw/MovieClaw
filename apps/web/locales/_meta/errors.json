@@ -1,0 +1,35 @@
+{
+  "auth.wrongPassword": {
+    "sourceHash": "a9a6a83a7d22e27e0614732809c57da37373b501c54a433c747ee8698af5f725"
+  },
+  "siteDiagnostic.auth": {
+    "sourceHash": "95b048407b3b6277fdcdd7f11ced0f59aa3505cdf2633530e7d02f2c3cfb96bd"
+  },
+  "siteDiagnostic.network": {
+    "sourceHash": "3c514b9eaf0da7c89578ee53173ada930bc229351a4fef89fb933c3f3358d911"
+  },
+  "siteDiagnostic.loginRedirect": {
+    "sourceHash": "b5175874ce35ce8f704969462566801dc926caae9b38806bdc4a286598238332"
+  },
+  "siteDiagnostic.parse": {
+    "sourceHash": "d35a89d251bb2254dc571d09abdafc4ea9ca6b845bf73adf6400f03fe6a31db8"
+  },
+  "siteDiagnostic.challenge": {
+    "sourceHash": "83b92f0756ee1fcef5965d9a5b56019f97128f696525b737bc14319859485989"
+  },
+  "siteDiagnostic.forbidden": {
+    "sourceHash": "90c9d86e7165cc6f10c398e79bf8686c1aaad450de0ccb41e0f2c4245258c2ba"
+  },
+  "siteDiagnostic.rateLimited": {
+    "sourceHash": "c32bb9432a15428027d2e2c89fc9e2857fce9ff996f458ce6dee916ade84deea"
+  },
+  "siteDiagnostic.unavailable": {
+    "sourceHash": "8a6b9e77b0dbac315532ae81f4c8c548980cc7fc1d6ac2e17f813bf0a78fd870"
+  },
+  "siteDiagnostic.http": {
+    "sourceHash": "8b347e088ab0585f4abf25812a7653e356be18cc028d33f0de31b0d15a167a93"
+  },
+  "siteDiagnostic.unknown": {
+    "sourceHash": "2248cf9062a8a78c0aed38c98b086c78a1084576b0e7ae3745340b2ef3bad489"
+  }
+}

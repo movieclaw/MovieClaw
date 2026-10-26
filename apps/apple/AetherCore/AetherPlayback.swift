@@ -632,12 +632,12 @@ public final class AetherPlayback {
     public func readouts() -> Readouts {
         let telemetry = engine.liveTelemetry
         var details: [String] = []
-        details.append("通路 \(Self.routeLabel(engine.videoRoute))")
-        if let container = engine.sourceContainerFormat { details.append("容器 \(container)") }
-        if let decoder = engine.activeVideoDecoder { details.append("视频 \(decoder)") }
-        details.append("画面 \(formatLabel)")
-        if let decoder = engine.activeAudioDecoder { details.append("音频 \(decoder)") }
-        details.append("音频交付 \(Self.deliveryLabel(engine.audioDelivery))")
+        details.append(String(localized: .playerEngineRouteDetails(Self.routeLabel(engine.videoRoute))))
+        if let container = engine.sourceContainerFormat { details.append(String(localized: .playerEngineContainerDetails(container))) }
+        if let decoder = engine.activeVideoDecoder { details.append(String(localized: .playerEngineVideoDetails(decoder))) }
+        details.append(String(localized: .playerEnginePictureDetails(formatLabel)))
+        if let decoder = engine.activeAudioDecoder { details.append(String(localized: .playerEngineAudioDetails(decoder))) }
+        details.append(String(localized: .playerEngineAudioDeliveryDetails(Self.deliveryLabel(engine.audioDelivery))))
         var readouts = Readouts(
             route: engine.videoRoute.rawValue,
             sourceBytesFetched: telemetry?.demuxerBytesFetched,
@@ -705,34 +705,34 @@ public final class AetherPlayback {
         case .sdr: "SDR"
         case .hdr10: "HDR10"
         case .hdr10Plus: "HDR10+"
-        case .dolbyVision: "杜比视界"
+        case .dolbyVision: String(localized: .playerEngineDolbyVision)
         case .hlg: "HLG"
         }
         if let profile = engine.sourceDVProfile {
-            label += " · 片源 DV P\(profile)"
-            if engine.dolbyVisionConversion == .profile7ToProfile81 { label += "（已转 8.1）" }
+            label += String(localized: .playerEngineSourceDolbyProfile(profile))
+            if engine.dolbyVisionConversion == .profile7ToProfile81 { label += String(localized: .playerEngineDolbyConverted) }
         }
         return label
     }
 
     private static func routeLabel(_ route: VideoRoute) -> String {
         switch route {
-        case .loopback: "本机换封装 → AVPlayer"
-        case .software: "本机软解 → 系统显示层"
-        case .remoteBypass: "AVPlayer 直连"
-        case .audio: "纯音频"
-        case .none: "未装载"
+        case .loopback: String(localized: .playerEngineRouteLoopback)
+        case .software: String(localized: .playerEngineRouteSoftware)
+        case .remoteBypass: String(localized: .playerEngineRouteRemote)
+        case .audio: String(localized: .playerEngineRouteAudio)
+        case .none: String(localized: .playerEngineRouteNone)
         }
     }
 
     private static func deliveryLabel(_ delivery: AudioDelivery) -> String {
         switch delivery {
-        case .streamCopy: "原样拷贝"
-        case .bridged: "本机解码后重编"
-        case .decoded: "本机解码"
-        case .playerManaged: "系统播放器处理"
-        case .noAudioInSource: "片源无音轨"
-        case .droppedNoPipeline: "无法输出（静音）"
+        case .streamCopy: String(localized: .playerEngineDeliveryCopy)
+        case .bridged: String(localized: .playerEngineDeliveryBridged)
+        case .decoded: String(localized: .playerEngineDeliveryDecoded)
+        case .playerManaged: String(localized: .playerEngineDeliveryPlayer)
+        case .noAudioInSource: String(localized: .playerEngineDeliveryNoAudio)
+        case .droppedNoPipeline: String(localized: .playerEngineDeliveryUnavailable)
         case .none: "—"
         }
     }
@@ -927,13 +927,13 @@ public final class AetherPlayback {
                 subtitleView.cues = cues.compactMap(OverlayCue.init)
                 if Self.logsCues {
                     for cue in cues where cue.text != nil {
-                        let place = cue.placement.map { "an=\($0.alignment.map(String.init) ?? "-") pos=\($0.position.map { "\(String(format: "%.2f", $0.x)),\(String(format: "%.2f", $0.y))" } ?? "-")" } ?? "无定位"
+                        let place = cue.placement.map { "an=\($0.alignment.map(String.init) ?? "-") pos=\($0.position.map { "\(String(format: "%.2f", $0.x)),\(String(format: "%.2f", $0.y))" } ?? "-")" } ?? "无定位" // i18n-ignore: developer diagnostics
                         FileHandle.standardError.write(Data("[AetherCue] \(String(format: "%.2f", cue.startTime))-\(String(format: "%.2f", cue.endTime)) \(place) \(cue.text ?? "")\n".utf8))
                     }
                     // 位图字幕（PGS / VobSub / DVB）没有文字：记下有几张图、画布多大，确认它确实上屏了
                     let bitmaps = cues.filter { $0.text == nil }
                     if let first = bitmaps.first {
-                        FileHandle.standardError.write(Data("[AetherCue] \(String(format: "%.2f", first.startTime))-\(String(format: "%.2f", first.endTime)) 位图字幕 \(bitmaps.count) 张\n".utf8))
+                        FileHandle.standardError.write(Data("[AetherCue] \(String(format: "%.2f", first.startTime))-\(String(format: "%.2f", first.endTime)) 位图字幕 \(bitmaps.count) 张\n".utf8)) // i18n-ignore: developer diagnostics
                     }
                 }
                 refreshSubtitles()
@@ -1253,9 +1253,9 @@ final class SubtitleLayerView: AetherPlatformView {
         if AetherPlayback.logsCues, active.map(\.id) != loggedActiveIDs {
             // 真机无人值守验证时确认字幕确实画上了屏（[AetherCue] 只说明拿到了字幕）
             loggedActiveIDs = active.map(\.id)
-            let shown = active.isEmpty ? "清空" : active.map { cue -> String in
+            let shown = active.isEmpty ? "清空" : active.map { cue -> String in // i18n-ignore: developer diagnostics
                 if case let .text(text, _, _) = cue.content { return "「\(text.prefix(24))」" }
-                return "位图"
+                return "位图" // i18n-ignore: developer diagnostics
             }.joined(separator: " ")
             FileHandle.standardError.write(Data("[AetherShow] \(String(format: "%.2f", time)) \(shown)\n".utf8))
         }

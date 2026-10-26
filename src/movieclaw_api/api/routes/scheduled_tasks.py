@@ -17,6 +17,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import stored_message
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_db.engine import get_session
@@ -53,8 +55,10 @@ class ScheduledTaskUpdate(BaseModel):
 def _view(row: ScheduledTask, defn: TaskDefinition) -> ScheduledTaskView:
     return ScheduledTaskView(
         key=row.task_key,
-        title=defn.title,
-        description=defn.description,
+        title=stored_message(defn.title, defn.title_key) if defn.title_key else defn.title,
+        description=stored_message(defn.description, defn.description_key)
+        if defn.description_key
+        else defn.description,
         enabled=row.enabled,
         trigger_type=row.trigger_type,
         interval_seconds=row.interval_seconds,
@@ -78,9 +82,9 @@ async def list_scheduled_tasks(
     for row in rows:
         defn = get_task(row.task_key)
         if defn is not None:
-            views.append(_view(row, defn))
-    views.sort(key=lambda v: v.title)
-    return ok(views)
+            views.append((defn.title, _view(row, defn)))
+    views.sort(key=lambda item: item[0])
+    return ok([view for _, view in views])
 
 
 @router.put(
@@ -96,21 +100,26 @@ async def update_scheduled_task(
 ) -> ApiResponse[ScheduledTaskView]:
     defn = get_task(task_key)
     if defn is None:
-        raise NotFoundException("没有这个定时任务")
+        raise NotFoundException(message_key="errors.scheduledTasks.missing")
     interval: int | None = None
     cron: str | None = None
     if payload.trigger_type == TriggerType.INTERVAL:
         if payload.interval_seconds is None or payload.interval_seconds < MIN_INTERVAL_SECONDS:
-            raise BadRequestException(f"间隔至少 {MIN_INTERVAL_SECONDS} 秒")
+            raise BadRequestException(
+                message_key="errors.scheduledTasks.intervalMinimum",
+                params={"minimum": MIN_INTERVAL_SECONDS},
+            )
         interval = int(payload.interval_seconds)
     else:
         cron = (payload.cron_expr or "").strip()
         if not cron:
-            raise BadRequestException("按固定时刻触发需要 cron 表达式（分 时 日 月 周）")
+            raise BadRequestException(message_key="errors.scheduledTasks.cronRequired")
         try:
             CronTrigger.from_crontab(cron)
         except ValueError as exc:
-            raise BadRequestException(f"cron 表达式无效：{exc}") from exc
+            raise BadRequestException(
+                message_key="errors.scheduledTasks.cronInvalid", params={"error": exc}
+            ) from exc
 
     repo = ScheduledTaskRepository(session)
     row = await repo.update_schedule(
@@ -121,11 +130,11 @@ async def update_scheduled_task(
         cron_expr=cron,
     )
     if row is None:
-        raise NotFoundException("没有这个定时任务")
+        raise NotFoundException(message_key="errors.scheduledTasks.missing")
     # 调度器在跑就立刻按新定义重排；没在跑（关闭了调度、测试环境）只落库，
     # 下次启动按新定义加载
     scheduler = try_get_scheduler()
     if scheduler is not None:
         await scheduler.reschedule(task_key)
         await session.refresh(row)
-    return ok(_view(row, defn), message="已更新，按新周期生效")
+    return ok(_view(row, defn), message=t("settings.scheduledTasks.saved"))

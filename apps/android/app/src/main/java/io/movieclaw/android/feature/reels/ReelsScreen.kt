@@ -125,6 +125,7 @@ class ReelsViewModel @Inject constructor(
     private val repository: SessionRepository,
     private val qualityMemory: QualityMemory,
     private val playbackPrefs: io.movieclaw.android.core.playback.CorePlaybackPrefs,
+    private val addressBook: io.movieclaw.android.core.network.ServerAddressBook,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -173,14 +174,32 @@ class ReelsViewModel @Inject constructor(
     private val pendingEvents = mutableListOf<ReelEventView>()
 
     init {
-        val host = origin?.let { runCatching { java.net.URI(it).host }.getOrNull() }
-        val network = PlaybackNetwork.of(host)
+        // 网络环境要按**当前选中的入口**算，不能按登录地址：登录用域名、回家后路由切到
+        // 内网，按域名算会一直标成「外网 720p」，还会让 seek 片段白转码。
+        val initialHost = (io.movieclaw.android.core.network.ServerRoutes.baseFor(origin) ?: origin)
+            ?.let { runCatching { java.net.URI(it).host }.getOrNull() }
+        val network = PlaybackNetwork.of(initialHost)
         _ui.update { it.copy(network = network) }
         players.setNetwork(network)
         viewModelScope.launch {
             val cap = qualityMemory.reelsCap(network) ?: ReelsQuality.AUTO
             _ui.update { it.copy(qualityCap = cap) }
             players.setQuality(cap)
+        }
+        // 选路变化（回家 / 出门）时跟着更新画质档位与胶囊文案；已经在播的这条不打断，
+        // 下一条起按新网络走。
+        viewModelScope.launch {
+            addressBook.selection.collect { sel ->
+                if (sel == null || sel.origin != origin) return@collect
+                val host = runCatching { java.net.URI(sel.url).host }.getOrNull()
+                val next = PlaybackNetwork.of(host)
+                if (next == _ui.value.network) return@collect
+                _ui.update { it.copy(network = next) }
+                players.setNetwork(next)
+                val cap = qualityMemory.reelsCap(next) ?: ReelsQuality.AUTO
+                _ui.update { it.copy(qualityCap = cap) }
+                players.setQuality(cap)
+            }
         }
         loadFirstPage()
         loadFacets()

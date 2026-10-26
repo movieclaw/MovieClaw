@@ -487,6 +487,7 @@ class TorrentRepository:
         if cursor is None:
             return False
         cursor.last_error = None
+        cursor.last_error_ref = None
         cursor.consecutive_failures = 0
         cursor.next_sync_at = None  # NULL = 立即到期，下一个 tick（≤2 分钟）即恢复同步
         cursor.updated_at = utcnow()
@@ -522,6 +523,7 @@ class TorrentRepository:
         new_count: int | None = None,
         full_page: bool | None = None,
         error: str | None = None,
+        error_ref: dict | None = None,
         consecutive_failures: int = 0,
         next_interval_seconds: int | None = None,
     ) -> None:
@@ -549,6 +551,7 @@ class TorrentRepository:
         cursor.last_new_count = new_count
         cursor.last_full_page = full_page
         cursor.last_error = error
+        cursor.last_error_ref = error_ref if error is not None else None
         cursor.consecutive_failures = consecutive_failures
         if next_interval_seconds is not None:
             cursor.sync_interval_seconds = next_interval_seconds

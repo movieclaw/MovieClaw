@@ -41,7 +41,7 @@ def client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     app = create_app()
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         c.post(
             "/api/v1/auth/bootstrap",
             json={"username": "admin", "password": "s3cret-pass"},
@@ -431,7 +431,7 @@ def test_requires_login(tmp_path, monkeypatch):
 
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         assert c.get("/api/v1/network/config").status_code == 401
 
     reset_setting_store()

@@ -38,43 +38,43 @@ struct SaveAsCollectionSheet: View {
             Form {
                 Section {
                     TextField(
-                        "名字",
+                        String(localized: .libraryCollectionsName),
                         text: Binding(mcGet: { name }, set: { touched = true; name = $0 }),
-                        prompt: Text(suggested.isEmpty ? "合集名" : suggested)
+                        prompt: Text(suggested.isEmpty ? String(localized: .libraryCollectionsNameLabel) : suggested)
                     )
                     .submitLabel(.done)
                 } header: {
-                    Text("名字")
+                    Text(String(localized: .libraryCollectionsName))
                 } footer: {
-                    Text(total.map { "当前条件命中 \($0) 部" } ?? "正在数当前条件命中多少部…")
+                    Text(total.map { String(localized: .libraryCollectionsMatchCount($0)) } ?? String(localized: .libraryCollectionsCounting))
                 }
 
                 Section {
                     modeOption(
                         selected: !snapshot,
-                        title: "自动收录",
-                        detail: "以后新入库的片，只要符合这组条件就会自己进来。"
+                        title: String(localized: .libraryCollectionsAutoAdd),
+                        detail: String(localized: .libraryCollectionsAutoAddHint)
                     ) { snapshot = false }
                     modeOption(
                         selected: snapshot,
-                        title: total.map { "固定现在这 \($0) 部" } ?? "固定现在这批",
-                        detail: "就留下此刻这些，之后不再变化。"
+                        title: total.map { String(localized: .libraryCollectionsFreezeCount($0)) } ?? String(localized: .libraryCollectionsFreeze),
+                        detail: String(localized: .libraryCollectionsFreezeHint)
                     ) { snapshot = true }
                 }
 
                 Section {
-                    Toggle("只有我可见", isOn: $privateOnly)
+                    Toggle(String(localized: .libraryCollectionsPrivate), isOn: $privateOnly)
                 }
             }
             .scrollContentBackground(.hidden)
-            .navigationTitle("存为合集")
+            .navigationTitle(String(localized: .libraryCollectionsSaveAs))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button(String(localized: .commonCancel)) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "保存中…" : "存为合集") {
+                    Button(saving ? String(localized: .libraryCollectionsSaving) : String(localized: .libraryCollectionsSaveAs)) {
                         Task { await submit() }
                     }
                     .disabled(saving)
@@ -107,7 +107,7 @@ struct SaveAsCollectionSheet: View {
         parts += filter.countries.map { label(facets?.countries, $0) }
         parts += filter.decades.map { label(facets?.decades, $0) }
         if let watch = filter.watch { parts.append(label(facets?.watch, watch)) }
-        if let rating = filter.ratingGte { parts.append("\(LibraryFilter.ratingString(rating)) 分以上") }
+        if let rating = filter.ratingGte { parts.append(String(localized: .libraryCollectionsRatingMinimum(LibraryFilter.ratingString(rating)))) }
         // 画质的取值本身就是人话（"2160p"），不必等 facet
         parts += filter.resolutions.map { Optional($0) }
         return parts.compactMap { $0 }.prefix(3).joined(separator: " · ")
@@ -136,7 +136,7 @@ struct SaveAsCollectionSheet: View {
             ? suggested
             : name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !finalName.isEmpty else {
-            feedback.error("给这个合集起个名字")
+            feedback.error(String(localized: .libraryCollectionsNameRequired))
             return
         }
         saving = true
@@ -149,7 +149,7 @@ struct SaveAsCollectionSheet: View {
                 visibility: privateOnly ? "private" : "household",
                 snapshot: snapshot
             ))
-            feedback.success("已存为合集「\(created.name)」")
+            feedback.success(String(localized: .libraryCollectionsSavedAs(created.name)))
             onSaved(created)
             dismiss()
         } catch {

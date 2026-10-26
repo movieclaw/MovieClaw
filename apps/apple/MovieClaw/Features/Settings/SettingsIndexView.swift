@@ -15,7 +15,7 @@ struct SettingsIndexView: View {
     var body: some View {
         sections
         .padReadableWidth()
-        .navigationTitle("服务器设置")
+        .navigationTitle(String(localized: .settingsIndexServerSettings))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: cardTitleVisible ? .title : nil)
         .appBackground()
@@ -29,14 +29,14 @@ struct SettingsIndexView: View {
                 .frame(width: 56, height: 56)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 8) {
-                Text("服务器设置")
+                Text(String(localized: .settingsIndexServerSettings))
                     .font(.title3.weight(.semibold))
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("settings-title")
                     .onGeometryChange(for: Bool.self) {
                         $0.frame(in: .named("settings-list")).maxY > scrollTopInset
                     } action: { cardTitleVisible = $0 }
-                Text("当前服务器：\(api.server.hostLabel)\n修改将保存到这台服务器。")
+                Text(String(localized: .settingsIndexCurrentServer(api.server.hostLabel)))
                     .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -52,6 +52,13 @@ struct SettingsIndexView: View {
             SettingsFormSection {
                 introduction
                     .listRowInsets(EdgeInsets())
+            }
+            Section {
+                AppLanguageSettings()
+            } header: {
+                Text(.settingsAppearanceGeneral)
+            } footer: {
+                Text(.settingsAppearanceSystemHint)
             }
             ForEach(SettingsSection.groups, id: \.title) { group in
                 let items = group.items.filter { $0.availableInApp && (permissions.isAdmin || $0.memberVisible) }
@@ -83,7 +90,7 @@ struct SettingsIndexView: View {
                     AboutView()
                 } label: {
                     Label {
-                        Text("关于 MovieClaw")
+                        Text(String(localized: .settingsIndexAbout))
                     } icon: {
                         Image(systemName: "info.circle")
                             .resizable()

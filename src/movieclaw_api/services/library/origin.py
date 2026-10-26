@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from movieclaw_api.i18n.stored import reference, source_render
 from movieclaw_db.models import FileSource, LibraryFile
 from movieclaw_db.models.import_watch import ImportWatch
 
@@ -33,24 +34,36 @@ KIND_MANUAL_DOWNLOAD = "manual_download"
 KIND_WATCH_IMPORT = "watch_import"
 KIND_SCAN = "scan"
 
-# 扫描触发方式 → 文案。扫描本身分不清"文件是谁放进来的"（那正是它与入库
+# 扫描触发方式 → 文案键。扫描本身分不清"文件是谁放进来的"（那正是它与入库
 # 管线的区别），能说的只有"哪一轮扫描第一次看见它"
-SCAN_TRIGGER_LABELS = {
-    "manual": "手动扫描",
-    "watch": "目录监听",
-    "scheduled": "定时对账",
-}
-_STRATEGY_LABELS = {"hardlink": "硬链接入库", "copy": "复制入库"}
+_SCAN_TRIGGER_KEYS = {"manual": "scanManual", "watch": "scanWatch", "scheduled": "scanScheduled"}
+_STRATEGIES = ("hardlink", "copy")
 
 
-def _join(*parts: str | None) -> str | None:
-    """detail 行：有值的段按固定顺序用「 · 」拼起来；一个都没有为 None。"""
-    text = " · ".join(str(p).strip() for p in parts if p and str(p).strip())
-    return text or None
+def _snapshot(kind: str, label_ref: dict, detail_ref: dict | None = None) -> dict[str, Any]:
+    """落库快照：中文回滚文案由引用渲染，读者按自己的语言看引用。"""
+    detail = source_render(detail_ref) if detail_ref is not None else None
+    result = {"kind": kind, "label": source_render(label_ref), "detail": detail or None}
+    for name, ref in (("label", label_ref), ("detail", detail_ref)):
+        if ref is not None and (name != "detail" or result["detail"] is not None):
+            result[f"{name}_key"] = ref["message_key"]
+            result[f"{name}_params"] = ref["params"]
+    return result
 
 
-def _snapshot(kind: str, label: str, detail: str | None) -> dict[str, Any]:
-    return {"kind": kind, "label": label, "detail": detail}
+def _detail_reference(*parts: str | dict | None) -> dict:
+    parts = [p.strip() if isinstance(p, str) else p for p in parts if p]
+    return reference(
+        "library.origin.detail",
+        parts={
+            "message_list": [p for p in parts if p],
+            "separator_key": "library.origin.separator",
+        },
+    )
+
+
+def _strategy_reference(strategy: str | None) -> dict | None:
+    return reference(f"library.origin.{strategy}") if strategy in _STRATEGIES else None
 
 
 # ---------------------------------------------------------------------------
@@ -60,21 +73,34 @@ def _snapshot(kind: str, label: str, detail: str | None) -> dict[str, Any]:
 
 def watch_import_origin(rule: ImportWatch) -> dict[str, Any]:
     """监听目录识别入库：没匹配到任何下载任务，只知道从哪个目录、怎么搬进来的。"""
-    detail = _join(
-        rule.source_path,
-        _STRATEGY_LABELS.get(rule.strategy or ""),
-        "未匹配到任何下载任务",
+    return _snapshot(
+        KIND_WATCH_IMPORT,
+        reference("library.origin.watchImport"),
+        _detail_reference(
+            rule.source_path,
+            _strategy_reference(rule.strategy),
+            reference("library.origin.unmatched"),
+        ),
     )
-    return _snapshot(KIND_WATCH_IMPORT, "监听目录自动识别入库", detail)
 
 
 def scan_origin(trigger: str) -> dict[str, Any]:
     """存量扫描发现：文件不是本系统放进来的，只记哪一轮扫描第一次看见它。
 
-    ``trigger`` 取 ``SCAN_TRIGGER_LABELS`` 的键；未知值原样写进 detail。
+    ``trigger`` 取 manual / watch / scheduled；未知值原样写进 detail。
     """
-    how = SCAN_TRIGGER_LABELS.get(trigger, trigger)
-    return _snapshot(KIND_SCAN, "存量扫描发现（非本系统入库）", f"{how}发现")
+    return _snapshot(
+        KIND_SCAN,
+        reference("library.origin.scan"),
+        reference(
+            "library.origin.scanFound",
+            trigger=(
+                reference(f"library.origin.{_SCAN_TRIGGER_KEYS[trigger]}")
+                if trigger in _SCAN_TRIGGER_KEYS
+                else trigger
+            ),
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -85,10 +111,16 @@ def scan_origin(trigger: str) -> dict[str, Any]:
 def _legacy_fallback(row: LibraryFile) -> dict[str, Any]:
     """旧行的粗文案（没有获取领域、或它也推导不出时）。站点名、种子标题由获取领域推导（describe_origins）。"""
     if row.source == FileSource.SCANNED:
-        return _snapshot(KIND_SCAN, "存量扫描发现（非本系统入库）", None)
+        return _snapshot(KIND_SCAN, reference("library.origin.scan"))
     if row.site_id or row.torrent_id:
-        return _snapshot(KIND_WATCH_IMPORT, "手动或监听导入", _join(row.site_id))
-    return _snapshot(KIND_WATCH_IMPORT, "监听目录导入", "来源种子未记录")
+        snapshot = _snapshot(KIND_WATCH_IMPORT, reference("library.origin.manualOrWatch"))
+        snapshot["detail"] = row.site_id or None  # 站点 id 是数据，不翻译
+        return snapshot
+    return _snapshot(
+        KIND_WATCH_IMPORT,
+        reference("library.origin.legacyWatch"),
+        reference("library.origin.missingTorrent"),
+    )
 
 
 def origin_of(row: LibraryFile, derived: dict[int, dict[str, Any]]) -> dict[str, Any]:

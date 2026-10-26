@@ -21,6 +21,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n import t
 from movieclaw_api.services.push.labels import (
     Unit,
     by_season,
@@ -312,7 +313,9 @@ class Snapshot:
 
 
 def _date_text(day: date) -> str:
-    return f"{day.month} 月 {day.day} 日"
+    from movieclaw_api.i18n.format import month_day
+
+    return month_day(day)
 
 
 def _play_path(item_id: int, unit: Unit | None) -> str:
@@ -397,10 +400,10 @@ async def build(
 
     def tail() -> str:
         if who.kind == "abandoned" or target is None or target == (0, 0):
-            return "点开就能看"
+            return t("notify.cards.watch")
         if who.kind == "fresh":
-            return f"点开从{one(target)}开始"
-        return f"点开接着看{one(target)}"
+            return t("notify.cards.startAt", episode=one(target))
+        return t("notify.cards.continueAt", episode=one(target))
 
     level = "active" if snap.loud and who.kind != "abandoned" else "passive"
     single_image: Unit | None = None
@@ -411,15 +414,15 @@ async def build(
     if newcomer is not None:
         title, body = newcomer
     elif movie:
-        title, body = f"{name} 已入库", "点开就能看"
+        title, body = t("notify.cards.movieImported", title=name), t("notify.cards.watch")
     elif snap.phase in ("partial", "progress"):
-        title = f"{name} 可以先看了"
-        body = f"{label(arrived)}已入库，其余 {len(snap.inflight)} 集还在下载"
+        title = t("notify.cards.partialTitle", title=name)
+        body = t("notify.cards.partialBody", episodes=label(arrived), count=len(snap.inflight))
         if snap.phase == "progress":
             level = "passive"
     elif snap.phase == "stuck":
-        title = f"{name} {label(arrived)}已入库"
-        body = f"{label(set(snap.inflight))}还没下好，下好了再告诉你"
+        title = t("notify.cards.episodesImported", title=name, episodes=label(arrived))
+        body = t("notify.cards.waitingBody", episodes=label(set(snap.inflight)))
     else:
         title, body, single_image = await _final(
             session,
@@ -452,16 +455,18 @@ async def build(
         actions.append(
             {
                 "id": "play",
-                "title": "播放" if movie else f"播放{one(target)}",  # type: ignore[arg-type]
+                "title": t("player.controls.play")
+                if movie
+                else t("notify.cards.playEpisode", episode=one(target)),  # type: ignore[arg-type]
                 "open": _play_path(snap.item_id, play_unit),
             }
         )
     if not movie and page:
-        actions.append({"id": "open", "title": "查看全部剧集", "open": page})
+        actions.append({"id": "open", "title": t("notify.cards.allEpisodes"), "open": page})
     actions.append(
         {
             "id": "mute",
-            "title": "这部片不再提醒" if movie else "这部剧不再提醒",
+            "title": t("notify.cards.mute", kind="movie" if movie else "tv"),
             "item": snap.item_id,
         }
     )
@@ -506,10 +511,16 @@ async def _newcomer(
     if library is None:
         return None
     videos = library.kind not in ("movie", "tv")  # 「其他」库：家庭录像、课程这类，不叫「片」
-    kind = "新视频" if videos else "新剧" if item.kind == "tv" else "新片"
+    kind = "video" if videos else item.kind
     scope = label(arrived)
-    body = f"已加入「{library.name}」" + (f"，{scope}" if scope else "") + f"，{tail()}"
-    return f"{kind}：{item.title}", body
+    body = t(
+        "notify.cards.newBody",
+        library=library.name,
+        hasScope="yes" if scope else "no",
+        episodes=scope,
+        action=tail(),
+    )
+    return t("notify.cards.newTitle", kind=kind, title=item.title), body
 
 
 async def _started(
@@ -525,16 +536,19 @@ async def _started(
     from movieclaw_api.services.push.audience import lazy_image
 
     started = sorted(set(snap.started))
-    verb = "开始洗版下载" if snap.upgrade else "开始下载"
     label = "" if movie else units_text(started, with_season=True)
     head = " · ".join(part for part in (label, snap.detail) if part)
     if snap.upgrade:
-        body = head or "换成更好的版本"
+        body = head or t("notify.cards.upgradeBody")
     else:
-        promise = "第一批下好就告诉你" if len(started) > 1 else "下好就告诉你"
-        body = f"{head}，{promise}" if head else promise
+        body = t(
+            "notify.cards.startedBody",
+            hasDetail="yes" if head else "no",
+            detail=head,
+            batch="yes" if len(started) > 1 else "no",
+        )
     return AlertContent(
-        title=f"{name} {verb}",
+        title=t("notify.cards.startedTitle", title=name, upgrade="yes" if snap.upgrade else "no"),
         body=body,
         image=await lazy_image(image_url)(),
         open=f"/subscriptions/{snap.subscription_id}" if snap.subscription_id else None,
@@ -568,14 +582,22 @@ async def _final(
     regular = sorted(s for s in totals if s > 0)
     if item.status in ENDED and regular and all(complete(s) for s in regular):
         episodes = sum(totals[s] for s in regular)
-        scope = f"全 {episodes} 集" if len(regular) == 1 else f"{len(regular)} 季 {episodes} 集"
-        return f"{name} 全剧已入库", f"{scope}都能看了，{tail()}", None
+        return (
+            t("notify.cards.seriesCompleteTitle", title=name),
+            t(
+                "notify.cards.seriesCompleteBody",
+                seasons=len(regular),
+                episodes=episodes,
+                action=tail(),
+            ),
+            None,
+        )
     if len(seasons) == 1:
         season = next(iter(seasons))
         if season > 0 and complete(season) and len(arrived) > 1:
             return (
-                f"{name} {season_name(season)}已全部入库",
-                f"{totals[season]} 集都能看了，{tail()}",
+                t("notify.cards.seasonCompleteTitle", title=name, season=season_name(season)),
+                t("notify.cards.seasonCompleteBody", count=totals[season], action=tail()),
                 None,
             )
         if len(arrived) <= SMALL_UPDATE:
@@ -587,36 +609,51 @@ async def _final(
     missing = sorted(u for u in snap.missing if u[0] in seasons)
     if missing:
         return (
-            f"{name} {label(arrived, full=True)}已入库",
-            f"{label(missing)}还没找到资源，找到了再告诉你",
+            t("notify.cards.episodesImported", title=name, episodes=label(arrived, full=True)),
+            t("notify.cards.missingBody", episodes=label(missing)),
             None,
         )
-    return f"{name} {label(arrived, full=True)}已入库", tail(), None
+    return (
+        t("notify.cards.episodesImported", title=name, episodes=label(arrived, full=True)),
+        tail(),
+        None,
+    )
 
 
 def _small_update(name, arrived, available, who, label, one, upcoming):  # type: ignore[no-untyped-def]
     """一两集的更新（周更）：按这个人看到哪了说话。``upcoming`` 是下一集的集号和播出日期。"""
     batch = label(arrived)
     if who.kind == "abandoned":
-        return f"{name} {batch}已入库", units_text(arrived, with_season=True)
+        return t("notify.cards.episodesImported", title=name, episodes=batch), units_text(
+            arrived, with_season=True
+        )
     if who.kind == "fresh":
         season = arrived[0][0]
         so_far = sorted(u for u in available if u[0] == season) or arrived
         start = who.next_unit or (so_far[0] if so_far else arrived[0])
         return (
-            f"{name} 更新到{one(arrived[-1])}了",
-            f"{label(so_far)}都能看，点开从{one(start)}开始",
+            t("notify.cards.updatedThrough", title=name, episode=one(arrived[-1])),
+            t("notify.cards.availableBody", episodes=label(so_far), episode=one(start)),
         )
     if who.kind == "behind":
         return (
-            f"{name} {batch}来了",
-            f"你还有{label(who.unwatched)}没看，点开接着看{one(who.next_unit)}",
+            t("notify.cards.arrivedTitle", title=name, episodes=batch),
+            t("notify.cards.behindBody", episodes=label(who.unwatched), episode=one(who.next_unit)),
         )
-    body = f"你看到{one(who.anchor)}，正好接上" if who.anchor else "点开就能看"
+    body = (
+        t("notify.cards.caughtUpBody", episode=one(who.anchor))
+        if who.anchor
+        else t("notify.cards.watch")
+    )
     if upcoming is not None:
         episode, day = upcoming
-        body += f" · {one((arrived[-1][0], episode))} {_date_text(day)}更新"
-    return f"{name} {batch}来了", body
+        body = t(
+            "notify.cards.nextAir",
+            body=body,
+            episode=one((arrived[-1][0], episode)),
+            date=_date_text(day),
+        )
+    return t("notify.cards.arrivedTitle", title=name, episodes=batch), body
 
 
 def _relevance(level: str, who: Viewer) -> float:

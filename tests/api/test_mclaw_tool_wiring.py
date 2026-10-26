@@ -137,7 +137,7 @@ def client(tmp_path, monkeypatch):
 
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         c.post("/api/v1/auth/bootstrap", json=_ADMIN)
         yield c
 
@@ -158,7 +158,7 @@ def test_agent_token_cannot_start_or_send_session_message(client: TestClient) ->
     # 必须用不带 Cookie 的干净客户端——服务端鉴权 Cookie 优先，带着
     # bootstrap 的管理员 Cookie 会把身份判成 admin。真实 Agent 工作区
     # 也只有 Bearer 令牌，这正是它的调用形态。
-    fresh = TestClient(client.app)
+    fresh = TestClient(client.app, headers={"Accept-Language": "zh-Hans"})
     for body in (
         {"content": "递归测试"},
         {"content": "递归测试", "session_id": "missing"},
@@ -186,7 +186,7 @@ def test_agent_token_cannot_stop_its_own_session(client: TestClient) -> None:
     from movieclaw_api.services import auth as auth_service
 
     token = asyncio.run(auth_service.issue_agent_token("sess-x"))
-    fresh = TestClient(client.app)
+    fresh = TestClient(client.app, headers={"Accept-Language": "zh-Hans"})
     resp = fresh.post(
         "/api/v1/sessions/sess-x/stop",
         headers={"Authorization": f"Bearer {token}"},

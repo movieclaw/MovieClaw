@@ -127,6 +127,8 @@ class AgentConversationViewModel @Inject constructor(
         val modelRef: String? = null,
         /** 本轮思考档位；null = 由模型自行决定（不发送思考参数） */
         val thinkingLevel: String? = null,
+        /** 上一轮是否以错误收尾（小幕据此停在 failed；发送开始即清掉） */
+        val lastRunFailed: Boolean = false,
     )
 
     private val _ui = MutableStateFlow(UiState())
@@ -334,7 +336,14 @@ class AgentConversationViewModel @Inject constructor(
                     followStream()
                 }
                 .onFailure { e ->
-                    _ui.update { it.copy(running = false, streamingInFlight = false, notice = McNotice(friendlyMessage(e), FeedbackTone.Error)) }
+                    _ui.update {
+                        it.copy(
+                            running = false,
+                            streamingInFlight = false,
+                            lastRunFailed = true,
+                            notice = McNotice(friendlyMessage(e), FeedbackTone.Error),
+                        )
+                    }
                 }
         }
     }
@@ -449,6 +458,7 @@ class AgentConversationViewModel @Inject constructor(
                                 state.copy(
                                     running = false,
                                     streamingInFlight = false,
+                                    lastRunFailed = event.error != null,
                                     notice = event.error?.let { McNotice(it, FeedbackTone.Error) },
                                     bubbles = state.bubbles.map { if (it.streaming) it.copy(streaming = false) else it },
                                 )
@@ -458,7 +468,14 @@ class AgentConversationViewModel @Inject constructor(
                     }
                 }
             }.onFailure { e ->
-                _ui.update { it.copy(running = false, streamingInFlight = false, notice = McNotice(friendlyMessage(e), FeedbackTone.Error)) }
+                _ui.update {
+                    it.copy(
+                        running = false,
+                        streamingInFlight = false,
+                        lastRunFailed = true,
+                        notice = McNotice(friendlyMessage(e), FeedbackTone.Error),
+                    )
+                }
             }
         }
     }

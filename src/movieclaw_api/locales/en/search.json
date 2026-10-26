@@ -1,0 +1,30 @@
+{
+  "presets": {
+    "saved": "Release search presets saved",
+    "deleted": "Deleted"
+  },
+  "history": {
+    "cleared": "Cleared {count, plural, one {# search history entry} other {# search history entries}}"
+  },
+  "categories": {
+    "movie": "Movies",
+    "tv": "TV shows",
+    "documentary": "Documentaries",
+    "anime": "Anime",
+    "music": "Music",
+    "game": "Games",
+    "av": "Adult",
+    "other": "Other"
+  },
+  "match": {
+    "text": "Name match",
+    "pinyin": "Pinyin match",
+    "initials": "Initials match",
+    "mixed": "Text and pinyin match",
+    "words": "Name phrase match",
+    "alias": "Alias match",
+    "aliasReason": "Alias · {reason}",
+    "personWorks": "Person’s titles",
+    "person": "{role, select, director {Director} other {Actor}}: {name}"
+  }
+}

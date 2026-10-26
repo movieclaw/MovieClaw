@@ -128,14 +128,14 @@ nonisolated extension APIClient {
     /// 读取一条 PT 搜索历史的结果快照
     func torrentSearchSnapshot(historyId: Int) async throws -> API.TorrentSearchHistoryResultsView {
         let value = try await searchHistoryGetResults(historyId: historyId)
-        guard value["vertical"]?.stringValue == "torrents" else { throw APIError.network("该历史记录不是 PT 种子搜索") }
+        guard value["vertical"]?.stringValue == "torrents" else { throw APIError.network(String(localized: .searchResultsWrongTorrentHistory)) }
         return try value.decode(as: API.TorrentSearchHistoryResultsView.self)
     }
 
     /// 读取一条影视搜索历史的结果快照（旧快照条目是 MediaSearchItem：id / source / title / year / type / rating / poster_url）
     func titleSearchSnapshot(historyId: Int) async throws -> (snapshotAt: String, items: [DiscoverPosterItem]) {
         let value = try await searchHistoryGetResults(historyId: historyId)
-        guard value["vertical"]?.stringValue == "titles" else { throw APIError.network("该历史记录不是影视条目搜索") }
+        guard value["vertical"]?.stringValue == "titles" else { throw APIError.network(String(localized: .searchResultsWrongTitleHistory)) }
         let items: [DiscoverPosterItem] = (value["items"]?.arrayValue ?? []).compactMap { item in
             guard let id = item["id"]?.stringValue, let title = item["title"]?.stringValue else { return nil }
             return DiscoverPosterItem(

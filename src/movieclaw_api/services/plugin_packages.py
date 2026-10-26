@@ -12,6 +12,15 @@ import logging
 import shutil
 from typing import Any
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.metadata import localized_text
+from movieclaw_api.i18n.stored import (
+    exception_reference,
+    keyed_error,
+    reference,
+    render_value,
+    source_render,
+)
 from movieclaw_api.plugins import packages as pkg
 from movieclaw_kernel import Kernel, State
 
@@ -61,9 +70,9 @@ def _operations() -> set[str]:
 
 
 _AGENT_TIERS = {
-    "none": "不带工具，纯对话",
-    "mclaw": "可调用服务操作",
-    "full": "可执行命令、读写文件",
+    "none": "plugins.package.agentNone",
+    "mclaw": "plugins.package.agentMclaw",
+    "full": "plugins.package.agentFull",
 }
 
 
@@ -80,8 +89,10 @@ def operation_details(patterns: list[str]) -> list[dict[str, Any]]:
             details.append(
                 {
                     "id": pattern,
-                    "summary": f"调用 AI 助手（{_AGENT_TIERS.get(tier, tier)}）：以管理员身份运行、"
-                    "按模型用量计费，插件可以把回复转给它自己的调用方",
+                    "summary": t(
+                        "plugins.package.agentSummary",
+                        tier=t(_AGENT_TIERS[tier]) if tier in _AGENT_TIERS else tier,
+                    ),
                     "dangerous": True,
                 }
             )
@@ -90,7 +101,7 @@ def operation_details(patterns: list[str]) -> list[dict[str, Any]]:
             details.append(
                 {
                     "id": pattern,
-                    "summary": f"「{pattern[:-2]}」领域的全部非危险操作",
+                    "summary": t("plugins.package.domainSummary", domain=pattern[:-2]),
                     "dangerous": False,
                 }
             )
@@ -118,9 +129,9 @@ def _view(
     approved_callbacks = current.callbacks if current else []
     return {
         "id": plugin.id,
-        "title": plugin.title,
+        "title": localized_text(plugin.title, plugin.title_localized),
         "version": plugin.version,
-        "description": plugin.description,
+        "description": localized_text(plugin.description, plugin.description_localized),
         "runtime": plugin.runtime,
         # 入口模块；留空 = 没有后端代码（只带网页 / 主题）
         "entry": plugin.entry,
@@ -138,7 +149,11 @@ def _view(
         "dependencies": plugin_deps.view(lock, current.dependencies if current else None),
         "dependency_progress": plugin_deps.progress(plugin.id) if lock is not None else None,
         # 带网页：批准页预览侧边栏入口，并须单独同意授信运行（plugin-web-pages.md §5）
-        "web": plugin_web.pending_preview(path, plugin.id, plugin.title) if path else None,
+        "web": plugin_web.pending_preview(
+            path, plugin.id, localized_text(plugin.title, plugin.title_localized)
+        )
+        if path
+        else None,
         # 主题：批准页预览选择卡；带外框组件的须单独同意（theme-plugins.md §4.6）
         "theme": _theme_preview(manifest, path),
     }
@@ -149,8 +164,8 @@ def _theme_preview(manifest: pkg.Manifest, path: Any) -> dict[str, Any] | None:
     if theme is None:
         return None
     return {
-        "label": theme.label,
-        "description": theme.description,
+        "label": localized_text(theme.label, theme.label_localized),
+        "description": localized_text(theme.description, theme.description_localized),
         "preview": {"bg": theme.preview.bg, "accent": theme.preview.accent},
         "layout": theme.layout,
         "glass": theme.glass,
@@ -172,9 +187,9 @@ def _event_view(manifest: pkg.Manifest) -> dict[str, Any]:
     except Exception:  # noqa: BLE001 -- 不合规的上传时就拒了，这里兜底
         return {}
     audiences = {
-        "admins": "管理员",
-        "member": "事件里的那个成员",
-        "media": "订阅或关注了那部片的人",
+        "admins": t("plugins.package.audienceAdmins"),
+        "member": t("plugins.package.audienceMember"),
+        "media": t("plugins.package.audienceMedia"),
     }
     return {
         "events": [{"name": name, "title": title} for name, title in events.items()],
@@ -240,10 +255,13 @@ class PackageManager:
         rows = []
         for item in packages.values():
             fiber = self._kernel.fiber(item.id)
+            manifest = pkg.read_manifest(pkg.version_dir(self._settings, item.id, item.version))
             rows.append(
                 {
                     "id": item.id,
-                    "title": item.title,
+                    "title": localized_text(item.title, manifest.plugin.title_localized)
+                    if manifest
+                    else item.title,
                     "version": item.version,
                     "runtime": item.runtime,
                     "operations": item.operations,
@@ -279,14 +297,21 @@ class PackageManager:
         packages = pkg.installed(self._settings)
         current = packages.get(manifest.plugin.id)
         if current is None and pkg.is_legacy_id(manifest.plugin.id):
-            raise pkg.PackageError(
-                f"插件 id「{manifest.plugin.id}」是旧格式（带点）：新插件的 id 须{pkg.ID_RULE}。"
-                "改清单 id 和代码里 @plugin 的名字后重新打包"
+            raise keyed_error(
+                pkg.PackageError,
+                "plugins.package.legacyId",
+                id=manifest.plugin.id,
+                rule=reference("plugins.package.idRule"),
             )
         reserved = _reserved(self._kernel, self._settings)
         pkg.check_compat(manifest, reserved=reserved, operations=_operations())
         if current is not None and current.version == manifest.plugin.version:
-            raise pkg.PackageError(f"{manifest.plugin.title} v{current.version} 已经安装")
+            raise keyed_error(
+                pkg.PackageError,
+                "plugins.package.alreadyInstalled",
+                title=manifest.plugin.title,
+                version=current.version,
+            )
         async with self._lock:
             base = pkg.root(self._settings) / manifest.plugin.id
             for stale in base.glob("*.pending") if base.is_dir() else ():
@@ -302,7 +327,7 @@ class PackageManager:
             packages = pkg.installed(self._settings)
             record = packages.get(entry_id)
             if record is None:
-                raise LookupError(f"没有安装插件包 {entry_id}")
+                raise keyed_error(LookupError, "plugins.package.notInstalled", id=entry_id)
             record.web = consent
             pkg.save(self._settings, packages)
 
@@ -310,7 +335,7 @@ class PackageManager:
         async with self._lock:
             found = [p for m, p in pkg.pending(self._settings) if m.plugin.id == entry_id]
             if not found:
-                raise LookupError(f"没有待批准的插件包 {entry_id}")
+                raise keyed_error(LookupError, "plugins.package.noPending", id=entry_id)
             for path in found:
                 shutil.rmtree(path, ignore_errors=True)
 
@@ -339,41 +364,47 @@ class PackageManager:
             path = pkg.pending_dir(self._settings, entry_id, version)
             match = [m for m, p in pkg.pending(self._settings) if p == path]
             if not match:
-                raise LookupError(f"没有待批准的插件包 {entry_id} v{version}")
+                raise keyed_error(
+                    LookupError, "plugins.package.noPendingVersion", id=entry_id, version=version
+                )
             manifest = match[0]
             requested = manifest.permissions.operations
             if sorted(set(operations)) != sorted(set(requested)):
-                raise pkg.PackageError(
-                    "批准的宿主操作须与插件申请的完全一致："
-                    + ("、".join(requested) if requested else "（不申请任何操作）")
+                raise keyed_error(
+                    pkg.PackageError,
+                    "plugins.package.operationsMismatch",
+                    requested={"message_list": requested, "separator_key": "common.list.separator"}
+                    if requested
+                    else reference("plugins.package.noOperations"),
                 )
             requested_paths = [dict(p) for p in manifest.permissions.paths]
             given = [{"path": p["path"], "mode": p.get("mode", "read")} for p in paths or []]
             want = [{"path": p["path"], "mode": p.get("mode", "read")} for p in requested_paths]
             if sorted(map(str, given)) != sorted(map(str, want)):
-                raise pkg.PackageError(
-                    "批准的路径授权须与插件申请的完全一致："
-                    + ("、".join(f"{p['path']}（{p['mode']}）" for p in want) or "（不申请路径）")
+                raise keyed_error(
+                    pkg.PackageError,
+                    "plugins.package.pathsMismatch",
+                    requested={
+                        "message_list": [
+                            reference("plugins.package.pathGrant", path=p["path"], mode=p["mode"])
+                            for p in want
+                        ],
+                        "separator_key": "common.list.separator",
+                    }
+                    if want
+                    else reference("plugins.package.noPaths"),
                 )
             if manifest.plugin.runtime == "inline" and not allow_inline:
-                raise pkg.PackageError(
-                    "这个插件申请在主进程里运行，拥有与主程序相同的系统权限，须单独确认"
-                )
+                raise keyed_error(pkg.PackageError, "plugins.package.inlineConsent")
             if manifest.notifies_members and not allow_member_notifications:
-                raise pkg.PackageError("这个插件会给普通成员发通知，须单独确认")
+                raise keyed_error(pkg.PackageError, "plugins.package.memberNotifyConsent")
             from movieclaw_api.services import plugin_web
 
             has_web = plugin_web.has_web(path)
             if has_web and not allow_web:
-                raise pkg.PackageError(
-                    "这个插件带网页：网页会以正在使用它的人的身份运行"
-                    "（管理员打开时拥有管理员的全部权限），须单独确认"
-                )
+                raise keyed_error(pkg.PackageError, "plugins.package.webConsent")
             if manifest.theme is not None and (path / pkg.THEME_JS).is_file() and not allow_theme:
-                raise pkg.PackageError(
-                    "这个主题带外框组件：代码会在每个页面里以正在使用它的人的身份运行"
-                    "（管理员打开时拥有管理员的全部权限），须单独确认"
-                )
+                raise keyed_error(pkg.PackageError, "plugins.package.themeShellConsent")
             lock = pkg.read_lock(manifest, path)
             current = pkg.installed(self._settings).get(entry_id)
             _check_dependency_consent(lock, current, dependencies)
@@ -419,9 +450,13 @@ class PackageManager:
             pkg.save(self._settings, packages)
             state, error = await self._activate(record)
             if state != State.ACTIVE.value:
-                error = error or f"激活后状态为 {state}"
+                error = error or reference("plugins.package.activationState", state=state)
                 await self._roll_back(entry_id, version, error)
-                return {"status": "rolled_back", "error": error, **self._status(entry_id)}
+                return {
+                    "status": "rolled_back",
+                    "error": render_value(error),
+                    **self._status(entry_id),
+                }
             self._prune(entry_id)
             self._watch(entry_id, version)
             await _resolve_notice(entry_id)
@@ -436,8 +471,10 @@ class PackageManager:
         try:
             await plugin_deps.install(self._settings, entry_id, path, manifest.dependencies.lock)
         except plugin_deps.DependencyError as exc:
-            raise pkg.PackageError(
-                f"依赖安装失败，插件没有装上：{exc}。插件包仍在待批准区，处理后重新批准即可重试"
+            raise keyed_error(
+                pkg.PackageError,
+                "plugins.package.dependencyInstallFailed",
+                error=exception_reference(exc),
             ) from exc
 
     async def retry_dependencies(self, entry_id: str) -> dict[str, Any]:
@@ -447,9 +484,11 @@ class PackageManager:
         async with self._lock:
             record = pkg.installed(self._settings).get(entry_id)
             if record is None:
-                raise LookupError(f"没有安装插件包 {entry_id}")
+                raise keyed_error(LookupError, "plugins.package.notInstalled", id=entry_id)
             if not record.dependencies:
-                raise pkg.PackageError(f"{record.title} 没有第三方依赖")
+                raise keyed_error(
+                    pkg.PackageError, "plugins.package.noDependencies", title=record.title
+                )
             try:
                 await plugin_deps.install(
                     self._settings,
@@ -458,7 +497,11 @@ class PackageManager:
                     record.dependencies["lock"],
                 )
             except plugin_deps.DependencyError as exc:
-                raise pkg.PackageError(f"依赖安装失败：{exc}") from exc
+                raise keyed_error(
+                    pkg.PackageError,
+                    "plugins.package.dependencyRetryFailed",
+                    error=exception_reference(exc),
+                ) from exc
             state, error = await self._activate(record)
             return {"status": state, "error": error, **self._status(entry_id)}
 
@@ -485,7 +528,9 @@ class PackageManager:
             waits = self._kernel.describe(fiber)["blocked_by"]
             if waits:
                 detail = "、".join(f"{w['key']}（{w['reason']}）" for w in waits)
-                return fiber.state.value, f"一直在等服务：{detail}，检查 inject 是否写对"
+                return fiber.state.value, reference(
+                    "plugins.package.waitingServices", detail=detail
+                )
         return fiber.state.value, fiber.error
 
     def _status(self, entry_id: str) -> dict[str, Any]:
@@ -509,7 +554,7 @@ class PackageManager:
                 shutil.rmtree(path, ignore_errors=True)
 
     # ------------------------------------------------------------------ 回滚
-    async def _roll_back(self, entry_id: str, failed: str, reason: str) -> None:
+    async def _roll_back(self, entry_id: str, failed: str, reason: str | dict) -> None:
         """新版本不行：回到上一版；首次安装则撤掉安装记录。坏版本打标记、删目录。"""
         packages = pkg.installed(self._settings)
         record = packages.get(entry_id)
@@ -530,13 +575,18 @@ class PackageManager:
             packages[entry_id] = restored
             pkg.save(self._settings, packages)
             await self._activate(restored)
-            message = f"v{failed} 没能正常运行（{reason}），已自动回到 v{restored.version}"
+            message = reference(
+                "plugins.package.rolledBackTo",
+                failed=failed,
+                reason=reason,
+                version=restored.version,
+            )
         else:
             packages.pop(entry_id)
             pkg.save(self._settings, packages)
             await _restore_bundled(self._kernel, self._settings, entry_id)
-            message = f"v{failed} 没能正常运行（{reason}），已撤销安装"
-        logger.error("插件包 %s：%s", entry_id, message)
+            message = reference("plugins.package.installReverted", failed=failed, reason=reason)
+        logger.error("插件包 %s：%s", entry_id, source_render(message))
         await _notice(entry_id, record.title, message)
 
     async def rollback(self, entry_id: str) -> dict[str, Any]:
@@ -545,13 +595,13 @@ class PackageManager:
             packages = pkg.installed(self._settings)
             record = packages.get(entry_id)
             if record is None:
-                raise LookupError(f"没有安装插件包 {entry_id}")
+                raise keyed_error(LookupError, "plugins.package.notInstalled", id=entry_id)
             previous = record.previous
             if (
                 not previous
                 or not pkg.version_dir(self._settings, entry_id, previous["version"]).is_dir()
             ):
-                raise pkg.PackageError("没有可以回退的上一版")
+                raise keyed_error(pkg.PackageError, "plugins.package.noPrevious")
             self._cancel_watch(entry_id)
             swapped = pkg.Installed(
                 id=entry_id,
@@ -572,11 +622,13 @@ class PackageManager:
         async with self._lock:
             packages = pkg.installed(self._settings)
             if entry_id not in packages:
-                raise LookupError(f"没有安装插件包 {entry_id}")
+                raise keyed_error(LookupError, "plugins.package.notInstalled", id=entry_id)
             self._cancel_watch(entry_id)
             from movieclaw_api.services.plugin_switches import cancel_plugin_jobs, forget
 
-            await cancel_plugin_jobs(self._kernel, entry_id, reason="插件已卸载")
+            await cancel_plugin_jobs(
+                self._kernel, entry_id, reason_key="plugins.package.uninstalled"
+            )
             if self._kernel.fiber(entry_id) is not None:
                 await self._kernel.unmount(entry_id)
             if not _replaces_builtin(entry_id):
@@ -632,11 +684,16 @@ class PackageManager:
             record = pkg.installed(self._settings).get(entry_id)
             if fiber is None or record is None or record.version != version:
                 return
+            # i18n-ignore: matches the kernel's own crash-loop note
             crashed = fiber.stats.last_error and "已停止重启" in fiber.stats.last_error
             if fiber.state is State.FAILED or crashed:
                 async with self._lock:
                     await self._roll_back(
-                        entry_id, version, fiber.error or fiber.stats.last_error or "运行失败"
+                        entry_id,
+                        version,
+                        fiber.error
+                        or fiber.stats.last_error
+                        or reference("plugins.package.runFailed"),
                     )
                 return
 
@@ -672,18 +729,28 @@ def _check_dependency_consent(lock: Any, current: pkg.Installed | None, given: s
             if r["change"] == "changed"
         ]
         parts = [
-            f"{label}：{'、'.join(items)}"
-            for label, items in (("新增", added), ("换版本", changed), ("移除", found["removed"]))
+            reference(key, items={"message_list": items, "separator_key": "common.list.separator"})
+            for key, items in (
+                ("plugins.package.dependencyAdded", added),
+                ("plugins.package.dependencyChanged", changed),
+                ("plugins.package.dependencyRemoved", found["removed"]),
+            )
             if items
         ]
-        changes = f"依赖有变化（{'；'.join(parts)}）。"
-    raise pkg.PackageError(
-        f"{changes}{plugin_deps.summary(found)}。这些包在插件自己的进程里运行，权限与插件相同；"
-        f"同意请在批准时带上锁文件哈希 dependencies = {lock.digest}"
+        changes = reference(
+            "plugins.package.dependencyChanges",
+            parts={"message_list": parts, "separator_key": "common.list.issueSeparator"},
+        )
+    raise keyed_error(
+        pkg.PackageError,
+        "plugins.package.dependencyConsent",
+        changes=changes,
+        summary=plugin_deps.summary_reference(found),
+        digest=lock.digest,
     )
 
 
-async def _notice(entry_id: str, title: str, message: str) -> None:
+async def _notice(entry_id: str, title: str, message: dict) -> None:
     from movieclaw_api.services.system_notice import upsert_notice
     from movieclaw_db.engine import get_database
     from movieclaw_db.models import NoticeSeverity
@@ -695,8 +762,9 @@ async def _notice(entry_id: str, title: str, message: str) -> None:
                 dedupe_key=f"{NOTICE_PREFIX}{entry_id}",
                 severity=NoticeSeverity.WARNING,
                 source="plugin",
-                title=f"插件「{title}」已自动回滚",
-                message=message,
+                title_key="notify.pluginRollback.title",
+                message_key=message["message_key"],
+                message_params={"title": title, **message["params"]},
                 payload={"entry_id": entry_id, "action_href": MANAGE_HREF},
             )
     except Exception:  # noqa: BLE001 -- 通知写不进去不影响回滚本身

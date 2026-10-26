@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { Route } from "next";
@@ -51,6 +52,8 @@ export function SharedItemView({
   /** 合集分享里给一条回名单的路；条目分享没有"上一层" */
   onBack?: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const router = useRouter();
   const [item, setItem] = useState<SharedItem | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -68,14 +71,14 @@ export function SharedItemView({
         if (cancelled) return;
         setFailed(
           error instanceof HttpError
-            ? error.message || "读取影片信息失败"
-            : "无法连接到服务器，请检查网络后重试",
+            ? error.message || t("library.share.itemFailed")
+            : t("library.share.networkFailed"),
         );
       });
     return () => {
       cancelled = true;
     };
-  }, [slug, mediaItemId]);
+  }, [slug, mediaItemId, t]);
 
   usePageTitle(item?.title);
 
@@ -151,7 +154,7 @@ export function SharedItemView({
     return (
       <div className="flex min-h-dvh items-center justify-center gap-2.5 text-ui text-white/60">
         <BrandLoader className="size-5" />
-        正在读取影片信息…
+        {t("library.share.itemLoading")}
       </div>
     );
   }
@@ -181,7 +184,7 @@ export function SharedItemView({
   ];
   const facts = [
     item.year ? String(item.year) : null,
-    runtimeMinutes != null ? formatRuntimeMinutes(runtimeMinutes) : null,
+    runtimeMinutes != null ? formatRuntimeMinutes(runtimeMinutes, locale) : null,
     resolutions.length > 0 ? resolutions.join(" / ") : null,
     hdrFormats.length > 0 ? hdrFormats.join(" / ") : null,
   ].filter((fact): fact is string => Boolean(fact));
@@ -191,10 +194,10 @@ export function SharedItemView({
         ...(meta.director_credits.length > 0
           ? meta.director_credits.map((director) => ({
               name: director.name,
-              credit: "导演",
+              credit: t("media.detail.director"),
               avatarUrl: director.thumb_url ? imageUrl(director.thumb_url) : null,
             }))
-          : [...new Set(meta.directors)].map((name) => ({ name, credit: "导演" }))),
+          : [...new Set(meta.directors)].map((name) => ({ name, credit: t("media.detail.director") }))),
         ...meta.actors.map((actor) => ({
           name: actor.name,
           role: actor.role,
@@ -233,14 +236,14 @@ export function SharedItemView({
               >
                 {/* 裸字符「‹」换全站返回图标：字形随字体漂移，图标才是同一套语言 */}
                 <ChevronLeftIcon className="size-3.5" />
-                返回合集
+                {t("library.share.backCollection")}
               </button>
             )}
             <span className="text-sub font-semibold uppercase tracking-[0.18em] text-white/70">
               {publicEnv.appName}
             </span>
           </div>
-          <span className="tnum text-caption text-white/55">链接 {expiryHint(item.expires_at)}</span>
+          <span className="tnum text-caption text-white/55">{t.rich("library.share.linkExpiry", { expiry: () => expiryHint(item.expires_at, Date.now(), locale) })}</span>
         </header>
 
         <div className="h-[28vh] min-h-[160px] max-md:h-[20vh] max-md:min-h-[110px]" />
@@ -253,9 +256,7 @@ export function SharedItemView({
             </h1>
             {!isMovie && selected && (
               <p className="text-on-image mt-2 text-body text-white/65 max-md:mt-1.5 max-md:text-ui">
-                {`第 ${selected.seasonNumber} 季 第 ${selected.episode.episode_number} 集${
-                  selected.episode.name ? ` - ${selected.episode.name}` : ""
-                }`}
+                {t("library.share.episodeCaption", { season: selected.seasonNumber, episode: selected.episode.episode_number, named: selected.episode.name ? "yes" : "no", name: selected.episode.name ?? "" })}
               </p>
             )}
             {facts.length > 0 && (
@@ -274,7 +275,7 @@ export function SharedItemView({
                   currentFile.container?.toUpperCase(),
                   currentFile.video_codec?.toUpperCase(),
                   formatBytes(currentFile.size_bytes),
-                  availableFiles.length > 1 ? `共 ${availableFiles.length} 个版本` : null,
+                  availableFiles.length > 1 ? t("library.share.versions", { count: availableFiles.length }) : null,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
@@ -293,7 +294,7 @@ export function SharedItemView({
               <PlayAction watched={watched} onPlay={() => play()} />
             ) : (
               <p className="mt-5 text-ui text-white/55">
-                {isMovie || selected ? "暂时没有可播放的文件。" : "请选择一集。"}
+                {isMovie || selected ? t("library.share.noPlayable") : t("library.share.chooseEpisode")}
               </p>
             )}
           </div>
@@ -333,10 +334,10 @@ export function SharedItemView({
             {/* 外部词条：与详情页同款，固定在最后；新窗口打开，不是站内入口 */}
             {(item.tmdb_id || item.imdb_id || item.douban_id) && (
               <div
-                aria-label="外部词条"
+                aria-label={t("library.item.externalEntry")}
                 className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-white/[0.04] pt-4 text-caption"
               >
-                <span className="text-[var(--text-faint)]">相关链接</span>
+                <span className="text-[var(--text-faint)]">{t("library.item.relatedLinks")}</span>
                 {item.tmdb_id ? (
                   <SourceLink
                     href={`https://www.themoviedb.org/${item.kind === "tv" ? "tv" : "movie"}/${item.tmdb_id}`}
@@ -349,7 +350,7 @@ export function SharedItemView({
                 {item.douban_id && (
                   <SourceLink
                     href={`https://movie.douban.com/subject/${item.douban_id}/`}
-                    label="豆瓣"
+                    label={t("library.item.douban")}
                   />
                 )}
               </div>

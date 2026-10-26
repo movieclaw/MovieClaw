@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
 
 function trimTrailingSlash(value: string): string {
   return value !== "/" && value.endsWith("/") ? value.slice(0, -1) : value;
@@ -58,7 +59,10 @@ const nextConfig: NextConfig = {
       // 属性也再授不回来，预告片与播放器会一起坏掉。
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
     ];
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/manifest.webmanifest", headers: [{ key: "Vary", value: "Accept-Language, Cookie" }] },
+    ];
   },
   async rewrites() {
     // API 走同源路径时，由 Next 服务器反代到后端。开发和生产（单容器部署，
@@ -155,4 +159,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default createNextIntlPlugin("./lib/i18n/request.ts")(nextConfig);

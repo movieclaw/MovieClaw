@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import Field, field_serializer
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.services.auth_factory import required_fields
 from movieclaw_db.models.site_credential import AuthType, ConfigStatus, SiteCredential
@@ -164,7 +166,7 @@ class ConfiguredSite(BaseModel):
             boost_downloader_id=row.boost_downloader_id,
             last_verified_at=row.last_verified_at,
             last_checked_at=row.last_checked_at,
-            last_error=row.last_error,
+            last_error=render_value(row.last_error_ref) if row.last_error_ref else row.last_error,
             profile=SiteUserProfileView.from_model(profile) if profile else None,
             created_at=row.created_at,
             updated_at=row.updated_at,
@@ -215,7 +217,11 @@ class SiteSyncStatsView(BaseModel):
             next_sync_at=cursor.next_sync_at if cursor else None,
             sync_interval_seconds=cursor.sync_interval_seconds if cursor else None,
             last_new_count=cursor.last_new_count if cursor else None,
-            last_error=cursor.last_error if cursor else None,
+            last_error=(
+                render_value(cursor.last_error_ref) if cursor.last_error_ref else cursor.last_error
+            )
+            if cursor
+            else None,
             consecutive_failures=cursor.consecutive_failures if cursor else 0,
         )
 
@@ -458,15 +464,15 @@ def proxy_path_error(path: str) -> str | None:
     仍等于站点域名，形态校验只是尽早给出可读错误。
     """
     if not path or not path.strip():
-        return "路径不能为空"
+        return t("errors.sitePath.empty")
     if path.startswith("//"):
-        return "路径不能以 // 开头（协议相对地址）"
+        return t("errors.sitePath.protocolRelative")
     if "://" in path:
-        return "路径不允许包含协议（只能给站内相对路径）"
+        return t("errors.sitePath.scheme")
     if "\\" in path:
-        return "路径不允许包含反斜杠"
+        return t("errors.sitePath.backslash")
     if any(ch in path for ch in ("\r", "\n", "\t")):
-        return "路径不允许包含控制字符"
+        return t("errors.sitePath.control")
     return None
 
 

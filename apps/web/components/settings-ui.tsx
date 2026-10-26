@@ -1,3 +1,4 @@
+import { useLocale, useTranslations } from "next-intl";
 /**
  * 设置页基础组件（Linear / Vercel 式规范的落地，见 docs/design/settings-ui.md）。
  *
@@ -86,6 +87,7 @@ export function SettingsRow({
   error,
   children,
   href,
+  stackOnMobile = false,
 }: {
   label: ReactNode;
   description?: ReactNode;
@@ -97,6 +99,8 @@ export function SettingsRow({
   children?: ReactNode;
   /** 点行进详情页：名称与说明区域成为链接，行尾控件照常可点 */
   href?: string;
+  /** Place controls below the label on narrow screens. */
+  stackOnMobile?: boolean;
 }) {
   const text = (
     <>
@@ -111,17 +115,17 @@ export function SettingsRow({
   );
   return (
     <div
-      className={`flex min-h-[56px] items-center gap-4 px-4 py-3 ${href ? "transition-colors hover:bg-white/[0.03]" : ""}`}
+      className={`flex min-h-[56px] items-center gap-4 px-4 py-3 ${stackOnMobile ? "max-sm:flex-col max-sm:items-start" : ""} ${href ? "transition-colors hover:bg-white/[0.03]" : ""}`}
     >
       {leading}
       {href ? (
-        <Link href={href as Route} className="group min-w-0 flex-1">
+        <Link href={href as Route} className={`group min-w-0 flex-1 ${stackOnMobile ? "max-sm:w-full" : ""}`}>
           {text}
         </Link>
       ) : (
-        <div className="min-w-0 flex-1">{text}</div>
+        <div className={`min-w-0 flex-1 ${stackOnMobile ? "max-sm:w-full" : ""}`}>{text}</div>
       )}
-      {children != null && <div className="flex shrink-0 items-center gap-2">{children}</div>}
+      {children != null && <div className={`flex shrink-0 items-center gap-2 ${stackOnMobile ? "max-sm:w-full max-sm:flex-wrap max-sm:justify-end" : ""}`}>{children}</div>}
       {href && (
         <Link href={href as Route} aria-hidden tabIndex={-1} className="shrink-0">
           <ChevronRightIcon className="size-4 text-[var(--text-faint)]" />
@@ -344,6 +348,8 @@ export function SettingsDrawer({
   actions?: ReactNode;
   children: ReactNode;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   return (
     <Modal
       open={open}
@@ -363,7 +369,7 @@ export function SettingsDrawer({
         <button
           type="button"
           onClick={onClose}
-          aria-label="关闭"
+          aria-label={t("common.close")}
           className="flex size-8 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text)]"
         >
           <XIcon className="size-4" />
@@ -373,9 +379,9 @@ export function SettingsDrawer({
         {children}
       </div>
       {(hint || actions) && (
-        <footer className="flex min-h-[56px] shrink-0 items-center justify-between gap-3 border-t border-[var(--line)] bg-black/20 px-5 py-3">
-          <div className="min-w-0 text-caption leading-5 text-[var(--text-faint)]">{hint}</div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        <footer className={`flex min-h-[56px] shrink-0 items-center justify-between gap-3 border-t border-[var(--line)] bg-black/20 px-5 py-3${locale === "en" ? " flex-wrap" : ""}`}>
+          <div className={`min-w-0 text-caption leading-5 text-[var(--text-faint)]${locale === "en" && hint ? " basis-full" : ""}`}>{hint}</div>
+          {actions && <div className={locale === "en" ? "ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2" : "flex shrink-0 items-center gap-2"}>{actions}</div>}
         </footer>
       )}
     </Modal>
@@ -386,24 +392,25 @@ export function SettingsDrawer({
 export function SettingsSaveStatus({
   state,
   error,
-  savedLabel = "已保存",
+  savedLabel,
 }: {
   state: "idle" | "saving" | "saved" | "error";
   error?: string | null;
   savedLabel?: string;
 }) {
+  const t = useTranslations();
   if (state === "idle") return null;
   return (
     <span className="shrink-0 text-sub">
-      {state === "saving" && <span className="text-[var(--text-faint)]">保存中…</span>}
+      {state === "saving" && <span className="text-[var(--text-faint)]">{t("settings.status.saving")}</span>}
       {state === "saved" && (
         <span className="flex items-center gap-1 text-[var(--ok)]">
           <CheckIcon className="size-3.5" />
-          {savedLabel}
+          {savedLabel ?? t("settings.status.saved")}
         </span>
       )}
       {state === "error" && (
-        <span className="text-[var(--danger)]">保存失败{error ? `：${error}` : ""}</span>
+        <span className="text-[var(--danger)]">{t("settings.status.saveFailed", { reason: error ?? "", hasReason: error ? "yes" : "no" })}</span>
       )}
     </span>
   );

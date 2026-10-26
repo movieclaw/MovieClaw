@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useLayoutEffect } from "react";
@@ -47,6 +49,7 @@ export function MobileSettingsNav({
   /** 列表页（银玻璃）：按浏览历史回到打开「更多」面板的那一页，无历史才落 backHref */
   historyBack?: boolean;
 }) {
+  const t = useTranslations();
   const router = useRouter();
   const chrome = usePageChrome();
   const goBackInHistory = useBackNavigation(backHref);
@@ -83,7 +86,7 @@ export function MobileSettingsNav({
         <button
           type="button"
           onClick={back}
-          aria-label="返回"
+          aria-label={t("nav.actions.back")}
           // 返回键与右侧搜索键同一套规格（PAGE_NAV_BUTTON_CLASS：size-9 /
           // pointer-coarse:size-11，按指针能力分档）：全站返回键同图标
           // （ChevronLeft）同尺寸档，不再用 !important 强制 44px 单档

@@ -23,7 +23,11 @@ def build_protocol(config: LlmProviderConfig, preset: ProviderPreset) -> BaseLlm
     protocol_id = config.api_protocol or preset.protocol
     protocol_cls = PROTOCOLS.get(protocol_id)
     if protocol_cls is None:
-        raise LlmRoutingError(f"供应商实例「{config.name}」引用了未实现的协议「{protocol_id}」")
+        raise LlmRoutingError(
+            f"供应商实例「{config.name}」引用了未实现的协议「{protocol_id}」",
+            message_key="errors.llm.connection.protocolUnknown",
+            params={"name": config.name, "protocol": protocol_id},
+        )
     return protocol_cls(config, preset)
 
 

@@ -1,0 +1,30 @@
+{
+  "binding": {
+    "disabled": "Channel plugin “{channel}” is disabled",
+    "callbackUnavailable": "Plugin callbacks are disabled. Channels that receive messages through callbacks are unavailable",
+    "callbackReused": "The existing callback URL is reused. No change is needed in the platform settings. Rotate it on the plugin page to get a new URL",
+    "callbackAbsolute": "Paste this URL into the platform’s callback or message receiver settings. The full URL is shown only during this linking request",
+    "callbackRelative": "No external address is configured. Set it in Settings → App settings, then add it before this path",
+    "validationFailed": "Could not validate {channel}: {error}",
+    "linked": "{channel} is linked",
+    "expired": "The pairing code has expired. Start linking again",
+    "closed": "The channel plugin has been disabled",
+    "missingResult": "The linking result is missing. Start again",
+    "failed": "Could not link: {error}",
+    "pairing": "Send pairing code {code} to @{name} in a private chat on {channel}",
+    "callbackPairing": "First set the callback URL in {channel}, then send pairing code {code} to “{name}” on {channel}",
+    "tooManyAttempts": "Too many incorrect pairing codes. This request is invalid. Start linking again",
+    "lost": "The linking state was lost. Start again",
+    "started": "Linked. The channel is running",
+    "testMessage": "📣 This is a test push from MovieClaw. If you received it, the channel is working!",
+    "missing": "This linking request does not exist or has expired"
+  },
+  "pairing": {
+    "tooManyAttempts": "Too many wrong pairing codes, so this binding was cancelled. Start a new binding from Settings.",
+    "wrongCode": "That pairing code is wrong. Send the 6-digit code shown in Settings to finish binding.",
+    "success": "Binding complete! I’m the MovieClaw assistant; send me a message whenever you need something."
+  },
+  "accounts": {
+    "credentialsExpired": "Credentials expired; bind again"
+  }
+}

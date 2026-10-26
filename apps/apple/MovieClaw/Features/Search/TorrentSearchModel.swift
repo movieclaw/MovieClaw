@@ -104,7 +104,7 @@ final class TorrentSearchModel {
         } catch is CancellationError {
         } catch {
             phase = .error
-            fatalError = error.localizedDescription.isEmpty ? "快照加载失败，请稍后重试" : error.localizedDescription
+            fatalError = error.localizedDescription.isEmpty ? String(localized: .searchResultsSnapshotFailed) : error.localizedDescription
         }
     }
 
@@ -135,7 +135,7 @@ final class TorrentSearchModel {
         } catch {
             if Task.isCancelled { return }
             phase = .error
-            fatalError = error.localizedDescription.isEmpty ? "搜索失败，请稍后重试" : error.localizedDescription
+            fatalError = error.localizedDescription.isEmpty ? String(localized: .searchResultsFailed) : error.localizedDescription
         }
     }
 
@@ -168,7 +168,7 @@ final class TorrentSearchModel {
                 }
             } catch {}
             // 流结束（或失败）时该站仍无结论：按失败处理
-            self?.patch(siteId) { if $0.state == .searching { $0.state = .error; $0.error = "重试失败，请稍后再试" } }
+            self?.patch(siteId) { if $0.state == .searching { $0.state = .error; $0.error = String(localized: .searchResultsRetryFailed) } }
         }
     }
 

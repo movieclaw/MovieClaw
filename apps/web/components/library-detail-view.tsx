@@ -1,10 +1,16 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { formatList } from "@/lib/i18n/format";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import type { Route } from "next";
+import { useSearchParams } from "next/navigation";
+import { readLibraryFilter } from "@/lib/library-filter";
 
 import { BrandLoader } from "@/components/brand-loader";
 import { useConfirm, useToast } from "@/components/feedback";
@@ -33,7 +39,7 @@ import { usePageTitle } from "@/lib/use-page-title";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useBackNavigation } from "@/lib/back-navigation";
 import { LibraryFormDialog } from "@/components/library-form-dialog";
-import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
+import { libraryKindMeta } from "@/components/library-kind-meta";
 import { LibraryOrganizeDialog } from "@/components/library-organize-dialog";
 import { PhotoLightbox } from "@/components/photo-lightbox";
 import {
@@ -77,7 +83,6 @@ import {
   listLibraryGallery,
   listLibraryItemIndex,
   type LibraryFilter,
-  type WatchFilter,
   filterKey,
   filterQuery,
   isFilterEmpty,
@@ -90,8 +95,8 @@ import {
   redownloadMissing,
   resolveLibraryIdentityReview,
   restoreIgnoredLibraryFiles,
-  SCAN_PHASE_HINTS,
-  SCAN_PHASE_LABELS,
+  scanPhaseHints,
+  scanPhaseLabels,
   type ScanPhase,
   type ScanProgress,
   startLibraryChapterImages,
@@ -120,6 +125,7 @@ import { useWallRecall } from "@/lib/use-wall-recall";
 import {
   PREF_TO_SORT,
   SORT_DIRECTIONS,
+  sortDirections,
   useWallSortPref,
   type WallSortPref,
 } from "@/lib/wall-sort";
@@ -143,10 +149,11 @@ import { useScrollRestoration } from "@/lib/use-scroll-restoration";
  * 阶段），硬写成 0/0 比不写更误导。阶段换了分母就跟着换，因此不会出现
  * 进度走满后界面还停在同一句话上干等的情况。
  */
-function busyText(progress: ScanProgress | null): string {
-  if (!progress) return "正在处理…"; // 理论上取不到（接口保证同生同灭），保底不留白
+function busyText(progress: ScanProgress | null, locale?: AppLocale): string {
+  const t = appTranslator(locale);
+  if (!progress) return t("library.detail.processing"); // 理论上取不到（接口保证同生同灭），保底不留白
   const counter = progress.total > 0 ? ` ${progress.processed}/${progress.total}` : "";
-  return `${SCAN_PHASE_LABELS[progress.phase]}${counter} · ${SCAN_PHASE_HINTS[progress.phase]}`;
+  return `${scanPhaseLabels(locale)[progress.phase]}${counter} · ${scanPhaseHints(locale)[progress.phase]}`;
 }
 
 /**
@@ -207,50 +214,21 @@ function keepOnError<T>(rows: Promise<T[]>): Promise<T[] | null> {
 function sortOptions(
   defaultLabel: string,
   timeline: boolean,
+  locale?: AppLocale,
 ): readonly (readonly [WallSortPref, string])[] {
+  const t = appTranslator(locale);
   return [
     ["default", defaultLabel],
     // 一次导入的内容入账时间都挤在一起，所以这一档对"陆续往库里添东西"才有意义
-    ["added_at", "最近添加"],
+    ["added_at", t("library.sort.recentAdded")],
     // 影视库补上「按上映时间」：老片→新片 / 新片→老片 是正倒序最用得上的一档。
     // 其他库的默认档本来就是按时间，不重复摆
-    ...(timeline ? [] : ([["release_date", "按上映时间"]] as [WallSortPref, string][])),
-    ["rating", "按评分"],
-    ["runtime", "按片长"],
-    ["size", "按体积"],
-    ["last_played", "最近观看"],
+    ...(timeline ? [] : ([["release_date", t("library.sort.releaseDate")]] as [WallSortPref, string][])),
+    ["rating", t("library.sort.rating")],
+    ["runtime", t("library.sort.runtime")],
+    ["size", t("library.sort.size")],
+    ["last_played", t("library.sort.lastPlayed")],
   ];
-}
-
-/**
- * 从地址栏读筛选条件。
- *
- * **URL 是筛选态的唯一事实源**，筛选不进 localStorage——上次筛的条件在下次
- * 打开时还在，是本类产品最经典的困惑来源（"我的片怎么少了一半"）。
- * 排序是偏好该记，筛选是意图不该记（docs/design/library-filtering.md 3.4）。
- * 读 window.location 而不是 useSearchParams，与本文件既有惯例一致。
- */
-function readFilterFromUrl(): LibraryFilter {
-  if (typeof window === "undefined") return {};
-  const params = new URLSearchParams(window.location.search);
-  const list = (key: string) => (params.get(key) ?? "").split(",").filter(Boolean);
-  const watch = params.get("w");
-  const rating = params.get("rating_gte");
-  const hdr = params.get("hdr");
-  return {
-    genres: list("g")
-      .map(Number)
-      .filter((n) => Number.isFinite(n)),
-    countries: list("c"),
-    decades: list("d"),
-    watch: watch ? (watch as WatchFilter) : null,
-    ratingGte: rating !== null && Number.isFinite(Number(rating)) ? Number(rating) : null,
-    runtimes: list("rt"),
-    languages: list("lang"),
-    resolutions: list("res"),
-    hdr: hdr === null ? null : hdr === "true",
-    stock: list("stock"),
-  };
 }
 
 /** 把筛选条件写回地址栏（replaceState：筛选不该在浏览器历史里堆一串条目）。 */
@@ -267,9 +245,8 @@ function writeFilterToUrl(filter: LibraryFilter): void {
 /** 库内的两个视图：作品（海报墙）/ 合集（纵向网格）。视图态同样只认地址栏。 */
 type LibraryView = "items" | "collections";
 
-function readViewFromUrl(): LibraryView {
-  if (typeof window === "undefined") return "items";
-  return new URLSearchParams(window.location.search).get("view") === "collections"
+function readViewFromUrl(params: Pick<URLSearchParams, "get">): LibraryView {
+  return params.get("view") === "collections"
     ? "collections"
     : "items";
 }
@@ -297,6 +274,9 @@ const INDEXED_SORTS: Partial<Record<LibraryItemSort, "title" | "release_date">> 
   release_date: "release_date",
 };
 export function LibraryDetailView({ libraryId }: { libraryId: number }) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const searchParams = useSearchParams();
   const initialSnapshot = getLibraryDetailSnapshot(libraryId);
   // 本次是不是「重新进入」：首帧没有会话快照 = 冷启动 / 刷新 / 换了库进来的；
   // 或者本次页面加载期间挂过很久后台（iOS PWA 恢复应用不重新加载页面，只能
@@ -331,7 +311,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
   const confirm = useConfirm();
   const toast = useToast();
   // 筛选态：首帧就从 URL 读，这样分享出去的链接一进来就是筛好的
-  const [filter, setFilter] = useState<LibraryFilter>(() => readFilterFromUrl());
+  const [filter, setFilter] = useState<LibraryFilter>(() => readLibraryFilter(searchParams));
   // 同 wallSort：放 ref 供 reload/翻页每轮读最新值，不必为改条件重建回调链
   const wallFilter = useRef<LibraryFilter>(filter);
   wallFilter.current = filter;
@@ -341,7 +321,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
   // 「显示已隐藏的合集」：自动生成的合集删不掉、只能藏，藏了必须找得回来。
   // 不进 URL、不落盘——它是一次性的"我来找找刚才藏的那个"，不是长期偏好
   const [showHiddenCollections, setShowHiddenCollections] = useState(false);
-  const [libraryView, setLibraryView] = useState<LibraryView>(() => readViewFromUrl());
+  const [libraryView, setLibraryView] = useState<LibraryView>(() => readViewFromUrl(searchParams));
   const [savingCollection, setSavingCollection] = useState(false);
   const isMobile = useIsMobile();
   // 带筛选进来时不吃会话快照：快照是未筛选那面墙的窗口，拿它铺首帧会先闪
@@ -748,11 +728,11 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
    */
   /** 拉本库的合集。空合集后端已经滤掉了——点进去空无一物的合集是纯粹的死路。 */
   const reloadCollections = useCallback(() => {
-    listCollections({ libraryId, includeHidden: showHiddenCollections })
+    listCollections({ libraryId, includeHidden: showHiddenCollections, locale })
       .then(setCollections)
       // 拿不到就当没有合集：chip 行与视图切换一起不出现，墙照常能用
       .catch(() => setCollections([]));
-  }, [libraryId, showHiddenCollections]);
+  }, [libraryId, showHiddenCollections, locale]);
 
   const switchView = useCallback((next: LibraryView) => {
     setLibraryView(next);
@@ -915,11 +895,11 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
       if (!resource) continue;
       const mediaId = Number(resource.resource_id);
       if (!Number.isFinite(mediaId) || mapped.has(mediaId)) continue;
-      const prefix = job.status === "blocked" ? "需要处理" : "后台任务";
+      const prefix = job.status === "blocked" ? t("library.detail.needsAttention") : t("library.detail.backgroundTasks");
       mapped.set(mediaId, `${prefix} · ${job.progress.message}`);
     }
     return mapped;
-  }, [activeJobs]);
+  }, [activeJobs, t]);
   const libraryJobs = useMemo(
     () =>
       activeJobs.filter((job) =>
@@ -1096,7 +1076,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
         patch(marks.is_favorite);
       } catch (e) {
         patch(!next);
-        toast.error(e instanceof Error ? e.message : "收藏失败，请稍后重试");
+        toast.error(e instanceof Error ? e.message : appTranslator()("library.detail.favoriteFailed"));
       }
     },
     [toast],
@@ -1233,8 +1213,8 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
     (item: LibraryItem) =>
       refreshPhaseById.get(item.media_item_id) ??
       jobPhaseById.get(item.media_item_id) ??
-      (probing && item.probe_pending_count > 0 ? "正在读取规格" : undefined),
-    [refreshPhaseById, jobPhaseById, probing],
+      (probing && item.probe_pending_count > 0 ? t("library.detail.readingSpecs") : undefined),
+    [refreshPhaseById, jobPhaseById, probing, t],
   );
   /** 单库页的墙：每一格都落回本库 */
   const ownLibraryId = useCallback(() => libraryId, [libraryId]);
@@ -1328,7 +1308,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
   // 用户看到的就是"页面闪没了"
   // 兜底态（加载中/失败/不存在）也渲染 PageNav（库名未知，末项留空）：向外壳
   // 登记「本页自带顶栏」，否则移动端全局顶栏（☰ + logo）会先显示再消失、顶部闪一下。
-  const navFallback = { label: "媒体库", href: "/library" as Route };
+  const navFallback = { label: t("nav.main.library"), href: "/library" as Route };
   // 失败态的「返回媒体库」出口与全站同一语言：走 useBackNavigation（有站内
   // 历史 router.back()，直达落地 replace 到结构父级），不再用 <Link replace>
   // 固定跳兜底地址——真实来路优先，兜底只补直达。
@@ -1339,13 +1319,13 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
       <div className="flex-1">
         <PageNav title="" fallback={navFallback} />
         <CenteredNote>
-          <p className="text-ui text-[var(--text-muted)]">媒体库加载失败</p>
+          <p className="text-ui text-[var(--text-muted)]">{t("library.detail.loadFailed")}</p>
           <button
             type="button"
             onClick={reload}
             className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
           >
-            重试
+            {t("common.retry")}
           </button>
         </CenteredNote>
       </div>
@@ -1358,7 +1338,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
         <PageNav title="" fallback={navFallback} />
         <CenteredNote>
           <BrandLoader className="size-5" />
-          <p className="text-ui text-[var(--text-muted)]">正在加载媒体库…</p>
+          <p className="text-ui text-[var(--text-muted)]">{t("library.detail.loading")}</p>
         </CenteredNote>
       </div>
     );
@@ -1369,20 +1349,20 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
       <div className="flex-1">
         <PageNav title="" fallback={navFallback} />
         <CenteredNote>
-          <p className="text-ui text-[var(--text-muted)]">这个媒体库不存在（可能已被删除）</p>
+          <p className="text-ui text-[var(--text-muted)]">{t("library.detail.notFound")}</p>
           <button
             type="button"
             onClick={back}
             className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
           >
-            返回媒体库
+            {t("library.detail.backToLibraries")}
           </button>
         </CenteredNote>
       </div>
     );
   }
 
-  const meta = LIBRARY_KIND_META[library.kind];
+  const meta = libraryKindMeta(locale)[library.kind];
   const { stats } = library;
 
   // 图床浏览模式的开关：长在顶栏、与 ⋯ 菜单并排。只有能播的库（影视库 /
@@ -1415,13 +1395,13 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
   const viewSwitch = collections.length > 0 && (
     <div
       role="tablist"
-      aria-label="库内视图"
+      aria-label={t("library.detail.viewMode")}
       className="flex shrink-0 rounded-full border border-white/10 bg-black/35 p-1 backdrop-blur-xl"
     >
       {(
         [
-          ["items", "作品"],
-          ["collections", "合集"],
+          ["items", t("library.detail.titles")],
+          ["collections", t("library.detail.collections")],
         ] as const
       ).map(([value, label]) => (
         <button
@@ -1564,8 +1544,8 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
                     .then(() =>
                       toast.success(
                         checked
-                          ? "已开始重新生成章节，可在任务中心查看进度"
-                          : "已开始生成章节，可在任务中心查看进度",
+                          ? t("library.detail.rebuildChaptersStarted")
+                          : t("library.detail.chaptersStarted"),
                       ),
                     )
                     .catch((e) => toast.error((e as Error).message));
@@ -1595,19 +1575,18 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
           </h2>
           {library.is_default && (
             <span className="shrink-0 rounded-full border border-white/[0.14] bg-white/[0.12] px-2 py-0.5 text-caption font-semibold text-white/90">
-              默认
+              {t("library.detail.defaultLibrary")}
             </span>
           )}
           {!library.viewer_access ? (
             <span className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--warn)]/35 bg-[var(--warn)]/[0.12] px-2 py-0.5 text-caption font-semibold text-[var(--warn)]">
               <LockIcon className="size-3" />
-              仅管理
+              {t("library.detail.manageOnly")}
             </span>
           ) : null}
         </div>
         <p className="text-on-image mt-1.5 truncate text-ui text-[var(--text-muted)] max-md:text-sub">
-          {meta.label}库 · {stats.item_count} {library.kind === "photo" ? "张" : "部作品"} ·{" "}
-          {stats.file_count} 个文件 · {formatBytes(stats.total_size_bytes)}
+          {t(library.kind === "photo" ? "library.detail.photoInventory" : "library.detail.titleInventory", { kind: meta.label, count: stats.item_count, files: stats.file_count, size: formatBytes(stats.total_size_bytes) })}
         </p>
         {/* 这一行是**那一次扫描的成绩单**，每个数都是历史（last_scan 只在扫描
             收尾时覆写，见 _last_scan_view）。所以说「未识别 N」——它是当轮
@@ -1616,25 +1595,15 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
             之后哪怕全处理干净了也永远停在那个数，与消失的胶囊自相矛盾 */}
         {library.last_scan && !busy && (
           <p className="mt-1 text-sub text-white/45">
-            最近扫描 {formatRelativeTime(library.last_scan.finished_at)}
-            {library.last_scan.cancelled ? "（手动停止，未扫完）" : ""} · 新入账{" "}
-            {library.last_scan.scanned}（识别 {library.last_scan.identified} / 未识别{" "}
-            {library.last_scan.unidentified}）
-            {library.last_scan.retried > 0
-              ? ` · 重试识别 ${library.last_scan.retried} 个待识别文件`
-              : ""}
-            {library.last_scan.marked_missing > 0
-              ? ` · 标记丢失 ${library.last_scan.marked_missing}`
-              : ""}
-            {library.last_scan.cleared_missing > 0
-              ? ` · 清理丢失记录 ${library.last_scan.cleared_missing}`
-              : ""}
-            {library.last_scan.deferred > 0
-              ? ` · ${library.last_scan.deferred} 个写入中暂缓（稍后自动补扫）`
-              : ""}
-            {library.last_scan.errors.length > 0
-              ? ` · ${library.last_scan.errors[0]}`
-              : ""}
+            {t("library.detail.lastScanReport", {
+              time: formatRelativeTime(library.last_scan.finished_at),
+              status: library.last_scan.cancelled ? "cancelled" : "complete",
+              scanned: library.last_scan.scanned, identified: library.last_scan.identified,
+              unidentified: library.last_scan.unidentified, retried: library.last_scan.retried,
+              missing: library.last_scan.marked_missing, cleared: library.last_scan.cleared_missing,
+              deferred: library.last_scan.deferred, hasError: library.last_scan.errors.length ? "yes" : "no",
+              error: library.last_scan.errors[0] ?? "",
+            })}
           </p>
         )}
         {/* —— 健康状态胶囊：待办收进抽屉，海报墙保持干净 —— */}
@@ -1650,7 +1619,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
               <span className="flex items-center gap-1.5 rounded-full border border-[var(--info)]/35 bg-[var(--info)]/[0.12] px-3 py-1 text-sub font-semibold text-[var(--info)]">
                 <span className="size-3 animate-spin rounded-full border-[1.5px] border-[var(--info)]/30 border-t-[var(--info)]" />
                 {busyText(
-                  library.scanning ? library.scan_progress : library.organize_progress,
+                  library.scanning ? library.scan_progress : library.organize_progress, locale,
                 )}
               </span>
             )}
@@ -1659,13 +1628,13 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
             {importing > 0 && (
               <span className="flex items-center gap-1.5 rounded-full border border-[var(--info)]/35 bg-[var(--info)]/[0.12] px-3 py-1 text-sub font-semibold text-[var(--info)]">
                 <span className="size-1.5 animate-pulse rounded-full bg-[var(--info)]" />
-                已发现 {importing} 个新文件 · 写入完成后自动入库
+                {t("library.detail.importingFiles", { count: importing })}
               </span>
             )}
             {libraryJobs.length > 0 && (
               <span className="flex items-center gap-1.5 rounded-full border border-[var(--info)]/35 bg-[var(--info)]/[0.12] px-3 py-1 text-sub font-semibold text-[var(--info)]">
                 <span className="size-1.5 animate-pulse rounded-full bg-[var(--info)]" />
-                {libraryJobs.length} 个后台任务正在处理库内影片
+                {t("library.detail.activeTasks", { count: libraryJobs.length })}
               </span>
             )}
             {missing.length > 0 && (
@@ -1675,7 +1644,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
                 className="flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-white/[0.06] px-3 py-1 text-sub font-semibold text-white/75 transition hover:bg-white/[0.12] hover:text-white"
               >
                 <span className="size-1.5 rounded-full bg-white/40" />
-                {missing.length} 个条目缺失
+                {t("library.detail.missingItems", { count: missing.length })}
               </button>
             )}
             {/* 待识别与待复核都是「识别环节没搞定、等人工看一眼」，同属 --warn。
@@ -1688,8 +1657,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
                 className="flex items-center gap-1.5 rounded-full border border-[var(--warn)]/35 bg-[var(--warn)]/[0.12] px-3 py-1 text-sub font-semibold text-[var(--warn)] transition hover:bg-[var(--warn)]/[0.22]"
               >
                 <span className="size-1.5 rounded-full bg-[var(--warn)]" />
-                {unidentifiedFiles} 个文件待识别
-                {unidentified.length > 1 ? ` · ${unidentified.length} 组` : ""}
+                {t("library.detail.unidentifiedFiles", { count: unidentifiedFiles, groups: unidentified.length })}
               </button>
             )}
             {review.length > 0 && (
@@ -1699,7 +1667,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
                 className="flex items-center gap-1.5 rounded-full border border-[var(--warn)]/35 bg-[var(--warn)]/[0.12] px-3 py-1 text-sub font-semibold text-[var(--warn)] transition hover:bg-[var(--warn)]/[0.22]"
               >
                 <span className="size-1.5 rounded-full bg-[var(--warn)]" />
-                {review.length} 个条目待复核身份
+                {t("library.detail.reviewItems", { count: review.length })}
               </button>
             )}
           </div>
@@ -1722,7 +1690,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
         )}
         {failed && (
           <p className="mt-3 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3.5 py-2 text-sub text-amber-200">
-            与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据
+            {t("library.detail.connectionFailed")}
           </p>
         )}
         {notice && (
@@ -1755,9 +1723,9 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
         <div className={`mt-16 flex flex-col items-center gap-3 text-center page-inset`}>
           <LockIcon className="size-9 text-white/[0.28]" />
           <p className="text-ui leading-7 text-[var(--text-muted)]">
-            内容已隐藏：你不在这个库的可见范围内。
+            {t("library.detail.contentHidden")}
             <br />
-            设置、扫描与待处理仍可使用；把自己加入可见范围即可浏览。
+            {t("library.detail.managementAvailable")}
           </p>
           {canManageLibraries && (
             <button
@@ -1765,7 +1733,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
               onClick={() => setEditing(library)}
               className="btn-glass mt-1 h-9 px-4 text-ui font-medium"
             >
-              把我加入可见范围
+              {t("library.detail.includeMe")}
             </button>
           )}
         </div>
@@ -1776,13 +1744,13 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
       {!photoWall && !isMobile && collections.length > 0 && (
         <div
           role="tablist"
-          aria-label="库内视图"
+          aria-label={t("library.detail.viewMode")}
           className={`mt-5 flex items-center gap-1 page-inset`}
         >
           {(
             [
-              ["items", "作品"],
-              ["collections", "合集"],
+              ["items", t("library.detail.titles")],
+              ["collections", t("library.detail.collections")],
             ] as const
           ).map(([value, label]) => (
             <button
@@ -1826,11 +1794,11 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
         />
       ) : items.length === 0 && provisional.length === 0 ? (
         <p className="mt-16 text-center text-ui leading-7 text-[var(--text-muted)]">
-          这个库还没有内容。
+          {t("library.detail.empty")}
           <br />
           {canManageLibraries
-            ? "点右上角菜单里的「扫描库」把已有影片识别入库；订阅内容下载完成后也会自动进来。"
-            : "订阅内容下载并入库后会显示在这里。"}
+            ? t("library.detail.emptyAdminHint")
+            : t("library.detail.emptyMemberHint")}
         </p>
       ) : (
         <>
@@ -1855,13 +1823,13 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
               sortControl={
                 <WallSortControl
                   value={wallSortPref}
-                  options={sortOptions(timeline ? "按时间" : "按标题", timeline)}
+                  options={sortOptions(timeline ? t("library.sort.contentDate") : t("library.sort.title"), timeline, locale)}
                   onChange={setWallSortPref}
                   disabled={probing}
                   // 方向两种形态都能切：图廊与海报墙传的是同一份 sort / order
                   direction={{
                     ascending: sortAscending,
-                    label: SORT_DIRECTIONS[effectiveSort][sortAscending ? "asc" : "desc"],
+                    label: sortDirections(locale)[effectiveSort][sortAscending ? "asc" : "desc"],
                     onToggle: toggleWallSortReversed,
                   }}
                 />
@@ -1905,7 +1873,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
                   <>
                     {/* 标题不带数字：分区是在已加载的分页上切的，数字会随滚动加载变 */}
                     <h3 className="text-on-image mb-4 text-body-lg font-semibold text-white/85">
-                      海报
+                      {t("library.detail.posterMode")}
                     </h3>
                     <div ref={wallGrid}>
                       <PosterWall
@@ -1917,7 +1885,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
                       />
                     </div>
                     <h3 className="text-on-image mb-4 mt-8 text-body-lg font-semibold text-white/85">
-                      缩略图
+                      {t("library.detail.thumbnailMode")}
                     </h3>
                     <PosterWall
                       items={wallGroups.thumbs}
@@ -1964,10 +1932,10 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
                           id="provisional-title"
                           className="text-on-image text-body-lg font-semibold text-white/85"
                         >
-                          未识别 {provisional.length}
+                          {t("library.detail.unidentified")} {provisional.length}
                         </h3>
                         <p className="text-on-image mt-1 text-caption text-[var(--text-muted)]">
-                          按文件名展示，可以直接播放；认领身份后会并入上方的正式条目。
+                          {t("library.detail.unidentifiedHint")}
                         </p>
                       </div>
                       {canManageLibraries && (
@@ -1976,7 +1944,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
                           onClick={() => setIssueTab("unidentified")}
                           className="btn-glass h-7 shrink-0 px-2.5 text-caption font-medium"
                         >
-                          去待处理认领
+                          {t("library.detail.assignInIssues")}
                         </button>
                       )}
                     </div>
@@ -1987,7 +1955,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
                           item={item}
                           libraryId={libraryId}
                           workingLabel={
-                            probing && item.probe_pending_count > 0 ? "正在读取规格" : undefined
+                            probing && item.probe_pending_count > 0 ? t("library.detail.readingSpecs") : undefined
                           }
                         />
                       ))}
@@ -2173,6 +2141,8 @@ function LibraryActionsMenu({
   showHiddenCollections,
   onShowHiddenCollectionsChange,
 }: LibraryActionsMenuProps) {
+  const t = useTranslations();
+  const locale = useLocale();
   // 与站点配置一致用 Radix DropdownMenu：Portal 到 body + 碰撞检测，
   // 不会被头部容器裁切；开合/外部点击/键盘导航全交给 Radix。
   const itemClass =
@@ -2189,7 +2159,7 @@ function LibraryActionsMenu({
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label="更多操作"
+          aria-label={t("library.detail.moreActions")}
           // 长在顶栏里，与返回键并排：共用顶栏控件形状，不再是页面里的胶囊按钮
           className={`${PAGE_NAV_BUTTON_CLASS} relative data-[state=open]:bg-black/55 data-[state=open]:text-white`}
         >
@@ -2214,7 +2184,7 @@ function LibraryActionsMenu({
           {canManage && (
           <>
           <DropdownMenu.Item onSelect={onOpenPending} className={itemClass}>
-            待处理{pendingCount > 0 ? ` ${pendingCount}` : ""}
+            {t("library.issues.title")}{pendingCount > 0 ? ` ${pendingCount}` : ""}
           </DropdownMenu.Item>
           <DropdownMenu.Separator className="my-1 h-px bg-white/[0.07]" />
           {/* 扫描中切换为「停止扫描」（增量幂等：已入账的保留，剩余下次继续） */}
@@ -2224,10 +2194,10 @@ function LibraryActionsMenu({
             className={itemClass}
           >
             {!scanning
-              ? "扫描库"
+              ? t("library.detail.scan")
               : stoppable
-                ? `停止扫描${scanPercent === null ? "" : ` ${scanPercent}%`}`
-                : `${SCAN_PHASE_LABELS[scanPhase ?? "ingesting"]}…`}
+                ? scanPercent === null ? t("library.detail.stopScan") : t("library.detail.stopScanProgress", { percent: scanPercent })
+                : `${scanPhaseLabels(locale)[scanPhase ?? "ingesting"]}…`}
           </DropdownMenu.Item>
           {capabilities.naming && (
             <DropdownMenu.Item
@@ -2236,18 +2206,18 @@ function LibraryActionsMenu({
               className={itemClass}
             >
               {organizing
-                ? `整理中…${organizePercent === null ? "" : ` ${organizePercent}%`}`
-                : "整理文件名"}
+                ? organizePercent === null ? t("library.detail.organizing") : t("library.detail.organizingProgress", { percent: organizePercent })
+                : t("library.detail.organizeNames")}
             </DropdownMenu.Item>
           )}
           <DropdownMenu.Item onSelect={onToggleMetaRefresh} className={itemClass}>
             {refreshingMeta
-              ? `停止刷新${metaProgress === null ? "" : ` ${metaProgress}`}`
+              ? metaProgress === null ? t("library.detail.stopRefresh") : t("library.detail.stopRefreshProgress", { progress: metaProgress })
               : capabilities.scraped
-                ? "刷新元数据"
+                ? t("library.detail.refreshMetadata")
                 : capabilities.playable
-                  ? "重新读取 NFO 与封面"
-                  : "重新生成封面"}
+                  ? t("library.detail.readNfoAgain")
+                  : t("library.detail.regenerateCovers")}
           </DropdownMenu.Item>
           {onChapterImages && (
             <DropdownMenu.Item
@@ -2259,7 +2229,7 @@ function LibraryActionsMenu({
             </DropdownMenu.Item>
           )}
           <DropdownMenu.Item onSelect={onEdit} disabled={busy} className={itemClass}>
-            编辑库
+            {t("library.detail.editLibrary")}
           </DropdownMenu.Item>
           </>
           )}
@@ -2277,7 +2247,7 @@ function LibraryActionsMenu({
               onSelect={() => onGalleryModeChange(!galleryMode)}
               className={itemClass}
             >
-              {galleryMode ? "回到海报墙" : "图床浏览"}
+              {galleryMode ? t("library.detail.backToPosters") : t("library.detail.galleryView")}
             </DropdownMenu.Item>
           )}
           {/* 隐藏的回头路。自动生成的合集删不掉、只能藏，藏了必须找得回来 */}
@@ -2286,7 +2256,7 @@ function LibraryActionsMenu({
               onSelect={() => onShowHiddenCollectionsChange(!showHiddenCollections)}
               className={itemClass}
             >
-              {showHiddenCollections ? "不显示已隐藏的合集" : "显示已隐藏的合集"}
+              {showHiddenCollections ? t("library.detail.hideHiddenCollections") : t("library.detail.showHiddenCollections")}
             </DropdownMenu.Item>
           )}
           <WallPrefItems
@@ -2316,6 +2286,7 @@ function MetadataRefreshPanel({
   state: MetadataRefreshProgress;
   onStop: () => void;
 }) {
+  const t = useTranslations();
   const percent =
     state.total > 0 ? Math.min(100, Math.round((state.processed / state.total) * 100)) : 0;
   return (
@@ -2324,9 +2295,7 @@ function MetadataRefreshPanel({
         <div className="flex min-w-0 items-center gap-2 text-sub font-semibold text-[var(--info)]">
           <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-[var(--info)]/30 border-t-[var(--info)]" />
           <span className="truncate">
-            {state.stopping ? "正在停止刷新" : "正在刷新元数据"}
-            {state.total > 0 ? ` ${state.processed}/${state.total}` : ""}
-            {state.failed > 0 ? ` · 失败 ${state.failed}` : ""}
+            {t("library.detail.refreshProgress", { status: state.stopping ? t("library.detail.stoppingRefresh") : t("library.detail.refreshing"), processed: state.processed, total: state.total, failed: state.failed })}
           </span>
         </div>
         <button
@@ -2335,7 +2304,7 @@ function MetadataRefreshPanel({
           disabled={state.stopping}
           className="shrink-0 text-sub font-medium text-white/70 transition hover:text-white disabled:opacity-50"
         >
-          {state.stopping ? "收尾中…" : "停止"}
+          {state.stopping ? t("library.detail.finishing") : t("common.stop")}
         </button>
       </div>
       {/* 进度条：全量刷新常以分钟计，一条能看出"在动"的进度很重要 */}
@@ -2356,8 +2325,7 @@ function MetadataRefreshPanel({
         </div>
       )}
       <p className="mt-2 text-caption text-white/40">
-        全量重刷：重拉 TMDB 档案、按当前尺寸重下图片、覆盖媒体目录镜像；
-        你手动选定的图不受影响
+        {t("library.detail.refreshHint")}
       </p>
     </div>
   );
@@ -2401,6 +2369,7 @@ function WallIndexBar({
   /** 墙是倒序（Z→A）时字母表跟着倒过来：往下滑墙与往下滑索引条是同一个方向 */
   reversed: boolean;
 }) {
+  const t = useTranslations();
   const byInitial = useMemo(() => new Map(index.map((e) => [e.initial, e])), [index]);
   const slots = useMemo(() => (reversed ? [...WALL_INITIALS].reverse() : WALL_INITIALS), [reversed]);
   const barRef = useRef<HTMLDivElement>(null);
@@ -2427,7 +2396,7 @@ function WallIndexBar({
     <div
       ref={barRef}
       role="navigation"
-      aria-label="按首字母跳转"
+      aria-label={t("library.detail.jumpByInitial")}
       className="sticky flex shrink-0 touch-none select-none flex-col items-stretch text-micro font-semibold leading-none text-[var(--text-faint)]"
       style={{
         height: WALL_INDEX_HEIGHT,
@@ -2462,7 +2431,7 @@ function WallIndexBar({
         return (
           <span
             key={initial}
-            title={entry ? `${initial} · ${entry.count} 部` : undefined}
+            title={entry ? t("library.detail.initialCount", { initial, count: entry.count }) : undefined}
             className={`flex min-h-0 w-[18px] flex-1 items-center justify-center rounded transition-colors max-md:w-5 ${
               !entry
                 ? "text-white/15"
@@ -2486,7 +2455,7 @@ function WallIndexBar({
         >
           <span className="text-title-lg font-bold text-white">{preview}</span>
           <span className="whitespace-nowrap text-caption text-[var(--text-muted)]">
-            {previewEntry ? `${previewEntry.count} 部` : "无作品"}
+            {previewEntry ? t("library.detail.titleCount", { count: previewEntry.count }) : t("library.detail.noTitles")}
           </span>
         </div>
       )}
@@ -2523,6 +2492,7 @@ function IssueDrawer({
   movie: boolean;
   onChanged: () => void;
 }) {
+  const t = useTranslations();
   const confirm = useConfirm();
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2590,11 +2560,11 @@ function IssueDrawer({
       className="fixed inset-0 z-50 [bottom:calc(-1*var(--vp-overshoot))]"
       role="dialog"
       aria-modal="true"
-      aria-label="待处理"
+      aria-label={t("library.issues.title")}
     >
       <button
         type="button"
-        aria-label="关闭"
+        aria-label={t("common.close")}
         onClick={onClose}
         // modal-scrim：遮罩照居中弹窗同款钩子（Netflix 主题换 72% 纯黑、关
         // blur），银玻璃下无基样式、bg-black/50 原样保留
@@ -2614,21 +2584,21 @@ function IssueDrawer({
               onClick={() => onSwitchTab("missing")}
               className={tabClass(open === "missing")}
             >
-              缺失 {missing.length > 0 ? missing.length : ""}
+              {t("library.issues.missing")} {missing.length > 0 ? missing.length : ""}
             </button>
             <button
               type="button"
               onClick={() => onSwitchTab("unidentified")}
               className={tabClass(open === "unidentified")}
             >
-              待识别 {unidentifiedFileTotal > 0 ? unidentifiedFileTotal : ""}
+              {t("library.issues.unidentified")} {unidentifiedFileTotal > 0 ? unidentifiedFileTotal : ""}
             </button>
             <button
               type="button"
               onClick={() => onSwitchTab("review")}
               className={tabClass(open === "review")}
             >
-              身份复核 {review.length > 0 ? review.length : ""}
+              {t("library.issues.review")} {review.length > 0 ? review.length : ""}
             </button>
             {/* 已忽略是归档不是待办：没有内容就不占位，除非正停在这个 tab 上 */}
             {(ignoredFileTotal > 0 || open === "ignored") && (
@@ -2637,14 +2607,14 @@ function IssueDrawer({
                 onClick={() => onSwitchTab("ignored")}
                 className={tabClass(open === "ignored")}
               >
-                已忽略 {ignoredFileTotal > 0 ? ignoredFileTotal : ""}
+                {t("library.issues.ignored")} {ignoredFileTotal > 0 ? ignoredFileTotal : ""}
               </button>
             )}
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="关闭抽屉"
+            aria-label={t("library.issues.closeDrawer")}
             className="btn-glass flex size-8 items-center justify-center !rounded-full"
           >
             <XIcon className="size-4" />
@@ -2657,7 +2627,7 @@ function IssueDrawer({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={open === "missing" ? "按片名过滤…" : "按文件名过滤…"}
+            placeholder={open === "missing" ? t("library.issues.filterTitles") : t("library.issues.filterFiles")}
             className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sub text-[var(--text)] outline-none placeholder:text-white/30 focus:border-[var(--accent)]/60"
           />
           {open === "missing" && missing.length > 0 && (
@@ -2667,9 +2637,9 @@ function IssueDrawer({
               onClick={async () => {
                 if (
                   !(await confirm({
-                    title: `清理全部 ${missingFileTotal} 条缺失记录？`,
-                    description: "只删台账，不动磁盘。",
-                    confirmLabel: "全部清理",
+                    title: t("library.issues.clearAllTitle", { count: missingFileTotal }),
+                    description: t("library.issues.recordsOnly"),
+                    confirmLabel: t("library.issues.clearAll"),
                     tone: "danger",
                   }))
                 )
@@ -2682,7 +2652,7 @@ function IssueDrawer({
               }}
               className="btn-glass shrink-0 px-3 py-1.5 text-sub font-medium disabled:opacity-50"
             >
-              全部清理
+              {t("library.issues.clearAll")}
             </button>
           )}
           {open === "unidentified" && unidentified.length > 0 && (
@@ -2692,9 +2662,9 @@ function IssueDrawer({
               onClick={async () => {
                 if (
                   !(await confirm({
-                    title: `忽略全部 ${unidentifiedFileTotal} 个待识别文件？`,
-                    description: "之后扫描不再过问它们（不动磁盘；可在「已忽略」里恢复）。",
-                    confirmLabel: "全部忽略",
+                    title: t("library.issues.ignoreAllTitle", { count: unidentifiedFileTotal }),
+                    description: t("library.issues.ignoreAllHint"),
+                    confirmLabel: t("library.issues.ignoreAll"),
                     tone: "danger",
                   }))
                 )
@@ -2707,7 +2677,7 @@ function IssueDrawer({
               }}
               className="btn-glass shrink-0 px-3 py-1.5 text-sub font-medium disabled:opacity-50"
             >
-              全部忽略
+              {t("library.issues.ignoreAll")}
             </button>
           )}
         </div>
@@ -2715,21 +2685,18 @@ function IssueDrawer({
         {/* 说明行 */}
         <p className="px-5 pt-3 text-caption leading-5 text-[var(--text-muted)]">
           {open === "missing"
-            ? "文件已不在磁盘；「重新下载」交给订阅管线补回，「清理记录」只删台账（都不动磁盘）；文件回归会自动恢复。经常自己删片子的话，可在库设置里打开「扫描后自动清理丢失记录」，以后扫完即对齐。"
+            ? t("library.issues.missingHint")
             : open === "unidentified"
-              ? "同一目录的文件聚成一组，认领一次整组生效；点候选可先核对海报简介再确认。状态标签悬停看完整原因。"
+              ? t("library.issues.assignHint")
               : open === "review"
-                ? "识别器升级后重新核对了这些条目，新结论与现有身份不一致。身份没有被自动改动——由你拍板：采纳新结论改挂条目，或维持现状。拍板后不再提醒。"
-                : "这些文件你选择过「忽略」，之后每次扫描都会直接跳过，不再占用待识别清单（磁盘文件一直都在）。识别器在持续变强，当初认不出的现在未必认不出——「恢复」即可让它重新参与识别。"}
+                ? t("library.issues.reviewHint")
+                : t("library.issues.ignoredHint")}
         </p>
 
         {/* 「放错库了」修复引导：认领解决不了这一类，不给引导用户会在认领里打转 */}
         {open === "unidentified" && kindMismatchFiles > 0 && (
           <p className="mx-5 mt-3 rounded-lg bg-[var(--warn)]/[0.1] px-3 py-2 text-caption leading-5 text-[var(--warn)]">
-            有 {kindMismatchFiles} 个文件的实际类型与本库不符（
-            {movie ? "剧集文件在电影库" : "电影文件在剧集库"}
-            ），认领无法解决。个别文件放错了：把文件移到对应类型的库即可；整库类型建错了：
-            删除本库并以正确类型重建（删库不会动磁盘文件），重新扫描即可恢复。
+            {t("library.issues.kindMismatchHint", { count: kindMismatchFiles, mismatch: movie ? t("library.issues.tvInMovie") : t("library.issues.movieInTv") })}
           </p>
         )}
 
@@ -2768,10 +2735,10 @@ function IssueDrawer({
             (open === "ignored" && ignoredShown.length === 0)) && (
             <p className="mt-12 text-center text-ui text-[var(--text-muted)]">
               {keyword
-                ? "没有匹配的条目"
+                ? t("library.issues.noMatchingTitles")
                 : open === "ignored"
-                  ? "没有忽略过的文件"
-                  : "没有需要处理的了 🎉"}
+                  ? t("library.issues.noIgnoredFiles")
+                  : t("library.issues.allDone")}
             </p>
           )}
         </div>
@@ -2790,6 +2757,8 @@ function MissingRow({
   item: MissingItem;
   onChanged: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2807,16 +2776,18 @@ function MissingRow({
   // 剧集：按季聚合缺失集数做摘要；电影：单文件
   const summary =
     item.kind === "tv"
-      ? Array.from(
-          item.files.reduce((m, f) => {
-            m.set(f.season_number, (m.get(f.season_number) ?? 0) + 1);
-            return m;
-          }, new Map<number, number>()),
+      ? formatList(
+          Array.from(
+            item.files.reduce((m, f) => {
+              m.set(f.season_number, (m.get(f.season_number) ?? 0) + 1);
+              return m;
+            }, new Map<number, number>()),
+          )
+            .sort(([a], [b]) => a - b)
+            .map(([s, n]) => (s === 0 ? t("library.issues.missingSpecials", { count: n }) : t("library.issues.missingSeason", { season: s, count: n }))),
+          locale,
         )
-          .sort(([a], [b]) => a - b)
-          .map(([s, n]) => (s === 0 ? `特别篇 ${n} 集` : `第 ${s} 季缺 ${n} 集`))
-          .join("、")
-      : `${item.files.length} 个文件`;
+      : t("library.issues.fileCount", { count: item.files.length });
 
   return (
     <div className="rounded-xl bg-white/[0.03] px-3.5 py-2.5">
@@ -2836,24 +2807,24 @@ function MissingRow({
               onClick={() =>
                 act(() =>
                   redownloadMissing(libraryId, item.media_item_id).then(({ requeued }) => {
-                    setDone(`已交给订阅管线（${requeued} 个工单排队）`);
+                    setDone(t("library.issues.redownloadQueued", { count: requeued }));
                   }),
                 )
               }
               className="btn-accent rounded-full px-3 py-1.5 text-sub font-semibold disabled:opacity-50"
             >
-              重新下载
+              {t("library.issues.downloadAgain")}
             </button>
             <button
               type="button"
               disabled={busy}
               onClick={async () => {
                 const ok = await confirm({
-                  title: `清理「${item.title}」的 ${item.files.length} 条缺失记录？`,
+                  title: t("library.issues.clearTitle", { title: item.title, count: item.files.length }),
                   description: item.subscription_id
-                    ? "该条目有正在追踪的订阅，只清记录的话订阅可能把它重新下回来。（只删台账，不动磁盘）"
-                    : "只删台账，不动磁盘。",
-                  confirmLabel: "清理记录",
+                    ? t("library.issues.trackedClearHint")
+                    : t("library.issues.recordsOnly"),
+                  confirmLabel: t("library.issues.clearRecords"),
                   tone: "danger",
                 });
                 if (!ok) return;
@@ -2861,13 +2832,13 @@ function MissingRow({
               }}
               className="btn-glass px-3 py-1.5 text-sub font-medium disabled:opacity-50"
             >
-              清理记录
+              {t("library.issues.clearRecords")}
             </button>
           </span>
         )}
       </div>
       {item.subscription_id && !done && (
-        <p className="mt-1 text-caption text-[var(--warn)]/80">该条目有订阅在追踪</p>
+        <p className="mt-1 text-caption text-[var(--warn)]/80">{t("library.issues.tracked")}</p>
       )}
       {error && <p className="mt-1 text-caption text-red-300">{error}</p>}
     </div>
@@ -2886,18 +2857,20 @@ function MissingRow({
    配色只分两级——**黄色专供"系统故障、重扫可自愈"**（TMDB 不可达），
    它有确定解法、不需要用户动脑；其余是正常待办不是错误，用中性色，
    否则满屏黄字等于没有信号。 */
-const UNIDENTIFIED_BADGE: Record<
+function unidentifiedBadges(t: ReturnType<typeof appTranslator>): Record<
   string,
   { label: (g: UnidentifiedGroup) => string; tone: "warn" | "muted" }
-> = {
-  tmdb_unreachable: { label: () => "TMDB 不可达", tone: "warn" },
-  // 库类型选错也是"有确定解法但需要动手"的一类：认领单个文件没用，得换库
-  kind_mismatch: { label: () => "放错库了", tone: "warn" },
-  ambiguous: { label: (g) => `${g.candidates.length} 个候选待定`, tone: "muted" },
-  no_match: { label: () => "TMDB 无匹配", tone: "muted" },
-  unparsable: { label: () => "认不出片名", tone: "muted" },
-  unit_unresolved: { label: () => "季号待确认", tone: "muted" },
-};
+> {
+  return {
+    tmdb_unreachable: { label: () => t("library.issues.tmdbUnavailable"), tone: "warn" },
+    // 库类型选错也是"有确定解法但需要动手"的一类：认领单个文件没用，得换库
+    kind_mismatch: { label: () => t("library.issues.wrongLibrary"), tone: "warn" },
+    ambiguous: { label: (g) => t("library.issues.candidates", { count: g.candidates.length }), tone: "muted" },
+    no_match: { label: () => t("library.issues.noTmdbMatch"), tone: "muted" },
+    unparsable: { label: () => t("library.issues.noTitle"), tone: "muted" },
+    unit_unresolved: { label: () => t("library.issues.seasonRequired"), tone: "muted" },
+  };
+}
 
 /** 组卡片的次要动作（忽略 / 查看文件）：收进 ⋯，不跟主动作抢视线。 */
 function GroupMoreMenu({
@@ -2913,6 +2886,7 @@ function GroupMoreMenu({
   onIgnore: () => void;
   onToggleFiles: () => void;
 }) {
+  const t = useTranslations();
   const itemClass =
     "glass-row nav-item cursor-pointer px-3 py-2 text-ui font-medium outline-none " +
     "data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)] " +
@@ -2922,7 +2896,7 @@ function GroupMoreMenu({
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label="更多操作"
+          aria-label={t("library.detail.moreActions")}
           // 常显但压暗：纯 hover 显示的控件在触屏上根本点不到（NAS 常用平板访问）
           className="btn-glass shrink-0 !rounded-full px-1.5 py-1 opacity-45 transition hover:opacity-100 group-hover/card:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
         >
@@ -2942,11 +2916,11 @@ function GroupMoreMenu({
         >
           {canExpand && (
             <DropdownMenu.Item onSelect={onToggleFiles} className={itemClass}>
-              {expanded ? "收起文件" : "查看文件"}
+              {expanded ? t("library.issues.collapseFiles") : t("library.issues.viewFiles")}
             </DropdownMenu.Item>
           )}
           <DropdownMenu.Item onSelect={onIgnore} disabled={busy} className={itemClass}>
-            忽略
+            {t("library.issues.ignore")}
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -2955,12 +2929,13 @@ function GroupMoreMenu({
 }
 
 function StatusBadge({ group }: { group: UnidentifiedGroup }) {
+  const t = useTranslations();
   // 旧数据没有 code：退回按有无候选粗分，不至于空着
   const meta =
-    (group.code && UNIDENTIFIED_BADGE[group.code]) ??
+    (group.code && unidentifiedBadges(t)[group.code]) ??
     (group.candidates.length > 0
-      ? UNIDENTIFIED_BADGE.ambiguous
-      : UNIDENTIFIED_BADGE.no_match);
+      ? unidentifiedBadges(t).ambiguous
+      : unidentifiedBadges(t).no_match);
   return (
     <span
       title={group.reason ?? undefined}
@@ -2984,6 +2959,7 @@ function UnidentifiedGroupRow({
   movie: boolean;
   onChanged: () => void;
 }) {
+  const t = useTranslations();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3011,10 +2987,10 @@ function UnidentifiedGroupRow({
     if (
       group.file_count > 1 &&
       !(await confirm({
-        title: `忽略「${group.label}」的全部 ${group.file_count} 个文件？`,
+        title: t("library.issues.ignoreGroupTitle", { title: group.label, count: group.file_count }),
         description:
-          "之后扫描不再过问（不动磁盘；可在「已忽略」里恢复）。适合自录、花絮这类 TMDB 本就不会有条目的内容——只是暂时认不出的建议先搜索认领。",
-        confirmLabel: "全部忽略",
+          t("library.issues.ignoreGroupHint"),
+        confirmLabel: t("library.issues.ignoreAll"),
         tone: "danger",
       }))
     )
@@ -3035,7 +3011,7 @@ function UnidentifiedGroupRow({
         </span>
         <StatusBadge group={group} />
         <span className="shrink-0 text-caption text-[var(--text-faint)]">
-          {group.file_count} 个 · {formatBytes(group.total_size_bytes)}
+          {t("library.issues.groupSize", { count: group.file_count, size: formatBytes(group.total_size_bytes) })}
         </span>
         {/* TMDB 不可达有确定解法，直接给按钮；其余给搜索入口 */}
         {unreachable ? (
@@ -3045,7 +3021,7 @@ function UnidentifiedGroupRow({
             onClick={() => act(() => startLibraryScan(group.library_id))}
             className="btn-glass shrink-0 px-2.5 py-1 text-sub font-medium disabled:opacity-40"
           >
-            重新扫描
+            {t("library.issues.scanAgain")}
           </button>
         ) : (
           <button
@@ -3056,7 +3032,7 @@ function UnidentifiedGroupRow({
               searchOpen ? "bg-white/[0.14] text-white" : "btn-glass"
             }`}
           >
-            搜索
+            {t("common.search")}
           </button>
         )}
         <GroupMoreMenu
@@ -3073,24 +3049,16 @@ function UnidentifiedGroupRow({
           用户会以为搜不到就只剩忽略一条路 */}
       {group.code === "no_match" && (
         <p className="mt-1 text-caption leading-relaxed text-[var(--text-faint)]">
-          每次扫描会自动重试识别。TMDB 是社区维护的数据库，确认缺这个条目可以
-          <a
-            href={`https://www.themoviedb.org/${movie ? "movie" : "tv"}/new`}
-            target="_blank"
-            rel="noreferrer"
-            className="underline decoration-white/20 underline-offset-2 transition hover:text-white/80"
-          >
-            去 TMDB 补录 ↗
-          </a>
-          ，收录后回来搜索认领；自录、花絮这类本就不会有条目的内容用「忽略」即可。
+          {t.rich("library.issues.noMatchHint", { link: (chunks) => (
+            <a href={`https://www.themoviedb.org/${movie ? "movie" : "tv"}/new`} target="_blank" rel="noreferrer" className="underline decoration-white/20 underline-offset-2 transition hover:text-white/80">{chunks}</a>
+          ) })}
         </p>
       )}
 
       {/* 认出了作品、只差季号：写清两条出口，免得用户以为要重新搜索 */}
       {group.code === "unit_unresolved" && (
         <p className="mt-1 text-caption leading-relaxed text-[var(--text-faint)]">
-          文件名和目录里都没有季号。点下面的作品、填上第几季即可认领；或者把文件放进「Season N」目录（或按
-          S01E01 命名），下次扫描会自动归位。
+          {t("library.issues.seasonHint")}
         </p>
       )}
 
@@ -3128,7 +3096,7 @@ function UnidentifiedGroupRow({
               {c.year ? ` (${c.year})` : ""}
               {c.episode_count ? (
                 <span className="ml-1.5 text-caption text-[var(--text-muted)]">
-                  {c.episode_count} 集
+                  {t("library.issues.episodeCount", { count: c.episode_count })}
                 </span>
               ) : null}
             </button>
@@ -3186,6 +3154,7 @@ function UnidentifiedGroupRow({
 /* —— 身份复核组行：现身份 vs 建议身份并排对比，采纳或维持一键拍板 —— */
 
 function ReviewGroupRow({ group, onChanged }: { group: ReviewGroup; onChanged: () => void }) {
+  const t = useTranslations();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -3216,7 +3185,7 @@ function ReviewGroupRow({ group, onChanged }: { group: ReviewGroup; onChanged: (
       )}
       <div className="min-w-0">
         <p className="text-micro font-semibold uppercase tracking-wide text-[var(--text-faint)]">
-          {tone === "current" ? "现身份" : "新识别结论"}
+          {tone === "current" ? t("library.issues.currentIdentity") : t("library.issues.newIdentity")}
         </p>
         <p
           className={`truncate text-ui font-medium ${
@@ -3241,7 +3210,7 @@ function ReviewGroupRow({ group, onChanged }: { group: ReviewGroup; onChanged: (
           {group.label}
         </span>
         <span className="shrink-0 text-caption text-[var(--text-faint)]">
-          {group.file_count} 个文件 · {formatBytes(group.total_size_bytes)}
+          {t("library.issues.filesSize", { count: group.file_count, size: formatBytes(group.total_size_bytes) })}
         </span>
       </div>
 
@@ -3259,7 +3228,7 @@ function ReviewGroupRow({ group, onChanged }: { group: ReviewGroup; onChanged: (
           onClick={() => act(true)}
           className="rounded-full border border-[#c4b5fd]/45 bg-[#c4b5fd]/[0.14] px-3.5 py-1.5 text-sub font-semibold text-[#c4b5fd] transition hover:bg-[#c4b5fd]/[0.26] disabled:opacity-40"
         >
-          采纳新结论
+          {t("library.issues.acceptIdentity")}
         </button>
         <button
           type="button"
@@ -3267,7 +3236,7 @@ function ReviewGroupRow({ group, onChanged }: { group: ReviewGroup; onChanged: (
           onClick={() => act(false)}
           className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-40"
         >
-          维持现状
+          {t("library.issues.keepIdentity")}
         </button>
         {error && <span className="text-caption text-red-300">{error}</span>}
       </div>
@@ -3284,6 +3253,7 @@ function IgnoredGroupRow({
   group: UnidentifiedGroup;
   onChanged: () => void;
 }) {
+  const t = useTranslations();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -3298,7 +3268,7 @@ function IgnoredGroupRow({
           {group.label}
         </span>
         <span className="shrink-0 text-caption text-[var(--text-faint)]">
-          {group.file_count} 个文件 · {formatBytes(group.total_size_bytes)}
+          {t("library.issues.filesSize", { count: group.file_count, size: formatBytes(group.total_size_bytes) })}
         </span>
         <button
           type="button"
@@ -3313,7 +3283,7 @@ function IgnoredGroupRow({
           }}
           className="btn-glass shrink-0 px-3 py-1.5 text-sub font-medium disabled:opacity-40"
         >
-          恢复
+          {t("library.issues.restore")}
         </button>
         {group.file_count > 1 && (
           <button
@@ -3321,7 +3291,7 @@ function IgnoredGroupRow({
             onClick={() => setExpanded((v) => !v)}
             className="text-caption text-[var(--text-muted)] transition hover:text-white/80"
           >
-            {expanded ? "收起文件" : "查看文件"}
+            {expanded ? t("library.issues.collapseFiles") : t("library.issues.viewFiles")}
           </button>
         )}
       </div>

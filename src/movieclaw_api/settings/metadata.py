@@ -19,6 +19,7 @@ import re
 
 from pydantic import Field, field_validator
 
+from movieclaw_api.i18n import t
 from movieclaw_api.settings.base import SettingSchema, register_setting
 
 # 语言标签：ISO 639-1，可带 ISO 3166-1 地区（zh-CN / en-US / ja）
@@ -153,10 +154,10 @@ class MetadataScrapeSetting(SettingSchema):
     def _check_languages(cls, value: list[str]) -> list[str]:
         value = _dedup([v.strip() for v in value if v.strip()])
         if len(value) > 3:
-            raise ValueError("元数据语言优先级最多 3 项")
+            raise ValueError(t("settings.validation.languagesMax", max=3))
         for tag in value:
             if not _LANG_TAG.match(tag):
-                raise ValueError(f"语言标签格式不正确：{tag}（应为 zh-CN / en-US / ja 形式）")
+                raise ValueError(t("settings.validation.languageTag", value=tag))
         return value
 
     @field_validator("cert_country_priority")
@@ -164,19 +165,19 @@ class MetadataScrapeSetting(SettingSchema):
     def _check_cert_countries(cls, value: list[str]) -> list[str]:
         value = _dedup([v.strip().upper() for v in value if v.strip()])
         if not value:
-            raise ValueError("分级地区至少保留一项")
+            raise ValueError(t("settings.validation.certCountriesMin"))
         if len(value) > 6:
-            raise ValueError("分级地区最多 6 项")
+            raise ValueError(t("settings.validation.certCountriesMax", max=6))
         for code in value:
             if not _COUNTRY.match(code):
-                raise ValueError(f"地区码格式不正确：{code}（应为 CN / US 形式）")
+                raise ValueError(t("settings.validation.countryCode", value=code))
         return value
 
     @field_validator("poster_mode")
     @classmethod
     def _check_poster_mode(cls, value: str) -> str:
         if value not in {"default", "language"}:
-            raise ValueError("海报选择只能是 default（TMDB 默认）或 language（按语言优先级）")
+            raise ValueError(t("settings.validation.posterMode"))
         return value
 
     @field_validator(
@@ -186,12 +187,12 @@ class MetadataScrapeSetting(SettingSchema):
     def _check_image_tokens(cls, value: list[str]) -> list[str]:
         value = _dedup([v.strip() for v in value if v.strip()])
         if not value:
-            raise ValueError("图片语言优先级至少保留一项")
+            raise ValueError(t("settings.validation.imageLanguagesMin"))
         if len(value) > 4:
-            raise ValueError("图片语言优先级最多 4 项")
+            raise ValueError(t("settings.validation.imageLanguagesMax", max=4))
         for token in value:
             if not _IMAGE_TOKEN.match(token):
-                raise ValueError(f"图片语言项不合法：{token}（应为语言码或 meta/orig/null 特殊项）")
+                raise ValueError(t("settings.validation.imageLanguageToken", value=token))
         return value
 
     @field_validator(
@@ -207,7 +208,11 @@ class MetadataScrapeSetting(SettingSchema):
         value = _dedup([v.strip().lower() for v in value if v.strip()])
         if sorted(value) != sorted(IMAGE_SOURCES):
             raise ValueError(
-                f"来源顺序必须恰好包含 {' / '.join(IMAGE_SOURCES)} 各一次，当前为：{value}"
+                t(
+                    "settings.validation.sourceOrder",
+                    sources=" / ".join(IMAGE_SOURCES),
+                    value=str(value),
+                )
             )
         return value
 
@@ -236,38 +241,45 @@ class MetadataScrapeSetting(SettingSchema):
     @classmethod
     def _check_poster_size(cls, value: str) -> str:
         if value not in POSTER_SIZES:
-            raise ValueError(f"海报档位不合法：{value}（可选 {sorted(POSTER_SIZES - {''})}）")
+            raise ValueError(_size_error("sizePoster", value, POSTER_SIZES))
         return value
 
     @field_validator("backdrop_size")
     @classmethod
     def _check_backdrop_size(cls, value: str) -> str:
         if value not in BACKDROP_SIZES:
-            raise ValueError(f"背景档位不合法：{value}（可选 {sorted(BACKDROP_SIZES - {''})}）")
+            raise ValueError(_size_error("sizeBackdrop", value, BACKDROP_SIZES))
         return value
 
     @field_validator("still_size")
     @classmethod
     def _check_still_size(cls, value: str) -> str:
         if value not in STILL_SIZES:
-            raise ValueError(f"剧照档位不合法：{value}（可选 {sorted(STILL_SIZES - {''})}）")
+            raise ValueError(_size_error("sizeStill", value, STILL_SIZES))
         return value
 
     @field_validator("profile_size")
     @classmethod
     def _check_profile_size(cls, value: str) -> str:
         if value not in PROFILE_SIZES:
-            raise ValueError(f"头像档位不合法：{value}（可选 {sorted(PROFILE_SIZES - {''})}）")
+            raise ValueError(_size_error("sizeProfile", value, PROFILE_SIZES))
         return value
 
     @field_validator("image_quality")
     @classmethod
     def _check_image_quality(cls, value: str) -> str:
         if value not in IMAGE_QUALITIES:
-            raise ValueError(
-                f"图片画质不合法：{value}（可选 original / standard / compact / custom）"
-            )
+            raise ValueError(t("settings.validation.imageQuality", value=value))
         return value
+
+
+def _size_error(kind: str, value: str, sizes: set[str]) -> str:
+    return t(
+        "settings.validation.sizeInvalid",
+        kind=t(f"settings.validation.{kind}"),
+        value=value,
+        choices=str(sorted(sizes - {""})),
+    )
 
 
 @register_setting(
@@ -305,5 +317,5 @@ class DiscoverPreferencesSetting(SettingSchema):
     def _check_region(cls, value: str) -> str:
         value = value.strip().upper()
         if value and not _COUNTRY.match(value):
-            raise ValueError(f"地区码格式不正确：{value}（应为 CN / US 形式）")
+            raise ValueError(t("settings.validation.countryCode", value=value))
         return value

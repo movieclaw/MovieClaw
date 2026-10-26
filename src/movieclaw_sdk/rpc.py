@@ -25,6 +25,8 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
+from movieclaw_kernel.observe import current_locale
+
 #: 宿主调插件时带上的调用号：插件处理这次调用期间发出的请求原样带回，宿主据此恢复发起方与因果链
 CALL_HEADER = "X-MovieClaw-Call"
 NDJSON = "application/x-ndjson"
@@ -200,7 +202,7 @@ class RpcClient:
 
     def headers(self) -> dict[str, str]:
         call = current_call.get()
-        return {CALL_HEADER: call} if call else {}
+        return {"Accept-Language": current_locale.get(), **({CALL_HEADER: call} if call else {})}
 
     async def call(self, service: str, spec: MethodSpec, arguments: dict[str, Any]) -> Any:
         response = await self.http.request(

@@ -33,12 +33,12 @@ struct PairingScannerScreen: View {
                 Viewfinder()
             case .denied:
                 unavailableMessage(
-                    title: "需要相机权限",
-                    message: "扫码登录要用相机读取电视或终端上的二维码。请在系统设置里允许 MovieClaw 使用相机，或者改为手动输入配对码。",
+                    title: String(localized: .authPairingCameraPermission),
+                    message: String(localized: .authPairingCameraPermissionHint),
                     showsSettings: true
                 )
             case .unavailable:
-                unavailableMessage(title: "相机不可用", message: "这台设备上没有可用的相机，请改为手动输入配对码。", showsSettings: false)
+                unavailableMessage(title: String(localized: .authPairingCameraUnavailable), message: String(localized: .authPairingCameraUnavailableHint), showsSettings: false)
             case .checking:
                 ProgressView().tint(.white)
             }
@@ -59,7 +59,7 @@ struct PairingScannerScreen: View {
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
-                .accessibilityLabel("关闭")
+                .accessibilityLabel(String(localized: .commonClose))
                 .accessibilityIdentifier("scanner-close")
                 Spacer()
             }
@@ -75,10 +75,10 @@ struct PairingScannerScreen: View {
                         .transition(.opacity)
                         .accessibilityIdentifier("scanner-hint")
                 }
-                Text("对准电视或终端上的登录二维码")
+                Text(String(localized: .authPairingAimHint))
                     .font(.headline)
                     .foregroundStyle(.white)
-                Button("手动输入配对码", action: onManualEntry)
+                Button(String(localized: .authPairingManualEntry), action: onManualEntry)
                     .buttonStyle(.glass)
                     .accessibilityIdentifier("scanner-manual")
             }
@@ -93,7 +93,7 @@ struct PairingScannerScreen: View {
             Text(title).font(.title3.weight(.semibold))
             Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
             if showsSettings {
-                Button("去设置开启") {
+                Button(String(localized: .authPairingOpenSettings)) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                 }
                 .buttonStyle(.glassProminent)
@@ -125,7 +125,7 @@ struct PairingScannerScreen: View {
         guard let scanned = PairingQRCode.parse(text) else {
             if text != lastRejected {
                 lastRejected = text
-                hint = "这不是 MovieClaw 的登录二维码"
+                hint = String(localized: .authPairingNotMovieClawCode)
             }
             return
         }

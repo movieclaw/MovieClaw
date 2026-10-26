@@ -48,6 +48,7 @@ class ScopedJobs:
         from movieclaw_db.engine import get_database
 
         if not self._owns(job_type):
+            # i18n-ignore: developer error
             raise PermissionError(f"插件 {self.entry_id} 只能建自己的任务类型，{job_type} 不是")
         # 进程外插件在 apply 里建任务时处理器还没登记（就绪时才一并声明）：先记为认识的类型，
         # 执行器等处理器到了再领，而不是当成没人认识的类型领走报「请更新」

@@ -14,10 +14,10 @@ struct WelcomeAccountChooser: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("选择账号")
+                Text(String(localized: .authAccountsChoose))
                     .font(.welcomeSerif(size: 22))
                     .foregroundStyle(Theme.text)
-                Text("这些账号在本机还登录着，点一下直接进入，不用输密码。")
+                Text(String(localized: .authAccountsSavedHint))
                     .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -39,7 +39,7 @@ struct WelcomeAccountChooser: View {
             }
 
             Button(action: onSignInAnother) {
-                Text("登录其他账号")
+                Text(String(localized: .authAccountsOther))
                     .font(.system(size: 17, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
@@ -115,10 +115,10 @@ struct WelcomeUnreachableCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("连不上服务器")
+                Text(String(localized: .authServerUnreachable))
                     .font(.welcomeSerif(size: 22))
                     .foregroundStyle(Theme.text)
-                Text("登录状态还在。服务器恢复后点「重试」即可进入，不用重新输入密码。")
+                Text(String(localized: .authServerRetryHint))
                     .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -145,7 +145,7 @@ struct WelcomeUnreachableCard: View {
             } label: {
                 HStack(spacing: 8) {
                     if retrying { ProgressView().tint(.black) }
-                    Text(retrying ? "正在连接…" : "重试")
+                    Text(retrying ? String(localized: .authServerConnecting) : String(localized: .commonRetry))
                 }
                 .font(.system(size: 17, weight: .semibold))
                 .frame(maxWidth: .infinity)
@@ -159,11 +159,11 @@ struct WelcomeUnreachableCard: View {
             .accessibilityIdentifier("welcome-retry")
 
             HStack {
-                Button("修改服务器地址", action: onEditAddress)
+                Button(String(localized: .authServerEdit), action: onEditAddress)
                     .accessibilityIdentifier("welcome-edit-address")
                 if let onChooseAccount {
                     Spacer()
-                    Button("切换到其他账号", action: onChooseAccount)
+                    Button(String(localized: .authAccountsSwitchOther), action: onChooseAccount)
                 }
             }
             .font(.subheadline)

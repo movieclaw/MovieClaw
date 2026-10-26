@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from copy import deepcopy
 from typing import Any
 
 from movieclaw_sdk import channels as ch
@@ -25,6 +26,8 @@ class RemoteChannelDriver(ChannelDriver):
         self._cid = cid
         self.title = spec.get("title") or cid
         self.description = spec.get("description") or ""
+        self.title_localized = deepcopy(spec.get("title_localized"))
+        self.description_localized = deepcopy(spec.get("description_localized"))
         self.capabilities, self.binding = ch.spec_parts(spec)
         #: 账号 id → 中枢给的句柄（插件回调时交给它）
         self.accounts: dict[str, Account] = {}
@@ -53,6 +56,10 @@ class RemoteChannelDriver(ChannelDriver):
             if exc.kind == "auth":
                 raise ChannelAuthError(exc.detail) from exc
             if exc.kind == "value":
+                if exc.message_ref:
+                    error = ch.ChannelInputError(exc.detail)
+                    error.message_ref = deepcopy(exc.message_ref)
+                    raise error from exc
                 raise ValueError(exc.detail) from exc
             raise
 
@@ -133,10 +140,12 @@ class RemoteChannelDriver(ChannelDriver):
     async def callback(self, method: str, params: dict[str, Any]) -> None:
         account = self.accounts.get(params["account"])
         if account is None:
+            # i18n-ignore: developer error
             raise LookupError(f"账号 {params['account']} 没有在运行")
         if method == "channel.inbound":
             await account.inbound(ch.message_from(params["message"]))
         elif method == "channel.save_state":
             await account.save_state(dict(params["patch"]))
         else:
+            # i18n-ignore: developer error
             raise ValueError(f"未知的通道回调 {method}")

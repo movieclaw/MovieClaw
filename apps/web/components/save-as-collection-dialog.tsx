@@ -1,5 +1,8 @@
 "use client";
 
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/feedback";
@@ -41,6 +44,8 @@ export function SaveAsCollectionDialog({
   onClose: () => void;
   onCreated: (collection: Collection) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const toast = useToast();
   const [facets, setFacets] = useState<LibraryFacets | null>(null);
   const [name, setName] = useState("");
@@ -61,10 +66,10 @@ export function SaveAsCollectionDialog({
     return () => {
       alive = false;
     };
-  }, [open, libraryId, filter]);
+  }, [open, libraryId, filter, locale]);
 
   /** 建议名：把条件本身念出来（「动画 · 日本」），比「新建合集 3」有用得多。 */
-  const suggested = useMemo(() => summarize(filter, facets), [filter, facets]);
+  const suggested = useMemo(() => summarize(filter, facets, locale), [filter, facets, locale]);
 
   // 用户没动过输入框就跟着建议名走；一旦手动改过就不再覆盖他的输入
   useEffect(() => {
@@ -85,7 +90,7 @@ export function SaveAsCollectionDialog({
   const submit = async () => {
     const finalName = name.trim() || suggested;
     if (!finalName) {
-      toast.error("给这个合集起个名字");
+      toast.error(t("library.collections.nameRequired"));
       return;
     }
     setSaving(true);
@@ -97,26 +102,26 @@ export function SaveAsCollectionDialog({
         snapshot,
         visibility: privateOnly ? "private" : "household",
       });
-      toast.success(`已存为合集「${created.name}」`);
+      toast.success(t("library.collections.savedAs", { name: created.name }));
       onCreated(created);
       onClose();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "存合集失败");
+      toast.error(error instanceof Error ? error.message : t("library.collections.saveError"));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Modal open={open} onClose={onClose} label="存为合集" width="md">
+    <Modal open={open} onClose={onClose} label={t("library.collections.saveAs")} width="md">
       <div className="p-5 max-md:p-4">
-        <h2 className="text-body-lg font-semibold text-[var(--text-strong)]">存为合集</h2>
+        <h2 className="text-body-lg font-semibold text-[var(--text-strong)]">{t("library.collections.saveAs")}</h2>
         <p className="mt-1 text-sub text-[var(--text-muted)]">
-          {total === null ? "正在数当前条件命中多少部…" : `当前条件命中 ${total} 部`}
+          {total === null ? t("library.collections.counting") : t("library.collections.matchCount", { count: total })}
         </p>
 
         <label className="mt-4 block">
-          <span className="text-caption text-[var(--text-faint)]">名字</span>
+          <span className="text-caption text-[var(--text-faint)]">{t("library.collections.name")}</span>
           <input
             value={name}
             autoFocus
@@ -124,7 +129,7 @@ export function SaveAsCollectionDialog({
               setTouched(true);
               setName(e.target.value);
             }}
-            placeholder={suggested || "合集名"}
+            placeholder={suggested || t("library.collections.nameLabel")}
             className="mt-1 h-9 w-full rounded-lg bg-white/[0.06] px-3 text-ui text-[var(--text-strong)] outline-none ring-1 ring-white/10 focus:ring-white/25"
           />
         </label>
@@ -133,14 +138,14 @@ export function SaveAsCollectionDialog({
           <ModeOption
             selected={!snapshot}
             onSelect={() => setSnapshot(false)}
-            title="自动收录"
-            detail="以后新入库的片，只要符合这组条件就会自己进来。"
+            title={t("library.collections.autoAdd")}
+            detail={t("library.collections.autoAddHint")}
           />
           <ModeOption
             selected={snapshot}
             onSelect={() => setSnapshot(true)}
-            title={total === null ? "固定现在这批" : `固定现在这 ${total} 部`}
-            detail="就留下此刻这些，之后不再变化。"
+            title={total === null ? t("library.collections.freeze") : t("library.collections.freezeCount", { count: total })}
+            detail={t("library.collections.freezeHint")}
           />
         </div>
 
@@ -151,7 +156,7 @@ export function SaveAsCollectionDialog({
             onChange={(e) => setPrivateOnly(e.target.checked)}
             className="size-4 accent-white/80"
           />
-          只有我可见
+          {t("library.collections.private")}
         </label>
 
         <div className="mt-5 flex justify-end gap-2">
@@ -160,7 +165,7 @@ export function SaveAsCollectionDialog({
             onClick={onClose}
             className="h-9 rounded-full px-4 text-ui text-[var(--text-muted)] hover:bg-white/10"
           >
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -168,7 +173,7 @@ export function SaveAsCollectionDialog({
             onClick={submit}
             className="btn-glass h-9 px-4 text-ui font-medium disabled:opacity-50"
           >
-            {saving ? "保存中…" : "存为合集"}
+            {saving ? t("library.collections.saving") : t("library.collections.saveAs")}
           </button>
         </div>
       </div>
@@ -212,7 +217,8 @@ function ModeOption({
  * 「878」「JP」这种东西，而用户手一快就会存下一个叫「878」的合集。跳过的
  * 结果是建议名先空着（输入框显示占位），facet 一到就自己补上。
  */
-function summarize(filter: LibraryFilter, facets: LibraryFacets | null): string {
+function summarize(filter: LibraryFilter, facets: LibraryFacets | null, locale: AppLocale): string {
+  const t = appTranslator(locale);
   const labelOf = (pool: { value: string; label: string }[] | undefined, value: string) =>
     pool?.find((row) => row.value === value)?.label;
   const parts: (string | undefined)[] = [];
@@ -221,7 +227,7 @@ function summarize(filter: LibraryFilter, facets: LibraryFacets | null): string 
   for (const decade of filter.decades ?? []) parts.push(labelOf(facets?.decades, decade));
   if (filter.watch) parts.push(labelOf(facets?.watch, filter.watch));
   if (filter.ratingGte !== undefined && filter.ratingGte !== null) {
-    parts.push(`${filter.ratingGte} 分以上`);
+    parts.push(t("library.collections.ratingMinimum", { rating: filter.ratingGte }));
   }
   // 画质的取值本身就是人话（"2160p"），不必等 facet
   for (const value of filter.resolutions ?? []) parts.push(value);

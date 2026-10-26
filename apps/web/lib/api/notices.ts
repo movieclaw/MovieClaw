@@ -1,4 +1,5 @@
 import { request } from "@/lib/http";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
 interface ApiEnvelope<T> {
@@ -34,6 +35,9 @@ export interface SystemNotice {
   source: NoticeSource;
   title: string;
   message: string;
+  title_key?: string | null;
+  message_key?: string | null;
+  message_params?: Record<string, unknown> | null;
   /** deep-link 参数：subscription_id / entry_path / downloader_id / site_id */
   payload: Record<string, unknown>;
   created_at: string;
@@ -41,8 +45,8 @@ export interface SystemNotice {
 }
 
 /** 列出全部活跃的待处理事项（error 在前，新的在前；空数组 = 一切正常） */
-export async function fetchActiveNotices(): Promise<SystemNotice[]> {
-  return unwrap(request<ApiEnvelope<SystemNotice[]>>("/system/notices"));
+export async function fetchActiveNotices(locale?: AppLocale): Promise<SystemNotice[]> {
+  return unwrap(request<ApiEnvelope<SystemNotice[]>>("/system/notices", locale ? { headers: { "Accept-Language": locale } } : undefined));
 }
 
 /** 忽略一条事项（问题仍在也不再提示；问题消失时服务端仍会自动清场） */

@@ -1,4 +1,5 @@
 import { HttpError, request } from "@/lib/http";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
 interface ApiEnvelope<T> {
@@ -96,8 +97,10 @@ export interface CloudStatusView {
   notices: CloudNotice[];
 }
 
-export function getCloudStatus(): Promise<CloudStatusView> {
-  return unwrap(request<ApiEnvelope<CloudStatusView>>("/cloud"));
+export function getCloudStatus(locale?: AppLocale): Promise<CloudStatusView> {
+  return unwrap(request<ApiEnvelope<CloudStatusView>>("/cloud", locale ? {
+    headers: { "Accept-Language": locale },
+  } : undefined));
 }
 
 /** 开始连接：服务端去云端申请配对码，之后在后台轮询。已连接时 409。 */

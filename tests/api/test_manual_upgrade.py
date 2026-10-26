@@ -11,6 +11,8 @@ from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n import use_locale
+from movieclaw_api.i18n.stored import stored_message
 from movieclaw_api.services.subscription.manual_grab import grab_manual
 from movieclaw_api.services.subscription.upgrade import verify_upgrades
 from movieclaw_db.engine import dispose_db, get_database, init_db
@@ -155,7 +157,16 @@ async def test_manual_grab_upgrades_imported_unit(db, tmp_path):
                 )
             ).scalars()
         )
-        assert any(a.type == ActivityType.UPGRADE_GRABBED for a in activities)
+        grabbed = next(a for a in activities if a.type == ActivityType.UPGRADE_GRABBED)
+        # 中文原文照旧落库；读者按自己的语言看到同一句话
+        assert grabbed.message.startswith("S01E01发现更高版本，已提交洗版下载：来自 site-a 的")
+        assert grabbed.message.endswith("——模拟投递，未真实提交下载器")
+        with use_locale("en"):
+            english = stored_message(
+                grabbed.message, grabbed.message_key, grabbed.message_params
+            )
+        assert english.startswith("S01E01: found a better version and submitted an upgrade")
+        assert english.endswith("(simulated; nothing was sent to the downloader)")
 
 
 @pytest.mark.asyncio

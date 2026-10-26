@@ -1,0 +1,29 @@
+{
+  "center.title": {
+    "sourceHash": "d5e323f41c933529727c2d64c216246e0a87ed3aefc2bb482c15a8d27c86e6d6"
+  },
+  "center.ignore": {
+    "sourceHash": "6e90ac940752ebf13ab2d29a0d0d635ea9596d2e6d112962644b3d3dcb364eee"
+  },
+  "center.resolve": {
+    "sourceHash": "a7e9f67714eda05cc5ae32dd73a8f9b3a4d43ff4ea46760388c3242b0ed5a359"
+  },
+  "center.description": {
+    "sourceHash": "bdd81dd824b90c17a336767dbaa3202c1db47629a721a7adcad5ce10a8d6be82"
+  },
+  "center.countTitle": {
+    "sourceHash": "57bed6fb0def424b136eb9e0388730a9576d70d80e6d8f0e4514e26ba3bf953a"
+  },
+  "center.countShort": {
+    "sourceHash": "5e5ada3c3af40fa9c36b2eb6ce76b21056f4c849231a985da299583a1490ef8a"
+  },
+  "center.pending": {
+    "sourceHash": "999a459c3f3f2d1694440efc4afb9c9342069e0e4ee375b7dea943a28931283a"
+  },
+  "update.appVersion": {
+    "sourceHash": "b93b3a6fa59086c05e0a8a2ecfe6ae0f0e0a86c297ccdf60e013329d455d61aa"
+  },
+  "update.modelVersion": {
+    "sourceHash": "f2a423ce885bc7b86fcdc17be36e1daa12db36c38e275b28a70773e27b18bd60"
+  }
+}

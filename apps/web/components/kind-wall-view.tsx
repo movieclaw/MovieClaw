@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { Route } from "next";
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 
 import { WallLoadMore } from "@/components/wall-chrome";
 import { WallSortControl } from "@/components/library-filter-bar";
@@ -15,13 +18,14 @@ import {
   getKindSummary,
   listKindItems,
 } from "@/lib/api/libraries";
-import { GENRE_LABELS } from "@/lib/genre-labels";
-import { MEDIA_KIND_LABELS } from "@/lib/home-rows";
+import { genreLabels } from "@/lib/genre-labels";
+import { homeMediaKindLabels } from "@/lib/home-rows";
 import type { LibraryFilter } from "@/lib/library-filter";
 import {
   PREF_TO_SORT,
   SORT_DIRECTIONS,
-  SORT_PREF_LABELS,
+  sortPrefLabels,
+  sortDirections,
   orderParam,
   useWallSortPref,
   type WallSortPref,
@@ -37,13 +41,14 @@ const PAGE_SIZE = 60;
  * 进来之后顺序不该变。其余档与单库墙同一套（服务端也是同一份实现）；其他视频
  * 没有评分与上映时间，列出来只会排出一面按 id 的墙，按类型裁掉。
  */
-function sortOptions(kind: HomeMediaKind): readonly (readonly [WallSortPref, string])[] {
+function sortOptions(kind: HomeMediaKind, locale?: AppLocale): readonly (readonly [WallSortPref, string])[] {
+  const t = appTranslator(locale);
   const skip = new Set<string>(
     kind === "video" ? ["added_at", "rating", "release_date"] : ["added_at"],
   );
   return [
-    ["default", "最近添加"],
-    ...(Object.entries(SORT_PREF_LABELS) as [WallSortPref, string][]).filter(
+    ["default", t("library.sort.recentAdded")],
+    ...(Object.entries(sortPrefLabels(locale)) as [WallSortPref, string][]).filter(
       ([key]) => !skip.has(key),
     ),
   ];
@@ -80,9 +85,12 @@ const snapshots = new Map<string, KindWallSnapshot>();
  * 标题是类型名。
  */
 export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: number }) {
-  const genreName = genre === undefined ? null : (GENRE_LABELS[genre] ?? `类型 ${genre}`);
-  const label = genreName ?? `全部${MEDIA_KIND_LABELS[kind]}`;
-  usePageTitle(genreName ? `${genreName} · ${MEDIA_KIND_LABELS[kind]}` : label);
+  const locale = useLocale();
+  const t = useTranslations();
+  const kindLabels = homeMediaKindLabels(locale);
+  const genreName = genre === undefined ? null : (genreLabels(locale)[genre] ?? t("library.kindWall.genreUnknown", { id: genre }));
+  const label = genreName ?? t("library.kindWall.all", { kind: kindLabels[kind] });
+  usePageTitle(genreName ? t("library.kindWall.genreTitle", { genre: genreName, kind: kindLabels[kind] }) : label);
   const wallKey = genre === undefined ? kind : `${kind}:${genre}`;
   const filter: LibraryFilter | undefined = genre === undefined ? undefined : { genres: [genre] };
   // ref 版：load / reload 回调里读，不必为它重建回调链（genre 变了组件会整个重挂，见 page.tsx）
@@ -210,30 +218,30 @@ export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: num
 
   return (
     <div ref={restoreScrollRef} className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-10">
-      <PageNav title={label} fallback={{ label: "媒体库", href: "/library" as Route }} />
+      <PageNav title={label} fallback={{ label: t("nav.main.library"), href: "/library" as Route }} />
       <div className="page-inset">
         <h2 className="text-on-image truncate text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[20px]">
           {label}
         </h2>
         <p className="text-on-image mt-1.5 truncate text-ui text-[var(--text-muted)] max-md:text-sub">
           {items === null
-            ? "正在读取…"
+            ? t("library.customize.loading")
             : libraryCount === 0
-              ? `还没有可浏览的${MEDIA_KIND_LABELS[kind]}库`
+              ? t("library.kindWall.noLibrary", { kind })
               : genre === undefined
-                ? `${total} 部作品 · 来自 ${libraryCount} 个库，同一部片只算一次`
-                : `${total} 部${MEDIA_KIND_LABELS[kind]} · 来自 ${libraryCount} 个库`}
+                ? t("library.kindWall.summary", { count: total, libraries: libraryCount })
+                : t("library.kindWall.genreSummary", { count: total, kind, libraries: libraryCount })}
         </p>
         {!empty && items !== null && (
           <div className="mt-3 flex items-center">
             <WallSortControl
               value={sortPref}
-              options={sortOptions(kind)}
+              options={sortOptions(kind, locale)}
               onChange={setSortPref}
               disabled={!sortReady}
               direction={{
                 ascending: sortAscending,
-                label: SORT_DIRECTIONS[effectiveSort][sortAscending ? "asc" : "desc"],
+                label: sortDirections(locale)[effectiveSort][sortAscending ? "asc" : "desc"],
                 onToggle: toggleSortReversed,
               }}
             />
@@ -242,13 +250,13 @@ export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: num
 
         {failed && items === null && (
           <div className="mt-16 flex flex-col items-center gap-3 text-center">
-            <p className="text-ui text-[var(--text-muted)]">加载失败</p>
+            <p className="text-ui text-[var(--text-muted)]">{t("library.kindWall.loadFailed")}</p>
             <button
               type="button"
               onClick={() => void load(0)}
               className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
             >
-              重试
+              {t("common.retry")}
             </button>
           </div>
         )}

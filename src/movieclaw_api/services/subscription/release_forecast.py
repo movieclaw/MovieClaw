@@ -51,6 +51,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from sqlmodel import select
 
 from movieclaw_api.services.subscription.matching import (
+    EARLY_RELEASE_TOLERANCE,
     load_season_titles,
     publish_calendar_date,
     to_candidate,
@@ -89,7 +90,7 @@ _ROBUST_BACKTEST_EPISODES = 5
 _MAX_WINDOW = timedelta(hours=12)
 # 偏离中位超过它的样本视为播出日异常（TMDB 日期错、首播打包发），不参与预测
 _DATE_ANOMALY = timedelta(hours=12)
-_EARLY_RELEASE_TOLERANCE = timedelta(days=2)
+_EARLY_RELEASE_TOLERANCE = EARLY_RELEASE_TOLERANCE  # 与下载覆盖判定同一口径
 _LATE_RELEASE_TOLERANCE = timedelta(days=7)
 # 首选站探测。stable：相对预测点的分钟偏移，预测点前后每 5 分钟、之后逐步拉开——
 # 稳定剧集的残差是尖峰（四分位 -5～+27 分钟），探测要花在尖峰上而不是均匀铺满窗口
@@ -372,10 +373,9 @@ def _first_snapshot(forecast: dict[str, Any]) -> dict[str, Any]:
 def _same_forecast(left: dict[str, Any], right: dict[str, Any]) -> bool:
     """忽略生成时间、冻结副本与事后评估，只比较会影响调度的预测结论。"""
     ignored = {"generated_at", "first", "evaluation"}
-    return (
-        {key: value for key, value in left.items() if key not in ignored}
-        == {key: value for key, value in right.items() if key not in ignored}
-    )
+    return {key: value for key, value in left.items() if key not in ignored} == {
+        key: value for key, value in right.items() if key not in ignored
+    }
 
 
 # 观测只用得上这几列（to_candidate 的输入 + 观测的 id/站点/发布时间）：按列取 Core 行
@@ -707,13 +707,20 @@ def _describe_forecast(item: MediaItem, wanted: WantedItem, forecast: dict[str, 
     for name, entry in forecast.get("experiments", {}).items():
         shadow_at = _parse_utc_text(entry.get("predicted_at"))
         if shadow_at is not None:
+            # i18n-ignore: forecast log summary
             shadows.append(f"{name}={round((shadow_at - predicted).total_seconds() / 60):+d}分")
+    # i18n-ignore: forecast log summary
     sites = "、".join(site["site_id"] for site in forecast["sites"][:2]) or "无"
     return (
+        # i18n-ignore: forecast log summary
         f"《{item.title}》S{wanted.season_number:02d}E{wanted.episode_number:02d} "
+        # i18n-ignore: forecast log summary
         f"预测 {_local_text(predicted)}（窗口 {_local_text(start)}～{_local_text(end)}，"
+        # i18n-ignore: forecast log summary
         f"{forecast['confidence']}，样本 {forecast['basis_units']}，"
+        # i18n-ignore: forecast log summary
         f"当日第 {forecast['slot'] + 1} 集），首探 {sites}；"
+        # i18n-ignore: forecast log summary
         f"影子相对偏差 {' '.join(shadows) or '无'}"
     )
 
@@ -887,9 +894,12 @@ def _describe_evaluation(item: MediaItem, wanted: WantedItem, evaluation: dict[s
 
     def scored(score: object) -> str:
         if not isinstance(score, dict):
+            # i18n-ignore: forecast log summary
             return "无"
         hit = score.get("in_window")
+        # i18n-ignore: forecast log summary
         mark = "" if hit is None else ("窗内" if hit else "窗外")
+        # i18n-ignore: forecast log summary
         return f"{score['error_minutes']:+d}分{mark}"
 
     shadows = " ".join(
@@ -899,17 +909,26 @@ def _describe_evaluation(item: MediaItem, wanted: WantedItem, evaluation: dict[s
     grabbed = evaluation.get("grabbed_minutes")
     top = evaluation.get("top_site")
     top_text = (
+        # i18n-ignore: forecast log summary
         f"首探 {top} {scored(evaluation.get('top_site_score'))}"
         if evaluation.get("top_site_published")
+        # i18n-ignore: forecast log summary
         else f"首探 {top} 未发"
     )
     return (
+        # i18n-ignore: forecast log summary
         f"《{item.title}》S{wanted.season_number:02d}E{wanted.episode_number:02d}："
+        # i18n-ignore: forecast log summary
         f"实际首发 {_local_text(actual)}（{evaluation['first_site']}，共 "
+        # i18n-ignore: forecast log summary
         f"{evaluation['site_count']} 站），{evaluation['algorithm']} 误差 "
+        # i18n-ignore: forecast log summary
         f"{scored(evaluation)}（{evaluation['confidence']}），首次预测 "
+        # i18n-ignore: forecast log summary
         f"{scored(evaluation.get('first_forecast'))}；{top_text}；发现延迟 "
+        # i18n-ignore: forecast log summary
         f"{'未知' if discovery is None else f'{discovery} 分'}，投递 "
+        # i18n-ignore: forecast log summary
         f"{'未投递' if grabbed is None else f'{grabbed} 分'}；影子 {shadows or '无'}"
     )
 

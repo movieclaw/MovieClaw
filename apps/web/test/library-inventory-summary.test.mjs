@@ -120,3 +120,19 @@ test("缺季或单季缺集均优先提示补齐", () => {
     "backfill",
   );
 });
+
+test("English inventory summaries keep single, partial, complete and special counts distinct", () => {
+  const cases = [
+    [{}, "All 8 seasons · 64 episodes"],
+    [{ season_count: 1, all_seasons_owned: false, episode_count: 1 }, "1 season · 1 episode"],
+    [{ season_number: 1, episode_count: 3, total_episode_count: 10 }, "Season 1 · 3/10 episodes"],
+    [{ season_number: 0, episode_count: 1, all_episodes_owned: true }, "Specials · 1 episode (complete)"],
+    [{ all_episodes_owned: true }, "All 8 seasons · All 64 episodes"],
+  ];
+  for (const [input, expected] of cases) {
+    const value = summary(input);
+    const before = structuredClone(value);
+    assert.equal(formatLibraryInventorySummary(value, "en"), expected);
+    assert.deepEqual(value, before);
+  }
+});

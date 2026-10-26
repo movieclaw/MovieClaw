@@ -189,6 +189,7 @@ async def _member_id(username: str) -> int:
             await session.execute(select(Member).where(Member.username == username))
         ).scalar_one_or_none()
     if member is None or member.id is None:
+        # i18n-ignore: developer error
         raise LookupError(f"插件配置的 act_as 成员不存在：{username}")
     return member.id
 
@@ -225,8 +226,10 @@ class OpsClient:
 
         op = self._index.get(operation_id)
         if op is None:
+            # i18n-ignore: developer error
             raise OpsError(404, "UNKNOWN_OPERATION", f"没有这个操作：{operation_id}")
         if getattr(op, "stream", False):
+            # i18n-ignore: developer error
             raise OpsError(400, "STREAM_OPERATION", f"{operation_id} 是流式操作，请用 stream()")
         try:
             path, query, body = build_request(op, arguments or {})

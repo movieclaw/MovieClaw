@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.schemas.playback import (
     ActiveFileDownloadView,
     ActivePlaybackSessionView,
@@ -238,7 +240,7 @@ async def _member_names(session: AsyncSession, member_ids: set[int]) -> dict[int
         names[0] = account.username
     if -1 in member_ids:
         # docs/design/media-share.md §4.5：分享出去的影片被不登录的人播放
-        names[-1] = "分享访客"
+        names[-1] = t("activity.playbackLabels.shareGuest")
     real_ids = {i for i in member_ids if i > 0}
     if real_ids:
         for member in (
@@ -246,7 +248,7 @@ async def _member_names(session: AsyncSession, member_ids: set[int]) -> dict[int
         ).scalars():
             names[member.id] = member.username
     for member_id in member_ids:
-        names.setdefault(member_id, f"成员 #{member_id}")
+        names.setdefault(member_id, t("activity.playbackLabels.member", id=member_id))
     return names
 
 
@@ -277,11 +279,11 @@ def _delivery_view(transcode, *, streaming: bool) -> PlaybackDeliveryView | None
     if not streaming:
         return None
     if transcode is None:
-        return PlaybackDeliveryView(mode="direct", label="直连")
+        return PlaybackDeliveryView(mode="direct", label=t("player.delivery.direct"))
     from movieclaw_api.services.playback.hwprobe import BACKEND_LABELS
 
     plan = transcode.plan
-    reason = plan.reason or None
+    reason = render_value(plan.reason) or None
     if plan.video.action == "transcode":
         parts = []
         if plan.video.height:
@@ -291,29 +293,47 @@ def _delivery_view(transcode, *, streaming: bool) -> PlaybackDeliveryView | None
             parts.append(_VIDEO_CODEC_LABELS.get(codec.lower(), codec.upper()))
         if plan.video.bitrate_cap_bps:
             parts.append(f"{plan.video.bitrate_cap_bps / 1_000_000:.0f} Mbps")
-        backend = BACKEND_LABELS.get(transcode.hw_backend or "", transcode.hw_backend)
+        backend = render_value(
+            BACKEND_LABELS.get(transcode.hw_backend or "", transcode.hw_backend)
+        )
         if transcode.remote:
-            label = "远程转码"
+            execution_kind = "remote"
+            label = t("player.delivery.remote")
             worker = transcode.remote_worker_id
-            where = f"远程 Worker「{worker}」" if worker else "远程 Worker"
+            where = (
+                t("player.delivery.workerNamed", worker=worker)
+                if worker
+                else t("player.delivery.worker")
+            )
             executor = f"{where} · {backend}" if backend else where
         elif transcode.hw_backend:
-            label, executor = "硬件转码", f"NAS · {backend}"
+            execution_kind = "hardware"
+            label, executor = t("player.delivery.hardware"), f"NAS · {backend}"
         else:
-            label, executor = "软件转码", "NAS · 软件编码（CPU）"
+            execution_kind = "software"
+            label, executor = t("player.delivery.software"), t("player.delivery.cpu")
         return PlaybackDeliveryView(
-            mode="transcode", label=label, target=" · ".join(parts) or None,
+            mode="transcode", execution_kind=execution_kind, label=label,
+            target=" · ".join(parts) or None,
             executor=executor, reason=reason,
         )
     if plan.audio.action == "transcode":
         target = None
         if plan.audio.codec:
-            downmix = " · 降混立体声" if plan.audio.downmix else ""
-            target = f"音频 → {plan.audio.codec.upper()}{downmix}"
+            downmix = t("player.delivery.downmix") if plan.audio.downmix else ""
+            target = t(
+                "player.delivery.audioTarget", codec=plan.audio.codec.upper(), downmix=downmix
+            )
         return PlaybackDeliveryView(
-            mode="audio", label="音频转码", target=target, executor="NAS", reason=reason
+            mode="audio",
+            label=t("player.delivery.audio"),
+            target=target,
+            executor="NAS",
+            reason=reason,
         )
-    return PlaybackDeliveryView(mode="remux", label="重封装", executor="NAS", reason=reason)
+    return PlaybackDeliveryView(
+        mode="remux", label=t("player.delivery.remux"), executor="NAS", reason=reason
+    )
 
 
 def _transcodes_by_device() -> dict[str, list]:
@@ -562,7 +582,7 @@ async def end_playback(device_id: str) -> int:
     activity.end_device(device_id)
     stopped = stop_device_streams(device_id)
     sessions = await get_session_manager().stop_for_device(
-        device_id, reason="管理员在活动页结束播放"
+        device_id, reason="管理员在活动页结束播放"  # i18n-ignore: log
     )
     logger.info(
         "管理员已结束设备「%s」的播放：停止 %d 条取流、%d 个转码会话",

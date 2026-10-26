@@ -110,7 +110,7 @@ def client(tmp_path, monkeypatch):
 
     monkeypatch.setattr(routes, "get_tmdb_client", _fake_tmdb)
     app = create_app()
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as test_client:
         response = test_client.post(
             "/api/v1/auth/bootstrap",
             json={"username": "admin", "password": "s3cret-pass"},
@@ -308,16 +308,17 @@ def test_today_arrivals_week_window_and_recent_arrivals_contract(client: TestCli
     week = client.get("/api/v1/subscriptions/today-arrivals", params={"window": "week"})
     assert week.status_code == 200, week.text
     assert [row["media_title"] for row in week.json()["data"]] == ["今日更新剧集"]
-    assert client.get(
-        "/api/v1/subscriptions/today-arrivals", params={"window": "month"}
-    ).status_code == 422
+    assert (
+        client.get("/api/v1/subscriptions/today-arrivals", params={"window": "month"}).status_code
+        == 422
+    )
 
     recent = client.get("/api/v1/subscriptions/recent-arrivals")
     assert recent.status_code == 200, recent.text
     assert recent.json()["data"] == []
-    assert client.get(
-        "/api/v1/subscriptions/recent-arrivals", params={"days": 0}
-    ).status_code == 422
+    assert (
+        client.get("/api/v1/subscriptions/recent-arrivals", params={"days": 0}).status_code == 422
+    )
 
     listed = client.get("/api/v1/subscriptions")
     assert listed.status_code == 200, listed.text
@@ -373,8 +374,7 @@ def test_removal_preview_reports_nothing_to_clean_for_fresh_subscription(
 
     # 勾了清理但确实无可清理内容时不建空任务
     deleted = client.delete(
-        f"/api/v1/subscriptions/{subscription_id}"
-        "?delete_torrents=true&delete_library_files=true"
+        f"/api/v1/subscriptions/{subscription_id}?delete_torrents=true&delete_library_files=true"
     )
     assert deleted.status_code == 200, deleted.text
     assert deleted.json()["data"]["cleanup_job_id"] is None

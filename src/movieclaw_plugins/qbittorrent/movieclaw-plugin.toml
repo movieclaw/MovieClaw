@@ -1,11 +1,13 @@
 [plugin]
 id = "qbittorrent-downloader"
 title = "qBittorrent 下载器"
+title_localized = { en = "qBittorrent downloader" }
 version = "1.0.0"
 entry = "qbittorrent_downloader"
 runtime = "process"
 sdk = "^1.0"
 description = "接入 qBittorrent：提交、查询、删除下载任务，同步做种状态"
+description_localized = { en = "Connect qBittorrent to submit, query and remove download tasks and synchronize seeding status." }
 
 [requires]
 "downloader-adapters" = "^1.0"

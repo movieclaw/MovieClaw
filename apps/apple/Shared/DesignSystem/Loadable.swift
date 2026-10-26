@@ -61,7 +61,7 @@ struct AsyncContent<Value, Content: View>: View {
 
 /// 失败态：图标 + 后端原因 + 重试
 struct ErrorState: View {
-    var title: String = "加载失败"
+    var title: String = String(localized: .commonLoadFailed)
     let message: String
     var retry: (() async -> Void)?
     var extra: (title: String, action: () -> Void)?
@@ -78,7 +78,7 @@ struct ErrorState: View {
                     retrying = true
                     Task { await retry(); retrying = false }
                 } label: {
-                    if retrying { ProgressView() } else { Text("重试") }
+                    if retrying { ProgressView() } else { Text(String(localized: .commonRetry)) }
                 }
                 .buttonStyle(.glass)
                 .disabled(retrying)

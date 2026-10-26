@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 
 import type { MediaSearchItem } from "@/lib/api/discover";
 import { searchTitles } from "@/lib/api/search";
@@ -31,14 +32,15 @@ import {
 
 /** 规则设置分区浏览，不改变订阅使用的模式；保留切换前未保存的表单。 */
 export function SubscriptionSettingsSection() {
+  const t = useTranslations();
   const [tab, setTab] = useState<"smart" | "rules">("smart");
   const [previewOpen, setPreviewOpen] = useState(false);
   const tabId = useId();
-  const tabs = [{ id: "smart", label: "智能选择", Icon: SparklesIcon }, { id: "rules", label: "自定义规则", Icon: ListIcon }] as const;
+  const tabs = [{ id: "smart", label: t("settings.subscription.smartTab"), Icon: SparklesIcon }, { id: "rules", label: t("settings.subscription.rulesTab"), Icon: ListIcon }] as const;
 
   return (
     <div className="space-y-6">
-      <div role="tablist" aria-label="订阅规则设置" className="grid grid-cols-2 border-b border-[var(--line)]">
+      <div role="tablist" aria-label={t("settings.subscription.tabsLabel")} className="grid grid-cols-2 border-b border-[var(--line)]">
         {tabs.map(({ id, label, Icon }, index) => (
           <button key={id} type="button" role="tab" id={`${tabId}-${id}`} aria-controls={`${tabId}-${id}-panel`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1}
             onClick={() => setTab(id)}
@@ -67,19 +69,19 @@ export function SubscriptionSettingsSection() {
 
 /** 状态 → 颜色/文案（节点、检查项、库行共用一套语义）。 */
 const STATUS_META = {
-  ok: { dot: "bg-[var(--ok)]", text: "text-[var(--ok)]", label: "正常" },
-  warn: { dot: "bg-[var(--warn)]", text: "text-[var(--warn)]", label: "降级" },
-  error: { dot: "bg-[var(--danger)]", text: "text-[var(--danger)]", label: "有问题" },
+  ok: { dot: "bg-[var(--ok)]", text: "text-[var(--ok)]", label: "subscription.pipeline.ok" },
+  warn: { dot: "bg-[var(--warn)]", text: "text-[var(--warn)]", label: "subscription.pipeline.warn" },
+  error: { dot: "bg-[var(--danger)]", text: "text-[var(--danger)]", label: "subscription.pipeline.error" },
 } as const;
 
 type Status = keyof typeof STATUS_META;
 
 /** 修复去处 → 跳转地址与文案。 */
-function fixTarget(section: string | null): { href: string; label: string } | null {
-  if (section === "sites") return { href: "/settings/sites", label: "去接入站点" };
-  if (section === "downloaders") return { href: "/settings/downloaders", label: "去下载器设置" };
-  if (section === "import-watch") return { href: "/settings/import-watch", label: "去自动入库" };
-  if (section === "libraries") return { href: "/library", label: "去媒体库" };
+function fixTarget(section: string | null): { href: string; label: "subscription.pipeline.goSites" | "subscription.pipeline.goDownloaders" | "subscription.pipeline.goWatch" | "subscription.pipeline.goLibraries" } | null {
+  if (section === "sites") return { href: "/settings/sites", label: "subscription.pipeline.goSites" };
+  if (section === "downloaders") return { href: "/settings/downloaders", label: "subscription.pipeline.goDownloaders" };
+  if (section === "import-watch") return { href: "/settings/import-watch", label: "subscription.pipeline.goWatch" };
+  if (section === "libraries") return { href: "/library", label: "subscription.pipeline.goLibraries" };
   return null;
 }
 
@@ -102,22 +104,28 @@ function worst(statuses: Status[]): Status {
 // ---------------------------------------------------------------------------
 
 export function PipelineHealthPanel() {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const [health, setHealth] = useState<PipelineHealth | null>(null);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const reloadId = useRef(0);
 
   const reload = useCallback(() => {
+    const id = ++reloadId.current;
     setFailed(false);
     setBusy(true);
     checkSubscriptionAutomationReadiness()
-      .then(setHealth)
-      .catch(() => setFailed(true))
-      .finally(() => setBusy(false));
+      .then((result) => { if (id === reloadId.current) setHealth(result); })
+      .catch(() => { if (id === reloadId.current) setFailed(true); })
+      .finally(() => { if (id === reloadId.current) setBusy(false); });
   }, []);
 
   useEffect(() => {
     reload();
-  }, [reload]);
+    return () => { reloadId.current += 1; };
+  }, [reload, locale]);
 
   // 修完配置回到本页自动重检：修复 → 回来 → 变绿的反馈闭环
   useEffect(() => {
@@ -144,11 +152,11 @@ export function PipelineHealthPanel() {
 
   return (
     <SettingsSection
-      title="订阅链路体检"
+      title={t("subscription.pipeline.title")}
       description={
         setupNeeded
-          ? "把订阅跑起来需要三步，完成后这里会变成链路体检。"
-          : "逐库预演「资源搜索 → 下载 → 投递 → 入库」的完整链路，与真实投递同一套判定。红点表示订阅会卡在那一步（工单不会丢，修好后自动重试）；黄点能转但有降级。修改配置后回到本页会自动重检。"
+          ? t("subscription.pipeline.setupHint")
+          : t("subscription.pipeline.description")
       }
       action={
         <button
@@ -160,20 +168,17 @@ export function PipelineHealthPanel() {
           {busy && (
             <span className="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
           )}
-          重新体检
-        </button>
+          {t("subscription.pipeline.reload")}</button>
       }
     >
       {failed && (
         <p className="rounded-xl bg-white/[0.03] px-4 py-5 text-center text-ui text-[var(--text-muted)]">
-          体检加载失败，请重试
-        </p>
+          {t("subscription.pipeline.failed")}</p>
       )}
       {health === null && !failed && (
         <p className="flex items-center gap-2.5 rounded-xl bg-white/[0.03] px-4 py-5 text-ui text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在体检…
-        </p>
+          {t("subscription.pipeline.loading")}</p>
       )}
 
       {health !== null && setupNeeded && <SetupChecklist health={health} />}
@@ -203,27 +208,29 @@ export function PipelineHealthPanel() {
  * 全部配齐后本清单自动让位给正常体检，同一页面从第一天用到第一百天。
  */
 function SetupChecklist({ health }: { health: PipelineHealth }) {
+  const t = useTranslations();
+
   const steps: { done: boolean; label: string; hint: string; href: string; action: string }[] = [
     {
       done: health.sites_configured,
-      label: "接入资源站点",
-      hint: "订阅从这里搜索资源",
+      label: t("subscription.pipeline.connectSites"),
+      hint: t("subscription.pipeline.sitesHint"),
       href: "/settings/sites",
-      action: "去接入",
+      action: t("subscription.pipeline.connect"),
     },
     {
       done: health.downloaders_configured,
-      label: "接入下载器",
-      hint: "qBittorrent / Transmission，找到的资源交给它下载",
+      label: t("subscription.pipeline.connectDownloader"),
+      hint: t("subscription.pipeline.downloaderHint"),
       href: "/settings/downloaders",
-      action: "去接入",
+      action: t("subscription.pipeline.connect"),
     },
     {
       done: health.libraries.length > 0,
-      label: "创建媒体库",
-      hint: "内容的家：下载完成后按「标题 (年份)」整理进库",
+      label: t("subscription.pipeline.createLibrary"),
+      hint: t("subscription.pipeline.libraryHint"),
       href: "/library",
-      action: "去创建",
+      action: t("subscription.pipeline.create"),
     },
   ];
   return (
@@ -257,9 +264,7 @@ function SetupChecklist({ health }: { health: PipelineHealth }) {
         ))}
       </SettingsList>
       <p className="mt-2 px-1 text-caption leading-5 text-[var(--text-faint)]">
-        可选第四步：「自动入库」让下载区与媒体库分离（PT 保种推荐）——下载器落盘的
-        内容自动硬链接进库，源文件继续做种。不配置则直接下载进库根，同样能自动入账。
-      </p>
+        {t("subscription.pipeline.optionalWatch")}</p>
     </>
   );
 }
@@ -270,10 +275,12 @@ function SetupChecklist({ health }: { health: PipelineHealth }) {
  * 由用户按自己的部署取舍，每个选项讲清做什么/为什么/跳到哪）。
  */
 function IssueCardList({ issues }: { issues: PipelineIssue[] }) {
+  const t = useTranslations();
+
   return (
     <div className="space-y-2.5">
       <p className="text-ui font-medium text-white/90">
-        需要处理 {issues.length} 件事（下方库卡片的红黄点都来自这里）：
+        {t("subscription.pipeline.issueCount", { count: issues.length })}
       </p>
       {issues.map((issue) => (
         <IssueCard key={issue.key + issue.title} issue={issue} />
@@ -283,6 +290,9 @@ function IssueCardList({ issues }: { issues: PipelineIssue[] }) {
 }
 
 function IssueCard({ issue }: { issue: PipelineIssue }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const isError = issue.status === "error";
   return (
     <div
@@ -296,7 +306,7 @@ function IssueCard({ issue }: { issue: PipelineIssue }) {
           <p className="text-ui font-semibold text-white/95">{issue.title}</p>
           {issue.affected_libraries.length > 0 && (
             <p className="mt-1 text-caption text-[var(--text-faint)]">
-              影响 {issue.affected_libraries.length} 个库：{issue.affected_libraries.join("、")}
+              {t("subscription.pipeline.affectedLibraries", { count: issue.affected_libraries.length, names: issue.affected_libraries.join(locale === "zh-Hans" ? "、" : ", ") })}
             </p>
           )}
           <p className="mt-1.5 text-sub leading-relaxed text-[var(--text-muted)]">
@@ -363,13 +373,14 @@ interface FlowNode {
 
 /** 步骤条：节点胶囊 + 连接线，红黄节点自然显眼。 */
 function FlowStepper({ nodes }: { nodes: FlowNode[] }) {
+  const locale = useLocale();
   return (
     <div className="flex flex-wrap items-center gap-y-2">
       {nodes.map((node, i) => (
-        <div key={node.key} className="flex items-center">
+        <div key={node.key} className={`flex items-center ${locale === "en" ? "min-w-0 max-w-full" : ""}`}>
           {i > 0 && <span className="mx-1.5 h-px w-4 shrink-0 bg-white/20" />}
           <div
-            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${
+            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${locale === "en" ? "min-w-0" : ""} ${
               node.status === "ok"
                 ? "border-white/[0.08] bg-white/[0.03]"
                 : node.status === "warn"
@@ -404,18 +415,20 @@ function SharedSegmentsRow({
   /** 已被修复卡聚合的检查项 key：红项文字不再重复（状态点保留） */
   hiddenKeys: Set<string>;
 }) {
+  const t = useTranslations();
+
   const downloaderCheck = health.libraries[0]?.checks.find((c) => c.key === "downloader");
   const nodes: FlowNode[] = [
     {
       key: "sites",
-      label: "资源搜索",
+      label: t("subscription.pipeline.search"),
       sub: null,
       status: health.site_check.status,
       checks: [health.site_check],
     },
     {
       key: "downloader",
-      label: "下载器",
+      label: t("subscription.pipeline.downloader"),
       sub: null,
       status: downloaderCheck?.status ?? (health.downloader_ok ? "ok" : "error"),
       checks: downloaderCheck ? [downloaderCheck] : [],
@@ -428,8 +441,7 @@ function SharedSegmentsRow({
     <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3">
       <div className="flex items-center gap-3">
         <span className="w-24 shrink-0 text-sub text-[var(--text-faint)] max-md:hidden">
-          公共链路
-        </span>
+          {t("subscription.pipeline.shared")}</span>
         <FlowStepper nodes={nodes} />
       </div>
       {problems.length > 0 && <ProblemList checks={problems} />}
@@ -446,6 +458,9 @@ function LibraryPipelineCard({
   /** 已被修复卡聚合的检查项 key：红项文字不再逐库重复（状态点保留） */
   hiddenKeys: Set<string>;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const [showAll, setShowAll] = useState(false);
 
   const byKey = (keys: string[]) => pipeline.checks.filter((c) => keys.includes(c.key));
@@ -458,7 +473,7 @@ function LibraryPipelineCard({
   const nodes: FlowNode[] = [
     {
       key: "dispatch",
-      label: pipeline.mode === "watch" ? "投递到监听目录" : "投递",
+      label: pipeline.mode === "watch" ? t("subscription.pipeline.dispatchWatch") : t("subscription.pipeline.dispatch"),
       sub: pipeline.path,
       status: worst(dispatchChecks.map((c) => c.status)),
       checks: dispatchChecks,
@@ -467,7 +482,7 @@ function LibraryPipelineCard({
   if (pipeline.mode === "watch") {
     nodes.push({
       key: "transfer",
-      label: pipeline.staging_path ? "整理输出" : "转移进库",
+      label: pipeline.staging_path ? t("subscription.pipeline.output") : t("subscription.pipeline.transfer"),
       sub: pipeline.staging_path,
       status: worst(transferChecks.map((c) => c.status)),
       checks: transferChecks,
@@ -478,7 +493,7 @@ function LibraryPipelineCard({
     // （上传/转存/人工确认），movieclaw 不判它的死活，节点仅作说明
     nodes.push({
       key: "external",
-      label: "外部流转",
+      label: t("subscription.pipeline.external"),
       sub: null,
       status: "ok",
       checks: [],
@@ -486,7 +501,7 @@ function LibraryPipelineCard({
   }
   nodes.push({
     key: "ingest",
-    label: pipeline.staging_path ? "回流入账" : "入库",
+    label: pipeline.staging_path ? t("subscription.pipeline.returnIngest") : t("subscription.pipeline.ingest"),
     sub: pipeline.library_root,
     status: ingestError ? "error" : "ok",
     checks: [],
@@ -499,14 +514,14 @@ function LibraryPipelineCard({
 
   return (
     <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3">
-      <div className="flex items-center gap-3">
+      <div className={`flex items-center gap-3 ${locale === "en" ? "max-md:flex-col max-md:items-stretch" : ""}`}>
         <span className="w-24 shrink-0 max-md:hidden">
           <span className="block truncate text-ui font-medium text-white/90">
             {pipeline.library_name}
           </span>
           <span className="block text-caption text-[var(--text-faint)]">
-            {pipeline.kind === "movie" ? "电影" : "剧集"}
-            {pipeline.is_default ? " · 默认" : ""}
+            {pipeline.kind === "movie" ? t("media.kind.movie") : t("media.kind.tv")}
+            {pipeline.is_default ? t("subscription.pipeline.defaultSuffix") : ""}
           </span>
         </span>
         <div className="min-w-0 flex-1">
@@ -521,14 +536,14 @@ function LibraryPipelineCard({
             </p>
           )}
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <span className={`text-sub font-medium ${meta.text}`}>{meta.label}</span>
+        <div className={`flex shrink-0 flex-col items-end gap-1 ${locale === "en" ? "max-md:flex-row max-md:items-center max-md:justify-end max-md:gap-3" : ""}`}>
+          <span className={`text-sub font-medium ${meta.text}`}>{t(meta.label)}</span>
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
             className="text-caption text-[var(--text-faint)] hover:text-white"
           >
-            {showAll ? "收起" : "查看全部"}
+            {showAll ? t("subscription.pipeline.collapse") : t("subscription.feed.seeAll")}
           </button>
         </div>
       </div>
@@ -539,6 +554,8 @@ function LibraryPipelineCard({
 
 /** 检查项明细列表（红黄项默认展示；「查看全部」时含绿项）。 */
 function ProblemList({ checks }: { checks: PipelineCheck[] }) {
+  const t = useTranslations();
+
   return (
     <div className="mt-2.5 space-y-1.5 border-t border-white/[0.06] pt-2.5">
       {checks.map((check) => {
@@ -556,7 +573,7 @@ function ProblemList({ checks }: { checks: PipelineCheck[] }) {
                   href={fix.href as never}
                   className="ml-2 whitespace-nowrap font-medium text-[var(--accent)] hover:underline"
                 >
-                  {fix.label} →
+                  {t(fix.label)} →
                 </Link>
               )}
             </p>
@@ -572,12 +589,16 @@ function ProblemList({ checks }: { checks: PipelineCheck[] }) {
 // ---------------------------------------------------------------------------
 
 function RuleMatchPreview({ onClose }: { onClose: () => void }) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const previewLocale = useRef(locale);
+
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState<MediaSearchItem[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [picked, setPicked] = useState<MediaSearchItem | null>(null);
   const [preview, setPreview] = useState<DispatchPreview | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string } | { key: "subscription.pipeline.searchFailed" | "subscription.pipeline.searchRetry" | "subscription.pipeline.previewFailed" } | null>(null);
   const requestId = useRef(0);
 
   // 关闭或换关键词后，忽略之前搜索与预览的返回结果。
@@ -596,16 +617,16 @@ function RuleMatchPreview({ onClose }: { onClose: () => void }) {
         .then(({ items, providers }) => {
           if (!active) return;
           const failed = providers.find((provider) => !provider.success);
-          if (failed) setError(failed.message ?? "搜索失败，请重试");
+          if (failed) setError(failed.message ? { message: failed.message } : { key: "subscription.pipeline.searchFailed" });
           else setCandidates(items.filter((it) => it.type).slice(0, 6));
         })
-        .catch(() => { if (active) setError("搜索失败，请重新输入片名"); })
+        .catch(() => { if (active) setError({ key: "subscription.pipeline.searchRetry" }); })
         .finally(() => { if (active) setSearching(false); });
     }, 400);
     return () => { active = false; clearTimeout(timer); requestId.current += 1; };
   }, [query]);
 
-  const pick = (item: MediaSearchItem) => {
+  const pick = useCallback((item: MediaSearchItem) => {
     setPicked(item);
     setPreview(null);
     setError(null);
@@ -616,34 +637,40 @@ function RuleMatchPreview({ onClose }: { onClose: () => void }) {
       year: item.year,
     })
       .then((result) => { if (current === requestId.current) setPreview(result); })
-      .catch(() => { if (current === requestId.current) setError("预览失败，请重试"); });
-  };
+      .catch(() => { if (current === requestId.current) setError({ key: "subscription.pipeline.previewFailed" }); });
+  }, []);
+
+  useEffect(() => {
+    if (previewLocale.current === locale) return;
+    previewLocale.current = locale;
+    if (picked) pick(picked);
+  }, [locale, picked, pick]);
 
   return (
-    <Modal open onClose={onClose} label="规则与入库预览" width="lg">
+    <Modal open onClose={onClose} label={t("subscription.pipeline.previewTitle")} width="lg">
       <div className="p-5 sm:p-6">
         <div className="mb-2 flex items-center justify-between gap-3">
-          <h2 className="text-title font-semibold text-[var(--text)]">规则与入库预览</h2>
-          <button type="button" onClick={onClose} aria-label="关闭预览" className="btn-glass -mr-2 grid size-11 shrink-0 place-items-center"><XIcon className="size-5" /></button>
+          <h2 className="text-title font-semibold text-[var(--text)]">{t("subscription.pipeline.previewTitle")}</h2>
+          <button type="button" onClick={onClose} aria-label={t("subscription.pipeline.closePreview")} className="btn-glass -mr-2 grid size-11 shrink-0 place-items-center"><XIcon className="size-5" /></button>
         </div>
-        <p className="mb-4 text-sub leading-relaxed text-[var(--text-muted)]">选择一部作品，查看匹配的自定义规则组与入库位置。仅预览配置，不创建订阅或下载资源。</p>
+        <p className="mb-4 text-sub leading-relaxed text-[var(--text-muted)]">{t("subscription.pipeline.previewHint")}</p>
         <input
           type="search"
-          aria-label="搜索预览作品"
+          aria-label={t("subscription.pipeline.searchLabel")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="输入片名，如：葬送的芙莉莲"
+          placeholder={t("subscription.pipeline.searchPlaceholder")}
           autoComplete="off"
           className={`${SETTINGS_INPUT_CLASS} w-full`}
         />
-        {error && <p role="alert" className="mt-3 text-sub text-[var(--danger)]">{error}{picked && <button type="button" onClick={() => pick(picked)} className="ml-3 underline">重试预览</button>}</p>}
+        {error && <p role="alert" className="mt-3 text-sub text-[var(--danger)]">{"key" in error ? t(error.key) : error.message}{picked && <button type="button" onClick={() => pick(picked)} className="ml-3 underline">{t("subscription.pipeline.retryPreview")}</button>}</p>}
         {searching && (
-          <p className="mt-2 text-sub text-[var(--text-faint)]">正在搜索…</p>
+          <p className="mt-2 text-sub text-[var(--text-faint)]">{t("subscription.pipeline.searching")}</p>
         )}
         {candidates !== null && !searching && !picked && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {candidates.length === 0 && (
-              <p className="text-sub text-[var(--text-faint)]">没有找到条目，换个关键词试试</p>
+              <p className="text-sub text-[var(--text-faint)]">{t("subscription.pipeline.noResults")}</p>
             )}
             {candidates.map((item) => (
               <button
@@ -654,7 +681,7 @@ function RuleMatchPreview({ onClose }: { onClose: () => void }) {
               >
                 {item.title}
                 <span className="ml-1.5 text-[var(--text-faint)]">
-                  {item.year ?? ""} {item.type === "movie" ? "电影" : "剧集"}
+                  {item.year ?? ""} {item.type === "movie" ? t("media.kind.movie") : t("media.kind.tv")}
                 </span>
               </button>
             ))}
@@ -663,10 +690,10 @@ function RuleMatchPreview({ onClose }: { onClose: () => void }) {
         {picked && (
           <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3">
             <p className="text-ui font-medium text-white/90">
-              《{picked.title}》{picked.year ? ` (${picked.year})` : ""}
+              {t("subscription.pipeline.previewPicked", { title: picked.title, hasYear: picked.year ? "yes" : "no", year: picked.year ?? "" })}
             </p>
             {error ? null : preview === null ? (
-              <p className="mt-2 text-sub text-[var(--text-faint)]">正在预演…</p>
+              <p className="mt-2 text-sub text-[var(--text-faint)]">{t("subscription.pipeline.previewing")}</p>
             ) : (
               <div className="mt-2 space-y-1.5">
                 {preview.rule_set_reason && <SimStep n={1} text={preview.rule_set_reason} />}
@@ -674,37 +701,36 @@ function RuleMatchPreview({ onClose }: { onClose: () => void }) {
                   n={preview.rule_set_reason ? 2 : 1}
                   text={
                     preview.route_reason ??
-                    (preview.library_name ? `入库到「${preview.library_name}」` : "没有可用的媒体库")
+                    (preview.library_name ? t("subscription.pipeline.libraryTarget", { name: preview.library_name }) : t("subscription.pipeline.noLibraries"))
                   }
                 />
                 <details className="py-1 text-sub text-[var(--text-muted)]">
-                  <summary className="cursor-pointer py-1">下载与入库详情</summary>
+                  <summary className="cursor-pointer py-1">{t("subscription.pipeline.details")}</summary>
                   <div className="mt-2 space-y-2">
                 <SimStep
                   n={preview.rule_set_reason ? 3 : 2}
                   text={
                     preview.mode === "watch"
                       ? preview.staging_path
-                        ? `投递到自动入库的监听目录 ${preview.path}，下载完成后识别改名并整理到 ${preview.staging_path}`
-                        : `投递到自动入库的监听目录 ${preview.path}，下载完成后自动整理入库`
+                        ? t("subscription.pipeline.watchOutput", { path: preview.path ?? "", target: preview.staging_path })
+                        : t("subscription.pipeline.watchImport", { path: preview.path ?? "" })
                       : preview.mode === "inplace"
                         ? // 条目目录由后端按命名模板渲染，前端不自己拼「标题 (年份)」
-                          `直接下载到库内目录 ${(preview.entry_dir ?? preview.path)?.replace(/\/+$/, "")}，完成后自动入账`
-                        : "落到下载器默认目录（不会自动入库）"
+                          t("subscription.pipeline.directImport", { path: (preview.entry_dir ?? preview.path)?.replace(/\/+$/, "") ?? "" })
+                        : t("subscription.pipeline.defaultDownload")
                   }
                 />
                 {preview.staging_path && (
                   <SimStep
                     n={preview.rule_set_reason ? 4 : 3}
-                    text="等待文件进入媒体库根目录后自动扫描入账（上传/转存等外部流转由你的工具完成）"
+                    text={t("subscription.pipeline.waitExternal")}
                   />
                 )}
                   </div>
                 </details>
                 {preview.ok ? (
                   <p className="flex items-center gap-1.5 pt-1 text-sub font-medium text-[var(--ok)]">
-                    ✓ 规则与入库配置可用
-                  </p>
+                    {t("subscription.pipeline.available")}</p>
                 ) : (
                   <p className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-sub leading-relaxed text-amber-200">
                     {preview.warning}

@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 import movieclaw_api.services.library.units as units_mod
+from movieclaw_api.i18n.stored import source_render
 from movieclaw_api.services.library.layout import explicit_episode
 from movieclaw_api.services.library.units import resolve_units
 from movieclaw_enrich.models import TorrentAttrs
@@ -65,6 +66,29 @@ def test_explicit_episode_rejects_ambiguity_and_noise() -> None:
     assert explicit_episode("Show.S01E02.1080p") is None
 
 
+def test_explicit_episode_chinese_marker() -> None:
+    """issue #996：「第N集/话」与 E01 同样确定；区间与「集团」不误吃。"""
+    assert explicit_episode("海绵宝宝 第01集") == 1
+    assert explicit_episode("海绵宝宝 第01话") == 1
+    assert explicit_episode("某剧 第十二集 国语") == 12
+    assert explicit_episode("海绵宝宝 第1季 第01-02集") is None
+    assert explicit_episode("海绵宝宝 第01集-第02集") is None
+    assert explicit_episode("Show.E03.第04集") is None  # 两种标记互相矛盾
+    assert explicit_episode("第38集团军") is None
+
+
+def test_chinese_unit_in_multi_season_pack_keeps_its_own_season(tmp_path) -> None:
+    """issue #996 实测：台账只认第 1 季时，模型通道会把「第10季 第3集」归成 S1E3。"""
+    _, files = _pack(
+        tmp_path,
+        "海绵宝宝 国语 12季",
+        ["海绵宝宝 第1季 第1集.mp4", "海绵宝宝第10季 第3集_3840x2160_H265.mp4"],
+    )
+    units = resolve_units(files, known_seasons={1})
+    assert (units[files[0]].season, units[files[0]].episode) == (1, 1)
+    assert units[files[1]].episode == 3 and units[files[1]].season != 1
+
+
 # ---------------------------------------------------------------------------
 # issue #185 主场景
 # ---------------------------------------------------------------------------
@@ -104,7 +128,8 @@ def test_hallucinated_season_never_reaches_disk(tmp_path, monkeypatch) -> None:
     unit = resolve_units(files, known_seasons={1, 2})[files[0]]
     assert unit.season is None
     assert unit.episode == 5
-    assert "第 36 季" in (unit.rejected_reason or "")
+    assert unit.rejected_reason is not None
+    assert "第 36 季" in source_render(unit.rejected_reason)
 
 
 def test_model_season_outranks_single_season_ledger(tmp_path, monkeypatch) -> None:
@@ -247,7 +272,8 @@ def test_vetoed_season_without_unique_fallback_stays_pending(tmp_path, monkeypat
     _, files = _pack(tmp_path, "Show Pack", ["Show.Episode.Five.mkv"])
     unit = resolve_units(files, known_seasons={1, 2})[files[0]]
     assert unit.season is None
-    assert "第 36 季" in (unit.rejected_reason or "")
+    assert unit.rejected_reason is not None
+    assert "第 36 季" in source_render(unit.rejected_reason)
 
 
 def test_explicit_pilot_is_not_a_parser_gap(tmp_path) -> None:

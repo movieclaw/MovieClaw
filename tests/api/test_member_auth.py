@@ -48,7 +48,7 @@ def client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     app = create_app()
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
 
     reset_setting_store()
@@ -353,10 +353,14 @@ def test_ui_preferences_isolated_per_member(client: TestClient) -> None:
     _use(client, member_cookie)
     member_draft = dict(admin_prefs)
     member_draft["sidebar"] = {**admin_prefs.get("sidebar", {}), "transparency": 0.33}
+    member_draft["language"] = "en"
     saved = client.put("/api/v1/ui/preferences", json=member_draft)
     assert saved.status_code == 200
     member_prefs = client.get("/api/v1/ui/preferences").json()["data"]
     assert member_prefs["sidebar"]["transparency"] == 0.33
+    assert member_prefs["language"] == "en"
+    legacy = client.put("/api/v1/ui/preferences", json={"theme": "silver"})
+    assert legacy.json()["data"]["language"] == "en"
 
     # 超管的全局配置不受影响
     _use(client, admin_cookie)

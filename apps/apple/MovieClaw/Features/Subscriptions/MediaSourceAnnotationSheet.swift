@@ -23,29 +23,29 @@ struct MediaSourceAnnotationSheet: View {
 
     /// 与后端片源档阶梯同源；user-lowest 是「不确定，按最低档」的显式哨兵
     static let options: [(value: String, label: String, consequence: String, destructive: Bool)] = [
-        ("Remux", "Remux", "原盘无损重封装，可标注的最高档；达到任何洗版目标，停止洗版", false),
-        ("Blu-ray", "蓝光重编码", "蓝光碟压制；高于 WEB-DL 目标，仅低于 Remux 目标", false),
-        ("WEB-DL", "WEB-DL", "流媒体原流；洗版目标为 WEB-DL 时即达标停洗", false),
-        ("WEBRip", "WEBRip", "流媒体二压；低于 WEB-DL 及以上目标，会自动洗版替换", false),
-        ("HDTV", "TV 录制", "电视录制；低于洗版目标，会自动洗版替换", false),
-        ("user-lowest", "不确定（按最低档）", "按最差处理：整季会重新下载，替换为可证明达标的版本", true),
+        ("Remux", "Remux", String(localized: .librarySourceAnnotationRemuxHint), false),
+        ("Blu-ray", String(localized: .librarySourceAnnotationBlurayLabel), String(localized: .librarySourceAnnotationBlurayHint), false),
+        ("WEB-DL", "WEB-DL", String(localized: .librarySourceAnnotationWebDlHint), false),
+        ("WEBRip", "WEBRip", String(localized: .librarySourceAnnotationWebRipHint), false),
+        ("HDTV", String(localized: .librarySourceAnnotationHdtvLabel), String(localized: .librarySourceAnnotationHdtvHint), false),
+        ("user-lowest", String(localized: .librarySourceAnnotationLowestLabel), String(localized: .librarySourceAnnotationLowestHint), true),
     ]
 
-    private var scopeLabel: String { isMovie ? "正片" : SubsFormat.seasonName(seasonNumber) }
+    private var scopeLabel: String { isMovie ? String(localized: .subscriptionInspectorFeature) : SubsFormat.seasonName(seasonNumber) }
 
     private static func sourceDisplay(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
-        if value == "user-lowest" { return "最低档（人工标注）" }
-        if value == "Disc" { return "原盘" }
+        if value == "user-lowest" { return String(localized: .mediaSourcesLowestManual) }
+        if value == "Disc" { return String(localized: .subscriptionSmartStatusSourceDisc) }
         return value
     }
 
     var body: some View {
         SubsSheetScaffold(
-            title: "标注\(scopeLabel)的片源",
-            subtitle: "这些文件的文件名里没有可识别的片源标记，系统无法确认它们是否低于洗版目标。看一眼文件名，把你知道的来源告诉系统——标注一次，之后整季自动参与洗版判定。",
+            title: String(localized: .librarySourceAnnotationTitle(scopeLabel)),
+            subtitle: String(localized: .subscriptionAnnotateHint),
             confirm: SubsSheetConfirm(
-                title: "确认标注",
+                title: String(localized: .librarySourceAnnotationConfirm),
                 enabled: picked != nil && !(candidates?.isEmpty ?? true),
                 busy: busy,
                 identifier: "annotation-confirm"
@@ -57,7 +57,7 @@ struct MediaSourceAnnotationSheet: View {
             }
             if let candidates {
                 if candidates.isEmpty {
-                    Section { SubsNoticeRow(text: "\(scopeLabel)没有片源未知的文件——已从文件名解析出片源的文件不会被批量覆盖。", tone: .neutral) }
+                    Section { SubsNoticeRow(text: String(localized: .librarySourceAnnotationEmpty(scopeLabel)), tone: .neutral) }
                 } else {
                     Section {
                         ForEach(candidates, id: \.fileId) { file in
@@ -65,22 +65,22 @@ struct MediaSourceAnnotationSheet: View {
                                 Text(file.fileName).font(.subheadline).foregroundStyle(Theme.text.opacity(0.9)).lineLimit(1).truncationMode(.middle)
                                 Spacer(minLength: 4)
                                 if file.mediaSourceManual, let current = Self.sourceDisplay(file.mediaSource) {
-                                    DiscoverTag(text: "现为 \(current)")
+                                    DiscoverTag(text: String(localized: .librarySourceAnnotationCurrent(String(current))))
                                 }
                                 Text(SubsFormat.bytes(file.sizeBytes)).font(.footnote).monospacedDigit().foregroundStyle(Theme.textMuted)
                             }
                         }
                     } header: {
-                        Text("待标注文件")
+                        Text(String(localized: .subscriptionAnnotateFiles))
                     } footer: {
-                        Text("共 \(candidates.count) 个文件将被统一标注")
+                        Text(String(localized: .librarySourceAnnotationCount(candidates.count)))
                     }
                 }
             } else {
                 Section {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("正在加载文件列表…").foregroundStyle(Theme.textMuted)
+                        Text(String(localized: .librarySourceAnnotationLoading)).foregroundStyle(Theme.textMuted)
                     }
                 }
             }
@@ -98,7 +98,7 @@ struct MediaSourceAnnotationSheet: View {
                     .disabled(busy || (candidates?.isEmpty ?? true))
                 }
             } header: {
-                Text("片源档位")
+                Text(String(localized: .subscriptionAnnotateSourceTier))
             }
         }
         .accessibilityIdentifier("annotation-sheet")
@@ -107,7 +107,7 @@ struct MediaSourceAnnotationSheet: View {
                 candidates = try await api.libraryItemsListMediaSourceAnnotationCandidates(mediaItemId: mediaItemId, seasonNumber: seasonNumber)
             } catch is CancellationError {
             } catch {
-                self.error = "未能加载待标注文件列表，请稍后重试"
+                self.error = String(localized: .librarySourceAnnotationLoadFailed)
             }
         }
     }
@@ -121,10 +121,10 @@ struct MediaSourceAnnotationSheet: View {
                 body: .init(mediaItemId: mediaItemId, seasonNumber: seasonNumber, mediaSource: option.value)
             )
             let files = result["files"]?.intValue ?? (candidates?.count ?? 0)
-            await onApplied("已将 \(scopeLabel)的 \(files) 个文件片源标注为「\(option.label)」")
+            await onApplied(String(localized: .librarySourceAnnotationApplied(scopeLabel, files, option.label)))
             dismiss()
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "标注失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .librarySourceAnnotationApplyFailed) : error.localizedDescription
             busy = false
         }
     }

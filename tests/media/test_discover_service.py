@@ -445,6 +445,8 @@ async def test_movie_detail_fields() -> None:
     detail = await svc.media_detail(MediaKind.MOVIE, 603)
 
     assert detail.card.extent == "136 分钟"
+    assert detail.card.extent_key == "units.duration.minutes"
+    assert detail.card.extent_params == {"count": 136}
     assert detail.facts.directors == ["莉莉·沃卓斯基"]
     assert detail.facts.director_credits[0].avatar_url == (
         f"{_IMAGE_BASE}/w185/director.jpg"
@@ -626,6 +628,8 @@ async def test_tv_detail_fields() -> None:
     detail = await svc.media_detail(MediaKind.TV, 1399)
 
     assert detail.card.extent == "3 季"
+    assert detail.card.extent_key == "media.extent.seasons"
+    assert detail.card.extent_params == {"count": 3}
     assert detail.card.year == 2024
     assert detail.facts.directors == ["主创A"]
     assert detail.facts.director_credits[0].avatar_url == (

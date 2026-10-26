@@ -119,6 +119,27 @@ def test_nxmm_episode_notation() -> None:
     assert explicit_unit("Show.S02E03.2x05") == (2, 3)
 
 
+@pytest.mark.parametrize(
+    "stem,unit",
+    [
+        ("海绵宝宝第10季 第3集_3840x2160_H265_23.20_886.39MB", (10, 3)),
+        ("海绵宝宝 - 第01季 第01集 国英双语 1080p", (1, 1)),
+        ("海绵宝宝.第十季.第三集", (10, 3)),
+        ("海绵宝宝 第1季第01集", (1, 1)),
+        ("海绵宝宝 第一季 第一集", (1, 1)),
+        ("某剧 第2季 第5话", (2, 5)),
+        # 区间/合集、季度、无季号都不是确定的单集声明
+        ("海绵宝宝 第1季 第01-02集", None),
+        ("海绵宝宝 第1季 第01集-第02集", None),
+        ("某剧 第2季度报告 第3集", None),
+        ("海绵宝宝 第01集", None),
+    ],
+)
+def test_chinese_season_episode_unit(stem: str, unit) -> None:
+    """issue #996：中文「第N季 第M集」与 SxxEyy 同样是确定的季集声明。"""
+    assert explicit_unit(stem) == unit
+
+
 def test_title_bearing_season_pack_groups_under_entry(tmp_path: Path) -> None:
     """带片名的季包目录：父目录明确是条目时归到父目录，是分组目录时自己当条目。
 

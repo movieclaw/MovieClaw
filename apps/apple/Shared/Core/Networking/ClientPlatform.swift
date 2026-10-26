@@ -32,11 +32,11 @@ nonisolated enum ClientPlatform {
     /// 给用户看的文案里怎么称呼这个 App：「Mac 版 App」「Apple TV 版 App」「iPhone 版 App」「iPad 版 App」
     static var appName: String {
         #if os(tvOS)
-        "Apple TV 版 App"
+        String(localized: .authClientAppleTVApp)
         #elseif os(macOS)
-        "Mac 版 App"
+        String(localized: .authClientMacApp)
         #else
-        "\(deviceName) 版 App"
+        String(localized: .authClientNamedApp(deviceName))
         #endif
     }
 
@@ -57,9 +57,9 @@ nonisolated enum ClientPlatform {
         #if os(tvOS)
         "Apple TV"
         #elseif os(macOS)
-        "电脑"
+        String(localized: .authClientComputer)
         #else
-        "手机"
+        String(localized: .authClientPhone)
         #endif
     }
 

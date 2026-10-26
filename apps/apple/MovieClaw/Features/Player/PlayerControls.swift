@@ -55,7 +55,7 @@ struct PlayerTopBar: View {
                 // 返回箭头笔画细，用大一号的符号尺度，与胶囊里的图标视觉上一样重（系统返回键也是这样）
                 GlassIconButton(
                     systemImage: "chevron.backward",
-                    label: controller.clip != nil ? "退出全屏" : (landscape && PlayerOrientation.appControlsRotation ? "退出横屏" : "退出播放"),
+                    label: controller.clip != nil ? String(localized: .playerControlsExitFullscreen) : (landscape && PlayerOrientation.appControlsRotation ? String(localized: .playerControlsExitLandscape) : String(localized: .playerControlsExit)),
                     identifier: "player-close", scale: .large, action: onBack
                 )
                 VStack(alignment: .leading, spacing: 2) {
@@ -85,7 +85,7 @@ struct PlayerTopBar: View {
                     if controller.pictureInPictureAvailable {
                         PlayerIconButton(
                             systemImage: controller.pipActive ? "pip.exit" : "pip.enter",
-                            label: controller.pipActive ? "退出画中画" : "画中画",
+                            label: controller.pipActive ? String(localized: .playerControlsExitPip) : String(localized: .playerControlsPip),
                             identifier: "player-pip",
                             action: controller.togglePictureInPicture
                         )
@@ -106,7 +106,7 @@ struct PlayerCenterControls: View {
     var body: some View {
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 36) {
-                TransportButton(label: "后退 10 秒", size: 56, action: {
+                TransportButton(label: String(localized: .playerControlsSeekBack), size: 56, action: {
                     backTaps += 1
                     controller.seek(by: -10, source: .button)
                 }) {
@@ -118,7 +118,7 @@ struct PlayerCenterControls: View {
                     Image(systemName: playSymbol)
                         .contentTransition(.symbolEffect(.replace))
                 }
-                TransportButton(label: "前进 10 秒", size: 56, action: {
+                TransportButton(label: String(localized: .playerControlsSeekForward), size: 56, action: {
                     forwardTaps += 1
                     controller.seek(by: 10, source: .button)
                 }) {
@@ -134,7 +134,7 @@ extension PlayerCenterControls {
     /// 片段放完了：播放键就是「重播」（从片段起点再放一遍）
     private var clipEnded: Bool { controller.clip != nil && controller.phase == .ended }
     private var playSymbol: String { clipEnded ? "arrow.counterclockwise" : (controller.paused ? "play.fill" : "pause.fill") }
-    private var playLabel: String { clipEnded ? "重播" : (controller.paused ? "播放" : "暂停") }
+    private var playLabel: String { clipEnded ? String(localized: .playerControlsReplay) : (controller.paused ? String(localized: .playerControlsPlay) : String(localized: .playerControlsPause)) }
 }
 
 /// 中央的玻璃圆钮：整颗圆都能点，按下由交互玻璃给出系统的形变反馈
@@ -216,8 +216,8 @@ struct PlayerSettingsMenu: View {
                             }
                         }
                     } label: {
-                        Label("画质", systemImage: "sparkles.tv")
-                        Text(QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "原画")
+                        Label(String(localized: .playerControlsQuality), systemImage: "sparkles.tv")
+                        Text(QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? String(localized: .playerQualityOriginal))
                     }
                 }
                 Menu {
@@ -229,7 +229,7 @@ struct PlayerSettingsMenu: View {
                         }
                     }
                 } label: {
-                    Label("画面缩放", systemImage: controller.displayMode.symbol)
+                    Label(String(localized: .playerControlsDisplay), systemImage: controller.displayMode.symbol)
                     Text(controller.displayMode.label)
                 }
                 Menu {
@@ -238,12 +238,12 @@ struct PlayerSettingsMenu: View {
                                                                         set: { _ in controller.selectRate(rate) }))
                     }
                 } label: {
-                    Label("倍速", systemImage: "gauge.with.dots.needle.67percent")
+                    Label(String(localized: .playerControlsSpeed), systemImage: "gauge.with.dots.needle.67percent")
                     Text(PlaybackSpeed.label(controller.rate))
                 }
                 Section {
                     Toggle(isOn: Binding(mcGet: { controller.diagnosticsOpen }, set: { controller.diagnosticsOpen = $0 })) {
-                        Label("播放诊断", systemImage: "waveform.path.ecg")
+                        Label(String(localized: .playerControlsDiagnostics), systemImage: "waveform.path.ecg")
                     }
                 }
             }
@@ -266,8 +266,8 @@ struct PlayerSettingsMenu: View {
         .menuOrder(.fixed)
         .menuStyle(.button)
         .buttonStyle(PlayerIconButtonStyle(highlighted: menu == .settings, pressFeedback: true))
-        .accessibilityLabel("设置")
-        .accessibilityIdentifier("player-设置")
+        .accessibilityLabel(String(localized: .playerControlsSettings))
+        .accessibilityIdentifier("player-设置") // i18n-ignore: UI test identifier
     }
 }
 
@@ -321,11 +321,11 @@ struct PlayerBottomBar: View {
                     // 不加内边距：两端按钮与胶囊端头同心，按下的高亮圆正好嵌在端头里
                     HStack(spacing: 0) {
                         if !controller.audioOptions.isEmpty {
-                            PlayerIconButton(systemImage: "waveform", label: "音轨", identifier: "player-音轨", highlighted: menu == .audio) { toggle(.audio) }
+                            PlayerIconButton(systemImage: "waveform", label: String(localized: .playerControlsAudio), identifier: "player-音轨", highlighted: menu == .audio) { toggle(.audio) } // i18n-ignore: UI test identifier
                         }
                         PlayerIconButton(
                             systemImage: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
-                            label: "字幕", identifier: "player-字幕", highlighted: menu == .subtitles
+                            label: String(localized: .playerControlsSubtitles), identifier: "player-字幕", highlighted: menu == .subtitles // i18n-ignore: UI test identifier
                         ) { toggle(.subtitles) }
                         PlayerSettingsMenu(controller: controller, menu: $menu)
                     }
@@ -334,7 +334,7 @@ struct PlayerBottomBar: View {
                     if controller.clip != nil {
                         // 片段模式：原地转成正常播放，从这里接着放整部
                         Button(action: controller.leaveClip) {
-                            Label("看全片", systemImage: "play.rectangle")
+                            Label(String(localized: .playerControlsFullMovie), systemImage: "play.rectangle")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 16)
@@ -348,7 +348,7 @@ struct PlayerBottomBar: View {
                     // 片段模式只有横屏这一种样子：转回竖屏就是退出全屏、回到刷片
                     // iPad 方向跟随设备，没有横屏键（片段模式的「退出全屏」照留）
                     if PlayerOrientation.appControlsRotation || controller.clip != nil {
-                        let rotateLabel = controller.clip != nil ? "退出全屏" : (landscape ? "退出横屏" : "横屏")
+                        let rotateLabel = controller.clip != nil ? String(localized: .playerControlsExitFullscreen) : (landscape ? String(localized: .playerControlsExitLandscape) : String(localized: .playerControlsLandscape))
                         GlassIconButton(
                             systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
                             label: rotateLabel, identifier: "player-\(rotateLabel)", action: onToggleLandscape
@@ -497,7 +497,7 @@ struct PlayerProgressBar: View {
                     }
             )
             .accessibilityElement()
-            .accessibilityLabel("播放进度")
+            .accessibilityLabel(String(localized: .playerControlsProgress))
             .accessibilityIdentifier("player-progress")
             .accessibilityValue(Formatters.clock(position / 1000))
         }

@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from movieclaw_api.i18n.metadata import localized_text
 from movieclaw_api.plugins import packages as pkg
 
 logger = logging.getLogger("movieclaw_api.themes")
@@ -60,31 +60,6 @@ class Theme:
                 parts.append(f"{stat.st_mtime_ns}:{stat.st_size}")
         digest = hashlib.sha1("|".join(parts).encode()).hexdigest()[:10]  # noqa: S324 -- 只做缓存键
         return f"{self.version}-{digest}"
-
-
-#: 已安装包的清单缓存：按文件修改戳，每个静态文件请求都要查一次目录
-_manifest_cache: dict[Path, tuple[tuple[int, int], pkg.Manifest | None]] = {}
-
-
-def _manifest(directory: Path) -> pkg.Manifest | None:
-    path = directory / pkg.MANIFEST
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    key = (stat.st_mtime_ns, stat.st_size)
-    cached = _manifest_cache.get(path)
-    if cached is not None and cached[0] == key:
-        return cached[1]
-    try:
-        manifest: pkg.Manifest | None = pkg.Manifest.model_validate(
-            tomllib.loads(path.read_text("utf-8"))
-        )
-    except Exception:  # noqa: BLE001 -- 装好的包清单坏了：当它不是主题，别让整个目录挂掉
-        logger.exception("插件包清单读不出来：%s", path)
-        manifest = None
-    _manifest_cache[path] = (key, manifest)
-    return manifest
 
 
 def _theme(
@@ -135,7 +110,7 @@ def themes(settings: object, kernel: Any) -> list[Theme]:
             found.append(theme)
     for record in packages.values():
         directory = pkg.version_dir(settings, record.id, record.version)
-        theme = _theme(_manifest(directory), directory, "package", record.version)
+        theme = _theme(pkg.read_manifest(directory), directory, "package", record.version)
         if theme is not None:
             found.append(theme)
     return [t for t in found if not _disabled(t.id, kernel)]
@@ -154,7 +129,7 @@ def find(settings: object, kernel: Any, theme_id: str) -> Theme | None:
     record = packages.get(theme_id)
     if record is not None:
         directory = pkg.version_dir(settings, record.id, record.version)
-        return _theme(_manifest(directory), directory, "package", record.version)
+        return _theme(pkg.read_manifest(directory), directory, "package", record.version)
     item = bundled().get(theme_id)
     if item is None or theme_id in plugin_switches.removed_ids(settings):
         return None
@@ -170,8 +145,8 @@ def view(theme: Theme) -> dict[str, Any]:
     ok = theme.incompatible is None
     return {
         "id": theme.id,
-        "label": meta.label,
-        "description": meta.description,
+        "label": localized_text(meta.label, meta.label_localized),
+        "description": localized_text(meta.description, meta.description_localized),
         "preview": {"bg": meta.preview.bg, "accent": meta.preview.accent},
         "theme_color": meta.theme_color,
         "layout": meta.layout,
@@ -190,6 +165,7 @@ def stylesheet(settings: object, kernel: Any) -> str:
 
     所有主题 CSS 都挂在各自的 ``html[data-theme="<id>"]`` 作用域下，一起加载互不影响。
     """
+    # i18n-ignore: developer-facing (contract docs, assertions, generated CSS comment)
     lines = ["/* MovieClaw 网页主题（docs/design/theme-plugins.md §4.3） */"]
     for theme in themes(settings, kernel):
         if theme.incompatible is None:

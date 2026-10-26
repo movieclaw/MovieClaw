@@ -53,9 +53,17 @@ fun TrackTabBarMinimize(scroll: ScrollState) {
     val active = LocalTabActive.current
     // 后台页签不喂：几个页签同时在组合里，各自的滚动位置混着喂会把收起判断搅乱；
     // 切回前台时按本页当前位置重新起算
-    LaunchedEffect(scroll, density, active) {
+    // **平板不收起**：屏幕够大，底栏常驻更稳，也不用为了找回它再点一次。
+    // 判据用最短边 ≥ 600dp（本机竖 640 / 横 608 都命中），小屏手机仍保留滚动收起。
+    val cfg = androidx.compose.ui.platform.LocalConfiguration.current
+    val keepVisible = minOf(cfg.screenWidthDp, cfg.screenHeightDp) >= 600
+    LaunchedEffect(scroll, density, active, keepVisible) {
         if (!active) return@LaunchedEffect
         TabBarMinimize.reset(scroll.value)
+        if (keepVisible) {
+            TabBarMinimize.restore()
+            return@LaunchedEffect
+        }
         snapshotFlow { scroll.value }.collect { TabBarMinimize.onScroll(it, density) }
     }
 }
@@ -69,9 +77,15 @@ fun TrackTabBarMinimize(scroll: ScrollState) {
 fun TrackTabBarMinimize(scroll: LazyListState) {
     val density = androidx.compose.ui.platform.LocalDensity.current.density
     val active = LocalTabActive.current
-    LaunchedEffect(scroll, density, active) {
+    val cfg2 = androidx.compose.ui.platform.LocalConfiguration.current
+    val keepVisible2 = minOf(cfg2.screenWidthDp, cfg2.screenHeightDp) >= 600
+    LaunchedEffect(scroll, density, active, keepVisible2) {
         if (!active) return@LaunchedEffect
         TabBarMinimize.reset(scroll.firstVisibleItemIndex * 100_000 + scroll.firstVisibleItemScrollOffset)
+        if (keepVisible2) {
+            TabBarMinimize.restore()
+            return@LaunchedEffect
+        }
         snapshotFlow { scroll.firstVisibleItemIndex * 100_000 + scroll.firstVisibleItemScrollOffset }
             .collect { TabBarMinimize.onScroll(it, density) }
     }

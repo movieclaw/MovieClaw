@@ -8,7 +8,6 @@ import androidx.compose.foundation.border
 import io.movieclaw.android.core.designsystem.Warn
 import io.movieclaw.android.core.designsystem.TextPrimary
 import io.movieclaw.android.core.designsystem.LineSoft
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.statusLabel
 import io.movieclaw.android.core.designsystem.statusColor
 import io.movieclaw.android.core.model.SubscriptionView
@@ -37,7 +36,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -64,6 +62,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -101,6 +101,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import io.movieclaw.android.core.designsystem.CardMetrics
+import io.movieclaw.android.core.designsystem.mcGridCells
+import io.movieclaw.android.core.designsystem.mcCards
 
 @HiltViewModel
 class TitleDetailViewModel @Inject constructor(
@@ -201,6 +204,18 @@ fun TitleDetailScreen(
                 label = "detail-tint",
             )
             val link = details.libraryLinks.firstOrNull()
+            // 和条目详情页一样，把当前剧照/底色发布给外壳：宽窗口时外壳最底层铺全屏剧照，
+            // 半透明侧边栏透出它。**不发布的话侧栏就没有底色/要等下一帧**（真机反馈过）。
+            val setShellBackdrop = io.movieclaw.android.routing.LocalShellBackdropSetter.current
+            val shellBgUrl = details.backdropOriginalUrl ?: title.backdropUrl ?: title.posterUrl
+            androidx.compose.runtime.LaunchedEffect(shellBgUrl, detailTint) {
+                setShellBackdrop(
+                    io.movieclaw.android.routing.ShellBackdrop(shellBgUrl, origin, detailTint),
+                )
+            }
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                onDispose { setShellBackdrop(null) }
+            }
             Column(
                 Modifier
                     .fillMaxSize()
@@ -229,27 +244,35 @@ fun TitleDetailScreen(
                     // 剧照 + 底部渐隐放**同一个 heroH 高的图层**里（网页 .detail-hero-fade 从 189 起、
                     // 到剧照底边淡成页面色）。之前渐隐挂在「布局高 heroH-150」的框上，
                     // 底边落在 297，剧照画到 447 → 447 处硬切（和首页英雄那次同一种错）。
-                    // 封面高度 = heroH（网页实测 449 / 视口 844 = 53%），
-                    // 渐隐 189→449（0.42 → 1.0）；外层布局高度 heroH-150 让内容从 299 起
+                    // 封面高度 = heroH。**渐隐改成让图片自己淡出**（与条目详情页同一套）：
+                    // 之前是「在上面盖一层到 1f 才等于 detailTint」——那等于图的最底一行才刚好等于
+                    // 页面底色，照片边缘仍然可见，看着就是一条分界线（像素采样 Δ≈39 那种）。
+                    // 现在：底下垫页面底色，图片开离屏层用 DstIn 把 alpha 降到 0，露出的就是底色。
                     Box(Modifier.fillMaxWidth().height(heroH).align(Alignment.TopCenter)) {
-                        RemoteImage(
-                            url = details.backdropOriginalUrl ?: title.backdropUrl ?: title.posterUrl,
-                            origin = origin,
-                            contentDescription = title.title,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        // 从 62% 才开始淡：标题→上映日期→按钮都还压在图上，
-                                        // 之后才溶进页面底色（之前 42% 就淡，文字后面已经看不到图）
-                                        0.62f to Color.Transparent,
-                                        1f to detailTint,
-                                    )
-                                ),
-                        )
+                        Box(Modifier.fillMaxSize().background(detailTint)) {
+                            RemoteImage(
+                                url = details.backdropOriginalUrl ?: title.backdropUrl ?: title.posterUrl,
+                                origin = origin,
+                                contentDescription = title.title,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        compositingStrategy =
+                                            androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                                    }
+                                    .drawWithContent {
+                                        drawContent()
+                                        drawRect(
+                                            brush = Brush.verticalGradient(
+                                                0f to Color.Black,
+                                                0.62f to Color.Black,
+                                                1f to Color.Transparent,
+                                            ),
+                                            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                                        )
+                                    },
+                            )
+                        }
                     }
                     // 顶部压暗：iOS 是 black@0.45 高 112；这里再加一层更陡的顶部暗带，
                     // 保证浅色剧照上「返回/搜索」圆钮与状态栏也清楚
@@ -269,7 +292,7 @@ fun TitleDetailScreen(
                         Modifier
                             .fillMaxWidth()
                             .statusBarsPadding()
-                            .padding(horizontal = McMetrics.pagePadding, vertical = 8.dp),
+                            .padding(horizontal = mcCards.pagePadding, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         McNavButton(icon = Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", onClick = onBack)
@@ -277,7 +300,7 @@ fun TitleDetailScreen(
                 }
 
                 // 标题区：iOS 用 -150 上移压在剧照上
-                Column(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+                Column(Modifier.padding(horizontal = mcCards.pagePadding)) {
                     Text(
                         title.title,
                         fontSize = 27.sp, fontWeight = FontWeight.Bold, lineHeight = 33.sp,
@@ -404,7 +427,7 @@ fun TitleDetailScreen(
                 val plot = details.metadata.plot?.takeIf { it.isNotBlank() } ?: details.title.overview
                 if (!plot.isNullOrBlank()) {
                     var plotOpen by remember { mutableStateOf(false) }
-                    Column(Modifier.padding(start = McMetrics.pagePadding, end = McMetrics.pagePadding, top = 16.dp)) {
+                    Column(Modifier.padding(start = mcCards.pagePadding, end = mcCards.pagePadding, top = 16.dp)) {
                         Text(
                             plot,
                             fontSize = 15.sp,
@@ -780,7 +803,7 @@ fun CollectionScreen(
                 LazyVerticalGrid(
                     state = gridState,
                     // 列数保持 3 列（用户要求）；间距按网页实测：横向 16、纵向 24、内距 16
-                    columns = GridCells.Fixed(3),
+                    columns = mcGridCells(phoneColumns = 3, minColumn = CardMetrics.Phone.castWidth),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -804,7 +827,7 @@ fun CollectionScreen(
                         )
                     }
                     if (state.loadingMore) {
-                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
+                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                             Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(color = TextMuted, modifier = Modifier.size(20.dp))
                             }

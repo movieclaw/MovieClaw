@@ -33,8 +33,8 @@ nonisolated struct ServerAddress: Hashable, Codable, Sendable {
 
         var errorDescription: String? {
             switch self {
-            case .empty: "请输入服务器地址"
-            case .invalid: "地址格式不正确，示例：http://192.168.0.100:3000"
+            case .empty: String(localized: .authServerRequired)
+            case .invalid: String(localized: .authServerInvalid)
             }
         }
     }

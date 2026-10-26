@@ -5,8 +5,9 @@
 > 改为「填地址 → 验证连接 → 网页批准」的设备授权流程，令牌逐设备签发、
 > 带 `transcode` scope、可单独吊销。本文其余部分（转码链路本身）不受影响。
 
-> 状态：远程 Worker 协议、网页配置和播放接入已实现；当前随项目提供的 Worker
-> 实现是 macOS Apple Silicon 菜单栏 App，其他平台可以复用协议扩展。
+> 状态：远程 Worker 协议、网页配置和播放接入已实现；随项目提供两个 Worker 实现：
+> macOS Apple Silicon 菜单栏 App（VideoToolbox，§5）和 Windows 命令行程序（NVIDIA NVENC，§7），
+> 其他平台可以复用协议扩展。
 
 ## 1. 能力边界
 
@@ -55,8 +56,8 @@ VOD 会话的 `live.m3u8` 是 ffmpeg 的内部进度列表，服务端对远程�
 不再每写一个分片就回传一遍。非 VOD 会话的 `index.m3u8` 要直接发给浏览器、服务端起播
 时还会阻塞等它出现，仍然实时上传。
 
-当前 Worker 使用 AppKit 菜单栏界面，最低支持 macOS 12，目标平台为 Apple Silicon。
-后续 Linux、Windows 或其他硬件设备只需要实现同一控制协议、源文件读取、产物上传和
+macOS Worker 使用 AppKit 菜单栏界面，最低支持 macOS 12，目标平台为 Apple Silicon；
+Windows Worker 见 §7。Linux 或其他硬件设备只需要实现同一控制协议、源文件读取、产物上传和
 能力声明，不需要改变 NAS 的播放会话模型。
 
 ## 2. 配置与安全
@@ -451,7 +452,7 @@ CPU 版色调映射（tonemapx）在同一台 Mac 上是 2.6× 且占满 4 个�
 - Worker 注册表和播放会话目前是单进程内存状态；NAS 多副本需要共享任务租约和产物存储。
 - 当前使用一个共享 Worker Token；多 Worker 精细撤销可升级为每 Worker 独立凭据或证书。
 - 输出只有 H.264（8-bit、BT.709）。HEVC 输出、HDR 直通输出和其他平台后端需要先完成
-  能力声明、编码参数和样片矩阵验证。
+  能力声明、编码参数和样片矩阵验证（NVENC 的矩阵见 §7.3）。
 - 原盘只支持 BDMV 目录；ISO（蓝光与 DVD）、DVD 目录（VIDEO_TS）在 NAS 本机也还不能播
   （`disc-playback.md` §2），另起任务。
 - Jellyfin 协议（Infuse）按码率转码时原盘仍直接拒绝、走原画：PlaybackInfo 对原盘不做
@@ -467,3 +468,168 @@ CPU 版色调映射（tonemapx）在同一台 Mac 上是 2.6× 且占满 4 个�
   就重连回来，理论上可以对新连接重新下发（产物 token 按 attempt 隔离，旧任务的迟到
   上传会被拒，不会两路同写），但要和网页播放器自己的「掉线自愈」、Infuse 的 404
   处理一起设计，暂未做。
+
+## 7. Windows Worker（NVIDIA NVENC）
+
+实现在 `windows/MovieClawTranscoder`：纯标准库的 Python 包，命令行常驻，用法见它的
+[README](../../windows/MovieClawTranscoder/README.md)。控制协议、配对、调度和失败语义与 §3、§5 的 macOS
+Worker 完全相同；NAS 一侧只多了一个后端名 `nvenc`（`remote_worker.REMOTE_BACKENDS`）和一条按
+Worker 申报分流的命令装配。下面只写 Windows 这一侧不同的地方。
+
+### 7.1 与 macOS Worker 的差异
+
+| | macOS | Windows |
+|---|---|---|
+| 形态 | AppKit 菜单栏 App，内核独立进程 | 命令行程序（`pythonw` 可无窗口常驻），自身即内核 |
+| 硬件后端 | `videotoolbox` | `nvenc` |
+| 产物回传 | ffmpeg 直接 PUT 到本机上传代理（回环 HTTP） | ffmpeg 把分片化 MP4 推到本机回环 TCP，程序按 HLS 栅格切段、分块回传 |
+| 暂停 / 停止 | SIGSTOP / SIGCONT、杀进程 | `NtSuspendProcess` / `NtResumeProcess`、杀进程；转码器退出时作业对象一并带走 ffmpeg |
+| 分片类型 | fMP4 与 MPEG-TS | 仅 fMP4 |
+| 原盘 | 支持（`disc_sources`） | 不支持 |
+| 凭证 | Keychain | `%APPDATA%\MovieClawTranscoder\config.json`（当前用户私有） |
+
+**回传。** 切段规则与 macOS 的 `ProgressiveSegments.swift` 是同一条：第一段编号是 NAS 给的起转分片号；
+之后从这一轮第一帧起算，满一格后的第一个同步帧开新的一段——所以关键帧必须真的落在 4 秒栅格上
+（§7.4 第 1 条）。每个 0.5 秒的片段作为它所属分片的第 N 块按序传（`PUT …/segNNNNN.m4s?part=N`），
+下一段的第一个片段到了（或 ffmpeg 正常收尾），这一段补一个收尾块（`final=1`，可以是空的），NAS 把
+半截文件改名成正式分片。某一块重试用尽或 NAS 回 409（中间缺了一块），这一段不再分块，转完把攒着的
+整段一次传上去；整段也传不上去的用 `job.artifact_failed` 上报，NAS 照 §1 的补片台账处理。
+
+为什么不让 ffmpeg 自己 PUT：它不看响应码（§1），丢了分片没人知道。为什么不是写临时文件再跟读：文件在
+任务结束前只增不减（两小时的片子按 6 Mbps 就是 5 GB），回环口自带反压、积压只在内存里，而 NAS 的
+领先量节流把它限在两分钟以内。媒体字节因此不落盘。
+
+### 7.2 能力申报与命令的三种形态
+
+hello 里的申报全是这台电脑启动时**实测**的结论，不是按显卡型号推断的（探测结果按 ffmpeg 与驱动版本缓存）：
+
+| 字段 | 内容 | 怎么得到 |
+|---|---|---|
+| `backends` / `encoders` | `["nvenc"]` / `h264_nvenc`、`hevc_nvenc` | `ffmpeg -encoders`，且启动时真跑一遍 NAS 会下发的 NVENC 链，跑不通就不登记并说明原因 |
+| `hw_decoders` | NVDEC 能硬解的片源编码 | 逐编码用几帧样片真解一次（H.264、HEVC、VP9、AV1、MPEG-2、MPEG-4、VP8）；没有样片编码器的不报 |
+| `filters` | `scale_cuda`、`tonemap_cuda`、`tonemapx`、`hwupload_cuda`、`hwdownload`（ffmpeg 有才报） | `ffmpeg -filters`；`tonemap_cuda` 另用 HDR10 样片真跑通整条 GPU 链才报 |
+| `read_options` | `skip_estimate_duration_from_pts` | `ffmpeg -h full` 里有才报 |
+| `segment_types` | `["fmp4"]` | 做不到的不报：Infuse 的 TS 分片不派给它 |
+| `disc_sources` / `playback_progress` | 都是 `false` | 不读原盘；没有面板，不需要观众位置 |
+| `progressive_segments` | `true` | 边产出边送 |
+| `hardware` | 显卡型号（`nvidia-smi`）、CPU 核数、内存 | 网页「远程转码」页展示 |
+
+NAS 按这些申报装命令（`ffmpeg_args.build_hls_command`），三种形态：
+
+1. **GPU 全链路**：片源编码在 `hw_decoders` 里 → NVDEC 硬解、帧留在显存 → `scale_cuda`（带
+   `format=yuv420p`，10-bit 源在这里变 8-bit）→（HDR 且申报了 `tonemap_cuda`）先缩放、后色调映射 →
+   `h264_nvenc`。
+2. **CPU 软解 + NVENC**（`_nvidia_software_decode`）：片源编码不在 `hw_decoders` 里（RTX 20 系的 AV1），或是
+   10-bit 的 H.264（Hi10P，动漫压制常见，各代显卡都硬解不了——Worker 申报的 `h264` 说的是 8-bit 那条路）。
+   不发 `-hwaccel`，CPU 解码 + 软件滤镜（HDR 用 `tonemapx`），`-pix_fmt yuv420p`，编码仍在 NVENC 上。
+3. **硬解 + 下载回内存走软件滤镜**：烧录 PGS 字幕（`overlay` 是软件滤镜）、BT.2020 的 SDR（`colorspace`）、
+   没申报 `tonemap_cuda` 的 HDR。
+
+### 7.3 样片矩阵
+
+环境：RTX 2070 SUPER、jellyfin-ffmpeg 8.1.3、Windows 11。每行是一段 30 秒的合成样片（`testsrc2` 加噪点，
+免得画面太简单把编码速度测高），走真实的 NAS（HTTP 取源）→ Worker → NVENC → 回传 → 客户端解码，由
+`tests/playback/test_windows_transcoder_matrix.py` 生成并逐行断言：能从头解到尾、帧数与片长对得上（±3 帧）、
+输出规格符合预期（H.264 8-bit 4:2:0、BT.709）、烧录行的字幕像素在显示窗口内是白的、窗口外与结束后是原画面。
+
+- **起播**：从点播放（开会话）到第一个分片完整可取（播放列表、init、首片都取到）。
+- **稳态**：Worker 从出第一批字节到转完的速度（倍实时）。1080p24 输出的 ~19× 是 NVENC 自己的吞吐
+  （约 460 帧/秒）：1080p60 是 ~8×（同样的 ~470 帧/秒），720p 输出约 37×。
+
+| 样片 → 输出 | 命令形态 | 起播 | 稳态 |
+|---|---|---|---|
+| H.264 8-bit 1080p → 720p（网页选画质上限） | GPU 全链路 | 0.9 s | 27× |
+| HEVC 8-bit 1080p → 1080p | GPU 全链路 | 0.7 s | 19× |
+| HEVC 8-bit 1080p60 → 1080p | GPU 全链路 | 1.1 s | 7.8× |
+| HEVC 8-bit 4K → 1080p | GPU 全链路 | 0.8 s | 19× |
+| HEVC 10-bit 1080p（BT.709）→ 1080p 8-bit | GPU 全链路 | 0.7 s | 19× |
+| HEVC 1080p 长 GOP + B 帧（x265）→ 1080p | GPU 全链路 | 0.8 s | 19× |
+| VP9 1080p → 1080p | GPU 全链路 | 0.9 s | 19× |
+| MPEG-2 1080p → 1080p | GPU 全链路 | 0.8 s | 19× |
+| MPEG-4 part 2 720p → 720p | GPU 全链路 | 0.7 s | 38× |
+| VP8 720p → 720p | GPU 全链路 | 0.7 s | 37× |
+| AV1 1080p（RTX 20 系没有 AV1 硬解）→ 1080p | CPU 软解 + NVENC | 0.9 s | 13× |
+| H.264 Hi10P 1080p → 720p | CPU 软解 + NVENC | 1.0 s | 16× |
+| HEVC 10-bit BT.2020 SDR → 1080p BT.709 | 硬解 + CPU 色彩转换 | 1.3 s | 8× |
+| HDR10 4K → 1080p SDR | GPU 全链路（`tonemap_cuda`） | 0.8 s | 18× |
+| HDR10 1080p → 1080p SDR | GPU 全链路（`tonemap_cuda`） | 0.8 s | 19× |
+| HLG 4K → 1080p SDR | GPU 全链路（`tonemap_cuda`） | 0.8 s | 18× |
+| PGS 字幕烧录（H.264 1080p） | 硬解 + CPU 叠字幕 | 1.1 s | 12× |
+| PGS 字幕烧录 + HDR10 | 硬解 + CPU 色调映射与叠字幕 | 1.0 s | 11× |
+| 音频 AC-3 5.1 → AAC 立体声 | GPU 全链路 | 1.0 s | 9× |
+| 音频 E-AC-3 5.1 → AAC 立体声 | GPU 全链路 | 0.7 s | 19× |
+| 音频 DTS 5.1 → AAC 立体声 | GPU 全链路 | 0.8 s | 18× |
+| 音频 FLAC 立体声 → AAC | GPU 全链路 | 0.9 s | 19× |
+
+起播 0.7–1.3 秒里，Worker 自己的分段（`worker timeline`，会并进网页的播放诊断）是：ffmpeg 起来约 0.05 秒、
+首批字节约 0.4 秒、init 与首片段传到 NAS 约 0.45 秒。
+
+### 7.4 实测踩过的坑
+
+1. **NVENC 默认不把 `-force_key_frames` 强制的帧当 IDR。** 它们只是普通 I 帧，muxer 看不到关键帧，4 秒栅格上
+   没有分片边界，分片被拖成一整个 `-g` 那么长（样片矩阵里每段 10 秒，播放列表却按 4 秒算，seek 与续播全
+   错位）。命令里 NVENC 要加 `-forced-idr 1`。
+2. **NVDEC 解不了的编码不能要硬件帧。** RTX 20 系没有 AV1 硬解，`-hwaccel cuda` 对 AV1 不会自己退回软解：
+   每一帧都解码出错，错误率超限后 ffmpeg 以退出码 69 退出；10-bit 的 H.264 则是 ffmpeg 的 H.264 解码器
+   根本不提供硬件像素格式，硬解请求被悄悄忽略，软件帧撞上 `scale_cuda`，滤镜图报 `Function not implemented`、
+   编码器 `Could not open encoder`。所以这两类整段走软解（§7.2 第 2 种形态）。
+3. **PGS 烧录在 ffmpeg 8.1 上被 mp4 muxer 拒收。** ffmpeg 在字幕流末尾补一帧「一直显示」的帧，时间戳是溢出的
+   （约 2^32 毫秒），`overlay` 默认把主画面的最后一帧按这个时间戳再吐一次。旧版 ffmpeg 的 CFR 逻辑把它当作
+   「重复过多」丢掉；jellyfin-ffmpeg 8.1 不丢，mp4 以 `pts/dts pair unsupported` 拒收，整条命令失败，任何
+   编码器都一样。烧录的 `overlay` 改用 Jellyfin 同款的 `eof_action=pass:repeatlast=0`（字幕读完后主画面
+   原样通过），这条对 NAS 本机与 Mac Worker 的烧录同样生效。
+4. **`tonemap_cuda` 要求帧带完整色彩标签。** 自检用的 HDR 样片要靠 `setparams` 滤镜把 PQ / BT.2020 写到帧上，
+   编码器的 `-color_trc` 选项在新版 ffmpeg 里不会进码流，样片就成了「传输特性未知」，`tonemap_cuda` 拒绝处理。
+5. **NVENC 有最小画面尺寸。** H.264 编码器在 Turing 上宽度不到 145 就打不开；自检样片用 320×180。
+6. **CUDA 内核的 JIT 缓存。** `scale_cuda` / `tonemap_cuda` 的内核第一次用要由驱动即时编译（约 2 秒），存进
+   系统默认的 `ComputeCache`（上限 256 MB）。被别的 CUDA 程序塞满后存不进去，每次起播都多等 2 秒（同一条命令
+   2.5 秒 → 0.5 秒）。给 ffmpeg 一个专属的 `CUDA_CACHE_PATH`（用户自己设了就尊重）。
+7. **`-progress` 的行很短。** 按固定字节数读 ffmpeg 的进度管道，会把第一条进度压住好几秒（ffmpeg 约每 0.5 秒
+   打一组）；NAS 靠进度判断「第一个分片出来了」与测供片速度，要来一行处理一行。
+
+### 7.5 已知限制
+
+- 不接 MPEG-TS 分片（Infuse 等第三方播放器）和蓝光原盘：这类任务不派给它，NAS 本机或 Mac 转码器接。
+- 输出只有 H.264。离线下载的转码导出也可以交给它，但 NAS 目前只给 VideoToolbox 装 HEVC 输出，Windows 上
+  导出的仍是 H.264。
+- 4:2:2 / 4:4:4 的片源没测（NVDEC 对它们的支持因代而异）；它们的硬解申报只按 8-bit 4:2:0 的样片判定。
+- GeForce 驱动限制同时编码的会话数，并发上限（1–4）别设得比它高。
+- 只在 RTX 2070 SUPER + jellyfin-ffmpeg 8.1.3 上实测过；其他显卡、驱动与 ffmpeg 版本靠启动自检把关。
+- 安装包没有代码签名，Windows SmartScreen 首次运行会提示「未知发布者」。发布流水线（签名、产物上传
+  Release、官网下载清单）不在本 PR。
+
+### 7.6 应用形态：托盘 + 窗口
+
+命令行版给服务器和排障用，普通用户装的是应用版：安装包 → 托盘常驻 → 双击就能配对。与 macOS 转码器
+同一套用户路径，但界面不再是 AppKit——`windows/MovieClawTranscoder/app/` 里纯标准库实现
+（tkinter + ctypes），`scripts/build-app.ps1` 打成 per-user 的 NSIS 安装包。
+
+**为什么不是 PyInstaller。** 打单一 exe 容易被杀软误报，出问题时用户手里只剩一个黑盒。改用
+[python-build-standalone](https://github.com/astral-sh/python-build-standalone) 的 Windows x64
+`install_only` 整包（版本钉死，约 46 MB 压缩），源码放在 `app/`，由 `pythonw.exe` 跑
+`MovieClawTranscoder.pyw`。装好的目录里 `runtime\python\python.exe` 可以直接复跑排查。
+
+**为什么 ffmpeg 不进包。** 与 macOS 转码器同一决定：首次运行查 Jellyfin 官方最新 Release，取
+`portable_win64` 资产，按 GitHub API 给的 `digest`（SHA256）校验，解压进
+`%APPDATA%\MovieClawTranscoder\ffmpeg\versions\<版本>\`，装新的清旧的。好处是拿到最新版本、
+安装包小一半；代价是首次运行要联网（连不上可以「手动选择 ffmpeg…」）。
+
+**进程与线程。** 一个进程：主线程跑 tkinter 主循环，托盘消息循环与转码内核各一条 daemon 线程。
+`model.py` 不 import 界面库，界面每 300 毫秒读一次 `AppModel.snapshot()` 刷文字，动作（配对、取消、
+重试、自启）都是方法调用——逻辑层由 `tests/windows_transcoder_app` 覆盖，真机由
+`test_windows_transcoder_app_e2e.py` 走完整路径。
+
+**与命令行共用。** 同一份 `config.json`、`transcoder.log` 和命名互斥体（`Global\MovieClawTranscoder`）：
+装成应用后仍可以命令行跑 `--check` 排障，但两者不能同时运行。
+
+**配对入口不用手敲。** 窗口打开时自动做一次局域网发现（UDP 7359 两句暗号，与 Go CLI、macOS 版同协议），
+只找到一台就替用户填好地址；点「连接并配对」即走设备授权，配对码用大号字显示在窗口里、批准页自动打开。
+地址已知却没有令牌时（上次配到一半、或命令行给了 `--server`）启动即自动发起配对。
+
+**安装包（NSIS，per-user）。** 装到 `%LOCALAPPDATA%\Programs\MovieClawTranscoder`，不弹 UAC；开始菜单
+快捷方式指向 `pythonw.exe + MovieClawTranscoder.pyw`；卸载项写进 `HKCU\…\Uninstall\MovieClawTranscoder`。
+向导最后一页把**开机自启**勾上（写 `HKCU\…\Run`），静默安装（`/S`）不写自启也不自动启动。卸载先给
+托盘窗口发 `WM_CLOSE` 让实例走完关停，再删目录；配置与令牌留在 `%APPDATA%`，重装不用重新配对。
+
+**能力申报不变。** 应用与命令行跑同一个 `probe()`，hello 里的能力仍是启动时实测的结论；应用只多了
+两个任务事件（`job_started` / `job_ended`）用来驱动托盘的「正在转码 N 路」。

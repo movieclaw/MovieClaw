@@ -85,16 +85,16 @@ private struct ResumeBar: View {
         var parts: [String] = []
         if isEpisode { parts.append(episodeCode(season: item.seasonNumber, episode: item.episodeNumber)) }
         if item.positionMs > 0, let percent = item.progressPercent {
-            parts.append("看到 \(percent)%")
+            parts.append(String(localized: .subscriptionFeedWatchedPercent(percent)))
         } else if item.advanced {
-            parts.append("下一集")
+            parts.append(String(localized: .playerControlsNextEpisode))
         }
         return parts.joined(separator: " · ")
     }
 
     private var playVerb: String {
-        if item.positionMs > 0 { return "继续播放" }
-        return item.advanced ? "播放下一集" : "播放"
+        if item.positionMs > 0 { return String(localized: .subscriptionFeedResume) }
+        return item.advanced ? String(localized: .activityUpNextNext) : String(localized: .libraryHeroPlay)
     }
 
     var body: some View {
@@ -140,16 +140,16 @@ private struct ResumeBar: View {
             }
             .buttonStyle(.plain)
             .padding(.trailing, 6)
-            .accessibilityLabel("不再显示")
+            .accessibilityLabel(String(localized: .navResumeDismiss))
             .accessibilityIdentifier("resume-accessory-dismiss")
         }
         .contextMenu {
-            Button("查看详情", systemImage: "film") {
+            Button(String(localized: .searchTorrentViewDetails), systemImage: "film") {
                 router.open(.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId,
                                          season: isEpisode ? item.seasonNumber : nil,
                                          episode: isEpisode ? item.episodeNumber : nil))
             }
-            Button("先隐藏", systemImage: "eye.slash", action: onHide)
+            Button(String(localized: .navResumeHide), systemImage: "eye.slash", action: onHide)
         }
     }
 

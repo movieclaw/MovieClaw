@@ -45,22 +45,22 @@ struct OfflineLocalFileRow: View {
                     .accessibilityValue("\(unit.state.rawValue)|\(unit.profile)")
                     .contextMenu {
                         if canChangeProfile {
-                            Button("改下其他画质", systemImage: "arrow.triangle.2.circlepath") { picking = true }
+                            Button(String(localized: .offlineChangeQuality), systemImage: "arrow.triangle.2.circlepath") { picking = true }
                         }
-                        Button("从 \(ClientPlatform.deviceName) 删除", systemImage: "trash", role: .destructive) { confirmDelete = true }
+                        Button(String(localized: .offlineDeleteFromDevice(ClientPlatform.deviceName)), systemImage: "trash", role: .destructive) { confirmDelete = true }
                     }
                     localTag
                     Button { confirmDelete = true } label: { Image(systemName: "trash").font(.footnote) }
                         .foregroundStyle(Theme.textFaint)
-                        .accessibilityLabel("从 \(ClientPlatform.deviceName) 删除")
+                        .accessibilityLabel(String(localized: .offlineDeleteFromDevice(ClientPlatform.deviceName)))
                         .accessibilityIdentifier("local-file-delete-\(fileId)")
                         // 确认气泡从这个按钮弹出
-                        .confirmationDialog("删除 \(ClientPlatform.deviceName) 上的这份副本？", isPresented: $confirmDelete, titleVisibility: .visible) {
-                            Button("删除（释放 \(Formatters.bytes(Int(unit.receivedBytes)))）", role: .destructive) {
+                        .confirmationDialog(String(localized: .offlineDeleteDeviceCopy(ClientPlatform.deviceName)), isPresented: $confirmDelete, titleVisibility: .visible) {
+                            Button(String(localized: .offlineDeleteFreeing(Formatters.bytes(Int(unit.receivedBytes)))), role: .destructive) {
                                 OfflineDownloader.shared.delete(fileId: fileId)
                             }
                         } message: {
-                            Text("立即删除，不进回收站。删除后没网时就不能播放了，要离线看得重新下载；观看进度会保留。")
+                            Text(String(localized: .offlineDeleteNowHint))
                         }
                 }
                 .buttonStyle(.borderless)
@@ -80,7 +80,7 @@ struct OfflineLocalFileRow: View {
     }
 
     private var localTag: some View {
-        Label("本机", systemImage: "iphone")
+        Label(String(localized: .offlineThisDevice), systemImage: "iphone")
             .labelStyle(.titleAndIcon)
             .font(.caption2.weight(.medium))
             .foregroundStyle(Theme.success)
@@ -94,15 +94,15 @@ struct OfflineLocalFileRow: View {
         let iso = unit.completedAt.map { $0.ISO8601Format() }
         let downloaded = iso.map { "\(Formatters.dateTime($0)) · \(libraryFromNow($0))" } ?? "—"
         return Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
-            row("保存位置", "本机（\(ClientPlatform.deviceName) · MovieClaw 下载）")
-            row("下载时间", downloaded)
-            row("来源", original ? "从服务器下载 · 原画" : "服务器转码 · \(unit.profileLabel)")
-            row("文件尺寸", libraryBytes(Int(unit.receivedBytes)))
+            row(String(localized: .offlineSaveLocation), String(localized: .offlineSaveLocationValue(ClientPlatform.deviceName)))
+            row(String(localized: .offlineDownloadedAt), downloaded)
+            row(String(localized: .libraryCollectionsSource), original ? String(localized: .offlineSourceOriginal) : String(localized: .offlineSourceTranscoded(unit.profileLabel)))
+            row(String(localized: .libraryItemFileSize), libraryBytes(Int(unit.receivedBytes)))
             if original, let source {
                 // 原画就是源文件的字节：规格照抄
                 ForEach(LibraryFileRow.specRows(source), id: \.self) { item in row(item.label, item.value) }
             } else {
-                row("画面规格", unit.profileLabel)
+                row(String(localized: .libraryItemVideoSpec), unit.profileLabel)
             }
         }
         .font(.footnote)

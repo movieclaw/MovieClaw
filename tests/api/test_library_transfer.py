@@ -68,7 +68,8 @@ async def _drain_transfer(source_id: int, target_id: int) -> transfer_svc.Transf
             )
         if latest is not None and latest.status is JobStatus.SUCCEEDED:
             result = dict(latest.result or {})
-            result.pop("message", None)
+            for field in ("message", "message_key", "message_params"):
+                result.pop(field, None)
             return transfer_svc.TransferSummary(**result)
         await asyncio.sleep(0.01)
     raise AssertionError("转移作业没有在时限内留下结论")

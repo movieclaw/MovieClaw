@@ -22,6 +22,7 @@ from pathlib import PurePosixPath
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import delete, select
 
+from movieclaw_api.i18n import t
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import Library, LibraryFile, MediaItem, PushDownloadWatch, utcnow
 
@@ -255,12 +256,21 @@ def announce_summary(member_id: int, library_id: int, item_ids: list[int]) -> No
             return None
         library = await session.get(Library, library_id)
         videos = library is not None and library.kind not in ("movie", "tv")
-        names = "、".join(item.title for item in items[:NAMED_IN_SUMMARY])
-        more = "等" if len(items) > NAMED_IN_SUMMARY else ""
+        names = t(
+            "notify.summary.names",
+            titles=t("notify.summary.separator").join(
+                item.title for item in items[:NAMED_IN_SUMMARY]
+            ),
+            more="yes" if len(items) > NAMED_IN_SUMMARY else "no",
+        )
         image = lazy_image(tmdb_push_image_url(items[0].backdrop_path, items[0].poster_path))
         return AlertContent(
-            title=f"你下载的 {len(items)} {'个视频' if videos else '部'}已入库",
-            body=f"{names}{more}，点开就能看",
+            title=t(
+                "notify.summary.downloadTitle",
+                count=len(items),
+                kind="video" if videos else "media",
+            ),
+            body=t("notify.summary.downloadBody", titles=names),
             image=await image(),
             open=f"/library/{library_id}",
             thread=f"download-{library_id}",

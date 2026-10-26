@@ -18,75 +18,78 @@ from pydantic import Field
 from movieclaw_api.settings.base import SettingSchema, register_setting
 
 # 服务标签目录：设置页开关列表的固定部分（PT 站条目按已配置站点动态生成）。
-# label 面向用户展示，代码内一律用 id。
+# 名称与说明是消息键，按读者语言渲染；代码内一律用 id。
 BUILTIN_EGRESS_SERVICES: list[dict[str, str]] = [
     {
         "id": "tmdb",
-        "label": "TMDB 元数据",
-        "description": "发现页/订阅建档的数据源 api.themoviedb.org",
+        "label_key": "settings.network.services.tmdbLabel",
+        "description_key": "settings.network.services.tmdbHint",
     },
     {
         "id": "image",
-        "label": "图片回源",
-        "description": "海报/背景图代理回源（TMDB 图床及各站图床）",
+        "label_key": "settings.network.services.imageLabel",
+        "description_key": "settings.network.services.imageHint",
     },
     {
         "id": "fanart",
-        "label": "Fanart.tv",
-        "description": "Fanart.tv 图片来源：接口 webservice.fanart.tv 与图床 assets.fanart.tv",
+        "label_key": "settings.network.services.fanartLabel",
+        "description_key": "settings.network.services.fanartHint",
     },
-    {"id": "douban", "label": "豆瓣", "description": "豆瓣榜单与搜索（国内网络通常可直连）"},
-    {"id": "llm", "label": "AI 模型", "description": "大语言模型供应商接口"},
+    {
+        "id": "douban",
+        "label_key": "settings.network.services.doubanLabel",
+        "description_key": "settings.network.services.doubanHint",
+    },
+    {
+        "id": "llm",
+        "label_key": "settings.network.services.llmLabel",
+        "description_key": "settings.network.services.llmHint",
+    },
     # 默认不进 proxy_services。海外接口常常要代理，但由用户在「设置 → 网络」里自己打开。
     {
         "id": "web_search",
-        "label": "网页搜索",
-        "description": "智能体的网页搜索（Tavily / Exa / Brave）。"
-        "这些接口多在海外，国内网络通常需要代理",
+        "label_key": "settings.network.services.webSearchLabel",
+        "description_key": "settings.network.services.webSearchHint",
     },
     {
         "id": "telegram",
-        "label": "Telegram 推送",
-        "description": "Telegram bot 收发消息（api.telegram.org），国内网络需代理",
+        "label_key": "settings.network.services.telegramLabel",
+        "description_key": "settings.network.services.telegramHint",
     },
     {
         "id": "discord",
-        "label": "Discord 推送",
-        "description": "Discord bot 收发消息（discord.com / gateway），国内网络需代理",
+        "label_key": "settings.network.services.discordLabel",
+        "description_key": "settings.network.services.discordHint",
     },
     {
         "id": "feishu",
-        "label": "飞书推送",
-        "description": "飞书群自定义机器人 Webhook（open.feishu.cn），国内网络通常可直连；"
-        "国际版 Lark（open.larksuite.com）可能需要代理",
+        "label_key": "settings.network.services.feishuLabel",
+        "description_key": "settings.network.services.feishuHint",
     },
     {
         "id": "webhook",
-        "label": "事件 Webhook",
-        "description": "向外部服务推送播放、收藏等事件；目标多在内网，"
-        "endpoint 可单独选择直连（默认）或走代理",
+        "label_key": "settings.network.services.webhookLabel",
+        "description_key": "settings.network.services.webhookHint",
     },
     {
         "id": "movieclaw_cloud",
-        "label": "MovieClaw Cloud",
-        "description": "连接、续签与上报（api.movieclaw.io）；未连接时不发任何请求",
+        "label_key": "settings.network.services.movieclawCloudLabel",
+        "description_key": "settings.network.services.movieclawCloudHint",
     },
     {
         "id": "movieclaw_push",
-        "label": "App 推送",
-        "description": "推送中继（官方 push.movieclaw.io 与公网上的自建中继）；"
-        "局域网里的自建中继总是直连",
+        "label_key": "settings.network.services.movieclawPushLabel",
+        "description_key": "settings.network.services.movieclawPushHint",
     },
     {
         "id": "pypi",
-        "label": "插件依赖下载",
-        "description": "第三方插件要装的 Python 包（默认 pypi.org，可在下方换成清华镜像）",
+        "label_key": "settings.network.services.pypiLabel",
+        "description_key": "settings.network.services.pypiHint",
     },
     {
         "id": "github",
-        "label": "GitHub 更新",
-        "description": "应用内更新的检查与产物下载（api.github.com / github.com），"
-        "国内网络常需代理；也可配 UPDATE_DOWNLOAD_MIRROR 加速镜像替代",
+        "label_key": "settings.network.services.githubLabel",
+        "description_key": "settings.network.services.githubHint",
     },
 ]
 

@@ -20,6 +20,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from movieclaw_api.i18n.metadata import localized_text
+from movieclaw_api.i18n.stored import reference, render_value, source_text
 from movieclaw_kernel import Event, Kernel, Mode
 from movieclaw_kernel.contracts import CATALOG
 
@@ -35,7 +37,10 @@ def _manifest_description(path: Path) -> str:
     if not manifest.is_file():
         return ""
     try:
-        return str(tomllib.loads(manifest.read_text("utf-8"))["plugin"].get("description") or "")
+        declared = tomllib.loads(manifest.read_text("utf-8"))["plugin"]
+        return localized_text(
+            str(declared.get("description") or ""), declared.get("description_localized")
+        )
     except (OSError, tomllib.TOMLDecodeError, KeyError):
         return ""
 
@@ -68,6 +73,7 @@ def _adds(
     for c in kernel.registry(IM_CHANNELS).contributions():
         if _owned(entry_id, c.entry_id):
             count = accounts.get(c.id, 0)
+            # i18n-ignore: rollback text beside _detail_ref
             detail = f"已接入 {count} 个账号" if count else "还没有接入账号"
             title = getattr(c.item, "title", "") or c.id
             out.append(
@@ -76,6 +82,10 @@ def _adds(
                     "title": f"消息通道「{title}」",
                     "detail": detail,
                     "href": "/settings/im-push",
+                    "_title_ref": reference("plugins.detail.channelTitle", name=str(title)),
+                    "_detail_ref": reference("plugins.detail.channelAccounts", count=count)
+                    if count
+                    else reference("plugins.detail.channelEmpty"),
                 }
             )
     for c in kernel.registry(SCHEDULED_TASKS).contributions():
@@ -85,7 +95,13 @@ def _adds(
                     "kind": "task",
                     "title": f"定时任务「{getattr(c.item, 'title', c.id)}」",
                     "detail": "周期可在「定时任务」里调整",
-                    "href": "/settings/app?tab=tasks",
+                    # 定位键 = TaskDefinition.key，即「定时任务」页每行的 task.key。
+                    # 不能用贡献 id：第三方插件的贡献 id 带「插件id:」前缀，与任务 key 不同
+                    "href": f"/settings/app?tab=tasks&task={c.item.key}",
+                    "_title_ref": reference(
+                        "plugins.detail.taskTitle", name=str(getattr(c.item, "title", c.id))
+                    ),
+                    "_detail_ref": reference("plugins.detail.taskHint"),
                 }
             )
     for c in kernel.registry(INGEST_STEPS).contributions():
@@ -96,6 +112,10 @@ def _adds(
                     "title": f"入库步骤「{getattr(c.item, 'title', c.id)}」",
                     "detail": "整理入库时多做的一步",
                     "href": None,
+                    "_title_ref": reference(
+                        "plugins.detail.ingestTitle", name=str(getattr(c.item, "title", c.id))
+                    ),
+                    "_detail_ref": reference("plugins.detail.ingestHint"),
                 }
             )
     jobs = [
@@ -108,9 +128,16 @@ def _adds(
                 "title": f"后台任务 {len(jobs)} 种",
                 "detail": "进度在「活动 → 任务」里看",
                 "href": "/activity",
+                "_title_ref": reference("plugins.detail.jobTitle", count=len(jobs)),
+                "_detail_ref": reference("plugins.detail.jobHint"),
             }
         )
-    for key, label in ((SITE_DATA_PACKS, "站点配置"), (SITE_CLASSES, "站点适配")):
+    for key, label, title_key in (
+        # i18n-ignore: rollback text beside _title_ref
+        (SITE_DATA_PACKS, "站点配置", "plugins.detail.siteConfigs"),
+        # i18n-ignore: rollback text beside _title_ref
+        (SITE_CLASSES, "站点适配", "plugins.detail.siteAdapters"),
+    ):
         mine = [c for c in kernel.registry(key).contributions() if _owned(entry_id, c.entry_id)]
         if mine:
             out.append(
@@ -119,6 +146,8 @@ def _adds(
                     "title": f"{label} {len(mine)} 项",
                     "detail": "在「资源站点」里可用",
                     "href": "/settings/sites",
+                    "_title_ref": reference(title_key, count=len(mine)),
+                    "_detail_ref": reference("plugins.detail.siteHint"),
                 }
             )
     for c in kernel.registry(LIBRARY_DELETE_PARTICIPANTS).contributions():
@@ -129,6 +158,8 @@ def _adds(
                     "title": f"删除影片时的选项「{_item_label(c)}」",
                     "detail": "删除影片 / 文件的弹窗里可以勾选，默认不勾",
                     "href": None,
+                    "_title_ref": reference("plugins.detail.deleteTitle", name=_item_label(c)),
+                    "_detail_ref": reference("plugins.detail.deleteHint"),
                 }
             )
     # 其余注册表：不维护清单，凡是它登记过的都列出来，用注册表契约自己的说明。
@@ -168,6 +199,10 @@ def _adds(
                     "title": f"提供服务「{key.doc or key.name}」",
                     "detail": f"别的插件可以用 {key.name}",
                     "href": None,
+                    "_title_ref": reference(
+                        "plugins.detail.serviceTitle", name=str(key.doc or key.name)
+                    ),
+                    "_detail_ref": reference("plugins.detail.serviceHint", name=key.name),
                 }
             )
     # 常驻后台工作（ctx.task 起的协程：目录监控、定时汇总、自愈巡检……），随插件运行
@@ -183,6 +218,8 @@ def _adds(
                     "title": f"常驻后台工作「{label}」",
                     "detail": "随插件一直运行，停用插件即停止",
                     "href": None,
+                    "_title_ref": reference("plugins.detail.backgroundTitle", name=label),
+                    "_detail_ref": reference("plugins.detail.backgroundHint"),
                 }
             )
     # 插件接口：每条都是 mclaw 命令，AI 助手能直接调用（插件路由挂在宿主的插件路由器上）
@@ -198,18 +235,25 @@ def _adds(
     )
     for command in commands:
         out.append(
-            {"kind": "command", "title": command, "detail": "AI 助手和命令行都能调用", "href": None}
+            {
+                "kind": "command",
+                "title": command,
+                "detail": "AI 助手和命令行都能调用",
+                "href": None,
+                "_detail_ref": reference("plugins.detail.commandHint"),
+            }
         )
     # 它会发出的事件、会发的通知（domain-events.md §7）
     from movieclaw_api.services import plugin_events
 
     declared = plugin_events.declared(entry_id)
     if declared is not None:
-        audiences = {
-            "admins": "管理员",
-            "member": "事件里的那个成员",
-            "media": "订阅或关注了那部片的人",
+        audience_keys = {
+            "admins": "plugins.detail.audienceAdmins",
+            "member": "plugins.detail.audienceMember",
+            "media": "plugins.detail.audienceMedia",
         }
+        audiences = {name: source_text(key) for name, key in audience_keys.items()}
         for title in declared.events.values():
             out.append(
                 {
@@ -217,6 +261,8 @@ def _adds(
                     "title": f"会发出「{title}」",
                     "detail": "别的插件、Webhook 能订",
                     "href": "/settings/webhook",
+                    "_title_ref": reference("plugins.detail.eventTitle", name=str(title)),
+                    "_detail_ref": reference("plugins.detail.eventHint"),
                 }
             )
         for spec in declared.notifications:
@@ -226,8 +272,26 @@ def _adds(
                 {
                     "kind": "notification",
                     "title": f"会发通知：{declared.events.get(spec.event, spec.event)}",
-                    "detail": f"发给{who}" if allowed else f"发给{who}（没有获得批准，不会发）",
-                    "href": "/settings/notifications",
+                    # 「会发出」的查看去 Webhook（订它），这里的查看去通知设置（收不收），
+                    # 两个落点是刻意的，在行说明里点明；没批下来就不说「去开」（评审 #1019）
+                    "detail": (
+                        f"发给{who}；收不收在「账号 → 通知」里开"
+                        if allowed
+                        else f"发给{who}；没有获得批准，不会发"
+                    ),
+                    # 定位键 = 插件事件名：「账号 → 通知」里这条开关的 key 就是它
+                    # （通知规则的 pref_key = 事件名）。事件名只含字母数字点横线，无需转义。
+                    "href": f"/settings/notifications?event={spec.event}",
+                    "_title_ref": reference(
+                        "plugins.detail.notificationTitle",
+                        name=str(declared.events.get(spec.event, spec.event)),
+                    ),
+                    "_detail_ref": reference(
+                        "plugins.detail.notificationAudience"
+                        if allowed
+                        else "plugins.detail.notificationUnapproved",
+                        audience=reference(audience_keys[spec.audience.partition(":")[0]]),
+                    ),
                 }
             )
     # 什么时候被触发、会影响哪些判断
@@ -265,7 +329,14 @@ def _adds(
         "trigger",
         "decision",
     ]
-    return sorted(unique, key=lambda item: order.index(item["kind"]))
+    ordered = sorted(unique, key=lambda item: order.index(item["kind"]))
+    # Keep deduplication independent of the reader's language; project only after it.
+    for item in ordered:
+        for field in ("title", "detail"):
+            ref = item.pop(f"_{field}_ref", None)
+            if ref is not None:
+                item[field] = render_value(ref)
+    return ordered
 
 
 def _doc_summary(kernel: Kernel, entry_id: str) -> str:
@@ -306,13 +377,23 @@ def _listener_view(event: Event[Any, Any], *, durable: bool = False) -> dict:
                 "title": f"「{doc}」后会自动处理",
                 "detail": "重启不丢，失败会重试",
                 "href": None,
+                "_title_ref": reference("plugins.detail.durableTitle", name=doc),
+                "_detail_ref": reference("plugins.detail.durableHint"),
             }
-        return {"kind": "trigger", "title": f"「{doc}」时会收到通知", "detail": "", "href": None}
+        return {
+            "kind": "trigger",
+            "title": f"「{doc}」时会收到通知",
+            "detail": "",
+            "href": None,
+            "_title_ref": reference("plugins.detail.listenerTitle", name=doc),
+        }
     return {
         "kind": "decision",
         "title": f"会影响：{doc}",
         "detail": "在系统做这个判断时参与决定",
         "href": None,
+        "_title_ref": reference("plugins.detail.decisionTitle", name=doc),
+        "_detail_ref": reference("plugins.detail.decisionHint"),
     }
 
 
@@ -428,11 +509,17 @@ async def plugin_detail(kernel: Kernel, settings: Any, entry_id: str, item: dict
         except (OSError, ValueError, tomllib.TOMLDecodeError):
             network = None
     elif shipped is not None:
-        description = shipped.manifest.plugin.description
+        description = localized_text(
+            shipped.manifest.plugin.description, shipped.manifest.plugin.description_localized
+        )
         version = shipped.manifest.plugin.version
     if not description:
         # 没有清单描述（系统模块、个别官方中枢、没写描述的本地插件）：用入口函数的说明文字
         description = _doc_summary(kernel, entry_id)
+        if source == "builtin":
+            from movieclaw_api.plugins.presentation import builtin_text
+
+            description = builtin_text(entry_id, "description", description)
 
     accounts: dict[str, int] = {}
     try:
@@ -451,7 +538,15 @@ async def plugin_detail(kernel: Kernel, settings: Any, entry_id: str, item: dict
     if store is not None:
         durable = await store.describe()
         consumers = [
-            {**c, "title": "、".join(_event_title(name) for name in c["events"])}
+            {
+                **c,
+                "title": render_value(
+                    {
+                        "message_list": [_event_title(name) for name in c["events"]],
+                        "separator_key": "common.list.separator",
+                    }
+                ),
+            }
             for c in durable["consumers"]
             if c["consumer_id"].startswith(f"{entry_id}:")
         ]

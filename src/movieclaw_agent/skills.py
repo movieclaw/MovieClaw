@@ -261,7 +261,18 @@ MAX_INVOCATION_BODY_CHARS = 32_000
 _SKILL_BLOCK_RE = re.compile(r'^<skill name="([^"]*)" location="[^"]*">\n.*?\n</skill>\n*', re.S)
 
 
+@dataclass(frozen=True)
+class SkillExpansion:
+    text: str
+    generated_instruction: bool = False
+
+
 def expand_skill_invocations(content: str, skills: list[Skill]) -> str:
+    """Expand skill tokens while retaining the existing plain-text API."""
+    return prepare_skill_invocations(content, skills).text
+
+
+def prepare_skill_invocations(content: str, skills: list[Skill]) -> SkillExpansion:
     """把消息里的 /skill:名字 占位符展开为技能正文块（pi 展开语义）。
 
     - 命中的 token 从文本剥除，技能正文现场读盘、剥 frontmatter、超限截断，
@@ -273,7 +284,7 @@ def expand_skill_invocations(content: str, skills: list[Skill]) -> str:
     """
     matches = list(SKILL_TOKEN_RE.finditer(content))
     if not matches:
-        return content
+        return SkillExpansion(content)
 
     by_name = {s.name.lower(): s for s in skills}
     # 首现序去重 + 上限；只展开能匹配到技能的名字
@@ -290,7 +301,7 @@ def expand_skill_invocations(content: str, skills: list[Skill]) -> str:
             break
         requested.append(key)
     if not requested:
-        return content
+        return SkillExpansion(content)
 
     blocks: list[str] = []
     expanded_names: set[str] = set()
@@ -301,11 +312,11 @@ def expand_skill_invocations(content: str, skills: list[Skill]) -> str:
         blocks.append(block)
         expanded_names.add(key)
     if not blocks:
-        return content
+        return SkillExpansion(content)
 
     remaining = _strip_tokens(content, expanded_names).strip()
     tail = remaining if remaining else "用户未附加说明，按上述技能指令执行。"
-    return "\n\n".join([*blocks, tail])
+    return SkillExpansion("\n\n".join([*blocks, tail]), generated_instruction=not remaining)
 
 
 def _render_invocation_block(skill: Skill) -> str | None:

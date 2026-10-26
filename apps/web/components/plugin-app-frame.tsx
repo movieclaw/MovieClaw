@@ -1,6 +1,7 @@
 "use client";
 
 import type { Route } from "next";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -182,18 +183,19 @@ function Frame({ app }: { app: PluginApp }) {
 
 /** 没有这个页面：没装、没同意、被停用、安全模式，或成员没被授权看 */
 function Missing() {
+  const t = useTranslations();
   const { isAdmin } = usePermissions();
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-      <p className="text-title-sm font-medium text-[var(--text)]">这个页面打不开</p>
+      <p className="text-title-sm font-medium text-[var(--text)]">{t("settings.pluginApp.unavailable")}</p>
       <p className="max-w-sm text-sub leading-relaxed text-[var(--text-muted)]">
         {isAdmin
-          ? "插件可能已卸载或停用、还没有同意它的网页运行，或者应用正处于安全模式。"
-          : "它可能已被移除，或者管理员没有开放给成员。"}
+          ? t("settings.pluginApp.adminHint")
+          : t("settings.pluginApp.memberHint")}
       </p>
       {isAdmin && (
         <Link href={"/settings/plugins" as Route} className="glass-row px-3 py-1.5 text-sub text-[var(--text)]">
-          去插件设置
+          {t("settings.pluginApp.settings")}
         </Link>
       )}
     </div>

@@ -13,7 +13,14 @@ test("类型墙名称保留后端电影与剧集的全部 27 个类型，Apple �
   }
   assert.equal(Object.keys(expected).length, 27);
   assert.deepEqual(GENRE_LABELS, expected);
+  // Apple 卡面按编号取 String Catalog 的键（.mediaGenresAction ↔ media.genres.action），比对其中文
   const swift = readFileSync(new URL("apps/apple/Shared/DesignSystem/GenreCardFace.swift", repo), "utf8");
-  const apple = Object.fromEntries([...swift.matchAll(/^\s*(\d+): "([^"]+)",/gm)].map(([, id, label]) => [id, label]));
+  const catalog = JSON.parse(readFileSync(new URL("apps/apple/Shared/Localizable.xcstrings", repo), "utf8")).strings;
+  const apple = Object.fromEntries(
+    [...swift.matchAll(/^\s*(\d+): String\(localized: \.media(Genres\w+)\),/gm)].map(([, id, symbol]) => {
+      const key = `media.genres.${symbol[6].toLowerCase()}${symbol.slice(7)}`;
+      return [id, catalog[key].localizations["zh-Hans"].stringUnit.value];
+    }),
+  );
   assert.deepEqual(apple, expected);
 });

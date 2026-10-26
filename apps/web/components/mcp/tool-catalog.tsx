@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
@@ -23,6 +25,7 @@ import type { McpToolCommand, McpToolParameter, McpToolPreview } from "@/lib/api
  * 这里按命令表渲染，并与顶部搜索联动。
  */
 export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
+  const t = useTranslations();
   const [query, setQuery] = useState("");
   const [only, setOnly] = useState<"all" | "read" | "write">("all");
   const [openTool, setOpenTool] = useState<string | null>(null);
@@ -80,7 +83,7 @@ export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索工具名或说明"
+            placeholder={t("settings.mcp.controls.searchTools")}
             // 藏掉 WebKit 给 type=search 自带的清除叉：右侧已经有我们自己的清除按钮，
             // 两个叉并排出现是明显的瑕疵
             className="w-full bg-transparent px-3 py-1.5 text-sub outline-none placeholder:text-[var(--text-faint)] [&::-webkit-search-cancel-button]:appearance-none"
@@ -89,7 +92,7 @@ export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
             <button
               type="button"
               onClick={() => setQuery("")}
-              aria-label="清空搜索"
+              aria-label={t("settings.mcp.controls.clearSearch")}
               className="shrink-0 px-1 text-[var(--text-faint)] hover:text-[var(--text)]"
             >
               ×
@@ -105,9 +108,9 @@ export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
         <div className="flex shrink-0 items-center gap-1">
           {(
             [
-              ["all", "全部"],
-              ["read", "只读"],
-              ["write", "会改动"],
+              ["all", t("settings.mcp.controls.all")],
+              ["read", t("settings.mcp.controls.readOnly")],
+              ["write", t("settings.mcp.controls.write")],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -126,13 +129,13 @@ export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
         </div>
 
         <span className="shrink-0 text-caption tabular-nums text-[var(--text-faint)]">
-          {shown === tools.length ? `${tools.length}` : `${shown} / ${tools.length}`} 个工具
+          {shown === tools.length ? t("settings.mcp.controls.toolsCount", { count: tools.length }) : t("settings.mcp.controls.toolFraction", { shown, total: tools.length })}
         </span>
       </div>
 
       {shown === 0 && (
         <p className="py-6 text-center text-sub text-[var(--text-muted)]">
-          没有匹配「{query}」的工具
+          {t("settings.mcp.controls.noMatchingTools", { query })}
         </p>
       )}
 
@@ -154,7 +157,7 @@ export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
             >
               <span className="text-[var(--text-faint)]">{folded ? "▸" : "▾"}</span>
               <span className="font-mono text-sub text-[var(--text)]">{service}</span>
-              <span className="text-caption text-[var(--text-faint)]">{list.length} 个工具</span>
+              <span className="text-caption text-[var(--text-faint)]">{t("settings.mcp.controls.toolsCount", { count: list.length })}</span>
             </button>
 
             {!folded && (
@@ -175,8 +178,8 @@ export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
                             <span className="font-mono text-sub text-[var(--accent)]">
                               {tool.name}
                             </span>
-                            {tool.read_only && <Badge>只读</Badge>}
-                            {tool.destructive && <Badge tone="danger">破坏性</Badge>}
+                            {tool.read_only && <Badge>{t("settings.mcp.controls.readOnly")}</Badge>}
+                            {tool.destructive && <Badge tone="danger">{t("settings.mcp.controls.destructive")}</Badge>}
                           </div>
                           <p className="text-caption leading-relaxed text-[var(--text-muted)]">
                             {tool.summary || tool.description}
@@ -184,8 +187,8 @@ export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
                         </div>
                         <span className="shrink-0 pt-0.5 text-caption tabular-nums text-[var(--text-faint)]">
                           {tool.commands.length > 0
-                            ? `${tool.commands.length} 命令`
-                            : `${tool.parameters.length} 参数`}
+                            ? t("settings.mcp.controls.commandBadge", { count: tool.commands.length })
+                            : t("settings.mcp.controls.parameterBadge", { count: tool.parameters.length })}
                         </span>
                       </button>
 
@@ -197,14 +200,14 @@ export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
                           {tool.commands.length > 0 ? (
                             <CommandTable commands={tool.commands} keyword={query.trim().toLowerCase()} />
                           ) : tool.parameters.length === 0 ? (
-                            <p className="text-caption text-[var(--text-faint)]">这个工具不需要参数。</p>
+                            <p className="text-caption text-[var(--text-faint)]">{t("settings.mcp.controls.noParameters")}</p>
                           ) : (
                             <ParameterTable parameters={tool.parameters} />
                           )}
                           <div className="flex items-center gap-2">
                             <CopyButton
                               text={tool.name}
-                              label="复制工具名"
+                              label={t("settings.mcp.controls.copyToolName")}
                               className="btn-glass px-2.5 py-1 text-caption"
                             />
                             <CopyButton
@@ -223,7 +226,7 @@ export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
                                 null,
                                 2,
                               )}
-                              label="复制调用样例"
+                              label={t("settings.mcp.controls.copyExample")}
                               className="btn-glass px-2.5 py-1 text-caption"
                             />
                           </div>
@@ -251,6 +254,7 @@ export function ToolCatalog({ tools }: { tools: McpToolPreview[] }) {
  * 这样的标识符按字符掰成五行，比没有排版更难读。标识符宁可占满一行也不能断词。
  */
 function CommandTable({ commands, keyword }: { commands: McpToolCommand[]; keyword: string }) {
+  const t = useTranslations();
   const matched = keyword
     ? commands.filter((c) => `${c.name} ${c.summary}`.toLowerCase().includes(keyword))
     : commands;
@@ -261,7 +265,7 @@ function CommandTable({ commands, keyword }: { commands: McpToolCommand[]; keywo
       <span
         className="ml-1 text-[var(--danger)]"
         title={
-          command.dangerous === "destructive" ? "破坏性：会删数据或磁盘文件" : "会清除配置或记录"
+          command.dangerous === "destructive" ? t("settings.mcp.controls.destructiveHint") : t("settings.mcp.controls.clearHint")
         }
       >
         ⚠
@@ -272,7 +276,7 @@ function CommandTable({ commands, keyword }: { commands: McpToolCommand[]; keywo
     <>
       {command.summary || "—"}
       {command.is_job && (
-        <span className="ml-1 text-[var(--text-faint)]">（后台任务，返回 job_id）</span>
+        <span className="ml-1 text-[var(--text-faint)]">{t("settings.mcp.controls.backgroundJob")}</span>
       )}
     </>
   );
@@ -281,8 +285,8 @@ function CommandTable({ commands, keyword }: { commands: McpToolCommand[]; keywo
     <div>
       <p className="pb-1 text-caption text-[var(--text-faint)]">
         {list.length === commands.length
-          ? `${commands.length} 条命令，填进 command 参数`
-          : `匹配「${keyword}」的 ${list.length} / ${commands.length} 条命令`}
+          ? t("settings.mcp.controls.commandCaption", { count: commands.length })
+          : t("settings.mcp.controls.matchingCommands", { query: keyword, shown: list.length, total: commands.length })}
       </p>
 
       {/* 窄屏：堆叠 */}
@@ -312,9 +316,9 @@ function CommandTable({ commands, keyword }: { commands: McpToolCommand[]; keywo
         </colgroup>
         <thead>
           <tr className="text-left text-[var(--text-faint)]">
-            <th className="pb-1 font-normal">命令</th>
-            <th className="pb-1 font-normal">说明</th>
-            <th className="pb-1 font-normal">params 字段</th>
+            <th className="pb-1 font-normal">{t("settings.mcp.controls.command")}</th>
+            <th className="pb-1 font-normal">{t("settings.mcp.controls.description")}</th>
+            <th className="pb-1 font-normal">{t("settings.mcp.controls.paramsFields")}</th>
           </tr>
         </thead>
         <tbody className="align-top">
@@ -341,9 +345,10 @@ function CommandTable({ commands, keyword }: { commands: McpToolCommand[]; keywo
  * 每列都不够放下一个标识符。
  */
 function ParameterTable({ parameters }: { parameters: McpToolParameter[] }) {
+  const t = useTranslations();
   const required = (param: McpToolParameter) =>
     param.required ? (
-      <span className="ml-0.5 text-[var(--danger)]" title="必填">
+      <span className="ml-0.5 text-[var(--danger)]" title={t("settings.mcp.controls.required")}>
         *
       </span>
     ) : null;
@@ -351,7 +356,7 @@ function ParameterTable({ parameters }: { parameters: McpToolParameter[] }) {
   const options = (param: McpToolParameter) =>
     param.options.length > 0 ? (
       <span className="mt-0.5 block font-mono text-[11px] text-[var(--text-faint)]">
-        可选：{param.options.join(" / ")}
+        {t("settings.mcp.controls.options")}{param.options.join(" / ")}
       </span>
     ) : null;
 
@@ -381,10 +386,10 @@ function ParameterTable({ parameters }: { parameters: McpToolParameter[] }) {
       <table className="hidden w-full text-caption sm:table">
         <thead>
           <tr className="text-left text-[var(--text-faint)]">
-            <th className="pb-1 font-normal">参数</th>
-            <th className="pb-1 font-normal">类型</th>
-            <th className="pb-1 font-normal">位置</th>
-            <th className="pb-1 font-normal">说明</th>
+            <th className="pb-1 font-normal">{t("settings.mcp.controls.parameter")}</th>
+            <th className="pb-1 font-normal">{t("settings.mcp.controls.type")}</th>
+            <th className="pb-1 font-normal">{t("settings.mcp.controls.location")}</th>
+            <th className="pb-1 font-normal">{t("settings.mcp.controls.description")}</th>
           </tr>
         </thead>
         <tbody className="align-top">

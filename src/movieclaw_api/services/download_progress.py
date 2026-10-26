@@ -23,13 +23,14 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import reference, reference_fields
 from movieclaw_api.services.download_health import (
     record_stalled,
     resolve_landing_group,
     upsert_landing_group,
 )
 from movieclaw_api.services.downloader_paths import diagnose_landing
-from movieclaw_api.services.subscription import units_text
+from movieclaw_api.services.subscription import set_note, units_reference
 from movieclaw_api.services.system_notice import resolve_notices, upsert_notice
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
@@ -72,6 +73,7 @@ _IN_FLIGHT = (WantedStatus.GRABBED, WantedStatus.DOWNLOADED)
 @register_task(
     "check_download_progress",
     title="订阅下载换源巡检",
+    title_key="settings.scheduledTasks.catalog.checkDownloadProgressTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=PROGRESS_TICK_SECONDS,
     description=(
@@ -80,6 +82,7 @@ _IN_FLIGHT = (WantedStatus.GRABBED, WantedStatus.DOWNLOADED)
         "movieclaw 看不到文件时告警，实际内容缺集时只退回缺失部分。"
         "下载完成后的入库由监听导入/库扫描完成，工单由库存对账关闭。"
     ),
+    description_key="settings.scheduledTasks.catalog.checkDownloadProgressDescription",
 )
 async def check_download_progress() -> None:
     async with _tick_lock:
@@ -280,7 +283,7 @@ async def _ensure_attempts(
         old.last_progress_at = utcnow()
         old.missing_observations = 0
         old.next_search_at = None
-        old.cleanup_note = None
+        set_note(old, None)
         session.add(old)
     existing_keys = set(existing)
     for subscription_id, info_hash in set(normalized_groups) - existing_keys:
@@ -372,7 +375,9 @@ async def _observe_attempt(
                     return False
                 from movieclaw_api.services.subscription import fail_trial
 
-                await fail_trial(session, attempt, reason="原订阅工单已由入库或其他流程满足")
+                await fail_trial(
+                    session, attempt, reason=reference("subscription.attempt.trialTargetSatisfied")
+                )
                 return False
         elif attempt.purpose == "upgrade":
             # 洗版 attempt 的目标单元本来就是 imported（工单不重开），下方
@@ -390,9 +395,7 @@ async def _observe_attempt(
             if tracked and not any(row.in_scope for row in tracked):
                 attempt.status = DownloadAttemptStatus.CANCELLED
                 attempt.next_search_at = None
-                attempt.cleanup_note = (
-                    "关联单元已退出当前订阅范围；保留下载器任务，不再观察或换源"
-                )
+                set_note(attempt, reference("subscription.attempt.outOfScopeStopObserving"))
                 attempt.updated_at = utcnow()
                 session.add(attempt)
                 await session.commit()
@@ -419,10 +422,11 @@ async def _observe_attempt(
                 if promoted_child is not None
                 else DownloadAttemptStatus.IMPORTED
             )
-            attempt.cleanup_note = (
-                "替代源已接管，等待恢复旧任务清理"
+            set_note(
+                attempt,
+                reference("subscription.attempt.awaitingOldCleanupResume")
                 if promoted_child is not None
-                else "关联工单已完成入库，不再执行死种换源"
+                else reference("subscription.attempt.importedNoReplacement"),
             )
             attempt.updated_at = utcnow()
             session.add(attempt)
@@ -470,7 +474,9 @@ async def _observe_attempt(
             ):
                 from movieclaw_api.services.subscription import fail_trial
 
-                await fail_trial(session, attempt, reason="替代源连续三次未在可达下载器中找到")
+                await fail_trial(
+                    session, attempt, reason=reference("subscription.attempt.trialMissing")
+                )
                 return False
             if attempt.missing_observations >= MISSING_CONFIRMATIONS:
                 if attempt.status == DownloadAttemptStatus.COMPLETED:
@@ -528,17 +534,16 @@ async def _observe_attempt(
             await session.commit()
             if previous_state != "error":
                 # 只在首次进入错误态时记一条时间线，避免每 5 分钟刷屏
-                reason = getattr(status, "error_message", None) or "下载器报告该任务出错"
+                reason = getattr(status, "error_message", None) or reference(
+                    "activity.subscription.downloaderErrorDefault"
+                )
                 await record_stalled(
                     session,
                     subscription_id=attempt.subscription_id,
                     info_hash=attempt.info_hash,
                     units=attempt.units,
                     reason="downloader_error",
-                    message=(
-                        f"{reason}。这不是死种，已暂停换源判定；"
-                        "请在下载器中重新校验或删除该任务，处理后自动恢复观察"
-                    ),
+                    message=reference("activity.subscription.downloaderError", reason=reason),
                 )
             return False
 
@@ -607,7 +612,9 @@ async def _observe_attempt(
             if now - attempt.last_progress_at >= timedelta(minutes=TRIAL_TIMEOUT_MINUTES):
                 from movieclaw_api.services.subscription import fail_trial
 
-                await fail_trial(session, attempt, reason="替代源试用 30 分钟仍无真实下载进度")
+                await fail_trial(
+                    session, attempt, reason=reference("subscription.attempt.trialTimeout")
+                )
             return False
 
         if status.completed:
@@ -642,7 +649,7 @@ async def _observe_attempt(
                     await fail_trial(
                         session,
                         trial,
-                        reason="旧源已恢复并下载完成，无需继续试用替代源",
+                        reason=reference("subscription.attempt.trialOldRecovered"),
                     )
             rows = await _attempt_wanted_rows(session, attempt)
             if rows:
@@ -700,10 +707,7 @@ async def _handle_stalled_attempt(
             info_hash=attempt.info_hash,
             units=attempt.units,
             reason="no_byte_progress",
-            message=(
-                "下载已连续 15 分钟没有进度，可在活动页立即换种；"
-                "30 分钟时将自动寻找同品质替代源"
-            ),
+            message=reference("activity.subscription.noProgress"),
         )
     if elapsed < timedelta(minutes=AUTO_REPLACEMENT_MINUTES):
         return False
@@ -774,23 +778,23 @@ async def _requeue_missing_attempt(
 
     attempt.status = DownloadAttemptStatus.FAILED
     attempt.next_search_at = None
-    attempt.cleanup_note = (
-        "用户已删除下载任务，关联工单已退回重新寻找"
+    set_note(
+        attempt,
+        reference("subscription.attempt.deletedByUser")
         if deleted_by_user
-        else "任务已从所有可达下载器中消失，关联工单已退回重新寻找"
+        else reference("subscription.attempt.missingEverywhere"),
     )
     attempt.updated_at = now
     session.add(attempt)
     if deleted_by_user:
-        message = (
-            f"已按你的操作删除下载任务，{units_text(rows)} 已退回重新寻找资源；"
-            "也可在订阅详情页立即搜索或手动选种"
+        message = reference(
+            "activity.subscription.deletedByUserRequeued", units=units_reference(rows)
         )
     else:
-        message = (
-            f"原下载任务已从所有可达的下载器中消失（连续 {MISSING_CONFIRMATIONS} 次确认，"
-            "可能被手动删除或被下载器清理），"
-            f"{units_text(rows)} 已退回重新寻找资源；也可在订阅详情页立即搜索或手动选种"
+        message = reference(
+            "activity.subscription.missingRequeued",
+            count=MISSING_CONFIRMATIONS,
+            units=units_reference(rows),
         )
     await _requeue(
         session,
@@ -830,10 +834,7 @@ async def _cancel_attempt_if_out_of_scope(
 ) -> bool:
     """并发兜底：网络观察返回时目标若已退出范围，原地止损且不碰下载器。"""
     source = attempt
-    if (
-        attempt.status == DownloadAttemptStatus.TRIAL
-        and attempt.replaces_attempt_id is not None
-    ):
+    if attempt.status == DownloadAttemptStatus.TRIAL and attempt.replaces_attempt_id is not None:
         parent = await session.get(SubscriptionDownloadAttempt, attempt.replaces_attempt_id)
         if parent is None:
             return False
@@ -866,7 +867,7 @@ async def _cancel_attempt_if_out_of_scope(
         return False
     attempt.status = DownloadAttemptStatus.CANCELLED
     attempt.next_search_at = None
-    attempt.cleanup_note = "关联单元已退出当前订阅范围；保留下载器任务，不再观察或换源"
+    set_note(attempt, reference("subscription.attempt.outOfScopeStopObserving"))
     attempt.updated_at = utcnow()
     session.add(attempt)
     await session.commit()
@@ -1074,18 +1075,17 @@ async def _verify_landing(
     # 不给"可能是映射缺失、或卷未挂载、或文件被移动"的选择题——系统自己
     # 能判定是哪一种，就把确切结论和该做的事直接说出来
     probe = diagnose_landing(local_dir, downloader.path_mappings)
-    if probe.healthy:
-        # 目录本身可见、只是这个种子的内容不在：种子级问题，不牵连目录
-        message = (
-            f"「{status.name}」已下载完成，movieclaw 能看到目录 {local_dir}，"
-            f"但里面没有「{root}」——文件可能已在下载器「{downloader.name}」中被移动或改名。"
-            "请在下载器里核对该任务的保存位置，或删除任务后重新下载"
-        )
-    else:
-        message = (
-            f"「{status.name}」已下载完成，但 movieclaw 在 {local_dir} 看不到它。"
-            f"{probe.detail}"
-        )
+    # 目录本身可见、只是这个种子的内容不在（healthy）：种子级问题，不牵连目录
+    landing_params = {
+        "name": status.name,
+        "path": local_dir,
+        "root": root,
+        "downloader": downloader.name,
+        "healthy": "yes" if probe.healthy else "no",
+        "detail": {"message_key": probe.detail_key, "message": probe.detail}
+        if probe.detail_key
+        else probe.detail,
+    }
     # 全局红灯（幂等 upsert，问题在就常亮）：时间线活动埋在单个订阅详情页里，
     # 这类"不修就永远卡着"的错误必须在任何页面都能被感受到
     await upsert_notice(
@@ -1093,8 +1093,9 @@ async def _verify_landing(
         dedupe_key=f"subscription.landing:{rows[0].subscription_id}:{info_hash}",
         severity=NoticeSeverity.ERROR,
         source="subscription",
-        title=f"「{status.name}」下载完成但无法入库",
-        message=message,
+        title_key="notify.landingFailed.title",
+        message_key="notify.landingFailed.body",
+        message_params=landing_params,
         payload={
             "subscription_id": rows[0].subscription_id,
             "info_hash": info_hash,
@@ -1134,7 +1135,7 @@ async def _verify_landing(
             subscription_id=rows[0].subscription_id,
             wanted_item_id=rows[0].id,
             type=ActivityType.IMPORT_FAILED,
-            message=message,
+            **reference_fields(reference("notify.landingFailed.body", **landing_params)),
             payload={
                 "info_hash": info_hash,
                 "reason": "path_unreachable",
@@ -1249,10 +1250,10 @@ async def _verify_content(
         item,
         missing,
         info_hash,
-        message=(
-            f"「{status.name}」已下载完成，但内容里没有 {units_text(missing)} 对应的"
-            f"文件（声明的覆盖范围与实际内容不符），这部分退回重新寻找资源；"
-            "种子内实际存在的集数不受影响，照常入库"
+        message=reference(
+            "activity.subscription.contentMissing",
+            name=status.name,
+            units=units_reference(missing),
         ),
         reason="content_missing",
     )
@@ -1317,7 +1318,7 @@ async def _requeue(
     rows: list[WantedItem],
     info_hash: str,
     *,
-    message: str,
+    message: dict,
     reason: str,
 ) -> None:
     """只把物理内容缺失的工单退回 wanted，保留同种子中实际存在的单元。"""
@@ -1348,7 +1349,7 @@ async def _requeue(
             subscription_id=rows[0].subscription_id,
             wanted_item_id=rows[0].id,
             type=ActivityType.DISPATCH_FAILED,
-            message=message,
+            **reference_fields(message),
             payload={
                 "info_hash": info_hash,
                 "reason": reason,

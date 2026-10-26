@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -33,6 +34,21 @@ from movieclaw_kernel import RegistryKey, Stability
 from movieclaw_sdk.callbacks import CallbackRequest, CallbackResponse
 
 logger = logging.getLogger("movieclaw_sdk.channels")
+
+# 与清单的 W3C 语言映射一致；未声明的语言保留作者原文。
+LocalizedText = dict[str, str | dict[str, str]]
+
+
+class ChannelInputError(ValueError):
+    """绑定输入不合法；可选译文随原文一起交给宿主，不改变 ValueError 分类。"""
+
+    def __init__(self, message: str, *, message_localized: LocalizedText | None = None) -> None:
+        super().__init__(message)
+        self.message_ref = {
+            "message_text": message,
+            "message_localized": deepcopy(message_localized or {}),
+        }
+
 
 # ---------------------------------------------------------------------- 消息
 
@@ -137,6 +153,9 @@ class FormField:
     placeholder: str = ""
     help: str = ""
     required: bool = True
+    label_localized: LocalizedText = field(default_factory=dict)
+    placeholder_localized: LocalizedText = field(default_factory=dict)
+    help_localized: LocalizedText = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +172,7 @@ class Binding:
     pairing: Literal["code", "none"] = "none"
     #: 绑定对话框顶部的一句说明
     hint: str = ""
+    hint_localized: LocalizedText = field(default_factory=dict)
 
     @classmethod
     def form(
@@ -161,12 +181,19 @@ class Binding:
         *,
         pairing: Literal["code", "none"] = "none",
         hint: str = "",
+        hint_localized: LocalizedText | None = None,
     ) -> Binding:
-        return cls(kind="form", fields=fields, pairing=pairing, hint=hint)
+        return cls(
+            kind="form",
+            fields=fields,
+            pairing=pairing,
+            hint=hint,
+            hint_localized=deepcopy(hint_localized or {}),
+        )
 
     @classmethod
-    def flow(cls, *, hint: str = "") -> Binding:
-        return cls(kind="flow", hint=hint)
+    def flow(cls, *, hint: str = "", hint_localized: LocalizedText | None = None) -> Binding:
+        return cls(kind="flow", hint=hint, hint_localized=deepcopy(hint_localized or {}))
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +229,8 @@ class FlowState:
     input_label: str | None = None
     #: ``confirmed`` 时的绑定结果
     result: BindResult | None = None
+    message_localized: LocalizedText = field(default_factory=dict)
+    input_label_localized: LocalizedText = field(default_factory=dict)
 
     @property
     def terminal(self) -> bool:
@@ -243,6 +272,8 @@ class ChannelDriver:
 
     title: str = ""
     description: str = ""
+    title_localized: LocalizedText | None = None
+    description_localized: LocalizedText | None = None
     capabilities: Capabilities = Capabilities()
     binding: Binding = Binding.form(())
 
@@ -374,7 +405,7 @@ class AdapterDriver(ChannelDriver):
 #: 通道插件往这个注册表贡献驱动（贡献 id 即通道 id；第三方插件自动带插件 id 前缀）
 IM_CHANNELS: RegistryKey[ChannelDriver] = RegistryKey(
     "im-channels",
-    version="1.1",  # 1.1：驱动可选实现 webhook（平台回调收消息）
+    version="1.2",  # 1.2：可选的名称、表单及绑定状态语言映射
     stability=Stability.EXPERIMENTAL,
     schema=ChannelDriver,
     doc="IM 通道：插件贡献一个通道驱动（收发与绑定），中枢负责账号、对话与推送",
@@ -418,12 +449,22 @@ async def download_capped(
 # 进程外运行时，宿主与插件进程之间用 JSON 传这些结构（图片字节走 base64）。
 
 
+def _localized_fields(value: Any, *names: str) -> dict[str, LocalizedText]:
+    # 空映射不改变旧驱动的线上格式；复制后不与驱动持有的嵌套字典共享引用。
+    return {
+        name: deepcopy(translations)
+        for name in names
+        if (translations := getattr(value, name, None))
+    }
+
+
 def driver_spec(driver: ChannelDriver) -> dict[str, Any]:
     caps = driver.capabilities
     spec = driver.binding
     return {
         "title": driver.title,
         "description": driver.description,
+        **_localized_fields(driver, "title_localized", "description_localized"),
         "capabilities": {
             "receive": caps.receive,
             "photo": caps.photo,
@@ -435,6 +476,7 @@ def driver_spec(driver: ChannelDriver) -> dict[str, Any]:
             "kind": spec.kind,
             "pairing": spec.pairing,
             "hint": spec.hint,
+            **_localized_fields(spec, "hint_localized"),
             "fields": [
                 {
                     "key": f.key,
@@ -443,6 +485,9 @@ def driver_spec(driver: ChannelDriver) -> dict[str, Any]:
                     "placeholder": f.placeholder,
                     "help": f.help,
                     "required": f.required,
+                    **_localized_fields(
+                        f, "label_localized", "placeholder_localized", "help_localized"
+                    ),
                 }
                 for f in spec.fields
             ],
@@ -456,7 +501,8 @@ def spec_parts(data: dict[str, Any]) -> tuple[Capabilities, Binding]:
         kind=b["kind"],
         pairing=b["pairing"],
         hint=b["hint"],
-        fields=tuple(FormField(**f) for f in b["fields"]),
+        hint_localized=deepcopy(b.get("hint_localized") or {}),
+        fields=tuple(FormField(**deepcopy(f)) for f in b["fields"]),
     )
 
 
@@ -547,6 +593,7 @@ def flow_dict(state: FlowState) -> dict[str, Any]:
         "qr": state.qr,
         "input_label": state.input_label,
         "result": bind_result_dict(state.result) if state.result is not None else None,
+        **_localized_fields(state, "message_localized", "input_label_localized"),
     }
 
 
@@ -559,4 +606,6 @@ def flow_from(data: dict[str, Any]) -> FlowState:
         qr=data.get("qr"),
         input_label=data.get("input_label"),
         result=bind_result_from(result) if result else None,
+        message_localized=deepcopy(data.get("message_localized") or {}),
+        input_label_localized=deepcopy(data.get("input_label_localized") or {}),
     )

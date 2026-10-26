@@ -73,6 +73,8 @@ class MediaCard(BaseModel):
         default="",
         description="规模：电影=片长、剧集=季数。TMDB 列表接口不含此字段，仅详情接口回填",
     )
+    extent_key: str | None = None
+    extent_params: dict[str, int] = Field(default_factory=dict)
     badges: list[str] = Field(
         default_factory=list,
         description="资源质量徽章（4K/HDR 等）。预留给后续站点资源匹配，当前恒为空",

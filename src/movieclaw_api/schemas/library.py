@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import Field, field_serializer, field_validator
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.services.library.preflight import (
     MAX_SELECTION as BATCH_TRANSFER_MAX_SELECTION,
@@ -1359,7 +1360,7 @@ class ArtworkSelectPayload(BaseModel):
 
         if value is None or value.startswith("/") or is_fanart_asset(value):
             return value
-        raise ValueError("图片路径不合法：只接受 TMDB 图片路径或 Fanart.tv 图床地址")
+        raise ValueError(t("errors.libraryInput.imagePath"))
 
 
 class ReidentifyResultView(BaseModel):
@@ -2104,6 +2105,8 @@ class TrashedQualityView(BaseModel):
     """组内品质汇总：``tiers`` 按「分辨率 片源」计数，其余字段去重列表。"""
 
     tiers: dict[str, int] = Field(default_factory=dict)
+    # Keep the original grouping keys; project only their display labels.
+    tier_labels: dict[str, str] = Field(default_factory=dict)
     hdr: list[str] = Field(default_factory=list)
     video_codecs: list[str] = Field(default_factory=list)
     audio_labels: list[str] = Field(default_factory=list)
@@ -2211,7 +2214,15 @@ class DuplicateFileView(BaseModel):
     id: int
     file_name: str
     file_path: str = Field(description="绝对路径（悬停显示；成员视图不返回本接口）")
-    quality_label: str = Field(description="版本签名的质量部分：「分辨率 片源[ HDR]」")
+    quality_key: str | None = Field(
+        default=None, description="Original quality label for comparisons"
+    )
+    origin_key: str | None = Field(
+        default=None, description="Original origin label for comparisons"
+    )
+    quality_label: str = Field(
+        description="Quality label in the reader language; compare quality_key"
+    )
     size_bytes: int
     bit_rate: int | None
     resolution: str | None
@@ -2241,6 +2252,12 @@ class DuplicateVersionView(BaseModel):
     """同构季的一个版本行：这版本覆盖哪些集、多大、从哪来。"""
 
     key: str
+    quality_key: str | None = Field(
+        default=None, description="Original quality label for comparisons"
+    )
+    origin_key: str | None = Field(
+        default=None, description="Original origin label for comparisons"
+    )
     quality_label: str
     origin_label: str
     episodes: list[int]

@@ -6,6 +6,9 @@ import {
   settingsSectionGroupsFor,
   usePendingUpdate,
   useSession,
+  useAppLocale,
+  useAppTranslations,
+  useActiveExtensionPoints,
 } from "@movieclaw/theme-sdk";
 
 
@@ -30,7 +33,10 @@ export function NetflixSettingsSidebar({
 }) {
   // 成员只看到「账号」组（个人信息/外观）；管理分区后端一律 403，前端不给入口
   const { session } = useSession();
-  const sectionGroups = settingsSectionGroupsFor(session.role);
+  const locale = useAppLocale();
+  const t = useAppTranslations();
+  const extensionPoints = useActiveExtensionPoints(session.role === "admin");
+  const sectionGroups = settingsSectionGroupsFor(session.role, extensionPoints, locale);
   // 有可用更新时给「更新与维护」分区行点一颗小蓝点：与银玻璃侧栏同一份快照数据
   const pendingUpdate = usePendingUpdate(session.role !== "member");
 
@@ -45,7 +51,7 @@ export function NetflixSettingsSidebar({
           className="nf:flex nf:items-center nf:gap-1.5 nf:rounded-[4px] nf:px-1 nf:py-1 nf:text-ui nf:font-medium nf:text-[var(--text-muted)] nf:transition-colors nf:hover:text-white"
         >
           <ChevronLeftIcon className="nf:size-4" />
-          <span>返回工作台</span>
+          <span>{t("nav.actions.workspace")}</span>
         </button>
       </div>
 

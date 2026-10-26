@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner, ErrorBanner, Toggle } from "@/components/cloud-push-ui";
@@ -51,12 +53,14 @@ export interface RemoteTranscodeSectionProps {
  * 在这里启用远程转码，并调整每台设备的并发上限。开关、并发上限改完即存；
  * 覆盖地址是单个文本值，失焦或回车提交。
  *
- * Worker 用哪个地址连过来，是在 Mac 那侧填的；服务端下发任务时用的取源地址和
+ * Worker 用哪个地址连过来，是在转码器那侧填的；服务端下发任务时用的取源地址和
  * 产物回传地址，默认直接取用那条控制连接自报的地址（remote_worker.py 的
  * observed_base_url）。所以地址在这一页降级成「高级」里的覆盖项，只服务于
  * 反向代理改写 Host 的少数部署，也不再和系统外部访问地址有任何关系。
  */
 export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSectionProps) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [config, setConfig] = useState<RemoteTranscodeConfigView | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [baseURLDraft, setBaseURLDraft] = useState("");
@@ -88,7 +92,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
       await saveWorkerLimit(deviceID, value);
       setStatus(await getRemoteTranscodeStatus());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "并发上限保存失败");
+      setError(e instanceof Error ? e.message : t("settings.playback.controls.limitFailed"));
     } finally {
       setSavingLimit(null);
     }
@@ -97,15 +101,15 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
   function limitControl(name: string, deviceID: number, value: number, supported = true) {
     return (
       <label className="flex items-center gap-2 text-caption text-[var(--text-muted)]">
-        {savingLimit === deviceID ? "正在保存…" : "同时转码"}
+        {savingLimit === deviceID ? t("settings.playback.controls.saving") : t("settings.playback.controls.concurrent")}
         <select
-          aria-label={`${name} 最大并发任务数`}
+          aria-label={t("settings.playback.controls.limitLabel", { name })}
           className={SETTINGS_INPUT_CLASS}
           value={value}
           disabled={savingLimit !== null || !supported}
           onChange={(event) => void updateLimit(deviceID, Number(event.target.value))}
         >
-          {[1, 2, 3, 4].map((limit) => <option key={limit} value={limit}>{limit} 路</option>)}
+          {[1, 2, 3, 4].map((limit) => <option key={limit} value={limit}>{t("settings.playback.controls.limitCount", { count: limit })}</option>)}
         </select>
       </label>
     );
@@ -207,7 +211,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
       });
       setConfig(saved);
       setBaseURLDraft(saved.base_url_override);
-      toast.success(next ? "覆盖地址已保存" : "已恢复为自动");
+      toast.success(next ? t("settings.playback.controls.overrideSaved") : t("settings.playback.controls.autoRestored"));
       void getRemoteTranscodeStatus().then(setStatus).catch(() => {});
     } catch (e) {
       setURLError((e as Error).message);
@@ -218,16 +222,16 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
   }
 
   if (loading) {
-    return <p className="text-ui text-[var(--text-muted)]">正在加载远程转码设置…</p>;
+    return <p className="text-ui text-[var(--text-muted)]">{t("settings.playback.controls.loadingRemote")}</p>;
   }
 
   if (config == null) {
     return (
-      <SettingsSection title="远程转码">
+      <SettingsSection title={t("settings.playback.controls.remoteTitle")}>
         <div className="space-y-3">
-          <ErrorBanner>{error ?? "远程转码设置加载失败"}</ErrorBanner>
+          <ErrorBanner>{error ?? t("settings.playback.controls.loadRemoteFailed")}</ErrorBanner>
           <button type="button" onClick={() => void load()} className={SETTINGS_BUTTON_CLASS}>
-            重试
+            {t("settings.playback.controls.retry")}
           </button>
         </div>
       </SettingsSection>
@@ -243,12 +247,12 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
   // 前者不满足要打开开关（或改正「高级」里填错的覆盖地址），后者不满足
   // 要去 Mac 上看 App。
   const statusText = !config.enabled
-    ? "已关闭"
+    ? t("settings.playback.controls.off")
     : !config.ready
-      ? "「高级」里的覆盖地址不合法，暂不会分配远程转码任务"
+      ? t("settings.playback.controls.invalidOverride")
       : onlineWorkers.length > 0
-        ? `已就绪，${onlineWorkers.length} 个 Worker 在线`
-        : "配置已就绪，但还没有 Worker 连上来";
+        ? t("settings.playback.controls.ready", { count: onlineWorkers.length })
+        : t("settings.playback.controls.noConnection");
   const statusClass = !config.enabled
     ? "text-[var(--text-muted)]"
     : config.ready && onlineWorkers.length > 0
@@ -262,14 +266,14 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
       onClick={onOpenDevices}
       className="text-[var(--accent)] underline decoration-dotted underline-offset-2"
     >
-      在「设备」里批准新的转码器、查看授权或注销
+      {t("settings.playback.controls.deviceLink")}
     </button>
   );
   return (
     <>
       <SettingsSection
-        title="远程转码"
-        description="只把需要远程硬件能力的转码任务交给兼容 Worker。NAS 仍负责鉴权、播放会话和 HLS 缓存；修改后立即生效，不需要重启应用。当前可用的 Worker 实现为 macOS Apple Silicon 版本。"
+        title={t("settings.playback.controls.remoteTitle")}
+        description={t("settings.playback.controls.remoteHint")}
       >
         <div className="space-y-3">
           {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -283,23 +287,24 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
                 开着而没有 Worker 也无害：决策层每次播放都查 remote_worker_available，
                 没有就走本地。所以这里不禁用，只把两个方向的后果说清楚。 */}
             <SettingsRow
-              label="启用远程硬件转码"
+              label={t("settings.playback.controls.enableRemote")}
               description={
                 enabled
-                  ? "没有 Worker 在线时，播放自动回落到 NAS 本地转码，不会失败"
-                  : "关闭后已配对的 Worker 也会断开连接，所有播放走 NAS 本地转码"
+                  ? t("settings.playback.controls.fallbackHint")
+                  : t("settings.playback.controls.disabledRemoteHint")
               }
               error={toggleError}
             >
               <Toggle
                 checked={enabled}
-                label="启用远程硬件转码"
+                label={t("settings.playback.controls.enableRemote")}
                 disabled={toggling}
                 onChange={(next) => void toggleEnabled(next)}
               />
             </SettingsRow>
             <SettingsRow
-              label="当前状态"
+              stackOnMobile={locale === "en"}
+              label={t("settings.playback.controls.status")}
               description={
                 config.issues.length > 0 && (
                   <ul className="space-y-0.5 text-amber-200/90">
@@ -320,7 +325,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
         footnote={
           hasAnyWorker && (
             <>
-              同时转码的路数改完即存，并同步到转码器。{devicesLink}
+              {t("settings.playback.controls.limitHint")}{devicesLink}
             </>
           )
         }
@@ -332,18 +337,19 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
           {!config.ready && (
             <Banner tone="warn">
               {!config.enabled
-                ? "远程转码还没开启，Worker 现在连不上来。打开上面的开关即可。"
-                : "「高级」里填的覆盖地址不合法，Worker 现在连不上来。改正或清空它即可。"}
+                ? t("settings.playback.controls.disabledWorker")
+                : t("settings.playback.controls.invalidWorker")}
             </Banner>
           )}
 
           {status == null ? (
-            <p className="px-1 text-caption text-[var(--text-faint)]">正在获取 Worker 状态…</p>
+            <p className="px-1 text-caption text-[var(--text-faint)]">{t("settings.playback.controls.loadingWorkers")}</p>
           ) : hasAnyWorker ? (
             <SettingsList>
               {status.workers.map((worker) => (
                 <SettingsRow
                   key={worker.worker_id}
+                  stackOnMobile={locale === "en"}
                   label={
                     <span className="flex items-center gap-2">
                       <span className="truncate">{worker.worker_id}</span>
@@ -356,7 +362,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
                             : "text-[var(--text-faint)]"
                         }`}
                       >
-                        {worker.online ? (worker.draining ? "暂停接单" : "在线") : "已离线"}
+                        {worker.online ? (worker.draining ? t("settings.playback.controls.draining") : t("settings.playback.controls.online")) : t("settings.playback.controls.offline")}
                       </span>
                     </span>
                   }
@@ -366,23 +372,22 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
                         worker.platform,
                         worker.arch,
                         worker.hardware.chip,
-                        worker.hardware.cpu_cores ? `${worker.hardware.cpu_cores} 核` : null,
+                        worker.hardware.cpu_cores ? t("settings.playback.controls.cores", { count: worker.hardware.cpu_cores }) : null,
                         worker.hardware.memory_bytes ? `${Math.round(worker.hardware.memory_bytes / 1024 ** 3)} GB` : null,
                         worker.ffmpeg_version ? `ffmpeg ${worker.ffmpeg_version}` : null,
                         worker.backends.length > 0 ? worker.backends.join("/") : null,
-                        `任务 ${worker.active_jobs}/${worker.max_jobs}`,
-                        `${Math.round(worker.last_seen_seconds)} 秒前活跃`,
+                        t("settings.playback.controls.jobs", { active: worker.active_jobs, max: worker.max_jobs }),
+                        t("settings.playback.controls.seen", { count: Math.round(worker.last_seen_seconds) }),
                       ]
                         .filter(Boolean)
                         .join(" · ")}
                       {worker.load && (
                         <span className="block">
-                          CPU {Math.round(worker.load.cpu * 100)}% · 内存压力 { ["正常", "偏高", "很高"][worker.load.memory_pressure] }
-                          {worker.load.thermal_state >= 2 ? " · 正在降温" : ""}
+                          {t("settings.playback.controls.load", { cpu: Math.round(worker.load.cpu * 100), pressure: String(worker.load.memory_pressure), hot: worker.load.thermal_state >= 2 ? "yes" : "no" })}
                         </span>
                       )}
                       {!worker.server_config && (
-                        <span className="block">更新转码器后可同步设置并发上限</span>
+                        <span className="block">{t("settings.playback.controls.upgradeWorker")}</span>
                       )}
                     </>
                   }
@@ -397,17 +402,16 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
               {offlineWorkers.map((device) => (
                 <SettingsRow
                   key={device.id}
+                  stackOnMobile={locale === "en"}
                   label={
                     <span className="flex items-center gap-2">
                       <span className="truncate text-[var(--text-muted)]">{device.name}</span>
                       <span className="shrink-0 text-caption font-normal text-[var(--text-faint)]">
-                        未连接
+                        {t("settings.playback.controls.disconnected")}
                       </span>
                     </span>
                   }
-                  description={`已授权 · 最近活跃 ${relativeTime(device.last_seen_at)}${
-                    config.ready ? " · Mac 没开机或没联网时属正常" : ""
-                  }`}
+                  description={t("settings.playback.controls.offlineHint", { time: relativeTime(device.last_seen_at, undefined, locale), ready: config.ready ? "yes" : "no" })}
                 >
                   {limitControl(device.name, Number(device.id.replace("ld-", "")), status.device_limits[device.id] ?? 1)}
                 </SettingsRow>
@@ -415,19 +419,16 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
             </SettingsList>
           ) : config.ready ? (
             <SettingsEmpty
-              title="还没有 Worker 接入"
+              title={t("settings.playback.controls.noWorkers")}
               description={
                 <>
-                  在 Mac 上打开 MovieClaw 转码器，选择它在局域网里找到的 movieclaw（或直接填地址），
-                  点「连接并配对」；它会显示一段配对码并打开网页上的批准页，核对后批准即可。
-                  批准页没打开的话，到「设置 → 设备」输入它显示的配对码。全程不需要在任何一边输入
-                  令牌——Worker 的凭证是批准时签发的，直接回到那台 Mac，不经过屏幕。
+                  {t("settings.playback.controls.pairHint")}
                 </>
               }
               action={
                 onOpenDevices && (
                   <button type="button" onClick={onOpenDevices} className={SETTINGS_BUTTON_CLASS}>
-                    去设备页
+                    {t("settings.playback.controls.devices")}
                   </button>
                 )
               }
@@ -442,22 +443,23 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
           那个地址握上手，它必然够得着，没有任何理由再让人抄一遍。覆盖项只为
           反向代理改写了 Host、推断失真的少数部署保留。 */}
       <SettingsSection
-        title="高级"
-        footnote="服务端下发任务时要告诉 Worker「去哪儿取源视频、往哪儿传 HLS 产物」，默认自动取用这台 Worker 连上来时用的地址——它刚从那儿握上手，必然够得着，而且通常就是最快的那条内网路径。只有当反向代理把 Host 改写成了上游地址（如 127.0.0.1:8000），导致 Worker 拿到的地址回不来时，才需要指定一个 Worker 够得着的地址。"
+        title={t("settings.playback.controls.advanced")}
+        footnote={t("settings.playback.controls.advancedHint")}
       >
         <SettingsList>
           <SettingsRow
-            label="取源与回传地址"
+            stackOnMobile={locale === "en"}
+            label={t("settings.playback.controls.address")}
             description={
               config.base_url_source === "remote_transcode_setting"
-                ? `已覆盖为 ${config.base_url}`
-                : "自动：每台 Worker 各用自己连上来的地址"
+                ? t("settings.playback.controls.overridden", { url: config.base_url })
+                : t("settings.playback.controls.autoAddress")
             }
             error={urlError}
           >
             <input
               type="url"
-              aria-label="取源与回传覆盖地址"
+              aria-label={t("settings.playback.controls.addressLabel")}
               value={baseURLDraft}
               onChange={(event) => {
                 setBaseURLDraft(event.target.value);
@@ -473,10 +475,10 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
                   event.currentTarget.blur();
                 }
               }}
-              placeholder="留空 = 自动（推荐）"
+              placeholder={t("settings.playback.controls.addressPlaceholder")}
               disabled={savingURL}
               spellCheck={false}
-              className={`${SETTINGS_INPUT_CLASS} w-60 max-sm:w-40`}
+              className={`${SETTINGS_INPUT_CLASS} w-60 ${locale === "en" ? "max-sm:w-full" : "max-sm:w-40"}`}
             />
           </SettingsRow>
         </SettingsList>

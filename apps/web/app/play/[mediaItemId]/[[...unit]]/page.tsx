@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 
 import { PlayerPage } from "@/components/player/player-page";
 import { parseUnitSegment } from "@/lib/player/play-links";
 
 /** 兜底标题；片名要等接口返回，播放器内不再改写 document.title（全屏时看不到）。 */
-export const metadata: Metadata = { title: "播放" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return { title: t("player.controls.play") };
+}
 
 /**
  * 网页播放页（docs/design/web-player.md §6.10）。

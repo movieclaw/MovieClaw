@@ -158,6 +158,7 @@ async def reanchor_rows(
         row.season_number = season
         row.episode_number = episode
         row.unidentified_reason = None
+        row.unidentified_message = None
         row.unidentified_code = None
         row.unidentified_candidates = None
         row.identity_source = identity_source

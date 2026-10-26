@@ -94,7 +94,11 @@ class OpenAIChatGPTProtocol(OpenAIResponsesProtocol):
                 tool for tool in payload["tools"][0]["tools"] if tool["name"] == name
             ]
             if not payload["tools"][0]["tools"]:
-                raise LlmServerError(f"找不到指定的工具：{name}")
+                raise LlmServerError(
+                    f"找不到指定的工具：{name}",
+                    message_key="errors.llm.connection.toolMissing",
+                    params={"name": name},
+                )
             payload["tool_choice"] = "required"
         return payload
 
@@ -127,10 +131,18 @@ class OpenAIChatGPTProtocol(OpenAIResponsesProtocol):
     async def chat(self, request: ChatRequest, model_id: str) -> ChatResponse:
         async for event in self.chat_stream(request, model_id):
             if event.type == "error":
-                raise LlmServerError(event.partial.error or "ChatGPT 请求失败")
+                ref = event.partial.error_ref or {}
+                raise LlmServerError(
+                    event.partial.error or "ChatGPT 请求失败",
+                    message_key=ref.get("message_key")
+                    or (None if event.partial.error else "errors.llm.stream.chatgptFailed"),
+                    params=ref.get("params"),
+                )
             if event.type == "done":
                 return event.partial
-        raise LlmServerError("ChatGPT 响应未完成，请重试")
+        raise LlmServerError(
+            "ChatGPT 响应未完成，请重试", message_key="errors.llm.connection.chatgptIncomplete"
+        )
 
     async def test_connection(self) -> ProviderInfo:
         await self._authorize()
@@ -142,7 +154,10 @@ class OpenAIChatGPTProtocol(OpenAIResponsesProtocol):
                 },
             )
             if response.status_code != 200:
-                raise LlmAuthError("无法读取 ChatGPT 账号的模型清单，请重新连接")
+                raise LlmAuthError(
+                    "无法读取 ChatGPT 账号的模型清单，请重新连接",
+                    message_key="errors.llm.connection.chatgptCatalog",
+                )
             data = response.json()
             catalog = account_model_catalog(data.get("models", []))
             return ProviderInfo(

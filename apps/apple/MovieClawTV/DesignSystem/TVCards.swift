@@ -239,7 +239,7 @@ struct TVLibraryCard: View {
             }
         }
         .buttonStyle(.borderless)
-        .accessibilityLabel(collection ? "合集「\(name)」，\(count) 部" : "\(name)，\(count) 部")
+        .accessibilityLabel(collection ? String(localized: .libraryCollectionTitleCount(name, count)) : String(localized: .libraryNamedTitleCount(name, count)))
     }
 
     /// 卡片 16:9、封面 21:10：封面贴顶完整显示（服务端按 21:10 拼图，4 张海报几乎铺满左右，撑满 16:9 会把两边的海报
@@ -285,7 +285,7 @@ struct TVLibraryCard: View {
     private var collectionTag: some View {
         HStack(spacing: 6) {
             Image(systemName: "rectangle.stack")
-            Text("合集")
+            Text(String(localized: .libraryCollectionsPageTitle))
         }
         .font(.system(size: 20, weight: .semibold))
         .foregroundStyle(.white.opacity(0.88))
@@ -312,7 +312,7 @@ struct TVGenreCard: View {
             Face(label: label, count: count, mediaKind: mediaKind, coverURL: coverURL, width: width)
         }
         .buttonStyle(GenreButtonStyle())
-        .accessibilityLabel("浏览\(label)，\(count) 部\(mediaKind == "tv" ? "剧集" : "电影")")
+        .accessibilityLabel((mediaKind == "tv" ? String(localized: .libraryBrowseGenreSeries(label, count)) : String(localized: .libraryBrowseGenreMovies(label, count))))
     }
 
     // tvOS 的 plain 仍带系统焦点玻璃；只使用上面的细描边与 1.07× 放大。
@@ -362,7 +362,7 @@ struct TVSeeAllCard: View {
             SeeAllLabel(total: total, width: width)
         }
         .buttonStyle(.borderless)
-        .accessibilityLabel(total.map { "查看全部 \($0) 部" } ?? "查看全部")
+        .accessibilityLabel(total.map { String(localized: .libraryHomeViewFavorites($0)) } ?? String(localized: .libraryHomeViewAll))
     }
 
     private struct SeeAllLabel: View {
@@ -374,10 +374,10 @@ struct TVSeeAllCard: View {
             VStack(spacing: 18) {
                 Image(systemName: "square.grid.2x2")
                     .font(.system(size: 48, weight: .regular))
-                Text("查看全部")
+                Text(String(localized: .libraryHomeViewAll))
                     .font(.system(size: 28, weight: .semibold))
                 if let total {
-                    Text("\(total) 部")
+                    Text(String(localized: .libraryStatusTitleCount(total)))
                         .font(.system(size: 22))
                         .opacity(0.7)
                 }
@@ -707,7 +707,7 @@ extension Formatters {
     static func remaining(positionMs: Int, durationMs: Int?) -> String? {
         guard let durationMs, durationMs > 0 else { return nil }
         let minutes = max(1, (durationMs - positionMs) / 60_000)
-        if minutes >= 60 { return "剩 \(minutes / 60) 小时 \(minutes % 60) 分" }
-        return "剩 \(minutes) 分钟"
+        if minutes >= 60 { return String(localized: .libraryRemainingHoursMinutes(minutes / 60, minutes % 60)) }
+        return String(localized: .libraryRemainingMinutes(minutes))
     }
 }

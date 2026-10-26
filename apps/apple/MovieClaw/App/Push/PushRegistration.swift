@@ -21,11 +21,11 @@ nonisolated enum PushPermission: String, Sendable {
     /// 「通知」页上的说法
     var label: String {
         switch self {
-        case .authorized: "已允许"
-        case .provisional: "已允许（静默送达）"
-        case .ephemeral: "临时允许"
-        case .denied: "已关闭"
-        case .notDetermined: "还没有设置"
+        case .authorized: String(localized: .pushStatusAllowed)
+        case .provisional: String(localized: .pushStatusProvisional)
+        case .ephemeral: String(localized: .pushStatusEphemeral)
+        case .denied: String(localized: .settingsPlaybackControlsOff)
+        case .notDetermined: String(localized: .pushStatusNotDetermined)
         }
     }
 }

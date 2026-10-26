@@ -31,6 +31,7 @@ from movieclaw_sdk.downloaders import (
     DOWNLOADER_ADAPTERS,
     BaseDownloader,
     DownloaderAdapter,
+    DownloaderAuthError,
     DownloaderDeleteError,
     DownloaderInfo,
     DownloaderLimits,
@@ -98,6 +99,8 @@ class Memory(BaseDownloader):
         pass
 
     async def test_connection(self):
+        if "auth-error" in self.config.url:
+            raise DownloaderAuthError()
         return DownloaderInfo(type="memory", version="1.0")
 
     async def close(self):
@@ -152,7 +155,7 @@ def client(request, tmp_path, monkeypatch):
     )
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as test_client:
         assert test_client.post("/api/v1/auth/bootstrap", json=ADMIN).status_code == 200
         test_client.runtime = request.param  # type: ignore[attr-defined]
         yield test_client
@@ -261,3 +264,60 @@ def test_connection_fields_are_limited_to_the_stored_columns() -> None:
     for model in (Extra, NoUrl):
         with pytest.raises(ValueError, match="必须有 url"):
             DownloaderAdapter(type="x", title="X", factory=object, connection=model)  # type: ignore[arg-type]
+
+
+def test_owned_error_references_survive_inline_and_process_protocol_and_recover(client):
+    import json
+    import sqlite3
+
+    response = client.post(
+        "/api/v1/downloaders",
+        json={
+            "name": "Reference fixture",
+            "client_type": "memory",
+            "url": "http://auth-error",
+        },
+    )
+    assert response.status_code == 200
+    did = response.json()["data"]["id"]
+    for locale in ["en", "zh-Hans", "en"]:
+        detail = client.get(
+            f"/api/v1/downloaders/{did}", headers={"Accept-Language": locale}
+        ).json()["data"]
+        assert detail["status"] == "failed"
+        expected = (
+            "Downloader authentication failed. Check the username and password."
+            if locale == "en"
+            else "下载器认证失败，请检查用户名和密码"
+        )
+        assert detail["last_error"] == expected
+        notices = client.get("/api/v1/system/notices", headers={"Accept-Language": locale}).json()[
+            "data"
+        ]
+        notice = next(row for row in notices if row["payload"].get("downloader_id") == did)
+        assert expected in notice["message"]
+    from sqlalchemy.engine import make_url
+
+    database = make_url(get_settings().database_url).database
+    with sqlite3.connect(database) as connection:
+        raw, ref = connection.execute(
+            "SELECT last_error,last_error_ref FROM downloader_client WHERE id=?", (did,)
+        ).fetchone()
+        assert raw == "下载器认证失败，请检查用户名和密码"
+        assert json.loads(ref)["message_key"] == "errors.downloader.authDefault"
+    updated = client.put(
+        f"/api/v1/downloaders/{did}",
+        json={
+            "name": "Reference fixture",
+            "client_type": "memory",
+            "url": "http://memory",
+        },
+    )
+    assert updated.is_success
+    assert client.get(f"/api/v1/downloaders/{did}").json()["data"]["status"] == "active"
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT last_error,last_error_ref FROM downloader_client WHERE id=?", (did,)
+        ).fetchone()
+        assert row[0] is None
+        assert row[1] is None or json.loads(row[1]) is None

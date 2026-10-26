@@ -44,7 +44,9 @@ async def client(db):
     app = create_app()
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://testserver"
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        headers={"Accept-Language": "zh-Hans"},
     ) as async_client:
         yield async_client
 

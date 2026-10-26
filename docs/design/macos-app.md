@@ -135,7 +135,45 @@ Mac 用户习惯从菜单栏找功能（Music、TV 都是这样），侧边栏�
 窗口贴合画面（同 Infuse）：每个播放单元出画面时按片源比例重设窗口（宽不变定高，高不够最小高度就加宽，超屏按屏幕反推），
 播放期间拖边缘也锁着比例，关掉播放器还原原来的大小；按住画面任意处拖动就是拖窗口。
 
-## 7. 开发与验收
+## 7. 安装与更新
+
+GitHub 发的 Mac 版（`macos-vX.Y.Z`）有两个包，都由 `apps/apple/scripts/package-mac-app.sh` 生成、Developer ID 签名并公证：
+
+- **安装盘** `MovieClaw-macos-arm64.dmg`：给人下载安装，官网下载页给的就是它。打开是「左边 App、右边应用程序、中间箭头」的拖拽窗口，
+  布局由 dmgbuild 按 `scripts/dmg/settings.py` 直接写进 `.DS_Store`（不经 Finder，流水线上也能排版）；背景图由
+  `scripts/dmg/make-background.swift` 生成并提交。卷名带版本号。DMG 本身也公证、钉票据，断网打开不会被拦。
+- **更新包** `MovieClaw-macos-arm64.zip`：给 App 自动更新用（不用挂载，替换更快）。`downloads.json` 里安装盘记 `variant: installer`、
+  更新包记 `variant: update`。
+
+**必须装在「应用程序」里**（`MacInstallGate.swift`）：留在安装盘上或「下载」里直接打开时，App 的位置是只读的（从网上下载的还会被系统
+挪到随机路径隔离运行），以后自动更新没法原地替换。所以启动时先查位置，不在 `/Applications` 或 `~/Applications` 里就整个窗口换成安装引导，
+说清楚去哪拖（从安装盘打开的回到安装盘窗口；别处打开的显示它现在的路径），只有一个「知道了，退出」。不替用户打开访达窗口：
+沙盒 App 打开没有访问权限的文件夹（安装盘、「下载」）会被系统静默拒绝。
+
+- 为什么不由 App 自己拷进去（2026-10-24 实测）：Mac 版是沙盒 App，从网上下载的安装盘里打开时，它写出去的文件全被系统加上隔离标记，
+  而且清不掉；拷进 `/Applications` 的那份即使确认过一次，以后每次打开仍被挪到随机路径运行，自动更新照样失败。只有在访达里拖进去的，
+  系统才当作用户自己装的：拖进去的那份首次打开确认一次，以后从原位置直接运行（同日实测）。
+- 判断「在安装盘里」：在 `/Volumes/<卷>` 下且卷只读。从网上下载的第一次打开会被系统挪到随机路径（App Translocation），那里是原位置的
+  只读镜像挂载，用 `statfs` 取挂载来源还原原来的位置（沙盒读不了安装盘里的文件，也不用私有接口）。可写的外接硬盘算「别的地方」。
+- 不检查：TestFlight / App Store 版（有商店收据）、Debug 构建、Xcode 的编译目录（`/Build/Products/`）、启动参数 `-mcSkipInstallCheck`。
+
+**自动更新**（`MacUpdater.swift`，Sparkle 2.10）：只在 GitHub 直接分发版里。工程里有两个 Mac 目标，共用全部代码：`MovieClawMac`
+给 TestFlight / App Store（商店不许自带更新机制，不链接 Sparkle），`MovieClawMacDirect` 给 `package-mac-app.sh`（多链 Sparkle，代码里按
+`canImport(Sparkle)` 区分）。
+
+- 更新源 `https://movieclaw.io/updates/mac/appcast.xml`：官网按各 `macos-v` Release 的 `downloads.json` 生成，只收带 EdDSA 签名的更新包
+  （zip，`variant: update`，`edSignature`）。公钥写在 `project.yml` 的 `SUPublicEDKey`；私钥在仓库密钥 `SPARKLE_ED_PRIVATE_KEY`
+  （本机钥匙串 `movieclaw` 账户有一份）。打包脚本签完用 App 里的公钥再验一遍，对不上就失败——两边不是一对时所有客户端都会拒收。
+- 沙盒里经 Sparkle 的安装器 XPC 服务替换自己：`SUEnableInstallerLauncherService`，打包脚本加 `-spks` / `-spki` 两个 mach-lookup 例外，
+  并按 Sparkle 文档的顺序先签它内部的 XPC 服务与辅助程序。
+- 体验（设计稿 https://claude.ai/artifact/CuajVxuZxUfSqr2tnsV8Uh ）：启动 30 秒后再开始，之后每 24 小时查一次；默认自动下载、退出时安装，
+  不问用户（`SUEnableAutomaticChecks` / `SUAutomaticallyUpdate`，设置里能关），不上报系统信息。下好后只在两处安静提示：侧边栏底部
+  的胶囊、菜单「MovieClaw › 重新启动以更新到 x…」。关了自动下载的人有新版时由 Sparkle 弹窗问一次（gentle reminders）；正在播放就不弹，
+  改亮胶囊。更新后第一次进主界面，顶上提示「已更新到 x」。
+- 入口：菜单「检查更新…」（商店版是灰的「由 TestFlight 更新」，开发版没有）、关于窗口的状态与按钮、设置（⌘,）「通用 › 软件更新」。
+- 还没做：GitHub 连不上时改走自己服务器的兜底、服务器要求新客户端时的强制更新、下好 7 天仍没退出时的系统通知。
+
+## 8. 开发与验收
 
 - 编译：`xcodebuild -scheme MovieClawMac -destination platform=macOS`。Debug 构建不开沙盒（调试驱动要和外面交换文件），Release 开沙盒
   + 网络进出（局域网发现要收 UDP 应答）。

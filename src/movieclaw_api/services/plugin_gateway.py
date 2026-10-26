@@ -79,6 +79,7 @@ def gateway_asgi(app: Any) -> Any:
         target = app
         if scope["path"].startswith(PREFIX):
             if entry_id is None:
+                # i18n-ignore: reply to a plugin process
                 await _reply(scope, receive, send, 401, "UNAUTHORIZED", "插件凭证无效")
                 return
 
@@ -133,6 +134,7 @@ async def _runtime(entry_id: str, scope: Any, receive: Any, send: Any) -> None:
 
     parts = scope["path"][len(PREFIX) :].split("/")
     if scope["method"] != "POST" or len(parts) != 2:
+        # i18n-ignore: reply to a plugin process
         await _reply(scope, receive, send, 404, "NOT_FOUND", "没有这个运行时接口")
         return
     service, method = parts
@@ -141,7 +143,7 @@ async def _runtime(entry_id: str, scope: Any, receive: Any, send: Any) -> None:
     contract = SERVICES.get(service)
     spec = rpc.methods(contract).get(method) if contract is not None else None
     if target is None or spec is None:
-        message = f"插件 {entry_id} 没有服务 {service}.{method}"
+        message = f"插件 {entry_id} 没有服务 {service}.{method}"  # i18n-ignore: to a plugin
         await _reply(scope, receive, send, 404, "NOT_FOUND", message)
         return
     # 插件引起的后续动作记在插件名下（因果链沿用调用上下文里的）
@@ -150,6 +152,7 @@ async def _runtime(entry_id: str, scope: Any, receive: Any, send: Any) -> None:
     try:
         data = json.loads(raw) if raw else {}
     except ValueError:
+        # i18n-ignore: reply to a plugin process
         await _reply(scope, receive, send, 400, "INVALID_ARGUMENT", "请求体不是 JSON")
         return
     if spec.stream:
@@ -207,6 +210,7 @@ class Gateway:
             while not server.started:
                 if self._task.done():
                     self._task.result()
+                    # i18n-ignore: developer error
                     raise RuntimeError("插件网关没有起来")
                 await asyncio.sleep(0.01)
             self._server, self.path = server, path

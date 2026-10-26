@@ -50,6 +50,7 @@ class SearchRunKey:
     label: str | None
     page: int
     record_history: bool
+    label_key: str | None = None
 
 
 @dataclass(eq=False, slots=True)
@@ -173,6 +174,7 @@ def init_search_run_registry() -> SearchRunRegistry:
 def get_search_run_registry() -> SearchRunRegistry:
     """取得搜索运行注册表；仅供应用启动后的请求使用。"""
     if _registry is None:
+        # i18n-ignore: developer error
         raise RuntimeError("站点搜索运行注册表尚未初始化")
     return _registry
 

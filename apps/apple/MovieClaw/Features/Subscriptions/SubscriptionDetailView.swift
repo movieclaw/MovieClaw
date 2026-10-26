@@ -67,17 +67,17 @@ struct SubscriptionDetailView: View {
             case .loading:
                 VStack(spacing: 12) {
                     ProgressView().controlSize(.large)
-                    Text("正在加载订阅详情…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .subscriptionInspectorLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case let .failed(message):
                 ContentUnavailableView {
-                    Label("未能加载该订阅，可能已被删除。", systemImage: "bookmark.slash")
+                    Label(String(localized: .subscriptionInspectorLoadFailed), systemImage: "bookmark.slash")
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("重试") { Task { await reload() } }.discoverProminentButton()
-                    Button("返回订阅列表", systemImage: "chevron.left") { router.pop() }.buttonStyle(.glass)
+                    Button(String(localized: .commonRetry)) { Task { await reload() } }.discoverProminentButton()
+                    Button(String(localized: .subscriptionInspectorBackToList), systemImage: "chevron.left") { router.pop() }.buttonStyle(.glass)
                 }
                 .accessibilityIdentifier("error-state")
             case let .loaded(detail):
@@ -115,14 +115,14 @@ struct SubscriptionDetailView: View {
             askUnderstood = subtitle
         }
         .alert(
-            "已开始下载原版。你看得懂\(askUnderstood?.languageLabel ?? "")吗？",
+            String(localized: .subscriptionSmartStatusUnderstoodQuestion(askUnderstood?.languageLabel ?? "")),
             isPresented: Binding(mcGet: { askUnderstood != nil }, set: { if !$0 { askUnderstood = nil } }),
             presenting: askUnderstood
         ) { subtitle in
-            Button("只这次", role: .cancel) {}
-            Button("看得懂") { Task { await markUnderstood(subtitle) } }
+            Button(String(localized: .subscriptionSmartStatusOnlyOnce), role: .cancel) {}
+            Button(String(localized: .subscriptionSmartStatusUnderstood)) { Task { await markUnderstood(subtitle) } }
         } message: { subtitle in
-            Text("选「看得懂」，以后的\(subtitle.languageLabel)作品都直接下原版。")
+            Text(String(localized: .subscriptionSmartStatusUnderstoodHint(subtitle.languageLabel)))
         }
         .accessibilityIdentifier("subscription-detail")
     }
@@ -219,15 +219,15 @@ struct SubscriptionDetailView: View {
         let label = SubscriptionStatusMeta.label(detail.status)
         let upgrading = detail.progress.upgrading
         // 电影只有一个单元，单单元不带计数
-        let upgradingText = detail.progress.total > 1 ? "洗版中（\(upgrading)）" : "洗版中"
-        if detail.status == "completed", upgrading > 0 { return "已收齐 · \(upgradingText)" }
+        let upgradingText = detail.progress.total > 1 ? String(localized: .subscriptionInspectorUpgradingCount(upgrading)) : String(localized: .subscriptionUpgradeStateInFlight)
+        if detail.status == "completed", upgrading > 0 { return String(localized: .subscriptionInspectorCollectedUpgrading(upgradingText)) }
         if detail.status == "active", upgrading > 0, detail.progress.wanted == 0 { return "\(label) · \(upgradingText)" }
         return label
     }
 
     private func ruleSetFact(_ detail: API.SubscriptionDetailView) -> String {
         guard let rule = ruleSets.first(where: { $0.id == detail.ruleSetId }) else { return "#\(detail.ruleSetId)" }
-        return rule.upgradeTarget.map { "\(rule.name) · 洗到 \($0)" } ?? rule.name
+        return rule.upgradeTarget.map { String(localized: .subscriptionInspectorRuleTarget(rule.name, $0)) } ?? rule.name
     }
 
     private func summaryCard(_ detail: API.SubscriptionDetailView) -> some View {
@@ -236,7 +236,7 @@ struct SubscriptionDetailView: View {
         let mediaRoute = AppRoute.mediaDetail(titleRef: "tmdb:\(detail.media.kind):\(detail.media.tmdbId)")
         return VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(isMovie ? "电影订阅" : "剧集订阅")
+                Text(isMovie ? String(localized: .subscriptionSectionsMovieSubscriptions) : String(localized: .subscriptionSectionsTvSubscriptions))
                     .font(.caption.weight(.semibold)).tracking(3)
                     .foregroundStyle(Theme.accent2)
                 Spacer()
@@ -256,7 +256,7 @@ struct SubscriptionDetailView: View {
                         .shadow(color: .black.opacity(0.45), radius: 14, y: 8)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("查看《\(detail.media.title)》详情")
+                .accessibilityLabel(String(localized: .subscriptionInspectorViewTitle(detail.media.title)))
                 VStack(alignment: .leading, spacing: 6) {
                     Button { router.push(mediaRoute) } label: {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -272,22 +272,22 @@ struct SubscriptionDetailView: View {
                     if !detail.media.originalTitle.isEmpty, detail.media.originalTitle != detail.media.title {
                         Text(detail.media.originalTitle).font(.subheadline).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
                     }
-                    Text("订阅于 \(SubsFormat.dateTime(detail.createdAt))").font(.subheadline).foregroundStyle(.white.opacity(0.55))
+                    Text(String(localized: .subscriptionInspectorSubscribedAt(SubsFormat.dateTime(detail.createdAt)))).font(.subheadline).foregroundStyle(.white.opacity(0.55))
                 }
                 Spacer(minLength: 0)
             }
 
             // 配置事实：稳定的 label / value 列
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .topLeading), count: detail.isSmart ? 2 : 3), alignment: .leading, spacing: 12) {
-                fact("收录范围", isMovie ? "正片" : detail.selectedSeasons.isEmpty ? "未勾选季" : "第 \(detail.selectedSeasons.map(String.init).joined(separator: "、")) 季")
-                if !isMovie { fact("自动续订", detail.followFuture ? "已开启" : "已关闭") }
+                fact(String(localized: .subscriptionInspectorScope), isMovie ? String(localized: .subscriptionInspectorFeature) : detail.selectedSeasons.isEmpty ? String(localized: .subscriptionInspectorNoSeasons) : SubsFormat.seasonList(detail.selectedSeasons))
+                if !isMovie { fact(String(localized: .subscriptionRibbonFollowFuture), detail.followFuture ? String(localized: .subscriptionInspectorEnabled) : String(localized: .subscriptionInspectorDisabled)) }
                 if detail.isSmart, let preferences = detail.smartPreferences {
-                    fact("智能目标", preferences.targetLabel)
-                    fact("后续洗版", preferences.allowUpgrade ? (isMovie ? "达标核验后停止" : "逐集达标核验后停止") : "关闭")
+                    fact(String(localized: .subscriptionInspectorSmartTarget), preferences.targetLabel)
+                    fact(String(localized: .subscriptionInspectorFutureUpgrades), preferences.allowUpgrade ? (isMovie ? String(localized: .subscriptionInspectorStopWhenVerifiedMovie) : String(localized: .subscriptionInspectorStopWhenVerified)) : String(localized: .commonOff))
                     if let subtitle = detail.smartSubtitle {
-                        fact("字幕", subtitle.understood ? "不需要" : subtitle.line.components(separatedBy: " · ").last ?? subtitle.line)
+                        fact(String(localized: .subscriptionInspectorSubtitles), subtitle.understood ? String(localized: .subscriptionInspectorNotNeeded) : subtitle.line.components(separatedBy: " · ").last ?? subtitle.line)
                     }
-                } else if !detail.isSmart, permissions.canManageSubscriptions { fact("规则组", ruleSetFact(detail)) }
+                } else if !detail.isSmart, permissions.canManageSubscriptions { fact(String(localized: .subscriptionRulesTitle), ruleSetFact(detail)) }
             }
             .padding(.vertical, 12)
             .overlay(alignment: .top) { Divider().overlay(Color.white.opacity(0.08)) }
@@ -295,7 +295,7 @@ struct SubscriptionDetailView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("subscription-facts")
 
-            ProgressStrip(progress: detail.progress, unit: isMovie ? "部" : "集")
+            ProgressStrip(progress: detail.progress, isMovie: isMovie)
 
             actions(detail)
         }
@@ -330,7 +330,7 @@ struct SubscriptionDetailView: View {
         HStack(spacing: 8) {
             if showSearch {
                 Button { Task { await searchNow(detail) } } label: {
-                    actionLabel("立即搜索", systemImage: "arrow.clockwise")
+                    actionLabel(String(localized: .subscriptionInspectorSearchNow), systemImage: "arrow.clockwise")
                 }
                 .discoverProminentButton()
                 .disabled(busy)
@@ -346,14 +346,14 @@ struct SubscriptionDetailView: View {
                         forSubscription: detail.id
                     )))
                 } label: {
-                    actionLabel("手动选种", systemImage: "magnifyingglass")
+                    actionLabel(String(localized: .subscriptionInspectorPickManually), systemImage: "magnifyingglass")
                 }
                 .buttonStyle(.glass)
                 .accessibilityIdentifier("manual-pick")
             }
             if showMore {
                 Button { sheet = .manage } label: {
-                    actionLabel("更多", systemImage: "ellipsis")
+                    actionLabel(String(localized: .commonMore), systemImage: "ellipsis")
                 }
                 .buttonStyle(.glass)
                 .disabled(busy)
@@ -419,7 +419,7 @@ struct SubscriptionDetailView: View {
                 MediaSourceAnnotationSheet(mediaItemId: detail.media.mediaItemId, seasonNumber: season, isMovie: detail.media.kind == "movie") { message in
                     // 标注已刷新快照：顺手重跑一轮体检完成排期（幂等），再刷新详情
                     if (try? await api.subscriptionsUpgradeRun(subscriptionId: detail.id, body: .init(ruleSetId: nil))) != nil {
-                        feedback.success("\(message)，已重新体检并排期洗版")
+                        feedback.success(String(localized: .subscriptionInspectorAnnotated(message)))
                     } else {
                         feedback.success(message)
                     }
@@ -447,19 +447,19 @@ struct SubscriptionDetailView: View {
     private func togglePause(_ detail: API.SubscriptionDetailView) async {
         let resuming = detail.status == "paused"
         let ok = await confirms.confirm(
-            resuming ? "恢复《\(detail.media.title)》的订阅追踪？" : "暂停《\(detail.media.title)》的订阅追踪？",
+            resuming ? String(localized: .subscriptionInspectorResumeTitle(detail.media.title)) : String(localized: .subscriptionInspectorPauseTitle(detail.media.title)),
             message: resuming
-                ? "恢复后会继续搜索缺失资源，并按当前规则自动投递符合条件的结果。"
-                : "暂停后不会继续搜索或投递资源；已经提交的下载不受影响，可随时恢复。",
-            confirmTitle: resuming ? "恢复追踪" : "暂停追踪",
-            cancelTitle: "返回"
+                ? String(localized: .subscriptionInspectorResumeDescription)
+                : String(localized: .subscriptionInspectorPauseDescription),
+            confirmTitle: resuming ? String(localized: .subscriptionInspectorResume) : String(localized: .subscriptionProgressPaused),
+            cancelTitle: String(localized: .commonBack)
         )
         guard ok else { return }
         busy = true
         defer { busy = false }
         do {
             _ = try await api.subscriptionsSetTrackingState(subscriptionId: detail.id, body: .init(state: resuming ? "active" : "paused"))
-            feedback.success(resuming ? "已恢复订阅追踪" : "已暂停订阅追踪")
+            feedback.success(resuming ? String(localized: .subscriptionInspectorResumed) : String(localized: .subscriptionInspectorPaused))
             await reload()
             await refreshIndex()
         } catch {
@@ -474,31 +474,31 @@ struct SubscriptionDetailView: View {
         defer { busy = false }
         do {
             _ = try await api.subscriptionsSetFollowFuture(subscriptionId: detail.id, body: .init(enabled: enabling))
-            feedback.success(enabling ? "已开启自动续订" : "已关闭自动续订")
+            feedback.success(enabling ? String(localized: .subscriptionInspectorFollowEnabled) : String(localized: .subscriptionInspectorFollowDisabled))
             await reload()
             await refreshIndex()
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "设置自动续订失败，请稍后重试" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .subscriptionInspectorFollowFailed) : error.localizedDescription)
         }
     }
 
     /// 立即搜索：缺口跳过冷却重新排队；「暂停中/无可搜缺口」由后端给可读错误
     private func searchNow(_ detail: API.SubscriptionDetailView) async {
         let ok = await confirms.confirm(
-            "立即搜索《\(detail.media.title)》的缺失资源？",
-            message: "将跳过当前搜索冷却，重新搜索已经可以搜索的缺口。命中当前规则组的资源可能会自动提交下载。",
-            confirmTitle: "立即搜索",
-            cancelTitle: "返回"
+            String(localized: .subscriptionInspectorSearchTitle(detail.media.title)),
+            message: String(localized: .subscriptionInspectorSearchDescription),
+            confirmTitle: String(localized: .subscriptionInspectorSearchNow),
+            cancelTitle: String(localized: .commonBack)
         )
         guard ok else { return }
         busy = true
         defer { busy = false }
         do {
             let result = try await api.subscriptionsSearchMissingResources(subscriptionId: detail.id)
-            feedback.success("\(result.resetCount) 个缺口已重新排队，正在搜索")
+            feedback.success(String(localized: .subscriptionInspectorRequeued(result.resetCount)))
             await reload()
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "触发搜索失败，请稍后重试" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .subscriptionInspectorSearchFailed) : error.localizedDescription)
         }
     }
 
@@ -509,10 +509,10 @@ struct SubscriptionDetailView: View {
             return
         }
         let ok = await confirms.confirm(
-            "取消订阅《\(detail.media.title)》？",
-            message: "将取消你的订阅关注；已经下载或入库的文件不会被删除。",
-            confirmTitle: "取消订阅",
-            cancelTitle: "先不",
+            String(localized: .subscriptionCancelQuestion(detail.media.title)),
+            message: String(localized: .subscriptionInspectorUnfollowDescription),
+            confirmTitle: String(localized: .subscriptionCancelTitle),
+            cancelTitle: String(localized: .subscriptionCancelNotNow),
             destructive: true
         )
         guard ok else { return }
@@ -532,10 +532,10 @@ struct SubscriptionDetailView: View {
         do {
             let result = try await api.subscriptionsDelete(subscriptionId: detail.id, deleteTorrents: torrents, deleteLibraryFiles: files)
             sheet = nil
-            feedback.success(result.cleanupJobId != nil ? "已取消订阅，正在后台清理关联内容（可在任务中心查看进度）" : "已取消订阅")
+            feedback.success(result.cleanupJobId != nil ? String(localized: .subscriptionInspectorCancelledCleanup) : String(localized: .subscriptionInspectorCancelled))
             await afterRemoved()
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "取消订阅失败，请稍后重试" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .subscriptionInspectorCancelFailed) : error.localizedDescription)
         }
     }
 
@@ -552,7 +552,7 @@ struct SubscriptionDetailView: View {
 /// 数字图例与颜色同时表达状态，不让色觉成为唯一通道。
 struct ProgressStrip: View {
     let progress: API.ProgressView
-    let unit: String
+    let isMovie: Bool
 
     var body: some View {
         let denom = CGFloat(max(progress.total, 1))
@@ -561,9 +561,9 @@ struct ProgressStrip: View {
         let settled = max(progress.imported - upgrading, 0)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("收录进度").font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.85))
+                Text(String(localized: .subscriptionProgressTitle)).font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.85))
                 Spacer()
-                Text("\(progress.imported) / \(progress.total) \(unit)").font(.subheadline).monospacedDigit().foregroundStyle(.white.opacity(0.55))
+                Text(isMovie ? String(localized: .subscriptionProgressStripMovies(progress.imported, progress.total)) : String(localized: .subscriptionProgressStripEpisodes(progress.imported, progress.total))).font(.subheadline).monospacedDigit().foregroundStyle(.white.opacity(0.55))
             }
             GeometryReader { proxy in
                 HStack(spacing: 0) {
@@ -577,12 +577,17 @@ struct ProgressStrip: View {
             .background(Color.white.opacity(0.12))
             .clipShape(.capsule)
             .accessibilityElement()
-            .accessibilityLabel("共 \(progress.total) \(unit)，已入库 \(progress.imported)" + (upgrading > 0 ? "（其中洗版中 \(upgrading)）" : "") + "，下载中 \(inPipeline)，缺失 \(progress.wanted)")
+            .accessibilityLabel(
+                (isMovie ? String(localized: .subscriptionProgressSpokenMovies(progress.total, progress.imported))
+                    : String(localized: .subscriptionProgressSpokenEpisodes(progress.total, progress.imported)))
+                + (upgrading > 0 ? String(localized: .subscriptionProgressSpokenUpgrading(upgrading)) : "")
+                + String(localized: .subscriptionProgressSpokenRest(inPipeline, progress.wanted))
+            )
             DiscoverFlowLayout(spacing: 14, lineSpacing: 6) {
-                legend(SubsColor.ok, "已入库 \(settled)")
-                if upgrading > 0 { legend(SubsColor.upgrade, "洗版中 \(upgrading)") }
-                legend(SubsColor.info, "下载中 \(inPipeline)")
-                legend(Color.white.opacity(0.2), "缺失 \(progress.wanted)")
+                legend(SubsColor.ok, String(localized: .subscriptionProgressImportedCount(settled)))
+                if upgrading > 0 { legend(SubsColor.upgrade, String(localized: .subscriptionProgressUpgrading(upgrading))) }
+                legend(SubsColor.info, String(localized: .subscriptionProgressDownloadingLegend(inPipeline)))
+                legend(Color.white.opacity(0.2), String(localized: .subscriptionProgressWanted(progress.wanted)))
             }
         }
         .accessibilityElement(children: .contain)

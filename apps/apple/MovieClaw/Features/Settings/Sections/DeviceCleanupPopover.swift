@@ -24,25 +24,25 @@ struct DeviceCleanupPopover: View {
         VStack(spacing: 16) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("清理\(group.title)").font(.headline)
-                    Text("仅清理\(all ? "全部成员" : "我的设备")中的\(group.title)，包含当前搜索未显示的设备。")
+                    Text(String(localized: .settingsCleanupTitle(group.title))).font(.headline)
+                    Text(all ? String(localized: .settingsCleanupScopeAll(group.title)) : String(localized: .settingsCleanupScopeMine(group.title)))
                         .font(.subheadline).foregroundStyle(.secondary)
                     intervalPicker.disabled(busy)
                     switch preview {
                     case .loading:
-                        ProgressView("正在检查设备…")
+                        ProgressView(String(localized: .settingsCleanupChecking))
                     case let .failed(message):
                         Text(message).font(.subheadline).foregroundStyle(.secondary)
-                        Button("重试") { Task { await load() } }
+                        Button(String(localized: .commonRetry)) { Task { await load() } }
                     case .loaded:
                         if items.isEmpty {
-                            Label("没有需要清理的设备", systemImage: "checkmark.circle")
+                            Label(String(localized: .settingsCleanupNone), systemImage: "checkmark.circle")
                                 .font(.subheadline).foregroundStyle(.secondary)
                         } else {
-                            Text("\(items.count) 台设备超过 \(days) 天未使用")
+                            Text(String(localized: .settingsCleanupFound(items.count, days)))
                                 .font(.subheadline.weight(.semibold))
                                 .accessibilityIdentifier("devices-cleanup-summary")
-                            DisclosureGroup("查看待清理设备") {
+                            DisclosureGroup(String(localized: .settingsCleanupReview)) {
                                 LazyVStack(alignment: .leading, spacing: 12) {
                                     ForEach(items, id: \.id) { item in
                                         VStack(alignment: .leading, spacing: 4) {
@@ -55,7 +55,7 @@ struct DeviceCleanupPopover: View {
                             }
                         }
                     }
-                    Text("当前设备和已连接的转码器不会被清理。清理后需要重新登录或配对。")
+                    Text(String(localized: .settingsCleanupHint))
                         .font(.footnote).foregroundStyle(.secondary)
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(Theme.danger)
@@ -70,14 +70,14 @@ struct DeviceCleanupPopover: View {
             Button(role: .destructive) { confirming = true } label: {
                 HStack {
                     if busy { ProgressView().tint(.black) }
-                    Text(busy ? "正在清理 · \(completed)" : "清理 \(items.count) 台设备")
+                    Text(busy ? String(localized: .settingsCleanupProgress(completed)) : String(localized: .settingsCleanupAction(items.count)))
                 }
                 .foregroundStyle(items.isEmpty ? Color.secondary : .black).frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent).tint(Theme.danger).controlSize(.large)
             .disabled(items.isEmpty || busy)
             .accessibilityIdentifier("devices-cleanup-submit")
-            Button("取消") { dismiss() }
+            Button(String(localized: .commonCancel)) { dismiss() }
                 .disabled(busy).accessibilityIdentifier("sheet-cancel")
         }
         .padding(20)
@@ -85,18 +85,18 @@ struct DeviceCleanupPopover: View {
         .presentationCompactAdaptation(.popover)
         .adaptiveDetents([.large])
         .interactiveDismissDisabled(busy)
-        .alert("清理这 \(items.count) 台设备？", isPresented: $confirming) {
-            Button("取消", role: .cancel) { }
-            Button("清理 \(items.count) 台设备", role: .destructive) { Task { await submit() } }
+        .alert(String(localized: .settingsCleanupConfirmTitle(items.count)), isPresented: $confirming) {
+            Button(String(localized: .commonCancel), role: .cancel) { }
+            Button(String(localized: .settingsCleanupAction(items.count)), role: .destructive) { Task { await submit() } }
         } message: {
-            Text("仅影响\(group.title)中超过 \(days) 天未使用的设备，它们将立即失去访问权限。")
+            Text(String(localized: .settingsCleanupConfirmHint(group.title, days)))
         }
         .task(id: days) { await load() }
     }
 
     private var intervalPicker: some View {
-        Picker("未使用时间", selection: $days) {
-            ForEach([7, 30, 90], id: \.self) { Text("\($0) 天").tag($0) }
+        Picker(String(localized: .settingsCleanupInactiveFor), selection: $days) {
+            ForEach([7, 30, 90], id: \.self) { Text(String(localized: .settingsSitesDays($0))).tag($0) }
         }
         .modifier(CleanupIntervalStyle(accessibility: typeSize.isAccessibilitySize))
         .accessibilityIdentifier("devices-cleanup-days")
@@ -133,9 +133,9 @@ struct DeviceCleanupPopover: View {
                 completed += 1
             }
             onChanged()
-            onDone(completed == 0 ? "没有仍需清理的设备" : "已清理 \(completed) 台\(group.title)设备")
+            onDone(completed == 0 ? String(localized: .settingsCleanupNoneLeft) : String(localized: .settingsCleanupDoneCount(completed, group.title)))
         } catch {
-            self.error = "已清理 \(completed) 台，其余未完成：\(error.localizedDescription)"
+            self.error = String(localized: .settingsCleanupPartial(completed, error.localizedDescription))
             if completed > 0 { onChanged() }
             await load()
         }

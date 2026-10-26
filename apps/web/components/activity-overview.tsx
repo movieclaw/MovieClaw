@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator, type AppMessageKey } from "@/lib/i18n/translate";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -19,7 +23,7 @@ import {
 import { PAGE_NAV_BUTTON_CLASS } from "@/components/page-nav";
 import {
   PlaybackHistoryList,
-  STATS_PERIODS,
+  statsPeriods,
 } from "@/components/playback-stats-section";
 import { PosterImage } from "@/components/poster-image";
 import {
@@ -47,7 +51,7 @@ import { useDownloadTasks } from "@/lib/download-tasks";
 import { imageUrl } from "@/lib/image-proxy";
 import { isDismissed } from "@/lib/job-attention";
 import { PageChromeProvider, usePageChrome } from "@/lib/page-chrome";
-import { ACTIVITY_PAGE_TITLES, type ActivityPageName } from "@/lib/task-center";
+import { activityPageTitle, type ActivityPageName } from "@/lib/task-center";
 import { useTaskActivity, type DownloadTaskGroup } from "@/lib/task-activity";
 import { formatRelativeTime } from "@/lib/time";
 import { useIsMobile } from "@/lib/use-media-query";
@@ -78,6 +82,9 @@ export function ActivityPages({
   page: ActivityPageName | null;
   media: MediaActivityState;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const chrome = usePageChrome();
   const isMobile = useIsMobile();
   // 手机顶栏：总览挂大字标题（标签根页），二级页挂页名 + 返回键（回总览）
@@ -85,9 +92,9 @@ export function ActivityPages({
   useEffect(() => {
     if (!isMobile || !setTopBarTitle) return;
     return page
-      ? setTopBarTitle(ACTIVITY_PAGE_TITLES[page], { backHref: "/activity" as Route })
-      : setTopBarTitle("活动", { large: true });
-  }, [isMobile, page, setTopBarTitle]);
+      ? setTopBarTitle(activityPageTitle(page, locale), { backHref: "/activity" as Route })
+      : setTopBarTitle(t("activity.nav.title"), { large: true });
+  }, [isMobile, page, setTopBarTitle, locale, t]);
 
   // 桌面：二级页往顶栏右上角挂的操作（观看页的筛选菜单、刷流页的「清理」）改落到页内
   // 标题行右侧。做法是给子树换一个 setTopBarActions，子页面照旧调用、不必分辨形态；
@@ -126,6 +133,9 @@ export function ActivityPages({
  * 正文字号页名（回总览，能按历史回就按历史回）；右侧是二级页的页面操作。
  */
 function DesktopHeader({ page, actions }: { page: ActivityPageName | null; actions: ReactNode }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const back = useBackNavigation("/activity" as Route);
   return (
     <div className="mb-2 flex min-h-11 items-center gap-2">
@@ -133,7 +143,7 @@ function DesktopHeader({ page, actions }: { page: ActivityPageName | null; actio
         <button
           type="button"
           onClick={back}
-          aria-label="返回活动"
+          aria-label={t("activity.overview.back")}
           className={`${PAGE_NAV_BUTTON_CLASS} -ml-1 shrink-0`}
         >
           <ChevronLeftIcon className="size-[22px]" />
@@ -147,7 +157,7 @@ function DesktopHeader({ page, actions }: { page: ActivityPageName | null; actio
             : "text-on-image min-w-0 flex-1 truncate text-[26px] font-bold leading-tight tracking-[-0.02em] text-white"
         }
       >
-        {page ? ACTIVITY_PAGE_TITLES[page] : "活动"}
+        {page ? activityPageTitle(page, locale) : t("activity.nav.title")}
       </h1>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
@@ -160,6 +170,9 @@ const ACTIVE_LIMIT = 5;
 const RECENT_LIMIT = 3;
 
 function ActivityOverview({ media }: { media: MediaActivityState }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const activity = useTaskActivity();
   const { sources, error: downloadsError, loading: downloadsLoading } = useDownloadTasks();
   const actions = useTaskCenterActions();
@@ -178,16 +191,16 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
   ];
 
   /** 浏览范围脚注：有被隐藏的内容才出现，就地切到「全部」；已是「全部」时给回退出口 */
-  const scopeFooter = (hidden: number, noun: string) =>
+  const scopeFooter = (hidden: number, kind: "sessions" | "downloads") =>
     hidden > 0 || scope === "all" ? (
       <>
-        {hidden > 0 ? `另有 ${hidden} ${noun}不在你的浏览范围内` : "已包含对你隐藏的库"}
+        {hidden > 0 ? t("activity.overview.scopeHidden", { count: hidden, kind }) : t("activity.overview.scopeIncludesHidden")}
         <button
           type="button"
           onClick={() => setScope(hidden > 0 ? "all" : "visible")}
           className="ml-1.5 font-semibold text-[var(--info)]"
         >
-          {hidden > 0 ? "显示全部" : "只看我的范围"}
+          {hidden > 0 ? t("activity.overview.showAll") : t("activity.overview.scopeMineAction")}
         </button>
       </>
     ) : null;
@@ -196,13 +209,13 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
     <div>
       <p className="tnum px-1 text-sub text-[var(--text-muted)]">
         {downloadsLoading && media.loading
-          ? "正在读取…"
+          ? t("activity.overview.loading")
           : activitySummaryParts({
               attention: activity.attentionTotal,
               watching,
               downloading,
               active: activity.activeTotal,
-            }).map((part, index) => (
+            }, locale).map((part, index) => (
               <span key={index}>
                 {index > 0 && " · "}
                 <span className={part.alert ? "font-semibold text-[var(--danger)]" : undefined}>
@@ -225,14 +238,14 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
 
       {activity.attentionTotal > 0 && (
         <ActivityGroup
-          title="需要处理"
+          title={t("activity.nav.attention")}
           count={activity.attentionTotal}
           tone="danger"
           plain
           trailing={
             canDismissAll
               ? {
-                  label: actions.bulkDismissing ? "正在忽略…" : "全部忽略",
+                  label: actions.bulkDismissing ? t("activity.taskCenter.dismissing") : t("activity.taskCenter.dismissAll"),
                   onClick: actions.dismissAllFailed,
                   disabled: actions.bulkDismissing,
                 }
@@ -245,10 +258,10 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
 
       {watching > 0 && (
         <ActivityGroup
-          title="正在播放"
+          title={t("activity.overview.playing")}
           count={watching}
           tone="ok"
-          footer={scopeFooter(snapshot.hidden_session_count, "台设备在播放的内容")}
+          footer={scopeFooter(snapshot.hidden_session_count, "sessions")}
         >
           {snapshot.sessions.map((session) => (
             <SessionCard
@@ -265,9 +278,9 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
 
       {downloading > 0 && (
         <ActivityGroup
-          title="正在下载"
+          title={t("activity.overview.downloading")}
           count={downloading}
-          footer={scopeFooter(snapshot.hidden_download_count, "条下载")}
+          footer={scopeFooter(snapshot.hidden_download_count, "downloads")}
         >
           {snapshot.downloads.map((download) => (
             <DownloadCard
@@ -283,10 +296,10 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
 
       {(activity.activeTotal > 0 || activity.boostTasks.length > 0) && (
         <ActivityGroup
-          title="进行中"
+          title={t("activity.nav.active")}
           count={activity.activeTotal > 0 ? activity.activeTotal : null}
           trailing={
-            activity.activeTotal > 0 ? { label: "查看全部", href: "/activity?view=active" as Route } : null
+            activity.activeTotal > 0 ? { label: t("activity.overview.seeAll"), href: "/activity?view=active" as Route } : null
           }
         >
           {activeItems.slice(0, ACTIVE_LIMIT).map((item) =>
@@ -294,7 +307,7 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
               <GroupLinkRow
                 key={`group:${item.group.key}`}
                 href={"/activity?view=active" as Route}
-                menu={downloadGroupMenu(item.group, actions)}
+                menu={downloadGroupMenu(item.group, actions, locale)}
               >
                 <ActiveDownloadRow group={item.group} ingestJobsByHash={activity.ingestJobsByHash} />
               </GroupLinkRow>
@@ -305,12 +318,12 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
                 menu={
                   item.job.status !== "cancelling" ? (
                     <TaskActionsMenu
-                      ariaLabel="作业操作"
+                      ariaLabel={t("activity.overview.jobActions")}
                       disabled={actions.cancellingJobId != null}
                       items={[
                         {
                           id: "cancel",
-                          label: "取消任务",
+                          label: t("activity.jobs.cancelAction"),
                           onSelect: () => actions.cancelBackgroundJob(item.job),
                         },
                       ]}
@@ -330,8 +343,8 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
 
       {extras.recentPlays.length > 0 && (
         <ActivityGroup
-          title="最近播放"
-          trailing={{ label: "查看全部", href: "/activity?view=plays" as Route }}
+          title={t("activity.nav.plays")}
+          trailing={{ label: t("activity.overview.seeAll"), href: "/activity?view=plays" as Route }}
         >
           {extras.recentPlays.map((entry) => (
             <RecentPlayRow key={entry.id} entry={entry} />
@@ -341,8 +354,8 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
 
       {extras.weekly && (
         <ActivityGroup
-          title="观看统计"
-          trailing={{ label: "查看全部", href: "/activity?view=stats" as Route }}
+          title={t("activity.nav.stats")}
+          trailing={{ label: t("activity.overview.seeAll"), href: "/activity?view=stats" as Route }}
         >
           <GroupLinkRow href={"/activity?view=stats" as Route}>
             <WeeklyWatchCard stats={extras.weekly} />
@@ -352,9 +365,9 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
 
       {activity.standaloneHistoricalJobs.length > 0 && (
         <ActivityGroup
-          title="最近完成"
+          title={t("activity.overview.recentFinished")}
           trailing={{
-            label: `查看全部 ${activity.historyTotal} 个`,
+            label: t("activity.overview.seeAllCount", { count: activity.historyTotal }),
             href: "/activity?view=history" as Route,
           }}
         >
@@ -362,7 +375,7 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
             <GroupLinkRow
               key={job.id}
               href={"/activity?view=history" as Route}
-              menu={finishedJobMenu(job, actions)}
+              menu={finishedJobMenu(job, actions, locale)}
             >
               <FinishedJobRow job={job} />
             </GroupLinkRow>
@@ -379,37 +392,39 @@ function ActivityOverview({ media }: { media: MediaActivityState }) {
 type Actions = ReturnType<typeof useTaskCenterActions>;
 
 /** 进行中下载的 ⋯：单资源才能在这里删种（多资源进二级页逐个处理） */
-function downloadGroupMenu(group: DownloadTaskGroup, actions: Actions) {
+function downloadGroupMenu(group: DownloadTaskGroup, actions: Actions, locale: AppLocale = requestLocale() ?? "zh-Hans") {
+  const t = appTranslator(locale);
   const task = group.tasks[0];
   if (group.tasks.length !== 1 || task.downloader_id == null) return null;
   return (
     <TaskActionsMenu
-      ariaLabel={`${group.title}的更多操作`}
+      ariaLabel={t("activity.jobs.moreActions", { title: group.title })}
       disabled={actions.deletingTaskId != null}
       items={[
-        { id: "delete", label: "删除任务", tone: "danger", onSelect: () => actions.requestDelete(task) },
+        { id: "delete", label: t("activity.taskCenter.deleteAction"), tone: "danger", onSelect: () => actions.requestDelete(task) },
       ]}
     />
   );
 }
 
 /** 最近完成的 ⋯：被忽略的失败可撤销忽略，用户取消的可重新执行 */
-function finishedJobMenu(job: JobView, actions: Actions) {
+function finishedJobMenu(job: JobView, actions: Actions, locale: AppLocale = requestLocale() ?? "zh-Hans") {
+  const t = appTranslator(locale);
   if (job.status === "failed" && isDismissed(job)) {
     return (
       <TaskActionsMenu
-        ariaLabel="作业操作"
+        ariaLabel={t("activity.overview.jobActions")}
         disabled={actions.undismissingJobId != null}
-        items={[{ id: "undismiss", label: "撤销忽略", onSelect: () => actions.restoreDismissedJob(job) }]}
+        items={[{ id: "undismiss", label: t("activity.jobs.restoreAction"), onSelect: () => actions.restoreDismissedJob(job) }]}
       />
     );
   }
   if (job.status === "cancelled" && !isSystemCancelled(job)) {
     return (
       <TaskActionsMenu
-        ariaLabel="作业操作"
+        ariaLabel={t("activity.overview.jobActions")}
         disabled={actions.retryingJobId != null}
-        items={[{ id: "retry", label: "重新执行", onSelect: () => actions.retryHistoricalJob(job) }]}
+        items={[{ id: "retry", label: t("activity.jobs.retryAction"), onSelect: () => actions.retryHistoricalJob(job) }]}
       />
     );
   }
@@ -445,6 +460,9 @@ function useWatchExtras(enabled: boolean, scope: MediaActivityScope, liveKey: nu
  * 「看到 42%」挤没。结果在上（与片名同行、字重高一档），相对时间在下。
  */
 function RecentPlayRow({ entry }: { entry: PlaybackLogEntry }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const media = entry.media;
   const playing = entry.ended_at == null;
   const unit =
@@ -465,7 +483,7 @@ function RecentPlayRow({ entry }: { entry: PlaybackLogEntry }) {
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-ui font-semibold text-[var(--text)]">
-          {media.title || "（条目已删除）"}
+          {media.title || t("activity.overview.deletedItem")}
           {unit && <span className="tnum ml-1.5 font-normal text-[var(--text-muted)]">{unit}</span>}
         </span>
         <span className="mt-0.5 block truncate text-sub text-[var(--text-muted)]">
@@ -474,17 +492,16 @@ function RecentPlayRow({ entry }: { entry: PlaybackLogEntry }) {
       </span>
       <span className="tnum flex shrink-0 flex-col items-end gap-0.5 whitespace-nowrap text-sub">
         {playing ? (
-          <span className="font-medium text-[var(--ok)]">播放中</span>
+          <span className="font-medium text-[var(--ok)]">{t("activity.overview.playingState")}</span>
         ) : entry.completed ? (
           <span className="inline-flex items-center gap-1 font-medium text-[var(--ok)]">
             <CheckIcon className="size-3" />
-            看完
-          </span>
+            {t("activity.overview.watched")}</span>
         ) : entry.progress_percent != null ? (
-          <span className="font-medium text-[var(--text-muted)]">看到 {entry.progress_percent}%</span>
+          <span className="font-medium text-[var(--text-muted)]">{t("activity.overview.watchProgress", { percent: entry.progress_percent })}</span>
         ) : null}
         {!playing && (
-          <span className="text-[var(--text-faint)]">{formatRelativeTime(entry.started_at)}</span>
+          <span className="text-[var(--text-faint)]">{formatRelativeTime(entry.started_at, locale)}</span>
         )}
       </span>
     </GroupLinkRow>
@@ -496,30 +513,33 @@ function RecentPlayRow({ entry }: { entry: PlaybackLogEntry }) {
  * （ActivityDashboardRows.swift 的 ActivityWeeklyWatchCard）。
  */
 function WeeklyWatchCard({ stats }: { stats: PlaybackWatchStats }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   // 服务端按「含今天往前 N 天」给，可能多出一天；只画最近 7 根
   const bars = stats.by_day.slice(-7);
   const max = Math.max(1, ...bars.map((bar) => bar.watched_ms));
   const minutes = Math.round(stats.current.watched_ms / 60_000);
   const hours = Math.floor(minutes / 60);
-  const delta = weeklyDelta(stats);
+  const delta = weeklyDelta(stats, locale);
   const number = "text-[30px] font-bold leading-none tracking-[-0.02em] text-[var(--text)]";
   const unit = "text-sub text-[var(--text-muted)]";
   return (
     <span className="block min-w-0 flex-1">
       <span className="flex items-baseline justify-between gap-3">
         <span>
-          <span className="block text-sub text-[var(--text-muted)]">最近 7 天</span>
+          <span className="block text-sub text-[var(--text-muted)]">{t("activity.overview.lastWeek")}</span>
           <span className="tnum mt-1.5 flex items-baseline gap-1">
             {hours > 0 && (
               <>
                 <span className={number}>{hours}</span>
-                <span className={unit}>小时</span>
+                <span className={unit}>{t("activity.overview.hoursUnit")}</span>
               </>
             )}
             {(minutes % 60 > 0 || hours === 0) && (
               <>
                 <span className={number}>{minutes % 60}</span>
-                <span className={unit}>分钟</span>
+                <span className={unit}>{t("activity.overview.minutesUnit")}</span>
               </>
             )}
           </span>
@@ -550,7 +570,7 @@ function WeeklyWatchCard({ stats }: { stats: PlaybackWatchStats }) {
                 }}
               />
             </span>
-            <span className="text-caption text-[var(--text-faint)]">{weekdayLabel(bar.date)}</span>
+            <span className="text-caption text-[var(--text-faint)]">{weekdayLabel(bar.date, locale)}</span>
           </span>
         ))}
       </span>
@@ -562,9 +582,9 @@ function WeeklyWatchCard({ stats }: { stats: PlaybackWatchStats }) {
 // 二级页：最近播放 / 观看统计
 // ---------------------------------------------------------------------------
 
-const SCOPE_LABELS: Record<MediaActivityScope, string> = {
-  visible: "我的浏览范围",
-  all: "全部（含对你隐藏的库）",
+const SCOPE_LABELS: Record<MediaActivityScope, AppMessageKey> = {
+  visible: "activity.overview.scopeMine",
+  all: "activity.overview.scopeAll",
 };
 
 /**
@@ -573,6 +593,9 @@ const SCOPE_LABELS: Record<MediaActivityScope, string> = {
  * WatchStatsPanel。
  */
 function WatchPage({ page, media }: { page: "plays" | "stats"; media: MediaActivityState }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const { scope, setScope, enabled } = media;
   const [memberId, setMemberId] = useState<number | null>(null);
   const [days, setDays] = useState(30);
@@ -588,11 +611,11 @@ function WatchPage({ page, media }: { page: "plays" | "stats"; media: MediaActiv
 
   const memberOptions = useMemo(
     () => [
-      { value: -1, label: "全部成员" },
-      { value: 0, label: "超级管理员" },
+      { value: -1, label: t("activity.overview.allMembers") },
+      { value: 0, label: t("activity.overview.admin") },
       ...members.map((m) => ({ value: m.id, label: m.nickname || m.username })),
     ],
-    [members],
+    [members, t],
   );
   const memberLabel =
     memberId == null ? null : (memberOptions.find((o) => o.value === memberId)?.label ?? null);
@@ -606,7 +629,7 @@ function WatchPage({ page, media }: { page: "plays" | "stats"; media: MediaActiv
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
-            aria-label="筛选"
+            aria-label={t("activity.overview.filters")}
             className={`${PAGE_NAV_BUTTON_CLASS} ${filtered ? "!text-[var(--info)]" : ""}`}
           >
             <FilterIcon className="size-[18px]" />
@@ -621,29 +644,29 @@ function WatchPage({ page, media }: { page: "plays" | "stats"; media: MediaActiv
           >
             {page === "stats" && (
               <FilterRadioGroup
-                label="周期"
+                label={t("activity.overview.period")}
                 value={String(days)}
-                options={STATS_PERIODS.map((p) => ({ value: String(p.value), label: p.label }))}
+                options={statsPeriods(locale).map((p) => ({ value: String(p.value), label: p.label }))}
                 onChange={(value) => setDays(Number(value))}
               />
             )}
             <FilterRadioGroup
-              label="成员"
+              label={t("activity.overview.member")}
               value={String(memberId ?? -1)}
               options={memberOptions.map((o) => ({ value: String(o.value), label: o.label }))}
               onChange={(value) => setMemberId(Number(value) < 0 ? null : Number(value))}
             />
             <FilterRadioGroup
-              label="范围"
+              label={t("activity.overview.scope")}
               value={scope}
-              options={(["visible", "all"] as const).map((value) => ({ value, label: SCOPE_LABELS[value] }))}
+              options={(["visible", "all"] as const).map((value) => ({ value, label: t(SCOPE_LABELS[value]) }))}
               onChange={(value) => setScope(value as MediaActivityScope)}
             />
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
     ),
-    [days, filtered, memberId, memberOptions, page, scope, setScope],
+    [days, filtered, memberId, memberOptions, page, scope, setScope, t, locale],
   );
   useEffect(() => {
     if (!setTopBarActions) return;
@@ -652,9 +675,9 @@ function WatchPage({ page, media }: { page: "plays" | "stats"; media: MediaActiv
 
   // 页内副标题：「最近 30 天 · 全部成员 · 我的浏览范围」
   const subtitle = [
-    page === "stats" ? `最近 ${days} 天` : null,
-    memberLabel ?? "全部成员",
-    scope === "all" ? "含隐藏的库" : "我的浏览范围",
+    page === "stats" ? t("activity.overview.days", { count: days }) : null,
+    memberLabel ?? t("activity.overview.allMembers"),
+    scope === "all" ? t("activity.overview.includeHidden") : t("activity.overview.scopeMine"),
   ]
     .filter(Boolean)
     .join(" · ");

@@ -43,21 +43,21 @@ struct TVWelcomeView: View {
     private var content: some View {
         switch model.phase {
         case .needsSetup:
-            TVWelcomeCard(title: "这台服务器还没初始化", message: "请先在电脑或手机的浏览器里打开 \(model.server?.displayString ?? "服务器地址")，创建管理员账号，再回到这里登录。") {
-                Button("我已完成，重新连接") { Task { await model.reconnect() } }
-                Button("换一台服务器") { step = .server }
+            TVWelcomeCard(title: String(localized: .authServerNotInitialized), message: String(localized: .authSetupTvHint(model.server?.displayString ?? String(localized: .authInputServerAddress)))) {
+                Button(String(localized: .authServerSetupDone)) { Task { await model.reconnect() } }
+                Button(String(localized: .authServerChooseAnother)) { step = .server }
             }
         case .unreachable:
-            TVWelcomeCard(title: "连不上服务器", message: model.launchError ?? "请检查网络，或确认服务器正在运行。") {
-                Button("重试") { Task { await model.reconnect() } }
+            TVWelcomeCard(title: String(localized: .authServerUnreachable), message: model.launchError ?? String(localized: .authServerCheckConnection)) {
+                Button(String(localized: .commonRetry)) { Task { await model.reconnect() } }
                     .accessibilityIdentifier("tv-welcome-retry")
-                Button("换一台服务器") { step = .server }
+                Button(String(localized: .authServerChooseAnother)) { step = .server }
                 if !model.accountsOnOtherServers.isEmpty {
-                    Button("切换到其他账号") { step = .intro }
+                    Button(String(localized: .authAccountsSwitchOther)) { step = .intro }
                 }
             }
         case .chooseAccount:
-            TVAccountChooser(accounts: model.accountsOnOtherServers, title: "选择账号") {
+            TVAccountChooser(accounts: model.accountsOnOtherServers, title: String(localized: .authAccountsChoose)) {
                 step = .server
             }
         default:
@@ -84,17 +84,17 @@ struct TVWelcomeView: View {
             if !scenes.isEmpty {
                 let scene = scenes[sceneIndex % scenes.count]
                 VStack(spacing: 18) {
-                    Text(scene.line)
+                    Text(scene.headline)
                         .font(.welcomeSerif(size: 40))
                         .multilineTextAlignment(.center)
-                    if let original = scene.original {
+                    if let original = scene.subline {
                         Text(original)
                             .font(.callout)
                             .italic()
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
-                    Text("《\(scene.film)》\(scene.year)")
+                    Text(verbatim: scene.source)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -103,7 +103,7 @@ struct TVWelcomeView: View {
                 .frame(height: 260)
             }
             Spacer()
-            Button(model.server == nil ? "连接服务器" : "登录") {
+            Button(model.server == nil ? String(localized: .authServerConnect) : String(localized: .authLoginSubmit)) {
                 if let server = model.server {
                     step = .signIn(server)
                 } else {
@@ -172,36 +172,36 @@ struct TVServerPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 34) {
-            Text("连接服务器")
+            Text(String(localized: .authServerConnect))
                 .font(.welcomeSerif(size: 52))
-            Text("服务器地址就是在浏览器里打开 MovieClaw 时地址栏里的那一串。")
+            Text(String(localized: .authServerAddressHint))
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
             if discovering {
                 HStack(spacing: 18) {
                     ProgressView()
-                    Text("正在局域网里寻找 MovieClaw…").foregroundStyle(.secondary)
+                    Text(String(localized: .authServerSearching)).foregroundStyle(.secondary)
                 }
             }
             if let found {
                 Button {
                     onPick(found.address)
                 } label: {
-                    Label("连接局域网里的「\(found.name)」· \(found.address.displayString)", systemImage: "wifi")
+                    Label(String(localized: .authServerFoundTV(found.name, found.address.displayString)), systemImage: "wifi")
                 }
                 .accessibilityIdentifier("tv-server-found")
             } else if !discovering {
                 HStack(spacing: 20) {
-                    Text("没在局域网里找到服务器（Docker 部署要映射 UDP 7359）").foregroundStyle(.secondary)
-                    Button("重新查找") { Task { await discover() } }
+                    Text(String(localized: .authServerNotFoundTV)).foregroundStyle(.secondary)
+                    Button(String(localized: .authServerSearchAgain)) { Task { await discover() } }
                 }
             }
 
             let recent = model.savedServers.filter { $0.address != found?.address }
             if !recent.isEmpty {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("登录过的服务器").font(.headline)
+                    Text(String(localized: .authServerPrevious)).font(.headline)
                     HStack(spacing: 24) {
                         ForEach(recent) { saved in
                             Button(saved.address.displayString) { onPick(saved.address) }
@@ -212,13 +212,13 @@ struct TVServerPicker: View {
             }
 
             HStack(spacing: 24) {
-                TextField("手动输入地址，例如 http://192.168.0.100:3000", text: $manual)
+                TextField(String(localized: .authServerManualPlaceholder), text: $manual)
                     .textContentType(.URL)
                     .autocorrectionDisabled()
                     .frame(width: 900)
                     .onSubmit(submitManual)
                     .accessibilityIdentifier("tv-server-address")
-                Button("连接", action: submitManual)
+                Button(String(localized: .authServerConnectAction), action: submitManual)
                     .disabled(manual.trimmingCharacters(in: .whitespaces).isEmpty)
                     .accessibilityIdentifier("tv-server-connect")
             }
@@ -259,7 +259,7 @@ struct TVServerPicker: View {
                 onPick(await ServerDiscovery.settle(address, typed: raw))
             }
         } catch {
-            self.error = "地址格式不对：请填写完整地址，例如 http://192.168.0.100:3000"
+            self.error = String(localized: .authServerInvalidFull)
         }
     }
 }
@@ -302,24 +302,24 @@ struct TVSignInForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 30) {
-            Text(expired ? "重新登录" : "登录 MovieClaw")
+            Text(expired ? String(localized: .authLoginAgain) : String(localized: .authLoginTitle))
                 .font(.welcomeSerif(size: 52))
             HStack(spacing: 20) {
                 Label(server.displayString, systemImage: "server.rack")
                     .foregroundStyle(.secondary)
-                Button("更换", action: onChangeServer)
+                Button(String(localized: .authServerChange), action: onChangeServer)
                     .accessibilityIdentifier("tv-signin-change-server")
             }
             if expired, let prefilledUsername {
-                Text("「\(prefilledUsername)」的登录已失效，请重新输入密码。")
+                Text(String(localized: .authLoginExpiredTV(prefilledUsername)))
                     .font(.callout)
                     .foregroundStyle(Theme.warning)
             }
-            TextField("用户名", text: $username)
+            TextField(String(localized: .authInputUsername), text: $username)
                 .textContentType(Self.autofill ? .username : nil)
                 .autocorrectionDisabled()
                 .accessibilityIdentifier("tv-signin-username")
-            SecureField("密码", text: $password)
+            SecureField(String(localized: .authInputPassword), text: $password)
                 .textContentType(Self.autofill ? .password : nil)
                 .onSubmit(submit)
                 .accessibilityIdentifier("tv-signin-password")
@@ -333,12 +333,12 @@ struct TVSignInForm: View {
                 Button(action: submit) {
                     HStack(spacing: 12) {
                         if busy { ProgressView() }
-                        Text(busy ? "正在连接…" : "登录")
+                        Text(busy ? String(localized: .authServerConnecting) : String(localized: .authLoginSubmit))
                     }
                 }
                 .disabled(busy || username.isEmpty || password.isEmpty)
                 .accessibilityIdentifier("tv-signin-submit")
-                Button("改用扫码登录", action: onUseQRCode)
+                Button(String(localized: .authPairingUseQRCode), action: onUseQRCode)
             }
         }
         .padding(60)
@@ -359,7 +359,7 @@ struct TVSignInForm: View {
             do {
                 let result = try await model.signIn(to: server, username: username.trimmingCharacters(in: .whitespaces), password: password)
                 if result == .needsSetup {
-                    error = "这台服务器还没初始化：请先在浏览器里打开 \(server.displayString) 创建管理员账号。"
+                    error = String(localized: .authSetupRequiredTV(server.displayString))
                 }
             } catch {
                 self.error = error.localizedDescription
@@ -399,7 +399,7 @@ struct TVAccountChooser: View {
                             .font(.system(size: 64, weight: .light))
                             .frame(width: 220, height: 220)
                             .background(.white.opacity(0.1), in: .circle)
-                        Text("添加账号").font(.headline)
+                        Text(String(localized: .authAccountsAdd)).font(.headline)
                     }
                 }
                 .buttonStyle(.borderless)
@@ -431,7 +431,7 @@ struct TVProfileButton: View {
                 VStack(spacing: 6) {
                     Text(account.nickname).font(.headline)
                     // 从左上角头像打开时标出当前是谁
-                    Text(current ? "正在使用 · \(server.hostLabel)" : server.hostLabel)
+                    Text(current ? String(localized: .authAccountsCurrentServer(server.hostLabel)) : server.hostLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

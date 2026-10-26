@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -123,6 +124,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
+import io.movieclaw.android.core.designsystem.mcCards
 
 /* ══════════ 数据模型（对齐 iOS SubsHomeModel） ══════════ */
 
@@ -665,7 +667,19 @@ fun SubsHomeScreen(
 
     Box(Modifier.fillMaxSize().background(Bg)) {
         // 氛围底 = 当前英雄剧照主色，随滚动退淡（下限 0.35，900dp 淡尽）
-        val slide = state.slides.getOrNull(0)
+        // 订阅首页有自己的 hero 大图：把它发布给外壳，侧栏玻璃才有画面可模糊。
+    // 之前订阅页没发布 → 切过去时侧栏是纯黑，和右侧 hero 不协调（真机反馈）。
+    val subsHeroUrl = state.slides.getOrNull(0)?.media?.let { tmdbOriginal(it.backdropUrl) ?: it.posterUrl }
+    val subsShellBackdrop = io.movieclaw.android.routing.LocalShellBackdropSetter.current
+    androidx.compose.runtime.LaunchedEffect(subsHeroUrl) {
+        if (subsHeroUrl != null) {
+            subsShellBackdrop(io.movieclaw.android.routing.ShellBackdrop(subsHeroUrl, vm.origin, io.movieclaw.android.core.designsystem.Bg))
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { subsShellBackdrop(null) }
+    }
+    val slide = state.slides.getOrNull(0)
         val ambient = rememberAmbientColor(slide?.media?.backdropUrl, vm.origin)
         val ambAlpha = (1f - scroll.value / 900f).coerceIn(0.35f, 1f)
         Box(
@@ -686,7 +700,7 @@ fun SubsHomeScreen(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = McMetrics.pagePadding, top = 2.dp)
+                .padding(start = mcCards.pagePadding, top = 2.dp)
                 // 跟着页面滚走、边滚边淡（以前一直钉在顶上，压在每张剧照的 Logo 上）
                 .graphicsLayer {
                     translationY = -scroll.value.toFloat()
@@ -744,7 +758,7 @@ fun SubsHomeScreen(
                     SectionHeader("刚刚入库", if (state.recent.size > 1) "${state.recent.size} 部" else null)
                     Spacer(Modifier.height(12.dp))
                     LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         items(state.recent, key = { it.subscriptionId.toString() + "-" + it.episodeNumber }) { card ->
@@ -775,7 +789,7 @@ fun SubsHomeScreen(
                     ShelfHeader("剧集订阅", countSummary(state.tv, active.size), onOpenWall = { onOpenWall("tv") })
                     Spacer(Modifier.height(12.dp))
                     LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(active, key = { it.id }) { sub -> SubCard(sub, dim = false, origin = vm.origin) { onOpenSubscription(sub.id) } }
@@ -798,7 +812,7 @@ fun SubsHomeScreen(
                     ShelfHeader("电影订阅", countSummary(state.movie, active.size), onOpenWall = { onOpenWall("movie") })
                     Spacer(Modifier.height(12.dp))
                     LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(active, key = { it.id }) { sub -> SubCard(sub, dim = false, origin = vm.origin) { onOpenSubscription(sub.id) } }
@@ -1090,7 +1104,7 @@ private fun restingLabel(resting: List<SubscriptionView>): String {
 @Composable
 private fun SectionHeader(title: String, count: String?) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding),
+        Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
@@ -1102,7 +1116,7 @@ private fun SectionHeader(title: String, count: String?) {
 @Composable
 private fun ShelfHeader(title: String, count: String, onOpenWall: () -> Unit = {}) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding),
+        Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -1133,11 +1147,11 @@ private fun ArrivalCard(
     onOpenTitle: (String) -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    Column(Modifier.width(264.dp)) {
+    Column(Modifier.width(mcCards.newInWidth)) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(148.dp)
+                .aspectRatio(264f / 148f)
                 .clip(RoundedCornerShape(14.dp))
                 .background(Color(0xFF101219))
                 .combinedClickable(
@@ -1178,7 +1192,7 @@ private fun ArrivalCard(
                     origin = origin,
                     contentDescription = null,
                     // iOS：maxWidth 118 × maxHeight 34，内距 12，左下
-                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).width(118.dp).height(34.dp),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).width(mcCards.recentLogoWidth).height(34.dp),
                     contentScale = ContentScale.Fit,
                 )
             }
@@ -1250,7 +1264,7 @@ private fun ScheduleSection(
     val subsById = remember(subs) { subs.associateBy { it.id } }
     val current = days.getOrNull(selected) ?: days.firstOrNull()
     Column {
-        Row(Modifier.padding(horizontal = McMetrics.pagePadding), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = mcCards.pagePadding), verticalAlignment = Alignment.CenterVertically) {
             Text("日程", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(Modifier.weight(1f))
             // 计数跟着**选中的那天**走（iOS SubsHomeSectionHeader 的 trailing）
@@ -1263,7 +1277,7 @@ private fun ScheduleSection(
             }
         }
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.padding(horizontal = McMetrics.pagePadding), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.padding(horizontal = mcCards.pagePadding), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             days.forEach { day ->
                 val on = day == current
                 // 日期条小圆点：当天有正在发生的（下载 / 整理）就亮状态色，否则中性白（iOS dotColor）
@@ -1303,7 +1317,7 @@ private fun ScheduleSection(
         Spacer(Modifier.height(12.dp))
         Column(
             Modifier
-                .padding(horizontal = McMetrics.pagePadding)
+                .padding(horizontal = mcCards.pagePadding)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(22.dp))
                 .background(Color.White.copy(alpha = 0.045f))
@@ -1490,7 +1504,7 @@ private fun SubCard(sub: SubscriptionView, dim: Boolean, origin: String?, onClic
 private fun SubscriptionEmptyState(onOpenDiscover: () -> Unit) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
             .background(Color.White.copy(alpha = 0.03f))

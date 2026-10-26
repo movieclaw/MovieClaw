@@ -9,11 +9,11 @@ enum MainTab: String, Hashable, CaseIterable {
 
     var title: String {
         switch self {
-        case .discover: "发现"
-        case .library: "媒体库"
-        case .subscriptions: "订阅"
-        case .activity: "活动"
-        case .more: "我的"
+        case .discover: String(localized: .navMainDiscover)
+        case .library: String(localized: .navMainLibrary)
+        case .subscriptions: String(localized: .navTabsSubscriptions)
+        case .activity: String(localized: .navMainActivity)
+        case .more: String(localized: .navTabsMy)
         }
     }
 

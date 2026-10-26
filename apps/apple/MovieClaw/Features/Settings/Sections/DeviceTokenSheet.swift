@@ -20,7 +20,7 @@ struct DeviceTokenSheet: View {
                 if let created { credential(created) }
                 else {
                     SettingsFormSection {
-                        TextField("名称，例如 NAS 定时任务", text: $name)
+                        TextField(String(localized: .settingsTokenSheetNamePlaceholder), text: $name)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .focused($nameFocused)
@@ -31,19 +31,19 @@ struct DeviceTokenSheet: View {
                                 error = nil
                             }
                             .accessibilityIdentifier("token-name")
-                    } header: { Text("令牌名称") }
-                    footer: { Text("用于识别使用这枚令牌的程序或设备。") }
+                    } header: { Text(String(localized: .settingsTokenSheetName)) }
+                    footer: { Text(String(localized: .settingsTokenSheetNameHint)) }
                     SettingsFormSection {
-                        Picker("访问权限", selection: $scope) {
-                            Text("完全权限").tag("full")
-                            Text("仅限转码").tag("transcode")
+                        Picker(String(localized: .settingsTokenSheetAccess), selection: $scope) {
+                            Text(String(localized: .settingsDevicesManualFull)).tag("full")
+                            Text(String(localized: .settingsDevicesManualTranscode)).tag("transcode")
                         }
                         .accessibilityIdentifier("token-scope")
                     } footer: {
                         Text(scope == "transcode" ? DeviceText.transcodeManualGrant.body : DeviceText.manualGrant.body)
                     }
                     SettingsFormSection {
-                        Text("用于定时任务、CI 或无界面的转码器。能扫码的设备请使用“批准新设备登录”。")
+                        Text(String(localized: .settingsTokenSheetUsageHint))
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     if let error { SettingsFormSection { SettingsNotice(text: error) } }
@@ -51,33 +51,33 @@ struct DeviceTokenSheet: View {
             }
             .appBackground()
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle(created == nil ? "创建访问令牌" : "保存访问令牌")
+            .navigationTitle(created == nil ? String(localized: .settingsTokenSheetCreateTitle) : String(localized: .settingsTokenSheetSaveTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if created == nil {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("取消") { dismiss() }
+                        Button(String(localized: .commonCancel)) { dismiss() }
                             .disabled(busy).accessibilityIdentifier("token-create-cancel")
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         if busy { ProgressView() }
                         else {
-                            Button("创建") { Task { await create() } }
+                            Button(String(localized: .settingsFormCreate)) { Task { await create() } }
                                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                                 .accessibilityIdentifier("token-create-submit")
                         }
                     }
                 } else {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("完成") { confirmingClose = true }
+                        Button(String(localized: .commonDone)) { confirmingClose = true }
                             .accessibilityIdentifier("token-created-dismiss")
                     }
                 }
             }
-            .alert("已保存这枚令牌？", isPresented: $confirmingClose) {
-                Button("继续保存", role: .cancel) { }
-                Button("我已保存") { dismiss() }
-            } message: { Text("关闭后无法再次查看令牌明文。未保存的令牌只能注销后重建。") }
+            .alert(String(localized: .settingsTokenSheetSavedTitle), isPresented: $confirmingClose) {
+                Button(String(localized: .settingsFormKeepSaving), role: .cancel) { }
+                Button(String(localized: .settingsDevicesManualSaved)) { dismiss() }
+            } message: { Text(String(localized: .settingsTokenSheetSavedHint)) }
         }
         .interactiveDismissDisabled(busy || created != nil || !name.isEmpty)
         .task {
@@ -95,27 +95,27 @@ struct DeviceTokenSheet: View {
             ? "--nas-url \(address) --token \(token.token)"
             : "MOVIECLAW_SERVER=\(address)\nMOVIECLAW_TOKEN=\(token.token)"
         SettingsFormSection {
-            Label("已创建「\(token.name)」", systemImage: "checkmark.circle")
+            Label(String(localized: .settingsDevicesManualCreated(token.name)), systemImage: "checkmark.circle")
                 .accessibilityIdentifier("token-created-card")
-            Text("令牌只显示这一次，请先复制并保存，再点完成。")
+            Text(String(localized: .settingsTokenSheetCopyFirst))
                 .foregroundStyle(.secondary)
         }
         SettingsFormSection {
             Text(token.token)
                 .font(.footnote.monospaced()).textSelection(.enabled)
-            DeviceCredentialCopyButton(text: token.token, title: "复制令牌")
+            DeviceCredentialCopyButton(text: token.token, title: String(localized: .settingsMcpControlsCopyToken))
                 .accessibilityIdentifier("token-copy")
-        } header: { Text("访问令牌") }
+        } header: { Text(String(localized: .settingsMcpControlsAccessToken)) }
         SettingsFormSection {
             Text(snippet).font(.footnote.monospaced()).textSelection(.enabled)
-            DeviceCredentialCopyButton(text: snippet, title: transcode ? "复制启动参数" : "复制环境变量")
-        } header: { Text(transcode ? "转码器启动参数" : "环境变量") }
+            DeviceCredentialCopyButton(text: snippet, title: transcode ? String(localized: .settingsTokenSheetCopyArgs) : String(localized: .settingsTokenSheetCopyEnv))
+        } header: { Text(transcode ? String(localized: .settingsTokenSheetArgs) : String(localized: .settingsNetworkProxyEnv)) }
         footer: {
-            if transcode { Text("接在 movieclaw-transcoder --headless 后使用。") }
+            if transcode { Text(String(localized: .settingsTokenSheetArgsHint)) }
         }
         if !configured {
             SettingsFormSection {
-                Label("请确认目标设备能访问这个服务器地址。可在“设置 → 网络”配置对外访问地址。",
+                Label(String(localized: .settingsTokenSheetReachHint),
                       systemImage: "exclamationmark.triangle")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
@@ -147,7 +147,7 @@ private struct DeviceCredentialCopyButton: View {
             UIPasteboard.general.string = text
             copied = true
         } label: {
-            Label(copied ? "已复制" : title, systemImage: copied ? "checkmark" : "doc.on.doc")
+            Label(copied ? String(localized: .commonCopied) : title, systemImage: copied ? "checkmark" : "doc.on.doc")
         }
     }
 }

@@ -148,13 +148,13 @@ def theme_file(
 ) -> Response:
     theme = themes.find(get_settings(), _kernel(request), theme_id)
     if theme is None or theme.incompatible is not None:
-        raise NotFoundException("没有这个主题")
+        raise NotFoundException(message_key="errors.themes.missing")
     target = themes.resolve_file(theme, path)
     suffix = target.suffix.lower() if target is not None else ""
     if target is None or suffix not in _TYPES:
-        raise NotFoundException("文件不存在")
+        raise NotFoundException(message_key="errors.themes.fileMissing")
     if suffix in _SCRIPTS and principal is None:
-        raise UnauthorizedException("请先登录")
+        raise UnauthorizedException(message_key="errors.themes.signInRequired")
     stat = target.stat()
     etag = (
         '"'

@@ -67,11 +67,11 @@ struct TransferItemSheet: View {
                 .padding(cards.edge)
             }
             .safeAreaInset(edge: .bottom) { bottomBar }
-            .navigationTitle("转移到其他媒体库")
+            .navigationTitle(String(localized: .libraryTransferTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(finished ? "关闭" : "取消") { dismiss() }.disabled(busy)
+                    Button(finished ? String(localized: .commonClose) : String(localized: .commonCancel)) { dismiss() }.disabled(busy)
                 }
             }
         }
@@ -87,7 +87,7 @@ struct TransferItemSheet: View {
     @ViewBuilder
     private var planStep: some View {
         Label {
-            Text("把「\(title)」转移到其他媒体库")
+            Text(String(localized: .libraryTransferHeading(title)))
         } icon: {
             Image(systemName: "folder").foregroundStyle(Theme.accent)
         }
@@ -98,16 +98,18 @@ struct TransferItemSheet: View {
         // 照抄影视库的说法会让用户以为整个分组目录都要被搬走
         Group {
             if fileEntries {
-                Text("放错库时用它补救。\(Text("这个条目的文件").foregroundStyle(Theme.text))（连同同名的 NFO、字幕）会连同库存记录一起搬到目标库；文件在库里的所在目录结构原样保留，同目录下别的条目留在原地不动。")
+                (Text(String(localized: .libraryTransferFileLead)) + Text(String(localized: .libraryTransferFileEmphasis)).foregroundStyle(Theme.text)
+                    + Text(String(localized: .libraryTransferFileTail)))
             } else {
-                Text("分错库时用它补救（例如韩剧被判进了「大陆华语剧」）。\(Text("磁盘上的整个条目目录").foregroundStyle(Theme.text))（视频、NFO、海报、字幕）会连同库存记录一起搬到目标库；目录名原样保留，需要规范化请到目标库运行「整理文件名」。")
+                (Text(String(localized: .libraryTransferDirectoryLead)) + Text(String(localized: .libraryTransferDirectoryEmphasis)).foregroundStyle(Theme.text)
+                    + Text(String(localized: .libraryTransferDirectoryTail)))
             }
         }
         .font(.subheadline)
         .foregroundStyle(Theme.textMuted)
         .padding(.top, 8)
 
-        Text("转移到")
+        Text(String(localized: .libraryTransferTarget))
             .font(.caption.weight(.semibold))
             .tracking(2)
             .foregroundStyle(Theme.textFaint)
@@ -116,7 +118,7 @@ struct TransferItemSheet: View {
         Group {
             if let candidates {
                 if candidates.isEmpty {
-                    Text("没有其他\(transferKindLabels[sourceKind ?? ""] ?? "")库可选——请先在「媒体库」页新建一个，再回来转移。")
+                    Text(String(localized: .libraryTransferNoTargetLibrary(transferKindLabels[sourceKind ?? ""] ?? "")))
                         .font(.subheadline)
                         .foregroundStyle(Theme.warning)
                 } else {
@@ -127,7 +129,7 @@ struct TransferItemSheet: View {
                     }
                 }
             } else if error == nil {
-                Text("正在读取媒体库…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .libraryTransferLoadingLibraries)).font(.subheadline).foregroundStyle(Theme.textMuted)
             }
         }
         .padding(.top, 8)
@@ -135,7 +137,7 @@ struct TransferItemSheet: View {
         if loadingPreview {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("正在计算转移计划…")
+                Text(String(localized: .libraryTransferCalculating))
             }
             .font(.subheadline)
             .foregroundStyle(Theme.textMuted)
@@ -162,10 +164,10 @@ struct TransferItemSheet: View {
                     HStack(spacing: 8) {
                         Text(lib.name).font(.body.weight(.medium)).foregroundStyle(Theme.text)
                         if lib.isDefault {
-                            Text("默认库").font(.caption).foregroundStyle(Theme.textFaint)
+                            Text(String(localized: .libraryTransferDefaultLibrary)).font(.caption).foregroundStyle(Theme.textFaint)
                         }
                     }
-                    Text(lib.primaryRoot ?? "未配置根路径")
+                    Text(lib.primaryRoot ?? String(localized: .libraryTransferNoRoot))
                         .font(.caption.monospaced())
                         .foregroundStyle(.white.opacity(0.45))
                         .lineLimit(1)
@@ -194,7 +196,7 @@ struct TransferItemSheet: View {
             if running {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small).tint(Theme.info)
-                    Text("正在转移\(progressSuffix)；跨盘转移需要完整复制文件，请勿关闭页面以外的操作")
+                    Text(String(localized: .libraryTransferMovingCrossDisk(progressSuffix)))
                         .lineLimit(2)
                 }
                 .font(.subheadline)
@@ -203,10 +205,10 @@ struct TransferItemSheet: View {
             HStack(spacing: 12) {
                 Spacer()
                 if let status, finished {
-                    Button("留在本页") { dismiss() }
+                    Button(String(localized: .libraryTransferStay)) { dismiss() }
                         .buttonStyle(.glass)
                     if status.errors.isEmpty, let target = status.targetLibraryId {
-                        Button("去目标库查看") { goToTarget(target) }
+                        Button(String(localized: .libraryTransferOpenTarget)) { goToTarget(target) }
                             .buttonStyle(.glassProminent)
                     }
                 } else {
@@ -215,7 +217,7 @@ struct TransferItemSheet: View {
                     } label: {
                         HStack(spacing: 6) {
                             if starting { ProgressView().controlSize(.small) }
-                            Text("确认转移").font(.body.weight(.semibold))
+                            Text(String(localized: .libraryTransferConfirm)).font(.body.weight(.semibold))
                         }
                     }
                     .buttonStyle(.glassProminent)
@@ -250,7 +252,7 @@ struct TransferItemSheet: View {
             candidates = libs.filter { $0.id != libraryId && $0.source == source }
         } catch is CancellationError {
         } catch {
-            self.error = "读取媒体库列表失败，请稍后重试"
+            self.error = String(localized: .libraryTransferLibrariesFailed)
         }
     }
 
@@ -286,7 +288,7 @@ struct TransferItemSheet: View {
             apply(try await api.libraryItemsGetTransferStatus(libraryId: libraryId))
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "转移失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .libraryTransferFailed) : error.localizedDescription
         }
     }
 
@@ -319,7 +321,7 @@ struct TransferItemSheet: View {
     }
 }
 
-private let transferKindLabels = ["movie": "电影", "tv": "剧集", "video": "其他", "photo": "图片"]
+private let transferKindLabels = ["movie": String(localized: .libraryKindMovies), "tv": String(localized: .libraryKindSeries), "video": String(localized: .libraryKindOther), "photo": String(localized: .libraryFormImages)]
 
 /// 转移计划预览：阻断原因、跨盘警示、搬运清单（源 → 目标）、跳过说明
 private struct TransferPlanPreviewView: View {
@@ -337,7 +339,8 @@ private struct TransferPlanPreviewView: View {
 
             if preview.crossDevice, !preview.moves.isEmpty {
                 box(tint: Theme.warning) {
-                    Text("目标库与当前位置\(Text("不在同一块盘").bold())：文件需要完整复制（\(Formatters.bytes(preview.totalBytes))），耗时取决于体积与盘速；复制会产生新文件，与下载器做种目录的硬链接关系将断开，两边各占一份空间。")
+                    (Text(String(localized: .libraryTransferCrossDiskLead)) + Text(String(localized: .libraryTransferCrossDiskEmphasis)).bold()
+                    + Text(String(localized: .libraryTransferCrossDiskTail(Formatters.bytes(preview.totalBytes)))))
                 }
                 .foregroundStyle(Theme.warning)
             }
@@ -379,8 +382,8 @@ private struct TransferPlanPreviewView: View {
     }
 
     private var summary: String {
-        var text = "\(preview.moves.count) 个路径 · \(Formatters.bytes(preview.totalBytes))"
-        if preview.missingCount > 0 { text += " · \(preview.missingCount) 个缺失记录随迁" }
+        var text = String(localized: .libraryTransferPathsSummary(preview.moves.count, Formatters.bytes(preview.totalBytes)))
+        if preview.missingCount > 0 { text += String(localized: .libraryTransferMissingRecordsMove(preview.missingCount)) }
         return text
     }
 
@@ -402,13 +405,13 @@ private struct TransferResultView: View {
     var body: some View {
         let failed = !status.errors.isEmpty
         VStack(alignment: .leading, spacing: 12) {
-            Text(failed ? "部分转移完成" : "「\(status.title ?? "")」已转移到「\(status.targetLibraryName ?? "")」")
+            Text(failed ? String(localized: .libraryTransferPartial) : String(localized: .libraryTransferDoneTitle(status.title ?? "", status.targetLibraryName ?? "")))
                 .font(.headline)
                 .foregroundStyle(Theme.text)
 
             VStack(alignment: .leading, spacing: 2) {
                 if status.movedPaths.isEmpty {
-                    Text("没有搬运任何磁盘路径").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .libraryTransferNoPathsMoved)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 } else {
                     ForEach(status.movedPaths, id: \.self) { path in
                         Text(path).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.7))
@@ -434,10 +437,10 @@ private struct TransferResultView: View {
     }
 
     private var conclusion: String {
-        var text = "已随迁 \(status.filesRelocated) 条库存记录（\(Formatters.bytes(status.bytesMoved))）"
-        if status.removedDirs > 0 { text += "，清理空目录 \(status.removedDirs) 个" }
+        var text = String(localized: .libraryTransferRecordsMoved(status.filesRelocated, Formatters.bytes(status.bytesMoved)))
+        if status.removedDirs > 0 { text += String(localized: .libraryTransferEmptyDirsRemoved(status.removedDirs)) }
         text += "。"
-        if status.subscriptionMoved { text += "该片的订阅已一并改挂到目标库，后续剧集直接入新库。" }
+        if status.subscriptionMoved { text += String(localized: .libraryTransferSubscriptionMoved) }
         return text
     }
 }

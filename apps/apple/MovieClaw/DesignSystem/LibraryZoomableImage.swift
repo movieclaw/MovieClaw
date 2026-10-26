@@ -22,7 +22,7 @@ struct LibraryZoomableImage: View {
     /// 放大后才拉的原图；不给则只有一级
     var fullURL: URL?
     /// 图加载失败时的第二行解释：本地库是文件没了，外链是图床失效
-    var brokenHint: String = "文件可能已被移动或删除，重新扫描后会更新"
+    var brokenHint: String = String(localized: .mediaImagesFileUnavailable)
     /// 是否在画面顶部显示「正在加载 / 正在加载原图」（灯箱有自己的提示时关掉）
     var showsStatus: Bool = true
     /// 单击画面（灯箱用来收放控件）
@@ -45,8 +45,8 @@ struct LibraryZoomableImage: View {
     /// 不能挂着一条永远消不掉的提示
     private var statusText: String? {
         guard !broken else { return nil }
-        if !fullReady { return "正在加载" }
-        if fullURL != nil, wantsFull, full == nil, !fullFailed { return "正在加载原图" }
+        if !fullReady { return String(localized: .mediaImagesLoading) }
+        if fullURL != nil, wantsFull, full == nil, !fullFailed { return String(localized: .mediaImagesLoadingOriginal) }
         return nil
     }
 
@@ -54,7 +54,7 @@ struct LibraryZoomableImage: View {
         ZStack {
             if broken {
                 VStack(spacing: 6) {
-                    Text("图片加载失败")
+                    Text(String(localized: .mediaImagesZoomLoadFailed))
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.6))
                     Text(brokenHint)
@@ -285,7 +285,7 @@ extension LibraryZoomableImage {
         var onReachEnd: () -> Void = {}
         /// 画面顶部的提示（下载进度、操作失败等）；有它时隐藏加载提示
         var note: String?
-        var brokenHint: String = "文件可能已被移动或删除，重新扫描后会更新"
+        var brokenHint: String = String(localized: .mediaImagesFileUnavailable)
         @ViewBuilder var actions: () -> Actions
         /// 压在画面上的浮层（信息面板等），跟着控件一起收放
         @ViewBuilder var overlay: () -> Overlay
@@ -369,7 +369,7 @@ extension LibraryZoomableImage {
                             .frame(width: 44, height: 44)
                             .contentShape(.circle)
                     }
-                    .accessibilityLabel("关闭")
+                    .accessibilityLabel(String(localized: .commonClose))
                 }
                 .foregroundStyle(.white.opacity(0.85))
                 .buttonStyle(.plain)
@@ -402,7 +402,7 @@ extension LibraryZoomableImage {
                                     .opacity(i == index ? 1 : 0.45)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("查看 \(slide.title)")
+                            .accessibilityLabel(String(localized: .mediaImagesViewTitle(slide.title)))
                             .id(i)
                         }
                     }
@@ -430,7 +430,7 @@ extension LibraryZoomableImage.Lightbox where Overlay == EmptyView {
         hasMore: Bool = false,
         onReachEnd: @escaping () -> Void = {},
         note: String? = nil,
-        brokenHint: String = "文件可能已被移动或删除，重新扫描后会更新",
+        brokenHint: String = String(localized: .mediaImagesFileUnavailable),
         @ViewBuilder actions: @escaping () -> Actions
     ) {
         self.init(slides: slides, index: index, hasMore: hasMore, onReachEnd: onReachEnd, note: note, brokenHint: brokenHint, actions: actions, overlay: { EmptyView() })

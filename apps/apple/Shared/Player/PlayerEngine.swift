@@ -10,8 +10,8 @@ enum EngineKind: String {
 
     var label: String {
         switch self {
-        case .avPlayer: "系统播放器（AVPlayer）"
-        case .native: "自研引擎（AetherEngine）"
+        case .avPlayer: String(localized: .playerEngineSystem)
+        case .native: String(localized: .playerEngineNative)
         }
     }
 }

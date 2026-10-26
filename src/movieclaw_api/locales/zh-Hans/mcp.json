@@ -1,0 +1,12 @@
+{
+  "check": {
+    "endpointDisabled": "端点当前已停用，外部客户端会收到 404。",
+    "externalUrlMissing": "还没配置外部访问地址，端点地址只有相对路径，外部客户端连不上。",
+    "servicesMissing": "配置里有当前版本已不存在的服务，已被忽略。",
+    "handshakeOk": "协议握手与工具面正常",
+    "probeFailed": "工具 {tool} 调用失败",
+    "allOk": "协议、工具面与调用链路都正常",
+    "failed": "自检未能完成：{detail}",
+    "globalDisabled": "MCP 总开关是关闭的，所有端点对外一律 404。"
+  }
+}

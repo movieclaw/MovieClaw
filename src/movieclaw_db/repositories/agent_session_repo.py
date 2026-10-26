@@ -49,9 +49,14 @@ class AgentSessionRepository:
         return list((await self._session.execute(stmt)).scalars().all())
 
     async def create(
-        self, session_id: str, *, title: str | None, owner: str | None = None
+        self,
+        session_id: str,
+        *,
+        title: str | None,
+        owner: str | None = None,
+        title_ref: dict | None = None,
     ) -> AgentSession:
-        row = AgentSession(id=session_id, title=title, owner=owner)
+        row = AgentSession(id=session_id, title=title, owner=owner, title_ref=title_ref)
         self._session.add(row)
         await self._session.commit()
         return row
@@ -64,6 +69,8 @@ class AgentSessionRepository:
         entry_count: int,
         last_prompt: str | None = None,
         title: str | None = None,
+        title_ref: dict | None = None,
+        last_prompt_ref: dict | None = None,
     ) -> None:
         """entry 追加落盘后刷新索引；行缺失（索引落后）时静默跳过，
         留给下次整体重建自愈。``last_prompt/title`` 传 None 表示不更新。"""
@@ -74,8 +81,10 @@ class AgentSessionRepository:
         row.entry_count = entry_count
         if last_prompt is not None:
             row.last_prompt = last_prompt
+            row.last_prompt_ref = last_prompt_ref
         if title is not None and row.title is None:
             row.title = title
+            row.title_ref = title_ref
         row.updated_at = utcnow()
         self._session.add(row)
         await self._session.commit()
@@ -87,6 +96,7 @@ class AgentSessionRepository:
         leaf_uuid: str | None,
         entry_count: int,
         last_prompt: str | None,
+        last_prompt_ref: dict | None = None,
     ) -> None:
         """丢弃旧消息后按文件重新校准索引（行缺失时静默跳过，同 touch_after_append）。
 
@@ -102,8 +112,10 @@ class AgentSessionRepository:
         row.leaf_uuid = leaf_uuid
         row.entry_count = entry_count
         row.last_prompt = last_prompt
+        row.last_prompt_ref = last_prompt_ref
         if entry_count == 0:
             row.title = None
+            row.title_ref = None
         row.updated_at = utcnow()
         self._session.add(row)
         await self._session.commit()
@@ -149,6 +161,7 @@ class AgentSessionRepository:
         if row is None:
             return None
         row.title = title
+        row.title_ref = None
         self._session.add(row)
         await self._session.commit()
         return row
@@ -162,6 +175,8 @@ class AgentSessionRepository:
     async def rebuild(
         self,
         summaries: list[tuple[str, str, int, str | None, str | None, str | None, str | None]],
+        *,
+        message_refs: dict[str, tuple[dict | None, dict | None]] | None = None,
     ) -> int:
         """用文件扫描结果整体校准索引，返回修正的行数。
 
@@ -180,6 +195,7 @@ class AgentSessionRepository:
         seen: set[str] = set()
         for summary in summaries:
             session_id, created_iso, entry_count, leaf_uuid, title, last_prompt, owner = summary
+            title_ref, last_prompt_ref = (message_refs or {}).get(session_id, (None, None))
             seen.add(session_id)
             row = existing.get(session_id)
             if row is None:
@@ -187,6 +203,8 @@ class AgentSessionRepository:
                     id=session_id,
                     created_at=_parse_naive_utc(created_iso),
                     title=title,
+                    title_ref=title_ref,
+                    last_prompt_ref=last_prompt_ref,
                     last_prompt=last_prompt,
                     entry_count=entry_count,
                     leaf_uuid=leaf_uuid,
@@ -203,8 +221,10 @@ class AgentSessionRepository:
                 row.entry_count = entry_count
                 row.leaf_uuid = leaf_uuid
                 row.last_prompt = last_prompt
+                row.last_prompt_ref = last_prompt_ref
                 if row.title is None:
                     row.title = title
+                    row.title_ref = title_ref
                 row.updated_at = utcnow()
                 self._session.add(row)
                 changed += 1

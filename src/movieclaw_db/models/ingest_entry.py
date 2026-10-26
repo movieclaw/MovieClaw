@@ -67,6 +67,11 @@ class IngestEntry(TimestampMixin, table=True):
         sa_column=Column(Text, nullable=True),
         description="处理结论（中文，含跳过/失败原因）",
     )
+    message_ref: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="处理结论的文案引用（按读者语言渲染）；NULL=旧记录，只有中文原文",
+    )
     imported_count: int = Field(default=0, description="本条目累计入库的文件数")
     media_item_id: int | None = Field(
         default=None,

@@ -40,7 +40,10 @@ class Mode(str, Enum):
 
 
 class Config(BaseModel):
-    interval: int = Field(30, ge=5, le=3600, title="同步间隔（秒）")
+    interval: int = Field(
+        30, ge=5, le=3600, title="同步间隔（秒）",
+        json_schema_extra={"title_localized": {"en": "Sync interval (seconds)"}},
+    )
     mode: Mode = Mode.fast
     token: SecretStr | None = Field(None, title="访问令牌")
     tags: list[str] = Field(default_factory=list, title="标签")
@@ -123,7 +126,7 @@ def client(request, tmp_path, monkeypatch):
     )
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as test_client:
         assert test_client.post("/api/v1/auth/bootstrap", json=ADMIN).status_code == 200
         test_client.data_dir = tmp_path  # type: ignore[attr-defined]
         yield test_client
@@ -236,3 +239,31 @@ def test_host_runtime_tasks_are_not_listed_as_capabilities(client) -> None:
     """独立进程插件的看护任务是宿主替它挂的，不是插件的能力，详情页「插件能力」里不出现。"""
     adds = client.get("/api/v1/app/plugins/acme-sync").json()["data"]["adds"]
     assert not [a for a in adds if "supervise" in a["title"]], adds
+
+
+def test_localized_schema_preserves_cached_source_validation_and_secrets(client):
+    for locale, label in (
+        ("en", "Sync interval (seconds)"),
+        ("zh-Hans", "同步间隔（秒）"),
+        ("en", "Sync interval (seconds)"),
+    ):
+        response = client.get(URL, headers={"Accept-Language": locale})
+        assert response.status_code == 200, response.text
+        data = response.json()["data"]
+        field = data["schema"]["properties"]["interval"]
+        assert field["title"] == label
+        assert field["minimum"] == 5
+        assert data["values"]["interval"] == 30
+        assert "token" not in data["values"]
+        assert data["schema"]["properties"]["token"]["writeOnly"]
+    response = client.put(URL, json={"values": {"interval": 1}}, headers={"Accept-Language": "en"})
+    assert response.status_code == 400
+    assert (
+        response.json()["message"]
+        == "Invalid settings: Sync interval (seconds): Must be at least 5"
+    )
+    from movieclaw_api.i18n import use_locale
+    from movieclaw_api.i18n.stored import render_value
+
+    with use_locale("zh-Hans"):
+        assert render_value(response.json()["params"]["detail"]) == "同步间隔（秒）：不能小于 5"

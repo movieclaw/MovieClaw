@@ -36,8 +36,18 @@ from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.quality_labels import quality_reference, upgrade_target_reference
+from movieclaw_api.i18n.stored import (
+    reference,
+    reference_fields,
+    render_value,
+    source_render,
+    stored_fields,
+)
 from movieclaw_api.services.library.quality import file_sort_key as _file_sort_key
 from movieclaw_api.services.library.quality import snapshot_from_file
+from movieclaw_api.services.subscription.attempt_notes import set_note
+from movieclaw_api.services.subscription.matching import units_reference
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
     LibraryFile,
@@ -171,6 +181,7 @@ async def materialize_owned_wanted(
     只改内存行 + flush、不 commit（跟随调用方事务）。返回新建的行。
     """
     from movieclaw_api.services.subscription.core import expected_units
+    from movieclaw_api.services.subscription.episode_cap import caps_of
     from movieclaw_api.services.subscription.episode_floor import floors_of
     from movieclaw_db.repositories.library_file_repo import LibraryFileRepository
     from movieclaw_db.repositories.media_repo import MediaItemRepository
@@ -184,6 +195,7 @@ async def materialize_owned_wanted(
         list(subscription.selected_seasons),
         subscription.follow_future,
         floors_of(subscription),
+        caps_of(subscription),
     )
     owned = await LibraryFileRepository(session).owned_units(subscription.media_item_id)
     existing = {
@@ -298,16 +310,18 @@ async def run_upgrade_round(
         SubscriptionActivity,
     )
     from movieclaw_db.repositories import SubscriptionRepository
-    from movieclaw_matcher import provably_at_cutoff, quality_label, upgrade_target_label
+    from movieclaw_matcher import provably_at_cutoff
 
     subscription = await session.get(Subscription, subscription_id)
     if subscription is None:
-        raise NotFoundException(f"订阅不存在：#{subscription_id}")
+        raise NotFoundException(
+            message_key="errors.subscription.missing", params={"id": subscription_id}
+        )
     if subscription.status == "paused":
-        raise BadRequestException("订阅已暂停，请先恢复追踪再触发洗版")
+        raise BadRequestException(message_key="errors.subscription.upgradePaused")
     if subscription.selection_mode == "smart":
         if rule_set_id not in (None, 0):
-            raise BadRequestException("智能订阅不能换绑规则组")
+            raise BadRequestException(message_key="errors.subscription.smartRuleRebindShort")
         # 0 是旧客户端回传的无规则占位值，继续使用智能偏好快照。
         rule_set_id = None
 
@@ -315,14 +329,19 @@ async def run_upgrade_round(
     if rule_set_id is not None and rule_set_id != subscription.rule_set_id:
         rule_set = await session.get(RuleSet, rule_set_id)
         if rule_set is None:
-            raise NotFoundException(f"规则组不存在：#{rule_set_id}")
+            raise NotFoundException(
+                message_key="errors.subscription.ruleMissing", params={"id": rule_set_id}
+            )
         try:
             new_spec = RuleSetSpec.model_validate(rule_set.spec or {})
         except ValueError as exc:
-            raise BadRequestException(f"规则组「{rule_set.name}」的参数无法解析：{exc}") from exc
+            raise BadRequestException(
+                message_key="errors.subscription.ruleParseFailed",
+                params={"name": rule_set.name, "error": exc},
+            ) from exc
         if new_spec.upgrade_source is None:
             raise BadRequestException(
-                f"规则组「{rule_set.name}」未配置洗版目标，请先在规则组编辑器中选择「洗到哪一档」"
+                message_key="errors.subscription.ruleTargetRequired", params={"name": rule_set.name}
             )
         subscription.rule_set_id = rule_set_id
         subscription.updated_at = utcnow()
@@ -330,14 +349,11 @@ async def run_upgrade_round(
     specs = await _specs_for_subscriptions(session, {subscription_id})
     spec = specs.get(subscription_id)
     if spec is None:
-        raise BadRequestException("当前规则组的参数无法解析，请在规则组页面重新保存修正")
+        raise BadRequestException(message_key="errors.subscription.ruleInvalid")
     if spec.upgrade_source is None:
         # 成员也会走到这里（成员洗版只能沿用当前组，member-permissions-v2.md §3.3），
         # 文案要让不懂规则组的家人也知道下一步找谁
-        raise BadRequestException(
-            "当前规则组未配置洗版目标，暂时无法洗版：需要管理员在「设置 → 订阅 → 规则组」"
-            "里配置；管理员也可以在洗版时换用一个已配置洗版目标的规则组"
-        )
+        raise BadRequestException(message_key="errors.subscription.upgradeTargetRequired")
 
     # 物化存量单元 + 当场补快照（不等回填 tick——体检要看到每一集）
     await materialize_owned_wanted(session, subscription)
@@ -385,7 +401,8 @@ async def run_upgrade_round(
     # 逐集体检 + 可洗单元排期（用户显式触发 = 补旧级 priority 0，立即到期；
     # 熔断中的视为人工介入解除，与「立即搜索」同语义）
     now = utcnow()
-    target_label = upgrade_target_label(spec) or ""
+    target_message = upgrade_target_reference(spec)
+    target_label = render_value(target_message) or ""
     units: list[dict] = []
     counts = {"upgradable": 0, "at_cutoff": 0, "in_flight": 0, "not_comparable": 0, "missing": 0}
     for wanted in sorted(rows, key=lambda w: (w.season_number, w.episode_number)):
@@ -397,7 +414,7 @@ async def run_upgrade_round(
             state = "not_comparable"
         else:
             snapshot = QualitySnapshot.model_validate(wanted.quality)
-            current_label = quality_label(snapshot, spec)
+            current_label = render_value(quality_reference(snapshot, spec))
             if unit in in_flight:
                 state = "in_flight"
             elif upgrade_ready(wanted, spec, now=now) or (
@@ -438,28 +455,53 @@ async def run_upgrade_round(
 
     summary_parts = []
     if counts["upgradable"]:
-        summary_parts.append(f"{counts['upgradable']} 个单元可洗版，已排入立即搜索")
+        summary_parts.append(
+            reference("subscription.upgrade.summaryUpgradable", count=counts["upgradable"])
+        )
     if counts["in_flight"]:
-        summary_parts.append(f"{counts['in_flight']} 个已在洗版中")
+        summary_parts.append(
+            reference("subscription.upgrade.summaryInFlight", count=counts["in_flight"])
+        )
     if counts["at_cutoff"]:
-        summary_parts.append(f"{counts['at_cutoff']} 个已达目标")
+        summary_parts.append(
+            reference("subscription.upgrade.summaryAtCutoff", count=counts["at_cutoff"])
+        )
     if counts["not_comparable"]:
-        summary_parts.append(f"{counts['not_comparable']} 个无法确认当前版本档位")
+        summary_parts.append(
+            reference("subscription.upgrade.summaryUnknown", count=counts["not_comparable"])
+        )
     if counts["missing"]:
-        summary_parts.append(f"{counts['missing']} 个缺失将照常下载")
-    summary = "；".join(summary_parts) if summary_parts else "没有可处理的单元"
+        summary_parts.append(
+            reference("subscription.upgrade.summaryMissing", count=counts["missing"])
+        )
+    summary_message = (
+        reference(
+            "subscription.upgrade.summary",
+            parts={
+                "message_list": summary_parts,
+                "separator_key": "subscription.upgrade.summarySeparator",
+            },
+        )
+        if summary_parts
+        else reference("subscription.upgrade.noUnits")
+    )
+    summary = render_value(summary_message)
 
     await session.commit()
     await SubscriptionRepository(session).add_activity(
         SubscriptionActivity(
             subscription_id=subscription_id,
             type=ActivityType.ADJUSTED,
-            message=f"用户触发一轮洗版（目标 {target_label}）：{summary}",
             payload={
                 "reason": "upgrade_run",
                 "counts": counts,
                 "rule_set_id": subscription.rule_set_id,
             },
+            **stored_fields(
+                "activity.subscription.upgradeRequested",
+                target=target_message,
+                summary=summary_message,
+            ),
         )
     )
     if counts["upgradable"] or counts["missing"]:
@@ -499,8 +541,10 @@ def _file_from_attempt(
     stamp = stamps.get(file.id or 0)
     if stamp and attempt.site_id:
         return stamp == (attempt.site_id, attempt.torrent_id)
-    return file.created_at is not None and attempt.created_at is not None and (
-        file.created_at >= attempt.created_at
+    return (
+        file.created_at is not None
+        and attempt.created_at is not None
+        and (file.created_at >= attempt.created_at)
     )
 
 
@@ -559,9 +603,7 @@ async def settle_outdated_upgrade_attempt(
         return False
     attempt.status = DownloadAttemptStatus.CANCELLED
     attempt.next_search_at = None
-    attempt.cleanup_note = (
-        "该洗版单元的在库版本已不低于本任务的标称档位，无需再等待入库；保留下载器任务"
-    )
+    set_note(attempt, reference("subscription.attempt.upgradeSettled"))
     attempt.updated_at = now
     session.add(attempt)
     await session.commit()
@@ -694,10 +736,16 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
 
     def _recycle_trigger(w: WantedItem) -> dict:
         """回收审计快照（library-file-recycle.md §4）：存展示用快照不外键。"""
+        label_ref = (
+            reference("library.recycle.triggerTitle", title=item.title)
+            if item is not None
+            else reference("library.recycle.triggerUpgrade")
+        )
         return {
             "kind": "subscription",
             "id": w.subscription_id,
-            "label": f"《{item.title}》订阅洗版" if item is not None else "订阅洗版",
+            "label": source_render(label_ref),
+            "label_ref": label_ref,
         }
 
     for wanted in rows:
@@ -718,7 +766,7 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                     file,
                     reason="upgrade_refuted",
                     trigger=_recycle_trigger(wanted),
-                    note="洗版证伪残留隔离：来自已证伪来源的文件不参与版本裁决",
+                    note_ref=reference("library.recycle.noteQuarantined"),
                 )
                 if outcome == "already_gone":
                     await session.delete(file)
@@ -747,13 +795,10 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
         # 混合投递（缺口+洗版同一 attempt）里，缺口单元也在 attempt.units 中，
         # 但它是靠这次投递才入库的——不是洗版目标，绝不能拿它走证伪分支。
         # 判据：单元必须在 attempt 创建之前就已入库，才算该 attempt 要洗的对象
-        if (
-            attempt is not None
-            and (
-                wanted.imported_at is None
-                or attempt.created_at is None
-                or wanted.imported_at > attempt.created_at
-            )
+        if attempt is not None and (
+            wanted.imported_at is None
+            or attempt.created_at is None
+            or wanted.imported_at > attempt.created_at
         ):
             attempt = None
 
@@ -834,7 +879,7 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
             if attempt is not None and _file_from_attempt(best_file, attempt, stamps):
                 wanted.info_hash = attempt.info_hash
                 attempt.status = DownloadAttemptStatus.IMPORTED
-                attempt.cleanup_note = "洗版完成：新版本已入库"
+                set_note(attempt, reference("subscription.attempt.upgradeDone"))
                 attempt.updated_at = now
                 # 旧任务交给换源清理状态机（H&R/所有权/文件重叠证据齐备才删）。
                 # 前置硬条件：旧 attempt 必须**不再服务任何其他单元**——旧
@@ -874,9 +919,9 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                             # CLEANUP_PENDING 只会永远等不到清理。其余旧任务
                             # 保守保留做种（与"证据不足不删数据"的换源铁律一致）
                             old_attempt.status = DownloadAttemptStatus.RETAINED
-                            old_attempt.cleanup_note = (
-                                "洗版整季替换：多个旧任务无法自动比对文件重叠，"
-                                "保留做种，可在活动页手动清理"
+                            set_note(
+                                old_attempt,
+                                reference("subscription.attempt.upgradeSeasonRetained"),
                             )
                         old_attempt.updated_at = now
             # 旧版本文件进回收站（quality-upgrade.md §7.1 / library-file-recycle.md），
@@ -893,7 +938,11 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                         file,
                         reason="upgrade_replaced",
                         trigger=_recycle_trigger(wanted),
-                        note=f"洗版替换：{old_label} → {new_label}",
+                        note_ref=reference(
+                            "library.recycle.noteUpgraded",
+                            old=quality_reference(baseline, spec),
+                            new=quality_reference(best_snapshot, spec),
+                        ),
                     )
                     if outcome == "already_gone":
                         await session.delete(file)  # 文件早没了：行删掉与磁盘一致
@@ -919,16 +968,16 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                     subscription_id=wanted.subscription_id,
                     wanted_item_id=wanted.id,
                     type=ActivityType.UPGRADED,
-                    message=(
-                        f"{_unit_text(wanted)}已洗版：{old_label} → {new_label}"
-                        + ("，旧版本已移入回收站（保留 7 天）" if trash_paths else "")
-                        + (
-                            "；部分旧版本移入回收站失败，已原地转入待回收"
-                            "（按保留期自动清理）——可在库详情恢复或立即清理"
-                            if kept_in_place
-                            else ""
+                    **reference_fields(
+                        reference(
+                            "activity.subscription.upgraded",
+                            unit=_unit_reference(wanted),
+                            old=quality_reference(baseline, spec),
+                            new=quality_reference(best_snapshot, spec),
+                            trash="yes" if trash_paths else "no",
+                            kept="yes" if kept_in_place else "no",
+                            coexist="yes" if spec.upgrade_keep_old else "no",
                         )
-                        + ("；旧版本按规则保留共存" if spec.upgrade_keep_old else "")
                     ),
                     payload={
                         "from": old_label,
@@ -961,10 +1010,7 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                 # 基线刷新为实测最优——手选常常是给"无法确认"单元补一个
                 # 命名可信的版本，新文件档位可知时基线随之修复
                 attempt.status = DownloadAttemptStatus.RETAINED
-                attempt.cleanup_note = (
-                    "手动选种版本已入库：实测未能证明优于原版本，新旧版本共存"
-                    "保留（未自动替换）；不需要的版本可在库详情删除"
-                )
+                set_note(attempt, reference("subscription.attempt.manualVersionKept"))
                 attempt.updated_at = now
                 wanted.quality = best_snapshot.model_dump()
                 wanted.updated_at = now
@@ -974,14 +1020,14 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                         subscription_id=wanted.subscription_id,
                         wanted_item_id=wanted.id,
                         type=ActivityType.UPGRADE_VERIFY_FAILED,
-                        message=(
-                            f"{_unit_text(wanted)}手选版本已入库，但实测未能证明更优："
-                            "新旧版本共存保留，未自动替换；不需要的版本可在库详情删除"
-                        ),
                         payload={
                             "reason": "manual_retained",
                             "units": [[wanted.season_number, wanted.episode_number]],
                         },
+                        **stored_fields(
+                            "activity.subscription.manualVersionKept",
+                            units=units_reference([wanted]),
+                        ),
                     )
                 )
                 continue
@@ -994,7 +1040,7 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                         file,
                         reason="upgrade_refuted",
                         trigger=_recycle_trigger(wanted),
-                        note="洗版证伪：实测档位不高于当前版本",
+                        note_ref=reference("library.recycle.noteRefuted"),
                     )
                     if outcome == "already_gone":
                         await session.delete(file)
@@ -1011,10 +1057,7 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
             honest = any(not _better(claimed, m, spec) for m in attempt_measured)
             if honest:
                 attempt.status = DownloadAttemptStatus.CANCELLED
-                attempt.cleanup_note = (
-                    "洗版下载完成时基线已被更优版本抢先，本次结果不再需要；"
-                    "保留下载器任务"
-                )
+                set_note(attempt, reference("subscription.attempt.upgradePreempted"))
                 attempt.updated_at = now
                 await session.commit()
                 logger.info(
@@ -1024,7 +1067,7 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                 )
                 continue
             attempt.status = DownloadAttemptStatus.FAILED
-            attempt.cleanup_note = "洗版证伪：实测档位不高于当前版本，候选已排除"
+            set_note(attempt, reference("subscription.attempt.upgradeDisproved"))
             attempt.updated_at = now
             wanted.upgrade_verify_failures += 1
             fused = wanted.upgrade_verify_failures >= UPGRADE_FUSE_LIMIT
@@ -1037,15 +1080,16 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                     subscription_id=wanted.subscription_id,
                     wanted_item_id=wanted.id,
                     type=ActivityType.UPGRADE_VERIFY_FAILED,
-                    message=(
-                        f"{_unit_text(wanted)}洗版候选证伪：标称 "
-                        f"{quality_label(QualitySnapshot.model_validate(attempt.quality or {}))}，"
-                        f"实测为 {quality_label(best_snapshot)}，已排除该资源"
-                        + (
-                            f"；连续 {wanted.upgrade_verify_failures} 次证伪，"
-                            "该单元洗版转入 30 天冷却"
-                            if fused
-                            else ""
+                    **reference_fields(
+                        reference(
+                            "activity.subscription.upgradeRefuted",
+                            unit=_unit_reference(wanted),
+                            claimed=quality_reference(
+                                QualitySnapshot.model_validate(attempt.quality or {})
+                            ),
+                            measured=quality_reference(best_snapshot),
+                            fused="yes" if fused else "no",
+                            count=wanted.upgrade_verify_failures,
                         )
                     ),
                     payload={
@@ -1069,12 +1113,15 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                     ),
                     severity=NoticeSeverity.WARNING,
                     source="subscription",
-                    title="洗版连续证伪，已暂停该单元",
-                    message=(
-                        f"《{item.title if item else '未知条目'}》{_unit_text(wanted)}"
-                        f"连续 {wanted.upgrade_verify_failures} 次抓到标称与实测不符的资源，"
-                        "洗版已转入 30 天冷却。可在订阅详情检查候选质量或调整规则组。"
-                    ),
+                    title_key="notify.upgradePaused.title",
+                    message_key="notify.upgradePaused.body",
+                    message_params={
+                        "title": item.title if item else {"message_key": "media.kind.unknown"},
+                        "unit": _unit_text(wanted)
+                        if wanted.season_number or wanted.episode_number
+                        else {"message_key": "media.kind.feature"},
+                        "count": wanted.upgrade_verify_failures,
+                    },
                     # 告警中心和手机推送据此直接跳到这个订阅
                     payload={"subscription_id": wanted.subscription_id},
                 )
@@ -1101,15 +1148,18 @@ def _better(snapshot, baseline, spec) -> bool:
     if isinstance(spec, SmartPolicy):
         return is_upgrade(snapshot, baseline, spec)
 
-    return (
-        compare_ladder(ladder_vector(snapshot, spec), ladder_vector(baseline, spec)) == 1
-    )
+    return compare_ladder(ladder_vector(snapshot, spec), ladder_vector(baseline, spec)) == 1
+
+
+def _unit_reference(wanted: WantedItem) -> dict | str:
+    if wanted.season_number == 0 and wanted.episode_number == 0:
+        return reference("media.kind.feature")
+    return f"S{wanted.season_number:02d}E{wanted.episode_number:02d}"
 
 
 def _unit_text(wanted: WantedItem) -> str:
-    if wanted.season_number == 0 and wanted.episode_number == 0:
-        return "正片"
-    return f"S{wanted.season_number:02d}E{wanted.episode_number:02d}"
+    """日志用的中文单元描述。"""
+    return source_render(_unit_reference(wanted))
 
 
 # ---------------------------------------------------------------------------
@@ -1420,12 +1470,14 @@ async def _refill_stale_snapshots(session: AsyncSession, upgrade_ids: set[int]) 
 @register_task(
     "backfill_upgrade_snapshots",
     title="洗版基线回填",
+    title_key="settings.scheduledTasks.catalog.backfillUpgradeSnapshotsTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=_BACKFILL_TICK_SECONDS,
     description=(
         "为已配置洗版目标的规则组所引用订阅，补齐历史已入库单元的质量快照"
         "（洗版比较的基线）。纯数据库变换、分批慢跑，补完即空转。"
     ),
+    description_key="settings.scheduledTasks.catalog.backfillUpgradeSnapshotsDescription",
 )
 async def backfill_upgrade_snapshots() -> None:
     """存量回填 tick：每次最多处理一批 quality IS NULL 的 imported 单元。"""

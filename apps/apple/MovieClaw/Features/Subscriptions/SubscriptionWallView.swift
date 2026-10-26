@@ -22,7 +22,7 @@ struct SubscriptionWallView: View {
 
     private var index: SubscriptionIndex { SubscriptionIndex.shared }
     private var feed: SubscriptionsHomeFeed { SubscriptionsHomeFeed.shared }
-    private var title: String { kind == "movie" ? "电影订阅" : "剧集订阅" }
+    private var title: String { kind == "movie" ? String(localized: .subscriptionSectionsMovieSubscriptions) : String(localized: .subscriptionSectionsTvSubscriptions) }
 
     var body: some View {
         let shelf = feed.state(for: index.subscriptions ?? []).shelf(kind)
@@ -33,9 +33,9 @@ struct SubscriptionWallView: View {
                     .monospacedDigit()
                     .foregroundStyle(Theme.textMuted)
                     .accessibilityIdentifier("subscriptions-count")
-                section("进行中", items: shelf.active, identifier: "wall-active")
-                section("已暂停", items: shelf.paused, identifier: "wall-paused")
-                section(kind == "movie" ? "已入库" : "已收齐", items: shelf.done, identifier: "wall-done")
+                section(String(localized: .subscriptionMilestoneInProgress), items: shelf.active, identifier: "wall-active")
+                section(String(localized: .subscriptionSectionsPaused), items: shelf.paused, identifier: "wall-paused")
+                section(kind == "movie" ? String(localized: .subscriptionProgressImported) : String(localized: .subscriptionSectionsCollected), items: shelf.done, identifier: "wall-done")
             }
             .padding(.horizontal, cards.edge)
             .padding(.top, 4)
@@ -82,9 +82,11 @@ struct SubscriptionWallView: View {
     private func summary(_ shelf: SubsHomeShelf) -> String {
         let total = shelf.all.count
         let active = shelf.active.count
-        let noun = kind == "movie" ? "电影" : "剧集"
-        guard active > 0, active < total else { return "共 \(total) 部\(noun)" }
-        return "共 \(total) 部\(noun) · \(active) 部进行中"
+        let movie = kind == "movie"
+        guard active > 0, active < total else {
+            return movie ? String(localized: .subscriptionFeedWallTotalMovies(total)) : String(localized: .subscriptionFeedWallTotalSeries(total))
+        }
+        return movie ? String(localized: .subscriptionFeedWallActiveMovies(total, active)) : String(localized: .subscriptionFeedWallActiveSeries(total, active))
     }
 
     /// 首页刚刷过就复用；下拉刷新或从别处直达时补刷订阅清单与预告
@@ -107,7 +109,7 @@ struct SubscriptionWallView: View {
 
     /// 海报第三行：「规则组 → 媒体库」；订阅未指定库时显示该类型默认库
     private func flow(for sub: API.SubscriptionView) -> String? {
-        let ruleSet = sub.selectionMode == "smart" ? "智能选择" : ruleSets.first { $0.id == sub.ruleSetId }?.name
+        let ruleSet = sub.selectionMode == "smart" ? String(localized: .subscriptionSmartTitle) : ruleSets.first { $0.id == sub.ruleSetId }?.name
         let library = sub.libraryId.flatMap { id in libraries.first { $0.id == id }?.name }
             ?? libraries.first { $0.isDefault && $0.kind == sub.media.kind }?.name
         let parts = [ruleSet, library].compactMap { $0 }

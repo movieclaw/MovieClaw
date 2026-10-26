@@ -38,14 +38,14 @@ extension PhotoWallView {
             ) {
                 if let item = current {
                     if let fileId = item.primaryFileId {
-                        LibraryZoomableImage.ActionButton(systemImage: "square.and.arrow.down", label: "下载原图") {
+                        LibraryZoomableImage.ActionButton(systemImage: "square.and.arrow.down", label: String(localized: .libraryGalleryDownloadOriginal)) {
                             Task { await download(fileId: fileId, item: item) }
                         }
                         .disabled(downloadNote == Self.preparing)
                     }
                     LibraryZoomableImage.ActionButton(
                         systemImage: infoOpen ? "info.circle.fill" : "info.circle",
-                        label: "拍摄信息",
+                        label: String(localized: .libraryGalleryInfo),
                         tint: infoOpen ? .white : .white.opacity(0.85)
                     ) {
                         infoOpen.toggle()
@@ -64,7 +64,7 @@ extension PhotoWallView {
             }
         }
 
-        private static let preparing = "正在准备下载…"
+        private static let preparing = String(localized: .libraryGalleryPreparingDownload)
 
         /// 先把原图下到临时目录，成功再弹分享面板；失败弹提示写明原因
         private func download(fileId: Int, item: API.LibraryItemView) async {
@@ -82,7 +82,7 @@ extension PhotoWallView {
             } catch {
                 downloadNote = nil
                 let reason = error.localizedDescription
-                feedback.error("下载原图失败：\(reason.isEmpty ? "请检查网络后重试" : reason)")
+                feedback.error(String(localized: .libraryLightboxDownloadFailed(reason.isEmpty ? String(localized: .libraryLightboxCheckNetwork) : reason)))
             }
         }
 
@@ -126,16 +126,16 @@ extension PhotoWallView {
         private func infoPanel(_ item: API.LibraryItemView) -> some View {
             let file = primaryFile(of: item)
             let rows: [(String, String)] = [
-                ("文件名", file?.fileName ?? item.title),
-                ("拍摄日期", item.releaseDate ?? "—"),
-                ("尺寸", file?.resolution ?? item.resolutions.first ?? "—"),
-                ("大小", Formatters.bytes(file?.sizeBytes ?? item.totalSizeBytes)),
-                ("格式", file?.container.map { $0.uppercased() } ?? "—"),
-                ("路径", file?.filePath ?? "—"),
+                (String(localized: .libraryGalleryFilename), file?.fileName ?? item.title),
+                (String(localized: .libraryGalleryCaptureDate), item.releaseDate ?? "—"),
+                (String(localized: .libraryGalleryDimensions), file?.resolution ?? item.resolutions.first ?? "—"),
+                (String(localized: .libraryGallerySize), Formatters.bytes(file?.sizeBytes ?? item.totalSizeBytes)),
+                (String(localized: .libraryGalleryFormat), file?.container.map { $0.uppercased() } ?? "—"),
+                (String(localized: .libraryGalleryPath), file?.filePath ?? "—"),
             ]
             return VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("拍摄信息")
+                    Text(String(localized: .libraryGalleryInfo))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.9))
                     Spacer()
@@ -147,7 +147,7 @@ extension PhotoWallView {
                             .contentShape(Circle().inset(by: -8))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("关闭拍摄信息")
+                    .accessibilityLabel(String(localized: .libraryGalleryCloseInfo))
                 }
                 ScrollView {
                     Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 4) {
@@ -166,7 +166,7 @@ extension PhotoWallView {
                     }
                     .font(.system(size: 12))
                     if details[item.mediaItemId] == nil {
-                        Text("正在读取文件信息…")
+                        Text(String(localized: .libraryGalleryLoadingInfo))
                             .font(.system(size: 12))
                             .foregroundStyle(.white.opacity(0.5))
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -196,7 +196,7 @@ private enum OriginalPhoto {
         let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200 ..< 300).contains(http.statusCode) else {
-            throw NSError(domain: "MovieClaw", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "服务器返回 HTTP \(http.statusCode)"])
+            throw NSError(domain: "MovieClaw", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: String(localized: .libraryLightboxHttpStatus(http.statusCode))])
         }
         let name = response.suggestedFilename ?? fallbackName
         let folder = FileManager.default.temporaryDirectory.appending(path: "movieclaw-originals", directoryHint: .isDirectory)

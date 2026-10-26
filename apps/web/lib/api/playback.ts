@@ -1,3 +1,4 @@
+import { appTranslator } from "@/lib/i18n/translate";
 import { publicEnv } from "@/lib/env";
 import { getPlayerDeviceId } from "@/lib/player/device";
 import type { TrickplayIndex } from "@/lib/player/trickplay";
@@ -220,6 +221,8 @@ export interface PlaybackFileSpec {
 export interface PlaybackDelivery {
   /** direct=直连原文件；remux=重封装；audio=只转音频（视频直通）；transcode=视频转码 */
   mode: string;
+  /** Stable executor classification; older servers omit it. */
+  execution_kind?: string | null;
   /** 简短中文标识：直连 / 重封装 / 音频转码 / 硬件转码 / 软件转码 / 远程转码 */
   label: string;
   /** 转码输出规格，如「1080p · H.264 · 8 Mbps」；直连 / 重封装为 null */
@@ -508,6 +511,9 @@ export interface ClientCapability {
   is_mobile: boolean;
   /** 能原生播 HLS（Safari/AVPlayer）。服务端不消费，前端选引擎用 */
   native_hls: boolean;
+  /** 硬件转码时能接 HEVC 输出，且 HEVC 放不了会不带它重来、不记硬件档失败（#1008）。
+   * 不进能力快照（缓存）：每次请求按播放器状态现填 */
+  hevc_transcode?: boolean;
 }
 
 /** 播放单元：电影用 (0, 0) 哨兵，与台账、playback_state 的约定一致。 */
@@ -792,7 +798,7 @@ export async function fetchPlaybackDiagnostics(
   );
   const token = resolvedUrl.searchParams.get("token");
   if (!token) {
-    throw new Error("播放地址缺少诊断凭据");
+    throw new Error(appTranslator()("player.diagnostics.missingCredentials"));
   }
   const response = await request<ApiEnvelope<PlaybackDiagnostics>>(
     `${scope.base}/sessions/${encodeURIComponent(sessionId)}/diagnostics?token=${encodeURIComponent(token)}`,

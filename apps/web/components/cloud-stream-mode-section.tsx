@@ -11,32 +11,33 @@
  * 家里的设备始终经家里转发，离线下载始终由家里转出。
  */
 
+import { useTranslations } from "next-intl";
+
 import { useEffect, useState } from "react";
 
 import { SettingsSection } from "@/components/settings-ui";
 import { getDriveStatus } from "@/lib/api/drives";
 import { type CloudStreamMode, fetchPlaybackPolicy, savePlaybackPolicy } from "@/lib/api/playback";
 
-const OPTIONS: { value: CloudStreamMode; title: string; description: string }[] = [
-  {
-    value: "auto",
-    title: "自动（推荐）",
-    description:
-      "一般经家里转发；只有 MovieClaw 自家 App、且同一时间只有一处在外面时，才直连网盘（不占家里上行，码率不受限）。直连出错会自动改走转发。",
-  },
-  {
-    value: "relay",
-    title: "总是经家里转发",
-    description: "网盘只看到家里一个地址，最稳妥；在外面看高码率时受家里上行限制，超过时自动降码率。",
-  },
-  {
-    value: "direct",
-    title: "总是直连网盘",
-    description: "所有设备在外面都直接从网盘拉流。多处同时在外面看可能被网盘判为账号共享；部分第三方播放器可能播不了。",
-  },
-];
-
 export function CloudStreamModeSection() {
+  const t = useTranslations();
+  const OPTIONS: { value: CloudStreamMode; title: string; description: string }[] = [
+    {
+      value: "auto",
+      title: t("settings.playback.controls.cloudAuto"),
+      description: t("settings.playback.controls.cloudAutoHint"),
+    },
+    {
+      value: "relay",
+      title: t("settings.playback.controls.cloudRelay"),
+      description: t("settings.playback.controls.cloudRelayHint"),
+    },
+    {
+      value: "direct",
+      title: t("settings.playback.controls.cloudDirect"),
+      description: t("settings.playback.controls.cloudDirectHint"),
+    },
+  ];
   const [visible, setVisible] = useState(false);
   const [mode, setMode] = useState<CloudStreamMode | null>(null);
   const [busy, setBusy] = useState(false);
@@ -82,10 +83,10 @@ export function CloudStreamModeSection() {
 
   return (
     <SettingsSection
-      title="在外面播放网盘上的片子"
-      footnote="在家里的设备始终经家里转发；离线下载始终由家里转出。"
+      title={t("settings.playback.controls.cloudTitle")}
+      footnote={t("settings.playback.controls.cloudFootnote")}
     >
-      <div role="radiogroup" aria-label="在外面播放网盘上的片子" className="space-y-2">
+      <div role="radiogroup" aria-label={t("settings.playback.controls.cloudTitle")} className="space-y-2">
         {OPTIONS.map((option) => {
           const on = option.value === mode;
           return (

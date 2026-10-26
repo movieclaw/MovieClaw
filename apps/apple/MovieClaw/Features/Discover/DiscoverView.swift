@@ -69,7 +69,7 @@ struct DiscoverView: View {
         // （iOS「切换当前页显示内容」的标题菜单交互，同「照片」「文件」）。系统的 toolbarTitleMenu
         // 不支持 inlineLarge 大标题（不显示箭头、点了不弹），所以用无玻璃底的前置菜单按钮画成大标题的样子。
         // 顶部不再另占一行，沉浸 Hero 完整露出；右上角只留筛选（TMDB 才有）与外壳的搜索
-        .navigationTitle(currentType == "tv" ? "剧集" : "电影")
+        .navigationTitle(currentType == "tv" ? String(localized: .mediaKindTv) : String(localized: .mediaKindMovie))
         .toolbarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
         .task(id: feedKey) {
@@ -186,23 +186,23 @@ struct DiscoverView: View {
     /// 标题菜单：类型与数据源两组（切类型保留数据源、切数据源保留类型，都清空筛选，同 Web）
     @ViewBuilder
     private var titleMenu: some View {
-        Picker("类型", selection: Binding(mcGet: { currentType }, set: { next in
+        Picker(String(localized: .mediaDiscoveryType), selection: Binding(mcGet: { currentType }, set: { next in
             guard next != currentType else { return }
             mediaType = next
             filters = .empty
         })) {
-            Label("电影", systemImage: "film").tag("movie")
-            Label("剧集", systemImage: "tv").tag("tv")
+            Label(String(localized: .mediaKindMovie), systemImage: "film").tag("movie")
+            Label(String(localized: .mediaKindTv), systemImage: "tv").tag("tv")
         }
         .pickerStyle(.inline)
         .accessibilityIdentifier("discover-type")
-        Picker("数据源", selection: Binding(mcGet: { source }, set: { next in
+        Picker(String(localized: .mediaDiscoverySource), selection: Binding(mcGet: { source }, set: { next in
             guard next != source else { return }
             source = next
             filters = .empty
         })) {
             Text("TMDB").tag("tmdb")
-            Text("豆瓣").tag("douban")
+            Text(String(localized: .mediaSourceDouban)).tag("douban")
         }
         .pickerStyle(.inline)
         .accessibilityIdentifier("discover-source")
@@ -214,11 +214,11 @@ struct DiscoverView: View {
         ToolbarItem(placement: .topBarLeading) {
             Menu { titleMenu } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(currentType == "tv" ? "剧集" : "电影")
+                    Text(currentType == "tv" ? String(localized: .mediaKindTv) : String(localized: .mediaKindMovie))
                         // 30pt：文字高度要落在工具栏按钮的高度（约 36pt）以内，34pt 会在菜单形变动画时被裁掉上半截
                         .font(.system(size: 30, weight: .bold))
                         .foregroundStyle(Theme.text)
-                    Text(source == "tmdb" ? "TMDB" : "豆瓣")
+                    Text(source == "tmdb" ? "TMDB" : String(localized: .mediaSourceDouban))
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Theme.textMuted)
                     Image(systemName: "chevron.down")
@@ -231,8 +231,9 @@ struct DiscoverView: View {
                 // 菜单弹出 / 收起的形变动画以按钮边界为起点，挪出边界的部分会被裁掉，切换瞬间「电」字缺一截（真机截图）。
                 // 系统大标题位置（ToolbarItem .largeTitle）又不能交互，只能接受这 9pt 缩进
             }
-            .accessibilityLabel("正在看\(currentType == "tv" ? "剧集" : "电影")，数据源\(source == "tmdb" ? "TMDB" : "豆瓣")")
-            .accessibilityHint("切换类型或数据源")
+            .accessibilityLabel(String(localized: .mediaDiscoveryBrowsingSource(currentType == "tv" ? String(localized: .mediaKindTv) : String(localized: .mediaKindMovie),
+                                                                         source == "tmdb" ? "TMDB" : String(localized: .mediaSourceDouban))))
+            .accessibilityHint(String(localized: .mediaDiscoverySwitchHint))
             .accessibilityIdentifier("discover-title-menu")
         }
         .sharedBackgroundVisibility(.hidden)
@@ -285,7 +286,7 @@ struct DiscoverHero: View {
         .padding(.top, -ImmersiveHeroBackdrop.pullReserve)
         .overlay(alignment: .bottomTrailing) {
             if items.count > 1 {
-                ImmersiveHeroIndicator(count: items.count, index: $index, fill: fill) { "切换到《\(items[$0].title)》" }
+                ImmersiveHeroIndicator(count: items.count, index: $index, fill: fill) { String(localized: .mediaDiscoverySwitchTitle(items[$0].title)) }
                     .padding(.trailing, max(20, cards.edge) + sideInsets.trailing)
                     .padding(.bottom, 16)
                     .opacity(fade)
@@ -368,7 +369,7 @@ struct DiscoverHeroSlide: View {
                                   isFirst: isFirst, isLast: isLast)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("今日精选 · \(item.mediaType == "tv" ? "剧集" : "电影")")
+                Text(String(localized: .mediaDiscoveryFeaturedPrefix) + " " + (item.mediaType == "tv" ? String(localized: .mediaKindTv) : String(localized: .mediaKindMovie)))
                     .font(.caption.weight(.semibold))
                     .tracking(2.5)
                     .foregroundStyle(Theme.accent2)
@@ -391,14 +392,14 @@ struct DiscoverHeroSlide: View {
                         // 已订阅也打开订阅弹层：弹层预检发现既有订阅后进入管理态（同 Web `openSubscribe`）
                         router.present(.subscribe(SubscribeRequest(titleRef: item.resolvedTitleRef, title: item.title)))
                     } label: {
-                        Label(sub == nil ? "订阅影片" : "已订阅", systemImage: sub == nil ? "plus" : "checkmark")
+                        Label(sub == nil ? String(localized: .mediaDiscoverySubscribe) : String(localized: .mediaDiscoverySubscribed), systemImage: sub == nil ? "plus" : "checkmark")
                             .heroActionLabel()
                     }
                     // 尺寸统一见 HeroActionButton.swift
                     .buttonStyle(HeroButtonStyle(prominent: sub == nil))
                     .controlSize(.regular)
                     .padding(.top, 6)
-                    .accessibilityLabel(sub == nil ? "订阅影片《\(item.title)》" : "管理《\(item.title)》的订阅")
+                    .accessibilityLabel(sub == nil ? String(localized: .mediaDiscoverySubscribeTitle(item.title)) : String(localized: .mediaDiscoveryManageSubscription(item.title)))
                     .accessibilityIdentifier("hero-subscribe")
                 }
             }
@@ -417,7 +418,7 @@ struct DiscoverHeroSlide: View {
             router.push(.mediaDetail(titleRef: item.resolvedTitleRef))
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("查看《\(item.title)》详情")
+        .accessibilityLabel(String(localized: .mediaDiscoveryViewTitle(item.title)))
     }
 
     /// 剧照地址见 `DiscoverHeroImage`（Apple TV 的发现页同一口径）
@@ -439,7 +440,7 @@ struct DiscoverHeroSlide: View {
             if item.libraryStatus != nil {
                 HStack(spacing: 4) {
                     Circle().fill(Theme.success).frame(width: 6, height: 6)
-                    Text("在库")
+                    Text(String(localized: .libraryStatusInLibrary))
                 }
                 .foregroundStyle(Color(red: 0.43, green: 0.91, blue: 0.72))
             }
@@ -470,7 +471,7 @@ struct DiscoverHeroSkeleton: View {
         DiscoverSkeletonBlock(cornerRadius: 0)
             .frame(height: DiscoverHero.height)
             .stretchesOnPull()
-            .accessibilityLabel("发现页加载中")
+            .accessibilityLabel(String(localized: .mediaDiscoveryLoading))
     }
 }
 
@@ -491,9 +492,9 @@ struct DiscoverErrorView: View {
     var body: some View {
         ContentUnavailableView {
             if failure.unreachable {
-                Label("无法连接数据源", systemImage: "globe")
+                Label(String(localized: .mediaDiscoverySourceUnreachable), systemImage: "globe")
             } else {
-                Text("发现页加载失败")
+                Text(String(localized: .mediaDiscoveryPageFailed))
             }
         } description: {
             VStack(spacing: 8) {
@@ -507,7 +508,7 @@ struct DiscoverErrorView: View {
             }
         } actions: {
             if showsNetworkSettings {
-                Button("前往网络设置") { router.push(.settingsSection(.network)) }
+                Button(String(localized: .mediaDiscoveryNetworkSettings)) { router.push(.settingsSection(.network)) }
                     .discoverProminentButton()
                     .accessibilityIdentifier("discover-network-settings")
             }
@@ -525,7 +526,7 @@ struct DiscoverErrorView: View {
             retrying = true
             Task { await retry(); retrying = false }
         } label: {
-            if retrying { ProgressView() } else { Text("重试") }
+            if retrying { ProgressView() } else { Text(String(localized: .commonRetry)) }
         }
         .disabled(retrying)
     }
@@ -546,7 +547,7 @@ struct DiscoverRegionFooter: View {
         Group {
             if let region {
                 HStack(spacing: 6) {
-                    Text("院线地区：")
+                    Text(String(localized: .mediaDiscoveryRegion))
                     if canEdit {
                         Menu {
                             ForEach(DiscoverRegions.all, id: \.code) { item in
@@ -567,7 +568,7 @@ struct DiscoverRegionFooter: View {
                     } else {
                         Text(DiscoverRegions.name(region)).foregroundStyle(Theme.textMuted)
                     }
-                    if saved { Text("✓ 已保存").foregroundStyle(Theme.success) }
+                    if saved { Text(String(localized: .mediaDiscoveryRegionSaved)).foregroundStyle(Theme.success) }
                 }
                 .font(.footnote)
                 .foregroundStyle(Theme.textFaint)

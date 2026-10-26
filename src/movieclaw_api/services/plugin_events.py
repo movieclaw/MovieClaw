@@ -26,6 +26,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, create_model
 
+from movieclaw_api.i18n import t
 from movieclaw_api.services.push.plugin_rules import fill
 from movieclaw_sdk.events import EventType, MediaRef
 
@@ -90,53 +91,66 @@ def parse(
     declared: dict[str, str] = {}
     for raw in events or []:
         if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
-            raise DeclarationError("events 的每一项须是 {name, title}")
+            raise DeclarationError(t("plugins.declarations.eventShape"))
         name = raw["name"]
         if not name.startswith(f"{entry_id}."):
-            raise DeclarationError(f"事件 {name} 须以插件 id 开头（{entry_id}.）")
+            raise DeclarationError(
+                t("plugins.declarations.eventPrefix", name=name, prefix=f"{entry_id}.")
+            )
         if name.split(".", 1)[0] in CORE_DOMAINS:
-            raise DeclarationError(f"事件 {name} 用了系统保留的域")
+            raise DeclarationError(t("plugins.declarations.eventReserved", name=name))
         if name in declared:
-            raise DeclarationError(f"事件 {name} 重复声明")
+            raise DeclarationError(t("plugins.declarations.eventDuplicate", name=name))
         declared[name] = str(raw.get("title") or name)
     specs: list[NotificationSpec] = []
     for raw in notifications or []:
         if not isinstance(raw, dict):
-            raise DeclarationError("notifications 的每一项须是表")
+            raise DeclarationError(t("plugins.declarations.notificationShape"))
         allowed = set(NotificationSpec.__dataclass_fields__)
         unknown = set(raw) - allowed
         if unknown:
-            raise DeclarationError(f"通知声明里有不认识的字段：{'、'.join(sorted(unknown))}")
+            raise DeclarationError(
+                t(
+                    "plugins.declarations.notificationFields",
+                    fields=t("common.list.separator").join(sorted(unknown)),
+                )
+            )
         try:
             spec = NotificationSpec(**raw)
         except TypeError as exc:
-            raise DeclarationError(f"通知声明不完整：{exc}") from exc
-        if spec.event not in declared:
-            raise DeclarationError(f"通知引用的事件 {spec.event} 没在 events 里声明")
-        if any(s.event == spec.event for s in specs):
-            raise DeclarationError(f"事件 {spec.event} 只能有一条通知")
-        if not _AUDIENCE.match(spec.audience):
             raise DeclarationError(
-                f"收件人 {spec.audience} 不合规：admins、member:<字段> 或 media:<字段>"
+                t("plugins.declarations.notificationIncomplete", error=str(exc))
+            ) from exc
+        if spec.event not in declared:
+            raise DeclarationError(t("plugins.declarations.notificationEvent", event=spec.event))
+        if any(s.event == spec.event for s in specs):
+            raise DeclarationError(
+                t("plugins.declarations.notificationDuplicate", event=spec.event)
             )
+        if not _AUDIENCE.match(spec.audience):
+            raise DeclarationError(t("plugins.declarations.audience", audience=spec.audience))
         if spec.level not in LEVELS:
-            raise DeclarationError(f"打扰级别 {spec.level} 不合规：{' / '.join(LEVELS)}")
+            raise DeclarationError(
+                t("plugins.declarations.level", level=spec.level, levels=" / ".join(LEVELS))
+            )
         if spec.open not in OPENS:
-            raise DeclarationError(f"点开去哪 {spec.open} 不合规：{' / '.join(OPENS)}")
+            raise DeclarationError(
+                t("plugins.declarations.open", open=spec.open, opens=" / ".join(OPENS))
+            )
         if not spec.title.strip():
-            raise DeclarationError(f"事件 {spec.event} 的通知没有标题")
+            raise DeclarationError(t("plugins.declarations.notificationTitle", event=spec.event))
         specs.append(spec)
     patterns: list[str] = []
     sensitive_names = {e.name for e in core_events() if e.sensitive}
     for item in sensitive or []:
         if not isinstance(item, str):
-            raise DeclarationError("permissions.events 须是事件名列表")
+            raise DeclarationError(t("plugins.declarations.sensitiveList"))
         if item.endswith(".*"):
             prefix = item[:-1]
             if not any(n.startswith(prefix) for n in sensitive_names):
-                raise DeclarationError(f"{item} 下没有敏感事件")
+                raise DeclarationError(t("plugins.declarations.noSensitive", pattern=item))
         elif item not in sensitive_names:
-            raise DeclarationError(f"{item} 不是需要单独授权的敏感事件")
+            raise DeclarationError(t("plugins.declarations.notSensitive", name=item))
         patterns.append(item)
     return declared, tuple(specs), tuple(patterns)
 
@@ -169,10 +183,7 @@ def sensitive_reason(entry_id: str, event: Any) -> str | None:
             pattern.endswith(".*") and event.name.startswith(pattern[:-1])
         ):
             return None
-    return (
-        f"事件 {event.name} 涉及谁在什么时候看了什么，须在清单 [permissions] events 里声明、"
-        "经用户批准后才能订阅"
-    )
+    return t("plugins.declarations.sensitiveUndeclared", name=event.name)
 
 
 # ---------------------------------------------------------------------- 运行时目录
@@ -209,13 +220,17 @@ def _register(entry_id: str, events: tuple[EventType, ...]) -> None:
     title = item.title if item else entry_id
     for event in events:
         if not isinstance(event, EventType):
+            # i18n-ignore: plugin developer contract error at runtime
             raise TypeError(f"{event!r} 不是插件事件（用 movieclaw_sdk.events.plugin_event 定义）")
         if not event.name.startswith(f"{entry_id}."):
+            # i18n-ignore: plugin developer contract error at runtime
             raise ValueError(f"插件 {entry_id} 只能发 {entry_id}. 开头的事件，{event.name} 不行")
         if item is not None and not item.trusted and event.name not in item.events:
+            # i18n-ignore: plugin developer contract error at runtime
             raise ValueError(f"事件 {event.name} 没在插件清单的 [[events]] 里声明")
         owner = _catalog.get(event.name)
         if owner is not None and owner is not event:
+            # i18n-ignore: plugin developer contract error at runtime
             raise ValueError(f"事件 {event.name} 已经登记过")
         event.owner = entry_id
         event.group = title
@@ -261,8 +276,10 @@ class _Publisher:
 
     async def publish(self, event: EventType, payload: Any) -> None:
         if event.name not in self._names:
+            # i18n-ignore: plugin developer contract error at runtime
             raise ValueError(f"事件 {event.name} 没有登记，先 register")
         if not isinstance(payload, event.payload):
+            # i18n-ignore: plugin developer contract error at runtime
             raise TypeError(f"事件 {event.name} 的载荷须是 {event.payload.__name__}")
         from movieclaw_api import events
 
@@ -309,6 +326,7 @@ def remote_payload(event: EventType, data: Any) -> Any:
     try:
         jsonschema.validate(data, schema)
     except jsonschema.ValidationError as exc:
+        # i18n-ignore: plugin developer contract error at runtime
         raise ValueError(f"事件 {event.name} 的载荷不合 Schema：{exc.message}") from exc
     return event.payload.model_validate(data)
 

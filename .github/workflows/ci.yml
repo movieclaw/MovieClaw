@@ -282,6 +282,28 @@ jobs:
       - name: theme build
         run: pnpm theme:build
 
+  i18n:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pnpm install --frozen-lockfile
+      - run: pip install 'pyicumessageformat>=1.0,<2.0'
+      - run: python scripts/i18n/check.py
+      # time.test.mjs 的期望按东八区本地时间写（格式化走浏览器本地时区），Runner 默认 UTC
+      - run: node --test apps/web/test/i18n*.test.mjs apps/web/test/time.test.mjs apps/web/test/format.test.mjs
+        env:
+          TZ: Asia/Shanghai
+
   # macOS Worker 的构建门禁。开发者多数在 Linux/容器里改代码，Swift 侧的
   # 编译错误在本地完全暴露不出来，只能靠这里拦。
   #
@@ -308,7 +330,7 @@ jobs:
   # python 还是矩阵作业，跳过时检查名不展开，直接设成必需检查会让没改 Python 的 PR 一直等。
   # 新增作业时加进 needs，规则集不用跟着改。
   ci-ok:
-    needs: [changes, python, cli-go, web, worker-macos]
+    needs: [changes, python, cli-go, web, i18n, worker-macos]
     if: always()
     runs-on: ubuntu-latest
     steps:

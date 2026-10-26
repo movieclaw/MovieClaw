@@ -1,0 +1,130 @@
+﻿; MovieClaw 转码器（Windows）安装包。per-user 安装，不要管理员权限。
+; 由 scripts\build-app.ps1 调用，通过 -D 传入：VERSION、PAYLOAD（已组装好的运行目录）、
+; OUTFILE、ICON（应用图标）。
+
+Unicode true
+!include "MUI2.nsh"
+!include "FileFunc.nsh"
+
+!define APP_NAME "MovieClaw 转码器"
+!define APP_ID "MovieClawTranscoder"
+!define RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
+
+Name "${APP_NAME} ${VERSION}"
+OutFile "${OUTFILE}"
+; per-user：装进当前用户的 Programs 目录，不弹 UAC
+RequestExecutionLevel user
+InstallDir "$LOCALAPPDATA\Programs\${APP_ID}"
+InstallDirRegKey HKCU "Software\${APP_ID}" "InstallDir"
+ShowInstDetails show
+ShowUnInstDetails show
+
+Icon "${ICON}"
+UninstallIcon "${ICON}"
+
+; 与 macOS 转码器一致的默认：安装完就启动
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_FUNCTION "LaunchApp"
+; 「开机自启」勾选框复用 README 槽位，默认勾上（应用内随时可关）
+!define MUI_FINISHPAGE_SHOWREADME
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "开机自启（登录 Windows 后自动运行转码器）"
+!define MUI_FINISHPAGE_SHOWREADME_FUNCTION "EnableAutostart"
+!define MUI_ABORTWARNING
+
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+!insertmacro MUI_PAGE_FINISH
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_LANGUAGE "SimpChinese"
+!insertmacro MUI_LANGUAGE "English"
+
+; 双模：带 /S 静默安装（批量部署、自动化验收）；不带就是向导。
+; 静默时装完不自动启动、不写自启，等用户自己开。
+Function .onInit
+    ${GetParameters} $R0
+    ${GetOptions} $R0 "/S" $R1
+    ${IfNot} ${Errors}
+        SetSilent silent
+    ${EndIf}
+FunctionEnd
+
+Section "安装"
+    ; 升级/重装：先把在跑的旧实例请下去。否则下面的覆盖写会被占用的文件挡住，
+    ; 装完 LaunchApp 又会撞上单实例锁，弹「已经在运行」
+    Call StopRunningInstance
+    SetOutPath "$INSTDIR"
+    File /r "${PAYLOAD}\*.*"
+
+    ; 卸载器与开始菜单快捷方式（指向 pythonw + 启动脚本，图标用应用自己的）
+    WriteUninstaller "$INSTDIR\Uninstall.exe"
+    CreateDirectory "$SMPROGRAMS\${APP_NAME}"
+    CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" \
+        "$INSTDIR\runtime\python\pythonw.exe" '"$INSTDIR\MovieClawTranscoder.pyw"' \
+        "$INSTDIR\app\movieclaw_transcoder_app\icon.ico" 0
+    CreateShortCut "$SMPROGRAMS\${APP_NAME}\卸载 ${APP_NAME}.lnk" "$INSTDIR\Uninstall.exe"
+
+    WriteRegStr HKCU "Software\${APP_ID}" "InstallDir" "$INSTDIR"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}" \
+        "DisplayName" "${APP_NAME}"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}" \
+        "UninstallString" "$INSTDIR\Uninstall.exe"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}" \
+        "DisplayVersion" "${VERSION}"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}" \
+        "DisplayIcon" "$INSTDIR\app\movieclaw_transcoder_app\icon.ico"
+SectionEnd
+
+; 让正在运行的实例退出：托盘的窗口过程收到 WM_CLOSE 会走完整关停（内核、ffmpeg 一并收掉）。
+; 正在转码时关停要等 ffmpeg 退出，所以轮询等而不是固定睡一下——固定 2 秒会让后面的
+; 文件覆盖/删除撞上被占用的文件（升级时装不进去、卸载时删不干净）。
+; 最长等 15 秒；等不到就继续，让后面的步骤按最坏情况收尾。
+;
+; 装两个版本：NSIS 把安装段与卸载段分别编译，卸载段只能调 `un.` 前缀的函数。
+!macro STOP_RUNNING_INSTANCE prefix
+Function ${prefix}StopRunningInstance
+    FindWindow $0 "MovieClawTranscoderTray" ""
+    StrCmp $0 0 sr_done
+    SendMessage $0 0x0010 0 0   ; WM_CLOSE
+    StrCpy $1 0
+    sr_loop:
+        Sleep 250
+        IntOp $1 $1 + 1
+        FindWindow $0 "MovieClawTranscoderTray" ""
+        StrCmp $0 0 sr_done
+        IntCmp $1 60 sr_done sr_loop sr_loop
+    sr_done:
+FunctionEnd
+!macroend
+!insertmacro STOP_RUNNING_INSTANCE ""
+!insertmacro STOP_RUNNING_INSTANCE "un."
+
+Function LaunchApp
+    IfSilent done  ; 静默安装不自动启动，等用户自己开
+    Exec '"$INSTDIR\runtime\python\pythonw.exe" "$INSTDIR\MovieClawTranscoder.pyw"'
+    done:
+FunctionEnd
+
+Function EnableAutostart
+    IfSilent done  ; 静默安装不偷偷写自启
+    WriteRegStr HKCU "${RUN_KEY}" "${APP_ID}" \
+        '"$INSTDIR\runtime\python\pythonw.exe" "$INSTDIR\MovieClawTranscoder.pyw"'
+    done:
+FunctionEnd
+
+Section "Uninstall"
+    ; 先让在跑的实例退出（含正在转码的：等 ffmpeg 收尾，最多 15 秒），再删文件
+    Call un.StopRunningInstance
+    RMDir /r "$INSTDIR"
+    ; 开始菜单：先删两个快捷方式，再删目录（RMDir 不带 /r 只能删空目录）
+    Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
+    Delete "$SMPROGRAMS\${APP_NAME}\卸载 ${APP_NAME}.lnk"
+    RMDir /r "$SMPROGRAMS\${APP_NAME}"
+    DeleteRegValue HKCU "${RUN_KEY}" "${APP_ID}"
+    DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}"
+    DeleteRegKey HKCU "Software\${APP_ID}"
+    ; 配置、令牌、日志留在 %APPDATA%\MovieClawTranscoder：重装后无需重新配对；
+    ; 想彻底清除的用户可以手动删掉这个目录（卸载完成页有提示）。
+SectionEnd

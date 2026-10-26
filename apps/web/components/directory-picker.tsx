@@ -12,6 +12,7 @@
  * （z-60，压在库表单弹窗 z-50 之上），键盘 Escape 只关闭自己。
  */
 
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CheckIcon, ChevronRightIcon, FolderIcon, PencilIcon } from "@/components/icons";
@@ -31,6 +32,8 @@ export function DirectoryPicker({
   /** 用户确认选择：回传当前目录的绝对路径 */
   onSelect: (path: string) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [view, setView] = useState<FsBrowse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,13 +113,13 @@ export function DirectoryPicker({
     <Modal
       open
       onClose={onClose}
-      label="选择服务器目录"
+      label={t("library.directory.title")}
       width="lg"
       raised
       panelClassName="flex max-h-[76dvh] flex-col"
     >
         <div className="space-y-3 p-5 pb-3">
-          <h2 className="text-body-lg font-bold text-white">选择服务器目录</h2>
+          <h2 className="text-body-lg font-bold text-white">{t("library.directory.title")}</h2>
 
           {/* 面包屑 / 手动输入（铅笔切换） */}
           {editing ? (
@@ -128,7 +131,7 @@ export function DirectoryPicker({
               onKeyDown={(e) => {
                 if (e.key === "Enter") void navigate(draft.trim());
               }}
-              placeholder="输入绝对路径后回车跳转"
+              placeholder={t("library.directory.pathPlaceholder")}
               spellCheck={false}
               className="w-full rounded-xl border border-[var(--accent)]/60 bg-white/[0.04] px-3 py-2 font-mono text-ui text-[var(--text)] outline-none"
             />
@@ -164,7 +167,7 @@ export function DirectoryPicker({
               </div>
               <button
                 type="button"
-                title="手动输入路径"
+                title={t("library.directory.manual")}
                 onClick={() => {
                   setDraft(view?.path ?? "/");
                   setEditing(true);
@@ -186,10 +189,10 @@ export function DirectoryPicker({
         {/* 子目录列表：单击下钻 */}
         <div ref={listRef} className="min-h-[240px] flex-1 overflow-y-auto px-3 pb-2">
           {loading && !view ? (
-            <p className="px-3 py-8 text-center text-ui text-[var(--text-muted)]">加载中…</p>
+            <p className="px-3 py-8 text-center text-ui text-[var(--text-muted)]">{t("library.directory.loading")}</p>
           ) : view && view.entries.length === 0 ? (
             <p className="px-3 py-8 text-center text-ui text-[var(--text-muted)]">
-              该目录下没有子目录，可直接选择当前目录
+              {t("library.directory.noChildren")}
             </p>
           ) : (
             view?.entries.map((entry) => (
@@ -211,17 +214,17 @@ export function DirectoryPicker({
         </div>
 
         {/* 底栏：当前选择 + 确认 */}
-        <div className="flex items-center gap-3 border-t border-white/[0.08] bg-white/[0.02] px-5 py-3.5">
-          {/* 保尾截断（dir=rtl）：省略号在头部，当前目录名始终可见；LRM 防 "/" 跳位 */}
+        <div className={`${locale === "en" ? "flex flex-wrap" : "flex"} items-center gap-3 border-t border-white/[0.08] bg-white/[0.02] px-5 py-3.5`}>
+          {/* 中文保尾截断；英文独占一行显示完整路径。LRM 防 "/" 跳位。 */}
           <p
-            dir="rtl"
-            className="min-w-0 flex-1 truncate text-left font-mono text-sub text-[var(--text-muted)]"
+            dir={locale === "en" ? "ltr" : "rtl"}
+            className={`${locale === "en" ? "w-full break-all" : "min-w-0 flex-1 truncate"} text-left font-mono text-sub text-[var(--text-muted)]`}
             title={view?.path}
           >
             {view ? "‎" + view.path + "‎" : "…"}
           </p>
           <button type="button" onClick={onClose} className="btn-glass h-8 shrink-0 px-3.5 text-ui font-medium">
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -230,7 +233,7 @@ export function DirectoryPicker({
             className="btn-accent flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-ui font-semibold disabled:opacity-40"
           >
             <CheckIcon className="size-3.5" />
-            选择此目录
+            {t("library.directory.select")}
           </button>
         </div>
     </Modal>

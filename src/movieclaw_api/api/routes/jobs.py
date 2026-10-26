@@ -10,7 +10,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.api.deps import require_admin
-from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.exceptions import BadRequestException, NotFoundException, exception_fields
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import localize_fields, render_value, stored_message
 from movieclaw_api.schemas.base import utc_isoformat
 from movieclaw_api.schemas.jobs import (
     JobCancelView,
@@ -59,6 +61,9 @@ _BULKY_INPUT_KEYS = frozenset({"plan"})
 
 def _job_view(job: Job, resources: list[JobResource], *, slim_input: bool = False) -> JobView:
     progress = jobs.default_progress()
+    if "message" in (job.progress or {}):
+        progress.pop("message_key", None)
+        progress.pop("message_params", None)
     progress.update(job.progress or {})
     input_data = job.input_data
     if slim_input and any(key in input_data for key in _BULKY_INPUT_KEYS):
@@ -67,16 +72,16 @@ def _job_view(job: Job, resources: list[JobResource], *, slim_input: bool = Fals
         id=job.id,
         job_type=job.job_type,
         job_type_label=jobs.job_type_label(job.job_type),
-        subject=job.subject,
+        subject=render_value(job.subject_ref) if job.subject_ref else job.subject,
         definition_version=job.definition_version,
         handler_revision=job.handler_revision,
         prompt_revision=job.prompt_revision,
         provider_ref=job.provider_ref,
         status=job.status,
         input_data=input_data,
-        progress=progress,  # type: ignore[arg-type]
-        result=job.result,
-        error=job.error,
+        progress=localize_fields(progress),  # type: ignore[arg-type]
+        result=localize_fields(job.result),
+        error=localize_fields(job.error),
         usage=job.usage,
         resources=[
             JobResourceView(
@@ -88,7 +93,10 @@ def _job_view(job: Job, resources: list[JobResource], *, slim_input: bool = Fals
         ],
         origin=job.origin,
         actor_kind=job.actor_kind,
-        actor_name=job.actor_name,
+        # 系统/界面入口发起者的名字存的是中文原文：按读者语言反查渲染；成员名是数据，原样给
+        actor_name=stored_message(job.actor_name)
+        if job.actor_kind in {"system", "user"} and job.actor_name
+        else job.actor_name,
         parent_job_id=job.parent_job_id,
         root_job_id=job.root_job_id,
         retry_of_job_id=job.retry_of_job_id,
@@ -125,7 +133,9 @@ def _parse_statuses(value: str | None) -> list[JobStatus]:
         return [JobStatus(token.strip()) for token in value.split(",") if token.strip()]
     except ValueError as exc:
         allowed = "、".join(status.value for status in JobStatus)
-        raise BadRequestException(f"任务状态不合法，可选值：{allowed}") from exc
+        raise BadRequestException(
+            message_key="errors.jobs.statusInvalid", params={"values": allowed}
+        ) from exc
 
 
 @router.get(
@@ -258,7 +268,9 @@ async def dismiss_all_failed_jobs(
     )
     return ApiResponse(
         data=JobDismissAllView(dismissed=len(rows), jobs=await job_views(session, rows)),
-        message=f"已忽略 {len(rows)} 个失败任务" if rows else "当前没有需要忽略的失败任务",
+        message=t("activity.jobActions.dismissAll", count=len(rows))
+        if rows
+        else t("activity.jobActions.dismissNone"),
     )
 
 
@@ -273,7 +285,7 @@ async def show_job(
 ) -> ApiResponse[JobView]:
     row = await jobs.get_job(session, job_id)
     if row is None:
-        raise NotFoundException("后台任务不存在")
+        raise NotFoundException(message_key="errors.jobs.missing")
     return ApiResponse(data=await job_view(session, row))
 
 
@@ -294,7 +306,7 @@ async def wait_job(
         async with db.session() as session:
             row = await jobs.get_job(session, job_id)
             if row is None:
-                raise NotFoundException("后台任务不存在")
+                raise NotFoundException(message_key="errors.jobs.missing")
             if row.revision > after_revision:
                 return ApiResponse(data=JobWaitView(changed=True, job=await job_view(session, row)))
             remaining = deadline - asyncio.get_running_loop().time()
@@ -318,7 +330,7 @@ async def list_job_events(
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[JobEventListView]:
     if await jobs.get_job(session, job_id) is None:
-        raise NotFoundException("后台任务不存在")
+        raise NotFoundException(message_key="errors.jobs.missing")
     rows = await jobs.job_events(session, job_id, after_id=after, limit=limit)
     return ApiResponse(
         data=JobEventListView(
@@ -328,7 +340,7 @@ async def list_job_events(
                     job_id=row.job_id,
                     revision=row.revision,
                     event_type=row.event_type,
-                    payload=row.payload,
+                    payload=localize_fields(row.payload),
                     created_at=row.created_at,
                 )
                 for row in rows
@@ -350,10 +362,12 @@ async def cancel_job(
 ) -> ApiResponse[JobCancelView]:
     row, cancelled = await jobs.request_cancel(session, job_id, requested_by=str(principal))
     if row is None:
-        raise NotFoundException("后台任务不存在")
+        raise NotFoundException(message_key="errors.jobs.missing")
     return ApiResponse(
         data=JobCancelView(cancelled=cancelled, job=await job_view(session, row)),
-        message="已请求取消" if cancelled else "任务已经结束",
+        message=t("activity.jobActions.cancelRequested")
+        if cancelled
+        else t("activity.jobActions.alreadyFinished"),
     )
 
 
@@ -371,7 +385,7 @@ async def retry_job_row(
 ) -> ApiResponse[JobRetryView]:
     source = await jobs.get_job(session, job_id)
     if source is None:
-        raise NotFoundException("后台任务不存在")
+        raise NotFoundException(message_key="errors.jobs.missing")
     was_blocked = source.status == JobStatus.BLOCKED
     try:
         created = await jobs.retry_job(
@@ -382,18 +396,18 @@ async def retry_job_row(
             origin=_origin(principal, client_name),
         )
     except jobs.JobFailed as exc:
-        raise BadRequestException(exc.message) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     return ApiResponse(
         data=JobRetryView(
             created=created.created,
             job=await job_view(session, created.job),
         ),
         message=(
-            "任务已恢复并重新入队"
+            t("activity.jobActions.resumed")
             if was_blocked
-            else "任务已重新入队"
+            else t("activity.jobActions.requeued")
             if created.created
-            else "相同任务已在进行中"
+            else t("activity.jobs.conflict")
         ),
     )
 
@@ -422,24 +436,22 @@ async def dismiss_job_row(
     try:
         row, dismissed = await jobs.dismiss_job(session, job_id, dismissed_by=str(principal))
     except jobs.JobFailed as exc:
-        raise BadRequestException(exc.message) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     if row is None:
-        raise NotFoundException("后台任务不存在")
+        raise NotFoundException(message_key="errors.jobs.missing")
 
     muted = False
     if payload is not None and payload.mute_source:
         muted = await subtitle_auto.mute_from_job(session, row, muted_by=str(principal))
 
     if not dismissed:
-        message = "任务已经忽略过了"
+        message = t("activity.jobActions.alreadyDismissed")
     elif muted:
-        message = "已忽略，并且不再自动重建同类任务"
+        message = t("activity.jobActions.dismissedMuted")
     else:
-        message = "已忽略，不再计入需要处理"
+        message = t("activity.jobActions.dismissed")
     return ApiResponse(
-        data=JobDismissView(
-            dismissed=dismissed, muted=muted, job=await job_view(session, row)
-        ),
+        data=JobDismissView(dismissed=dismissed, muted=muted, job=await job_view(session, row)),
         message=message,
     )
 
@@ -458,10 +470,12 @@ async def undismiss_job_row(
     """撤销忽略。连带解除自动来源静音——否则"撤销"只撤了一半。"""
     row, restored = await jobs.undismiss_job(session, job_id)
     if row is None:
-        raise NotFoundException("后台任务不存在")
+        raise NotFoundException(message_key="errors.jobs.missing")
     if restored:
         await subtitle_auto.unmute_from_job(session, row)
     return ApiResponse(
         data=JobDismissView(dismissed=False, muted=False, job=await job_view(session, row)),
-        message="已撤销忽略" if restored else "任务并未被忽略",
+        message=t("activity.jobActions.restored")
+        if restored
+        else t("activity.jobActions.notDismissed"),
     )

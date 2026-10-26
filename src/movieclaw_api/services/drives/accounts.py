@@ -18,7 +18,9 @@ from collections.abc import Coroutine
 from dataclasses import dataclass
 from typing import Any
 
+from movieclaw_api.i18n.stored import stored_fields
 from movieclaw_api.services.drives import gateway
+from movieclaw_api.services.drives.messages import keyed
 from movieclaw_api.services.drives.registry import BackendUnavailable
 from movieclaw_api.services.drives.registry import backend as get_backend
 from movieclaw_db.engine import get_database
@@ -36,6 +38,17 @@ LOGIN_LINGER_S = 5 * 60
 LOGIN_POLL_S = 1.5
 
 
+class AccountError(ValueError):
+    def __init__(self, message: str, *, message_key: str, params: dict | None = None):
+        super().__init__(message)
+        self.message_key = message_key
+        self.params = params or {}
+
+    @property
+    def message_ref(self) -> dict:
+        return {"message": str(self), "message_key": self.message_key, "params": self.params}
+
+
 @dataclass(slots=True)
 class LoginSession:
     login_id: str
@@ -50,6 +63,11 @@ class LoginSession:
     account_id: int | None = None
     created: bool = False
     expires_at: float = 0.0
+    message_ref: dict | None = None
+
+    def set_message(self, key: str, **params) -> None:
+        self.message_ref = stored_fields(key, **params)
+        self.message = self.message_ref["message"]
 
     @property
     def terminal(self) -> bool:
@@ -76,7 +94,7 @@ def login_session(login_id: str) -> LoginSession | None:
     item = _logins.get(login_id)
     if item is not None and not item.terminal and time.monotonic() > item.expires_at:
         item.status = "expired"
-        item.message = "二维码已过期，请重新扫码"
+        item.set_message("errors.driveLogin.qrExpired")
     return item
 
 
@@ -95,12 +113,20 @@ async def begin_login(
 ) -> LoginSession:
     backend = get_backend(backend_type)
     if not backend.login.scan:
-        raise ValueError(f"{backend.title}不支持扫码登录")
+        raise AccountError(
+            f"{backend.title}不支持扫码登录",
+            message_key="errors.driveLogin.noScan",
+            params={"name": backend.title},
+        )
     allowed = {o.key: {c.value for c in o.choices} for o in backend.login.options}
     picked = {o.key: o.default for o in backend.login.options}
     for key, value in options.items():
         if key not in allowed or value not in allowed[key]:
-            raise ValueError(f"登录选项 {key}={value} 不在可选范围内")
+            raise AccountError(
+                f"登录选项 {key}={value} 不在可选范围内",
+                message_key="errors.driveLogin.invalidOption",
+                params={"option": key, "value": value},
+            )
         picked[key] = value
     flow = await gateway.call_backend(backend, "begin_login", options=picked)
     item = LoginSession(
@@ -113,6 +139,7 @@ async def begin_login(
     )
     await _apply(item, flow)
     _logins[item.login_id] = item
+    # i18n-ignore: task name for logs; stored login marker rendered by the route
     _spawn(_watch(item), "网盘扫码登录")
     return item
 
@@ -122,7 +149,7 @@ async def cancel_login(login_id: str) -> None:
     if item is None or item.terminal:
         return
     item.status = "failed"
-    item.message = "已取消"
+    item.set_message("errors.driveLogin.cancelled")
     try:
         await gateway.call_backend(get_backend(item.backend), "cancel_login", flow_id=item.flow_id)
     except Exception:  # noqa: BLE001 -- 取消失败不影响前端
@@ -141,13 +168,15 @@ async def _watch(item: LoginSession) -> None:
                 )
             except BackendUnavailable as exc:
                 item.status, item.message = "failed", str(exc)
+                item.message_ref = exc.message_ref
                 break
             except dv.DriveError as exc:
                 logger.warning("读取扫码状态失败：%s", exc.message)
                 continue
             await _apply(item, flow)
         if not item.terminal:
-            item.status, item.message = "expired", "二维码已过期，请重新扫码"
+            item.status = "expired"
+            item.set_message("errors.driveLogin.qrExpired")
     finally:
         await asyncio.sleep(LOGIN_LINGER_S)
         _logins.pop(item.login_id, None)
@@ -159,7 +188,8 @@ async def _apply(item: LoginSession, flow: dv.LoginFlow) -> None:
     item.qr = flow.qr
     if flow.status == "confirmed":
         if flow.result is None:
-            item.status, item.message = "failed", "登录结果缺失，请重新扫码"
+            item.status = "failed"
+            item.set_message("errors.driveLogin.resultMissing")
             return
         try:
             row, created = await _commit(
@@ -167,17 +197,23 @@ async def _apply(item: LoginSession, flow: dv.LoginFlow) -> None:
             )
         except ValueError as exc:  # 扫的是另一个账号
             item.status, item.message = "failed", str(exc)
+            item.message_ref = getattr(exc, "message_ref", None)
             return
         except Exception as exc:  # noqa: BLE001 -- 落库失败原样告诉用户
             logger.exception("网盘账号落库失败")
-            item.status, item.message = "failed", f"添加账号失败：{exc}"
+            item.status = "failed"
+            item.set_message("errors.driveLogin.addFailed", reason=str(exc))
             return
         item.account_id, item.created = row.id, created
         item.status = "confirmed"
-        item.message = f"已添加：{row.name}" if created else f"已重新登录：{row.name}"
+        item.set_message(
+            "settings.driveLogin.added" if created else "settings.driveLogin.relogged",
+            name=row.name,
+        )
         return
     item.status = flow.status
     item.message = flow.message
+    item.message_ref = None
 
 
 async def import_cookie(
@@ -189,15 +225,24 @@ async def import_cookie(
     """
     backend = get_backend(backend_type)
     if not backend.login.cookie_domains:
-        raise ValueError(f"{backend.title}不支持用 Cookie 登录")
+        raise AccountError(
+            f"{backend.title}不支持用 Cookie 登录",
+            message_key="errors.driveLogin.noCookie",
+            params={"name": backend.title},
+        )
     try:
         result = await gateway.call_backend(
             backend, "login_with_cookie", cookie_header=cookie_header
         )
     except dv.AuthExpired as exc:
-        raise ValueError(f"没读到 {backend.title}的登录：{exc.message}") from exc
+        raise AccountError(
+            f"没读到 {backend.title}的登录：{exc.message}",
+            message_key="errors.driveLogin.cookieRejected",
+            params={"name": backend.title, "reason": exc.message},
+        ) from exc
     except dv.DriveError as exc:
         raise ValueError(exc.message) from exc
+    # i18n-ignore: task name for logs; stored login marker rendered by the route
     return await _commit(backend_type, result, "cookie", "网页端", relogin=relogin)
 
 
@@ -205,11 +250,24 @@ def _form_values(backend: dv.DriveBackend, values: dict[str, Any]) -> dict[str, 
     """按插件声明的表单收窄：只留声明过的字段、必填项非空、文本去掉首尾空白（粘贴的密钥常带换行）。"""
     schema = dv.form_schema(backend.login)
     if schema is None:
-        raise ValueError(f"{backend.title}不支持填写凭据登录")
+        raise AccountError(
+            f"{backend.title}不支持填写凭据登录",
+            message_key="errors.driveLogin.noForm",
+            params={"name": backend.title},
+        )
     props: dict[str, Any] = schema.get("properties") or {}
     unknown = sorted(set(values) - set(props))
     if unknown:
-        raise ValueError(f"登录表单里没有这些字段：{'、'.join(unknown)}")
+        raise AccountError(
+            f"登录表单里没有这些字段：{'、'.join(unknown)}",
+            message_key="errors.driveLogin.unknownFields",
+            params={
+                "fields": {
+                    "message_list": unknown,
+                    "separator_key": "errors.driveLogin.listSeparator",
+                }
+            },
+        )
     cleaned = {k: v.strip() if isinstance(v, str) else v for k, v in values.items()}
     missing = [
         props[k].get("title") or k
@@ -217,7 +275,23 @@ def _form_values(backend: dv.DriveBackend, values: dict[str, Any]) -> dict[str, 
         if cleaned.get(k) is None or cleaned.get(k) == ""
     ]
     if missing:
-        raise ValueError(f"请填写：{'、'.join(missing)}")
+        raise AccountError(
+            f"请填写：{'、'.join(missing)}",
+            message_key="errors.driveLogin.requiredFields",
+            params={
+                "fields": {
+                    "message_list": [
+                        {
+                            "message_text": props[k].get("title") or k,
+                            "message_localized": props[k].get("title_localized"),
+                        }
+                        for k in schema.get("required") or ()
+                        if cleaned.get(k) is None or cleaned.get(k) == ""
+                    ],
+                    "separator_key": "errors.driveLogin.listSeparator",
+                }
+            },
+        )
     return cleaned
 
 
@@ -233,7 +307,11 @@ async def login_with_form(
     try:
         result = await gateway.call_backend(backend, "login_with_form", values=cleaned)
     except dv.AuthExpired as exc:
-        raise ValueError(f"{backend.title}没认这组凭据：{exc.message}") from exc
+        raise AccountError(
+            f"{backend.title}没认这组凭据：{exc.message}",
+            message_key="errors.driveLogin.formRejected",
+            params={"name": backend.title, "reason": exc.message},
+        ) from exc
     except dv.DriveError as exc:
         raise ValueError(exc.message) from exc
     return await _commit(backend_type, result, "form", None, relogin=relogin)
@@ -251,12 +329,16 @@ async def _commit(
         if relogin is not None:
             target = await DriveAccountRepository(session).get(relogin)
             if target is None:
-                raise ValueError("要重新登录的网盘账号已经不在了")
+                raise AccountError(
+                    "要重新登录的网盘账号已经不在了", message_key="errors.driveLogin.reloginMissing"
+                )
             if target.backend != backend_type or target.remote_user_id != result.user_id:
                 who = result.display_name or result.user_id
-                raise ValueError(
+                raise AccountError(
                     f"登录的是另一个账号（{who}），不是「{target.name}」。"
-                    "要添加新账号请用「添加网盘账号」"
+                    "要添加新账号请用「添加网盘账号」",
+                    message_key="errors.driveLogin.wrongAccount",
+                    params={"who": who, "name": target.name},
                 )
         row, created = await DriveAccountRepository(session).upsert_login(
             backend=backend_type,
@@ -283,7 +365,7 @@ async def refresh_profile(account_id: int) -> DriveAccount:
         repo = DriveAccountRepository(session)
         row = await repo.get(account_id)
         if row is None:
-            raise dv.NotFound("网盘账号不存在")
+            raise keyed(dv.NotFound, "errors.drives.accountMissing")
         row.vip = info.vip
         row.quota_total = info.quota_total
         row.quota_used = info.quota_used
@@ -305,23 +387,30 @@ async def update_settings(
         repo = DriveAccountRepository(session)
         row = await repo.get(account_id)
         if row is None:
-            raise LookupError("网盘账号不存在")
+            raise keyed(LookupError, "errors.drives.accountMissing")
         if name is not None:
             name = name.strip()
             if not name:
-                raise ValueError("账号名不能为空")
+                raise AccountError("账号名不能为空", message_key="errors.driveLogin.nameRequired")
             row.name = name[:60]
         if qps is not None:
             if not 0.1 <= qps <= 20:
-                raise ValueError("请求速率要在 0.1～20 次 / 秒之间")
+                raise AccountError(
+                    "请求速率要在 0.1～20 次 / 秒之间", message_key="errors.driveLogin.invalidRate"
+                )
             row.qps = qps
         if daily_budget is not None:
             if not 100 <= daily_budget <= 1_000_000:
-                raise ValueError("每日预算要在 100～1,000,000 次之间")
+                raise AccountError(
+                    "每日预算要在 100～1,000,000 次之间",
+                    message_key="errors.driveLogin.invalidBudget",
+                )
             row.daily_budget = daily_budget
         if read_slots is not None:
             if not 1 <= read_slots <= 10:
-                raise ValueError("同时播放数要在 1～10 之间")
+                raise AccountError(
+                    "同时播放数要在 1～10 之间", message_key="errors.driveLogin.invalidSlots"
+                )
             row.read_slots = read_slots
         for key in reset & {"qps", "daily_budget", "read_slots"}:
             setattr(row, key, None)
@@ -344,8 +433,15 @@ async def delete_account(account_id: int) -> bool:
                 library = await session.get(Library, folder.library_id)
                 if library is not None and library.name not in names:
                     names.append(library.name)
-            raise ValueError(
-                f"媒体库《{'》《'.join(names)}》还在用这个账号的网盘目录，先在编辑库里拿掉它们"
+            raise AccountError(
+                f"媒体库《{'》《'.join(names)}》还在用这个账号的网盘目录，先在编辑库里拿掉它们",
+                message_key="errors.driveLogin.inUse",
+                params={
+                    "names": {
+                        "message_list": names,
+                        "separator_key": "errors.driveLogin.librarySeparator",
+                    }
+                },
             )
         removed = await DriveAccountRepository(session).delete(account_id)
     if removed:

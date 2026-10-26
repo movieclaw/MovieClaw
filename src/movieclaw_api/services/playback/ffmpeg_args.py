@@ -346,14 +346,20 @@ class HwBackend:
     #: 这两家直接退软件编码（用户选烧录已经接受了转码代价）。
     sw_frames_ok: bool = False
     #: 同一后端的 HEVC 编码器；None = 这个后端不出 HEVC。目前只有离线下载的转码导出要
-    #: HEVC（见 ``HEVC_BITRATE_LADDER``），播放一律 H.264。
+    #: HEVC（见 ``HEVC_BITRATE_LADDER``），播放一律 H.264。VideoToolbox 以外的要自检真编
+    #: 通过才用（``hevc_encoder``）：有 H.264 硬编不等于有 HEVC 硬编（老核显、老驱动）。
     hevc_encoder: str | None = None
+    #: 让 ``-force_key_frames`` 插的关键帧是 IDR 的编码器参数（H.264 / HEVC 同名）。QSV 与 NVENC
+    #: 默认只插普通 I 帧（``forced_idr`` 默认关），输出包不带关键帧标记，HLS 切不到分片栅格上；
+    #: VAAPI 与 VideoToolbox 强制关键帧本来就是 IDR。Jellyfin 对这两家同样显式打开
+    forced_idr: tuple[str, ...] = ()
 
 
 HW_BACKENDS: dict[str, HwBackend] = {
     "vaapi": HwBackend(
         name="vaapi",
         encoder="h264_vaapi",
+        hevc_encoder="hevc_vaapi",
         hwaccel="vaapi",
         hwaccel_output_format="vaapi",
         scale_filter="scale_vaapi",
@@ -369,6 +375,8 @@ HW_BACKENDS: dict[str, HwBackend] = {
     "qsv": HwBackend(
         name="qsv",
         encoder="h264_qsv",
+        hevc_encoder="hevc_qsv",
+        forced_idr=("-forced_idr", "1"),
         hwaccel="qsv",
         hwaccel_output_format="qsv",
         scale_filter="scale_qsv",
@@ -382,6 +390,8 @@ HW_BACKENDS: dict[str, HwBackend] = {
     "nvenc": HwBackend(
         name="nvenc",
         encoder="h264_nvenc",
+        hevc_encoder="hevc_nvenc",
+        forced_idr=("-forced-idr", "1"),
         hwaccel="cuda",
         hwaccel_output_format="cuda",
         scale_filter="scale_cuda",
@@ -442,10 +452,10 @@ def register_native_tonemap(backend: str, filter_expr: str | None) -> None:
         _PROBED_TONEMAP.pop(backend, None)
 
 
-def tonemap_reads_dolby_vision(backend_name: str) -> bool:
+def tonemap_reads_dolby_vision(backend_name: str, caps: WorkerVideoCaps | None = None) -> bool:
     """该后端的原生色调映射认不认杜比视界 RPU。VAAPI / QSV 不认：P5 的 IPT 基础层出来整片发紫。"""
     backend = HW_BACKENDS.get(backend_name)
-    expr = native_tonemap_filter(backend) if backend is not None else None
+    expr = native_tonemap_filter(backend, caps) if backend is not None else None
     return (expr or "").split("=", 1)[0] in _DOVI_AWARE_TONEMAPS
 
 
@@ -458,9 +468,22 @@ def tonemap_ignores_dolby_vision(backend_name: str) -> bool:
     return expr is not None and expr.split("=", 1)[0] not in _DOVI_AWARE_TONEMAPS
 
 
-def native_tonemap_filter(backend: HwBackend) -> str | None:
-    """该后端这次能用的原生 tone-map 滤镜；None=只能走软件 tone-map。"""
-    return _PROBED_TONEMAP.get(backend.name, backend.tonemap_filter)
+#: 要靠执行者的 ffmpeg 带着才有的原生 tone-map（不写死进 ``HW_BACKENDS`` 的那些）。
+#: 本机由自检确认后登记进 ``_PROBED_TONEMAP``；远程 Worker 看它申报的 ``filters``。
+_OPTIONAL_TONEMAP: dict[str, str] = {"nvenc": NVENC_TONEMAP}
+
+
+def native_tonemap_filter(backend: HwBackend, caps: WorkerVideoCaps | None = None) -> str | None:
+    """该后端这次能用的原生 tone-map 滤镜；None=只能走软件 tone-map。
+
+    ``caps`` 非 None 即远程执行：只信接单 Worker 申报的滤镜，不看 NAS 本机的自检结论
+    ——同名后端（NAS 的 NVIDIA 卡与远程的 Windows 显卡）的 ffmpeg 构建各不相同，一边的
+    结论套到另一边，装出来的链不是缺滤镜就是白白绕回 CPU。
+    """
+    if caps is None:
+        return _PROBED_TONEMAP.get(backend.name, backend.tonemap_filter)
+    expr = _OPTIONAL_TONEMAP.get(backend.name, backend.tonemap_filter)
+    return expr if expr and expr.split("=", 1)[0] in caps.filters else None
 
 
 #: VAAPI 的低功耗编码（Intel VDEnc 定长电路）。Intel 自 11/12 代起主推这条路；issue #763 的
@@ -482,13 +505,51 @@ def register_encoder_options(backend: str, options: tuple[str, ...]) -> None:
         _PROBED_ENCODER_OPTIONS.pop(backend, None)
 
 
-def encoder_options(backend: HwBackend) -> tuple[str, ...]:
-    """该后端这次编码要追加的参数。"""
+def encoder_options(backend: HwBackend, caps: WorkerVideoCaps | None = None) -> tuple[str, ...]:
+    """该后端这次编码要追加的参数。远程执行（``caps`` 非 None）不加：本机自检的结论
+    （如 VAAPI 低功耗）说的是 NAS 这块核显，不是接单的那台机器。"""
+    if caps is not None:
+        return ()
     return _PROBED_ENCODER_OPTIONS.get(backend.name, ())
 
 
+#: 后端名 → 经自检真编通过的 HEVC 编码器要追加的参数（键在 = HEVC 可用）。VideoToolbox 不登记：
+#: Apple 芯片全系有 HEVC 硬编，远程转码器在连接时自己声明编码器（``remote_workers_have_encoder``）。
+_PROBED_HEVC_OPTIONS: dict[str, tuple[str, ...]] = {}
+
+
+def register_hevc_encoder(backend: str, options: tuple[str, ...] | None) -> None:
+    """自检确认某后端的 HEVC 编码器能用（``options`` 是要追加的参数）或不能用（None）。
+    与 ``register_encoder_options`` 同理：只由 ``hwprobe`` 写。"""
+    if options is None:
+        _PROBED_HEVC_OPTIONS.pop(backend, None)
+    else:
+        _PROBED_HEVC_OPTIONS[backend] = options
+
+
+def hevc_encoder(backend: HwBackend) -> str | None:
+    """该后端这次能用的 HEVC 编码器；None = 只能出 H.264。"""
+    if backend.name == "videotoolbox" or backend.name in _PROBED_HEVC_OPTIONS:
+        return backend.hevc_encoder
+    return None
+
+
+def hevc_encoder_options(
+    backend: HwBackend, caps: WorkerVideoCaps | None = None
+) -> tuple[str, ...]:
+    """HEVC 编码器要追加的参数。与 ``encoder_options`` 同一条隔离规则：远程执行
+    （``caps`` 非 None）不带 NAS 本机自检出来的结论。"""
+    if caps is not None:
+        return ()
+    return _PROBED_HEVC_OPTIONS.get(backend.name, ())
+
+
 def _needs_software_filters(
-    plan: PlaybackPlan, backend: HwBackend | None, *, burn: bool
+    plan: PlaybackPlan,
+    backend: HwBackend | None,
+    *,
+    burn: bool,
+    caps: WorkerVideoCaps | None = None,
 ) -> bool:
     """这条计划的滤镜链是不是必须落到软件侧（帧在系统内存里）。
 
@@ -505,12 +566,12 @@ def _needs_software_filters(
     （见 ``_filter_chain``），同样按软件滤镜处理。
 
     ``burn`` 由调用方给：装配层用的是解析后的轨道序号（解析不出来就不烧），
-    决策层只有计划字段，两者不能互相假定。
+    决策层只有计划字段，两者不能互相假定。``caps`` 见 ``native_tonemap_filter``。
     """
     if burn:
         return True
     if plan.video.tone_map and (
-        backend is None or native_tonemap_filter(backend) is None
+        backend is None or native_tonemap_filter(backend, caps) is None
     ):
         return True
     if _color_convert_filter(plan) is not None:
@@ -523,14 +584,17 @@ def _needs_software_filters(
     )
 
 
-def effective_hw_backend(plan: PlaybackPlan, hw_backend: str | None) -> str | None:
+def effective_hw_backend(
+    plan: PlaybackPlan, hw_backend: str | None, caps: WorkerVideoCaps | None = None
+) -> str | None:
     """这次会话**实际**用哪个硬件后端。
 
     滤镜链被拉回软件侧时（烧录、软件 tone-map、色彩空间转换），编码器吃不了
     软件帧的后端（VAAPI/QSV）退回软件编码。诊断面板的 ``hw_backend`` 必须走
     这里——报一个实际没用上的后端名，用户查「为什么转码这么卡」时会被带偏；
     路由层也据此判断硬件档还能不能执行（不能就走统一降档，而不是让 ffmpeg
-    带着一条装不起来的滤镜链去失败）。
+    带着一条装不起来的滤镜链去失败）。``caps``：远程执行时接单 Worker 的申报，
+    见 ``native_tonemap_filter``。
     """
     if plan.video.action != "transcode" or hw_backend is None:
         return None if plan.video.action != "transcode" else hw_backend
@@ -538,7 +602,7 @@ def effective_hw_backend(plan: PlaybackPlan, hw_backend: str | None) -> str | No
     if backend is None:
         return None
     if not backend.sw_frames_ok and _needs_software_filters(
-        plan, backend, burn=plan.video.burn_subtitle is not None
+        plan, backend, burn=plan.video.burn_subtitle is not None, caps=caps
     ):
         return None
     return hw_backend
@@ -588,7 +652,8 @@ def build_hls_command(
     只是索引近似，播放器按分片真实时间戳自我校正，Jellyfin 同款取舍）。
 
     ``worker_caps`` 是接单的远程 Worker 申报的视频能力（远程任务恒传，本机执行为
-    None），VideoToolbox 命令按它分流，见 ``_videotoolbox_mode``。
+    None）：VideoToolbox 命令按它分流（见 ``_videotoolbox_mode``），原生 tone-map 与
+    编码器参数也只看它、不看 NAS 本机的自检（见 ``native_tonemap_filter``）。
 
     ``seek_pad_s``：直通档 ``-ss`` 往起点后多给的秒数（见下面的注释）。VOD 重启由会话层按
     分片规划给（``SegmentPlan.seek_pad``），不能越过下一个关键帧。
@@ -602,21 +667,30 @@ def build_hls_command(
     播放器最早也要等一整段——这是转码起播与跳转首帧里最大的一块。
     """
     if plan.tier is PlaybackTier.DIRECT_PLAY:
+        # i18n-ignore: programming invariant
         raise ValueError("档 0 是原文件直出，不需要 ffmpeg")
 
     argv = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "warning"]
 
     transcoding_video = plan.video.action == "transcode"
     backend = (
-        HW_BACKENDS.get(effective_hw_backend(plan, hw_backend) or "") if transcoding_video else None
+        HW_BACKENDS.get(effective_hw_backend(plan, hw_backend, worker_caps) or "")
+        if transcoding_video
+        else None
     )
     burn_index = _burn_subtitle_index(plan) if transcoding_video else None
     vt_mode = _videotoolbox_mode(plan, backend, worker_caps, burn=burn_index is not None)
+    nvidia_software_decode = transcoding_video and _nvidia_software_decode(
+        plan, backend, worker_caps
+    )
     software_filters = transcoding_video and (
         vt_mode == VT_SOFTWARE_DECODE
+        or nvidia_software_decode
         or (
             vt_mode != VT_GPU
-            and _needs_software_filters(plan, backend, burn=burn_index is not None)
+            and _needs_software_filters(
+                plan, backend, burn=burn_index is not None, caps=worker_caps
+            )
         )
     )
 
@@ -643,7 +717,12 @@ def build_hls_command(
             "-readrate", str(READRATE_COPY if not transcoding_video else READRATE),
             "-readrate_initial_burst", str(READRATE_BURST_SECONDS),
         ]
-    if backend and backend.hwaccel and vt_mode != VT_SOFTWARE_DECODE:
+    if (
+        backend
+        and backend.hwaccel
+        and vt_mode != VT_SOFTWARE_DECODE
+        and not nvidia_software_decode
+    ):
         # 解码**恒定留在硬件上**，哪怕滤镜链是软件的：不发
         # ``-hwaccel_output_format`` 时 ffmpeg 自己把解码帧下载回系统内存，
         # 软件滤镜照样接得上，而最贵的那步（4K HEVC 10-bit 解码）不再压回
@@ -691,7 +770,12 @@ def build_hls_command(
     argv += ["-sn", "-dn", "-map_metadata", "-1"]
 
     argv += _video_args(
-        plan, backend, software_filters, skip_filters=burn_index is not None, vt_mode=vt_mode
+        plan,
+        backend,
+        software_filters,
+        skip_filters=burn_index is not None,
+        vt_mode=vt_mode,
+        caps=worker_caps,
     )
     argv += _audio_args(
         plan, has_audio=audio_index is not None, absolute_ts=start_number is not None
@@ -764,6 +848,14 @@ def _burn_subtitle_index(plan: PlaybackPlan) -> int | None:
     return parse_embedded_track(plan.video.burn_subtitle)
 
 
+#: 烧录用的 overlay。字幕流读完后必须让主画面原样通过，不能再重复叠最后一帧：ffmpeg 在字幕流
+#: 末尾补一帧“一直显示”的帧，时间戳是溢出的（约 2^32 毫秒），overlay 默认就把主画面的最后一帧
+#: 按这个时间戳再吐一次。旧版 ffmpeg 的 CFR 逻辑会把它当作“重复过多”丢掉；jellyfin-ffmpeg 8.1
+#: 不丢，mp4 的 muxer 以 “pts/dts pair unsupported” 拒收，整条命令失败（任何编码器都一样）。
+#: Jellyfin 自己的字幕烧录用同一对选项。
+_OVERLAY = "overlay=eof_action=pass:repeatlast=0"
+
+
 def _burn_filter_graph(plan: PlaybackPlan, subtitle_index: int) -> str:
     """烧录的 filter_complex 图：色彩归一 →（源分辨率）overlay 烧字幕 → scale。
 
@@ -783,7 +875,7 @@ def _burn_filter_graph(plan: PlaybackPlan, subtitle_index: int) -> str:
         else _color_convert_filter(plan)
     )
     base = f"[0:v:0]{color_pre}[tm];[tm]" if color_pre else "[0:v:0]"
-    graph = f"{base}[0:s:{subtitle_index}]overlay"
+    graph = f"{base}[0:s:{subtitle_index}]{_OVERLAY}"
     if plan.video.height:
         graph += f"[burned];[burned]scale=-2:{plan.video.height}"
     # 末端钉死 8-bit：10-bit 源（无 tonemap 的 SDR 10-bit 最常见）经 overlay
@@ -830,6 +922,7 @@ def _video_args(
     *,
     skip_filters: bool = False,
     vt_mode: str | None = None,
+    caps: WorkerVideoCaps | None = None,
 ) -> list[str]:
     if plan.video.action == "copy":
         args = ["-c:v", "copy"]
@@ -853,7 +946,9 @@ def _video_args(
 
     # 烧录时滤镜已在 filter_complex 图里（-vf 与 filter_complex 互斥）
     filters = (
-        "" if skip_filters else _filter_chain(plan, backend, software_filters, vt_mode=vt_mode)
+        ""
+        if skip_filters
+        else _filter_chain(plan, backend, software_filters, vt_mode=vt_mode, caps=caps)
     )
     args = []
     if filters:
@@ -863,19 +958,24 @@ def _video_args(
         # 变化时，ffmpeg 重建滤镜图会按上次输出尺寸插入软件 scaler_out；它接不了
         # videotoolbox_vld，导致 -78 退出。关闭这层自动缩放，保持整条链使用硬件帧。
         args += ["-noautoscale"]
-    hevc = bool(is_hevc_output(plan.video) and backend is not None and backend.hevc_encoder)
+    hevc_codec = hevc_encoder(backend) if backend is not None else None
+    hevc = bool(is_hevc_output(plan.video) and hevc_codec)
     # 码率阶梯按**实际**出的编码选：要 HEVC 但后端没有 HEVC 编码器时照旧出 H.264，码率也按 H.264
     maxrate = maxrate_for_video(plan.video, hevc=hevc)
     bufsize = f"{float(maxrate[:-1]) * 2:g}M"
-    if backend is not None and hevc:
-        # 离线导出的 HEVC：8-bit Main（输出恒为 SDR BT.709，iPhone 全系硬解），hvc1 标签
-        # 理由同直通档。没有 H.264 那几条：hevc_videotoolbox 不认 -a53cc，High@4.1 是 H.264 的
-        args += ["-c:v", backend.hevc_encoder, *encoder_options(backend), "-profile:v", "main"]
-        if vt_mode != VT_GPU:
+    if backend is not None and hevc_codec and hevc:
+        # 离线导出的 HEVC：8-bit Main（输出恒为 SDR BT.709，iPhone 全系硬解；硬件 scale 已钉
+        # nv12 / yuv420p），hvc1 标签理由同直通档。没有 H.264 那几条：hevc_videotoolbox 不认
+        # -a53cc，High@4.1 是 H.264 的
+        args += ["-c:v", hevc_codec, *hevc_encoder_options(backend, caps), *backend.forced_idr]
+        args += ["-profile:v", "main"]
+        if backend.name == "videotoolbox" and vt_mode != VT_GPU:
+            # 同 H.264：只有 VideoToolbox 吃软件帧时要钉；VAAPI / QSV / NVENC 的帧是硬件帧，
+            # 再要 yuv420p 会逼 ffmpeg 插一个接不上硬件帧的软件格式转换
             args += ["-pix_fmt", "yuv420p"]
         args += ["-tag:v", "hvc1", "-b:v", "0", "-maxrate", maxrate, "-bufsize", bufsize]
     elif backend is not None:
-        args += ["-c:v", backend.encoder, *encoder_options(backend)]
+        args += ["-c:v", backend.encoder, *encoder_options(backend, caps), *backend.forced_idr]
         # iOS 原生 HLS 对 10-bit/High 10 的硬件编码结果兼容性很差，统一锁
         # 到 High profile + 8-bit yuv420p。level 不钉，交给编码器按实际输出的
         # 宽×高×帧率选合法值：输出只钉高度、宽度随源宽高比走，宽银幕 1080p
@@ -887,11 +987,20 @@ def _video_args(
             # GPU 链路的帧是硬件帧、已是 8-bit NV12；再要 yuv420p 会逼 ffmpeg 插一个
             # 接不上硬件帧的软件格式转换
             args += ["-pix_fmt", "yuv420p"]
+        elif _nvidia_software_decode(plan, backend, caps):
+            # 软解出来的帧保持源的位深（Hi10P、10-bit AV1 都是 10-bit），不钉的话 ffmpeg 协商成
+            # p010 去喂只吃 8-bit 的 H.264 NVENC。硬件链上这件事由 scale_cuda 的 format 做
+            args += ["-pix_fmt", "yuv420p"]
         if backend.name == "videotoolbox":
             # 不把源里的 A53 隐藏字幕写进 SEI：MPEG-2 源（DVD、广电录制）常带，而
             # h264_videotoolbox 写它时报「Unexpected end of SEI NAL Unit」整条失败
             # （实测）。字幕另行投递，用不上这份
             args += ["-a53cc", "0"]
+        if backend.name == "nvenc":
+            # NVENC 对 -force_key_frames 强制出来的帧默认只当普通 I 帧、不是 IDR，封装器认不出
+            # 关键帧：下面的 4 秒栅格对不上，分片被拖成一整个 -g 那么长（实测 10 秒一段，播放列表
+            # 却按 4 秒算，seek 与续播全错位）。-forced-idr 让强制出来的帧是真 IDR
+            args += ["-forced-idr", "1"]
         # 明确 H.264 的 ISO BMFF sample entry。默认通常也是 avc1，但不同编码器
         # 或封装器版本可能落成 avc3；Safari 原生 HLS 需要稳定、可预告的标签。
         args += ["-tag:v", "avc1"]
@@ -928,6 +1037,28 @@ def _video_args(
     if _outputs_bt709(plan):
         args += _BT709_OUTPUT_TAGS
     return args
+
+
+def _nvidia_software_decode(
+    plan: PlaybackPlan, backend: HwBackend | None, caps: WorkerVideoCaps | None
+) -> bool:
+    """接单的远程 NVIDIA Worker 的显卡硬解不了这条片源：整段 CPU 软解 + 软件滤镜，只有编码留在
+    NVENC。
+
+    与 ``_videotoolbox_mode`` 的 ``VT_SOFTWARE_DECODE`` 同理——硬解起不来时软件帧会撞上 GPU
+    滤镜整条命令失败，所以这类片源不能要硬件帧，``-hwaccel`` 也不发（AV1 的硬解失败不会自己
+    退回软解：每帧都解码出错，错误率超限后 ffmpeg 以 69 退出）。两种来源：
+
+    - 片源编码不在 Worker 申报的 ``hw_decoders`` 里（AV1 要 RTX 30 起、老编码如 VC-1 各代都没有）；
+    - 10-bit 的 H.264（Hi10P，动漫压制常见）：NVDEC 不解，各代显卡一样。ffmpeg 的 H.264 解码器在这个
+      位深上不提供硬件像素格式，硬解请求被悄悄忽略，Worker 申报的 ``h264`` 说的是 8-bit 的那条路。
+    """
+    if caps is None or backend is None or backend.name != "nvenc":
+        return False
+    codec = (plan.video.source_codec or "").lower()
+    if codec not in caps.hw_decoders:
+        return True
+    return codec == "h264" and (plan.video.source_bit_depth or 8) > 8
 
 
 def _videotoolbox_mode(
@@ -995,6 +1126,7 @@ def _filter_chain(
     software_filters: bool,
     *,
     vt_mode: str | None = None,
+    caps: WorkerVideoCaps | None = None,
 ) -> str:
     if vt_mode == VT_GPU:
         return _videotoolbox_gpu_chain(plan)
@@ -1004,7 +1136,7 @@ def _filter_chain(
     frame_range: str | None = None
     if plan.video.tone_map:
         native = (
-            native_tonemap_filter(backend)
+            native_tonemap_filter(backend, caps)
             if backend is not None and not software_filters
             else None
         )

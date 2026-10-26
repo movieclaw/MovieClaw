@@ -34,7 +34,7 @@ struct PlayerScreen: View {
             if let existing = router.activePlayback, existing.request.id == request.id, existing.viewAttached {
                 controller = existing
                 #if DEBUG
-                FileHandle.standardError.write(Data("[PlayerDiag] 播放器视图重建，复用原控制器\n".utf8))
+                FileHandle.standardError.write(Data("[PlayerDiag] 播放器视图重建，复用原控制器\n".utf8)) // i18n-ignore: debug log
                 #endif
                 return
             }
@@ -62,10 +62,10 @@ struct PlayerScreen: View {
                     try? await Task.sleep(for: .seconds(drill[0]))
                     if drill[2] == 1 { created.debugGrowForwardBuffer() }
                     created.togglePlay()
-                    Self.autoTestLog("暂停攒缓冲 \(Int(drill[1])) 秒\(drill[2] == 1 ? "（已放大前向缓冲）" : "")")
+                    Self.autoTestLog("暂停攒缓冲 \(Int(drill[1])) 秒\(drill[2] == 1 ? "（已放大前向缓冲）" : "")") // i18n-ignore: debug log
                     try? await Task.sleep(for: .seconds(drill[1]))
                     created.togglePlay()
-                    Self.autoTestLog("恢复播放")
+                    Self.autoTestLog("恢复播放") // i18n-ignore: debug log
                 }
             }
             // -mcAutoReconnect <秒>：到点模拟一次断线重连（新会话、新引擎实例），验证片源字节缓存接得上
@@ -73,7 +73,7 @@ struct PlayerScreen: View {
             if autoReconnect > 0 {
                 Task {
                     try? await Task.sleep(for: .seconds(autoReconnect))
-                    Self.autoTestLog("模拟断线重连")
+                    Self.autoTestLog("模拟断线重连") // i18n-ignore: debug log
                     created.debugReconnect()
                 }
             }
@@ -82,7 +82,7 @@ struct PlayerScreen: View {
             if storageFull.count == 2 {
                 Task {
                     try? await Task.sleep(for: .seconds(storageFull[0]))
-                    Self.autoTestLog("模拟存储写满 \(Int(storageFull[1])) 秒")
+                    Self.autoTestLog("模拟存储写满 \(Int(storageFull[1])) 秒") // i18n-ignore: debug log
                     NativeEngine.simulateStorageFull(forSeconds: storageFull[1])
                 }
             }
@@ -99,7 +99,7 @@ struct PlayerScreen: View {
                     for (at, height) in autoQuality {
                         try? await Task.sleep(for: .seconds(max(0, at - elapsed)))
                         elapsed = at
-                        Self.autoTestLog("切画质 \(height == 0 ? "原画" : "\(height)p")")
+                        Self.autoTestLog("切画质 \(height == 0 ? String(localized: .playerQualityOriginal) : "\(height)p")") // i18n-ignore: debug log
                         created.selectQuality(height == 0 ? nil : height)
                     }
                 }
@@ -115,7 +115,7 @@ struct PlayerScreen: View {
             #endif
             created.start()
             UIApplication.shared.isIdleTimerDisabled = true
-            created.startupDiag("播放器视图出现处理完")
+            created.startupDiag("播放器视图出现处理完") // i18n-ignore: debug log
             #if DEBUG
             // 真机排查用：-mcAutoHoldSpeed <秒> 起播后到点自动长按 2 倍速 15 秒（验证倍速时的掉帧判定）
             let autoHold = UserDefaults.standard.double(forKey: "mcAutoHoldSpeed")
@@ -137,7 +137,7 @@ struct PlayerScreen: View {
                     for at in autoPiPTimes.sorted() {
                         try? await Task.sleep(for: .seconds(at - elapsed))
                         elapsed = at
-                        Self.autoTestLog("画中画切换（第 \(Int(at)) 秒）")
+                        Self.autoTestLog("画中画切换（第 \(Int(at)) 秒）") // i18n-ignore: debug log
                         created.togglePictureInPicture()
                     }
                 }
@@ -150,7 +150,7 @@ struct PlayerScreen: View {
                     for (at, ref) in subtitleSteps {
                         try? await Task.sleep(for: .seconds(at - elapsed))
                         elapsed = at
-                        Self.autoTestLog("换字幕 → \(ref)")
+                        Self.autoTestLog("换字幕 → \(ref)") // i18n-ignore: debug log
                         created.selectSubtitle(ref == "off" ? nil : ref)
                     }
                 }
@@ -165,7 +165,7 @@ struct PlayerScreen: View {
                     for (at, ref) in audioSteps {
                         try? await Task.sleep(for: .seconds(at - elapsed))
                         elapsed = at
-                        Self.autoTestLog("换音轨 → \(ref)")
+                        Self.autoTestLog("换音轨 → \(ref)") // i18n-ignore: debug log
                         created.selectAudio(ref)
                     }
                 }
@@ -180,7 +180,7 @@ struct PlayerScreen: View {
                         guard let value = Double(spec) else { continue }
                         let relative = spec.hasPrefix("+") || spec.hasPrefix("-")
                         let targetMs = relative ? created.positionMs + Int(value * 1000) : Int(value * 1000)
-                        Self.autoTestLog("跳转 → \(targetMs / 1000) 秒")
+                        Self.autoTestLog("跳转 → \(targetMs / 1000) 秒") // i18n-ignore: debug log
                         created.seek(toFileMs: targetMs, source: .auto)
                     }
                 }
@@ -191,7 +191,7 @@ struct PlayerScreen: View {
             if autoClose > 0 {
                 Task {
                     try? await Task.sleep(for: .seconds(autoClose))
-                    Self.autoTestLog("自动退出播放器")
+                    Self.autoTestLog("自动退出播放器") // i18n-ignore: debug log
                     exit()
                 }
             }
@@ -575,7 +575,7 @@ private struct PlayerContent: View {
                     HStack {
                         Spacer()
                         PlayerUpNextCard(
-                            code: "第 \(next.episodeNumber) 集",
+                            code: String(localized: .mediaEpisodeNumber(next.episodeNumber)),
                             name: next.name.flatMap { $0.isEmpty ? nil : $0 },
                             still: controller.scope.api.image(next.stillUrl, width: ImageWidth.points(PlayerUpNextCard.stillWidth)),
                             countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
@@ -675,13 +675,13 @@ private struct PlayerContent: View {
     private func lockButton(unlock: Bool) -> some View {
         HStack {
             if unlock {
-                GlassIconButton(systemImage: "lock.open", label: "解锁", identifier: "player-unlock") {
+                GlassIconButton(systemImage: "lock.open", label: String(localized: .playerControlsUnlock), identifier: "player-unlock") {
                     locked = false
                     lockHint = false
                     chromeVisible = true
                 }
             } else {
-                GlassIconButton(systemImage: "lock", label: "锁屏", identifier: "player-lock") {
+                GlassIconButton(systemImage: "lock", label: String(localized: .playerControlsLock), identifier: "player-lock") {
                     locked = true
                     menu = .none
                     revealLock()
@@ -751,7 +751,7 @@ private struct PlayerContent: View {
         VStack {
             if controller.holdSpeedActive {
                 PlayerHUD {
-                    Text("2× 快进中").monospacedDigit()
+                    Text(String(localized: .playerControlsSpeedFastForward)).monospacedDigit()
                     Image(systemName: "forward.fill")
                 }
                 .accessibilityIdentifier("player-hold-speed")
@@ -759,7 +759,7 @@ private struct PlayerContent: View {
                 PlayerHUD {
                     Image(systemName: adjust.side == .brightness ? "sun.max.fill" : (adjust.value <= 0.001 ? "speaker.slash.fill" : "speaker.wave.2.fill"))
                     if adjust.side == .volume, volumeUnsupported {
-                        Text("音量由系统侧键控制")
+                        Text(String(localized: .playerControlsVolumeKeys))
                     } else {
                         LevelBar(value: adjust.value)
                     }

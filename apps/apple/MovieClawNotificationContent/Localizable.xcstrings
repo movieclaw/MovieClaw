@@ -1,0 +1,270 @@
+{
+  "sourceLanguage": "zh-Hans",
+  "strings": {
+    "notification.cells.ready": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已入库"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已入库"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In library"
+          }
+        }
+      }
+    },
+    "notification.cells.watched": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "看过"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "看过"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watched"
+          }
+        }
+      }
+    },
+    "notification.cells.downloading": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载中"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading"
+          }
+        }
+      }
+    },
+    "notification.cells.missing": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没找到"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没找到"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not found"
+          }
+        }
+      }
+    },
+    "notification.cells.readyCount": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已入库%lld 集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已入库%lld 集"
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld episode in library"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld episodes in library"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "notification.cells.watchedCount": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "看过%lld 集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "看过%lld 集"
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld episode watched"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld episodes watched"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "notification.cells.downloadingCount": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载中%lld 集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载中%lld 集"
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld episode downloading"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld episodes downloading"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "notification.cells.missingCount": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没找到%lld 集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没找到%lld 集"
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld episode not found"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld episodes not found"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "notification.cells.separator": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", "
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

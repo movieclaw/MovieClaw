@@ -28,6 +28,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import reference, reference_fields, source_render, source_text
 from movieclaw_db.models import (
     ActivityType,
     MediaItem,
@@ -57,7 +58,7 @@ def spec_mismatches(claimed: QualitySnapshot, measured: QualitySnapshot) -> list
     ):
         diffs.append(
             {
-                "dimension": "分辨率",
+                "dimension": source_text("subscription.spec.resolution"),
                 "claimed": claimed.resolution,
                 "measured": measured.resolution,
             }
@@ -69,7 +70,7 @@ def spec_mismatches(claimed: QualitySnapshot, measured: QualitySnapshot) -> list
     ):
         diffs.append(
             {
-                "dimension": "视频编码",
+                "dimension": source_text("subscription.spec.videoCodec"),
                 "claimed": claimed.video_codec,
                 "measured": measured.video_codec,
             }
@@ -77,8 +78,19 @@ def spec_mismatches(claimed: QualitySnapshot, measured: QualitySnapshot) -> list
     return diffs
 
 
-def rule_violation(measured: QualitySnapshot, spec: RuleSetSpec) -> str | None:
-    """实测规格是否违反规则组硬过滤；返回中文原因或 None。
+_DIMENSION_KEYS = ("subscription.spec.resolution", "subscription.spec.videoCodec")
+
+
+def _dimension_reference(label: str) -> dict | str:
+    """载荷里存的是维度的中文名（历史数据同口径）；文案按读者语言给。"""
+    for key in _DIMENSION_KEYS:
+        if source_text(key) == label:
+            return reference(key)
+    return label
+
+
+def rule_violation(measured: QualitySnapshot, spec: RuleSetSpec) -> dict | None:
+    """实测规格是否违反规则组硬过滤；返回原因的文案引用或 None。
 
     只判本模块实测得到的两个维度，不复用 ``evaluate_rules``——后者还要判
     做种数/体积/促销这些只有站点候选才有的字段，拿一个合成候选去跑会得到
@@ -87,16 +99,18 @@ def rule_violation(measured: QualitySnapshot, spec: RuleSetSpec) -> str | None:
     if spec.resolutions and measured.resolution:
         allowed = {value.casefold() for value in spec.resolutions}
         if measured.resolution.casefold() not in allowed:
-            return (
-                f"实测分辨率 {measured.resolution} 不在规则组允许范围"
-                f"（{'/'.join(spec.resolutions)}）"
+            return reference(
+                "subscription.spec.resolutionViolation",
+                value=measured.resolution,
+                allowed="/".join(spec.resolutions),
             )
     if spec.video_codecs and measured.video_codec:
         allowed = {codec_family(value) for value in spec.video_codecs}
         if codec_family(measured.video_codec) not in allowed:
-            return (
-                f"实测视频编码 {measured.video_codec} 不在规则组允许范围"
-                f"（{'/'.join(spec.video_codecs)}）"
+            return reference(
+                "subscription.spec.codecViolation",
+                value=measured.video_codec,
+                allowed="/".join(spec.video_codecs),
             )
     return None
 
@@ -111,6 +125,7 @@ async def audit_ingest_specs(
     """
     from movieclaw_api.services.subscription.upgrade import (
         _specs_for_subscriptions,
+        _unit_reference,
         _unit_text,
     )
     from movieclaw_api.services.system_notice import upsert_notice
@@ -141,16 +156,29 @@ async def audit_ingest_specs(
 
         spec = specs.get(wanted.subscription_id)
         violation = rule_violation(measured, spec) if spec is not None else None
-        title = item.title if item is not None else "未知条目"
-        detail = "；".join(
-            f"实测{d['dimension']} {d['measured']}，种子声称 {d['claimed']}" for d in diffs
-        )
+        title = item.title if item is not None else source_text("media.kind.unknown")
+        detail = {
+            "message_list": [
+                reference(
+                    "subscription.spec.detail",
+                    dimension=_dimension_reference(d["dimension"]),
+                    measured=d["measured"],
+                    claimed=d["claimed"],
+                )
+                for d in diffs
+            ],
+            "separator_key": "common.list.issueSeparator",
+        }
         message = (
-            f"{_unit_text(wanted)}入库文件与种子声称的规格不符：{detail}。"
-            + (
-                f"{violation}，这个文件本不该入库，建议复查后手工删除并重新寻源"
-                if violation
-                else "文件仍满足规则组要求，已照常入库，仅作提醒"
+            reference(
+                "activity.subscription.specMismatchViolation",
+                unit=_unit_reference(wanted),
+                detail=detail,
+                violation=violation,
+            )
+            if violation
+            else reference(
+                "activity.subscription.specMismatchOk", unit=_unit_reference(wanted), detail=detail
             )
         )
         await repo.add_activity(
@@ -158,18 +186,20 @@ async def audit_ingest_specs(
                 subscription_id=wanted.subscription_id,
                 wanted_item_id=wanted.id,
                 type=ActivityType.SPEC_MISMATCH,
-                message=message,
+                **reference_fields(message),
                 payload={
                     "units": [[wanted.season_number, wanted.episode_number]],
                     "info_hash": wanted.info_hash,
                     "site_id": attempt.site_id,
                     "torrent_id": attempt.torrent_id,
                     "mismatches": diffs,
-                    "rule_violation": violation,
+                    "rule_violation": source_render(violation) if violation else None,
                 },
             )
         )
-        logger.warning("《%s》%s 入库规格与种子声称不符：%s", title, _unit_text(wanted), detail)
+        logger.warning(
+            "《%s》%s 入库规格与种子声称不符：%s", title, _unit_text(wanted), source_render(detail)
+        )
         if violation is None:
             continue
         # 硬过滤被违反：这是"本不该进来的文件进来了"，光记时间线不够——
@@ -182,8 +212,16 @@ async def audit_ingest_specs(
             ),
             severity=NoticeSeverity.WARNING,
             source="subscription",
-            title="入库文件规格与种子声称不符",
-            message=f"《{title}》{_unit_text(wanted)}{detail}。{violation}，请复查该文件。",
+            title_key="notify.specMismatch.title",
+            message_key="notify.specMismatch.body",
+            message_params={
+                "title": item.title if item else {"message_key": "media.kind.unknown"},
+                "unit": _unit_text(wanted)
+                if wanted.season_number or wanted.episode_number
+                else {"message_key": "media.kind.feature"},
+                "detail": detail,
+                "violation": violation,
+            },
             payload={
                 "subscription_id": wanted.subscription_id,
                 "info_hash": wanted.info_hash,

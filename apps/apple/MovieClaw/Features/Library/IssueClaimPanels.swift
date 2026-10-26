@@ -91,7 +91,7 @@ struct IssueCandidateChips: View {
                             .foregroundStyle(selected ? Theme.text : Theme.text.opacity(0.9))
                             .lineLimit(1)
                         if showsEpisodeCount, let count = candidate.episodeCount, count > 0 {
-                            Text("\(count) 集")
+                            Text(String(localized: .libraryIssuesEpisodeCount(count)))
                                 .font(.caption)
                                 .foregroundStyle(Theme.textMuted)
                         }
@@ -182,7 +182,7 @@ struct IssueClaimConfirmPanel: View {
                 VStack(alignment: .leading, spacing: 4) {
                     headline
                     if !seed.reasons.isEmpty {
-                        Text("与本地文件的佐证：\(seed.reasons.joined(separator: "、"))")
+                        Text(String(localized: .libraryClaimEvidence(AppFormatting.list(seed.reasons))))
                             .font(.caption)
                             .foregroundStyle(Theme.textFaint)
                     }
@@ -192,11 +192,11 @@ struct IssueClaimConfirmPanel: View {
                             .foregroundStyle(Theme.textMuted)
                             .lineLimit(3)
                     } else if failed {
-                        Text("详情加载失败（不影响认领，可打开 TMDB 页面核对）")
+                        Text(String(localized: .libraryClaimDetailFailed))
                             .font(.caption)
                             .foregroundStyle(Theme.textFaint)
                     } else if detail == nil {
-                        Text("正在加载详情…")
+                        Text(String(localized: .libraryClaimLoadingDetails))
                             .font(.caption)
                             .foregroundStyle(Theme.textFaint)
                     }
@@ -213,12 +213,12 @@ struct IssueClaimConfirmPanel: View {
             Divider().overlay(Theme.line)
 
             HStack(spacing: 8) {
-                Link("在 TMDB 打开核对 ↗", destination: IssueTMDBLink.title(movie: movie, id: seed.tmdbId))
+                Link(String(localized: .libraryClaimCheckTmdb), destination: IssueTMDBLink.title(movie: movie, id: seed.tmdbId))
                     .font(.caption)
                     .foregroundStyle(Theme.textMuted)
                 Spacer(minLength: 0)
                 if movie && fileCount > 1 {
-                    Text("整组视为同一部片的多个版本")
+                    Text(String(localized: .libraryClaimMultipleVersions))
                         .font(.caption)
                         .foregroundStyle(Theme.textFaint)
                         .multilineTextAlignment(.trailing)
@@ -226,9 +226,9 @@ struct IssueClaimConfirmPanel: View {
             }
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                Button("取消", action: onCancel)
+                Button(String(localized: .commonCancel), action: onCancel)
                     .buttonStyle(.glass)
-                Button(fileCount > 1 ? "认领全部 \(fileCount) 个文件" : "认领", action: onConfirm)
+                Button(fileCount > 1 ? String(localized: .libraryClaimClaimAll(fileCount)) : String(localized: .settingsImportWatchClaim), action: onConfirm)
                     .discoverProminentButton()
                     .fontWeight(.semibold)
             }
@@ -252,7 +252,7 @@ struct IssueClaimConfirmPanel: View {
             let meta = [
                 year.map { "\($0)" },
                 item.flatMap { $0.extentLabel.isEmpty ? nil : $0.extentLabel },
-                seed.episodeCount.flatMap { $0 > 0 ? "对应季 \($0) 集" : nil },
+                seed.episodeCount.flatMap { $0 > 0 ? String(localized: .libraryClaimSeasonEpisodes($0)) : nil },
             ].compactMap { $0 }
             if !meta.isEmpty || (item?.providerRating ?? 0) > 0 {
                 HStack(spacing: 8) {
@@ -274,8 +274,8 @@ struct IssueClaimConfirmPanel: View {
     private var credits: String {
         guard let metadata = detail?.metadata else { return "" }
         return [
-            metadata.directors.isEmpty ? "" : "导演 \(metadata.directors.prefix(2).joined(separator: " / "))",
-            metadata.cast.isEmpty ? "" : "主演 \(metadata.cast.prefix(4).map(\.name).joined(separator: " / "))",
+            metadata.directors.isEmpty ? "" : String(localized: .libraryClaimDirectors(metadata.directors.prefix(2).joined(separator: " / "))),
+            metadata.cast.isEmpty ? "" : String(localized: .libraryClaimCast(metadata.cast.prefix(4).map(\.name).joined(separator: " / "))),
         ]
         .filter { !$0.isEmpty }
         .joined(separator: " · ")
@@ -321,7 +321,7 @@ struct IssueClaimSearchPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                TextField("片名关键词，或直接粘 TMDB ID", text: $query)
+                TextField(String(localized: .libraryClaimQueryPlaceholder), text: $query)
                     .textFieldStyle(.plain)
                     .font(.subheadline)
                     .padding(.horizontal, 10)
@@ -333,13 +333,13 @@ struct IssueClaimSearchPanel: View {
                     .autocorrectionDisabled()
                     .onSubmit { Task { await search() } }
                 if idOnly {
-                    Button("查看该 ID") {
+                    Button(String(localized: .libraryClaimViewId)) {
                         if let id = Int(trimmed) { onPick(IssueClaimSeed(tmdbId: id, title: "TMDB #\(trimmed)")) }
                     }
                     .discoverProminentButton()
                     .fontWeight(.semibold)
                 } else {
-                    Button(searching ? "搜索中…" : "搜索") { Task { await search() } }
+                    Button(searching ? String(localized: .libraryClaimSearching) : String(localized: .commonSearch)) { Task { await search() } }
                         .buttonStyle(.glass)
                         .disabled(searching || trimmed.isEmpty)
                 }
@@ -368,10 +368,10 @@ struct IssueClaimSearchPanel: View {
 
     private var emptyHint: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("没有找到\(movie ? "电影" : "剧集")结果，换个关键词试试（TMDB 对中文名支持有限时可试英文/原名）。确认 TMDB 没收录的话，可以")
-            Link("去 TMDB 补录该条目 ↗", destination: IssueTMDBLink.new(movie: movie))
+            Text(movie ? String(localized: .libraryClaimNoMovieResults) : String(localized: .libraryClaimNoShowResults))
+            Link(String(localized: .libraryClaimAddToTmdb), destination: IssueTMDBLink.new(movie: movie))
                 .underline()
-            Text("——它是维基式社区库，收录后回来搜索或粘 ID 即可认领")
+            Text(String(localized: .libraryClaimAddToTmdbTail))
         }
         .font(.caption)
         .foregroundStyle(Theme.textMuted)

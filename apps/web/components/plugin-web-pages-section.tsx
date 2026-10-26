@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -19,8 +21,7 @@ import { appHref } from "@/lib/plugin-apps";
 import { usePluginApps } from "@/lib/plugin-apps-context";
 
 /** 批准页与这里共用的后果说明：网页以使用者的身份运行 */
-export const WEB_PAGE_RISK =
-  "网页会以正在使用它的人的身份运行：管理员打开时，它拥有管理员的全部权限。只同意你信任的插件。";
+export const WEB_PAGE_RISK = "settings.plugins.webRisk" as const;
 
 /**
  * 设置 → 插件 → 插件网页（docs/design/plugin-web-pages.md §5）：带网页的插件包与本地插件。
@@ -28,6 +29,8 @@ export const WEB_PAGE_RISK =
  * 「加到侧边栏」「成员也能看到」，或撤销。插件包的同意在批准安装时就给了，这里只管后续调整。
  */
 export function PluginWebPagesSection({ reloadKey }: { reloadKey: number }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [pages, setPages] = useState<WebPage[]>([]);
   const [busy, setBusy] = useState(false);
   const confirm = useConfirm();
@@ -40,14 +43,14 @@ export function PluginWebPagesSection({ reloadKey }: { reloadKey: number }) {
   }, []);
   useEffect(() => {
     reload();
-  }, [reload, reloadKey]);
+  }, [reload, reloadKey, locale]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
     try {
       await action();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "操作失败");
+      toast.error(err instanceof Error ? err.message : t("settings.plugins.actionFailed"));
     } finally {
       setBusy(false);
       reload();
@@ -57,16 +60,16 @@ export function PluginWebPagesSection({ reloadKey }: { reloadKey: number }) {
 
   const approve = async (page: WebPage) => {
     const result = await confirm({
-      title: `同意「${page.name}」的网页运行？`,
-      description: WEB_PAGE_RISK,
-      bullets: [`地址 ${appHref(page.id)}`, "加到左侧栏，之后可以在「外观 → 导航顺序」里移出"],
-      confirmLabel: "同意",
-      checkbox: { label: "成员也能看到", description: "不勾则只有管理员能打开。" },
+      title: t("settings.plugins.approveWeb", { name: page.name }),
+      description: t(WEB_PAGE_RISK),
+      bullets: [t("settings.plugins.webAddress", { address: appHref(page.id) }), t("settings.plugins.addWebHint")],
+      confirmLabel: t("settings.plugins.approve"),
+      checkbox: { label: t("settings.plugins.membersAlso"), description: t("settings.plugins.membersHint") },
     });
     if (!result.ok) return;
     await run(async () => {
       await setWebConsent(page.id, { nav: true, members: result.checked });
-      toast.success(`「${page.name}」已加到左侧栏`);
+      toast.success(t("settings.plugins.addedWeb", { name: page.name }));
     });
   };
 
@@ -77,23 +80,23 @@ export function PluginWebPagesSection({ reloadKey }: { reloadKey: number }) {
 
   const revoke = async (page: WebPage) => {
     const ok = await confirm({
-      title: `撤销「${page.name}」的网页？`,
-      description: "不再托管它的网页，并从侧边栏撤下；插件本身照常运行，之后可以再同意。",
-      confirmLabel: "撤销",
+      title: t("settings.plugins.revokeWeb", { name: page.name }),
+      description: t("settings.plugins.revokeWebHint"),
+      confirmLabel: t("settings.plugins.revoke"),
       tone: "danger",
     });
     if (!ok) return;
     await run(async () => {
       await revokeWebConsent(page.id);
-      toast.success("已撤销");
+      toast.success(t("settings.plugins.revoked"));
     });
   };
 
   if (pages.length === 0) return null;
   return (
     <SettingsSection
-      title="插件网页"
-      description="插件自带的页面，在主程序里以同源方式打开，可以直接调用接口"
+      title={t("settings.plugins.webPages")}
+      description={t("settings.plugins.webPagesHint")}
     >
       <SettingsList>
         {pages.map((page) => (
@@ -109,9 +112,9 @@ export function PluginWebPagesSection({ reloadKey }: { reloadKey: number }) {
             label={page.name}
             description={[
               appHref(page.id),
-              page.source === "local" ? "本地插件" : "插件包",
-              page.approved ? (page.members ? "成员可见" : "仅管理员") : null,
-              page.approved && !page.nav ? "不在侧边栏" : null,
+              page.source === "local" ? t("settings.plugins.localPlugin") : t("settings.plugins.package"),
+              page.approved ? (page.members ? t("settings.plugins.membersVisible") : t("settings.plugins.adminOnly")) : null,
+              page.approved && !page.nav ? t("settings.plugins.notInSidebar") : null,
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -123,35 +126,33 @@ export function PluginWebPagesSection({ reloadKey }: { reloadKey: number }) {
                   className={SETTINGS_BUTTON_CLASS}
                   onClick={() => router.push(appHref(page.id) as Route)}
                 >
-                  打开
-                </button>
+                  {t("settings.plugins.open")}</button>
                 <SettingsMoreMenu
-                  label={`「${page.name}」的更多操作`}
+                  label={t("settings.plugins.more", { name: page.name })}
                   disabled={busy}
                   items={[
                     {
-                      label: page.nav ? "从侧边栏撤下" : "加到侧边栏",
+                      label: page.nav ? t("settings.plugins.removeSidebar") : t("settings.plugins.addSidebar"),
                       onSelect: () => void update(page, { nav: !page.nav }),
                     },
                     {
-                      label: page.members ? "只给管理员看" : "成员也能看到",
+                      label: page.members ? t("settings.plugins.makeAdminOnly") : t("settings.plugins.membersAlso"),
                       onSelect: () => void update(page, { members: !page.members }),
                     },
-                    { label: "撤销同意", onSelect: () => void revoke(page), danger: true },
+                    { label: t("settings.plugins.revokeConsent"), onSelect: () => void revoke(page), danger: true },
                   ]}
                 />
               </>
             ) : (
               <>
-                <StatusPill tone="warn" label="待同意" />
+                <StatusPill tone="warn" label={t("settings.plugins.pendingConsent")} />
                 <button
                   type="button"
                   disabled={busy}
                   className={SETTINGS_BUTTON_CLASS}
                   onClick={() => void approve(page)}
                 >
-                  同意
-                </button>
+                  {t("settings.plugins.approve")}</button>
               </>
             )}
           </SettingsRow>

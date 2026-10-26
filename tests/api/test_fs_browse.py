@@ -26,7 +26,7 @@ def client(tmp_path, monkeypatch):
     app = create_app()
     # 本文件只测目录浏览，登录鉴权用依赖覆盖绕过（鉴权本身在 test_auth 覆盖）
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
     get_settings.cache_clear()
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
@@ -59,6 +61,7 @@ export function PlayerPage({
   api = DEFAULT_PLAYBACK_SCOPE,
   exitHref,
 }: PlayerPageProps) {
+  const t = useTranslations();
   const router = useRouter();
   const [info, setInfo] = useState<PlaybackItemInfo | null>(null);
   const [episodes, setEpisodes] = useState<LibraryEpisode[]>([]);
@@ -76,7 +79,7 @@ export function PlayerPage({
       .catch((error: unknown) =>
         // 条目信息拿不到几乎必然意味着会话也开不了（同一套可见性判据），
         // 这里给出人话；真正的播放错误由播放器自己的错误页负责
-        setFailed(error instanceof Error ? error.message : "读取条目信息失败"),
+        setFailed(error instanceof Error ? error.message : appTranslator()("player.errors.itemLoad")),
       );
     return () => {
       cancelled = true;
@@ -129,12 +132,12 @@ export function PlayerPage({
         candidate.name ? ` · ${candidate.name}` : ""
       }`,
       // 「即将播放」卡片分行展示：集号一行、集名一行，左边配剧照
-      code: `第 ${candidate.episode_number} 集`,
+      code: t("media.episode.number", { episode: candidate.episode_number }),
       name: candidate.name || null,
       // 「即将播放」卡左侧剧照 w-32（128 CSS px）
       stillUrl: candidate.still_url ? imageUrl(candidate.still_url, { width: screenImageWidth(128) }) : null,
     };
-  }, [episodes, current, mediaItemId]);
+  }, [episodes, current, mediaItemId, t]);
 
   /** 上一集：同样只在**本季且有在位文件**里找，规则与「下一集」对称。 */
   const prev = useMemo(() => {
@@ -195,7 +198,7 @@ export function PlayerPage({
             onClick={exit}
             className="mt-4 rounded-xl bg-white/10 px-4 py-2 text-[13px] text-white transition-colors hover:bg-white/15"
           >
-            返回
+            {t("common.back")}
           </button>
         </div>
       </div>

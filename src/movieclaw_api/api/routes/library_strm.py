@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_db.engine import get_session
@@ -178,7 +179,7 @@ async def probe(
 
     result = await probe_file(file_id, respect_backoff=respect_backoff)
     if result.status == "missing":
-        raise NotFoundException(f"没有文件 #{file_id}")
+        raise NotFoundException(message_key="errors.library.fileIdMissing", params={"id": file_id})
     row = await session.get(LibraryFile, file_id)
     if row is not None:
         await session.refresh(row)
@@ -186,7 +187,7 @@ async def probe(
         StrmProbeView(
             file_id=file_id,
             status=result.status,  # type: ignore[arg-type]
-            error=result.error,
+            error=render_value(result.error) if result.error else None,
             next_retry_at=result.next_retry_at,
             container=row.container if row is not None else None,
             video_codec=row.video_codec if row is not None else None,

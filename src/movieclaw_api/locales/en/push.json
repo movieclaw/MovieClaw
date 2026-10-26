@@ -1,0 +1,55 @@
+{
+  "relay": {
+    "scheme": "Relay address must start with http:// or https://",
+    "query": "Relay address must not contain a query (?) or fragment (#)",
+    "invalidInfo": "This is not a MovieClaw push relay (/v1/info has an invalid format)",
+    "network": "Relay: {reason}",
+    "response": "Relay returned {reason}",
+    "notJson": "Relay response is not JSON",
+    "mismatch": "Relay response does not match the request",
+    "unauthorized": "Relay rejected the credentials: {reason}",
+    "forbidden": "Relay rejected the push: {reason}",
+    "unavailable": "Relay is temporarily unavailable: {reason}",
+    "rejected": "Relay rejected the request: {reason}",
+    "noAddresses": "No relay addresses are available",
+    "protocol": "Relay protocol is version {version}; this version supports only {supported}",
+    "issuerAdd": "This relay requires an issuer token and cannot be added here yet",
+    "issuerUse": "This relay requires an issuer token and cannot be used here yet",
+    "neverConnected": "This relay has not been reached yet",
+    "missingToken": "Relay token is missing"
+  },
+  "channels": {
+    "official": "MovieClaw official push",
+    "disabled": "Disabled",
+    "disconnected": "Not connected to MovieClaw Cloud",
+    "connecting": "Connecting to MovieClaw Cloud",
+    "noEndpoints": "MovieClaw Cloud did not provide a push relay address",
+    "noScope": "MovieClaw Cloud has not granted push permission",
+    "expired": "Token expired: MovieClaw Cloud is unreachable and official push is paused",
+    "quotaExhausted": "Today’s push quota has been used up",
+    "lastFailure": "Last push failed: {reason}",
+    "unreachable": "MovieClaw Cloud is temporarily unreachable",
+    "ok": "Working",
+    "topicNotAllowed": "The relay does not support this app"
+  },
+  "warnings": {
+    "publicHttp": "This HTTP address is outside the local network. Tokens travel over the public internet without encryption; use HTTPS in front of the relay",
+    "publicNoAuth": "This public relay requires no token. Anyone who knows its address can push to your app",
+    "noDevices": "No registered devices currently use this relay. Supported apps: {apps}",
+    "undeclared": "(not declared)"
+  },
+  "outcome": {
+    "noChannel": "No available channel supports this app",
+    "queued": "Channel is temporarily unavailable. It will retry automatically",
+    "failed": "Channel remains unavailable after retries. The notification was not sent",
+    "deviceQuota": "This device has reached today’s push limit",
+    "delivered": "Delivered to Apple Push Notification service",
+    "streamSent": "Sent through the live connection",
+    "streamQueued": "The phone is disconnected. Delivery will resume when it reconnects",
+    "imSent": "Passed to {count, plural, one {# IM account} other {# IM accounts}} for delivery",
+    "imMissing": "The IM account has no push destination. Try linking it again"
+  },
+  "status": {
+    "episodes": "E{first} · {count, plural, one {# episode} other {# episodes}}"
+  }
+}

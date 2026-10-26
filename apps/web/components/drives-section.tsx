@@ -1,5 +1,11 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
+import { formatList, formatNumber } from "@/lib/i18n/format";
+
 /**
  * 「设置 → 网盘」分区（docs/design/cloud-storage.md §2、§11.7；样稿 mockups/cloud-storage-demo.html）。
  *
@@ -49,6 +55,8 @@ import { formatBytes } from "@/lib/format";
 import { formatRelativeTime } from "@/lib/time";
 
 export function DrivesSection() {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const toast = useToast();
   const [backends, setBackends] = useState<DriveBackend[]>([]);
@@ -73,7 +81,7 @@ export function DrivesSection() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, locale]);
 
   const byType = new Map(backends.map((b) => [b.type, b]));
 
@@ -84,10 +92,10 @@ export function DrivesSection() {
   async function handleRemove(account: DriveAccount) {
     if (
       !(await confirm({
-        title: `移除网盘账号「${account.name}」？`,
+        title: t("settings.drives.removeTitle", { name: account.name }),
         description:
-          "只删除 MovieClaw 里的账号记录，不会动网盘上的任何文件。用到这个账号的媒体库需要重新选择账号。",
-        confirmLabel: "移除",
+          t("settings.drives.removeHint"),
+        confirmLabel: t("settings.drives.remove"),
         tone: "danger",
       }))
     )
@@ -95,7 +103,7 @@ export function DrivesSection() {
     try {
       await deleteDriveAccount(account.id);
       setAccounts((rows) => rows?.filter((r) => r.id !== account.id) ?? rows);
-      toast.success(`已移除「${account.name}」`);
+      toast.success(t("settings.drives.removedAccountToast", { name: account.name }));
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -116,19 +124,15 @@ export function DrivesSection() {
     <div className="space-y-10">
       <div className="space-y-4">
         <p className="text-sub leading-6 text-[var(--text-muted)]">
-          媒体库可以放在网盘上：网盘里已有的片子直接看，新片下载后自动上传、本地自动腾空。网盘由插件提供，在
-          <Link href={"/settings/plugins" as Route} className={`mx-1 ${LINK_CLASS}`}>
-            设置 → 插件
-          </Link>
-          里安装。
+          {t.rich("settings.drives.intro", { plugins: (chunks) => <Link href={"/settings/plugins" as Route} className={`mx-1 ${LINK_CLASS}`}>{chunks}</Link> })}
         </p>
         {error && <ErrorBanner>{error}</ErrorBanner>}
       </div>
 
       <SettingsSection
-        title="账号"
+        title={t("settings.drives.accounts")}
         description={
-          loading ? "加载中…" : accounts.length > 0 ? `已登录 ${accounts.length} 个账号` : undefined
+          loading ? t("settings.drives.loading") : accounts.length > 0 ? t("settings.drives.accountCount", { count: accounts.length }) : undefined
         }
         action={
           backends.length > 0 && (
@@ -147,11 +151,11 @@ export function DrivesSection() {
         ) : accounts.length === 0 ? (
           <SettingsEmpty
             icon={<CloudDriveIcon className="size-5" />}
-            title="还没有网盘账号"
+            title={t("settings.drives.noAccounts")}
             description={
               backends.length === 0
-                ? "没有可用的网盘：先到「设置 → 插件」安装网盘存储插件。"
-                : `点「添加网盘账号」登录，支持${backends.map((b) => b.title).join("、")}。`
+                ? t("settings.drives.noBackends")
+                : t("settings.drives.addHint", { names: formatList(backends.map((b) => b.title), locale) })
             }
           />
         ) : (
@@ -178,14 +182,14 @@ export function DrivesSection() {
 
       {login && (
         <DriveLoginDialog
-          backend={login.backend}
+          backend={byType.get(login.backend.type) ?? login.backend}
           relogin={login.relogin}
           onClose={() => setLogin(null)}
           onDone={(account, created) => {
             setLogin(null);
             void load();
             toast.success(
-              created ? `已添加：${account.name}` : `已重新登录：${account.name}`,
+              created ? t("settings.drives.added", { name: account.name }) : t("settings.drives.relogged", { name: account.name }),
             );
           }}
         />
@@ -204,12 +208,13 @@ function AddAccountButton({
   onPick: (backend: DriveBackend) => void;
   disabled: boolean;
 }) {
+  const t = useTranslations();
   const className = `${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`;
   if (backends.length === 1) {
     return (
       <button type="button" disabled={disabled} onClick={() => onPick(backends[0])} className={className}>
         <PlusIcon className="size-4" />
-        添加网盘账号
+        {t("settings.drives.addAccount")}
       </button>
     );
   }
@@ -218,7 +223,7 @@ function AddAccountButton({
       <DropdownMenu.Trigger asChild>
         <button type="button" disabled={disabled} className={className}>
           <PlusIcon className="size-4" />
-          添加网盘账号
+          {t("settings.drives.addAccount")}
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -273,19 +278,20 @@ export function DriveMonogram({
   );
 }
 
-function statusPill(account: DriveAccount): { tone: Tone; label: string } {
-  if (!account.backend_available) return { tone: "neutral", label: "需要安装插件" };
+function statusPill(account: DriveAccount, locale: AppLocale): { tone: Tone; label: string } {
+  const t = appTranslator(locale);
+  if (!account.backend_available) return { tone: "neutral", label: t("settings.drives.pluginRequired") };
   switch (account.status) {
     case "ok":
-      return { tone: "ok", label: "正常" };
+      return { tone: "ok", label: t("settings.drives.healthy") };
     case "auth_expired":
-      return { tone: "danger", label: "要重新登录" };
+      return { tone: "danger", label: t("settings.drives.signInRequired") };
     case "rate_limited":
-      return { tone: "warn", label: "限流中" };
+      return { tone: "warn", label: t("settings.drives.rateLimited") };
     case "api_broken":
-      return { tone: "warn", label: "接口异常" };
+      return { tone: "warn", label: t("settings.drives.apiBroken") };
     default:
-      return { tone: "neutral", label: "已停用" };
+      return { tone: "neutral", label: t("settings.drives.disabled") };
   }
 }
 
@@ -304,16 +310,18 @@ function AccountCard({
   onRefresh: () => void;
   onRemove: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const toast = useToast();
   const prompt = usePrompt();
   const [advanced, setAdvanced] = useState(false);
-  const pill = statusPill(account);
+  const pill = statusPill(account, locale);
   const how = `${
     account.login_method === "cookie"
-      ? "浏览器导入"
+      ? t("settings.drives.browserImport")
       : account.login_method === "form"
-        ? "填写凭据"
-        : "扫码登录"
+        ? t("settings.drives.formLogin")
+        : t("settings.drives.scanLogin")
   }${account.login_detail ? ` · ${account.login_detail}` : ""}`;
   const quota =
     account.quota_total && account.quota_total > 0
@@ -333,18 +341,15 @@ function AccountCard({
   }
 
   const problem = !account.backend_available
-    ? `提供「${account.backend_title}」的存储插件没在运行：到「设置 → 插件」安装或启用，账号与设置都保留。`
+    ? t("settings.drives.backendUnavailable", { name: account.backend_title })
     : account.status === "auth_expired"
-      ? (account.status_message ?? "登录已失效") +
-        (account.login_method === "cookie"
-          ? "。网页端登录与浏览器共用，在没装扩展的电脑上登录网页版会让它失效；改为扫码登录更稳定。"
-          : "。播放与上传暂停中，重新登录后自动继续。")
+      ? t(account.login_method === "cookie" ? "settings.drives.cookieExpiredHint" : "settings.drives.expiredHint", { reason: account.status_message ?? t("settings.drives.expired") })
       : account.status === "rate_limited"
-        ? `${account.status_message ?? "被网盘限流"}${
-            account.status_until ? `，后台任务暂停到 ${formatRelativeTime(account.status_until)}` : ""
-          }；播放照常尝试。`
+        ? account.status_until
+          ? t("settings.drives.limitedUntil", { reason: account.status_message ?? t("settings.drives.limitedReason"), time: formatRelativeTime(account.status_until, locale) })
+          : t("settings.drives.limitedHint", { reason: account.status_message ?? t("settings.drives.limitedReason") })
         : account.status === "api_broken"
-          ? `${account.status_message ?? "网盘接口有变化"}。已有的片子仍可尝试播放；上传与同步暂停。`
+          ? t("settings.drives.brokenHint", { reason: account.status_message ?? t("settings.drives.changedReason") })
           : null;
 
   return (
@@ -364,7 +369,7 @@ function AccountCard({
         {quota && (
           <div className="w-44 shrink-0 max-md:hidden">
             <div className="flex justify-between text-caption text-[var(--text-muted)]">
-              <span>容量</span>
+              <span>{t("settings.drives.capacity")}</span>
               <span className="tabular-nums">{quota.text}</span>
             </div>
             <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
@@ -379,36 +384,36 @@ function AccountCard({
           {(account.status === "auth_expired" || account.status === "disabled") &&
             account.backend_available && (
               <button type="button" onClick={onRelogin} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
-                重新登录
+                {t("settings.drives.signInAgain")}
               </button>
             )}
           <SettingsMoreMenu
-            label={`「${account.name}」的更多操作`}
+            label={t("settings.drives.moreActions", { name: account.name })}
             items={[
-              { label: "刷新容量", onSelect: onRefresh, disabled: !account.backend_available },
+              { label: t("settings.drives.refreshCapacity"), onSelect: onRefresh, disabled: !account.backend_available },
               {
                 label: !backend?.login.scan
-                  ? "重新登录"
+                  ? t("settings.drives.signInAgain")
                   : account.login_method === "cookie"
-                    ? "改为扫码登录"
+                    ? t("settings.drives.switchToScan")
                     : account.login_method === "form"
-                      ? "重新登录"
-                      : "重新扫码登录",
+                      ? t("settings.drives.signInAgain")
+                      : t("settings.drives.scanAgainLogin"),
                 onSelect: onRelogin,
                 disabled:
                   !account.backend_available ||
                   !(backend?.login.scan || backend?.login.form || backend?.login.cookie),
               },
               {
-                label: "改名",
+                label: t("settings.drives.rename"),
                 onSelect: () =>
-                  void prompt({ title: "账号名", initialValue: account.name }).then((name) => {
+                  void prompt({ title: t("settings.drives.accountName"), initialValue: account.name }).then((name) => {
                     if (name != null && name.trim() && name.trim() !== account.name) {
-                      void save({ name: name.trim() }, "已改名");
+                      void save({ name: name.trim() }, t("settings.drives.renamed"));
                     }
                   }),
               },
-              { label: "移除账号", onSelect: onRemove, danger: true },
+              { label: t("settings.drives.removeAccount"), onSelect: onRemove, danger: true },
             ]}
           />
         </div>
@@ -421,10 +426,10 @@ function AccountCard({
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-[var(--line)] px-4 py-2.5">
-        <ReadSlots account={account} onSave={(n) => save({ read_slots: n }, "已保存")} />
+        <ReadSlots account={account} onSave={(n) => save({ read_slots: n }, t("settings.drives.saved"))} />
         <div className="flex items-center gap-3 text-caption text-[var(--text-faint)]">
           <span className="tabular-nums">
-            今日调用 {account.used_today.toLocaleString()} / {account.daily_budget.toLocaleString()}
+            {t("settings.drives.dailyUsage", { used: formatNumber(account.used_today, undefined, locale), budget: formatNumber(account.daily_budget, undefined, locale) })}
           </span>
           <button
             type="button"
@@ -432,7 +437,7 @@ function AccountCard({
             aria-expanded={advanced}
             className="text-[var(--text-muted)] underline-offset-4 hover:text-[var(--text)] hover:underline"
           >
-            高级{advanced ? " ▴" : " ▾"}
+            {t("settings.drives.advanced")}{advanced ? " ▴" : " ▾"}
           </button>
         </div>
       </div>
@@ -450,17 +455,19 @@ function ReadSlots({
   account: DriveAccount;
   onSave: (value: number) => Promise<void>;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(String(account.read_slots));
   const n = Number(value);
   const valid = Number.isInteger(n) && n >= 1 && n <= 10;
   if (!editing) {
     return (
-      <div className="flex items-center gap-2 text-caption text-[var(--text-muted)]">
+      <div className={`${locale === "en" ? "flex flex-wrap" : "flex"} items-center gap-2 text-caption text-[var(--text-muted)]`}>
         <span>
-          同时播放数 <b className="font-semibold text-[var(--text)]">{account.read_slots}</b>
+          {t.rich("settings.drives.readSlotsValue", { value: account.read_slots, count: (chunks) => <b className="font-semibold text-[var(--text)]">{chunks}</b> })}
         </span>
-        <span className="text-[var(--text-faint)] max-md:hidden">· 家里转发时网盘同一时间最多开几路连接</span>
+        <span className="text-[var(--text-faint)] max-md:hidden">{t("settings.drives.readSlotsHint")}</span>
         <button
           type="button"
           onClick={() => {
@@ -469,16 +476,16 @@ function ReadSlots({
           }}
           className={`${SETTINGS_BUTTON_CLASS} !py-0.5`}
         >
-          调整
+          {t("settings.drives.adjust")}
         </button>
       </div>
     );
   }
   return (
-    <div className="flex items-center gap-2 text-caption text-[var(--text-muted)]">
-      <span>同时播放数</span>
+    <div className={`${locale === "en" ? "flex flex-wrap" : "flex"} items-center gap-2 text-caption text-[var(--text-muted)]`}>
+      <span>{t("settings.drives.readSlots")}</span>
       <input
-        aria-label="同时播放数"
+        aria-label={t("settings.drives.readSlots")}
         type="number"
         min={1}
         max={10}
@@ -492,12 +499,12 @@ function ReadSlots({
         onClick={() => void onSave(n).then(() => setEditing(false))}
         className={`${SETTINGS_PRIMARY_BUTTON_CLASS} !py-0.5`}
       >
-        保存
+        {t("settings.drives.save")}
       </button>
       <button type="button" onClick={() => setEditing(false)} className={`${SETTINGS_BUTTON_CLASS} !py-0.5`}>
-        取消
+        {t("settings.drives.cancel")}
       </button>
-      {!valid && <span className="text-[var(--danger)]">1～10</span>}
+      {!valid && <span className="text-[var(--danger)]">{t("settings.drives.slotsRange")}</span>}
     </div>
   );
 }
@@ -510,6 +517,7 @@ function AdvancedLimits({
   account: DriveAccount;
   onSave: (patch: DriveAccountUpdate, done?: string) => Promise<void>;
 }) {
+  const t = useTranslations();
   const [qps, setQps] = useState(String(account.qps));
   const [budget, setBudget] = useState(String(account.daily_budget));
   const qpsN = Number(qps);
@@ -524,7 +532,7 @@ function AdvancedLimits({
   return (
     <div className="space-y-3 border-t border-[var(--line)] px-4 py-3 text-caption text-[var(--text-muted)]">
       <label className="flex flex-wrap items-center gap-2">
-        <span className="w-20">请求速率</span>
+        <span className="w-20">{t("settings.drives.requestRate")}</span>
         <input
           type="number"
           step={0.1}
@@ -532,19 +540,19 @@ function AdvancedLimits({
           onChange={(e) => setQps(e.target.value)}
           className={`${SETTINGS_INPUT_CLASS} w-20 !py-0.5`}
         />
-        <span>次 / 秒{account.qps_custom ? "" : "（插件默认）"}</span>
+        <span>{t("settings.drives.requestsPerSecond")}{account.qps_custom ? "" : t("settings.drives.pluginDefault")}</span>
         {account.qps_custom && (
           <button
             type="button"
-            onClick={() => void onSave({ reset: ["qps"] }, "已恢复默认")}
+            onClick={() => void onSave({ reset: ["qps"] }, t("settings.drives.defaultsRestored"))}
             className="underline-offset-4 hover:underline"
           >
-            恢复默认
+            {t("settings.drives.restoreDefault")}
           </button>
         )}
       </label>
       <label className="flex flex-wrap items-center gap-2">
-        <span className="w-20">每日预算</span>
+        <span className="w-20">{t("settings.drives.dailyBudget")}</span>
         <input
           type="number"
           step={100}
@@ -552,14 +560,14 @@ function AdvancedLimits({
           onChange={(e) => setBudget(e.target.value)}
           className={`${SETTINGS_INPUT_CLASS} w-24 !py-0.5`}
         />
-        <span>次 · 后台任务用到 70% 就暂停，余量留给播放{account.daily_budget_custom ? "" : "（插件默认）"}</span>
+        <span>{t("settings.drives.budgetHint")}{account.daily_budget_custom ? "" : t("settings.drives.pluginDefault")}</span>
         {account.daily_budget_custom && (
           <button
             type="button"
-            onClick={() => void onSave({ reset: ["daily_budget"] }, "已恢复默认")}
+            onClick={() => void onSave({ reset: ["daily_budget"] }, t("settings.drives.defaultsRestored"))}
             className="underline-offset-4 hover:underline"
           >
-            恢复默认
+            {t("settings.drives.restoreDefault")}
           </button>
         )}
       </label>
@@ -573,26 +581,27 @@ function AdvancedLimits({
                 ...(qpsDirty ? { qps: qpsN } : {}),
                 ...(budgetDirty ? { daily_budget: budgetN } : {}),
               },
-              "已保存",
+              t("settings.drives.saved"),
             )
           }
           className={`${SETTINGS_PRIMARY_BUTTON_CLASS} !py-0.5`}
         >
-          保存
+          {t("settings.drives.save")}
         </button>
         {(!qpsValid || !budgetValid) && (
           <span className="text-[var(--danger)]">
-            {!qpsValid ? "请求速率要在 0.1～20 之间" : "每日预算要在 100～1,000,000 之间"}
+            {!qpsValid ? t("settings.drives.invalidRate") : t("settings.drives.invalidBudget")}
           </span>
         )}
       </div>
-      <p className="text-[var(--text-faint)]">移除账号只删 MovieClaw 里的记录，不动网盘上的任何文件。</p>
+      <p className="text-[var(--text-faint)]">{t("settings.drives.removeFooter")}</p>
     </div>
   );
 }
 
 /** 文件传到网盘、本地腾空之后的事（cloud-storage.md §6.3）：点选即存、失败回滚。 */
 function AfterReleaseSection() {
+  const t = useTranslations();
   const toast = useToast();
   const [settings, setSettings] = useState<DriveSettings | null>(null);
 
@@ -618,15 +627,15 @@ function AfterReleaseSection() {
   }
 
   return (
-    <SettingsSection title="上传到网盘之后">
+    <SettingsSection title={t("settings.drives.afterUpload")}>
       <SettingsList>
         <SettingsRow
-          label="本地腾空后删除下载任务"
-          description="主根在网盘的库，文件传上去、本地腾空后，把下载器里对应的任务连同下载目录里的数据一起删掉，空间才真正回来（硬链接入库时尤其如此）。有 H&R 考核的、不是 MovieClaw 投递的、还供着库里别的本地文件的种子都保留。"
+          label={t("settings.drives.removeTasks")}
+          description={t("settings.drives.removeTasksHint")}
         >
           <Toggle
             checked={settings.remove_download_tasks}
-            label="本地腾空后删除下载任务"
+            label={t("settings.drives.removeTasks")}
             onChange={(next) => void change(next)}
           />
         </SettingsRow>

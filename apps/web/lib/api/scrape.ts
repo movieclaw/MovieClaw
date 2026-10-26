@@ -1,4 +1,5 @@
 import { request } from "@/lib/http";
+import { type AppLocale } from "@/lib/i18n/negotiate";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
 interface ApiEnvelope<T> {
@@ -193,8 +194,8 @@ export function listLanguageOptions(): Promise<LanguageOption[]> {
   return unwrap(request<ApiEnvelope<LanguageOption[]>>("/scrape/language-options"));
 }
 
-export function listCountryOptions(): Promise<CountryOption[]> {
-  return unwrap(request<ApiEnvelope<CountryOption[]>>("/scrape/country-options"));
+export function listCountryOptions(locale?: AppLocale): Promise<CountryOption[]> {
+  return unwrap(request<ApiEnvelope<CountryOption[]>>("/scrape/country-options", locale ? { headers: { "Accept-Language": locale } } : undefined));
 }
 
 /**

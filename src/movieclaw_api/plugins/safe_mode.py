@@ -28,6 +28,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from movieclaw_api.i18n.stored import keyed_error, reference, render_value, source_render
+
 logger = logging.getLogger("movieclaw_api.plugins.safe_mode")
 
 STATE_FILE = "plugins-boot.json"
@@ -43,14 +45,15 @@ NOTICE_KEY = "plugins:safe-mode"
 @dataclass
 class SafeMode:
     active: bool = False
-    reason: str = ""
+    #: 原因：文案引用（读时按读者语言渲染）；旧状态文件里是中文原文
+    reason: dict | str = ""
     since: float | None = None
     skipped: list[str] = field(default_factory=list)
     forced: str | None = None
     """``env`` / ``file``：手动强制；``None``：自动进入或没有进入。"""
 
     def view(self) -> dict[str, Any]:
-        return asdict(self)
+        return {**asdict(self), "reason": render_value(self.reason) if self.reason else ""}
 
 
 #: 本次启动的结论（lifespan 在内核启动前定下，诊断接口与通知插件读它）
@@ -108,15 +111,15 @@ def decide(settings: object, plugin_ids: list[str], *, now: float | None = None)
     pending = state.get("pending") if isinstance(state.get("pending"), dict) else None
     if forced is not None:
         reason = (
-            f"环境变量 {ENV} 要求以安全模式启动"
+            reference("plugins.safeMode.forcedEnv", env=ENV)
             if forced == "env"
-            else f"数据目录里有 {FLAG_FILE} 文件，要求以安全模式启动"
+            else reference("plugins.safeMode.forcedFile", file=FLAG_FILE)
         )
         result = SafeMode(True, reason, now, list(plugin_ids), forced)
     elif safe is not None:
         # 上次进了安全模式、用户还没退出：保持
         result = SafeMode(
-            True, str(safe.get("reason") or ""), safe.get("since"), list(plugin_ids), None
+            True, safe.get("reason") or "", safe.get("since"), list(plugin_ids), None
         )
     elif (
         pending is not None
@@ -124,15 +127,17 @@ def decide(settings: object, plugin_ids: list[str], *, now: float | None = None)
         and plugin_ids
         and now - float(pending.get("started_at") or 0) < STALE_SECONDS
     ):
-        loaded = "、".join(pending["plugins"])
-        reason = f"上次启动没能稳定运行（当时加载了插件：{loaded}），本次先不加载本地 / 第三方插件"
+        reason = reference(
+            "plugins.safeMode.unstable",
+            plugins={"message_list": pending["plugins"], "separator_key": "common.list.separator"},
+        )
         result = SafeMode(True, reason, now, list(plugin_ids), None)
         state["safe"] = {"reason": reason, "since": now}
-        logger.error("进入插件安全模式：%s", reason)
+        logger.error("进入插件安全模式：%s", source_render(reason))
     else:
         result = SafeMode()
     if result.active and result.forced is not None:
-        logger.warning("插件安全模式（手动）：%s", result.reason)
+        logger.warning("插件安全模式（手动）：%s", source_render(result.reason))
     state["pending"] = {"started_at": now, "plugins": [] if result.active else list(plugin_ids)}
     _write(path, state)
     _current = result
@@ -153,7 +158,7 @@ def exit_safe_mode(settings: object, plugin_ids: list[str], *, now: float | None
     """用户退出安全模式：清掉标记，重新开始「启动中」计时（挂回的插件再把应用拖垮，下次还会进来）。"""
     global _current
     if _current.forced == "env":
-        raise PermissionError(f"安全模式是环境变量 {ENV} 强制的，去掉它并重启才能退出")
+        raise keyed_error(PermissionError, "plugins.safeMode.envLocked", env=ENV)
     if _current.forced == "file":
         (_data_dir(settings) / FLAG_FILE).unlink(missing_ok=True)
     path = _data_dir(settings) / STATE_FILE

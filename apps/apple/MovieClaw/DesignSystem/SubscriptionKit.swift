@@ -19,7 +19,7 @@ struct SubsSheetScaffold<Content: View>: View {
     /// 顶部说明：一段不带底色的说明文字（替代 Web 弹层标题下的副标题）
     var subtitle: String?
     /// 关闭键的读屏名（界面上显示 ✕）
-    var closeTitle = "取消"
+    var closeTitle = String(localized: .commonCancel)
     var onClose: (() -> Void)?
     /// 是否显示左上 ✕：结果页只留右上「完成」，两个键做同一件事反而让人犹豫
     var closable = true
@@ -310,7 +310,7 @@ struct SubsTriChip: View {
             .overlay(Capsule().strokeBorder(stroke))
         }
         .buttonStyle(.plain)
-        .accessibilityValue(state == .include ? "只要" : state == .exclude ? "排除" : "不限")
+        .accessibilityValue(state == .include ? String(localized: .subscriptionRulesTriInclude) : state == .exclude ? String(localized: .subscriptionRulesTriExclude) : String(localized: .mediaFiltersUnlimited))
     }
 
     private var fill: Color {

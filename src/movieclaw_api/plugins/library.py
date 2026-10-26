@@ -9,6 +9,7 @@ from movieclaw_api.plugins.keys import DB, JOBS
 from movieclaw_kernel import Context, plugin
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("library.builtin-collections", title="内置合集自愈", inject=(DB,), reloadable=True)
 async def builtin_collections(ctx: Context) -> None:
     """启动时给每个媒体库补齐内置合集「我的收藏」。
@@ -32,6 +33,7 @@ async def builtin_collections(ctx: Context) -> None:
         await session.commit()
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("enrich.backfill", title="扩充属性重算", inject=(DB,), reloadable=True)
 async def enrich_backfill(ctx: Context) -> None:
     """种子识别规则升级后，启动时在后台把已缓存的站点种子按新规则重新识别一遍。"""
@@ -45,6 +47,7 @@ async def enrich_backfill(ctx: Context) -> None:
     ctx.effect(close_enrich_backfill, label="close-enrich-backfill")
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("library.disc-image-durations", title="光盘镜像片长修正", inject=(DB,), reloadable=True)
 async def disc_image_durations(ctx: Context) -> None:
     """启动后在后台修正光盘镜像（ISO）记错的片长，避免一开播就算看完、进度显示不对。"""
@@ -59,6 +62,7 @@ async def disc_image_durations(ctx: Context) -> None:
 
 
 @plugin(
+    # i18n-ignore: source default of plugins.builtins.* (guarded by test)
     "library.dolby-vision-backfill", title="杜比视界 profile 补记", inject=(DB,), reloadable=True
 )
 async def dolby_vision_backfill(ctx: Context) -> None:
@@ -73,6 +77,7 @@ async def dolby_vision_backfill(ctx: Context) -> None:
     ctx.effect(close_dolby_vision_backfill, label="close-dolby-vision-backfill")
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("library.watch", title="媒体库实时监控", inject=(DB,), disableable=True, reloadable=True)
 async def library_watch(ctx: Context) -> None:
     """监控媒体库目录，新文件落地后自动入账；删除、改名也会及时同步。"""
@@ -86,6 +91,7 @@ async def library_watch(ctx: Context) -> None:
 
 
 @plugin(
+    # i18n-ignore: source default of plugins.builtins.* (guarded by test)
     "library.ingest-watch", title="下载监听导入", inject=(DB,), disableable=True, reloadable=True
 )
 async def ingest_watch(ctx: Context) -> None:
@@ -97,6 +103,7 @@ async def ingest_watch(ctx: Context) -> None:
     ctx.effect(close_ingest_watcher, label="close-ingest-watcher")
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("library.search-index", title="媒体库搜索索引", inject=(JOBS,), reloadable=True)
 async def search_index(ctx: Context) -> None:
     """维护媒体库搜索用的名称索引（含拼音），作品新增或改名后在后台自动更新。"""
@@ -114,6 +121,7 @@ async def search_index(ctx: Context) -> None:
     ctx.task(pinyin.backfill(), name="pinyin-backfill")
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("library.skip-segments", title="片头识别启动补算", inject=(JOBS,), reloadable=True)
 async def skip_segments_recovery(ctx: Context) -> None:
     """启动后检查哪些媒体库的片头片尾识别需要重算（如算法升级），排进后台任务。"""
@@ -126,6 +134,7 @@ async def skip_segments_recovery(ctx: Context) -> None:
 
 @plugin(
     "library.media-server-refresh",
+    # i18n-ignore: source default of plugins.builtins.* (guarded by test)
     title="通知媒体服务器刷新",
     disableable=True,
     reloadable=True,

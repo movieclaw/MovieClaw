@@ -44,6 +44,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 from sqlmodel import select
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.media_labels import country_label, genre_label
 from movieclaw_api.schemas.library import (
     EpisodeView,
     FacetValueView,
@@ -106,7 +108,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_db.repositories.library_repo import LibraryRepository
-from movieclaw_media.genres import country_label, genre_label, genre_names
+from movieclaw_media.genres import genre_names
 from movieclaw_media.models import MediaKind
 
 logger = logging.getLogger("movieclaw_api.library_items")
@@ -797,8 +799,10 @@ async def build_library_index(
         for index, (_, measure) in enumerate(r for r in rows if r[0] is not None):
             if sort == "release_date":
                 fmt = "%Y" if granularity == "year" else "%Y-%m"
+                # i18n-ignore: index bucket protocol values
                 label = measure.strftime(fmt) if measure else "未知"
             elif measure is None:
+                # i18n-ignore: index bucket protocol values
                 label = "未评分"
             elif measure >= 9:
                 label = "9+"
@@ -807,6 +811,7 @@ async def build_library_index(
             elif measure >= 7:
                 label = "7+"
             else:
+                # i18n-ignore: index bucket protocol values
                 label = "更低"
             if buckets and buckets[-1][0] == label:
                 head, count, start = buckets[-1]
@@ -830,12 +835,13 @@ async def build_library_index(
 
 
 #: 观看维度的四个候选值与展示名（前三者是一个划分，见 WatchFilter）
-_WATCH_LABELS: list[tuple[WatchFilter, str]] = [
-    ("unwatched", "未看"),
-    ("watching", "在看"),
-    ("played", "已看完"),
-    ("favorite", "我收藏的"),
-]
+def _watch_labels() -> list[tuple[WatchFilter, str]]:
+    return [
+        ("unwatched", t("library.facets.unwatched")),
+        ("watching", t("library.facets.watching")),
+        ("played", t("library.facets.played")),
+        ("favorite", t("library.facets.favorite")),
+    ]
 
 
 def _facet_scope(
@@ -990,8 +996,8 @@ async def _second_tier_facets(
         member_id,
         "stock",
         [
-            ("missing", "文件失联", LibraryFilter(stock=("missing",))),
-            ("unscraped", "没刮到档案", LibraryFilter(stock=("unscraped",))),
+            ("missing", t("library.facets.missing"), LibraryFilter(stock=("missing",))),
+            ("unscraped", t("library.facets.unscraped"), LibraryFilter(stock=("unscraped",))),
         ],
         content_limit,
     )
@@ -1124,7 +1130,7 @@ async def build_library_facets(
                 break
 
     watch_counts: list[tuple[str, str, int]] = []
-    for value, label in _WATCH_LABELS:
+    for value, label in _watch_labels():
         count = (
             await session.execute(
                 select(func.count(func.distinct(LibraryFile.media_item_id)))
@@ -1163,7 +1169,11 @@ async def build_library_facets(
         ],
         # 年代按时间倒序（_DECADE_RANGES 本就是这个顺序），空档也回
         decades=[
-            FacetValueView(value=key, label="更早" if key == "earlier" else key, count=count)
+            FacetValueView(
+                value=key,
+                label=t("library.facets.earlier") if key == "earlier" else key,
+                count=count,
+            )
             for key, count in decade_counts.items()
         ],
         watch=[FacetValueView(value=v, label=lb, count=c) for v, lb, c in watch_counts],
@@ -1172,17 +1182,17 @@ async def build_library_facets(
 
 
 #: 维度名 → 展示名（放宽建议的文案用）
-_DIM_LABELS = {
-    "genres": "类型",
-    "countries": "地区",
-    "decades": "年代",
-    "watch": "观看",
-    "rating_gte": "评分",
-    "runtimes": "片长",
-    "languages": "语言",
-    "resolutions": "画质",
-    "hdr": "动态范围",
-    "stock": "库存",
+_DIM_MESSAGE_KEYS = {
+    "genres": "library.filters.genres",
+    "countries": "library.filters.regions",
+    "decades": "library.filters.decades",
+    "watch": "library.filters.watch",
+    "rating_gte": "library.filters.rating",
+    "runtimes": "library.filters.runtime",
+    "languages": "library.filters.language",
+    "resolutions": "library.filters.quality",
+    "hdr": "library.filters.dynamicRange",
+    "stock": "library.filters.stock",
 }
 
 #: 放宽建议要逐个取值评估的「多值」维度（单值的 watch / rating_gte / hdr 另处理）
@@ -1196,15 +1206,17 @@ _RELAX_LIST_DIMS = (
     "stock",
 )
 
+
 #: 二级维度里那些取值本身不可读的档位，展示名与「更多筛选」面板保持一致
-_RELAX_VALUE_LABELS = {
-    "lte60": "≤ 60′",
-    "60to90": "60–90′",
-    "90to120": "90–120′",
-    "gt120": "> 120′",
-    "missing": "文件失联",
-    "unscraped": "没刮到档案",
-}
+def _relax_value_labels() -> dict[str, str]:
+    return {
+        "lte60": "≤ 60′",
+        "60to90": "60–90′",
+        "90to120": "90–120′",
+        "gt120": "> 120′",
+        "missing": t("library.facets.missing"),
+        "unscraped": t("library.facets.unscraped"),
+    }
 
 
 async def _count_matching(
@@ -1270,7 +1282,7 @@ async def build_library_relax(
         left = await _count_matching(session, library_id, trimmed, member_id, content_limit)
         rows.append((dim, str(current), left))
 
-    watch_labels = dict(_WATCH_LABELS)
+    watch_labels = dict(_watch_labels())
 
     def _label(dim: str, value: str) -> str:
         if dim == "genres":
@@ -1278,14 +1290,14 @@ async def build_library_relax(
         if dim == "countries":
             return country_label(value)
         if dim == "decades":
-            return "更早" if value == "earlier" else value
+            return t("library.facets.earlier") if value == "earlier" else value
         if dim == "watch":
             return watch_labels.get(value, value)  # type: ignore[arg-type]
         if dim == "rating_gte":
             return f"≥ {float(value):g}"
         if dim == "hdr":
             return "HDR" if value == "True" else "SDR"
-        return _RELAX_VALUE_LABELS.get(value, value)
+        return _relax_value_labels().get(value, value)
 
     best = sorted((r for r in rows if r[2] > 0), key=lambda r: -r[2])[:3]
     return LibraryRelaxView(
@@ -1293,7 +1305,7 @@ async def build_library_relax(
         suggestions=[
             RelaxSuggestionView(
                 dim=dim,
-                dim_label=_DIM_LABELS.get(dim, dim),
+                dim_label=t(_DIM_MESSAGE_KEYS[dim]) if dim in _DIM_MESSAGE_KEYS else dim,
                 value=value,
                 label=_label(dim, value),
                 count=count,
@@ -1769,14 +1781,17 @@ async def build_kind_genres(
         "genres",
         content_limit=content_limit,
     )
-    own = genre_names(kind)
-    other = genre_names("tv" if kind == "movie" else "movie")
+    other_kind = "tv" if kind == "movie" else "movie"
+    own, other = genre_names(kind), genre_names(other_kind)
     views: list[LibraryKindGenreView] = []
     for value, count in sorted(rows, key=lambda r: (-r[1], r[0])):
         if count <= 0 or not value.lstrip("-").isdigit():
             continue
-        label = own.get(int(value)) or other.get(int(value))
-        if label:
+        genre_id = int(value)
+        # 名字按读者语言（与筛选面板同一张目录）；两张表都不认的 id 丢掉
+        source = kind if genre_id in own else other_kind if genre_id in other else None
+        if source is not None:
+            label = genre_label(source, genre_id)
             views.append(LibraryKindGenreView(value=value, label=label, count=count))
     await _assign_genre_covers(session, library_ids, views, member_id, content_limit)
     return views
@@ -2437,7 +2452,7 @@ async def build_gallery_groups(
                     kind="poster",
                     url=poster_url,
                     aspect=primary_aspect(item, width, height),
-                    label="海报",
+                    label=t("library.gallery.poster"),
                 )
             )
         if backdrop_file:
@@ -2449,7 +2464,10 @@ async def build_gallery_groups(
         if backdrop_url:
             images.append(
                 LibraryGalleryImageView(
-                    kind="backdrop", url=backdrop_url, aspect=_LANDSCAPE_ASPECT, label="剧照"
+                    kind="backdrop",
+                    url=backdrop_url,
+                    aspect=_LANDSCAPE_ASPECT,
+                    label=t("library.gallery.backdrop"),
                 )
             )
         is_tv = item.kind == "tv"
@@ -2469,7 +2487,12 @@ async def build_gallery_groups(
                             kind="still",
                             url=still_url,
                             aspect=_LANDSCAPE_ASPECT,
-                            label=f"第 {episode} 集" + (f" · {name}" if name else ""),
+                            label=t(
+                                "library.gallery.episode",
+                                episode=episode,
+                                name="yes" if name else "no",
+                                title=name,
+                            ),
                             season=season,
                             episode=episode,
                         )
@@ -2489,7 +2512,8 @@ async def build_gallery_groups(
                         kind="chapter",
                         url=f"/images/assets/{rel}?v={asset_version(rel)}",
                         aspect=_LANDSCAPE_ASPECT,
-                        label=chapter.title or f"章节 {chapter.index + 1}",
+                        label=chapter.title
+                        or t("library.gallery.chapter", index=chapter.index + 1),
                         season=season if is_tv else None,
                         episode=episode if is_tv else None,
                         t_seconds=(frame_ms if frame_ms is not None else chapter.start_ms) / 1000,
@@ -3361,7 +3385,7 @@ async def delete_item_files(
             assert row.id is not None
             files_to_remove[row.id] = path
         else:
-            result.errors.append(f"「{path}」不在库根路径之内，已跳过（不删库外文件）")
+            result.errors.append(t("library.delete.outsideRoots", path=str(path)))
 
     deleted_row_ids: set[int] = set()
     by_id = {row.id: row for row in files}
@@ -3497,7 +3521,7 @@ async def delete_single_file(
     path = Path(row.file_path)
     roots = [Path(p) for p in library.root_paths]
     if not _safe_inside_roots(path, roots):
-        result.errors.append(f"「{path}」不在库根路径之内，已跳过（不删库外文件）")
+        result.errors.append(t("library.delete.outsideRoots", path=str(path)))
         return result
 
     # 原盘目录形态整树删除前查台账：监听导入按站点原始目录结构落盘，
@@ -3505,9 +3529,7 @@ async def delete_single_file(
     if path.is_dir():
         assert row.id is not None
         if await _dir_holds_other_rows(session, library.id, path, row.id):
-            result.errors.append(
-                f"「{path}」目录内还有其他在案文件（可能是新入库的版本），已跳过整目录删除"
-            )
+            result.errors.append(t("library.delete.otherFilesInFolder", path=str(path)))
             return result
 
     if dry_run:
@@ -3628,7 +3650,9 @@ def _discard_tree(directory: Path, staging: _TrashStaging, result: DeleteResult)
     """整删条目目录（同步，放线程池）。"""
     error = _discard_one(directory, staging)
     if error is not None:
-        result.errors.append(f"删除目录失败：{directory}（{error}）")
+        result.errors.append(
+            t("library.delete.folderFailed", path=str(directory), error=str(error))
+        )
         return False
     result.removed_paths.append(str(directory))
     return True
@@ -3656,7 +3680,7 @@ def _discard_file_with_sidecars(path: Path, staging: _TrashStaging, result: Dele
     """
     error = _discard_one(path, staging)
     if error is not None:
-        result.errors.append(f"删除文件失败：{path}（{error}）")
+        result.errors.append(t("library.delete.fileFailed", path=str(path), error=str(error)))
         return False
     result.removed_paths.append(str(path))
 
@@ -3677,7 +3701,9 @@ def _discard_file_with_sidecars(path: Path, staging: _TrashStaging, result: Dele
     for sidecar in sidecars:
         error = _discard_one(sidecar, staging)
         if error is not None:
-            result.errors.append(f"删除附属文件失败：{sidecar}（{error}）")
+            result.errors.append(
+                t("library.delete.sidecarFailed", path=str(sidecar), error=str(error))
+            )
         else:
             result.removed_paths.append(str(sidecar))
     return True

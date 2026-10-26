@@ -103,6 +103,7 @@ def entry(package: Bundled) -> Entry:
     for value in vars(module).values():
         if isinstance(value, Plugin) and value.name == package.id:
             return Entry(package.id, value)
+    # i18n-ignore: developer error
     raise LookupError(f"随带插件包 {package.id} 的入口 {package.module} 里没有这个插件")
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -78,3 +78,5 @@ class NetworkTestResult(BaseModel):
     ok: bool
     latency_ms: int | None = None
     message: str
+    message_key: str | None = None
+    message_params: dict[str, Any] | None = None

@@ -192,7 +192,7 @@ async def _seed_movies(db, root, count: int):
 
 def _fake_images(progress, *, downloaded: int, reused: int, failed: int) -> None:
     """模拟刮削走到「下载图片」：第 4 / 5 步，逐张结算。"""
-    progress.phase, progress.step, progress.steps = "下载图片", 4, 5
+    progress.phase, progress.step, progress.steps = media_scrape._IMAGE_STEP, 4, 5
     progress.images.planned += downloaded + reused + failed
     for _ in range(downloaded):
         progress.images.record("downloaded", 1024 * 1024)

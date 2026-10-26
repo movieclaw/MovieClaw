@@ -40,7 +40,7 @@ struct MacMainView: View {
         @Bindable var router = router
         NavigationSplitView(columnVisibility: $columns) {
             MacSidebar()
-                .searchable(text: $router.searchText, placement: .sidebar, prompt: "片名、演员、导演")
+                .searchable(text: $router.searchText, placement: .sidebar, prompt: String(localized: .searchLibraryPrompt))
                 .searchSuggestions {
                     ForEach(router.searchSuggestions, id: \.self) { suggestion in
                         Text(suggestion).searchCompletion(suggestion)
@@ -82,25 +82,27 @@ struct MacMainView: View {
         }
         .task(id: accountKey) {
             // 切换账号、退出后自动切到别的账号时 AppModel 留了一句话：换到新账号后亮几秒
-            guard let text = model.takeNotice() else { return }
+            guard let text = model.takeNotice() ?? MacUpdater.shared.takeUpdatedNotice() else { return }
             withAnimation(.spring(duration: 0.35)) { notice = text }
             try? await Task.sleep(for: .seconds(3.5))
             withAnimation(.easeOut(duration: 0.3)) { notice = nil }
         }
         // 登录过期被送回登录页：记下停在哪，重新登录后回到这一页（AppModel.captureResume 只在过期时才真的记）
         .onDisappear { model.captureResume(tab: router.selection, path: router.paths[router.selection] ?? []) }
-        .alert("退出登录？", isPresented: $router.confirmingLogout) {
-            Button("退出", role: .destructive) {
+        .alert(String(localized: .authLogoutTitle), isPresented: $router.confirmingLogout) {
+            Button(String(localized: .authLogoutConfirm), role: .destructive) {
                 Task { await model.logout() }
             }
-            Button("取消", role: .cancel) {}
+            Button(String(localized: .commonCancel), role: .cancel) {}
         } message: {
-            Text("「\(model.session?.nickname ?? "")」在这台 Mac 上的登录会在服务器上一并注销。同一台服务器上还有别的账号时会自动切过去。")
+            Text(String(localized: .authLogoutMacDescription(model.session?.nickname ?? "")))
         }
         .toolbarVisibility(router.player == nil ? .automatic : .hidden, for: .windowToolbar)
         // 内容区顶上不垫工具栏底色（那一条灰带只是拖窗口用的空白，没有控件）；拖窗口照样在这一带
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .animation(.easeInOut(duration: 0.25), value: router.player?.id)
+        // 播放期间不弹更新窗口、收起更新胶囊（MacUpdater）
+        .onChange(of: router.player?.id, initial: true) { MacUpdater.shared.isPlaying = router.player != nil }
         .task {
             await FirstFrameGate.wait()
             // 第一次拿不到（刚启动网络还没就绪、局域网权限刚放行）隔几秒再试，别让侧边栏的「媒体库」一直空着
@@ -115,7 +117,7 @@ struct MacMainView: View {
             router.activePlayback?.close()
             let fresh = MacRouter(selection: .home)
             Self.installEarlyStart(on: fresh, model: model)
-            router = fresh
+            self.router = fresh
             MacScrollBench.shared.router = fresh
             // 库清单清空后按新账号重新取（同一个对象，免得加载任务写进被换掉的旧对象里）
             libraries.reset()
@@ -194,7 +196,7 @@ struct MacMainView: View {
                         .accessibilityHidden(!router.isSearching)
                 }
             }
-            .navigationTitle(router.isSearching ? "搜索" : rootTitle)
+            .navigationTitle(router.isSearching ? String(localized: .commonSearch) : rootTitle)
             .navigationDestination(for: AppRoute.self) { route in
                 MacDestination(route: route)
             }
@@ -204,11 +206,11 @@ struct MacMainView: View {
 
     private var rootTitle: String {
         switch router.selection {
-        case .home: "首页"
-        case .search: "搜索"
-        case .favorites: "我的收藏"
-        case let .library(id): libraries.library(id)?.name ?? "媒体库"
-        case let .collection(id): libraries.collectionName(id) ?? "合集"
+        case .home: String(localized: .navNativeHome)
+        case .search: String(localized: .commonSearch)
+        case .favorites: String(localized: .navNativeFavorites)
+        case let .library(id): libraries.library(id)?.name ?? String(localized: .navNativeLibraries)
+        case let .collection(id): libraries.collectionName(id) ?? String(localized: .navNativeCollections)
         }
     }
 
@@ -218,8 +220,8 @@ struct MacMainView: View {
         case .search: MacSearchView()
         case .home: MacHomeView()
         case let .library(id): MacLibraryView(libraryId: id)
-        case let .collection(id): MacCollectionView(collectionId: id, name: libraries.collectionName(id) ?? "合集")
-        case .favorites: MacRowWallView(title: "我的收藏", source: .favorites(sort: "favorited_at", reversed: false))
+        case let .collection(id): MacCollectionView(collectionId: id, name: libraries.collectionName(id) ?? String(localized: .navNativeCollections))
+        case .favorites: MacRowWallView(title: String(localized: .navNativeFavorites), source: .favorites(sort: "favorited_at", reversed: false))
         }
     }
 }

@@ -162,9 +162,7 @@ async def publish_download_completed(session: AsyncSession, attempt: Any) -> Non
 
     async def build() -> DownloadCompleted:
         subscription = await session.get(Subscription, attempt.subscription_id)
-        item = (
-            await session.get(MediaItem, subscription.media_item_id) if subscription else None
-        )
+        item = await session.get(MediaItem, subscription.media_item_id) if subscription else None
         return DownloadCompleted(
             subscription_id=attempt.subscription_id,
             media=event_refs.media_ref(item),

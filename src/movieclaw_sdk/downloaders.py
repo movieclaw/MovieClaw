@@ -109,8 +109,12 @@ def request_from_dict(data: dict) -> DownloadRequest:
     return DownloadRequest(**data, torrent_bytes=base64.b64decode(raw) if raw else None)
 
 
-def raise_remote(kind: str | None, message: str) -> None:
+def raise_remote(kind: str | None, message: str, message_ref: dict | None = None) -> None:
     """把进程外适配器报的下载器异常还原成同一个类型，上层的错误处理不用分两套。"""
     cls = _EXCEPTIONS.get(kind or "")
     if cls is not None:
-        raise cls(message)
+        raise cls(
+            message,
+            message_key=(message_ref or {}).get("message_key"),
+            params=(message_ref or {}).get("params"),
+        )

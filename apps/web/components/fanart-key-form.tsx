@@ -13,6 +13,8 @@
  * 已保存的旧 Key 不受影响。
  */
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useState } from "react";
 
 import { HttpError } from "@/lib/http";
@@ -23,23 +25,25 @@ export const FANART_KEY_URL = "https://fanart.tv/get-an-api-key/";
 
 type Variant = "global" | "library" | "modal";
 
-const COPY: Record<Variant, { title: string; body: string; action: string }> = {
-  global: {
-    title: "先填一次 Fanart.tv API Key",
-    body: "Fanart.tv 需要你自己的 API Key（免费注册即可获得）。只需填这一次，全站共用：之后在这里、媒体库设置、换图弹层都能直接用。",
-    action: "验证并启用",
-  },
-  library: {
-    title: "这个库要用 Fanart.tv，先填一次 API Key",
-    body: "Key 保存到全站，不只属于这个库：之后全局设置和其他库都能直接用，不用再填。",
-    action: "验证并启用",
-  },
-  modal: {
-    title: "从 Fanart.tv 找更多候选",
-    body: "需要先填一次你自己的 Fanart.tv API Key（免费注册即可获得）。填好后马上能在这里挑图，自动选图要不要用 Fanart 仍由设置里的开关决定。",
-    action: "验证并使用",
-  },
-};
+function fanartCopy(t: ReturnType<typeof appTranslator>): Record<Variant, { title: string; body: string; action: string }> {
+  return {
+    global: {
+      title: t("settings.scrape.fanartGlobalTitle"),
+      body: t("settings.scrape.fanartGlobalBody"),
+      action: t("settings.scrape.fanartEnable"),
+    },
+    library: {
+      title: t("settings.scrape.fanartLibraryTitle"),
+      body: t("settings.scrape.fanartLibraryBody"),
+      action: t("settings.scrape.fanartEnable"),
+    },
+    modal: {
+      title: t("settings.scrape.fanartModalTitle"),
+      body: t("settings.scrape.fanartModalBody"),
+      action: t("settings.scrape.fanartUse"),
+    },
+  };
+}
 
 export function FanartKeyForm({
   variant,
@@ -53,7 +57,9 @@ export function FanartKeyForm({
   onCancel: () => void;
   className?: string;
 }) {
-  const copy = COPY[variant];
+  const t = useTranslations();
+  const locale = useLocale();
+  const copy = fanartCopy(t)[variant];
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +67,7 @@ export function FanartKeyForm({
   const submit = async () => {
     const key = value.trim();
     if (!key) {
-      setError("请先粘贴 API Key");
+      setError(t("settings.scrape.fanartEmpty"));
       return;
     }
     setBusy(true);
@@ -70,7 +76,7 @@ export function FanartKeyForm({
       onVerified(await saveFanartKey(key));
     } catch (err) {
       setError(
-        err instanceof HttpError || err instanceof Error ? err.message : "验证失败，请稍后重试",
+        err instanceof HttpError || err instanceof Error ? err.message : t("settings.scrape.fanartVerifyFailed"),
       );
     } finally {
       setBusy(false);
@@ -90,7 +96,7 @@ export function FanartKeyForm({
           autoFocus
           spellCheck={false}
           autoComplete="off"
-          placeholder="粘贴 API Key"
+          placeholder={t("settings.scrape.fanartPlaceholder")}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
@@ -104,7 +110,7 @@ export function FanartKeyForm({
           onClick={() => void submit()}
           className="btn-accent shrink-0 rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-50"
         >
-          {busy ? "验证中…" : copy.action}
+          {busy ? t("settings.scrape.fanartVerifying") : copy.action}
         </button>
         <button
           type="button"
@@ -112,22 +118,23 @@ export function FanartKeyForm({
           onClick={onCancel}
           className="shrink-0 rounded-full px-3 py-1.5 text-sub text-[var(--text-faint)] transition-colors hover:text-[var(--text)] disabled:opacity-50"
         >
-          取消
+          {t("settings.scrape.cancel")}
         </button>
       </div>
       {error && <p className="mt-2 text-caption leading-relaxed text-[#ff9f9f]">{error}</p>}
       <p className="mt-2 text-micro text-[var(--text-faint)]">
-        还没有 Key？
+        {t("settings.scrape.fanartNeedKey")}
+        {locale === "zh-Hans" ? "" : " "}
         <a
           href={FANART_KEY_URL}
           target="_blank"
           rel="noreferrer"
           className="text-[var(--accent)] underline underline-offset-2"
         >
-          去 fanart.tv 免费申请 ↗
+          {t("settings.scrape.fanartGetKey")}
         </a>
         <span className="mx-1.5">·</span>
-        VIP 会员的 Key 能更快拿到刚上传的新图
+        {t("settings.scrape.fanartVipHint")}
       </p>
     </div>
   );

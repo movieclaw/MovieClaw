@@ -199,10 +199,10 @@ async def stream_clip(
     """令牌与原片取流同一种（按文件签发）。不登记播放活动：预告、刷片不算「有人在看」，
     否则在首页浏览反而会让后台预切停下来让路。"""
     if await verify_stream_token(token, file_id=file_id) is None:
-        raise NotFoundException("播放地址无效或已过期")
+        raise NotFoundException(message_key="errors.reels.urlExpired")
     info = clips.clip_for_file(file_id, start_ms)
     if info is None:
-        raise NotFoundException("片段不存在或已过期")
+        raise NotFoundException(message_key="errors.reels.clipExpired")
     return DisconnectAwareFileResponse(info.path, media_type="video/mp4")
 
 

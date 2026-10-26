@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { type ReactNode, useState } from "react";
 
 import { Banner } from "@/components/cloud-push-ui";
@@ -16,6 +17,8 @@ import { featureOff, featureOffText } from "@/lib/plugins-display";
  * 被 plugins.yaml / 环境变量关掉的没有按钮，原因里写明去哪改。功能开着、还没拿到状态、旧服务端时不显示。
  */
 export function FeatureOffNotice({ feature: key, children }: { feature: string; children: ReactNode }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const feature = useFeature(key);
   const { isAdmin } = usePermissions();
   const toast = useToast();
@@ -25,8 +28,8 @@ export function FeatureOffNotice({ feature: key, children }: { feature: string; 
   const enable = () => {
     setBusy(true);
     setFeatureEnabled(feature.key, true)
-      .then((view) => toast.success(`「${view.title}」已重新开启`))
-      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : "开启失败"))
+      .then((view) => toast.success(t("settings.featureOff.restored", { name: view.title })))
+      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : t("settings.featureOff.failed")))
       .finally(() => {
         setBusy(false);
         void refreshFeatures();
@@ -36,17 +39,17 @@ export function FeatureOffNotice({ feature: key, children }: { feature: string; 
   return (
     <Banner
       tone="info"
-      title={`「${feature.title}」已停用`}
+      title={t("settings.featureOff.title", { name: feature.title })}
       action={
         isAdmin && !feature.locked_by && feature.switchable ? (
           <button type="button" disabled={busy} onClick={enable} className={SETTINGS_BUTTON_CLASS}>
-            {busy ? "正在开启…" : "重新开启"}
+            {busy ? t("settings.featureOff.enabling") : t("settings.featureOff.enable")}
           </button>
         ) : undefined
       }
     >
       {children}
-      <span className="text-[var(--text-faint)]">（{featureOffText(feature)}）</span>
+      <span className="text-[var(--text-faint)]">{t("settings.featureOff.reason", { reason: featureOffText(feature, locale) })}</span>
     </Banner>
   );
 }

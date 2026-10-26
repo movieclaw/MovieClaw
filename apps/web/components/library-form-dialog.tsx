@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import { formatList } from "@/lib/i18n/format";
+
 import { useEffect, useRef, useState } from "react";
 
 import type { Route } from "next";
@@ -17,7 +21,7 @@ import {
   XIcon,
 } from "@/components/icons";
 import { LibraryScrapeSettings } from "@/components/library-scrape-settings";
-import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
+import { libraryKindMeta } from "@/components/library-kind-meta";
 import { Modal } from "@/components/modal";
 import { Tooltip } from "@/components/tooltip";
 import { fileToCompressedJpeg } from "@/lib/backdrop";
@@ -51,31 +55,20 @@ import type { LibraryKind } from "@/lib/media-types";
  * 首页只做浏览入口，建库与编辑落在管理页（docs/design/library-manage.md），
  * 单库页头部的「编辑库」也用这里的 LibraryFormDialog。
  */
-/** 收藏范围可选项的模块级缓存：这是后端静态常量，但 useRoutingOptions 被
- *  每张库卡片和表单弹窗各自调用——不缓存的话库首页一次挂载就打出 N 个
- *  相同请求。失败时清空缓存，下一个调用方重试。 */
-let routingOptionsPromise: Promise<RoutingOptions> | null = null;
-
-/** 收藏范围可选项（后端静态常量）；加载失败降级为 null（相关 UI 不渲染）。
- *  规则组的适用范围编辑器（rule-sets-panel）复用同一份可选项。 */
+/** 收藏范围标签使用 API 的分语言缓存；切换语言时不展示旧语言的选项。 */
 export function useRoutingOptions(): RoutingOptions | null {
-  const [options, setOptions] = useState<RoutingOptions | null>(null);
+  const locale = useLocale();
+  const [loaded, setLoaded] = useState<{ locale: typeof locale; data: RoutingOptions } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    routingOptionsPromise ??= listLibraryRoutingOptions();
-    void routingOptionsPromise
-      .then((o) => {
-        if (!cancelled) setOptions(o);
+    void listLibraryRoutingOptions(locale)
+      .then((data) => {
+        if (!cancelled) setLoaded({ locale, data });
       })
-      .catch(() => {
-        /* 静默降级：收藏范围区显示加载失败提示 */
-        routingOptionsPromise = null;
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return options;
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [locale]);
+  return loaded?.locale === locale ? loaded.data : null;
 }
 
 /** 收藏范围条件 → 表单状态（v1 两个维度：类型 ID / 区域国家码）。 */
@@ -125,49 +118,47 @@ const INPUT_CLASS =
 const LABEL_CLASS = "mb-1.5 block text-sub font-medium text-[var(--text-muted)]";
 
 /** 类型卡片的文案：讲清后果，不提识别用的是哪个数据源；「其他」放什么由用户定。 */
-const KIND_CARDS: Record<
+function kindCards(t: ReturnType<typeof appTranslator>): Record<
   LibraryKind,
   { blurb: string; traits: string; chosen: string; defaultName: string; defaults: string }
-> = {
-  movie: {
-    blurb: "自动识别影片，补齐简介、评分、演职员与海报剧照；一部片一个目录。",
-    traits: "可订阅 · 可整理文件名",
-    chosen: "自动识别并补齐元数据与图片",
-    defaultName: "电影库",
-    defaults:
-      "实时监控目录变化、扫描后保留丢失记录、为未识别文件生成封面、在首页展示。" +
-      "第一个电影库自动成为默认库；刮削偏好建好后在「编辑库」里设。",
-  },
-  tv: {
-    blurb: "自动识别剧集与季集，补齐分集信息与图片；追新订阅按集补齐。",
-    traits: "可订阅 · 可整理文件名",
-    chosen: "自动识别季集并补齐元数据与图片",
-    defaultName: "剧集库",
-    defaults:
-      "实时监控目录变化、扫描后保留丢失记录、为未识别文件生成封面、在首页展示。" +
-      "第一个剧集库自动成为默认库；刮削偏好建好后在「编辑库」里设。",
-  },
-  video: {
-    blurb:
-      "不识别、不刮削、不改名的视频：放什么由你定。有 NFO 就读 NFO，否则按文件名展示，封面从视频里抓帧。",
-    traits: "不识别 · 可播放 · 记进度",
-    chosen: "不识别不刮削，按 NFO / 文件名展示",
-    defaultName: "其他",
-    defaults:
-      "实时监控目录变化、扫描后保留丢失记录、从视频抓帧生成封面、在首页展示。" +
-      "网络挂载的目录建议建好后到「编辑库 → 扫描与监控」关掉实时监控与抓帧。",
-  },
-  photo: {
-    blurb:
-      "不识别、不刮削，扫描目录里的所有图片，按拍摄时间排成相册墙；点开全屏查看。",
-    traits: "不识别 · 全屏查看 · 按拍摄时间",
-    chosen: "扫描全部图片，按拍摄时间排成相册墙",
-    defaultName: "相册",
-    defaults:
-      "实时监控目录变化、扫描后保留丢失记录、生成缩略图、不在首页展示（批量导入会刷满「最近添加」）。" +
-      "缩略图从原图缩放而来；网络挂载的目录建议建好后到「编辑库 → 扫描与监控」关掉实时监控。",
-  },
-};
+> {
+  return {
+    movie: {
+      blurb: t("library.form.movie.blurb"),
+      traits: t("library.form.movie.traits"),
+      chosen: t("library.form.movie.chosen"),
+      defaultName: t("library.form.movie.defaultName"),
+      defaults:
+        t("library.form.movie.defaults"),
+    },
+    tv: {
+      blurb: t("library.form.tv.blurb"),
+      traits: t("library.form.tv.traits"),
+      chosen: t("library.form.tv.chosen"),
+      defaultName: t("library.form.tv.defaultName"),
+      defaults:
+        t("library.form.tv.defaults"),
+    },
+    video: {
+      blurb:
+        t("library.form.video.blurb"),
+      traits: t("library.form.video.traits"),
+      chosen: t("library.form.video.chosen"),
+      defaultName: t("library.form.video.defaultName"),
+      defaults:
+        t("library.form.video.defaults"),
+    },
+    photo: {
+      blurb:
+        t("library.form.photo.blurb"),
+      traits: t("library.form.photo.traits"),
+      chosen: t("library.form.photo.chosen"),
+      defaultName: t("library.form.photo.defaultName"),
+      defaults:
+        t("library.form.photo.defaults"),
+    },
+  };
+}
 
 /** 新建时的类型是否带识别链（决定有没有收藏范围这一步）；已有库读服务端能力位。 */
 function kindIsScraped(kind: LibraryKind): boolean {
@@ -258,6 +249,7 @@ function CloudRootRows({
   /** 还没有服务器目录：主根得是一个服务器目录 */
   needsLocal: boolean;
 }) {
+  const t = useTranslations();
   const setPrimary = (target: CloudRootDraft) =>
     onChange(
       drafts.map((x) => ({
@@ -266,7 +258,7 @@ function CloudRootRows({
       })),
     );
   const titles = new Set(options.accounts.map((a) => a.backend_title));
-  const addLabel = titles.size === 1 ? `${[...titles][0]}目录` : "网盘目录";
+  const addLabel = titles.size === 1 ? t("library.form.cloudNamedRoot", { title: [...titles][0] }) : t("library.form.cloudRoots");
   if (drafts.length === 0 && options.accounts.length === 0 && !options.hasBackends) return null;
   return (
     <>
@@ -282,7 +274,7 @@ function CloudRootRows({
           </span>
           {d.file_count != null && (
             <span className="shrink-0 text-caption tabular-nums text-[var(--text-faint)]">
-              {d.file_count.toLocaleString()} 个视频
+              {t("library.form.videoCount", { count: d.file_count })}
             </span>
           )}
           <span className="shrink-0 rounded-full bg-white/[0.08] px-2 py-0.5 text-micro font-medium text-[var(--text-muted)]">
@@ -292,28 +284,28 @@ function CloudRootRows({
             <Tooltip
               content={
                 <>
-                  <strong>主根在网盘：</strong>新下载的片子入库后先放在本地暂存目录、立即能看，后台上传到这个目录（多数秒传），传完核验后本地腾空。
+                  <strong>{t("library.form.primaryCloud")}</strong>{t("library.form.cloudNewFiles")}
                 </>
               }
             >
               <span className="shrink-0 cursor-default rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-micro font-semibold text-[var(--accent)]">
-                主根
+                {t("library.form.primaryRoot")}
               </span>
             </Tooltip>
           ) : (
-            <Tooltip content="新内容改存到这个网盘目录：入库后上传到这里，本地目录只做暂存。">
+            <Tooltip content={t("library.form.makeCloudPrimaryHint")}>
               <button
                 type="button"
                 onClick={() => setPrimary(d)}
                 className="touch-reveal shrink-0 rounded-full px-2 py-0.5 text-micro font-medium text-[var(--text-faint)] opacity-0 transition-opacity hover:bg-white/10 hover:text-white group-hover:opacity-100"
               >
-                设为主根
+                {t("library.form.makePrimary")}
               </button>
             </Tooltip>
           )}
           <button
             type="button"
-            aria-label={`移除 ${d.display_path}`}
+            aria-label={t("library.form.removeEntry", { entry: d.display_path })}
             onClick={() =>
               onChange(
                 drafts.filter(
@@ -339,33 +331,31 @@ function CloudRootRows({
       ) : (
         options.hasBackends && (
           <p className="px-1 text-caption text-[var(--text-faint)]">
-            想把网盘上已有的片子加进来？先在
-            <Link href={"/settings/drives" as Route} className="mx-1 underline underline-offset-4 hover:text-white">
-              设置 → 网盘
-            </Link>
-            添加账号。
+            {t.rich("library.form.connectCloud", { link: (chunks) => (
+              <Link href={"/settings/drives" as Route} className="mx-1 underline underline-offset-4 hover:text-white">{chunks}</Link>
+            ) })}
           </p>
         )
       )}
       {drafts.length > 0 && needsLocal && (
         <p className="px-1 text-caption leading-5 text-[var(--warn)]">
           {drafts.some((d) => d.is_primary)
-            ? "还需要一个服务器目录当本地暂存目录：新片上传前放在这里，海报与字幕也放这里。"
-            : "还需要一个服务器目录当主根：新下载的片子、海报与字幕放在这里。"}
+            ? t("library.form.needStaging")
+            : t("library.form.needPrimary")}
         </p>
       )}
       {drafts.some((d) => d.is_primary) && (
         <p className="flex items-start gap-2 rounded-xl border border-[var(--info)]/20 bg-[var(--info)]/[0.07] px-3 py-2.5 text-caption leading-5 text-[var(--text-muted)]">
           <CloudDriveIcon className="mt-0.5 size-3.5 shrink-0 text-[var(--info)]" />
           <span>
-            <strong className="font-medium text-[var(--text)]">主根在网盘：</strong>
-            新下载的片子入库后立即能看，后台上传到网盘（多数秒传），传完核验后本地自动腾空；本地已有的文件从新到旧逐个上传、逐个腾空，外网有人在看片时上传自动让路。
+            <strong className="font-medium text-[var(--text)]">{t("library.form.primaryCloud")}</strong>
+            {t("library.form.cloudExistingUpload")}
           </span>
         </p>
       )}
       {drafts.length > 0 && (
         <p className="px-1 text-caption leading-5 text-[var(--text-faint)]">
-          网盘目录里已有的片子会按文件名识别加进库里，不下载、不改动网盘上的文件；之后在网盘里新增、移动、删除的片子会自动跟上。
+          {t("library.form.cloudExistingHint")}
         </p>
       )}
     </>
@@ -392,6 +382,7 @@ function RootsEditor({
   /** 把某个服务器目录设为主根时，顺带取消网盘目录的主根 */
   onLocalPrimary?: () => void;
 }) {
+  const t = useTranslations();
   return (
     <div className="space-y-1.5">
       {roots.map((root, i) => (
@@ -406,7 +397,7 @@ function RootsEditor({
             content={
               <>
                 <p className="mb-1 break-all font-mono text-caption text-[var(--text-muted)]">{root}</p>
-                点击更改：从当前路径开始重新选择目录。
+                {t("library.form.changeFolderHint")}
               </>
             }
           >
@@ -420,9 +411,9 @@ function RootsEditor({
             </button>
           </Tooltip>
           {i === 0 && cloudPrimary && (
-            <Tooltip content="本地暂存目录：新片上传到网盘前先放在这里（硬链接入库不占额外空间），海报与字幕也放这里。">
+            <Tooltip content={t("library.form.stagingHint")}>
               <span className="shrink-0 cursor-default rounded-full bg-white/[0.08] px-2 py-0.5 text-micro font-semibold text-[var(--text-muted)]">
-                暂存
+                {t("library.form.staging")}
               </span>
             </Tooltip>
           )}
@@ -430,18 +421,17 @@ function RootsEditor({
             <Tooltip
               content={
                 <>
-                  <strong>主根 = 新内容的落盘位置。</strong>
-                  订阅与手动下载完成后，按「主根/标题 (年份)」建目录入库；
-                  一个库可挂多个根，但写入点只有主根这一个。
+                  <strong>{t("library.form.primaryMeaning")}</strong>
+                  {t("library.form.primaryHint")}
                 </>
               }
             >
               <span className="shrink-0 cursor-default rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-micro font-semibold text-[var(--accent)]">
-                主根
+                {t("library.form.primaryRoot")}
               </span>
             </Tooltip>
           ) : (
-            <Tooltip content="把该路径设为新内容的落盘位置（移到列表第一位）。已有文件不会被移动。">
+            <Tooltip content={t("library.form.makeLocalPrimaryHint")}>
               <button
                 type="button"
                 onClick={() => {
@@ -450,13 +440,13 @@ function RootsEditor({
                 }}
                 className="touch-reveal shrink-0 rounded-full px-2 py-0.5 text-micro font-medium text-[var(--text-faint)] opacity-0 transition-opacity hover:bg-white/10 hover:text-white group-hover:opacity-100"
               >
-                设为主根
+                {t("library.form.makePrimary")}
               </button>
             </Tooltip>
           )}
           <button
             type="button"
-            aria-label={`移除 ${root}`}
+            aria-label={t("library.form.removeEntry", { entry: root })}
             onClick={() => onChange(roots.filter((r) => r !== root))}
             className="shrink-0 rounded-md p-1 text-[var(--text-faint)] transition-colors hover:bg-white/10 hover:text-white"
           >
@@ -470,7 +460,7 @@ function RootsEditor({
         className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 px-3 py-2.5 text-ui font-medium text-[var(--text-muted)] transition-colors hover:border-[var(--accent)]/50 hover:text-white"
       >
         <PlusIcon className="size-4" />
-        {roots.length === 0 ? "浏览服务器目录并添加" : "添加目录"}
+        {roots.length === 0 ? t("library.form.browseServer") : t("library.form.addFolder")}
       </button>
       {cloud}
     </div>
@@ -547,10 +537,11 @@ export function ScopeEditor({
   onGenres: (next: number[]) => void;
   options: RoutingOptions | null;
 }) {
+  const t = useTranslations();
   if (options === null) {
     return (
       <p className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sub text-[var(--text-faint)]">
-        正在加载可选项…
+        {t("library.form.loadingOptions")}
       </p>
     );
   }
@@ -559,7 +550,7 @@ export function ScopeEditor({
   return (
     <>
       <div>
-        <label className={LABEL_CLASS}>区域（勾选任一即匹配）</label>
+        <label className={LABEL_CLASS}>{t("library.form.matchRegions")}</label>
         {/* 已选中但不在内置映射里的码补进列表，保证选了就能看见、能取消 */}
         <div className="flex flex-wrap gap-1.5">
           {[
@@ -584,7 +575,7 @@ export function ScopeEditor({
           ))}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-caption text-[var(--text-faint)]">快捷组合</span>
+          <span className="text-caption text-[var(--text-faint)]">{t("library.form.regionPresets")}</span>
           <button
             type="button"
             onClick={() =>
@@ -596,7 +587,7 @@ export function ScopeEditor({
             }
             className="glass-row nav-item !w-auto px-2.5 py-1 text-caption font-medium"
           >
-            {allCountries.every((c) => regions.includes(c)) ? "清空" : "全选"}
+            {allCountries.every((c) => regions.includes(c)) ? t("common.clear") : t("common.selectAll")}
           </button>
           {options.region_presets.map((preset) => {
             const active = preset.countries.every((c) => regions.includes(c));
@@ -622,7 +613,7 @@ export function ScopeEditor({
         </div>
       </div>
       <div>
-        <label className={LABEL_CLASS}>类型（勾选任一即匹配）</label>
+        <label className={LABEL_CLASS}>{t("library.form.matchGenres")}</label>
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
@@ -635,7 +626,7 @@ export function ScopeEditor({
             }
             className="glass-row nav-item !w-auto px-2.5 py-1 text-caption font-medium"
           >
-            {genreOptions.every((g) => genres.includes(g.id)) ? "清空" : "全选"}
+            {genreOptions.every((g) => genres.includes(g.id)) ? t("common.clear") : t("common.selectAll")}
           </button>
           {genreOptions.map((g) => (
             <button
@@ -656,8 +647,7 @@ export function ScopeEditor({
       </div>
       {regions.length > 0 && genres.length > 0 && (
         <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-          区域与类型须<strong className="font-medium text-[var(--text-muted)]">同时满足</strong>
-          （如「日韩 + 动画」= 只收日韩的动画）。
+          {t.rich("library.form.scopeBoth", { strong: (chunks) => <strong className="font-medium text-[var(--text-muted)]">{chunks}</strong> })}
         </p>
       )}
     </>
@@ -671,9 +661,10 @@ function scopeSummary(
   genres: number[],
   options: RoutingOptions | null,
 ): { declared: boolean; text: string } {
+  const t = appTranslator();
   if (options === null) {
     const declared = regions.length > 0 || genres.length > 0;
-    return { declared, text: declared ? "已声明收藏范围" : "未声明" };
+    return { declared, text: declared ? t("library.form.scopeSet") : t("library.form.scopeUnset") };
   }
   const genreOptions = kind === "movie" ? options.movie_genres : options.tv_genres;
   const parts = [
@@ -684,8 +675,8 @@ function scopeSummary(
       .join(" / "),
   ].filter(Boolean);
   return parts.length > 0
-    ? { declared: true, text: parts.join(" 的 ") }
-    : { declared: false, text: "未声明" };
+    ? { declared: true, text: parts.length === 2 ? t("library.form.scopeDescription", { regions: parts[0], genres: parts[1] }) : parts[0] }
+    : { declared: false, text: t("library.form.scopeUnset") };
 }
 
 /** 类型 ID 只保留当前库类型下有效的（切换过类型时另一类型独有的 ID 不带进声明）。 */
@@ -721,6 +712,8 @@ function CreateLibraryDialog({
   onClose: () => void;
   onSaved: (saved: MediaLibrary) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [kind, setKind] = useState<LibraryKind | null>(null);
   const [name, setName] = useState("");
@@ -747,9 +740,9 @@ function CreateLibraryDialog({
 
   const chooseKind = (next: LibraryKind) => {
     // 名称按类型预填；用户已经改过的名字不动
-    const untouched = name.trim() === "" || (kind !== null && name === KIND_CARDS[kind].defaultName);
+    const untouched = name.trim() === "" || (kind !== null && name === kindCards(t)[kind].defaultName);
     setKind(next);
-    if (untouched) setName(KIND_CARDS[next].defaultName);
+    if (untouched) setName(kindCards(t)[next].defaultName);
     if (!kindIsScraped(next)) {
       setRegions([]);
       setGenres([]);
@@ -789,32 +782,32 @@ function CreateLibraryDialog({
   // 主按钮随步骤变化：第 2 步对影视库是「下一步」，最后一步保存即扫描
   const primary =
     step === 1
-      ? { label: "创建并开始扫描", disabled: true, action: () => {} }
+      ? { label: t("library.form.createAndScan"), disabled: true, action: () => {} }
       : step === 2 && hasScope
-        ? { label: "下一步：收藏范围", disabled: !ready, action: () => setStep(3) }
+        ? { label: t("library.form.nextScope"), disabled: !ready, action: () => setStep(3) }
         : {
             label: busy
-              ? "创建中…"
+              ? t("library.form.creating")
               : step === 3 && scope !== null && !scope.declared
-                ? "跳过，创建并开始扫描"
-                : "创建并开始扫描",
+                ? t("library.form.skipAndCreate")
+                : t("library.form.createAndScan"),
             disabled: !ready || busy,
             action: submit,
           };
   const footNote =
-    `第 ${step} 步，共 ${totalSteps} 步` + (step === totalSteps ? " · 保存即开始扫描存量文件" : "");
+    t("library.form.stepProgress", { step, total: totalSteps }) + (step === totalSteps ? t("library.form.scanOnSaveSuffix") : "");
 
   return (
     <>
-      <Modal open onClose={onClose} label="添加媒体库" width="2xl" panelClassName="flex max-h-[86dvh] flex-col">
+      <Modal open onClose={onClose} label={t("library.form.addTitle")} width="2xl" panelClassName="flex max-h-[86dvh] flex-col">
         <div className="shrink-0 border-b border-white/[0.06] px-6 pt-5 max-md:px-5">
-          <h2 className="text-title font-bold text-white">添加媒体库</h2>
+          <h2 className="text-title font-bold text-white">{t("library.form.addTitle")}</h2>
           <ol className="mt-3.5 flex gap-5 text-caption font-semibold uppercase tracking-[0.06em]">
             {(
               [
-                [1, "1 · 选类型"],
-                [2, "2 · 名称与目录"],
-                [3, "3 · 收藏范围"],
+                [1, t("library.form.stepType")],
+                [2, t("library.form.stepFolders")],
+                [3, t("library.form.stepScope")],
               ] as const
             )
               .filter(([n]) => n !== 3 || hasScope)
@@ -837,9 +830,9 @@ function CreateLibraryDialog({
           {step === 1 && (
             <>
               <div className="grid grid-cols-2 gap-2.5 max-md:grid-cols-1">
-                {(Object.keys(LIBRARY_KIND_META) as LibraryKind[]).map((k) => {
-                  const { label, Icon } = LIBRARY_KIND_META[k];
-                  const card = KIND_CARDS[k];
+                {(Object.keys(libraryKindMeta(locale)) as LibraryKind[]).map((k) => {
+                  const { label, Icon } = libraryKindMeta(locale)[k];
+                  const card = kindCards(t)[k];
                   return (
                     <button
                       key={k}
@@ -857,7 +850,7 @@ function CreateLibraryDialog({
                 })}
               </div>
               <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-                类型决定这个库怎么扫、怎么摆、能不能订阅，创建后不可更改。
+                {t("library.form.typeHint")}
               </p>
             </>
           )}
@@ -865,26 +858,26 @@ function CreateLibraryDialog({
           {step === 2 && kind !== null && (
             <>
               {(() => {
-                const { label, Icon } = LIBRARY_KIND_META[kind];
+                const { label, Icon } = libraryKindMeta(locale)[kind];
                 return (
                   <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2.5">
                     <Icon className="size-[18px] shrink-0 text-[var(--accent)]" />
                     <span className="font-semibold text-white">{label}</span>
                     <span className="min-w-0 truncate text-caption text-[var(--text-muted)]">
-                      {KIND_CARDS[kind].chosen}
+                      {kindCards(t)[kind].chosen}
                     </span>
                     <button
                       type="button"
                       onClick={() => setStep(1)}
                       className="ml-auto shrink-0 text-caption text-[var(--text-faint)] underline underline-offset-4 hover:text-white"
                     >
-                      换类型
+                      {t("library.form.changeType")}
                     </button>
                   </div>
                 );
               })()}
               <div>
-                <label className={LABEL_CLASS}>名称</label>
+                <label className={LABEL_CLASS}>{t("library.form.name")}</label>
                 <input
                   type="text"
                   value={name}
@@ -893,15 +886,15 @@ function CreateLibraryDialog({
                     // isComposing：中文输入法选词的回车不当提交
                     if (e.key === "Enter" && !e.nativeEvent.isComposing && !primary.disabled) primary.action();
                   }}
-                  placeholder="如：电影库 / 动漫库"
+                  placeholder={t("library.form.namePlaceholder")}
                   autoComplete="off"
                   className={INPUT_CLASS}
                 />
               </div>
               <div>
                 <label className={LABEL_CLASS}>
-                  根目录
-                  <span className="font-normal text-[var(--text-faint)]">（第一个为主根，新内容落在这里）</span>
+                  {t("library.form.roots")}
+                  <span className="font-normal text-[var(--text-faint)]">{t("library.form.primaryNote")}</span>
                 </label>
                 <RootsEditor
                   roots={roots}
@@ -923,7 +916,7 @@ function CreateLibraryDialog({
                 />
               </div>
               <div>
-                <label className={LABEL_CLASS}>可见范围</label>
+                <label className={LABEL_CLASS}>{t("library.form.accessScope")}</label>
                 <AccessScopeEditor
                   mode={accessMode}
                   adminVisible={adminVisible}
@@ -936,8 +929,8 @@ function CreateLibraryDialog({
               <div className="flex items-start gap-2.5 rounded-xl border border-[var(--info)]/20 bg-[var(--info)]/[0.07] px-3.5 py-3 text-caption leading-relaxed text-[var(--text-muted)]">
                 <InfoIcon className="mt-0.5 size-4 shrink-0 text-[var(--info)]" />
                 <p>
-                  <strong className="font-medium text-[var(--text)]">已按推荐值设好：</strong>
-                  {KIND_CARDS[kind].defaults}
+                  <strong className="font-medium text-[var(--text)]">{t("library.form.defaultsIntro")}</strong>
+                  {kindCards(t)[kind].defaults}
                 </p>
               </div>
             </>
@@ -946,9 +939,7 @@ function CreateLibraryDialog({
           {step === 3 && kind !== null && (
             <>
               <p className="text-sub leading-relaxed text-[var(--text-muted)]">
-                声明「本库收什么」，订阅与自动入库就会按作品的区域和类型自动选进这个库。
-                <strong className="font-medium text-[var(--text)]">全部留空也可以</strong>
-                ：作为默认库承接所有未命中的作品；订阅时永远可以手动改库。
+                {t.rich("library.form.scopeIntroduction", { strong: (chunks) => <strong className="font-medium text-[var(--text)]">{chunks}</strong> })}
               </p>
               <ScopeEditor
                 kind={kind}
@@ -960,8 +951,8 @@ function CreateLibraryDialog({
               />
               <p className="text-caption leading-relaxed text-[var(--text-faint)]">
                 {scope?.declared
-                  ? `当前：收 ${scope.text}；其他作品去该类型的默认库。`
-                  : "当前：未声明，本库将承接该类型全部未命中的作品。"}
+                  ? t("library.form.scopeCurrent", { scope: scope.text })
+                  : t("library.form.scopeFallback")}
               </p>
             </>
           )}
@@ -981,7 +972,7 @@ function CreateLibraryDialog({
                 onClick={step === 1 ? onClose : () => setStep(step === 3 ? 2 : 1)}
                 className="btn-glass h-9 px-4 text-ui font-medium"
               >
-                {step === 1 ? "取消" : "上一步"}
+                {step === 1 ? t("common.cancel") : t("library.form.previousStep")}
               </button>
               <button
                 type="button"
@@ -1034,6 +1025,7 @@ function CoverEditor({
   custom: boolean;
   onChange: (next: boolean) => void;
 }) {
+  const t = useTranslations();
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1076,7 +1068,7 @@ function CoverEditor({
         <div className="relative aspect-[21/10] w-52 shrink-0 overflow-hidden rounded-xl border border-white/[0.08] bg-gradient-to-br from-[#1c2230] to-[#10131c] max-md:w-full">
           {failed ? (
             <div className="grid size-full place-items-center text-caption text-[var(--text-faint)]">
-              暂无封面
+              {t("library.form.noCover")}
             </div>
           ) : (
             <img
@@ -1092,12 +1084,11 @@ function CoverEditor({
         <div className="min-w-0 flex-1 space-y-2.5">
           <p className="text-sub leading-6 text-[var(--text-muted)]">
             {custom
-              ? "当前用的是你上传的封面。恢复后会重新按库内最近入库的作品自动拼贴。"
-              : "当前是自动拼贴：取库内最近入库的 4 部作品的海报。上传一张图即可换掉它。"}
+              ? t("library.form.customCoverHint")
+              : t("library.form.autoCoverHint")}
           </p>
           <p className="text-caption leading-5 text-[var(--text-faint)]">
-            推荐 21:10 的横图（如 1260×600）。上传的图会自动压缩（长边 1600 的 JPEG），
-            控制台与播放器（Jellyfin 客户端）用的是同一张。上传后立即生效，无需点保存。
+            {t("library.form.coverUploadHint")}
           </p>
           <div className="flex flex-wrap items-center gap-2.5">
             <button
@@ -1106,7 +1097,7 @@ function CoverEditor({
               disabled={busy}
               className="btn-glass h-8 px-3.5 text-ui font-medium disabled:opacity-40"
             >
-              {busy ? "处理中…" : custom ? "换一张" : "上传封面"}
+              {busy ? t("library.form.processingCover") : custom ? t("library.form.replaceCover") : t("library.form.uploadCover")}
             </button>
             {custom && (
               <button
@@ -1115,7 +1106,7 @@ function CoverEditor({
                 disabled={busy}
                 className="btn-glass h-8 px-3.5 text-ui font-medium text-[var(--text-muted)] disabled:opacity-40"
               >
-                恢复自动拼贴
+                {t("library.form.restoreAutoCover")}
               </button>
             )}
           </div>
@@ -1159,6 +1150,7 @@ function AccessScopeEditor({
   onAdminVisible: (next: boolean) => void;
   onMemberIds: (next: number[]) => void;
 }) {
+  const t = useTranslations();
   const [members, setMembers] = useState<MemberView[] | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -1187,7 +1179,7 @@ function AccessScopeEditor({
   const nobody = mode === "selected" && !adminVisible && memberIds.length === 0;
   // 超管与成员同列一份名单：超管用固定 id "admin"，成员用数字 id
   const options: ViewerOption[] = [
-    { id: ADMIN_OPTION_ID, label: "超管（我自己）", hint: "你自己" },
+    { id: ADMIN_OPTION_ID, label: t("library.form.adminSelf"), hint: t("library.form.yourself") },
     ...(members ?? []).map((m) => ({
       id: m.id,
       label: m.nickname || m.username,
@@ -1205,13 +1197,13 @@ function AccessScopeEditor({
   return (
     <div>
       <div className="inline-flex rounded-lg border border-white/[0.08] bg-white/[0.035] p-1">
-        {modeButton("everyone", "所有成员")}
-        {modeButton("selected", "指定成员")}
+        {modeButton("everyone", t("library.form.allMembers"))}
+        {modeButton("selected", t("library.form.selectedMembers"))}
       </div>
       <p className="mt-2 text-caption leading-relaxed text-[var(--text-faint)]">
         {mode === "everyone"
-          ? "对全部成员开放，包括以后新建的成员；成员管理页里切到「指定库」的成员除外。"
-          : "只有选中的人能浏览这个库的内容；其他人在首页、搜索、最近观看和播放器里都看不到它。你始终可以管理它。"}
+          ? t("library.form.everyoneHint")
+          : t("library.form.selectedHint")}
       </p>
       {mode === "selected" && (
         <div className="mt-3">
@@ -1225,7 +1217,7 @@ function AccessScopeEditor({
       )}
       {nobody && (
         <p className="mt-2.5 text-caption leading-relaxed text-[var(--warn)]">
-          当前没有任何人能浏览这个库的内容，包括你自己。你仍然可以在这里管理它。
+          {t("library.form.noViewersWarning")}
         </p>
       )}
     </div>
@@ -1256,6 +1248,7 @@ function ViewerCombobox({
   onChange: (next: ViewerOptionId[]) => void;
   loading: boolean;
 }) {
+  const t = useTranslations();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -1294,7 +1287,7 @@ function ViewerCombobox({
             {o.label}
             <button
               type="button"
-              aria-label={`移除 ${o.label}`}
+              aria-label={t("library.form.removeEntry", { entry: o.label })}
               onClick={(e) => {
                 e.stopPropagation();
                 toggle(o.id);
@@ -1311,7 +1304,7 @@ function ViewerCombobox({
           aria-expanded={open}
           aria-controls="viewer-combobox-list"
           value={query}
-          placeholder={chosen.length === 0 ? "输入昵称或用户名搜索，选择可浏览的人" : "继续添加…"}
+          placeholder={chosen.length === 0 ? t("library.form.viewerPlaceholder") : t("library.form.addMoreViewers")}
           onChange={(e) => {
             setQuery(e.target.value);
             setOpen(true);
@@ -1347,9 +1340,9 @@ function ViewerCombobox({
           className="mt-1.5 max-h-56 overflow-y-auto rounded-xl border border-white/[0.08] bg-white/[0.04] p-1"
         >
           {loading ? (
-            <p className="px-3 py-2 text-caption text-[var(--text-faint)]">正在读取成员…</p>
+            <p className="px-3 py-2 text-caption text-[var(--text-faint)]">{t("library.form.loadingMembers")}</p>
           ) : matches.length === 0 ? (
-            <p className="px-3 py-2 text-caption text-[var(--text-faint)]">没有匹配的成员</p>
+            <p className="px-3 py-2 text-caption text-[var(--text-faint)]">{t("library.form.noMembersMatch")}</p>
           ) : (
             matches.map((o, index) => {
               const on = selected.includes(o.id);
@@ -1390,11 +1383,12 @@ function accessScopeSummary(
   adminVisible: boolean,
   memberCount: number,
 ): string {
-  if (mode === "everyone") return "所有成员";
-  const parts = [adminVisible ? "我自己" : null, memberCount > 0 ? `${memberCount} 位成员` : null].filter(
+  const t = appTranslator();
+  if (mode === "everyone") return t("library.form.allMembers");
+  const parts = [adminVisible ? t("library.form.myself") : null, memberCount > 0 ? t("library.form.memberCount", { count: memberCount }) : null].filter(
     (v): v is string => v !== null,
   );
-  return parts.length > 0 ? `指定成员：${parts.join(" + ")}` : "指定成员：暂无任何人可浏览";
+  return parts.length > 0 ? t("library.form.selectedViewers", { viewers: parts.join(" + ") }) : t("library.form.noSelectedViewers");
 }
 
 /** 开关行：一句话标题 + ⓘ 长说明 + 开关；长篇解释不再常驻表单里。 */
@@ -1409,6 +1403,7 @@ function SwitchRow({
   checked: boolean;
   onChange: (next: boolean) => void;
 }) {
+  const t = useTranslations();
   return (
     <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] py-2.5 first:border-t-0">
       <div className="flex items-center gap-1.5 text-ui font-medium text-[var(--text)]">
@@ -1416,7 +1411,7 @@ function SwitchRow({
         <Tooltip content={detail} openOnClick>
           <button
             type="button"
-            aria-label={`${title}的说明`}
+            aria-label={t("library.form.aboutSetting", { title })}
             className="grid size-4 place-items-center rounded-full border border-white/[0.14] text-[10px] font-semibold text-[var(--text-faint)] hover:border-[var(--accent-2)] hover:text-white"
           >
             i
@@ -1443,16 +1438,17 @@ function SwitchRow({
 
 /** 刮削覆盖的摘要："已覆盖 3 项 · 元数据 · 命名与整理"；键按前缀归到设置页的四个分区。 */
 function scrapeOverrideSummary(overrides: Record<string, unknown>): string | null {
+  const t = appTranslator();
   const keys = Object.keys(overrides);
   if (keys.length === 0) return null;
   const groups = new Set<string>();
   for (const key of keys) {
-    if (key.startsWith("naming_")) groups.add("命名与整理");
-    else if (key.startsWith("mirror_")) groups.add("目录写入");
-    else if (/^(poster|backdrop|still)_/.test(key)) groups.add("图片");
-    else groups.add("元数据");
+    if (key.startsWith("naming_")) groups.add(t("library.form.naming"));
+    else if (key.startsWith("mirror_")) groups.add(t("library.form.folderWrites"));
+    else if (/^(poster|backdrop|still)_/.test(key)) groups.add(t("library.form.images"));
+    else groups.add(t("library.form.metadata"));
   }
-  return `已覆盖 ${keys.length} 项 · ${[...groups].join(" · ")}`;
+  return t("library.form.overrideSummary", { count: keys.length, groups: [...groups].join(" · ") });
 }
 
 function EditLibraryDialog({
@@ -1464,6 +1460,8 @@ function EditLibraryDialog({
   onClose: () => void;
   onSaved: (saved: MediaLibrary) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const scraped = library.capabilities.scraped;
   // 图片库：条目只看不播，缩略图从原图缩放而来（不是抓帧），开关文案随之换
   const playable = library.capabilities.playable;
@@ -1508,12 +1506,12 @@ function EditLibraryDialog({
   const routingOptions = useRoutingOptions();
 
   const ready = name.trim().length > 0 && roots.length > 0;
-  const missing = [name.trim() ? null : "名称", roots.length > 0 ? null : "根目录"].filter(
+  const missing = [name.trim() ? null : t("library.form.name"), roots.length > 0 ? null : t("library.form.roots")].filter(
     (v): v is string => v !== null,
   );
   const scope = scopeSummary(library.kind, regions, genres, routingOptions);
   const scrapeText = scrapeOverrideSummary(scrapeOverrides);
-  const { label: kindLabel, Icon: KindIcon } = LIBRARY_KIND_META[library.kind];
+  const { label: kindLabel, Icon: KindIcon } = libraryKindMeta(locale)[library.kind];
 
   const submit = () => {
     if (!ready || busy) return;
@@ -1554,21 +1552,21 @@ function EditLibraryDialog({
   const sections: { id: EditSectionId; title: string; summary: React.ReactNode; body: React.ReactNode }[] = [
     {
       id: "basic",
-      title: "基本信息",
+      title: t("library.form.basic"),
       summary: (
         <>
-          <span className="text-[var(--text)]">{name.trim() || "未命名"}</span>
+          <span className="text-[var(--text)]">{name.trim() || t("library.form.unnamed")}</span>
           <span dir="rtl" className="min-w-0 truncate font-mono text-[var(--text-faint)]">
-            {roots[0] ? "‎" + roots[0] + "‎" : "未设根目录"}
+            {roots[0] ? "‎" + roots[0] + "‎" : t("library.form.noRoot")}
           </span>
-          {roots.length > 1 && <span className="text-[var(--text-faint)]">等 {roots.length} 个目录</span>}
-          {cloud.length > 0 && <span className="text-[var(--text-faint)]">+ {cloud.length} 个网盘目录</span>}
+          {roots.length > 1 && <span className="text-[var(--text-faint)]">{t("library.form.rootCount", { count: roots.length })}</span>}
+          {cloud.length > 0 && <span className="text-[var(--text-faint)]">{t("library.form.cloudRootCount", { count: cloud.length })}</span>}
         </>
       ),
       body: (
         <>
           <div>
-            <label className={LABEL_CLASS}>名称</label>
+            <label className={LABEL_CLASS}>{t("library.form.name")}</label>
             <input
               type="text"
               value={name}
@@ -1579,7 +1577,7 @@ function EditLibraryDialog({
           </div>
           <div>
             <label className={LABEL_CLASS}>
-              根目录<span className="font-normal text-[var(--text-faint)]">（第一个为主根，新内容落在这里）</span>
+              {t("library.form.roots")}<span className="font-normal text-[var(--text-faint)]">{t("library.form.primaryNote")}</span>
             </label>
             <RootsEditor
               roots={roots}
@@ -1603,16 +1601,16 @@ function EditLibraryDialog({
             {cloudKnown && playable && cloud.some((c) => c.is_primary) && library.keep_local !== undefined && (
               <div className="mt-2">
                 <SwitchRow
-                  title="本地也保留一份"
+                  title={t("library.form.keepLocal")}
                   checked={keepLocal}
                   onChange={setKeepLocal}
-                  detail="开着：传到网盘后本地那份不删，两边都留、当备份（不腾空间）。关着：上传核验、本地的派生活（规格、片头片尾等）做完后，本地那份自动腾空，之后播放读网盘。"
+                  detail={t("library.form.keepLocalHint")}
                 />
               </div>
             )}
             {removedCloudFiles > 0 && (
               <p className="mt-2 rounded-lg border border-[var(--warn)]/30 bg-[var(--warn)]/[0.07] px-3 py-2 text-caption leading-5 text-[var(--text-muted)]">
-                保存后，拿掉的网盘目录里的 {removedCloudFiles.toLocaleString()} 个视频会从库里移除（只删记录，网盘上的文件不动；重新挂上会重新识别）。
+                {t("library.form.removedCloudFiles", { count: removedCloudFiles })}
               </p>
             )}
           </div>
@@ -1621,101 +1619,101 @@ function EditLibraryDialog({
     },
     {
       id: "cover",
-      title: "封面",
+      title: t("library.form.cover"),
       summary: (
         <span className="text-[var(--text-muted)]">
-          {customCover ? "自定义封面" : "自动拼贴（库内最近入库的作品）"}
+          {customCover ? t("library.form.customCover") : t("library.form.autoCover")}
         </span>
       ),
       body: <CoverEditor libraryId={library.id} custom={customCover} onChange={setCustomCover} />,
     },
     {
       id: "scan",
-      title: "扫描与监控",
+      title: t("library.form.scanning"),
       summary: (
         <>
-          {dot(realtimeWatch, "实时监控")}
-          {dot(autoClearMissing, "自动清理丢失")}
+          {dot(realtimeWatch, t("library.form.monitoring"))}
+          {dot(autoClearMissing, t("library.form.autoClearMissing"))}
           {dot(
             generateThumbnails,
-            scraped ? "抓帧补图" : playable ? "抓帧封面" : "缩略图",
+            scraped ? t("library.form.fillMissingImages") : playable ? t("library.form.frameCovers") : t("library.form.thumbnails"),
           )}
-          {playable && dot(extractChapterImages, "章节")}
-          {library.kind === "tv" && dot(detectMediaSegments, "片头片尾")}
-          {dot(!excludeFromHome, "首页展示")}
-          {library.kind !== "photo" && dot(autoSeriesCollections, "系列合集")}
+          {playable && dot(extractChapterImages, t("library.form.chapters"))}
+          {library.kind === "tv" && dot(detectMediaSegments, t("library.form.introCredits"))}
+          {dot(!excludeFromHome, t("library.form.homeDisplay"))}
+          {library.kind !== "photo" && dot(autoSeriesCollections, t("library.form.seriesCollections"))}
         </>
       ),
       body: (
         <div>
           <SwitchRow
-            title="实时监控目录变化"
+            title={t("library.form.watchChanges")}
             checked={realtimeWatch}
             onChange={setRealtimeWatch}
             detail={
               library.network_mount
-                ? "检测到根路径在网络挂载（NFS/SMB）上：这里收不到远端的变化通知，开着也不会建监听。新文件由定期对账发现（可在「设置 → 应用 → 定时任务」调周期，增量对账通常只需几秒）。"
-                : "新文件落盘后自动增量扫描入库。SMB/NFS 等网络挂载收不到远端变化通知、建立监听还很慢，建议关闭；关闭后由定期对账和手动扫描发现新文件，不实时但不会缺失。"
+                ? t("library.form.networkWatchHint")
+                : t("library.form.watchHint")
             }
           />
           <SwitchRow
-            title="扫描后自动清理丢失记录"
+            title={t("library.form.clearMissingAfterScan")}
             checked={autoClearMissing}
             onChange={setAutoClearMissing}
-            detail="自己在磁盘上删了片子后，扫描结束即把这些记录清出台账。只删记录、不动磁盘，但记录删了不可恢复——「缺失」清单里的「重新下载」也会随之消失。关闭时记录保留，文件回归自动恢复；目录读不动的那一轮不会清理。"
+            detail={t("library.form.clearMissingHint")}
           />
           <SwitchRow
             title={
               scraped
-                ? "缺图时从视频抓帧补图"
+                ? t("library.form.frameFallback")
                 : playable
-                  ? "从视频抓帧生成封面"
-                  : "生成缩略图"
+                  ? t("library.form.generateCovers")
+                  : t("library.form.generateThumbs")
             }
             checked={generateThumbnails}
             onChange={setGenerateThumbnails}
             detail={
               scraped
-                ? "未识别文件的封面、以及 TMDB 没有剧照的分集，从视频本身抓一帧顶上；TMDB 有图时始终用 TMDB 的。网络挂载库抓帧需要读取每个文件，介意流量可关闭，关闭后显示占位图。"
+                ? t("library.form.scrapedFrameHint")
                 : playable
-                  ? "没有在线海报的内容从视频本身抓一帧当封面：优先用同名图片或内嵌封面，没有再抓帧。网络挂载库抓帧需要读取每个文件，介意流量可关闭，关闭后显示占位图。"
-                  : "把原图缩到长边 720 像素当相册墙上的缩略图，网格只加载缩略图。关闭后墙会直接加载原图，大照片会很慢；只有网络挂载的大库介意流量时才建议关。"
+                  ? t("library.form.localFrameHint")
+                  : t("library.form.thumbnailHint")
             }
           />
           {/* 章节是视频的事：图片库（不可播）没有这一项 */}
           {playable && (
             <SwitchRow
-              title="生成章节"
+              title={t("library.status.generateChapters")}
               checked={extractChapterImages}
               onChange={setExtractChapterImages}
-              detail="每个视频按章节（有内嵌章节用内嵌，没有按时长切成 3～12 段）各抓一张画面：条目页出「章节」横排、点一张从那里开始播，Infuse 等播放器也能按这些章节跳转。每个文件要定位读取若干次，比较耗 CPU 与读取量，所以默认关闭。打开后立即在后台低优先级补齐库内已有的视频，之后随扫描与入库自动生成；关闭后不再生成也不再展示，进行中的生成随之停止，已生成的图保留、再打开即恢复。视频自带的章节不受影响，播放器进度条上照常显示。"
+              detail={t("library.form.chaptersHint")}
             />
           )}
           {/* 片头片尾靠同一季多集互相比对认出来：只有剧集库有这一项 */}
           {library.kind === "tv" && (
             <SwitchRow
-              title="识别片头片尾"
+              title={t("library.form.detectIntros")}
               checked={detectMediaSegments}
               onChange={setDetectMediaSegments}
-              detail="每集入库时听一遍开头 10 分钟和结尾 7 分钟的声音，同一季互相比对，认出片头、片尾和片头前的冠名广告。播放时到片头会出现「跳过片头」，片尾一开始就提前弹出「即将播放下一集」，Infuse 等播放器也能用。新集入库时顺手就算完；打开后已有的剧集在后台低优先级慢慢补，正在追的剧排在最前。关闭后不再识别、播放时不再给按钮，已认出的结果保留、再打开即恢复。"
+              detail={t("library.form.introsHint")}
             />
           )}
           <SwitchRow
-            title="在首页展示"
+            title={t("library.actions.showHome")}
             checked={!excludeFromHome}
             onChange={(next) => setExcludeFromHome(!next)}
-            detail="关闭后首页「最近添加」与 Jellyfin 客户端的「最新媒体」都跳过这个库；库卡片仍在，进库内看照常。"
+            detail={t("library.form.homeDisplayHint")}
           />
           {/* 系列是"作品的属性"：影视库来自 TMDB，其他库来自视频旁 NFO 的 <set>；照片没有系列 */}
           {library.kind !== "photo" && (
             <SwitchRow
-              title="按作品系列自动生成合集"
+              title={t("library.form.autoCollections")}
               checked={autoSeriesCollections}
               onChange={setAutoSeriesCollections}
               detail={
                 scraped
-                  ? "《哈利·波特》《碟中谍》这类系列会在合集页自动成集，按上映顺序排列，还能看出你缺哪几部、一键去补。这只是**展示**偏好：关掉之后系列信息照常入库、NFO 里照常写，Kodi/Emby 那边不受影响，只是我们的合集页不再自动多出几十个系列；重新打开会把已有的补齐，不会重新刮削。"
-                  : "视频旁的 NFO 里写了系列（<set>）的，会在合集页按系列自动成集。这只是**展示**偏好：关掉之后系列信息照常读取，只是合集页不再自动生成；重新打开会把已有的补齐。改了 NFO 之后，在库的 ⋯ 菜单里点「重新读取 NFO 与封面」生效。"
+                  ? t("library.form.tmdbCollectionsHint")
+                  : t("library.form.localCollectionsHint", { tag: "<set>" })
               }
             />
           )}
@@ -1727,16 +1725,16 @@ function EditLibraryDialog({
     sections.push(
       {
         id: "scope",
-        title: "收藏范围",
+        title: t("library.form.scope"),
         summary: scope.declared ? (
           <span className="text-[var(--text)]">{scope.text}</span>
         ) : (
-          <span className="text-[var(--text-faint)]">未声明（承接该类型未命中的作品）</span>
+          <span className="text-[var(--text-faint)]">{t("library.form.unsetScopeHint")}</span>
         ),
         body: (
           <>
             <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-              声明「本库收什么」，订阅与自动入库按作品特征自动选进本库；全部留空 = 不声明。
+              {t("library.form.scopeEditHint")}
             </p>
             <ScopeEditor
               kind={library.kind}
@@ -1751,11 +1749,11 @@ function EditLibraryDialog({
       },
       {
         id: "scrape",
-        title: "刮削设置",
+        title: t("library.form.metadataSettings"),
         summary: scrapeText ? (
           <span className="text-[var(--text)]">{scrapeText}</span>
         ) : (
-          <span className="text-[var(--text-faint)]">跟随全局设置</span>
+          <span className="text-[var(--text-faint)]">{t("library.form.followGlobal")}</span>
         ),
         body: <LibraryScrapeSettings overrides={scrapeOverrides} onChange={setScrapeOverrides} />,
       },
@@ -1764,7 +1762,7 @@ function EditLibraryDialog({
   // 可见范围放最后：它决定的是「谁能看」，与库怎么扫、收什么无关，排在配置项之后
   sections.push({
     id: "access",
-    title: "可见范围",
+    title: t("library.form.accessScope"),
     summary: (
       <span className={accessMode === "everyone" ? "text-[var(--text)]" : "text-[var(--warn)]"}>
         {accessScopeSummary(accessMode, adminVisible, memberIds.length)}
@@ -1784,10 +1782,10 @@ function EditLibraryDialog({
 
   return (
     <>
-      <Modal open onClose={onClose} label={`编辑「${library.name}」`} width="2xl" panelClassName="flex max-h-[86dvh] flex-col">
+      <Modal open onClose={onClose} label={t("library.form.editTitle", { name: library.name })} width="2xl" panelClassName="flex max-h-[86dvh] flex-col">
         <div className="shrink-0 border-b border-white/[0.06] px-6 pb-4 pt-5 max-md:px-5">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h2 className="text-title font-bold text-white">编辑「{library.name}」</h2>
+            <h2 className="text-title font-bold text-white">{t("library.form.editTitle", { name: library.name })}</h2>
             {/* 类型创建后不可改：只读展示，不再摆一排灰按钮 */}
             <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] py-0.5 pl-1.5 pr-2.5 text-caption text-[var(--text-muted)]">
               <KindIcon className="size-3.5 text-[var(--accent)]" />
@@ -1835,11 +1833,11 @@ function EditLibraryDialog({
           )}
           <div className="flex items-center justify-between gap-3">
             <p className="min-w-0 truncate text-caption text-[var(--text-faint)]">
-              {missing.length > 0 ? `还需填写：${missing.join("、")}` : "类型创建后不可更改"}
+              {missing.length > 0 ? t("library.form.missingFields", { fields: formatList(missing) }) : t("library.form.typeFixed")}
             </p>
             <div className="flex shrink-0 items-center gap-3">
               <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
-                取消
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -1847,7 +1845,7 @@ function EditLibraryDialog({
                 disabled={!ready || busy}
                 className="btn-accent h-9 rounded-full px-5 text-ui font-semibold disabled:opacity-40"
               >
-                {busy ? "保存中…" : "保存"}
+                {busy ? t("library.form.saving") : t("common.save")}
               </button>
             </div>
           </div>

@@ -74,7 +74,7 @@ struct MacPersonView: View {
 
     /// 「库内 12 部 · 参演 10 · 执导 2」：只有一种身份时只写总数
     private static func summary(_ person: API.PersonView) -> String {
-        let all = "库内 \(Set(person.credits.map(\.mediaItemId)).count) 部"
+        let all = String(localized: .mediaPersonLibraryCount(Set(person.credits.map(\.mediaItemId)).count))
         let parts = sections(person)
         guard parts.count > 1 else { return all }
         return ([all] + parts.map { "\($0.title) \($0.credits.count)" }).joined(separator: " · ")
@@ -84,21 +84,21 @@ struct MacPersonView: View {
     private static func sections(_ person: API.PersonView) -> [(title: String, credits: [API.PersonCreditView])] {
         let cast = person.credits.filter { $0.department == "cast" }
         let directed = person.credits.filter { $0.department == "director" }
-        return [("参演", cast), ("执导", directed)].filter { !$0.1.isEmpty }
+        return [(String(localized: .mediaPersonCast), cast), (String(localized: .mediaPersonDirected), directed)].filter { !$0.1.isEmpty }
     }
 
     @ViewBuilder
     private func credits(_ person: API.PersonView) -> some View {
         let parts = Self.sections(person)
         if parts.isEmpty {
-            MacStateView(symbol: "film", title: "库内还没有这位影人的作品").frame(height: 360)
+            MacStateView(symbol: "film", title: String(localized: .libraryPersonNoTitles)).frame(height: 360)
         }
         ForEach(parts, id: \.title) { part in
             VStack(alignment: .leading, spacing: 16) {
                 if parts.count > 1 {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(part.title).font(.system(size: 20, weight: .bold))
-                        Text("\(part.credits.count) 部").font(.system(size: 13)).foregroundStyle(.secondary)
+                        Text(String(localized: .libraryStatusTitleCount(part.credits.count))).font(.system(size: 13)).foregroundStyle(.secondary)
                     }
                 }
                 LazyVGrid(columns: MacPosterWall<EmptyView>.columns, alignment: .leading, spacing: 26) {
@@ -119,7 +119,7 @@ struct MacPersonView: View {
                 subtitle: Self.roleLine(credit),
                 imageURL: api.image(credit.posterUrl, width: ImageWidth.macCard(200)),
                 width: proxy.size.width,
-                badge: current ? "本片" : nil,
+                badge: current ? String(localized: .libraryItemCurrentTitle) : nil,
                 play: gone ? nil : { router.play(PlayRequest(mediaItemId: credit.mediaItemId)) }
             ) {
                 if current {
@@ -140,10 +140,10 @@ struct MacPersonView: View {
     /// 「饰 柯布 · 2010」「导演 · 2010」（剧集的导演栏写「主创」）；文件已删的写明为什么点不进去
     private static func roleLine(_ credit: API.PersonCreditView) -> String {
         let role: String? = credit.department == "director"
-            ? (credit.kind == "tv" ? "主创" : "导演")
-            : credit.character.flatMap { $0.isEmpty ? nil : "饰 \($0)" }
+            ? (credit.kind == "tv" ? String(localized: .mediaDetailCreator) : String(localized: .mediaDetailDirector))
+            : credit.character.flatMap { $0.isEmpty ? nil : String(localized: .mediaPersonCharacter($0)) }
         let line = [role, credit.year.map(String.init)].compactMap { $0 }.joined(separator: " · ")
-        if credit.libraryId == nil { return line.isEmpty ? "片源已移除" : line + " · 片源已移除" }
+        if credit.libraryId == nil { return line.isEmpty ? String(localized: .librarySourceRemoved) : line + " · " + String(localized: .librarySourceRemoved) }
         return line
     }
 
@@ -164,14 +164,13 @@ struct MacPersonView: View {
         case .missing:
             MacStateView(
                 symbol: "person.crop.rectangle",
-                title: "库内没有这位影人的作品",
-                message: "可能是这位影人参演的片都已从库里移除；也可能这个库是早前扫描的——影人档案随入库刮削一并建立，"
-                    + "在网页上对这个库执行一次「刷新元数据」即可补齐。",
-                actionTitle: "返回"
+                title: String(localized: .mediaPersonEmptyLibrary),
+                message: String(localized: .libraryPersonEmptyHintWeb),
+                actionTitle: String(localized: .commonBack)
             ) { router.pop() }
         case .error:
-            MacStateView(symbol: "exclamationmark.triangle", title: "未能加载影人档案",
-                         message: "请稍后重试；若持续失败，请查看服务器日志。", actionTitle: "重试") {
+            MacStateView(symbol: "exclamationmark.triangle", title: String(localized: .mediaPersonLoadFailed),
+                         message: String(localized: .libraryRetryCheckServerLogs), actionTitle: String(localized: .commonRetry)) {
                 Task { await load() }
             }
         }

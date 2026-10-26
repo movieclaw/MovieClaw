@@ -104,7 +104,7 @@ def client(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     reset_auth_state()
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         c.post(f"{_AUTH}/bootstrap", json=_ADMIN)
         c.post(f"{_AUTH}/login", json=_ADMIN)
         yield c

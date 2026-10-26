@@ -27,6 +27,11 @@ RESOLUTION_RANK = {"480p": 1, "576p": 2, "720p": 3, "1080p": 4, "1440p": 5, "216
 TARGET_SOURCE_RANK = {"web-dl": 3, "blu-ray": 4, "remux": 5}
 
 
+def reference(key: str, **params) -> dict:
+    """Carry presentation references with pure results; render only at the API boundary."""
+    return {"message_key": key, "message_params": params}
+
+
 class SmartPreferences(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -162,6 +167,7 @@ class SelectionState(BaseModel):
     anchor_source: Literal["first_seen", "published_at"] = "first_seen"
     first_observed_at: datetime | None = None
     manual_extended: bool = False
+    messages: dict[str, dict | None] = Field(default_factory=dict, exclude=True)
     wait_explanation: str | None = None
     identity_explanation: str | None = None
     reason: str = "observing"
@@ -319,19 +325,35 @@ def decide(
     if state.prediction and not state.manual_extended:
         end = datetime.fromisoformat(state.prediction["end"])
         state.observation_end = end if end <= state.deadline else min(now, state.observation_end)
-    state.wait_explanation = (
-        "已保留用户手动延长的等待时间。"
+    wait_key, state.wait_explanation = (
+        ("subscription.selection.manualWait", "已保留用户手动延长的等待时间。")
         if state.manual_extended
-        else "历史到达窗口超出等待上限，不耗尽预算；选择当前合格候选，品质目标保持不变。"
+        else (
+            "subscription.selection.predictionBeyondBudget",
+            "历史到达窗口超出等待上限，不耗尽预算；选择当前合格候选，品质目标保持不变。",
+        )
         if state.prediction and datetime.fromisoformat(state.prediction["end"]) > state.deadline
-        else "历史到达窗口已经结束；重新核验当前合格候选，不重新计时。"
+        else (
+            "subscription.selection.predictionElapsed",
+            "历史到达窗口已经结束；重新核验当前合格候选，不重新计时。",
+        )
         if state.prediction and datetime.fromisoformat(state.prediction["end"]) <= now
-        else "同季此前独立单集的发布延迟提供等待依据；到期仍无目标版本，就选择当前合格候选。"
+        else (
+            "subscription.selection.predictionSupported",
+            "同季此前独立单集的发布延迟提供等待依据；到期仍无目标版本，就选择当前合格候选。",
+        )
         if state.prediction
-        else "按已匹配资源的最早站点发布时间计算，转载、合包和新建订阅不重新计时。"
+        else (
+            "subscription.selection.publishedAnchor",
+            "按已匹配资源的最早站点发布时间计算，转载、合包和新建订阅不重新计时。",
+        )
         if state.anchor_source == "published_at"
-        else "发布时间不明确，只进行一次有上限的观察；不会把本次发现时间当作发布时间。"
+        else (
+            "subscription.selection.unknownPublication",
+            "发布时间不明确，只进行一次有上限的观察；不会把本次发现时间当作发布时间。",
+        )
     )
+    state.messages["wait_explanation"] = reference(wait_key)
     chosen = pool[0]
     followed = next((c for c in pool if following and series_key(c) == following), None)
     if current is not None:
@@ -403,6 +425,15 @@ def decide(
         )
         + f"做种数：{chosen.seeders if chosen.seeders is not None else '未知'}。"
     )
+    state.messages["choice_explanation"] = reference(
+        "subscription.selection.choice",
+        groupCount=group_count,
+        resourceCount=resource_count,
+        hasVerified="yes" if verified else "no",
+        verified=verified,
+        hasSeeders="yes" if chosen.seeders is not None else "no",
+        seeders=chosen.seeders if chosen.seeders is not None else 0,
+    )
     state.selected_series = series_key(chosen)
     state.reason, state.candidate_key, state.candidate_title = (
         reason,
@@ -455,6 +486,11 @@ def _await_subtitles(
         "等待期已过，仍没有你看得懂的字幕或音轨版本；不会自动下载原版，出现后立即选择。"
         if expired
         else "已找到的资源都没有你看得懂的字幕或音轨，继续等待带字幕的版本。"
+    )
+    state.messages["wait_explanation"] = reference(
+        "subscription.selection.subtitlesExpired"
+        if expired
+        else "subscription.selection.subtitlesWaiting"
     )
     return SelectionDecision(
         action="no_candidate" if expired else "wait",

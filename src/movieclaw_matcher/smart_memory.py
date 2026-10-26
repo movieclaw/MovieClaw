@@ -19,7 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from movieclaw_matcher.smart import SmartPolicy, SmartPreferences
+from movieclaw_matcher.smart import SmartPolicy, SmartPreferences, reference
 
 Resolution = Literal["1080p", "2160p"]
 Source = Literal["web-dl", "blu-ray", "remux"]
@@ -77,6 +77,81 @@ _COUNTRY_NAMES: dict[str, str] = {
 
 _RESOLUTION_LABELS = {"2160p": "4K", "1080p": "1080p"}
 _SOURCE_LABELS = {"web-dl": "WEB-DL", "blu-ray": "蓝光", "remux": "Remux"}
+
+
+_LANGUAGE_MESSAGE_KEYS = {
+    "zh": "media.language.zh",
+    "yue": "media.language.yue",
+    "en": "media.language.en",
+    "ja": "media.language.ja",
+    "ko": "media.language.ko",
+    "fr": "media.language.fr",
+    "de": "media.language.de",
+    "es": "media.language.es",
+    "it": "media.language.it",
+    "ru": "media.language.ru",
+    "pt": "media.language.pt",
+    "hi": "media.language.hi",
+    "th": "media.language.th",
+    "sv": "media.language.sv",
+    "da": "media.language.da",
+    "no": "media.language.no",
+    "nl": "media.language.nl",
+    "pl": "media.language.pl",
+    "tr": "media.language.tr",
+}
+
+_COUNTRY_MESSAGE_KEYS = {
+    "CN": "media.regions.mainlandChina",
+    "HK": "media.regions.hongKong",
+    "TW": "media.regions.taiwan",
+    "SG": "media.regions.singapore",
+    "JP": "media.regions.japan",
+    "KR": "media.regions.southKorea",
+    "US": "subscription.smart.countryUnitedStates",
+    "GB": "subscription.smart.countryUnitedKingdom",
+    "FR": "media.regions.france",
+    "DE": "media.regions.germany",
+    "IT": "media.regions.italy",
+    "ES": "media.regions.spain",
+    "CA": "media.regions.canada",
+    "AU": "media.regions.australia",
+    "NZ": "media.regions.newZealand",
+    "IE": "media.regions.ireland",
+    "IN": "media.regions.india",
+    "TH": "media.regions.thailand",
+    "RU": "media.regions.russia",
+}
+
+
+def language_reference(code: str) -> str | dict:
+    key = _LANGUAGE_MESSAGE_KEYS.get(code)
+    return reference(key) if key else code
+
+
+def scope_reference(scope: str, value: str, kind: str) -> dict:
+    if scope == "kind":
+        return reference("subscription.smart.scopeKind", kind=kind)
+    if scope == "region":
+        key = _COUNTRY_MESSAGE_KEYS.get(value)
+        return reference(
+            "subscription.smart.scopeRegion", kind=kind, country=reference(key) if key else value
+        )
+    return reference("subscription.smart.scopeNetwork", kind=kind, name=value)
+
+
+def _value_reference(field: str, value: str) -> str | dict:
+    if field == "source" and value == "blu-ray":
+        return reference("subscription.smart.bluray")
+    return _value_label(field, value)
+
+
+def quality_reference(resolution: str, source: str) -> dict:
+    return reference(
+        "subscription.smart.quality",
+        resolution=_value_reference("resolution", resolution),
+        source=_value_reference("source", source),
+    )
 
 
 def language_key(tmdb_code: str | None) -> str | None:
@@ -138,6 +213,10 @@ class QualityHabit(BaseModel):
     @property
     def label(self) -> str:
         return scope_label(self.scope, self.value, self.kind)
+
+    @property
+    def label_message(self) -> dict:
+        return scope_reference(self.scope, self.value, self.kind)
 
 
 def habit_key(scope: str, value: str, kind: str) -> str:
@@ -211,6 +290,7 @@ class QualityOverride(BaseModel):
 class ScopeOption(BaseModel):
     value: str
     label: str
+    label_message: dict | None = Field(default=None, exclude=True)
 
 
 class LanguageQuestion(BaseModel):
@@ -218,6 +298,7 @@ class LanguageQuestion(BaseModel):
     prompt: str
     subtitles_label: str
     understood_label: str
+    messages: dict = Field(default_factory=dict, exclude=True)
 
 
 class Resolved(BaseModel):
@@ -233,6 +314,7 @@ class Resolved(BaseModel):
     subtitle_line: str | None = None
     question: LanguageQuestion | None = None
     scope_options: list[ScopeOption] = Field(default_factory=list)
+    messages: dict = Field(default_factory=dict, exclude=True)
 
     def policy(self, prefs: SmartPreferences, *, kind: str, profile_revision: int) -> SmartPolicy:
         return SmartPolicy(
@@ -267,33 +349,58 @@ def resolve(
     series: QualityOverride | None = None,
 ) -> Resolved:
     habits = {h.key: h for h in memory.habits}
-    layers: list[tuple[str, QualityOverride | QualityHabit]] = []
+    layers: list[tuple[str, dict, QualityOverride | QualityHabit]] = []
     if override and (override.resolution or override.source):
         note = (
             f"按《{override.series_title}》的设置"
             if override.origin == "series" and override.series_title
             else "这部单独设置"
         )
-        layers.append((note, override))
+        note_ref = (
+            reference("subscription.smart.seriesNote", title=override.series_title)
+            if override.origin == "series" and override.series_title
+            else reference("subscription.smart.overrideNote")
+        )
+        layers.append((note, note_ref, override))
     if series and (series.resolution or series.source):
-        layers.append((f"按《{series.series_title}》的设置", series))
+        layers.append(
+            (
+                f"按《{series.series_title}》的设置",
+                reference("subscription.smart.seriesNote", title=str(series.series_title)),
+                series,
+            )
+        )
     for scope, value in facts_scopes(facts):
         habit = habits.get(habit_key(scope, value, facts.kind))
         if habit and (habit.resolution or habit.source):
-            layers.append((f"按「{habit.label}」的习惯", habit))
+            layers.append(
+                (
+                    f"按「{habit.label}」的习惯",
+                    reference("subscription.smart.habitNote", scope=habit.label_message),
+                    habit,
+                )
+            )
 
     picked: dict[str, str] = {}
     origin: dict[str, str] = {}
     shadow: str | None = None
-    for note, layer in layers:
+    origin_refs: dict[str, dict] = {}
+    shadow_ref = None
+    for note, note_ref, layer in layers:
         for field in ("resolution", "source"):
             value = getattr(layer, field)
             if value is None:
                 continue
             if field not in picked:
                 picked[field], origin[field] = value, note
+                origin_refs[field] = note_ref
             elif value != picked[field] and shadow is None and isinstance(layer, QualityHabit):
                 shadow = f"「{layer.label}」是 {_value_label(field, value)}"
+                shadow_ref = reference(
+                    "subscription.smart.habitShadow",
+                    scope=layer.label_message,
+                    value=_value_reference(field, value),
+                )
     resolution = picked.get("resolution", prefs.resolution)
     source = picked.get("source", prefs.source)
     notes = list(dict.fromkeys(origin[f] for f in ("resolution", "source") if f in origin))
@@ -301,28 +408,60 @@ def resolve(
     language = facts.language
     understood = memory.understood()
     watchable: tuple[str, ...] = ()
-    line = question = None
+    line = question = line_ref = None
     if language is not None:
         label = language_label(language)
         if language in understood:
             if language != DEFAULT_UNDERSTOOD:
                 line = f"{label} · 不需要字幕"
+                line_ref = reference(
+                    "subscription.smart.understoodLine", language=language_reference(language)
+                )
         else:
             watchable = understood
             acceptable = acceptable_text(understood)
+            acceptable_ref = {
+                "message_list": [language_reference(k) for k in understood],
+                "separator_key": "media.language.or",
+            }
             line = f"{label} · 只下带{acceptable}字幕的"
+            line_ref = reference(
+                "subscription.smart.subtitlesLine",
+                language=language_reference(language),
+                acceptable=acceptable_ref,
+            )
             if not memory.answered(language):
                 question = LanguageQuestion(
                     language=language,
                     prompt=f"这是{label}片，要{acceptable}字幕吗？",
                     subtitles_label=f"要，只下带{acceptable}字幕的",
                     understood_label=f"不用，我看得懂{label}",
+                    messages={
+                        "prompt": reference(
+                            "subscription.smart.languageQuestion",
+                            language=language_reference(language),
+                            acceptable=acceptable_ref,
+                        ),
+                        "subtitles_label": reference(
+                            "subscription.smart.requireSubtitles", acceptable=acceptable_ref
+                        ),
+                        "understood_label": reference(
+                            "subscription.smart.understoodAnswer",
+                            language=language_reference(language),
+                        ),
+                    },
                 )
 
-    options = [ScopeOption(value="only", label="只这部")]
+    options = [
+        ScopeOption(
+            value="only", label="只这部", label_message=reference("subscription.smart.onlyTitle")
+        )
+    ]
     options += [
         ScopeOption(
-            value=habit_key(scope, value, facts.kind), label=scope_label(scope, value, facts.kind)
+            value=habit_key(scope, value, facts.kind),
+            label=scope_label(scope, value, facts.kind),
+            label_message=scope_reference(scope, value, facts.kind),
         )
         for scope, value in reversed(facts_scopes(facts))
     ]
@@ -337,6 +476,22 @@ def resolve(
         subtitle_line=line,
         question=question,
         scope_options=options,
+        messages={
+            "quality_label": reference(
+                "subscription.smart.prefer", quality=quality_reference(resolution, source)
+            ),
+            "quality_note": {
+                "message_list": [
+                    origin_refs[next(f for f in ("resolution", "source") if origin.get(f) == note)]
+                    for note in notes
+                ],
+                "separator_key": "subscription.smart.noteSeparator",
+            }
+            if notes
+            else None,
+            "quality_shadow": shadow_ref,
+            "subtitle_line": line_ref,
+        },
     )
 
 

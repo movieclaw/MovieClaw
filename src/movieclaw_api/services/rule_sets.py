@@ -29,10 +29,12 @@ from movieclaw_api.exceptions import (
     ConflictException,
     NotFoundException,
 )
+from movieclaw_api.i18n.stored import stored_fields
+from movieclaw_api.services.library.profile import kind_reference
 from movieclaw_api.services.library.routing import (
     RoutingFacts,
     evaluate,
-    hit_parts,
+    hit_part_references,
     validate_match_rules,
 )
 from movieclaw_db.models import RuleSet
@@ -41,7 +43,16 @@ from movieclaw_matcher import RuleSetSpec
 
 logger = logging.getLogger("movieclaw_api.rule_sets")
 
-_DEFAULT_NAME = "默认规则组"
+_DEFAULT_NAME_KEY = "subscription.rules.defaultName"
+
+
+def rule_set_name_reference(row: RuleSet) -> str | dict:
+    return (
+        {"message_key": _DEFAULT_NAME_KEY, "message_params": {}}
+        if row.name_key == _DEFAULT_NAME_KEY
+        else row.name
+    )
+
 
 # 懒种子默认组的安全预设：只收 1080p 及以上（顺序即偏好）、排除零做种死种。
 # 此前是"全不限"（spec={}），新用户第一批抓到的可能是低清枪版或没人做种的
@@ -51,7 +62,7 @@ _DEFAULT_SPEC = {"resolutions": ["2160p", "1080p"], "min_seeders": 1}
 
 # 适用范围里的作品类型字段（其余字段复用媒体库收藏范围的求值与校验）
 _KIND_FIELD = "kind"
-_KIND_LABELS = {"movie": "电影", "tv": "剧集"}
+_KINDS = ("movie", "tv")
 
 
 def validate_scope(raw: list | None) -> list[dict]:
@@ -63,25 +74,25 @@ def validate_scope(raw: list | None) -> list[dict]:
     if not raw:
         return []
     if not isinstance(raw, list) or not all(isinstance(r, dict) for r in raw):
-        raise BadRequestException("适用范围条件必须是对象列表")
+        raise BadRequestException(message_key="errors.ruleSets.scopeListRequired")
     kind_rules = [r for r in raw if r.get("field") == _KIND_FIELD]
     if len(kind_rules) > 1:
-        raise BadRequestException("适用范围里同一字段只能出现一次（取值本身就是多选）")
+        raise BadRequestException(message_key="errors.ruleSets.scopeFieldDuplicate")
     cleaned: list[dict] = []
     if kind_rules:
         rule = kind_rules[0]
         if rule.get("op", "any_of") != "any_of":
-            raise BadRequestException("适用范围条件目前只支持 any_of（任一匹配）")
+            raise BadRequestException(message_key="errors.ruleSets.scopeOperator")
         values = rule.get("values")
         if not isinstance(values, list) or not values:
-            raise BadRequestException("适用范围条件「作品类型」的取值不能为空")
-        if not all(v in _KIND_LABELS for v in values):
-            raise BadRequestException("作品类型只能是 movie（电影）或 tv（剧集）")
+            raise BadRequestException(message_key="errors.ruleSets.scopeKindRequired")
+        if not all(v in _KINDS for v in values):
+            raise BadRequestException(message_key="errors.ruleSets.scopeKindInvalid")
         kinds = sorted(set(values))
-        if len(kinds) < len(_KIND_LABELS):
+        if len(kinds) < len(_KINDS):
             cleaned.append({"field": _KIND_FIELD, "op": "any_of", "values": kinds})
     rest = [r for r in raw if r.get("field") != _KIND_FIELD]
-    return cleaned + validate_match_rules(rest, label="适用范围")
+    return cleaned + validate_match_rules(rest, scope="applicability")
 
 
 def scope_matches(rules: list, kind: str, facts: RoutingFacts | None) -> bool:
@@ -110,16 +121,22 @@ class RuleSetPick:
     rule_set: RuleSet
     matched: bool  # True=命中某组的适用范围；False=默认规则组兜底
     reason: str  # 可直接展示的中文理由
+    reason_message: dict | None = None
 
 
-def _pick_reason(kind: str, row: RuleSet, facts: RoutingFacts | None) -> str:
-    parts: list[str] = []
-    for rule in row.match_rules:
-        if rule.get("field") == _KIND_FIELD:
-            parts.append(_KIND_LABELS.get(kind, kind))
+def _pick_reason_message(kind: str, row: RuleSet, facts: RoutingFacts | None) -> dict:
+    parts = [
+        kind_reference(kind) if kind in _KINDS else kind
+        for rule in row.match_rules
+        if rule.get("field") == _KIND_FIELD
+    ]
     if facts is not None:
-        parts += hit_parts(kind, row.match_rules, facts)
-    return f"按适用范围选用「{row.name}」：{'、'.join(parts)}"
+        parts += hit_part_references(kind, row.match_rules, facts)
+    return stored_fields(
+        "subscription.ruleRoute.matched",
+        name=rule_set_name_reference(row),
+        details={"message_list": parts, "separator_key": "common.list.separator"},
+    )
 
 
 class RuleSetService:
@@ -136,7 +153,12 @@ class RuleSetService:
         if existing is not None:
             return existing
         row = await self._repo.save(
-            RuleSet(name=_DEFAULT_NAME, is_default=True, spec=dict(_DEFAULT_SPEC))
+            RuleSet(
+                name=stored_fields("subscription.rules.defaultName")["message"],
+                name_key=_DEFAULT_NAME_KEY,
+                is_default=True,
+                spec=dict(_DEFAULT_SPEC),
+            )
         )
         logger.info("已创建默认规则组（1080p 及以上、做种数 ≥1），新订阅未指定规则组时使用它")
         return row
@@ -155,7 +177,9 @@ class RuleSetService:
     async def get(self, rule_set_id: int) -> RuleSet:
         row = await self._repo.get(rule_set_id)
         if row is None:
-            raise NotFoundException(f"规则组不存在：#{rule_set_id}")
+            raise NotFoundException(
+                message_key="errors.ruleSets.missing", params={"id": rule_set_id}
+            )
         return row
 
     async def pick(self, kind: str, facts: RoutingFacts | None) -> RuleSetPick:
@@ -168,16 +192,27 @@ class RuleSetService:
         hits = [r for r in rows if scope_matches(r.match_rules, kind, facts)]
         if hits:
             best = sorted(hits, key=lambda r: (-len(r.match_rules), r.id))[0]
-            return RuleSetPick(rule_set=best, matched=True, reason=_pick_reason(kind, best, facts))
+            message = _pick_reason_message(kind, best, facts)
+            return RuleSetPick(
+                rule_set=best, matched=True, reason=message["message"], reason_message=message
+            )
         default = await self.ensure_default()
         declared = any(r.match_rules for r in rows)
         if facts is None and declared:
-            reason = f"作品元数据暂不可得，使用默认规则组「{default.name}」"
+            message = stored_fields(
+                "subscription.ruleRoute.metadataDefault", name=rule_set_name_reference(default)
+            )
         elif declared:
-            reason = f"未命中任何规则组的适用范围，使用默认规则组「{default.name}」"
+            message = stored_fields(
+                "subscription.ruleRoute.unmatchedDefault", name=rule_set_name_reference(default)
+            )
         else:
-            reason = f"使用默认规则组「{default.name}」"
-        return RuleSetPick(rule_set=default, matched=False, reason=reason)
+            message = stored_fields(
+                "subscription.ruleRoute.defaultGroup", name=rule_set_name_reference(default)
+            )
+        return RuleSetPick(
+            rule_set=default, matched=False, reason=message["message"], reason_message=message
+        )
 
     async def create(self, name: str, spec: dict, match_rules: list | None = None) -> RuleSet:
         cleaned = self._validate(name, spec)
@@ -189,7 +224,9 @@ class RuleSetService:
         except IntegrityError as exc:
             # 名称撞唯一约束：给可读中文错误，而不是让 500 裸奔到前端
             await self._repo.rollback()
-            raise ConflictException(f"规则组「{name.strip()}」已存在，请换一个名称") from exc
+            raise ConflictException(
+                message_key="errors.ruleSets.nameInUse", params={"name": name.strip()}
+            ) from exc
 
     async def update(
         self, rule_set_id: int, *, name: str, spec: dict, match_rules: list | None = None
@@ -199,6 +236,8 @@ class RuleSetService:
         row = await self.get(rule_set_id)
         # rollback 会使 ORM 对象过期，异常分支不能再读 row.name——先落到局部变量
         new_name = name.strip() or row.name
+        if new_name != row.name:
+            row.name_key = None
         row.name = new_name
         row.spec = self._validate(new_name, spec)
         if match_rules is not None:
@@ -207,7 +246,9 @@ class RuleSetService:
             return await self._repo.save(row)
         except IntegrityError as exc:
             await self._repo.rollback()
-            raise ConflictException(f"规则组「{new_name}」已存在，请换一个名称") from exc
+            raise ConflictException(
+                message_key="errors.ruleSets.nameInUse", params={"name": new_name}
+            ) from exc
 
     async def set_default(self, rule_set_id: int) -> RuleSet:
         """把默认标记转移到指定组：新订阅未指定规则组时用它。幂等。
@@ -225,12 +266,11 @@ class RuleSetService:
         """删除规则组。默认组与被订阅引用的组禁删（显式报错优于隐式改挂靠）。"""
         row = await self.get(rule_set_id)
         if row.is_default:
-            raise BadRequestException("默认规则组不可删除")
+            raise BadRequestException(message_key="errors.ruleSets.defaultDelete")
         references = await self._repo.count_references(rule_set_id)
         if references > 0:
             raise ConflictException(
-                f"规则组「{row.name}」正被 {references} 个订阅引用，"
-                "请先把这些订阅改到其他规则组再删除"
+                message_key="errors.ruleSets.inUse", params={"name": row.name, "count": references}
             )
         await self._repo.delete(row)
         logger.info("规则组「%s」已删除", row.name)
@@ -243,9 +283,11 @@ class RuleSetService:
         新版本加字段（如 dv）后回退旧版本，旧代码读到新字段不会报错。
         """
         if not name.strip():
-            raise BadRequestException("规则组名称不能为空")
+            raise BadRequestException(message_key="errors.ruleSets.nameRequired")
         try:
             parsed = RuleSetSpec.model_validate(spec)
         except ValueError as exc:
-            raise BadRequestException(f"规则组参数不合法：{exc}") from exc
+            raise BadRequestException(
+                message_key="errors.ruleSets.invalidSpec", params={"error": exc}
+            ) from exc
         return parsed.model_dump(exclude_defaults=True, mode="json")

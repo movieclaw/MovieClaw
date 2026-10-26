@@ -47,7 +47,6 @@ import androidx.compose.ui.unit.sp
 import io.movieclaw.android.core.designsystem.Bg
 import io.movieclaw.android.core.designsystem.FillCard
 import io.movieclaw.android.core.designsystem.LineSoft
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McNavButton
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.Accent
@@ -61,6 +60,7 @@ import io.movieclaw.android.core.model.SubActivityView
 import io.movieclaw.android.core.model.SubscriptionDownloadView
 import io.movieclaw.android.core.model.SubscriptionView
 import io.movieclaw.android.core.model.WantedView
+import io.movieclaw.android.core.designsystem.mcCards
 
 /*
  * 订阅详情的版面（数据与动作仍由 SubscriptionDetailScreen / ViewModel 提供）。
@@ -135,7 +135,7 @@ internal fun SubscriptionDetailContent(
     Box(Modifier.fillMaxSize().background(Bg)) {
         Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(bottom = 40.dp)) {
             SubHero(sub, origin)
-            Column(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+            Column(Modifier.padding(horizontal = mcCards.pagePadding)) {
                 if (showSearchNow || showManual || showMore) {
                     Spacer(Modifier.height(18.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -249,7 +249,7 @@ private fun SubHero(sub: SubscriptionView, origin: String?) {
             ),
         )
         Row(
-            Modifier.align(Alignment.BottomStart).padding(horizontal = McMetrics.pagePadding),
+            Modifier.align(Alignment.BottomStart).padding(horizontal = mcCards.pagePadding),
             verticalAlignment = Alignment.Bottom,
         ) {
             RemoteImage(

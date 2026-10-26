@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -48,6 +47,8 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import io.movieclaw.android.core.designsystem.mcGridCells
+import io.movieclaw.android.core.designsystem.mcCards
 
 /**
  * 组合筛选的结果网格（iOS `DiscoverFilteredGrid` / 网页 `filtered-discovery-view.tsx`）。
@@ -106,7 +107,7 @@ fun DiscoverFilterChipsRow(
     onOpenDim: (String) -> Unit,
     modifier: Modifier = Modifier,
     /** 横向留白；放进网格时网格自己的 contentPadding 已经让过页边距，传 0.dp */
-    horizontalPadding: androidx.compose.ui.unit.Dp = McMetrics.pagePadding,
+    horizontalPadding: androidx.compose.ui.unit.Dp = mcCards.pagePadding,
 ) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = horizontalPadding, vertical = 6.dp),
@@ -173,10 +174,10 @@ fun DiscoverFilteredGridBody(
     }
     LazyVerticalGrid(
         state = grid,
-        columns = GridCells.Fixed(2),
+        columns = mcGridCells(phoneColumns = 2),
         contentPadding = PaddingValues(
-            start = McMetrics.pagePadding,
-            end = McMetrics.pagePadding,
+            start = mcCards.pagePadding,
+            end = mcCards.pagePadding,
             bottom = 32.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -184,7 +185,7 @@ fun DiscoverFilteredGridBody(
         modifier = modifier.fillMaxSize(),
     ) {
         // ── 头（iOS `header`）：TMDB DISCOVER / 筛选结果 / 计数 + 「清空条件」──
-        item(span = { GridItemSpan(2) }, key = "filtered-header") {
+        item(span = { GridItemSpan(maxLineSpan) }, key = "filtered-header") {
             Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -219,7 +220,7 @@ fun DiscoverFilteredGridBody(
             }
         }
         // ── 条件胶囊（同一个组件，菜单由外层挂）──
-        item(span = { GridItemSpan(2) }, key = "filtered-chips") {
+        item(span = { GridItemSpan(maxLineSpan) }, key = "filtered-chips") {
             // 网格里左右页边距已由 contentPadding 让出，这里横向留白传 0
             DiscoverFilterChipsRow(
                 filters = state.filters,
@@ -255,7 +256,7 @@ fun DiscoverFilteredGridBody(
             }
         }
         if (!state.filteredLoading && state.filteredError == null && state.filtered.isEmpty()) {
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
                     "没有符合条件的影片",
                     style = McType.body,
@@ -265,7 +266,7 @@ fun DiscoverFilteredGridBody(
             }
         }
         state.filteredError?.let { error ->
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(
                     Modifier.fillMaxWidth().padding(vertical = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -277,14 +278,14 @@ fun DiscoverFilteredGridBody(
             }
         }
         if (state.filteredLoading && state.filtered.isNotEmpty()) {
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Box(Modifier.fillMaxWidth().padding(14.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = TextMuted, modifier = Modifier.size(20.dp))
                 }
             }
         }
         if (state.filteredPage >= state.filteredTotalPages && state.filtered.isNotEmpty()) {
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
                     "已加载全部 ${state.filtered.size} 部影片",
                     style = McType.caption2,

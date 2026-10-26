@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 
 import { usePendingUpdate } from "@/components/app-update-entry";
 import { ChevronRightIcon, UpgradeIcon } from "@/components/icons";
@@ -42,10 +43,11 @@ export function SettingsOverviewSection() {
  * 是"有新东西"，不是"出事了"（与 app-update-entry 的产品语义一致）。
  */
 function UpdateNoticeCard({ pending }: { pending: PendingUpdateView }) {
+  const t = useTranslations();
   // 应用与模型可能同时有更新：只说更要紧的那个（应用版本），与侧栏入口同款
   const label = pending.app_version
-    ? `新版本 v${pending.app_version} 可用`
-    : `新识别模型 ${pending.model_tag} 可用`;
+    ? t("settings.overview.appUpdate", { version: pending.app_version })
+    : t("settings.overview.modelUpdate", { tag: pending.model_tag ?? "" });
   return (
     <Link
       href="/settings/app"
@@ -56,7 +58,7 @@ function UpdateNoticeCard({ pending }: { pending: PendingUpdateView }) {
       <span className="min-w-0 flex-1">
         <span className="block truncate text-body font-medium">{label}</span>
         <span className="mt-0.5 block text-caption text-[var(--text-muted)]">
-          去「更新与维护」查看更新内容并一键升级
+          {t("settings.overview.updateHint")}
         </span>
       </span>
       <ChevronRightIcon className="size-4 shrink-0 opacity-70" />

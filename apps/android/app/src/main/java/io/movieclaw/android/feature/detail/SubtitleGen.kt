@@ -48,6 +48,7 @@ import io.movieclaw.android.core.model.PgsLanguageOption
 import io.movieclaw.android.core.model.SubtitleGenCandidateView
 import io.movieclaw.android.core.model.SubtitleGenPreviewView
 import io.movieclaw.android.feature.activity.LlmGate
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /** AI 字幕的警告黄（iOS `Theme.warning` 同色系） */
 private val Warning = Color(0xFFF5C451)
@@ -254,7 +255,7 @@ internal fun SubtitleGenSheet(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(max = 560.dp)
-                    .verticalScroll(rememberScrollState())
+                    .formSheetScroll().verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {

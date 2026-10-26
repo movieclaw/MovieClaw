@@ -12,7 +12,7 @@ struct LibrarySimilarSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            LibrarySectionHeader(title: "相似推荐")
+            LibrarySectionHeader(title: String(localized: .libraryItemSimilar))
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: cards.spacing) {
                     ForEach(items, id: \.mediaItemId) { item in
@@ -45,8 +45,8 @@ struct LibrarySeriesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            LibrarySectionHeader(title: series.seriesName ?? "系列") {
-                Text("已有 \(series.ownedCount) / 共 \(series.total)")
+            LibrarySectionHeader(title: series.seriesName ?? String(localized: .libraryCollectionsSeries)) {
+                Text(String(localized: .libraryItemSeriesOwnedFraction(series.ownedCount, series.total)))
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: cards.spacing) {
@@ -65,7 +65,7 @@ struct LibrarySeriesSection: View {
         if let id = part.mediaItemId {
             let poster = LibraryPosterCell(title: part.title, year: part.releaseDate.flatMap { Int($0.prefix(4)) },
                                            url: api.image(part.posterUrl, width: ImageWidth.points(cards.homePoster)),
-                                           cornerLabel: id == itemId ? "本片" : nil)
+                                           cornerLabel: id == itemId ? String(localized: .libraryItemCurrentTitle) : nil)
             if id == itemId {
                 poster
             } else {

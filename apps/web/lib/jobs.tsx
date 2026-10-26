@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale } from "next-intl";
 import {
   createContext,
   useCallback,
@@ -31,6 +32,7 @@ const FALLBACK_POLL_MS = 15_000;
  * 创建的任务都会进入这里，业务组件不再各自猜测何时开始轮询。
  */
 export function JobsProvider({ children }: { children: React.ReactNode }) {
+  const locale = useLocale();
   const { session } = useSession();
   const enabled = session.role !== "member";
   const [jobs, setJobs] = useState<JobView[]>([]);
@@ -114,7 +116,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [enabled, refresh]);
+  }, [enabled, refresh, locale]);
 
   const activeJobs = useMemo(
     () => jobs.filter((job) => ACTIVE_JOB_STATUSES.has(job.status)),

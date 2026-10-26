@@ -269,7 +269,8 @@ def test_favorites_and_played_end_to_end(stack) -> None:  # noqa: PLR0915
     shots.mkdir(exist_ok=True)
 
     def api(page, method: str, path: str, **kwargs) -> dict:
-        resp = getattr(page.request, method)(f"{base}/api/v1{path}", **kwargs)
+        headers = {"Accept-Language": "zh-Hans", **kwargs.pop("headers", {})}
+        resp = getattr(page.request, method)(f"{base}/api/v1{path}", headers=headers, **kwargs)
         assert resp.ok, f"{method} {path}: {resp.status} {resp.text()}"
         return resp.json()
 
@@ -291,6 +292,7 @@ def test_favorites_and_played_end_to_end(stack) -> None:  # noqa: PLR0915
         page.goto(f"{base}/")
         page.wait_for_url(lambda u: "/setup" in u or "/login" in u)
         if "/setup" in page.url:
+            page.get_by_role("button", name="开始使用", exact=True).click()
             page.locator("input[type=text]").fill(ADMIN["username"])
             page.locator("input[type=password]").nth(0).fill(ADMIN["password"])
             page.locator("input[type=password]").nth(1).fill(ADMIN["password"])
@@ -310,10 +312,23 @@ def test_favorites_and_played_end_to_end(stack) -> None:  # noqa: PLR0915
                 page,
                 "post",
                 "/libraries",
-                data={"name": name, "kind": kind, "root_paths": [str(roots[key])]},
+                data={
+                    "name": name, "kind": kind, "root_paths": [str(roots[key])],
+                    "realtime_watch": False,
+                },
             )["data"]["id"]
             for key, name, kind in (("movies", "电影库", "movie"), ("shows", "剧集库", "tv"))
         }
+        from .test_library_manage_browser import _wait_for
+
+        _wait_for(
+            lambda: all(
+                not row["scanning"] and row["last_scan"]
+                for row in api(page, "get", "/libraries")["data"]
+            ),
+            timeout=90,
+            what="initial empty library scans",
+        )
         ids = _seed_library(stack["database_url"], library_ids, roots)
 
         # ---- Jellyfin 客户端（Infuse）登录：与网页同一个超管，member_id=0 ----

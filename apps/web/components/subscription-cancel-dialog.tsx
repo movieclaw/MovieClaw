@@ -17,6 +17,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 
 import { Modal } from "@/components/modal";
 import {
@@ -56,6 +57,7 @@ export function SubscriptionCancelDialog({
   /** 用户确认：带上两个清理开关的最终取值 */
   onConfirm: (options: SubscriptionRemovalOptions) => Promise<void> | void;
 }) {
+  const t = useTranslations();
   const [preview, setPreview] = useState<SubscriptionRemovalPreview | null>(null);
   const [deleteTorrents, setDeleteTorrents] = useState(false);
   const [deleteLibraryFiles, setDeleteLibraryFiles] = useState(false);
@@ -100,26 +102,26 @@ export function SubscriptionCancelDialog({
     disabled: preview === null || torrentCount === 0,
     label:
       preview === null
-        ? "同时删除相关的下载任务"
+        ? t("subscription.cancel.tasks")
         : torrentCount === 0
-          ? "同时删除相关的下载任务（没有可删除的任务）"
-          : `同时删除相关的下载任务（${torrentCount} 个）`,
+          ? t("subscription.cancel.noTasks")
+          : t("subscription.cancel.taskCount", { count: torrentCount }),
     description:
-      torrentCount === 0 ? undefined : "从下载器移除任务，并删除下载目录里的文件，不可恢复。",
+      torrentCount === 0 ? undefined : t("subscription.cancel.taskWarning"),
     warning:
       deleteTorrents && (preview?.hit_and_run_count ?? 0) > 0
-        ? `其中 ${preview?.hit_and_run_count} 个种子仍在 H&R 考核或考核状态未知，删除后可能影响站点考核。`
+        ? t("subscription.cancel.hitAndRun", { count: preview?.hit_and_run_count ?? 0 })
         : undefined,
   };
   const fileToggle = {
     disabled: preview === null || fileCount === 0,
     label:
       preview === null
-        ? "同时删除媒体库里的资源"
+        ? t("subscription.cancel.files")
         : fileCount === 0
-          ? "同时删除媒体库里的资源（媒体库中没有该作品）"
-          : `同时删除媒体库里的资源（${fileCount} 个文件 · ${formatBytes(preview.library_bytes)}）`,
-    description: fileCount === 0 ? undefined : `文件会移入媒体库回收站，${retention} 天内可以恢复。`,
+          ? t("subscription.cancel.noFiles")
+          : t("subscription.cancel.fileCount", { count: fileCount, size: formatBytes(preview.library_bytes) }),
+    description: fileCount === 0 ? undefined : t("subscription.cancel.retention", { count: retention }),
   };
 
   // 银玻璃手机端：表单弹层（对齐 iOS SubscriptionCancelSheet）——两个清理项是开关行，
@@ -129,16 +131,16 @@ export function SubscriptionCancelDialog({
       <SheetScaffold
         open={open}
         onClose={busy ? () => {} : onClose}
-        title="取消订阅"
-        label={`取消订阅《${title}》`}
-        closeLabel="先不"
+        title={t("subscription.cancel.title")}
+        label={t("subscription.cancel.label", { title })}
+        closeLabel={t("subscription.cancel.notNow")}
         raised={raised}
-        subtitle={`取消订阅《${title}》将停止追踪剩余内容。默认只取消订阅，已经下载或入库的内容都会保留。`}
+        subtitle={t("subscription.cancel.subtitle", { title })}
       >
         <SheetSection
           footer={
             (deleteTorrents || deleteLibraryFiles) &&
-            "订阅会立刻取消，清理在后台进行——可以在「任务中心」查看进度和结果。"
+            t("subscription.cancel.background")
           }
         >
           <SheetToggleRow
@@ -157,7 +159,7 @@ export function SubscriptionCancelDialog({
         <SheetSection>
           <SheetRow
             destructive
-            label={busy ? "处理中…" : "取消订阅"}
+            label={busy ? t("subscription.cancel.processing") : t("subscription.cancel.title")}
             disabled={busy}
             onClick={() => void submit()}
           />
@@ -170,13 +172,13 @@ export function SubscriptionCancelDialog({
     <Modal
       open={open}
       onClose={busy ? () => {} : onClose}
-      label={`取消订阅《${title}》`}
+      label={t("subscription.cancel.label", { title })}
       raised={raised}
     >
       <div className="p-6 max-md:p-5">
-        <h2 className="text-title-sm font-bold text-white">取消订阅《{title}》？</h2>
+        <h2 className="text-title-sm font-bold text-white">{t("subscription.cancel.question", { title })}</h2>
         <p className="mt-2 text-sub leading-6 text-[var(--text-muted)]">
-          将停止追踪剩余内容。默认只取消订阅，已经下载或入库的内容都会保留。
+          {t("subscription.cancel.description")}
         </p>
 
         <div className="mt-4 space-y-3">
@@ -199,16 +201,16 @@ export function SubscriptionCancelDialog({
 
         {(deleteTorrents || deleteLibraryFiles) && (
           <p className="mt-4 rounded-lg bg-white/[0.04] px-3 py-2.5 text-xs leading-5 text-[var(--text-muted)]">
-            订阅会立刻取消，清理在后台进行——可以在「任务中心」查看进度和结果。
+            {t("subscription.cancel.background")}
           </p>
         )}
 
         <div className="mt-5 flex justify-end gap-2.5">
           <button type="button" onClick={onClose} disabled={busy} className={CANCEL_BTN_CLS}>
-            先不
+            {t("subscription.cancel.notNow")}
           </button>
           <button type="button" onClick={submit} disabled={busy} className={DANGER_BTN_CLS}>
-            {busy ? "处理中…" : "取消订阅"}
+            {busy ? t("subscription.cancel.processing") : t("subscription.cancel.title")}
           </button>
         </div>
       </div>

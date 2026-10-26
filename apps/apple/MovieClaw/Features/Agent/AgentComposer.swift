@@ -216,7 +216,7 @@ struct AgentComposer: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.textFaint)
-                        .accessibilityLabel("移除技能 \(name)")
+                        .accessibilityLabel(String(localized: .agentComposerRemoveSkill(name)))
                     }
                     .padding(.leading, 8).padding(.trailing, 2).padding(.vertical, 4)
                     .background(Theme.accent.opacity(0.14), in: .rect(cornerRadius: 8))
@@ -241,7 +241,7 @@ struct AgentComposer: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.textFaint)
-                        .accessibilityLabel("移除图片 \(image.name)")
+                        .accessibilityLabel(String(localized: .agentComposerRemoveImage(image.name)))
                     }
                     .padding(4)
                     .background(Color.white.opacity(0.05), in: .rect(cornerRadius: 8))
@@ -250,7 +250,7 @@ struct AgentComposer: View {
                 if uploading > 0 {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.mini)
-                        Text("上传中…")
+                        Text(String(localized: .agentComposerUploading))
                     }
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.textFaint)
@@ -271,10 +271,10 @@ struct AgentComposer: View {
 
     private var inputPlaceholder: String {
         if collapsed {
-            if !draft.images.isEmpty { return "已添加 \(draft.images.count) 张图片" }
+            if !draft.images.isEmpty { return String(localized: .agentComposerImagesAdded(draft.images.count)) }
             if !draft.skills.isEmpty { return draft.skills.map { "⚡ \($0)" }.joined(separator: " ") }
         }
-        return placeholder ?? (busy ? "生成中，可先输入下一条…" : "随心输入，描述一个新任务…")
+        return placeholder ?? (busy ? String(localized: .agentComposerBusyPlaceholder) : String(localized: .agentComposerPlaceholder))
     }
 
     private var inputField: some View {
@@ -333,7 +333,7 @@ struct AgentComposer: View {
     private var modelControl: some View {
         if !modelOptions.isEmpty {
             let model = AgentCatalog.resolve(modelOptions, ref: modelValue)
-            let label = model?.label ?? "模型"
+            let label = model?.label ?? String(localized: .agentComposerModel)
             // 显式选了思考档位才跟在模型名后面（灰字），「默认」不占地方
             let thinking = thinkingValue.flatMap { value in
                 AgentThinking.stops(model?.thinkingLevels ?? []).contains(value) ? AgentThinking.label(value) : nil
@@ -353,7 +353,7 @@ struct AgentComposer: View {
             }
             .buttonStyle(.plain)
             .disabled(disabled)
-            .accessibilityLabel("模型与思维链：\(label)\(thinking.map { "，思考\($0)" } ?? "")")
+            .accessibilityLabel(String(localized: .agentComposerModelThinkingLabel(label + (thinking.map { String(localized: .agentComposerThinkingSuffix($0)) } ?? ""))))
             .accessibilityIdentifier("agent-model-menu")
             .popover(isPresented: $showsModelMenu, arrowEdge: .bottom) {
                 AgentModelMenu(
@@ -390,7 +390,7 @@ struct AgentComposer: View {
         .buttonStyle(.plain)
         .foregroundStyle(Theme.text)
         .disabled(disabled)
-        .accessibilityLabel("添加图片或技能")
+        .accessibilityLabel(String(localized: .agentComposerAddImageOrSkill))
         .accessibilityIdentifier("agent-composer-plus")
         .popover(isPresented: $showsPlusMenu, arrowEdge: .bottom) {
             AgentPlusMenu(imageUpload: imageUpload) { source in
@@ -430,7 +430,7 @@ struct AgentComposer: View {
         .foregroundStyle(Theme.text)
         .opacity(!showStop && !canSubmit ? 0.45 : 1)
         .disabled(!showStop && !canSubmit)
-        .accessibilityLabel(showStop ? "停止生成" : "发送")
+        .accessibilityLabel(showStop ? String(localized: .librarySubtitleGenerationStop) : String(localized: .agentComposerSend))
         .accessibilityIdentifier(showStop ? "agent-stop" : "agent-send")
     }
 
@@ -454,7 +454,7 @@ struct AgentComposer: View {
         return Group {
             if !matches.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("使用技能").font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 2)
+                    Text(String(localized: .agentComposerUseSkill)).font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 2)
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(matches.enumerated()), id: \.element.name) { index, skill in
@@ -523,7 +523,7 @@ struct AgentComposer: View {
                     return (file.data, file.filename, file.contentType ?? item.supportedContentTypes.first)
                 }
                 guard let data = try await item.loadTransferable(type: Data.self) else {
-                    throw APIError.network("读取图片失败，请换一张再试")
+                    throw APIError.network(String(localized: .libraryFormImageReadFailed))
                 }
                 return (data, nil, item.supportedContentTypes.first)
             }
@@ -537,7 +537,7 @@ struct AgentComposer: View {
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                 guard let data = try? Data(contentsOf: url) else {
-                    throw APIError.network("读取图片失败，请换一张再试")
+                    throw APIError.network(String(localized: .libraryFormImageReadFailed))
                 }
                 return (data, url.lastPathComponent, UTType(filenameExtension: url.pathExtension))
             }
@@ -548,7 +548,7 @@ struct AgentComposer: View {
     private func addCapturedPhoto(_ image: UIImage) {
         addImages([{
             guard let data = image.jpegData(compressionQuality: 0.95) else {
-                throw APIError.network("读取照片失败，请重拍一张")
+                throw APIError.network(String(localized: .agentComposerPhotoReadFailed))
             }
             return (data, nil, .jpeg)
         }])
@@ -558,7 +558,7 @@ struct AgentComposer: View {
     private func addImages(_ loaders: [() async throws -> (Data, String?, UTType?)]) {
         uploadError = nil
         let room = max(0, Self.maxImages - draft.images.count - uploading)
-        if loaders.count > room { uploadError = "一条消息最多发送 \(Self.maxImages) 张图片" }
+        if loaders.count > room { uploadError = String(localized: .agentComposerImageLimit(Self.maxImages)) }
         for load in loaders.prefix(room) {
             uploading += 1
             Task {
@@ -598,13 +598,13 @@ enum AgentImageCompressor {
         let original = filename.flatMap { $0.isEmpty ? nil : $0 }
         /// 原样上传：有原名用原名，没有按类型兜底
         func keep(_ ext: String, _ mime: String) -> Prepared {
-            Prepared(data: data, filename: original ?? "图片.\(ext)", mimeType: mime)
+            Prepared(data: data, filename: original ?? "图片.\(ext)", mimeType: mime) // i18n-ignore: upload filename fallback, matches Web
         }
         if contentType?.conforms(to: .gif) == true {
             return keep("gif", "image/gif")
         }
         guard let image = UIImage(data: data) else {
-            throw APIError.network("不支持的图片格式，请选择 JPG / PNG / WebP / GIF 图片")
+            throw APIError.network(String(localized: .agentComposerImageUnsupported))
         }
         let longest = max(image.size.width * image.scale, image.size.height * image.scale)
         if longest <= maxEdge {
@@ -620,16 +620,16 @@ enum AgentImageCompressor {
             image.draw(in: CGRect(origin: .zero, size: size))
         }
         guard let jpeg = resized.jpegData(compressionQuality: 0.85) else {
-            throw APIError.network("图片压缩失败，请换一张再试")
+            throw APIError.network(String(localized: .agentComposerCompressFailed))
         }
         return Prepared(data: jpeg, filename: jpegName(original), mimeType: "image/jpeg")
     }
 
     /// 压缩/转码后的文件名：原名去扩展名换成 .jpg（同 Web `name.replace(/\.[^.]+$/, "") + ".jpg"`）
     static func jpegName(_ original: String?) -> String {
-        guard let original else { return "图片.jpg" }
+        guard let original else { return "图片.jpg" } // i18n-ignore: upload filename fallback, matches Web
         let base = (original as NSString).deletingPathExtension
-        return base.isEmpty ? "图片.jpg" : base + ".jpg"
+        return base.isEmpty ? "图片.jpg" : base + ".jpg" // i18n-ignore: upload filename fallback, matches Web
     }
 }
 
@@ -719,18 +719,18 @@ struct AgentPlusMenu: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if imageUpload {
-                    Text("上传图片").font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 2)
-                    imageSourceRow("照片图库", systemImage: "photo.on.rectangle", source: .library, id: "agent-pick-image")
+                    Text(String(localized: .agentComposerUploadImage)).font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 2)
+                    imageSourceRow(String(localized: .agentComposerPhotoLibrary), systemImage: "photo.on.rectangle", source: .library, id: "agent-pick-image")
                     if AgentCameraPicker.isAvailable {
-                        imageSourceRow("拍照", systemImage: "camera", source: .camera, id: "agent-pick-camera")
+                        imageSourceRow(String(localized: .agentComposerTakePhoto), systemImage: "camera", source: .camera, id: "agent-pick-camera")
                     }
-                    imageSourceRow("选取文件", systemImage: "folder", source: .files, id: "agent-pick-file")
+                    imageSourceRow(String(localized: .agentComposerChooseFile), systemImage: "folder", source: .files, id: "agent-pick-file")
                     Divider().padding(.horizontal, 10).padding(.vertical, 4)
                 }
-                Text("使用技能").font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 2)
+                Text(String(localized: .agentComposerUseSkill)).font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 2)
                 if let skills {
                     if skills.isEmpty {
-                        Text(failed ? "技能列表加载失败" : "暂无可用技能")
+                        Text(failed ? String(localized: .agentComposerSkillsFailed) : String(localized: .agentComposerNoSkills))
                             .font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.vertical, 6)
                     }
                     ForEach(skills, id: \.name) { skill in
@@ -738,7 +738,7 @@ struct AgentPlusMenu: View {
                             .buttonStyle(.plain)
                     }
                 } else {
-                    Text("加载中…").font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.vertical, 6)
+                    Text(String(localized: .commonLoadingProgress)).font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.vertical, 6)
                 }
             }
             .padding(6)
@@ -784,7 +784,7 @@ struct AgentModelMenu: View {
         let current = AgentCatalog.resolve(options, ref: value)
         let stops = AgentThinking.stops(current?.thinkingLevels ?? [])
         VStack(alignment: .leading, spacing: 0) {
-            Text("模型").font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 2)
+            Text(String(localized: .agentComposerModel)).font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 2)
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
@@ -821,7 +821,7 @@ struct AgentModelMenu: View {
                 AgentThinkingToggle(stops: stops, value: thinkingValue, onChange: onThinkingChange)
             case .hidden:
                 // 不可控的模型：下半空着会让人以为控件丢了，留一行灰字交代
-                Text("该模型不支持调节思考强度").font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.bottom, 6)
+                Text(String(localized: .agentComposerThinkingUnsupported)).font(.system(size: 13)).foregroundStyle(Theme.textFaint).padding(.horizontal, 10).padding(.bottom, 6)
             }
         }
         .padding(6)
@@ -843,25 +843,25 @@ struct AgentThinkingSlider: View {
         let index = value.flatMap { stops.firstIndex(of: $0) } ?? -1
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text("思维链强度").font(.system(size: 15)).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .agentComposerReasoningEffort)).font(.system(size: 15)).foregroundStyle(Theme.textMuted)
                 Text(AgentThinking.label(value)).font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.text)
                 Spacer()
                 if value != nil {
                     Button { onChange(nil) } label: {
-                        Text("恢复默认")
+                        Text(String(localized: .libraryCustomizeReset))
                             .font(.system(size: 13))
                             .foregroundStyle(Theme.textFaint)
                             .expandedHitArea(vertical: 14)
                     }
                     .buttonStyle(.plain)
                 } else {
-                    Text("由模型自行决定").font(.system(size: 13)).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .agentComposerModelDecides)).font(.system(size: 13)).foregroundStyle(Theme.textFaint)
                 }
             }
             HStack {
-                Text("更快")
+                Text(String(localized: .agentComposerFaster))
                 Spacer()
-                Text("更聪明")
+                Text(String(localized: .agentComposerSmarter))
             }
             .font(.system(size: 13))
             .foregroundStyle(Theme.textFaint)
@@ -894,7 +894,7 @@ struct AgentThinkingSlider: View {
             }
             .frame(height: 32)
             .accessibilityElement()
-            .accessibilityLabel("思维链强度")
+            .accessibilityLabel(String(localized: .agentComposerReasoningEffort))
             .accessibilityValue(AgentThinking.label(value))
             .accessibilityAdjustableAction { direction in
                 let next: Int
@@ -921,7 +921,7 @@ struct AgentThinkingToggle: View {
         let items = AgentThinking.listItems(stops)
         let current = items.first(where: { $0.level == value }) ?? items[0]
         VStack(alignment: .leading, spacing: 6) {
-            Text("思维链").font(.system(size: 15)).foregroundStyle(Theme.textMuted)
+            Text(String(localized: .agentComposerReasoning)).font(.system(size: 15)).foregroundStyle(Theme.textMuted)
             HStack(spacing: 4) {
                 ForEach(items) { item in
                     let selected = item.level == value

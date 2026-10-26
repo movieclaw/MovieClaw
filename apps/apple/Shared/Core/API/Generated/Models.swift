@@ -117,6 +117,8 @@ nonisolated extension API {
         var id: Int
         var type: String
         var message: String
+        var messageKey: String?
+        var messageParams: [String: API.JSONValue]?
         var payload: [String: API.JSONValue]
         var createdAt: String
         var wantedItemId: Int?
@@ -125,6 +127,8 @@ nonisolated extension API {
             case id
             case type
             case message
+            case messageKey = "message_key"
+            case messageParams = "message_params"
             case payload
             case createdAt = "created_at"
             case wantedItemId = "wanted_item_id"
@@ -220,6 +224,8 @@ nonisolated extension API {
         var webPortSource: String
         /// 内置默认端口，用于「恢复默认」的展示
         var webPortDefault: Int
+        /// Port after clearing the override, including environment defaults
+        var webPortResetTarget: Int?
         /// 上次启动时因无法绑定而被自动废弃的端口；null = 无
         var webPortRejected: Int?
         /// 当前部署形态是否支持应用内改端口（仅由容器入口托管进程的 Docker 部署）
@@ -230,6 +236,7 @@ nonisolated extension API {
             case webPort = "web_port"
             case webPortSource = "web_port_source"
             case webPortDefault = "web_port_default"
+            case webPortResetTarget = "web_port_reset_target"
             case webPortRejected = "web_port_rejected"
             case webPortConfigurable = "web_port_configurable"
         }
@@ -733,9 +740,12 @@ nonisolated extension API {
     /// 首次初始化状态：前端据此决定进引导页（/setup）还是登录页（/login）。
     struct BootstrapStatus: Codable, Hashable, Sendable {
         var initialized: Bool
+        /// 服务端接受的原生 App 设备类型；旧服务端可能不提供
+        var nativeDeviceKinds: [String]?
 
         enum CodingKeys: String, CodingKey {
             case initialized
+            case nativeDeviceKinds = "native_device_kinds"
         }
     }
 
@@ -765,6 +775,8 @@ nonisolated extension API {
         var scale: Double?
         var offsetMs: Int?
         var score: Double?
+        var messageKey: String?
+        var params: [String: API.JSONValue]?
 
         enum CodingKeys: String, CodingKey {
             case ok
@@ -772,6 +784,8 @@ nonisolated extension API {
             case scale
             case offsetMs = "offset_ms"
             case score
+            case messageKey = "message_key"
+            case params
         }
     }
 
@@ -1173,6 +1187,7 @@ nonisolated extension API {
         var dolbyVisionBaseLayerProfiles: [Int]?
         var dolbyVisionRecordAudit: Bool?
         var mp4SampleLimit: Int?
+        var hevcTranscode: Bool?
 
         enum CodingKeys: String, CodingKey {
             case video
@@ -1191,6 +1206,7 @@ nonisolated extension API {
             case dolbyVisionBaseLayerProfiles = "dolby_vision_base_layer_profiles"
             case dolbyVisionRecordAudit = "dolby_vision_record_audit"
             case mp4SampleLimit = "mp4_sample_limit"
+            case hevcTranscode = "hevc_transcode"
         }
     }
 
@@ -1821,7 +1837,7 @@ nonisolated extension API {
     struct CountryOption: Codable, Hashable, Sendable {
         /// ISO 3166-1 地区码（CN / US …）
         var code: String
-        /// 地区中文名（TMDB native_name，缺失回落英文名）
+        /// 按请求语言显示的地区名；中文保留 TMDB native_name
         var name: String
 
         enum CodingKeys: String, CodingKey {
@@ -2049,7 +2065,7 @@ nonisolated extension API {
     /// 刻意**没有权限字段**：客户端只声明自己是什么形态、叫什么名字，
     /// 能做什么由批准者决定。
     struct DeviceAuthorizeRequest: Codable, Hashable, Sendable {
-        /// 客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、macos（Mac App）、androidtv（Android TV App）
+        /// 客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、macos（Mac App）、windows（Windows App）、androidtv（Android TV App）
         var clientType: String
         /// 设备名，批准页上给人看的，如 'Yi的Mac-mini'
         var clientName: String
@@ -2632,6 +2648,8 @@ nonisolated extension API {
         var downloaderName: String?
         /// 收藏范围路由结论：true=命中声明库 / false=默认库兜底；未走路由为 null
         var routeMatched: Bool?
+        var routeReasonKey: String?
+        var routeReasonParams: [String: API.JSONValue]?
         /// 路由理由（中文整句，弹窗徽标直接展示）
         var routeReason: String?
         /// 按规则组适用范围自动选出的规则组（与 route_* 同条件：走了路由才有）
@@ -2639,10 +2657,14 @@ nonisolated extension API {
         var ruleSetName: String?
         /// true=命中某组适用范围 / false=默认规则组兜底
         var ruleSetMatched: Bool?
+        var ruleSetReasonKey: String?
+        var ruleSetReasonParams: [String: API.JSONValue]?
         /// 选组理由（中文整句，弹窗与模拟一单直接展示）
         var ruleSetReason: String?
         /// 按当前配置投递能否顺利入库
         var ok: Bool
+        var warningKey: String?
+        var warningParams: [String: API.JSONValue]?
         /// 不 ok 时的中文指引
         var warning: String?
 
@@ -2655,12 +2677,18 @@ nonisolated extension API {
             case libraryName = "library_name"
             case downloaderName = "downloader_name"
             case routeMatched = "route_matched"
+            case routeReasonKey = "route_reason_key"
+            case routeReasonParams = "route_reason_params"
             case routeReason = "route_reason"
             case ruleSetId = "rule_set_id"
             case ruleSetName = "rule_set_name"
             case ruleSetMatched = "rule_set_matched"
+            case ruleSetReasonKey = "rule_set_reason_key"
+            case ruleSetReasonParams = "rule_set_reason_params"
             case ruleSetReason = "rule_set_reason"
             case ok
+            case warningKey = "warning_key"
+            case warningParams = "warning_params"
             case warning
         }
     }
@@ -3517,7 +3545,11 @@ nonisolated extension API {
         var fileName: String
         /// 绝对路径（悬停显示；成员视图不返回本接口）
         var filePath: String
-        /// 版本签名的质量部分：「分辨率 片源[ HDR]」
+        /// Original quality label for comparisons
+        var qualityKey: String?
+        /// Original origin label for comparisons
+        var originKey: String?
+        /// Quality label in the reader language; compare quality_key
         var qualityLabel: String
         var sizeBytes: Int
         var bitRate: Int?
@@ -3541,6 +3573,8 @@ nonisolated extension API {
             case id
             case fileName = "file_name"
             case filePath = "file_path"
+            case qualityKey = "quality_key"
+            case originKey = "origin_key"
             case qualityLabel = "quality_label"
             case sizeBytes = "size_bytes"
             case bitRate = "bit_rate"
@@ -3730,6 +3764,10 @@ nonisolated extension API {
     /// 同构季的一个版本行：这版本覆盖哪些集、多大、从哪来。
     struct DuplicateVersionView: Codable, Hashable, Sendable {
         var key: String
+        /// Original quality label for comparisons
+        var qualityKey: String?
+        /// Original origin label for comparisons
+        var originKey: String?
         var qualityLabel: String
         var originLabel: String
         var episodes: [Int]
@@ -3738,6 +3776,8 @@ nonisolated extension API {
 
         enum CodingKeys: String, CodingKey {
             case key
+            case qualityKey = "quality_key"
+            case originKey = "origin_key"
             case qualityLabel = "quality_label"
             case originLabel = "origin_label"
             case episodes
@@ -5185,6 +5225,8 @@ nonisolated extension API {
         var phase: String
         /// 面向用户的即时进展
         var message: String
+        var messageKey: String?
+        var messageParams: [String: API.JSONValue]?
         /// 当前完成量
         var current: Int?
         /// 总量；未知时为空
@@ -5202,6 +5244,8 @@ nonisolated extension API {
             case mode
             case phase
             case message
+            case messageKey = "message_key"
+            case messageParams = "message_params"
             case current
             case total
             case percent
@@ -6089,6 +6133,8 @@ nonisolated extension API {
         var sourceField: String
         var matchedName: String
         var label: String
+        var labelKey: String?
+        var labelParams: [String: API.JSONValue]?
         var personId: Int?
 
         enum CodingKeys: String, CodingKey {
@@ -6096,6 +6142,8 @@ nonisolated extension API {
             case sourceField = "source_field"
             case matchedName = "matched_name"
             case label
+            case labelKey = "label_key"
+            case labelParams = "label_params"
             case personId = "person_id"
         }
     }
@@ -6472,7 +6520,7 @@ nonisolated extension API {
         var status: API.ConfigStatus
         /// 是否可用 = 连接测试通过（status=active）
         var usable: Bool
-        /// 最近测试失败原因（清晰中文）
+        /// 最近测试失败原因（按当前请求语言显示）
         var lastError: String?
         var lastCheckedAt: String?
         /// 最近验证成功时端点上报的可用模型列表
@@ -6719,10 +6767,14 @@ nonisolated extension API {
         var stagingPath: String?
         /// 是否命中媒体库收藏范围
         var routeMatched: Bool?
+        var routeReasonKey: String?
+        var routeReasonParams: [String: API.JSONValue]?
         /// 媒体库路由理由
         var routeReason: String?
         /// 当前选择的下载器和投递配置能否自动入库
         var ok: Bool
+        var warningKey: String?
+        var warningParams: [String: API.JSONValue]?
         /// 不可自动入库时的中文指引
         var warning: String?
 
@@ -6740,8 +6792,12 @@ nonisolated extension API {
             case entryDir = "entry_dir"
             case stagingPath = "staging_path"
             case routeMatched = "route_matched"
+            case routeReasonKey = "route_reason_key"
+            case routeReasonParams = "route_reason_params"
             case routeReason = "route_reason"
             case ok
+            case warningKey = "warning_key"
+            case warningParams = "warning_params"
             case warning
         }
     }
@@ -7637,11 +7693,15 @@ nonisolated extension API {
         var ok: Bool
         var latencyMs: Int?
         var message: String
+        var messageKey: String?
+        var messageParams: [String: API.JSONValue]?
 
         enum CodingKeys: String, CodingKey {
             case ok
             case latencyMs = "latency_ms"
             case message
+            case messageKey = "message_key"
+            case messageParams = "message_params"
         }
     }
 
@@ -7652,6 +7712,9 @@ nonisolated extension API {
         var source: String
         var title: String
         var message: String
+        var titleKey: String?
+        var messageKey: String?
+        var messageParams: [String: API.JSONValue]?
         var payload: [String: API.JSONValue]
         var createdAt: String
         var updatedAt: String
@@ -7662,6 +7725,9 @@ nonisolated extension API {
             case source
             case title
             case message
+            case titleKey = "title_key"
+            case messageKey = "message_key"
+            case messageParams = "message_params"
             case payload
             case createdAt = "created_at"
             case updatedAt = "updated_at"
@@ -8666,6 +8732,8 @@ nonisolated extension API {
     struct PlaybackDeliveryView: Codable, Hashable, Sendable {
         /// direct=直连原文件；remux=重封装（音视频都不重编码）；audio=只转音频（视频直通）；transcode=视频转码
         var mode: String
+        /// Video transcode executor: hardware, software or remote; null otherwise
+        var executionKind: String?
         /// 简短中文标识：直连 / 重封装 / 音频转码 / 硬件转码 / 软件转码 / 远程转码
         var label: String
         /// 转码输出规格，如「1080p · H.264 · 8 Mbps」；直连 / 重封装为 null
@@ -8677,6 +8745,7 @@ nonisolated extension API {
 
         enum CodingKeys: String, CodingKey {
             case mode
+            case executionKind = "execution_kind"
             case label
             case target
             case executor
@@ -11205,6 +11274,7 @@ nonisolated extension API {
     struct RuleSetView: Codable, Hashable, Sendable {
         var id: Int
         var name: String
+        var nameKey: String?
         var isDefault: Bool
         var spec: [String: API.JSONValue]
         /// 适用范围条件；空=未声明（只能手选或作默认兜底）
@@ -11215,6 +11285,7 @@ nonisolated extension API {
         enum CodingKeys: String, CodingKey {
             case id
             case name
+            case nameKey = "name_key"
             case isDefault = "is_default"
             case spec
             case matchRules = "match_rules"
@@ -11422,6 +11493,7 @@ nonisolated extension API {
         var keyword: String
         var alsoKeywords: [String]?
         var vertical: String
+        var labelKey: String?
         var label: String?
         var categories: [String]
         var siteIds: [String]
@@ -11435,6 +11507,7 @@ nonisolated extension API {
             case keyword
             case alsoKeywords = "also_keywords"
             case vertical
+            case labelKey = "label_key"
             case label
             case categories
             case siteIds = "site_ids"
@@ -11481,6 +11554,7 @@ nonisolated extension API {
     struct SearchResponse: Codable, Hashable, Sendable {
         var keyword: String
         var alsoKeywords: [String]?
+        var labelKey: String?
         var label: String?
         var categories: [String]
         var total: Int
@@ -11490,6 +11564,7 @@ nonisolated extension API {
         enum CodingKeys: String, CodingKey {
             case keyword
             case alsoKeywords = "also_keywords"
+            case labelKey = "label_key"
             case label
             case categories
             case total
@@ -12353,6 +12428,8 @@ nonisolated extension API {
         var siteName: String
         var count: Int
         var error: String?
+        var errorKey: String?
+        var errorParams: [String: API.JSONValue]?
         var elapsedMs: Int?
         var hasMore: Bool?
 
@@ -12361,6 +12438,8 @@ nonisolated extension API {
             case siteName = "site_name"
             case count
             case error
+            case errorKey = "error_key"
+            case errorParams = "error_params"
             case elapsedMs = "elapsed_ms"
             case hasMore = "has_more"
         }
@@ -12599,6 +12678,7 @@ nonisolated extension API {
         var subtitleLine: String?
         /// 仅管理员、且这种语言还没回答过时给出
         var question: API.SmartQuestionView?
+        var subtitleEditQuestion: API.SmartQuestionView?
         var scopeOptions: [API.SmartScopeOptionView]
         /// 管理员可改字幕、画质并写入记忆
         var canEdit: Bool
@@ -12618,6 +12698,7 @@ nonisolated extension API {
             case subtitleUnderstood = "subtitle_understood"
             case subtitleLine = "subtitle_line"
             case question
+            case subtitleEditQuestion = "subtitle_edit_question"
             case scopeOptions = "scope_options"
             case canEdit = "can_edit"
         }
@@ -13718,6 +13799,7 @@ nonisolated extension API {
         var historyId: Int
         var keyword: String
         var alsoKeywords: [String]?
+        var labelKey: String?
         var label: String?
         var categories: [String]
         var siteIds: [String]
@@ -13732,6 +13814,7 @@ nonisolated extension API {
             case historyId = "history_id"
             case keyword
             case alsoKeywords = "also_keywords"
+            case labelKey = "label_key"
             case label
             case categories
             case siteIds = "site_ids"
@@ -14199,6 +14282,7 @@ nonisolated extension API {
 
     /// 全站界面样式偏好，按页面分组。新页面的设定加嵌套模型字段即可。
     struct UiPreferencesSetting: Codable, Hashable, Sendable {
+        var language: String?
         /// 主题 id，取值见前端 lib/themes.ts 的注册表（silver / netflix）。存纯字符串并放宽校验：未知值由前端 normalizeThemeId 兜底为默认主题，老后端读到新主题 id 也不会整体拒绝（前向兼容）。
         var theme: String
         /// 桌面端（≥768px 视口）的主题 id 覆盖；空 = 跟随 theme。校验口径与 theme 相同（纯字符串、前端兜底未知值），2026-09 起桌面 / 移动端可分别选主题，见前端 lib/ui-prefs.tsx 的 resolveThemeId。
@@ -14215,6 +14299,7 @@ nonisolated extension API {
         var home: API.HomeUiPrefs
 
         enum CodingKeys: String, CodingKey {
+            case language
             case theme
             case themeDesktop = "theme_desktop"
             case themeMobile = "theme_mobile"
@@ -14227,6 +14312,7 @@ nonisolated extension API {
 
     /// 全站界面样式偏好，按页面分组。新页面的设定加嵌套模型字段即可。
     struct UiPreferencesSettingInput: Codable, Hashable, Sendable {
+        var language: String?
         /// 主题 id，取值见前端 lib/themes.ts 的注册表（silver / netflix）。存纯字符串并放宽校验：未知值由前端 normalizeThemeId 兜底为默认主题，老后端读到新主题 id 也不会整体拒绝（前向兼容）。
         var theme: String?
         /// 桌面端（≥768px 视口）的主题 id 覆盖；空 = 跟随 theme。校验口径与 theme 相同（纯字符串、前端兜底未知值），2026-09 起桌面 / 移动端可分别选主题，见前端 lib/ui-prefs.tsx 的 resolveThemeId。
@@ -14243,6 +14329,7 @@ nonisolated extension API {
         var home: API.HomeUiPrefsInput?
 
         enum CodingKeys: String, CodingKey {
+            case language
             case theme
             case themeDesktop = "theme_desktop"
             case themeMobile = "theme_mobile"

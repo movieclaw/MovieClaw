@@ -58,7 +58,7 @@ def client(tmp_path, monkeypatch):
 
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         c.post("/api/v1/auth/bootstrap", json=_ADMIN)
         yield c
 

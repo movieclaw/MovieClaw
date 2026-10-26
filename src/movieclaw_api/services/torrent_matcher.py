@@ -118,6 +118,7 @@ async def _process_locked() -> None:
 
             # 没有任何缺口时评估管道自己会立即返回（它要加载匹配上下文，这里不再
             # 先加载一遍判空——那样每批都要把全部订阅的上下文多读一次）
+            # i18n-ignore: audit source label for logs and activity payload
             await evaluate_and_dispatch(session, rows, source="被动匹配")
             # 换源退避只约束主动跨站搜索；刚同步进索引的新种是新的事实，
             # 应立即抢跑评估，不能让用户等到 1h/3h/12h/24h 的下个时间点。
@@ -131,12 +132,14 @@ async def _process_locked() -> None:
 @register_task(
     "match_new_torrents",
     title="订阅被动匹配（兜底扫描）",
+    title_key="settings.scheduledTasks.catalog.matchNewTorrentsTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=3600,
     description=(
         "低频兜底：扫描种子索引中水位之后的新种子并匹配订阅缺口，并全量重算追新发布预测。"
         "主触发在站点同步任务尾部（零延迟），本任务只兜进程重启/同步异常的漏网。"
     ),
+    description_key="settings.scheduledTasks.catalog.matchNewTorrentsDescription",
 )
 async def match_new_torrents_task() -> None:
     await process_new_torrents(full_forecast_refresh=True)

@@ -1,0 +1,59 @@
+{
+  "channel.thinking": {
+    "sourceHash": "d3cb4805ff3742370f0bb8fbb49f57e4edcd7eb614c39e987cac551667da8a43"
+  },
+  "operations.messageSubmitted": {
+    "sourceHash": "4ac9d5a4fcfabdbbb762e0c3d38795f48f319d83880e5cf69dfaca7071471b10"
+  },
+  "operations.imageUploaded": {
+    "sourceHash": "17d9784b005ab8499900f271d888f2b252bbfbf471e6b6d7b2db876909d4585c"
+  },
+  "operations.continuationCreated": {
+    "sourceHash": "41b4bdaaf3c46dc902db586f0e25169d51c8a77eb0c4581331ec8b874a112cc3"
+  },
+  "operations.renamed": {
+    "sourceHash": "8006e87328bf26c643535bab81acc6d01d3aa2026430724937b2d972fb447c0a"
+  },
+  "operations.compacted": {
+    "sourceHash": "56fa863f785eabc00cd26be1178fd29888d2cae3febe279d51373b12721866c6"
+  },
+  "operations.deleted": {
+    "sourceHash": "495e7952925d7198ce0b06807ea7c7bed37af407407716500d8ee8fce9bc6780"
+  },
+  "operations.stopRequested": {
+    "sourceHash": "0eab9279ce66125b4b3e3b8a4d2f417321da227cf24925d546ca3af4fe735696"
+  },
+  "session.continued": {
+    "sourceHash": "aaf8a4cd2a7065e5fdab64b5fad185e15564fdb0172d2c392981a1876492698c"
+  },
+  "session.skill": {
+    "sourceHash": "7790cc21e95ad289fbecbb6b372f978915d527df7de34fe42625d70ef137e428"
+  },
+  "session.skillOnly": {
+    "sourceHash": "c5c02020c3baa8de9a5359312aacfd9d14703e47d3c1197ec05318ec3be176a7"
+  },
+  "session.image": {
+    "sourceHash": "a71f445d35779eded53cea1e54f9bbf22b62267f629e30f18bc54f5fa7057c40"
+  },
+  "session.images": {
+    "sourceHash": "113d8d4f8306c4959b9cac0a53696b0c73b601caccaeafc4acea4d03e315d03f"
+  },
+  "session.defaultInstruction": {
+    "sourceHash": "c6cf789703f862c7780e04b2791ba4242466a8115ec830a763a6b5006b880004"
+  },
+  "attachments.imageName": {
+    "sourceHash": "d24c10d37db0feea7bd73498118e280e6b33ca93f53f34d5e1cca1ba3e83730d"
+  },
+  "attachments.defaultName": {
+    "sourceHash": "d24c10d37db0feea7bd73498118e280e6b33ca93f53f34d5e1cca1ba3e83730d"
+  },
+  "im.visionUnsupported": {
+    "sourceHash": "66785267569f2bc6058e11566bd9b8fd245a40db7673b89b2b87fda6433ff433"
+  },
+  "im.tooManyImages": {
+    "sourceHash": "e163b398fcec5e14820e0ff19514ff9db98c8d9eed011f2659c09d131435c1f2"
+  },
+  "im.imageFailed": {
+    "sourceHash": "24928e2ed5624bd2ce302902476ef0060ef7bf0ebd8dc29387f7fe2b57718cf8"
+  }
+}

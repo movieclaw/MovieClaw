@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DownloadTask } from "@/lib/api/downloaders";
@@ -58,6 +59,7 @@ export function useSubscriptionsHome(
   subscriptions: Subscription[] | null,
   isAdmin: boolean,
 ): SubscriptionsHomeFeed {
+  const locale = useLocale();
   const owner = useSession().session.username;
   const cached = sharedSnapshot?.owner === owner ? sharedSnapshot : null;
   const [week, setWeek] = useState<TodaySubscriptionArrival[] | null>(cached?.week ?? null);
@@ -119,8 +121,8 @@ export function useSubscriptionsHome(
   useVisiblePolling(refreshRecent, enabled ? RECENT_POLL_MS : null);
 
   const state = useMemo(
-    () => subscriptionsHomeState(subscriptions ?? [], week ?? [], recent, tasks, new Date(now)),
-    [subscriptions, week, recent, tasks, now],
+    () => subscriptionsHomeState(subscriptions ?? [], week ?? [], recent, tasks, new Date(now), locale),
+    [subscriptions, week, recent, tasks, now, locale],
   );
   const nowDate = useMemo(() => new Date(now), [now]);
   return { state, recent: enabled ? recent : EMPTY_RECENT, now: nowDate };

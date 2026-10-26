@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import ConfigDict, Field, field_serializer, field_validator, model_validator
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_db.models import AgentSession
 from movieclaw_db.repositories.agent_session_repo import is_running
@@ -24,8 +26,11 @@ def _validate_thinking_level(value: str | None) -> str | None:
         return None
     if value not in _THINKING_LEVEL_CHOICES:
         raise ValueError(
-            f"思维链档位「{value}」不在支持的取值里："
-            f"{', '.join(sorted(_THINKING_LEVEL_CHOICES))}"
+            t(
+                "errors.agentInput.thinkingLevel",
+                value=value,
+                choices=", ".join(sorted(_THINKING_LEVEL_CHOICES)),
+            )
         )
     return value
 
@@ -91,7 +96,7 @@ class SessionStartPayload(BaseModel):
     @model_validator(mode="after")
     def _require_content_or_attachments(self) -> SessionStartPayload:
         if not self.content and not self.attachments:
-            raise ValueError("消息正文与图片附件不能同时为空")
+            raise ValueError(t("errors.agentInput.emptyMessage"))
         return self
 
 
@@ -186,6 +191,8 @@ class SessionSummary(BaseModel):
 
     id: str = Field(description="会话稳定编号（session_id）")
     title: str | None = Field(description="会话标题；未命名时为空")
+    title_ref: dict | None = None
+    last_prompt_ref: dict | None = None
     last_prompt: str | None = Field(description="最近一条用户消息的短预览")
     entry_count: int = Field(description="完整轨迹的 entry 数量，包含 message 与 compaction")
     running: bool = Field(description="当前是否有仍在处理的用户消息")
@@ -204,8 +211,16 @@ class SessionSummary(BaseModel):
         running = is_running(row)
         return cls(
             id=row.id,
-            title=row.title,
-            last_prompt=row.last_prompt,
+            title=render_value({**row.title_ref, "message": row.title or ""}).strip()[:80]
+            if row.title_ref
+            else row.title,
+            last_prompt=render_value(
+                {**row.last_prompt_ref, "message": row.last_prompt or ""}
+            ).strip()[:80]
+            if row.last_prompt_ref
+            else row.last_prompt,
+            title_ref=row.title_ref,
+            last_prompt_ref=row.last_prompt_ref,
             entry_count=row.entry_count,
             running=running,
             created_at=row.created_at,
@@ -259,6 +274,7 @@ class SessionMessageEntryView(BaseModel):
     parent_id: str | None = Field(default=None, description="上一条轨迹 entry 的编号")
     timestamp: str = Field(description="消息写入时间（ISO 8601 UTC）")
     message: SessionMessageView = Field(description="LLM 协议格式的完整消息")
+    generated_skill_instruction: bool | None = None
     model: str | None = Field(
         default=None,
         description=(
@@ -299,6 +315,7 @@ class SessionHandoffEntryView(BaseModel):
     source_session_id: str = Field(description="源会话稳定编号")
     source_leaf_id: str | None = Field(default=None, description="源会话快照时的链尾编号")
     source_title: str | None = Field(default=None, description="快照时的源会话标题")
+    source_title_ref: dict | None = None
     replacement_history: list[SessionMessageView] = Field(
         description=(
             "新会话后续模型请求继承的完整上下文（不含 system 消息）。仅在 "

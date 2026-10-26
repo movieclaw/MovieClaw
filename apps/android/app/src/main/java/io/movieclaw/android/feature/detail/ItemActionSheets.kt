@@ -57,7 +57,6 @@ import io.movieclaw.android.core.designsystem.Info
 import io.movieclaw.android.core.designsystem.LineSoft
 import io.movieclaw.android.core.designsystem.LocalFeedback
 import io.movieclaw.android.core.designsystem.McFormat
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.RemoteImage
 import io.movieclaw.android.core.designsystem.TextFaint
@@ -77,6 +76,8 @@ import io.movieclaw.android.core.model.TransferStatusView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import io.movieclaw.android.core.designsystem.mcCards
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /*
  * 详情页「⋯」菜单各动作的面板（iOS 同名弹层的安卓版）。
@@ -635,7 +636,7 @@ fun ArtworkPickerSheet(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(max = 360.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .formSheetScroll().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 candidates.chunked(3).forEach { row ->
@@ -1089,7 +1090,7 @@ fun ReidentifySheet(
                     Modifier
                         .fillMaxWidth()
                         .heightIn(max = 320.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .formSheetScroll().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     p.groups.forEach { group ->
@@ -1421,8 +1422,8 @@ private fun SheetScaffold(
         Column(
             Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = McMetrics.pagePadding, vertical = 4.dp),
+                .formSheetScroll().verticalScroll(rememberScrollState())
+                .padding(horizontal = mcCards.pagePadding, vertical = 4.dp),
             content = content,
         )
     }
@@ -1448,7 +1449,7 @@ private fun PathBox(paths: List<String>) {
             .background(Color.White.copy(alpha = 0.03f))
             .border(1.dp, LineSoft, RoundedCornerShape(12.dp))
             .padding(12.dp)
-            .verticalScroll(rememberScrollState()),
+            .formSheetScroll().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         paths.forEach { Text(it, fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace) }

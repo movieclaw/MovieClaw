@@ -42,13 +42,17 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import exception_reference, reference, render_value, source_render
 from movieclaw_api.services.playback import plan as playback_plan
+from movieclaw_api.services.playback.errors import PlaybackError
 from movieclaw_api.services.playback.ffmpeg_args import (
     BITRATE_LADDER,
     HEVC_BITRATE_LADDER,
     HW_BACKENDS,
     INIT_NAME,
     SEGMENT_SECONDS,
+    hevc_encoder,
     segment_type,
 )
 from movieclaw_api.services.playback.hwprobe import available_backends, available_local_backends
@@ -59,6 +63,8 @@ from movieclaw_api.services.playback.limits import (
 )
 from movieclaw_api.services.playback.remote_config import effective_remote_transcode_config
 from movieclaw_api.services.playback.remote_worker import (
+    any_remote_worker_busy,
+    remote_backends_available,
     remote_worker_available,
     remote_worker_busy,
     remote_workers_have_encoder,
@@ -68,6 +74,7 @@ from movieclaw_api.services.playback.session import (
     SessionLimitError,
     SessionStartError,
     TranscodeSession,
+    _set_error,
     get_session_manager,
 )
 from movieclaw_api.services.playback.track_context import track_contexts
@@ -108,11 +115,27 @@ STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 
 
+#: 本机转码的执行者标记（活动页按读者语言显示）；旧 meta.json 里是中文原文
+_NAS_GPU = "nas:gpu"
+_NAS_SOFTWARE = "nas:software"
+_EXECUTOR_KEYS = {
+    _NAS_GPU: "player.offline.nasGpu",
+    _NAS_SOFTWARE: "player.offline.nasSoftware",
+    "NAS 显卡": "player.offline.nasGpu",  # i18n-ignore: legacy stored value
+    "NAS 软件": "player.offline.nasSoftware",  # i18n-ignore: legacy stored value
+}
+
+
+def _executor_label(executor: str) -> str:
+    key = _EXECUTOR_KEYS.get(executor)
+    return t(key) if key else executor
+
+
 class ExportStreamAborted(RuntimeError):
     """边转边发中途作废（转码失败 / 重转换了代号）：抛出去让服务器掐断连接、不发结束块。"""
 
 
-class ExportUnavailable(Exception):
+class ExportUnavailable(PlaybackError):
     """这个文件出不了这一档（原盘、HDR 没有硬件、软件转码没开……），文案面向用户。"""
 
 
@@ -127,6 +150,8 @@ class ExportState:
     expected_bytes: int
     final_bytes: int | None = None
     error: str | None = None
+    #: 失败原因的文案引用（读时按读者语言渲染；error 留中文原文给旧版）
+    error_ref: dict | None = None
     created_at: float = 0.0
     last_access_at: float = 0.0
     #: 每转一次换一个随机串：产物被回收后重建、代号从头数时，ETag 也不会与上一次撞上
@@ -180,16 +205,19 @@ def estimate_bytes(
     if hevc is None:
         hevc = likely_hevc()
     if videotoolbox is None:
-        videotoolbox = hevc or likely_videotoolbox()
+        # 本机没有显卡还出 HEVC，只能是转码器在转（它的 HEVC 编码器在、名额可能正被占着）
+        videotoolbox = likely_videotoolbox() or (hevc and not available_local_backends())
     factor = VIDEOTOOLBOX_RATE_FACTOR if videotoolbox else OTHER_RATE_FACTOR
     return int((video_bps(profile, hevc=hevc) * factor + AUDIO_BPS) * duration_s / 8 * 1.02)
 
 
 def likely_hevc() -> bool:
-    """现在开转多半出 HEVC：在线的转码器都带 HEVC 编码器（NAS 本机是 Mac 时同理）。"""
-    return "videotoolbox" in available_local_backends() or remote_workers_have_encoder(
-        "hevc_videotoolbox"
-    )
+    """现在开转多半出 HEVC：本机首选的显卡自检过 HEVC 编码；本机没有显卡时看在线的转码器
+    是不是都带 HEVC 编码器（与 ``_execution`` 同序：本机硬件优先）。"""
+    local = available_local_backends()
+    if local:
+        return hevc_encoder(HW_BACKENDS[local[0]]) is not None
+    return remote_workers_have_encoder("hevc_videotoolbox")
 
 
 def likely_videotoolbox() -> bool:
@@ -241,9 +269,9 @@ async def build_plan(file: LibraryFile, profile: str, audio_track: str | None) -
     同一个规划函数。硬件算上在线的转码器（播放怎么算这里就怎么算）；真正由谁转在开转时
     才定（``_execution``）。"""
     if profile not in PROFILES:
-        raise ExportUnavailable(f"不支持的档位：{profile}")
+        raise ExportUnavailable(reference("errors.offline.profileUnsupported", profile=profile))
     if file.is_disc():
-        raise ExportUnavailable("原盘暂不支持下载到设备")
+        raise ExportUnavailable(reference("errors.offline.discUnsupported"))
     media, policy = await _media_and_policy(file, audio_track)
     return _offerable(media, policy, profile, audio_track)
 
@@ -257,7 +285,7 @@ def _offerable(media, policy, profile: str, audio_track: str | None) -> Playback
     if plan.tier is PlaybackTier.HARDWARE_TRANSCODE:
         return plan
     if not policy.software_transcode_enabled:
-        raise ExportUnavailable("没有可用的硬件转码，且软件转码未开启")
+        raise ExportUnavailable(reference("errors.offline.noTranscoder"))
     return plan
 
 
@@ -293,7 +321,7 @@ class _Execution:
 
 
 async def _execution(
-    file: LibraryFile, profile: str, audio_track: str | None
+    file: LibraryFile, profile: str, audio_track: str | None, *, allow_hevc: bool = True
 ) -> _Execution | None:
     """现在能不能开转、由谁转；None = 还得等（名额被播放占着、转码器暂时不在）。
 
@@ -313,18 +341,18 @@ async def _execution(
             plan,
             available=backends,
             local_backends=local,
-            remote_video_available=remote_worker_available(
-                "videotoolbox", segment_type(plan), strict=True
+            remote_video_available=bool(
+                remote_backends_available(segment_type(plan), strict=True)
             ),
         )
         if backend is not None:
             if not remote and not _local_slot_free(hardware=True):
                 return None
-            if _hevc_capable(backend, remote=remote):
+            if allow_hevc and playback_plan.backend_outputs_hevc(backend, remote=remote):
                 plan = replace(plan, video=replace(plan.video, codec="hevc"))
             return _Execution(plan, backend, remote)
         if (
-            remote_worker_busy("videotoolbox")
+            any_remote_worker_busy()
             or plan.video.tone_map
             or not policy.software_transcode_enabled
         ):
@@ -333,16 +361,6 @@ async def _execution(
     if not _local_slot_free(hardware=bool(local)):
         return None
     return _Execution(plan, None, False)
-
-
-def _hevc_capable(backend: str, *, remote: bool) -> bool:
-    """这个执行者能出 HEVC：同画质体积小三分之一（ffmpeg_args.HEVC_BITRATE_LADDER），手机全系硬解。
-    目前只有 VideoToolbox（Mac 转码器）；NAS 的软件与其它显卡仍出 H.264（libx265 在 NAS 的
-    CPU 上太慢）。"""
-    encoder = HW_BACKENDS[backend].hevc_encoder if backend in HW_BACKENDS else None
-    if encoder is None:
-        return False
-    return remote_workers_have_encoder(encoder, backend) if remote else True
 
 
 def _local_slot_free(*, hardware: bool) -> bool:
@@ -532,24 +550,24 @@ class ExportManager:
             return None
         spec = f"{state.profile} {(state.codec or 'h264').upper()}"
         if state.status == STATUS_DONE:
-            return f"{spec} 转码版", state.final_bytes
+            return t("player.offline.transcoded", spec=spec), state.final_bytes
         if state.status == STATUS_QUEUED:
-            return f"转码 {spec} · 排队中", None
+            return t("player.offline.queued", spec=spec), None
         if state.status == STATUS_FAILED:
-            return f"转码 {spec} · 失败", None
-        parts = [f"转码 {spec}"]
+            return t("player.offline.failed", spec=spec), None
+        parts = [t("player.offline.transcoding", spec=spec)]
         if state.executor:
-            parts.append(state.executor)
+            parts.append(_executor_label(state.executor))
         if self._running_export_id() == export_id and self._round_start is not None:
             start_index, started = self._round_start
             elapsed = time.monotonic() - started
             if elapsed >= 5 and state.done_segments > start_index:
                 speed = (state.done_segments - start_index) * SEGMENT_SECONDS / elapsed
-                parts.append(f"{speed:.1f} 倍速")
+                parts.append(t("player.offline.speed", speed=f"{speed:.1f}"))
         projected = None
         if state.total_segments:
             fraction = state.done_segments / state.total_segments
-            parts.append(f"已转 {int(fraction * 100)}%")
+            parts.append(t("player.offline.percent", percent=int(fraction * 100)))
             if fraction > 0.02:
                 with contextlib.suppress(OSError):
                     projected = int(self.output_path(state).stat().st_size / fraction)
@@ -591,7 +609,11 @@ class ExportManager:
                 if not isinstance(exc, ExportUnavailable):
                     logger.exception("离线导出失败：%s", export_id)
                 state.status = STATUS_FAILED
-                state.error = str(exc) or exc.__class__.__name__
+                error = exception_reference(exc)
+                if isinstance(error, dict):
+                    state.error, state.error_ref = source_render(error), error
+                else:
+                    state.error, state.error_ref = error or exc.__class__.__name__, None
                 self._save(state)
                 logger.warning("离线导出失败：%s：%s", export_id, state.error)
             finally:
@@ -603,7 +625,7 @@ class ExportManager:
         state.generation += 1
         state.nonce = secrets.token_hex(4)
         state.status = STATUS_RUNNING
-        state.error = None
+        state.error = state.error_ref = None
         state.final_bytes = None
         state.done_segments = 0
         out = self.output_path(state)
@@ -617,9 +639,13 @@ class ExportManager:
                 old.unlink()
         return out
 
-    async def _wait_execution(self, file: LibraryFile, state: ExportState) -> _Execution:
+    async def _wait_execution(
+        self, file: LibraryFile, state: ExportState, *, allow_hevc: bool
+    ) -> _Execution:
         while True:
-            execution = await _execution(file, state.profile, state.audio_track)
+            execution = await _execution(
+                file, state.profile, state.audio_track, allow_hevc=allow_hevc
+            )
             if execution is not None:
                 return execution
             await asyncio.sleep(_CAPACITY_POLL_S)
@@ -634,9 +660,9 @@ class ExportManager:
         async with get_database().session() as session:
             file = await session.get(LibraryFile, state.file_id)
         if file is None:
-            raise ExportUnavailable("文件已不在媒体库里")
+            raise ExportUnavailable(reference("errors.offline.notInLibrary"))
         if not file.duration_seconds:
-            raise ExportUnavailable("片长未知，没法转码导出")
+            raise ExportUnavailable(reference("errors.offline.unknownDuration"))
         segments = compute_uniform_plan(float(file.duration_seconds), target_s=SEGMENT_SECONDS)
         sessions = get_session_manager()
         cache = (await get_setting_store().get(PlaybackPolicySetting)).transcode_cache_enabled
@@ -644,9 +670,10 @@ class ExportManager:
         init: bytes | None = None
         index = 0
         stalled = 0
+        allow_hevc = True
         started = time.monotonic()
         while index < segments.count:
-            execution = await self._wait_execution(file, state)
+            execution = await self._wait_execution(file, state, allow_hevc=allow_hevc)
             if out is None:
                 # 真开转了才进「转码中」：等名额 / 等转码器回来时仍是排队，内容接口回 503 让手机
                 # 稍后再来，而不是挂一条没有字节的长连接
@@ -666,15 +693,26 @@ class ExportManager:
                     remote_base_url=(
                         effective_remote_transcode_config().base_url if execution.remote else ""
                     ),
+                    # i18n-ignore: transcoder menu-bar text; the worker's language is unknown here
                     display_name=f"离线下载 · {Path(file.file_path).name}",
                     device_id=f"offline-export:{state.export_id}",
                     cache=cache,
                     export_id=state.export_id,
                 )
             except (SessionLimitError, SessionStartError, DiskQuotaError) as exc:
+                if isinstance(exc, SessionStartError) and _give_up_gpu_hevc(
+                    execution, allow_hevc, wrote=init is not None, stalled=stalled
+                ):
+                    logger.warning(
+                        "离线导出 %s 的 HEVC 起不来（%s），改出 H.264", state.export_id, exc
+                    )
+                    allow_hevc, stalled = False, 0
+                    continue
                 stalled += 1
                 if stalled >= _MAX_STALLED_ROUNDS:
-                    raise ExportUnavailable(f"转码起不来：{exc}") from exc
+                    raise ExportUnavailable(
+                        reference("errors.offline.startFailed", error=exception_reference(exc))
+                    ) from exc
                 logger.info("离线导出 %s 开转码会话失败，稍后重试：%s", state.export_id, exc)
                 await asyncio.sleep(_CAPACITY_POLL_S)
                 continue
@@ -682,7 +720,7 @@ class ExportManager:
             self._round_start = (index, time.monotonic())
             state.codec = execution.plan.video.codec
             state.executor = live.remote_worker_id or (
-                "NAS 显卡" if execution.hw_backend else "NAS 软件"
+                _NAS_GPU if execution.hw_backend else _NAS_SOFTWARE
             )
             expected = estimate_bytes(
                 state.profile,
@@ -712,15 +750,26 @@ class ExportManager:
             finally:
                 self._session_id = None
                 self._round_start = None
-                await sessions.stop(live.id, reason="离线导出这一轮结束")
+                await sessions.stop(live.id, reason="离线导出这一轮结束")  # i18n-ignore: log
             if live.preempted:
                 continue  # 被播放挤掉：不算没进展，等名额空出来接着转
             if index > before:
                 stalled = 0
                 continue
+            if _give_up_gpu_hevc(execution, allow_hevc, wrote=init is not None, stalled=stalled):
+                # 已经写进文件的 HEVC 分片 init 对不上，H.264 会整份从头（_InitMismatch）
+                logger.warning(
+                    "离线导出 %s 的 HEVC 转不出来（%s），改出 H.264",
+                    state.export_id,
+                    live.error or "没有进展",
+                )
+                allow_hevc, stalled = False, 0
+                continue
             stalled += 1
             if stalled >= _MAX_STALLED_ROUNDS:
-                raise ExportUnavailable(live.error or "转码一直没有进展")
+                raise ExportUnavailable(
+                    live.error_ref or live.error or reference("errors.offline.noProgress")
+                )
             await asyncio.sleep(_CAPACITY_POLL_S)
         assert out is not None
         state.status = STATUS_DONE
@@ -760,10 +809,17 @@ class ExportManager:
                             index,
                         )
                         return segments.count, init
-                    live.error = f"第 {index} 段转不出来"
+                    _set_error(live, reference("errors.offline.segmentFailed", index=index))
                     return index, init
                 if time.monotonic() - idle_since > _SEGMENT_STALL_S:
-                    live.error = f"第 {index} 段等了 {_SEGMENT_STALL_S:.0f} 秒还没转出来"
+                    _set_error(
+                        live,
+                        reference(
+                            "errors.offline.segmentStalled",
+                            index=index,
+                            seconds=f"{_SEGMENT_STALL_S:.0f}",
+                        ),
+                    )
                     return index, init
                 continue  # 30 秒没等到但会话还活着（远程首片、慢机）：接着等
             assert isinstance(path, Path)
@@ -788,6 +844,20 @@ class ExportManager:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._worker
+
+
+def _give_up_gpu_hevc(
+    execution: _Execution, allow_hevc: bool, *, wrote: bool, stalled: int
+) -> bool:
+    """本机显卡出 HEVC 的这一轮起不来或一段都没转出来，要不要这份改出 H.264。
+
+    自检只编了一秒合成画面，真实片子仍可能编不了（驱动、片源）。还没写进分片时立刻改；
+    已经转出过 HEVC 的，说明编码器本身能用，先按原来的规矩重试（卡一下就整份从头太亏），
+    重试到要判失败了才改 H.264 重转，而不是让导出失败。
+    """
+    if not allow_hevc or execution.plan.video.codec != "hevc" or execution.remote:
+        return False
+    return not wrote or stalled + 1 >= _MAX_STALLED_ROUNDS
 
 
 class _InitMismatch(Exception):
@@ -890,8 +960,10 @@ class ExportTailResponse(Response):
                         continue
                 state = self.manager.get(self.export_id)
                 if state is None or state.generation != self.generation:
+                    # i18n-ignore: server-side abort reason, never shown
                     raise ExportStreamAborted(f"离线导出 {self.export_id} 重转了，掐断旧连接")
                 if state.status == STATUS_FAILED:
+                    # i18n-ignore: server-side abort reason, never shown
                     raise ExportStreamAborted(f"离线导出 {self.export_id} 转码失败，掐断连接")
                 if state.status == STATUS_DONE and handle is not None:
                     if state.final_bytes is not None and sent >= state.final_bytes:
@@ -899,6 +971,7 @@ class ExportTailResponse(Response):
                         return
                     if state.final_bytes is not None and sent < state.final_bytes:
                         # 转完了却读不满（文件被替换、截断）：不能当完成，也不空转
+                        # i18n-ignore: server-side abort reason, never shown
                         raise ExportStreamAborted(f"离线导出 {self.export_id} 产物不完整")
                 await asyncio.sleep(_TAIL_POLL_S)
         finally:
@@ -913,6 +986,6 @@ def state_view_fields(manager: ExportManager, state: ExportState) -> dict[str, A
         "etag": state.etag,
         "expected_bytes": state.expected_bytes,
         "final_bytes": state.final_bytes,
-        "error": state.error,
+        "error": render_value(state.error_ref) if state.error_ref else state.error,
         "queue_position": manager.queue_position(state.export_id),
     }

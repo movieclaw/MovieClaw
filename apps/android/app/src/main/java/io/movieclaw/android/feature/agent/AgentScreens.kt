@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -338,29 +339,48 @@ fun AgentConversationScreen(
             }
 
             // 与新会话页共用同一个 composer（附件 tray / 输入容器 / 工具行 / 模型菜单）
-            AgentComposerBar(
-                input = state.input,
-                onInput = vm::onInput,
-                placeholder = "问点什么,或让我干活…",
-                attachments = state.attachments,
-                uploading = state.uploading,
-                onPickImage = {
-                    pickImage.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
-                },
-                onRemoveAttachment = vm::removeAttachment,
-                models = state.models,
-                modelRef = state.modelRef,
-                thinkingLevel = state.thinkingLevel,
-                onPickModel = vm::setModel,
-                onPickThinking = vm::setThinkingLevel,
-                sendEnabled = !state.running && !state.uploading,
-                sending = state.running,
-                onSend = vm::send,
-                maxLines = 5,
-                horizontalPadding = 12.dp,
+            // 小幕趴在输入框右上角：包的这一层 Box 只负责定位，不进输入栏（iOS `agentCompanion` 同款）
+            var focused by remember { mutableStateOf(false) }
+            val attentive = focused && state.input.isNotEmpty()
+            val companion = rememberCompanionActivity(
+                running = state.running,
+                lastRunFailed = state.lastRunFailed,
+                unavailable = state.models.isEmpty(),
             )
+            Box(Modifier.fillMaxWidth()) {
+                AgentComposerBar(
+                    input = state.input,
+                    onInput = vm::onInput,
+                    placeholder = "问点什么,或让我干活…",
+                    attachments = state.attachments,
+                    uploading = state.uploading,
+                    onPickImage = {
+                        pickImage.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    onRemoveAttachment = vm::removeAttachment,
+                    models = state.models,
+                    modelRef = state.modelRef,
+                    thinkingLevel = state.thinkingLevel,
+                    onPickModel = vm::setModel,
+                    onPickThinking = vm::setThinkingLevel,
+                    sendEnabled = !state.running && !state.uploading,
+                    sending = state.running,
+                    onSend = vm::send,
+                    onFocusChange = { focused = it },
+                    maxLines = 5,
+                    horizontalPadding = 12.dp,
+                )
+                AgentCompanion(
+                    activity = companion,
+                    attentive = attentive,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(y = (-62).dp)
+                        .padding(end = 14.dp),
+                )
+            }
         }
     }
 }

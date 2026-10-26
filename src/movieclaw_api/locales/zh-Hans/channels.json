@@ -1,0 +1,30 @@
+{
+  "binding": {
+    "disabled": "通道插件「{channel}」未启用",
+    "callbackUnavailable": "插件回调端点没有启用，靠回调收消息的通道用不了",
+    "callbackReused": "沿用之前的回调地址（平台后台不用改）；要换新地址在插件页换",
+    "callbackAbsolute": "把这个地址填到平台后台的回调 / 接收消息设置里（只在这次绑定里显示完整地址）",
+    "callbackRelative": "还没配外部访问地址：先在「设置 → 应用设置」里填，地址前面要加上它",
+    "validationFailed": "{channel}校验失败：{error}",
+    "linked": "已接入{channel}",
+    "expired": "配对码已过期，请重新发起绑定",
+    "closed": "通道插件已关闭",
+    "missingResult": "绑定结果缺失，请重新发起",
+    "failed": "绑定失败：{error}",
+    "pairing": "请在 {channel} 上私聊 @{name} 发送配对码 {code}",
+    "callbackPairing": "先把回调地址填到{channel}后台，再在{channel}里给「{name}」发送配对码 {code}",
+    "tooManyAttempts": "配对码错误次数过多，绑定已作废，请重新发起",
+    "lost": "绑定状态已丢失，请重新发起",
+    "started": "绑定完成，通道已启动",
+    "testMessage": "📣 这是一条来自 MovieClaw 的测试推送。收到说明通道工作正常！",
+    "missing": "绑定不存在或已过期"
+  },
+  "pairing": {
+    "tooManyAttempts": "配对码错误次数过多，本次绑定已作废。请回设置页重新发起绑定。",
+    "wrongCode": "配对码不正确。请发送设置页上显示的 6 位数字完成绑定。",
+    "success": "绑定成功！我是 MovieClaw 助手，现在可以直接发消息让我干活了。"
+  },
+  "accounts": {
+    "credentialsExpired": "凭据已失效，请重新绑定"
+  }
+}

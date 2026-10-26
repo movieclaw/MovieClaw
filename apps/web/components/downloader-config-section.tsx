@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator, type AppMessageKey } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ErrorBanner, Toggle } from "@/components/cloud-push-ui";
@@ -18,7 +22,7 @@ import {
 } from "@/components/settings-ui";
 import {
   type ConfiguredDownloader,
-  BUILTIN_DOWNLOADER_TYPES,
+  builtinDownloaderTypes,
   type DownloaderClientType,
   type DownloaderTypeInfo,
   listDownloaderTypes,
@@ -42,11 +46,11 @@ import { formatRelativeTime } from "@/lib/time";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 
 /** 连接状态 → 展示文案与颜色（与站点配置同语言） */
-const STATUS_META: Record<DownloaderStatus, { label: string; color: string }> = {
-  active: { label: "已连接", color: "var(--ok)" },
-  verifying: { label: "测试中", color: "var(--info)" },
-  pending: { label: "待测试", color: "#c0c4cc" },
-  failed: { label: "连接失败", color: "var(--danger)" },
+const STATUS_META: Record<DownloaderStatus, { label: AppMessageKey; color: string }> = {
+  active: { label: "download.config.connected", color: "var(--ok)" },
+  verifying: { label: "download.config.testing", color: "var(--info)" },
+  pending: { label: "download.config.pending", color: "#c0c4cc" },
+  failed: { label: "download.config.failed", color: "var(--danger)" },
 };
 
 /**
@@ -69,20 +73,21 @@ async function boostSitesOn(downloaderId: number): Promise<string[]> {
  * 可接入的下载器类型：由下载器插件登记（官方的 qBittorrent / Transmission，或第三方插件），
  * 服务端给出名字、地址叫法与示例。整页共用一份，取一次。
  */
-let typesCache: Promise<DownloaderTypeInfo[]> | null = null;
+const typesCache = new Map<AppLocale, Promise<DownloaderTypeInfo[]>>();
 
 function useDownloaderTypes(): DownloaderTypeInfo[] {
-  const [types, setTypes] = useState<DownloaderTypeInfo[]>(BUILTIN_DOWNLOADER_TYPES);
+  const locale = useLocale() as AppLocale;
+  const [types, setTypes] = useState<DownloaderTypeInfo[]>(() => builtinDownloaderTypes(locale));
   useEffect(() => {
     let alive = true;
-    typesCache ??= listDownloaderTypes();
-    void typesCache.then((value) => {
+    if (!typesCache.has(locale)) typesCache.set(locale, listDownloaderTypes(locale));
+    void typesCache.get(locale)!.then((value) => {
       if (alive) setTypes(value);
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [locale]);
   return types;
 }
 
@@ -96,22 +101,23 @@ interface ConnectionField {
  * 表单里地址 / 用户名 / 密码三栏怎么画：以下载器插件声明的连接参数（connection）为准，
  * 没声明（旧服务端）时退回 url_label / needs_username。不要的栏为 null。
  */
-function connectionFields(info: DownloaderTypeInfo): {
+function connectionFields(info: DownloaderTypeInfo, locale: AppLocale): {
   url: ConnectionField;
   username: ConnectionField | null;
   password: ConnectionField | null;
 } {
+  const t = appTranslator(locale);
   const props = info.connection?.properties;
   const required = new Set(info.connection?.required ?? ["url"]);
   const label = (name: string, fallback: string) => {
     const title = props?.[name]?.title || fallback;
-    return required.has(name) ? title : `${title}（可选）`;
+    return required.has(name) ? title : t("download.config.optional", { title });
   };
   if (!props) {
     return {
       url: { label: info.url_label, placeholder: info.url_placeholder, help: info.help },
-      username: info.needs_username ? { label: "用户名（可选）" } : null,
-      password: { label: "密码（可选）" },
+      username: info.needs_username ? { label: t("download.config.optionalUsername") } : null,
+      password: { label: t("download.config.optionalPassword") },
     };
   }
   return {
@@ -120,20 +126,25 @@ function connectionFields(info: DownloaderTypeInfo): {
       placeholder: props.url?.examples?.[0] ?? info.url_placeholder,
       help: info.help || props.url?.description,
     },
-    username: props.username ? { label: label("username", "用户名") } : null,
-    password: props.password ? { label: label("password", "密码") } : null,
+    username: props.username ? { label: label("username", t("download.config.username")) } : null,
+    password: props.password ? { label: label("password", t("download.config.password")) } : null,
   };
 }
 
-function typeInfo(types: DownloaderTypeInfo[], type: DownloaderClientType): DownloaderTypeInfo {
+function typeInfo(
+  types: DownloaderTypeInfo[],
+  type: DownloaderClientType,
+  locale: AppLocale,
+): DownloaderTypeInfo {
+  const t = appTranslator(locale);
   return (
     types.find((t) => t.type === type) ?? {
       type,
       title: type,
-      url_label: "地址",
+      url_label: t("download.config.url"),
       url_placeholder: "",
       needs_username: true,
-      help: "这种下载器的插件没装或没在运行",
+      help: t("download.config.pluginUnavailable"),
     }
   );
 }
@@ -149,6 +160,7 @@ const IN_PROGRESS: DownloaderStatus[] = ["pending", "verifying"];
  * 直到 active / failed。搜索结果里的"提交下载"以这里配置的实例为目标。
  */
 export function DownloaderConfigSection() {
+  const t = useTranslations();
   const types = useDownloaderTypes();
   const [downloaders, setDownloaders] = useState<ConfiguredDownloader[]>([]);
   const [loading, setLoading] = useState(true);
@@ -227,13 +239,13 @@ export function DownloaderConfigSection() {
 
   return (
     <SettingsSection
-      title="已接入下载器"
+      title={t("download.config.title")}
       description={
         loading
-          ? "加载中…"
+          ? t("download.config.loading")
           : downloaders.length === 0
-            ? "接入你自己部署的下载软件，资源将由它们完成下载。"
-            : `共 ${downloaders.length} 个，${usableCount} 个可用。保存后系统会自动测试连接。`
+            ? t("download.config.intro")
+            : t("download.config.summary", { count: downloaders.length, usable: usableCount })
       }
       action={
         <div className="flex shrink-0 items-center gap-2">
@@ -243,7 +255,7 @@ export function DownloaderConfigSection() {
             disabled={loading}
             className={SETTINGS_BUTTON_CLASS}
           >
-            刷新
+            {t("download.config.refresh")}
           </button>
           <button
             type="button"
@@ -252,7 +264,7 @@ export function DownloaderConfigSection() {
             className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
           >
             <PlusIcon className="size-4" />
-            添加下载器
+            {t("download.config.addDownloader")}
           </button>
         </div>
       }
@@ -269,8 +281,10 @@ export function DownloaderConfigSection() {
         ) : downloaders.length === 0 ? (
           <SettingsEmpty
             icon={<DownloadIcon className="size-5" />}
-            title="还没有接入任何下载器"
-            description={`点「添加下载器」接入，支持 ${types.map((t) => t.title).join("、")}；装下载器插件可以接入更多。`}
+            title={t("download.config.empty")}
+            description={t("download.config.emptyHint", {
+              types: types.map((item) => item.title).join(t("download.config.listSeparator")),
+            })}
           />
         ) : (
           <div className="css-glass divide-y divide-[var(--line)] overflow-hidden !rounded-xl">
@@ -351,6 +365,8 @@ function DownloaderRow({
   onRefresh,
   onError,
 }: DownloaderRowProps) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const types = useDownloaderTypes();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
@@ -364,7 +380,7 @@ function DownloaderRow({
   // 推断"下载器没问题"，再去别处找原因
   const pathsBroken = downloader.status === "active" && !downloader.paths_healthy;
   const meta = pathsBroken
-    ? { label: "路径异常", color: "var(--danger)" }
+    ? { label: "download.config.pathsBroken", color: "var(--danger)" }
     : STATUS_META[downloader.status];
   const failed = downloader.status === "failed" && !!downloader.last_error;
   const worstPath = pathsBroken
@@ -384,9 +400,9 @@ function DownloaderRow({
 
   // 副标题：类型 + 版本 + 上次检查时间（失败原因另起一行红字，不挤在这里）
   const subtitle = [
-    typeInfo(types, downloader.client_type).title,
+    typeInfo(types, downloader.client_type, locale).title,
     downloader.version,
-    downloader.last_checked_at ? `上次检查 ${formatRelativeTime(downloader.last_checked_at)}` : null,
+    downloader.last_checked_at ? t("download.config.lastChecked", { time: formatRelativeTime(downloader.last_checked_at, locale) }) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -421,7 +437,7 @@ function DownloaderRow({
                 href={downloader.url}
                 target="_blank"
                 rel="noreferrer"
-                title="在新窗口打开下载器 WebUI"
+                title={t("download.config.openWebui")}
                 onClick={(e) => e.stopPropagation()}
                 className="truncate text-ui font-semibold text-[var(--text)] underline decoration-transparent underline-offset-4 transition-colors hover:text-white/80 hover:decoration-white/50"
               >
@@ -429,7 +445,7 @@ function DownloaderRow({
               </a>
               {downloader.is_default && (
                 <span className="shrink-0 rounded-full border border-white/[0.12] bg-[var(--accent-soft)] px-2 py-0.5 text-caption font-semibold text-[var(--accent)]">
-                  默认
+                  {t("download.config.default")}
                 </span>
               )}
               <span
@@ -440,11 +456,11 @@ function DownloaderRow({
                 }}
               >
                 <span className="size-1.5 rounded-full" style={{ background: meta.color }} />
-                {meta.label}
+                {t(meta.label as AppMessageKey)}
               </span>
               {!downloader.enabled && (
                 <span className="shrink-0 rounded-full bg-white/[0.08] px-2 py-0.5 text-caption font-medium text-[var(--text-muted)]">
-                  已停用
+                  {t("download.config.disabled")}
                 </span>
               )}
             </div>
@@ -476,22 +492,22 @@ function DownloaderRow({
             onKeyDown={(e) => e.stopPropagation()}
           >
             <button type="button" onClick={onEdit} className={SETTINGS_BUTTON_CLASS}>
-              编辑
+              {t("download.config.edit")}
             </button>
             <SettingsMoreMenu
-              label={`「${downloader.name}」的更多操作`}
+              label={t("download.config.moreActions", { name: downloader.name })}
               items={[
                 {
-                  label: downloader.enabled ? "停用下载器" : "启用下载器",
+                  label: downloader.enabled ? t("download.config.disable") : t("download.config.enable"),
                   disabled: busy,
                   onSelect: () =>
                     void guard(async () =>
                       onChanged(await setDownloaderEnabled(downloader.id, !downloader.enabled)),
                     ),
                 },
-                { label: "限速与队列…", disabled: busy, onSelect: () => setLimitsOpen(true) },
+                { label: t("download.config.limitsAction"), disabled: busy, onSelect: () => setLimitsOpen(true) },
                 {
-                  label: "设为默认",
+                  label: t("download.config.makeDefault"),
                   disabled: busy || downloader.is_default,
                   onSelect: () =>
                     void guard(async () => {
@@ -501,13 +517,13 @@ function DownloaderRow({
                     }),
                 },
                 {
-                  label: "重新测试连接",
+                  label: t("download.config.retest"),
                   disabled: busy || IN_PROGRESS.includes(downloader.status),
                   onSelect: () =>
                     void guard(async () => onChanged(await reverifyDownloader(downloader.id))),
                 },
                 {
-                  label: "删除配置",
+                  label: t("download.config.deleteConfig"),
                   danger: true,
                   disabled: busy,
                   onSelect: () =>
@@ -517,16 +533,16 @@ function DownloaderRow({
                       const boostSites = await boostSitesOn(downloader.id);
                       if (
                         !(await confirm({
-                          title: `删除下载器「${downloader.name}」？`,
-                          description: "下载器中的任务不受影响，只是 movieclaw 不再向它投递。",
+                          title: t("download.config.deleteTitle", { name: downloader.name }),
+                          description: t("download.config.deleteHint"),
                           bullets:
                             boostSites.length > 0
                               ? [
-                                  `${boostSites.join("、")} 用这台下载器刷流，删除后这些站点的刷流会关闭`,
-                                  "已在做种的刷流种子保留在下载器里；想继续刷流，重新开启并选一台下载器即可",
+                                  t("download.config.deleteBoostWarning", { sites: boostSites.join(t("download.config.listSeparator")) }),
+                                  t("download.config.deleteBoostHint"),
                                 ]
                               : undefined,
-                          confirmLabel: "删除",
+                          confirmLabel: t("download.config.delete"),
                           tone: "danger",
                         }))
                       ) {
@@ -545,29 +561,29 @@ function DownloaderRow({
       {/* 展开详情（只读）：连接 / 保存目录 / 路径映射；编辑在抽屉里 */}
       {expanded && (
         <div className="divide-y divide-white/[0.05] border-t border-white/[0.06] bg-white/[0.02] px-4 py-3 sm:px-5">
-          <DetailSection label="连接">
+          <DetailSection label={t("download.config.connection")}>
             <StatGrid>
               <DetailStat
-                label="地址"
+                label={t("download.config.url")}
                 value={downloader.url}
                 href={downloader.url}
-                title="在新窗口打开下载器 WebUI"
+                title={t("download.config.openWebui")}
                 wide
               />
-              <DetailStat label="用户名" value={downloader.username ?? "未设置"} />
-              <DetailStat label="版本" value={downloader.version ?? "—"} />
+              <DetailStat label={t("download.config.username")} value={downloader.username ?? t("download.config.notSet")} />
+              <DetailStat label={t("download.config.version")} value={downloader.version ?? "—"} />
             </StatGrid>
           </DetailSection>
-          <DetailSection label="落盘">
+          <DetailSection label={t("download.config.storage")}>
             <StatGrid>
               <DetailStat
-                label="默认保存目录"
-                value={downloader.save_path ?? "下载器默认"}
+                label={t("download.config.savePath")}
+                value={downloader.save_path ?? t("download.config.downloaderDefault")}
                 wide
               />
             </StatGrid>
           </DetailSection>
-          <DetailSection label="映射">
+          <DetailSection label={t("download.config.mapping")}>
             <PathMappingTable
               mappings={downloader.path_mappings ?? []}
               health={downloader.path_health ?? []}
@@ -629,7 +645,7 @@ function DetailStat({
           href={href}
           target="_blank"
           rel="noreferrer"
-          title={title}
+          title={ title }
           onClick={(e) => e.stopPropagation()}
           className={`${valueClass} underline decoration-transparent underline-offset-4 transition-colors hover:text-white/80 hover:decoration-white/50`}
         >
@@ -650,11 +666,11 @@ function DetailStat({
  * 这张表就是核对"投递时路径会被翻成什么"的地方——比一行分号串好读得多。
  */
 /** 路径体检状态 → 展示。ok 不额外标注（正常不该抢注意力），异常各给一个短词 */
-const PATH_STATE_LABEL: Record<Exclude<PathProbe["state"], "ok">, string> = {
-  empty: "目录为空",
-  not_dir: "不是目录",
-  missing: "不存在",
-  unmapped: "未覆盖",
+const PATH_STATE_LABEL: Record<Exclude<PathProbe["state"], "ok">, AppMessageKey> = {
+  empty: "download.config.emptyDirectory",
+  not_dir: "download.config.notDirectory",
+  missing: "download.config.missing",
+  unmapped: "download.config.unmapped",
 };
 
 /**
@@ -669,10 +685,11 @@ function PathMappingTable({
   mappings: PathMapping[];
   health: PathProbe[];
 }) {
+  const t = useTranslations();
   if (mappings.length === 0) {
     return (
       <p className="pt-1.5 text-sub text-[var(--text-muted)]">
-        未配置——MovieClaw 与下载器看到的是同一套路径。
+        {t("download.config.noMappings")}
       </p>
     );
   }
@@ -680,9 +697,9 @@ function PathMappingTable({
   return (
     <div className="overflow-hidden rounded-lg border border-white/[0.07]">
       <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-3 bg-white/[0.03] px-3 py-1.5 text-micro font-medium tracking-wide text-[var(--text-faint)]">
-        <span>MovieClaw 视角</span>
+        <span>{t("download.config.localView")}</span>
         <span aria-hidden="true" className="w-4" />
-        <span>下载器视角</span>
+        <span>{t("download.config.remoteView")}</span>
       </div>
       <ul className="divide-y divide-white/[0.05]">
         {mappings.map((m, i) => {
@@ -700,7 +717,7 @@ function PathMappingTable({
                   </code>
                   {broken && (
                     <span className="shrink-0 rounded-full bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] px-1.5 py-px text-micro font-medium text-[var(--danger)]">
-                      {PATH_STATE_LABEL[probe.state as keyof typeof PATH_STATE_LABEL]}
+                      {t(PATH_STATE_LABEL[probe.state as keyof typeof PATH_STATE_LABEL])}
                     </span>
                   )}
                 </span>
@@ -739,6 +756,7 @@ function DownloaderLimitsModal({
   downloader: ConfiguredDownloader;
   onClose: () => void;
 }) {
+  const t = useTranslations();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -819,15 +837,14 @@ function DownloaderLimitsModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} label="限速与队列" width="lg">
+    <Modal open={open} onClose={onClose} label={t("download.config.limits")} width="lg">
       {/* 头部常驻 */}
       <div className="border-b border-white/[0.07] px-6 pb-4 pt-6">
         <h2 className="text-title font-bold text-[var(--text)]">
-          限速与队列 · {downloader.name}
+          {t("download.config.limitsTitle", { name: downloader.name })}
         </h2>
         <p className="mt-1 text-sub leading-5 text-[var(--text-muted)]">
-          实时读写下载器的全局设置。限速留空 = 不限；队列上限决定同时活动的任务数，
-          开着刷流大量做种时建议调大做种/活动上限，避免新任务排队。
+          {t("download.config.limitsHint")}
         </p>
       </div>
 
@@ -843,18 +860,18 @@ function DownloaderLimitsModal({
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
               <LimitInput
-                label="全局下载限速"
+                label={t("download.config.downloadLimit")}
                 value={dlKib}
                 unit="KiB/s"
-                placeholder="不限"
+                placeholder={t("download.config.unlimited")}
                 disabled={busy}
                 onChange={setDlKib}
               />
               <LimitInput
-                label="全局上传限速"
+                label={t("download.config.uploadLimit")}
                 value={upKib}
                 unit="KiB/s"
-                placeholder="不限"
+                placeholder={t("download.config.unlimited")}
                 disabled={busy}
                 onChange={setUpKib}
               />
@@ -862,19 +879,19 @@ function DownloaderLimitsModal({
 
             <label className="flex items-center justify-between gap-3">
               <span className="text-sub text-[var(--text-muted)]">
-                备用限速档（计划任务/手动一键慢速时生效的那组限速）
+                {t("download.config.alternativeHint")}
               </span>
-              <Toggle checked={altSpeed} disabled={busy} label="备用限速档" onChange={setAltSpeed} />
+              <Toggle checked={altSpeed} disabled={busy} label={t("download.config.alternative")} onChange={setAltSpeed} />
             </label>
 
             <label className="flex items-center justify-between gap-3">
               <span className="text-sub text-[var(--text-muted)]">
-                任务队列（超出上限的任务排队等待）
+                {t("download.config.queueHint")}
               </span>
               <Toggle
                 checked={queueEnabled}
                 disabled={busy}
-                label="任务队列"
+                label={t("download.config.queue")}
                 onChange={setQueueEnabled}
               />
             </label>
@@ -882,20 +899,20 @@ function DownloaderLimitsModal({
             {queueEnabled && (
               <div className="grid grid-cols-3 gap-3 max-md:grid-cols-1">
                 <LimitInput
-                  label="最大同时下载数"
+                  label={t("download.config.maxDownloads")}
                   value={maxDown}
                   disabled={busy}
                   onChange={setMaxDown}
                 />
                 <LimitInput
-                  label="最大做种数"
+                  label={t("download.config.maxUploads")}
                   value={maxUp}
                   disabled={busy}
                   onChange={setMaxUp}
                 />
                 {supportsMaxTotal && (
                   <LimitInput
-                    label="最大活动种子数"
+                    label={t("download.config.maxTorrents")}
                     value={maxTotal}
                     disabled={busy}
                     onChange={setMaxTotal}
@@ -910,7 +927,7 @@ function DownloaderLimitsModal({
       {/* 底栏常驻 */}
       <div className="flex justify-end gap-2 border-t border-white/[0.07] px-6 py-4">
         <button type="button" onClick={onClose} disabled={busy} className={SETTINGS_BUTTON_CLASS}>
-          取消
+          {t("download.config.cancel")}
         </button>
         <button
           type="button"
@@ -918,7 +935,7 @@ function DownloaderLimitsModal({
           disabled={busy || loading}
           className={SETTINGS_PRIMARY_BUTTON_CLASS}
         >
-          {busy ? "保存中…" : "保存"}
+          {busy ? t("download.config.saving") : t("download.config.save")}
         </button>
       </div>
     </Modal>
@@ -997,15 +1014,17 @@ function DownloaderForm({
   onSubmit,
   onClose,
 }: DownloaderFormProps) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const types = useDownloaderTypes();
   const [clientType, setClientType] = useState<DownloaderClientType>(
     downloader?.client_type ?? "qbittorrent",
   );
-  const info = typeInfo(types, clientType);
+  const info = typeInfo(types, clientType, locale);
   // 地址 / 用户名 / 密码三栏按下载器插件声明的连接参数画（叫法、示例、要不要、可不可选）
-  const fields = connectionFields(info);
+  const fields = connectionFields(info, locale);
   const [name, setName] = useState(downloader?.name ?? "");
   const [url, setUrl] = useState(downloader?.url ?? "");
   const [username, setUsername] = useState(downloader?.username ?? "");
@@ -1081,11 +1100,11 @@ function DownloaderForm({
       onClose={() => {
         if (pickerTarget === null) onClose();
       }}
-      title={downloader ? `编辑「${downloader.name}」` : "添加下载器"}
+      title={downloader ? t("download.config.editTitle", { name: downloader.name }) : t("download.config.addDownloader")}
       actions={
         <>
           <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-            取消
+            {t("download.config.cancel")}
           </button>
           <button
             type="button"
@@ -1093,7 +1112,7 @@ function DownloaderForm({
             disabled={busy || !canSubmit}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {busy ? "保存中…" : downloader ? "保存" : "添加"}
+            {busy ? t("download.config.saving") : downloader ? t("download.config.save") : t("download.config.add")}
           </button>
         </>
       }
@@ -1103,7 +1122,7 @@ function DownloaderForm({
 
         {/* 下载器类型 */}
         <div>
-          <label className={labelClass}>下载器类型</label>
+          <label className={labelClass}>{t("download.config.type")}</label>
           <div className="flex flex-wrap gap-2">
             {types.map((t) => (
               <button
@@ -1120,12 +1139,12 @@ function DownloaderForm({
         </div>
 
         <div>
-          <label className={labelClass}>名称</label>
+          <label className={labelClass}>{t("download.config.name")}</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="如：家里的 qBittorrent"
+            placeholder={t("download.config.namePlaceholder")}
             autoComplete="off"
             className={inputClass}
           />
@@ -1148,7 +1167,9 @@ function DownloaderForm({
 
         {/* 凭证：只画这种下载器要的栏；未开鉴权的可留空 */}
         {(fields.username || fields.password) && (
-          <div className={`grid gap-3 ${fields.username && fields.password ? "grid-cols-2" : ""}`}>
+          <div className={`grid gap-3 ${fields.username && fields.password
+            ? locale === "en" ? "grid-cols-2 max-sm:grid-cols-1" : "grid-cols-2"
+            : ""}`}>
             {fields.username && (
               <div>
                 <label className={labelClass}>{fields.username.label}</label>
@@ -1168,7 +1189,7 @@ function DownloaderForm({
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder={downloader ? "出于安全，请重新填写" : ""}
+                  placeholder={downloader ? t("download.config.passwordPlaceholder") : ""}
                   autoComplete="new-password"
                   className={inputClass}
                 />
@@ -1178,7 +1199,7 @@ function DownloaderForm({
         )}
 
         <div>
-          <label className={labelClass}>默认保存目录（可选）</label>
+          <label className={labelClass}>{t("download.config.optionalSavePath")}</label>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -1191,14 +1212,14 @@ function DownloaderForm({
                   {"‎" + savePath + "‎"}
                 </span>
               ) : (
-                <span className="text-ui text-[var(--text-faint)]">浏览服务器目录并选择…</span>
+                <span className="text-ui text-[var(--text-faint)]">{t("download.config.browseDirectory")}</span>
               )}
             </button>
             {savePath && (
               <button
                 type="button"
                 onClick={() => setSavePath("")}
-                aria-label="清除默认保存目录"
+                aria-label={t("download.config.clearSavePath")}
                 className="glass-row !w-auto shrink-0 p-2"
               >
                 <XIcon className="size-4" />
@@ -1206,9 +1227,7 @@ function DownloaderForm({
             )}
           </div>
           <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-            提交下载时文件的保存位置，从 movieclaw 能看到的目录里选择；下载器看到的路径不同时，
-            配合下方「路径映射」翻译。留空则使用下载器自己设置的默认下载目录
-            ——下载器与 movieclaw 没有共享目录的部署请留空。
+            {t("download.config.savePathHint")}
           </p>
         </div>
 
@@ -1225,26 +1244,22 @@ function DownloaderForm({
             >
               ›
             </span>
-            路径映射（可选）
+            {t("download.config.optionalMappings")}
             {!mappingsOpen && mappings.length > 0 && (
-              <span className="text-[var(--text-faint)]">已配置 {mappings.length} 条</span>
+              <span className="text-[var(--text-faint)]">{t("download.config.mappingCount", { count: mappings.length })}</span>
             )}
           </button>
           {mappingsOpen && (
             <div className="mt-2.5 space-y-2.5">
               <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-                movieclaw 与下载器不在同一容器/主机、同一块盘两边路径不同时才需要：
-                提交下载前会把保存目录按前缀翻译成下载器视角。例如 movieclaw 看到的下载区是
-                <code className="mx-0.5 font-mono">/data/downloads</code>、下载器容器里是
-                <code className="mx-0.5 font-mono">/downloads</code>，则添加一条对照。留空表示两边路径一致。
-                注意：配了映射后，所有下载保存目录（含媒体库目录）都必须被某条映射覆盖，
-                否则会拒绝投递以防下载进下载器容器内的孤立路径；下载器能以相同路径直达的目录，
-                添加一条两边相同的映射即可。
+                {t.rich("download.config.mappingHint", {
+                  local: (chunks) => <code className="mx-0.5 font-mono">{chunks}</code>,
+                  remote: (chunks) => <code className="mx-0.5 font-mono">{chunks}</code>,
+                })}
               </p>
               {suggestMapping && (
                 <p className="rounded-lg bg-[var(--accent-soft)] px-3 py-2 text-caption leading-relaxed text-[var(--accent)]">
-                  已按体检建议预填映射的本机侧 {suggestMapping}——右侧填下载器视角的对应路径；
-                  下载器可直达同名路径时，点中间的 → 把左侧复制过去即可。
+                  {t("download.config.suggestedMapping", { path: suggestMapping })}
                 </p>
               )}
               {mappings.map((mapping, index) => (
@@ -1252,7 +1267,7 @@ function DownloaderForm({
                   <button
                     type="button"
                     onClick={() => setPickerTarget(index)}
-                    title="movieclaw 上的路径（浏览选择）"
+                    title={t("download.config.browseLocalPath")}
                     className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/[0.08] bg-black/25 px-3 py-1.5 text-left transition-colors hover:border-[var(--accent)]/50"
                   >
                     <FolderIcon className="size-4 shrink-0 text-[var(--accent)]/80" />
@@ -1261,7 +1276,7 @@ function DownloaderForm({
                         {"‎" + mapping.local + "‎"}
                       </span>
                     ) : (
-                      <span className="truncate text-ui text-[var(--text-faint)]">movieclaw 上的路径…</span>
+                      <span className="truncate text-ui text-[var(--text-faint)]">{t("download.config.localPathPlaceholder")}</span>
                     )}
                   </button>
                   {/* 箭头即按钮：两边路径一致时点一下把左侧复制到右侧，省去手动输入 */}
@@ -1269,8 +1284,8 @@ function DownloaderForm({
                     type="button"
                     onClick={() => setMapping(index, { remote: mapping.local })}
                     disabled={!mapping.local}
-                    title="将左侧路径复制到右侧（两边路径一致时使用）"
-                    aria-label="将左侧路径复制到右侧"
+                    title={t("download.config.copyPathHint")}
+                    aria-label={t("download.config.copyPath")}
                     className="shrink-0 rounded-lg px-1.5 py-1 text-[var(--text-faint)] transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-[var(--accent)] disabled:cursor-default"
                   >
                     →
@@ -1279,14 +1294,14 @@ function DownloaderForm({
                     type="text"
                     value={mapping.remote}
                     onChange={(e) => setMapping(index, { remote: e.target.value })}
-                    placeholder="下载器上的路径，如 /downloads"
+                    placeholder={t("download.config.remotePathPlaceholder")}
                     autoComplete="off"
                     className={`${inputClass} flex-1 font-mono`}
                   />
                   <button
                     type="button"
                     onClick={() => setMappings((prev) => prev.filter((_, i) => i !== index))}
-                    aria-label="删除这条映射"
+                    aria-label={t("download.config.removeMapping")}
                     className="glass-row !w-auto shrink-0 p-2"
                   >
                     <XIcon className="size-4" />
@@ -1299,15 +1314,15 @@ function DownloaderForm({
                 className="btn-glass flex items-center gap-1 px-3 py-1.5 text-sub font-medium"
               >
                 <PlusIcon className="size-3.5" />
-                添加映射
+                {t("download.config.addMapping")}
               </button>
               {!mappingsComplete ? (
                 <p className="text-caption text-[#ffb46b]">
-                  每条映射两边都要填：左边浏览选择，右边填下载器上以 / 开头的绝对路径；不需要的行请删除。
+                  {t("download.config.incompleteMappings")}
                 </p>
               ) : !mappingsUnique ? (
                 <p className="text-caption text-[#ffb46b]">
-                  映射的路径不能重复：同一 movieclaw 路径或同一下载器路径只能出现一次，请修改或删除重复的行。
+                  {t("download.config.duplicateMappings")}
                 </p>
               ) : null}
             </div>

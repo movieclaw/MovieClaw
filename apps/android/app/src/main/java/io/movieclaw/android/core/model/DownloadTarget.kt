@@ -84,13 +84,23 @@ data class PathMapping(
     val remote: String = "",
 )
 
-/** 下载器配置（脱敏视图）；搜索结果页的「其他保存位置」用它列目录候选 */
+/** 一条路径体检结果（服务端 `PathHealthView`）：state = ok / empty / not_dir / missing / unmapped */
+@Serializable
+data class PathHealthView(
+    val local: String = "",
+    val remote: String = "",
+    val state: String = "",
+    val detail: String? = null,
+)
+
+/** 下载器配置（脱敏视图）；搜索结果页的「其他保存位置」与设置页共用 */
 @Serializable
 data class DownloaderView(
     val id: Long = 0,
     val name: String = "",
     val clientType: String = "",
     val url: String = "",
+    val username: String? = null,
     val savePath: String? = null,
     val pathMappings: List<PathMapping>? = null,
     val enabled: Boolean = true,
@@ -98,7 +108,60 @@ data class DownloaderView(
     val status: String = "",
     /** 已启用且连接测试通过 */
     val usable: Boolean = false,
+    val version: String? = null,
     val lastError: String? = null,
+    val lastCheckedAt: String? = null,
+    /** 每个映射的体检结果（空 = 没配映射，视为正常） */
+    val pathHealth: List<PathHealthView> = emptyList(),
+    val pathsHealthy: Boolean = true,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+)
+
+/** 可接入的下载器类型（`GET /downloaders/types`）：内置 qBittorrent / Transmission，插件可追加 */
+@Serializable
+data class DownloaderTypeInfo(
+    val type: String = "",
+    val title: String = "",
+    val connection: String = "",
+    /** 地址这一栏该叫什么（WebUI 地址 / RPC 地址） */
+    val urlLabel: String? = null,
+    val urlPlaceholder: String? = null,
+    val needsUsername: Boolean = false,
+    val help: String? = null,
+)
+
+/** 新增 / 更新下载器的请求体（更新是全字段覆盖；密码留空 = 无密码） */
+@Serializable
+data class DownloaderPayload(
+    val name: String,
+    val clientType: String,
+    val url: String,
+    val username: String? = null,
+    val password: String? = null,
+    val savePath: String? = null,
+    val pathMappings: List<PathMapping>? = null,
+    val enabled: Boolean = true,
+)
+
+/** 启停请求体 */
+@Serializable
+data class DownloaderStatusPayload(val enabled: Boolean)
+
+/** 删除结果：被这台下载器刷流的站点（服务端会顺手关掉它们的刷流） */
+@Serializable
+data class DownloaderDeleteResult(val boostDisabledSites: List<String> = emptyList())
+
+/** 限速与队列（读写同一结构；null = 保持现状，限速 0 = 不限） */
+@Serializable
+data class DownloaderLimits(
+    val downloadLimitBytes: Long? = null,
+    val uploadLimitBytes: Long? = null,
+    val altSpeedEnabled: Boolean? = null,
+    val queueEnabled: Boolean? = null,
+    val maxActiveDownloads: Int? = null,
+    val maxActiveUploads: Int? = null,
+    val maxActiveTorrents: Int? = null,
 )
 
 /** `POST /downloaders/submit` 的结果：提交到哪台下载器、实际用了哪个目录 */

@@ -98,6 +98,7 @@ class DownloaderClient(TimestampMixin, table=True):
     # 验证状态机（语义见 ConfigStatus）
     status: ConfigStatus = Field(default=ConfigStatus.PENDING, description="连接验证状态")
     last_error: str | None = Field(default=None, description="最近一次测试失败原因（中文）")
+    last_error_ref: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     last_checked_at: datetime | None = Field(default=None, description="最近一次测试时间")
     # 最近一次连接成功时获取的下载器版本号（如 v5.0.2），供管理页展示
     version: str | None = Field(default=None, description="下载器版本号")

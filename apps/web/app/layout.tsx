@@ -1,5 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+import { headers } from "next/headers";
+import { getLocale, getTranslations } from "next-intl/server";
+import { LanguageProvider } from "@/lib/i18n/provider";
+import { negotiate } from "@/lib/i18n/negotiate";
 
 import { ViewportKeyboard } from "@/components/viewport-keyboard";
 import { appleStartupImages } from "@/lib/apple-splash";
@@ -27,12 +31,11 @@ const inter = localFont({
  * 数据驱动的子页（库名/片名/会话名/搜索词）由 lib/use-page-title.ts 在
  * 数据就绪后写 document.title，格式与 template 保持一致。
  */
-export const metadata: Metadata = {
+const metadata: Metadata = {
   title: {
     default: publicEnv.appName,
     template: `%s · ${publicEnv.appName}`,
   },
-  description: "Movieclaw 控制台 —— 液态玻璃风格的影视追踪工作台。",
   /**
    * iOS「添加到主屏幕」的 App 化配置（PWA 清单见 app/manifest.ts）：
    * - capable: 以独立 App 形态运行，去掉 Safari 地址栏与底部工具条；
@@ -66,6 +69,11 @@ export const metadata: Metadata = {
     "apple-mobile-web-app-capable": "yes",
   },
 };
+
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("home.metadata");
+  return { ...metadata, description: t("description") };
+}
 
 /**
  * 视口规范（移动端适配的地基）：
@@ -159,18 +167,20 @@ const THEMES_STYLESHEET = `${publicEnv.apiBaseUrl.replace(/\/$/, "")}/ui/themes.
  */
 const SYNC_VIEWPORT_OVERSHOOT_SCRIPT = `try{if((window.matchMedia("(display-mode: standalone)").matches||navigator.standalone===true)&&window.CSS&&CSS.supports("(-webkit-touch-callout: none)")){var d=document.documentElement,s=parseFloat(getComputedStyle(d).getPropertyValue("--safe-top"))||0,v=screen.height-window.innerHeight,g=v>0&&v<=s?v:0;d.style.setProperty("--vp-overshoot",g+"px");d.style.setProperty("--pwa-height",(window.innerHeight+g)+"px");d.setAttribute("data-ios-standalone","")}}catch(e){}`;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const [locale, requestHeaders] = await Promise.all([getLocale(), headers()]);
+  const browserLocale = negotiate(requestHeaders.get("accept-language"));
   return (
     // suppressHydrationWarning：body 最前的内联脚本会在水合前就给 <html> 写上
     // --backdrop-image 内联样式与 data-theme 属性（见上方两个 RESTORE_* 脚本），
     // 服务端首帧 HTML 里没有这些，两边必然不一致。这是「首帧防闪烁」的固有代价，
     // 用它抑制这一处预期内的告警（只作用于 <html> 自身属性，不影响子树里真正的
     // 水合问题被暴露）。
-    <html lang="zh-CN" className={inter.variable} suppressHydrationWarning>
+    <html lang={locale} className={inter.variable} suppressHydrationWarning>
       <head>
         <link rel="stylesheet" href={THEMES_STYLESHEET} />
       </head>
@@ -182,7 +192,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: SYNC_VIEWPORT_OVERSHOOT_SCRIPT }} />
         {/* 挂在根布局：登录页等 AppShell 之外的页面也有输入框，同样需要键盘适配 */}
         <ViewportKeyboard />
-        {children}
+        <LanguageProvider locale={locale} browserLocale={browserLocale}>
+          {children}
+        </LanguageProvider>
       </body>
     </html>
   );

@@ -57,6 +57,24 @@ def check_lock(spec, lock):
         raise ValueError("FFmpegBuild version differs from project.yml")
 
 
+def add_catalog_regions(root: Path) -> None:
+    # XcodeGen does not discover catalog languages inside synchronized folders.
+    regions = {"Base"}
+    for catalog in root.glob("*/*.xcstrings"):
+        data = json.loads(catalog.read_text())
+        regions.add(data["sourceLanguage"])
+        for entry in data["strings"].values():
+            regions.update(entry.get("localizations", {}))
+    project = root / "MovieClaw.xcodeproj/project.pbxproj"
+    text = project.read_text()
+    value = (
+        "knownRegions = (\n"
+        + "".join(f"\t\t\t\t{json.dumps(r)},\n" for r in sorted(regions))
+        + "\t\t\t);"
+    )
+    project.write_text(re.sub(r"knownRegions = \(.*?\);", value, text, count=1, flags=re.S))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--update-lock", action="store_true")
@@ -75,6 +93,7 @@ def main():
     if not METADATA.exists() or METADATA.read_text() != metadata:
         METADATA.write_text(metadata)
     subprocess.run(["xcodegen", "generate", "--quiet"], cwd=ROOT, check=True)
+    add_catalog_regions(ROOT)
     PROJECT_LOCK.parent.mkdir(parents=True, exist_ok=True)
     if LOCK.exists():
         shutil.copyfile(LOCK, PROJECT_LOCK)

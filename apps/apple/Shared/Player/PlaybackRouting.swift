@@ -384,8 +384,8 @@ enum PlaybackNetwork: String {
     /// 提示里的环境名；分不清时不写
     var label: String? {
         switch self {
-        case .home: "家里网络"
-        case .away: "外网"
+        case .home: String(localized: .playerNetworkHome)
+        case .away: String(localized: .playerNetworkRemote)
         case .unknown: nil
         }
     }

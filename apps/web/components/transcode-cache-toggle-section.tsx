@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useState } from "react";
 
 import { Toggle } from "@/components/cloud-push-ui";
@@ -17,6 +19,7 @@ import { fetchPlaybackPolicy, savePlaybackPolicy } from "@/lib/api/playback";
  * 交互与进度条预览那颗开关同款：改成即存、失败回滚。
  */
 export function TranscodeCacheToggleRow() {
+  const t = useTranslations();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,18 +59,18 @@ export function TranscodeCacheToggleRow() {
 
   return (
     <SettingsRow
-      label="保留转码产物供续播、重看复用"
+      label={t("settings.playback.controls.cacheTitle")}
       description={
         enabled
-          ? "同一部片再次播放时已转出的部分直接读文件、不重新转码；缓存按磁盘剩余空间自动限额、24 小时未用自动清理，也可在「更新与维护 → 缓存管理」里清空"
-          : "会话结束即删除分片，每次播放都重新转码；磁盘特别紧张时用"
+          ? t("settings.playback.controls.cacheOn")
+          : t("settings.playback.controls.cacheOff")
       }
       error={error}
     >
       {enabled !== null && (
         <Toggle
           checked={enabled}
-          label="保留转码产物供续播、重看复用"
+          label={t("settings.playback.controls.cacheTitle")}
           disabled={busy}
           onChange={(next) => void toggle(next)}
         />

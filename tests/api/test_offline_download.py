@@ -12,8 +12,10 @@
 from __future__ import annotations
 
 import itertools
+import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -27,6 +29,7 @@ from sqlalchemy import select
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.auth import reset_auth_state
 from movieclaw_api.services.offline import exports
+from movieclaw_api.services.playback.session import reset_session_manager
 from movieclaw_api.settings.store import reset_setting_store
 from movieclaw_db.crypto import reset_secret_box
 from movieclaw_db.engine import get_database
@@ -53,11 +56,15 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'offline.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path / "media"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("METADATA_DIR", str(tmp_path / "metadata"))
+    monkeypatch.setenv("MOVIECLAW_TRANSCODE_DIR", str(tmp_path / "transcodes"))
     monkeypatch.setenv("MOVIECLAW_OFFLINE_EXPORTS_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("TMDB_API_KEY", "test-key-not-used")
     get_settings.cache_clear()
     reset_setting_store()
+    reset_session_manager()
     reset_secret_box()
     reset_auth_state()
     # 测试机没有显卡：硬件探测一律为空，转码档走软件（用例里按需打开软件转码）
@@ -69,12 +76,13 @@ def client(tmp_path, monkeypatch):
 
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         c.post(f"{_API}/auth/bootstrap", json=_ADMIN)
         yield c
         c.portal.call(exports.get_export_manager().shutdown)  # type: ignore[attr-defined]
 
     reset_setting_store()
+    reset_session_manager()
     reset_secret_box()
     reset_auth_state()
     get_settings.cache_clear()
@@ -114,14 +122,16 @@ def _make_video(path: Path, seconds: int = 4) -> None:
     )
 
 
-async def _seed(tmp_path: Path, *, real: bool, kind: str = "movie") -> tuple[int, int, int]:
+async def _seed(
+    tmp_path: Path, *, real: bool, kind: str = "movie", seconds: int = 4
+) -> tuple[int, int, int]:
     """建库 + 条目 + 一个在位文件（可带同名外挂 srt），返回 (库, 条目, 文件)。"""
     n = next(_counter)
     root = tmp_path / f"lib{n}"
     root.mkdir(exist_ok=True)
     path = root / f"movie{n}.mp4"
     if real:
-        _make_video(path)
+        _make_video(path, seconds)
     else:
         path.write_bytes(bytes(range(256)) * 4096)
     (root / f"movie{n}.chs.srt").write_text("1\n00:00:01,000 --> 00:00:02,000\n你好\n", "utf-8")
@@ -142,7 +152,7 @@ async def _seed(tmp_path: Path, *, real: bool, kind: str = "movie") -> tuple[int
             container="mp4",
             video_codec="h264",
             resolution="720p" if real else "1080p",
-            duration_seconds=4 if real else _DURATION_S,
+            duration_seconds=seconds if real else _DURATION_S,
             audio_streams=[{"codec": "aac", "channels": 2, "default": True}],
             external_subtitles=[
                 {"filename": f"movie{n}.chs.srt", "format": "srt", "language": "chi"}
@@ -868,6 +878,96 @@ def test_export_waits_when_the_transcoder_drops_before_it_starts(client, tmp_pat
     assert state["data"]["status"] == "queued", state
 
 
+def test_export_runs_on_a_windows_nvenc_transcoder(client, tmp_path, monkeypatch) -> None:
+    """NAS 没有显卡、软件转码没开，只连着一台 Windows（NVENC）转码器：导出交给它转，
+    不去等一台根本不存在的 Mac 转码器（以前远程只认 VideoToolbox，这里会一直排队）。
+    它申报了 hevc_nvenc，按 #1008 的规则出 HEVC（码率约为 H.264 的三分之二）。"""
+    from movieclaw_api.services.playback import hwprobe
+    from movieclaw_api.services.playback import remote_worker as remote_worker_module
+
+    class _Socket:
+        async def send_json(self, _message: dict) -> None:
+            return None
+
+        async def close(self, **_: object) -> None:
+            return None
+
+    registry = remote_worker_module.RemoteWorkerRegistry()
+    monkeypatch.setattr(remote_worker_module, "_registry", registry)
+    monkeypatch.setattr(remote_worker_module, "remote_worker_enabled", lambda: True)
+    monkeypatch.setattr(hwprobe, "_cache", [])
+    _lib, _item, file_id = seed(client, tmp_path, real=False)
+
+    async def execution(session):
+        return await exports._execution(await session.get(LibraryFile, file_id), "480p", None)
+
+    assert _run(client, execution) is None, "没有任何转码器、软转没开：排队等"
+
+    async def connect():
+        return await registry.register(
+            _Socket(),
+            {
+                "worker_id": "win-pc",
+                "capabilities": {
+                    "backends": ["nvenc"],
+                    "encoders": ["h264_nvenc", "hevc_nvenc"],
+                    "filters": ["scale_cuda"],
+                },
+            },
+        )
+
+    client.portal.call(connect)  # type: ignore[attr-defined]
+    chosen = _run(client, execution)
+    assert chosen is not None
+    assert (chosen.hw_backend, chosen.remote) == ("nvenc", True)
+    # 这台 Worker 申报了 hevc_nvenc → 按 #1008 出 HEVC；没申报 HEVC 的（只报 h264_nvenc）
+    # 仍出 H.264，见下面那条
+    assert chosen.plan.video.codec == "hevc"
+
+
+def test_export_on_a_windows_nvenc_transcoder_without_hevc_stays_h264(
+    client, tmp_path, monkeypatch
+) -> None:
+    """同一个后端只申报 h264_nvenc 时照旧出 H.264：能不能出 HEVC 只看接单 Worker 自己的申报。"""
+    from movieclaw_api.services.playback import hwprobe
+    from movieclaw_api.services.playback import remote_worker as remote_worker_module
+
+    class _Socket:
+        async def send_json(self, _message: dict) -> None:
+            return None
+
+        async def close(self, **_: object) -> None:
+            return None
+
+    registry = remote_worker_module.RemoteWorkerRegistry()
+    monkeypatch.setattr(remote_worker_module, "_registry", registry)
+    monkeypatch.setattr(remote_worker_module, "remote_worker_enabled", lambda: True)
+    monkeypatch.setattr(hwprobe, "_cache", [])
+    _lib, _item, file_id = seed(client, tmp_path, real=False)
+
+    async def execution(session):
+        return await exports._execution(await session.get(LibraryFile, file_id), "480p", None)
+
+    async def connect():
+        return await registry.register(
+            _Socket(),
+            {
+                "worker_id": "win-pc-h264",
+                "capabilities": {
+                    "backends": ["nvenc"],
+                    "encoders": ["h264_nvenc"],
+                    "filters": ["scale_cuda"],
+                },
+            },
+        )
+
+    client.portal.call(connect)  # type: ignore[attr-defined]
+    chosen = _run(client, execution)
+    assert chosen is not None
+    assert (chosen.hw_backend, chosen.remote) == ("nvenc", True)
+    assert chosen.plan.video.codec == "h264"
+
+
 def test_activity_shows_transcode_info_instead_of_export_hash(client, tmp_path) -> None:
     """活动页「正在下载」：转码导出那一行不显示导出号哈希，换成转码信息；边转边下时进度按
     已转比例推算的最终大小算（按码率上限估的大小会让进度条停在一半）。"""
@@ -928,3 +1028,160 @@ def test_queued_export_says_what_it_is_waiting_for(client, tmp_path) -> None:
     finally:
         manager._queue.clear()
         manager._current_id = None
+
+
+# ---------------------------------------------------------------------------
+# NAS 显卡出 HEVC（issue #1008）：测试机没有显卡，PATH 里包一层 ffmpeg 把 VAAPI 命令换成
+# 软件编码（hevc_vaapi → libx265、h264_vaapi → libx264）。自检结论直接登记；其余全是真代码
+# ---------------------------------------------------------------------------
+
+_FAKE_VAAPI_FFMPEG = r'''#!{python}
+import os, re, sys
+GPU_ERROR = "[hevc_vaapi] Failed to map output buffers: 24 (internal encoding error)\n"
+argv = sys.argv[1:]
+with open(os.environ["FAKE_FFMPEG_LOG"], "a") as log:
+    log.write(" ".join(argv) + "\n")
+mode = os.environ.get("FAKE_HEVC_FAIL", "")
+if "hevc_vaapi" in argv and mode.startswith("midway"):
+    # 第一次只转前 6 秒（转出两段就退出），之后的重启前 N 次起步即退（N=midway 后面的数）
+    runs = os.environ["FAKE_FFMPEG_LOG"] + ".hevc_runs"
+    n = int(open(runs).read()) if os.path.exists(runs) else 0
+    open(runs, "w").write(str(n + 1))
+    if n == 0:
+        argv = [*argv[:-1], "-t", "6", argv[-1]]
+    elif n <= int(mode[len("midway"):]):
+        sys.stderr.write(GPU_ERROR)
+        sys.exit(1)
+    mode = ""
+if "hevc_vaapi" in argv and mode:
+    if mode == "late":
+        import time
+        time.sleep(1.2)  # #763 现场：起来了、约一秒后退出，一段不产出
+    sys.stderr.write(GPU_ERROR)
+    sys.exit(1)
+out = []
+skip = 0
+for i, arg in enumerate(argv):
+    if skip:
+        skip -= 1
+        continue
+    if arg in ("-hwaccel", "-hwaccel_output_format", "-hwaccel_device", "-low_power"):
+        skip = 1
+        continue
+    if arg == "-vf" and "scale_vaapi=" in argv[i + 1]:
+        def soft(m):
+            keep = [kv for kv in m.group(1).split(":") if kv.split("=")[0] in ("w", "h")]
+            return "scale=" + ":".join(keep) + ",format=yuv420p"
+        out += ["-vf", re.sub(r"scale_vaapi=([^,]*)", soft, argv[i + 1])]
+        skip = 1
+        continue
+    if arg == "h264_vaapi":
+        out += ["libx264", "-preset", "ultrafast"]
+        continue
+    if arg == "hevc_vaapi":
+        out += ["libx265", "-preset", "ultrafast", "-x265-params", "log-level=error"]
+        continue
+    out.append(arg)
+os.execv({real!r}, [{real!r}, *out])
+'''
+
+
+@pytest.fixture
+def fake_vaapi(client, tmp_path, monkeypatch):
+    from movieclaw_api.services.playback.ffmpeg_args import register_hevc_encoder
+
+    real = shutil.which("ffmpeg")
+    assert real
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    script = bin_dir / "ffmpeg"
+    script.write_text(_FAKE_VAAPI_FFMPEG.format(python=sys.executable, real=real))
+    script.chmod(0o755)
+    log = tmp_path / "ffmpeg.log"
+    log.touch()
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_FFMPEG_LOG", str(log))
+    monkeypatch.setattr("movieclaw_api.services.playback.plan.hardware_available", lambda: True)
+    monkeypatch.setattr(exports, "available_local_backends", lambda: ("vaapi",))
+    monkeypatch.setattr(exports, "available_backends", lambda: ("vaapi",))
+    register_hevc_encoder("vaapi", ())  # 自检：HEVC 真编通过
+    yield log
+    register_hevc_encoder("vaapi", None)
+
+
+def _probe_video(data: bytes, tmp_path: Path) -> str:
+    out = tmp_path / "check.mp4"
+    out.write_bytes(data)
+    return subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name,codec_tag_string,height",
+            "-of", "default=nw=1", str(out),
+        ],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="需要 ffmpeg")
+def test_export_on_nas_gpu_is_hevc_when_self_test_passed(client, tmp_path, fake_vaapi) -> None:
+    _lib, _item, file_id = seed(client, tmp_path, real=True)
+    manifest = client.get(f"{_API}/offline/manifest", params={"file_id": file_id}).json()["data"]
+    assert "480p" in [p["profile"] for p in manifest["profiles"]]
+    created = client.post(f"{_API}/offline/exports", json={"file_id": file_id, "profile": "480p"})
+    assert created.status_code == 200, created.text
+    done = _wait_export(client, created.json()["data"]["export_id"])
+    assert done["status"] == "done", done
+    probe = _probe_video(client.get(created.json()["data"]["content_url"]).content, tmp_path)
+    assert "codec_name=hevc" in probe and "codec_tag_string=hvc1" in probe, probe
+    assert "height=480" in probe
+    commands = fake_vaapi.read_text()
+    assert "-c:v hevc_vaapi" in commands and "-maxrate 1M" in commands  # HEVC 码率阶梯
+    assert "h264_vaapi" not in commands
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="需要 ffmpeg")
+@pytest.mark.parametrize("failure", ["start", "late"])
+def test_export_falls_back_to_h264_when_gpu_hevc_fails(
+    client, tmp_path, fake_vaapi, monkeypatch, failure
+) -> None:
+    """自检只编一秒合成画面：真实片子上 HEVC 编不了（起步即退，或起来了一段不产出）时，
+    这份导出改出 H.264 照样完成。"""
+    monkeypatch.setenv("FAKE_HEVC_FAIL", failure)
+    monkeypatch.setattr(exports, "_CAPACITY_POLL_S", 0.05)
+    _lib, _item, file_id = seed(client, tmp_path, real=True)
+    created = client.post(f"{_API}/offline/exports", json={"file_id": file_id, "profile": "480p"})
+    assert created.status_code == 200, created.text
+    done = _wait_export(client, created.json()["data"]["export_id"], timeout=120)
+    assert done["status"] == "done", done
+    probe = _probe_video(client.get(created.json()["data"]["content_url"]).content, tmp_path)
+    assert "codec_name=h264" in probe and "codec_tag_string=avc1" in probe, probe
+    commands = fake_vaapi.read_text()
+    assert "-c:v hevc_vaapi" in commands and "-c:v h264_vaapi" in commands
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="需要 ffmpeg")
+@pytest.mark.parametrize(("failures", "codec"), [(2, "hevc"), (99, "h264")])
+def test_gpu_hevc_failing_midway_retries_before_falling_back(
+    client, tmp_path, fake_vaapi, monkeypatch, failures, codec
+) -> None:
+    """已经转出过 HEVC 的导出中途起不来：先按原规矩重试（偶发两次——一次会被会话层自己的重启吸收——
+    之后接着出 HEVC，不整份从头）；
+    一直起不来、要判失败时才改出 H.264 重转，导出照样完成。"""
+    monkeypatch.setenv("FAKE_HEVC_FAIL", f"midway{failures}")
+    monkeypatch.setattr(exports, "_CAPACITY_POLL_S", 0.05)
+    _lib, _item, file_id = seed(client, tmp_path, real=True, seconds=24)
+    created = client.post(f"{_API}/offline/exports", json={"file_id": file_id, "profile": "480p"})
+    assert created.status_code == 200, created.text
+    done = _wait_export(client, created.json()["data"]["export_id"], timeout=180)
+    assert done["status"] == "done", done
+    data = client.get(created.json()["data"]["content_url"]).content
+    probe = _probe_video(data, tmp_path)
+    assert f"codec_name={codec}" in probe, probe
+    duration = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+         str(tmp_path / "check.mp4")],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    assert abs(float(duration) - 24) < 1, duration  # 整片、没有重复或缺段
+    commands = fake_vaapi.read_text()
+    assert ("-c:v h264_vaapi" in commands) == (codec == "h264")

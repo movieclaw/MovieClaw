@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 
 import type { Route } from "next";
@@ -34,6 +35,8 @@ export function LibraryRelatedRows({
   /** 电影所属系列合集；剧集与没有系列的电影为 null */
   seriesCollectionId: number | null;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [series, setSeries] = useState<CollectionSeries | null>(null);
 
@@ -77,8 +80,8 @@ export function LibraryRelatedRows({
         <MediaRow
           row={{
             id: `similar-${mediaItemId}`,
-            title: "相似推荐",
-            items: items.map(libraryItemToMediaItem),
+            title: t("library.item.similar"),
+            items: items.map((item) => libraryItemToMediaItem(item, locale)),
           }}
           cardAction="none"
           cardHref={(m: MediaItem) => hrefs.get(m.id)}
@@ -105,15 +108,16 @@ function SeriesRow({
   libraryId: number;
   mediaItemId: number;
 }) {
+  const t = useTranslations();
   const { subscriptionOf } = useSubscribeEntry();
   return (
     <section data-testid="library-series-row">
       <div className="mb-3 flex items-baseline gap-3 max-md:mb-2">
         <h3 className="text-on-image text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
-          {series.series_name ?? "系列"}
+          {series.series_name ?? t("library.collections.series")}
         </h3>
         <span className="text-sub text-[var(--text-muted)]">
-          已有 {series.owned_count} / 共 {series.total}
+          {t("library.item.seriesOwnedFraction", { owned: series.owned_count, total: series.total })}
         </span>
       </div>
       <HScroller className="m-row gap-4 pb-1 pt-2 max-md:gap-3">
@@ -128,7 +132,7 @@ function SeriesRow({
                 }
               />
             ) : part.media_item_id === mediaItemId ? (
-              <PosterCardVisual item={ownedPart(part, "本片")} action="none" />
+              <PosterCardVisual item={ownedPart(part, t("library.item.currentTitle"))} action="none" />
             ) : (
               <PosterCard
                 item={ownedPart(part, "")}

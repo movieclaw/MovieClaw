@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
@@ -56,7 +57,7 @@ import {
   moveInList,
   summarizeLibraries,
 } from "@/lib/library-manage";
-import { LIBRARY_KIND_LABELS, type LibraryKind } from "@/lib/media-types";
+import { libraryKindLabels, type LibraryKind } from "@/lib/media-types";
 import { usePermissions } from "@/lib/permissions";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useTabParam } from "@/lib/use-tab-param";
@@ -84,6 +85,8 @@ function dropPosition(e: React.DragEvent): "before" | "after" {
  * 状态列），不逐库拉条目——首页为了封面拼图才要拉，这里的缩略图走服务端拼贴图。
  */
 export function LibraryManageView() {
+  const t = useTranslations();
+  const locale = useLocale();
   const { canManageLibraries } = usePermissions();
   const router = useRouter();
   const confirm = useConfirm();
@@ -235,9 +238,9 @@ export function LibraryManageView() {
     setRevealId(null);
   }, [revealId, libraries]);
 
-  const warnings = useMemo(() => routingOverlapWarnings(libraries ?? []), [libraries]);
+  const warnings = useMemo(() => routingOverlapWarnings(libraries ?? [], locale), [libraries, locale]);
   const visible = useMemo(() => filterLibraries(libraries ?? [], filter), [libraries, filter]);
-  const summary = useMemo(() => summarizeLibraries(libraries ?? []), [libraries]);
+  const summary = summarizeLibraries(libraries ?? []);
   /** 页头摘要胶囊即筛选：再点一次取消；在回收站标签上点则先切回库列表 */
   const toggleFocus = (focus: LibraryFocus) => {
     setFilter((f) => ({ ...f, focus: f.focus === focus ? null : focus }));
@@ -271,14 +274,14 @@ export function LibraryManageView() {
       void reorderLibraries(next.map((l) => l.id))
         .then(() => {
           reload();
-          toast.success("顺序已更新，首页「我的媒体库」同步生效");
+          toast.success(t("library.manage.orderSaved"));
         })
         .catch((e) => {
           setLibraries(prev);
           toast.error((e as Error).message);
         });
     },
-    [libraries, reload, toast],
+    [libraries, reload, toast, t],
   );
 
   const moveLibrary = useCallback(
@@ -307,7 +310,7 @@ export function LibraryManageView() {
             (library.cloud_folders ?? []).map((f) => f.backend_title),
           ),
         ).then((ok) => {
-          if (ok) run(startLibraryScan(library.id), `已开始扫描「${library.name}」`);
+          if (ok) run(startLibraryScan(library.id), t("library.manage.scanStarted", { name: library.name }));
         });
       },
       onOpenPending: (library) => {
@@ -332,7 +335,7 @@ export function LibraryManageView() {
       },
       onEdit: (library) => setEditing(library),
       onSetDefault: (library) =>
-        run(setDefaultLibrary(library.id), `已将「${library.name}」设为默认库`),
+        run(setDefaultLibrary(library.id), t("library.manage.defaultSet", { name: library.name })),
       // 只改这一个字段：payload 里没传的字段后端按"不改动"处理
       onToggleHome: (library) =>
         run(
@@ -342,21 +345,21 @@ export function LibraryManageView() {
             root_paths: library.root_paths,
             exclude_from_home: !library.exclude_from_home,
           }),
-          library.exclude_from_home ? `「${library.name}」已在首页展示` : `「${library.name}」已从首页排除`,
+          library.exclude_from_home ? t("library.manage.shownHome", { name: library.name }) : t("library.manage.hiddenHome", { name: library.name }),
         ),
       onDelete: (library) => {
         void confirm({
-          title: `删除媒体库「${library.name}」？`,
-          description: "磁盘文件不受影响，挂在它上面的订阅将回落到该类型的默认库。",
-          confirmLabel: "删除库",
+          title: t("library.manage.deleteTitle", { name: library.name }),
+          description: t("library.manage.removeHint"),
+          confirmLabel: t("library.actions.delete"),
           tone: "danger",
         }).then((ok) => {
-          if (ok) run(deleteLibrary(library.id), `已删除媒体库「${library.name}」`);
+          if (ok) run(deleteLibrary(library.id), t("library.manage.deleted", { name: library.name }));
         });
       },
       onReorder: isMobile ? () => setReorderOpen(true) : undefined,
     }),
-    [confirm, isMobile, router, run],
+    [confirm, isMobile, router, run, t],
   );
 
   // —— 拖拽排序（桌面端、未筛选时）——
@@ -408,18 +411,18 @@ export function LibraryManageView() {
   if (!canManageLibraries) {
     return (
       <div className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-10">
-        <PageNav title="媒体库管理" fallback={{ label: "媒体库", href: "/library" as Route }} />
+        <PageNav title={t("library.manage.pageTitle")} fallback={{ label: t("nav.main.library"), href: "/library" as Route }} />
         <ContentEmptyState
           variant="library"
-          title="没有管理权限"
-          description="媒体库的创建、扫描与排序由管理员负责；你可以回到媒体库继续浏览。"
+          title={t("library.manage.noPermission")}
+          description={t("library.manage.noPermissionHint")}
           action={
             <button
               type="button"
               onClick={back}
               className="btn-glass px-4 py-2 text-ui font-medium"
             >
-              返回媒体库
+              {t("library.manage.back")}
             </button>
           }
         />
@@ -429,14 +432,14 @@ export function LibraryManageView() {
 
   return (
     <div className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-10">
-      <PageNav title="媒体库管理" fallback={{ label: "媒体库", href: "/library" as Route }} />
+      <PageNav title={t("library.manage.pageTitle")} fallback={{ label: t("nav.main.library"), href: "/library" as Route }} />
 
       {/* 页头：标题 + 说明，右侧是页面级动作「创建媒体库」（与首页「管理媒体库」
           同一位置约定：页面动作放标题行右端，顶栏只留返回与吸顶标题） */}
       <div className={`pt-3 page-inset`}>
         <div className="flex items-start justify-between gap-4">
           <h2 className="text-on-image text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[21px]">
-            媒体库管理
+            {t("library.manage.pageTitle")}
           </h2>
           <button
             type="button"
@@ -444,7 +447,7 @@ export function LibraryManageView() {
             className="btn-accent mt-1 flex h-9 shrink-0 items-center gap-1 rounded-full py-0 pl-3 pr-4 text-ui font-semibold max-md:mt-0"
           >
             <PlusIcon className="size-4" />
-            创建媒体库
+            {t("library.manage.create")}
           </button>
         </div>
         {/* 副标题是一行活的摘要，独占一行（不与按钮争宽，手机端才不会把数字挤断）：
@@ -453,15 +456,15 @@ export function LibraryManageView() {
         <div className="text-on-image mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-ui text-[var(--text-muted)] max-md:text-sub">
           <span>
             {libraries === null
-              ? "正在汇总媒体库…"
+              ? t("library.manage.summarizing")
               : libraries.length === 0
-                ? "还没有媒体库"
+                ? t("library.manage.noLibraries")
                 : summary.facts}
           </span>
           {summary.busy > 0 && (
             <FilterChip active={filter.focus === "busy"} onClick={() => toggleFocus("busy")}>
               <span className="size-1.5 rounded-full bg-[var(--info)]" />
-              {summary.busy} 个在跑任务
+              {t("library.manage.runningCount", { count: summary.busy })}
             </FilterChip>
           )}
           {summary.attention > 0 && (
@@ -472,17 +475,17 @@ export function LibraryManageView() {
               <span
                 className={`size-1.5 rounded-full ${summary.missing ? "bg-[var(--danger)]" : "bg-[var(--warn)]"}`}
               />
-              {summary.attention} 个库有待处理文件
+              {t("library.manage.attentionCount", { count: summary.attention })}
             </FilterChip>
           )}
           {libraries !== null &&
             libraries.length > 0 &&
             summary.busy === 0 &&
-            summary.attention === 0 && <span className="text-[var(--text-faint)]">一切正常</span>}
+            summary.attention === 0 && <span className="text-[var(--text-faint)]">{t("library.manage.healthy")}</span>}
         </div>
         <div className="mt-4 empty:hidden">
           <FeatureOffNotice feature="library-watch">
-            停用期间媒体库不会实时响应目录变化，各库的「实时监控」开关暂不生效，改由定时对账兜底。
+            {t("library.manage.watchDisabled")}
           </FeatureOffNotice>
         </div>
       </div>
@@ -491,10 +494,10 @@ export function LibraryManageView() {
       <div className={`mt-4 flex gap-1.5 page-inset`} role="tablist">
         {(
           [
-            { id: "libraries" as const, label: "媒体库", count: libraries?.length ?? null },
-            { id: "recycle" as const, label: "回收站", count: recycleCount },
-            { id: "duplicates" as const, label: "重复文件", count: duplicateCount },
-            { id: "shares" as const, label: "分享", count: shareCount },
+            { id: "libraries" as const, label: t("nav.main.library"), count: libraries?.length ?? null },
+            { id: "recycle" as const, label: t("library.manage.recycle"), count: recycleCount },
+            { id: "duplicates" as const, label: t("library.manage.duplicates"), count: duplicateCount },
+            { id: "shares" as const, label: t("library.manage.shares"), count: shareCount },
           ] as const
         ).map((t) => (
           <button
@@ -527,21 +530,21 @@ export function LibraryManageView() {
 
       {tab === "libraries" && failed && libraries !== null && (
         <div className={`page-inset-mx mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sub text-amber-200`}>
-          与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据
+          {t("library.home.stale")}
         </div>
       )}
 
       {tab === "libraries" && libraries === null && !failed && (
         <div className="mt-16 flex items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在加载媒体库…
+          {t("library.home.loading")}
         </div>
       )}
       {tab === "libraries" && failed && libraries === null && (
         <div className="mt-16 flex flex-col items-center gap-3 text-center">
-          <p className="text-ui text-[var(--text-muted)]">媒体库加载失败</p>
+          <p className="text-ui text-[var(--text-muted)]">{t("library.home.loadFailed")}</p>
           <button type="button" onClick={reload} className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]">
-            重试
+            {t("common.retry")}
           </button>
         </div>
       )}
@@ -549,8 +552,8 @@ export function LibraryManageView() {
       {tab === "libraries" && libraries !== null && libraries.length === 0 && (
         <ContentEmptyState
           variant="library"
-          title="为收藏准备一个家"
-          description="创建电影库或剧集库，选好根目录后，订阅完成的内容会自动整理到这里。"
+          title={t("library.home.createTitle")}
+          description={t("library.home.createHint")}
           action={
             <button
               type="button"
@@ -558,7 +561,7 @@ export function LibraryManageView() {
               className="btn-accent flex items-center gap-1 rounded-full py-2 pl-3 pr-4 text-ui font-semibold"
             >
               <PlusIcon className="size-4" />
-              创建第一个媒体库
+              {t("library.home.create")}
             </button>
           }
         />
@@ -574,14 +577,14 @@ export function LibraryManageView() {
                 type="search"
                 value={filter.query}
                 onChange={(e) => setFilter((f) => ({ ...f, query: e.target.value }))}
-                placeholder="按库名或根目录搜索"
-                aria-label="搜索媒体库"
+                placeholder={t("library.manage.filterPlaceholder")}
+                aria-label={t("library.manage.search")}
                 className="min-w-0 flex-1 bg-transparent text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]"
               />
               {filter.query && (
                 <button
                   type="button"
-                  aria-label="清除搜索"
+                  aria-label={t("library.manage.clearSearch")}
                   onClick={() => setFilter((f) => ({ ...f, query: "" }))}
                   className="grid size-5 place-items-center rounded-full hover:bg-white/[0.1]"
                 >
@@ -594,7 +597,7 @@ export function LibraryManageView() {
                 active={filter.kind === null}
                 onClick={() => setFilter((f) => ({ ...f, kind: null }))}
               >
-                全部 {libraries.length}
+                {t("common.all")} {libraries.length}
               </FilterChip>
               {KIND_ORDER.filter((k) => (kindCounts.get(k) ?? 0) > 0).map((k) => (
                 <FilterChip
@@ -602,7 +605,7 @@ export function LibraryManageView() {
                   active={filter.kind === k}
                   onClick={() => setFilter((f) => ({ ...f, kind: f.kind === k ? null : k }))}
                 >
-                  {LIBRARY_KIND_LABELS[k]} {kindCounts.get(k)}
+                  {libraryKindLabels()[k]} {kindCounts.get(k)}
                 </FilterChip>
               ))}
             </div>
@@ -611,10 +614,10 @@ export function LibraryManageView() {
           {/* 收藏范围重叠提示：只读不阻断，原在首页，现在只在这里出现 */}
           {warnings.map((w) => (
             <div
-              key={w}
+              key={w.id}
               className={`page-inset-mx mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sub leading-relaxed text-amber-200`}
             >
-              {w}
+              {w.message}
             </div>
           ))}
 
@@ -623,17 +626,17 @@ export function LibraryManageView() {
           <div className={`page-inset-mx mt-4 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]`}>
             {visible.length === 0 ? (
               <div className="px-4 py-10 text-center text-ui text-[var(--text-muted)]">
-                没有符合条件的媒体库
+                {t("library.manage.noMatches")}
                 <button
                   type="button"
                   onClick={() => setFilter(EMPTY_FILTER)}
                   className="ml-2 text-[var(--info)] hover:underline"
                 >
-                  清除筛选
+                  {t("library.manage.clearFilters")}
                 </button>
               </div>
             ) : (
-              <div role="list" aria-label="媒体库列表" className="divide-y divide-white/[0.06]">
+              <div role="list" aria-label={t("library.manage.list")} className="divide-y divide-white/[0.06]">
                 {visible.map((library) => (
                   <LibraryManageRow
                     key={library.id}
@@ -649,11 +652,11 @@ export function LibraryManageView() {
           {/* 底部只留一句排序提示；状态胶囊自带文字，不需要颜色图例 */}
           <p className={`page-inset-mx mt-3 text-caption text-[var(--text-faint)]`}>
             {isMobile
-              ? "顺序即首页「我的媒体库」的展示顺序，在 ··· 菜单里「调整顺序」"
+              ? t("library.manage.mobileOrderHint")
               : dragEnabled
-                ? "把指针停在行上，拖动行首的把手调整首页「我的媒体库」的展示顺序，松手即保存"
+                ? t("library.manage.dragHint")
                 : filterIsActive(filter)
-                  ? "清除筛选后可拖拽排序"
+                  ? t("library.manage.filteredOrderHint")
                   : ""}
           </p>
         </>
@@ -735,16 +738,17 @@ function ReorderDialog({
   onClose: () => void;
   onSubmit: (next: readonly MediaLibrary[]) => void;
 }) {
+  const t = useTranslations();
   const [draft, setDraft] = useState<readonly MediaLibrary[]>(libraries);
   useEffect(() => {
     if (open) setDraft(libraries);
   }, [open, libraries]);
   const changed = draft.some((l, i) => l.id !== libraries[i]?.id);
   return (
-    <Modal open={open} onClose={onClose} label="调整媒体库顺序">
+    <Modal open={open} onClose={onClose} label={t("library.manage.orderDialog")}>
       <div className="p-5">
-        <h2 className="text-title font-bold text-white">调整顺序</h2>
-        <p className="mt-1 text-sub text-[var(--text-muted)]">这也是首页「我的媒体库」的展示顺序。</p>
+        <h2 className="text-title font-bold text-white">{t("library.manage.order")}</h2>
+        <p className="mt-1 text-sub text-[var(--text-muted)]">{t("library.manage.orderHint")}</p>
         <ol className="mt-4 divide-y divide-white/[0.06] overflow-hidden rounded-xl border border-white/[0.08]">
           {draft.map((library, index) => (
             <li key={library.id} className="flex items-center gap-3 px-3 py-2.5">
@@ -752,7 +756,7 @@ function ReorderDialog({
               <span className="min-w-0 flex-1 truncate text-ui font-medium">{library.name}</span>
               <button
                 type="button"
-                aria-label={`「${library.name}」上移`}
+                aria-label={t("library.manage.moveUp", { name: library.name })}
                 disabled={index === 0}
                 onClick={() => setDraft((d) => moveInList(d, index, index - 1))}
                 className="grid size-8 place-items-center rounded-full border border-white/[0.09] text-white/75 disabled:opacity-30"
@@ -761,7 +765,7 @@ function ReorderDialog({
               </button>
               <button
                 type="button"
-                aria-label={`「${library.name}」下移`}
+                aria-label={t("library.manage.moveDown", { name: library.name })}
                 disabled={index === draft.length - 1}
                 onClick={() => setDraft((d) => moveInList(d, index, index + 1))}
                 className="grid size-8 place-items-center rounded-full border border-white/[0.09] text-white/75 disabled:opacity-30"
@@ -773,7 +777,7 @@ function ReorderDialog({
         </ol>
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={onClose} className="btn-glass px-4 py-2 text-ui font-medium">
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -781,7 +785,7 @@ function ReorderDialog({
             onClick={() => onSubmit(draft)}
             className="btn-accent rounded-full px-4 py-2 text-ui font-semibold disabled:opacity-40"
           >
-            保存顺序
+            {t("library.manage.saveOrder")}
           </button>
         </div>
       </div>

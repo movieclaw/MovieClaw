@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import Literal
@@ -16,8 +17,8 @@ from movieclaw_agent import (
     compact,
     compact_skill_blocks,
     discover_skills,
-    expand_skill_invocations,
 )
+from movieclaw_agent.skills import prepare_skill_invocations, strip_skill_blocks
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import (
@@ -25,6 +26,8 @@ from movieclaw_api.exceptions import (
     NotFoundException,
     UpstreamServiceException,
 )
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value, stored_message
 from movieclaw_api.schemas.agent import (
     AttachmentUploadView,
     SessionCompactionEntryView,
@@ -136,7 +139,7 @@ async def _accept_user_message(
     # 不允许再发起新的 Agent 运行——工具层已有软闸，这里是绕过工具（curl 等）
     # 也拦得住的最后防线。放在一切校验/落盘之前。
     if identity.kind == "agent":
-        raise BadRequestException("Agent 工作区内不能再发起新的 Agent 运行（禁止递归）")
+        raise BadRequestException(message_key="errors.agent.nestedRunForbidden")
 
     store = get_agent_session_store()
     repo = AgentSessionRepository(session)
@@ -150,12 +153,9 @@ async def _accept_user_message(
         session_id = payload.session_id
         row = await repo.get(session_id)
         if row is None:
-            raise NotFoundException("Agent 会话不存在")
+            raise NotFoundException(message_key="errors.agent.sessionMissing")
         if is_running(row):
-            raise BadRequestException(
-                "该会话已有正在进行的运行，请先停止或等待完成；"
-                "若服务刚重启过，运行状态最多 30 秒后会自动恢复为已结束"
-            )
+            raise BadRequestException(message_key="errors.agent.sessionBusy")
         # 接受路径兜底（三层 seal 的最后一层，见 docs/design/
         # agent-runtime-resilience.md §4.2）：启动自愈自身出异常时孤儿
         # tool_call 仍可能残留，这里再补一次配对，保证喂给供应商的历史
@@ -228,6 +228,7 @@ async def _launch_user_message(
     llm_router: LlmRouter,
     attachment_ids: list[str] | None = None,
     thinking_level: str | None = None,
+    generated_skill_instruction: bool = False,
     tools: list[AgentTool] | None = None,
     system_prompt: str | None = None,
     owner: str | None = None,
@@ -254,20 +255,20 @@ async def _launch_user_message(
     # 显式技能调用：把 /skill:名字 占位符展开为技能正文块（docs/design/
     # agent-skills.md §9）。展开结果入转录（内容冻结在调用时刻）；已展开
     # 文本不含裸 token，retry 复用旧文本时这里天然是 no-op。
-    content = expand_skill_invocations(
+    expansion = prepare_skill_invocations(
         content, discover_skills(Path(get_settings().agent_skills_dir).resolve())
     )
-    bound = (
-        get_agent_attachment_store().bind(session_id, attachment_ids)
-        if attachment_ids
-        else []
-    )
+    content = expansion.text
+    bound = get_agent_attachment_store().bind(session_id, attachment_ids) if attachment_ids else []
     user_content = compose_user_content(content, bound)
     recorder = AgentSessionRecorder(
         get_agent_session_store(), session_id, entry_count=entry_count
     )
     message_id = await recorder.record_user_message(
-        user_content, thinking_level=thinking_level, model=model
+        user_content,
+        thinking_level=thinking_level,
+        model=model,
+        generated_skill_instruction=generated_skill_instruction or expansion.generated_instruction,
     )
 
     # 请求水合：历史 + 本轮输入统一处理（视觉门控 / 读字节 / 预算，预算从
@@ -311,7 +312,7 @@ async def _launch_user_message(
     await recorder.begin(run_id)
     return ok(
         SessionMessageAcceptedView(session_id=session_id, message_id=message_id),
-        message="用户消息已提交",
+        message=t("agent.operations.messageSubmitted"),
     )
 
 
@@ -357,13 +358,15 @@ async def upload_session_attachment(
     """
     # 与「Agent 不能递归发起运行」同口径：不允许 Agent 用产品令牌向会话注入图片
     if identity.kind == "agent":
-        raise BadRequestException("Agent 工作区内不能上传会话附件")
+        raise BadRequestException(message_key="errors.agent.workspaceUploadForbidden")
     store = get_agent_attachment_store()
     # 顺手回收过期的未发送附件（staging 目录很小，扫描是廉价操作）
     await asyncio.to_thread(store.cleanup_staging)
     # 只读到限额 +1 字节就停：uvicorn 默认不限请求体，不能无脑全量读
     data = await file.read(MAX_IMAGE_BYTES + 1)
-    meta = await asyncio.to_thread(store.save_staging, data, file.filename or "图片")
+    meta = await asyncio.to_thread(
+        store.save_staging, data, file.filename or t("agent.attachments.imageName")
+    )
     return ok(
         AttachmentUploadView(
             attachment_id=meta.attachment_id,
@@ -372,7 +375,7 @@ async def upload_session_attachment(
             height=meta.height,
             bytes=meta.bytes,
         ),
-        message="图片已上传",
+        message=t("agent.operations.imageUploaded"),
     )
 
 
@@ -453,7 +456,7 @@ async def get_session_transcript(
     """
     row = await AgentSessionRepository(session).get(session_id)
     if row is None:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
     _, entries = get_agent_session_store().read(session_id)
     return ok(
         SessionTranscriptView(
@@ -483,13 +486,22 @@ def _chat_view(
     if message.role == "tool":
         head = message.text()[:CHAT_VIEW_TOOL_OUTPUT_CHARS]
         return entry.model_copy(update={"message": message.model_copy(update={"content": head})})
+
+    def user_text(text: str) -> str:
+        compacted = compact_skill_blocks(text)
+        if entry.generated_skill_instruction:
+            names, rest = strip_skill_blocks(compacted)
+            if names and rest:
+                return compacted[: -len(rest)] + t("agent.session.defaultInstruction")
+        return compacted
+
     if isinstance(message.content, str):
         if message.role != "user":
             return entry
-        content: str | list[ContentPart] = compact_skill_blocks(message.content)
+        content: str | list[ContentPart] = user_text(message.content)
     else:
         content = [
-            TextPart(text=compact_skill_blocks(part.text))
+            TextPart(text=user_text(part.text))
             if isinstance(part, TextPart) and message.role == "user"
             else part
             for part in message.content
@@ -515,7 +527,12 @@ def _entry_view(
             timestamp=entry.timestamp,
             source_session_id=entry.source_session_id,
             source_leaf_id=entry.source_leaf_uuid,
-            source_title=entry.source_title,
+            source_title=render_value(
+                {**entry.source_title_ref, "message": entry.source_title or ""}
+            ).strip()[:80]
+            if entry.source_title_ref
+            else entry.source_title,
+            source_title_ref=entry.source_title_ref,
             replacement_history=(
                 [SessionMessageView.from_model(message) for message in entry.replacement_history]
                 if include_handoff_snapshot
@@ -539,6 +556,7 @@ def _entry_view(
         parent_id=entry.parent_uuid,
         timestamp=entry.timestamp,
         message=SessionMessageView.from_model(entry.message),
+        generated_skill_instruction=entry.generated_skill_instruction,
         model=entry.model,
         usage=entry.usage,
         finish_reason=entry.finish_reason,
@@ -570,18 +588,21 @@ async def fork_session(
     因此即使踩中窗口，新会话拿到的仍是一份协议完整的上下文。
     """
     if identity.kind == "agent":
-        raise BadRequestException("Agent 工作区内不能创建新的 Agent 会话（禁止递归）")
+        raise BadRequestException(message_key="errors.agent.nestedSessionForbidden")
 
     store = get_agent_session_store()
     repo = AgentSessionRepository(session)
     source = await repo.get(session_id)
     if source is None:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
     if is_running(source):
-        raise BadRequestException("源会话正在运行中，请先停止或等待完成后再创建新会话")
+        raise BadRequestException(message_key="errors.agent.sourceRunning")
+
+    from movieclaw_api.services.agent_sessions import continuation_title
 
     source_title = source.title or source.last_prompt
-    header, handoff = store.fork(session_id, source_title=source_title)
+    source_ref = source.title_ref if source.title else source.last_prompt_ref
+    header, handoff = store.fork(session_id, source_title=source_title, source_title_ref=source_ref)
     # 快照里引用的图片按同 id 复制到新会话目录（目录按会话隔离，id 不冲突，
     # 引用无需改写）——handoff 的既有原则是「新会话不依赖源文件」，源会话
     # 之后被删除，新会话的图仍可水合。源附件缺失只跳过，不阻断 fork。
@@ -594,12 +615,8 @@ async def fork_session(
         get_agent_attachment_store().copy_session_attachments(
             session_id, header.session_id, referenced
         )
-    target_title = (
-        (source_title if source_title.startswith("续：") else f"续：{source_title}")[:80]
-        if source_title
-        else None
-    )
-    target = await repo.create(header.session_id, title=target_title)
+    target_title, target_ref = continuation_title(source_title, source_ref)
+    target = await repo.create(header.session_id, title=target_title, title_ref=target_ref)
     await repo.touch_after_append(
         header.session_id,
         leaf_uuid=handoff.uuid,
@@ -612,7 +629,7 @@ async def fork_session(
             session=SessionSummary.from_model(target),
             entries=[_entry_view(handoff)],
         ),
-        message="已创建续接会话",
+        message=t("agent.operations.continuationCreated"),
     )
 
 
@@ -630,8 +647,8 @@ async def rename_session(
     """修改会话标题，不改变任何消息、模型上下文或完整轨迹。"""
     row = await AgentSessionRepository(session).rename(session_id, payload.title)
     if row is None:
-        raise NotFoundException("Agent 会话不存在")
-    return ok(SessionSummary.from_model(row), message="会话已重命名")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
+    return ok(SessionSummary.from_model(row), message=t("agent.operations.renamed"))
 
 
 @router.post(
@@ -655,14 +672,14 @@ async def compact_session_context(
     repo = AgentSessionRepository(session)
     row = await repo.get(session_id)
     if row is None:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
     if is_running(row):
-        raise BadRequestException("该会话正在运行中，请等待完成后再压缩")
+        raise BadRequestException(message_key="errors.agent.compressWhileRunning")
 
     llm_router = await acquire_llm_router(session)
     history = store.build_history(session_id)
     if not history:
-        raise BadRequestException("会话没有可压缩的内容")
+        raise BadRequestException(message_key="errors.agent.nothingToCompress")
 
     # 沿用会话当前的模型引用（最近一条 user 行的信封值；None = 默认模型）
     _, entries = store.read(session_id)
@@ -683,7 +700,7 @@ async def compact_session_context(
         messages = await hydrate_images(messages, session_id=session_id, model_info=model_info)
     result = await compact(llm_router, model, messages, ModelSettings())
     if result is None:
-        raise UpstreamServiceException("压缩失败：模型未能生成摘要，请稍后重试")
+        raise UpstreamServiceException(message_key="errors.agent.compressionFailed")
 
     entry = store.append_compaction(session_id, result)
     await repo.touch_after_append(
@@ -698,7 +715,7 @@ async def compact_session_context(
             tokens_after=result.tokens_after,
             compaction_id=entry.uuid,
         ),
-        message="会话上下文已压缩",
+        message=t("agent.operations.compacted"),
     )
 
 
@@ -723,22 +740,22 @@ async def retry_session_message(
     与模型配置，再改写事实源。CLI 与 Web 共用此一步重试入口。
     """
     if identity.kind == "agent":
-        raise BadRequestException("Agent 工作区内不能再发起新的 Agent 运行（禁止递归）")
+        raise BadRequestException(message_key="errors.agent.nestedRunForbidden")
 
     store = get_agent_session_store()
     repo = AgentSessionRepository(session)
     row = await repo.get(session_id)
     if row is None:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
     if is_running(row):
-        raise BadRequestException("该会话正在运行中，请先停止运行再重试")
+        raise BadRequestException(message_key="errors.agent.retryWhileRunning")
 
     _, entries = store.read(session_id)
     target = next((entry for entry in entries if entry.uuid == payload.message_id), None)
     if target is None:
-        raise NotFoundException("会话中没有这条记录，可能已被改写")
+        raise NotFoundException(message_key="errors.agent.recordMissing")
     if not isinstance(target, SessionMessageEntry) or target.message.role != "user":
-        raise BadRequestException("只能重试用户消息")
+        raise BadRequestException(message_key="errors.agent.retryUserOnly")
     content = payload.content or target.message.text()
     # 附件三态：不传沿用原消息的图（text() 只取文本，图必须单独提取，否则
     # 原文重试会丢图）；空数组显式去图；非空数组替换。原附件已绑定本会话，
@@ -749,7 +766,7 @@ async def retry_session_message(
         else payload.attachments
     )
     if not content and not attachment_ids:
-        raise BadRequestException("消息正文与图片附件不能同时为空")
+        raise BadRequestException(message_key="errors.agent.emptyMessage")
     # 思维链档位三态：与 start 同口径，不传时沿用被重试消息的信封值
     thinking_level = (
         None
@@ -777,6 +794,7 @@ async def retry_session_message(
         leaf_uuid=summary.leaf_uuid,
         entry_count=summary.entry_count,
         last_prompt=summary.last_prompt,
+        last_prompt_ref=summary.last_prompt_ref,
     )
 
     return await _launch_user_message(
@@ -787,6 +805,9 @@ async def retry_session_message(
         thinking_level=thinking_level,
         history=history,
         entry_count=len(remaining_entries),
+        generated_skill_instruction=bool(target.generated_skill_instruction)
+        if payload.content is None
+        else False,
         llm_router=llm_router,
         tools=tools,
         system_prompt=system_prompt,
@@ -811,13 +832,13 @@ async def delete_session(
     repo = AgentSessionRepository(session)
     row = await repo.get(session_id)
     if row is None:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
     if is_running(row):
-        raise BadRequestException("该会话正在运行中，请先停止运行再删除")
+        raise BadRequestException(message_key="errors.agent.deleteWhileRunning")
     get_agent_session_store().delete(session_id)
     get_agent_attachment_store().delete_session_attachments(session_id)
     await repo.delete(session_id)
-    return ok({}, message="会话已删除")
+    return ok({}, message=t("agent.operations.deleted"))
 
 
 @router.get(
@@ -857,11 +878,18 @@ async def follow_session(
             for stored in events:
                 cursor = stored.sequence
                 event = stored.event
-                yield (
-                    f"id: {stored.sequence}\n"
-                    f"event: {event.type}\n"
-                    f"data: {event.model_dump_json(exclude_none=True, exclude={'run_id'})}\n\n"
+                serialized = event.model_dump_json(
+                    exclude_none=True, exclude={"run_id", "error_ref"}
                 )
+                if event.error:
+                    payload = json.loads(serialized)
+                    payload["error"] = (
+                        render_value(event.error_ref)
+                        if event.error_ref
+                        else stored_message(event.error)
+                    )
+                    serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                yield (f"id: {stored.sequence}\nevent: {event.type}\ndata: {serialized}\n\n")
             if terminal:
                 return
             events, terminal = await registry.get_session_events(
@@ -901,6 +929,6 @@ async def stop_session(
     承载自己的当前会话。
     """
     if identity.kind == "agent" and identity.agent_session_id == session_id:
-        raise BadRequestException("当前 Agent 不能停止承载自己的会话")
+        raise BadRequestException(message_key="errors.agent.stopOwnSession")
     await get_agent_run_registry().cancel_session(session_id)
-    return ok({}, message="已请求停止会话")
+    return ok({}, message=t("agent.operations.stopRequested"))

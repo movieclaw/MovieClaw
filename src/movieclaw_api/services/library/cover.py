@@ -48,6 +48,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n import t
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LibraryFile, MediaMetadata
 
@@ -249,14 +250,13 @@ def normalize_cover_image(data: bytes) -> bytes:
     try:
         img = Image.open(BytesIO(data))
     except Exception as exc:  # Pillow 对坏文件抛的异常类型不止一种
-        raise ValueError("无法识别这个文件，请上传 JPG / PNG / WebP 等常见格式的图片") from exc
+        raise ValueError(t("library.cover.unrecognized")) from exc
 
     width, height = img.size
     if width * height > MAX_UPLOAD_PIXELS:
         # 上限跟着常量走，别把数字写死在文案里——改了常量提示就撒谎了
         raise ValueError(
-            f"图片尺寸过大（{width}×{height}），"
-            f"请先缩小到 {MAX_UPLOAD_PIXELS // 10_000} 万像素以内再上传"
+            t("library.cover.tooLarge", width=width, height=height, pixels=MAX_UPLOAD_PIXELS)
         )
 
     try:
@@ -277,7 +277,7 @@ def normalize_cover_image(data: bytes) -> bytes:
             progressive=True,
         )
     except Exception as exc:
-        raise ValueError("这张图片处理失败，可能已损坏或格式不受支持，请换一张试试") from exc
+        raise ValueError(t("library.cover.processFailed")) from exc
 
     out = buffer.getvalue()
     logger.info(

@@ -27,6 +27,7 @@ from movieclaw_sdk.jobs import JOB_HANDLERS, PLUGIN_JOBS
 
 @plugin(
     "kernel.durable-events",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="可靠事件投递",
     inject=(DB,),
     provides=(DURABLE_EVENTS,),
@@ -45,6 +46,7 @@ async def durable_events(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-events",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件事件",
     provides=(PLUGIN_EVENTS,),
     disableable=True,
@@ -60,6 +62,7 @@ async def plugin_events(ctx: Context) -> None:
 
 @plugin(
     "kernel.host-ops",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="宿主操作",
     provides=(HOST_OPS,),
     disableable=True,
@@ -71,6 +74,7 @@ async def host_ops(ctx: Context) -> None:
     from movieclaw_api.services import host_ops as service
 
     if service._app is None:
+        # i18n-ignore: source default of plugins.builtins.* or programming invariant
         raise RuntimeError("应用尚未绑定（宿主操作只能在运行中的应用里提供）")
     host = service.HostOps(service._app)
     # 用户在 plugins.yaml 里给本地插件的批准（grants、act_as）
@@ -84,6 +88,7 @@ async def host_ops(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-data",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件数据",
     inject=(DB,),
     provides=(PLUGIN_DATA,),
@@ -99,6 +104,7 @@ async def plugin_data(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-jobs",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件任务",
     inject=(DB,),
     provides=(PLUGIN_JOBS,),
@@ -114,6 +120,7 @@ async def plugin_jobs(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-health",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件健康",
     inject=(DB,),
     provides=(PLUGIN_HEALTH,),
@@ -129,6 +136,7 @@ async def plugin_health(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-routes",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件路由",
     inject=(DB,),
     provides=(PLUGIN_ROUTES,),
@@ -142,6 +150,7 @@ async def plugin_routes(ctx: Context) -> None:
     from movieclaw_api.services.plugin_routes import PluginRoutes
 
     if host_ops._app is None:
+        # i18n-ignore: source default of plugins.builtins.* or programming invariant
         raise RuntimeError("应用尚未绑定（插件路由只能挂在运行中的应用上）")
     db = ctx.use(DB)
     ctx.provide(
@@ -151,6 +160,7 @@ async def plugin_routes(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-callbacks",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件回调端点",
     inject=(DB,),
     provides=(PLUGIN_CALLBACKS,),
@@ -169,6 +179,7 @@ async def plugin_callbacks(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-files",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件文件",
     inject=(DB,),
     provides=(PLUGIN_FILES,),

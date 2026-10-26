@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.movieclaw.android.core.designsystem.Danger
 import io.movieclaw.android.core.designsystem.Info
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.Ok
 import io.movieclaw.android.core.designsystem.RemoteImage
 import io.movieclaw.android.core.designsystem.TextFaint
@@ -58,6 +57,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import io.movieclaw.android.core.designsystem.mcCards
 
 /**
  * 观看统计面板 —— 照网页 `components/watch-stats-panel.tsx` 逐块搬：
@@ -95,7 +95,7 @@ fun WatchStatsPanel(
 
     Column(Modifier.fillMaxWidth()) {
         // ── 指标卡（2×2；手机上不是四列并排）──
-        Column(Modifier.padding(horizontal = McMetrics.pagePadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(horizontal = mcCards.pagePadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetricCard(MetricKey.WATCHED_MS, stats, metricKey, Modifier.weight(1f)) { metricKey = MetricKey.WATCHED_MS }
                 MetricCard(MetricKey.PLAYS, stats, metricKey, Modifier.weight(1f)) { metricKey = MetricKey.PLAYS }
@@ -134,7 +134,7 @@ fun WatchStatsPanel(
 
         // ── 四块分解 ──
         Spacer(Modifier.height(14.dp))
-        Column(Modifier.padding(horizontal = McMetrics.pagePadding), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(horizontal = mcCards.pagePadding), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             BreakdownPanel(
                 title = "按成员",
                 note = if (memberId != null) "已钻取到一个成员，再点一次取消" else "点成员名钻取",
@@ -402,7 +402,7 @@ private fun TrendChart(stats: PlaybackWatchStatsView, metric: MetricDef) {
     val measurer = rememberTextMeasurer()
     val labelStyle = TextStyle(fontSize = 9.sp, color = Color.White.copy(alpha = 0.4f))
     val density = androidx.compose.ui.platform.LocalDensity.current.density
-    BoxWithConstraints(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+    BoxWithConstraints(Modifier.padding(horizontal = mcCards.pagePadding)) {
         // constraints 给的是像素，而下面的几何量全按 dp 算，先换算回来——混着用会让
         // 每根柱子按密度的倍数往外跑（第一版就栽在这：整张图只剩坐标轴）
         val width = constraints.maxWidth / density
@@ -725,7 +725,7 @@ private fun FavoritePodium(
     val first = favorites.first()
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
@@ -874,7 +874,7 @@ private val WEEKDAYS = listOf("一", "二", "三", "四", "五", "六", "日")
 private fun HourHeatmap(matrix: List<List<Long>>) {
     val total = matrix.sumOf { row -> row.sumOf { it } }
     val maxValue = max(1L, matrix.maxOfOrNull { row -> row.maxOrNull() ?: 0L } ?: 1L)
-    Column(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+    Column(Modifier.padding(horizontal = mcCards.pagePadding)) {
         Row(verticalAlignment = Alignment.Bottom) {
             Text("观看时段", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.55f))
             Spacer(Modifier.width(8.dp))

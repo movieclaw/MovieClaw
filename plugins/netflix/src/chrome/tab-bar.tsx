@@ -8,6 +8,7 @@ import {
   SparklesIcon,
   usePermissions,
   UserCircleIcon,
+  useAppTranslations,
 } from "@movieclaw/theme-sdk";
 
 
@@ -23,17 +24,17 @@ import {
  */
 
 /** 页签基础清单（订阅由权限过滤补充，「我的」固定在末位）。 */
-const LIBRARY_TAB = { id: "library", label: "媒体库", href: "/library", Icon: LibraryStackIcon } as const;
-const DISCOVER_TAB = { id: "discover", label: "发现", href: "/discover/movie", Icon: SparklesIcon } as const;
+const LIBRARY_TAB = { id: "library", label: "nav.main.library", href: "/library", Icon: LibraryStackIcon } as const;
+const DISCOVER_TAB = { id: "discover", label: "nav.main.discover", href: "/discover/movie", Icon: SparklesIcon } as const;
 
 const SUBSCRIPTION_TAB = {
   id: "subscriptions",
-  label: "订阅",
+  label: "nav.tabs.subscriptions",
   href: "/subscriptions",
   Icon: BookmarkFillIcon,
 } as const;
 
-const MY_TAB = { id: "my", label: "我的", href: "/my", Icon: UserCircleIcon } as const;
+const MY_TAB = { id: "my", label: "nav.tabs.my", href: "/my", Icon: UserCircleIcon } as const;
 
 /** pathname → 当前页签 id（详情等子页落在所属的顶层页签上）。 */
 function activeTabId(pathname: string): string {
@@ -49,6 +50,7 @@ function activeTabId(pathname: string): string {
 }
 
 export function NetflixTabBar() {
+  const t = useAppTranslations();
   const pathname = usePathname();
   const { canSubscribe } = usePermissions();
   const active = activeTabId(pathname);
@@ -57,7 +59,7 @@ export function NetflixTabBar() {
 
   return (
     <nav
-      aria-label="主导航"
+      aria-label={t("nav.tabs.primary")}
       className="nf-tabbar nf:fixed nf:inset-x-0 nf:bottom-0 nf:z-40 nf:flex nf:h-[calc(var(--mobile-tabbar-h)+var(--safe-bottom))] nf:items-stretch nf:border-t nf:border-white/[0.06] nf:pb-[var(--safe-bottom)]"
     >
       {tabs.map(({ id, label, href, Icon }) => (
@@ -70,7 +72,7 @@ export function NetflixTabBar() {
           }`}
         >
           <Icon className="nf:size-6" />
-          <span className="nf:text-micro nf:font-medium nf:leading-none">{label}</span>
+          <span className="nf:text-micro nf:font-medium nf:leading-none">{t(label)}</span>
         </Link>
       ))}
     </nav>

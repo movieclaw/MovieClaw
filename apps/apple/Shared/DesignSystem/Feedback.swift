@@ -33,7 +33,7 @@ final class Feedback {
         var message: String?
         var confirmTitle: String
         /// 取消键文案（网页部分确认框写「先不」）
-        var cancelTitle: String = "取消"
+        var cancelTitle: String = String(localized: .commonCancel)
         var destructive: Bool
         var resume: (Bool) -> Void
     }
@@ -76,7 +76,7 @@ final class Feedback {
         if self.toast?.id == toast.id { self.toast = nil }
     }
 
-    func confirm(_ title: String, message: String? = nil, confirmTitle: String = "确定", cancelTitle: String = "取消", destructive: Bool = false) async -> Bool {
+    func confirm(_ title: String, message: String? = nil, confirmTitle: String = String(localized: .commonConfirm), cancelTitle: String = String(localized: .commonCancel), destructive: Bool = false) async -> Bool {
         await withCheckedContinuation { continuation in
             confirmRequest = Confirm(
                 title: title, message: message, confirmTitle: confirmTitle, cancelTitle: cancelTitle, destructive: destructive,
@@ -85,7 +85,7 @@ final class Feedback {
         }
     }
 
-    func prompt(_ title: String, message: String? = nil, placeholder: String = "", initial: String = "", confirmTitle: String = "确定", maxLength: Int? = nil) async -> String? {
+    func prompt(_ title: String, message: String? = nil, placeholder: String = "", initial: String = "", confirmTitle: String = String(localized: .commonConfirm), maxLength: Int? = nil) async -> String? {
         await withCheckedContinuation { continuation in
             promptRequest = Prompt(
                 title: title, message: message, placeholder: placeholder,
@@ -137,7 +137,7 @@ struct FeedbackHost: ViewModifier {
                     // （第三轮复核 S-13）。超长改为「确定」置灰，说明写在弹窗里
                     set: { feedback.promptRequest?.text = $0 }
                 ))
-                Button("取消", role: .cancel) { feedback.promptRequest = nil; request.resume(nil) }
+                Button(String(localized: .commonCancel), role: .cancel) { feedback.promptRequest = nil; request.resume(nil) }
                 Button(request.confirmTitle) {
                     let text = feedback.promptRequest?.text ?? request.text
                     feedback.promptRequest = nil
@@ -145,7 +145,7 @@ struct FeedbackHost: ViewModifier {
                 }
                 .disabled(request.maxLength.map { (feedback.promptRequest?.text.count ?? 0) > $0 } ?? false)
             } message: { request in
-                let limit = request.maxLength.map { "最多 \($0) 字，超出时无法确定。" }
+                let limit = request.maxLength.map { String(localized: .commonInputMaxLength($0)) }
                 let lines = [request.message, limit].compactMap { $0 }
                 if !lines.isEmpty { Text(lines.joined(separator: "\n")) }
             }
@@ -415,7 +415,7 @@ private struct ToastView: View {
         }
         .onAppear { AccessibilityNotification.Announcement(toast.message).post() }
         .accessibilityElement(children: .contain)
-        .accessibilityAction(named: "关闭", onDismiss)
+        .accessibilityAction(named: Text(.commonClose), onDismiss)
         .accessibilityIdentifier("toast")
     }
 

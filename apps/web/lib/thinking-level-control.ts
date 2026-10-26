@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
+
 /**
  * 思维链强度控件的纯逻辑（无 React、无 API 依赖，供 node --test 直接导入）。
  *
@@ -18,15 +21,15 @@
 export const THINKING_LEVEL_ORDER = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /** 档位文案（对齐 maka 的短单词标签）；「默认」由选择器的空值表达。 */
-export const THINKING_LEVEL_LABELS: Record<string, string> = {
-  off: "关",
-  minimal: "最少",
-  low: "低",
-  medium: "中",
-  high: "高",
-  xhigh: "超高",
-  max: "最高",
-};
+const THINKING_LEVEL_KEYS = {
+  off: "agent.thinking.off",
+  minimal: "agent.thinking.minimal",
+  low: "agent.thinking.low",
+  medium: "agent.thinking.medium",
+  high: "agent.thinking.high",
+  xhigh: "agent.thinking.xhigh",
+  max: "agent.thinking.max",
+} as const;
 
 export type ThinkingControlShape = "hidden" | "toggle" | "slider";
 
@@ -112,32 +115,36 @@ function isOffOnly(stops: readonly string[]): boolean {
  * 单档不是「关」的罕见声明（比如只声明了 max 的自定义模型）退回通用的
  * 「默认 / 该档」。
  */
-export function thinkingListItems(stops: readonly string[]): ThinkingListItem[] {
+export function thinkingListItems(stops: readonly string[], locale: AppLocale = "zh-Hans"): ThinkingListItem[] {
+  const t = appTranslator(locale);
   if (isOffOnly(stops)) {
     return [
       {
         level: null,
-        label: "开启（模型默认）",
-        description: "不发送思考参数，沿用模型自身的默认行为",
+        label: t("agent.thinking.enabled"),
+        description: t("agent.thinking.enabledDescription"),
       },
       {
         level: "off",
-        label: "关闭",
-        description: "发送关闭指令，不再输出思考过程，响应更快",
+        label: t("agent.thinking.disabled"),
+        description: t("agent.thinking.disabledDescription"),
       },
     ];
   }
   return [
-    { level: null, label: "默认", description: "不发送思考参数，由模型自行决定强度" },
+    { level: null, label: t("agent.thinking.default"), description: t("agent.thinking.defaultDescription") },
     ...stops.map((level) => ({
       level,
-      label: THINKING_LEVEL_LABELS[level] ?? level,
-      description: `按「${THINKING_LEVEL_LABELS[level] ?? level}」强度思考`,
+      label: thinkingValueLabel(level, locale),
+      description: t("agent.thinking.levelDescription", { level: thinkingValueLabel(level, locale) }),
     })),
   ];
 }
 
 /** 滑杆标题上的当前值文案：未选档位就是「默认」（由模型自行决定）。 */
-export function thinkingValueLabel(value: string | null): string {
-  return value === null ? "默认" : (THINKING_LEVEL_LABELS[value] ?? value);
+export function thinkingValueLabel(value: string | null, locale: AppLocale = "zh-Hans"): string {
+  const t = appTranslator(locale);
+  if (value === null) return t("agent.thinking.default");
+  const key = THINKING_LEVEL_KEYS[value as keyof typeof THINKING_LEVEL_KEYS];
+  return key ? t(key) : value;
 }

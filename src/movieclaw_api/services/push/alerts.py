@@ -12,7 +12,10 @@ import time
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import stored_message
 from movieclaw_api.services.push.notify import AlertContent, notify
+from movieclaw_db.models.system_notice import SystemNotice
 
 logger = logging.getLogger("movieclaw_api.push.alerts")
 
@@ -63,7 +66,7 @@ def _alert_family(dedupe_key: str) -> str:
 
 
 #: 单独推过、还没消退的问题：键 → 标题（只在内存里，重启后消退就不再补「已恢复」）
-_pushed_alone: dict[str, str] = {}
+_pushed_alone: dict[str, SystemNotice] = {}
 
 #: 「问题已恢复」的偏好开关
 RESOLVED_KEY = "system.alert.resolved"
@@ -71,14 +74,17 @@ RESOLVED_KEY = "system.alert.resolved"
 
 def resolved(dedupe_key: str) -> None:
     """推过的问题消失了：同一条通知原地改成「已恢复」，安静送达。没推过的不说。"""
-    title = _pushed_alone.pop(dedupe_key, None)
-    if title is None:
+    notice = _pushed_alone.pop(dedupe_key, None)
+    if notice is None:
         return
 
     async def build(_session: AsyncSession, _member_id: int) -> AlertContent:
         return AlertContent(
-            title=f"已恢复：{title}",
-            body="问题已经自动消失，不用处理了。",
+            title=t(
+                "notify.alert.resolvedTitle",
+                title=stored_message(notice.title, notice.title_key, notice.message_params),
+            ),
+            body=t("notify.alert.resolvedBody"),
             thread="system",
             source="server",
             level="passive",
@@ -167,31 +173,29 @@ async def _send_alerts() -> None:
     # 有严重的（下载器、站点整个不可用这类）就用时效性：专注模式下也要让管理员知道
     level = "time-sensitive" if first.severity == NoticeSeverity.ERROR.value else "active"
     if len(due) == 1:
-        content = AlertContent(
-            title=first.title,
-            body=first.message,
-            open=notice_path(first.source, first_payload),
-            thread="system",
-            source="server",
-            level=level,
-        )
         collapse = ("notice", first.dedupe_key)
-        # 单独推过的问题：消退时原地改成「已恢复」（resolved）
-        _pushed_alone[first.dedupe_key] = first.title
+        _pushed_alone[first.dedupe_key] = first
     else:
-        names = "；".join(r.title for r in due[:3])
-        content = AlertContent(
-            title=f"有 {len(due)} 个问题需要处理",
-            body=names + ("等" if len(due) > 3 else ""),
-            open=notice_path(first.source, first_payload),
-            thread="system",
-            source="server",
-            level=level,
-        )
         collapse = ("notice", "batch")
 
     async def build(_session: AsyncSession, _member_id: int) -> AlertContent:
-        return content
+        if len(due) == 1:
+            title = stored_message(first.title, first.title_key, first.message_params)
+            body = stored_message(first.message, first.message_key, first.message_params)
+        else:
+            title = t("notify.alert.pendingTitle", count=len(due))
+            names = t("notify.alert.separator").join(
+                stored_message(row.title, row.title_key, row.message_params) for row in due[:3]
+            )
+            body = t("notify.alert.summary", titles=names, overflow="yes" if len(due) > 3 else "no")
+        return AlertContent(
+            title=title,
+            body=body,
+            open=notice_path(first.source, first_payload),
+            thread="system",
+            source="server",
+            level=level,
+        )
 
     notify(KEY, {0}, build, collapse=collapse)
 

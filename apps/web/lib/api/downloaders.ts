@@ -1,3 +1,5 @@
+import { appTranslator } from "@/lib/i18n/translate";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
 import type { ConfigSchema } from "@/lib/api/plugins";
 import { request } from "@/lib/http";
 
@@ -52,11 +54,22 @@ export const BUILTIN_DOWNLOADER_TYPES: DownloaderTypeInfo[] = [
   },
 ];
 
-export async function listDownloaderTypes(): Promise<DownloaderTypeInfo[]> {
+export function builtinDownloaderTypes(locale: AppLocale): DownloaderTypeInfo[] {
+  const t = appTranslator(locale);
+  return BUILTIN_DOWNLOADER_TYPES.map((info) => ({
+    ...info,
+    url_label: t(info.type === "transmission" ? "download.config.rpcUrl" : "download.config.webuiUrl"),
+    help: info.type === "transmission" ? t("download.config.rpcHelp") : info.help,
+  }));
+}
+
+export async function listDownloaderTypes(
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): Promise<DownloaderTypeInfo[]> {
   try {
     return await unwrap(request<ApiEnvelope<DownloaderTypeInfo[]>>("/downloaders/types"));
   } catch {
-    return BUILTIN_DOWNLOADER_TYPES;
+    return builtinDownloaderTypes(locale);
   }
 }
 

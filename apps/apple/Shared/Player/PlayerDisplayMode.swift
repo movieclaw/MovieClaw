@@ -6,17 +6,17 @@ typealias PlayerDisplayMode = VideoDisplayMode
 extension VideoDisplayMode {
     var label: String {
         switch self {
-        case .fit: "完整显示"
-        case .fill: "铺满裁切"
-        case .stretch: "拉伸铺满"
+        case .fit: String(localized: .playerDisplayFit)
+        case .fill: String(localized: .playerDisplayFill)
+        case .stretch: String(localized: .playerDisplayStretch)
         }
     }
 
     var hint: String {
         switch self {
-        case .fit: "保持比例，显示完整画面"
-        case .fill: "保持比例，填满屏幕，可能裁去边缘"
-        case .stretch: "填满屏幕，画面比例会改变"
+        case .fit: String(localized: .playerDisplayFitHint)
+        case .fill: String(localized: .playerDisplayFillHint)
+        case .stretch: String(localized: .playerDisplayStretchHint)
         }
     }
 

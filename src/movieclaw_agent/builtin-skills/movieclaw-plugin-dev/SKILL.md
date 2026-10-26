@@ -261,3 +261,29 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | `references/troubleshooting.md` | 按报错查原因 |
 | `references/examples/` | 9 个经过测试的真实插件（先读 README） |
 | `templates/starter/`、`templates/web/`、`templates/theme/`、`scripts/` | 骨架；生成骨架、查契约、查接口（`api.py`）、安装前检查的脚本 |
+
+## 提供英文界面
+
+清单的原字段保留默认文本，在旁边增加 W3C `*_localized` 风格的语言映射；不要增加 `translations` 顶层段：
+
+```toml
+[plugin]
+id = "hello-world"
+title = "问候"
+title_localized = { en = "Greeting" }
+description = "显示问候语"
+description_localized = { en = "Display a greeting" }
+version = "1.0.0"
+entry = "hello_world"
+sdk = "^1.1"
+```
+
+- `[theme]` 的 `label` / `description` 同样可加 `label_localized` / `description_localized`。
+- 配置模型用 `Field(title="…", description="…", json_schema_extra={"title_localized": {"en": "…"}, "description_localized": {"en": "…"}})`。默认值、枚举值和配置键是数据，不随语言改写。
+- `ctx.locale` 是本次调用的 `en` / `zh-Hans`，主进程与独立进程都支持。运行中的处理函数现读它；不要在 `apply()` 时把语言缓存为全局变量。这个属性要求 SDK `^1.1`。
+- 网页从 `document.documentElement.lang` 读宿主注入的语言；`fetch` 调宿主时带同样的 `Accept-Language`。自己的界面由插件维护中英两套文案。
+- `web/manifest.webmanifest` 使用标准 `name_localized`、`short_name_localized`；`shortcuts` 中的名称也可带对应映射。映射值可为字符串或 `{ "value": "…", "lang": "en", "dir": "ltr" }`。
+- 主题代码通过 `@movieclaw/theme-sdk` 的 `useAppLocale` / `useAppTranslations` 获取宿主语言和宿主已有文案，要求 `requires."ui.theme" = "^1.2"`。插件自己的文案用自己的资源，不能假设宿主会提供任意键。
+- 市场 `store.json` 的 `name`、`summary`、`description` 可加对应 `*_localized` 映射，索引生成时原样携带；包清单不放市场专用字段。
+
+验证同一接口先英文、再中文、再英文；确认名称与说明各自正确，配置值及权限不变。网页检查 `<html lang>` 和切换后的 ETag，主题检查桌面与手机的英文布局。没有译文时保留原字段，旧清单仍可安装。

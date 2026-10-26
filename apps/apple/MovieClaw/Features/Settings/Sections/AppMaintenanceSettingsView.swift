@@ -9,12 +9,12 @@ struct AppMaintenanceSettingsView: View {
 
     var body: some View {
         AppUpdatePanel {
-            SettingsFormSection("维护工具") {
+            SettingsFormSection(String(localized: .settingsAppMaintenanceTools)) {
                 Button { destination = .storage } label: {
-                    maintenanceRow("缓存管理", icon: "internaldrive")
+                    maintenanceRow(String(localized: .settingsAppCache), icon: "internaldrive")
                 }.accessibilityIdentifier("app-storage")
                 Button { destination = .tasks } label: {
-                    maintenanceRow("定时任务", icon: "clock")
+                    maintenanceRow(String(localized: .settingsAppTasks), icon: "clock")
                 }.accessibilityIdentifier("app-tasks")
             }
         }
@@ -22,8 +22,8 @@ struct AppMaintenanceSettingsView: View {
         .navigationDestination(item: $destination) { value in
             Group {
                 switch value {
-                case .storage: AppStoragePanel().navigationTitle("缓存管理")
-                case .tasks: ScheduledTasksPanel().navigationTitle("定时任务")
+                case .storage: AppStoragePanel().navigationTitle(String(localized: .settingsAppCache))
+                case .tasks: ScheduledTasksPanel().navigationTitle(String(localized: .settingsAppTasks))
                 }
             }
             .navigationBarTitleDisplayMode(.inline)

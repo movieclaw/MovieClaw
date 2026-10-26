@@ -169,9 +169,9 @@ struct MacWelcomeMasthead: View {
             Rectangle()
                 .fill(Theme.text.opacity(0.5))
                 .frame(width: 28, height: 0.5)
-            Text("智能影音服务器")
+            Text(String(localized: .authBrandTagline))
                 .font(.welcomeSerif(size: 12))
-                .tracking(7)
+                .tracking(AppLanguage.identifier == "zh-Hans" ? 7 : 0.5)
                 .foregroundStyle(Theme.textMuted)
         }
         .shadow(color: .black.opacity(0.4), radius: 16)
@@ -190,17 +190,17 @@ private struct MacFilmSubtitle: View {
             if !scenes.isEmpty {
                 let scene = scenes[index % scenes.count]
                 VStack(spacing: 6) {
-                    Text(scene.line)
+                    Text(scene.headline)
                         .font(.welcomeSerif(size: 15))
                         .lineSpacing(5)
                         .foregroundStyle(Theme.text.opacity(0.85))
-                    if let original = scene.original {
+                    if let original = scene.subline {
                         Text(original)
                             .font(.system(size: 11, design: .serif))
                             .italic()
                             .foregroundStyle(Theme.textMuted)
                     }
-                    Text(verbatim: "——《\(scene.film)》\(scene.year)")
+                    Text(verbatim: "—— " + scene.source)
                         .font(.welcomeSerif(size: 10))
                         .tracking(2)
                         .foregroundStyle(Theme.textFaint)
@@ -215,7 +215,7 @@ private struct MacFilmSubtitle: View {
         .frame(maxWidth: 560)
         .contentShape(Rectangle())
         .onTapGesture(perform: next)
-        .help("点一下换一句")
+        .help(String(localized: .authBrandNextQuoteMac))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("mac-welcome-quote")

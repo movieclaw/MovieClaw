@@ -40,6 +40,10 @@ class SearchHistory(MemberScopedMixin, TimestampMixin, table=True):
     vertical: str = Field(default="torrent", description="搜索垂直：torrent/media")
     # 展示名快照：内置分类的中文名 / 预设名；None 表示「全部」。
     label: str | None = Field(default=None, description="展示名快照；None=全部")
+    label_key: str | None = Field(
+        default=None,
+        description="Built-in category message key; absent for legacy or user-named scopes",
+    )
     # 分类组合快照：排序去重后的 JSON 数组串（如 '["movie","tv"]'）；None=不限分类。
     # 存归一化后的串，去重查询才能用简单的相等比较。
     categories_json: str | None = Field(

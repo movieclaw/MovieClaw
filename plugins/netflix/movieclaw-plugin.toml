@@ -1,15 +1,18 @@
 [plugin]
 id = "netflix"
 title = "Netflix 主题"
-version = "1.0.0"
+title_localized = { en = "Netflix theme" }
+version = "1.2.0"
 description = "纯色平铺、品牌红、顶栏导航与大图首屏的影院浏览形态（网页）。"
+description_localized = { en = "A cinematic web theme with solid colors, brand red, top navigation and a large hero." }
 
 [requires]
-"ui.theme" = "^1.0"
+"ui.theme" = "^1.3"
 
 [theme]
 label = "Netflix"
 description = "纯色平铺 · 品牌红 · 顶栏与横版卡片行的影院浏览形态"
+description_localized = { en = "Solid colors, brand red, top navigation and cinematic rows" }
 preview = { bg = "#141414", accent = "#e50914" }
 theme_color = "#000000"
 layout = "cinema"

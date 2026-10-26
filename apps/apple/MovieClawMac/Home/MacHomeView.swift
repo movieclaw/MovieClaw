@@ -53,20 +53,20 @@ struct MacHomeView: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if store.libraries == nil {
                 if store.failed {
-                    MacStateView(symbol: "wifi.exclamationmark", title: "连不上服务器", message: "首页加载失败，请检查网络后重试。",
-                                 actionTitle: "重试") { Task { await reload() } }
+                    MacStateView(symbol: "wifi.exclamationmark", title: String(localized: .authServerUnreachable), message: String(localized: .libraryHomeLoadFailedRetry),
+                                 actionTitle: String(localized: .commonRetry)) { Task { await reload() } }
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else if rows.allSatisfy(isEmpty) {
-                MacStateView(symbol: "film.stack", title: "媒体库里还没有内容",
-                             message: "在网页上添加媒体库并扫描后，影片会出现在这里。")
+                MacStateView(symbol: "film.stack", title: String(localized: .libraryMediaEmpty),
+                             message: String(localized: .libraryAddOnWebHint))
             } else {
                 content
             }
         }
         .background(Color.macPage)
-        .navigationTitle("首页")
+        .navigationTitle(String(localized: .libraryCollectionsHomeTab))
         .toolbar(removing: .title)
         .task {
             await FirstFrameGate.wait()
@@ -197,12 +197,12 @@ struct MacHomeView: View {
         let index = items.firstIndex { $0.mediaItemId == current } ?? 0
         return HStack {
             if heroHovering, index > 0 {
-                stageArrow("chevron.left", help: "上一部") { moveStage(by: -1, in: items, current: current) }
+                stageArrow("chevron.left", help: String(localized: .libraryPreviousTitle)) { moveStage(by: -1, in: items, current: current) }
                     .transition(.opacity)
             }
             Spacer(minLength: 0)
             if heroHovering, index < items.count - 1 {
-                stageArrow("chevron.right", help: "下一部") { moveStage(by: 1, in: items, current: current) }
+                stageArrow("chevron.right", help: String(localized: .libraryNextTitle)) { moveStage(by: 1, in: items, current: current) }
                     .transition(.opacity)
             }
         }
@@ -234,7 +234,7 @@ struct MacHomeView: View {
     private func heroActions(_ stage: API.UpNextItemView) -> some View {
         HStack(spacing: 12) {
             Button { resume(stage) } label: {
-                Label(stage.positionMs > 0 ? "继续播放" : "播放", systemImage: "play.fill")
+                Label(stage.positionMs > 0 ? String(localized: .subscriptionFeedResume) : String(localized: .libraryHeroPlay), systemImage: "play.fill")
                     .padding(.horizontal, 6)
             }
             .buttonStyle(MacPrimaryButtonStyle())
@@ -242,7 +242,7 @@ struct MacHomeView: View {
             Button {
                 router.push(.item(libraryId: stage.libraryId, itemId: stage.mediaItemId))
             } label: {
-                Label("详情", systemImage: "info.circle")
+                Label(String(localized: .searchTorrentDetails), systemImage: "info.circle")
                     .padding(.horizontal, 4)
             }
             .buttonStyle(.glass)
@@ -283,7 +283,7 @@ struct MacHomeView: View {
 
     /// 「接下来继续」一行：剧照卡，点一下直接续播；鼠标停在哪张，大图就讲哪一部
     private func upNextShelf(_ items: [API.UpNextItemView], stage: API.UpNextItemView) -> some View {
-        MacShelf(title: "接下来继续", artHeight: MacMetrics.landscapeWidth * 9 / 16,
+        MacShelf(title: String(localized: .libraryRowsUpNext), artHeight: MacMetrics.landscapeWidth * 9 / 16,
                  scrollTo: shelfTarget, scrollAnchor: nil,
                  scrollingChanged: { upNextScrolling = $0 }) {
             ForEach(Array(items.enumerated()), id: \.element.mediaItemId) { index, item in
@@ -308,12 +308,12 @@ struct MacHomeView: View {
             subtitle: isEpisode ? item.episodeTitle.flatMap { $0.isEmpty ? nil : $0 } : item.year.map(String.init),
             imageURL: api.image(still, width: ImageWidth.macCard(MacMetrics.landscapeWidth)),
             progress: item.progressPercent.map { Double($0) / 100 },
-            badge: item.advanced ? "下一集" : nil,
+            badge: item.advanced ? String(localized: .playerControlsNextEpisode) : nil,
             detail: Self.upNextBand(item),
             play: { resume(item) },
             menu: [
-                MacCardAction(title: item.positionMs > 0 ? "继续播放" : "播放", symbol: "play.fill") { resume(item) },
-                MacCardAction(title: "查看详情", symbol: "info.circle") {
+                MacCardAction(title: item.positionMs > 0 ? String(localized: .subscriptionFeedResume) : String(localized: .libraryHeroPlay), symbol: "play.fill") { resume(item) },
+                MacCardAction(title: String(localized: .searchTorrentViewDetails), symbol: "info.circle") {
                     router.push(.item(libraryId: item.libraryId, itemId: item.mediaItemId))
                 },
             ]

@@ -38,6 +38,9 @@ def used_characters() -> str:
     for source in (path for folder in WELCOME_SOURCES for path in folder.glob("*.swift")):
         for literal in re.findall(r'"((?:[^"\\]|\\.)*)"', source.read_text(encoding="utf-8")):
             chars.update(ch for ch in literal if ord(ch) > 0x7F)
+    # 台词表（WelcomeQuotes.json）是数据文件，整份收进来
+    for quotes in (path for folder in WELCOME_SOURCES for path in folder.glob("*.json")):
+        chars.update(ch for ch in quotes.read_text(encoding="utf-8") if ord(ch) > 0x7F)
     return "".join(sorted(chars))
 
 

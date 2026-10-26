@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -34,8 +37,8 @@ import {
 } from "@/lib/api/playback";
 import {
   PREF_TO_SORT,
-  SORT_DIRECTIONS,
-  SORT_PREF_LABELS,
+  sortDirections,
+  sortPrefLabels,
   orderParam,
   useWallSortPref,
   type WallSortPref,
@@ -75,16 +78,14 @@ const FAVORITES_SORT_STORAGE_KEY = "movieclaw.favorites.wall-sort";
  * （服务端也是同一份实现，见 items.sort_item_ids）。图廊也吃全部档位——
  * 与单库页不同，收藏图廊的接口与海报墙传同一个 sort，两种形态永远是同一份名单
  */
-const SORT_OPTIONS: readonly (readonly [WallSortPref, string])[] = [
-  ["default", "最近收藏"],
-  ...(Object.entries(SORT_PREF_LABELS) as [WallSortPref, string][]),
-];
+function sortOptions(locale: AppLocale): readonly (readonly [WallSortPref, string])[] {
+  const t = appTranslator(locale);
+  return [["default", t("library.favorites.recent")], ...(Object.entries(sortPrefLabels(locale)) as [WallSortPref, string][])];
+}
 
 /** 「最近收藏」档的自然方向是新→旧，与「最近添加」同一种说法。 */
-const FAVORITED_DIRECTION = { naturalAsc: false, asc: "旧→新", desc: "新→旧" } as const;
-
-function directionOf(sort: FavoriteSort) {
-  return sort === "favorited_at" ? FAVORITED_DIRECTION : SORT_DIRECTIONS[sort];
+function directionOf(sort: FavoriteSort, locale: AppLocale) {
+  return sortDirections(locale)[sort === "favorited_at" ? "added_at" : sort];
 }
 
 /**
@@ -116,7 +117,7 @@ interface FavoritesSnapshot {
   sortKey: string;
 }
 
-let snapshot: FavoritesSnapshot | null = null;
+const snapshots: Partial<Record<AppLocale, FavoritesSnapshot>> = {};
 
 /** 本页 ⋯ 菜单的行样式（与全站各处菜单同一副长相）。 */
 const ITEM_CLASS =
@@ -159,9 +160,11 @@ const FAVORITES_FRAME_ASPECT = 2 / 3;
  *     （lib/library-wall-recall.ts），点了就把窗口整体换到那一段。
  */
 export function FavoritesView() {
-  usePageTitle("我的收藏");
+  const t = useTranslations();
+  const locale = useLocale();
+  usePageTitle(t("library.favorites.pageTitle"));
   const toast = useToast();
-  const initialSnapshot = snapshot;
+  const initialSnapshot = snapshots[locale] ?? null;
   // 本次是不是「重新进入」：首帧没有会话快照 = 冷启动 / 刷新 / 从别处进来的；
   // 或者本次页面加载期间挂过很久后台（iOS PWA 恢复应用不重新加载页面，只能
   // 靠这条认）。重新进入时不自动回位，改由底部胶囊来问——两者同时来的话，
@@ -173,7 +176,7 @@ export function FavoritesView() {
   // 当前真正生效的服务端排序键：默认档是「最近收藏」
   const effectiveSort: FavoriteSort =
     sortPref === "default" ? "favorited_at" : PREF_TO_SORT[sortPref];
-  const sortAscending = directionOf(effectiveSort).naturalAsc !== sortReversed;
+  const sortAscending = directionOf(effectiveSort, locale).naturalAsc !== sortReversed;
   // 两种形态的请求都带同一份：不反转时不带 order，服务端按自然方向排
   const sortParams = useMemo<FavoriteSortParams>(
     () => ({
@@ -495,17 +498,17 @@ export function FavoritesView() {
         patch(marks.is_favorite);
       } catch (e) {
         patch(!next);
-        toast.error(e instanceof Error ? e.message : "收藏失败，请稍后重试");
+        toast.error(e instanceof Error ? e.message : t("library.collections.favoriteFailed"));
       }
     },
-    [toast],
+    [toast, t],
   );
 
   // 布局提交后就更新快照，路由切换的下一棵树可以在首帧直接读到它；只在卸载
   // 时写是来不及的——新路由的首次 render 可能早于被动 effect 的 cleanup
   useLayoutEffect(() => {
     if (items === null) return;
-    snapshot = {
+    snapshots[locale] = {
       items,
       total,
       wallStart,
@@ -516,7 +519,7 @@ export function FavoritesView() {
       // 窗口按哪个排序取的就记哪个：偏好读出来之前窗口还是快照那份，记它原来的键
       sortKey: wallWindowSort.current ?? sortKey,
     };
-  }, [galleryGroups, galleryHasMore, items, total, wallStart, sortKey]);
+  }, [galleryGroups, galleryHasMore, items, total, wallStart, sortKey, locale]);
 
   // 收藏一部都没有时不给切换键：两种形态都是空页，多一颗键只会让人以为点了没反应
   const empty = items !== null && items.length === 0;
@@ -576,16 +579,16 @@ export function FavoritesView() {
   return (
     <div ref={scrollRef} className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-10">
       <PageNav
-        title="我的收藏"
-        fallback={{ label: "媒体库", href: "/library" as Route }}
+        title={t("library.favorites.pageTitle")}
+        fallback={{ label: t("nav.main.library"), href: "/library" as Route }}
         actions={
           empty ? undefined : (
             <>
               {/* 与单库页顶栏同一颗键、同一副图标：画的是**点过去会变成的那面墙** */}
               <button
                 type="button"
-                title={gallery ? "回到海报墙" : "图床浏览"}
-                aria-label={gallery ? "回到海报墙" : "图床浏览"}
+                title={gallery ? t("library.detail.backToPosters") : t("library.detail.galleryView")}
+                aria-label={gallery ? t("library.detail.backToPosters") : t("library.detail.galleryView")}
                 aria-pressed={gallery}
                 onClick={() => {
                   // 两种模式的灯箱翻的不是同一份列表，下标不能沿用
@@ -606,7 +609,7 @@ export function FavoritesView() {
                   <DropdownMenu.Trigger asChild>
                     <button
                       type="button"
-                      aria-label="浏览设置"
+                      aria-label={t("library.favorites.browseSettings")}
                       className={`${PAGE_NAV_BUTTON_CLASS} data-[state=open]:bg-black/55 data-[state=open]:text-white`}
                     >
                       <MoreIcon className="size-[18px] max-md:size-[22px]" />
@@ -636,14 +639,14 @@ export function FavoritesView() {
       />
       <div className="page-inset">
         <h2 className="text-on-image truncate text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[20px]">
-          我的收藏
+          {t("library.favorites.pageTitle")}
         </h2>
-        <p className="text-on-image mt-1.5 truncate text-ui text-[var(--text-muted)] max-md:text-sub">
+        <p className={`text-on-image mt-1.5 text-ui text-[var(--text-muted)] max-md:text-sub ${locale === "zh-Hans" ? "truncate" : "max-w-3xl"}`}>
           {items === null
-            ? "正在读取收藏…"
+            ? t("library.favorites.loading")
             : total > 0
-              ? `${total} 部作品 · 与 Jellyfin 客户端里点的心同一份`
-              : "还没有收藏。在影片页点心，或在 Jellyfin 客户端里收藏，都会出现在这里。"}
+              ? t("library.favorites.summary", { count: total })
+              : t("library.favorites.empty")}
         </p>
         {/* 排序：与单库页同一颗控件、同一套档位（默认档叫「最近收藏」）。「按什么排」
             看墙是看不出来的，所以当前值必须挂在外面，不能收进 ⋯ 菜单。两种形态
@@ -652,12 +655,12 @@ export function FavoritesView() {
           <div className="mt-3 flex items-center">
             <WallSortControl
               value={sortPref}
-              options={SORT_OPTIONS}
+              options={sortOptions(locale)}
               onChange={setSortPref}
               disabled={!sortReady}
               direction={{
                 ascending: sortAscending,
-                label: directionOf(effectiveSort)[sortAscending ? "asc" : "desc"],
+                label: directionOf(effectiveSort, locale)[sortAscending ? "asc" : "desc"],
                 onToggle: toggleSortReversed,
               }}
             />
@@ -666,13 +669,13 @@ export function FavoritesView() {
 
         {failed && items === null && (
           <div className="mt-16 flex flex-col items-center gap-3 text-center">
-            <p className="text-ui text-[var(--text-muted)]">收藏加载失败</p>
+            <p className="text-ui text-[var(--text-muted)]">{t("library.favorites.loadFailed")}</p>
             <button
               type="button"
               onClick={() => void load(0)}
               className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
             >
-              重试
+              {t("common.retry")}
             </button>
           </div>
         )}

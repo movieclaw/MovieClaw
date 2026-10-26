@@ -34,6 +34,7 @@ from pydantic import ValidationError
 from sqlalchemy import delete, event, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n.stored import keyed_error
 from movieclaw_db.engine import Database
 from movieclaw_db.models import DomainEvent, EventConsumer, EventDeadLetter, utcnow
 from movieclaw_events import new_ulid
@@ -139,9 +140,10 @@ async def record(
     （``movieclaw_api.events.publish``），不传就现生成。
     """
     if not evt.durable:
+        # i18n-ignore: developer error
         raise TypeError(f"事件 {evt.name} 不能可靠投递")
     if not isinstance(payload, evt.payload):
-        raise TypeError(
+        raise TypeError(  # i18n-ignore: developer error
             f"事件 {evt.name} 的载荷须是 {evt.payload.__name__}，收到 {type(payload).__name__}"
         )
     if evt.name not in await _subscribed_names(session):
@@ -243,12 +245,15 @@ class DurableEvents:
         """订阅一个或一组事件；一组时按产生顺序投递给同一个处理函数。"""
         consumer_id = f"{entry_id}:{listener_id}"
         if consumer_id in self._consumers:
+            # i18n-ignore: developer error
             raise ValueError(f"可靠监听器 id 重复：{consumer_id}")
         events = event if isinstance(event, tuple) else (event,)
         if not events:
+            # i18n-ignore: developer error
             raise ValueError(f"可靠监听器 {consumer_id} 没有订阅任何事件")
         for evt in events:
             if not evt.durable:
+                # i18n-ignore: developer error
                 raise TypeError(f"事件 {evt.name} 不能可靠订阅")
         consumer = _Consumer(consumer_id, {e.name: e for e in events}, entry_id, handler)
         self._consumers[consumer_id] = consumer
@@ -390,12 +395,13 @@ class DurableEvents:
         """交给监听器一次；返回 (错误, 是否不必重试)。"""
         evt = consumer.events.get(row.name)
         if evt is None:
+            # i18n-ignore: plugin developer diagnostic, stored beside raw exception text
             return f"消费者没有订阅事件 {row.name}", True
         try:
             payload = evt.payload.model_validate(row.payload)
         except ValidationError as exc:
             # 载荷与当前契约对不上，重试也不会好：直接进死信
-            return f"载荷校验失败：{exc}", True
+            return f"载荷校验失败：{exc}", True  # i18n-ignore: developer diagnostic
         origin = Origin(kind=row.origin_kind, id=row.origin_id, chain=tuple(row.chain or ()))
         info = DeliveryInfo(
             event_id=row.id,
@@ -418,6 +424,7 @@ class DurableEvents:
         except asyncio.CancelledError:
             raise
         except TimeoutError:
+            # i18n-ignore: plugin developer diagnostic, stored beside raw exception text
             return f"处理超时（{HANDLER_TIMEOUT:.0f} 秒）", False
         except Exception as exc:  # noqa: BLE001 -- 监听器出错只影响它自己的进度
             # 预料之中的失败（如 Webhook 对方暂时不可用，异常带 quiet=True）只记一行，不打堆栈
@@ -443,23 +450,23 @@ class DurableEvents:
         async with self._db.session() as session:
             letter = await session.get(EventDeadLetter, letter_id)
             if letter is None:
-                raise LookupError(f"死信 {letter_id} 不存在")
+                raise keyed_error(LookupError, "errors.plugins.deadLetterMissing", id=letter_id)
             if letter.resolved_at is not None:
-                raise ReplayError("这条死信已经处理过")
+                raise keyed_error(ReplayError, "errors.plugins.deadLetterResolved")
             consumer = self._consumers.get(letter.consumer_id)
             if consumer is None:
-                raise ReplayError("对应的插件当前没有运行，启用后再重放")
+                raise keyed_error(ReplayError, "errors.plugins.deadLetterConsumerStopped")
             row = await session.scalar(
                 select(DomainEvent).where(DomainEvent.seq == letter.event_seq)
             )
             if row is None:
-                raise ReplayError("事件已过保留期被清理，无法重放")
+                raise keyed_error(ReplayError, "errors.plugins.deadLetterExpired")
             attempt = letter.attempts + 1
         error, _ = await self._deliver(consumer, row, attempt)
         async with self._db.session() as session:
             letter = await session.get(EventDeadLetter, letter_id)
             if letter is None:
-                raise LookupError(f"死信 {letter_id} 不存在")
+                raise keyed_error(LookupError, "errors.plugins.deadLetterMissing", id=letter_id)
             letter.attempts = attempt
             if error is None:
                 letter.resolved_at = utcnow()
@@ -474,7 +481,7 @@ class DurableEvents:
         async with self._db.session() as session:
             letter = await session.get(EventDeadLetter, letter_id)
             if letter is None:
-                raise LookupError(f"死信 {letter_id} 不存在")
+                raise keyed_error(LookupError, "errors.plugins.deadLetterMissing", id=letter_id)
             if letter.resolved_at is None:
                 letter.resolved_at = utcnow()
                 letter.resolution = "dismissed"

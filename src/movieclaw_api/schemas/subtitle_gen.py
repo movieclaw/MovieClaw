@@ -112,3 +112,6 @@ class CalibrateResultView(BaseModel):
     scale: float | None
     offset_ms: int | None
     score: float | None
+
+    message_key: str | None = None
+    params: dict = Field(default_factory=dict)

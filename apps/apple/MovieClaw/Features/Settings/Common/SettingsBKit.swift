@@ -206,12 +206,12 @@ struct SettingsBValueRow: View {
             if copyable {
                 Button {
                     UIPasteboard.general.string = value
-                    feedback.success("已复制")
+                    feedback.success(String(localized: .commonCopied))
                 } label: {
                     Image(systemName: "doc.on.doc")
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel("复制\(label)")
+                .accessibilityLabel(String(localized: .settingsKitCopyLabel(label)))
             }
         }
     }
@@ -330,7 +330,7 @@ enum SettingsBFormat {
 
     /// 速率 KB/s → 「1.2 MB/s」；0 或 nil = 不限
     static func speedKB(_ kb: Int?) -> String {
-        guard let kb, kb > 0 else { return "不限" }
+        guard let kb, kb > 0 else { return String(localized: .settingsMembersAccessUnlimited) }
         return bytes(Double(kb) * 1024) + "/s"
     }
 
@@ -365,7 +365,7 @@ struct SettingsBDirectoryPicker: View {
             List {
                 SettingsFormSection {
                     if editing {
-                        TextField("输入绝对路径后回车跳转", text: $draft)
+                        TextField(String(localized: .libraryDirectoryPathPlaceholder), text: $draft)
                             .font(.body.monospaced())
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -381,14 +381,14 @@ struct SettingsBDirectoryPicker: View {
                     if loading && view == nil {
                         ProgressView().frame(maxWidth: .infinity)
                     } else if let view, view.entries.isEmpty {
-                        Text("该目录下没有子目录，可直接选择当前目录")
+                        Text(String(localized: .libraryDirectoryNoChildren))
                             .foregroundStyle(Theme.textMuted)
                     } else if let view {
                         if let parent = view.parent {
                             Button {
                                 Task { await navigate(parent) }
                             } label: {
-                                Label("上一级", systemImage: "arrow.turn.left.up")
+                                Label(String(localized: .settingsKitParentFolder), systemImage: "arrow.turn.left.up")
                             }
                         }
                         ForEach(view.entries, id: \.path) { entry in
@@ -408,14 +408,14 @@ struct SettingsBDirectoryPicker: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .navigationTitle("选择服务器目录")
+            .navigationTitle(String(localized: .libraryDirectoryTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消", systemImage: "xmark") { dismiss() }
+                    Button(String(localized: .commonCancel), systemImage: "xmark") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("手动输入路径", systemImage: editing ? "list.bullet" : "pencil") {
+                    Button(String(localized: .libraryDirectoryManual), systemImage: editing ? "list.bullet" : "pencil") {
                         draft = view?.path ?? "/"
                         editing.toggle()
                     }
@@ -435,7 +435,7 @@ struct SettingsBDirectoryPicker: View {
                             dismiss()
                         }
                     } label: {
-                        Label("选择此目录", systemImage: "checkmark").font(.body.weight(.semibold))
+                        Label(String(localized: .libraryDirectorySelect), systemImage: "checkmark").font(.body.weight(.semibold))
                     }
                     .discoverProminentButton()
                     .disabled(view == nil || loading)
@@ -520,7 +520,7 @@ struct SettingsBPathField: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier(identifier ?? label)
-                Button("浏览", systemImage: "folder") { picking = true }
+                Button(String(localized: .commonActionsBrowse), systemImage: "folder") { picking = true }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
             }

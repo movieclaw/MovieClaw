@@ -1,0 +1,63 @@
+{
+  "operations": {
+    "targetPreviewed": "已识别资源并预演自动入库目录",
+    "replacementStarted": "已开始跨站寻找同品质替代源；旧任务会保留到新源产生真实进度",
+    "deletePreview": "演练：未删除任何东西（下载器「{name}」）",
+    "torrentAndFilesDeleted": "已删除种子任务和数据文件",
+    "torrentDeleted": "已删除种子任务，数据文件已保留",
+    "identityNeedsConfirmation": "未能自动确定是哪部作品，请从候选中确认后再选择自动入库目录",
+    "identityNotFound": "未能可靠识别该资源；请换个片名搜索，或手选保存目录",
+    "alreadyAdded": "该种子已在下载器中，未重复添加",
+    "submittedToLibrary": "已提交到「{downloader}」，入库到「{library}」",
+    "submitted": "已提交到「{name}」",
+    "routedLibrary": "{receipt}（{reason}）"
+  },
+  "removal": {
+    "optionLabel": "同时删除下载任务和源文件",
+    "optionHelp": "把下载器里对应的任务连同下载目录里的数据一起删掉，真正腾出空间；源文件删除不可恢复",
+    "noTask": "没找到对应的下载任务（扫描进来的文件或来源已不可考），只会删除媒体库文件",
+    "sameItemFiles": "同一部片的另外 {count} 个文件",
+    "workTitle": "《{title}》",
+    "titlesMore": "{titles}等 {count} 部",
+    "unknownFiles": "{count} 个没识别的文件",
+    "otherLibraryFiles": "媒体库里别的文件",
+    "skipNoDownloader": "下载器配置已删除，找不到这个任务",
+    "skipNotOwned": "不是 MovieClaw 投递的种子",
+    "skipHitAndRun": "有 H&R 考核风险，删了可能违反站点规则",
+    "skipSharedFiles": "这个种子还供着{others}，删了会连带删掉它们",
+    "taskCount": "{text}（{count} 个任务）",
+    "kept": "保留「{name}」：{reason}",
+    "missingInDownloader": "「{name}」已经不在下载器「{downloader}」里了",
+    "downloaderUnreachable": "下载器「{downloader}」暂时连不上，确认不了「{name}」还在不在；删不掉时可在「活动 → 任务」里重试",
+    "willDelete": "下载器「{downloader}」：删除「{name}」",
+    "hardlinkedFreed": "下载目录里的那份会一起删掉，空间才真正腾出来",
+    "sourceDeleted": "下载目录里的源文件会一起删除",
+    "subscriptionTracking": "这部片的订阅还在追：删除后对应的集会重新下载",
+    "irreversible": "源文件删除后不可恢复",
+    "removed": "已删除 {count} 个下载任务和源文件：{names}",
+    "deleteFailed": "「{name}」删除失败：{error}",
+    "nothingToDelete": "没有需要删除的下载任务",
+    "summary": "{parts}"
+  },
+  "preview": {
+    "downloaderMissing": "指定下载器 #{id} 不存在",
+    "defaultMissing": "没有可用的默认下载器，请先在「设置 → 下载器」添加并确保连接测试通过",
+    "downloaderUnavailable": "下载器「{name}」当前不可用（已停用或连接验证未通过）",
+    "noRoot": "没有可用的媒体库（或库未配置根路径），下载会落到下载器默认目录且不会自动入库",
+    "noStagingLibrary": "没有可用的媒体库——下载完成后会整理到自定义目录，但没有库可承接回流入账，订阅无法闭环；请先到「媒体库」创建",
+    "noWatchLibrary": "没有可用的媒体库——种子会投到监听导入目录，但下载完成后无法自动入库；请先到「媒体库」创建",
+    "unmapped": "目录 {path} 不在下载器「{name}」的路径映射覆盖范围内，届时投递会被拒绝——请补一条覆盖该目录的路径映射（映射按前缀匹配，映射公共父目录即可覆盖其下所有库），或为这个库配置监听导入规则"
+  },
+  "rescue": {
+    "trial": "正在验证同品质替代源；新源产生至少 1 MiB 真实进度后才会切换旧源",
+    "submitted": "已投递同品质替代源，正在等待真实下载进度",
+    "searching": "旧源仍保留，正在跨站寻找同品质替代源",
+    "backoff": "暂未找到同品质替代源，旧源继续保留；系统会按退避计划重新跨站搜索",
+    "retained": "换源已完成；旧任务因安全条件不足而保留",
+    "cleanupPending": "替代源已接管，正在安全清理旧任务",
+    "noProgress": "已连续 15 分钟没有下载进度；可立即换种，30 分钟时系统会自动处理",
+    "downloaderDisabled": "下载器已停用",
+    "downloaderUnverified": "下载器尚未通过连接验证",
+    "listFailed": "读取任务失败，请检查下载器连接"
+  }
+}

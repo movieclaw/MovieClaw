@@ -38,6 +38,7 @@ from pathlib import Path
 
 from sqlmodel import select
 
+from movieclaw_api.i18n import t
 from movieclaw_api.services.library.layout import VIDEO_EXTS, entry_dir_of
 from movieclaw_api.services.library.profile import profile_of
 from movieclaw_db.models import FileState, Library, LibraryFile
@@ -61,12 +62,16 @@ CONFLICT_DIFFERENT_ANCHOR = "different_anchor"  # 目录撞名，不是同一部
 CONFLICT_UNKNOWN = "unknown"  # 目标目录没有台账行，身份不明 → 只能跳过
 
 
-# 冲突分类 → 给人看的一句话。枚举名是给机器的，不能直接抛到用户面前。
-CONFLICT_LABELS = {
-    CONFLICT_SAME_ANCHOR: "目标位置已有这部作品的其他版本",
-    CONFLICT_DIFFERENT_ANCHOR: "目标位置被另一部作品占着（只是目录重名）",
-    CONFLICT_UNKNOWN: "目标位置已有内容，但媒体库里没有它的记录（手工放入或正在下载？）",
+# 冲突分类 → 给人看的一句话的文案键。枚举名是给机器的，不能直接抛到用户面前。
+CONFLICT_LABEL_KEYS = {
+    CONFLICT_SAME_ANCHOR: "library.preflight.sameAnchor",
+    CONFLICT_DIFFERENT_ANCHOR: "library.preflight.differentAnchor",
+    CONFLICT_UNKNOWN: "library.preflight.unknown",
 }
+
+
+def conflict_label(conflict: str) -> str:
+    return t(CONFLICT_LABEL_KEYS[conflict]) if conflict in CONFLICT_LABEL_KEYS else ""
 
 
 @dataclass
@@ -197,7 +202,7 @@ async def build_preflight(
     assert source.id is not None
     result = Preflight(target_root=str(target_root), selected=len(members))
     if not target_root.is_dir():
-        result.blocked.append(f"目标根路径不可访问：{target_root}（盘未挂载？）")
+        result.blocked.append(t("library.preflight.rootUnavailable", path=str(target_root)))
         return result
 
     member_ids = [mid for mid, _ in members]
@@ -297,12 +302,12 @@ def _build_sync(
         result.members.append(member)
         member_rows = by_member.get(media_item_id, [])
         if not member_rows:
-            member.reason = "台账里没有在位文件（可能全部缺失或已入回收站），只随迁归属"
+            member.reason = t("library.preflight.noFilesInPlace")
             continue
 
         units = _target_units(member_rows, roots, target_root, file_entries)
         if not units:
-            member.reason = "文件不在源库的根路径之内（根路径可能已变更）"
+            member.reason = t("library.preflight.outsideRoots")
             continue
 
         member.size_bytes = sum(r.size_bytes for r in member_rows)
@@ -433,8 +438,11 @@ def _summarize(
         result.target_free_bytes = 0
     if result.target_required_bytes > result.target_free_bytes:
         result.blocked.append(
-            f"目标盘剩余空间不足：需要 {_gib(result.target_required_bytes)}"
-            f"（含余量），实际剩余 {_gib(result.target_free_bytes)}"
+            t(
+                "library.preflight.notEnoughSpace",
+                required=_gib(result.target_required_bytes),
+                free=_gib(result.target_free_bytes),
+            )
         )
 
 

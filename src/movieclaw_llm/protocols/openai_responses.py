@@ -275,11 +275,22 @@ class OpenAIResponsesProtocol(OpenAIProtocolBase):
         message = getattr(error, "message", None) if error is not None else None
         return message or "模型服务返回失败状态，原因未知"
 
+    def _response_failure(self, response: Any) -> LlmServerError:
+        return LlmServerError(
+            f"模型服务返回失败：{self._failure_message(response)}",
+            provider=self.config.name,
+            message_key="errors.llm.connection.failedResponse",
+            params={
+                "reason": (
+                    getattr(getattr(response, "error", None), "message", None)
+                    or {"message_key": "errors.llm.connection.failedUnknown", "params": {}}
+                )
+            },
+        )
+
     def _parse_response(self, response: Any, model_id: str) -> ChatResponse:
         if getattr(response, "status", None) == "failed":
-            raise LlmServerError(
-                f"模型服务返回失败：{self._failure_message(response)}", provider=self.config.name
-            )
+            raise self._response_failure(response)
         content: list[str] = []
         thinking: list[str] = []
         tool_calls: list[ToolCall] = []
@@ -327,7 +338,7 @@ class OpenAIResponsesProtocol(OpenAIProtocolBase):
             stream = await self._client.responses.create(**payload)
         except Exception as exc:  # noqa: BLE001
             err = self._translate_error(exc)
-            yield acc.error_event(str(err))
+            yield acc.error_event(err)
             return
 
         yield ChatStreamEvent(type="start", partial=acc.snapshot())
@@ -401,25 +412,37 @@ class OpenAIResponsesProtocol(OpenAIProtocolBase):
                 elif kind in ("response.completed", "response.incomplete"):
                     final_response = event.response
                 elif kind == "response.failed":
-                    message = self._failure_message(event.response)
-                    err = LlmServerError(f"模型服务返回失败：{message}", provider=self.config.name)
-                    yield acc.error_event(str(err))
+                    err = self._response_failure(event.response)
+                    yield acc.error_event(err)
                     return
                 elif kind == "error":
                     message = getattr(event, "message", None) or "未知错误"
-                    err = LlmServerError(f"模型服务报错：{message}", provider=self.config.name)
-                    yield acc.error_event(str(err))
+                    err = LlmServerError(
+                        f"模型服务报错：{message}",
+                        provider=self.config.name,
+                        message_key="errors.llm.stream.serviceError",
+                        params={
+                            "reason": getattr(event, "message", None)
+                            or {"message_key": "errors.llm.stream.unknown", "params": {}}
+                        },
+                    )
+                    yield acc.error_event(err)
                     return
         except Exception as exc:  # noqa: BLE001 - 流中断以 error 事件收尾，保留 partial
             err = self._translate_error(exc)
             logger.warning("流式调用中断：%s", err)
-            yield acc.error_event(str(err))
+            yield acc.error_event(err)
             return
 
         if self.require_completed and (
             final_response is None or getattr(final_response, "status", "") != "completed"
         ):
-            yield acc.error_event("ChatGPT 响应未完成，请重试（可能已达到订阅额度）")
+            yield acc.error_event(
+                LlmServerError(
+                    "ChatGPT 响应未完成，请重试（可能已达到订阅额度）",
+                    message_key="errors.llm.stream.subscriptionIncomplete",
+                )
+            )
             return
         _warn_harmony_residue_in_content("".join(acc.content))
         for index in acc.tool_order:

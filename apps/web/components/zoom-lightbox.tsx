@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -155,7 +156,7 @@ export function ZoomLightbox({
   overlay,
   note,
   onKey,
-  brokenHint = "文件可能已被移动或删除，重新扫描后会更新",
+  brokenHint: customBrokenHint,
 }: {
   /** 对话框的无障碍名 */
   label: string;
@@ -178,6 +179,8 @@ export function ZoomLightbox({
   /** 图加载失败时的第二行解释：本地库是文件没了，外链图集是图床失效 */
   brokenHint?: string;
 }) {
+  const t = useTranslations();
+  const brokenHint = customBrokenHint ?? t("media.images.fileUnavailable");
   const slide = slides[index];
   const [view, setView] = useState<View>(FIT_VIEW);
   const { zoom, pan } = view;
@@ -503,8 +506,8 @@ export function ZoomLightbox({
   const loadingNote =
     !broken && screenUrl && (!fullReady || (fullUrl && wantOriginal && !originalReady))
       ? fullReady
-        ? "正在加载原图"
-        : "正在加载"
+        ? t("media.images.loadingOriginal")
+        : t("media.images.loading")
       : null;
   const stageNote = note ?? loadingNote;
   // 控件浮在画面之上，舞台独占整个视口：图能用满屏幕（只留一圈 12px 呼吸），
@@ -550,7 +553,7 @@ export function ZoomLightbox({
       >
         {broken || !screenUrl ? (
           <div className="rounded-2xl border border-white/[0.12] bg-white/[0.04] px-8 py-10 text-center text-ui text-white/60">
-            图片加载失败
+            {t("media.images.zoomLoadFailed")}
             <span className="mt-1 block text-caption text-white/40">{brokenHint}</span>
           </div>
         ) : (
@@ -623,14 +626,14 @@ export function ZoomLightbox({
         {
           delta: -1,
           enabled: index > 0,
-          label: "上一张 (←)",
+          label: t("media.images.previousShortcut"),
           Icon: ChevronLeftIcon,
           side: "left-[max(0.75rem,var(--safe-left))]",
         },
         {
           delta: 1,
           enabled: index < slides.length - 1 || hasMore,
-          label: "下一张 (→)",
+          label: t("media.images.nextShortcut"),
           Icon: ChevronRightIcon,
           side: "right-[max(0.75rem,var(--safe-right))]",
         },
@@ -666,7 +669,7 @@ export function ZoomLightbox({
           {actions}
           <button
             type="button"
-            aria-label="关闭 (Esc)"
+            aria-label={t("media.images.closeShortcut")}
             onClick={onClose}
             className={LIGHTBOX_ACTION_CLASS}
           >
@@ -685,8 +688,8 @@ export function ZoomLightbox({
           <div className="pointer-events-auto mx-auto mb-3 flex w-max items-center gap-0.5 rounded-full bg-black/70 p-1 text-white/85 [@media(hover:none)]:hidden">
             <button
               type="button"
-              title="缩小 (-)"
-              aria-label="缩小"
+              title={t("media.images.zoomOutShortcut")}
+              aria-label={t("media.images.zoomOut")}
               disabled={zoom <= MIN_ZOOM}
               onClick={() => zoomBy(1 / ZOOM_STEP)}
               className="grid size-7 place-items-center rounded-full transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-35 disabled:hover:bg-transparent"
@@ -695,8 +698,8 @@ export function ZoomLightbox({
             </button>
             <button
               type="button"
-              title="适应屏幕 (0)"
-              aria-label={`当前 ${Math.round(zoom * 100)}%，点击适应屏幕`}
+              title={t("media.images.fitShortcut")}
+              aria-label={t("media.images.zoomFit", { percent: Math.round(zoom * 100) })}
               onClick={resetZoom}
               className="tnum min-w-[52px] rounded-full px-1.5 py-1 text-caption transition-colors hover:bg-white/[0.12] hover:text-white"
             >
@@ -704,8 +707,8 @@ export function ZoomLightbox({
             </button>
             <button
               type="button"
-              title="放大 (+)"
-              aria-label="放大"
+              title={t("media.images.zoomInShortcut")}
+              aria-label={t("media.images.zoomIn")}
               disabled={zoom >= MAX_ZOOM}
               onClick={() => zoomBy(ZOOM_STEP)}
               className="grid size-7 place-items-center rounded-full transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-35 disabled:hover:bg-transparent"
@@ -731,7 +734,7 @@ export function ZoomLightbox({
                   key={entry.key}
                   ref={active ? activeThumb : undefined}
                   type="button"
-                  aria-label={`查看 ${entry.title}`}
+                  aria-label={t("media.images.viewTitle", { title: entry.title })}
                   aria-current={active}
                   onClick={() => onIndexChange(i)}
                   className={`h-12 shrink-0 overflow-hidden rounded-md transition ${

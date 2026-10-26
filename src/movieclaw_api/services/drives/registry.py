@@ -15,6 +15,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
+from movieclaw_api.i18n.stored import source_text
 from movieclaw_kernel import Context, Registry
 from movieclaw_sdk.drives import DRIVE_BACKENDS, DriveBackend
 
@@ -25,6 +26,19 @@ _bound: Registry[DriveBackend] | None = None
 
 class BackendUnavailable(LookupError):
     """账号用的网盘后端没有插件提供（没装、被停用或卸载）。"""
+
+    def __init__(self, message: str, *, backend_type: str | None = None):
+        super().__init__(message)
+        self.message_key = (
+            "errors.driveLogin.backendUnavailable" if backend_type is not None else None
+        )
+        self.params = {"type": backend_type} if backend_type is not None else {}
+
+    @property
+    def message_ref(self) -> dict | None:
+        if not self.message_key:
+            return None
+        return {"message": str(self), "message_key": self.message_key, "params": self.params}
 
 
 def bind_backends(registry: Registry[DriveBackend]) -> Callable[[], None]:
@@ -53,7 +67,10 @@ def backends() -> dict[str, DriveBackend]:
 def backend(backend_type: str) -> DriveBackend:
     found = backends().get(backend_type)
     if found is None:
-        raise BackendUnavailable(f"没有安装能连接「{backend_type}」网盘的存储插件")
+        raise BackendUnavailable(
+            source_text("errors.driveLogin.backendUnavailable", type=backend_type),
+            backend_type=backend_type,
+        )
     return found
 
 

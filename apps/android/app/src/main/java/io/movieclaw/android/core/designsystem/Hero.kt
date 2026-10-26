@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.unit.sp
+import io.movieclaw.android.core.designsystem.mcCards
 
 /** Hero 轮播的一屏数据 */
 data class HeroSlide(
@@ -99,7 +100,8 @@ fun HeroCarousel(
 ) {
     if (slides.isEmpty()) return
     val page = currentPage.coerceIn(0, slides.lastIndex)
-
+    // 宽屏 hero 剧照由外壳统一绘制；内容层只保留文字，避免内容区左缘出现图像边界。
+    val wideHero = LocalCardMetrics.current.isWide
     // 自动轮播：每 8s 前进一屏（与进度条同步）；页签在后台时停表
     val tabActive = LocalTabActive.current
     LaunchedEffect(page, slides.size, tabActive) {
@@ -118,7 +120,7 @@ fun HeroCarousel(
     Box(
         modifier
             .fillMaxWidth()
-            .height(HERO_HEIGHT)
+            .height(padHeroHeight())
             .clipToBounds(),
     ) {
         slides.forEachIndexed { i, slide ->
@@ -130,8 +132,8 @@ fun HeroCarousel(
             )
             // Ken Burns：当前屏 12s 线性推近到 1.10（切换时归零重来）
             val kenBurns = remember(i) { Animatable(1f) }
-            LaunchedEffect(active, tabActive) {
-                if (active && tabActive) {
+            LaunchedEffect(active, tabActive, wideHero) {
+                if (active && tabActive && !wideHero) {
                     kenBurns.snapTo(1f)
                     kenBurns.animateTo(1.1f, tween(durationMillis = 12000, easing = LinearEasing))
                 } else {
@@ -144,7 +146,7 @@ fun HeroCarousel(
                     alpha = alpha,
                     zoom = kenBurns.value,
                     interactive = active,
-                    parallaxPx = parallaxPx,
+                    parallaxPx = if (wideHero) 0f else parallaxPx,
                     showChrome = showChrome && active,
                     contentFade = contentFade,
                     onClick = { onOpenSlide(slide) },
@@ -199,6 +201,20 @@ private fun HeroBackdrop(imageUrl: String?, origin: String?, contentDescription:
 
 /** Hero 高度：实测 520（视口 390 宽） */
 val HERO_HEIGHT = 520.dp
+/**
+ * 首屏大图的高度。手机固定 [HERO_HEIGHT]；
+ * 宽窗口按 `ipad.md` §4「订阅首页、发现：大图限高（≤ 窗口高度 82%）」，
+ * 并以内容宽 × 9/16 为基准（与条目详情页的 heroHeight 同口径）。
+ *
+ */
+@Composable
+fun padHeroHeight(): androidx.compose.ui.unit.Dp {
+    val cards = LocalCardMetrics.current
+    if (!cards.isWide) return HERO_HEIGHT
+    val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    val byWidth = if (cards.contentWidth > 0.dp) cards.contentWidth * 9f / 16f else HERO_HEIGHT
+    return minOf(maxOf(byWidth, 420.dp), screenH * 0.82f)
+}
 
 @Composable
 private fun HeroSlidePane(
@@ -216,53 +232,64 @@ private fun HeroSlidePane(
     // hero 内部自己一份玻璃取样源：动作胶囊画在 hero 里（页面内容层的**内部**），
     // 用外层那张层会读到正在录制的纹理；这里的源就是本页 hero 的剧照本身
     val heroHaze = dev.chrisbanes.haze.rememberHazeState()
+    val cards = LocalCardMetrics.current
+    val windowWidth = if (cards.isWide) {
+        androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+    } else {
+        null
+    }
     androidx.compose.runtime.CompositionLocalProvider(LocalTabHazeState provides heroHaze) {
     Box(
         modifier
             .graphicsLayer { this.alpha = alpha }
             .then(if (interactive) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
+        // 宽屏：图由外壳整窗绘制；内容层不画图/压暗，左缘不会被裁出边界。
+        if (windowWidth == null) {
         // 剧照：1.1 倍过扫 + 滚动视差（实测 img 盒 418×572 @ -19,-26）。
-        // 关键（HTML .hero-par 同款）：视差层比可视区**多出血**（上 160 / 下 80）并底对齐，
-        // 否则图一往下移，顶部就露出黑带——「hero 与下面衔接颜色不对」的根因。
-        // ⚠️ 遮罩必须同时罩住「图 + 压暗」——之前只罩了压暗层，剧照到 hero 底边是硬切，
-        // 就是那条明显的分界线（HTML .hero-media 正是罩住两者的）。
-        // 遮罩挂在**不动**的外层；里面才是会视差位移的出血层。
-        Box(Modifier.matchParentSize().heroMask()) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(HERO_HEIGHT + 240.dp)
-                    .align(Alignment.BottomCenter)
-                    .graphicsLayer {
-                        scaleX = zoom
-                        scaleY = zoom
-                        translationY = parallaxPx
-                    }
-                    // 剧照 = 本页玻璃件的模糊源（动作胶囊就压在它上面）
-                    .hazeSource(heroHaze),
-            ) {
-                HeroBackdrop(imageUrl = slide.backdropUrl, origin = slide.origin, contentDescription = slide.title)
-                // 压暗渐变：transparent 36% → 黑 50%（与图同罩、一起溶解）
+            // 关键（HTML .hero-par 同款）：视差层比可视区**多出血**（上 160 / 下 80）并底对齐，
+            // 否则图一往下移，顶部就露出黑带——「hero 与下面衔接颜色不对」的根因。
+            // ⚠️ 遮罩必须同时罩住「图 + 压暗」——之前只罩了压暗层，剧照到 hero 底边是硬切，
+            // 就是那条明显的分界线（HTML .hero-media 正是罩住两者的）。
+            // 遮罩挂在**不动**的外层；里面才是会视差位移的出血层。
+            Box(Modifier.matchParentSize().heroMask()) {
                 Box(
                     Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.36f to Color.Transparent,
-                                1f to Color.Black.copy(alpha = 0.5f),
-                            )
-                        ),
-                )
+                        .fillMaxWidth()
+                        .height(padHeroHeight() + 240.dp)
+                        .align(Alignment.BottomCenter)
+                        .graphicsLayer {
+                            scaleX = zoom
+                            scaleY = zoom
+                            translationY = parallaxPx
+                        }
+                        // 剧照 = 本页玻璃件的模糊源（动作胶囊就压在它上面）
+                        .hazeSource(heroHaze),
+                ) {
+                    HeroBackdrop(imageUrl = slide.backdropUrl, origin = slide.origin, contentDescription = slide.title)
+                    // 压暗渐变：transparent 36% → 黑 50%（与图同罩、一起溶解）
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0.36f to Color.Transparent,
+                                    1f to Color.Black.copy(alpha = 0.5f),
+                                )
+                            ),
+                    )
+                }
             }
-        }
+            // 顶部 scrim：高 26%、黑 50% → 透明（给顶栏留可读性）
         // 顶部 scrim：高 26%、黑 50% → 透明（给顶栏留可读性）
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(HERO_HEIGHT * 0.26f)
+                .height(padHeroHeight() * 0.26f)
                 .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent))),
         )
+
+        }
 
         if (showChrome) {
             Column(
@@ -274,7 +301,7 @@ private fun HeroSlidePane(
                         this.alpha = contentFade
                         this.translationY = parallaxPx * 0.375f
                     }
-                    .padding(start = McMetrics.pagePadding, end = McMetrics.pagePadding, bottom = 32.dp),
+                    .padding(start = mcCards.pagePadding, end = mcCards.pagePadding, bottom = 32.dp),
             ) {
                 Text(
                     slide.label,

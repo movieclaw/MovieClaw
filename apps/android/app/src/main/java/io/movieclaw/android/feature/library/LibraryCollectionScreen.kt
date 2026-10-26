@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -50,7 +49,6 @@ import io.movieclaw.android.core.designsystem.Accent
 import io.movieclaw.android.core.designsystem.Bg
 import io.movieclaw.android.core.designsystem.ErrorPane
 import io.movieclaw.android.core.designsystem.LibraryItemCard
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.McTopBar
 import io.movieclaw.android.core.designsystem.McTopBarVariant
@@ -67,6 +65,8 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import io.movieclaw.android.core.designsystem.mcGridCells
+import io.movieclaw.android.core.designsystem.mcCards
 
 /**
  * 合集详情（iOS `CollectionDetailView` / Web `library-collection-detail-view.tsx`）。
@@ -279,10 +279,10 @@ fun LibraryCollectionScreen(
                 }
                 LazyVerticalGrid(
                     state = gridState,
-                    columns = GridCells.Fixed(2),
+                    columns = mcGridCells(phoneColumns = 2),
                     contentPadding = PaddingValues(
-                        start = McMetrics.pagePadding,
-                        end = McMetrics.pagePadding,
+                        start = mcCards.pagePadding,
+                        end = mcCards.pagePadding,
                         top = 0.dp,
                         bottom = 24.dp,
                     ),
@@ -290,11 +290,11 @@ fun LibraryCollectionScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    item(span = { GridItemSpan(2) }) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         CollectionHeader(col, state.items.isEmpty(), origin)
                     }
                     if (state.items.isEmpty()) {
-                        item(span = { GridItemSpan(2) }) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
                             Text(
                                 "这个合集里还没有作品。",
                                 fontSize = 15.sp, color = TextMuted,
@@ -310,7 +310,7 @@ fun LibraryCollectionScreen(
                         )
                     }
                     if (state.loadingMore) {
-                        item(span = { GridItemSpan(2) }) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
                             Box(Modifier.fillMaxWidth().padding(14.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(color = TextMuted, modifier = Modifier.size(20.dp))
                             }

@@ -27,6 +27,7 @@ import time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
 from movieclaw_api.services.playback import events as playback_events
 from movieclaw_api.services.playback.track_context import unit_files_with_contexts
 from movieclaw_db.models import LibraryFile, MediaItem, PlaybackLog, PlaybackState
@@ -115,7 +116,9 @@ def describe_user_agent(user_agent: str | None) -> str:
     不参与任何判定，不值得引一个 UA 解析库。
     """
     ua = user_agent or ""
-    browser = next((name for needle, name in _BROWSERS if needle in ua), "浏览器")
+    browser = next((name for needle, name in _BROWSERS if needle in ua), None) or t(
+        "player.watch.browser"
+    )
     platform = next((name for needle, name in _PLATFORMS if needle in ua), "")
     return f"{browser} · {platform}" if platform else browser
 

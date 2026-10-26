@@ -38,7 +38,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
-from movieclaw_api.services.library.profile import KIND_LABELS
+from movieclaw_api.i18n.stored import reference
+from movieclaw_api.services.library.profile import KIND_LABELS, kind_reference
 from movieclaw_db.models import ImportWatch, Library
 from movieclaw_db.models.base import utcnow
 
@@ -55,14 +56,14 @@ _KINDS = ("movie", "tv", "video")
 _KIND_LABELS = KIND_LABELS
 
 
-def _routable_cause(lib: Library) -> str:
+def _routable_cause(lib: Library) -> dict:
     """库进入自动路由候选的成因（同盘检测报错文案用）：默认库 / 声明了收藏范围。"""
     causes = []
     if lib.is_default:
-        causes.append(f"{_KIND_LABELS.get(lib.kind, lib.kind)}默认库")
+        causes.append(reference("library.routing.defaultCause", kind=kind_reference(lib.kind)))
     if lib.match_rules:
-        causes.append("声明了收藏范围")
-    return "、".join(causes)
+        causes.append(reference("library.routing.scopeCause"))
+    return {"message_list": causes, "separator_key": "common.list.separator"}
 
 
 def rule_target_label(rule: ImportWatch, library_name: str | None) -> str:
@@ -72,8 +73,8 @@ def rule_target_label(rule: ImportWatch, library_name: str | None) -> str:
         return f"「{library_name or '?'}」"
     if rule.target_path:
         kind_label = _KIND_LABELS.get(rule.kind or "", rule.kind or "?")
-        return f"自定义目录（{kind_label} · {rule.target_path}）"
-    return f"自动路由（{_KIND_LABELS.get(rule.kind or '', rule.kind or '?')}）"
+        return f"自定义目录（{kind_label} · {rule.target_path}）"  # i18n-ignore: log label
+    return f"自动路由（{_KIND_LABELS.get(rule.kind or '', rule.kind or '?')}）"  # i18n-ignore
 
 
 class ImportWatchConfigService:
@@ -89,7 +90,9 @@ class ImportWatchConfigService:
     async def get(self, rule_id: int) -> ImportWatch:
         row = await self._session.get(ImportWatch, rule_id)
         if row is None:
-            raise NotFoundException(f"监听导入规则不存在：id={rule_id}")
+            raise NotFoundException(
+                message_key="errors.importWatch.missing", params={"id": rule_id}
+            )
         return row
 
     async def create(
@@ -187,14 +190,11 @@ class ImportWatchConfigService:
     ) -> tuple[str, str | None, str | None]:
         source = source_path.strip().rstrip("/")
         if not source or not source.startswith("/"):
-            raise BadRequestException("源目录必须是绝对路径")
+            raise BadRequestException(message_key="errors.importWatch.sourceAbsolute")
         if strategy not in STRATEGIES:
-            raise BadRequestException("搬运策略必须是硬链接（hardlink）或复制（copy）")
+            raise BadRequestException(message_key="errors.importWatch.strategyInvalid")
         if library_id is not None and target_path:
-            raise BadRequestException(
-                "目标只能选一种：指定媒体库、自动路由或自定义目录"
-                "（library_id 与 target_path 不能同时提供）"
-            )
+            raise BadRequestException(message_key="errors.importWatch.targetConflict")
 
         # 目标解析：指定库（kind 由库推导、存 NULL）/ 自定义目录（kind 必填）
         # / auto（kind 必填）
@@ -203,9 +203,9 @@ class ImportWatchConfigService:
         if target_path:
             target = target_path.strip().rstrip("/")
             if not target or not target.startswith("/"):
-                raise BadRequestException("自定义目录必须是绝对路径")
+                raise BadRequestException(message_key="errors.importWatch.targetAbsolute")
             if kind not in _KINDS:
-                raise BadRequestException("自定义目录规则必须指定媒体类型（movie / tv / video）")
+                raise BadRequestException(message_key="errors.importWatch.targetKindRequired")
             # 每 kind 至多一条：投递查找链（resolve_dispatch_rule）的落点不能歧义
             existing_target = (
                 await self._session.execute(
@@ -217,22 +217,25 @@ class ImportWatchConfigService:
             ).scalar_one_or_none()
             if existing_target is not None and existing_target.id != exclude_id:
                 raise BadRequestException(
-                    f"{_KIND_LABELS[kind]}已有自定义目录规则（{existing_target.source_path}）——"
-                    "每个类型至多一条，请编辑既有规则"
+                    message_key="errors.importWatch.customRuleExists",
+                    params={"kind": kind_reference(kind), "source": existing_target.source_path},
                 )
         elif library_id is not None:
             library = await self._session.get(Library, library_id)
             if library is None:
-                raise NotFoundException(f"目标媒体库不存在：id={library_id}")
+                raise NotFoundException(
+                    message_key="errors.importWatch.libraryMissing", params={"id": library_id}
+                )
             if not library.primary_root:
                 raise BadRequestException(
-                    f"媒体库「{library.name}」没有配置根路径，无法作为导入目标"
+                    message_key="errors.importWatch.libraryRootMissing",
+                    params={"name": library.name},
                 )
             kind = None
             hardlink_targets = [library]
         else:
             if kind not in _KINDS:
-                raise BadRequestException("自动路由规则必须指定媒体类型（movie / tv / video）")
+                raise BadRequestException(message_key="errors.importWatch.routeKindRequired")
             # 每 kind 至多一条 auto 规则：多条会让订阅投递的落点歧义。
             # 自定义目录规则的 library_id 同为 NULL，须按 target_path 区分
             existing_auto = (
@@ -246,8 +249,8 @@ class ImportWatchConfigService:
             ).scalar_one_or_none()
             if existing_auto is not None and existing_auto.id != exclude_id:
                 raise BadRequestException(
-                    f"{_KIND_LABELS[kind]}已有自动路由规则（{existing_auto.source_path}）——"
-                    "每个类型至多一条，请编辑既有规则"
+                    message_key="errors.importWatch.autoRuleExists",
+                    params={"kind": kind_reference(kind), "source": existing_auto.source_path},
                 )
             candidates = list(
                 (await self._session.execute(select(Library).where(Library.kind == kind)))
@@ -267,8 +270,8 @@ class ImportWatchConfigService:
             ]
             if not routable:
                 raise BadRequestException(
-                    f"当前没有任何可路由的{_KIND_LABELS[kind]}库（需要有根路径的默认库"
-                    "或声明了收藏范围的库），请先到「媒体库」创建"
+                    message_key="errors.importWatch.noRoutableLibrary",
+                    params={"kind": kind_reference(kind)},
                 )
             hardlink_targets = routable
 
@@ -283,11 +286,13 @@ class ImportWatchConfigService:
                 r = root.rstrip("/")
                 if _overlaps(source, r):
                     raise BadRequestException(
-                        f"源目录与媒体库「{lib.name}」的根路径重叠：{source} ↔ {root}"
+                        message_key="errors.importWatch.sourceOverlapsLibrary",
+                        params={"name": lib.name, "source": source, "root": root},
                     )
                 if target is not None and _overlaps(target, r):
                     raise BadRequestException(
-                        f"自定义目录与媒体库「{lib.name}」的根路径重叠：{target} ↔ {root}"
+                        message_key="errors.importWatch.targetOverlapsLibrary",
+                        params={"name": lib.name, "target": target, "root": root},
                     )
 
         # 自定义目录与监听源互不重叠（含本条规则自身）：整理输出落回监听区
@@ -297,17 +302,23 @@ class ImportWatchConfigService:
         if target is not None:
             for candidate in [source, *(r.source_path for r in others)]:
                 if _overlaps(target, candidate):
-                    raise BadRequestException(f"自定义目录与监听源目录重叠：{target} ↔ {candidate}")
+                    raise BadRequestException(
+                        message_key="errors.importWatch.targetOverlapsSource",
+                        params={"target": target, "source": candidate},
+                    )
         for r in others:
             if r.target_path and _overlaps(source, r.target_path):
                 raise BadRequestException(
-                    f"源目录与另一条规则的自定义目录重叠：{source} ↔ {r.target_path}"
+                    message_key="errors.importWatch.sourceOverlapsTarget",
+                    params={"source": source, "target": r.target_path},
                 )
 
         # 源目录全局唯一
         existing = next((r for r in others if r.source_path == source), None)
         if existing is not None:
-            raise BadRequestException(f"该源目录已有监听导入规则：{source}")
+            raise BadRequestException(
+                message_key="errors.importWatch.sourceDuplicate", params={"path": source}
+            )
 
         # 硬链接的同盘检测：跨盘当场提示，不留到第一次搬运失败。auto 规则
         # 逐库检测——路由到哪个库都可能，任何一个不同盘将来都会搬运失败；
@@ -330,26 +341,35 @@ class ImportWatchConfigService:
                     try:
                         if os.stat(target).st_dev != source_dev:
                             raise BadRequestException(
-                                f"源目录与自定义目录不在同一文件系统（{source} ↔ {target}），"
-                                "硬链接无法工作；请把策略改为「复制」，或把它们放到同一存储卷"
+                                message_key="errors.importWatch.targetFilesystemMismatch",
+                                params={"source": source, "target": target},
                             )
                     except OSError:
                         pass  # 目录未就绪：同上跳过
             if offenders and library_id is not None:
                 names = "」「".join(lib.name for lib in offenders)
                 raise BadRequestException(
-                    f"源目录与媒体库「{names}」的主根不在同一文件系统，"
-                    "硬链接无法工作；请把策略改为「复制」，或把它们放到同一存储卷"
+                    message_key="errors.importWatch.libraryFilesystemMismatch",
+                    params={"names": names},
                 )
             if offenders:
                 # auto 规则：报错讲明每个库**为什么在候选里**——用户仍会撞上的
                 # 场景是"跨盘归档库恰好是默认库/声明了收藏范围"，只有讲清成因
                 # 他才知道出路是调整该库的设置，而不只是换复制策略
-                labeled = "".join(f"「{lib.name}」（{_routable_cause(lib)}）" for lib in offenders)
+                labeled = {
+                    "message_list": [
+                        reference(
+                            "library.routing.candidateLabel",
+                            name=lib.name,
+                            cause=_routable_cause(lib),
+                        )
+                        for lib in offenders
+                    ],
+                    "separator_key": "common.list.emptySeparator",
+                }
                 raise BadRequestException(
-                    f"源目录与媒体库{labeled}的主根不在同一文件系统——"
-                    "自动路由可能选中这些库，硬链接会失败；请把策略改为「复制」、"
-                    "调整存储布局，或调整这些库的收藏范围/默认库设置"
+                    message_key="errors.importWatch.routedFilesystemMismatch",
+                    params={"libraries": labeled},
                 )
         return source, kind, target
 

@@ -23,6 +23,7 @@ SETTINGS_DIR = Path("plugins") / "settings"
 
 def _path(settings: Any, entry_id: str) -> Path:
     if not entry_id or "/" in entry_id or "\\" in entry_id or entry_id.startswith("."):
+        # i18n-ignore: developer error
         raise ValueError(f"插件 id 不能用作文件名：{entry_id!r}")
     return Path(getattr(settings, "data_dir", "./data")) / SETTINGS_DIR / f"{entry_id}.json"
 

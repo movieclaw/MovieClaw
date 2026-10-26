@@ -1,3 +1,6 @@
+import { appTranslator, type AppMessageKey } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
+
 /**
  * 主题注册表 —— 多主题 UI 框架的唯一事实源（docs/design/web-themes.md §3.2）。
  *
@@ -50,17 +53,17 @@ export interface ThemeMeta {
   glass: boolean;
 }
 
-export const THEMES: ThemeMeta[] = [
+export const THEMES = [
   {
     id: "silver",
-    label: "银玻璃",
-    description: "液态玻璃 · 冷银高光的控制台质感（默认）",
+    label: "settings.appearance.silverName",
+    description: "settings.appearance.silverDescription",
     preview: { bg: "#111113", accent: "#cdd6e6" },
     themeColor: "#000000",
     layout: "panel",
     glass: true,
   },
-];
+] satisfies (Omit<ThemeMeta, "label" | "description"> & { label: AppMessageKey; description: AppMessageKey })[];
 
 export const DEFAULT_THEME_ID = "silver";
 
@@ -114,12 +117,17 @@ function fromCatalog(theme: CatalogTheme): ThemeMeta {
 }
 
 /** 当前认得的主题：内置注册表 + 已安装主题目录（契约不兼容的不算）。 */
-export function availableThemes(): ThemeMeta[] {
+function builtinMeta(theme: typeof THEMES[number], locale: AppLocale): ThemeMeta {
+  const t = appTranslator(locale);
+  return { ...theme, label: t(theme.label), description: t(theme.description) };
+}
+
+export function availableThemes(locale: AppLocale = "zh-Hans"): ThemeMeta[] {
   const known = new Set(THEMES.map((theme) => theme.id));
   const installed = (themeCatalog() ?? [])
     .filter((theme) => theme.status === "ok" && !known.has(theme.id))
     .map(fromCatalog);
-  return [...THEMES, ...installed];
+  return [...THEMES.map((theme) => builtinMeta(theme, locale)), ...installed];
 }
 
 /** 渲染层认不认得这个主题（内置或已安装且契约兼容） */
@@ -128,9 +136,9 @@ export function isKnownTheme(id: string): boolean {
 }
 
 /** 按 id 取主题元数据；不认得的（没装、卸载了、契约不兼容）回落默认主题。 */
-export function themeMeta(id: string): ThemeMeta {
+export function themeMeta(id: string, locale: AppLocale = "zh-Hans"): ThemeMeta {
   const builtin = THEMES.find((theme) => theme.id === id);
-  if (builtin) return builtin;
+  if (builtin) return builtinMeta(builtin, locale);
   const installed = catalogTheme(id);
-  return installed ? fromCatalog(installed) : THEMES[0];
+  return installed ? fromCatalog(installed) : builtinMeta(THEMES[0], locale);
 }

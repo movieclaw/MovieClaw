@@ -8,6 +8,8 @@
  */
 
 import type { TrashedFile, TrashedFilesData, TrashedItem } from "./api/libraries";
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
 import { formatBytes } from "./format.ts";
 
 /** 倒计时的语气：soon = 24 小时内（警示色）；never = 不自动清理（弱化）。 */
@@ -24,26 +26,27 @@ const DAY = 24 * HOUR;
  * 与条目详情页文件区的 purgeCountdown 同一分档，这里去掉「预计 … 自动清理」的
  * 包装——列头「自动清理 · 操作」已经说明了这一列是什么。
  */
-export function countdown(purgeAfter: string | null, now: number = Date.now()): Countdown {
-  if (!purgeAfter) return { text: "不自动清理", tone: "never" };
+export function countdown(purgeAfter: string | null, now: number = Date.now(), locale: AppLocale = requestLocale() ?? "zh-Hans", short = false): Countdown {
+  const t = appTranslator(locale);
+  if (!purgeAfter) return { text: t("library.recycle.never"), tone: "never" };
   const ms = new Date(purgeAfter).getTime() - now;
-  if (ms <= 0) return { text: "即将清理", tone: "soon" };
+  if (ms <= 0) return { text: t("library.recycle.dueNow"), tone: "soon" };
   const days = Math.floor(ms / DAY);
   const hours = Math.floor((ms % DAY) / HOUR);
   const tone = ms <= DAY ? "soon" : "normal";
-  if (days > 0) return { text: hours > 0 ? `${days} 天 ${hours} 小时后` : `${days} 天后`, tone };
-  if (hours > 0) return { text: `${hours} 小时后`, tone };
-  return { text: "1 小时内", tone };
+  if (days > 0) return { text: hours > 0 ? t(short ? "library.recycle.shortDaysHours" : "library.recycle.dueDaysHours", { days, hours }) : t(short ? "library.recycle.shortDays" : "library.recycle.dueDays", { count: days }), tone };
+  if (hours > 0) return { text: t(short ? "library.recycle.shortHours" : "library.recycle.dueHours", { count: hours }), tone };
+  return { text: t("library.recycle.withinHour"), tone };
 }
 
 /**
  * 条目行的倒计时：取组内最早到期；多文件时带「最早」前缀，
  * 悬停提示写最晚到期（由调用方拼绝对时间）。
  */
-export function itemCountdown(item: TrashedItem, now: number = Date.now()): Countdown {
-  const base = countdown(item.earliest_purge_after, now);
+export function itemCountdown(item: TrashedItem, now: number = Date.now(), locale: AppLocale = requestLocale() ?? "zh-Hans", short = false): Countdown {
+  const base = countdown(item.earliest_purge_after, now, locale, short);
   if (item.file_count > 1 && base.tone !== "never") {
-    return { ...base, text: `最早 ${base.text}` };
+    return { ...base, text: appTranslator(locale)("library.recycle.earliest", { time: base.text }) };
   }
   return base;
 }
@@ -58,46 +61,38 @@ export interface SummarySegment {
  * 摘要行：`N 个文件 · M 个条目 · 总大小 · K 个将在 24 小时内自动清理 · J 个仍在原位`，
  * 后两段为 0 时省去。摘要按文件计数（回答"多大、多急"），分页按条目计数。
  */
-export function summarySegments(data: TrashedFilesData): SummarySegment[] {
+export function summarySegments(data: TrashedFilesData, locale: AppLocale = requestLocale() ?? "zh-Hans"): SummarySegment[] {
+  const t = appTranslator(locale);
   const segments: SummarySegment[] = [
-    { text: `${data.total_files} 个文件` },
-    { text: `${data.total_items} 个条目` },
+    { text: t("library.recycle.filesCount", { count: data.total_files }) },
+    { text: t("library.recycle.itemsCount", { count: data.total_items }) },
     { text: formatBytes(data.total_bytes) },
   ];
-  if (data.due_within_24h > 0) {
-    segments.push({ text: `${data.due_within_24h} 个将在 24 小时内自动清理`, tone: "soon" });
-  }
-  if (data.kept_in_place > 0) {
-    segments.push({ text: `${data.kept_in_place} 个仍在原位`, tone: "faint" });
-  }
+  if (data.due_within_24h > 0) segments.push({ text: t("library.recycle.dueCount", { count: data.due_within_24h }), tone: "soon" });
+  if (data.kept_in_place > 0) segments.push({ text: t("library.recycle.keptCount", { count: data.kept_in_place }), tone: "faint" });
   return segments;
 }
 
 /** 审计快照 reason 词表 → 胶囊 / 原因列文案；未知值原样返回。 */
-export function reasonLabel(reason: string): string {
+export function reasonLabel(reason: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   switch (reason) {
-    case "upgrade_replaced":
-      return "洗版替换";
-    case "upgrade_refuted":
-      return "洗版证伪";
-    case "manual":
-      return "手动删除";
-    case "duplicate_cleanup":
-      return "重复清理";
-    case "unknown":
-      return "其他";
-    default:
-      return reason;
+    case "upgrade_replaced": return t("library.recycle.reasonUpgraded");
+    case "upgrade_refuted": return t("library.recycle.reasonRefuted");
+    case "manual": return t("library.recycle.reasonManual");
+    case "duplicate_cleanup": return t("library.recycle.reasonDuplicate");
+    case "unknown": return t("library.recycle.reasonOther");
+    default: return reason;
   }
 }
 
 /** 条目行的原因：组内 note 一致时写整句；混合时写计数 `洗版证伪 4 · 洗版替换 2`。 */
-export function itemReasonText(item: TrashedItem): string {
+export function itemReasonText(item: TrashedItem, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   if (item.note) return item.note;
   const entries = Object.entries(item.reasons).sort((a, b) => b[1] - a[1]);
   if (entries.length === 0) return "";
-  if (entries.length === 1) return reasonLabel(entries[0][0]);
-  return entries.map(([reason, count]) => `${reasonLabel(reason)} ${count}`).join(" · ");
+  if (entries.length === 1) return reasonLabel(entries[0][0], locale);
+  return entries.map(([reason, count]) => appTranslator(locale)("library.recycle.reasonCount", { reason: reasonLabel(reason, locale), count })).join(" · ");
 }
 
 const VIDEO_CODEC_LABELS: Record<string, string> = {
@@ -119,22 +114,22 @@ export function videoCodecLabel(codec: string | null): string | null {
 /** 品质行：第一段是加粗的档位（可带计数），HDR 徽标单列，其余弱化以 · 相连。 */
 export interface QualityLine {
   /** 「分辨率 片源」；组内混合时每段带计数，如 `1080p WEB-DL 4` */
-  tiers: { label: string; count: number | null }[];
+  tiers: { key?: string; label: string; count: number | null }[];
   hdr: string[];
   /** 大小 · 编码[ 位深] · 音轨 · 制作组，缺项省略 */
   rest: string[];
 }
 
 /** 单个文件的品质档位「分辨率 片源」，两者都没探到时写「未知规格」。 */
-export function fileTier(file: TrashedFile): string {
-  return [file.resolution, file.media_source].filter(Boolean).join(" ") || "未知规格";
+export function fileTier(file: TrashedFile, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return [file.resolution, file.media_source].filter(Boolean).join(" ") || appTranslator(locale)("library.recycle.unknownSpec");
 }
 
 /** 单个文件的品质行（电影单文件行、展开的每集）。 */
-export function fileQualityLine(file: TrashedFile): QualityLine {
+export function fileQualityLine(file: TrashedFile, locale: AppLocale = requestLocale() ?? "zh-Hans"): QualityLine {
   const codec = videoCodecLabel(file.video_codec);
   return {
-    tiers: [{ label: fileTier(file), count: null }],
+    tiers: [{ label: fileTier(file, locale), count: null }],
     hdr: file.hdr ? [file.hdr] : [],
     rest: [
       formatBytes(file.size_bytes),
@@ -149,11 +144,14 @@ export function fileQualityLine(file: TrashedFile): QualityLine {
  * 条目行的品质汇总：档位一致写一种，混合写带计数的并列；大小为合计，
  * 编码 / 音轨 / 制作组去重后用 / 并列。
  */
-export function itemQualityLine(item: TrashedItem): QualityLine {
+export function itemQualityLine(item: TrashedItem, locale: AppLocale = requestLocale() ?? "zh-Hans"): QualityLine {
   const tierEntries = Object.entries(item.quality.tiers).sort((a, b) => b[1] - a[1]);
   const mixed = tierEntries.length > 1;
   return {
-    tiers: tierEntries.map(([label, count]) => ({ label, count: mixed ? count : null })),
+    tiers: tierEntries.map(([key, count]) => ({
+      ...(item.quality.tier_labels?.[key] != null ? { key } : {}),
+      label: item.quality.tier_labels?.[key] ?? (item.files.some((file) => !file.resolution && !file.media_source) && key === "未知规格" ? appTranslator(locale)("library.recycle.unknownSpec") : key), count: mixed ? count : null,
+    })),
     hdr: item.quality.hdr,
     rest: [
       formatBytes(item.total_bytes),
@@ -182,12 +180,13 @@ export function seasonsLabel(seasons: number[]): string {
 }
 
 /** 条目行「文件」格第一行：单文件写文件名（由调用方渲染），多文件写 `24 集 · 3 季` / `2 个版本`。 */
-export function itemFilesSummary(item: TrashedItem): string {
+export function itemFilesSummary(item: TrashedItem, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   if (item.media_item?.kind === "tv") {
     const seasons = item.seasons.length;
-    return seasons > 0 ? `${item.file_count} 集 · ${seasons} 季` : `${item.file_count} 集`;
+    return seasons > 0 ? t("library.recycle.episodesSeasons", { episodes: item.file_count, seasons }) : t("library.recycle.episodes", { count: item.file_count });
   }
-  return `${item.file_count} 个版本`;
+  return t("library.recycle.versions", { count: item.file_count });
 }
 
 /** 条目复选框的三态：整组选中 / 部分选中（半选 –）/ 未选。 */
@@ -218,11 +217,11 @@ export function selectionSummary(
 
 /** 批量结果 → 一句 toast 回执：「已清理 55 个文件，2 个失败，还有 N 个未处理」。 */
 export function batchResultText(
-  verb: "清理" | "恢复",
-  result: { done: number; failed: { length: number }; remaining?: number },
+  verb: "清理" | "恢复", result: { done: number; failed: { length: number }; remaining?: number }, locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): string {
-  let text = `已${verb} ${result.done} 个文件`;
-  if (result.failed.length > 0) text += `，${result.failed.length} 个失败`;
-  if (result.remaining) text += `，还有 ${result.remaining} 个未处理，再点一次即可`;
+  const t = appTranslator(locale);
+  let text = t(verb === "恢复" ? "library.recycle.restoredCount" : "library.recycle.purgedCount", { count: result.done });
+  if (result.failed.length > 0) text += t("library.recycle.batchFailures", { count: result.failed.length });
+  if (result.remaining) text += t("library.recycle.batchRemaining", { count: result.remaining });
   return text;
 }

@@ -33,11 +33,11 @@ struct AgentAIConsentSheet: View {
                             .foregroundStyle(Theme.accent)
                             .frame(width: 32, height: 32)
                             .background(Theme.accentSoft, in: .rect(cornerRadius: 9))
-                        Text("使用 AI 助手前").font(.headline).foregroundStyle(.white)
+                        Text(String(localized: .agentConsentTitle)).font(.headline).foregroundStyle(.white)
                     }
                     Text(destinationText)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("MovieClaw 的开发者不会收到这些内容。服务商如何处理数据以其隐私政策为准；服务器管理员可以在「设置 → 模型接入」更换或移除服务商。")
+                    Text(String(localized: .agentConsentPrivacy))
                         .foregroundStyle(Theme.textMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -75,7 +75,7 @@ struct AgentAIConsentSheet: View {
             dismiss()
             onAgree()
         } label: {
-            Text("同意并发送")
+            Text(String(localized: .agentConsentAgree))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
         }
@@ -85,7 +85,7 @@ struct AgentAIConsentSheet: View {
 
     private var cancelButton: some View {
         Button(role: .cancel) { dismiss() } label: {
-            Text("取消")
+            Text(String(localized: .commonCancel))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
         }
@@ -94,7 +94,7 @@ struct AgentAIConsentSheet: View {
     }
 
     private var destinationText: String {
-        let current: String = providers.isEmpty ? "" : "（当前：" + providers.joined(separator: "、") + "）"
-        return "你发出的消息和图片，以及助手为了回答而查询的媒体库信息，会由你的 MovieClaw 服务器发送给服务器管理员接入的 AI 模型服务商处理" + current + "。"
+        providers.isEmpty ? String(localized: .agentConsentDestination)
+            : String(localized: .agentConsentDestinationProviders(AppFormatting.list(providers)))
     }
 }

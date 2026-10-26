@@ -268,12 +268,13 @@ def _ledger_chapters(chapters: list[dict[str, Any]] | None) -> tuple[tuple[float
 async def _compute_locked(ref: FileRef) -> ReelSegment | None:
     index = await asyncio.to_thread(index_for, ref)
     if index is None:
+        # i18n-ignore: diagnostic kept in the segment cache
         _write_cache(ref, {"unsupported": "读不出索引，台账也没有片长", "uv": UNSUPPORTED_VERSION})
         return None
     speech = _speech_events(index, choose_subtitle(ref.subtitle_streams))
     pick = pick_segment(index, kind=ref.kind, speech_events=speech, duration_s=ref.duration_s)
     if pick is None:
-        _write_cache(ref, {"unsupported": "片子太短", "uv": UNSUPPORTED_VERSION})
+        _write_cache(ref, {"unsupported": "片子太短", "uv": UNSUPPORTED_VERSION})  # i18n-ignore
         return None
 
     cover: str | None = None

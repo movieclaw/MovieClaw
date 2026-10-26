@@ -39,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
@@ -96,6 +97,8 @@ internal fun AgentComposerBar(
     modifier: Modifier = Modifier,
     minLines: Int = 1,
     maxLines: Int = 5,
+    /** 输入框聚焦变化（小幕据此从「安静陪伴」切到「正在听你说」，iOS `onAttentionChange`） */
+    onFocusChange: ((Boolean) -> Unit)? = null,
     /** 输入区左右外边距：对话页是 12dp（贴边），新会话页是 16dp（跟上面卡片对齐） */
     horizontalPadding: Dp = 12.dp,
     menuLift: Dp = 112.dp,
@@ -158,7 +161,10 @@ internal fun AgentComposerBar(
                     cursorColor = Accent,
                 ),
                 shape = RoundedCornerShape(22.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+                    .onFocusChangedCompat(onFocusChange),
             )
             // 工具行（iOS `toolRow`）：图片 · 模型 chip …… 发送
             Row(
@@ -273,3 +279,9 @@ internal suspend fun uploadAgentAttachment(
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { temp.delete() } }
     }
 }
+
+/** 聚焦回调（没传就什么都不挂，避免多一层 modifier） */
+@Composable
+private fun Modifier.onFocusChangedCompat(onFocusChange: ((Boolean) -> Unit)?): Modifier =
+    if (onFocusChange == null) this
+    else this.onFocusChanged { onFocusChange(it.isFocused) }

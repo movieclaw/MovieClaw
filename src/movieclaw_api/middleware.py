@@ -245,6 +245,9 @@ def register_middlewares(app: FastAPI, settings: Settings) -> None:
     # add_middleware 后注册者在外层：访问日志最外层，与原 @app.middleware 顺序一致。
     # 安全头挂在最内层：它只补自己那几个字段，与另外两层互不干扰；放最内可以
     # 覆盖到经由异常处理器产出的响应。
+    from movieclaw_api.i18n.middleware import LocaleMiddleware
+
+    app.add_middleware(LocaleMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(AccessAddressMiddleware)
     app.add_middleware(SpecHashHeaderMiddleware, api_prefix=settings.api_v1_prefix)

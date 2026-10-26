@@ -23,8 +23,8 @@ struct AppStoragePanel: View {
         List {
             overviewSection
             if let usage, !usage.unregistered.isEmpty {
-                SettingsFormSection("未登记目录") {
-                    Text("数据目录下出现了程序未登记的条目，不会被统计或清理。请把路径反馈给开发者。")
+                SettingsFormSection(String(localized: .settingsStorageUiUnregistered)) {
+                    Text(String(localized: .settingsStorageUiUnregisteredHint))
                         .font(.subheadline).foregroundStyle(Theme.warning)
                     ForEach(usage.unregistered, id: \.path) { entry in
                         HStack {
@@ -37,17 +37,17 @@ struct AppStoragePanel: View {
                 }
             }
             dirSection(
-                title: "可清理的缓存", group: "cache",
-                trailing: usage.map { "合计 \(Formatters.bytes($0.cacheBytes))" }
+                title: String(localized: .settingsStorageUiCaches), group: "cache",
+                trailing: usage.map { String(localized: .settingsStorageUiTotal(Formatters.bytes($0.cacheBytes))) }
             )
             dirSection(
-                title: "应用数据", group: "data",
-                trailing: usage.map { "合计 \(Formatters.bytes($0.dataBytes)) · 只展示，不提供删除" }
+                title: String(localized: .settingsStorageUiData), group: "data",
+                trailing: usage.map { String(localized: .settingsStorageUiDataTotal(Formatters.bytes($0.dataBytes))) }
             )
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("刷新统计", systemImage: "arrow.clockwise") { Task { await load(refresh: true) } }
+                Button(String(localized: .settingsStorageRefreshUsage), systemImage: "arrow.clockwise") { Task { await load(refresh: true) } }
                     .disabled(computing).accessibilityIdentifier("storage-refresh")
             }
         }
@@ -84,9 +84,9 @@ struct AppStoragePanel: View {
     private var statusText: String {
         if let usage {
             let time = Formatters.relative(Date(timeIntervalSince1970: TimeInterval(usage.computedAt)).ISO8601Format())
-            return "统计于 \(time)\(computing ? " · 更新中" : "")"
+            return computing ? String(localized: .settingsStorageComputedUpdating(time)) : String(localized: .settingsStorageComputedAt(time))
         }
-        return computing ? "首次统计中，可能要几十秒…" : "尚未统计"
+        return computing ? String(localized: .settingsStorageUiFirstComputing) : String(localized: .settingsStorageUiNotComputed)
     }
 
     private var overviewSection: some View {
@@ -97,22 +97,22 @@ struct AppStoragePanel: View {
         // data/ 之外的其它占用（系统、其它应用）= 已用 − 本应用数据 − 缓存，负数按 0
         let other = max(0, (usage?.diskUsed ?? 0) - cache - data)
         let segments: [(label: String, value: Int, color: Color)] = [
-            ("应用数据", data, Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0.85)),
-            ("可回收缓存", cache, Color(red: 0.98, green: 0.75, blue: 0.14).opacity(0.85)),
-            ("其他占用", other, Color.white.opacity(0.2)),
-            ("剩余", free, Color.white.opacity(0.07)),
+            (String(localized: .settingsStorageUiData), data, Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0.85)),
+            (String(localized: .settingsStorageUiReclaimable), cache, Color(red: 0.98, green: 0.75, blue: 0.14).opacity(0.85)),
+            (String(localized: .settingsStorageUiOther), other, Color.white.opacity(0.2)),
+            (String(localized: .settingsStorageUiFree), free, Color.white.opacity(0.07)),
         ]
         return SettingsFormSection {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("数据目录所在磁盘").font(.subheadline.weight(.medium))
+                        Text(String(localized: .settingsStorageUiDisk)).font(.subheadline.weight(.medium))
                         Text(usage?.dataRoot ?? "…").font(.caption.monospaced()).foregroundStyle(Theme.textFaint).lineLimit(1)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(usage.map { _ in Formatters.bytes(free) } ?? "—").font(.title2.weight(.semibold)).monospacedDigit()
-                        Text("剩余 · 共 \(usage.map { _ in Formatters.bytes(total) } ?? "—")").font(.caption).foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .settingsStorageUiFreeTotal(usage.map { _ in Formatters.bytes(total) } ?? "—"))).font(.caption).foregroundStyle(Theme.textFaint)
                     }
                 }
                 GeometryReader { proxy in
@@ -141,7 +141,7 @@ struct AppStoragePanel: View {
                 }
             }
             .padding(.vertical, 4)
-        } header: { Text("磁盘概览") }
+        } header: { Text(String(localized: .settingsStorageUiOverview)) }
           footer: { Text(statusText) }
     }
 
@@ -186,9 +186,12 @@ struct AppStoragePanel: View {
         defer { busyKey = nil }
         do {
             let result = try await api.appStorageClean(key: dir.key, body: .init(mode: mode))
-            var parts = ["已释放 \(Formatters.bytes(result.freedBytes))，删除 \(result.removed) 项"]
-            if result.skippedBusy > 0 { parts.append("跳过正在使用的 \(result.skippedBusy) 项") }
-            notice = (dir.key, parts.joined(separator: "，"), true)
+            let removed = AppLanguage.identifier == "zh-Hans" ? String(result.removed) : AppFormatting.number(result.removed)
+            let skipped = AppLanguage.identifier == "zh-Hans" ? String(result.skippedBusy) : AppFormatting.number(result.skippedBusy)
+            let text = result.skippedBusy > 0
+                ? String(localized: .settingsStorageCleanedSkipped(Formatters.bytes(result.freedBytes), removed, skipped))
+                : String(localized: .settingsStorageCleaned(Formatters.bytes(result.freedBytes), removed))
+            notice = (dir.key, text, true)
             // 清理让后端快照标脏：这一次读取会拉起后台重算，占用数字随后被轮询替换
             await load(refresh: false)
         } catch {
@@ -212,30 +215,33 @@ private struct StorageDirectorySheet: View {
     @Environment(Feedback.self) private var feedback
 
     var body: some View {
-        SubsSheetScaffold(title: dir.title, closeTitle: "完成") {
+        SubsSheetScaffold(title: dir.title, closeTitle: String(localized: .commonDone)) {
             SettingsFormSection {
-                LabeledContent("占用空间", value: dir.exists ? Formatters.bytes(dir.bytes) : "—")
+                LabeledContent(String(localized: .settingsStorageSpaceUsed), value: dir.exists ? Formatters.bytes(dir.bytes) : "—")
                 Text(dir.description).font(.subheadline).foregroundStyle(.secondary)
             }
-            SettingsFormSection("存储位置") {
+            SettingsFormSection(String(localized: .settingsStorageLocation)) {
                 Text(dir.path).font(.footnote.monospaced()).textSelection(.enabled)
             }
             if dir.group == "cache", dir.exists {
                 SettingsFormSection {
                     if dir.orphanAware {
-                        Button("清理未使用的条目") { Task { await askClean("orphans") } }
+                        Button(String(localized: .settingsStorageCleanUnused)) { Task { await askClean("orphans") } }
                             .accessibilityIdentifier("storage-clean-orphans")
                     }
                     if dir.clearable {
-                        Button("清空缓存", role: .destructive) { Task { await askClean("all") } }
+                        Button(String(localized: .settingsStorageClearCache), role: .destructive) { Task { await askClean("all") } }
                             .accessibilityIdentifier("storage-clean-all")
                     }
                 } footer: {
-                    if dir.rebuildCost == "expensive" { Text("此缓存重建耗时较长，建议优先清理未使用的条目。") }
+                    if dir.rebuildCost == "expensive" { Text(String(localized: .settingsStorageRebuildHint)) }
                 }
             }
             if let notice {
-                SettingsFormSection { Text(notice.text).foregroundStyle(notice.ok ? Theme.success : Theme.danger) }
+                SettingsFormSection {
+                    Text(notice.text).foregroundStyle(notice.ok ? Theme.success : Theme.danger)
+                        .accessibilityIdentifier("storage-clean-notice")
+                }
             }
         }
         .disabled(busy)
@@ -245,11 +251,11 @@ private struct StorageDirectorySheet: View {
     private func askClean(_ mode: String) async {
         let ok: Bool
         if mode == "orphans" {
-            ok = await feedback.confirm("清理「\(dir.title)」的孤儿条目？",
-                message: "只删除媒体库里已不存在的条目，正在使用的内容不受影响。", confirmTitle: "清理孤儿条目")
+            ok = await feedback.confirm(String(localized: .settingsStorageUiOrphansTitle(dir.title)),
+                message: String(localized: .settingsStorageUiOrphansHint), confirmTitle: String(localized: .settingsStorageUiOrphans))
         } else {
-            ok = await feedback.confirm("清空「\(dir.title)」？", message: dir.description,
-                confirmTitle: dir.bytes > 0 ? "清空并释放 \(Formatters.bytes(dir.bytes))" : "全部清空", destructive: true)
+            ok = await feedback.confirm(String(localized: .settingsStorageUiClearTitle(dir.title)), message: dir.description,
+                confirmTitle: dir.bytes > 0 ? String(localized: .settingsStorageUiClearBytes(Formatters.bytes(dir.bytes))) : String(localized: .settingsStorageUiClear), destructive: true)
         }
         if ok { await onClean(mode) }
     }

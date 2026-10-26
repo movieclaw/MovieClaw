@@ -25,6 +25,8 @@ import {
   useSession,
   useTaskActivity,
   useThemeState,
+  useAppTranslations,
+  useAppLocale,
 } from "@movieclaw/theme-sdk";
 
 
@@ -43,6 +45,7 @@ import {
  * 账号操作。行皮肤用 glass-row（Netflix 主题下自动换实色卡 + 4px 方角）。
  */
 export function NetflixMyPage() {
+  const t = useAppTranslations();
   // 插件网页（docs/design/plugin-web-pages.md）的入口：顶栏放不下的手机端放在这里
   const pluginItems = usePluginNavItems();
   const router = useRouter();
@@ -98,7 +101,7 @@ export function NetflixMyPage() {
         </header>
 
         {/* 快捷入口 */}
-        <nav aria-label="我的入口" className="nf:mt-6 nf:space-y-0.5">
+        <nav aria-label={t("nav.cinema.myEntries")} className="nf:mt-6 nf:space-y-0.5">
           {/* 待处理事项：Netflix 主题没有侧栏，银玻璃侧栏里的告警入口由本行
               承接（组件自轮询自鉴权，无事时整行不渲染） */}
           <NoticeCenter collapsed={false} />
@@ -106,12 +109,12 @@ export function NetflixMyPage() {
               「新会话」整条摘掉，这里必须同口径，否则成员点进去是一个后端
               全 403 的页面（安全边界在后端 require_admin，这里是界面裁剪） */}
           {isAdmin && (
-            <MyRow Icon={PlusIcon} label="新任务" onClick={() => router.push("/new" as Route)} />
+            <MyRow Icon={PlusIcon} label={t("nav.cinema.newTask")} onClick={() => router.push("/new" as Route)} />
           )}
           {canSubscribe && (
             <MyRow
               Icon={BookmarkFillIcon}
-              label="我的订阅"
+              label={t("nav.main.subscriptions")}
               onClick={() => router.push("/subscriptions" as Route)}
             />
           )}
@@ -120,7 +123,7 @@ export function NetflixMyPage() {
           {isAdmin && <MyActivityRow />}
           <MyRow
             Icon={GearIcon}
-            label="设置"
+            label={t("auth.menu.settings")}
             onClick={() => router.push("/settings" as Route)}
           />
           {/* 应用内更新的常驻入口（组件自轮询，无更新时整行不渲染）：
@@ -133,12 +136,11 @@ export function NetflixMyPage() {
 
         {/* AI 会话：与原「我的」面板同源（管理员可见），点击直达会话页 */}
         {isAdmin && (
-          <nav aria-label="AI 会话" className="nf:mt-6 nf:space-y-0.5">
-            <p className="group-label nf:px-3 nf:pb-1.5">AI 会话</p>
+          <nav aria-label={t("nav.cinema.sessions")} className="nf:mt-6 nf:space-y-0.5">
+            <p className="group-label nf:px-3 nf:pb-1.5">{t("nav.cinema.sessions")}</p>
             {conversations.length === 0 ? (
               <p className="nf:px-3 nf:py-1.5 nf:text-caption nf:leading-5 nf:text-[var(--text-faint)]">
-                还没有会话，从「新任务」开始。
-              </p>
+                {t("nav.cinema.emptySessions")}</p>
             ) : (
               conversations.map((c) => (
                 <MyRow
@@ -154,7 +156,7 @@ export function NetflixMyPage() {
 
         {/* 账号操作 */}
         {pluginItems.length > 0 && (
-          <nav aria-label="插件页面" className="nf:mt-6 nf:space-y-0.5">
+          <nav aria-label={t("nav.cinema.pluginPages")} className="nf:mt-6 nf:space-y-0.5">
             {pluginItems.map((item) => (
               <MyRow
                 key={item.id}
@@ -166,9 +168,9 @@ export function NetflixMyPage() {
           </nav>
         )}
 
-        <nav aria-label="账号操作" className="nf:mt-6 nf:space-y-0.5">
-          <MyRow Icon={UsersIcon} label="切换账号" onClick={() => setSwitcherOpen(true)} />
-          <MyRow Icon={LogoutIcon} label="退出登录" danger onClick={() => void handleLogout()} />
+        <nav aria-label={t("nav.cinema.accountActions")} className="nf:mt-6 nf:space-y-0.5">
+          <MyRow Icon={UsersIcon} label={t("auth.menu.switchAccount")} onClick={() => setSwitcherOpen(true)} />
+          <MyRow Icon={LogoutIcon} label={t("auth.menu.signOut")} danger onClick={() => void handleLogout()} />
         </nav>
       </div>
 
@@ -180,12 +182,13 @@ export function NetflixMyPage() {
 /** 活动入口行：拆成独立组件，任务快照变化时只重渲染这一行、不牵动整页；
  *  数据来自全站 Provider（本组件不发起请求）。 */
 function MyActivityRow() {
+  const t = useAppTranslations();
   const router = useRouter();
-  const badge = taskActivityBadge(useTaskActivity());
+  const badge = taskActivityBadge(useTaskActivity(), useAppLocale());
   return (
     <MyRow
       Icon={ActivityIcon}
-      label="活动"
+      label={t("nav.main.activity")}
       badge={badge.count > 0 ? badge : undefined}
       onClick={() => router.push(badge.href as Route)}
     />

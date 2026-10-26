@@ -1,0 +1,16 @@
+{
+  "account": {
+    "pageTitle": "Set up",
+    "start": "Get started",
+    "title": "Set up this server",
+    "subtitle": "This is a new server. Create its super administrator account below. This step only appears during the initial setup.",
+    "username": "Administrator username",
+    "password": "Password (at least 8 characters)",
+    "confirmPassword": "Confirm password",
+    "shortUsername": "Username must be at least 3 characters",
+    "shortPassword": "Use at least 8 characters, preferably a mix of letters and numbers",
+    "passwordMismatch": "Passwords do not match",
+    "pending": "Creating account…",
+    "submit": "Create account and continue"
+  }
+}

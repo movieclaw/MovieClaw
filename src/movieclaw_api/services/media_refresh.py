@@ -31,6 +31,7 @@ _RETRY_DELAY = timedelta(hours=1)  # 单条目刷新失败的重试间隔
 @register_task(
     "refresh_media_metadata",
     title="元数据定时刷新",
+    title_key="settings.scheduledTasks.catalog.refreshMediaMetadataTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=900,
     description=(
@@ -38,6 +39,7 @@ _RETRY_DELAY = timedelta(hours=1)  # 单条目刷新失败的重试间隔
         "发现新集给追新订阅补工单、同步改档期。在播剧 8 小时一刷，"
         "完结/无订阅条目低频保鲜。"
     ),
+    description_key="settings.scheduledTasks.catalog.refreshMediaMetadataDescription",
 )
 async def refresh_media_metadata() -> None:
     db = get_database()

@@ -64,6 +64,7 @@ from movieclaw_api.exceptions import (
     NotFoundException,
     UnauthorizedException,
 )
+from movieclaw_api.i18n import t
 from movieclaw_api.services import login_devices
 from movieclaw_api.settings import (
     AdminAccountSetting,
@@ -117,6 +118,8 @@ class DeviceRef:
     #: full=等同本人；transcode=只能转码（转码器凭证的形态上限）
     scope: str
     name: str
+    locale: str | None = None
+    timezone: str | None = None
 
     @property
     def interactive(self) -> bool:
@@ -245,7 +248,8 @@ class LoginThrottle:
             raise AppException(
                 status_code=429,
                 code="TOO_MANY_ATTEMPTS",
-                message=f"登录失败次数过多，请 {int(remaining) + 1} 秒后再试",
+                message_key="errors.auth.rateLimited",
+                params={"seconds": int(remaining) + 1},
             )
 
     def record_failure(self) -> None:
@@ -329,7 +333,7 @@ async def create_admin(username: str, password: str) -> AdminAccountSetting:
         current = await _load_admin_fresh()
         if current.password_hash:
             logger.warning("拒绝重复初始化：管理员账号已存在，来路请求被 409 拦截")
-            raise ConflictException("系统已初始化，禁止重复创建管理员账号")
+            raise ConflictException(message_key="errors.auth.alreadyInitialized")
 
         account = AdminAccountSetting(
             username=username,
@@ -343,7 +347,7 @@ async def create_admin(username: str, password: str) -> AdminAccountSetting:
         persisted = await _load_admin_fresh()
         if persisted.username != username or persisted.password_hash != account.password_hash:
             logger.error("初始化竞争检测：落库结果与本次写入不符，本次建号作废")
-            raise ConflictException("系统已初始化，禁止重复创建管理员账号")
+            raise ConflictException(message_key="errors.auth.alreadyInitialized")
 
         logger.info("超级管理员账号已创建：%s", username)
         return account
@@ -373,7 +377,7 @@ async def authenticate(username: str, password: str) -> AdminAccountSetting | Me
 
     admin = await _load_admin_fresh()
     if not admin.password_hash:
-        raise BadRequestException("系统尚未初始化，请先完成首次引导创建管理员账号")
+        raise BadRequestException(message_key="errors.auth.setupRequired")
 
     if secrets.compare_digest(username.encode(), admin.username.encode()):
         if _password_hash.verify(password, admin.password_hash):
@@ -382,7 +386,7 @@ async def authenticate(username: str, password: str) -> AdminAccountSetting | Me
             return admin
         throttle.record_failure()
         logger.warning("登录失败：用户名或密码错误（用户名输入：%s）", username)
-        raise UnauthorizedException("用户名或密码错误")
+        raise UnauthorizedException(message_key="errors.auth.wrongPassword")
 
     async with get_database().session() as session:
         repo = MemberRepository(session)
@@ -393,11 +397,11 @@ async def authenticate(username: str, password: str) -> AdminAccountSetting | Me
         if member is None or not password_ok:
             throttle.record_failure()
             logger.warning("登录失败：用户名或密码错误（用户名输入：%s）", username)
-            raise UnauthorizedException("用户名或密码错误")
+            raise UnauthorizedException(message_key="errors.auth.wrongPassword")
         if member.status != "active":
             # 密码对但账号被停用：不计失败（不是爆破），明确告知找管理员
             logger.warning("登录被拒：成员 %s 已被停用", member.username)
-            raise UnauthorizedException("账号已被停用，请联系管理员")
+            raise UnauthorizedException(message_key="errors.auth.accountDisabled")
         throttle.reset()
         await repo.touch_last_login(member)
         logger.info("成员 %s 登录成功", member.username)
@@ -413,7 +417,7 @@ async def update_nickname(nickname: str) -> AdminAccountSetting:
     """修改展示昵称。昵称只影响界面展示，登录仍使用用户名。"""
     admin = await get_setting_store().get(AdminAccountSetting)
     if not admin.password_hash:
-        raise BadRequestException("系统尚未初始化，无法修改昵称")
+        raise BadRequestException(message_key="errors.auth.nicknameSetupRequired")
     admin.nickname = nickname
     await get_setting_store().set(admin)
     logger.info("管理员昵称已更新为：%s", nickname)
@@ -434,9 +438,9 @@ async def change_password(
     """
     admin = await get_setting_store().get(AdminAccountSetting)
     if not admin.password_hash:
-        raise BadRequestException("系统尚未初始化，无法修改密码")
+        raise BadRequestException(message_key="errors.auth.passwordSetupRequired")
     if not _password_hash.verify(old_password, admin.password_hash):
-        raise UnauthorizedException("原密码错误")
+        raise UnauthorizedException(message_key="errors.auth.oldPasswordIncorrect")
 
     revoked = await reset_admin_password(
         new_password, keep_device_id=keep_device_id, sign_out_paired=sign_out_paired
@@ -470,7 +474,7 @@ async def reset_admin_password(
     # 直接用会把用户名/昵称写没
     admin = await _load_admin_fresh()
     if not admin.password_hash:
-        raise BadRequestException("系统尚未初始化，请先在网页上完成首次引导创建管理员账号")
+        raise BadRequestException(message_key="errors.auth.webSetupRequired")
 
     admin.password_hash = _password_hash.hash(new_password)
     await store.set(admin)
@@ -563,16 +567,16 @@ async def verify_session_token(token: str | None) -> Principal:
     换来"停用/改密即刻生效"的正确语义。
     """
     if not token:
-        raise UnauthorizedException("未登录，请先登录")
+        raise UnauthorizedException(message_key="errors.auth.signInRequired")
 
     serializer = URLSafeSerializer(await _get_session_secret(), salt=_SESSION_SALT)
     try:
         payload = serializer.loads(token)
     except BadSignature:
-        raise UnauthorizedException("登录状态无效，请重新登录") from None
+        raise UnauthorizedException(message_key="errors.auth.sessionInvalid") from None
 
     if not isinstance(payload, dict) or int(payload.get("exp", 0)) < time.time():
-        raise UnauthorizedException("登录已过期，请重新登录")
+        raise UnauthorizedException(message_key="errors.auth.sessionExpired")
 
     if payload.get("k") != "member":
         return Principal(kind="admin", name=str(payload.get("u", "")), is_admin=True)
@@ -580,9 +584,9 @@ async def verify_session_token(token: str | None) -> Principal:
     async with get_database().session() as session:
         member = await MemberRepository(session).get(int(payload.get("mid", 0)))
     if member is None or member.status != "active":
-        raise UnauthorizedException("登录状态已失效，请重新登录")
+        raise UnauthorizedException(message_key="errors.auth.sessionRevoked")
     if int(payload.get("ver", -1)) != member.token_version:
-        raise UnauthorizedException("登录状态已失效，请重新登录")
+        raise UnauthorizedException(message_key="errors.auth.sessionRevoked")
     return Principal(
         kind="member",
         name=member.username,
@@ -596,7 +600,14 @@ async def _device_principal(resolved: login_devices.ResolvedDevice) -> Principal
     """登录设备 → 请求主体：与网页登录的主体同构，只多带一个 ``device``。"""
     device = resolved.device
     assert device.id is not None
-    ref = DeviceRef(id=device.id, kind=device.kind, scope=device.scope, name=device.name)
+    ref = DeviceRef(
+        id=device.id,
+        kind=device.kind,
+        scope=device.scope,
+        name=device.name,
+        locale=device.locale,
+        timezone=device.timezone,
+    )
     member = resolved.member
     if member is None:
         admin = await get_admin_account()
@@ -625,12 +636,12 @@ async def verify_cookie_token(
     通道进来。``touch=False`` 用于解析账号袋：列出袋里的其他账号不算它们活跃。
     """
     if not token:
-        raise UnauthorizedException("未登录，请先登录")
+        raise UnauthorizedException(message_key="errors.auth.signInRequired")
     if not login_devices.is_device_token(token):
         return await verify_session_token(token)
     resolved = await login_devices.resolve(token)
     if resolved is None or resolved.device.kind != "web":
-        raise UnauthorizedException("登录状态已失效，请重新登录")
+        raise UnauthorizedException(message_key="errors.auth.sessionRevoked")
     if touch:
         await login_devices.touch(resolved.device, ip=ip, user_agent=user_agent)
     return await _device_principal(resolved)
@@ -849,7 +860,7 @@ def plugin_entry(token: str) -> str | None:
 async def _plugin_principal(token: str) -> Principal:
     credential = _plugin_tokens.get(token)
     if credential is None:
-        raise UnauthorizedException("插件凭证无效：插件已停用或服务已重启")
+        raise UnauthorizedException(message_key="errors.auth.pluginTokenInvalid")
     grant = credential.grant
     name = f"plugin:{grant.entry_id}"
     if credential.member_id is None:
@@ -858,7 +869,7 @@ async def _plugin_principal(token: str) -> Principal:
     async with get_database().session() as session:
         member = await MemberRepository(session).get(credential.member_id)
     if member is None or member.status != "active":
-        raise UnauthorizedException("插件代表的成员不存在或已停用")
+        raise UnauthorizedException(message_key="errors.auth.pluginMemberInactive")
     return Principal(
         kind="member",
         name=name,
@@ -890,7 +901,7 @@ async def verify_bearer_token(
         payload = None
     if isinstance(payload, dict) and payload.get("aud") == "agent":
         if int(payload.get("exp", 0)) < time.time():
-            raise UnauthorizedException("Agent 令牌已过期，请重新发起 Agent 运行")
+            raise UnauthorizedException(message_key="errors.auth.agentTokenExpired")
         agent_session_id = str(payload.get("sid", ""))
         return Principal(
             kind="agent",
@@ -906,15 +917,12 @@ async def verify_bearer_token(
         payload = None
     if isinstance(payload, dict) and payload.get("aud") == "mcp":
         if int(payload.get("exp", 0)) < time.time():
-            raise UnauthorizedException("MCP 调用令牌已过期")
+            raise UnauthorizedException(message_key="errors.auth.mcpTokenExpired")
         return Principal(kind="mcp", name=f"mcp:{payload.get('eid', '')}", is_admin=True)
 
     resolved = await login_devices.resolve(token)
     if resolved is None:
-        raise UnauthorizedException(
-            "登录凭证无效或已被注销：App 请重新登录；命令行与转码器请重新配对"
-            "（网页「设置 → 设备」）"
-        )
+        raise UnauthorizedException(message_key="errors.auth.deviceTokenInvalid")
     await login_devices.touch(resolved.device, ip=ip, user_agent=user_agent)
     return await _device_principal(resolved)
 
@@ -1033,20 +1041,18 @@ def authorize_device(
     只受总数上限约束。
     """
     if client_type not in login_devices.PAIRING_KINDS:
-        raise BadRequestException(f"未知的客户端类型：{client_type}")
+        raise BadRequestException(
+            message_key="errors.auth.clientUnknown", params={"kind": client_type}
+        )
     _purge_settled_challenges()
 
     pending = [ch for ch in _device_challenges.values() if ch.status == "pending"]
     if len(pending) >= _DEVICE_MAX_PENDING_TOTAL:
-        raise BadRequestException(
-            "待批准的接入请求过多，请先在网页「设备」页处理或等待现有请求过期"
-        )
+        raise BadRequestException(message_key="errors.auth.pairingQueueFull")
     if source_ip:
         pending_from_ip = sum(1 for ch in pending if ch.source_ip == source_ip)
         if pending_from_ip >= _DEVICE_MAX_PENDING_PER_IP:
-            raise BadRequestException(
-                "同一来源的待批准请求过多，请先在网页「设备」页处理或等待现有请求过期"
-            )
+            raise BadRequestException(message_key="errors.auth.pairingSourceQueueFull")
 
     while (user_code := _new_user_code()) in _device_challenges:  # pragma: no cover - 概率极低
         continue
@@ -1055,7 +1061,7 @@ def authorize_device(
         user_code=user_code,
         device_code_hash=_hash_token(device_code),
         client_type=client_type,
-        client_name=client_name.strip() or "未命名设备",
+        client_name=client_name.strip() or t("auth.device.unnamed"),
         source_ip=source_ip,
         installation_id=(installation_id or "").strip()[:128] or None,
         platform=(platform or "").strip()[:128] or None,
@@ -1085,9 +1091,9 @@ def _get_pending(user_code: str) -> DeviceAuthChallenge:
     _purge_settled_challenges()
     challenge = _device_challenges.get(user_code.strip().upper())
     if challenge is None:
-        raise NotFoundException("配对请求不存在或已过期，请让设备重新发起")
+        raise NotFoundException(message_key="errors.auth.pairingMissing")
     if challenge.status != "pending":
-        raise BadRequestException("这条配对请求已经处理过了，请让设备重新发起")
+        raise BadRequestException(message_key="errors.auth.pairingProcessed")
     return challenge
 
 
@@ -1100,7 +1106,7 @@ async def approve_device_request(user_code: str, approver: Principal) -> DeviceA
     """
     challenge = _get_pending(user_code)
     if challenge.client_type == "worker" and not approver.is_admin:
-        raise ForbiddenException("转码器只能由管理员批准，请让管理员在网页或 App 上输入这个配对码")
+        raise ForbiddenException(message_key="errors.auth.workerApproval")
     challenge.status = "approved"
     try:
         async with get_database().session() as session:

@@ -111,6 +111,10 @@ class LibraryFormViewModel @Inject constructor(
         val members: List<MemberView> = emptyList(),
         /** 编辑时带出的原值（rootPaths 等要整份回显） */
         val original: LibraryView? = null,
+        /** 全局刮削配置（库级覆盖的「跟随全局」摘要与切到自定义时的起点） */
+        val scrape: io.movieclaw.android.core.model.ScrapeConfigView? = null,
+        val languages: List<io.movieclaw.android.core.model.ScrapeLanguageOption> = emptyList(),
+        val countries: List<io.movieclaw.android.core.model.ScrapeCountryOption> = emptyList(),
     )
 
     private val _ui = MutableStateFlow(Ui())
@@ -142,6 +146,15 @@ class LibraryFormViewModel @Inject constructor(
                     ?: throw IllegalStateException("找不到要编辑的媒体库")
             }.onSuccess { lib ->
                 _ui.update { it.copy(loading = false, members = members, original = lib) }
+                // 可刮削的库还要全局刮削配置（覆盖卡片的「跟随全局」与自定义起点）
+                if (lib.capabilities.scraped) {
+                    viewModelScope.launch {
+                        val scrape = runCatching { api.scrapeShow().dataOrThrow() }.getOrNull()
+                        val langs = runCatching { api.scrapeLanguages().dataOrThrow() }.getOrDefault(emptyList())
+                        val countries = runCatching { api.scrapeCountries().dataOrThrow() }.getOrDefault(emptyList())
+                        _ui.update { it.copy(scrape = scrape, languages = langs, countries = countries) }
+                    }
+                }
             }.onFailure { e ->
                 _ui.update { it.copy(loading = false, error = friendlyMessage(e)) }
             }
@@ -218,6 +231,11 @@ fun LibraryFormScreen(
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val original = ui.original
+
+    // 库级刮削覆盖草稿（只存显式覆盖的字段；保存时随整库表单提交）
+    val scrapeState = remember(original?.id, original?.scrapeOverrides) {
+        io.movieclaw.android.feature.library.ScrapeOverridesState(original?.scrapeOverrides)
+    }
 
     // 表单状态（编辑时先落原值）
     var name by remember(original) { mutableStateOf(original?.name ?: "") }
@@ -474,6 +492,15 @@ fun LibraryFormScreen(
                 }
             }
 
+            if (vm.isEdit && original?.capabilities?.scraped == true) {
+                io.movieclaw.android.feature.library.LibraryScrapeOverridesSection(
+                    state = scrapeState,
+                    global = ui.scrape,
+                    languages = ui.languages,
+                    countries = ui.countries,
+                )
+            }
+
             Spacer(Modifier.height(20.dp))
             Button(
                 onClick = {
@@ -490,10 +517,12 @@ fun LibraryFormScreen(
                         accessMode = if (accessEveryone) "everyone" else "selected",
                         memberIds = if (accessEveryone) null else selectedMembers.toList(),
                         realtimeWatch = realtimeWatch,
+                        scrapeOverrides = scrapeState.payload(),
                     )
                     vm.save(payload) { onBack(true) }
                 },
-                enabled = !ui.saving && name.isNotBlank() && roots.any { it.isNotBlank() },
+                enabled = !ui.saving && name.isNotBlank() && roots.any { it.isNotBlank() } &&
+                    scrapeState.namingError() == null,
                 shape = RoundedCornerShape(999.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color(0xFF141821)),
                 elevation = null,

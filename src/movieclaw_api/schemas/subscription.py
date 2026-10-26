@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import Field, field_serializer, model_validator
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.services.tmdb_images import MediaFiles, asset_url, tmdb_image_url
 from movieclaw_db.models import (
@@ -205,6 +206,7 @@ class SmartPlanView(BaseModel):
     question: SmartQuestionView | None = Field(
         default=None, description="仅管理员、且这种语言还没回答过时给出"
     )
+    subtitle_edit_question: SmartQuestionView | None = None
     scope_options: list[SmartScopeOptionView] = Field(default_factory=list)
     can_edit: bool = Field(default=False, description="管理员可改字幕、画质并写入记忆")
 
@@ -276,6 +278,8 @@ class DispatchPreviewView(BaseModel):
         default=None,
         description="收藏范围路由结论：true=命中声明库 / false=默认库兜底；未走路由为 null",
     )
+    route_reason_key: str | None = None
+    route_reason_params: dict | None = None
     route_reason: str | None = Field(
         default=None, description="路由理由（中文整句，弹窗徽标直接展示）"
     )
@@ -287,16 +291,33 @@ class DispatchPreviewView(BaseModel):
     rule_set_matched: bool | None = Field(
         default=None, description="true=命中某组适用范围 / false=默认规则组兜底"
     )
+    rule_set_reason_key: str | None = None
+    rule_set_reason_params: dict | None = None
     rule_set_reason: str | None = Field(
         default=None, description="选组理由（中文整句，弹窗与模拟一单直接展示）"
     )
     ok: bool = Field(description="按当前配置投递能否顺利入库")
+    warning_key: str | None = None
+    warning_params: dict | None = None
     warning: str | None = Field(default=None, description="不 ok 时的中文指引")
 
 
 # ---------------------------------------------------------------------------
 # 订阅 CRUD
 # ---------------------------------------------------------------------------
+
+
+class EpisodeCapSpec(BaseModel):
+    """一季的订阅窗口：从第 ``start`` 集起（含），到第 ``end`` 集（含）。
+
+    ``end=None`` 不设上界（在播季「从第 X 集起」，之后播出的新集照常纳入）；
+    ``start=1`` 且 ``end`` 设值即「订阅到第 N 集」。两头都收的混合窗口不接受。
+    """
+
+    start: int = Field(default=1, ge=1, description="从第几集起（含）")
+    end: int | None = Field(
+        default=None, ge=1, description="订阅到第几集（含）；null=不设上界，新集照常纳入"
+    )
 
 
 class SubscriptionCreatePayload(BaseModel):
@@ -357,12 +378,21 @@ class SubscriptionCreatePayload(BaseModel):
             '（如 {"1": 27}）；不超过 TMDB 已录集数的季忽略'
         ),
     )
+    episode_caps: dict[int, EpisodeCapSpec] | None = Field(
+        default=None,
+        description=(
+            "每季的订阅窗口 {季号: {start, end}}：一季上千集时先订阅一部分——"
+            '完结季从第 1 集订起（如 {"1": {"start": 1, "end": 20}}），在播季订'
+            '最新一批（如 {"1": {"start": 1081, "end": null}}，新集照常纳入）；'
+            "之后可随时调整；盖住整季的窗口忽略"
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_selection_mode(self):
         if self.selection_mode == "smart":
             if self.rule_set_id is not None or self.smart_profile_revision is None:
-                raise ValueError("智能模式需提供已保存的设置版本，且不能同时指定规则组")
+                raise ValueError(t("errors.subscriptionInput.smartNeedsSettings"))
         elif self.smart_profile_revision is not None or any(
             v is not None
             for v in (
@@ -373,7 +403,7 @@ class SubscriptionCreatePayload(BaseModel):
                 self.smart_memory_revision,
             )
         ):
-            raise ValueError("规则模式不能指定智能设置")
+            raise ValueError(t("errors.subscriptionInput.ruleModeNoSmart"))
         return self
 
 
@@ -398,6 +428,13 @@ class SubscriptionUpdatePayload(BaseModel):
         description=(
             '整体替换每季集数下限 {季号: 集数}，如 {"1": 27}；传 {} 清除、'
             "改回以 TMDB 为准；不传=不变"
+        ),
+    )
+    episode_caps: dict[int, EpisodeCapSpec] | None = Field(
+        default=None,
+        description=(
+            "整体替换每季订阅窗口 {季号: {start, end}}；传 {} 清除、改回订阅整季；"
+            "不传=不变。窗口往宽调补上新增的集，往窄调只让超出的集退出追踪"
         ),
     )
 
@@ -551,6 +588,15 @@ class SmartSubtitleView(BaseModel):
     understood: bool
 
 
+class EpisodeWindowView(BaseModel):
+    """被订阅窗口截断的一季：从第 start 集起到 end（None=含今后新集），本季已录 total 集。"""
+
+    season_number: int
+    start: int = Field(description="从第几集起（含）")
+    end: int | None = Field(description="订阅到第几集（含）；null=不设上界，新集照常纳入")
+    total: int = Field(description="本季已录集数（TMDB 最大集号与集数下限取大）")
+
+
 class SubscriptionView(BaseModel):
     id: int
     media: MediaBrief
@@ -569,6 +615,13 @@ class SubscriptionView(BaseModel):
         default_factory=list,
         description="剧集按季收录统计；电影或无需展示时为空",
     )
+    episode_windows: list[EpisodeWindowView] | None = Field(
+        default=None,
+        description=(
+            "被订阅上限截断的季（订阅到第几集 / 本季共几集）；有内容时订阅不会判"
+            "「已收齐」，用户可以继续订阅；没有上限或电影为 null"
+        ),
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -581,7 +634,19 @@ class SubscriptionView(BaseModel):
         selected = {s for s in self.selected_seasons if s > 0}
         if not selected and seasons:
             selected = {max(s.season_number for s in seasons)}
-        missing = any(s.aired_count > s.owned_count for s in seasons if s.season_number in selected)
+        # 被订阅窗口截断的季只算订阅范围内的集：窗口外的集用户还没订阅，不是缺集
+        windows = {w.season_number: w for w in self.episode_windows or []}
+
+        def _expected(season: SeasonOverview) -> int:
+            win = windows.get(season.season_number)
+            if win is None:
+                return season.aired_count
+            end = season.aired_count if win.end is None else min(season.aired_count, win.end)
+            return max(0, end - win.start + 1)
+
+        missing = any(
+            _expected(s) > s.owned_count for s in seasons if s.season_number in selected
+        )
         progress = self.progress
         if missing or progress.wanted + progress.grabbed + progress.downloaded > 0:
             return 0
@@ -876,6 +941,8 @@ class WantedView(BaseModel):
     def from_model(
         cls, w: WantedItem, resource_timing: dict[str, object] | None = None
     ) -> WantedView:
+        from movieclaw_api.services.subscription.smart_presentation import selection_presentation
+
         return cls(
             id=w.id,  # type: ignore[arg-type]
             season_number=w.season_number,
@@ -898,7 +965,7 @@ class WantedView(BaseModel):
             imported_at=w.imported_at,
             last_reject_reason=w.last_reject_reason,
             grab_title=w.grab_title,
-            selection_state=w.selection_state,
+            selection_state=selection_presentation(w.selection_state, w.selection_messages),
             selection_version=w.selection_version,
         )
 
@@ -909,6 +976,9 @@ class EpisodeSeasonView(BaseModel):
     season_number: int
     tmdb_count: int = Field(description="TMDB 已录到的最大集号")
     floor: int | None = Field(default=None, description="已设的集数下限；null=以 TMDB 为准")
+    window: EpisodeCapSpec | None = Field(
+        default=None, description="已设的订阅窗口；null=订阅整季。旧服务端没有"
+    )
 
 
 class EpisodeHintView(BaseModel):
@@ -993,13 +1063,14 @@ def _wanted_upgrades(
 
     规则组未配洗版目标 / spec 无法解析 → 全部 None（前端不显示洗版信息）。
     """
+    from movieclaw_api.i18n import t
+    from movieclaw_api.i18n.quality_labels import quality_reference, upgrade_target_reference
+    from movieclaw_api.i18n.stored import render_value
     from movieclaw_matcher import (
         QualitySnapshot,
         RuleSetSpec,
         provably_at_cutoff,
         provably_below_cutoff,
-        quality_label,
-        upgrade_target_label,
     )
     from movieclaw_matcher.smart import SmartPolicy
 
@@ -1011,7 +1082,7 @@ def _wanted_upgrades(
     from movieclaw_db.models import utcnow
 
     now = utcnow()
-    target = upgrade_target_label(rule_spec) or ""
+    target = render_value(upgrade_target_reference(rule_spec)) or ""
     result: dict[tuple[int, int], WantedUpgradeView | None] = {}
     for w in wanted_rows:
         if w.status != "imported" or w.quality is None:
@@ -1021,7 +1092,7 @@ def _wanted_upgrades(
             # 在追踪明细里与档位健康的单元毫无区别，用户以为它在洗版盘子里
             result[(w.season_number, w.episode_number)] = WantedUpgradeView(
                 active=False,
-                current_label="版本未识别",
+                current_label=t("media.quality.unrecognized"),
                 target_label=target,
                 search_attempts=w.search_attempts,
                 indeterminate=True,
@@ -1030,7 +1101,7 @@ def _wanted_upgrades(
         snapshot = QualitySnapshot.model_validate(w.quality)
         result[(w.season_number, w.episode_number)] = WantedUpgradeView(
             active=w.in_scope and upgrade_ready(w, rule_spec, now=now),
-            current_label=quality_label(snapshot, rule_spec),
+            current_label=render_value(quality_reference(snapshot, rule_spec)),
             target_label=target,
             search_attempts=w.search_attempts,
             indeterminate=not provably_below_cutoff(snapshot, rule_spec)
@@ -1073,11 +1144,13 @@ class SubscriptionDownloadView(BaseModel):
 
 
 class ActivityView(BaseModel):
-    """活动时间线的一条记录：message 已是完整中文句子，前端直接展示。"""
+    """活动时间线的一条记录：message 按读者语言渲染，旧客户端可直接展示。"""
 
     id: int
     type: str
     message: str
+    message_key: str | None = None
+    message_params: dict | None = None
     payload: dict
     created_at: datetime
     # 管线类活动挂在具体工单上（生命周期/搜索轮次等订阅级活动为 NULL）。
@@ -1091,10 +1164,14 @@ class ActivityView(BaseModel):
 
     @classmethod
     def from_model(cls, row: SubscriptionActivity) -> ActivityView:
+        from movieclaw_api.i18n.stored import stored_message
+
         return cls(
             id=row.id,  # type: ignore[arg-type]
             type=row.type,
-            message=row.message,
+            message=stored_message(row.message, row.message_key, row.message_params),
+            message_key=row.message_key,
+            message_params=row.message_params,
             payload=dict(row.payload),
             created_at=row.created_at,
             wanted_item_id=row.wanted_item_id,
@@ -1240,6 +1317,7 @@ class PipelineHealthView(BaseModel):
 class RuleSetView(BaseModel):
     id: int
     name: str
+    name_key: str | None = None
     is_default: bool
     spec: dict
     match_rules: list[dict] = Field(
@@ -1252,6 +1330,7 @@ class RuleSetView(BaseModel):
         return cls(
             id=row.id,  # type: ignore[arg-type]
             name=row.name,
+            name_key=row.name_key,
             is_default=row.is_default,
             spec=dict(row.spec),
             match_rules=list(row.match_rules or []),
@@ -1323,7 +1402,7 @@ class SmartMemoryPatch(BaseModel):
     @model_validator(mode="after")
     def validate_change(self):
         if (self.language is None) == (self.remove_habit is None):
-            raise ValueError("一次只改一种语言或删一条习惯")
+            raise ValueError(t("errors.subscriptionInput.languageOneChange"))
         if self.language is not None and self.understood is None:
-            raise ValueError("请说明这种语言看不看得懂")
+            raise ValueError(t("errors.subscriptionInput.languageUnderstood"))
         return self

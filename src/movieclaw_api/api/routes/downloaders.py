@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from movieclaw_api import hooks
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.exceptions import BadRequestException, ForbiddenException
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.downloader import (
     DownloaderLimitsUpdate,
@@ -134,15 +136,15 @@ async def resolve_download_target(
         if resolution.tmdb_id is not None:
             allowed.add((payload.kind, resolution.tmdb_id))
         if (kind, tmdb_id) not in allowed:
-            raise BadRequestException("确认的 TMDB 条目不在本次识别候选中，请重新识别后再选择")
+            raise BadRequestException(message_key="errors.downloaders.identificationChanged")
     else:
         kind, tmdb_id = payload.kind, resolution.tmdb_id
     if tmdb_id is None or kind is None:
         status = "ambiguous" if candidates else "not_found"
         message = (
-            "未能自动确定是哪部作品，请从候选中确认后再选择自动入库目录"
+            t("download.operations.identityNeedsConfirmation")
             if candidates
-            else "未能可靠识别该资源；请换个片名搜索，或手选保存目录"
+            else t("download.operations.identityNotFound")
         )
         return ok(ManualDownloadTargetView(status=status, candidates=candidates), message=message)
 
@@ -176,7 +178,7 @@ async def resolve_download_target(
             candidates=candidates,
             **preview,
         ),
-        message="已识别资源并预演自动入库目录",
+        message=t("download.operations.targetPreviewed"),
     )
 
 
@@ -205,13 +207,13 @@ async def submit_download(
         # 成员版强制自动路由（§2.2）：手选目录/指定下载器都是管理员的事——
         # 前端成员弹窗不提供这两项，这里是绕过前端也拦得住的服务端强制
         if payload.save_path is not None:
-            raise ForbiddenException("成员的一键下载不能手选保存目录，将按目标库自动选择")
+            raise ForbiddenException(message_key="errors.downloaders.memberSavePath")
         if payload.downloader_id is not None:
-            raise ForbiddenException("成员的一键下载不能指定下载器，将使用默认下载器")
+            raise ForbiddenException(message_key="errors.downloaders.memberDownloader")
         # 智能入库按收藏范围路由，可能选中成员不可见的库并回显库名/路由理由，
         # 与成员的库可见性隔离冲突；成员端也不提供该入口，服务端一并拦住
         if payload.auto_route:
-            raise ForbiddenException("成员的一键下载不支持智能入库，请选择可见的媒体库")
+            raise ForbiddenException(message_key="errors.downloaders.memberSmartImport")
         if payload.library_id is not None:
             await assert_library_visible(session, principal, payload.library_id)
         await assert_site_usable(session, principal, payload.site_id)
@@ -233,15 +235,15 @@ async def submit_download(
 
         if payload.media_kind is None or payload.tmdb_id is None or not payload.title:
             # schema 校验已保证；此处显式再守一道，避免校验演进后带残缺身份建档
-            raise BadRequestException("智能入库必须提供媒体类型、TMDB ID 和标题")
+            raise BadRequestException(message_key="errors.downloaders.smartIdentityRequired")
         manual_item = await MediaLibraryService(session, get_tmdb_client()).ensure_media_item(
             MediaKind(payload.media_kind), payload.tmdb_id, extra_aliases=[payload.title]
         )
         route = await route_for_item(session, payload.media_kind, manual_item)
         library = route.library
-        route_reason = route.reason
+        route_reason = render_value(route.reason_message) if route.reason_message else route.reason
         if library is None:
-            raise BadRequestException("没有可用的目标媒体库，无法启用自动入库；请先创建媒体库")
+            raise BadRequestException(message_key="errors.downloaders.noImportTarget")
         # 目标库要等条目建好才路由得出来，所以归属库在这里回填（设计文档 §14）
         if assign_scrape_library(manual_item, library):
             session.add(manual_item)
@@ -327,13 +329,15 @@ async def submit_download(
     )
     await _remember_target(session, principal, payload)
     if result.already_exists:
-        message = "该种子已在下载器中，未重复添加"
+        message = t("download.operations.alreadyAdded")
     elif library is not None:
-        message = f"已提交到「{row.name}」，入库到「{library.name}」"
+        message = t(
+            "download.operations.submittedToLibrary", downloader=row.name, library=library.name
+        )
         if route_reason:
-            message += f"（{route_reason}）"
+            message = t("download.operations.routedLibrary", receipt=message, reason=route_reason)
     else:
-        message = f"已提交到「{row.name}」"
+        message = t("download.operations.submitted", name=row.name)
     return ok(view, message=message)
 
 
@@ -436,7 +440,7 @@ async def forget_target_pref(
     诉求在两种情况下都已经满足。
     """
     await DownloadTargetPrefRepository(session).delete(_member_scope(principal), category)
-    return ok(None, message="已清除该分类的保存位置记忆")
+    return ok(None, message=t("settings.downloaders.locationMemoryCleared"))
 
 
 class DownloaderTypeView(BaseModel):
@@ -460,19 +464,20 @@ class DownloaderTypeView(BaseModel):
     operation_id="dl.types.list",
 )
 async def list_downloader_types() -> ApiResponse[list[DownloaderTypeView]]:
+    from movieclaw_api.i18n.metadata import localized_schema
     from movieclaw_downloader.registry import adapters
     from movieclaw_sdk.config_schema import connection_schema
 
     views = []
     for a in adapters().values():
-        schema = connection_schema(a)
+        schema = localized_schema(connection_schema(a))
         url = schema["properties"]["url"]
         views.append(
             DownloaderTypeView(
                 type=a.type,
                 title=a.title,
                 connection=schema,
-                url_label=url.get("title") or "地址",
+                url_label=url.get("title") or t("settings.downloaders.urlLabel"),
                 url_placeholder=(url.get("examples") or [""])[0],
                 needs_username="username" in schema["properties"],
                 help=a.help or url.get("description") or "",
@@ -569,7 +574,9 @@ async def update_downloader_limits(
     applied = await set_downloader_limits(
         session, downloader_id, DownloaderLimits(**payload.model_dump())
     )
-    return ok(DownloaderLimitsView(**applied.model_dump()), message="下载器限制已更新")
+    return ok(
+        DownloaderLimitsView(**applied.model_dump()), message=t("settings.downloaders.limitsSaved")
+    )
 
 
 @router.post(
@@ -612,7 +619,7 @@ async def replace_stalled_subscription_download(
             info_hash=normalized_hash,
             attempt_id=attempt_id,
         ),
-        message="已开始跨站寻找同品质替代源；旧任务会保留到新源产生真实进度",
+        message=t("download.operations.replacementStarted"),
     )
 
 
@@ -671,7 +678,7 @@ async def delete_download_task_from_downloader(
                 requeued_units=[list(unit) for unit in plan.requeued_units],
                 cancelled_attempts=plan.cancelled_attempts,
             ),
-            message=f"演练：未删除任何东西（下载器「{plan.downloader_name}」）",
+            message=t("download.operations.deletePreview", name=plan.downloader_name),
         )
     await delete_download_task(
         session,
@@ -685,7 +692,11 @@ async def delete_download_task_from_downloader(
             info_hash=normalized_hash,
             delete_files=delete_files,
         ),
-        message=("已删除种子任务和数据文件" if delete_files else "已删除种子任务，数据文件已保留"),
+        message=(
+            t("download.operations.torrentAndFilesDeleted")
+            if delete_files
+            else t("download.operations.torrentDeleted")
+        ),
     )
 
 
@@ -733,7 +744,7 @@ async def create_downloader_config(
     assert row.id is not None  # 落库后必有主键
     row = await service.start_verification(row.id)
     background_tasks.add_task(verify_downloader, row.id)
-    return ok(DownloaderView.from_model(row), message="已保存，正在测试连接")
+    return ok(DownloaderView.from_model(row), message=t("settings.downloaders.created"))
 
 
 @router.put(
@@ -762,7 +773,7 @@ async def update_downloader_config(
     )
     row = await service.start_verification(downloader_id)
     background_tasks.add_task(verify_downloader, downloader_id)
-    return ok(DownloaderView.from_model(row), message="已更新，正在测试连接")
+    return ok(DownloaderView.from_model(row), message=t("settings.downloaders.updated"))
 
 
 @router.patch(
@@ -796,7 +807,7 @@ async def set_default_downloader(
     注意：其他记录的 is_default 也会随之变化，调用方应重新读取列表。"""
     service = DownloaderConfigService(session)
     row = await service.set_default(downloader_id)
-    return ok(DownloaderView.from_model(row), message="已设为默认下载器")
+    return ok(DownloaderView.from_model(row), message=t("settings.downloaders.defaultSaved"))
 
 
 @router.post(
@@ -817,7 +828,7 @@ async def reverify_downloader(
     service = DownloaderConfigService(session)
     row = await service.start_verification(downloader_id)
     background_tasks.add_task(verify_downloader, downloader_id)
-    return ok(DownloaderView.from_model(row), message="已重新发起连接测试")
+    return ok(DownloaderView.from_model(row), message=t("settings.downloaders.retested"))
 
 
 @router.delete(
@@ -837,8 +848,10 @@ async def delete_downloader_config(
 
     service = DownloaderConfigService(session)
     boost_disabled = await service.delete(downloader_id)
-    message = "已删除"
+    message = t("settings.downloaders.deleted")
     if boost_disabled:
-        names = "、".join(_site_display_name(site_id) for site_id in boost_disabled)
-        message = f"已删除，并关闭了 {names} 的刷流（它们用这台下载器刷流）"
+        names = t("common.list.separator").join(
+            _site_display_name(site_id) for site_id in boost_disabled
+        )
+        message = t("settings.downloaders.deletedBoostDisabled", sites=names)
     return ok({"boost_disabled_sites": boost_disabled}, message=message)

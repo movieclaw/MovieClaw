@@ -80,9 +80,12 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
         return UIImage(contentsOfFile: url.path)
     }
 
-    /// 「播放第 4 集」→「第 4 集」（标在大图角上）；电影的「播放」不标
+    /// 「播放第 4 集」→「第 4 集」、"Play Episode 4" → "Episode 4"（标在大图角上）；电影的「播放」不标。
+    /// 动作标题由服务端按收件人语言生成
     static func unitLabel(fromPlayTitle title: String) -> String? {
-        let label = title.hasPrefix("播放") ? String(title.dropFirst(2)) : title
+        let label = if title.hasPrefix("播放") { String(title.dropFirst(2)) } // i18n-ignore: server action title prefix
+            else if title.hasPrefix("Play") { String(title.dropFirst(4)).trimmingCharacters(in: .whitespaces) }
+            else { title }
         return label.isEmpty ? nil : label
     }
 

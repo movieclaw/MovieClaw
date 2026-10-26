@@ -1,3 +1,4 @@
+import type { AppMessageKey } from "./i18n/translate";
 import type { AgentTurn } from "./agent-conversations";
 
 export type CompanionState = "idle" | "attentive" | "departing" | "working" | "complete" | "failed";
@@ -5,13 +6,13 @@ export type CompanionState = "idle" | "attentive" | "departing" | "working" | "c
 // 与 iPhone 共用 4 × 6 图集的行顺序。
 export const COMPANION_POSES: CompanionState[] = ["idle", "attentive", "departing", "working", "complete", "failed"];
 
-export const COMPANION_LABELS: Record<CompanionState, string> = {
-  idle: "小幕，安静陪伴",
-  attentive: "小幕，正在听你说",
-  departing: "小幕，出发了",
-  working: "小幕，正在处理任务",
-  complete: "小幕，任务已完成",
-  failed: "小幕，任务遇到了问题",
+export const COMPANION_LABELS: Record<CompanionState, AppMessageKey> = {
+  idle: "agent.companion.idle",
+  attentive: "agent.companion.attentive",
+  departing: "agent.companion.departing",
+  working: "agent.companion.working",
+  complete: "agent.companion.complete",
+  failed: "agent.companion.failed",
 };
 
 export function resolveCompanionState(

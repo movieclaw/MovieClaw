@@ -21,6 +21,7 @@ from movieclaw_api.exceptions import (
     UpstreamServiceException,
     UpstreamUnreachableException,
 )
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.discover import (
     DiscoveredPersonDetailsView,
     DiscoveredTitleDetailsView,
@@ -90,13 +91,13 @@ def _translate(exc: TmdbError | DoubanError) -> AppException:
         return UpstreamUnreachableException(
             str(exc),
             service="tmdb",
-            hint="到「设置 → 网络」为 TMDB 配置代理或镜像地址，保存后用连通性测试验证",
+            hint=t("errors.upstream.tmdbHint"),
         )
     if isinstance(exc, DoubanNetworkError):
         return UpstreamUnreachableException(
             str(exc),
             service="douban",
-            hint="到「设置 → 网络」为豆瓣配置代理或反代地址，保存后用连通性测试验证",
+            hint=t("errors.upstream.doubanHint"),
         )
     return UpstreamServiceException(str(exc))
 

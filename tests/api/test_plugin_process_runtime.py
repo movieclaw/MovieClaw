@@ -492,6 +492,10 @@ async def apply(ctx) -> None:
     async def echo(n: int, body: dict) -> dict:
         return {"n": n, "body": body, "pid": os.getpid()}
 
+    @admin.get("/locale", operation_id="plugins.acme.web.locale")
+    async def locale(request: Request) -> dict:
+        return {"locale": ctx.locale, "header": request.headers.get("accept-language")}
+
     @admin.get("/headers", operation_id="plugins.acme.web.headers")
     async def headers(request: Request) -> list[str]:
         return sorted(request.headers.keys())
@@ -560,6 +564,23 @@ def test_process_plugin_routes_are_proxied_with_host_auth(tmp_path, monkeypatch)
             ).json()
             assert "authorization" not in seen and "cookie" not in seen
             assert "x-trace" in seen
+            for language in ("en", "zh-Hans", "en"):
+                response = client.get(
+                    "/api/v1/plugins/acme.web/locale",
+                    headers={
+                        "Accept-Language": language,
+                    },
+                )
+                assert response.json() == {"locale": language, "header": language}
+            # The normalized cookie selection takes precedence over the raw language header.
+            response = client.get(
+                "/api/v1/plugins/acme.web/locale",
+                headers={
+                    "Cookie": "mc_locale=en",
+                    "Accept-Language": "zh-CN",
+                },
+            )
+            assert response.json() == {"locale": "en", "header": "en"}
             # 路由套接字由宿主绑定：文件 0600、目录 0700，别的插件进程连不上也删不掉
             assert stat.S_IMODE(os.stat(session.socket).st_mode) == 0o600
             assert stat.S_IMODE(os.stat(os.path.dirname(session.socket)).st_mode) == 0o700

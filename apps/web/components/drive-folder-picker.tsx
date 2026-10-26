@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 /**
  * 选网盘上的文件夹挂到媒体库（docs/design/cloud-storage.md §4.1，样稿 mockups/cloud-storage-demo.html）。
  *
@@ -50,6 +52,8 @@ export function DriveFolderPicker({
   onClose: () => void;
   onSelect: (picked: PickedDriveFolder) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? 0);
   const [stack, setStack] = useState<Level[]>([ROOT]);
   const [dirs, setDirs] = useState<DriveDir[] | null>(null);
@@ -102,17 +106,17 @@ export function DriveFolderPicker({
     taken.some((t) => t.account_id === accountId && overlaps(t.path, path));
   const blocked =
     stack.length === 1
-      ? "点进要挂的文件夹再选"
+      ? t("library.cloudPicker.enterFolder")
       : usedElsewhere(current.libraryId)
-        ? `已在《${current.libraryName}》库里`
+        ? t("library.cloudPicker.inLibrary", { name: current.libraryName ?? "" })
         : inForm(current.path)
-          ? "与已添加的网盘目录重叠"
+          ? t("library.cloudPicker.overlap")
           : null;
 
   return (
-    <Modal open onClose={onClose} label="选择网盘上的文件夹" width="lg" raised panelClassName="flex max-h-[76dvh] flex-col">
+    <Modal open onClose={onClose} label={t("library.cloudPicker.title")} width="lg" raised panelClassName="flex max-h-[76dvh] flex-col">
       <div className="space-y-3 p-5 pb-3">
-        <h2 className="text-body-lg font-bold text-white">选择 {account?.backend_title ?? "网盘"} 上的文件夹</h2>
+        <h2 className="text-body-lg font-bold text-white">{t("library.cloudPicker.driveTitle", { drive: account?.backend_title ?? t("library.cloudPicker.cloudDrive") })}</h2>
         {accounts.length > 1 && (
           <div className="flex flex-wrap gap-1.5">
             {accounts.map((a) => (
@@ -145,7 +149,7 @@ export function DriveFolderPicker({
                   i === stack.length - 1 ? "font-semibold text-white" : "text-[var(--text-muted)]"
                 }`}
               >
-                {i === 0 ? (account?.name ?? "网盘") : level.name}
+                {i === 0 ? (account?.name ?? t("library.cloudPicker.cloudDrive")) : level.name}
               </button>
             </span>
           ))}
@@ -159,10 +163,10 @@ export function DriveFolderPicker({
 
       <div ref={listRef} className="min-h-[240px] flex-1 overflow-y-auto px-3 pb-2">
         {loading && dirs === null ? (
-          <p className="px-3 py-8 text-center text-ui text-[var(--text-muted)]">加载中…</p>
+          <p className="px-3 py-8 text-center text-ui text-[var(--text-muted)]">{t("common.loading")}</p>
         ) : dirs !== null && dirs.length === 0 && !error ? (
           <p className="px-3 py-8 text-center text-ui text-[var(--text-muted)]">
-            这里没有子目录，可直接选择当前目录
+            {t("library.cloudPicker.noSubfolders")}
           </p>
         ) : (
           dirs?.map((dir) => {
@@ -189,11 +193,11 @@ export function DriveFolderPicker({
                 <FolderIcon className="size-4 shrink-0 text-[var(--accent)]/80" />
                 <span className="min-w-0 flex-1 truncate text-ui text-[var(--text)]">{dir.name}</span>
                 {other ? (
-                  <span className="shrink-0 text-caption text-[var(--text-faint)]">已在《{dir.library_name}》库</span>
+                  <span className="shrink-0 text-caption text-[var(--text-faint)]">{t("library.cloudPicker.inLibraryBadge", { name: dir.library_name ?? "" })}</span>
                 ) : (
                   dir.video_count != null && (
                     <span className="shrink-0 text-caption tabular-nums text-[var(--text-faint)]">
-                      {dir.video_count.toLocaleString()} 个视频
+                      {t("library.cloudPicker.videoCount", { count: dir.video_count })}
                     </span>
                   )
                 )}
@@ -204,12 +208,12 @@ export function DriveFolderPicker({
         )}
       </div>
 
-      <div className="flex items-center gap-3 border-t border-white/[0.08] bg-white/[0.02] px-5 py-3.5">
-        <p className="min-w-0 flex-1 truncate text-sub text-[var(--text-muted)]" title={current.path}>
+      <div className={`${locale === "en" ? "flex flex-wrap" : "flex"} items-center gap-3 border-t border-white/[0.08] bg-white/[0.02] px-5 py-3.5`}>
+        <p className={`${locale === "en" ? "w-full break-words" : "min-w-0 flex-1 truncate"} text-sub text-[var(--text-muted)]`} title={current.path}>
           {blocked ?? current.path}
         </p>
         <button type="button" onClick={onClose} className="btn-glass h-8 shrink-0 px-3.5 text-ui font-medium">
-          取消
+          {t("common.cancel")}
         </button>
         <button
           type="button"
@@ -218,7 +222,7 @@ export function DriveFolderPicker({
           className="btn-accent flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-ui font-semibold disabled:opacity-40"
         >
           <CheckIcon className="size-3.5" />
-          选择此文件夹
+          {t("library.cloudPicker.choose")}
         </button>
       </div>
     </Modal>

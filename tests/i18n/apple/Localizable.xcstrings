@@ -1,0 +1,42 @@
+{
+  "sourceLanguage": "zh-Hans",
+  "strings": {
+    "common.close": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        }
+      }
+    },
+    "library.scan.progress": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已加载 %lld 项"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loaded %lld items"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -86,7 +86,7 @@ struct PhotoWallView: View {
                 .frame(minHeight: 280)
         case .loaded:
             if feed.items.isEmpty {
-                EmptyState(systemImage: "photo.on.rectangle.angled", title: "这个库还没有内容。")
+                EmptyState(systemImage: "photo.on.rectangle.angled", title: String(localized: .libraryDetailEmpty))
                     .frame(minHeight: 280)
             } else {
                 wall
@@ -129,7 +129,7 @@ struct PhotoWallView: View {
                         if feed.loadingPrevious {
                             ProgressView().controlSize(.small)
                         } else {
-                            Label("加载更早的照片", systemImage: "arrow.up")
+                            Label(String(localized: .libraryGalleryLoadEarlier), systemImage: "arrow.up")
                         }
                     }
                     .buttonStyle(.glass)
@@ -149,17 +149,17 @@ struct PhotoWallView: View {
             ForEach(years, id: \.title) { section in
                 Section(section.title) {
                     ForEach(section.entries, id: \.initial) { entry in
-                        Button("\(Self.shortMonth(entry.initial)) · \(entry.count) 张") {
+                        Button(String(localized: .libraryGalleryMonthCount(Self.shortMonth(entry.initial), entry.count))) {
                             Task {
                                 if await feed.jump(to: entry.offset, fetch: fetch) { scroller.scrollToTop() }
                             }
                         }
-                        .accessibilityLabel("\(Self.formatMonth(entry.initial)) · \(entry.count) 张")
+                        .accessibilityLabel(String(localized: .libraryGalleryMonthCount(Self.formatMonth(entry.initial), entry.count)))
                     }
                 }
             }
         } label: {
-            Label("按月份跳转", systemImage: "calendar")
+            Label(String(localized: .libraryGalleryJumpMonth), systemImage: "calendar")
         }
         .buttonStyle(.glass)
     }
@@ -180,7 +180,7 @@ struct PhotoWallView: View {
                 Text(Self.formatMonth(month))
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.85))
-                Text("\(count) 张")
+                Text(String(localized: .libraryStatusPhotoCount(count)))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(Theme.textFaint)
             }
@@ -203,7 +203,7 @@ struct PhotoWallView: View {
                 PhotoTile(item: item, url: api.image(item.posterUrl, width: density.tileImageWidth), working: working(item))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("查看 \(item.title)")
+            .accessibilityLabel(String(localized: .libraryGalleryViewPhoto(item.title)))
         }
     }
 
@@ -211,29 +211,32 @@ struct PhotoWallView: View {
 
     /// 条目的月份档名：`2026-08`，缺日期归「未知」
     static func monthOf(_ item: API.LibraryItemView) -> String {
-        guard let date = item.releaseDate, date.count >= 7 else { return "未知" }
+        guard let date = item.releaseDate, date.count >= 7 else { return unknownMonth }
         return String(date.prefix(7))
     }
 
+    // i18n-ignore: the server and month keys mark undated photos with this fixed value; it is never displayed.
+    static let unknownMonth = "未知"
+
     /// 「2026 年 8 月」/「日期未知」
     static func formatMonth(_ month: String) -> String {
-        guard month != "未知" else { return "日期未知" }
+        guard month != unknownMonth else { return String(localized: .libraryGalleryDateUnknown) }
         let parts = month.split(separator: "-")
         guard parts.count >= 2, let mon = Int(parts[1]) else { return month }
-        return "\(parts[0]) 年 \(mon) 月"
+        return String(localized: .libraryGalleryMonth(String(parts[0]), mon))
     }
 
     private static func shortMonth(_ month: String) -> String {
-        guard month != "未知" else { return "日期未知" }
+        guard month != unknownMonth else { return String(localized: .libraryGalleryDateUnknown) }
         let parts = month.split(separator: "-")
         guard parts.count >= 2, let mon = Int(parts[1]) else { return month }
-        return "\(mon) 月"
+        return String(localized: .libraryGalleryMonthShort(mon))
     }
 
     private static func yearSections(_ index: [API.LibraryIndexEntryView]) -> [(title: String, entries: [API.LibraryIndexEntryView])] {
         var sections: [(title: String, entries: [API.LibraryIndexEntryView])] = []
         for entry in index {
-            let title = entry.initial == "未知" ? "日期未知" : "\(entry.initial.prefix(4)) 年"
+            let title = entry.initial == unknownMonth ? String(localized: .libraryGalleryDateUnknown) : String(localized: .mediaFiltersYearValue(String(entry.initial.prefix(4))))
             if sections.last?.title == title {
                 sections[sections.count - 1].entries.append(entry)
             } else {
@@ -283,8 +286,8 @@ private struct PhotoTile: View {
     private var dead: Bool { item.fileCount > 0 && item.missingCount >= item.fileCount }
 
     private var extremeLabel: String? {
-        if item.primaryAspect > GalleryDensity.maxAspect { return "全景" }
-        if item.primaryAspect < GalleryDensity.minAspect { return "长图" }
+        if item.primaryAspect > GalleryDensity.maxAspect { return String(localized: .libraryGalleryPanorama) }
+        if item.primaryAspect < GalleryDensity.minAspect { return String(localized: .libraryGalleryTallImage) }
         return nil
     }
 
@@ -329,7 +332,7 @@ private struct PhotoTile: View {
                 .padding(.vertical, 5)
                 .background(Color(red: 7 / 255, green: 12 / 255, blue: 20 / 255).opacity(0.92))
             } else if dead {
-                Text("文件已缺失")
+                Text(String(localized: .libraryGalleryFileMissing))
                     .font(.caption2)
                     .foregroundStyle(Theme.textMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)

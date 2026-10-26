@@ -111,6 +111,7 @@ import io.movieclaw.android.core.model.DownloadTask
 import io.movieclaw.android.core.model.JobView
 import kotlin.math.max
 import kotlin.math.roundToInt
+import io.movieclaw.android.core.designsystem.mcCards
 
 /** 活动中心:后台任务(jobs SSE 实时)+ 下载任务 + 播放监控 */
 @Composable
@@ -156,6 +157,8 @@ fun ActivityScreen(
     var revokePending by remember { mutableStateOf<ActivePlaybackSession?>(null) }
 
     Box(Modifier.fillMaxSize().background(Bg)) {
+        // 宽窗口限宽居中（760dp，同 iOS padReadableWidth）；手机上原样铺满
+        io.movieclaw.android.core.designsystem.McReadableWidthBox(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             when {
                 state.loading -> Box(Modifier.fillMaxSize().padding(top = topBarTotal), contentAlignment = Alignment.Center) {
@@ -403,6 +406,7 @@ fun ActivityScreen(
                 },
             )
         }
+        }
         McTopBar(
             variant = McTopBarVariant.Root,
             title = "活动",
@@ -428,7 +432,7 @@ private fun FinishedJobRow(job: JobView, onClick: () -> Unit) {
     val stamp = job.finishedAt ?: job.createdAt
     Row(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .padding(vertical = 4.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
@@ -525,7 +529,7 @@ private fun PlaybackSessionCard(
 
     FlatCard(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .onGloballyPositioned { cardRoot = it.positionInRoot() }
             .graphicsLayer {
@@ -751,7 +755,7 @@ internal fun ActiveDownloadRow(
     }
     FlatCard(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
@@ -809,7 +813,7 @@ internal fun ActiveDownloadRow(
 @Composable
 private fun DeviceDownloadRow(download: ActiveFileDownload, origin: String?) {
     val media = download.media
-    FlatCard(Modifier.padding(horizontal = McMetrics.pagePadding).fillMaxWidth()) {
+    FlatCard(Modifier.padding(horizontal = mcCards.pagePadding).fillMaxWidth()) {
         // 内边距由调用方给（FlatCard 只有底色与描边）：此前漏了，海报上下贴边、被圆角切
         Column(Modifier.padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -926,7 +930,7 @@ internal fun JobCard(job: JobView, onCancel: () -> Unit, onRetry: () -> Unit, on
         "cancelled", "canceled" -> Warning
         else -> Info
     }
-    FlatCard(Modifier.padding(horizontal = McMetrics.pagePadding).fillMaxWidth()) {
+    FlatCard(Modifier.padding(horizontal = mcCards.pagePadding).fillMaxWidth()) {
         // FlatCard 只有底色与描边，内边距由调用方给（同 AttentionGroupCard 那张卡片）
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1011,7 +1015,7 @@ private fun activitySummaryParts(activity: TaskActivity, state: ActivityViewMode
 private fun ActivitySummary(activity: TaskActivity, state: ActivityViewModel.UiState) {
     Row(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .padding(top = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1035,7 +1039,7 @@ private fun ActivitySummary(activity: TaskActivity, state: ActivityViewModel.UiS
 internal fun WatchStatsCard(stats: io.movieclaw.android.core.model.PlaybackWatchStatsView) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White.copy(alpha = 0.05f))
             .padding(14.dp),
@@ -1122,7 +1126,7 @@ internal fun HistoryRow(entry: io.movieclaw.android.core.model.PlaybackLogEntry,
     val media = entry.media
     Row(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White.copy(alpha = 0.04f))
@@ -1247,7 +1251,7 @@ internal fun AttentionCard(
 ) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White.copy(alpha = 0.05f))
@@ -1312,7 +1316,7 @@ internal fun AttentionGroupCard(
 ) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White.copy(alpha = 0.05f))

@@ -1,3 +1,7 @@
+import { appTranslator } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
+import { formatList } from "./i18n/format.ts";
+
 /**
  * 种子搜索的一级分类。
  *
@@ -78,7 +82,11 @@ export type SearchVertical = "media" | "torrent" | "library";
  * 一次搜索的范围：选中某个标签后传给搜索接口的参数组合。
  * label 仅用于历史与结果页展示（分类中文名/预设名）；null = 「全部」。
  */
+export type SearchCategoryLabelKey = `search.categories.${TorrentCategory}`;
+
 export interface SearchScope {
+  /** Only built-in labels carry a key; custom names and unknown legacy labels stay raw. */
+  labelKey?: SearchCategoryLabelKey | null;
   label: string | null;
   categories: TorrentCategory[];
   siteIds: string[];
@@ -102,6 +110,7 @@ export function scopeOfTab(tab: SearchTab): SearchScope {
   if (tab.type === "category") {
     return {
       label: CATEGORY_LABEL[tab.id],
+      labelKey: `search.categories.${tab.id}`,
       categories: [tab.id],
       siteIds: [],
       posterMode: false,
@@ -151,7 +160,8 @@ export const DEFAULT_SEARCH_TABS: SearchTab[] = (
  */
 export function scopeEquals(left: SearchScope, right: SearchScope): boolean {
   return (
-    left.label === right.label &&
+    (left.labelKey ?? null) === (right.labelKey ?? null) &&
+    (left.labelKey != null || left.label === right.label) &&
     left.posterMode === right.posterMode &&
     left.skipHistory === right.skipHistory &&
     left.categories.length === right.categories.length &&
@@ -165,20 +175,31 @@ export function scopeEquals(left: SearchScope, right: SearchScope): boolean {
  * 自定义分类的范围摘要（同 iOS SearchTab.summary / 设置页预设行）：
  * 「电影、剧集 · 3 个站点 · 图览 · 无痕」；内置分类没有摘要。
  */
-export function presetSummary(tab: SearchTab): string | null {
-  if (tab.type !== "preset") return null;
-  const cats =
-    tab.categories.length === 0
-      ? "不限分类"
-      : tab.categories.map((c) => CATEGORY_LABEL[c]).join("、");
-  const sites = tab.site_ids.length === 0 ? "全部站点" : `${tab.site_ids.length} 个站点`;
-  return `${cats} · ${sites}${tab.poster_mode ? " · 图览" : ""}${tab.skip_history ? " · 无痕" : ""}`;
+export function categoryLabel(category: TorrentCategory, locale: AppLocale = "zh-Hans"): string {
+  return appTranslator(locale)(`search.categories.${category}`);
 }
 
-/** 标签的展示名：内置分类取中文名，自定义分类取预设名。 */
-export function tabLabel(tab: SearchTab): string {
-  return tab.type === "category" ? CATEGORY_LABEL[tab.id] : tab.name;
+export function searchScopeLabel(scope: Pick<SearchScope, "label" | "labelKey">, locale: AppLocale = "zh-Hans"): string | null {
+  return scope.labelKey ? appTranslator(locale)(scope.labelKey) : scope.label;
 }
+
+export function presetSummary(tab: SearchTab, locale: AppLocale = "zh-Hans"): string | null {
+  if (tab.type !== "preset") return null;
+  const t = appTranslator(locale);
+  const categories = tab.categories.length === 0
+    ? t("search.scope.anyCategory")
+    : formatList(tab.categories.map((category) => categoryLabel(category, locale)), locale);
+  return t("search.scope.presetSummary", {
+    categories, allSites: tab.site_ids.length === 0 ? "yes" : "no", count: tab.site_ids.length,
+    poster: tab.poster_mode ? "yes" : "no", private: tab.skip_history ? "yes" : "no",
+  });
+}
+
+/** User-named scopes keep their original names. */
+export function tabLabel(tab: SearchTab, locale: AppLocale = "zh-Hans"): string {
+  return tab.type === "category" ? categoryLabel(tab.id, locale) : tab.name;
+}
+
 
 /** 标签的稳定 key：类型加前缀，内置分类与预设的 id 不会互相撞。 */
 export function tabKeyOf(tab: SearchTab): string {

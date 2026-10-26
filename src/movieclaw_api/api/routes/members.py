@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from movieclaw_api.api.deps import require_interactive
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.member import (
     MemberCreateRequest,
     MemberPasswordResetView,
@@ -108,7 +109,7 @@ async def create_member(
         password=payload.password,
         nickname=payload.nickname,
     )
-    return ok(await _member_view(session, member), message="成员已创建，请把账号密码发给对方")
+    return ok(await _member_view(session, member), message=t("settings.members.created"))
 
 
 @router.get(
@@ -150,7 +151,7 @@ async def update_member(
         content_age_limit=payload.content_age_limit,
         allow_unrated=payload.allow_unrated,
     )
-    return ok(await _member_view(session, member), message="成员设置已保存")
+    return ok(await _member_view(session, member), message=t("settings.members.saved"))
 
 
 @router.put(
@@ -165,7 +166,7 @@ async def set_member_status(
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[MemberView]:
     member = await members_service.set_member_status(session, member_id, enabled=payload.enabled)
-    message = "成员已启用" if payload.enabled else "成员已停用，其所有设备已下线"
+    message = t("settings.members.enabled") if payload.enabled else t("settings.members.disabled")
     return ok(await _member_view(session, member), message=message)
 
 
@@ -181,7 +182,7 @@ async def reset_member_password(
     member, plaintext = await members_service.reset_member_password(session, member_id)
     return ok(
         MemberPasswordResetView(id=member.id, username=member.username, password=plaintext),
-        message="密码已重置，请立即复制发给成员；旧会话已全部下线",
+        message=t("settings.members.passwordReset"),
     )
 
 
@@ -199,9 +200,9 @@ async def sign_out_member(
 ) -> ApiResponse[MemberView]:
     member, count = await members_service.sign_out_member(session, member_id)
     message = (
-        f"已让 {member.nickname or member.username} 在全部设备上下线（{count} 台）"
+        t("settings.members.devicesSignedOut", name=member.nickname or member.username, count=count)
         if count
-        else f"{member.nickname or member.username} 目前没有登录着的设备"
+        else t("settings.members.noActiveDevices", name=member.nickname or member.username)
     )
     return ok(await _member_view(session, member), message=message)
 
@@ -217,7 +218,7 @@ async def delete_member(
     member_id: int, session: AsyncSession = Depends(get_session)
 ) -> ApiResponse[None]:
     await members_service.delete_member(session, member_id)
-    return ok(None, message="成员已删除；其个人数据已清理，公共资源不受影响")
+    return ok(None, message=t("settings.members.deleted"))
 
 
 @router.get(
@@ -229,7 +230,7 @@ async def read_member_avatar(member_id: int) -> FileResponse:
     """返回成员头像本体。挂在管理区，仅管理员可读（成员本人经 /auth/avatar 读取）。"""
     path = avatar_media.find_avatar(avatar_media.member_stem(member_id))
     if path is None:
-        raise NotFoundException("该成员尚未上传头像")
+        raise NotFoundException(message_key="errors.members.avatarMissing")
     return FileResponse(
         path,
         media_type=avatar_media.content_type_for(path),

@@ -1,4 +1,5 @@
 import { request } from "@/lib/http";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import { refreshThemeCatalog } from "@/lib/theme-catalog-sync";
 
 /**
@@ -133,8 +134,10 @@ export interface PluginFeature {
 }
 
 /** 功能目录与开关状态（成员也能读：停用的功能各端不出入口） */
-export async function listFeatures(): Promise<PluginFeature[]> {
-  return (await request<ApiEnvelope<PluginFeature[]>>("/app/features")).data;
+export async function listFeatures(locale?: AppLocale): Promise<PluginFeature[]> {
+  return (await request<ApiEnvelope<PluginFeature[]>>("/app/features", locale ? {
+    headers: { "Accept-Language": locale },
+  } : undefined)).data;
 }
 
 /** 停用 / 开启一个功能：运行中生效，重启后保持（管理员） */
@@ -172,6 +175,7 @@ export interface PluginsOverview {
   safe_mode?: PluginSafeMode;
   /** 内置插件分组的展示顺序；旧服务端没有这个字段 */
   groups?: string[];
+  group_labels?: Record<string, string>;
   /** 卸载了的官方插件；旧服务端没有这个字段 */
   removed?: RemovedPlugin[];
 }

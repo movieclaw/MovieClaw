@@ -159,7 +159,10 @@ class SunnyPTSite(BaseSite):
             details = {"url": url, "code": code}
             if any(kw in raw_message.lower() for kw in _AUTH_ERROR_KEYWORDS):
                 raise TrackerAuthError(
-                    f"SunnyPT 接口返回错误：{raw_message}", details=details
+                    f"SunnyPT 接口返回错误：{raw_message}",
+                    details=details,
+                    message_key="errors.siteDiagnostic.upstreamAuth",
+                    params={"site": "SunnyPT", "error": raw_message},
                 )
             raise TrackerParseError(
                 f"SunnyPT 接口返回错误：{raw_message}", details=details

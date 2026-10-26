@@ -69,6 +69,25 @@ class WatchNextPublisher(private val context: Context, private val http: OkHttpC
                     ?.let { ids += android.content.ContentUris.parseId(it) }
             }
             prefs.edit().putString(KEY_IDS, ids.joinToString(",")).apply()
+            // 海报屏保（androidtv-mc-screensaver.md）：剧照已在本目录，把标题清单写给 DreamService；
+            // 待机零网络，新鲜度靠这里的顺手更新；退出登录 clear() 清图时一并清掉
+            runCatching {
+                val state = org.json.JSONArray()
+                for (item in picked) {
+                    val name = "${item.mediaItemId}-${item.seasonNumber}-${item.episodeNumber}.jpg"
+                    if (!File(dir, name).isFile()) continue
+                    state.put(
+                        org.json.JSONObject()
+                            .put("title", item.title)
+                            .put(
+                                "subtitle",
+                                if (item.kind == "tv") (item.episodeTitle ?: "第 ${item.episodeNumber} 集") else "",
+                            )
+                            .put("image", name),
+                    )
+                }
+                File(dir, WatchNextImageProvider.DREAM_STATE).writeText(state.toString())
+            }
         } catch (e: Exception) {
             // 不是每台电视都有 TvProvider（部分国产 ROM 阉掉了）：发不了就算了
             Log.w(TAG, "继续观看发布失败", e)

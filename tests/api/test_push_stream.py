@@ -9,11 +9,13 @@ TestClient 会等响应体结束才返回，所以把单条连接的最长时间
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
 from collections.abc import Callable
 from datetime import timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -49,7 +51,7 @@ def client(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     monkeypatch.setattr(outbox, "POLL_S", 0.1)
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         c.post(f"{_AUTH}/bootstrap", json=_ADMIN)
         c.post(f"{_AUTH}/login", json=_ADMIN)
         yield c
@@ -287,7 +289,7 @@ def test_outbox_only_for_stream_devices_and_respects_preferences(client: TestCli
 # ----------------------------------------------------------------------
 
 
-def test_stream_replays_then_streams_live_with_heartbeat(client: TestClient) -> None:
+def test_stream_replays_then_streams_live_with_heartbeat(client: TestClient, monkeypatch) -> None:
     bearer = _app_login(client, _ADMIN, installation="inst-vivo-1", name="vivo")
     _enable_stream(client, bearer)
     _notify(client, {0}, "第一条")
@@ -296,15 +298,46 @@ def test_stream_replays_then_streams_live_with_heartbeat(client: TestClient) -> 
     _wait(lambda: len(_rows(client)) == 2)
     first, second = (r.id for r in _rows(client))
 
-    # 连着的时候再来一条：应该实时送到
-    timer = threading.Timer(0.6, lambda: _notify(client, {0}, "实时的"))
-    timer.start()
-    started = time.time()
-    resp = _as_app(client, bearer, "GET", _STREAM, params={"since": 0})
-    timer.join()
+    from movieclaw_api.services.push import outbox
+    from movieclaw_api.services.push.notify import AlertContent, notify
+
+    original_stream = outbox.stream
+    clock = SimpleNamespace(now=0.0, advance=False)
+
+    def monotonic():
+        now = clock.now
+        if clock.advance:
+            clock.now = outbox.HEARTBEAT_S
+            clock.advance = False
+        return now
+
+    async def live_content(_session, _member_id):
+        return AlertContent(
+            title="实时的", body="正文", open="/library/1/item/2", thread="t", level="passive"
+        )
+
+    async def observed_stream(*args, **kwargs):
+        # 仍走真实路由、notify、发件箱和 SSE；只推进该生成器的时钟。
+        # 首帧计算/数据库慢不消耗心跳窗口，也不让 Timer 在连接前抢跑。
+        async with asyncio.timeout(8):
+            async for frame in original_stream(*args, **kwargs):
+                yield frame
+                parsed = _parse(frame)[0]
+                if parsed.get("id") == str(second):
+                    notify("subscription.fulfilled", {0}, live_content, collapse=("item", "实时的"))
+                elif parsed.get("event") == "notification":
+                    if json.loads(parsed["data"])["title"] == "实时的":
+                        clock.advance = True
+                elif parsed.get("comment") == "heartbeat":
+                    clock.now = outbox.MAX_CONNECTION_S
+
+    with monkeypatch.context() as patch:
+        patch.setattr(outbox, "time", SimpleNamespace(monotonic=monotonic))
+        patch.setattr(outbox, "stream", observed_stream)
+        resp = _as_app(client, bearer, "GET", _STREAM, params={"since": 0})
+    assert clock.now == outbox.MAX_CONNECTION_S  # 心跳之后，到连接上限才结束
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/event-stream")
-    assert time.time() - started >= 1.4  # 到连接时长上限才正常结束
     frames = _parse(resp.text)
     assert frames[0] == {"comment": "connected"}
     items = _notifications(frames)

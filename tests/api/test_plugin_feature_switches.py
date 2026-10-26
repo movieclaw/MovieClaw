@@ -40,7 +40,7 @@ def make_client(*, admin: bool = True) -> tuple[object, TestClient]:
     if who is None:
         who = Principal(kind="member", name="family", is_admin=False)
     app.dependency_overrides[require_login] = lambda: who
-    return app, TestClient(app)
+    return app, TestClient(app, headers={"Accept-Language": "zh-Hans"})
 
 
 def by_key(client: TestClient) -> dict[str, dict]:
@@ -192,3 +192,39 @@ def test_state_file_is_tolerant(env, caplog) -> None:
     assert list(plugin_features.read_disabled(settings)) == ["arrivals"]
     patches = plugin_features.feature_patches(settings)
     assert [(p.id, p.source) for p in patches] == [("push.arrivals", "feature:arrivals")]
+
+
+def test_localized_feature_catalog_is_read_only_and_switches_keep_stable_ids(env) -> None:
+    from movieclaw_api.plugins.features import FEATURES as catalog
+
+    _, client = make_client()
+    original = [(item.key, item.title, item.description, item.entries) for item in catalog]
+    with client:
+        assert switch(client, "ingest-watch", False).status_code == 200
+        state_file = env / "plugins-features.json"
+        saved = state_file.read_bytes()
+        rows = []
+        for language in ("en", "zh-Hans", "en"):
+            response = client.get(FEATURES, headers={"Accept-Language": language})
+            assert response.status_code == 200
+            rows.append({item["key"]: item for item in response.json()["data"]})
+            assert state_file.read_bytes() == saved
+        assert rows[0]["ingest-watch"]["title"] == "Automatic import"
+        assert rows[1]["ingest-watch"]["title"] == "自动入库"
+        assert rows[0] == rows[2]
+        for key, english in rows[0].items():
+            chinese = rows[1][key]
+            assert english["description"] != chinese["description"]
+            assert {k: v for k, v in english.items() if k not in {"title", "description"}} == {
+                k: v for k, v in chinese.items() if k not in {"title", "description"}
+            }
+        assert [
+            (item.key, item.title, item.description, item.entries) for item in catalog
+        ] == original
+        response = client.put(
+            FEATURES + "/ingest-watch", json={"enabled": True}, headers={"Accept-Language": "en"}
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["title"] == "Automatic import"
+        assert response.json()["data"]["enabled"] is True
+        assert json.loads(state_file.read_bytes())["disabled"] == {}

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import textwrap
 from functools import partial
@@ -38,6 +39,8 @@ async def apply(ctx) -> None:
         key=f"{ctx.entry_id}.sync", title="同步想看", handler=sync,
         default_trigger_type=TriggerType.INTERVAL, default_interval_seconds=3600,
         description="把想看同步成订阅",
+        title_key="plugin.acme.title",
+        description_key="plugin.acme.description",
     ))
 """
 
@@ -110,6 +113,8 @@ def test_a_plugin_scheduled_task_is_registered_and_runs_in_the_plugin(client) ->
     task = get_task("acme-tick.sync")
     assert task is not None and task.title == "同步想看"
     assert task.default_interval_seconds == 3600 and task.description == "把想看同步成订阅"
+    assert task.title_key == "plugin.acme.title"
+    assert task.description_key == "plugin.acme.description"
     call(client, task.handler)  # 调度器到点就是这么调的
     call(client, task.handler)
     assert call(client, runs) == 2
@@ -117,6 +122,16 @@ def test_a_plugin_scheduled_task_is_registered_and_runs_in_the_plugin(client) ->
 
 def test_it_shows_up_in_the_scheduled_tasks_page_and_its_period_can_change(client) -> None:
     """用户在「设置 → 定时任务」里看得到插件的任务，能改周期（此前插件任务按贡献 id 查不到）。"""
+    from movieclaw_scheduler import get_scheduler
+
+    async def wait_until_scheduled():
+        # 进程插件启动后，scheduler 的同步队列才异步补库并排上任务。
+        # 等实际 job 登记完成，再验证页面；插件 active 不代表这一步已经提交。
+        async with asyncio.timeout(10):
+            while get_scheduler()._scheduler.get_job("acme-tick.sync") is None:
+                await asyncio.sleep(0.01)
+
+    call(client, wait_until_scheduled)
     tasks = {t["key"]: t for t in client.get("/api/v1/scheduled-tasks").json()["data"]}
     assert "acme-tick.sync" in tasks, sorted(tasks)
     assert tasks["acme-tick.sync"]["title"] == "同步想看"

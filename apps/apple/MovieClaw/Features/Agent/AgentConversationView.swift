@@ -64,7 +64,7 @@ struct AgentConversationView: View {
             content(proxy: proxy)
         }
             .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(conversation.loaded ? conversation.title : "AI 会话")
+            .navigationTitle(conversation.loaded ? conversation.title : String(localized: .agentConversationPageTitle))
             .navigationBarTitleDisplayMode(.inline)
             .background { HidesTabBarWhenPushed() }
             .toolbar {
@@ -117,7 +117,7 @@ struct AgentConversationView: View {
         Group {
             if !conversation.loaded, let error = conversation.loadError {
                 VStack(spacing: 8) {
-                    Text("无法打开会话").font(.system(size: 17, weight: .medium)).foregroundStyle(Theme.text)
+                    Text(String(localized: .agentConversationOpenFailed)).font(.system(size: 17, weight: .medium)).foregroundStyle(Theme.text)
                     Text(error).font(.system(size: 14)).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
                 }
                 .padding(.horizontal, 24)
@@ -128,7 +128,7 @@ struct AgentConversationView: View {
                 // 黑底上看着像黑屏（2026-10-13 用户反馈）
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large).tint(Theme.textMuted)
-                    Text("正在加载会话…")
+                    Text(String(localized: .agentConversationLoading))
                         .font(.system(size: 15))
                         .foregroundStyle(Theme.textMuted)
                 }
@@ -229,7 +229,7 @@ struct AgentConversationView: View {
                     .foregroundStyle(Theme.text)
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
                     .padding(.bottom, 10)
-                    .accessibilityLabel("回到最新消息")
+                    .accessibilityLabel(String(localized: .agentConversationLatest))
                     .accessibilityIdentifier("agent-scroll-latest")
                 }
             }
@@ -251,9 +251,9 @@ struct AgentConversationView: View {
         return VStack(alignment: .leading, spacing: 8) {
             if retryTarget != nil {
                 HStack {
-                    Text("正在改写较早的提问，发送后将替换其后的对话")
+                    Text(String(localized: .agentConversationRewriting))
                     Spacer()
-                    Button("取消改写") {
+                    Button(String(localized: .agentConversationCancelRewrite)) {
                         retryTarget = nil
                         draft.clear()
                     }
@@ -266,8 +266,8 @@ struct AgentConversationView: View {
             }
             AgentComposer(
                 draft: $draft,
-                placeholder: locked ? "请先接入 AI 模型，再继续对话"
-                    : retryTarget != nil ? "修改问题后发送，将从这里重新生成回答" : nil,
+                placeholder: locked ? String(localized: .agentConversationConfigure)
+                    : retryTarget != nil ? String(localized: .agentConversationRewritePlaceholder) : nil,
                 busy: conversation.running,
                 // 轨迹还没回放完不许发：乐观轮次会被随后到达的完整轨迹覆盖掉
                 disabled: locked || !conversation.loaded || (retrying && retryTarget != nil),
@@ -327,9 +327,9 @@ struct AgentConversationView: View {
         }
         Task {
             let agreed = await feedback.confirm(
-                "重新提交这条提问？",
-                message: "这条提问及其之后的对话会被新问题替换，原记录无法恢复。",
-                confirmTitle: "替换并重新提问",
+                String(localized: .agentConversationRewriteTitle),
+                message: String(localized: .agentConversationRewriteHint),
+                confirmTitle: String(localized: .agentConversationRewriteConfirm),
                 destructive: true
             )
             guard agreed else { return }
@@ -381,59 +381,59 @@ struct AgentConversationView: View {
     /// （「更多」页最近会话的行尾菜单与此同图标、同顺序）
     private var sessionMenu: some View {
         Menu {
-            Button("从此处创建新会话", systemImage: "arrow.triangle.branch") { Task { await fork() } }
-            Button("重命名", systemImage: "pencil") { Task { await rename() } }
+            Button(String(localized: .agentConversationForkHere), systemImage: "arrow.triangle.branch") { Task { await fork() } }
+            Button(String(localized: .navSessionsRename), systemImage: "pencil") { Task { await rename() } }
             Divider()
-            Button("删除会话", systemImage: "trash", role: .destructive) { Task { await remove() } }
+            Button(String(localized: .navSessionsDelete), systemImage: "trash", role: .destructive) { Task { await remove() } }
         } label: {
             Image(systemName: "ellipsis")
         }
-        .accessibilityLabel("会话操作")
+        .accessibilityLabel(String(localized: .navSessionsActions))
         .accessibilityIdentifier("agent-session-menu")
     }
 
     /// 从此处创建新会话：服务端带上本会话的上下文开一个新会话（同 Web「在新会话中继续」），打开后接着聊
     private func fork() async {
         guard await feedback.confirm(
-            "从此处创建新会话？",
-            message: "会带上这段对话的上下文开一个新会话接着聊，原会话保留不变。",
-            confirmTitle: "创建新会话"
+            String(localized: .agentConversationForkHereTitle),
+            message: String(localized: .agentConversationForkHint),
+            confirmTitle: String(localized: .agentConversationForkConfirm)
         ) else { return }
         do {
             let forked = try await api.sessionFork(sessionId: sessionId)
             router.open(.session(id: forked.session.id))
         } catch {
-            feedback.error("创建新会话失败：\(error.localizedDescription)")
+            feedback.error(String(localized: .agentConversationForkFailed(error.localizedDescription)))
         }
     }
 
     private func rename() async {
         // 初值是顶栏显示的标题；去空白、截 80 字，没变化就不发请求（同 Web）
         let current = conversation.title
-        guard let input = await feedback.prompt("重命名会话", placeholder: "会话标题（最多 80 字）", initial: current, maxLength: 80) else { return }
+        guard let input = await feedback.prompt(String(localized: .agentConversationRenameTitle), placeholder: String(localized: .agentConversationTitlePlaceholder), initial: current, maxLength: 80) else { return }
         let name = String(input.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
         guard !name.isEmpty, name != current else { return }
         do {
             let updated = try await api.sessionRename(sessionId: sessionId, body: .init(title: name))
             conversation.title = updated.title ?? name
         } catch {
-            feedback.error("重命名失败：\(error.localizedDescription)")
+            feedback.error(String(localized: .agentConversationRenameFailed(error.localizedDescription)))
         }
     }
 
     private func remove() async {
-        let title = conversation.title.isEmpty ? "未命名会话" : conversation.title
+        let title = conversation.title.isEmpty ? String(localized: .agentSessionUnnamed) : conversation.title
         guard await feedback.confirm(
-            "彻底删除会话「\(title)」？",
-            message: "服务器上的完整对话记录将一并删除，此操作不可恢复。",
-            confirmTitle: "彻底删除", destructive: true
+            String(localized: .agentConversationDeleteTitle(title)),
+            message: String(localized: .agentConversationDeleteHint),
+            confirmTitle: String(localized: .libraryItemDeletePermanently), destructive: true
         ) else { return }
         do {
             _ = try await api.sessionDelete(sessionId: sessionId)
-            feedback.success("会话已删除")
+            feedback.success(String(localized: .agentConversationDeleted))
             router.pop()
         } catch {
-            feedback.error("删除失败：\(error.localizedDescription)")
+            feedback.error(String(localized: .agentConversationDeleteFailed(error.localizedDescription)))
         }
     }
 
@@ -443,7 +443,7 @@ struct AgentConversationView: View {
                 try await conversation.stop(api: api)
             } catch {
                 // 停止失败时 Agent 可能仍在执行，不在客户端伪造终态；真实终态仍会经事件流落到界面
-                feedback.error("停止失败，请稍后重试：\(error.localizedDescription)")
+                feedback.error(String(localized: .agentConversationStopFailed(error.localizedDescription)))
             }
         }
     }
@@ -488,9 +488,9 @@ struct AgentLLMSetupNotice: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text("接入 AI 模型后即可解锁AI 对话能力。")
+            Text(String(localized: .agentConversationConnectModelHint))
                 .foregroundStyle(Theme.textMuted)
-            Button("去接入") { router.push(.settingsSection(.llm)) }
+            Button(String(localized: .settingsLlmConnectModel)) { router.push(.settingsSection(.llm)) }
                 .foregroundStyle(Theme.accent)
                 .accessibilityIdentifier("agent-llm-setup")
         }

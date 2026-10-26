@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.playback import (
     MediaActivityTarget,
     PlaybackHistoryView,
@@ -332,7 +333,13 @@ async def playback_history(
 
 
 #: 网页播放的档位名（movieclaw_playback.decide.PlaybackTier 的展示口径）
-_TIER_LABELS = {0: "直连", 1: "重封装", 2: "音频转码", 3: "硬件转码", 4: "软件转码"}
+_TIER_LABELS = {
+    0: "player.delivery.direct",
+    1: "player.delivery.remux",
+    2: "player.delivery.audio",
+    3: "player.delivery.hardware",
+    4: "player.delivery.software",
+}
 
 
 def _day_series(
@@ -495,16 +502,19 @@ async def playback_stats(
 
     by_member: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0])  # plays, watched, completed
     by_client: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    # i18n-ignore: preserve the legacy aggregation key, including collisions with named clients.
+    unknown_client = "未知客户端"
+    named_clients = {row.client for row in rows if row.client}
     by_hour = [[0] * 24 for _ in range(7)]
     # 场次与看完记在一次观看的第一行（谁、用什么开始看的）；时长记在每一行自己身上
     for viewing in viewings:
         member = by_member[viewing.first.member_id]
         member[0] += 1
         member[2] += int(viewing.finished)
-        by_client[viewing.first.client or "未知客户端"][0] += 1
+        by_client[viewing.first.client or unknown_client][0] += 1
     for row in rows:
         by_member[row.member_id][1] += row.watched_ms
-        by_client[row.client or "未知客户端"][1] += row.watched_ms
+        by_client[row.client or unknown_client][1] += row.watched_ms
         # 时段热力图按实际经过的时段摊开，回答「什么时候有人在看」
         for hour, watched in _spread(row, offset):
             by_hour[hour.weekday()][hour.hour] += watched
@@ -534,7 +544,7 @@ async def playback_stats(
         (await session.execute(metric_statement.group_by(PlaybackMetric.tier))).all()
     )
     by_tier = [
-        PlaybackStatsTierRow(tier=tier, label=label, plays=int(tier_counts.get(tier, 0)))
+        PlaybackStatsTierRow(tier=tier, label=t(label), plays=int(tier_counts.get(tier, 0)))
         for tier, label in _TIER_LABELS.items()
         if tier_counts.get(tier)
     ]
@@ -565,7 +575,13 @@ async def playback_stats(
         ),
         by_client=sorted(
             (
-                PlaybackStatsClientRow(client=client, plays=plays, watched_ms=watched)
+                PlaybackStatsClientRow(
+                    client=(
+                        t("activity.playbackLabels.unknownClient")
+                        if client == unknown_client and client not in named_clients else client
+                    ),
+                    plays=plays, watched_ms=watched,
+                )
                 for client, (plays, watched) in by_client.items()
             ),
             key=lambda r: (r.watched_ms, r.plays),

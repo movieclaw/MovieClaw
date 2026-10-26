@@ -25,6 +25,8 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n import use_locale
+from movieclaw_api.i18n.stored import stored_message
 from movieclaw_db.models import NoticeSeverity, NoticeStatus, SystemNotice, utcnow
 
 logger = logging.getLogger("movieclaw_api.system_notice")
@@ -36,11 +38,20 @@ async def upsert_notice(
     dedupe_key: str,
     severity: NoticeSeverity,
     source: str,
-    title: str,
-    message: str,
+    title: str = "",
+    message: str = "",
+    title_key: str | None = None,
+    message_key: str | None = None,
+    message_params: dict | None = None,
     payload: dict | None = None,
 ) -> None:
     """报告一个需要用户行动的问题（幂等：同 dedupe_key 只存一行）。"""
+    params = message_params or {}
+    with use_locale("zh-Hans"):
+        if title_key:
+            title = stored_message(title, title_key, params)
+        if message_key:
+            message = stored_message(message, message_key, params)
     row = (
         await session.execute(select(SystemNotice).where(SystemNotice.dedupe_key == dedupe_key))
     ).scalar_one_or_none()
@@ -55,6 +66,9 @@ async def upsert_notice(
                 source=source,
                 title=title,
                 message=message,
+                title_key=title_key,
+                message_key=message_key,
+                message_params=params,
                 payload=payload or {},
             )
         )
@@ -66,6 +80,9 @@ async def upsert_notice(
         row.severity = severity.value
         row.title = title
         row.message = message
+        row.title_key = title_key
+        row.message_key = message_key
+        row.message_params = params
         row.payload = payload or {}
         row.status = NoticeStatus.ACTIVE.value
         row.resolved_at = None
@@ -86,6 +103,9 @@ async def upsert_notice(
                 source=source,
                 title=title,
                 message=message,
+                title_key=title_key,
+                message_key=message_key,
+                message_params=params,
                 payload=payload or {},
             ),
         )
@@ -96,6 +116,7 @@ async def resolve_notices(
     session: AsyncSession, *, dedupe_key: str | None = None, prefix: str | None = None
 ) -> int:
     """问题消失，消退对应告警。按精确 key 或前缀批量；返回消退条数。"""
+    # i18n-ignore: developer-facing (contract docs, assertions, generated CSS comment)
     assert (dedupe_key is None) != (prefix is None), "精确 key 与前缀二选一"
     query = select(SystemNotice).where(
         SystemNotice.status != NoticeStatus.RESOLVED.value  # type: ignore[arg-type]
@@ -120,7 +141,11 @@ async def resolve_notices(
             session,
             SYSTEM_ALERT_RESOLVED,
             lambda row=row: AlertResolved(
-                dedupe_key=row.dedupe_key, source=row.source, title=row.title
+                dedupe_key=row.dedupe_key,
+                source=row.source,
+                title=row.title,
+                title_key=row.title_key,
+                message_params=row.message_params,
             ),
         )
     await session.commit()

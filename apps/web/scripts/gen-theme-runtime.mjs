@@ -32,7 +32,7 @@ export function sdkValueExports() {
     if (m[1]) continue; // export type { ... }
     for (const raw of m[2].split(",")) {
       const name = raw.trim();
-      if (name && !name.startsWith("type ")) names.push(name);
+      if (name && !name.startsWith("type ")) names.push(name.split(/\s+as\s+/).at(-1));
     }
   }
   return [...new Set(names)].sort();

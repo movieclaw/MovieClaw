@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
@@ -31,11 +32,12 @@ export function DiscoveredPersonDetailView({
 }: {
   tmdbPersonId: number | string;
 }) {
+  const t = useTranslations();
   const [person, setPerson] = useState<DiscoveredPersonDetailsData | null>(null);
   const [failure, setFailure] = useState<"missing" | "error" | null>(null);
   const { subscriptionOf } = useSubscribeEntry();
   const { open } = useMediaDetail();
-  const navFallback = { label: "发现", href: "/discover/movie" as Route };
+  const navFallback = { label: t("nav.main.discover"), href: "/discover/movie" as Route };
   // Netflix 桌面返回语言一套：全出血(isHome)详情页用 NetflixBackButton；带
   // PageNav 工具条的页面用 PageNav 内返回键；两者同图标 / 同尺寸档 / 同 4vw
   // 基线 / 同 useBackNavigation 行为。本页 Netflix 桌面换 NetflixBackButton
@@ -82,7 +84,7 @@ export function DiscoveredPersonDetailView({
         <DetailNav title="" fallback={navFallback} onBack={back} />
         <div className="flex flex-1 items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在读取 TMDB 影人作品…
+          {t("media.person.loadingCredits")}
         </div>
       </div>
     );
@@ -114,13 +116,13 @@ export function DiscoveredPersonDetailView({
         </div>
         <div className="min-w-0 flex-1 pb-1">
           <p className="text-caption font-semibold uppercase tracking-[0.22em] text-[var(--accent-2)]">
-            TMDB 影人
+            {t("media.person.tmdbPerson")}
           </p>
           <h1 className="text-on-image mt-2 text-[32px] font-bold leading-[1.12] tracking-[-0.02em] text-white max-md:mt-1 max-md:text-[20px]">
             {person.name}
           </h1>
           <p className="tnum mt-3 text-ui text-white/70 max-md:mt-2 max-md:text-sub">
-            共 {person.items.length} 部影视作品
+            {t("media.person.creditsCount", { count: person.items.length })}
           </p>
         </div>
       </header>
@@ -130,7 +132,7 @@ export function DiscoveredPersonDetailView({
           <CreditGrid items={person.items} isSubscribed={isSubscribed} onOpen={open} />
         ) : (
           <p className="rounded-xl border border-white/[0.06] bg-white/[0.025] px-5 py-8 text-center text-ui text-[var(--text-muted)]">
-            TMDB 暂未收录这位影人的影视作品
+            {t("media.person.emptyCredits")}
           </p>
         )}
       </div>
@@ -148,10 +150,11 @@ function CreditGrid({
   isSubscribed: (item: MediaItem) => boolean;
   onOpen: (item: MediaItem) => void;
 }) {
+  const t = useTranslations();
   return (
     <section>
       <h2 className="text-on-image mb-3 text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
-        全部作品
+        {t("media.person.allCredits")}
         <span className="tnum ml-2 text-sub font-normal text-[var(--text-faint)]">
           {items.length}
         </span>
@@ -179,6 +182,7 @@ function CreditCard({
   subscribed: boolean;
   onOpen: (item: MediaItem) => void;
 }) {
+  const t = useTranslations();
   // 「已入库」的绿斜标由 PosterCardVisual 依 libraryStatus 全站统一渲染，这里只补订阅态；
   // 两种状态同时存在时优先“已入库”：它表达作品已经可用，比追踪关系更直接。
   const subscribedOnly = !item.libraryStatus && subscribed;
@@ -186,7 +190,7 @@ function CreditCard({
     <PosterCardVisual
       item={
         subscribedOnly
-          ? { ...item, ribbon: "已订阅", ribbonVariant: "compact-left", ribbonTone: "subscribed" }
+          ? { ...item, ribbon: t("media.discovery.subscribed"), ribbonVariant: "compact-left", ribbonTone: "subscribed" }
           : item
       }
       action="none"
@@ -196,19 +200,20 @@ function CreditCard({
 }
 
 function PersonFallback({ failure }: { failure: "missing" | "error" }) {
+  const t = useTranslations();
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
       <p className="text-body-lg font-semibold text-[var(--text)]">
-        {failure === "missing" ? "TMDB 中没有这位影人" : "未能加载影人作品"}
+        {failure === "missing" ? t("media.person.notFound") : t("media.person.creditsFailed")}
       </p>
       <p className="max-w-sm text-ui leading-6 text-[var(--text-muted)]">
         {failure === "missing"
-          ? "这条影人记录可能已被 TMDB 合并或移除。"
-          : "请稍后重试；若持续失败，请检查 TMDB 网络连接。"}
+          ? t("media.person.notFoundHint")
+          : t("media.person.creditsHint")}
       </p>
       <Link href={"/discover/movie" as Route} className="btn-glass px-4 py-2 text-ui font-medium">
         <ChevronLeftIcon className="size-4" />
-        返回发现页
+        {t("media.person.backDiscovery")}
       </Link>
     </div>
   );

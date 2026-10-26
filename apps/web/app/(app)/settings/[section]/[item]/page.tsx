@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { SettingsPanel } from "@/components/settings-view";
@@ -9,7 +10,8 @@ export async function generateMetadata({
   params: Promise<{ section: string; item: string }>;
 }): Promise<Metadata> {
   const { item } = await params;
-  return { title: `${decodeURIComponent(item)} · 插件 · 设置` };
+  const t = await getTranslations();
+  return { title: t("settings.metadata.pluginTitle", { name: decodeURIComponent(item) }) };
 }
 
 /** 设置分区的子页面：现在只有插件详情（/settings/plugins/<条目 id>）。 */

@@ -51,13 +51,16 @@ def parse_grants(raw: Any) -> tuple[Grant, ...]:
     if raw is None:
         return ()
     if not isinstance(raw, list):
+        # i18n-ignore: plugin developer contract error over IPC
         raise ValueError("paths 须是列表，如 [{path: library, mode: rw}]")
     grants: list[Grant] = []
     for item in raw:
         if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            # i18n-ignore: plugin developer contract error over IPC
             raise ValueError("paths 的每一项须是 {path, mode}")
         mode = item.get("mode", "read")
         if mode not in ("read", "rw"):
+            # i18n-ignore: plugin developer contract error over IPC
             raise ValueError(f"路径授权的 mode 只能是 read 或 rw：{mode!r}")
         path = item["path"].strip()
         if not (
@@ -66,6 +69,7 @@ def parse_grants(raw: Any) -> tuple[Grant, ...]:
             or path.startswith("/")
         ):
             raise ValueError(
+                # i18n-ignore: plugin developer contract error over IPC
                 f"不认识的路径授权 {path!r}：可用 library、library:<id>、staging、plugin 或绝对路径"
             )
         grants.append(Grant(path, mode))
@@ -89,18 +93,22 @@ class PluginFiles:
         for root, mode in await self.roots():
             if real == root or real.is_relative_to(root):
                 if write and mode != "rw":
+                    # i18n-ignore: plugin developer contract error over IPC
                     raise PermissionError(f"插件 {self.entry_id} 对 {root} 只有读权限")
                 return real
+        # i18n-ignore: plugin developer contract error over IPC
         raise PermissionError(f"插件 {self.entry_id} 没有获得访问 {path} 的授权")
 
     def path(self, alias: str, *parts: str) -> str:
         """别名下的绝对路径（目前只支持 ``plugin``：插件自己的目录）。"""
         if alias != "plugin":
+            # i18n-ignore: plugin developer contract error over IPC
             raise ValueError("path() 只支持 plugin 别名")
         target = self._service.private_dir(self.entry_id).joinpath(*parts)
         if not Path(os.path.realpath(target)).is_relative_to(
             self._service.private_dir(self.entry_id)
         ):
+            # i18n-ignore: plugin developer contract error over IPC
             raise PermissionError("路径越出了插件自己的目录")
         return str(target)
 
@@ -108,6 +116,7 @@ class PluginFiles:
     async def open(self, path: str | os.PathLike[str], mode: str = "rb") -> Any:
         """打开文件（只支持二进制模式），返回文件对象；读写请放进线程（``asyncio.to_thread``）。"""
         if "b" not in mode:
+            # i18n-ignore: plugin developer contract error over IPC
             raise ValueError("只支持二进制模式（rb / wb / ab / r+b）")
         real = await self.check(path, write=bool(_WRITE_MODES & set(mode)))
         return await asyncio.to_thread(open, real, mode)
@@ -237,6 +246,7 @@ async def _file_response(files: PluginFiles, path: str) -> Any:
 
     real = await files.check(path, write=False)
     if not await asyncio.to_thread(real.is_file):
+        # i18n-ignore: plugin developer contract error over IPC
         raise FileNotFoundError("文件不存在")
     return FileResponse(real)
 

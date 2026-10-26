@@ -676,6 +676,12 @@ class MediaDiscoverService:
         if card is None:
             raise TmdbError("该条目在 TMDB 中缺少海报或标题等必要信息，无法展示")
         card.extent = self._extent(data, kind)
+        extent_count = data.get("runtime" if kind is MediaKind.MOVIE else "number_of_seasons")
+        if isinstance(extent_count, int) and extent_count > 0:
+            card.extent_key = (
+                "units.duration.minutes" if kind is MediaKind.MOVIE else "media.extent.seasons"
+            )
+            card.extent_params = {"count": extent_count}
 
         related_raw = (data.get("recommendations") or {}).get("results", [])
         related = [

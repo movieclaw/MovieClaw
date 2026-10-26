@@ -87,18 +87,21 @@ async def upload_backdrop(
     错误信息为中文，方便非开发者按提示处理。
     """
     if not appearance_media.is_supported_content_type(file.content_type):
-        raise BadRequestException("不支持的图片格式，请上传 JPG / PNG / WebP / GIF / AVIF 图片")
+        raise BadRequestException(message_key="errors.appearance.imageFormatUnsupported")
 
     data = await file.read()
     if not data:
-        raise BadRequestException("上传的图片为空，请重新选择")
+        raise BadRequestException(message_key="errors.appearance.imageEmpty")
     if len(data) > appearance_media.MAX_BACKDROP_BYTES:
         limit_mb = appearance_media.MAX_BACKDROP_BYTES // (1024 * 1024)
-        raise BadRequestException(f"图片过大，请控制在 {limit_mb}MB 以内")
+        raise BadRequestException(
+            message_key="errors.appearance.imageTooLarge", params={"limit": limit_mb}
+        )
     member_id = _member_scope(principal)
     if len(appearance_media.list_backdrops(member_id)) >= appearance_media.MAX_BACKDROP_COUNT:
         raise BadRequestException(
-            f"背景图最多保留 {appearance_media.MAX_BACKDROP_COUNT} 张，请先删除不用的旧图"
+            message_key="errors.appearance.backgroundLimit",
+            params={"limit": appearance_media.MAX_BACKDROP_COUNT},
         )
 
     # 已在上面校验过 content_type 属于受支持集合，此处必定命中
@@ -123,7 +126,7 @@ async def set_active_backdrop(
     """点选图库中的某张图启用；``backdrop_id`` 传空则切回内置默认背景（不删图）。"""
     member_id = _member_scope(principal)
     if not appearance_media.set_active(payload.backdrop_id, member_id):
-        raise NotFoundException("背景图不存在或已被删除，请刷新后重试")
+        raise NotFoundException(message_key="errors.appearance.backgroundRemovedRefresh")
     return ok(_view(member_id))
 
 
@@ -141,7 +144,7 @@ async def delete_backdrop(
     """删除指定背景图；若删的是当前生效图，自动回退到内置默认背景。"""
     member_id = _member_scope(principal)
     if not appearance_media.remove_backdrop(backdrop_id, member_id):
-        raise NotFoundException("背景图不存在或已被删除")
+        raise NotFoundException(message_key="errors.appearance.backgroundRemoved")
     return ok(_view(member_id))
 
 
@@ -161,7 +164,7 @@ async def read_backdrop(
     """
     path = appearance_media.find_backdrop(backdrop_id, _member_scope(principal))
     if path is None:
-        raise NotFoundException("背景图不存在或已被删除")
+        raise NotFoundException(message_key="errors.appearance.backgroundRemoved")
     return FileResponse(
         path,
         media_type=appearance_media.content_type_for(path),

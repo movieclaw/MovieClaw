@@ -184,7 +184,7 @@ def client(request, tmp_path, monkeypatch, cdn):
     )
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as test_client:
         assert test_client.post("/api/v1/auth/bootstrap", json=ADMIN).status_code == 200
         login = test_client.post(
             "/api/v1/drives/accounts/cookie", json={"backend": "fake", "cookie": "UID=u1"}
@@ -377,6 +377,8 @@ def test_concurrent_playback_slots(client, tmp_path):
     full = _stream(client, file_id, device="dev-b")
     assert full.status_code == 503
     assert "同时播放数已满（1）" in full.json()["message"]
+    english = _stream(client, file_id, device="dev-b", headers={"Accept-Language": "en"})
+    assert "reached its concurrent playback limit (1)" in english.json()["message"]
 
 
 def test_direct_links_are_cached_and_coalesced(client, tmp_path):
@@ -441,6 +443,8 @@ def test_auth_expired_drive_gives_a_clear_reason(client, tmp_path):
     failed = _stream(client, file_id)
     assert failed.status_code == 503
     assert "需要重新登录" in failed.json()["message"]
+    english = _stream(client, file_id, headers={"Accept-Language": "en"})
+    assert english.json()["message"].startswith("Cloud storage needs you to sign in again")
 
 
 def test_auto_mode_redirects_apps_that_declare_fallback_in_the_query(client, tmp_path):

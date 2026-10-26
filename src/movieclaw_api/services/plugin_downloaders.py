@@ -42,10 +42,12 @@ class RemoteDownloader(BaseDownloader):
             )
         except PluginProcessGone as exc:
             raise DownloaderConnectError(
-                f"下载器插件 {self._session.entry_id} 没在运行，稍后会自动重试"
+                f"下载器插件 {self._session.entry_id} 没在运行，稍后会自动重试",
+                message_key="errors.downloader.pluginNotRunning",
+                params={"entry": self._session.entry_id},
             ) from exc
         except RemoteCallError as exc:
-            raise_remote(exc.kind, exc.detail)
+            raise_remote(exc.kind, exc.detail, exc.message_ref)
             raise
 
     async def submit(self, request: DownloadRequest) -> SubmitResult:

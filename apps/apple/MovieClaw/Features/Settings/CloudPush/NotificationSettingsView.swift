@@ -170,7 +170,7 @@ private struct NotificationSettingsContent: View {
             case let .failed(message):
                 SettingsFormSection {
                     SettingsBNotice(text: message, tone: .danger)
-                    SettingsBAsyncButton("重试") { await model.load() }
+                    SettingsBAsyncButton(String(localized: .commonRetry)) { await model.load() }
                 }
             case let .loaded(settings):
                 readinessSections(settings)
@@ -192,7 +192,7 @@ private struct NotificationSettingsContent: View {
         .cloudApprovalPage(connection)
         .onChange(of: connection.value?.state) { old, new in
             guard old != nil, old != "connected", new == "connected" else { return }
-            feedback.success("手机通知已开启")
+            feedback.success(String(localized: .settingsPhonePushEnabled))
             Task { await reloadUntilReady() }
         }
     }
@@ -217,7 +217,7 @@ private struct NotificationSettingsContent: View {
     private var permissionSection: some View {
         SettingsFormSection {
             HStack(spacing: 12) {
-                Label("系统通知", systemImage: push.permission == .denied ? "bell.slash" : "bell")
+                Label(String(localized: .settingsPhonePushSystem), systemImage: push.permission == .denied ? "bell.slash" : "bell")
                 Spacer(minLength: 8)
                 Text(push.permission.label)
                     .foregroundStyle(push.permission == .denied ? Theme.warning : Theme.textMuted)
@@ -225,21 +225,21 @@ private struct NotificationSettingsContent: View {
             }
             switch push.permission {
             case .denied:
-                Button("去系统设置开启") {
+                Button(String(localized: .settingsPhonePushOpenSettings)) {
                     if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
                 }
                 .accessibilityIdentifier("notifications-open-settings")
             case .notDetermined:
-                SettingsBAsyncButton("开启通知") { await push.requestAuthorization() }
+                SettingsBAsyncButton(String(localized: .settingsPhonePushAllow)) { await push.requestAuthorization() }
                     .accessibilityIdentifier("notifications-request")
             default:
                 EmptyView()
             }
         } footer: {
             if push.unsupportedBuild {
-                Text("这个安装包收不到推送：侧载版签名里没有推送权限，系统通知开着也没用。改用 TestFlight 或 App Store 版就能收到。")
+                Text(String(localized: .settingsPhonePushSideloaded))
             } else if push.permission == .denied {
-                Text("这台手机在系统设置里关掉了 MovieClaw 的通知，哪台服务器的通知都收不到。")
+                Text(String(localized: .settingsPhonePushDeniedHint))
             }
         }
     }
@@ -254,27 +254,27 @@ private struct NotificationSettingsContent: View {
                 SettingsFormSection {
                     HStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill").font(.title3).foregroundStyle(Theme.success)
-                        SettingsRowText(title: "手机通知已开启",
-                                        detail: status.connection.map { "\($0.instanceName) 已连接到 \($0.accountDisplay)" })
+                        SettingsRowText(title: String(localized: .settingsPhonePushEnabled),
+                                        detail: status.connection.map { String(localized: .settingsPhonePushConnectedTo($0.instanceName, $0.accountDisplay)) })
                         Spacer(minLength: 8)
-                        SettingsBBadge(text: "正常", tone: .ok)
+                        SettingsBBadge(text: String(localized: .settingsDrivesHealthy), tone: .ok)
                     }
                 }
             }
         } else if !settings.isAdmin {
             SettingsFormSection {
-                SettingsBNotice(text: "管理员还没有开启手机通知。开启后你会自动收到，不用再设置。", tone: .info)
+                SettingsBNotice(text: String(localized: .settingsPhonePushAdminPending), tone: .info)
                     .accessibilityIdentifier("notifications-not-ready")
             }
         } else if connection.isConnected, let status = connection.value {
             // 连着 MovieClaw Cloud，但没有能用的通道（版本不受支持、官方通道被停用……）：去「MovieClaw Cloud」看原因
             SettingsFormSection {
-                SettingsBNotice(text: status.healthMessage ?? "服务器已连接 MovieClaw Cloud，但现在没有可用的推送通道。", tone: .warn)
+                SettingsBNotice(text: status.healthMessage ?? String(localized: .settingsPhonePushNoChannel), tone: .warn)
                 NavigationLink(value: AppRoute.settingsSection(.cloud)) {
                     Label(SettingsSection.cloud.title, systemImage: SettingsSection.cloud.systemImage)
                 }
             } footer: {
-                Text("自建的推送中继在网页端「设置 → App 推送」里管理。")
+                Text(String(localized: .settingsPhonePushRelayHint))
             }
         } else {
             enableCard
@@ -285,8 +285,8 @@ private struct NotificationSettingsContent: View {
     private var enableCard: some View {
         SettingsFormSection {
             VStack(alignment: .leading, spacing: 6) {
-                Text("开启手机通知").font(.headline)
-                Text("把「\(connection.value?.serverName ?? app.server?.hostLabel ?? "这台服务器")」连到你的 MovieClaw 账号，全家人的 MovieClaw App 都能收到通知。")
+                Text(String(localized: .settingsPhonePushTurnOn)).font(.headline)
+                Text(String(localized: .settingsPhonePushConnectPitch(connection.value?.serverName ?? app.server?.hostLabel ?? String(localized: .settingsPhonePushThisServer))))
                     .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -304,7 +304,7 @@ private struct NotificationSettingsContent: View {
                             feedback.error(error)
                         }
                     } label: {
-                        Text("开启").font(.body.weight(.semibold))
+                        Text(String(localized: .settingsPhonePushEnableButton)).font(.body.weight(.semibold))
                     }
                     .settingsProminentButton()
                     .accessibilityIdentifier("notifications-enable")
@@ -312,7 +312,7 @@ private struct NotificationSettingsContent: View {
                 }
             }
         } footer: {
-            Text("需要一个 MovieClaw 账号（只有你需要，家人不用）。通知内容在这台服务器上加密，云端和推送中继都解不开。")
+            Text(String(localized: .settingsPhonePushAccountHint))
         }
     }
 
@@ -342,10 +342,10 @@ private struct NotificationSettingsContent: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if group.events.contains(where: { $0.key == NotificationSettingsModel.libraryEvent && $0.enabled }),
                        settings.libraries.count > 1 {
-                        Text(settings.libraryIds == nil ? "全选时包括以后新建的库" : "只推勾上的库；全部勾上时也包括以后新建的库")
+                        Text(settings.libraryIds == nil ? String(localized: .settingsNotificationPreferencesAllLibrariesHint) : String(localized: .settingsNotificationPreferencesSelectedLibrariesHint))
                     }
                     if index == groups.count - 1, !settings.instanceReady {
-                        Text("开启前改的开关也会保存，开启后立刻生效。")
+                        Text(String(localized: .settingsPhonePushTogglesSaved))
                     }
                 }
             }
@@ -389,7 +389,7 @@ private struct NotificationSettingsContent: View {
                         Text(item.year.map { "\(item.title)（\($0)）" } ?? item.title)
                             .lineLimit(1)
                         Spacer(minLength: 8)
-                        SettingsBAsyncButton("恢复") {
+                        SettingsBAsyncButton(String(localized: .settingsPluginsRestore)) {
                             do { try await model.unmute(item.id) } catch { feedback.error(error) }
                         }
                         .font(.subheadline.weight(.medium))
@@ -398,9 +398,9 @@ private struct NotificationSettingsContent: View {
                     }
                 }
             } header: {
-                Text("不再提醒")
+                Text(String(localized: .settingsNotificationPreferencesMuted))
             } footer: {
-                Text("在通知上长按选「这部剧不再提醒」的片。只是不推送，订阅照常下载。")
+                Text(String(localized: .settingsPhonePushMutedHint))
             }
         }
     }
@@ -424,7 +424,7 @@ private struct NotificationSettingsContent: View {
     /// 「客厅的 iPad：这台设备关掉了通知」；多台时一台一行
     static func attentionText(_ items: [API.PushAttentionView]) -> String {
         let lines = items.map { "\($0.deviceName)：\($0.statusText)" }
-        return (items.count == 1 ? "有 1 台设备收不到通知。" : "有 \(items.count) 台设备收不到通知。") + "\n" + lines.joined(separator: "\n")
+        return (items.count == 1 ? String(localized: .settingsPhonePushOneUnreachable) : String(localized: .settingsPhonePushManyUnreachable(items.count))) + "\n" + lines.joined(separator: "\n")
     }
 
     // MARK: 测试
@@ -435,9 +435,9 @@ private struct NotificationSettingsContent: View {
         let im = settings.imAccounts ?? 0
         return SettingsFormSection {
             HStack(spacing: 12) {
-                SettingsRowText(title: "发送测试通知", detail: Self.testTarget(devices: count, im: im))
+                SettingsRowText(title: String(localized: .settingsNotificationPreferencesSendTest), detail: Self.testTarget(devices: count, im: im))
                 Spacer(minLength: 8)
-                SettingsBAsyncButton("发送") { await sendTest() }
+                SettingsBAsyncButton(String(localized: .agentComposerSend)) { await sendTest() }
                     .font(.subheadline.weight(.medium))
                     .buttonStyle(.glass)
                     .disabled(count == 0 && im == 0)
@@ -445,15 +445,15 @@ private struct NotificationSettingsContent: View {
             }
         } footer: {
             if count == 0 && im == 0 {
-                Text(settings.instanceReady ? "在「设置 → 设备」里看看是哪台、为什么收不到。" : "服务器开启手机通知后才能发。")
+                Text(settings.instanceReady ? String(localized: .settingsPhonePushCheckDevices) : String(localized: .settingsPhonePushServerFirst))
             }
         }
     }
 
     /// 「发给你的 2 台设备和 1 个 IM 账号」（与 Web testTargetHint 同一口径）
     static func testTarget(devices: Int, im: Int) -> String {
-        let targets = [devices > 0 ? "\(devices) 台设备" : nil, im > 0 ? "\(im) 个 IM 账号" : nil].compactMap { $0 }
-        return targets.isEmpty ? "你的设备现在都收不到通知" : "发给你的 " + targets.joined(separator: "和 ")
+        let targets = [devices > 0 ? String(localized: .settingsPushChannelsDeviceCount(devices)) : nil, im > 0 ? String(localized: .settingsNotificationPreferencesImAccounts(im)) : nil].compactMap { $0 }
+        return targets.isEmpty ? String(localized: .settingsPhonePushNoneReachable) : String(localized: .settingsPhonePushSendTo(targets.joined(separator: String(localized: .settingsPhonePushTargetJoin))))
     }
 
     private func sendTest() async {
@@ -463,10 +463,10 @@ private struct NotificationSettingsContent: View {
                 // IM 也是通知渠道（device_id 为 im），回执里单说，不算进「台设备」
                 let im = result.results.contains { $0.deviceId == "im" && $0.result == "ok" }
                 let devices = result.sent - (im ? 1 : 0)
-                let target = [devices > 0 ? "\(devices) 台设备" : nil, im ? "IM" : nil].compactMap { $0 }
-                feedback.success("已发给 " + target.joined(separator: "和 ") + "，稍等就会收到")
+                let target = [devices > 0 ? String(localized: .settingsPushChannelsDeviceCount(devices)) : nil, im ? "IM" : nil].compactMap { $0 }
+                feedback.success(String(localized: .settingsPhonePushSentTo(target.joined(separator: String(localized: .settingsPhonePushTargetJoin)))))
             } else {
-                feedback.info(result.results.map(\.message).first { !$0.isEmpty } ?? "没有能收到通知的设备")
+                feedback.info(result.results.map(\.message).first { !$0.isEmpty } ?? String(localized: .settingsPhonePushNoDevices))
             }
         } catch {
             feedback.error(error)

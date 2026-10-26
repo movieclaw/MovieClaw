@@ -91,6 +91,9 @@ class SubscriptionAwaitingSubtitles(Frozen):
     originals: int
     """已找到的原版数量。"""
     waited_hours: int
+    language_code: str | None = None
+    """原始语言代码；新增消费者按自己的语言渲染，旧版仍可读 language。"""
+    acceptable_languages: tuple[str, ...] = ()
 
 
 class SubscriptionDownloadStuck(Frozen):
@@ -179,6 +182,7 @@ SUBSCRIPTION_AWAITING_SUBTITLES = define(
     title="等不到字幕版",
     group="订阅",
     doc="智能订阅等到期仍没有看得懂的字幕版本，原版不会自动下载",
+    version="1.1",
 )
 SUBSCRIPTION_DOWNLOAD_STUCK = define(
     "subscription.download_stuck",

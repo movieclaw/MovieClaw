@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
@@ -116,6 +118,7 @@ export function PageNav({
   revealAfter?: HTMLElement | null;
   className?: string;
 }) {
+  const t = useTranslations();
   const back = useBackNavigation(fallback.href);
   const rootRef = useRef<HTMLDivElement>(null);
   const chrome = usePageChrome();
@@ -195,7 +198,7 @@ export function PageNav({
   const revealStyle: React.CSSProperties = followsTitle
     ? { opacity: titleGone ? 1 : 0, transition: "opacity 200ms ease, transform 200ms ease" }
     : { opacity: "var(--nav-reveal, 0)" };
-  const backLabel = `返回上一页；无历史时返回${fallback.label}`;
+  const backLabel = t("nav.actions.backFallback", { page: fallback.label });
 
   return (
     /* pt-[var(--safe-top)]：窄屏上主区不再为安全区让位（见 globals.css 的

@@ -393,9 +393,11 @@ async def sweep_orphans(session: AsyncSession) -> int:
 @register_task(
     "download_sources_orphan_sweep",
     title="下载来源记录清扫",
+    title_key="settings.scheduledTasks.catalog.downloadSourcesOrphanSweepTitle",
     trigger_type=TriggerType.CRON,
     cron="50 4 * * *",
     description="库文件已删除、满 7 天仍没被处理的下载来源记录，清掉",
+    description_key="settings.scheduledTasks.catalog.downloadSourcesOrphanSweepDescription",
 )
 async def sweep_orphan_sources() -> None:
     async with get_database().session() as session:

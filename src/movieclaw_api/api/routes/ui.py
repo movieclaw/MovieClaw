@@ -21,6 +21,7 @@ from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.api.deps import require_login
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.auth import Principal
@@ -68,20 +69,28 @@ async def update_preferences(
     例外：请求里没带 ``nav.hidden`` 时沿用已存的值。已发布的 iPhone App 用生成的模型整体回写，
     旧模型里没有这个字段，保存首页设置时不能把网页上「移出侧边栏」的项冲掉。
     """
+    keep_language = "language" not in payload.model_fields_set
     keep_hidden = "hidden" not in payload.nav.model_fields_set
     if principal.kind == "member" and principal.member_id is not None:
         repo = MemberRepository(session)
         member = await repo.get(principal.member_id)
         if member is not None:
-            if keep_hidden and member.ui_prefs:
+            if (keep_hidden or keep_language) and member.ui_prefs:
                 stored = UiPreferencesSetting.model_validate(member.ui_prefs)
-                payload.nav.hidden = stored.nav.hidden
+                if keep_hidden:
+                    payload.nav.hidden = stored.nav.hidden
+                if keep_language:
+                    payload.language = stored.language
             member.ui_prefs = payload.model_dump(mode="json")
             await repo.save(member)
-        return ok(payload, message="界面设置已保存")
-    if keep_hidden:
-        payload.nav.hidden = (await get_ui_preferences()).nav.hidden
-    return ok(await save_ui_preferences(payload), message="界面设置已保存")
+        return ok(payload, message=t("settings.appearance.preferencesSaved"))
+    if keep_hidden or keep_language:
+        stored = await get_ui_preferences()
+        if keep_hidden:
+            payload.nav.hidden = stored.nav.hidden
+        if keep_language:
+            payload.language = stored.language
+    return ok(await save_ui_preferences(payload), message=t("settings.appearance.preferencesSaved"))
 
 
 class AppEntry(BaseModel):
@@ -145,6 +154,6 @@ def report_app_error(
     found = plugin_web.find(get_settings(), entry_id)
     kernel = getattr(request.app.state, "kernel", None)
     if found is None or not plugin_web.visible_to(found, principal, kernel):
-        raise NotFoundException("没有这个插件页面")
+        raise NotFoundException(message_key="errors.plugins.pageMissing")
     plugin_web.log_page_error(entry_id, principal.name, body.message, body.detail)
     return ok(None)

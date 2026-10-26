@@ -90,12 +90,15 @@ def register_setting(
 
     def decorator(model_cls: type[SettingSchema]) -> type[SettingSchema]:
         if not issubclass(model_cls, SettingSchema):
+            # i18n-ignore: developer error
             raise TypeError(f"{model_cls!r} 必须继承 SettingSchema 才能注册为配置域")
         if namespace in _by_namespace:
+            # i18n-ignore: developer error
             raise ValueError(f"配置域 namespace 重复注册：{namespace}")
         # 校验声明的敏感字段确实是模型字段，避免拼写错误导致加密静默失效
         unknown = secret - set(model_cls.model_fields)
         if unknown:
+            # i18n-ignore: developer error
             raise ValueError(f"配置域 {namespace} 声明了不存在的敏感字段：{sorted(unknown)}")
 
         descriptor = SettingDescriptor(
@@ -117,6 +120,7 @@ def get_descriptor(namespace: str) -> SettingDescriptor:
     try:
         return _by_namespace[namespace]
     except KeyError as exc:
+        # i18n-ignore: developer error
         raise KeyError(f"未注册的配置域：{namespace}") from exc
 
 
@@ -125,6 +129,7 @@ def get_descriptor_by_model(model_cls: type[SettingSchema]) -> SettingDescriptor
     try:
         return _by_model[model_cls]
     except KeyError as exc:
+        # i18n-ignore: developer error
         raise KeyError(f"配置模型未注册为配置域：{model_cls!r}") from exc
 
 

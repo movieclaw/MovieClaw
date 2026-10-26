@@ -119,10 +119,27 @@ fun MainShell(args: LaunchArgs) {
         args.play?.let(router::play)
     }
 
+    // 栈顶那页的焦点记忆：收起侧边栏、关掉播放器时焦点回到离开时那颗，没有记录再交给页面自己挑
+    val topLayer = remember { TopLayer() }
+    fun focusPage() {
+        if (topLayer.memory?.restore() != true) runCatching { pageFocus.requestFocus() }
+    }
+
     // 「继续观看」/ 深链：续播直接开播放器，条目回到首页页签压上详情
     val pendingLink by graph.deepLinks.collectAsState()
     LaunchedEffect(pendingLink) {
         when (val link = pendingLink ?: return@LaunchedEffect) {
+            // 桌面壳的主页键（androidtv-home.md §7.1）：退出播放（走 closePlayer 的现有路径，进度照常上报）、
+            // 收起侧栏、清空二级页、回首页根部。焦点要显式交还页面——播放器/侧栏被移除后没人接，
+            // 而「首页根部播放中按主页键」时页签与栈都不变，现有的可见性焦点恢复不会触发（评审 #1018）
+            is io.movieclaw.androidtv.system.DeepLink.Home -> {
+                if (router.player != null) router.closePlayer()
+                sidebarOpen = false
+                router.select(MainTab.Home)
+                router.stack.clear()
+                delay(30)  // 等页面先摆出来再还焦点，同 closeSidebar 的 30ms
+                focusPage()
+            }
             is io.movieclaw.androidtv.system.DeepLink.Play -> router.play(PlayRequest(link.mediaItemId, link.season, link.episode))
             is io.movieclaw.androidtv.system.DeepLink.Item -> {
                 router.select(MainTab.Home)
@@ -135,12 +152,6 @@ fun MainShell(args: LaunchArgs) {
 
     fun openSidebar() {
         sidebarOpen = true
-    }
-
-    // 栈顶那页的焦点记忆：收起侧边栏、关掉播放器时焦点回到离开时那颗，没有记录再交给页面自己挑
-    val topLayer = remember { TopLayer() }
-    fun focusPage() {
-        if (topLayer.memory?.restore() != true) runCatching { pageFocus.requestFocus() }
     }
 
     fun closeSidebar() {

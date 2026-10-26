@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 /**
  * 「IM 推送」设置分区（原名「消息推送」，与「App 推送」并列后改名以示区分）。
  *
@@ -15,7 +17,7 @@
  * 用户主动新增时才出现。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
@@ -42,6 +44,7 @@ import {
   sendChannelPushTest,
   unbindChannelAccount,
 } from "@/lib/api/channels";
+import { formatList } from "@/lib/i18n/format";
 import { formatRelativeTime } from "@/lib/time";
 
 /**
@@ -50,6 +53,8 @@ import { formatRelativeTime } from "@/lib/time";
  * 重新启用后自动恢复。
  */
 export function ImPushSection() {
+  const t = useTranslations();
+  const locale = useLocale();
   const llmConfigured = useLlmConfigured();
   const confirm = useConfirm();
   const toast = useToast();
@@ -60,21 +65,26 @@ export function ImPushSection() {
   const [pushBusy, setPushBusy] = useState(false);
   // 正在绑定的通道（null = 没开弹窗）
   const [binding, setBinding] = useState<ChannelInfo | null>(null);
+  const loadEpoch = useRef(0);
 
   const load = useCallback(async () => {
+    const epoch = ++loadEpoch.current;
     setError(null);
     try {
-      const data = await listChannels();
+      const data = await listChannels({ headers: { "Accept-Language": locale } });
+      if (epoch !== loadEpoch.current) return;
       setChannels(data.channels);
       setRows(data.accounts);
     } catch (e) {
+      if (epoch !== loadEpoch.current) return;
       setError((e as Error).message);
       setRows([]);
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void load();
+    return () => { loadEpoch.current += 1; };
   }, [load]);
 
   const byId = new Map(channels.map((c) => [c.id, c]));
@@ -85,9 +95,9 @@ export function ImPushSection() {
     const title = byId.get(row.channel_id)?.title ?? row.channel_id;
     if (
       !(await confirm({
-        title: `解绑该 ${title} 账号？`,
-        description: "解绑后停止收发、删除凭据，需要重新绑定才能使用；历史对话保留。",
-        confirmLabel: "解绑",
+        title: t("settings.imChannels.unbindTitle", { channel: title }),
+        description: t("settings.imChannels.unbindDescription"),
+        confirmLabel: t("settings.imChannels.unbind"),
         tone: "danger",
       }))
     )
@@ -108,7 +118,7 @@ export function ImPushSection() {
     setPushBusy(true);
     try {
       const { sent } = await sendChannelPushTest();
-      toast.success(`已推送到 ${sent} 个账号，去客户端看看吧`);
+      toast.success(t("settings.imChannels.testSent", { count: sent }));
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -117,38 +127,37 @@ export function ImPushSection() {
   }
 
   const loading = rows == null;
-  const titles = channels.map((c) => c.title).join("、");
+  const titles = formatList(channels.map((c) => c.title), locale);
 
   return (
     <div className="space-y-10">
       <div className="space-y-4">
         <p className="text-sub leading-6 text-[var(--text-muted)]">
-          接入的通道是你的通知渠道，收哪些通知和手机 App 一样，在
+          {t("settings.imChannels.introBefore")}{locale === "en" && " "}
           <Link href={"/settings/notifications" as Route} className={`mx-1 ${LINK_CLASS}`}>
-            账号 → 通知
+            {t("settings.imChannels.notificationsLink")}
           </Link>
-          里设置。能对话的通道里还能直接和 AI 助手聊：发消息即可搜片、订阅、查进度。
-          发送
+          {t("settings.imChannels.introChat")}{locale === "en" && " "}
           <span className="mx-1 rounded bg-white/[0.08] px-1.5 py-0.5 text-caption">/reset</span>
-          重置会话，
+          {locale === "en" && " "}{t("settings.imChannels.resetHelp")}{locale === "en" && " "}
           <span className="mx-1 rounded bg-white/[0.08] px-1.5 py-0.5 text-caption">/stop</span>
-          取消正在进行的处理。通道由插件提供，在
+          {locale === "en" && " "}{t("settings.imChannels.stopHelp")}{locale === "en" && " "}
           <Link href={"/settings/plugins" as Route} className={`mx-1 ${LINK_CLASS}`}>
-            设置 → 插件
+            {t("settings.imChannels.pluginsLink")}
           </Link>
-          里可以安装更多通道。
+          {t("settings.imChannels.introAfter")}
         </p>
 
         {/* 前置门禁：对话完全由模型驱动，未接入模型时引导（只推送的通道不受影响） */}
-        {llmConfigured === false && <LlmSetupNotice feature="通道中的 AI 对话能力" />}
+        {llmConfigured === false && <LlmSetupNotice feature={t("settings.imChannels.llmFeature")} />}
 
         {error && <ErrorBanner>{error}</ErrorBanner>}
       </div>
 
       <SettingsSection
-        title="接入通道"
+        title={t("settings.imChannels.section")}
         description={
-          loading ? "加载中…" : rows.length > 0 ? `已接入 ${rows.length} 个账号` : undefined
+          loading ? t("settings.imChannels.loading") : rows.length > 0 ? t("settings.imChannels.accountCount", { count: rows.length }) : undefined
         }
         action={
           addable.length > 0 && (
@@ -164,11 +173,11 @@ export function ImPushSection() {
         ) : rows.length === 0 ? (
           <SettingsEmpty
             icon={<ChatIcon className="size-5" />}
-            title="还没有接入任何通道"
+            title={t("settings.imChannels.empty")}
             description={
               channels.length === 0
-                ? "没有可用的通道：到「设置 → 插件」看看通道插件是否都关掉了。"
-                : `点「新增通道」接入，支持${titles}。`
+                ? t("settings.imChannels.unavailable")
+                : t("settings.imChannels.supported", { channels: titles })
             }
           />
         ) : (
@@ -188,16 +197,16 @@ export function ImPushSection() {
 
       {/* 测试推送：验证已接入通道确实能收到消息 */}
       {rows != null && rows.length > 0 && (
-        <SettingsSection title="测试">
+        <SettingsSection title={t("settings.imChannels.testSection")}>
           <SettingsList>
-            <SettingsRow label="测试推送" description="向所有已接入通道发送一条测试消息">
+            <SettingsRow label={t("settings.imChannels.testLabel")} description={t("settings.imChannels.testDescription")}>
               <button
                 type="button"
                 disabled={pushBusy}
                 onClick={() => void handleTestPush()}
                 className={SETTINGS_BUTTON_CLASS}
               >
-                {pushBusy ? "发送中…" : "发送"}
+                {pushBusy ? t("settings.imChannels.sending") : t("settings.imChannels.send")}
               </button>
             </SettingsRow>
           </SettingsList>
@@ -206,7 +215,7 @@ export function ImPushSection() {
 
       {binding && (
         <ChannelBindDialog
-          channel={binding}
+          channel={byId.get(binding.id) ?? binding}
           onClose={() => setBinding(null)}
           onBound={() => {
             const done = binding;
@@ -214,8 +223,8 @@ export function ImPushSection() {
             void load();
             toast.success(
               done.receive
-                ? `${done.title} 已接入，现在就可以给它发消息试试`
-                : `${done.title} 已接入，推送会发到那里`,
+                ? t("settings.imChannels.boundChat", { channel: done.title })
+                : t("settings.imChannels.boundPush", { channel: done.title }),
             );
           }}
         />
@@ -234,6 +243,8 @@ function AddChannelMenu({
   onPick: (channel: ChannelInfo) => void;
   disabled: boolean;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -243,7 +254,7 @@ function AddChannelMenu({
           className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
         >
           <PlusIcon className="size-4" />
-          新增通道
+          {t("settings.imChannels.add")}
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -251,7 +262,7 @@ function AddChannelMenu({
           align="end"
           sideOffset={6}
           collisionPadding={12}
-          className="menu-surface z-50 min-w-[14rem] p-1"
+          className={`menu-surface z-50 min-w-[14rem] p-1${locale === "en" ? " max-w-[calc(100vw-1.5rem)]" : ""}`}
         >
           {channels.map((channel) => (
             <DropdownMenu.Item
@@ -259,7 +270,7 @@ function AddChannelMenu({
               onSelect={() => onPick(channel)}
               className="glass-row nav-item cursor-pointer flex-col !items-start gap-0 px-3 py-2 outline-none data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)]"
             >
-              <span className="text-sub font-medium">新增 {channel.title} 通道</span>
+              <span className="text-sub font-medium">{t("settings.imChannels.addNamed", { channel: channel.title })}</span>
               {channel.description && (
                 <span className="text-caption text-[var(--text-faint)]">{channel.description}</span>
               )}
@@ -283,40 +294,43 @@ function ChannelAccountRowView({
   busy: boolean;
   onUnbind: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const pill = !row.channel_available
-    ? { label: "插件未启用", tone: "neutral" as const }
+    ? { label: t("settings.imChannels.pluginDisabled"), tone: "neutral" as const }
     : row.status === "stale"
-      ? { label: "需重新绑定", tone: "danger" as const }
+      ? { label: t("settings.imChannels.stale"), tone: "danger" as const }
       : row.running
-        ? { label: "运行中", tone: "ok" as const }
-        : { label: "未运行", tone: "neutral" as const };
+        ? { label: t("settings.imChannels.running"), tone: "ok" as const }
+        : { label: t("settings.imChannels.stopped"), tone: "neutral" as const };
   const who = row.bound_user_id ?? row.display_name;
 
   return (
     <SettingsRow
+      stackOnMobile={locale === "en"}
       leading={
-        <span className="icon-chip size-10 !rounded-xl">
+        <span className={`icon-chip size-10 !rounded-xl${locale === "en" ? " max-sm:!hidden" : ""}`}>
           <ChatIcon className="size-5" />
         </span>
       }
       label={
-        <span className="flex items-center gap-2">
-          <span className="truncate">{channel?.title ?? row.channel_id}</span>
+        <span className={`flex items-center gap-2${locale === "en" ? " flex-wrap" : ""}`}>
+          <span className={locale === "en" ? "break-words" : "truncate"}>{channel?.title ?? row.channel_id}</span>
           <StatusPill tone={pill.tone} label={pill.label} />
         </span>
       }
       description={
-        <span className="block truncate">
+        <span className={locale === "en" ? "block break-words" : "block truncate"}>
           {!row.channel_available
-            ? "提供这个通道的插件已关闭或卸载，账号保留，重新启用后自动恢复"
+            ? t("settings.imChannels.disabledDescription")
             : row.status === "stale"
-              ? (row.last_error ?? "凭据已失效，请重新绑定")
-              : `${who} · 绑定于 ${formatRelativeTime(row.bound_at)}`}
+              ? (row.last_error ?? t("settings.imChannels.staleDescription"))
+              : t("settings.imChannels.boundAt", { who, time: formatRelativeTime(row.bound_at, locale) })}
         </span>
       }
     >
       <button type="button" disabled={busy} onClick={onUnbind} className={SETTINGS_BUTTON_CLASS}>
-        解绑
+        {t("settings.imChannels.unbind")}
       </button>
     </SettingsRow>
   );

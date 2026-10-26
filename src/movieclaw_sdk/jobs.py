@@ -41,61 +41,94 @@ class JobControlError(Exception):
 
     def __init__(
         self,
-        message: str,
+        message: str = "",
         *,
         code: str,
+        message_key: str | None = None,
+        message_params: dict[str, Any] | None = None,
         actions: list[dict[str, Any]] | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
+        self.message_key = message_key
+        self.message_params = message_params or {}
         self.code = code
         self.actions = actions or []
         self.details = details or {}
 
     def as_error(self) -> dict[str, Any]:
-        return {
+        result = {
             "code": self.code,
             "message": self.message,
             "details": self.details,
             "actions": self.actions,
         }
+        if self.message_key:
+            result.update(message_key=self.message_key, message_params=self.message_params)
+        return result
 
 
 class JobFailed(JobControlError):
     def __init__(
         self,
-        message: str,
+        message: str = "",
         *,
         code: str = "JOB_FAILED",
+        message_key: str | None = None,
+        message_params: dict[str, Any] | None = None,
         actions: list[dict[str, Any]] | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, code=code, actions=actions, details=details)
+        super().__init__(
+            message,
+            code=code,
+            actions=actions,
+            details=details,
+            message_key=message_key,
+            message_params=message_params,
+        )
 
 
 class JobBlocked(JobControlError):
     def __init__(
         self,
-        message: str,
+        message: str = "",
         *,
         code: str = "JOB_BLOCKED",
+        message_key: str | None = None,
+        message_params: dict[str, Any] | None = None,
         actions: list[dict[str, Any]] | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, code=code, actions=actions, details=details)
+        super().__init__(
+            message,
+            code=code,
+            actions=actions,
+            details=details,
+            message_key=message_key,
+            message_params=message_params,
+        )
 
 
 class JobRetry(JobControlError):
     def __init__(
         self,
-        message: str,
+        message: str = "",
         *,
         delay_seconds: int = 15,
         code: str = "JOB_RETRY",
+        message_key: str | None = None,
+        message_params: dict[str, Any] | None = None,
         actions: list[dict[str, Any]] | None = None,
     ) -> None:
-        super().__init__(message, code=code, actions=actions)
+        super().__init__(
+            message,
+            code=code,
+            actions=actions,
+            message_key=message_key,
+            message_params=message_params,
+        )
         self.delay_seconds = max(1, delay_seconds)
 
 
@@ -118,7 +151,9 @@ class JobContext(Protocol):
         *,
         mode: str,
         phase: str,
-        message: str,
+        message: str = "",
+        message_key: str | None = None,
+        message_params: dict[str, Any] | None = None,
         current: int | None = None,
         total: int | None = None,
         percent: float | None = None,
@@ -150,7 +185,7 @@ class RegisteredJobHandler:
 
 JOB_HANDLERS: RegistryKey[RegisteredJobHandler] = RegistryKey(
     "job-handlers",
-    version="1.1",  # 1.1：处理器可带 title（任务中心显示的名字）
+    version="1.2",  # 1.2：进度与失败可携带本地化键和参数
     schema=RegisteredJobHandler,
     stability=Stability.EXPERIMENTAL,
     doc="持久化后台任务的处理器（领域插件贡献；第三方插件的任务类型自动带插件 id 前缀）",

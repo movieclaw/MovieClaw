@@ -175,16 +175,16 @@ struct MacSkipNotice: View {
 
     private var text: String {
         switch notice.kind {
-        case let .skipped(segment): "已跳过\(SkipSegments.name(segment))"
-        case .learned: "本剧以后自动跳过片头"
-        case .forgot: "本剧不再自动跳过片头"
+        case let .skipped(segment): String(localized: .playerControlsSkipped(SkipSegments.name(segment)))
+        case .learned: String(localized: .playerControlsAutoSkipLearned)
+        case .forgot: String(localized: .playerControlsAutoSkipDisabled)
         }
     }
 
     private var action: (label: String, run: () -> Void)? {
         switch notice.kind {
-        case .skipped: ("撤回", undo)
-        case .learned: ("不用", decline)
+        case .skipped: (String(localized: .playerControlsUndoSkip), undo)
+        case .learned: (String(localized: .playerControlsDeclineAutoSkip), decline)
         case .forgot: nil
         }
     }
@@ -217,10 +217,10 @@ struct MacUpNextCard: View {
                         .opacity(hovering ? 1 : 0.85)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(stillWatching ? "还在看吗？" : countdown == nil ? "下一集" : "即将播放")
+                    Text(stillWatching ? String(localized: .playerControlsStillWatching) : countdown == nil ? String(localized: .playerControlsNextEpisode) : String(localized: .playerControlsUpNextTitle))
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.6))
-                    Text("第 \(episode.episodeNumber) 集")
+                    Text(String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
                         .font(.system(size: 14, weight: .semibold))
                     if let name = episode.name, !name.isEmpty {
                         Text(name)
@@ -260,8 +260,8 @@ struct MacUpNextCard: View {
             .buttonStyle(.plain)
             .foregroundStyle(.white)
             .offset(x: 6, y: -6)
-            .help("不看下一集")
-            .accessibilityLabel("收起下一集")
+            .help(String(localized: .playerMacSkipNext))
+            .accessibilityLabel(String(localized: .playerMacHideNext))
             .accessibilityIdentifier("mac-player-upnext-dismiss")
         }
         .onHover { hovering = $0 }
@@ -278,17 +278,17 @@ struct MacQualityOfferCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("网速跟不上当前画质")
+            Text(String(localized: .playerControlsSlowNetwork))
                 .font(.system(size: 14, weight: .semibold))
             Text(detail)
                 .font(.system(size: 12))
                 .foregroundStyle(.white.opacity(0.7))
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Button("改用 \(offer.maxHeight)p", action: accept)
+                Button(String(localized: .playerControlsUseQuality(String(offer.maxHeight))), action: accept)
                     .buttonStyle(MacPlayerDialogButtonStyle(prominent: true))
                     .accessibilityIdentifier("mac-quality-offer-accept")
-                Button("继续当前画质", action: dismiss)
+                Button(String(localized: .playerControlsKeepQuality), action: dismiss)
                     .buttonStyle(MacPlayerDialogButtonStyle(prominent: false))
             }
             .padding(.top, 4)
@@ -302,10 +302,9 @@ struct MacQualityOfferCard: View {
     }
 
     private var detail: String {
-        let measured = PlaybackController.formatBandwidth(offer.measuredBps) ?? "很慢"
-        let required = PlaybackController.formatBandwidth(offer.requiredBps) ?? "更快"
-        return "实测约 \(measured)，这一版需要约 \(required)。可以暂停攒一会缓冲再看，"
-            + "或改用 \(offer.maxHeight)p（服务端转码，画质会降低）。"
+        let measured = PlaybackController.formatBandwidth(offer.measuredBps) ?? String(localized: .playerControlsSlowMeasured)
+        let required = PlaybackController.formatBandwidth(offer.requiredBps) ?? String(localized: .playerControlsSlowRequired)
+        return String(localized: .playerControlsSlowDescription(measured, required, String(offer.maxHeight)))
     }
 }
 
@@ -371,27 +370,27 @@ struct MacConsentDialog: View {
         ZStack {
             Color.black.opacity(0.6)
             VStack(alignment: .leading, spacing: 12) {
-                Text("这部片需要软件转码才能播放")
+                Text(String(localized: .playerConsentNativeTitle))
                     .font(.system(size: 15, weight: .semibold))
-                labeled("原因", decision.reason)
-                if let cost = decision.costHint { labeled("代价", cost) }
+                labeled(String(localized: .playerConsentReason), decision.reason)
+                if let cost = decision.costHint { labeled(String(localized: .playerConsentCost), cost) }
                 if let error {
                     Text(error)
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.danger)
                 }
                 if decision.canSelfEnable != true {
-                    Text("当前未开启软件转码。请联系管理员开启（管理员播放此类影片时会收到开启询问）。")
+                    Text(String(localized: .playerConsentAdminRequired))
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.7))
                 }
                 HStack(spacing: 12) {
                     Spacer()
                     if decision.canSelfEnable == true {
-                        Button("取消", action: cancel)
+                        Button(String(localized: .commonCancel), action: cancel)
                             .buttonStyle(MacPlayerDialogButtonStyle(prominent: false))
                             .keyboardShortcut(.cancelAction)
-                        Button(saving ? "正在开启…" : "开启并播放") {
+                        Button(saving ? String(localized: .playerConsentEnabling) : String(localized: .playerConsentEnableAndPlay)) {
                             Task {
                                 saving = true
                                 error = nil
@@ -408,7 +407,7 @@ struct MacConsentDialog: View {
                         .disabled(saving)
                         .accessibilityIdentifier("mac-consent-enable")
                     } else {
-                        Button("知道了", action: cancel)
+                        Button(String(localized: .playerConsentAcknowledge), action: cancel)
                             .buttonStyle(MacPlayerDialogButtonStyle(prominent: true))
                             .keyboardShortcut(.defaultAction)
                     }

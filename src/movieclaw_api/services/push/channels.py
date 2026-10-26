@@ -20,6 +20,8 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+from movieclaw_api.i18n import use_locale
+from movieclaw_api.i18n.stored import reference, render_value
 from movieclaw_api.services.push import relay
 from movieclaw_api.services.push.relay import RelayError
 from movieclaw_api.settings import get_setting_store
@@ -35,6 +37,7 @@ from movieclaw_db.models import utcnow
 logger = logging.getLogger("movieclaw_api.push.channels")
 
 OFFICIAL_ID = "official"
+# i18n-ignore: internal name; views show push.channels.official
 OFFICIAL_NAME = "MovieClaw 官方推送"
 #: 官方 App 的 Bundle ID：官方通道没拉到过 /v1/info 时按它路由，设备覆盖里据此认出官方版
 OFFICIAL_TOPIC = "io.movieclaw.app"
@@ -61,18 +64,25 @@ class ChannelRuntime:
     #: 单台设备触发的限额（如 ``device_day``）：设备令牌 → (解除时间, 说明)。只挡这台
     #: 设备，不能因为一台手机超限就停掉整个通道；中继按令牌计数，这里也按令牌记
     device_blocks: dict[str, tuple[datetime, str]] = field(default_factory=dict)
+    last_error_ref: dict | None = None
+    blocked_message_ref: dict | None = None
+    device_block_refs: dict[str, dict] = field(default_factory=dict)
 
     def record_success(self, quota: dict | None) -> None:
         self.last_success_at = utcnow()
         self.consecutive_failures = 0
         self.last_error = None
+        self.last_error_ref = None
         self.unreachable = False
         # 不带 quota（不限额、none 模式）就清掉旧读数，免得一直显示过时的额度
         self.quota = quota
 
-    def record_failure(self, message: str, *, unreachable: bool = False) -> None:
+    def record_failure(
+        self, message: str, *, unreachable: bool = False, message_ref: dict | None = None
+    ) -> None:
         self.consecutive_failures += 1
         self.last_error = message
+        self.last_error_ref = message_ref
         self.last_error_at = utcnow()
         self.unreachable = unreachable
 
@@ -86,6 +96,7 @@ class ChannelRuntime:
             return None
         if entry[0] <= utcnow():
             del self.device_blocks[token]
+            self.device_block_refs.pop(token, None)
             return None
         return entry[1]
 
@@ -93,7 +104,9 @@ class ChannelRuntime:
         """限额可能变了（云端调了额度、重新连接）：解除封锁，下一条推送以中继的答复为准。"""
         self.blocked_until = None
         self.blocked_message = None
+        self.blocked_message_ref = None
         self.device_blocks.clear()
+        self.device_block_refs.clear()
 
 
 _runtime: dict[str, ChannelRuntime] = {}
@@ -130,6 +143,7 @@ class Channel:
     #: 打码后的自建中继令牌
     token_hint: str | None = None
     extra: dict = field(default_factory=dict)
+    problem_ref: dict | None = None
 
     @property
     def topics(self) -> list[str]:
@@ -163,15 +177,17 @@ def needs_token(auth_mode: str) -> bool:
     return auth_mode not in ("none", "issuer", "")
 
 
-def _custom_problem(r: PushRelay) -> str | None:
+def _custom_problem(r: PushRelay) -> dict | None:
     if r.info is None:
-        return "还没连上过这个中继"
+        return reference("push.relay.neverConnected")
     if r.info.protocol != SUPPORTED_PROTOCOL:
-        return f"中继的协议版本是 {r.info.protocol}，这个版本只支持 {SUPPORTED_PROTOCOL}"
+        return reference(
+            "push.relay.protocol", version=r.info.protocol, supported=SUPPORTED_PROTOCOL
+        )
     if r.info.auth_mode == "issuer":
-        return "这个中继要签发方的令牌，这里还不能用"
+        return reference("push.relay.issuerUse")
     if needs_token(r.info.auth_mode) and not r.token:
-        return "缺少中继令牌"
+        return reference("push.relay.missingToken")
     return None
 
 
@@ -190,19 +206,23 @@ async def load_channels() -> list[Channel]:
     # 云端连不上、令牌过期、版本检查都不再挡着
     open_relay = bool(config.official_info and config.official_info.auth_mode == "none")
     if not cloud.connected:
-        problem = "正在连接 MovieClaw Cloud" if service.pairing else "未连接 MovieClaw Cloud"
+        problem = reference(
+            "push.channels.connecting" if service.pairing else "push.channels.disconnected"
+        )
     elif open_relay:
-        problem = None if endpoints else "MovieClaw Cloud 没有给出推送中继地址"
+        problem = None if endpoints else reference("push.channels.noEndpoints")
     elif cloud.unsupported_message:
-        problem = cloud.unsupported_message
+        problem = cloud.unsupported_message_ref or cloud.unsupported_message
     elif "push" not in cloud.scopes:
-        problem = "MovieClaw Cloud 没有授予推送权限"
+        problem = reference("push.channels.noScope")
     elif bearer is None:
-        problem = "令牌已过期：连不上 MovieClaw Cloud，官方推送暂停"
+        problem = reference("push.channels.expired")
     elif not endpoints:
-        problem = "MovieClaw Cloud 没有给出推送中继地址"
+        problem = reference("push.channels.noEndpoints")
     else:
         problem = None
+    with use_locale("zh-Hans"):
+        raw_problem = render_value(problem)
     official = Channel(
         id=OFFICIAL_ID,
         kind="official",
@@ -213,11 +233,14 @@ async def load_channels() -> list[Channel]:
         info=config.official_info,
         lan_direct=False,
         usable=config.official_enabled and problem is None,
-        problem=problem,
+        problem=raw_problem,
+        problem_ref=problem if isinstance(problem, dict) else None,
     )
     channels = [official]
     for r in config.relays:
         problem = _custom_problem(r)
+        with use_locale("zh-Hans"):
+            raw_problem = render_value(problem)
         channels.append(
             Channel(
                 id=r.id,
@@ -229,7 +252,8 @@ async def load_channels() -> list[Channel]:
                 info=r.info,
                 lan_direct=True,
                 usable=r.enabled and problem is None,
-                problem=problem,
+                problem=raw_problem,
+                problem_ref=problem,
                 token_hint=mask_token(r.token),
             )
         )
@@ -332,7 +356,7 @@ async def _fetch_first(urls: list[str], *, lan_direct: bool) -> RelayInfo:
             return await relay.fetch_info(url, lan_direct=lan_direct)
         except RelayError as exc:
             error = exc
-    raise error or RelayError("没有可用的中继地址", retryable=False)
+    raise error or RelayError(message_key="push.relay.noAddresses", retryable=False)
 
 
 async def refresh_official_info() -> RelayInfo | None:
@@ -365,7 +389,7 @@ async def refresh_relay_info(relay_id: str) -> RelayInfo:
     try:
         info = await relay.fetch_info(target.url)
     except RelayError as exc:
-        runtime(relay_id).record_failure(exc.message)
+        runtime(relay_id).record_failure(exc.message, message_ref=exc.message_ref)
         raise
     target.info = info
     await store.set(config)

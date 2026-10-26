@@ -1,5 +1,7 @@
 "use client";
 
+import { appTranslator } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { LibraryItemSort } from "@/lib/api/libraries";
@@ -41,19 +43,24 @@ export const PREF_TO_SORT: Record<
 };
 
 /** 非默认档的展示名，各面墙拼自己的选项列表时取用（与筛选条的 SORT_LABELS 同一套叫法）。 */
-export const SORT_PREF_LABELS: Record<
+export function sortPrefLabels(locale?: AppLocale): Record<
   Exclude<WallSortPref, "default">,
   string
-> = {
-  title: "按标题",
-  // 一次导入的内容入账时间都挤在一起，所以这一档对"陆续往库里添东西"才有意义
-  added_at: "最近添加",
-  release_date: "按上映时间",
-  rating: "按评分",
-  runtime: "按片长",
-  size: "按体积",
-  last_played: "最近观看",
-};
+> {
+  const t = appTranslator(locale);
+  return {
+    title: t("library.sort.title"),
+    // 一次导入的内容入账时间都挤在一起，所以这一档对"陆续往库里添东西"才有意义
+    added_at: t("library.sort.recentAdded"),
+    release_date: t("library.sort.releaseDate"),
+    rating: t("library.sort.rating"),
+    runtime: t("library.sort.runtime"),
+    size: t("library.sort.size"),
+    last_played: t("library.sort.lastPlayed"),
+  };
+}
+
+export const SORT_PREF_LABELS = sortPrefLabels("zh-Hans");
 
 /**
  * 每档的自然方向与方向的人话（2026-09-11 起排序可切换正倒序）。
@@ -62,23 +69,28 @@ export const SORT_PREF_LABELS: Record<
  * 人话（「短→长」）而不是只画箭头：↑ 到底是"从小到大"还是"大的在上"，光看箭头
  * 要想一下。补探序是扫描临时接管的，控件那几分钟本来就是灰的，方向无意义
  */
-export const SORT_DIRECTIONS: Record<
+export function sortDirections(locale?: AppLocale): Record<
   LibraryItemSort,
   { naturalAsc: boolean; asc: string; desc: string }
-> = {
-  title: { naturalAsc: true, asc: "A→Z", desc: "Z→A" },
-  added_at: { naturalAsc: false, asc: "旧→新", desc: "新→旧" },
-  release_date: { naturalAsc: false, asc: "旧→新", desc: "新→旧" },
-  probing: { naturalAsc: true, asc: "A→Z", desc: "Z→A" },
-  rating: { naturalAsc: false, asc: "低→高", desc: "高→低" },
-  runtime: { naturalAsc: true, asc: "短→长", desc: "长→短" },
-  size: { naturalAsc: false, asc: "小→大", desc: "大→小" },
-  last_played: { naturalAsc: false, asc: "远→近", desc: "近→远" },
-  // 下面两档不进墙的排序下拉（上映正序只作系列合集的 sort；随机只作首页自定义行的
-  // 排序，按天换一批），这里补上只是让 Record 完整；方向文案不会被读到
-  release_date_asc: { naturalAsc: true, asc: "旧→新", desc: "新→旧" },
-  random: { naturalAsc: true, asc: "随机", desc: "随机" },
-};
+> {
+  const t = appTranslator(locale);
+  return {
+    title: { naturalAsc: true, asc: "A→Z", desc: "Z→A" },
+    added_at: { naturalAsc: false, asc: t("library.rows.oldToNew"), desc: t("library.rows.newToOld") },
+    release_date: { naturalAsc: false, asc: t("library.rows.oldToNew"), desc: t("library.rows.newToOld") },
+    probing: { naturalAsc: true, asc: "A→Z", desc: "Z→A" },
+    rating: { naturalAsc: false, asc: t("library.rows.lowToHigh"), desc: t("library.rows.highToLow") },
+    runtime: { naturalAsc: true, asc: t("library.sort.shortToLong"), desc: t("library.sort.longToShort") },
+    size: { naturalAsc: false, asc: t("library.sort.smallToLarge"), desc: t("library.sort.largeToSmall") },
+    last_played: { naturalAsc: false, asc: t("library.rows.farToNear"), desc: t("library.rows.nearToFar") },
+    // 下面两档不进墙的排序下拉（上映正序只作系列合集的 sort；随机只作首页自定义行的
+    // 排序，按天换一批），这里补上只是让 Record 完整；方向文案不会被读到
+    release_date_asc: { naturalAsc: true, asc: t("library.rows.oldToNew"), desc: t("library.rows.newToOld") },
+    random: { naturalAsc: true, asc: t("library.sort.random"), desc: t("library.sort.random") },
+  };
+}
+
+export const SORT_DIRECTIONS = sortDirections("zh-Hans");
 
 /** 单库页的偏好键：全站共用一个（在哪个库里选的「按评分」，换个库还是按评分）。 */
 export const WALL_SORT_STORAGE_KEY = "movieclaw.library.wall-sort";

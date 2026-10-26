@@ -1,3 +1,6 @@
+import { appTranslator } from "../i18n/translate.ts";
+import { requestLocale, type AppLocale } from "../i18n/negotiate.ts";
+
 /**
  * 字幕轨规划：服务端给的 SubtitlePlan → 前端真能渲染的选项（§6.2）。
  *
@@ -60,29 +63,23 @@ export interface SubtitleTracks {
   unavailable: UnavailableSubtitle[];
 }
 
-const KIND_LABELS: Record<string, string> = {
-  vtt: "文本",
-  ass: "特效",
-  pgs: "图形",
-};
-
-const FORMAT_LABELS: Record<string, string> = { vtt: "WebVTT", ass: "ASS", pgs: "PGS 图形" };
-
-function trackLabel(plan: SubtitlePlan): string {
-  const language = languageLabel(plan.language);
-  const kind = KIND_LABELS[plan.kind] ?? plan.kind;
-  const name = plan.title?.trim() || language || refLabel(plan.track_ref);
+function trackLabel(plan: SubtitlePlan, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  const language = languageLabel(plan.language, locale);
+  const kind = ({ vtt: t("player.subtitles.text"), ass: t("player.subtitles.styled"), pgs: t("player.subtitles.image") } as Record<string, string>)[plan.kind] ?? plan.kind;
+  const name = plan.title?.trim() || language || refLabel(plan.track_ref, locale);
   return `${name} · ${kind}`;
 }
 
 /**
  * 没有语言标记时的兜底名。外挂轨用文件名（用户自己放的，认得出），内封轨
- * 用序号——总比一律叫"未知语言"强，那样多条无语言标记的轨会长得一模一样。
+ * 用序号——总比一律叫t("player.subtitles.unknownLanguage")强，那样多条无语言标记的轨会长得一模一样。
  */
-function refLabel(ref: string): string {
+function refLabel(ref: string, locale: AppLocale): string {
+  const t = appTranslator(locale);
   if (ref.startsWith("external:")) return ref.slice("external:".length);
-  if (ref.startsWith("embedded:")) return `内封轨 ${Number(ref.slice("embedded:".length)) + 1}`;
-  return "未知语言";
+  if (ref.startsWith("embedded:")) return t("player.subtitles.embeddedTrack", { index: Number(ref.slice("embedded:".length)) + 1 });
+  return t("player.subtitles.unknownLanguage");
 }
 
 /**
@@ -95,31 +92,34 @@ function refLabel(ref: string): string {
 export function planSubtitleTracks(
   plans: SubtitlePlan[],
   urls: string[],
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): SubtitleTracks {
+  const t = appTranslator(locale);
+  const formatLabels: Record<string, string> = { vtt: "WebVTT", ass: "ASS", pgs: t("player.subtitles.pgs") };
   const options: SubtitleOption[] = [];
   const unavailable: UnavailableSubtitle[] = [];
 
   plans.forEach((plan, index) => {
     const url = urls[index];
-    const label = trackLabel(plan);
+    const label = trackLabel(plan, locale);
     if (!url) {
-      unavailable.push({ ref: plan.track_ref, label, reason: "服务端没有给出这条轨的地址" });
+      unavailable.push({ ref: plan.track_ref, label, reason: t("player.subtitles.noUrl") });
       return;
     }
     if (plan.kind !== "vtt" && plan.kind !== "ass" && plan.kind !== "pgs") {
-      unavailable.push({ ref: plan.track_ref, label, reason: `暂不支持的字幕格式：${plan.kind}` });
+      unavailable.push({ ref: plan.track_ref, label, reason: t("player.subtitles.unsupported", { format: plan.kind }) });
       return;
     }
     options.push({
       ref: plan.track_ref,
       label,
-      title: plan.title?.trim() || refLabel(plan.track_ref),
+      title: plan.title?.trim() || refLabel(plan.track_ref, locale),
       detail: [
-        languageLabel(plan.language) ?? "未知语言",
-        FORMAT_LABELS[plan.kind] ?? plan.kind,
-        plan.track_ref.startsWith("external:") ? "外挂" : plan.title?.trim() ? refLabel(plan.track_ref) : "内封",
-        plan.is_default ? "默认" : null,
-        plan.is_forced ? "强制" : null,
+        languageLabel(plan.language, locale) ?? t("player.subtitles.unknownLanguage"),
+        formatLabels[plan.kind] ?? plan.kind,
+        plan.track_ref.startsWith("external:") ? t("player.subtitles.external") : plan.title?.trim() ? refLabel(plan.track_ref, locale) : t("player.subtitles.embedded"),
+        plan.is_default ? t("player.subtitles.default") : null,
+        plan.is_forced ? t("player.subtitles.forced") : null,
       ].filter(Boolean).join(" · "),
       kind: plan.kind,
       // 文本轨统一要 VTT：`<track>` 只认这个格式，服务端现读现转。

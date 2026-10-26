@@ -4,6 +4,7 @@ import logging
 
 import httpx
 
+from movieclaw_api.i18n.stored import source_text, stored_fields
 from movieclaw_api.services.auth_factory import build_auth_provider
 from movieclaw_api.services.site_access import invalidate_site_access
 from movieclaw_db.engine import get_database
@@ -21,45 +22,33 @@ from movieclaw_tracker.exceptions import (
 logger = logging.getLogger("movieclaw_api.verification")
 
 
-def friendly_error(exc: Exception) -> str:
-    """把底层异常归类成非开发者也能看懂的中文原因。
-
-    记录到 last_error 展示给用户，因此措辞尽量给出"可操作的下一步"。
-    tracker 的业务异常本身已是中文，直接透传；网络/解析等归类为通用提示。
-    """
+def friendly_error_message(exc: Exception) -> dict:
+    """Keep a Chinese fallback and semantic reference for a site failure."""
     if isinstance(exc, TrackerAuthError):
-        # 如"登录失败：用户名或密码错误"，本身已是清晰中文
-        return f"认证失败：{exc.message}"
+        return stored_fields("errors.siteDiagnostic.auth", error=exc.message_ref or exc.message)
     if isinstance(exc, (TrackerNetworkError, httpx.TimeoutException, httpx.ConnectError)):
-        return "无法连接站点，请检查网络、代理，或确认站点当前是否可访问"
+        return stored_fields("errors.siteDiagnostic.network")
     if isinstance(exc, TrackerParseError):
         if (exc.details or {}).get("login_redirect"):
-            return (
-                "登录已失效：站点把请求重定向到了登录页（Cookie 已过期或不完整），"
-                "请在浏览器重新登录该站点后再同步 Cookie"
-            )
-        return "站点响应格式异常：可能站点已改版，或凭据实际已失效导致返回了登录页"
+            return stored_fields("errors.siteDiagnostic.loginRedirect")
+        return stored_fields("errors.siteDiagnostic.parse")
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
-        # Cloudflare 人机挑战（Managed Challenge）会带 cf-mitigated: challenge 响应头。
-        # 这与凭据本身无关：cf_clearance 绑定浏览器的 User-Agent 与出口 IP，
-        # 服务端换了 UA/IP 去请求依然会被拦截
         if exc.response.headers.get("cf-mitigated") == "challenge":
-            return (
-                f"被 Cloudflare 人机验证拦截（状态码 {code}）：cf_clearance 绑定浏览器的 "
-                "User-Agent 与出口 IP，仅同步 Cookie 通常无法通过"
-            )
+            return stored_fields("errors.siteDiagnostic.challenge", code=code)
         if code in (401, 403):
-            return f"站点拒绝访问（状态码 {code}），凭据可能已失效，请重新验证或更新凭据"
+            return stored_fields("errors.siteDiagnostic.forbidden", code=code)
         if code == 429:
-            return f"访问过于频繁，被站点限流（状态码 {code}），系统会自动放缓节奏"
+            return stored_fields("errors.siteDiagnostic.rateLimited", code=code)
         if code >= 500:
-            # 含 Cloudflare 的 520-526（源站宕机/超时等）——是站点自身故障，
-            # 与凭据无关，不要误导用户去改配置
-            return f"站点服务器暂时不可用（状态码 {code}），一般是站点自身故障，等待恢复即可"
-        return f"站点返回异常状态码：{code}，请稍后重试或检查凭据"
-    # 兜底：保留类型名 + 简短信息，便于进阶用户/日志排查
-    return f"验证时发生未知错误（{type(exc).__name__}）：{exc}"
+            return stored_fields("errors.siteDiagnostic.unavailable", code=code)
+        return stored_fields("errors.siteDiagnostic.http", code=code)
+    return stored_fields("errors.siteDiagnostic.unknown", kind=type(exc).__name__, error=str(exc))
+
+
+def friendly_error(exc: Exception) -> str:
+    """Chinese compatibility value for existing verification/history producers."""
+    return friendly_error_message(exc)["message"]
 
 
 def is_transient_error(exc: Exception) -> bool:
@@ -114,6 +103,7 @@ async def verify_site(site_id: str) -> None:
     # 2. 执行真实认证 + 拉取资料
     status = ConfigStatus.FAILED
     error: str | None = None
+    error_ref: dict | None = None
     profile = None  # 验证成功时保留资料，稍后落库为站点资料快照
     site = None
     try:
@@ -125,16 +115,23 @@ async def verify_site(site_id: str) -> None:
         )
         auth_result = await site.authenticate()
         if not auth_result.success:
-            error = auth_result.message or "认证未通过"
+            error = auth_result.message or source_text("errors.siteDiagnostic.authNotPassed")
+            reason = getattr(auth_result, "message_ref", None)
+            if reason:
+                error_ref = {"message": error, **reason}
+            elif not auth_result.message:
+                error_ref = stored_fields("errors.siteDiagnostic.authNotPassed")
         else:
             profile = await site.get_user_profile()
             if profile and profile.username:
                 status = ConfigStatus.ACTIVE
                 logger.info("站点验证成功：site=%s 用户=%s", site_id, profile.username)
             else:
-                error = "认证成功但无法获取用户资料，请检查账号状态"
+                error = source_text("errors.siteDiagnostic.profileMissing")
+                error_ref = stored_fields("errors.siteDiagnostic.profileMissing")
     except Exception as exc:  # noqa: BLE001 -- 背景任务需吞掉所有异常并记录原因
-        error = friendly_error(exc)
+        error_ref = friendly_error_message(exc)
+        error = error_ref["message"]
         # 日志里保留完整堆栈便于开发者排查，落库的 last_error 则是友好中文
         logger.warning("站点验证失败：site=%s，原因：%s", site_id, error, exc_info=True)
     finally:
@@ -148,7 +145,7 @@ async def verify_site(site_id: str) -> None:
     # 3. 写回最终结论（又一个独立短会话）
     async with db.session() as session:
         repo = CredentialRepository(session)
-        await repo.update_status(site_id, status, last_error=error)
+        await repo.update_status(site_id, status, last_error=error, last_error_ref=error_ref)
         # 全局红灯：凭据失效意味着该站点的搜索/投递静默缺席，必须被感受到；
         # 验证恢复则红灯熄灭
         from movieclaw_api.services.system_notice import resolve_notices, upsert_notice
@@ -168,9 +165,14 @@ async def verify_site(site_id: str) -> None:
                 dedupe_key=f"site:{site_id}",
                 severity=NoticeSeverity.ERROR,
                 source="site",
-                title=f"站点「{site_id}」验证失败",
-                message=f"站点「{site_id}」凭据验证失败：{error or '原因未知'}。"
-                "该站点已不参与搜索与投递，请到「设置 → 站点」更新凭据",
+                title_key="notify.siteVerification.title",
+                message_key="notify.siteVerification.body",
+                message_params={
+                    "site": site_id,
+                    "reason": error_ref
+                    or error
+                    or {"message_key": "notify.siteVerification.unknown"},
+                },
                 payload={"site_id": site_id},
             )
         # 验证成功时顺手把刚拉到的用户资料落为快照（零额外站点请求）；

@@ -132,14 +132,14 @@ struct SubtitleOverlay: View {
               (response as? HTTPURLResponse)?.statusCode == 200,
               let text = String(data: data, encoding: .utf8) else {
             #if DEBUG
-            FileHandle.standardError.write(Data("[Overlay] 字幕加载失败 \(url.path)\n".utf8))
+            FileHandle.standardError.write(Data("[Overlay] 字幕加载失败 \(url.path)\n".utf8)) // i18n-ignore: developer diagnostics
             #endif
             return
         }
         cues = WebVTT.parse(text)
         #if DEBUG
         // 开发期：真机无人值守验证外挂字幕确实拿到了、多久拿到
-        FileHandle.standardError.write(Data("[Overlay] 字幕 \(cues.count) 条，耗时 \((ContinuousClock.now - startedAt) / .milliseconds(1)) 毫秒\n".utf8))
+        FileHandle.standardError.write(Data("[Overlay] 字幕 \(cues.count) 条，耗时 \((ContinuousClock.now - startedAt) / .milliseconds(1)) 毫秒\n".utf8)) // i18n-ignore: developer diagnostics
         #endif
     }
 }

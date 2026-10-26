@@ -42,16 +42,16 @@ async def _assert_username_available(session: AsyncSession, username: str) -> No
     """建号前校验用户名可用：与超管互斥（大小写不敏感）、与现有成员不重复。"""
     admin = await auth_service.get_admin_account()
     if admin.username and username.strip().lower() == admin.username.strip().lower():
-        raise ConflictException("该用户名已被管理员使用，请换一个")
+        raise ConflictException(message_key="errors.members.adminNameInUse")
     if await MemberRepository(session).get_by_username(username) is not None:
-        raise ConflictException("该用户名已存在，请换一个")
+        raise ConflictException(message_key="errors.members.usernameInUse")
 
 
 async def get_member(session: AsyncSession, member_id: int) -> Member:
     """按 id 取成员；不存在抛 404。"""
     member = await MemberRepository(session).get(member_id)
     if member is None:
-        raise NotFoundException("成员不存在或已被删除")
+        raise NotFoundException(message_key="errors.members.missing")
     return member
 
 
@@ -102,7 +102,9 @@ async def update_member(
         existing = {row.id for row in await LibraryRepository(session).list_all()}
         unknown = [i for i in library_ids if i not in existing]
         if unknown:
-            raise BadRequestException(f"媒体库不存在：id={unknown}，请刷新后重试")
+            raise BadRequestException(
+                message_key="errors.members.libraryMissing", params={"id": unknown}
+            )
 
     if nickname is not None:
         member.nickname = nickname.strip()
@@ -268,11 +270,11 @@ async def change_own_password(
     调用方（路由层）随后须为本次会话重新签发 Cookie，保证操作者不被踢出。
     """
     if not new_password or len(new_password) < 8:
-        raise BadRequestException("新密码至少 8 位")
+        raise BadRequestException(message_key="errors.members.passwordLength")
     repo = MemberRepository(session)
     member = await get_member(session, member_id)
     if not auth_service.verify_password(old_password, member.password_hash):
-        raise UnauthorizedException("原密码错误")
+        raise UnauthorizedException(message_key="errors.members.oldPasswordIncorrect")
     member.password_hash = auth_service.hash_password(new_password)
     member = await repo.bump_token_version(member)
     await _drop_jellyfin_devices(session, member_id)

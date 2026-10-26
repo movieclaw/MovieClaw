@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
@@ -31,7 +33,8 @@ import { formatBytes } from "@/lib/format";
 import { imageUrl } from "@/lib/image-proxy";
 import {
   type SharedFacts,
-  TIER_ACTION_LABELS,
+  tierActionLabel,
+  versionSpecSegments,
   allowsBulkClean,
   bulkCleanNote,
   commonNamePrefix,
@@ -145,6 +148,8 @@ export function LibraryDuplicateFiles({
   initialItemId?: number | null;
   onCountChange?: (total: number) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -190,6 +195,7 @@ export function LibraryDuplicateFiles({
       },
       // 摘要层不拉明细：一条聚合查询就够，几千条重复也是一瞬间
       { limit: detail ? PAGE_SIZE : 0, offset: detail ? offset : 0 },
+      { headers: { "Accept-Language": locale } },
     )
       .then((next) => {
         if (seq !== reloadSeq.current) return;
@@ -202,10 +208,11 @@ export function LibraryDuplicateFiles({
       .catch(() => {
         if (seq === reloadSeq.current) setFailed(true);
       });
-  }, [detail, filter, focus, offset, onCountChange]);
+  }, [detail, filter, focus, offset, onCountChange, locale]);
 
   useEffect(() => {
     reload();
+    return () => { reloadSeq.current += 1; };
   }, [reload]);
   // 页面上的数字是扫描落下的结论，不会自己变——只有扫描在跑时才需要盯着看进度
   const scanning = data !== null && isScanning(data.scan);
@@ -245,16 +252,16 @@ export function LibraryDuplicateFiles({
       setBusy(true);
       try {
         const result = await action();
-        const text = successText ?? resolveResultText(result);
+        const text = successText ?? resolveResultText(result, locale);
         (result.failed.length > 0 ? toast.error : toast.success)(text);
         reload();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "操作失败，请稍后重试");
+        toast.error(e instanceof Error ? e.message : t("library.duplicates.operationFailed"));
       } finally {
         setBusy(false);
       }
     },
-    [busy, reload, toast],
+    [busy, reload, toast, locale, t],
   );
 
   /** 「开始扫描」：后台作业算一轮，页面盯着进度。 */
@@ -263,24 +270,24 @@ export function LibraryDuplicateFiles({
     setBusy(true);
     try {
       const started = await startDuplicateScan();
-      toast.success(started.created ? "已开始扫描重复文件" : "扫描正在进行中");
+      toast.success(started.created ? t("library.duplicates.scanStartedToast") : t("library.duplicates.scanRunningToast"));
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "启动扫描失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("library.duplicates.scanStartFailed"));
     } finally {
       setBusy(false);
     }
-  }, [busy, reload, toast]);
+  }, [busy, reload, toast, t]);
 
   /** 「留这个」：留下这一个文件，单元里其余移入回收站。 */
   const keepFile = async (item: DuplicateItem, unit: DuplicateUnit, file: DuplicateFile) => {
     const facts = keepFileFacts(unit, file);
     const ok = await confirm({
-      title: "留下这个，其余移入回收站？",
-      description: `留下 ${file.file_name}。移入回收站的文件 7 天内可恢复。`,
+      title: t("library.duplicates.keepFileTitle"),
+      description: t("library.duplicates.keepFileDescription", { name: file.file_name }),
       bullets: facts.gone.map((f) => `${f.file_name} · ${f.quality_label} · ${formatBytes(f.size_bytes)}`),
-      confirmLabel: `移入回收站 · ${facts.gone.length}`,
-      cancelLabel: "先不",
+      confirmLabel: t("library.duplicates.recycleCount", { count: facts.gone.length }),
+      cancelLabel: t("library.duplicates.cancel"),
       tone: "danger",
     });
     if (!ok) return;
@@ -300,17 +307,17 @@ export function LibraryDuplicateFiles({
     const bullets = facts.gone
       .slice(0, 8)
       .map((f) => `${f.file_name} · ${f.quality_label} · ${formatBytes(f.size_bytes)}`);
-    if (facts.gone.length > 8) bullets.push(`… 共 ${facts.gone.length} 个文件`);
-    const missing = facts.missingEpisodes.map(episodeLabel).join("、");
+    if (facts.gone.length > 8) bullets.push(t("library.duplicates.moreFiles", { count: facts.gone.length }));
+    const missing = facts.missingEpisodes.map(episodeLabel).join(t("library.duplicates.episodeJoin"));
     const ok = await confirm({
-      title: `《${item.media_item.title}》S${String(season.season_number).padStart(2, "0")} 整季留下这个版本？`,
+      title: t("library.duplicates.keepVersionTitle", { title: item.media_item.title, season: String(season.season_number).padStart(2, "0") }),
       description:
-        `留下 ${version.quality_label} · ${version.origin_label}（${version.episodes.length} 集）。` +
-        (missing ? ` ${missing} 没有这个版本，这 ${facts.missingEpisodes.length} 集保留原有文件。` : "") +
-        ` 移入回收站 ${facts.gone.length} 个文件 · ${formatBytes(facts.bytes)}，7 天内可恢复。`,
+        t("library.duplicates.keepVersionDescription", { quality: version.quality_label, origin: version.origin_label, count: version.episodes.length }) +
+        (missing ? t("library.duplicates.keepVersionMissing", { episodes: missing, count: facts.missingEpisodes.length }) : "") +
+        t("library.duplicates.recycleDescription", { count: facts.gone.length, bytes: formatBytes(facts.bytes) }),
       bullets,
-      confirmLabel: `移入回收站 · ${facts.gone.length}`,
-      cancelLabel: "先不",
+      confirmLabel: t("library.duplicates.recycleCount", { count: facts.gone.length }),
+      cancelLabel: t("library.duplicates.cancel"),
       tone: "danger",
     });
     if (!ok) return;
@@ -333,25 +340,25 @@ export function LibraryDuplicateFiles({
           episode_number: item.media_item.kind === "tv" ? null : 0,
           keep_all: true,
         }),
-      item.media_item.kind === "tv" ? "整季都留着：不再列出，直到有新文件进来" : "都留着：不再列出，直到有新文件进来",
+      item.media_item.kind === "tv" ? t("library.duplicates.keepSeasonSaved") : t("library.duplicates.keepSaved"),
     );
 
   /** 一整档 / 一组按「建议保留」清理。除「可以放心清理」外都逐条列出会清掉的东西。 */
   const cleanGroup = async (tier: DuplicateTier, reviewKind: DuplicateReviewKind | null, group: DuplicateGroup) => {
     if (!data) return;
-    const facts = tierFacts(data, group);
+    const facts = tierFacts(data, group, locale);
     const libraryName = filter.libraryId !== null ? libraries?.find((l) => l.id === filter.libraryId)?.name : null;
-    const scope = libraryName ? `「${libraryName}」库` : "全部库";
+    const scope = libraryName ? t("library.duplicates.libraryScope", { name: libraryName }) : t("library.duplicates.allLibraries");
     const ok = await confirm({
-      title: tier === "safe" ? `清理${scope}一模一样的文件？` : `按建议清理「${group.label}」？`,
+      title: tier === "safe" ? t("library.duplicates.cleanIdenticalTitle", { scope }) : t("library.duplicates.cleanSuggestedTitle", { group: group.label }),
       description:
-        `${scope} · ${group.files} 个文件 · ${formatBytes(group.bytes)} · ` +
-        "每个单元留下「建议保留」的那个 · 7 天内可在回收站恢复。" +
-        (tier === "safe" ? "" : ` ${bulkCleanNote(reviewKind)}`) +
-        (group.files > BATCH_LIMIT ? ` 一次最多处理 ${BATCH_LIMIT} 个，剩下的再点一次。` : ""),
+        t("library.duplicates.cleanGroupCounts", { scope, count: group.files, bytes: formatBytes(group.bytes) }) +
+        t("library.duplicates.cleanGroupDescription") +
+        (tier === "safe" ? "" : ` ${bulkCleanNote(reviewKind, locale)}`) +
+        (group.files > BATCH_LIMIT ? t("library.duplicates.batchLimit", { limit: BATCH_LIMIT }) : ""),
       bullets: tier === "safe" ? undefined : facts.lines,
-      confirmLabel: `移入回收站 · ${Math.min(group.files, BATCH_LIMIT)}`,
-      cancelLabel: "先不",
+      confirmLabel: t("library.duplicates.recycleCount", { count: Math.min(group.files, BATCH_LIMIT) }),
+      cancelLabel: t("library.duplicates.cancel"),
       tone: tier === "safe" ? "default" : "danger",
     });
     if (!ok) return;
@@ -361,15 +368,15 @@ export function LibraryDuplicateFiles({
   /** 一整组「都留着」：同一种取舍只回答一次，不动文件，可在文件区逐个撤销。 */
   const keepGroup = async (tier: DuplicateTier, reviewKind: DuplicateReviewKind | null, group: DuplicateGroup) => {
     const ok = await confirm({
-      title: `「${group.label}」都留着？`,
-      description: `${group.units} 个单元的文件全部保留、不再列为重复。不会动任何文件，之后可以在条目详情页逐个撤销。`,
-      confirmLabel: `都留着 · ${group.units}`,
-      cancelLabel: "先不",
+      title: t("library.duplicates.keepGroupTitle", { group: group.label }),
+      description: t("library.duplicates.keepGroupDescription", { count: group.units }),
+      confirmLabel: t("library.duplicates.keepCount", { count: group.units }),
+      cancelLabel: t("library.duplicates.cancel"),
     });
     if (!ok) return;
     await run(
       () => resolveAllDuplicates({ tier, review_kind: reviewKind, library_id: filter.libraryId, keep_all: true }),
-      `已标记「都留着」：${group.units} 个单元不再列为重复`,
+      t("library.duplicates.keepGroupSaved", { count: group.units }),
     );
   };
 
@@ -387,16 +394,15 @@ export function LibraryDuplicateFiles({
     return (
       <div className="mt-16 flex items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
         <span className="size-4 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
-        正在读取扫描结果…
-      </div>
+        {t("library.duplicates.loading")}</div>
     );
   }
   if (data === null) {
     return (
       <div className="mt-16 flex flex-col items-center gap-3 text-center">
-        <p className="text-ui text-[var(--text-muted)]">重复文件加载失败</p>
+        <p className="text-ui text-[var(--text-muted)]">{t("library.duplicates.loadFailed")}</p>
         <button type="button" onClick={reload} className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]">
-          重试
+          {t("library.duplicates.retry")}
         </button>
       </div>
     );
@@ -413,10 +419,9 @@ export function LibraryDuplicateFiles({
         {scanBar}
         <ContentEmptyState
           variant="library"
-          title="还没有扫描过重复文件"
+          title={t("library.duplicates.firstScanTitle")}
           description={
-            "重复检测要逐个文件比对指纹与规格，是一件要跑一会儿的事，所以由你来触发。" +
-            "扫完之后这里会按「可以放心清理 / 建议清理 / 需要你决定」分好，你再决定先做哪一档。"
+            t("library.duplicates.firstScanDescription")
           }
           action={
             <button
@@ -425,7 +430,7 @@ export function LibraryDuplicateFiles({
               onClick={startScan}
               className="flex h-9 items-center rounded-full border border-[var(--accent)] bg-[var(--accent)] px-4 text-ui font-medium text-[#0a0b10] transition hover:opacity-90 disabled:opacity-40"
             >
-              开始扫描
+              {t("library.duplicates.startScan")}
             </button>
           }
         />
@@ -438,9 +443,9 @@ export function LibraryDuplicateFiles({
         {scanBar}
         <ContentEmptyState
           variant="library"
-          title="没有重复文件"
+          title={t("library.duplicates.emptyTitle")}
           description={
-            "每部电影、每一集都只有一个在位文件。" + (hiddenNote(data.scan) ? ` ${hiddenNote(data.scan)}。` : "")
+            t("library.duplicates.emptyDescription") + (hiddenNote(data.scan, locale) ? t("library.duplicates.hiddenSentence", { note: hiddenNote(data.scan, locale) }) : "")
           }
         />
       </>
@@ -458,8 +463,7 @@ export function LibraryDuplicateFiles({
       {scanBar}
       {failed && (
         <div className="mx-6 mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sub text-amber-200 max-md:mx-4">
-          与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据
-        </div>
+          {t("library.duplicates.cachedWarning")}</div>
       )}
 
       {/* 筛选：搜索 / 库胶囊 / 只看某条目（详情页带来的） */}
@@ -470,20 +474,19 @@ export function LibraryDuplicateFiles({
             type="search"
             value={queryDraft}
             onChange={(e) => setQueryDraft(e.target.value)}
-            placeholder="按片名或剧名搜索"
-            aria-label="搜索重复文件"
+            placeholder={t("library.duplicates.searchPlaceholder")}
+            aria-label={t("library.duplicates.searchLabel")}
             className="min-w-0 flex-1 bg-transparent text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]"
           />
           {queryDraft && (
-            <button type="button" aria-label="清除搜索" onClick={() => setQueryDraft("")} className="grid size-5 place-items-center rounded-full hover:bg-white/[0.1]">
+            <button type="button" aria-label={t("library.duplicates.clearSearch")} onClick={() => setQueryDraft("")} className="grid size-5 place-items-center rounded-full hover:bg-white/[0.1]">
               <XIcon className="size-3" />
             </button>
           )}
         </label>
         <div className="flex flex-wrap items-center gap-1.5 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1">
           <Chip active={filter.libraryId === null} onClick={() => setFilter((f) => ({ ...f, libraryId: null }))}>
-            全部库
-          </Chip>
+            {t("library.duplicates.allLibraries")}</Chip>
           {libraryChips.map((lib) => (
             <Chip
               key={lib.id}
@@ -495,7 +498,7 @@ export function LibraryDuplicateFiles({
           ))}
           {filter.itemId !== null && (
             <Chip active onClick={() => setFilter((f) => ({ ...f, itemId: null }))}>
-              只看{itemTitle ? `《${itemTitle}》` : "这个条目"} <XIcon className="size-3" />
+              {itemTitle ? t("library.duplicates.onlyNamed", { title: itemTitle }) : t("library.duplicates.onlyItem")} <XIcon className="size-3" />
             </Chip>
           )}
         </div>
@@ -510,7 +513,7 @@ export function LibraryDuplicateFiles({
           onKeepAll={keepGroup}
         />
       ) : (
-        <section className="mx-6 mt-5 max-md:mx-4" aria-label={focusGroup?.label ?? "重复文件"}>
+        <section className="mx-6 mt-5 max-md:mx-4" aria-label={focusGroup?.label ?? t("library.duplicates.sectionTitle")}>
           <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1.5 px-0.5">
             {/*
               分档导航：第一枚是回摘要，其余三枚直接换档。第一版这里只有一个
@@ -523,8 +526,7 @@ export function LibraryDuplicateFiles({
                 <Chip active={false} onClick={() => setFocus(NO_FOCUS)}>
                   {/* 裸字符「‹」换全站返回图标（Chip 自带 flex + gap，图标落文字前） */}
                   <ChevronLeftIcon className="size-3.5" />
-                  摘要
-                </Chip>
+                  {t("library.duplicates.summary")}</Chip>
                 <span aria-hidden className="h-4 w-px shrink-0 bg-white/[0.12]" />
                 {data.tiers.map((t) => (
                   <Chip
@@ -544,12 +546,12 @@ export function LibraryDuplicateFiles({
               </div>
             ) : (
               <h2 className="text-ui font-semibold text-[var(--text)] md:truncate">
-                {itemTitle ? `《${itemTitle}》的重复文件` : "重复文件"}
+                {itemTitle ? t("library.duplicates.itemTitle", { title: itemTitle }) : t("library.duplicates.sectionTitle")}
               </h2>
             )}
             {focusGroup && (
               <span className="text-caption font-normal text-[var(--text-faint)] tabular-nums max-md:w-full">
-                {groupSummary(focusGroup)}
+                {groupSummary(focusGroup, locale)}
               </span>
             )}
             {focus.tier !== null && focusGroup !== null && focusGroup.files > 0 && (
@@ -560,7 +562,7 @@ export function LibraryDuplicateFiles({
                     variant="ghost"
                     onClick={() => keepGroup(focus.tier!, focus.reviewKind, focusGroup)}
                   >
-                    整组都留着
+                    {t("library.duplicates.keepWholeGroup")}
                   </ActionButton>
                 )}
                 {allowsBulkClean(focus.tier, focus.reviewKind) && (
@@ -570,7 +572,7 @@ export function LibraryDuplicateFiles({
                     className="max-md:flex-1"
                     onClick={() => cleanGroup(focus.tier!, focus.reviewKind, focusGroup)}
                   >
-                    {TIER_ACTION_LABELS[focus.tier]} · {focusGroup.files}
+                    {tierActionLabel(focus.tier, locale)} · {focusGroup.files}
                   </ActionButton>
                 )}
               </div>
@@ -593,8 +595,7 @@ export function LibraryDuplicateFiles({
 
           {data.items.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/[0.08] px-4 py-7 text-center text-ui text-[var(--text-faint)]">
-              这里已经没有待处理的重复文件
-              {filterActive && (
+              {t("library.duplicates.noPending")}{filterActive && (
                 <button
                   type="button"
                   onClick={() => {
@@ -603,7 +604,7 @@ export function LibraryDuplicateFiles({
                   }}
                   className="ml-2 text-[var(--info)] hover:underline"
                 >
-                  清除筛选
+                  {t("library.duplicates.clearFilters")}
                 </button>
               )}
             </div>
@@ -630,8 +631,8 @@ export function LibraryDuplicateFiles({
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-caption text-[var(--text-faint)] tabular-nums">
             <span>
-              {[hiddenNote(data.scan), "清理的文件进回收站，7 天内可恢复"].filter(Boolean).join(" · ")}
-              {data.total_items > PAGE_SIZE && ` · 第 ${offset + 1}–${offset + data.items.length} 个条目，共 ${data.total_items} 个`}
+              {[hiddenNote(data.scan, locale), t("library.duplicates.retention")].filter(Boolean).join(" · ")}
+              {data.total_items > PAGE_SIZE && t("library.duplicates.pageInfo", { start: offset + 1, end: offset + data.items.length, count: data.total_items })}
             </span>
             {pageCount > 1 && <Pager page={pageIndex} count={pageCount} onChange={(p) => setOffset(p * PAGE_SIZE)} />}
           </div>
@@ -662,11 +663,13 @@ function ScanBar({
   scanning: boolean;
   onScan: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   return (
     <div className="mt-5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-6 max-md:px-4">
       <div className="flex min-w-0 items-center gap-2 text-ui text-[var(--text-muted)]">
         {scanning && <span className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />}
-        <span className="truncate">{scanNote(scan)}</span>
+        <span className={locale === "en" ? "break-words" : "truncate"}>{scanNote(scan, undefined, locale)}</span>
         {scanning && scan.percent !== null && (
           <span className="shrink-0 text-caption tabular-nums text-[var(--text-faint)]">{Math.round(scan.percent)}%</span>
         )}
@@ -677,7 +680,7 @@ function ScanBar({
         onClick={onScan}
         className="btn-glass h-8 shrink-0 px-3.5 text-caption font-medium text-[var(--text)] disabled:opacity-40"
       >
-        {scanning ? "扫描中…" : scan.scanned_at ? "重新扫描" : "开始扫描"}
+        {scanning ? t("library.duplicates.scanningButton") : scan.scanned_at ? t("library.duplicates.rescan") : t("library.duplicates.startScan")}
       </button>
     </div>
   );
@@ -707,13 +710,12 @@ function TierSummary({
   onClean: (tier: DuplicateTier, reviewKind: DuplicateReviewKind | null, group: DuplicateGroup) => void;
   onKeepAll: (tier: DuplicateTier, reviewKind: DuplicateReviewKind | null, group: DuplicateGroup) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   return (
     <div className="mx-6 mt-5 flex flex-col gap-2.5 max-md:mx-4">
       <p className="px-0.5 text-sub text-[var(--text-muted)]">
-        一共 <b className="font-semibold text-[var(--text)] tabular-nums">{data.total_units}</b> 个单元有重复，
-        按建议处理可清掉 <b className="font-semibold text-[var(--text)] tabular-nums">{data.total_files}</b> 个文件、
-        腾出 <b className="font-semibold text-[var(--text)] tabular-nums">{formatBytes(data.total_bytes)}</b>。
-        从上往下做：
+        {t.rich("library.duplicates.summaryText", { units: data.total_units, files: data.total_files, bytes: formatBytes(data.total_bytes), unitsValue: (chunks) => <b className="font-semibold text-[var(--text)] tabular-nums">{chunks}</b>, filesValue: (chunks) => <b className="font-semibold text-[var(--text)] tabular-nums">{chunks}</b>, bytesValue: (chunks) => <b className="font-semibold text-[var(--text)] tabular-nums">{chunks}</b> })}
       </p>
 
       {data.tiers.map((tier) => {
@@ -722,16 +724,16 @@ function TierSummary({
         return (
           <div key={tier.key} className={`rounded-2xl border px-4 py-3.5 ${empty ? "border-white/[0.06] bg-white/[0.01] opacity-60" : TIER_TONE[key]}`}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1.5">
-              <h3 className="flex items-baseline gap-2.5 text-ui font-semibold text-[var(--text)]">
+              <h3 className={`flex items-baseline gap-2.5 text-ui font-semibold text-[var(--text)]${locale === "en" ? " flex-wrap" : ""}`}>
                 {tier.label}
                 <span className="text-caption font-normal text-[var(--text-faint)] tabular-nums">
-                  {empty ? "没有" : groupSummary(tier)}
+                  {empty ? t("library.duplicates.none") : groupSummary(tier, locale)}
                 </span>
               </h3>
               {!empty && (
                 <div className="flex items-center gap-1.5">
                   <ActionButton disabled={busy} onClick={() => onOpen(key, null)}>
-                    逐个看
+                    {t("library.duplicates.reviewEach")}
                   </ActionButton>
                   {allowsBulkClean(key, null) && (
                     // 「可以放心清理」是这一页唯一"做了不会丢东西"的批量动作，主操作；
@@ -741,7 +743,7 @@ function TierSummary({
                       variant={key === "safe" ? "primary" : "danger"}
                       onClick={() => onClean(key, null, tier)}
                     >
-                      {TIER_ACTION_LABELS[key]} · {tier.files}
+                      {tierActionLabel(key, locale)} · {tier.files}
                     </ActionButton>
                   )}
                 </div>
@@ -764,19 +766,19 @@ function TierSummary({
                   <div key={group.key} className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
                     <span className="min-w-0 flex-1 text-sub text-[var(--text)]">{group.label}</span>
                     <span className="shrink-0 text-caption text-[var(--text-faint)] tabular-nums">
-                      {compactSummary(group)}
+                      {compactSummary(group, locale)}
                     </span>
-                    <div className="flex basis-full items-center gap-1.5">
+                    <div className={`flex basis-full items-center gap-1.5${locale === "en" ? " flex-wrap" : ""}`}>
                       {/* 逐个看 = 这一组的正路（玻璃按钮）；都留着 = 关掉它，不动文件（幽灵） */}
                       <ActionButton disabled={busy} onClick={() => onOpen("review", group.key as DuplicateReviewKind)}>
-                        逐个看
+                        {t("library.duplicates.reviewEach")}
                       </ActionButton>
                       <ActionButton
                         disabled={busy}
                         variant="ghost"
                         onClick={() => onKeepAll("review", group.key as DuplicateReviewKind, group)}
                       >
-                        都留着
+                        {t("library.duplicates.keepAll")}
                       </ActionButton>
                       {/* 点进具体一组都给成批清理（「规格不全」的依据由确认框说清），见 `allowsBulkClean` */}
                       {allowsBulkClean("review", group.key as DuplicateReviewKind) && (
@@ -785,7 +787,7 @@ function TierSummary({
                           variant="danger"
                           onClick={() => onClean("review", group.key as DuplicateReviewKind, group)}
                         >
-                          按建议清 · {group.files}
+                          {t("library.duplicates.cleanSuggestedCount", { count: group.files })}
                         </ActionButton>
                       )}
                     </div>
@@ -797,8 +799,8 @@ function TierSummary({
         );
       })}
 
-      {hiddenNote(data.scan) && (
-        <p className="px-0.5 text-caption text-[var(--text-faint)]">{hiddenNote(data.scan)}</p>
+      {hiddenNote(data.scan, locale) && (
+        <p className="px-0.5 text-caption text-[var(--text-faint)]">{hiddenNote(data.scan, locale)}</p>
       )}
     </div>
   );
@@ -827,9 +829,11 @@ function SeasonBlock({
   onKeepVersion: (version: DuplicateVersion) => void;
   onKeepAll: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const media = item.media_item;
   const isTv = media.kind === "tv";
-  const headline = seasonHeadline(season, media.kind);
+  const headline = seasonHeadline(season, media.kind, locale);
   const showVersions = season.uniform && !expanded;
   const suggestedVersion = season.versions.find((v) => v.suggested) ?? null;
   // 几个版本行来源相同时（同一轮扫描发现的多个包），窄屏上不必每行都印一遍
@@ -837,15 +841,15 @@ function SeasonBlock({
 
   return (
     <div className="mb-2.5 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]">
-      <div className="flex items-center gap-2.5 border-b border-white/[0.07] bg-white/[0.02] px-4 py-2.5">
+      <div className={`flex items-center gap-2.5 border-b border-white/[0.07] bg-white/[0.02] px-4 py-2.5${locale === "en" ? " max-md:flex-wrap" : ""}`}>
         <PosterImage
           src={imageUrl(media.poster_url)}
           width={26}
           alt=""
           className="h-[38px] w-[26px] shrink-0 rounded-[4px] border border-white/[0.08] object-cover"
         />
-        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <Link href={`/library/${item.library.id}/item/${media.id}` as Route} className="truncate text-ui font-semibold text-[var(--text)] hover:underline">
+        <div className={`flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5${locale === "en" ? " max-md:basis-[calc(100%-3rem)]" : ""}`}>
+          <Link href={`/library/${item.library.id}/item/${media.id}` as Route} className={`${locale === "en" ? "min-w-0 max-w-full break-words md:truncate" : "truncate"} text-ui font-semibold text-[var(--text)] hover:underline`}>
             {media.title}
           </Link>
           {media.year && <span className="text-caption text-[var(--text-faint)]">{media.year}</span>}
@@ -866,8 +870,8 @@ function SeasonBlock({
           )}
         </div>
         {season.uniform && (
-          <ActionButton variant="ghost" className="shrink-0" onClick={onToggleExpanded}>
-            {expanded ? "收起各集" : "展开各集"}
+          <ActionButton variant="ghost" className={`shrink-0${locale === "en" ? " max-md:ml-auto" : ""}`} onClick={onToggleExpanded}>
+            {expanded ? t("library.duplicates.collapseEpisodes") : t("library.duplicates.expandEpisodes")}
           </ActionButton>
         )}
       </div>
@@ -877,28 +881,25 @@ function SeasonBlock({
           {season.versions.map((version) => (
             <div key={version.key} className={`px-4 py-2.5 text-sub ${ROW_GRID}`}>
               <QualityLine
-                className={CELL_VERSION}
-                segments={version.quality_label.split(" ").map((text, i) => ({
-                  text,
-                  diff: suggestedVersion !== null && !version.suggested && suggestedVersion.quality_label.split(" ")[i] !== text,
-                }))}
+                className={`${CELL_VERSION}${locale === "en" ? " max-md:col-span-2" : ""}`}
+                segments={versionSpecSegments(version, version.suggested ? null : suggestedVersion, locale)}
               />
               <span className={`text-[var(--text-muted)] tabular-nums ${CELL_VERSION_COVER}`}>
-                <b className="font-semibold text-[var(--text)]">{versionCoverage(version).split(" · ")[0]}</b>
+                <b className="font-semibold text-[var(--text)]">{versionCoverage(version, locale).split(" · ")[0]}</b>
                 {" · "}
-                {versionCoverage(version).split(" · ")[1]}
+                {versionCoverage(version, locale).split(" · ")[1]}
               </span>
               <span
-                className={`truncate text-[var(--text-muted)] ${CELL_VERSION_ORIGIN} ${
+                className={`${locale === "en" ? "break-words" : "truncate"} text-[var(--text-muted)] ${CELL_VERSION_ORIGIN} ${
                   commonOrigin ? "max-md:hidden" : ""
                 }`}
               >
                 {version.origin_label}
               </span>
-              <div className={`flex items-center justify-end gap-1.5 ${CELL_VERSION_ACTION}`}>
-                {version.suggested && <Tag tone="keep">建议保留</Tag>}
+              <div className={`flex items-center justify-end gap-1.5 ${CELL_VERSION_ACTION}${locale === "en" ? " flex-wrap max-md:col-span-2 max-md:col-start-1 max-md:justify-self-stretch" : ""}`}>
+                {version.suggested && <Tag tone="keep">{t("library.duplicates.recommended")}</Tag>}
                 <ActionButton disabled={busy} onClick={() => onKeepVersion(version)}>
-                  整季留这个
+                  {t("library.duplicates.keepSeasonVersion")}
                 </ActionButton>
               </div>
             </div>
@@ -908,8 +909,8 @@ function SeasonBlock({
         <div className="max-h-[520px] overflow-y-auto">
           {season.units.map((unit) => {
             // 这一集几个文件都一样的规格 / 来源在这里说一次，文件行里就不再各印一遍
-            const shared = sharedFacts(unit.files);
-            const common = sharedLine(unit.files);
+            const shared = sharedFacts(unit.files, locale);
+            const common = sharedLine(unit.files, locale);
             const prefix = commonNamePrefix(unit.files);
             return (
               <div key={`${unit.season_number}-${unit.episode_number}`}>
@@ -949,7 +950,7 @@ function SeasonBlock({
 
       <div className="flex justify-end border-t border-white/[0.06] bg-black/[0.15] px-4 py-1">
         <ActionButton disabled={busy} variant="ghost" onClick={onKeepAll}>
-          {isTv ? "整季都留着" : "都留着"}
+          {isTv ? t("library.duplicates.keepSeasonAll") : t("library.duplicates.keepAll")}
         </ActionButton>
       </div>
     </div>
@@ -978,8 +979,10 @@ function FileRow({
   busy: boolean;
   onKeep: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const reference = suggestedOf(unit);
-  const note = fileNote(file);
+  const note = fileNote(file, locale);
   const live = unit.files.filter((f) => !f.kept_at).length;
   const tail = namePrefix ? file.file_name.slice(namePrefix.length) : file.file_name;
   return (
@@ -998,15 +1001,15 @@ function FileRow({
       */}
       <Tooltip
         openOnClick
-        maxWidth={560}
+        maxWidth={locale === "en" ? "min(560px, calc(100vw - 1rem))" : 560}
         content={
           <div className="space-y-2 text-caption leading-5">
             <div>
-              <div className="text-[var(--text-faint)]">原始文件名</div>
+              <div className="text-[var(--text-faint)]">{t("library.duplicates.originalName")}</div>
               <div className="break-all font-mono text-[var(--text)]">{file.file_name}</div>
             </div>
             <div>
-              <div className="text-[var(--text-faint)]">完整路径</div>
+              <div className="text-[var(--text-faint)]">{t("library.duplicates.fullPath")}</div>
               <div className="break-all font-mono text-[var(--text-muted)]">{file.file_path}</div>
             </div>
           </div>
@@ -1041,24 +1044,24 @@ function FileRow({
         </span>
       </Tooltip>
       <QualityLine
-        segments={specSegments(file, reference)}
+        segments={specSegments(file, reference, locale)}
         volume={volumeSegments(file)}
         className={`${CELL_SPEC} ${shared.quality ? "max-md:hidden" : ""}`}
       />
       <span
-        className={`min-w-0 truncate text-[var(--text-muted)] ${CELL_ORIGIN} ${
+        className={`min-w-0 ${locale === "en" ? "break-words" : "truncate"} text-[var(--text-muted)] ${CELL_ORIGIN} ${
           shared.origin && !note ? "max-md:hidden" : ""
         }`}
       >
         <span className={shared.origin ? "max-md:hidden" : ""}>{file.origin.label}</span>
-        {note && <span className="block truncate text-caption text-[var(--text-faint)]">{note}</span>}
+        {note && <span className={`block ${locale === "en" ? "break-words" : "truncate"} text-caption text-[var(--text-faint)]`}>{note}</span>}
       </span>
-      <div className={`flex items-center justify-end gap-1.5 ${CELL_ACTION}`}>
-        {file.suggested && <Tag tone="keep" mobileHidden>建议保留</Tag>}
-        {file.kept_at && <Tag tone="kept" mobileHidden>你留下的</Tag>}
+      <div className={`flex items-center justify-end gap-1.5 ${CELL_ACTION}${locale === "en" ? " flex-wrap" : ""}`}>
+        {file.suggested && <Tag tone="keep" mobileHidden>{t("library.duplicates.recommended")}</Tag>}
+        {file.kept_at && <Tag tone="kept" mobileHidden>{t("library.duplicates.kept")}</Tag>}
         {(live > 1 || unit.files.length > 1) && (
           <ActionButton disabled={busy} onClick={onKeep}>
-            留这个
+            {t("library.duplicates.keepThis")}
           </ActionButton>
         )}
       </div>
@@ -1079,10 +1082,11 @@ function QualityLine({
   volume?: { text: string; diff: boolean }[];
   className?: string;
 }) {
+  const locale = useLocale();
   const body = (
     <>
       {segments.map((seg, i) => (
-        <span key={`${seg.text}-${i}`}>
+        <span key={i}>
           {i > 0 && <span aria-hidden> · </span>}
           <span className={seg.diff ? "font-semibold text-[var(--warn)]" : i === 0 ? "font-semibold text-[var(--text)]" : undefined}>
             {seg.text}
@@ -1092,14 +1096,14 @@ function QualityLine({
     </>
   );
   if (!volume?.length) {
-    return <span className={`truncate text-[var(--text-muted)] tabular-nums ${className}`}>{body}</span>;
+    return <span className={`${locale === "en" ? "break-words" : "truncate"} text-[var(--text-muted)] tabular-nums ${className}`}>{body}</span>;
   }
   return (
-    <span className={`flex min-w-0 items-baseline gap-2 text-[var(--text-muted)] tabular-nums ${className}`}>
-      <span className="min-w-0 flex-1 truncate">{body}</span>
+    <span className={`flex min-w-0 items-baseline ${locale === "en" ? "flex-col gap-0.5" : "gap-2"} text-[var(--text-muted)] tabular-nums ${className}`}>
+      <span className={locale === "en" ? "min-w-0 break-words" : "min-w-0 flex-1 truncate"}>{body}</span>
       <span className="shrink-0 text-[var(--text)]">
         {volume.map((seg, i) => (
-          <span key={`${seg.text}-${i}`}>
+          <span key={i}>
             {i > 0 && <span aria-hidden className="text-[var(--text-faint)]"> · </span>}
             {seg.text}
           </span>
@@ -1205,16 +1209,17 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 function Pager({ page, count, onChange }: { page: number; count: number; onChange: (page: number) => void }) {
+  const t = useTranslations();
   const btn = "grid h-7 min-w-7 place-items-center rounded-lg border text-caption tabular-nums transition";
   return (
-    <nav aria-label="分页" className="flex items-center gap-1">
-      <button type="button" disabled={page === 0} onClick={() => onChange(page - 1)} className={`${btn} border-transparent text-[var(--text-muted)] hover:bg-white/[0.06] disabled:opacity-40`} aria-label="上一页">
+    <nav aria-label={t("library.duplicates.pagination")} className="flex items-center gap-1">
+      <button type="button" disabled={page === 0} onClick={() => onChange(page - 1)} className={`${btn} border-transparent text-[var(--text-muted)] hover:bg-white/[0.06] disabled:opacity-40`} aria-label={t("library.duplicates.previous")}>
         ‹
       </button>
       <span className="px-1.5 text-[var(--text-muted)]">
         {page + 1} / {count}
       </span>
-      <button type="button" disabled={page >= count - 1} onClick={() => onChange(page + 1)} className={`${btn} border-transparent text-[var(--text-muted)] hover:bg-white/[0.06] disabled:opacity-40`} aria-label="下一页">
+      <button type="button" disabled={page >= count - 1} onClick={() => onChange(page + 1)} className={`${btn} border-transparent text-[var(--text-muted)] hover:bg-white/[0.06] disabled:opacity-40`} aria-label={t("library.duplicates.next")}>
         ›
       </button>
     </nav>

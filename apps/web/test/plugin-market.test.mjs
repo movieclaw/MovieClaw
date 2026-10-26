@@ -230,3 +230,35 @@ test("反馈链接：官方表单补版本，作者仓库原样打开，没有�
   assert.equal(feedbackLink(plugin({ feedback_url: "javascript:alert(1)", homepage: null }), "0.42.0"), null);
   assert.equal(feedbackLink(plugin({ feedback_url: null, homepage: null }), "0.42.0"), null);
 });
+
+test("English marketplace actions retain version choices, categories and permission machine values", () => {
+  const original = plugin();
+  const before = structuredClone(original);
+  assert.equal(marketAction(original, "en").label, "Install");
+  assert.equal(marketAction({ ...original, blocked: "第三方原始原因" }, "en").note, "第三方原始原因");
+  assert.equal(marketAction({ ...original, recommended: null, versions: [] }, "en").note, "No installable versions");
+  const categories = marketCategories([original, { ...original, category: "tools" }], "en");
+  assert.deepEqual(categories, [{ id: "all", label: "All" }, { id: "storage", label: "Cloud drives" }, { id: "tools", label: "Tools" }]);
+  const current = { ...original, installed: { version: "1.0.0", source: "package" } };
+  assert.deepEqual(versionBadges(version({ prerelease: true }), current, "en").map((row) => row.label), ["Currently installed", "Prerelease"]);
+  assert.equal(installVerb("1.0.0", original, "en"), "Install");
+  assert.equal(marketAction(original, "en").version, marketAction(original, "zh-Hans").version);
+  const permission = version({ runtime: "inline", dependencies: [{ name: "native-one", native: true }],
+    permissions: { operations: ["app.plugins.list"], paths: [{ path: "/mnt/原目录", mode: "rw" }], network: true, callbacks: ["notify"], events: ["playback.started"] } });
+  const grantBefore = structuredClone(permission);
+  const lines = permissionLines(permission, "en");
+  assert.equal(lines[0].title, "Runs in the application process");
+  assert.ok(lines.some((row) => row.title === "Calls 1 host operation" && row.detail === "app.plugins.list"));
+  assert.ok(lines.some((row) => row.title === "Read and write folders" && row.detail === "/mnt/原目录"));
+  assert.ok(lines.some((row) => row.detail.includes("Contains native code: native-one.")));
+  assert.deepEqual(permission, grantBefore);
+  assert.deepEqual(original, before);
+});
+
+test("English download counts use the explicit locale without a document", () => {
+  assert.equal(formatDownloadCount(1, "en"), "1 download");
+  assert.equal(formatDownloadCount(1200, "en"), "1,200 downloads");
+  assert.equal(formatDownloadCount(12800, "en"), "12.8K downloads");
+  assert.equal(formatDownloadCount(12800, "zh-Hans"), "1.3万 次下载");
+  assert.equal(versionMeta(version(), 12800, "en"), "v1.0.0 · 45.29 KB · 12.8K downloads");
+});

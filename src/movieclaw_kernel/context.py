@@ -12,7 +12,13 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from movieclaw_kernel.contracts import Contract, RegistryKey, ServiceKey, internal_for_third_party
 from movieclaw_kernel.events import DURABLE_EVENTS, Event, EventBus
-from movieclaw_kernel.observe import DeliveryInfo, Origin, current_delivery, current_origin
+from movieclaw_kernel.observe import (
+    DeliveryInfo,
+    Origin,
+    current_delivery,
+    current_locale,
+    current_origin,
+)
 from movieclaw_kernel.plugin import Plugin
 from movieclaw_kernel.registry import Registry, RegistryChange
 
@@ -40,6 +46,11 @@ class Context(Generic[C]):
     def title(self) -> str:
         """插件的展示名（``@plugin(title=...)``）。"""
         return self._fiber.plugin.title
+
+    @property
+    def locale(self) -> str:
+        """Current caller language; request-local and inherited by child tasks."""
+        return current_locale.get()
 
     @property
     def settings(self) -> Any:

@@ -24,6 +24,7 @@ from sqlmodel import select
 
 from jellyfin.helpers import AUTH_HEADER
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n.stored import stored_fields
 from movieclaw_api.services import jobs
 from movieclaw_api.services.auth import reset_auth_state
 from movieclaw_api.services.library import skip_segments
@@ -249,6 +250,8 @@ async def fake_window(path: str, start: float, length: float) -> bytes:
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("METADATA_DIR", str(tmp_path / "metadata"))
     monkeypatch.setenv("MOVIECLAW_TRANSCODE_DIR", str(tmp_path / "transcodes"))
     monkeypatch.setenv("MOVIECLAW_AUDIO_FINGERPRINT_DIR", str(tmp_path / "fp"))
     # 默认不加载画面文字识别模型（开发机 data/models/ppocr 里有也不用），结果只来自声音
@@ -536,7 +539,13 @@ class _Ctx:
         return None
 
     async def update_progress(self, **kwargs) -> None:
-        self.messages.append(str(kwargs.get("message")))
+        key = kwargs.get("message_key")
+        text = (
+            stored_fields(key, **(kwargs.get("message_params") or {}))["message"]
+            if key
+            else kwargs.get("message")
+        )
+        self.messages.append(str(text))
 
     def progress_due(self, **_kwargs) -> bool:
         return True

@@ -31,7 +31,7 @@ struct MCPSettingsView: View {
         .appBackground()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("新建端点", systemImage: "plus") {
+                Button(String(localized: .settingsMcpControlsNew), systemImage: "plus") {
                     store.error = nil
                     creating = true
                 }
@@ -83,8 +83,8 @@ struct MCPSettingsView: View {
                     }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("启用 MCP 服务")
-                        Text("\(status.baseUrl.isEmpty ? "（未配置外部地址）" : status.baseUrl)/mcp/<端点>")
+                        Text(String(localized: .settingsMcpControlsEnableService))
+                        Text(String(localized: .settingsMcpUiAddressTemplate(status.baseUrl.isEmpty ? String(localized: .settingsMcpUiNoExternal) : status.baseUrl)))
                             .font(.caption.monospaced())
                             .foregroundStyle(Theme.textFaint)
                             .lineLimit(1)
@@ -97,18 +97,18 @@ struct MCPSettingsView: View {
 
             SettingsFormSection {
                 if !status.enabled && !status.endpoints.isEmpty {
-                    SettingsBNotice(text: "服务已关闭，下面所有端点一律返回 404。配置与令牌都保留着，打开开关即恢复。", tone: .warn)
+                    SettingsBNotice(text: String(localized: .settingsMcpControlsDisabledHint), tone: .warn)
                         .accessibilityIdentifier("mcp-disabled-notice")
                 }
                 if status.endpoints.isEmpty {
                     VStack(spacing: 8) {
-                        Text("还没有 MCP 端点").font(.subheadline.weight(.medium))
-                        Text("端点是给 AI 客户端用的入口：建一个、勾选要开放的服务，Claude Code 或 Cursor 填上地址和令牌，就能直接查库存、搜资源、管订阅。每个端点的工具目录相互独立。")
+                        Text(String(localized: .settingsMcpControlsEmptyTitle)).font(.subheadline.weight(.medium))
+                        Text(String(localized: .settingsMcpUiIntro))
                             .font(.caption)
                             .foregroundStyle(Theme.textMuted)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("点击右上角加号创建端点。").font(.caption).foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .settingsMcpUiCreateHint)).font(.caption).foregroundStyle(Theme.textFaint)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
@@ -120,9 +120,9 @@ struct MCPSettingsView: View {
                     }
                 }
             } header: {
-                Text("端点")
+                Text(String(localized: .settingsMcpControlsEndpoints))
             } footer: {
-                Text("每个端点有独立的访问令牌与工具范围，可供 AI 客户端连接。")
+                Text(String(localized: .settingsMcpUiListHint))
             }
 
         }
@@ -142,7 +142,7 @@ struct MCPSettingsView: View {
                         Text(endpoint.name).font(.body.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
                     }
                     Text("/mcp/\(endpoint.slug)").font(.caption.monospaced()).foregroundStyle(Theme.textMuted)
-                    Text("\(endpoint.toolCount) 个工具 · \(endpoint.enabled ? "已启用" : "已停用")")
+                    Text(String(localized: .settingsMcpUiEndpointSummary(endpoint.toolCount, endpoint.enabled ? String(localized: .settingsMcpUiEnabled) : String(localized: .settingsMcpUiDisabled))))
                         .font(.caption).foregroundStyle(Theme.textFaint)
                 }
                 Spacer(minLength: 4)

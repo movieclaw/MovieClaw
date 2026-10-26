@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 /**
  * 侧栏的更新入口（常驻环境徽标）。
  *
@@ -76,6 +78,7 @@ export function AppUpdateEntry({
   /** 跳到「设置 → 更新与维护」，那一页进去就会直接摆出新版本卡片 */
   onOpen: () => void;
 }) {
+  const t = useTranslations();
   // 更新是管理员的事：成员看不到入口，也不发起轮询（接口是管理员专属）
   const { session } = useSession();
   const pending = usePendingUpdate(session.role !== "member");
@@ -84,8 +87,8 @@ export function AppUpdateEntry({
   // 应用与模型可能同时有更新：标题只说更要紧的那个（应用版本），
   // 模型单独有更新时才退化为模型文案——一行入口不塞两件事
   const label = pending.app_version
-    ? `新版本 v${pending.app_version}`
-    : `新识别模型 ${pending.model_tag}`;
+    ? t("notify.update.appVersion", { version: pending.app_version })
+    : t("notify.update.modelVersion", { version: pending.model_tag! });
 
   return (
     <button
@@ -118,9 +121,10 @@ export function AppUpdateEntry({
 
 /** 「设置 → 更新与维护」分区行右侧的小圆点：进了设置后仍能一眼找到更新在哪一栏。 */
 export function AppUpdateDot() {
+  const t = useTranslations();
   return (
     <span
-      aria-label="有可用更新"
+      aria-label={t("nav.badges.update")}
       className="size-1.5 shrink-0 rounded-full"
       style={{ background: UPDATE_COLOR }}
     />

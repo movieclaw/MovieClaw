@@ -1,11 +1,12 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { Route } from "next";
 import Link from "next/link";
 
 const TABS = [
-  { key: "home", label: "首页", href: "/library" as Route },
-  { key: "collections", label: "合集", href: "/library/collections" as Route },
+  { key: "home", label: "library.collections.homeTab", href: "/library" as Route },
+  { key: "collections", label: "library.detail.collections", href: "/library/collections" as Route },
 ] as const;
 
 /**
@@ -37,6 +38,7 @@ export function LibrarySectionSwitch({
   /** 调用方用来对齐页头那一行（如 `mt-1`）；不要拿它改控件自身的长相 */
   className?: string;
 }) {
+  const t = useTranslations();
   return (
     <div
       className={`flex shrink-0 rounded-full border border-white/10 bg-black/35 p-1 backdrop-blur-xl ${className}`}
@@ -52,7 +54,7 @@ export function LibrarySectionSwitch({
               : "text-[var(--text-muted)] hover:text-white"
           }`}
         >
-          {tab.label}
+          {t(tab.label)}
         </Link>
       ))}
     </div>

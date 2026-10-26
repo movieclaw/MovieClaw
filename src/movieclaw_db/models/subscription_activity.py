@@ -80,6 +80,9 @@ class SubscriptionActivity(TimestampMixin, table=True):
 
     __tablename__ = "subscription_activity"
 
+    message_key: str | None = Field(default=None)
+    message_params: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+
     id: int | None = Field(default=None, primary_key=True)
 
     subscription_id: int = Field(

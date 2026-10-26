@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 
 import type { Route } from "next";
@@ -29,6 +30,7 @@ export function SharePlayerPage({
   startMsOverride?: number;
 }) {
   const router = useRouter();
+  const locale = useLocale();
   const [mediaItemId, setMediaItemId] = useState<number | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const scope = useMemo(() => sharePlaybackScope(slug), [slug]);
@@ -47,12 +49,12 @@ export function SharePlayerPage({
         setMediaItemId(info.media_item_id);
       })
       .catch((error: unknown) => {
-        if (!cancelled) setFailed(unavailableMessage(error));
+        if (!cancelled) setFailed(unavailableMessage(error, locale));
       });
     return () => {
       cancelled = true;
     };
-  }, [slug, router, exitHref]);
+  }, [slug, router, exitHref, locale]);
 
   return (
     <div className="h-dvh w-full overflow-hidden bg-black">

@@ -60,30 +60,42 @@ test('verified updater displays release text safely and installs only the regist
 });
 
 test('updater cancellation stops the registered transfer and rejects late or unrelated progress', async ({page,request},info) => {
-  await updates(page,request,{updateDelays:[1400,20]});
-  await page.locator('#updateDownload').click();
-  await expect(page.locator('#desktopUpdateProgress')).toBeVisible();
-  await expect.poll(()=>page.evaluate(()=>window.DesktopUpdates.active?.id)).toBe('fixture-update-1');
-  await expect(page.locator('#desktopUpdateProgress')).not.toHaveAttribute('value',/.+/);
-  await page.locator('#updateCancel').focus();
-  await page.evaluate(()=>window.__fixture.emit('movieclaw:update-progress',{downloadId:'fixture-update-1',version:'windows-v0.2.112',state:'downloading',received:5120,total:10240}));
-  await expect(page.locator('#desktopUpdateProgress')).toHaveAttribute('value','50');
-  await expect(page.locator('#updateCancel')).toBeFocused();
-  await page.evaluate(()=>window.__fixture.emit('movieclaw:update-progress',{downloadId:'another-download',version:'windows-v0.2.112',state:'error',received:90,total:100}));
-  await expect(page.locator('#desktopUpdateDialog h2')).toHaveText('正在下载更新');
-  await screenshot(page,info,'update-downloading');
-  await page.locator('#updateCancel').click(); await expect(page.locator('#desktopUpdateDialog h2')).toHaveText('下载已取消');
-  expect((await state(request)).updateRequests.find(value=>value.command==='cancel_update_download').args).toEqual({downloadId:'fixture-update-1'});
-  await page.evaluate(()=>{
-    document.querySelector('#updateDownload').click();
-    window.__fixture.emit('movieclaw:update-progress',{downloadId:'fixture-update-1',version:'windows-v0.2.112',state:'error',received:90,total:100});
+  await updates(page,request);
+  let finishDownload;
+  const downloadGate = new Promise(resolve => { finishDownload = resolve; });
+  await page.route('**/__test/update', async route => {
+    const body = route.request().postDataJSON();
+    if (body.command === 'download_update' && body.fixtureDownloadId === 'fixture-update-1') await downloadGate;
+    await route.continue();
   });
-  await expect(page.locator('#updateInstall')).toBeVisible();
-  await page.evaluate(()=>window.__fixture.emit('movieclaw:update-progress',{downloadId:'fixture-update-1',version:'windows-v0.2.112',state:'cancelled',received:10,total:100}));
-  await expect(page.locator('#desktopUpdateDialog h2')).toHaveText('更新已准备');
-  await expect.poll(async()=>Object.values((await state(request)).updateDownloads).every(value=>value.settled)).toBe(true);
-  await expect(page.locator('#desktopUpdateDialog h2')).toHaveText('更新已准备');
-  expect((await state(request)).updateRequests.some(value=>value.command==='install_downloaded_update')).toBe(false);
+  try {
+    await page.locator('#updateDownload').click();
+    await expect(page.locator('#desktopUpdateProgress')).toBeVisible();
+    await expect.poll(()=>page.evaluate(()=>window.DesktopUpdates.active?.id)).toBe('fixture-update-1');
+    await expect(page.locator('#desktopUpdateProgress')).not.toHaveAttribute('value',/.+/);
+    await page.locator('#updateCancel').focus();
+    await page.evaluate(()=>window.__fixture.emit('movieclaw:update-progress',{downloadId:'fixture-update-1',version:'windows-v0.2.112',state:'downloading',received:5120,total:10240}));
+    await expect(page.locator('#desktopUpdateProgress')).toHaveAttribute('value','50');
+    await expect(page.locator('#updateCancel')).toBeFocused();
+    await page.evaluate(()=>window.__fixture.emit('movieclaw:update-progress',{downloadId:'another-download',version:'windows-v0.2.112',state:'error',received:90,total:100}));
+    await expect(page.locator('#desktopUpdateDialog h2')).toHaveText('正在下载更新');
+    await screenshot(page,info,'update-downloading');
+    await page.locator('#updateCancel').click();
+    await expect.poll(async()=> (await state(request)).updateDownloads['fixture-update-1'].cancelled).toBe(true);
+    finishDownload();
+    await expect(page.locator('#desktopUpdateDialog h2')).toHaveText('下载已取消');
+    expect((await state(request)).updateRequests.find(value=>value.command==='cancel_update_download').args).toEqual({downloadId:'fixture-update-1'});
+    await page.evaluate(()=>{
+      document.querySelector('#updateDownload').click();
+      window.__fixture.emit('movieclaw:update-progress',{downloadId:'fixture-update-1',version:'windows-v0.2.112',state:'error',received:90,total:100});
+    });
+    await expect(page.locator('#updateInstall')).toBeVisible();
+    await page.evaluate(()=>window.__fixture.emit('movieclaw:update-progress',{downloadId:'fixture-update-1',version:'windows-v0.2.112',state:'cancelled',received:10,total:100}));
+    await expect(page.locator('#desktopUpdateDialog h2')).toHaveText('更新已准备');
+    await expect.poll(async()=>Object.values((await state(request)).updateDownloads).every(value=>value.settled)).toBe(true);
+    await expect(page.locator('#desktopUpdateDialog h2')).toHaveText('更新已准备');
+    expect((await state(request)).updateRequests.some(value=>value.command==='install_downloaded_update')).toBe(false);
+  } finally { finishDownload(); }
 });
 
 test('unsigned update requires a separate explicit installation confirmation', async ({page,request},info) => {

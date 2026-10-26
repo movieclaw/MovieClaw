@@ -26,6 +26,8 @@ export interface AppConfigView extends AppConfigPayload {
   web_port_source: "setting" | "env" | "default" | string;
   /** 内置默认端口 */
   web_port_default: number;
+  /** 清除端口设置后的实际目标；旧服务端没有此字段 */
+  web_port_reset_target?: number | null;
   /** 上次启动时因无法绑定而被容器入口自动废弃的端口；null = 无 */
   web_port_rejected: number | null;
   /** 当前部署形态是否支持应用内改端口（仅容器入口托管进程的 Docker 部署） */

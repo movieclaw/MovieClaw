@@ -60,6 +60,7 @@ const SubscribeEntryContext = createContext<SubscribeEntryValue | null>(null);
 export function useSubscribeEntry(): SubscribeEntryValue {
   const value = useContext(SubscribeEntryContext);
   if (!value) {
+    // i18n-ignore: developer-only provider invariant.
     throw new Error("useSubscribeEntry 必须在 SubscribeEntryProvider 内使用（见 app-shell.tsx）");
   }
   return value;

@@ -42,10 +42,11 @@ struct SearchRoundBar: View {
                 HStack(spacing: 10) {
                     Circle().fill(SubsColor.info).frame(width: 6, height: 6)
                         .background(Circle().fill(SubsColor.info.opacity(0.14)).frame(width: 12, height: 12))
-                    Text("\(SubsFormat.relative(latest.createdAt))搜了一轮").font(.subheadline.weight(.medium)).foregroundStyle(Theme.text.opacity(0.85))
+                    Text(String(localized: .subscriptionInspectorSearchedAgo(SubsFormat.relative(latest.createdAt)))).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text.opacity(0.85))
                 }
                 Text(hasStats
-                    ? "\(p["results"]?.intValue ?? 0) 结果 · 命中 \(p["identity_hits"]?.intValue ?? 0) · 拒绝 \(p["rejected"]?.intValue ?? 0) · 投递 \(p["dispatched_units"]?.intValue ?? 0) 个单元" + (nextDue.map { " · 下轮 \(SubsFormat.dateTime($0))" } ?? "")
+                    ? String(localized: .subscriptionInspectorSearchStatsLine(p["results"]?.intValue ?? 0, p["identity_hits"]?.intValue ?? 0, p["rejected"]?.intValue ?? 0, p["dispatched_units"]?.intValue ?? 0))
+                        + (nextDue.map { String(localized: .subscriptionInspectorNextRound(SubsFormat.dateTime($0))) } ?? "")
                     : latest.message)
                     .font(.caption).monospacedDigit()
                     .foregroundStyle(Theme.textFaint)
@@ -81,7 +82,7 @@ struct WantedBreakdown: View {
 
     var body: some View {
         if wanted.isEmpty {
-            Text("当前没有追踪项。开启「自动续订」后，新集播出会自动加入。")
+            Text(String(localized: .subscriptionInspectorNoWanted))
                 .font(.subheadline).foregroundStyle(Theme.textMuted)
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -134,12 +135,12 @@ struct WantedBreakdown: View {
                     .foregroundStyle(Theme.textFaint)
                     .rotationEffect(.degrees(open ? 180 : 0))
             }
-            Text(isMovie ? "正片" : SubsFormat.seasonName(season)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text.opacity(0.8))
+            Text(isMovie ? String(localized: .subscriptionInspectorFeature) : SubsFormat.seasonName(season)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text.opacity(0.8))
             if !isMovie {
                 Text("\(arranged)/\(items.count)").font(.subheadline).monospacedDigit().foregroundStyle(Theme.textFaint)
             }
             if upgrading > 0 {
-                Text("洗版 \(upgrading)").font(.subheadline).monospacedDigit().foregroundStyle(SubsColor.upgrade.opacity(0.8))
+                Text(String(localized: .subscriptionInspectorSeasonUpgrading(upgrading))).font(.subheadline).monospacedDigit().foregroundStyle(SubsColor.upgrade.opacity(0.8))
             }
             Spacer(minLength: 4)
             if collapsible, !open {
@@ -151,7 +152,7 @@ struct WantedBreakdown: View {
                     }
             }
             if annotatable {
-                Button("标注片源") { onAnnotate(season) }
+                Button(String(localized: .subscriptionUpgradeAnnotateSource)) { onAnnotate(season) }
                     .font(.caption.weight(.medium))
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
@@ -186,7 +187,7 @@ struct WantedRow: View {
     var body: some View {
         // 入库失败是死局：胶囊自己变红，否则这一行与正常等待入库毫无区别
         let stuckOnImport = failure?.type == "import_failed" ? failure : nil
-        let presentation = stuckOnImport.map { WantedPresentation(label: "入库失败", color: SubsColor.danger, note: $0.message) } ?? WantedLogic.presentation(wanted)
+        let presentation = stuckOnImport.map { WantedPresentation(label: String(localized: .subscriptionWantedImportFailed), color: SubsColor.danger, note: $0.message, short: String(localized: .subscriptionWantedFailureShort)) } ?? WantedLogic.presentation(wanted)
         let live = stuckOnImport == nil && (wanted.status == "grabbed" || wanted.status == "downloaded") ? download : nil
         let chain = WantedLogic.milestones(wanted, isMovie: isMovie, live: live, failure: failure, isSmart: smart != nil)
         let lit = WantedLogic.stuckIndex(chain)
@@ -195,7 +196,7 @@ struct WantedRow: View {
             Button(action: { if !isMovie { onToggle() } }) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 10) {
-                        Text(isMovie ? "正片" : "E\(SubsFormat.pad(wanted.episodeNumber))")
+                        Text(isMovie ? String(localized: .subscriptionInspectorFeature) : "E\(SubsFormat.pad(wanted.episodeNumber))")
                             .font(.subheadline.weight(.semibold)).monospacedDigit()
                             .foregroundStyle(Theme.text.opacity(0.9))
                         Spacer(minLength: 4)
@@ -249,7 +250,7 @@ struct WantedRow: View {
         .padding(.horizontal, 10).padding(.vertical, 3)
         .background(presentation.color.opacity(0.14), in: .capsule)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("第 \(lit + 1)/\(chain.count) 站：\(chain[safe: lit]?.label ?? "")，\(presentation.label)")
+        .accessibilityLabel(String(localized: .subscriptionInspectorStationStatus(lit + 1, chain.count, chain[safe: lit]?.label ?? "", presentation.label)))
         .accessibilityIdentifier("wanted-pill")
     }
 }
@@ -306,7 +307,7 @@ struct MilestoneChainView: View {
                             .font(.subheadline).monospacedDigit()
                             .foregroundStyle(milestone.state == .done ? Theme.textFaint : milestone.state == .todo ? Color.white.opacity(0.25) : Color.white.opacity(0.8))
                             .fixedSize(horizontal: false, vertical: true)
-                        if milestone.label == "搜索", let smart { SmartWantedSelection(context: smart) }
+                        if milestone.label == String(localized: .commonSearch), let smart { SmartWantedSelection(context: smart) }
                         if let why = milestone.why {
                             Text(why).font(.caption).foregroundStyle(SubsColor.reason.opacity(0.9)).fixedSize(horizontal: false, vertical: true)
                         }
@@ -339,7 +340,7 @@ struct ActivityLogSection: View {
                     withAnimation(.snappy) { open.toggle() }
                 } label: {
                     HStack(spacing: 8) {
-                        Text("排查记录").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text.opacity(0.7))
+                        Text(String(localized: .subscriptionInspectorHistory)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text.opacity(0.7))
                         Text("\(activities.count)").font(.subheadline).monospacedDigit().foregroundStyle(Theme.textFaint)
                         Spacer()
                         Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(Theme.textFaint)

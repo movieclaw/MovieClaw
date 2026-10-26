@@ -46,6 +46,7 @@ import io.movieclaw.android.core.model.LlmModelInfo
 import io.movieclaw.android.core.model.LlmPresetView
 import io.movieclaw.android.core.model.LlmProviderPayload
 import io.movieclaw.android.core.model.LlmProviderView
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /**
  * 接入 / 编辑模型供应商（iOS `SettingsBLLMProviderForm` / Web `llm-config-section` 同构）。
@@ -123,6 +124,7 @@ internal fun LlmProviderFormSheet(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(max = 560.dp)
+                    .formSheetScroll()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),

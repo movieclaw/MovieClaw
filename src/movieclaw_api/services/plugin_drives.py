@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 from typing import Any
 
+from movieclaw_api.i18n.stored import keyed_error
 from movieclaw_sdk import drives as dv
 
 
@@ -38,8 +39,8 @@ class RemoteDriveBackend(dv.DriveBackend):
             # 超时由宿主调用包装按「多久没有进展」管：大目录逐页限速可以翻很久，这一层不设总上限
             envelope = await self._session.call(self._cid, payload, timeout=None, kind="drive")
         except PluginProcessGone as exc:
-            raise dv.Transient(
-                f"网盘插件 {self._session.entry_id} 没在运行，稍后会自动重试"
+            raise keyed_error(
+                dv.Transient, "cloud.drives.pluginNotRunning", id=self._session.entry_id
             ) from exc
         except RemoteCallError as exc:
             raise dv.Transient(exc.detail) from exc

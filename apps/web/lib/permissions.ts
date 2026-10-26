@@ -1,5 +1,8 @@
 "use client";
 
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { appTranslator } from "@/lib/i18n/translate";
+
 import type { SessionView } from "@/lib/api/auth";
 import { useSession } from "@/lib/session";
 
@@ -42,8 +45,9 @@ export function usePermissions(): AppPermissions {
   return permissionsFor(useSession().session);
 }
 
-export function roleLabel(session: SessionView): string {
-  return session.role === "admin" ? "超级管理员" : "成员";
+export function roleLabel(session: SessionView, locale: AppLocale = "zh-Hans"): string {
+  const t = appTranslator(locale);
+  return t(session.role === "admin" ? "auth.role.superAdmin" : "auth.role.member");
 }
 
 /**

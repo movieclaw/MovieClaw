@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -26,6 +27,8 @@ export function useDeletePreview(
   mediaItemId: number,
   fileId?: number,
 ) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [preview, setPreview] = useState<ItemDeletePreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -38,12 +41,12 @@ export function useDeletePreview(
         if (!cancelled) setPreview(value);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "加载失败");
+        if (!cancelled) setError(err instanceof Error ? err.message : t("library.deletion.loadFailed"));
       });
     return () => {
       cancelled = true;
     };
-  }, [active, libraryId, mediaItemId, fileId]);
+  }, [active, libraryId, mediaItemId, fileId, locale, t]);
   return { preview, error };
 }
 
@@ -66,32 +69,32 @@ export function DeleteOptions({
   onToggle: (key: string) => void;
   disabled?: boolean;
 }) {
+  const t = useTranslations();
   if (error) {
     return (
       <p className="mt-3 text-caption leading-5 text-[var(--text-faint)]">
-        附加选项暂时加载不出来（{error}），这次只删除媒体库文件。
+        {t("library.deletion.optionsFailed", { error })}
       </p>
     );
   }
   if (!preview) {
-    return <p className="mt-3 text-caption text-[var(--text-faint)]">正在检查关联的下载任务…</p>;
+    return <p className="mt-3 text-caption text-[var(--text-faint)]">{t("library.deletion.checking")}</p>;
   }
   return (
     <>
       {preview.cloud && (
         <p className="mt-3 text-sub leading-6 text-white/70">
-          将从 {preview.cloud.backend_title} 删除{" "}
-          <span className="tnum font-semibold">{preview.cloud.files}</span> 个文件（
-          <span className="tnum">{formatBytes(preview.cloud.bytes)}</span>）
-          {preview.cloud.recycle_bin
-            ? `，进入 ${preview.cloud.backend_title} 的回收站，在那里还能还原。`
-            : "，网盘没有回收站，删了就找不回来。"}
+          {t.rich("library.deletion.cloudWarning", {
+            backend: preview.cloud.backend_title, files: preview.cloud.files,
+            size: formatBytes(preview.cloud.bytes), recycle: preview.cloud.recycle_bin ? "yes" : "no",
+            count: (chunks) => <span className="tnum font-semibold">{chunks}</span>,
+            bytes: (chunks) => <span className="tnum">{chunks}</span>,
+          })}
         </p>
       )}
       {preview.linked_bytes > 0 && (
         <p className="mt-3 text-sub leading-6 text-white/70">
-          其中 <span className="tnum font-semibold">{formatBytes(preview.linked_bytes)}</span>{" "}
-          与别处的文件是同一份数据（硬链接）：只删媒体库文件不会释放这部分空间。
+          {t.rich("library.deletion.hardlinks", { size: formatBytes(preview.linked_bytes), bytes: (chunks) => <span className="tnum font-semibold">{chunks}</span> })}
         </p>
       )}
       {preview.options.map((option) => (
@@ -118,6 +121,7 @@ function OptionRow({
   onToggle: () => void;
   disabled?: boolean;
 }) {
+  const t = useTranslations();
   const usable = option.available && !disabled;
   return (
     <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-3">
@@ -149,7 +153,7 @@ function OptionRow({
           ))
         ) : (
           <p className="text-caption leading-5 text-[var(--text-muted)]">
-            这次不能勾选：{option.reason ?? "不可用"}
+            {t("library.deletion.disabledReason", { reason: option.reason ?? t("library.deletion.unavailable") })}
           </p>
         )}
       </div>
@@ -172,6 +176,8 @@ export function DeleteFollowUps({ items }: { items: DeleteFollowUp[] }) {
 }
 
 function FollowUpRow({ item }: { item: DeleteFollowUp }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [job, setJob] = useState<JobView | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -192,17 +198,17 @@ function FollowUpRow({ item }: { item: DeleteFollowUp }) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [item.job_id]);
+  }, [item.job_id, locale]);
 
   const status = job?.status;
   const message =
     status === "succeeded"
-      ? String(job?.result?.message ?? "已完成")
+      ? String(job?.result?.message ?? t("library.deletion.completed"))
       : status === "failed"
-        ? `没能完成：${job?.error?.message ?? "未知原因"}`
+        ? t("library.deletion.failed", { reason: job?.error?.message ?? t("library.deletion.unknownReason") })
         : status === "cancelled"
-          ? "已取消"
-          : "正在处理…";
+          ? t("library.deletion.cancelled")
+          : t("library.deletion.processing");
   const tone =
     status === "failed" ? "text-[#ff9f9f]" : status === "succeeded" ? "text-white/75" : "text-[var(--text-muted)]";
   return (
@@ -211,7 +217,7 @@ function FollowUpRow({ item }: { item: DeleteFollowUp }) {
       <p className={`mt-0.5 text-caption leading-5 ${tone}`}>{message}</p>
       {status === "failed" && (
         <Link href="/activity" className="mt-1 inline-block text-caption text-[var(--accent)] hover:opacity-80">
-          去「活动 → 任务」重试
+          {t("library.deletion.retryTasks")}
         </Link>
       )}
     </div>

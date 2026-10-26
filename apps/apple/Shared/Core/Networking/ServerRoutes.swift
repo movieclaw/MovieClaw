@@ -145,7 +145,7 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
                 current[key] = guess
             }
         }
-        select(server, reason: "账号就绪")
+        select(server, reason: "账号就绪") // i18n-ignore: internal reason label
         if let token {
             Task.detached(priority: .utility) { [self] in await refreshBook(server, token: token) }
         }
@@ -159,7 +159,7 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
         guard lock.withLock({ books[key] }) != nil else { return nil }
         let failedKey = Self.key(failed)
         for rerun in [false, true] {
-            let round = select(server, reason: "当前地址连不上", excluding: failedKey, rerun: rerun)
+            let round = select(server, reason: "当前地址连不上", excluding: failedKey, rerun: rerun) // i18n-ignore: internal reason label
             if let moved = await movedAway(server, from: failedKey, during: round) { return moved }
         }
         return nil
@@ -194,7 +194,7 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
         })
         #elseif canImport(AppKit)
         list.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { [weak self] _ in
-            self?.reselectAll(reason: "电脑唤醒")
+            self?.reselectAll(reason: "电脑唤醒") // i18n-ignore: internal reason label
         })
         #endif
         lock.withLock { observers = list }
@@ -207,14 +207,14 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
             return backgroundedAt
         }
         if let since, Date().timeIntervalSince(since) >= Self.longAbsence {
-            reselectAll(reason: "久别回到前台")
+            reselectAll(reason: "久别回到前台") // i18n-ignore: internal reason label
         }
     }
 
     private func networkMaybeChanged() {
         let fingerprint = NetworkSnapshot.current().fingerprint
         if lastFingerprintUpdate(fingerprint) {
-            reselectAll(reason: "网络变了")
+            reselectAll(reason: "网络变了") // i18n-ignore: internal reason label
         }
     }
 
@@ -366,7 +366,7 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
                 || Set(previous?.endpoints ?? []) != Set(endpoints)
         }
         persist()
-        if isNew { select(server, reason: "地址簿更新", rerun: true) }
+        if isNew { select(server, reason: "地址簿更新", rerun: true) } // i18n-ignore: internal reason label
     }
 
     /// 测试用：直接放一份地址簿

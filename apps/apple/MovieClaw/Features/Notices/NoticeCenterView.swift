@@ -22,8 +22,8 @@ struct NoticeCenterView: View {
             let visible = Self.visible(notices)
             if visible.isEmpty {
                 EmptyState(
-                    systemImage: "checkmark.seal", title: "暂无待处理事项",
-                    message: "这里只列需要你处理的运行时问题，修复后会自动消失。"
+                    systemImage: "checkmark.seal", title: String(localized: .notifyNoticesNoneTitle),
+                    message: String(localized: .notifyCenterDescription)
                 )
                 .accessibilityIdentifier("notices-empty")
             } else {
@@ -32,7 +32,7 @@ struct NoticeCenterView: View {
                         ForEach(visible, id: \.id) { notice in
                             NoticeCard(notice: notice, onGoto: { goto(notice) }, onDismiss: { dismiss(notice) })
                         }
-                        Text("这里只列需要你处理的运行时问题，修复后会自动消失。")
+                        Text(String(localized: .notifyCenterDescription))
                             .font(.caption)
                             .foregroundStyle(Theme.textFaint)
                             .padding(.top, 6)
@@ -42,7 +42,7 @@ struct NoticeCenterView: View {
                 }
             }
         }
-        .navigationTitle("待处理事项")
+        .navigationTitle(String(localized: .notifyCenterTitle))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let count = state.value.map({ Self.visible($0).count }), count > 0 {
@@ -141,7 +141,7 @@ private struct NoticeCard: View {
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
                 Button(action: onDismiss) {
-                    Text("忽略")
+                    Text(String(localized: .notifyCenterIgnore))
                         .font(.subheadline)
                         .foregroundStyle(Theme.textFaint)
                         .expandedHitArea(vertical: 12)
@@ -152,7 +152,7 @@ private struct NoticeCard: View {
                 ActivityHandoffButton(kind: "notice", refId: String(notice.id))
                 Button(action: onGoto) {
                     HStack(spacing: 3) {
-                        Text("去处理")
+                        Text(String(localized: .notifyCenterResolve))
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                     }
                     .font(.subheadline.weight(.medium))

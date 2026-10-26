@@ -1,0 +1,12 @@
+{
+  "check": {
+    "endpointDisabled": "This endpoint is disabled. External clients will receive HTTP 404.",
+    "externalUrlMissing": "No external address is configured. The endpoint has only a relative URL, so external clients cannot connect.",
+    "servicesMissing": "Some configured services are unavailable in this version and have been ignored.",
+    "handshakeOk": "Protocol handshake and tool definitions are working",
+    "probeFailed": "Tool {tool} failed",
+    "allOk": "Protocol, tool definitions and API calls are working",
+    "failed": "Could not complete the self-check: {detail}",
+    "globalDisabled": "MCP is disabled globally. All endpoints return HTTP 404 to external clients."
+  }
+}

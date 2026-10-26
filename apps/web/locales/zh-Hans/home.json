@@ -1,0 +1,10 @@
+{
+  "metadata": {
+    "description": "Movieclaw 控制台 —— 液态玻璃风格的影视追踪工作台。",
+    "manifestDescription": "液态玻璃风格的影视追踪工作台"
+  },
+  "newSession": {
+    "configureModel": "请先接入 AI 模型，再开始对话",
+    "createFailed": "创建会话失败：{reason}"
+  }
+}

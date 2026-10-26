@@ -18,9 +18,9 @@ struct SettingsBPushBindSheet: View {
 
     var body: some View {
         SubsSheetScaffold(
-            title: "接入 \(channel.title)",
+            title: String(localized: .settingsImChannelsBindTitle(channel.title)),
             subtitle: channel.binding.hint.isEmpty ? channel.description : channel.binding.hint,
-            closeTitle: "关闭"
+            closeTitle: String(localized: .commonClose)
         ) {
             if channel.binding.kind == "flow" {
                 SettingsBPushFlowBody(channel: channel, onBound: onBound)
@@ -127,14 +127,14 @@ private struct SettingsBPushFlowBody: View {
             SettingsFormSection {
                 HStack(spacing: 8) {
                     SettingsBPushInput(
-                        placeholder: binding?.inputLabel ?? "请输入",
+                        placeholder: binding?.inputLabel ?? String(localized: .settingsImChannelsEnterValue),
                         text: $value,
                         keyboard: .numberPad,
                         identifier: "push-flow-input",
                         onSubmit: { Task { await submit() } }
                     )
                     .focused($inputFocused)
-                    Button("确认") { Task { await submit() } }
+                    Button(String(localized: .settingsImChannelsConfirm)) { Task { await submit() } }
                         .font(.subheadline.weight(.semibold))
                         .discoverProminentButton()
                         .disabled(busy || value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -142,7 +142,7 @@ private struct SettingsBPushFlowBody: View {
                 }
                 .onAppear { inputFocused = true }
             } header: {
-                Text("还差一步")
+                Text(String(localized: .settingsImChannelsOneMoreStep))
             }
         }
     }
@@ -166,19 +166,19 @@ private struct SettingsBPushFlowBody: View {
                         .frame(width: 176, height: 176)
                         .padding(12)
                         .background(.white, in: .rect(cornerRadius: 16))
-                        .accessibilityLabel("\(channel.title)绑定二维码")
+                        .accessibilityLabel(String(localized: .settingsImChannelsQrAlt(channel.title)))
                         .accessibilityIdentifier("push-flow-qrcode")
                     }
                     VStack(spacing: 4) {
-                        Text(failed ? "绑定未完成"
-                             : binding.status == "pending" ? "等待扫码"
-                             : binding.status == "need_input" ? "还差一步" : "已扫码")
+                        Text(failed ? String(localized: .settingsImChannelsIncomplete)
+                             : binding.status == "pending" ? String(localized: .settingsImChannelsWaitingScan)
+                             : binding.status == "need_input" ? String(localized: .settingsImChannelsOneMoreStep) : String(localized: .settingsImChannelsScanned))
                             .font(.body.weight(.medium))
                             .accessibilityIdentifier("push-flow-status")
                         Text(binding.message).font(.subheadline).foregroundStyle(Theme.textMuted)
                     }
                     if failed {
-                        Button("重新发起") { Task { await begin() } }
+                        Button(String(localized: .settingsImChannelsRestart)) { Task { await begin() } }
                             .font(.subheadline.weight(.semibold))
                             .discoverProminentButton()
                             .disabled(busy)
@@ -190,8 +190,8 @@ private struct SettingsBPushFlowBody: View {
             } else {
                 // 发起失败（网关不可达等）：留一个手动重试入口
                 SettingsBPushStatusCard {
-                    Text("没能发起绑定").font(.body.weight(.medium))
-                    Button("重试") { Task { await begin() } }
+                    Text(String(localized: .settingsImChannelsStartFailed)).font(.body.weight(.medium))
+                    Button(String(localized: .commonRetry)) { Task { await begin() } }
                         .font(.subheadline.weight(.semibold))
                         .discoverProminentButton()
                         .accessibilityIdentifier("push-flow-retry")
@@ -283,7 +283,7 @@ private struct SettingsBPushFormBody: View {
                 SettingsFormSection {
                     fieldRow(field, first: index == 0)
                 } header: {
-                    Text(field.required ? field.label : "\(field.label)（选填）")
+                    Text(field.required ? field.label : String(localized: .settingsMcpKitOptional(field.label)))
                 } footer: {
                     if !field.help.isEmpty { Text(field.help) }
                 }
@@ -318,9 +318,9 @@ private struct SettingsBPushFormBody: View {
             if first, binding == nil {
                 ToolbarItem(placement: .confirmationAction) {
                     if busy {
-                        ProgressView().accessibilityLabel("校验中")
+                        ProgressView().accessibilityLabel(String(localized: .activityDownloadStateChecking))
                     } else {
-                        Button(pairing ? "获取配对码" : "完成接入", systemImage: "checkmark", role: .confirm) {
+                        Button(pairing ? String(localized: .settingsCloudConnectGetCode) : String(localized: .settingsImChannelsFinishLinking), systemImage: "checkmark", role: .confirm) {
                             Task { await start() }
                         }
                         .discoverProminentButton()
@@ -342,13 +342,13 @@ private struct SettingsBPushFormBody: View {
                     .foregroundStyle(Theme.accent)
                     .textSelection(.enabled)
                     .accessibilityIdentifier("push-pair-code")
-                Text("10 分钟内有效 · 发码人将成为唯一可对话的用户与推送目标")
+                Text(String(localized: .settingsImChannelsCodeHelp))
                     .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
             } else {
-                Text("绑定未完成").font(.body.weight(.medium))
+                Text(String(localized: .settingsImChannelsIncomplete)).font(.body.weight(.medium))
                 Text(binding.message).font(.subheadline).foregroundStyle(Theme.textMuted)
-                Button("重新发起") { self.binding = nil }
+                Button(String(localized: .settingsImChannelsRestart)) { self.binding = nil }
                     .font(.subheadline.weight(.semibold))
                     .discoverProminentButton()
                     .accessibilityIdentifier("push-form-restart")

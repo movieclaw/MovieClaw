@@ -46,6 +46,7 @@ from typing import Any
 from sqlalchemy import select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n.stored import reference, source_text, stored_fields
 from movieclaw_api.services import jobs
 from movieclaw_api.services.library import skip_segments
 from movieclaw_api.services.library.thumbs import build_filter_chains
@@ -349,7 +350,7 @@ async def _input_args(file: LibraryFile, start_s: float) -> tuple[list[str], Pat
     if file.is_disc():
         disc = await asyncio.to_thread(transcode_disc_source, file)
         if disc is None:
-            raise ClipError("读不出光盘的主播放列表")
+            raise ClipError("读不出光盘的主播放列表")  # i18n-ignore: diagnostic
         fd, name = tempfile.mkstemp(prefix="reel-clip-", suffix=".ffconcat")
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(disc.concat_list())
@@ -387,7 +388,7 @@ async def generate(
     ``should_stop`` 每几秒问一次，为真就杀掉 ffmpeg、抛 ``_Stopped``（临时文件随之删掉）。
     """
     if is_strm(file.file_path):
-        raise ClipError("网盘 strm 没有本机字节可读")
+        raise ClipError("网盘 strm 没有本机字节可读")  # i18n-ignore: diagnostic
     color = (
         VideoColor(hdr=file.hdr)
         if file.is_disc()
@@ -416,6 +417,7 @@ async def generate(
                 break
             errors.append(stderr.strip()[-300:])
         else:
+            # i18n-ignore: diagnostic
             raise ClipError("；".join(errors) or "ffmpeg 没有产出")
     except BaseException:
         part.unlink(missing_ok=True)
@@ -553,7 +555,7 @@ async def _run(cmd: list[str], should_stop) -> tuple[int, str]:
                 if should_stop():
                     raise _Stopped from None
                 if time.monotonic() > deadline:
-                    raise ClipError("ffmpeg 超时") from None
+                    raise ClipError("ffmpeg 超时") from None  # i18n-ignore: diagnostic
     except BaseException:
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
@@ -690,7 +692,11 @@ async def _work(queue: ClipQueue) -> None:
         job = queue.pop(allowed_tier(load))
         if job is None:
             if queue.queued:
-                queue.paused = "正在转码播放" if load == skip_segments.TRANSCODING else "有人在观看"
+                queue.paused = (
+                    "library.reels.clips.pausedTranscoding"
+                    if load == skip_segments.TRANSCODING
+                    else "library.reels.clips.pausedWatching"
+                )
             queue.wake.clear()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(queue.wake.wait(), _YIELD_POLL_S)
@@ -744,7 +750,9 @@ async def _process(queue: ClipQueue, item_id: int, tier: int) -> None:
         return
     async with get_database().session() as session:
         item = await session.get(MediaItem, item_id)
-        queue.current_title = item.title if item else f"条目 #{item_id}"
+        queue.current_title = (
+            item.title if item else source_text("library.scrape.itemFallback", id=item_id)
+        )
     started = time.monotonic()
     try:
         info = await generate(chosen, segment, should_stop=_should_stop(queue, tier))
@@ -867,7 +875,9 @@ async def enqueue_job(*, video: bool = False, origin: str = "system") -> jobs.Cr
         result = await jobs.create_job(
             session,
             job_type=JOB_TYPE,
-            subject="片段预切（其他）" if video else "片段预切",
+            subject_ref=reference(
+                "library.reels.clips.subjectOther" if video else "library.reels.clips.subject"
+            ),
             input_data={"video": video},
             resources=[jobs.ResourceRef("reels_clips", _pool_key(video), "context")],
             dedupe_key=f"{JOB_TYPE}:{_pool_key(video)}",
@@ -876,17 +886,17 @@ async def enqueue_job(*, video: bool = False, origin: str = "system") -> jobs.Cr
             max_attempts=3,
             priority=-10,
             origin=origin,
-            progress=jobs.default_progress("等待开始预切片段"),
+            progress=jobs.default_progress(message_key="library.reels.clips.queued"),
         )
     jobs.wake_job_dispatcher()
     return result
 
 
-async def _cancel_jobs(reason: str) -> None:
+async def _cancel_jobs(reason_key: str) -> None:
     async with get_database().session() as session:
         for job in await jobs.list_jobs(session, active_only=True, job_type=JOB_TYPE):
             await jobs.request_cancel(
-                session, job.id, requested_by="system:reel-clips-disabled", reason=reason
+                session, job.id, requested_by="system:reel-clips-disabled", reason_key=reason_key
             )
 
 
@@ -894,7 +904,7 @@ async def _cancel_jobs(reason: str) -> None:
 async def _run_job(context: jobs.JobContext, input_data: dict[str, Any]) -> dict[str, Any]:
     video = bool(input_data.get("video"))
     if not await enabled():
-        return {"message": "片段预切没有打开，本次未处理"}
+        return stored_fields("library.reels.clips.disabled")
     queue = get_queue()
     key = _pool_key(video)
     queue.user_cancelled.discard(key)
@@ -904,6 +914,7 @@ async def _run_job(context: jobs.JobContext, input_data: dict[str, Any]) -> dict
     queue.planned = True
     _start_worker(queue)
     _cleanup_orphans_later(video)
+    # i18n-ignore: log text
     logger.info("片段预切：排队 %d 部（%s）", len(todo), "其他" if video else "电影 / 剧集")
     tiers = {TIER_OTHER} if video else {TIER_HOME, TIER_LIBRARY}
     members = set(pool)
@@ -932,9 +943,18 @@ async def _run_job(context: jobs.JobContext, input_data: dict[str, Any]) -> dict
             await context.update_progress(
                 mode="determinate",
                 phase="paused" if paused else "cutting",
-                message=f"{paused}，预切暂停中（已切 {ready} / {len(members)} 部）"
-                if paused
-                else f"已切 {ready} / {len(members)} 部",
+                **(
+                    stored_fields(
+                        "library.reels.clips.paused",
+                        reason=reference(paused),
+                        ready=ready,
+                        total=len(members),
+                    )
+                    if paused
+                    else stored_fields(
+                        "library.reels.clips.progress", ready=ready, total=len(members)
+                    )
+                ),
                 current=ready,
                 total=len(members),
                 details={
@@ -946,10 +966,14 @@ async def _run_job(context: jobs.JobContext, input_data: dict[str, Any]) -> dict
         await asyncio.sleep(_JOB_POLL_S)
     ready = len(members & ready_item_ids())
     failed = queue.failed - failed_before
-    message = f"新切 {max(0, ready - ready_before)} 部，共 {ready} / {len(members)} 部有片段"
-    if failed:
-        message += f"；{failed} 部片源切不了"
-    return {"message": message, "ready": ready, "total": len(members), "failed": failed}
+    message = stored_fields(
+        "library.reels.clips.finished",
+        cut=max(0, ready - ready_before),
+        ready=ready,
+        total=len(members),
+        failed=failed,
+    )
+    return {**message, "ready": ready, "total": len(members), "failed": failed}
 
 
 async def _home_items(session) -> set[int]:
@@ -1015,7 +1039,7 @@ async def stop() -> None:
     """关掉开关：取消预切作业、清队列、停掉正在切的那一段。"""
     # 先取消作业再清队列：反过来作业会先看到队列空了自己「完成」，与取消请求互相覆盖状态
     with contextlib.suppress(Exception):
-        await _cancel_jobs("片段预切已关闭")
+        await _cancel_jobs("library.reels.clips.turnedOff")
     queue = get_queue()
     queue.clear()
     queue.planned_pools.clear()

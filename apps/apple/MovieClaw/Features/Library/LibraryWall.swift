@@ -103,7 +103,7 @@ struct WallRecallPill: View {
     var body: some View {
         HStack(spacing: 4) {
             Button(action: onJump) {
-                Label("回到上次浏览的位置", systemImage: "clock.arrow.circlepath")
+                Label(String(localized: .libraryDetailRecallPosition), systemImage: "clock.arrow.circlepath")
                     .font(.subheadline.weight(.semibold))
                     .padding(.leading, 16).padding(.trailing, 6).padding(.vertical, 10)
             }
@@ -111,7 +111,7 @@ struct WallRecallPill: View {
             Button(action: onDismiss) {
                 Image(systemName: "xmark").font(.caption.weight(.bold)).padding(10)
             }
-            .accessibilityLabel("不用了")
+            .accessibilityLabel(String(localized: .libraryDetailDismissRecall))
         }
         .foregroundStyle(Theme.text)
         .glassEffect(.regular.interactive(), in: .capsule)
@@ -137,7 +137,7 @@ struct WallLoadMoreFooter: View {
         if hasMore {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("加载中…（第 \(start + 1)–\(start + loaded) 部 / 共 \(max(total ?? 0, start + loaded))）")
+                Text(String(localized: .libraryDetailLoadingRange(start + 1, start + loaded, max(total ?? 0, start + loaded))))
             }
             .font(.footnote)
             .foregroundStyle(Theme.textFaint)
@@ -222,7 +222,7 @@ struct LibraryInventoryCell: View {
                 url: api.image(item.posterUrl, width: ImageWidth.points(width)),
                 imageAspect: item.primaryAspect, frameAspect: aspect,
                 favorite: item.isFavorite, dead: dead,
-                abnormal: dead ? "文件已全部缺失" : item.missingCount > 0 ? "\(item.missingCount) 个文件缺失" : nil,
+                abnormal: dead ? String(localized: .libraryDetailAllFilesMissing) : item.missingCount > 0 ? String(localized: .libraryDetailFilesMissing(item.missingCount)) : nil,
                 working: working,
                 placeholderSymbol: LibraryKindMeta.symbol(item.kind)
             )

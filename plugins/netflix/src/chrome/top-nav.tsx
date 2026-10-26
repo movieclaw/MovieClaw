@@ -25,6 +25,8 @@ import {
   useSearchAccess,
   useSession,
   useTaskActivity,
+  useAppTranslations,
+  useAppLocale,
 } from "@movieclaw/theme-sdk";
 
 
@@ -46,11 +48,11 @@ import {
 
 /** 顶栏导航链接的全局固定清单（权限过滤对齐侧栏可见性判定）。
  *  无「首页」——内容首页已与媒体库合并（2026-09 修订），字标直达 /library。 */
-const NAV_LINKS: { id: string; label: string; href: Route }[] = [
-  { id: "library", label: "媒体库", href: "/library" as Route },
-  { id: "subscriptions", label: "我的订阅", href: "/subscriptions" as Route },
-  { id: "discover", label: "发现", href: "/discover/movie" as Route },
-];
+const NAV_LINKS = [
+  { id: "library", label: "nav.main.library", href: "/library" as Route },
+  { id: "subscriptions", label: "nav.main.subscriptions", href: "/subscriptions" as Route },
+  { id: "discover", label: "nav.main.discover", href: "/discover/movie" as Route },
+] as const;
 
 /** pathname → 顶栏激活项 id（与 NAV_LINKS 对齐；未命中返回空串，无高亮）。 */
 function activeNavId(pathname: string): string {
@@ -68,6 +70,7 @@ export function NetflixTopNav({
   onSearch: (keyword: string, scope: SearchScope, options?: SearchSubmitOptions) => void;
   onOpenSettings: (sectionId?: string) => void;
 }) {
+  const t = useAppTranslations();
   const router = useRouter();
   const pathname = usePathname();
   const { canSubscribe, isAdmin } = usePermissions();
@@ -125,7 +128,7 @@ export function NetflixTopNav({
     href: item.href as Route,
   }));
   const visibleLinks = [
-    ...NAV_LINKS.filter((link) => link.id !== "subscriptions" || canSubscribe),
+    ...NAV_LINKS.filter((link) => link.id !== "subscriptions" || canSubscribe).map((link) => ({ ...link, label: t(link.label) })),
     ...appLinks,
   ];
 
@@ -146,7 +149,7 @@ export function NetflixTopNav({
             内容可点区拉满高度，与导航链接同标准） */}
         <Link
           href="/library"
-          aria-label="回到媒体库"
+          aria-label={t("nav.actions.library")}
           className="nf:flex nf:shrink-0 nf:items-center nf:transition-opacity nf:hover:opacity-80"
         >
           {/* 字标高度 = 大写高，宽度由字形比例推导（≈6.25 : 1）。22px 高 ≈ 137px
@@ -191,8 +194,7 @@ export function NetflixTopNav({
               className="nf:flex nf:h-9 nf:items-center nf:gap-1.5 nf:rounded-[4px] nf:bg-white nf:px-3 nf:text-[14px] nf:font-semibold nf:text-black nf:transition-colors nf:hover:bg-white/75 nf:active:bg-white/50"
             >
               <PlusGlyph />
-              新任务
-            </button>
+              {t("nav.cinema.newTask")}</button>
           )}
           {canOpenSearch && <SearchCommand onSearch={onSearch} triggerClassName="icon-btn" />}
           <NoticeCenter collapsed variant="bell" />
@@ -220,6 +222,7 @@ function BrowseDropdown({
   links: readonly { id: string; label: string; href: Route }[];
   active: string;
 }) {
+  const t = useAppTranslations();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -239,7 +242,7 @@ function BrowseDropdown({
     };
   }, [open]);
 
-  const currentLabel = links.find((link) => link.id === active)?.label ?? "浏览";
+  const currentLabel = links.find((link) => link.id === active)?.label ?? t("nav.cinema.browse");
 
   return (
     <div ref={rootRef} className="nf:relative nf:min-[1100px]:hidden">
@@ -292,6 +295,7 @@ function NetflixAvatarMenu({
   onOpenSettings: (sectionId?: string) => void;
   isAdmin: boolean;
 }) {
+  const t = useAppTranslations();
   const router = useRouter();
   const { session } = useSession();
   const { conversations } = useAgentConversations();
@@ -360,7 +364,7 @@ function NetflixAvatarMenu({
               onOpenSettings("app");
             }}
           />
-          <MenuRow label="设置" onClick={() => { setOpen(false); onOpenSettings(); }} />
+          <MenuRow label={t("auth.menu.settings")} onClick={() => { setOpen(false); onOpenSettings(); }} />
           {isAdmin && (
             <AvatarActivityRow
               onGo={(href) => {
@@ -371,7 +375,7 @@ function NetflixAvatarMenu({
           )}
           {isAdmin && conversations.length > 0 && (
             <>
-              <p className="group-label nf:px-3 nf:pb-1 nf:pt-2.5">AI 会话</p>
+              <p className="group-label nf:px-3 nf:pb-1 nf:pt-2.5">{t("nav.cinema.sessions")}</p>
               <div className="scroll-thin nf:max-h-56 nf:overflow-y-auto">
                 {conversations.map((c) => (
                   <MenuRow
@@ -389,7 +393,7 @@ function NetflixAvatarMenu({
           )}
           <div className="nf:my-1 nf:h-px nf:bg-white/[0.08]" />
           <MenuRow
-            label="切换账号"
+            label={t("auth.menu.switchAccount")}
             icon={<UsersIcon className="nf:size-[18px]" />}
             onClick={() => {
               setOpen(false);
@@ -397,7 +401,7 @@ function NetflixAvatarMenu({
             }}
           />
           <MenuRow
-            label="退出登录"
+            label={t("auth.menu.signOut")}
             danger
             icon={<LogoutIcon className="nf:size-[18px]" />}
             onClick={() => void handleLogout()}
@@ -411,7 +415,7 @@ function NetflixAvatarMenu({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        aria-label="账号菜单"
+        aria-label={t("nav.cinema.accountMenu")}
         className="icon-btn"
       >
         {/* rounded-* 要经 style 才压得过 AvatarBadge 内部硬写的 rounded-full
@@ -432,10 +436,11 @@ function NetflixAvatarMenu({
  *  侧栏 JobCenter 的同一套徽标逻辑（taskActivityBadge）。拆成独立组件让
  *  任务快照变化只重渲染这一行；数据来自全站 Provider，本组件不发起请求。 */
 function AvatarActivityRow({ onGo }: { onGo: (href: string) => void }) {
-  const badge = taskActivityBadge(useTaskActivity());
+  const t = useAppTranslations();
+  const badge = taskActivityBadge(useTaskActivity(), useAppLocale());
   return (
     <MenuRow
-      label="活动"
+      label={t("nav.main.activity")}
       badge={badge.count > 0 ? badge : undefined}
       onClick={() => onGo(badge.href)}
     />

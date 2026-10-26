@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from movieclaw_enrich.vocab import codec_family
 from movieclaw_matcher.decision import MEDIA_SOURCE_TIER_LABEL, media_source_rank
+from movieclaw_matcher.formats import FORMAT_REASONS, matched_formats
 from movieclaw_matcher.models import (
     HrUnknownPolicy,
     RuleSetSpec,
@@ -135,6 +136,12 @@ def evaluate_rules(
         return _reject(
             "hdr_blocked",
             f"规则排除 {'/'.join(spec.hdr_block)}，该资源标注了 {'/'.join(attrs.hdr)}",
+        )
+    # 「DV P5」不是标题里的标记而是判定结果（formats.py），所以不走上面的集合交集
+    if spec.hdr_block and (hit := matched_formats(attrs, spec.hdr_block)):
+        return _reject(
+            "hdr_blocked",
+            f"规则排除 {'/'.join(spec.hdr_block)}，该资源是{FORMAT_REASONS[hit[0]]}",
         )
     if spec.hdr_levels and not declared & set(spec.hdr_levels):
         text = "/".join(attrs.hdr) or "未标注 HDR（按 SDR 处理）"

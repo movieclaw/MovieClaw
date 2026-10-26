@@ -448,6 +448,11 @@ class LibraryFile(TimestampMixin, table=True):
         sa_column=Column(Text, nullable=True),
         description="识别失败原因（给人看的整句）；NULL=已识别或未记录",
     )
+    unidentified_message: dict | None = Field(
+        default=None,
+        sa_column=Column(_NullableJson, nullable=True),
+        description="识别失败消息键与参数；原中文原因保留供旧记录和回退读取",
+    )
     # 失败分类（UnidentifiedCode）：清单据此给标签措辞/配色/可用动作，
     # 与上面那句面向用户的文案解耦——文案改写不该动摇分类
     unidentified_code: str | None = Field(

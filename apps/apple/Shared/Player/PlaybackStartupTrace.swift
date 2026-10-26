@@ -51,6 +51,6 @@ struct StartupTrace {
 
     /// 控制台用的一行摘要：「决策 120 → 会话 480 → 引擎 530 → 就绪 760 → 首帧 1020 毫秒」
     static func summary(_ marks: [Mark]) -> String {
-        marks.map { "\($0.name) \($0.ms)" }.joined(separator: " → ") + " 毫秒"
+        marks.map { "\($0.name) \($0.ms)" }.joined(separator: " → ") + " 毫秒" // i18n-ignore: developer diagnostics
     }
 }

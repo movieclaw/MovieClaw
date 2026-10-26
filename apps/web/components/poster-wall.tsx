@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
@@ -128,9 +129,11 @@ export const InventoryCell = memo(function InventoryCell({
    */
   showRating?: boolean;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const inventoryLabel =
     item.kind === "tv" && item.inventory_summary
-      ? formatLibraryInventorySummary(item.inventory_summary)
+      ? formatLibraryInventorySummary(item.inventory_summary, locale)
       : null;
   // 评分：浏览墙默认不印在海报上——与 Netflix 同一个判断，每格多一个数字整面墙
   // 就吵，还会让人只盯着分数挑片；评分是对某一部起了兴趣之后才要的信息。
@@ -165,9 +168,9 @@ export const InventoryCell = memo(function InventoryCell({
   const dead = item.file_count > 0 && item.missing_count >= item.file_count;
   // 卡片下方只保留片名与年份；缺失是需要常显的异常，作为唯一例外单独点灯。
   const abnormalLabel = dead
-    ? "文件已全部缺失"
+    ? t("library.detail.allFilesMissing")
     : item.missing_count > 0
-      ? `${item.missing_count} 个文件缺失`
+      ? t("library.detail.filesMissing", { count: item.missing_count })
       : null;
   return (
     // 视口外的格子根本不挂（PosterWall 的虚拟化窗口），因此不再需要

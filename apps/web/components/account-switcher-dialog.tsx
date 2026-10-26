@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
 import { useEffect, useState } from "react";
 
 import { AvatarBadge } from "@/components/avatar-badge";
@@ -30,9 +33,11 @@ import { HttpError } from "@/lib/http";
  * 背景图与界面偏好的首帧缓存换成新账号的再跳（lib/account-reload.ts），不闪默认图。
  */
 export function AccountSwitcherDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useTranslations();
+
   const confirm = useConfirm();
   const [accounts, setAccounts] = useState<AccountView[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   // 切换 / 移除 / 退出进行中：禁用全部操作，避免连点发出两次
   const [busy, setBusy] = useState(false);
 
@@ -45,12 +50,12 @@ export function AccountSwitcherDialog({ open, onClose }: { open: boolean; onClos
         if (!cancelled) setAccounts(list);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof HttpError ? e.message : "账号列表加载失败，请稍后重试");
+        if (!cancelled) setError(e instanceof HttpError ? e.message : { key: "auth.accounts.loadFailed" });
       });
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, setError]);
 
   /** 切换到另一个账号：后端换激活 Cookie，随后整页进该身份能进的页面。 */
   const handleSwitch = async (account: AccountView) => {
@@ -63,7 +68,7 @@ export function AccountSwitcherDialog({ open, onClose }: { open: boolean; onClos
     } catch (e) {
       // 多半是该账号登录态已过期 / 被停用（后端已把它移出列表）：刷新列表并提示
       setBusy(false);
-      setError(e instanceof HttpError ? e.message : "切换失败，请稍后重试");
+      setError(e instanceof HttpError ? e.message : { key: "auth.accounts.switchFailed" });
       listAccounts().then(setAccounts).catch(() => {});
     }
   };
@@ -73,11 +78,11 @@ export function AccountSwitcherDialog({ open, onClose }: { open: boolean; onClos
   const handleRemove = async (account: AccountView) => {
     if (busy) return;
     const ok = await confirm({
-      title: `退出「${account.nickname}」？`,
+      title: t("auth.accounts.removeTitle", { name: account.nickname }),
       description: account.active
-        ? "这是当前账号。退出后本浏览器不再保留它的登录状态，会自动切到其他账号；再回来需要重新输入密码。"
-        : "本浏览器将不再保留它的登录状态，再回来需要重新输入密码。账号本身不受影响。",
-      confirmLabel: "退出",
+        ? t("auth.accounts.removeCurrentHint")
+        : t("auth.accounts.removeHint"),
+      confirmLabel: t("auth.accounts.signOut"),
       tone: "danger",
     });
     if (!ok) return;
@@ -92,7 +97,7 @@ export function AccountSwitcherDialog({ open, onClose }: { open: boolean; onClos
       }
       setAccounts((list) => (list ? list.filter((a) => a.username !== account.username) : list));
     } catch (e) {
-      setError(e instanceof HttpError ? e.message : "移除失败，请稍后重试");
+      setError(e instanceof HttpError ? e.message : { key: "auth.accounts.removeFailed" });
       listAccounts().then(setAccounts).catch(() => {});
     } finally {
       setBusy(false);
@@ -103,9 +108,9 @@ export function AccountSwitcherDialog({ open, onClose }: { open: boolean; onClos
     if (busy) return;
     const count = accounts?.length ?? 0;
     const ok = await confirm({
-      title: "退出全部账号？",
-      description: `本浏览器里的 ${count} 个账号都会退出登录，再回来需要逐个重新输入密码。共用设备时建议这样做。`,
-      confirmLabel: "全部退出",
+      title: t("auth.accounts.signOutAllTitle"),
+      description: t("auth.accounts.signOutAllHint", { count }),
+      confirmLabel: t("auth.accounts.signOutAllAction"),
       tone: "danger",
     });
     if (!ok) return;
@@ -123,19 +128,18 @@ export function AccountSwitcherDialog({ open, onClose }: { open: boolean; onClos
   return (
     // raised：2026-09-24 为从手机「更多」底部面板（z-60）里打开而抬到 z-60。面板已于
     // 2026-09-26 随头像挪进底栏退役（现在从 /my 页打开），抬高无副作用，保留
-    <Modal open={open} onClose={onClose} label="切换账号" raised>
+    <Modal open={open} onClose={onClose} label={t("auth.accounts.switchTitle")} raised>
       <div className="p-6 max-md:p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-title font-bold text-white">切换账号</h2>
+            <h2 className="text-title font-bold text-white">{t("auth.accounts.switchTitle")}</h2>
             <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-              本浏览器已登录的账号，点击即可切换，不用再输密码。
-            </p>
+              {t("auth.accounts.hint")}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={t("auth.accounts.close")}
             className="shrink-0 rounded-full p-1.5 text-[var(--text-faint)] hover:bg-white/10 hover:text-[var(--text)]"
           >
             <XIcon className="size-4" />
@@ -150,7 +154,7 @@ export function AccountSwitcherDialog({ open, onClose }: { open: boolean; onClos
 
         <ul className="mt-5 space-y-1.5">
           {accounts === null && !error && (
-            <li className="px-3 py-2 text-sub text-[var(--text-muted)]">正在加载…</li>
+            <li className="px-3 py-2 text-sub text-[var(--text-muted)]">{t("auth.accounts.loading")}</li>
           )}
           {accounts?.map((account) => (
             <li key={account.username}>
@@ -173,11 +177,10 @@ export function AccountSwitcherDialog({ open, onClose }: { open: boolean; onClos
               className="btn-glass flex items-center gap-2 px-3.5 py-2 text-ui font-medium disabled:opacity-50"
             >
               <PlusIcon className="size-4" />
-              添加账号
-            </button>
+              {t("auth.accounts.add")}</button>
           ) : (
             <span className="text-caption text-[var(--text-faint)]">
-              最多同时保存 {MAX_SAVED_ACCOUNTS} 个账号，移除一个后可再添加
+              {t("auth.accounts.limit", { count: MAX_SAVED_ACCOUNTS })}
             </span>
           )}
           <button
@@ -186,8 +189,7 @@ export function AccountSwitcherDialog({ open, onClose }: { open: boolean; onClos
             onClick={handleLogoutAll}
             className="px-3.5 py-2 text-ui font-medium text-[var(--danger)] hover:underline disabled:opacity-50"
           >
-            退出全部账号
-          </button>
+            {t("auth.accounts.signOutAll")}</button>
         </div>
       </div>
     </Modal>
@@ -206,7 +208,9 @@ function AccountRow({
   onSwitch: () => void;
   onRemove: () => void;
 }) {
-  const role = account.role === "admin" ? "超级管理员" : "成员";
+  const t = useTranslations();
+
+  const role = account.role === "admin" ? t("auth.role.superAdmin") : t("auth.role.member");
   return (
     <div
       className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 ${
@@ -219,7 +223,7 @@ function AccountRow({
         type="button"
         disabled={disabled || account.active}
         onClick={onSwitch}
-        title={account.active ? undefined : `切换到 ${account.nickname}`}
+        title={account.active ? undefined : t("auth.accounts.switchTo", { name: account.nickname })}
         className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
       >
         <AvatarBadge nickname={account.nickname} avatarUrl={account.avatar_url} className="size-9 text-ui" />
@@ -232,16 +236,15 @@ function AccountRow({
         {account.active && (
           <span className="flex shrink-0 items-center gap-1 text-caption font-medium text-[var(--accent)]">
             <CheckIcon className="size-3.5" />
-            当前
-          </span>
+            {t("auth.accounts.current")}</span>
         )}
       </button>
       <button
         type="button"
         onClick={onRemove}
         disabled={disabled}
-        aria-label={`从本浏览器移除 ${account.nickname}`}
-        title="从本浏览器移除"
+        aria-label={t("auth.accounts.removeNamed", { name: account.nickname })}
+        title={t("auth.accounts.remove")}
         className="shrink-0 rounded-full p-1 text-[var(--text-faint)] hover:bg-white/10 hover:text-[var(--text)] disabled:opacity-50"
       >
         <XIcon className="size-3.5" />

@@ -49,6 +49,7 @@ import io.movieclaw.android.core.model.SmartPlanView
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /**
  * 订阅弹层里管理员做的选择（字幕回答、改过的画质与记住的范围），随创建请求提交、由服务端写入记忆
@@ -317,7 +318,7 @@ fun SmartSettingsSheet(
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color(0xFF15161A), contentColor = TextPrimary) {
-        Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+        Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }.formSheetScroll().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("取消", fontSize = 15.sp, color = TextMuted, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onDismiss).testTag("smart-cancel-edit").padding(6.dp))
                 Text("智能设置", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)

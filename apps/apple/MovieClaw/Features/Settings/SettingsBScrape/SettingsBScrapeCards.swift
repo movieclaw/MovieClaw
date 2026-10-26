@@ -10,38 +10,38 @@ enum SettingsBScrapeCard: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .metaLanguage: "元数据语言"
-        case .certCountry: "内容分级"
-        case .sources: "图片来源"
-        case .logo: "片名 Logo"
-        case .poster: "海报"
-        case .backdrop: "背景图"
-        case .quality: "图片画质"
-        case .naming: "命名模板"
-        case .mirror: "媒体目录写入"
+        case .metaLanguage: String(localized: .settingsScrapeMetadataLanguage)
+        case .certCountry: String(localized: .settingsMembersAccessContentRating)
+        case .sources: String(localized: .settingsScrapeImageSources)
+        case .logo: String(localized: .settingsScrapeTitleLogo)
+        case .poster: String(localized: .settingsScrapePoster)
+        case .backdrop: String(localized: .settingsAppearanceBackdropTab)
+        case .quality: String(localized: .settingsScrapeCardsQuality)
+        case .naming: String(localized: .settingsScrapeNamingTemplates)
+        case .mirror: String(localized: .settingsScrapeMediaDirectoryWrites)
         }
     }
 
     var desc: String {
         switch self {
         case .metaLanguage:
-            "标题、简介等文本优先使用第 1 位语言，缺失内容按顺序使用其他语言。长按手柄拖动可调整顺序。"
+            String(localized: .settingsScrapeCardsLanguagesHint)
         case .certCountry:
-            "条目分级（如 PG-13、TV-MA）按顺序取第一个有数据的地区。"
+            String(localized: .settingsScrapeContentRatingHint)
         case .sources:
-            "先匹配图片语言，同一语言有多个来源时再按来源顺序选择。手动选定的图片始终优先。"
+            String(localized: .settingsScrapeCardsImagesHint)
         case .logo:
-            "片名 Logo 按语言优先级选择，所有语言都没有可用图片时不显示 Logo。"
+            String(localized: .settingsScrapeCardsLogoHint)
         case .poster:
-            "海报和文本一样有语言：中文版、原版、无文字干净版是不同的候选图。你在条目详情页手动选定的图始终优先，不受这里影响。"
+            String(localized: .settingsScrapePosterHint)
         case .backdrop:
-            "详情页的背景图片按优先级选择。「无文字」优先选择没有片名的背景图。"
+            String(localized: .settingsScrapeCardsBackdropHint)
         case .quality:
-            "本地图片画质决定刮削时下载到本地的图片多大（默认存原图，各设备都最清楚；调低可显著节省磁盘），改动后在媒体库执行「刷新元数据」会按新画质重下；分辨率门槛过滤模糊候选图。"
+            String(localized: .settingsScrapeCardsQualityHint)
         case .naming:
-            "整理与入库的目录/文件命名。留空即使用默认模板；字段缺失时会连同相邻括号自动收缩。目录层级固定为「条目目录 / 季目录 / 文件」，不可自定义。"
+            String(localized: .settingsScrapeNamingHint)
         case .mirror:
-            "把刮削成果写入媒体目录，反哺 Emby / Jellyfin / Kodi（文件名遵循播放器规范）。只增不删除；已存在的 NFO 绝不覆盖。每个媒体库还有一个总开关，关掉则该库三项都不写。"
+            String(localized: .settingsScrapeCardsMirrorHint)
         }
     }
 
@@ -95,7 +95,7 @@ enum SettingsBScrapeCard: String, CaseIterable, Identifiable {
         switch self {
         case .metaLanguage: SettingsBScrapeSummary.metaLanguage(s)
         case .certCountry: SettingsBScrapeSummary.certCountry(s)
-        case .sources: s.fanartEnabled == true ? "TMDB 与 Fanart.tv" : "TMDB · Fanart.tv 未启用"
+        case .sources: s.fanartEnabled == true ? String(localized: .settingsScrapeCardsSourcesBoth) : String(localized: .settingsScrapeCardsSourcesTmdb)
         case .logo: (s.logoLanguagePriority ?? ["meta", "en", "orig", "null"]).map { id in
             SettingsBScrapeCatalog.commonImageLangs.first { $0.id == id }?.name ?? id
         }.joined(separator: " → ")
@@ -116,8 +116,8 @@ struct SettingsBScrapePosterRows: View {
     let extraImageLangs: [SettingsBScrapeChipOption]
 
     private let modes: [(id: String, title: String, desc: String)] = [
-        ("default", "TMDB 默认", "与发现页看到的一致，订阅前后海报不跳变（默认）"),
-        ("language", "按语言优先级挑选", "逐级取第一档有候选图的语言，档内按分辨率与票数排序"),
+        ("default", String(localized: .settingsScrapeTmdbDefault), String(localized: .settingsScrapeDefaultPosterDescription)),
+        ("language", String(localized: .settingsScrapeLanguagePoster), String(localized: .settingsScrapeLanguagePosterDescription)),
     ]
 
     var body: some View {
@@ -129,7 +129,7 @@ struct SettingsBScrapePosterRows: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(mode.title).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
                         Text(mode.id == "default" && setting.fanartEnabled == true
-                             ? "TMDB 使用默认海报，再与 Fanart 海报按语言优先级比较" : mode.desc).font(.caption).foregroundStyle(Theme.textFaint)
+                             ? String(localized: .settingsScrapeCardsPosterCompare) : mode.desc).font(.caption).foregroundStyle(Theme.textFaint)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
@@ -147,10 +147,10 @@ struct SettingsBScrapePosterRows: View {
         SettingsBScrapeOrderChips(
             options: SettingsBScrapeCatalog.commonImageLangs,
             extraOptions: extraImageLangs,
-            moreLabel: "语言",
+            moreLabel: String(localized: .settingsAppearanceLanguage),
             value: $setting.posterLanguagePriority,
             max: 4,
-            primaryTag: "首选",
+            primaryTag: String(localized: .settingsScrapePreferred),
             identifier: "scrape-poster-lang"
         )
         // Fanart 启用时，默认 TMDB 海报也需要按语言与 Fanart 候选比较。
@@ -188,8 +188,8 @@ struct SettingsBScrapeQualityRows: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("本地图片画质").font(.body.weight(.medium))
-            Text("刮削时下载到本地的图片多大；看图时各设备再按需从本地图缩出合适的尺寸")
+            Text(String(localized: .settingsScrapeLocalQuality)).font(.body.weight(.medium))
+            Text(String(localized: .settingsScrapeCardsQualityPickerHint))
                 .font(.caption).foregroundStyle(Theme.textFaint)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -201,23 +201,23 @@ struct SettingsBScrapeQualityRows: View {
 
         if selected == "custom" {
             VStack(alignment: .leading, spacing: 4) {
-                sizePicker("海报", \.posterSize, SettingsBScrapeCatalog.posterSizes, effective?.posterSize, id: "scrape-poster-size")
-                sizePicker("背景", \.backdropSize, SettingsBScrapeCatalog.backdropSizes, effective?.backdropSize, id: "scrape-backdrop-size")
-                sizePicker("剧照", \.stillSize, SettingsBScrapeCatalog.stillSizes, effective?.stillSize, id: "scrape-still-size")
-                sizePicker("头像", \.profileSize, SettingsBScrapeCatalog.profileSizes, effective?.profileSize, id: "scrape-profile-size")
+                sizePicker(String(localized: .settingsScrapePoster), \.posterSize, SettingsBScrapeCatalog.posterSizes, effective?.posterSize, id: "scrape-poster-size")
+                sizePicker(String(localized: .settingsScrapeBackdrop), \.backdropSize, SettingsBScrapeCatalog.backdropSizes, effective?.backdropSize, id: "scrape-backdrop-size")
+                sizePicker(String(localized: .settingsScrapeStill), \.stillSize, SettingsBScrapeCatalog.stillSizes, effective?.stillSize, id: "scrape-still-size")
+                sizePicker(String(localized: .settingsProfileAvatar), \.profileSize, SettingsBScrapeCatalog.profileSizes, effective?.profileSize, id: "scrape-profile-size")
             }
             .padding(.vertical, 4)
         }
 
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("最低分辨率门槛").font(.body.weight(.medium))
-                Text("单位为像素，0 表示不限制。低于门槛的候选图不选；候选全部不达标时自动放宽。")
+                Text(String(localized: .settingsScrapeMinResolution)).font(.body.weight(.medium))
+                Text(String(localized: .settingsScrapeCardsThresholdHint))
                     .font(.caption).foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            widthField("海报", \.posterMinWidth, id: "scrape-poster-min-width")
-            widthField("背景", \.backdropMinWidth, id: "scrape-backdrop-min-width")
+            widthField(String(localized: .settingsScrapePoster), \.posterMinWidth, id: "scrape-poster-min-width")
+            widthField(String(localized: .settingsScrapeBackdrop), \.backdropMinWidth, id: "scrape-backdrop-min-width")
         }
         .padding(.vertical, 4)
     }
@@ -233,7 +233,7 @@ struct SettingsBScrapeQualityRows: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(quality.title).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
                         if let bytes = estimatedBytes(quality.id) {
-                            Text("\(inheritsGlobal ? "全站" : "")约 \(Self.gigabytes(bytes))")
+                            Text(String(localized: .settingsScrapeCardsEstimate(inheritsGlobal ? String(localized: .settingsScrapeCardsSiteWide) : "", Self.gigabytes(bytes))))
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(Theme.textMuted)
                         }
@@ -288,7 +288,7 @@ struct SettingsBScrapeQualityRows: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
             : AnyLayout(HStackLayout(spacing: 12))
         return layout {
-            Text("\(label)最小宽度").foregroundStyle(Theme.textMuted)
+            Text(String(localized: .settingsScrapeCardsMinWidth(label))).foregroundStyle(Theme.textMuted)
             TextField("0", text: Binding(
                 get: { String(setting[keyPath: keyPath]) },
                 set: { setting[keyPath: keyPath] = Int($0.filter(\.isNumber)) ?? 0 }
@@ -296,7 +296,7 @@ struct SettingsBScrapeQualityRows: View {
             .keyboardType(.numberPad)
             .monospacedDigit()
             .multilineTextAlignment(dynamicTypeSize.isAccessibilitySize ? .leading : .trailing)
-            .accessibilityLabel("\(label)最小宽度，像素，0 表示不限制")
+            .accessibilityLabel(String(localized: .settingsScrapeCardsMinWidthAria(label)))
             .accessibilityIdentifier(id)
         }
     }
@@ -304,8 +304,8 @@ struct SettingsBScrapeQualityRows: View {
     /// 留空选项的文案：库覆盖页是「跟随全局」；全局页是「跟随环境」，生效值只在确实留空时写出来
     /// ——选了具体档位时 effective 就是那个档位，不是环境变量的值
     private func inheritLabel(_ value: String, _ fallback: String) -> String {
-        if inheritsGlobal { return "跟随全局（\(fallback)）" }
-        return value.isEmpty ? "跟随环境（\(fallback)）" : "跟随环境"
+        if inheritsGlobal { return String(localized: .settingsScrapeFollowValue(fallback)) }
+        return value.isEmpty ? String(localized: .settingsScrapeCardsFollowEnvValue(fallback)) : String(localized: .settingsScrapeCardsFollowEnv)
     }
 
     private func sizePicker(
@@ -382,7 +382,7 @@ struct SettingsBScrapeNamingRows: View {
                 }
             }
         } label: {
-            Label("向\(focusedField.label)插入占位符", systemImage: "plus.circle")
+            Label(String(localized: .settingsScrapeCardsInsertToken(focusedField.label)), systemImage: "plus.circle")
                 .frame(minHeight: 44)
         }
         .accessibilityIdentifier("scrape-token-menu")
@@ -393,7 +393,7 @@ struct SettingsBScrapeNamingRows: View {
 
         preview
 
-        Text("同条目多版本会自动追加版本标签。站点与原始文件名仅对经 MovieClaw 入库的文件有效，缺失字段会自动收缩。")
+        Text(String(localized: .settingsScrapeCardsNamingHint))
             .font(.caption).foregroundStyle(Theme.textFaint)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -409,23 +409,23 @@ struct SettingsBScrapeNamingRows: View {
         let render = SettingsBScrapeNaming.render
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("实时预览").font(.caption2).foregroundStyle(Theme.textFaint)
+                Text(String(localized: .settingsScrapeLivePreview)).font(.caption2).foregroundStyle(Theme.textFaint)
                 Spacer()
-                Text(valid ? "✓ 模板有效" : "✕ 模板有误")
+                Text(valid ? String(localized: .settingsScrapeTemplateValid) : String(localized: .settingsScrapeTemplateInvalid))
                     .font(.caption)
                     .foregroundStyle(valid ? Theme.success : Theme.danger)
                     .accessibilityIdentifier("scrape-naming-validity")
             }
             if valid {
                 previewLine(
-                    caption: "电影 · 沙丘：第二部（2024）· 2160p DV TrueHD Atmos · BluRay FRDS",
-                    root: "/media/电影/",
+                    caption: String(localized: .settingsScrapeMovieExample),
+                    root: String(localized: .settingsScrapeMovieExampleRoot),
                     path: "\(render(tpl("naming_entry_dir"), movie))/\(render(tpl("naming_movie_file"), movie)).mkv",
                     id: "scrape-preview-movie"
                 )
                 previewLine(
-                    caption: "剧集 · 风筝（2017）第 1 季第 3 集 · 1080p SDR AAC · WEB-DL CHDWEB",
-                    root: "/media/剧集/",
+                    caption: String(localized: .settingsScrapeEpisodeExample),
+                    root: String(localized: .settingsScrapeEpisodeExampleRoot),
                     path: "\(render(tpl("naming_entry_dir"), episode))/\(render(tpl("naming_season_dir"), episode))/\(render(tpl("naming_episode_file"), episode)).mkv",
                     id: "scrape-preview-episode"
                 )

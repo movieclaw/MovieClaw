@@ -34,6 +34,8 @@ from urllib.parse import urlsplit
 import httpx
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.metadata import localized_text
 from movieclaw_api.plugins import packages as pkg
 
 logger = logging.getLogger("movieclaw_api.plugin_market")
@@ -110,8 +112,7 @@ def _mirrored(url: str) -> str:
 
 def _network_error(what: str, exc: Exception) -> MarketError:
     return MarketError(
-        f"{what}失败：连不上 GitHub（{exc.__class__.__name__}）。"
-        "可以在「设置 → 网络与代理」给 GitHub 配代理，或配置下载加速镜像后重试",
+        t("plugins.market.githubUnreachable", what=what, error=exc.__class__.__name__),
         status=503,
     )
 
@@ -142,12 +143,16 @@ async def _fetch(
             async for chunk in resp.aiter_bytes():
                 total += len(chunk)
                 if total > limit:
-                    raise MarketError(overflow or f"{what}超过 {max(limit // 1024, 1)} KB，已放弃")
+                    raise MarketError(
+                        overflow
+                        or t("plugins.market.tooLarge", what=what, kb=max(limit // 1024, 1))
+                    )
                 chunks.append(chunk)
             return b"".join(chunks)
     except httpx.HTTPStatusError as exc:
         raise MarketError(
-            f"{what}失败：GitHub 返回 {exc.response.status_code}", status=503
+            t("plugins.market.githubStatus", what=what, status=exc.response.status_code),
+            status=503,
         ) from exc
     except httpx.HTTPError as exc:
         raise _network_error(what, exc) from exc
@@ -163,7 +168,7 @@ async def _fetch_asset(
     sha = str(asset.get("sha256") or "")
     size = asset.get("size")
     if not re.fullmatch(r"[0-9a-f]{64}", sha) or not isinstance(size, int) or size > limit:
-        raise MarketError(f"索引里{what}的记录不完整或过大")
+        raise MarketError(t("plugins.market.assetIncomplete", what=what))
     store = SqlCacheStore()
     key = f"asset:{sha}"
     hit = None
@@ -174,10 +179,15 @@ async def _fetch_asset(
             hit = None
     if hit is not None:
         return base64.b64decode(hit.payload)
-    mismatch = f"下载的{what}与索引里的校验值不一致，已丢弃（可能被镜像篡改）"
-    data = await _fetch(str(asset["url"]), limit=size, what=f"下载{what}", overflow=mismatch)
+    mismatch = t("plugins.market.assetMismatch", what=what)
+    data = await _fetch(
+        str(asset["url"]),
+        limit=size,
+        what=t("plugins.market.download", what=what),
+        overflow=mismatch,
+    )
     if data is None:
-        raise MarketError(f"下载{what}失败：地址已失效（404）", status=503)
+        raise MarketError(t("plugins.market.assetGone", what=what), status=503)
     if len(data) != size or hashlib.sha256(data).hexdigest() != sha:
         raise MarketError(mismatch)
     if not cache:
@@ -212,27 +222,31 @@ def _verify(raw: bytes, sig: bytes | None) -> dict[str, Any]:
     try:
         document = json.loads(raw)
     except (UnicodeError, ValueError) as exc:
-        raise MarketError("插件索引不是合法的 JSON，已拒绝加载") from exc
+        raise MarketError(t("plugins.market.indexNotJson")) from exc
     if not isinstance(document, dict):
-        raise MarketError("插件索引格式不对，已拒绝加载")
+        raise MarketError(t("plugins.market.indexFormat"))
     schema = document.get("schema")
     if schema != SCHEMA:
         raise MarketError(
-            f"插件索引是 schema {schema}，这个版本的 MovieClaw 只认 schema {SCHEMA}"
-            + ("，请更新 MovieClaw" if isinstance(schema, int) and schema > SCHEMA else "")
+            t(
+                "plugins.market.indexSchema",
+                schema=str(schema),
+                supported=str(SCHEMA),
+                newer="yes" if isinstance(schema, int) and schema > SCHEMA else "no",
+            )
         )
     if not document.get("signed"):
         if get_settings().plugin_catalog_allow_unsigned:
             return document
-        raise MarketError("插件索引没有签名，已拒绝加载")
+        raise MarketError(t("plugins.market.indexUnsigned"))
     key_id = str(document.get("key_id") or "")
     public = CATALOG_KEYS.get(key_id)
     if public is None:
         raise MarketError(
-            f"插件索引用的签名密钥 {key_id or '（未写）'} 本机不认识，请更新 MovieClaw"
+            t("plugins.market.unknownKey", keyId=key_id or t("plugins.market.keyUnset"))
         )
     if sig is None:
-        raise MarketError("插件索引声明了签名，但没有找到 index.json.sig，已拒绝加载")
+        raise MarketError(t("plugins.market.signatureMissing"))
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -241,7 +255,7 @@ def _verify(raw: bytes, sig: bytes | None) -> dict[str, Any]:
             base64.b64decode(sig.strip()), raw
         )
     except (InvalidSignature, binascii.Error, ValueError) as exc:
-        raise MarketError("插件索引的签名校验失败，内容可能被篡改，已拒绝加载") from exc
+        raise MarketError(t("plugins.market.signatureInvalid")) from exc
     return document
 
 
@@ -260,10 +274,17 @@ def reset_for_tests() -> None:
 async def _download_catalog(url: str) -> tuple[bytes, dict[str, Any]]:
     allow_unsigned = get_settings().plugin_catalog_allow_unsigned
     # 允许未签名时，镜像能同时伪造索引和包：索引只直连
-    raw = await _fetch(url, limit=INDEX_MAX_BYTES, what="获取插件索引", mirror=not allow_unsigned)
+    raw = await _fetch(
+        url, limit=INDEX_MAX_BYTES, what=t("plugins.market.what.index"), mirror=not allow_unsigned
+    )
     if raw is None:
-        raise MarketError("插件索引地址不存在（404）", status=503)
-    sig = await _fetch(url + ".sig", limit=4096, what="获取插件索引签名", mirror=not allow_unsigned)
+        raise MarketError(t("plugins.market.indexMissing"), status=503)
+    sig = await _fetch(
+        url + ".sig",
+        limit=4096,
+        what=t("plugins.market.what.signature"),
+        mirror=not allow_unsigned,
+    )
     return raw, _verify(raw, sig)
 
 
@@ -332,17 +353,19 @@ def incompatibility(version: dict[str, Any], operations: set[str]) -> str | None
     from movieclaw_sdk import SDK_VERSION
 
     if version.get("runtime") not in ("process", "inline", "exec"):
-        return f"运行方式 {version.get('runtime')} 本机不支持，请更新 MovieClaw"
+        return t("plugins.market.runtimeUnsupported", runtime=str(version.get("runtime")))
     try:
         if not satisfies(str(version.get("sdk") or "^1.0"), Version.parse(SDK_VERSION)):
-            return f"需要 SDK {version.get('sdk')}，本机是 {SDK_VERSION}"
+            return t(
+                "plugins.market.sdkRequired", required=str(version.get("sdk")), current=SDK_VERSION
+            )
     except ValueError:
-        return f"SDK 版本要求写法不对：{version.get('sdk')}"
+        return t("plugins.market.sdkInvalid", sdk=str(version.get("sdk")))
     requires = version.get("requires") or {}
     if isinstance(requires, dict):
         reason = check_requires({str(k): str(v) for k, v in requires.items()}, third_party=True)
         if reason:
-            return f"需要更新 MovieClaw：{reason}"
+            return t("plugins.market.needsUpdate", reason=reason)
     from movieclaw_sdk.agent import PERMISSION_PREFIX
 
     for op in (version.get("permissions") or {}).get("operations") or []:
@@ -354,9 +377,9 @@ def incompatibility(version: dict[str, Any], operations: set[str]) -> str | None
             else op in operations
         )
         if not known:
-            return f"需要更新 MovieClaw：本机没有宿主操作 {op}"
+            return t("plugins.market.missingOperation", operation=op)
     if _artifact(version) is None:
-        return f"没有适用于这台服务器（{pkg.current_platform()}）的安装包"
+        return t("plugins.market.noArtifact", platform=pkg.current_platform())
     return None
 
 
@@ -517,7 +540,7 @@ def plugin_view(
     )
     installed = _installed(plugin_id, kernel, settings)
     blocked = (
-        "已有同 id 的内置插件或本地插件，不能安装"
+        t("plugins.market.idTaken")
         if plugin_id in reserved and installed is None
         else None
     )
@@ -537,9 +560,13 @@ def plugin_view(
     author = plugin.get("author") if isinstance(plugin.get("author"), dict) else {}
     return {
         "id": plugin_id,
-        "name": str(plugin.get("name") or plugin_id),
-        "summary": str(plugin.get("summary") or ""),
-        "description": str(plugin.get("description") or ""),
+        "name": localized_text(str(plugin.get("name") or plugin_id), plugin.get("name_localized")),
+        "summary": localized_text(
+            str(plugin.get("summary") or ""), plugin.get("summary_localized")
+        ),
+        "description": localized_text(
+            str(plugin.get("description") or ""), plugin.get("description_localized")
+        ),
         "category": str(plugin.get("category") or "tools"),
         "author": {"name": str(author.get("name") or ""), "url": author.get("url")},
         "homepage": plugin.get("homepage"),
@@ -591,7 +618,7 @@ def market_view(catalog: Catalog, kernel: Any) -> dict[str, Any]:
 def _find(catalog: Catalog, plugin_id: str) -> dict[str, Any]:
     plugin = catalog.plugin(plugin_id)
     if plugin is None:
-        raise MarketError(f"插件市场里没有 {plugin_id}", status=404)
+        raise MarketError(t("plugins.market.notInMarket", id=plugin_id), status=404)
     return plugin
 
 
@@ -606,7 +633,12 @@ def _raw_version(plugin: dict[str, Any], version: str) -> dict[str, Any]:
     )
     if found is None:
         raise MarketError(
-            f"{plugin.get('name') or plugin.get('id')} 没有 {version} 这个版本", status=404
+            t(
+                "plugins.market.versionMissing",
+                name=str(plugin.get("name") or plugin.get("id")),
+                version=version,
+            ),
+            status=404,
         )
     return found
 
@@ -635,7 +667,9 @@ async def plugin_detail(
         if isinstance(raw.get("readme"), dict):
             try:
                 readme = (
-                    await _fetch_asset(raw["readme"], limit=README_MAX_BYTES, what="说明文档")
+                    await _fetch_asset(
+                        raw["readme"], limit=README_MAX_BYTES, what=t("plugins.market.what.readme")
+                    )
                 ).decode("utf-8", "replace")
             except MarketError as exc:
                 readme_error = exc.message
@@ -660,9 +694,9 @@ async def _dependencies(
     from movieclaw_sdk import deps
 
     try:
-        text = (await _fetch_asset(lock_asset, limit=LOCK_MAX_BYTES, what="依赖锁文件")).decode(
-            "utf-8"
-        )
+        text = (
+            await _fetch_asset(lock_asset, limit=LOCK_MAX_BYTES, what=t("plugins.market.what.lock"))
+        ).decode("utf-8")
         lock = deps.parse_lock(text)
     except (MarketError, UnicodeError, deps.LockError) as exc:
         logger.warning("插件市场：读 %s 的锁文件失败：%s", plugin_id, exc)
@@ -676,11 +710,14 @@ async def icon(plugin_id: str) -> tuple[bytes, str]:
     plugin = _find(catalog, plugin_id)
     asset = plugin.get("icon")
     if not isinstance(asset, dict):
-        raise MarketError(f"{plugin_id} 没有图标", status=404)
+        raise MarketError(t("plugins.market.noIcon", id=plugin_id), status=404)
     media = _image_type(asset)
     if media is None:
-        raise MarketError("图标格式不支持", status=404)
-    return await _fetch_asset(asset, limit=IMAGE_MAX_BYTES, what="图标"), media
+        raise MarketError(t("plugins.market.iconFormat"), status=404)
+    return (
+        await _fetch_asset(asset, limit=IMAGE_MAX_BYTES, what=t("plugins.market.what.icon")),
+        media,
+    )
 
 
 async def screenshot(plugin_id: str, index: int) -> tuple[bytes, str]:
@@ -691,10 +728,15 @@ async def screenshot(plugin_id: str, index: int) -> tuple[bytes, str]:
     if isinstance(shots, list) and 0 <= index < len(shots):
         asset = _usable_screenshot(shots[index])
     if asset is None:
-        raise MarketError(f"{plugin_id} 没有这张截图", status=404)
+        raise MarketError(t("plugins.market.noScreenshot", id=plugin_id), status=404)
     media = _image_type(asset)
     assert media is not None  # _usable_screenshot 已检查
-    return await _fetch_asset(asset, limit=SCREENSHOT_MAX_BYTES, what="截图"), media
+    return (
+        await _fetch_asset(
+            asset, limit=SCREENSHOT_MAX_BYTES, what=t("plugins.market.what.screenshot")
+        ),
+        media,
+    )
 
 
 async def download(plugin_id: str, version: str, kernel: Any) -> bytes:
@@ -718,10 +760,15 @@ async def download(plugin_id: str, version: str, kernel: Any) -> bytes:
         and view["installed"]["version"] == version
         and view["installed"]["source"] == "package"
     ):
-        raise MarketError(f"{view['name']} {version} 已经安装", status=409)
+        raise MarketError(
+            t("plugins.market.alreadyInstalled", name=view["name"], version=version), status=409
+        )
     reason = incompatibility(raw, operations)
     if reason:
-        raise MarketError(f"{view['name']} {version} 装不了：{reason}", status=409)
+        raise MarketError(
+            t("plugins.market.cannotInstall", name=view["name"], version=version, reason=reason),
+            status=409,
+        )
     artifact = _artifact(raw)
     assert artifact is not None  # incompatibility 已检查
     data = await _fetch_asset(
@@ -731,14 +778,19 @@ async def download(plugin_id: str, version: str, kernel: Any) -> bytes:
             "size": artifact.get("size"),
         },
         limit=pkg.MAX_ARCHIVE_BYTES,
-        what="插件包",
+        what=t("plugins.market.what.package"),
         cache=False,
     )
     manifest, _archive = pkg.read_archive(data)
     if manifest.plugin.id != plugin_id or manifest.plugin.version != version:
         raise MarketError(
-            f"插件包里是 {manifest.plugin.id} {manifest.plugin.version}，"
-            f"与索引的 {plugin_id} {version} 不一致，已丢弃"
+            t(
+                "plugins.market.packageMismatch",
+                packageId=manifest.plugin.id,
+                packageVersion=manifest.plugin.version,
+                id=plugin_id,
+                version=version,
+            )
         )
     logger.info("插件市场：已下载并核对 %s %s（%d 字节）", plugin_id, version, len(data))
     return data

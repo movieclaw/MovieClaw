@@ -1,0 +1,62 @@
+{
+  "network": {
+    "timeout": "连接超时",
+    "connect": "连不上，检查地址、端口和网络",
+    "proxy": "代理连不上，检查「设置 → 网络」里的代理",
+    "unknown": "网络出错",
+    "failed": "MovieClaw Cloud{reason}",
+    "http": "MovieClaw Cloud 暂时不可用（HTTP {status}）",
+    "discovery": "MovieClaw Cloud 的发现文档不可用（HTTP {status}）"
+  },
+  "pairing": {
+    "connectFailed": "{reason}。请检查这台服务器能不能上网，或在「设置 → 网络」里让 MovieClaw Cloud 走代理",
+    "expired": "配对码已过期，请重新获取",
+    "retrying": "{reason}，正在重试…",
+    "denied": "这次连接在 movieclaw.io 上被拒绝了",
+    "failed": "配对失败，请重新获取配对码",
+    "error": "配对出错了，请重新获取配对码",
+    "credentials": "MovieClaw Cloud 返回的凭证不完整，请重新获取配对码"
+  },
+  "health": {
+    "reason": "（{reason}）",
+    "expired": "连不上 MovieClaw Cloud{reason}，令牌已经过期，官方推送暂停。云端恢复后会自动续上；也可以检查网络或代理设置后点「立即同步」。",
+    "unreachable": "最近一次同步失败：{reason}。推送不受影响，还能维持约 {hours} 小时，期间会自动重试。",
+    "cannotConnect": "连不上 MovieClaw Cloud",
+    "revoked": "这台服务器已经和 MovieClaw 账号断开",
+    "unsupported": "这个版本已不再受 MovieClaw 官方推送支持，请升级"
+  },
+  "disconnect": {
+    "unreachable": "{reason}。仍要断开的话，这台服务器在 movieclaw.io 上还会显示为已连接，请到官网把它也删掉"
+  },
+  "upload": {
+    "actor": "网盘上传",
+    "queued": "等待上传到网盘",
+    "reloginNeeded": "网盘「{account}」需要重新登录，登录后上传自动继续",
+    "quotaExceeded": "网盘「{account}」空间不够了：{reason}",
+    "rateLimited": "网盘「{account}」限流：{reason}",
+    "riskControl": "网盘「{account}」触发风控，稍后再传：{reason}",
+    "apiChanged": "网盘接口变了，需要更新网盘插件：{reason}",
+    "unreachable": "网盘暂时连不上：{reason}",
+    "action": {
+      "relogin": "去重新登录",
+      "retryAfterLogin": "登录后重试",
+      "retryAfterSpace": "腾出空间后重试",
+      "retryAfterUpdate": "更新插件后重试"
+    },
+    "localMissing": "本地文件不见了",
+    "changingWhileHashing": "算指纹的时候文件还在变（可能还在写入）",
+    "changedDuringUpload": "上传过程中本地文件变了",
+    "mismatch": "网盘上的文件和本地对不上（大小或哈希不同），没有记为已上传；网盘上那份请自行检查",
+    "conflict": "网盘上已有同名的不同文件：{reason}",
+    "localUnreadable": "本地文件读不了：{reason}",
+    "yielding": "外网有人在看片，上传先让路",
+    "hashing": "读取「{name}」算指纹",
+    "uploading": "上传「{name}」",
+    "progress": "已上传 {done} 个（秒传 {rapid}）",
+    "done": "上传完成：{done} 个文件（秒传 {rapid}）{failed, plural, =0 {} other {，# 个没传成（原因记在文件上，过一段时间再试）}}",
+    "nothingToUpload": "这个库的新内容已不再存到网盘，没有要传的"
+  },
+  "drives": {
+    "pluginNotRunning": "网盘插件 {id} 没在运行，稍后会自动重试"
+  }
+}

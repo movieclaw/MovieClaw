@@ -11,6 +11,7 @@ from pydantic import Field
 
 from movieclaw_api.api.deps import require_admin
 from movieclaw_api.exceptions import AppException
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.auth import Principal
@@ -39,10 +40,23 @@ class FeatureSwitchPayload(BaseModel):
 
 def _views(request: Request) -> list[FeatureView]:
     from movieclaw_api.core.config import get_settings
+    from movieclaw_api.plugins.features import feature
     from movieclaw_api.services.plugin_features import feature_views
 
     kernel = getattr(request.app.state, "kernel", None)
-    return [FeatureView.model_validate(v) for v in feature_views(kernel, get_settings())]
+    result = []
+    for value in feature_views(kernel, get_settings()):
+        declared = feature(value["key"])
+        if declared is not None:
+            value = {
+                **value,
+                "title": t(declared.title_key) if declared.title_key else value["title"],
+                "description": t(declared.description_key)
+                if declared.description_key
+                else value["description"],
+            }
+        result.append(FeatureView.model_validate(value))
+    return result
 
 
 @router.get(
@@ -72,10 +86,19 @@ async def set_feature(
 
     kernel = getattr(request.app.state, "kernel", None)
     if kernel is None:
-        raise AppException(status_code=503, code="KERNEL_NOT_RUNNING", message="插件内核未运行")
+        raise AppException(
+            status_code=503, code="KERNEL_NOT_RUNNING", message_key="errors.plugins.kernelStopped"
+        )
     try:
         await set_enabled(kernel, get_settings(), key, payload.enabled, actor=principal.name)
     except FeatureSwitchError as exc:
         raise AppException(status_code=exc.status, code=exc.code, message=exc.message) from exc
     view = next(v for v in _views(request) if v.key == key)
-    return ok(view, message=f"「{view.title}」已{'开启' if view.enabled else '停用'}")
+    return ok(
+        view,
+        message=t(
+            "plugins.features.changed",
+            title=view.title,
+            state="enabled" if view.enabled else "disabled",
+        ),
+    )

@@ -22,12 +22,12 @@ struct PadSidebarLibraryTabs: @MainActor TabContent {
     }
 
     var body: some TabContent<ShellTab> {
-        Tab("我的收藏", systemImage: "heart", value: ShellTab.favorites) {
+        Tab(String(localized: .libraryFavoritesPageTitle), systemImage: "heart", value: ShellTab.favorites) {
             TabRoot(item: .favorites) { FavoritesView() }
         }
         .customizationID("pad.favorites")
         .defaultVisibility(.hidden, for: .tabBar)
-        TabSection("媒体库") {
+        TabSection(String(localized: .libraryCustomizeLibrary)) {
             ForEach(libraries, id: \.id) { library in
                 Tab(library.name, systemImage: Self.symbol(for: library.kind), value: ShellTab.mediaLibrary(library.id)) {
                     TabRoot(item: .mediaLibrary(library.id)) { LibraryDetailView(libraryId: library.id) }
@@ -39,7 +39,7 @@ struct PadSidebarLibraryTabs: @MainActor TabContent {
         }
         .customizationID("pad.libraries")
         .defaultVisibility(.hidden, for: .tabBar)
-        TabSection("合集") {
+        TabSection(String(localized: .libraryCollectionsPageTitle)) {
             ForEach(pinnedCollections, id: \.id) { collection in
                 Tab(collection.name, systemImage: "rectangle.stack", value: ShellTab.collection(collection.id)) {
                     TabRoot(item: .collection(collection.id)) { CollectionDetailView(libraryId: nil, collectionId: collection.id) }

@@ -26,6 +26,7 @@ from pathlib import Path
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.i18n.stored import reference, render_value
 from movieclaw_api.services.storage import registry
 from movieclaw_api.services.storage.registry import DataDir, Group
 
@@ -175,7 +176,7 @@ _snapshot: StorageUsage | None = None
 _task: asyncio.Task[None] | None = None
 #: 快照需要重算：初始为真（进程起来后第一次打开面板自动算一次），清理后置真。
 _stale: bool = True
-_error: str | None = None
+_error: dict | None = None
 
 
 async def usage(*, refresh: bool = False) -> UsageState:
@@ -190,7 +191,11 @@ async def usage(*, refresh: bool = False) -> UsageState:
         _stale = False
         _error = None
         _task = asyncio.create_task(_recompute())
-    return UsageState(usage=_snapshot, computing=_task is not None, error=_error)
+    return UsageState(
+        usage=_snapshot,
+        computing=_task is not None,
+        error=render_value(_error) if _error else None,
+    )
 
 
 async def _recompute() -> None:
@@ -199,7 +204,7 @@ async def _recompute() -> None:
     try:
         _snapshot = await asyncio.to_thread(compute_usage)
     except Exception as exc:  # noqa: BLE001 —— 统计失败不该让面板不可用
-        _error = f"统计数据目录占用失败：{exc}"
+        _error = reference("settings.storage.computeFailed", error=str(exc))
         logger.warning("统计数据目录占用失败：%s", exc, exc_info=True)
     finally:
         _task = None
@@ -246,13 +251,21 @@ async def clean(key: str, mode: str) -> CleanResult:
     """清理一个登记目录里的条目。``mode`` 为 ``all`` 或 ``orphans``。"""
     spec = registry.find(key)
     if spec is None:
-        raise NotFoundException(f"没有名为 {key} 的登记目录")
+        raise NotFoundException(message_key="errors.storage.directoryUnknown", params={"name": key})
     if mode == "all" and not spec.clearable:
-        raise BadRequestException(f"「{spec.title}」不允许整体清空")
+        raise BadRequestException(
+            message_key="errors.storage.clearForbidden",
+            params={"title": registry.directory_text(spec.key, "title", spec.title)},
+        )
     if mode == "orphans" and spec.orphans is None:
-        raise BadRequestException(f"「{spec.title}」不支持按孤儿条目清理")
+        raise BadRequestException(
+            message_key="errors.storage.orphanCleanupUnsupported",
+            params={"title": registry.directory_text(spec.key, "title", spec.title)},
+        )
     if mode not in ("all", "orphans"):
-        raise BadRequestException(f"未知的清理模式：{mode}")
+        raise BadRequestException(
+            message_key="errors.storage.cleanupModeUnknown", params={"mode": mode}
+        )
 
     async with _clean_lock:
         path = spec.resolve(get_settings()).resolve()

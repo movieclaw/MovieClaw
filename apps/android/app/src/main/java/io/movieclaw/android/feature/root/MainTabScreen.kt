@@ -1,6 +1,7 @@
 package io.movieclaw.android.feature.root
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,6 +67,11 @@ object MainTabBus {
     val requested: kotlinx.coroutines.flow.StateFlow<MainTab?> = _requested
     fun open(tab: MainTab) { _requested.value = tab }
     fun consume() { _requested.value = null }
+    // 状态点按**枚举**发布：底栏索引是按权限过滤后的 tabs，侧栏用的是另一份，
+    // 两边索引对不上，只能靠枚举对齐（活动红点 / 我的更新点）。
+    private val _tabDots = kotlinx.coroutines.flow.MutableStateFlow<Map<MainTab, io.movieclaw.android.core.designsystem.TabDot>>(emptyMap())
+    val tabDots: kotlinx.coroutines.flow.StateFlow<Map<MainTab, io.movieclaw.android.core.designsystem.TabDot>> = _tabDots
+    fun publishDots(dots: Map<MainTab, io.movieclaw.android.core.designsystem.TabDot>) { if (_tabDots.value != dots) _tabDots.value = dots }
 }
 
 @HiltViewModel
@@ -125,6 +131,10 @@ fun MainTabScreen(
     onOpenActivityDetail: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAccounts: () -> Unit,
+    /** 「我的」页右上角扫码钮：扫码批准设备登录（iOS `open-scanner` 同款） */
+    onScanPairing: () -> Unit = {},
+    /** 「我的」页「下载」行：离线下载管理 */
+    onOpenDownloads: () -> Unit = {},
     /** 「全部电影」类型行点「查看全部」进跨库墙 */
     onOpenKind: (String) -> Unit = {},
     /** 媒体库顶栏「▶ 片段」 */
@@ -139,6 +149,15 @@ fun MainTabScreen(
     onOpenSubsWall: (String) -> Unit = {},
     subscriptions: io.movieclaw.android.feature.subscriptions.SubscriptionIndex,
     vm: MainTabViewModel = hiltViewModel(),
+    /**
+     * 「再点一次当前页签 → 回到该页签的根页面」（`ipad.md` §3：每一项一个导航栈，
+     * 切走再切回来还在原来那一层，**再点一次退回根页面**）。
+     *
+     * 独立导航栈还没做，所以先落地这一条可观察行为：popBackStack 由外壳执行。
+     */
+    onTabReselect: () -> Unit = {},
+    /** 把当前页签播报给外壳，供外壳的侧边栏高亮（`MainTabBus` 只能「请求切换」，读不到当前值） */
+    onCurrentTabChanged: (MainTab) -> Unit = {},
 ) {
     var current by rememberSaveable { mutableStateOf(MainTab.DISCOVER) }
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -155,6 +174,10 @@ fun MainTabScreen(
     }
     // 换账号后当前页签可能已被裁掉（管理员 → 成员正停在「活动」），落回第一格
     val selected = tabs.indexOf(current).takeIf { it >= 0 } ?: 0
+    // 选中页签的统一入口：点同一个页签 = 回根
+    val selectTab: (Int) -> Unit = { i ->
+        if (tabs[i] == current) onTabReselect() else current = tabs[i]
+    }
 
     // 别的页面请求切页签（如影人页空态的「去媒体库」）
     val tabRequest by MainTabBus.requested.collectAsStateWithLifecycle()
@@ -188,12 +211,31 @@ fun MainTabScreen(
         }
     }
 
-    // 液态底栏的模糊源：开关打开才提供（Local 为 null 时内容层的标记原样返回，零代价）
+    // 把同一份状态点按**枚举**发布给外壳：侧栏与底栏都能显示（活动红点 / 我的更新点）
+    androidx.compose.runtime.SideEffect {
+        MainTabBus.publishDots(
+            buildMap {
+                activityDot?.let { d -> put(MainTab.ACTIVITY, d) }
+                moreDot?.let { d -> put(MainTab.MORE, d) }
+            },
+        )
+    }    // 液态底栏的模糊源：开关打开才提供（Local 为 null 时内容层的标记原样返回，零代价）
     val hazeState = dev.chrisbanes.haze.rememberHazeState()
     // 气泡折射取样源：与模糊同一节点（`tabGlassSource` 里同时记录），开关打开才提供
     val tabGlassHolder = remember { io.movieclaw.android.core.designsystem.TabGlassLayerHolder() }
 
-    Box(Modifier.fillMaxSize().background(Bg)) {
+    // 宽窗口用左侧导航栏，窄窗口仍用悬浮胶囊底栏（iPad 的 `sidebarAdaptable` 同思路：
+    // 宽屏不把 5 格底栏拉满 1024dp，窄屏才回到底栏）。
+    val wideShell = io.movieclaw.android.core.designsystem.LocalCardMetrics.current.isWide
+    androidx.compose.runtime.LaunchedEffect(current) { onCurrentTabChanged(current) }
+
+    Row(
+        Modifier
+            .fillMaxSize()
+            // 宽屏内容区透明，让外壳的 ShellBackdrop 从页面后面透出来（发现页无左边界）。
+            .background(if (wideShell) androidx.compose.ui.graphics.Color.Transparent else Bg),
+    ) {
+        Box(Modifier.weight(1f).fillMaxSize()) {
         KeepAliveTabs(tabs, tabs[selected]) { tab, active ->
                     androidx.compose.runtime.CompositionLocalProvider(
                         // 模糊源只挂前台页签：后台页签也挂的话，同一个 HazeState 会收到几块不在屏上的内容
@@ -241,6 +283,8 @@ fun MainTabScreen(
                 onOpenItem = onOpenItem,
             )
             MainTab.MORE -> MoreScreen(
+                onScanPairing = onScanPairing,
+                onOpenDownloads = onOpenDownloads,
                 onOpenProfile = onOpenProfile,
                 onOpenNotices = onOpenNotices,
                 onOpenUpdate = onOpenUpdate,
@@ -253,13 +297,14 @@ fun MainTabScreen(
         }
 
         // 悬浮胶囊底栏：内容从它下面穿过（实测就是这样，底栏不占布局高度）。
-        // 「我的」页的试用开关在两套形态间 A/B：开 = 液态玻璃新版，关 = 当前形态
-        if (liquidTabBar) {
+        // 「我的」页的试用开关在两套形态间 A/B：开 = 液态玻璃新版，关 = `McCapsuleTabBar`。
+        // **默认关**（低性能平板开玻璃底栏会卡），宽窗口换成左侧栏，这里只在窄窗口生效。
+        if (!wideShell && liquidTabBar) {
             io.movieclaw.android.core.designsystem.McLiquidTabBar(
                 icons = tabs.map { it.icon },
                 labels = tabs.map { it.label },
                 selectedIndex = selected,
-                onSelect = { current = tabs[it] },
+                onSelect = selectTab,
                 avatarInitials = ui.session.initials(),
                 avatarUrl = ui.session?.avatarUrl,
                 origin = ui.origin,
@@ -272,12 +317,12 @@ fun MainTabScreen(
                     .navigationBarsPadding()
                     .padding(bottom = McMetrics.tabBarBottom),
             )
-        } else {
+        } else if (!wideShell) {
             McCapsuleTabBar(
                 icons = tabs.map { it.icon },
                 labels = tabs.map { it.label },
                 selectedIndex = selected,
-                onSelect = { current = tabs[it] },
+                onSelect = selectTab,
                 avatarInitials = ui.session.initials(),
                 avatarUrl = ui.session?.avatarUrl,
                 origin = ui.origin,
@@ -288,6 +333,7 @@ fun MainTabScreen(
                     .navigationBarsPadding()
                     .padding(bottom = McMetrics.tabBarBottom),
             )
+        }
         }
     }
 }

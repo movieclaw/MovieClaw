@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from movieclaw_api.i18n.stored import source_render
 from movieclaw_api.services.media_probe import MediaSpec
 from movieclaw_api.services.playback import strm_probe
 from movieclaw_api.services.playback.strm_probe import (
@@ -98,7 +99,7 @@ async def test_failures_back_off_for_background_probes_but_not_for_playback(
     file_id = await _row(tmp_path, seeded_db, _strm(tmp_path, "https://pan.example.com/d/a.mkv"))
 
     result = await probe_file(file_id)
-    assert result.status == "failed" and "直链失效" in result.error
+    assert result.status == "failed" and "直链失效" in source_render(result.error)
     state = await _state(file_id)
     assert state.failures == 1 and state.target == "pan.example.com/d/a.mkv"
     assert timedelta(minutes=59) < state.next_retry_at - utcnow() <= timedelta(hours=1)
