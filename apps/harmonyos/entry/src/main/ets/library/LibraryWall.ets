@@ -818,7 +818,7 @@ export struct WallIndexBar {
               : this.preview === letter ? Theme.accentStrong
                 : letter === this.active ? 'rgba(238, 242, 248, 0.35)' : Color.Transparent)
             .borderRadius(4)
-        }, (letter: string) => `${letter}-${this.preview === letter ? '1' : '0'}-${letter === this.active ? '1' : '0'}`)
+        }, (letter: string) => letter)
       }
       .alignItems(HorizontalAlign.Center)
       .width(18)

@@ -18,7 +18,7 @@ import {
 } from '../api/Models';
 import { AppFooter } from '../common/AppFooter';
 import { HeroSkeleton, SkeletonRow } from '../common/SkeletonBlock';
-import { PlayerParams } from '../player/PlayerPage';
+import { PlayerParams } from '../player/PlayerParams';
 import { DiscoverDetailParams } from '../discover/DiscoverDetailPage';
 import { CollectionMeta, ShelfSplit, ShelfStanding, SubsHome, ArrivalPresentation, arrivalPresentation, arrivalClockText } from './SubscriptionsHomeModel';
 import {
@@ -156,6 +156,15 @@ export struct SubscriptionsPage {
   @Local heroFill: number = 0;
   private heroController: SwiperController = new SwiperController();
   private heroTimer: number = -1;
+  /**
+   * 派生缓存：home / heroSlides / dayGroups 的重算都在数据落点（load* 回填）时统一失效，
+   * build 与 100ms 定时器只读缓存——此前每次 build 要全量重算十几遍、定时器每 tick 再来一遍。
+   */
+  private homeCache: SubsHome | null = null;
+  private heroSlidesCache: HeroSlide[] | null = null;
+  private dayGroupsCache: DayGroup[][] | null = null;
+  /** Hero 填充进度的非响应式副本：只有跨过 1% 台阶才写 @Local heroFill，把 10Hz 状态刷新降到 ~1.6Hz */
+  private heroProgress: number = 0;
   private arrivalsTimer: number = -1;
   private recentTimer: number = -1;
   private tasksTimer: number = -1;
@@ -193,8 +202,13 @@ export struct SubscriptionsPage {
       if (count <= 1) {
         return;
       }
-      this.heroFill += 0.0125;
-      if (this.heroFill >= 1) {
+      this.heroProgress += 0.0125;
+      // 指示器宽度按整数百分比渲染（Math.round），只有跨过 1% 台阶才写状态
+      if (Math.round(this.heroProgress * 100) !== Math.round(this.heroFill * 100)) {
+        this.heroFill = this.heroProgress;
+      }
+      if (this.heroProgress >= 1) {
+        this.heroProgress = 0;
         this.heroFill = 0;
         this.heroIndex = (this.heroIndex + 1) % count;
         this.heroController.changeIndex(this.heroIndex);
@@ -247,6 +261,7 @@ export struct SubscriptionsPage {
     }
     try {
       this.subscriptions = await api.subscriptionsList();
+      this.invalidateDerived();
       this.failed = false;
       this.errorMessage = '';
     } catch (error) {
@@ -266,6 +281,7 @@ export struct SubscriptionsPage {
     try {
       const list: TodayArrivalView[] = await api.subscriptionsListTodayArrivals('week');
       this.today = list;
+      this.invalidateDerived();
     } catch (error) {
       // 老服务端没有这个接口：保持空，版块自动不出现（同 iOS）
     }
@@ -280,6 +296,7 @@ export struct SubscriptionsPage {
     try {
       const list: RecentArrivalView[] = await api.subscriptionsListRecentArrivals(7, 20);
       this.recent = list;
+      this.invalidateDerived();
     } catch (error) {
       // 同上
     }
@@ -301,6 +318,7 @@ export struct SubscriptionsPage {
         }
       }
       this.taskEtas = map;
+      this.invalidateDerived();
     } catch (error) {
       // 拿不到就退回「时间待更新」
     }
@@ -316,9 +334,19 @@ export struct SubscriptionsPage {
 
   // MARK: 派生
 
+  /** 数据落点：三份派生缓存一起失效（下一次访问按需重算） */
+  private invalidateDerived(): void {
+    this.homeCache = null;
+    this.heroSlidesCache = null;
+    this.dayGroupsCache = null;
+  }
+
   /** 首页判定逻辑（对应 iOS `SubscriptionsHomeModel`）：横滑行与海报墙页共用同一份结果 */
   private home(): SubsHome {
-    return new SubsHome(this.subscriptions ?? [], this.today, this.recent);
+    if (this.homeCache === null) {
+      this.homeCache = new SubsHome(this.subscriptions ?? [], this.today, this.recent);
+    }
+    return this.homeCache;
   }
 
   private hasAny(): boolean {
@@ -403,6 +431,7 @@ export struct SubscriptionsPage {
         .border({ width: 1, color: Theme.lineStrong })
         .onClick(() => {
           this.subscriptions = null;
+          this.invalidateDerived();
           this.reload();
         })
     }
@@ -494,9 +523,12 @@ export struct SubscriptionsPage {
    * 一部作品只占一张、上限 5；全空时退回「在追的前 3 部」。
    */
   private heroSlides(): HeroSlide[] {
-    const subs: SubscriptionView[] = this.subscriptions ?? [];
-    const groups: HeroGroup[] = heroGroups(this.today, subs, this.taskEtas, Date.now());
-    return buildHeroSlides(subs, groups, this.recent, Date.now());
+    if (this.heroSlidesCache === null) {
+      const subs: SubscriptionView[] = this.subscriptions ?? [];
+      const groups: HeroGroup[] = heroGroups(this.today, subs, this.taskEtas, Date.now());
+      this.heroSlidesCache = buildHeroSlides(subs, groups, this.recent, Date.now());
+    }
+    return this.heroSlidesCache;
   }
 
   /**
@@ -530,6 +562,7 @@ export struct SubscriptionsPage {
       .height('100%')
       .onChange((index: number): void => {
         this.heroIndex = index;
+        this.heroProgress = 0;
         this.heroFill = 0;
       })
 
@@ -738,8 +771,23 @@ export struct SubscriptionsPage {
   }
 
 
-  /** 当天议程：按订阅合并——同一部剧的多集并成一条，保留首次出现顺序（同 iOS `arrivalGroups` 的分组口径） */
+  /** 当天议程：按订阅合并——同一部剧的多集并成一条，保留首次出现顺序（同 iOS `arrivalGroups` 的分组口径）。
+   * 7 天日程条（0..6）走缓存：一次数据落点最多算 7 天，build 里十几个调用点全部 O(1) 读缓存 */
   private dayGroups(daysAhead: number): DayGroup[] {
+    if (daysAhead < 0 || daysAhead > 6) {
+      return this.computeDayGroups(daysAhead);
+    }
+    if (this.dayGroupsCache === null) {
+      const out: DayGroup[][] = [];
+      for (let d = 0; d < 7; d++) {
+        out.push(this.computeDayGroups(d));
+      }
+      this.dayGroupsCache = out;
+    }
+    return this.dayGroupsCache[daysAhead];
+  }
+
+  private computeDayGroups(daysAhead: number): DayGroup[] {
     const out: DayGroup[] = [];
     const ids: number[] = [];
     for (const item of this.today) {
@@ -754,10 +802,17 @@ export struct SubscriptionsPage {
       }
       out[at].add(item);
     }
-    // 排序同 iOS：正在发生的（下载中 / 整理中）在前，其余按预计时刻从早到晚
-    out.sort((a: DayGroup, b: DayGroup): number => {
-      const pa: ArrivalPresentation = this.groupPresentation(a);
-      const pb: ArrivalPresentation = this.groupPresentation(b);
+    // 排序同 iOS：正在发生的（下载中 / 整理中）在前，其余按预计时刻从早到晚。
+    // 装饰排序：先一次性算好每组的 presentation，比较器只查表——
+    // 此前每次比较都要对两组做全量 arrivalPresentation 推导
+    const pres: ArrivalPresentation[] = out.map((g: DayGroup): ArrivalPresentation => this.groupPresentation(g));
+    const order: number[] = [];
+    for (let i = 0; i < out.length; i++) {
+      order.push(i);
+    }
+    order.sort((a: number, b: number): number => {
+      const pa: ArrivalPresentation = pres[a];
+      const pb: ArrivalPresentation = pres[b];
       if (pa.glows() !== pb.glows()) {
         return pa.glows() ? -1 : 1;
       }
@@ -765,7 +820,11 @@ export struct SubscriptionsPage {
       const tb: number = pb.estimatedAt > 0 ? pb.estimatedAt : Number.MAX_SAFE_INTEGER;
       return ta - tb;
     });
-    return out;
+    const sorted: DayGroup[] = [];
+    for (const i of order) {
+      sorted.push(out[i]);
+    }
+    return sorted;
   }
 
   /** 组内「最卡的那一步」的状态与时刻（同 iOS 取 blocking presentation） */
@@ -959,7 +1018,7 @@ export struct SubscriptionsPage {
             if (idx < this.dayGroups(this.selectedDay).length - 1) {
               Divider().color(Theme.line).margin({ left: 86 })
             }
-          }, (item: TodayArrivalView) => `${item.subscription_id}-${item.wanted_id}`)
+          }, (group: DayGroup) => `${group.subscriptionId}`)
         }
         .width('100%')
         .backgroundColor(Theme.surface)
