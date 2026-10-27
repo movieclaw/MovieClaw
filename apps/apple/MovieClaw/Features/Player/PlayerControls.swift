@@ -48,6 +48,13 @@ struct PlayerTopBar: View {
     let controller: PlaybackController
     let landscape: Bool
     let onBack: () -> Void
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// 能不能自己转屏：宽版式窗口（iPad、iPhone Duo 内屏）方向跟随设备，见 `PlayerOrientation.appControlsRotation`
+    private var canRotate: Bool {
+        PlayerOrientation.appControlsRotation(wide: WindowLayout.isWide(horizontal: horizontalSizeClass, vertical: verticalSizeClass))
+    }
 
     var body: some View {
         GlassEffectContainer(spacing: 8) {
@@ -55,7 +62,7 @@ struct PlayerTopBar: View {
                 // 返回箭头笔画细，用大一号的符号尺度，与胶囊里的图标视觉上一样重（系统返回键也是这样）
                 GlassIconButton(
                     systemImage: "chevron.backward",
-                    label: controller.clip != nil ? String(localized: .playerControlsExitFullscreen) : (landscape && PlayerOrientation.appControlsRotation ? String(localized: .playerControlsExitLandscape) : String(localized: .playerControlsExit)),
+                    label: controller.clip != nil ? String(localized: .playerControlsExitFullscreen) : (landscape && canRotate ? String(localized: .playerControlsExitLandscape) : String(localized: .playerControlsExit)),
                     identifier: "player-close", scale: .large, action: onBack
                 )
                 VStack(alignment: .leading, spacing: 2) {
@@ -313,6 +320,13 @@ struct PlayerBottomBar: View {
     @Binding var scrubMs: Int?
     let landscape: Bool
     let onToggleLandscape: () -> Void
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// 能不能自己转屏：宽版式窗口（iPad、iPhone Duo 内屏）方向跟随设备，见 `PlayerOrientation.appControlsRotation`
+    private var canRotate: Bool {
+        PlayerOrientation.appControlsRotation(wide: WindowLayout.isWide(horizontal: horizontalSizeClass, vertical: verticalSizeClass))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -347,7 +361,7 @@ struct PlayerBottomBar: View {
                     }
                     // 片段模式只有横屏这一种样子：转回竖屏就是退出全屏、回到刷片
                     // iPad 方向跟随设备，没有横屏键（片段模式的「退出全屏」照留）
-                    if PlayerOrientation.appControlsRotation || controller.clip != nil {
+                    if canRotate || controller.clip != nil {
                         let rotateLabel = controller.clip != nil ? String(localized: .playerControlsExitFullscreen) : (landscape ? String(localized: .playerControlsExitLandscape) : String(localized: .playerControlsLandscape))
                         GlassIconButton(
                             systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",

@@ -270,6 +270,9 @@ private struct PlayerContent: View {
     let exit: () -> Void
     let openRemoteSettings: () -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
     @State private var chromeVisible = true
     @State private var chromeActivity = 0
     @State private var menu: PlayerMenu = .none
@@ -297,6 +300,8 @@ private struct PlayerContent: View {
     @State private var lockButtonFrame: CGRect = .zero
     /// 中央三键的位置（窗口坐标）：判断菜单会不会压住它、诊断面板该停在哪
     @State private var centerFrame: CGRect = .zero
+    /// iPhone Duo 半折时的排法：桌面模式上看下点、书本半折时中部按钮组躲开折痕（见 `PlayerFold`）
+    @State private var fold: PlayerFold = .flat
 
     struct AdjustState {
         var side: PlayerGestureLayer.AdjustSide
@@ -307,11 +312,17 @@ private struct PlayerContent: View {
     var body: some View {
         GeometryReader { proxy in
             let landscape = proxy.size.width > proxy.size.height
+            // 桌面模式：画面只占折痕以上（底边让出控制台），控制层整体落到折痕以下
+            let videoInset = if case let .tabletop(videoBottom, _) = fold {
+                max(0, proxy.size.height + proxy.safeAreaInsets.bottom - videoBottom)
+            } else { CGFloat(0) }
+            let deckTop = if case let .tabletop(_, deckTop) = fold { deckTop } else { CGFloat(0) }
             ZStack {
                 // 画面
                 if let engine = controller.engine {
                     EngineSurface(engineView: engine.view)
                         .id(ObjectIdentifier(engine))
+                        .padding(.bottom, videoInset)
                         .ignoresSafeArea()
                         .accessibilityIdentifier("player-video")
                     // 文字字幕两个引擎都由叠加层用系统字体画（没有要画的字幕时地址为空、什么也不显示）
@@ -323,6 +334,7 @@ private struct PlayerContent: View {
                         time: { Double(controller.originMs) / 1000 + (controller.engine?.currentTime ?? 0) },
                         session: controller.scope.api.session
                     )
+                    .padding(.bottom, videoInset)
                     .ignoresSafeArea()
                 }
 
@@ -346,14 +358,17 @@ private struct PlayerContent: View {
                 if locked {
                     lockOverlay
                 } else {
-                    chrome(landscape: landscape, height: proxy.size.height)
+                    chrome(landscape: landscape, height: proxy.size.height - deckTop)
+                        .padding(.top, deckTop)
                 }
 
                 if controller.phase.isBusy {
                     // 与中央三键同一个中心（整屏正中），转圈结束时播放键正好接在原地
                     PlayerBusyView(controller: controller)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .offset(x: centerShift)
                         .ignoresSafeArea()
+                        .padding(.top, deckTop)
                 }
 
                 hud(landscape: landscape)
@@ -407,6 +422,18 @@ private struct PlayerContent: View {
             // 片段模式退出全屏：转回竖屏了再关（见 exitClip）
             .onChange(of: landscape) { _, now in
                 if !now { finishExitClip() }
+            }
+            .onGeometryChange(for: PlayerFold.self) { PlayerFold.resolve(size: $0.size, folds: PlayerFold.activeFolds($0)) } action: { now in
+                withAnimation(.easeInOut(duration: 0.3)) { fold = now }
+            }
+        }
+        // 展开成宽窗口（iPhone Duo 内屏）：外屏上锁的横 / 竖屏作废，方向交还给设备。
+        // 合上回到外屏时，片段模式（刷片的「全屏观看」）退回信息流里原来那一条、原来的位置（docs/design/iphone-duo.md §6.5）
+        .onChange(of: canRotate) { _, now in
+            if !now {
+                PlayerOrientation.followDevice()
+            } else if controller.clip != nil {
+                exit()
             }
         }
         .onReceive(SystemVolume.shared.changes) { volume in
@@ -479,7 +506,19 @@ private struct PlayerContent: View {
     /// 「按着进度条」只算拖底栏进度条；在画面上横滑定位不算（见 `handleScrub`）
     private var chromeMustStayVisible: Bool {
         let userPaused = controller.paused && !controller.phase.isBusy && controller.session != nil
-        return userPaused || menu != .none || (scrubMs != nil && !scrubbingByGesture) || isModal
+        // 桌面模式的控制台在折痕下面、不压画面：一直显示
+        return userPaused || menu != .none || (scrubMs != nil && !scrubbingByGesture) || isModal || fold.isTabletop
+    }
+
+    /// 能不能自己转屏：宽版式窗口（iPad、iPhone Duo 内屏）方向跟随设备，见 `PlayerOrientation.appControlsRotation`
+    private var canRotate: Bool {
+        PlayerOrientation.appControlsRotation(wide: WindowLayout.isWide(horizontal: horizontalSizeClass, vertical: verticalSizeClass))
+    }
+
+    /// 书本半折：中部按钮组（与转圈）水平挪开折痕的距离
+    private var centerShift: CGFloat {
+        if case let .book(shift) = fold { return shift }
+        return 0
     }
 
     /// 暂停遮罩只跟「用户意图」走：缓冲饥饿、换流时的程序性暂停不压暗
@@ -513,6 +552,7 @@ private struct PlayerContent: View {
                 PlayerCenterControls(controller: controller)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { centerFrame = $0 }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .offset(x: centerShift)
                     .ignoresSafeArea()
                     .transition(.opacity)
             }
@@ -713,7 +753,7 @@ private struct PlayerContent: View {
     /// 片段模式的「退出全屏」：先转回竖屏、转好了再关播放器回到刷片（刷片页从这里接着放这一段）。
     /// 直接关的话，转屏与收起两段动画叠在一起，中间会露出横着排的信息流
     private func exitClip(landscape: Bool) {
-        guard landscape, PlayerOrientation.appControlsRotation else {
+        guard landscape, canRotate else {
             exit()
             return
         }
@@ -737,7 +777,7 @@ private struct PlayerContent: View {
     private func back(landscape: Bool) {
         if controller.clip != nil {
             exitClip(landscape: landscape)
-        } else if landscape, PlayerOrientation.appControlsRotation {
+        } else if landscape, canRotate {
             PlayerOrientation.request(landscape: false)
         } else {
             exit()

@@ -371,6 +371,7 @@ struct LibraryItemDetailView: View {
             }
             // 下拉刷新时整块大图（连同两头的渐变）以底边为锚放大，顶上不露底色（同 Apple Music）
             .stretchesOnPull()
+            .modifier(BackdropUnderVerticalBar())
             .accessibilityHidden(true)
     }
 

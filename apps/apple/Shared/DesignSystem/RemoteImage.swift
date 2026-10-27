@@ -53,7 +53,12 @@ extension ImageWidth {
     /// 本机屏幕。`UIScreen.main` 在 26 系 SDK 标了弃用，但它在窗口场景连上之前就能读——冷启动的首屏预载
     /// （`SessionPrewarm`）比场景早，要和页面算出同一个地址，所以集中在这一处读，别处一律走 `screenScale` / `screenSize`
     #if canImport(UIKit)
-    private static var device: UIScreen { UIScreen.main }
+    /// 窗口场景连上之后取场景所在的那块屏：iPhone Duo 有内外两块屏，`UIScreen.main` 指哪块不确定
+    /// （docs/design/iphone-duo.md §2）；连上之前（冷启动预载）只能退回 `UIScreen.main`
+    private static var device: UIScreen {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return (scenes.first { $0.activationState == .foregroundActive } ?? scenes.first)?.screen ?? UIScreen.main
+    }
 
     /// 当前屏幕的真实倍率：iPhone 3 倍屏是 3；Apple TV 接 1080p 电视是 1、接 4K 是 2（tvOS 画布始终 1920×1080 点）
     static var screenScale: CGFloat { max(1, device.scale) }
@@ -116,18 +121,29 @@ struct CardMetrics: Equatable, Sendable {
     var spacing: CGFloat
     /// 页面左右边距（手机 16，同 `Theme.pagePadding`；宽窗口同 Mac 版 32）
     var edge: CGFloat
-    /// 是不是 iPad 宽窗口那套（详情页的 Mac 式大图区、列表限宽等也按它分支）
+    /// 是不是宽版式（详情页的 Mac 式大图区、列表限宽、居中表单等也按它分支）。只管排法，卡片多大看上面各项
     var isWide = false
+    /// 宽版式排整列时海报的目标宽：iPad 168（同 Mac 版 `MacMetrics.posterWidth`）；iPhone Duo 内屏用手机尺寸
+    var posterTarget: CGFloat = 168
+    /// 网格取偶数列：窗口里有折痕（iPhone Duo 内屏，`TabRoot` 读保留区域得知），让折痕落在两列之间（人机界面指南）
+    var evenColumns = false
     /// 内容区宽（点，已扣掉侧边栏等安全区）；0 = 还没量到。宽窗口按它把海报排成整列，见 `fitted(contentWidth:)`
     var contentWidth: CGFloat = 0
 
     static let phone = CardMetrics(homePoster: 124, discoverPoster: 126, upNext: 200, libraryCover: 230, genreTile: 196,
                                    recent: 264, recentLogo: 118, cast: 96, episode: 200, wallMinimum: 140, spacing: 12, edge: 16)
-    /// 宽窗口海报的目标宽（同 Mac 版 `MacMetrics.posterWidth`）：实际宽按内容区排成整列后在它上下浮动
-    static let widePosterTarget: CGFloat = 168
     static let wide = CardMetrics(homePoster: 168, discoverPoster: 168, upNext: 296, libraryCover: 296, genreTile: 196,
                                   recent: 296, recentLogo: 140, cast: 128, episode: 296, wallMinimum: 150, spacing: 18, edge: 32,
                                   isWide: true)
+    /// iPhone Duo 内屏：宽版式的排法 + 手机的卡片尺寸（docs/design/iphone-duo.md §5）。Duo 的 1 点和 iPhone 一样大、
+    /// 按手机的距离看，iPad 那套放大一档（为离眼睛远做的补偿）在这里会显得笨重；只把页边距放宽一点
+    static let widePhone: CardMetrics = {
+        var metrics = CardMetrics.phone
+        metrics.isWide = true
+        metrics.posterTarget = CardMetrics.phone.homePoster
+        metrics.edge = 24
+        return metrics
+    }()
 
     /// 宽窗口：按内容区宽把海报排成整列，首页横排海报、相似推荐、发现 / 订阅的海报行都用这一列的宽——
     /// 同一个窗口宽度下首页和海报墙的海报一样大，展开 / 收起侧边栏时一起变（真机反馈：首页 168、海报墙 157，看着不一致）
@@ -135,7 +151,7 @@ struct CardMetrics: Equatable, Sendable {
         guard isWide, width > 0 else { return self }
         var metrics = self
         metrics.contentWidth = width
-        let poster = metrics.columnWidth(target: Self.widePosterTarget)
+        let poster = metrics.columnWidth(target: posterTarget)
         metrics.homePoster = poster
         metrics.discoverPoster = poster
         return metrics
@@ -144,9 +160,11 @@ struct CardMetrics: Equatable, Sendable {
     /// 排海报的可用宽（内容区减两侧页边距）
     private var rowWidth: CGFloat { contentWidth - edge * 2 }
 
-    /// 按目标宽排成整列时的列数：取最接近目标宽的那个整数
+    /// 按目标宽排成整列时的列数：取最接近目标宽的那个整数；有折痕时取最接近的偶数
     private func columnCount(target: CGFloat) -> Int {
-        max(1, Int(((rowWidth + spacing) / (target + spacing)).rounded()))
+        let exact = (rowWidth + spacing) / (target + spacing)
+        if evenColumns { return max(2, 2 * Int((exact / 2).rounded())) }
+        return max(1, Int(exact.rounded()))
     }
 
     private func columnWidth(target: CGFloat) -> CGFloat {
@@ -169,33 +187,54 @@ struct CardMetrics: Equatable, Sendable {
     /// `extra`：比海报宽一档的墙（剧照墙 +20、类型剧照墙 +60）
     func wallColumns(extra: CGFloat = 0) -> [GridItem] {
         if isWide, contentWidth > 0 {
-            let count = columnCount(target: Self.widePosterTarget + extra)
+            let count = columnCount(target: posterTarget + extra)
             return Array(repeating: GridItem(.flexible(), spacing: spacing, alignment: .top), count: count)
         }
         return [GridItem(.adaptive(minimum: wallMinimum + extra), spacing: spacing, alignment: .top)]
     }
 
-    /// 某个窗口该用哪套：只有 iPad 的常规宽度用 `wide`。iPhone Pro Max 横屏也是常规宽度，但仍按手机排
-    /// （2026-10-15 定：宽版式只给 iPad，iPhone 横屏多是看片，不改它）
-    static func forWindow(regular: Bool) -> CardMetrics {
+    /// 某个窗口该用哪套：宽版式（`WindowLayout.isWide`）时 iPad 用 `wide`、其余（iPhone Duo 内屏）用 `widePhone`；
+    /// 其余窗口——iPhone、Duo 外屏、分屏、Pro Max 横屏（常规宽 × 紧凑高）——都是手机那套。
+    /// 卡片大小这里看设备：它代表「离眼睛多远」，不代表版式（docs/design/iphone-duo.md §5）
+    static func forWindow(wide: Bool) -> CardMetrics {
         #if os(iOS)
-        regular && UIDevice.current.userInterfaceIdiom == .pad ? .wide : .phone
+        guard wide else { return .phone }
+        return UIDevice.current.userInterfaceIdiom == .pad ? .wide : .widePhone
         #else
         .phone
         #endif
     }
 
-    /// 首屏预载用：当前窗口是常规宽度就是 `wide`（与页面的环境值同一口径）
+    /// 首屏预载用：与页面的环境值同一口径
     @MainActor static var current: CardMetrics {
         #if os(iOS)
-        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.first as? UIWindowScene
-        return forWindow(regular: scene?.traitCollection.horizontalSizeClass == .regular)
+        forWindow(wide: WindowLayout.currentSceneIsWide)
         #else
-        return .phone
+        .phone
         #endif
     }
 }
+
+/// 窗口的版式档（docs/design/iphone-duo.md §5）：只看尺寸类别，不按设备、不按方向分叉。
+/// 常规宽 × 常规高（iPad 全屏与大窗口、iPhone Duo 内屏）是宽版式；其余（iPhone、Duo 外屏、分屏、
+/// Pro Max 横屏这种常规宽 × 紧凑高）都按手机排。
+#if os(iOS)
+enum WindowLayout {
+    static func isWide(horizontal: UserInterfaceSizeClass?, vertical: UserInterfaceSizeClass?) -> Bool {
+        horizontal == .regular && vertical == .regular
+    }
+
+    static func isWide(_ traits: UITraitCollection?) -> Bool {
+        traits?.horizontalSizeClass == .regular && traits?.verticalSizeClass == .regular
+    }
+
+    /// 当前前台窗口是不是宽版式（给读不到环境值的地方用：首屏预载、弹层档位、方向请求）
+    @MainActor static var currentSceneIsWide: Bool {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return isWide((scenes.first { $0.activationState == .foregroundActive } ?? scenes.first)?.traitCollection)
+    }
+}
+#endif
 
 /// 手机那套卡片宽度的旧名字（Apple TV 等不分窗口宽度的地方用）
 enum PhoneCardWidth {

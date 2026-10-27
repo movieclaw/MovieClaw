@@ -471,6 +471,32 @@ struct ImmersiveHeroFadeCarousel<Slide: View>: View {
     }
 }
 
+/// iPhone Duo 的竖排系统栏（外屏、内屏横向时，标签栏、工具栏竖在右侧）：剧照这类背景铺到竖栏底下，不在栏边留一条纯色
+/// （docs/design/iphone-duo.md §6.3；竖栏是液态玻璃，自己会模糊下面的画面，同 `PadBackdropUnderSidebar` 不用
+/// 耗资源的 `backgroundExtensionEffect`）。没有竖排栏时（iPhone、iPad、iOS 27.1 以前）原样不动
+struct BackdropUnderVerticalBar: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            content.modifier(Extend())
+        } else {
+            content
+        }
+    }
+
+    @available(iOS 27.1, *)
+    private struct Extend: ViewModifier {
+        @Environment(\.toolbarVerticalEdge) private var verticalEdge
+
+        func body(content: Content) -> some View {
+            if verticalEdge != nil {
+                content.ignoresSafeArea(.container, edges: .horizontal)
+            } else {
+                content
+            }
+        }
+    }
+}
+
 /// iPad 宽窗口：剧照层画到侧边栏底下（铺满整屏宽），文字仍只排在内容区。
 /// 侧边栏是液态玻璃，自己会把下面的画面模糊——剧照直接铺过去就行，不用系统的 `backgroundExtensionEffect`
 /// （那个要在内容移动时每帧重新取样、镜像、模糊，Mac 版实测滚动时占掉大半主线程）。

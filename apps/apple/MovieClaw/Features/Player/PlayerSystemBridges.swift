@@ -73,10 +73,23 @@ enum OrientationLock {
 /// 界面方向：播放器的「横屏」键与退出时的归还
 @MainActor
 enum PlayerOrientation {
-    /// App 能不能自己转屏：只有手机能。iPadOS 26 的窗口可以自由缩放，系统不接受 App 改方向
-    /// （`requestGeometryUpdate` 静默无效），iPad 上方向完全跟随设备——不锁方向、不显示横屏键，
-    /// 返回键也不再是「退出横屏」（真机反馈：iPad 横屏点返回只想转回竖屏，退不出播放器）
-    static var appControlsRotation: Bool { UIDevice.current.userInterfaceIdiom == .phone }
+    /// App 能不能自己转屏：只有手机、且窗口不是宽版式时能。iPadOS 26 的窗口可以自由缩放，系统不接受 App 改方向
+    /// （`requestGeometryUpdate` 静默无效）；iPhone Duo 的内屏（常规宽 × 常规高）同样按尺寸类别走、不按 App 的方向来
+    /// （docs/design/iphone-duo.md §4.2）。这两种情况方向完全跟随设备——不锁方向、不显示横屏键，
+    /// 返回键也不再是「退出横屏」（真机反馈：iPad 横屏点返回只想转回竖屏，退不出播放器；Duo 展开时画面宽大于高，同样会卡住）
+    static func appControlsRotation(wide: Bool) -> Bool {
+        UIDevice.current.userInterfaceIdiom == .phone && !wide
+    }
+
+    /// 读不到环境值的地方（转屏请求、离开播放器）用：按当前前台窗口算
+    static var appControlsRotation: Bool { appControlsRotation(wide: WindowLayout.currentSceneIsWide) }
+
+    /// 窗口变成宽版式（Duo 展开）：之前在外屏锁的横屏 / 竖屏作废，方向交还给设备
+    static func followDevice() {
+        guard OrientationLock.mask != .allButUpsideDown else { return }
+        OrientationLock.mask = .allButUpsideDown
+        updateSupported()
+    }
 
     /// 横屏键：锁到横屏（左右都允许，跟随手机横放的方向）；再按锁回竖屏
     static func request(landscape: Bool) {

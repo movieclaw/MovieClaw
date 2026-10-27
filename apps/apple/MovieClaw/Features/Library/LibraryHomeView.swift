@@ -13,6 +13,7 @@ import SwiftUI
 /// 瞬时失败不清已有数据，只挂提示条；一次都没成功过才整页报错。
 struct LibraryHomeView: View {
     @Environment(\.cardMetrics) private var cards
+    @Environment(\.sidebarShell) private var sidebarShell
     @Environment(\.api) private var api
     @Environment(\.permissions) private var permissions
     @Environment(Router.self) private var router
@@ -52,7 +53,7 @@ struct LibraryHomeView: View {
         }
         .appBackground()
         // iPad 上叫「首页」：各个库逐个列在侧边栏里（同 Mac 版）
-        .navigationTitle(MainTabView.isPad ? String(localized: .libraryCollectionsHomeTab) : String(localized: .libraryCustomizeLibrary))
+        .navigationTitle(sidebarShell ? String(localized: .libraryCollectionsHomeTab) : String(localized: .libraryCustomizeLibrary))
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             // 页面级动作都是低频的配置入口，收进一个 ⋯ 菜单：顶栏与发现、订阅页一致，
@@ -65,7 +66,8 @@ struct LibraryHomeView: View {
             if !reachability.isOffline {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { openReels() } label: {
-                        Image(systemName: "play.circle")
+                        // 带标题：iPhone Duo 上工具栏竖排时只显示图标，挤进系统溢出菜单时才用得上文字（docs/design/iphone-duo.md §6.3）
+                        Label(String(localized: .libraryHomeReelsAria), systemImage: "play.circle")
                     }
                     .accessibilityLabel(String(localized: .libraryHomeReelsAria))
                     .accessibilityIdentifier("library-reels")
@@ -79,7 +81,7 @@ struct LibraryHomeView: View {
                             Button(String(localized: .libraryHomeManage), systemImage: "externaldrive") { router.push(.libraryManage()) }
                         }
                     } label: {
-                        Image(systemName: "ellipsis")
+                        Label(String(localized: .libraryDetailMoreActions), systemImage: "ellipsis")
                     }
                     .accessibilityLabel(String(localized: .libraryDetailMoreActions))
                     .accessibilityIdentifier("library-more")
