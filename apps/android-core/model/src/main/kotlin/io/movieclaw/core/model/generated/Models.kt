@@ -1223,6 +1223,10 @@ data class LibraryItemDetailView(
      * 国际英文名；「搜索资源」与中文名、原名一起搜
      */
     @SerialName("english_title") val englishTitle: String? = null,
+    /**
+     * 中文片名：读者界面不是中文、片名显示为别的语言时给出，「搜索资源」带上它（中文 PT 站的主搜索词）；与片名相同或未知时为 null
+     */
+    @SerialName("chinese_title") val chineseTitle: String? = null,
     @SerialName("year") val year: Long? = null,
     @SerialName("poster_url") val posterUrl: String? = null,
     @SerialName("backdrop_url") val backdropUrl: String? = null,

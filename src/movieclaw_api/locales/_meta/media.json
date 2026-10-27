@@ -463,5 +463,20 @@
   },
   "quality.unrecognized": {
     "sourceHash": "4cacba0d8a0ddfe1dde2bea64d4be3c4f49b8506d6530395d8ddbdf364a9217b"
+  },
+  "videoKinds.trailer": {
+    "sourceHash": "361d25c6b812d4c6b1f699ed70762d048ebfdc398ddf8b1439eb94fb2fbac227"
+  },
+  "videoKinds.teaser": {
+    "sourceHash": "97f342c7d265003311219263b89687cb0d17fb2684d2c94f3b63824a458b1944"
+  },
+  "videoKinds.clip": {
+    "sourceHash": "908e56fe5ed8ba83057712b1d0403a2378c260b3f11806d5015b73cbfcc64b38"
+  },
+  "videoKinds.featurette": {
+    "sourceHash": "6bcb074c708eca69bf7347e0cc36e8670e144bb7392a959ea6e62ab34d10c548"
+  },
+  "videoKinds.behindTheScenes": {
+    "sourceHash": "cac61ab85c0e9353afe4bb71e0918d50e108ebf8841929e6db19c18fdc1dd0ec"
   }
 }

@@ -75622,19 +75622,19 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "元数据语言"
+            "value": "媒体库语言"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "元数据语言"
+            "value": "媒体库语言"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Metadata language"
+            "value": "Library language"
           }
         }
       }
