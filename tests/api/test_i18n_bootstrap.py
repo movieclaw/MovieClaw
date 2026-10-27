@@ -64,7 +64,8 @@ def test_setup_respects_explicit_environment_metadata_language(client, monkeypat
     assert effective_languages() == ["fr-FR", "en-US"]
 
 
-def test_setup_invalidates_only_the_service_that_captures_metadata_language(client, monkeypatch):
+def test_setup_leaves_discovery_services_alone(client, monkeypatch):
+    """发现页按读者语言取数（content-locale.md §3），不再捕获媒体库语言，初始化不必重建它。"""
     from movieclaw_api.services import media_discover
 
     closed = []
@@ -74,11 +75,11 @@ def test_setup_invalidates_only_the_service_that_captures_metadata_language(clie
             closed.append(True)
 
     existing_client = media_discover._tmdb_client
-    monkeypatch.setattr(media_discover, "_service", Discovery())
+    monkeypatch.setitem(media_discover._services, "en-US", Discovery())
     response = client.post(
         "/api/v1/auth/bootstrap", json=auth._ADMIN, headers={"Accept-Language": "en"}
     )
     assert response.status_code == 200
-    assert closed == [True]
-    assert media_discover._service is None
+    assert closed == []
+    assert "en-US" in media_discover._services
     assert media_discover._tmdb_client is existing_client

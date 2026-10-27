@@ -130,6 +130,11 @@ class MediaProfile(BaseModel):
     logo_path: str | None = None
     seasons: list[SeasonProfile] = Field(default_factory=list, description="仅剧集非空")
 
+    # 界面语言的译名 / 简介（docs/design/content-locale.md §4）：只含与主语言不同
+    # 语种的 CONTENT_LANGUAGES，取自同一次请求的 translations，零额外请求
+    title_translations: dict[str, str] = Field(default_factory=dict)
+    overview_translations: dict[str, str] = Field(default_factory=dict)
+
     # -- 展示层（media_metadata）--------------------------------------------
     overview: str | None = None
     tagline: str | None = None
@@ -376,13 +381,24 @@ async def fetch_media_profile(
                 or season.poster_path
             )
 
+    english_title = _english_title(data, translations)
+    title_translations, overview_translations = _content_translations(
+        translations,
+        primary=primary,
+        original_language=original_language,
+        original_title=original_title,
+        english_title=english_title,
+    )
+
     return MediaProfile(
         kind=kind,
         tmdb_id=tmdb_id,
         imdb_id=(data.get("external_ids") or {}).get("imdb_id") or None,
         title=title,
         original_title=original_title,
-        english_title=_english_title(data, translations),
+        english_title=english_title,
+        title_translations=title_translations,
+        overview_translations=overview_translations,
         year=_parse_year(release_date),
         aliases=_build_aliases(data, title, original_title),
         status=data.get("status") or None,
@@ -473,6 +489,47 @@ def _translation_text(index: dict[str, dict], tag: str, *fields: str) -> str | N
         if value:
             return value
     return None
+
+
+#: 刮削时顺手存下译文的语言：就是界面支持的那几种（movieclaw_api.i18n.content）
+CONTENT_LANGUAGES = ("zh-CN", "en-US")
+
+
+def _content_translations(
+    index: dict[str, dict],
+    *,
+    primary: str,
+    original_language: str | None,
+    original_title: str,
+    english_title: str | None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """界面语言里与主语言不同语种的那几份片名 / 简介。
+
+    主语言那一份不存：它就是库内原列，显示时字典里没有这一项就走原列。
+    片名在该语言没有译名、而它就是原声语言时用原名（TMDB 不给原声语言出译名）；
+    英文另有 ``english_title`` 的回落规则（translations.en → US/GB 别名）。空字段不存。
+    """
+    titles: dict[str, str] = {}
+    overviews: dict[str, str] = {}
+    family = primary.split("-")[0]
+    for tag in CONTENT_LANGUAGES:
+        lang = tag.split("-")[0]
+        if lang == family:
+            continue
+        title = _translation_text(index, tag, "title", "name")
+        # 原声语言就是这门语言时原名优先于 english_title：后者会回落 US 地区别名，
+        # 《阿凡达》因此拿到的是「Avatar: An IMAX 3D Experience」（NAS 实测）。
+        # TMDB 的 cn 是粤语：粤语片的原名同样是中文
+        if not title and original_language in ({lang} | ({"cn"} if lang == "zh" else set())):
+            title = original_title
+        if not title and lang == "en":
+            title = english_title
+        if title:
+            titles[tag] = title
+        overview = _translation_text(index, tag, "overview")
+        if overview:
+            overviews[tag] = overview
+    return titles, overviews
 
 
 # 分集占位名：TMDB 无翻译时返回的"第 N 集"/"Episode N"式占位。占比过高

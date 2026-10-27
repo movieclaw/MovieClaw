@@ -46,6 +46,12 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.content import (
+    display_genres,
+    display_overview,
+    display_title,
+    in_reader_language,
+)
 from movieclaw_api.schemas.playback import UpNextItemView
 from movieclaw_api.services.library.thumbs import primary_aspect
 from movieclaw_api.services.media_scrape import asset_version
@@ -350,6 +356,9 @@ async def _hydrate(
                 MediaMetadata.logo_file,
                 MediaMetadata.overview,
                 MediaMetadata.genres,
+                MediaMetadata.overview_translations,
+                MediaMetadata.genre_ids,
+                MediaMetadata.scrape_language,
             )
             .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)
             .where(MediaItem.id.in_(item_ids))  # type: ignore[attr-defined]
@@ -432,7 +441,11 @@ async def _hydrate(
             logo_file,
             item_overview,
             genres,
+            overview_translations,
+            genre_ids,
+            scrape_language,
         ) = row
+        item_overview = display_overview(overview_translations, item_overview)
         if item.id is None:
             continue
         if poster_file:
@@ -450,6 +463,9 @@ async def _hydrate(
             logo_url = f"/images/assets/{logo_file}?v={asset_version(logo_file)}"
         else:
             logo_url = tmdb_image_url(item.logo_path, "logo")
+        # Logo 是库语言的文字图：片名以读者语言显示时不给，退回文字片名
+        if in_reader_language(item):
+            logo_url = None
 
         is_tv = item.kind == MediaKind.TV.value
         episode_name, episode_runtime, still_file, still_path, episode_overview = episodes.get(
@@ -479,7 +495,7 @@ async def _hydrate(
                 media_item_id=item.id,
                 library_id=library_id,
                 kind=MediaKind(item.kind),
-                title=item.title,
+                title=display_title(item),
                 year=item.year,
                 poster_url=poster_url,
                 poster_aspect=primary_aspect(item, poster_width, poster_height),
@@ -489,7 +505,7 @@ async def _hydrate(
                 logo_url=logo_url,
                 # 剧集讲卡片这一集（下一集卡讲下一集）；这一集还没有简介时退回整部剧的
                 overview=(episode_overview if is_tv else None) or item_overview or None,
-                genres=[str(genre) for genre in genres or []],
+                genres=display_genres(item.kind, genres or [], genre_ids or [], scrape_language),
                 season_number=unit[0],
                 episode_number=unit[1],
                 episode_title=episode_name or None,

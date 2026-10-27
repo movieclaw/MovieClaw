@@ -13,6 +13,7 @@ from sqlmodel import select
 
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.i18n.content import display_title
 from movieclaw_api.schemas.person import PersonCreditView, PersonView
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.auth import Principal
@@ -94,7 +95,7 @@ async def get_person(
                 media_item_id=item.id,
                 kind=MediaKind(item.kind),
                 tmdb_id=item.tmdb_id,
-                title=item.title,
+                title=display_title(item),
                 year=item.year,
                 poster_url=poster_url,
                 library_id=credit.library_id,

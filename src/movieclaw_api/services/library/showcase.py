@@ -16,6 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n.content import (
+    display_genres,
+    display_overview,
+    in_reader_language,
+)
 from movieclaw_api.schemas.library import LibraryItemShowcaseView
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import content_limit_for, visible_library_ids
@@ -71,6 +76,9 @@ async def load_showcase(
                 MediaMetadata.genres,
                 MediaMetadata.runtime_minutes,
                 MediaMetadata.content_rating,
+                MediaMetadata.overview_translations,
+                MediaMetadata.genre_ids,
+                MediaMetadata.scrape_language,
             )
             .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)
             .where(MediaItem.id.in_(wanted))  # type: ignore[attr-defined]
@@ -80,7 +88,18 @@ async def load_showcase(
     visible = await visible_library_ids(session, principal)
     limit = await content_limit_for(session, principal)
     by_id: dict[int, LibraryItemShowcaseView] = {}
-    for item, backdrop_file, logo_file, overview, genres, runtime, rating in rows:
+    for (
+        item,
+        backdrop_file,
+        logo_file,
+        overview,
+        genres,
+        runtime,
+        rating,
+        overview_translations,
+        genre_ids,
+        scrape_language,
+    ) in rows:
         if item.id is None:
             continue
         libraries = owners.get(item.id) or (
@@ -94,10 +113,15 @@ async def load_showcase(
         by_id[item.id] = LibraryItemShowcaseView(
             media_item_id=item.id,
             backdrop_url=_asset_or_tmdb(backdrop_file, item.backdrop_path, "w1280"),
-            # logo_path 为空串 = TMDB 确认没有合适的 Logo，同样按没有处理
-            logo_url=_asset_or_tmdb(logo_file, item.logo_path or None, "w500"),
-            overview=(overview or "").strip() or None,
-            genres=[str(genre) for genre in genres or []],
+            # logo_path 为空串 = TMDB 确认没有合适的 Logo，同样按没有处理；Logo 是库语言的
+            # 文字图，片名以读者语言显示时不给，退回文字片名
+            logo_url=(
+                None
+                if in_reader_language(item)
+                else _asset_or_tmdb(logo_file, item.logo_path or None, "w500")
+            ),
+            overview=(display_overview(overview_translations, overview) or "").strip() or None,
+            genres=display_genres(item.kind, genres or [], genre_ids or [], scrape_language),
             runtime_minutes=runtime,
             content_rating=rating or None,
         )

@@ -65,35 +65,12 @@ _IMAGES_LIMIT = 20
 _CAST_LIMIT = 16
 # 详情页预告片最多展示多少段（热门大片的 videos 动辄几十条，多是重复的地区版本）
 _VIDEOS_LIMIT = 8
-# TMDB 的 video type → 中文标签。只保留「与看片本身有关」的几类，
+# 保留的 TMDB video type：只要「与看片本身有关」的几类，
 # Opening Credits / Recap / Bloopers 之类对发现场景没有价值，直接丢弃。
-# 字典顺序同时充当排序权重：正式预告排在先导预告前，花絮类垫底。
-_VIDEO_KINDS = {
-    "Trailer": "预告片",
-    "Teaser": "先导预告",
-    "Clip": "片段",
-    "Featurette": "花絮",
-    "Behind the Scenes": "幕后",
-}
+# 元组顺序同时充当排序权重：正式预告排在先导预告前，花絮类垫底。
+# 类型名由接口层按读者语言出（docs/design/content-locale.md §5）
+_VIDEO_KINDS = ("Trailer", "Teaser", "Clip", "Featurette", "Behind the Scenes")
 _VIDEO_KIND_ORDER = {kind: index for index, kind in enumerate(_VIDEO_KINDS)}
-
-# TMDB 详情接口不随 language 参数翻译制片地区/语言字段，这里映射高频值，
-# 映射不到的原样展示（英文/ISO 代码），不影响功能
-_COUNTRY_NAMES = {
-    "US": "美国", "CN": "中国大陆", "HK": "中国香港", "TW": "中国台湾",
-    "JP": "日本", "KR": "韩国", "GB": "英国", "FR": "法国", "DE": "德国",
-    "IT": "意大利", "ES": "西班牙", "CA": "加拿大", "AU": "澳大利亚",
-    "IN": "印度", "TH": "泰国", "RU": "俄罗斯", "NZ": "新西兰",
-    "IE": "爱尔兰", "DK": "丹麦", "SE": "瑞典", "NO": "挪威",
-    "BE": "比利时", "NL": "荷兰", "BR": "巴西", "MX": "墨西哥",
-}
-_LANGUAGE_NAMES = {
-    "en": "英语", "zh": "汉语普通话", "cn": "粤语", "ja": "日语", "ko": "韩语",
-    "fr": "法语", "de": "德语", "es": "西班牙语", "it": "意大利语",
-    "ru": "俄语", "pt": "葡萄牙语", "hi": "印地语", "th": "泰语",
-    "sv": "瑞典语", "da": "丹麦语", "no": "挪威语", "nl": "荷兰语",
-    "pl": "波兰语", "tr": "土耳其语",
-}
 
 
 @dataclass(frozen=True)
@@ -771,9 +748,9 @@ class MediaDiscoverService:
         return [
             MediaVideo(
                 key=raw["key"],
-                # 少数条目的 name 为空，用类型标签兜底，卡片上不会出现无名视频
-                name=(raw.get("name") or "").strip() or _VIDEO_KINDS[raw["type"]],
-                kind=_VIDEO_KINDS[raw["type"]],
+                # 少数条目的 name 为空：接口层用类型名兜底，卡片上不会出现无名视频
+                name=(raw.get("name") or "").strip(),
+                kind=raw["type"],
                 thumbnail_url=f"https://i.ytimg.com/vi/{raw['key']}/hqdefault.jpg",
                 embed_url=f"https://www.youtube-nocookie.com/embed/{raw['key']}",
                 watch_url=f"https://www.youtube.com/watch?v={raw['key']}",
@@ -888,12 +865,16 @@ class MediaDiscoverService:
 
         networks = data.get("networks") or []
         original_language = data.get("original_language") or ""
+        country_codes = [c for c in country_codes if c]
+        # TMDB 不随 language 参数翻译这两个字段：先给代码，名字由接口层按读者语言出
         return MediaFacts(
             directors=[person.name for person in director_credits],
             director_credits=director_credits,
             cast=self._cast(credits),
-            country=" / ".join(_COUNTRY_NAMES.get(c, c) for c in country_codes if c),
-            language=_LANGUAGE_NAMES.get(original_language, original_language),
+            country=" / ".join(country_codes),
+            language=original_language,
+            country_codes=country_codes,
+            language_code=original_language or None,
             released=data.get("release_date") or data.get("first_air_date") or "",
             network=networks[0].get("name") if kind is MediaKind.TV and networks else None,
         )

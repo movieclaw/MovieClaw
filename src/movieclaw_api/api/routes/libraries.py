@@ -28,6 +28,7 @@ from movieclaw_api.api.deps import require_admin, require_login
 from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
 from movieclaw_api.i18n import t
+from movieclaw_api.i18n.content import display_title, in_reader_language
 from movieclaw_api.i18n.media_labels import routing_options_labels
 from movieclaw_api.i18n.stored import (
     localize_fields,
@@ -3114,6 +3115,9 @@ async def get_library_item(
         logo_url = f"/images/assets/{meta_row.logo_file}?v={logo_version}"
     else:
         logo_url = tmdb_image_url(item.logo_path, "logo")
+    # Logo 是库语言的文字图：片名以读者语言显示时不给，退回文字片名
+    if in_reader_language(item):
+        logo_url = None
     local_meta = None
     if bundle.local_meta is not None:
         # Web 与 Jellyfin 共用 person 关系表：导演头像和人物链接不能再从
@@ -3207,7 +3211,7 @@ async def get_library_item(
             tmdb_id=item.tmdb_id,
             imdb_id=item.imdb_id,
             douban_id=item.douban_id,
-            title=item.title,
+            title=display_title(item),
             original_title=item.original_title,
             english_title=item.english_title,
             year=item.year,

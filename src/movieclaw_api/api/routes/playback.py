@@ -31,6 +31,7 @@ from movieclaw_api.exceptions import (
     exception_fields,
 )
 from movieclaw_api.i18n import t
+from movieclaw_api.i18n.content import display_title
 from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.schemas.base import utc_isoformat
 from movieclaw_api.schemas.library import LibraryGalleryGroupView, SeasonEpisodesView
@@ -2990,7 +2991,7 @@ async def get_playback_item(
             media_item_id=item.id,
             library_id=library_id,
             kind=item.kind,
-            title=item.title,
+            title=display_title(item),
             year=item.year,
             poster_url=poster_url,
         )

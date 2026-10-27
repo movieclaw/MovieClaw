@@ -93,7 +93,10 @@ def recall_keywords(item: MediaItem) -> list[str]:
     """
     picked: list[str] = []
     seen: set[str] = set()
-    for raw in (item.english_title, item.title, item.original_title):
+    # 中文名取 title_translations：媒体库语言不是中文时 title 是那门语言，中文名只在
+    # 译文里（content-locale.md §6）；中文库没有这一项，召回词与原来逐字相同
+    chinese = (item.title_translations or {}).get("zh-CN")
+    for raw in (item.english_title, chinese, item.title, item.original_title):
         text = (raw or "").strip()
         if not text:
             continue
@@ -103,8 +106,10 @@ def recall_keywords(item: MediaItem) -> list[str]:
         seen.add(key)
         picked.append(text)
     # 全空时**返回空列表**而不是硬塞一个主标题：主标题本身就可能是空串，拿它
-    # 去搜等于向站点发一次空关键词查询（多数站点会回整个索引）。调用方据此跳过
-    return picked
+    # 去搜等于向站点发一次空关键词查询（多数站点会回整个索引）。调用方据此跳过。
+    # 至多三个：库语言既非中文也非英文时会多出一个中文名，截掉排末位的原名，
+    # 每 tick 每站的搜索次数上限（matching.SEARCH_REQUESTS_PER_TICK 的注释）不变
+    return picked[:3]
 
 
 # tick 互斥：除定时任务外，订阅域写操作产生"立刻可搜"的工单后也会立即踢一次

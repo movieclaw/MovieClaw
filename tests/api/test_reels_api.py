@@ -929,3 +929,48 @@ def test_preview_respects_member_visibility(client, tmp_path):
     client.post("/api/v1/auth/login", json={"username": "family", "password": "family-pass-1"})
     preview(client, ids["movies"][0], expect=404)
     assert preview(client, ids["show"]) is not None
+
+
+async def _localize(item_id: int) -> None:
+    async with get_database().session() as session:
+        item = await session.get(MediaItem, item_id)
+        item.title_translations = {"en-US": "Forrest Gump"}
+        session.add(
+            MediaMetadata(
+                media_item_id=item_id,
+                genres=["剧情"],
+                genre_ids=[18],
+                overview="阿甘出生在美国南方……",
+                overview_translations={"en-US": "A man with a low IQ..."},
+                tagline="人生就像一盒巧克力",
+                logo_file="logos/forrest-zh.png",
+                scrape_language="zh-CN",
+            )
+        )
+        await session.commit()
+
+
+def test_feed_text_and_logo_follow_the_reader(client, tmp_path):
+    """刷片卡片：片名、类型、简介跟读者语言；没有译文的宣传语与 Logo 只给读得了库语言的人。"""
+    ids = seed(client, tmp_path, movies=1, episodes=0, extras=False)
+    movie = ids["movies"][0]
+    client.portal.call(partial(_localize, movie))  # type: ignore[attr-defined]
+
+    def card(language: str) -> dict:
+        resp = client.get("/api/v1/reels", headers={"Accept-Language": language})
+        assert resp.status_code == 200, resp.text
+        return next(
+            i["title"] for i in resp.json()["data"]["items"] if i["title"]["media_item_id"] == movie
+        )
+
+    zh, en = card("zh-Hans"), card("en")
+    assert (zh["name"], zh["genres"], zh["overview"]) == ("电影0", ["剧情"], "阿甘出生在美国南方……")
+    assert zh["tagline"] == "人生就像一盒巧克力"
+    assert zh["logo_url"].startswith("/images/assets/logos/forrest-zh.png")
+    assert (en["name"], en["genres"], en["overview"]) == (
+        "Forrest Gump",
+        ["Drama"],
+        "A man with a low IQ...",
+    )
+    assert en["tagline"] is None
+    assert en["logo_url"] is None

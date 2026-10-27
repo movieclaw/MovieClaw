@@ -1006,6 +1006,8 @@ def _merge_identity(
     item.original_title = profile.original_title or item.original_title
     # 存量条目的英文名靠这里自然回填（加列时不写一次性回填任务）
     item.english_title = profile.english_title or item.english_title
+    # 界面语言译名以本次档案为准（主语言换了，该存哪几种也跟着换）；存量同样靠刷新自愈
+    item.title_translations = dict(profile.title_translations)
     item.year = profile.year or item.year
     item.status = profile.status or item.status
     # Fanart 这次没取到（网络/限流）时，条目现用的 Fanart 图原样保留：选图结果
@@ -1154,6 +1156,7 @@ async def apply_display_profile(
         meta = MediaMetadata(media_item_id=media_item_id)
     meta.overview = profile.overview
     meta.tagline = profile.tagline
+    meta.overview_translations = dict(profile.overview_translations)
     meta.genres = list(profile.genres)
     meta.genre_ids = list(profile.genre_ids)
     meta.runtime_minutes = profile.runtime_minutes
@@ -1264,6 +1267,7 @@ def build_display_rows(
         media_item_id=0,
         overview=profile.overview,
         tagline=profile.tagline,
+        overview_translations=dict(profile.overview_translations),
         genres=list(profile.genres),
         genre_ids=list(profile.genre_ids),
         runtime_minutes=profile.runtime_minutes,

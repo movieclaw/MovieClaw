@@ -1,6 +1,8 @@
 """Request-local labels for library criteria; stored genre IDs and country codes stay neutral."""
 
-from movieclaw_api.i18n import t
+from babel import Locale
+
+from movieclaw_api.i18n import current_locale, t
 from movieclaw_api.i18n.stored import reference
 from movieclaw_media.genres import COUNTRY_NAMES, MOVIE_GENRES, REGION_PRESETS, TV_GENRES
 
@@ -82,8 +84,11 @@ def genre_label(kind: str, genre_id: int) -> str:
 
 
 def country_label(code: str) -> str:
+    """常用地区走消息键（与筛选面板同名），其余用 CLDR 的本地化名，再不认识的原样给代码。"""
     key = _COUNTRY_MESSAGE_KEYS.get(code)
-    return t(key) if key else code
+    if key:
+        return t(key)
+    return Locale.parse(current_locale.get(), sep="-").territories.get(code, code)
 
 
 def routing_options_labels() -> dict:

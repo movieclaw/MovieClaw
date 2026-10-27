@@ -196,6 +196,9 @@ class MediaFacts(BaseModel):
     english_title: str | None = Field(
         default=None, description="国际英文名（TMDB 译名）；豆瓣没有该数据，恒为 None"
     )
+    # TMDB 的地区 / 语言代码：名字由接口层按读者语言出；豆瓣只有现成的中文名，恒为空
+    country_codes: list[str] = Field(default_factory=list, exclude=True)
+    language_code: str | None = Field(default=None, exclude=True)
 
 
 class MediaImage(BaseModel):
@@ -218,6 +221,7 @@ class MediaVideo(BaseModel):
 
     key: str = Field(description="YouTube 视频 ID（前端当作不透明键使用）")
     name: str = Field(description="视频标题，TMDB 原样给出（多为英文）")
+    # 领域层放 TMDB 原始 video type（Trailer…），接口层换成读者语言的类型名
     kind: str = Field(description="中文类型标签：预告片 / 先导预告 / 片段 / 花絮 / 幕后")
     thumbnail_url: str = Field(
         description="YouTube 封面图；4:3 带上下黑边，前端按 cover 裁切即得 16:9 画面"

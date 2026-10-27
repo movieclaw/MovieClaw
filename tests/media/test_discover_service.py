@@ -460,8 +460,9 @@ async def test_movie_detail_fields() -> None:
     # 缺 profile_path 的人保留，头像为空由前端渲染占位
     assert detail.facts.cast[-1].name == "无头像演员"
     assert detail.facts.cast[-1].avatar_url is None
-    assert detail.facts.country == "美国"
-    assert detail.facts.language == "英语"
+    # 地区 / 语言只给代码，名字由接口层按读者语言出（content-locale.md §5）
+    assert detail.facts.country_codes == ["US"]
+    assert detail.facts.language_code == "en"
     assert detail.facts.network is None
     assert len(detail.related) == 10  # 相似推荐截断到 10 部
 
@@ -543,12 +544,14 @@ async def test_detail_videos_filtered_and_ordered() -> None:
 
     assert [v.key for v in detail.videos] == ["t-new", "t-old", "t-fan", "teaser", "f1"]
     first = detail.videos[0]
-    assert first.kind == "预告片"
+    # 类型名由接口层按读者语言出，领域层只给 TMDB 原始类型
+    assert first.kind == "Trailer"
     assert first.thumbnail_url == "https://i.ytimg.com/vi/t-new/hqdefault.jpg"
     assert first.embed_url == "https://www.youtube-nocookie.com/embed/t-new"
     assert first.watch_url == "https://www.youtube.com/watch?v=t-new"
-    # name 为空的条目用类型标签兜底，卡片上不会出现无名视频
-    assert detail.videos[3].name == "先导预告"
+    # name 为空的条目留空，接口层用类型名兜底
+    assert detail.videos[3].name == ""
+    assert detail.videos[3].kind == "Teaser"
 
 
 async def test_detail_requests_multilingual_videos() -> None:
@@ -636,6 +639,6 @@ async def test_tv_detail_fields() -> None:
         f"{_IMAGE_BASE}/w185/creator.jpg"
     )
     assert detail.facts.director_credits[0].tmdb_person_id == 42
-    assert detail.facts.country == "日本"
-    assert detail.facts.language == "日语"
+    assert detail.facts.country_codes == ["JP"]
+    assert detail.facts.language_code == "ja"
     assert detail.facts.network == "TV Tokyo"

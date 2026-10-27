@@ -45,6 +45,7 @@ from sqlalchemy.orm import load_only
 from sqlmodel import select
 
 from movieclaw_api.i18n import t
+from movieclaw_api.i18n.content import display_genres, display_overview, display_title
 from movieclaw_api.i18n.media_labels import country_label, genre_label
 from movieclaw_api.schemas.library import (
     EpisodeView,
@@ -2152,6 +2153,7 @@ async def _aggregate_wall_views(
                         MediaItem.source,
                         MediaItem.tmdb_id,
                         MediaItem.title,
+                        MediaItem.title_translations,
                         MediaItem.year,
                         MediaItem.status,
                     )
@@ -2252,7 +2254,7 @@ async def _aggregate_wall_views(
             library_id=library_id if library_id is not None else files[0].library_id,
             source=item.source,
             tmdb_id=item.tmdb_id,
-            title=item.title,
+            title=display_title(item),
             year=item.year,
             poster_url=poster.url,
             backdrop_url=backdrops.get(item.id),
@@ -2545,7 +2547,7 @@ async def build_gallery_groups(
                 media_item_id=item_id,
                 library_id=library_of[item_id],
                 kind=MediaKind(item.kind),
-                title=item.title,
+                title=display_title(item),
                 year=item.year,
                 is_favorite=item_id in favorite_ids,
                 images=images,
@@ -2984,10 +2986,11 @@ async def _db_meta(session: AsyncSession, item: MediaItem) -> EntryMetadata | No
         return avatar_url(profile_path_of(nfo) or actor.get("profile_path"))
 
     meta = EntryMetadata(
-        plot=row.overview,
+        # 简介与类型按读者语言（content-locale.md §4.2）；NFO 写盘不走这里
+        plot=display_overview(row.overview_translations, row.overview),
         rating=row.vote_average,
         runtime_minutes=row.runtime_minutes,
-        genres=list(row.genres),
+        genres=display_genres(item.kind, row.genres, row.genre_ids, row.scrape_language),
         directors=list(row.directors),
         actors=[
             NfoActor(

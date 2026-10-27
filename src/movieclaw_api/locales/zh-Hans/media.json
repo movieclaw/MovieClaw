@@ -171,5 +171,12 @@
     "label": "{parts}",
     "separator": " · ",
     "unrecognized": "版本未识别"
+  },
+  "videoKinds": {
+    "trailer": "预告片",
+    "teaser": "先导预告",
+    "clip": "片段",
+    "featurette": "花絮",
+    "behindTheScenes": "幕后"
   }
 }

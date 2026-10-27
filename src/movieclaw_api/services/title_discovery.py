@@ -19,6 +19,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from movieclaw_api.i18n import t
+from movieclaw_api.i18n.labels import language_name
+from movieclaw_api.i18n.media_labels import country_label
 from movieclaw_api.schemas.discover import (
     DiscoveredPersonDetailsView,
     DiscoveredTitleCollectionView,
@@ -44,6 +46,7 @@ from movieclaw_media import (
     MediaKind,
     MediaSearchItem,
     MediaSource,
+    MediaVideo,
     TmdbError,
 )
 
@@ -115,6 +118,14 @@ _COLLECTION_TITLE_KEYS = {
     ("douban", "tv", "show_foreign"): "media.collections.doubanTvShowForeign",
 }
 
+
+_VIDEO_KIND_KEYS = {
+    "Trailer": "media.videoKinds.trailer",
+    "Teaser": "media.videoKinds.teaser",
+    "Clip": "media.videoKinds.clip",
+    "Featurette": "media.videoKinds.featurette",
+    "Behind the Scenes": "media.videoKinds.behindTheScenes",
+}
 
 _TMDB_FEATURED_ID = "featured-weekly"
 _TMDB_FEATURED_LIMIT = 6
@@ -467,14 +478,21 @@ def title_details_from_legacy(
 ) -> DiscoveredTitleDetailsView:
     """旧详情模型转换为语义化公开契约。"""
     facts = detail.facts
+    # TMDB 给的是代码，按读者语言出名字；豆瓣只有现成的中文名，原样透传
+    country = (
+        " / ".join(country_label(code) for code in facts.country_codes)
+        if facts.country_codes
+        else facts.country
+    )
+    language = language_name(facts.language_code) if facts.language_code else facts.language
     return DiscoveredTitleDetailsView(
         title=title_from_card(detail.card, provider=provider),
         metadata=DiscoveredTitleMetadata(
             directors=facts.directors,
             director_credits=facts.director_credits,
             cast=facts.cast,
-            country=facts.country,
-            language=facts.language,
+            country=country,
+            language=language,
             released=facts.released,
             network=facts.network,
             aliases=facts.aliases,
@@ -482,7 +500,7 @@ def title_details_from_legacy(
             english_title=facts.english_title,
         ),
         backdrop_original_url=detail.backdrop_url,
-        videos=detail.videos,
+        videos=[_localized_video(video) for video in detail.videos],
         backdrops=detail.backdrops,
         posters=detail.posters,
         collection=(
@@ -497,6 +515,15 @@ def title_details_from_legacy(
         recommendations=[title_from_card(card) for card in detail.related],
         library_links=detail.library_links,
     )
+
+
+def _localized_video(video: MediaVideo) -> MediaVideo:
+    """视频类型名按读者语言出；缓存里的原对象不动。"""
+    key = _VIDEO_KIND_KEYS.get(video.kind)
+    if key is None:
+        return video
+    kind = t(key)
+    return video.model_copy(update={"kind": kind, "name": video.name or kind})
 
 
 def _provider_collection_id(provider: MediaSource, legacy_row_id: str) -> str:

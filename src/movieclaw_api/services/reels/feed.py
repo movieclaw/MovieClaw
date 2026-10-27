@@ -59,6 +59,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n.content import (
+    display_genres,
+    display_overview,
+    display_title,
+    in_reader_language,
+)
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import (
     NO_CONTENT_LIMIT,
@@ -819,6 +825,8 @@ async def _assemble(
             continue
         backdrop = backdrops.get(c.media_item_id)
         poster = posters.get(c.media_item_id)
+        # 片名以读者语言显示时，库语言写的宣传语与 Logo 不给
+        readable = not in_reader_language(item)
         episode = None
         runtime = (meta.runtime_minutes if meta else None) or _minutes(file.duration_seconds)
         # 收藏落在整部（电影 / 整剧）上；已看电影看整部、剧集看这一集
@@ -872,13 +880,20 @@ async def _assemble(
                     "media_item_id": c.media_item_id,
                     "library_id": file.library_id,
                     "kind": {"episode": "tv"}.get(c.kind, c.kind),
-                    "name": item.title,
+                    "name": display_title(item),
                     "year": item.year,
                     "rating": meta.vote_average if meta else None,
                     "runtime_minutes": runtime,
-                    "genres": list(meta.genres or [])[:3] if meta else [],
-                    "tagline": (meta.tagline or None) if meta else None,
-                    "overview": (meta.overview or None) if meta else None,
+                    # 片名、类型、简介按读者语言
+                    "genres": display_genres(
+                        item.kind, meta.genres or [], meta.genre_ids or [], meta.scrape_language
+                    )[:3]
+                    if meta
+                    else [],
+                    "tagline": (meta.tagline or None) if meta and readable else None,
+                    "overview": display_overview(meta.overview_translations, meta.overview or None)
+                    if meta
+                    else None,
                     "favorite": favorite.is_favorite,
                     "played": played.played,
                     "progress_percent": progress,
@@ -890,7 +905,9 @@ async def _assemble(
                     ],
                     "poster_url": poster.url if poster else None,
                     "backdrop_url": backdrop,
-                    "logo_url": _asset_url(meta.logo_file) if meta and meta.logo_file else None,
+                    "logo_url": _asset_url(meta.logo_file)
+                    if meta and meta.logo_file and readable
+                    else None,
                     "episode": episode,
                 },
                 "cover_url": _asset_url(segment.cover) or backdrop,

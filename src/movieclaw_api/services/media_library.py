@@ -281,7 +281,9 @@ class MediaLibraryService:
             kind,
             title,
             year=year,
-            language=self._primary_language(),
+            # 豆瓣标题是中文：拿中文搜、比对 TMDB 的中文片名，与媒体库语言无关
+            # （库语言是英文时比的是英文名，必然对不上，content-locale.md §6）
+            language="zh-CN",
             aliases=aliases,
             released=released,
         )
@@ -357,6 +359,7 @@ class MediaLibraryService:
             title=profile.title,
             original_title=profile.original_title,
             english_title=profile.english_title,
+            title_translations=dict(profile.title_translations),
             year=profile.year,
             aliases=aliases,
             status=profile.status,
