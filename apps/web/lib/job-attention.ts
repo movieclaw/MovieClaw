@@ -41,3 +41,15 @@ export function jobNeedsAttention(job: Pick<JobView, "status" | "dismissed_at">)
 export function jobIsHistorical(job: Pick<JobView, "status" | "dismissed_at">): boolean {
   return HISTORY_JOB_STATUSES.has(job.status) || (job.status === "failed" && isDismissed(job));
 }
+
+/**
+ * 用户此刻能不能取消这条 Job。
+ *
+ * `blocked` 同样可取消：它仍占着去重键，忽略接口不对它开放，取消就是它唯一
+ * 的直接出口。此前卡片漏了这一项，确实无法自动解决的 blocked 只能去 CLI 取消
+ * （issue #1050）。`cancelling` 已在收尾，不再重复给入口。
+ */
+export function jobCancellable(job: Pick<JobView, "status">): boolean {
+  if (job.status === "cancelling") return false;
+  return job.status === "blocked" || ACTIVE_FEED_JOB_STATUSES.has(job.status);
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { jobIsHistorical, jobNeedsAttention } from "../lib/job-attention.ts";
+import { jobCancellable, jobIsHistorical, jobNeedsAttention } from "../lib/job-attention.ts";
 
 function job({ status = "failed", dismissedAt = null } = {}) {
   return { id: "job_1", status, dismissed_at: dismissedAt, dismissed_by: null };
@@ -47,5 +47,15 @@ test("进行中的任务既不是待处理也不是历史", () => {
   for (const status of ["queued", "running", "retry_wait", "waiting", "cancelling"]) {
     assert.equal(jobNeedsAttention(job({ status })), false);
     assert.equal(jobIsHistorical(job({ status })), false);
+  }
+});
+
+// issue #1050：blocked 的正常出口是取消，但卡片此前不给取消项，只能去 CLI。
+test("blocked 与进行中的任务可直接取消；终态与取消中的不再给入口", () => {
+  for (const status of ["blocked", "queued", "running", "retry_wait", "waiting"]) {
+    assert.equal(jobCancellable({ status }), true, status);
+  }
+  for (const status of ["cancelling", "failed", "succeeded", "cancelled"]) {
+    assert.equal(jobCancellable({ status }), false, status);
   }
 });

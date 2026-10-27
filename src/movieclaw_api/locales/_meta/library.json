@@ -1994,6 +1994,9 @@
   "ingest.result.ruleDeleted": {
     "sourceHash": "14f50c2300acb82a6d2d210f3cf8ee58c319683786b91a4d9bc280e260304e57"
   },
+  "ingest.result.outsideRule": {
+    "sourceHash": "064ff31f92971bdf19a94a135762d879a2664411adc307b36668330d98a56c30"
+  },
   "ingest.failed.outsideRule": {
     "sourceHash": "ac1e2b2551dd12c574e80fe761e9e89d1f673bc23d18c9a03b04d229e7b95d90"
   },

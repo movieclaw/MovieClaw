@@ -788,6 +788,7 @@
       "outsideRule": "The item no longer belongs to its watch rule, so processing stopped"
     },
     "result": {
+      "outsideRule": "The item is no longer in the watch rule's source folder, so no import is needed",
       "ruleDeleted": "The watch import rule was deleted, so this job stopped",
       "entryRemoved": "The source item was removed. Nothing more to import",
       "ignored": "The item was ignored and won’t be imported automatically",
