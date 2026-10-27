@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.i18n import t
@@ -45,6 +45,7 @@ from movieclaw_db.models import (
     MediaMetadata,
     Member,
 )
+from movieclaw_db.rowvalues import tuple_in
 from movieclaw_media.models import MediaKind
 from movieclaw_playback import activity
 from movieclaw_playback.state import Unit
@@ -178,11 +179,14 @@ async def _load_unit_contexts(
         for e in (
             await session.execute(
                 select(MediaEpisode).where(
-                    tuple_(
-                        MediaEpisode.media_item_id,
-                        MediaEpisode.season_number,
-                        MediaEpisode.episode_number,
-                    ).in_(unit_keys)
+                    tuple_in(
+                        (
+                            MediaEpisode.media_item_id,
+                            MediaEpisode.season_number,
+                            MediaEpisode.episode_number,
+                        ),
+                        unit_keys,
+                    )
                 )
             )
         ).scalars()
@@ -191,11 +195,14 @@ async def _load_unit_contexts(
     for f in (
         await session.execute(
             select(LibraryFile).where(
-                tuple_(
-                    LibraryFile.media_item_id,
-                    LibraryFile.season_number,
-                    LibraryFile.episode_number,
-                ).in_(unit_keys),
+                tuple_in(
+                    (
+                        LibraryFile.media_item_id,
+                        LibraryFile.season_number,
+                        LibraryFile.episode_number,
+                    ),
+                    unit_keys,
+                ),
                 LibraryFile.in_place(),
             )
         )

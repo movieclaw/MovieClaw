@@ -39,7 +39,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path, PurePath
 from typing import Any, Literal, NamedTuple
 
-from sqlalchemy import BigInteger, Integer, and_, func, not_, nullslast, or_, true, tuple_
+from sqlalchemy import BigInteger, Integer, and_, func, not_, nullslast, or_, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 from sqlmodel import select
@@ -108,6 +108,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_db.repositories.library_repo import LibraryRepository
+from movieclaw_db.rowvalues import tuple_in
 from movieclaw_media.genres import genre_names
 from movieclaw_media.models import MediaKind
 
@@ -2100,7 +2101,7 @@ async def _aggregate_wall_views(
                 LibraryFile.library_id == library_id
                 if library_id is not None
                 else (
-                    tuple_(LibraryFile.media_item_id, LibraryFile.library_id).in_(landing_pairs)
+                    tuple_in((LibraryFile.media_item_id, LibraryFile.library_id), landing_pairs)
                     if landing_pairs is not None
                     else (
                         LibraryFile.library_id.in_(library_ids)  # type: ignore[union-attr]

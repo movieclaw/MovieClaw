@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, or_, tuple_, update
+from sqlalchemy import and_, or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -41,6 +41,7 @@ from movieclaw_db.models import (
     WatchRecord,
 )
 from movieclaw_db.models.base import utcnow
+from movieclaw_db.rowvalues import tuple_in
 
 
 def naive(value: datetime) -> datetime:
@@ -118,11 +119,14 @@ async def catalog(
             await session.execute(
                 select(PlaybackState).where(
                     PlaybackState.member_id == member_id,
-                    tuple_(
-                        PlaybackState.media_item_id,
-                        PlaybackState.season_number,
-                        PlaybackState.episode_number,
-                    ).in_(units),
+                    tuple_in(
+                        (
+                            PlaybackState.media_item_id,
+                            PlaybackState.season_number,
+                            PlaybackState.episode_number,
+                        ),
+                        units,
+                    ),
                 )
             )
         ).scalars()
@@ -146,11 +150,14 @@ async def catalog(
             await session.execute(
                 select(PlaybackLog).where(
                     PlaybackLog.member_id == member_id,
-                    tuple_(
-                        PlaybackLog.media_item_id,
-                        PlaybackLog.season_number,
-                        PlaybackLog.episode_number,
-                    ).in_(units),
+                    tuple_in(
+                        (
+                            PlaybackLog.media_item_id,
+                            PlaybackLog.season_number,
+                            PlaybackLog.episode_number,
+                        ),
+                        units,
+                    ),
                 )
             )
         ).scalars()
@@ -175,9 +182,14 @@ async def catalog(
         await session.execute(
             select(WatchRecord).where(
                 WatchRecord.member_id == member_id,
-                tuple_(
-                    WatchRecord.media_item_id, WatchRecord.season_number, WatchRecord.episode_number
-                ).in_(units),
+                tuple_in(
+                    (
+                        WatchRecord.media_item_id,
+                        WatchRecord.season_number,
+                        WatchRecord.episode_number,
+                    ),
+                    units,
+                ),
             )
         )
     ).scalars()

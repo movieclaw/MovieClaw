@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select, tuple_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Load, load_only
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -43,6 +43,7 @@ from movieclaw_db.models import (
     Person,
     PlaybackState,
 )
+from movieclaw_db.rowvalues import tuple_in
 from movieclaw_jellyfin.identity import format_datetime
 from movieclaw_jellyfin.ids import (
     collection_guid,
@@ -182,12 +183,11 @@ LeafScope = set[tuple[int, int, int]] | None
 def _unit_in(item_col, season_col, episode_col, units) -> Any:
     """(条目, 季, 集) 三元组批量匹配。
 
-    用 SQL 行值 ``(a,b,c) IN ((…),(…))``：SQLite ≥3.15 支持，且能直接命中
-    ``ix_library_file_media_unit`` 复合索引（实测计划为 COVERING INDEX
-    精确查找）。相比按条目 id 粗筛再在 Python 里过滤，它不会把一部 200 集的
-    剧全部读回来只为了取其中一集。
+    用 SQL 行值 ``(a,b,c) IN ((…),(…))``：相比按条目 id 粗筛再在 Python 里过滤，
+    它不会把一部 200 集的剧全部读回来只为了取其中一集。镜像里的 SQLite 3.40 对
+    行值 IN 不用索引，由 ``tuple_in`` 补首列条件（见 movieclaw_db/rowvalues.py）。
     """
-    return tuple_(item_col, season_col, episode_col).in_(sorted(units))
+    return tuple_in((item_col, season_col, episode_col), sorted(units))
 
 
 @dataclass(frozen=True)

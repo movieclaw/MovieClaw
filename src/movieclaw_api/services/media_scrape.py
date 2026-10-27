@@ -1875,11 +1875,14 @@ def asset_version(rel_path: str | None) -> int:
     换图后路径不变、只有内容变（poster.jpg 原地覆盖），URL 不带版本的话
     浏览器会拿着缓存里的旧图一直显示，用户看到的就是"换了但没生效"
     （实测踩过）。mtime 变即 URL 变，浏览器自然重取。
+
+    列表接口每张卡片要调好几次（合集列表一次约 170 次），用 ``os.path`` 拼字符串
+    而不是 pathlib：NAS 上单次 35 µs → 8 µs，省下的全是 Path 对象的构造与解析。
     """
     if not rel_path:
         return 0
     try:
-        return int((assets_root() / rel_path).stat().st_mtime)
+        return int(os.stat(os.path.join(get_settings().metadata_dir, "images", rel_path)).st_mtime)
     except OSError:
         return 0
 

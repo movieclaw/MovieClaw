@@ -42,7 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import func, tuple_
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -59,6 +59,7 @@ from movieclaw_db.models import (
     PlaybackLog,
     PlaybackState,
 )
+from movieclaw_db.rowvalues import tuple_in
 from movieclaw_media.models import MediaKind
 
 #: 锚点最多往回扫几部作品。全都看完的用户理论上要扫遍整张表才找得到那一部
@@ -374,11 +375,14 @@ async def _hydrate(
                     MediaEpisode.still_path,
                     MediaEpisode.overview,
                 ).where(
-                    tuple_(
-                        MediaEpisode.media_item_id,
-                        MediaEpisode.season_number,
-                        MediaEpisode.episode_number,
-                    ).in_(wanted)
+                    tuple_in(
+                        (
+                            MediaEpisode.media_item_id,
+                            MediaEpisode.season_number,
+                            MediaEpisode.episode_number,
+                        ),
+                        wanted,
+                    )
                 )
             )
         ).all()
@@ -394,11 +398,14 @@ async def _hydrate(
                     func.max(LibraryFile.duration_seconds),
                 )
                 .where(
-                    tuple_(
-                        LibraryFile.media_item_id,
-                        LibraryFile.season_number,
-                        LibraryFile.episode_number,
-                    ).in_(wanted),
+                    tuple_in(
+                        (
+                            LibraryFile.media_item_id,
+                            LibraryFile.season_number,
+                            LibraryFile.episode_number,
+                        ),
+                        wanted,
+                    ),
                     LibraryFile.in_place(),
                 )
                 .group_by(
