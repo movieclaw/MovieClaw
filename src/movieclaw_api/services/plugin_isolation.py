@@ -67,7 +67,8 @@ _ACL_XATTRS = ("system.posix_acl_access", "system.posix_acl_default")
 
 
 def _drop_acl(path: str) -> None:
-    if not hasattr(os, "removexattr"):  # 只有 Linux 有 POSIX ACL；macOS / Windows 的 os 也没有这个接口
+    # 只有 Linux 有 POSIX ACL；macOS / Windows 的 os 也没有这个接口
+    if not hasattr(os, "removexattr"):
         return
     for name in _ACL_XATTRS:
         # 没有 ACL（ENODATA）或文件系统不支持（ENOTSUP）都正常，副本保持原样即可
