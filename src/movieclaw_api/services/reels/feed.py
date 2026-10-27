@@ -642,6 +642,8 @@ def _preread_in_background(candidates: list[ReelCandidate]) -> None:
 
 #: 全池补算各只跑一轮：电影 / 剧集（第一次有人刷片时）与「其他」（第一次有人刷到「其他」池时）
 _fill_tasks: dict[bool, asyncio.Task[None]] = {}
+#: 全池补算每批选几部的文件
+_FILL_BATCH = 20
 
 
 def _fill_pool_in_background(*, video: bool = False) -> None:
@@ -678,7 +680,12 @@ async def _fill_pool(*, video: bool = False) -> None:
             )
             libraries = {int(lid): str(kind) for lid, kind in rows.all()}
             pool = await _title_pool(session, libraries, NO_CONTENT_LIMIT, None, 0)
-            candidates = await _choose_candidates(session, pool, list(libraries))
+            # 分批选文件：一次取全池是上万行整行台账（剧集库每一集都在），实例化全在事件循环上，
+            # NAS 实测一次卡住 1.3 秒、同进程所有请求一起等；分批后每批让出一次
+            candidates = []
+            for start in range(0, len(pool), _FILL_BATCH):
+                batch = pool[start : start + _FILL_BATCH]
+                candidates += await _choose_candidates(session, batch, list(libraries))
         refs = [_file_ref(c.file, c.kind) for c in candidates]
         missing = [ref for ref in refs if is_miss(cached_segment(ref))]
         if missing:
