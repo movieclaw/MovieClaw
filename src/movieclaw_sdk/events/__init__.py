@@ -70,6 +70,7 @@ from movieclaw_sdk.events.playback import (
     PLAYBACK_STARTED,
     PLAYBACK_STOPPED,
     Playback,
+    PlaybackCompleted,
     PlaybackMarked,
     PlaybackStopped,
 )
@@ -149,6 +150,7 @@ __all__ = [
     "ItemFavorite",
     "ItemViewed",
     "Playback",
+    "PlaybackCompleted",
     "PlaybackMarked",
     "PlaybackStopped",
     "SUBSCRIPTION_AWAITING_SUBTITLES",

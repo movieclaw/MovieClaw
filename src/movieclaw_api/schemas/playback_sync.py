@@ -38,6 +38,8 @@ class SyncWatch(BaseModel):
     id: str
     watched_at: datetime
     basis: Literal["playback", "import", "state"]
+    source_ids: tuple[str, ...] = ()
+    """组成该次原生观看的日志标识；用于与播放事件关联，导入/状态回退为空。"""
 
 
 class SyncUnit(BaseModel):

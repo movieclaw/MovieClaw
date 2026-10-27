@@ -2976,6 +2976,13 @@
               "type": "null"
             }
           ]
+        },
+        "watch_source_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -2987,7 +2994,7 @@
     },
     "result": null,
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "playback.marked_played": {
     "doc": "标记已看",
@@ -3970,6 +3977,13 @@
               "type": "null"
             }
           ]
+        },
+        "watch_source_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -3981,7 +3995,7 @@
     },
     "result": null,
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "playback.strm.direct-link": {
     "doc": "网盘挂载直链：strm 指向服务器挂载目录里的文件时，给播放器换一个能直连的网盘地址（302 过去，视频流量不经服务器）；不认领返回 None。只读查询可以，但要快",

@@ -257,5 +257,6 @@ async def _apply_one(
             file_id=file_id or record.file_id,
             completed=newly_played,
             occurred_at=started if event is PLAYBACK_STARTED else updated,
+            watch_log=log,
         )
     return "applied" if newer else "stale"

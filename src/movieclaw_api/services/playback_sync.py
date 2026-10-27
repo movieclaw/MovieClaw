@@ -176,7 +176,12 @@ async def catalog(
             continue
         unit = (last.media_item_id, last.season_number, last.episode_number)
         watches[unit].append(
-            SyncWatch(id=f"playback:{viewing.first.id}", watched_at=when, basis="playback")
+            SyncWatch(
+                id=viewing.source_id,
+                source_ids=viewing.source_ids,
+                watched_at=when,
+                basis="playback",
+            )
         )
     imports = (
         await session.execute(
