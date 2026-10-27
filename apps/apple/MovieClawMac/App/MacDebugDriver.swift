@@ -15,6 +15,7 @@ import SwiftUI
 ///     pop                           返回一层
 ///     search 星际                   往侧边栏搜索框里填字（空 = 清空）
 ///     play /play/120/s01e02         起播
+///     audio embedded:1              正在播的换音轨（音轨引用同 [Tracks] 日志；控制层不进控件树，点不到面板）
 ///     click 640 300                 在窗口里这一点（左上角为原点，点）单击；clickid <无障碍标识> 点那个控件的中心
 ///     rclick 640 300                右键单击（出右键菜单）
 ///     hover 640 300                 鼠标移到这一点（触发悬停效果）；hoverid <无障碍标识>
@@ -115,6 +116,10 @@ final class MacDebugDriver {
             log("搜索「\(arg)」") // i18n-ignore: developer diagnostics
         case "play":
             if let request = PlayRequest(webPath: arg) { router?.play(request); log("起播 \(arg)") } else { log("播放链接不对 \(arg)") } // i18n-ignore: developer diagnostics
+        case "audio":
+            guard let playback = router?.activePlayback else { return log("没有在播") } // i18n-ignore: developer diagnostics
+            playback.selectAudio(arg)
+            log("换音轨 \(arg)") // i18n-ignore: developer diagnostics
         case "click", "rclick", "hover", "dclick":
             guard numbers.count == 2 else { return log("\(verb) 参数不对") } // i18n-ignore: developer diagnostics
             mouse(verb, at: CGPoint(x: numbers[0], y: numbers[1]))

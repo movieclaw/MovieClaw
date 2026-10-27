@@ -172,21 +172,6 @@ final class NativeEngine: NSObject, PlayerEngine {
         #else
         AetherPlayback.installLogHandler(mirror: false)
         #endif
-        // 音频会话：iPhone 上由 App 自己管——点播放时就以「长视频」策略设好类别、声明多声道并激活
-        // （`PlaybackController.activateAudioSession`），引擎建实例时不再用默认策略重设一遍（引擎补丁 P47）。
-        // Apple TV 上交给引擎：它以 `.longFormAudio` 策略只声明不激活，到出声时才激活，HDMI 才能按片源协商出
-        // 5.1 / 全景声；提前激活会锁成立体声（上游 #24）
-        // Mac 没有音频会话（引擎在 macOS 上也不碰它），按引擎默认即可
-        #if os(tvOS) || os(macOS)
-        var hostManagesAudio = false
-        #else
-        var hostManagesAudio = true
-        #endif
-        #if DEBUG
-        // -mcEngineAudioSession YES：照旧由引擎在建实例时设类别（P47 之前的行为，真机新旧对照用）
-        if UserDefaults.standard.bool(forKey: "mcEngineAudioSession") { hostManagesAudio = false }
-        #endif
-        AetherPlayback.hostManagesAudioSessionCategory = hostManagesAudio
     }
 
     /// 本次启动第一次建自研引擎时清一遍死会话的缓存（被杀掉的播放会话会在临时目录留下 GB 级分片，

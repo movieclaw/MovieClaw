@@ -4,14 +4,6 @@ import Testing
 
 /// 7.28 同步时上游行为与 MovieClaw 补丁的交界处；播放回归另用 PlayerUITests 与 faultlab。
 struct AetherUpstreamMergeTests {
-    @Test @MainActor func clockHoldFollowsTheRendererReorderWindow() {
-        let renderer = SampleBufferRenderer()
-        renderer.setReorderDepth(SampleBufferRenderer.reorderDepth(forHardwareDecoder: false))
-        #expect(renderer.framesBeforeFirstPresentation == 2)
-        renderer.setReorderDepth(SampleBufferRenderer.reorderDepth(forHardwareDecoder: true))
-        #expect(renderer.framesBeforeFirstPresentation == 5)
-    }
-
     @Test func shortFirstSegmentKeepsTheCheckedTimeline() {
         let plan = HLSVideoEngine.buildUniformSegmentPlan(
             videoTimeBase: .init(num: 1, den: 90_000), sourceDurationSeconds: 10,
@@ -46,8 +38,8 @@ struct AetherUpstreamMergeTests {
                 default: return nil
                 }
             }
-        #expect(title.resolvedClips.map(\.index) == [0, 2, 3])
-        #expect(title.resolvedClips.map(\.byteStart) == [0, 200, 400])
+        #expect(title.resolved.map(\.item) == [0, 2, 3])
+        #expect(title.resolved.map(\.byteStart) == [0, 200, 400])
         #expect(title.clipTimeline.map(\.concatByteStart) == [0, 200, 400])
         #expect(title.extents.count == 3)
     }

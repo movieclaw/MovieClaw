@@ -13,7 +13,6 @@ struct EngineConfigurationTests {
             "seekSnapDecodeBudgetSeconds": "0.2",
             "startSnapDecodeBudgetSeconds": "0.05",
             "presentsSDRAsSRGB": "true",
-            "softwareClockIgnoresEarlyFirstSample": "true",
             "parkSecondaryTrueHDDuringProbe": "true",
             "cuePrewarmTargetsStart": "true",
             "prefetchesMatroskaCues": "true",

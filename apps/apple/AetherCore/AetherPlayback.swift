@@ -193,7 +193,6 @@ public final class AetherPlayback {
         AetherEngine.seekSnapDecodeBudgetSeconds = 0.2            // P36
         AetherEngine.startSnapDecodeBudgetSeconds = 0.05          // P39
         AetherEngine.presentsSDRAsSRGB = true                     // P60
-        AetherEngine.softwareClockIgnoresEarlyFirstSample = true  // P13
         AetherEngine.parkSecondaryTrueHDDuringProbe = true        // P34
         AetherEngine.cuePrewarmTargetsStart = true                // P45
         AetherEngine.prefetchesMatroskaCues = true                // P49
@@ -220,7 +219,6 @@ public final class AetherPlayback {
             "seekSnapDecodeBudgetSeconds": "\(AetherEngine.seekSnapDecodeBudgetSeconds)",
             "startSnapDecodeBudgetSeconds": "\(AetherEngine.startSnapDecodeBudgetSeconds)",
             "presentsSDRAsSRGB": "\(AetherEngine.presentsSDRAsSRGB)",
-            "softwareClockIgnoresEarlyFirstSample": "\(AetherEngine.softwareClockIgnoresEarlyFirstSample)",
             "parkSecondaryTrueHDDuringProbe": "\(AetherEngine.parkSecondaryTrueHDDuringProbe)",
             "cuePrewarmTargetsStart": "\(AetherEngine.cuePrewarmTargetsStart)",
             "prefetchesMatroskaCues": "\(AetherEngine.prefetchesMatroskaCues)",
@@ -334,12 +332,6 @@ public final class AetherPlayback {
     public static func setCuePrewarmTargetsStart(_ on: Bool) {
         configureEngine()
         AetherEngine.cuePrewarmTargetsStart = on
-    }
-
-    /// 宿主自己管音频会话的类别、策略与多声道支持（引擎补丁 P47）：设为 true 后引擎建实例时不再重设类别
-    public static var hostManagesAudioSessionCategory: Bool {
-        get { configureEngine(); return AetherEngine.hostManagesAudioSessionCategory }
-        set { configureEngine(); AetherEngine.hostManagesAudioSessionCategory = newValue }
     }
 
     /// 探测流时是否跳过第二条起的 TrueHD（引擎补丁 P34，默认开；真机新旧对照时关掉）

@@ -24,13 +24,13 @@ packages:
   # 更新与验证流程见 docs/design/player-engine.md §5。
   AetherEngine:
     url: https://github.com/yipengfei329/AetherEngine
-    revision: "5153eaec6c25c730c6540bd41aa1d715b531ca19"
+    revision: "0912813a54e9febe22be07e5c337bb58dfa7b2e5"
   # AetherEngine 自带的 FFmpeg（AetherLib* 动态框架，LGPL-2.1，无 GPL 组件）。
   # 单独声明是为了让 App 目标把这些动态框架嵌进包里（见 MovieClaw 目标的依赖说明）；
   # 版本必须与 AetherEngine 当前版本要求的一致，升级 AetherEngine 时一起改。
   FFmpegBuild:
     url: https://github.com/superuser404notfound/FFmpegBuild
-    exactVersion: "3.6.0"
+    exactVersion: "3.10.1"
   # 自动更新（MIT）：只给 GitHub 直接分发版（MovieClawMacDirect）用，商店版不链接
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
