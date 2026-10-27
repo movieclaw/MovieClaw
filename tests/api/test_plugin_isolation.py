@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import stat
+import struct
 import sys
 import tempfile
 import textwrap
@@ -68,6 +69,68 @@ def test_stage_plugin_copies_only_its_own_code(tmp_path, runtime_root) -> None:
 
     scratch = plugin_isolation.scratch_dir("acme.pkg", plugin_isolation.Isolation())
     assert stat.S_IMODE(scratch.stat().st_mode) == 0o700
+
+
+def _deny_nobody(path: Path) -> None:
+    """给路径加一条拒绝 65534 的 POSIX ACL（NAS 卷上的典型情形）；目录再加同样的默认 ACL。
+
+    直接写 ``system.posix_acl_*`` 扩展属性（v2 格式：版本号 + 按 tag 排序的
+    ``(tag, perm, id)`` 条目），不依赖 setfacl；文件属主自己就能设，不需要 root。
+    """
+    undefined = 0xFFFFFFFF
+    entries = [
+        (0x01, 7, undefined),
+        (0x02, 0, plugin_isolation.DEFAULT_UID),
+        (0x04, 5, undefined),
+        (0x10, 5, undefined),
+        (0x20, 5, undefined),
+    ]
+    value = struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *e) for e in entries)
+    os.setxattr(path, "system.posix_acl_access", value)
+    if path.is_dir():
+        os.setxattr(path, "system.posix_acl_default", value)
+
+
+def _acl_xattrs(root: Path) -> dict[str, list[str]]:
+    found = {}
+    for path in [root, *root.rglob("*")]:
+        names = [n for n in os.listxattr(path) if n.startswith("system.posix_acl")]
+        if names:
+            found[str(path.relative_to(root))] = names
+    return found
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="POSIX ACL 扩展属性只在 Linux 上有")
+def test_staged_copies_drop_source_acl(tmp_path, runtime_root) -> None:
+    """#1049：数据卷带 ACL 时，副本不能继承源的 ACL，否则插件用户读不了自己的代码。"""
+    package = tmp_path / "pkg"
+    (package / "vendor").mkdir(parents=True)
+    (package / "movieclaw-plugin.toml").write_text("")
+    (package / "entry.py").write_text("")
+    (package / "vendor" / "dep.py").write_text("")
+    deps = tmp_path / "deps" / "abc-linux"
+    (deps / "lib").mkdir(parents=True)
+    (deps / "lib" / "m.py").write_text("")
+    src = tmp_path / "src"
+    (src / "movieclaw_api").mkdir(parents=True)
+    (src / "movieclaw_api" / "__init__.py").write_text("")
+    try:
+        for root in (package, deps, src):
+            for path in [root, *root.rglob("*")]:
+                _deny_nobody(path)
+    except OSError as exc:
+        pytest.skip(f"临时目录所在文件系统不支持 ACL：{exc}")
+    assert _acl_xattrs(package)
+
+    staged = [
+        plugin_isolation.stage_plugin("acme.pkg", package, "entry"),
+        plugin_isolation.stage_dependencies(deps),
+        plugin_isolation.stage_source(src, "1.0"),
+    ]
+    for root in staged:
+        assert _acl_xattrs(root) == {}
+        assert stat.S_IMODE(root.stat().st_mode) == 0o755
+    assert (staged[0] / "vendor" / "dep.py").exists()
 
 
 PLUGIN = """
