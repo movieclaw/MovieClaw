@@ -372,7 +372,8 @@ EXPOSE 7359/udp
 # 的看门狗单独探测，它挂了容器会主动退出交给 restart 策略）。
 # 端口不能写死——用户改过端口后仍要探到实际监听的那个口，否则容器会被判成
 # unhealthy。这里与 entrypoint 共用 /resolve-web-port.sh 的解析结果。
+# 用 curl 不用 node：每次探测 CPU 约 7ms 对 120ms（NAS 实测）。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=6m --retries=3 \
-    CMD PORT="$(/resolve-web-port.sh | cut -d' ' -f1)" node -e "fetch('http://127.0.0.1:' + process.env.PORT + '/api/v1/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+    CMD PORT="$(/resolve-web-port.sh | cut -d' ' -f1)"; curl -fsS -m 4 -o /dev/null "http://127.0.0.1:$PORT/api/v1/health"
 
 ENTRYPOINT ["/entrypoint.sh"]
