@@ -18,3 +18,14 @@ test("库里的「其他」/图片不收窄", () => {
   assert.equal(scopeOfMediaKind("video"), SCOPE_ALL);
   assert.equal(scopeOfMediaKind("photo"), SCOPE_ALL);
 });
+
+test("详情页搜资源：英文界面补上服务端给的中文名，老服务端没有该字段时照旧", async () => {
+  const { titleSearchAlso } = await import("../lib/search-url.ts");
+  assert.deepEqual(titleSearchAlso("Forrest Gump", "Forrest Gump", "阿甘正传"), [
+    "Forrest Gump",
+    "阿甘正传",
+    "Forrest Gump",
+  ]);
+  assert.deepEqual(titleSearchAlso("Forrest Gump", "Forrest Gump"), ["Forrest Gump", "Forrest Gump"]);
+  assert.deepEqual(titleSearchAlso(null, "악인전", null), ["악인전"]);
+});

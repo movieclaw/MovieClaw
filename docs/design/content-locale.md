@@ -105,7 +105,7 @@ def display_genres(kind, names, ids, scrape_language) -> list[str]
 - **视频类型**：`media.videoKinds.*` 五个消息键（预告片 / 先导预告 / 片段 / 花絮 / 幕后）；
 - 删除 `movieclaw_media/service.py` 里写死的 `_COUNTRY_NAMES`、`_LANGUAGE_NAMES` 与 `_VIDEO_KINDS` 中文值。
 
-## 6. 顺带的两个隐性 bug（主语言不是中文时才发作）
+## 6. 顺带修的搜索词问题（主语言或界面不是中文时才发作）
 
 1. **PT 站搜索词丢中文名**：召回词是 `(english_title, title, original_title)`（`subscription/wanted_search.py`），
    主语言为英文时 `title` 是英文，中文名就没了，而内置站点全是中文 PT 站。改为
@@ -113,6 +113,15 @@ def display_genres(kind, names, ids, scrape_language) -> list[str]
    中文库里这一项不存在，召回词与现状完全相同；
 2. **豆瓣收敛用错语言**：豆瓣条目转 TMDB 时用主语言搜索，再拿 TMDB 返回的片名比对豆瓣中文名
    （`media_library.resolve_douban`）。主语言为英文时比的是英文名，必然对不上。改为固定 `zh-CN`。
+
+还有一个是本方案自己带出来、合并前补上的：
+
+3. **「搜索资源」丢中文名**：条目详情与发现页详情的「搜索资源」以显示出来的片名为主词、再加英文名和
+   原名。片名按读者语言显示后，英文读者的主词成了英文，外语片的中文名就没了。两个详情接口各加一个
+   可空字段 `chinese_title`（只在显示出来的片名不是中文时给），网页的 `titleSearchAlso` 把它加进同搜词，
+   顺序与召回词一致（英文名 → 中文名 → 原名）。库详情的中文名：库语言是中文时取 `title`，否则取
+   `title_translations["zh-CN"]`；发现页详情取同一次请求 translations 里的 zh-CN 译名，华语片取原名。
+   iPhone / 鸿蒙发现页详情的同名按钮暂未接，老客户端忽略该字段。
 
 ## 7. 设置页
 
@@ -122,7 +131,8 @@ def display_genres(kind, names, ids, scrape_language) -> list[str]
 
 ## 8. 兼容
 
-- 接口：OpenAPI 与 main 逐字节一致（导出比对），只是字段的值按读者语言变化；接口生成器重跑无差异；
+- 接口：除两个详情接口各多一个可空字段 `chinese_title` 外，OpenAPI 与 main 一致（导出比对），其余只是
+  字段的值按读者语言变化；Apple 生成为可选 `String?`，安卓解码器开了 `ignoreUnknownKeys`；
 - 老客户端（不带语言头）：协商为 `zh-Hans`，与升级前相同；
 - 迁移：两列可空 JSON，`add_column` / `drop_column`，不重建表。
 

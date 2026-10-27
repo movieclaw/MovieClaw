@@ -577,7 +577,11 @@ export function MediaDetailView({
               {showSearchButton && <Link
                 href={buildSearchPath({
                   keyword: item.title,
-                  also: titleSearchAlso(detail?.info.englishTitle, item.originalTitle),
+                  also: titleSearchAlso(
+                    detail?.info.englishTitle,
+                    item.originalTitle,
+                    detail?.info.chineseTitle,
+                  ),
                   scope: scopeOfMediaKind(item.type),
                 }) as Route}
                 className={`btn-glass flex h-10 items-center gap-2 bg-white/10 px-5 text-ui font-medium backdrop-blur-md transition hover:bg-white/15 ${actionSize}`}

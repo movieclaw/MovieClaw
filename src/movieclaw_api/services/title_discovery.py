@@ -498,6 +498,9 @@ def title_details_from_legacy(
             aliases=facts.aliases,
             source_url=facts.source_url,
             english_title=facts.english_title,
+            chinese_title=(
+                facts.chinese_title if facts.chinese_title != detail.card.title else None
+            ),
         ),
         backdrop_original_url=detail.backdrop_url,
         videos=[_localized_video(video) for video in detail.videos],

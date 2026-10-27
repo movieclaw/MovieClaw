@@ -1195,6 +1195,11 @@ class LibraryItemDetailView(BaseModel):
     english_title: str | None = Field(
         default=None, description="国际英文名；「搜索资源」与中文名、原名一起搜"
     )
+    chinese_title: str | None = Field(
+        default=None,
+        description="中文片名：读者界面不是中文、片名显示为别的语言时给出，「搜索资源」带上它"
+        "（中文 PT 站的主搜索词）；与片名相同或未知时为 null",
+    )
     year: int | None
     poster_url: str | None
     backdrop_url: str | None

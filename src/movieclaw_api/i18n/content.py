@@ -44,6 +44,18 @@ def in_reader_language(item: Any) -> bool:
     return bool((getattr(item, "title_translations", None) or {}).get(reader_language()))
 
 
+def chinese_title(item: Any, scrape_language: str | None) -> str | None:
+    """中文片名，只在它不是显示出来的那个片名时给（「搜索资源」补上中文 PT 站的主搜索词）。
+
+    库语言是中文时就是 ``title``，否则取译名；中文读者看到的片名本身就是它，返回 None。
+    """
+    if same_family(scrape_language, "zh"):
+        chinese = item.title
+    else:
+        chinese = (getattr(item, "title_translations", None) or {}).get("zh-CN")
+    return chinese if chinese and chinese != display_title(item) else None
+
+
 def display_genres(
     kind: str, names: Sequence[str], genre_ids: Sequence[int], scrape_language: str | None
 ) -> list[str]:

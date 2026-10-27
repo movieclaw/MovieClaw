@@ -28,7 +28,7 @@ from movieclaw_api.api.deps import require_admin, require_login
 from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
 from movieclaw_api.i18n import t
-from movieclaw_api.i18n.content import display_title, in_reader_language
+from movieclaw_api.i18n.content import chinese_title, display_title, in_reader_language
 from movieclaw_api.i18n.media_labels import routing_options_labels
 from movieclaw_api.i18n.stored import (
     localize_fields,
@@ -3214,6 +3214,7 @@ async def get_library_item(
             title=display_title(item),
             original_title=item.original_title,
             english_title=item.english_title,
+            chinese_title=chinese_title(item, meta_row.scrape_language if meta_row else None),
             year=item.year,
             poster_url=poster_url,
             backdrop_url=backdrop_url,

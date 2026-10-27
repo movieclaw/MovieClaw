@@ -2422,6 +2422,8 @@ nonisolated extension API {
         var sourceUrl: String?
         /// 国际英文名；豆瓣条目没有，为 null
         var englishTitle: String?
+        /// 中文片名：读者界面不是中文、片名显示为别的语言时给出，「搜索资源」带上它（中文 PT 站的主搜索词）；与片名相同或未知时为 null
+        var chineseTitle: String?
 
         enum CodingKeys: String, CodingKey {
             case directors
@@ -2434,6 +2436,7 @@ nonisolated extension API {
             case aliases
             case sourceUrl = "source_url"
             case englishTitle = "english_title"
+            case chineseTitle = "chinese_title"
         }
     }
 
@@ -5760,6 +5763,8 @@ nonisolated extension API {
         var originalTitle: String
         /// 国际英文名；「搜索资源」与中文名、原名一起搜
         var englishTitle: String?
+        /// 中文片名：读者界面不是中文、片名显示为别的语言时给出，「搜索资源」带上它（中文 PT 站的主搜索词）；与片名相同或未知时为 null
+        var chineseTitle: String?
         var year: Int?
         var posterUrl: String?
         var backdropUrl: String?
@@ -5799,6 +5804,7 @@ nonisolated extension API {
             case title
             case originalTitle = "original_title"
             case englishTitle = "english_title"
+            case chineseTitle = "chinese_title"
             case year
             case posterUrl = "poster_url"
             case backdropUrl = "backdrop_url"

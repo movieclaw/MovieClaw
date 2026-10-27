@@ -25,7 +25,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from movieclaw_cache import AsyncTTLCache
-from movieclaw_media.library import _english_title, _translation_index
+from movieclaw_media.library import _english_title, _translation_index, _translation_text
 from movieclaw_media.models import (
     DiscoverLayout,
     DiscoverRowStub,
@@ -670,7 +670,12 @@ class MediaDiscoverService:
         backdrops, posters = self._images(data)
         backdrop_path = data.get("backdrop_path")
         facts = self._facts(data, kind)
-        facts.english_title = _english_title(data, _translation_index(data))
+        translations = _translation_index(data)
+        facts.english_title = _english_title(data, translations)
+        # 中文 PT 站要中文名：读者不是中文时 card.title 是别的语言，从译名里取（华语片取原名）
+        facts.chinese_title = _translation_text(translations, "zh-CN", "title", "name") or (
+            card.original_title if data.get("original_language") in ("zh", "cn") else None
+        )
         return MediaDetail(
             card=card,
             facts=facts,

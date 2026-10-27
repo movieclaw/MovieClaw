@@ -148,6 +148,8 @@ interface DiscoveredTitleMetadataDto {
   source_url: string | null;
   /** 国际英文名；豆瓣条目没有 */
   english_title?: string | null;
+  /** 中文片名：界面不是中文时给出，「搜索资源」带上它；老服务端没有该字段 */
+  chinese_title?: string | null;
 }
 
 interface MediaImageDto {
@@ -463,6 +465,8 @@ export interface MediaDetailInfo {
   sourceUrl?: string;
   /** 国际英文名（TMDB 译名）：「搜索资源」与中文名、原名一起搜；豆瓣条目没有 */
   englishTitle?: string;
+  /** 中文片名：界面不是中文、片名显示为别的语言时才有 */
+  chineseTitle?: string;
 }
 
 export interface MediaImage {
@@ -561,6 +565,7 @@ export async function fetchDiscoveredTitleDetails(
       aliases: dto.metadata.aliases,
       sourceUrl: dto.metadata.source_url ?? undefined,
       englishTitle: dto.metadata.english_title ?? undefined,
+      chineseTitle: dto.metadata.chinese_title ?? undefined,
     },
     videos: (dto.videos ?? []).map(toVideo),
     backdropOriginalUrl: dto.backdrop_original_url

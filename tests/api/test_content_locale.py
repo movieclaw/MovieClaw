@@ -7,6 +7,7 @@ from typing import Any
 
 from movieclaw_api.i18n import use_locale
 from movieclaw_api.i18n.content import (
+    chinese_title,
     display_genres,
     display_overview,
     display_title,
@@ -55,6 +56,20 @@ def test_logo_is_dropped_only_when_the_title_is_shown_in_the_reader_language() -
         assert not in_reader_language(legacy)  # 文字片名也是中文，Logo 照旧
     with use_locale("zh-Hans"):
         assert not in_reader_language(translated)  # 主语言那份从不存，中文读者照旧
+
+
+def test_chinese_title_only_when_the_shown_title_is_not_chinese() -> None:
+    """「搜索资源」补中文名：中文 PT 站的主搜索词不能因为界面是英文就丢了。"""
+    zh_library = SimpleNamespace(title="阿甘正传", title_translations={"en-US": "Forrest Gump"})
+    en_library = SimpleNamespace(title="Forrest Gump", title_translations={"zh-CN": "阿甘正传"})
+    with use_locale("en"):
+        assert chinese_title(zh_library, "zh-CN") == "阿甘正传"
+        assert chinese_title(en_library, "en-US") == "阿甘正传"
+        assert chinese_title(SimpleNamespace(title="X", title_translations=None), "en-US") is None
+    with use_locale("zh-Hans"):
+        # 显示出来的就是中文名：不重复给
+        assert chinese_title(zh_library, "zh-CN") is None
+        assert chinese_title(en_library, "en-US") is None
 
 
 def test_display_genres_translate_only_across_language_families() -> None:

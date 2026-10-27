@@ -308,6 +308,22 @@ def test_requests_without_language_header_stay_chinese(stack, libraries):
 
 
 
+def test_search_resources_keeps_the_chinese_name_for_english_readers(stack, libraries):
+    """「搜索资源」以显示出来的片名为主词：英文界面下服务端补上中文名，中文 PT 站才搜得到。"""
+    client = stack["client"]
+    shows = libraries["shows"]
+    item_id = _only(client, shows, ZH)["media_item_id"]
+    assert _detail(client, shows, item_id, EN)["chinese_title"] == "人生切割术"
+    assert _detail(client, shows, item_id, ZH)["chinese_title"] is None
+    assert _detail(client, shows, item_id, {})["chinese_title"] is None
+    discover = {
+        lang: _ok(client.get("/api/v1/discover/titles/tmdb:tv:95396", headers=headers))
+        for lang, headers in (("en", EN), ("zh", ZH))
+    }
+    assert discover["en"]["metadata"]["chinese_title"] == "人生切割术"
+    assert discover["zh"]["metadata"]["chinese_title"] is None
+
+
 def test_title_logo_only_for_readers_of_the_library_language(stack, libraries):
     """片名 Logo 是库语言的文字图：中文读者照旧拿到，英文读者拿不到、各端退回文字片名。"""
     client = stack["client"]

@@ -51,14 +51,16 @@ export function buildSearchPath(query: SearchQuery, vertical?: SearchVertical): 
 }
 
 /**
- * 详情页「搜索资源」的同搜词：英文名 + 原名（主词是中文名），与订阅的召回词同一套
- * （services/subscription/wanted_search.recall_keywords）。空值丢掉，重复的由后端去重。
+ * 详情页「搜索资源」的同搜词：英文名 + 中文名 + 原名（主词是显示出来的片名），与订阅的召回词
+ * 同一套（services/subscription/wanted_search.recall_keywords）。中文名只在界面不是中文、片名
+ * 显示为别的语言时由服务端给出（中文 PT 站的主搜索词）。空值丢掉，重复的由后端去重。
  */
 export function titleSearchAlso(
   englishTitle: string | null | undefined,
   originalTitle: string | null | undefined,
+  chineseTitle?: string | null,
 ): string[] {
-  return [englishTitle, originalTitle].filter((w): w is string => !!w?.trim());
+  return [englishTitle, chineseTitle, originalTitle].filter((w): w is string => !!w?.trim());
 }
 
 /**

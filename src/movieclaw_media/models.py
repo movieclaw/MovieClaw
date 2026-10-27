@@ -196,6 +196,8 @@ class MediaFacts(BaseModel):
     english_title: str | None = Field(
         default=None, description="国际英文名（TMDB 译名）；豆瓣没有该数据，恒为 None"
     )
+    # 中文片名（中文 PT 站的主搜索词），取自同一次请求的 translations；豆瓣恒为 None
+    chinese_title: str | None = Field(default=None, exclude=True)
     # TMDB 的地区 / 语言代码：名字由接口层按读者语言出；豆瓣只有现成的中文名，恒为空
     country_codes: list[str] = Field(default_factory=list, exclude=True)
     language_code: str | None = Field(default=None, exclude=True)

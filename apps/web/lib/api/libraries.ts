@@ -1622,6 +1622,8 @@ export interface LibraryItemDetail {
   original_title: string;
   /** 国际英文名：「搜索资源」与中文名、原名一起搜；老服务端没有该字段 */
   english_title?: string | null;
+  /** 中文片名：界面不是中文、片名显示为别的语言时给出，「搜索资源」带上它；老服务端没有该字段 */
+  chinese_title?: string | null;
   year: number | null;
   poster_url: string | null;
   backdrop_url: string | null;
