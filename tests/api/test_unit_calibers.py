@@ -132,12 +132,15 @@ async def test_aired_and_owned_calibers(db) -> None:
             [item.id], include_specials=True
         ) == {item.id: {1: 2, 0: 1}}
         assert await file_repo.owned_counts_by_season_many([item.id]) == {item.id: {1: 2}}
+        # 缺集数（海报墙用）= 已播 − 在位：两集都在位，不缺
+        assert await media_repo.missing_counts_many([item.id]) == {}
 
         # 空入参不炸
         assert await media_repo.aired_units_many([]) == {}
         assert await media_repo.list_seasons_many([]) == {}
         assert await file_repo.owned_units_many([]) == {}
         assert await media_repo.aired_counts_by_season_many([]) == {}
+        assert await media_repo.missing_counts_many([]) == {}
         assert await file_repo.owned_counts_by_season_many([]) == {}
 
 
@@ -172,3 +175,72 @@ async def test_owned_counts_count_an_episode_once_across_versions(db) -> None:
         file_repo = LibraryFileRepository(session)
         assert await file_repo.owned_units_many([item.id]) == {item.id: {(1, 1)}}
         assert await file_repo.owned_counts_by_season_many([item.id]) == {item.id: {1: 1}}
+
+
+async def test_missing_counts_match_aired_minus_owned(db) -> None:
+    """缺集数在库里算，口径必须与集合版「已播 − 在位」逐条一致：只剩 missing 文件的
+    已播集算缺；特别季、未播集不算；另一库在位的不算缺。"""
+    today = utcnow().date()
+    async with db.session() as session:
+        lib1 = await LibraryRepository(session).create(
+            name="库一", kind="tv", root_paths=["/a"], match_rules=[]
+        )
+        lib2 = await LibraryRepository(session).create(
+            name="库二", kind="tv", root_paths=["/b"], match_rules=[]
+        )
+        shows = []
+        for tmdb_id in (3, 4):
+            show = MediaItem(kind="tv", tmdb_id=tmdb_id, title="剧", original_title="S", aliases=[])
+            session.add(show)
+            shows.append(show)
+        await session.commit()
+        for show in shows:
+            await session.refresh(show)
+        show, complete = shows
+        rows: list = [
+            MediaEpisode(media_item_id=show.id, season_number=1, episode_number=n, air_date=today)
+            for n in (1, 2, 3, 4)
+        ]
+        rows += [
+            MediaEpisode(
+                media_item_id=show.id,
+                season_number=1,
+                episode_number=5,
+                air_date=today + timedelta(days=1),
+            ),
+            MediaEpisode(media_item_id=show.id, season_number=0, episode_number=1, air_date=today),
+            MediaEpisode(
+                media_item_id=complete.id, season_number=1, episode_number=1, air_date=today
+            ),
+        ]
+
+        def file(library_id, item_id, episode, path, state=FileState.IN_PLACE):
+            return LibraryFile(
+                source="scanned",
+                library_id=library_id,
+                file_path=path,
+                size_bytes=1,
+                media_item_id=item_id,
+                season_number=1,
+                episode_number=episode,
+                state=state,
+                missing_since=None if state == FileState.IN_PLACE else utcnow(),
+            )
+
+        rows += [
+            file(lib1.id, show.id, 1, "/a/E01.mkv"),
+            file(lib2.id, show.id, 2, "/b/E02.mkv"),  # 另一库在位：不缺
+            file(lib1.id, show.id, 3, "/a/E03.mkv", FileState.MISSING),  # 只剩失联文件：缺
+            file(lib1.id, complete.id, 1, "/a/C01.mkv"),
+        ]
+        session.add_all(rows)
+        await session.commit()
+
+        media_repo = MediaItemRepository(session)
+        file_repo = LibraryFileRepository(session)
+        ids = [show.id, complete.id]
+        aired = await media_repo.aired_units_many(ids)
+        owned = await file_repo.owned_units_many(ids)
+        expected = {i: len(aired[i] - owned.get(i, set())) for i in aired}
+        assert {i: n for i, n in expected.items() if n} == {show.id: 2}  # E03、E04
+        assert await media_repo.missing_counts_many(ids) == {show.id: 2}

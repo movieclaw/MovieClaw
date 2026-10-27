@@ -222,16 +222,17 @@ async def similar_item_ids(
     item = await session.get(MediaItem, media_item_id)
     if item is None:
         return []
-    candidate_ids = (
-        select(LibraryFile.media_item_id)
-        .join(MediaItem, MediaItem.id == LibraryFile.media_item_id)  # type: ignore[arg-type]
-        .where(
-            *_wall_scope(library_ids),
-            *_narrow(None, member_id, library_id=library_ids, content_limit=content_limit),
-            MediaItem.kind == item.kind,
-            LibraryFile.media_item_id != media_item_id,
-        )
-        .distinct()
+    # 先取本库条目再按主键看类型：拿文件行去 join 条目，剧集库每一集都要判一次类型
+    # （NAS 上这个子查询被下面两条查询各用一次，合计 46 ms）
+    candidate_ids = select(MediaItem.id).where(
+        MediaItem.id.in_(  # type: ignore[attr-defined]
+            select(LibraryFile.media_item_id).where(
+                *_wall_scope(library_ids),
+                *_narrow(None, member_id, library_id=library_ids, content_limit=content_limit),
+                LibraryFile.media_item_id != media_item_id,
+            )
+        ),
+        MediaItem.kind == item.kind,
     )
     rows = (
         await session.execute(
