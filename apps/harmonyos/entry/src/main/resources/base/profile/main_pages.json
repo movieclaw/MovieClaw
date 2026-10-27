@@ -1,6 +1,7 @@
 {
   "src": [
     "pages/Index",
-    "car/CarIndex"
+    "car/CarIndex",
+    "tv/TvIndex"
   ]
 }

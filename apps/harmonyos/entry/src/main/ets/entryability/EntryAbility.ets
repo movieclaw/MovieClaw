@@ -15,6 +15,7 @@ import { PlayerPrefs } from '../player/PlayerPrefs';
 import { OfflineDisk } from '../offline/OfflineDisk';
 import { OfflineDownloader } from '../offline/OfflineDownloader';
 import { AgentAIConsent } from '../agent/AgentAIConsent';
+import { DevConfig } from '../common/DevConfig';
 import { Theme } from '../theme/AppTheme';
 
 const DOMAIN = 0x0000;
@@ -84,19 +85,22 @@ export default class EntryAbility extends UIAbility {
 
     // 车机（car）走独立的 1260×600 vp 宽屏界面；手机/平板/PC 维持原入口。
     const isCar: boolean = deviceInfo.deviceType === 'car';
-    const entryPage: string = isCar ? 'car/CarIndex' : 'pages/Index';
+    // 智慧屏（TV）走独立的 Apple TV 风格界面；手机/平板/PC 维持原入口。
+    // DevConfig.forceTvMode 供无 TV 真机时在模拟器/设备上强制走 TV 界面调试。
+    const isTv: boolean = deviceInfo.deviceType === 'tv' || DevConfig.forceTvMode;
+    const entryPage: string = isCar ? 'car/CarIndex' : (isTv ? 'tv/TvIndex' : 'pages/Index');
     windowStage.loadContent(entryPage, (err) => {
       if (err.code) {
         hilog.error(DOMAIN, 'MovieClaw', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
         return;
       }
       hilog.info(DOMAIN, 'MovieClaw', '%{public}s', 'Succeeded in loading the content.');
-      if (isCar) {
-        // 车机无状态栏/手势条避让问题，只统一窗口底色为深色
+      if (isCar || isTv) {
+        // 车机 / TV 无状态栏/手势条避让问题，只统一窗口底色为深色
         windowStage.getMainWindow().then((mainWindow: window.Window): void => {
           mainWindow.setWindowBackgroundColor('#000000');
         }).catch((error: Object): void => {
-          hilog.warn(DOMAIN, 'MovieClaw', 'Car setWindowBackgroundColor 失败：%{public}s', `${error}`);
+          hilog.warn(DOMAIN, 'MovieClaw', 'Car/TV setWindowBackgroundColor 失败：%{public}s', `${error}`)
         });
         return;
       }
