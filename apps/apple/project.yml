@@ -24,7 +24,7 @@ packages:
   # 更新与验证流程见 docs/design/player-engine.md §5。
   AetherEngine:
     url: https://github.com/yipengfei329/AetherEngine
-    revision: "615e416843c50869fe26a61fc37679a29fc7f40d"
+    revision: "5153eaec6c25c730c6540bd41aa1d715b531ca19"
   # AetherEngine 自带的 FFmpeg（AetherLib* 动态框架，LGPL-2.1，无 GPL 组件）。
   # 单独声明是为了让 App 目标把这些动态框架嵌进包里（见 MovieClaw 目标的依赖说明）；
   # 版本必须与 AetherEngine 当前版本要求的一致，升级 AetherEngine 时一起改。
