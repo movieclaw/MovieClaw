@@ -214,36 +214,20 @@ struct PlayerSettingsMenu: View {
             Group {
                 if controller.scope.shareSlug == nil {
                     Menu {
-                        // 画质：语义是上限——源不超所选档就照常直通（无损），超了才转码降下去
-                        ForEach(QualityOption.all) { option in
-                            Toggle(isOn: Binding(mcGet: { controller.quality == option.maxHeight },
-                                                 set: { _ in controller.selectQuality(option.maxHeight) })) {
-                                Text(option.label)
-                                Text(option.hint)
-                            }
-                        }
+                        Self.qualityItems(controller)
                     } label: {
                         Label(String(localized: .playerControlsQuality), systemImage: "sparkles.tv")
-                        Text(QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? String(localized: .playerQualityOriginal))
+                        Text(Self.qualityLabel(controller))
                     }
                 }
                 Menu {
-                    ForEach(PlayerDisplayMode.allCases, id: \.self) { mode in
-                        Toggle(isOn: Binding(mcGet: { controller.displayMode == mode },
-                                             set: { _ in controller.selectDisplayMode(mode) })) {
-                            Text(mode.label)
-                            Text(mode.hint)
-                        }
-                    }
+                    Self.displayItems(controller)
                 } label: {
                     Label(String(localized: .playerControlsDisplay), systemImage: controller.displayMode.symbol)
                     Text(controller.displayMode.label)
                 }
                 Menu {
-                    ForEach(PlaybackSpeed.all, id: \.self) { rate in
-                        Toggle(PlaybackSpeed.label(rate), isOn: Binding(mcGet: { controller.rate == rate },
-                                                                        set: { _ in controller.selectRate(rate) }))
-                    }
+                    Self.speedItems(controller)
                 } label: {
                     Label(String(localized: .playerControlsSpeed), systemImage: "gauge.with.dots.needle.67percent")
                     Text(PlaybackSpeed.label(controller.rate))
@@ -275,6 +259,44 @@ struct PlayerSettingsMenu: View {
         .buttonStyle(PlayerIconButtonStyle(highlighted: menu == .settings, pressFeedback: true))
         .accessibilityLabel(String(localized: .playerControlsSettings))
         .accessibilityIdentifier("player-设置") // i18n-ignore: UI test identifier
+    }
+}
+
+/// 「⋯」里三个子菜单的选项：底栏「⋯」和桌面模式控制台的卡片（`PlayerDeckCards`）共用同一份
+extension PlayerSettingsMenu {
+    /// 画质：语义是上限——源不超所选档就照常直通（无损），超了才转码降下去
+    @ViewBuilder
+    static func qualityItems(_ controller: PlaybackController) -> some View {
+        ForEach(QualityOption.all) { option in
+            Toggle(isOn: Binding(mcGet: { controller.quality == option.maxHeight },
+                                 set: { _ in controller.selectQuality(option.maxHeight) })) {
+                Text(option.label)
+                Text(option.hint)
+            }
+        }
+    }
+
+    static func qualityLabel(_ controller: PlaybackController) -> String {
+        QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? String(localized: .playerQualityOriginal)
+    }
+
+    @ViewBuilder
+    static func displayItems(_ controller: PlaybackController) -> some View {
+        ForEach(PlayerDisplayMode.allCases, id: \.self) { mode in
+            Toggle(isOn: Binding(mcGet: { controller.displayMode == mode },
+                                 set: { _ in controller.selectDisplayMode(mode) })) {
+                Text(mode.label)
+                Text(mode.hint)
+            }
+        }
+    }
+
+    @ViewBuilder
+    static func speedItems(_ controller: PlaybackController) -> some View {
+        ForEach(PlaybackSpeed.all, id: \.self) { rate in
+            Toggle(PlaybackSpeed.label(rate), isOn: Binding(mcGet: { controller.rate == rate },
+                                                            set: { _ in controller.selectRate(rate) }))
+        }
     }
 }
 
@@ -320,6 +342,8 @@ struct PlayerBottomBar: View {
     @Binding var scrubMs: Int?
     let landscape: Bool
     let onToggleLandscape: () -> Void
+    /// 显示进度条上面那一行按钮；桌面模式的控制台把它们做成了卡片（`PlayerDeckCards`），只要进度条与时间
+    var showsButtons = true
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -330,72 +354,82 @@ struct PlayerBottomBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: PlayerLayout.gap) {
-                    // 不加内边距：两端按钮与胶囊端头同心，按下的高亮圆正好嵌在端头里
-                    HStack(spacing: 0) {
-                        if !controller.audioOptions.isEmpty {
-                            PlayerIconButton(systemImage: "waveform", label: String(localized: .playerControlsAudio), identifier: "player-音轨", highlighted: menu == .audio) { toggle(.audio) } // i18n-ignore: UI test identifier
-                        }
-                        PlayerIconButton(
-                            systemImage: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
-                            label: String(localized: .playerControlsSubtitles), identifier: "player-字幕", highlighted: menu == .subtitles // i18n-ignore: UI test identifier
-                        ) { toggle(.subtitles) }
-                        PlayerSettingsMenu(controller: controller, menu: $menu)
-                    }
-                    .glassEffect(PlayerGlass.control, in: .capsule)
-                    Spacer()
-                    if controller.clip != nil {
-                        // 片段模式：原地转成正常播放，从这里接着放整部
-                        Button(action: controller.leaveClip) {
-                            Label(String(localized: .playerControlsFullMovie), systemImage: "play.rectangle")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 16)
-                                .frame(height: PlayerLayout.button)
-                                .contentShape(.capsule)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(PlayerGlass.control, in: .capsule)
-                        .accessibilityIdentifier("player-watch-full")
-                    }
-                    // 片段模式只有横屏这一种样子：转回竖屏就是退出全屏、回到刷片
-                    // iPad 方向跟随设备，没有横屏键（片段模式的「退出全屏」照留）
-                    if canRotate || controller.clip != nil {
-                        let rotateLabel = controller.clip != nil ? String(localized: .playerControlsExitFullscreen) : (landscape ? String(localized: .playerControlsExitLandscape) : String(localized: .playerControlsLandscape))
-                        GlassIconButton(
-                            systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
-                            label: rotateLabel, identifier: "player-\(rotateLabel)", action: onToggleLandscape
-                        )
-                    }
-                }
+            if showsButtons {
+                buttonRow
             }
-            // 拖进度时让出这一行：预览缩略图正好浮在这里，按钮留着只会和它叠成一团
-            .opacity(scrubMs == nil ? 1 : 0)
-            .allowsHitTesting(scrubMs == nil)
-            .animation(.easeOut(duration: 0.2), value: scrubMs == nil)
             // 进度条的触控带（44pt）紧接按钮行：细条离胶囊下缘 20pt，两块触控区首尾相接、互不重叠
             PlayerProgressBar(controller: controller, trickplay: trickplay, scrubMs: $scrubMs)
-            // 已播放在左、剩余在右，紧贴细条下方 8pt（同系统播放器）。
-            // 时间行叠进触控带的下半截，所以不接收触摸：按在时间上也是在拖进度
-            HStack {
-                Text(Formatters.clock(Double(position) / 1000))
-                    .accessibilityIdentifier("player-time")
-                    .accessibilityValue(String(position / 1000))
-                Spacer()
-                // 不是正常速度时常驻一个角标，免得忘了自己开着倍速（长按倍速另有顶部 HUD）
-                if controller.rate != 1, !controller.holdSpeedActive {
-                    Text(PlaybackSpeed.short(controller.rate))
-                        .foregroundStyle(.white)
-                        .accessibilityIdentifier("player-rate-badge")
-                }
-                Text(remainingText)
-            }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.white.opacity(0.85))
-            .padding(.top, -PlayerProgressBar.labelOverlap)
-            .allowsHitTesting(false)
+            timeRow
         }
+    }
+
+    private var buttonRow: some View {
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: PlayerLayout.gap) {
+                // 不加内边距：两端按钮与胶囊端头同心，按下的高亮圆正好嵌在端头里
+                HStack(spacing: 0) {
+                    if !controller.audioOptions.isEmpty {
+                        PlayerIconButton(systemImage: "waveform", label: String(localized: .playerControlsAudio), identifier: "player-音轨", highlighted: menu == .audio) { toggle(.audio) } // i18n-ignore: UI test identifier
+                    }
+                    PlayerIconButton(
+                        systemImage: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
+                        label: String(localized: .playerControlsSubtitles), identifier: "player-字幕", highlighted: menu == .subtitles // i18n-ignore: UI test identifier
+                    ) { toggle(.subtitles) }
+                    PlayerSettingsMenu(controller: controller, menu: $menu)
+                }
+                .glassEffect(PlayerGlass.control, in: .capsule)
+                Spacer()
+                if controller.clip != nil {
+                    // 片段模式：原地转成正常播放，从这里接着放整部
+                    Button(action: controller.leaveClip) {
+                        Label(String(localized: .playerControlsFullMovie), systemImage: "play.rectangle")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .frame(height: PlayerLayout.button)
+                            .contentShape(.capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(PlayerGlass.control, in: .capsule)
+                    .accessibilityIdentifier("player-watch-full")
+                }
+                // 片段模式只有横屏这一种样子：转回竖屏就是退出全屏、回到刷片
+                // iPad 方向跟随设备，没有横屏键（片段模式的「退出全屏」照留）
+                if canRotate || controller.clip != nil {
+                    let rotateLabel = controller.clip != nil ? String(localized: .playerControlsExitFullscreen) : (landscape ? String(localized: .playerControlsExitLandscape) : String(localized: .playerControlsLandscape))
+                    GlassIconButton(
+                        systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
+                        label: rotateLabel, identifier: "player-\(rotateLabel)", action: onToggleLandscape
+                    )
+                }
+            }
+        }
+        // 拖进度时让出这一行：预览缩略图正好浮在这里，按钮留着只会和它叠成一团
+        .opacity(scrubMs == nil ? 1 : 0)
+        .allowsHitTesting(scrubMs == nil)
+        .animation(.easeOut(duration: 0.2), value: scrubMs == nil)
+    }
+
+    /// 已播放在左、剩余在右，紧贴细条下方 8pt（同系统播放器）。
+    /// 时间行叠进触控带的下半截，所以不接收触摸：按在时间上也是在拖进度
+    private var timeRow: some View {
+        HStack {
+            Text(Formatters.clock(Double(position) / 1000))
+                .accessibilityIdentifier("player-time")
+                .accessibilityValue(String(position / 1000))
+            Spacer()
+            // 不是正常速度时常驻一个角标，免得忘了自己开着倍速（长按倍速另有顶部 HUD）
+            if controller.rate != 1, !controller.holdSpeedActive {
+                Text(PlaybackSpeed.short(controller.rate))
+                    .foregroundStyle(.white)
+                    .accessibilityIdentifier("player-rate-badge")
+            }
+            Text(remainingText)
+        }
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(.white.opacity(0.85))
+        .padding(.top, -PlayerProgressBar.labelOverlap)
+        .allowsHitTesting(false)
     }
 
     /// 时间轴上的位置（片段模式从片段起点算）

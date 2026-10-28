@@ -316,7 +316,6 @@ private struct PlayerContent: View {
             let videoInset = if case let .tabletop(videoBottom, _) = fold {
                 max(0, proxy.size.height + proxy.safeAreaInsets.bottom - videoBottom)
             } else { CGFloat(0) }
-            let deckTop = if case let .tabletop(_, deckTop) = fold { deckTop } else { CGFloat(0) }
             ZStack {
                 // 画面
                 if let engine = controller.engine {
@@ -357,18 +356,19 @@ private struct PlayerContent: View {
 
                 if locked {
                     lockOverlay
+                } else if case let .tabletop(videoBottom, deckTop) = fold {
+                    tabletopChrome(videoBottom: videoBottom, deckTop: deckTop)
                 } else {
-                    chrome(landscape: landscape, height: proxy.size.height - deckTop)
-                        .padding(.top, deckTop)
+                    chrome(landscape: landscape, height: proxy.size.height)
                 }
 
-                if controller.phase.isBusy {
+                // 桌面模式的转圈在控制台里、占中央三键的位置（见 tabletopChrome）
+                if controller.phase.isBusy, !fold.isTabletop {
                     // 与中央三键同一个中心（整屏正中），转圈结束时播放键正好接在原地
                     PlayerBusyView(controller: controller)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .offset(x: centerShift)
                         .ignoresSafeArea()
-                        .padding(.top, deckTop)
                 }
 
                 hud(landscape: landscape)
@@ -583,63 +583,7 @@ private struct PlayerContent: View {
                         .padding(.horizontal, PlayerLayout.edge)
                         .padding(.bottom, PlayerLayout.gap)
                 }
-                if clipEnded {
-                    HStack {
-                        Spacer()
-                        PlayerClipEndCard(replay: controller.togglePlay, watchFull: controller.leaveClip)
-                    }
-                    .padding(.horizontal, PlayerLayout.edge)
-                    .padding(.bottom, PlayerLayout.gap)
-                }
-                // 自动跳过的提示和跳过按钮占同一个角落，提示优先（撤回后回到片头里，提示收起才轮到按钮）
-                if let notice = controller.skipNotice {
-                    HStack {
-                        Spacer()
-                        PlayerSkipNotice(notice: notice, undo: controller.undoAutoSkip, decline: controller.declineIntroAutoSkip)
-                    }
-                    .padding(.horizontal, PlayerLayout.edge)
-                    .padding(.bottom, PlayerLayout.gap)
-                    .task(id: notice.id) {
-                        try? await Task.sleep(for: .milliseconds(notice.durationMs))
-                        controller.expireSkipNotice(notice.id)
-                    }
-                } else if let segment = controller.skipSegment {
-                    HStack {
-                        Spacer()
-                        PlayerSkipButton(segment: segment, action: controller.skipCurrentSegment)
-                    }
-                    .padding(.horizontal, PlayerLayout.edge)
-                    .padding(.bottom, PlayerLayout.gap)
-                }
-                if controller.showsUpNext, let next = controller.nextEpisode {
-                    HStack {
-                        Spacer()
-                        PlayerUpNextCard(
-                            code: String(localized: .mediaEpisodeNumber(next.episodeNumber)),
-                            name: next.name.flatMap { $0.isEmpty ? nil : $0 },
-                            still: controller.scope.api.image(next.stillUrl, width: ImageWidth.points(PlayerUpNextCard.stillWidth)),
-                            countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
-                            stillWatching: controller.asksStillWatching,
-                            dismiss: {
-                                controller.noteUserActivity()
-                                controller.nextDismissed = true
-                            },
-                            play: {
-                                controller.noteUserActivity()
-                                controller.playNext()
-                            }
-                        )
-                        // 倒计时的钟：卡片在才走，卡片收起循环随之取消
-                        .task {
-                            while !Task.isCancelled {
-                                try? await Task.sleep(for: .milliseconds(100))
-                                controller.advanceAutoNext(by: 0.1)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, PlayerLayout.edge)
-                    .padding(.bottom, PlayerLayout.gap)
-                }
+                transientCards
                 if chromeVisible {
                     PlayerBottomBar(
                         controller: controller, trickplay: trickplay, menu: $menu, scrubMs: $scrubMs,
@@ -666,6 +610,126 @@ private struct PlayerContent: View {
                     .transition(.opacity)
                 }
             }
+        }
+        .onChange(of: menu) { chromeActivity += 1 }
+    }
+
+    /// 浮在画面右下角的临时卡片：片段放完、自动跳过的提示 / 跳过按钮、下一集倒计时。
+    /// 平时排在底栏上方；桌面模式排在画面区底部（不进控制台，见 `tabletopChrome`）
+    @ViewBuilder
+    private var transientCards: some View {
+        if clipEnded {
+            HStack {
+                Spacer()
+                PlayerClipEndCard(replay: controller.togglePlay, watchFull: controller.leaveClip)
+            }
+            .padding(.horizontal, PlayerLayout.edge)
+            .padding(.bottom, PlayerLayout.gap)
+        }
+        // 自动跳过的提示和跳过按钮占同一个角落，提示优先（撤回后回到片头里，提示收起才轮到按钮）
+        if let notice = controller.skipNotice {
+            HStack {
+                Spacer()
+                PlayerSkipNotice(notice: notice, undo: controller.undoAutoSkip, decline: controller.declineIntroAutoSkip)
+            }
+            .padding(.horizontal, PlayerLayout.edge)
+            .padding(.bottom, PlayerLayout.gap)
+            .task(id: notice.id) {
+                try? await Task.sleep(for: .milliseconds(notice.durationMs))
+                controller.expireSkipNotice(notice.id)
+            }
+        } else if let segment = controller.skipSegment {
+            HStack {
+                Spacer()
+                PlayerSkipButton(segment: segment, action: controller.skipCurrentSegment)
+            }
+            .padding(.horizontal, PlayerLayout.edge)
+            .padding(.bottom, PlayerLayout.gap)
+        }
+        if controller.showsUpNext, let next = controller.nextEpisode {
+            HStack {
+                Spacer()
+                PlayerUpNextCard(
+                    code: String(localized: .mediaEpisodeNumber(next.episodeNumber)),
+                    name: next.name.flatMap { $0.isEmpty ? nil : $0 },
+                    still: controller.scope.api.image(next.stillUrl, width: ImageWidth.points(PlayerUpNextCard.stillWidth)),
+                    countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
+                    stillWatching: controller.asksStillWatching,
+                    dismiss: {
+                        controller.noteUserActivity()
+                        controller.nextDismissed = true
+                    },
+                    play: {
+                        controller.noteUserActivity()
+                        controller.playNext()
+                    }
+                )
+                // 倒计时的钟：卡片在才走，卡片收起循环随之取消
+                .task {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        controller.advanceAutoNext(by: 0.1)
+                    }
+                }
+            }
+            .padding(.horizontal, PlayerLayout.edge)
+            .padding(.bottom, PlayerLayout.gap)
+        }
+    }
+
+    /// 桌面模式（iPhone Duo 竖向半折、下半平放在桌上）的控制层：画面在折痕以上，折痕以下整块是控制台——
+    /// 顶栏、进度条、后退 / 播放 / 前进，再下面是铺满剩余空间的功能卡片（`PlayerDeckCards`，照 Netflix 的桌面模式，
+    /// docs/design/iphone-duo.md §6.4）。控制台不压画面，一直显示（见 `chromeMustStayVisible`）。
+    /// 音轨、字幕面板从折痕往上长、盖在画面上（控制台里放不下）；临时卡片照旧浮在画面右下角
+    @ViewBuilder
+    private func tabletopChrome(videoBottom: CGFloat, deckTop: CGFloat) -> some View {
+        ZStack(alignment: .top) {
+            VStack(spacing: 0) {
+                if controller.diagnosticsOpen {
+                    HStack {
+                        PlayerDiagnosticsPanel(controller: controller, height: max(120, min(300, videoBottom - 2 * PlayerLayout.gap))) {
+                            controller.diagnosticsOpen = false
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, PlayerLayout.edge)
+                    .padding(.top, PlayerLayout.gap)
+                }
+                Spacer(minLength: 0)
+                transientCards
+            }
+            .frame(height: videoBottom)
+            if menu != .none {
+                menuPanel
+                    .environment(\.playerMenuMaxHeight, max(160, videoBottom - 2 * PlayerLayout.gap))
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { menuFrame = $0 }
+                    .padding(.horizontal, PlayerLayout.edge)
+                    .frame(maxWidth: .infinity, maxHeight: videoBottom - PlayerLayout.gap, alignment: .bottomLeading)
+            }
+            VStack(spacing: 0) {
+                PlayerTopBar(controller: controller, landscape: false, onBack: { back(landscape: false) })
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { topBarFrame = $0 }
+                Spacer(minLength: 8)
+                PlayerBottomBar(controller: controller, trickplay: trickplay, menu: $menu, scrubMs: $scrubMs,
+                                landscape: false, onToggleLandscape: {}, showsButtons: false)
+                Spacer(minLength: 8)
+                Group {
+                    if controller.phase.isBusy {
+                        PlayerBusyView(controller: controller)
+                    } else {
+                        PlayerCenterControls(controller: controller)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { centerFrame = $0 }
+                    }
+                }
+                .frame(height: 80)
+                Spacer(minLength: 12)
+                PlayerDeckCards(controller: controller, menu: $menu)
+            }
+            .padding(.horizontal, PlayerLayout.edge)
+            .padding(.top, deckTop + PlayerLayout.gap)
+            .padding(.bottom, 8)
+            // 整块控制台都交给按钮：手势层不再把这里的轻点当成「点画面」
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bottomBarFrame = $0 }
         }
         .onChange(of: menu) { chromeActivity += 1 }
     }

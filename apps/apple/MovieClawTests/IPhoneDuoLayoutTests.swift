@@ -102,6 +102,17 @@ struct IPhoneDuoLayoutTests {
         #expect(PlayerFold.resolve(size: CGSize(width: 951, height: 669), folds: [CGRect(x: 900, y: 0, width: 20, height: 669)]) == .flat)
     }
 
+    // MARK: 桌面模式控制台
+
+    @Test func deckCardsAlwaysFillTwoRows() {
+        // 电影 6 张（无「下一集」）3×2；剧集 7 张 4 + 3；访客分享少画质时 5 张 3 + 2
+        #expect(PlayerDeckCards.columns(for: 6) == 3)
+        #expect(PlayerDeckCards.columns(for: 7) == 4)
+        #expect(PlayerDeckCards.columns(for: 8) == 4)
+        #expect(PlayerDeckCards.columns(for: 5) == 3)
+        #expect(PlayerDeckCards.columns(for: 2) == 3)
+    }
+
     // MARK: 头像页签
 
     @Test func avatarIsRightmostInHorizontalTabBar() {

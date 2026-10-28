@@ -299,10 +299,11 @@ Netflix 与同行：
 |---|---|---|
 | 版式判断 | `WindowLayout.isWide`：常规宽 × 常规高才是宽版式；宽版式、侧边栏外壳、居中表单、列表限宽都按它 | `Shared/DesignSystem/RemoteImage.swift` |
 | 卡片尺寸 | `CardMetrics.forWindow(wide:)`：宽版式时 iPad 用 `wide`（168）、其余用 `widePhone`（手机卡片尺寸、页边距 24）；有折痕时网格取偶数列（`evenColumns`，`TabRoot` 读保留区域） | 同上、`MainTabView.swift` `TabRoot` |
-| 外壳 | `sidebarShell` 按尺寸类别实时算；TabView 固定 `.sidebarAdaptable`，侧边栏分组随 `sidebarShell` 增减；iPhone 默认收起（`defaultAdaptableTabBarPlacement(.tabBar)`），iPad 照旧；合上时 `Router.collapseSidebarSelection` 折回「媒体库」页签并清掉侧边栏库清单 | `MainTabView.swift`、`Router.swift` |
+| 外壳 | 侧边栏外壳只给 iPad（`sidebarShell` = iPad 且宽版式）。Duo 内屏实测：可展开侧边栏的标签栏样式在 Duo 上没有展开入口，系统还把侧边栏专用的收藏、各个库塞进竖排标签栏、把「活动」「我的」挤进「⋯」，片段页也藏不掉标签栏——按 §8「没有展开入口就不要侧边栏」，Duo 始终是手机外壳，竖排横排交给系统。iPad 窗口拉窄时 `Router.collapseSidebarSelection` 折回「媒体库」页签并清掉侧边栏库清单 | `MainTabView.swift`、`Router.swift` |
 | 头像手势 | 按页签顺序取最后一个按钮（竖排取最下，`lastTabIndex`） | `TabBarAccountGestures.swift` |
 | 屏幕 | `ImageWidth` 取前台窗口场景的屏，冷启动才退回 `UIScreen.main` | `RemoteImage.swift` |
 | 播放器转屏 | `appControlsRotation(wide:)`：宽版式不转屏、返回即退出；展开时 `followDevice` 解开外屏的方向锁 | `PlayerSystemBridges.swift`、`PlayerControls.swift`、`PlayerScreen.swift` |
+| 桌面模式控制台 | 2026-10-28 用户看过桌面模式后要求照 Netflix 把下半屏做成卡片：控制台从上到下是顶栏、进度条、后退 / 播放 / 前进、功能卡片（`PlayerDeckCards`）。卡片铺满剩余高度、凑成两行（6 张 3×2、7 张 4 + 3），把底栏「⋯」里的画质、画面、倍速、诊断也拆出来，每张写着当前值；音轨、字幕打开原面板（从折痕往上长、盖在画面上），画质、画面、倍速是系统菜单（与「⋯」同一份选项，开菜单时收起开着的面板），剧集多一张「下一集」。跳过片头、下一集倒计时等临时卡片仍浮在画面右下角 | `PlayerTabletopDeck.swift`、`PlayerScreen.swift`（`tabletopChrome`）、`PlayerControls.swift` |
 | 桌面模式 / 书本半折 | `PlayerFold`：读生效的分隔区域，横向折痕时画面收进上半屏、控制层落到下半屏并常显；竖向折痕时中部按钮组挪到右半边（放不下时不出屏）。没用 `ArrangementView`：控制层是一整套叠层，拆不成「一主一辅」 | `PlayerFold.swift`、`PlayerScreen.swift` |
 | 片段 | 在片段页展开、正在播放时自动进全屏观看；全屏观看中合上，退回信息流原来那一条与位置；宽页面横带限高 58%；横带避开左右安全区 | `ReelsView.swift`、`PlayerScreen.swift` |
 | 竖排栏 | 顶栏按钮改 `Label`（带标题）；详情页剧照在有竖排栏时铺到栏下（`BackdropUnderVerticalBar`，读 `toolbarVerticalEdge`） | `MainTabView.swift`、`LibraryHomeView.swift`、`ImmersiveHero.swift`、`LibraryItemDetailView.swift` |
@@ -317,5 +318,8 @@ Netflix 与同行：
   播放器用 `-mcSimulateFold tabletop|book` 假装有折痕核对两种排法。
 - iPhone 17（iOS 27.0）回归：main 与本分支同一组页面逐像素对比，差异只有两轮之间变化的播放进度；iPad mini 回归：
   库页、详情页一致（只有玻璃按钮边缘约 500 像素的抗锯齿差）。
-- 没测到（要在 DeviceHub 里点开合）：内屏的真实版式与侧边栏默认状态、真实折痕区域的投递、片段页展开 / 合上的接续、
-  内屏上点播放器返回键。
+- 内屏（2026-10-28，用户在 DeviceHub 里展开后实测）：首页宽版式、手机外壳竖排标签栏、接着看条；详情页 Mac 式大图区；
+  海报墙 6 列手机尺寸卡片；片段页标签栏隐藏、横带限高；播放器点返回直接退出；用户实测真实桌面模式画面在上、控制在下。
+  桌面模式控制台在内屏竖向（669×951，与真机桌面模式同尺寸）配合 `-mcSimulateFold tabletop` 点过：音轨面板、倍速菜单、
+  选 1.5× 后卡片与进度条角标更新、暂停。
+- 没测到：片段页展开 / 合上的自动接续（要连续拨铰链）。

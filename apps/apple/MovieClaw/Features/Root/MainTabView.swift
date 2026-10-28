@@ -53,10 +53,12 @@ struct MainTabView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
-    /// 侧边栏外壳：宽版式窗口（iPad 全屏、iPhone Duo 内屏）的页签带文字、逐个列库与合集、用系统角标；
-    /// 其余窗口（iPhone、Duo 外屏、分屏）是手机底栏（docs/design/iphone-duo.md §6.2）。按尺寸类别实时算，开合时跟着变
+    /// 侧边栏外壳：iPad 的宽版式窗口里页签带文字、逐个列库与合集、用系统角标；窄窗口退回手机底栏。
+    /// iPhone Duo 内屏虽是宽版式，却没有展开侧边栏的入口——系统把标签栏竖在右侧，侧边栏专用的库与合集也会挤进去、
+    /// 把「活动」「我的」压进「⋯」，片段页也藏不掉它（内屏实测）——所以 Duo 始终是手机外壳，竖排横排交给系统
+    /// （2026-10-27 定：没有展开入口就不要侧边栏，docs/design/iphone-duo.md §6.2）。内容页的宽版式照旧按尺寸类别
     private var sidebarShell: Bool {
-        WindowLayout.isWide(horizontal: horizontalSizeClass, vertical: verticalSizeClass)
+        Self.isPad && WindowLayout.isWide(horizontal: horizontalSizeClass, vertical: verticalSizeClass)
     }
 
     /// 当前停在「片段」页（媒体库页签栈顶）
@@ -502,7 +504,7 @@ extension MainTabView {
         }
     }
 
-    /// 跑在 iPad 上。版式不按它分叉（见 `sidebarShell`），只用来定侧边栏默认展开与否（见 `PadSidebarTabStyle`）
+    /// 跑在 iPad 上：只有 iPad 用可展开成侧边栏的标签栏（见 `sidebarShell`、`PadSidebarTabStyle`）；内容页版式不按它分叉
     static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     /// 登录 / 切换账号 / 退出后自动切到下一个账号时的首个落点（只定一次）：
@@ -971,11 +973,9 @@ private struct OfflineShell: ViewModifier {
     }
 }
 
-/// 页签样式：`sidebarAdaptable`——宽窗口是可一键展开成侧边栏的标签栏，窄窗口（iPhone、Duo 外屏）系统画普通底栏。
-/// **样式固定、不随窗口切换**：iPhone Duo 每开合一次窗口就在宽窄之间变一次，切样式会让 TabView 整个重建、
-/// 各页面的状态全丢（docs/design/iphone-duo.md §6.2）；只有侧边栏专有的库与合集分组随 `sidebarShell` 增减。
-/// 侧边栏默认收起成标签栏，iPad 例外（iPad 横屏地方够，默认展开，同 2026-10-15 定的侧边栏外壳）：
-/// Duo 内屏横向只有 951 点，展开侧边栏后内容区只剩约 620 点（用户 2026-10-27 定默认收起）。
+/// iPad 的页签样式：`sidebarAdaptable`——宽窗口顶部是标签栏、可一键展开成侧边栏；窄窗口自动退回标签栏。
+/// 样式按设备定、运行中不切换（切样式会让 TabView 整个重建）；只有侧边栏专有的库与合集分组随 `sidebarShell` 增减。
+/// 手机（含 iPhone Duo）不用它，见 `MainTabView.sidebarShell`。
 /// 侧边栏里的库清单同步给 Router（深链打开某个库时选中侧边栏那一项）
 private struct PadSidebarTabStyle: ViewModifier {
     let sidebarShell: Bool
@@ -990,20 +990,23 @@ private struct PadSidebarTabStyle: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content
-            .tabViewStyle(.sidebarAdaptable)
-            .tabViewCustomization($customization)
-            .defaultAdaptableTabBarPlacement(MainTabView.isPad ? .automatic : .tabBar)
-            .onChange(of: libraryIds, initial: true) { _, ids in
-                guard let ids else { return }
-                router.adoptSidebarLibraries(Set(ids))
-                // 选着的库没了（删了、被收回权限）：回首页
-                if case let .mediaLibrary(id) = router.selection, !ids.contains(id) { router.select(.tab(.library)) }
-            }
-            // 收成手机底栏（Duo 合上、iPad 窗口拉窄）：侧边栏专有的项在底栏里没有，折回「媒体库」页签
-            .onChange(of: sidebarShell) { _, now in
-                if !now { router.collapseSidebarSelection() }
-            }
+        if MainTabView.isPad {
+            content
+                .tabViewStyle(.sidebarAdaptable)
+                .tabViewCustomization($customization)
+                .onChange(of: libraryIds, initial: true) { _, ids in
+                    guard let ids else { return }
+                    router.adoptSidebarLibraries(Set(ids))
+                    // 选着的库没了（删了、被收回权限）：回首页
+                    if case let .mediaLibrary(id) = router.selection, !ids.contains(id) { router.select(.tab(.library)) }
+                }
+                // 窗口拉窄收成标签栏：侧边栏专有的项在标签栏里没有，折回「媒体库」页签
+                .onChange(of: sidebarShell) { _, now in
+                    if !now { router.collapseSidebarSelection() }
+                }
+        } else {
+            content
+        }
     }
 }
 
