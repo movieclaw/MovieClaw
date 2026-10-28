@@ -147,7 +147,7 @@ struct CarShellContent {
     .border({ width: { right: 1 }, color: CarColors.line })
   }
 
-  /** 驾驶模式手动开关（行车信号不可得时的兜底入口；开启 = 视频锁音频继续） */
+  /** 行车锁手动开关（默认开；停车时关掉才出视频） */
   @Builder
   private driveToggle(): void {
     Column({ space: 4 }) {
@@ -155,7 +155,7 @@ struct CarShellContent {
         ? $r('sys.symbol.car_fill') : $r('sys.symbol.car'))
         .fontSize(26)
         .fontColor([this.ui.drive.manualEnabled ? CarColors.warn : CarColors.textMuted])
-      Text('驾驶模式')
+      Text('行车锁')
         .fontSize(CarType.footnote)
         .fontColor(this.ui.drive.manualEnabled ? CarColors.warn : CarColors.textMuted)
     }

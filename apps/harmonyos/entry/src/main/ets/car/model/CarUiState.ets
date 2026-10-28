@@ -13,6 +13,7 @@
 import { preferences } from '@kit.ArkData';
 import { Context } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { AvPlayerEngine, PlayRequest } from '../../common/AvPlayerEngine';
 
 /** 路由基类：子类用 instanceof 分派（ArkTS 无带关联值的枚举） */
 export class CarRoute {
@@ -97,35 +98,12 @@ export class CarCollectionRoute extends CarRoute {
 }
 
 /** 起播请求：谁、哪一集、从哪起 */
-export class CarPlayRequest {
-  readonly libraryId: number;
-  readonly itemId: number;
-  readonly seasonNumber: number | null;
-  readonly episodeNumber: number | null;
-  readonly fileId: number | null;
-  /** null = 续播（服务端 playbackResume 决定）；0 = 从头 */
-  readonly startMs: number | null;
-  /** 界面标签（播放器标题行） */
-  readonly title: string;
-  readonly subtitle: string | null;
-  /** 封面地址（mini 播控条用；海报/剧照取其一） */
-  readonly coverUrl: string;
-  /** 播完是否自动接下一集（剧集连播） */
-  readonly autoAdvance: boolean;
-
+export class CarPlayRequest extends PlayRequest {
   constructor(libraryId: number, itemId: number, seasonNumber: number | null,
     episodeNumber: number | null, fileId: number | null, startMs: number | null,
     title: string, subtitle: string | null, coverUrl: string, autoAdvance: boolean) {
-    this.libraryId = libraryId;
-    this.itemId = itemId;
-    this.seasonNumber = seasonNumber;
-    this.episodeNumber = episodeNumber;
-    this.fileId = fileId;
-    this.startMs = startMs;
-    this.title = title;
-    this.subtitle = subtitle;
-    this.coverUrl = coverUrl;
-    this.autoAdvance = autoAdvance;
+    super(libraryId, itemId, seasonNumber, episodeNumber, fileId, startMs,
+      title, subtitle, coverUrl, autoAdvance);
   }
 }
 
@@ -186,15 +164,16 @@ export interface DriveSignalProvider {
 }
 
 /**
- * 驾驶模式态：手动开关（持久化）+ 播放模式（video/audioLocked）。
- * 播放模式优先级：注入的行车信号 > 手动开关；两者都不可用时恒为 video。
+ * 行车锁态：手动开关（持久化）+ 播放模式（video/audioLocked）。
+ * **默认开启**：系统没有开放行车信号，视频默认锁定、只出音频；停车时由用户手动解锁。
+ * 播放模式优先级：注入的行车信号 > 手动开关。
  */
 @ObservedV2
 export class CarDriveState {
-  /** 手动「驾驶模式」开关 */
-  @Trace manualEnabled: boolean = false;
+  /** 手动「行车锁」开关（默认开；关 = 停车时手动解锁视频） */
+  @Trace manualEnabled: boolean = true;
   /** 生效播放模式（video / audioLocked） */
-  @Trace playMode: string = CarPlayMode.video;
+  @Trace playMode: string = CarPlayMode.audioLocked;
   /** 行车信号接口位（默认空——模拟器/无真车信号时走手动开关） */
   signalProvider: DriveSignalProvider | null = null;
 
@@ -206,7 +185,7 @@ export class CarDriveState {
     if (store === null) {
       return;
     }
-    store.get('car_drive_mode', false).then((value: preferences.ValueType): void => {
+    store.get('car_drive_mode', true).then((value: preferences.ValueType): void => {
       this.manualEnabled = value === true;
       this.refreshPlayMode();
     }).catch((): void => {
@@ -343,6 +322,7 @@ export class CarUiState {
   /** 偏好存储初始化（CarIndex aboutToAppear 调一次） */
   init(context: Context): void {
     this.context = context;
+    AvPlayerEngine.appContext = context;
     if (this.store !== null) {
       return;
     }

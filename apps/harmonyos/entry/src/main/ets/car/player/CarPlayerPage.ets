@@ -1058,7 +1058,7 @@ export struct CarPlayerPage {
   @Builder
   private chromeBar(): void {
     Column() {
-      // 顶部操作行：收起 / 停止 …… 驾驶模式开关
+      // 顶部操作行：收起 / 停止 …… 行车锁开关（默认开）
       Row({ space: 12 }) {
         CarPillButton({
           label: '收起',
@@ -1076,7 +1076,7 @@ export struct CarPlayerPage {
         })
         Blank()
         CarPillButton({
-          label: '驾驶模式',
+          label: '行车锁',
           filled: this.ui.drive.manualEnabled,
           onActivate: (): void => {
             this.ui.drive.setManual(!this.ui.drive.manualEnabled);

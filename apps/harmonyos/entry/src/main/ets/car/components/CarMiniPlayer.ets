@@ -17,7 +17,7 @@ import { RemoteImage } from '../../common/RemoteImage';
 import { CarColors } from '../theme/CarTheme';
 import { CarMetrics } from '../theme/CarTheme';
 import { CarType } from '../theme/CarTheme';
-import { CarUiState } from '../model/CarUiState';
+import { CarPlayRequest, CarUiState } from '../model/CarUiState';
 import { CarAvPlayerEngine, CarPlayback, CarPlayPhase } from '../player/CarAvPlayerEngine';
 import { CarFormat, CarPressable } from './CarCards';
 
@@ -250,7 +250,7 @@ export struct CarMiniPlayer {
     if (engine === null) {
       return;
     }
-    this.ui.openPlayer(engine.request);
+    this.ui.openPlayer(engine.request as CarPlayRequest);
   }
 
   // MARK: - 摘要派生
