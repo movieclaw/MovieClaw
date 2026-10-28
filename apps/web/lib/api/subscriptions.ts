@@ -164,6 +164,8 @@ export interface EpisodeWindow {
   start: number;
   end: number | null;
   total: number;
+  /** 这一季是否在播：end 为 null 时在播读作「最新 N 集」，完结读作「从第 N 集起」。旧服务端没有 */
+  airing?: boolean | null;
 }
 
 export interface Subscription {

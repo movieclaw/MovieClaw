@@ -87,7 +87,8 @@
     "importedLegend": "Imported {count, number}",
     "downloadingLegend": "Downloading {count, number}",
     "latestWindow": "Latest {count, plural, one {# episode} other {# episodes}} subscribed · earlier ones available",
-    "untilWindow": "Subscribed through episode {end, number} · more available"
+    "untilWindow": "Subscribed through episode {end, number} · more available",
+    "fromWindow": "Subscribed from episode {start, number} · earlier ones available"
   },
   "ribbon": {
     "followFuture": "Auto-renew"
@@ -884,9 +885,15 @@
     "subscribePart": "Subscribe to part first",
     "firstLabel": "{prefix}First",
     "latestLabel": "{prefix}Latest",
+    "modeAria": "How to subscribe to season {season}",
+    "modeFirst": "First N",
+    "modeFrom": "From episode N",
+    "fromLabel": "{prefix}From episode",
     "inputAria": "Episodes to subscribe first in season {season}",
     "suffixTotal": "episodes · {count, plural, one {# episode} other {# episodes}} in this season",
     "suffixAired": "episodes · {count, number} aired in this season",
+    "suffixFrom": "on · {count, plural, one {# episode} other {# episodes}} in this season",
+    "fromSummary": "Episodes {start, number}–{total, number} are subscribed; the first {before, plural, one {# episode isn’t} other {# episodes aren’t}} searched or downloaded.",
     "all": "All",
     "saveFailed": "Couldn’t save. Try again later.",
     "stepEarlier": "Add {count, plural, one {# earlier episode} other {# earlier episodes}}",
@@ -898,10 +905,13 @@
     "doneAll": "Subscribed to all {count, plural, one {# episode} other {# episodes}} of {season}",
     "bannerLatest": "Latest {count, plural, one {# episode} other {# episodes}} subscribed",
     "bannerUntil": "Subscribed through episode {episode, number}",
+    "bannerFrom": "Subscribed from episode {start, number}",
     "bannerLatestBody": "{season} is subscribed from episode {start, number} to the latest; new episodes are added as they air. Earlier episodes aren’t subscribed and won’t be downloaded.",
     "bannerUntilBody": "{season} has {total, plural, one {# episode} other {# episodes}}; only the first {count, number} are subscribed. The rest won’t be searched or downloaded.",
+    "bannerFromBody": "{season} has {total, plural, one {# episode} other {# episodes}}; only episodes {start, number}–{total, number} are subscribed. The first {before, plural, one {# episode isn’t} other {# episodes aren’t}} searched or downloaded.",
     "subscribeAll": "Subscribe to all",
     "rangeLatest": "{name} (latest {count, plural, one {# episode} other {# episodes}})",
-    "rangeFirst": "{name} (first {count, plural, one {# episode} other {# episodes}})"
+    "rangeFirst": "{name} (first {count, plural, one {# episode} other {# episodes}})",
+    "rangeFrom": "{name} (from episode {start, number})"
   }
 }

@@ -17,6 +17,9 @@
    订阅只展开第 101～120 集的工单；横幅「已订阅最新 20 集」，「往前再订 20 集」
    补到 81，「订阅全部」清掉窗口；
 9. 手机尺寸：详情页横幅与「调整订阅」抽屉里的窗口行。
+
+另一条路径（issue #950，``test_start_episode_user_journey``）：老剧中途上车，
+完结季「从第 N 集起」，前面的集不搜索、不下载；调整订阅里短季也能设。
 """
 
 import os
@@ -166,7 +169,7 @@ def test_episode_cap_user_journey(stack):
         assert _in_scope(detail) == list(range(1, 21))
         assert detail["progress"]["total"] == 20
         assert detail["episode_windows"] == [
-            {"season_number": 1, "start": 1, "end": 20, "total": 120}
+            {"season_number": 1, "start": 1, "end": 20, "total": 120, "airing": False}
         ]
         assert detail["status"] == "active"
 
@@ -194,7 +197,7 @@ def test_episode_cap_user_journey(stack):
         assert all(wanted[n]["status"] == "imported" for n in range(1, 21))  # 已入库的原样保留
         assert all(wanted[n]["status"] == "wanted" for n in range(21, 41))
         assert detail["episode_windows"] == [
-            {"season_number": 1, "start": 1, "end": 40, "total": 120}
+            {"season_number": 1, "start": 1, "end": 40, "total": 120, "airing": False}
         ]
 
         # —— 5. 调整订阅里把集数改成 60（只改了窗口，库与季都不动） ——
@@ -250,7 +253,7 @@ def test_episode_cap_user_journey(stack):
         assert detail["follow_future"] is True
         assert _in_scope(detail) == list(range(101, 121))
         assert detail["episode_windows"] == [
-            {"season_number": 1, "start": 101, "end": None, "total": 120}
+            {"season_number": 1, "start": 101, "end": None, "total": 120, "airing": True}
         ]
 
         page.goto(f"{base}/subscriptions/{sub_id}")
@@ -265,7 +268,7 @@ def test_episode_cap_user_journey(stack):
             what="往前再订后追踪 E81～E120",
         )
         assert _detail(context, base, sub_id)["episode_windows"] == [
-            {"season_number": 1, "start": 81, "end": None, "total": 120}
+            {"season_number": 1, "start": 81, "end": None, "total": 120, "airing": True}
         ]
         page.get_by_role("button", name="订阅全部", exact=True).click()
         page.get_by_text("已订阅第 1 季全部 120 集", exact=True).wait_for()
@@ -281,6 +284,149 @@ def test_episode_cap_user_journey(stack):
         page.get_by_role("button", name="调整订阅", exact=True).click()
         assert cap_field.input_value() == "20"
         settled_screenshot(page, root / "9-adjust-sheet-mobile.png")
+
+        assert not errors, errors
+        browser.close()
+
+
+def _season_scope(detail, season):
+    return sorted(w["episode_number"] for w in detail["wanted"] if w["season_number"] == season)
+
+
+def test_start_episode_user_journey(stack):
+    """《中途上车动画》（完结，第 1 季 200 集、第 2 季 24 集）：
+
+    1. 订阅弹层：第 1 季切到「从第 N 集起」填 120，说明前 119 集不搜索不下载；
+       第 2 季不到 100 集，创建时没有选项；订阅后第 1 季只展开 E120～E200；
+    2. 详情页：横幅「已从第 120 集起订阅」、收录范围「第 1 季（第 120 集起）」，
+       完结季不说「最新」「之后播出的新集」；
+    3. 「往前再订 20 集」：start → 100，已有工单原样保留；
+    4. 调整订阅：第 2 季（24 集）也能「先订阅一部分」，切到「从第 N 集起」填 10；
+    5. 全部入库：订阅仍在订阅中，媒体页状态行「已从第 100 集起订阅 · 可以往前补」；
+    6. 手机尺寸：调整订阅抽屉里的切换与说明。
+    """
+    base, api, root = stack
+    with pw.sync_playwright() as playwright:
+        options = (
+            {"channel": "chrome"}
+            if Path("/Applications/Google Chrome.app").exists()
+            else _chromium_kwargs()
+        )
+        browser = playwright.chromium.launch(headless=True, **options)
+        context = browser.new_context(viewport={"width": 1440, "height": 1000})
+        login = context.request.post(f"{base}/api/v1/auth/login", data=ADMIN)
+        if login.status != 200:
+            assert context.request.post(f"{base}/api/v1/auth/bootstrap", data=ADMIN).status == 200
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        s1_field = page.get_by_label("第 1 季先订阅的集数", exact=True)
+        s2_field = page.get_by_label("第 2 季先订阅的集数", exact=True)
+
+        # —— 1. 订阅弹层：第 1 季从第 120 集起 ——
+        page.goto(f"{base}/media/tv/1046")
+        page.get_by_role("button", name="订阅追踪", exact=True).click()
+        # 单独跑本用例时还没保存过智能选择：首次订阅先确认一次
+        smart_save = page.get_by_role("region", name="智能选择").get_by_role(
+            "button", name="保存设置", exact=True
+        )
+        s1_field.or_(smart_save).first.wait_for()
+        if smart_save.is_visible():
+            smart_save.click()
+        s1_field.wait_for()
+        assert s1_field.input_value() == "20"  # 默认仍是前 20 集
+        assert s2_field.count() == 0  # 短季创建时不多一行
+        modes = page.get_by_role("group", name="第 1 季的订阅方式")
+        assert modes.get_by_role("button", name="前 N 集").get_attribute("aria-pressed") == "true"
+        modes.get_by_role("button", name="从第 N 集起").click()
+        assert s1_field.input_value() == "20"  # 切换沿用输入框里的数
+        s1_field.fill("120")
+        s1_field.press("Enter")
+        page.get_by_text(
+            "订阅第 120–200 集；前 119 集不会搜索，也不会下载。", exact=True
+        ).wait_for()
+        settled_screenshot(page, root / "10-subscribe-from-desktop.png")
+        page.get_by_role("button", name="确认订阅", exact=True).click()
+        page.get_by_role("region", name="追踪范围").wait_for(state="detached")
+
+        sub = _wait_for(
+            lambda: next(
+                (row for row in _subscriptions(context, base) if row["media"]["tmdb_id"] == 1046),
+                None,
+            ),
+            timeout=10,
+            what="订阅创建完成",
+        )
+        sub_id = sub["id"]
+        detail = _detail(context, base, sub_id)
+        assert _season_scope(detail, 1) == list(range(120, 201))
+        assert _season_scope(detail, 2) == list(range(1, 25))
+        assert detail["episode_windows"] == [
+            {"season_number": 1, "start": 120, "end": None, "total": 200, "airing": False}
+        ]
+        assert detail["progress"]["total"] == 81 + 24
+
+        # —— 2. 详情页：完结季说「从第 120 集起」 ——
+        page.goto(f"{base}/subscriptions/{sub_id}")
+        page.get_by_text("已从第 120 集起订阅", exact=True).wait_for()
+        page.get_by_text(
+            "第 1 季共 200 集，只订阅第 120–200 集；前 119 集不会搜索，也不会下载。", exact=True
+        ).wait_for()
+        page.get_by_text("第 1 季（第 120 集起）、第 2 季", exact=True).wait_for()
+        assert page.get_by_text("已订阅最新", exact=False).count() == 0
+        assert page.get_by_text("之后播出的新集", exact=False).count() == 0
+        settled_screenshot(page, root / "11-from-banner-desktop.png", full_page=True)
+
+        # —— 3. 往前再订 20 集 ——
+        page.get_by_role("button", name="往前再订 20 集", exact=True).click()
+        page.get_by_text("已往前订到第 100 集", exact=True).wait_for()
+        _wait_for(
+            lambda: _season_scope(_detail(context, base, sub_id), 1) == list(range(100, 201)),
+            timeout=10,
+            what="往前再订后追踪 E100～E200",
+        )
+        page.get_by_text("已从第 100 集起订阅", exact=True).wait_for()
+
+        # —— 4. 调整订阅：短季也能从第 N 集起 ——
+        page.reload()
+        page.get_by_role("button", name="更多", exact=True).first.click()
+        page.get_by_role("menuitem", name="调整订阅…").click()
+        assert s1_field.input_value() == "100"
+        page.get_by_text("订阅整季 24 集", exact=True).wait_for()
+        page.get_by_role("button", name="先订阅一部分", exact=True).click()
+        pw.expect(s2_field).to_have_value("20")
+        page.get_by_role("group", name="第 2 季的订阅方式").get_by_role(
+            "button", name="从第 N 集起"
+        ).click()
+        s2_field.fill("10")
+        s2_field.press("Enter")
+        page.get_by_text("订阅第 10–24 集；前 9 集不会搜索，也不会下载。", exact=True).wait_for()
+        settled_screenshot(page, root / "12-adjust-from-desktop.png")
+        page.get_by_role("button", name="保存调整", exact=True).click()
+        page.get_by_text("订阅已调整", exact=True).wait_for()
+        detail = _detail(context, base, sub_id)
+        assert detail["episode_windows"] == [
+            {"season_number": 1, "start": 100, "end": None, "total": 200, "airing": False},
+            {"season_number": 2, "start": 10, "end": None, "total": 24, "airing": False},
+        ]
+        assert _season_scope(detail, 1) == list(range(100, 201))
+        assert _season_scope(detail, 2) == list(range(10, 25))
+
+        # —— 5. 全部入库：仍在订阅中，状态行可往前补 ——
+        imported = context.request.post(f"{api}/__lab/import-all/{sub_id}")
+        assert imported.json()["status"] == "active", imported.text()
+        page.goto(f"{base}/media/tv/1046")
+        page.get_by_text("已从第 100 集起订阅 · 可以往前补", exact=True).wait_for()
+
+        # —— 6. 手机尺寸：调整订阅抽屉 ——
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.goto(f"{base}/subscriptions/{sub_id}")
+        page.get_by_text("已从第 100 集起订阅", exact=True).wait_for()
+        page.get_by_role("button", name="更多", exact=True).last.click()
+        page.get_by_role("button", name="调整订阅", exact=True).click()
+        assert s1_field.input_value() == "100"
+        assert s2_field.input_value() == "10"
+        settled_screenshot(page, root / "13-adjust-from-mobile.png")
 
         assert not errors, errors
         browser.close()

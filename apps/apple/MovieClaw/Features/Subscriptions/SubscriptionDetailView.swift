@@ -295,6 +295,10 @@ struct SubscriptionDetailView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("subscription-facts")
 
+            ForEach(SubsFormat.fromWindowNotes(detail.episodeWindows), id: \.self) { note in
+                Text(note).font(.caption).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+            }
+
             ProgressStrip(progress: detail.progress, isMovie: isMovie)
 
             actions(detail)

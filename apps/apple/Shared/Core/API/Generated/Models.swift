@@ -4011,6 +4011,26 @@ nonisolated extension API {
         }
     }
 
+    struct EpisodeWindowView: Codable, Hashable, Sendable {
+        var seasonNumber: Int
+        /// 从第几集起（含）
+        var start: Int
+        /// 订阅到第几集（含）；null=不设上界，新集照常纳入
+        var end: Int?
+        /// 本季已录集数（TMDB 最大集号与集数下限取大）
+        var total: Int
+        /// 这一季是否在播（剧还在播且是最近开播的季）；end 为 null 时在播读作「最新 N 集」，完结读作「从第 N 集起」。旧服务端没有
+        var airing: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case seasonNumber = "season_number"
+            case start
+            case end
+            case total
+            case airing
+        }
+    }
+
     struct EventCatalogEntry: Codable, Hashable, Sendable {
         var event: String
         var group: String
@@ -12988,6 +13008,8 @@ nonisolated extension API {
         var progress: API.ProgressView
         /// 剧集按季收录统计；电影或无需展示时为空
         var seasonCollection: [API.SeasonOverview]
+        /// 被订阅上限截断的季（订阅到第几集 / 本季共几集）；有内容时订阅不会判「已收齐」，用户可以继续订阅；没有上限或电影为 null
+        var episodeWindows: [API.EpisodeWindowView]?
         var createdAt: String
         var updatedAt: String
         var wanted: [API.WantedView]
@@ -13017,6 +13039,7 @@ nonisolated extension API {
             case libraryId = "library_id"
             case progress
             case seasonCollection = "season_collection"
+            case episodeWindows = "episode_windows"
             case createdAt = "created_at"
             case updatedAt = "updated_at"
             case wanted
@@ -13165,6 +13188,8 @@ nonisolated extension API {
         var progress: API.ProgressView
         /// 剧集按季收录统计；电影或无需展示时为空
         var seasonCollection: [API.SeasonOverview]
+        /// 被订阅上限截断的季（订阅到第几集 / 本季共几集）；有内容时订阅不会判「已收齐」，用户可以继续订阅；没有上限或电影为 null
+        var episodeWindows: [API.EpisodeWindowView]?
         var createdAt: String
         var updatedAt: String
 
@@ -13181,6 +13206,7 @@ nonisolated extension API {
             case libraryId = "library_id"
             case progress
             case seasonCollection = "season_collection"
+            case episodeWindows = "episode_windows"
             case createdAt = "created_at"
             case updatedAt = "updated_at"
         }

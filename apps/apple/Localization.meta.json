@@ -15683,6 +15683,13 @@
         "seasons"
       ]
     },
+    "subscription.window.fromNote": {
+      "sourceHash": "016807d83e7d11254aaac4cfbd3ab6183fde714ac54f00c8fc1a72b45ba4cee5",
+      "parameters": [
+        "season",
+        "start"
+      ]
+    },
     "subscription.collection.allSeasons": {
       "sourceHash": "bc824ee195372a17b034345a8901bf45635582300f0cf1252736dbf10976abae",
       "parameters": [

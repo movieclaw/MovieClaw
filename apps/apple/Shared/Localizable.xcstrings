@@ -102938,6 +102938,30 @@
         }
       }
     },
+    "subscription.window.fromNote": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@从第 %2$lld 集起订阅，之前的集不会搜索也不会下载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@从第 %2$lld 集起订阅，之前的集不会搜索也不会下载。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is subscribed from episode %2$lld; earlier episodes won’t be searched or downloaded."
+          }
+        }
+      }
+    },
     "subscription.collection.allSeasons": {
       "extractionState": "manual",
       "generatesSymbol": true,

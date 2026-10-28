@@ -26,6 +26,20 @@ data class SeasonOverview(
     val ownedCount: Int = 0,
 )
 
+/**
+ * 被订阅窗口截断的一季：从第 [start] 集起到 [end]（null = 不设上界），本季已录 [total] 集。
+ * [airing] 是服务端判的「这一季在播」：不设上界时在播读作「最新 N 集」，完结读作「从第 N 集起」
+ * （issue #950）；旧服务端没有，按旧读法当在播。
+ */
+@Serializable
+data class EpisodeWindowView(
+    val seasonNumber: Int = 0,
+    val start: Int = 1,
+    val end: Int? = null,
+    val total: Int = 0,
+    val airing: Boolean? = null,
+)
+
 /** POST /subscriptions/title-preview 的结果 */
 @Serializable
 data class PrepareView(
@@ -275,6 +289,8 @@ data class SubscriptionView(
     val libraryId: Long? = null,
     val progress: ProgressView = ProgressView(),
     val seasonCollection: List<SeasonOverview> = emptyList(),
+    /** 被订阅窗口截断的季；没有窗口为 null（旧服务端也没有） */
+    val episodeWindows: List<EpisodeWindowView>? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null,
     /** 详情接口附带：追踪工单明细（列表接口为空数组） */

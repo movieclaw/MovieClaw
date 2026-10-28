@@ -595,6 +595,13 @@ class EpisodeWindowView(BaseModel):
     start: int = Field(description="从第几集起（含）")
     end: int | None = Field(description="订阅到第几集（含）；null=不设上界，新集照常纳入")
     total: int = Field(description="本季已录集数（TMDB 最大集号与集数下限取大）")
+    airing: bool | None = Field(
+        default=None,
+        description=(
+            "这一季是否在播（剧还在播且是最近开播的季）；end 为 null 时在播读作"
+            "「最新 N 集」，完结读作「从第 N 集起」。旧服务端没有"
+        ),
+    )
 
 
 class SubscriptionView(BaseModel):

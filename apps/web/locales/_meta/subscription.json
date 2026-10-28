@@ -2480,6 +2480,9 @@
   "progress.untilWindow": {
     "sourceHash": "7d3ca7949b370b627bf031284ef521ef728a2fa69ab59773c990f4a54b52c34d"
   },
+  "progress.fromWindow": {
+    "sourceHash": "a78b5b36e645b7dd9f8dccbc0478765bb85912cc7e48e27e67834c4dd1e0b3e1"
+  },
   "feed.canContinue": {
     "sourceHash": "42a3ecb9a89761c229aa94218f0698f342d0b566191c610ce4b36b4015ab298b"
   },
@@ -2495,6 +2498,18 @@
   "cap.latestLabel": {
     "sourceHash": "dcf4cac10a8dbf4539dce9e254ee439ab2ef68b967f0b4ed83fd30373740a4e4"
   },
+  "cap.modeAria": {
+    "sourceHash": "48dd034ab58dda3bb51fae28801c046ff7d39fe79eb82062483efaebb7f33316"
+  },
+  "cap.modeFirst": {
+    "sourceHash": "798ce2e4c4de6909ee22d1e9df0100750a74503e9c22c15e51b18208ac4c4e9f"
+  },
+  "cap.modeFrom": {
+    "sourceHash": "386100290c37ad44bf608309973476476a09d2b5a3ca929744145cbfe1019c87"
+  },
+  "cap.fromLabel": {
+    "sourceHash": "29f75a50a4a51474a4893dc7c094c452daf187080af7e74d6ac467dc3a64d6b1"
+  },
   "cap.inputAria": {
     "sourceHash": "77c71011b31f2171a7a81fb819aa7181d7e28c4396d6ee565f187e0a5ca26162"
   },
@@ -2503,6 +2518,12 @@
   },
   "cap.suffixAired": {
     "sourceHash": "098c92475f7c57aeced13331547af3cec0535e4d998c31587d9cdf732638d66d"
+  },
+  "cap.suffixFrom": {
+    "sourceHash": "ad352358d67082a0a7f928a34f8661935d7413b769507ef08caf66f8f8c32cfa"
+  },
+  "cap.fromSummary": {
+    "sourceHash": "5ebd520fdbe54b04f8876829a4c91351ebc5eceef6ccc6685374467cfd5f540f"
   },
   "cap.all": {
     "sourceHash": "5c55a67935af8f4508ba05d6d81c9eb240a2ea0ba886d8428b985e305470da3f"
@@ -2537,11 +2558,17 @@
   "cap.bannerUntil": {
     "sourceHash": "19cb470f84c806bbeeebacbeff5a1a4a2188b2552ae0eb572a8d927ccb56e714"
   },
+  "cap.bannerFrom": {
+    "sourceHash": "a990054cd1a1b3d812c9e66b4859f68580889f45ea92ed2fe182c0268656e9c7"
+  },
   "cap.bannerLatestBody": {
     "sourceHash": "83ec1ab7172298f4d65742394bae6ce09e0dbe4f1e8c249db55b8485b426f3a8"
   },
   "cap.bannerUntilBody": {
     "sourceHash": "869d09f52c60cea17d176fb8e628523ea895f4d344b6bebd3b804809aa0b3049"
+  },
+  "cap.bannerFromBody": {
+    "sourceHash": "a788509a3c90307a75a928ca37f7b5ec7e79c2ec763f108909161d6ecb1feccc"
   },
   "cap.subscribeAll": {
     "sourceHash": "3e94db0e7f34956c0a3a85f048782c76171252e27081c161623d8f086700ef99"
@@ -2551,5 +2578,8 @@
   },
   "cap.rangeFirst": {
     "sourceHash": "a56e70bc1b918b457ca197be02364c5d3becda6e5c80e86e838e1a9e653c7da4"
+  },
+  "cap.rangeFrom": {
+    "sourceHash": "c667ab735e16e81e7f1ead785b6aeb8bc2e7f2cba33bad1a3e3f98c956f400a3"
   }
 }

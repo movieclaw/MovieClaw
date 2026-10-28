@@ -1,6 +1,7 @@
 import { appTranslator } from "./i18n/translate.ts";
 import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
 import { formatDate } from "./i18n/format.ts";
+import { windowKindOf } from "./subscription-episode-cap.ts";
 import type { DownloadTask } from "@/lib/api/downloaders";
 import type {
   Subscription,
@@ -38,16 +39,22 @@ export function subscriptionProgressNote(sub: Subscription, locale: AppLocale = 
       return imported > 0 ? t("subscription.progress.imported") : inPipeline > 0 ? t("subscription.progress.arranging") : t("subscription.progress.collected");
     }
     if (inPipeline > 0) return t("subscription.progress.pipelineSummary", { count: inPipeline, imported });
-    // 订阅窗口截断了本季：等的是用户，不是片源。完结季「可继续」，在播季「可往前补」
+    // 订阅窗口截断了本季：等的是用户，不是片源。「前 N 集」可继续；在播季「最新 N 集」、
+    // 完结季「从第 N 集起」可往前补
     const win = sub.episode_windows?.[0];
     if (sub.status === "active" && win) {
       // 「最新 N 集」锚定已播集数（宣称的集数可能还没播到），拿不到退回窗口总集数
       const aired =
         sub.season_collection.find((s) => s.season_number === win.season_number)?.aired_count ??
         win.total;
-      return win.end === null
-        ? t("subscription.progress.latestWindow", { count: Math.max(1, aired - win.start + 1) })
-        : t("subscription.progress.untilWindow", { end: win.end });
+      switch (windowKindOf(win)) {
+        case "latest":
+          return t("subscription.progress.latestWindow", { count: Math.max(1, aired - win.start + 1) });
+        case "from":
+          return t("subscription.progress.fromWindow", { start: win.start });
+        default:
+          return t("subscription.progress.untilWindow", { end: win.end ?? 0 });
+      }
     }
     if (sub.status === "active") return t("subscription.progress.waiting");
     return imported > 0 ? t("subscription.progress.allImported", { count: total }) : t("subscription.progress.allScheduled", { count: total });
