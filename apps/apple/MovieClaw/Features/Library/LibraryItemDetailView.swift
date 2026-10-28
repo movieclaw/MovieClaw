@@ -1030,6 +1030,12 @@ struct LibraryItemDetailView: View {
                 }
             } else if !active.isEmpty {
                 Section {
+                    // 整部剧插队（§5.5）：还没下完的各集按季集排到最前
+                    if offlineStore.canPrioritize(itemId: itemId) {
+                        Button(String(localized: .offlinePrioritizeRemaining(active.count)), systemImage: "arrow.up.to.line") {
+                            OfflineDownloader.shared.prioritize(itemId: itemId)
+                        }
+                    }
                     if let activeSelected {
                         Button(String(localized: .libraryOfflineCancelSelected), systemImage: "xmark.circle") {
                             OfflineDownloader.shared.delete(fileId: activeSelected.fileId)
@@ -1720,6 +1726,9 @@ struct SeasonEpisodesSection: View {
     private func episodeMenu(_ season: Int, _ episode: API.EpisodeView) -> some View {
         let unit = offlineStore.unit(mediaItemId: detail.mediaItemId, season: season, episode: episode.episodeNumber)
         if let unit {
+            if unit.state != .done, offlineStore.canPrioritize(fileId: unit.fileId) {
+                Button(String(localized: .offlinePrioritize), systemImage: "arrow.up.to.line") { OfflineDownloader.shared.prioritize([unit.fileId]) }
+            }
             if unit.state == .queued || unit.state == .downloading {
                 Button(String(localized: .playerControlsPause), systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }
             }

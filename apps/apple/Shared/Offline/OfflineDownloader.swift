@@ -12,6 +12,8 @@ import UIKit
 /// - **鉴权**：请求头带这个账号的设备令牌（不过期），不用 12 小时有效的播放签名；切了账号，
 ///   别的账号的下载照常继续。
 /// - **准备**：视频之外的东西（清单、字幕、字体、图片、转码导出）要在线、在前台先拉好。
+/// - **顺序**（§5.5）：系统按任务交上去的先后开始、不认 `priority`（模拟器实测），所以任务一律按下载顺序交；
+///   换顺序就把任务取消（带续传数据）、按新顺序重交。只在前台做：后台新交的任务会被系统推迟。
 @MainActor
 final class OfflineDownloader {
     static let shared = OfflineDownloader()
@@ -57,8 +59,13 @@ final class OfflineDownloader {
     private var preparing: Int?
     private var reconcileTask: Task<Void, Never>?
     private var reconcileAgain = false
-    /// 正在暂停（取消任务、存续传数据）的单元：对账先跳过它们
+    /// 正在取消任务、存续传数据的单元（暂停、调顺序）：对账先跳过它们
     private var pausing: Set<Int> = []
+    /// 调顺序时重交任务（一次一轮，后一轮等前一轮取消完）
+    private var resequencing: Task<Void, Never>?
+    /// 趁排第一的重连空当先开始、被叫停的单元：等排第一的（`heldFor`）重新收到数据再交，不然交了又趁空当开始
+    private var heldBack: Set<Int> = []
+    private var heldFor: Int?
     /// 到点重试的定时（前台时；后台靠系统的定时开始）
     private var retryTimer: Task<Void, Never>?
 
@@ -77,8 +84,15 @@ final class OfflineDownloader {
         return tasks
     }
 
+    /// 开关「使用蜂窝网络下载」（设置菜单、「等待 Wi-Fi」提示里的按钮）
+    func setAllowCellular(_ value: Bool) {
+        guard value != store.allowCellular else { return }
+        store.setAllowCellular(value)
+        applyNetworkSettings()
+    }
+
     /// 改了「使用蜂窝网络下载」：进行中的任务带续传数据取消，对账时在对的会话里接着下
-    func applyNetworkSettings() {
+    private func applyNetworkSettings() {
         guard let key = store.key else { return }
         let other = OfflineSettings.allowCellular ? wifiSession : anySession
         Task {
@@ -211,7 +225,7 @@ final class OfflineDownloader {
             current.state = .queued
             current.error = nil
             store.upsert(current)
-            createTask(current, owner: owner)
+            // 视频任务由收尾的对账按下载顺序交（它可能要排在已交的任务前面）
             ServerReachability.shared.catalogChanged()
         } catch let error as APIError {
             guard store.key == owner.key else { return }
@@ -348,14 +362,99 @@ final class OfflineDownloader {
     }
 
     func resume(fileId: Int) {
-        guard var unit = store.units[fileId], unit.state == .paused || unit.state == .failed else { return }
+        guard restart(fileId) else { return }
+        reconcile(reason: "resume")
+    }
+
+    /// 暂停的、出错的回到队列（转码档还没建导出的回到准备）
+    @discardableResult
+    private func restart(_ fileId: Int) -> Bool {
+        guard var unit = store.units[fileId], unit.state == .paused || unit.state == .failed else { return false }
         unit.state = unit.profile != "original" && unit.exportId == nil ? .preparing : .queued
         unit.error = nil
         unit.transcodeWait = nil
         unit.retryable = true
         unit.nextRetryAt = nil
         store.upsert(unit)
-        reconcile(reason: "resume")
+        return true
+    }
+
+    // MARK: 下载顺序（§5.5）
+
+    /// 优先下载：这几个单元按给定顺序排到最前（整部剧 = 它还没下完的各集，按季集），暂停的、出错的顺带继续。
+    /// 排第一的能马上下就立刻开始：正在下的让路，已下的部分留着、排在它们后面。在等转码、还在准备的不打断正在下的
+    func prioritize(_ fileIds: [Int]) {
+        for fileId in fileIds {
+            guard let unit = store.units[fileId], unit.state == .paused || (unit.state == .failed && !unit.waitingForTranscode) else { continue }
+            restart(fileId)
+        }
+        applyOrder(fileIds)
+    }
+
+    func prioritize(itemId: Int) {
+        prioritize(store.units(ofItem: itemId).filter(\.isActive).map(\.fileId))
+    }
+
+    /// 排序模式拖完：进行中的单元按这个顺序下（顺序就是优先级，排在最前、能下的那个在下）
+    func reorder(_ fileIds: [Int]) {
+        applyOrder(fileIds)
+    }
+
+    /// 重新编号；按新顺序排第一、能马上下的（排队或下载中，等转码、准备中的这会儿轮不上）不是正在下的那个，就让正在下的让路
+    private func applyOrder(_ fileIds: [Int]) {
+        store.renumberQueue(fileIds)
+        let head = store.units.values.filter { $0.state == .queued || $0.state == .downloading }.min(by: OfflineUnit.queuedBefore)
+        let running = store.units.values.first { $0.state == .downloading }
+        resequence(interrupt: head != nil && head?.fileId != running?.fileId)
+    }
+
+    /// 按下载顺序重交视频任务。`interrupt`：正在下的也取消（带续传数据），让排第一的立刻开始；否则只重交还没开始的。
+    /// 后台时不做（新交的任务会被系统推迟），留给回前台的对账
+    private func resequence(interrupt: Bool) {
+        guard UIApplication.shared.applicationState == .active else {
+            reconcile(reason: "order")
+            return
+        }
+        let previous = resequencing
+        resequencing = Task {
+            await previous?.value
+            guard let key = store.key else { return }
+            let ids = Set(store.units.values.filter { $0.state == .queued || $0.state == .downloading }.map(\.fileId))
+            pausing.formUnion(ids)
+            let targets = await allTasks().filter { task in
+                guard let tag = OfflineTaskTag(task.taskDescription), tag.owner == key, ids.contains(tag.file),
+                      task.state == .running else { return false }
+                return interrupt || !Self.started(task)
+            }
+            await cancelKeepingResumeData(targets, ownerKey: key)
+            pausing.subtract(ids)
+            // 用户刚定了新顺序：之前叫停、等着的一并按新顺序交
+            heldBack = []
+            heldFor = nil
+            reconcile(reason: "order")
+        }
+    }
+
+    /// 取消这些任务、续传数据落盘；被打断的回到排队（进度留着，收到数据再变回下载中）
+    private func cancelKeepingResumeData(_ tasks: [URLSessionTask], ownerKey: String) async {
+        for task in tasks {
+            guard let tag = OfflineTaskTag(task.taskDescription) else { continue }
+            if let download = task as? URLSessionDownloadTask, let data = await download.cancelByProducingResumeData() {
+                let file = OfflineDisk.resumeDataFile(ownerKey, tag.item, tag.file)
+                try? await OfflineDisk.perform { try data.write(to: file, options: .atomic) }
+            } else {
+                task.cancel()
+            }
+            if tag.owner == store.key, var unit = store.units[tag.file], unit.state == .downloading {
+                unit.state = .queued
+                store.upsert(unit)
+            }
+        }
+    }
+
+    /// 任务已经开始收数据；还在系统里排着的没开始
+    private nonisolated static func started(_ task: URLSessionTask) -> Bool {
+        task.countOfBytesReceived > 0 || task.response != nil
     }
 
     /// 删除本机副本（任意状态）：先取消任务，再删目录
@@ -407,30 +506,55 @@ final class OfflineDownloader {
         let online = !ServerReachability.shared.isOffline && ServerReachability.shared.status != .unreachable
         let now = Date()
         var nextWake: Date?
+        // 到点的失败回到队列（转码档还没建导出的回到准备），下面再按下载顺序交任务 / 准备
+        for unit in store.units.values where unit.state == .failed && unit.retryable && running[unit.fileId] == nil
+            && !pausing.contains(unit.fileId) {
+            if let at = unit.nextRetryAt, at > now {
+                nextWake = min(nextWake ?? at, at)
+                continue
+            }
+            var next = unit
+            next.state = unit.profile != "original" && unit.exportId == nil ? .preparing : .queued
+            store.upsert(next)
+        }
+        let ordered = store.units.values.sorted(by: OfflineUnit.queuedBefore).filter { !pausing.contains($0.fileId) }
+        let headIndex = ordered.firstIndex(where: { $0.state == .queued || $0.state == .downloading })
+        if headIndex.map({ ordered[$0].fileId }) != heldFor {
+            heldBack = []
+            heldFor = nil
+        }
+        // 前台时守住下载顺序：排第一、能下的（排队或下载中）是谁，就只让它在下。
+        // - 它这就要交任务（准备好了、到点重试、继续）：排在它后面已交、还没开始的取消，下一轮按顺序重交；正在下的不动；
+        // - 它正下着，排在它后面的却也在收数据（切网络时系统自己重连断掉的任务，空出来的那一下后面的先开始了，两个一起下）：
+        //   取消后面那个（带续传数据），等它重新收到数据再交到它后面
+        if UIApplication.shared.applicationState == .active, let first = headIndex {
+            let head = ordered[first]
+            let headTask = running[head.fileId]
+            let headStarted = headTask.map(Self.started) ?? false
+            let later = Set(ordered[(first + 1)...].map(\.fileId))
+            let jumped = running.filter { later.contains($0.key) && headStarted && Self.started($0.value) }
+            let behind = running.filter { later.contains($0.key) && headTask == nil && !Self.started($0.value) }
+            if !jumped.isEmpty {
+                heldBack.formUnion(jumped.keys)
+                heldFor = head.fileId
+            }
+            let cancel = Array(jumped.values) + Array(behind.values)
+            if !cancel.isEmpty {
+                await cancelKeepingResumeData(cancel, ownerKey: owner.key)
+                reconcileAgain = true
+                return
+            }
+        }
         // 下面都是同步的：用的是此刻的状态，不会拿着过期的快照去建任务
-        for unit in store.units.values.sorted(by: { $0.createdAt < $1.createdAt }) where !pausing.contains(unit.fileId) {
+        for unit in ordered {
             switch unit.state {
             case .preparing:
                 if online, preparing == nil { Task { await prepare(unit, manifest: nil, owner: owner) } }
             case .queued, .downloading:
-                if running[unit.fileId] == nil {
+                if running[unit.fileId] == nil, !heldBack.contains(unit.fileId) {
                     createTask(unit, owner: owner)
                 }
-            case .failed:
-                guard unit.retryable, running[unit.fileId] == nil else { continue }
-                if let at = unit.nextRetryAt, at > now {
-                    nextWake = min(nextWake ?? at, at)
-                    continue
-                }
-                var next = unit
-                next.state = unit.profile != "original" && unit.exportId == nil ? .preparing : .queued
-                store.upsert(next)
-                if next.state == .queued {
-                    createTask(next, owner: owner)
-                } else if online, preparing == nil {
-                    Task { await prepare(next, manifest: nil, owner: owner) }
-                }
-            case .paused, .done:
+            case .failed, .paused, .done:
                 break
             }
         }
@@ -512,7 +636,16 @@ final class OfflineDownloader {
 
     func progressed(tag: OfflineTaskTag, received: Int64, expected: Int64?) {
         guard tag.owner == store.key else { return }
+        let starting = store.units[tag.file]?.state == .queued
         store.updateReceived(fileId: tag.file, received: received, expected: expected)
+        // 一个任务开始收数据：核对是不是轮到它（见对账里的「守住下载顺序」）。排第一的重新收到数据：被叫停的可以交了
+        if tag.file == heldFor {
+            heldBack = []
+            heldFor = nil
+            reconcile(reason: "head-resumed")
+        } else if starting {
+            reconcile(reason: "started")
+        }
     }
 
     /// 排队转码时界面上的一句话（服务端 503 的 x-export-wait / x-export-ahead；旧服务端没有，就只说在排队）
@@ -660,19 +793,21 @@ nonisolated final class OfflineSessionDelegate: NSObject, URLSessionDownloadDele
         lock.withLock { _ = lastProgress.removeValue(forKey: tag.file) }
         guard let error else { return }
         let nsError = error as NSError
+        let urlError = error as? URLError
+        // 我们自己取消的（暂停、调顺序、删除）：续传数据由取消的一方存好了。这里再写一次，可能在新任务读走、
+        // 删掉之后又写回一份旧的
+        if urlError?.code == .cancelled,
+           (nsError.userInfo[NSURLErrorBackgroundTaskCancelledReasonKey] as? Int) == nil {
+            return
+        }
         if let resume = nsError.userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
-            // 能续传：留着续传数据，重试时接着下（暂停时由 pause 自己存）
+            // 能续传：留着续传数据，重试时接着下
             let file = OfflineDisk.resumeDataFile(tag.owner, tag.item, tag.file)
             if FileManager.default.fileExists(atPath: file.deletingLastPathComponent().path) {
                 try? resume.write(to: file, options: .atomic)
             }
         }
-        let urlError = error as? URLError
         guard !wasHandled else { return }
-        if urlError?.code == .cancelled,
-           (nsError.userInfo[NSURLErrorBackgroundTaskCancelledReasonKey] as? Int) == nil {
-            return
-        }
         let noSpace = urlError?.code == .cannotWriteToFile || nsError.code == NSFileWriteOutOfSpaceError
         Task { @MainActor in OfflineDownloader.shared.failedTransport(tag: tag, error: urlError, noSpace: noSpace) }
     }

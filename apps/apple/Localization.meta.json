@@ -1,5 +1,36 @@
 {
   "Shared/Localizable.xcstrings": {
+    "offline.waitingWifi": {
+      "sourceHash": "a6631e3c4b2772afa8f4a172cf5c775053d838620da75d8661174776980abcc8"
+    },
+    "offline.waitingWifiHint": {
+      "sourceHash": "558223ddd084127b8fc427e42bed81abc203df4f7fda53deffad61759189e84f"
+    },
+    "offline.prioritize": {
+      "sourceHash": "4b59ec432259331a56bf653fa01e5bd4de8d7309da2139f1409000cc938c1771"
+    },
+    "offline.prioritizeRemaining": {
+      "sourceHash": "a3e8e9c2fc6e5ea841d2e28b959e3cb5d0669bb88525117d9695738c03c42cae",
+      "parameters": [
+        "count"
+      ],
+      "pluralParameter": "count"
+    },
+    "offline.queueNext": {
+      "sourceHash": "9b481102830e7abc4670eef506261b6a3bf1624bcd13695ef1f948238cd89eb2"
+    },
+    "offline.queueAhead": {
+      "sourceHash": "e335cee4762207c5c4c8d9f32498b1e2939a0ac724e93312e45e037e0ab4014c",
+      "parameters": [
+        "count"
+      ]
+    },
+    "offline.queueWaitingAhead": {
+      "sourceHash": "d92f4762e81fe82caef41e6ee9dfcc2d878b92d6efe41bc51fab379b92cd4261",
+      "parameters": [
+        "count"
+      ]
+    },
     "settings.appearance.language": {
       "sourceHash": "9f6fee1aba17a56586bf16a77b07b1a76d8c4e867430c6ee6abfa3128b55fa98"
     },

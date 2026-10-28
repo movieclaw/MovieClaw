@@ -36,6 +36,9 @@ struct OfflineDownloadControl: View {
         let downloader = OfflineDownloader.shared
         Menu {
             // 只有操作：状态、进度、速度都在这条上
+            if unit.state != .done, store.canPrioritize(fileId: unit.fileId) {
+                Button(String(localized: .offlinePrioritize), systemImage: "arrow.up.to.line") { downloader.prioritize([unit.fileId]) }
+            }
             switch unit.state {
             case .done:
                 if !reachability.isOffline, permissions.canDownloadVideo, files.contains(where: { $0.id == unit.fileId }) {
@@ -84,9 +87,12 @@ struct OfflineDownloadStatusBar: View {
     var body: some View {
         let warning = unit.needsAttention
         let tint = warning ? Theme.warning : Theme.info
-        let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
+        let speed = unit.state == .downloading && !store.waitingForWiFi ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
+        // 排队时这条够宽，写全「等待下载，前面还有 N 个」
         let text = unit.state == .failed && !unit.waitingForTranscode
-            ? String(localized: .offlineTapToRetry(OfflineDownloadStrip.status(unit))) : OfflineDownloadStrip.status(unit)
+            ? String(localized: .offlineTapToRetry(OfflineDownloadStrip.status(unit)))
+            : unit.state == .queued ? OfflineUnitStatus.text(unit, ahead: store.queueAhead(of: unit.fileId), waitingForWiFi: store.waitingForWiFi)
+            : OfflineDownloadStrip.status(unit, waitingForWiFi: store.waitingForWiFi)
         HStack(spacing: 10) {
             icon(tint)
             Text(text).lineLimit(1)

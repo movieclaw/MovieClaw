@@ -74,6 +74,9 @@ nonisolated struct OfflineUnit: Codable, Sendable, Hashable, Identifiable {
     /// 服务器还在排队转码（导出接口回 503）时它说的在等什么：「等待转码，前面还有 2 个」/「等待转码器空闲」。
     /// 内部仍按失败到点重试走（后台会话的定时开始），界面当成正常排队显示，不写「下载中断」
     var transcodeWait: String?
+    /// 下载顺序（§5.5），越小越先下。没调过为空、按加入时间排；「优先下载」或排序模式拖完，
+    /// 进行中的单元整体重新编号 0、1、2…，之后新加的按加入时间排在它们后面
+    var queueOrder: Double?
 
     var id: Int { fileId }
     var unitKey: String { "\(season)-\(episode)" }
@@ -84,11 +87,73 @@ nonisolated struct OfflineUnit: Codable, Sendable, Hashable, Identifiable {
     /// 界面上要用警告色、写「重试」的：真失败（排队转码不算）或文件损坏
     var needsAttention: Bool { (state == .failed && !waitingForTranscode) || damaged }
     var isActive: Bool { state != .done }
+    /// 在下载队列里、迟早会轮到它：准备、排队、下载中，以及会自动重试的失败（含等转码）。暂停、要人处理的失败不算
+    var inQueue: Bool {
+        switch state {
+        case .preparing, .queued, .downloading: true
+        case .failed: retryable
+        case .paused, .done: false
+        }
+    }
     var mediaFileName: String { "media.\(fileExtension)" }
+
+    /// 下载顺序：调过的按编号，没调过的按加入时间（Unix 秒，远大于编号，自然排在调过的后面）；同键按季集、文件号
+    static func queuedBefore(_ a: OfflineUnit, _ b: OfflineUnit) -> Bool {
+        let keyA = a.queueOrder ?? a.createdAt.timeIntervalSince1970
+        let keyB = b.queueOrder ?? b.createdAt.timeIntervalSince1970
+        return (keyA, a.createdAt, a.season, a.episode, a.fileId) < (keyB, b.createdAt, b.season, b.episode, b.fileId)
+    }
 
     var progressFraction: Double {
         guard expectedBytes > 0 else { return 0 }
         return min(1, Double(receivedBytes) / Double(expectedBytes))
+    }
+}
+
+/// 下载顺序（§5.5）的纯逻辑：进行中的单元排成一队，顺序就是优先级
+nonisolated enum OfflineQueue {
+    struct Entry: Hashable, Sendable {
+        let fileId: Int
+        let mediaItemId: Int
+        /// 迟早会轮到它（暂停、要人处理的失败不算）
+        let inQueue: Bool
+    }
+
+    /// 进行中的单元（含暂停、失败）：正在下的排最前（它确实在别人前面，比如继续下载的那集排在它前面、但不打断它），
+    /// 其余按下载顺序
+    static func entries(_ units: some Sequence<OfflineUnit>) -> [Entry] {
+        units.filter(\.isActive)
+            .sorted { a, b in
+                (a.state == .downloading) != (b.state == .downloading) ? a.state == .downloading : OfflineUnit.queuedBefore(a, b)
+            }
+            .map { Entry(fileId: $0.fileId, mediaItemId: $0.mediaItemId, inQueue: $0.inQueue) }
+    }
+
+    /// 排在它前面、还会轮到的有几个
+    static func ahead(of fileId: Int, in queue: [Entry]) -> Int {
+        guard let index = queue.firstIndex(where: { $0.fileId == fileId }) else { return 0 }
+        return queue[..<index].count(where: \.inQueue)
+    }
+
+    /// 「优先下载」有没有意义：已经排在最前、正在轮到它的不用；暂停、出错的能（优先顺带继续）
+    static func canPrioritize(fileId: Int, in queue: [Entry]) -> Bool {
+        guard let entry = queue.first(where: { $0.fileId == fileId }) else { return false }
+        return !entry.inQueue || ahead(of: fileId, in: queue) > 0
+    }
+
+    /// 整部剧「优先下载」有没有意义：别的条目有排在它某一集前面的
+    static func canPrioritize(itemId: Int, in queue: [Entry]) -> Bool {
+        guard let firstOther = queue.firstIndex(where: { $0.mediaItemId != itemId && $0.inQueue }),
+              let lastMine = queue.lastIndex(where: { $0.mediaItemId == itemId }) else { return false }
+        return firstOther < lastMine
+    }
+
+    /// 新顺序：给定的（去重、只认队里的）排最前，其余的接在后面、保持原来的先后
+    static func order(front fileIds: [Int], in queue: [Entry]) -> [Int] {
+        let known = Set(queue.map(\.fileId))
+        var seen = Set<Int>()
+        let listed = fileIds.filter { known.contains($0) && seen.insert($0).inserted }
+        return listed + queue.map(\.fileId).filter { !seen.contains($0) }
     }
 }
 
