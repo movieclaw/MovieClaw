@@ -524,6 +524,12 @@ class HlsEngine implements PlaybackEngine {
   /** 解码错误自救阶梯的进度（时刻），语义见 media-recover.ts */
   private readonly mediaRecover: MediaRecoverState = { lastRecoverAt: null, lastSwapAt: null };
   /**
+   * 已经拆了。`attach()` 要先等 hls.js 的动态导入，等的途中被拆（刷片快速翻页、换筛选）时 `destroy()` 还没有
+   * hls 实例可拆；导入回来不能再挂上去——同一个 `<video>` 已经交给下一个引擎，两个 MediaSource 抢一个元素，
+   * 后来的那个永远等不到 sourceopen、一片都不取（2026-10-29 网页片段页实测）
+   */
+  private destroyed = false;
+  /**
    * `<video>` 元素自己报的错（hls.js 不一定转成它的 MEDIA_ERROR）。2026-10-01 实测：Mac 上 Chrome 的
    * VideoToolbox 硬解碰到蓝光 remux 里的坏数据报 -12909，元素报 MEDIA_ERR_DECODE 后暂停；hls.js
    * 一声不吭，卡顿看门狗又把「已暂停」当成用户自己停的——画面就此静默卡死，既不报错也不恢复。
@@ -544,6 +550,7 @@ class HlsEngine implements PlaybackEngine {
     const { video, streamUrl, onFailed } = this.options;
     this.stopTimingBufferGuard = guardResourceTimingBuffer();
     const { default: HlsCtor } = await import("hls.js");
+    if (this.destroyed) return;
     this.hls = new HlsCtor({
       // 已播缓冲回收：先按「码率未知」的上限给，拿到真实码率后立刻收紧
       // （见 backBufferSeconds 与下面的 LEVEL_LOADED）
@@ -741,6 +748,7 @@ class HlsEngine implements PlaybackEngine {
   }
 
   destroy(): void {
+    this.destroyed = true;
     this.options.video.removeEventListener("error", this.onVideoError);
     this.stopStallWatch?.();
     this.stopStallWatch = null;

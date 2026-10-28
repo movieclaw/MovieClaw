@@ -1675,6 +1675,26 @@
     "pullHint": "Keep pulling to start watching clips",
     "releaseHint": "Release to start watching",
     "tipTitle": "Pull down to watch clips",
-    "tipMessage": "Keep pulling down here. When the film strip locks into the gate, let go to start watching clips."
+    "tipMessage": "Keep pulling down here. When the film strip locks into the gate, let go to start watching clips.",
+    "filterLabel": "Filter: {value}",
+    "filterCount": "{count, plural, one {# filter} other {# filters}}",
+    "filterTotal": "{count, plural, one {# title matches} other {# titles match}}",
+    "filterKinds": "Movies / Series",
+    "filterNothing": "Nothing to choose in your library",
+    "noneForFilters": "No clips match these filters yet",
+    "notWatched": "Not watched",
+    "watched": "Watched",
+    "watchedPercent": "{percent}% watched",
+    "played": "Watched",
+    "original": "Original",
+    "originalHint": "No limit; plays the original file whenever possible",
+    "qualityValue": "Quality: {value}",
+    "fallbackOriginal": "{reason}; playing the original for this clip",
+    "transcodeFull": "All of the server’s transcoding slots are in use",
+    "transcodeFailed": "Transcoding did not start",
+    "softwareTranscodeOff": "Software transcoding is off on the server",
+    "cannotTranscode": "The server cannot transcode this clip",
+    "shareTitle": "{name}",
+    "shareTitleYear": "{name} ({year})"
   }
 }

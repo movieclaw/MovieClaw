@@ -1675,6 +1675,26 @@
     "pullHint": "再拉一点，开始欣赏片段",
     "releaseHint": "松手，开始欣赏",
     "tipTitle": "下拉，开始欣赏片段",
-    "tipMessage": "在这里一直往下拉，胶片走起来、片门合上时松手，就能开始欣赏片段。"
+    "tipMessage": "在这里一直往下拉，胶片走起来、片门合上时松手，就能开始欣赏片段。",
+    "filterLabel": "筛选：{value}",
+    "filterCount": "已筛选 {count} 项",
+    "filterTotal": "当前条件下共 {count} 部",
+    "filterKinds": "电影 / 剧集",
+    "filterNothing": "片库里没有可选的",
+    "noneForFilters": "这些条件下还没有能刷的片子",
+    "notWatched": "没看过",
+    "watched": "已看过",
+    "watchedPercent": "看到 {percent}%",
+    "played": "已看",
+    "original": "原画",
+    "originalHint": "不限画质，能直出原文件就直出",
+    "qualityValue": "画质：{value}",
+    "fallbackOriginal": "{reason}，这一条先放原画",
+    "transcodeFull": "服务器同时转码的路数满了",
+    "transcodeFailed": "转码没开起来",
+    "softwareTranscodeOff": "服务端没开启软件转码",
+    "cannotTranscode": "服务端没法转这一条",
+    "shareTitle": "《{name}》",
+    "shareTitleYear": "《{name}》（{year}）"
   }
 }
