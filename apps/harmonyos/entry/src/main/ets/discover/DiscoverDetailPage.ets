@@ -77,6 +77,9 @@ export struct DiscoverDetailPage {
   @State private overviewExpanded: boolean = false;
   @State private refreshing: boolean = false;
   @State private heroHeight: number = 320;
+  // 顶栏底色：初始透明浮在 Hero 剧照上，一滚动就压上实底——不然下滑时内容会从透明的顶栏文字后面穿过
+  @State private chromeRaised: boolean = false;
+  private scroller: Scroller = new Scroller();
 
   private permissions(): Permissions {
     return Permissions.fromSession(AppModel.shared.session);
@@ -249,10 +252,6 @@ export struct DiscoverDetailPage {
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
-        // 自绘顶栏：原生标题栏在沉浸式布局下不避让状态栏（会压住时钟、返回键上半截点不动）
-        PageTopBar({ title: this.detail !== null ? this.detail.title.title : '', onBack: (): void => {
-          this.navStack.pop();
-        }})
         if (this.failed) {
           this.FailedState()
         } else if (this.detail === null) {
@@ -260,6 +259,18 @@ export struct DiscoverDetailPage {
         } else {
           this.Content(this.detail as DiscoveredTitleDetailsView)
         }
+        // 自绘顶栏：原生标题栏在沉浸式布局下不避让状态栏（会压住时钟、返回键上半截点不动）。
+        // 必须声明在内容之后：Stack 后写的子节点画在上层——顶栏写在前面会被 Hero 满幅剧照
+        // 整张盖住，返回键和标题既看不见也点不动（2026-10-28 模拟器 dump 证实）。
+        // 底色随滚动切换（onDidScroll 置 chromeRaised）：静止时透明沉浸，滚动后压上实底遮住穿过的内容。
+        Column() {
+          PageTopBar({ title: this.detail !== null ? this.detail.title.title : '', onBack: (): void => {
+            this.navStack.pop();
+          }})
+        }
+        .width('100%')
+        .backgroundColor(this.chromeRaised ? Theme.bg : 'transparent')
+        .animation({ duration: 150 })
       }
       .width('100%')
       .height('100%')
@@ -345,7 +356,7 @@ export struct DiscoverDetailPage {
   @Builder
   Content(detail: DiscoveredTitleDetailsView) {
     Refresh({ refreshing: $$this.refreshing }) {
-      Scroll() {
+      Scroll(this.scroller) {
         Column({ space: 0 }) {
           this.Hero()
           this.Header(detail)
@@ -384,6 +395,12 @@ export struct DiscoverDetailPage {
       .height('100%')
       .edgeEffect(EdgeEffect.None)
       .padding({ bottom: Theme.tabBarInset })
+      .onDidScroll(() => {
+        const raised: boolean = this.scroller.currentOffset().yOffset > 24;
+        if (raised !== this.chromeRaised) {
+          this.chromeRaised = raised;
+        }
+      })
     }
     .onRefreshing(() => {
       this.load().then((): void => {
@@ -401,6 +418,12 @@ export struct DiscoverDetailPage {
       RemoteImage({ url: this.heroUrl() })
         .width('100%')
         .height('100%')
+      // 顶部一抹暗托住浮在剧照上的返回键/标题：沙丘这类高亮剧照也压得住
+      Column()
+        .width('100%')
+        .height('36%')
+        .position({ x: 0, y: 0 })
+        .linearGradient({ angle: 180, colors: [['rgba(0,0,0,0.6)', 0], ['rgba(0,0,0,0)', 1]] })
       Column()
         .width('100%')
         .height('50%')

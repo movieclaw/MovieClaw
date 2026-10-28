@@ -154,7 +154,9 @@ export struct PersonDetailPage {
 
   build() {
     NavDestination() {
-      Stack({ alignContent: Alignment.TopStart }) {
+      // 非沉浸页：顶栏走流式布局（同 ProfilePage/订阅详情），内容整体排在顶栏之下。
+      // 原先是 Stack 叠放——内容画在顶栏上层，PersonHeaderCard 的头像照片正好压住返回键和标题。
+      Column() {
         PageTopBar({ title: this.title(), onBack: (): void => {
           this.navStack.pop();
         }})
@@ -193,7 +195,7 @@ export struct PersonDetailPage {
         .fontColor(Theme.textMuted)
     }
     .width('100%')
-    .height('100%')
+    .layoutWeight(1)
     .justifyContent(FlexAlign.Center)
   }
 
@@ -250,7 +252,7 @@ export struct PersonDetailPage {
       }
     }
     .width('100%')
-    .height('100%')
+    .layoutWeight(1)
     .justifyContent(FlexAlign.Center)
     .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
   }
@@ -286,7 +288,7 @@ export struct PersonDetailPage {
       });
     })
     .width('100%')
-    .height('100%')
+    .layoutWeight(1)
   }
 
   @Builder
