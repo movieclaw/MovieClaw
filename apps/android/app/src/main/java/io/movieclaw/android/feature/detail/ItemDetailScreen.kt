@@ -262,6 +262,8 @@ class ItemDetailViewModel @Inject constructor(
         val episodes: Map<Int, List<EpisodeView>> = emptyMap(),
         /** 每季「接着看」的锚点（服务端 resume_episode，没有就退回客户端原规则，见 [EpisodeRanges.anchor]） */
         val anchors: Map<Int, Int?> = emptyMap(),
+        /** 每季的播出日历（issue #547）；只有在播的季有 */
+        val schedules: Map<Int, io.movieclaw.android.core.model.SeasonAirSchedule?> = emptyMap(),
     )
 
     private val _state = MutableStateFlow<Loadable<Detail>>(Loadable.Loading)
@@ -631,8 +633,8 @@ class ItemDetailViewModel @Inject constructor(
             try {
                 val api = apiFactory.forOrigin(origin)
                 val detail = api.libraryItemDetail(libraryId, itemId).dataOrThrow()
-                val (episodes, anchors) = fetchSeasons(detail)
-                _state.value = Loadable.Ready(Detail(detail, episodes, anchors))
+                val (episodes, anchors, schedules) = fetchSeasons(detail)
+                _state.value = Loadable.Ready(Detail(detail, episodes, anchors, schedules))
                 if (!relatedRequested) {
                     relatedRequested = true
                     launch { _related.value = fetchRelated(api, detail) }
@@ -678,17 +680,32 @@ class ItemDetailViewModel @Inject constructor(
         _selectedEpisode.value = SelectedUnit(season, EpisodeRanges.entryOf(range, anchorsBySeason[season]))
     }
 
-    /** 拉每一季的分集，并按 resume_episode 算出每季锚点 */
+    /** 拉每一季的分集，并按 resume_episode 算出每季锚点；顺带每季的播出日历 */
     private suspend fun fetchSeasons(
         detail: LibraryItemDetailView,
-    ): Pair<Map<Int, List<EpisodeView>>, Map<Int, Int?>> {
-        if (detail.kind != "tv") return emptyMap<Int, List<EpisodeView>>() to emptyMap()
-        val api = apiFactory.forOrigin(origin ?: return emptyMap<Int, List<EpisodeView>>() to emptyMap())
+    ): Triple<Map<Int, List<EpisodeView>>, Map<Int, Int?>, Map<Int, io.movieclaw.android.core.model.SeasonAirSchedule?>> {
+        if (detail.kind != "tv") return Triple(emptyMap(), emptyMap(), emptyMap())
+        val api = apiFactory.forOrigin(origin ?: return Triple(emptyMap(), emptyMap(), emptyMap()))
         val views = detail.seasons.associateWith { season ->
             api.seasonEpisodes(libraryId, itemId, season).dataOrThrow()
         }
-        return views.mapValues { it.value.episodes } to
-            views.mapValues { EpisodeRanges.anchor(it.value.episodes, it.value.resumeEpisode) }
+        return Triple(
+            views.mapValues { it.value.episodes },
+            views.mapValues { EpisodeRanges.anchor(it.value.episodes, it.value.resumeEpisode) },
+            views.mapValues { it.value.airSchedule },
+        )
+    }
+
+    /** 播出日历的「补缺集」：订阅立即搜索已经能搜的缺口（同订阅详情页的「立即搜索」） */
+    suspend fun searchMissing(subscriptionId: Long): Result<String> {
+        val origin = repository.ui.value.origin
+            ?: return Result.failure(IllegalStateException("尚未连接服务器"))
+        return runCatching {
+            val data = apiFactory.forOrigin(origin).searchMissingResources(subscriptionId).dataOrThrow()
+            val count = (data as? kotlinx.serialization.json.JsonObject)?.get("reset_count")
+                ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() } ?: 0
+            "$count 个缺口已重新排队，正在搜索"
+        }
     }
 
     /**
@@ -698,9 +715,9 @@ class ItemDetailViewModel @Inject constructor(
     fun refreshEpisodes() {
         val ready = (_state.value as? Loadable.Ready)?.value ?: return
         viewModelScope.launch {
-            val (episodes, anchors) = runCatching { fetchSeasons(ready.item) }.getOrNull() ?: return@launch
+            val (episodes, anchors, schedules) = runCatching { fetchSeasons(ready.item) }.getOrNull() ?: return@launch
             val current = (_state.value as? Loadable.Ready)?.value ?: return@launch
-            _state.value = Loadable.Ready(current.copy(episodes = episodes, anchors = anchors))
+            _state.value = Loadable.Ready(current.copy(episodes = episodes, anchors = anchors, schedules = schedules))
             episodesBySeason = episodes
             anchorsBySeason = anchors
             val season = _selectedSeason.value ?: return@launch
@@ -1245,6 +1262,9 @@ fun ItemDetailScreen(
     var purgeTarget by remember { mutableStateOf<io.movieclaw.android.core.model.LibraryFileView?>(null) }
     // ⋯ 菜单（iOS `actionsMenu`）：菜单开关、点下的动作、两个确认框、本地「正在刷新」态
     var menuOpen by remember { mutableStateOf(false) }
+    // 播出日历（issue #547）的底部面板与「补缺集」进行中
+    var airSheet by remember { mutableStateOf(false) }
+    var airSearching by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf<ItemActionId?>(null) }
     var refreshConfirm by remember { mutableStateOf(false) }
     var clearConfirm by remember { mutableStateOf(false) }
@@ -1412,6 +1432,8 @@ fun ItemDetailScreen(
                         libraryId = libraryId,
                         itemId = itemId,
                         itemTitle = s.value.item.title,
+                        schedule = selectedSeason?.let { s.value.schedules[it] },
+                        onOpenSchedule = { airSheet = true },
                         // 分集卡的下载状态（iOS `OfflineDownloadStrip` / 绿箭头「已下载」）
                         offlineByEpisode = offlinePacks
                             .filter { it.mediaItemId == s.value.item.mediaItemId }
@@ -1491,6 +1513,36 @@ fun ItemDetailScreen(
     // 文件区动作的宿主：删除底部单（iOS `DeleteFileSheet`）与立即清理确认弹窗。
     // 放在 when 之外——两者都是窗口级浮层，不该跟着页面一起滚
     val readyDetail = (state as? Loadable.Ready)?.value?.item
+    val airReady = (state as? Loadable.Ready)?.value
+    val airSchedule = selectedSeason?.let { airReady?.schedules?.get(it) }
+    if (airSheet && airReady != null && airSchedule != null) {
+        val season = selectedSeason ?: 0
+        val tmdb = airReady.item.tmdbId ?: 0L
+        AirScheduleSheet(
+            title = airReady.item.title,
+            seasonLabel = if (season == 0) "特别篇" else "第 $season 季",
+            episodes = airReady.episodes[season].orEmpty(),
+            schedule = airSchedule,
+            canSubscribe = permissions.canSubscribe,
+            searching = airSearching,
+            onFindMissing = {
+                val id = airSchedule.subscriptionId ?: return@AirScheduleSheet
+                airSearching = true
+                scope.launch {
+                    vm.searchMissing(id)
+                        .onSuccess { feedback.show(it, FeedbackTone.Success) }
+                        .onFailure { feedback.show(friendlyMessage(it), FeedbackTone.Error) }
+                    airSearching = false
+                }
+            },
+            onSubscribe = if (permissions.canSubscribe && tmdb > 0) {
+                { airSheet = false; onSubscribe("tmdb:tv:$tmdb") }
+            } else {
+                null
+            },
+            onDismiss = { airSheet = false },
+        )
+    }
     trashTarget?.let { file ->
         if (readyDetail != null) {
             DeleteFileSheet(
@@ -2919,6 +2971,9 @@ private fun SeasonSection(
     itemTitle: String,
     /** 分集号的下载状态（本机已下载 / 下载中）：画在分集卡上 */
     offlineByEpisode: Map<Int, EpisodeOfflineState> = emptyMap(),
+    /** 当前季的播出日历（issue #547）：有它才画入口卡、分清「还没播」与「缺集」 */
+    schedule: io.movieclaw.android.core.model.SeasonAirSchedule? = null,
+    onOpenSchedule: () -> Unit = {},
 ) {
     val seasonLabel = { season: Int ->
         val name = if (season == 0) "特别篇" else "第 $season 季"
@@ -3006,7 +3061,8 @@ private fun SeasonSection(
                         .clickable { allSheet = true }
                         .padding(start = 8.dp, top = 5.dp, bottom = 5.dp),
                 )
-            } else if (seasonEpisodes.isNotEmpty()) {
+            } else if (seasonEpisodes.isNotEmpty() && schedule == null) {
+                // 有播出日历时在库数交给进度条说
                 Spacer(Modifier.width(10.dp))
                 Text(
                     "在库 ${seasonEpisodes.count { it.owned }} / ${seasonEpisodes.size} 集",
@@ -3014,6 +3070,16 @@ private fun SeasonSection(
                     color = TextFaint,
                 )
             }
+        }
+
+        if (schedule != null && list.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            AirScheduleCard(
+                episodes = list,
+                schedule = schedule,
+                onOpen = onOpenSchedule,
+                modifier = Modifier.padding(horizontal = mcCards.pagePadding),
+            )
         }
 
         // 段胶囊：横滑，选中段实心、锚点段右上角橙点
@@ -3063,6 +3129,7 @@ private fun SeasonSection(
                     onSelect = { onPickEpisode(episode.episodeNumber) },
                     resumeTag = watched && episode.episodeNumber == anchor,
                     offline = offlineByEpisode[episode.episodeNumber],
+                    schedule = schedule,
                 )
             }
             nextRange?.let { range ->
@@ -3107,15 +3174,21 @@ private fun EpisodeCard(
     resumeTag: Boolean = false,
     /** 这一集的下载状态（iOS：下载中叠小条，下完右上角绿箭头「已下载」） */
     offline: EpisodeOfflineState? = null,
+    /** 播出日历：有它才分得清「还没播」与「缺集」；没有时库里没有的集一律按缺集 */
+    schedule: io.movieclaw.android.core.model.SeasonAirSchedule? = null,
 ) {
     val progress = if (episode.played) 100f else episode.progressPercent?.toFloat()
+    val tone = schedule?.takeIf { !episode.owned }?.let { AirSchedule.tone(episode, it) }
+    val airsToday = tone == AirTone.Today || tone == AirTone.TodayFree
+    // 还没播：不压暗、不标「缺」，剧照位换成播出日
+    val unaired = airsToday || tone == AirTone.Upcoming
     Column(
         Modifier
             .width(mcCards.episodeWidth)
             .testTag("ep-card-${episode.episodeNumber}")
             .semantics { this.selected = selected }
             .clickable(onClick = onSelect)
-            .then(if (episode.owned) Modifier else Modifier.alpha(0.45f)),
+            .then(if (episode.owned || unaired) Modifier else Modifier.alpha(0.45f)),
     ) {
         Box(
             Modifier
@@ -3129,7 +3202,7 @@ private fun EpisodeCard(
                     shape = RoundedCornerShape(12.dp),
                 ),
         ) {
-            RemoteImage(
+            if (unaired && schedule != null) UnairedStill(episode, schedule, today = airsToday) else RemoteImage(
                 url = episode.stillUrl,
                 origin = origin,
                 contentDescription = "第 ${episode.episodeNumber} 集剧照",
@@ -3161,13 +3234,13 @@ private fun EpisodeCard(
                 }
             }
             // 右上角状态位：缺集与已看对勾同排（看过之后文件丢了两者会同时出现）
-            if (!episode.owned || episode.played) {
+            if ((!episode.owned && !unaired) || episode.played) {
                 Row(
                     Modifier.align(Alignment.TopEnd).padding(6.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (!episode.owned) {
+                    if (!episode.owned && !unaired) {
                         Text(
                             "缺",
                             fontSize = 10.sp,
