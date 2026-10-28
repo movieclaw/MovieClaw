@@ -28,6 +28,7 @@ import {
   UpgradeRunView
 } from '../api/Models';
 import { SmartPreferences } from './SmartSubscription';
+import { SubscribeCenter } from './SubscribeCenter';
 
 /** 预览三态（对应后端 `POST /ui/subscriptions/title-preview` 的 status） */
 class PrepareStatus {
@@ -506,8 +507,9 @@ export struct SubscribeSheetContent {
     try {
       const payload: SubscriptionCreatePayload = {
         title_ref: this.titleRef,
-        selected_seasons: this.kind === 'tv' ? this.selected : null,
-        follow_future: this.kind === 'tv' ? this.followFuture : null,
+        // 电影也传空数组与 false：服务端这两个字段非 Optional，显式 null 过不了校验（同 Web）
+        selected_seasons: this.kind === 'tv' ? this.selected : [],
+        follow_future: this.kind === 'tv' ? this.followFuture : false,
         // 没改过就传路由结论；改了就传用户选的
         library_id: this.libraryId > 0 ? this.libraryId : null,
         // 规则组只在规则模式且管理员时传（同 iOS）；智能模式走 selection_mode + 画像修订号
@@ -518,6 +520,8 @@ export struct SubscribeSheetContent {
           ? this.smartProfile.revision : null
       };
       const view: SubscriptionCreateView = await api.subscriptionsCreate(payload);
+      // 已挂载的订阅首页/海报墙立即重拉，切回订阅页签就能看到新订阅（不必杀进程重启）
+      SubscribeCenter.announceSubsRefresh();
       if (this.upgradeMode()) {
         // 洗版变体：创建成功即接一轮洗版，报告留在弹层里（同 iOS）
         try {
@@ -580,6 +584,7 @@ export struct SubscribeSheetContent {
     this.busy = true;
     try {
       const result: SubscriptionDeleteView = await api.subscriptionsDelete(this.existingId);
+      SubscribeCenter.announceSubsRefresh();
       const jobId: string | null = result.cleanup_job_id ?? null;
       this.toast(jobId !== null && jobId.length > 0
         ? '已取消订阅，正在后台清理关联内容（可在任务中心查看进度）'
