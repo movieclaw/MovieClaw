@@ -1701,6 +1701,9 @@
     "player.controls.nextEpisode": {
       "sourceHash": "5598ae0e76d88165a20213a55f9c61701598765f2190a10d87de888856002ed6"
     },
+    "player.controls.previousEpisode": {
+      "sourceHash": "9af8d8483d0b527ddfad2e91c26d0d9010cb36d189ca1ab4aad13d19fcd04b11"
+    },
     "player.mac.skipNext": {
       "sourceHash": "14e1c1bf93ec5c006d5ae166af79feb5ea7143135a648332a1f745a11980018d"
     },
