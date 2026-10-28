@@ -678,7 +678,7 @@ private struct PlayerContent: View {
     }
 
     /// 桌面模式（iPhone Duo 竖向半折、下半平放在桌上）的控制层：画面在折痕以上，折痕以下整块是控制台——
-    /// 顶栏、进度条，再下面是便当盒式的播放卡、功能方块与倍速条（`PlayerTabletopDeck`，照 Netflix 的桌面模式，
+    /// 顶栏、进度条，再下面是便当盒式的播放卡、功能方块、倍速条与上一集 / 下一集（`PlayerTabletopDeck`，照 Netflix 的桌面模式，
     /// docs/design/iphone-duo.md §6.4）。控制台不压画面，一直显示（见 `chromeMustStayVisible`）。
     /// 音轨、字幕面板从折痕往上长、盖在画面上（控制台里放不下）；临时卡片照旧浮在画面右下角
     @ViewBuilder
@@ -711,7 +711,7 @@ private struct PlayerContent: View {
                     .frame(maxWidth: .infinity, maxHeight: videoBottom - PlayerLayout.gap, alignment: .bottomLeading)
             }
             VStack(spacing: 0) {
-                PlayerTopBar(controller: controller, landscape: false, onBack: { back(landscape: false) })
+                PlayerTopBar(controller: controller, landscape: false, onBack: { back(landscape: false) }, speedOpensDiagnostics: true)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { topBarFrame = $0 }
                 Spacer(minLength: 8)
                 PlayerBottomBar(controller: controller, trickplay: trickplay, menu: $menu, scrubMs: $scrubMs,

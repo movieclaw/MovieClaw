@@ -1,6 +1,30 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "player.controls.previousEpisode": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous episode"
+          }
+        }
+      }
+    },
     "settings.appearance.language": {
       "extractionState": "manual",
       "generatesSymbol": true,

@@ -1,15 +1,15 @@
 import SwiftUI
 
-/// 桌面模式（iPhone Duo 竖向半折、下半平放在桌上）的控制台主体：进度条以下的部分（docs/design/iphone-duo.md §6.4）。
+/// 桌面模式（iPhone Duo 竖向半折、下半平放在桌上）的控制台主体：顶栏与进度条以下的部分（docs/design/iphone-duo.md §6.4）。
 ///
-/// 下半屏不压画面、手指落在稳定的桌面上，地方也够，所以不照搬底栏，而是按「便当盒」排出主次（2026-10-28 用户要求
-/// 比平铺卡片更好看、更有创意）：
-/// - 左边一张大的**播放卡**：播放 / 暂停是白色实心大圆，两侧前进后退，下面是时间——最常用的放最大；
-/// - 右边 2×2 小方块：音轨、字幕、画质、画面，每块写着当前值（音轨字幕打开与底栏同一张面板，画质画面是系统菜单，
+/// 下半屏不压画面、手指落在稳定的桌面上，地方也够，所以不照搬底栏，而是按主次排成「便当盒」
+/// （2026-10-28 用户在真机桌面模式下逐版挑过，定稿为这一版，其余试过的样式见设计稿 §10）：
+/// - 左边**播放卡**只管播放：白色播放键，两侧前进后退只留图标，下面是时间；
+/// - 右边 2×2 方块：音轨、字幕、画质、画面，每块写着当前值（音轨字幕打开与底栏同一张面板，画质画面是系统菜单，
 ///   选项与底栏「⋯」同一份）；
-/// - 剧集的**下一集**是播放卡里时间旁的一枚小胶囊：它是一集快完才用的偶发操作，不该独占一行（真机桌面模式的控制台比模拟的矮，
-///   2026-10-28 用户看真机截图指出原来的整行横幅把右侧方块挤得叠在一起）；片尾另有带倒计时的下一集卡片；
-/// - 最下面**倍速**是一排直接可点的分段条（不用再进菜单），选中项是滑过去的白色药丸；播放诊断是开发用的，收成末尾一颗小圆钮。
+/// - **倍速**是一排直接可点的分段条（不用再进菜单），选中项是滑过去的白色药丸；
+/// - 剧集最底下一行**上一集 / 下一集**两张卡片，带那一集的剧照与集号集名，与播放区分开；
+/// - 播放诊断在顶栏右上角的网速胶囊里（`PlayerTopBar.speedOpensDiagnostics`）。
 /// 功能与全屏时完全一样（人机界面指南：别把功能绑在某个姿态上），只是换了排法。底下垫的氛围背景见 `DeckAmbience`
 struct PlayerTabletopDeck: View {
     let controller: PlaybackController
@@ -18,13 +18,16 @@ struct PlayerTabletopDeck: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                DeckTransportCard(controller: controller, next: controller.clip == nil ? controller.nextEpisode : nil)
+                DeckTransportCard(controller: controller)
                 tileGrid
             }
             .frame(maxHeight: 240)
-            HStack(spacing: 10) {
-                DeckSpeedBar(controller: controller)
-                diagnosticsButton
+            DeckSpeedBar(controller: controller)
+            if controller.unit.isEpisode, controller.clip == nil {
+                HStack(spacing: 12) {
+                    DeckEpisodeCard(controller: controller, previous: true)
+                    DeckEpisodeCard(controller: controller, previous: false)
+                }
             }
         }
     }
@@ -99,23 +102,6 @@ struct PlayerTabletopDeck: View {
         }
     }
 
-    // MARK: 诊断
-
-    private var diagnosticsButton: some View {
-        Button { controller.diagnosticsOpen.toggle() } label: {
-            Image(systemName: "waveform.path.ecg")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(controller.diagnosticsOpen ? .black : .white)
-                .frame(width: 44, height: 44)
-                .background(.white.opacity(controller.diagnosticsOpen ? 1 : 0), in: .circle)
-                .glassEffect(.regular.interactive(), in: .circle)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(String(localized: .playerControlsDiagnostics))
-        .accessibilityAddTraits(controller.diagnosticsOpen ? .isSelected : [])
-        .accessibilityIdentifier("deck-diagnostics")
-    }
-
     // MARK: 当前值
 
     /// 正在放的音轨（同音轨面板的勾选：没选过就是默认那条）
@@ -141,43 +127,27 @@ struct PlayerTabletopDeck: View {
     }
 }
 
-/// 播放卡：播放 / 暂停是白色实心大圆（整块控制台的视觉中心），两侧前进后退是玻璃小圆，下面是「已播 / 总长」。
-/// 起播、缓冲时三键换成转圈（同平时控制层：转圈与播放键同一个位置）
+/// 播放卡：只管播放——中间白色播放键，两侧前进后退只留图标（没有圆底），下面是时间。拖进度用上面的进度条。
+/// 起播、缓冲时整块换成转圈（同平时控制层：转圈与播放键同一个位置）
 private struct DeckTransportCard: View {
     let controller: PlaybackController
-    /// 剧集的下一集：时间右边一枚小胶囊，点了就播
-    let next: API.EpisodeView?
     @State private var backTaps = 0
     @State private var forwardTaps = 0
 
     var body: some View {
-        VStack(spacing: 14) {
+        Group {
             if controller.phase.isBusy {
                 PlayerBusyView(controller: controller)
             } else {
-                HStack(spacing: 22) {
-                    seekButton(back: true)
-                    Button(action: controller.togglePlay) {
-                        Image(systemName: PlayerCenterControls.playSymbol(controller))
-                            .contentTransition(.symbolEffect(.replace))
-                            .font(.system(size: 30, weight: .bold))
-                            .foregroundStyle(.black)
-                            .frame(width: 76, height: 76)
-                            .background(.white, in: .circle)
-                            .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+                VStack(spacing: 14) {
+                    HStack(spacing: 30) {
+                        seekButton(back: true)
+                        playButton
+                        seekButton(back: false)
                     }
-                    .buttonStyle(DeckPressStyle())
-                    .accessibilityLabel(PlayerCenterControls.playLabel(controller))
-                    .accessibilityIdentifier("player-play-pause")
-                    seekButton(back: false)
-                }
-                HStack(spacing: 10) {
                     Text(timeText)
                         .font(.footnote.monospacedDigit().weight(.medium))
                         .foregroundStyle(.white.opacity(0.7))
-                    if let next {
-                        nextButton(next)
-                    }
                 }
             }
         }
@@ -185,21 +155,22 @@ private struct DeckTransportCard: View {
         .glassEffect(.regular.tint(.black.opacity(0.15)), in: .rect(cornerRadius: 26))
     }
 
-    private func nextButton(_ next: API.EpisodeView) -> some View {
+    private var playButton: some View {
         Button {
             controller.noteUserActivity()
-            controller.playNext()
+            controller.togglePlay()
         } label: {
-            Label(String(localized: .mediaEpisodeNumber(next.episodeNumber)), systemImage: "forward.end.fill")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .frame(height: 30)
-                .glassEffect(.regular.interactive(), in: .capsule)
+            Image(systemName: PlayerCenterControls.playSymbol(controller))
+                .contentTransition(.symbolEffect(.replace))
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(width: 76, height: 76)
+                .background(.white, in: .circle)
+                .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(String(localized: .playerControlsNextEpisode))，\(String(localized: .mediaEpisodeNumber(next.episodeNumber)))")
-        .accessibilityIdentifier("deck-next")
+        .buttonStyle(DeckPressStyle())
+        .accessibilityLabel(PlayerCenterControls.playLabel(controller))
+        .accessibilityIdentifier("player-play-pause")
     }
 
     private func seekButton(back: Bool) -> some View {
@@ -209,12 +180,12 @@ private struct DeckTransportCard: View {
         } label: {
             Image(systemName: back ? "gobackward.10" : "goforward.10")
                 .symbolEffect(back ? .rotate.counterClockwise.byLayer : .rotate.clockwise.byLayer, value: back ? backTaps : forwardTaps)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 50, height: 50)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .font(.system(size: 26, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: 48, height: 48)
+                .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DeckPressStyle())
         .accessibilityLabel(back ? String(localized: .playerControlsSeekBack) : String(localized: .playerControlsSeekForward))
     }
 
@@ -276,7 +247,6 @@ private struct DeckTile: View {
     let symbol: String
     /// 对应面板开着：反白
     let active: Bool
-
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Image(systemName: symbol)
@@ -335,5 +305,77 @@ struct DeckAmbience: View {
         .clipped()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// 上一集 / 下一集卡片（播放区外最底下一行，左右各一张）：那一集的剧照缩略图、「上一集 / 下一集」与集号集名，
+/// 上一集的箭头与缩略图在左、下一集的在右，两张镜像对称（试过去掉箭头，用户 2026-10-28 定还是带箭头）。没有上一集（第一集）或下一集（最后一集、缺集）时那张置灰
+private struct DeckEpisodeCard: View {
+    let controller: PlaybackController
+    let previous: Bool
+
+    var body: some View {
+        let episode = previous ? controller.previousEpisode : controller.nextEpisode
+        let title = previous ? String(localized: .playerControlsPreviousEpisode) : String(localized: .playerControlsNextEpisode)
+        let number = episode.map { String(localized: .mediaEpisodeNumber($0.episodeNumber)) }
+        Button {
+            controller.noteUserActivity()
+            if previous { controller.playPrevious() } else { controller.playNext() }
+        } label: {
+            HStack(spacing: 10) {
+                if previous {
+                    icon
+                    thumbnail(episode)
+                }
+                VStack(alignment: previous ? .leading : .trailing, spacing: 2) {
+                    Text(title)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.6))
+                    Text(subtitle(number: number, episode: episode))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(maxWidth: .infinity, alignment: previous ? .leading : .trailing)
+                if !previous {
+                    thumbnail(episode)
+                    icon
+                }
+            }
+            .lineLimit(1)
+            .padding(8)
+            .frame(height: 56)
+            .glassEffect(.regular.tint(.black.opacity(0.15)).interactive(), in: .rect(cornerRadius: 20))
+            .contentShape(.rect(cornerRadius: 20))
+        }
+        .buttonStyle(DeckPressStyle())
+        .disabled(episode == nil)
+        .opacity(episode == nil ? 0.35 : 1)
+        .accessibilityLabel([title, number].compactMap { $0 }.joined(separator: "，"))
+        .accessibilityIdentifier(previous ? "deck-previous" : "deck-next")
+    }
+
+    private var icon: some View {
+        Image(systemName: previous ? "backward.end.fill" : "forward.end.fill")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 20)
+    }
+
+    /// 「第 3 集 · 潮汐之下」；没有集名只写集号，没有这一集写「—」
+    private func subtitle(number: String?, episode: API.EpisodeView?) -> String {
+        guard let number else { return "—" }
+        guard let name = episode?.name, !name.isEmpty else { return number }
+        return "\(number) · \(name)"
+    }
+
+    private func thumbnail(_ episode: API.EpisodeView?) -> some View {
+        Color.white.opacity(0.08)
+            .overlay {
+                if let url = controller.scope.api.image(episode?.stillUrl, width: ImageWidth.points(64)) {
+                    RemoteImage(url: url)
+                }
+            }
+            .frame(width: 64, height: 36)
+            .clipShape(.rect(cornerRadius: 8))
     }
 }

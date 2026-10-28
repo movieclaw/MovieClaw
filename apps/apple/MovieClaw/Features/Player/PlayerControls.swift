@@ -48,6 +48,9 @@ struct PlayerTopBar: View {
     let controller: PlaybackController
     let landscape: Bool
     let onBack: () -> Void
+    /// 网速读数做成可点的胶囊、点开播放诊断（桌面模式的控制台用：诊断是技术信息，和网速放在一处，
+    /// 不再占倍速条旁边的位置）。平时诊断在底栏「⋯」里，网速只是一行字
+    var speedOpensDiagnostics = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -79,7 +82,9 @@ struct PlayerTopBar: View {
                 }
                 .shadow(color: .black.opacity(0.4), radius: 6)
                 Spacer(minLength: 8)
-                if let speed = controller.speedLabel {
+                if speedOpensDiagnostics {
+                    diagnosticsChip
+                } else if let speed = controller.speedLabel {
                     Text("↓ \(speed)")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.45))
@@ -101,6 +106,34 @@ struct PlayerTopBar: View {
                 .glassEffect(PlayerGlass.control, in: .capsule)
             }
         }
+    }
+
+    /// 「〰 ↓ 1.2 MB/s」胶囊：点一下开关播放诊断，开着时反白
+    private var diagnosticsChip: some View {
+        let open = controller.diagnosticsOpen
+        return Button {
+            controller.noteUserActivity()
+            controller.diagnosticsOpen.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.system(size: 13, weight: .semibold))
+                if let speed = controller.speedLabel {
+                    Text("↓ \(speed)").font(.caption.monospacedDigit())
+                }
+            }
+            .foregroundStyle(open ? .black : .white.opacity(0.8))
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(.white.opacity(open ? 0.92 : 0), in: .capsule)
+            .glassEffect(PlayerGlass.control.interactive(), in: .capsule)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: .playerControlsDiagnostics))
+        .accessibilityValue(controller.speedLabel ?? "")
+        .accessibilityAddTraits(open ? .isSelected : [])
+        .accessibilityIdentifier("player-diagnostics-chip")
     }
 }
 
