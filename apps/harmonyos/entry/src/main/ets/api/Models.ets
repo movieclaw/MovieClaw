@@ -6334,12 +6334,40 @@ export interface SeasonCleanupPayload {
   delete_library_files?: boolean | null
 }
 
+/** 订阅对一集的入库预告（issue #547）。 */
+export interface EpisodeArrivalView {
+  episode_number: number
+  /// waiting=等资源发布 / downloading=下载中 / organizing=下完了在整理入库
+  stage: string
+  /// 预计入库时刻（带时区 ISO）；给不出为 null
+  expected_at?: string | null
+}
+
+/** 一季的播出日历（issue #547）：排期本身在分集的 air_date 里，这里给对照信息。 */
+export interface SeasonAirScheduleView {
+  /// 站点日历的今天（YYYY-MM-DD）；判今天/已播/待播都按它，不用本机时钟
+  today: string
+  /// 首播地国家码：播出日期是当地日期、与本地可能差一天时才给
+  region?: string | null
+  /// 最近的更新星期（0=周一…6=周日）
+  weekdays: number[]
+  /// 本季最后一集的播出日；有集没定日期时为 null
+  last_air_date?: string | null
+  /// 这部剧的订阅；未订阅为 null
+  subscription_id?: number | null
+  /// 订阅范围内已播出、库里还没有的集
+  missing_episodes: number[]
+  arrivals: EpisodeArrivalView[]
+}
+
 /** 一季的分集清单（分集横滚区数据源）。 */
 export interface SeasonEpisodesView {
   season_number: number
   episodes: EpisodeView[]
   /// 本季接着看的那一集（与首页「接下来继续」同规则：最近播放的一集，看完了取往后第一个没看完且有片源的）；分集区按它锁定集段、默认选中。本季没播放过为 null
   resume_episode?: number | null
+  /// 播出日历（issue #547）；本季没有今天或以后的播出日期、分享页、旧服务端为 null/缺省
+  air_schedule?: SeasonAirScheduleView | null
 }
 
 /** 弹层季选择器的一行：季号 + 播出进度 + 库存进度。 */
