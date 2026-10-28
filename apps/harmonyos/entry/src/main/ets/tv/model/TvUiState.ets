@@ -12,6 +12,7 @@ import { preferences } from '@kit.ArkData';
 import { Context } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { TvMotion } from '../theme/TvTheme';
+import { AvPlayerEngine, PlayRequest } from '../../common/AvPlayerEngine';
 
 /** 路由基类：子类用 instanceof 分派（ArkTS 无带关联值的枚举） */
 export class TvRoute {
@@ -95,32 +96,12 @@ export class TvCollectionRoute extends TvRoute {
 }
 
 /** 起播请求：谁、哪一集、从哪起 */
-export class TvPlayRequest {
-  readonly libraryId: number;
-  readonly itemId: number;
-  readonly seasonNumber: number | null;
-  readonly episodeNumber: number | null;
-  readonly fileId: number | null;
-  /** null = 续播（服务端 playbackResume 决定）；0 = 从头 */
-  readonly startMs: number | null;
-  /** 界面标签（播放器标题行） */
-  readonly title: string;
-  readonly subtitle: string | null;
-  /** 播完是否自动接下一集（剧集连播） */
-  readonly autoAdvance: boolean;
-
+export class TvPlayRequest extends PlayRequest {
   constructor(libraryId: number, itemId: number, seasonNumber: number | null,
     episodeNumber: number | null, fileId: number | null, startMs: number | null,
     title: string, subtitle: string | null, autoAdvance: boolean) {
-    this.libraryId = libraryId;
-    this.itemId = itemId;
-    this.seasonNumber = seasonNumber;
-    this.episodeNumber = episodeNumber;
-    this.fileId = fileId;
-    this.startMs = startMs;
-    this.title = title;
-    this.subtitle = subtitle;
-    this.autoAdvance = autoAdvance;
+    super(libraryId, itemId, seasonNumber, episodeNumber, fileId, startMs,
+      title, subtitle, '', autoAdvance);
   }
 }
 
@@ -313,6 +294,7 @@ export class TvUiState {
 
   /** 偏好存储初始化（TvIndex aboutToAppear 调一次） */
   init(context: Context): void {
+    AvPlayerEngine.appContext = context;
     if (this.store !== null) {
       return;
     }
