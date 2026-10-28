@@ -96,6 +96,7 @@ platforms = ["linux/amd64", "linux/arm64"]    # 必填；与服务器平台不�
   `mclaw library items delete` ↔ `library.items.delete`。用 `mclaw <域> --help` 找，`mclaw <域> <命令> --help` 看参数。
 - 调用参数：`ops.call("<id>", {...})` 的字典 = 该操作的路径参数 + 查询参数 + 请求体字段；
   请求体可选的操作把整个请求体放在 `"body"` 键下（例：`ops.call("library.scan.start", {"library_id": 1, "body": {"paths": [...]}})`）。
+  文件放进的是库挂着的网盘文件夹时，把 `paths` 换成 `cloud_paths`（网盘上的完整路径），只列那几个网盘子目录。
   拿不准时先用 `mclaw <命令> --help` 对照，必要时让插件把 `OpsError.details` 记进日志。
 - 危险操作必须逐个列出；支持演练的危险操作（参数里有 `dry_run`）开发时先演练。
 - 批准时授予的是**清单**里的列表；`@plugin(permissions=...)` 保持与清单一致（诊断页显示它）。

@@ -1607,6 +1607,12 @@
   "cloud.missingId": {
     "sourceHash": "78118a8b848fd3a52a879cbd9fcda662631eaf1bfc464404502cf4ee9d3cea9d"
   },
+  "cloud.scopeOutside": {
+    "sourceHash": "531306f90f63fad102f7fd3315adeefc99f04336dd46cfc8d8fbb552f0d88bd8"
+  },
+  "cloud.scopeNotFound": {
+    "sourceHash": "a7c641ec584137589b9e39f9ae030da6c640c534817e334a462ed4609d5a9349"
+  },
   "cloud.accountMissing": {
     "sourceHash": "58c26f4fdcfa7c0274d427601b88d4bb3d343c24676c59c82e7b4da37451f165"
   },

@@ -3,7 +3,8 @@
 挂在库上的网盘文件夹由扫描一并处理，只是「遍历」换成网盘的整树列举：
 
 - **列谁**：新挂上、还没列过的文件夹；手动扫描时全部；其余每周复查一次（定期对账顺带判断
-  到没到期）；操作动态说某个文件夹有变化时只列它（``cloud_only`` 的扫描，不碰本地根目录）。
+  到没到期）；操作动态说某个文件夹有变化时只列它（``cloud_only`` 的扫描，不碰本地根目录）；
+  插件/外部工具点名了文件夹下的子目录时只列那棵子树（``CloudScope``，判缺失也只在子树里）。
 - **怎么入账**：列出来的视频按文件名走现有识别链，台账行 ``local_bytes`` 为假 + 副本记为已
   核验。文件的台账路径是虚拟位置（``local_dir`` + 相对路径），已经入账的按网盘文件 id 认回
   原来那一行（在网盘里挪了位置也不变）。
@@ -66,11 +67,24 @@ class CloudEntry:
     remote_path: str
 
 
+@dataclass(frozen=True, slots=True)
+class CloudScope:
+    """范围扫描点名的一棵子树：挂着的文件夹 + 子目录 id + 子目录相对文件夹的路径。"""
+
+    folder_id: int
+    dir_id: str
+    #: 相对挂着的文件夹的路径（``/`` 分隔）；空串就是整个文件夹
+    prefix: str
+
+
 @dataclass(slots=True)
 class FolderListing:
     folder_id: int
     account_id: int
     display_path: str
+    #: 只列了文件夹下的这棵子树（``CloudScope.prefix``）；空串是列了整个文件夹
+    prefix: str = ""
+    dir_id: str = ""
     remote_ids: set[str] = field(default_factory=set)
     dir_ids: list[str] = field(default_factory=list)
     videos: int = 0
@@ -110,48 +124,92 @@ async def folders_to_list(
     return [f for f in folders if f.listed_at is None or f.listed_at < due]
 
 
+async def resolve_scopes(
+    session: AsyncSession, library_id: int, paths: list[str]
+) -> list[CloudScope]:
+    """把网盘路径（挂着的文件夹之下的子目录）解析成范围：从文件夹往下逐级找子目录 id。
+
+    不在挂着的文件夹之下、找不到的抛 ``ValueError``（给调用方看的一句话）；网盘那边出错
+    原样抛 ``DriveError``。
+    """
+    folders = await LibraryCloudRepository(session).folders(library_id)
+    scopes: list[CloudScope] = []
+    for raw in paths:
+        path = _clean_path(raw)
+        folder = max(
+            (f for f in folders if path == f.display_path or path.startswith(f.display_path + "/")),
+            key=lambda f: len(f.display_path),
+            default=None,
+        )
+        if folder is None or folder.id is None:
+            raise ValueError(t("library.cloud.scopeOutside", path=raw))
+        prefix = path[len(folder.display_path) :].strip("/")
+        dir_id = folder.remote_dir_id
+        for name in prefix.split("/") if prefix else ():
+            children = await gateway.call(
+                folder.account_id, "list_dir", priority=gateway.Priority.USER, dir_id=dir_id
+            )
+            match = next((d for d in children if d.name == name), None)
+            if match is None:
+                raise ValueError(t("library.cloud.scopeNotFound", path=raw))
+            dir_id = match.remote_id
+        scopes.append(CloudScope(folder.id, dir_id, prefix))
+    return scopes
+
+
 async def collect(
     session: AsyncSession,
     library: Library,
     profile: LibraryProfile,
     folders: list[LibraryCloudFolder],
     add_error: Callable[[dict], None],
+    scopes: list[CloudScope] | None = None,
 ) -> CloudRound:
-    """整树列举这些文件夹，挑出视频，给每个视频定好台账路径。"""
+    """整树列举这些文件夹（给了 ``scopes`` 就只列点名的子树），挑出视频，给每个视频定好台账路径。"""
     from movieclaw_api.services.library.scan import _stem_episode, classify_cloud_path
 
     assert library.id is not None
     known_paths = await LibraryCloudRepository(session).replica_paths()
     cloud = CloudRound()
     episodes: dict[Path, set[int]] = {}
-    for folder in folders:
+    by_id = {f.id: f for f in folders}
+    targets = (
+        [CloudScope(f.id, f.remote_dir_id, "") for f in folders if f.id is not None]
+        if scopes is None
+        else [s for s in scopes if s.folder_id in by_id]
+    )
+    for scope in targets:
+        folder = by_id[scope.folder_id]
         assert folder.id is not None
-        listing = FolderListing(folder.id, folder.account_id, folder.display_path)
+        listing = FolderListing(
+            folder.id, folder.account_id, folder.display_path, scope.prefix, scope.dir_id
+        )
+        shown = (
+            posixpath.join(folder.display_path, scope.prefix)
+            if scope.prefix
+            else folder.display_path
+        )
         before = gateway.usage_today(folder.account_id)
         try:
             tree = await gateway.call(
                 folder.account_id,
                 "list_tree",
                 priority=gateway.Priority.BACKGROUND,
-                dir_id=folder.remote_dir_id,
+                dir_id=scope.dir_id,
             )
         except dv.DriveError as exc:
-            add_error(
-                stored_fields(
-                    "library.cloud.listFailed", path=folder.display_path, detail=exc.message
-                )
-            )
+            add_error(stored_fields("library.cloud.listFailed", path=shown, detail=exc.message))
             continue
         except Exception as exc:  # noqa: BLE001 -- 插件不在等情况：这个文件夹本轮跳过
-            add_error(
-                stored_fields("library.cloud.listFailed", path=folder.display_path, detail=str(exc))
-            )
+            add_error(stored_fields("library.cloud.listFailed", path=shown, detail=str(exc)))
             continue
         listing.calls = gateway.usage_today(folder.account_id) - before
         listing.dir_ids = list(tree.dir_ids)
         base = Path(folder.local_dir)
         for remote in tree.files:
             rel = (remote.rel_path or remote.name).strip("/")
+            if scope.prefix:
+                rel = posixpath.join(scope.prefix, rel)
             verdict = classify_cloud_path(rel, ignore=profile.ignore_rules, exts=profile.media_exts)
             if verdict is None:
                 continue
@@ -228,7 +286,9 @@ async def finish(
 ) -> int:
     """列过的文件夹收尾：网盘上没有了的标缺失、写报告与列举时间。返回标了缺失的个数。
 
-    扫描中途停止的不判缺失（没处理完不等于没有），只更新报告。
+    扫描中途停止的不判缺失（没处理完不等于没有），只更新报告。只列了子树的：只判子树里的
+    副本，子树外的完全不动；也不写报告与列举时间（那是整个文件夹的结论，每周复查照旧到期），
+    只把子树里的目录 id 并进文件夹，好让操作动态认得新目录。
     """
     repo = LibraryCloudRepository(session)
     files = LibraryFileRepository(session)
@@ -239,9 +299,14 @@ async def finish(
         if folder is None:
             continue
         identified = pending = 0
+        under = posixpath.join(folder.display_path, listing.prefix) if listing.prefix else None
         for replica, row in await repo.folder_replicas(listing.folder_id):
             if replica.state not in (REPLICA_VERIFIED, REPLICA_LOST):
                 continue  # 还在传、传失败的：网盘上本来就可能没有
+            if under is not None and not (
+                replica.remote_path == under or (replica.remote_path or "").startswith(under + "/")
+            ):
+                continue
             if replica.remote_id not in listing.remote_ids:
                 if cancelled:
                     continue
@@ -262,6 +327,10 @@ async def finish(
                 identified += 1
             else:
                 pending += 1
+        if under is not None:
+            folder.dir_ids = sorted({*(folder.dir_ids or ()), *listing.dir_ids, listing.dir_id})
+            await repo.save_folder(folder)
+            continue
         folder.listed_at = now if not cancelled else folder.listed_at
         folder.dir_ids = listing.dir_ids
         folder.report = {

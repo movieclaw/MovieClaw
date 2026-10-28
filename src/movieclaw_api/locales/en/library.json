@@ -628,6 +628,8 @@
     "listFailed": "Could not list the cloud folder “{path}”: {detail}",
     "onePrimary": "Only one primary root is allowed",
     "missingId": "The cloud folder is missing an id",
+    "scopeOutside": "“{path}” is not inside a cloud folder attached to this library",
+    "scopeNotFound": "Could not find the folder “{path}” on the cloud drive",
     "accountMissing": "The cloud account no longer exists (it may have been removed)",
     "rootDir": "Root folder",
     "overlap": "“{a}” and “{b}” overlap. Choose only the outer one.",

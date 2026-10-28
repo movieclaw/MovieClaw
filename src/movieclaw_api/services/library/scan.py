@@ -946,11 +946,15 @@ async def enqueue_scan_job(
     scope_paths: list[str] | None = None,
     cloud_folder_ids: list[int] | None = None,
     cloud_only: bool = False,
+    cloud_scopes: list[library_cloud.CloudScope] | None = None,
 ) -> jobs.CreateJobResult:
     """创建用户可观察、可取消、可跨重启恢复的媒体库扫描作业。
 
     ``scope_paths``：只扫这些条目目录（库根下第一级的绝对路径，见 ``scope_entries``）。
     范围扫描与监听触发的扫描同一语义：不补探存量规格；范围解析存疑时退回整库。
+
+    ``cloud_scopes``：只列网盘文件夹下的这些子树（见 ``library_cloud.resolve_scopes``），
+    与 ``scope_paths`` 同一口径：只看网盘、不补探存量规格，判缺失只在子树里。
     """
     input_data: dict[str, object] = {
         "library_id": library_id,
@@ -968,6 +972,16 @@ async def enqueue_scan_job(
         # 只列网盘文件夹（操作动态、新挂上的文件夹）：不遍历本地、不补探存量规格
         input_data.update(cloud_only=True, backfill_existing_specs=False)
         dedupe_key = f"library.scan:{library_id}:cloud"
+    if cloud_scopes:
+        scopes = sorted({(s.folder_id, s.dir_id, s.prefix) for s in cloud_scopes})
+        input_data.update(
+            cloud_only=True,
+            backfill_existing_specs=False,
+            cloud_folder_ids=sorted({s[0] for s in scopes}),
+            cloud_scopes=[{"folder_id": f, "dir_id": d, "prefix": p} for f, d, p in scopes],
+        )
+        digest = hashlib.sha1(repr(scopes).encode()).hexdigest()[:12]
+        dedupe_key = f"library.scan:{library_id}:cloud:{digest}"
     if reconcile_root_change:
         input_data.update(
             reconcile_root_change=True,
@@ -1005,6 +1019,7 @@ async def scan_library(
     reconcile_new_root_paths: list[str] | None = None,
     cloud_folder_ids: set[int] | None = None,
     cloud_only: bool = False,
+    cloud_scopes: list[library_cloud.CloudScope] | None = None,
     job_context: jobs.JobContext | None = None,
     raise_unexpected: bool = False,
 ) -> ScanSummary:
@@ -1130,6 +1145,7 @@ async def scan_library(
             bridge=bridge,
             cloud_folder_ids=cloud_folder_ids,
             cloud_only=cloud_only,
+            cloud_scopes=cloud_scopes,
         )
         finished_normally = True
         return result
@@ -1199,6 +1215,12 @@ async def _run_scan_job(
         scan_kwargs["cloud_folder_ids"] = {int(folder_id) for folder_id in folder_ids}
     if input_data.get("cloud_only") is True:
         scan_kwargs["cloud_only"] = True
+    cloud_scopes = input_data.get("cloud_scopes")
+    if isinstance(cloud_scopes, list) and cloud_scopes:
+        scan_kwargs["cloud_scopes"] = [
+            library_cloud.CloudScope(int(s["folder_id"]), str(s["dir_id"]), str(s["prefix"]))
+            for s in cloud_scopes
+        ]
     if input_data.get("reconcile_root_change") is True:
         roots = input_data.get("previous_root_paths")
         new_roots = input_data.get("reconcile_new_root_paths")
@@ -1320,6 +1342,7 @@ async def _scan(
     bridge: _ScanJobBridge | None,
     cloud_folder_ids: set[int] | None = None,
     cloud_only: bool = False,
+    cloud_scopes: list[library_cloud.CloudScope] | None = None,
 ) -> ScanSummary:
     db = get_database()
     async with db.session() as session:
@@ -1501,7 +1524,7 @@ async def _scan(
             )
             if cloud_folders:
                 cloud = await library_cloud.collect(
-                    session, library, profile, cloud_folders, summary.add_error
+                    session, library, profile, cloud_folders, summary.add_error, cloud_scopes
                 )
                 for cloud_root, cloud_file, cloud_disc in cloud.pending:
                     if str(cloud_file) in seen_paths:

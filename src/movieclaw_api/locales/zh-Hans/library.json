@@ -628,6 +628,8 @@
     "listFailed": "网盘文件夹「{path}」没列出来：{detail}",
     "onePrimary": "主根只能有一个",
     "missingId": "网盘目录缺少 id",
+    "scopeOutside": "「{path}」不在这个库挂的网盘文件夹里",
+    "scopeNotFound": "网盘上找不到文件夹「{path}」",
     "accountMissing": "网盘账号不存在（可能已被移除）",
     "rootDir": "根目录",
     "overlap": "「{a}」和「{b}」重叠了，选外层的一个就行",
