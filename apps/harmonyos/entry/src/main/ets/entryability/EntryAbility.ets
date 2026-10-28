@@ -1,6 +1,7 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { display, window } from '@kit.ArkUI';
+import { deviceInfo } from '@kit.BasicServicesKit';
 import { AppModel } from '../common/AppModel';
 import { TokenVault } from '../common/TokenVault';
 import { SavedServers } from '../common/SavedServers';
@@ -78,12 +79,24 @@ export default class EntryAbility extends UIAbility {
     // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
 
-    windowStage.loadContent('pages/Index', (err) => {
+    // 车机（car）走独立的 1260×600 vp 宽屏界面；手机/平板/PC 维持原入口。
+    const isCar: boolean = deviceInfo.deviceType === 'car';
+    const entryPage: string = isCar ? 'car/CarIndex' : 'pages/Index';
+    windowStage.loadContent(entryPage, (err) => {
       if (err.code) {
         hilog.error(DOMAIN, 'MovieClaw', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
         return;
       }
       hilog.info(DOMAIN, 'MovieClaw', '%{public}s', 'Succeeded in loading the content.');
+      if (isCar) {
+        // 车机无状态栏/手势条避让问题，只统一窗口底色为深色
+        windowStage.getMainWindow().then((mainWindow: window.Window): void => {
+          mainWindow.setWindowBackgroundColor('#000000');
+        }).catch((error: Object): void => {
+          hilog.warn(DOMAIN, 'MovieClaw', 'Car setWindowBackgroundColor 失败：%{public}s', `${error}`);
+        });
+        return;
+      }
       EntryAbility.applyImmersiveLayout(windowStage);
     });
   }

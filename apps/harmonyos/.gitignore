@@ -22,3 +22,6 @@
 
 # 桌面图标设计草稿（定稿在 resources/base/media，不入库）
 /icon_candidates
+
+# 本地 UI 验收产物（截图/坐标 JSON，含内网地址），不入库
+/spec/*/tmp/

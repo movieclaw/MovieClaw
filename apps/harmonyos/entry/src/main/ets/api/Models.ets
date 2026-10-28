@@ -4978,10 +4978,16 @@ export interface PlaybackSessionRequest {
 /** 开会话的结果。 */
 /** 三态里只有 ``plan`` 才会真的起会话；``consent`` / ``rejected`` 原样把 */
 /** 决策带回前端，由它渲染弹窗或错误说明。 */
+export interface PlaybackAutoSkipView {
+  enabled: boolean
+  intro: boolean
+}
+
 export interface PlaybackSessionView {
   decision: PlaybackDecisionView
   session_id?: string | null
   stream_url?: string | null
+  auto_skip?: PlaybackAutoSkipView | null
   progressive_segments: boolean
   start_ms: number
   timeline: string

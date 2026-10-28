@@ -368,6 +368,11 @@ import {
   WorkerConfigPayload,
 } from './Models';
 
+/** 改自动跳过的请求体 */
+interface AutoSkipPayload {
+  enabled: boolean;
+}
+
 /// MovieClaw 全量业务接口（对应 iOS 端 `extension APIClient` 的生成方法）。
 export class MovieClawApi {
   private client: ApiClient;
@@ -2558,6 +2563,12 @@ export class MovieClawApi {
   playbackSessionStart(body: PlaybackSessionRequest): Promise<PlaybackSessionView> {
     const bodyText = (body === undefined || body === null) ? null : JSON.stringify(body);
     return this.client.post<PlaybackSessionView>('/playback/sessions', bodyText);
+  }
+
+  /** `PUT /playback/auto-skip/intro/{media_item_id}`：这部剧的片头自动跳（学/忘） */
+  playbackAutoSkipIntroSet(mediaItemId: number, enabled: boolean): Promise<boolean> {
+    const payload: AutoSkipPayload = { enabled: enabled };
+    return this.client.put<boolean>(`/playback/auto-skip/intro/${mediaItemId}`, JSON.stringify(payload));
   }
 
   /** 结束播放 */
