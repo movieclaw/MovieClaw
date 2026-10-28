@@ -973,7 +973,10 @@ async def enqueue_scan_job(
         input_data.update(cloud_only=True, backfill_existing_specs=False)
         dedupe_key = f"library.scan:{library_id}:cloud"
     if cloud_scopes:
-        scopes = sorted({(s.folder_id, s.dir_id, s.prefix) for s in cloud_scopes})
+        scopes = sorted(
+            {(s.folder_id, s.dir_id, s.prefix) for s in cloud_scopes},
+            key=lambda s: (s[0], s[1], s[2] or ""),
+        )
         input_data.update(
             cloud_only=True,
             backfill_existing_specs=False,
@@ -1218,7 +1221,11 @@ async def _run_scan_job(
     cloud_scopes = input_data.get("cloud_scopes")
     if isinstance(cloud_scopes, list) and cloud_scopes:
         scan_kwargs["cloud_scopes"] = [
-            library_cloud.CloudScope(int(s["folder_id"]), str(s["dir_id"]), str(s["prefix"]))
+            library_cloud.CloudScope(
+                int(s["folder_id"]),
+                str(s["dir_id"]),
+                None if s.get("prefix") is None else str(s["prefix"]),
+            )
             for s in cloud_scopes
         ]
     if input_data.get("reconcile_root_change") is True:

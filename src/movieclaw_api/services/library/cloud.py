@@ -3,7 +3,7 @@
 挂在库上的网盘文件夹由扫描一并处理，只是「遍历」换成网盘的整树列举：
 
 - **列谁**：新挂上、还没列过的文件夹；手动扫描时全部；其余每周复查一次（定期对账顺带判断
-  到没到期）；操作动态说某个文件夹有变化时只列它（``cloud_only`` 的扫描，不碰本地根目录）；
+  到没到期）；操作动态只列有变化的那个目录（``cloud_only`` 的扫描，不碰本地根目录）；
   插件/外部工具点名了文件夹下的子目录时只列那棵子树（``CloudScope``，判缺失也只在子树里）。
 - **怎么入账**：列出来的视频按文件名走现有识别链，台账行 ``local_bytes`` 为假 + 副本记为已
   核验。文件的台账路径是虚拟位置（``local_dir`` + 相对路径），已经入账的按网盘文件 id 认回
@@ -73,8 +73,9 @@ class CloudScope:
 
     folder_id: int
     dir_id: str
-    #: 相对挂着的文件夹的路径（``/`` 分隔）；空串就是整个文件夹
-    prefix: str
+    #: 相对挂着的文件夹的路径（``/`` 分隔）；空串就是整个文件夹；``None`` 是列举时按网盘给的
+    #: 路径链定（操作动态只知道目录 id），定不了就改列整个文件夹
+    prefix: str | None
 
 
 @dataclass(slots=True)
@@ -157,6 +158,14 @@ async def resolve_scopes(
     return scopes
 
 
+def _prefix_in(chain: tuple[dv.RemoteDir, ...], folder_dir_id: str) -> str | None:
+    """路径链里挂着的文件夹之下的那一段（按目录 id 找，改了名也认得）；不在它底下返回 None。"""
+    ids = [d.remote_id for d in chain]
+    if folder_dir_id not in ids:
+        return None
+    return "/".join(d.name for d in chain[ids.index(folder_dir_id) + 1 :])
+
+
 async def collect(
     session: AsyncSession,
     library: Library,
@@ -178,12 +187,9 @@ async def collect(
         if scopes is None
         else [s for s in scopes if s.folder_id in by_id]
     )
-    for scope in targets:
+    for scope in targets:  # 定不了路径的会往后追加整个文件夹
         folder = by_id[scope.folder_id]
         assert folder.id is not None
-        listing = FolderListing(
-            folder.id, folder.account_id, folder.display_path, scope.prefix, scope.dir_id
-        )
         shown = (
             posixpath.join(folder.display_path, scope.prefix)
             if scope.prefix
@@ -203,13 +209,25 @@ async def collect(
         except Exception as exc:  # noqa: BLE001 -- 插件不在等情况：这个文件夹本轮跳过
             add_error(stored_fields("library.cloud.listFailed", path=shown, detail=str(exc)))
             continue
+        prefix = scope.prefix
+        if prefix is None:
+            prefix = _prefix_in(tree.path, folder.remote_dir_id)
+            if prefix is None:
+                # 不在文件夹底下了（挪出了库）或插件没给路径链：整个文件夹列一遍对账
+                whole = CloudScope(folder.id, folder.remote_dir_id, "")
+                if whole not in targets:
+                    targets.append(whole)
+                continue
+        listing = FolderListing(
+            folder.id, folder.account_id, folder.display_path, prefix, scope.dir_id
+        )
         listing.calls = gateway.usage_today(folder.account_id) - before
         listing.dir_ids = list(tree.dir_ids)
         base = Path(folder.local_dir)
         for remote in tree.files:
             rel = (remote.rel_path or remote.name).strip("/")
-            if scope.prefix:
-                rel = posixpath.join(scope.prefix, rel)
+            if prefix:
+                rel = posixpath.join(prefix, rel)
             verdict = classify_cloud_path(rel, ignore=profile.ignore_rules, exts=profile.media_exts)
             if verdict is None:
                 continue
@@ -481,6 +499,8 @@ async def apply_folders(
 
 #: 一次最多翻几页动态（每页一次调用）；没翻完的下一轮接着翻
 CHANGE_PAGES = 10
+#: 一批动态在一个文件夹里涉及的目录超过这么多，直接整个列一遍（逐个列反而更贵）
+CHANGE_DIRS_MAX = 50
 
 
 @register_task(
@@ -543,9 +563,15 @@ async def poll_drive_changes() -> None:
 async def apply_changes(
     account_id: int, folders: list[LibraryCloudFolder], changes: list[dv.Change]
 ) -> set[int]:
-    """把一批操作动态落到库里：删掉的已入账文件直接标缺失，其余只标出要重新列的文件夹。
+    """把一批操作动态落到库里（cloud-storage.md §4.3）。
 
-    返回要重新列的文件夹 id（已为它们排好只列网盘的扫描）。
+    - 已入账的文件被删了：直接标缺失；已入账、核验过的文件「新增」（我们自己传上去的、范围扫描
+      刚入过账的）：台账里已经有了，什么都不做；
+    - 其余落在库目录里的变化只列事发的那个目录：文件列它所在的目录，目录列它自己，删掉的目录列
+      上级。目录在文件夹之下的路径由列举时网盘给的路径链定，定不了的改列整个文件夹（``collect``）；
+    - 已入账的文件挪到了没列过的目录（可能已经出了库）、一批涉及的目录太多：整个文件夹列一遍。
+
+    返回有变化的文件夹 id（已为它们排好只列网盘的扫描）。
     """
     from movieclaw_api.services.drives import sources
     from movieclaw_api.services.library.scan import enqueue_scan_job
@@ -556,7 +582,10 @@ async def apply_changes(
         by_dir[folder.remote_dir_id] = folder
         for dir_id in folder.dir_ids or ():
             by_dir.setdefault(str(dir_id), folder)
-    dirty: set[int] = set()
+    #: 文件夹 id → 要列的目录 id
+    targets: dict[int, set[str]] = {}
+    #: 要整个列一遍的文件夹 id
+    whole: set[int] = set()
     lost_files: list[int] = []
     now = utcnow()
     async with get_database().session() as session:
@@ -579,18 +608,39 @@ async def apply_changes(
                         await files.mark_missing(row.id, since=now)  # type: ignore[arg-type]
                     lost_files.append(row.id)  # type: ignore[arg-type]
                     sources.forget_links(account_id, change.remote_id)
+                    continue
+                if change.kind == "added" and replica.state == REPLICA_VERIFIED:
+                    continue  # 我们自己传上去的、范围扫描刚入过账的
+                folder = by_dir.get(change.parent_id or "")
+                if folder is not None and folder.id == replica.folder_id:
+                    targets.setdefault(folder.id, set()).add(change.parent_id or "")
                 elif replica.folder_id is not None:
-                    dirty.add(replica.folder_id)  # 挪了位置或改了名：重新列它更新展示路径
+                    whole.add(replica.folder_id)  # 挪到了没列过的目录或库外
                 continue
             folder = by_dir.get(change.parent_id or "") or by_dir.get(change.remote_id)
-            if folder is not None and folder.id is not None:
-                dirty.add(folder.id)
+            if folder is None or folder.id is None:
+                continue
+            if change.is_dir and change.kind != "removed":
+                by_dir.setdefault(change.remote_id, folder)  # 同一批里它底下的变化也认得
+                target = change.remote_id
+            else:
+                target = change.parent_id or ""
+            if by_dir.get(target) is folder:
+                targets.setdefault(folder.id, set()).add(target)
+            else:
+                whole.add(folder.id)  # 被删的就是挂着的文件夹本身之类：整个对一遍
         await repo.commit()
-        libraries: dict[int, list[int]] = {}
+        scopes: dict[int, list[CloudScope]] = {}
         for folder in folders:
-            if folder.id in dirty:
-                libraries.setdefault(folder.library_id, []).append(folder.id)  # type: ignore[arg-type]
-        for library_id, folder_ids in libraries.items():
+            if folder.id is None or (folder.id not in whole and folder.id not in targets):
+                continue
+            dirs = targets.get(folder.id, set())
+            if folder.id in whole or folder.remote_dir_id in dirs or len(dirs) > CHANGE_DIRS_MAX:
+                listed = [CloudScope(folder.id, folder.remote_dir_id, "")]
+            else:
+                listed = [CloudScope(folder.id, d, None) for d in sorted(dirs)]
+            scopes.setdefault(folder.library_id, []).extend(listed)
+        for library_id, library_scopes in scopes.items():
             library = await session.get(Library, library_id)
             if library is None:
                 continue
@@ -601,14 +651,13 @@ async def apply_changes(
                 actor_kind="system",
                 actor_name=source_text("library.cloud.syncActor"),
                 origin="system",
-                cloud_folder_ids=folder_ids,
-                cloud_only=True,
+                cloud_scopes=library_scopes,
             )
     for file_id in lost_files:
         await sources.refresh_file(file_id)
     if lost_files:
         logger.info("网盘动态：%d 个纳管文件被删了，已标缺失", len(lost_files))
-    return dirty
+    return whole | set(targets)
 
 
 # ---------------------------------------------------------------------- 规格补探
