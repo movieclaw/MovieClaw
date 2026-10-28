@@ -1327,7 +1327,7 @@ fun ItemDetailScreen(
         Loadable.Loading -> Box(Modifier.fillMaxSize().background(Bg), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = TextMuted)
         }
-        is Loadable.Failed -> if (minimal && (readOnly || vm.offline.state.value.items[itemId] != null)) {
+        is Loadable.Failed -> if (minimal && (readOnly || offlineState.items[itemId] != null)) {
             // 本机存的详情读不出来（旧版存档、还没联网刷新）：退回只靠摘要的极简详情
             io.movieclaw.android.feature.offline.OfflineMinimalDetail(itemId = itemId, origin = origin, onBack = onBack, onPlay = onPlay)
         } else {

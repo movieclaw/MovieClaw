@@ -609,11 +609,12 @@ fun AppNav() {
         }
         // 离线下载：我的 → 下载（下载中 / 建议 / 已下载 / 其他账号 / 容量）；播放一律走同一个播放器（本机副本优先）
         composable("downloads") {
+            val ui by sessionRepo.ui.collectAsStateWithLifecycle()
             DownloadsScreen(
                 onBack = { navController.popBackStack() },
                 // 点条目 → 库内详情（iOS NavigationLink：下载页看条目、在海报墙里也能管理）
                 onOpenItem = { libraryId, mediaItemId -> navController.navigate("item/$libraryId/$mediaItemId") },
-                origin = sessionRepo.ui.value.origin,
+                origin = ui.origin,
             )
         }
         // 设置 → 网络 → 外部访问（iOS `ExternalAccessSettingsView`）

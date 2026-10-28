@@ -401,7 +401,7 @@ fun OfflineLogoutPrompt(everywhere: Boolean, onProceed: () -> Unit) {
     val store = offline.store()
     val device = deviceName()
     val owners = remember { if (everywhere) io.movieclaw.android.core.offline.OfflineOwners.scan() else emptyList() }
-    val items = store.state.value.items
+    val items = store.state.collectAsStateWithLifecycle().value.items
     val has = if (everywhere) owners.isNotEmpty() || items.isNotEmpty() else store.owner != null && items.isNotEmpty()
     LaunchedEffect(has) { if (!has) onProceed() }
     if (!has) return
