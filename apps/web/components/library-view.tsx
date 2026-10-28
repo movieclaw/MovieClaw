@@ -24,6 +24,10 @@ import {
 } from "@/components/icons";
 import { MediaRow } from "@/components/media-row";
 import { ReelClipsTip } from "@/components/reel-clips-tip";
+import { ReelsFloor } from "@/components/reels-floor";
+import { TipCard } from "@/components/tip-card";
+import { defineTip } from "@/lib/tips/engine";
+import { invalidateTip } from "@/lib/tips/store";
 import { TopBarMenu } from "@/components/top-bar-menu";
 import type { PosterCardAction } from "@/components/poster-card";
 import { UpNextRow } from "@/components/up-next-row";
@@ -69,7 +73,7 @@ import { usePermissions } from "@/lib/permissions";
 import { buildRecentAdditionOverlay } from "@/lib/recent-addition";
 import { formatRelativeTime } from "@/lib/time";
 import { useLayout, useUiPrefs } from "@/lib/ui-prefs";
-import { useIsMobile } from "@/lib/use-media-query";
+import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 
@@ -213,6 +217,18 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
   const { prefs } = useUiPrefs();
   const homePrefs = prefs.home;
   const scrollRef = useScrollRestoration("library");
+  // 片段的入口：手机触屏上首页下拉二楼（同 iOS / Android，docs/design/reels.md §6）。
+  // 鼠标拖不出下拉，窄窗口的电脑不算
+  const coarsePointer = useMediaQuery("(pointer: coarse)");
+  const touchPhone = isMobile && coarsePointer;
+  const [floorHost, setFloorHost] = useState<HTMLDivElement | null>(null);
+  const hostRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      scrollRef(node);
+      setFloorHost(node);
+    },
+    [scrollRef],
+  );
   // 各状态初值取上次会话留存的快照（没有则走加载态），见 lastLoadedHome
   const [libraries, setLibraries] = useState<MediaLibrary[] | null>(
     () => lastLoadedHome?.libraries ?? null,
@@ -604,8 +620,34 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
     }
   };
 
+  // 下拉二楼的胶片画格：首页已经拿到的剧照，去重后取 8 张（不另发请求）
+  const floorStills = useMemo(() => {
+    if (!touchPhone) return [];
+    const urls = [
+      ...(upNext ?? []).map((item) => item.backdrop_url),
+      ...[...itemsByKey.values()].flat().map((item) => item.backdrop_url),
+    ].filter((url): url is string => Boolean(url));
+    return [...new Set(urls)].slice(0, 8).map((url) => imageUrl(url, { width: 240 }));
+  }, [touchPhone, upNext, itemsByKey]);
+  // 使用提示（docs/design/tips.md，与 iOS / Android 同一条）：拉进过一次或关掉后，所有设备都不再出现
+  const floorTip = defineTip({
+    id: "library.reels-floor",
+    title: t("library.reels.tipTitle"),
+    message: t("library.reels.tipMessage"),
+  });
+  const openReels = () => {
+    invalidateTip("library.reels-floor");
+    router.push("/reels" as Route);
+  };
+
   return (
-    <div ref={scrollRef} className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-10">
+    <div
+      ref={hostRef}
+      className={`scroll-thin scroll-safe flex-1 overflow-y-auto pb-10 ${touchPhone ? "reels-floor-host relative" : ""}`}
+    >
+      {touchPhone && (
+        <ReelsFloor host={floorHost} stills={floorStills} onRefresh={reload} onEnter={openReels} />
+      )}
       {/* Netflix 主题的全出血 Billboard（原内容首页并入，见 library-hero.tsx）：
           挂在滚动容器内、跟随页面一起滚走，页头与行清单依次排在其后 */}
       {hero}
@@ -670,6 +712,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
       </div>
 
       <ReelClipsTip className="page-inset-mx mt-4" />
+      {touchPhone && (libraries ?? []).length > 0 && <TipCard tip={floorTip} className="page-inset-mx mt-4" />}
 
       {libraries === null && !failed && (
         <div className="mt-16 flex items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">

@@ -1654,5 +1654,27 @@
     "episode": "Favorited {code}",
     "specials": "Favorited specials",
     "season": "Favorited Season {season}"
+  },
+  "reels": {
+    "title": "Clips",
+    "picking": "Picking clips…",
+    "noneInLibrary": "No clips in your library yet",
+    "precutProgress": "Preparing clips: {ready} / {total} done",
+    "comeBackLater": "Check back later to browse clips",
+    "loadFailed": "Could not load clips",
+    "noMore": "No more clips",
+    "clipFailed": "This clip cannot play. Swipe for the next one.",
+    "unmute": "Turn on sound",
+    "mute": "Mute",
+    "detail": "Details",
+    "watchFull": "Watch full",
+    "replay": "Replay",
+    "episode": "Season {season}, Episode {episode}",
+    "director": "Director",
+    "creator": "Creator",
+    "pullHint": "Keep pulling to start watching clips",
+    "releaseHint": "Release to start watching",
+    "tipTitle": "Pull down to watch clips",
+    "tipMessage": "Keep pulling down here. When the film strip locks into the gate, let go to start watching clips."
   }
 }

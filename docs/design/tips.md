@@ -95,7 +95,7 @@ invalidateTip("library.filter");
 
 | 提示 | 事件 | 出现在 | 作废 |
 |---|---|---|---|
-| `library.reels-floor` 下拉开始欣赏片段 | 无 | iPhone / iPad / Android 手机媒体库首页顶部（开着旁白 / 读屏、离线时不出） | 从首页下拉进过一次片段（`action_performed`）；点关闭（`closed`） |
+| `library.reels-floor` 下拉开始欣赏片段 | 无 | iPhone / iPad / Android 手机 / 网页手机触屏的媒体库首页顶部（开着旁白 / 读屏、离线时不出；电脑网页不出） | 从首页下拉进过一次片段（`action_performed`）；点关闭（`closed`） |
 | `playback.reel-clips` 开启片段预切 | `reels.played-without-clips`（服务端替管理员记：开关关着时刷片或大图预告放出了原片片段） | 网页媒体库页顶部，只给管理员；动作「去开启」到「设置 → 播放」 | 打开开关时服务端作废；开关开着却有老 App 放原片时也作废 |
 
 同一件事第一次记到时给管理员手机推一条「使用建议」，点开到 App 的「设置 → 播放」（与网页同一个开关）。

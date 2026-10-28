@@ -1654,5 +1654,27 @@
     "episode": "收藏了 {code}",
     "specials": "收藏了特别篇",
     "season": "收藏了第 {season} 季"
+  },
+  "reels": {
+    "title": "片段",
+    "picking": "正在挑片段…",
+    "noneInLibrary": "片库里还没有能刷的片子",
+    "precutProgress": "片段正在预切，已完成 {ready} / {total}",
+    "comeBackLater": "稍后再来就能刷了",
+    "loadFailed": "片段加载失败",
+    "noMore": "没有更多了",
+    "clipFailed": "这一段放不出来，往下滑换一条",
+    "unmute": "开启声音",
+    "mute": "静音",
+    "detail": "详情",
+    "watchFull": "看全片",
+    "replay": "重播",
+    "episode": "第 {season} 季第 {episode} 集",
+    "director": "导演",
+    "creator": "主创",
+    "pullHint": "再拉一点，开始欣赏片段",
+    "releaseHint": "松手，开始欣赏",
+    "tipTitle": "下拉，开始欣赏片段",
+    "tipMessage": "在这里一直往下拉，胶片走起来、片门合上时松手，就能开始欣赏片段。"
   }
 }

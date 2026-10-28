@@ -3044,3 +3044,9 @@ html:not([data-glass="off"]) .page-nav-btn:hover {
     backdrop-filter: blur(36px) saturate(135%);
   }
 }
+
+/* 媒体库首页「下拉二楼」（components/reels-floor.tsx）：拉的时候其余内容整体下移，露出上面的胶片。
+   只在拉的时候加 transform——平时也加的话会困住里面 position: fixed 的弹层 */
+.reels-floor-host[data-floor-pulling] > :not(.reels-floor-layer) {
+  transform: translateY(var(--floor-pull));
+}
