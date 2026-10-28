@@ -95,7 +95,7 @@ invalidateTip("library.filter");
 
 | 提示 | 事件 | 出现在 | 作废 |
 |---|---|---|---|
-| `library.reels-floor` 下拉开始欣赏片段 | 无 | iPhone / iPad 媒体库首页顶部（开着旁白、离线时不出） | 从首页下拉进过一次片段（`action_performed`）；点关闭（`closed`） |
+| `library.reels-floor` 下拉开始欣赏片段 | 无 | iPhone / iPad / Android 手机媒体库首页顶部（开着旁白 / 读屏、离线时不出） | 从首页下拉进过一次片段（`action_performed`）；点关闭（`closed`） |
 | `playback.reel-clips` 开启片段预切 | `reels.played-without-clips`（服务端替管理员记：开关关着时刷片或大图预告放出了原片片段） | 网页媒体库页顶部，只给管理员；动作「去开启」到「设置 → 播放」 | 打开开关时服务端作废；开关开着却有老 App 放原片时也作废 |
 
 同一件事第一次记到时给管理员手机推一条「使用建议」，点开到 App 的「设置 → 播放」（与网页同一个开关）。
@@ -109,6 +109,6 @@ invalidateTip("library.filter");
 
 ## 后续
 
-- 其他客户端（Mac/TV、Android、Android TV）按本文的接口和判定规则各实现一份引擎（iPhone / iPad 已有，见「Apple 用法」）。Apple 端不直接用 TipKit：TipKit 的存储没法接到服务端。
+- 其他客户端（Mac/TV、Android TV）按本文的接口和判定规则各实现一份引擎（iPhone / iPad 已有，见「Apple 用法」；Android 手机为 `core/tips/TipsStore.kt`，范围同 Apple）。Apple 端不直接用 TipKit：TipKit 的存储没法接到服务端。
 - 气泡式提示（指向某个按钮，对标 `popoverTip`）、设置页里的「重新显示使用提示」入口，等第一批真实提示上线时一起做。
 - 事件只存累计次数和首末时间。如果以后需要「最近 7 天做过 3 次」这类规则，再加近期时间戳。

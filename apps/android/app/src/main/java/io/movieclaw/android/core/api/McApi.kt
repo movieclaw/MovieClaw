@@ -464,6 +464,23 @@ interface McApi {
         @Body body: io.movieclaw.android.core.model.ReelEventBatch,
     ): McEnvelope<io.movieclaw.android.core.model.ReelEventResult>
 
+    /* ---------------- 使用提示（docs/design/tips.md） ---------------- */
+
+    /** 我的提示状态（各提示的展示 / 作废记录） */
+    @GET("tips/state")
+    suspend fun tipsState(): McEnvelope<io.movieclaw.android.core.model.TipStateView>
+
+    /** 提示上屏一次（展示次数 +1） */
+    @POST("tips/{tipId}/displays")
+    suspend fun recordTipDisplay(@Path("tipId") tipId: String): McEnvelope<io.movieclaw.android.core.model.TipRecordView>
+
+    /** 作废一条提示（以后所有设备都不再出现；已作废的保留第一次的原因） */
+    @POST("tips/{tipId}/invalidate")
+    suspend fun invalidateTip(
+        @Path("tipId") tipId: String,
+        @Body body: io.movieclaw.android.core.model.InvalidateTipRequest,
+    ): McEnvelope<io.movieclaw.android.core.model.TipRecordView>
+
     @GET("libraries/{libraryId}/items")
     suspend fun libraryItems(
         @Path("libraryId") libraryId: Long,
