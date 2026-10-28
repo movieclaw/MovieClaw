@@ -31,7 +31,9 @@ class ImageLoaders @Inject constructor(
 
     val loader: ImageLoader = ImageLoader.Builder(context)
         .components {
-            add(OkHttpNetworkFetcherFactory(callFactory = { http }))
+            // Coil 只调一次 callFactory（内部 lazy）：直接返回 http 会把**第一次取图时**的账号身份
+            // 冻结到进程结束（登录前就取过图、或切了账号，会员图一直 401）。每次请求现取身份。
+            add(OkHttpNetworkFetcherFactory(callFactory = { okhttp3.Call.Factory { request -> http.newCall(request) } }))
         }
         .diskCache {
             DiskCache.Builder()

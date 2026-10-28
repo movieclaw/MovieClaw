@@ -32,6 +32,7 @@ import io.movieclaw.android.core.model.PushAckBody
 import io.movieclaw.android.core.model.PushRegistrationBody
 import io.movieclaw.android.core.network.ApiFactory
 import io.movieclaw.android.core.network.LiveChannel
+import io.movieclaw.android.core.network.ServerAddressBook
 import io.movieclaw.android.core.network.dataOrThrow
 import io.movieclaw.android.core.network.identityClient
 import io.movieclaw.android.core.notify.Notifier
@@ -196,11 +197,15 @@ class PushStreamService : Service() {
     @Inject lateinit var apiFactory: ApiFactory
     @Inject @LiveChannel lateinit var liveClient: OkHttpClient
     @Inject lateinit var json: Json
+    @Inject lateinit var addressBook: ServerAddressBook
 
     private val scope = AppScopes.io("PushStream")
     private var loop: Job? = null
     private val wakeups = Channel<Unit>(Channel.CONFLATED)
     @Volatile private var connection: Job? = null
+    /** 当前连接用的 API 基址：内外网入口换了要据此判断该不该断开重连 */
+    @Volatile private var connectionBase: String? = null
+    private val backoff = Backoff()
     @Volatile private var connectionNetwork: Network? = null
     @Volatile private var currentNetwork: Network? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -217,6 +222,20 @@ class PushStreamService : Service() {
             // （正在连着的连接由 connectOnce 里的 watcher 发现身份变了自己断开）
             session.ui.map { it.origin to it.phase }.distinctUntilChanged().drop(1).collect {
                 wakeups.trySend(Unit)
+            }
+        }
+        scope.launch {
+            // 内外网入口换了（出门 / 回家 / 选路补试成功）：连着旧入口的断开、按新入口重连；
+            // 正在退避等待的立刻重试——否则会按退避干等到几分钟后，界面一直显示「未连接」
+            addressBook.selection.map { it?.url }.distinctUntilChanged().drop(1).collect {
+                backoff.reset()
+                val origin = session.ui.value.origin ?: return@collect
+                val active = connection
+                if (active != null && connectionBase != streamBase(origin)) {
+                    active.cancel(StreamInterrupted())
+                } else if (PushStreamState.status.value !is PushStreamStatus.Connected) {
+                    wakeups.trySend(Unit)
+                }
             }
         }
         scope.launch {
@@ -263,7 +282,6 @@ class PushStreamService : Service() {
         }
         // 开机、保活任务拉起的进程里界面没跑过：自己恢复登录态（已恢复过就是空操作）
         runCatching { session.boot() }
-        val backoff = Backoff()
         var registeredFor: TokenVault.Identity? = null
         while (currentCoroutineContext().isActive) {
             val origin = session.ui.value.origin
@@ -279,7 +297,7 @@ class PushStreamService : Service() {
                     register(identity)
                     registeredFor = identity
                 }
-                connectOnce(identity, prefs, backoff)
+                connectOnce(identity, prefs)
             }
             connection = attempt
             try {
@@ -324,9 +342,10 @@ class PushStreamService : Service() {
     }
 
     /** 一次连接，服务器正常结束时返回连着的时长（毫秒） */
-    private suspend fun connectOnce(identity: TokenVault.Identity, prefs: PushStreamPrefs, backoff: Backoff): Long = coroutineScope {
+    private suspend fun connectOnce(identity: TokenVault.Identity, prefs: PushStreamPrefs): Long = coroutineScope {
         val origin = identity.origin
-        val base = apiFactory.apiBaseOf(origin) ?: "$origin/api/v1"
+        val base = streamBase(origin)
+        connectionBase = base
         // 心跳 25 秒一次：90 秒没有任何字节就当连接已死（NAT 掐断、换网），断开重连
         val client = identityClient(liveClient, identity).newBuilder()
             .readTimeout(90, TimeUnit.SECONDS)
@@ -378,6 +397,10 @@ class PushStreamService : Service() {
         }
         if (openedAt == 0L) 0L else System.currentTimeMillis() - openedAt
     }
+
+    /** 跟着内外网自动选连的当前入口走（不是固定的登录地址），子路径反代的基址次之 */
+    private fun streamBase(origin: String): String =
+        apiFactory.routedBaseOf(origin) ?: apiFactory.apiBaseOf(origin) ?: "$origin/api/v1"
 
     private fun show(item: StreamNotification) {
         val landing = StreamNotifications.landingFor(item.deeplink)

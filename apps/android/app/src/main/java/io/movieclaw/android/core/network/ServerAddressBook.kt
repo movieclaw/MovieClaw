@@ -104,7 +104,8 @@ class ServerAddressBook @Inject constructor(
             // finally 复位：任何异常/超时都不能把「正在选路」永久卡住
             // （否则网络变化与设置页「重新选择」会被永久忽略，见 PR #1001 评审）
             try {
-                runCatching { select(origin) }
+                val won = runCatching { select(origin) }.getOrDefault(false)
+                scheduleRetryIfLost(origin, won)
             } finally {
                 selecting = false
                 registerNetworkCallback()
@@ -143,6 +144,29 @@ class ServerAddressBook @Inject constructor(
         }
     }
 
+    /** 连续几轮一个入口都没验过（同一个网络上）；验过一次或换了网络就清零 */
+    @Volatile private var lostRounds = 0
+    @Volatile private var lostFingerprint: String? = null
+
+    /**
+     * 一轮下来一个都没验过（刚换网络还没通、外网探测恰好超时）：之后不会再有网络事件叫醒选路，
+     * 手里只剩登录地址——稍后补试几次，别等到冷启动才恢复。
+     */
+    private fun scheduleRetryIfLost(origin: String, won: Boolean) {
+        val fp = fingerprint()
+        if (won || fp != lostFingerprint) {
+            lostRounds = 0
+            lostFingerprint = fp
+        }
+        if (won || lostRounds >= LOST_RETRY_DELAYS_MS.size) return
+        val wait = LOST_RETRY_DELAYS_MS[lostRounds++]
+        scope.launch {
+            delay(wait)
+            // 期间换了账号 / 服务器就不补了（新账号自己会选）
+            _selection.value?.takeIf { it.origin == origin }?.let { selectAndApply(it.origin) }
+        }
+    }
+
     fun onAppBackground() {
         backgroundedAt.set(android.os.SystemClock.elapsedRealtime())
     }
@@ -155,7 +179,8 @@ class ServerAddressBook @Inject constructor(
         _selection.value?.let { selectAndApply(it.origin) }
     }
 
-    private suspend fun select(origin: String) {
+    /** 选一轮；返回本轮是否有入口验证通过（没有的话调用方稍后再试） */
+    private suspend fun select(origin: String): Boolean {
         val api = apiFactory.forOrigin(origin)
         val fp = fingerprint()
         val previousSelection = _selection.value
@@ -163,13 +188,15 @@ class ServerAddressBook @Inject constructor(
         val cached = lastBook
         // 网络刚变（Wi-Fi 掉线 / 出门 / 回家）且手里有上次的地址簿：直接拿它竞速。
         // 此时当前入口往往已经不可达，先去内网入口拉地址簿会干等 5 秒超时，切换就“感觉没反应”。
-        val fetched = if (networkJustChanged && cached != null) {
+        // 当前入口没验过（上一轮一个都没通、这是补试）同理：别先去它那儿拉地址簿。
+        val currentUnverified = previousSelection?.verified == false
+        val fetched = if ((networkJustChanged || currentUnverified) && cached != null) {
             null
         } else {
             runCatching { api.serverAddresses().dataOrThrow() }.getOrNull()
         }
         if (fetched != null) lastBook = fetched
-        val book = fetched ?: cached ?: return
+        val book = fetched ?: cached ?: return false
         val entries = book.addresses.map { Entry(it.url.trimEnd('/'), it.kind, it.source) }
         _book.value = entries
         val loginUrl = origin.trimEnd('/')
@@ -246,11 +273,7 @@ class ServerAddressBook @Inject constructor(
             if (url !in verified) verified += url
             val trusted = (listOf(loginUrl) + verified).distinct()
             ServerTrust.allow(origin, trusted)
-            val current = _selection.value
-            val currentIsLan = current?.kind == "lan" && current.verified
-            val shouldApply = current == null || !current.verified ||
-                (isLan && !currentIsLan) || current.url.trimEnd('/') == url
-            if (shouldApply) {
+            if (shouldSwitchTo(_selection.value, fp, url, isLan)) {
                 apply(origin, url, kindOf(entries, url), verified = true, alternates = trusted)
                 android.util.Log.i(
                     "McRoutes",
@@ -259,19 +282,20 @@ class ServerAddressBook @Inject constructor(
             }
         }
 
-        val applied = _selection.value
-        if (prePick == null && (applied == null || !applied.verified)) {
+        val settle = settleRound(_selection.value, fp, prePicked = prePick != null, verified = verified)
+        if (settle.fallbackToLogin) {
             // 一个都验不过（出门、服务器不可达…）：回到登录地址本身
             ServerTrust.allow(origin, listOf(loginUrl))
             apply(origin, loginUrl, "login", verified = false, alternates = listOf(loginUrl))
         }
-        if (applied?.verified == true) {
-            rememberChoice(fp, applied.url)
+        if (settle.remember) {
+            _selection.value?.let { rememberChoice(fp, it.url) }
         }
         val finalUrl = (_selection.value?.url ?: loginUrl).trimEnd('/')
         ServerRoutes.alternates = (verified + loginUrl).map { it.trimEnd('/') }
             .filter { it != finalUrl }
             .distinct()
+        return verified.isNotEmpty()
     }
 
     private fun apply(
@@ -289,6 +313,7 @@ class ServerAddressBook @Inject constructor(
         }
         // 图片等按 origin 拼 URL 的地方跟着换入口
         ServerRoutes.provider = { o -> if (o == null || o == origin) url.trimEnd('/') else null }
+        ServerRoutes.entry = url.trimEnd('/')
         // 服务端按这个头判内外网（§5.2）：内网走 lan；经 VPN 回家走 vpn；其余 wan
         ServerRoutes.route = routeFor(kind, url)
         // 其它已验证入口：当前地址硬错误时幂等请求换过去
@@ -453,24 +478,10 @@ class ServerAddressBook @Inject constructor(
         val proof = obj["proof"]?.jsonPrimitive?.contentOrNull
         if (hostKey.isNotEmpty()) {
             if (proof.isNullOrEmpty()) return false
-            if (!verifyProof(hostKey, nonce, id, proof)) return false
+            if (!verifyHealthProof(hostKey, nonce, id, proof)) return false
         }
         return true
     }
-
-    /** Ed25519：proof = sign("movieclaw-health\n" + instance_id + "\n" + nonce)，base64url */
-    private fun verifyProof(hostKeyB64: String, nonce: String, instanceId: String, proofB64: String): Boolean = runCatching {
-        val spec = net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable.getByName(
-            net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable.ED_25519,
-        )
-        val publicKey = net.i2p.crypto.eddsa.EdDSAPublicKey(
-            net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec(Base64.getUrlDecoder().decode(hostKeyB64), spec),
-        )
-        val verifier = java.security.Signature.getInstance("EdDSA")
-        verifier.initVerify(publicKey)
-        verifier.update("movieclaw-health\n$instanceId\n$nonce".toByteArray(Charsets.UTF_8))
-        verifier.verify(Base64.getUrlDecoder().decode(proofB64))
-    }.getOrDefault(false)
 
     private fun newNonce(): String {
         val bytes = ByteArray(16)
@@ -572,6 +583,68 @@ class ServerAddressBook @Inject constructor(
             })
         }
     }
+}
+
+/**
+ * Ed25519：proof = sign("movieclaw-health\n" + instance_id + "\n" + nonce)，base64url。
+ *
+ * 直接用 i2p 的 [net.i2p.crypto.eddsa.EdDSAEngine]，**不能**走 `Signature.getInstance("EdDSA")`：
+ * Android 的系统密码库没有这个算法名（实测 Android 16 报 NoSuchAlgorithmException），i2p 也没注册成 Provider，
+ * 结果是服务器一带主机公钥，所有入口都验不过、自动选连只剩预选和回登录地址。JVM 单测里 JDK 自带 EdDSA，掩盖了这一点。
+ */
+internal fun verifyHealthProof(hostKeyB64: String, nonce: String, instanceId: String, proofB64: String): Boolean = runCatching {
+    val spec = net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable.getByName(
+        net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable.ED_25519,
+    )
+    val publicKey = net.i2p.crypto.eddsa.EdDSAPublicKey(
+        net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec(Base64.getUrlDecoder().decode(hostKeyB64), spec),
+    )
+    val verifier = net.i2p.crypto.eddsa.EdDSAEngine(java.security.MessageDigest.getInstance(spec.hashAlgorithm))
+    verifier.initVerify(publicKey)
+    verifier.update("movieclaw-health\n$instanceId\n$nonce".toByteArray(Charsets.UTF_8))
+    verifier.verify(Base64.getUrlDecoder().decode(proofB64))
+}.getOrDefault(false)
+
+/** 一轮没验过任何入口后的补试间隔（见 [ServerAddressBook.scheduleRetryIfLost]） */
+private val LOST_RETRY_DELAYS_MS = longArrayOf(5_000L, 15_000L, 45_000L)
+
+/**
+ * 竞速里某个入口验证通过，要不要切过去（§4.3：先通先用、内网后到就升级、不从内网退回外网）。
+ *
+ * 「手里已有验证过的入口就不换」只对**这个网络上**验过的成立：出门后手里那条还是家里验过的内网地址，
+ * 外网验过了也不切的话，就一直挂在连不上的内网上（蜂窝下连内网多是超时＝软错误，不会再触发重选），
+ * 只能冷启动恢复。
+ */
+internal fun shouldSwitchTo(
+    current: ServerAddressBook.Selection?,
+    fingerprint: String,
+    url: String,
+    isLan: Boolean,
+): Boolean {
+    if (current == null || !current.verified || current.fingerprint != fingerprint) return true
+    if (current.url.trimEnd('/') == url) return true
+    return isLan && current.kind != "lan"
+}
+
+/** 一轮竞速后的收尾：要不要回登录地址、要不要把当前入口记到这个网络名下 */
+internal data class RoundSettle(val fallbackToLogin: Boolean, val remember: Boolean)
+
+/**
+ * - 回登录地址：没有预选、手里也没有能用的入口时。手里那条若是**别的网络上**选的内网入口、本轮又没验过，
+ *   也不能接着用（换了网络，内网多半已不可达）；别的网络上验过的外网入口照旧保留（§4.5 外网回内网只探内网）。
+ * - 记忆：只记本轮在这个网络上真验过的入口，别把上个网络的结论记到新网络名下。
+ */
+internal fun settleRound(
+    current: ServerAddressBook.Selection?,
+    fingerprint: String,
+    prePicked: Boolean,
+    verified: List<String>,
+): RoundSettle {
+    val staleLan = current != null && current.kind == "lan" && current.fingerprint != fingerprint
+    val fallback = !prePicked && (current == null || !current.verified || staleLan)
+    val remember = !fallback && current != null && current.verified &&
+        current.fingerprint == fingerprint && current.url in verified
+    return RoundSettle(fallbackToLogin = fallback, remember = remember)
 }
 
 /** 竞速总超时：内网 1.5s、外网 5s，再留 1.5s 余量；到点没赢家就回登录地址。 */
