@@ -4,6 +4,7 @@ import asyncio
 import mimetypes
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path, PurePath
 from typing import Annotated, Literal
 from urllib.parse import quote
@@ -149,6 +150,7 @@ from movieclaw_api.services.library.access import (
     content_limit_for,
     visible_library_ids,
 )
+from movieclaw_api.services.library.air_schedule import build_season_air_schedule
 from movieclaw_api.services.library.batch_transfer import (
     CONSOLIDATE_JOB_TYPE,
     BatchMember,
@@ -3296,11 +3298,21 @@ async def list_item_episodes(
         season_number,
         member_id=principal.member_id if principal.member_id is not None else 0,
     )
+    air_schedule = await build_season_air_schedule(
+        session,
+        item,
+        season_number,
+        [
+            (e.episode_number, date.fromisoformat(e.air_date) if e.air_date else None, e.owned)
+            for e in episodes
+        ],
+    )
     return ok(
         SeasonEpisodesView(
             season_number=season_number,
             episodes=[episode_view(e) for e in episodes],
             resume_episode=season_resume_episode(episodes),
+            air_schedule=air_schedule,
         )
     )
 

@@ -416,8 +416,13 @@ async def _scrape(
             )
         ).scalar_one_or_none()
 
+        recent = utcnow().date() - timedelta(days=7)
+        airing = kind is MediaKind.TV and any(
+            e.air_date is not None and e.air_date >= recent
+            for e in await repo.list_episodes(media_item_id)
+        )
         item.metadata_refreshed_at = utcnow()
-        item.next_refresh_at = utcnow() + next_refresh_delay(item, subscription)
+        item.next_refresh_at = utcnow() + next_refresh_delay(item, subscription, airing=airing)
         session.add(item)
         await session.commit()
 
@@ -1502,9 +1507,16 @@ def _parse_iso_date(raw: str | None):
 # ---------------------------------------------------------------------------
 
 
-def next_refresh_delay(item: MediaItem, subscription: Subscription | None) -> timedelta:
-    """刷新分档（docs/design/subscription-p4.md 第 6 节 / metadata.md 4.4）。"""
+def next_refresh_delay(
+    item: MediaItem, subscription: Subscription | None, *, airing: bool = False
+) -> timedelta:
+    """刷新分档（docs/design/subscription-p4.md 第 6 节 / metadata.md 4.4）。
+
+    ``airing``：这部剧最近一周播过或之后还有排期。没订阅也每天刷一次，详情页
+    播出日历（issue #547）的排期要跟得上改档、加集。"""
     if subscription is None:
+        if airing:
+            return timedelta(hours=24)
         return timedelta(days=30)  # 无订阅：低频保鲜档案，防条目腐烂
     if item.kind == MediaKind.TV.value and (item.status or "") not in _ENDED:
         return timedelta(hours=8)  # 在播/未完结剧：新集的发动机

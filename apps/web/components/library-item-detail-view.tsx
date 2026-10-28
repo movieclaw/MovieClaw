@@ -16,6 +16,8 @@ import { DeleteFollowUps, DeleteOptions, useDeletePreview } from "@/components/l
 import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
 import { useHeroEdgeColor } from "@/lib/hero-edge-color";
 import { ArtworkPickerDialog } from "@/components/artwork-picker-dialog";
+import { AirScheduleCard, AirScheduleDialog } from "@/components/library-air-schedule";
+import { daysBetween, episodeTone, formatAirDay, formatWeekday } from "@/lib/air-schedule";
 import { BrandLoader } from "@/components/brand-loader";
 import { CastRow } from "@/components/cast-row";
 import { ChapterStrip } from "@/components/chapter-strip";
@@ -57,6 +59,7 @@ import {
   type LibraryItemDetail,
   type LibraryItemFile,
   type MediaLibrary,
+  type SeasonAirSchedule,
   type SeasonEpisodes,
   type TransferPreview,
   type TransferStatus,
@@ -101,7 +104,7 @@ import { languageLabel } from "@/lib/language-labels";
 import { invalidateLibraryDetailSnapshot } from "@/lib/library-detail-snapshot";
 import { refreshItemConfirm, rereadItemNfoConfirm } from "@/lib/library-confirm";
 import { usePermissions } from "@/lib/permissions";
-import { formatDateTime, formatRelativeTime } from "@/lib/time";
+import { formatClockTime, formatDateTime, formatRelativeTime } from "@/lib/time";
 import {
   type EpisodeRange,
   episodeRangeLabel,
@@ -1038,6 +1041,22 @@ export function LibraryItemDetailView({
             initialEpisode={initialEpisode}
             onEpisodeChange={setSelectedSeriesEpisode}
             refreshKey={episodesVersion}
+            airCalendar={{
+              title: detail.title,
+              canSubscribe,
+              onSubscribe:
+                canSubscribe && tmdbId > 0
+                  ? () =>
+                      void openSubscribe({
+                        id: String(tmdbId),
+                        title: detail.title,
+                        rating: 0,
+                        posterUrl: detail.poster_url ?? "",
+                        type: "tv",
+                        year: detail.year ?? undefined,
+                      })
+                  : undefined,
+            }}
           />
         )}
 
@@ -1748,6 +1767,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   onEpisodeChange,
   fetchEpisodes,
   refreshKey = 0,
+  airCalendar,
 }: {
   libraryId: number;
   detail: EpisodeSectionItem<F>;
@@ -1758,6 +1778,8 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   fetchEpisodes?: (mediaItemId: number, season: number) => Promise<SeasonEpisodes>;
   /** 变化即静默重拉本季分集（页面内改了观看状态后），不重置选中集与滚动位置 */
   refreshKey?: number;
+  /** 播出日历（issue #547）：只有库详情页传；分享页没有订阅与入库的语境 */
+  airCalendar?: { title: string; canSubscribe: boolean; onSubscribe?: () => void };
 }) {
   const t = useTranslations();
   const locale = useLocale();
@@ -1780,6 +1802,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   const [failed, setFailed] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [airOpen, setAirOpen] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
   const initialEpisodeScrolled = useRef(false);
   // 程序改选中集（进页、换段、面板点格子、锚点变了）后要把横排滚到它；
@@ -1893,6 +1916,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
     [current, filesById],
   );
   const ownedCount = data ? data.episodes.filter((e) => e.owned).length : 0;
+  const airSchedule = airCalendar && data?.season_number === season ? (data.air_schedule ?? null) : null;
 
   // 长季分段（超过 50 集）：横排只放选中集所在的那一段；≤50 集 ranges 为空，一切照旧
   const ranges = useMemo(
@@ -1985,9 +2009,11 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
               <ChevronRightIcon className="size-3.5" />
             </button>
           ) : (
-            <span className="tnum text-sub text-[var(--text-faint)]">
-              {t("library.item.ownedEpisodeCount", { owned: ownedCount, total: data.episodes.length })}
-            </span>
+            !airSchedule && (
+              <span className="tnum text-sub text-[var(--text-faint)]">
+                {t("library.item.ownedEpisodeCount", { owned: ownedCount, total: data.episodes.length })}
+              </span>
+            )
           ))}
       </div>
 
@@ -2000,6 +2026,10 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
           onSelect={selectRange}
           className="mb-3"
         />
+      )}
+
+      {data && airSchedule && (
+        <AirScheduleCard episodes={data.episodes} schedule={airSchedule} onOpen={() => setAirOpen(true)} />
       )}
 
       {failed && (
@@ -2029,6 +2059,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
               episode={episode}
               selected={episode.episode_number === selected}
               resume={watched && episode.episode_number === anchor}
+              schedule={airSchedule}
               onSelect={() => setSelected(episode.episode_number)}
             />
           ))}
@@ -2054,6 +2085,24 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
             setPanelOpen(false);
             selectEpisode(episodeNumber);
           }}
+        />
+      )}
+
+      {airOpen && data && airSchedule && airCalendar && (
+        <AirScheduleDialog
+          title={airCalendar.title}
+          seasonLabel={seasonLabel(season, true, locale)}
+          episodes={data.episodes}
+          schedule={airSchedule}
+          canSubscribe={airCalendar.canSubscribe}
+          onSubscribe={
+            airCalendar.onSubscribe &&
+            (() => {
+              setAirOpen(false);
+              airCalendar.onSubscribe?.();
+            })
+          }
+          onClose={() => setAirOpen(false)}
         />
       )}
     </section>
@@ -2288,15 +2337,22 @@ function EpisodeCard({
   episode,
   selected,
   resume = false,
+  schedule = null,
   onSelect,
 }: {
   episode: LibraryEpisode;
   selected: boolean;
   /** 接着看的那一集（只在分段的长季标）：左上角「接着看」 */
   resume?: boolean;
+  /** 播出日历：有它才分得清「还没播」与「缺集」；没有时库里没有的集一律按缺集 */
+  schedule?: SeasonAirSchedule | null;
   onSelect: () => void;
 }) {
   const t = useTranslations();
+  const locale = useLocale();
+  const tone = schedule && !episode.owned ? episodeTone(episode, schedule) : null;
+  const airsToday = tone === "today" || tone === "todayFree";
+  const unaired = airsToday || tone === "upcoming";
   // 看完 = 满条绿；看一半 = 百分比蓝；有记录但算不出百分比（无时长）给
   // 一根 60% 透明的整条兜底——三种形态与 RecentWatchCard 逐一对应。
   // 看完后重看到一半：对勾保留，进度条按这次看到哪画蓝条
@@ -2309,7 +2365,7 @@ function EpisodeCard({
       onClick={onSelect}
       aria-pressed={selected}
       className={`w-[200px] shrink-0 rounded-xl text-left outline-none transition ${
-        episode.owned ? "" : "opacity-45 saturate-50"
+        episode.owned || unaired ? "" : "opacity-45 saturate-50"
       }`}
     >
       <div
@@ -2319,27 +2375,31 @@ function EpisodeCard({
             : "ring-1 ring-white/[0.08] hover:ring-white/35"
         }`}
       >
-        <PosterImage
-          src={imageUrl(episode.still_url)}
-          // 分集卡 200 宽、16:9 框
-          width={200}
-          alt={t("library.item.episodeStill", { episode: episode.episode_number })}
-          className="size-full object-cover"
-          fallback={
-            <span className="tnum flex size-full items-center justify-center text-[22px] font-bold text-white/20">
-              {episode.episode_number}
-            </span>
-          }
-        />
+        {unaired ? (
+          <UnairedStill episode={episode} schedule={schedule!} today={airsToday} locale={locale} />
+        ) : (
+          <PosterImage
+            src={imageUrl(episode.still_url)}
+            // 分集卡 200 宽、16:9 框
+            width={200}
+            alt={t("library.item.episodeStill", { episode: episode.episode_number })}
+            className="size-full object-cover"
+            fallback={
+              <span className="tnum flex size-full items-center justify-center text-[22px] font-bold text-white/20">
+                {episode.episode_number}
+              </span>
+            }
+          />
+        )}
         {resume && (
           <span className="pointer-events-none absolute left-1.5 top-1.5 rounded bg-[#ffb340] px-1.5 py-px text-micro font-bold text-black">
             {t("library.item.continue")}
           </span>
         )}
         {/* 右上角状态位：缺集与已看对勾同排（看过之后文件丢了两者会同时出现） */}
-        {(!episode.owned || episode.played) && (
+        {((!episode.owned && !unaired) || episode.played) && (
           <div className="pointer-events-none absolute right-1.5 top-1.5 flex items-center gap-1">
-            {!episode.owned && (
+            {!episode.owned && !unaired && (
               <span className="rounded bg-black/60 px-1.5 py-px text-micro font-semibold text-[var(--warn)]">
                 {t("library.item.missingBadge")}
               </span>
@@ -2375,6 +2435,57 @@ function EpisodeCard({
         {episode.episode_number}. {episode.name ?? t("library.item.episode", { episode: episode.episode_number })}
       </p>
     </button>
+  );
+}
+
+/** 还没播的集的剧照位：今天播出描蓝边，之后的虚线框写播出日，没日期写待定档 */
+function UnairedStill({
+  episode,
+  schedule,
+  today,
+  locale,
+}: {
+  episode: LibraryEpisode;
+  schedule: SeasonAirSchedule;
+  today: boolean;
+  locale: AppLocale;
+}) {
+  const t = useTranslations();
+  if (today) {
+    const arrival = schedule.arrivals.find((a) => a.episode_number === episode.episode_number);
+    return (
+      <span className="flex size-full flex-col items-center justify-center gap-1 rounded-xl bg-[#11151d] shadow-[inset_0_0_0_1.5px_rgba(59,130,246,0.75)]">
+        <span className="text-sub font-bold text-[var(--text)]">{t("library.item.airAirsToday")}</span>
+        <span className={`text-micro ${schedule.subscription_id != null ? "text-[var(--info)]" : "text-[var(--text-muted)]"}`}>
+          {schedule.subscription_id == null
+            ? t("library.item.airNotSubscribed")
+            : arrival?.stage === "downloading"
+              ? t("library.item.airDownloading")
+              : arrival?.stage === "organizing"
+                ? t("library.item.airOrganizing")
+                : arrival?.expected_at
+                  ? t("library.item.airExpected", { time: formatClockTime(arrival.expected_at, locale) })
+                  : t("library.item.airWaiting")}
+        </span>
+      </span>
+    );
+  }
+  const date = episode.air_date;
+  return (
+    <span className="flex size-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-white/25 bg-[#0e0f13]">
+      <span className="tnum text-sub font-semibold text-[var(--text)]/85">
+        {date
+          ? t("library.item.airDateWeekday", { date: formatAirDay(date, locale), weekday: formatWeekday(date, locale) })
+          : t("library.item.airUnscheduled")}
+      </span>
+      {date && (
+        <span className="text-micro text-[var(--text-muted)]">
+          {daysBetween(schedule.today, date) === 1
+            ? t("library.item.airTomorrow")
+            : t("library.item.airInDays", { count: daysBetween(schedule.today, date) })}
+        </span>
+      )}
+    </span>
   );
 }
 

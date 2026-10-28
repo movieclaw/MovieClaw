@@ -4561,5 +4561,149 @@
   },
   "kindWall.loadFailed": {
     "sourceHash": "d1d044826a45ef6533a4744d171d4a8808dec292f57ade9f3878f1f8f7eed278"
+  },
+  "item.airCalendar": {
+    "sourceHash": "c3261ea6122050fb90b33cdba7978d823808beb884a4955c2f3fbeccc90be6cf"
+  },
+  "item.airCadenceDaily": {
+    "sourceHash": "c3801eb1344d3339859e4fe1b94379adc0dbde856f4bfd7f86fa0b419ca0ab99"
+  },
+  "item.airCadenceWeekly": {
+    "sourceHash": "021f966c40f7623fa9473cc0ac5d351bf2ed972fc3f13aa82e91c03c617fab13"
+  },
+  "item.airCadenceRange": {
+    "sourceHash": "40e010e5c24d6ed7664bc3fbcf2cae8a33d9db8236c32e7199c8a60a5e189628"
+  },
+  "item.airCadenceList": {
+    "sourceHash": "cbd041c07b4ef4b41494c92477cc7c534c1b48533a5f5a0e72098fd9801a5816"
+  },
+  "item.airFinale": {
+    "sourceHash": "60fb6185f0b6c135131065918c178ab80a43637a394184657044d50fb0c3aa89"
+  },
+  "item.airFinaleToday": {
+    "sourceHash": "c9f69c4b9acff772da133061d4217928806b87e2aa89486343ca828676900803"
+  },
+  "item.airTodayEpisodes": {
+    "sourceHash": "d4c37642befef23a2e867f536bb6d2c233507674a9e867464dbf8f47af82962e"
+  },
+  "item.airTodayFinale": {
+    "sourceHash": "80a9bea06290f6ec7b731a22be3a12919a3fdab0cd85e8056b945fff99f483ce"
+  },
+  "item.airNextEpisodes": {
+    "sourceHash": "d9d6e3e14c961f7b164f360d86f51bfa6b7409785aef6496feee4a571cfa579e"
+  },
+  "item.airEpisodeRange": {
+    "sourceHash": "a33a9cd357b723f68ec907f68ea88a50656c3ccdc2f2251d057ff6e3b1f27668"
+  },
+  "item.airDateWeekday": {
+    "sourceHash": "60bce3d153d4aceafe4306c25bf43a148a02944d2ee1336380e6eb108508df86"
+  },
+  "item.airDateRegion": {
+    "sourceHash": "f27e1fd9c060fed011d837bf6f8c045e786a8186720260bb91aa75bca2b5ecbf"
+  },
+  "item.airTomorrow": {
+    "sourceHash": "b1d841b978fb524c350a0c4e32ab661ab1742147e1b1a208b96ccc37a6d28c4e"
+  },
+  "item.airInDays": {
+    "sourceHash": "f3541060d82f5c5d654a9cf84e0a4db95a729ca6c1f360cdb574fd649cdae581"
+  },
+  "item.airExpected": {
+    "sourceHash": "18ac0d87de56ecece7338052a25123300d5d2129398315a6cd9d5090485d151d"
+  },
+  "item.airWaiting": {
+    "sourceHash": "2b6f149fbccfd4dd81b86a79251780ede11df7ff7424869617bc5290bb984b43"
+  },
+  "item.airDownloading": {
+    "sourceHash": "e2fc571a4cf00cebe5cc1a647892673d383d0c6beaf2c652f81301a7e5bd8955"
+  },
+  "item.airOrganizing": {
+    "sourceHash": "65d23459b6be4280f00e759710175a1da8bd8e4c86356c8bf42af804a0ede6c5"
+  },
+  "item.airInLibrary": {
+    "sourceHash": "9b6728ff625a10e953e08d03bde4bd0748fadac55fda49c1b5db7d221ac0fac6"
+  },
+  "item.airNotSubscribed": {
+    "sourceHash": "1a57c4f69e1fb4209c0d467de59b866c9e784489c8ec6f08aa1e5c45f9620056"
+  },
+  "item.airStatOwned": {
+    "sourceHash": "a7e59156f8713b1dcf66a8f5917debb66f2faa8edd237425c1e9bde431d7056b"
+  },
+  "item.airStatMissingOne": {
+    "sourceHash": "63e39241d4213ddc53a2b6f5271d2e6febb41be9f4e25a084e3dda78d0ae058e"
+  },
+  "item.airStatMissing": {
+    "sourceHash": "7ab389a8fc08238da646c7f0fb15c1d04a063248a5dfe1c717a5e351c9a96e9f"
+  },
+  "item.airStatUpcoming": {
+    "sourceHash": "f1c00409b5b59342679940175175a23410afc8d345ef22ddd6f8e9e94031709c"
+  },
+  "item.airStatEpisodes": {
+    "sourceHash": "cc923ebb719a948026462fc67cebec6ec96d2c6b28c14de6dca6fad9bfb90222"
+  },
+  "item.airAiredRange": {
+    "sourceHash": "7784d9db5490d46fda71abf9b653c7d2c8803d10c8dab920a8528b0b166f8774"
+  },
+  "item.airAiredDay": {
+    "sourceHash": "953aa730b353b32162598772deff117eae7b6186c317d56098c351d4cd70bd2e"
+  },
+  "item.airNoUpdateDay": {
+    "sourceHash": "3f62a1a61ae73e37eef24c5c741277c9571b537d0202f611cfa575c8aea2ec08"
+  },
+  "item.airNoUpdateRange": {
+    "sourceHash": "9619200b7e478586c8f1503a305bee32fd463c93127e1a154653751c0ccb4221"
+  },
+  "item.airBreak": {
+    "sourceHash": "1d788dd6e0302169307211fa3d99aad77003d15b3f641e3d98ade5c581e08c93"
+  },
+  "item.airFindEpisode": {
+    "sourceHash": "913064beafd9981acfd84c4f21a75fdb688709a350bc382558962211c5499298"
+  },
+  "item.airFindOne": {
+    "sourceHash": "cc17f5d0c21510dcab44409c154a123089472e6b8a93264c9f1867f251252c09"
+  },
+  "item.airFindMany": {
+    "sourceHash": "862fef5b3140b4e2d4e8ac3ca263709bb97d782afe82eeccf978c69d7c770bec"
+  },
+  "item.airSubscribe": {
+    "sourceHash": "68a6ace2f5cd95dec6be97085228d5620bf9b610c867c9ad474f67ce1b59fb89"
+  },
+  "item.airSubscribeHint": {
+    "sourceHash": "47c0496dd15f01c18153b2e60fcd3424865aa0c43d024b84bd13f5357e98fd74"
+  },
+  "item.airSource": {
+    "sourceHash": "625f5f205513ad5603340a8dd4049940e9e8feb73bb55b5242045beb3eb8ff66"
+  },
+  "item.airRegionNote": {
+    "sourceHash": "84b42284d8a5c5108ed1a84e544bbe6835453991747b546508c565046d6771b6"
+  },
+  "item.airLegendOwned": {
+    "sourceHash": "2bfa8a13150e11a2667e0f9343f9db3ccad03733c11d7dd8f63f206122c94050"
+  },
+  "item.airLegendMissing": {
+    "sourceHash": "554bdccf34191f24706f4c0e96f41262217380b67c8c2f0d2e2ded0f222ad6ec"
+  },
+  "item.airLegendToday": {
+    "sourceHash": "d5f5a7a010731feb6cc67fcbde1bc7133c86019f6d88186e5075344f59de5ff5"
+  },
+  "item.airLegendUpcoming": {
+    "sourceHash": "45e4b52ace431898ceb3bf494ba605fd46ec3d969a95aedf8a81417cfab8c9e5"
+  },
+  "item.airToday": {
+    "sourceHash": "d5f5a7a010731feb6cc67fcbde1bc7133c86019f6d88186e5075344f59de5ff5"
+  },
+  "item.airFinaleTag": {
+    "sourceHash": "c5db778a8fd179e1a608c3b05dc7fd7c874c36e241a382e6858bb6533ea4ece4"
+  },
+  "item.airAbsent": {
+    "sourceHash": "13555f92d7102adb0e264bbbd57263f30c09645349faae8ba70d3bb2da3935d7"
+  },
+  "item.airAirsToday": {
+    "sourceHash": "0914c1d9e7551996b6ace3744449ceb80c2167aa993c096c9bd4b12f4132d129"
+  },
+  "item.airUnscheduled": {
+    "sourceHash": "42e9c9fc72d22a1d57f7762cbf9c6b9862a2a9a8d318f266635ed61ae55cfd73"
+  },
+  "item.airProgress": {
+    "sourceHash": "89a3fc932084bbd437b6bd33be6116c3d2fc407a7425c03ce5d04dc888150aec"
   }
 }

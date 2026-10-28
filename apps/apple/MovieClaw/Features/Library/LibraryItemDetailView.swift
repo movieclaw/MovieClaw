@@ -1470,6 +1470,9 @@ struct SeasonEpisodesSection: View {
     /// 选中集换了要把横排滚到它（换段、宫格里点了一集、锚点变了）
     @State private var scrollRequest = 0
     @State private var showsAll = false
+    /// 播出日历弹层（issue #547）
+    @State private var showsAir = false
+    @Environment(Router.self) private var router
     /// 离线下载（docs/design/offline-download.md §8）：分集卡长按下载 / 删除（整批下载在右上角菜单）
     @Environment(\.permissions) private var permissions
     @Environment(Feedback.self) private var feedback
@@ -1511,6 +1514,8 @@ struct SeasonEpisodesSection: View {
         // 「接着看」只在本季有观看记录时标：一集没碰过的季，锚点只是第一集，不标
         let watchedAny = data?.episodes.contains { $0.played || $0.positionMs > 0 } ?? false
         let current = ranges.first { $0.index == range } ?? ranges.first
+        // 播出日历只在线时画：离线是看已下载的片，排期没有意义，缓存的排期还可能过时
+        let schedule = reachability.isOffline || data?.seasonNumber != currentSeason ? nil : data?.airSchedule
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Text(String(localized: .libraryItemEpisodes)).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
@@ -1546,12 +1551,16 @@ struct SeasonEpisodesSection: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("episode-ranges-all")
-                } else if let data {
+                } else if let data, schedule == nil {
                     Text(String(localized: .libraryItemOwnedEpisodeCount(data.episodes.filter(\.owned).count, data.episodes.count)))
                         .font(.subheadline).monospacedDigit().foregroundStyle(Theme.textFaint)
                 }
             }
             .padding(.horizontal, cards.edge)
+            if let data, let schedule {
+                AirScheduleCard(episodes: data.episodes, schedule: schedule) { showsAir = true }
+                    .padding(.horizontal, cards.edge)
+            }
             if failed {
                 Text(String(localized: .libraryItemEpisodesFailed)).font(.subheadline).foregroundStyle(Theme.textMuted)
                     .padding(.horizontal, cards.edge)
@@ -1576,7 +1585,8 @@ struct SeasonEpisodesSection: View {
                                 EpisodeCard(episode: episode, selected: episode.episodeNumber == selected,
                                             resume: watchedAny && episode.episodeNumber == anchor,
                                             download: offlineStore.unit(mediaItemId: detail.mediaItemId, season: data.seasonNumber,
-                                                                        episode: episode.episodeNumber)) {
+                                                                        episode: episode.episodeNumber),
+                                            schedule: schedule) {
                                     selected = episode.episodeNumber
                                     report()
                                 }
@@ -1596,6 +1606,17 @@ struct SeasonEpisodesSection: View {
                             try? await Task.sleep(for: .milliseconds(200))
                             withAnimation { proxy.scrollTo(target, anchor: .center) }
                         }
+                    }
+                }
+                .sheet(isPresented: $showsAir) {
+                    if let schedule {
+                        AirScheduleSheet(
+                            title: detail.title, seasonLabel: seasonLabel(currentSeason),
+                            episodes: data.episodes, schedule: schedule,
+                            canSubscribe: permissions.canSubscribe,
+                            onSubscribe: permissions.canSubscribe && (detail.tmdbId ?? 0) > 0 ? { subscribe() } : nil
+                        )
+                        .adaptiveDetents([.medium, .large])
                     }
                 }
                 .sheet(isPresented: $showsAll) {
@@ -1679,6 +1700,16 @@ struct SeasonEpisodesSection: View {
         }
     }
 
+    /// 播出日历底部「订阅追更」：先收起弹层，再弹订阅（两个 sheet 不能同时在）
+    private func subscribe() {
+        guard let tmdb = detail.tmdbId else { return }
+        showsAir = false
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            router.present(.subscribe(SubscribeRequest(titleRef: "tmdb:tv:\(tmdb)", title: detail.title)))
+        }
+    }
+
     /// 离线时直接用本机存档（走同一段落点逻辑之外的捷径）
     private struct OfflineFallback: Error {
         let view: API.SeasonEpisodesView
@@ -1738,9 +1769,16 @@ private struct EpisodeCard: View {
     /// 这一集在 iPhone 上的下载（docs/design/offline-download.md §1）：没下完时剧照上叠 `OfflineDownloadStrip`
     /// （同首页「正在下载」）；下完右上角绿箭头「已下载」，刚下完时底部短暂提示「下载完成」。暂停 / 取消在长按菜单
     var download: OfflineUnit?
+    /// 播出日历：有它才分得清「还没播」与「缺集」；没有时库里没有的集一律按缺集
+    var schedule: API.SeasonAirScheduleView?
     var onSelect: () -> Void
     @Environment(\.api) private var api
     @State private var justFinished = false
+
+    private var tone: AirTone? { schedule.flatMap { episode.owned ? nil : AirSchedule.tone(episode, $0) } }
+    private var airsToday: Bool { tone == .today || tone == .todayFree }
+    /// 还没播：不置灰、不标「缺」，剧照位换成播出日
+    private var unaired: Bool { airsToday || tone == .upcoming }
 
     /// 还没下完（含暂停、失败、文件损坏）
     private var pending: Bool { download.map { !$0.playable } ?? false }
@@ -1748,10 +1786,16 @@ private struct EpisodeCard: View {
     var body: some View {
         Button(action: onSelect) {
             VStack(alignment: .leading, spacing: 6) {
-                LibraryArtwork(url: api.image(episode.stillUrl, width: ImageWidth.points(cards.episode)), frameAspect: 16 / 9,
-                               fallbackText: episode.stillUrl == nil ? "\(episode.episodeNumber)" : nil)
+                Group {
+                    if let schedule, unaired {
+                        UnairedStill(episode: episode, schedule: schedule, today: airsToday)
+                    } else {
+                        LibraryArtwork(url: api.image(episode.stillUrl, width: ImageWidth.points(cards.episode)), frameAspect: 16 / 9,
+                                       fallbackText: episode.stillUrl == nil ? "\(episode.episodeNumber)" : nil)
+                    }
+                }
                     .clipShape(.rect(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? .white.opacity(0.85) : .white.opacity(0.08), lineWidth: selected ? 2 : 1))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? .white.opacity(0.85) : .white.opacity(unaired ? 0 : 0.08), lineWidth: selected ? 2 : 1))
                     .overlay(alignment: .topLeading) {
                         if resume {
                             Text(String(localized: .libraryItemContinue)).font(.caption2.weight(.bold)).foregroundStyle(.black)
@@ -1772,7 +1816,7 @@ private struct EpisodeCard: View {
                                 .padding(.horizontal, 6).frame(height: 18)
                                 .background(.black.opacity(0.6), in: .capsule)
                             }
-                            if !episode.owned {
+                            if !episode.owned, !unaired {
                                 Text(String(localized: .libraryItemMissingBadge)).font(.caption2.weight(.semibold)).foregroundStyle(Theme.warning)
                                     .padding(.horizontal, 5).padding(.vertical, 1)
                                     .background(.black.opacity(0.6), in: .rect(cornerRadius: 4))
@@ -1822,8 +1866,8 @@ private struct EpisodeCard: View {
             }
             .frame(width: cards.episode)
             .contentShape(.rect)
-            .opacity(episode.owned ? 1 : 0.45)
-            .saturation(episode.owned ? 1 : 0.5)
+            .opacity(episode.owned || unaired ? 1 : 0.45)
+            .saturation(episode.owned || unaired ? 1 : 0.5)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])

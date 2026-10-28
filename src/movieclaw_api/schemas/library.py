@@ -1279,6 +1279,50 @@ class EpisodeView(BaseModel):
     )
 
 
+class EpisodeArrivalView(BaseModel):
+    """订阅对一集的入库预告（播出日历里的「预计 20:00 入库」「下载中」）。"""
+
+    episode_number: int
+    stage: Literal["waiting", "downloading", "organizing"] = Field(
+        description="waiting=等资源发布 / downloading=下载中 / organizing=下完了在整理入库"
+    )
+    expected_at: datetime | None = Field(
+        default=None,
+        description="预计入库时刻（只给 waiting 且预测可信、还没过的）；给不出为 null",
+    )
+
+    @field_serializer("expected_at")
+    def _serialize_utc(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.isoformat()
+
+
+class SeasonAirScheduleView(BaseModel):
+    """一季的播出日历（issue #547）：排期本身在分集的 air_date 里，这里给对照信息。"""
+
+    today: date = Field(description="站点日历的今天；客户端按它判今天/已播/待播，不用本机时钟")
+    region: str | None = Field(
+        default=None,
+        description="首播地国家码（ISO 3166-1）：播出日期是当地日期、与本地可能差一天时才给",
+    )
+    weekdays: list[int] = Field(
+        default_factory=list, description="最近的更新星期（0=周一…6=周日），用于「周一至周四更新」"
+    )
+    last_air_date: date | None = Field(
+        default=None, description="本季最后一集的播出日；有集没定日期时为 null（说不准哪天完结）"
+    )
+    subscription_id: int | None = Field(default=None, description="这部剧的订阅；未订阅为 null")
+    missing_episodes: list[int] = Field(
+        default_factory=list, description="订阅范围内已播出、库里还没有的集（缺集）"
+    )
+    arrivals: list[EpisodeArrivalView] = Field(
+        default_factory=list, description="订阅在追、还没入库的集的入库预告"
+    )
+
+
 class SeasonEpisodesView(BaseModel):
     """一季的分集清单（分集横滚区数据源）。"""
 
@@ -1290,6 +1334,10 @@ class SeasonEpisodesView(BaseModel):
             "本季接着看的那一集（与首页「接下来继续」同规则：最近播放的一集，看完了取往后"
             "第一个没看完且有片源的）；分集区按它锁定集段、默认选中。本季没播放过为 null"
         ),
+    )
+    air_schedule: SeasonAirScheduleView | None = Field(
+        default=None,
+        description="播出日历；本季没有今天或以后的播出日期（已完结、季间空档、无分集日期）为 null",
     )
 
 

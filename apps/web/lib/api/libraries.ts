@@ -1689,6 +1689,34 @@ export interface SeasonEpisodes {
   /** 本季接着看的那一集（同首页「接下来继续」规则），分集区按它锁定集段；本季没播放过、
    *  分享页（访客没有观看记录）为 null */
   resume_episode: number | null;
+  /** 播出日历（issue #547）；本季没有今天或以后的播出日期、分享页、旧服务端为 null/缺省 */
+  air_schedule?: SeasonAirSchedule | null;
+}
+
+/** 订阅对一集的入库预告。 */
+export interface EpisodeArrival {
+  episode_number: number;
+  /** waiting=等资源发布 / downloading=下载中 / organizing=下完了在整理入库 */
+  stage: "waiting" | "downloading" | "organizing";
+  /** 预计入库时刻（带时区 ISO）；给不出为 null */
+  expected_at: string | null;
+}
+
+/** 一季的播出日历：排期本身在分集的 air_date 里，这里给对照信息。 */
+export interface SeasonAirSchedule {
+  /** 站点日历的今天（YYYY-MM-DD）；判今天/已播/待播都按它，不用本机时钟 */
+  today: string;
+  /** 首播地国家码：播出日期是当地日期、与本地可能差一天时才给 */
+  region: string | null;
+  /** 最近的更新星期（0=周一…6=周日） */
+  weekdays: number[];
+  /** 本季最后一集的播出日；有集没定日期时为 null */
+  last_air_date: string | null;
+  /** 这部剧的订阅；未订阅为 null */
+  subscription_id: number | null;
+  /** 订阅范围内已播出、库里还没有的集 */
+  missing_episodes: number[];
+  arrivals: EpisodeArrival[];
 }
 
 /** 剧集条目一季的分集清单（分集横滚区数据源）。 */
