@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
+import glob
 import logging
 import re as _re
 import time
@@ -27,7 +29,15 @@ from movieclaw_api.i18n.stored import reference, stored_fields
 from movieclaw_api.schemas.base import utc_isoformat
 from movieclaw_api.services import jobs, media_extract
 from movieclaw_api.services.library.subtitles import discover_external_subtitles
-from movieclaw_api.services.subtitle_gen import extract, pgs, source, sync, translate, validate
+from movieclaw_api.services.subtitle_gen import (
+    asr,
+    extract,
+    pgs,
+    source,
+    sync,
+    translate,
+    validate,
+)
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import FileState, LibraryFile, MediaItem, MediaMetadata, utcnow
 
@@ -164,6 +174,11 @@ class GenState:
     extract_queued: bool = False
     extract_position_seconds: float | None = None
     extract_duration_seconds: int | None = None
+    # 识别阶段（transcribing）：已识别到片中的哪个时间点；本机为播放转码时暂停
+    uses_asr: bool = False
+    transcribe_position_seconds: float | None = None
+    transcribe_duration_seconds: int | None = None
+    transcribe_paused: bool = False
     llm_usage: SubtitleLlmUsage = field(default_factory=SubtitleLlmUsage)
 
     def set_message(self, key: str, **params) -> None:
@@ -303,6 +318,130 @@ def _pgs_sidecar_path(row: LibraryFile, source_language: str) -> Path:
     return video.parent / f"{video.stem}.pgs-ocr.{language}.srt"
 
 
+def _asr_sidecar_path(row: LibraryFile, language: str) -> Path:
+    """本地语音识别的产物外挂（与 ``pgs-ocr`` 同理）：翻译失败也留着，可以单独使用。"""
+    video = Path(row.file_path)
+    return video.parent / f"{video.stem}.asr.{language}.srt"
+
+
+#: 台词语言 → 视为同一种语言的输出语言（docs/design/subtitle-asr.md §4.4）。粤语口语字不等于
+#: 书面中文，不在表里，照样交给翻译
+_SAME_OUTPUT = {"zh": "chs", "en": "eng", "ja": "jpn", "ko": "kor"}
+
+
+def _needs_translation(
+    candidate: source.RankedCandidate | None,
+    target: str,
+    secondary: str | None,
+    spoken: str | None = None,
+) -> bool:
+    """音轨识别且台词语言就是目标语言（单语）时，识别结果就是成品，不调用模型。
+
+    台词语言未知时先按要翻译算（预检估 token、要求配好模型），识别出来再判。
+    """
+    if candidate is None or candidate.candidate.kind != "audio" or secondary is not None:
+        return True
+    language = spoken or candidate.candidate.spoken_language
+    return _SAME_OUTPUT.get(language or "") != target
+
+
+def _fresh_after(path: Path, video: Path) -> bool:
+    """产物存在、非空、且比视频新（视频换了就作废）。"""
+    try:
+        stat = path.stat()
+        return stat.st_size > 0 and stat.st_mtime_ns > video.stat().st_mtime_ns
+    except OSError:
+        return False
+
+
+#: 识别外挂的语言码 → 台词语言（台词语言未知、复用旧结果时用；chi 按普通话算）
+_TOKEN_SPOKEN = {"chi": "zh", "eng": "en", "jpn": "ja", "kor": "ko"}
+
+
+def _asr_wav_path(row: LibraryFile, index: int) -> Path:
+    return extract.cache_dir() / f"{row.id}.a{index}.16k.wav"
+
+
+def _asr_checkpoint_path(row: LibraryFile, index: int) -> Path:
+    return extract.cache_dir() / f"{row.id}.a{index}.asr.jsonl"
+
+
+def _file_identity(path: Path) -> list[int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return [stat.st_size, stat.st_mtime_ns]
+
+
+def _asr_identity(row: LibraryFile, index: int, spoken: str | None) -> dict:
+    """（阻塞）识别断点的身份：同一个视频文件、同一条音轨与声道取法、同一台词语言。"""
+    streams = row.audio_streams or []
+    center = asr.wants_center(streams[index]) if index < len(streams) else False
+    return {
+        "video": [row.file_path, *(_file_identity(Path(row.file_path)) or [])],
+        "track": index,
+        "center": center,
+        "language": spoken,
+    }
+
+
+def _asr_sidecars(row: LibraryFile) -> list[Path]:
+    """（阻塞）视频旁边已有的识别外挂（``<stem>.asr.<语言>.srt``），新的在前。"""
+    video = Path(row.file_path)
+    found: list[tuple[int, Path]] = []
+    for path in video.parent.glob(glob.escape(video.stem) + ".asr.*.srt"):
+        identity = _file_identity(path)
+        if identity is not None:
+            found.append((identity[1], path))
+    return [path for _, path in sorted(found, reverse=True)]
+
+
+def _reusable_asr(
+    row: LibraryFile, token: str | None, stale: dict | None = None
+) -> tuple[Path, list[extract.SubEvent], str] | None:
+    """（阻塞）可以直接复用的识别外挂：（外挂路径, 字幕条, 语言码）。
+
+    要比视频新、不是这次要作废的旧结果（``stale``：重新识别前已有的外挂，文件名 →
+    [大小, 修改时间]）、读得出来且完整度合格——断电留下的半截文件不复用。``token``
+    是识别结果的语言码；台词语言未知时为 None，取最新的一份。
+    """
+    video = Path(row.file_path)
+    paths = [_asr_sidecar_path(row, token)] if token else _asr_sidecars(row)
+    for path in paths:
+        if not _fresh_after(path, video):
+            continue
+        if stale and stale.get(path.name) == _file_identity(path):
+            continue
+        try:
+            raw = path.read_bytes()
+            events = extract.parse_events(
+                extract.decode_subtitle_bytes(raw, str(path)), str(path)
+            )
+        except Exception:  # noqa: BLE001 -- 读不出来就当没有，重新识别
+            logger.warning("识别外挂读不出来，不复用：%s", path, exc_info=True)
+            continue
+        if events and source.assess_events(events, row.duration_seconds).ok:
+            return path, events, path.name[len(video.stem) + len(".asr.") : -len(".srt")]
+        logger.warning("识别外挂不完整，不复用：%s", path)
+    return None
+
+
+def _asr_stale(row: LibraryFile, index: int, spoken: str | None) -> dict:
+    """（阻塞）重新识别时要作废的旧结果：此刻已有的识别外挂与识别断点。
+
+    记身份而不是当场删除：重新识别失败时旧外挂还在；任务重启时这次自己写出的新结果
+    身份不同，照常复用，不会一重启就再识别一遍。
+    """
+    checkpoint = asr.Checkpoint.load(
+        _asr_checkpoint_path(row, index), _asr_identity(row, index, spoken)
+    )
+    return {
+        "sidecars": {path.name: _file_identity(path) for path in _asr_sidecars(row)},
+        "checkpoint": checkpoint.created_ns or None,
+    }
+
+
 @dataclass
 class Preview:
     """发起前的确认素材（§6：展示选源结果与成本估算）。
@@ -365,7 +504,7 @@ def candidate_selectable(candidate: source.RankedCandidate) -> bool:
 async def _source_fingerprint(row: LibraryFile, selected_source_key: str) -> dict[str, int]:
     """记录预检实际读取的源文件身份，防止长时间排队后翻译另一份内容。"""
     kind, separator, key = selected_source_key.partition(":")
-    if not separator or kind not in {"embedded", "external"}:
+    if not separator or kind not in {"embedded", "external", "audio"}:
         raise BadRequestException(message_key="errors.subtitles.referenceInvalid")
     if kind == "external":
         known = {str(item.get("filename")) for item in row.external_subtitles or []}
@@ -412,6 +551,35 @@ async def _verify_source_fingerprint(
         )
 
 
+def _with_audio_fallback(
+    row: LibraryFile,
+    ranked: list[source.RankedCandidate],
+    requested_key: str | None,
+    original_language: str | None,
+) -> list[source.RankedCandidate]:
+    """文本字幕与 PGS 都选不到时追加音轨识别候选（docs/design/subtitle-asr.md §3）。
+
+    已有目标语言字幕时不追加：那是「已经有了」，不是「没有可用字幕」。识别过的文件
+    （有识别外挂）也列出音轨，但只供用户主动选它重新识别，默认不选（``on_request``）。
+    请求显式指定 ``audio:<k>`` 时总是追加（CLI、Agent 与测试用）。
+    """
+    explicit = bool(requested_key and requested_key.startswith("audio:"))
+    fallback = not (
+        any(candidate_selectable(item) for item in ranked)
+        or any(item.exclusion_code == "target_language" for item in ranked)
+    )
+    recognized = any(item.candidate.provenance == "asr" for item in ranked)
+    if not (explicit or fallback or recognized):
+        return ranked
+    audio = source.audio_candidate(
+        row, original_language=original_language, recognized=recognized and not fallback
+    )
+    if audio is None:
+        return ranked
+    audio.on_request = not fallback
+    return [*ranked, audio]
+
+
 def _select_reference(
     ranked: list[source.RankedCandidate], requested_key: str | None
 ) -> source.RankedCandidate | None:
@@ -427,7 +595,8 @@ def _select_reference(
             )
         return selected
 
-    selectable = [item for item in ranked if candidate_selectable(item)]
+    # 只供主动选择的候选（识别过的音轨）不参与默认选择
+    selectable = [item for item in ranked if candidate_selectable(item) and not item.on_request]
     # 默认英语符合绝大多数用户的二次翻译习惯；有文本英语时不为了同语种
     # PGS 多走一次 OCR，只有没有英语文本时才选择英语 PGS。
     english_text = [
@@ -567,6 +736,34 @@ def _output_message(target: str, secondary: str | None = None) -> dict:
     )
 
 
+def _asr_blocker(
+    audio: source.RankedCandidate, add_sidecar: dict, rescan: dict
+) -> PreviewBlocker:
+    """音轨识别候选也用不了时的说明：语言不支持、网盘文件，或运行环境缺识别组件。"""
+    if audio.exclusion_code == "asr_language":
+        params = (audio.excluded_message or {}).get("message_params") or {}
+        return _blocker(
+            "asr_language_unsupported",
+            "library.subtitlePreflight.asrLanguageTitle",
+            "library.subtitlePreflight.asrLanguage",
+            [add_sidecar, rescan],
+            language=params.get("language", ""),
+        )
+    if audio.exclusion_code == "asr_remote":
+        return _blocker(
+            "asr_remote",
+            "library.subtitlePreflight.asrRemoteTitle",
+            "library.subtitlePreflight.asrRemote",
+            [add_sidecar],
+        )
+    return _blocker(
+        "asr_unavailable",
+        "library.subtitlePreflight.asrUnavailableTitle",
+        "library.subtitlePreflight.asrUnavailable",
+        [stored_fields("library.subtitlePreflight.asrUpdateImage"), add_sidecar],
+    )
+
+
 def _preview_blocker(
     ranked: list[source.RankedCandidate],
     pgs_plan: PgsConversionPlan | None = None,
@@ -577,6 +774,8 @@ def _preview_blocker(
     output = _output_message(target_language, secondary_language)
     add_sidecar = stored_fields("library.subtitlePreflight.addSidecar")
     rescan = stored_fields("library.subtitlePreflight.rescan")
+    # 只供主动选择的音轨不改变「为什么没有默认参考」的结论
+    ranked = [c for c in ranked if not c.on_request]
     if not ranked:
         return _blocker(
             "no_subtitle",
@@ -584,6 +783,9 @@ def _preview_blocker(
             "library.subtitlePreflight.noSubtitle",
             [add_sidecar, rescan],
         )
+    audio = next((c for c in ranked if c.candidate.kind == "audio"), None)
+    if audio is not None and audio.exclusion_code is not None:
+        return _asr_blocker(audio, add_sidecar, rescan)
     if pgs_plan is not None:
         capability = pgs_plan.capability
         language = (
@@ -666,6 +868,7 @@ async def preview(
     secondary_language: str | None = None,
     source_candidate_key: str | None = None,
     pgs_ocr_language: str | None = None,
+    retranscribe: bool = False,
 ) -> Preview:
     """选源 + 用现成产物做成本估算（不动 LLM，也不读视频）。
 
@@ -683,11 +886,18 @@ async def preview(
     ranked = source.rank_candidates(
         row, original_language=original_language, target_language=source_target
     )
+    ranked = _with_audio_fallback(row, ranked, source_candidate_key, original_language)
     selected = _select_reference(ranked, source_candidate_key)
     selected_candidates = [selected] if selected is not None else []
     warnings: list[str] = []
     warning_messages: list[dict] = []
-    output_filename = _sidecar_path(row, target_language, secondary_language).name
+    audio = selected is not None and selected.candidate.kind == "audio"
+    translation_needed = _needs_translation(selected, target_language, secondary_language)
+    output_filename = (
+        _sidecar_path(row, target_language, secondary_language).name
+        if translation_needed
+        else _asr_sidecar_path(row, selected.candidate.language or "und").name
+    )
     already_generated = bool(
         {
             output_filename,
@@ -703,16 +913,57 @@ async def preview(
 
     reference_notice: str | None = None
     notice_message = None
-    try:
-        chosen, events = await _pick_loadable(
-            row, selected_candidates, warnings, wait=False, warning_messages=warning_messages
-        )
-    except extract.SourceExtractionPending:
-        # 还没读过不等于「做不了」：照常选中它，blocker 留空；读取与完整度检查
-        # 都在任务里做，不合格会在调用模型之前停下。
+    if audio and not selected.excluded:
+        # 预检对音轨识别什么也不做：讲清楚会怎么识别（或直接用上次的结果）、要多久
         chosen, events = selected, []
-        notice_message = await _reading_message(row)
+        reused = (
+            None
+            if retranscribe
+            else await asyncio.to_thread(
+                _reusable_asr, row, selected.candidate.language
+            )
+        )
+        if reused is not None:
+            events = reused[1]
+            notice_message = stored_fields(
+                "library.subtitlePreflight.asrReuse",
+                index=int(selected.candidate.key) + 1,
+                filename=reused[0].name,
+                translate="yes" if translation_needed else "no",
+                output=_output_message(target_language, secondary_language),
+            )
+        else:
+            index = int(selected.candidate.key)
+            resume_at = 0.0
+            if not retranscribe:
+                checkpoint = await asyncio.to_thread(
+                    lambda: asr.Checkpoint.load(
+                        _asr_checkpoint_path(row, index),
+                        _asr_identity(row, index, selected.candidate.spoken_language),
+                    )
+                )
+                resume_at = checkpoint.position
+            notice_message = _asr_notice(
+                row,
+                selected,
+                target_language,
+                secondary_language,
+                translation_needed,
+                again=retranscribe,
+                resume_at=resume_at,
+            )
         reference_notice = notice_message["message"]
+    else:
+        try:
+            chosen, events = await _pick_loadable(
+                row, selected_candidates, warnings, wait=False, warning_messages=warning_messages
+            )
+        except extract.SourceExtractionPending:
+            # 还没读过不等于「做不了」：照常选中它，blocker 留空；读取与完整度检查
+            # 都在任务里做，不合格会在调用模型之前停下。
+            chosen, events = selected, []
+            notice_message = await _reading_message(row)
+            reference_notice = notice_message["message"]
 
     pgs_conversion = (
         await _pgs_plan(
@@ -726,9 +977,9 @@ async def preview(
         else None
     )
     est = 0
-    if events:
+    if events and translation_needed:
         est = _estimate_tokens(sum(len(t) for _, _, t in events), secondary_language)
-    elif reference_notice is not None and row.duration_seconds:
+    elif reference_notice is not None and row.duration_seconds and translation_needed:
         chars = row.duration_seconds / 60 * _EVENTS_PER_MINUTE * _CHARS_PER_EVENT
         est = _estimate_tokens(chars, secondary_language)
     return Preview(
@@ -755,6 +1006,39 @@ async def preview(
         output_filename=output_filename,
         selected_source_key=selected_key,
         reference_notice=reference_notice,
+    )
+
+
+def _asr_notice(
+    row: LibraryFile,
+    candidate: source.RankedCandidate,
+    target: str,
+    secondary: str | None,
+    translation_needed: bool,
+    *,
+    again: bool = False,
+    resume_at: float = 0.0,
+) -> dict:
+    """确认框里的识别说明：哪条音轨、什么语言、要不要翻译、预计多久、产物叫什么。
+
+    ``again`` = 用户要求重新识别；``resume_at`` = 上次识别断点的位置（秒），从那里接着识别。
+    """
+    spoken = candidate.candidate.spoken_language
+    token = candidate.candidate.language
+    remaining = row.duration_seconds - int(resume_at) if row.duration_seconds else None
+    return stored_fields(
+        "library.subtitlePreflight.asrNotice",
+        mode="again" if again else "fresh",
+        index=int(candidate.candidate.key) + 1,
+        hasLanguage="yes" if spoken else "no",
+        language=reference("library.asrLanguages." + spoken) if spoken else "",
+        translate="yes" if translation_needed else "no",
+        output=_output_message(target, secondary),
+        resumed="yes" if resume_at > 0 else "no",
+        position=_clock(resume_at),
+        minutes=asr.estimate_minutes(remaining),
+        hasFilename="yes" if token else "no",
+        filename=_asr_sidecar_path(row, token).name if token else "",
     )
 
 
@@ -841,7 +1125,7 @@ def _cand_message(c: source.SourceCandidate) -> dict:
     return stored_fields(
         "library.subtitleCalibration.reference",
         kind=c.kind,
-        identity=c.key,
+        identity=str(int(c.key) + 1) if c.kind == "audio" else c.key,
         known="yes" if c.language else "no",
         language=c.language or "",
         format=c.format,
@@ -861,6 +1145,7 @@ async def _prepare_generation(
     source_candidate_key: str | None = None,
     convert_pgs: bool = False,
     pgs_ocr_language: str | None = None,
+    retranscribe: bool = False,
 ) -> tuple[Preview, GenState]:
     """发起前的秒级校验（不读视频）并生成首个进度快照，随后由 Job 原子入队。
 
@@ -878,6 +1163,7 @@ async def _prepare_generation(
         secondary_language=secondary_language,
         source_candidate_key=source_candidate_key,
         pgs_ocr_language=pgs_ocr_language,
+        retranscribe=retranscribe,
     )
     if pv.chosen is None:
         if source_candidate_key and pv.pgs_conversion is None:
@@ -914,6 +1200,21 @@ async def _prepare_generation(
             secondary_language=secondary_language,
             source_candidate_key=pv.selected_source_key,
         )
+    elif pv.chosen.candidate.kind == "audio":
+        # 直接复用上次的识别结果时不读音轨、不识别，排队文案别说「先读取音轨」
+        reuse = (pv.reference_notice_message or {}).get(
+            "message_key"
+        ) == "library.subtitlePreflight.asrReuse"
+        initial = GenState(
+            phase="preparing" if reuse else "extracting",
+            **stored_fields(
+                "library.subtitleJob.preparing" if reuse else "library.subtitleJob.waitAsr"
+            ),
+            uses_asr=True,
+            target_language=target_language,
+            secondary_language=secondary_language,
+            source_candidate_key=pv.selected_source_key,
+        )
     else:
         initial = GenState(
             **stored_fields(
@@ -929,9 +1230,11 @@ async def _prepare_generation(
     # 入队前只组装一次 LLM 路由，不发送网络请求。这样缺少模型配置时由当前
     # POST 直接返回可读错误，不会让页面先看到“任务已开始”，随后又收到一条
     # 后台“未知错误”。排队后配置仍可能被删除，Job 处理器会转为 blocked。
-    from movieclaw_api.services.llm_config import acquire_llm_router
+    # 同语种的音轨识别不调用模型，也就不要求先配好模型。
+    if _needs_translation(pv.chosen, target_language, secondary_language):
+        from movieclaw_api.services.llm_config import acquire_llm_router
 
-    await acquire_llm_router(session)
+        await acquire_llm_router(session)
     return pv, initial
 
 
@@ -944,12 +1247,16 @@ async def enqueue_generation_job(
     source_candidate_key: str | None = None,
     convert_pgs: bool = False,
     pgs_ocr_language: str | None = None,
+    retranscribe: bool = False,
     actor_kind: str | None = None,
     actor_name: str | None = None,
     actor_id: str | None = None,
     origin: str = "web",
 ) -> tuple[Preview, jobs.CreateJobResult]:
-    """把字幕生成写成真正持久化任务；HTTP/CLI 只负责创建，不持有执行协程。"""
+    """把字幕生成写成真正持久化任务；HTTP/CLI 只负责创建，不持有执行协程。
+
+    ``retranscribe``：选中音轨时不用上次的识别结果，重新识别（默认复用识别外挂与断点）。
+    """
     target_language, secondary_language = ensure_output_languages(
         target_language, secondary_language
     )
@@ -961,17 +1268,23 @@ async def enqueue_generation_job(
         source_candidate_key=source_candidate_key,
         convert_pgs=convert_pgs,
         pgs_ocr_language=pgs_ocr_language,
+        retranscribe=retranscribe,
     )
     row = await _load_row(session, file_id)
-    from movieclaw_api.services.llm_config import acquire_llm_router, default_model_ref
-
-    router = await acquire_llm_router(session)
-    # 字幕处理默认模型来自 AI 设定（未设置时按第一个实例兜底）
-    provider, model_id = router.resolve(await default_model_ref(session, "subtitle"))
-    provider_ref = provider.name
     selected_source_key = pv.selected_source_key
     if selected_source_key is None:
         raise BadRequestException(message_key="errors.subtitles.referenceUnavailable")
+    audio = pv.chosen is not None and pv.chosen.candidate.kind == "audio"
+    provider_ref: str | None = None
+    model_ref: str | None = None
+    if _needs_translation(pv.chosen, target_language, secondary_language):
+        from movieclaw_api.services.llm_config import acquire_llm_router, default_model_ref
+
+        router = await acquire_llm_router(session)
+        # 字幕处理默认模型来自 AI 设定（未设置时按第一个实例兜底）
+        provider, model_id = router.resolve(await default_model_ref(session, "subtitle"))
+        provider_ref = provider.name
+        model_ref = f"{provider_ref}/{model_id}"
     source_fingerprint = await _source_fingerprint(row, selected_source_key)
     input_data = {
         "file_id": file_id,
@@ -984,24 +1297,38 @@ async def enqueue_generation_job(
         # 固定到任务创建时实际选中的供应商/模型；不保存 API key。用户随后
         # 改默认模型不会让一个已开始的任务中途混用另一套翻译风格。
         "provider_ref": provider_ref,
-        "model_ref": f"{provider_ref}/{model_id}",
+        "model_ref": model_ref,
         "prompt_revision": "subtitle.translate.v1",
     }
+    if audio:
+        # 识别参数随任务固化：确认时是什么语言、什么模型，重启续跑就还是它
+        input_data["asr_language"] = pv.chosen.candidate.spoken_language
+        input_data["asr_model"] = asr.MODEL_ID
+        if retranscribe:
+            input_data["asr_stale"] = await asyncio.to_thread(
+                _asr_stale,
+                row,
+                int(pv.chosen.candidate.key),
+                pv.chosen.candidate.spoken_language,
+            )
     resources = [
         jobs.ResourceRef("library_file", file_id),
         jobs.ResourceRef("library", row.library_id, "container"),
     ]
     if row.media_item_id is not None:
         resources.append(jobs.ResourceRef("media_item", row.media_item_id, "container"))
+    if audio:
+        # 同一时间只跑一个识别：每个识别吃约 2 个核，排队比并行更快完成也不拖慢播放
+        resources.append(jobs.ResourceRef("asr_engine", "local"))
     progress = _job_progress(initial)
     created = await jobs.create_job(
         session,
         job_type="subtitle.generate",
         subject=Path(row.file_path).name,
         definition_version=1,
-        handler_revision="subtitle.generate.v1",
+        handler_revision="subtitle.generate.v2",
         prompt_revision="subtitle.translate.v1",
-        provider_ref=f"{provider_ref}/{model_id}",
+        provider_ref=model_ref,
         input_data=input_data,
         resources=resources,
         dedupe_key=(
@@ -1023,6 +1350,7 @@ _PHASE_INDEX = {
     "preparing": 1,
     "extracting": 1,
     "ocr": 1,
+    "transcribing": 1,
     "syncing": 1,
     "glossary": 2,
     "translating": 3,
@@ -1053,6 +1381,13 @@ def _job_progress(state: GenState) -> dict[str, object]:
         # 不报 100%，免得「满了却还在转」。
         ratio = state.extract_position_seconds / state.extract_duration_seconds
         percent = round(min(99.0, ratio * 100), 1)
+    elif (
+        state.phase == "transcribing"
+        and state.transcribe_position_seconds is not None
+        and state.transcribe_duration_seconds
+    ):
+        ratio = state.transcribe_position_seconds / state.transcribe_duration_seconds
+        percent = round(min(99.0, ratio * 100), 1)
     return {
         "mode": "determinate" if percent is not None else "indeterminate",
         "phase": state.phase,
@@ -1082,6 +1417,9 @@ def _job_progress(state: GenState) -> dict[str, object]:
             "extract_queued": state.extract_queued,
             "extract_position_seconds": state.extract_position_seconds,
             "extract_duration_seconds": state.extract_duration_seconds,
+            "uses_asr": state.uses_asr,
+            "transcribe_position_seconds": state.transcribe_position_seconds,
+            "transcribe_paused": state.transcribe_paused,
         },
     }
 
@@ -1110,7 +1448,7 @@ def _result_payload(result: GenResult) -> dict[str, object]:
 
 
 #: 这些阶段只在等外部进程或读盘，收到停止请求就立即取消（见 _run_generation_job）
-_STOP_AT_ONCE_PHASES = frozenset({"preparing", "extracting", "ocr", "syncing"})
+_STOP_AT_ONCE_PHASES = frozenset({"preparing", "extracting", "ocr", "transcribing", "syncing"})
 #: 模型服务暂时不可用时，隔多久自动重试一次（从断点继续，不重复花钱）
 _MODEL_RETRY_DELAY_SECONDS = 30
 
@@ -1152,6 +1490,8 @@ async def _run_generation_job(
     model_ref = input_data.get("model_ref")
     convert_pgs = input_data.get("convert_pgs") is True
     pgs_ocr_language = input_data.get("pgs_ocr_language")
+    asr_language = input_data.get("asr_language")
+    asr_stale = input_data.get("asr_stale")
     source_fingerprint = input_data.get("source_fingerprint")
     if source_candidate_key and isinstance(source_fingerprint, dict):
         await _verify_source_fingerprint(
@@ -1182,6 +1522,8 @@ async def _run_generation_job(
             secondary_language=str(secondary_language) if secondary_language else None,
             source_candidate_key=(str(source_candidate_key) if source_candidate_key else None),
             model_ref=str(model_ref) if model_ref else None,
+            asr_language=str(asr_language) if asr_language else None,
+            asr_stale=asr_stale if isinstance(asr_stale, dict) else None,
             job_id=getattr(context, "job_id", None),
             cancelled=cancelled.is_set,
         ),
@@ -1398,17 +1740,25 @@ def _clock(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-async def _reading(state: GenState, row: LibraryFile, work: Awaitable[_T]) -> _T:
+async def _reading(
+    state: GenState,
+    row: LibraryFile,
+    work: Awaitable[_T],
+    *,
+    reading_key: str = "library.subtitleJob.reading",
+    position_key: str = "library.subtitleJob.readPosition",
+) -> _T:
     """等待整文件通读，同时把「排队中 / 已读到哪」同步进任务进度。
 
     大文件在 NAS 上要读几分钟：用户得看见它在动、读到了哪、为什么慢——同一
     时间只通读一个文件，排在别的文件后面时明说。取消任务时读取随之取消。
     """
     state.phase = "extracting"
-    state.set_message("library.subtitleJob.reading")
+    state.set_message(reading_key)
     state.extract_duration_seconds = row.duration_seconds
     follower = asyncio.create_task(
-        _follow_read_progress(state, row), name="subtitle-read-progress"
+        _follow_read_progress(state, row, reading_key, position_key),
+        name="subtitle-read-progress",
     )
     try:
         return await work
@@ -1419,7 +1769,9 @@ async def _reading(state: GenState, row: LibraryFile, work: Awaitable[_T]) -> _T
         state.set_message("library.subtitleJob.checkingSource")
 
 
-async def _follow_read_progress(state: GenState, row: LibraryFile) -> None:
+async def _follow_read_progress(
+    state: GenState, row: LibraryFile, reading_key: str, position_key: str
+) -> None:
     duration = row.duration_seconds
     while True:
         progress = await asyncio.to_thread(media_extract.read_progress, row)
@@ -1431,12 +1783,12 @@ async def _follow_read_progress(state: GenState, row: LibraryFile) -> None:
             state.extract_position_seconds = progress.position_seconds
             if progress.position_seconds is not None and duration:
                 state.set_message(
-                    "library.subtitleJob.readPosition",
+                    position_key,
                     position=_clock(progress.position_seconds),
                     duration=_clock(duration),
                 )
             else:
-                state.set_message("library.subtitleJob.reading")
+                state.set_message(reading_key)
         await asyncio.sleep(_READ_PROGRESS_INTERVAL)
 
 
@@ -1450,6 +1802,8 @@ async def _run(
     secondary_language: str | None = None,
     source_candidate_key: str | None = None,
     model_ref: str | None = None,
+    asr_language: str | None = None,
+    asr_stale: dict | None = None,
     job_id: str | None = None,
     cancelled: Callable[[], bool],
 ) -> GenResult:
@@ -1460,46 +1814,93 @@ async def _run(
     async with db.session() as session:
         row = await _load_row(session, file_id)
         ctx, original_language = await _film_context(session, row)
-        chat = await _build_chat(
-            session,
-            model_ref=model_ref,
-            job_id=job_id,
-            usage=state.llm_usage,
-        )
 
     source_target = target_language if secondary_language is None else "__bilingual__"
     ranked = source.rank_candidates(
         row, original_language=original_language, target_language=source_target
     )
+    ranked = _with_audio_fallback(row, ranked, source_candidate_key, original_language)
     try:
         selected = _select_reference(ranked, source_candidate_key)
     except BadRequestException as exc:
         return GenResult(
             ok=False, message=exc.message, message_key=exc.message_key, message_params=exc.params
         )
+    audio = selected is not None and selected.candidate.kind == "audio"
+    spoken = asr_language or (selected.candidate.spoken_language if audio else None)
+    chat: translate.ChatFn | None = None
+    if _needs_translation(selected, target_language, secondary_language, spoken):
+        # 要翻译就先组装模型：模型没配好要在读文件、识别之前就停下
+        async with db.session() as session:
+            chat = await _build_chat(
+                session, model_ref=model_ref, job_id=job_id, usage=state.llm_usage
+            )
     state.source_candidate_key = candidate_key(selected) if selected is not None else None
     selected_candidates = [selected] if selected is not None else []
     warnings: list[str] = []
     warning_messages: list[dict] = []
     state.phase = "preparing"
     state.set_message("library.subtitleJob.selecting")
-    needs_reading = (
-        selected is not None
-        and not selected.excluded
-        and await asyncio.to_thread(extract.needs_extraction, row, selected.candidate)
-    )
-    if needs_reading:
-        chosen, events = await _reading(
-            state,
-            row,
-            _pick_loadable(row, selected_candidates, warnings, warning_messages=warning_messages),
-        )
-    else:
-        chosen, events = await _pick_loadable(
-            row, selected_candidates, warnings, warning_messages=warning_messages
-        )
     source_desc: str | None = None
     source_message = None
+    if audio:
+        if selected.excluded:
+            return GenResult(
+                ok=False,
+                **stored_fields(
+                    "library.subtitleJob.asrRefused",
+                    reason=selected.excluded_message or selected.excluded,
+                ),
+            )
+        transcribed = await _transcribe(state, row, selected, spoken, asr_stale)
+        if isinstance(transcribed, GenResult):
+            return transcribed
+        chosen, events, spoken, sidecar, asr_report = transcribed
+        source_message = stored_fields(
+            "library.subtitleJob.asrSource", source=_cand_message(chosen.candidate)
+        )
+        source_desc = source_message["message"]
+        if not _needs_translation(selected, target_language, secondary_language, spoken):
+            message = stored_fields(
+                "library.subtitleJob.completedAsr", filename=sidecar.name, count=len(events)
+            )
+            logger.info("字幕生成完成（本地语音识别，不调用模型）：%s", message["message"])
+            return GenResult(
+                ok=True,
+                **message,
+                filename=sidecar.name,
+                report=asr_report,
+                source_desc=source_desc,
+                source_message=source_message,
+            )
+        if chat is None:
+            # 台词语言识别出来才知道要翻译（预检时语言未知）
+            async with db.session() as session:
+                chat = await _build_chat(
+                    session, model_ref=model_ref, job_id=job_id, usage=state.llm_usage
+                )
+        ctx = dataclasses.replace(ctx, asr_source=True)
+    else:
+        needs_reading = (
+            selected is not None
+            and not selected.excluded
+            and await asyncio.to_thread(extract.needs_extraction, row, selected.candidate)
+        )
+        if needs_reading:
+            chosen, events = await _reading(
+                state,
+                row,
+                _pick_loadable(
+                    row, selected_candidates, warnings, warning_messages=warning_messages
+                ),
+            )
+        else:
+            chosen, events = await _pick_loadable(
+                row, selected_candidates, warnings, warning_messages=warning_messages
+            )
+        if chosen is not None and chosen.candidate.provenance == "asr":
+            # 拿识别外挂当参考：原文同样是语音识别结果，翻译时提示模型留意识别错误
+            ctx = dataclasses.replace(ctx, asr_source=True)
     if chosen is None and convert_pgs:
         plan = await _pgs_plan(
             row,
@@ -1596,26 +1997,30 @@ async def _run(
         "字幕生成选源：%s ← %s（%s）", row.file_path, source_desc, "；".join(chosen.reasons)
     )
 
-    # L1 同步质检（§5.2）：错位参考在烧 LLM 钱之前拦下；无法检测按未知放行
-    state.phase = "syncing"
-    state.set_message("library.subtitleJob.syncing")
     state.total_events = len(events)
-    sync_score = await sync.sample_sync_score(
-        Path(row.file_path), events, row.duration_seconds, sync.audio_index(row.audio_streams)
-    )
-    if sync_score is not None and sync_score < sync.SYNC_THRESHOLD:
-        return GenResult(
-            ok=False,
-            sync_score=sync_score,
-            source_desc=source_desc,
-            source_message=source_message,
-            **stored_fields(
-                "library.subtitleJob.unsynced",
-                source=source_message,
-                score=sync_score,
-                threshold=sync.SYNC_THRESHOLD,
-            ),
+    sync_score: float | None = None
+    if chosen.candidate.kind != "audio":
+        # L1 同步质检（§5.2）：错位参考在烧 LLM 钱之前拦下；无法检测按未知放行。
+        # 音轨识别不检测：时间轴本来就出自这条音轨
+        state.phase = "syncing"
+        state.set_message("library.subtitleJob.syncing")
+        sync_score = await sync.sample_sync_score(
+            Path(row.file_path), events, row.duration_seconds, sync.audio_index(row.audio_streams)
         )
+        if sync_score is not None and sync_score < sync.SYNC_THRESHOLD:
+            return GenResult(
+                ok=False,
+                sync_score=sync_score,
+                source_desc=source_desc,
+                source_message=source_message,
+                **stored_fields(
+                    "library.subtitleJob.unsynced",
+                    source=source_message,
+                    score=sync_score,
+                    threshold=sync.SYNC_THRESHOLD,
+                ),
+            )
+    assert chat is not None  # 只有同语种的音轨识别不建 chat，上面已经返回
 
     def _phase(phase: str, message: dict) -> None:
         state.phase = phase
@@ -1750,6 +2155,162 @@ async def _run(
         source_desc=source_desc,
         source_message=source_message,
     )
+
+
+def _transcribe_message(state: GenState) -> None:
+    duration = state.transcribe_duration_seconds
+    state.set_message(
+        "library.subtitleJob.transcribing",
+        hasDuration="yes" if duration else "no",
+        position=_clock(state.transcribe_position_seconds or 0),
+        duration=_clock(duration or 0),
+    )
+
+
+async def _transcribe(
+    state: GenState,
+    row: LibraryFile,
+    selected: source.RankedCandidate,
+    spoken: str | None,
+    stale: dict | None = None,
+) -> (
+    tuple[
+        source.RankedCandidate,
+        list[extract.SubEvent],
+        str | None,
+        Path,
+        validate.QualityReport,
+    ]
+    | GenResult
+):
+    """读取音轨 → 本地识别 → 断句 → 落识别外挂（docs/design/subtitle-asr.md §4）。
+
+    返回（选中的候选、翻译用的字幕条、台词语言、识别外挂路径、机检报告）；失败返回
+    ``GenResult``。可靠性（§4.5）：识别外挂已经落盘、比视频新且完整就直接复用；音轨
+    WAV 与识别断点都留在缓存里，重启、崩溃或断电后从断点接着识别。``stale`` 是用户
+    要求重新识别前已有的旧结果，不复用。
+    """
+    index = int(selected.candidate.key)
+    video = Path(row.file_path)
+    state.uses_asr = True
+    known = asr.LANGUAGE_TOKENS.get(spoken or "")
+    reused = await asyncio.to_thread(
+        _reusable_asr, row, known, (stale or {}).get("sidecars")
+    )
+    if reused is not None:
+        sidecar, events, token = reused
+        spoken = spoken or _TOKEN_SPOKEN.get(token)
+        logger.info("复用已有的识别结果：%s", sidecar)
+        _, report = validate.finalize_events(events, target_language=token)
+        selected.candidate = dataclasses.replace(
+            selected.candidate, language=token, spoken_language=spoken
+        )
+        return selected, events, spoken, sidecar, report
+
+    checkpoint = await asyncio.to_thread(
+        lambda: asr.Checkpoint.load(
+            _asr_checkpoint_path(row, index),
+            _asr_identity(row, index, spoken),
+            stale_created_ns=(stale or {}).get("checkpoint"),
+        )
+    )
+    wav = _asr_wav_path(row, index)
+    if not await asyncio.to_thread(_fresh_after, wav, video):
+        streams = row.audio_streams or []
+        center = asr.wants_center(streams[index]) if index < len(streams) else False
+        failure = await _reading(
+            state,
+            row,
+            media_extract.extract_audio_async(row, index, wav, center_channel=center),
+            reading_key="library.subtitleJob.readingAudio",
+            position_key="library.subtitleJob.readAudioPosition",
+        )
+        if failure is not None:
+            return GenResult(
+                ok=False, **stored_fields("library.subtitleJob.asrAudioFailed", reason=failure)
+            )
+
+    state.phase = "transcribing"
+    state.transcribe_duration_seconds = row.duration_seconds
+    state.transcribe_position_seconds = checkpoint.position
+    if checkpoint.segments:
+        logger.info(
+            "从识别断点接着识别：%s（已识别到 %s，%d 段）",
+            video.name,
+            _clock(checkpoint.position),
+            len(checkpoint.segments),
+        )
+    _transcribe_message(state)
+
+    def progress(position: float) -> None:
+        state.transcribe_position_seconds = position
+        if not state.transcribe_paused:
+            _transcribe_message(state)
+
+    def paused(flag: bool) -> None:
+        state.transcribe_paused = flag
+        if flag:
+            state.set_message("library.subtitleJob.transcribePaused")
+        else:
+            _transcribe_message(state)
+
+    try:
+        transcript = await asr.transcribe(
+            wav, spoken, on_progress=progress, on_paused=paused, checkpoint=checkpoint
+        )
+    except asr.TranscribeError as exc:
+        return GenResult(
+            ok=False, **stored_fields("library.subtitleJob.asrIncomplete", reason=exc.reference)
+        )
+    finally:
+        state.transcribe_paused = False
+
+    spoken = spoken or transcript.language
+    token = asr.LANGUAGE_TOKENS.get(spoken or "", "und")
+    events = asr.build_cues(transcript.segments, token)
+    assessment = source.assess_events(events, row.duration_seconds)
+    if not assessment.ok:
+        # 识别本身没出错，再跑一遍结果也一样：不留音频缓存与断点
+        with contextlib.suppress(OSError):
+            wav.unlink(missing_ok=True)
+        await asyncio.to_thread(checkpoint.discard)
+        return GenResult(
+            ok=False,
+            **stored_fields(
+                "library.subtitleJob.asrAssessment",
+                reason=assessment.reason_message or assessment.reason,
+            ),
+        )
+    display, report = validate.finalize_events(events, target_language=token)
+    sidecar = _asr_sidecar_path(row, token)
+    state.phase = "writing"
+    state.set_message("library.subtitleJob.writing")
+    try:
+        await asyncio.to_thread(translate.write_srt, display, sidecar)
+    except OSError as exc:
+        return GenResult(
+            ok=False,
+            **stored_fields("library.subtitleJob.asrWriteFailed", path=sidecar, detail=exc),
+        )
+    await _refresh_subtitle_inventory(get_database(), row.id)
+    # 外挂已经落盘（write_srt 先 fsync 再改名），中间品才能删
+    with contextlib.suppress(OSError):
+        wav.unlink(missing_ok=True)
+    await asyncio.to_thread(checkpoint.discard)
+    selected.candidate = dataclasses.replace(
+        selected.candidate,
+        language=None if token == "und" else token,
+        spoken_language=spoken,
+    )
+    selected.reasons.append(assessment.reason)
+    logger.info(
+        "本地语音识别完成：%s → %s（%d 条，语音 %.0f 秒）",
+        video.name,
+        sidecar.name,
+        len(events),
+        transcript.speech_seconds,
+    )
+    return selected, events, spoken, sidecar, report
 
 
 async def _refresh_subtitle_inventory(db, file_id: int) -> None:  # noqa: ANN001

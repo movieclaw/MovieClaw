@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from collections import deque
@@ -99,6 +100,8 @@ class FilmContext:
     year: int | None
     genres: list[str]
     overview: str | None
+    #: 原文来自本地语音识别（docs/design/subtitle-asr.md §4.4）：提示模型可能有同音错字
+    asr_source: bool = False
 
 
 @dataclass
@@ -235,6 +238,12 @@ def system_prompt(
         lines.append(_formatting_rule(target_language, "8. 第一行 "))
         # i18n-ignore: model prompt body and internal retry diagnostics
         lines.append(_formatting_rule(secondary_language, "9. 第二行 "))
+    if ctx.asr_source:
+        lines.append(
+            # i18n-ignore: model prompt body and internal retry diagnostics
+            "原文说明：原文是语音识别结果，不是人工字幕，可能有同音错字和断句偏差；"
+            "先结合上下文理解，明显的识别错误按语境纠正后再翻译，不要照错字直译"
+        )
     if glossary:
         pairs = "；".join(f"{k}→{v}" for k, v in list(glossary.items())[:40])
         # i18n-ignore: model prompt body and internal retry diagnostics
@@ -369,6 +378,7 @@ class Checkpoint:
         )
         tmp = self.path.with_suffix(self.path.suffix + ".part")
         tmp.write_text(payload, encoding="utf-8")
+        _fsync(tmp)
         tmp.replace(self.path)
 
     def discard(self) -> None:
@@ -954,7 +964,11 @@ async def translate_events(
 
 
 def write_srt(events: list[SubEvent], path: Path) -> None:
-    """UTF-8 srt 落盘（v1 恒 srt，§3.2）。"""
+    """UTF-8 srt 落盘（v1 恒 srt，§3.2）。
+
+    先写临时文件、fsync 后再改名：断电后要么是旧文件、要么是完整的新文件。识别外挂
+    之后会被直接复用，不能留下名字换上了、内容只落了一半的文件。
+    """
     import pysubs2
 
     subs = pysubs2.SSAFile()
@@ -963,7 +977,14 @@ def write_srt(events: list[SubEvent], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".part")
     tmp.write_text(subs.to_string("srt"), encoding="utf-8")
+    _fsync(tmp)
     tmp.replace(path)
+
+
+def _fsync(path: Path) -> None:
+    """改名之前先落盘：不然断电后可能留下名字已经换上、内容却是空的文件。"""
+    with open(path, "rb") as fh:
+        os.fsync(fh.fileno())
 
 
 # ---------------------------------------------------------------------------

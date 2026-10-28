@@ -4864,5 +4864,38 @@
   },
   "reels.clipFailedShort": {
     "sourceHash": "7f23dcf85c7588bd283dae37db7a30ea153b6e3723ec8a40b55d1ea0e87477e7"
+  },
+  "subtitleGeneration.audio": {
+    "sourceHash": "296c632ec857a0ba59c608e9b4ba4ec436187a969b7776f4eda6e5b3d82263c6"
+  },
+  "subtitleGeneration.asr": {
+    "sourceHash": "6f46260adae050e1761711c484402202e8395a7a69bf45caebb5e49612bf538b"
+  },
+  "subtitleGeneration.transcribing": {
+    "sourceHash": "4c8fc0d9d90d010fc218fe08719ef527d95a778adddfa505ad22969c8469b05d"
+  },
+  "subtitleGeneration.transcribePercent": {
+    "sourceHash": "d36198dd5af3f280d4a46701cf9723adaafa512b37c9b1c22ce0add1df880c97"
+  },
+  "subtitleGeneration.transcribePaused": {
+    "sourceHash": "d3b0adcf635c7a03fc4910e68825d6b54baa00e2199acc26f7bd6e332eca2241"
+  },
+  "subtitleGeneration.asrStage": {
+    "sourceHash": "c8223114a85d0a4d8ef2fce4bc4e8741992e529134177304de54dbdbae11350c"
+  },
+  "subtitleGeneration.sourceAudio": {
+    "sourceHash": "6adc63cc683ee1443604ecbe9477d1e6a2c53f7f40e54ba1bb73728ce8cce48d"
+  },
+  "subtitleGeneration.noAiCost": {
+    "sourceHash": "d0a211bf06ea6b7d03ee361f73771a2ecfcc06b9eec3857ea0740e425837b8d8"
+  },
+  "subtitleGeneration.asrConfirmHint": {
+    "sourceHash": "99e850bdfb02d2cadba28db450bee58e2b87533a628a478c6031e6e8ebfe1f2b"
+  },
+  "subtitleGeneration.retranscribe": {
+    "sourceHash": "30e247bc6e8c1164b2d657472570b6ec85c56db4354c012a2312fcc6af71841a"
+  },
+  "subtitleGeneration.retranscribeHint": {
+    "sourceHash": "cf664a80c4fbf0fc362191006863ee299aece4fb364a4e05d69862ae89b20c04"
   }
 }

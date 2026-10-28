@@ -1358,7 +1358,18 @@
     "starting": "正在启动…",
     "startOutput": "开始生成{output}",
     "confirmOutput": "确认生成{output}",
-    "modelTokens": " · {count, number} token"
+    "modelTokens": " · {count, number} token",
+    "audio": "音频",
+    "asr": "本地语音识别",
+    "transcribing": "识别中",
+    "transcribePercent": "识别 {percent}%",
+    "transcribePaused": "识别已暂停",
+    "asrStage": "识别台词并整理字幕",
+    "sourceAudio": "音轨 {index}",
+    "noAiCost": "直接使用识别结果，不调用 AI 模型",
+    "asrConfirmHint": "确认后在后台用本地语音模型识别，不调用 AI。",
+    "retranscribe": "重新识别",
+    "retranscribeHint": "不用上次的识别结果，用本地语音模型把这条音轨重新识别一遍（比较慢）。"
   },
   "recycle": {
     "restore": "恢复",

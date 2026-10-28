@@ -246,7 +246,7 @@ def test_preview_blocker_explains_missing_subtitles() -> None:
     blocker = tasks._preview_blocker([])
 
     assert blocker.code == "no_subtitle"
-    assert "不会从音轨听写" in blocker.message
+    assert "没有可以识别的音轨" in blocker.message
 
 
 # ---------------------------------------------------------------------------

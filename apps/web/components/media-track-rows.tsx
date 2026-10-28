@@ -245,7 +245,9 @@ function isAiSubtitle(stream: SubtitleStream): boolean {
   const title = stream.title?.toLowerCase() ?? "";
   const fileTokens = stream.file_name?.toLowerCase().split(".") ?? [];
   return (
-    title.startsWith("ai-") || fileTokens.some((token) => token === "ai" || token.startsWith("ai-"))
+    title.startsWith("ai-") ||
+    // asr = 本地语音模型从音轨识别出来的，与 AI 字幕同属机器产物
+    fileTokens.some((token) => token === "ai" || token === "asr" || token.startsWith("ai-"))
   );
 }
 
@@ -300,6 +302,7 @@ function externalSubtitleSuffix(stream: SubtitleStream, locale: AppLocale = requ
   const tokens = stream.file_name?.toLowerCase().split(".") ?? [];
   if (tokens.some((token) => token === "ai" || token.startsWith("ai-"))) return t("media.tracks.aiExternal");
   if (tokens.includes("pgs-ocr")) return t("media.tracks.pgsConverted");
+  if (tokens.includes("asr")) return t("media.tracks.asrExternal");
   return t("media.tracks.external");
 }
 

@@ -73,6 +73,10 @@ dependencies = [
   "onnxruntime>=1.19,<2.0",
   "tokenizers>=0.20,<1.0",
   "numpy>=1.26,<3.0",
+  # 本地语音识别（docs/design/subtitle-asr.md）：文件没有任何可用字幕时，AI 字幕用它跑
+  # SenseVoice-Small 从音轨识别台词。只在识别子进程里导入，主进程不加载；锁死版本——
+  # 2.x 刚升过大版本，模型导出格式与 Python 接口要随它一起验证（约 55 MB）
+  "sherpa-onnx==2.0.1",
   # 中文标题的拼音首字母（媒体库海报墙的排序与 A-Z 快速定位）：纯 Python、
   # 无二进制依赖，自带姓氏/多音字词库，比自维护一张码点表准。
   "pypinyin>=0.53.0,<1.0.0",

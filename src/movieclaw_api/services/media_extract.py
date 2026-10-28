@@ -484,6 +484,106 @@ async def extract_track_async(file: LibraryFile, index: int) -> ExtractedTrack |
     return await _shared_extract(_file_specs(file), spec, index)
 
 
+async def extract_audio_async(
+    file: LibraryFile, index: int, out_path: Path, *, center_channel: bool
+) -> dict | None:
+    """整片读出第 ``index`` 条音轨的 16 kHz 单声道 PCM WAV（本地语音识别用）。
+
+    返回 None 表示成功，否则是给用户看的失败原因（文案引用）。音视频交错存放，
+    读一条音轨就是通读整个文件，所以与内封字幕抽取同一道全局闸门、同一套进度
+    登记（``read_progress`` 照常给出「排队中 / 已读到」），超时按体积估，被取消时
+    连同 ffmpeg 进程组一起结束，产物先写临时文件、落盘后再原子替换（断电后要么
+    没有、要么完整）。``center_channel``
+    只取中置声道：5.1 / 7.1 的对白基本都在中置，整体下混会被配乐压住
+    （docs/design/subtitle-asr.md §4.1）。
+    """
+    video = Path(file.file_path)
+    if shutil.which("ffmpeg") is None:
+        return reference("library.subtitleSource.ffmpegMissing")
+    key = str(video)
+    state = _ReadState()
+    owns_state = key not in _READ_STATES
+    if owns_state:
+        _READ_STATES[key] = state
+    try:
+        async with _read_gate():
+            state.queued = False
+            # 进程被杀、断电时留下的半截临时文件（一部片两百多 MB）：同一产物同一时间只有
+            # 一个识别任务在写（asr_engine 单飞锁），这里看到的都是上次没写完的
+            await asyncio.to_thread(_remove_stale_parts, out_path)
+            progress_path = _new_progress_path()
+            state.progress_path = progress_path
+            tmp_path = _new_tmp_path(out_path)
+            mix = ["-af", "pan=mono|c0=FC"] if center_channel else ["-ac", "1"]
+            argv = [
+                "ffmpeg", "-nostdin", "-v", "error", "-y",
+                "-progress", str(progress_path), "-nostats",
+                *_ffmpeg_input(video),
+                "-map", f"0:a:{index}", "-vn", "-sn", "-dn",
+                *mix, "-ar", "16000", "-c:a", "pcm_s16le",
+                str(tmp_path),
+            ]
+            try:
+                return await _run_audio_ffmpeg(argv, video, tmp_path, out_path)
+            finally:
+                state.progress_path = None
+                _cleanup(progress_path)
+    finally:
+        if owns_state and _READ_STATES.get(key) is state:
+            _READ_STATES.pop(key, None)
+
+
+async def _run_audio_ffmpeg(
+    argv: list[str], video: Path, tmp_path: Path, out_path: Path
+) -> dict | None:
+    timeout = _extract_timeout(video)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        logger.warning("音轨读取进程启动失败：%s（%s）", video, exc)
+        return reference("library.subtitleSource.startFailed", error=str(exc))
+    communicate = asyncio.create_task(proc.communicate())
+    try:
+        _, stderr = await asyncio.wait_for(asyncio.shield(communicate), timeout)
+    except asyncio.CancelledError:
+        await asyncio.shield(_terminate_async_process(proc, communicate))
+        _cleanup(tmp_path)
+        logger.info("音轨读取已取消：%s", video)
+        raise
+    except TimeoutError:
+        await _terminate_async_process(proc, communicate)
+        _cleanup(tmp_path)
+        logger.warning("音轨读取超时（%.0f 秒）：%s", timeout, video)
+        return reference("library.subtitleSource.timeout", minutes=f"{timeout / 60:.0f}")
+    if proc.returncode != 0 or not _valid_output(tmp_path):
+        _cleanup(tmp_path)
+        logger.warning("音轨读取失败（exit=%s）：%s %s", proc.returncode, video, stderr[-300:])
+        return _ffmpeg_failure(proc.returncode, stderr)
+    await asyncio.to_thread(_durable_replace, tmp_path, out_path)
+    return None
+
+
+def _remove_stale_parts(out_path: Path) -> None:
+    """删掉 ``out_path`` 以前没写完的临时文件（命名见 ``_new_tmp_path``）。"""
+    pattern = f".{out_path.stem}.*.part{out_path.suffix}"
+    for stale in out_path.parent.glob(pattern):
+        logger.info("清理上次没写完的临时文件：%s", stale)
+        _cleanup(stale)
+
+
+def _durable_replace(tmp_path: Path, out_path: Path) -> None:
+    """先 fsync 再改名：断电后不会出现「名字已经换上、内容还没落盘」的半截产物。"""
+    with open(tmp_path, "rb") as fh:
+        os.fsync(fh.fileno())
+    tmp_path.replace(out_path)
+
+
 async def _shared_extract(
     batch: list[tuple[int, _ExtractionSpec]], spec: _ExtractionSpec, index: int
 ) -> ExtractedTrack | None:

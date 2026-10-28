@@ -534,7 +534,7 @@
     "sourceHash": "10d1fae155e8a0f772b76919eb34fce2d9e4fdc743bafcbecb65bb7c7656995e"
   },
   "subtitleCalibration.reference": {
-    "sourceHash": "5725ac5adb3433564b5c027a8c1ed2afd1a2bc8c522e6654ea87031993602018"
+    "sourceHash": "f5576459718292e73f3bfce3c5f72e092f3d92f4b2e5b597b1ad227b7067d26a"
   },
   "subtitleCalibration.noReference": {
     "sourceHash": "c6eea51c1a5895481193a3c283c2bfdb81f3246009ae37990d6e1885eda6c085"
@@ -636,7 +636,7 @@
     "sourceHash": "440202eaf8fda297702d4971ff844c97c1c3396da7b626eea526c4a0bf47b334"
   },
   "subtitlePreflight.noSubtitle": {
-    "sourceHash": "fcedbf1d11e9d85a4a26755b38a4fa472497f16376be6246c6e1f1f6d69d491f"
+    "sourceHash": "e5c4fe85119de424836ac33ebe5561634a8ad1fd18f98c4156e5f23795e54fa0"
   },
   "subtitlePreflight.confirmLanguage": {
     "sourceHash": "6cab42ea5c02402ce7776a32543b57e43116997a5507a7f192471f11669813d3"
@@ -2308,5 +2308,116 @@
   },
   "ingest.unreadableMain": {
     "sourceHash": "86eb71d14bb8b190a244dd8e1835218c60d339e5eb2a69a8a5cb667843262ecf"
+  },
+  "asrLanguages.zh": {
+    "sourceHash": "f43591b09c1b45cafe9a99bc9c969c8cc9a7360c5d79a7306c48cdd6b9dd8405"
+  },
+  "asrLanguages.yue": {
+    "sourceHash": "3b0aa680e2b63ff24180c25bd4714dd905f6b99696e74b939fa7b6e48f05ec29"
+  },
+  "asrLanguages.en": {
+    "sourceHash": "d1648bacbc1630a60ebc0091fa7a4cb7d831c4696a80f302dcacfc59838895a0"
+  },
+  "asrLanguages.ja": {
+    "sourceHash": "3a944ddb3868f4b21ed515205ad6a7e0177451af2549a6f55f1996fc5a3d7045"
+  },
+  "asrLanguages.ko": {
+    "sourceHash": "259cdcf751996c6c1d43b2bdcf714f2f24783c08180979dfd842e9750757ab4b"
+  },
+  "subtitleSource.audioTrack": {
+    "sourceHash": "cf36f965f19d138ae7bb014170a932a6fafe02c90ed6e4cf02ef7ebfd6b81642"
+  },
+  "subtitleSource.asr": {
+    "sourceHash": "102459139770cd932abc8290f6b88b6c259080e901e4f584d1dc16ca9092e0d1"
+  },
+  "subtitleSource.audioCenter": {
+    "sourceHash": "a7d07510ac2419e314ab706bc6e59464c5be5ef15c51d2edf0d07a485f793402"
+  },
+  "subtitleSource.audioAutoLanguage": {
+    "sourceHash": "7bc3ca14670a022bed60e95b75b3c55816d36260c2316821ee2dd3dc93c20da1"
+  },
+  "subtitleSource.asrLanguage": {
+    "sourceHash": "5be6a1bdcfacefa90ced88f6ba66209a2066e16034d6683058a2dd152481c8b0"
+  },
+  "subtitleSource.asrRemote": {
+    "sourceHash": "330ef6e96e821f38e2188f74862edebe547762e5d357d9f1c4d3083edd43ac3d"
+  },
+  "subtitleSource.asrUnavailable": {
+    "sourceHash": "4a57e40af4773e1f28893381b3b8ceff2d31978462ef6e82b8d87b0b5e8313da"
+  },
+  "subtitleSource.asrSidecar": {
+    "sourceHash": "d3b48cc96455486530dc6db360bacc67d0ffe29fd8a79e575ee1bb28687e4ad6"
+  },
+  "subtitlePreflight.asrNotice": {
+    "sourceHash": "21b2a0fd0ec293ca1ae3bcef7329c0ad087aefd38d6b5290a83464c9dfc3fd5c"
+  },
+  "subtitlePreflight.asrLanguageTitle": {
+    "sourceHash": "6b5eb16a12e0c5446212956b96a02aa7a4ea6a22ecc54101875cfff226a723b8"
+  },
+  "subtitlePreflight.asrLanguage": {
+    "sourceHash": "50ddd5f1852ca00148b5489218cc4852ce3c0ea65fb2627416eae5875834c56c"
+  },
+  "subtitlePreflight.asrRemoteTitle": {
+    "sourceHash": "6f7672f80202874ff5ebe68e293932992104189dc75f8b7b9e3dbfe3d3f330c0"
+  },
+  "subtitlePreflight.asrRemote": {
+    "sourceHash": "94caf47148e381beefef0d98b6750fa6a0986870f9528f8f096db28849fd99f5"
+  },
+  "subtitlePreflight.asrUnavailableTitle": {
+    "sourceHash": "09d7af4bc52c59b7eceb6b3969590626a636280c39c8569dd2dc4b9c8ae2982f"
+  },
+  "subtitlePreflight.asrUnavailable": {
+    "sourceHash": "dc84fc26c763d42b62fcc88c179c972f071142db0d1e2796471e3de65ac4f20b"
+  },
+  "subtitlePreflight.asrUpdateImage": {
+    "sourceHash": "f8b44a9842c85b45fdc1804efe0fd1f21774f183a3dc4e878d2dac350974ad8d"
+  },
+  "subtitleJob.waitAsr": {
+    "sourceHash": "00514c1656e56fb15a02d899c4b7e06b59efa22af370967d4e03790e3ff1af3a"
+  },
+  "subtitleJob.readingAudio": {
+    "sourceHash": "431b5e4448e9b69280e408859cea527e399c8723c4ec6b7b02a5a118546e4b19"
+  },
+  "subtitleJob.readAudioPosition": {
+    "sourceHash": "d13e6c539a86c0221461507175fb2578b7a3bbefa77dc678acc485b91533afb5"
+  },
+  "subtitleJob.transcribing": {
+    "sourceHash": "eed5282e5474357fb5364dd575cd47045f987f8bbd73deec5bf335486812cf80"
+  },
+  "subtitleJob.transcribePaused": {
+    "sourceHash": "9b962afbe210a2798818369dfeef9106b3d583a409ce8397c2ed55ac6c240a59"
+  },
+  "subtitleJob.asrAudioFailed": {
+    "sourceHash": "45ef5cda7a27d1ff8aeb2524f65edc56793a60d17c81cd457b7c8e7376f4230f"
+  },
+  "subtitleJob.asrFailed": {
+    "sourceHash": "19d2c368bb1d4b07e0187e630cee066c0d12b98da6e33a5ad5dafa3324435bb0"
+  },
+  "subtitleJob.asrStalled": {
+    "sourceHash": "5baafdefb7894f3379843cadc39806b23ad8890cda8830aa78cc4e57c34ad5fe"
+  },
+  "subtitleJob.asrIncomplete": {
+    "sourceHash": "516cf871d28bf4f7127c6c90fbae3254800947fd1cc2eba456b08ef3a004d5c8"
+  },
+  "subtitleJob.asrAssessment": {
+    "sourceHash": "10aed89cb8fdb60fadcb53572d83c84dd93afcaeea0f120d990dd3afc476e189"
+  },
+  "subtitleJob.asrWriteFailed": {
+    "sourceHash": "33e6b204a30f5187130f95cc6db0156f5d94b7f1372e4d8d735585646a8cfc1a"
+  },
+  "subtitleJob.asrSource": {
+    "sourceHash": "ed0235b6007c5acd65df4e1a5363cc0d624e240d6aa2d6a2d14ff9e56d9f00a9"
+  },
+  "subtitleJob.completedAsr": {
+    "sourceHash": "6a4d5e4d796ca38bf29e725f09894d3ebe00a25c69db0c4decd678e70574d640"
+  },
+  "subtitleJob.asrRefused": {
+    "sourceHash": "e39892d74eb3ada8e3e7eb7a13b101c2f94b4f4af9f1c6d27eb863722f734156"
+  },
+  "subtitleSource.asrAgain": {
+    "sourceHash": "d7970582c25afa77e24a9d885cc8011fb0e863d43327ad83ef41bc74410d0a65"
+  },
+  "subtitlePreflight.asrReuse": {
+    "sourceHash": "6ac0caff7d0553b6cb235ba038ed822097e4f08034f323ec00b7556a653836cc"
   }
 }

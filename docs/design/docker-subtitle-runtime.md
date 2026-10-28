@@ -42,6 +42,8 @@ PGS 转换器固定为 Subtitle Edit `v5.1.0` 官方 Release：
 | `fontconfig`、`fonts-dejavu-core` | SkiaSharp 字体解析与端到端合成探针 | 图形字幕路径延迟失败 |
 | `libSkiaSharp.so`、`libHarfBuzzSharp.so` | seconv 随包的图像与字形库 | PGS 解析/渲染时动态加载失败 |
 | Tesseract 及 traineddata | 实际 OCR | seconv 可启动但转换时报错 |
+| sherpa-onnx 2.0.1（Python 依赖） | 本地语音识别的推理运行时 | 没有字幕的文件无法从音轨识别，预检给 `asr_unavailable` |
+| `/app/models/asr`（SenseVoice-Small int8、tokens、silero VAD） | 从音轨识别台词（runtime 25 起） | 同上 |
 
 官方镜像承诺的 OCR 语言与应用 `pgs.OCR_LANGUAGE_LABELS` 一致：英语、简体中文、
 繁体中文、日语、韩语、法语、德语、西班牙语、意大利语、葡萄牙语、俄语；对应
@@ -60,7 +62,7 @@ PaddleOCR，应用的 `auto` 模式会在健康时优先使用它。
 - 最终镜像层会执行目标架构 seconv 与 Tesseract。原生 CI runner 直接执行；本地
   交叉构建必须先启用 binfmt/QEMU，`scripts/build-image.sh` 会提前检查并给出错误。
 
-运行时依赖集合编号为 `docker/runtime-version`。本次字幕依赖落在 runtime 5；以后
+运行时依赖集合编号为 `docker/runtime-version`。PGS 字幕依赖落在 runtime 5，本地语音识别落在 runtime 25；以后
 更新 seconv、Tesseract、语言包、系统库或基础镜像时都必须继续 bump，保证应用内
 更新不会把新代码安装到不具备依赖的旧镜像。
 
@@ -92,7 +94,20 @@ docker run --rm \
   movieclaw:latest
 ```
 
-## 7. 更新依赖时的检查清单
+## 7. 本地语音识别（runtime 25）
+
+[subtitle-asr.md](subtitle-asr.md) 的识别能力随镜像分发，不在运行时下载：
+
+- 模型取自 sherpa-onnx `asr-models` Release 的
+  `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`（只取 `model.int8.onnx`、
+  `tokens.txt`、LICENSE 与一段英语测试音频）和 `silero_vad.onnx`，两份下载都锁 SHA256，
+  NOTICE 注明 FunASR Model License v1.1 的来源与作者。**不能换成同系列的 2025-09-09**：
+  那是粤语微调版，日语、韩语实测全坏。
+- 最终镜像构建期用 `asr_worker.py --self-test` 在目标架构上识别测试音频，输出里没有预期
+  单词就阻断镜像产出，和 PGS 冒烟同一纪律。
+- 旧镜像配新应用包时能力探测报不可用，只影响「从音轨识别」，其他字幕功能照常。
+
+## 8. 更新依赖时的检查清单
 
 - 更新 seconv：同时改版本 URL、两个资产名/摘要，并在两个原生架构跑探针。
 - 增加 OCR 语言：同步更新应用语言映射、Debian traineddata 包、探针期望列表和测试；

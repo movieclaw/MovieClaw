@@ -1358,7 +1358,18 @@
     "starting": "Starting…",
     "startOutput": "Start generating {output}",
     "confirmOutput": "Generate {output}",
-    "modelTokens": " · {count, plural, one {# token} other {# tokens}}"
+    "modelTokens": " · {count, plural, one {# token} other {# tokens}}",
+    "audio": "Audio",
+    "asr": "Local speech recognition",
+    "transcribing": "Transcribing",
+    "transcribePercent": "Transcribing {percent}%",
+    "transcribePaused": "Transcription paused",
+    "asrStage": "Transcribe dialogue and prepare subtitles",
+    "sourceAudio": "Audio track {index}",
+    "noAiCost": "The transcript is used directly; no AI model is called",
+    "asrConfirmHint": "Transcription runs in the background with the local speech model; no AI is called.",
+    "retranscribe": "Transcribe again",
+    "retranscribeHint": "Ignore the previous transcript and run the local speech model on this track again (slow)."
   },
   "recycle": {
     "restore": "Restore",

@@ -34,12 +34,17 @@ async def storage_guard(ctx: Context) -> None:
 
 
 async def _warm_pgs_capability() -> None:
-    from movieclaw_api.services.subtitle_gen import pgs
+    from movieclaw_api.services.subtitle_gen import asr, pgs
 
     try:
         await asyncio.to_thread(pgs.warm_capability)
     except Exception:
         logger.warning("PGS 图片字幕识别自检未能完成，将在首次预检时再检测", exc_info=True)
+    # 本地语音识别的探测很轻（只找包、看模型文件），顺带在这里做，启动日志里写一句结论
+    try:
+        await asyncio.to_thread(asr.warm_capability)
+    except Exception:
+        logger.warning("本地语音识别自检未能完成，将在首次预检时再检测", exc_info=True)
 
 
 @plugin("subtitle.pgs-warm", title="PGS 字幕识别能力预热", reloadable=True)

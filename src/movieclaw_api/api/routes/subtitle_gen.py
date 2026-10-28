@@ -144,6 +144,7 @@ async def gen_preview(
     target_language: str = "chs",
     secondary_language: str | None = None,
     source_candidate_key: str | None = None,
+    retranscribe: bool = False,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[GenPreviewView]:
     """只读数据库与现成产物，永远秒回（issue #432 及其后续）。
@@ -158,6 +159,7 @@ async def gen_preview(
         target_language,
         secondary_language=secondary_language,
         source_candidate_key=source_candidate_key,
+        retranscribe=retranscribe,
     )
     return ApiResponse(data=_preview_view(pv))
 
@@ -188,6 +190,7 @@ async def gen_start(
         source_candidate_key=payload.source_candidate_key,
         convert_pgs=payload.convert_pgs,
         pgs_ocr_language=payload.pgs_ocr_language,
+        retranscribe=payload.retranscribe,
         actor_kind=principal.kind,
         actor_name=principal.name,
         actor_id=str(principal.member_id) if principal.member_id is not None else None,

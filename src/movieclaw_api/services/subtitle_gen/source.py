@@ -30,13 +30,15 @@ def normalize_language(raw: str | None) -> str | None:
 class SourceCandidate:
     """一个可做翻译参考的字幕轨（内封或外挂）。"""
 
-    kind: str  # "embedded" | "external"
-    key: str  # embedded: 字幕轨数组下标的字符串；external: 台账文件名
+    kind: str  # "embedded" | "external" | "audio"（音轨识别，docs/design/subtitle-asr.md）
+    key: str  # embedded: 字幕轨数组下标的字符串；external: 台账文件名；audio: 音轨序号
     language: str | None  # ISO 639-2/B
     forced: bool
     sdh: bool
     format: str | None  # 外挂扩展名 / 内封 codec（小写）
-    provenance: str = "original"  # original / pgs_ocr / ai / ai_bilingual
+    provenance: str = "original"  # original / pgs_ocr / asr / ai / ai_bilingual
+    #: 只有音轨候选有：SenseVoice 的台词语言（zh / yue / en / ja / ko），None = 未知
+    spoken_language: str | None = None
 
 
 @dataclass
@@ -48,6 +50,8 @@ class RankedCandidate:
     rank_key: tuple = ()  # 越大越优
     excluded_message: dict | None = None
     reason_messages: list[dict] = field(default_factory=list)
+    #: 只供用户主动选择、不参与默认选择（识别过的音轨：选它是为了重新识别）
+    on_request: bool = False
 
     def exclude(self, key: str, **params) -> None:
         self.excluded_message = stored_fields(key, **params)
@@ -77,6 +81,8 @@ def _external_provenance(entry: dict) -> str:
         return "ai"
     if "pgs-ocr" in marker:
         return "pgs_ocr"
+    if marker.startswith("asr.") or ".asr." in marker:
+        return "asr"
     return "original"
 
 
@@ -89,7 +95,10 @@ def rank_candidates(
     """元数据级排序（完整度/同步度在加载后另行评估，tasks 按序逐个尝试）。
 
     排序键（越大越优）：语言优先级 → 非 sdh（听障标记要清理，同分让路）
-    → 来源世代（发行原文 > OCR 文本 > AI 单语 > AI 双语）→ 内封优先。
+    → 来源世代（发行原文 > OCR 文本 > 语音识别 > AI 单语 > AI 双语）→ 内封优先。
+
+    音轨识别候选不在这里：自动生成与一键校准都调用本函数，放进来会让它们对所有
+    没有字幕的文件跑识别。手动流程按需追加 ``audio_candidate``。
     """
     original = normalize_language(original_language)
     target = normalize_language(target_language)
@@ -160,16 +169,19 @@ def _rank_one(
         r.explain("library.subtitleSource.sdh")
     embedded = cand.kind == "embedded"
     provenance_rank = {
-        "original": 3,
-        "pgs_ocr": 2,
+        "original": 4,
+        "pgs_ocr": 3,
+        "asr": 2,
         "ai": 1,
         "ai_bilingual": 0,
     }.get(cand.provenance, 1)
     if embedded:
         r.explain("library.subtitleSource.embedded")
-        provenance_rank = 4
+        provenance_rank = 5
     elif cand.provenance == "pgs_ocr":
         r.explain("library.subtitleSource.ocr")
+    elif cand.provenance == "asr":
+        r.explain("library.subtitleSource.asrSidecar")
     elif cand.provenance == "ai":
         r.explain("library.subtitleSource.ai")
     elif cand.provenance == "ai_bilingual":
@@ -188,6 +200,62 @@ def _rank_one(
             r.exclude("library.subtitleSource.pgs")
         else:
             r.exclude("library.subtitleSource.graphic", format=cand.format)
+    return r
+
+
+def audio_candidate(
+    file: LibraryFile, *, original_language: str | None, recognized: bool = False
+) -> RankedCandidate | None:
+    """最后一级候选：从音轨识别台词（docs/design/subtitle-asr.md §3）。没有音轨时返回 None。
+
+    只在手动流程里、文本字幕与 PGS 都选不到时（或请求显式指定 ``audio:<k>``）追加；
+    ``recognized`` = 这个文件识别过（已有识别外挂），列出来供用户选它重新识别。
+    不能识别（语言不支持、网盘文件、缺组件）时照样返回，带排除原因，预检据此说明。
+    """
+    # 延迟导入：asr → extract → source 是一条导入链
+    from movieclaw_api.services import media_extract
+    from movieclaw_api.services.subtitle_gen import asr
+
+    plan = asr.plan_audio(
+        file.file_path,
+        file.audio_streams,
+        original_language,
+        remote=media_extract.is_remote(file.file_path),
+    )
+    if plan is None:
+        return None
+    cand = SourceCandidate(
+        kind="audio",
+        key=str(plan.index),
+        language=plan.language_token,
+        forced=False,
+        sdh=False,
+        format=plan.codec,
+        provenance="asr",
+        spoken_language=plan.language,
+    )
+    r = RankedCandidate(candidate=cand, rank_key=(-1,))
+    r.explain(
+        "library.subtitleSource.audioTrack",
+        index=plan.index + 1,
+        hasLanguage="yes" if plan.language else "no",
+        language=reference("library.asrLanguages." + plan.language) if plan.language else "",
+        hasLayout="yes" if plan.layout else "no",
+        layout=plan.layout or "",
+    )
+    r.explain("library.subtitleSource.asrAgain" if recognized else "library.subtitleSource.asr")
+    if plan.center_channel:
+        r.explain("library.subtitleSource.audioCenter")
+    if plan.language is None and plan.refusal is None:
+        r.explain("library.subtitleSource.audioAutoLanguage")
+    if plan.refusal is not None:
+        r.exclusion_code = plan.refusal
+        if plan.refusal == "asr_language":
+            r.exclude("library.subtitleSource.asrLanguage", language=plan.raw_language or "")
+        elif plan.refusal == "asr_remote":
+            r.exclude("library.subtitleSource.asrRemote")
+        else:
+            r.exclude("library.subtitleSource.asrUnavailable")
     return r
 
 

@@ -285,7 +285,7 @@
   "subtitleCalibration": {
     "tooFew": "There are too few subtitle cues for reliable calibration",
     "audioReference": "Video audio",
-    "reference": "{kind, select, embedded {Embedded track} other {External subtitle}} {identity} ({known, select, yes {{language}} other {unknown language}}/{format})",
+    "reference": "{kind, select, embedded {Embedded track} audio {Audio track} other {External subtitle}} {identity} ({known, select, yes {{language}} other {unknown language}}/{format})",
     "noReference": "No calibration reference is available: ffmpeg or audio is unavailable (for example, a cloud STRM file), and there is no other subtitle track to align against.",
     "lowConfidence": "Calibration confidence is too low (reference: {reference}). The subtitle may belong to a different video.",
     "alreadySynced": "The subtitle is already synchronized (reference: {reference}). No changes were made.",
@@ -323,13 +323,22 @@
     "ffmpegExit": "ffmpeg exited unexpectedly (exit code {code})",
     "noContent": "No subtitle content was read, or writing the cache failed (see the server logs)",
     "startFailed": "ffmpeg couldn’t start: {error}",
-    "timeout": "Reading timed out: the video wasn’t fully read within {minutes} minutes (a limit estimated at 20 MB/s). Slow storage or a damaged file can cause this"
+    "timeout": "Reading timed out: the video wasn’t fully read within {minutes} minutes (a limit estimated at 20 MB/s). Slow storage or a damaged file can cause this",
+    "audioTrack": "Audio track {index}{hasLanguage, select, yes {: {language}} other {}}{hasLayout, select, yes { ({layout})} other {}}",
+    "asr": "No usable subtitles: the local speech model transcribes the dialogue from this audio track",
+    "audioCenter": "Only the center channel is transcribed (where the dialogue is)",
+    "audioAutoLanguage": "The spoken language is unknown and will be detected during transcription",
+    "asrLanguage": "The local speech model does not support this spoken language: {language}",
+    "asrRemote": "Cloud files would have to be downloaded in full, which is not supported yet",
+    "asrUnavailable": "Local speech recognition is not installed in this environment",
+    "asrSidecar": "Transcribed from audio by the local speech model (ranked after original and image-recognized subtitles)",
+    "asrAgain": "This audio track was transcribed before: choose it to transcribe again"
   },
   "subtitlePreflight": {
     "addSidecar": "Add SRT, ASS or VTT subtitles that match this video",
     "rescan": "Scan the library again, then retry",
     "noSubtitleTitle": "This video has no reference subtitles",
-    "noSubtitle": "This feature translates existing text subtitles. It does not transcribe audio.",
+    "noSubtitle": "This video has no subtitles and no audio track to transcribe.",
     "confirmLanguage": "Confirm the subtitle language",
     "imageNeedsLanguage": "This subtitle contains images and requires OCR. Choose the language shown in the images before generating {output} subtitles.",
     "originalNotTarget": "Choose the original subtitle language here, rather than the {output} output language",
@@ -353,7 +362,16 @@
     "waitingLanguage": "an unconfirmed language",
     "bilingual": "{primary} + {secondary} bilingual",
     "readNotice": "These embedded subtitles have not been read yet. Generation starts by reading the whole video{hasSize, select, yes { ({size})} other {}} to extract them, which may take a few minutes for large files. This step does not call AI. Completeness is checked before any model costs are incurred.",
-    "incompleteCandidate": "Candidate “{candidate}” failed the completeness check: {reason}"
+    "incompleteCandidate": "Candidate “{candidate}” failed the completeness check: {reason}",
+    "asrNotice": "{mode, select, again {Ignoring the previous transcript, the local speech model will transcribe} other {This video has no usable subtitles. The local speech model will transcribe}} the dialogue from audio track {index}{hasLanguage, select, yes { ({language})} other {}}{translate, select, yes { and then translate it into {output}} other { and use it directly as {output} subtitles without calling AI}}. Transcription runs on this server at no cost but is slow: {resumed, select, yes {it already reached {position} last time and will continue from there, about {minutes} min left} other {about {minutes} min}}, and it pauses automatically while the server transcodes for playback. {hasFilename, select, yes {The transcript is also saved as {filename} for use on its own.} other {The transcript is also saved as a separate subtitle file.}}",
+    "asrLanguageTitle": "The local speech model does not support this language",
+    "asrLanguage": "This video has no usable subtitles. Its spoken language is {language}, and the local speech model currently supports only Mandarin, Cantonese, English, Japanese and Korean.",
+    "asrRemoteTitle": "Cloud files cannot be transcribed yet",
+    "asrRemote": "This video has no usable subtitles. Transcribing a cloud file would require downloading it in full, which is not supported yet.",
+    "asrUnavailableTitle": "Transcription is not available",
+    "asrUnavailable": "This video has no usable subtitles, and this environment lacks the local speech recognition components needed to transcribe the audio.",
+    "asrUpdateImage": "If you run MovieClaw in Docker, update to the latest image to enable transcription",
+    "asrReuse": "Audio track {index} was already transcribed ({filename}). The previous transcript will be {translate, select, yes {translated into {output}} other {used as {output} subtitles without calling AI}} instead of transcribing again."
   },
   "subtitleLanguages": {
     "chs": "Simplified Chinese",
@@ -476,7 +494,21 @@
     "enqueued": "Task queued",
     "rateLimitPaused": "The model service keeps rate-limiting, so the job paused (finished blocks are saved; start it again later to continue)",
     "bilingualLabel": "{primary} + {secondary} bilingual",
-    "autoActor": "Automatic subtitles after import"
+    "autoActor": "Automatic subtitles after import",
+    "waitAsr": "Queued: the audio track will be read first, then transcribed by the local speech model",
+    "readingAudio": "Reading the audio track",
+    "readAudioPosition": "Reading the audio track: {position} / {duration}",
+    "transcribing": "Transcribing dialogue{hasDuration, select, yes {: {position} / {duration}} other {}}",
+    "transcribePaused": "Paused while this server transcodes for playback; transcription resumes automatically afterwards",
+    "asrAudioFailed": "Could not read the audio track: {reason}",
+    "asrFailed": "Speech recognition failed: {reason}",
+    "asrStalled": "Speech recognition made no progress for {minutes} minutes and was stopped",
+    "asrIncomplete": "Transcription did not finish: {reason}",
+    "asrAssessment": "The dialogue was transcribed but failed the completeness check: {reason}",
+    "asrWriteFailed": "The dialogue was transcribed but the subtitles could not be saved: {path} ({detail})",
+    "asrSource": "{source} (local speech recognition)",
+    "completedAsr": "Transcribed {filename} ({count, plural, one {# line} other {# lines}}, local speech model, no AI calls)",
+    "asrRefused": "Cannot transcribe the audio: {reason}"
   },
   "duplicateScan": {
     "queued": "Waiting to scan duplicate files",
@@ -876,5 +908,12 @@
       "paused": "{reason}; precutting is paused (cut {ready} / {total})",
       "finished": "Cut {cut, plural, one {# new title} other {# new titles}}; {ready} / {total} have clips{failed, plural, =0 {} one {; # source couldn’t be cut} other {; # sources couldn’t be cut}}"
     }
+  },
+  "asrLanguages": {
+    "zh": "Mandarin",
+    "yue": "Cantonese",
+    "en": "English",
+    "ja": "Japanese",
+    "ko": "Korean"
   }
 }

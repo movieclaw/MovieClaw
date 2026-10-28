@@ -285,7 +285,7 @@
   "subtitleCalibration": {
     "tooFew": "字幕事件太少，无法可靠校准",
     "audioReference": "影片音轨",
-    "reference": "{kind, select, embedded {内封轨} other {外挂}} {identity}（{known, select, yes {{language}} other {未知语言}}/{format}）",
+    "reference": "{kind, select, embedded {内封轨} audio {音轨} other {外挂}} {identity}（{known, select, yes {{language}} other {未知语言}}/{format}）",
     "noReference": "没有可用的校准参考：本机无 ffmpeg 或无音轨（strm 云端文件），且该文件没有其他字幕轨可做时间结构对齐",
     "lowConfidence": "校准置信度不足（参考：{reference}）——字幕可能与该影片不匹配",
     "alreadySynced": "字幕本就同步（参考：{reference}），未做修改",
@@ -323,13 +323,22 @@
     "ffmpegExit": "ffmpeg 异常退出（退出码 {code}）",
     "noContent": "没有读出任何字幕内容，或写入缓存失败（详见服务端日志）",
     "startFailed": "ffmpeg 无法启动：{error}",
-    "timeout": "读取超时：{minutes} 分钟内没读完整个视频（按每秒 20 MB 估算的上限），存储读取太慢或文件损坏都会这样"
+    "timeout": "读取超时：{minutes} 分钟内没读完整个视频（按每秒 20 MB 估算的上限），存储读取太慢或文件损坏都会这样",
+    "audioTrack": "第 {index} 条音轨{hasLanguage, select, yes {：{language}} other {}}{hasLayout, select, yes {（{layout}）} other {}}",
+    "asr": "没有可用的字幕：由本地语音模型从这条音轨识别台词",
+    "audioCenter": "只取中置声道识别（对白所在的声道）",
+    "audioAutoLanguage": "台词语言未知，识别时自动判断",
+    "asrLanguage": "本地语音模型不支持这种台词语言：{language}",
+    "asrRemote": "网盘文件要整片下载才能识别，暂不支持",
+    "asrUnavailable": "当前环境缺少本地语音识别组件",
+    "asrSidecar": "由本地语音模型从音轨识别得到（排在原始字幕与图片字幕识别之后）",
+    "asrAgain": "这条音轨识别过：选它可以重新识别"
   },
   "subtitlePreflight": {
     "addSidecar": "添加与当前片源匹配的 SRT、ASS 或 VTT 外挂字幕",
     "rescan": "重新扫描媒体库后再试",
     "noSubtitleTitle": "这份片源没有参考字幕",
-    "noSubtitle": "当前功能只翻译现有文本字幕，不会从音轨听写对白。",
+    "noSubtitle": "这个文件既没有字幕，也没有可以识别的音轨。",
     "confirmLanguage": "请确认字幕语言",
     "imageNeedsLanguage": "这份字幕是图片，需要先识别其中的文字。请选择画面中实际显示的语言，再开始生成{output}字幕。",
     "originalNotTarget": "这里选择的是原字幕语言，不是最终生成的{output}字幕语言",
@@ -353,7 +362,16 @@
     "waitingLanguage": "待确认语言",
     "bilingual": "{primary} + {secondary}双语",
     "readNotice": "这条内封字幕还没读取过：开始后会先通读整个视频文件{hasSize, select, yes {（{size}）} other {}}把字幕读出来，大文件可能要几分钟，这一步不调用 AI；读出后先检查完整度，不合格就停下，不产生模型费用。",
-    "incompleteCandidate": "候选「{candidate}」完整度不合格：{reason}"
+    "incompleteCandidate": "候选「{candidate}」完整度不合格：{reason}",
+    "asrNotice": "{mode, select, again {不用上次的识别结果，重新} other {这个文件没有可用的字幕。将}}用本地语音模型从第 {index} 条音轨{hasLanguage, select, yes {（{language}）} other {}}识别台词{translate, select, yes {，再翻译成{output}} other {，直接作为{output}字幕，不调用 AI 模型}}。识别在本机进行、不产生费用，但比较慢：{resumed, select, yes {上次已识别到 {position}，这次接着识别，预计还要约 {minutes} 分钟} other {预计约 {minutes} 分钟}}，本机为播放转码时会自动暂停。{hasFilename, select, yes {识别结果会另存为 {filename}，可以单独使用。} other {识别结果会另存为一份外挂字幕，可以单独使用。}}",
+    "asrLanguageTitle": "本地语音模型不支持这种语言",
+    "asrLanguage": "这个文件没有可用的字幕。台词语言是 {language}，本地语音模型目前只能识别普通话、粤语、英语、日语和韩语。",
+    "asrRemoteTitle": "网盘文件暂不支持从音轨识别",
+    "asrRemote": "这个文件没有可用的字幕。网盘文件要整片下载才能从音轨识别台词，暂不支持。",
+    "asrUnavailableTitle": "暂时不能从音轨识别",
+    "asrUnavailable": "这个文件没有可用的字幕。当前运行环境缺少本地语音识别组件，无法从音轨识别台词。",
+    "asrUpdateImage": "使用 Docker 部署时，更新到最新镜像后即可从音轨识别",
+    "asrReuse": "第 {index} 条音轨已经识别过（{filename}），这次直接用上次的识别结果{translate, select, yes {翻译成{output}} other {作为{output}字幕，不调用 AI 模型}}，不再重新识别。"
   },
   "subtitleLanguages": {
     "chs": "简体中文",
@@ -476,7 +494,21 @@
     "enqueued": "任务已入队",
     "rateLimitPaused": "模型服务持续限流，任务已暂停（已完成块已保存，稍后重新发起可继续）",
     "bilingualLabel": "{primary} + {secondary}双语",
-    "autoActor": "入库后自动生成字幕"
+    "autoActor": "入库后自动生成字幕",
+    "waitAsr": "排队等待：先读取音轨，再用本地语音模型识别台词",
+    "readingAudio": "正在读取音轨",
+    "readAudioPosition": "正在读取音轨：已读到 {position} / {duration}",
+    "transcribing": "正在识别台词{hasDuration, select, yes {：已识别到 {position} / {duration}} other {}}",
+    "transcribePaused": "本机正在为播放转码，识别已暂停，转码结束后自动继续",
+    "asrAudioFailed": "无法读取音轨：{reason}",
+    "asrFailed": "语音识别出错：{reason}",
+    "asrStalled": "语音识别超过 {minutes} 分钟没有进展，已停止",
+    "asrIncomplete": "语音识别未完成：{reason}",
+    "asrAssessment": "台词已识别，但完整度检查未通过：{reason}",
+    "asrWriteFailed": "台词已识别，但无法保存外挂字幕：{path}（{detail}）",
+    "asrSource": "{source}（本地语音识别）",
+    "completedAsr": "已识别出 {filename}（{count} 条台词，本地语音模型，未调用 AI）",
+    "asrRefused": "不能从音轨识别：{reason}"
   },
   "duplicateScan": {
     "queued": "等待扫描重复文件",
@@ -876,5 +908,12 @@
       "paused": "{reason}，预切暂停中（已切 {ready} / {total} 部）",
       "finished": "新切 {cut} 部，共 {ready} / {total} 部有片段{failed, plural, =0 {} other {；# 部片源切不了}}"
     }
+  },
+  "asrLanguages": {
+    "zh": "普通话",
+    "yue": "粤语",
+    "en": "英语",
+    "ja": "日语",
+    "ko": "韩语"
   }
 }
