@@ -13,6 +13,7 @@ import {
   SessionView
 } from '../api/Models';
 import { ServerAddress } from './ServerAddress';
+import { ServerRoutes } from './ServerRoutes';
 import { SavedServer, SavedServers } from './SavedServers';
 import { TokenVault } from './TokenVault';
 
@@ -128,6 +129,10 @@ export class AppModel {
    * 属于「同一个东西抄 12 遍」——改一处（比如以后支持多地址回退）要改 12 个地方。
    */
   static origin(): string {
+    const routed: string = ServerRoutes.currentOrigin();
+    if (routed.length > 0) {
+      return routed;
+    }
     const client: ApiClient | null = AppModel.shared.client;
     return client !== null ? client.origin : '';
   }
@@ -696,6 +701,19 @@ export class AppModel {
     this.token = token;
     this.client = new ApiClient(address.origin, token);
     this.api = new MovieClawApi(this.client);
+    /*
+     * 内外双地址选连：拉地址簿 → 探活选一个生效地址；路由切换时只换 origin
+     * 重建客户端（令牌不变）。图片与流地址经 AppModel.origin() 自动跟随。
+     */
+    ServerRoutes.shared().onRouteChange = (origin: string, kind: string): void => {
+      if (this.phase !== AppPhase.ready || this.token === null) {
+        return;
+      }
+      this.client = new ApiClient(origin, this.token);
+      this.client.routeKind = kind;
+      this.api = new MovieClawApi(this.client);
+    };
+    ServerRoutes.shared().configure(address.origin, this.api);
     this.session = session;
     this.launchError = null;
     this.expiredUsername = null;
@@ -723,6 +741,7 @@ export class AppModel {
     this.client = null;
     this.api = null;
     this.session = null;
+    ServerRoutes.shared().reset();
   }
 
   /**
@@ -734,7 +753,9 @@ export class AppModel {
     if (this.phase !== AppPhase.ready) {
       return;
     }
-    if (origin !== null && (this.server === null || origin !== this.server.origin)) {
+    // 双地址选连下，请求可能发自内网/外网路由地址：登录地址与当前路由地址都算本服务器
+    if (origin !== null && (this.server === null
+      || (origin !== this.server.origin && origin !== ServerRoutes.currentOrigin()))) {
       return;
     }
     if (rejected !== null && rejected !== this.token) {

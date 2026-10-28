@@ -5,6 +5,7 @@ import { AppModel } from '../common/AppModel';
 import { TokenVault } from '../common/TokenVault';
 import { SavedServers } from '../common/SavedServers';
 import { AppIconStore } from '../common/AppIcon';
+import { ServerRoutes } from '../common/ServerRoutes';
 import { WindowInsets } from '../common/WindowInsets';
 import { ShareRouter, slugFromWantUri } from '../common/ShareLinks';
 import { ShareLocalProgress } from '../share/ShareProgress';
@@ -32,6 +33,8 @@ export default class EntryAbility extends UIAbility {
     SavedServers.init(this.context);
     // 应用内图标选择（设置 → 图标；独立偏好文件）
     AppIconStore.init(this.context);
+    // 双地址选路的上次结论（冷启动先用上次的地址，登录后 configure 再核实）
+    ServerRoutes.init(this.context);
     // 第一次发给 AI 前的同意记录（同 movieclaw_ui 偏好文件）
     AgentAIConsent.init(this.context);
     // 分享访客的本机续播进度（独立偏好文件）
@@ -175,6 +178,8 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
+    // 回前台核实选路：网络可能换过（Wi-Fi ↔ 蜂窝 / 家 ↔ 外面）
+    ServerRoutes.shared().reevaluate();
     // Ability has brought to foreground
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
   }

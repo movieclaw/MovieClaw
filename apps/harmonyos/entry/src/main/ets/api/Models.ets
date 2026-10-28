@@ -8164,3 +8164,17 @@ export interface MovieclawApiSchemasLibraryClaimPayload {
   /// 集号；电影固定 0
   episode_number?: number | null
 }
+
+/** 地址簿里的一项（内网 / 外网）。 */
+export interface ServerAddressItemView {
+  kind: string
+  url: string
+}
+
+/** 地址簿（`GET /server/addresses`，登录可读）：内外双地址自动选连用它做候选清单。 */
+export interface ServerAddressesView {
+  instance_id: string
+  host_key: string
+  addresses: ServerAddressItemView[]
+  lan_subnets: string[]
+}

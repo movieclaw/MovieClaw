@@ -2,6 +2,7 @@ import { display, promptAction } from '@kit.ArkUI';
 import { Theme } from '../theme/AppTheme';
 import { DeviceApprovalDialog } from '../settings/DeviceApprovalDialog';
 import { AppModel, AppPhase, SavedAccount } from '../common/AppModel';
+import { ServerRoutes } from '../common/ServerRoutes';
 import { Permissions } from '../common/Permissions';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls } from '../common/ImageUrls';
@@ -919,6 +920,15 @@ export struct MorePage {
             .fontColor(Theme.text)
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
+          // 内外双地址选连（iOS 同款）：当前请求实际走哪条路
+          if (this.model.server !== null && ServerRoutes.shared().routeLabel.length > 0) {
+            Text(`${ServerRoutes.shared().routeLabel} · ${this.hostLabel()}`)
+              .fontSize(12)
+              .fontColor(Theme.textFaint)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+          }
           Row() {
             Text('服务器设置')
               .fontSize(14)

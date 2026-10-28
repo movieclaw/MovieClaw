@@ -5,6 +5,7 @@ import { ApiClient, ApiQuery, QueryPair } from './ApiClient';
 import { JsonValue } from './JsonValue';
 import {
   AccountView,
+  ServerAddressesView,
   ActiveBackdropUpdate,
   ActivityView,
   ApiTokenCreateRequest,
@@ -783,6 +784,14 @@ export class MovieClawApi {
   /** `GET /auth/me` */
   authMe(): Promise<SessionView> {
     return this.client.get<SessionView>('/auth/me');
+  }
+
+  /**
+   * `GET /server/addresses`：这台服务器的访问地址簿（内网 / 外网）。
+   * 登录可读；内外双地址自动选连用它做候选清单。
+   */
+  serverAddresses(): Promise<ServerAddressesView> {
+    return this.client.get<ServerAddressesView>('/server/addresses');
   }
 
   /** 修改密码（本人其余会话强制下线） */
