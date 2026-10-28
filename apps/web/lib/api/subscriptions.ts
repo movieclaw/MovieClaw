@@ -380,8 +380,10 @@ export interface RuleSetSpec {
   upgrade_keep_old?: boolean;
   /** 参与洗版比较的维度及优先级（顺序即位次）；缺省 ["resolution","source"] */
   upgrade_ladder?: string[];
-  /** [预留] 站点白名单；空=全部启用站点 */
+  /** 站点白名单兼优先级（站点 id）；顺序即优先级，排在评分之前比较；空=全部启用站点 */
   sites?: string[];
+  /** 站点黑名单（站点 id）；命中即排除 */
+  sites_block?: string[];
 }
 
 /**

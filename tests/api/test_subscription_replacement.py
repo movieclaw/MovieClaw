@@ -896,3 +896,80 @@ async def test_upgraded_old_attempt_kept_seeding_when_still_present(db, monkeypa
         old = await session.get(SubscriptionDownloadAttempt, old_id)
         assert old.status == DownloadAttemptStatus.RETAINED
         assert "保留做种" in (old.cleanup_note or "")
+
+
+async def test_replacement_follows_rule_set_sites(db, monkeypatch) -> None:
+    """死种换源遵守规则组的站点名单（#806）：黑名单/白名单外不换，白名单按顺序优先。"""
+    from movieclaw_db.models import SiteTorrent, TorrentSource
+
+    async with db.session() as session:
+        media = MediaItem(
+            kind="movie",
+            tmdb_id=42,
+            year=2026,
+            title="换源站点",
+            original_title="Site Swap",
+            aliases=["Site Swap"],
+        )
+        rule = RuleSet(name="站点名单", spec={"sites": ["pter", "mteam"], "sites_block": ["chd"]})
+        session.add_all([media, rule])
+        await session.flush()
+        subscription = Subscription(media_item_id=media.id, kind="movie", rule_set_id=rule.id)
+        session.add(subscription)
+        await session.flush()
+        session.add(
+            WantedItem(
+                subscription_id=subscription.id,
+                media_item_id=media.id,
+                season_number=0,
+                episode_number=0,
+                status=WantedStatus.GRABBED,
+                info_hash="d" * 40,
+            )
+        )
+        session.add(
+            SubscriptionDownloadAttempt(
+                subscription_id=subscription.id,
+                info_hash="d" * 40,
+                torrent_title="Site.Swap.2026.1080p.WEB-DL",
+                units=[[0, 0]],
+                quality={"resolution": "1080p", "media_source": "WEB-DL"},
+                owned_by_movieclaw=True,
+                hit_and_run=False,
+                status=DownloadAttemptStatus.REPLACEMENT_PENDING,
+                last_progress_at=utcnow() - timedelta(minutes=31),
+            )
+        )
+        attrs = {
+            "media_type": "movie",
+            "year": 2026,
+            "resolution": "1080p",
+            "media_source": "WEB-DL",
+        }
+        rows = [
+            SiteTorrent(
+                site_id=site,
+                torrent_id=site,
+                title="Site Swap 2026 1080p WEB-DL",
+                subtitle="",
+                attrs=attrs,
+                enrich_version=1,
+                source=TorrentSource.LIST,
+                seeders=seeders,
+                is_free=True,
+            )
+            for site, seeders in (("chd", 90), ("ttg", 80), ("mteam", 60), ("pter", 5))
+        ]
+        session.add_all(rows)
+        await session.commit()
+
+        seen: list[list[str]] = []
+
+        async def capture(item, subscription, spec, accepted):  # type: ignore[no-untyped-def]
+            seen.append([entry[0].site_id for entry in accepted])
+            return []  # 只看排序，不真的投递
+
+        monkeypatch.setattr(replacement_mod, "_apply_plugin_hooks", capture)
+        assert await replacement_mod.try_replacement_candidates(session, rows) == 0
+
+    assert seen == [["pter", "mteam"]]

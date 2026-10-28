@@ -124,6 +124,7 @@ struct RuleSetEditorSheet: View {
             next.upgradeKeepOld = upgradeKeepOld
         }
         next.sites = original.sites
+        next.sitesBlock = original.sitesBlock
         return (next, nil)
     }
 

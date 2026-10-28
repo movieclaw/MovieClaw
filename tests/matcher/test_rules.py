@@ -193,6 +193,38 @@ def test_score_free_beats_seeders() -> None:
     assert free_few_seeders.score > paid_many_seeders.score  # 做种计分封顶生效
 
 
+def test_score_free_bonus_needs_live_seeders() -> None:
+    """0 做种的免费种不拿免费加分，不再压过正常做种的原发种（#806 的实际案例）。"""
+    spec = RuleSetSpec()
+    dead_free = evaluate_rules(_candidate(is_free=True, seeders=0), spec)
+    alive_paid = evaluate_rules(_candidate(is_free=False, seeders=48), spec)
+    assert alive_paid.score > dead_free.score
+    # 做种数未知不当 0 处理（未知不当已知用），免费加分照给
+    unknown_free = evaluate_rules(_candidate(is_free=True, seeders=None), spec)
+    assert unknown_free.score > alive_paid.score
+
+
+@pytest.mark.parametrize(
+    ("site_id", "spec_kwargs", "expect_code"),
+    [
+        ("pter", {"sites": ["pter", "mteam"]}, None),
+        ("chdbits", {"sites": ["pter", "mteam"]}, "site_not_allowed"),
+        ("chdbits", {"sites_block": ["chdbits"]}, "site_blocked"),
+        ("pter", {"sites_block": ["chdbits"]}, None),
+        ("chdbits", {}, None),  # 不限时任何站点都放行
+    ],
+)
+def test_site_allow_and_block(site_id: str, spec_kwargs: dict, expect_code: str | None) -> None:
+    candidate = TorrentCandidate(
+        site_id=site_id, torrent_id="1", title="t", subtitle="", attrs=TorrentAttrs()
+    )
+    verdict = evaluate_rules(candidate, RuleSetSpec(**spec_kwargs))
+    assert verdict.accepted is (expect_code is None)
+    assert verdict.reason_code == expect_code
+    if expect_code:
+        assert site_id in (verdict.reason_text or "")
+
+
 def test_score_resolution_preference_follows_spec_order() -> None:
     """resolutions 列表顺序即偏好：排在前面的分辨率评分更高。"""
     spec = RuleSetSpec(resolutions=["1080p", "2160p"])  # 刻意 1080p 优先

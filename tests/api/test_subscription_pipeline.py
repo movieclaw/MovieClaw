@@ -181,7 +181,7 @@ def _service(session) -> SubscriptionService:
 
 async def _insert_torrent(session, torrent_id: str, title: str, attrs: dict, **kw) -> SiteTorrent:
     row = SiteTorrent(
-        site_id="testsite",
+        site_id=kw.pop("site_id", "testsite"),
         torrent_id=torrent_id,
         title=title,
         subtitle=kw.pop("subtitle", ""),
@@ -427,6 +427,85 @@ async def test_pack_preferred_over_higher_scored_single(db) -> None:
         assert len(grabbed) == 1
         assert grabbed[0].payload["torrent_id"] == "pack"
         assert sorted(grabbed[0].payload["units"]) == [[1, 1], [1, 2]]
+
+
+async def test_site_priority_beats_free_repost(db) -> None:
+    """#806 的真实案例：原发站的普通种 vs 转载站的 0 做种免费种（同组名）。
+
+    规则组只列了站点顺序：原发站排第一就投原发站，转载站的免费加分抢不走。
+    """
+    async with db.session() as session:
+        rule = await RuleSetService(session).create(
+            "猫站优先", {"release_groups_allow": ["PTerWEB"], "sites": ["pter", "chdbits"]}
+        )
+        sub = await _service(session).create(
+            MediaKind.TV, 200, selected_seasons=[1], rule_set_id=rule.id
+        )
+        attrs = {**_S1_PACK_ATTRS, "release_group": "PTerWEB"}
+        title = "Test Show S01 2160p WEB-DL H265-PTerWEB"
+        repost = await _insert_torrent(
+            session, "repost", title, attrs, site_id="chdbits", seeders=3, is_free=True
+        )
+        original = await _insert_torrent(
+            session, "original", title, attrs, site_id="pter", seeders=48, is_free=False, dvf=1.0
+        )
+        await evaluate_and_dispatch(session, [repost, original], source="被动匹配")
+
+        grabbed = [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
+        assert [(a.payload["site_id"], a.payload["torrent_id"]) for a in grabbed] == [
+            ("pter", "original")
+        ]
+
+
+async def test_site_allow_list_rejects_other_sites_with_reason(db) -> None:
+    """站点白名单外的种子不投，淘汰原因写明站点不在允许范围；黑名单同理。"""
+    async with db.session() as session:
+        rule = await RuleSetService(session).create(
+            "只要猫站", {"sites": ["pter"], "sites_block": ["chdbits"]}
+        )
+        sub = await _service(session).create(
+            MediaKind.TV, 200, selected_seasons=[1], rule_set_id=rule.id
+        )
+        blocked = await _insert_torrent(
+            session, "b", "Test Show S01 2160p WEB-DL", _S1_PACK_ATTRS, site_id="chdbits"
+        )
+        other = await _insert_torrent(
+            session, "o", "Test Show S01 2160p WEB-DL", _S1_PACK_ATTRS, site_id="mteam"
+        )
+        await evaluate_and_dispatch(session, [blocked, other], source="被动匹配")
+
+        activities = await _activities(session, sub.id)
+        assert not [a for a in activities if a.type == "grabbed"]
+        reasons = {
+            a.payload["site_id"]: a.payload["reason_code"]
+            for a in activities
+            if a.type == "match_rejected"
+        }
+        assert reasons == {"chdbits": "site_blocked", "mteam": "site_not_allowed"}
+        wanted = await _wanted_map(session, sub.id)
+        assert all(w.status == WantedStatus.WANTED for w in wanted.values())
+
+
+async def test_dead_free_repost_loses_without_site_rules(db) -> None:
+    """不配站点时：0 做种的免费种不再靠免费加分压过正常做种的原发种。"""
+    async with db.session() as session:
+        sub = await _service(session).create(MediaKind.TV, 200, selected_seasons=[1])
+        dead = await _insert_torrent(
+            session, "dead", "Test Show S01 2160p WEB-DL", _S1_PACK_ATTRS, seeders=0
+        )
+        alive = await _insert_torrent(
+            session,
+            "alive",
+            "Test Show S01 2160p WEB-DL",
+            _S1_PACK_ATTRS,
+            seeders=48,
+            is_free=False,
+            dvf=1.0,
+        )
+        await evaluate_and_dispatch(session, [dead, alive], source="被动匹配")
+
+        grabbed = [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
+        assert [a.payload["torrent_id"] for a in grabbed] == ["alive"]
 
 
 async def test_dispatch_claim_race_second_caller_loses(db) -> None:

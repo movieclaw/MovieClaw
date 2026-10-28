@@ -341,9 +341,16 @@ class RuleSetSpec(BaseModel):
         "缺省 False=旧版本进回收站（library-file-recycle.md §9）",
     )
 
-    # -- 预留（本期不消费，字段先占位保证 spec 向前兼容）--------------------
+    # -- 站点（#806）-------------------------------------------------------
+    # 转载种常原样保留制作组名，制作组白名单挡不住，只有站点这一维能表达
+    # 「只从 A 站下」。白名单的列表顺序即站点优先级：选优时排在评分之前比较
+    # （decision.site_rank），靠前站点有合格资源就不会被后面站点的免费加分抢走
     sites: list[str] = Field(
-        default_factory=list, description="[预留] 站点白名单；空=全部启用站点"
+        default_factory=list,
+        description="站点白名单兼优先级（站点 id）；顺序即优先级；空=全部启用站点",
+    )
+    sites_block: list[str] = Field(
+        default_factory=list, description="站点黑名单（站点 id）；命中即排除"
     )
 
     @model_validator(mode="after")

@@ -497,6 +497,18 @@
   "rules.blankDisabled": {
     "sourceHash": "7f4dd7296a5fedfedf06727e906df4685e3cf9242f86c5fe8f88f7e22c31cc79"
   },
+  "rules.sites": {
+    "sourceHash": "a59fe62777ff25aec42c337fccbf5929af9c9b45bc42ee17131f5900889f4534"
+  },
+  "rules.sitesHint": {
+    "sourceHash": "4bb7e0e4658977e0cde347abdc4da6f5396351b29482032d2a43fefdfb58afb9"
+  },
+  "rules.siteChip": {
+    "sourceHash": "72dde91cdd1a4cf822ac2f16cb8a9b47982f54a48f3083b1bd7d83632d3628e5"
+  },
+  "rules.blockedSites": {
+    "sourceHash": "59ca15183eacb3894ba00c22aa971e08629d9ed0454aae3560fa70cde185ceaf"
+  },
   "rules.limits": {
     "sourceHash": "147ffce7bd026fd81ffeb688d314ed3847e4c2b7cc9f9011c9c6d71a76635a2c"
   },
