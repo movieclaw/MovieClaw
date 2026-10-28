@@ -25,6 +25,7 @@ import {
 import { MediaRow } from "@/components/media-row";
 import { ReelClipsTip } from "@/components/reel-clips-tip";
 import { ReelsFloor } from "@/components/reels-floor";
+import { ReelsShelfCard } from "@/components/reels/reels-shelf-card";
 import { TipCard } from "@/components/tip-card";
 import { defineTip } from "@/lib/tips/engine";
 import { invalidateTip } from "@/lib/tips/store";
@@ -569,6 +570,12 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
                   />
                 </div>
               ))}
+              {/* 片段：电脑 / 平板上的入口（手机上是下拉二楼），排在真实库后面 */}
+              {!touchPhone && visibleLibraries.some((library) => library.kind !== "photo") && (
+                <div className="w-[268px] shrink-0 rounded-2xl max-md:w-[230px]">
+                  <ReelsShelfCard stills={floorStills} />
+                </div>
+              )}
               {/* 合集与真实库同排；只读合并后的行清单，海报行继续在原位置展示。 */}
               {homeCollections.map((collection) => (
                 <div key={`collection:${collection.id}`} className="w-[268px] shrink-0 rounded-2xl max-md:w-[230px]">
@@ -620,15 +627,14 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
     }
   };
 
-  // 下拉二楼的胶片画格：首页已经拿到的剧照，去重后取 8 张（不另发请求）
+  // 胶片画格（手机的下拉二楼、电脑的「片段」卡）：首页已经拿到的剧照，去重后取 8 张（不另发请求）
   const floorStills = useMemo(() => {
-    if (!touchPhone) return [];
     const urls = [
       ...(upNext ?? []).map((item) => item.backdrop_url),
       ...[...itemsByKey.values()].flat().map((item) => item.backdrop_url),
     ].filter((url): url is string => Boolean(url));
     return [...new Set(urls)].slice(0, 8).map((url) => imageUrl(url, { width: 240 }));
-  }, [touchPhone, upNext, itemsByKey]);
+  }, [upNext, itemsByKey]);
   // 使用提示（docs/design/tips.md，与 iOS / Android 同一条）：拉进过一次或关掉后，所有设备都不再出现
   const floorTip = defineTip({
     id: "library.reels-floor",

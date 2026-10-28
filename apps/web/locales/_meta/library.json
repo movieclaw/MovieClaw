@@ -4825,5 +4825,44 @@
   },
   "reels.shareTitleYear": {
     "sourceHash": "ab14438df5a87c0cbedf0484ec63b3fe83f4738613110e89396f2a50b3286410"
+  },
+  "reels.tapToUnmute": {
+    "sourceHash": "bdfbc3b20419a665944f26f864ea15e93b12a101c47b5ed82cfb95df6a42e296"
+  },
+  "reels.clickToUnmute": {
+    "sourceHash": "682fabef093954001c5b56ea4718f0616b7b70f51cfce06291bada649294f00c"
+  },
+  "reels.clipFailedDesktop": {
+    "sourceHash": "38cd497baf82a43dfd1983b1d545768c0ef8f186caa6294710deeb48410e4404"
+  },
+  "reels.autoplayCountdown": {
+    "sourceHash": "2da837add7d8f5b039a6f62b2d26166238fdd076e9b3bdc6450528d4dbc9c413"
+  },
+  "reels.playNext": {
+    "sourceHash": "efd6716da6e14d36be2c73aff4f34104779a3dd5734349c777fd45d177bd4530"
+  },
+  "reels.prev": {
+    "sourceHash": "b59d0ea5e440a1b26e68ba26809a0a716e85482e67961d646007dc6c39f2b58e"
+  },
+  "reels.next": {
+    "sourceHash": "df119e585ece228a4b7e95abeae706fbd059f1fc36cd7c059a939556b7791b72"
+  },
+  "reels.upNext": {
+    "sourceHash": "a52d704cc3acb44b353c767dec99f7a54155bb0e369769e1b69977bb71e07c37"
+  },
+  "reels.autoplay": {
+    "sourceHash": "d64d42adbe22f50d03cfc51dca4f42e21f4c5238f88efb6151ec6d9b6401d797"
+  },
+  "reels.shortcuts": {
+    "sourceHash": "099002ad0ca458e90eb358bdb7995995d43de329c33fec2c609d54478c45616b"
+  },
+  "reels.cardOpen": {
+    "sourceHash": "8180997c1132099480e5d0311956f873864e6eeaea34d4cbe3a0726285e2f118"
+  },
+  "reels.cardHint": {
+    "sourceHash": "f578c86c6c3edd9293dd637e9645afe8a2947e23d84b8792a51e73735392f315"
+  },
+  "reels.clipFailedShort": {
+    "sourceHash": "7f23dcf85c7588bd283dae37db7a30ea153b6e3723ec8a40b55d1ea0e87477e7"
   }
 }

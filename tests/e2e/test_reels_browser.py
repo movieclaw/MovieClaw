@@ -7,6 +7,8 @@ E2E_WEB_URL 指向本分支前端，MC_TEST_USERNAME / MC_TEST_PASSWORD 提供�
 片段页的筛选、收藏 / 已看、画质、字幕、分享各一个用例，按片库里实际有的片子取材（不认片名）；
 收藏 / 已看点两下复原，已看只挑没有续播点的条目（标已看会清掉续播点）。成员的分享另要
 MC_MEMBER_USERNAME / MC_MEMBER_PASSWORD，不给就跳过。
+电脑上是放映厅（入口是媒体库首页的「片段」卡）：滚轮 / 键盘换条、放完自动连播、顶栏筛选各有用例。
+声音的用例按 iPhone Safari 的规矩拦有声播放（没点过页面不让带声音放），看静音起播、点一下开声音。
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ PHONE = {
     "is_mobile": True,
     "has_touch": True,
 }
+DESKTOP = {"viewport": {"width": 1440, "height": 900}}
 
 
 @pytest.fixture(scope="module")
@@ -140,22 +143,51 @@ def test_pull_down_floor_opens_reels_and_plays(phone):
     assert page.locator("[data-testid=reels-floor]").count() == 0
 
 
-def test_desktop_has_no_pull_entry(browser):
-    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+def test_desktop_enters_theater_from_shelf_card(browser):
+    """电脑上没有下拉二楼和它的提示：入口是「我的媒体库」那一排里的「片段」卡，点进放映厅直接带声音放"""
+    context = browser.new_context(**DESKTOP)
     _login(context)
     context.request.delete(f"{BASE}/api/v1/tips/state")
     page = context.new_page()
     page.goto(f"{BASE}/library")
-    page.get_by_test_id("library-stats").or_(
-        page.locator("[data-testid^=home-row-]").first
-    ).first.wait_for(timeout=60000)
+    card = page.get_by_test_id("reels-shelf-card")
+    card.wait_for(timeout=60000)
     assert page.locator(".reels-floor-host").count() == 0
     assert page.locator(f'[data-tip-id="{TIP}"]').count() == 0
+    card.hover()
+    page.wait_for_timeout(1500)
+    page.screenshot(path=str(SHOTS / "reels-shelf-card.png"))
+    card.click()
+    page.wait_for_url("**/reels", timeout=15000)
+    page.get_by_test_id("reels-theater").wait_for(timeout=30000)
+    page.wait_for_function(
+        "() => { const v = document.querySelector('[data-testid=reels-video]');"
+        " return v && v.dataset.status === 'playing' && v.currentTime > 0.3 }",
+        timeout=60000,
+    )
+    # 点卡片就是一次点击：浏览器放行有声播放，不出「点击开启声音」
+    assert page.get_by_test_id("reels-unmute").count() == 0
+    assert page.evaluate("() => document.querySelector('[data-testid=reels-video]').muted") is False
+    page.screenshot(path=str(SHOTS / "reels-theater.png"))
     context.close()
 
 
 ACTIVE = "[data-testid=reels-page][data-active]"
 MEMBER = (os.environ.get("MC_MEMBER_USERNAME"), os.environ.get("MC_MEMBER_PASSWORD"))
+# iPhone Safari 的规矩：没点过页面时有声的 play() 被拒（NotAllowedError），点过一次后放行
+SAFARI_SOUND = """
+const play = HTMLMediaElement.prototype.play;
+HTMLMediaElement.prototype.play = function () {
+  if (!this.muted && !window.__soundUnlocked) {
+    return Promise.reject(new DOMException("play() requires a user gesture", "NotAllowedError"));
+  }
+  return play.call(this);
+};
+for (const type of ["click", "touchend"]) {
+  document.addEventListener(type, () => { window.__soundUnlocked = true; }, true);
+}
+"""
+MUTED = "() => document.querySelector('[data-testid=reels-video]').muted"
 
 
 class Reels:
@@ -173,9 +205,8 @@ class Reels:
         url = response.url
         if "/api/v1/reels?" in url:
             if response.ok:
-                if "offset" not in parse_qs(
-                    urlparse(url).query
-                ):  # 第一页：进页面或换了条件，从头记
+                # 第一页：进页面或换了条件，从头记
+                if "offset" not in parse_qs(urlparse(url).query):
                     self.items = []
                 self.items.extend(response.json()["data"]["items"])
         elif "/subtitles?" in url:
@@ -183,7 +214,13 @@ class Reels:
 
     def open(self):
         self.page.goto(f"{BASE}/reels")
-        self.page.get_by_test_id("reels-page").first.wait_for(timeout=60000)
+        # 手机是一页页的片段，电脑是放映厅右侧的片名
+        first = self.page.get_by_test_id("reels-page").or_(self.page.get_by_test_id("reels-title"))
+        first.first.wait_for(timeout=60000)
+
+    @property
+    def theater(self) -> bool:
+        return self.page.get_by_test_id("reels-theater").count() > 0
 
     @property
     def video(self):
@@ -191,7 +228,8 @@ class Reels:
 
     def current(self) -> dict:
         """当前这一页的条目（按「详情」链接里的条目与季集认）"""
-        detail = self.page.locator(f"{ACTIVE} [data-testid=reels-detail]")
+        scope = "[data-testid=reels-theater]" if self.theater else ACTIVE
+        detail = self.page.locator(f"{scope} [data-testid=reels-detail]")
         link = urlparse(detail.get_attribute("href"))
         media_item_id = int(link.path.rstrip("/").split("/")[-1])
         query = parse_qs(link.query)
@@ -206,8 +244,12 @@ class Reels:
         raise AssertionError(f"信息流里没有当前这一页：{link.geturl()}")
 
     def swipe(self):
-        pager = self.page.get_by_test_id("reels-pager")
-        pager.evaluate("el => el.scrollBy({ top: el.clientHeight })")
+        """下一条：手机往上滑一页，电脑按 ↓"""
+        if self.theater:
+            self.page.keyboard.press("ArrowDown")
+        else:
+            pager = self.page.get_by_test_id("reels-pager")
+            pager.evaluate("el => el.scrollBy({ top: el.clientHeight })")
         self.page.wait_for_timeout(900)
 
     def wait_playing(self, tries=4):
@@ -326,7 +368,13 @@ def test_quality_reopens_current_reel_with_limit(reels):
     page = reels.page
     # 预切片段没有画质可选（本身就是 1080p 小文件）：找一条原片起播的
     item = reels.seek_to(lambda reel: reel["play"]["mode"] != "clip")
-    page.wait_for_timeout(2500)  # 放一会儿：换画质要从这里接着放，不是从片段开头
+    # 放过两秒再换：换画质要从这里接着放，不是从片段开头（时间轴可能是文件时间，也可能从起点算）
+    page.wait_for_function(
+        "([el, start]) => { const ms = el.currentTime * 1000;"
+        " return (ms > start - 5000 ? ms - start : ms) > 2000 }",
+        arg=[reels.video.element_handle(), item["segment"]["start_ms"]],
+        timeout=30000,
+    )
     quality = page.locator(f"{ACTIVE} [data-testid=reels-quality]")
     quality.click()
     with page.expect_request(_is_session, timeout=30000) as opened:
@@ -410,3 +458,130 @@ def test_share_sends_title_for_member(browser):
     assert not session.errors, session.errors
     context.request.post(f"{BASE}/api/v1/auth/logout")
     context.close()
+
+
+@pytest.fixture
+def theater(browser):
+    context = browser.new_context(**DESKTOP)
+    _login(context)
+    session = Reels(context)
+    session.open()
+    yield session
+    assert not session.errors, session.errors
+    context.request.post(f"{BASE}/api/v1/auth/logout")
+    context.close()
+
+
+@pytest.mark.parametrize("layout", ["phone", "desktop"])
+def test_sound_muted_only_when_blocked_and_one_tap_unmutes(browser, layout):
+    context = browser.new_context(**(PHONE if layout == "phone" else DESKTOP))
+    _login(context)
+    session = Reels(context)
+    session.page.add_init_script(SAFARI_SOUND)
+    session.open()
+    session.wait_playing()
+    page = session.page
+    # 浏览器拦了有声播放：静音接着放，给一个开声音的提示；没有常驻的声音键（同 App 用音量键）
+    hint = page.get_by_test_id("reels-unmute")
+    pw.expect(hint).to_be_visible()
+    assert page.evaluate(MUTED) is True
+    assert page.get_by_test_id("reels-sound").count() == 0
+    page.screenshot(path=str(SHOTS / f"reels-sound-blocked-{layout}.png"))
+
+    # 点画面任何地方是开声音，不是暂停
+    target = page.get_by_test_id("reels-stage") if layout == "desktop" else page.locator(ACTIVE)
+    target.click(position={"x": 120, "y": 200})
+    pw.expect(hint).to_have_count(0)
+    assert page.evaluate(MUTED) is False
+    pw.expect(session.video).to_have_attribute("data-status", "playing")
+
+    # 同一个元素被手势放行过：下一条直接带声音
+    session.swipe()
+    session.wait_playing()
+    assert page.evaluate(MUTED) is False
+    assert hint.count() == 0
+    assert not session.errors, session.errors
+    context.close()
+
+
+def test_theater_wheel_keys_up_next_and_autoplay(theater):
+    page = theater.page
+    theater.wait_playing()
+    title = page.get_by_test_id("reels-title")
+    first = title.inner_text()
+
+    # 滚轮一次手势翻一条；↑↓ 前后换
+    box = page.get_by_test_id("reels-stage").bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.wheel(0, 150)
+    pw.expect(title).not_to_have_text(first)
+    second = title.inner_text()
+    page.keyboard.press("ArrowUp")
+    pw.expect(title).to_have_text(first)
+    page.keyboard.press("ArrowDown")
+    pw.expect(title).to_have_text(second)
+
+    # 空格暂停 / 继续，M 静音 / 开声音
+    theater.wait_playing()
+    page.keyboard.press(" ")
+    pw.expect(theater.video).to_have_attribute("data-status", "paused")
+    page.keyboard.press(" ")
+    pw.expect(theater.video).to_have_attribute("data-status", "playing")
+    page.keyboard.press("m")
+    assert page.evaluate(MUTED) is True
+    page.keyboard.press("m")
+    assert page.evaluate(MUTED) is False
+
+    # 「接下来」点哪条换哪条
+    row = page.get_by_test_id("reels-upnext").nth(1)
+    name = row.locator("span.block").first.inner_text()
+    row.click()
+    pw.expect(title).to_have_text(name)
+
+    # 放完倒数几秒自动接下一条：拨到片段终点前 1.5 秒
+    theater.wait_playing()
+    segment = theater.current()["segment"]
+    at = page.evaluate("() => document.querySelector('[data-testid=reels-video]').currentTime")
+    # 时间轴是文件时间（原片会话）还是从片段起点算（预切小片）
+    end = (
+        segment["end_ms"]
+        if at * 1000 > segment["start_ms"] - 5000
+        else segment["end_ms"] - segment["start_ms"]
+    )
+    before = title.inner_text()
+    page.evaluate(
+        "s => { document.querySelector('[data-testid=reels-video]').currentTime = s }",
+        (end - 1500) / 1000,
+    )
+    page.get_by_test_id("reels-countdown").wait_for(timeout=20000)
+    page.screenshot(path=str(SHOTS / "reels-autoplay-countdown.png"))
+    pw.expect(title).not_to_have_text(before, timeout=10000)
+
+
+def test_theater_filters_inline(theater):
+    page = theater.page
+    genres = page.request.get(f"{BASE}/api/v1/reels/facets").json()["data"]["genres"]
+    genre = max(genres, key=lambda value: value["count"], default=None)
+    if not genre or not genre["count"]:
+        pytest.skip("片库里没有带类型的片子")
+    bar = page.get_by_test_id("reels-filters")
+    bar.get_by_role("button", name="类型", exact=True).click()
+    option = re.compile(rf"^{re.escape(genre['label'])}\s*{genre['count']}$")
+    with page.expect_response(_is_feed) as narrowed:
+        page.get_by_role("menuitem", name=option).click()
+    assert parse_qs(urlparse(narrowed.value.url).query).get("g") == [genre["value"]]
+    page.keyboard.press("Escape")
+    pw.expect(page.get_by_test_id("reels-filter-total")).to_contain_text(str(genre["count"]))
+    theater.wait_playing()
+    page.screenshot(path=str(SHOTS / "reels-theater-filtered.png"))
+    if genre["count"] > 1:
+        # 焦点还停在下拉按钮上：↓ 是换一条，不是再把菜单打开
+        title = page.get_by_test_id("reels-title")
+        before = title.inner_text()
+        page.keyboard.press("ArrowDown")
+        pw.expect(title).not_to_have_text(before)
+        assert page.get_by_role("menu").count() == 0
+    with page.expect_response(_is_feed) as cleared:
+        page.get_by_test_id("reels-filter-clear").click()
+    assert "g" not in parse_qs(urlparse(cleared.value.url).query)
+    theater.wait_playing()

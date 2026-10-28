@@ -1695,6 +1695,19 @@
     "softwareTranscodeOff": "服务端没开启软件转码",
     "cannotTranscode": "服务端没法转这一条",
     "shareTitle": "《{name}》",
-    "shareTitleYear": "《{name}》（{year}）"
+    "shareTitleYear": "《{name}》（{year}）",
+    "tapToUnmute": "点按开启声音",
+    "clickToUnmute": "点击开启声音",
+    "clipFailedDesktop": "这一段放不出来，按 ↓ 换下一条",
+    "autoplayCountdown": "{seconds} 秒后播下一条",
+    "playNext": "播下一条",
+    "prev": "上一条",
+    "next": "下一条",
+    "upNext": "接下来",
+    "autoplay": "自动连播",
+    "shortcuts": "↑↓ 换一条 · 空格 暂停 · M 静音 · F 全屏 · 回车 看全片",
+    "cardOpen": "打开片段",
+    "cardHint": "随便刷刷，挑今晚看什么",
+    "clipFailedShort": "这一段放不出来"
   }
 }

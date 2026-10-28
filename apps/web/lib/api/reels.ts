@@ -29,6 +29,10 @@ export interface ReelTitle {
   kind: "movie" | "tv" | "video";
   name: string;
   year: number | null;
+  /** TMDB 评分（0～10） */
+  rating: number | null;
+  /** 类型名（按读者语言），最多三个 */
+  genres: string[];
   overview: string | null;
   directors: ReelPerson[];
   poster_url: string | null;
@@ -92,12 +96,15 @@ export interface ReelQuery {
   kind: string | null;
 }
 
-/** 取一页片段：第一页不带 seed，翻页时原样带回 */
+/**
+ * 取一页片段：第一页不带 seed，翻页时原样带回。`modes` 默认两种放法都要；只要预切小片（`clip`，
+ * 不开会话、`<video>` 直接放）时传 clip，比如媒体库首页「片段」卡悬停时的预览
+ */
 export async function fetchReelFeed(
-  page: { seed?: number; offset?: number; limit?: number },
+  page: { seed?: number; offset?: number; limit?: number; modes?: string },
   where: ReelQuery,
 ): Promise<ReelFeed> {
-  const query = new URLSearchParams({ modes: "seek,clip", limit: String(page.limit ?? 8) });
+  const query = new URLSearchParams({ modes: page.modes ?? "seek,clip", limit: String(page.limit ?? 8) });
   if (page.seed !== undefined) query.set("seed", String(page.seed));
   if (page.offset) query.set("offset", String(page.offset));
   reelFilterQuery(where.filter, where.kind, query);

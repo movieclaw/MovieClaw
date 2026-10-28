@@ -3050,3 +3050,13 @@ html:not([data-glass="off"]) .page-nav-btn:hover {
 .reels-floor-host[data-floor-pulling] > :not(.reels-floor-layer) {
   transform: translateY(var(--floor-pull));
 }
+
+/* 媒体库首页「片段」卡：悬停时胶片走起来（画格排了两遍，走一半正好接上第一遍） */
+@keyframes reels-film-run {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}

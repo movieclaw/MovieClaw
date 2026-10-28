@@ -1695,6 +1695,19 @@
     "softwareTranscodeOff": "Software transcoding is off on the server",
     "cannotTranscode": "The server cannot transcode this clip",
     "shareTitle": "{name}",
-    "shareTitleYear": "{name} ({year})"
+    "shareTitleYear": "{name} ({year})",
+    "tapToUnmute": "Tap to unmute",
+    "clickToUnmute": "Click to unmute",
+    "clipFailedDesktop": "This clip can’t play. Press ↓ for the next one.",
+    "autoplayCountdown": "Next clip in {seconds}s",
+    "playNext": "Play next",
+    "prev": "Previous clip",
+    "next": "Next clip",
+    "upNext": "Up next",
+    "autoplay": "Autoplay",
+    "shortcuts": "↑↓ switch clips · Space pause · M mute · F full screen · Enter watch the full title",
+    "cardOpen": "Open clips",
+    "cardHint": "Browse clips and pick tonight’s watch",
+    "clipFailedShort": "This clip can’t play"
   }
 }

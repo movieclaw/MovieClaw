@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  WheelPager,
+  loadReelsAutoplay,
   loadReelsQuality,
   reelBurnTrack,
+  reelKeyAction,
   reelFilterQuery,
   reelFilterSummary,
   reelFilterValues,
   reelSubtitleTrack,
+  saveReelsAutoplay,
   saveReelsQuality,
   toggleReelFilter,
   watchOnly,
@@ -116,4 +120,41 @@ test("只有图形字幕、且限了画质时才请服务端压进画面", () =>
   assert.equal(reelBurnTrack(pgs, null), "off", "原画不为压字幕转码");
   assert.equal(reelBurnTrack(srt, 720), "off", "文字字幕由页面自己画");
   assert.equal(reelBurnTrack(null, 720), "off");
+});
+
+test("滚轮翻条：一次手势只翻一条，停一下才认下一次", () => {
+  const pager = new WheelPager(40, 220);
+  // 触控板轻扫：一串小增量连着来（带惯性）
+  const steps = [12, 18, 25, 30, 22, 15, 9, 5].map((delta, i) => pager.push(delta, 1000 + i * 16));
+  assert.deepEqual(steps.filter(Boolean), [1], "整串只翻一条");
+  assert.equal(pager.push(30, 1200), 0, "惯性没停（间隔不够）还锁着");
+  assert.equal(pager.push(-60, 1500), -1, "停过之后往上拨，翻回上一条");
+  // 鼠标滚轮一格一个事件：慢慢拨就是一格一条
+  assert.equal(pager.push(100, 2000), 1);
+  assert.equal(pager.push(100, 2400), 1);
+  assert.equal(pager.push(20, 3000), 0, "不够阈值不动");
+});
+
+test("放映厅的键盘：↑↓ / J K 换条、空格暂停、M 静音、F 全屏、回车看全片", () => {
+  assert.equal(reelKeyAction("ArrowDown"), "next");
+  assert.equal(reelKeyAction("j"), "next");
+  assert.equal(reelKeyAction("ArrowUp"), "prev");
+  assert.equal(reelKeyAction("K"), "prev");
+  assert.equal(reelKeyAction(" "), "toggle");
+  assert.equal(reelKeyAction("m"), "mute");
+  assert.equal(reelKeyAction("F"), "fullscreen");
+  assert.equal(reelKeyAction("Enter"), "watch");
+  assert.equal(reelKeyAction("a"), null);
+});
+
+test("自动连播默认开，关了记在本机", () => {
+  withStorage((store) => {
+    assert.equal(loadReelsAutoplay(), true);
+    saveReelsAutoplay(false);
+    assert.equal(loadReelsAutoplay(), false);
+    saveReelsAutoplay(true);
+    assert.equal(loadReelsAutoplay(), true);
+    assert.equal(store.size, 0, "打开就是默认，不留记录");
+  });
+  assert.equal(loadReelsAutoplay(), true, "没有 window（SSR）也不抛");
 });

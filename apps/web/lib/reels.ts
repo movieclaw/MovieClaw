@@ -154,3 +154,88 @@ export function reelSubtitleTrack(subtitle: ReelSubtitle | null): SubtitleOption
 export function reelBurnTrack(subtitle: ReelSubtitle | null, maxHeight: number | null): string {
   return subtitle && !subtitle.url && maxHeight !== null ? `embedded:${subtitle.ordinal}` : "off";
 }
+
+// —— 电脑上的放映厅（docs/design/reels.md §6.2） ——
+
+/**
+ * 滚轮 / 触控板翻条：一次手势只翻一条。触控板轻扫一下会连发几十个滚轮事件（松手后还有惯性），
+ * 累计过阈值翻一条后锁住，直到滚轮停下一小会儿（相邻事件间隔超过 `idleMs`）才认下一次手势；
+ * 鼠标滚轮一格一个事件，慢慢拨就是一格一条。`deltaY` 按像素（行模式调用方先乘行高）。
+ */
+export class WheelPager {
+  private sum = 0;
+  private locked = false;
+  private lastAt = Number.NEGATIVE_INFINITY;
+  // 不用构造参数属性：node --test 的类型擦除不认
+  private readonly threshold: number;
+  private readonly idleMs: number;
+
+  constructor(threshold = 40, idleMs = 220) {
+    this.threshold = threshold;
+    this.idleMs = idleMs;
+  }
+
+  /** 喂一个滚轮事件；1 = 下一条，-1 = 上一条，0 = 不动 */
+  push(deltaY: number, now: number): -1 | 0 | 1 {
+    if (now - this.lastAt > this.idleMs) {
+      this.locked = false;
+      this.sum = 0;
+    }
+    this.lastAt = now;
+    if (this.locked) return 0;
+    this.sum += deltaY;
+    if (Math.abs(this.sum) < this.threshold) return 0;
+    this.locked = true;
+    const direction = this.sum > 0 ? 1 : -1;
+    this.sum = 0;
+    return direction;
+  }
+}
+
+export type ReelKeyAction = "next" | "prev" | "toggle" | "mute" | "fullscreen" | "watch";
+
+/** 放映厅的键盘：↑↓（J / K）换条、空格暂停、M 静音、F 全屏、回车看全片 */
+export function reelKeyAction(key: string): ReelKeyAction | null {
+  switch (key) {
+    case "ArrowDown":
+    case "j":
+    case "J":
+      return "next";
+    case "ArrowUp":
+    case "k":
+    case "K":
+      return "prev";
+    case " ":
+      return "toggle";
+    case "m":
+    case "M":
+      return "mute";
+    case "f":
+    case "F":
+      return "fullscreen";
+    case "Enter":
+      return "watch";
+    default:
+      return null;
+  }
+}
+
+const AUTOPLAY_KEY = "movieclaw.reels.autoplay";
+
+/** 放完自动接下一条（电脑上默认开：坐着看更像一个频道）；关了记成 "0" */
+export function loadReelsAutoplay(): boolean {
+  try {
+    return window.localStorage.getItem(AUTOPLAY_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function saveReelsAutoplay(on: boolean): void {
+  try {
+    if (on) window.localStorage.removeItem(AUTOPLAY_KEY);
+    else window.localStorage.setItem(AUTOPLAY_KEY, "0");
+  } catch {
+    // 隐私模式写不进：这次照样生效
+  }
+}
