@@ -1,4 +1,5 @@
 import { http, connection } from '@kit.NetworkKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { preferences } from '@kit.ArkData';
 import { Context } from '@kit.AbilityKit';
 import { MovieClawApi } from '../api/Endpoints';
@@ -182,6 +183,14 @@ export class ServerRoutes {
 
   /** 退出登录：清结论（下一次登录重新配） */
   reset(): void {
+    if (this.netConnection !== null) {
+      this.netConnection.unregister((error: BusinessError): void => {
+        if (error) {
+          console.warn('ServerRoutes: netConnection.unregister failed: ' + error.code + ' ' + error.message);
+        }
+      });
+      this.netConnection = null;
+    }
     this.loginOrigin = '';
     this.current = '';
     this.kind = 'login';
@@ -226,6 +235,13 @@ export class ServerRoutes {
       return;
     }
     this.netConnection = connection.createNetConnection();
+    // 鸿蒙 NetConnection 必须先 register，on('netAvailable') 回调才会派发；
+    // 只 on 不 register 的话，Wi-Fi/蜂窝切换不会触发重选路（只能等回前台 reevaluate 兜底）。
+    this.netConnection.register((error: BusinessError): void => {
+      if (error) {
+        console.warn('ServerRoutes: netConnection.register failed: ' + error.code + ' ' + error.message);
+      }
+    });
     this.netConnection.on('netAvailable', (): void => {
       this.pick();
     });
