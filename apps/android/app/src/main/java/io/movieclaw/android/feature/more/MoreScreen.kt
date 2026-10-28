@@ -326,6 +326,12 @@ fun MoreScreen(
     }
     val permissions = LocalPermissions.current
     val feedback = LocalFeedback.current
+    // 离线下载：离线时只留账号卡 + 下载（其余要连服务器）；有下载或能下载才有「下载」一组
+    val offlineEntry = io.movieclaw.android.feature.offline.rememberOffline()
+    val offlineMode by offlineEntry.reachability().mode.collectAsStateWithLifecycle()
+    val isOffline = offlineMode == io.movieclaw.android.core.offline.ServerReachability.Mode.OFFLINE
+    val offlineItems by offlineEntry.store().items.collectAsStateWithLifecycle()
+    val doneBytes by offlineEntry.store().doneBytes.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val scroll = rememberScrollState()
@@ -371,7 +377,7 @@ fun MoreScreen(
             }
 
             // ── 提醒组（仅管理员，且「有事」才出现；待处理 30 秒轮询）──
-            if (permissions.isAdmin && reminders.visible) {
+            if (permissions.isAdmin && reminders.visible && !isOffline) {
                 item(key = "reminders") {
                     Spacer(Modifier.height(18.dp))
                     FlatCard(Modifier.padding(horizontal = mcCards.pagePadding).fillMaxWidth()) {
@@ -398,20 +404,21 @@ fun MoreScreen(
             }
 
             // 连接信息只出现一次；外观开关独立分组，客户端版本放到页尾。
-            item(key = "server") {
+            if (!isOffline) item(key = "server") {
                 GroupLabel("连接", modifier = Modifier.padding(top = 16.dp))
                 Box(Modifier.padding(horizontal = mcCards.pagePadding)) {
                     MoreConnectionCard(origin = ui.origin, savedCount = servers.size, onClick = onOpenSettings)
                 }
             }
             // ── 下载（iOS「我的」页有、安卓此前缺）：离线下载管理 ──
-            item(key = "downloads") {
+            if (permissions.canDownloadVideo || offlineItems.isNotEmpty()) item(key = "downloads") {
                 GroupLabel("下载", modifier = Modifier.padding(top = 20.dp))
                 Box(Modifier.padding(horizontal = mcCards.pagePadding)) {
                     FlatCard(Modifier.fillMaxWidth()) {
                         FlatRow(
                             title = "下载",
                             icon = Icons.Rounded.Download,
+                            trailing = if (doneBytes > 0) ({ Text(io.movieclaw.android.core.designsystem.McFormat.bytes(doneBytes), style = McType.caption, color = TextMuted) }) else null,
                             onClick = onOpenDownloads,
                         )
                     }
@@ -425,7 +432,7 @@ fun MoreScreen(
             }
 
             // ── 最近会话（仅管理员）：首行「新会话」是发起入口，下面是会话列表 ──
-            if (permissions.isAdmin) {
+            if (permissions.isAdmin && !isOffline) {
                 item(key = "sessions") {
                     GroupLabel("最近会话", modifier = Modifier.padding(top = 22.dp))
                     if (sessions.items.isEmpty() && !sessions.loading && sessions.error == null) {

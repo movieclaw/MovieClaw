@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -15,6 +16,8 @@
     <!-- 实时通知（保持连接，core/push）：前台服务类型 remoteMessaging、开机自启、
          引导用户把 App 加入电池优化白名单（系统弹窗，用户确认） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+    <!-- 离线下载：WorkManager 长时作业带前台通知（类型 dataSync） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
@@ -73,6 +76,12 @@
             android:name=".core.push.PushStreamService"
             android:exported="false"
             android:foregroundServiceType="remoteMessaging" />
+
+        <!-- 离线下载作业的前台服务（WorkManager 自带的服务，补上前台类型） -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <receiver
             android:name=".core.push.PushStreamBootReceiver"

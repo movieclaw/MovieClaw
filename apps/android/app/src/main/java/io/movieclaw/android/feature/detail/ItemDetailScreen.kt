@@ -112,7 +112,8 @@ import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.Warning
 import io.movieclaw.android.core.model.EpisodeView
 import io.movieclaw.android.core.model.LibraryItemDetailView
-import io.movieclaw.android.feature.offline.OfflineDownloadStatusBar
+import io.movieclaw.android.feature.offline.OfflineDownloadStrip
+import io.movieclaw.android.feature.offline.OfflineJustFinished
 import io.movieclaw.android.core.model.LibraryItemView
 import io.movieclaw.android.core.model.CollectionSeriesView
 import io.movieclaw.android.core.api.McApi
@@ -153,6 +154,8 @@ import io.movieclaw.android.core.model.PlaybackStateView
 import io.movieclaw.android.core.model.PlaybackMarksRequest
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -173,86 +176,30 @@ class ItemDetailViewModel @Inject constructor(
     /** 离线下载（iOS `OfflineDownloadControl` 的数据源） */
     private val offlineStore: io.movieclaw.android.core.offline.OfflineStore,
     private val offlineDownloader: io.movieclaw.android.core.offline.OfflineDownloader,
-    private val offlinePrefs: io.movieclaw.android.core.offline.OfflinePrefs,
+    private val reachability: io.movieclaw.android.core.offline.ServerReachability,
 ) : ViewModel() {
 
-    /** 本机副本（下完的） */
-    val offlinePacks: kotlinx.coroutines.flow.StateFlow<List<io.movieclaw.android.core.offline.OfflineStore.Pack>> =
-        offlineStore.packs
-
-    /** 在下的（排队 / 下载中 / 暂停 / 失败）：详情页状态条与分集卡小条用它 */
-    val offlineTasks: kotlinx.coroutines.flow.StateFlow<Map<Long, io.movieclaw.android.core.offline.OfflineDownloader.TaskState>> =
-        offlineDownloader.tasks
-
-    /** 开始过（含暂停/失败）的单元：文件 id → 副本记录 */
-    val offlineKnown: kotlinx.coroutines.flow.StateFlow<Map<Long, io.movieclaw.android.core.offline.OfflineStore.Pack>> =
-        offlineDownloader.known
-
-    /** 上次选的下载档位：选档面板默认带出（iOS `OfflineSettings.lastProfile`） */
-    val lastDownloadProfile = offlinePrefs.lastProfile
-
-    /** 机器名（「下载到 <设备名>」「只删 <设备名> 上的副本」） */
-    val deviceName: String = android.os.Build.MODEL ?: "本机"
-
-    fun freeBytes(): Long = offlineStore.freeBytes()
-
-    /** 选档面板的批量询问：一次问完所有范围的文件（iOS 同款） */
-    suspend fun offlineProfiles(fileIds: List<Long>): Map<Long, io.movieclaw.android.core.model.OfflineFileProfiles> {
-        val origin = repository.ui.value.origin ?: return emptyMap()
-        val api = apiFactory.forOrigin(origin)
-        val view = runCatching {
-            api.offlineProfiles(io.movieclaw.android.core.model.OfflineProfilesRequest(fileIds)).dataOrThrow()
-        }.getOrNull() ?: return emptyMap()
-        return view.files.orEmpty().associateBy { it.fileId }
-    }
+    /** 离线下载（docs/design/offline-download.md）：本机目录、下载器、可达性 */
+    val offline: io.movieclaw.android.core.offline.OfflineStore get() = offlineStore
+    val downloader: io.movieclaw.android.core.offline.OfflineDownloader get() = offlineDownloader
 
     /**
-     * 按范围 + 档位开始下载（iOS `OfflineDownloader.start`）：清单在下载器的应用级 scope 里逐集取，
-     * 断网时等网络恢复再继续，不会把范围里还没轮到的集静默跳过。
+     * 只读：离线模式，或在线请求失败 / 服务器上已删除、回落本机副本（iOS `readOnly`）。
+     * 只读时隐藏管理菜单、收藏、标记已看、相似推荐、系列；分集列表照常，没下载的集置灰
      */
-    fun startOfflineDownload(
-        detail: LibraryItemDetailView,
-        fileIds: List<Long>,
-        profile: String,
-    ) {
-        val origin = repository.ui.value.origin ?: return
-        viewModelScope.launch { offlinePrefs.setLastProfile(profile) }
-        offlineDownloader.enqueueBatch(origin, fileIds, profile) { manifest ->
-            val epLabel = manifest.seasonNumber.takeIf { it > 0 }?.let {
-                "S%02dE%02d".format(it, manifest.episodeNumber)
-            }
-            val itemObj = manifest.item as? kotlinx.serialization.json.JsonObject
-            val libObj = manifest.library as? kotlinx.serialization.json.JsonObject
-            fun jsonStr(obj: kotlinx.serialization.json.JsonObject?, key: String): String? =
-                obj?.get(key)?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-            fun jsonLong(obj: kotlinx.serialization.json.JsonObject?, key: String): Long? =
-                obj?.get(key)?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() }
-            io.movieclaw.android.core.offline.OfflineStore.Pack(
-                mediaItemId = manifest.mediaItemId,
-                fileId = manifest.fileId,
-                seasonNumber = manifest.seasonNumber,
-                episodeNumber = manifest.episodeNumber,
-                title = detail.title,
-                subtitle = epLabel,
-                libraryName = jsonStr(libObj, "name").orEmpty(),
-                posterUrl = jsonStr(itemObj, "poster_url"),
-                container = if (profile == "original") manifest.container else "mp4",
-                profile = profile,
-                durationMs = manifest.durationMs,
-                libraryId = jsonLong(libObj, "id") ?: 0L,
-            )
-        }
-    }
+    private val _localOnly = MutableStateFlow(false)
+    private val _goneOnServer = MutableStateFlow(false)
+    val goneOnServer = _goneOnServer.asStateFlow()
+    val readOnly: kotlinx.coroutines.flow.StateFlow<Boolean> =
+        kotlinx.coroutines.flow.combine(reachability.mode, _localOnly) { mode, local ->
+            mode == io.movieclaw.android.core.offline.ServerReachability.Mode.OFFLINE || local
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
 
-    fun pauseOffline(fileId: Long) = offlineDownloader.pause(fileId)
+    /** 本机存的详情读不出来（旧版存档、还没联网刷新）：退回只靠摘要的极简详情 */
+    private val _minimal = MutableStateFlow(false)
+    val minimal = _minimal.asStateFlow()
 
-    fun resumeOffline(pack: io.movieclaw.android.core.offline.OfflineStore.Pack) {
-        repository.ui.value.origin?.let { offlineDownloader.resumePack(it, pack) }
-    }
-
-    fun deleteOffline(pack: io.movieclaw.android.core.offline.OfflineStore.Pack) {
-        repository.ui.value.origin?.let { offlineDownloader.deleteLocal(it, pack) }
-    }
+    private val isOffline: Boolean get() = reachability.isOffline
 
     val libraryId: Long = savedStateHandle.get<String>("libraryId")?.toLongOrNull() ?: -1L
     val itemId: Long = savedStateHandle.get<String>("itemId")?.toLongOrNull() ?: -1L
@@ -622,46 +569,139 @@ class ItemDetailViewModel @Inject constructor(
         Related(items, series)
     }
 
+    private var loadJob: Job? = null
+
+    /**
+     * 拉详情（iOS `reload`）：本机有副本时先用本机数据秒开，在线再静默拉服务器、写回本机。
+     * 离线只读本机；在线失败回落本机（只读、每 10 秒重试）；服务器上已删除但手机上还有：显示本机副本，仍可播放、删除
+     */
     fun load() {
-        viewModelScope.launch {
-            _state.value = Loadable.Loading
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            val hadDetail = _state.value is Loadable.Ready
+            if (!hadDetail) _state.value = Loadable.Loading
+            // 冷启动直达详情时本机目录可能还没读完：先等它，不然离线时判成「没有副本」
+            offlineStore.waitUntilLoaded()
+            val local = if (offlineStore.downloadedItemIds.value.contains(itemId)) offlineStore.detail(itemId) else null
+            if (local != null && (!hadDetail || isOffline)) {
+                val shown = if (isOffline) offlineStore.offlineDetail(local) else local
+                _localOnly.value = isOffline
+                _minimal.value = false
+                applyDetail(shown, localSeasons(shown))
+            }
+            if (isOffline) {
+                if (local == null && _state.value !is Loadable.Ready) {
+                    _minimal.value = offlineStore.state.value.items[itemId] != null
+                    _state.value = Loadable.Failed("离线时只能看已下载的内容")
+                }
+                return@launch
+            }
             val origin = repository.ui.value.origin
             if (origin == null) {
-                _state.value = Loadable.Failed("尚未连接服务器")
+                if (_state.value !is Loadable.Ready) _state.value = Loadable.Failed("尚未连接服务器")
                 return@launch
             }
             try {
                 val api = apiFactory.forOrigin(origin)
                 val detail = api.libraryItemDetail(libraryId, itemId).dataOrThrow()
-                val (episodes, anchors, schedules) = fetchSeasons(detail)
-                _state.value = Loadable.Ready(Detail(detail, episodes, anchors, schedules))
+                val seasons = fetchSeasons(detail)
+                _localOnly.value = false
+                _goneOnServer.value = false
+                _minimal.value = false
+                offlineStore.refresh(detail)
+                applyDetail(detail, seasons)
                 if (!relatedRequested) {
                     relatedRequested = true
                     launch { _related.value = fetchRelated(api, detail) }
                 }
-                episodesBySeason = episodes
-                anchorsBySeason = anchors
-                // 初始选中：续播那一季的锚点（长剧分段 §3「进详情页」：段锁在它所在的段）。
-                // 季的回退链照 iOS `SeasonEpisodesSection.currentSeason`：
-                // 续播那季 → 第一个在库的季 → 第一个季
-                val seed = pickResumeEpisode(detail, episodes).takeIf { it.second > 0 }
-                    ?: detail.seasons.firstOrNull()?.let { season ->
-                        episodes[season]?.firstOrNull()?.let { Triple(season, it.episodeNumber, it.name) }
-                    }
-                seedUnit = seed?.let { SelectedUnit(it.first, anchors[it.first] ?: it.second) }
-                val ownedSeasons = detail.files.map { it.seasonNumber }.toSet()
-                _selectedSeason.value = seed?.first?.takeIf { episodes.containsKey(it) }
-                    ?: detail.seasons.firstOrNull { it in ownedSeasons }
-                    ?: detail.seasons.firstOrNull()
-                _selectedEpisode.value = seedUnit
-                    ?: _selectedSeason.value?.let { s ->
-                        episodes[s]?.firstOrNull()?.let { SelectedUnit(s, it.episodeNumber) }
-                    }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _state.value = Loadable.Failed(friendlyMessage(e))
+                val status = (e as? retrofit2.HttpException)?.code()
+                if (local != null) {
+                    // 连不上 / 服务器上已没有：停在本机数据上，只显示本机有的文件与集
+                    val shown = offlineStore.offlineDetail(local)
+                    _localOnly.value = true
+                    _goneOnServer.value = status == 404
+                    applyDetail(shown, localSeasons(shown))
+                } else if (status == 404 || _state.value !is Loadable.Ready) {
+                    // 条目已不存在：落到兜底态，别继续显示已不存在的条目
+                    _minimal.value = offlineStore.state.value.items[itemId] != null && status != 404
+                    _state.value = Loadable.Failed(friendlyMessage(e))
+                }
             }
         }
     }
+
+    /** 本机存的各季分集（离线显示：「在库」= 本机有、进度取本机） */
+    private suspend fun localSeasons(
+        detail: LibraryItemDetailView,
+    ): Triple<Map<Int, List<EpisodeView>>, Map<Int, Int?>, Map<Int, io.movieclaw.android.core.model.SeasonAirSchedule?>> {
+        if (detail.kind != "tv") return Triple(emptyMap(), emptyMap(), emptyMap())
+        val views = detail.seasons.mapNotNull { season ->
+            offlineStore.season(itemId, season)?.let { season to offlineStore.offlineSeason(it.copy(seasonNumber = season), itemId) }
+        }.toMap()
+        // 离线不显示播出日历（它来自服务器，iOS 同样离线时不给）
+        return Triple(views.mapValues { it.value.episodes }, views.mapValues { EpisodeRanges.anchor(it.value.episodes, it.value.resumeEpisode) }, emptyMap())
+    }
+
+    private fun applyDetail(
+        detail: LibraryItemDetailView,
+        seasons: Triple<Map<Int, List<EpisodeView>>, Map<Int, Int?>, Map<Int, io.movieclaw.android.core.model.SeasonAirSchedule?>>,
+    ) {
+        val (episodes, anchors, schedules) = seasons
+        val previous = (_state.value as? Loadable.Ready)?.value
+        _state.value = Loadable.Ready(Detail(detail, episodes, anchors, schedules))
+        episodesBySeason = episodes
+        anchorsBySeason = anchors
+        // 已经选过（重拉）：保留用户的选择，只在那一季已不存在时重新落点
+        val keep = _selectedEpisode.value?.takeIf { previous != null && episodes.containsKey(it.season) || (previous != null && detail.kind != "tv") }
+        if (keep != null) return
+        // 初始选中：续播那一季的锚点（长剧分段 §3「进详情页」：段锁在它所在的段）。
+        // 季的回退链照 iOS `SeasonEpisodesSection.currentSeason`：续播那季 → 第一个在库的季 → 第一个季
+        val seed = pickResumeEpisode(detail, episodes).takeIf { it.second > 0 }
+            ?: detail.seasons.firstOrNull()?.let { season ->
+                episodes[season]?.firstOrNull()?.let { Triple(season, it.episodeNumber, it.name) }
+            }
+        seedUnit = seed?.let { SelectedUnit(it.first, anchors[it.first] ?: it.second) }
+        val ownedSeasons = detail.files.map { it.seasonNumber }.toSet()
+        _selectedSeason.value = seed?.first?.takeIf { episodes.containsKey(it) }
+            ?: detail.seasons.firstOrNull { it in ownedSeasons }
+            ?: detail.seasons.firstOrNull()
+        _selectedEpisode.value = seedUnit
+            ?: _selectedSeason.value?.let { s ->
+                episodes[s]?.firstOrNull()?.let { SelectedUnit(s, it.episodeNumber) }
+            }
+    }
+
+    init {
+        // 离线 ↔ 在线切换：重拉（离线显示本机的、回到在线换成服务器的）
+        viewModelScope.launch {
+            reachability.mode.drop(1).collect { load() }
+        }
+        // 只读页上的本机副本变了（删了 / 下完了）：重载；删光则这一页没有能看、能播的了
+        viewModelScope.launch {
+            offlineStore.doneFileIds.drop(1).collect {
+                if (!readOnly.value || !offlineStore.loaded.value) return@collect
+                if (!offlineStore.downloadedItemIds.value.contains(itemId)) {
+                    _closeRequest.value = true
+                    return@collect
+                }
+                load()
+            }
+        }
+        // 在线时请求失败回落了本机副本（一时的 502、超时）：隔一会儿再试，接口好了自己回到在线详情
+        viewModelScope.launch {
+            while (true) {
+                delay(10_000)
+                if (_localOnly.value && !_goneOnServer.value && !isOffline) load()
+            }
+        }
+    }
+
+    /** 只读页的本机副本删光了：请界面退回上一页 */
+    private val _closeRequest = MutableStateFlow(false)
+    val closeRequest = _closeRequest.asStateFlow()
 
     /**
      * 换季：**连带把选中集切到这一季**（iOS `SeasonEpisodesSection.load(reset:)` 同口径）——
@@ -689,6 +729,8 @@ class ItemDetailViewModel @Inject constructor(
         val views = detail.seasons.associateWith { season ->
             api.seasonEpisodes(libraryId, itemId, season).dataOrThrow()
         }
+        // 本机有这部剧的副本：顺手刷新存档的分集（下次离线看到的是最新的）
+        views.forEach { (season, view) -> offlineStore.refresh(view.copy(seasonNumber = season), itemId) }
         return Triple(
             views.mapValues { it.value.episodes },
             views.mapValues { EpisodeRanges.anchor(it.value.episodes, it.value.resumeEpisode) },
@@ -713,6 +755,7 @@ class ItemDetailViewModel @Inject constructor(
      * 就选中新锚点、段跟着锁过去；没变就不动，保留用户在别的段的浏览。
      */
     fun refreshEpisodes() {
+        if (readOnly.value) return
         val ready = (_state.value as? Loadable.Ready)?.value ?: return
         viewModelScope.launch {
             val (episodes, anchors, schedules) = runCatching { fetchSeasons(ready.item) }.getOrNull() ?: return@launch
@@ -745,6 +788,13 @@ class ItemDetailViewModel @Inject constructor(
     val resume = _resume.asStateFlow()
 
     fun loadResume(mediaItemId: Long, seasonNumber: Int, episodeNumber: Int) {
+        if (readOnly.value) {
+            // 本机进度 → 播放键要的观看状态
+            _resume.value = offlineStore.localProgress(mediaItemId, seasonNumber, episodeNumber)?.let {
+                PlaybackStateView(positionMs = it.positionMs, played = it.played, playCount = if (it.played) 1 else 0, durationMs = it.durationMs)
+            }
+            return
+        }
         viewModelScope.launch {
             val origin = repository.ui.value.origin ?: return@launch
             runCatching {
@@ -770,6 +820,7 @@ class ItemDetailViewModel @Inject constructor(
     private var unitPlayedJob: kotlinx.coroutines.Job? = null
 
     fun loadMarks(mediaItemId: Long) {
+        if (readOnly.value) return
         viewModelScope.launch {
             val origin = repository.ui.value.origin ?: return@launch
             // 查不到收藏态不影响浏览，心按未收藏渲染即可
@@ -1186,74 +1237,37 @@ fun ItemDetailScreen(
     val origin = vm.origin
     val feedback = LocalFeedback.current
     val permissions = io.movieclaw.android.core.session.LocalPermissions.current
-    // 离线下载（iOS `OfflineDownloadControl`）：本机副本 + 在下的任务，随进度实时刷新
-    val offlinePacks by vm.offlinePacks.collectAsStateWithLifecycle()
-    val offlineTasks by vm.offlineTasks.collectAsStateWithLifecycle()
-    val offlineKnown by vm.offlineKnown.collectAsStateWithLifecycle()
-    // 下载选档面板：电影 = 单文件；剧集 = 先算范围
+    // 离线下载（docs/design/offline-download.md）：本机目录随下载进度刷新；页面只读派生值，进度刷新不重建整页
+    val offlineState by vm.offline.state.collectAsStateWithLifecycle()
+    val offlineSpeeds by vm.offline.speeds.collectAsStateWithLifecycle()
+    val doneFileIds by vm.offline.doneFileIds.collectAsStateWithLifecycle()
+    val activeByItem by vm.offline.activeByItem.collectAsStateWithLifecycle()
+    val downloadedItemIds by vm.offline.downloadedItemIds.collectAsStateWithLifecycle()
+    val readOnly by vm.readOnly.collectAsStateWithLifecycle()
+    val goneOnServer by vm.goneOnServer.collectAsStateWithLifecycle()
+    val minimal by vm.minimal.collectAsStateWithLifecycle()
+    val closeRequest by vm.closeRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(closeRequest) { if (closeRequest) onBack() }
+    val readyItem = (state as? Loadable.Ready)?.value?.item
+    // 选档面板：电影 / 单集 = 单文件；剧集 = 按范围
     var downloadSheet by remember { mutableStateOf<DownloadSheetTarget?>(null) }
-    var deleteDownload by remember { mutableStateOf<Pair<io.movieclaw.android.core.offline.OfflineStore.Pack, Boolean>?>(null) }
-    var offlineMenuFor by remember { mutableStateOf<io.movieclaw.android.core.offline.OfflineStore.Pack?>(null) }
     /** 「取消全部下载」的二次确认（iOS `confirmCancelDownloads`） */
     var cancelAllConfirm by remember { mutableStateOf(false) }
-    AndroidDownloadScopeHost(
-        vm = vm,
-        detail = (state as? Loadable.Ready)?.value?.item,
+    ItemDownloadHost(
+        detail = readyItem,
         episodes = (state as? Loadable.Ready)?.value?.episodes.orEmpty(),
+        selected = selectedUnit,
         target = downloadSheet,
-        offlinePacks = offlinePacks,
-        offlineKnown = offlineKnown,
         onDismiss = { downloadSheet = null },
     )
-    // 下载状态条点开的操作菜单（iOS 的 Menu）：暂停 / 继续 / 重试 / 改下其他画质 / 取消下载
-    offlineMenuFor?.let { pack ->
-        io.movieclaw.android.feature.offline.OfflineDownloadActionsMenu(
-            expanded = true,
-            pack = pack,
-            task = offlineTasks[pack.fileId],
-            canChangeQuality = permissions.canDownloadVideo && offlinePacks.none { it.fileId == pack.fileId },
-            onDismiss = { offlineMenuFor = null },
-            onPause = { vm.pauseOffline(pack.fileId) },
-            onResume = { vm.resumeOffline(pack) },
-            onChangeQuality = { downloadSheet = DownloadSheetTarget.Movie(pack.fileId) },
-            onDelete = { deleteDownload = pack to (offlinePacks.any { it.fileId == pack.fileId }) },
-        )
-    }
-    // 删除 / 取消下载的二次确认（iOS 同款文案：只删本机副本，观看进度保留）
     if (cancelAllConfirm) {
-        val packs = offlineKnown.values.filter { (state as? Loadable.Ready)?.value?.item?.mediaItemId == it.mediaItemId }
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { cancelAllConfirm = false },
-            containerColor = Color(0xFF15161A),
-            titleContentColor = TextPrimary,
-            textContentColor = TextMuted,
-            title = { Text("取消这部剧正在进行的下载？", style = McType.title3) },
-            text = {
-                Text(
-                    "取消 ${packs.size} 集的下载，本机上的半成品会删除；观看进度会保留。",
-                    style = McType.footnote,
-                    color = TextMuted,
-                    lineHeight = 20.sp,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    cancelAllConfirm = false
-                    packs.forEach { vm.deleteOffline(it) }
-                }) { Text("取消下载", color = io.movieclaw.android.core.designsystem.Danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { cancelAllConfirm = false }) { Text("保留", color = TextPrimary) }
-            },
-        )
-    }
-    deleteDownload?.let { (pack, isDone) ->
-        io.movieclaw.android.feature.offline.OfflineDeleteDialog(
-            pack = pack,
-            isDone = isDone,
-            deviceName = vm.deviceName,
-            onDismiss = { deleteDownload = null },
-            onConfirm = { vm.deleteOffline(pack) },
+        val active = activeByItem[itemId].orEmpty()
+        io.movieclaw.android.feature.offline.OfflineConfirmDialog(
+            title = "取消这部剧正在进行的下载？",
+            message = "已下完的集会保留。",
+            action = "取消 ${active.size} 集的下载",
+            onDismiss = { cancelAllConfirm = false },
+            onConfirm = { active.forEach { vm.downloader.delete(it.fileId) } },
         )
     }
 
@@ -1313,7 +1327,12 @@ fun ItemDetailScreen(
         Loadable.Loading -> Box(Modifier.fillMaxSize().background(Bg), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = TextMuted)
         }
-        is Loadable.Failed -> ErrorPane(message = s.message, onRetry = vm::load)
+        is Loadable.Failed -> if (minimal && (readOnly || vm.offline.state.value.items[itemId] != null)) {
+            // 本机存的详情读不出来（旧版存档、还没联网刷新）：退回只靠摘要的极简详情
+            io.movieclaw.android.feature.offline.OfflineMinimalDetail(itemId = itemId, origin = origin, onBack = onBack, onPlay = onPlay)
+        } else {
+            ErrorPane(message = s.message, onRetry = vm::load)
+        }
         is Loadable.Ready -> {
         // 沉浸式：页面底色 = 剧照的主色（iOS HeroEdgeColor / 网页 .detail-ambient；
         // 与首页英雄同源 → 同一个取色缓存键，从封面点进来零等待）。取色是异步的，
@@ -1374,22 +1393,20 @@ fun ItemDetailScreen(
                     vm.togglePlayed(s.value.item.mediaItemId, season, episode)
                 },
                 downloadStatus = {
-                    // 电影的下载状态条（在播放键上方）：本机有副本时才出现（开始下载在右上角「⋯」）
-                    val itemIdNow = s.value.item.mediaItemId
-                    val activePack = offlineKnown.values.firstOrNull {
-                        it.mediaItemId == itemIdNow && it.seasonNumber == 0 && it.episodeNumber == 0
-                    }
-                    val donePack = offlinePacks.firstOrNull {
-                        it.mediaItemId == itemIdNow && it.seasonNumber == 0 && it.episodeNumber == 0
-                    }
-                    if (activePack != null && donePack == null) {
-                        OfflineDownloadStatusBar(
-                            pack = activePack,
-                            task = offlineTasks[activePack.fileId],
-                            onOpenMenu = { offlineMenuFor = activePack },
+                    // 电影的下载状态条（在播放键上方）：没下完时才出现（开始下载在右上角「⋯」）；剧集的进度画在分集卡上
+                    if (s.value.item.kind != "tv") {
+                        io.movieclaw.android.feature.offline.OfflineDownloadControl(
+                            s.value.item.mediaItemId, 0, 0,
+                            onChangeQuality = if (!readOnly && permissions.canDownloadVideo) ({ fileId ->
+                                downloadSheet = DownloadSheetTarget.File(fileId, s.value.item.title)
+                            }) else null,
                         )
                     }
+                    if (goneOnServer) {
+                        Text("服务器上已没有这个条目，下面是${io.movieclaw.android.feature.offline.deviceName()}上的副本，仍可播放与删除。", style = McType.footnote, color = io.movieclaw.android.core.designsystem.Warning)
+                    }
                 },
+                readOnly = readOnly,
                 // AI 字幕生成：状态 + 动作集（Hero 拿不到 VM，与其它回调同一个路子）
                 subtitleGen = subtitleGen,
                 isAdmin = permissions.isAdmin,
@@ -1408,8 +1425,8 @@ fun ItemDetailScreen(
                     onHandOffToAgent = { id -> vm.handOffSubtitleGenToAgent(id) },
                 ),
                 trailingActions = {
-                    // 刮削中：按钮右上角点一颗蓝点（iOS `actionsMenu` 的蓝点同款）
-                    ItemActionsButton(scraping = s.value.item.scraping || kicking) { menuOpen = !menuOpen }
+                    // 刮削中：按钮右上角点一颗蓝点（iOS `actionsMenu` 的蓝点同款）；只读时没有管理菜单
+                    if (!readOnly) ItemActionsButton(scraping = s.value.item.scraping || kicking) { menuOpen = !menuOpen }
                 },
             ) {
                 // 网页正文顺序：分集区 → 章节 → **演职员** → 文件区
@@ -1434,20 +1451,24 @@ fun ItemDetailScreen(
                         itemTitle = s.value.item.title,
                         schedule = selectedSeason?.let { s.value.schedules[it] },
                         onOpenSchedule = { airSheet = true },
-                        // 分集卡的下载状态（iOS `OfflineDownloadStrip` / 绿箭头「已下载」）
-                        offlineByEpisode = offlinePacks
-                            .filter { it.mediaItemId == s.value.item.mediaItemId }
-                            .associate { it.episodeNumber to EpisodeOfflineState(it.fileId, done = true, task = null) } +
-                            offlineKnown.values
-                                .filter { it.mediaItemId == s.value.item.mediaItemId }
-                                .filter { pack -> offlinePacks.none { it.fileId == pack.fileId } }
-                                .associate { it.episodeNumber to EpisodeOfflineState(it.fileId, done = false, task = offlineTasks[it.fileId]) },
+                        // 分集卡的下载状态（iOS `OfflineDownloadStrip` / 绿箭头「已下载」）与长按菜单
+                        offline = EpisodeOffline(
+                            unitOf = { season, episode -> vm.offline.unit(s.value.item.mediaItemId, season, episode, offlineState) },
+                            speeds = offlineSpeeds,
+                            canDownload = permissions.canDownloadVideo && offlineState.serverSupported && !readOnly,
+                            onDownload = { season, episode, fileId ->
+                                downloadSheet = DownloadSheetTarget.File(fileId, "${s.value.item.title} 第 $season 季第 $episode 集")
+                            },
+                            onPause = { vm.downloader.pause(it) },
+                            onResume = { vm.downloader.resume(it) },
+                            onDelete = { vm.downloader.delete(it) },
+                        ),
                     )
                 }
                 CastSection(detail = s.value.item, origin = origin, onOpenPerson = onOpenPerson)
-                // 演职员 → 相似推荐 → 系列（iOS / Apple TV / Mac / Web 同一个顺序）
-                SimilarSection(items = related.similar, libraryId = libraryId, origin = origin, onOpenItem = onOpenItem)
-                related.series?.let { series ->
+                // 演职员 → 相似推荐 → 系列（iOS / Apple TV / Mac / Web 同一个顺序）；只读时不显示
+                if (!readOnly) SimilarSection(items = related.similar, libraryId = libraryId, origin = origin, onOpenItem = onOpenItem)
+                related.series?.takeIf { !readOnly }?.let { series ->
                     SeriesSection(
                         series = series,
                         libraryId = libraryId,
@@ -1464,22 +1485,12 @@ fun ItemDetailScreen(
                     FilesSection(
                         detail = s.value.item,
                         files = sectionFiles,
-                        // 本机副本（iOS `localIds`）：排在最前，标「本机」，可播放 / 改档 / 删除
-                        localPacks = offlinePacks
-                            .filter { it.mediaItemId == s.value.item.mediaItemId }
-                            .filter { pack ->
-                                // 剧集只显示选中那一集的副本；电影显示整条
-                                s.value.item.kind != "tv" ||
-                                    (selectedUnit?.let { pack.seasonNumber == it.season && pack.episodeNumber == it.episode } == true)
-                            },
-                        onPlayLocal = { pack ->
-                            onPlayLocal?.invoke(pack.mediaItemId, pack.fileId)
-                        },
-                        onChangeQuality = { pack ->
-                            downloadSheet = DownloadSheetTarget.Movie(pack.fileId)
-                        },
-                        onDeleteLocal = { pack -> deleteDownload = pack to true },
-                        canManage = permissions.canManageLibraries,
+                        // 本机下完的副本（iOS `localIds`）：排在最前，标「本机」；展开、删除、长按改下其他画质
+                        localUnits = sectionFiles.map { it.id }.filter { it in doneFileIds }.mapNotNull { offlineState.units[it] },
+                        localTitle = if (s.value.item.kind == "tv") selectedUnit?.let { "${s.value.item.title} 第 ${it.season} 季第 ${it.episode} 集" } ?: s.value.item.title else s.value.item.title,
+                        canChangeQuality = !readOnly && permissions.canDownloadVideo,
+                        onChangeQuality = { fileId, title -> downloadSheet = DownloadSheetTarget.File(fileId, title) },
+                        canManage = permissions.canManageLibraries && !readOnly,
                         onOpenDuplicates = onOpenDuplicates,
                         onTrash = { trashTarget = it },
                         onRestore = { file ->
@@ -1595,13 +1606,17 @@ fun ItemDetailScreen(
                 library = library,
                 permissions = permissions,
                 scraping = readyDetail.scraping || kicking,
-                // 电影：本机已有（下着或下完）就不再给「下载」，状态条上管（iOS `movieLocal`）
-                canDownload = permissions.canDownloadVideo && (
+                // 电影已在本机（下着或下完）就不再给「下载」：状态条上管（iOS `movieLocal`）；
+                // 只读派生值（开始 / 完成 / 删除时才变），下载进度刷新不重建开着的菜单
+                canDownload = permissions.canDownloadVideo && offlineState.serverSupported && (
                     if (readyDetail.kind == "tv") true
-                    else offlineKnown.values.none { it.mediaItemId == readyDetail.mediaItemId } &&
-                        offlinePacks.none { it.mediaItemId == readyDetail.mediaItemId }
+                    else activeByItem[readyDetail.mediaItemId].isNullOrEmpty() && readyDetail.mediaItemId !in downloadedItemIds &&
+                        readyDetail.files.any { !it.missing }
                     ),
-                activeDownloads = offlineKnown.values.count { it.mediaItemId == readyDetail.mediaItemId },
+                activeDownloads = activeByItem[readyDetail.mediaItemId].orEmpty().size,
+                activeSelected = readyDetail.kind == "tv" && selectedUnit?.let { sel ->
+                    activeByItem[readyDetail.mediaItemId].orEmpty().any { it.season == sel.season && it.episode == sel.episode }
+                } == true,
             ),
             onPick = { id ->
                 menuOpen = false
@@ -1618,13 +1633,23 @@ fun ItemDetailScreen(
                     downloadSheet = if (readyDetail.kind == "tv") {
                         DownloadSheetTarget.Series
                     } else {
-                        readyDetail.files.firstOrNull { !it.missing }?.let { DownloadSheetTarget.Movie(it.id) }
+                        readyDetail.files.firstOrNull { !it.missing }?.let { DownloadSheetTarget.File(it.id, readyDetail.title) }
                     }
                 }
 
                 ItemActionId.CANCEL_DOWNLOADS -> {
                     picking = null
-                    cancelAllConfirm = true
+                    val active = activeByItem[readyDetail.mediaItemId].orEmpty()
+                    // 电影：直接取消；剧集：确认后取消全部（已下完的保留）
+                    if (readyDetail.kind == "tv") cancelAllConfirm = true else active.forEach { vm.downloader.delete(it.fileId) }
+                }
+
+                ItemActionId.CANCEL_SELECTED_DOWNLOAD -> {
+                    picking = null
+                    selectedUnit?.let { sel ->
+                        activeByItem[readyDetail.mediaItemId].orEmpty().firstOrNull { it.season == sel.season && it.episode == sel.episode }
+                            ?.let { vm.downloader.delete(it.fileId) }
+                    }
                 }
 
                 ItemActionId.SEARCH -> {
@@ -1812,6 +1837,8 @@ private fun Hero(
     onTogglePlayed: (Int?, Int?) -> Unit,
     /** 下载状态条（iOS `OfflineDownloadControl`）：放在播放键上方；参数是当前单元（季, 集），电影 null */
     downloadStatus: @Composable (unit: Pair<Int, Int>?) -> Unit = {},
+    /** 只读（离线、回落本机副本）：不给收藏、标记已看 */
+    readOnly: Boolean = false,
     /** AI 字幕生成的状态与动作（同 iOS `TrackSubtitleGenButton`：仅管理员 + 文件在盘才出现） */
     subtitleGen: SubtitleGenUiState,
     isAdmin: Boolean,
@@ -2330,7 +2357,9 @@ private fun Hero(
                 }
                 // 宽屏：收藏 / 已看是**圆形玻璃钮**（iOS `wideCircleButton`：`.glass` +
                 // `.buttonBorderShape(.circle)`），复用顶栏那颗圆钮的玻璃样式；窄屏仍是带文字的胶囊。
-                if (wideHero) {
+                if (readOnly) {
+                    // 离线：收藏、已看都要连服务器
+                } else if (wideHero) {
                     McNavButton(
                         if (marks.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                         contentDescription = if (marks.isFavorite) "取消收藏" else "收藏",
@@ -2969,8 +2998,8 @@ private fun SeasonSection(
     libraryId: Long,
     itemId: Long,
     itemTitle: String,
-    /** 分集号的下载状态（本机已下载 / 下载中）：画在分集卡上 */
-    offlineByEpisode: Map<Int, EpisodeOfflineState> = emptyMap(),
+    /** 分集的下载状态（本机已下载 / 下载中）与长按菜单：画在分集卡上 */
+    offline: EpisodeOffline? = null,
     /** 当前季的播出日历（issue #547）：有它才画入口卡、分清「还没播」与「缺集」 */
     schedule: io.movieclaw.android.core.model.SeasonAirSchedule? = null,
     onOpenSchedule: () -> Unit = {},
@@ -3128,7 +3157,8 @@ private fun SeasonSection(
                     origin = origin,
                     onSelect = { onPickEpisode(episode.episodeNumber) },
                     resumeTag = watched && episode.episodeNumber == anchor,
-                    offline = offlineByEpisode[episode.episodeNumber],
+                    offline = offline,
+                    season = selected ?: 0,
                     schedule = schedule,
                 )
             }
@@ -3158,10 +3188,16 @@ private fun SeasonSection(
  * 点一集**只切换选中**（网页行为），要播的是详情页那颗播放键。
  */
 /** 分集卡上的下载状态（本机已下载 / 在下的任务） */
-private data class EpisodeOfflineState(
-    val fileId: Long,
-    val done: Boolean,
-    val task: io.movieclaw.android.core.offline.OfflineDownloader.TaskState?,
+/** 分集卡的下载部件（iOS `episodeMenu` + `OfflineDownloadStrip`）：本机状态、实时速度、长按菜单的动作 */
+private class EpisodeOffline(
+    val unitOf: (season: Int, episode: Int) -> io.movieclaw.android.core.offline.OfflineUnit?,
+    val speeds: Map<Long, Double>,
+    /** 能下这一集（有权限、服务器支持、在线） */
+    val canDownload: Boolean,
+    val onDownload: (season: Int, episode: Int, fileId: Long) -> Unit,
+    val onPause: (Long) -> Unit,
+    val onResume: (Long) -> Unit,
+    val onDelete: (Long) -> Unit,
 )
 
 @Composable
@@ -3172,12 +3208,25 @@ private fun EpisodeCard(
     onSelect: () -> Unit,
     /** 锚点那张卡左上角标「接着看」（本季有观看记录才标，长短季一样；橙点 / 面板橙边不受此限） */
     resumeTag: Boolean = false,
-    /** 这一集的下载状态（iOS：下载中叠小条，下完右上角绿箭头「已下载」） */
-    offline: EpisodeOfflineState? = null,
+    /**
+     * 这一集在手机上的下载（iOS `EpisodeCard.download`）：没下完时剧照上叠 `OfflineDownloadStrip`；
+     * 下完右上角绿箭头「已下载」，刚下完时底部短暂提示「下载完成」。暂停 / 继续 / 取消在长按菜单
+     */
+    offline: EpisodeOffline? = null,
+    season: Int = 0,
     /** 播出日历：有它才分得清「还没播」与「缺集」；没有时库里没有的集一律按缺集 */
     schedule: io.movieclaw.android.core.model.SeasonAirSchedule? = null,
 ) {
-    val progress = if (episode.played) 100f else episode.progressPercent?.toFloat()
+    val download = offline?.unitOf(season, episode.episodeNumber)
+    val pending = download != null && !download.playable
+    // 看完后重看到一半：对勾保留，进度条按这次看到哪画；下载中底部是下载条，观看进度先不画
+    val progress = when {
+        pending -> null
+        episode.positionMs > 0 -> episode.progressPercent?.toFloat()
+        episode.played -> 100f
+        else -> null
+    }
+    var menu by remember { mutableStateOf(false) }
     val tone = schedule?.takeIf { !episode.owned }?.let { AirSchedule.tone(episode, it) }
     val airsToday = tone == AirTone.Today || tone == AirTone.TodayFree
     // 还没播：不压暗、不标「缺」，剧照位换成播出日
@@ -3187,9 +3236,10 @@ private fun EpisodeCard(
             .width(mcCards.episodeWidth)
             .testTag("ep-card-${episode.episodeNumber}")
             .semantics { this.selected = selected }
-            .clickable(onClick = onSelect)
+            .combinedClickable(onClick = onSelect, onLongClick = if (offline != null) ({ menu = true }) else null)
             .then(if (episode.owned || unaired) Modifier else Modifier.alpha(0.45f)),
     ) {
+        if (offline != null) EpisodeDownloadMenu(menu, { menu = false }, offline, download, season, episode)
         Box(
             Modifier
                 .fillMaxWidth()
@@ -3220,26 +3270,14 @@ private fun EpisodeCard(
                 },
             )
             if (resumeTag) ResumeTag(Modifier.align(Alignment.TopStart).padding(6.dp))
-            // 下载状态（iOS 同款位置）：下载中 / 暂停 / 失败叠在右下角；下完标「已下载」
-            offline?.let { st ->
-                if (st.done) {
-                    io.movieclaw.android.feature.offline.OfflineDownloadedBadge(
-                        Modifier.align(Alignment.BottomEnd).padding(6.dp),
-                    )
-                } else if (st.task != null) {
-                    io.movieclaw.android.feature.offline.OfflineEpisodeStrip(
-                        task = st.task,
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
-                    )
-                }
-            }
             // 右上角状态位：缺集与已看对勾同排（看过之后文件丢了两者会同时出现）
-            if ((!episode.owned && !unaired) || episode.played) {
+            if ((!episode.owned && !unaired) || episode.played || download?.playable == true) {
                 Row(
                     Modifier.align(Alignment.TopEnd).padding(6.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (download?.playable == true) io.movieclaw.android.feature.offline.OfflineDownloadedBadge()
                     if (!episode.owned && !unaired) {
                         Text(
                             "缺",
@@ -3284,7 +3322,7 @@ private fun EpisodeCard(
                     )
                 }
                 // 有记录但算不出百分比（无时长）：一根半透明的整条兜底
-                episode.owned && episode.played.not() && episode.positionMs > 0 -> Box(
+                !pending && episode.owned && episode.played.not() && episode.positionMs > 0 -> Box(
                     Modifier
                         .align(Alignment.BottomCenter)
                         .padding(horizontal = 6.dp, vertical = 6.dp)
@@ -3293,6 +3331,10 @@ private fun EpisodeCard(
                         .clip(RoundedCornerShape(999.dp))
                         .background(Accent2.copy(alpha = 0.6f)),
                 )
+            }
+            if (download != null) {
+                OfflineJustFinished(download.playable)
+                if (pending) OfflineDownloadStrip(download, offline?.speeds?.get(download.fileId))
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -3303,6 +3345,39 @@ private fun EpisodeCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/** 分集卡长按（iOS `episodeMenu`）：下载这一集 / 暂停 / 继续下载 / 取消下载或删除下载 */
+@Composable
+private fun EpisodeDownloadMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    offline: EpisodeOffline,
+    unit: io.movieclaw.android.core.offline.OfflineUnit?,
+    season: Int,
+    episode: EpisodeView,
+) {
+    val file = episode.fileIds.firstOrNull()
+    if (unit == null && !(offline.canDownload && file != null)) return
+    androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        if (unit != null) {
+            if (unit.state == io.movieclaw.android.core.offline.OfflineUnit.State.queued || unit.state == io.movieclaw.android.core.offline.OfflineUnit.State.downloading) {
+                androidx.compose.material3.DropdownMenuItem(text = { Text("暂停") }, onClick = { onDismiss(); offline.onPause(unit.fileId) })
+            }
+            // 排队等服务器转码不是出错：没有「继续下载」可点（到点自己会再去问）
+            if (unit.state == io.movieclaw.android.core.offline.OfflineUnit.State.paused ||
+                (unit.state == io.movieclaw.android.core.offline.OfflineUnit.State.failed && !unit.waitingForTranscode)
+            ) {
+                androidx.compose.material3.DropdownMenuItem(text = { Text("继续下载") }, onClick = { onDismiss(); offline.onResume(unit.fileId) })
+            }
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text(if (unit.state == io.movieclaw.android.core.offline.OfflineUnit.State.done) "删除下载" else "取消下载", color = io.movieclaw.android.core.designsystem.Danger) },
+                onClick = { onDismiss(); offline.onDelete(unit.fileId) },
+            )
+        } else if (file != null) {
+            androidx.compose.material3.DropdownMenuItem(text = { Text("下载这一集") }, onClick = { onDismiss(); offline.onDownload(season, episode.episodeNumber, file) })
+        }
     }
 }
 
@@ -3337,11 +3412,12 @@ private fun FilesSection(
     detail: LibraryItemDetailView,
     files: List<LibraryFileView>,
     canManage: Boolean,
-    /** 本机副本行（iOS `localIds`）：为空的条目不显示这一块 */
-    localPacks: List<io.movieclaw.android.core.offline.OfflineStore.Pack> = emptyList(),
-    onPlayLocal: (io.movieclaw.android.core.offline.OfflineStore.Pack) -> Unit = {},
-    onChangeQuality: (io.movieclaw.android.core.offline.OfflineStore.Pack) -> Unit = {},
-    onDeleteLocal: (io.movieclaw.android.core.offline.OfflineStore.Pack) -> Unit = {},
+    /** 本机下完的副本（iOS `localIds`）：排在最前、标「本机」 */
+    localUnits: List<io.movieclaw.android.core.offline.OfflineUnit> = emptyList(),
+    /** 改下其他画质时选档面板的标题 */
+    localTitle: String = detail.title,
+    canChangeQuality: Boolean = false,
+    onChangeQuality: (fileId: Long, title: String) -> Unit = { _, _ -> },
     onOpenDuplicates: () -> Unit,
     onTrash: (LibraryFileView) -> Unit,
     onRestore: (LibraryFileView) -> Unit,
@@ -3361,7 +3437,7 @@ private fun FilesSection(
     Column(Modifier.padding(horizontal = mcCards.pagePadding, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("文件", style = McType.subheadlineSemibold, color = TextMuted)
-            Text("${files.size}", fontSize = 12.sp, color = TextFaint)
+            Text("${files.size + localUnits.size}", fontSize = 12.sp, color = TextFaint)
             if (canManage && duplicateLabel != null) {
                 Text(
                     "$duplicateLabel · 处理重复",
@@ -3382,12 +3458,15 @@ private fun FilesSection(
                 .background(Color.White.copy(alpha = 0.015f))
                 .border(1.dp, Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp)),
         ) {
-            localPacks.forEach { pack ->
+            localUnits.forEach { unit ->
+                val source = files.firstOrNull { it.id == unit.fileId }
                 io.movieclaw.android.feature.offline.OfflineLocalFileRow(
-                    pack = pack,
-                    onPlay = { onPlayLocal(pack) },
-                    onChangeQuality = { onChangeQuality(pack) },
-                    onDelete = { onDeleteLocal(pack) },
+                    unit = unit,
+                    source = source,
+                    title = localTitle,
+                    canChangeQuality = canChangeQuality && source != null,
+                    onChangeQuality = { onChangeQuality(unit.fileId, localTitle) },
+                    specRows = ::fileSpecRows,
                 )
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.035f)))
             }
@@ -3508,6 +3587,20 @@ private fun FileDetails(file: LibraryFileView) {
         FileDetailRow("色彩空间", file.colorSpace ?: "尚未探测")
         FileDetailRow("视频码率", file.bitRate?.let { "%.1f Mbps".format(it / 1_000_000.0) } ?: "尚未探测")
     }
+}
+
+/** 片源与画面规格那几行（本机副本的原画行照抄同一份，见 `OfflineLocalFileRow`；iOS `LibraryFileRow.specRows`） */
+private fun fileSpecRows(file: LibraryFileView): List<Pair<String, String>> {
+    val picture = listOfNotNull(file.resolution?.let { resolutionLabel(it) }, file.hdr).joinToString(" · ")
+    return listOf(
+        "片源" to mediaSourceLabel(file),
+        "画面规格" to picture.ifEmpty { "未能探测（文件不可达或尚未扫描）" },
+        "视频编码" to (codecLabel(file.videoCodec) ?: "尚未探测"),
+        "色深" to (file.bitDepth?.let { "$it-bit" } ?: "尚未探测"),
+        "帧率" to (frameRateLabel(file.frameRate) ?: "尚未探测"),
+        "色彩空间" to (file.colorSpace ?: "尚未探测"),
+        "视频码率" to (file.bitRate?.let { "%.1f Mbps".format(it / 1_000_000.0) } ?: "尚未探测"),
+    )
 }
 
 @Composable

@@ -27,7 +27,10 @@ class ImageLoaders @Inject constructor(
     shareCookies: ShareCookieJar,
 ) {
     /** 图片用的带鉴权客户端；ambient 取色也走它（服务端图片需要带 token） */
-    val http: OkHttpClient get() = identityClient(baseClient, vault.snapshot())
+    val http: OkHttpClient get() = identityClient(baseClient, vault.snapshot()).newBuilder()
+        // 离线下载存下的图：离线模式直接用本机的，在线时请求失败才回落
+        .addInterceptor(io.movieclaw.android.core.offline.OfflineImages.interceptor)
+        .build()
 
     val loader: ImageLoader = ImageLoader.Builder(context)
         .components {

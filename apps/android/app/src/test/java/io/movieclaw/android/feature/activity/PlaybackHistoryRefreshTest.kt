@@ -105,8 +105,8 @@ class PlaybackHistoryRefreshTest {
             io.movieclaw.android.core.playback.ResumeBarPrefs(context),
             io.movieclaw.android.core.playback.PlaybackPreconnect(api, repository),
             LibraryHomeSnapshotStore(context, json), io.movieclaw.android.core.designsystem.FeedbackBus(), events,
-            io.movieclaw.android.core.offline.OfflineStore(context, repository),
-            io.movieclaw.android.core.offline.ServerReachability(context, api))
+            io.movieclaw.android.core.offline.OfflineStore(context, api, json),
+            io.movieclaw.android.core.offline.ServerReachability(context, client))
         try {
             waitFor { firstHistory.count == 0L && !subs.ui.value.loading && library.state.value is io.movieclaw.android.core.designsystem.Loadable.Ready }
             val initialLibraries = libraryRequests.get()

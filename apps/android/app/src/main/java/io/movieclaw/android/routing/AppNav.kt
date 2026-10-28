@@ -42,7 +42,6 @@ import io.movieclaw.android.feature.library.LibraryCollectionScreen
 import io.movieclaw.android.feature.library.LibraryCustomizeScreen
 import io.movieclaw.android.feature.library.LibraryFormScreen
 import io.movieclaw.android.feature.offline.DownloadsScreen
-import io.movieclaw.android.feature.offline.LocalPlayerScreen
 import io.movieclaw.android.feature.settings.ActivateScreen
 import io.movieclaw.android.feature.library.LibraryManageScreen
 import io.movieclaw.android.feature.library.LibraryPersonScreen
@@ -135,26 +134,6 @@ fun AppNav() {
         subscriptions.remove(id)
     }
 
-    // 离线库 / 下载器 + API 工厂（单例，经 EntryPoint 取）；packs 订阅成状态：下载完成后详情页「下载」自动消失
-    val offlineStore = dagger.hilt.android.EntryPointAccessors.fromApplication(
-        context.applicationContext,
-        OfflineStoreEntry::class.java,
-    ).store()
-    val downloadedIds by offlineStore.packs.collectAsStateWithLifecycle()
-
-    val offlineDownloader = androidx.compose.runtime.remember {
-        dagger.hilt.android.EntryPointAccessors.fromApplication(
-            context.applicationContext,
-            OfflineDownloaderEntry::class.java,
-        ).downloader()
-    }
-    val offlineApiFactory = androidx.compose.runtime.remember {
-        dagger.hilt.android.EntryPointAccessors.fromApplication(
-            context.applicationContext,
-            ApiFactoryEntry::class.java,
-        ).apiFactory()
-    }
-    fun apiFactoryForSession(origin: String) = offlineApiFactory.forOrigin(origin)
 
     // 通知点按带来的路由（core/notify `NotifyRouteBus`）：直接进那一条详情（条目 / 订阅）
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -518,14 +497,19 @@ fun AppNav() {
         }
         composable("agent") {
             if (!adminOnly(navController)) return@composable
+            // 离线时要连服务器：换成占位（offline-download.md §1）
+            OfflineRoute(navController) {
             AgentSessionsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenSession = { id -> navController.navigate("agentConversation/$id") },
                 onNewSession = { navController.navigate("agentNew") },
             )
+            }
         }
         composable("agentNew") {
             if (!adminOnly(navController)) return@composable
+            // 离线时要连服务器：换成占位（offline-download.md §1）
+            OfflineRoute(navController) {
             AgentNewSessionScreen(
                 onBack = { navController.popBackStack() },
                 onCreated = { id ->
@@ -534,9 +518,12 @@ fun AppNav() {
                     }
                 },
             )
+            }
         }
         composable("agentConversation/{sessionId}") {
             if (!adminOnly(navController)) return@composable
+            // 离线时要连服务器：换成占位（offline-download.md §1）
+            OfflineRoute(navController) {
             AgentConversationScreen(
                 onBack = { navController.popBackStack() },
                 // 生成式 UI 媒体卡片的跳转（与其余入口同款路由：影片详情/媒体库/条目/订阅/播放器）
@@ -549,8 +536,11 @@ fun AppNav() {
                     navController.navigate("player")
                 },
             )
+            }
         }
         composable("title?ref={ref}") { entry ->
+            // 离线时要连服务器：换成占位（offline-download.md §1）
+            OfflineRoute(navController) {
             TitleDetailScreen(
                 titleRef = entry.arguments?.getString("ref").orEmpty(),
                 onBack = { navController.popBackStack() },
@@ -569,6 +559,7 @@ fun AppNav() {
                     navController.navigate("player")
                 },
             )
+            }
         }
         composable("collection?ref={ref}&title={title}") { entry ->
             CollectionScreen(
@@ -616,25 +607,13 @@ fun AppNav() {
                 initialTab = entry.arguments?.getString("tab")?.toIntOrNull(),
             )
         }
-        // 离线下载：我的 → 下载（下载中/已下载/存储占用）
+        // 离线下载：我的 → 下载（下载中 / 建议 / 已下载 / 其他账号 / 容量）；播放一律走同一个播放器（本机副本优先）
         composable("downloads") {
             DownloadsScreen(
                 onBack = { navController.popBackStack() },
-                onPlayLocal = { mediaItemId, fileId -> navController.navigate("localPlayer/$mediaItemId/$fileId") },
                 // 点条目 → 库内详情（iOS NavigationLink：下载页看条目、在海报墙里也能管理）
                 onOpenItem = { libraryId, mediaItemId -> navController.navigate("item/$libraryId/$mediaItemId") },
-            )
-        }
-        // 本机副本播放（不走服务器会话；退出时观看记录落盘并联网补传）
-        composable("localPlayer/{mediaItemId}/{fileId}") { entry ->
-            LocalPlayerScreen(
-                mediaItemId = entry.arguments?.getString("mediaItemId")?.toLongOrNull() ?: 0L,
-                fileId = entry.arguments?.getString("fileId")?.toLongOrNull() ?: 0L,
-                onBack = { navController.popBackStack() },
-                store = dagger.hilt.android.EntryPointAccessors.fromApplication(
-                    context.applicationContext,
-                    OfflineStoreEntry::class.java,
-                ).store(),
+                origin = sessionRepo.ui.value.origin,
             )
         }
         // 设置 → 网络 → 外部访问（iOS `ExternalAccessSettingsView`）
@@ -750,6 +729,8 @@ fun AppNav() {
                 androidx.navigation.navArgument("cat") { defaultValue = "" },
             ),
         ) { entry ->
+            // 离线时要连服务器：换成占位（offline-download.md §1）
+            OfflineRoute(navController) {
             SearchScreen(
                 initialKeyword = entry.arguments?.getString("q").orEmpty(),
                 initialMode = when (entry.arguments?.getString("tab")) {
@@ -771,11 +752,14 @@ fun AppNav() {
                 },
                 onOpenTitle = { ref -> navController.navigate("title?ref=${Uri.encode(ref)}") },
             )
+            }
         }
         // 订阅弹层不再是一个导航目标：它由 `SubscribeSheetHost` 在**当前页面之上**渲染
         // （导航过去会让原页面离开组合，弹层的遮罩就压在一片空黑上——用户报的"整页变黑"）。
         // 「手动选种」带 forSub 进搜索页：那一页搜出的种子都投给这条订阅。
         composable("subscription/{subscriptionId}?upgradeRun={upgradeRun}") { entry ->
+            // 离线时要连服务器：换成占位（offline-download.md §1）
+            OfflineRoute(navController) {
             val subId = entry.arguments?.getString("subscriptionId")?.toLongOrNull()
             // 宽窗口照 `ipad.md` §4「活动二级页、订阅详情：列表 → 详情两栏」：
             // 左栏列出订阅（数据来自全局 `SubscriptionIndex`，不需要新 VM），右栏渲染选中的详情。
@@ -839,6 +823,7 @@ fun AppNav() {
             } else {
                 detail()
             }
+            }
         }
         composable("notices") {
             NoticeCenterScreen(onBack = { navController.popBackStack() })
@@ -900,6 +885,8 @@ fun AppNav() {
             }
         }
         composable("settings") {
+            // 离线时要连服务器：换成占位（offline-download.md §1）
+            OfflineRoute(navController) {
             // 宽窗口照 `ipad.md` §4「设置」：**左分区、右内容**（`NavigationSplitView` 的等价物），
             // 选中分区直接在右栏换内容，不再压一层导航；窄窗口仍是推进式（点进 `settings/{section}`）。
             val wideSettings = LocalCardMetrics.current.isWide
@@ -935,6 +922,7 @@ fun AppNav() {
                     }
                 }
             }
+            }
         }
         composable("accounts") {
             AccountSwitcherScreen(
@@ -966,11 +954,14 @@ fun AppNav() {
                 androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
                 return@composable
             }
-            SettingsSectionHost(
-                section = section,
-                navController = navController,
-                onBack = { navController.popBackStack() },
-            )
+            // 离线时要连服务器：换成占位（offline-download.md §1）
+            OfflineRoute(navController) {
+                SettingsSectionHost(
+                    section = section,
+                    navController = navController,
+                    onBack = { navController.popBackStack() },
+                )
+            }
         }
         composable("library/{libraryId}?name={name}") { entry ->
             val libraryId = entry.arguments?.getString("libraryId")?.toLongOrNull() ?: return@composable
@@ -1013,10 +1004,6 @@ fun AppNav() {
                 },
                 // 转移完成后「去目标库查看」
                 onOpenLibrary = { id -> navController.navigate("library/$id") },
-                // 离线下载（iOS `OfflineDownloadControl`）：本机副本在「文件」区播放
-                onPlayLocal = { mediaItemId, fileId ->
-                    navController.navigate("localPlayer/$mediaItemId/$fileId")
-                },
             )
         }
         composable("player") {
@@ -1050,23 +1037,6 @@ interface ApiFactoryEntry {
     fun apiFactory(): io.movieclaw.android.core.network.ApiFactory
 }
 
-/** 离线下载器取用口 */
-@dagger.hilt.EntryPoint
-@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
-interface OfflineDownloaderEntry {
-    fun downloader(): io.movieclaw.android.core.offline.OfflineDownloader
-}
-
-private fun entryApiFactory(repository: io.movieclaw.android.core.session.SessionRepository): io.movieclaw.android.core.network.ApiFactory =
-    repository::class.java.getDeclaredField("apiFactory").apply { isAccessible = true }
-        .get(repository) as io.movieclaw.android.core.network.ApiFactory
-
-/** OfflineStore 取用口（AppNav 是普通可组合，不在 Hilt 注入图里） */
-@dagger.hilt.EntryPoint
-@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
-interface OfflineStoreEntry {
-    fun store(): io.movieclaw.android.core.offline.OfflineStore
-}
 
 /** 服务器地址 / 会话（刷片分享要拼条目网页地址） */
 @dagger.hilt.EntryPoint
@@ -1222,4 +1192,16 @@ private fun filledRouteOf(entry: androidx.navigation.NavBackStackEntry): String?
         "$name=" + java.net.URLEncoder.encode(v, "UTF-8")
     }
     return if (kept.isEmpty()) sb.toString() else sb.toString() + "?" + kept.joinToString("&")
+}
+
+/** 离线时要连服务器的页面：换成「离线中」占位，「去媒体库」回到媒体库页签（iOS `OfflineGate`） */
+@Composable
+private fun OfflineRoute(navController: androidx.navigation.NavHostController, content: @Composable () -> Unit) {
+    io.movieclaw.android.feature.offline.OfflineGate(
+        onOpenLibrary = {
+            runCatching { navController.popBackStack("tabs", inclusive = false) }
+            io.movieclaw.android.feature.root.MainTabBus.open(io.movieclaw.android.feature.root.MainTab.LIBRARY)
+        },
+        content = content,
+    )
 }

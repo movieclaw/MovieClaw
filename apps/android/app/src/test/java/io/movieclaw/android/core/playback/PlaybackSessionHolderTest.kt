@@ -61,7 +61,11 @@ class PlaybackSessionHolderTest {
         val images = ImageLoaders(context, vault, client, cookies)
         val cleaner = SessionCacheCleaner(context, images, LibraryHomeSnapshotStore(context, json))
         val repository = SessionRepository(context, json, vault, api, client, cleaner, dagger.Lazy { throw UnsupportedOperationException() })
-        val holder = PlaybackSessionHolder(context, api, repository, PlaybackDataEvents(), CorePlaybackPrefs(context))
+        val reachability = io.movieclaw.android.core.offline.ServerReachability(context, client)
+        val local = io.movieclaw.android.core.offline.OfflineLocalSource(
+            context, io.movieclaw.android.core.offline.OfflineStore(context, api, json), reachability, api,
+        )
+        val holder = PlaybackSessionHolder(context, api, repository, PlaybackDataEvents(), CorePlaybackPrefs(context), local)
         val field = SessionRepository::class.java.getDeclaredField("_ui").apply { isAccessible = true }
         return Fixture(holder, vault, field.get(repository) as MutableStateFlow<SessionUi>)
     }

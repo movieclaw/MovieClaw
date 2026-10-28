@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -287,6 +288,8 @@ fun PosterCard(
     instanceKey: String? = null,
     onAction: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    /** 长按（已下载的条目：「删除下载」菜单） */
+    onLongClick: (() -> Unit)? = null,
 ) {
     val host = LocalPosterReveal.current
     val cardKey = instanceKey ?: (title + "@" + imageUrl.orEmpty())
@@ -299,7 +302,13 @@ fun PosterCard(
         else -> null
     }
     Column(
-        modifier = modifier.then(if (tap != null) Modifier.clickable(onClick = tap) else Modifier),
+        modifier = modifier.then(
+            when {
+                onLongClick != null -> Modifier.combinedClickable(onClick = tap ?: {}, onLongClick = onLongClick)
+                tap != null -> Modifier.clickable(onClick = tap)
+                else -> Modifier
+            },
+        ),
     ) {
         Box(
             Modifier
@@ -839,8 +848,18 @@ fun LibraryItemCard(
     origin: String?,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    /** 长按（已下载的条目：「删除下载」菜单） */
+    onLongClick: (() -> Unit)? = null,
 ) {
-    Column(modifier.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
+    Column(
+        modifier.then(
+            when {
+                onLongClick != null -> Modifier.combinedClickable(onClick = onClick ?: {}, onLongClick = onLongClick)
+                onClick != null -> Modifier.clickable(onClick = onClick)
+                else -> Modifier
+            },
+        ),
+    ) {
         Box(
             Modifier
                 .fillMaxWidth()

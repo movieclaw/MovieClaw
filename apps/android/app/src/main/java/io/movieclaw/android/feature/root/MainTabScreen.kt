@@ -243,8 +243,10 @@ fun MainTabScreen(
                         // 取样源同理：只挂前台页签，气泡折射的永远是当前这一页
                         io.movieclaw.android.core.designsystem.LocalTabGlassLayer provides if (liquidTabBar && active) tabGlassHolder else null,
                     ) {
+            // 离线时订阅、发现、活动都要连服务器：换成占位（「去媒体库」「重新连接」）
+            val toLibrary = { current = MainTab.LIBRARY }
             when (tab) {
-            MainTab.DISCOVER -> DiscoverScreen(
+            MainTab.DISCOVER -> io.movieclaw.android.feature.offline.OfflineGate(toLibrary) { DiscoverScreen(
                 onOpenLibrary = onOpenLibrary,
                 onOpenItem = onOpenItem,
                 onPlay = onPlay,
@@ -253,7 +255,7 @@ fun MainTabScreen(
                 onOpenCollection = onOpenCollection,
                 onSubscribeTitle = onSubscribeTitle,
                 subscriptions = subscriptions,
-            )
+            ) }
             MainTab.LIBRARY -> LibraryScreen(
                 onOpenLibrary = onOpenLibrary,
                 onOpenItem = onOpenItem,
@@ -267,8 +269,9 @@ fun MainTabScreen(
                 onOpenCustomize = onOpenCustomize,
                 onOpenGenre = onOpenGenre,
                 onOpenCollection = onOpenLibraryCollection,
+                onOpenDownloads = onOpenDownloads,
             )
-            MainTab.SUBSCRIPTIONS -> SubsHomeScreen(
+            MainTab.SUBSCRIPTIONS -> io.movieclaw.android.feature.offline.OfflineGate(toLibrary) { SubsHomeScreen(
                 onOpenSubscription = onOpenSubscription,
                 onPlay = onPlay,
                 onOpenTitle = onOpenTitle,
@@ -276,12 +279,12 @@ fun MainTabScreen(
                 onOpenDiscover = { current = MainTab.DISCOVER },
                 // 「剧集/电影订阅 ›」与「查看全部」→ 订阅海报墙
                 onOpenWall = onOpenSubsWall,
-            )
-            MainTab.ACTIVITY -> ActivityScreen(
+            ) }
+            MainTab.ACTIVITY -> io.movieclaw.android.feature.offline.OfflineGate(toLibrary) { ActivityScreen(
                 onOpenAgentSession = onOpenAgentSession,
                 onOpenActivityDetail = onOpenActivityDetail,
                 onOpenItem = onOpenItem,
-            )
+            ) }
             MainTab.MORE -> MoreScreen(
                 onScanPairing = onScanPairing,
                 onOpenDownloads = onOpenDownloads,

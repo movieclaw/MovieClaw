@@ -82,8 +82,10 @@ internal fun authInterceptor(@Suppress("UNUSED_PARAMETER") vault: TokenVault) = 
     chain.proceed(builder.build())
 }
 
-private fun baseClient(vault: TokenVault): OkHttpClient.Builder =
+private fun baseClient(vault: TokenVault, reachability: Boolean = false): OkHttpClient.Builder =
     OkHttpClient.Builder()
+        // 页面与播放请求的结果交给离线下载的可达性判断（旁听，不发额外请求）；实时通道（SSE）不计
+        .apply { if (reachability) addInterceptor(io.movieclaw.android.core.offline.ReachabilityTap.interceptor) }
         // 连不上要**快**失败：内网地址在蜂窝下根本不可达，15 秒的干等既卡界面又让
         // 「切错地址 / 不在同一网络」这件事 15 秒后才可见（实机：切账号后每轮请求都要等满 15 秒）
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -215,7 +217,7 @@ object NetworkModule {
     @Provides
     @Singleton
     @GeneralChannel
-    fun generalClient(vault: TokenVault): OkHttpClient = baseClient(vault).build()
+    fun generalClient(vault: TokenVault): OkHttpClient = baseClient(vault, reachability = true).build()
 
     @Provides
     @Singleton
@@ -227,7 +229,7 @@ object NetworkModule {
     @Provides
     @Singleton
     @PlaybackChannel
-    fun playbackClient(vault: TokenVault): OkHttpClient = baseClient(vault)
+    fun playbackClient(vault: TokenVault): OkHttpClient = baseClient(vault, reachability = true)
         .connectionPool(ConnectionPool(4, 65, TimeUnit.SECONDS))
         .build()
 }

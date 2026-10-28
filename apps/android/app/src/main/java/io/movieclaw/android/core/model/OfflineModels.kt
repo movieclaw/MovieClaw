@@ -1,36 +1,54 @@
 package io.movieclaw.android.core.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 /* ---------------- 离线下载（docs/design/offline-download.md；服务端 routes/offline.py） ---------------- */
 
-/** GET /offline/manifest：一个播放单元打包所需的一切（展示数据 + 档位 + 字幕清单） */
+/**
+ * GET /offline/manifest：一个播放单元打包所需的一切。展示数据（详情、库、这一季的分集）与播放数据
+ * （章节、片段、音轨）原样留成 JSON，打包时原样存盘，离线时由同一个页面 / 播放器解码（iOS 同做法）。
+ */
 @Serializable
 data class OfflineManifest(
     val fileId: Long = 0,
     val mediaItemId: Long = 0,
     val libraryId: Long = 0,
-    @kotlinx.serialization.SerialName("season_number") val seasonNumber: Int = 0,
-    @kotlinx.serialization.SerialName("episode_number") val episodeNumber: Int = 0,
+    val seasonNumber: Int = 0,
+    val episodeNumber: Int = 0,
     val container: String? = null,
-    @kotlinx.serialization.SerialName("size_bytes") val sizeBytes: Long = 0,
-    @kotlinx.serialization.SerialName("duration_ms") val durationMs: Long? = null,
-    /** 展示数据原样存盘（海报、标题、分集等），离线渲染用 */
-    val item: kotlinx.serialization.json.JsonElement? = null,
-    val library: kotlinx.serialization.json.JsonElement? = null,
-    @kotlinx.serialization.SerialName("default_audio") val defaultAudio: String? = null,
-    @kotlinx.serialization.SerialName("default_subtitle") val defaultSubtitle: String? = null,
+    val sizeBytes: Long = 0,
+    val durationMs: Long? = null,
+    /** LibraryItemDetailView 原样 */
+    val item: JsonElement? = null,
+    /** LibraryView 原样 */
+    val library: JsonElement? = null,
+    /** 剧集：这一集所在季的 SeasonEpisodesView 原样 */
+    val season: JsonElement? = null,
+    val chapters: JsonElement? = null,
+    val segments: JsonElement? = null,
+    val audioTracks: JsonElement? = null,
+    val defaultAudio: String? = null,
+    val defaultSubtitle: String? = null,
     val subtitles: List<OfflineSubtitleRef> = emptyList(),
+    val fontsUrl: String? = null,
     val profiles: List<OfflineProfile> = emptyList(),
-    @kotlinx.serialization.SerialName("unavailable_reason") val unavailableReason: String? = null,
-    @kotlinx.serialization.SerialName("resume_position_ms") val resumePositionMs: Long? = null,
+    val unavailableReason: String? = null,
+    val resumePositionMs: Long? = null,
 )
 
 @Serializable
 data class OfflineSubtitleRef(
-    @kotlinx.serialization.SerialName("track_ref") val trackRef: String = "",
+    val trackRef: String = "",
+    /** 存盘格式：srt / ass / ssa / vtt */
     val format: String = "",
     val language: String? = null,
+    val title: String? = null,
+    val isDefault: Boolean = false,
+    val isForced: Boolean = false,
+    val isAi: Boolean = false,
+    /** 内封轨抽出来的（原画档不用下，引擎直接读文件里的） */
+    val embedded: Boolean = false,
     val url: String? = null,
 )
 
@@ -39,23 +57,24 @@ data class OfflineProfile(
     val profile: String = "",
     val label: String = "",
     val height: Int? = null,
-    @kotlinx.serialization.SerialName("expected_bytes") val expectedBytes: Long = 0,
+    val expectedBytes: Long = 0,
 )
 
 /** POST /offline/profiles：选档表单一次问一批文件的可选档位与预计大小 */
 @Serializable
 data class OfflineProfilesRequest(
-    @kotlinx.serialization.SerialName("file_ids") val fileIds: List<Long>,
+    val fileIds: List<Long>,
 )
 
 @Serializable
 data class OfflineFileProfiles(
     val fileId: Long = 0,
-    @kotlinx.serialization.SerialName("season_number") val seasonNumber: Int = 0,
-    @kotlinx.serialization.SerialName("episode_number") val episodeNumber: Int = 0,
+    val mediaItemId: Long = 0,
+    val seasonNumber: Int = 0,
+    val episodeNumber: Int = 0,
     val container: String? = null,
     val profiles: List<OfflineProfile>? = null,
-    @kotlinx.serialization.SerialName("unavailable_reason") val unavailableReason: String? = null,
+    val unavailableReason: String? = null,
 )
 
 @Serializable
@@ -66,9 +85,9 @@ data class OfflineProfilesView(
 /** POST /offline/exports：建或复用一个转码导出 */
 @Serializable
 data class OfflineExportRequest(
-    @kotlinx.serialization.SerialName("file_id") val fileId: Long,
+    val fileId: Long,
     val profile: String,
-    @kotlinx.serialization.SerialName("audio_track") val audioTrack: String? = null,
+    val audioTrack: String? = null,
 )
 
 @Serializable
@@ -76,33 +95,45 @@ data class OfflineExport(
     val exportId: String = "",
     val status: String = "",
     val etag: String = "",
-    @kotlinx.serialization.SerialName("expected_bytes") val expectedBytes: Long = 0,
-    @kotlinx.serialization.SerialName("final_bytes") val finalBytes: Long? = null,
+    val expectedBytes: Long = 0,
+    val finalBytes: Long? = null,
     val error: String? = null,
-    @kotlinx.serialization.SerialName("queue_position") val queuePosition: Int? = null,
-    @kotlinx.serialization.SerialName("content_url") val contentUrl: String = "",
+    val queuePosition: Int? = null,
+    val contentUrl: String = "",
 )
 
 /** POST /playback/viewings：本机播放的观看记录补传（按 viewing_id 幂等合并） */
 @Serializable
 data class OfflineViewingRecord(
-    @kotlinx.serialization.SerialName("viewing_id") val viewingId: String,
-    @kotlinx.serialization.SerialName("media_item_id") val mediaItemId: Long,
-    @kotlinx.serialization.SerialName("season_number") val seasonNumber: Int = 0,
-    @kotlinx.serialization.SerialName("episode_number") val episodeNumber: Int = 0,
-    @kotlinx.serialization.SerialName("file_id") val fileId: Long? = null,
-    @kotlinx.serialization.SerialName("started_at") val startedAt: String,
-    @kotlinx.serialization.SerialName("updated_at") val updatedAt: String,
-    @kotlinx.serialization.SerialName("start_position_ms") val startPositionMs: Long = 0,
-    @kotlinx.serialization.SerialName("position_ms") val positionMs: Long,
-    @kotlinx.serialization.SerialName("watched_ms") val watchedMs: Long = 0,
+    val viewingId: String,
+    val mediaItemId: Long,
+    val seasonNumber: Int = 0,
+    val episodeNumber: Int = 0,
+    val fileId: Long? = null,
+    val startedAt: String,
+    val updatedAt: String,
+    val startPositionMs: Long = 0,
+    val positionMs: Long,
+    val watchedMs: Long = 0,
     val completed: Boolean = false,
     val ended: Boolean = false,
-    @kotlinx.serialization.SerialName("duration_ms") val durationMs: Long? = null,
+    val durationMs: Long? = null,
 )
 
 @Serializable
 data class OfflineViewingsRequest(
-    @kotlinx.serialization.SerialName("sent_at") val sentAt: String,
+    val sentAt: String,
     val records: List<OfflineViewingRecord>,
+)
+
+@Serializable
+data class OfflineViewingResult(
+    val viewingId: String = "",
+    /** applied / stale / rejected：三种都算服务端处理过了 */
+    val status: String = "",
+)
+
+@Serializable
+data class OfflineViewingsView(
+    val results: List<OfflineViewingResult> = emptyList(),
 )

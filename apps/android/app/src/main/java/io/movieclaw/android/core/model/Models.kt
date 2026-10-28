@@ -37,6 +37,8 @@ data class HealthView(
     val service: String? = null,
     val environment: String? = null,
     val specHash: String? = null,
+    /** 服务器实例号（离线下载按它认是哪台服务器：换了地址也是同一台）；旧服务端没有 */
+    val instanceId: String? = null,
 )
 
 @Serializable

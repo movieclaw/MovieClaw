@@ -449,6 +449,7 @@ fun ProfileSettingsScreen(
     var signOutPaired by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     val busy by vm.busy.collectAsStateWithLifecycle()
+    var askLogout by remember { mutableStateOf(false) }
 
     val pickAvatar = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let { vm.uploadAvatar(it) { msg -> status = msg } }
@@ -581,11 +582,18 @@ fun ProfileSettingsScreen(
                     .clip(RoundedCornerShape(14.dp))
                     .background(Color.White.copy(alpha = 0.05f))
                     .border(1.dp, LineSoft, RoundedCornerShape(14.dp))
-                    .clickable { vm.logout() }
+                    .clickable { askLogout = true }
                     .padding(vertical = 14.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text("退出登录", style = McType.bodyMedium, color = Danger)
+            }
+            // 退出前问一句要不要连本机下载一起删（不删就留着，同一账号重新登录还在）
+            if (askLogout) {
+                io.movieclaw.android.feature.offline.OfflineLogoutPrompt(everywhere = false) {
+                    askLogout = false
+                    vm.logout()
+                }
             }
             Spacer(Modifier.height(30.dp))
         }

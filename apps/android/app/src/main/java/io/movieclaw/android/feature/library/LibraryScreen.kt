@@ -5,6 +5,7 @@ import io.movieclaw.android.core.designsystem.MenuSurface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -129,12 +130,21 @@ class LibraryViewModel @Inject constructor(
     private val offlineStore: io.movieclaw.android.core.offline.OfflineStore,
     private val reachability: io.movieclaw.android.core.offline.ServerReachability,
 ) : ViewModel() {
-    val offlinePacks = offlineStore.packs
-    val offlinePhase = reachability.phase
+    /** 离线模式：首页换成本机已下载的内容（离线首页） */
+    val offlineMode = reachability.mode
+    val downloadedItemIds = offlineStore.downloadedItemIds
+
+    /** 与后端通信失败、画的是快照（iOS `failed`）：提示条上给「看手机上的 N 部」，用户点了才切离线 */
+    private val _stale = MutableStateFlow(false)
+    val stale = _stale.asStateFlow()
+
+    fun enterOffline() = reachability.enterOffline()
 
     init {
-        // 冷启动先核一次通路；断网时首页直接进离线模式（offline-download.md §2.4「进难出易」）
-        reachability.syncInitial()
+        // 回到在线：重拉（离线时这一页没刷新）
+        viewModelScope.launch {
+            reachability.mode.drop(1).collect { if (it == io.movieclaw.android.core.offline.ServerReachability.Mode.ONLINE) load() }
+        }
     }
     private val _state = MutableStateFlow<Loadable<LibraryHome>>(Loadable.Loading)
     val state = _state.asStateFlow()
@@ -197,7 +207,18 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    private suspend fun loadOnce() = loadMutex.withLock { loadOnceUnlocked() }
+    private suspend fun loadOnce() = loadMutex.withLock {
+        // 离线模式：首页是本机的离线首页，不去连服务器
+        if (reachability.isOffline) return@withLock
+        try {
+            loadOnceUnlocked()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 并发子请求的失败会越过 coroutineScope 抛出来：同样按「与后端通信失败」处理，不能让它掀翻进程
+            if (_state.value is Loadable.Ready) _stale.value = true else _state.value = Loadable.Failed(friendlyMessage(e))
+        }
+    }
 
     private suspend fun loadOnceUnlocked() {
         // coroutineScope（不是 run）：下面要 async 并发拉，见「五路同发」
@@ -378,10 +399,11 @@ class LibraryViewModel @Inject constructor(
                         kindRows = kindRows,
                     ),
                 )
+                _stale.value = false
             } catch (e: Exception) {
                 if (_state.value is Loadable.Ready) {
-                    // 断网冷启动：快照照常显示，只挂一句提示（iOS：各页挂自己的「与后端通信失败」）
-                    feedback.error("与后端通信失败")
+                    // 断网冷启动：快照照常显示，顶上挂「与后端通信失败」提示条（iOS `libraryHomeStale`）
+                    _stale.value = true
                 } else {
                     _state.value = Loadable.Failed(friendlyMessage(e))
                 }
@@ -695,12 +717,14 @@ fun LibraryScreen(
     onOpenCustomize: () -> Unit = {},
     /** 首页合集行点标题 / 卡片进合集详情的落点（ref 传合集 id，与「全部合集」页同一形） */
     onOpenCollection: (Long, String) -> Unit = { _, _ -> },
+    /** 「正在下载」提示条 → 我的 → 下载 */
+    onOpenDownloads: () -> Unit = {},
     vm: LibraryViewModel = hiltViewModel(),
 ) {
-    // 离线模式（offline-download.md §1）：断网且服务器不可达时，首页换成本机已下载的内容
-    val offlinePacks by vm.offlinePacks.collectAsStateWithLifecycle()
-    val offlinePhase by vm.offlinePhase.collectAsStateWithLifecycle()
-    val offlineMode = offlinePhase == io.movieclaw.android.core.offline.ServerReachability.Phase.OFFLINE
+    // 离线模式（offline-download.md §1）：首页换成本机已下载的内容
+    val offlineMode = vm.offlineMode.collectAsStateWithLifecycle().value == io.movieclaw.android.core.offline.ServerReachability.Mode.OFFLINE
+    val downloadedItemIds by vm.downloadedItemIds.collectAsStateWithLifecycle()
+    val stale by vm.stale.collectAsStateWithLifecycle()
 
     val state by vm.state.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
@@ -710,9 +734,25 @@ fun LibraryScreen(
     val origin = vm.origin
 
     Box(Modifier.fillMaxSize().background(Bg)) {
-        // 离线模式（offline-download.md §1）：断网时整页换成本机已下载内容
+        // 离线模式（offline-download.md §1）：整页换成本机已下载内容（接着看 + 按库分组）
         if (offlineMode) {
-            OfflineLibraryHome(packs = offlinePacks)
+            Column(
+                Modifier.fillMaxSize().verticalScroll(libScroll).tabGlassSource()
+                    .padding(top = McMetrics.topBarHeight + 2.dp, bottom = McTabBarContentPadding),
+            ) {
+                Text(
+                    "媒体库",
+                    fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(horizontal = mcCards.pagePadding, vertical = 2.dp),
+                )
+                io.movieclaw.android.feature.offline.OfflineLibraryHome(
+                    origin = origin,
+                    onOpenItem = onOpenItem,
+                    onOpenLibrary = onOpenLibrary,
+                    onPlay = onPlay,
+                )
+            }
         } else when (val s = state) {
             Loadable.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = TextMuted)
@@ -760,6 +800,36 @@ fun LibraryScreen(
                         modifier = Modifier.padding(horizontal = mcCards.pagePadding, vertical = 2.dp),
                     )
                     StorageStatsLine(home)
+                    if (stale) {
+                        // 断网时不自动切离线（网慢不误判），给一个按钮由用户决定（offline-download.md §2.4）
+                        Column(
+                            Modifier
+                                .padding(start = mcCards.pagePadding, end = mcCards.pagePadding, top = 16.dp)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(io.movieclaw.android.core.designsystem.Warning.copy(alpha = 0.1f))
+                                .border(1.dp, io.movieclaw.android.core.designsystem.Warning.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text("与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据", style = McType.footnote, color = Color(0xFFFCE68A))
+                            if (downloadedItemIds.isNotEmpty()) {
+                                Text(
+                                    "看${io.movieclaw.android.feature.offline.deviceName()}上的 ${downloadedItemIds.size} 部",
+                                    style = McType.footnote.copy(fontWeight = FontWeight.SemiBold),
+                                    color = TextPrimary,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(Color.White.copy(alpha = 0.12f))
+                                        .clickable { vm.enterOffline() }
+                                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                                        .testTag("enter-offline"),
+                                )
+                            }
+                        }
+                    }
+                    // 有排队 / 下载中 / 暂停 / 失败的下载时多一条「正在下载」提示条，点进「我的 → 下载」
+                    io.movieclaw.android.feature.offline.OfflineDownloadingRow(onOpen = onOpenDownloads)
 
                     // 行清单：顺序 / 显隐 / 名字 / 排序全部来自 ui.preferences.home.rows
                     // （自定义首页可改；合并与裁剪见 HomeRows.build）
@@ -905,15 +975,19 @@ fun LibraryScreen(
                                     horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
                                 ) {
                                     items(data.items, key = { "${data.row.id}-${it.mediaItemId}" }) { item ->
-                                        PosterCard(
-                                            imageUrl = item.posterUrl ?: item.backdropUrl,
-                                            origin = origin,
-                                            title = item.title,
-                                            meta = item.year?.toString(),
-                                            rating = item.rating?.takeIf { it > 0f },
-                                            modifier = Modifier.width(mcCards.posterWidth),
-                                            onClick = { onOpenItem(item.libraryId ?: targetLibraryId ?: -1L, item.mediaItemId) },
-                                        )
+                                        // 已下载的条目长按多一项「删除下载」（iOS `OfflineDeleteMenuButton`）
+                                        io.movieclaw.android.feature.offline.OfflineDeleteMenu(item.mediaItemId, item.title) { longClick ->
+                                            PosterCard(
+                                                imageUrl = item.posterUrl ?: item.backdropUrl,
+                                                origin = origin,
+                                                title = item.title,
+                                                meta = item.year?.toString(),
+                                                rating = item.rating?.takeIf { it > 0f },
+                                                modifier = Modifier.width(mcCards.posterWidth),
+                                                onClick = { onOpenItem(item.libraryId ?: targetLibraryId ?: -1L, item.mediaItemId) },
+                                                onLongClick = longClick,
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -981,6 +1055,8 @@ fun LibraryScreen(
             title = "",   // 大标题在内容区（iOS inlineLarge），顶栏只留两组动作钮
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
+            // 离线：片段、菜单、搜索都要连服务器，顶栏只留大标题（iOS 离线首页同样不给）
+            if (offlineMode) return@McTopBar
             // 顶栏右侧成组（iOS `▶ ⋯ · 搜索` 两组）：先撑开，「▶ ⋯」一颗玻璃胶囊、
             // 每钮位 44 宽拉开间距，再用一段固定间隔接搜索圆钮（2026-10-05 用户反馈：
             // 原先把胶囊放最左、搜索顶最右，两钮太挤、离放大镜又太远）
@@ -1216,66 +1292,4 @@ internal fun formatBytes(bytes: Long): String {
         i++
     }
     return if (value >= 100 || i == 0) "%.0f %s".format(value, units[i]) else "%.2f %s".format(value, units[i])
-}
-
-
-/** 离线首页：断网时替代常规首页（offline-download.md §1 的「离线媒体库」） */
-@Composable
-private fun OfflineLibraryHome(
-    packs: List<io.movieclaw.android.core.offline.OfflineStore.Pack>,
-) {
-    // 点条目 → 本机副本播放：经通知同一条路由总线（AppNav 消费后 navigate）
-    val onPlay: (io.movieclaw.android.core.offline.OfflineStore.Pack) -> Unit = { pack ->
-        io.movieclaw.android.core.notify.NotifyRouteBus.publish("localPlayer/${pack.mediaItemId}/${pack.fileId}")
-    }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(top = 120.dp),
-    ) {
-        Text(
-            "离线中 · 看本机已下载的 \${packs.size} 部",
-            style = McType.title3,
-            color = TextPrimary,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "网络恢复后自动回到在线模式",
-            style = McType.caption,
-            color = TextFaint,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
-        Spacer(Modifier.height(18.dp))
-        packs.forEach { pack ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onPlay(pack) }
-                    .padding(horizontal = 24.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(pack.title, style = McType.subheadline, color = TextPrimary)
-                    pack.subtitle?.let {
-                        Text(it, style = McType.caption2, color = TextFaint)
-                    }
-                }
-                Text(
-                    McFormat.bytes(pack.sizeBytes),
-                    style = McType.caption2,
-                    color = TextMuted,
-                )
-            }
-        }
-        if (packs.isEmpty()) {
-            Text(
-                "本机还没有下载内容。联网时在影片详情页点「下载」存到本机。",
-                style = McType.footnote,
-                color = TextFaint,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-            )
-        }
-    }
 }

@@ -229,7 +229,7 @@ interface McApi {
     @POST("playback/viewings")
     suspend fun playbackViewings(
         @Body body: io.movieclaw.android.core.model.OfflineViewingsRequest,
-    ): McEnvelope<kotlinx.serialization.json.JsonElement>
+    ): McEnvelope<io.movieclaw.android.core.model.OfflineViewingsView>
 
     /** 这台服务器的访问地址簿（内网 / 外网），自动选连用 */
     @GET("server/addresses")

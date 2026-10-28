@@ -2,38 +2,41 @@ package io.movieclaw.android.core.offline
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import io.movieclaw.android.core.AppScopes
+import io.movieclaw.android.core.model.OfflineExportRequest
+import io.movieclaw.android.core.model.OfflineFileProfiles
+import io.movieclaw.android.core.model.OfflineManifest
+import io.movieclaw.android.core.model.OfflineProfile
+import io.movieclaw.android.core.network.ApiException
 import io.movieclaw.android.core.network.ApiFactory
-import io.movieclaw.android.core.network.dataOrThrow
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.ensureActive
 import io.movieclaw.android.core.network.ServerRoutes
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
+import io.movieclaw.android.core.network.dataOrThrow
 import java.io.File
+import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
-
-private const val BATCH_MANIFEST_RETRY_MS = 5_000L
-
-/** 断网时最多等约 5 分钟；服务器真没有这个文件时不要无限重试 */
-private const val BATCH_MANIFEST_ATTEMPTS = 60
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Request
 
 /**
- * 离线下载器：一个单元一个 Job（串行队列），OkHttp 流式落盘 + Range 续传。
+ * 离线下载（docs/design/offline-download.md §5.4；iOS `OfflineDownloader` 的安卓版）：期望状态 + 对账。
  *
- * 原画档：GET /offline/files/{id}/content（Range 续传）；
- * 转码档：POST /offline/exports 建导出 → 轮询进度（503 + Retry-After = 排队/转码中）→
- * GET /offline/exports/{id}/content 下载；完成后 DELETE 通知服务端回收。
- * 海报与 manifest 在开始时一并落盘，文件夹即完整副本。
+ * - **后台**：iOS 用系统的后台下载会话；安卓的对应物是 WorkManager 的长时作业（[OfflineDownloadWorker]，前台通知），
+ *   退到后台、锁屏照常下，被系统杀掉后按约束（网络）自动重跑。一次只下一个：家里上行有限，串行让第一集最早能看。
+ * - **网络策略**放在作业的约束上：只用 Wi-Fi（不计费网络，个人热点、计费网络都不下）或任何网络（「使用蜂窝网络下载」）。
+ * - **期望状态**：要下什么记在每个单元的 `unit.json`；作业跑起来时按单元状态逐个准备、下载（[drive]）。
+ *   崩溃、被杀、断网之后都能自愈：已下的字节在 `media.part`，带 Range + If-Range 续传。
+ * - **准备**：视频之外的东西（清单、字幕、图片、转码导出）先拉好，再建视频下载。
  */
 @Singleton
 class OfflineDownloader @Inject constructor(
@@ -41,435 +44,545 @@ class OfflineDownloader @Inject constructor(
     private val apiFactory: ApiFactory,
     private val store: OfflineStore,
     private val prefs: OfflinePrefs,
+    private val reachability: ServerReachability,
 ) {
-    sealed interface TaskState {
-        data object Queued : TaskState
-        data class Downloading(val downloadedBytes: Long, val totalBytes: Long, val speedBps: Long) : TaskState
-        data object Paused : TaskState
-        data class Failed(val message: String) : TaskState
-        /** 只在 Wi-Fi 下下载（iOS 默认）：当前是蜂窝且没允许蜂窝，等网络 */
-        data object WaitingForWifi : TaskState
-    }
+    private val scope = AppScopes.io("OfflineDownloader")
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val json = Json { ignoreUnknownKeys = true }
+    /** 有新活要看一眼（开始、继续、删除、准备完、到点重试）：正在跑的 [drive] 收到就重新挑 */
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+    private val driveLock = Mutex()
 
-    private val _tasks = MutableStateFlow<Map<Long, TaskState>>(emptyMap())
-    val tasks: StateFlow<Map<Long, TaskState>> = _tasks.asStateFlow()
-
-    private val jobs = java.util.concurrent.ConcurrentHashMap<Long, Job>()
-
-    /** 当前在跑的下载请求：取消/暂停时直接 cancel()，否则阻塞在 socket 读上停不下来（评审问题 3） */
-    private val calls = java.util.concurrent.ConcurrentHashMap<Long, okhttp3.Call>()
-    @Volatile private var pausedIds = setOf<Long>()
-
-    /** 已经开始过（含暂停/失败）的单元：详情页的下载状态条据此出现，不用回下载页找 */
-    private val _known = MutableStateFlow<Map<Long, OfflineStore.Pack>>(emptyMap())
-    val known: StateFlow<Map<Long, OfflineStore.Pack>> = _known.asStateFlow()
-
-    /** 清单缓存：暂停后「继续」「重试」不必重新问服务端 */
-    private val manifests = java.util.concurrent.ConcurrentHashMap<Long, io.movieclaw.android.core.model.OfflineManifest>()
-
-    private data class PendingStart(
-        val origin: String,
-        val pack: OfflineStore.Pack,
-        val manifest: io.movieclaw.android.core.model.OfflineManifest,
-        val profile: String?,
-    )
-
-    /** 因为「只在 Wi-Fi 下下载」而停下的任务：等网络条件满足后从已落盘字节续传 */
-    private val waiting = java.util.concurrent.ConcurrentHashMap<Long, PendingStart>()
-    private val activeArgs = java.util.concurrent.ConcurrentHashMap<Long, PendingStart>()
-    @Volatile private var allowCellular = false
+    /** 正在准备的单元（一次一个） */
+    @Volatile private var preparing: Long? = null
+    private var prepareJob: Job? = null
+    /** 正在下的单元与它的任务 */
+    @Volatile private var transferring: Long? = null
+    private var transferJob: Job? = null
+    @Volatile private var transferCall: okhttp3.Call? = null
 
     init {
+        store.onAdopted = { kick("adopt") }
+        // 改了「使用蜂窝网络下载」：作业约束跟着换（正在下的停下，按新约束重跑、从已下的字节续传）
         scope.launch {
-            prefs.allowCellular.collect { allowed ->
-                val changed = allowed != allowCellular
-                allowCellular = allowed
-                if (changed) syncNetworkPolicy()
-            }
-        }
-        scope.launch { syncNetworkPolicy() }
-        registerNetworkCallback()
-        // 切账号：旧账号的任务不能在别人的目录里继续写
-        scope.launch {
-            var lastOwner = store.ownerKey.value
-            store.ownerKey.collect { key ->
-                if (lastOwner != null && key != lastOwner) {
-                    jobs.values.toList().forEach { runCatching { it.cancel() } }
-                    synchronized(jobs) { jobs.clear() }
-                    calls.values.forEach { runCatching { it.cancel() } }
-                    calls.clear()
-                    waiting.clear()
-                    activeArgs.clear()
-                    _tasks.value = emptyMap()
-                    _known.value = emptyMap()
-                }
-                lastOwner = key
+            var first = true
+            prefs.allowCellular.collect {
+                if (!first) OfflineDownloadWorker.schedule(context, it, replace = true)
+                first = false
             }
         }
     }
 
-    private fun registerNetworkCallback() {
-        val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return
-        runCatching {
-            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: android.net.Network) {
-                    syncNetworkPolicy()
-                }
+    // ── 发起 ──
 
-                override fun onLost(network: android.net.Network) {
-                    // Wi-Fi 直接断掉、没有蜂窝可切时也要把任务停进等待态，而不是让 socket 报错收场
-                    syncNetworkPolicy()
-                }
+    sealed class StartError(message: String) : Exception(message) {
+        class Unsupported(device: String) : StartError("这台服务器还不支持下载到 $device，请先把服务器升级到最新版本")
+        class NoSpace(device: String, needed: Long, available: Long, estimated: Boolean) :
+            StartError("$device 空间不足：需要 ${if (estimated) "≈ " else ""}${OfflineFormat.bytes(needed)}（含预留 2 GB），只剩 ${OfflineFormat.bytes(available)}")
+        class Unavailable(reason: String) : StartError(reason)
+    }
 
-                override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) {
-                    syncNetworkPolicy()
-                }
-            })
+    /** 下载一个播放单元：清单已拉好，按选中的档位开始。已经在下 / 下完的同档不重复 */
+    fun start(manifest: OfflineManifest, profile: OfflineProfile) {
+        val device = OfflineFormat.deviceName(context)
+        if (store.owner == null || !store.state.value.serverSupported) throw StartError.Unsupported(device)
+        manifest.unavailableReason?.let { throw StartError.Unavailable(it) }
+        val existing = store.state.value.units[manifest.fileId]
+        if (existing != null && existing.profile == profile.profile && existing.state != OfflineUnit.State.failed && !existing.damaged) return
+        checkSpace(profile, device)
+        store.ensureOwnerOnDisk()
+        // 换档（比如原画改 720p）：旧的那份连同任务一起去掉，条目的展示数据与本机进度留着
+        if (existing != null) {
+            cancelTransfer(existing.fileId)
+            store.removeUnit(existing.fileId, keepItem = true)
         }
-    }
-
-    /** 当前网络能不能下载：允许蜂窝时任何网络都行；否则要有 Wi-Fi / 有线 / VPN 通路 */
-    private fun networkAllowsDownload(): Boolean {
-        if (allowCellular) return true
-        val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return true
-        val network = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(network) ?: return false
-        return caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ||
-            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) ||
-            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
-    }
-
-    private fun syncNetworkPolicy() {
-        if (!networkAllowsDownload()) parkAllForWifi() else resumeWaiting()
-    }
-
-    private fun parkAllForWifi() {
-        // 已经在等待的也保持「等待 Wi-Fi」，不要因为后续网络事件又变回排队
-        waiting.keys.forEach { id ->
-            if (_tasks.value[id] != TaskState.WaitingForWifi) {
-                _tasks.update { it + (id to TaskState.WaitingForWifi) }
-            }
-        }
-        jobs.keys.toList().forEach { id ->
-            val pending = activeArgs[id] ?: return@forEach
-            // 先登记再 cancel：cancel 出来的 IOException 会走 onFailure，看到 waiting 就不再标失败
-            waiting[id] = pending
-            _tasks.update { it + (id to TaskState.WaitingForWifi) }
-            calls.remove(id)?.cancel()
-            jobs.remove(id)?.cancel()
-        }
-    }
-
-    private fun resumeWaiting() {
-        if (!networkAllowsDownload()) return
-        val pending = waiting.entries.toList()
-        pending.forEach { (id, p) ->
-            // 旧 job 还在收尾时先留在等待队列；它的 invokeOnCompletion 会再触发一次
-            if (jobs.containsKey(id)) return@forEach
-            waiting.remove(id)
-            start(p.origin, p.pack, p.manifest, p.profile)
-        }
-    }
-
-    fun isBusy(fileId: Long): Boolean = jobs.containsKey(fileId)
-
-    /** 原画：直接下原文件 */
-    fun enqueueOriginal(origin: String, pack: OfflineStore.Pack, manifest: io.movieclaw.android.core.model.OfflineManifest) {
-        start(origin, pack, manifest, profile = null)
-    }
-
-    /** 转码档：建导出 → 轮询 → 下载导出文件 */
-    fun enqueueExport(origin: String, pack: OfflineStore.Pack, manifest: io.movieclaw.android.core.model.OfflineManifest, profile: String) {
-        start(origin, pack, manifest, profile = profile)
+        val detail = store.decodeDetail(manifest.item)
+        val library = store.decodeLibrary(manifest.library)
+        store.upsertSummary(
+            OfflineItemSummary(
+                mediaItemId = manifest.mediaItemId,
+                libraryId = manifest.libraryId,
+                libraryName = library?.name.orEmpty(),
+                libraryKind = library?.kind ?: detail?.kind ?: "movie",
+                kind = detail?.kind ?: "movie",
+                title = detail?.title.orEmpty(),
+                year = detail?.year,
+                posterUrl = detail?.posterUrl,
+                backdropUrl = detail?.backdropUrl,
+                primaryAspect = detail?.primaryAspect ?: 0.6667f,
+                addedAt = System.currentTimeMillis(),
+            ),
+        )
+        val still = store.decodeSeason(manifest.season)?.episodes?.firstOrNull { it.episodeNumber == manifest.episodeNumber }?.stillUrl
+        val unit = OfflineUnit(
+            fileId = manifest.fileId,
+            mediaItemId = manifest.mediaItemId,
+            season = manifest.seasonNumber,
+            episode = manifest.episodeNumber,
+            profile = profile.profile,
+            profileLabel = profile.label,
+            state = OfflineUnit.State.preparing,
+            expectedBytes = profile.expectedBytes,
+            fileExtension = if (profile.profile == "original") fileExtension(manifest.container) else "mp4",
+            stillUrl = still,
+            createdAt = System.currentTimeMillis(),
+        )
+        store.upsert(unit)
+        scope.launch { prefs.setLastProfile(profile.profile) }
+        pendingManifests[unit.fileId] = manifest
+        reachability.catalogChanged()
+        kick("start")
     }
 
     /**
-     * 批量下载（剧集范围）：清单在应用级 scope 里逐集取，断网时等网络恢复再继续，
-     * 不把「范围里还没轮到的集」静默跳过。切账号后旧批次的后续集不再启动。
+     * 整批下载里除第一集外的各集：只凭选档表单的批量结果先建「准备中」单元（目录里马上有、强退也不丢），
+     * 完整清单由准备阶段逐集去取。条目的展示数据要已由第一集的 [start] 存好
      */
-    fun enqueueBatch(
-        origin: String,
-        fileIds: List<Long>,
-        profile: String,
-        packOf: (io.movieclaw.android.core.model.OfflineManifest) -> OfflineStore.Pack,
-    ) {
-        val owner = store.ownerKey.value
-        scope.launch {
-            val api = apiFactory.forOrigin(origin)
-            for (fileId in fileIds) {
-                if (owner != null && store.ownerKey.value != owner) return@launch
-                if (store.packFor(fileId) != null) continue
-                var manifest = manifests[fileId]
-                var attempts = 0
-                while (manifest == null && attempts < BATCH_MANIFEST_ATTEMPTS) {
-                    if (owner != null && store.ownerKey.value != owner) return@launch
-                    attempts++
-                    manifest = runCatching { api.offlineManifest(fileId).dataOrThrow() }.getOrNull()
-                    if (manifest == null && attempts < BATCH_MANIFEST_ATTEMPTS) {
-                        kotlinx.coroutines.delay(BATCH_MANIFEST_RETRY_MS)
-                    }
-                }
-                val ready = manifest
-                if (ready == null) {
-                    android.util.Log.w("OfflineDownload", "批量下载取清单失败，跳过 fileId=$fileId")
-                    continue
-                }
-                start(origin, packOf(ready), ready, profile.takeIf { it != "original" })
-            }
-            store.scan()
+    fun enqueue(entry: OfflineFileProfiles, profile: OfflineProfile) {
+        val device = OfflineFormat.deviceName(context)
+        if (store.owner == null || !store.state.value.serverSupported || store.state.value.items[entry.mediaItemId] == null) {
+            throw StartError.Unsupported(device)
         }
+        entry.unavailableReason?.let { throw StartError.Unavailable(it) }
+        val existing = store.state.value.units[entry.fileId]
+        if (existing != null && existing.profile == profile.profile && existing.state != OfflineUnit.State.failed && !existing.damaged) return
+        checkSpace(profile, device)
+        if (existing != null) {
+            cancelTransfer(existing.fileId)
+            store.removeUnit(existing.fileId, keepItem = true)
+        }
+        store.upsert(
+            OfflineUnit(
+                fileId = entry.fileId,
+                mediaItemId = entry.mediaItemId,
+                season = entry.seasonNumber,
+                episode = entry.episodeNumber,
+                profile = profile.profile,
+                profileLabel = profile.label,
+                state = OfflineUnit.State.preparing,
+                expectedBytes = profile.expectedBytes,
+                fileExtension = if (profile.profile == "original") fileExtension(entry.container) else "mp4",
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+        scope.launch { prefs.setLastProfile(profile.profile) }
+        kick("enqueue")
     }
+
+    private fun checkSpace(profile: OfflineProfile, device: String) {
+        val needed = profile.expectedBytes + OFFLINE_RESERVE_BYTES
+        val available = OfflineDisk.availableBytes() ?: return
+        if (available < needed) throw StartError.NoSpace(device, needed, available, profile.profile != "original")
+    }
+
+    /** 选档面板里已取到的完整清单（开始时用，免得准备阶段再取一次） */
+    private val pendingManifests = java.util.concurrent.ConcurrentHashMap<Long, OfflineManifest>()
+
+    // ── 用户操作 ──
 
     fun pause(fileId: Long) {
-        pausedIds = pausedIds + fileId
-        waiting.remove(fileId)
-        activeArgs.remove(fileId)
-        calls.remove(fileId)?.cancel()
-        jobs.remove(fileId)?.cancel()
-        _tasks.update { it + (fileId to TaskState.Paused) }
+        val unit = store.state.value.units[fileId] ?: return
+        if (unit.state != OfflineUnit.State.queued && unit.state != OfflineUnit.State.downloading) return
+        store.upsert(unit.copy(state = OfflineUnit.State.paused))
+        cancelTransfer(fileId)
+        kick("paused")
     }
 
-    /** 续传：从已落盘字节起 Range 续（转码档 503 排队时从头，服务端支持导出续传） */
-    fun resume(origin: String, pack: OfflineStore.Pack, manifest: io.movieclaw.android.core.model.OfflineManifest, profile: String?) {
-        pausedIds = pausedIds - pack.fileId
-        start(origin, pack, manifest, profile)
+    fun resume(fileId: Long) {
+        val unit = store.state.value.units[fileId] ?: return
+        if (unit.state != OfflineUnit.State.paused && unit.state != OfflineUnit.State.failed) return
+        store.upsert(
+            unit.copy(
+                state = if (unit.profile != "original" && unit.exportId == null) OfflineUnit.State.preparing else OfflineUnit.State.queued,
+                error = null, transcodeWait = null, retryable = true, nextRetryAt = null,
+            ),
+        )
+        kick("resume")
     }
 
-    /** 继续 / 重试（详情页状态条用）：清单有缓存就用缓存，没缓存现取一份 */
-    fun resumePack(origin: String, pack: OfflineStore.Pack) {
-        pausedIds = pausedIds - pack.fileId
-        _tasks.update { it - pack.fileId }   // 清掉上一次的失败/暂停态，交给 start 置 Queued
-        scope.launch {
-            val manifest = manifests[pack.fileId] ?: runCatching {
-                apiFactory.forOrigin(origin).offlineManifest(pack.fileId).dataOrThrow()
-            }.getOrNull()
-            if (manifest == null) {
-                _tasks.update { it + (pack.fileId to TaskState.Failed("拿不到下载信息")) }
-                return@launch
-            }
-            start(origin, pack, manifest, pack.profile.takeIf { it != "original" })
+    /** 删除本机副本（任意状态）：先停掉任务，再删目录 */
+    fun delete(fileId: Long) {
+        cancelTransfer(fileId)
+        if (preparing == fileId) prepareJob?.cancel()
+        pendingManifests.remove(fileId)
+        store.removeUnit(fileId)
+        kick("deleted")
+    }
+
+    fun deleteItem(itemId: Long) {
+        store.unitsOfItem(itemId).forEach { delete(it.fileId) }
+    }
+
+    /** 停掉某个单元正在跑的视频下载（删除、换档、暂停）。已下的字节留在 media.part */
+    fun cancelTransfer(fileId: Long) {
+        if (transferring != fileId) return
+        transferCall?.cancel()
+        transferJob?.cancel()
+    }
+
+    // ── 对账 ──
+
+    /** 有活了：确保下载作业在跑（按当前网络策略），并叫醒正在跑的那一个 */
+    fun kick(@Suppress("UNUSED_PARAMETER") reason: String) {
+        wake.trySend(Unit)
+        val units = store.state.value.units.values
+        if (units.any { it.state != OfflineUnit.State.done && it.state != OfflineUnit.State.paused }) {
+            OfflineDownloadWorker.schedule(context, prefs.allowCellular.value, replace = false)
         }
     }
 
-    /** 删除本机副本 / 取消下载（详情页与下载页共用）：只动本机，观看进度保留在服务端 */
-    fun deleteLocal(origin: String, pack: OfflineStore.Pack) {
-        cancel(origin, pack, exportId = null)
-        _known.update { it - pack.fileId }
-        manifests.remove(pack.fileId)
-    }
-
-    fun cancel(origin: String, pack: OfflineStore.Pack, exportId: String?) {
-        pausedIds = pausedIds - pack.fileId
-        waiting.remove(pack.fileId)
-        activeArgs.remove(pack.fileId)
-        calls.remove(pack.fileId)?.cancel()
-        jobs.remove(pack.fileId)?.cancel()
-        _tasks.update { it - pack.fileId }
-        exportId?.let { id ->
-            scope.launch { runCatching { apiFactory.forOrigin(origin).offlineExportRelease(id) } }
-        }
-        store.delete(pack.mediaItemId, pack.fileId)
-    }
-
-    private fun start(origin: String, pack: OfflineStore.Pack, manifest: io.movieclaw.android.core.model.OfflineManifest, profile: String?) {
-        if (jobs.containsKey(pack.fileId)) return
-        manifests[pack.fileId] = manifest
-        _known.update { it + (pack.fileId to pack) }
-        if (!networkAllowsDownload()) {
-            waiting[pack.fileId] = PendingStart(origin, pack, manifest, profile)
-            _tasks.update { it + (pack.fileId to TaskState.WaitingForWifi) }
-            return
-        }
-        waiting.remove(pack.fileId)
-        activeArgs[pack.fileId] = PendingStart(origin, pack, manifest, profile)
-        _tasks.update { it + (pack.fileId to TaskState.Queued) }
-        val job = scope.launch {
-            runCatching { run(origin, pack, manifest, profile) }
-                .onFailure { e ->
-                    if (e is CancellationException) return@onFailure // 暂停/取消：保留已落盘字节
-                    // 已被网络策略停进等待队列：cancel() 带来的 IOException 不能把它改写成失败
-                    if (waiting.containsKey(pack.fileId)) return@onFailure
-                    if (!networkAllowsDownload()) {
-                        // 下载途中 Wi-Fi 掉线、蜂窝又不可用：回等待队列，网络恢复后从已落盘字节续传
-                        waiting[pack.fileId] = PendingStart(origin, pack, manifest, profile)
-                        _tasks.update { it + (pack.fileId to TaskState.WaitingForWifi) }
-                        android.util.Log.i("OfflineDownload", "网络断开，等待 Wi-Fi 后继续 fileId=${pack.fileId}")
-                        return@onFailure
-                    }
-                    android.util.Log.w("OfflineDownload", "下载失败 fileId=${pack.fileId}: ${e.message}", e)
-                    _tasks.update { it + (pack.fileId to TaskState.Failed(e.message ?: "下载失败")) }
-                }
-        }
-        jobs[pack.fileId] = job
-        // 无论成功、失败还是取消，任务结束都要把 jobs 里的记录摘掉——
-        // 否则「重试/继续」会被 start() 的 containsKey 判断直接挡回，界面永远停在排队（评审问题 3）
-        job.invokeOnCompletion {
-            synchronized(jobs) { if (jobs[pack.fileId] === job) jobs.remove(pack.fileId) }
-            activeArgs.remove(pack.fileId)
-            // 网络在 job 收尾前就恢复了：任务还在 waiting，补一次续传
-            if (waiting.containsKey(pack.fileId) && networkAllowsDownload()) resumeWaiting()
-        }
-    }
-
-    private suspend fun run(origin: String, pack: OfflineStore.Pack, manifest: io.movieclaw.android.core.model.OfflineManifest, profile: String?) {
-        val api = apiFactory.forOrigin(origin)
-        val client = apiFactory.downloadClient(origin)
-
-        // 所有下载请求都走当前选中的入口（内网/外网自动选连；登录地址出门可能不可达）
-        val base = ServerRoutes.baseFor(origin) ?: origin.trimEnd('/')
-
-        // 1) pack.json + 海报先落盘（文件夹即事实来源）
-        store.savePack(pack)
-        manifest.posterUrl()?.let { poster ->
-            runCatching {
-                val url = poster.let { raw ->
-                    if (raw.startsWith("http")) raw
-                    else base + "/api/v1/images/proxy?url=" + java.net.URLEncoder.encode(raw, "UTF-8") + "&w=600"
-                }
-                client.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { resp ->
-                    if (resp.isSuccessful) store.posterFile(pack.mediaItemId, pack.fileId).outputStream().use { out ->
-                        resp.body.byteStream().copyTo(out)
-                    }
-                }
-            }
-        }
-
-        // 2) 正片
-        when (profile) {
-            null -> {
-                val target = store.videoFile(pack.mediaItemId, pack.fileId, manifest.container)
-                downloadWithResume(client, base, "/api/v1/offline/files/${pack.fileId}/content", pack, target)
-            }
-            else -> {
-                val created = api.offlineExportCreate(io.movieclaw.android.core.model.OfflineExportRequest(pack.fileId, profile)).dataOrThrow()
-                val target = store.videoFile(pack.mediaItemId, pack.fileId, "mp4")
-                waitExport(client, origin, created.exportId, pack)
-                // contentUrl 已含 /api/v1 前缀（服务端原样给），不要再拼
-                downloadWithResume(client, base, created.contentUrl, pack, target)
-                // 下载完成：通知服务端回收这份导出（只摘本设备，别的设备还要时留着）
-                runCatching { api.offlineExportRelease(created.exportId) }
-            }
-        }
-
-        // 3) 完成：登记副本；状态条随之消失（副本改由「文件」区的本机行代表）
-        _tasks.update { it - pack.fileId }
-        _known.update { it - pack.fileId }
-        store.scan()
-    }
-
-    /** 轮询导出：queued/running 继续等（服务端 503 带 Retry-After），done/failed 落定 */
-    private suspend fun waitExport(client: okhttp3.OkHttpClient, origin: String, exportId: String, pack: OfflineStore.Pack) {
-        val api = apiFactory.forOrigin(origin)
-        var polls = 0
-        while (true) {
-            val state = runCatching { api.offlineExportGet(exportId).dataOrThrow() }.getOrNull()
-                ?: throw IllegalStateException("导出查询失败")
-            polls++
-            when (state.status) {
-                "done" -> return
-                "failed" -> throw IllegalStateException(state.error ?: "转码失败")
-                else -> {
-                    // 转码中：状态条写「等待转码」而不是假装 0%（iOS 的 hourglass 同义）
-                    _tasks.update { it + (pack.fileId to TaskState.Queued) }
-                    withContext(kotlinx.coroutines.Dispatchers.IO) { kotlinx.coroutines.delay(2_000) }
-                }
-            }
-        }
-    }
+    private fun online(): Boolean =
+        !reachability.isOffline && reachability.status.value != ServerReachability.Status.UNREACHABLE
 
     /**
-     * 流式落盘 + Range 续传 + 速度/进度发布；暂停/取消会 cancel OkHttp 的 Call，阻塞读立刻结束。
-     *
-     * 下载中的字节写在 `download.part`，完整收下才改名成 `video.*`：否则 OfflineStore.scan()
-     * 见到未下完的 video 文件就当成本机副本，下载页会把「下载中」误算成「已下载」，
-     * 断 Wi-Fi 续传时也找不到真正的进度。
+     * 作业本体（在 [OfflineDownloadWorker] 里跑）：逐个准备、逐个下载，直到没有能做的活。
+     * 返回下一次该醒来的时刻（只剩到点才重试的失败时），没有为 null
      */
-    private suspend fun downloadWithResume(
-        client: okhttp3.OkHttpClient,
-        base: String,
-        path: String,
-        pack: OfflineStore.Pack,
-        target: File,
-    ): File {
-        target.parentFile?.mkdirs()
-        val part = File(target.parentFile, "download.part")
-        var downloaded = if (part.isFile) part.length() else 0L
-        val startedAt = System.currentTimeMillis()
-        var lastTick = startedAt
-        var lastBytes = downloaded
-
-        val request = okhttp3.Request.Builder()
-            .url(base.trimEnd('/') + path)
-            .apply { if (downloaded > 0) header("Range", "bytes=$downloaded-") }
-            .build()
-        val call = client.newCall(request)
-        calls[pack.fileId] = call
+    suspend fun drive(onProgress: suspend () -> Unit): Long? = driveLock.withLock {
         try {
-            call.execute().use { resp ->
-                if (resp.code != 200 && resp.code != 206) {
-                    throw IllegalStateException("下载失败(HTTP ${resp.code})")
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                store.waitUntilLoaded(10_000)
+                val owner = store.owner ?: return@withLock null
+                val now = System.currentTimeMillis()
+                val units = store.state.value.units.values.sortedBy { it.createdAt }
+                // 失败到点了：改回准备 / 排队（iOS 对账同一条）
+                for (unit in units) {
+                    if (unit.state != OfflineUnit.State.failed || !unit.retryable) continue
+                    val at = unit.nextRetryAt
+                    if (at != null && at > now) continue
+                    store.upsert(unit.copy(state = if (unit.profile != "original" && unit.exportId == null) OfflineUnit.State.preparing else OfflineUnit.State.queued))
                 }
-                val body = resp.body ?: throw IllegalStateException("下载失败：空响应")
-                val total = if (resp.code == 206) {
-                    // Content-Range: bytes a-b/total → total（以前多 +1，进度到不了 100%）
-                    parseContentRangeTotal(resp.header("content-range")) ?: (downloaded + body.contentLength())
-                } else body.contentLength()
-                java.io.FileOutputStream(part, resp.code == 206).use { out ->
-                    if (resp.code == 200) {
-                        out.channel.truncate(0) // 服务端不支持 Range：从头重下
-                        downloaded = 0L
-                        lastBytes = 0L
-                    }
-                    val buf = ByteArray(256 * 1024)
-                    body.byteStream().let { input ->
-                        while (true) {
-                            // 暂停/取消：calls.cancel() 会让阻塞读抛 IOException；协程取消走 ensureActive
-                            if (pausedIds.contains(pack.fileId)) throw CancellationException("paused")
-                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                            val n = input.read(buf)
-                            if (n < 0) break
-                            out.write(buf, 0, n)
-                            downloaded += n
-                            val now = System.currentTimeMillis()
-                            if (now - lastTick >= 800) {
-                                val speed = ((downloaded - lastBytes) * 1000 / (now - lastTick)).coerceAtLeast(0)
-                                lastTick = now; lastBytes = downloaded
-                                _tasks.update {
-                                    it + (pack.fileId to TaskState.Downloading(downloaded, total, speed))
-                                }
+                val current = store.state.value.units.values.sortedBy { it.createdAt }
+                if (preparing == null && online()) {
+                    current.firstOrNull { it.state == OfflineUnit.State.preparing }?.let { unit ->
+                        preparing = unit.fileId
+                        prepareJob = scope.launch {
+                            try {
+                                prepare(unit, owner)
+                            } finally {
+                                preparing = null
+                                wake.trySend(Unit)
                             }
                         }
                     }
                 }
+                if (transferring == null && networkAllowsDownload()) {
+                    current.firstOrNull { it.state == OfflineUnit.State.queued || it.state == OfflineUnit.State.downloading }?.let { unit ->
+                        transferring = unit.fileId
+                        transferJob = scope.launch {
+                            try {
+                                transfer(unit, owner)
+                            } finally {
+                                transferring = null
+                                transferCall = null
+                                wake.trySend(Unit)
+                            }
+                        }
+                    }
+                }
+                val busy = preparing != null || transferring != null
+                val pendingPrepare = current.any { it.state == OfflineUnit.State.preparing }
+                val pendingTransfer = current.any { it.state == OfflineUnit.State.queued || it.state == OfflineUnit.State.downloading }
+                val nextRetry = current.filter { it.state == OfflineUnit.State.failed && it.retryable }.mapNotNull { it.nextRetryAt }.minOrNull()
+                // 有要下的、但眼下没有能下的网络：交回作业，按网络约束在 Wi-Fi 回来时重跑
+                if (!busy && pendingTransfer && !networkAllowsDownload()) return@withLock System.currentTimeMillis()
+                if (!busy && !pendingPrepare) return@withLock nextRetry
+                if (!busy && pendingPrepare && !online()) {
+                    // 要准备的都得连上服务器：离线时不空转，等可达性恢复（重新连上时外壳会再叫一次）
+                    return@withLock nextRetry ?: (System.currentTimeMillis() + 60_000)
+                }
+                onProgress()
+                // 等任一件活做完 / 有新活 / 到点重试；每秒刷新一次通知
+                withTimeoutOrNull(1_000) { wake.receive() }
             }
+            @Suppress("UNREACHABLE_CODE")
+            null
         } finally {
-            calls.remove(pack.fileId)
+            // 作业被系统停掉（换了网络、超时）：正在下的停下，下次作业从已下的字节接着下
+            transferCall?.cancel()
+            transferJob?.cancel()
+            prepareJob?.cancel()
         }
-        if (target.exists()) target.delete()
-        if (!part.renameTo(target)) throw IllegalStateException("下载完成但保存失败")
-        return target
+    }
+
+    // ── 准备（要在线） ──
+
+    /** 拉齐视频之外的东西：展示数据、字幕、图片；转码档再建导出。都齐了才排队下视频 */
+    private suspend fun prepare(unit: OfflineUnit, owner: OfflineOwner) {
+        val api = apiFactory.forOrigin(owner.origin)
+        val base = ServerRoutes.baseFor(owner.origin) ?: owner.origin
+        try {
+            val manifest = pendingManifests.remove(unit.fileId) ?: api.offlineManifest(unit.fileId).dataOrThrow()
+            if (store.key != owner.key) return  // 准备途中换了账号：留给它自己的账号下次
+            OfflinePackager(apiFactory.downloadClient(owner.origin), base, owner.key, manifest, unit, store).run()
+            var current = store.state.value.units[unit.fileId] ?: return
+            if (store.key != owner.key || current.state != OfflineUnit.State.preparing || current.profile != unit.profile) return
+            // 整批下载先建的单元没有剧照：拿到完整清单后补上
+            if (current.stillUrl == null) {
+                current = current.copy(stillUrl = store.decodeSeason(manifest.season)?.episodes?.firstOrNull { it.episodeNumber == manifest.episodeNumber }?.stillUrl)
+            }
+            if (current.profile != "original") {
+                val export = api.offlineExportCreate(OfflineExportRequest(unit.fileId, current.profile, manifest.defaultAudio)).dataOrThrow()
+                if (store.key != owner.key || store.state.value.units[unit.fileId]?.state != OfflineUnit.State.preparing) return
+                current = current.copy(exportId = export.exportId, expectedBytes = if (export.expectedBytes > 0) export.expectedBytes else current.expectedBytes)
+            }
+            store.upsert(current.copy(state = OfflineUnit.State.queued, error = null))
+            reachability.catalogChanged()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (store.key != owner.key) return
+            val status = (e as? OfflineHttpException)?.status ?: (e as? retrofit2.HttpException)?.code()
+                ?: (e as? ApiException)?.httpCode?.takeIf { it > 0 }
+            when (status) {
+                400, 422 -> fail(unit.fileId, io.movieclaw.android.core.network.friendlyMessage(e), retryable = false)
+                403 -> fail(unit.fileId, NOT_ALLOWED, retryable = false)
+                404 -> fail(unit.fileId, "服务器上已没有这个文件", retryable = false)
+                else -> fail(unit.fileId, if (e is java.io.IOException) networkMessage(e) else io.movieclaw.android.core.network.friendlyMessage(e), retryable = true)
+            }
+        }
+    }
+
+    // ── 视频下载 ──
+
+    private fun contentUrl(unit: OfflineUnit, base: String): String? {
+        val root = base.trimEnd('/')
+        if (unit.profile == "original") return "$root/api/v1/offline/files/${unit.fileId}/content"
+        val exportId = unit.exportId ?: return null
+        return "$root/api/v1/offline/exports/$exportId/content"
+    }
+
+    /**
+     * 流式落盘到 `media.part`，带 Range + If-Range 续传；收完整才改名成 `media.<扩展名>`、标完成。
+     * 状态码是 200 或 206；有 Content-Length 的核对字节数；分块传输（边转边下）靠正常结束来判断
+     */
+    private suspend fun transfer(unit: OfflineUnit, owner: OfflineOwner) {
+        // 发到这台服务器当前选中的地址（在家内网、出门外网）：每次（重新）开始时定
+        val base = ServerRoutes.baseFor(owner.origin) ?: owner.origin
+        val url = contentUrl(unit, base) ?: run {
+            store.upsert(unit.copy(state = OfflineUnit.State.preparing))
+            return
+        }
+        val key = owner.key
+        val dir = OfflineDisk.unitDir(key, unit.mediaItemId, unit.fileId)
+        val part = File(dir, "media.part")
+        val target = File(dir, unit.mediaFileName)
+        var offset = if (part.isFile) part.length() else 0L
+        val request = Request.Builder().url(url).apply {
+            if (offset > 0) {
+                header("Range", "bytes=$offset-")
+                unit.etag?.let { header("If-Range", it) }
+            }
+        }.build()
+        val call = apiFactory.downloadClient(owner.origin).newBuilder()
+            .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)  // 边转边下时转码一时没产出的空档要扛得住
+            .build().newCall(request)
+        transferCall = call
+        try {
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                call.execute().use { resp ->
+                    if (resp.code != 200 && resp.code != 206) {
+                        val body = runCatching { resp.body.string().take(2000) }.getOrNull()
+                        failedHTTP(
+                            unit.fileId, resp.code, resp.header("Retry-After")?.toLongOrNull(), body,
+                            resp.header("x-export-wait"), resp.header("x-export-ahead")?.toIntOrNull(),
+                        )
+                        return@use
+                    }
+                    val etag = resp.header("ETag")
+                    var expected: Long? = null
+                    if (resp.code == 206) {
+                        val start = resp.header("Content-Range")?.substringAfter("bytes ")?.substringBefore('-')?.trim()?.toLongOrNull()
+                        if (start != offset) offset = 0  // 服务端给的不是接着的那段：从头下
+                        expected = parseContentRangeTotal(resp.header("Content-Range"))
+                    } else {
+                        offset = 0
+                        expected = resp.body.contentLength().takeIf { it > 0 }
+                    }
+                    store.state.value.units[unit.fileId]?.let { current ->
+                        store.upsert(current.copy(state = OfflineUnit.State.downloading, etag = etag ?: current.etag, receivedBytes = offset))
+                    }
+                    dir.mkdirs()
+                    FileOutputStream(part, offset > 0).use { out ->
+                        if (offset == 0L) out.channel.truncate(0)
+                        val input = resp.body.byteStream()
+                        val buf = ByteArray(256 * 1024)
+                        var received = offset
+                        var lastTick = 0L
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                            received += n
+                            val now = System.currentTimeMillis()
+                            if (now - lastTick >= 1_000) {
+                                lastTick = now
+                                store.updateReceived(unit.fileId, received, expected)
+                            }
+                        }
+                        out.fd.sync()
+                        // 有长度却没收全：不当成完成
+                        if (expected != null && received != expected) throw java.io.IOException("下载中断")
+                    }
+                    finished(unit, owner, part, target)
+                }
+            }
+        } catch (e: CancellationException) {
+            // 暂停、删除、作业被停：已下的字节留着
+            persistReceived(unit.fileId, part)
+            throw e
+        } catch (e: java.io.IOException) {
+            persistReceived(unit.fileId, part)
+            if (call.isCanceled()) return
+            val noSpace = e.message?.contains("ENOSPC") == true || e.message?.contains("No space", ignoreCase = true) == true
+            failedTransport(unit.fileId, e, noSpace)
+        }
+    }
+
+    /** 停下来时把已下字节写进单元（界面上的进度与下次续传的起点一致） */
+    private fun persistReceived(fileId: Long, part: File) {
+        val current = store.state.value.units[fileId] ?: return
+        if (!part.isFile) return
+        val next = current.copy(receivedBytes = part.length(), state = if (current.state == OfflineUnit.State.downloading) OfflineUnit.State.queued else current.state)
+        store.upsert(next)
+    }
+
+    /** 下完：改名进来、标完成；转码档告诉服务端可以回收导出（尽力而为，服务端另有过期） */
+    private suspend fun finished(unit: OfflineUnit, owner: OfflineOwner, part: File, target: File) {
+        val moved = OfflineDisk.perform {
+            // 读单元、挪文件和删除走同一个写盘线程：删到一半挪进来会在删掉的目录里留下孤儿文件
+            if (!OfflineDisk.unitFile(owner.key, unit.mediaItemId, unit.fileId).isFile) return@perform false
+            // 转码档：负的 tfdt 改成 0，Exo 才读得了（见 Fmp4Fixup）
+            // 补分片索引，才拖得动、才能从续播点起播
+            if (unit.profile != "original") {
+                runCatching { Fmp4Fixup.clampNegativeTfdt(part) }
+                runCatching { Fmp4Fixup.addSegmentIndex(part) }
+            }
+            target.delete()
+            part.renameTo(target)
+        }
+        if (!moved) return
+        val size = target.length()
+        val current = store.state.value.units[unit.fileId] ?: return
+        store.upsert(
+            current.copy(
+                state = OfflineUnit.State.done, receivedBytes = size, expectedBytes = size, completedAt = System.currentTimeMillis(),
+                error = null, attempts = 0, nextRetryAt = null, transcodeWait = null,
+            ),
+        )
+        reachability.catalogChanged()
+        store.onCatalogChanged?.invoke()
+        current.exportId?.let { exportId ->
+            scope.launch { runCatching { apiFactory.forOrigin(owner.origin).offlineExportRelease(exportId) } }
+        }
+    }
+
+    private fun failedHTTP(fileId: Long, status: Int, retryAfter: Long?, message: String?, exportWait: String?, exportsAhead: Int?) {
+        when (status) {
+            503 -> {
+                // 导出还在排队：按服务端说的时间再来。界面写在等什么
+                val note = transcodeWaitNote(exportWait, exportsAhead)
+                update(fileId) {
+                    it.copy(
+                        state = OfflineUnit.State.failed, retryable = true, error = "服务器正在排队转码", transcodeWait = note,
+                        nextRetryAt = System.currentTimeMillis() + (retryAfter ?: 60) * 1000,
+                    )
+                }
+            }
+            // 可重试：重新登录后会接着下（退避到最长一小时，不会一直打服务器）
+            401 -> fail(fileId, "这个账号在本机的登录已失效，重新登录后会接着下", retryable = true)
+            403 -> fail(fileId, NOT_ALLOWED, retryable = false)
+            404, 410 -> {
+                val transcoded = store.state.value.units[fileId]?.profile != "original"
+                fail(fileId, "服务器上已没有这个文件（可能被删除、移动或回收了导出）", retryable = transcoded, resetExport = true)
+            }
+            416 -> {
+                // 续传的起点超出了服务端那份（换了文件）：从头下
+                update(fileId) { it.copy(etag = null) }
+                OfflineDisk.enqueue { store.unitDir(store.state.value.units[fileId] ?: return@enqueue)?.let { File(it, "media.part").delete() } }
+                fail(fileId, "服务器出错了（HTTP 416）", retryable = true)
+            }
+            422 -> fail(fileId, message?.let(::errorMessage) ?: "服务器转码失败", retryable = false)
+            else -> fail(fileId, "服务器出错了（HTTP $status）", retryable = true)
+        }
+    }
+
+    private fun failedTransport(fileId: Long, error: java.io.IOException, noSpace: Boolean) {
+        if (noSpace) {
+            fail(fileId, "${OfflineFormat.deviceName(context)} 空间不足，清理一些空间后点「重试」", retryable = false)
+            return
+        }
+        // 没有能下的网络了（Wi-Fi 断了、只剩蜂窝）：不算失败，作业按约束在网络回来后接着下
+        if (!networkAllowsDownload()) {
+            update(fileId) { if (it.state == OfflineUnit.State.downloading) it.copy(state = OfflineUnit.State.queued) else it }
+            return
+        }
+        fail(fileId, networkMessage(error), retryable = true)
+    }
+
+    private fun networkAllowsDownload(): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return true
+        val caps = cm.activeNetwork?.let { cm.getNetworkCapabilities(it) } ?: return false
+        if (!caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
+        return prefs.allowCellular.value || caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+    }
+
+    private fun fail(fileId: Long, message: String, retryable: Boolean, resetExport: Boolean = false) {
+        update(fileId) { unit ->
+            val attempts = unit.attempts + 1
+            val steps = longArrayOf(30, 120, 600, 1800, 3600)
+            unit.copy(
+                state = OfflineUnit.State.failed, transcodeWait = null, error = message, retryable = retryable, attempts = attempts,
+                nextRetryAt = if (retryable) System.currentTimeMillis() + steps[minOf(attempts - 1, steps.size - 1)] * 1000 else null,
+                // 转码档 404 = 导出被回收：回到准备阶段重建导出
+                exportId = if (retryable && resetExport && unit.profile != "original") null else unit.exportId,
+                etag = if (retryable && resetExport) null else unit.etag,
+            )
+        }
+    }
+
+    private fun update(fileId: Long, change: (OfflineUnit) -> OfflineUnit) {
+        val unit = store.state.value.units[fileId] ?: return
+        store.upsert(change(unit))
+    }
+
+    companion object {
+        private const val NOT_ALLOWED = "管理员未对你开放下载影片到设备"
+
+        /** 排队转码时界面上的一句话（服务端 503 的 x-export-wait / x-export-ahead；旧服务端没有，就只说在排队） */
+        fun transcodeWaitNote(wait: String?, ahead: Int?): String = when {
+            wait == "transcoder" -> "等待转码器空闲"
+            ahead != null && ahead > 0 -> "等待转码，前面还有 $ahead 个"
+            wait == "queue" -> "即将开始转码"
+            else -> "等待转码"
+        }
+
+        fun fileExtension(container: String?): String {
+            val raw = container.orEmpty().lowercase()
+            val known = listOf("mp4", "mkv", "m4v", "mov", "ts", "m2ts", "avi", "webm", "flv", "wmv", "mpg", "mpeg", "iso", "rmvb")
+            if (raw in known) return raw
+            if (raw == "matroska") return "mkv"
+            return if (raw.isEmpty()) "mkv" else raw.filter { it.isLetter() }.take(5)
+        }
+
+        private fun networkMessage(error: java.io.IOException): String = when (error) {
+            is java.net.SocketTimeoutException -> "连接超时，稍后自动重试"
+            is java.net.UnknownHostException, is java.net.ConnectException -> "连不上服务器，稍后自动重试"
+            else -> "下载中断"
+        }
+
+        /** 422 的响应体是统一信封：取它的 message */
+        private fun errorMessage(body: String): String? = runCatching {
+            (kotlinx.serialization.json.Json.parseToJsonElement(body) as? kotlinx.serialization.json.JsonObject)
+                ?.get("message")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+        }.getOrNull()
     }
 }
 
-/** manifest 里挖海报地址（item.poster_url 优先，其次 backdrop） */
-private fun io.movieclaw.android.core.model.OfflineManifest.posterUrl(): String? {
-    val item = item ?: return null
-    val obj = item as? kotlinx.serialization.json.JsonObject ?: return null
-    return (obj["poster_url"] ?: obj["backdrop_url"])
-        ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-        ?: (obj["poster_url"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-}
-
-/**
- * `Content-Range: bytes 0-99/1000` → 1000；总长为 `*`（未知）或格式不对 → null。
- * 以前是 substringAfter('/') 再 +1，总大小多一字节、进度永远差 1（评审问题 3 的小项）。
- */
+/** `Content-Range: bytes 0-99/1000` → 1000；总长为 `*`（未知）或格式不对 → null */
 internal fun parseContentRangeTotal(header: String?): Long? {
     val raw = header?.trim().orEmpty()
     if (!raw.startsWith("bytes ", ignoreCase = true)) return null
-    val totalPart = raw.substringAfter('/', "").trim()
-    return totalPart.toLongOrNull()
+    return raw.substringAfter('/', "").trim().toLongOrNull()
 }

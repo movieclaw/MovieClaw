@@ -42,6 +42,8 @@ class PlaybackSessionHolder @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val playbackEvents: PlaybackDataEvents,
     private val prefs: CorePlaybackPrefs,
+    /** 离线下载的本机副本：成员播放时先放本机的（访客不用） */
+    private val localSource: io.movieclaw.android.core.offline.OfflineLocalSource,
 ) {
     /** 正在放的那一次：控制器 + 进来时的目标（标题、库归属、剧集选集用）+ 它的网络通道（字幕、缩略图也从这里取） */
     data class Active(
@@ -197,6 +199,7 @@ class PlaybackSessionHolder @Inject constructor(
             // 把 5.1 音轨固定转成 AAC 双声道、限制转码画质——Exo 用不着这些限制
             host = PlaybackHost(playInBackground = true, ownsMediaSession = false),
             onStopCommitted = onStopCommitted,
+            local = if (guest) null else localSource,
         )
         return Active(controller, target, guest, http)
     }

@@ -21,6 +21,7 @@ import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSourceBitmapLoader
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
@@ -115,6 +116,8 @@ class PlaybackController(
     private val host: PlaybackHost = PlaybackHost(),
     /** 一个单元的 stop 上报落库之后（「继续观看」等列表据此刷新） */
     private val onStopCommitted: () -> Unit = {},
+    /** 本机副本（手机离线下载）：有就先放本机的；电视不传 */
+    private val local: LocalPlaybackSource? = null,
 ) {
     private val denylist = DecoderDenylist(prefs, identity.appVersion)
     private val capability = capabilityOverride ?: CapabilityProbe(context, denylist::isDenied)
@@ -144,16 +147,20 @@ class PlaybackController(
     private val bytesLoaded = AtomicLong(0)
     private val bandwidth = DefaultBandwidthMeter.Builder(context).build()
 
-    private val dataSource: DataSource.Factory = OkHttpDataSource.Factory(http)
-        .setUserAgent(identity.userAgent)
-        .setTransferListener(object : TransferListener {
-            override fun onTransferInitializing(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
-            override fun onTransferStart(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
-            override fun onBytesTransferred(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean, bytesTransferred: Int) {
-                if (isNetwork) bytesLoaded.addAndGet(bytesTransferred.toLong())
-            }
-            override fun onTransferEnd(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
-        })
+    /** 网络字节走 OkHttp；本机副本（`file://`）由 DefaultDataSource 直接读文件 */
+    private val dataSource: DataSource.Factory = DefaultDataSource.Factory(
+        context,
+        OkHttpDataSource.Factory(http)
+            .setUserAgent(identity.userAgent)
+            .setTransferListener(object : TransferListener {
+                override fun onTransferInitializing(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
+                override fun onTransferStart(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
+                override fun onBytesTransferred(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean, bytesTransferred: Int) {
+                    if (isNetwork) bytesLoaded.addAndGet(bytesTransferred.toLong())
+                }
+                override fun onTransferEnd(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
+            }),
+    )
 
     /**
      * ASS / SSA 特效字幕走 libass（ass-media，MIT；§4.3）：叠加层渲染（OVERLAY_OPEN_GL），保留定位、样式与动画，
@@ -231,6 +238,10 @@ class PlaybackController(
     private var failureInFlight = false
     /** 心跳发现会话没了、但用户正暂停着：等他点播放再重开 */
     private var deadSession = false
+    /** 正在放本机副本：这次播放的观看记录（不建服务端会话、不实时上报） */
+    private var localViewing: LocalViewing? = null
+    /** 本机副本放不了（文件坏了）：本单元改走服务器 */
+    private var localFailed = false
 
     // ---- 选择 ----
 
@@ -429,7 +440,8 @@ class PlaybackController(
 
     private suspend fun loadInfo() {
         try {
-            val info = backend.itemInfo(target.mediaItemId)
+            val info = local?.itemInfo(target.mediaItemId) { backend.itemInfo(target.mediaItemId) }
+                ?: backend.itemInfo(target.mediaItemId)
             set { copy(info = info) }
             updateMediaMetadata()
         } catch (e: CancellationException) {
@@ -453,7 +465,10 @@ class PlaybackController(
             set { copy(episodes = emptyList()) }
             return
         }
-        val episodes = runCatching { backend.episodes(unit.mediaItemId, unit.season).episodes }.getOrDefault(emptyList())
+        val episodes = runCatching {
+            val remote: suspend () -> io.movieclaw.core.model.generated.SeasonEpisodesView = { backend.episodes(unit.mediaItemId, unit.season) }
+            (local?.episodes(unit.mediaItemId, unit.season, remote) ?: remote()).episodes
+        }.getOrDefault(emptyList())
         set { copy(episodes = episodes) }
         updateMediaMetadata()
     }
@@ -479,6 +494,7 @@ class PlaybackController(
         requestedAudio = null
         requestedSubtitle = null
         nativeFailed = false
+        localFailed = false
         nativeRetries.reset()
         sourceProbeUrl = null
         failedTiers = sortedSetOf()
@@ -523,6 +539,14 @@ class PlaybackController(
     private fun leaveUnit() {
         pingJob?.cancel()
         progressJob?.cancel()
+        localViewing?.let { viewing ->
+            // 本机播放只走观看记录：停止 = 这次播放结束
+            localViewing = null
+            reportedStart = false
+            viewing.finish(s.positionMs, completed = s.phase == Phase.Ended)
+            onStopCommitted()
+            return
+        }
         if (reportedStart) {
             reportedStart = false
             val body = progressBody("stop", s.positionMs, paused = null)
@@ -686,7 +710,29 @@ class PlaybackController(
         exo.pause()
         startJob?.cancel()
         val body = sessionBody(startMs)
-        startJob = scope.launch { performRequest(body, startMs, myAttempt) }
+        val source = local?.takeIf { !nativeFailed && !localFailed }
+        startJob = scope.launch {
+            if (source != null) {
+                // 这一集（这部电影）在手机上有下完的副本：直接放本机文件，不建服务端会话（offline-download.md §6）
+                source.awaitLoaded()
+                val opened = source.open(unit, startMs)
+                if (myAttempt != attempt || closed) return@launch
+                if (opened != null) {
+                    record?.event("local", "放本机副本")
+                    // 同一单元里重开（拖到缓冲外、换字幕、断流重开）：沿用这次播放的观看记录
+                    localViewing = localViewing ?: opened.viewing
+                    handleSession(opened.session, startMs)
+                    return@launch
+                }
+            }
+            // 本机副本放到一半没了（删掉了）：这次本机播放到此结束，改走服务器
+            localViewing?.let { viewing ->
+                localViewing = null
+                reportedStart = false
+                viewing.finish(s.positionMs, completed = false)
+            }
+            performRequest(body, startMs, myAttempt)
+        }
     }
 
     private fun sessionBody(startMs: Long?): PlaybackSessionRequest {
@@ -814,8 +860,12 @@ class PlaybackController(
         activeSessionId?.takeIf { it != opened.sessionId }?.let { old -> scope.launch { runCatching { backend.stopSession(old) } } }
 
         val token = tokenIn(opened.streamUrl)
-        val original = decision.tier == 0L && token != null
-        val url = if (original) {
+        val playsLocal = localViewing != null && opened.sessionId == null && opened.streamUrl?.startsWith("file:") == true
+        val original = playsLocal || (decision.tier == 0L && token != null)
+        val url = if (playsLocal) {
+            activeSessionId = null
+            opened.streamUrl
+        } else if (original) {
             // 直连原文件：服务端为换封装起的会话用不上，立刻释放（不心跳）
             opened.sessionId?.let { sid -> scope.launch { runCatching { backend.stopSession(sid) } } }
             activeSessionId = null
@@ -842,7 +892,7 @@ class PlaybackController(
             r.route = PlaybackRoute.of(original, decision.tier, degraded = decision.degradedFrom != null || failedTiers.isNotEmpty() || nativeFailed, userCapped = qualityLimited)
         }
         session = opened
-        sourceProbeUrl = if (original) url.toString() else null
+        sourceProbeUrl = if (original && !playsLocal) url.toString() else null
 
         // 轨道
         val subtitles = SubtitleTracks.plan(decision.subtitles, opened.subtitleUrls)
@@ -894,7 +944,7 @@ class PlaybackController(
                     setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build())
                 }
             }
-            .setSubtitleConfigurations(if (original) externalSubtitles(subtitles) else emptyList())
+            .setSubtitleConfigurations(if (original) externalSubtitles(subtitles, playsLocal) else emptyList())
             .build()
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
             .clearOverrides()
@@ -936,8 +986,18 @@ class PlaybackController(
     }
 
     /** 外挂字幕旁挂给 Exo（直连时）：文本轨要服务端转成 VTT（SRT 等编码五花八门），ASS 取原文件保留定位；图形外挂轨 Exo 读不了 */
-    private fun externalSubtitles(tracks: SubtitleTracks): List<MediaItem.SubtitleConfiguration> =
+    private fun externalSubtitles(tracks: SubtitleTracks, playsLocal: Boolean = false): List<MediaItem.SubtitleConfiguration> =
         tracks.options.filter { it.ref.startsWith(EXTERNAL) && it.kind != "pgs" && it.path.isNotEmpty() }.mapNotNull { option ->
+            if (playsLocal) {
+                // 本机副本的旁挂字幕是下载时存下的文件（SRT / VTT / ASS 原样），按扩展名告诉 Exo 格式
+                val mime = when (option.path.substringAfterLast('.').lowercase()) {
+                    "ass", "ssa" -> MimeTypes.TEXT_SSA
+                    "srt" -> MimeTypes.APPLICATION_SUBRIP
+                    else -> MimeTypes.TEXT_VTT
+                }
+                return@mapNotNull MediaItem.SubtitleConfiguration.Builder(Uri.parse(option.path))
+                    .setId(option.ref).setMimeType(mime).setLanguage(option.language).setLabel(option.displayTitle).build()
+            }
             val (mime, suffix) = if (option.kind == "ass") MimeTypes.TEXT_SSA to "" else MimeTypes.TEXT_VTT to "&format=vtt"
             val url = server.resolve(option.path + suffix) ?: return@mapNotNull null
             MediaItem.SubtitleConfiguration.Builder(Uri.parse(url.toString()))
@@ -1099,6 +1159,10 @@ class PlaybackController(
         if (s.phase == Phase.Buffering && exo.playbackState == Player.STATE_READY) set { copy(phase = Phase.Playing) }
         // 换会话 / 降档时控制器自己按的暂停不上报：那不是用户暂停
         if (reportedStart && !s.phase.isBusy) sendProgress(paused = true)
+        localViewing?.let { viewing ->
+            viewing.tick(s.positionMs, playing = false, durationMs = s.durationMs)
+            viewing.checkpoint()
+        }
     }
 
     private fun onBuffering() {
@@ -1128,6 +1192,10 @@ class PlaybackController(
         val duration = s.durationMs
         set { copy(phase = Phase.Ended, paused = true, positionMs = if (duration != null && duration - positionMs <= 5000) duration else positionMs) }
         if (reportedStart) sendProgress(paused = true)
+        localViewing?.let { viewing ->
+            viewing.tick(s.positionMs, playing = false, durationMs = s.durationMs)
+            viewing.checkpoint()
+        }
     }
 
     /** 异常链里出错的解码器：初始化失败（DecoderInitializationException）或解码中出错（MediaCodecDecoderException） */
@@ -1171,6 +1239,10 @@ class PlaybackController(
         val phase = s.phase
         val session = session
         if (failureInFlight || (phase != Phase.Buffering && phase != Phase.Playing && phase != Phase.Ended) || session == null) return
+        if (localViewing != null) {
+            localFileFailed(reason, session)
+            return
+        }
         log("playback-error", "engine" to str("exo"), "reason" to str(reason), "tier" to (session.decision.tier?.let(::JsonPrimitive) ?: JsonNull))
         val response = FailurePolicy.decide(
             FailurePolicy.Input(
@@ -1217,6 +1289,28 @@ class PlaybackController(
                 if (cause == FailureCause.Network) log("network-restart-exhausted", "reason" to str(reason))
                 stepDownTier(reason, session)
             }
+        }
+    }
+
+    /**
+     * 本机副本放不了：标成「已损坏」（提示重新下载）。在线就改走服务器从当前位置接着放；离线落错误页。
+     * 这次播放到此为止，观看记录照常收尾
+     */
+    private fun localFileFailed(reason: String, session: PlaybackSessionView, damaged: Boolean = true) {
+        log("local-file-failed", "reason" to str(reason), "damaged" to JsonPrimitive(damaged))
+        val fileId = session.decision.fileId ?: 0L
+        val viewing = localViewing
+        localViewing = null
+        reportedStart = false
+        viewing?.finish(s.positionMs, completed = false)
+        localFailed = true
+        this.session = null
+        val online = if (damaged) local?.damaged(unit, fileId) == true else local?.canUseServer() == true
+        if (online) {
+            flash(if (damaged) "本机副本打不开，改从服务器播放" else "本机播放不流畅，改从服务器播放")
+            request(s.positionMs, Phase.SessionStarting)
+        } else {
+            fail("本机副本打不开（$reason）", "这份下载可能已损坏，联网后在详情页删除并重新下载。", "local_file")
         }
     }
 
@@ -1561,7 +1655,11 @@ class PlaybackController(
      */
     private fun exoRenders(option: SubtitleOption?): Boolean {
         if (option == null || !playsOriginalFile || burnedSubtitle != null) return false
-        if (option.ref.startsWith(EXTERNAL)) return option.kind != "pgs" && !subtitleTimingAdjusted
+        if (option.ref.startsWith(EXTERNAL)) {
+            // 本机副本的 ASS 没有服务端转好的 VTT 可给叠层：调了时间轴也只能交给 Exo
+            val toOverlay = subtitleTimingAdjusted && !(localViewing != null && option.kind == "ass")
+            return option.kind != "pgs" && !toOverlay
+        }
         if (option.embeddedIndex == null) return false
         // 轨还没读到时先按能画算（读到后 applySubtitle 再核对一次）
         return !tracksKnown || textGroupFor(option) != null
@@ -1617,7 +1715,8 @@ class PlaybackController(
         exo.trackSelectionParameters = builder.build()
         val engine = exoRenders(option)
         val overlay = if (option != null && !engine && burnedSubtitle == null && option.kind != "pgs" && option.path.isNotEmpty()) {
-            server.resolve(option.path + "&format=vtt")?.toString()
+            // 本机副本的文本字幕下载时就存成了 VTT
+            if (option.path.startsWith("file:")) option.path else server.resolve(option.path + "&format=vtt")?.toString()
         } else {
             null
         }
@@ -1677,6 +1776,7 @@ class PlaybackController(
         if (backgrounded == background) return
         backgrounded = background
         if (background) {
+            localViewing?.checkpoint()
             // 电视上切走就不看了：按用户暂停处理（回来时停在暂停态，片名和进度条都在）。
             // 手机在后台接着放（锁屏听、画中画），只停掉看门狗（下面的 resetWatchdogs 与 backgrounded 判断）
             if (!host.playInBackground) {
@@ -1696,6 +1796,8 @@ class PlaybackController(
 
     private fun reportStart() {
         reportedStart = true
+        // 本机播放不实时上报：进度、观看时长都记在观看记录里（tickSecond 每秒喂一次）
+        if (localViewing != null) return
         val body = progressBody("start", null, paused = null)
         enqueueReport { handleProgressResponse(backend.progress(body)) }
         startProgressLoop()
@@ -1745,7 +1847,7 @@ class PlaybackController(
     }
 
     private fun sendProgress(paused: Boolean?) {
-        if (!reportedStart) return
+        if (!reportedStart || localViewing != null) return
         val body = progressBody("progress", s.positionMs, paused)
         enqueueReport { handleProgressResponse(backend.progress(body)) }
     }
@@ -1844,6 +1946,7 @@ class PlaybackController(
         resourceTick += 1
         if (resourceTick % 10 == 0) sampleResources()
         if (!mediaLoaded) return
+        if (reportedStart) localViewing?.tick(s.positionMs, playing = s.phase == Phase.Playing && exo.isPlaying, durationMs = s.durationMs)
         val now = SystemClock.elapsedRealtime()
         val elapsed = (now - lastSecondAt).coerceAtLeast(1)
         lastSecondAt = now
@@ -1902,7 +2005,7 @@ class PlaybackController(
         when (
             stallWatch.sample(
                 time = time, bufferedAhead = ahead, paused = !exo.playWhenReady, ended = phase == Phase.Ended,
-                seeking = seekStartedAt != null, receiving = (loadingBps ?: 0.0) > 0, deadLimit = deadLimit,
+                seeking = seekStartedAt != null, receiving = localViewing != null || (loadingBps ?: 0.0) > 0, deadLimit = deadLimit,
             )
         ) {
             StallWatch.Verdict.Ok -> Unit
@@ -1937,7 +2040,14 @@ class PlaybackController(
         val ratio = frameDrops.sample(dropped, total) ?: return
         if (ratio >= FrameDropTracker.RATIO) {
             frameDrops.reset()
-            engineFailed("直通播放持续掉帧（${Math.round(ratio * 100)}%），正在换转码重试", FailureCause.Decode)
+            val reason = "直通播放持续掉帧（${Math.round(ratio * 100)}%），正在换转码重试"
+            val session = session
+            if (localViewing != null && session != null) {
+                // 本机副本放得卡不是文件坏了：在线换服务器转码接着放，离线没有别的路可走、接着放
+                if (local?.canUseServer() == true) localFileFailed(reason, session, damaged = false)
+                return
+            }
+            engineFailed(reason, FailureCause.Decode)
         }
     }
 
@@ -1945,6 +2055,8 @@ class PlaybackController(
     private fun feedQualitySuggestion() {
         val phase = s.phase
         if (!s.wantsPlay || backgrounded || (phase != Phase.Buffering && phase != Phase.Playing) || session == null) return
+        // 本机文件不走网络，没有「换低画质」这回事
+        if (localViewing != null) return
         val seeking = seekStartedAt != null
         qualitySuggestion.tick(stalled = phase == Phase.Buffering || seeking, seeking = seeking, loadingBps = loadingBps)
         if (s.qualityOffer != null || qualitySuggestion.offered) return
