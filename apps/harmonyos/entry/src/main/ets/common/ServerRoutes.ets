@@ -12,7 +12,7 @@ import { DevConfig } from './DevConfig';
  * - 地址簿来自 `GET /server/addresses`（登录后拉一次，按登录地址缓存；旧服务器没有就只有登录地址）。
  * - 身份锚 = 登录地址的 `/api/v1/health` 实例号：每个候选地址探活时必须回报**同一个实例号**
  *   才算同一台服务器（iOS 还有 Ed25519 proof，鸿蒙版用实例号匹配，够拦地址簿里的错地址）。
- * - 内网先探、外网晚 250ms，先通过校验的先用（内网后到就升级）。
+ * - 内网先探、外网晚 250ms，先通过校验的先用。
  * - 只有蜂窝时不试内网（省流量的同时避免运营商 NAT 里探内网地址）。
  * - 选过的结论落盘：冷启动先用上次的地址，后台再核实（iOS 同款）。
  *
@@ -52,6 +52,12 @@ export class ServerRoutes {
   private store: preferences.Preferences | null = null;
   private probing: boolean = false;
   private netConnection: connection.NetConnection | null = null;
+  /** 当前 ApiClient 实际使用的 origin（configure 时=登录地址；选路后=胜者） */
+  private clientOrigin: string = '';
+  /** 当前 ApiClient 实际使用的路由类别（请求头 X-MovieClaw-Route） */
+  private clientKind: string = 'login';
+  /** configure 是否已跑过：init() 的异步回填不能覆盖它设好的状态 */
+  private configured: boolean = false;
 
   private constructor() {
   }
@@ -62,6 +68,10 @@ export class ServerRoutes {
       .then((store: preferences.Preferences): void => {
         const self: ServerRoutes = ServerRoutes.shared();
         self.store = store;
+        // configure() 已经设过状态：只接管 store，不用偏好覆盖现场结论
+        if (self.configured) {
+          return;
+        }
         self.loginOrigin = store.getSync('loginOrigin', '') as string;
         self.current = store.getSync('current', '') as string;
         const kind: string = store.getSync('kind', '') as string;
@@ -77,32 +87,63 @@ export class ServerRoutes {
    * 失败静默（选不出来就继续用登录地址，行为与旧版一致）。
    */
   configure(loginOrigin: string, api: MovieClawApi | null): void {
+    // 换了一台服务器：上一台的结论（current/kind）必须清掉，否则选路全失败时会继续用旧地址
+    if (this.loginOrigin.length > 0 && this.loginOrigin !== loginOrigin) {
+      this.current = '';
+      this.kind = 'login';
+      this.routeLabel = '';
+      if (this.store !== null) {
+        this.store.delete('current').catch((): void => {
+        });
+        this.store.delete('kind').catch((): void => {
+        });
+      }
+    }
     this.loginOrigin = loginOrigin;
+    // 调用方刚用登录地址建好 ApiClient：比较基准是它，不是偏好里恢复的 current
+    this.clientOrigin = loginOrigin;
+    this.clientKind = 'login';
+    this.configured = true;
     this.persist('loginOrigin', loginOrigin);
     this.observeNetwork();
     const run = async (): Promise<void> => {
       // 身份锚：登录地址的实例号（探不通就用空串——所有候选的实例校验会放行，退化为纯可达性选路）
       this.instanceId = await this.probeInstance(loginOrigin) ?? '';
-      // 登录地址默认按内网候选参与竞赛（它通常就是家里局域网地址；地址簿也会这么归）
-      this.lanOrigins = [loginOrigin];
-      this.wanOrigins = [];
+      let loginKind: string = '';
+      let book: ServerAddressesView | null = null;
       if (api !== null) {
         try {
-          const book: ServerAddressesView = await api.serverAddresses();
+          book = await api.serverAddresses();
           this.instanceId = this.instanceId.length > 0 ? this.instanceId : book.instance_id;
-          for (const item of book.addresses) {
-            if (item.url === loginOrigin) {
-              continue;
-            }
-            if (item.kind === 'lan') {
-              this.lanOrigins.push(item.url);
-            } else if (!this.wanOrigins.includes(item.url)) {
-              this.wanOrigins.push(item.url);
-            }
-          }
         } catch (error) {
           // 旧服务器没有地址簿：只有登录地址可用
         }
+      }
+      this.lanOrigins = [];
+      this.wanOrigins = [];
+      let loginInBook: boolean = false;
+      if (book !== null) {
+        for (const item of book.addresses) {
+          if (item.url === loginOrigin) {
+            loginKind = item.kind;
+            loginInBook = true;
+            continue;
+          }
+          if (item.kind === 'lan') {
+            if (!this.lanOrigins.includes(item.url)) {
+              this.lanOrigins.push(item.url);
+            }
+          } else if (!this.wanOrigins.includes(item.url)) {
+            this.wanOrigins.push(item.url);
+          }
+        }
+      }
+      // 登录地址按地址簿的 kind 归类；地址簿没登记时用私网地址判断兜底（公网域名不能再当 lan）
+      const loginIsLan: boolean = loginInBook ? loginKind === 'lan' : this.isPrivateHost(loginOrigin);
+      if (loginIsLan) {
+        this.lanOrigins.unshift(loginOrigin);
+      } else if (!this.wanOrigins.includes(loginOrigin)) {
+        this.wanOrigins.push(loginOrigin);
       }
       // 地址簿没登记外网地址时，用 .env 的 WAN_SERVER 兜底（release 空桩不注入）
       const devWan: string = DevConfig.wanServer;
@@ -114,6 +155,31 @@ export class ServerRoutes {
     run();
   }
 
+  /** 登录地址是不是私网（10/8、172.16/12、192.168/16）：地址簿没登记时兜底归类 */
+  private isPrivateHost(origin: string): boolean {
+    let rest: string = origin;
+    const scheme: number = rest.indexOf('://');
+    if (scheme >= 0) {
+      rest = rest.substring(scheme + 3);
+    }
+    const slash: number = rest.indexOf('/');
+    if (slash >= 0) {
+      rest = rest.substring(0, slash);
+    }
+    const colon: number = rest.indexOf(':');
+    const host: string = colon >= 0 ? rest.substring(0, colon) : rest;
+    const parts: string[] = host.split('.');
+    if (parts.length !== 4) {
+      return false;
+    }
+    const a: number = Number(parts[0]);
+    const b: number = Number(parts[1]);
+    if (Number.isNaN(a) || Number.isNaN(b)) {
+      return false;
+    }
+    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+
   /** 退出登录：清结论（下一次登录重新配） */
   reset(): void {
     this.loginOrigin = '';
@@ -123,6 +189,9 @@ export class ServerRoutes {
     this.lanOrigins = [];
     this.wanOrigins = [];
     this.instanceId = '';
+    this.clientOrigin = '';
+    this.clientKind = 'login';
+    this.configured = false;
     if (this.store !== null) {
       this.store.delete('current').catch((): void => {
       });
@@ -198,24 +267,24 @@ export class ServerRoutes {
         }
       }
       if (this.wanOrigins.length > 0) {
-        const delay: Promise<string | null> = new Promise((resolve): void => {
+        const wanRaces: Promise<string | null>[] = [];
+        for (const origin of this.wanOrigins) {
+          wanRaces.push(this.race(origin, 'wan'));
+        }
+        const wanGroup: Promise<string | null> = new Promise((resolve): void => {
           setTimeout((): void => {
-            for (const origin of this.wanOrigins) {
-              this.race(origin, 'wan').then(resolve);
-            }
+            this.firstSuccess(wanRaces).then(resolve);
           }, ServerRoutes.wanDelayMs);
         });
-        races.push(delay);
+        races.push(wanGroup);
       }
       if (races.length === 0) {
         // 没有候选：回到登录地址
         this.apply(this.loginOrigin, 'login');
         return;
       }
-      const winner: string | null = await Promise.race(races.concat(
-        // 全军覆没的兜底：等所有探活结束后仍无胜者 → null（保持原路由）
-        Promise.all(races).then((all: (string | null)[]): string | null => null)
-      ));
+      // 第一个成功通过身份校验的候选胜出；全部失败才 null（保持原路由）
+      const winner: string | null = await this.firstSuccess(races);
       if (winner === null) {
         return;
       }
@@ -224,6 +293,44 @@ export class ServerRoutes {
     } finally {
       this.probing = false;
     }
+  }
+
+  /** Promise.any 语义：第一个非 null 的胜出；全部失败才 resolve(null) */
+  private firstSuccess(promises: Promise<string | null>[]): Promise<string | null> {
+    return new Promise((resolve): void => {
+      let pending: number = promises.length;
+      let settled: boolean = false;
+      if (pending === 0) {
+        resolve(null);
+        return;
+      }
+      for (const promise of promises) {
+        promise.then((value: string | null): void => {
+          if (settled) {
+            return;
+          }
+          if (value !== null) {
+            settled = true;
+            resolve(value);
+            return;
+          }
+          pending -= 1;
+          if (pending === 0) {
+            settled = true;
+            resolve(null);
+          }
+        }).catch((): void => {
+          if (settled) {
+            return;
+          }
+          pending -= 1;
+          if (pending === 0) {
+            settled = true;
+            resolve(null);
+          }
+        });
+      }
+    });
   }
 
   /** 单个候选的探活竞赛：过身份校验 resolve(origin)，失败 resolve(null) */
@@ -287,7 +394,10 @@ export class ServerRoutes {
 
   /** 应用选路结论：通知 AppModel 重建客户端（令牌不变，只换 origin） */
   private apply(origin: string, kind: string): void {
-    if (origin === this.current) {
+    // 比较基准是 ApiClient 实际在用的地址，不是偏好里恢复的 current：
+    // 冷启动/切账号时 activate() 用登录地址新建了客户端，选出的地址即使等于上次结论也必须通知
+    if (origin === this.clientOrigin && kind === this.clientKind
+      && origin === this.current && kind === this.kind) {
       return;
     }
     this.current = origin;
@@ -295,8 +405,12 @@ export class ServerRoutes {
     this.routeLabel = this.labelOf(kind);
     this.persist('current', origin);
     this.persist('kind', kind);
-    if (this.onRouteChange !== null) {
-      this.onRouteChange(origin, kind);
+    if (origin !== this.clientOrigin || kind !== this.clientKind) {
+      this.clientOrigin = origin;
+      this.clientKind = kind;
+      if (this.onRouteChange !== null) {
+        this.onRouteChange(origin, kind);
+      }
     }
   }
 
