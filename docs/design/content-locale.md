@@ -99,7 +99,8 @@ def display_genres(kind, names, ids, scrape_language) -> list[str]
 
 - **类型**：发现页由 TMDB 按读者语言返回（§3）。媒体库详情 / 首页大图用 `display_genres`：
   读者与条目 `scrape_language` 不同语种且有 `genre_ids` 时走 `genre_label()`；同语种原样用库内名字；
-- **国家 / 语言**：地区用 `media_labels.country_label()`（常用地区走消息键，其余 Babel/CLDR 本地化名）；
+- **国家 / 语言**：地区用 `media_labels.country_label()` 的消息键，没有键的用 Babel/CLDR 本地化名（只在发现页
+  详情这么做，筛选面板沿用 `country_label` 原样给代码）；
   语言用已有的 `labels.language_name()`（TMDB 的 `cn` 归到粤语）。与筛选面板、订阅页同一套名字，
   中文读者因此会看到两处小变化：「中国香港」→「香港」、「汉语普通话」→「中文」；
 - **视频类型**：`media.videoKinds.*` 五个消息键（预告片 / 先导预告 / 片段 / 花絮 / 幕后）；

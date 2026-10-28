@@ -18,7 +18,9 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from movieclaw_api.i18n import t
+from babel import Locale
+
+from movieclaw_api.i18n import current_locale, t
 from movieclaw_api.i18n.labels import language_name
 from movieclaw_api.i18n.media_labels import country_label
 from movieclaw_api.schemas.discover import (
@@ -480,7 +482,7 @@ def title_details_from_legacy(
     facts = detail.facts
     # TMDB 给的是代码，按读者语言出名字；豆瓣只有现成的中文名，原样透传
     country = (
-        " / ".join(country_label(code) for code in facts.country_codes)
+        " / ".join(_country_name(code) for code in facts.country_codes)
         if facts.country_codes
         else facts.country
     )
@@ -518,6 +520,15 @@ def title_details_from_legacy(
         recommendations=[title_from_card(card) for card in detail.related],
         library_links=detail.library_links,
     )
+
+
+def _country_name(code: str) -> str:
+    """制片地区名：常用地区与筛选面板同名，其余用 CLDR 的本地化名（原来写死的中文表还覆盖丹麦、
+    巴西等，不能退化成代码）。"""
+    label = country_label(code)
+    if label != code:
+        return label
+    return Locale.parse(current_locale.get(), sep="-").territories.get(code, code)
 
 
 def _localized_video(video: MediaVideo) -> MediaVideo:
