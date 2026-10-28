@@ -1400,7 +1400,15 @@ export struct ReelsPage {
       })
       .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
 
+      /*
+       * Blank 只是撑开中间空隙的布局占位，但默认 Default 会把「全屏观看」胶囊挡死：
+       * 胶囊被挪进画面列后正好落在 Blank 的覆盖范围里（片名胶囊以下、底行以上），
+       * 点击先命中 Blank（Default 命中即阻塞下层兄弟的触摸测试），画面列里的胶囊
+       * 根本轮不到命中——onClick 不触发，事件冒泡到条目根手势层被当成横带轻点，
+       * 表现成「点全屏变成了暂停」。占位件一律 None 放行。
+       */
       Blank()
+        .hitTestBehavior(HitTestMode.None)
 
       // —— 底部：左边导演+简介，右边一列图标 ——
       Row() {
