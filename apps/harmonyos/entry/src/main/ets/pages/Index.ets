@@ -38,10 +38,22 @@ struct Index {
   build() {
     Stack() {
       if (this.model.phase === AppPhase.launching) {
-        LoadingProgress()
-          .width(36)
-          .height(36)
-          .color(Theme.textMuted)
+        // 静态字标，刻意不放 LoadingProgress（无限转圈）：上架自检的「启动加载完成快」用
+        // 光流法看截图，画面在动＝「占位符还没加载完」。冷启动这一屏通常几百毫秒就切走，
+        // 放静态字标既不误导检测，也不让用户盯空屏。
+        Row({ space: 1 }) {
+          Text('Movie')
+            .fontFamily('serif')
+            .fontSize(34)
+            .fontWeight(FontWeight.Lighter)
+            .fontColor(Theme.textMuted)
+          Text('Claw')
+            .fontFamily('serif')
+            .fontSize(34)
+            .fontWeight(FontWeight.Lighter)
+            .fontStyle(FontStyle.Italic)
+            .fontColor(Theme.textMuted)
+        }
       } else if (this.model.phase === AppPhase.unreachable) {
         this.UnreachableCard()
       } else if (this.model.phase === AppPhase.chooseAccount) {

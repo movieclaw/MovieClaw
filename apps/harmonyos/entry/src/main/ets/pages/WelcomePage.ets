@@ -45,7 +45,9 @@ function movieclawQuotes(): WelcomeQuote[] {
  * - 首页：片名 + 台词轮播 + 底部按钮（未连过服务器叫「连接服务器」，连过叫「登录」）；
  * - 登录卡片：服务器地址 / 用户名 / 密码一步进入（设备令牌登录）。
  *
- * 台词点一下换一句，不点每 9 秒轮换。登录成功后由外壳切进主界面。
+ * 台词点一下换一句，不做定时轮换：上架自检的「启动加载完成快」用光流法盯截图，
+ * 首屏周期性换文案会被判定为「还没加载完」（实测 8840ms，目标 4000ms）。
+ * 登录成功后由外壳切进主界面。
  */
 @Component
 export struct WelcomePage {
@@ -67,7 +69,6 @@ export struct WelcomePage {
   @State private passwordInput: string = '';
   @State private loggingIn: boolean = false;
   @State private formError: string = '';
-  private quoteTimer: number = -1;
 
   aboutToAppear(): void {
     if (this.openFormFirst) {
@@ -75,16 +76,6 @@ export struct WelcomePage {
       this.addressInput = this.prefillServer;
       // 登录过期：把用户名也填上（对应 iOS expiredUsername 预填）
       this.usernameInput = this.prefillUsername;
-    }
-    this.quoteTimer = setInterval(() => {
-      this.nextQuote();
-    }, 9000);
-  }
-
-  aboutToDisappear(): void {
-    if (this.quoteTimer >= 0) {
-      clearInterval(this.quoteTimer);
-      this.quoteTimer = -1;
     }
   }
 
