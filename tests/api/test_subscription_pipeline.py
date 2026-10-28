@@ -1870,3 +1870,39 @@ async def test_twin_cache_is_invalidated_by_metadata_refresh(db, monkeypatch) ->
             ),
         )
         assert item.identity_twins is None  # 回到"未探测"，下轮重新探
+
+
+async def test_bonus_clip_with_episode_number_never_dispatched(db) -> None:
+    """issue #1062：国综的「超前彩蛋」带着正片的季集号，不能顶替那一集。
+
+    真实样本：``Natural High S04E01 Eggs 2026 2160p TX WEB-DL``——季集、画质、
+    片源都和正片一样，旧逻辑把它当 S04E01 投出去，入库后还因画质达标停止
+    洗版，正片再也不会来。同一批里的正片必须照常投递。
+    """
+    async with db.session() as session:
+        sub = await _service(session).create(MediaKind.TV, 200, selected_seasons=[1])
+        attrs = {**_S1_PACK_ATTRS, "episodes": [1], "complete": None}
+        bonus = await _insert_torrent(
+            session,
+            "eggs",
+            "Test Show S01E01 Eggs 2024 2160p TX WEB-DL H265 DDP2.0-ADWeb",
+            attrs,
+            subtitle="测试剧 第一季 超前彩蛋",
+            seeders=500,
+        )
+        await evaluate_and_dispatch(session, [bonus], source="被动匹配")
+        wanted = await _wanted_map(session, sub.id)
+        assert wanted[(1, 1)].status == WantedStatus.WANTED  # 彩蛋没占掉这一集
+        assert not [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
+
+        episode = await _insert_torrent(
+            session,
+            "real",
+            "Test Show S01E01 2024 2160p TX WEB-DL H265 DDP2.0-ADWeb",
+            attrs,
+            subtitle="测试剧 第一季 第1期",
+            seeders=3,
+        )
+        await evaluate_and_dispatch(session, [bonus, episode], source="被动匹配")
+        grabbed = [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
+        assert [a.payload["torrent_id"] for a in grabbed] == ["real"]
