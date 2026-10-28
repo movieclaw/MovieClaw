@@ -95,12 +95,20 @@ invalidateTip("library.filter");
 
 | 提示 | 事件 | 出现在 | 作废 |
 |---|---|---|---|
+| `library.reels-floor` 下拉开始欣赏片段 | 无 | iPhone / iPad 媒体库首页顶部（开着旁白、离线时不出） | 从首页下拉进过一次片段（`action_performed`）；点关闭（`closed`） |
 | `playback.reel-clips` 开启片段预切 | `reels.played-without-clips`（服务端替管理员记：开关关着时刷片或大图预告放出了原片片段） | 网页媒体库页顶部，只给管理员；动作「去开启」到「设置 → 播放」 | 打开开关时服务端作废；开关开着却有老 App 放原片时也作废 |
 
 同一件事第一次记到时给管理员手机推一条「使用建议」，点开到 App 的「设置 → 播放」（与网页同一个开关）。
 
+## Apple 用法
+
+`Shared/Tips/TipsStore.swift` 是 Apple 端引擎（与 Web 同一套接口与判定），`MovieClaw/DesignSystem/TipCard.swift` 是 TipKit 式的内联卡片。
+页面在出现时 `ensureLoaded(api:owner:)` 拉快照，用 `eligible(_:)` 加上页面自己的条件决定显不显示，卡片上屏时 `recordDisplay`，
+用过功能或点关闭时 `invalidate(_:reason:)`。现在只实现了第一条提示用得上的部分（作废判定）；事件计数规则、展示次数上限、
+同屏排队与频率节流，等 App 里有提示用得上时再按上面的判定规则补齐。
+
 ## 后续
 
-- 其他客户端（iOS/Mac/TV、Android、Android TV）按本文的接口和判定规则各实现一份引擎。Apple 端不直接用 TipKit：TipKit 的存储没法接到服务端。
+- 其他客户端（Mac/TV、Android、Android TV）按本文的接口和判定规则各实现一份引擎（iPhone / iPad 已有，见「Apple 用法」）。Apple 端不直接用 TipKit：TipKit 的存储没法接到服务端。
 - 气泡式提示（指向某个按钮，对标 `popoverTip`）、设置页里的「重新显示使用提示」入口，等第一批真实提示上线时一起做。
 - 事件只存累计次数和首末时间。如果以后需要「最近 7 天做过 3 次」这类规则，再加近期时间戳。

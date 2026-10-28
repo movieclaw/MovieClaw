@@ -131737,6 +131737,106 @@
           }
         }
       }
+    },
+    "library.home.reelsPull": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再拉一点，开始欣赏片段"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再拉一点，开始欣赏片段"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep pulling to start watching clips"
+          }
+        }
+      },
+      "comment": "Pull-down film strip above the library home: keep pulling to start watching clips."
+    },
+    "library.home.reelsRelease": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "松手，开始欣赏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "松手，开始欣赏"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release to start watching"
+          }
+        }
+      },
+      "comment": "Pull-down film strip above the library home: pulled far enough, release to start watching clips."
+    },
+    "library.home.reelsTipTitle": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下拉，开始欣赏片段"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下拉，开始欣赏片段"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull down to watch clips"
+          }
+        }
+      },
+      "comment": "Tip card title on the library home: introduces the pull-down entry to Clips."
+    },
+    "library.home.reelsTipMessage": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这里一直往下拉，胶片走起来、片门合上时松手，就能开始欣赏片段。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这里一直往下拉，胶片走起来、片门合上时松手，就能开始欣赏片段。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep pulling down here. When the film strip locks into the gate, let go to start watching clips."
+          }
+        }
+      },
+      "comment": "Tip card message on the library home: how to use the pull-down entry to Clips."
     }
   },
   "version": "1.0"

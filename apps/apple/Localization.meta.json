@@ -20519,6 +20519,18 @@
         "missing",
         "upcoming"
       ]
+    },
+    "library.home.reelsPull": {
+      "sourceHash": "9abf29d5b9a06eacce480dbc1ccb0eee80cff045343fb89c7fd2fbf133ec3fdd"
+    },
+    "library.home.reelsRelease": {
+      "sourceHash": "77e8621a746626382324c3f680ef4762580852eb779c9f6a78e60ff3493fed6d"
+    },
+    "library.home.reelsTipTitle": {
+      "sourceHash": "b2779f500c187ff2641f6f10e0307b17e5b1659c44d817acfa736214e92d52d5"
+    },
+    "library.home.reelsTipMessage": {
+      "sourceHash": "252efeb5ba330cea9f038a40b261b44c712e723995ae0c8900b0c125c1b1eba3"
     }
   },
   "MovieClaw/InfoPlist.xcstrings": {
