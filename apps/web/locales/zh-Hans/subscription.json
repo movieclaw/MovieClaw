@@ -87,7 +87,8 @@
     "importedLegend": "已入库 {count}",
     "downloadingLegend": "下载中 {count}",
     "latestWindow": "已订阅最新 {count, number} 集 · 可以往前补",
-    "untilWindow": "已订阅到第 {end, number} 集 · 可继续"
+    "untilWindow": "已订阅到第 {end, number} 集 · 可继续",
+    "fromWindow": "已从第 {start, number} 集起订阅 · 可以往前补"
   },
   "ribbon": {
     "followFuture": "自动续订"
@@ -262,6 +263,10 @@
     "groupsBlock": "制作组黑名单",
     "groupsBlockHint": "这些制作组的资源一律不要",
     "blankDisabled": "留空不启用",
+    "sites": "站点",
+    "sitesHint": "点一下 = 只从这些站下载，按点选顺序排优先级：排在前面的站有合格资源就先下它，免费、做种数只在同一站内比较；再点 = 排除，第三下取消。都不选 = 所有启用站点。转载种常保留原制作组名，想避开转载站就在这里设",
+    "siteChip": "站点: {values}",
+    "blockedSites": "排除站点: {values}",
     "limits": "下载与限制",
     "subtitleLanguage": "字幕语言",
     "subtitleHint": "任一命中即通过；按种子标题声明判断——未声明字幕的资源会被排除，不选 = 不限",
@@ -880,9 +885,15 @@
     "subscribePart": "先订阅一部分",
     "firstLabel": "{prefix}先订阅前",
     "latestLabel": "{prefix}先订阅最新",
+    "modeAria": "第 {season} 季的订阅方式",
+    "modeFirst": "前 N 集",
+    "modeFrom": "从第 N 集起",
+    "fromLabel": "{prefix}从第",
     "inputAria": "第 {season} 季先订阅的集数",
     "suffixTotal": "集 · 本季共 {count, number} 集",
     "suffixAired": "集 · 本季已播 {count, number} 集",
+    "suffixFrom": "集起 · 本季共 {count, number} 集",
+    "fromSummary": "订阅第 {start, number}–{total, number} 集；前 {before, number} 集不会搜索，也不会下载。",
     "all": "全部",
     "saveFailed": "保存失败，请稍后重试",
     "stepEarlier": "往前再订 {count, number} 集",
@@ -894,10 +905,13 @@
     "doneAll": "已订阅{season}全部 {count, number} 集",
     "bannerLatest": "已订阅最新 {count, number} 集",
     "bannerUntil": "已订阅到第 {episode, number} 集",
+    "bannerFrom": "已从第 {start, number} 集起订阅",
     "bannerLatestBody": "{season}从第 {start, number} 集订阅到最新，之后播出的新集会自动纳入；更早的集没有订阅，也不会下载。",
     "bannerUntilBody": "{season}共 {total, number} 集，现在只订阅了前 {count, number} 集，其余的集不会搜索，也不会下载。",
+    "bannerFromBody": "{season}共 {total, number} 集，只订阅第 {start, number}–{total, number} 集；前 {before, number} 集不会搜索，也不会下载。",
     "subscribeAll": "订阅全部",
     "rangeLatest": "{name}（最新 {count, number} 集）",
-    "rangeFirst": "{name}（前 {count, number} 集）"
+    "rangeFirst": "{name}（前 {count, number} 集）",
+    "rangeFrom": "{name}（第 {start, number} 集起）"
   }
 }

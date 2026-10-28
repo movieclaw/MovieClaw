@@ -3,7 +3,8 @@
 三部剧：《长篇漫剧》TMDB 一季 120 集（全部已播、已完结）——完结超长季，
 「先订阅前 20 集」；《在播长篇剧》一季 120 集已播、剧还在播——在播超长季，
 默认「先订阅最新 20 集」且追新照常；《短篇剧》一季 12 集——远低于阈值，
-订阅弹层里不该多出任何选项。TMDB 换成本地假响应，走的仍是真实的订阅创建、
+订阅弹层里不该多出任何选项；《中途上车动画》第 1 季 200 集、第 2 季 24 集，
+已完结——老剧中途上车「从第 N 集起」（issue #950）。TMDB 换成本地假响应，走的仍是真实的订阅创建、
 E 展开与状态派生。``/__lab/import-all`` 只模拟一件外部事件：文件整理入库。
 """
 
@@ -37,6 +38,13 @@ def _show(tmdb_id: int, name: str, original: str, episodes: int, status: str = "
 LONG = _show(1043, "长篇漫剧", "Long Comic Drama", 120)
 SHORT = _show(1044, "短篇剧", "Short Drama", 12)
 AIRING = _show(1045, "在播长篇剧", "Airing Long Drama", 120, status="Returning Series")
+MIDWAY = {
+    **_show(1046, "中途上车动画", "Midway Anime", 200),
+    "seasons": [
+        {"season_number": 1, "episode_count": 200, "air_date": "2025-01-01"},
+        {"season_number": 2, "episode_count": 24, "air_date": "2025-06-01"},
+    ],
+}
 
 
 def _brief(show: dict) -> dict:
@@ -61,8 +69,11 @@ routes = {
     "/3/tv/1044/season/1": _season(12),
     "/3/tv/1045": AIRING,
     "/3/tv/1045/season/1": _season(120),
-    "/3/search/tv": {"results": [_brief(LONG), _brief(SHORT), _brief(AIRING)]},
-    "/3/search/multi": {"results": [_brief(LONG), _brief(SHORT), _brief(AIRING)]},
+    "/3/tv/1046": MIDWAY,
+    "/3/tv/1046/season/1": _season(200),
+    "/3/tv/1046/season/2": {**_season(24), "name": "第 2 季"},
+    "/3/search/tv": {"results": [_brief(LONG), _brief(SHORT), _brief(AIRING), _brief(MIDWAY)]},
+    "/3/search/multi": {"results": [_brief(LONG), _brief(SHORT), _brief(AIRING), _brief(MIDWAY)]},
     "/3/genre/tv/list": {"genres": []},
     "/3/genre/movie/list": {"genres": []},
 }

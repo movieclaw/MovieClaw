@@ -6,6 +6,7 @@
 - H&R 未知按规则组的显式策略（lenient/strict）处理，绝不静默塌缩成 False。
 
 评分公式第一版内置不暴露权重（已确认决策）：免费 > 做种数（封顶）> 分辨率偏好。
+站点优先级不进评分，选优时排在评分之前单独比较（decision.site_rank）。
 """
 
 from __future__ import annotations
@@ -62,6 +63,15 @@ def evaluate_rules(
             reason_text=None if accepted else "资源不满足智能模式的最低要求，或品质属性无法确认",
         )
     attrs = candidate.attrs
+
+    # 站点最先判：它与资源内容无关，拒绝原因也最直白（#806）
+    if candidate.site_id in spec.sites_block:
+        return _reject("site_blocked", f"站点 {candidate.site_id} 在黑名单中")
+    if spec.sites and candidate.site_id not in spec.sites:
+        return _reject(
+            "site_not_allowed",
+            f"站点 {candidate.site_id} 不在允许范围（{'/'.join(spec.sites)}）",
+        )
 
     if spec.resolutions:
         allowed = {r.casefold() for r in spec.resolutions}
@@ -222,7 +232,8 @@ def _score(candidate: TorrentCandidate, spec: RuleSetSpec) -> int:
     这也是它与分辨率的唯一不同（分辨率有内置默认序，因为"高清优先"没有争议）。
     """
     score = 0
-    if candidate.is_free is True:
+    # 0 做种的免费种下不动，免费加分不能让它压过正常做种的资源（#806）
+    if candidate.is_free is True and candidate.seeders != 0:
         score += _FREE_SCORE
     score += min(candidate.seeders or 0, _SEEDERS_CAP)
     resolution = (candidate.attrs.resolution or "").casefold()

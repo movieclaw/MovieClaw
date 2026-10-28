@@ -36,7 +36,7 @@ import {
   type JobStatus,
   type JobView,
 } from "@/lib/api/jobs";
-import { isDismissed } from "@/lib/job-attention";
+import { isDismissed, jobCancellable } from "@/lib/job-attention";
 
 import { useJobs } from "@/lib/jobs";
 import { taskActivityBadge, useTaskActivity } from "@/lib/task-activity";
@@ -196,9 +196,6 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
   const [actionError, setActionError] = useMessageState();
   const [usageExpanded, setUsageExpanded] = useState(false);
   const [dismissOpen, setDismissOpen] = useState(false);
-  const active = ["queued", "running", "retry_wait", "cancelling", "waiting"].includes(
-    job.status,
-  );
   const executing = job.status === "running" || job.status === "cancelling";
   const waitingProgress = job.progress.mode === "waiting";
   // 「需要处理」是**当下要不要用户动手**，不是"这件事失败过"。用户已经拍板
@@ -206,7 +203,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
   // 等于没忽略。失败这个事实由状态点与摘要文案继续如实承担。
   const attention =
     (job.status === "blocked" || job.status === "failed") && !isDismissed(job);
-  const cancellable = active && job.status !== "cancelling";
+  const cancellable = jobCancellable(job);
   // 忽略只开给失败任务：其余状态各有正确出口，不该被"藏起来"顶替。活跃任务
   // （含 blocked）要真正终结得走取消——它们仍占着去重键与资源锁，光藏掉提醒
   // 会留下一个谁也看不见、却挡着同名任务再次创建的幽灵。

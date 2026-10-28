@@ -46,14 +46,31 @@ from movieclaw_matcher.smart import (
 Entry = tuple[TorrentCandidate, IdentityMatch, RuleVerdict]
 
 
-def pick_best(entries: list[Entry]) -> Entry | None:
+def site_rank(candidate: TorrentCandidate, spec: RuleSetSpec | SmartPolicy) -> int:
+    """站点优先级位次（越大越优先）；未配站点白名单时恒为 0。
+
+    按位次而不是加分比较：靠前站点有合格资源就只在它里面按评分挑，
+    不让后面站点的免费加分抢走（#806）。
+    """
+    sites = getattr(spec, "sites", None)
+    if not sites or candidate.site_id not in sites:
+        return 0
+    return len(sites) - sites.index(candidate.site_id)
+
+
+def pick_best(entries: list[Entry], spec: RuleSetSpec) -> Entry | None:
     """从"已通过规则"的候选里选一个投递目标；空列表/全拒绝返回 None。"""
     accepted = [e for e in entries if e[2].accepted]
     if not accepted:
         return None
     return max(
         accepted,
-        key=lambda e: (e[1].is_pack, e[2].score, e[0].seeders or 0),
+        key=lambda e: (
+            e[1].is_pack,
+            site_rank(e[0], spec),
+            e[2].score,
+            e[0].seeders or 0,
+        ),
     )
 
 

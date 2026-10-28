@@ -628,6 +628,8 @@
     "listFailed": "Could not list the cloud folder “{path}”: {detail}",
     "onePrimary": "Only one primary root is allowed",
     "missingId": "The cloud folder is missing an id",
+    "scopeOutside": "“{path}” is not inside a cloud folder attached to this library",
+    "scopeNotFound": "Could not find the folder “{path}” on the cloud drive",
     "accountMissing": "The cloud account no longer exists (it may have been removed)",
     "rootDir": "Root folder",
     "overlap": "“{a}” and “{b}” overlap. Choose only the outer one.",
@@ -788,6 +790,7 @@
       "outsideRule": "The item no longer belongs to its watch rule, so processing stopped"
     },
     "result": {
+      "outsideRule": "The item is no longer in the watch rule's source folder, so no import is needed",
       "ruleDeleted": "The watch import rule was deleted, so this job stopped",
       "entryRemoved": "The source item was removed. Nothing more to import",
       "ignored": "The item was ignored and won’t be imported automatically",

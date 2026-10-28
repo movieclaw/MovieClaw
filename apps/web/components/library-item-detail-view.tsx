@@ -706,7 +706,7 @@ export function LibraryItemDetailView({
       scraping={scrapingNow}
       searchHref={canSearchTorrents ? buildSearchPath({
         keyword: detail.title,
-        also: titleSearchAlso(detail.english_title, detail.original_title),
+        also: titleSearchAlso(detail.english_title, detail.original_title, detail.chinese_title),
         scope: scopeOfMediaKind(detail.kind),
       }) as Route : undefined}
       // 加入合集：任何能看到这部片的人都能把它扔进自己的单子

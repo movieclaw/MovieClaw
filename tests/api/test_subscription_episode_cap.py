@@ -68,6 +68,25 @@ def _routes(episodes: int = _TOTAL) -> dict[str, dict]:
                 for n in range(1, episodes + 1)
             ],
         },
+        "/3/tv/1045": {
+            "id": 1045,
+            "name": "在播长篇剧",
+            "original_name": "Airing Long Drama",
+            "first_air_date": "2025-01-01",
+            "status": "Returning Series",
+            "external_ids": {},
+            "alternative_titles": {"results": []},
+            "translations": {"translations": []},
+            "seasons": [{"season_number": 1}],
+        },
+        "/3/tv/1045/season/1": {
+            "name": "第 1 季",
+            "air_date": "2025-01-01",
+            "episodes": [
+                {"episode_number": n, "name": f"E{n}", "air_date": _AIRED}
+                for n in range(1, episodes + 1)
+            ],
+        },
         "/3/movie/77": {
             "id": 77,
             "title": "某电影",
@@ -527,7 +546,7 @@ def test_window_through_the_api(client: TestClient) -> None:
     sub_id = detail["id"]
     assert detail["progress"]["total"] == 20
     assert detail["episode_windows"] == [
-        {"season_number": 1, "start": 1, "end": 20, "total": _TOTAL}
+        {"season_number": 1, "start": 1, "end": 20, "total": _TOTAL, "airing": False}
     ]
     assert detail["episode_seasons"] == [
         {"season_number": 1, "tmdb_count": _TOTAL, "floor": None, "window": {"start": 1, "end": 20}}
@@ -535,7 +554,7 @@ def test_window_through_the_api(client: TestClient) -> None:
 
     listed = client.get("/api/v1/subscriptions").json()["data"]
     assert [row["episode_windows"] for row in listed] == [
-        [{"season_number": 1, "start": 1, "end": 20, "total": _TOTAL}]
+        [{"season_number": 1, "start": 1, "end": 20, "total": _TOTAL, "airing": False}]
     ]
 
     # 调大一批：新增的集补上工单，详情随之更新
@@ -546,7 +565,7 @@ def test_window_through_the_api(client: TestClient) -> None:
     detail = patched.json()["data"]
     assert detail["progress"]["total"] == 40
     assert detail["episode_windows"] == [
-        {"season_number": 1, "start": 1, "end": 40, "total": _TOTAL}
+        {"season_number": 1, "start": 1, "end": 40, "total": _TOTAL, "airing": False}
     ]
 
     # 没带 episode_caps 的调整不改窗口
@@ -561,7 +580,7 @@ def test_window_through_the_api(client: TestClient) -> None:
     detail = aired.json()["data"]
     assert detail["progress"]["total"] == 20
     assert detail["episode_windows"] == [
-        {"season_number": 1, "start": 101, "end": None, "total": _TOTAL}
+        {"season_number": 1, "start": 101, "end": None, "total": _TOTAL, "airing": False}
     ]
     assert detail["episode_seasons"][0]["window"] == {"start": 101, "end": None}
 
@@ -578,6 +597,33 @@ def test_window_through_the_api(client: TestClient) -> None:
     assert detail["episode_windows"] is None
     assert detail["episode_seasons"][0]["window"] is None
     assert client.get("/api/v1/subscriptions").json()["data"][0]["episode_windows"] is None
+
+
+def test_open_ended_window_is_marked_airing_only_for_the_airing_season(
+    client: TestClient,
+) -> None:
+    """不设上界的窗口：在播剧标 airing（「最新 N 集」），完结剧不标（「从第 N 集起」）。
+
+    issue #950。
+    """
+    window = {"1": {"start": 101, "end": None}}
+    for title_ref in ("tmdb:tv:1043", "tmdb:tv:1045"):
+        created = client.post(
+            "/api/v1/subscriptions",
+            json={"title_ref": title_ref, "selected_seasons": [1], "episode_caps": window},
+        )
+        assert created.status_code == 200, created.text
+    listed = {
+        row["media"]["tmdb_id"]: row["episode_windows"]
+        for row in client.get("/api/v1/subscriptions").json()["data"]
+    }
+    assert listed == {
+        1043: [{"season_number": 1, "start": 101, "end": None, "total": _TOTAL, "airing": False}],
+        1045: [{"season_number": 1, "start": 101, "end": None, "total": _TOTAL, "airing": True}],
+    }
+    for row in client.get("/api/v1/subscriptions").json()["data"]:
+        detail = client.get(f"/api/v1/subscriptions/{row['id']}").json()["data"]
+        assert detail["episode_windows"] == listed[row["media"]["tmdb_id"]]
 
 
 def test_window_is_rejected_for_movies_through_the_api(client: TestClient) -> None:

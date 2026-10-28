@@ -30,6 +30,7 @@ from movieclaw_matcher.decision import (
     provably_below_cutoff,
     quality_label,
     resolution_rank,
+    site_rank,
     source_tier,
     upgrade_target_label,
 )
@@ -80,6 +81,7 @@ __all__ = [
     "normalize_title",
     "evaluate_rules",
     "pick_best",
+    "site_rank",
     "build_snapshot",
     "candidate_ladder_rank",
     "compare_ladder",

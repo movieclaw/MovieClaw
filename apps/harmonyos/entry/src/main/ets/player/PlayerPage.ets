@@ -455,8 +455,10 @@ export struct PlayerPage {
   private landscapeBtnX: number[] = [0, 0];
   private pipBtnX: number[] = [0, 0];
   private capsuleRowX: number[] = [0, 0];
+  private capsuleRowY: number[] = [0, 0];
   private capsuleRowWidth: number = 0;
   private skipBtnX: number[] = [0, 0];
+  private skipBtnY: number[] = [0, 0];
   private rewindBtnX: number[] = [0, 0];
   private playBtnX: number[] = [0, 0];
   private forwardBtnX: number[] = [0, 0];
@@ -2094,6 +2096,7 @@ export struct PlayerPage {
   private handleBottomBarTap(x: number, y: number): void {
     const globalX: number = x + this.layerOriginX;
     if (this.currentSegment() !== null && this.skipBtnX[1] > this.skipBtnX[0]
+      && this.inBand(y, this.skipBtnY)
       && globalX >= this.skipBtnX[0] && globalX <= this.skipBtnX[1]) {
       this.armChromeTimer();
       const segment: PlaybackSegmentView | null = this.currentSegment();
@@ -2104,7 +2107,8 @@ export struct PlayerPage {
     }
     const rowLeft: number = this.capsuleRowX[0];
     const rowRight: number = this.capsuleRowX[1];
-    if (rowRight > rowLeft && globalX >= rowLeft && globalX <= rowRight && this.capsuleRowWidth > 0) {
+    if (rowRight > rowLeft && this.inBand(y, this.capsuleRowY)
+      && globalX >= rowLeft && globalX <= rowRight && this.capsuleRowWidth > 0) {
       const relX: number = globalX - rowLeft;
       const segW: number = this.capsuleRowWidth / 4;
       const idx: number = Math.min(3, Math.floor(relX / segW));
@@ -3542,6 +3546,7 @@ export struct PlayerPage {
                 .onAreaChange((_old: Area, newArea: Area) => {
                   const gx: number = this.vpOf(newArea.globalPosition?.x ?? 0);
                   this.skipBtnX = [gx, gx + this.vpOf(newArea.width)];
+                  this.skipBtnY = this.bandOf(newArea);
                 })
             }
             .width('100%')
@@ -3605,6 +3610,7 @@ export struct PlayerPage {
           .onAreaChange((_old: Area, newArea: Area) => {
             const gx: number = this.vpOf(newArea.globalPosition?.x ?? 0);
             this.capsuleRowX = [gx, gx + this.vpOf(newArea.width)];
+            this.capsuleRowY = this.bandOf(newArea);
             this.capsuleRowWidth = this.vpOf(newArea.width);
           })
         }

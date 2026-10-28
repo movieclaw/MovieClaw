@@ -99,12 +99,33 @@ internal fun statusColor(s: SubscriptionView): Color = when {
     else -> Warn
 }
 
-/** 收录范围：「第 1、2 季」/「仅追新集」/「正片」（电影） */
-internal fun scopeLabel(s: SubscriptionView): String = when {
-    s.media.kind == "movie" -> "正片"
-    s.selectedSeasons.isEmpty() -> if (s.followFuture) "仅追新集" else "未选季"
-    else -> "第 " + s.selectedSeasons.sorted().joinToString("、") + " 季"
+/**
+ * 收录范围：「第 1、2 季」/「仅追新集」/「正片」（电影）。被订阅窗口截断的季标出范围（同网页）：
+ * 「第 1 季（第 120 集起）、第 2 季」。
+ */
+internal fun scopeLabel(s: SubscriptionView): String {
+    val windows = s.episodeWindows.orEmpty().associateBy { it.seasonNumber }
+    return when {
+        s.media.kind == "movie" -> "正片"
+        s.selectedSeasons.isEmpty() -> if (s.followFuture) "仅追新集" else "未选季"
+        windows.isEmpty() -> "第 " + s.selectedSeasons.sorted().joinToString("、") + " 季"
+        else -> s.selectedSeasons.sorted().joinToString("、") { season ->
+            val name = if (season == 0) "特别篇" else "第 $season 季"
+            val window = windows[season] ?: return@joinToString name
+            when {
+                window.end != null -> "$name（前 ${window.end} 集）"
+                window.airing ?: true -> "$name（最新 ${maxOf(1, window.total - window.start + 1)} 集）"
+                else -> "$name（第 ${window.start} 集起）"
+            }
+        }
+    }
 }
+
+/** 完结季「从第 N 集起」的说明：前面的集为什么不算进进度 */
+internal fun fromWindowNotes(s: SubscriptionView): List<String> =
+    s.episodeWindows.orEmpty()
+        .filter { it.end == null && it.airing == false }
+        .map { "${if (it.seasonNumber == 0) "特别篇" else "第 ${it.seasonNumber} 季"}从第 ${it.start} 集起订阅，之前的集不会搜索也不会下载。" }
 
 /** 服务端 ISO 时间 → 「10-06 15:50」（同一年不写年份） */
 internal fun shortTime(iso: String?): String? {
@@ -405,6 +426,9 @@ private fun FactsCard(sub: SubscriptionView) {
                 Spacer(Modifier.weight(1f))
                 Text(v, style = McType.sub, fontWeight = FontWeight.Medium, color = TextPrimary)
             }
+        }
+        fromWindowNotes(sub).forEach { note ->
+            Text(note, style = McType.caption, color = TextMuted, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
         }
     }
 }

@@ -519,6 +519,10 @@ async def test_ingest_watcher_reconciles_ignored_jobs_before_starting(monkeypatc
         calls.append("reconcile-disc")
         return 1
 
+    async def reconcile_orphaned() -> int:
+        calls.append("reconcile-orphaned")
+        return 1
+
     class Watcher:
         async def start(self) -> None:
             calls.append("start")
@@ -528,11 +532,13 @@ async def test_ingest_watcher_reconciles_ignored_jobs_before_starting(monkeypatc
 
     monkeypatch.setattr(ingest_mod, "reconcile_ignored_entry_jobs", reconcile)
     monkeypatch.setattr(ingest_mod, "reconcile_disc_batch_jobs", reconcile_disc)
+    monkeypatch.setattr(ingest_mod, "reconcile_orphaned_ingest_jobs", reconcile_orphaned)
     monkeypatch.setattr(ingest_mod, "IngestWatcher", Watcher)
     await ingest_mod.init_ingest_watcher()
-    assert calls == ["reconcile-ignored", "reconcile-disc", "start"]
+    startup = ["reconcile-ignored", "reconcile-disc", "reconcile-orphaned", "start"]
+    assert calls == startup
     await ingest_mod.close_ingest_watcher()
-    assert calls == ["reconcile-ignored", "reconcile-disc", "start", "stop"]
+    assert calls == [*startup, "stop"]
 
 
 async def _wait_job_status(job_id: str, status: JobStatus, timeout: float = 3.0) -> Job:
@@ -4903,3 +4909,142 @@ async def test_legacy_skipped_strm_entry_retries_once_after_upgrade(db, tmp_path
     assert records["某电影 (2020)"].status == IngestStatus.IMPORTED
     assert records["只有图片"].status == IngestStatus.SKIPPED
     assert records["只有图片"].attempted_at < utcnow().replace(tzinfo=None) - timedelta(hours=1)
+
+
+async def _blocked_identity_job(db, monkeypatch, *, watch: Path, name: str) -> Job:
+    """在 ``watch`` 规则下造一条真实的“无法识别 → blocked”入库作业。"""
+
+    async def identify_none(*_args):
+        return None
+
+    monkeypatch.setattr(ingest_mod, "_identify", identify_none)
+    monkeypatch.setattr(ingest_mod, "probe_media", lambda _path: _FAKE_SPEC)
+    entry = watch / name
+    entry.mkdir(parents=True)
+    (entry / "E01.mkv").write_bytes(b"video-1")
+    async with db.session() as session:
+        rule = (await session.execute(select(ImportWatch))).scalar_one()
+        library = await session.get(Library, rule.library_id)
+    await ingest_mod._sweep_dir(rule, library)
+    await ingest_mod._sweep_dir(rule, library)
+    async with db.session() as session:
+        rows = (await session.execute(_ingest_jobs())).scalars()
+        return next(row for row in rows if row.input_data["entry_path"] == str(entry))
+
+
+@pytest.mark.asyncio
+async def test_rule_source_change_resolves_orphaned_blocked_ingest_jobs(db, tmp_path, monkeypatch):
+    """issue #1050：源目录配错 → 条目 blocked；改对源目录后旧 blocked 必须自动收尾。
+
+    旧 blocked 的条目已不在任何规则下：巡检不再看它、清单不再列它，认领入口
+    跳过去什么也看不到，重启也不会消失。改规则时（以及升级后的启动对账）
+    应把它唤醒交给处理器按“已不属于规则”收尾——不算失败，不再要人处理，
+    也绝不碰源文件、台账和已入库记录。
+    """
+    root, downloads = tmp_path / "tv", tmp_path / "downloads"
+    correct = downloads / "tv"
+    correct.mkdir(parents=True)
+    library_id = await _make_library(db, kind=MediaKind.TV, root=root)
+    await _make_rule(db, library_id=library_id, source=downloads)  # 配错：整个下载根
+    job = await _blocked_identity_job(db, monkeypatch, watch=downloads, name="西游记")
+    await jobs.init_job_dispatcher(max_parallel=1)
+    blocked = await _wait_job_status(job.id, JobStatus.BLOCKED)
+    assert blocked.error["code"] == "INGEST_IDENTITY_REQUIRED"
+
+    async with db.session() as session:
+        rule = (await session.execute(select(ImportWatch))).scalar_one()
+        await ImportWatchConfigService(session).update(
+            rule.id, source_path=str(correct), strategy="hardlink", library_id=library_id
+        )
+
+    done = await _wait_job_status(job.id, JobStatus.SUCCEEDED)
+    assert done.result["message_key"] == "library.ingest.result.outsideRule"
+    assert (downloads / "西游记" / "E01.mkv").read_bytes() == b"video-1"
+    async with db.session() as session:
+        records = list((await session.execute(select(IngestEntry))).scalars())
+        all_jobs = list((await session.execute(_ingest_jobs())).scalars())
+    assert str(downloads / "西游记") in {row.entry_path for row in records}  # 台账原样保留
+    assert [row.id for row in all_jobs if "西游记" in row.input_data["entry_path"]] == [job.id]
+
+
+@pytest.mark.asyncio
+async def test_startup_reconcile_resolves_orphaned_ingest_jobs_once(db, tmp_path):
+    """升级前已滞留的现场：规则早已改走/删除、条目已删。启动对账收口一次且幂等。
+
+    仍在规则下、条目仍在的 blocked 是真待认领，必须原样保留；历史上因
+    “已不属于原规则”失败的提醒同样过期，转入已结束（不改 failed 事实）。
+    """
+    current = tmp_path / "media" / "下载"
+    current.mkdir(parents=True)
+    (current / "仍待认领").mkdir()
+    (tmp_path / "downloads").mkdir()
+    async with db.session() as session:
+        rule = ImportWatch(source_path=str(current), strategy="hardlink", kind="tv")
+        session.add(rule)
+        await session.flush()
+        assert rule.id is not None
+
+        def blocked(job_id: str, entry: Path, rule_id: int) -> Job:
+            return Job(
+                id=job_id,
+                job_type="library.ingest",
+                status=JobStatus.BLOCKED,
+                input_data={"rule_id": rule_id, "entry_path": str(entry)},
+            )
+
+        session.add_all(
+            [
+                blocked("job_moved_away", tmp_path / "downloads" / "西游记", rule.id),
+                blocked("job_rule_deleted", current / "旧规则条目", rule.id + 99),
+                blocked("job_entry_removed", current / "已删除条目", rule.id),
+                blocked("job_still_pending", current / "仍待认领", rule.id),
+                Job(
+                    id="job_outside_failed",
+                    job_type="library.ingest",
+                    status=JobStatus.FAILED,
+                    input_data={"rule_id": rule.id, "entry_path": "/downloads/旧"},
+                    error={"code": "INGEST_ENTRY_OUTSIDE_RULE", "message": "x"},
+                ),
+                Job(
+                    id="job_other_failed",
+                    job_type="library.ingest",
+                    status=JobStatus.FAILED,
+                    input_data={"rule_id": rule.id, "entry_path": str(current / "坏")},
+                    error={"code": "INGEST_COPY_FAILED", "message": "x"},
+                ),
+            ]
+        )
+        await session.commit()
+
+    assert await ingest_mod.reconcile_orphaned_ingest_jobs() == 4
+    assert await ingest_mod.reconcile_orphaned_ingest_jobs() == 0
+
+    async with db.session() as session:
+        rows = {row.id: row for row in (await session.execute(select(Job))).scalars()}
+    for job_id in ("job_moved_away", "job_rule_deleted", "job_entry_removed"):
+        assert rows[job_id].status == JobStatus.QUEUED  # 交给处理器按现状收尾
+    assert rows["job_still_pending"].status == JobStatus.BLOCKED
+    assert rows["job_outside_failed"].status == JobStatus.FAILED
+    assert rows["job_outside_failed"].dismissed_at is not None
+    assert rows["job_other_failed"].dismissed_at is None
+
+    # 唤醒后由处理器按现状收尾：均为成功的 no-op，不再进入“需要处理”
+    await jobs.init_job_dispatcher(max_parallel=1)
+    for job_id, key in (
+        ("job_moved_away", "library.ingest.result.outsideRule"),
+        ("job_rule_deleted", "library.ingest.result.ruleDeleted"),
+        ("job_entry_removed", "library.ingest.result.entryRemoved"),
+    ):
+        done = await _wait_job_status(job_id, JobStatus.SUCCEEDED)
+        assert done.result["message_key"] == key
+
+
+@pytest.mark.asyncio
+async def test_orphaned_ingest_job_reconcile_failure_does_not_block_startup(db, monkeypatch):
+    """自愈项失败只记日志，不能拖垮启动。"""
+
+    async def fail(*_args, **_kwargs):
+        raise RuntimeError("temporary database failure")
+
+    monkeypatch.setattr(ingest_mod, "_load_rule_sources", fail)
+    assert await ingest_mod.reconcile_orphaned_ingest_jobs() == 0

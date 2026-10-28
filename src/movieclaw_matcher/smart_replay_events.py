@@ -80,7 +80,9 @@ def _replay_strategy(grouped, policy, rules, end_at, episode, following, name):
             # 首次选择对照；旧规则的洗版执行不在离线纯决策里伪造。
             if current is not None:
                 return
-            best = pick_best([(c, IdentityMatch(), evaluate_rules(c, rules)) for c in choices])
+            best = pick_best(
+                [(c, IdentityMatch(), evaluate_rules(c, rules)) for c in choices], rules
+            )
             chosen = best[0] if best else None
             action, reason = ("download", "rules") if chosen else ("no_candidate", "rules")
         else:

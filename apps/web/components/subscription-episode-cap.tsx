@@ -3,11 +3,12 @@
 /**
  * 订阅窗口：一季上千集时先订阅一部分（docs/design/subscription-episode-cap.md §3）。
  *
- * - SeasonCapLine：订阅弹层 / 调整订阅里，超长的一季多出的一行。完结季是
- *   「先订阅前 20 集」，在播季是「先订阅最新 20 集」（之后播出的照常进来）。
- *   只在单季集数达到阈值时出现（lib/subscription-episode-cap.ts），一步能改回「全部」。
- * - EpisodeWindowBanner：订阅详情页，被截断的季的继续入口——完结季「继续订阅」
- *   往后加，在播季「往前再订」往回补。
+ * - SeasonCapLine：订阅弹层 / 调整订阅里，可截断的一季多出的一行。完结季是
+ *   「先订阅前 20 集」或「从第 120 集起」（老剧中途上车，issue #950），在播季是
+ *   「先订阅最新 20 集」（之后播出的照常进来）。订阅弹层只对超长季出现，调整订阅
+ *   对每一季都给（lib/subscription-episode-cap.ts），一步能改回「全部」。
+ * - EpisodeWindowBanner：订阅详情页，被截断的季的继续入口——「前 N 集」继续订阅
+ *   往后加，「最新 N 集」「从第 N 集起」往前再订往回补。
  *
  * 判定全在服务端（episode_windows / episode_seasons），这里只渲染与提交。
  */
@@ -25,8 +26,10 @@ import {
 import {
   EPISODE_CAP_BATCH,
   currentWindows,
-  defaultWindow,
+  partWindow,
   seasonTotal,
+  windowKind,
+  windowKindOf,
   windowsAfter,
   type CapWindow,
 } from "@/lib/subscription-episode-cap";
@@ -34,10 +37,15 @@ import {
 const LINK_BUTTON =
   "shrink-0 text-[var(--accent)] transition hover:opacity-80 disabled:opacity-40";
 
+// 选中态的底色取 CSS 变量，不加 transition：Chromium 会把过渡卡在旧值上不更新
+const MODE_BUTTON =
+  "h-7 rounded-full px-3 text-caption aria-pressed:bg-[var(--accent)] aria-pressed:font-semibold aria-pressed:text-black";
+
 /**
  * 一季的「先订阅一部分」一行。win 为 null 表示订阅整季；改动经 onChange 交还给
  * 调用方保存在草稿里（订阅弹层随创建提交，调整弹层随保存提交）。
- * 窗口形态决定文案：end 为空是在播季（最新 N 集），否则是完结季（前 N 集）。
+ * 文案按窗口的读法（windowKind）：前 N 集 / 最新 N 集（在播季）/ 从第 N 集起
+ * （完结季）。完结季可以在「前 N 集」和「从第 N 集起」之间切换。
  */
 export function SeasonCapLine({
   season,
@@ -59,13 +67,15 @@ export function SeasonCapLine({
   const t = useTranslations();
   const seasonName = (n: number) =>
     n === 0 ? t("media.season.specials") : t("media.season.title", { number: n });
+  const prefix = showName ? `${seasonName(season.season_number)} · ` : "";
   const total = seasonTotal(season);
-  // 完结季的输入是「订阅到第几集」，锚定本季总集数；在播季的输入是「订阅最新几集」，
-  // 锚定**已播**集数（TMDB 宣称的集数可能还没播到），提交时换算回窗口的 start，
-  // 新集播出后窗口不跟着滑
-  const isAiringWindow = win !== null && win.end === null;
+  // 「前 N 集」的输入是订阅到第几集，锚定本季总集数；「最新 N 集」的输入是订阅最新
+  // 几集，锚定**已播**集数（TMDB 宣称的集数可能还没播到），提交时换算回窗口的
+  // start，新集播出后窗口不跟着滑；「从第 N 集起」的输入就是 start
+  const kind = win === null ? null : windowKind(win, airing);
   const aired = season.aired_count;
-  const count = win === null ? null : isAiringWindow ? aired - win.start + 1 : win.end;
+  const count =
+    win === null ? null : kind === "latest" ? aired - win.start + 1 : kind === "from" ? win.start : win.end;
   const [text, setText] = useState(count === null ? "" : String(count));
   useEffect(() => {
     setText(count === null ? "" : String(count));
@@ -74,18 +84,34 @@ export function SeasonCapLine({
   // 输入框里的字在失焦 / 回车时才生效：边打边改会让 "2" → "20" 的中间态也被当成窗口
   const commit = () => {
     const value = Number(text);
-    if (!Number.isInteger(value) || value < 1) {
+    if (!Number.isInteger(value) || value < 1 || (kind === "from" && value > total)) {
       setText(count === null ? "" : String(count));
       return;
     }
-    if (isAiringWindow) {
+    if (kind === "latest") {
       onChange(value >= aired ? null : { start: Math.max(1, aired - value + 1), end: null });
+    } else if (kind === "from") {
+      onChange(value <= 1 ? null : { start: value, end: null });
     } else {
       onChange(value >= total ? null : { start: 1, end: value });
     }
   };
 
-  const prefix = showName ? `${seasonName(season.season_number)} · ` : "";
+  // 完结季在两种读法间切换时沿用输入框里的数：前 20 集 ⇄ 从第 20 集起
+  const switchTo = (next: "first" | "from") => {
+    if (count === null || next === kind) return;
+    onChange(
+      next === "from"
+        ? { start: Math.min(Math.max(count, 2), total), end: null }
+        : { start: 1, end: Math.min(count, total - 1) },
+    );
+  };
+  const labels = {
+    first: [t("subscription.cap.firstLabel", { prefix }), t("subscription.cap.suffixTotal", { count: total })],
+    latest: [t("subscription.cap.latestLabel", { prefix }), t("subscription.cap.suffixAired", { count: aired })],
+    from: [t("subscription.cap.fromLabel", { prefix }), t("subscription.cap.suffixFrom", { count: total })],
+  };
+
   return (
     <div
       className={`flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sub text-[var(--text-muted)] ${className}`}
@@ -96,21 +122,43 @@ export function SeasonCapLine({
           <button
             type="button"
             className={LINK_BUTTON}
-            onClick={() => onChange(defaultWindow(season, airing))}
+            onClick={() => onChange(partWindow(season, airing))}
           >
             {t("subscription.cap.subscribePart")}
           </button>
         </>
       ) : (
         <>
-          <span>
-            {t(isAiringWindow ? "subscription.cap.latestLabel" : "subscription.cap.firstLabel", { prefix })}
-          </span>
+          {!airing && (
+            <div
+              role="group"
+              aria-label={t("subscription.cap.modeAria", { season: season.season_number })}
+              className="flex shrink-0 rounded-full border border-white/[0.08] bg-white/[0.05] p-0.5"
+            >
+              <button
+                type="button"
+                aria-pressed={kind === "first"}
+                className={MODE_BUTTON}
+                onClick={() => switchTo("first")}
+              >
+                {t("subscription.cap.modeFirst")}
+              </button>
+              <button
+                type="button"
+                aria-pressed={kind === "from"}
+                className={MODE_BUTTON}
+                onClick={() => switchTo("from")}
+              >
+                {t("subscription.cap.modeFrom")}
+              </button>
+            </div>
+          )}
+          <span>{labels[kind ?? "first"][0]}</span>
           <input
             type="number"
             inputMode="numeric"
-            min={1}
-            max={total - 1}
+            min={kind === "from" ? 2 : 1}
+            max={kind === "from" ? total : kind === "latest" ? aired - 1 : total - 1}
             aria-label={t("subscription.cap.inputAria", { season: season.season_number })}
             value={text}
             onChange={(event) => setText(event.target.value)}
@@ -123,14 +171,15 @@ export function SeasonCapLine({
             }}
             className="w-16 shrink-0 rounded-lg border border-white/[0.1] bg-white/[0.05] px-2 py-1 text-right text-ui tabular-nums text-white/90 outline-none focus:border-white/30"
           />
-          <span>
-            {isAiringWindow
-              ? t("subscription.cap.suffixAired", { count: aired })
-              : t("subscription.cap.suffixTotal", { count: total })}
-          </span>
+          <span>{labels[kind ?? "first"][1]}</span>
           <button type="button" className={LINK_BUTTON} onClick={() => onChange(null)}>
             {t("subscription.cap.all")}
           </button>
+          {kind === "from" && win !== null && (
+            <p className="basis-full text-caption leading-relaxed text-[var(--text-faint)]">
+              {t("subscription.cap.fromSummary", { start: win.start, total, before: win.start - 1 })}
+            </p>
+          )}
         </>
       )}
     </div>
@@ -192,19 +241,22 @@ export function EpisodeWindowBanner({
     <div className="space-y-2">
       {windows.map((win) => {
         const season = seasonName(win.season_number);
-        const airing = win.end === null;
-        const count = airing ? Math.max(1, airedCount(detail, win) - win.start + 1) : win.end ?? 0;
-        // 主按钮这一步：完结季往后加一批，在播季往前挪一批；剩下不足一批就一次
+        // 不设上界的窗口按这一季在不在播（服务端标的 airing）分读法：在播「最新 N 集」，
+        // 完结「从第 N 集起」；两者的按钮都是往前再订
+        const kind = windowKindOf(win);
+        const openEnded = win.end === null;
+        const count = openEnded ? Math.max(1, airedCount(detail, win) - win.start + 1) : win.end ?? 0;
+        // 主按钮这一步：「前 N 集」往后加一批，不设上界的往前挪一批；剩下不足一批就一次
         // 订完整季（窗口清掉）——两侧同构，只是方向相反
-        const next: CapWindow | null = airing
+        const next: CapWindow | null = openEnded
           ? win.start - EPISODE_CAP_BATCH > 1
             ? { start: win.start - EPISODE_CAP_BATCH, end: null }
             : null
           : (win.end ?? 0) + EPISODE_CAP_BATCH < win.total
             ? { start: win.start, end: (win.end ?? 0) + EPISODE_CAP_BATCH }
             : null;
-        const remaining = airing ? win.start - 1 : win.total - (win.end ?? 0);
-        const stepLabel = airing
+        const remaining = openEnded ? win.start - 1 : win.total - (win.end ?? 0);
+        const stepLabel = openEnded
           ? remaining > EPISODE_CAP_BATCH
             ? t("subscription.cap.stepEarlier", { count: EPISODE_CAP_BATCH })
             : t("subscription.cap.stepEarlierRest", { count: remaining })
@@ -213,7 +265,7 @@ export function EpisodeWindowBanner({
             : t("subscription.cap.stepRest", { count: remaining });
         const doneAll = t("subscription.cap.doneAll", { season, count: win.total });
         const stepDone = next
-          ? airing
+          ? openEnded
             ? t("subscription.cap.doneEarlier", { episode: next.start })
             : t("subscription.cap.doneContinue", { episode: next.end ?? 0 })
           : doneAll;
@@ -224,14 +276,23 @@ export function EpisodeWindowBanner({
           >
             <div className="min-w-0 flex-1 basis-64">
               <p className="text-ui font-semibold text-white/90">
-                {airing
+                {kind === "latest"
                   ? t("subscription.cap.bannerLatest", { count })
-                  : t("subscription.cap.bannerUntil", { episode: win.end ?? 0 })}
+                  : kind === "from"
+                    ? t("subscription.cap.bannerFrom", { start: win.start })
+                    : t("subscription.cap.bannerUntil", { episode: win.end ?? 0 })}
               </p>
               <p className="mt-0.5 text-sub leading-6 text-[var(--text-muted)]">
-                {airing
+                {kind === "latest"
                   ? t("subscription.cap.bannerLatestBody", { season, start: win.start })
-                  : t("subscription.cap.bannerUntilBody", { season, total: win.total, count: win.end ?? 0 })}
+                  : kind === "from"
+                    ? t("subscription.cap.bannerFromBody", {
+                        season,
+                        total: win.total,
+                        start: win.start,
+                        before: win.start - 1,
+                      })
+                    : t("subscription.cap.bannerUntilBody", { season, total: win.total, count: win.end ?? 0 })}
               </p>
             </div>
             {canTune && (

@@ -85,6 +85,7 @@ from movieclaw_api.services.subscription import (
 )
 from movieclaw_api.services.subscription.episode_cap import (
     EpisodeCap,
+    airing_season,
     caps_of,
     season_episode_max_many,
     windows_of,
@@ -501,7 +502,14 @@ async def _detail_view(
             for season in sorted(set(known_max) | set(floors))
             if season != 0 and tracks_season(sub, season)
         ]
-        view.episode_windows = _window_views(sub, known_max)
+        aired = (
+            (await MediaItemRepository(session).aired_counts_by_season_many([item.id])).get(
+                item.id, {}
+            )
+            if sub.episode_caps
+            else {}
+        )
+        view.episode_windows = _window_views(sub, known_max, airing_season(item.status, aired))
         view.episode_hints = [
             EpisodeHintView(
                 season_number=hint.season_number,
@@ -563,11 +571,22 @@ def _cap_windows(
     return {season: EpisodeCap(spec.start, spec.end) for season, spec in payload_caps.items()}
 
 
-def _window_views(sub: Subscription, known_max: dict[int, int]) -> list[EpisodeWindowView] | None:
-    """被订阅上限截断的季；没有被截断的季返回 None（与「没设上限」同一形态）。"""
+def _window_views(
+    sub: Subscription, known_max: dict[int, int], airing: int | None
+) -> list[EpisodeWindowView] | None:
+    """被订阅上限截断的季；没有被截断的季返回 None（与「没设上限」同一形态）。
+
+    ``airing`` 是在播的那一季（``airing_season``），标在窗口上供客户端选读法。
+    """
     windows = windows_of(sub, known_max)
     return [
-        EpisodeWindowView(season_number=w.season_number, start=w.start, end=w.end, total=w.total)
+        EpisodeWindowView(
+            season_number=w.season_number,
+            start=w.start,
+            end=w.end,
+            total=w.total,
+            airing=w.season_number == airing,
+        )
         for w in windows
     ] or None
 
@@ -974,7 +993,11 @@ async def list_subscriptions(
             session, [item.id for _sub, item in capped if item.id is not None]
         )
         windows_by_sub = {
-            sub.id: _window_views(sub, known_max_by_item.get(item.id or -1, {}))
+            sub.id: _window_views(
+                sub,
+                known_max_by_item.get(item.id or -1, {}),
+                airing_season(item.status, aired_by_item.get(item.id or -1, {})),
+            )
             for sub, item in capped
         }
         for view in views:

@@ -40,6 +40,15 @@ export function isLongSeason(season: SeasonCounts): boolean {
 }
 
 /**
+ * 调整订阅时这一季能不能「先订阅一部分」：不看阈值（老剧中途上车，一季二十几集也
+ * 可能想从第 N 集起，issue #950），至少两集才谈得上一部分；在播季按已播集数算。
+ * 创建订阅的弹层仍只对超长季提供（isLongSeason），不给每一季都多出一行。
+ */
+export function canCapSeason(season: SeasonCounts, airing: boolean): boolean {
+  return season.season_number > 0 && (airing ? season.aired_count : seasonTotal(season)) >= 2;
+}
+
+/**
  * 这一季是不是「在播」：剧还在播（TMDB status 为 Returning Series），而且它是
  * 最近一个开播的季。完结的超长季从第 1 集订起；在播的订最新一批——追这类剧的
  * 用户最想要的就是最新的几集。已在播的新一季还没有已播集时按完结季处理
@@ -59,6 +68,23 @@ export function isAiringSeason(
 export interface CapWindow {
   start: number;
   end: number | null;
+}
+
+/**
+ * 窗口给用户的读法。end 设值是「前 N 集」；end 不设时，在播季读作「最新 N 集」
+ * （之后播出的照常进来），完结季读作「从第 N 集起」——同一个窗口，只是完结季
+ * 没有新集可等，说「最新」会误导（issue #950）。
+ */
+export type WindowKind = "first" | "latest" | "from";
+
+export function windowKind(win: Pick<CapWindow, "end">, airing: boolean): WindowKind {
+  if (win.end !== null) return "first";
+  return airing ? "latest" : "from";
+}
+
+/** 服务端给的窗口的读法：在播与否看它标的 airing；旧服务端不标时沿用旧读法（最新 N 集）。 */
+export function windowKindOf(win: Pick<EpisodeWindow, "end" | "airing">): WindowKind {
+  return windowKind(win, win.airing ?? true);
 }
 
 /**
@@ -84,18 +110,31 @@ export function defaultWindow(season: SeasonCounts, airing: boolean): CapWindow 
     : { start: 1, end: EPISODE_CAP_BATCH };
 }
 
-/** 这一季当前生效的窗口；null = 订阅整季（不长、选了全部、或窗口盖住整季）。 */
+/**
+ * 点「先订阅一部分」时给的窗口：默认那一批，但保证真的截掉了一段——季不到一批
+ * 那么长时，默认值会盖住整季，点了看起来没反应。
+ */
+export function partWindow(season: SeasonCounts, airing: boolean): CapWindow {
+  return airing
+    ? { start: Math.max(2, season.aired_count - EPISODE_CAP_BATCH + 1), end: null }
+    : { start: 1, end: Math.max(1, Math.min(EPISODE_CAP_BATCH, seasonTotal(season) - 1)) };
+}
+
+/**
+ * 这一季当前生效的窗口；null = 订阅整季（选了全部、窗口盖住整季，或不长的季没动过）。
+ * 草稿里有值就以草稿为准，不论季长短：调整订阅能给短季设窗口，存量订阅里经接口
+ * 设过的窗口也原样保留。
+ */
 export function effectiveWindow(
   season: SeasonCounts,
   draft: CapDraft,
   airing: boolean,
 ): CapWindow | null {
-  if (!isLongSeason(season)) return null;
   const value = draft[season.season_number];
   if (value !== undefined) {
     return value === null ? null : normalizeWindow(value, seasonTotal(season));
   }
-  return defaultWindow(season, airing);
+  return isLongSeason(season) ? defaultWindow(season, airing) : null;
 }
 
 /** 提交给服务端的窗口：只含被勾选、且确实截断了本季的季。 */
@@ -179,7 +218,7 @@ export function windowCount(
   return Math.max(1, (aired ?? win.total) - win.start + 1);
 }
 
-/** 详情页「收录范围」：第 1 季（前 20 集）、第 2 季（最新 25 集）。 */
+/** 详情页「收录范围」：第 1 季（前 20 集）、第 2 季（最新 25 集）、第 3 季（第 120 集起）。 */
 export function rangeLabel(
   selectedSeasons: readonly number[],
   windows: readonly EpisodeWindow[] | null | undefined,
@@ -192,9 +231,14 @@ export function rangeLabel(
     const name = season === 0 ? t("media.season.specials") : t("media.season.title", { number: season });
     const win = bySeason.get(season);
     if (win === undefined) return name;
-    return win.end === null
-      ? t("subscription.cap.rangeLatest", { name, count: windowCount(win, airedBySeason) })
-      : t("subscription.cap.rangeFirst", { name, count: win.end });
+    switch (windowKindOf(win)) {
+      case "latest":
+        return t("subscription.cap.rangeLatest", { name, count: windowCount(win, airedBySeason) });
+      case "from":
+        return t("subscription.cap.rangeFrom", { name, start: win.start });
+      default:
+        return t("subscription.cap.rangeFirst", { name, count: win.end ?? 0 });
+    }
   });
   return formatList(parts, locale, { type: "unit", style: "short" });
 }

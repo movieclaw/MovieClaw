@@ -109,6 +109,14 @@ class MediaItem(TimestampMixin, table=True):
     english_title: str | None = Field(
         default=None, description="国际英文名；NULL=未知或与原名相同"
     )
+    # 界面语言的译名（docs/design/content-locale.md §4）：{"en-US": "Severance"}。
+    # 只存与主语言不同语种的那几份，主语言就是上面的 title；给人看的视图按读者
+    # 语言挑（i18n.content.display_title），写盘与通知仍用 title。NULL=存量未刮过
+    title_translations: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="界面语言译名（不含主语言）；NULL=未刮过",
+    )
     year: int | None = Field(
         default=None, description="上映/首播年份；NULL=未知（匹配的硬约束之一）"
     )

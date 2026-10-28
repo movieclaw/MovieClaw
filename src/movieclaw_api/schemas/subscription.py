@@ -595,6 +595,13 @@ class EpisodeWindowView(BaseModel):
     start: int = Field(description="从第几集起（含）")
     end: int | None = Field(description="订阅到第几集（含）；null=不设上界，新集照常纳入")
     total: int = Field(description="本季已录集数（TMDB 最大集号与集数下限取大）")
+    airing: bool | None = Field(
+        default=None,
+        description=(
+            "这一季是否在播（剧还在播且是最近开播的季）；end 为 null 时在播读作"
+            "「最新 N 集」，完结读作「从第 N 集起」。旧服务端没有"
+        ),
+    )
 
 
 class SubscriptionView(BaseModel):
@@ -1196,7 +1203,11 @@ class RuleSetPayload(BaseModel):
             "platforms/platforms_block 流媒体平台白/黑名单（规范值如 netflix、"
             "disney_plus、iqiyi；词表外的值读取时丢弃不报错）、"
             "release_groups_allow/release_groups_block "
-            "制作组白/黑名单、hdr_levels/hdr_block HDR 白/黑名单（值域 "
+            "制作组白/黑名单、"
+            'sites 站点白名单兼优先级（站点 id，如 ["pter","mteam"]；设了就只从这些站下载，'
+            "顺序即优先级：靠前站点有合格资源就先选它，免费等评分只在同一站点内比较）、"
+            "sites_block 站点黑名单、"
+            "hdr_levels/hdr_block HDR 白/黑名单（值域 "
             "DV/HDR10+/HDR10/HLG/SDR，SDR=资源未标注 HDR，资源只标注泛指 HDR 时"
             "按 HDR10 计；白名单任一命中即过、"
             "顺序即偏好，黑名单命中即排除；旧的 hdr/dv 三态字段仍可写入，"

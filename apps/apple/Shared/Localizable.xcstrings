@@ -1,6 +1,30 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "player.controls.previousEpisode": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous episode"
+          }
+        }
+      }
+    },
     "settings.appearance.language": {
       "extractionState": "manual",
       "generatesSymbol": true,
@@ -75622,19 +75646,19 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "元数据语言"
+            "value": "媒体库语言"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "元数据语言"
+            "value": "媒体库语言"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Metadata language"
+            "value": "Library language"
           }
         }
       }
@@ -102934,6 +102958,30 @@
           "stringUnit": {
             "state": "translated",
             "value": "Seasons %@"
+          }
+        }
+      }
+    },
+    "subscription.window.fromNote": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@从第 %2$lld 集起订阅，之前的集不会搜索也不会下载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@从第 %2$lld 集起订阅，之前的集不会搜索也不会下载。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is subscribed from episode %2$lld; earlier episodes won’t be searched or downloaded."
           }
         }
       }

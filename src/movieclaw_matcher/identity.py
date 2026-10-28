@@ -327,6 +327,94 @@ def _scan_multi_year_movie_pack(candidate: TorrentCandidate) -> bool:
     return any(start != end for start, end in _MOVIE_YEAR_RANGE_RE.findall(text))
 
 
+# ---------------------------------------------------------------------------
+# 彩蛋/花絮类资源：带着正片的季集号，却不是正片（issue #1062）
+# ---------------------------------------------------------------------------
+#
+# 国综平台给每期配「超前彩蛋」「花絮」等短视频，发布组照样编进当期的季集号：
+# ``Natural High S04E01 Eggs 2026 2160p TX WEB-DL``。季集、画质、片源全都和
+# 正片一样，身份匹配把它当成 S04E01，入库后还因为画质达标停止洗版——正片
+# 再也不会来。所以这类标记必须在身份层就否决：它不是这一集。
+#
+# 两条判据都刻意收得很窄，误伤真正的一集比漏挡一个彩蛋代价更大：
+#
+# 1. 场景命名（主标题）：季集号之后、下一个年份/画质/片源标记之前的那段
+#    「集标题」**整段**等于一个附加内容标记。``S04E01.Eggs.2026`` 命中；
+#    ``S01E05.The.Bonus.Round.1080p`` 这种正常集标题不命中（整段不相等）；
+#    片名段里的词（《Green Eggs and Ham》）在季集号之前，天然不参与。
+#    ``S01.Extras`` 这类整季花絮包同样命中。
+# 2. 中文关键词（主标题+副标题）：只认「彩蛋」「花絮」「预告片」三个歧义最小
+#    的词（与入库扫描的 extras 关键词同一口径）。「加更」「纯享」「特辑」不收
+#    ——国综的加更版、特辑常常就是正片的一期。前面紧跟「含/附/带/+」的是在
+#    描述附带内容（"第1期 含彩蛋"），不算；整季/全集包也不查中文关键词，
+#    "全12期 花絮" 是在说包里附了花絮，正片照样在。
+_BONUS_EPISODE_TITLES = frozenset(
+    {
+        "eggs",
+        "extras",
+        "bonus",
+        "featurette",
+        "featurettes",
+        "trailer",
+        "trailers",
+        "teaser",
+        "behindthescenes",
+        "makingof",
+        "deletedscenes",
+    }
+)
+_EPISODE_MARKER_RE = re.compile(r"^(s\d{1,3}(e\d{1,4})?|ep?\d{1,4})$", re.IGNORECASE)
+_BONUS_ZH_RE = re.compile(r"([含附带加送+＋&及和]\s*)?(?:超前|独家|幕后)?(彩蛋|花絮|预告片)")
+
+
+def _scene_bonus_marker(title: str) -> str | None:
+    """主标题季集号之后的「集标题」整段是附加内容标记时返回它。"""
+    tokens = _tokenize(title)
+    start = next((i for i, t in enumerate(tokens) if _EPISODE_MARKER_RE.match(t)), None)
+    if start is None:
+        return None
+    rest = tokens[start + 1 :]
+    while rest and _EPISODE_MARKER_RE.match(rest[0]):
+        rest = rest[1:]  # S01E01.E02 这类多集标记
+    phrase: list[str] = []
+    for token in rest:
+        if _BOUNDARY_RE.match(token):
+            break
+        phrase.append(token)
+    joined = "".join(phrase)
+    return joined if joined in _BONUS_EPISODE_TITLES else None
+
+
+def _zh_bonus_markers(candidate: TorrentCandidate) -> frozenset[str]:
+    attrs = candidate.attrs
+    if not attrs.episodes or attrs.complete is True:
+        return frozenset()
+    found = set()
+    for text in (candidate.title, candidate.subtitle):
+        for prefix, word in _BONUS_ZH_RE.findall(text or ""):
+            if not prefix:
+                found.add(word)
+    return frozenset(found)
+
+
+def bonus_marker(candidate: TorrentCandidate, media: MediaIdentity) -> str | None:
+    """候选是彩蛋/花絮类附加内容（不是正片）时返回命中的标记，否则 None。
+
+    只对剧集生效。中文关键词若本身就是条目别名的一部分（片名里带「彩蛋」的
+    作品），对这个条目不算标记。
+    """
+    if media.kind != "tv":
+        return None
+    scene = _memo(candidate, "_scene_bonus", lambda c: _scene_bonus_marker(c.title))
+    if scene is not None:
+        return scene
+    zh: frozenset[str] = _memo(candidate, "_zh_bonus", _zh_bonus_markers)
+    for word in sorted(zh):
+        if not any(word in alias for alias in media.aliases):
+            return word
+    return None
+
+
 def match_identity(
     candidate: TorrentCandidate, media: MediaIdentity
 ) -> IdentityMatch | None:
@@ -342,6 +430,11 @@ def match_identity(
     # 单片订阅不能用跨年份合集来满足。即使合集带首部电影的 IMDb/Douban ID，
     # 也不能让精确 ID 绕过该结构守卫——当前下载/入库契约只接受一个电影单元。
     if media.kind == "movie" and _is_multi_year_movie_pack(candidate):
+        return None
+
+    # 彩蛋/花絮不是正片：季集号再对得上也不是这一集，外部 ID 相等同样不能放行
+    # （站点给彩蛋种挂的就是正片的豆瓣/IMDb）。见 _BONUS_EPISODE_TITLES 注释
+    if bonus_marker(candidate, media) is not None:
         return None
 
     # -- 信号一：外部 ID 精确相等 -------------------------------------------

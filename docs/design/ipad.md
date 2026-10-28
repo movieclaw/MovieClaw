@@ -84,8 +84,9 @@
 | 横滑行间距 | 12 | 18 | |
 
 页边距也在这套里（`edge`：手机 16，宽窗口 32 同 Mac），iOS 页面里的 `Theme.pagePadding` 全部换成 `cards.edge`。
-**宽版式只给 iPad**（`CardMetrics.forWindow`：常规宽度且是 iPad）：iPhone Pro Max 横屏也是常规宽度，仍按手机排，
-详情页大图区、列表限宽同样以 `cards.isWide` 为准。类型色块保持 196（同网页与 Mac）；离线片库、发现页网格未接。
+**宽版式按尺寸类别**（2026-10-27 起，`WindowLayout.isWide`：常规宽 × 常规高；原来是「常规宽度且是 iPad」）：
+iPhone Pro Max 横屏（常规宽 × 紧凑高）仍按手机排；iPhone Duo 内屏是宽版式但卡片用手机尺寸（[iphone-duo.md](iphone-duo.md) §5）；
+iPad 台前调度里又宽又矮的窗口现在也退回手机版式。详情页大图区、列表限宽同样以 `cards.isWide` 为准。类型色块保持 196（同网页与 Mac）；离线片库、发现页网格未接。
 iPad mini 竖屏（744 点，也是常规宽度）详情页文字比 16:9 大图区高：大图区跟着长高，顶上给标签栏留 120 点。
 
 ## 5. 输入

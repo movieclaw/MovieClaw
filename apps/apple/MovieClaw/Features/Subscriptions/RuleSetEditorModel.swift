@@ -113,8 +113,9 @@ struct RuleSetSpec: Equatable {
     var cutoffResolution: String?
     var upgradeKeepOld = false
     var upgradeLadder: [String]?
-    /// [预留] 站点白名单：UI 不编辑，保存时原样带回
+    /// 站点白名单（兼优先级）与黑名单：iPhone 端暂不编辑，保存时原样带回
     var sites: [String] = []
+    var sitesBlock: [String] = []
 
     init() {}
 
@@ -146,6 +147,7 @@ struct RuleSetSpec: Equatable {
         upgradeKeepOld = raw["upgrade_keep_old"]?.boolValue ?? false
         upgradeLadder = raw["upgrade_ladder"]?.arrayValue?.compactMap(\.stringValue)
         sites = strings("sites")
+        sitesBlock = strings("sites_block")
     }
 
     /// 保存用的 JSON：只写设置过的键（与 Web 编辑器 draft.spec 同一口径）
@@ -178,6 +180,7 @@ struct RuleSetSpec: Equatable {
             if upgradeKeepOld { out["upgrade_keep_old"] = .bool(true) }
         }
         put("sites", sites)
+        put("sites_block", sitesBlock)
         return out
     }
 

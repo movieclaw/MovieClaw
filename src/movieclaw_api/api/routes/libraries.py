@@ -26,8 +26,14 @@ from sqlmodel import select
 
 from movieclaw_api.api.deps import require_admin, require_login
 from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
-from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
+from movieclaw_api.exceptions import (
+    BadRequestException,
+    ConflictException,
+    NotFoundException,
+    UpstreamServiceException,
+)
 from movieclaw_api.i18n import t
+from movieclaw_api.i18n.content import chinese_title, display_title, in_reader_language
 from movieclaw_api.i18n.media_labels import routing_options_labels
 from movieclaw_api.i18n.stored import (
     localize_fields,
@@ -281,6 +287,7 @@ from movieclaw_db.repositories.library_repo import LibraryRepository
 from movieclaw_db.repositories.member_repo import MemberRepository
 from movieclaw_media.models import MediaKind, MediaSource
 from movieclaw_playback import state as playback_state
+from movieclaw_sdk import drives as dv
 
 router = APIRouter(prefix="/libraries", tags=["libraries"])
 search_router = APIRouter(prefix="/search", tags=["search"])
@@ -1768,7 +1775,8 @@ async def start_scan(
     识别链，认不出的进「待识别」清单。扫描绝不移动/改名/删除存量文件。
 
     给了 ``paths`` 就只扫这些路径所在的条目目录（与监听触发的扫描同一语义），
-    不在库根之下的路径直接拒绝。"""
+    不在库根之下的路径直接拒绝。给了 ``cloud_paths`` 就只列这些网盘子目录（只看
+    网盘的作业），不在挂着的网盘文件夹之下、网盘上找不到的直接拒绝。"""
     service = LibraryConfigService(session)
     library = await service.get(library_id)
     scope: list[str] | None = None
@@ -1791,17 +1799,34 @@ async def start_scan(
         raise ConflictException(
             message_key="errors.library.transferBeforeScan", params={"name": library.name}
         )
+    # 网盘子目录逐级找 id 要花网盘调用：库忙的时候先拒掉，不白花
+    cloud_scopes: list[library_cloud.CloudScope] | None = None
+    if payload is not None and payload.cloud_paths:
+        try:
+            cloud_scopes = await library_cloud.resolve_scopes(
+                session, library_id, payload.cloud_paths
+            )
+        except ValueError as exc:
+            raise BadRequestException(str(exc)) from exc
+        except dv.DriveError as exc:
+            raise UpstreamServiceException(exc.message) from exc
     created = await enqueue_scan_job(
-        session, library_id, library.name, origin=_job_origin(client_name), scope_paths=scope
+        session,
+        library_id,
+        library.name,
+        origin=_job_origin(client_name),
+        scope_paths=scope,
+        cloud_scopes=cloud_scopes,
     )
+    count = len(cloud_scopes) if cloud_scopes is not None else len(scope or ())
     return ok(
         ScanResultView(
             started=True,
             message=t(
                 "library.operations.scanStartedScope",
                 name=library.name,
-                scoped="yes" if scope else "no",
-                count=len(scope or ()),
+                scoped="yes" if count else "no",
+                count=count,
             ),
             job_id=created.job.id,
             created=created.created,
@@ -3114,6 +3139,9 @@ async def get_library_item(
         logo_url = f"/images/assets/{meta_row.logo_file}?v={logo_version}"
     else:
         logo_url = tmdb_image_url(item.logo_path, "logo")
+    # Logo 是库语言的文字图：片名以读者语言显示时不给，退回文字片名
+    if in_reader_language(item):
+        logo_url = None
     local_meta = None
     if bundle.local_meta is not None:
         # Web 与 Jellyfin 共用 person 关系表：导演头像和人物链接不能再从
@@ -3207,9 +3235,10 @@ async def get_library_item(
             tmdb_id=item.tmdb_id,
             imdb_id=item.imdb_id,
             douban_id=item.douban_id,
-            title=item.title,
+            title=display_title(item),
             original_title=item.original_title,
             english_title=item.english_title,
+            chinese_title=chinese_title(item, meta_row.scrape_language if meta_row else None),
             year=item.year,
             poster_url=poster_url,
             backdrop_url=backdrop_url,

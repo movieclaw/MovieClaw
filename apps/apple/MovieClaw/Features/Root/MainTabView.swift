@@ -50,6 +50,16 @@ struct MainTabView: View {
     @State private var quickInputHeight: CGFloat = 0
     /// 点开的推送通知（见 openPushTarget）
     @Environment(PushCenter.self) private var push
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// 侧边栏外壳：iPad 的宽版式窗口里页签带文字、逐个列库与合集、用系统角标；窄窗口退回手机底栏。
+    /// iPhone Duo 内屏虽是宽版式，却没有展开侧边栏的入口——系统把标签栏竖在右侧，侧边栏专用的库与合集也会挤进去、
+    /// 把「活动」「我的」压进「⋯」，片段页也藏不掉它（内屏实测）——所以 Duo 始终是手机外壳，竖排横排交给系统
+    /// （2026-10-27 定：没有展开入口就不要侧边栏，docs/design/iphone-duo.md §6.2）。内容页的宽版式照旧按尺寸类别
+    private var sidebarShell: Bool {
+        Self.isPad && WindowLayout.isWide(horizontal: horizontalSizeClass, vertical: verticalSizeClass)
+    }
 
     /// 当前停在「片段」页（媒体库页签栈顶）
     private var onReels: Bool {
@@ -85,8 +95,8 @@ struct MainTabView: View {
             } label: {
                 iconLabel(.library)
             }
-            .accessibilityLabel(Self.isPad ? String(localized: .navNativeHome) : MainTab.library.title)
-            if Self.isPad {
+            .accessibilityLabel(sidebarShell ? String(localized: .navNativeHome) : MainTab.library.title)
+            if sidebarShell {
                 PadSidebarLibraryTabs()
             }
             if permissions.canSubscribe {
@@ -111,7 +121,7 @@ struct MainTabView: View {
                 }
                 .accessibilityLabel(MainTab.activity.title)
                 // iPad 没有底栏圆点（见 TabBarDotBridge）：侧边栏 / 顶部标签栏上用系统角标写出需要处理的任务数
-                .badge(Self.isPad ? badges.needsAction : 0)
+                .badge(sidebarShell ? badges.needsAction : 0)
             }
             Tab(value: ShellTab.tab(.more)) {
                 TabRoot(item: .tab(.more)) { MorePage() }
@@ -132,18 +142,19 @@ struct MainTabView: View {
                 // iPad 侧边栏与顶部标签栏里写出昵称；手机只显示头像。
                 // 没有像 Mac 版那样把账号钉在侧边栏最底下：iPadOS 不允许一个页签只藏在侧边栏、仍留在标签栏里
                 Label {
-                    Text(Self.isPad ? (session?.nickname ?? MainTab.more.title) : MainTab.more.title)
+                    Text(sidebarShell ? (session?.nickname ?? MainTab.more.title) : MainTab.more.title)
                 } icon: {
                     Image(uiImage: avatarIcon ?? TabIcon.image(MainTab.more.systemImage))
                 }
-                .labelStyle(Self.isPad ? AnyLabelStyle(.titleAndIcon) : AnyLabelStyle(.iconOnly))
+                .labelStyle(sidebarShell ? AnyLabelStyle(.titleAndIcon) : AnyLabelStyle(.iconOnly))
             }
             .accessibilityLabel(MainTab.more.title)
             .accessibilityIdentifier("open-more")
-            .badge(Self.isPad && badges.updatePending ? Text(String(localized: .navBadgesUpdateAvailable)) : nil)
+            .badge(sidebarShell && badges.updatePending ? Text(String(localized: .navBadgesUpdateAvailable)) : nil)
         }
-        // iPad：顶部标签栏可展开成侧边栏（iPadOS 18 起的 sidebarAdaptable，同 Apple Music / TV 的 iPad 版）
-        .modifier(PadSidebarTabStyle(enabled: Self.isPad))
+        // 宽窗口：标签栏可展开成侧边栏（iPadOS 18 起的 sidebarAdaptable，同 Apple Music / TV 的 iPad 版）
+        .modifier(PadSidebarTabStyle(sidebarShell: sidebarShell))
+        .environment(\.sidebarShell, sidebarShell)
         // 「片段」上下滑动是在换条，不是在往下读：停在它上面时标签栏不收起（docs/design/reels.md）；
         // 显示快捷输入时菜单保持完整，避免滚动后只剩头像、上方却悬着整行输入框。
         .tabBarMinimizeBehavior(onReels || showsQuickInput ? .never : .onScrollDown)
@@ -187,7 +198,7 @@ struct MainTabView: View {
         // SwiftUI 的 .badge 只能红底文字，下到 UIKit 画小圆点
         // iPad 侧边栏多出库与合集，按顺序对位的 UIKit 桥对不上：只在手机上挂
         .background(TabBarDotBridge(
-            tabs: Self.isPad ? [] : Self.visibleTabs(permissions),
+            tabs: sidebarShell ? [] : Self.visibleTabs(permissions),
             dots: [MainTab.activity: badges.activityDot, .more: badges.moreDot].compactMapValues { $0 }
         ))
         // 头像位图：先出首字版（照片下载前不空着），照片到了再换；改昵称 / 换头像后重画
@@ -470,7 +481,7 @@ extension MainTabView {
     /// 头像页签的账号手势（只在手机上挂，见上面 `.background(accountGestures)`）
     @ViewBuilder
     private var accountGestures: some View {
-        if !Self.isPad {
+        if !sidebarShell {
             TabBarAccountGestures(onAvatarFrame: { if avatarTabFrame != $0 { avatarTabFrame = $0 } })
         }
     }
@@ -479,7 +490,7 @@ extension MainTabView {
     /// `.accessibilityLabel` 给——Label 里的标题不会传给系统标签栏）。图标统一成正方形，见 TabIcon
     @ViewBuilder
     private func iconLabel(_ tab: MainTab) -> some View {
-        if Self.isPad {
+        if sidebarShell {
             // iPad 的顶部标签栏与侧边栏地方够：图标 + 文字（HIG：iPad 页签要写出名字）。
             // 媒体库页签在 iPad 上叫「首页」：各个库逐个列在侧边栏里（同 Mac 版）
             if tab == .library {
@@ -493,7 +504,7 @@ extension MainTabView {
         }
     }
 
-    /// 跑在 iPad 上（含 iPad 上的窄窗口：窄了系统自己把侧边栏收回标签栏）
+    /// 跑在 iPad 上：只有 iPad 用可展开成侧边栏的标签栏（见 `sidebarShell`、`PadSidebarTabStyle`）；内容页版式不按它分叉
     static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     /// 登录 / 切换账号 / 退出后自动切到下一个账号时的首个落点（只定一次）：
@@ -528,10 +539,13 @@ struct TabRoot<Root: View>: View {
     let item: ShellTab
     @ViewBuilder let root: () -> Root
     @Environment(Router.self) private var router
-    /// 窗口宽度：常规宽度（iPad 宽窗口）用放大一档的卡片（`CardMetrics.wide`，同 Mac 版）
-    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// 窗口的尺寸类别：常规宽 × 常规高是宽版式（`WindowLayout`），卡片尺寸见 `CardMetrics.forWindow`
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     /// 内容区宽（已扣掉侧边栏）：宽窗口按它把海报排成整列（见 CardMetrics.fitted）
     @State private var contentWidth: CGFloat = 0
+    /// 窗口里有折痕（iPhone Duo 内屏；全开时折痕不生效，但仍在那个位置）：网格取偶数列
+    @State private var hasFold = false
 
     var body: some View {
         NavigationStack(path: router.path(for: item)) {
@@ -542,8 +556,18 @@ struct TabRoot<Root: View>: View {
                 }
         }
         .environment(\.perfPage, item.mainTab.rawValue)
-        .environment(\.cardMetrics, CardMetrics.forWindow(regular: sizeClass == .regular).fitted(contentWidth: contentWidth))
+        .environment(\.cardMetrics, metrics)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+        .onGeometryChange(for: Bool.self) { proxy in
+            guard #available(iOS 27.1, *) else { return false }
+            return !proxy.reservedRegions(kind: .division, options: .includeInactive).isEmpty
+        } action: { hasFold = $0 }
+    }
+
+    private var metrics: CardMetrics {
+        var metrics = CardMetrics.forWindow(wide: WindowLayout.isWide(horizontal: horizontalSizeClass, vertical: verticalSizeClass))
+        metrics.evenColumns = hasFold && metrics.isWide
+        return metrics.fitted(contentWidth: contentWidth)
     }
 }
 
@@ -614,7 +638,8 @@ enum TabIcon {
 /// 在哪个页签搜就先搜那里的内容（同 iOS 音乐的资料库）：发现 / 订阅预选「影视」、媒体库预选「媒体库」、
 /// 活动预选「资源」；「我的」不预选，停在搜索页上次停留的模式（2026-09-27 用户拍板）。
 ///
-/// 页面自己的按钮用 `.toolbar` 追加（发现页的筛选、媒体库的 ⋯ 菜单）。
+/// 页面自己的按钮用 `.toolbar` 追加（发现页的筛选、媒体库的 ⋯ 菜单）。按钮都带标题（`Label`）：iPhone Duo 上工具栏
+/// 竖排时只显示图标，挤进系统溢出菜单时才用得上文字（docs/design/iphone-duo.md §6.3）。
 /// 外层注入的 `.topBarTrailing` 会排到页面按钮前面，所以放 `.primaryAction`（固定在最右），
 /// 再用固定间隔隔开：页面按钮在左边自成一组，搜索是独立圆钮。
 /// 媒体库例外：「▶ ⋯ 搜索」三个合成一组，不加间隔（2026-10-13 用户要求试试）。
@@ -626,6 +651,7 @@ struct AppTopBar: ViewModifier {
     let tab: MainTab
     @Environment(Router.self) private var router
     @Environment(\.searchAccess) private var searchAccess
+    @Environment(\.sidebarShell) private var sidebarShell
     @State private var reachability = ServerReachability.shared
 
     func body(content: Content) -> some View {
@@ -633,13 +659,13 @@ struct AppTopBar: ViewModifier {
             if tab == .more || (canSearch && tab != .library) {
                 ToolbarSpacer(.fixed, placement: .primaryAction)
             }
-            if tab == .more, MainTabView.isPad {
-                // iPad 侧边栏没有底栏头像的长按 / 双击手势：切换账号放到「我的」页右上角
+            if tab == .more, sidebarShell {
+                // 侧边栏外壳没有底栏头像的长按 / 双击手势：切换账号放到「我的」页右上角
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         router.present(.accountSwitcher)
                     } label: {
-                        Image(systemName: "person.2")
+                        Label(String(localized: .authMenuSwitchAccount), systemImage: "person.2")
                     }
                     .accessibilityLabel(String(localized: .authMenuSwitchAccount))
                     .accessibilityIdentifier("open-account-switcher")
@@ -650,7 +676,7 @@ struct AppTopBar: ViewModifier {
                     Button {
                         router.deviceApproval = DeviceApprovalLaunch(scanFirst: true)
                     } label: {
-                        Image(systemName: "qrcode.viewfinder")
+                        Label(String(localized: .authDevicesScanApproval), systemImage: "qrcode.viewfinder")
                     }
                     .accessibilityLabel(String(localized: .authDevicesScanApproval))
                     .accessibilityIdentifier("open-scanner")
@@ -662,7 +688,7 @@ struct AppTopBar: ViewModifier {
                     Button {
                         router.push(.searchHome(mode: preferredSearchMode))
                     } label: {
-                        Image(systemName: "magnifyingglass")
+                        Label(String(localized: .commonSearch), systemImage: "magnifyingglass")
                     }
                     .accessibilityLabel(String(localized: .commonSearch))
                     .accessibilityIdentifier("open-search")
@@ -948,20 +974,23 @@ private struct OfflineShell: ViewModifier {
 }
 
 /// iPad 的页签样式：`sidebarAdaptable`——宽窗口顶部是标签栏、可一键展开成侧边栏；窄窗口自动退回标签栏。
+/// 样式按设备定、运行中不切换（切样式会让 TabView 整个重建）；只有侧边栏专有的库与合集分组随 `sidebarShell` 增减。
+/// 手机（含 iPhone Duo）不用它，见 `MainTabView.sidebarShell`。
 /// 侧边栏里的库清单同步给 Router（深链打开某个库时选中侧边栏那一项）
 private struct PadSidebarTabStyle: ViewModifier {
-    let enabled: Bool
+    let sidebarShell: Bool
     @Environment(Router.self) private var router
     /// 页签的显隐要挂上自定义才生效（侧边栏专有的项不进顶部标签栏）。侧边栏的「编辑」（系统自带，同 Apple Music）
     /// 改过的排序与显隐按设备记住
     @AppStorage("movieclaw.pad.tabCustomization") private var customization = TabViewCustomization()
 
     private var libraryIds: [Int]? {
-        LibraryHomeStore.shared.libraries.map { $0.filter(\.viewerAccess).map(\.id) }
+        guard sidebarShell else { return nil }
+        return LibraryHomeStore.shared.libraries.map { $0.filter(\.viewerAccess).map(\.id) }
     }
 
     func body(content: Content) -> some View {
-        if enabled {
+        if MainTabView.isPad {
             content
                 .tabViewStyle(.sidebarAdaptable)
                 .tabViewCustomization($customization)
@@ -971,10 +1000,19 @@ private struct PadSidebarTabStyle: ViewModifier {
                     // 选着的库没了（删了、被收回权限）：回首页
                     if case let .mediaLibrary(id) = router.selection, !ids.contains(id) { router.select(.tab(.library)) }
                 }
+                // 窗口拉窄收成标签栏：侧边栏专有的项在标签栏里没有，折回「媒体库」页签
+                .onChange(of: sidebarShell) { _, now in
+                    if !now { router.collapseSidebarSelection() }
+                }
         } else {
             content
         }
     }
+}
+
+extension EnvironmentValues {
+    /// 侧边栏外壳（宽版式窗口），由 MainTabView 按尺寸类别注入
+    @Entry var sidebarShell = false
 }
 
 /// 让 `labelStyle` 能按条件二选一

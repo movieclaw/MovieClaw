@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api import event_refs, events
-from movieclaw_db.models import MediaItem
+from movieclaw_db.models import MediaItem, PlaybackLog
 from movieclaw_playback.events import ClientInfo
 from movieclaw_playback.state import Unit
 from movieclaw_sdk.events import (
@@ -28,6 +28,7 @@ from movieclaw_sdk.events import (
     EventType,
     ItemFavorite,
     ItemViewed,
+    PlaybackCompleted,
     PlaybackMarked,
     PlaybackStopped,
 )
@@ -56,6 +57,7 @@ async def publish_playback(
     file_id: int | None = None,
     completed: bool = False,
     occurred_at: datetime | None = None,
+    watch_log: PlaybackLog | None = None,
 ) -> None:
     """开始 / 停止 / 看完 / 进度：``state`` 是这次上报落库后的观看状态行。
 
@@ -81,6 +83,10 @@ async def publish_playback(
         }
         if payload_type is PlaybackStopped:
             fields["completed"] = completed
+        if issubclass(payload_type, PlaybackCompleted) and watch_log is not None:
+            from movieclaw_api.services.playback_stats import watch_source_ids
+
+            fields["watch_source_ids"] = await watch_source_ids(session, watch_log)
         return payload_type(**fields)
 
     await events.publish(session, event, build, occurred_at=occurred_at)

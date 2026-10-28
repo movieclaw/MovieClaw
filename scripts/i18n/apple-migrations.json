@@ -3013,7 +3013,7 @@
   "settings.imChannels.unbind": "解绑",
   "settings.imChannels.unbindTitle": "解绑该 %@ 账号？",
   "settings.imChannels.unbindDescription": "解绑后停止收发、删除凭据，需要重新绑定才能使用；历史对话保留。",
-  "settings.scrape.metadataLanguage": "元数据语言",
+  "settings.scrape.metadataLanguage": "媒体库语言",
   "settings.scrape.imageSources": "图片来源",
   "settings.scrape.titleLogo": "片名 Logo",
   "settings.scrape.poster": "海报",

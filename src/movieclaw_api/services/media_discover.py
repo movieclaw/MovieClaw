@@ -9,12 +9,13 @@ from __future__ import annotations
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.i18n import t
+from movieclaw_api.i18n.content import reader_language
 from movieclaw_api.services.network_egress import (
     effective_douban_api_base_url,
     effective_tmdb_api_base_url,
     effective_tmdb_image_base_url,
 )
-from movieclaw_api.services.scrape_config import effective_language, effective_region
+from movieclaw_api.services.scrape_config import effective_region
 from movieclaw_db.stores import SqlCacheStore
 from movieclaw_media import (
     DoubanClient,
@@ -25,7 +26,9 @@ from movieclaw_media import (
 )
 from movieclaw_net import browser_tls_context, egress_transport
 
-_service: MediaDiscoverService | None = None
+# 每种读者语言一份（界面只有中英两种，至多两份）：实例构造时绑定语言，
+# 进程内缓存因此天然按语言分开（docs/design/content-locale.md §3）
+_services: dict[str, MediaDiscoverService] = {}
 _douban_service: DoubanDiscoverService | None = None
 _tmdb_client: TmdbClient | None = None
 
@@ -50,13 +53,17 @@ def get_tmdb_client() -> TmdbClient:
 
 
 def get_media_service() -> MediaDiscoverService:
-    """取进程级单例；未配置 TMDB API Key 时抛出可读的配置引导错误。"""
-    global _service
-    if _service is None:
+    """取当前读者语言的发现页服务；未配置 TMDB API Key 时抛出可读的配置引导错误。
+
+    发现页是「看到的」，跟读者的界面语言，不跟媒体库语言（content-locale.md §1）。
+    """
+    language = reader_language()
+    service = _services.get(language)
+    if service is None:
         settings = get_settings()
         if not settings.tmdb_api_key:
             raise TmdbNotConfiguredError(t("errors.tmdb.notConfiguredDiscover"))
-        _service = MediaDiscoverService(
+        service = _services[language] = MediaDiscoverService(
             # 交互档位：发现页是用户在等的请求，超时/重试压小；线路不通时由
             # 出口层熔断器把后续失败压到毫秒级，前端立刻拿到引导错误
             TmdbClient(
@@ -67,13 +74,13 @@ def get_media_service() -> MediaDiscoverService:
                 transport=egress_transport("tmdb"),
             ),
             image_base_url=effective_tmdb_image_base_url(),
-            # 语言/地区走设置页覆盖（空则回落环境变量）；设置保存后由保存
-            # 接口 reset_media_service()，下次请求按新值重建本单例
-            language=effective_language(),
+            language=language,
+            # 地区走设置页覆盖（空则回落环境变量）；改地区后由保存接口 reset_media_service()
+            # 丢弃实例，下次请求按新值重建
             region=effective_region(),
             timezone=settings.scheduler_timezone,
         )
-    return _service
+    return service
 
 
 def get_douban_media_service() -> DoubanDiscoverService:
@@ -95,10 +102,11 @@ def get_douban_media_service() -> DoubanDiscoverService:
 
 async def close_media_service() -> None:
     """关闭单例持有的 HTTP 连接池（应用关闭时由 lifespan 调用）。"""
-    global _service, _douban_service, _tmdb_client
-    if _service is not None:
-        await _service.aclose()
-        _service = None
+    global _douban_service, _tmdb_client
+    services = list(_services.values())
+    _services.clear()
+    for service in services:
+        await service.aclose()
     if _douban_service is not None:
         await _douban_service.aclose()
         _douban_service = None
@@ -107,17 +115,9 @@ async def close_media_service() -> None:
         _tmdb_client = None
 
 
-async def invalidate_discover_language() -> None:
-    """Refresh the discovery service that captures the configured metadata language."""
-    global _service
-    if _service is not None:
-        await _service.aclose()
-        _service = None
-
-
 def reset_media_service() -> None:
     """仅供测试：丢弃单例，让下个用例按新配置重建。"""
-    global _service, _douban_service, _tmdb_client
-    _service = None
+    global _douban_service, _tmdb_client
+    _services.clear()
     _douban_service = None
     _tmdb_client = None

@@ -63,6 +63,7 @@ from movieclaw_matcher import (
     evaluate_rules,
     implausible_for_runtime,
     match_identity,
+    site_rank,
 )
 from movieclaw_matcher.smart import SmartPolicy, candidate_key
 from movieclaw_tracker.datetime_utils import DEFAULT_SITE_TIMEZONE
@@ -929,12 +930,14 @@ async def evaluate_and_dispatch(
         entries = await _plugin_filter(repo, ctx, entries, covered_here, source, summary)
         # 身份证据强度排在洗版档位与评分之前：先要**对的片**，再谈档位和评分。
         # 位置在 is_pack 之后是刻意的——"整季包优先"是既有的已确认决策，本次
-        # 只补身份维度，不顺手改包优先的语义
+        # 只补身份维度，不顺手改包优先的语义。站点优先级紧挨评分之前（#806）：
+        # 用户排在前面的站点有合格资源，就不让后面站点的免费加分抢走
         entries.sort(
             key=lambda e: (
                 e[1].is_pack,
                 _CONFIDENCE_RANK.get(e[1].confidence, 0),
                 e[3],
+                site_rank(e[0], ctx.spec),
                 e[2].score,
                 e[0].seeders or 0,
             ),

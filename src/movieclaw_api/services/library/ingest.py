@@ -4156,11 +4156,9 @@ async def _execute_ingest_job(
         return {**stored_fields("library.ingest.result.ruleDeleted"), "rule_id": rule_id}
     rule, library = pair
     if not _is_entry_of(str(entry), rule.source_path):
-        raise jobs.JobFailed(
-            **stored_fields("library.ingest.failed.outsideRule"),
-            code="INGEST_ENTRY_OUTSIDE_RULE",
-            details={"rule_id": rule_id},
-        )
+        # 规则源目录已改走（典型是先配错再改对，issue #1050）：与规则已删除
+        # 同属“前提已不存在”，安静收尾，不留一条谁也处理不了的失败提醒
+        return {**stored_fields("library.ingest.result.outsideRule"), "rule_id": rule_id}
     if not entry.exists():
         return {
             **stored_fields("library.ingest.result.entryRemoved"),
@@ -4607,6 +4605,87 @@ async def reconcile_disc_batch_jobs() -> int:
     if reconciled_entries:
         logger.info("启动对账已收口 %d 个原盘分批监听台账", reconciled_entries)
     return cancelled
+
+
+async def _load_rule_sources(session) -> dict[int, str]:
+    rules = (await session.execute(select(ImportWatch))).scalars()
+    return {rule.id: rule.source_path for rule in rules if rule.id is not None}
+
+
+def _ingest_job_orphaned(input_data: dict, sources: dict[int, str]) -> bool:
+    """blocked 作业的前提是否已不存在：规则删了、条目不在规则源目录下、或条目已删。
+
+    源目录本身不可达（NAS 卸载）时不算条目已删，避免把临时故障当成定论。
+    """
+    rule_id, entry_path = input_data.get("rule_id"), input_data.get("entry_path")
+    if not isinstance(rule_id, int) or not isinstance(entry_path, str):
+        return False
+    source = sources.get(rule_id)
+    if source is None or not _is_entry_of(entry_path, source):
+        return True
+    entry = Path(entry_path)
+    return entry.parent.is_dir() and not entry.exists()
+
+
+async def reconcile_orphaned_ingest_jobs() -> int:
+    """收口前提已不存在的入库提醒（issue #1050）；返回本次收口条数。
+
+    规则源目录配错再改对（或删掉规则、删掉条目）后，旧条目的 blocked 作业
+    不再有任何巡检会看它，清单里也看不到，认领无从下手，重启也不会消失。
+    这里把它们原地重新入队，交给处理器按现状以 no-op 成功收尾——不用取消，
+    取消会永久挡住同一路径将来的自动处理。旧版本对同类情况记成的
+    ``INGEST_ENTRY_OUTSIDE_RULE`` 失败同样过期，转为已忽略（只改可见性，
+    failed 事实与时间线保留，用户可撤销）。纯作业层操作，不碰媒体文件、
+    硬链接与监听台账。规则变更后与启动时调用；失败只记日志，幂等。
+    """
+    try:
+        async with get_database().session() as session:
+            sources = await _load_rule_sources(session)
+            blocked = list(
+                (
+                    await session.execute(
+                        select(Job).where(
+                            Job.job_type == "library.ingest",
+                            Job.status == JobStatus.BLOCKED.value,
+                        )
+                    )
+                ).scalars()
+            )
+            woken = 0
+            for job in blocked:
+                orphaned = await asyncio.to_thread(
+                    _ingest_job_orphaned, dict(job.input_data or {}), sources
+                )
+                if orphaned:
+                    await jobs.retry_job(
+                        session, job, actor_kind="system", actor_name=None, origin="system"
+                    )
+                    woken += 1
+            stale_failed = [
+                job
+                for job in (
+                    await session.execute(
+                        select(Job).where(
+                            Job.job_type == "library.ingest",
+                            Job.status == JobStatus.FAILED.value,
+                            Job.dismissed_at.is_(None),  # type: ignore[union-attr]
+                        )
+                    )
+                ).scalars()
+                if (job.error or {}).get("code") == "INGEST_ENTRY_OUTSIDE_RULE"
+            ]
+            for job in stale_failed:
+                await jobs.dismiss_job(
+                    session, job.id, dismissed_by="system:orphaned-ingest-reconcile"
+                )
+    except Exception:  # noqa: BLE001 -- 历史清理失败不能拖垮启动或规则保存
+        logger.warning("失效入库提醒对账失败（不影响使用，下次将重试）", exc_info=True)
+        return 0
+    if woken or stale_failed:
+        logger.info(
+            "已收口 %d 个失效的 blocked 入库作业、%d 个过期的规则外失败", woken, len(stale_failed)
+        )
+    return woken + len(stale_failed)
 
 
 async def restore_entry(session, entry_id: int) -> IngestEntry:
@@ -5121,6 +5200,8 @@ async def init_ingest_watcher() -> None:
     # v0.18.0 的边下边入库会把 BDMV/VIDEO_TS 流分段误当独立视频并持续建
     # 作业；同样在监听启动前只读作业白名单并收口，不触碰媒体文件。
     await reconcile_disc_batch_jobs()
+    # 规则源目录配错又改对的旧版现场（issue #1050）：失效 blocked 自动收尾
+    await reconcile_orphaned_ingest_jobs()
     _watcher = IngestWatcher()
     await _watcher.start()
 

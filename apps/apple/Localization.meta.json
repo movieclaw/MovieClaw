@@ -1701,6 +1701,9 @@
     "player.controls.nextEpisode": {
       "sourceHash": "5598ae0e76d88165a20213a55f9c61701598765f2190a10d87de888856002ed6"
     },
+    "player.controls.previousEpisode": {
+      "sourceHash": "9af8d8483d0b527ddfad2e91c26d0d9010cb36d189ca1ab4aad13d19fcd04b11"
+    },
     "player.mac.skipNext": {
       "sourceHash": "14e1c1bf93ec5c006d5ae166af79feb5ea7143135a648332a1f745a11980018d"
     },
@@ -11651,7 +11654,7 @@
       "sourceHash": "2d987f154e672cfcfec9c33955f58919138170c415c3e122f694674bce491255"
     },
     "settings.scrape.metadataLanguage": {
-      "sourceHash": "9f7aa00e49cd6e930e634b54de73f2a89b93b20263e08ed15275bf8d16e84e74"
+      "sourceHash": "73814c5cde92f4d293775fbac08523e23cecf3455f8a0022a85ae7c41fe5b354"
     },
     "settings.scrape.imageSources": {
       "sourceHash": "fec044928641fed3beef10045862b66c0081c8c9cf075b4f80e7c12f168807c6"
@@ -15681,6 +15684,13 @@
       "sourceHash": "680c946a37a09e4af95ef10752a98a401a3e0ec4c172087955c74f9035a4fd7d",
       "parameters": [
         "seasons"
+      ]
+    },
+    "subscription.window.fromNote": {
+      "sourceHash": "016807d83e7d11254aaac4cfbd3ab6183fde714ac54f00c8fc1a72b45ba4cee5",
+      "parameters": [
+        "season",
+        "start"
       ]
     },
     "subscription.collection.allSeasons": {

@@ -60,7 +60,7 @@ def compare_decisions(records: list[dict], rules: RuleSetSpec) -> dict:
             if name == "rules":
                 # 输入已通过共同身份过滤；单单元回放不推测包的其他单元状态。
                 best = pick_best(
-                    [(c, IdentityMatch(), evaluate_rules(c, rules)) for c in candidates]
+                    [(c, IdentityMatch(), evaluate_rules(c, rules)) for c in candidates], rules
                 )
                 chosen = best[0] if best else None
                 decision = None

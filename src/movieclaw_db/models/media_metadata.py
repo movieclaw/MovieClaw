@@ -51,6 +51,13 @@ class MediaMetadata(TimestampMixin, table=True):
         default=None, sa_column=Column(Text, nullable=True), description="简介；NULL=TMDB 也没有"
     )
     tagline: str | None = Field(default=None, description="宣传语")
+    # 界面语言的简介（docs/design/content-locale.md §4）：{"en-US": "..."}，同
+    # media_item.title_translations 只存与主语言不同语种的那几份。NULL=存量未刮过
+    overview_translations: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="界面语言简介（不含主语言）；NULL=未刮过",
+    )
 
     # -- 事实字段 ------------------------------------------------------------
     genres: list = Field(

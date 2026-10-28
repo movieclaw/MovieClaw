@@ -276,6 +276,18 @@ final class Router {
         return (selectedTab, (root.map { [$0] } ?? []) + currentPath)
     }
 
+    /// 侧边栏外壳收成手机底栏（iPhone Duo 合上、iPad 窗口拉窄）：侧边栏专有的收藏、库、合集在底栏里没有，
+    /// 折回「媒体库」页签、根页面垫在栈底（同 `resumePoint`），返回能回到首页（docs/design/iphone-duo.md §6.2）。
+    /// 侧边栏的库清单一并作废：手机底栏下深链打开库要照旧压栈，不能选中一个底栏里没有的项
+    func collapseSidebarSelection() {
+        sidebarLibraries = []
+        if case .tab = selection { return }
+        let point = resumePoint
+        paths[selection] = []
+        selection = .tab(point.tab)
+        paths[selection] = point.path
+    }
+
     func play(_ request: PlayRequest) {
         playRequestedAt = .now
         player = request

@@ -127,13 +127,14 @@ async def build_reel_facets(
 
     async def spread(column: Any, skip: str, selected: tuple) -> list[tuple[str, int]]:
         """JSON 数组列（类型、地区）的取值分布；勾着的值数不到也补一条 0，免得取消不掉。"""
+        # 先按条目去重再展开（同 library/items.py 的 _json_facet）：不然每个分集文件都展开一遍
+        items = select(LibraryFile.media_item_id).where(*scope(skip)).distinct().subquery()
         each = func.json_each(column).table_valued("value")
         rows = await fetch(
-            select(each.c.value, func.count(func.distinct(LibraryFile.media_item_id)))
-            .select_from(LibraryFile)
-            .join(MediaMetadata, MediaMetadata.media_item_id == LibraryFile.media_item_id)  # type: ignore[arg-type]
+            select(each.c.value, func.count(func.distinct(items.c.media_item_id)))
+            .select_from(items)
+            .join(MediaMetadata, MediaMetadata.media_item_id == items.c.media_item_id)  # type: ignore[arg-type]
             .join(each, true())
-            .where(*scope(skip))
             .group_by(each.c.value)
         )
         counts = [(str(v), int(c)) for v, c in rows if v is not None]

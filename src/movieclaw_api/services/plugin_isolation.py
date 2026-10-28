@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -60,14 +61,31 @@ def isolation() -> Isolation:
     return Isolation(uid=uid, gid=uid)
 
 
+# copytree 的 copystat 会把源文件的 POSIX ACL（QNAP / 群晖卷上很常见）原样带进副本，
+# 而 chmod 改不掉 ACL 里的命名用户/组条目，插件用户可能因此读不了自己的代码（#1049）。
+_ACL_XATTRS = ("system.posix_acl_access", "system.posix_acl_default")
+
+
+def _drop_acl(path: str) -> None:
+    # 只有 Linux 有 POSIX ACL；macOS / Windows 的 os 也没有这个接口
+    if not hasattr(os, "removexattr"):
+        return
+    for name in _ACL_XATTRS:
+        # 没有 ACL（ENODATA）或文件系统不支持（ENOTSUP）都正常，副本保持原样即可
+        with contextlib.suppress(OSError):
+            os.removexattr(path, name)
+
+
 def _readable(root: Path) -> None:
-    """目录 0755、文件 0644：插件用户只能读，不能改。"""
+    """目录 0755、文件 0644：插件用户只能读，不能改；权限只看 mode，不带源文件的 ACL。"""
     for dirpath, _dirnames, filenames in os.walk(root):
+        _drop_acl(dirpath)
         os.chmod(dirpath, 0o755)
         for name in filenames:
             path = os.path.join(dirpath, name)
             mode = os.lstat(path).st_mode
             if stat.S_ISREG(mode):
+                _drop_acl(path)
                 os.chmod(path, 0o755 if mode & 0o111 else 0o644)
 
 

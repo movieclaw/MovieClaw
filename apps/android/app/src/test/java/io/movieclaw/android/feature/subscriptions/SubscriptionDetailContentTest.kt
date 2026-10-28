@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import io.movieclaw.android.core.designsystem.MovieClawTheme
+import io.movieclaw.android.core.model.EpisodeWindowView
 import io.movieclaw.android.core.model.MediaBrief
 import io.movieclaw.android.core.model.ProgressView
 import io.movieclaw.android.core.model.SubActivityView
@@ -89,6 +90,52 @@ class SubscriptionDetailContentTest {
         compose.onNodeWithText("查看全部 9 条").performScrollTo().performClick()
         compose.onNodeWithText("收起").assertExists()
         snapshot("subscription-detail-redesign")
+    }
+
+    /** issue #950：完结季「从第 N 集起」——收录范围标出起点，并说明前面的集为什么不算 */
+    @Test fun showsStartEpisodeWindowReadOnly() {
+        val midway = sub.copy(
+            media = MediaBrief(kind = "tv", title = "中途上车动画", year = 2019),
+            selectedSeasons = listOf(1, 2),
+            progress = ProgressView(total = 105, wanted = 105),
+            episodeWindows = listOf(EpisodeWindowView(seasonNumber = 1, start = 120, end = null, total = 200, airing = false)),
+        )
+        compose.setContent {
+            MovieClawTheme {
+                SubscriptionDetailContent(
+                    sub = midway, wanted = emptyList(), activities = emptyList(), downloads = emptyMap(),
+                    origin = null, busy = false, showSearchNow = false, showManual = false, showMore = false,
+                    onBack = {}, onSearchNow = {}, onManual = {}, onMore = {},
+                )
+            }
+        }
+        compose.onNodeWithText("第 1 季（第 120 集起）、第 2 季").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("第 1 季从第 120 集起订阅，之前的集不会搜索也不会下载。").performScrollTo().assertIsDisplayed()
+        snapshot("subscription-detail-start-episode")
+    }
+
+    @Test fun scopeLabelReadsWindowsLikeWeb() {
+        val window = EpisodeWindowView(seasonNumber = 1, start = 101, end = null, total = 120)
+        // 旧服务端不标 airing：沿用旧读法「最新 N 集」
+        assertEquals("第 1 季（最新 20 集）", scopeLabel(sub.copy(episodeWindows = listOf(window))))
+        assertEquals("第 1 季（最新 20 集）", scopeLabel(sub.copy(episodeWindows = listOf(window.copy(airing = true)))))
+        assertEquals("第 1 季（第 101 集起）", scopeLabel(sub.copy(episodeWindows = listOf(window.copy(airing = false)))))
+        assertEquals("第 1 季（前 20 集）", scopeLabel(sub.copy(episodeWindows = listOf(window.copy(start = 1, end = 20)))))
+        assertEquals("第 1 季", scopeLabel(sub))
+        assertEquals(emptyList<String>(), fromWindowNotes(sub.copy(episodeWindows = listOf(window))))
+        // 服务端原样的 JSON（snake_case、airing 可缺省）能解出来
+        val json = io.movieclaw.android.core.network.NetworkModule.json()
+        val decoded = json.decodeFromString(
+            SubscriptionView.serializer(),
+            """{"id":9,"episode_windows":[{"season_number":1,"start":120,"end":null,"total":200,"airing":false},{"season_number":2,"start":1,"end":20,"total":24}]}""",
+        )
+        assertEquals(
+            listOf(
+                EpisodeWindowView(seasonNumber = 1, start = 120, end = null, total = 200, airing = false),
+                EpisodeWindowView(seasonNumber = 2, start = 1, end = 20, total = 24, airing = null),
+            ),
+            decoded.episodeWindows,
+        )
     }
 
     private fun snapshot(name: String) {

@@ -104,6 +104,18 @@ class EpisodeWindow:
     total: int
 
 
+def airing_season(media_status: str | None, aired: dict[int, int]) -> int | None:
+    """剧还在播（TMDB ``Returning Series``）时最近一个开播的季；否则 None。
+
+    与网页订阅弹层的「在播季」同口径。不设上界的窗口据此分两种读法：在播季是
+    「最新 N 集」（之后播出的照常进来），完结季是「从第 N 集起」（issue #950）。
+    """
+    if media_status != "Returning Series":
+        return None
+    started = [season for season, count in aired.items() if season > 0 and count > 0]
+    return max(started) if started else None
+
+
 def windows_of(subscription: Subscription, known_max: dict[int, int]) -> list[EpisodeWindow]:
     """订阅范围内被窗口截断的季。
 

@@ -873,3 +873,150 @@ def test_exact_id_overrides_count_conflict() -> None:
         _staircase(imdb_id="tt0388644"), _docuseries(*_AIRED_2018, imdb_id="tt0388644")
     )
     assert match is not None and match.confidence == "exact_id" and match.id_conflict is None
+
+
+# ---------------------------------------------------------------------------
+# 彩蛋/花絮：带着正片季集号的附加内容（issue #1062）
+# ---------------------------------------------------------------------------
+
+
+_NATURAL_HIGH = _tv(["现在就出发", "Natural High"], 2023, seasons=(1, 2, 3, 4))
+
+
+def _nh_episode(title: str, subtitle: str = "", **attrs) -> TorrentCandidate:
+    fields = {
+        "media_type": "tv",
+        "year": 2026,
+        "seasons": [4],
+        "episodes": [1],
+        "resolution": "2160p",
+        **attrs,
+    }
+    return _candidate(title, subtitle, **fields)
+
+
+def test_real_sample_bonus_eggs_is_not_the_episode() -> None:
+    """真实样本（issue #1062）：audiences 的超前彩蛋种，旧逻辑认成 S04E01。"""
+    candidate = _nh_episode("Natural High S04E01 Eggs 2026 2160p TX WEB-DL H265 DDP2.0-ADWeb")
+    assert match_identity(candidate, _NATURAL_HIGH) is None
+
+
+def test_real_sample_bonus_file_name_is_not_the_episode() -> None:
+    """同一资源的文件名：中文「超前彩蛋」并进片名段。"""
+    candidate = _nh_episode(
+        "现在就出发.超前彩蛋.Natural.High.S04E01.Eggs.2026.2160p.TX.WEB-DL.H265.DDP2.0-ADWeb"
+    )
+    assert match_identity(candidate, _NATURAL_HIGH) is None
+
+
+def test_bonus_marker_in_subtitle_only() -> None:
+    """主标题没写，副标题写了「超前彩蛋」/「花絮」也算。"""
+    for subtitle in ("现在就出发 第四季 超前彩蛋", "现在就出发4 第1期花絮"):
+        candidate = _nh_episode("Natural High S04E01 2026 2160p WEB-DL", subtitle)
+        assert match_identity(candidate, _NATURAL_HIGH) is None, subtitle
+
+
+def test_bonus_with_exact_id_still_rejected() -> None:
+    """站点给彩蛋种挂的就是正片的豆瓣 ID：精确 ID 也不能让它冒充正片。"""
+    media = _tv(["现在就出发"], 2023, seasons=(4,), douban_id="1234")
+    candidate = _candidate(
+        "Natural High S04E01 Eggs 2026 2160p WEB-DL",
+        douban_id="1234",
+        media_type="tv",
+        seasons=[4],
+        episodes=[1],
+    )
+    assert match_identity(candidate, media) is None
+
+
+def test_scene_extras_season_pack_rejected() -> None:
+    """``S01.Extras``：整季的花絮包同样不是这一季。"""
+    candidate = _candidate(
+        "Natural High S04 Extras 2026 1080p WEB-DL", media_type="tv", year=2026, seasons=[4]
+    )
+    assert match_identity(candidate, _NATURAL_HIGH) is None
+
+
+def test_real_episode_still_matches() -> None:
+    """同组同季的正片照常命中。"""
+    candidate = _nh_episode(
+        "Natural High S04E01 2026 2160p TX WEB-DL H265 DDP2.0-ADWeb", "现在就出发 第四季 第1期"
+    )
+    match = match_identity(candidate, _NATURAL_HIGH)
+    assert match is not None
+    assert match.episodes == frozenset({(4, 1)})
+
+
+def test_episode_title_containing_bonus_word_still_matches() -> None:
+    """真实样本：正常集标题里带 Bonus（The Peripheral S01E02「Empathy Bonus」）。
+
+    判据要求季集号后的集标题**整段**等于标记，集标题里的一个词不算。
+    """
+    media = _tv(["The Peripheral", "外围"], 2022, seasons=(1,))
+    candidate = _candidate(
+        "The Peripheral S01E02 Empathy Bonus 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+        media_type="tv",
+        seasons=[1],
+        episodes=[2],
+    )
+    assert match_identity(candidate, media) is not None
+
+
+def test_title_words_before_episode_marker_are_not_markers() -> None:
+    """片名自带标记词（Green Eggs and Ham）不受影响：标记只看季集号之后。"""
+    media = _tv(["Green Eggs and Ham"], 2019, seasons=(1,))
+    candidate = _candidate(
+        "Green Eggs and Ham S01E01 2019 1080p NF WEB-DL",
+        media_type="tv",
+        year=2019,
+        seasons=[1],
+        episodes=[1],
+    )
+    assert match_identity(candidate, media) is not None
+
+
+def test_variety_plus_edition_is_a_real_episode() -> None:
+    """「加更版」「纯享版」不收：国综的加更常常就是正片的一期。"""
+    for subtitle in ("现在就出发 第四季 第1期加更版", "现在就出发 第四季 第1期纯享版"):
+        candidate = _nh_episode("Natural High S04E01 2026 2160p WEB-DL", subtitle)
+        assert match_identity(candidate, _NATURAL_HIGH) is not None, subtitle
+
+
+def test_included_bonus_or_pack_with_extras_still_matches() -> None:
+    """「含彩蛋」是在描述附带内容；整季包附花絮时正片照样在包里。"""
+    single = _nh_episode("Natural High S04E01 2026 2160p WEB-DL", "现在就出发 第1期 含超前彩蛋")
+    assert match_identity(single, _NATURAL_HIGH) is not None
+    pack = _candidate(
+        "Natural High S04 2026 2160p WEB-DL",
+        "现在就出发 第四季 全6期 花絮",
+        media_type="tv",
+        year=2026,
+        seasons=[4],
+        episodes=list(range(1, 7)),
+        complete=True,
+    )
+    match = match_identity(pack, _NATURAL_HIGH)
+    assert match is not None and match.is_pack
+
+
+def test_alias_containing_marker_word_is_not_a_marker() -> None:
+    """片名本身带「彩蛋」的作品，副标题里的片名不能把自己否决掉。"""
+    media = _tv(["彩蛋计划"], 2025, seasons=(1,))
+    candidate = _candidate(
+        "Easter Egg Plan S01E03 2025 1080p WEB-DL",
+        "彩蛋计划 第3集",
+        media_type="tv",
+        year=2025,
+        seasons=[1],
+        episodes=[3],
+    )
+    assert match_identity(candidate, media) is not None
+
+
+def test_bonus_marker_ignored_for_movies() -> None:
+    """电影不走这条判据（电影的预告/花絮由体积÷片长反证兜底）。"""
+    media = _movie(["沙丘"], 2021)
+    candidate = _candidate(
+        "Dune 2021 1080p BluRay x264", "沙丘 | 含花絮", media_type="movie", year=2021
+    )
+    assert match_identity(candidate, media) is not None

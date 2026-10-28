@@ -56,6 +56,7 @@ from movieclaw_matcher import (
     TorrentCandidate,
     evaluate_rules,
     match_identity,
+    site_rank,
 )
 from movieclaw_matcher.smart import SmartPolicy, watchable
 
@@ -545,8 +546,10 @@ async def _try_candidates(
         if isinstance(spec, SmartPolicy) and not watchable(candidate, spec):
             continue  # 换源不能把带字幕的版本换成看不懂的原版
         accepted.append((candidate, covered, verdict, match))
+    # 换源同样先按站点优先级（#806），否则死种换源又会被带到别的站
     accepted.sort(
         key=lambda entry: (
+            site_rank(entry[0], spec),
             entry[0].seeders is not None,
             entry[0].seeders or 0,
             len(entry[1]),

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   EPISODE_CAP_BATCH,
   EPISODE_CAP_THRESHOLD,
+  canCapSeason,
   capsPayload,
   currentWindows,
   defaultWindow,
@@ -12,10 +13,13 @@ import {
   formatEpisodes,
   isAiringSeason,
   isLongSeason,
+  partWindow,
   rangeLabel,
   sameWindows,
   seasonTotal,
   windowCount,
+  windowKind,
+  windowKindOf,
   windowsAfter,
 } from "../lib/subscription-episode-cap.ts";
 import { subscriptionProgressNote } from "../lib/subscription-ui.ts";
@@ -58,9 +62,43 @@ test("超长的季不动草稿就按默认先订阅一批；选了「全部」�
   assert.equal(effectiveWindow(long, { 1: { start: 1, end: 1043 } }, false), null);
   assert.equal(effectiveWindow(long, { 1: { start: 1, end: 5000 } }, false), null);
   assert.deepEqual(effectiveWindow(long, { 1: { start: 0, end: 20 } }, false), { start: 1, end: 20 });
-  // 不长的季没有这个选项，草稿里有值也无效
+  // 不长的季没动过就是整季；调整订阅里设过的窗口照样生效（issue #950）
   assert.equal(effectiveWindow(season(2, 12), {}, false), null);
-  assert.equal(effectiveWindow(season(2, 12), { 2: { start: 1, end: 5 } }, false), null);
+  assert.deepEqual(effectiveWindow(season(2, 12), { 2: { start: 1, end: 5 } }, false), { start: 1, end: 5 });
+  assert.deepEqual(effectiveWindow(season(2, 12), { 2: { start: 6, end: null } }, false), { start: 6, end: null });
+});
+
+test("调整订阅里每一季都能先订阅一部分：特别季与只有一集的季除外", () => {
+  assert.equal(canCapSeason(season(1, 24), false), true);
+  assert.equal(canCapSeason(season(1, 2), false), true);
+  assert.equal(canCapSeason(season(1, 1), false), false);
+  assert.equal(canCapSeason(season(0, 300), false), false);
+  // 在播季看已播集数：只播了一集没有「最新一部分」可言
+  assert.equal(canCapSeason(season(1, 24, 1), true), false);
+  assert.equal(canCapSeason(season(1, 24, 6), true), true);
+});
+
+test("点「先订阅一部分」总会真的截掉一段，短季不会点了没反应", () => {
+  // 超长季与默认值一致
+  assert.deepEqual(partWindow(season(1, 1043), false), { start: 1, end: EPISODE_CAP_BATCH });
+  assert.deepEqual(partWindow(season(1, 1186, 1100), true), { start: 1081, end: null });
+  // 不到一批：完结季截到倒数第二集，在播季至少从第 2 集起
+  assert.deepEqual(partWindow(season(1, 12), false), { start: 1, end: 11 });
+  assert.deepEqual(partWindow(season(1, 24, 6), true), { start: 2, end: null });
+  // 都不等于整季（normalize 后不会变成 null）
+  assert.notEqual(effectiveWindow(season(1, 12), { 1: partWindow(season(1, 12), false) }, false), null);
+});
+
+test("不设上界的窗口：在播季读作最新 N 集，完结季读作从第 N 集起", () => {
+  assert.equal(windowKind({ end: 20 }, false), "first");
+  assert.equal(windowKind({ end: 20 }, true), "first");
+  assert.equal(windowKind({ end: null }, true), "latest");
+  assert.equal(windowKind({ end: null }, false), "from");
+  // 服务端给的窗口按它标的 airing；旧服务端没标时沿用旧读法
+  assert.equal(windowKindOf({ end: null, airing: false }), "from");
+  assert.equal(windowKindOf({ end: null, airing: true }), "latest");
+  assert.equal(windowKindOf({ end: null }), "latest");
+  assert.equal(windowKindOf({ end: 20, airing: false }), "first");
 });
 
 test("在播的超长季默认订最新一批，之后播出的照常进来", () => {
@@ -123,6 +161,11 @@ test("存量订阅打开调整弹层不会被默认值悄悄改成先订阅一�
     3: { start: 1081, end: null },
   });
   assert.deepEqual(currentWindows(null), {});
+  // 经接口给短季设的「从第 N 集起」打开调整弹层再保存也原样保留，不会被悄悄清掉
+  const short = [{ season_number: 1, tmdb_count: 24, floor: null, window: { start: 10, end: null } }];
+  assert.deepEqual(capsPayload([season(1, 24)], new Set([1]), draftFromSeasons(short), "Ended"), {
+    1: { start: 10, end: null },
+  });
 });
 
 test("窗口表按内容比较，与键顺序无关", () => {
@@ -178,6 +221,14 @@ test("详情页收录范围标出被截断的季", () => {
     rangeLabel([1], [{ season_number: 1, start: 1100, end: null, total: 1100 }], undefined, "en"),
     "Season 1 (latest 1 episode)",
   );
+  // 服务端标了完结（airing=false）的不设上界窗口：从第 N 集起（issue #950）
+  const ended = [{ season_number: 1, start: 120, end: null, total: 200, airing: false }];
+  assert.equal(rangeLabel([1], ended), "第 1 季（第 120 集起）");
+  assert.equal(rangeLabel([1], ended, undefined, "en"), "Season 1 (from episode 120)");
+  assert.equal(
+    rangeLabel([1], [{ ...ended[0], airing: true }], { 1: 200 }),
+    "第 1 季（最新 81 集）",
+  );
   assert.equal(formatEpisodes(1043), "1,043");
 });
 
@@ -198,11 +249,19 @@ function subscription({ status = "active", wanted = 0, grabbed = 0, imported = 2
 test("下完这一批：完结季说订阅到第几集、可继续；在播季说最新几集、可往前补", () => {
   const tail = [{ season_number: 1, start: 1, end: 20, total: 1043 }];
   assert.equal(subscriptionProgressNote(subscription({ windows: tail })), "已订阅到第 20 集 · 可继续");
+  // 旧服务端不标 airing：不设上界的窗口沿用旧读法
   const head = [{ season_number: 1, start: 1081, end: null, total: 1100 }];
   assert.equal(
     subscriptionProgressNote(subscription({ windows: head })),
     "已订阅最新 20 集 · 可以往前补",
   );
+  assert.equal(
+    subscriptionProgressNote(subscription({ windows: [{ ...head[0], airing: true }] })),
+    "已订阅最新 20 集 · 可以往前补",
+  );
+  // 完结季不设上界：从第 N 集起，同样可以往前补（issue #950）
+  const from = [{ season_number: 1, start: 120, end: null, total: 200, airing: false }];
+  assert.equal(subscriptionProgressNote(subscription({ windows: from })), "已从第 120 集起订阅 · 可以往前补");
   // 没有窗口的订阅保持原样
   assert.equal(subscriptionProgressNote(subscription({})), "等待新集播出");
   // 还在下载时照旧报下载进度

@@ -371,17 +371,10 @@ process_is_running() {
 
 # HTTP 成功才是"就绪"，不能只探测 TCP 端口：FastAPI 的 lifespan 未完成时后端
 # 尚不可接请求；前端则必须验证 rewrite 已能穿透到后端。
+# 用 curl 而不是起 Python：看门狗每 10 秒探两条链路，NAS 实测每次 Python
+# 解释器启动约 170ms CPU、curl 约 7ms——前者常驻吃掉 3% 个核，比空闲时的后端还多。
 probe_health() {
-    "$PYTHON_BIN" -c '
-import sys
-from urllib.request import urlopen
-
-try:
-    with urlopen(sys.argv[1], timeout=2) as response:
-        raise SystemExit(0 if 200 <= response.status < 300 else 1)
-except Exception:
-    raise SystemExit(1)
-' "$1" >/dev/null 2>&1
+    curl -fsS -m 2 -o /dev/null "$1" >/dev/null 2>&1
 }
 
 # nginx 前门：渲染配置（替换端口与资源目录占位符）后以前台模式拉起，

@@ -20,8 +20,8 @@ extension Notification.Name {
 ///   一小会儿，而新界面第一次去挂的时候它自己的标签栏往往还没上屏——按「挂到哪条标签栏」的做法，
 ///   换几次账号手势就挂到了被丢掉的旧标签栏上、彻底失效（2026-09-29 真机反馈、模拟器诊断日志查实）。
 ///   现在每次按下都现找手指下的那条，天然跟着屏幕上的走。
-/// - **头像按位置认**：标签栏里并排着和页签数一样多的按钮（公开的 `UIControl`），最右边那个就是头像
-///   （头像页签永远在最右）。**不能按读屏名认**：没开读屏等辅助功能时系统不给页签按钮填读屏名——UI 测试
+/// - **头像按位置认**：标签栏里并排着和页签数一样多的按钮（公开的 `UIControl`），排在最后的那个就是头像
+///   （横排的最右；iPhone Duo 上标签栏竖排时是最下，见 `lastTabIndex`）。**不能按读屏名认**：没开读屏等辅助功能时系统不给页签按钮填读屏名——UI 测试
 ///   运行时辅助功能是开着的，模拟器上全都好使，真机上一个都认不出（同日真机反馈后查实）。
 /// - 识别到手势发全局通知，当前主界面收到后动作（旧界面此时已拆掉，不会重复响应）。
 ///
@@ -94,7 +94,17 @@ final class AccountGestureHub: NSObject, UIGestureRecognizerDelegate {
             view.subviews.forEach(find)
         }
         find(bar)
-        return row?.max { $0.convert($0.bounds, to: bar).midX < $1.convert($1.bounds, to: bar).midX }
+        guard let row, let index = lastTabIndex(row.map { $0.convert($0.bounds, to: bar) }) else { return nil }
+        return row[index]
+    }
+
+    /// 一排页签按钮里头像那颗的下标：头像页签永远排在最后——横排取最右；竖排（iPhone Duo 外屏和内屏横向，
+    /// 系统把标签栏竖着放在右侧，docs/design/iphone-duo.md §1.1）取最下
+    nonisolated static func lastTabIndex(_ frames: [CGRect]) -> Int? {
+        guard !frames.isEmpty else { return nil }
+        let xs = frames.map(\.midX), ys = frames.map(\.midY)
+        let vertical = (ys.max()! - ys.min()!) > (xs.max()! - xs.min()!)
+        return frames.indices.max { vertical ? frames[$0].midY < frames[$1].midY : frames[$0].midX < frames[$1].midX }
     }
 
     /// 窗口里在屏的那条标签栏上头像按钮的位置（首次提示气泡对准它）。新旧界面交替的那一小会儿两条标签栏

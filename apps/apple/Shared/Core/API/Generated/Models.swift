@@ -2422,6 +2422,8 @@ nonisolated extension API {
         var sourceUrl: String?
         /// 国际英文名；豆瓣条目没有，为 null
         var englishTitle: String?
+        /// 中文片名：读者界面不是中文、片名显示为别的语言时给出，「搜索资源」带上它（中文 PT 站的主搜索词）；与片名相同或未知时为 null
+        var chineseTitle: String?
 
         enum CodingKeys: String, CodingKey {
             case directors
@@ -2434,6 +2436,7 @@ nonisolated extension API {
             case aliases
             case sourceUrl = "source_url"
             case englishTitle = "english_title"
+            case chineseTitle = "chinese_title"
         }
     }
 
@@ -4005,6 +4008,26 @@ nonisolated extension API {
             case positionMs = "position_ms"
             case played
             case progressPercent = "progress_percent"
+        }
+    }
+
+    struct EpisodeWindowView: Codable, Hashable, Sendable {
+        var seasonNumber: Int
+        /// 从第几集起（含）
+        var start: Int
+        /// 订阅到第几集（含）；null=不设上界，新集照常纳入
+        var end: Int?
+        /// 本季已录集数（TMDB 最大集号与集数下限取大）
+        var total: Int
+        /// 这一季是否在播（剧还在播且是最近开播的季）；end 为 null 时在播读作「最新 N 集」，完结读作「从第 N 集起」。旧服务端没有
+        var airing: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case seasonNumber = "season_number"
+            case start
+            case end
+            case total
+            case airing
         }
     }
 
@@ -5760,6 +5783,8 @@ nonisolated extension API {
         var originalTitle: String
         /// 国际英文名；「搜索资源」与中文名、原名一起搜
         var englishTitle: String?
+        /// 中文片名：读者界面不是中文、片名显示为别的语言时给出，「搜索资源」带上它（中文 PT 站的主搜索词）；与片名相同或未知时为 null
+        var chineseTitle: String?
         var year: Int?
         var posterUrl: String?
         var backdropUrl: String?
@@ -5799,6 +5824,7 @@ nonisolated extension API {
             case title
             case originalTitle = "original_title"
             case englishTitle = "english_title"
+            case chineseTitle = "chinese_title"
             case year
             case posterUrl = "poster_url"
             case backdropUrl = "backdrop_url"
@@ -11255,7 +11281,7 @@ nonisolated extension API {
     struct RuleSetPayload: Codable, Hashable, Sendable {
         /// 规则组名称（订阅列表与选择器里的展示名）
         var name: String
-        /// 过滤规则 JSON（全部键可缺省=不限）：resolutions 分辨率偏好序（如 ["2160p","1080p"]，顺序即优先级）、media_sources 片源档白名单兼偏好序（值域 remux/blu-ray/web-dl/rip/tv，顺序即优先级；与 resolutions 一样参与候选选优，空=不限片源）、video_codecs 编码白名单（按编码族匹配：写 x265 即接受 H.265/HEVC）、platforms/platforms_block 流媒体平台白/黑名单（规范值如 netflix、disney_plus、iqiyi；词表外的值读取时丢弃不报错）、release_groups_allow/release_groups_block 制作组白/黑名单、hdr_levels/hdr_block HDR 白/黑名单（值域 DV/HDR10+/HDR10/HLG/SDR，SDR=资源未标注 HDR，资源只标注泛指 HDR 时按 HDR10 计；白名单任一命中即过、顺序即偏好，黑名单命中即排除；旧的 hdr/dv 三态字段仍可写入，读取时自动换算并反向回填）、free_only 只要免费种、min_seeders 做种数下限、size_min_mb/size_max_mb 体积区间（整季包按每集均摊）、exclude_hr 排除 H&R、hr_unknown_policy 决定 H&R 状态未知时宽松/严格处理、未填写的条件均不限制。
+        /// 过滤规则 JSON（全部键可缺省=不限）：resolutions 分辨率偏好序（如 ["2160p","1080p"]，顺序即优先级）、media_sources 片源档白名单兼偏好序（值域 remux/blu-ray/web-dl/rip/tv，顺序即优先级；与 resolutions 一样参与候选选优，空=不限片源）、video_codecs 编码白名单（按编码族匹配：写 x265 即接受 H.265/HEVC）、platforms/platforms_block 流媒体平台白/黑名单（规范值如 netflix、disney_plus、iqiyi；词表外的值读取时丢弃不报错）、release_groups_allow/release_groups_block 制作组白/黑名单、sites 站点白名单兼优先级（站点 id，如 ["pter","mteam"]；设了就只从这些站下载，顺序即优先级：靠前站点有合格资源就先选它，免费等评分只在同一站点内比较）、sites_block 站点黑名单、hdr_levels/hdr_block HDR 白/黑名单（值域 DV/HDR10+/HDR10/HLG/SDR，SDR=资源未标注 HDR，资源只标注泛指 HDR 时按 HDR10 计；白名单任一命中即过、顺序即偏好，黑名单命中即排除；旧的 hdr/dv 三态字段仍可写入，读取时自动换算并反向回填）、free_only 只要免费种、min_seeders 做种数下限、size_min_mb/size_max_mb 体积区间（整季包按每集均摊）、exclude_hr 排除 H&R、hr_unknown_policy 决定 H&R 状态未知时宽松/严格处理、未填写的条件均不限制。
         /// subtitle_languages_require：要求的字幕语言（BCP 47，任一命中即通过）。
         /// audio_languages_require：要求的音轨语言（BCP 47，任一命中即通过）。
         /// upgrade_source 洗版目标片源档（web-dl/blu-ray/remux，缺省=不洗版）、cutoff_resolution 洗版目标分辨率（缺省=resolutions 首选，必须在 resolutions 允许范围内；同理 upgrade_source 必须在 media_sources 允许范围内）、upgrade_ladder 参与洗版比较的维度及优先级（顺序即位次，值域 resolution/source/video_codec/platform，缺省 [resolution, source] 即只比分辨率与片源；偏好列表为空的维度自动跳过）。
@@ -12982,6 +13008,8 @@ nonisolated extension API {
         var progress: API.ProgressView
         /// 剧集按季收录统计；电影或无需展示时为空
         var seasonCollection: [API.SeasonOverview]
+        /// 被订阅上限截断的季（订阅到第几集 / 本季共几集）；有内容时订阅不会判「已收齐」，用户可以继续订阅；没有上限或电影为 null
+        var episodeWindows: [API.EpisodeWindowView]?
         var createdAt: String
         var updatedAt: String
         var wanted: [API.WantedView]
@@ -13011,6 +13039,7 @@ nonisolated extension API {
             case libraryId = "library_id"
             case progress
             case seasonCollection = "season_collection"
+            case episodeWindows = "episode_windows"
             case createdAt = "created_at"
             case updatedAt = "updated_at"
             case wanted
@@ -13159,6 +13188,8 @@ nonisolated extension API {
         var progress: API.ProgressView
         /// 剧集按季收录统计；电影或无需展示时为空
         var seasonCollection: [API.SeasonOverview]
+        /// 被订阅上限截断的季（订阅到第几集 / 本季共几集）；有内容时订阅不会判「已收齐」，用户可以继续订阅；没有上限或电影为 null
+        var episodeWindows: [API.EpisodeWindowView]?
         var createdAt: String
         var updatedAt: String
 
@@ -13175,6 +13206,7 @@ nonisolated extension API {
             case libraryId = "library_id"
             case progress
             case seasonCollection = "season_collection"
+            case episodeWindows = "episode_windows"
             case createdAt = "created_at"
             case updatedAt = "updated_at"
         }

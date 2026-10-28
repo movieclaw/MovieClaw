@@ -49,12 +49,12 @@ import {
 } from "@/lib/api/subscriptions";
 import { usePermissions } from "@/lib/permissions";
 import {
+  canCapSeason,
   capsPayload,
   currentWindows,
   draftFromSeasons,
   effectiveWindow,
   isAiringSeason,
-  isLongSeason,
   sameWindows,
   type CapDraft,
 } from "@/lib/subscription-episode-cap";
@@ -302,7 +302,7 @@ export function SubscriptionAdjustDialog({
                     checked={selectedSeasons.has(s.season_number)}
                     onToggle={() => toggleSeason(s.season_number)}
                   />
-                  {selectedSeasons.has(s.season_number) && isLongSeason(s) && (
+                  {selectedSeasons.has(s.season_number) && canCapSeason(s, airingOf(s.season_number)) && (
                     <SeasonCapLine
                       season={s}
                       win={effectiveWindow(s, capDraft, airingOf(s.season_number))}
@@ -378,7 +378,7 @@ export function SubscriptionAdjustDialog({
                         checked={selectedSeasons.has(s.season_number)}
                         onToggle={() => toggleSeason(s.season_number)}
                       />
-                      {selectedSeasons.has(s.season_number) && isLongSeason(s) && (
+                      {selectedSeasons.has(s.season_number) && canCapSeason(s, airingOf(s.season_number)) && (
                         <SeasonCapLine
                           season={s}
                           win={effectiveWindow(s, capDraft, airingOf(s.season_number))}

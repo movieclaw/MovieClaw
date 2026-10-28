@@ -110,6 +110,67 @@ class ReelItemsSource implements IDataSource {
 }
 
 /**
+ * 当前这一条的收藏 / 已看（反应式状态）。
+ * 为什么要单独一个 @ObservedV2 类：右下角按钮列长在 LazyForEach 的 item 里，
+ * @Builder 调用参数（三元图标 / 文案）只在 item 构建时求值一次、之后冻结，
+ * 状态翻转不会重求值；收进 @Trace、由独立小组件直读，翻转才能立刻换图标换文案。
+ */
+@ObservedV2
+class ReelMarks {
+  @Trace favorite: boolean = false;
+  @Trace played: boolean = false;
+}
+
+/** 收藏按钮：直读 marks 的 @Trace（状态变了立即换图标 / 文案 / 颜色） */
+@ComponentV2
+struct FavoriteAction {
+  @Param marks: ReelMarks = new ReelMarks();
+  @Param onToggle: () => void = (): void => {};
+
+  build() {
+    Column({ space: 3 }) {
+      SymbolGlyph(this.marks.favorite ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
+        .fontSize(26)
+        .fontColor([this.marks.favorite ? Theme.accent : '#ffffff'])
+        .shadow({ radius: 6, color: 'rgba(0,0,0,0.6)', offsetX: 0, offsetY: 1 })
+      Text(this.marks.favorite ? '已收藏' : '收藏')
+        .fontSize(10)
+        .fontColor('rgba(255,255,255,0.9)')
+        .shadow({ radius: 6, color: 'rgba(0,0,0,0.6)', offsetX: 0, offsetY: 1 })
+    }
+    .onClick(() => {
+      this.onToggle();
+    })
+    .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
+  }
+}
+
+/** 没看过按钮：同上，读的是 played */
+@ComponentV2
+struct PlayedAction {
+  @Param marks: ReelMarks = new ReelMarks();
+  @Param onToggle: () => void = (): void => {};
+
+  build() {
+    Column({ space: 3 }) {
+      // 状态要看得出来：已看 = 实心对勾圆（配 accent），没看 = 空心（同收藏的 heart ↔ heart_fill 形变语言）
+      SymbolGlyph(this.marks.played ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.checkmark_circle'))
+        .fontSize(26)
+        .fontColor([this.marks.played ? Theme.accent : '#ffffff'])
+        .shadow({ radius: 6, color: 'rgba(0,0,0,0.6)', offsetX: 0, offsetY: 1 })
+      Text(this.marks.played ? '已看过' : '没看过')
+        .fontSize(10)
+        .fontColor('rgba(255,255,255,0.9)')
+        .shadow({ radius: 6, color: 'rgba(0,0,0,0.6)', offsetX: 0, offsetY: 1 })
+    }
+    .onClick(() => {
+      this.onToggle();
+    })
+    .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
+  }
+}
+
+/**
  * 片段（对应 iOS `ReelsView`，912 行）。
  *
  * 产品形态照 iOS：**上下整页滑动**，每页是某部片里挑出的 30～60 秒。
@@ -178,9 +239,11 @@ export struct ReelsPage {
   /** 视频真实宽高比：surface 是画布、播放器会把画面铺满它，
    * 横带固定 16:9 时非 16:9 的片源会被拉变形——按真实比例在带内 letterbox/pillarbox */
   @Local private videoAspect: number = 16 / 9;
-  /** 当前这一条收藏 / 已看（点了就把状态推到服务端） */
-  @Local private favorite: boolean = false;
-  @Local private played: boolean = false;
+  /** 当前这一条收藏 / 已看（点了就把状态推到服务端）；右下角按钮小组件直读它的 @Trace */
+  private marks: ReelMarks = new ReelMarks();
+  /** 收藏 / 已看的写请求进行中：连点防抖（服务端是翻转语义，并发两次会互相抵消） */
+  private favoriteBusy: boolean = false;
+  private playedBusy: boolean = false;
   /** 类型筛选（对应 iOS 右上的「全部 ⌄」） */
   @Local private kinds: FacetValueView[] = [];
   @Local private kind: string = '';
@@ -244,53 +307,79 @@ export struct ReelsPage {
     }
   }
 
-  /** 当前这一条的收藏 / 已看状态（从条目详情那一路拿，不对就先按 false 显示） */
+  /** 当前这一条的收藏 / 已看状态（初次加载、翻页时从条目数据同步） */
   private syncMarks(): void {
     const item: ReelItemView | null = this.current();
-    this.favorite = item !== null ? item.title.favorite : false;
-    // 片段模型里没有 seen 字段，先按 false；点过之后由服务端返回的真值接管
-    this.played = false;
+    this.marks.favorite = item !== null ? item.title.favorite : false;
+    this.marks.played = item !== null ? item.title.played : false;
   }
 
-  /** 收藏（`playbackMarksSet`，同条目详情页） */
+  /** 收藏（`playbackMarksSet`，同条目详情页）；连点防抖，写完回写条目数据（翻回来还是对的） */
   private async toggleFavorite(item: ReelItemView): Promise<void> {
+    if (this.favoriteBusy) {
+      return;
+    }
     const api: MovieClawApi | null = this.api();
     if (api === null) {
       return;
     }
-    const next: boolean = !this.favorite;
-    this.favorite = next;
+    this.favoriteBusy = true;
+    const next: boolean = !this.marks.favorite;
+    this.marks.favorite = next;
+    item.title.favorite = next;
     try {
       const body: PlaybackMarksRequest = {
         media_item_id: item.title.media_item_id,
         favorite: next
       };
       const marks: PlaybackMarksView = await api.playbackMarksSet(body);
-      this.favorite = marks.is_favorite;
+      // 请求期间可能已经翻页：回写条目数据永远做，页面状态只在该条还显示着时改
+      if (this.current() === item) {
+        this.marks.favorite = marks.is_favorite;
+      }
+      item.title.favorite = marks.is_favorite;
     } catch (error) {
-      this.favorite = !next;
+      if (this.current() === item) {
+        this.marks.favorite = !next;
+      }
+      item.title.favorite = !next;
       this.toast('操作失败，请重试');
+    } finally {
+      this.favoriteBusy = false;
     }
   }
 
-  /** 标为已看 / 没看过 */
+  /** 标为已看 / 没看过；连点防抖，写完回写条目数据 */
   private async togglePlayed(item: ReelItemView): Promise<void> {
+    if (this.playedBusy) {
+      return;
+    }
     const api: MovieClawApi | null = this.api();
     if (api === null) {
       return;
     }
-    const next: boolean = !this.played;
-    this.played = next;
+    this.playedBusy = true;
+    const next: boolean = !this.marks.played;
+    this.marks.played = next;
+    item.title.played = next;
     try {
       const body: PlaybackMarksRequest = {
         media_item_id: item.title.media_item_id,
         played: next
       };
       const marks: PlaybackMarksView = await api.playbackMarksSet(body);
-      this.played = marks.played;
+      if (this.current() === item) {
+        this.marks.played = marks.played;
+      }
+      item.title.played = marks.played;
     } catch (error) {
-      this.played = !next;
+      if (this.current() === item) {
+        this.marks.played = !next;
+      }
+      item.title.played = !next;
       this.toast('操作失败，请重试');
+    } finally {
+      this.playedBusy = false;
     }
   }
 
@@ -985,8 +1074,8 @@ export struct ReelsPage {
           if (this.backdropVisible(item)) {
             this.Backdrop(item)
           }
-          // 画面：一条 16:9 的横带居中
-          Column() {
+          // 画面：一条 16:9 的横带居中；正下方跟「全屏观看」（跟画面走）
+          Column({ space: 12 }) {
             if (this.isCurrentItem(item)) {
               Stack() {
                 XComponent({
@@ -997,6 +1086,11 @@ export struct ReelsPage {
                   // 按视频真实比例在 16:9 横带内自适应（宽于 16:9 上下留空、窄于则左右留空）
                   .width(this.surfaceWidthPct())
                   .height(this.surfaceHeightPct())
+                  /*
+                   * 横带抬到信息层之上后，画面命中测试先于信息层——XComponent 原生
+                   * surface 会把触摸整口吞掉（实测轻点不暂停、竖滑不翻页），必须放行。
+                   */
+                  .hitTestBehavior(HitTestMode.None)
                   .onLoad((): void => {
                     this.surfaceId = this.surfaceController.getXComponentSurfaceId();
                     // 播放器先到 initialized、surface 后就绪：补挂起播
@@ -1036,30 +1130,55 @@ export struct ReelsPage {
               .aspectRatio(16 / 9)
               // 长按 2 倍速读数：横带上方玻璃胶囊（同 iOS gestureHUD 的 PlayerHUD）
               .overlay(this.HoldHud(), { align: Alignment.Top })
+              .hitTestBehavior(HitTestMode.None)
             } else {
               // 非当前页不挂 surface（省解码器），用封面顶着
               this.Cover(item, !this.hasBackdrop(item))
             }
+            // 横带正下方一行：「全屏观看」描边胶囊（画质胶囊以后加在它左边）——
+            // 放进画面这列而不是信息层：跟着横带走，不压画面、不悬在半空
+            Row({ space: 8 }) {
+              Text('全屏观看')
+                .fontSize(12)
+                .fontColor('#ffffff')
+                .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+                .backgroundColor('rgba(0,0,0,0.35)')
+                .borderRadius(16)
+                .border({ width: 1, color: 'rgba(255,255,255,0.5)' })
+                .onClick(() => {
+                  this.openFullScreen();
+                })
+                .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
+            }
+            .opacity(this.controlsDimmed(item) ? 0.3 : 1)
           }
           .width('100%')
           .justifyContent(FlexAlign.Center)
-
-          // 手势层（同播放器页，轻点 / 双击 ∓10 秒 / 长按 2 倍速；竖滑交给翻页、横滑作废）
-          Column()
-            .width('100%')
-            .height('100%')
-            .onTouch((event: TouchEvent): void => {
-              this.onGesture(event, item);
-            })
-            .onAreaChange((_old: Area, newArea: Area) => {
-              this.layerWidth = this.vpOf(newArea.width);
-              this.layerHeight = this.vpOf(newArea.height);
-            })
+          /*
+           * 不抬 zIndex：横带一旦压到信息层上面，视频 surface 底边会把右侧图标列
+           * 顶部吃掉几个像素（实测收藏图标被挡 2px）。留在信息层下面，图标画在
+           * 视频边缘之上才是原设计；「全屏观看」的点击不靠抬层，靠信息层底行
+           * 整排 None 透传（见 Overlay 底行）。
+           */
+          .hitTestBehavior(HitTestMode.None)
 
           this.Overlay(item)
         }
         .width('100%')
         .height('100%')
+        /*
+         * 手势直接挂在条目根上（同播放器页挂 NavDestination）：信息层是 Stack 里的
+         * 上层 Default 兄弟，会屏蔽下层兄弟的命中测试（实测轻点全被它吞、修复无效），
+         * 而任何 hitTestBehavior 都不挡祖先——onTouch 挂祖先必达。
+         * 信息层根 None + 交互子件 BLOCK_HIERARCHY：点按钮就地拦断，不会顺带触发手势。
+         */
+        .onTouch((event: TouchEvent): void => {
+          this.onGesture(event, item);
+        })
+        .onAreaChange((_old: Area, newArea: Area) => {
+          this.layerWidth = this.vpOf(newArea.width);
+          this.layerHeight = this.vpOf(newArea.height);
+        })
       }, (item: ReelItemView) => item.id)
       // 刷到底的末页（同 iOS endPage）：滑到它就像滑走了一条，收掉当前的播放器
       if (this.exhausted) {
@@ -1190,19 +1309,31 @@ export struct ReelsPage {
     .padding({ left: 24, right: 24 })
   }
 
-  /** 暂停时横带正中出播放标记；放到头了换重播标记（同 iOS ReelCenterGlyph：play.fill / arrow.counterclockwise） */
+  /** 暂停时横带正中出播放标记；放到头了换重播标记（同 iOS ReelCenterGlyph：play.fill / arrow.counterclockwise）。
+   *  裸 SymbolGlyph 上 .shadow 按**组件包围盒**渲染——亮画面上会显出一个半透明方形阴影框，
+   *  改成刻意的圆形暗底承托：对比度还在，方形伪影消失 */
   @Builder
   PauseMarker() {
     if (this.positionMs >= this.clipDuration() - 300) {
-      SymbolGlyph($r('sys.symbol.arrow_counterclockwise'))
-        .fontSize(36)
-        .fontColor(['rgba(255,255,255,0.92)'])
-        .shadow({ radius: 8, color: 'rgba(0,0,0,0.5)' })
+      Stack() {
+        SymbolGlyph($r('sys.symbol.arrow_counterclockwise'))
+          .fontSize(36)
+          .fontColor(['rgba(255,255,255,0.92)'])
+      }
+      .width(64)
+      .height(64)
+      .backgroundColor('rgba(0,0,0,0.38)')
+      .borderRadius(32)
     } else {
-      SymbolGlyph($r('sys.symbol.play_fill'))
-        .fontSize(40)
-        .fontColor(['rgba(255,255,255,0.9)'])
-        .shadow({ radius: 10, color: 'rgba(0,0,0,0.7)', offsetX: 0, offsetY: 2 })
+      Stack() {
+        SymbolGlyph($r('sys.symbol.play_fill'))
+          .fontSize(40)
+          .fontColor(['rgba(255,255,255,0.9)'])
+      }
+      .width(64)
+      .height(64)
+      .backgroundColor('rgba(0,0,0,0.38)')
+      .borderRadius(32)
     }
   }
 
@@ -1228,6 +1359,7 @@ export struct ReelsPage {
           .onClick(() => {
             this.navStack.pop();
           })
+          .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
         Blank()
         // 右上一个玻璃胶囊「全部 ⌄」（类型筛选；没接后端筛选时也保留入口位置）
         Text('全部')
@@ -1238,6 +1370,7 @@ export struct ReelsPage {
           .borderRadius(18)
           .border({ width: 1, color: 'rgba(255,255,255,0.28)' })
           .bindMenu(this.KindMenu())
+          .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: Theme.statusBarInset + 8 })
@@ -1265,26 +1398,9 @@ export struct ReelsPage {
       .onClick(() => {
         this.openDetail();
       })
+      .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
 
       Blank()
-
-      // —— 横带下方一行：「全屏观看」描边胶囊（画质胶囊在它左边）——
-      Row({ space: 8 }) {
-        Text('全屏观看')
-          .fontSize(12)
-          .fontColor('#ffffff')
-          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-          .backgroundColor('rgba(0,0,0,0.35)')
-          .borderRadius(16)
-          .border({ width: 1, color: 'rgba(255,255,255,0.5)' })
-          .onClick(() => {
-            this.openFullScreen();
-          })
-      }
-      .width('100%')
-      .justifyContent(FlexAlign.Center)
-      .opacity(this.controlsDimmed(item) ? 0.3 : 1)
-      .margin({ bottom: 10 })
 
       // —— 底部：左边导演+简介，右边一列图标 ——
       Row() {
@@ -1303,18 +1419,24 @@ export struct ReelsPage {
         .alignItems(HorizontalAlign.Start)
 
         // 右下角一列**无底色**的白色图标（不用毛玻璃，和画面融在一起；带投影保证亮画面上也看得清）
+        // 收藏 / 没看过是独立小组件：LazyForEach item 里 @Builder 参数会冻结，
+        // 反应式状态必须由小组件直读 marks 的 @Trace（详见 ReelMarks 的说明）
         Column({ space: 16 }) {
-          this.GlyphAction(this.favorite ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'),
-            this.favorite ? '已收藏' : '收藏', this.favorite, (): void => {
+          FavoriteAction({
+            marks: this.marks,
+            onToggle: (): void => {
               this.toggleFavorite(item);
-            })
+            }
+          })
           this.GlyphAction($r('sys.symbol.film'), '详情', false, (): void => {
             this.openDetail();
           })
-          this.GlyphAction($r('sys.symbol.checkmark_circle'), this.played ? '已看过' : '没看过',
-            this.played, (): void => {
+          PlayedAction({
+            marks: this.marks,
+            onToggle: (): void => {
               this.togglePlayed(item);
-            })
+            }
+          })
           this.GlyphAction($r('sys.symbol.paperplane'), '分享', false, (): void => {
             this.openShare(item);
           })
@@ -1324,6 +1446,9 @@ export struct ReelsPage {
       .width('100%')
       .alignItems(VerticalAlign.Bottom)
       .padding({ left: 16, right: 16 })
+      // 底行整排 None：Row 包围盒罩着横带里的「全屏观看」胶囊（Default 整块认领会把按钮点死），
+      // 放行给下层横带；左右两列自己的包围盒各自认领，不受影响
+      .hitTestBehavior(HitTestMode.None)
 
       // 最底下一条细进度线（按片段算，不按整部片）；平时不显示，只在暂停时淡入（同抖音）
       Stack({ alignContent: Alignment.Start }) {
@@ -1344,6 +1469,13 @@ export struct ReelsPage {
     }
     .width('100%')
     .height('100%')
+    /*
+     * 信息层是手势层在 Stack 里的上层兄弟：Default 模式会把兄弟的命中测试整个挡掉
+     * （官方 HitTestMode 语义），轻点/重播/长按全被它吞了。根节点改 None 放行空白区，
+     * 交互子件（返回/全部/片名/图标列/导演行）各自加 BLOCK_HIERARCHY：点了不穿透到手势层。
+     * 底行整排 None：给下层横带里的「全屏观看」胶囊透传点击。
+     */
+    .hitTestBehavior(HitTestMode.None)
   }
 
   /** 分享面板的壳 */
@@ -1387,6 +1519,7 @@ export struct ReelsPage {
     .onClick(() => {
       onTap();
     })
+    .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
   }
 
   /** 导演行（剧集是主创）：头像 + 名字 + 身份，点了进库内影人页（同 iOS directorRow） */
@@ -1435,6 +1568,7 @@ export struct ReelsPage {
         this.navStack.pushPathByName('person', new PersonParams(id));
       }
     })
+    .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
   }
 
   private directorNames(item: ReelItemView): string {

@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import Field, field_serializer, field_validator
+from pydantic import Field, field_serializer, field_validator, model_validator
 
 from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
@@ -1195,6 +1195,11 @@ class LibraryItemDetailView(BaseModel):
     english_title: str | None = Field(
         default=None, description="国际英文名；「搜索资源」与中文名、原名一起搜"
     )
+    chinese_title: str | None = Field(
+        default=None,
+        description="中文片名：读者界面不是中文、片名显示为别的语言时给出，「搜索资源」带上它"
+        "（中文 PT 站的主搜索词）；与片名相同或未知时为 null",
+    )
     year: int | None
     poster_url: str | None
     backdrop_url: str | None
@@ -1978,6 +1983,22 @@ class ScanStartPayload(BaseModel):
         ),
         max_length=200,
     )
+    cloud_paths: list[str] | None = Field(
+        default=None,
+        description=(
+            "只列这些网盘子目录（网盘上的完整路径，须在本库挂着的网盘文件夹之下，"
+            "如「影视基地/媒体库/国产剧/某剧」）：只看网盘、不遍历本地、不补探存量规格，"
+            "判缺失也只在这些子目录里。适合插件把文件转存/上传进网盘后只让这一处入账；"
+            "不能与 paths 同给"
+        ),
+        max_length=50,
+    )
+
+    @model_validator(mode="after")
+    def _one_scope(self) -> ScanStartPayload:
+        if self.paths and self.cloud_paths:
+            raise ValueError("paths and cloud_paths cannot be given together")
+        return self
 
 
 class ScanResultView(BaseModel):

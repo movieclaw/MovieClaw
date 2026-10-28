@@ -109,6 +109,13 @@ Webhook 只在外面再加 `server`（实例 id、版本）。`origin` 来自现
 
 ### 3.4 目录条目
 
+播放停止与完成事件的 1.1 契约带可选 `watch_source_ids`（旧事件为空），使用组成当前观看的
+`playback:<日志 ID>` 列表；与 `playback.sync.catalog` 的 `watches[].source_ids` 相同。
+事件与目录复用既有续播分组，不通过发生时间猜测观看身份；目录的原 `id` 保持不变。
+完成时仍在播放的日志，目录稍后停止后的时间可能不同，插件可凭共同 ID 保存投递回执，
+避免实时投递与后续历史导出重复。原生 HTTP 与离线观看补报共用该字段；导入事实与状态
+回退的 `source_ids` 为空。无需新表、后台任务、监听端口或额外操作权限。
+
 ```python
 SUBSCRIPTION_FULFILLED = define(
     "subscription.fulfilled",

@@ -27,6 +27,7 @@ import {
   SettingsSection,
 } from "@/components/settings-ui";
 import type { RoutingOptions } from "@/lib/api/libraries";
+import { listConfiguredSites, listSiteCatalog } from "@/lib/api/sites";
 import {
   createRuleSet,
   deleteRuleSet,
@@ -548,6 +549,9 @@ export function specSummary(
     chips.push(t("subscription.rules.allowedGroupCount", { count: spec.release_groups_allow.length }));
   if (spec.release_groups_block?.length)
     chips.push(t("subscription.rules.blockedGroupCount", { count: spec.release_groups_block.length }));
+  if (spec.sites?.length) chips.push(t("subscription.rules.siteChip", { values: spec.sites.join(" > ") }));
+  if (spec.sites_block?.length)
+    chips.push(t("subscription.rules.blockedSites", { values: spec.sites_block.join("/") }));
   return chips;
 }
 
@@ -622,6 +626,9 @@ export function RuleSetEditorDialog({
   const [sizeMax, setSizeMax] = useState(spec.size_max_mb?.toString() ?? "");
   const [groupsAllow, setGroupsAllow] = useState((spec.release_groups_allow ?? []).join(", "));
   const [groupsBlock, setGroupsBlock] = useState((spec.release_groups_block ?? []).join(", "));
+  const [sitesAllow, setSitesAllow] = useState<string[]>(spec.sites ?? []);
+  const [sitesBlock, setSitesBlock] = useState<string[]>(spec.sites_block ?? []);
+  const siteOptions = useSiteOptions(spec);
   // 洗版目标：""=不洗版（唯一的洗版配置点，docs/design/quality-upgrade.md §8.2）
   const [upgradeSource, setUpgradeSource] = useState<string>(spec.upgrade_source ?? "");
   const [upgradeKeepOld, setUpgradeKeepOld] = useState<boolean>(spec.upgrade_keep_old ?? false);
@@ -688,6 +695,22 @@ export function RuleSetEditorDialog({
     }
   };
 
+  const siteState = (value: string): "off" | "include" | "exclude" =>
+    sitesAllow.includes(value) ? "include" : sitesBlock.includes(value) ? "exclude" : "off";
+
+  /** 与平台同一套三态；「只要」按点选顺序入列，序号即站点优先级。 */
+  const cycleSite = (value: string) => {
+    const state = siteState(value);
+    if (state === "off") {
+      setSitesAllow((prev) => [...prev, value]);
+    } else if (state === "include") {
+      setSitesAllow((prev) => prev.filter((v) => v !== value));
+      setSitesBlock((prev) => [...prev, value]);
+    } else {
+      setSitesBlock((prev) => prev.filter((v) => v !== value));
+    }
+  };
+
   const toggleHdrBlock = (value: string) =>
     setHdrBlock((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
 
@@ -717,8 +740,11 @@ export function RuleSetEditorDialog({
       .filter(Boolean)
       .join(" · ") || t("subscription.rules.unset");
 
+  const siteName = (id: string) => siteOptions.find((o) => o.id === id)?.name ?? id;
   const limitSummary =
     [
+      sitesAllow.length ? sitesAllow.map(siteName).join(" > ") : "",
+      sitesBlock.length ? t("subscription.rules.excludeValues", { values: sitesBlock.map(siteName).join("/") }) : "",
       subLangs.length ? t("subscription.rules.subtitleSummary", { values: labelOf(subLangOptions(locale), subLangs) }) : "",
       audioLangs.length ? t("subscription.rules.audioSummary", { values: labelOf(audioLangOptions(locale), audioLangs) }) : "",
       freeOnly ? t("subscription.rules.freeOnly") : "",
@@ -845,8 +871,8 @@ export function RuleSetEditorDialog({
       }
       if (upgradeKeepOld) next.upgrade_keep_old = true;
     }
-    // API 写入的预留字段（站点白名单）编辑时原样保留，不因 UI 保存而丢失
-    if (spec.sites?.length) next.sites = spec.sites;
+    if (sitesAllow.length) next.sites = sitesAllow;
+    if (sitesBlock.length) next.sites_block = sitesBlock;
     return { spec: next, error: null };
   }, [
     resolutions,
@@ -872,7 +898,8 @@ export function RuleSetEditorDialog({
     groupsBlock,
     cutoffResolution,
     upgradeKeepOld,
-    spec.sites,
+    sitesAllow,
+    sitesBlock,
   ]);
 
   // 底部回执分两段：硬性筛选走芯片，洗版走阶梯（洗版开着时芯片里不再重复目标）
@@ -1126,6 +1153,24 @@ export function RuleSetEditorDialog({
           </Section>
 
           <Section title={t("subscription.rules.limits")} summary={limitSummary}>
+          <Field label={t("subscription.rules.sites")} hint={t("subscription.rules.sitesHint")}>
+            <div className="flex flex-wrap gap-1.5">
+              {siteOptions.map(({ id, name }) => {
+                const index = sitesAllow.indexOf(id);
+                return (
+                  <TriChip key={id} state={siteState(id)} onClick={() => cycleSite(id)}>
+                    {index >= 0 && sitesAllow.length > 1 && (
+                      <span className="mr-1.5 inline-flex size-4 items-center justify-center rounded-full bg-white/20 text-micro font-semibold">
+                        {index + 1}
+                      </span>
+                    )}
+                    {name}
+                  </TriChip>
+                );
+              })}
+            </div>
+          </Field>
+
           <Field
             label={t("subscription.rules.subtitleLanguage")}
             hint={t("subscription.rules.subtitleHint")}
@@ -1498,6 +1543,34 @@ function UpgradeLadderPreviewView({
 // ---------------------------------------------------------------------------
 // 表单积木
 // ---------------------------------------------------------------------------
+
+/**
+ * 站点选项：已配置的站点（目录里的显示名），外加规则组里已有、但当前没配置的
+ * 站点 id——站点删了或列表加载失败时，原有设置照样显示、照样可取消，不会悄悄丢。
+ */
+function useSiteOptions(spec: RuleSetSpec): { id: string; name: string }[] {
+  const [loaded, setLoaded] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([listConfiguredSites(), listSiteCatalog()])
+      .then(([sites, catalog]) => {
+        if (cancelled) return;
+        const names = new Map(catalog.map((c) => [c.site_id, c.display_name]));
+        setLoaded(sites.map((s) => ({ id: s.site_id, name: names.get(s.site_id) ?? s.site_id })));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return useMemo(() => {
+    const ids = new Set(loaded.map((o) => o.id));
+    const extras = [...new Set([...(spec.sites ?? []), ...(spec.sites_block ?? [])])]
+      .filter((id) => !ids.has(id))
+      .map((id) => ({ id, name: id }));
+    return [...loaded, ...extras];
+  }, [loaded, spec]);
+}
 
 function Field({
   label,

@@ -110,6 +110,14 @@ class _Viewing:
     reached_end: bool = False
 
     @property
+    def source_id(self) -> str:
+        return f"playback:{self.first.id}"
+
+    @property
+    def source_ids(self) -> tuple[str, ...]:
+        return tuple(f"playback:{row.id}" for row in self.segments)
+
+    @property
     def first(self) -> PlaybackLog:
         return self.segments[0]
 
@@ -256,6 +264,32 @@ async def _targets_for(
             unit, ctx, library_id=placement.library_id, browsable=placement.browsable
         )
     return targets, durations
+
+
+async def watch_source_ids(session: AsyncSession, log: PlaybackLog) -> tuple[str, ...]:
+    """事件与 catalog 共用续播分组，不用发生时间猜测观看身份。"""
+    await session.flush()
+    rows = list(
+        (
+            await session.execute(
+                select(PlaybackLog).where(
+                    PlaybackLog.member_id == log.member_id,
+                    PlaybackLog.media_item_id == log.media_item_id,
+                    PlaybackLog.season_number == log.season_number,
+                    PlaybackLog.episode_number == log.episode_number,
+                )
+            )
+        ).scalars()
+    )
+    _, durations = await _targets_for(session, rows, browsable_library_ids=None, fold_hidden=False)
+    return next(
+        (
+            v.source_ids
+            for v in _group_viewings(rows, durations)
+            if any(segment.id == log.id for segment in v.segments)
+        ),
+        (),
+    )
 
 
 async def playback_history(

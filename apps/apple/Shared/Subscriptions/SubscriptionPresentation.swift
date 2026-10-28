@@ -100,6 +100,14 @@ enum SubsFormat {
         return seasons.count == 1 ? String(localized: .subscriptionSeasonListOne(list)) : String(localized: .subscriptionSeasonListMany(list))
     }
 
+    /// 完结季「从第 N 集起」（issue #950）的说明：收录范围之外，前面的集为什么不算进进度。
+    /// 只认服务端明确标了完结（airing == false）的不设上界窗口；旧服务端不标，不显示
+    static func fromWindowNotes(_ windows: [API.EpisodeWindowView]?) -> [String] {
+        (windows ?? [])
+            .filter { $0.end == nil && $0.airing == false }
+            .map { String(localized: .subscriptionWindowFromNote(seasonName($0.seasonNumber), $0.start)) }
+    }
+
     /// 字节 → 「1.46 GB」（Web formatBytes：1024 进制、两位小数、≥100 取整）
     static func bytes(_ value: Int?) -> String {
         guard let value, value >= 0 else { return "—" }

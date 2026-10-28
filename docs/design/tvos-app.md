@@ -376,9 +376,9 @@ tvOS 系统播放器**，用户不需要重新学：
   `AVAsset.load(.preferredDisplayCriteria)` 自己写；② 自研引擎直连服务端 HLS 时（用户限了画质），
   只在 HDR 时切换，SDR 片源不匹配帧率。
 - **音频会话：TV 上必须交给引擎**。引擎在 tvOS 上用 `.longFormAudio` 路由策略，而且只在需要时才激活会话——
-  过早激活会把 HDMI 锁在立体声，5.1 和全景声被降混（上游 #24）。iPhone 端的做法（补丁 P47 由 App 自管类别、
+  过早激活会把 HDMI 锁在立体声，5.1 和全景声被降混（上游 #24）。iPhone 端的做法（App 自管类别、
   起播时就激活、策略 `.longFormVideo`）在 tvOS 上不能用，`.longFormVideo` 在 tvOS 上也不存在。
-  TV 端保持引擎默认（`hostManagesAudioSessionCategory = false`）。
+  TV 端不设类别，由引擎在第一次装载时声明（引擎 7.48 起；原来是建实例时，靠补丁 P47 的开关区分两端，已删）。
 - **全景声与无损音轨**：EAC3 + JOC（流媒体常见的全景声）原样经 HDMI 输出。TrueHD / DTS 现在固定重编成有损的
   EAC3 5.1（`AetherPlayback.swift` 里写死了 `.surroundCompat`），全景声对象会丢失。
   客厅里接功放的用户更在意这一点，所以 TV 端倾向改用 `.lossless`（重编成 FLAC，以多声道 LPCM 输出，最多 7.1）。

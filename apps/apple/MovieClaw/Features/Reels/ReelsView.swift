@@ -33,6 +33,8 @@ struct ReelsView: View {
     @Environment(\.permissions) private var permissions
     @Environment(Router.self) private var router
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var store: ReelsStore?
     @State private var visible = false
     @State private var sharing: API.ReelItemView?
@@ -44,7 +46,8 @@ struct ReelsView: View {
     var body: some View {
         GeometryReader { geo in
             let current = PageGeometry(size: geo.size, insets: geo.safeAreaInsets)
-            let page = portraitPage ?? current
+            // 宽版式窗口（iPhone Duo 内屏、iPad）方向跟随设备、播放器页也不转屏：按当前尺寸排
+            let page = wide ? current : (portraitPage ?? current)
             ZStack {
                 Color.black
                 // 第一页还没挑出来（刚进来、换了筛选、点了重试）：转圈；挑完了还是空、出错、服务器太旧才是空态。
@@ -129,6 +132,13 @@ struct ReelsView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { store?.pause() }
         }
+        // iPhone Duo 展开（手机上窗口变成宽版式只有这一种情况）：正在放的这一条自动进全屏观看，在内屏的大画面上
+        // 从刚才的位置接着放；暂停着不自动进（docs/design/iphone-duo.md §6.5）。合上时播放器页自己退回这里（见 PlayerScreen）
+        .onChange(of: wide) { _, now in
+            guard now, UIDevice.current.userInterfaceIdiom == .phone, visible, router.player == nil,
+                  let store, store.playerState == .playing else { return }
+            openFullscreen(store)
+        }
         .sheet(isPresented: Binding(get: { sharing != nil }, set: { if !$0 { sharing = nil } })) {
             if let item = sharing {
                 LibraryShareSheet(
@@ -139,6 +149,10 @@ struct ReelsView: View {
                 .sheetFeedback()
             }
         }
+    }
+
+    private var wide: Bool {
+        WindowLayout.isWide(horizontal: horizontalSizeClass, vertical: verticalSizeClass)
     }
 
     /// 正中标题胶囊的宽度（固定）：标题居中，两边各让出右上角筛选键那么宽（它比左边的返回键宽）
@@ -335,7 +349,13 @@ private struct ReelPage: View {
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let bandHeight = width * 9 / 16
+            // 横带宽：手机竖屏就是整宽。两种情况收窄（docs/design/iphone-duo.md §6.3、§6.5），手机上都不起作用：
+            // - 避开左右安全区：iPhone Duo 外屏右侧是竖排的系统栏（返回键在那里），横带画到它底下会被返回键压住；
+            // - iPhone Duo 内屏、iPad 这种又宽又矮的页面，整宽的 16:9 会把下面的按钮和简介挤没，限到横带高不超过页面的 58%
+            let usable = width - insets.leading - insets.trailing
+            let bandWidth = min(usable, geo.size.height * 0.58 * 16 / 9)
+            let bandX = insets.leading + usable / 2
+            let bandHeight = bandWidth * 9 / 16
             // 横带的中心放在屏幕 46% 高处（参照图：略高于正中，给底部信息留地方）
             let bandCenter = geo.size.height * 0.46
             ZStack(alignment: .bottom) {
@@ -344,8 +364,8 @@ private struct ReelPage: View {
                     stillBackdrop
                         .transition(.opacity)
                 }
-                videoBand(width: width, height: bandHeight)
-                    .position(x: width / 2, y: bandCenter)
+                videoBand(width: bandWidth, height: bandHeight)
+                    .position(x: bandX, y: bandCenter)
                 // 手势与播放器页同一个手势层：轻点暂停、双击左右 ∓10 秒、长按 2 倍速；横滑不拖进度（只在全屏里有）；
                 // 竖滑不认领（关掉调亮度 / 音量），整次交给外层翻页。垫在按钮、简介下面，它们自己响应点击
                 PlayerGestureLayer(
@@ -360,8 +380,8 @@ private struct ReelPage: View {
                 )
                 if isCurrent {
                     gestureHUD(bandTop: bandCenter - bandHeight / 2)
-                        .frame(width: width, height: bandHeight)
-                        .position(x: width / 2, y: bandCenter)
+                        .frame(width: bandWidth, height: bandHeight)
+                        .position(x: bandX, y: bandCenter)
                     // 卡顿换画质的提议、转码退回原画的提示：横带上方，不挡画面
                     let promptArea = bandCenter - bandHeight / 2 - 12
                     qualityPrompts
@@ -379,7 +399,7 @@ private struct ReelPage: View {
                     // 只改亮度不隐藏：按钮始终在原位、暗着也能点。调暗靠降文字与描边的颜色（`controlsAlpha`），
                     // 不能给整行套 .opacity：透明度不是 1 时这行按钮收不到点击，点击全落到下面的手势层变成暂停（模拟器实测）
                     .animation(.easeInOut(duration: 0.3), value: controlsDimmed)
-                    .position(x: width / 2, y: bandCenter + bandHeight / 2 + 28)
+                    .position(x: bandX, y: bandCenter + bandHeight / 2 + 28)
                 }
                 VStack(spacing: 12) {
                     HStack(alignment: .bottom, spacing: 12) {
@@ -911,3 +931,4 @@ private struct ReelActionLabel: View {
         .contentShape(Rectangle())
     }
 }
+

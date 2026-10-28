@@ -628,6 +628,8 @@
     "listFailed": "网盘文件夹「{path}」没列出来：{detail}",
     "onePrimary": "主根只能有一个",
     "missingId": "网盘目录缺少 id",
+    "scopeOutside": "「{path}」不在这个库挂的网盘文件夹里",
+    "scopeNotFound": "网盘上找不到文件夹「{path}」",
     "accountMissing": "网盘账号不存在（可能已被移除）",
     "rootDir": "根目录",
     "overlap": "「{a}」和「{b}」重叠了，选外层的一个就行",
@@ -788,6 +790,7 @@
       "outsideRule": "监听条目已不属于原规则，已停止处理"
     },
     "result": {
+      "outsideRule": "条目已不在监听导入规则的源目录下，无需继续入库",
       "ruleDeleted": "监听导入规则已删除，本次作业已停止",
       "entryRemoved": "源条目已被移除，无需继续入库",
       "ignored": "条目已被忽略，不再自动入库",

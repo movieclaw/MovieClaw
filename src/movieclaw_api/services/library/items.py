@@ -39,12 +39,13 @@ from datetime import UTC, date, datetime
 from pathlib import Path, PurePath
 from typing import Any, Literal, NamedTuple
 
-from sqlalchemy import BigInteger, Integer, and_, func, not_, nullslast, or_, true, tuple_
+from sqlalchemy import BigInteger, Integer, and_, func, not_, nullslast, or_, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 from sqlmodel import select
 
 from movieclaw_api.i18n import t
+from movieclaw_api.i18n.content import display_genres, display_overview, display_title
 from movieclaw_api.i18n.media_labels import country_label, genre_label
 from movieclaw_api.schemas.library import (
     EpisodeView,
@@ -108,6 +109,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_db.repositories.library_repo import LibraryRepository
+from movieclaw_db.rowvalues import tuple_in
 from movieclaw_media.genres import genre_names
 from movieclaw_media.models import MediaKind
 
@@ -525,6 +527,7 @@ def _filter_subquery(
     skip: str | None = None,
     library_id: LibraryScope | None = None,
     content_limit: ContentLimit | None = None,
+    only_item_id: int | None = None,
 ):
     """命中筛选条件的 ``media_item_id`` 子查询；不收窄时返回 None。
 
@@ -609,6 +612,18 @@ def _filter_subquery(
         conds.append(allowed)
     if not conds:
         return None
+    # 子查询是不相关的（见 _file_exists 为什么不能写成相关子查询），SQLite 会先把它对
+    # 候选条目全部求值一遍再物化：不收窄就是全站每个条目各跑一遍 json_each。外层只看
+    # 本库（或这一个条目），候选也收在这里——结果不变，NAS 上详情页反查合集 12.7 ms →
+    # 0.07 ms、单库合集 19 → 9 ms
+    if only_item_id is not None:
+        conds.append(MediaItem.id == only_item_id)
+    elif library_id is not None:
+        conds.append(
+            MediaItem.id.in_(  # type: ignore[attr-defined]
+                select(LibraryFile.media_item_id).where(_in_libraries(library_id))
+            )
+        )
     return (
         select(MediaItem.id)
         .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)  # type: ignore[arg-type]
@@ -642,6 +657,7 @@ def _narrow(
     skip: str | None = None,
     library_id: LibraryScope | None = None,
     content_limit: ContentLimit | None = None,
+    only_item_id: int | None = None,
 ) -> tuple:
     """筛选收窄的 WHERE 片段（**含观看者的内容分级约束**）。
 
@@ -653,7 +669,9 @@ def _narrow(
     经过 ``_narrow``，收窄点只有一个，就不存在"某一处忘了加"这种洞——
     而这个功能一旦漏一处就是假的（孩子照样能从那一处看到）。
     """
-    subq = _filter_subquery(filters, member_id, skip, library_id, content_limit=content_limit)
+    subq = _filter_subquery(
+        filters, member_id, skip, library_id, content_limit=content_limit, only_item_id=only_item_id
+    )
     return () if subq is None else (LibraryFile.media_item_id.in_(subq),)  # type: ignore[union-attr]
 
 
@@ -734,7 +752,13 @@ async def _titles_sorted(
             .join(MediaItem, MediaItem.id == LibraryFile.media_item_id)  # type: ignore[arg-type]
             .where(
                 *_wall_scope(library_id, identity, only_item_id),
-                *_narrow(filters, member_id, library_id=library_id, content_limit=content_limit),
+                *_narrow(
+                    filters,
+                    member_id,
+                    library_id=library_id,
+                    content_limit=content_limit,
+                    only_item_id=only_item_id,
+                ),
             )
             .distinct()
         )
@@ -862,6 +886,30 @@ def _facet_scope(
     )
 
 
+def _facet_items(
+    library_id: LibraryScope,
+    filters: LibraryFilter | None,
+    member_id: int | None,
+    skip: str,
+    content_limit: ContentLimit | None = None,
+    *extra,
+):
+    """``_facet_scope`` 范围内的条目（去重后的子查询），计数都从它出发。
+
+    直接拿文件行去 join 条目/档案再数 distinct，剧集库每一集都要把本剧的类型展开一遍、
+    把观看状态查一遍（NAS 上 1.2 万个分集文件，每一维约 20 ms）；先去重只算 270 部剧。
+    """
+    return (
+        select(LibraryFile.media_item_id)
+        .where(
+            *_facet_scope(library_id, filters, member_id, skip, content_limit=content_limit),
+            *extra,
+        )
+        .distinct()
+        .subquery()
+    )
+
+
 def _with_selected(rows, selected: tuple) -> list[FacetValueView]:
     """分组结果 → 候选列表，并补齐当前选中但一条都没数到的取值（计数 0）。
 
@@ -894,14 +942,14 @@ async def _json_facet(
     也就取消不掉；条件行找不到它的展示名，只能把裸值印出来（「科幻」变成
     「878」）。为 0 的候选照常返回本来就是这里的约定，选中的更不能少。
     """
+    items = _facet_items(library_id, filters, member_id, skip, content_limit)
     each = func.json_each(column).table_valued("value")
     rows = (
         await session.execute(
-            select(each.c.value, func.count(func.distinct(LibraryFile.media_item_id)))
-            .select_from(LibraryFile)
-            .join(MediaMetadata, MediaMetadata.media_item_id == LibraryFile.media_item_id)  # type: ignore[arg-type]
+            select(each.c.value, func.count(func.distinct(items.c.media_item_id)))
+            .select_from(items)
+            .join(MediaMetadata, MediaMetadata.media_item_id == items.c.media_item_id)  # type: ignore[arg-type]
             .join(each, true())
-            .where(*_facet_scope(library_id, filters, member_id, skip, content_limit=content_limit))
             .group_by(each.c.value)
         )
     ).all()
@@ -927,22 +975,19 @@ async def _bucket_facet(
     """
     out: list[FacetValueView] = []
     for value, label, probe in options:
+        items = _facet_items(
+            library_id,
+            filters,
+            member_id,
+            skip,
+            content_limit,
+            *_narrow(probe, member_id, library_id=library_id),
+        )
         count = (
             await session.execute(
-                select(func.count(func.distinct(LibraryFile.media_item_id)))
-                .select_from(LibraryFile)
-                .join(MediaItem, MediaItem.id == LibraryFile.media_item_id)  # type: ignore[arg-type]
-                .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)  # type: ignore[arg-type]
-                .where(
-                    *_facet_scope(
-                        library_id,
-                        filters,
-                        member_id,
-                        skip,
-                        content_limit=content_limit,
-                    ),
-                    *_narrow(probe, member_id, library_id=library_id),
-                )
+                select(func.count())
+                .select_from(items)
+                .join(MediaItem, MediaItem.id == items.c.media_item_id)  # type: ignore[arg-type]
             )
         ).scalar_one()
         out.append(FacetValueView(value=value, label=label, count=int(count)))
@@ -1003,24 +1048,16 @@ async def _second_tier_facets(
     )
 
     # 语言与分辨率是**从数据里长出来的**取值，可以直接分组数
+    lang_items = _facet_items(library_id, filters, member_id, "languages", content_limit)
     lang_rows = (
         await session.execute(
             select(
                 MediaMetadata.original_language,
-                func.count(func.distinct(LibraryFile.media_item_id)),
+                func.count(func.distinct(lang_items.c.media_item_id)),
             )
-            .select_from(LibraryFile)
-            .join(MediaMetadata, MediaMetadata.media_item_id == LibraryFile.media_item_id)  # type: ignore[arg-type]
-            .where(
-                *_facet_scope(
-                    library_id,
-                    filters,
-                    member_id,
-                    "languages",
-                    content_limit=content_limit,
-                ),
-                MediaMetadata.original_language.is_not(None),  # type: ignore[union-attr]
-            )
+            .select_from(lang_items)
+            .join(MediaMetadata, MediaMetadata.media_item_id == lang_items.c.media_item_id)  # type: ignore[arg-type]
+            .where(MediaMetadata.original_language.is_not(None))  # type: ignore[union-attr]
             .group_by(MediaMetadata.original_language)
         )
     ).all()
@@ -1102,21 +1139,13 @@ async def build_library_facets(
 
     # 年代：取（条目, 年份）后在 Python 里分档——档位是闭区间常量，用 SQL 的
     # CASE 表达只会让这段更难读，而行数与库内条目数同量级
+    items = _facet_items(library_id, filters, member_id, "decades", content_limit)
     year_rows = (
         await session.execute(
-            select(LibraryFile.media_item_id, _year_expr())
-            .select_from(LibraryFile)
-            .join(MediaItem, MediaItem.id == LibraryFile.media_item_id)  # type: ignore[arg-type]
-            .outerjoin(MediaMetadata, MediaMetadata.media_item_id == LibraryFile.media_item_id)  # type: ignore[arg-type]
-            .where(
-                *_facet_scope(
-                    library_id,
-                    filters,
-                    member_id,
-                    "decades",
-                    content_limit=content_limit,
-                )
-            )
+            select(items.c.media_item_id, _year_expr())
+            .select_from(items)
+            .join(MediaItem, MediaItem.id == items.c.media_item_id)  # type: ignore[arg-type]
+            .outerjoin(MediaMetadata, MediaMetadata.media_item_id == items.c.media_item_id)  # type: ignore[arg-type]
             .distinct()
         )
     ).all()
@@ -1130,22 +1159,14 @@ async def build_library_facets(
                 break
 
     watch_counts: list[tuple[str, str, int]] = []
+    watch_items = _facet_items(library_id, filters, member_id, "watch", content_limit)
     for value, label in _watch_labels():
         count = (
             await session.execute(
-                select(func.count(func.distinct(LibraryFile.media_item_id)))
-                .select_from(LibraryFile)
-                .join(MediaItem, MediaItem.id == LibraryFile.media_item_id)  # type: ignore[arg-type]
-                .where(
-                    *_facet_scope(
-                        library_id,
-                        filters,
-                        member_id,
-                        "watch",
-                        content_limit=content_limit,
-                    ),
-                    _watch_clause(value, member_id or 0),
-                )
+                select(func.count())
+                .select_from(watch_items)
+                .join(MediaItem, MediaItem.id == watch_items.c.media_item_id)  # type: ignore[arg-type]
+                .where(_watch_clause(value, member_id or 0))
             )
         ).scalar_one()
         watch_counts.append((value, label, count))
@@ -1547,7 +1568,13 @@ async def _wall_page_ids(
     倒过来，翻页、索引、「回到上次位置」的 offset 口径都不必另算。
     度量为空（没评分、没看过）的条目两个方向都沉底——它们不是"最小值"，是"没数据"。
     """
-    narrow = _narrow(filters, member_id, library_id=library_id, content_limit=content_limit)
+    narrow = _narrow(
+        filters,
+        member_id,
+        library_id=library_id,
+        content_limit=content_limit,
+        only_item_id=only_item_id,
+    )
 
     if sort == "title":
         ids = [
@@ -2071,7 +2098,6 @@ async def _aggregate_wall_views(
     相同（视图的落点库就是文件行的库）。收藏行跨库，用它一次聚合完，不必
     按库循环、每个库把下面这一串查询各跑一遍。
     """
-    from movieclaw_db.repositories.library_file_repo import LibraryFileRepository
     from movieclaw_db.repositories.media_repo import MediaItemRepository
 
     # 只取聚合真正用得上的六列，不整行取 ORM 对象：台账行有四十来列、其中
@@ -2100,7 +2126,7 @@ async def _aggregate_wall_views(
                 LibraryFile.library_id == library_id
                 if library_id is not None
                 else (
-                    tuple_(LibraryFile.media_item_id, LibraryFile.library_id).in_(landing_pairs)
+                    tuple_in((LibraryFile.media_item_id, LibraryFile.library_id), landing_pairs)
                     if landing_pairs is not None
                     else (
                         LibraryFile.library_id.in_(library_ids)  # type: ignore[union-attr]
@@ -2127,6 +2153,7 @@ async def _aggregate_wall_views(
                         MediaItem.source,
                         MediaItem.tmdb_id,
                         MediaItem.title,
+                        MediaItem.title_translations,
                         MediaItem.year,
                         MediaItem.status,
                     )
@@ -2149,8 +2176,7 @@ async def _aggregate_wall_views(
     # 已播/在位口径走仓储层唯一实现（与订阅预检、工单生成同源）：
     # 缺集 = 已播（特别季除外）− 跨库在位，「补齐缺集」建订阅后恰好只为这些集生成工单
     tv_item_ids = [i for i, (item, _) in grouped.items() if item.kind == "tv"]
-    aired_by_item = await MediaItemRepository(session).aired_units_many(tv_item_ids)
-    owned_by_item = await LibraryFileRepository(session).owned_units_many(tv_item_ids)
+    missing_by_item = await MediaItemRepository(session).missing_counts_many(tv_item_ids)
     # 季集完整度判定只取季号与官方集数：本地恰好覆盖 E01..EN 才能写「全 N 集」，
     # 不能因为文件看起来连续就猜一季已经完整（在播季后面可能还有集）。保留
     # episode_count=NULL 的季行：季度覆盖仍然可判断，但集数未知时不能声称“全”。
@@ -2218,12 +2244,7 @@ async def _aggregate_wall_views(
                 last_episode_number=last_episode,
                 complete_season=complete_season,
             )
-        if item.kind == "tv":
-            missing_episodes = len(
-                aired_by_item.get(item.id, set()) - owned_by_item.get(item.id, set())  # type: ignore[arg-type]
-            )
-        else:
-            missing_episodes = 0
+        missing_episodes = missing_by_item.get(item.id, 0) if item.kind == "tv" else 0  # type: ignore[arg-type]
         poster = posters.get(item.id) or PosterFacts()
         by_id[item.id] = LibraryItemView(  # type: ignore[index]
             media_item_id=item.id,  # type: ignore[arg-type]
@@ -2233,7 +2254,7 @@ async def _aggregate_wall_views(
             library_id=library_id if library_id is not None else files[0].library_id,
             source=item.source,
             tmdb_id=item.tmdb_id,
-            title=item.title,
+            title=display_title(item),
             year=item.year,
             poster_url=poster.url,
             backdrop_url=backdrops.get(item.id),
@@ -2526,7 +2547,7 @@ async def build_gallery_groups(
                 media_item_id=item_id,
                 library_id=library_of[item_id],
                 kind=MediaKind(item.kind),
-                title=item.title,
+                title=display_title(item),
                 year=item.year,
                 is_favorite=item_id in favorite_ids,
                 images=images,
@@ -2965,10 +2986,11 @@ async def _db_meta(session: AsyncSession, item: MediaItem) -> EntryMetadata | No
         return avatar_url(profile_path_of(nfo) or actor.get("profile_path"))
 
     meta = EntryMetadata(
-        plot=row.overview,
+        # 简介与类型按读者语言（content-locale.md §4.2）；NFO 写盘不走这里
+        plot=display_overview(row.overview_translations, row.overview),
         rating=row.vote_average,
         runtime_minutes=row.runtime_minutes,
-        genres=list(row.genres),
+        genres=display_genres(item.kind, row.genres, row.genre_ids, row.scrape_language),
         directors=list(row.directors),
         actors=[
             NfoActor(

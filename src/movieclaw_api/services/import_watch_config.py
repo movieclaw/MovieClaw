@@ -167,6 +167,7 @@ class ImportWatchConfigService:
         await self._session.commit()
         await self._session.refresh(row)
         _refresh_watcher()
+        await _reconcile_orphaned_jobs()
         return row
 
     async def delete(self, rule_id: int) -> None:
@@ -174,6 +175,7 @@ class ImportWatchConfigService:
         await self._session.delete(row)
         await self._session.commit()
         _refresh_watcher()
+        await _reconcile_orphaned_jobs()
         logger.info("已删除监听导入规则：%s", row.source_path)
 
     # -- 校验 --------------------------------------------------------------
@@ -436,6 +438,13 @@ async def resolve_dispatch_rule(
             .first()
         )
     return None
+
+
+async def _reconcile_orphaned_jobs() -> None:
+    """改/删规则后，旧源目录条目的 blocked 提醒随之收尾（issue #1050）。"""
+    from movieclaw_api.services.library.ingest import reconcile_orphaned_ingest_jobs
+
+    await reconcile_orphaned_ingest_jobs()
 
 
 def _refresh_watcher() -> None:

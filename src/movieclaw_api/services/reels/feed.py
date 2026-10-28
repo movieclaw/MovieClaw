@@ -59,6 +59,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n.content import (
+    display_genres,
+    display_overview,
+    display_title,
+    in_reader_language,
+)
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import (
     NO_CONTENT_LIMIT,
@@ -642,6 +648,8 @@ def _preread_in_background(candidates: list[ReelCandidate]) -> None:
 
 #: 全池补算各只跑一轮：电影 / 剧集（第一次有人刷片时）与「其他」（第一次有人刷到「其他」池时）
 _fill_tasks: dict[bool, asyncio.Task[None]] = {}
+#: 全池补算每批选几部的文件
+_FILL_BATCH = 20
 
 
 def _fill_pool_in_background(*, video: bool = False) -> None:
@@ -678,7 +686,12 @@ async def _fill_pool(*, video: bool = False) -> None:
             )
             libraries = {int(lid): str(kind) for lid, kind in rows.all()}
             pool = await _title_pool(session, libraries, NO_CONTENT_LIMIT, None, 0)
-            candidates = await _choose_candidates(session, pool, list(libraries))
+            # 分批选文件：一次取全池是上万行整行台账（剧集库每一集都在），实例化全在事件循环上，
+            # NAS 实测一次卡住 1.3 秒、同进程所有请求一起等；分批后每批让出一次
+            candidates = []
+            for start in range(0, len(pool), _FILL_BATCH):
+                batch = pool[start : start + _FILL_BATCH]
+                candidates += await _choose_candidates(session, batch, list(libraries))
         refs = [_file_ref(c.file, c.kind) for c in candidates]
         missing = [ref for ref in refs if is_miss(cached_segment(ref))]
         if missing:
@@ -812,6 +825,8 @@ async def _assemble(
             continue
         backdrop = backdrops.get(c.media_item_id)
         poster = posters.get(c.media_item_id)
+        # 片名以读者语言显示时，库语言写的宣传语与 Logo 不给
+        readable = not in_reader_language(item)
         episode = None
         runtime = (meta.runtime_minutes if meta else None) or _minutes(file.duration_seconds)
         # 收藏落在整部（电影 / 整剧）上；已看电影看整部、剧集看这一集
@@ -865,13 +880,20 @@ async def _assemble(
                     "media_item_id": c.media_item_id,
                     "library_id": file.library_id,
                     "kind": {"episode": "tv"}.get(c.kind, c.kind),
-                    "name": item.title,
+                    "name": display_title(item),
                     "year": item.year,
                     "rating": meta.vote_average if meta else None,
                     "runtime_minutes": runtime,
-                    "genres": list(meta.genres or [])[:3] if meta else [],
-                    "tagline": (meta.tagline or None) if meta else None,
-                    "overview": (meta.overview or None) if meta else None,
+                    # 片名、类型、简介按读者语言
+                    "genres": display_genres(
+                        item.kind, meta.genres or [], meta.genre_ids or [], meta.scrape_language
+                    )[:3]
+                    if meta
+                    else [],
+                    "tagline": (meta.tagline or None) if meta and readable else None,
+                    "overview": display_overview(meta.overview_translations, meta.overview or None)
+                    if meta
+                    else None,
                     "favorite": favorite.is_favorite,
                     "played": played.played,
                     "progress_percent": progress,
@@ -883,7 +905,9 @@ async def _assemble(
                     ],
                     "poster_url": poster.url if poster else None,
                     "backdrop_url": backdrop,
-                    "logo_url": _asset_url(meta.logo_file) if meta and meta.logo_file else None,
+                    "logo_url": _asset_url(meta.logo_file)
+                    if meta and meta.logo_file and readable
+                    else None,
                     "episode": episode,
                 },
                 "cover_url": _asset_url(segment.cover) or backdrop,

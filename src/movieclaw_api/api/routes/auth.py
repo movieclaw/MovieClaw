@@ -333,11 +333,8 @@ async def bootstrap_create(
 
     scrape = current_scrape_setting()
     if not scrape.language_priority and "tmdb_language" not in get_settings().model_fields_set:
-        from movieclaw_api.services.media_discover import invalidate_discover_language
-
         languages = ["en-US"] if current_locale.get() == "en" else ["zh-CN", "en-US"]
         await save_scrape_setting(scrape.model_copy(update={"language_priority": languages}))
-        await invalidate_discover_language()
     await mark_initialized()
 
     token, max_age = await _issue_web_session(request, owner_id=0, remember=False)
