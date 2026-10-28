@@ -64,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.movieclaw.android.core.designsystem.McType
+import io.movieclaw.android.core.offline.OfflineQueue
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.RowScope
 import io.movieclaw.android.core.designsystem.TextPrimary
@@ -1242,6 +1243,9 @@ fun ItemDetailScreen(
     val offlineSpeeds by vm.offline.speeds.collectAsStateWithLifecycle()
     val doneFileIds by vm.offline.doneFileIds.collectAsStateWithLifecycle()
     val activeByItem by vm.offline.activeByItem.collectAsStateWithLifecycle()
+    /** 下载顺序（§5.5）：只在开始 / 完成 / 调顺序 / 状态变化时变，开着的菜单不随进度重建 */
+    val offlineQueue by vm.offline.queue.collectAsStateWithLifecycle()
+    val waitingForWiFi by vm.downloader.waitingForWiFi.collectAsStateWithLifecycle()
     val downloadedItemIds by vm.offline.downloadedItemIds.collectAsStateWithLifecycle()
     val readOnly by vm.readOnly.collectAsStateWithLifecycle()
     val goneOnServer by vm.goneOnServer.collectAsStateWithLifecycle()
@@ -1455,6 +1459,9 @@ fun ItemDetailScreen(
                         offline = EpisodeOffline(
                             unitOf = { season, episode -> vm.offline.unit(s.value.item.mediaItemId, season, episode, offlineState) },
                             speeds = offlineSpeeds,
+                            queue = offlineQueue,
+                            waitingForWiFi = waitingForWiFi,
+                            onPrioritize = { vm.downloader.prioritize(listOf(it)) },
                             canDownload = permissions.canDownloadVideo && offlineState.serverSupported && !readOnly,
                             onDownload = { season, episode, fileId ->
                                 downloadSheet = DownloadSheetTarget.File(fileId, "${s.value.item.title} 第 $season 季第 $episode 集")
@@ -1617,6 +1624,7 @@ fun ItemDetailScreen(
                 activeSelected = readyDetail.kind == "tv" && selectedUnit?.let { sel ->
                     activeByItem[readyDetail.mediaItemId].orEmpty().any { it.season == sel.season && it.episode == sel.episode }
                 } == true,
+                canPrioritizeShow = OfflineQueue.canPrioritizeItem(readyDetail.mediaItemId, offlineQueue),
             ),
             onPick = { id ->
                 menuOpen = false
@@ -1642,6 +1650,11 @@ fun ItemDetailScreen(
                     val active = activeByItem[readyDetail.mediaItemId].orEmpty()
                     // 电影：直接取消；剧集：确认后取消全部（已下完的保留）
                     if (readyDetail.kind == "tv") cancelAllConfirm = true else active.forEach { vm.downloader.delete(it.fileId) }
+                }
+
+                ItemActionId.PRIORITIZE_DOWNLOADS -> {
+                    picking = null
+                    vm.downloader.prioritizeItem(readyDetail.mediaItemId)
                 }
 
                 ItemActionId.CANCEL_SELECTED_DOWNLOAD -> {
@@ -3192,6 +3205,10 @@ private fun SeasonSection(
 private class EpisodeOffline(
     val unitOf: (season: Int, episode: Int) -> io.movieclaw.android.core.offline.OfflineUnit?,
     val speeds: Map<Long, Double>,
+    /** 下载顺序（§5.5）与「等待 Wi-Fi」：卡上写排第几，长按菜单给「优先下载」 */
+    val queue: List<io.movieclaw.android.core.offline.OfflineQueue.Entry>,
+    val waitingForWiFi: Boolean,
+    val onPrioritize: (Long) -> Unit,
     /** 能下这一集（有权限、服务器支持、在线） */
     val canDownload: Boolean,
     val onDownload: (season: Int, episode: Int, fileId: Long) -> Unit,
@@ -3334,7 +3351,11 @@ private fun EpisodeCard(
             }
             if (download != null) {
                 OfflineJustFinished(download.playable)
-                if (pending) OfflineDownloadStrip(download, offline?.speeds?.get(download.fileId))
+                if (pending) OfflineDownloadStrip(
+                    download, offline?.speeds?.get(download.fileId),
+                    ahead = offline?.let { io.movieclaw.android.core.offline.OfflineQueue.ahead(download.fileId, it.queue) } ?: 0,
+                    waitingForWiFi = offline?.waitingForWiFi == true,
+                )
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -3362,6 +3383,11 @@ private fun EpisodeDownloadMenu(
     if (unit == null && !(offline.canDownload && file != null)) return
     androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         if (unit != null) {
+            if (unit.state != io.movieclaw.android.core.offline.OfflineUnit.State.done &&
+                io.movieclaw.android.core.offline.OfflineQueue.canPrioritize(unit.fileId, offline.queue)
+            ) {
+                androidx.compose.material3.DropdownMenuItem(text = { Text("优先下载") }, onClick = { onDismiss(); offline.onPrioritize(unit.fileId) })
+            }
             if (unit.state == io.movieclaw.android.core.offline.OfflineUnit.State.queued || unit.state == io.movieclaw.android.core.offline.OfflineUnit.State.downloading) {
                 androidx.compose.material3.DropdownMenuItem(text = { Text("暂停") }, onClick = { onDismiss(); offline.onPause(unit.fileId) })
             }

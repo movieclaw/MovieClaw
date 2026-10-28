@@ -90,6 +90,12 @@ class OfflineStore @Inject constructor(
             .mapValues { (_, list) -> list.map { ActiveUnit(it.fileId, it.season, it.episode) }.sortedBy { it.fileId } }
     }
 
+    /**
+     * 进行中的单元按下载顺序排（§5.5，含暂停、失败；正在下的排最前）：只在开始 / 完成 / 删除 / 调顺序 / 状态变化时变，
+     * 下载进度不改它——排第几、「优先下载」该不该出现都看它
+     */
+    val queue: StateFlow<List<OfflineQueue.Entry>> = derived { st -> OfflineQueue.entries(st.units.values) }
+
     /** 正在下载的单元的实时速度（字节 / 秒，平滑过）：只在内存里 */
     private val _speeds = MutableStateFlow<Map<Long, Double>>(emptyMap())
     val speeds: StateFlow<Map<Long, Double>> = _speeds.asStateFlow()
@@ -225,8 +231,11 @@ class OfflineStore @Inject constructor(
         return ids.mapNotNull { st.items[it] }.sortedByDescending { it.addedAt }
     }
 
-    /** 还在进行中（含失败、暂停）的单元：首页「正在下载」行、存储页「下载中」 */
-    fun activeUnits(st: State = s): List<OfflineUnit> = st.units.values.filter { it.isActive }.sortedBy { it.createdAt }
+    /** 还在进行中（含失败、暂停）的单元，按下载顺序：首页「正在下载」行、存储页「下载中」 */
+    fun activeUnits(st: State = s): List<OfflineUnit> = OfflineQueue.entries(st.units.values).mapNotNull { st.units[it.fileId] }
+
+    /** 下载队列里排在它前面、还会轮到的有几个（「下一个下载」「前面还有 N 个」） */
+    fun queueAhead(fileId: Long, queue: List<OfflineQueue.Entry> = this.queue.value): Int = OfflineQueue.ahead(fileId, queue)
 
     fun localProgress(itemId: Long, season: Int, episode: Int, st: State = s): OfflineProgress? = st.progress[itemId]?.get("$season-$episode")
 
@@ -312,6 +321,15 @@ class OfflineStore @Inject constructor(
         synchronized(lock) { _state.update { it.copy(units = it.units + (unit.fileId to unit)) } }
         if (unit.state != OfflineUnit.State.downloading) clearSpeed(unit.fileId)
         OfflineDisk.enqueue { OfflineDisk.write(OfflineUnit.serializer(), unit, OfflineDisk.unitFile(key, unit.mediaItemId, unit.fileId)) }
+    }
+
+    /** 按给定顺序给进行中的单元重新编号 0、1、2…（§5.5）；没列出的接在后面、保持原来的先后。只写编号变了的 */
+    fun renumberQueue(fileIds: List<Long>) {
+        val order = OfflineQueue.order(fileIds, OfflineQueue.entries(s.units.values))
+        order.forEachIndexed { index, fileId ->
+            val unit = s.units[fileId] ?: return@forEachIndexed
+            if (unit.queueOrder != index.toDouble()) upsert(unit.copy(queueOrder = index.toDouble()))
+        }
     }
 
     /** 只改内存里的进度读数（下载进度每秒一次，不值得每次写盘） */

@@ -21,6 +21,11 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -36,6 +41,7 @@ import okhttp3.Request
  * - **网络策略**放在作业的约束上：只用 Wi-Fi（不计费网络，个人热点、计费网络都不下）或任何网络（「使用蜂窝网络下载」）。
  * - **期望状态**：要下什么记在每个单元的 `unit.json`；作业跑起来时按单元状态逐个准备、下载（[drive]）。
  *   崩溃、被杀、断网之后都能自愈：已下的字节在 `media.part`，带 Range + If-Range 续传。
+ * - **顺序**（§5.5）：准备、下载都按下载顺序挑；「优先下载」、拖动排序后排第一、能下的换了人，正在下的让路（字节留着）。
  * - **准备**：视频之外的东西（清单、字幕、图片、转码导出）先拉好，再建视频下载。
  */
 @Singleton
@@ -59,6 +65,18 @@ class OfflineDownloader @Inject constructor(
     @Volatile private var transferring: Long? = null
     private var transferJob: Job? = null
     @Volatile private var transferCall: okhttp3.Call? = null
+    /** 连接断了、网络还在时原地重来的次数（一个单元连续几次一个字节都没收到才算真失败） */
+    private val quickRetries = java.util.concurrent.ConcurrentHashMap<Long, Int>()
+
+    /** 眼下只有计费网络（蜂窝、个人热点；系统报 NOT_METERED 缺失） */
+    private val metered = MutableStateFlow(false)
+
+    /**
+     * 下载在等 Wi-Fi：没开「使用蜂窝网络下载」，眼下又是计费网络——作业按约束一动不动，界面要说出来，不然看着像卡住了
+     */
+    val waitingForWiFi: StateFlow<Boolean> =
+        combine(metered, prefs.allowCellular) { onMetered, cellular -> onMetered && !cellular }
+            .stateIn(scope, SharingStarted.Eagerly, false)
 
     init {
         store.onAdopted = { kick("adopt") }
@@ -70,6 +88,17 @@ class OfflineDownloader @Inject constructor(
                 first = false
             }
         }
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        cm?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) {
+                metered.value = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+            }
+
+            override fun onLost(network: android.net.Network) {
+                metered.value = false
+            }
+        })
     }
 
     // ── 发起 ──
@@ -199,6 +228,35 @@ class OfflineDownloader @Inject constructor(
         kick("resume")
     }
 
+    // ── 下载顺序（§5.5） ──
+
+    /**
+     * 优先下载：这几个单元按给定顺序排到最前（整部剧 = 它还没下完的各集，按季集），暂停的、出错的顺带继续。
+     * 排第一的能马上下就立刻开始：正在下的让路，已下的字节留在 media.part、排在它们后面。在等转码、还在准备的不打断正在下的
+     */
+    fun prioritize(fileIds: List<Long>) {
+        for (fileId in fileIds) {
+            val unit = store.state.value.units[fileId] ?: continue
+            if (unit.state == OfflineUnit.State.paused || (unit.state == OfflineUnit.State.failed && !unit.waitingForTranscode)) resume(fileId)
+        }
+        applyOrder(fileIds)
+    }
+
+    fun prioritizeItem(itemId: Long) {
+        prioritize(store.unitsOfItem(itemId).filter { it.isActive }.map { it.fileId })
+    }
+
+    /** 拖动排序后：进行中的单元按这个顺序下（顺序就是优先级，排在最前、能下的那个在下） */
+    fun reorder(fileIds: List<Long>) = applyOrder(fileIds)
+
+    private fun applyOrder(fileIds: List<Long>) {
+        store.renumberQueue(fileIds)
+        val head = store.state.value.units.values.filter { it.runnable }.minWithOrNull(OfflineQueue.order)
+        val running = transferring
+        if (head != null && running != null && head.fileId != running) cancelTransfer(running)
+        kick("order")
+    }
+
     /** 删除本机副本（任意状态）：先停掉任务，再删目录 */
     fun delete(fileId: Long) {
         cancelTransfer(fileId)
@@ -244,7 +302,7 @@ class OfflineDownloader @Inject constructor(
                 store.waitUntilLoaded(10_000)
                 val owner = store.owner ?: return@withLock null
                 val now = System.currentTimeMillis()
-                val units = store.state.value.units.values.sortedBy { it.createdAt }
+                val units = store.state.value.units.values.sortedWith(OfflineQueue.order)
                 // 失败到点了：改回准备 / 排队（iOS 对账同一条）
                 for (unit in units) {
                     if (unit.state != OfflineUnit.State.failed || !unit.retryable) continue
@@ -252,7 +310,8 @@ class OfflineDownloader @Inject constructor(
                     if (at != null && at > now) continue
                     store.upsert(unit.copy(state = if (unit.profile != "original" && unit.exportId == null) OfflineUnit.State.preparing else OfflineUnit.State.queued))
                 }
-                val current = store.state.value.units.values.sortedBy { it.createdAt }
+                // 准备、下载都按下载顺序挑（§5.5）
+                val current = store.state.value.units.values.sortedWith(OfflineQueue.order)
                 if (preparing == null && online()) {
                     current.firstOrNull { it.state == OfflineUnit.State.preparing }?.let { unit ->
                         preparing = unit.fileId
@@ -368,6 +427,7 @@ class OfflineDownloader @Inject constructor(
         val part = File(dir, "media.part")
         val target = File(dir, unit.mediaFileName)
         var offset = if (part.isFile) part.length() else 0L
+        val startLength = offset
         val request = Request.Builder().url(url).apply {
             if (offset > 0) {
                 header("Range", "bytes=$offset-")
@@ -436,8 +496,24 @@ class OfflineDownloader @Inject constructor(
             persistReceived(unit.fileId, part)
             if (call.isCanceled()) return
             val noSpace = e.message?.contains("ENOSPC") == true || e.message?.contains("No space", ignoreCase = true) == true
+            if (!noSpace && networkAllowsDownload() && quickRetry(unit.fileId, progressed = part.length() != startLength)) {
+                // 连接断了、网络还在（多半是切了网络：蜂窝 ↔ Wi-Fi）：占着「正在下」稍等一下原地接着下，
+                // 不按失败退避——不然排在后面的趁机先开始，排第一的反倒要等它下完（§5.5，iOS 真机遇到过）
+                delay(2_000)
+                return
+            }
             failedTransport(unit.fileId, e, noSpace)
         }
+    }
+
+    /**
+     * 这一回断了还原地重来吗：这一回收到过数据就从头数；连续 3 回一个字节都没收到才按失败退避。
+     * 收没收到看已下文件的长度变没变（服务端整份重给时先截成 0 再写，变短也算收到过）
+     */
+    private fun quickRetry(fileId: Long, progressed: Boolean): Boolean {
+        val count = (if (progressed) 0 else quickRetries[fileId] ?: 0) + 1
+        quickRetries[fileId] = count
+        return count <= 3
     }
 
     /** 停下来时把已下字节写进单元（界面上的进度与下次续传的起点一致） */
@@ -450,6 +526,7 @@ class OfflineDownloader @Inject constructor(
 
     /** 下完：改名进来、标完成；转码档告诉服务端可以回收导出（尽力而为，服务端另有过期） */
     private suspend fun finished(unit: OfflineUnit, owner: OfflineOwner, part: File, target: File) {
+        quickRetries.remove(unit.fileId)
         val moved = OfflineDisk.perform {
             // 读单元、挪文件和删除走同一个写盘线程：删到一半挪进来会在删掉的目录里留下孤儿文件
             if (!OfflineDisk.unitFile(owner.key, unit.mediaItemId, unit.fileId).isFile) return@perform false

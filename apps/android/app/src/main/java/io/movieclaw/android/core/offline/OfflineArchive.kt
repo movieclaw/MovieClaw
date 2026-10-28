@@ -79,6 +79,11 @@ data class OfflineUnit(
      * 不会拼出坏文件（iOS 由系统的续传数据带着它）
      */
     val etag: String? = null,
+    /**
+     * 下载顺序（§5.5），越小越先下。没调过为空、按加入时间排；「优先下载」或拖动排序后，进行中的单元整体重新编号
+     * 0、1、2…，之后新加的按加入时间排在它们后面（与 iOS 同一字段、同一单位）
+     */
+    val queueOrder: Double? = null,
 ) {
     @Serializable
     enum class State {
@@ -101,6 +106,14 @@ data class OfflineUnit(
     /** 界面上要用警告色、写「重试」的：真失败（排队转码不算）或文件损坏 */
     val needsAttention: Boolean get() = (state == State.failed && !waitingForTranscode) || damaged
     val isActive: Boolean get() = state != State.done
+    /** 在下载队列里、迟早会轮到它：准备、排队、下载中，以及会自动重试的失败（含等转码）。暂停、要人处理的失败不算 */
+    val inQueue: Boolean get() = when (state) {
+        State.preparing, State.queued, State.downloading -> true
+        State.failed -> retryable
+        State.paused, State.done -> false
+    }
+    /** 能马上下（排队或下载中；等转码、准备中的这会儿轮不上） */
+    val runnable: Boolean get() = state == State.queued || state == State.downloading
     val mediaFileName: String get() = "media.$fileExtension"
 
     val progressFraction: Double

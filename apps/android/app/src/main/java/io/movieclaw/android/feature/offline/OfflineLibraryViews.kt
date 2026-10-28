@@ -374,7 +374,8 @@ fun OfflineDownloadingRow(onOpen: () -> Unit, modifier: Modifier = Modifier) {
     val speeds by offline.store().speeds.collectAsStateWithLifecycle()
     val active = offline.store().activeUnits(state)
     if (active.isEmpty()) return
-    val summary = OfflineDownloadSummary.make(active, speeds, state.items.mapValues { it.value.title })
+    val waitingForWiFi by offline.downloader().waitingForWiFi.collectAsStateWithLifecycle()
+    val summary = OfflineDownloadSummary.make(active, speeds, state.items.mapValues { it.value.title }, waitingForWiFi)
     val tint = if (summary.warning) Warning else Info
     Row(
         modifier

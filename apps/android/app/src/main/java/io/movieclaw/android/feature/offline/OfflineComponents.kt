@@ -73,6 +73,7 @@ import io.movieclaw.android.core.designsystem.Warning
 import io.movieclaw.android.core.model.LibraryFileView
 import io.movieclaw.android.core.offline.OfflineEntry
 import io.movieclaw.android.core.offline.OfflineFormat
+import io.movieclaw.android.core.offline.OfflineQueue
 import io.movieclaw.android.core.offline.OfflineUnit
 import io.movieclaw.android.core.offline.OfflineUnitStatus
 
@@ -132,9 +133,22 @@ private fun UnitIcon(unit: OfflineUnit, tint: Color, size: Dp = 18.dp) {
  * 左边进度环、中间「下载中 47%」、右边实时速度；暂停 / 失败 / 损坏换图标与颜色
  */
 @Composable
-fun OfflineDownloadStatusBar(unit: OfflineUnit, speed: Double?, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun OfflineDownloadStatusBar(
+    unit: OfflineUnit,
+    speed: Double?,
+    modifier: Modifier = Modifier,
+    /** 下载队列里排在它前面的个数；只许 Wi-Fi 下、眼下是计费网络（§5.5） */
+    ahead: Int = 0,
+    waitingForWiFi: Boolean = false,
+    onClick: () -> Unit,
+) {
     val tint = if (unit.needsAttention) Warning else Info
-    val status = OfflineUnitStatus.short(unit)
+    // 排队时这条够宽，写全「等待下载，前面还有 N 个」
+    val status = if (unit.state == OfflineUnit.State.queued || (waitingForWiFi && unit.runnable)) {
+        OfflineUnitStatus.text(unit, ahead, waitingForWiFi)
+    } else {
+        OfflineUnitStatus.short(unit)
+    }
     val text = if (unit.state == OfflineUnit.State.failed && !unit.waitingForTranscode) "$status，点按重试" else status
     Row(
         modifier
@@ -150,7 +164,7 @@ fun OfflineDownloadStatusBar(unit: OfflineUnit, speed: Double?, modifier: Modifi
     ) {
         UnitIcon(unit, tint)
         Text(text, style = McType.subheadlineSemibold, color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (speed != null && speed > 0 && unit.state == OfflineUnit.State.downloading) {
+        if (speed != null && speed > 0 && unit.state == OfflineUnit.State.downloading && !waitingForWiFi) {
             Text("${McFormat.bytes(speed.toLong())}/s", style = McType.sub, color = tint.copy(alpha = 0.75f))
         }
     }
@@ -173,12 +187,17 @@ fun OfflineDownloadControl(
     val state by offline.store().state.collectAsStateWithLifecycle()
     val speeds by offline.store().speeds.collectAsStateWithLifecycle()
     val unit = offline.store().unit(mediaItemId, season, episode, state)?.takeIf { !it.playable } ?: return
+    val queue by offline.store().queue.collectAsStateWithLifecycle()
+    val waitingForWiFi by offline.downloader().waitingForWiFi.collectAsStateWithLifecycle()
     var menu by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
     val downloader = offline.downloader()
     Box(modifier) {
-        OfflineDownloadStatusBar(unit, speeds[unit.fileId]) { menu = true }
+        OfflineDownloadStatusBar(unit, speeds[unit.fileId], ahead = OfflineQueue.ahead(unit.fileId, queue), waitingForWiFi = waitingForWiFi) { menu = true }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            if (unit.state != OfflineUnit.State.done && OfflineQueue.canPrioritize(unit.fileId, queue)) {
+                DropdownMenuItem(text = { Text("优先下载") }, onClick = { menu = false; downloader.prioritize(listOf(unit.fileId)) })
+            }
             when (unit.state) {
                 OfflineUnit.State.queued, OfflineUnit.State.downloading ->
                     DropdownMenuItem(text = { Text("暂停") }, onClick = { menu = false; downloader.pause(unit.fileId) })
@@ -234,7 +253,14 @@ fun OfflineConfirmDialog(title: String, message: String, action: String, onDismi
  * 左边状态图标、中间「下载中 47%」、右边实时速度，最底下一道进度
  */
 @Composable
-fun BoxScope.OfflineDownloadStrip(unit: OfflineUnit, speed: Double?, cornerRadius: Dp = 12.dp) {
+fun BoxScope.OfflineDownloadStrip(
+    unit: OfflineUnit,
+    speed: Double?,
+    cornerRadius: Dp = 12.dp,
+    /** 下载队列里排在它前面的个数；只许 Wi-Fi 下、眼下是计费网络（§5.5） */
+    ahead: Int = 0,
+    waitingForWiFi: Boolean = false,
+) {
     val tint = if (unit.needsAttention) Warning else Info
     Box(Modifier.matchParentSize().border(2.dp, tint, RoundedCornerShape(cornerRadius)))
     Column(
@@ -250,8 +276,8 @@ fun BoxScope.OfflineDownloadStrip(unit: OfflineUnit, speed: Double?, cornerRadiu
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             UnitIcon(unit, tint, 12.dp)
-            Text(OfflineUnitStatus.short(unit), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (speed != null && speed > 0 && unit.state == OfflineUnit.State.downloading) {
+            Text(OfflineUnitStatus.short(unit, ahead, waitingForWiFi), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (speed != null && speed > 0 && unit.state == OfflineUnit.State.downloading && !waitingForWiFi) {
                 Text("${McFormat.bytes(speed.toLong())}/s", fontSize = 11.sp, color = tint.copy(alpha = 0.8f), maxLines = 1)
             }
         }

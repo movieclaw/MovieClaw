@@ -4,6 +4,13 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +23,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -24,14 +33,17 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,7 +52,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,6 +86,7 @@ import io.movieclaw.android.core.offline.OfflineFormat
 import io.movieclaw.android.core.offline.OfflineItemSummary
 import io.movieclaw.android.core.offline.OfflineOwner
 import io.movieclaw.android.core.offline.OfflineOwners
+import io.movieclaw.android.core.offline.OfflineQueue
 import io.movieclaw.android.core.offline.OfflineUnit
 import io.movieclaw.android.core.offline.OfflineUnitStatus
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +112,8 @@ fun DownloadsScreen(
     val doneBytes by store.doneBytes.collectAsStateWithLifecycle()
     val doneBytesByItem by store.doneBytesByItem.collectAsStateWithLifecycle()
     val allowCellular by offline.prefs().allowCellular.collectAsStateWithLifecycle()
+    val queue by store.queue.collectAsStateWithLifecycle()
+    val waitingForWiFi by offline.downloader().waitingForWiFi.collectAsStateWithLifecycle()
     val device = deviceName()
     val scope = rememberCoroutineScope()
     var confirm by remember { mutableStateOf<Confirm?>(null) }
@@ -111,6 +137,9 @@ fun DownloadsScreen(
 
     val items = store.downloadedItems(state)
     val active = store.activeUnits(state)
+    val listState = rememberLazyListState()
+    val drag = remember { QueueDrag() }
+    val shown = drag.order?.mapNotNull { id -> active.firstOrNull { it.fileId == id } } ?: active
     val watched = state.units.values.filter { unit ->
         unit.playable && store.localProgress(unit.mediaItemId, unit.season, unit.episode, state)?.played == true
     }
@@ -139,12 +168,32 @@ fun DownloadsScreen(
                 }
             },
         )
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), state = listState) {
             if (active.isNotEmpty()) {
                 item { SectionTitle("下载中", Modifier.testTag("offline-storage-downloading")) }
-                items(active, key = { "active-${it.fileId}" }) { unit ->
+                if (waitingForWiFi) {
+                    item(key = "waiting-wifi") {
+                        WaitingWiFiNotice { scope.launch { offline.prefs().setAllowCellular(true) } }
+                    }
+                }
+                // 顺序就是优先级（§5.5）：长按出菜单，按住移动就是拖动换先后
+                items(shown, key = { "active-${it.fileId}" }) { unit ->
                     val item = state.items[unit.mediaItemId] ?: return@items
-                    DownloadingRow(unit, item, speeds[unit.fileId], origin, onOpen = { onOpenItem(item.libraryId, item.mediaItemId) })
+                    val dragging = drag.id == unit.fileId
+                    val interaction = remember { MutableInteractionSource() }
+                    DownloadingRow(
+                        unit, item, speeds[unit.fileId], origin,
+                        ahead = OfflineQueue.ahead(unit.fileId, queue),
+                        canPrioritize = OfflineQueue.canPrioritize(unit.fileId, queue),
+                        waitingForWiFi = waitingForWiFi,
+                        menuOpen = drag.menu == unit.fileId,
+                        onMenuDismiss = { drag.menu = null },
+                        modifier = (if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = drag.offset; shadowElevation = 12f } else Modifier.animateItem())
+                            .indication(interaction, ripple())
+                            .queueDrag(unit.fileId, drag, listState, active.map { it.fileId }, interaction, onTap = { onOpenItem(item.libraryId, item.mediaItemId) }) { order ->
+                                offline.downloader().reorder(order)
+                            },
+                    )
                 }
             }
             if (watched.isNotEmpty()) {
@@ -259,19 +308,148 @@ private fun Poster(url: String?, origin: String?) {
     }
 }
 
+/** 「下载中」的拖动排序与长按菜单（iOS 的 List `onMove` + 长按菜单）：长按出菜单，按住移动就收起菜单、拖着走 */
+private class QueueDrag {
+    /** 拖着的那一行 */
+    var id by mutableStateOf<Long?>(null)
+    /** 拖动中的临时顺序（松手才交给下载器） */
+    var order by mutableStateOf<List<Long>?>(null)
+    /** 拖着的那一行相对它此刻排版位置的位移 */
+    var offset by mutableFloatStateOf(0f)
+    /** 长按菜单开在哪一行 */
+    var menu by mutableStateOf<Long?>(null)
+    /** 这次按住后手指走了多远：超过一点就是在拖，菜单收起 */
+    var moved = 0f
+}
+
+private fun Modifier.queueDrag(
+    fileId: Long,
+    drag: QueueDrag,
+    list: LazyListState,
+    ids: List<Long>,
+    interaction: MutableInteractionSource,
+    onTap: () -> Unit,
+    onDrop: (List<Long>) -> Unit,
+): Modifier =
+    semantics { role = Role.Button; onClick { onTap(); true } }.pointerInput(fileId, ids) {
+        val threshold = 12.dp.toPx()
+        val edge = 96.dp.toPx()
+        fun move(dy: Float) {
+            drag.offset += dy
+            drag.moved += kotlin.math.abs(dy)
+            if (drag.moved > threshold) drag.menu = null
+            val info = list.layoutInfo
+            val current = info.visibleItemsInfo.firstOrNull { it.key == "active-$fileId" } ?: return
+            // 拖到屏幕边上：列表跟着滚（滚多少，拖着的那一行就往回补多少，留在手指下面）
+            val top = current.offset + drag.offset
+            val scroll = when {
+                dy > 0 && top + current.size > info.viewportEndOffset - edge -> 16f
+                dy < 0 && top < info.viewportStartOffset + edge -> -16f
+                else -> 0f
+            }
+            if (scroll != 0f) drag.offset += list.dispatchRawDelta(scroll)
+            val center = current.offset + drag.offset + current.size / 2f
+            val target = info.visibleItemsInfo.firstOrNull {
+                val key = it.key as? String ?: return@firstOrNull false
+                key.startsWith("active-") && key != current.key && center >= it.offset && center <= it.offset + it.size
+            } ?: return
+            val targetId = (target.key as String).removePrefix("active-").toLong()
+            val order = drag.order.orEmpty().toMutableList()
+            val from = order.indexOf(fileId)
+            val to = order.indexOf(targetId)
+            if (from < 0 || to < 0) return
+            order.removeAt(from)
+            order.add(to, fileId)
+            drag.order = order
+            // 换位后这一行排到目标的位置上：位移扣掉这段距离，仍停在手指下面
+            drag.offset -= (target.offset - current.offset)
+        }
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            // 按下反馈（水波纹）：点按、长按都先亮一下
+            val press = PressInteraction.Press(down.position)
+            interaction.tryEmit(press)
+            val longPress = awaitLongPressOrCancellation(down.id)
+            interaction.tryEmit(PressInteraction.Release(press))
+            if (longPress == null) {
+                // 没到长按就松手、且没怎么动：点按（滚动列表时位移早超过阈值，不算）
+                val up = currentEvent.changes.firstOrNull { it.id == down.id }
+                if (up != null && up.changedToUp() && !up.isConsumed && (up.position - down.position).getDistance() < viewConfiguration.touchSlop) {
+                    up.consume()
+                    onTap()
+                }
+                return@awaitEachGesture
+            }
+            drag.id = fileId
+            drag.order = ids
+            drag.offset = 0f
+            drag.moved = 0f
+            drag.menu = fileId
+            var released = false
+            try {
+                released = drag(longPress.id) { change ->
+                    val dy = change.positionChange().y
+                    change.consume()
+                    move(dy)
+                }
+            } finally {
+                // 拖到一半这一行的手势被重启（有一集下完、新加了下载）也要收尾，不然这一行一直悬着
+                val order = drag.order
+                val moved = drag.moved > threshold
+                drag.id = null
+                drag.order = null
+                drag.offset = 0f
+                if (released && moved && order != null && order != ids) onDrop(order)
+            }
+        }
+    }
+
+/** 「下载中」顶上的提示：没开「使用蜂窝网络下载」、眼下又是计费网络时，下载会一直等 Wi-Fi——说清楚，并给一键打开 */
+@Composable
+private fun WaitingWiFiNotice(onUseCellular: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(12.dp)).background(Warning.copy(alpha = 0.1f))
+            .padding(12.dp).testTag("offline-waiting-wifi"),
+    ) {
+        Icon(Icons.Rounded.WifiOff, contentDescription = null, tint = Warning, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("正在用蜂窝网络、个人热点或计费网络，下载会等连上 Wi-Fi 再继续", style = McType.sub, color = TextPrimary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "使用蜂窝网络下载", style = McType.subSemibold, color = TextPrimary,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.12f))
+                    .clickable(onClick = onUseCellular).padding(horizontal = 14.dp, vertical = 7.dp).testTag("offline-use-cellular"),
+            )
+        }
+    }
+}
+
 /**
  * 「下载中」的一行：海报 + 片名 + 哪一集 · 档位 + 状态与速度 + 进度。
- * 点进条目；长按暂停、继续、取消（iOS 左滑 / 长按）。下完就从这一组消失
+ * 点进条目（点按、长按、拖动都在 [queueDrag] 里）；长按出菜单（优先下载、暂停 / 继续、取消），按住移动是拖动换顺序。
+ * 下完就从这一组消失
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DownloadingRow(unit: OfflineUnit, item: OfflineItemSummary, speed: Double?, origin: String?, onOpen: () -> Unit) {
+private fun DownloadingRow(
+    unit: OfflineUnit,
+    item: OfflineItemSummary,
+    speed: Double?,
+    origin: String?,
+    ahead: Int,
+    canPrioritize: Boolean,
+    waitingForWiFi: Boolean,
+    menuOpen: Boolean,
+    onMenuDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val offline = rememberOffline()
-    var menu by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(menuOpen) { if (menuOpen) haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
     val tint = if (unit.needsAttention) Warning else Info
-    Box {
+    Box(modifier.background(Bg)) {
         Row(
-            Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = { menu = true }).padding(vertical = 8.dp).testTag("offline-downloading-${unit.fileId}"),
+            Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("offline-downloading-${unit.fileId}"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Poster(item.posterUrl, origin)
@@ -285,8 +463,8 @@ private fun DownloadingRow(unit: OfflineUnit, item: OfflineItemSummary, speed: D
                 )
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(OfflineUnitStatus.text(unit), style = McType.footnote, color = tint)
-                    if (speed != null && speed > 0 && unit.state == OfflineUnit.State.downloading) {
+                    Text(OfflineUnitStatus.text(unit, ahead, waitingForWiFi), style = McType.footnote, color = tint)
+                    if (speed != null && speed > 0 && unit.state == OfflineUnit.State.downloading && !waitingForWiFi) {
                         Text("${McFormat.bytes(speed.toLong())}/s", style = McType.footnote, color = TextMuted)
                     }
                 }
@@ -297,16 +475,19 @@ private fun DownloadingRow(unit: OfflineUnit, item: OfflineItemSummary, speed: D
             }
             Icon(androidx.compose.material.icons.Icons.Rounded.KeyboardArrowRight, null, tint = TextFaint, modifier = Modifier.size(22.dp))
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+        DropdownMenu(expanded = menuOpen, onDismissRequest = onMenuDismiss) {
             val downloader = offline.downloader()
+            if (canPrioritize) {
+                DropdownMenuItem(text = { Text("优先下载") }, onClick = { onMenuDismiss(); downloader.prioritize(listOf(unit.fileId)) })
+            }
             if (unit.waitingForTranscode) {
                 // 排队等服务器转码：到点自己会再去问，只给取消
             } else if (unit.state == OfflineUnit.State.paused || unit.state == OfflineUnit.State.failed) {
-                DropdownMenuItem(text = { Text("继续下载") }, onClick = { menu = false; downloader.resume(unit.fileId) })
+                DropdownMenuItem(text = { Text("继续下载") }, onClick = { onMenuDismiss(); downloader.resume(unit.fileId) })
             } else {
-                DropdownMenuItem(text = { Text("暂停") }, onClick = { menu = false; downloader.pause(unit.fileId) })
+                DropdownMenuItem(text = { Text("暂停") }, onClick = { onMenuDismiss(); downloader.pause(unit.fileId) })
             }
-            DropdownMenuItem(text = { Text("取消下载", color = Danger) }, onClick = { menu = false; downloader.delete(unit.fileId) })
+            DropdownMenuItem(text = { Text("取消下载", color = Danger) }, onClick = { onMenuDismiss(); downloader.delete(unit.fileId) })
         }
     }
 }

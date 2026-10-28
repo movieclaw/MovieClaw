@@ -16,7 +16,18 @@ object OfflineFormat {
 
 /** 单元状态的一句话（存储页「下载中」、详情页下载状态条共用；iOS `OfflineUnitStatus`） */
 object OfflineUnitStatus {
-    fun text(unit: OfflineUnit): String = when (unit.state) {
+    /**
+     * [ahead]：下载队列里排在它前面的个数（「下一个下载」「等待下载，前面还有 N 个」）；
+     * [waitingForWiFi]：只许 Wi-Fi 下、眼下是计费网络，排队和下着的都在等 Wi-Fi
+     */
+    fun text(unit: OfflineUnit, ahead: Int = 0, waitingForWiFi: Boolean = false): String = when {
+        waitingForWiFi && unit.runnable -> "等待 Wi-Fi"
+        unit.state == OfflineUnit.State.queued && ahead == 1 -> "下一个下载"
+        unit.state == OfflineUnit.State.queued && ahead > 1 -> "等待下载，前面还有 $ahead 个"
+        else -> text(unit)
+    }
+
+    private fun text(unit: OfflineUnit): String = when (unit.state) {
         OfflineUnit.State.preparing -> "正在准备…"
         OfflineUnit.State.queued -> "等待下载"
         OfflineUnit.State.downloading ->
@@ -30,13 +41,18 @@ object OfflineUnitStatus {
         OfflineUnit.State.done -> if (unit.damaged) "文件损坏，请重新下载" else "已下载"
     }
 
-    /** 一行状态（卡片窄，比通用文案短；iOS `OfflineDownloadStrip.status`） */
-    fun short(unit: OfflineUnit): String {
+    /** 一行状态（卡片窄，比通用文案短；iOS `OfflineDownloadStrip.status`）。参数同 [text] */
+    fun short(unit: OfflineUnit, ahead: Int = 0, waitingForWiFi: Boolean = false): String {
         val percent = if (unit.expectedBytes > 0) " ${(unit.progressFraction * 100).toInt()}%" else ""
         if (unit.damaged) return "文件损坏，请重新下载"
+        if (waitingForWiFi && unit.runnable) return "等待 Wi-Fi"
         return when (unit.state) {
             OfflineUnit.State.preparing -> "准备下载"
-            OfflineUnit.State.queued -> "等待下载"
+            OfflineUnit.State.queued -> when {
+                ahead == 1 -> "下一个下载"
+                ahead > 1 -> "前面还有 $ahead 个"
+                else -> "等待下载"
+            }
             OfflineUnit.State.downloading -> "下载中$percent"
             OfflineUnit.State.paused -> "已暂停$percent"
             OfflineUnit.State.failed -> when {
@@ -60,7 +76,8 @@ data class OfflineDownloadSummary(
     val allPaused: Boolean,
 ) {
     companion object {
-        fun make(units: List<OfflineUnit>, speeds: Map<Long, Double>, titles: Map<Long, String> = emptyMap()): OfflineDownloadSummary {
+        /** [waitingForWiFi]：只许 Wi-Fi 下、眼下是计费网络，明说在等 Wi-Fi */
+        fun make(units: List<OfflineUnit>, speeds: Map<Long, Double>, titles: Map<Long, String> = emptyMap(), waitingForWiFi: Boolean = false): OfflineDownloadSummary {
             val downloading = units.filter { it.state == OfflineUnit.State.downloading }
             val failed = units.filter { it.needsAttention }
             val waitingTranscode = units.filter { it.waitingForTranscode }
@@ -72,6 +89,7 @@ data class OfflineDownloadSummary(
             val allPaused = units.isNotEmpty() && units.all { it.state == OfflineUnit.State.paused }
             val parts = mutableListOf<String>()
             when {
+                waitingForWiFi && !allPaused && units.any { it.runnable } -> parts += "等待 Wi-Fi"
                 speed > 0 -> parts += "${OfflineFormat.bytes(speed.toLong())}/s"
                 failed.isNotEmpty() && downloading.isEmpty() -> parts += "${failed.size} 个下载中断"
                 waitingTranscode.isNotEmpty() && downloading.isEmpty() -> parts += "等待转码"

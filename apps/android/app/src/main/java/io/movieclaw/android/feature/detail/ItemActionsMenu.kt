@@ -65,6 +65,8 @@ enum class ItemActionId {
     /** 取消这部剧 / 这部电影正在进行的下载（iOS 的「取消下载 / 取消下载选中的集 / 取消全部下载」） */
     CANCEL_DOWNLOADS,
     CANCEL_SELECTED_DOWNLOAD,
+    /** 整部剧插队（§5.5）：还没下完的各集按季集排到最前 */
+    PRIORITIZE_DOWNLOADS,
     SEARCH,
     ADD_TO_COLLECTION,
     SHARE,
@@ -105,6 +107,8 @@ fun itemMenuEntries(
     activeDownloads: Int = 0,
     /** 剧集选中的那一集正在下（iOS `activeSelected`）：多一项「取消下载选中的集」 */
     activeSelected: Boolean = false,
+    /** 别的条目排在这部剧某一集前面（iOS `canPrioritize(itemId:)`）：多一项「优先下载剩下的 N 集」 */
+    canPrioritizeShow: Boolean = false,
 ): List<ItemMenuEntry> {
     val manage = permissions.canManageLibraries
     val scraped = detail.source == "tmdb"
@@ -118,6 +122,9 @@ fun itemMenuEntries(
 
     val out = mutableListOf<ItemMenuEntry>()
     // 离线下载（iOS：在下时先给「取消下载」；能下时与「加入合集 / 分享」同排）
+    if (activeDownloads > 0 && canPrioritizeShow && detail.kind == "tv") {
+        out += ItemMenuEntry.Action(ItemActionId.PRIORITIZE_DOWNLOADS, "优先下载剩下的 $activeDownloads 集")
+    }
     if (activeDownloads > 0 && activeSelected && detail.kind == "tv") {
         out += ItemMenuEntry.Action(ItemActionId.CANCEL_SELECTED_DOWNLOAD, "取消下载选中的集")
     }
