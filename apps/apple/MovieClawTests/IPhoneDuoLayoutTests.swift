@@ -104,13 +104,11 @@ struct IPhoneDuoLayoutTests {
 
     // MARK: 桌面模式控制台
 
-    @Test func deckCardsAlwaysFillTwoRows() {
-        // 电影 6 张（无「下一集」）3×2；剧集 7 张 4 + 3；访客分享少画质时 5 张 3 + 2
-        #expect(PlayerDeckCards.columns(for: 6) == 3)
-        #expect(PlayerDeckCards.columns(for: 7) == 4)
-        #expect(PlayerDeckCards.columns(for: 8) == 4)
-        #expect(PlayerDeckCards.columns(for: 5) == 3)
-        #expect(PlayerDeckCards.columns(for: 2) == 3)
+    @Test func deckTilesPairUpTwoPerRow() {
+        // 四块 2×2；访客分享没有画质时三块，单出来的一块独占一行
+        #expect(PlayerTabletopDeck.pairs([1, 2, 3, 4]) == [[1, 2], [3, 4]])
+        #expect(PlayerTabletopDeck.pairs([1, 2, 3]) == [[1, 2], [3]])
+        #expect(PlayerTabletopDeck.pairs([Int]()).isEmpty)
     }
 
     // MARK: 头像页签

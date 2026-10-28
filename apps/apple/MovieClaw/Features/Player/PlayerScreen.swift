@@ -678,12 +678,16 @@ private struct PlayerContent: View {
     }
 
     /// 桌面模式（iPhone Duo 竖向半折、下半平放在桌上）的控制层：画面在折痕以上，折痕以下整块是控制台——
-    /// 顶栏、进度条、后退 / 播放 / 前进，再下面是铺满剩余空间的功能卡片（`PlayerDeckCards`，照 Netflix 的桌面模式，
+    /// 顶栏、进度条，再下面是便当盒式的播放卡、功能方块与倍速条（`PlayerTabletopDeck`，照 Netflix 的桌面模式，
     /// docs/design/iphone-duo.md §6.4）。控制台不压画面，一直显示（见 `chromeMustStayVisible`）。
     /// 音轨、字幕面板从折痕往上长、盖在画面上（控制台里放不下）；临时卡片照旧浮在画面右下角
     @ViewBuilder
     private func tabletopChrome(videoBottom: CGFloat, deckTop: CGFloat) -> some View {
         ZStack(alignment: .top) {
+            // 折痕以下垫这一集剧照的氛围色（见 DeckAmbience）
+            DeckAmbience(url: controller.scope.api.image(controller.currentEpisode?.stillUrl ?? controller.info?.posterUrl, width: ImageWidth.points(120)))
+                .padding(.top, videoBottom)
+                .ignoresSafeArea(edges: .bottom)
             VStack(spacing: 0) {
                 if controller.diagnosticsOpen {
                     HStack {
@@ -712,18 +716,8 @@ private struct PlayerContent: View {
                 Spacer(minLength: 8)
                 PlayerBottomBar(controller: controller, trickplay: trickplay, menu: $menu, scrubMs: $scrubMs,
                                 landscape: false, onToggleLandscape: {}, showsButtons: false)
-                Spacer(minLength: 8)
-                Group {
-                    if controller.phase.isBusy {
-                        PlayerBusyView(controller: controller)
-                    } else {
-                        PlayerCenterControls(controller: controller)
-                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { centerFrame = $0 }
-                    }
-                }
-                .frame(height: 80)
                 Spacer(minLength: 12)
-                PlayerDeckCards(controller: controller, menu: $menu)
+                PlayerTabletopDeck(controller: controller, menu: $menu)
             }
             .padding(.horizontal, PlayerLayout.edge)
             .padding(.top, deckTop + PlayerLayout.gap)

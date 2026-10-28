@@ -138,10 +138,20 @@ struct PlayerCenterControls: View {
 }
 
 extension PlayerCenterControls {
-    /// 片段放完了：播放键就是「重播」（从片段起点再放一遍）
-    private var clipEnded: Bool { controller.clip != nil && controller.phase == .ended }
-    private var playSymbol: String { clipEnded ? "arrow.counterclockwise" : (controller.paused ? "play.fill" : "pause.fill") }
-    private var playLabel: String { clipEnded ? String(localized: .playerControlsReplay) : (controller.paused ? String(localized: .playerControlsPlay) : String(localized: .playerControlsPause)) }
+    private var playSymbol: String { Self.playSymbol(controller) }
+    private var playLabel: String { Self.playLabel(controller) }
+
+    /// 播放键的图标与读屏名（桌面模式控制台的播放卡也用）。片段放完了：播放键就是「重播」（从片段起点再放一遍）
+    static func playSymbol(_ controller: PlaybackController) -> String {
+        clipEnded(controller) ? "arrow.counterclockwise" : (controller.paused ? "play.fill" : "pause.fill")
+    }
+
+    static func playLabel(_ controller: PlaybackController) -> String {
+        clipEnded(controller) ? String(localized: .playerControlsReplay)
+            : (controller.paused ? String(localized: .playerControlsPlay) : String(localized: .playerControlsPause))
+    }
+
+    private static func clipEnded(_ controller: PlaybackController) -> Bool { controller.clip != nil && controller.phase == .ended }
 }
 
 /// 中央的玻璃圆钮：整颗圆都能点，按下由交互玻璃给出系统的形变反馈
@@ -262,7 +272,7 @@ struct PlayerSettingsMenu: View {
     }
 }
 
-/// 「⋯」里三个子菜单的选项：底栏「⋯」和桌面模式控制台的卡片（`PlayerDeckCards`）共用同一份
+/// 「⋯」里三个子菜单的选项：底栏「⋯」和桌面模式控制台（`PlayerTabletopDeck`）共用同一份
 extension PlayerSettingsMenu {
     /// 画质：语义是上限——源不超所选档就照常直通（无损），超了才转码降下去
     @ViewBuilder
@@ -342,7 +352,7 @@ struct PlayerBottomBar: View {
     @Binding var scrubMs: Int?
     let landscape: Bool
     let onToggleLandscape: () -> Void
-    /// 显示进度条上面那一行按钮；桌面模式的控制台把它们做成了卡片（`PlayerDeckCards`），只要进度条与时间
+    /// 显示进度条上面那一行按钮；桌面模式的控制台把它们做成了方块（`PlayerTabletopDeck`），只要进度条与时间
     var showsButtons = true
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass

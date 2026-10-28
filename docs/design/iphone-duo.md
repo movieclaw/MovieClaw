@@ -303,7 +303,7 @@ Netflix 与同行：
 | 头像手势 | 按页签顺序取最后一个按钮（竖排取最下，`lastTabIndex`） | `TabBarAccountGestures.swift` |
 | 屏幕 | `ImageWidth` 取前台窗口场景的屏，冷启动才退回 `UIScreen.main` | `RemoteImage.swift` |
 | 播放器转屏 | `appControlsRotation(wide:)`：宽版式不转屏、返回即退出；展开时 `followDevice` 解开外屏的方向锁 | `PlayerSystemBridges.swift`、`PlayerControls.swift`、`PlayerScreen.swift` |
-| 桌面模式控制台 | 2026-10-28 用户看过桌面模式后要求照 Netflix 把下半屏做成卡片：控制台从上到下是顶栏、进度条、后退 / 播放 / 前进、功能卡片（`PlayerDeckCards`）。卡片铺满剩余高度、凑成两行（6 张 3×2、7 张 4 + 3），把底栏「⋯」里的画质、画面、倍速、诊断也拆出来，每张写着当前值；音轨、字幕打开原面板（从折痕往上长、盖在画面上），画质、画面、倍速是系统菜单（与「⋯」同一份选项，开菜单时收起开着的面板），剧集多一张「下一集」。跳过片头、下一集倒计时等临时卡片仍浮在画面右下角 | `PlayerTabletopDeck.swift`、`PlayerScreen.swift`（`tabletopChrome`）、`PlayerControls.swift` |
+| 桌面模式控制台 | 2026-10-28 用户看过桌面模式后要求照 Netflix 把下半屏卡片化，看过第一版平铺卡片后又要求更好看、更有创意，定稿为「便当盒」（`PlayerTabletopDeck`）：顶栏、进度条之下，左边大播放卡（白色实心播放键 + 两侧前进后退 + 已播 / 总长），右边 2×2 方块（音轨、字幕、画质、画面，写当前值，打开面板时反白）；剧集多一条带剧照的「下一集」横幅；最下面倍速是直接可点的分段条（白色药丸滑动），播放诊断收成末尾小圆钮。底下垫本集剧照（电影用海报）的模糊氛围色（`DeckAmbience`，小图静态模糊，无逐帧开销），卡片是液态玻璃。音轨、字幕面板从折痕往上长、盖在画面上；画质、画面是系统菜单（与「⋯」同一份选项，开菜单时收起面板）；临时卡片仍浮在画面右下角 | `PlayerTabletopDeck.swift`、`PlayerScreen.swift`（`tabletopChrome`）、`PlayerControls.swift` |
 | 桌面模式 / 书本半折 | `PlayerFold`：读生效的分隔区域，横向折痕时画面收进上半屏、控制层落到下半屏并常显；竖向折痕时中部按钮组挪到右半边（放不下时不出屏）。没用 `ArrangementView`：控制层是一整套叠层，拆不成「一主一辅」 | `PlayerFold.swift`、`PlayerScreen.swift` |
 | 片段 | 在片段页展开、正在播放时自动进全屏观看；全屏观看中合上，退回信息流原来那一条与位置；宽页面横带限高 58%；横带避开左右安全区 | `ReelsView.swift`、`PlayerScreen.swift` |
 | 竖排栏 | 顶栏按钮改 `Label`（带标题）；详情页剧照在有竖排栏时铺到栏下（`BackdropUnderVerticalBar`，读 `toolbarVerticalEdge`） | `MainTabView.swift`、`LibraryHomeView.swift`、`ImmersiveHero.swift`、`LibraryItemDetailView.swift` |
@@ -320,6 +320,6 @@ Netflix 与同行：
   库页、详情页一致（只有玻璃按钮边缘约 500 像素的抗锯齿差）。
 - 内屏（2026-10-28，用户在 DeviceHub 里展开后实测）：首页宽版式、手机外壳竖排标签栏、接着看条；详情页 Mac 式大图区；
   海报墙 6 列手机尺寸卡片；片段页标签栏隐藏、横带限高；播放器点返回直接退出；用户实测真实桌面模式画面在上、控制在下。
-  桌面模式控制台在内屏竖向（669×951，与真机桌面模式同尺寸）配合 `-mcSimulateFold tabletop` 点过：音轨面板、倍速菜单、
-  选 1.5× 后卡片与进度条角标更新、暂停。
+  桌面模式控制台在内屏竖向（669×951，与真机桌面模式同尺寸）配合 `-mcSimulateFold tabletop` 点过：音轨方块反白并打开面板、
+  倍速分段条点 1.5× 后药丸与进度条角标更新、暂停；剧照会撑开布局的坑已修（氛围图挂在不占尺寸的框上）。
 - 没测到：片段页展开 / 合上的自动接续（要连续拨铰链）。
