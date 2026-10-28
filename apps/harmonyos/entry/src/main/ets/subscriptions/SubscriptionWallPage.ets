@@ -10,6 +10,7 @@ import { SubscriptionParams } from './SubscriptionDetailPage';
 import { DiscoverDetailParams } from '../discover/DiscoverDetailPage';
 import { SubsHome } from './SubscriptionsHomeModel';
 import { SubsPosterCard } from './SubsPosterCard';
+import { SubscribeCenter } from './SubscribeCenter';
 
 /** 海报墙页的路由参数（路由参数会被序列化，不要用 instanceof） */
 export class SubscriptionWallParams {
@@ -54,6 +55,24 @@ export struct SubscriptionWallPage {
   @Local private loading: boolean = true;
   @Local private refreshing: boolean = false;
   @Local private failed: boolean = false;
+  /** SubscribeCenter 广播的回调引用（注册/注销必须是同一个闭包，aboutToAppear 里创建） */
+  private onSubsRefresh: (() => void) | null = null;
+
+  aboutToAppear(): void {
+    if (this.onSubsRefresh === null) {
+      this.onSubsRefresh = (): void => {
+        this.load();
+      };
+      SubscribeCenter.observeSubsRefresh(this.onSubsRefresh);
+    }
+  }
+
+  aboutToDisappear(): void {
+    if (this.onSubsRefresh !== null) {
+      SubscribeCenter.unobserveSubsRefresh(this.onSubsRefresh);
+      this.onSubsRefresh = null;
+    }
+  }
 
   private api(): MovieClawApi | null {
     return AppModel.shared.api;

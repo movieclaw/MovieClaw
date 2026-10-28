@@ -29,6 +29,7 @@ import {
 } from './SubscriptionsHomeModel';
 import { SubsPosterCard } from './SubsPosterCard';
 import { SubscriptionWallParams } from './SubscriptionWallPage';
+import { SubscribeCenter } from './SubscribeCenter';
 
 /**
  * 订阅页（对应 iOS 端 Features/Subscriptions/SubscriptionsView.swift 的「我的订阅」）。
@@ -169,10 +170,18 @@ export struct SubscriptionsPage {
   private recentTimer: number = -1;
   private tasksTimer: number = -1;
   private started: boolean = false;
+  /** SubscribeCenter 广播的回调引用（注册/注销必须是同一个闭包，aboutToAppear 里创建） */
+  private onSubsRefresh: (() => void) | null = null;
   /** info_hash(小写) → 下载器 ETA 秒数（日程左列「预计时间」用；同 iOS 的 tasks 轮询） */
   @Local private taskEtas: Record<string, number> = {};
 
   aboutToAppear(): void {
+    if (this.onSubsRefresh === null) {
+      this.onSubsRefresh = (): void => {
+        this.reload();
+      };
+      SubscribeCenter.observeSubsRefresh(this.onSubsRefresh);
+    }
     if (this.started) {
       return;
     }
@@ -217,6 +226,10 @@ export struct SubscriptionsPage {
   }
 
   aboutToDisappear(): void {
+    if (this.onSubsRefresh !== null) {
+      SubscribeCenter.unobserveSubsRefresh(this.onSubsRefresh);
+      this.onSubsRefresh = null;
+    }
     if (this.heroTimer >= 0) {
       clearInterval(this.heroTimer);
       this.heroTimer = -1;
@@ -382,11 +395,11 @@ export struct SubscriptionsPage {
     // 二级页才走 Navigation。本页只借 navStack 往外 push，不需要 NavDestination 的能力。
     Column() {
       if (this.failed) {
-        this.ErrorState()
+        this.RefreshableError()
       } else if (this.subscriptions === null) {
         this.LoadingState()
       } else if (!this.hasAny()) {
-        this.EmptyState()
+        this.RefreshableEmpty()
       } else {
         this.Content()
       }
@@ -435,8 +448,9 @@ export struct SubscriptionsPage {
           this.reload();
         })
     }
+    // 在 Refresh 里没有 layoutWeight 可用（父容器不是 Row/Column/Flex），用百分比高度铺满
     .width('100%')
-    .layoutWeight(1)
+    .height('100%')
     .padding(24)
     .justifyContent(FlexAlign.Center)
   }
@@ -467,14 +481,47 @@ export struct SubscriptionsPage {
           .borderRadius(20)
           .margin({ top: 6 })
           .onClick(() => {
-            this.goDiscover();
-          })
+          this.goDiscover();
+        })
       }
     }
     .width('100%')
-    .layoutWeight(1)
+    .height('100%')
     .padding(24)
     .justifyContent(FlexAlign.Center)
+  }
+
+  /** 三态（失败/空/内容）共用的下拉收口：拉完统一收转圈 */
+  private beginRefresh(): void {
+    this.reload().then((): void => {
+      this.refreshing = false;
+    });
+  }
+
+  /** 失败态也能下拉重试（和重试按钮同一份 reload，只是多一条手势入口） */
+  @Builder
+  RefreshableError() {
+    Refresh({ refreshing: $$this.refreshing }) {
+      this.ErrorState()
+    }
+    .onRefreshing(() => {
+      this.beginRefresh();
+    })
+    .width('100%')
+    .height('100%')
+  }
+
+  /** 空态可下拉刷新：首次订阅后回本页签不必杀进程重启（否则「刷新也不显示」） */
+  @Builder
+  RefreshableEmpty() {
+    Refresh({ refreshing: $$this.refreshing }) {
+      this.EmptyState()
+    }
+    .onRefreshing(() => {
+      this.beginRefresh();
+    })
+    .width('100%')
+    .height('100%')
   }
 
   @Builder
@@ -509,9 +556,7 @@ export struct SubscriptionsPage {
       .edgeEffect(EdgeEffect.None)
     }
     .onRefreshing(() => {
-      this.reload().then((): void => {
-        this.refreshing = false;
-      });
+      this.beginRefresh();
     })
     .width('100%')
     .height('100%')

@@ -372,6 +372,11 @@ export struct MainTabsPage {
       const title: string = this.visibleTabs()[index].title;
       NavStacks.currentKey = title;
       this.mountTab(title);
+      // 切回订阅页签：让已挂载保活的订阅首页重拉清单（对齐 iOS 切 tab 触发 onAppear 的语义）；
+      // 首次挂载时本广播是空操作，页面 aboutToAppear 自己会拉
+      if (title === '订阅') {
+        SubscribeCenter.announceSubsRefresh();
+      }
     })
     /*
      * 点「已经选中的页签」要回到该页签的根页（iOS 标准行为：在二级页面里点底部同一个页签 = 退回首页）。

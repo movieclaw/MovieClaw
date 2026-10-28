@@ -37,6 +37,7 @@ import { TorrentParams } from '../search/TorrentResultsPage';
 import { SearchScope } from '../search/SearchTabs';
 import { SearchAccess } from '../search/SearchAccess';
 import { AppFooter } from '../common/AppFooter';
+import { SubscribeCenter } from './SubscribeCenter';
 
 /** 订阅详情页的路由参数（路由参数会被序列化，不要用 instanceof） */
 export class SubscriptionParams {
@@ -993,6 +994,7 @@ export struct SubscriptionDetailPage {
     try {
       const result: SubscriptionDeleteView = await api.subscriptionsDelete(
         this.subscriptionId, this.removeTorrents, this.removeFiles);
+      SubscribeCenter.announceSubsRefresh();
       const jobId: string | null = result.cleanup_job_id ?? null;
       this.toast(jobId !== null && jobId.length > 0
         ? '已取消订阅，正在后台清理关联内容（可在任务中心查看进度）'
