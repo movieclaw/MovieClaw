@@ -1,5 +1,8 @@
 import { connection } from '@kit.NetworkKit';
+import { AppNavBar } from '../common/AppNavBar';
 import { Theme } from '../theme/AppTheme';
+import { TabBarCollapse } from '../common/TabBarCollapse';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { ApiClient, ApiError, ApiQuery, QueryPair } from '../api/ApiClient';
@@ -24,6 +27,7 @@ import { ChatParams } from '../agent/ChatParams';
 import { TorrentParams } from '../search/TorrentResultsPage';
 import { ReelsParams } from '../reels/ReelsPage';
 import { RecycleParams } from './RecycleBinPage';
+import { HeroBanner } from './HeroBanner';
 import { SubscriptionParams } from '../subscriptions/SubscriptionDetailPage';
 import { ItemRouteParams } from './LibraryItemDetailPage';
 import {
@@ -443,7 +447,8 @@ export struct LibraryHomeView {
   /** 轮询定时器句柄；-1 = 没在轮询 */
   private pollTimer: number = -1;
   /** 竖向列表的滚动器（外层 Scroll 换成 List 后保留，口径不变） */
-  private scroller: Scroller = new Scroller();
+  /** 首页 List 的滚动器（宿主 bindToScrollable 要用同一个实例驱动标题栏显隐） */
+  scroller: Scroller = new Scroller();
   /** 首页行清单的懒加载数据源（LazyForEach 只建可视区附近的行） */
   private rowSource: HomeRowSource = new HomeRowSource();
 
@@ -468,7 +473,10 @@ export struct LibraryHomeView {
     const session = AppModel.shared.session;
     const key: string = LibraryHomePrefs.ownerKey(client !== null ? client.origin : '',
       session === null ? null : session.username);
-    await LibraryHomeStore.shared.reload(api, key);
+    // 缓存先上屏（restore 是同步的），网络完成后再刷一遍（stale-while-revalidate）
+    const settled: Promise<void> = LibraryHomeStore.shared.reload(api, key);
+    this.syncFromStore();
+    await settled;
     this.syncFromStore();
     this.scheduleNextPoll();
   }
@@ -827,6 +835,12 @@ export struct LibraryHomeView {
         // 用 List 而不是 Scroll + Column：只有 List / Grid / Swiper / WaterFlow 这类容器
         // 才让 LazyForEach 按可视区建组件。首页每一行分节是一个 ListItem（见 Content）。
         List({ scroller: this.scroller }) {
+          // 内容从 y=0 铺到标题栏下面：首屏空出标题栏高度（滚动时这段跟着走）
+          ListItem() {
+            Column()
+              .width('100%')
+              .height(AppNavBar.contentTop)
+          }
           ListItem() {
             this.StatsHeader()
           }
@@ -840,8 +854,13 @@ export struct LibraryHomeView {
         .height('100%')
         .edgeEffect(EdgeEffect.None)
         // 可视区上下各多缓存几行，快速滑动时少建少销毁
+        // 向下滚累计到阈值：底栏收成圆形按钮（往回滑立刻放回）
+        .onDidScroll((xOffset: number, yOffset: number) => {
+          TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset);
+        })
         .cachedCount(4)
-        .padding({ bottom: Theme.tabBarInset })
+        // 底部让位用 contentEndOffset：内容能滚到页签胶囊/手势条下面，胶囊背后不再是黑底
+        .contentEndOffset(Theme.tabBarInset)
       }
       .onRefreshing(() => {
         this.reload().then((): void => {
@@ -899,17 +918,18 @@ export struct LibraryHomeView {
           Text('媒体库加载失败')
             .fontSize(15)
             .fontColor(Theme.textMuted)
-          Text('重试')
-            .fontSize(15)
-            .fontWeight(600)
-            .fontColor(Theme.accentStrong)
-            .padding({ left: 20, right: 20, top: 10, bottom: 10 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(20)
-            .border({ width: 1, color: Theme.lineStrong })
-            .onClick(() => {
-              this.reload();
-            })
+          Button() {
+            Text('重试')
+              .fontSize(15)
+              .fontWeight(600)
+              .fontColor(Theme.accentStrong)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+          .borderRadius(20)
+          .onClick(() => {
+            this.reload();
+          })
         }
         .width('100%')
         .padding({ top: 64 })
@@ -982,19 +1002,20 @@ export struct LibraryHomeView {
           .fontSize(13)
           .fontColor(Theme.textMuted)
           .textAlign(TextAlign.Center)
-        Text('自定义首页')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.accentStrong)
-          .padding({ left: 20, right: 20, top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(20)
-          .border({ width: 1, color: Theme.lineStrong })
-          .margin({ top: 10 })
-          .onClick(() => {
-            this.sheetKind = 'customize';
-            this.showSheet = true;
-          })
+        Button() {
+          Text('自定义首页')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(Theme.accentStrong)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .margin({ top: 10 })
+        .onClick(() => {
+          this.sheetKind = 'customize';
+          this.showSheet = true;
+        })
       }
       .padding({ left: 24, right: 24, top: 32, bottom: 32 })
       .width('100%')
@@ -1047,29 +1068,20 @@ export struct LibraryHomeView {
     if (this.upNext.length > 0) {
       Column({ space: 12 }) {
         this.UpNextHeader(row.title())
-        Scroll() {
-          Row({ space: 12 }) {
-            ForEach(this.upNext, (item: UpNextItemView) => {
-              UpNextCard({
-                item: item,
-                origin: AppModel.origin(),
-                onOpen: (picked: UpNextItemView): void => {
-                  this.navStack.pushPathByName('libraryItem',
-                    new ItemRouteParams(picked.library_id, picked.media_item_id));
-                },
-                onPlay: (picked: UpNextItemView): void => {
-                  this.navStack.pushPathByName('player', new PlayerParams(
-                    picked.media_item_id, 0, picked.season_number, picked.episode_number,
-                    picked.position_ms));
-                }
-              })
-            }, (item: UpNextItemView) => `${item.media_item_id}`)
+        // 华为视频同款大图轮播：剧照 + 片名 + 简介 + 进度 + 播放/详情
+        HeroBanner({
+          items: this.upNext,
+          origin: AppModel.origin(),
+          onOpen: (picked: UpNextItemView): void => {
+            this.navStack.pushPathByName('libraryItem',
+              new ItemRouteParams(picked.library_id, picked.media_item_id));
+          },
+          onPlay: (picked: UpNextItemView): void => {
+            this.navStack.pushPathByName('player', new PlayerParams(
+              picked.media_item_id, 0, picked.season_number, picked.episode_number,
+              picked.position_ms));
           }
-          .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
-        }
-        .scrollable(ScrollDirection.Horizontal)
-        .scrollBar(BarState.Off)
-        .width('100%')
+        })
       }
       .padding({ top: 24 })
       .width('100%')
@@ -1381,21 +1393,23 @@ export struct LibraryHomeView {
         .padding({ left: 20, right: 20, top: 12 })
         .width('100%')
 
-      Text(this.pickerButtonTitle())
-        .fontSize(15)
-        .fontWeight(600)
-        .fontColor(Theme.danger)
-        .width('100%')
-        .textAlign(TextAlign.Center)
-        .padding({ top: 12, bottom: 12 })
-        .margin({ left: 20, right: 20, top: 8 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(12)
-        .opacity(this.pickerLibraryId !== null && !this.clearingBusy ? 1 : 0.4)
-        .enabled(this.pickerLibraryId !== null && !this.clearingBusy)
-        .onClick(() => {
-          this.submitLibraryClear();
-        })
+      Button() {
+        Text(this.pickerButtonTitle())
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor(Theme.danger)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 12, bottom: 12 })
+      .margin({ left: 20, right: 20, top: 8 })
+      .borderRadius(12)
+      .opacity(this.pickerLibraryId !== null && !this.clearingBusy ? 1 : 0.4)
+      .enabled(this.pickerLibraryId !== null && !this.clearingBusy)
+      .onClick(() => {
+        this.submitLibraryClear();
+      })
     }
     .width('100%')
     .padding({ bottom: 24 })

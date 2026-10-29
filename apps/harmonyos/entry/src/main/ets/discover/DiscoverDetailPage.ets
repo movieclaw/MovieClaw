@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
@@ -76,7 +77,7 @@ export struct DiscoverDetailPage {
   @State private failureMessage: string = '';
   @State private overviewExpanded: boolean = false;
   @State private refreshing: boolean = false;
-  @State private heroHeight: number = 320;
+  @State private heroHeight: number = Theme.heroHeight;
   // 顶栏底色：初始透明浮在 Hero 剧照上，一滚动就压上实底——不然下滑时内容会从透明的顶栏文字后面穿过
   @State private chromeRaised: boolean = false;
   private scroller: Scroller = new Scroller();
@@ -323,27 +324,30 @@ export struct DiscoverDetailPage {
           .textAlign(TextAlign.Center)
       }
       Row({ space: 12 }) {
-        Text('重试')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor('#0b0d12')
-          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(20)
-          .onClick(() => {
-            this.load();
-          })
-        Text('返回')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.text)
-          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(20)
-          .border({ width: 1, color: Theme.lineStrong })
-          .onClick(() => {
-            this.navStack.pop();
-          })
+        Button() {
+          Text('重试')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor('#0b0d12')
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .onClick(() => {
+          this.load();
+        })
+        Button() {
+          Text('返回')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .onClick(() => {
+          this.navStack.pop();
+        })
       }
       .margin({ top: 4 })
     }
@@ -394,7 +398,7 @@ export struct DiscoverDetailPage {
       .width('100%')
       .height('100%')
       .edgeEffect(EdgeEffect.None)
-      .padding({ bottom: Theme.tabBarInset })
+.contentEndOffset(Theme.tabBarInset)
       .onDidScroll(() => {
         const raised: boolean = this.scroller.currentOffset().yOffset > 24;
         if (raised !== this.chromeRaised) {
@@ -411,7 +415,7 @@ export struct DiscoverDetailPage {
     .height('100%')
   }
 
-  /** 沉浸大图：高 = min(屏宽 × 1.15, 屏高 × 0.55)，顶部一抹暗托住返回键，底部渐变进底色 */
+  /** 沉浸大图：高走 Theme.heroHeight（与媒体库详情/订阅轮播同一 token，取景才一致），顶部一抹暗托住返回键，底部渐变进底色 */
   @Builder
   Hero() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -474,23 +478,27 @@ export struct DiscoverDetailPage {
   LibraryBar(links: MediaLibraryLink[]) {
     Column({ space: 6 }) {
       ForEach(links, (link: MediaLibraryLink) => {
-        Row({ space: 8 }) {
-          SymbolGlyph($r('sys.symbol.checkmark_circle_fill'))
-            .fontSize(15)
-            .fontColor([Theme.ok])
-          Text(`已在「${link.library_name}」`)
-            .fontSize(13)
-            .fontColor(Theme.text)
-            .layoutWeight(1)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(14)
-            .fontColor([Theme.textFaint])
+        Button() {
+          Row({ space: 8 }) {
+            SymbolGlyph($r('sys.symbol.checkmark_circle_fill'))
+              .fontSize(15)
+              .fontColor([Theme.ok])
+            Text(`已在「${link.library_name}」`)
+              .fontSize(13)
+              .fontColor(Theme.text)
+              .layoutWeight(1)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            SymbolGlyph($r('sys.symbol.chevron_right'))
+              .fontSize(14)
+              .fontColor([Theme.textFaint])
+          }
+          .width('100%')
+          .padding({ left: 12, right: 12, top: 9, bottom: 9 })
         }
-        .width('100%')
-        .padding({ left: 12, right: 12, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding(0)
+        .clip(true)
         .borderRadius(10)
         .onClick(() => {
           this.openInLibrary(link);
@@ -508,29 +516,28 @@ export struct DiscoverDetailPage {
       Row({ space: 10 }) {
         if (this.permissions().canSubscribe) {
           Button('订阅追踪')
-            .height(42)
-            .fontSize(15)
-            .fontColor('#0b0d12')
-            .backgroundColor(Theme.accent)
-            .borderRadius(12)
-            .onClick(() => {
-              SubscribeCenter.present(this.titleRef, this.displayTitle());
-            })
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .height(42)
+          .fontSize(15)
+          .fontColor('#0b0d12')
+          .borderRadius(12)
+          .onClick(() => {
+            SubscribeCenter.present(this.titleRef, this.displayTitle());
+          })
         }
         if (this.permissions().canSearch) {
           Button('搜索资源')
-            .height(42)
-            .fontSize(15)
-            .fontColor(Theme.text)
-            .backgroundColor(Theme.surfaceRaised)
-            .borderRadius(12)
-            .border({ width: 1, color: Theme.line })
-            .onClick(() => {
-              // 资源搜索第 53 轮就做好了，这里却还挂着「建设中」——接上
-              // 同搜词带英文名/原名（同 iOS）：只索引英文名的站点也能搜到
-              this.navStack.pushPathByName('torrents',
-                new TorrentParams(this.displayTitle(), this.searchAlso()));
-            })
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .height(42)
+          .fontSize(15)
+          .fontColor(Theme.text)
+          .borderRadius(12)
+          .onClick(() => {
+            // 资源搜索第 53 轮就做好了，这里却还挂着「建设中」——接上
+            // 同搜词带英文名/原名（同 iOS）：只索引英文名的站点也能搜到
+            this.navStack.pushPathByName('torrents',
+              new TorrentParams(this.displayTitle(), this.searchAlso()));
+          })
         }
       }
       .margin({ top: 6 })
@@ -639,19 +646,23 @@ export struct DiscoverDetailPage {
       Scroll() {
         Row({ space: 12 }) {
           ForEach(videos, (video: MediaVideo) => {
-            Stack({ alignContent: Alignment.Center }) {
-              RemoteImage({ url: this.thumbUrl(video.thumbnail_url) })
-                .width('100%')
-                .height('100%')
-              SymbolGlyph($r('sys.symbol.play_fill'))
-                .fontSize(26)
-                .fontColor(['rgba(255,255,255,0.9)'])
+            Button() {
+              Stack({ alignContent: Alignment.Center }) {
+                RemoteImage({ url: this.thumbUrl(video.thumbnail_url) })
+                  .width('100%')
+                  .height('100%')
+                SymbolGlyph($r('sys.symbol.play_fill'))
+                  .fontSize(26)
+                  .fontColor(['rgba(255,255,255,0.9)'])
+              }
+              .width(200)
+              .clip(true)
             }
-            .width(200)
-            .aspectRatio(16 / 9)
-            .backgroundColor(Theme.surface)
-            .borderRadius(Theme.cardRadius)
+            .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+            .padding(0)
             .clip(true)
+            .aspectRatio(16 / 9)
+            .borderRadius(Theme.cardRadius)
             .onClick(() => {
               this.openExternal(video.watch_url);
             })

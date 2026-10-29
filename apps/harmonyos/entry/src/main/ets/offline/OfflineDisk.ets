@@ -22,10 +22,13 @@ import {
  */
 export class OfflineDisk {
   private static rootPath: string | null = null;
+  /** 沙箱 files 目录（始终存在）：查卷剩余空间用它——存档目录要到第一次下载才建 */
+  private static basePath: string | null = null;
 
   /** EntryAbility.onCreate 时调（AppModel.initStore 之后） */
   static init(context: common.Context): void {
     if (OfflineDisk.rootPath === null) {
+      OfflineDisk.basePath = context.filesDir;
       OfflineDisk.rootPath = `${context.filesDir}/Offline`;
     }
   }
@@ -149,7 +152,7 @@ export class OfflineDisk {
   /** 剩余空间（字节）；拿不到返回 -1（调用方据此跳过检查） */
   static availableBytes(): number {
     try {
-      return statfs.getFreeSizeSync(OfflineDisk.rootDir());
+      return statfs.getFreeSizeSync(OfflineDisk.volumePath());
     } catch (error) {
       return -1;
     }
@@ -158,10 +161,16 @@ export class OfflineDisk {
   /** 总容量（字节）；拿不到返回 -1 */
   static totalBytes(): number {
     try {
-      return statfs.getTotalSizeSync(OfflineDisk.rootDir());
+      return statfs.getTotalSizeSync(OfflineDisk.volumePath());
     } catch (error) {
       return -1;
     }
+  }
+
+  /** 查卷空间的路径：沙箱 files 目录（存在），拿不到时退回存档根 */
+  private static volumePath(): string {
+    const base: string | null = OfflineDisk.basePath;
+    return base !== null ? base : OfflineDisk.root();
   }
 
   /** 目录（含内容）大小：存储页的「占用」 */

@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { RemoteImage } from '../common/RemoteImage';
@@ -369,17 +370,18 @@ export struct FavoritesPage {
         .fontSize(13)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('重试')
-        .fontSize(14)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(18)
-        .border({ width: 1, color: Theme.lineStrong })
-        .onClick(() => {
-          this.load();
-        })
+      Button() {
+        Text('重试')
+          .fontSize(14)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+      .borderRadius(18)
+      .onClick(() => {
+        this.load();
+      })
     }
     .width('100%')
     .layoutWeight(1)
@@ -494,17 +496,20 @@ export struct FavoritesPage {
           .bindMenu(this.GalleryPrefMenu())
         }
         Blank()
-        Row() {
-          SymbolGlyph(this.galleryMode ? $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.rectangle_stack'))
-            .fontSize(16)
-            .fontColor([Theme.textMuted])
+        Button() {
+          Row() {
+            SymbolGlyph(this.galleryMode ? $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.rectangle_stack'))
+              .fontSize(16)
+              .fontColor([Theme.textMuted])
+          }
+          .width(36)
+          .height(36)
+          .justifyContent(FlexAlign.Center)
         }
-        .width(36)
-        .height(36)
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor(Theme.glassFill)
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding(0)
+        .clip(true)
         .borderRadius(18)
-        .border({ width: 1, color: Theme.line })
         .onClick(() => {
           this.toggleGallery();
         })
@@ -556,7 +561,8 @@ export struct FavoritesPage {
       .height('100%')
       .edgeEffect(EdgeEffect.None)
       .cachedCount(4)
-      .padding({ left: Theme.pagePadding, right: Theme.pagePadding, bottom: Theme.tabBarInset })
+      .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
+      .contentEndOffset(Theme.tabBarInset)
       .onReachEnd(() => {
         if (!this.reachedEnd && !this.loadingMore) {
           this.loadPage(this.items.length);

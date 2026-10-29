@@ -1,6 +1,7 @@
 import { LengthMetrics } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls } from '../common/ImageUrls';
 import { AppModel } from '../common/AppModel';
@@ -134,17 +135,20 @@ export struct AgentCodeBlockView {
       .borderRadius(10)
       .border({ width: 1, color: 'rgba(255, 255, 255, 0.07)' })
 
-      Row() {
-        SymbolGlyph(this.copied ? $r('sys.symbol.checkmark') : $r('sys.symbol.doc_filled_on_doc'))
-          .fontSize(12)
-          .fontColor([this.copied ? Theme.ok : Theme.textFaint])
+      Button() {
+        Row() {
+          SymbolGlyph(this.copied ? $r('sys.symbol.checkmark') : $r('sys.symbol.doc_filled_on_doc'))
+            .fontSize(12)
+            .fontColor([this.copied ? Theme.ok : Theme.textFaint])
+        }
+        .width(28)
+        .height(28)
+        .justifyContent(FlexAlign.Center)
       }
-      .width(28)
-      .height(28)
-      .justifyContent(FlexAlign.Center)
-      .backgroundColor('rgba(28, 28, 32, 0.9)')
+      .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+      .padding(0)
+      .clip(true)
       .borderRadius(7)
-      .border({ width: 1, color: Theme.line })
       .margin({ top: 6, right: 6 })
       .onClick((): void => {
         this.copy();

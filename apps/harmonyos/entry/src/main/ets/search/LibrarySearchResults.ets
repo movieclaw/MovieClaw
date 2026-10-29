@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls, ImageVariant } from '../common/ImageUrls';
@@ -339,18 +340,19 @@ export struct LibrarySearchResults {
               .fontColor(Theme.textMuted)
               .textAlign(TextAlign.Center)
             if (this.onSwitchToMedia !== null) {
-              Text('搜索影视条目')
-                .fontSize(14)
-                .fontWeight(600)
-                .fontColor(Theme.accentStrong)
-                .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-                .backgroundColor(Theme.glassFill)
-                .borderRadius(18)
-                .border({ width: 1, color: Theme.lineStrong })
-                .margin({ top: 8 })
-                .onClick(() => {
-                  this.onSwitchToMedia?.();
-                })
+              Button() {
+                Text('搜索影视条目')
+                  .fontSize(14)
+                  .fontWeight(600)
+                  .fontColor(Theme.accentStrong)
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+              .borderRadius(18)
+              .margin({ top: 8 })
+              .onClick(() => {
+                this.onSwitchToMedia?.();
+              })
             }
           }
           .width('100%')
@@ -365,22 +367,25 @@ export struct LibrarySearchResults {
           Scroll() {
             Row({ space: 8 }) {
               ForEach(this.visibleSuggestions(), (suggestion: LibrarySearchSuggestion) => {
-                Row({ space: 6 }) {
-                  Text(suggestion.text)
-                    .fontSize(14)
-                    .fontColor(Theme.text)
-                    .maxLines(1)
-                  if (this.suggestionReason(suggestion).length > 0) {
-                    Text(this.suggestionReason(suggestion))
-                      .fontSize(11)
-                      .fontColor(Theme.textFaint)
+                Button() {
+                  Row({ space: 6 }) {
+                    Text(suggestion.text)
+                      .fontSize(14)
+                      .fontColor(Theme.text)
                       .maxLines(1)
+                    if (this.suggestionReason(suggestion).length > 0) {
+                      Text(this.suggestionReason(suggestion))
+                        .fontSize(11)
+                        .fontColor(Theme.textFaint)
+                        .maxLines(1)
+                    }
                   }
+                  .padding({ left: 14, right: 14, top: 8, bottom: 8 })
                 }
-                .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-                .backgroundColor(Theme.glassFill)
+                .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+                .padding(0)
+                .clip(true)
                 .borderRadius(17)
-                .border({ width: 1, color: Theme.lineStrong })
                 .onClick(() => {
                   this.onPickSuggestion?.(suggestion.text);
                 })
@@ -509,8 +514,9 @@ export struct LibrarySearchResults {
     .height('100%')
     .scrollBar(BarState.Off)
     .cachedCount(4)
+    // 一次 padding 写全：同链两次 .padding 是覆盖不是合并，之前 bottom 那次把左右边距抹掉了
     .padding({ left: 20, right: 20 })
-    .padding({ bottom: this.live ? Theme.tabBarInset : 24 })
+    .contentEndOffset(this.live ? Theme.tabBarInset : 24)
   }
 
   /** 命中的影片卡（同 iOS cell）：海报 + 片名 + 年份 + 附加行 + 命中原因，单击直达条目详情 */

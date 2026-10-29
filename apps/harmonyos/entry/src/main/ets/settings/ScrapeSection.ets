@@ -1,4 +1,6 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
@@ -110,6 +112,8 @@ class SourceKind {
  */
 @ComponentV2
 export struct ScrapeSection {
+  /** 页面级滚动器：内容铺到标题栏下面，滚动时由宿主绑定驱动渐变模糊 */
+  @Param scroller: Scroller = new Scroller();
   @Local private config: ScrapeConfigView | null = null;
   @Local private loading: boolean = true;
   @Local private errorMessage: string = '';
@@ -926,7 +930,7 @@ export struct ScrapeSection {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else {
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 20 }) {
             if (this.errorMessage.length > 0) {
               Text(this.errorMessage).fontSize(13).fontColor(Theme.danger).width('100%')
@@ -949,7 +953,7 @@ export struct ScrapeSection {
             AppFooter()
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 8, bottom: 90 })
+          .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: 90 })
         }
         .layoutWeight(1)
         .align(Alignment.TopStart)
@@ -962,16 +966,18 @@ export struct ScrapeSection {
           .fontSize(12)
           .fontColor(this.dirty ? Theme.warn : Theme.textFaint)
           .layoutWeight(1)
-        Text(this.saving ? '保存中…' : '保存')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.dirty && !this.saving ? '#0b0d12' : Theme.textFaint)
-          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-          .backgroundColor(this.dirty && !this.saving ? Theme.accent : Theme.glassFill)
-          .borderRadius(18)
-          .onClick(() => {
-            this.save();
-          })
+        Button() {
+          Text(this.saving ? '保存中…' : '保存')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.dirty && !this.saving ? '#0b0d12' : Theme.textFaint)
+        }
+        .attributeModifier(new GlassButtonModifier(this.dirty && !this.saving ? GlassTone.Primary : GlassTone.Secondary))
+        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+        .borderRadius(18)
+        .onClick(() => {
+          this.save();
+        })
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: 10, bottom: 10 })
@@ -1086,16 +1092,18 @@ export struct ScrapeSection {
         .width('100%')
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(options, (option: PickOption) => {
-          Text(option.label)
-            .fontSize(13)
-            .fontColor(selected.indexOf(option.code) >= 0 ? '#0b0d12' : Theme.textMuted)
-            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-            .backgroundColor(selected.indexOf(option.code) >= 0 ? Theme.accent : Theme.glassFill)
-            .borderRadius(15)
-            .margin({ right: 8, bottom: 8 })
-            .onClick(() => {
-              onToggle(option.code);
-            })
+          Button() {
+            Text(option.label)
+              .fontSize(13)
+              .fontColor(selected.indexOf(option.code) >= 0 ? '#0b0d12' : Theme.textMuted)
+          }
+          .attributeModifier(new GlassButtonModifier(selected.indexOf(option.code) >= 0 ? GlassTone.Primary : GlassTone.Secondary))
+          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+          .borderRadius(15)
+          .margin({ right: 8, bottom: 8 })
+          .onClick(() => {
+            onToggle(option.code);
+          })
         }, (option: PickOption) => option.code)
       }
       .width('100%')
@@ -1495,16 +1503,18 @@ export struct ScrapeSection {
                   .width('100%')
                 Flex({ wrap: FlexWrap.Wrap }) {
                   ForEach(this.groupTokens(group), (token: NamingToken) => {
-                    Text(token.name)
-                      .fontSize(12)
-                      .fontColor(Theme.textMuted)
-                      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-                      .backgroundColor(Theme.glassFill)
-                      .borderRadius(13)
-                      .margin({ right: 8, bottom: 8 })
-                      .onClick(() => {
-                        this.insertToken(token.key);
-                      })
+                    Button() {
+                      Text(token.name)
+                        .fontSize(12)
+                        .fontColor(Theme.textMuted)
+                    }
+                    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+                    .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                    .borderRadius(13)
+                    .margin({ right: 8, bottom: 8 })
+                    .onClick(() => {
+                      this.insertToken(token.key);
+                    })
                   }, (token: NamingToken) => token.key)
                 }
                 .width('100%')
@@ -1656,10 +1666,10 @@ export struct ScrapeSection {
         .fontColor(Theme.text)
         .layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: value })
-        .selectedColor(Theme.accent)
-        .onChange((on: boolean): void => {
-          onChange(on);
-        })
+      .attributeModifier(new GlassSwitchModifier())
+      .onChange((on: boolean): void => {
+        onChange(on);
+      })
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 11, bottom: 11 })
@@ -1767,29 +1777,33 @@ export struct ScrapeSection {
       }
 
       Row({ space: 10 }) {
-        Text('取消')
-          .fontSize(14)
-          .fontColor(Theme.textMuted)
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-          .padding({ top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(12)
-          .onClick(() => {
-            this.cancelKeySheet();
-          })
-        Text(this.keySaving ? '验证中…' : '验证并启用')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#0b0d12')
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-          .padding({ top: 10, bottom: 10 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(12)
-          .onClick(() => {
-            this.verifyFanartKey();
-          })
+        Button() {
+          Text('取消')
+            .fontSize(14)
+            .fontColor(Theme.textMuted)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 10, bottom: 10 })
+        .borderRadius(12)
+        .onClick(() => {
+          this.cancelKeySheet();
+        })
+        Button() {
+          Text(this.keySaving ? '验证中…' : '验证并启用')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .layoutWeight(1)
+        .padding({ top: 10, bottom: 10 })
+        .borderRadius(12)
+        .onClick(() => {
+          this.verifyFanartKey();
+        })
       }
       .width('100%')
 

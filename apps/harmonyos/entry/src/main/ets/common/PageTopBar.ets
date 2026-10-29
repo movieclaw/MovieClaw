@@ -6,7 +6,7 @@ import { Theme } from '../theme/AppTheme';
  * 为什么不用系统原生标题栏：**沉浸式布局下它不避让状态栏**——标题会和左上角的时钟叠在一起
  * （实测「关于」画在 y=17..32vp，而状态栏高约 38vp），而且返回键的上半截被状态栏吃掉、点不动。
  * 表现还随进入路径变化（同一页从不同宿主进来位置不一样），不可靠。
- * 所以统一自绘：高度把 `Theme.statusBarInset` 算进去（ArkUI 的 padding 算在 height 之内，
+ * 所以统一自绘：高度把 `Theme.shellTopInset` 算进去（ArkUI 的 padding 算在 height 之内，
  * 写死 44 会把内容挤没）。
  *
  * **必须是 `@ComponentV2` 而不是 `@Builder` 函数**：`@Builder` 的**简单类型参数按值传递**，
@@ -41,6 +41,16 @@ export struct PageTopBar {
       Blank()
     }
     .width('100%')
-    .padding({ left: 12, right: 12, top: Theme.statusBarInset + 6, bottom: 6 })
+    .padding({ left: 12, right: 12, top: Theme.shellTopInset + 6, bottom: 6 })
+    /*
+     * 毛玻璃采样 + tint（同各页签自绘标题栏）：二级页内容不钻进顶栏区域，
+     * 纯采样时顶栏是页面黑背景——tint 让它呈「深灰玻璃」而不是一条死黑。
+     *
+     * tint **必须直接做在本 Row 的 `backgroundColor` 上**，不能像之前那样套一层
+     * `Stack + Column().height('100%')`：Stack 没有确定高度时，那个 100% 的子节点会把
+     * 顶栏撑成整屏，页面内容区被挤没（设置页实测整页只剩标题、内容空白）。
+     */
+    .backgroundColor('rgba(90, 99, 115, 0.42)')
+    .backgroundEffect({ radius: 5, saturation: 1.1, brightness: 0.95 })
   }
 }

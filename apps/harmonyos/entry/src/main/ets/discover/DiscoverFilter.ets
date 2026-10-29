@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { MovieClawApi } from '../api/Endpoints';
 import { DiscoveryFilterOptionsView, DiscoveryGenreView, MediaKind } from '../api/Models';
@@ -530,16 +531,18 @@ export struct DiscoverFilterSheet {
   /** 可点胶囊：选中高亮（主题强调底 + 深字） */
   @Builder
   Chip(label: string, active: boolean, onTap: () => void) {
-    Text(label)
-      .fontSize(13)
-      .fontWeight(active ? FontWeight.Medium : FontWeight.Normal)
-      .fontColor(active ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-      .backgroundColor(active ? Theme.accent : Theme.glassFill)
-      .borderRadius(15)
-      .margin({ right: 8, bottom: 8 })
-      .onClick(() => {
-        onTap();
-      })
+    Button() {
+      Text(label)
+        .fontSize(13)
+        .fontWeight(active ? FontWeight.Medium : FontWeight.Normal)
+        .fontColor(active ? '#0b0d12' : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(active ? GlassTone.Primary : GlassTone.Secondary))
+    .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+    .borderRadius(15)
+    .margin({ right: 8, bottom: 8 })
+    .onClick(() => {
+      onTap();
+    })
   }
 }

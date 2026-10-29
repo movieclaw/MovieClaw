@@ -1,5 +1,5 @@
+import { UIContext } from '@kit.ArkUI';
 import { preferences } from '@kit.ArkData';
-import { Theme } from '../theme/AppTheme';
 import { LlmModelOptionView } from '../api/Models';
 
 /**
@@ -68,6 +68,37 @@ export class AgentAIConsent {
     await store.flush();
   }
 
+  /** 说明正文（官方 AlertDialog 的 message） */
+  static promptMessage(providers: string[]): string {
+    const current: string = providers.length === 0 ? '' : `（当前：${providers.join('、')}）`;
+    return `你发出的消息和图片，以及助手为了回答而查询的媒体库信息，会由你的 MovieClaw 服务器发送给`
+      + `服务器管理员接入的 AI 模型服务商处理${current}。\n\n`
+      + 'MovieClaw 的开发者不会收到这些内容。服务商如何处理数据以其隐私政策为准；'
+      + '服务器管理员可以在「设置 → 模型接入」更换或移除服务商。';
+  }
+
+  /**
+   * 第一次发送前的说明与同意：**用系统官方的 AlertDialog 渲染**（标题 + 正文 + 两个按钮），
+   * 不再自绘半屏卡片。同意后由调用方继续发送；取消则这条消息不发、草稿保留。
+   */
+  static showPrompt(ui: UIContext, providers: string[], onAgree: () => void): void {
+    ui.showAlertDialog({
+      title: '使用 AI 助手前',
+      message: AgentAIConsent.promptMessage(providers),
+      primaryButton: {
+        value: '取消',
+        action: (): void => {
+        }
+      },
+      secondaryButton: {
+        value: '同意并发送',
+        action: (): void => {
+          onAgree();
+        }
+      }
+    });
+  }
+
   /** 说明里点名的服务商：取模型清单里的实例名，去重保序（同 iOS `AgentAIConsent.providers`） */
   static providers(options: LlmModelOptionView[]): string[] {
     const out: string[] = [];
@@ -81,86 +112,3 @@ export class AgentAIConsent {
   }
 }
 
-/**
- * 发送前的说明弹层（对应 iOS `AgentAIConsentSheet`）：数据去向、开发者收不到、
- * 在哪里更换服务商。同意后由页面接着发；取消则这条消息不发，草稿保留。
- */
-@ComponentV2
-export struct AgentAIConsentSheet {
-  @Require @Param providers: string[];
-  /** 同意（持久化由页面负责）后继续发送 */
-  @Require @Param onAgree: () => void;
-  /** 取消：这条消息不发 */
-  @Require @Param onCancel: () => void;
-
-  private destinationText(): string {
-    const current: string = this.providers.length === 0 ? '' : `（当前：${this.providers.join('、')}）`;
-    return `你发出的消息和图片，以及助手为了回答而查询的媒体库信息，会由你的 MovieClaw 服务器发送给服务器管理员接入的 AI 模型服务商处理${current}。`;
-  }
-
-  build() {
-    Column() {
-      Scroll() {
-        Column({ space: 14 }) {
-          Row({ space: 12 }) {
-            Stack({ alignContent: Alignment.Center }) {
-              SymbolGlyph($r('sys.symbol.wand_and_stars'))
-                .fontSize(18)
-                .fontColor([Theme.accent])
-            }
-            .width(32)
-            .height(32)
-            .backgroundColor(Theme.accentSoft)
-            .borderRadius(9)
-            Text('使用 AI 助手前')
-              .fontSize(17)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(Theme.text)
-          }
-          Text(this.destinationText())
-            .fontSize(14)
-            .fontColor(Theme.text)
-            .width('100%')
-          Text('MovieClaw 的开发者不会收到这些内容。服务商如何处理数据以其隐私政策为准；服务器管理员可以在「设置 → 模型接入」更换或移除服务商。')
-            .fontSize(14)
-            .fontColor(Theme.textMuted)
-            .width('100%')
-        }
-        .width('100%')
-        .alignItems(HorizontalAlign.Start)
-        .padding(20)
-      }
-      .align(Alignment.Top)
-      .layoutWeight(1)
-      Row({ space: 12 }) {
-        Text('取消')
-          .fontSize(16)
-          .fontColor(Theme.text)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            this.onCancel();
-          })
-        Text('同意并发送')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#0b0d12')
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            this.onAgree();
-          })
-      }
-      .width('100%')
-      .padding({ left: 20, right: 20, top: 12, bottom: 12 })
-    }
-    .width('100%')
-    .height('100%')
-  }
-}

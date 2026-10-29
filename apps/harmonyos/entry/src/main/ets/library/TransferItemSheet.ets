@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
 import { ApiError } from '../api/ApiClient';
@@ -377,45 +378,45 @@ export struct TransferItemSheet {
 
   @Builder
   CandidateRow(lib: LibraryView) {
-    Row({ space: 12 }) {
-      Stack({ alignContent: Alignment.Center }) {
-        SymbolGlyph(this.targetId === lib.id ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.circle'))
-          .fontSize(20)
-          .fontColor([this.targetId === lib.id ? Theme.accent : Theme.textFaint])
-      }
-      .width(24)
-      .height(24)
-      Column({ space: 2 }) {
-        Row({ space: 8 }) {
-          Text(lib.name)
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
-          if (lib.is_default) {
-            Text('默认库')
-              .fontSize(11)
-              .fontColor(Theme.textFaint)
-          }
+    Button() {
+      Row({ space: 12 }) {
+        Stack({ alignContent: Alignment.Center }) {
+          SymbolGlyph(this.targetId === lib.id ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.circle'))
+            .fontSize(20)
+            .fontColor([this.targetId === lib.id ? Theme.accent : Theme.textFaint])
         }
-        Text(lib.primary_root ?? '未配置根路径')
-          .fontSize(11)
-          .fontFamily('monospace')
-          .fontColor('rgba(255,255,255,0.45)')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width(24)
+        .height(24)
+        Column({ space: 2 }) {
+          Row({ space: 8 }) {
+            Text(lib.name)
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
+            if (lib.is_default) {
+              Text('默认库')
+                .fontSize(11)
+                .fontColor(Theme.textFaint)
+            }
+          }
+          Text(lib.primary_root ?? '未配置根路径')
+            .fontSize(11)
+            .fontFamily('monospace')
+            .fontColor('rgba(255,255,255,0.45)')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
       }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
     }
-    .width('100%')
-    .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+    .attributeModifier(new GlassButtonModifier(this.targetId === lib.id ? GlassTone.Secondary : GlassTone.Strong))
+    .padding(0)
+    .clip(true)
     .margin({ bottom: 6 })
-    .backgroundColor(this.targetId === lib.id ? Theme.glassFill : 'rgba(255,255,255,0.03)')
     .borderRadius(12)
-    .border({
-      width: 1,
-      color: this.targetId === lib.id ? Theme.accent : 'rgba(255,255,255,0.08)'
-    })
     .opacity(this.busy() ? 0.5 : 1)
     .onClick(() => {
       this.pickTarget(lib.id);
@@ -595,28 +596,32 @@ export struct TransferItemSheet {
       Row({ space: 12 }) {
         Blank()
         if (this.status !== null && this.finished()) {
-          Text('留在本页')
-            .fontSize(15)
-            .fontColor(Theme.textMuted)
-            .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(20)
-            .onClick(() => {
-              this.onClose();
-            })
+          Button() {
+            Text('留在本页')
+              .fontSize(15)
+              .fontColor(Theme.textMuted)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+          .borderRadius(20)
+          .onClick(() => {
+            this.onClose();
+          })
         } else {
-          Text(this.starting ? '确认转移…' : '确认转移')
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.canRun() ? '#0b0d12' : Theme.textFaint)
-            .padding({ left: 18, right: 18, top: 10, bottom: 10 })
-            .backgroundColor(this.canRun() ? Theme.accent : Theme.glassFill)
-            .borderRadius(20)
-            .onClick(() => {
-              if (this.canRun()) {
-                this.run();
-              }
-            })
+          Button() {
+            Text(this.starting ? '确认转移…' : '确认转移')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.canRun() ? '#0b0d12' : Theme.textFaint)
+          }
+          .attributeModifier(new GlassButtonModifier(this.canRun() ? GlassTone.Primary : GlassTone.Secondary))
+          .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+          .borderRadius(20)
+          .onClick(() => {
+            if (this.canRun()) {
+              this.run();
+            }
+          })
         }
       }
       .width('100%')

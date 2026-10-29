@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppFooter } from '../common/AppFooter';
 import { TorrentParams } from './TorrentResultsPage';
 import { AppModel } from '../common/AppModel';
@@ -582,7 +583,7 @@ export struct SearchPage {
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
-    .padding({ left: 12, right: 16, top: 10 + Theme.statusBarInset, bottom: 10 })
+    .padding({ left: 12, right: 16, top: 10 + Theme.shellTopInset, bottom: 10 })
   }
 
   /** 竖向切换（对应 iOS 的 `.searchScopes` 范围栏；只有一个可用分区时不出） */
@@ -590,15 +591,17 @@ export struct SearchPage {
   ModeChips() {
     Row({ space: 8 }) {
       ForEach(this.visibleModes(), (option: ModeOption) => {
-        Text(option.label)
-          .fontSize(14)
-          .fontColor(this.mode === option.value ? '#0b0d12' : Theme.textMuted)
-          .padding({ left: 14, right: 14, top: 7, bottom: 7 })
-          .backgroundColor(this.mode === option.value ? Theme.accent : Theme.glassFill)
-          .borderRadius(16)
-          .onClick(() => {
-            this.changeMode(option.value);
-          })
+        Button() {
+          Text(option.label)
+            .fontSize(14)
+            .fontColor(this.mode === option.value ? '#0b0d12' : Theme.textMuted)
+        }
+        .attributeModifier(new GlassButtonModifier(this.mode === option.value ? GlassTone.Primary : GlassTone.Secondary))
+        .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+        .borderRadius(16)
+        .onClick(() => {
+          this.changeMode(option.value);
+        })
       }, (option: ModeOption) => option.value)
     }
     .width('100%')
@@ -793,7 +796,7 @@ export struct SearchPage {
     .height('100%')
     .scrollBar(BarState.Off)
     .cachedCount(4)
-    .padding({ bottom: Theme.tabBarInset })
+    .contentEndOffset(Theme.tabBarInset)
     .backgroundColor(Theme.bg)
   }
 

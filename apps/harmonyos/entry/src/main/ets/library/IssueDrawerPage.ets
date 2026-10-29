@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
@@ -576,7 +577,8 @@ export struct IssueDrawerPage {
         .cachedCount(4)
         .width('100%')
         .alignListItem(ListItemAlign.Start)
-        .padding({ left: Theme.pagePadding, right: Theme.pagePadding, bottom: Theme.tabBarInset })
+        .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
+        .contentEndOffset(Theme.tabBarInset)
       }
       .width('100%')
       .height('100%')
@@ -709,21 +711,23 @@ export struct IssueDrawerPage {
       }
       .layoutWeight(1)
       .scrollBar(BarState.Auto)
-      Text(this.ticketSessionId.length > 0 ? '打开会话' : '会话没建起来')
-        .fontSize(16)
-        .fontWeight(600)
-        .fontColor(this.ticketSessionId.length > 0 ? '#0b0d12' : Theme.textFaint)
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 13, bottom: 13 })
-        .backgroundColor(this.ticketSessionId.length > 0 ? Theme.accent : Theme.glassFill)
-        .borderRadius(Theme.cardRadius)
-        .onClick(() => {
-          if (this.ticketSessionId.length > 0) {
-            this.showTicket = false;
-            this.navStack.pushPathByName('chat', new ChatParams(this.ticketSessionId));
-          }
-        })
+      Button() {
+        Text(this.ticketSessionId.length > 0 ? '打开会话' : '会话没建起来')
+          .fontSize(16)
+          .fontWeight(600)
+          .fontColor(this.ticketSessionId.length > 0 ? '#0b0d12' : Theme.textFaint)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(this.ticketSessionId.length > 0 ? GlassTone.Primary : GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 13, bottom: 13 })
+      .borderRadius(Theme.cardRadius)
+      .onClick(() => {
+        if (this.ticketSessionId.length > 0) {
+          this.showTicket = false;
+          this.navStack.pushPathByName('chat', new ChatParams(this.ticketSessionId));
+        }
+      })
     }
     .width('100%')
     .height('100%')
@@ -745,15 +749,17 @@ export struct IssueDrawerPage {
 
   @Builder
   TabChip(tab: string, label: string, count: number) {
-    Text(count > 0 ? `${label} ${count}` : label)
-      .fontSize(14)
-      .fontColor(this.tab === tab ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 14, right: 14, top: 7, bottom: 7 })
-      .backgroundColor(this.tab === tab ? Theme.accent : Theme.glassFill)
-      .borderRadius(16)
-      .onClick(() => {
-        this.switchTab(tab);
-      })
+    Button() {
+      Text(count > 0 ? `${label} ${count}` : label)
+        .fontSize(14)
+        .fontColor(this.tab === tab ? '#0b0d12' : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(this.tab === tab ? GlassTone.Primary : GlassTone.Secondary))
+    .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+    .borderRadius(16)
+    .onClick(() => {
+      this.switchTab(tab);
+    })
   }
 
   private unidentifiedFileTotal(): number {
@@ -799,16 +805,18 @@ export struct IssueDrawerPage {
             .fontSize(13)
             .fontColor(Theme.textMuted)
             .textAlign(TextAlign.Center)
-          Text('重试')
-            .fontSize(14)
-            .fontWeight(600)
-            .fontColor(Theme.accentStrong)
-            .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(18)
-            .onClick(() => {
-              this.load();
-            })
+          Button() {
+            Text('重试')
+              .fontSize(14)
+              .fontWeight(600)
+              .fontColor(Theme.accentStrong)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+          .borderRadius(18)
+          .onClick(() => {
+            this.load();
+          })
         }
         .width('100%')
         .padding({ top: 60 })
@@ -1198,35 +1206,39 @@ struct UnidentifiedGroupRow {
         Blank()
         // TMDB 不可达有确定解法，直接给按钮；其余给搜索入口
         if (this.group.code === 'tmdb_unreachable') {
-          Text(this.busy ? '扫描中…' : '重新扫描')
-            .fontSize(13)
-            .fontColor(this.busy ? Theme.textFaint : Theme.accentStrong)
-            .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(14)
-            .onClick(() => {
-              if (!this.busy) {
-                this.rescan();
-              }
-            })
+          Button() {
+            Text(this.busy ? '扫描中…' : '重新扫描')
+              .fontSize(13)
+              .fontColor(this.busy ? Theme.textFaint : Theme.accentStrong)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+          .borderRadius(14)
+          .onClick(() => {
+            if (!this.busy) {
+              this.rescan();
+            }
+          })
         } else {
-          Text('搜索')
-            .fontSize(13)
-            .fontColor(this.panelMode === 'search' ? Theme.accentStrong : Theme.textMuted)
-            .padding({ left: 12, right: 12, top: 5, bottom: 5 })
-            .backgroundColor(this.panelMode === 'search' ? Theme.accentSoft : Theme.glassFill)
-            .borderRadius(14)
-            .onClick(() => {
-              if (this.busy) {
-                return;
-              }
-              if (this.panelMode === 'search') {
-                this.panelMode = '';
-              } else {
-                this.panelMode = 'search';
-                this.panelSeed = null;
-              }
-            })
+          Button() {
+            Text('搜索')
+              .fontSize(13)
+              .fontColor(this.panelMode === 'search' ? Theme.accentStrong : Theme.textMuted)
+          }
+          .attributeModifier(new GlassButtonModifier(this.panelMode === 'search' ? GlassTone.Primary : GlassTone.Secondary))
+          .padding({ left: 12, right: 12, top: 5, bottom: 5 })
+          .borderRadius(14)
+          .onClick(() => {
+            if (this.busy) {
+              return;
+            }
+            if (this.panelMode === 'search') {
+              this.panelMode = '';
+            } else {
+              this.panelMode = 'search';
+              this.panelSeed = null;
+            }
+          })
         }
       }
       .width('100%')
@@ -1309,55 +1321,55 @@ struct UnidentifiedGroupRow {
   /** 状态徽章：点一下弹完整原因（Web 悬停看原因的触屏等价） */
   @Builder
   StatusBadge() {
-    Text(this.statusLabel())
-      .fontSize(12)
-      .fontColor(this.statusWarn() ? Theme.warning : Theme.textMuted)
-      .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-      .backgroundColor(this.statusWarn() ? 'rgba(251,191,36,0.16)' : 'rgba(255,255,255,0.07)')
-      .borderRadius(6)
-      .onClick(() => {
-        if (this.group.reason !== null && this.group.reason !== undefined) {
-          this.showsReason = !this.showsReason;
+    Button() {
+      Text(this.statusLabel())
+        .fontSize(12)
+        .fontColor(this.statusWarn() ? Theme.warning : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(this.statusWarn() ? GlassTone.Warn : GlassTone.Strong))
+    .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+    .borderRadius(6)
+    .bindPopup(this.showsReason, {
+      message: this.group.reason ?? '',
+      placement: Placement.Bottom,
+      onStateChange: (state: PopupStateChangeParam): void => {
+        if (!state.isVisible) {
+          this.showsReason = false;
         }
-      })
-      .bindPopup(this.showsReason, {
-        message: this.group.reason ?? '',
-        placement: Placement.Bottom,
-        onStateChange: (state: PopupStateChangeParam): void => {
-          if (!state.isVisible) {
-            this.showsReason = false;
-          }
-        }
-      })
+      }
+    })
+    .onClick(() => {
+      if (this.group.reason !== null && this.group.reason !== undefined) {
+        this.showsReason = !this.showsReason;
+      }
+    })
   }
 
   /** 候选 chip：点一下进详情确认面板，不直接认领；再点同一个收起 */
   @Builder
   CandidateChip(candidate: UnidentifiedCandidateView) {
-    Row({ space: 6 }) {
-      Text(candidate.year !== null && candidate.year !== undefined
-        ? `${candidate.title} (${candidate.year})` : candidate.title)
-        .fontSize(14)
-        .fontColor(Theme.text)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-      if (candidate.episode_count !== null && candidate.episode_count !== undefined
-        && candidate.episode_count > 0) {
-        Text(`${candidate.episode_count} 集`)
-          .fontSize(12)
-          .fontColor(Theme.textMuted)
+    Button() {
+      Row({ space: 6 }) {
+        Text(candidate.year !== null && candidate.year !== undefined
+          ? `${candidate.title} (${candidate.year})` : candidate.title)
+          .fontSize(14)
+          .fontColor(Theme.text)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (candidate.episode_count !== null && candidate.episode_count !== undefined
+          && candidate.episode_count > 0) {
+          Text(`${candidate.episode_count} 集`)
+            .fontSize(12)
+            .fontColor(Theme.textMuted)
+        }
       }
+      .padding({ left: 10, right: 10, top: 5, bottom: 5 })
     }
-    .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+    .attributeModifier(new GlassButtonModifier(
+      this.panelSeed !== null && this.panelSeed.tmdbId === candidate.tmdb_id
+        ? GlassTone.Strong : GlassTone.Secondary))
     .margin({ right: 6, bottom: 6 })
-    .backgroundColor(this.panelSeed !== null && this.panelSeed.tmdbId === candidate.tmdb_id
-      ? 'rgba(205,214,230,0.28)' : 'rgba(205,214,230,0.12)')
     .borderRadius(8)
-    .border({
-      width: 1,
-      color: this.panelSeed !== null && this.panelSeed.tmdbId === candidate.tmdb_id
-        ? Theme.accent : 'rgba(205,214,230,0.4)'
-    })
     .opacity(this.busy ? 0.4 : 1)
     .onClick(() => {
       if (this.busy) {
@@ -1376,15 +1388,33 @@ struct UnidentifiedGroupRow {
   /** 次要动作（查看文件 / 忽略）收进 ⋯，不跟主动作抢视线 */
   @Builder
   MoreMenu() {
-    Row({ space: 2 }) {
-      Text('⋯')
-        .fontSize(16)
-        .fontColor(Theme.textMuted)
-        .width(30)
-        .height(26)
-        .textAlign(TextAlign.Center)
+    Button() {
+      Row({ space: 2 }) {
+        Text('⋯')
+          .fontSize(16)
+          .fontColor(Theme.textMuted)
+          .width(30)
+          .height(26)
+          .textAlign(TextAlign.Center)
+      }
+      .bindMenu([
+        {
+          value: this.expanded ? '收起文件' : '查看文件',
+          action: (): void => {
+            this.expanded = !this.expanded;
+          }
+        },
+        {
+          value: '忽略',
+          action: (): void => {
+            this.ignoreGroup();
+          }
+        }
+      ])
     }
-    .backgroundColor(Theme.glassFill)
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(13)
     .onClick(() => {
       this.getUIContext().showAlertDialog({
@@ -1403,20 +1433,6 @@ struct UnidentifiedGroupRow {
         }
       });
     })
-    .bindMenu([
-      {
-        value: this.expanded ? '收起文件' : '查看文件',
-        action: (): void => {
-          this.expanded = !this.expanded;
-        }
-      },
-      {
-        value: '忽略',
-        action: (): void => {
-          this.ignoreGroup();
-        }
-      }
-    ])
   }
 
   /** 展开的文件清单（等宽小字，中间省略，可复制） */
@@ -1622,28 +1638,32 @@ export struct IssueClaimConfirmPanel {
 
       Row({ space: 8 }) {
         Blank()
-        Text('取消')
-          .fontSize(14)
-          .fontColor(Theme.textMuted)
-          .padding({ left: 14, right: 14, top: 7, bottom: 7 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(16)
-          .onClick(() => {
-            this.onCancel();
-          })
-        Text(this.fileCount > 1 ? `认领全部 ${this.fileCount} 个文件` : '认领')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#0b0d12')
-          .padding({ left: 14, right: 14, top: 7, bottom: 7 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(16)
-          .opacity(this.busy ? 0.5 : 1)
-          .onClick(() => {
-            if (!this.busy) {
-              this.onConfirm();
-            }
-          })
+        Button() {
+          Text('取消')
+            .fontSize(14)
+            .fontColor(Theme.textMuted)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+        .borderRadius(16)
+        .onClick(() => {
+          this.onCancel();
+        })
+        Button() {
+          Text(this.fileCount > 1 ? `认领全部 ${this.fileCount} 个文件` : '认领')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#0b0d12')
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+        .borderRadius(16)
+        .opacity(this.busy ? 0.5 : 1)
+        .onClick(() => {
+          if (!this.busy) {
+            this.onConfirm();
+          }
+        })
       }
       .width('100%')
     }
@@ -1758,29 +1778,33 @@ export struct IssueClaimSearchPanel {
             this.search();
           })
         if (this.idOnly()) {
-          Text('查看该 ID')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#0b0d12')
-            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-            .backgroundColor(Theme.accent)
-            .borderRadius(16)
-            .onClick(() => {
-              const id: number = Number(this.trimmed());
-              if (Number.isFinite(id)) {
-                this.onPick(new IssueClaimSeed(id, `TMDB #${this.trimmed()}`));
-              }
-            })
+          Button() {
+            Text('查看该 ID')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#0b0d12')
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+          .borderRadius(16)
+          .onClick(() => {
+            const id: number = Number(this.trimmed());
+            if (Number.isFinite(id)) {
+              this.onPick(new IssueClaimSeed(id, `TMDB #${this.trimmed()}`));
+            }
+          })
         } else {
-          Text(this.searching ? '搜索中…' : '搜索')
-            .fontSize(14)
-            .fontColor(this.searching || this.trimmed().length === 0 ? Theme.textFaint : Theme.textMuted)
-            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(16)
-            .onClick(() => {
-              this.search();
-            })
+          Button() {
+            Text(this.searching ? '搜索中…' : '搜索')
+              .fontSize(14)
+              .fontColor(this.searching || this.trimmed().length === 0 ? Theme.textFaint : Theme.textMuted)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+          .borderRadius(16)
+          .onClick(() => {
+            this.search();
+          })
         }
       }
       .width('100%')
@@ -1949,25 +1973,29 @@ struct ReviewGroupRow {
       .alignItems(VerticalAlign.Top)
 
       Row({ space: 8 }) {
-        Text(this.busy ? '处理中…' : '采纳新结论')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(ReviewGroupRow.suggestionTint)
-          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-          .backgroundColor('rgba(196,181,253,0.14)')
-          .borderRadius(16)
-          .onClick(() => {
-            this.resolve(true);
-          })
-        Text(this.busy ? '' : '维持现状')
-          .fontSize(14)
-          .fontColor(Theme.textMuted)
-          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(16)
-          .onClick(() => {
-            this.resolve(false);
-          })
+        Button() {
+          Text(this.busy ? '处理中…' : '采纳新结论')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(ReviewGroupRow.suggestionTint)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Violet))
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .borderRadius(16)
+        .onClick(() => {
+          this.resolve(true);
+        })
+        Button() {
+          Text(this.busy ? '' : '维持现状')
+            .fontSize(14)
+            .fontColor(Theme.textMuted)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .borderRadius(16)
+        .onClick(() => {
+          this.resolve(false);
+        })
       }
       .width('100%')
 
@@ -2086,15 +2114,17 @@ struct IgnoredGroupRow {
               this.expanded = !this.expanded;
             })
         }
-        Text(this.busy ? '恢复中…' : '恢复')
-          .fontSize(13)
-          .fontColor(this.busy ? Theme.textFaint : Theme.accentStrong)
-          .padding({ left: 12, right: 12, top: 5, bottom: 5 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(14)
-          .onClick(() => {
-            this.restore();
-          })
+        Button() {
+          Text(this.busy ? '恢复中…' : '恢复')
+            .fontSize(13)
+            .fontColor(this.busy ? Theme.textFaint : Theme.accentStrong)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 5, bottom: 5 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.restore();
+        })
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)

@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
@@ -443,7 +444,8 @@ export struct DuplicatesContent {
     .scrollBar(BarState.Off)
     .cachedCount(4)
     .alignListItem(ListItemAlign.Start)
-    .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+    .padding({ left: 16, right: 16, top: 8 })
+    .contentEndOffset(Theme.tabBarInset)
   }
 
   @Builder
@@ -485,31 +487,35 @@ export struct DuplicatesContent {
   GroupChips() {
     Scroll() {
       Row({ space: 8 }) {
-        Text('全部')
-          .fontSize(13)
-          .fontColor(this.tier.length === 0 ? '#0b0d12' : Theme.textMuted)
+        Button() {
+          Text('全部')
+            .fontSize(13)
+            .fontColor(this.tier.length === 0 ? '#0b0d12' : Theme.textMuted)
+        }
+        .attributeModifier(new GlassButtonModifier(this.tier.length === 0 ? GlassTone.Primary : GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.tier = '';
+          this.load();
+        })
+        ForEach(this.groups(), (group: DuplicateGroupView) => {
+          Button() {
+            Text(`${group.label} ${group.units}`)
+              .fontSize(13)
+              .fontColor(this.tier === group.key ? '#0b0d12' : Theme.textMuted)
+          }
+          .attributeModifier(new GlassButtonModifier(this.tier === group.key ? GlassTone.Primary : GlassTone.Secondary))
           .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(this.tier.length === 0 ? Theme.accent : Theme.glassFill)
           .borderRadius(14)
+          .gesture(LongPressGesture().onAction(() => {
+            // 长按组胶囊 = 按推荐整组处理（同 iOS 的 keepGroup）
+            this.confirmKeepGroup(group);
+          }))
           .onClick(() => {
-            this.tier = '';
+            this.tier = group.key;
             this.load();
           })
-        ForEach(this.groups(), (group: DuplicateGroupView) => {
-          Text(`${group.label} ${group.units}`)
-            .fontSize(13)
-            .fontColor(this.tier === group.key ? '#0b0d12' : Theme.textMuted)
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor(this.tier === group.key ? Theme.accent : Theme.glassFill)
-            .borderRadius(14)
-            .onClick(() => {
-              this.tier = group.key;
-              this.load();
-            })
-            .gesture(LongPressGesture().onAction(() => {
-              // 长按组胶囊 = 按推荐整组处理（同 iOS 的 keepGroup）
-              this.confirmKeepGroup(group);
-            }))
         }, (group: DuplicateGroupView) => group.key)
       }
     }
@@ -622,54 +628,57 @@ export struct DuplicatesContent {
   /** 一份文件：**推荐的那份高亮 + 说明理由**，这是整个页面的核心 */
   @Builder
   FileRow(item: DuplicateItemView, unit: DuplicateUnitView, file: DuplicateFileView) {
-    Column({ space: 4 }) {
-      Row({ space: 8 }) {
-        if (file.suggested) {
-          Text('推荐')
-            .fontSize(10)
-            .fontColor('#0b0d12')
-            .padding({ left: 5, right: 5, top: 1, bottom: 1 })
-            .backgroundColor(Theme.ok)
-            .borderRadius(5)
+    Button() {
+      Column({ space: 4 }) {
+        Row({ space: 8 }) {
+          if (file.suggested) {
+            Text('推荐')
+              .fontSize(10)
+              .fontColor('#0b0d12')
+              .padding({ left: 5, right: 5, top: 1, bottom: 1 })
+              .backgroundColor(Theme.ok)
+              .borderRadius(5)
+          }
+          Text(file.quality_label)
+            .fontSize(13)
+            .fontColor(Theme.text)
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(Formatters.bytes(file.size_bytes))
+            .fontSize(12)
+            .fontColor(Theme.textFaint)
         }
-        Text(file.quality_label)
-          .fontSize(13)
-          .fontColor(Theme.text)
-          .layoutWeight(1)
+        .width('100%')
+        Text(this.fileMeta(file))
+          .fontSize(11)
+          .fontColor(Theme.textFaint)
+          .width('100%')
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(Formatters.bytes(file.size_bytes))
-          .fontSize(12)
-          .fontColor(Theme.textFaint)
+        // 后端的推荐理由：不写的话用户面对三份 2160p 只能瞎选
+        if (file.suggested && file.suggest_reason !== null && file.suggest_reason !== undefined
+          && file.suggest_reason.length > 0) {
+          Text(`为什么推荐它：${file.suggest_reason}`)
+            .fontSize(11)
+            .fontColor(Theme.ok)
+            .width('100%')
+        }
+        if (file.kept_at !== null && file.kept_at !== undefined && file.kept_at.length > 0) {
+          Text('这份是上次选择保留的')
+            .fontSize(11)
+            .fontColor(Theme.info)
+            .width('100%')
+        }
       }
       .width('100%')
-      Text(this.fileMeta(file))
-        .fontSize(11)
-        .fontColor(Theme.textFaint)
-        .width('100%')
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-      // 后端的推荐理由：不写的话用户面对三份 2160p 只能瞎选
-      if (file.suggested && file.suggest_reason !== null && file.suggest_reason !== undefined
-        && file.suggest_reason.length > 0) {
-        Text(`为什么推荐它：${file.suggest_reason}`)
-          .fontSize(11)
-          .fontColor(Theme.ok)
-          .width('100%')
-      }
-      if (file.kept_at !== null && file.kept_at !== undefined && file.kept_at.length > 0) {
-        Text('这份是上次选择保留的')
-          .fontSize(11)
-          .fontColor(Theme.info)
-          .width('100%')
-      }
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 10, right: 10, top: 8, bottom: 8 })
     }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding({ left: 10, right: 10, top: 8, bottom: 8 })
-    .backgroundColor(file.suggested ? 'rgba(74, 222, 128, 0.08)' : Theme.surfaceRaised)
+    .attributeModifier(new GlassButtonModifier(file.suggested ? GlassTone.Success : GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(8)
-    .border({ width: 1, color: file.suggested ? 'rgba(74, 222, 128, 0.35)' : Theme.line })
     .onClick(() => {
       this.confirmKeepFile(item, unit, file);
     })

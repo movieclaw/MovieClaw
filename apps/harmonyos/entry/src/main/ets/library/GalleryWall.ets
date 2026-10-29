@@ -1,4 +1,6 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { WindowInsets } from '../common/WindowInsets';
 import { AppModel } from '../common/AppModel';
 import { NavStacks } from '../common/ShareLinks';
 import { RemoteImage } from '../common/RemoteImage';
@@ -682,17 +684,18 @@ export struct GalleryWall {
             .fontSize(13)
             .fontColor(Theme.textMuted)
             .textAlign(TextAlign.Center)
-          Text('重试')
-            .fontSize(14)
-            .fontWeight(600)
-            .fontColor(Theme.accentStrong)
-            .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(18)
-            .border({ width: 1, color: Theme.lineStrong })
-            .onClick(() => {
-              this.reload(this.startOffset);
-            })
+          Button() {
+            Text('重试')
+              .fontSize(14)
+              .fontWeight(600)
+              .fontColor(Theme.accentStrong)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+          .borderRadius(18)
+          .onClick(() => {
+            this.reload(this.startOffset);
+          })
         }
         .width('100%')
         .layoutWeight(1)
@@ -743,7 +746,8 @@ export struct GalleryWall {
         // 否则满屏的图廊会把用户锁在里面，滚不回页头
         .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
         .cachedCount(3)
-        .padding({ left: Theme.pagePadding, right: Theme.pagePadding, bottom: Theme.tabBarInset })
+        .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
+        .contentEndOffset(Theme.tabBarInset)
         .onReachEnd(() => {
           this.loadMore();
         })
@@ -867,7 +871,8 @@ export struct GalleryWall {
           })
       }
       .width('100%')
-      .padding({ left: 20, right: 14, top: 18, bottom: 6 })
+      // 灯箱是全屏模态（盖住整个窗口，不过 Navigation 避让），标题行/关闭键要给状态栏让位
+      .padding({ left: 20, right: 14, top: WindowInsets.shared().top + 18, bottom: 6 })
 
       Swiper() {
         LazyForEach(this.slideSource, (tile: GalleryTile) => {
@@ -929,7 +934,8 @@ export struct GalleryWall {
       }
       .width('100%')
       .justifyContent(FlexAlign.Center)
-      .padding({ top: 14, bottom: 26 })
+      // 底部操作行给小白条让位（同上：全屏模态不吃系统避让）
+      .padding({ top: 14, bottom: WindowInsets.shared().bottom + 26 })
     }
     .width('100%')
     .height('100%')

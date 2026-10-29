@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { WindowInsets } from '../common/WindowInsets';
 import { AppModel, SignInResult } from '../common/AppModel';
 import { DevConfig } from '../common/DevConfig';
@@ -188,7 +189,7 @@ export struct WelcomePage {
       }
       .width('100%')
       .height('100%')
-      .padding({ left: 28, right: 28, top: '18%', bottom: WindowInsets.bottom })
+      .padding({ left: 28, right: 28, top: '18%', bottom: WindowInsets.shared().bottom })
     }
     .width('100%')
     .height('100%')
@@ -266,9 +267,9 @@ export struct WelcomePage {
         .letterSpacing(4)
         .fontColor(Theme.text)
     }
+    .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
     .height(48)
     .padding({ left: 28, right: 28 })
-    .backgroundColor(Theme.accentSoft)
     .borderRadius(24)
     .onClick(() => {
       this.showForm = true;
@@ -301,27 +302,27 @@ export struct WelcomePage {
       if (DevConfig.isDev) {
         Row({ space: 8 }) {
           Button('内网直连')
-            .layoutWeight(1)
-            .height(34)
-            .fontSize(13)
-            .fontColor(Theme.accent)
-            .backgroundColor(Theme.surfaceRaised)
-            .borderRadius(10)
-            .enabled(!this.loggingIn)
-            .onClick(() => {
-              this.quickLogin(true);
-            })
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .layoutWeight(1)
+          .height(34)
+          .fontSize(13)
+          .fontColor(Theme.accent)
+          .borderRadius(10)
+          .enabled(!this.loggingIn)
+          .onClick(() => {
+            this.quickLogin(true);
+          })
           Button('外网穿透')
-            .layoutWeight(1)
-            .height(34)
-            .fontSize(13)
-            .fontColor(Theme.accent)
-            .backgroundColor(Theme.surfaceRaised)
-            .borderRadius(10)
-            .enabled(!this.loggingIn)
-            .onClick(() => {
-              this.quickLogin(false);
-            })
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .layoutWeight(1)
+          .height(34)
+          .fontSize(13)
+          .fontColor(Theme.accent)
+          .borderRadius(10)
+          .enabled(!this.loggingIn)
+          .onClick(() => {
+            this.quickLogin(false);
+          })
         }
         .width('100%')
       }
@@ -375,16 +376,16 @@ export struct WelcomePage {
       }
 
       Button(this.loggingIn ? '正在登录…' : '进入')
-        .width('100%')
-        .height(48)
-        .fontSize(16)
-        .fontColor('#0b0d12')
-        .backgroundColor(Theme.accent)
-        .borderRadius(12)
-        .enabled(!this.loggingIn)
-        .onClick(() => {
-          this.submitLogin();
-        })
+      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+      .width('100%')
+      .height(48)
+      .fontSize(16)
+      .fontColor('#0b0d12')
+      .borderRadius(12)
+      .enabled(!this.loggingIn)
+      .onClick(() => {
+        this.submitLogin();
+      })
     }
     .width('100%')
     .padding(20)

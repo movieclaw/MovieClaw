@@ -1,6 +1,7 @@
 import { media } from '@kit.MediaKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { ImageUrls, ImageVariant } from '../common/ImageUrls';
 import { RemoteImage } from '../common/RemoteImage';
 import { ShellChrome } from '../common/ShellChrome';
@@ -701,6 +702,14 @@ export struct ReelsPage {
     return this.videoAspect >= 16 / 9 ? `${(16 / (9 * this.videoAspect)) * 100}%` : '100%';
   }
 
+  /** 16:9 横带宽：完整放入整页（宽高双向夹紧，同播放器 fit 口径）；未量出前按宽贴满 */
+  private bandWidth(): Length {
+    if (this.layerWidth <= 0 || this.layerHeight <= 0) {
+      return '100%';
+    }
+    return Math.min(this.layerWidth, this.layerHeight * 16 / 9);
+  }
+
   /** 进度线按片段算（同 iOS：最底下那条细线不按整部片） */
   private startTick(): void {
     this.stopTick();
@@ -1126,7 +1135,7 @@ export struct ReelsPage {
                   this.PauseMarker()
                 }
               }
-              .width('100%')
+              .width(this.bandWidth())
               .aspectRatio(16 / 9)
               // 长按 2 倍速读数：横带上方玻璃胶囊（同 iOS gestureHUD 的 PlayerHUD）
               .overlay(this.HoldHud(), { align: Alignment.Top })
@@ -1138,17 +1147,18 @@ export struct ReelsPage {
             // 横带正下方一行：「全屏观看」描边胶囊（画质胶囊以后加在它左边）——
             // 放进画面这列而不是信息层：跟着横带走，不压画面、不悬在半空
             Row({ space: 8 }) {
-              Text('全屏观看')
-                .fontSize(12)
-                .fontColor('#ffffff')
-                .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-                .backgroundColor('rgba(0,0,0,0.35)')
-                .borderRadius(16)
-                .border({ width: 1, color: 'rgba(255,255,255,0.5)' })
-                .onClick(() => {
-                  this.openFullScreen();
-                })
-                .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
+              Button() {
+                Text('全屏观看')
+                  .fontSize(12)
+                  .fontColor('#ffffff')
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+              .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+              .borderRadius(16)
+              .onClick(() => {
+                this.openFullScreen();
+              })
+              .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
             }
             .opacity(this.controlsDimmed(item) ? 0.3 : 1)
           }
@@ -1349,50 +1359,59 @@ export struct ReelsPage {
     Column() {
       // —— 顶部一行：返回 …… 片名胶囊 …… 全部 ——
       Row() {
-        SymbolGlyph($r('sys.symbol.chevron_left'))
-          .fontSize(20)
-          .fontColor(['#ffffff'])
-          .width(38)
-          .height(38)
-          .backgroundColor('rgba(0,0,0,0.45)')
-          .borderRadius(19)
-          .onClick(() => {
-            this.navStack.pop();
-          })
-          .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
+        Button() {
+          SymbolGlyph($r('sys.symbol.chevron_left'))
+            .fontSize(20)
+            .fontColor(['#ffffff'])
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+        .padding(0)
+        .clip(true)
+        .width(38)
+        .height(38)
+        .borderRadius(19)
+        .onClick(() => {
+          this.navStack.pop();
+        })
+        .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
         Blank()
         // 右上一个玻璃胶囊「全部 ⌄」（类型筛选；没接后端筛选时也保留入口位置）
-        Text('全部')
-          .fontSize(13)
-          .fontColor('#ffffff')
-          .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-          .backgroundColor('rgba(0,0,0,0.45)')
-          .borderRadius(18)
-          .border({ width: 1, color: 'rgba(255,255,255,0.28)' })
-          .bindMenu(this.KindMenu())
-          .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
+        Button() {
+          Text('全部')
+            .fontSize(13)
+            .fontColor('#ffffff')
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+        .borderRadius(18)
+        .bindMenu(this.KindMenu())
+        .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: Theme.statusBarInset + 8 })
 
       // 正中片名胶囊：片名 + 第二行年份/类型，点了去这部片的详情页（同「照片」App 顶部的地点胶囊）
-      Row() {
-        Column({ space: 1 }) {
-          Text(item.title.name)
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#ffffff')
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text(this.subtitleOf(item))
-            .fontSize(11)
-            .fontColor('rgba(255,255,255,0.75)')
-            .maxLines(1)
+      Button() {
+        Row() {
+          Column({ space: 1 }) {
+            Text(item.title.name)
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#ffffff')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            Text(this.subtitleOf(item))
+              .fontSize(11)
+              .fontColor('rgba(255,255,255,0.75)')
+              .maxLines(1)
+          }
+          .alignItems(HorizontalAlign.Center)
         }
-        .alignItems(HorizontalAlign.Center)
+        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
       }
-      .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-      .backgroundColor('rgba(0,0,0,0.45)')
+      .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+      .padding(0)
+      .clip(true)
       .borderRadius(18)
       .margin({ top: 8 })
       .onClick(() => {

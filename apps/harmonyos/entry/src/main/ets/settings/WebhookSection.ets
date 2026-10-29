@@ -1,4 +1,6 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
 import { ApiError } from '../api/ApiClient';
@@ -66,6 +68,8 @@ class ConfigPayload implements WebhookConfigPayload {
  */
 @ComponentV2
 export struct WebhookSection {
+  /** 页面级滚动器：内容铺到标题栏下面，滚动时由宿主绑定驱动渐变模糊 */
+  @Param scroller: Scroller = new Scroller();
   @Local private config: WebhookConfigView | null = null;
   @Local private loading: boolean = true;
   @Local private errorMessage: string = '';
@@ -499,7 +503,7 @@ export struct WebhookSection {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else {
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 14 }) {
             this.MasterCard(this.config as WebhookConfigView)
             if (this.secretValue.length > 0) {
@@ -515,7 +519,7 @@ export struct WebhookSection {
             AppFooter()
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+          .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
         }
         .layoutWeight(1)
         .align(Alignment.TopStart)
@@ -552,24 +556,26 @@ export struct WebhookSection {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
         Toggle({ type: ToggleType.Switch, isOn: view.enabled })
-          .selectedColor(Theme.accent)
-          .onChange((isOn: boolean): void => {
-            this.toggleMaster(isOn);
-          })
+        .attributeModifier(new GlassSwitchModifier())
+        .onChange((isOn: boolean): void => {
+          this.toggleMaster(isOn);
+        })
       }
       .width('100%')
-      Text('添加目标')
-        .fontSize(14)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#0b0d12')
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 9, bottom: 9 })
-        .backgroundColor(Theme.accent)
-        .borderRadius(16)
-        .onClick(() => {
-          this.openCreate();
-        })
+      Button() {
+        Text('添加目标')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#0b0d12')
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+      .width('100%')
+      .padding({ top: 9, bottom: 9 })
+      .borderRadius(16)
+      .onClick(() => {
+        this.openCreate();
+      })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -637,10 +643,10 @@ export struct WebhookSection {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
         Toggle({ type: ToggleType.Switch, isOn: endpoint.enabled })
-          .selectedColor(Theme.accent)
-          .onChange((isOn: boolean): void => {
-            this.toggleEndpoint(endpoint, isOn);
-          })
+        .attributeModifier(new GlassSwitchModifier())
+        .onChange((isOn: boolean): void => {
+          this.toggleEndpoint(endpoint, isOn);
+        })
       }
       .width('100%')
 
@@ -654,33 +660,39 @@ export struct WebhookSection {
         .width('100%')
 
       Row({ space: 10 }) {
-        Text(this.busyId === endpoint.id ? '…' : '发送测试')
-          .fontSize(13)
-          .fontColor(Theme.accentStrong)
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(14)
-          .onClick(() => {
-            this.test(endpoint);
-          })
-        Text('记录')
-          .fontSize(13)
-          .fontColor(Theme.text)
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(14)
-          .onClick(() => {
-            this.showLastDelivery(endpoint);
-          })
-        Text('编辑')
-          .fontSize(13)
-          .fontColor(Theme.text)
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(14)
-          .onClick(() => {
-            this.openEdit(endpoint);
-          })
+        Button() {
+          Text(this.busyId === endpoint.id ? '…' : '发送测试')
+            .fontSize(13)
+            .fontColor(Theme.accentStrong)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.test(endpoint);
+        })
+        Button() {
+          Text('记录')
+            .fontSize(13)
+            .fontColor(Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.showLastDelivery(endpoint);
+        })
+        Button() {
+          Text('编辑')
+            .fontSize(13)
+            .fontColor(Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.openEdit(endpoint);
+        })
         Blank()
         Text('删除')
           .fontSize(13)
@@ -764,15 +776,17 @@ export struct WebhookSection {
                 .width('100%')
               Row({ space: 8 }) {
                 ForEach(FORMATS, (format: HookFormat) => {
-                  Text(format.label)
-                    .fontSize(13)
-                    .fontColor(this.formFormat === format.value ? '#0b0d12' : Theme.textMuted)
-                    .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-                    .backgroundColor(this.formFormat === format.value ? Theme.accent : Theme.glassFill)
-                    .borderRadius(15)
-                    .onClick(() => {
-                      this.formFormat = format.value;
-                    })
+                  Button() {
+                    Text(format.label)
+                      .fontSize(13)
+                      .fontColor(this.formFormat === format.value ? '#0b0d12' : Theme.textMuted)
+                  }
+                  .attributeModifier(new GlassButtonModifier(this.formFormat === format.value ? GlassTone.Primary : GlassTone.Secondary))
+                  .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+                  .borderRadius(15)
+                  .onClick(() => {
+                    this.formFormat = format.value;
+                  })
                 }, (format: HookFormat) => format.value)
               }
               .width('100%')
@@ -835,27 +849,28 @@ export struct WebhookSection {
           .border({ width: 1, color: Theme.line })
 
           if (this.formId.length > 0) {
-            Text('轮换密钥')
-              .fontSize(14)
-              .fontColor(Theme.warn)
-              .textAlign(TextAlign.Center)
-              .width('100%')
-              .padding({ top: 12, bottom: 12 })
-              .backgroundColor(Theme.surface)
-              .borderRadius(Theme.cardRadius)
-              .border({ width: 1, color: Theme.line })
-              .onClick(() => {
-                const view: WebhookConfigView | null = this.config;
-                if (view === null) {
-                  return;
+            Button() {
+              Text('轮换密钥')
+                .fontSize(14)
+                .fontColor(Theme.warn)
+                .textAlign(TextAlign.Center)
+            }
+            .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+            .width('100%')
+            .padding({ top: 12, bottom: 12 })
+            .borderRadius(Theme.cardRadius)
+            .onClick(() => {
+              const view: WebhookConfigView | null = this.config;
+              if (view === null) {
+                return;
+              }
+              for (const item of view.endpoints) {
+                if (item.id === this.formId) {
+                  this.confirmRotate(item);
+                  break;
                 }
-                for (const item of view.endpoints) {
-                  if (item.id === this.formId) {
-                    this.confirmRotate(item);
-                    break;
-                  }
-                }
-              })
+              }
+            })
           }
         }
         .width('100%')

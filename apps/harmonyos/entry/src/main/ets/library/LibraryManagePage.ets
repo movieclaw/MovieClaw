@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
@@ -1181,18 +1182,19 @@ struct LibraryManagePage {
         .fontSize(13)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('返回媒体库')
-        .fontSize(14)
-        .fontWeight(500)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 18, right: 18, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(17)
-        .border({ width: 1, color: Theme.line })
-        .margin({ top: 4 })
-        .onClick(() => {
-          this.navStack.pop();
-        })
+      Button() {
+        Text('返回媒体库')
+          .fontSize(14)
+          .fontWeight(500)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 18, right: 18, top: 9, bottom: 9 })
+      .borderRadius(17)
+      .margin({ top: 4 })
+      .onClick(() => {
+        this.navStack.pop();
+      })
     }
     .width('100%')
     .layoutWeight(1)
@@ -1247,19 +1249,22 @@ struct LibraryManagePage {
           .fontWeight(700)
           .fontColor(Theme.text)
           .layoutWeight(1)
-        Row({ space: 5 }) {
-          SymbolGlyph($r('sys.symbol.plus'))
-            .fontSize(14)
-            .fontColor([Theme.text])
-          Text('创建媒体库')
-            .fontSize(14)
-            .fontWeight(500)
-            .fontColor(Theme.text)
+        Button() {
+          Row({ space: 5 }) {
+            SymbolGlyph($r('sys.symbol.plus'))
+              .fontSize(14)
+              .fontColor([Theme.text])
+            Text('创建媒体库')
+              .fontSize(14)
+              .fontWeight(500)
+              .fontColor(Theme.text)
+          }
+          .padding({ left: 14, right: 14, top: 8, bottom: 8 })
         }
-        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-        .backgroundColor(Theme.glassFillHover)
+        .attributeModifier(new GlassButtonModifier(GlassTone.Strong))
+        .padding(0)
+        .clip(true)
         .borderRadius(17)
-        .border({ width: 1, color: Theme.lineStrong })
         .onClick(() => {
           this.navStack.pushPathByName('libraryCreate', null);
         })
@@ -1296,20 +1301,23 @@ struct LibraryManagePage {
   /** 页头摘要的胶囊筛选：可带状态圆点，激活态提亮 */
   @Builder
   FocusChip(focus: string, title: string, color: string) {
-    Row({ space: 6 }) {
-      Row()
-        .width(6)
-        .height(6)
-        .borderRadius(3)
-        .backgroundColor(color)
-      Text(title)
-        .fontSize(12)
-        .fontColor(this.focus === focus ? Theme.text : Theme.textMuted)
+    Button() {
+      Row({ space: 6 }) {
+        Row()
+          .width(6)
+          .height(6)
+          .borderRadius(3)
+          .backgroundColor(color)
+        Text(title)
+          .fontSize(12)
+          .fontColor(this.focus === focus ? Theme.text : Theme.textMuted)
+      }
+      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
     }
-    .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+    .attributeModifier(new GlassButtonModifier(this.focus === focus ? GlassTone.Strong : GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(14)
-    .backgroundColor(this.focus === focus ? 'rgba(255, 255, 255, 0.14)' : Color.Transparent)
-    .border({ width: 1, color: this.focus === focus ? 'rgba(255, 255, 255, 0.20)' : 'rgba(255, 255, 255, 0.10)' })
     .margin({ right: 8 })
     .onClick(() => {
       this.toggleFocus(focus);
@@ -1336,21 +1344,24 @@ struct LibraryManagePage {
 
   @Builder
   TabChip(tab: string, count: number) {
-    Row({ space: 6 }) {
-      Text(ManageTab.label(tab))
-        .fontSize(14)
-        .fontWeight(this.tab === tab ? 600 : 400)
-        .fontColor(this.tab === tab ? Theme.text : Theme.textMuted)
-      if (count > 0) {
-        Text(`${count}`)
-          .fontSize(12)
-          .fontColor(this.tab === tab ? 'rgba(255, 255, 255, 0.7)' : Theme.textFaint)
+    Button() {
+      Row({ space: 6 }) {
+        Text(ManageTab.label(tab))
+          .fontSize(14)
+          .fontWeight(this.tab === tab ? 600 : 400)
+          .fontColor(this.tab === tab ? Theme.text : Theme.textMuted)
+        if (count > 0) {
+          Text(`${count}`)
+            .fontSize(12)
+            .fontColor(this.tab === tab ? 'rgba(255, 255, 255, 0.7)' : Theme.textFaint)
+        }
       }
+      .padding({ left: 14, right: 14, top: 7, bottom: 7 })
     }
-    .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+    .attributeModifier(new GlassButtonModifier(this.tab === tab ? GlassTone.Strong : GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(17)
-    .backgroundColor(this.tab === tab ? 'rgba(255, 255, 255, 0.14)' : Color.Transparent)
-    .border({ width: 1, color: this.tab === tab ? 'rgba(255, 255, 255, 0.18)' : Theme.line })
     .onClick(() => {
       this.applyTab(tab);
     })
@@ -1407,18 +1418,19 @@ struct LibraryManagePage {
               .fontSize(13)
               .fontColor(Theme.textMuted)
               .textAlign(TextAlign.Center)
-            Text('创建第一个媒体库')
-              .fontSize(14)
-              .fontWeight(500)
-              .fontColor(Theme.accentStrong)
-              .padding({ left: 18, right: 18, top: 9, bottom: 9 })
-              .backgroundColor(Theme.glassFill)
-              .borderRadius(17)
-              .border({ width: 1, color: Theme.line })
-              .margin({ top: 4 })
-              .onClick(() => {
-                this.navStack.pushPathByName('libraryCreate', null);
-              })
+            Button() {
+              Text('创建第一个媒体库')
+                .fontSize(14)
+                .fontWeight(500)
+                .fontColor(Theme.accentStrong)
+            }
+            .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+            .padding({ left: 18, right: 18, top: 9, bottom: 9 })
+            .borderRadius(17)
+            .margin({ top: 4 })
+            .onClick(() => {
+              this.navStack.pushPathByName('libraryCreate', null);
+            })
           }
           .width('100%')
           .padding({ left: 40, right: 40, top: 50 })
@@ -1523,18 +1535,21 @@ struct LibraryManagePage {
   /** 类型筛选芯片（'' = 全部） */
   @Builder
   KindChip(kind: string) {
-    Row({ space: 4 }) {
-      Text(kind.length === 0 ? '全部' : LibraryKindMeta.label(kind))
-        .fontSize(12)
-        .fontColor(this.kindFilter === kind ? Theme.text : Theme.textMuted)
-      Text(`${this.kindCount(kind)}`)
-        .fontSize(11)
-        .fontColor(this.kindFilter === kind ? 'rgba(255, 255, 255, 0.6)' : Theme.textFaint)
+    Button() {
+      Row({ space: 4 }) {
+        Text(kind.length === 0 ? '全部' : LibraryKindMeta.label(kind))
+          .fontSize(12)
+          .fontColor(this.kindFilter === kind ? Theme.text : Theme.textMuted)
+        Text(`${this.kindCount(kind)}`)
+          .fontSize(11)
+          .fontColor(this.kindFilter === kind ? 'rgba(255, 255, 255, 0.6)' : Theme.textFaint)
+      }
+      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
     }
-    .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+    .attributeModifier(new GlassButtonModifier(this.kindFilter === kind ? GlassTone.Strong : GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(14)
-    .backgroundColor(this.kindFilter === kind ? 'rgba(255, 255, 255, 0.14)' : Color.Transparent)
-    .border({ width: 1, color: this.kindFilter === kind ? 'rgba(255, 255, 255, 0.20)' : 'rgba(255, 255, 255, 0.10)' })
     .onClick(() => {
       this.kindFilter = this.kindFilter === kind ? '' : kind;
     })
@@ -1860,32 +1875,34 @@ struct LibraryManagePage {
       .scrollBar(BarState.Off)
 
       Row({ space: 10 }) {
-        Text('取消')
-          .fontSize(15)
-          .fontColor(Theme.textMuted)
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-          .padding({ top: 12, bottom: 12 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(14)
-          .border({ width: 1, color: Theme.line })
-          .onClick(() => {
-            this.showSheet = false;
-          })
-        Text('保存顺序')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(this.orderChanged() ? Theme.text : Theme.textFaint)
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-          .padding({ top: 12, bottom: 12 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(14)
-          .border({ width: 1, color: this.orderChanged() ? Theme.lineStrong : Theme.line })
-          .onClick(() => {
-            this.commitOrder();
-            this.showSheet = false;
-          })
+        Button() {
+          Text('取消')
+            .fontSize(15)
+            .fontColor(Theme.textMuted)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 12, bottom: 12 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.showSheet = false;
+        })
+        Button() {
+          Text('保存顺序')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(this.orderChanged() ? Theme.text : Theme.textFaint)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 12, bottom: 12 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.commitOrder();
+          this.showSheet = false;
+        })
       }
       .width('100%')
     }
@@ -1942,32 +1959,34 @@ struct LibraryManagePage {
         .fontColor(Theme.textMuted)
         .lineHeight(20)
         .width('100%')
-      Text('开始生成')
-        .fontSize(16)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .width('100%')
-        .textAlign(TextAlign.Center)
-        .padding({ top: 14, bottom: 14 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(14)
-        .border({ width: 1, color: Theme.lineStrong })
-        .onClick(() => {
-          this.startChapters(false);
-        })
-      Text('已有的章节也重新生成')
-        .fontSize(16)
-        .fontWeight(600)
-        .fontColor(Theme.text)
-        .width('100%')
-        .textAlign(TextAlign.Center)
-        .padding({ top: 14, bottom: 14 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(14)
-        .border({ width: 1, color: Theme.line })
-        .onClick(() => {
-          this.startChapters(true);
-        })
+      Button() {
+        Text('开始生成')
+          .fontSize(16)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 14, bottom: 14 })
+      .borderRadius(14)
+      .onClick(() => {
+        this.startChapters(false);
+      })
+      Button() {
+        Text('已有的章节也重新生成')
+          .fontSize(16)
+          .fontWeight(600)
+          .fontColor(Theme.text)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 14, bottom: 14 })
+      .borderRadius(14)
+      .onClick(() => {
+        this.startChapters(true);
+      })
       Text('取消')
         .fontSize(16)
         .fontColor(Theme.textMuted)

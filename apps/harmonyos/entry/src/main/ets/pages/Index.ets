@@ -1,5 +1,6 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel, AppPhase, SavedAccount } from '../common/AppModel';
 import { WelcomePage } from './WelcomePage';
 import { MainTabsPage } from './MainTabsPage';
@@ -96,27 +97,30 @@ struct Index {
         .fontColor(Theme.textFaint)
         .textAlign(TextAlign.Center)
       Row({ space: 12 }) {
-        Text('重试')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor('#0b0d12')
-          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(20)
-          .onClick(() => {
-            this.model.reconnect();
-          })
-        Text('换个服务器')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.text)
-          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(20)
-          .border({ width: 1, color: Theme.lineStrong })
-          .onClick(() => {
-            this.model.phase = AppPhase.needsServer;
-          })
+        Button() {
+          Text('重试')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor('#0b0d12')
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .onClick(() => {
+          this.model.reconnect();
+        })
+        Button() {
+          Text('换个服务器')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .onClick(() => {
+          this.model.phase = AppPhase.needsServer;
+        })
       }
       .margin({ top: 6 })
     }
@@ -143,33 +147,37 @@ struct Index {
         .fontColor(Theme.textFaint)
         .margin({ bottom: 10 })
       ForEach(this.flatAccounts(), (entry: SavedAccount) => {
-        Row({ space: 12 }) {
-          Text(this.initialOf(entry))
-            .fontSize(18)
-            .fontColor(Theme.text)
-            .width(40)
-            .height(40)
-            .textAlign(TextAlign.Center)
-            .backgroundColor(Theme.surface)
-            .borderRadius(20)
-          Column({ space: 3 }) {
-            Text(entry.account.nickname.length > 0 ? entry.account.nickname : entry.account.username)
-              .fontSize(16)
+        Button() {
+          Row({ space: 12 }) {
+            Text(this.initialOf(entry))
+              .fontSize(18)
               .fontColor(Theme.text)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text(entry.server.hostLabel)
-              .fontSize(12)
-              .fontColor(Theme.textFaint)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width(40)
+              .height(40)
+              .textAlign(TextAlign.Center)
+              .backgroundColor(Theme.surface)
+              .borderRadius(20)
+            Column({ space: 3 }) {
+              Text(entry.account.nickname.length > 0 ? entry.account.nickname : entry.account.username)
+                .fontSize(16)
+                .fontColor(Theme.text)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(entry.server.hostLabel)
+                .fontSize(12)
+                .fontColor(Theme.textFaint)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
           }
-          .layoutWeight(1)
-          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+          .padding({ left: 14, right: 14, top: 12, bottom: 12 })
         }
-        .width('100%')
-        .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-        .backgroundColor(Theme.glassFill)
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding(0)
+        .clip(true)
         .borderRadius(14)
         .onClick(() => {
           this.switchTo(entry);

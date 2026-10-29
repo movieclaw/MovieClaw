@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { Formatters } from '../common/Formatters';
 import { AppModel } from '../common/AppModel';
 import { MovieClawApi } from '../api/Endpoints';
@@ -415,22 +416,20 @@ struct ReidentifyGroupRow {
       if (this.outcome().candidates.length > 0) {
         Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(6), cross: LengthMetrics.vp(6) } }) {
           ForEach(this.outcome().candidates, (candidate: UnidentifiedCandidateView) => {
-            Text(candidate.title + (candidate.year !== null && candidate.year !== undefined
-              ? ` (${candidate.year})` : ''))
-              .fontSize(14)
-              .fontColor(this.panelSeed !== null && this.panelSeed.tmdbId === candidate.tmdb_id
-                ? Theme.text : 'rgba(255,255,255,0.9)')
-              .maxLines(1)
-              .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-              .backgroundColor(this.panelSeed !== null && this.panelSeed.tmdbId === candidate.tmdb_id
-                ? 'rgba(122,162,247,0.28)' : 'rgba(122,162,247,0.12)')
-              .borderRadius(8)
-              .border({
-                width: 1,
-                color: this.panelSeed !== null && this.panelSeed.tmdbId === candidate.tmdb_id
-                  ? Theme.accent : 'rgba(122,162,247,0.4)'
-              })
-              .onClick(() => {
+            Button() {
+              Text(candidate.title + (candidate.year !== null && candidate.year !== undefined
+                ? ` (${candidate.year})` : ''))
+                .fontSize(14)
+                .fontColor(this.panelSeed !== null && this.panelSeed.tmdbId === candidate.tmdb_id
+                  ? Theme.text : 'rgba(255,255,255,0.9)')
+                .maxLines(1)
+            }
+            .attributeModifier(new GlassButtonModifier(
+              this.panelSeed !== null && this.panelSeed.tmdbId === candidate.tmdb_id
+                ? GlassTone.Info : GlassTone.Secondary))
+            .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+            .borderRadius(8)
+            .onClick(() => {
                 if (this.panelSeed !== null && this.panelSeed.tmdbId === candidate.tmdb_id) {
                   this.panelSeed = null;
                   this.panelKind = 'none';
@@ -446,33 +445,37 @@ struct ReidentifyGroupRow {
 
       // 两个常驻出口。搜索不藏在二级：机器高置信错挂时正确答案常常压根不在候选里
       Row({ space: 8 }) {
-        Text('都不对，自己搜…')
-          .fontSize(13)
-          .fontColor(this.panelKind === 'search' ? Theme.accentStrong : Theme.text)
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(14)
-          .onClick(() => {
-            if (this.busy) {
-              return;
-            }
-            if (this.panelKind === 'search') {
-              this.panelKind = 'none';
-            } else {
-              this.panelSeed = null;
-              this.panelKind = 'search';
-            }
-          })
+        Button() {
+          Text('都不对，自己搜…')
+            .fontSize(13)
+            .fontColor(this.panelKind === 'search' ? Theme.accentStrong : Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(14)
+        .onClick(() => {
+          if (this.busy) {
+            return;
+          }
+          if (this.panelKind === 'search') {
+            this.panelKind = 'none';
+          } else {
+            this.panelSeed = null;
+            this.panelKind = 'search';
+          }
+        })
         Blank()
-        Text('不是独立作品')
-          .fontSize(13)
-          .fontColor('#FFB4B4')
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(14)
-          .onClick(() => {
-            this.confirmDetach();
-          })
+        Button() {
+          Text('不是独立作品')
+            .fontSize(13)
+            .fontColor('#FFB4B4')
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.confirmDetach();
+        })
       }
       .width('100%')
 
@@ -555,22 +558,24 @@ struct ReidentifyGroupRow {
         .alignItems(HorizontalAlign.Start)
         if (!this.outcome().same_as_current && this.outcome().tmdb_id !== null
           && this.outcome().tmdb_id !== undefined) {
-          Text('改挂到这里')
-            .fontSize(13)
-            .fontWeight(600)
-            .fontColor(Theme.text)
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor(Theme.accent)
-            .borderRadius(14)
-            .onClick(() => {
-              if (this.busy) {
-                return;
-              }
-              this.panelSeed = new IssueClaimSeed(this.outcome().tmdb_id as number,
-                this.outcome().title ?? '', this.outcome().year ?? null,
-                this.outcome().poster_url ?? null);
-              this.panelKind = 'confirm';
-            })
+          Button() {
+            Text('改挂到这里')
+              .fontSize(13)
+              .fontWeight(600)
+              .fontColor(Theme.text)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .borderRadius(14)
+          .onClick(() => {
+            if (this.busy) {
+              return;
+            }
+            this.panelSeed = new IssueClaimSeed(this.outcome().tmdb_id as number,
+              this.outcome().title ?? '', this.outcome().year ?? null,
+              this.outcome().poster_url ?? null);
+            this.panelKind = 'confirm';
+          })
         }
       }
       .width('100%')

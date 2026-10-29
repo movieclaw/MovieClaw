@@ -1,18 +1,23 @@
 import { display, promptAction } from '@kit.ArkUI';
+import { AppNavBar } from '../common/AppNavBar';
 import { Theme } from '../theme/AppTheme';
+import { TabBarCollapse } from '../common/TabBarCollapse';
+import { AccountSwitcherSheet } from '../common/AccountSwitcherSheet';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { DeviceApprovalDialog } from '../settings/DeviceApprovalDialog';
 import { AppModel, AppPhase, SavedAccount } from '../common/AppModel';
 import { ServerRoutes } from '../common/ServerRoutes';
+import { TabBarStyle } from '../common/TabBarStyle';
 import { Permissions } from '../common/Permissions';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls } from '../common/ImageUrls';
 import { Formatters } from '../common/Formatters';
 import { noticeVisible } from '../notices/NoticeCenterPage';
-import { NoticeView } from '../api/Models';
+import { NoticeView, PendingUpdateView } from '../api/Models';
+import { SectionParams } from '../settings/SettingsIndexPage';
 import { MovieClawApi } from '../api/Endpoints';
 import { SessionSummary, SessionTranscriptView } from '../api/Models';
 import { ChatParams } from '../agent/ChatParams';
-import { AGENT_QUICK_CONTENT_EXTRA, AgentQuickInput } from '../agent/AgentQuickInput';
 import { AgentSessionsSignal } from '../agent/AgentSessionsSignal';
 import { OfflineStore } from '../offline/OfflineStore';
 import {
@@ -54,10 +59,15 @@ export struct MorePage {
   @Require @Param navStack: NavPathStack;
   /** 宿主工具栏点「扫码」时加一（动作在本页） */
   @Param scanSignal: number = 0;
+  /** 内容区滚动器（宿主 bindToScrollable 要用同一个实例驱动标题栏） */
+  @Param scroller: Scroller = new Scroller();
   @Local private model: AppModel = AppModel.shared;
   /** 待处理事项数（管理员；服务器段的「待处理」瓷砖与胶囊红点用） */
   @Local private noticeCount: number = 0;
   private noticeTimer: number = -1;
+  /** 待更新快照（管理员；服务器段「可用更新」瓷砖用，同 iOS `ShellBadges.pendingUpdate`） */
+  @Local private pendingUpdate: PendingUpdateView | null = null;
+  private updateTimer: number = -1;
   /** 当前选中的胶囊段；不在可用列表里时回退到第一个可用段 */
   @Local private selectedSection: MoreSection = MoreSection.conversations;
 
@@ -76,6 +86,8 @@ export struct MorePage {
   @Local private sessionsSignal: AgentSessionsSignal = AgentSessionsSignal.shared;
   /** 扫码批准的弹窗句柄（顶栏右上角的扫码钮） */
   @Local private approvalDialogId: number = -1;
+  /** 「切换账号」原生弹窗的句柄 */
+  @Local private accountDialogId: number = -1;
   /** 本机下载（下载段可见性、内嵌分区用） */
   @Local private store: OfflineStore = OfflineStore.shared;
 
@@ -87,16 +99,25 @@ export struct MorePage {
   aboutToAppear(): void {
     this.loadNotices();
     this.loadSessions();
+    this.loadPendingUpdate();
     // 与 Web NoticeCenter 同频 30 秒轮询（同 iOS MorePage 的 .polling(every: 30)）
     this.noticeTimer = setInterval((): void => {
       this.loadNotices();
     }, 30000);
+    // 待更新快照：同 iOS ShellBadges 的 10 分钟轮询（读快照不触网检查）
+    this.updateTimer = setInterval((): void => {
+      this.loadPendingUpdate();
+    }, 600000);
   }
 
   aboutToDisappear(): void {
     if (this.noticeTimer >= 0) {
       clearInterval(this.noticeTimer);
       this.noticeTimer = -1;
+    }
+    if (this.updateTimer >= 0) {
+      clearInterval(this.updateTimer);
+      this.updateTimer = -1;
     }
   }
 
@@ -116,6 +137,39 @@ export struct MorePage {
     } catch (error) {
       // 忽略：下轮自愈
     }
+  }
+
+  /**
+   * 待更新快照（管理员）：应用或识别模型有更新才留，否则清空（同 iOS `ShellBadges.refreshUpdate`）。
+   * 读的是最近一次检查的结论（不触网检查），失败保留上次结果、下一轮自愈。
+   */
+  private async loadPendingUpdate(): Promise<void> {
+    const api: MovieClawApi | null = this.model.api;
+    if (api === null || !this.isAdmin()) {
+      return;
+    }
+    try {
+      const pending: PendingUpdateView = await api.appUpdatePending();
+      const hasApp: boolean = (pending.app_version ?? '').length > 0;
+      const hasModel: boolean = (pending.model_tag ?? '').length > 0;
+      this.pendingUpdate = hasApp || hasModel ? pending : null;
+    } catch (error) {
+      // 忽略：下轮自愈
+    }
+  }
+
+  /** 「可用更新」文案（同 iOS `ShellBadges.updateLabel`）：应用与模型都有更新时只说应用版本 */
+  private updateLabel(): string {
+    const pending: PendingUpdateView | null = this.pendingUpdate;
+    if (pending === null) {
+      return '';
+    }
+    const version: string = pending.app_version ?? '';
+    if (version.length > 0) {
+      return `新版本 v${version}`;
+    }
+    const modelTag: string = pending.model_tag ?? '';
+    return modelTag.length > 0 ? `新识别模型 ${modelTag}` : '';
   }
 
   // MARK: 会话数据（对应 iOS MorePage 的 sessions 段）
@@ -282,10 +336,7 @@ export struct MorePage {
   }
 
   private toast(message: string): void {
-    try {
-      this.getUIContext().getPromptAction().showToast({ message: message });
-    } catch (e) {
-    }
+    this.getUIContext().getPromptAction().showToast({ message: message });
   }
 
   // MARK: 派生
@@ -474,11 +525,7 @@ export struct MorePage {
   }
 
   private openScanApproval(): void {
-    let screenWidthVp: number = 360;
-    try {
-      screenWidthVp = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
-    } catch (e) {
-    }
+    const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
     const options: promptAction.CustomDialogOptions = {
       builder: (): void => {
         this.ApprovalCard();
@@ -504,11 +551,51 @@ export struct MorePage {
     if (this.approvalDialogId < 0) {
       return;
     }
-    try {
-      this.getUIContext().getPromptAction().closeCustomDialog(this.approvalDialogId);
-    } catch (e) {
-    }
+    this.getUIContext().getPromptAction().closeCustomDialog(this.approvalDialogId);
     this.approvalDialogId = -1;
+  }
+
+  /** 打开「切换账号」：系统原生自定义弹窗（同一套贴底圆角卡片），内容见 `AccountSwitcherSheet` */
+  private openAccountSwitcher(): void {
+    const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+    const options: promptAction.CustomDialogOptions = {
+      builder: (): void => {
+        this.AccountSwitcherCard();
+      },
+      width: Math.round(screenWidthVp - 32),
+      alignment: DialogAlignment.Bottom,
+      keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
+      autoCancel: true,
+      maskColor: 'rgba(0,0,0,0.6)',
+      backgroundColor: Theme.surfaceRaised,
+      cornerRadius: Theme.cardRadius
+    };
+    this.getUIContext().getPromptAction().openCustomDialog(options)
+      .then((id: number): void => {
+        this.accountDialogId = id;
+      })
+      .catch((): void => {
+        this.accountDialogId = -1;
+      });
+  }
+
+  /** 关闭「切换账号」弹窗 */
+  private closeAccountSwitcher(): void {
+    if (this.accountDialogId < 0) {
+      return;
+    }
+    this.getUIContext().getPromptAction().closeCustomDialog(this.accountDialogId);
+    this.accountDialogId = -1;
+  }
+
+  /** 切换账号弹窗的内容（与旧版长按头像页签弹出的同一个组件） */
+  @Builder
+  AccountSwitcherCard() {
+    AccountSwitcherSheet({
+      onClose: (): void => {
+        this.closeAccountSwitcher();
+      }
+    })
   }
 
   @Builder
@@ -524,70 +611,93 @@ export struct MorePage {
   // MARK: 视图
 
   build() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column() {
-        // 同 iOS：一个 List。首项是居中个人信息 + 胶囊切换，之后按选中段渲染。
-        // 用 `List`（不是 Scroll+Column）是因为会话行要用**原生左滑操作**（`swipeAction` 只在 ListItem 上）。
-        List({ space: 12 }) {
-          ListItem() {
-            Column({ space: 22 }) {
-              this.ProfileCard()
-              if (this.availableSections().length > 1) {
-                this.SectionPicker()
-              }
-            }
+    Column() {
+      // 同 iOS：一个 List。首项是居中个人信息 + 胶囊切换，之后按选中段渲染。
+      // 用 `List`（不是 Scroll+Column）是因为会话行要用**原生左滑操作**（`swipeAction` 只在 ListItem 上）。
+      List({ space: 12, scroller: this.scroller }) {
+        // 内容从 y=0 铺到标题栏下面：首屏空出标题栏高度（滚动时这段跟着走）
+        ListItem() {
+          Column()
             .width('100%')
-            .alignItems(HorizontalAlign.Center)
-            .padding({ top: 8, bottom: 4 })
-          }
-          if (this.visibleSection() === MoreSection.conversations) {
-            this.ConversationsSection()
-          } else if (this.visibleSection() === MoreSection.downloads) {
-            OfflineDownloadingSection({ navStack: this.navStack })
-            OfflineWatchedCard()
-            OfflineDownloadedSection({ navStack: this.navStack })
-            OfflineOtherOwnersSection()
-            OfflineCapacityCard()
-          } else {
-            this.ServerSectionItem()
-          }
+            .height(AppNavBar.contentTop)
         }
-        .layoutWeight(1)
-        .width('100%')
-        .scrollBar(BarState.Off)
-        // 内容不够一屏时也给点回弹反馈（不然会觉得「不能滑」）
-        .edgeEffect(EdgeEffect.Spring)
-        // 点 / 滑列表收起快捷输入条的键盘（同 iOS scrollDismissesKeyboard：不吞点按，行照常响应）
-        .onTouch((event: TouchEvent): void => {
-          if (event.type === TouchType.Down) {
-            this.getUIContext().getFocusController().clearFocus();
+        ListItem() {
+          Column({ space: 22 }) {
+            this.ProfileCard()
+            if (this.availableSections().length > 1) {
+              this.SectionPicker()
+            }
           }
-        })
-        // 管理员底部有常驻快捷输入条（AgentQuickInput）：末项多让出它的高度
-        .padding({ left: 16, right: 16, top: 0, bottom: Theme.tabBarInset + (this.isAdmin() ? AGENT_QUICK_CONTENT_EXTRA : 0) })
+          .width('100%')
+          .alignItems(HorizontalAlign.Center)
+          .padding({ top: 8, bottom: 4 })
+        }
+        if (this.visibleSection() === MoreSection.conversations) {
+          this.ConversationsSection()
+        } else if (this.visibleSection() === MoreSection.downloads) {
+          // 本机剩余空间放最上面：下载前先看还剩多少（容量条的分区组件复用「下载管理」页那个）
+          OfflineCapacityCard()
+          OfflineDownloadingSection({ navStack: this.navStack })
+          OfflineWatchedCard()
+          OfflineDownloadedSection({ navStack: this.navStack })
+          OfflineOtherOwnersSection()
+        } else {
+          this.ServerSectionItem()
+        }
       }
+      .layoutWeight(1)
       .width('100%')
-      .height('100%')
-      .backgroundColor(Theme.bg)
-      .bindSheet($$this.showRename, this.RenameSheet(), {
-        height: SheetSize.FIT_CONTENT,
-        dragBar: true,
-        showClose: false,
-        backgroundColor: Theme.bg
+      .scrollBar(BarState.Off)
+      // 向下滚累计到阈值：底栏收成圆形按钮（往回滑立刻放回）
+      .onDidScroll((xOffset: number, yOffset: number) => {
+        TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset);
       })
-
-      if (this.isAdmin()) {
-        AgentQuickInput({ navStack: this.navStack })
-      }
+      // 内容不够一屏时也给点回弹反馈（不然会觉得「不能滑」）
+      .edgeEffect(EdgeEffect.Spring)
+      // 点 / 滑列表收起快捷输入条的键盘（同 iOS scrollDismissesKeyboard：不吞点按，行照常响应）
+      .onTouch((event: TouchEvent): void => {
+        if (event.type === TouchType.Down) {
+          this.getUIContext().getFocusController().clearFocus();
+        }
+      })
+      // 管理员底部有常驻快捷输入条：贴底栏模式是页内输入卡（浮在 Stack 上，列表要让开整卡高度）；
+      // 悬浮模式的迷你条在页签胶囊里，高度已并入 Theme.tabBarInset，不再额外加
+      .padding({ left: 16, right: 16, top: 0 })
+      /*
+       * 底部留白用 `contentEndOffset` 而不是 `padding`：
+       * List 的 padding 是**容器**内边距，内容永远进不了这段区域——胶囊后面永远是一块黑底
+       * （「我的」页底部看起来还有一条黑色安全区就是这个原因）。contentEndOffset 是
+       * 「内容末端到显示边界的偏移」，滚到底时最后一行照样能让开胶囊，滚动中内容可以从胶囊
+       * 和手势条下面穿过去。
+       */
+      .contentEndOffset(this.bottomInset())
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(Theme.bg)
+    .bindSheet($$this.showRename, this.RenameSheet(), {
+      height: SheetSize.FIT_CONTENT,
+      dragBar: true,
+      showClose: false,
+      backgroundColor: Theme.bg
+    })
   }
 
-  /** 居中个人信息卡：80 号头像 + 铅笔角标 + 昵称 + 身份小字；点一下进个人信息（同 iOS `profile`） */
+  /** 列表底部要让开的高度（页签胶囊 / 贴底栏 + 贴底模式的输入卡） */
+  private bottomInset(): number {
+    return Theme.tabBarInset
+      + (this.isAdmin() && !TabBarStyle.shared().floating ? Theme.agentDockInset : 0);
+  }
+
+  /**
+   * 个人信息卡：80 号头像 + 铅笔角标 + 昵称 + 身份小字，整块是一张卡片；
+   * 卡片底部一颗「切换账号」，打开与旧版长按头像页签同款的切换账号弹窗。
+   * 点头像/昵称那一块仍进个人信息（同 iOS `profile`）。
+   */
   @Builder
   ProfileCard() {
-    Column({ space: 8 }) {
+    Column({ space: 12 }) {
+      Column({ space: 8 }) {
       Stack({ alignContent: Alignment.BottomEnd }) {
         Stack() {
           // 底层：渐变圆 + 昵称首字。iOS `AvatarBadge` 同款，也是「没设头像」或「图还没下来」时的样子
@@ -642,11 +752,39 @@ export struct MorePage {
         .fontColor(Theme.textMuted)
         .maxLines(2)
         .textAlign(TextAlign.Center)
+      }
+      .alignItems(HorizontalAlign.Center)
+      .onClick(() => {
+        this.navStack.pushPathByName('profile', null);
+      })
+
+      Divider().color(Theme.line)
+
+      Button() {
+        Row({ space: 8 }) {
+          SymbolGlyph($r('sys.symbol.person_2'))
+            .fontSize(16)
+            .fontColor([Theme.textMuted])
+          Text('切换账号')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+        }
+        .justifyContent(FlexAlign.Center)
+        .width('100%')
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ top: 10, bottom: 10 })
+      .borderRadius(12)
+      .onClick(() => {
+        this.openAccountSwitcher();
+      })
     }
-    .alignItems(HorizontalAlign.Center)
-    .onClick(() => {
-      this.navStack.pushPathByName('profile', null);
-    })
+    .width('100%')
+    .padding(16)
+    .backgroundColor(Theme.surface)
+    .borderRadius(16)
+    .border({ width: 1, color: Theme.line })
   }
 
   /** 胶囊三段切换（同 iOS `sectionPicker`）：选中段白底 9%，服务器段有待处理时打红点 */
@@ -654,29 +792,33 @@ export struct MorePage {
   SectionPicker() {
     Row({ space: 4 }) {
       ForEach(this.availableSections(), (section: MoreSection) => {
-        Row({ space: 7 }) {
-          Stack({ alignContent: Alignment.TopEnd }) {
-            SymbolGlyph(this.sectionIcon(section))
-              .fontSize(16)
-              .fontColor([this.visibleSection() === section ? Theme.text : Theme.textMuted])
-            if (section === MoreSection.server && this.isAdmin() && this.noticeCount > 0) {
-              Circle()
-                .width(6)
-                .height(6)
-                .backgroundColor(Theme.danger)
-                .offset({ x: 4, y: -3 })
+        Button() {
+          Row({ space: 7 }) {
+            Stack({ alignContent: Alignment.TopEnd }) {
+              SymbolGlyph(this.sectionIcon(section))
+                .fontSize(16)
+                .fontColor([this.visibleSection() === section ? Theme.text : Theme.textMuted])
+              if (section === MoreSection.server && this.isAdmin() && this.noticeCount > 0) {
+                Circle()
+                  .width(6)
+                  .height(6)
+                  .fill(Theme.danger)
+                  .offset({ x: 4, y: -3 })
+              }
             }
+            Text(this.sectionTitle(section))
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.visibleSection() === section ? Theme.text : Theme.textMuted)
           }
-          Text(this.sectionTitle(section))
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.visibleSection() === section ? Theme.text : Theme.textMuted)
+          .justifyContent(FlexAlign.Center)
+          .padding({ left: 6, right: 6 })
+          .constraintSize({ minHeight: 44 })
         }
-        .justifyContent(FlexAlign.Center)
+        .attributeModifier(new GlassButtonModifier(this.visibleSection() === section ? GlassTone.Strong : GlassTone.Secondary))
+        .padding(0)
+        .clip(true)
         .layoutWeight(1)
-        .padding({ left: 6, right: 6 })
-        .constraintSize({ minHeight: 44 })
-        .backgroundColor(this.visibleSection() === section ? 'rgba(255, 255, 255, 0.09)' : Color.Transparent)
         .borderRadius(22)
         .onClick(() => {
           this.selectedSection = section;
@@ -775,7 +917,7 @@ export struct MorePage {
           Circle()
             .width(7)
             .height(7)
-            .backgroundColor(Theme.info)
+            .fill(Theme.info)
           Text('进行中')
             .fontSize(12)
             .fontColor(Theme.info)
@@ -800,31 +942,44 @@ export struct MorePage {
   /** 左滑出来的三个图标按钮：续接 / 重命名 / 删除（顺序同 iOS，图标都用系统符号） */
   @Builder
   SessionSwipe(item: SessionSummary) {
-    Row() {
-      this.SwipeIcon($r('sys.symbol.arrowshape_3_triangle_path'), Theme.accentStrong, (): void => {
+    Row({ space: 8 }) {
+      this.SwipeIcon($r('sys.symbol.arrowshape_3_triangle_path'), Theme.accentStrong, GlassTone.Strong, (): void => {
         this.forkSession(item);
       })
-      this.SwipeIcon($r('sys.symbol.square_and_pencil'), Theme.textMuted, (): void => {
+      this.SwipeIcon($r('sys.symbol.square_and_pencil'), Theme.text, GlassTone.Secondary, (): void => {
         this.openRename(item);
       })
-      this.SwipeIcon($r('sys.symbol.trash'), Theme.danger, (): void => {
+      this.SwipeIcon($r('sys.symbol.trash'), Theme.danger, GlassTone.Danger, (): void => {
         this.confirmDeleteSession(item);
       })
     }
     .height('100%')
     .alignItems(VerticalAlign.Center)
+    .padding({ left: 8, right: 8, top: 6, bottom: 6 })
   }
 
+  /**
+   * 左滑按钮：官方 Button + 银玻璃（与全站 338 处按钮同一套 `GlassButtonModifier`）。
+   *
+   * 空间化材质（`systemMaterial`）只在官方标题栏 / 页签栏这类作用域里生效，
+   * 列表的 swipeAction 里会被系统判为 out of scope（实测无效果），所以这里用
+   * 应用统一的玻璃渐变 + 模糊 + 细描边，观感与底栏同一套。
+   */
   @Builder
-  SwipeIcon(icon: Resource, tint: string, action: () => void) {
-    Stack({ alignContent: Alignment.Center }) {
-      SymbolGlyph(icon)
-        .fontSize(18)
-        .fontColor([tint])
+  SwipeIcon(icon: Resource, tint: string, tone: GlassTone, action: () => void) {
+    Button() {
+      Stack({ alignContent: Alignment.Center }) {
+        SymbolGlyph(icon)
+          .fontSize(20)
+          .fontColor([tint])
+      }
+      .width(56)
+      .height('100%')
     }
-    .width(64)
-    .height('100%')
-    .backgroundColor(Theme.surfaceRaised)
+    .attributeModifier(new GlassButtonModifier(tone))
+    .padding(0)
+    .clip(true)
+    .borderRadius(16)
     .onClick(action)
   }
 
@@ -870,29 +1025,33 @@ export struct MorePage {
           this.renameDraft = value.length > 80 ? value.substring(0, 80) : value;
         })
       Row({ space: 10 }) {
-        Text('取消')
-          .fontSize(16)
-          .fontColor(Theme.textMuted)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            this.showRename = false;
-          })
-        Text('保存')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#0b0d12')
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            this.saveRename();
-          })
+        Button() {
+          Text('取消')
+            .fontSize(16)
+            .fontColor(Theme.textMuted)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          this.showRename = false;
+        })
+        Button() {
+          Text('保存')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          this.saveRename();
+        })
       }
       .width('100%')
     }
@@ -903,8 +1062,7 @@ export struct MorePage {
 
   /**
    * 服务器段（同 iOS `server`）：当前服务器地址卡（内嵌「服务器设置」行）+
-   * 管理员的「待处理」瓷砖（有待处理才出现）。iOS 还有「可用更新」瓷砖——
-   * 鸿蒙没有 ShellBadges 的版本对比数据源，不移植。
+   * 管理员的方形瓷砖：待处理（有待处理才出现）、可用更新（有更新快照才出现，同 iOS）。
    */
   @Builder
   ServerSectionItem() {
@@ -953,33 +1111,63 @@ export struct MorePage {
         .borderRadius(16)
         .border({ width: 1, color: Theme.line })
 
-        if (this.isAdmin() && this.noticeCount > 0) {
-          Column({ space: 10 }) {
-            Text('待处理')
-              .fontSize(12)
-              .fontColor(Theme.textMuted)
-            Text(`${this.noticeCount} 项`)
-              .fontSize(16)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(Theme.danger)
-            Text('查看提醒')
-              .fontSize(12)
-              .fontColor(Theme.textMuted)
+        if (this.isAdmin() && (this.noticeCount > 0 || this.updateLabel().length > 0)) {
+          Row({ space: 12 }) {
+            if (this.noticeCount > 0) {
+              this.ServerTile('待处理', `${this.noticeCount} 项`, '查看提醒', Theme.danger, (): void => {
+                this.navStack.pushPathByName('notices', null);
+              })
+            }
+            if (this.updateLabel().length > 0) {
+              this.ServerTile('可用更新', this.updateLabel(), '查看版本详情', Theme.info, (): void => {
+                this.navStack.pushPathByName('settingsSection', new SectionParams('app'));
+              })
+            }
           }
           .width('100%')
-          .alignItems(HorizontalAlign.Start)
-          .constraintSize({ minHeight: 88 })
-          .padding(16)
-          .backgroundColor(Theme.surface)
-          .borderRadius(16)
-          .border({ width: 1, color: Theme.line })
-          .onClick(() => {
-            this.navStack.pushPathByName('notices', null);
-          })
+          .alignItems(VerticalAlign.Top)
         }
       }
       .width('100%')
       .padding({ top: 4 })
     }
+  }
+
+  /**
+   * 服务器段的方形瓷砖（同 iOS `serverTile`）：标题 + 大字（状态色）+ 一行说明；
+   * 两张并排时各自等分（`layoutWeight`），只有一张时自动占满整行。
+   */
+  @Builder
+  ServerTile(title: string, value: string, detail: string, tint: string, onTap: () => void) {
+    Button() {
+      Column({ space: 10 }) {
+        Text(title)
+          .fontSize(12)
+          .fontColor(Theme.textMuted)
+        Text(value)
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(tint)
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(detail)
+          .fontSize(12)
+          .fontColor(Theme.textMuted)
+      }
+      // 撑满按钮：Button 的内容默认居中，不给宽度时整块文字被居中，左侧就多出一截空白，
+      // 两张瓷砖各按自己文字宽度居中，看起来还对不齐
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .constraintSize({ minHeight: 88 })
+      .padding(16)
+    }
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
+    .layoutWeight(1)
+    .borderRadius(16)
+    .onClick(() => {
+      onTap();
+    })
   }
 }

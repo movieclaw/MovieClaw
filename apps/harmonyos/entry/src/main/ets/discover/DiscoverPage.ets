@@ -1,4 +1,8 @@
+import { AppNavBar } from '../common/AppNavBar';
+import { WindowInsets } from '../common/WindowInsets';
 import { Theme } from '../theme/AppTheme';
+import { TabBarCollapse } from '../common/TabBarCollapse';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { RemoteImage } from '../common/RemoteImage';
@@ -122,12 +126,37 @@ function regionNameOf(code: string): string {
   }
   return code;
 }
+/** 视角选项（四个按钮）：类型 × 数据源 */
+class ViewpointOption {
+  readonly mediaType: string;
+  readonly source: string;
+  readonly label: string;
+
+  constructor(mediaType: string, source: string, label: string) {
+    this.mediaType = mediaType;
+    this.source = source;
+    this.label = label;
+  }
+}
+
+/** 滚动图下面固定的四个视角（顺序：TMDB 电影 / TMDB 剧集 / 豆瓣 电影 / 豆瓣 剧集） */
+const VIEWPOINTS: ViewpointOption[] = [
+  new ViewpointOption('movie', 'tmdb', 'TMDB 电影'),
+  new ViewpointOption('tv', 'tmdb', 'TMDB 剧集'),
+  new ViewpointOption('movie', 'douban', '豆瓣 电影'),
+  new ViewpointOption('tv', 'douban', '豆瓣 剧集')
+];
+
 @ComponentV2
 export struct DiscoverPage {
   /** 由 DiscoverNavHost 传入：点卡片进发现详情 */
   @Require @Param navStack: NavPathStack;
   /** 宿主工具栏「切视角」换一次值（'movie:tmdb' 这类）；用 @Monitor 接住执行 */
   @Param viewpointRequest: string = '';
+  /** 页内四个视角按钮切了：通知宿主同步标题与 viewpointRequest（双向一致） */
+  @Event onViewpointChange: (mediaType: string, source: string) => void =
+    (_mediaType: string, _source: string): void => {
+    };
   @Local mediaType: string = 'movie';
   @Local source: string = 'tmdb';
   /** 院线地区（仅电影 + TMDB 显示脚注） */
@@ -163,6 +192,8 @@ export struct DiscoverPage {
 
   /** 组合筛选条件（共享单例：NavHost 胶囊、筛选弹层与本页共用一份；TMDB 视角才有意义） */
   @Local filters: DiscoveryFilters = DiscoveryFilters.shared();
+  /** 内容区滚动器（宿主 bindToScrollable 要用同一个实例驱动标题栏） */
+  @Param scroller: Scroller = new Scroller();
 
   /** TMDB 且有条件 = 筛选模式：整页换成组合筛选网格（同 iOS `filtering`） */
   private filtering(): boolean {
@@ -386,6 +417,19 @@ export struct DiscoverPage {
     }
   }
 
+  /** 页内四个视角按钮：切本页视角，同时通知宿主同步标题（viewpointRequest 双向一致） */
+  private pickViewpoint(option: ViewpointOption): void {
+    if (option.mediaType === this.mediaType && option.source === this.source) {
+      return;
+    }
+    this.switchViewpoint(option.mediaType, option.source);
+    this.onViewpointChange(option.mediaType, option.source);
+  }
+
+  private isViewpoint(option: ViewpointOption): boolean {
+    return option.mediaType === this.mediaType && option.source === this.source;
+  }
+
   /** 点卡片：进发现详情（对应 iOS 的 MediaDetailView） */
   private openTitle(item: DiscoveredTitleView): void {
     this.navStack.pushPathByName('discoverDetail', new DiscoverDetailParams(item.title_ref));
@@ -399,7 +443,8 @@ export struct DiscoverPage {
         DiscoverFilteredGrid({
           navStack: this.navStack,
           mediaType: this.mediaType,
-          filters: this.filters
+          filters: this.filters,
+          scroller: this.scroller
         })
       } else if (this.feed.failure !== null && (this.feed.layout === null || this.feed.allRowsFailed())) {
         this.ErrorState()
@@ -425,18 +470,19 @@ export struct DiscoverPage {
           .fontColor(Theme.textMuted)
           .textAlign(TextAlign.Center)
       }
-      Text('重试')
-        .fontSize(15)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(20)
-        .border({ width: 1, color: Theme.lineStrong })
-        .onClick(() => {
-          this.feed.loaded = false;
-          this.load();
-        })
+      Button() {
+        Text('重试')
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+      .borderRadius(20)
+      .onClick(() => {
+        this.feed.loaded = false;
+        this.load();
+      })
     }
     .width('100%')
     .layoutWeight(1)
@@ -444,68 +490,136 @@ export struct DiscoverPage {
     .justifyContent(FlexAlign.Center)
   }
 
+  /**
+   * 滚动图下面的四个视角按钮：作为 `ListItemGroup` 的分组头，滚到顶部后**吸顶**
+   * （`List.sticky(StickyStyle.Header)`），滚回去再跟着内容落回滚动图下面。
+   */
+  @Builder
+  ViewpointHeader() {
+    Column() {
+      this.ViewpointBar()
+    }
+    .width('100%')
+    /*
+     * 吸顶时盖住状态栏区域：上留状态栏高度、下留 12 呼吸；背景不透明，
+     * 滚过去的片单藏在它后面。在流里它就是滚动图下面的一段间距。
+     */
+    .padding({
+      left: Theme.pagePadding,
+      right: Theme.pagePadding,
+      top: WindowInsets.shared().top,
+      bottom: 12
+    })
+    .backgroundColor(Theme.bg)
+  }
+
+  /** 四个视角按钮（分段选择器）：TMDB 电影 / TMDB 剧集 / 豆瓣 电影 / 豆瓣 剧集 */
+  @Builder
+  ViewpointBar() {
+    Row({ space: 4 }) {
+      ForEach(VIEWPOINTS, (option: ViewpointOption) => {
+        Button() {
+          Text(option.label)
+            .fontSize(13)
+            .fontWeight(this.isViewpoint(option) ? FontWeight.Medium : FontWeight.Normal)
+            .fontColor(this.isViewpoint(option) ? '#0b0d12' : Theme.textMuted)
+            .textAlign(TextAlign.Center)
+            .maxLines(1)
+        }
+        .attributeModifier(new GlassButtonModifier(this.isViewpoint(option) ? GlassTone.Primary : GlassTone.Strong))
+        .padding({ top: 7, bottom: 7 })
+        .layoutWeight(1)
+        .borderRadius(11)
+        .onClick(() => {
+          this.pickViewpoint(option);
+        })
+      }, (option: ViewpointOption) => `${option.mediaType}-${option.source}`)
+    }
+    .width('100%')
+    .padding(4)
+    .backgroundColor('rgba(255, 255, 255, 0.05)')
+    .borderRadius(14)
+    .border({ width: 1, color: 'rgba(255, 255, 255, 0.07)' })
+  }
+
   @Builder
   Content() {
     // 用 List 而不是 Scroll + Column：只有 List/Grid/Swiper/WaterFlow 才让 LazyForEach
     // 按可视区建组件。Hero 仍是普通 ListItem（不进 LazyForEach，同 iOS：大图别放进懒加载里）。
-    List() {
-      // Hero 块：加载中出骨架，有 Hero 出轮播；都没有就不占 ListItem（避免顶部凭空多 24）
+    List({ scroller: this.scroller }) {
+      // Hero 块：加载中出骨架，有 Hero 出轮播；都没有就空出标题栏
       if (this.feed.layout === null) {
         ListItem() {
           this.HeroSkeleton()
         }
-        .padding({ bottom: 24 })
       } else if (this.feed.hero !== null && (this.feed.hero as DiscoveredTitleView[]).length > 0) {
         ListItem() {
           this.Hero()
         }
-        .padding({ bottom: 24 })
+      } else {
+        // 没有 Hero（版面没配或失败）：空出标题栏，四个视角按钮直接顶到标题栏下面
+        ListItem() {
+          Column()
+            .width('100%')
+            .height(AppNavBar.contentTop - WindowInsets.shared().top)
+        }
       }
 
-      if (this.feed.layout === null) {
-        ListItem() {
-          this.RowSkeleton()
-        }
-        .padding({ bottom: 24 })
-        ListItem() {
-          this.RowSkeleton()
-        }
-        .padding({ bottom: 24 })
-      } else {
-        LazyForEach(this.rowsSource, (row: DiscoverRow) => {
+      // 四个视角按钮 = 分组头：滚到顶部后固定在顶部
+      ListItemGroup({ header: this.ViewpointHeader() }) {
+        if (this.feed.layout === null) {
           ListItem() {
-            DiscoverRowView({
-              row: row,
-              origin: AppModel.origin(),
-              onOpenTitle: (item: DiscoveredTitleView): void => {
-                this.openTitle(item);
-              },
-              onOpenAll: (): void => {
-                this.navStack.pushPathByName('discoverCollection',
-                  new DiscoverCollectionParams(row.ref, row.title));
-              }
-            })
+            this.RowSkeleton()
           }
           .padding({ bottom: 24 })
-        }, (row: DiscoverRow) => row.ref)
-        if (this.mediaType === 'movie' && this.source === 'tmdb') {
           ListItem() {
-            this.RegionFooter()
+            this.RowSkeleton()
           }
           .padding({ bottom: 24 })
+        } else {
+          LazyForEach(this.rowsSource, (row: DiscoverRow) => {
+            ListItem() {
+              DiscoverRowView({
+                row: row,
+                origin: AppModel.origin(),
+                onOpenTitle: (item: DiscoveredTitleView): void => {
+                  this.openTitle(item);
+                },
+                onOpenAll: (): void => {
+                  this.navStack.pushPathByName('discoverCollection',
+                    new DiscoverCollectionParams(row.ref, row.title));
+                }
+              })
+            }
+            .padding({ bottom: 24 })
+          }, (row: DiscoverRow) => row.ref)
+          if (this.mediaType === 'movie' && this.source === 'tmdb') {
+            ListItem() {
+              this.RegionFooter()
+            }
+            .padding({ bottom: 24 })
+          }
         }
       }
+      .width('100%')
+
       ListItem() {
         AppFooter()
       }
     }
+    .sticky(StickyStyle.Header)
     .scrollBar(BarState.Off)
     .width('100%')
     .layoutWeight(1)
     .edgeEffect(EdgeEffect.Spring)
     // 可视区上下各多缓存两行，快速滑动少建少销毁
+    // 向下滚累计到阈值：底栏收成圆形按钮（往回滑立刻放回）
+    .onDidScroll((xOffset: number, yOffset: number) => {
+      TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset);
+    })
     .cachedCount(2)
-    .padding({ bottom: Theme.tabBarInset })
+    // 底部让位用 contentEndOffset：内容能滚到页签胶囊/手势条下面，胶囊背后不再是黑底
+    .contentEndOffset(Theme.tabBarInset)
   }
 
   /**
@@ -587,17 +701,21 @@ export struct DiscoverPage {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       if (this.canSubscribe()) {
-        Row({ space: 6 }) {
-          SymbolGlyph($r('sys.symbol.plus'))
-            .fontSize(15)
-            .fontColor(['#0b0d12'])
-          Text('订阅影片')
-            .fontSize(15)
-            .fontWeight(600)
-            .fontColor('#0b0d12')
+        Button() {
+          Row({ space: 6 }) {
+            SymbolGlyph($r('sys.symbol.plus'))
+              .fontSize(15)
+              .fontColor(['#0b0d12'])
+            Text('订阅影片')
+              .fontSize(15)
+              .fontWeight(600)
+              .fontColor('#0b0d12')
+          }
+          .padding({ left: 16, right: 16, top: 9, bottom: 9 })
         }
-        .padding({ left: 16, right: 16, top: 9, bottom: 9 })
-        .backgroundColor(Theme.accent)
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding(0)
+        .clip(true)
         .borderRadius(18)
         .margin({ top: 6 })
         .onClick(() => {

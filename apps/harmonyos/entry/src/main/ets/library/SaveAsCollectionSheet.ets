@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
@@ -210,29 +211,32 @@ export struct SaveAsCollectionSheet {
 
   @Builder
   ModeCard(snapshot: boolean, title: string, blurb: string) {
-    Row({ space: 12 }) {
-      SymbolGlyph(this.snapshot === snapshot
-        ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.circle'))
-        .fontSize(20)
-        .fontColor([this.snapshot === snapshot ? Theme.accent : Theme.textFaint])
-      Column({ space: 3 }) {
-        Text(title)
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
-        Text(blurb)
-          .fontSize(13)
-          .fontColor(Theme.textMuted)
+    Button() {
+      Row({ space: 12 }) {
+        SymbolGlyph(this.snapshot === snapshot
+          ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.circle'))
+          .fontSize(20)
+          .fontColor([this.snapshot === snapshot ? Theme.accent : Theme.textFaint])
+        Column({ space: 3 }) {
+          Text(title)
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+          Text(blurb)
+            .fontSize(13)
+            .fontColor(Theme.textMuted)
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
       }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .alignItems(VerticalAlign.Top)
+      .padding(14)
     }
-    .width('100%')
-    .alignItems(VerticalAlign.Top)
-    .padding(14)
-    .backgroundColor(this.snapshot === snapshot ? Theme.surfaceRaised : Theme.surface)
+    .attributeModifier(new GlassButtonModifier(this.snapshot === snapshot ? GlassTone.Secondary : GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(Theme.cardRadius)
-    .border({ width: 1, color: this.snapshot === snapshot ? Theme.accent : Theme.line })
     .onClick(() => {
       this.snapshot = snapshot;
     })
@@ -240,20 +244,22 @@ export struct SaveAsCollectionSheet {
 
   @Builder
   SaveButton() {
-    Text(this.busy ? '保存中…' : '存为合集')
-      .fontSize(16)
-      .fontWeight(600)
-      .fontColor(this.busy ? Theme.textFaint : '#0b0d12')
-      .textAlign(TextAlign.Center)
-      .width('100%')
-      .padding({ top: 14, bottom: 14 })
-      .backgroundColor(this.busy ? Theme.glassFill : Theme.accent)
-      .borderRadius(Theme.cardRadius)
-      .margin({ top: 6 })
-      .onClick(() => {
-        if (!this.busy) {
-          this.save();
-        }
-      })
+    Button() {
+      Text(this.busy ? '保存中…' : '存为合集')
+        .fontSize(16)
+        .fontWeight(600)
+        .fontColor(this.busy ? Theme.textFaint : '#0b0d12')
+        .textAlign(TextAlign.Center)
+    }
+    .attributeModifier(new GlassButtonModifier(this.busy ? GlassTone.Secondary : GlassTone.Primary))
+    .width('100%')
+    .padding({ top: 14, bottom: 14 })
+    .borderRadius(Theme.cardRadius)
+    .margin({ top: 6 })
+    .onClick(() => {
+      if (!this.busy) {
+        this.save();
+      }
+    })
   }
 }

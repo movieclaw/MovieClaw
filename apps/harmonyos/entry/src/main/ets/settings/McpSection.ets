@@ -1,4 +1,6 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { SettingsSegmentChip } from '../common/SettingsControls';
 import { RemoteImage } from '../common/RemoteImage';
 import { AppModel } from '../common/AppModel';
@@ -129,6 +131,8 @@ class McpFormat {
 
 @ComponentV2
 export struct McpSection {
+  /** 页面级滚动器：内容铺到标题栏下面，滚动时由宿主绑定驱动渐变模糊 */
+  @Param scroller: Scroller = new Scroller();
   @Local private status: StatusView | null = null;
   @Local private loading: boolean = true;
   @Local private errorMessage: string = '';
@@ -434,7 +438,7 @@ export struct McpSection {
         .justifyContent(FlexAlign.Center)
       } else {
         Refresh({ refreshing: $$this.refreshing }) {
-          Scroll() {
+          Scroll(this.scroller) {
             Column({ space: 12 }) {
               if (this.errorMessage.length > 0) {
                 Text(this.errorMessage)
@@ -456,16 +460,18 @@ export struct McpSection {
                   .fontSize(13)
                   .fontColor(Theme.textFaint)
                   .layoutWeight(1)
-                Text('＋ 新建端点')
-                  .fontSize(13)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor(Theme.text)
-                  .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-                  .backgroundColor(Theme.glassFill)
-                  .borderRadius(12)
-                  .onClick((): void => {
-                    this.openCreate();
-                  })
+                Button() {
+                  Text('＋ 新建端点')
+                    .fontSize(13)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(Theme.text)
+                }
+                .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+                .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                .borderRadius(12)
+                .onClick((): void => {
+                  this.openCreate();
+                })
               }
               .width('100%')
               .alignItems(VerticalAlign.Center)
@@ -510,7 +516,7 @@ export struct McpSection {
               AppFooter()
             }
             .width('100%')
-            .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+            .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
           }
           .layoutWeight(1)
           .align(Alignment.TopStart)
@@ -564,10 +570,10 @@ export struct McpSection {
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
       Toggle({ type: ToggleType.Switch, isOn: view.enabled })
-        .selectedColor(Theme.accent)
-        .onChange((on: boolean): void => {
-          this.toggleMaster(on);
-        })
+      .attributeModifier(new GlassSwitchModifier())
+      .onChange((on: boolean): void => {
+        this.toggleMaster(on);
+      })
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
@@ -867,16 +873,18 @@ export struct McpSection {
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
-        Text(this.busyId === (this.detailEndpoint() as EndpointView).id ? '…' : '运行自检')
-          .fontSize(13)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
-          .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(14)
-          .onClick((): void => {
-            this.selfCheck(this.detailEndpoint() as EndpointView);
-          })
+        Button() {
+          Text(this.busyId === (this.detailEndpoint() as EndpointView).id ? '…' : '运行自检')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+        .borderRadius(14)
+        .onClick((): void => {
+          this.selfCheck(this.detailEndpoint() as EndpointView);
+        })
       }
       .width('100%')
       .padding(14)
@@ -979,10 +987,10 @@ export struct McpSection {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
         Toggle({ type: ToggleType.Switch, isOn: (this.detailEndpoint() as EndpointView).enabled })
-          .selectedColor(Theme.accent)
-          .onChange((on: boolean): void => {
-            this.toggleEndpoint(this.detailEndpoint() as EndpointView, on);
-          })
+        .attributeModifier(new GlassSwitchModifier())
+        .onChange((on: boolean): void => {
+          this.toggleEndpoint(this.detailEndpoint() as EndpointView, on);
+        })
       }
       .width('100%')
       .padding(14)
@@ -990,42 +998,48 @@ export struct McpSection {
       .borderRadius(Theme.cardRadius)
       .border({ width: 1, color: Theme.line })
 
-      Text('编辑配置')
-        .fontSize(15)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#0b0d12')
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 13, bottom: 13 })
-        .backgroundColor(Theme.accent)
-        .borderRadius(Theme.cardRadius)
-        .onClick((): void => {
-          this.openEdit(this.detailEndpoint() as EndpointView);
-        })
+      Button() {
+        Text('编辑配置')
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#0b0d12')
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+      .width('100%')
+      .padding({ top: 13, bottom: 13 })
+      .borderRadius(Theme.cardRadius)
+      .onClick((): void => {
+        this.openEdit(this.detailEndpoint() as EndpointView);
+      })
 
-      Text(this.busyId === (this.detailEndpoint() as EndpointView).id ? '…' : '轮换访问令牌')
-        .fontSize(15)
-        .fontColor(Theme.text)
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 13, bottom: 13 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(Theme.cardRadius)
-        .onClick((): void => {
-          this.confirmRotate(this.detailEndpoint() as EndpointView);
-        })
+      Button() {
+        Text(this.busyId === (this.detailEndpoint() as EndpointView).id ? '…' : '轮换访问令牌')
+          .fontSize(15)
+          .fontColor(Theme.text)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 13, bottom: 13 })
+      .borderRadius(Theme.cardRadius)
+      .onClick((): void => {
+        this.confirmRotate(this.detailEndpoint() as EndpointView);
+      })
 
-      Text('删除端点')
-        .fontSize(15)
-        .fontColor(Theme.danger)
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 13, bottom: 13 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(Theme.cardRadius)
-        .onClick((): void => {
-          this.confirmDelete(this.detailEndpoint() as EndpointView);
-        })
+      Button() {
+        Text('删除端点')
+          .fontSize(15)
+          .fontColor(Theme.danger)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 13, bottom: 13 })
+      .borderRadius(Theme.cardRadius)
+      .onClick((): void => {
+        this.confirmDelete(this.detailEndpoint() as EndpointView);
+      })
     }
   }
 
@@ -1192,10 +1206,10 @@ export struct McpSection {
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
               Toggle({ type: ToggleType.Switch, isOn: this.formExpand })
-                .selectedColor(Theme.accent)
-                .onChange((on: boolean): void => {
-                  this.formExpand = on;
-                })
+              .attributeModifier(new GlassSwitchModifier())
+              .onChange((on: boolean): void => {
+                this.formExpand = on;
+              })
             }
             .width('100%')
             .padding({ left: 16, right: 16, top: 11, bottom: 11 })
@@ -1212,10 +1226,10 @@ export struct McpSection {
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
               Toggle({ type: ToggleType.Switch, isOn: this.formEnabled })
-                .selectedColor(Theme.accent)
-                .onChange((on: boolean): void => {
-                  this.formEnabled = on;
-                })
+              .attributeModifier(new GlassSwitchModifier())
+              .onChange((on: boolean): void => {
+                this.formEnabled = on;
+              })
             }
             .width('100%')
             .padding({ left: 16, right: 16, top: 11, bottom: 11 })

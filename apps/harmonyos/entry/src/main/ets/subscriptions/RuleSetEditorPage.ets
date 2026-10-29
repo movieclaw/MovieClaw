@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
@@ -695,18 +696,20 @@ export struct RuleSetEditorBody {
         // 回执
         this.Receipt()
 
-        Text(this.busy ? '保存中…' : '保存')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.name.trim().length > 0 && !this.busy ? '#0b0d12' : Theme.textFaint)
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 14, bottom: 14 })
-          .backgroundColor(this.name.trim().length > 0 && !this.busy ? Theme.accent : Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            this.submit();
-          })
+        Button() {
+          Text(this.busy ? '保存中…' : '保存')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.name.trim().length > 0 && !this.busy ? '#0b0d12' : Theme.textFaint)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(this.name.trim().length > 0 && !this.busy ? GlassTone.Primary : GlassTone.Secondary))
+        .width('100%')
+        .padding({ top: 14, bottom: 14 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          this.submit();
+        })
 
         if (this.failed) {
           Text('（规则组清单加载失败，保存可能覆盖不了原有字段，请重试）')
@@ -736,28 +739,31 @@ export struct RuleSetEditorBody {
 
   @Builder
   SectionHeader(title: string, summary: string, key: string) {
-    Row({ space: 10 }) {
-      Text(title)
-        .fontSize(17)
-        .fontWeight(600)
-        .fontColor(Theme.text)
-      Blank()
-      Text(summary)
-        .fontSize(13)
-        .fontColor(Theme.textMuted)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .layoutWeight(2)
-        .textAlign(TextAlign.End)
-      SymbolGlyph(this.isOpen(key) ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
-        .fontSize(13)
-        .fontColor([Theme.textFaint])
+    Button() {
+      Row({ space: 10 }) {
+        Text(title)
+          .fontSize(17)
+          .fontWeight(600)
+          .fontColor(Theme.text)
+        Blank()
+        Text(summary)
+          .fontSize(13)
+          .fontColor(Theme.textMuted)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(2)
+          .textAlign(TextAlign.End)
+        SymbolGlyph(this.isOpen(key) ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
+          .fontSize(13)
+          .fontColor([Theme.textFaint])
+      }
+      .width('100%')
+      .padding({ left: 14, right: 14, top: 13, bottom: 13 })
     }
-    .width('100%')
-    .padding({ left: 14, right: 14, top: 13, bottom: 13 })
-    .backgroundColor(Theme.surface)
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(Theme.cardRadius)
-    .border({ width: 1, color: Theme.line })
     .onClick(() => {
       this.toggleSection(key);
     })
@@ -1247,27 +1253,30 @@ struct RuleChip {
   };
 
   build() {
-    Row({ space: 4 }) {
-      if (this.order > 0) {
-        Text(`${this.order}`)
-          .fontSize(10)
-          .fontWeight(600)
-          .fontColor('#0b0d12')
-          .width(16)
-          .height(16)
-          .textAlign(TextAlign.Center)
-          .backgroundColor('rgba(0,0,0,0.14)')
-          .borderRadius(7)
+    Button() {
+      Row({ space: 4 }) {
+        if (this.order > 0) {
+          Text(`${this.order}`)
+            .fontSize(10)
+            .fontWeight(600)
+            .fontColor('#0b0d12')
+            .width(16)
+            .height(16)
+            .textAlign(TextAlign.Center)
+            .backgroundColor('rgba(0,0,0,0.14)')
+            .borderRadius(7)
+        }
+        Text(this.label)
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.active ? '#0b0d12' : Theme.textMuted)
       }
-      Text(this.label)
-        .fontSize(15)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.active ? '#0b0d12' : Theme.textMuted)
+      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
     }
-    .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-    .backgroundColor(this.active ? Theme.accent : Theme.glassFill)
+    .attributeModifier(new GlassButtonModifier(this.active ? GlassTone.Primary : GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(14)
-    .border({ width: 1, color: this.active ? Theme.accent : Theme.line })
     .onClick(() => {
       this.onTap();
     })
@@ -1294,17 +1303,18 @@ struct RuleTriChip {
   }
 
   build() {
-    Text(this.label)
-      .fontSize(15)
-      .fontWeight(FontWeight.Medium)
-      .fontColor(this.color())
-      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-      .backgroundColor(this.state === 'off' ? Theme.glassFill : 'rgba(94,234,212,0.10)')
-      .borderRadius(14)
-      .border({ width: 1, color: this.state === 'off' ? Theme.line : this.color() })
-      .onClick(() => {
-        this.onTap();
-      })
+    Button() {
+      Text(this.label)
+        .fontSize(15)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.color())
+    }
+    .attributeModifier(new GlassButtonModifier(this.state === 'off' ? GlassTone.Secondary : GlassTone.Info))
+    .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+    .borderRadius(14)
+    .onClick(() => {
+      this.onTap();
+    })
   }
 }
 
@@ -1332,10 +1342,10 @@ struct RuleToggleRow {
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
       Toggle({ type: ToggleType.Switch, isOn: this.value })
-        .selectedColor(Theme.accent)
-        .onChange((isOn: boolean): void => {
-          this.onToggle(isOn);
-        })
+      .attributeModifier(new GlassSwitchModifier())
+      .onChange((isOn: boolean): void => {
+        this.onToggle(isOn);
+      })
     }
     .width('100%')
   }

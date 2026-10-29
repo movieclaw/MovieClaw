@@ -1,6 +1,8 @@
 import { display, LengthMetrics } from '@kit.ArkUI';
 
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { SHELL_LAYOUT_REVISION_KEY } from '../common/WindowInsets';
 import { RecycleParams } from './RecycleBinPage';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
@@ -145,6 +147,13 @@ class WallRowSource implements IDataSource {
  */
 @Component
 struct LibraryDetailPage {
+  /**
+   * 外壳布局版本号（避让区变化 / 底栏样式切换时自增）。
+   *
+   * 本页是 V1 `@Component`，观测不到 `WindowInsets` / `TabBarStyle` 的 `@Trace`；
+   * 靠这个 AppStorage 单向同步的字段整页重排，build 里再读 `Theme.tabBarInset` 就是新值。
+   */
+  @StorageProp(SHELL_LAYOUT_REVISION_KEY) shellLayoutRevision: number = 0;
   private libraryId: number = 0;
   private navStack: NavPathStack = new NavPathStack();
   private permissions: Permissions = Permissions.none();
@@ -180,6 +189,8 @@ struct LibraryDetailPage {
   @State private refreshing: boolean = false;
   /** 海报墙列数（按屏宽算：竖版最小列宽 140pt、列距 12，同 Web/iOS 口径） */
   @State private columns: number = Theme.posterColumns();
+  /** 双指捏合调列数（华为视频热播区同款）：起始时记基准，按 scale 换算目标列数 */
+  private pinchBase: number = Theme.posterColumns();
   /** 主墙的行数据源（LazyForEach 只建可视区附近的行） */
   private wallRows: WallRowSource = new WallRowSource();
   /** 墙顶在页面内容里的纵向位置：A–Z 跳转后把窗口第一格钉回视野顶部用的近似锚点 */
@@ -981,31 +992,48 @@ struct LibraryDetailPage {
     })
   }
 
-  /** 自绘顶栏：返回 + 库名（+ 右上角 ⋯），高度把状态栏算进去 */
+  /** 顶栏标题（@Builder 里不能声明局部变量，库名抽成方法） */
+  private libraryTitle(): string {
+    const library: LibraryView | null = this.library();
+    return library === null ? '' : library.name;
+  }
+
+  /**
+   * 自绘顶栏：返回 + 库名 + 作品/合集分段 + 右上角动作。
+   * 库名紧跟返回键（同 iOS 导航标题）；页面库头不再重复大字标题，
+   * 只留元信息（「电影库 · 66 部作品 · …」）与状态。
+   */
   @Builder
   TopBar() {
-    Row({ space: 10 }) {
-      SymbolGlyph($r('sys.symbol.chevron_left'))
+    Row({ space: 8 }) {
+      Button() {
+        SymbolGlyph($r('sys.symbol.chevron_left'))
         .fontSize(22)
         .fontColor([Theme.text])
-        .width(38)
-        .height(38)
-        .backgroundColor('rgba(0,0,0,0.35)')
-        .borderRadius(19)
-        .onClick(() => {
-          this.navStack.pop();
-        })
-      Text(this.library() !== null ? (this.library() as LibraryView).name : '')
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+      .padding(0)
+      .clip(true)
+      .width(38)
+      .height(38)
+      .borderRadius(19)
+      .onClick(() => {
+        this.navStack.pop();
+      })
+      Text(this.libraryTitle())
         .fontSize(17)
-        .fontWeight(FontWeight.Medium)
+        .fontWeight(FontWeight.Bold)
         .fontColor(Theme.text)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
+      if (this.hasSegmented()) {
+        this.Segmented()
+      }
       this.TopRight()
     }
     .width('100%')
-    .padding({ left: 12, right: 12, top: Theme.statusBarInset + 6, bottom: 6 })
+    .padding({ left: 12, right: 12, top: Theme.shellTopInset + 6, bottom: 6 })
   }
 
   /** 右上角动作：⋯ 菜单 + 忙态圆点（对应 iOS `topBarTrailing actionsMenu`） */
@@ -1032,46 +1060,38 @@ struct LibraryDetailPage {
     }
   }
 
-  /** 作品 / 合集分段切换（iOS 放在导航 principal；原生标题占主位后落到库头下方居中） */
-  @Builder
-  SegmentedBar() {
-    if (this.hasSegmented()) {
-      Row() {
-        this.Segmented()
-      }
-      .width('100%')
-      .justifyContent(FlexAlign.Center)
-      .padding({ top: 4, bottom: 4 })
-    }
-  }
-
+  /** 作品 / 合集分段切换（放在顶栏中间，同 iOS 的导航 principal） */
   @Builder
   Segmented() {
     Row() {
-      Text('作品')
-        .fontSize(13)
-        .fontWeight(600)
-        .fontColor(this.view === 'items' ? Theme.text : Theme.textMuted)
-        .padding({ left: 16, right: 16, top: 5, bottom: 5 })
-        .backgroundColor(this.view === 'items' ? 'rgba(255, 255, 255, 0.16)' : Color.Transparent)
-        .borderRadius({ topLeft: 9, bottomLeft: 9 })
-        .onClick(() => {
-          if (this.view !== 'items') {
-            this.view = 'items';
-          }
-        })
-      Text('合集')
-        .fontSize(13)
-        .fontWeight(600)
-        .fontColor(this.view === 'collections' ? Theme.text : Theme.textMuted)
-        .padding({ left: 16, right: 16, top: 5, bottom: 5 })
-        .backgroundColor(this.view === 'collections' ? 'rgba(255, 255, 255, 0.16)' : Color.Transparent)
-        .borderRadius({ topRight: 9, bottomRight: 9 })
-        .onClick(() => {
-          if (this.view !== 'collections') {
-            this.view = 'collections';
-          }
-        })
+      Button() {
+        Text('作品')
+          .fontSize(13)
+          .fontWeight(600)
+          .fontColor(this.view === 'items' ? Theme.text : Theme.textMuted)
+      }
+      .attributeModifier(new GlassButtonModifier(this.view === 'items' ? GlassTone.Strong : GlassTone.Secondary))
+      .padding({ left: 16, right: 16, top: 5, bottom: 5 })
+      .borderRadius({ topLeft: 9, bottomLeft: 9 })
+      .onClick(() => {
+        if (this.view !== 'items') {
+          this.view = 'items';
+        }
+      })
+      Button() {
+        Text('合集')
+          .fontSize(13)
+          .fontWeight(600)
+          .fontColor(this.view === 'collections' ? Theme.text : Theme.textMuted)
+      }
+      .attributeModifier(new GlassButtonModifier(this.view === 'collections' ? GlassTone.Strong : GlassTone.Secondary))
+      .padding({ left: 16, right: 16, top: 5, bottom: 5 })
+      .borderRadius({ topRight: 9, bottomRight: 9 })
+      .onClick(() => {
+        if (this.view !== 'collections') {
+          this.view = 'collections';
+        }
+      })
     }
     .backgroundColor('rgba(255, 255, 255, 0.06)')
     .borderRadius(9)
@@ -1088,17 +1108,18 @@ struct LibraryDetailPage {
         Text('与后端通信失败')
           .fontSize(13)
           .fontColor(Theme.textFaint)
-        Text('重试')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.accentStrong)
-          .padding({ left: 20, right: 20, top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(20)
-          .border({ width: 1, color: Theme.lineStrong })
-          .onClick(() => {
-            this.reload();
-          })
+        Button() {
+          Text('重试')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(Theme.accentStrong)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .onClick(() => {
+          this.reload();
+        })
       }
       .width('100%')
       .layoutWeight(1)
@@ -1145,9 +1166,6 @@ struct LibraryDetailPage {
           ListItem() {
             this.Header(library)
           }
-          ListItem() {
-            this.SegmentedBar()
-          }
           if (!library.viewer_access) {
             ListItem() {
               this.HiddenContent()
@@ -1184,9 +1202,22 @@ struct LibraryDetailPage {
         .width('100%')
         .height('100%')
         .edgeEffect(EdgeEffect.None)
+        // 双指捏合缩放海报墙（华为视频热播区同款）：捏拢格子变大列数变少，张开变多。
+        // 双指才触发，单指滚动不受影响；换列后整墙按新列数重切（LazyForEach 按行 key 复用）。
+        .gesture(PinchGesture({ fingers: 2 })
+          .onActionStart(() => {
+            this.pinchBase = this.columns;
+          })
+          .onActionUpdate((event: GestureEvent) => {
+            const target: number = Math.max(2, Math.min(6, Math.round(this.pinchBase * event.scale)));
+            if (target !== this.columns) {
+              this.columns = target;
+              this.wallRows.setItems(this.wallItems ?? [], this.columns);
+            }
+          }))
         // 墙可视区上下各多缓存几行，快速滑动时少建少销毁
         .cachedCount(4)
-        .padding({ bottom: Theme.tabBarInset })
+        .contentEndOffset(Theme.tabBarInset)
         .onReachEnd(() => {
           this.onReachEnd();
         })
@@ -1234,40 +1265,35 @@ struct LibraryDetailPage {
   @Builder
   Header(library: LibraryView) {
     Column({ space: 8 }) {
-      Row({ space: 10 }) {
-        Text(library.name)
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.text)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .layoutWeight(1)
-        if (library.is_default) {
-          Text('默认')
-            .fontSize(11)
-            .fontWeight(600)
-            .fontColor('rgba(255, 255, 255, 0.9)')
-            .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-            .backgroundColor('rgba(255, 255, 255, 0.12)')
-            .borderRadius(9)
-            .border({ width: 1, color: 'rgba(255, 255, 255, 0.14)' })
-        }
-        if (!library.viewer_access) {
-          Row({ space: 4 }) {
-            SymbolGlyph($r('sys.symbol.lock_fill'))
-              .fontSize(11)
-              .fontColor([Theme.warning])
-            Text('仅管理')
+      if (library.is_default || !library.viewer_access) {
+        Row({ space: 6 }) {
+          if (library.is_default) {
+            Text('默认')
               .fontSize(11)
               .fontWeight(600)
-              .fontColor(Theme.warning)
+              .fontColor('rgba(255, 255, 255, 0.9)')
+              .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+              .backgroundColor('rgba(255, 255, 255, 0.12)')
+              .borderRadius(9)
+              .border({ width: 1, color: 'rgba(255, 255, 255, 0.14)' })
           }
-          .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-          .backgroundColor('rgba(251, 191, 36, 0.12)')
-          .borderRadius(9)
+          if (!library.viewer_access) {
+            Row({ space: 4 }) {
+              SymbolGlyph($r('sys.symbol.lock_fill'))
+                .fontSize(11)
+                .fontColor([Theme.warning])
+              Text('仅管理')
+                .fontSize(11)
+                .fontWeight(600)
+                .fontColor(Theme.warning)
+            }
+            .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+            .backgroundColor('rgba(251, 191, 36, 0.12)')
+            .borderRadius(9)
+          }
         }
+        .width('100%')
       }
-      .width('100%')
       Text(`${LibraryKindMeta.label(library.kind)}库 · ${library.stats.item_count} ${library.kind === 'photo' ? '张' : '部作品'} · ${library.stats.file_count} 个文件 · ${libraryBytes(library.stats.total_size_bytes)}`)
         .fontSize(15)
         .fontColor(Theme.textMuted)
@@ -1374,43 +1400,46 @@ struct LibraryDetailPage {
           this.Chip(Theme.info, Theme.info, `${this.libraryJobs().length} 个后台任务正在处理库内影片`)
         }
         if (this.missingCount > 0) {
-          Text(`${this.missingCount} 个条目缺失`)
-            .fontSize(13)
-            .fontWeight(600)
-            .fontColor('rgba(255, 255, 255, 0.6)')
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor('rgba(255, 255, 255, 0.072)')
-            .borderRadius(16)
-            .border({ width: 1, color: 'rgba(255, 255, 255, 0.21)' })
-            .onClick(() => {
-              this.openIssues('missing');
-            })
+          Button() {
+            Text(`${this.missingCount} 个条目缺失`)
+              .fontSize(13)
+              .fontWeight(600)
+              .fontColor('rgba(255, 255, 255, 0.6)')
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .borderRadius(16)
+          .onClick(() => {
+            this.openIssues('missing');
+          })
         }
         if (this.unidentifiedCount > 0) {
-          Text(`${this.unidentifiedFiles} 个文件待识别${this.unidentifiedCount > 1 ? ` · ${this.unidentifiedCount} 组` : ''}`)
-            .fontSize(13)
-            .fontWeight(600)
-            .fontColor(Theme.warning)
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor('rgba(251, 191, 36, 0.12)')
-            .borderRadius(16)
-            .border({ width: 1, color: 'rgba(251, 191, 36, 0.35)' })
-            .onClick(() => {
-              this.openIssues('unidentified');
-            })
+          Button() {
+            Text(`${this.unidentifiedFiles} 个文件待识别${this.unidentifiedCount > 1 ? ` · ${this.unidentifiedCount} 组` : ''}`)
+              .fontSize(13)
+              .fontWeight(600)
+              .fontColor(Theme.warning)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Warn))
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .borderRadius(16)
+          .onClick(() => {
+            this.openIssues('unidentified');
+          })
         }
         if (this.reviewCount > 0) {
-          Text(`${this.reviewCount} 个条目待复核身份`)
-            .fontSize(13)
-            .fontWeight(600)
-            .fontColor(Theme.warning)
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor('rgba(251, 191, 36, 0.12)')
-            .borderRadius(16)
-            .border({ width: 1, color: 'rgba(251, 191, 36, 0.35)' })
-            .onClick(() => {
-              this.openIssues('review');
-            })
+          Button() {
+            Text(`${this.reviewCount} 个条目待复核身份`)
+              .fontSize(13)
+              .fontWeight(600)
+              .fontColor(Theme.warning)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Warn))
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .borderRadius(16)
+          .onClick(() => {
+            this.openIssues('review');
+          })
         }
       }
       .width('100%')
@@ -1466,17 +1495,18 @@ struct LibraryDetailPage {
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
       if (this.canManage()) {
-        Text('把我加入可见范围')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.accentStrong)
-          .padding({ left: 20, right: 20, top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(20)
-          .border({ width: 1, color: Theme.lineStrong })
-          .onClick(() => {
-            this.openSheet('edit');
-          })
+        Button() {
+          Text('把我加入可见范围')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(Theme.accentStrong)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .onClick(() => {
+          this.openSheet('edit');
+        })
       }
     }
     .width('100%')
@@ -1601,21 +1631,34 @@ struct LibraryDetailPage {
     }
   }
 
+  /**
+   * 排序按钮：作为筛选条的行首插槽塞进去——「按标题 / 筛选 / HDR·合集」排在同一行，
+   * 不再上下各占一行。
+   */
+  @Builder
+  SortMenuSlot() {
+    WallSortMenu({
+      options: this.sortOptions(),
+      sort: this.sort,
+      onPick: (value: string): void => {
+        this.onSortPick(value);
+      },
+      onToggleDirection: (): void => {
+        this.onSortToggleDirection();
+      }
+    })
+  }
+
   @Builder
   FilterControls() {
     Column({ space: 10 }) {
-      WallSortMenu({
-        options: this.sortOptions(),
-        sort: this.sort,
-        onPick: (value: string): void => {
-          this.onSortPick(value);
-        },
-        onToggleDirection: (): void => {
-          this.onSortToggleDirection();
-        }
-      })
       LibraryFilterBar({
         libraryId: this.libraryId,
+        // 箭头函数包裹：直接传 this.SortMenuSlot 会让 builder 的 this 指向子组件，
+        // 里面 this.sortOptions() 就变成 undefined（官方 FAQ faqs-arkui-229）
+        leading: (): void => {
+          this.SortMenuSlot();
+        },
         filter: this.filter,
         collections: this.collections,
         onToggle: (dim: string, value: string): void => {
@@ -1803,17 +1846,18 @@ struct LibraryDetailPage {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
         if (this.canManage()) {
-          Text('去待处理认领')
-            .fontSize(13)
-            .fontWeight(600)
-            .fontColor(Theme.accentStrong)
-            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(18)
-            .border({ width: 1, color: Theme.line })
-            .onClick(() => {
-              this.openIssues('unidentified');
-            })
+          Button() {
+            Text('去待处理认领')
+              .fontSize(13)
+              .fontWeight(600)
+              .fontColor(Theme.accentStrong)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+          .borderRadius(18)
+          .onClick(() => {
+            this.openIssues('unidentified');
+          })
         }
       }
       .width('100%')
@@ -1923,32 +1967,34 @@ struct LibraryDetailPage {
         .fontColor(Theme.textMuted)
         .lineHeight(20)
         .width('100%')
-      Text('开始生成')
-        .fontSize(16)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .width('100%')
-        .textAlign(TextAlign.Center)
-        .padding({ top: 14, bottom: 14 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(14)
-        .border({ width: 1, color: Theme.lineStrong })
-        .onClick(() => {
-          this.startChapters(false);
-        })
-      Text('已有的章节也重新生成')
-        .fontSize(16)
-        .fontWeight(600)
-        .fontColor(Theme.text)
-        .width('100%')
-        .textAlign(TextAlign.Center)
-        .padding({ top: 14, bottom: 14 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(14)
-        .border({ width: 1, color: Theme.line })
-        .onClick(() => {
-          this.startChapters(true);
-        })
+      Button() {
+        Text('开始生成')
+          .fontSize(16)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 14, bottom: 14 })
+      .borderRadius(14)
+      .onClick(() => {
+        this.startChapters(false);
+      })
+      Button() {
+        Text('已有的章节也重新生成')
+          .fontSize(16)
+          .fontWeight(600)
+          .fontColor(Theme.text)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 14, bottom: 14 })
+      .borderRadius(14)
+      .onClick(() => {
+        this.startChapters(true);
+      })
       Text('取消')
         .fontSize(16)
         .fontColor(Theme.textMuted)

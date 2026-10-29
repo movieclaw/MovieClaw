@@ -1,8 +1,11 @@
+import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
-import { PageTopBar } from '../common/PageTopBar';
+import { GlassSwitchModifier } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { Permissions } from '../common/Permissions';
 import { AppModel } from '../common/AppModel';
 import { AppFooter } from '../common/AppFooter';
+import { TabBarStyle } from '../common/TabBarStyle';
 
 /** 一个设置分区（对应 iOS `SettingsSection`） */
 export class SettingsSection {
@@ -135,18 +138,18 @@ export function SettingsBuilder() {
 export struct SettingsIndexPage {
   private navStack: NavPathStack = new NavPathStack();
   private started: boolean = false;
+  /** 列表滚动器：标题栏的渐变模糊 / 滑动显隐靠它驱动（同根页签） */
+  private scroller: Scroller = new Scroller();
   @Local private model: AppModel = AppModel.shared;
+  /** 底栏样式单例：开关读写它，MainTabsPage 持有同一个例、底栏跟着重建 */
+  @Local private tabBarStyle: TabBarStyle = TabBarStyle.shared();
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        // 自绘顶栏：原生标题栏在沉浸式布局下不避让状态栏（会压住时钟、返回键上半截点不动）
-        PageTopBar({ title: '设置', onBack: (): void => {
-          this.navStack.pop();
-        }})
         // iOS「服务器设置」是 List + Section 的 insetGrouped 分组列表：每组一个圆角容器、
         // 组内多行、行间分隔线、组头 caption 小字。这里用华为 ArkUI 原生 List + ListItemGroup 还原同一观感。
-        List({ space: 14 }) {
+        List({ space: 14, scroller: this.scroller }) {
           ForEach(SettingsCatalog.visibleGroups(this.isAdmin()), (group: SettingsGroup) => {
             ListItemGroup({
               header: group.title.length > 0 ? this.GroupHeader(group.title) : undefined,
@@ -165,6 +168,15 @@ export struct SettingsIndexPage {
             .backgroundColor(Theme.surface)
             .border({ width: 1, color: Theme.line })
           }, (group: SettingsGroup) => group.title)
+          // 「底栏样式」：悬浮胶囊 / 经典贴底栏两套并存，开关即时切换（本机偏好，重启保留）
+          ListItemGroup({ style: ListItemGroupStyle.NONE }) {
+            ListItem() {
+              this.TabBarStyleRow()
+            }
+          }
+          .borderRadius(Theme.cardRadius)
+          .backgroundColor(Theme.surface)
+          .border({ width: 1, color: Theme.line })
           // 「图标更换」：应用内图标选择（桌面图标鸿蒙不允许运行时更换，页内有说明）
           ListItemGroup({ style: ListItemGroupStyle.NONE }) {
             ListItem() {
@@ -190,17 +202,25 @@ export struct SettingsIndexPage {
         }
         .width('100%')
         .layoutWeight(1)
-        .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+        // 内容从 y=0 铺到标题栏下面：首屏用 contentStartOffset 让开标题栏，滚动时产生渐变
+        .contentStartOffset(AppNavBar.contentTop)
+        .padding({ left: 16, right: 16, top: 8 })
+        .contentEndOffset(Theme.tabBarInset)
         .scrollBar(BarState.Off)
       }
       .width('100%')
       .height('100%')
-      // 跟随系统深浅色：页面背景走应用资源，系统切换自动跟随，不做手工渐晕/光感
-      .backgroundColor($r('app.color.bg'))
+      // 与全 App 一致的深色主题（Theme.*）：此前误用了 app.color.* 的浅色资源，整页和外面两个世界
+      .backgroundColor(Theme.bg)
     }
-    // iOS SettingsIndexView 是 push 进来的子页：原生 inline 标题栏（返回按钮系统自带）。
-    // 照 SettingsSectionPage 的写法，不再自绘 TopBar、不再手算状态栏避让。
-    .hideTitleBar(true)
+    /*
+     * 二级页标题栏：与根页签同一套「沉浸光感渐变模糊 + 自适应材质」（见 common/AppNavBar）。
+     * 返回键与标题由官方 HdsNavDestination 渲染，滚动时标题栏从透明渐显磨砂。
+     */
+    .titleMode(HdsNavDestinationTitleMode.MINI)
+    .titleBar(AppNavBar.subPageTitleBar('设置'))
+    .bindToScrollable([this.scroller])
+    .dynamicHideTitleBar(AppNavBar.dynamicHide())
     .onReady((ctx: NavDestinationContext) => {
       this.navStack = ctx.pathStack;
       this.started = true;
@@ -208,14 +228,20 @@ export struct SettingsIndexPage {
     })
   }
 
-  /** 组头：iOS Section header 的 caption 小字，左对齐，不渲染空标题的组头。 */
+  /**
+   * 组头：普通小字标题。
+   *
+   * **不用官方 `SubHeaderV2`**：它是列表小节头组件，自身带固定行高和内边距，
+   * 再叠我们的上下留白后，两张分组卡之间会多出一大段空白（用户反馈「卡片中间间距有点大」）。
+   * 这里用一行 13vp 的淡色标题 + 可控留白，间距与 App 其它小节头一致。
+   */
   @Builder
   GroupHeader(title: string) {
     Text(title)
-      .fontSize(12)
-      .fontColor($r('app.color.text_faint'))
+      .fontSize(13)
+      .fontColor(Theme.textFaint)
       .width('100%')
-      .padding({ left: 6, top: 12, bottom: 6 })
+      .padding({ left: 6, right: 6, top: 8, bottom: 6 })
   }
 
   /** 分组行：图标列 + 主标题 + 副标题（caption）+ 右箭头，与 iOS Label{ VStack } 一致。 */
@@ -224,15 +250,15 @@ export struct SettingsIndexPage {
     Row({ space: 12 }) {
       SymbolGlyph(this.iconFor(item.symbol))
         .fontSize(18)
-        .fontColor([$r('app.color.accent2')])
+        .fontColor([Theme.accent2])
         .width(26)
       Column({ space: 2 }) {
         Text(item.title)
           .fontSize(15)
-          .fontColor($r('app.color.text'))
+          .fontColor(Theme.text)
         Text(item.subtitle)
           .fontSize(12)
-          .fontColor($r('app.color.text_muted'))
+          .fontColor(Theme.textMuted)
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
@@ -240,7 +266,7 @@ export struct SettingsIndexPage {
       .alignItems(HorizontalAlign.Start)
       SymbolGlyph($r('sys.symbol.chevron_right'))
         .fontSize(13)
-        .fontColor([$r('app.color.text_faint')])
+        .fontColor([Theme.textFaint])
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
@@ -250,27 +276,56 @@ export struct SettingsIndexPage {
     })
   }
 
+  /** 「底栏样式」行：开关即时切换（开 = 经典贴底栏，关 = 悬浮胶囊），改的是 TabBarStyle 单例 */
+  @Builder
+  TabBarStyleRow() {
+    Row({ space: 12 }) {
+      SymbolGlyph($r('sys.symbol.rectangle_grid_2x1'))
+        .fontSize(18)
+        .fontColor([Theme.accent2])
+        .width(26)
+      Column({ space: 2 }) {
+        Text('经典底栏')
+          .fontSize(15)
+          .fontColor(Theme.text)
+        Text('开 = 通用的整宽贴底栏；关 = 悬浮胶囊（默认）')
+          .fontSize(12)
+          .fontColor(Theme.textMuted)
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      Toggle({ type: ToggleType.Switch, isOn: !this.tabBarStyle.floating })
+      .attributeModifier(new GlassSwitchModifier())
+      .onChange((on: boolean): void => {
+        TabBarStyle.shared().setFloating(!on);
+      })
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+  }
+
   /** 「图标更换」行：与「关于」行同一套排布（图标列 + 标题 + 副标题 + 箭头） */
   @Builder
   IconRow() {
     Row({ space: 12 }) {
       SymbolGlyph($r('sys.symbol.picture'))
         .fontSize(18)
-        .fontColor([$r('app.color.accent2')])
+        .fontColor([Theme.accent2])
         .width(26)
       Column({ space: 2 }) {
         Text('图标')
           .fontSize(15)
-          .fontColor($r('app.color.text'))
+          .fontColor(Theme.text)
         Text('选择应用内展示的图标（26 款设计）')
           .fontSize(12)
-          .fontColor($r('app.color.text_muted'))
+          .fontColor(Theme.textMuted)
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
       SymbolGlyph($r('sys.symbol.chevron_right'))
         .fontSize(13)
-        .fontColor([$r('app.color.text_faint')])
+        .fontColor([Theme.textFaint])
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
@@ -286,21 +341,21 @@ export struct SettingsIndexPage {
     Row({ space: 12 }) {
       SymbolGlyph($r('sys.symbol.film'))
         .fontSize(18)
-        .fontColor([$r('app.color.accent2')])
+        .fontColor([Theme.accent2])
         .width(26)
       Column({ space: 2 }) {
         Text('关于 MovieClaw')
           .fontSize(15)
-          .fontColor($r('app.color.text'))
+          .fontColor(Theme.text)
         Text('版本与开源许可')
           .fontSize(12)
-          .fontColor($r('app.color.text_muted'))
+          .fontColor(Theme.textMuted)
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
       SymbolGlyph($r('sys.symbol.chevron_right'))
         .fontSize(13)
-        .fontColor([$r('app.color.text_faint')])
+        .fontColor([Theme.textFaint])
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
@@ -367,8 +422,7 @@ export struct SettingsIndexPage {
   }
 }
 
-/** 分区页的路由参数（路由参数会序列化，不要用 instanceof） */
-export class SectionParams {
+/** 分区页的路由参数（路由参数会序列化，不要用 instanceof） */export class SectionParams {
   readonly sectionId: string;
 
   constructor(sectionId: string) {

@@ -1,5 +1,6 @@
 import { display } from '@kit.ArkUI';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { ShellChrome } from '../common/ShellChrome';
 import { ApiError } from '../api/ApiClient';
@@ -240,16 +241,20 @@ export struct SharePage {
   /** 左上角返回（页签栈出栈；模拟器边缘手势不可靠，页内自带返回更稳） */
   @Builder
   BackButton() {
-    Stack() {
-      SymbolGlyph($r('sys.symbol.chevron_left'))
-        .fontSize(22)
-        .fontColor(['rgba(255,255,255,0.85)'])
+    Button() {
+      Stack() {
+        SymbolGlyph($r('sys.symbol.chevron_left'))
+          .fontSize(22)
+          .fontColor(['rgba(255,255,255,0.85)'])
+      }
+      .width(40)
+      .height(40)
     }
-    .width(40)
-    .height(40)
-    .backgroundColor('rgba(255,255,255,0.08)')
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(20)
-    .position({ x: Theme.pagePadding, y: Theme.statusBarInset + 8 })
+    .position({ x: Theme.pagePadding, y: Theme.shellTopInset + 8 })
     .onClick(() => {
       this.navStack.pop();
     })
@@ -323,7 +328,7 @@ export struct SharePage {
               .fontSize(22)
               .fontWeight(FontWeight.Medium)
               .fontColor('#ffffff')
-              .padding({ top: Theme.statusBarInset + 52 })
+              .padding({ top: Theme.shellTopInset + 52 })
             Text(`${this.collectionData.item_count} 部`)
               .fontSize(15)
               .fontColor('rgba(255,255,255,0.5)')
@@ -540,19 +545,22 @@ struct ShareGate {
                 .backgroundColor('rgba(255,83,83,0.1)')
                 .borderRadius(10)
             }
-            Text(this.busy ? '正在验证…' : '打开')
-              .fontSize(16)
-              .fontWeight(FontWeight.Medium)
-              .fontColor('#000000')
-              .width('100%')
-              .height(44)
-              .textAlign(TextAlign.Center)
-              .backgroundColor('#ffffff')
-              .borderRadius(12)
-              .opacity(this.busy || this.empty() ? 0.5 : 1)
-              .onClick(() => {
-                this.submit();
-              })
+            Button() {
+              Text(this.busy ? '正在验证…' : '打开')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .fontColor('#000000')
+                .textAlign(TextAlign.Center)
+            }
+            .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+            .padding(0)
+            .width('100%')
+            .height(44)
+            .borderRadius(12)
+            .opacity(this.busy || this.empty() ? 0.5 : 1)
+            .onClick(() => {
+              this.submit();
+            })
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)

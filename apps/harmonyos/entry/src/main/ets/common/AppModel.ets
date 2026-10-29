@@ -127,6 +127,7 @@ export class AppModel {
    *
    * **统一放在这里**：之前 12 个页面各写了一份一模一样的 `private origin()`，
    * 属于「同一个东西抄 12 遍」——改一处（比如以后支持多地址回退）要改 12 个地方。
+   *
    */
   static origin(): string {
     const routed: string = ServerRoutes.currentOrigin();

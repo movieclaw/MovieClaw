@@ -1,12 +1,13 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { display, window } from '@kit.ArkUI';
+import { window } from '@kit.ArkUI';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { AppModel } from '../common/AppModel';
 import { TokenVault } from '../common/TokenVault';
 import { SavedServers } from '../common/SavedServers';
 import { AppIconStore } from '../common/AppIcon';
 import { ServerRoutes } from '../common/ServerRoutes';
+import { TabBarStyle } from '../common/TabBarStyle';
 import { WindowInsets } from '../common/WindowInsets';
 import { ShareRouter, slugFromWantUri } from '../common/ShareLinks';
 import { ShareLocalProgress } from '../share/ShareProgress';
@@ -21,10 +22,7 @@ const DOMAIN = 0x0000;
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     // App 全局深色（对应 iOS/Web 的暗色基调），不跟随系统外观
-    try {
-      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
-    } catch (e) {
-    }
+    this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     // 会话偏好存储尽早初始化；异步加载不阻塞首帧
     AppModel.shared.initStore(this.context);
     // 多服务器 × 多账号的两块存储（对应 iOS 的 TokenVault 钥匙串 + SavedServers）：
@@ -36,6 +34,8 @@ export default class EntryAbility extends UIAbility {
     AppIconStore.init(this.context);
     // 双地址选路的上次结论（冷启动先用上次的地址，登录后 configure 再核实）
     ServerRoutes.init(this.context);
+    // 底部页签栏样式：悬浮胶囊 / 经典贴底栏（设置里切换，同 movieclaw_ui 偏好文件）
+    TabBarStyle.init(this.context);
     // 第一次发给 AI 前的同意记录（同 movieclaw_ui 偏好文件）
     AgentAIConsent.init(this.context);
     // 分享访客的本机续播进度（独立偏好文件）
@@ -126,8 +126,9 @@ export default class EntryAbility extends UIAbility {
        * HdsTabs、TabContent 子孙上统统无效）。改回 `true` 后内容区 = 全屏，
        * 避让责任回到 App 自己手里：
        *
-       * - 顶部：五个页签的 NavHost 各自处理（媒体库/活动/我的 `padding(WindowInsets.top)`
-       *   推回安全区；订阅/发现故意顶进状态栏，配自绘毛玻璃标题栏）。
+       * - 顶部：页签内页面走 HdsNavigation 的系统 titleBar 避让，自绘顶栏的
+       *   `Theme.statusBarInset` 恒 0；盖住整个窗口的页面（播放器/刷片/分享访客）
+       *   没有这层避让，要按 `Theme.shellTopInset`（= `WindowInsets.top`）自己留白。
        * - 底部：MainTabsPage 根 Stack `padding(WindowInsets.bottom)` 把页签内容
        *   结束线抬回手势条上面，几何与系统避让时代完全一致。
        */
@@ -169,17 +170,60 @@ export default class EntryAbility extends UIAbility {
     });
   }
 
-  /** 把状态栏 / 底部导航条的高度换算成 vp 记下来，供页面留白 */
+  /**
+   * 把状态栏 / 底部导航条 / 挖孔的尺寸换算成 vp 记下来，供页面留白；
+   * 并挂 `avoidAreaChange` 监听持续刷新——转横屏（状态栏收起、挖孔转到侧面）、
+   * 折叠屏展开、2in1 自由窗口都会改变避让区，只记一次静态值会过期。
+   */
   private static publishInsets(mainWindow: window.Window): void {
+    EntryAbility.refreshInsets(mainWindow);
     try {
-      const density: number = display.getDefaultDisplaySync().densityPixels;
-      const status: window.AvoidArea = mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-      WindowInsets.top = status.topRect.height / density;
-      const indicator: window.AvoidArea =
-        mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
-      WindowInsets.bottom = indicator.bottomRect.height / density;
-      hilog.info(DOMAIN, 'MovieClaw', '避让区 top=%{public}d bottom=%{public}d',
-        WindowInsets.top, WindowInsets.bottom);
+      mainWindow.on('avoidAreaChange', (data: window.AvoidAreaOptions): void => {
+        EntryAbility.applyAvoidArea(data.type, data.area);
+      });
+    } catch (error) {
+      hilog.warn(DOMAIN, 'MovieClaw', '挂 avoidAreaChange 失败：%{public}s', `${error}`);
+    }
+  }
+
+  private static applyAvoidArea(type: window.AvoidAreaType, area: window.AvoidArea): void {
+    // 尺寸没变就不动：`avoidAreaChange` 会在滑动、下拉通知等场景反复触发，
+    // 每次自增版本号会让所有 V1 页面白重建一遍。
+    const insets: WindowInsets = WindowInsets.shared();
+    if (type === window.AvoidAreaType.TYPE_SYSTEM) {
+      const top: number = px2vp(area.topRect.height);
+      if (top !== insets.top) {
+        insets.top = top;
+        WindowInsets.bumpRevision();
+      }
+    } else if (type === window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR) {
+      const bottom: number = px2vp(area.bottomRect.height);
+      if (bottom !== insets.bottom) {
+        insets.bottom = bottom;
+        WindowInsets.bumpRevision();
+      }
+    } else if (type === window.AvoidAreaType.TYPE_CUTOUT) {
+      const left: number = px2vp(area.leftRect.width);
+      const right: number = px2vp(area.rightRect.width);
+      if (left !== insets.cutoutLeft || right !== insets.cutoutRight) {
+        insets.cutoutLeft = left;
+        insets.cutoutRight = right;
+        WindowInsets.bumpRevision();
+      }
+    }
+  }
+
+  private static refreshInsets(mainWindow: window.Window): void {
+    try {
+      EntryAbility.applyAvoidArea(window.AvoidAreaType.TYPE_SYSTEM,
+        mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM));
+      EntryAbility.applyAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR,
+        mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR));
+      EntryAbility.applyAvoidArea(window.AvoidAreaType.TYPE_CUTOUT,
+        mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_CUTOUT));
+      const insets: WindowInsets = WindowInsets.shared();
+      hilog.info(DOMAIN, 'MovieClaw', '避让区 top=%{public}d bottom=%{public}d cutout L/R=%{public}d/%{public}d',
+        insets.top, insets.bottom, insets.cutoutLeft, insets.cutoutRight);
     } catch (error) {
       hilog.warn(DOMAIN, 'MovieClaw', '读避让区失败：%{public}s', `${error}`);
     }

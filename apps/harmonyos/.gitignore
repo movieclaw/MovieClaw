@@ -25,3 +25,18 @@
 
 # 本地 UI 验收产物（截图/坐标 JSON，含内网地址），不入库
 /spec/*/tmp/
+
+# mpv 交叉编译工作目录（体积大，不入库）
+/scripts/mpv-ohos/build
+
+# 交叉编译生成物（build-all.sh / ffmpeg configure 生成，含本机绝对路径）
+/scripts/mpv-ohos/ffbuild
+/scripts/mpv-ohos/config.h
+/scripts/mpv-ohos/config_components.h
+/scripts/mpv-ohos/Makefile
+/scripts/mpv-ohos/meson-cross.txt
+/scripts/mpv-ohos/src
+
+# 本机验证截图与工具清单（含个人媒体库内容与本机路径）
+/.verify-screens
+/.claude

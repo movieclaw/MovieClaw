@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { RemoteImage } from '../common/RemoteImage';
@@ -99,14 +100,18 @@ struct DownloadingSwipeActions {
 
   @Builder
   ActionIcon(icon: Resource, tint: string, action: () => void) {
-    Stack({ alignContent: Alignment.Center }) {
-      SymbolGlyph(icon)
-        .fontSize(18)
-        .fontColor([tint])
+    Button() {
+      Stack({ alignContent: Alignment.Center }) {
+        SymbolGlyph(icon)
+          .fontSize(18)
+          .fontColor([tint])
+      }
+      .width(64)
+      .height('100%')
     }
-    .width(64)
-    .height('100%')
-    .backgroundColor(Theme.surfaceRaised)
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .onClick(action)
   }
 }
@@ -501,6 +506,9 @@ export struct OfflineDownloadedSection {
   @Local store: OfflineStore = OfflineStore.shared;
 
   private downloadedEmptyText(hasActive: boolean): string {
+    if (!this.store.loaded) {
+      return '正在读取本机存档…';
+    }
     return hasActive
       ? '下完的会出现在这里。'
       : '还没有下载。在影片详情页点「下载」，没网的时候也能看。';
@@ -594,14 +602,18 @@ export struct OfflineDownloadedSection {
 
   @Builder
   SwipeIcon(icon: Resource, tint: string, action: () => void) {
-    Stack({ alignContent: Alignment.Center }) {
-      SymbolGlyph(icon)
-        .fontSize(18)
-        .fontColor([tint])
+    Button() {
+      Stack({ alignContent: Alignment.Center }) {
+        SymbolGlyph(icon)
+          .fontSize(18)
+          .fontColor([tint])
+      }
+      .width(64)
+      .height('100%')
     }
-    .width(64)
-    .height('100%')
-    .backgroundColor(Theme.surfaceRaised)
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .onClick(action)
   }
 }
@@ -731,14 +743,18 @@ export struct OfflineOtherOwnersSection {
 
   @Builder
   SwipeIcon(icon: Resource, tint: string, action: () => void) {
-    Stack({ alignContent: Alignment.Center }) {
-      SymbolGlyph(icon)
-        .fontSize(18)
-        .fontColor([tint])
+    Button() {
+      Stack({ alignContent: Alignment.Center }) {
+        SymbolGlyph(icon)
+          .fontSize(18)
+          .fontColor([tint])
+      }
+      .width(64)
+      .height('100%')
     }
-    .width(64)
-    .height('100%')
-    .backgroundColor(Theme.surfaceRaised)
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .onClick(action)
   }
 }

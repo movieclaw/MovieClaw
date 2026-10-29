@@ -4978,6 +4978,8 @@ export interface PlaybackSessionRequest {
 /** 开会话的结果。 */
 /** 三态里只有 ``plan`` 才会真的起会话；``consent`` / ``rejected`` 原样把 */
 /** 决策带回前端，由它渲染弹窗或错误说明。 */
+/** 这个人的自动跳过设定（docs/design/skip-intro.md §5），跟账号走：
+ *  enabled 时广告/预告自动跳；片头还要 intro（这部剧手动跳过过一次）。 */
 export interface PlaybackAutoSkipView {
   enabled: boolean
   intro: boolean
@@ -5341,6 +5343,45 @@ export interface PreflightMemberView {
 
 /** 预检结果三态：ready 可直接渲染弹层；ambiguous 先让用户选候选； */
 /** not_found 提示该条目暂无法订阅。 */
+/** 第一次碰到某种语言时问的那一句（服务端生成文案，各端原样显示） */
+export interface SmartQuestionView {
+  language: string
+  prompt: string
+  subtitles_label: string
+  understood_label: string
+}
+
+/** 「以后都这样？」的作用域选项（只这部 / 所有剧集 / 某系列的剧） */
+export interface SmartScopeOptionView {
+  value: string
+  label: string
+}
+
+/** 订阅弹层的智能选择摘要（docs/design/smart-subscription-memory.md）：
+ *  按当前设置、记忆和作品信息解析出的结果与整句文案。 */
+export interface SmartPlanView {
+  configured: boolean
+  profile_revision: number
+  memory_revision: number
+  resolution?: string | null
+  source?: string | null
+  quality_label?: string | null
+  quality_note?: string | null
+  /// 被更具体习惯盖住的那条，如「「韩国的剧」是 1080p」
+  quality_shadow?: string | null
+  wait_label?: string | null
+  subtitle_language?: string | null
+  subtitle_language_label?: string | null
+  subtitle_understood?: boolean | null
+  /// 如「英语 · 只下带中文字幕的」；中文或未知语言为空
+  subtitle_line?: string | null
+  /// 仅管理员、且这种语言还没回答过时给出
+  question?: SmartQuestionView | null
+  scope_options: SmartScopeOptionView[]
+  /// 管理员可改字幕、画质并写入记忆
+  can_edit: boolean
+}
+
 export interface PrepareView {
   status: string
   media?: MediaBrief | null
@@ -5354,6 +5395,8 @@ export interface PrepareView {
   candidates: ResolveCandidateView[]
   /// 从豆瓣条目订阅、且豆瓣集数多于 TMDB 已录集数时给出（issue #640）；弹层据此提示「按豆瓣集数追」，确认后随创建请求带 episode_floors
   douban_episodes?: DoubanEpisodesView | null
+  /// 智能选择摘要（0.42.0+ 随预检下发；旧服务器没有 = null，走旧的画像流程）
+  smart?: SmartPlanView | null
 }
 
 /** 标签栏里的自定义分类标签：命名的「分类组合 × 站点组合」预设。 */
@@ -7009,6 +7052,16 @@ export interface SubscriptionCreatePayload {
   library_id?: number | null
   selection_mode?: string | null
   smart_profile_revision?: number | null
+  /// 智能订阅（0.42.0+）：第一次语言问题的回答（subtitles = 要中文字幕 / understood = 看得懂）
+  smart_language_answer?: string | null
+  /// 本次的画质选择（1080p / 2160p）；不改不传，服务端沿用记忆与默认
+  smart_resolution?: string | null
+  /// 本次的来源选择（web-dl / blu-ray / remux）
+  smart_source?: string | null
+  /// 「以后都这样？」的作用域（scope_options 里的 value）；只本次不传
+  smart_scope?: string | null
+  /// 智能记忆修订号（防并发写：服务端校验它没变过）
+  smart_memory_revision?: number | null
   /// 每季集数下限 {季号: 集数}：TMDB 少录集数时按这个数追，超出部分先占位（如 {"1": 27}）；不超过 TMDB 已录集数的季忽略
   episode_floors?: Record<string, number> | null
 }

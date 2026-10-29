@@ -1,5 +1,6 @@
 import { LengthMetrics } from '@kit.ArkUI';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { MovieClawApi } from '../api/Endpoints';
 import { CollectionView, FacetValueView, LibraryFacetsView, LibraryRelaxView, RelaxSuggestionView } from '../api/Models';
@@ -40,6 +41,13 @@ export struct LibraryFilterBar {
   onShowAllCollections: () => void = () => {
   };
   onSaveAsCollection: (() => void) | null = null;
+  /** 行首插槽：宿主把排序按钮塞进来，「排序 / 筛选 / 合集」排在同一行 */
+  @BuilderParam leading: () => void = this.NoLeading;
+
+  @Builder
+  NoLeading() {
+  }
+
   @State private open: boolean = false;
   @State private facets: LibraryFacetsView | null = null;
   /**
@@ -121,6 +129,7 @@ export struct LibraryFilterBar {
   build() {
     Column({ space: 10 }) {
       Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
+        this.leading()
         this.FilterButton()
         ForEach(this.ownCollections().slice(0, LibraryFilterBar.chipLimit), (collection: CollectionView) => {
           this.CollectionChip(collection)
@@ -157,26 +166,29 @@ export struct LibraryFilterBar {
   /** 筛选按钮：唯一一个带玻璃底的按钮；激活时加角标 */
   @Builder
   FilterButton() {
-    Row({ space: 6 }) {
-      SymbolGlyph($r('sys.symbol.slider_horizontal_2'))
-        .fontSize(12)
-        .fontColor([this.open || !this.filter.isEmpty() ? Theme.text : 'rgba(255, 255, 255, 0.9)'])
-      Text('筛选')
-        .fontSize(13)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.open || !this.filter.isEmpty() ? Theme.text : 'rgba(255, 255, 255, 0.9)')
-      if (this.filter.count() > 0) {
-        Text(`${this.filter.count()}`)
+    Button() {
+      Row({ space: 6 }) {
+        SymbolGlyph($r('sys.symbol.slider_horizontal_2'))
+          .fontSize(12)
+          .fontColor([this.open || !this.filter.isEmpty() ? Theme.text : 'rgba(255, 255, 255, 0.9)'])
+        Text('筛选')
           .fontSize(13)
-          .fontWeight(600)
-          .fontColor('rgba(255, 255, 255, 0.85)')
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.open || !this.filter.isEmpty() ? Theme.text : 'rgba(255, 255, 255, 0.9)')
+        if (this.filter.count() > 0) {
+          Text(`${this.filter.count()}`)
+            .fontSize(13)
+            .fontWeight(600)
+            .fontColor('rgba(255, 255, 255, 0.85)')
+        }
       }
+      .padding({ left: 12, right: 12 })
+      .height(32)
     }
-    .padding({ left: 12, right: 12 })
-    .height(32)
-    .backgroundColor(this.open || !this.filter.isEmpty() ? 'rgba(255, 255, 255, 0.16)' : Theme.glassFill)
+    .attributeModifier(new GlassButtonModifier(this.open || !this.filter.isEmpty() ? GlassTone.Strong : GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(16)
-    .border({ width: 1, color: this.open || !this.filter.isEmpty() ? Theme.lineStrong : Theme.line })
     .onClick(() => {
       this.open = true;
       this.loadFacets();
@@ -189,17 +201,21 @@ export struct LibraryFilterBar {
    */
   @Builder
   CollectionChip(collection: CollectionView) {
-    Row({ space: 6 }) {
-      Text(collection.name)
-        .fontSize(12)
-        .fontColor(this.isCollectionSelected(collection) ? Theme.text : 'rgba(255, 255, 255, 0.7)')
-      Text(`${collection.item_count}`)
-        .fontSize(12)
-        .fontColor('rgba(255, 255, 255, 0.4)')
+    Button() {
+      Row({ space: 6 }) {
+        Text(collection.name)
+          .fontSize(12)
+          .fontColor(this.isCollectionSelected(collection) ? Theme.text : 'rgba(255, 255, 255, 0.7)')
+        Text(`${collection.item_count}`)
+          .fontSize(12)
+          .fontColor('rgba(255, 255, 255, 0.4)')
+      }
+      .padding({ left: 10, right: 10 })
+      .height(28)
     }
-    .padding({ left: 10, right: 10 })
-    .height(28)
-    .backgroundColor(this.isCollectionSelected(collection) ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.05)')
+    .attributeModifier(new GlassButtonModifier(this.isCollectionSelected(collection) ? GlassTone.Secondary : GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(14)
     .onClick(() => {
       if (collection.rule_driven) {
@@ -442,19 +458,22 @@ struct FilterPillGroup {
         }
         Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(6), cross: LengthMetrics.vp(6) } }) {
           ForEach(this.options(), (option: FacetValueView) => {
-            Row({ space: 6 }) {
-              Text(option.label)
-                .fontSize(12)
-                .fontWeight(this.selectedValues().includes(option.value) ? 600 : FontWeight.Normal)
-                .fontColor(this.selectedValues().includes(option.value) ? Theme.text : this.toneOf(option.value))
-              Text(`${option.count}`)
-                .fontSize(10)
-                .fontColor('rgba(255, 255, 255, 0.35)')
+            Button() {
+              Row({ space: 6 }) {
+                Text(option.label)
+                  .fontSize(12)
+                  .fontWeight(this.selectedValues().includes(option.value) ? 600 : FontWeight.Normal)
+                  .fontColor(this.selectedValues().includes(option.value) ? Theme.text : this.toneOf(option.value))
+                Text(`${option.count}`)
+                  .fontSize(10)
+                  .fontColor('rgba(255, 255, 255, 0.35)')
+              }
+              .padding({ left: 12, right: 12, top: 7, bottom: 7 })
             }
-            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-            .backgroundColor(this.selectedValues().includes(option.value) ? 'rgba(255, 255, 255, 0.14)' : Color.Transparent)
+            .attributeModifier(new GlassButtonModifier(this.selectedValues().includes(option.value) ? GlassTone.Strong : GlassTone.Secondary))
+            .padding(0)
+            .clip(true)
             .borderRadius(16)
-            .border({ width: 1, color: this.selectedValues().includes(option.value) ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.14)' })
             .enabled(!(option.count === 0 && !this.selectedValues().includes(option.value)))
             .opacity(option.count === 0 && !this.selectedValues().includes(option.value) ? 0.3 : 1)
             .onClick(() => {
@@ -550,29 +569,33 @@ struct FilterSheetContent {
       .width('100%')
 
       Row({ space: 8 }) {
-        Text('清空')
-          .fontSize(16)
-          .fontColor(Theme.textMuted)
-          .height(48)
-          .padding({ left: 20, right: 20 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(24)
-          .border({ width: 1, color: Theme.line })
-          .onClick(() => {
-            this.onClear();
-          })
-        Text(this.facets === null ? '查看结果' : `查看 ${(this.facets as LibraryFacetsView).total} 部`)
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#000000')
-          .layoutWeight(1)
-          .height(48)
-          .textAlign(TextAlign.Center)
-          .backgroundColor(Theme.accentStrong)
-          .borderRadius(24)
-          .onClick(() => {
-            this.onClose();
-          })
+        Button() {
+          Text('清空')
+            .fontSize(16)
+            .fontColor(Theme.textMuted)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .height(48)
+        .padding({ left: 20, right: 20 })
+        .borderRadius(24)
+        .onClick(() => {
+          this.onClear();
+        })
+        Button() {
+          Text(this.facets === null ? '查看结果' : `查看 ${(this.facets as LibraryFacetsView).total} 部`)
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#000000')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding(0)
+        .layoutWeight(1)
+        .height(48)
+        .borderRadius(24)
+        .onClick(() => {
+          this.onClose();
+        })
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: 10, bottom: 12 })
@@ -645,29 +668,32 @@ export struct LibraryFilterEmptyState {
         .padding({ top: 4 })
       Column({ space: 6 }) {
         ForEach(this.relax === null ? EMPTY_SUGGESTIONS : this.relax.suggestions, (row: RelaxSuggestionView) => {
-          Row({ space: 12 }) {
-            Row({ space: 0 }) {
-              Text('去掉「')
-                .fontSize(15)
-                .fontColor('rgba(255, 255, 255, 0.8)')
-              Text(`${row.dim_label} = ${row.label}`)
-                .fontSize(15)
-                .fontWeight(600)
-                .fontColor(Theme.text)
-              Text('」')
-                .fontSize(15)
-                .fontColor('rgba(255, 255, 255, 0.8)')
+          Button() {
+            Row({ space: 12 }) {
+              Row({ space: 0 }) {
+                Text('去掉「')
+                  .fontSize(15)
+                  .fontColor('rgba(255, 255, 255, 0.8)')
+                Text(`${row.dim_label} = ${row.label}`)
+                  .fontSize(15)
+                  .fontWeight(600)
+                  .fontColor(Theme.text)
+                Text('」')
+                  .fontSize(15)
+                  .fontColor('rgba(255, 255, 255, 0.8)')
+              }
+              .layoutWeight(1)
+              Text(`→ ${row.count} 部`)
+                .fontSize(12)
+                .fontColor(Theme.info)
             }
-            .layoutWeight(1)
-            Text(`→ ${row.count} 部`)
-              .fontSize(12)
-              .fontColor(Theme.info)
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+            .width('100%')
           }
-          .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding(0)
+          .clip(true)
           .borderRadius(12)
-          .border({ width: 1, color: Theme.line })
-          .width('100%')
           .onClick(() => {
             this.onRemove(row.dim, row.value);
           })

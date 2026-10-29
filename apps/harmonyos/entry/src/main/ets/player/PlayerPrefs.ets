@@ -10,16 +10,62 @@ import { Context } from '@kit.AbilityKit';
  */
 export class PlayerPrefs {
   private static store: preferences.Preferences | null = null;
-  private static ready: Promise<void> | null = null;
+  /** 恒为 Promise（未 init 时是已完成的空 Promise），await 处不用判空 */
+  private static ready: Promise<void> = Promise.resolve();
+  /** 播放引擎缓存（loadEngine 异步刷新；默认 mpv，'avplayer' 兜底回系统播放器） */
+  private static engineName: string = 'mpv';
 
   /** EntryAbility.onCreate 里尽早调用 */
   static init(context: Context): void {
-    if (PlayerPrefs.ready === null) {
+    if (PlayerPrefs.store === null) {
       PlayerPrefs.ready = preferences.getPreferences(context, 'movieclaw_player_prefs')
         .then((store: preferences.Preferences): void => {
           PlayerPrefs.store = store;
         });
     }
+  }
+
+  /** 读播放引擎设置（异步刷新缓存；PlayerPage 在 attach 前用 engine() 同步读） */
+  static async loadEngine(): Promise<string> {
+    await PlayerPrefs.ready;
+    const store: preferences.Preferences | null = PlayerPrefs.store;
+    if (store === null) {
+      return PlayerPrefs.engineName;
+    }
+    try {
+      const raw: string = await store.get('player.engine', 'mpv') as string;
+      PlayerPrefs.engineName = raw === 'avplayer' ? 'avplayer' : 'mpv';
+    } catch (error) {
+      // 读不到按默认 mpv
+    }
+    return PlayerPrefs.engineName;
+  }
+
+  /** 当前引擎（同步；未加载完时是默认值） */
+  static engine(): string {
+    return PlayerPrefs.engineName;
+  }
+
+  /**
+   * 记播放引擎（设置页切换用）；非 'avplayer' 一律归一 'mpv'。
+   * 缓存先同步刷：PlayerPage 在 attach 前用 engine() 同步读，落盘慢半拍也不能读到旧值。
+   */
+  static writeEngine(name: string): void {
+    const normalized: string = name === 'avplayer' ? 'avplayer' : 'mpv';
+    PlayerPrefs.engineName = normalized;
+    const save = async (): Promise<void> => {
+      await PlayerPrefs.ready;
+      const store: preferences.Preferences | null = PlayerPrefs.store;
+      if (store === null) {
+        return;
+      }
+      try {
+        await store.put('player.engine', normalized);
+        await store.flush();
+      } catch (error) {
+      }
+    };
+    save();
   }
 
   /** 读这一集记过的画质上限（0 = 自动 / 原画）；没有记录返回 0 */

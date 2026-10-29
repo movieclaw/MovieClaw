@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls } from '../common/ImageUrls';
@@ -237,21 +238,23 @@ export struct ArtworkPickerSheet {
   TabPicker() {
     Row({ space: 4 }) {
       ForEach(TABS, (option: ArtworkTabOption) => {
-        Text(option.label)
-          .fontSize(15)
-          .fontWeight(this.tab === option.value ? FontWeight.Medium : FontWeight.Normal)
-          .fontColor(this.tab === option.value ? '#0b0d12' : Theme.textMuted)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 8, bottom: 8 })
-          .backgroundColor(this.tab === option.value ? Theme.accent : Color.Transparent)
-          .borderRadius(9)
-          .onClick(() => {
-            if (this.tab !== option.value) {
-              this.tab = option.value;
-              this.saveError = '';
-            }
-          })
+        Button() {
+          Text(option.label)
+            .fontSize(15)
+            .fontWeight(this.tab === option.value ? FontWeight.Medium : FontWeight.Normal)
+            .fontColor(this.tab === option.value ? '#0b0d12' : Theme.textMuted)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(this.tab === option.value ? GlassTone.Primary : GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 8, bottom: 8 })
+        .borderRadius(9)
+        .onClick(() => {
+          if (this.tab !== option.value) {
+            this.tab = option.value;
+            this.saveError = '';
+          }
+        })
       }, (option: ArtworkTabOption) => option.value)
     }
     .width('100%')
@@ -268,18 +271,20 @@ export struct ArtworkPickerSheet {
         .fontSize(13)
         .fontColor(Theme.ok)
         .layoutWeight(1)
-      Text('恢复自动选图')
-        .fontSize(13)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.applying.length > 0 ? Theme.textFaint : Theme.text)
-        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(14)
-        .onClick(() => {
-          if (this.applying.length === 0) {
-            this.apply(null);
-          }
-        })
+      Button() {
+        Text('恢复自动选图')
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.applying.length > 0 ? Theme.textFaint : Theme.text)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+      .borderRadius(14)
+      .onClick(() => {
+        if (this.applying.length === 0) {
+          this.apply(null);
+        }
+      })
     }
     .width('100%')
     .padding({ left: 12, right: 12, top: 10, bottom: 10 })
@@ -294,16 +299,18 @@ export struct ArtworkPickerSheet {
         Text('候选图加载失败（TMDB 可能不可达）')
           .fontSize(14)
           .fontColor(Theme.danger)
-        Text('重试')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
-          .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(18)
-          .onClick(() => {
-            this.load(this.data === null);
-          })
+        Button() {
+          Text('重试')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+        .borderRadius(18)
+        .onClick(() => {
+          this.load(this.data === null);
+        })
       }
       .width('100%')
       .padding({ top: this.data === null ? 40 : 8, bottom: 8 })

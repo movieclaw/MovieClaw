@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { RemoteImage } from '../common/RemoteImage';
@@ -217,18 +218,19 @@ export struct PersonDetailPage {
           .textAlign(TextAlign.Center)
           .lineHeight(22)
           .constraintSize({ maxWidth: 300 })
-        Text('去媒体库')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.text)
-          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(20)
-          .border({ width: 1, color: Theme.lineStrong })
-          .margin({ top: 4 })
-          .onClick(() => {
-            ShellChrome.openTab('library');
-          })
+        Button() {
+          Text('去媒体库')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .margin({ top: 4 })
+        .onClick(() => {
+          ShellChrome.openTab('library');
+        })
       } else {
         Text('未能加载影人档案')
           .fontSize(17)
@@ -238,17 +240,19 @@ export struct PersonDetailPage {
           .fontSize(14)
           .fontColor(Theme.textMuted)
           .textAlign(TextAlign.Center)
-        Text('重试')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor('#0b0d12')
-          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(20)
-          .margin({ top: 4 })
-          .onClick(() => {
-            this.load();
-          })
+        Button() {
+          Text('重试')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor('#0b0d12')
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .margin({ top: 4 })
+        .onClick(() => {
+          this.load();
+        })
       }
     }
     .width('100%')

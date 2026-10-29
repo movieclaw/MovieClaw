@@ -1,7 +1,9 @@
 import { display, promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
-import { PageTopBar } from '../common/PageTopBar';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { DeviceText, GrantText } from '../common/DeviceText';
@@ -52,6 +54,8 @@ function copyPlainText(text: string): void {
 @ComponentV2
 export struct SettingsSectionPage {
   private navStack: NavPathStack = new NavPathStack();
+  /** 页面级滚动器：内容铺到标题栏下面，滚动时驱动渐变模糊（与各分区的滚动容器共用） */
+  private scroller: Scroller = new Scroller();
   private started: boolean = false;
 
   @Local private sectionId: string = '';
@@ -191,34 +195,30 @@ export struct SettingsSectionPage {
   // MARK: 视图
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        // 自绘顶栏：原生标题栏在沉浸式布局下不避让状态栏（会压住时钟、返回键上半截点不动）
-        PageTopBar({ title: this.sectionTitle(), onBack: (): void => {
-          this.navStack.pop();
-        }})
         if (this.sectionId === 'devices') {
           this.DevicesBody()
         } else if (this.sectionId === 'playback') {
-          PlaybackSection()
+          PlaybackSection({ scroller: this.scroller })
         } else if (this.sectionId === 'scrape') {
-          ScrapeSection()
+          ScrapeSection({ scroller: this.scroller })
         } else if (this.sectionId === 'mcp') {
-          McpSection()
+          McpSection({ scroller: this.scroller })
         } else if (this.sectionId === 'app') {
           AppMaintenanceSection()
         } else if (this.sectionId === 'network') {
-          NetworkSection({ navStack: this.navStack })
+          NetworkSection({ navStack: this.navStack, scroller: this.scroller })
         } else if (this.sectionId === 'im-push') {
           PushSection()
         } else if (this.sectionId === 'webhook') {
-          WebhookSection()
+          WebhookSection({ scroller: this.scroller })
         } else if (this.sectionId === 'llm') {
-          LlmProvidersSection()
+          LlmProvidersSection({ scroller: this.scroller })
         } else if (this.sectionId === 'ai') {
-          AiDefaultsSection()
+          AiDefaultsSection({ scroller: this.scroller })
         } else if (this.sectionId === 'members') {
-          MembersSection()
+          MembersSection({ scroller: this.scroller })
         } else if (this.sectionId === 'logs') {
           // 日志查看器自成一屏（工具栏 + 窗口 + 说明），不需要外面再包一层滚动
           LogsSection()
@@ -238,9 +238,14 @@ export struct SettingsSectionPage {
       // 批准设备登录不再挂在页面上：它是**原生命令式弹窗**（`openApproval()` 拉起，
       // 见 `DeviceApprovalDialog`），所以这里只有清理设备的 sheet 绑定。
     }
-    // iOS `SettingsSectionView` 用 `.navigationTitle(section.title)` + inline：返回按钮 + 居中分区标题。
-    // 自绘顶栏（原生标题栏在沉浸式布局下会画进状态栏）。
-    .hideTitleBar(true)
+    /*
+     * 二级页标题栏：与根页签同一套「沉浸光感渐变模糊 + 自适应材质」（见 common/AppNavBar）。
+     * 这一页的分区各自带自己的滚动容器，无法统一绑定，所以内容排在标题栏下方
+     * （contentUnderBar = false），标题/返回键由官方组件渲染。
+     */
+    .titleMode(HdsNavDestinationTitleMode.MINI)
+    .titleBar(AppNavBar.subPageTitleBar(this.sectionTitle()))
+    .bindToScrollable([this.scroller])
     .onReady((ctx: NavDestinationContext) => {
       this.navStack = ctx.pathStack;
       const params: SectionParams | null = SectionParams.of(ctx.pathInfo.param as Object | undefined);
@@ -278,42 +283,45 @@ export struct SettingsSectionPage {
   @Builder
   CurrentDeviceRow(device: LoginDeviceView | null) {
     if (device !== null) {
-      Row({ space: 12 }) {
-        Stack({ alignContent: Alignment.BottomEnd }) {
-          SymbolGlyph(DeviceText.symbolOf(device.kind, device.scope))
-            .fontSize(20)
-            .fontColor([Theme.accent])
-          Circle()
-            .width(7)
-            .height(7)
-            .fill(Theme.ok)
-            .border({ width: 1.5, color: Theme.surface })
+      Button() {
+        Row({ space: 12 }) {
+          Stack({ alignContent: Alignment.BottomEnd }) {
+            SymbolGlyph(DeviceText.symbolOf(device.kind, device.scope))
+              .fontSize(20)
+              .fontColor([Theme.accent])
+            Circle()
+              .width(7)
+              .height(7)
+              .fill(Theme.ok)
+              .border({ width: 1.5, color: Theme.surface })
+          }
+          .width(28)
+          .alignSelf(ItemAlign.Center)
+        
+          Column({ space: 3 }) {
+            Text(this.deviceName(device))
+              .fontSize(15)
+              .fontColor(Theme.text)
+              .width('100%')
+            Text('本机 · 正在使用')
+              .fontSize(12)
+              .fontColor(Theme.ok)
+              .width('100%')
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+        
+          SymbolGlyph($r('sys.symbol.chevron_right'))
+            .fontSize(14)
+            .fontColor([Theme.textFaint])
         }
-        .width(28)
-        .alignSelf(ItemAlign.Center)
-
-        Column({ space: 3 }) {
-          Text(this.deviceName(device))
-            .fontSize(15)
-            .fontColor(Theme.text)
-            .width('100%')
-          Text('本机 · 正在使用')
-            .fontSize(12)
-            .fontColor(Theme.ok)
-            .width('100%')
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-
-        SymbolGlyph($r('sys.symbol.chevron_right'))
-          .fontSize(14)
-          .fontColor([Theme.textFaint])
+        .width('100%')
+        .padding(16)
       }
-      .width('100%')
-      .padding(16)
-      .backgroundColor(Theme.surface)
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding(0)
+      .clip(true)
       .borderRadius(Theme.cardRadius)
-      .border({ width: 1, color: Theme.line })
       .onClick((): void => {
         this.navStack.pushPathByName('deviceDetail', new DetailParams(device.id, this.showAll));
       })
@@ -323,42 +331,45 @@ export struct SettingsSectionPage {
   /** 一个分组行：图标 + 标题 + N 台设备 · N 在线 + chevron（空组也占一行，同 iOS） */
   @Builder
   GroupRow(group: DeviceGroupDef) {
-    Row({ space: 12 }) {
-      SymbolGlyph(group.symbol)
-        .fontSize(20)
-        .fontColor([Theme.textMuted])
-        .width(28)
-      Column({ space: 4 }) {
-        Text(group.title)
-          .fontSize(15)
-          .fontColor(Theme.text)
-          .width('100%')
-        Row({ space: 8 }) {
-          Text(`${group.items.length} 台设备`)
-            .fontSize(12)
-            .fontColor(Theme.textMuted)
-          Row({ space: 5 }) {
-            if (this.onlineCount(group) > 0) {
-              Circle().width(6).height(6).fill(Theme.ok)
-            }
-            Text(`${this.onlineCount(group)} 在线`)
+    Button() {
+      Row({ space: 12 }) {
+        SymbolGlyph(group.symbol)
+          .fontSize(20)
+          .fontColor([Theme.textMuted])
+          .width(28)
+        Column({ space: 4 }) {
+          Text(group.title)
+            .fontSize(15)
+            .fontColor(Theme.text)
+            .width('100%')
+          Row({ space: 8 }) {
+            Text(`${group.items.length} 台设备`)
               .fontSize(12)
-              .fontColor(this.onlineCount(group) > 0 ? Theme.ok : Theme.textFaint)
+              .fontColor(Theme.textMuted)
+            Row({ space: 5 }) {
+              if (this.onlineCount(group) > 0) {
+                Circle().width(6).height(6).fill(Theme.ok)
+              }
+              Text(`${this.onlineCount(group)} 在线`)
+                .fontSize(12)
+                .fontColor(this.onlineCount(group) > 0 ? Theme.ok : Theme.textFaint)
+            }
           }
         }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+      
+        SymbolGlyph($r('sys.symbol.chevron_right'))
+          .fontSize(14)
+          .fontColor([Theme.textFaint])
       }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
-
-      SymbolGlyph($r('sys.symbol.chevron_right'))
-        .fontSize(14)
-        .fontColor([Theme.textFaint])
+      .width('100%')
+      .padding(16)
     }
-    .width('100%')
-    .padding(16)
-    .backgroundColor(Theme.surface)
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(Theme.cardRadius)
-    .border({ width: 1, color: Theme.line })
     .onClick((): void => {
       this.navStack.pushPathByName('deviceGroup', new GroupListParams(group.id, this.showAll));
     })
@@ -442,31 +453,35 @@ export struct SettingsSectionPage {
       }
 
       Row({ space: 10 }) {
-        Text('取消')
-          .fontSize(15)
-          .fontColor(Theme.text)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            this.showDeviceSheet = false;
-          })
-        Text(this.cleanupBusy ? '…' : '清理')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.cleanupPreview.length === 0 ? Theme.textFaint : Theme.danger)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            if (!this.cleanupBusy && this.cleanupPreview.length > 0) {
-              this.runCleanup();
-            }
-          })
+        Button() {
+          Text('取消')
+            .fontSize(15)
+            .fontColor(Theme.text)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          this.showDeviceSheet = false;
+        })
+        Button() {
+          Text(this.cleanupBusy ? '…' : '清理')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.cleanupPreview.length === 0 ? Theme.textFaint : Theme.danger)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          if (!this.cleanupBusy && this.cleanupPreview.length > 0) {
+            this.runCleanup();
+          }
+        })
       }
       .width('100%')
     }
@@ -584,34 +599,38 @@ export struct SettingsSectionPage {
       .border({ width: 1, color: 'rgba(205, 214, 230, 0.2)' })
 
       Row({ space: 10 }) {
-        Text(this.tokenCreating ? '创建中…' : '创建令牌')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.tokenCreating ? Theme.textFaint : '#0b0d12')
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(this.tokenCreating ? Theme.glassFill : Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            if (!this.tokenCreating) {
-              this.createToken();
-            }
-          })
-        Text('取消')
-          .fontSize(15)
-          .fontColor(Theme.text)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            this.tokenStage = 'idle';
-            this.tokenName = '';
-            this.tokenScope = 'full';
-            this.tokenNameError = '';
-          })
+        Button() {
+          Text(this.tokenCreating ? '创建中…' : '创建令牌')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.tokenCreating ? Theme.textFaint : '#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(this.tokenCreating ? GlassTone.Secondary : GlassTone.Primary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          if (!this.tokenCreating) {
+            this.createToken();
+          }
+        })
+        Button() {
+          Text('取消')
+            .fontSize(15)
+            .fontColor(Theme.text)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          this.tokenStage = 'idle';
+          this.tokenName = '';
+          this.tokenScope = 'full';
+          this.tokenNameError = '';
+        })
       }
       .width('100%')
     }
@@ -652,16 +671,18 @@ export struct SettingsSectionPage {
           .fontWeight(FontWeight.Medium)
           .fontColor(Theme.textMuted)
           .layoutWeight(1)
-        Text('复制')
-          .fontSize(13)
-          .fontColor(Theme.accent)
-          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(12)
-          .onClick((): void => {
-            copyPlainText(this.tokenSnippet());
-            this.toast('已复制');
-          })
+        Button() {
+          Text('复制')
+            .fontSize(13)
+            .fontColor(Theme.accent)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+        .borderRadius(12)
+        .onClick((): void => {
+          copyPlainText(this.tokenSnippet());
+          this.toast('已复制');
+        })
       }
       .width('100%')
 
@@ -696,32 +717,36 @@ export struct SettingsSectionPage {
       }
 
       Row({ space: 10 }) {
-        Text('仅复制令牌')
-          .fontSize(14)
-          .fontColor(Theme.text)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 12, bottom: 12 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            if (this.createdToken !== null) {
-              copyPlainText(this.createdToken.token);
-              this.toast('已复制令牌');
-            }
-          })
-        Text('我已保存，关闭')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#0b0d12')
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 12, bottom: 12 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            this.dismissCreatedToken();
-          })
+        Button() {
+          Text('仅复制令牌')
+            .fontSize(14)
+            .fontColor(Theme.text)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 12, bottom: 12 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          if (this.createdToken !== null) {
+            copyPlainText(this.createdToken.token);
+            this.toast('已复制令牌');
+          }
+        })
+        Button() {
+          Text('我已保存，关闭')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .layoutWeight(1)
+        .padding({ top: 12, bottom: 12 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          this.dismissCreatedToken();
+        })
       }
       .width('100%')
     }
@@ -957,7 +982,7 @@ export struct SettingsSectionPage {
       .justifyContent(FlexAlign.Center)
     } else {
       Refresh({ refreshing: $$this.refreshing }) {
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 16 }) {
             if (this.errorMessage.length > 0) {
             Text(this.errorMessage)
@@ -966,34 +991,37 @@ export struct SettingsSectionPage {
               .width('100%')
           }
           // 批准新设备登录（对应 iOS 的 approvalEntry；批准本身在独立弹窗里做）
-          Row({ space: 12 }) {
-            SymbolGlyph($r('sys.symbol.qrcode'))
-              .fontSize(18)
-              .fontColor([Theme.accent])
-              .width(24)
-            Column({ space: 2 }) {
-              Text('批准新设备登录')
-                .fontSize(15)
-                .fontColor(Theme.text)
-                .width('100%')
-                .textAlign(TextAlign.Start)
-              Text('扫码或输入 Apple TV、Mac、命令行、转码器上的配对码')
-                .fontSize(12)
-                .fontColor(Theme.textMuted)
-                .width('100%')
-                .textAlign(TextAlign.Start)
+          Button() {
+            Row({ space: 12 }) {
+              SymbolGlyph($r('sys.symbol.qrcode'))
+                .fontSize(18)
+                .fontColor([Theme.accent])
+                .width(24)
+              Column({ space: 2 }) {
+                Text('批准新设备登录')
+                  .fontSize(15)
+                  .fontColor(Theme.text)
+                  .width('100%')
+                  .textAlign(TextAlign.Start)
+                Text('扫码或输入 Apple TV、Mac、命令行、转码器上的配对码')
+                  .fontSize(12)
+                  .fontColor(Theme.textMuted)
+                  .width('100%')
+                  .textAlign(TextAlign.Start)
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(14)
+                .fontColor([Theme.textFaint])
             }
-            .layoutWeight(1)
-            .alignItems(HorizontalAlign.Start)
-            SymbolGlyph($r('sys.symbol.chevron_right'))
-              .fontSize(14)
-              .fontColor([Theme.textFaint])
+            .width('100%')
+            .padding(16)
           }
-          .width('100%')
-          .padding(16)
-          .backgroundColor(Theme.surface)
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding(0)
+          .clip(true)
           .borderRadius(Theme.cardRadius)
-          .border({ width: 1, color: Theme.line })
           .onClick(() => {
             this.openApproval();
           })
@@ -1051,25 +1079,28 @@ export struct SettingsSectionPage {
 
           // 清理长期没用的设备（只有本机一台时不出现，同 iOS）
           if (this.hasCleanableDevices()) {
-            Row({ space: 12 }) {
-              SymbolGlyph($r('sys.symbol.wand_and_stars'))
-                .fontSize(16)
-                .fontColor([Theme.textMuted])
-                .width(36)
-              Text(this.showAll ? '清理全部成员长期没用的设备' : '清理长期没用的设备')
-                .fontSize(15)
-                .fontColor(Theme.text)
-                .layoutWeight(1)
-                .textAlign(TextAlign.Start)
-              SymbolGlyph($r('sys.symbol.chevron_right'))
-                .fontSize(14)
-                .fontColor([Theme.textFaint])
+            Button() {
+              Row({ space: 12 }) {
+                SymbolGlyph($r('sys.symbol.wand_and_stars'))
+                  .fontSize(16)
+                  .fontColor([Theme.textMuted])
+                  .width(36)
+                Text(this.showAll ? '清理全部成员长期没用的设备' : '清理长期没用的设备')
+                  .fontSize(15)
+                  .fontColor(Theme.text)
+                  .layoutWeight(1)
+                  .textAlign(TextAlign.Start)
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(14)
+                  .fontColor([Theme.textFaint])
+              }
+              .width('100%')
+              .padding(16)
             }
-            .width('100%')
-            .padding(16)
-            .backgroundColor(Theme.surface)
+            .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+            .padding(0)
+            .clip(true)
             .borderRadius(Theme.cardRadius)
-            .border({ width: 1, color: Theme.line })
             .onClick((): void => {
               this.sheetKind = 'cleanup';
               this.showDeviceSheet = true;
@@ -1088,7 +1119,7 @@ export struct SettingsSectionPage {
             .width('100%')
         }
         .width('100%')
-        .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+        .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
       }
         .layoutWeight(1)
         // 通用属性 `align` 默认是 Center：内容比视口矮时整块会垂直居中（成员页曾因此居中显示），

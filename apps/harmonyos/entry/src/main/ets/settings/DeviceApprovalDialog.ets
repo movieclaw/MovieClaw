@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { DeviceText, GrantText } from '../common/DeviceText';
@@ -377,33 +378,39 @@ export struct DeviceApprovalDialog {
     .width('100%')
 
     Column({ space: 10 }) {
-      Text(this.busy ? '正在查…' : '继续')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.chars.length === 0 ? Theme.textFaint : '#0b0d12')
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 15, bottom: 15 })
-        .backgroundColor(this.chars.length === 0 ? Theme.glassFill : Theme.accent)
-        .borderRadius(18)
-        .onClick(() => {
-          if (this.chars.length > 0) {
-            this.lookup();
-          }
-        })
-      Row({ space: 8 }) {
-        SymbolGlyph($r('sys.symbol.qrcode'))
-          .fontSize(18)
-          .fontColor([Theme.text])
-        Text(this.scanning ? '正在打开相机…' : '扫描二维码')
+      Button() {
+        Text(this.busy ? '正在查…' : '继续')
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
+          .fontColor(this.chars.length === 0 ? Theme.textFaint : '#0b0d12')
+          .textAlign(TextAlign.Center)
       }
+      .attributeModifier(new GlassButtonModifier(this.chars.length === 0 ? GlassTone.Secondary : GlassTone.Primary))
       .width('100%')
-      .height(50)
-      .justifyContent(FlexAlign.Center)
-      .backgroundColor(Theme.glassFill)
+      .padding({ top: 15, bottom: 15 })
+      .borderRadius(18)
+      .onClick(() => {
+        if (this.chars.length > 0) {
+          this.lookup();
+        }
+      })
+      Button() {
+        Row({ space: 8 }) {
+          SymbolGlyph($r('sys.symbol.qrcode'))
+            .fontSize(18)
+            .fontColor([Theme.text])
+          Text(this.scanning ? '正在打开相机…' : '扫描二维码')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+        }
+        .width('100%')
+        .height(50)
+        .justifyContent(FlexAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding(0)
+      .clip(true)
       .borderRadius(18)
       .onClick(() => {
         this.scan();
@@ -504,19 +511,23 @@ export struct DeviceApprovalDialog {
 
       Column({ space: 10 }) {
         if (!this.blocked()) {
-          Row({ space: 8 }) {
-            SymbolGlyph($r('sys.symbol.checkmark'))
-              .fontSize(17)
-              .fontColor([this.busy ? Theme.textFaint : '#0b0d12'])
-            Text(this.busy ? '正在处理…' : '批准登录')
-              .fontSize(16)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.busy ? Theme.textFaint : '#0b0d12')
+          Button() {
+            Row({ space: 8 }) {
+              SymbolGlyph($r('sys.symbol.checkmark'))
+                .fontSize(17)
+                .fontColor([this.busy ? Theme.textFaint : '#0b0d12'])
+              Text(this.busy ? '正在处理…' : '批准登录')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.busy ? Theme.textFaint : '#0b0d12')
+            }
+            .width('100%')
+            .height(52)
+            .justifyContent(FlexAlign.Center)
           }
-          .width('100%')
-          .height(52)
-          .justifyContent(FlexAlign.Center)
-          .backgroundColor(this.busy ? Theme.glassFill : Theme.accent)
+          .attributeModifier(new GlassButtonModifier(this.busy ? GlassTone.Secondary : GlassTone.Primary))
+          .padding(0)
+          .clip(true)
           .borderRadius(18)
           .onClick(() => {
             if (!this.busy) {
@@ -524,20 +535,22 @@ export struct DeviceApprovalDialog {
             }
           })
         }
-        Text('拒绝')
-          .fontSize(16)
-          .fontColor(Theme.danger)
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 15, bottom: 15 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(18)
-          .opacity(this.busy ? 0.5 : 1)
-          .onClick(() => {
-            if (!this.busy) {
-              this.decide(false);
-            }
-          })
+        Button() {
+          Text('拒绝')
+            .fontSize(16)
+            .fontColor(Theme.danger)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .width('100%')
+        .padding({ top: 15, bottom: 15 })
+        .borderRadius(18)
+        .opacity(this.busy ? 0.5 : 1)
+        .onClick(() => {
+          if (!this.busy) {
+            this.decide(false);
+          }
+        })
       }
       .width('100%')
 
@@ -588,18 +601,20 @@ export struct DeviceApprovalDialog {
     .alignItems(HorizontalAlign.Center)
     .padding({ top: 8 })
 
-    Text('完成')
-      .fontSize(16)
-      .fontWeight(FontWeight.Medium)
-      .fontColor('#0b0d12')
-      .textAlign(TextAlign.Center)
-      .width('100%')
-      .padding({ top: 15, bottom: 15 })
-      .backgroundColor(Theme.accent)
-      .borderRadius(18)
-      .onClick(() => {
-        this.onClose();
-      })
+    Button() {
+      Text('完成')
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor('#0b0d12')
+        .textAlign(TextAlign.Center)
+    }
+    .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+    .width('100%')
+    .padding({ top: 15, bottom: 15 })
+    .borderRadius(18)
+    .onClick(() => {
+      this.onClose();
+    })
   }
 
   /** 「以谁的身份批准」：批准的后果是设备登录成这个账号，必须写明 */

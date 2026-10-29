@@ -1,3 +1,6 @@
+import { fileIo } from '@kit.CoreFileKit';
+import { util } from '@kit.ArkTS';
+import { Context } from '@kit.AbilityKit';
 import { MovieClawApi } from '../api/Endpoints';
 import {
   CollectionView,
@@ -47,6 +50,15 @@ export class LibraryHomePrefs {
   /** 接收一次拉取结果：拉取期间换了账号（或已有更新的副本）就丢弃 */
   accept(fetched: HomeRowPref[] | null, key: string): void {
     if (key !== this.owner || this.rows !== null) {
+      return;
+    }
+    this.rows = fetched;
+  }
+
+  /** 从磁盘快照接收行清单（只在还没有网络副本时生效） */
+  adoptSnapshot(fetched: HomeRowPref[], key: string): void {
+    this.adopt(key);
+    if (this.rows !== null) {
       return;
     }
     this.rows = fetched;
@@ -109,7 +121,7 @@ class HomePlan {
  * - 库状态、要取的行、合集都没变时不重拉各行条目（空闲时每 30 秒不必打 1+N 个请求）；
  * - 瞬时失败不清已有数据，只置 failed 让页面挂提示条；一次都没成功过才整页报错；
  * - 有库在扫描 / 整理时 busyUntil 往后 12 秒，页面据此保持 3 秒快轮询（同 Web recentlyBusy）。
- * 鸿蒙版暂不做磁盘快照（秒开由会话快照 + 首帧 loading 承接），结构留好了后续加。
+ * - 整页磁盘快照（cacheDir/library-home-cache.json）：冷启动先上屏缓存，网络完成后二次刷新；
  */
 export class LibraryHomeStore {
   static readonly shared: LibraryHomeStore = new LibraryHomeStore();
@@ -134,6 +146,16 @@ export class LibraryHomeStore {
   private refreshedAt: number | null = null;
   private inFlight: Promise<void> | null = null;
 
+  // —— 磁盘快照（缓存）：冷启动先上屏缓存，网络完成后二次刷新 ——
+  private cachePath: string | null = null;
+  /** 快照已为这个账号恢复过（进程内一次；换账号重置） */
+  private restoredKey: string | null = null;
+
+  /** EntryAbility.onCreate 里调用：给定缓存文件的落盘位置 */
+  init(context: Context): void {
+    this.cachePath = context.cacheDir + '/library-home-cache.json';
+  }
+
   /** 以这个账号的身份使用：换了账号就清空旧账号的数据 */
   adopt(key: string): void {
     if (key === this.owner) {
@@ -151,22 +173,116 @@ export class LibraryHomeStore {
     this.rowsFingerprint = null;
     this.refreshedAt = null;
     this.inFlight = null;
+    this.restoredKey = null;
   }
 
-  /** 刷新整页；并发调用合并为同一次 */
-  async reload(api: MovieClawApi, key: string): Promise<void> {
-    this.adopt(key);
-    if (this.inFlight !== null) {
-      await this.inFlight;
+  /** 从磁盘快照恢复（同步；文件坏了/换了账号就当没有）。成功返回 true */
+  private restoreFromCache(key: string): boolean {
+    if (this.cachePath === null) {
+      return false;
+    }
+    try {
+      const file: fileIo.File = fileIo.openSync(this.cachePath, fileIo.OpenMode.READ_ONLY);
+      let text: string = '';
+      try {
+        const stat: fileIo.Stat = fileIo.statSync(file.fd);
+        if (stat.size <= 0 || stat.size > 4 * 1024 * 1024) {
+          return false;
+        }
+        const buf: ArrayBuffer = new ArrayBuffer(stat.size);
+        fileIo.readSync(file.fd, buf);
+        const decoder: util.TextDecoder = util.TextDecoder.create('utf-8');
+        text = decoder.decodeToString(new Uint8Array(buf));
+      } finally {
+        fileIo.closeSync(file);
+      }
+      const raw: LibraryHomeSnapshot = JSON.parse(text) as LibraryHomeSnapshot;
+      if (raw.owner !== key || !Array.isArray(raw.libraries)) {
+        return false;
+      }
+      this.libraries = raw.libraries;
+      this.collections = (raw.collections ?? []) as CollectionView[];
+      this.upNext = (raw.upNext ?? null) as UpNextItemView[] | null;
+      this.favorites = (raw.favorites ?? null) as FavoritesView | null;
+      const items: Map<string, LibraryItemView[]> = new Map<string, LibraryItemView[]>();
+      for (const pair of raw.itemsByKey ?? []) {
+        items.set(pair.key, pair.items as LibraryItemView[]);
+      }
+      this.itemsByKey = items;
+      this.rowsLoaded = raw.rowsLoaded === true;
+      this.rowsFingerprint = raw.rowsFingerprint ?? null;
+      this.busyUntil = 0;
+      this.failed = false;
+      if (raw.rows !== null && raw.rows !== undefined) {
+        // 行清单也走缓存：冷启动不再被 uiPrefsShow 挡住首屏
+        LibraryHomePrefs.shared.adoptSnapshot(raw.rows, key);
+      }
+      return true;
+    } catch (error) {
+      // 缓存坏了/不存在：当没有
+      return false;
+    }
+  }
+
+  /** 刷新成功后把整页数据落盘（fire-and-forget；失败静默） */
+  private saveToCache(key: string): void {
+    if (this.cachePath === null || this.libraries === null) {
       return;
     }
-    const task: Promise<void> = this.load(api, key);
-    this.inFlight = task;
     try {
-      await task;
-    } finally {
-      this.inFlight = null;
+      const pairs: SnapshotPair[] = [];
+      this.itemsByKey.forEach((items: LibraryItemView[], itemKey: string): void => {
+        const pair: SnapshotPair = { key: itemKey, items: items };
+        pairs.push(pair);
+      });
+      const snapshot: LibraryHomeSnapshot = {
+        owner: key,
+        savedAt: Date.now(),
+        libraries: this.libraries,
+        collections: this.collections,
+        upNext: this.upNext,
+        favorites: this.favorites,
+        itemsByKey: pairs,
+        rowsLoaded: this.rowsLoaded,
+        rowsFingerprint: this.rowsFingerprint,
+        rows: LibraryHomePrefs.shared.rows
+      };
+      const text: string = JSON.stringify(snapshot);
+      const file: fileIo.File = fileIo.openSync(this.cachePath,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      try {
+        fileIo.writeSync(file.fd, text);
+      } finally {
+        fileIo.closeSync(file);
+      }
+    } catch (error) {
+      // 落盘失败不影响功能
     }
+  }
+
+  /** 刷新整页；并发调用合并为同一次。
+   *  冷启动先把磁盘快照同步恢复进内存（页面立即上屏缓存），
+   *  返回的 Promise 在网络刷新完成后 resolve（页面再刷一遍）。 */
+  reload(api: MovieClawApi, key: string): Promise<void> {
+    this.adopt(key);
+    if (this.inFlight !== null) {
+      return this.inFlight;
+    }
+    if (this.restoredKey !== key) {
+      this.restoreFromCache(key);
+      this.restoredKey = key;
+    }
+    const task: Promise<void> = this.load(api, key)
+      .then((): void => {
+        this.saveToCache(key);
+      })
+      .finally((): void => {
+        if (this.inFlight === task) {
+          this.inFlight = null;
+        }
+      });
+    this.inFlight = task;
+    return task;
   }
 
   private async load(api: MovieClawApi, key: string): Promise<void> {
@@ -403,4 +519,24 @@ export class LibraryHomeStore {
     const keys: string[] = Array.from(fetches.keys()).sort();
     return `${JSON.stringify(libs)}#${keys.join(',')}#${JSON.stringify(cols)}`;
   }
+}
+
+/** 磁盘快照的条目键值对（ArkTS 不用 tuple，用对象） */
+interface SnapshotPair {
+  key: string;
+  items: LibraryItemView[];
+}
+
+/** 整页数据的磁盘快照（stale-while-revalidate：先显缓存，网络完成再刷新） */
+interface LibraryHomeSnapshot {
+  owner: string;
+  savedAt: number;
+  libraries: LibraryView[] | null;
+  collections: CollectionView[];
+  upNext: UpNextItemView[] | null;
+  favorites: FavoritesView | null;
+  itemsByKey: SnapshotPair[];
+  rowsLoaded: boolean;
+  rowsFingerprint: string | null;
+  rows: HomeRowPref[] | null;
 }

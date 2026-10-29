@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
@@ -185,7 +186,7 @@ export struct NoticeCenterPage {
               .fontWeight(FontWeight.Medium)
               .fontColor(Theme.textMuted)
               .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-              .margin({ top: Theme.statusBarInset + 10 })
+              .margin({ top: Theme.shellTopInset + 10 })
               .backgroundColor('rgba(255,255,255,0.07)')
               .borderRadius(10)
           }
@@ -249,16 +250,18 @@ export struct NoticeCenterPage {
         .fontSize(13)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('重试')
-        .fontSize(14)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(18)
-        .onClick(() => {
-          this.load();
-        })
+      Button() {
+        Text('重试')
+          .fontSize(14)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+      .borderRadius(18)
+      .onClick(() => {
+        this.load();
+      })
     }
     .width('100%')
     .layoutWeight(1)
@@ -375,17 +378,21 @@ export struct NoticeCenterPage {
               }
             })
         }
-        Row({ space: 3 }) {
-          Text('去处理')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.accentStrong)
-          SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(12)
-            .fontColor([Theme.accentStrong])
+        Button() {
+          Row({ space: 3 }) {
+            Text('去处理')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.accentStrong)
+            SymbolGlyph($r('sys.symbol.chevron_right'))
+              .fontSize(12)
+              .fontColor([Theme.accentStrong])
+          }
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
         }
-        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-        .backgroundColor(Theme.accentSoft)
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding(0)
+        .clip(true)
         .borderRadius(16)
         .onClick(() => {
           this.goto(notice);

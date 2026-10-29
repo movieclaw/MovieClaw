@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
 import { ApiError } from '../api/ApiClient';
@@ -472,20 +473,22 @@ export struct OrganizeSheet {
         this.agreed = !this.agreed;
       })
 
-      Text(this.busy ? '提交中…' : '开始整理')
-        .fontSize(16)
-        .fontWeight(600)
-        .fontColor(this.canExecute() ? '#0b0d12' : Theme.textFaint)
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 13, bottom: 13 })
-        .backgroundColor(this.canExecute() ? Theme.accent : Theme.glassFill)
-        .borderRadius(12)
-        .onClick(() => {
-          if (this.canExecute()) {
-            this.execute();
-          }
-        })
+      Button() {
+        Text(this.busy ? '提交中…' : '开始整理')
+          .fontSize(16)
+          .fontWeight(600)
+          .fontColor(this.canExecute() ? '#0b0d12' : Theme.textFaint)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(this.canExecute() ? GlassTone.Primary : GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 13, bottom: 13 })
+      .borderRadius(12)
+      .onClick(() => {
+        if (this.canExecute()) {
+          this.execute();
+        }
+      })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)

@@ -1,5 +1,6 @@
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { MovieClawApi } from '../api/Endpoints';
 import { ApiError } from '../api/ApiClient';
@@ -1219,17 +1220,19 @@ export struct OfflineProfileSheet {
         Scroll() {
           Row({ space: 8 }) {
             ForEach(this.scopes as OfflineDownloadScope[], (scope: OfflineDownloadScope) => {
-              Text(scope.label)
-                .fontSize(13)
-                .fontWeight(this.scopeId === scope.id ? 600 : 400)
-                .fontColor(this.scopeId === scope.id ? '#0b0d12' : Theme.textMuted)
-                .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-                .backgroundColor(this.scopeId === scope.id ? Color.White : Theme.glassFill)
-                .borderRadius(14)
-                .onClick(() => {
-                  this.scopeId = scope.id;
-                  this.startError = null;
-                })
+              Button() {
+                Text(scope.label)
+                  .fontSize(13)
+                  .fontWeight(this.scopeId === scope.id ? 600 : 400)
+                  .fontColor(this.scopeId === scope.id ? '#0b0d12' : Theme.textMuted)
+              }
+              .attributeModifier(new GlassButtonModifier(this.scopeId === scope.id ? GlassTone.Primary : GlassTone.Secondary))
+              .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+              .borderRadius(14)
+              .onClick(() => {
+                this.scopeId = scope.id;
+                this.startError = null;
+              })
             }, (scope: OfflineDownloadScope) => scope.id)
           }
         }

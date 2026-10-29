@@ -4,6 +4,7 @@ import { AppModel } from '../common/AppModel';
 import { NavStacks } from '../common/ShareLinks';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls, ImageVariant } from '../common/ImageUrls';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 import { MovieClawApi } from '../api/Endpoints';
 import { UpNextItemView } from '../api/Models';
 import { PlayerParams } from '../player/PlayerParams';
@@ -87,6 +88,8 @@ export class ResumeBarStore {
 @ComponentV2
 export struct ResumeBar {
   @Require @Param item: UpNextItemView;
+  /** 收起态：跟着底栏一起收成一枚圆形按钮（与页签栏的圆钮同高、同一条水平线） */
+  @Param compact: boolean = false;
   @Event onHide: () => void = () => {
   };
 
@@ -105,10 +108,25 @@ export struct ResumeBar {
       if (percent !== null) {
         parts.push(`看到 ${percent}%`);
       }
+      const duration: number | null = this.item.duration_ms ?? null;
+      if (duration !== null && duration > this.item.position_ms) {
+        parts.push(`剩 ${this.remainingText(duration - this.item.position_ms)}`);
+      }
     } else if (this.item.advanced) {
       parts.push('下一集');
     }
     return parts.join(' · ');
+  }
+
+  /** 剩余时长：不足 1 小时说分钟，超过说小时+分钟 */
+  private remainingText(ms: number): string {
+    const minutes: number = Math.max(1, Math.round(ms / 60000));
+    if (minutes < 60) {
+      return `${minutes} 分`;
+    }
+    const hours: number = Math.floor(minutes / 60);
+    const rest: number = minutes % 60;
+    return rest > 0 ? `${hours} 小时 ${rest} 分` : `${hours} 小时`;
   }
 
   private artUrl(): string {
@@ -121,6 +139,12 @@ export struct ResumeBar {
     return resolved ?? '';
   }
 
+  private posterUrl(): string {
+    const resolved: string | null = ImageUrls.resolve(
+      AppModel.origin(), this.item.poster_url, ImageVariant.posterCard);
+    return resolved ?? this.artUrl();
+  }
+
   private play(): void {
     const stack: NavPathStack | null = NavStacks.of(NavStacks.currentKey);
     if (stack !== null) {
@@ -130,18 +154,86 @@ export struct ResumeBar {
     }
   }
 
+  /** 看到哪的百分比（没有进度数据返回 null，就不画环） */
+  private ringPercent(): number | null {
+    const raw: number | null | undefined = this.item.progress_percent;
+    if (this.item.position_ms <= 0 || raw === null || raw === undefined) {
+      return null;
+    }
+    return Math.max(0, Math.min(100, Math.round(raw)));
+  }
+
+  /** 收起态：一枚圆形唱片（封面 + 环形进度），与官方页签栏收起后的圆钮同规格 */
+  @Builder
+  CompactBar() {
+    Stack({ alignContent: Alignment.Center }) {
+      // 环绕一圈的进度：已播 = 绿色弧，未播 = 白色 16% 的轨道（没有进度也画空环）
+      Progress({ value: this.ringPercent() ?? 0, total: 100, type: ProgressType.Ring })
+        .width(56)
+        .height(56)
+        .color(Theme.ok)
+        .backgroundColor('rgba(255, 255, 255, 0.16)')
+        .style({ strokeWidth: 3 })
+      Column({ space: 0 }) {
+        RemoteImage({
+          url: this.posterUrl(),
+          placeholderSymbol: $r('sys.symbol.play_square')
+        })
+          .width(30)
+          .height(30)
+          .borderRadius(7)
+          .clip(true)
+        if (this.ringPercent() !== null) {
+          Text(`${this.ringPercent()}%`)
+            .fontSize(9)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+            .margin({ top: 1 })
+        }
+      }
+      .justifyContent(FlexAlign.Center)
+    }
+    .width(56)
+    .height(56)
+    .backgroundColor('rgba(18, 21, 27, 0.94)')
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+    .systemMaterial(SpatialMaterial.floating())
+    .borderRadius(28)
+    .border({ width: 1, color: 'rgba(255, 255, 255, 0.10)' })
+    .shadow({ radius: 22, color: 'rgba(0, 0, 0, 0.45)', offsetX: 0, offsetY: 8 })
+    .onClick(() => {
+      this.play();
+    })
+  }
+
   build() {
+    if (this.compact) {
+      this.CompactBar()
+    } else {
     Row() {
       // 左边整块点了起播（左边区域与 ✕ 是并排的两个按钮，按钮里套按钮点击会串）
       Row({ space: 10 }) {
-        RemoteImage({
-          url: this.artUrl(),
-          placeholderSymbol: $r('sys.symbol.play_square')
-        })
-          .width(52)
-          .height(30)
-          .borderRadius(6)
-          .clip(true)
+        // 封面 + 环形进度（同华为音乐迷你播放条：Stack 层叠环形进度条）
+        Stack({ alignContent: Alignment.Center }) {
+          if (this.ringPercent() !== null) {
+            Progress({ value: this.ringPercent()!, total: 100, type: ProgressType.Ring })
+            .width(44)
+            .height(44)
+            .color(Theme.text)
+            .backgroundColor('rgba(255,255,255,0.14)')
+            .style({ strokeWidth: 2.5 })
+          }
+          RemoteImage({
+            url: this.posterUrl(),
+            placeholderSymbol: $r('sys.symbol.play_square')
+          })
+            .width(34)
+            .height(34)
+            .borderRadius(8)
+            .clip(true)
+        }
+        .width(46)
+        .height(46)
         Column({ space: 1 }) {
           Text(this.item.title)
             .fontSize(14)
@@ -178,9 +270,17 @@ export struct ResumeBar {
     }
     .width('100%')
     .height(56)
-    .backgroundColor(Theme.surface)
-    .borderRadius(Theme.cardRadius)
-    .border({ width: 1, color: Theme.line })
-    .shadow({ radius: 18, color: 'rgba(0,0,0,0.35)', offsetY: 6 })
+    /*
+     * 和官方悬浮页签栏同一套：深色玻璃底（实色，不再靠空间化材质透出来——列表上方
+     * 不在标题栏/页签栏作用域时系统材质不生效，条几乎全透明看不见）、厚模糊、
+     * 1px 细描边、胶囊圆角 28。API 26+ 再叠一层空间化材质，能吃到就多一层光感。
+     */
+    .backgroundColor('rgba(18, 21, 27, 0.94)')
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+    .systemMaterial(SpatialMaterial.floating())
+    .borderRadius(28)
+    .border({ width: 1, color: 'rgba(255, 255, 255, 0.10)' })
+    .shadow({ radius: 22, color: 'rgba(0, 0, 0, 0.45)', offsetX: 0, offsetY: 8 })
+    }
   }
 }

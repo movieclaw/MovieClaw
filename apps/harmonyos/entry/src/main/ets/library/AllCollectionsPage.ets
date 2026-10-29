@@ -1,5 +1,7 @@
 import { display } from '@kit.ArkUI';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { SHELL_LAYOUT_REVISION_KEY } from '../common/WindowInsets';
 import { PageTopBar } from '../common/PageTopBar';
 import { CollectionRouteParams } from './CollectionDetailPage';
 import { AppModel } from '../common/AppModel';
@@ -189,6 +191,13 @@ export function AllCollectionsBuilder() {
  */
 @Component
 struct AllCollectionsPage {
+  /**
+   * 外壳布局版本号（避让区变化 / 底栏样式切换时自增）。
+   *
+   * 本页是 V1 `@Component`，观测不到 `WindowInsets` / `TabBarStyle` 的 `@Trace`；
+   * 靠这个 AppStorage 单向同步的字段整页重排，build 里再读 `Theme.tabBarInset` 就是新值。
+   */
+  @StorageProp(SHELL_LAYOUT_REVISION_KEY) shellLayoutRevision: number = 0;
   private navStack: NavPathStack = new NavPathStack();
   /** null = 还在读取 */
   @State private rows: CollectionView[] | null = null;
@@ -478,7 +487,7 @@ struct AllCollectionsPage {
           .height('100%')
           .edgeEffect(EdgeEffect.None)
           .cachedCount(4)
-          .padding({ bottom: Theme.tabBarInset })
+          .contentEndOffset(Theme.tabBarInset)
         }
         .onRefreshing(() => {
           this.load().then((): void => {
@@ -512,19 +521,21 @@ struct CollectionChipBar {
 
   @Builder
   Chip(option: CollectionChipOption, count: number) {
-    Row({ space: 6 }) {
-      Text(option.title)
-        .fontSize(12)
-        .fontColor(this.selected === option.value ? '#ffffff' : 'rgba(255, 255, 255, 0.7)')
-      Text(`${count}`)
-        .fontSize(12)
-        .fontColor('rgba(255, 255, 255, 0.4)')
+    Button() {
+      Row({ space: 6 }) {
+        Text(option.title)
+          .fontSize(12)
+          .fontColor(this.selected === option.value ? '#ffffff' : 'rgba(255, 255, 255, 0.7)')
+        Text(`${count}`)
+          .fontSize(12)
+          .fontColor('rgba(255, 255, 255, 0.4)')
+      }
+      .padding({ left: 10, right: 10 })
+      .height(28)
     }
-    .padding({ left: 10, right: 10 })
-    .height(28)
-    .backgroundColor(this.selected === option.value
-      ? 'rgba(255, 255, 255, 0.16)'
-      : 'rgba(255, 255, 255, 0.05)')
+    .attributeModifier(new GlassButtonModifier(this.selected === option.value ? GlassTone.Secondary : GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(14)
     .opacity(count === 0 && this.selected !== option.value ? 0.3 : 1)
     .onClick(() => {

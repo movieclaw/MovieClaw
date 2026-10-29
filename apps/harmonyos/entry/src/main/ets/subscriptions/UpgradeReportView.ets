@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { Permissions } from '../common/Permissions';
 import { AppModel } from '../common/AppModel';
 import { UpgradeRunUnitView, UpgradeRunView } from '../api/Models';
@@ -129,16 +130,17 @@ export struct UpgradeReportView {
               .fontColor(Theme.text)
             Blank()
             if (this.canAnnotate(group.season)) {
-              Text('标注片源')
-                .fontSize(12)
-                .fontColor(Theme.accentStrong)
-                .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-                .backgroundColor(Theme.glassFill)
-                .borderRadius(8)
-                .border({ width: 1, color: Theme.line })
-                .onClick(() => {
-                  this.onAnnotate(group.season);
-                })
+              Button() {
+                Text('标注片源')
+                  .fontSize(12)
+                  .fontColor(Theme.accentStrong)
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .borderRadius(8)
+              .onClick(() => {
+                this.onAnnotate(group.season);
+              })
             }
           }
           .width('100%')

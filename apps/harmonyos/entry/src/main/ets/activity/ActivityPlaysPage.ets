@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { AppFooter } from '../common/AppFooter';
 import { RemoteImage } from '../common/RemoteImage';
@@ -380,7 +381,7 @@ export struct ActivityPlaysPage {
       .bindMenu(this.FilterMenu())
     }
     .width('100%')
-    .padding({ left: 12, right: 12, top: Theme.statusBarInset + 6, bottom: 6 })
+    .padding({ left: 12, right: 12, top: Theme.shellTopInset + 6, bottom: 6 })
   }
 
   @Builder
@@ -444,17 +445,18 @@ export struct ActivityPlaysPage {
         Text(this.errorMessage)
           .fontSize(13)
           .fontColor(Theme.textMuted)
-        Text('重试')
-          .fontSize(14)
-          .fontWeight(600)
-          .fontColor(Theme.accentStrong)
-          .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(18)
-          .border({ width: 1, color: Theme.lineStrong })
-          .onClick(() => {
-            this.load();
-          })
+        Button() {
+          Text('重试')
+            .fontSize(14)
+            .fontWeight(600)
+            .fontColor(Theme.accentStrong)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+        .borderRadius(18)
+        .onClick(() => {
+          this.load();
+        })
       }
       .width('100%')
       .layoutWeight(1)
@@ -469,18 +471,19 @@ export struct ActivityPlaysPage {
         Text(`有 ${this.hiddenCount} 条记录不在你可见的库里。`)
           .fontSize(13)
           .fontColor(Theme.textMuted)
-        Text('显示全部')
-          .fontSize(14)
-          .fontWeight(600)
-          .fontColor(Theme.accentStrong)
-          .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(18)
-          .border({ width: 1, color: Theme.lineStrong })
-          .margin({ top: 6 })
-          .onClick(() => {
-            this.pickScope('all');
-          })
+        Button() {
+          Text('显示全部')
+            .fontSize(14)
+            .fontWeight(600)
+            .fontColor(Theme.accentStrong)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+        .borderRadius(18)
+        .margin({ top: 6 })
+        .onClick(() => {
+          this.pickScope('all');
+        })
       }
       .width('100%')
       .layoutWeight(1)
@@ -493,18 +496,19 @@ export struct ActivityPlaysPage {
           .fontWeight(600)
           .fontColor(Theme.text)
         if (this.memberId !== -1) {
-          Text('查看全部成员')
-            .fontSize(14)
-            .fontWeight(600)
-            .fontColor(Theme.accentStrong)
-            .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(18)
-            .border({ width: 1, color: Theme.lineStrong })
-            .margin({ top: 6 })
-            .onClick(() => {
-              this.pickMember(-1);
-            })
+          Button() {
+            Text('查看全部成员')
+              .fontSize(14)
+              .fontWeight(600)
+              .fontColor(Theme.accentStrong)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+          .borderRadius(18)
+          .margin({ top: 6 })
+          .onClick(() => {
+            this.pickMember(-1);
+          })
         }
       }
       .width('100%')
@@ -572,7 +576,8 @@ export struct ActivityPlaysPage {
     .height('100%')
     .scrollBar(BarState.Off)
     .cachedCount(6)
-    .padding({ left: Theme.pagePadding, right: Theme.pagePadding, bottom: Theme.tabBarInset })
+    .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
+    .contentEndOffset(Theme.tabBarInset)
   }
 
   @Builder
@@ -594,49 +599,53 @@ export struct ActivityPlaysPage {
   @Builder
   PlayRow(entry: PlaybackLogEntryView) {
     ListItem() {
-      Row({ space: 10 }) {
-        Text(this.clockOf(entry))
-          .fontSize(11)
-          .fontColor(Theme.textFaint)
-          .width(34)
-        RemoteImage({
-          url: ImageUrls.resolve(AppModel.origin(), entry.media.poster_url ?? null,
-            ImageVariant.posterCard) ?? ''
-        })
-          .width(28)
-          .height(42)
-          .backgroundColor(Theme.surface)
-          .borderRadius(6)
-          .clip(true)
-        Column({ space: 3 }) {
-          Text(this.titleLine(entry))
-            .fontSize(14)
-            .fontWeight(500)
-            .fontColor(Theme.text)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text(this.deviceLine(entry))
-            .fontSize(12)
-            .fontColor(Theme.textFaint)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-        Column({ space: 2 }) {
-          Text(this.statusLine(entry))
-            .fontSize(12)
-            .fontColor(this.statusColor(entry))
-          Text(this.watchedText(entry))
+      Button() {
+        Row({ space: 10 }) {
+          Text(this.clockOf(entry))
             .fontSize(11)
             .fontColor(Theme.textFaint)
+            .width(34)
+          RemoteImage({
+            url: ImageUrls.resolve(AppModel.origin(), entry.media.poster_url ?? null,
+              ImageVariant.posterCard) ?? ''
+          })
+            .width(28)
+            .height(42)
+            .backgroundColor(Theme.surface)
+            .borderRadius(6)
+            .clip(true)
+          Column({ space: 3 }) {
+            Text(this.titleLine(entry))
+              .fontSize(14)
+              .fontWeight(500)
+              .fontColor(Theme.text)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            Text(this.deviceLine(entry))
+              .fontSize(12)
+              .fontColor(Theme.textFaint)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+          Column({ space: 2 }) {
+            Text(this.statusLine(entry))
+              .fontSize(12)
+              .fontColor(this.statusColor(entry))
+            Text(this.watchedText(entry))
+              .fontSize(11)
+              .fontColor(Theme.textFaint)
+          }
+          .alignItems(HorizontalAlign.End)
         }
-        .alignItems(HorizontalAlign.End)
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        .padding({ left: 12, right: 12, top: 9, bottom: 9 })
       }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-      .padding({ left: 12, right: 12, top: 9, bottom: 9 })
-      .backgroundColor(Theme.surface)
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding(0)
+      .clip(true)
       .borderRadius(Theme.cardRadius)
       .margin({ bottom: 6 })
       .onClick(() => {

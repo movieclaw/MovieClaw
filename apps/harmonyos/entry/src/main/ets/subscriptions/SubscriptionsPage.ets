@@ -1,4 +1,7 @@
+import { AppNavBar } from '../common/AppNavBar';
 import { Theme } from '../theme/AppTheme';
+import { TabBarCollapse } from '../common/TabBarCollapse';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { SubscriptionParams } from './SubscriptionDetailPage';
 import { AppModel } from '../common/AppModel';
 import { ShellChrome } from '../common/ShellChrome';
@@ -18,7 +21,7 @@ import {
 } from '../api/Models';
 import { AppFooter } from '../common/AppFooter';
 import { HeroSkeleton, SkeletonRow } from '../common/SkeletonBlock';
-import { PlayerParams } from '../player/PlayerParams';
+import { PlayerParams } from '../player/PlayerPage';
 import { DiscoverDetailParams } from '../discover/DiscoverDetailPage';
 import { CollectionMeta, ShelfSplit, ShelfStanding, SubsHome, ArrivalPresentation, arrivalPresentation, arrivalClockText } from './SubscriptionsHomeModel';
 import {
@@ -49,6 +52,8 @@ class ScheduleDay {
   readonly daysAhead: number;
   readonly weekday: string;
   readonly dayNumber: number;
+  /** 「9月27日」（日程区右上角的说明与读屏用，同 iOS `dateLabel`） */
+  readonly dateLabel: string;
   readonly count: number;
 
   constructor(daysAhead: number, count: number, siteTodayMs: number) {
@@ -59,6 +64,7 @@ class ScheduleDay {
     const names: string[] = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
     this.weekday = names[d.getUTCDay()];
     this.dayNumber = d.getUTCDate();
+    this.dateLabel = `${d.getUTCMonth() + 1}月${d.getUTCDate()}日`;
   }
 }
 
@@ -146,8 +152,12 @@ export struct SubscriptionsPage {
   @Local private today: TodayArrivalView[] = [];
   @Local private recent: RecentArrivalView[] = [];
   @Local private refreshing: boolean = false;
+  /** 内容区滚动器（宿主 bindToScrollable 要用同一个实例驱动标题栏） */
+  @Param scroller: Scroller = new Scroller();
   /** 日程条当前选中的偏移天数（0 = 今天） */
   @Local private selectedDay: number = 0;
+  /** 用户手动点过日期条没有：没点过时默认选第一个有安排的日子（同 iOS） */
+  @Local private selectedPicked: boolean = false;
   /** Hero 高度：iOS 固定 500（比发现页的 520 略低，好露出下一块的标题），这里按屏高封顶 */
   /** 与条目详情同款高度（iOS 两处都是 min(屏宽×1.15, 屏高×0.62)） */
   private heroHeight: number = Theme.heroHeight;
@@ -157,15 +167,6 @@ export struct SubscriptionsPage {
   @Local heroFill: number = 0;
   private heroController: SwiperController = new SwiperController();
   private heroTimer: number = -1;
-  /**
-   * 派生缓存：home / heroSlides / dayGroups 的重算都在数据落点（load* 回填）时统一失效，
-   * build 与 100ms 定时器只读缓存——此前每次 build 要全量重算十几遍、定时器每 tick 再来一遍。
-   */
-  private homeCache: SubsHome | null = null;
-  private heroSlidesCache: HeroSlide[] | null = null;
-  private dayGroupsCache: DayGroup[][] | null = null;
-  /** Hero 填充进度的非响应式副本：只有跨过 1% 台阶才写 @Local heroFill，把 10Hz 状态刷新降到 ~1.6Hz */
-  private heroProgress: number = 0;
   private arrivalsTimer: number = -1;
   private recentTimer: number = -1;
   private tasksTimer: number = -1;
@@ -211,13 +212,8 @@ export struct SubscriptionsPage {
       if (count <= 1) {
         return;
       }
-      this.heroProgress += 0.0125;
-      // 指示器宽度按整数百分比渲染（Math.round），只有跨过 1% 台阶才写状态
-      if (Math.round(this.heroProgress * 100) !== Math.round(this.heroFill * 100)) {
-        this.heroFill = this.heroProgress;
-      }
-      if (this.heroProgress >= 1) {
-        this.heroProgress = 0;
+      this.heroFill += 0.0125;
+      if (this.heroFill >= 1) {
         this.heroFill = 0;
         this.heroIndex = (this.heroIndex + 1) % count;
         this.heroController.changeIndex(this.heroIndex);
@@ -274,7 +270,6 @@ export struct SubscriptionsPage {
     }
     try {
       this.subscriptions = await api.subscriptionsList();
-      this.invalidateDerived();
       this.failed = false;
       this.errorMessage = '';
     } catch (error) {
@@ -294,7 +289,6 @@ export struct SubscriptionsPage {
     try {
       const list: TodayArrivalView[] = await api.subscriptionsListTodayArrivals('week');
       this.today = list;
-      this.invalidateDerived();
     } catch (error) {
       // 老服务端没有这个接口：保持空，版块自动不出现（同 iOS）
     }
@@ -309,7 +303,6 @@ export struct SubscriptionsPage {
     try {
       const list: RecentArrivalView[] = await api.subscriptionsListRecentArrivals(7, 20);
       this.recent = list;
-      this.invalidateDerived();
     } catch (error) {
       // 同上
     }
@@ -331,7 +324,6 @@ export struct SubscriptionsPage {
         }
       }
       this.taskEtas = map;
-      this.invalidateDerived();
     } catch (error) {
       // 拿不到就退回「时间待更新」
     }
@@ -347,19 +339,9 @@ export struct SubscriptionsPage {
 
   // MARK: 派生
 
-  /** 数据落点：三份派生缓存一起失效（下一次访问按需重算） */
-  private invalidateDerived(): void {
-    this.homeCache = null;
-    this.heroSlidesCache = null;
-    this.dayGroupsCache = null;
-  }
-
   /** 首页判定逻辑（对应 iOS `SubscriptionsHomeModel`）：横滑行与海报墙页共用同一份结果 */
   private home(): SubsHome {
-    if (this.homeCache === null) {
-      this.homeCache = new SubsHome(this.subscriptions ?? [], this.today, this.recent);
-    }
-    return this.homeCache;
+    return new SubsHome(this.subscriptions ?? [], this.today, this.recent);
   }
 
   private hasAny(): boolean {
@@ -434,19 +416,19 @@ export struct SubscriptionsPage {
         .fontSize(13)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('重试')
-        .fontSize(14)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(18)
-        .border({ width: 1, color: Theme.lineStrong })
-        .onClick(() => {
-          this.subscriptions = null;
-          this.invalidateDerived();
-          this.reload();
-        })
+      Button() {
+        Text('重试')
+          .fontSize(14)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+      .borderRadius(18)
+      .onClick(() => {
+        this.subscriptions = null;
+        this.reload();
+      })
     }
     // 在 Refresh 里没有 layoutWeight 可用（父容器不是 Row/Column/Flex），用百分比高度铺满
     .width('100%')
@@ -472,15 +454,17 @@ export struct SubscriptionsPage {
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
       if (this.canSubscribe()) {
-        Text('去发现剧集')
-          .fontSize(14)
-          .fontWeight(600)
-          .fontColor('#0b0d12')
-          .padding({ left: 20, right: 20, top: 10, bottom: 10 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(20)
-          .margin({ top: 6 })
-          .onClick(() => {
+        Button() {
+          Text('去发现剧集')
+            .fontSize(14)
+            .fontWeight(600)
+            .fontColor('#0b0d12')
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .margin({ top: 6 })
+        .onClick(() => {
           this.goDiscover();
         })
       }
@@ -527,7 +511,7 @@ export struct SubscriptionsPage {
   @Builder
   Content() {
     Refresh({ refreshing: $$this.refreshing }) {
-      Scroll() {
+      Scroll(this.scroller) {
         Column({ space: 36 }) {
           if (this.heroSlides().length > 0) {
             this.Hero()
@@ -548,12 +532,20 @@ export struct SubscriptionsPage {
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
-        .padding({ top: 4, bottom: Theme.tabBarInset })
+        // 内容从 y=0 铺到标题栏下面：有 Hero 时由 Hero 顶上去，没有 Hero 时首屏空出标题栏
+        .padding({
+          top: this.heroSlides().length > 0 ? 4 : AppNavBar.contentTop + 4,
+          bottom: Theme.tabBarInset
+        })
       }
       .scrollBar(BarState.Off)
       .width('100%')
       .height('100%')
       .edgeEffect(EdgeEffect.None)
+      // 向下滚累计到阈值：底栏收成圆形按钮（往回滑立刻放回）
+      .onDidScroll((xOffset: number, yOffset: number) => {
+        TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset);
+      })
     }
     .onRefreshing(() => {
       this.beginRefresh();
@@ -568,12 +560,9 @@ export struct SubscriptionsPage {
    * 一部作品只占一张、上限 5；全空时退回「在追的前 3 部」。
    */
   private heroSlides(): HeroSlide[] {
-    if (this.heroSlidesCache === null) {
-      const subs: SubscriptionView[] = this.subscriptions ?? [];
-      const groups: HeroGroup[] = heroGroups(this.today, subs, this.taskEtas, Date.now());
-      this.heroSlidesCache = buildHeroSlides(subs, groups, this.recent, Date.now());
-    }
-    return this.heroSlidesCache;
+    const subs: SubscriptionView[] = this.subscriptions ?? [];
+    const groups: HeroGroup[] = heroGroups(this.today, subs, this.taskEtas, Date.now());
+    return buildHeroSlides(subs, groups, this.recent, Date.now());
   }
 
   /**
@@ -607,7 +596,6 @@ export struct SubscriptionsPage {
       .height('100%')
       .onChange((index: number): void => {
         this.heroIndex = index;
-        this.heroProgress = 0;
         this.heroFill = 0;
       })
 
@@ -619,11 +607,10 @@ export struct SubscriptionsPage {
     .height(this.heroHeight)
       }
 
-  /** Hero 一页的内容：居中 Logo（没有就写片名）+ 状态行 + 大号时刻 */
+  /** Hero 一页的内容（对齐 iOS `SubsHomeHeroSlideView`）：贴底排列，整块落在指示器上方 */
   @Builder
   HeroSlideContent(slide: HeroSlide) {
     Column({ space: 0 }) {
-      Blank()
       if (this.logoUrl(slide).length > 0) {
         /*
          * 片名 Logo 的尺寸。
@@ -683,43 +670,51 @@ export struct SubscriptionsPage {
       }
       // 主按钮（同 iOS `primaryButton`）：有刚入库的可播，否则「查看订阅」
       if (slide.playable) {
-        Row({ space: 6 }) {
-          SymbolGlyph($r('sys.symbol.play_fill'))
-            .fontSize(13)
-            .fontColor(['#0b0d12'])
-          Text(slide.resumePercent > 0 ? '继续播放' : '播放')
-            .fontSize(15)
-            .fontWeight(600)
-            .fontColor('#0b0d12')
+        Button() {
+          Row({ space: 6 }) {
+            SymbolGlyph($r('sys.symbol.play_fill'))
+              .fontSize(13)
+              .fontColor(['#0b0d12'])
+            Text(slide.resumePercent > 0 ? '继续播放' : '播放')
+              .fontSize(15)
+              .fontWeight(600)
+              .fontColor('#0b0d12')
+          }
+          .padding({ left: 20, right: 20, top: 9, bottom: 9 })
         }
-        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-        .backgroundColor('#ffffff')
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding(0)
+        .clip(true)
         .borderRadius(20)
         .margin({ top: 20 })
         .onClick(() => {
           this.playHero(slide);
         })
       } else {
-        Text('查看订阅')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.text)
-          .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-          .backgroundColor('rgba(255,255,255,0.16)')
-          .borderRadius(20)
-          .border({ width: 1, color: 'rgba(255,255,255,0.2)' })
-          .margin({ top: 20 })
-          .onClick(() => {
-            this.openDetailById(slide.subscriptionId);
-          })
+        Button() {
+          Text('查看订阅')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+        .borderRadius(20)
+        .margin({ top: 20 })
+        .onClick(() => {
+          this.openDetailById(slide.subscriptionId);
+        })
       }
-      Blank()
     }
     .width('100%')
     .height('100%')
-    .justifyContent(FlexAlign.Center)
-    .padding({ left: 24, right: 24, bottom: 56 })
-      }
+    /*
+     * 贴底排列（同 iOS：ZStack(.bottom) + content 的 padding(.bottom, 44)）：
+     * 片名 Logo / 状态行 / 时刻 / 播放按钮整块落在底部指示器（距底 16、高 4）上方。
+     */
+    .justifyContent(FlexAlign.End)
+    .padding({ left: 24, right: 24, bottom: 44 })
+  }
 
   /** Hero 状态行：状态点（eyebrow.tone）+ 一句说明（同 iOS `statusLine`） */
   @Builder
@@ -729,7 +724,7 @@ export struct SubscriptionsPage {
         Circle()
           .width(7)
           .height(7)
-          .backgroundColor(slide.eyebrowTone)
+          .fill(slide.eyebrowTone)
       }
       if (text.length > 0) {
         Text(text)
@@ -816,23 +811,8 @@ export struct SubscriptionsPage {
   }
 
 
-  /** 当天议程：按订阅合并——同一部剧的多集并成一条，保留首次出现顺序（同 iOS `arrivalGroups` 的分组口径）。
-   * 7 天日程条（0..6）走缓存：一次数据落点最多算 7 天，build 里十几个调用点全部 O(1) 读缓存 */
+  /** 当天议程：按订阅合并——同一部剧的多集并成一条，保留首次出现顺序（同 iOS `arrivalGroups` 的分组口径） */
   private dayGroups(daysAhead: number): DayGroup[] {
-    if (daysAhead < 0 || daysAhead > 6) {
-      return this.computeDayGroups(daysAhead);
-    }
-    if (this.dayGroupsCache === null) {
-      const out: DayGroup[][] = [];
-      for (let d = 0; d < 7; d++) {
-        out.push(this.computeDayGroups(d));
-      }
-      this.dayGroupsCache = out;
-    }
-    return this.dayGroupsCache[daysAhead];
-  }
-
-  private computeDayGroups(daysAhead: number): DayGroup[] {
     const out: DayGroup[] = [];
     const ids: number[] = [];
     for (const item of this.today) {
@@ -847,17 +827,10 @@ export struct SubscriptionsPage {
       }
       out[at].add(item);
     }
-    // 排序同 iOS：正在发生的（下载中 / 整理中）在前，其余按预计时刻从早到晚。
-    // 装饰排序：先一次性算好每组的 presentation，比较器只查表——
-    // 此前每次比较都要对两组做全量 arrivalPresentation 推导
-    const pres: ArrivalPresentation[] = out.map((g: DayGroup): ArrivalPresentation => this.groupPresentation(g));
-    const order: number[] = [];
-    for (let i = 0; i < out.length; i++) {
-      order.push(i);
-    }
-    order.sort((a: number, b: number): number => {
-      const pa: ArrivalPresentation = pres[a];
-      const pb: ArrivalPresentation = pres[b];
+    // 排序同 iOS：正在发生的（下载中 / 整理中）在前，其余按预计时刻从早到晚
+    out.sort((a: DayGroup, b: DayGroup): number => {
+      const pa: ArrivalPresentation = this.groupPresentation(a);
+      const pb: ArrivalPresentation = this.groupPresentation(b);
       if (pa.glows() !== pb.glows()) {
         return pa.glows() ? -1 : 1;
       }
@@ -865,11 +838,7 @@ export struct SubscriptionsPage {
       const tb: number = pb.estimatedAt > 0 ? pb.estimatedAt : Number.MAX_SAFE_INTEGER;
       return ta - tb;
     });
-    const sorted: DayGroup[] = [];
-    for (const i of order) {
-      sorted.push(out[i]);
-    }
-    return sorted;
+    return out;
   }
 
   /** 组内「最卡的那一步」的状态与时刻（同 iOS 取 blocking presentation） */
@@ -949,132 +918,200 @@ export struct SubscriptionsPage {
     this.navStack.pushPathByName('subscriptionDetail', new SubscriptionParams(id));
   }
 
+  /**
+   * 日程（对齐 iOS `SubsHomeSchedule`）：今天起一周的日期条 + 选中那天的议程。
+   *
+   * - 日期条**七天等分整行、不横向滚动**；没有安排的日子照样占位但点不了（透明度 0.36）；
+   * - 选中的日子白底黑字，圆点是「当天更新条数」（最多 3 颗），有下载/整理时亮状态色；
+   * - 标题右侧说明 = 选中日期的「9月27日 · 2 部」；
+   * - 议程是一张卡片：左列大号时刻 + 状态、中间 92×52 剧照、右边片名与集号；
+   *   当天没有安排就整块不出现（同 iOS）。
+   */
   @Builder
   ScheduleRow() {
     Column({ space: 12 }) {
-      this.SectionTitle('日程', this.dayGroups(this.selectedDay).length > 0
-        ? `${this.dayGroups(this.selectedDay).length} 部` : '')
-      // 日期条
-      Scroll() {
-        Row({ space: 10 }) {
-          ForEach(this.scheduleDays(), (day: ScheduleDay) => {
-            Column({ space: 5 }) {
-              Text(day.daysAhead === 0 ? '今天' : day.weekday)
-                .fontSize(11)
-                .fontColor(day.daysAhead === this.selectedDay ? 'rgba(0,0,0,0.6)' : Theme.textFaint)
-              Text(`${day.dayNumber}`)
-                .fontSize(17)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(day.daysAhead === this.selectedDay ? '#0b0d12' : Theme.text)
-              Row({ space: 3 }) {
-                if (day.count === 0) {
-                  Circle().width(4).height(4).backgroundColor('rgba(255,255,255,0.15)')
-                } else {
-                  Circle().width(4).height(4)
-                    .backgroundColor(day.daysAhead === this.selectedDay ? '#0b0d12' : Theme.accent2)
-                }
-              }
-              .height(4)
-            }
-            .width(52)
-            .padding({ top: 8, bottom: 8 })
-            .backgroundColor(day.daysAhead === this.selectedDay ? Theme.text : 'rgba(255,255,255,0.06)')
-            .borderRadius(Theme.cardRadius)
-            .onClick(() => {
-              this.selectedDay = day.daysAhead;
-            })
-          }, (day: ScheduleDay) => `${day.daysAhead}`)
-        }
-        .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
-      }
-      .scrollable(ScrollDirection.Horizontal)
-      .scrollBar(BarState.Off)
-      .width('100%')
-
-      // 当天议程（同一部剧的多集并成一条）
-      // 横向留白加在区块级（卡片自身不带 margin）：卡片内的行用 width('100%')，
-      // 若同时挂 margin，百分比会按屏幕宽解析、顶出右缘
-      Column() {
-        Column({ space: 0 }) {
-          if (this.dayGroups(this.selectedDay).length === 0) {
-            Text('这一天没有排定的到达')
-              .fontSize(13)
-              .fontColor(Theme.textFaint)
-              .padding({ left: 16, right: 16, top: 16, bottom: 16 })
-              .width('100%')
-          }
-          ForEach(this.dayGroups(this.selectedDay), (group: DayGroup, idx: number) => {
-            Row({ space: 12 }) {
-              // 左列：预计时刻（大号）+ 状态点与状态词（对齐 iOS `SubsHomeAgendaRow`）
-              Column({ space: 3 }) {
-                Text(this.groupTime(group))
-                  .fontSize(20)
-                  .fontWeight(this.groupPresentation(group).estimatedAt > 0
-                    || this.groupPresentation(group).statusLabel === '整理中'
-                    || this.groupPresentation(group).statusLabel === '下载中'
-                    ? FontWeight.Medium : FontWeight.Normal)
-                  .fontColor(this.groupTime(group) === '待定' ? Theme.textFaint : Theme.text)
-                  .maxLines(1)
-                Row({ space: 4 }) {
-                  Circle()
-                    .width(5)
-                    .height(5)
-                    .backgroundColor(this.groupPresentation(group).toneColor())
-                  Text(this.groupPresentation(group).statusLabel)
-                    .fontSize(11)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor(this.groupPresentation(group).toneColor())
-                    .maxLines(1)
-                }
-              }
-              .width(62)
-              .alignItems(HorizontalAlign.Start)
-              RemoteImage({ url: this.arrivalThumbById(group.subscriptionId) })
-                .width(92)
-                .aspectRatio(16 / 9)
-                .backgroundColor(Theme.surface)
-                .borderRadius(8)
-                .clip(true)
-              Column({ space: 3 }) {
-                Text(group.title)
-                  .fontSize(15)
-                  .fontWeight(600)
-                  .fontColor(Theme.text)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                Text(group.label())
-                  .fontSize(12)
-                  .fontColor(Theme.textFaint)
-                  .maxLines(2)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-              }
-              .layoutWeight(1)
-              .alignItems(HorizontalAlign.Start)
-              SymbolGlyph($r('sys.symbol.chevron_right'))
-                .fontSize(12)
-                .fontColor([Theme.textFaint])
-            }
-            .width('100%')
-            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-            .alignItems(VerticalAlign.Center)
-            .onClick(() => {
-              this.openDetailById(group.subscriptionId);
-            })
-            if (idx < this.dayGroups(this.selectedDay).length - 1) {
-              Divider().color(Theme.line).margin({ left: 86 })
-            }
-          }, (group: DayGroup) => `${group.subscriptionId}`)
-        }
-        .width('100%')
-        .backgroundColor(Theme.surface)
-        .borderRadius(Theme.cardRadius)
-        .border({ width: 1, color: Theme.line })
+      this.SectionTitle('日程', this.scheduleCaption())
+      Row({ space: 6 }) {
+        ForEach(this.scheduleDays(), (day: ScheduleDay) => {
+          this.DayChip(day)
+        }, (day: ScheduleDay) => `${day.daysAhead}`)
       }
       .width('100%')
       .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
+
+      if (this.dayGroups(this.currentDay()).length > 0) {
+        Column() {
+          Column({ space: 0 }) {
+            ForEach(this.dayGroups(this.currentDay()), (group: DayGroup, idx: number) => {
+              Row({ space: 12 }) {
+                // 左列：预计时刻（大号）+ 状态点与状态词（对齐 iOS `SubsHomeAgendaRow`）
+                Column({ space: 3 }) {
+                  Text(this.groupTime(group))
+                    .fontSize(20)
+                    .fontWeight(this.groupTime(group) === '待定' ? FontWeight.Normal : 600)
+                    .fontColor(this.groupTime(group) === '待定' ? Theme.textFaint : Theme.text)
+                    .maxLines(1)
+                  Row({ space: 4 }) {
+                    Circle()
+                      .width(5)
+                      .height(5)
+                      .fill(this.groupPresentation(group).toneColor())
+                    Text(this.groupPresentation(group).statusLabel)
+                      .fontSize(11)
+                      .fontWeight(600)
+                      .fontColor(this.groupPresentation(group).toneColor())
+                      .maxLines(1)
+                  }
+                }
+                .width(62)
+                .alignItems(HorizontalAlign.Start)
+                RemoteImage({ url: this.arrivalThumbById(group.subscriptionId) })
+                  .width(92)
+                  .height(52)
+                  .backgroundColor(Theme.surface)
+                  .borderRadius(9)
+                  .border({ width: 1, color: 'rgba(255,255,255,0.08)' })
+                  .clip(true)
+                Column({ space: 3 }) {
+                  Text(group.title)
+                    .fontSize(15)
+                    .fontWeight(600)
+                    .fontColor(Theme.text)
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  Text(group.label())
+                    .fontSize(13)
+                    .fontColor(Theme.textMuted)
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(12)
+                  .fontColor([Theme.textFaint])
+              }
+              .width('100%')
+              .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+              .alignItems(VerticalAlign.Center)
+              .onClick(() => {
+                this.openDetailById(group.subscriptionId);
+              })
+              if (idx < this.dayGroups(this.currentDay()).length - 1) {
+                Divider().color('rgba(255,255,255,0.06)').margin({ left: 86 })
+              }
+            }, (item: TodayArrivalView) => `${item.subscription_id}-${item.wanted_id}`)
+          }
+          .width('100%')
+          .padding({ top: 4, bottom: 4 })
+          .backgroundColor('rgba(255,255,255,0.045)')
+          .borderRadius(22)
+          .border({ width: 1, color: 'rgba(255,255,255,0.07)' })
+        }
+        .width('100%')
+        .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
+      }
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 日期条的一天（对齐 iOS `chip`）：星期/日号 + 最多 3 颗状态圆点 */
+  @Builder
+  DayChip(day: ScheduleDay) {
+    Button() {
+      Column({ space: 3 }) {
+        Text(day.daysAhead === 0 ? '今天' : day.weekday)
+          .fontSize(11)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.isSelectedDay(day) ? 'rgba(0,0,0,0.55)' : Theme.textMuted)
+        Text(`${day.dayNumber}`)
+          .fontSize(19)
+          .fontWeight(this.isSelectedDay(day) ? FontWeight.Bold : FontWeight.Medium)
+          .fontColor(this.isSelectedDay(day) ? '#0b0d12' : Theme.text)
+        Row({ space: 3 }) {
+          ForEach(this.dayDotIndexes(day), (dot: number) => {
+            Circle()
+              .width(4)
+              .height(4)
+              .fill(this.isSelectedDay(day) ? 'rgba(0,0,0,0.4)' : this.dayDotColor(day))
+          }, (dot: number) => `${dot}`)
+        }
+        .height(4)
+      }
+      .padding({ top: 9, bottom: 9 })
+    }
+    .attributeModifier(new GlassButtonModifier(this.isSelectedDay(day) ? GlassTone.Primary : GlassTone.Strong))
+    .padding(0)
+    .clip(true)
+    .layoutWeight(1)
+    .borderRadius(15)
+    .opacity(day.count === 0 ? 0.36 : 1)
+    .onClick(() => {
+      if (day.count === 0) {
+        return;
+      }
+      this.selectedPicked = true;
+      this.selectedDay = day.daysAhead;
+    })
+  }
+
+  /** 当前选中的日子：用户点过就是它，否则默认第一个有安排的日子（同 iOS） */
+  private currentDay(): number {
+    if (this.selectedPicked) {
+      return this.selectedDay;
+    }
+    for (const day of this.scheduleDays()) {
+      if (day.count > 0) {
+        return day.daysAhead;
+      }
+    }
+    return this.selectedDay;
+  }
+
+  private currentScheduleDay(): ScheduleDay | null {
+    const pick: number = this.currentDay();
+    for (const day of this.scheduleDays()) {
+      if (day.daysAhead === pick) {
+        return day;
+      }
+    }
+    return null;
+  }
+
+  /** 标题右侧说明：「9月27日 · 2 部」；当天没有安排时只写日期（同 iOS `caption`） */
+  private scheduleCaption(): string {
+    const day: ScheduleDay | null = this.currentScheduleDay();
+    if (day === null) {
+      return '';
+    }
+    const count: number = this.dayGroups(day.daysAhead).length;
+    return count > 0 ? `${day.dateLabel} · ${count} 部` : day.dateLabel;
+  }
+
+  private isSelectedDay(day: ScheduleDay): boolean {
+    return day.daysAhead === this.currentDay();
+  }
+
+  /** 日期条圆点最多 3 颗（同 iOS `min(entries.count, 3)`） */
+  private dayDotIndexes(day: ScheduleDay): number[] {
+    const out: number[] = [];
+    const count: number = Math.min(day.count, 3);
+    for (let i: number = 0; i < count; i++) {
+      out.push(i);
+    }
+    return out;
+  }
+
+  /** 圆点颜色：当天有正在发生的（下载 / 整理）就用状态色，否则白 45%（同 iOS `dotColor`） */
+  private dayDotColor(day: ScheduleDay): string {
+    for (const group of this.dayGroups(day.daysAhead)) {
+      const presentation: ArrivalPresentation = this.groupPresentation(group);
+      if (presentation.glows()) {
+        return presentation.toneColor();
+      }
+    }
+    return 'rgba(255,255,255,0.45)';
   }
 
   private pad(value: number): string {
@@ -1090,78 +1127,82 @@ export struct SubscriptionsPage {
         Row({ space: 12 }) {
           ForEach(this.recent, (item: RecentArrivalView) => {
             Column({ space: 6 }) {
-              Stack({ alignContent: Alignment.BottomEnd }) {
-                RemoteImage({
-                  url: ImageUrls.resolve(AppModel.origin(), item.still_url ?? item.media.poster_url,
-                    ImageVariant.landscapeCard) ?? ''
-                })
-                  .width('100%')
-                  .height('100%')
-                // 左下角片名 Logo（没有就不画，片名在卡片下面）
-                if (this.recentLogo(item).length > 0) {
-                  Stack({ alignContent: Alignment.BottomStart }) {
-                    RemoteImage({ url: this.recentLogo(item), fit: true })
-                      .width('62%')
-                      .height(34)
-                  }
-                  .width('100%')
-                  .height('100%')
-                  .padding({ left: 12, bottom: 12 })
-                }
-                // 左上角「新 N 集」chip（整批多于 1 集）
-                if (item.units.length > 1) {
-                  Stack({ alignContent: Alignment.TopStart }) {
-                    Text(`新 ${item.units.length} 集`)
-                      .fontSize(10)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor(Theme.ok)
-                      .padding({ left: 7, right: 7, top: 4, bottom: 4 })
-                      .backgroundColor('rgba(0,0,0,0.42)')
-                      .borderRadius(10)
-                  }
-                  .width('100%')
-                  .height('100%')
-                  .padding(9)
-                }
-                // 右下角播放角标
+              Button() {
                 Stack({ alignContent: Alignment.BottomEnd }) {
-                  SymbolGlyph($r('sys.symbol.play_fill'))
-                    .fontSize(13)
-                    .fontColor([Theme.text])
-                    .width(32)
-                    .height(32)
-                    .backgroundColor('rgba(0,0,0,0.42)')
-                    .borderRadius(16)
-                }
-                .width('100%')
-                .height('100%')
-                .padding(10)
-                // 底部续播进度（看了一半才有）
-                if ((item.progress_percent ?? 0) > 0) {
-                  Stack({ alignContent: Alignment.Bottom }) {
-                    Row() {
-                      Row()
-                        .width(`${item.progress_percent ?? 0}%`)
-                        .height('100%')
-                        .backgroundColor(Theme.ok)
+                  RemoteImage({
+                    url: ImageUrls.resolve(AppModel.origin(), item.still_url ?? item.media.poster_url,
+                      ImageVariant.landscapeCard) ?? ''
+                  })
+                    .width('100%')
+                    .height('100%')
+                  // 左下角片名 Logo（没有就不画，片名在卡片下面）
+                  if (this.recentLogo(item).length > 0) {
+                    Stack({ alignContent: Alignment.BottomStart }) {
+                      RemoteImage({ url: this.recentLogo(item), fit: true })
+                        .width('62%')
+                        .height(34)
                     }
                     .width('100%')
-                    .height(3)
-                    .backgroundColor('rgba(255,255,255,0.22)')
+                    .height('100%')
+                    .padding({ left: 12, bottom: 12 })
+                  }
+                  // 左上角「新 N 集」chip（整批多于 1 集）
+                  if (item.units.length > 1) {
+                    Stack({ alignContent: Alignment.TopStart }) {
+                      Text(`新 ${item.units.length} 集`)
+                        .fontSize(10)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor(Theme.ok)
+                        .padding({ left: 7, right: 7, top: 4, bottom: 4 })
+                        .backgroundColor('rgba(0,0,0,0.42)')
+                        .borderRadius(10)
+                    }
+                    .width('100%')
+                    .height('100%')
+                    .padding(9)
+                  }
+                  // 右下角播放角标
+                  Stack({ alignContent: Alignment.BottomEnd }) {
+                    SymbolGlyph($r('sys.symbol.play_fill'))
+                      .fontSize(13)
+                      .fontColor([Theme.text])
+                      .width(32)
+                      .height(32)
+                      .backgroundColor('rgba(0,0,0,0.42)')
+                      .borderRadius(16)
                   }
                   .width('100%')
                   .height('100%')
+                  .padding(10)
+                  // 底部续播进度（看了一半才有）
+                  if ((item.progress_percent ?? 0) > 0) {
+                    Stack({ alignContent: Alignment.Bottom }) {
+                      Row() {
+                        Row()
+                          .width(`${item.progress_percent ?? 0}%`)
+                          .height('100%')
+                          .backgroundColor(Theme.ok)
+                      }
+                      .width('100%')
+                      .height(3)
+                      .backgroundColor('rgba(255,255,255,0.22)')
+                    }
+                    .width('100%')
+                    .height('100%')
+                  }
                 }
+                .width('100%')
+                .clip(true)
+                .bindContextMenu(this.RecentMenu(item), ResponseType.LongPress)
               }
-              .width('100%')
-              .aspectRatio(16 / 9)
-              .backgroundColor(Theme.surface)
-              .borderRadius(Theme.cardRadius)
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .padding(0)
               .clip(true)
+              .aspectRatio(16 / 9)
+              .borderRadius(Theme.cardRadius)
               .onClick(() => {
                 this.playRecent(item);
               })
-              .bindContextMenu(this.RecentMenu(item), ResponseType.LongPress)
 
               Text(item.media.title)
                 .fontSize(15)
@@ -1335,24 +1376,27 @@ export struct SubscriptionsPage {
   /** 横滑末尾的「查看全部」：与海报同宽，点了进海报墙（同 iOS `SubsHomeSeeAllCard`） */
   @Builder
   SeeAllCard(kind: string) {
-    Column({ space: 8 }) {
-      SymbolGlyph($r('sys.symbol.chevron_right'))
-        .fontSize(22)
-        .fontColor([Theme.textMuted])
-      Text('查看全部')
-        .fontSize(12)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(Theme.text)
-      Text(`${this.home().shelfSplit(kind).all().length} 部`)
-        .fontSize(11)
-        .fontColor(Theme.textFaint)
+    Button() {
+      Column({ space: 8 }) {
+        SymbolGlyph($r('sys.symbol.chevron_right'))
+          .fontSize(22)
+          .fontColor([Theme.textMuted])
+        Text('查看全部')
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.text)
+        Text(`${this.home().shelfSplit(kind).all().length} 部`)
+          .fontSize(11)
+          .fontColor(Theme.textFaint)
+      }
+      .width(110)
+      .justifyContent(FlexAlign.Center)
     }
-    .width(110)
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .aspectRatio(Theme.posterAspect)
-    .justifyContent(FlexAlign.Center)
-    .backgroundColor('rgba(255,255,255,0.045)')
     .borderRadius(Theme.cardRadius)
-    .border({ width: 1, color: Theme.line })
     .onClick(() => {
       this.openWall(kind);
     })

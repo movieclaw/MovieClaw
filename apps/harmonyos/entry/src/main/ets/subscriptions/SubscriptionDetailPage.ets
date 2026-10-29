@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { RemoteImage } from '../common/RemoteImage';
@@ -414,9 +415,21 @@ export struct SubscriptionDetailPage {
   }
 
   /** 「下载中」：已抓取但还没入库的部分（同 iOS `inPipeline`） */
+  /** 管线中（同 Web / iOS）：已抓 + 已下载 */
   private inPipeline(progress: ProgressView): number {
-    const value: number = progress.grabbed - progress.imported;
-    return value > 0 ? value : 0;
+    return progress.grabbed + progress.downloaded;
+  }
+
+  /** 已入库里「已经定稿」的那部分：洗版中的从绿段里分出去（同 Web `importedSettled`） */
+  private settled(progress: ProgressView): number {
+    return Math.max(progress.imported - progress.upgrading, 0);
+  }
+
+  /** 某一段占整条的比例（分母固定为 total，与 iOS `ProgressStrip` 同口径） */
+  private stripWidth(value: number, total: number): string {
+    const denom: number = Math.max(total, 1);
+    const pct: number = Math.max(0, Math.min(100, value / denom * 100));
+    return `${pct}%`;
   }
 
   private percent(detail: SubscriptionDetailView): number {
@@ -1162,17 +1175,18 @@ export struct SubscriptionDetailPage {
         .fontSize(13)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('重试')
-        .fontSize(14)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(18)
-        .border({ width: 1, color: Theme.lineStrong })
-        .onClick(() => {
-          this.load();
-        })
+      Button() {
+        Text('重试')
+          .fontSize(14)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+      .borderRadius(18)
+      .onClick(() => {
+        this.load();
+      })
     }
     .width('100%')
     .layoutWeight(1)
@@ -1329,44 +1343,44 @@ export struct SubscriptionDetailPage {
             .fontColor('rgba(255,255,255,0.55)')
         }
         .width('100%')
+        /*
+         * 三段式色条（同 iOS `ProgressStrip` / Web `ProgressStrip`）：
+         * 绿 = 已入库且已定稿（已入库 − 洗版中）、青 = 洗版中、蓝 = 管线中（已抓 + 已下）、
+         * 底轨 = 仍缺失。每段宽度都按 total 算，不按「剩余几段之和」归一。
+         */
         Row() {
-          if (detail.progress.imported > 0) {
+          if (this.settled(detail.progress) > 0) {
             Row()
-              .layoutWeight(detail.progress.imported)
+              .width(this.stripWidth(this.settled(detail.progress), detail.progress.total))
               .height(6)
-              .backgroundColor(Theme.ok)
+              .backgroundColor(SubsColor.ok)
           }
           if (detail.progress.upgrading > 0) {
             Row()
-              .layoutWeight(detail.progress.upgrading)
+              .width(this.stripWidth(detail.progress.upgrading, detail.progress.total))
               .height(6)
-              .backgroundColor('#5eead4')
+              .backgroundColor(SubsColor.upgrade)
           }
-          if (detail.progress.downloaded > 0) {
+          if (this.inPipeline(detail.progress) > 0) {
             Row()
-              .layoutWeight(detail.progress.downloaded)
+              .width(this.stripWidth(this.inPipeline(detail.progress), detail.progress.total))
               .height(6)
-              .backgroundColor(Theme.info)
-          }
-          if (detail.progress.wanted > 0) {
-            Row()
-              .layoutWeight(detail.progress.wanted)
-              .height(6)
-              .backgroundColor(Theme.line)
+              .backgroundColor(SubsColor.infoSoft)
           }
         }
         .width('100%')
         .height(6)
+        .backgroundColor('rgba(255, 255, 255, 0.12)')
         .borderRadius(3)
         .clip(true)
 
         Flex({ wrap: FlexWrap.Wrap }) {
-          this.ProgressLegend(Theme.ok, `已入库 ${detail.progress.imported}`)
+          this.ProgressLegend(SubsColor.ok, `已入库 ${this.settled(detail.progress)}`)
           if (detail.progress.upgrading > 0) {
-            this.ProgressLegend('#5eead4', `洗版中 ${detail.progress.upgrading}`)
+            this.ProgressLegend(SubsColor.upgrade, `洗版中 ${detail.progress.upgrading}`)
           }
-          this.ProgressLegend(Theme.info, `下载中 ${this.inPipeline(detail.progress)}`)
-          this.ProgressLegend(Theme.textFaint, `缺失 ${detail.progress.wanted}`)
+          this.ProgressLegend(SubsColor.info, `下载中 ${this.inPipeline(detail.progress)}`)
+          this.ProgressLegend('rgba(255, 255, 255, 0.2)', `缺失 ${detail.progress.wanted}`)
         }
         .width('100%')
       }
@@ -1375,30 +1389,33 @@ export struct SubscriptionDetailPage {
       // 操作区（同 iOS `actions`）：立即搜索 + 手动选种 + 更多；暂停/自动续订/换组/取消都在「更多」里
       Row({ space: 8 }) {
         if (this.showSearchNow(detail)) {
-          Text(this.busy ? '处理中…' : '立即搜索')
-            .fontSize(15)
-            .fontWeight(600)
-            .fontColor('#0b0d12')
-            .padding({ left: 18, right: 18, top: 9, bottom: 9 })
-            .backgroundColor(Theme.accent)
-            .borderRadius(18)
-            .onClick(() => {
-              this.confirmSearch();
-            })
+          Button() {
+            Text(this.busy ? '处理中…' : '立即搜索')
+              .fontSize(15)
+              .fontWeight(600)
+              .fontColor('#0b0d12')
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .padding({ left: 18, right: 18, top: 9, bottom: 9 })
+          .borderRadius(18)
+          .onClick(() => {
+            this.confirmSearch();
+          })
         }
         // 到站点资源搜索挑一条种子直接投给本订阅（同 iOS `manual-pick`）
         if (this.showManualPick(detail)) {
-          Text('手动选种')
-            .fontSize(15)
-            .fontWeight(600)
-            .fontColor(Theme.text)
-            .padding({ left: 16, right: 16, top: 9, bottom: 9 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(18)
-            .border({ width: 1, color: Theme.line })
-            .onClick(() => {
-              this.manualPick(detail);
-            })
+          Button() {
+            Text('手动选种')
+              .fontSize(15)
+              .fontWeight(600)
+              .fontColor(Theme.text)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 16, right: 16, top: 9, bottom: 9 })
+          .borderRadius(18)
+          .onClick(() => {
+            this.manualPick(detail);
+          })
         }
         if (this.showMore()) {
           Text('更多')
@@ -1534,18 +1551,19 @@ export struct SubscriptionDetailPage {
             }
             // 管理员可对「无法确认档位」的季标注片源（同 iOS `seasonHeader` 的「标注片源」）
             if (this.canAnnotateSeason(detail, season)) {
-              Text('标注片源')
-                .fontSize(12)
-                .fontColor(Theme.accentStrong)
-                .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-                .backgroundColor(Theme.glassFill)
-                .borderRadius(8)
-                .border({ width: 1, color: Theme.line })
-                .onClick(() => {
-                  this.navStack.pushPathByName('mediaSourceAnnotation',
-                    new MediaSourceAnnotationParams(detail.media.media_item_id, season,
-                      detail.media.kind === 'movie'));
-                })
+              Button() {
+                Text('标注片源')
+                  .fontSize(12)
+                  .fontColor(Theme.accentStrong)
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .borderRadius(8)
+              .onClick(() => {
+                this.navStack.pushPathByName('mediaSourceAnnotation',
+                  new MediaSourceAnnotationParams(detail.media.media_item_id, season,
+                    detail.media.kind === 'movie'));
+              })
             }
           }
           .width('100%')
@@ -1676,51 +1694,56 @@ export struct SubscriptionDetailPage {
   @Builder
   EpisodeRow(wanted: WantedView, isMovie: boolean) {
     Column({ space: 0 }) {
-      Column({ space: 6 }) {
-        Row({ space: 10 }) {
-          // 电影只有一个单元，行首写「正片」而不是 E01（同 iOS `WantedRow`）
-          Text(isMovie ? '正片' : `E${wanted.episode_number < 10 ? '0' : ''}${wanted.episode_number}`)
+      Button() {
+        Column({ space: 6 }) {
+          Row({ space: 10 }) {
+            // 电影只有一个单元，行首写「正片」而不是 E01（同 iOS `WantedRow`）
+            Text(isMovie ? '正片' : `E${wanted.episode_number < 10 ? '0' : ''}${wanted.episode_number}`)
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
+              .width(44)
+            Blank()
+            this.WantedPill(wanted, isMovie)
+            if (!isMovie) {
+              SymbolGlyph(this.isRowOpen(wanted, false) ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
+                .fontSize(12)
+                .fontColor([this.isRowOpen(wanted, false) ? Theme.textMuted : Theme.textFaint])
+            }
+          }
+          .width('100%')
+          // 说明行：有实时下载快照就说下载进度，否则说状态说明
+          Text(this.wantedLive(wanted) !== null
+            ? WantedLogic.downloadNote(this.wantedLive(wanted) as SubscriptionDownloadView)
+            : this.wantedPresentation(wanted).note)
             .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
-            .width(44)
-          Blank()
-          this.WantedPill(wanted, isMovie)
-          if (!isMovie) {
-            SymbolGlyph(this.isRowOpen(wanted, false) ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
-              .fontSize(12)
-              .fontColor([this.isRowOpen(wanted, false) ? Theme.textMuted : Theme.textFaint])
+            .fontColor(Theme.textMuted)
+            .maxLines(2)
+            .width('100%')
+          // 实时下载进度条（state != missing 才有）
+          if (this.wantedLive(wanted) !== null
+            && (this.wantedLive(wanted) as SubscriptionDownloadView).progress !== null
+            && (this.wantedLive(wanted) as SubscriptionDownloadView).state !== 'missing') {
+            Row() {
+              Row()
+                .width(`${Math.round(((this.wantedLive(wanted) as SubscriptionDownloadView).progress ?? 0) * 100)}%`)
+                .height(3)
+                .backgroundColor(SubsColor.ok)
+            }
+            .width('100%')
+            .height(3)
+            .backgroundColor(Theme.line)
+            .borderRadius(2)
+            .clip(true)
           }
         }
         .width('100%')
-        // 说明行：有实时下载快照就说下载进度，否则说状态说明
-        Text(this.wantedLive(wanted) !== null
-          ? WantedLogic.downloadNote(this.wantedLive(wanted) as SubscriptionDownloadView)
-          : this.wantedPresentation(wanted).note)
-          .fontSize(15)
-          .fontColor(Theme.textMuted)
-          .maxLines(2)
-          .width('100%')
-        // 实时下载进度条（state != missing 才有）
-        if (this.wantedLive(wanted) !== null
-          && (this.wantedLive(wanted) as SubscriptionDownloadView).progress !== null
-          && (this.wantedLive(wanted) as SubscriptionDownloadView).state !== 'missing') {
-          Row() {
-            Row()
-              .width(`${Math.round(((this.wantedLive(wanted) as SubscriptionDownloadView).progress ?? 0) * 100)}%`)
-              .height(3)
-              .backgroundColor(SubsColor.ok)
-          }
-          .width('100%')
-          .height(3)
-          .backgroundColor(Theme.line)
-          .borderRadius(2)
-          .clip(true)
-        }
+        .padding({ left: 16, right: 16, top: 11, bottom: 11 })
       }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 11, bottom: 11 })
-      .backgroundColor(this.isRowOpen(wanted, isMovie) && !isMovie ? Theme.glassFill : Color.Transparent)
+      .attributeModifier(new GlassButtonModifier(
+        this.isRowOpen(wanted, isMovie) && !isMovie ? GlassTone.Strong : GlassTone.Secondary))
+      .padding(0)
+      .clip(true)
       .onClick(() => {
         if (!isMovie) {
           this.openWanted = this.openWanted === wanted.id ? 0 : wanted.id;
@@ -1757,8 +1780,15 @@ export struct SubscriptionDetailPage {
         .maxLines(1)
     }
     .padding({ left: 10, right: 10, top: 3, bottom: 3 })
-    .backgroundColor('rgba(255,255,255,0.06)')
+    // 底色 = 状态色 14%（同 iOS：`presentation.color.opacity(0.14)` 胶囊）
+    // 鸿蒙颜色串是 #AARRGGBB：把 14% 的 alpha 插在 # 后面
+    .backgroundColor(this.pillFill(this.wantedPresentation(wanted).color))
     .borderRadius(10)
+  }
+
+  /** 状态色 → 14% 半透明底（#RRGGBB → #24RRGGBB） */
+  private pillFill(color: string): string {
+    return color.startsWith('#') ? `#24${color.substring(1)}` : color;
   }
 
   /** 里程碑链竖轨线颜色：最后一站不画；卡点之前亮、之后暗（同 iOS `MilestoneChainView`） */
@@ -1775,6 +1805,8 @@ export struct SubscriptionDetailPage {
     Column({ space: 0 }) {
       ForEach(chain, (milestone: Milestone, index: number) => {
         Stack({ alignContent: Alignment.TopStart }) {
+          // 竖轨在 x=5 处（Row 左内边距），圆点宽 9/10、从 0 开始 → 圆心正好落在轨上
+          Row() {
           // 内容列：左边框当竖轨线（高度跟随内容，避开百分比/权重高度的坑）
           Column({ space: 3 }) {
             Row({ space: 8 }) {
@@ -1816,25 +1848,28 @@ export struct SubscriptionDetailPage {
             }, (source: string) => source)
           }
           .width('100%')
-          .padding({ left: 26, bottom: index === chain.length - 1 ? 0 : 14 })
+          .padding({ left: 21, bottom: index === chain.length - 1 ? 0 : 14 })
           .border({ width: { left: 1 }, color: { left: this.milestoneLineColor(chain, index) } })
+          }
+          .width('100%')
+          .padding({ left: 5 })
 
           // 节点：卡点/失败 = 空心描边，走过 = 实心，未到 = 淡描边（用 stroke，Circle+border 会画成方框）
           if (milestone.state === 'now' || milestone.state === 'fail') {
             Circle()
               .width(10)
               .height(10)
-              .margin({ top: 3 })
+              .margin({ top: 5 })
               .fill(Color.Transparent)
               .stroke(color)
               .strokeWidth(2.5)
           } else if (milestone.state === 'done') {
-            Circle().width(9).height(9).margin({ top: 4 }).fill('rgba(255,255,255,0.30)')
+            Circle().width(9).height(9).margin({ top: 5 }).fill('rgba(255,255,255,0.30)')
           } else {
             Circle()
               .width(9)
               .height(9)
-              .margin({ top: 4 })
+              .margin({ top: 5 })
               .fill(Color.Transparent)
               .stroke('rgba(255,255,255,0.15)')
               .strokeWidth(1.5)
@@ -1949,30 +1984,33 @@ export struct SubscriptionDetailPage {
         if (this.showSmartActions()) {
           Column({ space: 8 }) {
             if (smart.value('candidate_key') !== null) {
-              Text(this.smartBusy ? '正在处理…' : '立即下载当前候选')
-                .fontSize(15)
-                .fontWeight(600)
-                .fontColor('#0b0d12')
-                .padding({ left: 18, right: 18, top: 9, bottom: 9 })
-                .backgroundColor(Theme.accent)
-                .borderRadius(18)
-                .alignSelf(ItemAlign.Start)
-                .onClick(() => {
-                  this.changeSmartWait(wanted, this.smartDownloadPayload(wanted, smart));
-                })
-            }
-            Text(this.smartExtendLabel())
-              .fontSize(15)
-              .fontWeight(600)
-              .fontColor(Theme.text)
-              .padding({ left: 16, right: 16, top: 9, bottom: 9 })
-              .backgroundColor(Theme.glassFill)
+              Button() {
+                Text(this.smartBusy ? '正在处理…' : '立即下载当前候选')
+                  .fontSize(15)
+                  .fontWeight(600)
+                  .fontColor('#0b0d12')
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+              .padding({ left: 18, right: 18, top: 9, bottom: 9 })
               .borderRadius(18)
-              .border({ width: 1, color: Theme.line })
               .alignSelf(ItemAlign.Start)
               .onClick(() => {
-                this.changeSmartWait(wanted, this.smartExtendPayload(wanted));
+                this.changeSmartWait(wanted, this.smartDownloadPayload(wanted, smart));
               })
+            }
+            Button() {
+              Text(this.smartExtendLabel())
+                .fontSize(15)
+                .fontWeight(600)
+                .fontColor(Theme.text)
+            }
+            .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+            .padding({ left: 16, right: 16, top: 9, bottom: 9 })
+            .borderRadius(18)
+            .alignSelf(ItemAlign.Start)
+            .onClick(() => {
+              this.changeSmartWait(wanted, this.smartExtendPayload(wanted));
+            })
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
@@ -2232,21 +2270,22 @@ export struct SubscriptionDetailPage {
             .fontSize(12)
             .fontColor(Theme.textMuted)
         }
-        Text(this.sheetBusy ? '处理中…' : `清理${this.cleanupLabel()}`)
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.cleanupCanConfirm() ? Theme.danger : Theme.textFaint)
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 14, bottom: 14 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .border({ width: 1, color: Theme.line })
-          .onClick(() => {
-            if (this.cleanupCanConfirm()) {
-              this.confirmSeasonCleanup();
-            }
-          })
+        Button() {
+          Text(this.sheetBusy ? '处理中…' : `清理${this.cleanupLabel()}`)
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.cleanupCanConfirm() ? Theme.danger : Theme.textFaint)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .width('100%')
+        .padding({ top: 14, bottom: 14 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          if (this.cleanupCanConfirm()) {
+            this.confirmSeasonCleanup();
+          }
+        })
         Text('保留内容')
           .fontSize(15)
           .fontColor(Theme.accentStrong)
@@ -2396,18 +2435,20 @@ export struct SubscriptionDetailPage {
               ? Theme.warn : Theme.textMuted)
             .width('100%')
         }
-        Text(this.sheetBusy ? '保存中…' : '保存调整')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.sheetBusy ? Theme.textFaint : '#0b0d12')
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 14, bottom: 14 })
-          .backgroundColor(this.sheetBusy ? Theme.glassFill : Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            this.saveAdjust();
-          })
+        Button() {
+          Text(this.sheetBusy ? '保存中…' : '保存调整')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.sheetBusy ? Theme.textFaint : '#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(this.sheetBusy ? GlassTone.Secondary : GlassTone.Primary))
+        .width('100%')
+        .padding({ top: 14, bottom: 14 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          this.saveAdjust();
+        })
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
@@ -2570,19 +2611,20 @@ export struct SubscriptionDetailPage {
             .fontSize(12)
             .fontColor(Theme.textMuted)
         }
-        Text(this.sheetBusy ? '处理中…' : '取消订阅')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.sheetBusy ? Theme.textFaint : Theme.danger)
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 14, bottom: 14 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .border({ width: 1, color: Theme.line })
-          .onClick(() => {
-            this.confirmRemoval();
-          })
+        Button() {
+          Text(this.sheetBusy ? '处理中…' : '取消订阅')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.sheetBusy ? Theme.textFaint : Theme.danger)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .width('100%')
+        .padding({ top: 14, bottom: 14 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          this.confirmRemoval();
+        })
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
@@ -2631,11 +2673,11 @@ export struct SubscriptionDetailPage {
           .fontColor(enabled ? Theme.text : Theme.textFaint)
           .layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: value })
-          .enabled(enabled)
-          .selectedColor(Theme.accent)
-          .onChange((on: boolean): void => {
-            onToggle(on);
-          })
+        .attributeModifier(new GlassSwitchModifier())
+        .enabled(enabled)
+        .onChange((on: boolean): void => {
+          onToggle(on);
+        })
       }
       .width('100%')
       if (description.length > 0) {

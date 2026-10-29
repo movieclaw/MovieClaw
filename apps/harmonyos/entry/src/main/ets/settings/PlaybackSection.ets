@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { AppNavBar } from '../common/AppNavBar';
 import { SettingsSwitchRow } from '../common/SettingsControls';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
@@ -6,6 +7,7 @@ import { MovieClawApi } from '../api/Endpoints';
 import { PlaybackPolicyPayload, PlaybackPolicyView, ReelClipProgressView, ReelClipStatsView } from '../api/Models';
 import { Formatters } from '../common/Formatters';
 import { AppFooter } from '../common/AppFooter';
+import { PlayerPrefs } from '../player/PlayerPrefs';
 
 /** `PlaybackPolicyPayload` 全可选，用类绕开 `arkts-no-untyped-obj-literals` */
 class PolicyBody implements PlaybackPolicyPayload {
@@ -35,17 +37,24 @@ class PolicyBody implements PlaybackPolicyPayload {
  */
 @ComponentV2
 export struct PlaybackSection {
+  /** 页面级滚动器：内容铺到标题栏下面，滚动时由宿主绑定驱动渐变模糊 */
+  @Param scroller: Scroller = new Scroller();
   @Local private policy: PlaybackPolicyView | null = null;
   @Local private loading: boolean = true;
   @Local private errorMessage: string = '';
   @Local private busy: boolean = false;
   /** 保存失败只显示在出错的那张卡上（Web 两张卡各管各的错误） */
   @Local private saveError: string = '';
+  /** 播放引擎（'mpv' 默认 / 'avplayer' 系统播放器）：本机偏好，改即存、下次起播生效 */
+  @Local private engine: string = 'mpv';
   /** 开着且还在切时的进度轮询（同 iOS 15 秒一拉） */
   private clipTick: number = -1;
 
   aboutToAppear(): void {
     this.load();
+    PlayerPrefs.loadEngine().then((name: string): void => {
+      this.engine = name;
+    });
     this.clipTick = setInterval((): void => {
       this.refreshClipProgress();
     }, 15000);
@@ -60,6 +69,15 @@ export struct PlaybackSection {
 
   private api(): MovieClawApi | null {
     return AppModel.shared.api;
+  }
+
+  /** 切播放引擎（plan R6）：改即存（PlayerPrefs.writeEngine 同步刷缓存 + 异步落盘），下次起播生效 */
+  private pickEngine(name: string): void {
+    if (this.engine === name) {
+      return;
+    }
+    this.engine = name;
+    PlayerPrefs.writeEngine(name);
   }
 
   private toast(message: string): void {
@@ -274,7 +292,7 @@ export struct PlaybackSection {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else {
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 14 }) {
             if (this.saveError.length > 0) {
               Text(this.saveError)
@@ -287,6 +305,7 @@ export struct PlaybackSection {
                 .border({ width: 1, color: Theme.line })
             }
             this.HardwareCard(this.policy as PlaybackPolicyView)
+            this.EngineCard()
             this.TogglesCard(this.policy as PlaybackPolicyView)
             Text('开关都是改一下就保存，没有「保存」按钮。')
               .fontSize(11)
@@ -295,7 +314,7 @@ export struct PlaybackSection {
             AppFooter()
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+          .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
         }
         .layoutWeight(1)
         .align(Alignment.TopStart)
@@ -304,6 +323,64 @@ export struct PlaybackSection {
     }
     .width('100%')
     .height('100%')
+  }
+
+  /** 播放引擎（plan R6）：本机偏好（PlayerPrefs），改即存、下次起播生效；两行可选，同页「改即存」 */
+  @Builder
+  EngineCard() {
+    Column({ space: 0 }) {
+      Row({ space: 12 }) {
+        Column({ space: 2 }) {
+          Text('mpv')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+          Text('mpv（默认）')
+            .fontSize(12)
+            .fontColor(Theme.textFaint)
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        if (this.engine === 'mpv') {
+          SymbolGlyph($r('sys.symbol.checkmark'))
+            .fontSize(16)
+            .fontColor([Theme.accent])
+        }
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 13, bottom: 13 })
+      .onClick(() => {
+        this.pickEngine('mpv');
+      })
+      Divider().color(Theme.line).margin({ left: 16, right: 16 })
+      Row({ space: 12 }) {
+        Column({ space: 2 }) {
+          Text('avplayer')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+          Text('系统播放器')
+            .fontSize(12)
+            .fontColor(Theme.textFaint)
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        if (this.engine === 'avplayer') {
+          SymbolGlyph($r('sys.symbol.checkmark'))
+            .fontSize(16)
+            .fontColor([Theme.accent])
+        }
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 13, bottom: 13 })
+      .onClick(() => {
+        this.pickEngine('avplayer');
+      })
+    }
+    .width('100%')
+    .backgroundColor(Theme.surface)
+    .borderRadius(Theme.cardRadius)
+    .border({ width: 1, color: Theme.line })
   }
 
   /** 硬件加速：这是**事实**（服务端探测到的），不是开关 */

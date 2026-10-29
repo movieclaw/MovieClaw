@@ -9,6 +9,7 @@ import { http } from '@kit.NetworkKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { PlaybackGuard } from './PlaybackGuard';
 import { PlayerPrefs, SubStyle } from './PlayerPrefs';
+import { MpvPlayer, PlayerEngine } from './MpvPlayer';
 import { Theme } from '../theme/AppTheme';
 import { Formatters } from '../common/Formatters';
 import { ShellChrome } from '../common/ShellChrome';
@@ -316,7 +317,7 @@ export struct PlayerPage {
   private navStack: NavPathStack = new NavPathStack();
   private chrome: ShellChrome = ShellChrome.shared;
   private started: boolean = false;
-  private avPlayer: media.AVPlayer | null = null;
+  private avPlayer: PlayerEngine | null = null;
   private surfaceId: string = '';
   /** 拿 surface id 的正规途径：XComponentController（`XComponentContext` 不是公开类型） */
   private surfaceController: XComponentController = new XComponentController();
@@ -912,9 +913,15 @@ export struct PlayerPage {
       return;
     }
     await this.releasePlayer();
-    const player: media.AVPlayer = await media.createAVPlayer();
+    // 按设置选引擎（PlayerPrefs.engine()：默认 mpv，'avplayer' 回系统播放器）
+    const player: PlayerEngine = PlayerPrefs.engine() === 'avplayer'
+      ? await media.createAVPlayer()
+      : await MpvPlayer.create();
     this.avPlayer = player;
     this.bindPlayerEvents(player);
+    if (player instanceof MpvPlayer) {
+      player.applySubStyle(this.subFontScale, this.subBottom, this.subBackground);
+    }
     player.url = url;
   }
 
@@ -928,8 +935,13 @@ export struct PlayerPage {
       return;
     }
     await this.releasePlayer();
-    const player: media.AVPlayer = await media.createAVPlayer();
+    const player: PlayerEngine = PlayerPrefs.engine() === 'avplayer'
+      ? await media.createAVPlayer()
+      : await MpvPlayer.create();
     this.avPlayer = player;
+    if (player instanceof MpvPlayer) {
+      player.applySubStyle(this.subFontScale, this.subBottom, this.subBackground);
+    }
     this.deferPrepare = subtitleFd >= 0;
     this.bindPlayerEvents(player);
     player.fdSrc = { fd: fd, offset: 0, length: OfflineDisk.fileSize(this.localMediaPath) };
@@ -948,7 +960,7 @@ export struct PlayerPage {
     }
   }
 
-  private bindPlayerEvents(player: media.AVPlayer): void {
+  private bindPlayerEvents(player: PlayerEngine): void {
     player.on('stateChange', (state: string): void => {
       if (state === 'initialized') {
         this.armWatchdog();
@@ -1127,7 +1139,7 @@ export struct PlayerPage {
   }
 
   private async releasePlayer(): Promise<void> {
-    const player: media.AVPlayer | null = this.avPlayer;
+    const player: PlayerEngine | null = this.avPlayer;
     if (player === null) {
       return;
     }
@@ -1140,7 +1152,7 @@ export struct PlayerPage {
   }
 
   private togglePlay(): void {
-    const player: media.AVPlayer | null = this.avPlayer;
+    const player: PlayerEngine | null = this.avPlayer;
     if (player === null) {
       return;
     }
@@ -1153,7 +1165,7 @@ export struct PlayerPage {
   }
 
   private seekTo(ms: number): void {
-    const player: media.AVPlayer | null = this.avPlayer;
+    const player: PlayerEngine | null = this.avPlayer;
     if (player === null) {
       return;
     }
@@ -1462,14 +1474,14 @@ export struct PlayerPage {
     const context = getContext() as common.UIAbilityContext;
     const guard: PlaybackGuard = new PlaybackGuard(context,
       (): void => {
-        const player: media.AVPlayer | null = this.avPlayer;
+        const player: PlayerEngine | null = this.avPlayer;
         // 片段播完等用户按「重播 / 看全片」：通知栏的播放键不把播放唤起来越过片段终点
         if (player !== null && !this.clipEnded) {
           player.play();
         }
       },
       (): void => {
-        const player: media.AVPlayer | null = this.avPlayer;
+        const player: PlayerEngine | null = this.avPlayer;
         if (player !== null) {
           player.pause();
         }
@@ -1561,7 +1573,7 @@ export struct PlayerPage {
    * 关字幕用 `deselectTrack`。
    */
   private async pickSubtitle(index: number): Promise<void> {
-    const player: media.AVPlayer | null = this.avPlayer;
+    const player: PlayerEngine | null = this.avPlayer;
     const view: PlaybackSessionView | null = this.session;
     if (player === null || view === null) {
       this.showSheet = false;
@@ -1666,7 +1678,7 @@ export struct PlayerPage {
   }
 
   /** 字幕加载完找轨号并选中（url / fd 两种加载方式共用） */
-  private async activateSubtitleTrack(player: media.AVPlayer, index: number): Promise<void> {
+  private async activateSubtitleTrack(player: PlayerEngine, index: number): Promise<void> {
     // 加载完再找出它的轨号
     const tracks: media.MediaDescription[] = await player.getTrackDescription();
     let found: number = -1;
@@ -1835,7 +1847,7 @@ export struct PlayerPage {
   }
 
   private beginHoldSpeed(): boolean {
-    const player: media.AVPlayer | null = this.avPlayer;
+    const player: PlayerEngine | null = this.avPlayer;
     if (player === null || !this.playing || this.phase !== PlayerPhase.ready) {
       return false;
     }
@@ -1849,7 +1861,7 @@ export struct PlayerPage {
       return;
     }
     this.holdSpeedActive = false;
-    const player: media.AVPlayer | null = this.avPlayer;
+    const player: PlayerEngine | null = this.avPlayer;
     if (player !== null) {
       player.setSpeed(media.PlaybackSpeed.SPEED_FORWARD_1_00_X);
     }
@@ -2448,7 +2460,7 @@ export struct PlayerPage {
     if (!state.ended_by_admin || this.phase === PlayerPhase.failed) {
       return;
     }
-    const player: media.AVPlayer | null = this.avPlayer;
+    const player: PlayerEngine | null = this.avPlayer;
     if (player !== null) {
       player.pause();
     }
@@ -3055,7 +3067,7 @@ export struct PlayerPage {
 
   /** 片段重播：回片段起点再放 */
   private replayClip(): void {
-    const player: media.AVPlayer | null = this.avPlayer;
+    const player: PlayerEngine | null = this.avPlayer;
     if (player === null) {
       return;
     }
@@ -3114,6 +3126,11 @@ export struct PlayerPage {
     style.bottomPercent = this.subBottom;
     style.background = this.subBackground;
     PlayerPrefs.writeSubtitleStyle(style);
+    // mpv：样式直接交给 libass 渲染；AVPlayer 走上面的 @Local 变量自绘
+    const player: PlayerEngine | null = this.avPlayer;
+    if (player instanceof MpvPlayer) {
+      player.applySubStyle(this.subFontScale, this.subBottom, this.subBackground);
+    }
   }
 
   private toggleSubtitleBackground(): void {

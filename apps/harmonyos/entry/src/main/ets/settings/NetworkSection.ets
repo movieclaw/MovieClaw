@@ -1,4 +1,6 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
@@ -61,6 +63,8 @@ class TestPayload implements NetworkTestPayload {
  */
 @ComponentV2
 export struct NetworkSection {
+  /** 页面级滚动器：内容铺到标题栏下面，滚动时由宿主绑定驱动渐变模糊 */
+  @Param scroller: Scroller = new Scroller();
   @Require @Param navStack: NavPathStack;
   @Local private config: NetworkConfigView | null = null;
   @Local private loading: boolean = true;
@@ -282,7 +286,7 @@ export struct NetworkSection {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else {
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 14 }) {
             // 保存状态条（没有「保存」按钮，所以要有地方告诉用户存了没）
             if (this.saveState.length > 0) {
@@ -302,7 +306,7 @@ export struct NetworkSection {
             AppFooter()
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+          .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
         }
         .layoutWeight(1)
         .align(Alignment.TopStart)
@@ -332,17 +336,18 @@ export struct NetworkSection {
 
       Row({ space: 8 }) {
         ForEach(MODES, (mode: ProxyMode) => {
-          Text(mode.label)
-            .fontSize(13)
-            .fontColor((this.config as NetworkConfigView).proxy_mode === mode.value
-              ? '#0b0d12' : Theme.textMuted)
-            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-            .backgroundColor((this.config as NetworkConfigView).proxy_mode === mode.value
-              ? Theme.accent : Theme.glassFill)
-            .borderRadius(15)
-            .onClick(() => {
-              this.pickMode(mode.value);
-            })
+          Button() {
+            Text(mode.label)
+              .fontSize(13)
+              .fontColor((this.config as NetworkConfigView).proxy_mode === mode.value
+                ? '#0b0d12' : Theme.textMuted)
+          }
+          .attributeModifier(new GlassButtonModifier((this.config as NetworkConfigView).proxy_mode === mode.value ? GlassTone.Primary : GlassTone.Secondary))
+          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+          .borderRadius(15)
+          .onClick(() => {
+            this.pickMode(mode.value);
+          })
         }, (mode: ProxyMode) => mode.value)
       }
       .width('100%')
@@ -409,10 +414,10 @@ export struct NetworkSection {
         Column() {
           Row({ space: 12 }) {
             Toggle({ type: ToggleType.Switch, isOn: this.isOn(service) })
-              .selectedColor(Theme.accent)
-              .onChange((on: boolean): void => {
-                this.toggleService(service, on);
-              })
+            .attributeModifier(new GlassSwitchModifier())
+            .onChange((on: boolean): void => {
+              this.toggleService(service, on);
+            })
             Column({ space: 2 }) {
               Text(service.label)
                 .fontSize(15)
@@ -424,15 +429,17 @@ export struct NetworkSection {
             }
             .layoutWeight(1)
             .alignItems(HorizontalAlign.Start)
-            Text(this.testingService === service.id ? '测试中…' : '测试')
-              .fontSize(12)
-              .fontColor(Theme.accentStrong)
-              .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-              .backgroundColor(Theme.glassFill)
-              .borderRadius(12)
-              .onClick(() => {
-                this.test(service);
-              })
+            Button() {
+              Text(this.testingService === service.id ? '测试中…' : '测试')
+                .fontSize(12)
+                .fontColor(Theme.accentStrong)
+            }
+            .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+            .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+            .borderRadius(12)
+            .onClick(() => {
+              this.test(service);
+            })
           }
           .width('100%')
           .alignItems(VerticalAlign.Top)
@@ -474,29 +481,32 @@ export struct NetworkSection {
   /** 外部访问整页入口（iOS：网络页里的「外部访问」行 → `ExternalAccessSettingsView`） */
   @Builder
   ExternalAccessRow() {
-    Row({ space: 12 }) {
-      Column({ space: 3 }) {
-        Text('外部访问')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
-          .width('100%')
-        Text('对外地址与监听端口：通知跳转、AI 回复链接与对外回调用')
-          .fontSize(12)
-          .fontColor(Theme.textFaint)
-          .width('100%')
+    Button() {
+      Row({ space: 12 }) {
+        Column({ space: 3 }) {
+          Text('外部访问')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+            .width('100%')
+          Text('对外地址与监听端口：通知跳转、AI 回复链接与对外回调用')
+            .fontSize(12)
+            .fontColor(Theme.textFaint)
+            .width('100%')
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        SymbolGlyph($r('sys.symbol.chevron_right'))
+          .fontSize(14)
+          .fontColor([Theme.textFaint])
       }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
-      SymbolGlyph($r('sys.symbol.chevron_right'))
-        .fontSize(14)
-        .fontColor([Theme.textFaint])
+      .width('100%')
+      .padding(16)
     }
-    .width('100%')
-    .padding(16)
-    .backgroundColor(Theme.surface)
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(Theme.cardRadius)
-    .border({ width: 1, color: Theme.line })
     .onClick((): void => {
       this.navStack.pushPathByName('networkExternal', null);
     })

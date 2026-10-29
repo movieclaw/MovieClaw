@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { MovieClawApi } from '../api/Endpoints';
 import { RemoteImage } from '../common/RemoteImage';
@@ -539,29 +540,37 @@ export struct ShareItemView {
   @Builder
   HeaderRow() {
     Row({ space: 10 }) {
-      Stack() {
-        SymbolGlyph($r('sys.symbol.chevron_left'))
-          .fontSize(22)
-          .fontColor(['rgba(255,255,255,0.85)'])
+      Button() {
+        Stack() {
+          SymbolGlyph($r('sys.symbol.chevron_left'))
+            .fontSize(22)
+            .fontColor(['rgba(255,255,255,0.85)'])
+        }
+        .width(36)
+        .height(36)
       }
-      .width(36)
-      .height(36)
-      .backgroundColor('rgba(255,255,255,0.08)')
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding(0)
+      .clip(true)
       .borderRadius(18)
       .onClick(() => {
         this.onClose();
       })
       if (this.fromCollection) {
-        Row({ space: 4 }) {
-          SymbolGlyph($r('sys.symbol.chevron_left'))
-            .fontSize(14)
-            .fontColor(['rgba(255,255,255,0.85)'])
-          Text('返回合集')
-            .fontSize(15)
-            .fontColor('rgba(255,255,255,0.85)')
+        Button() {
+          Row({ space: 4 }) {
+            SymbolGlyph($r('sys.symbol.chevron_left'))
+              .fontSize(14)
+              .fontColor(['rgba(255,255,255,0.85)'])
+            Text('返回合集')
+              .fontSize(15)
+              .fontColor('rgba(255,255,255,0.85)')
+          }
+          .padding({ left: 12, right: 14, top: 8, bottom: 8 })
         }
-        .padding({ left: 12, right: 14, top: 8, bottom: 8 })
-        .backgroundColor('rgba(255,255,255,0.08)')
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding(0)
+        .clip(true)
         .borderRadius(18)
         .onClick(() => {
           this.onBack();
@@ -580,7 +589,7 @@ export struct ShareItemView {
       }
     }
     .width('100%')
-    .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: Theme.statusBarInset + 8 })
+    .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: Theme.shellTopInset + 8 })
   }
 
   /** 标题 + 季集行 + 事实行 + 类型 + 文件规格 + 音轨/字幕 + 播放 + 简介 */
@@ -802,19 +811,23 @@ export struct ShareItemView {
   @Builder
   PlayBlock() {
     Column({ space: 12 }) {
-      Row({ space: 8 }) {
-        SymbolGlyph($r('sys.symbol.play_fill'))
-          .fontSize(16)
-          .fontColor(['#0b0d12'])
-        Text(this.resumeMs > 0 ? '继续观看' : '播放')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#0b0d12')
+      Button() {
+        Row({ space: 8 }) {
+          SymbolGlyph($r('sys.symbol.play_fill'))
+            .fontSize(16)
+            .fontColor(['#0b0d12'])
+          Text(this.resumeMs > 0 ? '继续观看' : '播放')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#0b0d12')
+        }
+        .width('100%')
+        .height(44)
+        .justifyContent(FlexAlign.Center)
       }
-      .width('100%')
-      .height(44)
-      .justifyContent(FlexAlign.Center)
-      .backgroundColor(Theme.accent)
+      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+      .padding(0)
+      .clip(true)
       .borderRadius(22)
       .margin({ top: 8 })
       .onClick(() => {

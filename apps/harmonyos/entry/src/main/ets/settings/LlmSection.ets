@@ -1,4 +1,6 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
 import { ApiError } from '../api/ApiClient';
@@ -381,6 +383,8 @@ class LlmModelDraft {
  */
 @ComponentV2
 export struct LlmProvidersSection {
+  /** 页面级滚动器：内容铺到标题栏下面，滚动时由宿主绑定驱动渐变模糊 */
+  @Param scroller: Scroller = new Scroller();
   @Local private providers: LlmProviderView[] = [];
   @Local private presets: LlmPresetView[] = [];
   @Local private loading: boolean = true;
@@ -767,7 +771,7 @@ export struct LlmProvidersSection {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else {
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 12 }) {
             if (this.errorMessage.length > 0) {
               Row() {
@@ -803,25 +807,26 @@ export struct LlmProvidersSection {
               }, (provider: LlmProviderView) => `${provider.id}-${provider.status}`)
 
               // 「＋ 接入另一家供应商」（同 iOS：新增入口在列表末尾，不在顶栏）
-              Text('＋ 接入另一家供应商')
-                .fontSize(15)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(Theme.text)
-                .textAlign(TextAlign.Center)
-                .width('100%')
-                .padding({ top: 14, bottom: 14 })
-                .backgroundColor(Theme.glassFill)
-                .borderRadius(Theme.cardRadius)
-                .border({ width: 1, color: Theme.line })
-                .onClick(() => {
-                  this.openCreate();
-                })
+              Button() {
+                Text('＋ 接入另一家供应商')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Theme.text)
+                  .textAlign(TextAlign.Center)
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .width('100%')
+              .padding({ top: 14, bottom: 14 })
+              .borderRadius(Theme.cardRadius)
+              .onClick(() => {
+                this.openCreate();
+              })
             }
 
             AppFooter()
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+          .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
         }
         .layoutWeight(1)
         .align(Alignment.TopStart)
@@ -861,18 +866,20 @@ export struct LlmProvidersSection {
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
 
-      Text('接入模型供应商')
-        .fontSize(15)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#0b0d12')
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 14, bottom: 14 })
-        .backgroundColor(Theme.accent)
-        .borderRadius(Theme.cardRadius)
-        .onClick(() => {
-          this.openCreate();
-        })
+      Button() {
+        Text('接入模型供应商')
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#0b0d12')
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+      .width('100%')
+      .padding({ top: 14, bottom: 14 })
+      .borderRadius(Theme.cardRadius)
+      .onClick(() => {
+        this.openCreate();
+      })
     }
     .width('100%')
     .padding(20)
@@ -976,47 +983,53 @@ export struct LlmProvidersSection {
       } else {
         // 三等分操作行：编辑配置 / 重新测试 / 删除
         Row({ space: 8 }) {
-          Text('编辑配置')
-            .fontSize(13)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
-            .textAlign(TextAlign.Center)
-            .maxLines(1)
-            .layoutWeight(1)
-            .padding({ top: 9, bottom: 9 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(12)
-            .onClick(() => {
-              this.openEdit(provider);
-            })
-          Text(this.busyId === provider.id ? '…' : '重新测试')
-            .fontSize(13)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(LlmStatus.isSettling(provider.status) ? Theme.textFaint : Theme.text)
-            .textAlign(TextAlign.Center)
-            .maxLines(1)
-            .layoutWeight(1)
-            .padding({ top: 9, bottom: 9 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(12)
-            .onClick(() => {
-              if (!LlmStatus.isSettling(provider.status)) {
-                this.verify(provider);
-              }
-            })
-          Text('删除')
-            .fontSize(13)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.danger)
-            .textAlign(TextAlign.Center)
-            .maxLines(1)
-            .layoutWeight(1)
-            .padding({ top: 9, bottom: 9 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(12)
-            .onClick(() => {
-              this.confirmDelete(provider);
-            })
+          Button() {
+            Text('编辑配置')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
+              .textAlign(TextAlign.Center)
+              .maxLines(1)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .layoutWeight(1)
+          .padding({ top: 9, bottom: 9 })
+          .borderRadius(12)
+          .onClick(() => {
+            this.openEdit(provider);
+          })
+          Button() {
+            Text(this.busyId === provider.id ? '…' : '重新测试')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(LlmStatus.isSettling(provider.status) ? Theme.textFaint : Theme.text)
+              .textAlign(TextAlign.Center)
+              .maxLines(1)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .layoutWeight(1)
+          .padding({ top: 9, bottom: 9 })
+          .borderRadius(12)
+          .onClick(() => {
+            if (!LlmStatus.isSettling(provider.status)) {
+              this.verify(provider);
+            }
+          })
+          Button() {
+            Text('删除')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.danger)
+              .textAlign(TextAlign.Center)
+              .maxLines(1)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .layoutWeight(1)
+          .padding({ top: 9, bottom: 9 })
+          .borderRadius(12)
+          .onClick(() => {
+            this.confirmDelete(provider);
+          })
         }
         .width('100%')
       }
@@ -1103,16 +1116,18 @@ export struct LlmProvidersSection {
               .width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
               ForEach(this.editablePresets(), (preset: LlmPresetView) => {
-                Text(preset.display_name)
-                  .fontSize(13)
-                  .fontColor(this.formType === preset.id ? '#0b0d12' : Theme.textMuted)
-                  .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-                  .backgroundColor(this.formType === preset.id ? Theme.accent : Theme.glassFill)
-                  .borderRadius(15)
-                  .margin({ right: 8, bottom: 8 })
-                  .onClick(() => {
-                    this.pickPreset(preset.id);
-                  })
+                Button() {
+                  Text(preset.display_name)
+                    .fontSize(13)
+                    .fontColor(this.formType === preset.id ? '#0b0d12' : Theme.textMuted)
+                }
+                .attributeModifier(new GlassButtonModifier(this.formType === preset.id ? GlassTone.Primary : GlassTone.Secondary))
+                .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+                .borderRadius(15)
+                .margin({ right: 8, bottom: 8 })
+                .onClick(() => {
+                  this.pickPreset(preset.id);
+                })
               }, (preset: LlmPresetView) => preset.id)
             }
             .width('100%')
@@ -1222,18 +1237,20 @@ export struct LlmProvidersSection {
                         .width('100%')
                       Flex({ wrap: FlexWrap.Wrap }) {
                         ForEach(this.protocolOptionsOf(this.formType), (option: string) => {
-                          Text(this.protocolLabel(option)
-                            + (option === this.presetProtocolOf(this.formType) ? '（默认）' : ''))
-                            .fontSize(13)
-                            .fontColor(this.effectiveProtocol() === option ? '#0b0d12' : Theme.textMuted)
-                            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-                            .backgroundColor(this.effectiveProtocol() === option
-                              ? Theme.accent : Theme.glassFill)
-                            .borderRadius(15)
-                            .margin({ right: 8, bottom: 8 })
-                            .onClick(() => {
-                              this.formApiProtocol = option;
-                            })
+                          Button() {
+                            Text(this.protocolLabel(option)
+                              + (option === this.presetProtocolOf(this.formType) ? '（默认）' : ''))
+                              .fontSize(13)
+                              .fontColor(this.effectiveProtocol() === option ? '#0b0d12' : Theme.textMuted)
+                          }
+                          .attributeModifier(new GlassButtonModifier(
+                            this.effectiveProtocol() === option ? GlassTone.Primary : GlassTone.Secondary))
+                          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+                          .borderRadius(15)
+                          .margin({ right: 8, bottom: 8 })
+                          .onClick(() => {
+                            this.formApiProtocol = option;
+                          })
                         }, (option: string) => option)
                       }
                       .width('100%')
@@ -1293,17 +1310,20 @@ export struct LlmProvidersSection {
                 .width('100%')
               Flex({ wrap: FlexWrap.Wrap }) {
                 ForEach(this.formCatalog(), (model: ModelInfo) => {
-                  Text(model.id + (LlmPresetHint.modelHints(model).length > 0
-                    ? `（${LlmPresetHint.modelHints(model)}）` : ''))
-                    .fontSize(13)
-                    .fontColor(this.formModel === model.id ? '#0b0d12' : Theme.textMuted)
-                    .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-                    .backgroundColor(this.formModel === model.id ? Theme.accent : Theme.glassFill)
-                    .borderRadius(15)
-                    .margin({ right: 8, bottom: 8 })
-                    .onClick((): void => {
-                      this.formModel = model.id;
-                    })
+                  Button() {
+                    Text(model.id + (LlmPresetHint.modelHints(model).length > 0
+                      ? `（${LlmPresetHint.modelHints(model)}）` : ''))
+                      .fontSize(13)
+                      .fontColor(this.formModel === model.id ? '#0b0d12' : Theme.textMuted)
+                  }
+                  .attributeModifier(new GlassButtonModifier(
+                    this.formModel === model.id ? GlassTone.Primary : GlassTone.Secondary))
+                  .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+                  .borderRadius(15)
+                  .margin({ right: 8, bottom: 8 })
+                  .onClick((): void => {
+                    this.formModel = model.id;
+                  })
                 }, (model: ModelInfo) => `m-${model.id}`)
               }
               .width('100%')
@@ -1328,21 +1348,23 @@ export struct LlmProvidersSection {
       .scrollBar(BarState.Off)
 
       // 保存键放底部（同 iOS 的 `SubsPrimaryButton("保存并测试连接")`）
-      Text(this.formSaving ? '保存中…' : '保存并测试连接')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.formSaving ? Theme.textFaint : '#0b0d12')
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 15, bottom: 15 })
-        .margin({ left: 16, right: 16, top: 8, bottom: 8 + Theme.safeBottomInset })
-        .backgroundColor(this.formSaving ? Theme.glassFill : Theme.accent)
-        .borderRadius(18)
-        .onClick(() => {
-          if (!this.formSaving) {
-            this.saveForm();
-          }
-        })
+      Button() {
+        Text(this.formSaving ? '保存中…' : '保存并测试连接')
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.formSaving ? Theme.textFaint : '#0b0d12')
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(this.formSaving ? GlassTone.Secondary : GlassTone.Primary))
+      .width('100%')
+      .padding({ top: 15, bottom: 15 })
+      .margin({ left: 16, right: 16, top: 8, bottom: 8 + Theme.safeBottomInset })
+      .borderRadius(18)
+      .onClick(() => {
+        if (!this.formSaving) {
+          this.saveForm();
+        }
+      })
     }
     .width('100%')
     .height('100%')
@@ -1500,19 +1522,21 @@ export struct LlmProvidersSection {
           this.BorrowGroup(group)
         }, (group: PresetGroup) => group.label)
         if (!this.formAddingCustom) {
-          Text('＋ 自定义模型（填写参数）')
-            .fontSize(13)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
-            .textAlign(TextAlign.Center)
-            .maxLines(1)
-            .width('100%')
-            .padding({ top: 10, bottom: 10 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(12)
-            .onClick(() => {
-              this.formAddingCustom = true;
-            })
+          Button() {
+            Text('＋ 自定义模型（填写参数）')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
+              .textAlign(TextAlign.Center)
+              .maxLines(1)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .width('100%')
+          .padding({ top: 10, bottom: 10 })
+          .borderRadius(12)
+          .onClick(() => {
+            this.formAddingCustom = true;
+          })
         }
         Text('兼容端点没有内置目录，请把端点上部署的模型添加进来（含参数）。接入后这些模型可在 AI 设定与对话框里选用；连接测试用第一个。')
           .fontSize(12)
@@ -1561,15 +1585,17 @@ export struct LlmProvidersSection {
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
-      Text('移除')
-        .fontSize(12)
-        .fontColor(Theme.textMuted)
-        .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(12)
-        .onClick(() => {
-          this.removeExtra(model.id);
-        })
+      Button() {
+        Text('移除')
+          .fontSize(12)
+          .fontColor(Theme.textMuted)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+      .borderRadius(12)
+      .onClick(() => {
+        this.removeExtra(model.id);
+      })
     }
     .width('100%')
   }
@@ -1584,17 +1610,19 @@ export struct LlmProvidersSection {
         .width('100%')
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(group.models, (model: ModelInfo) => {
-          Text(model.id + (LlmPresetHint.modelHints(model).length > 0
-            ? `（${LlmPresetHint.modelHints(model)}）` : ''))
-            .fontSize(12)
-            .fontColor(Theme.textMuted)
-            .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(13)
-            .margin({ right: 8, bottom: 8 })
-            .onClick(() => {
-              this.borrow(model);
-            })
+          Button() {
+            Text(model.id + (LlmPresetHint.modelHints(model).length > 0
+              ? `（${LlmPresetHint.modelHints(model)}）` : ''))
+              .fontSize(12)
+              .fontColor(Theme.textMuted)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+          .borderRadius(13)
+          .margin({ right: 8, bottom: 8 })
+          .onClick(() => {
+            this.borrow(model);
+          })
         }, (model: ModelInfo) => `b-${model.id}`)
       }
       .width('100%')
@@ -1655,16 +1683,18 @@ export struct LlmProvidersSection {
             .width('100%')
           Flex({ wrap: FlexWrap.Wrap }) {
             ForEach(LlmModelDraft.thinkingKindOptions(), (kind: string) => {
-              Text(LlmModelDraft.thinkingKindLabel(kind))
-                .fontSize(12)
-                .fontColor(this.draft.thinkingKind === kind ? '#0b0d12' : Theme.textMuted)
-                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-                .backgroundColor(this.draft.thinkingKind === kind ? Theme.accent : Theme.glassFill)
-                .borderRadius(13)
-                .margin({ right: 8, bottom: 8 })
-                .onClick(() => {
-                  this.draft.thinkingKind = kind;
-                })
+              Button() {
+                Text(LlmModelDraft.thinkingKindLabel(kind))
+                  .fontSize(12)
+                  .fontColor(this.draft.thinkingKind === kind ? '#0b0d12' : Theme.textMuted)
+              }
+              .attributeModifier(new GlassButtonModifier(this.draft.thinkingKind === kind ? GlassTone.Primary : GlassTone.Secondary))
+              .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+              .borderRadius(13)
+              .margin({ right: 8, bottom: 8 })
+              .onClick(() => {
+                this.draft.thinkingKind = kind;
+              })
             }, (kind: string) => kind)
           }
           .width('100%')
@@ -1683,17 +1713,18 @@ export struct LlmProvidersSection {
               .width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
               ForEach(LlmModelDraft.declarableLevels, (level: string) => {
-                Text(LlmModelDraft.levelLabel(level))
-                  .fontSize(12)
-                  .fontColor(this.draft.thinkingLevels.indexOf(level) >= 0 ? '#0b0d12' : Theme.textMuted)
-                  .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-                  .backgroundColor(this.draft.thinkingLevels.indexOf(level) >= 0
-                    ? Theme.accent : Theme.glassFill)
-                  .borderRadius(13)
-                  .margin({ right: 8, bottom: 8 })
-                  .onClick(() => {
-                    LlmModelDraft.toggleLevel(this.draft, level);
-                  })
+                Button() {
+                  Text(LlmModelDraft.levelLabel(level))
+                    .fontSize(12)
+                    .fontColor(this.draft.thinkingLevels.indexOf(level) >= 0 ? '#0b0d12' : Theme.textMuted)
+                }
+                .attributeModifier(new GlassButtonModifier(this.draft.thinkingLevels.indexOf(level) >= 0 ? GlassTone.Primary : GlassTone.Secondary))
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .borderRadius(13)
+                .margin({ right: 8, bottom: 8 })
+                .onClick(() => {
+                  LlmModelDraft.toggleLevel(this.draft, level);
+                })
               }, (level: string) => level)
             }
             .width('100%')
@@ -1722,34 +1753,38 @@ export struct LlmProvidersSection {
           .width('100%')
       }
       Row({ space: 10 }) {
-        Text('添加到目录')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(LlmModelDraft.isValid(this.draft) ? '#0b0d12' : Theme.textFaint)
-          .textAlign(TextAlign.Center)
-          .maxLines(1)
-          .layoutWeight(1)
-          .padding({ top: 11, bottom: 11 })
-          .backgroundColor(LlmModelDraft.isValid(this.draft) ? Theme.accent : Theme.glassFill)
-          .borderRadius(12)
-          .onClick(() => {
-            if (LlmModelDraft.isValid(this.draft)) {
-              this.addCustomModel();
-            }
-          })
-        Text('取消')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
-          .textAlign(TextAlign.Center)
-          .maxLines(1)
-          .layoutWeight(1)
-          .padding({ top: 11, bottom: 11 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(12)
-          .onClick(() => {
-            this.cancelCustomModel();
-          })
+        Button() {
+          Text('添加到目录')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(LlmModelDraft.isValid(this.draft) ? '#0b0d12' : Theme.textFaint)
+            .textAlign(TextAlign.Center)
+            .maxLines(1)
+        }
+        .attributeModifier(new GlassButtonModifier(LlmModelDraft.isValid(this.draft) ? GlassTone.Primary : GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 11, bottom: 11 })
+        .borderRadius(12)
+        .onClick(() => {
+          if (LlmModelDraft.isValid(this.draft)) {
+            this.addCustomModel();
+          }
+        })
+        Button() {
+          Text('取消')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+            .textAlign(TextAlign.Center)
+            .maxLines(1)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 11, bottom: 11 })
+        .borderRadius(12)
+        .onClick(() => {
+          this.cancelCustomModel();
+        })
       }
       .width('100%')
       Text('按端点实际部署的模型规格填写，添加后计入本实例的模型目录。')
@@ -1774,11 +1809,11 @@ export struct LlmProvidersSection {
         .fontColor(enabled ? Theme.text : Theme.textFaint)
         .layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: isOn })
-        .selectedColor(Theme.accent)
-        .enabled(enabled)
-        .onChange((on: boolean): void => {
-          onChange(on);
-        })
+      .attributeModifier(new GlassSwitchModifier())
+      .enabled(enabled)
+      .onChange((on: boolean): void => {
+        onChange(on);
+      })
     }
     .width('100%')
   }
@@ -1819,6 +1854,8 @@ export struct LlmProvidersSection {
  */
 @ComponentV2
 export struct AiDefaultsSection {
+  /** 页面级滚动器：内容铺到标题栏下面，滚动时由宿主绑定驱动渐变模糊 */
+  @Param scroller: Scroller = new Scroller();
   @Local private defaults: LlmDefaultsView | null = null;
   @Local private options: LlmModelOptionView[] = [];
   @Local private loading: boolean = true;
@@ -1968,7 +2005,7 @@ export struct AiDefaultsSection {
         .padding(24)
         .justifyContent(FlexAlign.Center)
       } else {
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 14 }) {
             if (this.errorMessage.length > 0) {
               Text(this.errorMessage).fontSize(13).fontColor(Theme.danger).width('100%')
@@ -1982,7 +2019,7 @@ export struct AiDefaultsSection {
             AppFooter()
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+          .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
         }
         .layoutWeight(1)
         .align(Alignment.TopStart)
@@ -2028,16 +2065,18 @@ export struct AiDefaultsSection {
           .layoutWeight(1)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text('换一个')
-          .fontSize(13)
-          .fontColor(Theme.text)
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(14)
-          .onClick(() => {
-            this.picking = purpose;
-            this.showPicker = true;
-          })
+        Button() {
+          Text('换一个')
+            .fontSize(13)
+            .fontColor(Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.picking = purpose;
+          this.showPicker = true;
+        })
       }
       .width('100%')
     }

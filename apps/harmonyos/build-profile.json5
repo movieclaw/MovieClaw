@@ -12,7 +12,8 @@
           "strictMode": {
             "caseSensitiveCheck": true,
             "useNormalizedOHMUrl": true
-          }
+          },
+          "nativeCompiler": "BiSheng"
         }
       }
     ],

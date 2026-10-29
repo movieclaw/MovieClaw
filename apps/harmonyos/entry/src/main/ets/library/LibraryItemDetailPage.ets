@@ -1,6 +1,7 @@
 import { display } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { WindowInsets } from '../common/WindowInsets';
 import { Formatters } from '../common/Formatters';
 import { SharePanel, shareMessage } from './ShareSheet';
@@ -1233,14 +1234,18 @@ export struct LibraryItemDetailPage {
     Row() {
       // 用 Stack 把字形居中：`SymbolGlyph` 自己带字形边距，直接给 width/height 时
       // 图标会偏在圆钮左边，看着「歪」（实测）
-      Stack({ alignContent: Alignment.Center }) {
-        SymbolGlyph($r('sys.symbol.chevron_left'))
-          .fontSize(22)
-          .fontColor([Theme.text])
+      Button() {
+        Stack({ alignContent: Alignment.Center }) {
+          SymbolGlyph($r('sys.symbol.chevron_left'))
+            .fontSize(22)
+            .fontColor([Theme.text])
+        }
+        .width(40)
+        .height(40)
       }
-      .width(40)
-      .height(40)
-      .backgroundColor('rgba(0, 0, 0, 0.35)')
+      .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+      .padding(0)
+      .clip(true)
       .borderRadius(20)
       .onClick(() => {
         this.navStack.pop();
@@ -1279,14 +1284,18 @@ export struct LibraryItemDetailPage {
           .margin({ right: 8 })
         }
         // 分享：生成一条不用登录就能看的公开链接（对应 iOS `LibraryShareSheet`）
-        Stack({ alignContent: Alignment.Center }) {
-          SymbolGlyph($r('sys.symbol.paperplane'))
-            .fontSize(20)
-            .fontColor([Theme.text])
+        Button() {
+          Stack({ alignContent: Alignment.Center }) {
+            SymbolGlyph($r('sys.symbol.paperplane'))
+              .fontSize(20)
+              .fontColor([Theme.text])
+          }
+          .width(40)
+          .height(40)
         }
-        .width(40)
-        .height(40)
-        .backgroundColor('rgba(0, 0, 0, 0.35)')
+        .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+        .padding(0)
+        .clip(true)
         .borderRadius(20)
         .onClick(() => {
           this.openShare();
@@ -1294,7 +1303,7 @@ export struct LibraryItemDetailPage {
       }
     }
     .width('100%')
-    .padding({ left: 8, right: 8, top: 8 + WindowInsets.top })
+    .padding({ left: 8, right: 8, top: 8 + WindowInsets.shared().top })
     .bindSheet($$this.showTransfer, this.TransferSheetContent(), {
       height: SheetSize.LARGE,
       dragBar: true,
@@ -1640,17 +1649,18 @@ export struct LibraryItemDetailPage {
         .fontSize(15)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('返回')
-        .fontSize(15)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 20, right: 20, top: 10, bottom: 10 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(20)
-        .border({ width: 1, color: Theme.lineStrong })
-        .onClick(() => {
-          this.navStack.pop();
-        })
+      Button() {
+        Text('返回')
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+      .borderRadius(20)
+      .onClick(() => {
+        this.navStack.pop();
+      })
     }
     .width('100%')
     .height('100%')
@@ -1708,7 +1718,7 @@ export struct LibraryItemDetailPage {
       .width('100%')
       .height('100%')
       .edgeEffect(EdgeEffect.None)
-      .padding({ bottom: Theme.tabBarInset })
+      .contentEndOffset(Theme.tabBarInset)
       .bindSheet($$this.showReidentify, this.ReidentifySheetContent(), {
         height: SheetSize.LARGE,
         dragBar: true,
@@ -1839,40 +1849,38 @@ export struct LibraryItemDetailPage {
         OfflineDownloadControl({ mediaItemId: this.mediaItemId, title: detail.title })
       }
       Button(this.playLabel())
-        .width('100%')
-        .height(46)
-        .fontSize(16)
-        .fontWeight(600)
-        .fontColor('#0b0d12')
-        .backgroundColor(Theme.accent)
-        .borderRadius(14)
-        .onClick(() => {
-          this.onPlay();
-        })
+      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+      .width('100%')
+      .height(46)
+      .fontSize(16)
+      .fontWeight(600)
+      .fontColor('#0b0d12')
+      .borderRadius(14)
+      .onClick(() => {
+        this.onPlay();
+      })
 
       Row({ space: 10 }) {
         Button(this.favorite === true ? '已收藏' : '收藏')
-          .height(42)
-          .fontSize(14)
-          .fontColor(this.favorite === true ? Theme.danger : Theme.text)
-          .backgroundColor(Theme.surfaceRaised)
-          .borderRadius(12)
-          .border({ width: 1, color: Theme.line })
-          .enabled(!this.marking)
-          .onClick(() => {
-            this.toggleFavorite();
-          })
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .height(42)
+        .fontSize(14)
+        .fontColor(this.favorite === true ? Theme.danger : Theme.text)
+        .borderRadius(12)
+        .enabled(!this.marking)
+        .onClick(() => {
+          this.toggleFavorite();
+        })
         Button(this.watchedLabel())
-          .height(42)
-          .fontSize(14)
-          .fontColor(this.played() ? Theme.ok : Theme.text)
-          .backgroundColor(Theme.surfaceRaised)
-          .borderRadius(12)
-          .border({ width: 1, color: Theme.line })
-          .enabled(!this.marking)
-          .onClick(() => {
-            this.toggleWatched();
-          })
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .height(42)
+        .fontSize(14)
+        .fontColor(this.played() ? Theme.ok : Theme.text)
+        .borderRadius(12)
+        .enabled(!this.marking)
+        .onClick(() => {
+          this.toggleWatched();
+        })
       }
       .width('100%')
 
@@ -2072,15 +2080,17 @@ export struct LibraryItemDetailPage {
       Scroll() {
         Row({ space: 8 }) {
           ForEach(detail.seasons, (season: number) => {
-            Text(`第 ${season} 季`)
-              .fontSize(14)
-              .fontColor(season === this.season ? '#0b0d12' : Theme.text)
-              .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-              .backgroundColor(season === this.season ? Theme.accent : Theme.glassFill)
-              .borderRadius(16)
-              .onClick(() => {
-                this.onSeasonPick(season);
-              })
+            Button() {
+              Text(`第 ${season} 季`)
+                .fontSize(14)
+                .fontColor(season === this.season ? '#0b0d12' : Theme.text)
+            }
+            .attributeModifier(new GlassButtonModifier(season === this.season ? GlassTone.Primary : GlassTone.Secondary))
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .borderRadius(16)
+            .onClick(() => {
+              this.onSeasonPick(season);
+            })
           }, (season: number) => `${season}`)
         }
       }
@@ -2292,22 +2302,45 @@ export struct LibraryItemDetailPage {
 
   @Builder
   EpisodeRow(episode: EpisodeView) {
-    Row({ space: 12 }) {
-      Text(`${episode.episode_number}`)
-        .fontSize(15)
-        .fontWeight(600)
-        .fontColor(this.isPicked(episode) ? Theme.accentStrong : Theme.textFaint)
-        .width(28)
-      Column({ space: 3 }) {
-        Row({ space: 6 }) {
-          if (this.isResumeEpisode(episode)) {
-            Text('接着看')
-              .fontSize(10)
-              .fontWeight(700)
-              .fontColor('#0b0d12')
-              .padding({ left: 5, right: 5, top: 1, bottom: 1 })
-              .backgroundColor(Theme.warning)
-              .borderRadius(4)
+    Button() {
+      Row({ space: 12 }) {
+        Text(`${episode.episode_number}`)
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor(this.isPicked(episode) ? Theme.accentStrong : Theme.textFaint)
+          .width(28)
+        Column({ space: 3 }) {
+          Row({ space: 6 }) {
+            if (this.isResumeEpisode(episode)) {
+              Text('接着看')
+                .fontSize(10)
+                .fontWeight(700)
+                .fontColor('#0b0d12')
+                .padding({ left: 5, right: 5, top: 1, bottom: 1 })
+                .backgroundColor(Theme.warning)
+                .borderRadius(4)
+            }
+            Text(episode.name !== null && episode.name !== undefined && episode.name.length > 0
+              ? episode.name : `第 ${episode.episode_number} 集`)
+              .fontSize(15)
+              .fontColor(episode.owned ? Theme.text : Theme.textFaint)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
+          }
+          .width('100%')
+          if (!episode.owned) {
+            Text('未入库')
+              .fontSize(12)
+              .fontColor(Theme.textFaint)
+          } else if (episode.played) {
+            Text('已看')
+              .fontSize(12)
+              .fontColor(Theme.ok)
+          } else if ((episode.progress_percent ?? 0) > 0) {
+            Text(`已看 ${Math.round(episode.progress_percent ?? 0)}%`)
+              .fontSize(12)
+              .fontColor(Theme.textFaint)
           }
           Text(episode.name !== null && episode.name !== undefined && episode.name.length > 0
             ? episode.name : `第 ${episode.episode_number} 集`)
@@ -2353,19 +2386,23 @@ export struct LibraryItemDetailPage {
             .fontSize(12)
             .fontColor(Theme.textFaint)
         }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        // 行尾的本机下载小标（本机已下 / 在下才有，见 OfflineEpisodeDownloadMark）
+        OfflineEpisodeDownloadMark({
+          mediaItemId: this.mediaItemId,
+          season: this.season,
+          episode: episode.episode_number
+        })
       }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
-      // 行尾的本机下载小标（本机已下 / 在下才有，见 OfflineEpisodeDownloadMark）
-      OfflineEpisodeDownloadMark({
-        mediaItemId: this.mediaItemId,
-        season: this.season,
-        episode: episode.episode_number
-      })
+      .width('100%')
+      .padding({ left: 10, right: 10, top: 10, bottom: 10 })
     }
     .width('100%')
     .padding({ left: 10, right: 10, top: 10, bottom: 10 })
+    .attributeModifier(new GlassButtonModifier(this.isPicked(episode) ? GlassTone.Strong : GlassTone.Secondary))
     .backgroundColor(this.rowBackground(episode))
+    .clip(true)
     .borderRadius(10)
     .border(this.rowBorder(episode))
     .onClick(() => {
@@ -2752,15 +2789,15 @@ export struct LibraryItemDetailPage {
         }
         if (!this.fileTrashed(file) && !file.missing) {
           Button('删除', { type: ButtonType.Normal, stateEffect: false })
-            .controlSize(ControlSize.NORMAL)
-            .fontSize(11)
-            .fontWeight(400)
-            .fontColor(Theme.textFaint)
-            .constraintSize({ minWidth: 0, minHeight: 0 })
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(8)
-            .onClick(() => this.openDeleteFile(file))
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .controlSize(ControlSize.NORMAL)
+          .fontSize(11)
+          .fontWeight(400)
+          .fontColor(Theme.textFaint)
+          .constraintSize({ minWidth: 0, minHeight: 0 })
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .borderRadius(8)
+          .onClick(() => this.openDeleteFile(file))
         }
         SymbolGlyph($r('sys.symbol.chevron_down'))
           .fontSize(14)
@@ -2812,17 +2849,17 @@ export struct LibraryItemDetailPage {
             .fontColor(Theme.textFaint)
           Row({ space: 8 }) {
             Button('恢复')
-              .controlSize(ControlSize.NORMAL)
-              .buttonStyle(ButtonStyleMode.NORMAL)
-              .backgroundColor(Theme.glassFill)
-              .fontColor(Theme.text)
-              .onClick(() => this.restoreFile(file))
+            .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+            .controlSize(ControlSize.NORMAL)
+            .buttonStyle(ButtonStyleMode.NORMAL)
+            .fontColor(Theme.text)
+            .onClick(() => this.restoreFile(file))
             Button('立即清理')
-              .controlSize(ControlSize.NORMAL)
-              .buttonStyle(ButtonStyleMode.NORMAL)
-              .backgroundColor(Theme.danger)
-              .fontColor(Color.White)
-              .onClick(() => this.purgeFile(file))
+            .attributeModifier(new GlassButtonModifier(GlassTone.Danger))
+            .controlSize(ControlSize.NORMAL)
+            .buttonStyle(ButtonStyleMode.NORMAL)
+            .fontColor(Color.White)
+            .onClick(() => this.purgeFile(file))
           }
         }
         .width('100%')

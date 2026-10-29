@@ -1,5 +1,6 @@
 import { display } from '@kit.ArkUI';
 import { WindowInsets } from '../common/WindowInsets';
+import { TabBarStyle } from '../common/TabBarStyle';
 /**
  * 全局主题 token（逐值对齐 Web 端 `apps/web/app/globals.css` 的深色冷银主题）。
  *
@@ -88,14 +89,29 @@ export class Theme {
   }
 
   /**
-   * 顶部要让开的高度：**0**。
+   * 页面顶栏的顶部偏移：**恒 0**。
    *
-   * 页面结构已改成华为官方的「系统避让安全区」（`setWindowLayoutFullScreen(false)`），
-   * 内容区就是安全区，不需要页面再自己补——所以这个 token 恒为 0，
-   * 所有 `PageTopBar` / 各页顶栏的 `+ Theme.statusBarInset` 自动退化成「不加」，
-   * 不用去改二十多个调用点。
-   * 沉浸式页面（详情/订阅/发现的大图）例外：它们自己读 `WindowInsets.top` 做偏移。
+   * 只有**依赖 HdsNavigation 系统标题栏**的页面（各页签根页：标题栏自带状态栏避让）
+   * 才该用这个 token——它们再非 0 就双重避让，顶栏下多一条空带。
+   *
+   * 反过来，`hideTitleBar(true)` 之后自绘顶栏的页面（`PageTopBar` 以及各页直接
+   * `padding({ top: … })` 的顶栏）**没有系统避让**，必须改用 `shellTopInset`，
+   * 否则标题会画到状态栏下面和时钟重叠。
+   * 别按旧注释把窗口开关改回 `false`，`shellTopInset` 的消费方会一起塌。
    */
+  static get statusBarInset(): number {
+    return 0;
+  }
+
+  /**
+   * 整窗页（播放器/刷片/分享访客：盖住页签壳、没有 Navigation 避让）顶部要让开的高度 = 状态栏。
+   *
+   * 这几页直接坐在全屏窗口上，得按 `WindowInsets.top` 自己留白；转横屏时该值由
+   * EntryAbility 的 `avoidAreaChange` 监听刷新（状态栏收起 → 归零）。
+   */
+  static get shellTopInset(): number {
+    return WindowInsets.shared().top;
+  }
   /**
    * 海报网格「一行几列」：按屏宽自适应，**恒定落在 2~4 列**。
    *
@@ -113,27 +129,45 @@ export class Theme {
     return Math.min(4, Math.max(2, estimated));
   }
 
-  static get statusBarInset(): number {
-    return 0;
-  }
-
   static get tabBarInset(): number {
     /*
-     * 底部内容要让开的高度 = 悬浮页签胶囊（约 48）+ 底部抬起（`barBottomMargin` 12）+ 一点呼吸
-     * = 76，再加**底部安全区**（沉浸式布局下系统不替我们避让，设备有手势条时仍要让）。
+     * 底部内容要让开的高度：页面滚动内容的最后一行要停在底栏上方。
+     *
+     * 底栏现在是官方 HdsTabs 渲染的悬浮页签栏（`barFloatingStyle`）：
+     * - **悬浮**：抬起 12 + 栏高 56 + 手势区 + 呼吸 4；AI 迷你按钮和页签栏并排，
+     *   不额外占一行。
+     * - **经典贴底栏**：栏高 56 + 手势区 + 呼吸 4。
+     *
+     * 读的是 `TabBarStyle.floating`（@Trace）：V2 页面在 build 里读这个 getter，
+     * 设置页切换底栏样式时各页的底部留白会跟着重算。V1 页面另见 `shellLayoutRevision`。
      */
-    // 胶囊 48 + 底部抬起 12 + 一点呼吸 12（手势条已由系统让开，不再重复加）
+    const bottom: number = WindowInsets.shared().bottom;
+    if (!TabBarStyle.shared().floating) {
+      return 56 + bottom + 4;
+    }
+    return 12 + 56 + bottom + 4;
+  }
+
+  /**
+   * 「我的」页底部 AI 快捷输入卡盖住的高度（贴底栏模式专属）。
+   *
+   * 卡片是 `MoreNavHost` 里 Stack 的浮层，浮在贴底栏上、不在内容流里，所以列表要多让一段。
+   * = 卡片高 60（折叠态一行 44 + 上下 8）+ 卡片 `margin.bottom` 12。
+   */
+  static get agentDockInset(): number {
     return 72;
   }
 
   /**
-   * 整屏页（会话页、回收站、日志页……：没有悬浮页签栏）底部要让开的高度 = 系统手势条（小白条）。
+   * 底部只欠「系统手势条（小白条）」时用的让位高度。
    *
-   * 这些页面底部有**不滚动**的操作条（会话页输入框、回收站批量条、日志页脚注），
-   * 沉浸式布局下系统不避让，条子会被小白条压住——实测会话页输入框「说点什么…」下半截被盖。
-   * 注意别拿 `tabBarInset` 来顶：那个还额外算了悬浮页签胶囊的高度，用在这儿会多出一条空带。
+   * 两类场景：① 真正盖住页签栏的整屏页（ShellChrome.push 名单：会话/刷片/播放/分享访客）；
+   * ② LARGE/整层弹出的 sheet 内部——页签胶囊已被盖住，只欠手势条。
+   * 页签**内**的分区页/列表页（回收站、日志这类被 push 进页签的）不在此列：
+   * 悬浮胶囊盖在它们的内容上，要用 `tabBarInset`——拿这个值会让按钮/页脚被胶囊压住
+   * （实测踩过：日志页脚、回收站批量条）；反过来在 sheet 里垫 tabBarInset 会多出一条空带。
    */
   static get safeBottomInset(): number {
-    return WindowInsets.bottom;
+    return WindowInsets.shared().bottom;
   }
 }

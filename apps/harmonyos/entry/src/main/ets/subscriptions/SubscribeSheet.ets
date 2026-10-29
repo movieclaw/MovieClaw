@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { RemoteImage } from '../common/RemoteImage';
@@ -14,6 +15,8 @@ import {
   DispatchPreviewView,
   LibraryView,
   PrepareView,
+  SmartPlanView,
+  SmartQuestionView,
   RuleSetView,
   ResolveCandidateView,
   SeasonOverview,
@@ -122,6 +125,10 @@ export struct SubscribeSheetContent {
   @Local private smartProfile: SmartProfileView | null = null;
   @Local private smartProfileError: string = '';
   @Local private smartProfileLoaded: boolean = false;
+  /** 智能选择计划（0.42.0+ 随预检下发的 `smart`；旧服务器没有 = null，走画像流程） */
+  @Local private smartPlan: SmartPlanView | null = null;
+  /** 第一次语言问题的回答（subtitles/understood；没答不传，服务端按记忆与默认） */
+  @Local private smartLanguageAnswer: string = '';
   // 偏好编辑器（管理员；复用 picker 槽位）
   @Local private editorResolution: string = '2160p';
   @Local private editorSource: string = 'web-dl';
@@ -199,6 +206,11 @@ export struct SubscribeSheetContent {
       this.candidates = view.candidates;
       this.existingId = view.existing_subscription_id ?? 0;
       this.movieOwned = view.movie_owned;
+      // 智能选择计划（iOS `SmartPlanSection` 的数据源）：配置过（configured）才接管智能区；
+      // 没配置的计划与旧服务器的 null 一样，走画像流程兜底
+      this.smartPlan = (view.smart ?? null) !== null && (view.smart as SmartPlanView).configured
+        ? (view.smart as SmartPlanView) : null;
+      this.smartLanguageAnswer = '';
       // 默认勾选（同 iOS）：洗版变体按库存预填；豆瓣季条目采信建议；否则全部已播正季
       if (this.upgradeMode()) {
         const owned: number[] = [];
@@ -217,9 +229,12 @@ export struct SubscribeSheetContent {
       this.followFuture = !this.upgradeMode() && this.isAiring();
       // 预检成功后拉路由结论（规则组 / 入库库 / 为什么这么选）
       await this.loadRouting();
-      // 智能偏好画像（非洗版变体才需要；摘要行就绪前不能提交）
-      if (!this.upgradeMode()) {
+      // 智能偏好画像：只有旧服务器（预检没带 smart 计划）才需要拉；
+      // 有计划时摘要与提交都走计划，跳过这一趟请求（同 iOS 只读 title-preview 的 smart）
+      if (!this.upgradeMode() && this.smartPlan === null) {
         this.loadSmartProfile();
+      } else {
+        this.smartProfileLoaded = true;
       }
     } catch (error) {
       this.errorMessage = this.messageOf(error);
@@ -516,8 +531,13 @@ export struct SubscribeSheetContent {
         rule_set_id: this.canManage() && this.selectionMode === 'rules' && this.ruleSetId > 0
           ? this.ruleSetId : null,
         selection_mode: this.selectionMode,
-        smart_profile_revision: this.selectionMode === 'smart' && this.smartProfile !== null
-          ? this.smartProfile.revision : null
+        smart_profile_revision: this.selectionMode === 'smart' && this.smartPlan === null
+          && this.smartProfile !== null ? this.smartProfile.revision : null,
+        // 智能订阅（0.42.0+）：语言回答 + 记忆修订号（本次不改画质/来源/作用域，沿用服务端解析）
+        smart_language_answer: this.selectionMode === 'smart' && this.smartLanguageAnswer.length > 0
+          ? this.smartLanguageAnswer : null,
+        smart_memory_revision: this.selectionMode === 'smart' && this.smartPlan !== null
+          && this.smartPlan.memory_revision > 0 ? this.smartPlan.memory_revision : null
       };
       const view: SubscriptionCreateView = await api.subscriptionsCreate(payload);
       // 已挂载的订阅首页/海报墙立即重拉，切回订阅页签就能看到新订阅（不必杀进程重启）
@@ -613,22 +633,25 @@ export struct SubscribeSheetContent {
               isMovie: this.kind === 'movie',
               report: this.upgradeReport as UpgradeRunView
             })
-            Text('完成')
-              .fontSize(16)
-              .fontWeight(FontWeight.Medium)
-              .fontColor('#0b0d12')
-              .textAlign(TextAlign.Center)
-              .width('100%')
-              .padding({ top: 14, bottom: 14 })
-              .backgroundColor(Theme.accent)
-              .borderRadius(Theme.cardRadius)
-              .onClick(() => {
-                this.onClose();
-              })
+            Button() {
+              Text('完成')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .fontColor('#0b0d12')
+                .textAlign(TextAlign.Center)
+            }
+            .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+            .width('100%')
+            .padding({ top: 14, bottom: 14 })
+            .borderRadius(Theme.cardRadius)
+            .onClick(() => {
+              this.onClose();
+            })
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
-          .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: 8, bottom: Theme.tabBarInset })
+          // LARGE 弹层整层盖住页签胶囊，底部只欠手势条的高度；垫 tabBarInset 会多出一条空白带
+          .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: 8, bottom: Theme.safeBottomInset })
         }
         .scrollBar(BarState.Off)
         .layoutWeight(1)
@@ -703,8 +726,8 @@ export struct SubscribeSheetContent {
     if (this.upgradeMode() && this.canManage() && this.pickedUpgradeRule() === null) {
       return false;
     }
-    // 智能模式：偏好画像就绪且与媒体类型一致才能提交（同 iOS `canSubmit`）
-    if (this.selectionMode === 'smart'
+    // 智能模式：0.42.0+ 认预检下发的 smart 计划；旧服务器认偏好画像（同 iOS `canSubmit`）
+    if (this.selectionMode === 'smart' && this.smartPlan === null
       && (this.smartPreferences() === null || this.smartProfile?.kind !== this.kind)) {
       return false;
     }
@@ -751,16 +774,18 @@ export struct SubscribeSheetContent {
         .fontSize(13)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('重试')
-        .fontSize(14)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(18)
-        .onClick(() => {
-          this.prepare(this.titleRef);
-        })
+      Button() {
+        Text('重试')
+          .fontSize(14)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+      .borderRadius(18)
+      .onClick(() => {
+        this.prepare(this.titleRef);
+      })
     }
     .width('100%')
     .height(220)
@@ -779,27 +804,29 @@ export struct SubscribeSheetContent {
         .fontSize(14)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('查看订阅详情')
-        .fontSize(15)
-        .fontColor(Theme.text)
-        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(20)
-        .border({ width: 1, color: Theme.line })
-        .margin({ top: 6 })
-        .onClick(() => {
-          this.openExistingDetail();
-        })
-      Text('取消订阅')
-        .fontSize(15)
-        .fontColor(Theme.danger)
-        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(20)
-        .border({ width: 1, color: Theme.line })
-        .onClick(() => {
-          this.confirmUnsubscribe();
-        })
+      Button() {
+        Text('查看订阅详情')
+          .fontSize(15)
+          .fontColor(Theme.text)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+      .borderRadius(20)
+      .margin({ top: 6 })
+      .onClick(() => {
+        this.openExistingDetail();
+      })
+      Button() {
+        Text('取消订阅')
+          .fontSize(15)
+          .fontColor(Theme.danger)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+      .borderRadius(20)
+      .onClick(() => {
+        this.confirmUnsubscribe();
+      })
     }
     .width('100%')
     .height(260)
@@ -1040,7 +1067,10 @@ export struct SubscribeSheetContent {
   SmartProfileSection() {
     Column({ space: 0 }) {
       Divider().color(Theme.line).margin({ left: 16, right: 16 })
-      if (this.smartProfileError.length > 0) {
+      // 0.42.0+：预检下发的智能计划接管本区（同 iOS `SmartPlanSection`）
+      if (this.smartPlan !== null) {
+        this.SmartPlanSection(this.smartPlan)
+      } else if (this.smartProfileError.length > 0) {
         Column({ space: 8 }) {
           Text(this.smartProfileError)
             .fontSize(13)
@@ -1098,6 +1128,111 @@ export struct SubscribeSheetContent {
     .width('100%')
   }
 
+  /**
+   * 智能选择计划（iOS `SmartPlanSection`）：服务端按设置、记忆与作品解析出的摘要整句；
+   * 第一次语言问题内联两选一；管理员可点开编辑器（保存画像，下次预检反映新计划）。
+   */
+  @Builder
+  SmartPlanSection(plan: SmartPlanView) {
+    Column({ space: 6 }) {
+      Text('智能选择')
+        .fontSize(12)
+        .fontColor(Theme.textFaint)
+        .width('100%')
+      Text(plan.quality_label ?? '按智能设置选择')
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.text)
+        .width('100%')
+      if ((plan.quality_note ?? '').length > 0) {
+        Text(plan.quality_note as string)
+          .fontSize(13)
+          .fontColor(Theme.textMuted)
+          .width('100%')
+      }
+      if ((plan.quality_shadow ?? '').length > 0) {
+        Text(plan.quality_shadow as string)
+          .fontSize(12)
+          .fontColor(Theme.textFaint)
+          .width('100%')
+      }
+      if ((plan.wait_label ?? '').length > 0) {
+        Text(plan.wait_label as string)
+          .fontSize(13)
+          .fontColor(Theme.textMuted)
+          .width('100%')
+      }
+      if ((plan.subtitle_line ?? '').length > 0) {
+        Text(plan.subtitle_line as string)
+          .fontSize(13)
+          .fontColor(Theme.textMuted)
+          .width('100%')
+      }
+
+      // 第一次碰到这种语言：问一句要不要中文字幕（答过/中文片不问）
+      if (plan.question !== null && plan.question !== undefined
+        && this.smartLanguageAnswer.length === 0) {
+        Column({ space: 8 }) {
+          Text((plan.question as SmartQuestionView).prompt)
+            .fontSize(14)
+            .fontColor(Theme.text)
+            .width('100%')
+          Row({ space: 8 }) {
+            Button() {
+              Text((plan.question as SmartQuestionView).subtitles_label)
+                .fontSize(13)
+                .fontColor(this.smartLanguageAnswer === 'subtitles' ? Theme.accentStrong : Theme.text)
+                .textAlign(TextAlign.Center)
+                .maxLines(1)
+            }
+            .attributeModifier(new GlassButtonModifier(this.smartLanguageAnswer === 'subtitles' ? GlassTone.Strong : GlassTone.Secondary))
+            .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+            .borderRadius(18)
+            .layoutWeight(1)
+            .onClick(() => {
+              this.smartLanguageAnswer = 'subtitles';
+            })
+            Button() {
+              Text((plan.question as SmartQuestionView).understood_label)
+                .fontSize(13)
+                .fontColor(this.smartLanguageAnswer === 'understood' ? Theme.accentStrong : Theme.text)
+                .textAlign(TextAlign.Center)
+                .maxLines(1)
+            }
+            .attributeModifier(new GlassButtonModifier(this.smartLanguageAnswer === 'understood' ? GlassTone.Strong : GlassTone.Secondary))
+            .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+            .borderRadius(18)
+            .layoutWeight(1)
+            .onClick(() => {
+              this.smartLanguageAnswer = 'understood';
+            })
+          }
+          .width('100%')
+          Text('可以不答：按智能设置与记忆的默认处理')
+            .fontSize(11)
+            .fontColor(Theme.textFaint)
+            .width('100%')
+        }
+        .width('100%')
+        .padding({ top: 6, bottom: 6 })
+        .alignItems(HorizontalAlign.Start)
+      }
+
+      if (this.canManage() && plan.can_edit) {
+        Text('编辑智能设置')
+          .fontSize(13)
+          .fontColor(Theme.accentStrong)
+          .padding({ top: 4 })
+          .onClick(() => {
+            this.openSmartEditor();
+          })
+      }
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+    .alignItems(HorizontalAlign.Start)
+  }
+
   /** 智能偏好的摘要行（同 iOS `SmartProfileSection.summary`） */
   @Builder
   SmartSummary(preferences: SmartPreferences | null) {
@@ -1137,33 +1272,35 @@ export struct SubscribeSheetContent {
   /** 模式切换胶囊 */
   @Builder
   ModePill(label: string, active: boolean, onTap: () => void) {
-    Text(label)
-      .fontSize(13)
-      .fontWeight(active ? 600 : FontWeight.Normal)
-      .fontColor(active ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-      .backgroundColor(active ? Theme.accent : Theme.glassFill)
-      .borderRadius(14)
-      .border({ width: 1, color: active ? Theme.accent : Theme.line })
-      .onClick(() => {
-        onTap();
-      })
+    Button() {
+      Text(label)
+        .fontSize(13)
+        .fontWeight(active ? 600 : FontWeight.Normal)
+        .fontColor(active ? '#0b0d12' : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(active ? GlassTone.Primary : GlassTone.Secondary))
+    .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+    .borderRadius(14)
+    .onClick(() => {
+      onTap();
+    })
   }
 
   /** 编辑器选项胶囊 */
   @Builder
   OptionPill(label: string, active: boolean, onTap: () => void) {
-    Text(label)
-      .fontSize(13)
-      .fontWeight(active ? 600 : FontWeight.Normal)
-      .fontColor(active ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-      .backgroundColor(active ? Theme.accent : Theme.glassFill)
-      .borderRadius(14)
-      .border({ width: 1, color: active ? Theme.accent : Theme.line })
-      .onClick(() => {
-        onTap();
-      })
+    Button() {
+      Text(label)
+        .fontSize(13)
+        .fontWeight(active ? 600 : FontWeight.Normal)
+        .fontColor(active ? '#0b0d12' : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(active ? GlassTone.Primary : GlassTone.Secondary))
+    .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+    .borderRadius(14)
+    .onClick(() => {
+      onTap();
+    })
   }
 
   /** 选择器：库与规则组共用（按 pickerKind 切换数据源） */
@@ -1359,10 +1496,10 @@ export struct SubscribeSheetContent {
           .layoutWeight(1)
           .alignItems(HorizontalAlign.Start)
           Toggle({ type: ToggleType.Switch, isOn: this.editorAllowUpgrade })
-            .selectedColor(Theme.accent)
-            .onChange((isOn: boolean): void => {
-              this.editorAllowUpgrade = isOn;
-            })
+          .attributeModifier(new GlassSwitchModifier())
+          .onChange((isOn: boolean): void => {
+            this.editorAllowUpgrade = isOn;
+          })
         }
         .width('100%')
 
@@ -1378,10 +1515,10 @@ export struct SubscribeSheetContent {
               .fontColor(Theme.text)
               .layoutWeight(1)
             Toggle({ type: ToggleType.Switch, isOn: this.editorStrictResolution })
-              .selectedColor(Theme.accent)
-              .onChange((isOn: boolean): void => {
-                this.editorStrictResolution = isOn;
-              })
+            .attributeModifier(new GlassSwitchModifier())
+            .onChange((isOn: boolean): void => {
+              this.editorStrictResolution = isOn;
+            })
           }
           .width('100%')
         }
@@ -1396,18 +1533,20 @@ export struct SubscribeSheetContent {
           .width('100%')
 
         // 保存（修订号冲突时后端返回可读错误）
-        Text(this.editorBusy ? '正在保存…' : '保存')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.editorValid() ? '#0b0d12' : 'rgba(255,255,255,0.3)')
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(this.editorValid() ? Theme.accent : Theme.surface)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            this.saveSmartProfile();
-          })
+        Button() {
+          Text(this.editorBusy ? '正在保存…' : '保存')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.editorValid() ? '#0b0d12' : 'rgba(255,255,255,0.3)')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(this.editorValid() ? GlassTone.Primary : GlassTone.Secondary))
+        .width('100%')
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          this.saveSmartProfile();
+        })
       }
       .width('100%')
       .padding({ left: 20, right: 20, top: 16, bottom: 24 })
@@ -1560,10 +1699,10 @@ export struct SubscribeSheetContent {
             .layoutWeight(1)
             .alignItems(HorizontalAlign.Start)
             Toggle({ type: ToggleType.Switch, isOn: this.followFuture })
-              .selectedColor(Theme.accent)
-              .onChange((isOn: boolean): void => {
-                this.followFuture = isOn;
-              })
+            .attributeModifier(new GlassSwitchModifier())
+            .onChange((isOn: boolean): void => {
+              this.followFuture = isOn;
+            })
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 12, bottom: 12 })

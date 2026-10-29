@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { Formatters } from '../common/Formatters';
 import { AppModel } from '../common/AppModel';
 import { MovieClawApi } from '../api/Endpoints';
@@ -171,16 +172,16 @@ export struct DeleteItemSheet {
         Blank()
         if (this.result !== null) {
           Button('回到库存页')
-            .height(44)
-            .fontSize(15)
-            .fontWeight(600)
-            .fontColor('#0b0d12')
-            .backgroundColor(Theme.accent)
-            .borderRadius(14)
-            .padding({ left: 24, right: 24 })
-            .onClick(() => {
-              this.finish();
-            })
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .height(44)
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor('#0b0d12')
+          .borderRadius(14)
+          .padding({ left: 24, right: 24 })
+          .onClick(() => {
+            this.finish();
+          })
         } else {
           DangerDeleteButton({
             busy: this.busy,
@@ -642,16 +643,16 @@ export struct DeleteFileSheet {
         Blank()
         if (this.result !== null) {
           Button('完成')
-            .height(44)
-            .fontSize(15)
-            .fontWeight(600)
-            .fontColor('#0b0d12')
-            .backgroundColor(Theme.accent)
-            .borderRadius(14)
-            .padding({ left: 24, right: 24 })
-            .onClick(() => {
-              this.finish();
-            })
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .height(44)
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor('#0b0d12')
+          .borderRadius(14)
+          .padding({ left: 24, right: 24 })
+          .onClick(() => {
+            this.finish();
+          })
         } else {
           DangerDeleteButton({
             busy: this.busy,
@@ -1016,10 +1017,10 @@ struct DangerDeleteButton {
           .fontWeight(600)
       }
     }
+    .attributeModifier(new GlassButtonModifier(this.allowTap ? GlassTone.Danger : GlassTone.Danger))
     .height(44)
     .padding({ left: 28, right: 28 })
     .fontColor(Color.White)
-    .backgroundColor(this.allowTap ? Theme.danger : 'rgba(255,107,107,0.35)')
     .borderRadius(14)
     .enabled(this.allowTap)
     .onClick(() => {

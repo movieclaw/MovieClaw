@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
@@ -150,6 +151,10 @@ export struct DiscoveredPersonPage {
         } else {
           this.Content(this.person as DiscoveredPersonDetailsView)
         }
+        // 顶栏放最后：盖在沉浸大图/内容上，返回键与标题不会被海报压住
+        PageTopBar({ title: this.title(), onBack: (): void => {
+          this.navStack.pop();
+        }})
       }
       .width('100%')
       .height('100%')
@@ -209,28 +214,31 @@ export struct DiscoveredPersonPage {
       }
       Row({ space: 12 }) {
         if (this.failure === DiscoveredFailure.error) {
-          Text('重试')
+          Button() {
+            Text('重试')
+              .fontSize(15)
+              .fontWeight(600)
+              .fontColor('#0b0d12')
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+          .borderRadius(20)
+          .onClick(() => {
+            this.load();
+          })
+        }
+        Button() {
+          Text('返回发现页')
             .fontSize(15)
             .fontWeight(600)
-            .fontColor('#0b0d12')
-            .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-            .backgroundColor(Theme.accent)
-            .borderRadius(20)
-            .onClick(() => {
-              this.load();
-            })
+            .fontColor(Theme.text)
         }
-        Text('返回发现页')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.text)
-          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(20)
-          .border({ width: 1, color: Theme.lineStrong })
-          .onClick(() => {
-            ShellChrome.openTab('discover');
-          })
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .onClick(() => {
+          ShellChrome.openTab('discover');
+        })
       }
       .margin({ top: 4 })
     }
@@ -332,7 +340,6 @@ struct PersonPosterCard {
   subscribed: boolean = false;
   onOpen: () => void = (): void => {
   };
-  @State private cardWidth: number = 0;
 
   build() {
     Column({ space: 2 }) {
@@ -344,7 +351,9 @@ struct PersonPosterCard {
           .width('100%')
           .height('100%')
 
-        // 右上：评分徽章（黑底 + 黄星 + 一位小数）
+        // 右上：评分徽章（黑底 + 黄星 + 一位小数）。
+        // 右缘锚定父容器右缘（markAnchor 百分比相对自身宽），不靠运行时量宽——
+        // 之前按 onAreaChange 回填的 cardWidth 算 x，首帧 0、角标闪到屏外，滚动时每个新实例都闪。
         if ((this.item.provider_rating ?? 0) > 0) {
           Row({ space: 3 }) {
             SymbolGlyph($r('sys.symbol.star_fill'))
@@ -358,10 +367,12 @@ struct PersonPosterCard {
           .padding({ left: 5, right: 5, top: 2, bottom: 2 })
           .backgroundColor('rgba(0,0,0,0.70)')
           .borderRadius(6)
-          .position({ x: this.cardWidth - 52, y: 6 })
+          .position({ x: '100%', y: 6 })
+          .markAnchor({ x: '100%' })
         }
 
-        // 左上：斜标（同 Web：带宽 62%、左移 13%、距顶 15，绕中心逆时针 45°）
+        // 左上：斜标（同 Web：带宽 62%、中心锚在 13% 处——布局左缘 = 13% - 半宽 31% = -18%，
+        // 距顶 15，绕中心逆时针 45°。全部用百分比，首帧即就位）
         if (this.owned || this.subscribed) {
           Text(this.owned ? '已入库' : '已订阅')
             .fontSize(9)
@@ -369,13 +380,13 @@ struct PersonPosterCard {
             .fontColor('#ffffff')
             .letterSpacing(0.8)
             .textAlign(TextAlign.Center)
-            .width(this.cardWidth * 0.62)
+            .width('62%')
             .padding({ top: 2, bottom: 2 })
             .linearGradient(this.owned
               ? { angle: 90, colors: [['#0FBA82', 0], ['#0FB8A6', 1]] }
               : { angle: 90, colors: [['#0DA6E8', 0], ['#6366F2', 1]] })
             .rotate({ angle: -45 })
-            .position({ x: this.cardWidth * 0.13 - this.cardWidth * 0.31, y: 7 })
+            .position({ x: '-18%', y: 7 })
         }
       }
       .width('100%')
@@ -385,9 +396,6 @@ struct PersonPosterCard {
       .clip(true)
       .border({ width: 0.5, color: 'rgba(255,255,255,0.08)' })
       .shadow({ radius: 10, color: 'rgba(0,0,0,0.35)', offsetY: 6 })
-      .onAreaChange((_oldArea: Area, newArea: Area) => {
-        this.cardWidth = newArea.width as number;
-      })
 
       Text(this.item.title)
         .fontSize(14)

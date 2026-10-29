@@ -1,5 +1,5 @@
 import { http } from '@kit.NetworkKit';
-import { fileIo, statfs } from '@kit.CoreFileKit';
+import { fileIo } from '@kit.CoreFileKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { wantAgent, WantAgent, common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
@@ -773,11 +773,7 @@ export class OfflineDownloader {
 
   /** 剩余空间（字节）；拿不到返回 -1（不检查） */
   private availableBytes(): number {
-    try {
-      return statfs.getFreeSizeSync(OfflineDisk.rootDir());
-    } catch (error) {
-      return -1;
-    }
+    return OfflineDisk.availableBytes();
   }
 
   /** `estimated`：需要的大小里含转码档的预计值（原画是精确的文件大小） */
