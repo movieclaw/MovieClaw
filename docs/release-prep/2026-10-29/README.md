@@ -27,6 +27,10 @@ Apple 三端共用 `MARKETING_VERSION`，所以工程里的版本号是 0.12.0�
 | HarmonyOS | 无 | 1.0.0 / versionCode 1000000 | 没有 release 工作流，也没有 tag 前缀。智慧屏、车机、播放引擎的改动留在 main，不在这一轮首发。 |
 | NER、浏览器扩展 | 不变 | 不变 | 这个区间没有产物改动。 |
 
+## CI
+
+发版 PR 会因为改了 `__init__.py` 跑全量检查。`test_due_load_10000_units_100_expired_within_scan_budget` 在 GitHub runner 上三次 process_time 为 30.1s、30.3s、33.5s，卡在原来的 30 秒断言上；同一测试在 #1079 是通过的，调度周期没有改。断言放宽到 40 秒，只吸收 runner 抖动，成倍变慢仍会失败。
+
 ## 合并之后
 
 见 `commands.md`。不要在这个 PR 合并前打 tag。
