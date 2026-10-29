@@ -571,7 +571,6 @@ export struct MainTabsPage {
       this.currentTab = index;
       const title: string = this.visibleTabs()[index].title;
       NavStacks.currentKey = title;
-      this.mountTab(title);
       // 换页签：新页从顶部开始，底栏放回整条（银玻璃底栏塌陷复位）
       this.collapse.expand();
       // 切回订阅页签：让已挂载保活的订阅首页重拉清单（对齐 iOS 切 tab 触发 onAppear 的语义）；
@@ -585,7 +584,7 @@ export struct MainTabsPage {
      * `onChange` 只在**换页签**时触发，所以这条必须在 `onTabBarClick` 上做。
      */
     .onTabBarClick((index: number): void => {
-      const tabs: TabSpec[] = this.visibleTabs();
+      const tabs: AppTabItem[] = this.visibleTabs();
       if (index < 0 || index >= tabs.length) {
         return;
       }

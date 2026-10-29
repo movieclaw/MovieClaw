@@ -2323,13 +2323,35 @@ export struct LibraryItemDetailPage {
             Text(episode.name !== null && episode.name !== undefined && episode.name.length > 0
               ? episode.name : `第 ${episode.episode_number} 集`)
               .fontSize(15)
-              .fontColor(episode.owned ? Theme.text : Theme.textFaint)
+              // 还没播的集不再按缺集置灰（issue #547）
+              .fontColor(episode.owned || this.airsToday(episode) || this.isUnaired(episode)
+                ? Theme.text : Theme.textFaint)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
           }
           .width('100%')
-          if (!episode.owned) {
+          if (!episode.owned && this.airsToday(episode)) {
+            // 今天播出：描蓝边、右侧写入库状态
+            Row({ space: 6 }) {
+              Text('今天播出')
+                .fontSize(12)
+                .fontWeight(600)
+                .fontColor(Theme.text)
+              Text(this.todayStatusText(episode))
+                .fontSize(12)
+                .fontColor(this.todayStatusColor(episode))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+          } else if (!episode.owned && this.isUnaired(episode)) {
+            // 之后播出：状态行写播出日（「10月30日 周五 播出 · 3 天后」），没定档「待定档」
+            Text(this.unairedStatusText(episode))
+              .fontSize(12)
+              .fontColor(Theme.textMuted)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          } else if (!episode.owned) {
             Text('未入库')
               .fontSize(12)
               .fontColor(Theme.textFaint)
@@ -2342,49 +2364,6 @@ export struct LibraryItemDetailPage {
               .fontSize(12)
               .fontColor(Theme.textFaint)
           }
-          Text(episode.name !== null && episode.name !== undefined && episode.name.length > 0
-            ? episode.name : `第 ${episode.episode_number} 集`)
-            .fontSize(15)
-            // 还没播的集不再按缺集置灰（issue #547）
-            .fontColor(episode.owned || this.airsToday(episode) || this.isUnaired(episode)
-              ? Theme.text : Theme.textFaint)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
-        }
-        .width('100%')
-        if (!episode.owned && this.airsToday(episode)) {
-          // 今天播出：描蓝边、右侧写入库状态
-          Row({ space: 6 }) {
-            Text('今天播出')
-              .fontSize(12)
-              .fontWeight(600)
-              .fontColor(Theme.text)
-            Text(this.todayStatusText(episode))
-              .fontSize(12)
-              .fontColor(this.todayStatusColor(episode))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-          }
-        } else if (!episode.owned && this.isUnaired(episode)) {
-          // 之后播出：状态行写播出日（「10月30日 周五 播出 · 3 天后」），没定档「待定档」
-          Text(this.unairedStatusText(episode))
-            .fontSize(12)
-            .fontColor(Theme.textMuted)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-        } else if (!episode.owned) {
-          Text('未入库')
-            .fontSize(12)
-            .fontColor(Theme.textFaint)
-        } else if (episode.played) {
-          Text('已看')
-            .fontSize(12)
-            .fontColor(Theme.ok)
-        } else if ((episode.progress_percent ?? 0) > 0) {
-          Text(`已看 ${Math.round(episode.progress_percent ?? 0)}%`)
-            .fontSize(12)
-            .fontColor(Theme.textFaint)
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)

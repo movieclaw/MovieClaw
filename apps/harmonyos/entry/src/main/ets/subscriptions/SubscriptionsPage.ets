@@ -21,7 +21,7 @@ import {
 } from '../api/Models';
 import { AppFooter } from '../common/AppFooter';
 import { HeroSkeleton, SkeletonRow } from '../common/SkeletonBlock';
-import { PlayerParams } from '../player/PlayerPage';
+import { PlayerParams } from '../player/PlayerParams';
 import { DiscoverDetailParams } from '../discover/DiscoverDetailPage';
 import { CollectionMeta, ShelfSplit, ShelfStanding, SubsHome, ArrivalPresentation, arrivalPresentation, arrivalClockText } from './SubscriptionsHomeModel';
 import {
