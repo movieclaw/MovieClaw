@@ -1,3 +1,5 @@
+import { common } from '@kit.AbilityKit';
+import { notificationManager } from '@kit.NotificationKit';
 import { Theme } from '../theme/AppTheme';
 import { AppNavBar } from '../common/AppNavBar';
 import { AppFooter } from '../common/AppFooter';
@@ -136,6 +138,18 @@ export struct NotifySection {
     return result.posted > 0 ? `本轮发出 ${result.posted} 条通知` : '没有新的变化';
   }
 
+  /**
+   * 跳系统「应用通知设置」页：横幅通知、锁屏通知、桌面角标属系统层偏好，
+   * 应用改不了（横幅默认关，须用户在系统设置里开——官方 FAQ 的推荐做法就是拉起这页）。
+   */
+  private openSystemPrefs(): void {
+    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    notificationManager.openNotificationSettings(context)
+      .catch((): void => {
+        this.toast('打不开系统通知设置');
+      });
+  }
+
   build() {
     Column() {
       if (this.loading) {
@@ -151,6 +165,7 @@ export struct NotifySection {
           Column({ space: 14 }) {
             this.StatusCard()
             this.SwitchesCard()
+            this.SystemPrefsCard()
             this.CheckButton()
             Text('打开后：App 在前台每 10 分钟对一次账，退到后台由系统按电量与活跃度定时拉起'
               + '（活跃时最快每 2 小时一次）。只在有新变化时提醒，没变化不打扰。'
@@ -253,6 +268,41 @@ export struct NotifySection {
     .backgroundColor(Theme.surface)
     .borderRadius(Theme.cardRadius)
     .border({ width: 1, color: Theme.line })
+  }
+
+  /** 「系统通知偏好」行：拉起系统设置里本应用的通知页（横幅/锁屏/角标在那里管） */
+  @Builder
+  SystemPrefsCard() {
+    Row({ space: 12 }) {
+      SymbolGlyph($r('sys.symbol.bell_badge_local'))
+        .fontSize(18)
+        .fontColor([Theme.accent2])
+        .width(26)
+      Column({ space: 2 }) {
+        Text('系统通知偏好')
+          .fontSize(15)
+          .fontColor(Theme.text)
+        Text('横幅通知、锁屏通知、桌面角标在系统设置里管理，点这里直达')
+          .fontSize(12)
+          .fontColor(Theme.textMuted)
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      SymbolGlyph($r('sys.symbol.chevron_right'))
+        .fontSize(13)
+        .fontColor([Theme.textFaint])
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+    .backgroundColor(Theme.surface)
+    .borderRadius(Theme.cardRadius)
+    .border({ width: 1, color: Theme.line })
+    .onClick((): void => {
+      this.openSystemPrefs();
+    })
   }
 
   @Builder

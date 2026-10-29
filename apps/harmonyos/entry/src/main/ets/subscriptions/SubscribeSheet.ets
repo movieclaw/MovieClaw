@@ -531,9 +531,14 @@ export struct SubscribeSheetContent {
         rule_set_id: this.canManage() && this.selectionMode === 'rules' && this.ruleSetId > 0
           ? this.ruleSetId : null,
         selection_mode: this.selectionMode,
-        smart_profile_revision: this.selectionMode === 'smart' && this.smartPlan === null
-          && this.smartProfile !== null ? this.smartProfile.revision : null,
-        // 智能订阅（0.42.0+）：语言回答 + 记忆修订号（本次不改画质/来源/作用域，沿用服务端解析）
+        // 智能模式必须带已保存的设置版本（服务端校验 smart_profile_revision ≥1，缺了直接 422）
+        // 有 smart 计划用计划下发的 profile_revision（同 iOS `smart?.profileRevision`）；
+        // 旧服务器没计划才走画像兜底（smartProfile.revision）
+        smart_profile_revision: this.selectionMode === 'smart'
+          ? (this.smartPlan !== null ? this.smartPlan.profile_revision
+            : (this.smartProfile !== null ? this.smartProfile.revision : null))
+          : null,
+        // 智能订阅（0.42.0+）：语言回答 + 记忆修订号（本次不改画质/来源，沿用服务端解析）
         smart_language_answer: this.selectionMode === 'smart' && this.smartLanguageAnswer.length > 0
           ? this.smartLanguageAnswer : null,
         smart_memory_revision: this.selectionMode === 'smart' && this.smartPlan !== null

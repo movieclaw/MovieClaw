@@ -425,6 +425,9 @@ export class NotifyCenter {
       const request: notificationManager.NotificationRequest = {
         id: id,
         notificationSlotType: notificationManager.SlotType.SERVICE_INFORMATION,
+        // 桌面角标 +1：HarmonyOS 的角标不会因发通知自动出现，必须应用主动带（badgeNumber 累加）
+        // 或调 setBadgeNumber；App 回前台时 clearBadge() 清零（对应「通知都看过了」）
+        badgeNumber: 1,
         content: {
           notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
           normal: {
@@ -437,6 +440,15 @@ export class NotifyCenter {
       await notificationManager.publish(request);
     } catch (error) {
       hilog.warn(NOTIFY_DOMAIN, 'MovieClaw', '系统通知发布失败：%{public}s', `${error}`);
+    }
+  }
+
+  /** 清零桌面角标（App 回前台 / 通知点按回来时调；没角标时是空操作） */
+  static async clearBadge(): Promise<void> {
+    try {
+      await notificationManager.setBadgeNumber(0);
+    } catch (error) {
+      // 角标清不掉不影响主流程（没授权 / 桌面不支持）
     }
   }
 

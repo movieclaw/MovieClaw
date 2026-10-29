@@ -277,6 +277,8 @@ export default class EntryAbility extends UIAbility {
   onForeground(): void {
     // 回前台核实选路：网络可能换过（Wi-Fi ↔ 蜂窝 / 家 ↔ 外面）
     ServerRoutes.shared().reevaluate();
+    // 回前台清桌面角标（HarmonyOS 角标要应用主动管；通知点按回来也走这里）
+    NotifyCenter.clearBadge();
     // Ability has brought to foreground
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
   }
