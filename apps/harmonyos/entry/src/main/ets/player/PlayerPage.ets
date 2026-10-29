@@ -318,6 +318,8 @@ export struct PlayerPage {
   private chrome: ShellChrome = ShellChrome.shared;
   private started: boolean = false;
   private avPlayer: PlayerEngine | null = null;
+  /** mpv 起不来（x86_64 模拟器装的是保启动桩库；真机 so 损坏同理）：本次停留期间不再试，直接回系统 AVPlayer */
+  private mpvUnavailable: boolean = false;
   private surfaceId: string = '';
   /** 拿 surface id 的正规途径：XComponentController（`XComponentContext` 不是公开类型） */
   private surfaceController: XComponentController = new XComponentController();
@@ -906,6 +908,24 @@ export struct PlayerPage {
 
   // MARK: 播放器
 
+  /**
+   * 按设置起引擎（PlayerPrefs.engine()：默认 mpv，'avplayer' 回系统播放器）。
+   * mpv 起不来就回系统 AVPlayer：x86_64 模拟器装的 libmpv 是保启动的桩库
+   * （`mpv_create` 必失败、`MpvPlayer.create()` 必炸），真机 so 损坏同理——
+   * 引擎问题不该把播放直接摊成「放不了」。
+   */
+  private async createEngine(): Promise<PlayerEngine> {
+    if (PlayerPrefs.engine() !== 'avplayer' && !this.mpvUnavailable) {
+      try {
+        return await MpvPlayer.create();
+      } catch (error) {
+        this.mpvUnavailable = true;
+        hilog.error(0x0000, 'PlayerPage', 'mpv unavailable, fallback to avplayer: %{public}s', `${error}`);
+      }
+    }
+    return media.createAVPlayer();
+  }
+
   /** 把 AVPlayer 挂到 XComponent 的 surface 上并起播 */
   private async attachPlayer(url: string): Promise<void> {
     if (this.surfaceId.length === 0) {
@@ -913,10 +933,7 @@ export struct PlayerPage {
       return;
     }
     await this.releasePlayer();
-    // 按设置选引擎（PlayerPrefs.engine()：默认 mpv，'avplayer' 回系统播放器）
-    const player: PlayerEngine = PlayerPrefs.engine() === 'avplayer'
-      ? await media.createAVPlayer()
-      : await MpvPlayer.create();
+    const player: PlayerEngine = await this.createEngine();
     this.avPlayer = player;
     this.bindPlayerEvents(player);
     if (player instanceof MpvPlayer) {
@@ -935,9 +952,7 @@ export struct PlayerPage {
       return;
     }
     await this.releasePlayer();
-    const player: PlayerEngine = PlayerPrefs.engine() === 'avplayer'
-      ? await media.createAVPlayer()
-      : await MpvPlayer.create();
+    const player: PlayerEngine = await this.createEngine();
     this.avPlayer = player;
     if (player instanceof MpvPlayer) {
       player.applySubStyle(this.subFontScale, this.subBottom, this.subBackground);
@@ -3583,7 +3598,7 @@ export struct PlayerPage {
             })
         }
         .width('100%')
-        .padding({ left: 16, right: 16, top: Theme.statusBarInset + 4, bottom: 4 })
+        .padding({ left: 16, right: 16, top: Theme.shellTopInset + 4, bottom: 4 })
         .linearGradient({ angle: 180, colors: [['rgba(0,0,0,0.75)', 0], ['rgba(0,0,0,0)', 1]] })
         .onAreaChange((_old: Area, newArea: Area) => {
           this.chromeTopY = this.bandOf(newArea);
@@ -3677,7 +3692,7 @@ export struct PlayerPage {
           })
         }
         .width('100%')
-        .padding({ left: 16, right: 16, top: 2, bottom: 0 })
+        .padding({ left: 16, right: 16, top: 2, bottom: Theme.safeBottomInset })
         .linearGradient({ angle: 180, colors: [['rgba(0,0,0,0)', 0], ['rgba(0,0,0,0.7)', 0.6], ['rgba(0,0,0,0.8)', 1]] })
         .onAreaChange((_old: Area, newArea: Area) => {
           this.chromeBottomY = this.bandOf(newArea);
@@ -3844,7 +3859,7 @@ export struct PlayerPage {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Center)
-    .padding({ top: Theme.statusBarInset + 56 })
+    .padding({ top: Theme.shellTopInset + 56 })
     .hitTestBehavior(HitTestMode.None)
   }
 

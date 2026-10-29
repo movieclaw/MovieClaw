@@ -1388,7 +1388,7 @@ export struct ReelsPage {
         .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: Theme.statusBarInset + 8 })
+      .padding({ left: 16, right: 16, top: Theme.shellTopInset + 8 })
 
       // 正中片名胶囊：片名 + 第二行年份/类型，点了去这部片的详情页（同「照片」App 顶部的地点胶囊）
       Button() {
