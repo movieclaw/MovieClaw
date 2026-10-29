@@ -13,8 +13,15 @@ add_library(movieclaw_mpv SHARED mpv_napi.cpp)
 
 target_link_libraries(movieclaw_mpv PUBLIC libace_napi.z.so)
 
-# 预编译 libmpv（SHARED IMPORTED：打包时 entry/libs/<abi>/libmpv.so 随 HAP 分发）
-add_library(mpv SHARED IMPORTED)
-set_target_properties(mpv PROPERTIES
-  IMPORTED_LOCATION ${NATIVERENDER_ROOT_PATH}/../../../libs/${OHOS_ARCH}/libmpv.so)
+# 预编译 libmpv（SHARED IMPORTED：打包时 entry/libs/<abi>/libmpv.so 随 HAP 分发）。
+# x86_64（模拟器）没有预编译 libmpv——编 mpv_stub.c 顶位：导出 mpv_napi.cpp 用到的
+# 全部符号、一律返回失败，NAPI 模块照常加载（MpvPlayer.create() 报 mpv_create
+# failed），播放引擎在设置里切回 avplayer 即可正常播放；真机（arm64）不受影响。
+if(OHOS_ARCH STREQUAL "x86_64")
+  add_library(mpv SHARED mpv_stub.c)
+else()
+  add_library(mpv SHARED IMPORTED)
+  set_target_properties(mpv PROPERTIES
+    IMPORTED_LOCATION ${NATIVERENDER_ROOT_PATH}/../../../libs/${OHOS_ARCH}/libmpv.so)
+endif()
 target_link_libraries(movieclaw_mpv PUBLIC mpv)
