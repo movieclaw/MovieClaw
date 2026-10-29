@@ -67,6 +67,8 @@ export class SettingsCatalog {
       new SettingsGroup('通知与集成', [
         new SettingsSection('im-push', '消息推送',
           '微信 / Telegram / Discord / 飞书 推送与 AI 对话', 'sys.symbol.bell'),
+        new SettingsSection('notify', '系统通知',
+          '本机系统通知：下载完成、入库、今天有可看的与后台任务', 'sys.symbol.bell_badge_local', false),
         new SettingsSection('webhook', 'Webhook',
           '向外部服务推送播放、收藏等事件', 'sys.symbol.paperplane'),
         new SettingsSection('llm', '模型接入',
@@ -374,6 +376,9 @@ export struct SettingsIndexPage {
   private iconFor(symbol: string): Resource {
     if (symbol === 'sys.symbol.bell') {
       return $r('sys.symbol.bell');
+    }
+    if (symbol === 'sys.symbol.bell_badge_local') {
+      return $r('sys.symbol.bell_badge_local');
     }
     if (symbol === 'sys.symbol.chevron_left') {
       return $r('sys.symbol.chevron_left');

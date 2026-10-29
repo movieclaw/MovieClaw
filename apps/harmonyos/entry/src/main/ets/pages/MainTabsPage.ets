@@ -35,6 +35,10 @@ import { OfflineViewingUploader } from '../offline/OfflineViewings';
 import { MorePage } from './MorePage';
 import { NavStacks, ShareRouter } from '../common/ShareLinks';
 import { SharePageParams } from '../share/SharePage';
+import { NotifyCenter } from '../notify/NotifyCenter';
+import { NotifyOpen, NotifyRouter } from '../notify/NotifyRouter';
+import { ItemRouteParams } from '../library/LibraryItemDetailPage';
+import { SubscriptionParams } from '../subscriptions/SubscriptionDetailPage';
 import { ResumeBar, ResumeBarStore } from './ResumeAccessory';
 import { UpNextItemView } from '../api/Models';
 
@@ -73,6 +77,8 @@ export struct MainTabsPage {
   @Local private chrome: ShellChrome = ShellChrome.shared;
   /** 分享深链中转（App 在前台时再点链接：监听 pendingSlug 推到当前页签） */
   @Local private shareRouter: ShareRouter = ShareRouter.shared();
+  /** 系统通知点按中转（通知带着 tab/route 参数拉起：切页签、推详情页落点） */
+  @Local private notifyRouter: NotifyRouter = NotifyRouter.shared();
   /** 悬浮底栏上方的「接着看」条（对应 iOS `ResumeAccessory`） */
   @Local private resume: ResumeBarStore = new ResumeBarStore();
   /** 底栏样式（悬浮胶囊 / 经典贴底栏）：设置页开关改的就是这个单例，改了整条底栏跟着重建 */
@@ -95,6 +101,86 @@ export struct MainTabsPage {
     if (stack !== null) {
       stack.pushPathByName('sharePage', new SharePageParams(slug));
     }
+  }
+
+  /** App 已在跑又点了一条系统通知：切到落点页签并推详情页 */
+  @Monitor('notifyRouter.pendingSeq')
+  onPendingNotifyTap(): void {
+    this.consumeNotifyTap();
+  }
+
+  /**
+   * 消费通知点按：切页签（activity→活动 / subscriptions→订阅）+ 推落点
+   * （`item/{库}/{条目}` → 媒体库条目详情；`subscription/{订阅id}` → 订阅详情）。
+   *
+   * - 冷启动：EntryAbility.onCreate 里 handOff 早于本页挂载，aboutToAppear 的
+   *   延迟兜底走同一条路；
+   * - 目标页签这个账号看不到（成员没有活动页）：只把 App 带到前台，路由改推当前栈；
+   * - 目标栈还没挂载（首次切过去）：NavStacks.has 轮询等它登记，等不到用回退栈。
+   */
+  private consumeNotifyTap(): void {
+    const open: NotifyOpen | null = this.notifyRouter.takePending();
+    if (open === null) {
+      return;
+    }
+    const wanted: string = open.tab === 'subscriptions' ? '订阅' : '活动';
+    const index: number = MainTabsPage.indexOfTab(this.visibleTabs(), wanted);
+    let stackTitle: string = NavStacks.currentKey;
+    if (index >= 0) {
+      stackTitle = wanted;
+      this.tabsController.changeIndex(index);
+    }
+    if (open.route.length === 0) {
+      return;
+    }
+    this.pushNotifyRouteWhenReady(stackTitle, open.route, 0);
+  }
+
+  /** 目标栈登记了就推；还没登记（TabContent 惰性挂载）就小步等它，等不到走回退栈 */
+  private pushNotifyRouteWhenReady(stackTitle: string, route: string, attempt: number): void {
+    if (NavStacks.has(stackTitle) || attempt >= 10) {
+      const stack: NavPathStack | null = NavStacks.of(stackTitle);
+      if (stack !== null) {
+        this.pushNotifyRoute(stack, route);
+      }
+      return;
+    }
+    setTimeout((): void => {
+      this.pushNotifyRouteWhenReady(stackTitle, route, attempt + 1);
+    }, 100);
+  }
+
+  /** 解析通知落点并推入目标栈 */
+  private pushNotifyRoute(stack: NavPathStack, route: string): void {
+    if (route.startsWith('item/')) {
+      const rest: string = route.substring('item/'.length);
+      const slash: number = rest.indexOf('/');
+      if (slash > 0) {
+        const libraryId: number = Number(rest.substring(0, slash));
+        const mediaItemId: number = Number(rest.substring(slash + 1));
+        if (Number.isFinite(libraryId) && Number.isFinite(mediaItemId)
+          && libraryId > 0 && mediaItemId > 0) {
+          stack.pushPathByName('libraryItem',
+            new ItemRouteParams(Math.floor(libraryId), Math.floor(mediaItemId)));
+        }
+      }
+      return;
+    }
+    if (route.startsWith('subscription/')) {
+      const id: number = Number(route.substring('subscription/'.length));
+      if (Number.isFinite(id) && id > 0) {
+        stack.pushPathByName('subscriptionDetail', new SubscriptionParams(Math.floor(id)));
+      }
+    }
+  }
+
+  private static indexOfTab(tabs: AppTabItem[], title: string): number {
+    for (let index: number = 0; index < tabs.length; index++) {
+      if (tabs[index].title === title) {
+        return index;
+      }
+    }
+    return -1;
   }
 
   aboutToAppear(): void {
@@ -139,6 +225,17 @@ export struct MainTabsPage {
       });
     // 离线下载：认领本机存档（对应 iOS `OfflineShell` 的 task(id: origin|username)）
     this.adoptOffline();
+    // 通知点按的冷启动兜底：handOff 发生在本页挂载之前，@Monitor 追不到挂载前的值，
+    // 延迟取一次（同 takeNotice 的兜底节奏；takePending 有序号对账，重复消费拿不到）
+    setTimeout((): void => {
+      this.consumeNotifyTap();
+    }, 400);
+    // 前台差分轮询：主界面挂着每 10 分钟一轮（登录态每轮自查；退后台由 workScheduler 兜底）
+    NotifyCenter.shared().startForegroundTimer();
+  }
+
+  aboutToDisappear(): void {
+    NotifyCenter.shared().stopForegroundTimer();
   }
 
   /** 会话变了（登录 / 换账号 / 退出）重新认领；退出时把内存里的离线目录清掉 */

@@ -23,6 +23,7 @@ import { MembersSection } from './MembersSection';
 import { LlmProvidersSection, AiDefaultsSection } from './LlmSection';
 import { WebhookSection } from './WebhookSection';
 import { PushSection } from './PushSection';
+import { NotifySection } from './NotifySection';
 import { NetworkSection } from './NetworkSection';
 import { AppMaintenanceSection } from './AppMaintenanceSection';
 import { McpSection } from './McpSection';
@@ -211,6 +212,8 @@ export struct SettingsSectionPage {
           NetworkSection({ navStack: this.navStack, scroller: this.scroller })
         } else if (this.sectionId === 'im-push') {
           PushSection()
+        } else if (this.sectionId === 'notify') {
+          NotifySection({ scroller: this.scroller })
         } else if (this.sectionId === 'webhook') {
           WebhookSection({ scroller: this.scroller })
         } else if (this.sectionId === 'llm') {

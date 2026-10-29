@@ -14,6 +14,9 @@ import { ShareLocalProgress } from '../share/ShareProgress';
 import { PlayerPrefs } from '../player/PlayerPrefs';
 import { OfflineDisk } from '../offline/OfflineDisk';
 import { OfflineDownloader } from '../offline/OfflineDownloader';
+import { NotifyPrefs } from '../notify/NotifyPrefs';
+import { NotifyCenter } from '../notify/NotifyCenter';
+import { NotifyRouter } from '../notify/NotifyRouter';
 import { AgentAIConsent } from '../agent/AgentAIConsent';
 import { DevConfig } from '../common/DevConfig';
 import { Theme } from '../theme/AppTheme';
@@ -46,13 +49,46 @@ export default class EntryAbility extends UIAbility {
     // 离线下载的存档根目录与下载器（长时任务申请要 UIAbilityContext）
     OfflineDisk.init(this.context);
     OfflineDownloader.shared.activate(this.context);
+    // 系统通知（M1 本机差分）：偏好先就位（点按参数、WorkExtension 进程都要读它），
+    // NotifyCenter 记下包名（wantAgent 拉回本 Ability 用）
+    NotifyPrefs.init(this.context);
+    NotifyCenter.shared().init();
     this.captureShareLink(want);
+    this.captureNotifyTap(want);
     hilog.info(DOMAIN, 'MovieClaw', '%{public}s', 'Ability onCreate');
   }
 
   /** App 已在跑时又点了一条分享链接（深链 / 二维码） */
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     this.captureShareLink(want);
+    this.captureNotifyTap(want);
+  }
+
+  /**
+   * 系统通知点按进来：want 参数里带 `mcTab`（activity / subscriptions）与可选的
+   * `mcRoute`（`item/{库}/{条目}` / `subscription/{订阅id}`），是 NotifyCenter 发通知时
+   * 塞进 wantAgent 的。解析完交给 NotifyRouter，主界面就绪后由 MainTabsPage 消费落点。
+   */
+  private captureNotifyTap(want: Want): void {
+    const params: Record<string, Object> | undefined = want.parameters;
+    if (params === undefined) {
+      return;
+    }
+    const rawTab: Object | undefined = params['mcTab'];
+    if (rawTab === undefined || rawTab === null) {
+      return;
+    }
+    const tab: string = `${rawTab}`;
+    if (tab.length === 0) {
+      return;
+    }
+    let route: string = '';
+    const rawRoute: Object | undefined = params['mcRoute'];
+    if (rawRoute !== undefined && rawRoute !== null) {
+      route = `${rawRoute}`;
+    }
+    hilog.info(DOMAIN, 'MovieClaw', '通知点按 tab=%{public}s route=%{public}s', tab, route);
+    NotifyRouter.shared().handOff(tab, route);
   }
 
   /**

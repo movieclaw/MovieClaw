@@ -61,6 +61,13 @@
     ],
     "extensionAbilities": [
       {
+        "name": "WorkNotifyExtensionAbility",
+        /* 系统通知的延迟任务回调：退后台后由系统按活跃度拉起（最快 2 小时一次），跑在独立扩展进程 */
+        "srcEntry": "./ets/notify/WorkNotifyExtensionAbility.ets",
+        "type": "workScheduler",
+        "exported": false
+      },
+      {
         "name": "EntryBackupAbility",
         "srcEntry": "./ets/entrybackupability/EntryBackupAbility.ets",
         "type": "backup",
