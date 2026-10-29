@@ -198,8 +198,6 @@ export function useReels() {
     });
   }, [current, feed, load, query]);
 
-  // 离开页面时把没报的事件报掉
-  useEffect(() => () => void reportReelEvents(events.current.splice(0)), []);
   // 关页面 / 刷新：effect 的收尾不会跑，事件与结束会话用 keepalive 发出去（同正片播放器）。进往返缓存的不结束
   // （iOS 切后台也是）：回来还要接着放，真不回来服务端三分钟没心跳也会回收
   useEffect(() => {
@@ -384,6 +382,10 @@ export function useReels() {
     // 文案函数 t 每次渲染都换，不该让播放器重建
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item, seekQuality, videoEl]);
+
+  // 离开页面（看全片、详情、返回）时把没报的事件报掉。要声明在上面的播放 effect 之后：卸载时清理按声明顺序跑，
+  // 排在前面的话最后一条的「离开」还没记就先报了，那条就丢了
+  useEffect(() => () => void reportReelEvents(events.current.splice(0)), []);
 
   /** 开声音：这一下是用户手势，iOS 从此放行这个元素的有声播放（换源接着放也有声） */
   const unmute = () => {

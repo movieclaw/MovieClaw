@@ -53,7 +53,8 @@ export function PhoneReels({ reels }: { reels: Reels }) {
     }, 140);
   };
 
-  const showVideo = !scrolling && (status === "playing" || status === "paused" || status === "ended");
+  // 滑到最后的「没有更多了」那页时没有当前条目，状态还是上一条的：视频框（黑底）不能留着盖住那句话
+  const showVideo = !scrolling && item !== null && (status === "playing" || status === "paused" || status === "ended");
 
   return (
     <div className="relative mx-auto h-dvh w-full max-w-[480px] overflow-hidden bg-black text-white [--reel-band:calc(min(100vw,480px)*9/16)]">
@@ -85,7 +86,7 @@ export function PhoneReels({ reels }: { reels: Reels }) {
         className="pointer-events-none absolute inset-x-0 z-10 transition-opacity duration-200"
         style={{ top: "calc(46% - var(--reel-band) / 2)", height: "var(--reel-band)", opacity: showVideo ? 1 : 0 }}
       />
-      {!scrolling && (
+      {!scrolling && item && (
         <div className="absolute left-3 z-20" style={{ top: "calc(46% - var(--reel-band) / 2 + 10px)" }}>
           <UnmuteHint reels={reels} />
         </div>
