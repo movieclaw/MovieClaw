@@ -926,6 +926,19 @@ export struct PlayerPage {
     return media.createAVPlayer();
   }
 
+  /** 详情面板用：当前实际起的是哪个引擎 */
+  private engineLine(): string {
+    const player: PlayerEngine | null = this.avPlayer;
+    if (player === null) {
+      return '播放引擎：未启动';
+    }
+    if (player instanceof MpvPlayer) {
+      return '播放引擎：mpv（libmpv）';
+    }
+    return this.mpvUnavailable ? '播放引擎：AVPlayer（系统）· mpv 启动失败已回退'
+      : '播放引擎：AVPlayer（系统）';
+  }
+
   /** 把 AVPlayer 挂到 XComponent 的 surface 上并起播 */
   private async attachPlayer(url: string): Promise<void> {
     if (this.surfaceId.length === 0) {
@@ -4359,6 +4372,9 @@ export struct PlayerPage {
                 .fontSize(16)
                 .fontWeight(600)
                 .fontColor(Theme.text)
+              Text(this.engineLine())
+                .fontSize(12)
+                .fontColor(Theme.textMuted)
               Text(`容器 ${(this.session as PlaybackSessionView).decision.container ?? '—'}  ·  `
                 + `档位 ${(this.session as PlaybackSessionView).decision.tier ?? 0}`)
                 .fontSize(13)
@@ -4407,6 +4423,9 @@ export struct PlayerPage {
                 .fontSize(16)
                 .fontWeight(600)
                 .fontColor(Theme.text)
+              Text(this.engineLine())
+                .fontSize(12)
+                .fontColor(Theme.textMuted)
               Text('没有服务端播放会话：原文件直出或本机副本，不产生转码')
                 .fontSize(12)
                 .fontColor(Theme.textMuted)
