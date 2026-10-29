@@ -16,9 +16,11 @@ import AppKit
 /// 怎么选（全程不让用户选）：
 /// - 地址簿来自服务端 `GET /server/addresses`，按登录地址缓存在本机；旧服务器没有这个接口时只用登录地址；
 /// - 只有蜂窝网络（没有 Wi-Fi / 有线 / VPN）时不试内网地址：私网地址发往运营商多半石沉大海；
+/// - 开着 VPN 不等于能回家（出国代理也是系统 VPN）：内网地址探测通了才算经 VPN 回家，没验过不先用；
 /// - 内网先发 `/health?nonce=`（1.5 秒），有内网候选时外网晚 250 毫秒再发（5 秒）：先通过身份校验的先用，
 ///   外网先到、内网后到就升级到内网。在别人家同网段的 Wi-Fi 里，内网不通也最多多等 250 毫秒；
-/// - 按网络记住结论（网卡 + 网段，不读 Wi-Fi 名）：回到来过的网络直接用上次的地址，后台再核实；
+/// - 按网络记住结论（网卡 + 网段 + VPN 隧道网段，不读 Wi-Fi 名）：回到来过的网络直接用上次的地址，后台再核实；
+///   网络一变先当场按新网络重定一个（不留上个网络的地址和路线），再核实；
 /// - 只在账号就绪、网络变化、后台超过 10 分钟回前台、当前地址出硬错误时重新选，平时不发探测；
 /// - 带令牌之前三关：响应带服务器标记头、实例号对得上、签名能用登录后拿到的主机公钥验过——酒店 Wi-Fi 里
 ///   恰好也有一台 `192.168.1.10` 时，令牌不会发过去。
@@ -82,6 +84,10 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
     private var backgroundedAt: Date?
     private var observers: [NSObjectProtocol] = []
 
+    /// 读本机网络（测试换成假的）
+    private let network: @Sendable () -> NetworkSnapshot
+    private let persistent: Bool
+
     private let probeSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieStorage = nil
@@ -92,8 +98,10 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
         return URLSession(configuration: config)
     }()
 
-    private init() {
-        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+    init(network: @escaping @Sendable () -> NetworkSnapshot = NetworkSnapshot.current, persistent: Bool = true) {
+        self.network = network
+        self.persistent = persistent
+        if persistent, let data = UserDefaults.standard.data(forKey: Self.storageKey),
            let stored = try? JSONDecoder().decode([String: Book].self, from: data) {
             books = stored
         } else {
@@ -138,7 +146,7 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
     func activate(_ server: ServerAddress, token: String?) {
         startObserving()
         let key = Self.key(server.origin)
-        let net = NetworkSnapshot.current()
+        let net = network()
         lock.withLock {
             active = [key: server]
             if let book = books[key], current[key] == nil, let guess = Self.optimisticGuess(book: book, server: server, net: net) {
@@ -198,7 +206,7 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
         })
         #endif
         lock.withLock { observers = list }
-        lastFingerprintUpdate(NetworkSnapshot.current().fingerprint)
+        lastFingerprintUpdate(network().fingerprint)
     }
 
     private func foregrounded() {
@@ -211,11 +219,25 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
         }
     }
 
-    private func networkMaybeChanged() {
-        let fingerprint = NetworkSnapshot.current().fingerprint
-        if lastFingerprintUpdate(fingerprint) {
-            reselectAll(reason: "网络变了") // i18n-ignore: internal reason label
+    func networkMaybeChanged() {
+        let net = network()
+        guard lastFingerprintUpdate(net.fingerprint) else { return }
+        // 先当场按新网络重定（关掉 VPN 后不再留着内网地址和「经 VPN」），再竞速核实
+        var moved: [ServerAddress] = []
+        lock.withLock {
+            for (key, server) in active {
+                guard let book = books[key] else { continue }
+                let next = Self.regrounded(current[key], book: book, server: server, net: net)
+                if next != current[key] {
+                    current[key] = next
+                    moved.append(server)
+                }
+            }
         }
+        for server in moved {
+            NotificationCenter.default.post(name: Self.didChange, object: server)
+        }
+        reselectAll(reason: "网络变了") // i18n-ignore: internal reason label
     }
 
     /// 记下当前网络指纹，变了返回 true
@@ -258,7 +280,7 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
     private func race(_ server: ServerAddress, excluding: String?) async {
         let key = Self.key(server.origin)
         guard let book = lock.withLock({ books[key] }) else { return }
-        let net = NetworkSnapshot.current()
+        let net = network()
         let candidates = Self.candidates(book: book, server: server, net: net).filter { Self.key($0.origin) != excluding }
         let lan = candidates.filter { $0.kind == "lan" }
         let wan = candidates.filter { $0.kind != "lan" }
@@ -388,6 +410,7 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
     }
 
     private func persist() {
+        guard persistent else { return }
         let snapshot = lock.withLock { books }
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
@@ -401,12 +424,14 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
         book.endpoints.filter { $0.kind != "lan" || net.canReachPrivate }
     }
 
-    /// 不发请求先定一个，冷启动不用等探测。这时还没验身份，带令牌只能发给本来就信得过的地址：
+    /// 不发请求先定一个，冷启动、网络变化时不用等探测。这时还没验身份，带令牌只能发给本来就信得过的地址：
     /// - 登录地址（用户自己填的，和改造前一样）；
     /// - https 地址（证书验过主机名）。
     /// 未验证的 http 地址一律不先用：网络指纹只看网段，换到同网段的别人家 Wi-Fi 时，记过的
     /// `192.168.1.10` 可能是另一台机器。在此之上：这个网络记过的 > 登录地址（只剩蜂窝时的内网登录地址除外）>
-    /// 第一个 https 外网地址；都不行返回 nil（照旧用登录地址，等探测）
+    /// 第一个 https 外网地址；都不行返回 nil（照旧用登录地址，等探测）。
+    /// 开着 VPN 不算能回家：出国代理也是系统 VPN，内网地址要么这个网络（含这条隧道）记过、要么等探测通了才用；
+    /// 没验过时也不标「经 VPN」（路线留空，等探测定）
     static func optimisticGuess(book: Book, server: ServerAddress, net: NetworkSnapshot) -> Current? {
         let usable = candidates(book: book, server: server, net: net)
         func trusted(_ endpoint: Endpoint) -> Bool {
@@ -417,22 +442,36 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
             return Current(origin: endpoint.origin, route: route(of: endpoint, book: book, net: net))
         }
         let login = usable.first(where: { key($0.origin) == key(server.origin) })
-        // 登录地址是内网 IP，本机却不在它的网段、也没开 VPN：多半在外面，先用 https 外网地址，
-        // 免得头一批请求等满超时（家里分了多个网段时，这个网络记过登录地址，上面已经直接用了）
+        // 登录地址是内网 IP，本机却不在它的网段：多半在外面（开着 VPN 也一样，可能只是出国代理），先用 https 外网地址，
+        // 免得头一批请求等满超时（家里分了多个网段、VPN 回家时，这个网络记过登录地址，上面已经直接用了）
         let loginLooksAway = login.map { endpoint in
             let host = endpoint.origin.host() ?? ""
-            return endpoint.kind == "lan" && parseIPv4(host) != nil && !net.sameSubnet(host) && !net.hasVPN
+            return endpoint.kind == "lan" && parseIPv4(host) != nil && !net.sameSubnet(host)
         } ?? true
+        func unverified(_ endpoint: Endpoint) -> Current {
+            let route = route(of: endpoint, book: book, net: net)
+            return Current(origin: endpoint.origin, route: route == .vpn ? nil : route)
+        }
         if let login, !loginLooksAway {
-            return Current(origin: login.origin, route: route(of: login, book: book, net: net))
+            return unverified(login)
         }
         if let https = usable.first(where: { $0.kind != "lan" && trusted($0) }) {
             return Current(origin: https.origin, route: .wan)
         }
-        return login.map { Current(origin: $0.origin, route: route(of: $0, book: book, net: net)) }
+        return login.map(unverified)
     }
 
-    /// 用这个地址时的路线：
+    /// 网络变了，不等探测先换一个：能预选就用预选的；预选不出时当前地址在新网络里还是候选就留着
+    /// （验过的 http 外网地址），否则清掉（照旧用登录地址，等探测）——不留着连不上的内网地址和「经 VPN」
+    static func regrounded(_ current: Current?, book: Book, server: ServerAddress, net: NetworkSnapshot) -> Current? {
+        if let guess = optimisticGuess(book: book, server: server, net: net) { return guess }
+        guard let current,
+              candidates(book: book, server: server, net: net).contains(where: { key($0.origin) == key(current.origin) })
+        else { return nil }
+        return current
+    }
+
+    /// 用这个地址时的路线（探测通过后才算数；`optimisticGuess` 里没验过的不标 vpn）：
     /// - 内网 IP：和某块实体网卡同网段为 lan；不同网段但有 VPN 为 vpn（经 VPN 连回家）；不同网段也没有 VPN
     ///   为 lan（家里分了多个网段，路由器转过去的）；
     /// - 内网域名（手动标的，家里 DNS 指向内网）：本机实体网卡在内网网段里为 lan；否则有 VPN 为 vpn，
@@ -510,14 +549,15 @@ nonisolated struct NetworkSnapshot: Equatable, Sendable {
     /// 能不能试内网地址：有 Wi-Fi / 有线 / VPN 才试；只剩蜂窝时不试
     var canReachPrivate: Bool { !physical.isEmpty || !vpn.isEmpty }
 
-    /// 网络指纹：实体网卡的网段（不读 Wi-Fi 名）；只有蜂窝时为 cellular
+    /// 网络指纹：实体网卡的网段（不读 Wi-Fi 名），只有蜂窝时为 cellular；再加上 VPN 隧道的网段——
+    /// 开关 VPN、换一条隧道（回家的 WireGuard ↔ 出国代理）都算换了网络，要重新选（#1089）
     var fingerprint: String {
-        let nets = physical.map { iface -> String in
-            let net = iface.address & iface.netmask
-            return "\(NetworkSnapshot.dotted(net))/\(iface.netmask.nonzeroBitCount)"
-        }.sorted()
-        if !nets.isEmpty { return nets.joined(separator: ",") }
-        return cellular ? "cellular" : "none"
+        func net(_ iface: Interface) -> String {
+            "\(NetworkSnapshot.dotted(iface.address & iface.netmask))/\(iface.netmask.nonzeroBitCount)"
+        }
+        let nets = physical.map(net).sorted()
+        let base = nets.isEmpty ? (cellular ? "cellular" : "none") : nets.joined(separator: ",")
+        return ([base] + vpn.map { "vpn:" + net($0) }.sorted()).joined(separator: ",")
     }
 
     /// 主机（IPv4 字面量）和某块实体网卡在同一网段
