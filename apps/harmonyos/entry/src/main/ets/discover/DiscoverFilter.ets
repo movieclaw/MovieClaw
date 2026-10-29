@@ -400,8 +400,12 @@ export struct DiscoverFilterSheet {
       } else {
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(this.genres ?? [], (genre: DiscoveryGenreView) => {
-            this.Chip(genre.name, this.filters.genreIds.indexOf(genre.id) >= 0, (): void => {
-              this.filters.toggleGenre(genre.id);
+            FilterChip({
+              label: genre.name,
+              readActive: (): boolean => this.filters.genreIds.indexOf(genre.id) >= 0,
+              onTap: (): void => {
+                this.filters.toggleGenre(genre.id);
+              }
             })
           }, (genre: DiscoveryGenreView) => `${genre.id}`)
         }
@@ -418,12 +422,20 @@ export struct DiscoverFilterSheet {
     Column({ space: 10 }) {
       this.SectionTitle(this.dimTitle('country'))
       Flex({ wrap: FlexWrap.Wrap }) {
-        this.Chip('不限', this.filters.originCountry === null, (): void => {
-          this.filters.originCountry = null;
+        FilterChip({
+          label: '不限',
+          readActive: (): boolean => this.filters.originCountry === null,
+          onTap: (): void => {
+            this.filters.originCountry = null;
+          }
         })
         ForEach(DISCOVER_COUNTRIES, (option: DiscoverCountryOption) => {
-          this.Chip(option.name, this.filters.originCountry === option.code, (): void => {
-            this.filters.originCountry = option.code;
+          FilterChip({
+            label: option.name,
+            readActive: (): boolean => this.filters.originCountry === option.code,
+            onTap: (): void => {
+              this.filters.originCountry = option.code;
+            }
           })
         }, (option: DiscoverCountryOption) => option.code)
       }
@@ -440,12 +452,20 @@ export struct DiscoverFilterSheet {
       this.SectionTitle(this.dimTitle('year'))
       Scroll() {
         Row({ space: 0 }) {
-          this.Chip('不限', this.filters.year === null, (): void => {
-            this.filters.year = null;
+          FilterChip({
+            label: '不限',
+            readActive: (): boolean => this.filters.year === null,
+            onTap: (): void => {
+              this.filters.year = null;
+            }
           })
           ForEach(this.yearOptions(), (year: number) => {
-            this.Chip(`${year} 年`, this.filters.year === year, (): void => {
-              this.filters.year = year;
+            FilterChip({
+              label: `${year} 年`,
+              readActive: (): boolean => this.filters.year === year,
+              onTap: (): void => {
+                this.filters.year = year;
+              }
             })
           }, (year: number) => `${year}`)
         }
@@ -465,12 +485,20 @@ export struct DiscoverFilterSheet {
     Column({ space: 10 }) {
       this.SectionTitle(this.dimTitle('rating'))
       Flex({ wrap: FlexWrap.Wrap }) {
-        this.Chip('不限', this.filters.ratingGte === null, (): void => {
-          this.filters.ratingGte = null;
+        FilterChip({
+          label: '不限',
+          readActive: (): boolean => this.filters.ratingGte === null,
+          onTap: (): void => {
+            this.filters.ratingGte = null;
+          }
         })
         ForEach(DISCOVER_RATINGS, (score: number) => {
-          this.Chip(`${score} 分以上`, this.filters.ratingGte === score, (): void => {
-            this.filters.ratingGte = score;
+          FilterChip({
+            label: `${score} 分以上`,
+            readActive: (): boolean => this.filters.ratingGte === score,
+            onTap: (): void => {
+              this.filters.ratingGte = score;
+            }
           })
         }, (score: number) => `${score}`)
       }
@@ -486,12 +514,20 @@ export struct DiscoverFilterSheet {
     Column({ space: 10 }) {
       this.SectionTitle(this.dimTitle('runtime'))
       Flex({ wrap: FlexWrap.Wrap }) {
-        this.Chip('不限', this.filters.runtimeLte === null, (): void => {
-          this.filters.runtimeLte = null;
+        FilterChip({
+          label: '不限',
+          readActive: (): boolean => this.filters.runtimeLte === null,
+          onTap: (): void => {
+            this.filters.runtimeLte = null;
+          }
         })
         ForEach(DISCOVER_RUNTIMES, (minutes: number) => {
-          this.Chip(`${minutes} 分钟以内`, this.filters.runtimeLte === minutes, (): void => {
-            this.filters.runtimeLte = minutes;
+          FilterChip({
+            label: `${minutes} 分钟以内`,
+            readActive: (): boolean => this.filters.runtimeLte === minutes,
+            onTap: (): void => {
+              this.filters.runtimeLte = minutes;
+            }
           })
         }, (minutes: number) => `${minutes}`)
       }
@@ -508,8 +544,12 @@ export struct DiscoverFilterSheet {
       this.SectionTitle(this.dimTitle('sort'))
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(DISCOVER_SORTS, (option: DiscoverSortOption) => {
-          this.Chip(option.label, this.filters.sort === option.value, (): void => {
-            this.filters.sort = option.value;
+          FilterChip({
+            label: option.label,
+            readActive: (): boolean => this.filters.sort === option.value,
+            onTap: (): void => {
+              this.filters.sort = option.value;
+            }
           })
         }, (option: DiscoverSortOption) => option.value)
       }
@@ -527,22 +567,33 @@ export struct DiscoverFilterSheet {
     }
     return years;
   }
+}
 
-  /** 可点胶囊：选中高亮（主题强调底 + 深字） */
-  @Builder
-  Chip(label: string, active: boolean, onTap: () => void) {
+/**
+ * 可点胶囊（选中高亮：主题强调底 + 深字）。
+ * 必须是叶组件而非 @Builder 传参：`@Trace` 的读发生在本组件 build 里
+ * （经 `readActive` 闭包），依赖才注册到 chip 自身——@Builder 按值参数
+ * 会冻结，ForEach 项里的 chip 永不重绘（同 ReelsPage 标记组件的先例）。
+ */
+@ComponentV2
+struct FilterChip {
+  @Require @Param label: string;
+  @Require @Param readActive: () => boolean;
+  @Require @Param onTap: () => void;
+
+  build() {
     Button() {
-      Text(label)
+      Text(this.label)
         .fontSize(13)
-        .fontWeight(active ? FontWeight.Medium : FontWeight.Normal)
-        .fontColor(active ? '#0b0d12' : Theme.textMuted)
+        .fontWeight(this.readActive() ? FontWeight.Medium : FontWeight.Normal)
+        .fontColor(this.readActive() ? '#0b0d12' : Theme.textMuted)
     }
-    .attributeModifier(new GlassButtonModifier(active ? GlassTone.Primary : GlassTone.Secondary))
+    .attributeModifier(new GlassButtonModifier(this.readActive() ? GlassTone.Primary : GlassTone.Secondary))
     .padding({ left: 12, right: 12, top: 7, bottom: 7 })
     .borderRadius(15)
     .margin({ right: 8, bottom: 8 })
     .onClick(() => {
-      onTap();
+      this.onTap();
     })
   }
 }
