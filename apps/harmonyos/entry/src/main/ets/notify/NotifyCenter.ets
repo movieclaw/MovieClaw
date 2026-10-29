@@ -242,7 +242,7 @@ export class NotifyCenter {
   /** 下载任务翻到终态（completed=完成；error / missing=失败） */
   private async diffDownloads(settings: NotifySettingsSnapshot, before: NotifySnapshotState,
     tasks: DownloadTaskView[], result: NotifyPollResult): Promise<void> {
-    if (!settings.download && !settings.task) {
+    if (!settings.download) {
       return;
     }
     for (const task of tasks) {
@@ -404,6 +404,9 @@ export class NotifyCenter {
    * 发一条本地通知：点按带着 tab / route 参数拉起 EntryAbility（onCreate / onNewWant
    * 解析后交给 NotifyRouter）；`tapDismissed` 默认 true，点过自动消失。
    * 通知 id 用键的 Java 风格哈希（同一条任务再次翻转时替换旧通知，不叠罗汉）。
+   * requestCode 也用同一个 id（对齐 Android PendingIntent 的 request code）：WantAgent 的
+   * 身份由 requestCode 决定，都用 0 再加 UPDATE_PRESENT_FLAG 会互相覆盖参数，
+   * 多条通知点按全落到最后一条的落点。
    */
   private async post(id: number, title: string, text: string, tab: string, route: string): Promise<void> {
     try {
@@ -419,7 +422,7 @@ export class NotifyCenter {
       const agent: WantAgent = await wantAgent.getWantAgent({
         wants: [want],
         operationType: wantAgent.OperationType.START_ABILITIES,
-        requestCode: 0,
+        requestCode: id,
         wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
       });
       const request: notificationManager.NotificationRequest = {
