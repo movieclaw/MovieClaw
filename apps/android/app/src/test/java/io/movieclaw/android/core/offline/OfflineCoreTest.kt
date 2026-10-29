@@ -187,6 +187,29 @@ class OfflineViewingThresholdTest {
     }
 }
 
+/** 续传回来的 206 从哪写（`resumeWriteOffset`）：接不上的不能当成从 0 写 */
+class ResumeRangeTest {
+    @Test
+    fun matchingStartAppends() {
+        assertEquals(5_000L, resumeWriteOffset(5_000, "bytes 5000-9999/10000"))
+    }
+
+    @Test
+    fun rangeFromZeroStartsOver() {
+        assertEquals(0L, resumeWriteOffset(5_000, "bytes 0-9999/10000"))
+        assertEquals(0L, resumeWriteOffset(0, "bytes 0-9999/*"))
+    }
+
+    @Test
+    fun misalignedStartCannotBeUsed() {
+        // 网盘 CDN 把范围对齐到块边界：要 5000 起，给了 4096 起
+        assertNull(resumeWriteOffset(5_000, "bytes 4096-9999/10000"))
+        assertNull(resumeWriteOffset(5_000, "bytes 6000-9999/10000"))
+        assertNull(resumeWriteOffset(5_000, null))
+        assertNull(resumeWriteOffset(5_000, "bytes */10000"))
+    }
+}
+
 /** 剧集「下载」面板的范围规则（`OfflineDownloadChoices.make`） */
 class OfflineDownloadChoicesTest {
     private fun episodes(count: Int, season: Int = 1, local: Map<Int, String> = emptyMap(), played: Set<Int> = emptySet()) =

@@ -17,7 +17,11 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.movieclaw.android.MainActivity
+import io.movieclaw.android.core.session.SessionPhase
+import io.movieclaw.android.core.session.SessionRepository
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 离线下载作业（iOS 后台下载会话的安卓对应物）：长时作业 + 前台通知，退到后台、锁屏照常下；
@@ -33,6 +37,14 @@ class OfflineDownloadWorker(appContext: Context, params: WorkerParameters) : Cor
     override suspend fun doWork(): Result {
         val downloader = entry.downloader()
         val store = entry.store()
+        // 后台拉起的进程（开机、到点重试、等到 Wi-Fi、被系统杀掉后重跑）里界面没跑过：先恢复登录态（同 NotifyWorker，
+        // 已恢复过就是空操作），外壳（OfflineCoordinator）据此认领这个账号的本机存档。认领完才知道要下什么，
+        // 不等的话 drive 拿不到账号就空跑结束，下载一直停到用户下次打开 App
+        val sessions = entry.sessionRepository()
+        runCatching { sessions.boot() }
+        if (sessions.ui.value.phase == SessionPhase.READY) {
+            withTimeoutOrNull(ADOPT_TIMEOUT_MS) { store.state.first { it.loaded } }
+        }
         // 前台通知：从后台（到点重试）起跑时系统可能不让进前台，那就照普通作业跑
         runCatching { setForeground(foregroundInfo(store)) }
         val next = downloader.drive { runCatching { setForeground(foregroundInfo(store)) } }
@@ -79,6 +91,8 @@ class OfflineDownloadWorker(appContext: Context, params: WorkerParameters) : Cor
         private const val WORK = "movieclaw-offline-downloads"
         private const val CHANNEL = "offline_downloads"
         private const val NOTIFICATION_ID = 0x0FF1
+        /** 等本机存档认领完的上限：不认得实例号时要先问一次服务器（/health） */
+        private const val ADOPT_TIMEOUT_MS = 15_000L
 
         /**
          * 确保作业排着：[replace] = 改了网络设置（停掉正在跑的、按新约束重排）；
@@ -125,4 +139,5 @@ interface OfflineEntry {
     fun prefs(): OfflinePrefs
     fun reachability(): ServerReachability
     fun apiFactory(): io.movieclaw.android.core.network.ApiFactory
+    fun sessionRepository(): SessionRepository
 }

@@ -452,8 +452,11 @@ class OfflineDownloader @Inject constructor(
                     val etag = resp.header("ETag")
                     var expected: Long? = null
                     if (resp.code == 206) {
-                        val start = resp.header("Content-Range")?.substringAfter("bytes ")?.substringBefore('-')?.trim()?.toLongOrNull()
-                        if (start != offset) offset = 0  // 服务端给的不是接着的那段：从头下
+                        offset = resumeWriteOffset(offset, resp.header("Content-Range")) ?: run {
+                            // 服务端给的不是接着的那段：接不上，丢掉已下的，下一回不带 Range 从头下
+                            part.delete()
+                            throw java.io.IOException("续传位置对不上")
+                        }
                         expected = parseContentRangeTotal(resp.header("Content-Range"))
                     } else {
                         offset = 0
@@ -656,6 +659,17 @@ class OfflineDownloader @Inject constructor(
         }.getOrNull()
     }
 }
+
+/**
+ * 续传（`Range: bytes=<requested>-`）回来的 206 从哪写：起点对得上就接着写，从 0 起的从头写；
+ * 别的接不上（网盘原画经服务端转发，CDN 偶有把范围对齐到块边界的）返回 null——当成从 0 写会拼出坏文件
+ */
+internal fun resumeWriteOffset(requested: Long, contentRange: String?): Long? =
+    when (contentRange?.substringAfter("bytes ")?.substringBefore('-')?.trim()?.toLongOrNull()) {
+        requested -> requested
+        0L -> 0L
+        else -> null
+    }
 
 /** `Content-Range: bytes 0-99/1000` → 1000；总长为 `*`（未知）或格式不对 → null */
 internal fun parseContentRangeTotal(header: String?): Long? {
