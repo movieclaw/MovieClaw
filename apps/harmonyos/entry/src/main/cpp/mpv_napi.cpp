@@ -203,9 +203,11 @@ void *PumpThread(void *arg) {
       }
       case MPV_EVENT_LOG_MESSAGE: {
         auto *m = static_cast<mpv_event_log_message *>(ev->data);
-        // 只把 error/fatal 送到 ArkTS（warn 以下留在 hilog，避免刷爆 JS）
+        // warn 及以上送 ArkTS（MpvPlayer 转 hilog）；info/debug 丢弃避免刷爆。
+        // warn 必须转发：ohdec.c 的 HISI 10-bit 布局诊断走 AV_LOG_WARNING。
         if (m->level == nullptr || (strcmp(m->level, "error") != 0
-            && strcmp(m->level, "fatal") != 0)) {
+            && strcmp(m->level, "fatal") != 0
+            && strcmp(m->level, "warn") != 0)) {
           post = false;
           break;
         }
@@ -298,7 +300,7 @@ napi_value InitEngine(napi_env env, napi_callback_info info) {
   }
   inst->initialized.store(true);
 
-  // 只关心 error/fatal 日志（warn 不进 JS，避免刷爆）
+  // warn 及以上进 JS（MpvPlayer 转 hilog），info 以下丢弃
   mpv_request_log_messages(inst->mpv, "warn");
 
   // 事件回调 → threadsafe function

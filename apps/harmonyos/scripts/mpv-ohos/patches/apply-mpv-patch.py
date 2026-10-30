@@ -16,7 +16,7 @@ import re
 import sys
 
 path = sys.argv[1]
-with open(path) as f:
+with open(path, encoding="utf-8") as f:
     src = f.read()
 orig = src
 
@@ -33,7 +33,7 @@ if path.endswith("meson.build"):
     else:
         for missing in ("vo_ohcodec.c", "vo_ohcodec_osd.c"):
             assert missing not in src, f"patch 后仍引用 {missing}"
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(src)
         print("meson patch: 已移除 vo_ohcodec.c / ohos-osd-overlay 引用")
 elif path.endswith("ohos_common.c"):
@@ -50,7 +50,7 @@ elif path.endswith("ohos_common.c"):
         print("ohos_common patch: 无变化（已打过补丁）")
     else:
         assert "ff_ohcodec_discard_buffer(mpi->planes[3])" not in src, "patch: 丢弃调用未移除"
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(src)
         print("ohos_common patch: vo_ohos_ohcodec_discard 已改为 no-op")
 elif path.endswith("vo.c"):
@@ -73,7 +73,7 @@ elif path.endswith("vo.c"):
         print("vo.c patch: 无变化（已打过补丁）")
     else:
         assert "video_out_ohcodec" not in src, "patch: vo.c 仍引用 ohcodec 驱动"
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(src)
         print("vo.c patch: 已移除 video_out_ohcodec 驱动注册")
 elif path.endswith("options.h"):
@@ -91,7 +91,7 @@ elif path.endswith("options.h"):
         print("options.h patch: 无变化（已打过补丁）")
     else:
         assert "ohos_surface_size;" in src, "patch: ohos_surface_size 成员未补上"
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(src)
         print("options.h patch: 已补上 mp_vo_opts.ohos_surface_size 成员")
 else:

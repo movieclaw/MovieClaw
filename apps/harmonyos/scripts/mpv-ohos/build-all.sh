@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # MovieClaw libmpv (dex2oat/mpv + OHCodec 硬解) aarch64-linux-ohos 交叉编译流水线
 #
 # 产物:
@@ -8,18 +8,31 @@
 # 依赖链: zlib → freetype → fribidi → harfbuzz → libass → mbedtls → ffmpeg(ohcodec) → mpv(ohos)
 # 增量: 每个组件有 build/locks/<name>.stamp，存在即跳过；强制重建删对应 stamp 或整目录。
 #
+# 平台: macOS / Linux / Windows(Cygwin|MSYS Git Bash)。
+#   Windows: 用 DevEco 自带 OHOS NDK + SDK cmake/ninja + pip meson + build/tools-win/pkg-config；
+#   SDK 需先建无空格 junction（env.sh 头部注释）。
+#
 # 注意: fork 的 meson.build 引用了两个不存在的文件（vo_ohcodec.c / vo_ohcodec_osd.c），
 #       本脚本用 patches/apply-mpv-patch.py 打补丁移除，改走 vo_gpu + egl-ohos + hwdec=ohcodec 路径。
+#       2026-10-30: ffmpeg 侧新增 patches/apply-ffmpeg-patch.py（HISI 10-bit P010 buffer 花屏修复），
+#       补丁版本号 PATCHES_VER 变化时自动强制重建 ffmpeg + mpv（见 check_patch_version）。
 
 set -eu -o pipefail
-SCRIPT_DIR="${0:A:h}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export MPV_OHOS_SCRIPTS_DIR="$SCRIPT_DIR"
 source "$SCRIPT_DIR/env.sh"
+# env.sh 可能把 MPV_OHOS_SCRIPTS_DIR 转成 Windows 混合形式（D:/…）：本脚本的 SCRIPT_DIR 同步之，
+# 保证传给 native 工具（cmake/meson/python）的路径不是 POSIX 形式（/d/… 只有 bash 认）
+SCRIPT_DIR="$MPV_OHOS_SCRIPTS_DIR"
 _ohos_env_ready || exit 1
 
 mkdir -p "$MPV_OHOS_SRC_DIR" "$MPV_OHOS_PREFIX/lib/pkgconfig" "$MPV_OHOS_PREFIX/include" \
          "$MPV_OHOS_LOGS" "$MPV_OHOS_BUILD_DIR/locks" "$MPV_OHOS_BUILD_DIR/out"
 
-NPROC=$(sysctl -n hw.ncpu 2>/dev/null || echo 8)
+# Windows: native 子进程把 /d/… 前缀路径按“当前盘根相对”解析（D:\d junction），cwd 必须落在 D: 盘
+cd "$MPV_OHOS_BUILD_DIR"
+
+NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 
 # ---------- 基础设施 ----------
 
@@ -44,7 +57,7 @@ fetch_pin() { # fetch_pin <name> <repo> <ref>
     echo "✔ [$name] 源码已存在"
   else
     step "fetch $name ($repo)"
-    git clone --depth 1 "$repo" "$dir" >>"$MPV_OHOS_LOGS/fetch.log" 2>&1
+    git -c core.autocrlf=false clone --depth 1 "$repo" "$dir" >>"$MPV_OHOS_LOGS/fetch.log" 2>&1
   fi
   local cur
   cur=$(git -C "$dir" rev-parse --short HEAD 2>/dev/null || true)
@@ -61,6 +74,7 @@ fetch_pin() { # fetch_pin <name> <repo> <ref>
 
 meson_build() { # meson_build <name> <srcdir> [extra meson options...]
   local name="$1" src="$2"; shift 2
+  rm -rf "$MPV_OHOS_BUILD_DIR/out/$name" # 清掉上次失败的缓存（generator/编译器变化会 hard-fail）
   log_run "$name" meson setup "$MPV_OHOS_BUILD_DIR/out/$name" "$src" \
     --cross-file "$SCRIPT_DIR/meson-cross.txt" \
     --prefix "$MPV_OHOS_PREFIX" --default-library=static --buildtype=release "$@"
@@ -74,11 +88,30 @@ build_zlib() {
   if stamp_ok zlib; then echo "✔ zlib 已构建"; return 0; fi
   fetch_pin zlib https://github.com/madler/zlib.git "$MPV_OHOS_ZLIB_REF"
   step "build zlib"
-  log_run zlib cmake -S "$MPV_OHOS_SRC_DIR/zlib" -B "$MPV_OHOS_BUILD_DIR/out/zlib" \
+  rm -rf "$MPV_OHOS_BUILD_DIR/out/zlib" # 清掉上次失败的 CMakeCache（generator 变化会 hard-fail）
+  log_run zlib cmake -S "$MPV_OHOS_SRC_DIR/zlib" -B "$MPV_OHOS_BUILD_DIR/out/zlib" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$SCRIPT_DIR/ohos-toolchain.cmake" \
     -DCMAKE_INSTALL_PREFIX="$MPV_OHOS_PREFIX" -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release
   log_run zlib cmake --build "$MPV_OHOS_BUILD_DIR/out/zlib" -j "$NPROC"
   log_run zlib cmake --install "$MPV_OHOS_BUILD_DIR/out/zlib"
+  # zlib 的 CMakeLists 无视 BUILD_SHARED_LIBS=OFF，仍会装出动态 libz.so*；
+  # 不删的话 meson 解析 -lz 时优先挑 .so → libmpv NEEDED libz.so.1
+  rm -f "$MPV_OHOS_PREFIX/lib/"libz.so*
+  # cmake 的 zlib 不装 .pc；手写一份让 pkg-config/meson 找到 prefix 里的静态 zlib
+  # （否则 meson/ffmpeg 会挑中 sysroot 的 libz.so stub → NEEDED libz.so.1）
+  step "write zlib.pc (static, prefix)"
+  cat > "$MPV_OHOS_PREFIX/lib/pkgconfig/zlib.pc" <<EOF
+prefix=$MPV_OHOS_PREFIX
+exec_prefix=\${prefix}
+libdir=\${prefix}/lib
+includedir=\${prefix}/include
+
+Name: zlib
+Description: zlib compression library
+Version: 1.3.1
+Libs: -L\${libdir} -lz
+Cflags: -I\${includedir}
+EOF
   touch_stamp zlib
 }
 
@@ -116,23 +149,27 @@ build_libass() {
   local tarball="$MPV_OHOS_SRC_DIR/libass-$MPV_OHOS_LIBASS_VER.tar.gz"
   local src="$MPV_OHOS_SRC_DIR/libass"
   if [ ! -d "$src" ]; then
-    log_run libass curl -L --fail -o "$tarball" \
+    log_run libass curl -L --fail $MPV_OHOS_CURL_FLAGS -o "$tarball" \
       "https://github.com/libass/libass/releases/download/$MPV_OHOS_LIBASS_VER/libass-$MPV_OHOS_LIBASS_VER.tar.gz"
     mkdir -p "$src"
-    tar -xzf "$tarball" -C "$src" --strip-components=1
+    # GNU tar 会把 "D:/…" 形态当远程主机（host:path 语法），Windows 下归档路径转 POSIX 形态
+    local tarball_x="$tarball"
+    [ "$MPV_OHOS_HOST" = windows ] && tarball_x="$(cygpath -u "$tarball")"
+    log_run libass tar -xzf "$tarball_x" -C "$src" --strip-components=1 || { rm -rf "$src"; return 1; }
   fi
-  local bdir="$MPV_OHOS_BUILD_DIR/out/libass"
-  rm -rf "$bdir" && mkdir -p "$bdir"
   local configure_args=(--host=aarch64-linux-ohos --prefix="$MPV_OHOS_PREFIX"
     --disable-shared --enable-static --with-pic
     --disable-fontconfig --disable-coretext --disable-directwrite
-    --disable-require-system-font-provider)
-  ( cd "$bdir" && log_run libass "$src/configure" "${configure_args[@]}" ) || {
+    --disable-require-system-font-provider
+    --disable-dependency-tracking)
+  # Windows 下 out-of-tree 调 "$src/configure"（$0 为 "D:/…" 形态）时 aux 文件解析会失败，
+  # in-tree 构建（cd 源码目录 + ./configure）没问题；三平台统一 in-tree。
+  ( cd "$src" && log_run libass ./configure "${configure_args[@]}" ) || {
     echo "  config.sub 不认识 ohos，退回 aarch64-linux 重试"
-    ( cd "$bdir" && log_run libass "$src/configure" --host=aarch64-linux "${configure_args[@]:1}" )
+    ( cd "$src" && log_run libass ./configure --host=aarch64-linux "${configure_args[@]:1}" )
   }
-  log_run libass make -C "$bdir" -j "$NPROC"
-  log_run libass make -C "$bdir" install
+  log_run libass make -C "$src" -j "$NPROC"
+  log_run libass make -C "$src" install
   touch_stamp libass
 }
 
@@ -154,7 +191,8 @@ build_mbedtls() {
   if stamp_ok mbedtls; then echo "✔ mbedtls 已构建"; return 0; fi
   fetch_pin mbedtls https://github.com/Mbed-TLS/mbedtls.git "$MPV_OHOS_MBEDTLS_REF"
   step "build mbedtls"
-  log_run mbedtls cmake -S "$MPV_OHOS_SRC_DIR/mbedtls" -B "$MPV_OHOS_BUILD_DIR/out/mbedtls" \
+  rm -rf "$MPV_OHOS_BUILD_DIR/out/mbedtls" # 清掉上次失败的 CMakeCache
+  log_run mbedtls cmake -S "$MPV_OHOS_SRC_DIR/mbedtls" -B "$MPV_OHOS_BUILD_DIR/out/mbedtls" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$SCRIPT_DIR/ohos-toolchain.cmake" \
     -DCMAKE_INSTALL_PREFIX="$MPV_OHOS_PREFIX" -DCMAKE_BUILD_TYPE=Release \
     -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF \
@@ -169,9 +207,17 @@ build_mbedtls() {
 build_ffmpeg() {
   if stamp_ok ffmpeg; then echo "✔ ffmpeg 已构建"; return 0; fi
   fetch_pin ffmpeg "$MPV_OHOS_FFMPEG_REPO" "$MPV_OHOS_FFMPEG_REF"
+  step "patch ffmpeg ohdec.c（HISI 10-bit P010 buffer 花屏修复 + 布局日志）"
+  "$MPV_OHOS_PYTHON" "$SCRIPT_DIR/patches/apply-ffmpeg-patch.py" "$MPV_OHOS_SRC_DIR/ffmpeg/libavcodec/ohdec.c" | tee -a "$MPV_OHOS_LOGS/ffmpeg.log"
   step "build ffmpeg (ohcodec + mbedtls, LGPL, static PIC)"
   local cfg="$MPV_OHOS_BUILD_DIR/out/ffmpeg"
   rm -rf "$cfg" && mkdir -p "$cfg"
+  if [ "$MPV_OHOS_HOST" = windows ]; then
+    # MSYS2_ARG_CONV_EXCL='*' 禁掉了参数自动转换，configure 的 /tmp/... 临时文件路径
+    # native clang 解析不到 → 把 TMPDIR 指到 /d/... junction 路径（MSYS 挂载 + native D:\d 转发，双侧可解析）
+    mkdir -p "$MPV_OHOS_BUILD_DIR/tmp"
+    export TMPDIR="$(cygpath -u "$MPV_OHOS_BUILD_DIR/tmp")"
+  fi
   ( cd "$cfg" && log_run ffmpeg "$MPV_OHOS_SRC_DIR/ffmpeg/configure" \
     --prefix="$MPV_OHOS_PREFIX" \
     --enable-cross-compile --target-os=linux --arch=aarch64 \
@@ -200,17 +246,17 @@ build_mpv() {
   if stamp_ok mpv; then echo "✔ mpv 已构建"; return 0; fi
   fetch_pin mpv "$MPV_OHOS_MPV_REPO" "$MPV_OHOS_MPV_REF"
   step "patch mpv meson.build（移除不存在的 vo_ohcodec 引用）"
-  python3 "$SCRIPT_DIR/patches/apply-mpv-patch.py" "$MPV_OHOS_SRC_DIR/mpv/meson.build" | tee -a "$MPV_OHOS_LOGS/mpv.log"
+  "$MPV_OHOS_PYTHON" "$SCRIPT_DIR/patches/apply-mpv-patch.py" "$MPV_OHOS_SRC_DIR/mpv/meson.build" | tee -a "$MPV_OHOS_LOGS/mpv.log"
   step "patch mpv options.h（补上漏提交的 ohos_surface_size 成员）"
-  python3 "$SCRIPT_DIR/patches/apply-mpv-patch.py" "$MPV_OHOS_SRC_DIR/mpv/options/options.h" | tee -a "$MPV_OHOS_LOGS/mpv.log"
+  "$MPV_OHOS_PYTHON" "$SCRIPT_DIR/patches/apply-mpv-patch.py" "$MPV_OHOS_SRC_DIR/mpv/options/options.h" | tee -a "$MPV_OHOS_LOGS/mpv.log"
   step "patch mpv ohos_common.c（ff_ohcodec_discard_buffer 符号错位 → no-op）"
-  python3 "$SCRIPT_DIR/patches/apply-mpv-patch.py" "$MPV_OHOS_SRC_DIR/mpv/video/out/ohos_common.c" | tee -a "$MPV_OHOS_LOGS/mpv.log"
+  "$MPV_OHOS_PYTHON" "$SCRIPT_DIR/patches/apply-mpv-patch.py" "$MPV_OHOS_SRC_DIR/mpv/video/out/ohos_common.c" | tee -a "$MPV_OHOS_LOGS/mpv.log"
   step "patch mpv vo.c（移除缺失的 vo_ohcodec 驱动注册）"
-  python3 "$SCRIPT_DIR/patches/apply-mpv-patch.py" "$MPV_OHOS_SRC_DIR/mpv/video/out/vo.c" | tee -a "$MPV_OHOS_LOGS/mpv.log"
+  "$MPV_OHOS_PYTHON" "$SCRIPT_DIR/patches/apply-mpv-patch.py" "$MPV_OHOS_SRC_DIR/mpv/video/out/vo.c" | tee -a "$MPV_OHOS_LOGS/mpv.log"
   step "patch mpv context_ohos.c（真机 EGL surface 创建兜底）"
-  python3 "$SCRIPT_DIR/patches/apply-egl-fix.py" "$MPV_OHOS_SRC_DIR/mpv/video/out/opengl/context_ohos.c" | tee -a "$MPV_OHOS_LOGS/mpv.log"
-  step "patch ao_ohaudio.c（音频焦点中断 → 嵌入方钩子）"
-  python3 "$SCRIPT_DIR/patches/apply-ao-patch.py" "$MPV_OHOS_SRC_DIR/mpv/audio/out/ao_ohaudio.c" | tee -a "$MPV_OHOS_LOGS/mpv.log"
+  "$MPV_OHOS_PYTHON" "$SCRIPT_DIR/patches/apply-egl-fix.py" "$MPV_OHOS_SRC_DIR/mpv/video/out/opengl/context_ohos.c" | tee -a "$MPV_OHOS_LOGS/mpv.log"
+  step "patch mpv ao_ohaudio.c（音频焦点中断 → 嵌入方钩子）"
+  "$MPV_OHOS_PYTHON" "$SCRIPT_DIR/patches/apply-ao-patch.py" "$MPV_OHOS_SRC_DIR/mpv/audio/out/ao_ohaudio.c" | tee -a "$MPV_OHOS_LOGS/mpv.log"
   step "build libmpv (ohos EGL + OHCodec hwdec + ohaudio)"
   rm -rf "$MPV_OHOS_BUILD_DIR/out/mpv"
   log_run mpv meson setup "$MPV_OHOS_BUILD_DIR/out/mpv" "$MPV_OHOS_SRC_DIR/mpv" \
@@ -240,50 +286,68 @@ build_mpv() {
 export_lib() {
   step "export libmpv.so + headers → app"
   local so="$MPV_OHOS_PREFIX/lib/libmpv.so"
-  [ -f "$so" ] || { echo "❌ libmpv.so 不存在"; exit 1; }
+  # Windows 无符号链接权限：meson install 只落 libmpv.so.<version>，没有 libmpv.so 链接 → 取最新版本化真身
+  [ -f "$so" ] || so=$(ls -t "$MPV_OHOS_PREFIX/lib"/libmpv.so.* 2>/dev/null | head -n1)
+  [ -n "$so" ] && [ -f "$so" ] || { echo "❌ libmpv.so 不存在"; exit 1; }
   mkdir -p "$MPV_OHOS_APP_LIBS_DIR" "$MPV_OHOS_APP_CPP_DIR/include"
   "$STRIP" --strip-unneeded "$so" -o "$MPV_OHOS_APP_LIBS_DIR/libmpv.so"
   # meson 给 libmpv 设了 SONAME libmpv.so.2（版本化命名），但 HAP 只按 libmpv.so 打包，
-  # 运行时 NEEDED libmpv.so.2 解析不到 → 整个 NAPI 模块加载失败。改写 SONAME 对齐打包名。
-  patchelf --set-soname libmpv.so "$MPV_OHOS_APP_LIBS_DIR/libmpv.so"
-  # 系统命名空间里没有 libz.so.1（应用 ndk namespace 找不到 zlib），改挂私有名字随 HAP 打包
-  patchelf --replace-needed libz.so.1 libmovieclaw_z.so "$MPV_OHOS_APP_LIBS_DIR/libmpv.so"
-  cp "$MPV_OHOS_PREFIX/lib/libz.so.1"(N) "$MPV_OHOS_APP_LIBS_DIR/libmovieclaw_z.so"
+  # 运行时 NEEDED libmpv.so.2 解析不到 → 整个 NAPI 模块加载失败。原地改写 SONAME 对齐打包名
+  # （patches/fix-soname.py 纯 python，跨平台，替代 patchelf --set-soname）。
+  "$MPV_OHOS_PYTHON" "$SCRIPT_DIR/patches/fix-soname.py" "$MPV_OHOS_APP_LIBS_DIR/libmpv.so"
+  # zlib 已静态链入：不允许残留 libz 动态依赖（旧版是 patchelf 换名 + 随包带 libmovieclaw_z.so）
+  "$MPV_OHOS_READELF" -d "$MPV_OHOS_APP_LIBS_DIR/libmpv.so" > "$MPV_OHOS_LOGS/export-dyn.txt"
+  grep -E 'NEEDED|SONAME' "$MPV_OHOS_LOGS/export-dyn.txt" || true
+  if grep -q 'libz' "$MPV_OHOS_LOGS/export-dyn.txt"; then
+    echo "❌ libmpv.so 仍依赖 libz（应静态链入），停止导出"; exit 1
+  fi
+  rm -f "$MPV_OHOS_APP_LIBS_DIR/libmovieclaw_z.so"
   rm -rf "$MPV_OHOS_APP_CPP_DIR/include/mpv"
   cp -R "$MPV_OHOS_PREFIX/include/mpv" "$MPV_OHOS_APP_CPP_DIR/include/mpv"
-  local sz=$(du -h "$MPV_OHOS_APP_LIBS_DIR/libmpv.so" | cut -f1)
+  local sz
+  sz=$(du -h "$MPV_OHOS_APP_LIBS_DIR/libmpv.so" | cut -f1)
   echo "✔ libmpv.so ($sz, SONAME→libmpv.so) → entry/libs/arm64-v8a/"
   echo "✔ headers → entry/src/main/cpp/include/mpv/"
   {
     echo "ffmpeg $MPV_OHOS_FFMPEG_REF | mpv $MPV_OHOS_MPV_REF | zlib $MPV_OHOS_ZLIB_REF"
     echo "freetype $MPV_OHOS_FREETYPE_REF | fribidi $MPV_OHOS_FRIBIDI_REF | harfbuzz $MPV_OHOS_HARFBUZZ_REF"
     echo "libass $MPV_OHOS_LIBASS_VER | mbedtls $MPV_OHOS_MBEDTLS_REF"
+    echo "host $MPV_OHOS_HOST"
     echo "built $(date '+%Y-%m-%d %H:%M')"
   } > "$SCRIPT_DIR/BUILT-VERSIONS.txt"
 }
 
-main() {
-  step "MovieClaw mpv-ohos build  (jobs=$NPROC)"
-  generate_cross_file
-  build_zlib
-  build_freetype
-  build_fribidi
-  build_harfbuzz
-  build_libass
-  build_libplacebo
-  build_mbedtls
-  build_ffmpeg
-  build_mpv
-  export_lib
-  echo "🎉 全部完成"
+# 补丁版本：patches/ 内容变化时改这个值，构建时自动强制重建受影响组件
+PATCHES_VER="ohdec-10bit-fix-r4-vec-hoist"
+
+check_patch_version() {
+  local f="$MPV_OHOS_BUILD_DIR/locks/patches.ver"
+  local cur
+  cur=$(cat "$f" 2>/dev/null || true)
+  if [ "$cur" != "$PATCHES_VER" ]; then
+    echo "补丁版本变化：'$cur' -> '$PATCHES_VER'，强制重建 ffmpeg + mpv"
+    rm -f "$MPV_OHOS_BUILD_DIR/locks/ffmpeg.stamp" "$MPV_OHOS_BUILD_DIR/locks/mpv.stamp"
+    echo "$PATCHES_VER" > "$f"
+  fi
 }
 
 generate_cross_file() {
+  # Windows: meson 是 native 进程，跑不动 sh wrapper —— c/cpp 用 [clang.exe, --target] 列表形式；
+  # macOS/Linux: 维持原 wrapper 单路径形式。
+  local cc_line cxx_line
+  if [ "${MPV_OHOS_TARGET_TRIPLE:-}" != "" ]; then
+    cc_line="['$MPV_OHOS_CC_NATIVE', '--target=$MPV_OHOS_TARGET_TRIPLE']"
+    cxx_line="['$MPV_OHOS_CXX_NATIVE', '--target=$MPV_OHOS_TARGET_TRIPLE']"
+  else
+    cc_line="'$CC'"
+    cxx_line="'$CXX'"
+  fi
   cat > "$SCRIPT_DIR/meson-cross.txt" <<EOF
 [binaries]
-c = '$CC'
-cpp = '$CXX'
+c = $cc_line
+cpp = $cxx_line
 ar = '$AR'
+nm = '$NM'
 strip = '$STRIP'
 pkg-config = 'pkg-config'
 ninja = 'ninja'
@@ -301,10 +365,30 @@ c_link_args = ['-fPIC', '-L$MPV_OHOS_PREFIX/lib']
 cpp_link_args = ['-fPIC', '-L$MPV_OHOS_PREFIX/lib']
 
 [properties]
+# 不设 sys_root：OHOS clang 自带默认 sysroot（-print-search-dirs 含 llvm/bin/../../sysroot）；
+# 而 meson 会把 sys_root 注入 PKG_CONFIG_SYSROOT_DIR，pkgconf 会把 -I 的绝对路径
+# 硬粘上前缀（sysrootD:/... → 头文件路径全废）
 pkg_config_libdir = '$MPV_OHOS_PREFIX/lib/pkgconfig'
 needs_exe_wrapper = true
 skip_sanity_check = true
 EOF
+}
+
+main() {
+  step "MovieClaw mpv-ohos build  (host=$MPV_OHOS_HOST jobs=$NPROC)"
+  check_patch_version
+  generate_cross_file
+  build_zlib
+  build_freetype
+  build_fribidi
+  build_harfbuzz
+  build_libass
+  build_libplacebo
+  build_mbedtls
+  build_ffmpeg
+  build_mpv
+  export_lib
+  echo "🎉 全部完成"
 }
 
 main "$@"
