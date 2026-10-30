@@ -30,7 +30,8 @@
 | `masters/mark-ui-1024.png` | 细笔画标志母版（笔画占字形 11.5%）：网页侧栏等界面小尺寸用 |
 | `masters/app-icon-1024.png` | App 图标母版（纯黑底、不透明） |
 | `masters/favicon-1024.png` | 标签页图标母版 |
-| `transcoder/` | macOS 转码器专用三角循环标志：应用图标 SVG / 1024 PNG、透明标志 SVG / PNG、菜单栏单色 SVG |
+| `transcoder/` | macOS 转码器专用三角循环标志：应用图标 SVG / 1024 PNG、透明标志 SVG / PNG、菜单栏单色 SVG、`AppIcon.icns`；`sizes/app-icon/` 与 `sizes/mark/` 含 16 / 32 / 64 / 128 / 256 / 512 PNG |
+| [`kit/`](kit/README.md) | 完整定稿资产包：`source/` 矢量、`brand/` 品牌位图、`ios/`、`macos/`、`web/` 平台资源，以及 `preview.png` 总览 |
 
 转码器于 2026-10-06 锁定三角循环版，保持主品牌的极光配色，以回转箭头区分主程序。
 应用图标从锁定的 PNG 母版生成，保留色光、光晕和投影；菜单栏使用独立的 18pt 细线模板。
@@ -52,7 +53,11 @@
 | 浏览器扩展 | `apps/extension/public/icon/{16,32,48,128}.png`（WXT 自动写进 manifest） | 从 `masters/favicon-1024.png` 缩放 |
 | README | 顶部横幅 `docs/images/banner.{zh,en}.jpg`（和官网分享卡片同一版式，2400×1260，自带深色底，GitHub 明暗主题都能用）；`docs/images/logo-dark.png` / `logo-light.png` 是横版组合（宽 720），README 已不再引用 | 换标志后照官网分享卡片的版式重出横幅 |
 
-完整的品牌资产包（含 Icon Composer 分层、各平台全套尺寸、社交头像、分享卡片）由仓库外的
-`movieclaw-logo-lab/build_brand_kit.py` 生成，本目录只放仓库里实际要用到的源文件和母版。
+完整的品牌资产包（含 Icon Composer 分层、iOS / macOS / Web 全套尺寸、社交头像、分享卡片）已收录于
+[`kit/`](kit/README.md)，按原包目录分类保存。根目录 SVG、`masters/` 和 `transcoder/` 继续作为项目生成脚本使用的源文件与母版。
+
+素材来自 `movieclaw-logo-lab/MovieClaw-Brand-Kit/`（A9 极光、尺寸 B）和 `exports/transcoder-v5/`（转码器三角循环定稿）；
+仅收录定稿输出，未包含探索稿、系统应用参考图与运行日志。完整资产包的生成脚本仍位于仓库外的
+`movieclaw-logo-lab/build_brand_kit.py`，重新生成与同步方式见资产包说明。
 
 Netflix 主题有自己的红色字标（`apps/web/components/brand.tsx`），属于主题皮肤，不跟随本标志。
