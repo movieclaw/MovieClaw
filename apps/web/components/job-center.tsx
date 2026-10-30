@@ -698,14 +698,15 @@ function UsageMetric({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * 侧栏「活动」入口。
+ * 侧栏「活动」入口（只在银玻璃渲染；Netflix 主题的侧栏只在设置里出现）。
  *
- * 角标只表达**当前最该被看见的那件事**，点击就直达那件事：有失败/阻塞的任务
- * 时亮警示色并落到任务视角的「需要处理」，只有进行中任务时落到「进行中」。
- * 角标数的是任务，落点就必须是任务视角对应的那一片——把人丢到「观看」再让他
- * 自己找"为什么有提醒"，等于让提醒自证失败。角标为空时才回到页面默认的观看。
+ * 角标只表达**当前最该被看见的那件事**：有失败/阻塞的任务时亮警示色，只有进行中
+ * 任务时亮提示色。点击一律落活动总览——需要处理与进行中就排在总览最上面，与手机
+ * 底栏页签、原生 App 同一落点。不直达 `?view=active` 二级页：那样历史里没有总览，
+ * 二级页的返回键会退回上一个标签页（#1100）；已在二级页时再点也能回到总览。
+ * Netflix 两段版式没有二级页，那里的入口仍按 badge.href 选中「任务」段。
  *
- * 计数走 useTaskActivity 这份共享口径，与活动页里的选项卡数字保证一致。
+ * 计数走 useTaskActivity 这份共享口径，与活动页里的数字保证一致。
  */
 export function JobCenter({ collapsed, active = false }: { collapsed: boolean; active?: boolean }) {
   const t = useTranslations();
@@ -714,11 +715,11 @@ export function JobCenter({ collapsed, active = false }: { collapsed: boolean; a
   const { isAdmin } = usePermissions();
   const activity = useTaskActivity();
   if (!isAdmin) return null;
-  const { alert, count: badgeCount, href, hint } = taskActivityBadge(activity, locale);
+  const { alert, count: badgeCount, hint } = taskActivityBadge(activity, locale);
   return (
     <button
       type="button"
-      onClick={() => router.push(href as Route)}
+      onClick={() => router.push("/activity" as Route)}
       data-active={active}
       title={collapsed ? t("nav.badges.activityHint", { hint }) : undefined}
       className={`glass-row nav-item py-2 max-md:py-2.5 ${collapsed ? "justify-center px-0" : "px-3"}`}
