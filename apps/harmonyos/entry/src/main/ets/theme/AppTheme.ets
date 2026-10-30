@@ -1,5 +1,6 @@
 import { display } from '@kit.ArkUI';
 import { WindowInsets } from '../common/WindowInsets';
+import { ShellChrome } from '../common/ShellChrome';
 import { TabBarStyle } from '../common/TabBarStyle';
 /**
  * 全局主题 token（逐值对齐 Web 端 `apps/web/app/globals.css` 的深色冷银主题）。
@@ -134,8 +135,7 @@ export class Theme {
      * 底部内容要让开的高度：页面滚动内容的最后一行要停在底栏上方。
      *
      * 底栏现在是官方 HdsTabs 渲染的悬浮页签栏（`barFloatingStyle`）：
-     * - **悬浮**：抬起 12 + 栏高 56 + 手势区 + 呼吸 4；AI 迷你按钮和页签栏并排，
-     *   不额外占一行。
+     * - **悬浮**：抬起 12 + 栏高 56 + 手势区 + 呼吸 4。
      * - **经典贴底栏**：栏高 56 + 手势区 + 呼吸 4。
      *
      * 读的是 `TabBarStyle.floating`（@Trace）：V2 页面在 build 里读这个 getter，
@@ -143,13 +143,13 @@ export class Theme {
      */
     const bottom: number = WindowInsets.shared().bottom;
     if (!TabBarStyle.shared().floating) {
-      return 56 + bottom + 4;
+      return 56 + bottom + 4 + ShellChrome.shared.bottomAccessoryInset;
     }
-    return 12 + 56 + bottom + 4;
+    return 12 + 56 + bottom + 4 + ShellChrome.shared.bottomAccessoryInset;
   }
 
   /**
-   * 「我的」页底部 AI 快捷输入卡盖住的高度（贴底栏模式专属）。
+   * 「我的」页底部 AI 快捷输入卡盖住的高度。
    *
    * 卡片是 `MoreNavHost` 里 Stack 的浮层，浮在贴底栏上、不在内容流里，所以列表要多让一段。
    * = 卡片高 60（折叠态一行 44 + 上下 8）+ 卡片 `margin.bottom` 12。

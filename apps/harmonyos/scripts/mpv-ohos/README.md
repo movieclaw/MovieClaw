@@ -9,8 +9,8 @@
 ArkTS PlayerPage (几乎不动)
    └─ PlayerEngine = media.AVPlayer | MpvPlayer   ← 鸭子类型，签名逐一对齐
         └─ MpvPlayer.ets                           ← 状态机/事件映射（本目录 ../player/）
-             └─ libmovieclaw_mpv.so (entry/src/main/cpp/mpv_napi.cpp, NAPI 桥)
-                  └─ libmpv.so (entry/libs/arm64-v8a/, 本脚本产物)
+             └─ libmovieclaw_mpv.so (player_engine/src/main/cpp/mpv_napi.cpp, NAPI 桥)
+                  └─ libmpv.so (player_engine/libs/arm64-v8a/, 本脚本产物)
                        ├─ vo_gpu + --gpu-context=ohos (EGL/GLES3, fork 的 video/out/context_ohos.c)
                        ├─ hwdec=ohcodec (硬解, fork hwdec_ohcodec.c + ffmpeg hwcontext_oh)
                        ├─ ao_ohaudio (OHAudio, 打了焦点中断补丁)
@@ -35,9 +35,9 @@ pip3 install jinja2 jsonschema
 ```
 
 产物（自动导出）：
-- `entry/libs/arm64-v8a/libmpv.so` —— 播放引擎（单 .so，依赖全部静态链入；
+- `player_engine/libs/arm64-v8a/libmpv.so` —— 播放引擎（单 .so，依赖全部静态链入；
   运行时只需要系统库 libEGL/libGLESv3/libohaudio/libnative_*/libz）
-- `entry/src/main/cpp/include/mpv/*.h` —— NAPI 封装用的头文件
+- `player_engine/src/main/cpp/include/mpv/*.h` —— NAPI 封装用的头文件
 
 增量构建：每个组件有 `build/locks/<name>.stamp`，存在即跳过。
 强制重建某组件：删对应 stamp + `build/out/<name>`。

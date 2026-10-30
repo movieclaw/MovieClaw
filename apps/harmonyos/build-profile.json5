@@ -27,6 +27,8 @@
     ]
   },
   "modules": [
+    { "name": "player_engine", "srcPath": "./player_engine", "targets": [{ "name": "default", "applyToProducts": ["default"] }] },
+    { "name": "playback", "srcPath": "./playback", "targets": [{ "name": "default", "applyToProducts": ["default"] }] },
     {
       "name": "entry",
       "srcPath": "./entry",

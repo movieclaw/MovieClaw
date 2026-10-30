@@ -1,0 +1,90 @@
+{
+  "completed": 144,
+  "playbackAdvanced": 140,
+  "controlsPassed": 138,
+  "fallbackCases": 38,
+  "audioSelectionFailures": [],
+  "unverifiedAudioCases": [],
+  "audioRunning": 138,
+  "missingExpectedAudio": [],
+  "visualReviewNeeded": [
+    "format-002",
+    "format-004",
+    "format-022",
+    "format-024",
+    "format-039",
+    "format-068",
+    "format-087",
+    "format-098",
+    "format-103",
+    "format-114"
+  ],
+  "slowClockCases": [],
+  "failedCases": [
+    "format-018",
+    "format-027",
+    "format-057",
+    "format-119"
+  ],
+  "firstFrameMs": {
+    "count": 102,
+    "min": 533,
+    "median": 1805.5,
+    "p95": 4421,
+    "max": 16415
+  },
+  "mpvPlayingMs": {
+    "count": 38,
+    "min": 685,
+    "median": 1299.0,
+    "p95": 3599,
+    "max": 11991
+  },
+  "clockAdvanceMs": {
+    "count": 140,
+    "min": 1010,
+    "median": 3529.5,
+    "p95": 6749,
+    "max": 18007
+  },
+  "startupClockWaitMs": {
+    "count": 140,
+    "min": 7,
+    "median": 1033.0,
+    "p95": 1603,
+    "max": 3012
+  },
+  "negotiationMs": {
+    "count": 142,
+    "min": 67,
+    "median": 194.0,
+    "p95": 714,
+    "max": 972
+  },
+  "enginePlayingMs": {
+    "count": 140,
+    "min": 177,
+    "median": 1150.0,
+    "p95": 3627,
+    "max": 15883
+  },
+  "startupBufferMs": {
+    "count": 104,
+    "min": 70,
+    "median": 285.0,
+    "p95": 1233,
+    "max": 4302
+  },
+  "seekBufferMs": {
+    "count": 20,
+    "min": 0,
+    "median": 37.5,
+    "p95": 2025,
+    "max": 2025
+  },
+  "rebufferCases": [
+    "format-087",
+    "format-107",
+    "format-136"
+  ]
+}

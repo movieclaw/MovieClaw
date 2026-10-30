@@ -207,6 +207,7 @@ export struct SettingsIndexPage {
         // 内容从 y=0 铺到标题栏下面：首屏用 contentStartOffset 让开标题栏，滚动时产生渐变
         .contentStartOffset(AppNavBar.contentTop)
         .padding({ left: 16, right: 16, top: 8 })
+        .id('app-settings-list')
         .contentEndOffset(Theme.tabBarInset)
         .scrollBar(BarState.Off)
       }
@@ -297,6 +298,7 @@ export struct SettingsIndexPage {
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
       Toggle({ type: ToggleType.Switch, isOn: !this.tabBarStyle.floating })
+      .id('app-classic-tabs-toggle')
       .attributeModifier(new GlassSwitchModifier())
       .onChange((on: boolean): void => {
         TabBarStyle.shared().setFloating(!on);

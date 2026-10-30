@@ -1,0 +1,781 @@
+
+OHOS_REPORT_SUM: 9
+OHOS_REPORT_STATUS: class=PlayerInteraction
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=1
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=single_tap_keeps_paused_controls_visible_without_resuming
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=1
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=single_tap_keeps_paused_controls_visible_without_resuming
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=2
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=outside_tap_only_dismisses_menu
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=2
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=outside_tap_only_dismisses_menu
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=2
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=3
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=same_menu_toggles_and_another_menu_replaces_it
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=3
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=same_menu_toggles_and_another_menu_replaces_it
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=2
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=4
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=more_button_closes_its_open_submenu
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=4
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=more_button_closes_its_open_submenu
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=3
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=5
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=menu_uses_measured_space_between_top_bar_and_buttons
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=5
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=menu_uses_measured_space_between_top_bar_and_buttons
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=3
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=6
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=locked_surface_does_not_reveal_transport_and_back_unlocks
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=6
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=locked_surface_does_not_reveal_transport_and_back_unlocks
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=4
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=7
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=back_dismisses_menu_before_leaving_player
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=7
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=back_dismisses_menu_before_leaving_player
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=0
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=8
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=display_modes_preserve_ratio_except_explicit_stretch
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=8
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=display_modes_preserve_ratio_except_explicit_stretch
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=2
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=9
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=hold_restores_user_selected_rate
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: current=9
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=hold_restores_user_selected_rate
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=2
+
+
+OHOS_REPORT_STATUS: class=PlayerInteraction
+OHOS_REPORT_STATUS: suiteconsuming=19
+
+
+OHOS_REPORT_SUM: 23
+OHOS_REPORT_STATUS: class=PlaybackController
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=10
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=defaults_to_AVPlayer_without_creating_MPV
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=10
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=defaults_to_AVPlayer_without_creating_MPV
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=0
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=11
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=fallback_does_not_keep_the_failed_engines_buffering_state
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=11
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=fallback_does_not_keep_the_failed_engines_buffering_state
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=12
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=fallback_waits_for_a_fresh_surface_after_releasing_the_native_producer
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=12
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=fallback_waits_for_a_fresh_surface_after_releasing_the_native_producer
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=7
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=13
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=exiting_while_surface_is_recreated_does_not_start_a_stale_fallback
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=13
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=exiting_while_surface_is_recreated_does_not_start_a_stale_fallback
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=3
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=14
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=unsupported_reopens_same_media_with_independent_lease_and_preserves_intent
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=14
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=unsupported_reopens_same_media_with_independent_lease_and_preserves_intent
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=0
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=15
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=first_opening_failure_survives_secondary_state_errors_and_rejection
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=15
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=first_opening_failure_survives_secondary_state_errors_and_rejection
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=5
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=16
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=runtime_service_death_reopens_MPV_at_current_position
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=16
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=runtime_service_death_reopens_MPV_at_current_position
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=2
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=17
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=network_failure_does_not_trigger_codec_fallback
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=17
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=network_failure_does_not_trigger_codec_fallback
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=0
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=18
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=both_engines_failing_emits_one_terminal_failure
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=18
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=both_engines_failing_emits_one_terminal_failure
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=19
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=explicit_engine_selection_is_respected
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=19
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=explicit_engine_selection_is_respected
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=5
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=20
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=text_subtitles_follow_nonzero_session_origin
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=20
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=text_subtitles_follow_nonzero_session_origin
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=3
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=21
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=seek_before_server_window_requests_a_new_source
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=21
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=seek_before_server_window_requests_a_new_source
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=22
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=file_and_stream_time_are_converted_once
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=22
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=file_and_stream_time_are_converted_once
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=4
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=23
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=released_while_factory_pending_disposes_orphan_without_acquiring_file
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=23
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=released_while_factory_pending_disposes_orphan_without_acquiring_file
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=24
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=released_while_open_pending_does_not_play_after_late_ready
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=24
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=released_while_open_pending_does_not_play_after_late_ready
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=0
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=25
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=pause_during_open_is_applied_before_play
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=25
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=pause_during_open_is_applied_before_play
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=3
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=26
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=user_pause_cancels_interruption_resume
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=26
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=user_pause_cancels_interruption_resume
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=0
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=27
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=same_language_audio_tracks_keep_the_chosen_ordinal_after_fallback
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=27
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=same_language_audio_tracks_keep_the_chosen_ordinal_after_fallback
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=3
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=28
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=incomplete_native_audio_list_falls_back_instead_of_playing_the_wrong_track
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=28
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=incomplete_native_audio_list_falls_back_instead_of_playing_the_wrong_track
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=2
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=29
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=track_preferences_are_mapped_to_each_engines_ids
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=29
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=track_preferences_are_mapped_to_each_engines_ids
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=30
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=replay_seeks_to_the_beginning_before_playing
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=30
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=replay_seeks_to_the_beginning_before_playing
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=0
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=31
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=on_demand_segment_seek_can_take_more_than_five_seconds
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=31
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=on_demand_segment_seek_can_take_more_than_five_seconds
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=6002
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=32
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=duck_restores_stream_gain_without_changing_system_volume
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: current=32
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=duck_restores_stream_gain_without_changing_system_volume
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackController
+OHOS_REPORT_STATUS: suiteconsuming=6045
+
+
+OHOS_REPORT_SUM: 4
+OHOS_REPORT_STATUS: class=PlaybackGateway
+
+
+OHOS_REPORT_STATUS: class=PlaybackGateway
+OHOS_REPORT_STATUS: current=33
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=auto_requests_original_without_preparing_native_transcoding
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackGateway
+OHOS_REPORT_STATUS: current=33
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=auto_requests_original_without_preparing_native_transcoding
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackGateway
+OHOS_REPORT_STATUS: current=34
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=unavailable_original_uses_native_server_adaptation
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackGateway
+OHOS_REPORT_STATUS: current=34
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=unavailable_original_uses_native_server_adaptation
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackGateway
+OHOS_REPORT_STATUS: current=35
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=failed_direct_tier_does_not_request_the_same_original_again
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackGateway
+OHOS_REPORT_STATUS: current=35
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=failed_direct_tier_does_not_request_the_same_original_again
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackGateway
+OHOS_REPORT_STATUS: current=36
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=explicit_engine_preferences_skip_auto_negotiation
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackGateway
+OHOS_REPORT_STATUS: current=36
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=explicit_engine_preferences_skip_auto_negotiation
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackGateway
+OHOS_REPORT_STATUS: suiteconsuming=4
+
+
+OHOS_REPORT_SUM: 3
+OHOS_REPORT_STATUS: class=PlaybackSessionCoordinator
+
+
+OHOS_REPORT_STATUS: class=PlaybackSessionCoordinator
+OHOS_REPORT_STATUS: current=37
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=reports_old_position_then_closes_old_session_before_releasing_identity
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackSessionCoordinator
+OHOS_REPORT_STATUS: current=37
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=reports_old_position_then_closes_old_session_before_releasing_identity
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=0
+
+
+OHOS_REPORT_STATUS: class=PlaybackSessionCoordinator
+OHOS_REPORT_STATUS: current=38
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=late_admin_end_from_previous_item_does_not_end_current_item
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackSessionCoordinator
+OHOS_REPORT_STATUS: current=38
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=late_admin_end_from_previous_item_does_not_end_current_item
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=1
+
+
+OHOS_REPORT_STATUS: class=PlaybackSessionCoordinator
+OHOS_REPORT_STATUS: current=39
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=repeated_close_does_not_duplicate_stop_or_server_close
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=PlaybackSessionCoordinator
+OHOS_REPORT_STATUS: current=39
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=39
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=repeated_close_does_not_duplicate_stop_or_server_close
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=0
+
+
+OHOS_REPORT_STATUS: class=PlaybackSessionCoordinator
+OHOS_REPORT_STATUS: suiteconsuming=1
+
+
+OHOS_REPORT_RESULT: stream=Tests run: 39, Failure: 0, Error: 0, Pass: 39, Ignore: 0
+OHOS_REPORT_CODE: 0
+OHOS_REPORT_STATUS: taskconsuming=6069
+
+TestFinished-ResultCode: 0
+TestFinished-ResultMsg: your test finished!!!
+user test finished.

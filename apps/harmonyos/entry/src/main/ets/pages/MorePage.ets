@@ -7,7 +7,6 @@ import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { DeviceApprovalDialog } from '../settings/DeviceApprovalDialog';
 import { AppModel, AppPhase, SavedAccount } from '../common/AppModel';
 import { ServerRoutes } from '../common/ServerRoutes';
-import { TabBarStyle } from '../common/TabBarStyle';
 import { Permissions } from '../common/Permissions';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls } from '../common/ImageUrls';
@@ -660,8 +659,7 @@ export struct MorePage {
           this.getUIContext().getFocusController().clearFocus();
         }
       })
-      // 管理员底部有常驻快捷输入条：贴底栏模式是页内输入卡（浮在 Stack 上，列表要让开整卡高度）；
-      // 悬浮模式的迷你条在页签胶囊里，高度已并入 Theme.tabBarInset，不再额外加
+      // 管理员底部有常驻快捷输入卡，两种底栏样式都要给整卡留白。
       .padding({ left: 16, right: 16, top: 0 })
       /*
        * 底部留白用 `contentEndOffset` 而不是 `padding`：
@@ -670,7 +668,8 @@ export struct MorePage {
        * 「内容末端到显示边界的偏移」，滚到底时最后一行照样能让开胶囊，滚动中内容可以从胶囊
        * 和手势条下面穿过去。
        */
-      .contentEndOffset(this.bottomInset())
+      .id('app-more-list')
+      .contentEndOffset(Theme.tabBarInset)
     }
     .width('100%')
     .height('100%')
@@ -681,12 +680,6 @@ export struct MorePage {
       showClose: false,
       backgroundColor: Theme.bg
     })
-  }
-
-  /** 列表底部要让开的高度（页签胶囊 / 贴底栏 + 贴底模式的输入卡） */
-  private bottomInset(): number {
-    return Theme.tabBarInset
-      + (this.isAdmin() && !TabBarStyle.shared().floating ? Theme.agentDockInset : 0);
   }
 
   /**

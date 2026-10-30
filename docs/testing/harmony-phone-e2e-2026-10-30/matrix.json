@@ -1,0 +1,3125 @@
+[
+  {
+    "caseId": "format-001",
+    "fileId": 14910,
+    "itemId": 6674,
+    "season": 0,
+    "episode": 1,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "avi",
+      "mpeg4",
+      "SDR",
+      8,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "艺术的力量",
+    "bitRate": 3858649,
+    "duration": 3244
+  },
+  {
+    "caseId": "format-002",
+    "fileId": 15741,
+    "itemId": 6818,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "h264",
+      "HDR10",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "坠入",
+    "bitRate": 36674667,
+    "duration": 7162
+  },
+  {
+    "caseId": "format-003",
+    "fileId": 16263,
+    "itemId": 6912,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "傲慢与偏见",
+    "bitRate": 18457095,
+    "duration": 7599
+  },
+  {
+    "caseId": "format-004",
+    "fileId": 13530,
+    "itemId": 6415,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "西线无战事",
+    "bitRate": 7051673,
+    "duration": 8818
+  },
+  {
+    "caseId": "format-005",
+    "fileId": 13415,
+    "itemId": 6389,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "pcm_bluray"
+      ]
+    ],
+    "title": "起风了",
+    "bitRate": 30052922,
+    "duration": 7591
+  },
+  {
+    "caseId": "format-006",
+    "fileId": 14847,
+    "itemId": 6660,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "pcm_bluray",
+        "truehd"
+      ]
+    ],
+    "title": "整蛊专家",
+    "bitRate": 29109266,
+    "duration": 6453
+  },
+  {
+    "caseId": "format-007",
+    "fileId": 14522,
+    "itemId": 6609,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "truehd"
+      ]
+    ],
+    "title": "树大招风",
+    "bitRate": 27978347,
+    "duration": 5838
+  },
+  {
+    "caseId": "format-008",
+    "fileId": 16285,
+    "itemId": 6917,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "借东西的小人阿莉埃蒂",
+    "bitRate": 7099825,
+    "duration": 5648
+  },
+  {
+    "caseId": "format-009",
+    "fileId": 15538,
+    "itemId": 6780,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8,
+      [
+        "dts"
+      ]
+    ],
+    "title": "奥本海默",
+    "bitRate": 8430968,
+    "duration": 10822
+  },
+  {
+    "caseId": "format-010",
+    "fileId": 15445,
+    "itemId": 6758,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8,
+      [
+        "pcm_bluray"
+      ]
+    ],
+    "title": "审死官",
+    "bitRate": 29922208,
+    "duration": 5968
+  },
+  {
+    "caseId": "format-011",
+    "fileId": 14279,
+    "itemId": 6530,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "猫鼠游戏",
+    "bitRate": 8067607,
+    "duration": 8443
+  },
+  {
+    "caseId": "format-012",
+    "fileId": 12844,
+    "itemId": 7140,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts",
+        "eac3",
+        "truehd"
+      ]
+    ],
+    "title": "黑寡妇",
+    "bitRate": 46663925,
+    "duration": 8027
+  },
+  {
+    "caseId": "format-013",
+    "fileId": 14559,
+    "itemId": 6621,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts",
+        "pcm_bluray"
+      ]
+    ],
+    "title": "本能",
+    "bitRate": 87214360,
+    "duration": 7693
+  },
+  {
+    "caseId": "format-014",
+    "fileId": 16034,
+    "itemId": 6871,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "千钧一发",
+    "bitRate": 11882361,
+    "duration": 6389
+  },
+  {
+    "caseId": "format-015",
+    "fileId": 13651,
+    "itemId": 6437,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "eac3",
+        "truehd"
+      ]
+    ],
+    "title": "蚁人与黄蜂女：量子狂潮",
+    "bitRate": 31564513,
+    "duration": 7469
+  },
+  {
+    "caseId": "format-016",
+    "fileId": 16181,
+    "itemId": 6902,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "pcm_bluray"
+      ]
+    ],
+    "title": "公民凯恩",
+    "bitRate": 9981386,
+    "duration": 7173
+  },
+  {
+    "caseId": "format-017",
+    "fileId": 15920,
+    "itemId": 6857,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "truehd"
+      ]
+    ],
+    "title": "变形金刚：超能勇士崛起",
+    "bitRate": 31490599,
+    "duration": 7627
+  },
+  {
+    "caseId": "format-018",
+    "fileId": 14607,
+    "itemId": 6626,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "dts"
+      ]
+    ],
+    "title": "未来水世界",
+    "bitRate": 47463381,
+    "duration": 10561
+  },
+  {
+    "caseId": "format-019",
+    "fileId": 13885,
+    "itemId": 6485,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "pcm_bluray"
+      ]
+    ],
+    "title": "精疲力尽",
+    "bitRate": 66060959,
+    "duration": 5416
+  },
+  {
+    "caseId": "format-020",
+    "fileId": 12922,
+    "itemId": 6289,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      []
+    ],
+    "title": "黑亚当",
+    "bitRate": 5380583,
+    "duration": 341
+  },
+  {
+    "caseId": "format-021",
+    "fileId": 16019,
+    "itemId": 6870,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "dts"
+      ]
+    ],
+    "title": "午夜守门人",
+    "bitRate": 67699540,
+    "duration": 7095
+  },
+  {
+    "caseId": "format-022",
+    "fileId": 16453,
+    "itemId": 6934,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "mpeg2video",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "乔布斯",
+    "bitRate": 832061,
+    "duration": 7694
+  },
+  {
+    "caseId": "format-023",
+    "fileId": 15200,
+    "itemId": 6732,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "巴阿里亚",
+    "bitRate": 18645476,
+    "duration": 9632
+  },
+  {
+    "caseId": "format-024",
+    "fileId": 16441,
+    "itemId": 6932,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "乱世佳人",
+    "bitRate": 25656948,
+    "duration": 13994
+  },
+  {
+    "caseId": "format-025",
+    "fileId": 13031,
+    "itemId": 6307,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "飞越疯人院",
+    "bitRate": 19231545,
+    "duration": 8022
+  },
+  {
+    "caseId": "format-026",
+    "fileId": 14840,
+    "itemId": 6659,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "dts"
+      ]
+    ],
+    "title": "断背山",
+    "bitRate": 22046473,
+    "duration": 8068
+  },
+  {
+    "caseId": "format-027",
+    "fileId": 15033,
+    "itemId": 6700,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "dvd",
+      "mpeg2video",
+      "SDR",
+      8,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "情事",
+    "bitRate": 5493848,
+    "duration": 1563
+  },
+  {
+    "caseId": "format-028",
+    "fileId": 12932,
+    "itemId": 6295,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "鬼子来了",
+    "bitRate": 12802283,
+    "duration": 8365
+  },
+  {
+    "caseId": "format-029",
+    "fileId": 16046,
+    "itemId": 6874,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts",
+        "pcm_bluray"
+      ]
+    ],
+    "title": "千与千寻",
+    "bitRate": 35865010,
+    "duration": 7472
+  },
+  {
+    "caseId": "format-030",
+    "fileId": 15624,
+    "itemId": 6801,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "大话西游之月光宝盒",
+    "bitRate": 32967830,
+    "duration": 5271
+  },
+  {
+    "caseId": "format-031",
+    "fileId": 13200,
+    "itemId": 6348,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "eac3",
+        "truehd"
+      ]
+    ],
+    "title": "银行家",
+    "bitRate": 24549034,
+    "duration": 7255
+  },
+  {
+    "caseId": "format-032",
+    "fileId": 13893,
+    "itemId": 6488,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "pcm_bluray"
+      ]
+    ],
+    "title": "窃听风暴",
+    "bitRate": 35190004,
+    "duration": 8256
+  },
+  {
+    "caseId": "format-033",
+    "fileId": 15045,
+    "itemId": 6702,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "truehd"
+      ]
+    ],
+    "title": "悬崖之上",
+    "bitRate": 42258150,
+    "duration": 7218
+  },
+  {
+    "caseId": "format-034",
+    "fileId": 15509,
+    "itemId": 6773,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "dts",
+        "pcm_bluray"
+      ]
+    ],
+    "title": "如父如子",
+    "bitRate": 35036640,
+    "duration": 7261
+  },
+  {
+    "caseId": "format-035",
+    "fileId": 15784,
+    "itemId": 6829,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "dts"
+      ]
+    ],
+    "title": "喜马拉雅",
+    "bitRate": 4249636,
+    "duration": 6529
+  },
+  {
+    "caseId": "format-036",
+    "fileId": 13673,
+    "itemId": 6445,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "mp3",
+        "pcm_bluray"
+      ]
+    ],
+    "title": "萤火之森",
+    "bitRate": 2040055,
+    "duration": 2700
+  },
+  {
+    "caseId": "format-037",
+    "fileId": 13479,
+    "itemId": 6407,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "pcm_bluray"
+      ]
+    ],
+    "title": "言叶之庭",
+    "bitRate": 38480300,
+    "duration": 3143
+  },
+  {
+    "caseId": "format-038",
+    "fileId": 14291,
+    "itemId": 6537,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      []
+    ],
+    "title": "狐狸与我",
+    "bitRate": 26935687,
+    "duration": 5787
+  },
+  {
+    "caseId": "format-039",
+    "fileId": 13853,
+    "itemId": 6483,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "紫色",
+    "bitRate": 71262401,
+    "duration": 9225
+  },
+  {
+    "caseId": "format-040",
+    "fileId": 14546,
+    "itemId": 6619,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "机器人总动员",
+    "bitRate": 61853922,
+    "duration": 5893
+  },
+  {
+    "caseId": "format-041",
+    "fileId": 16062,
+    "itemId": 6883,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "eac3",
+        "truehd"
+      ]
+    ],
+    "title": "加勒比海盗1：黑珍珠号的诅咒",
+    "bitRate": 63360220,
+    "duration": 8589
+  },
+  {
+    "caseId": "format-042",
+    "fileId": 13091,
+    "itemId": 6334,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "truehd"
+      ]
+    ],
+    "title": "阿甘正传",
+    "bitRate": 45750061748,
+    "duration": 8528
+  },
+  {
+    "caseId": "format-043",
+    "fileId": 13278,
+    "itemId": 6361,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "mpeg2video",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "mp2",
+        "pcm_dvd"
+      ]
+    ],
+    "title": "金枝玉叶",
+    "bitRate": null,
+    "duration": 6349
+  },
+  {
+    "caseId": "format-044",
+    "fileId": 14482,
+    "itemId": 6588,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "mpeg2video",
+      "SDR",
+      8,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "沉默的羔羊",
+    "bitRate": 8097275,
+    "duration": 7118
+  },
+  {
+    "caseId": "format-045",
+    "fileId": 15163,
+    "itemId": 6721,
+    "season": 1,
+    "episode": 2,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "mpeg2video",
+      "SDR",
+      8,
+      [
+        "mp2",
+        "pcm_dvd"
+      ]
+    ],
+    "title": "聪明的一休",
+    "bitRate": 1096553,
+    "duration": 33623
+  },
+  {
+    "caseId": "format-046",
+    "fileId": 23466,
+    "itemId": 7104,
+    "season": 1,
+    "episode": 1,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "mpeg2video",
+      "SDR",
+      8,
+      [
+        "mp2"
+      ]
+    ],
+    "title": "公司的力量",
+    "bitRate": 6480594006,
+    "duration": 5317
+  },
+  {
+    "caseId": "format-047",
+    "fileId": 15164,
+    "itemId": 6721,
+    "season": 1,
+    "episode": 3,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "mpeg2video",
+      "SDR",
+      8,
+      [
+        "pcm_dvd"
+      ]
+    ],
+    "title": "聪明的一休",
+    "bitRate": null,
+    "duration": 32960
+  },
+  {
+    "caseId": "format-048",
+    "fileId": 14491,
+    "itemId": 6593,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "汉尼拔",
+    "bitRate": 40441407,
+    "duration": 7884
+  },
+  {
+    "caseId": "format-049",
+    "fileId": 14801,
+    "itemId": 6652,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "aac",
+        "ac3"
+      ]
+    ],
+    "title": "新蝙蝠侠",
+    "bitRate": 2679373,
+    "duration": 10631
+  },
+  {
+    "caseId": "format-050",
+    "fileId": 15782,
+    "itemId": 6828,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "aac",
+        "eac3"
+      ]
+    ],
+    "title": "回到太空",
+    "bitRate": 3570700,
+    "duration": 7690
+  },
+  {
+    "caseId": "format-051",
+    "fileId": 23329,
+    "itemId": 965,
+    "season": 4,
+    "episode": 14,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "aac"
+      ]
+    ],
+    "title": "十三邀",
+    "bitRate": 761719,
+    "duration": 3774
+  },
+  {
+    "caseId": "format-052",
+    "fileId": 12927,
+    "itemId": 6291,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "麦兜故事",
+    "bitRate": 8277465,
+    "duration": 4520
+  },
+  {
+    "caseId": "format-053",
+    "fileId": 14002,
+    "itemId": 6495,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts",
+        "flac"
+      ]
+    ],
+    "title": "秒速五厘米",
+    "bitRate": 37094509,
+    "duration": 3765
+  },
+  {
+    "caseId": "format-054",
+    "fileId": 15134,
+    "itemId": 6716,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts",
+        "pcm_s16le"
+      ]
+    ],
+    "title": "当幸福来敲门",
+    "bitRate": 41306684,
+    "duration": 7047
+  },
+  {
+    "caseId": "format-055",
+    "fileId": 15229,
+    "itemId": 6742,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "小王子",
+    "bitRate": 20237923,
+    "duration": 6394
+  },
+  {
+    "caseId": "format-056",
+    "fileId": 16274,
+    "itemId": 6916,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "flac"
+      ]
+    ],
+    "title": "假如爱有天意",
+    "bitRate": 16919178,
+    "duration": 7935
+  },
+  {
+    "caseId": "format-057",
+    "fileId": 15585,
+    "itemId": 6788,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "pcm_s16le"
+      ]
+    ],
+    "title": "头文字D",
+    "bitRate": 22413337,
+    "duration": 6532
+  },
+  {
+    "caseId": "format-058",
+    "fileId": 16315,
+    "itemId": 6926,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "truehd"
+      ]
+    ],
+    "title": "伊莎贝拉",
+    "bitRate": 22018822,
+    "duration": 6561
+  },
+  {
+    "caseId": "format-059",
+    "fileId": 14520,
+    "itemId": 6583,
+    "season": 1,
+    "episode": 26,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "西游记",
+    "bitRate": 1099138,
+    "duration": 1476
+  },
+  {
+    "caseId": "format-060",
+    "fileId": 13732,
+    "itemId": 6456,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "dts",
+        "pcm_s16le"
+      ]
+    ],
+    "title": "色‧戒",
+    "bitRate": 36913384,
+    "duration": 9494
+  },
+  {
+    "caseId": "format-061",
+    "fileId": 13478,
+    "itemId": 6406,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "dts",
+        "pcm_s24le"
+      ]
+    ],
+    "title": "让子弹飞",
+    "bitRate": 38410540,
+    "duration": 7921
+  },
+  {
+    "caseId": "format-062",
+    "fileId": 16460,
+    "itemId": 6937,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "中国合伙人",
+    "bitRate": 38847808,
+    "duration": 6735
+  },
+  {
+    "caseId": "format-063",
+    "fileId": 16314,
+    "itemId": 6925,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "dts"
+      ]
+    ],
+    "title": "贝利：传奇的诞生",
+    "bitRate": 11774755,
+    "duration": 6425
+  },
+  {
+    "caseId": "format-064",
+    "fileId": 12965,
+    "itemId": 6303,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "eac3",
+        "flac"
+      ]
+    ],
+    "title": "饥饿站台",
+    "bitRate": 15934426,
+    "duration": 5933
+  },
+  {
+    "caseId": "format-065",
+    "fileId": 13458,
+    "itemId": 6401,
+    "season": 1,
+    "episode": 12,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "eac3"
+      ]
+    ],
+    "title": "非常律师禹英禑",
+    "bitRate": 1622192,
+    "duration": 4285
+  },
+  {
+    "caseId": "format-066",
+    "fileId": 17986,
+    "itemId": 7026,
+    "season": 1,
+    "episode": 10,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "flac"
+      ]
+    ],
+    "title": "我们与恶的距离",
+    "bitRate": 13112232,
+    "duration": 3274
+  },
+  {
+    "caseId": "format-067",
+    "fileId": 13810,
+    "itemId": 6473,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "pcm_s16le"
+      ]
+    ],
+    "title": "罗生门",
+    "bitRate": 31551063,
+    "duration": 5258
+  },
+  {
+    "caseId": "format-068",
+    "fileId": 13353,
+    "itemId": 6374,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "pcm_s24le",
+        "truehd"
+      ]
+    ],
+    "title": "逃学威龙",
+    "bitRate": 27587629,
+    "duration": 6058
+  },
+  {
+    "caseId": "format-069",
+    "fileId": 15880,
+    "itemId": 6851,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "pcm_s24le"
+      ]
+    ],
+    "title": "启示",
+    "bitRate": 18833192,
+    "duration": 8301
+  },
+  {
+    "caseId": "format-070",
+    "fileId": 15468,
+    "itemId": 6762,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "truehd"
+      ]
+    ],
+    "title": "完美陌生人",
+    "bitRate": 26878527,
+    "duration": 5776
+  },
+  {
+    "caseId": "format-071",
+    "fileId": 23866,
+    "itemId": 953,
+    "season": 1,
+    "episode": 16,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "aac",
+        "dts",
+        "eac3"
+      ]
+    ],
+    "title": "九门",
+    "bitRate": 15244062,
+    "duration": 3050
+  },
+  {
+    "caseId": "format-072",
+    "fileId": 19460,
+    "itemId": 7057,
+    "season": 1,
+    "episode": 26,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "aac",
+        "eac3"
+      ]
+    ],
+    "title": "小城大事",
+    "bitRate": 7315621,
+    "duration": 2782
+  },
+  {
+    "caseId": "format-073",
+    "fileId": 25040,
+    "itemId": 7216,
+    "season": 1,
+    "episode": 5,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "aac"
+      ]
+    ],
+    "title": "醉梦",
+    "bitRate": 5204150,
+    "duration": 2784
+  },
+  {
+    "caseId": "format-074",
+    "fileId": 16051,
+    "itemId": 6876,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "十二猴子",
+    "bitRate": 92250202,
+    "duration": 7766
+  },
+  {
+    "caseId": "format-075",
+    "fileId": 14956,
+    "itemId": 6685,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "我的世界大电影",
+    "bitRate": 71338500,
+    "duration": 6054
+  },
+  {
+    "caseId": "format-076",
+    "fileId": 17437,
+    "itemId": 6998,
+    "season": 7,
+    "episode": 6,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "ac3",
+        "truehd"
+      ]
+    ],
+    "title": "权力的游戏",
+    "bitRate": 30999424,
+    "duration": 4204
+  },
+  {
+    "caseId": "format-077",
+    "fileId": 24792,
+    "itemId": 7188,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "哪吒之魔童降世",
+    "bitRate": 76309066,
+    "duration": 6607
+  },
+  {
+    "caseId": "format-078",
+    "fileId": 17273,
+    "itemId": 6993,
+    "season": 1,
+    "episode": 9,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "dts"
+      ]
+    ],
+    "title": "毒枭：墨西哥",
+    "bitRate": 17819470,
+    "duration": 3281
+  },
+  {
+    "caseId": "format-079",
+    "fileId": 13548,
+    "itemId": 6414,
+    "season": 1,
+    "episode": 23,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "eac3"
+      ]
+    ],
+    "title": "长安的荔枝",
+    "bitRate": 12743668,
+    "duration": 2789
+  },
+  {
+    "caseId": "format-080",
+    "fileId": 16060,
+    "itemId": 6881,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "truehd"
+      ]
+    ],
+    "title": "勇往直前",
+    "bitRate": 53390451,
+    "duration": 8047
+  },
+  {
+    "caseId": "format-081",
+    "fileId": 23881,
+    "itemId": 953,
+    "season": 1,
+    "episode": 28,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "aac",
+        "dts"
+      ]
+    ],
+    "title": "九门",
+    "bitRate": 3501924,
+    "duration": 3018
+  },
+  {
+    "caseId": "format-082",
+    "fileId": 23861,
+    "itemId": 953,
+    "season": 1,
+    "episode": 11,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "aac",
+        "dts",
+        "eac3"
+      ]
+    ],
+    "title": "九门",
+    "bitRate": 4345892,
+    "duration": 2697
+  },
+  {
+    "caseId": "format-083",
+    "fileId": 14370,
+    "itemId": 6542,
+    "season": 1,
+    "episode": 18,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "aac",
+        "eac3"
+      ]
+    ],
+    "title": "请回答1988",
+    "bitRate": 2426251,
+    "duration": 6195
+  },
+  {
+    "caseId": "format-084",
+    "fileId": 13623,
+    "itemId": 1018,
+    "season": 1,
+    "episode": 7,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "aac",
+        "eac3",
+        "flac"
+      ]
+    ],
+    "title": "金色",
+    "bitRate": 16390300,
+    "duration": 2765
+  },
+  {
+    "caseId": "format-085",
+    "fileId": 24760,
+    "itemId": 7179,
+    "season": 1,
+    "episode": 7,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "aac"
+      ]
+    ],
+    "title": "深渊无间",
+    "bitRate": 7575876,
+    "duration": 2387
+  },
+  {
+    "caseId": "format-086",
+    "fileId": 15612,
+    "itemId": 6795,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "天堂电影院",
+    "bitRate": 37502777,
+    "duration": 7375
+  },
+  {
+    "caseId": "format-087",
+    "fileId": 15584,
+    "itemId": 6787,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "头脑特工队",
+    "bitRate": 23487604,
+    "duration": 5688
+  },
+  {
+    "caseId": "format-088",
+    "fileId": 13800,
+    "itemId": 6469,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "truehd"
+      ]
+    ],
+    "title": "美国队长",
+    "bitRate": 14938519,
+    "duration": 8154
+  },
+  {
+    "caseId": "format-089",
+    "fileId": 13284,
+    "itemId": 6366,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "遇见你之前",
+    "bitRate": 14662144,
+    "duration": 6611
+  },
+  {
+    "caseId": "format-090",
+    "fileId": 15221,
+    "itemId": 6739,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "少年派的奇幻漂流",
+    "bitRate": 51414448,
+    "duration": 7628
+  },
+  {
+    "caseId": "format-091",
+    "fileId": 16456,
+    "itemId": 6935,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "dts"
+      ]
+    ],
+    "title": "乔乔的异想世界",
+    "bitRate": 33391302,
+    "duration": 6504
+  },
+  {
+    "caseId": "format-092",
+    "fileId": 16267,
+    "itemId": 6911,
+    "season": 5,
+    "episode": 9,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "eac3"
+      ]
+    ],
+    "title": "王冠",
+    "bitRate": 1946746,
+    "duration": 3142
+  },
+  {
+    "caseId": "format-093",
+    "fileId": 14465,
+    "itemId": 6578,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "truehd"
+      ]
+    ],
+    "title": "波西米亚狂想曲",
+    "bitRate": 42037185,
+    "duration": 8077
+  },
+  {
+    "caseId": "format-094",
+    "fileId": 23397,
+    "itemId": 7102,
+    "season": 1,
+    "episode": 12,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "aac",
+        "dts",
+        "eac3"
+      ]
+    ],
+    "title": "剥茧",
+    "bitRate": 3043104,
+    "duration": 2770
+  },
+  {
+    "caseId": "format-095",
+    "fileId": 24682,
+    "itemId": 6269,
+    "season": 1,
+    "episode": 16,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "aac",
+        "eac3"
+      ]
+    ],
+    "title": "交锋",
+    "bitRate": 3498993,
+    "duration": 2763
+  },
+  {
+    "caseId": "format-096",
+    "fileId": 22920,
+    "itemId": 7141,
+    "season": 1,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "aac"
+      ]
+    ],
+    "title": "哆啦A梦",
+    "bitRate": 505012,
+    "duration": 429
+  },
+  {
+    "caseId": "format-097",
+    "fileId": 13427,
+    "itemId": 6394,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "赌神",
+    "bitRate": 15227770,
+    "duration": 7579
+  },
+  {
+    "caseId": "format-098",
+    "fileId": 13438,
+    "itemId": 6397,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "赌侠II之上海滩赌圣",
+    "bitRate": 17617267,
+    "duration": 6286
+  },
+  {
+    "caseId": "format-099",
+    "fileId": 13856,
+    "itemId": 6484,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "ac3",
+        "eac3"
+      ]
+    ],
+    "title": "素媛",
+    "bitRate": 5581181,
+    "duration": 7387
+  },
+  {
+    "caseId": "format-100",
+    "fileId": 16483,
+    "itemId": 6941,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "ac3",
+        "flac"
+      ]
+    ],
+    "title": "东京物语",
+    "bitRate": 13495894,
+    "duration": 8173
+  },
+  {
+    "caseId": "format-101",
+    "fileId": 13574,
+    "itemId": 6425,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "ac3",
+        "truehd"
+      ]
+    ],
+    "title": "血色将至",
+    "bitRate": 14217205,
+    "duration": 9505
+  },
+  {
+    "caseId": "format-102",
+    "fileId": 14938,
+    "itemId": 6680,
+    "season": 4,
+    "episode": 15,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "良医",
+    "bitRate": 2356507,
+    "duration": 2589
+  },
+  {
+    "caseId": "format-103",
+    "fileId": 12901,
+    "itemId": 6286,
+    "season": 1,
+    "episode": 3,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "dts"
+      ]
+    ],
+    "title": "黑夜告白",
+    "bitRate": 2314812,
+    "duration": 2727
+  },
+  {
+    "caseId": "format-104",
+    "fileId": 14827,
+    "itemId": 6658,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "eac3"
+      ]
+    ],
+    "title": "斯图尔特：倒带人生",
+    "bitRate": 4170033,
+    "duration": 5523
+  },
+  {
+    "caseId": "format-105",
+    "fileId": 14512,
+    "itemId": 6605,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "flac"
+      ]
+    ],
+    "title": "樱桃的滋味",
+    "bitRate": 9868564,
+    "duration": 5974
+  },
+  {
+    "caseId": "format-106",
+    "fileId": 19535,
+    "itemId": 7060,
+    "season": 1,
+    "episode": 21,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "mp2"
+      ]
+    ],
+    "title": "家有儿女",
+    "bitRate": 6444379,
+    "duration": 1518
+  },
+  {
+    "caseId": "format-107",
+    "fileId": 23860,
+    "itemId": 953,
+    "season": 1,
+    "episode": 10,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      8,
+      [
+        "aac",
+        "dts",
+        "eac3"
+      ]
+    ],
+    "title": "九门",
+    "bitRate": 2529775,
+    "duration": 2456
+  },
+  {
+    "caseId": "format-108",
+    "fileId": 17722,
+    "itemId": 7010,
+    "season": 1,
+    "episode": 21,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      8,
+      [
+        "aac",
+        "eac3"
+      ]
+    ],
+    "title": "无间",
+    "bitRate": 1181545,
+    "duration": 2752
+  },
+  {
+    "caseId": "format-109",
+    "fileId": 13622,
+    "itemId": 1018,
+    "season": 1,
+    "episode": 6,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      8,
+      [
+        "aac",
+        "eac3",
+        "flac"
+      ]
+    ],
+    "title": "金色",
+    "bitRate": 5366158,
+    "duration": 2773
+  },
+  {
+    "caseId": "format-110",
+    "fileId": 23848,
+    "itemId": 953,
+    "season": 1,
+    "episode": 4,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      8,
+      [
+        "aac"
+      ]
+    ],
+    "title": "九门",
+    "bitRate": 1353889,
+    "duration": 2483
+  },
+  {
+    "caseId": "format-111",
+    "fileId": 15521,
+    "itemId": 6774,
+    "season": 1,
+    "episode": 10,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      8,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "罗马",
+    "bitRate": 1631283,
+    "duration": 3170
+  },
+  {
+    "caseId": "format-112",
+    "fileId": 24714,
+    "itemId": 6269,
+    "season": 1,
+    "episode": 18,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      8,
+      [
+        "eac3"
+      ]
+    ],
+    "title": "交锋",
+    "bitRate": 3076617,
+    "duration": 2778
+  },
+  {
+    "caseId": "format-113",
+    "fileId": 15135,
+    "itemId": 6717,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "弱点",
+    "bitRate": 31419546,
+    "duration": 7713
+  },
+  {
+    "caseId": "format-114",
+    "fileId": 13572,
+    "itemId": 6424,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "flac"
+      ]
+    ],
+    "title": "血钻",
+    "bitRate": 14709683,
+    "duration": 8601
+  },
+  {
+    "caseId": "format-115",
+    "fileId": 14523,
+    "itemId": 6610,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "truehd"
+      ]
+    ],
+    "title": "查理和巧克力工厂",
+    "bitRate": 20576960,
+    "duration": 6923
+  },
+  {
+    "caseId": "format-116",
+    "fileId": 14775,
+    "itemId": 6640,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "dts"
+      ]
+    ],
+    "title": "时间旅行者的妻子",
+    "bitRate": 20618326,
+    "duration": 6445
+  },
+  {
+    "caseId": "format-117",
+    "fileId": 14999,
+    "itemId": 6692,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "pcm_s24le"
+      ]
+    ],
+    "title": "成为简·奥斯汀",
+    "bitRate": 40086138,
+    "duration": 7259
+  },
+  {
+    "caseId": "format-118",
+    "fileId": 13337,
+    "itemId": 6368,
+    "season": 2,
+    "episode": 1,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "vp9",
+      "SDR",
+      8,
+      [
+        "aac"
+      ]
+    ],
+    "title": "风味人间",
+    "bitRate": 8786531,
+    "duration": 3063
+  },
+  {
+    "caseId": "format-119",
+    "fileId": 21365,
+    "itemId": 7141,
+    "season": 2,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      null,
+      "SDR",
+      null,
+      []
+    ],
+    "title": "哆啦A梦",
+    "bitRate": null,
+    "duration": null
+  },
+  {
+    "caseId": "format-120",
+    "fileId": 18930,
+    "itemId": 7051,
+    "season": 1,
+    "episode": 89,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "h264",
+      "SDR",
+      8,
+      [
+        "aac"
+      ]
+    ],
+    "title": "小鼠波波",
+    "bitRate": 623948,
+    "duration": 320
+  },
+  {
+    "caseId": "format-121",
+    "fileId": 16536,
+    "itemId": 6954,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "万箭穿心",
+    "bitRate": 13569299,
+    "duration": 6257
+  },
+  {
+    "caseId": "format-122",
+    "fileId": 17504,
+    "itemId": 6999,
+    "season": 2,
+    "episode": 6,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "h264",
+      "SDR",
+      8,
+      [
+        "eac3"
+      ]
+    ],
+    "title": "机智的医生生活",
+    "bitRate": 2107137,
+    "duration": 5016
+  },
+  {
+    "caseId": "format-123",
+    "fileId": 15028,
+    "itemId": 6697,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "aac",
+        "dts",
+        "eac3"
+      ]
+    ],
+    "title": "惊蛰无声",
+    "bitRate": 30478075,
+    "duration": 6249
+  },
+  {
+    "caseId": "format-124",
+    "fileId": 16247,
+    "itemId": 6901,
+    "season": 1,
+    "episode": 33,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "aac",
+        "eac3"
+      ]
+    ],
+    "title": "玫瑰的故事",
+    "bitRate": 6085912,
+    "duration": 2810
+  },
+  {
+    "caseId": "format-125",
+    "fileId": 24648,
+    "itemId": 6269,
+    "season": 1,
+    "episode": 8,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "aac"
+      ]
+    ],
+    "title": "交锋",
+    "bitRate": 3280533,
+    "duration": 2773
+  },
+  {
+    "caseId": "format-126",
+    "fileId": 19906,
+    "itemId": 7072,
+    "season": 1,
+    "episode": 1,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "Dolby Vision",
+      10,
+      [
+        "eac3"
+      ]
+    ],
+    "title": "天盛长歌",
+    "bitRate": 5520413,
+    "duration": 2610
+  },
+  {
+    "caseId": "format-127",
+    "fileId": 23590,
+    "itemId": 7112,
+    "season": 1,
+    "episode": 1,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "aac",
+        "eac3"
+      ]
+    ],
+    "title": "众神之地",
+    "bitRate": 6613578,
+    "duration": 3014
+  },
+  {
+    "caseId": "format-128",
+    "fileId": 14366,
+    "itemId": 6542,
+    "season": 1,
+    "episode": 15,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "aac"
+      ]
+    ],
+    "title": "请回答1988",
+    "bitRate": 2818431,
+    "duration": 5981
+  },
+  {
+    "caseId": "format-129",
+    "fileId": 15902,
+    "itemId": 6848,
+    "season": 1,
+    "episode": 28,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "aac"
+      ]
+    ],
+    "title": "知否知否应是绿肥红瘦",
+    "bitRate": 2485601,
+    "duration": 3266
+  },
+  {
+    "caseId": "format-130",
+    "fileId": 13821,
+    "itemId": 6475,
+    "season": 1,
+    "episode": 3,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "eac3"
+      ]
+    ],
+    "title": "转折点：911与反恐战争",
+    "bitRate": 6066786,
+    "duration": 3888
+  },
+  {
+    "caseId": "format-131",
+    "fileId": 20073,
+    "itemId": 7075,
+    "season": 3,
+    "episode": 31,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "SDR",
+      8,
+      [
+        "aac",
+        "eac3"
+      ]
+    ],
+    "title": "大江大河",
+    "bitRate": 1245330,
+    "duration": 2744
+  },
+  {
+    "caseId": "format-132",
+    "fileId": 16341,
+    "itemId": 6928,
+    "season": 1,
+    "episode": 108,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "SDR",
+      8,
+      [
+        "aac"
+      ]
+    ],
+    "title": "猫和老鼠",
+    "bitRate": 820112,
+    "duration": 440
+  },
+  {
+    "caseId": "format-133",
+    "fileId": 13336,
+    "itemId": 6368,
+    "season": 3,
+    "episode": 8,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "hevc",
+      "SDR",
+      8,
+      [
+        "eac3"
+      ]
+    ],
+    "title": "风味人间",
+    "bitRate": 3766572,
+    "duration": 1853
+  },
+  {
+    "caseId": "format-134",
+    "fileId": 19113,
+    "itemId": 7052,
+    "season": 5,
+    "episode": 50,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "mp4",
+      "mpeg4",
+      "SDR",
+      8,
+      [
+        "aac"
+      ]
+    ],
+    "title": "小猪佩奇",
+    "bitRate": 3397251,
+    "duration": 312
+  },
+  {
+    "caseId": "format-135",
+    "fileId": 20516,
+    "itemId": 7087,
+    "season": 1,
+    "episode": 44,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "ts",
+      "h264",
+      "SDR",
+      8,
+      [
+        "aac"
+      ]
+    ],
+    "title": "啊！设计",
+    "bitRate": 997968,
+    "duration": 898
+  },
+  {
+    "caseId": "format-136",
+    "fileId": 13577,
+    "itemId": 6426,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "ts",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "蝴蝶效应",
+    "bitRate": 19525811,
+    "duration": 7177
+  },
+  {
+    "caseId": "format-137",
+    "fileId": 15616,
+    "itemId": 6797,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "ts",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "mp2"
+      ]
+    ],
+    "title": "天书奇谭",
+    "bitRate": 7952917,
+    "duration": 5143
+  },
+  {
+    "caseId": "format-138",
+    "fileId": 19485,
+    "itemId": 7058,
+    "season": 1,
+    "episode": 9,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "ts",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "寻味顺德",
+    "bitRate": 9902198,
+    "duration": 2999
+  },
+  {
+    "caseId": "format-139",
+    "fileId": 13733,
+    "itemId": 6457,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "ts",
+      "h264",
+      "SDR",
+      8,
+      [
+        "dts"
+      ]
+    ],
+    "title": "至爱梵高·星空之谜",
+    "bitRate": 17865611,
+    "duration": 5683
+  },
+  {
+    "caseId": "format-140",
+    "fileId": 13441,
+    "itemId": 6399,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "ts",
+      "h264",
+      "SDR",
+      8,
+      [
+        "mp2"
+      ]
+    ],
+    "title": "贝多芬",
+    "bitRate": 8075929,
+    "duration": 7238
+  },
+  {
+    "caseId": "format-141",
+    "fileId": 15023,
+    "itemId": 6694,
+    "season": 1,
+    "episode": 2,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "ts",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "航拍中国",
+    "bitRate": 48767176,
+    "duration": 2985
+  },
+  {
+    "caseId": "format-142",
+    "fileId": 14409,
+    "itemId": 6552,
+    "season": 1,
+    "episode": 9,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "ts",
+      "hevc",
+      "HLG",
+      8,
+      [
+        "ac3"
+      ]
+    ],
+    "title": "觉醒年代",
+    "bitRate": 32641621,
+    "duration": 2850
+  },
+  {
+    "caseId": "format-143",
+    "fileId": 16165,
+    "itemId": 6898,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "ts",
+      "mpeg2video",
+      "SDR",
+      8,
+      [
+        "aac"
+      ]
+    ],
+    "title": "再见我们的幼儿园",
+    "bitRate": 11637797,
+    "duration": 6344
+  },
+  {
+    "caseId": "format-144",
+    "fileId": 16533,
+    "itemId": 6953,
+    "season": 0,
+    "episode": 0,
+    "startMs": 0,
+    "engine": "auto",
+    "format": [
+      "ts",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "dts"
+      ]
+    ],
+    "title": "万能钥匙",
+    "bitRate": 35670374,
+    "duration": 6237
+  }
+]

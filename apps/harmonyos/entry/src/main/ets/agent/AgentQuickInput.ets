@@ -21,15 +21,9 @@ import { ChatParams } from './ChatParams';
 /**
  * 「我的」页的 AI 快捷输入（对应 iOS `AgentQuickBar` + `AgentComposer` 新样式）。
  *
- * 形态随底栏样式切换（`TabBarStyle.floating`）：
- * - **悬浮胶囊**：输入条以官方 `HdsTabsFloatingStyle.miniBar` 的形式嵌进页签胶囊
- *   （`AgentMiniBar`，全部页签可见），点击打开**半屏输入面板**（`AgentComposerSheet`），
- *   发送后直接进对话页；
- * - **经典贴底栏**：维持原样——管理员在「我的」页签底部常驻一块输入卡（`AgentQuickInput`），
- *   未聚焦一行小入口、聚焦展开成完整输入框。
- *
- * 三处视图共用 `AgentComposerStore` 单例：草稿、附件、模型选择跨视图保留，
- * 切页签/换底栏样式都不丢。整屏页（会话页等）压上来时由 `ShellChrome` 隐藏。
+ * 管理员仅在「我的」页底部显示输入卡：未聚焦一行入口，聚焦展开完整输入框。
+ * 悬浮和经典底栏共用 AgentComposerStore，切换样式不丢草稿。
+ * 整屏页（会话页等）压上来时由 ShellChrome 隐藏。
  */
 
 /** 经典贴底栏卡片在页签栏上方再抬起的高度 */
@@ -280,9 +274,8 @@ export class AgentComposerStore {
 /** 发送/＋/发送三枚控件的公共尺寸字体（迷你条里缩到 32） */
 
 /**
- * **经典贴底栏模式**的「我的」页输入卡：未聚焦一行小入口（＋ | 输入 | 发送），
+ * 「我的」页输入卡：未聚焦一行小入口（＋ | 输入 | 发送），
  * 聚焦展开成完整输入框（附件托盘 + 多行输入 + ＋ / 模型胶囊 / 发送）。
- * 悬浮胶囊模式下整卡隐藏——入口由页签胶囊里的迷你条（`AgentMiniBar`）承担。
  */
 @ComponentV2
 export struct AgentQuickInput {
@@ -310,9 +303,9 @@ export struct AgentQuickInput {
     }
   }
 
-  /** 经典底栏模式才显示（悬浮模式入口在页签胶囊的迷你条里）；整屏页压上来时隐藏 */
+  /** 仅由「我的」导航宿主挂载；整屏页压上来时隐藏。 */
   private visible(): boolean {
-    if (this.chrome.immersive || this.tabBarStyle.floating) {
+    if (this.chrome.immersive) {
       return false;
     }
     return this.store.isAdmin();
@@ -425,18 +418,18 @@ export struct AgentQuickInput {
         backgroundColor: Theme.bg
       })
     }
-    .width('100%')
-    .backgroundColor('rgba(255, 255, 255, 0.05)')
+    .width('calc(100% - 32vp)')
+    .backgroundColor('rgba(18, 21, 27, 0.96)')
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
     .borderRadius(26)
     .border({ width: 1, color: 'rgba(255, 255, 255, 0.07)' })
     .margin({
-      left: 12,
-      right: 12,
       /*
        * 键盘弹出时贴键盘；否则抬到官方贴底页签栏上方：栏高 56 + 手势区，再留 12 呼吸。
        */
-      bottom: this.keyboardInset > 0 ? 8 : BAR_LIFT_DOCKED + 56 + WindowInsets.shared().bottom
+      bottom: this.keyboardInset > 0 ? 8 : BAR_LIFT_DOCKED + 56 + (this.tabBarStyle.floating ? 12 : 0) + WindowInsets.shared().bottom
     })
+    .id('app-more-ai-input')
     .visibility(this.visible() ? Visibility.Visible : Visibility.None)
   }
 

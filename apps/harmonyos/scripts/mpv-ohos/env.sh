@@ -43,8 +43,8 @@ export MPV_OHOS_LIBASS_VER="0.17.4"
 export MPV_OHOS_MBEDTLS_REF="mbedtls-2.28.9"
 
 # app 侧产物路径
-export MPV_OHOS_APP_LIBS_DIR="$MPV_OHOS_SCRIPTS_DIR/../../entry/libs/arm64-v8a"
-export MPV_OHOS_APP_CPP_DIR="$MPV_OHOS_SCRIPTS_DIR/../../entry/src/main/cpp"
+export MPV_OHOS_APP_LIBS_DIR="$MPV_OHOS_SCRIPTS_DIR/../../player_engine/libs/arm64-v8a"
+export MPV_OHOS_APP_CPP_DIR="$MPV_OHOS_SCRIPTS_DIR/../../player_engine/src/main/cpp"
 
 _ohos_env_ready() {
   [ -d "$MPV_OHOS_NDK/llvm/bin" ] || { echo "❌ 找不到 OHOS NDK: $MPV_OHOS_NDK"; return 1; }

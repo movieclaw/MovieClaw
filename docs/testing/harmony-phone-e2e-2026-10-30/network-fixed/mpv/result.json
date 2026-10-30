@@ -1,0 +1,39 @@
+{
+  "engine": "mpv",
+  "started": true,
+  "beforeStall": {
+    "caseId": "network-mpv-1793350264297",
+    "at": 1793350277615,
+    "event": "snapshot",
+    "engine": "mpv",
+    "phase": "playing",
+    "positionMs": 2000,
+    "durationMs": 6257000,
+    "playing": true,
+    "buffering": false,
+    "firstFrame": false,
+    "detail": ""
+  },
+  "proxyBefore": {
+    "bytesPerSecond": 0,
+    "bytes": 381532173,
+    "requests": 135
+  },
+  "bufferingObserved": true,
+  "stalledPositionDeltaMs": 0,
+  "proxyAfter": {
+    "bytesPerSecond": -1,
+    "bytes": 381548557,
+    "requests": 135
+  },
+  "recovered": true,
+  "recoveryBufferMs": 302,
+  "seekSurvived10sStall": true,
+  "seekRecovered": true,
+  "seekRecoveryObservedMs": 3402,
+  "engines": [
+    "mpv"
+  ],
+  "failures": [],
+  "disposed": true
+}

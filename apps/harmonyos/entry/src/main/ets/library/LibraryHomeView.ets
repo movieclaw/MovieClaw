@@ -860,6 +860,7 @@ export struct LibraryHomeView {
         })
         .cachedCount(4)
         // 底部让位用 contentEndOffset：内容能滚到页签胶囊/手势条下面，胶囊背后不再是黑底
+        .id('app-library-list')
         .contentEndOffset(Theme.tabBarInset)
       }
       .onRefreshing(() => {

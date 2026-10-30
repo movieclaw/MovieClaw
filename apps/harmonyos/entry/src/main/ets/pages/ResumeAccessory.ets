@@ -88,7 +88,7 @@ export class ResumeBarStore {
 @ComponentV2
 export struct ResumeBar {
   @Require @Param item: UpNextItemView;
-  /** 收起态：跟着底栏一起收成一枚圆形按钮（与页签栏的圆钮同高、同一条水平线） */
+  /** 收起态：整条缩窄并移到导航同一行，保留内容与播放入口、隐藏关闭按钮 */
   @Param compact: boolean = false;
   @Event onHide: () => void = () => {
   };
@@ -163,53 +163,7 @@ export struct ResumeBar {
     return Math.max(0, Math.min(100, Math.round(raw)));
   }
 
-  /** 收起态：一枚圆形唱片（封面 + 环形进度），与官方页签栏收起后的圆钮同规格 */
-  @Builder
-  CompactBar() {
-    Stack({ alignContent: Alignment.Center }) {
-      // 环绕一圈的进度：已播 = 绿色弧，未播 = 白色 16% 的轨道（没有进度也画空环）
-      Progress({ value: this.ringPercent() ?? 0, total: 100, type: ProgressType.Ring })
-        .width(56)
-        .height(56)
-        .color(Theme.ok)
-        .backgroundColor('rgba(255, 255, 255, 0.16)')
-        .style({ strokeWidth: 3 })
-      Column({ space: 0 }) {
-        RemoteImage({
-          url: this.posterUrl(),
-          placeholderSymbol: $r('sys.symbol.play_square')
-        })
-          .width(30)
-          .height(30)
-          .borderRadius(7)
-          .clip(true)
-        if (this.ringPercent() !== null) {
-          Text(`${this.ringPercent()}%`)
-            .fontSize(9)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
-            .margin({ top: 1 })
-        }
-      }
-      .justifyContent(FlexAlign.Center)
-    }
-    .width(56)
-    .height(56)
-    .backgroundColor('rgba(18, 21, 27, 0.94)')
-    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-    .systemMaterial(SpatialMaterial.floating())
-    .borderRadius(28)
-    .border({ width: 1, color: 'rgba(255, 255, 255, 0.10)' })
-    .shadow({ radius: 22, color: 'rgba(0, 0, 0, 0.45)', offsetX: 0, offsetY: 8 })
-    .onClick(() => {
-      this.play();
-    })
-  }
-
   build() {
-    if (this.compact) {
-      this.CompactBar()
-    } else {
     Row() {
       // 左边整块点了起播（左边区域与 ✕ 是并排的两个按钮，按钮里套按钮点击会串）
       Row({ space: 10 }) {
@@ -236,37 +190,47 @@ export struct ResumeBar {
         .height(46)
         Column({ space: 1 }) {
           Text(this.item.title)
+            .id('app-resume-title')
             .fontSize(14)
             .fontWeight(FontWeight.Medium)
             .fontColor(Theme.text)
             .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
           if (this.detail().length > 0) {
             Text(this.detail())
               .fontSize(11)
               .fontColor(Theme.textMuted)
               .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
           }
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
         SymbolGlyph($r('sys.symbol.play_fill'))
+          .id('app-resume-play-icon')
           .fontSize(16)
           .fontColor([Theme.accentStrong])
       }
-      .padding({ left: 12, right: 4 })
+      .padding({ left: 12, right: this.compact ? 16 : 4 })
       .layoutWeight(1)
       .height('100%')
+      .id('app-resume-play')
+      .accessibilityText(`继续播放 ${this.item.title}`)
       .onClick(() => {
         this.play();
       })
 
-      SymbolGlyph($r('sys.symbol.xmark'))
-        .fontSize(13)
-        .fontColor([Theme.textMuted])
-        .padding(10)
-        .onClick(() => {
-          this.onHide();
-        })
+      if (!this.compact) {
+        SymbolGlyph($r('sys.symbol.xmark'))
+          .id('app-resume-close')
+          .accessibilityText('关闭最近播放')
+          .fontSize(13)
+          .fontColor([Theme.textMuted])
+          .padding(10)
+          .onClick(() => {
+            this.onHide();
+          })
+      }
     }
     .width('100%')
     .height(56)
@@ -281,6 +245,5 @@ export struct ResumeBar {
     .borderRadius(28)
     .border({ width: 1, color: 'rgba(255, 255, 255, 0.10)' })
     .shadow({ radius: 22, color: 'rgba(0, 0, 0, 0.45)', offsetX: 0, offsetY: 8 })
-    }
   }
 }

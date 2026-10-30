@@ -1,0 +1,92 @@
+
+OHOS_REPORT_SUM: 4
+OHOS_REPORT_STATUS: class=HarmonyAppTabsE2E
+
+
+OHOS_REPORT_STATUS: class=HarmonyAppTabsE2E
+OHOS_REPORT_STATUS: current=1
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=4
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=all_tabs_update_selection_and_scope_accessories
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyAppTabsE2E
+OHOS_REPORT_STATUS: current=1
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=4
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=all_tabs_update_selection_and_scope_accessories
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=16089
+
+
+OHOS_REPORT_STATUS: class=HarmonyAppTabsE2E
+OHOS_REPORT_STATUS: current=2
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=4
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=scroll_collapses_to_current_tab_and_tap_restores_all_tabs
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyAppTabsE2E
+OHOS_REPORT_STATUS: current=2
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=4
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=scroll_collapses_to_current_tab_and_tap_restores_all_tabs
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=9346
+
+
+OHOS_REPORT_STATUS: class=HarmonyAppTabsE2E
+OHOS_REPORT_STATUS: current=3
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=4
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=classic_style_switch_and_reselect_return_to_root
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyAppTabsE2E
+OHOS_REPORT_STATUS: current=3
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=4
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=classic_style_switch_and_reselect_return_to_root
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=20586
+
+
+OHOS_REPORT_STATUS: class=HarmonyAppTabsE2E
+OHOS_REPORT_STATUS: current=4
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=4
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=player_hides_global_navigation_and_back_restores_it
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyAppTabsE2E
+OHOS_REPORT_STATUS: current=4
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=4
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=player_hides_global_navigation_and_back_restores_it
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=8441
+
+
+OHOS_REPORT_STATUS: class=HarmonyAppTabsE2E
+OHOS_REPORT_STATUS: suiteconsuming=54462
+
+
+OHOS_REPORT_RESULT: stream=Tests run: 4, Failure: 0, Error: 0, Pass: 4, Ignore: 0
+OHOS_REPORT_CODE: 0
+OHOS_REPORT_STATUS: taskconsuming=54462
+
+TestFinished-ResultCode: 0
+TestFinished-ResultMsg: your test finished!!!
+user test finished.

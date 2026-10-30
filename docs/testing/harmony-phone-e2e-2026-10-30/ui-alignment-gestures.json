@@ -1,0 +1,18 @@
+[
+  {
+    "engine": "auto",
+    "case": "gestures-auto-1793358839528",
+    "pausedBarSeekMs": 110684,
+    "pausedDoubleTapMs": 100684,
+    "longPressRecognized": true,
+    "nativeEngine": "avplayer"
+  },
+  {
+    "engine": "mpv",
+    "case": "gestures-mpv-1793358859013",
+    "pausedBarSeekMs": 110684,
+    "pausedDoubleTapMs": 100684,
+    "longPressRecognized": true,
+    "nativeEngine": "mpv"
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "name": "@movieclaw/playback",
+  "version": "1.0.0",
+  "description": "Shared HarmonyOS playback playback",
+  "main": "Index.ets",
+  "dependencies": {
+    "@movieclaw/player-engine": "file:../player_engine"
+  }
+}

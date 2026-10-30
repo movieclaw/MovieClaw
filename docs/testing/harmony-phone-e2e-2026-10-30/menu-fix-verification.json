@@ -1,0 +1,16 @@
+{
+  "appHapSha256": "67ba7bf35faea5f319ba2505453c59ce80e7e79512cbfe2b72166b801d7dc6e6",
+  "reference": [
+    "apps/apple/MovieClaw/Features/Player/PlayerMenus.swift",
+    "apps/apple/MovieClaw/Features/Player/PlayerControls.swift"
+  ],
+  "changes": [
+    "compact headers and settings rows with trailing icons",
+    "inset menu button highlight bound to current menu",
+    "reset submenu scroll position",
+    "measured menu bounds and persistent overflow scrollbar"
+  ],
+  "target": "ARM64 HarmonyOS API24 emulator; AVPlayer and MPV",
+  "unitResult": "39/39 pass",
+  "uiResult": "7/7 pass in final continuous run"
+}

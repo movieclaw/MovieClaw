@@ -45,8 +45,8 @@ export struct PlaybackSection {
   @Local private busy: boolean = false;
   /** 保存失败只显示在出错的那张卡上（Web 两张卡各管各的错误） */
   @Local private saveError: string = '';
-  /** 播放引擎（'mpv' 默认 / 'avplayer' 系统播放器）：本机偏好，改即存、下次起播生效 */
-  @Local private engine: string = 'mpv';
+  /** 播放引擎（auto 默认 / mpv / avplayer 手动覆盖）：本机偏好，改即存、下次起播生效 */
+  @Local private engine: string = 'auto';
   /** 开着且还在切时的进度轮询（同 iOS 15 秒一拉） */
   private clipTick: number = -1;
 
@@ -331,11 +331,22 @@ export struct PlaybackSection {
     Column({ space: 0 }) {
       Row({ space: 12 }) {
         Column({ space: 2 }) {
+          Text('自动（推荐）').fontSize(15).fontColor(Theme.text)
+          Text('AVPlayer 优先，无法解码时使用 MPV').fontSize(12).fontColor(Theme.textFaint)
+        }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+        if (this.engine === 'auto') {
+          SymbolGlyph($r('sys.symbol.checkmark')).fontSize(16).fontColor([Theme.accent])
+        }
+      }.width('100%').padding(16).onClick(() => { this.pickEngine('auto'); })
+      Divider().color(Theme.line).margin({ left: 16, right: 16 })
+
+      Row({ space: 12 }) {
+        Column({ space: 2 }) {
           Text('mpv')
             .fontSize(15)
             .fontWeight(FontWeight.Medium)
             .fontColor(Theme.text)
-          Text('mpv（默认）')
+          Text('仅 MPV（手动选择）')
             .fontSize(12)
             .fontColor(Theme.textFaint)
         }
@@ -359,7 +370,7 @@ export struct PlaybackSection {
             .fontSize(15)
             .fontWeight(FontWeight.Medium)
             .fontColor(Theme.text)
-          Text('系统播放器')
+          Text('仅 AVPlayer（手动选择）')
             .fontSize(12)
             .fontColor(Theme.textFaint)
         }

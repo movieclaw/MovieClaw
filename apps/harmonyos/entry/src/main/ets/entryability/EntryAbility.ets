@@ -1,3 +1,4 @@
+import { PlaybackTestProbe } from '../playback/PlaybackTestProbe';
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
@@ -55,6 +56,7 @@ export default class EntryAbility extends UIAbility {
     NotifyCenter.shared().init();
     this.captureShareLink(want);
     this.captureNotifyTap(want);
+    PlaybackTestProbe.handle(want);
     hilog.info(DOMAIN, 'MovieClaw', '%{public}s', 'Ability onCreate');
   }
 
@@ -62,6 +64,7 @@ export default class EntryAbility extends UIAbility {
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     this.captureShareLink(want);
     this.captureNotifyTap(want);
+    PlaybackTestProbe.handle(want);
   }
 
   /**

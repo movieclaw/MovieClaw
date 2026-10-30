@@ -1,3 +1,4 @@
+import { PlaybackOwnership } from '@movieclaw/playback';
 import { media } from '@kit.MediaKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Theme } from '../theme/AppTheme';
@@ -266,10 +267,17 @@ export struct ReelsPage {
   @Local private exhausted: boolean = false;
 
   aboutToDisappear(): void {
+    PlaybackOwnership.release(this);
     this.chrome.pop('reels');
     this.disarmHoldTimer();
     this.stopTick();
     this.releasePlayer();
+  }
+
+  private claimPlayback(): void {
+    PlaybackOwnership.claim(this, (): void => {
+      this.player?.pause(); this.paused = true; this.routePaused = true;
+    });
   }
 
   private api(): MovieClawApi | null {
@@ -589,6 +597,7 @@ export struct ReelsPage {
     }
     this.failed = false;
     try {
+      this.claimPlayback();
       const player: media.AVPlayer = await media.createAVPlayer();
       if (gen !== this.playGen) {
         // 创建期间又翻了页：这就是孤儿播放器，别接上，直接收掉
@@ -987,6 +996,7 @@ export struct ReelsPage {
       }
     })
     .onShown(() => {
+      this.claimPlayback();
       // 回到这页：先接住全屏播放器带回的位置，再接着放
       this.consumeClipReturn();
       if (this.routePaused) {

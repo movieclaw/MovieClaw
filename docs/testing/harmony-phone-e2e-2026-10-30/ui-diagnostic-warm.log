@@ -1,0 +1,73 @@
+
+OHOS_REPORT_SUM: 3
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=1
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=AVPlayer_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=1
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=AVPlayer_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=14105
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=2
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=unsupported_original_falls_back_to_MPV_and_remains_interactive
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=2
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=unsupported_original_falls_back_to_MPV_and_remains_interactive
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=14060
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=3
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=MPV_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=3
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=MPV_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=14737
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: suiteconsuming=42902
+
+
+OHOS_REPORT_RESULT: stream=Tests run: 3, Failure: 0, Error: 0, Pass: 3, Ignore: 0
+OHOS_REPORT_CODE: 0
+OHOS_REPORT_STATUS: taskconsuming=42902
+
+TestFinished-ResultCode: 0
+TestFinished-ResultMsg: your test finished!!!
+user test finished.

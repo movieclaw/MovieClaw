@@ -1,0 +1,310 @@
+[
+  {
+    "caseId": "retry-018",
+    "fileId": 14607,
+    "itemId": 6626,
+    "season": 0,
+    "episode": 0,
+    "startMs": 1,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "dts"
+      ]
+    ],
+    "title": "未来水世界",
+    "bitRate": 47463381,
+    "duration": 10561
+  },
+  {
+    "caseId": "pause-029",
+    "fileId": 16046,
+    "itemId": 6874,
+    "season": 0,
+    "episode": 0,
+    "startMs": 1,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts",
+        "pcm_bluray"
+      ]
+    ],
+    "title": "千与千寻",
+    "bitRate": 35865010,
+    "duration": 7472
+  },
+  {
+    "caseId": "visual-002",
+    "fileId": 15741,
+    "itemId": 6818,
+    "season": 0,
+    "episode": 0,
+    "startMs": 120000,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "h264",
+      "HDR10",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "坠入",
+    "bitRate": 36674667,
+    "duration": 7162
+  },
+  {
+    "caseId": "visual-013",
+    "fileId": 14559,
+    "itemId": 6621,
+    "season": 0,
+    "episode": 0,
+    "startMs": 120000,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts",
+        "pcm_bluray"
+      ]
+    ],
+    "title": "本能",
+    "bitRate": 87214360,
+    "duration": 7693
+  },
+  {
+    "caseId": "visual-016",
+    "fileId": 16181,
+    "itemId": 6902,
+    "season": 0,
+    "episode": 0,
+    "startMs": 120000,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "pcm_bluray"
+      ]
+    ],
+    "title": "公民凯恩",
+    "bitRate": 9981386,
+    "duration": 7173
+  },
+  {
+    "caseId": "visual-087",
+    "fileId": 15584,
+    "itemId": 6787,
+    "season": 0,
+    "episode": 0,
+    "startMs": 120000,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "头脑特工队",
+    "bitRate": 23487604,
+    "duration": 5688
+  },
+  {
+    "caseId": "visual-098",
+    "fileId": 13438,
+    "itemId": 6397,
+    "season": 0,
+    "episode": 0,
+    "startMs": 120000,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "赌侠II之上海滩赌圣",
+    "bitRate": 17617267,
+    "duration": 6286
+  },
+  {
+    "caseId": "visual-114",
+    "fileId": 13572,
+    "itemId": 6424,
+    "season": 0,
+    "episode": 0,
+    "startMs": 120000,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "flac"
+      ]
+    ],
+    "title": "血钻",
+    "bitRate": 14709683,
+    "duration": 8601
+  },
+  {
+    "caseId": "visual-020",
+    "fileId": 12922,
+    "itemId": 6289,
+    "season": 0,
+    "episode": 0,
+    "startMs": 120000,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10,
+      []
+    ],
+    "title": "黑亚当",
+    "bitRate": 5380583,
+    "duration": 341
+  },
+  {
+    "caseId": "visual-022",
+    "fileId": 16453,
+    "itemId": 6934,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "mpeg2video",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "乔布斯",
+    "bitRate": 832061,
+    "duration": 7694
+  },
+  {
+    "caseId": "visual-024",
+    "fileId": 16441,
+    "itemId": 6932,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "format": [
+      "bluray",
+      "vc1",
+      "SDR",
+      8,
+      [
+        "ac3",
+        "dts",
+        "truehd"
+      ]
+    ],
+    "title": "乱世佳人",
+    "bitRate": 25656948,
+    "duration": 13994
+  },
+  {
+    "caseId": "visual-035",
+    "fileId": 15784,
+    "itemId": 6829,
+    "season": 0,
+    "episode": 0,
+    "startMs": 120000,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8,
+      [
+        "dts"
+      ]
+    ],
+    "title": "喜马拉雅",
+    "bitRate": 4249636,
+    "duration": 6529
+  },
+  {
+    "caseId": "visual-039",
+    "fileId": 13853,
+    "itemId": 6483,
+    "season": 0,
+    "episode": 0,
+    "startMs": 120000,
+    "engine": "auto",
+    "format": [
+      "iso",
+      "hevc",
+      "HDR10",
+      10,
+      [
+        "ac3",
+        "dts"
+      ]
+    ],
+    "title": "紫色",
+    "bitRate": 71262401,
+    "duration": 9225
+  },
+  {
+    "caseId": "visual-068",
+    "fileId": 13353,
+    "itemId": 6374,
+    "season": 0,
+    "episode": 0,
+    "startMs": 120000,
+    "engine": "auto",
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8,
+      [
+        "pcm_s24le",
+        "truehd"
+      ]
+    ],
+    "title": "逃学威龙",
+    "bitRate": 27587629,
+    "duration": 6058
+  }
+]

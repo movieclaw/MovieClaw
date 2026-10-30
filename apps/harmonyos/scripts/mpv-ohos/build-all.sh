@@ -2,8 +2,8 @@
 # MovieClaw libmpv (dex2oat/mpv + OHCodec 硬解) aarch64-linux-ohos 交叉编译流水线
 #
 # 产物:
-#   entry/libs/arm64-v8a/libmpv.so            —— 单文件播放引擎（静态链入 ffmpeg/libass/依赖）
-#   entry/src/main/cpp/include/mpv/*.h        —— NAPI 封装用的头文件
+#   player_engine/libs/arm64-v8a/libmpv.so            —— 单文件播放引擎（静态链入 ffmpeg/libass/依赖）
+#   player_engine/src/main/cpp/include/mpv/*.h        —— NAPI 封装用的头文件
 #
 # 依赖链: zlib → freetype → fribidi → harfbuzz → libass → mbedtls → ffmpeg(ohcodec) → mpv(ohos)
 # 增量: 每个组件有 build/locks/<name>.stamp，存在即跳过；强制重建删对应 stamp 或整目录。
@@ -252,8 +252,8 @@ export_lib() {
   rm -rf "$MPV_OHOS_APP_CPP_DIR/include/mpv"
   cp -R "$MPV_OHOS_PREFIX/include/mpv" "$MPV_OHOS_APP_CPP_DIR/include/mpv"
   local sz=$(du -h "$MPV_OHOS_APP_LIBS_DIR/libmpv.so" | cut -f1)
-  echo "✔ libmpv.so ($sz, SONAME→libmpv.so) → entry/libs/arm64-v8a/"
-  echo "✔ headers → entry/src/main/cpp/include/mpv/"
+  echo "✔ libmpv.so ($sz, SONAME→libmpv.so) → player_engine/libs/arm64-v8a/"
+  echo "✔ headers → player_engine/src/main/cpp/include/mpv/"
   {
     echo "ffmpeg $MPV_OHOS_FFMPEG_REF | mpv $MPV_OHOS_MPV_REF | zlib $MPV_OHOS_ZLIB_REF"
     echo "freetype $MPV_OHOS_FREETYPE_REF | fribidi $MPV_OHOS_FRIBIDI_REF | harfbuzz $MPV_OHOS_HARFBUZZ_REF"

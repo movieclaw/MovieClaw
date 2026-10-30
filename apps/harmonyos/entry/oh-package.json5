@@ -6,7 +6,7 @@
   "author": "",
   "license": "",
   "dependencies": {
-    "libmovieclaw_mpv.so": "file:./src/main/cpp/types/movieclaw_mpv"
+    "@movieclaw/player-engine": "file:../player_engine",
+    "@movieclaw/playback": "file:../playback"
   }
 }
-

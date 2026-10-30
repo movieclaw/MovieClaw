@@ -1,0 +1,149 @@
+case,fileId,format,initialPlayable,initialControlsPassed,finalPlayable,finalControlsPassed,finalEngines,finalTier,finalEvidence,initialFailures,finalFailures,error,visualReviewed,visualFollowup,audioExpected,audioRunningStreams
+format-001,14910,"[""avi"", ""mpeg4"", ""SDR"", 8, [""ac3""]]",True,True,True,True,avplayer,0,acceptance-formats/format-001,,,,True,,True,1
+format-002,15741,"[""bluray"", ""h264"", ""HDR10"", 8, [""ac3"", ""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-002,,,,True,followups/visual-002: visible picture after seek; controls passed,True,1
+format-003,16263,"[""bluray"", ""h264"", ""SDR"", 8, [""ac3"", ""dts""]]",True,True,True,True,avplayer -> mpv,2,acceptance-formats/format-003,,,,True,,True,1
+format-004,13530,"[""bluray"", ""h264"", ""SDR"", 8, [""ac3"", ""dts"", ""truehd""]]",True,True,True,True,avplayer,2,acceptance-formats/format-004,,,,True,"early-review/review-004: visible video from 120 seconds, pause/seek/resume passed",True,1
+format-005,13415,"[""bluray"", ""h264"", ""SDR"", 8, [""ac3"", ""pcm_bluray""]]",True,True,True,True,avplayer,2,acceptance-formats/format-005,,,,True,,True,1
+format-006,14847,"[""bluray"", ""h264"", ""SDR"", 8, [""ac3"", ""pcm_bluray"", ""truehd""]]",True,True,True,True,avplayer,2,acceptance-formats/format-006,,,,True,,True,1
+format-007,14522,"[""bluray"", ""h264"", ""SDR"", 8, [""ac3"", ""truehd""]]",True,False,True,True,avplayer,2,seek-fixed/review-007,timeout:0,,,True,seek-fixed/review-007 passes after 35-second seek deadline,True,1
+format-008,16285,"[""bluray"", ""h264"", ""SDR"", 8, [""ac3""]]",True,True,True,True,avplayer,2,acceptance-formats/format-008,,,,True,,True,1
+format-009,15538,"[""bluray"", ""h264"", ""SDR"", 8, [""dts""]]",True,True,True,True,avplayer,2,acceptance-formats/format-009,,,,True,,True,1
+format-010,15445,"[""bluray"", ""h264"", ""SDR"", 8, [""pcm_bluray""]]",True,True,True,True,avplayer,2,acceptance-formats/format-010,,,,True,,True,1
+format-011,14279,"[""bluray"", ""hevc"", ""HDR10"", 10, [""ac3"", ""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-011,,,,True,,True,1
+format-012,12844,"[""bluray"", ""hevc"", ""HDR10"", 10, [""ac3"", ""dts"", ""eac3"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-012,,,,True,,True,1
+format-013,14559,"[""bluray"", ""hevc"", ""HDR10"", 10, [""ac3"", ""dts"", ""pcm_bluray""]]",True,True,True,True,avplayer,3,acceptance-formats/format-013,,,,True,followups/visual-013: visible picture after seek; controls passed,True,1
+format-014,16034,"[""bluray"", ""hevc"", ""HDR10"", 10, [""ac3"", ""dts"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-014,,,,True,,True,1
+format-015,13651,"[""bluray"", ""hevc"", ""HDR10"", 10, [""ac3"", ""eac3"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-015,,,,True,,True,1
+format-016,16181,"[""bluray"", ""hevc"", ""HDR10"", 10, [""ac3"", ""pcm_bluray""]]",True,True,True,True,avplayer,3,acceptance-formats/format-016,,,,True,followups/visual-016: visible picture after seek; controls passed,True,1
+format-017,15920,"[""bluray"", ""hevc"", ""HDR10"", 10, [""ac3"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-017,,,,True,,True,1
+format-018,14607,"[""bluray"", ""hevc"", ""HDR10"", 10, [""dts""]]",False,False,False,False,avplayer,3,acceptance-formats/format-018,network:5411007,network:5411007,系统播放器错误（5411007）,False,,True,0
+format-019,13885,"[""bluray"", ""hevc"", ""HDR10"", 10, [""pcm_bluray""]]",True,True,True,True,avplayer,3,acceptance-formats/format-019,,,,True,,True,1
+format-020,12922,"[""bluray"", ""hevc"", ""HDR10"", 10, []]",True,True,True,True,avplayer,3,acceptance-formats/format-020,,,,True,followups/visual-020: both screenshots visibly rendered; controls passed,False,0
+format-021,16019,"[""bluray"", ""hevc"", ""SDR"", 10, [""dts""]]",True,True,True,True,avplayer -> mpv,2,acceptance-formats/format-021,,,,True,,True,1
+format-022,16453,"[""bluray"", ""mpeg2video"", ""SDR"", 8, [""ac3"", ""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-022,,,,True,followups/visual-022: both screenshots visibly rendered; controls passed,True,1
+format-023,15200,"[""bluray"", ""vc1"", ""SDR"", 8, [""ac3"", ""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-023,,,,True,,True,1
+format-024,16441,"[""bluray"", ""vc1"", ""SDR"", 8, [""ac3"", ""dts"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-024,,,,True,followups/visual-024: both screenshots visibly rendered; controls passed,True,1
+format-025,13031,"[""bluray"", ""vc1"", ""SDR"", 8, [""ac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-025,,,,True,,True,1
+format-026,14840,"[""bluray"", ""vc1"", ""SDR"", 8, [""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-026,,,,True,,True,1
+format-027,15033,"[""dvd"", ""mpeg2video"", ""SDR"", 8, [""ac3""]]",False,False,False,False,,,acceptance-formats/format-027,,,原盘主播放列表不可读，无法播放；请检查 BDMV/PLAYLIST 是否完整,False,,False,0
+format-028,12932,"[""iso"", ""h264"", ""SDR"", 8, [""ac3"", ""dts""]]",True,True,True,True,avplayer,2,acceptance-formats/format-028,,,,True,,True,1
+format-029,16046,"[""iso"", ""h264"", ""SDR"", 8, [""ac3"", ""dts"", ""pcm_bluray""]]",True,False,True,True,avplayer,2,followups/pause-029,,,,True,followups/pause-029: visible picture after seek; controls passed,True,1
+format-030,15624,"[""iso"", ""h264"", ""SDR"", 8, [""ac3"", ""dts"", ""truehd""]]",True,True,True,True,avplayer,2,acceptance-formats/format-030,,,,True,,True,1
+format-031,13200,"[""iso"", ""h264"", ""SDR"", 8, [""ac3"", ""eac3"", ""truehd""]]",True,True,True,True,avplayer,2,acceptance-formats/format-031,,,,True,,True,1
+format-032,13893,"[""iso"", ""h264"", ""SDR"", 8, [""ac3"", ""pcm_bluray""]]",True,True,True,True,avplayer,2,acceptance-formats/format-032,,,,True,,True,1
+format-033,15045,"[""iso"", ""h264"", ""SDR"", 8, [""ac3"", ""truehd""]]",True,True,True,True,avplayer,2,acceptance-formats/format-033,,,,True,,True,1
+format-034,15509,"[""iso"", ""h264"", ""SDR"", 8, [""dts"", ""pcm_bluray""]]",True,True,True,True,avplayer,2,acceptance-formats/format-034,,,,True,,True,1
+format-035,15784,"[""iso"", ""h264"", ""SDR"", 8, [""dts""]]",True,True,True,True,avplayer,2,acceptance-formats/format-035,,,,True,followups/visual-035: both screenshots visibly rendered; controls passed,True,1
+format-036,13673,"[""iso"", ""h264"", ""SDR"", 8, [""mp3"", ""pcm_bluray""]]",True,True,True,True,avplayer,1,acceptance-formats/format-036,,,,True,,True,1
+format-037,13479,"[""iso"", ""h264"", ""SDR"", 8, [""pcm_bluray""]]",True,True,True,True,avplayer,2,acceptance-formats/format-037,,,,True,,True,1
+format-038,14291,"[""iso"", ""h264"", ""SDR"", 8, []]",True,True,True,True,avplayer,1,acceptance-formats/format-038,,,,True,,False,0
+format-039,13853,"[""iso"", ""hevc"", ""HDR10"", 10, [""ac3"", ""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-039,,,,True,followups/visual-039: both screenshots visibly rendered; controls passed,True,1
+format-040,14546,"[""iso"", ""hevc"", ""HDR10"", 10, [""ac3"", ""dts"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-040,,,,True,,True,1
+format-041,16062,"[""iso"", ""hevc"", ""HDR10"", 10, [""ac3"", ""eac3"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-041,,,,True,,True,1
+format-042,13091,"[""iso"", ""hevc"", ""HDR10"", 10, [""ac3"", ""truehd""]]",True,True,True,True,avplayer -> mpv,3,acceptance-formats/format-042,,,,True,,True,1
+format-043,13278,"[""iso"", ""mpeg2video"", ""SDR"", 8, [""ac3"", ""mp2"", ""pcm_dvd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-043,,,,True,,True,1
+format-044,14482,"[""iso"", ""mpeg2video"", ""SDR"", 8, [""ac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-044,,,,True,,True,1
+format-045,15163,"[""iso"", ""mpeg2video"", ""SDR"", 8, [""mp2"", ""pcm_dvd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-045,,,,True,,True,1
+format-046,23466,"[""iso"", ""mpeg2video"", ""SDR"", 8, [""mp2""]]",True,True,True,True,avplayer,3,acceptance-formats/format-046,,,,True,,True,1
+format-047,15164,"[""iso"", ""mpeg2video"", ""SDR"", 8, [""pcm_dvd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-047,,,,True,,True,1
+format-048,14491,"[""iso"", ""vc1"", ""SDR"", 8, [""ac3"", ""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-048,,,,True,,True,1
+format-049,14801,"[""mkv"", ""h264"", ""SDR"", 8, [""aac"", ""ac3""]]",True,True,True,True,avplayer,0,acceptance-formats/format-049,,,,True,,True,1
+format-050,15782,"[""mkv"", ""h264"", ""SDR"", 8, [""aac"", ""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-050,,,,True,,True,1
+format-051,23329,"[""mkv"", ""h264"", ""SDR"", 8, [""aac""]]",True,True,True,True,avplayer,0,acceptance-formats/format-051,,,,True,,True,1
+format-052,12927,"[""mkv"", ""h264"", ""SDR"", 8, [""ac3"", ""dts""]]",True,True,True,True,avplayer,0,acceptance-formats/format-052,,,,True,,True,1
+format-053,14002,"[""mkv"", ""h264"", ""SDR"", 8, [""ac3"", ""dts"", ""flac""]]",True,True,True,True,avplayer,0,acceptance-formats/format-053,,,,True,,True,1
+format-054,15134,"[""mkv"", ""h264"", ""SDR"", 8, [""ac3"", ""dts"", ""pcm_s16le""]]",True,True,True,True,avplayer,0,acceptance-formats/format-054,,,,True,,True,1
+format-055,15229,"[""mkv"", ""h264"", ""SDR"", 8, [""ac3"", ""dts"", ""truehd""]]",True,True,True,True,avplayer,0,acceptance-formats/format-055,,,,True,,True,1
+format-056,16274,"[""mkv"", ""h264"", ""SDR"", 8, [""ac3"", ""flac""]]",True,True,True,True,avplayer,0,acceptance-formats/format-056,,,,True,,True,1
+format-057,15585,"[""mkv"", ""h264"", ""SDR"", 8, [""ac3"", ""pcm_s16le""]]",False,False,True,True,avplayer -> mpv,0,play-error-fixed/play-error-057,internal:0,,,True,play-error-fixed/play-error-057: AVPlayer audio-output failure falls back to MPV; both pictures visible,True,1
+format-058,16315,"[""mkv"", ""h264"", ""SDR"", 8, [""ac3"", ""truehd""]]",True,True,True,True,avplayer,0,acceptance-formats/format-058,,,,True,,True,1
+format-059,14520,"[""mkv"", ""h264"", ""SDR"", 8, [""ac3""]]",True,True,True,True,avplayer,0,acceptance-formats/format-059,,,,True,,True,1
+format-060,13732,"[""mkv"", ""h264"", ""SDR"", 8, [""dts"", ""pcm_s16le""]]",True,True,True,True,avplayer,0,acceptance-formats/format-060,,,,True,,True,1
+format-061,13478,"[""mkv"", ""h264"", ""SDR"", 8, [""dts"", ""pcm_s24le""]]",True,True,True,True,avplayer,0,acceptance-formats/format-061,,,,True,,True,1
+format-062,16460,"[""mkv"", ""h264"", ""SDR"", 8, [""dts"", ""truehd""]]",True,True,True,True,avplayer,0,acceptance-formats/format-062,,,,True,,True,1
+format-063,16314,"[""mkv"", ""h264"", ""SDR"", 8, [""dts""]]",True,True,True,True,avplayer,0,acceptance-formats/format-063,,,,True,,True,1
+format-064,12965,"[""mkv"", ""h264"", ""SDR"", 8, [""eac3"", ""flac""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-064,,,,True,,True,1
+format-065,13458,"[""mkv"", ""h264"", ""SDR"", 8, [""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-065,,,,True,,True,1
+format-066,17986,"[""mkv"", ""h264"", ""SDR"", 8, [""flac""]]",True,True,True,True,avplayer,0,acceptance-formats/format-066,,,,True,,True,1
+format-067,13810,"[""mkv"", ""h264"", ""SDR"", 8, [""pcm_s16le""]]",True,True,True,True,avplayer,0,acceptance-formats/format-067,,,,True,,True,1
+format-068,13353,"[""mkv"", ""h264"", ""SDR"", 8, [""pcm_s24le"", ""truehd""]]",True,True,True,True,avplayer,0,acceptance-formats/format-068,,,,True,followups/visual-068: both screenshots visibly rendered; controls passed,True,1
+format-069,15880,"[""mkv"", ""h264"", ""SDR"", 8, [""pcm_s24le""]]",True,True,True,True,avplayer,0,acceptance-formats/format-069,,,,True,,True,1
+format-070,15468,"[""mkv"", ""h264"", ""SDR"", 8, [""truehd""]]",True,True,True,True,avplayer,0,acceptance-formats/format-070,,,,True,,True,1
+format-071,23866,"[""mkv"", ""hevc"", ""Dolby Vision"", 10, [""aac"", ""dts"", ""eac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-071,,,,True,,True,1
+format-072,19460,"[""mkv"", ""hevc"", ""Dolby Vision"", 10, [""aac"", ""eac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-072,,,,True,,True,1
+format-073,25040,"[""mkv"", ""hevc"", ""Dolby Vision"", 10, [""aac""]]",True,True,True,True,avplayer,3,acceptance-formats/format-073,,,,True,,True,1
+format-074,16051,"[""mkv"", ""hevc"", ""Dolby Vision"", 10, [""ac3"", ""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-074,,,,True,,True,1
+format-075,14956,"[""mkv"", ""hevc"", ""Dolby Vision"", 10, [""ac3"", ""dts"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-075,,,,True,,True,1
+format-076,17437,"[""mkv"", ""hevc"", ""Dolby Vision"", 10, [""ac3"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-076,,,,True,,True,1
+format-077,24792,"[""mkv"", ""hevc"", ""Dolby Vision"", 10, [""dts"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-077,,,,True,,True,1
+format-078,17273,"[""mkv"", ""hevc"", ""Dolby Vision"", 10, [""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-078,,,,True,,True,1
+format-079,13548,"[""mkv"", ""hevc"", ""Dolby Vision"", 10, [""eac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-079,,,,True,,True,1
+format-080,16060,"[""mkv"", ""hevc"", ""Dolby Vision"", 10, [""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-080,,,,True,,True,1
+format-081,23881,"[""mkv"", ""hevc"", ""HDR10"", 10, [""aac"", ""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-081,,,,True,,True,1
+format-082,23861,"[""mkv"", ""hevc"", ""HDR10"", 10, [""aac"", ""dts"", ""eac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-082,,,,True,,True,1
+format-083,14370,"[""mkv"", ""hevc"", ""HDR10"", 10, [""aac"", ""eac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-083,,,,True,,True,1
+format-084,13623,"[""mkv"", ""hevc"", ""HDR10"", 10, [""aac"", ""eac3"", ""flac""]]",True,True,True,True,avplayer,3,acceptance-formats/format-084,,,,True,,True,1
+format-085,24760,"[""mkv"", ""hevc"", ""HDR10"", 10, [""aac""]]",True,True,True,True,avplayer,3,acceptance-formats/format-085,,,,True,,True,1
+format-086,15612,"[""mkv"", ""hevc"", ""HDR10"", 10, [""ac3"", ""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-086,,,,True,,True,1
+format-087,15584,"[""mkv"", ""hevc"", ""HDR10"", 10, [""ac3"", ""dts"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-087,,,,True,followups/visual-087: both screenshots visibly rendered; controls passed,True,1
+format-088,13800,"[""mkv"", ""hevc"", ""HDR10"", 10, [""ac3"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-088,,,,True,,True,1
+format-089,13284,"[""mkv"", ""hevc"", ""HDR10"", 10, [""ac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-089,,,,True,,True,1
+format-090,15221,"[""mkv"", ""hevc"", ""HDR10"", 10, [""dts"", ""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-090,,,,True,,True,1
+format-091,16456,"[""mkv"", ""hevc"", ""HDR10"", 10, [""dts""]]",True,True,True,True,avplayer,3,acceptance-formats/format-091,,,,True,,True,1
+format-092,16267,"[""mkv"", ""hevc"", ""HDR10"", 10, [""eac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-092,,,,True,,True,1
+format-093,14465,"[""mkv"", ""hevc"", ""HDR10"", 10, [""truehd""]]",True,True,True,True,avplayer,3,acceptance-formats/format-093,,,,True,,True,1
+format-094,23397,"[""mkv"", ""hevc"", ""SDR"", 10, [""aac"", ""dts"", ""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-094,,,,True,,True,1
+format-095,24682,"[""mkv"", ""hevc"", ""SDR"", 10, [""aac"", ""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-095,,,,True,,True,1
+format-096,22920,"[""mkv"", ""hevc"", ""SDR"", 10, [""aac""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-096,,,,True,,True,1
+format-097,13427,"[""mkv"", ""hevc"", ""SDR"", 10, [""ac3"", ""dts""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-097,,,,True,,True,1
+format-098,13438,"[""mkv"", ""hevc"", ""SDR"", 10, [""ac3"", ""dts"", ""truehd""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-098,,,,True,followups/visual-098: both screenshots visibly rendered; controls passed,True,1
+format-099,13856,"[""mkv"", ""hevc"", ""SDR"", 10, [""ac3"", ""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-099,,,,True,,True,1
+format-100,16483,"[""mkv"", ""hevc"", ""SDR"", 10, [""ac3"", ""flac""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-100,,,,True,,True,1
+format-101,13574,"[""mkv"", ""hevc"", ""SDR"", 10, [""ac3"", ""truehd""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-101,,,,True,,True,1
+format-102,14938,"[""mkv"", ""hevc"", ""SDR"", 10, [""ac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-102,,,,True,,True,1
+format-103,12901,"[""mkv"", ""hevc"", ""SDR"", 10, [""dts""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-103,,,,True,,True,1
+format-104,14827,"[""mkv"", ""hevc"", ""SDR"", 10, [""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-104,,,,True,,True,1
+format-105,14512,"[""mkv"", ""hevc"", ""SDR"", 10, [""flac""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-105,,,,True,,True,1
+format-106,19535,"[""mkv"", ""hevc"", ""SDR"", 10, [""mp2""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-106,,,,True,,True,1
+format-107,23860,"[""mkv"", ""hevc"", ""SDR"", 8, [""aac"", ""dts"", ""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-107,,,,True,,True,1
+format-108,17722,"[""mkv"", ""hevc"", ""SDR"", 8, [""aac"", ""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-108,,,,True,,True,1
+format-109,13622,"[""mkv"", ""hevc"", ""SDR"", 8, [""aac"", ""eac3"", ""flac""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-109,,,,True,,True,1
+format-110,23848,"[""mkv"", ""hevc"", ""SDR"", 8, [""aac""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-110,,,,True,,True,1
+format-111,15521,"[""mkv"", ""hevc"", ""SDR"", 8, [""ac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-111,,,,True,,True,1
+format-112,24714,"[""mkv"", ""hevc"", ""SDR"", 8, [""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-112,,,,True,,True,1
+format-113,15135,"[""mkv"", ""vc1"", ""SDR"", 8, [""ac3"", ""dts""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-113,,,,True,,True,1
+format-114,13572,"[""mkv"", ""vc1"", ""SDR"", 8, [""ac3"", ""flac""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-114,,,,True,followups/visual-114: both screenshots visibly rendered; controls passed,True,1
+format-115,14523,"[""mkv"", ""vc1"", ""SDR"", 8, [""ac3"", ""truehd""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-115,,,,True,,True,1
+format-116,14775,"[""mkv"", ""vc1"", ""SDR"", 8, [""dts""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-116,,,,True,,True,1
+format-117,14999,"[""mkv"", ""vc1"", ""SDR"", 8, [""pcm_s24le""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-117,,,,True,,True,1
+format-118,13337,"[""mkv"", ""vp9"", ""SDR"", 8, [""aac""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-118,,,,True,,True,1
+format-119,21365,"[""mkv"", null, ""SDR"", null, []]",False,False,False,False,,,acceptance-formats/format-119,,,"播放启动失败：ffmpeg 退出码：183；ffmpeg stderr：[in#0 @ 0x7799010000] [error] 0x00 at pos 0 (0x0) invalid as first byte of an EBML number
+[in#0 @ 0x7799010000] [error] EBML header parsing failed
+[in#0 @ 0x7799008140] [error] Error opening input: Invalid data found when processing input
+[error] Error opening input file [media URL]<redacted>
+[fatal] Error opening input files: Invalid data found when processing input",False,,False,0
+format-120,18930,"[""mp4"", ""h264"", ""SDR"", 8, [""aac""]]",True,True,True,True,avplayer,0,acceptance-formats/format-120,,,,True,,True,1
+format-121,16536,"[""mp4"", ""h264"", ""SDR"", 8, [""ac3""]]",True,True,True,True,avplayer,0,acceptance-formats/format-121,,,,True,,True,1
+format-122,17504,"[""mp4"", ""h264"", ""SDR"", 8, [""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-122,,,,True,,True,1
+format-123,15028,"[""mp4"", ""hevc"", ""Dolby Vision"", 10, [""aac"", ""dts"", ""eac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-123,,,,True,,True,1
+format-124,16247,"[""mp4"", ""hevc"", ""Dolby Vision"", 10, [""aac"", ""eac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-124,,,,True,,True,1
+format-125,24648,"[""mp4"", ""hevc"", ""Dolby Vision"", 10, [""aac""]]",True,True,True,True,avplayer,3,acceptance-formats/format-125,,,,True,,True,1
+format-126,19906,"[""mp4"", ""hevc"", ""Dolby Vision"", 10, [""eac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-126,,,,True,,True,1
+format-127,23590,"[""mp4"", ""hevc"", ""HDR10"", 10, [""aac"", ""eac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-127,,,,True,,True,1
+format-128,14366,"[""mp4"", ""hevc"", ""HDR10"", 10, [""aac""]]",True,True,True,True,avplayer,3,acceptance-formats/format-128,,,,True,,True,1
+format-129,15902,"[""mp4"", ""hevc"", ""SDR"", 10, [""aac""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-129,,,,True,,True,1
+format-130,13821,"[""mp4"", ""hevc"", ""SDR"", 10, [""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-130,,,,True,,True,1
+format-131,20073,"[""mp4"", ""hevc"", ""SDR"", 8, [""aac"", ""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-131,,,,True,,True,1
+format-132,16341,"[""mp4"", ""hevc"", ""SDR"", 8, [""aac""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-132,,,,True,,True,1
+format-133,13336,"[""mp4"", ""hevc"", ""SDR"", 8, [""eac3""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-133,,,,True,,True,1
+format-134,19113,"[""mp4"", ""mpeg4"", ""SDR"", 8, [""aac""]]",True,True,True,True,avplayer,0,acceptance-formats/format-134,,,,True,,True,1
+format-135,20516,"[""ts"", ""h264"", ""SDR"", 8, [""aac""]]",True,True,True,True,avplayer,0,acceptance-formats/format-135,,,,True,,True,1
+format-136,13577,"[""ts"", ""h264"", ""SDR"", 8, [""ac3"", ""dts""]]",True,True,True,True,avplayer,0,acceptance-formats/format-136,,,,True,,True,1
+format-137,15616,"[""ts"", ""h264"", ""SDR"", 8, [""ac3"", ""mp2""]]",True,True,True,True,avplayer,0,acceptance-formats/format-137,,,,True,,True,1
+format-138,19485,"[""ts"", ""h264"", ""SDR"", 8, [""ac3""]]",True,True,True,True,avplayer,0,acceptance-formats/format-138,,,,True,,True,1
+format-139,13733,"[""ts"", ""h264"", ""SDR"", 8, [""dts""]]",True,True,True,True,avplayer,0,acceptance-formats/format-139,,,,True,,True,1
+format-140,13441,"[""ts"", ""h264"", ""SDR"", 8, [""mp2""]]",True,True,True,True,avplayer,0,acceptance-formats/format-140,,,,True,,True,1
+format-141,15023,"[""ts"", ""hevc"", ""HDR10"", 10, [""ac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-141,,,,True,,True,1
+format-142,14409,"[""ts"", ""hevc"", ""HLG"", 8, [""ac3""]]",True,True,True,True,avplayer,3,acceptance-formats/format-142,,,,True,,True,1
+format-143,16165,"[""ts"", ""mpeg2video"", ""SDR"", 8, [""aac""]]",True,True,True,True,avplayer,0,acceptance-formats/format-143,,,,True,,True,1
+format-144,16533,"[""ts"", ""vc1"", ""SDR"", 8, [""dts""]]",True,True,True,True,avplayer -> mpv,0,acceptance-formats/format-144,,,,True,,True,1

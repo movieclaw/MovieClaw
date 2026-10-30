@@ -1,0 +1,1256 @@
+[
+  {
+    "caseId": "audio-01",
+    "fileId": 17510,
+    "itemId": 6999,
+    "season": 2,
+    "episode": 12,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "aac",
+      "HE-AAC",
+      2
+    ],
+    "format": [
+      "mp4",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "机智的医生生活"
+  },
+  {
+    "caseId": "audio-02",
+    "fileId": 16168,
+    "itemId": 6899,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "aac",
+      "HE-AAC",
+      6
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "兹山鱼谱"
+  },
+  {
+    "caseId": "audio-03",
+    "fileId": 21656,
+    "itemId": 7141,
+    "season": 2,
+    "episode": 0,
+    "startMs": 198250,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "aac",
+      "HE-AACv2",
+      2
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "哆啦A梦"
+  },
+  {
+    "caseId": "audio-04",
+    "fileId": 22920,
+    "itemId": 7141,
+    "season": 1,
+    "episode": 0,
+    "startMs": 107250,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "aac",
+      "LC",
+      2
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "哆啦A梦"
+  },
+  {
+    "caseId": "audio-05",
+    "fileId": 23397,
+    "itemId": 7102,
+    "season": 1,
+    "episode": 12,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:2",
+    "audioFormat": [
+      "aac",
+      "LC",
+      6
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "剥茧"
+  },
+  {
+    "caseId": "audio-06",
+    "fileId": 12932,
+    "itemId": 6295,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:1",
+    "audioFormat": [
+      "ac3",
+      null,
+      0
+    ],
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "鬼子来了"
+  },
+  {
+    "caseId": "audio-07",
+    "fileId": 16483,
+    "itemId": 6941,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:1",
+    "audioFormat": [
+      "ac3",
+      null,
+      1
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "东京物语"
+  },
+  {
+    "caseId": "audio-08",
+    "fileId": 13043,
+    "itemId": 6312,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "ac3",
+      null,
+      2
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "风投这东西"
+  },
+  {
+    "caseId": "audio-09",
+    "fileId": 14182,
+    "itemId": 6520,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "ac3",
+      null,
+      4
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "甲方乙方"
+  },
+  {
+    "caseId": "audio-10",
+    "fileId": 14475,
+    "itemId": 6585,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "ac3",
+      null,
+      5
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "没完没了"
+  },
+  {
+    "caseId": "audio-11",
+    "fileId": 14520,
+    "itemId": 6583,
+    "season": 1,
+    "episode": 26,
+    "startMs": 369000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "ac3",
+      null,
+      6
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "西游记"
+  },
+  {
+    "caseId": "audio-12",
+    "fileId": 15785,
+    "itemId": 6830,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS",
+      2
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "喜宴"
+  },
+  {
+    "caseId": "audio-13",
+    "fileId": 14002,
+    "itemId": 6495,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS",
+      4
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "秒速五厘米"
+  },
+  {
+    "caseId": "audio-14",
+    "fileId": 12901,
+    "itemId": 6286,
+    "season": 1,
+    "episode": 3,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS",
+      6
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "黑夜告白"
+  },
+  {
+    "caseId": "audio-15",
+    "fileId": 13689,
+    "itemId": 6449,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-ES",
+      7
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "英雄"
+  },
+  {
+    "caseId": "audio-16",
+    "fileId": 18048,
+    "itemId": 7030,
+    "season": 1,
+    "episode": 6,
+    "startMs": 431000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-HD HRA",
+      2
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "恐龙星球"
+  },
+  {
+    "caseId": "audio-17",
+    "fileId": 14882,
+    "itemId": 6665,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-HD HRA",
+      6
+    ],
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "放牛班的春天"
+  },
+  {
+    "caseId": "audio-18",
+    "fileId": 14098,
+    "itemId": 6508,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:1",
+    "audioFormat": [
+      "dts",
+      "DTS-HD HRA",
+      8
+    ],
+    "format": [
+      "bluray",
+      "mpeg2video",
+      "SDR",
+      8
+    ],
+    "title": "百万美元宝贝"
+  },
+  {
+    "caseId": "audio-19",
+    "fileId": 15967,
+    "itemId": 6866,
+    "season": 0,
+    "episode": 0,
+    "startMs": 596750,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-HD MA + DTS:X IMAX",
+      8
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10
+    ],
+    "title": "南太平洋之旅"
+  },
+  {
+    "caseId": "audio-20",
+    "fileId": 15635,
+    "itemId": 6805,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-HD MA + DTS:X",
+      8
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "大空头"
+  },
+  {
+    "caseId": "audio-21",
+    "fileId": 13054,
+    "itemId": 6322,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-HD MA",
+      2
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "雾中风景"
+  },
+  {
+    "caseId": "audio-22",
+    "fileId": 13657,
+    "itemId": 6439,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-HD MA",
+      3
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "虎口脱险"
+  },
+  {
+    "caseId": "audio-23",
+    "fileId": 16076,
+    "itemId": 6887,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-HD MA",
+      4
+    ],
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "剪刀手爱德华"
+  },
+  {
+    "caseId": "audio-24",
+    "fileId": 13759,
+    "itemId": 6464,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-HD MA",
+      6
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "好梦一日游"
+  },
+  {
+    "caseId": "audio-25",
+    "fileId": 15624,
+    "itemId": 6801,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-HD MA",
+      7
+    ],
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "大话西游之月光宝盒"
+  },
+  {
+    "caseId": "audio-26",
+    "fileId": 13072,
+    "itemId": 6328,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      "DTS-HD MA",
+      8
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "集结号"
+  },
+  {
+    "caseId": "audio-27",
+    "fileId": 12932,
+    "itemId": 6295,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "dts",
+      null,
+      0
+    ],
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "鬼子来了"
+  },
+  {
+    "caseId": "audio-28",
+    "fileId": 15229,
+    "itemId": 6742,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:4",
+    "audioFormat": [
+      "dts",
+      null,
+      6
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "小王子"
+  },
+  {
+    "caseId": "audio-29",
+    "fileId": 13601,
+    "itemId": 6431,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "eac3",
+      "Dolby Digital Plus + Dolby Atmos",
+      6
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "蜘蛛头"
+  },
+  {
+    "caseId": "audio-30",
+    "fileId": 17722,
+    "itemId": 7010,
+    "season": 1,
+    "episode": 21,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "eac3",
+      null,
+      2
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      8
+    ],
+    "title": "无间"
+  },
+  {
+    "caseId": "audio-31",
+    "fileId": 16267,
+    "itemId": 6911,
+    "season": 5,
+    "episode": 9,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "eac3",
+      null,
+      6
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10
+    ],
+    "title": "王冠"
+  },
+  {
+    "caseId": "audio-32",
+    "fileId": 13205,
+    "itemId": 6350,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:1",
+    "audioFormat": [
+      "eac3",
+      null,
+      8
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10
+    ],
+    "title": "银河护卫队3"
+  },
+  {
+    "caseId": "audio-33",
+    "fileId": 14512,
+    "itemId": 6605,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "flac",
+      null,
+      1
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "樱桃的滋味"
+  },
+  {
+    "caseId": "audio-34",
+    "fileId": 13622,
+    "itemId": 1018,
+    "season": 1,
+    "episode": 6,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:1",
+    "audioFormat": [
+      "flac",
+      null,
+      2
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      8
+    ],
+    "title": "金色"
+  },
+  {
+    "caseId": "audio-35",
+    "fileId": 13572,
+    "itemId": 6424,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "flac",
+      null,
+      6
+    ],
+    "format": [
+      "mkv",
+      "vc1",
+      "SDR",
+      8
+    ],
+    "title": "血钻"
+  },
+  {
+    "caseId": "audio-36",
+    "fileId": 15163,
+    "itemId": 6721,
+    "season": 1,
+    "episode": 2,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:1",
+    "audioFormat": [
+      "mp2",
+      null,
+      0
+    ],
+    "format": [
+      "iso",
+      "mpeg2video",
+      "SDR",
+      8
+    ],
+    "title": "聪明的一休"
+  },
+  {
+    "caseId": "audio-37",
+    "fileId": 19535,
+    "itemId": 7060,
+    "season": 1,
+    "episode": 21,
+    "startMs": 379500,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "mp2",
+      null,
+      2
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "家有儿女"
+  },
+  {
+    "caseId": "audio-38",
+    "fileId": 13673,
+    "itemId": 6445,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:1",
+    "audioFormat": [
+      "mp3",
+      null,
+      0
+    ],
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "萤火之森"
+  },
+  {
+    "caseId": "audio-39",
+    "fileId": 16181,
+    "itemId": 6902,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "pcm_bluray",
+      null,
+      1
+    ],
+    "format": [
+      "bluray",
+      "hevc",
+      "HDR10",
+      10
+    ],
+    "title": "公民凯恩"
+  },
+  {
+    "caseId": "audio-40",
+    "fileId": 13673,
+    "itemId": 6445,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "pcm_bluray",
+      null,
+      2
+    ],
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "萤火之森"
+  },
+  {
+    "caseId": "audio-41",
+    "fileId": 13893,
+    "itemId": 6488,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "pcm_bluray",
+      null,
+      6
+    ],
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "窃听风暴"
+  },
+  {
+    "caseId": "audio-42",
+    "fileId": 13424,
+    "itemId": 6393,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:2",
+    "audioFormat": [
+      "pcm_bluray",
+      null,
+      8
+    ],
+    "format": [
+      "bluray",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "赛德克·巴莱（上）"
+  },
+  {
+    "caseId": "audio-43",
+    "fileId": 13278,
+    "itemId": 6361,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:1",
+    "audioFormat": [
+      "pcm_dvd",
+      null,
+      0
+    ],
+    "format": [
+      "iso",
+      "mpeg2video",
+      "SDR",
+      8
+    ],
+    "title": "金枝玉叶"
+  },
+  {
+    "caseId": "audio-44",
+    "fileId": 15163,
+    "itemId": 6721,
+    "season": 1,
+    "episode": 2,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "pcm_dvd",
+      null,
+      2
+    ],
+    "format": [
+      "iso",
+      "mpeg2video",
+      "SDR",
+      8
+    ],
+    "title": "聪明的一休"
+  },
+  {
+    "caseId": "audio-45",
+    "fileId": 13810,
+    "itemId": 6473,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "pcm_s16le",
+      null,
+      2
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "罗生门"
+  },
+  {
+    "caseId": "audio-46",
+    "fileId": 15585,
+    "itemId": 6788,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "pcm_s16le",
+      null,
+      6
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "头文字D"
+  },
+  {
+    "caseId": "audio-47",
+    "fileId": 13732,
+    "itemId": 6456,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "pcm_s16le",
+      null,
+      8
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "色‧戒"
+  },
+  {
+    "caseId": "audio-48",
+    "fileId": 14353,
+    "itemId": 6544,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "pcm_s24le",
+      null,
+      1
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "牯岭街少年杀人事件"
+  },
+  {
+    "caseId": "audio-49",
+    "fileId": 13353,
+    "itemId": 6374,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:1",
+    "audioFormat": [
+      "pcm_s24le",
+      null,
+      2
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "逃学威龙"
+  },
+  {
+    "caseId": "audio-50",
+    "fileId": 15880,
+    "itemId": 6851,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "pcm_s24le",
+      null,
+      6
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "启示"
+  },
+  {
+    "caseId": "audio-51",
+    "fileId": 13800,
+    "itemId": 6469,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "truehd",
+      "Dolby TrueHD + Dolby Atmos",
+      8
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "HDR10",
+      10
+    ],
+    "title": "美国队长"
+  },
+  {
+    "caseId": "audio-52",
+    "fileId": 13809,
+    "itemId": 6472,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "truehd",
+      null,
+      2
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "罗马假日"
+  },
+  {
+    "caseId": "audio-53",
+    "fileId": 13574,
+    "itemId": 6425,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "truehd",
+      null,
+      6
+    ],
+    "format": [
+      "mkv",
+      "hevc",
+      "SDR",
+      10
+    ],
+    "title": "血色将至"
+  },
+  {
+    "caseId": "audio-54",
+    "fileId": 15624,
+    "itemId": 6801,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:1",
+    "audioFormat": [
+      "truehd",
+      null,
+      7
+    ],
+    "format": [
+      "iso",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "大话西游之月光宝盒"
+  },
+  {
+    "caseId": "audio-55",
+    "fileId": 15229,
+    "itemId": 6742,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      "truehd",
+      null,
+      8
+    ],
+    "format": [
+      "mkv",
+      "h264",
+      "SDR",
+      8
+    ],
+    "title": "小王子"
+  },
+  {
+    "caseId": "audio-56",
+    "fileId": 25037,
+    "itemId": 7216,
+    "season": 1,
+    "episode": 3,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      null,
+      null,
+      10
+    ],
+    "format": [
+      "mp4",
+      "hevc",
+      "HDR10",
+      10
+    ],
+    "title": "醉梦"
+  },
+  {
+    "caseId": "audio-57",
+    "fileId": 15028,
+    "itemId": 6697,
+    "season": 0,
+    "episode": 0,
+    "startMs": 600000,
+    "engine": "auto",
+    "trackRef": "embedded:0",
+    "audioFormat": [
+      null,
+      null,
+      6
+    ],
+    "format": [
+      "mp4",
+      "hevc",
+      "Dolby Vision",
+      10
+    ],
+    "title": "惊蛰无声"
+  }
+]

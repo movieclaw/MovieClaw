@@ -1,0 +1,50 @@
+
+OHOS_REPORT_SUM: 3
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=1
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=AVPlayer_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=1
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=AVPlayer_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=15726
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=2
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=unsupported_original_falls_back_to_MPV_and_remains_interactive
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=2
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=unsupported_original_falls_back_to_MPV_and_remains_interactive
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=15525
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=3
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=3
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=MPV_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 1

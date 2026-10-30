@@ -1,0 +1,149 @@
+
+OHOS_REPORT_SUM: 7
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=1
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=AVPlayer_toggle_icon_tracks_native_playback_without_reopening_controls
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=1
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=AVPlayer_toggle_icon_tracks_native_playback_without_reopening_controls
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=24259
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=2
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=MPV_toggle_icon_tracks_native_playback_without_reopening_controls
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=2
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=MPV_toggle_icon_tracks_native_playback_without_reopening_controls
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=19866
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=3
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=AVPlayer_iPhone_style_menus_rotation_lock_and_pause
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=3
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=AVPlayer_iPhone_style_menus_rotation_lock_and_pause
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=37505
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=4
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=MPV_iPhone_style_menus_rotation_lock_and_pause
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=4
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=MPV_iPhone_style_menus_rotation_lock_and_pause
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=39107
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=5
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=AVPlayer_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=5
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=AVPlayer_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=16823
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=6
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=unsupported_original_falls_back_to_MPV_and_remains_interactive
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=6
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=unsupported_original_falls_back_to_MPV_and_remains_interactive
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=17523
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=7
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=MPV_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 1
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: current=7
+OHOS_REPORT_STATUS: id=JS
+OHOS_REPORT_STATUS: numtests=7
+OHOS_REPORT_STATUS: stream=
+OHOS_REPORT_STATUS: test=MPV_real_media_play_pause_seek_and_exit
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: consuming=16392
+
+
+OHOS_REPORT_STATUS: class=HarmonyPhonePlaybackE2E
+OHOS_REPORT_STATUS: suiteconsuming=171475
+
+
+OHOS_REPORT_RESULT: stream=Tests run: 7, Failure: 0, Error: 0, Pass: 7, Ignore: 0
+OHOS_REPORT_CODE: 0
+OHOS_REPORT_STATUS: taskconsuming=171475
+
+TestFinished-ResultCode: 0
+TestFinished-ResultMsg: your test finished!!!
+user test finished.

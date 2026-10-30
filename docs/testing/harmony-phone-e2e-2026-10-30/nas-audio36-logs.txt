@@ -1,0 +1,36 @@
+2026-10-30 18:05:41 | INFO | movieclaw_api.access | method=POST path=/api/v1/playback/progress status_code=200 duration_ms=20.67 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=POST path=/api/v1/playback/decide status_code=200 duration_ms=24.01 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.playback.session | 远程转码会话已接单：session=01M664BEKQAQPBQA6EJAGAF4TW worker=macmini backend=videotoolbox
+2026-10-30 18:05:42 | INFO | movieclaw_api.playback | 播放会话就绪：档 3 · 决策 21 毫秒 · 准备 0 毫秒 · ffmpeg 74 毫秒 · 共 102 毫秒（file_id=15163 hw=videotoolbox session=01M664BEKQAQPBQA6EJAGAF4TW 缓存=未命中 attempt=-）
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=POST path=/api/v1/playback/sessions status_code=200 duration_ms=109.40 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=GET path=/api/v1/transcode-worker/sessions/01M664BEKQAQPBQA6EJAGAF4TW/poster status_code=200 duration_ms=7.39 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/files/15163/trickplay status_code=200 duration_ms=17.58 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/items/6721 status_code=200 duration_ms=31.64 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=GET path=/api/v1/transcode-worker/sessions/01M664BEKQAQPBQA6EJAGAF4TW/source.ffconcat status_code=200 duration_ms=4.13 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=GET path=/api/v1/transcode-worker/sessions/01M664BEKQAQPBQA6EJAGAF4TW/clips/0 status_code=206 duration_ms=4.37 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/sessions/01M664BEKQAQPBQA6EJAGAF4TW/index.m3u8 status_code=200 duration_ms=34.30 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/items/6721/episodes status_code=200 duration_ms=91.30 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=GET path=/api/v1/transcode-worker/sessions/01M664BEKQAQPBQA6EJAGAF4TW/clips/0 status_code=206 duration_ms=4.72 message=request completed
+2026-10-30 18:05:42 | INFO | movieclaw_api.access | method=GET path=/api/v1/transcode-worker/sessions/01M664BEKQAQPBQA6EJAGAF4TW/clips/0 status_code=206 duration_ms=4.82 message=request completed
+2026-10-30 18:05:45 | INFO | movieclaw_api.access | method=GET path=/api/v1/downloaders/tasks status_code=200 duration_ms=145.05 message=request completed
+2026-10-30 18:05:48 | WARNING | movieclaw_api.playback.session | 转码会话失败：session=01M664BEKQAQPBQA6EJAGAF4TW（聪明的一休 S01E02.iso）ffmpeg 退出码：234；ffmpeg stderr：[fatal] Stream map '' matches no streams.
+To ignore this, add a trailing '?' to the map.
+[error] Failed to set value '0:a:1' for option 'map': Invalid argument
+[error] Error parsing options for output file [URL]<redacted>
+[fatal] Error opening output files: Invalid argument
+2026-10-30 18:05:48 | WARNING | movieclaw_api.access | method=GET path=/api/v1/playback/sessions/01M664BEKQAQPBQA6EJAGAF4TW/seg00000.m4s status_code=404 duration_ms=6.34 message=request completed
+2026-10-30 18:05:48 | WARNING | movieclaw_api.access | method=GET path=/api/v1/playback/sessions/01M664BEKQAQPBQA6EJAGAF4TW/init.mp4 status_code=404 duration_ms=5312.72 message=request completed
+2026-10-30 18:05:49 | WARNING | movieclaw_api.playback.session | 转码会话结束：session=01M664BEKQAQPBQA6EJAGAF4TW（聪明的一休 S01E02.iso）原因=播放器结束播放 · 档 3 远程 Worker macmini · 持续 0.1 分钟 · 供片 0 段 · 重启 0 次 · 等待超时 0 次 · 最后请求第 0 段 · 错误：ffmpeg 退出码：234；ffmpeg stderr：[fatal] Stream map '' matches no streams. | To ignore this, add a trailing '?' to the map. | [error] Failed to set value '0:a:1' for option 'map': Invalid argument | [error] Error parsing options for output file [URL]<redacted> | [fatal] Error opening output files: Invalid argument（attempt=-）
+2026-10-30 18:05:49 | INFO | movieclaw_api.access | method=DELETE path=/api/v1/playback/sessions/01M664BEKQAQPBQA6EJAGAF4TW status_code=200 duration_ms=8.19 message=request completed
+2026-10-30 18:05:50 | INFO | movieclaw_api.access | method=GET path=/api/v1/app/update/pending status_code=200 duration_ms=16.51 message=request completed
+2026-10-30 18:05:50 | INFO | movieclaw_api.access | method=GET path=/api/v1/jobs status_code=200 duration_ms=31.60 message=request completed
+2026-10-30 18:05:50 | INFO | movieclaw_api.access | method=GET path=/api/v1/jobs status_code=200 duration_ms=51.96 message=request completed
+2026-10-30 18:05:50 | INFO | httpx | HTTP Request: POST [URL] "HTTP/1.1 200 OK"
+2026-10-30 18:05:51 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/up-next status_code=200 duration_ms=24.54 message=request completed
+2026-10-30 18:05:52 | INFO | movieclaw_api.access | method=POST path=/api/v1/playback/decide status_code=200 duration_ms=22.37 message=request completed
+2026-10-30 18:05:52 | INFO | movieclaw_api.playback | 播放会话就绪：档 0 直出 · 决策 11 毫秒（file_id=19535 attempt=-）
+2026-10-30 18:05:53 | INFO | movieclaw_api.access | method=POST path=/api/v1/playback/sessions status_code=200 duration_ms=44.25 message=request completed
+2026-10-30 18:05:53 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/files/19535/trickplay status_code=200 duration_ms=5.74 message=request completed
+2026-10-30 18:05:53 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/items/7060 status_code=200 duration_ms=29.94 message=request completed
+2026-10-30 18:05:53 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/files/19535/stream status_code=206 duration_ms=9.70 message=request completed
+2026-10-30 18:05:53 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/items/7060/episodes status_code=200 duration_ms=70.89 message=request completed

@@ -15,6 +15,8 @@ export class TabBarCollapse {
   @Trace collapsed: boolean = false;
   /** 上一次的滚动位置（离顶 vp）：`onDidScroll` 给的第二参不是位移增量，方向自己算 */
   private lastTop: number = -1;
+  private direction: number = 0;
+  private distance: number = 0;
 
   static shared(): TabBarCollapse {
     if (TabBarCollapse.instance === null) {
@@ -24,8 +26,8 @@ export class TabBarCollapse {
   }
 
   /**
-   * 根页内容滚动（传当前离顶距离）。阈值照 Web 手机端（`components/glass-tab-bar.tsx`）：
-   * `dy > 6` 且离顶超过 24 才收起；`dy < -10`、回到顶部（≤8）或点圆钮都展开。
+   * 根页内容滚动（传当前离顶距离）：同方向累计下滑超过 6 且离顶超过 24 才收起；
+   * 累计回滑超过 10、回到顶部（≤8）或点圆钮都展开。累计位移避免慢速滚动永远达不到阈值。
    *
    * **dy 自己算**：List/Scroll 的 `onDidScroll(xOffset, yOffset)` 第二参实测恒为 1，
    * 不是每帧位移；位置差才是可靠的滚动方向。
@@ -35,13 +37,19 @@ export class TabBarCollapse {
     this.lastTop = top;
     if (top <= 8) {
       this.collapsed = false;
+      this.direction = 0;
+      this.distance = 0;
       return;
     }
-    if (dy > 6 && top > 24) {
+    if (dy === 0) { return; }
+    const direction: number = dy > 0 ? 1 : -1;
+    this.distance = direction === this.direction ? this.distance + Math.abs(dy) : Math.abs(dy);
+    this.direction = direction;
+    if (direction > 0 && this.distance > 6 && top > 24) {
       this.collapsed = true;
       return;
     }
-    if (dy < -10) {
+    if (direction < 0 && this.distance > 10) {
       this.collapsed = false;
     }
   }
@@ -50,5 +58,7 @@ export class TabBarCollapse {
   expand(): void {
     this.collapsed = false;
     this.lastTop = -1;
+    this.direction = 0;
+    this.distance = 0;
   }
 }

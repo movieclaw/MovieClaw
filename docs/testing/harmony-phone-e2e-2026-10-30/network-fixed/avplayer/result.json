@@ -1,0 +1,39 @@
+{
+  "engine": "avplayer",
+  "started": true,
+  "beforeStall": {
+    "caseId": "network-avplayer-1793350217506",
+    "at": 1793350230247,
+    "event": "snapshot",
+    "engine": "avplayer",
+    "phase": "playing",
+    "positionMs": 2054,
+    "durationMs": 6257000,
+    "playing": true,
+    "buffering": false,
+    "firstFrame": true,
+    "detail": ""
+  },
+  "proxyBefore": {
+    "bytesPerSecond": 0,
+    "bytes": 329664420,
+    "requests": 75
+  },
+  "bufferingObserved": true,
+  "stalledPositionDeltaMs": 0,
+  "proxyAfter": {
+    "bytesPerSecond": -1,
+    "bytes": 329680804,
+    "requests": 76
+  },
+  "recovered": true,
+  "recoveryBufferMs": 1617,
+  "seekSurvived10sStall": true,
+  "seekRecovered": true,
+  "seekRecoveryObservedMs": 5096,
+  "engines": [
+    "avplayer"
+  ],
+  "failures": [],
+  "disposed": true
+}
