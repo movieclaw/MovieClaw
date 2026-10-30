@@ -709,6 +709,52 @@ def test_release_waits_for_gates_then_frees_local_bytes(client, tmp_path, monkey
     assert sources.cloud_file(str(local)) is None
 
 
+async def _set_segments(file_id: int, **values) -> None:
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import LibraryFile, MediaSegmentState
+
+    async with get_database().session() as session:
+        file = await session.get(LibraryFile, file_id)
+        row = await session.get(MediaSegmentState, file_id) or MediaSegmentState(
+            library_file_id=file_id, source_size=file.size_bytes
+        )
+        for key, value in values.items():
+            setattr(row, key, value)
+        session.add(row)
+        await session.commit()
+
+
+def test_release_waits_for_whole_season_segment_detection(client, tmp_path, monkeypatch):
+    """剧集库开着片头片尾识别（#1094）：指纹算完、画面核对还没落库时不能腾空——画面核对要读本地
+    抽帧，删了就被静默截断；识别结果落库后才腾空。"""
+    from movieclaw_api.services.drives import release
+    from movieclaw_api.services.library.skip_segments import ALGO_VERSION
+    from movieclaw_db.models.base import utcnow
+
+    library_id = _uploaded(client, tmp_path, monkeypatch, {"S01E01.mkv": _blob(17, PART)})
+    call(client, _set_library, library_id, kind="tv", detect_media_segments=True)
+    row = replicas(client, library_id)["S01E01.mkv"]
+    local = tmp_path / "staging" / "S01E01.mkv"
+    call(client, _set_probed, row["id"])
+    assert call(client, release.try_release, row["id"]) == "片头片尾指纹还没算"
+
+    # 指纹已提交成 ok，整季识别 / 画面核对还在跑
+    call(client, _set_segments, row["id"], fingerprint_status="ok", fingerprinted_at=utcnow())
+    assert call(client, release.try_release, row["id"]) == "片头片尾还没整季识别完"
+    assert local.exists() and replicas(client, library_id)["S01E01.mkv"]["local_bytes"] is True
+
+    call(
+        client,
+        _set_segments,
+        row["id"],
+        analyzed_at=utcnow(),
+        algo_version=ALGO_VERSION,
+        segments=[{"type": "outro", "start_ms": 1000, "end_ms": 90000}],
+    )
+    assert call(client, release.try_release, row["id"]) is None
+    assert not local.exists()
+
+
 def test_release_prunes_only_directories_it_empties(client, tmp_path, monkeypatch):
     from movieclaw_api.services.drives import release
 
