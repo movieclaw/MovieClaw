@@ -421,10 +421,10 @@ class AppModel:
                 on_status=self._on_status,
             )
             self._client = client
-        thread = threading.Thread(target=client.run_forever, name="control", daemon=True)
-        with self._lock:
+            thread = threading.Thread(target=client.run_forever, name="control", daemon=True)
+            # 先启动再放手：断开配对会立刻 join，线程还没 start 时 join 会抛。
             self._client_thread = thread
-        thread.start()
+            thread.start()
 
     def _stop_client(self) -> None:
         with self._lock:
