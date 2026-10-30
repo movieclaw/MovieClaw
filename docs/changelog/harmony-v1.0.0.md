@@ -2,7 +2,7 @@
 
 MovieClaw for HarmonyOS introduces native AVPlayer playback with MPV fallback, refreshed player controls, and an app navigation bar aligned with the iPhone interface.
 
-> Release preparation: a production-signed installation package is not yet attached. The playback and interface changes have been verified on a HarmonyOS API 24 ARM64 emulator; physical-device validation remains separate.
+> Requires HarmonyOS 6.1.1 (API 24) or later on ARM64. Installing the HAP requires authorization under its Huawei signing profile; a GitHub download is not an AppGallery release. Playback and interface changes have been verified on an ARM64 emulator; physical-device validation remains separate.
 
 ### Playback
 
@@ -28,7 +28,7 @@ Playback testing used a NAS library with 144 format samples and 57 audio-track s
 
 MovieClaw 鸿蒙版优先使用系统 AVPlayer 播放，并提供 MPV 降级，更新播放器控制界面，同时将应用底部导航与 iPhone 的交互风格对齐。
 
-> 发布准备中：尚未附上正式签名的安装包。播放与界面改动已在鸿蒙 API 24 ARM64 模拟器验证，真机验收另行进行。
+> 需要 ARM64 设备和鸿蒙 6.1.1（API 24）或更新版本。HAP 的安装受华为签名 Profile 的授权范围约束，GitHub 下载不等于应用市场发布。播放与界面改动已在 ARM64 模拟器验证，真机验收另行进行。
 
 ### 播放体验
 

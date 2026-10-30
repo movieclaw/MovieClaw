@@ -29,6 +29,7 @@ on:
     branches:
       - "release-kick/v*"
       - "release-kick/android-v*"
+      - "release-kick/harmony-v*"
       - "release-kick/androidtv-v*"
       - "release-kick/ios-v*"
       - "release-kick/tvos-v*"
@@ -54,8 +55,9 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME#release-kick/}"
           case "$TAG" in
-            android-v*|androidtv-v*|ios-v*|tvos-v*|macos-v*|transcoder-v*|windows-v*)
+            harmony-v*|android-v*|androidtv-v*|ios-v*|tvos-v*|macos-v*|transcoder-v*|windows-v*)
               case "$TAG" in
+                harmony-v*) FILE=apps/harmonyos/AppScope/app.json5; WORKFLOW=harmony-release.yml ;;
                 android-v*) FILE=apps/android/version.properties; WORKFLOW=android-release.yml ;;
                 androidtv-v*) FILE=apps/android-tv/version.properties; WORKFLOW=android-release.yml ;;
                 transcoder-v*) FILE=macos/MovieClawTranscoder/Resources/Info.plist; WORKFLOW=apple-release.yml ;;
@@ -63,7 +65,9 @@ jobs:
                 *) FILE=apps/apple/project.yml; WORKFLOW=apple-release.yml ;;
               esac
               VERSION="${TAG#*-v}"
-              if [ "${FILE##*.}" = plist ]; then
+              if [ "$WORKFLOW" = harmony-release.yml ]; then
+                ACTUAL=$(python3 -c 'import json; print(json.load(open("apps/harmonyos/AppScope/app.json5"))["app"]["versionName"])')
+              elif [ "${FILE##*.}" = plist ]; then
                 ACTUAL=$(python3 -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1],"rb"))["CFBundleShortVersionString"])' "$FILE")
               else
                 ACTUAL=$(sed -n -e 's/^versionName=//p' -e 's/^ *MARKETING_VERSION: *"\([^"]*\)".*/\1/p' \
@@ -74,6 +78,10 @@ jobs:
                 exit 1
               fi
               echo "触发 $WORKFLOW（tag=$TAG，将在 main HEAD 上创建 tag）"
+              if [ "$WORKFLOW" = harmony-release.yml ]; then
+                gh workflow run "$WORKFLOW" --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG" -f build_only=false
+                exit 0
+              fi
               gh workflow run "$WORKFLOW" --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
               exit 0
               ;;
