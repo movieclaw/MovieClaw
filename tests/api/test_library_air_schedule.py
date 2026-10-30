@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest_asyncio
 
 from movieclaw_api.api.routes.libraries import list_item_episodes
@@ -30,6 +31,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_db.repositories.library_repo import LibraryRepository
+from movieclaw_media.tmdb import TmdbClient
 
 _ADMIN = Principal(kind="admin", name="tester")
 
@@ -210,7 +212,87 @@ async def test_unsubscribed_season_without_full_dates(db, tmp_path) -> None:
 
 
 def test_airing_show_without_subscription_refreshes_daily() -> None:
-    """详情页日历要跟得上改档：在播剧没订阅也每天刷，不在播的仍 30 天。"""
+    """详情页日历要跟得上改档：在播剧没订阅也每天刷；季间空档没完结的 3 天一刷，
+    完结/取消的仍 30 天。"""
     item = MediaItem(kind="tv", tmdb_id=1, title="x", status="Returning Series")
     assert next_refresh_delay(item, None, airing=True) == timedelta(hours=24)
-    assert next_refresh_delay(item, None) == timedelta(days=30)
+    assert next_refresh_delay(item, None) == timedelta(days=3)
+    for status in ("Ended", "Canceled"):
+        item.status = status
+        assert next_refresh_delay(item, None) == timedelta(days=30)
+    movie = MediaItem(kind="movie", tmdb_id=2, title="y", status="Released")
+    assert next_refresh_delay(movie, None) == timedelta(days=30)
+
+
+def _fake_tmdb(routes: dict) -> TmdbClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = routes.get(request.url.path)
+        return httpx.Response(200 if payload else 404, json=payload or {})
+
+    return TmdbClient("k", transport=httpx.MockTransport(handler))
+
+
+async def test_new_season_reaches_calendar_before_premiere(db, tmp_path, monkeypatch) -> None:
+    """没订阅的剧在季间空档刷新：3 天后再刷，期间 TMDB 公布的新季赶在首播前进库，
+    详情页分集区有了第 2 季、日历出得来；之后转入在播档每天刷。"""
+    from movieclaw_api.services import media_discover, media_refresh
+
+    today = publish_calendar_date(utcnow())
+    day = lambda offset: (today + timedelta(days=offset)).isoformat()  # noqa: E731
+    library_id, item_id = await _seed_show(db, tmp_path, {1: -67, 2: -60}, owned={1, 2})
+    show = {
+        "id": 777,
+        "name": "长街夜行",
+        "original_name": "Night Street",
+        "first_air_date": day(-67),
+        "status": "Returning Series",
+        "external_ids": {},
+        "alternative_titles": {"results": []},
+        "translations": {"translations": []},
+        "seasons": [{"season_number": 1}],
+    }
+    season1 = {
+        "name": "第 1 季",
+        "air_date": day(-67),
+        "episodes": [
+            {"episode_number": 1, "name": "E1", "air_date": day(-67)},
+            {"episode_number": 2, "name": "E2", "air_date": day(-60)},
+        ],
+    }
+    routes = {"/3/tv/777": show, "/3/tv/777/season/1": season1}
+    monkeypatch.setattr(media_discover, "get_tmdb_client", lambda: _fake_tmdb(routes))
+
+    async def refresh() -> timedelta:
+        await media_refresh.refresh_media_metadata()
+        async with db.session() as session:
+            item = await session.get(MediaItem, item_id)
+            assert item is not None and item.next_refresh_at is not None
+            return item.next_refresh_at - utcnow()
+
+    # 季间空档：本地最新一集两个月前，原来会排到 30 天后
+    assert timedelta(days=2, hours=23) < await refresh() <= timedelta(days=3)
+
+    # 三天内 TMDB 公布第 2 季 10 天后开播；到期再刷
+    routes["/3/tv/777"] = {**show, "seasons": [{"season_number": 1}, {"season_number": 2}]}
+    routes["/3/tv/777/season/2"] = {
+        "name": "第 2 季",
+        "air_date": day(10),
+        "episodes": [
+            {"episode_number": 1, "name": "E1", "air_date": day(10)},
+            {"episode_number": 2, "name": "E2", "air_date": day(17)},
+        ],
+    }
+    async with db.session() as session:
+        item = await session.get(MediaItem, item_id)
+        assert item is not None
+        item.next_refresh_at = utcnow()
+        session.add(item)
+        await session.commit()
+    assert timedelta(hours=23) < await refresh() <= timedelta(hours=24)
+
+    async with db.session() as session:
+        view = (await list_item_episodes(library_id, item_id, 2, _ADMIN, session)).data
+    assert [e.episode_number for e in view.episodes] == [1, 2]
+    assert not any(e.owned for e in view.episodes)
+    assert view.air_schedule is not None
+    assert view.air_schedule.last_air_date == today + timedelta(days=17)

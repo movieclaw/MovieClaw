@@ -1513,10 +1513,15 @@ def next_refresh_delay(
     """刷新分档（docs/design/subscription-p4.md 第 6 节 / metadata.md 4.4）。
 
     ``airing``：这部剧最近一周播过或之后还有排期。没订阅也每天刷一次，详情页
-    播出日历（issue #547）的排期要跟得上改档、加集。"""
+    播出日历（issue #547）的排期要跟得上改档、加集。
+
+    季间空档的剧本地还没有新季的集，``airing`` 判不出来；TMDB 没标完结就 3 天一刷，
+    新季定档后赶在首播前进库，日历才出得来。"""
     if subscription is None:
         if airing:
             return timedelta(hours=24)
+        if item.kind == MediaKind.TV.value and (item.status or "") not in _ENDED:
+            return timedelta(days=3)
         return timedelta(days=30)  # 无订阅：低频保鲜档案，防条目腐烂
     if item.kind == MediaKind.TV.value and (item.status or "") not in _ENDED:
         return timedelta(hours=8)  # 在播/未完结剧：新集的发动机
