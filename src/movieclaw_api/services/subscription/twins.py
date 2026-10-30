@@ -149,7 +149,6 @@ async def ambiguous_verdict(
     identity,
     candidate,
     twins: list[dict],
-    notify: bool = True,
 ) -> tuple[str, str]:
     """身份不明的候选跳过并知会一次；明确属于另一部的候选直接拒绝。"""
     from movieclaw_matcher import better_explained_by_twin
@@ -164,8 +163,7 @@ async def ambiguous_verdict(
             "subscription.twins.reject", title=other["title"], year=other["year"], id=loser
         )
 
-    if notify:
-        await _inform_user(session, subscription_id=subscription_id, item=item)
+    await _inform_user(session, subscription_id=subscription_id, item=item)
     return "skip", source_text("subscription.twins.skip")
 
 

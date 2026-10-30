@@ -13,13 +13,10 @@ from tests.api.test_subscription_pipeline import _insert_torrent, _wanted_map, d
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.subscription.matching import evaluate_and_dispatch
-from movieclaw_api.services.subscription.smart_runtime import SmartAutomationSettings
 from movieclaw_api.services.subscription.smart_scheduler import recover_submissions, run_due
 from movieclaw_api.services.subscription.smart_selection import change_wait, confirm_import
-from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.models import (
     SmartCandidate,
-    SmartDecisionRecord,
     SmartSeason,
     SubscriptionDownloadAttempt,
     WantedItem,
@@ -229,30 +226,10 @@ async def test_at12_pack_selects_ready_episode_without_bypassing_other_wait(db, 
         ).scalar_one().torrent_id == "pack"
 
 
-async def test_shadow_disabled_corrupt_policy_never_falls_back(db):
+async def test_corrupt_policy_never_falls_back(db):
     async with db.session() as session:
         sub = await smart_sub(session, wait_seconds=0)
         candidate = await resource(session)
-        store = get_setting_store()
-        await store.set(SmartAutomationSettings(shadow_only=True))
-        assert (
-            await evaluate_and_dispatch(session, [candidate], source="影子")
-        ).dispatched_units == 0
-        wanted = (await _wanted_map(session, sub.id))[(1, 1)]
-        assert (
-            wanted.selection_state is None
-            and wanted.selection_version == 0
-            and wanted.status == "wanted"
-        )
-        assert (await session.execute(select(SmartDecisionRecord))).scalars().first() is not None
-        assert (
-            await session.execute(select(SubscriptionDownloadAttempt))
-        ).scalars().first() is None
-        await store.set(SmartAutomationSettings(enabled=False))
-        assert (
-            await evaluate_and_dispatch(session, [candidate], source="关闭")
-        ).dispatched_units == 0
-        await store.set(SmartAutomationSettings())
         sub.smart_policy = {**sub.smart_policy, "algorithm_version": 999}
         await session.commit()
         assert (

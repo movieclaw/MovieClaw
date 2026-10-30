@@ -488,10 +488,6 @@ async def _try_candidates(
     if subscription.selection_mode == "smart":
         from movieclaw_api.services.subscription.smart_profiles import read_policy
         spec = read_policy(subscription)
-        from movieclaw_api.services.subscription.smart_runtime import runtime_settings
-        runtime = await runtime_settings()
-        if not runtime.enabled or runtime.shadow_only:
-            return False
     else:
         rule = await session.get(RuleSet, subscription.rule_set_id)
         spec = RuleSetSpec.model_validate(rule.spec) if rule else None
