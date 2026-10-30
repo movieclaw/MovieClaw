@@ -45,6 +45,7 @@ class PlaybackSessionHolderTest {
         val holder: PlaybackSessionHolder,
         val vault: TokenVault,
         val ui: MutableStateFlow<SessionUi>,
+        val api: ApiFactory,
     )
 
     @Suppress("UNCHECKED_CAST")
@@ -65,9 +66,9 @@ class PlaybackSessionHolderTest {
         val local = io.movieclaw.android.core.offline.OfflineLocalSource(
             context, io.movieclaw.android.core.offline.OfflineStore(context, api, json), reachability, api,
         )
-        val holder = PlaybackSessionHolder(context, api, repository, PlaybackDataEvents(), CorePlaybackPrefs(context), local)
+        val holder = PlaybackSessionHolder(context, api, io.movieclaw.android.core.network.ServerAddressBook(context, api), repository, PlaybackDataEvents(), CorePlaybackPrefs(context), local)
         val field = SessionRepository::class.java.getDeclaredField("_ui").apply { isAccessible = true }
-        return Fixture(holder, vault, field.get(repository) as MutableStateFlow<SessionUi>)
+        return Fixture(holder, vault, field.get(repository) as MutableStateFlow<SessionUi>, api)
     }
 
     private val target = PlayTarget(1, 1, "movie", "Movie")
@@ -247,4 +248,43 @@ class PlaybackSessionHolderTest {
             Dispatchers.resetMain()
         }
     }
+    @Test fun memberMediaUsesSelectedEntryAfterWanLogin() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val server = MockWebServer().apply {
+            dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+                override fun dispatch(request: RecordedRequest) = if (request.path == "/api/v1/playback/sessions") {
+                    MockResponse().setBody("""{"data":{"decision":{"outcome":"play","tier":0,"file_id":1},"stream_url":"/api/v1/playback/files/1/stream?token=t"}}""")
+                } else if (request.path == "/api/v1/playback/items/1") {
+                    MockResponse().setBody("""{"data":{"media_item_id":1,"library_id":1,"kind":"movie","title":"Movie"}}""")
+                } else MockResponse().setResponseCode(503)
+            }
+            start()
+        }
+        val fixture = fixture()
+        try {
+            val login = "https://movie.example.invalid"
+            val selected = server.url("/").toString().trimEnd('/')
+            fixture.signIn(login, "alice")
+            io.movieclaw.android.core.network.ServerTrust.allow(login, listOf(login, selected))
+            fixture.api.setRoutedBase(login, server.url("/api/v1").toString())
+            fixture.holder.open(target)
+            awaitState(fixture.holder, ::playing)
+            val controller = (fixture.holder.state.value as PlaybackSessionHolder.State.Playing).active.controller
+            var remaining = 300
+            while (controller.player.currentMediaItem == null && remaining-- > 0) {
+                runCurrent()
+                Thread.sleep(10)
+            }
+            assertNotNull("控制器状态：${controller.state.value}；请求数：${server.requestCount}", controller.player.currentMediaItem)
+            assertEquals(server.url("/api/v1/playback/files/1/stream?token=t").toString(),
+                fixture.holder.sessionPlayer.value!!.currentMediaItem!!.localConfiguration!!.uri.toString())
+            assertEquals(login, fixture.ui.value.origin)
+        } finally {
+            fixture.holder.exit()
+            server.shutdown()
+            drain()
+            Dispatchers.resetMain()
+        }
+    }
+
 }

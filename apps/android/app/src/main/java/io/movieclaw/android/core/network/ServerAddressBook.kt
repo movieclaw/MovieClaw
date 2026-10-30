@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -180,8 +183,17 @@ class ServerAddressBook @Inject constructor(
         _selection.value?.let { selectAndApply(it.origin) }
     }
 
+    private val selectionMutex = Mutex()
+
+    /** 播放断流：串行等待正在进行的选路，再强制竞速一轮；不能只发事件就重开旧入口。 */
+    suspend fun reselectAndAwait(origin: String) = withContext(Dispatchers.IO) {
+        selectionMutex.withLock { selectLocked(origin, force = true) }
+    }
+
     /** 选一轮；返回本轮是否有入口验证通过（没有的话调用方稍后再试） */
-    private suspend fun select(origin: String): Boolean {
+    private suspend fun select(origin: String): Boolean = selectionMutex.withLock { selectLocked(origin) }
+
+    private suspend fun selectLocked(origin: String, force: Boolean = false): Boolean {
         val api = apiFactory.forOrigin(origin)
         val fp = fingerprint()
         val previousSelection = _selection.value
@@ -191,7 +203,7 @@ class ServerAddressBook @Inject constructor(
         // 此时当前入口往往已经不可达，先去内网入口拉地址簿会干等 5 秒超时，切换就“感觉没反应”。
         // 当前入口没验过（上一轮一个都没通、这是补试）同理：别先去它那儿拉地址簿。
         val currentUnverified = previousSelection?.verified == false
-        val fetched = if ((networkJustChanged || currentUnverified) && cached != null) {
+        val fetched = if ((force || networkJustChanged || currentUnverified) && cached != null) {
             null
         } else {
             runCatching { api.serverAddresses().dataOrThrow() }.getOrNull()
@@ -212,7 +224,7 @@ class ServerAddressBook @Inject constructor(
         val plan = planRoutes(
             entries = entries,
             loginUrl = loginUrl,
-            remembered = rememberedValid,
+            remembered = rememberedValid.takeUnless { force },
             cellular = net?.cellularOnly == true,
             vpn = net?.vpn != null,
             inSameSubnet = { inSameSubnet(it, net) },
@@ -223,7 +235,7 @@ class ServerAddressBook @Inject constructor(
 
         // 当前在外网、网络变化后预筛出了内网候选：只探内网，不重探外网（§4.5）
         val previous = _selection.value
-        val onlyLanUpgrade = previous != null && previous.kind != "lan" &&
+        val onlyLanUpgrade = !force && previous != null && previous.kind != "lan" &&
             previous.fingerprint != fp && lanOrdered.isNotEmpty()
         val wanToRace = if (onlyLanUpgrade) emptyList() else wanOrdered
         if (onlyLanUpgrade) android.util.Log.i("McRoutes", "外网回内网：只探内网候选")

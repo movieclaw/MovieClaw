@@ -11,12 +11,14 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import io.movieclaw.android.BuildConfig
 import io.movieclaw.android.core.AppScopes
 import io.movieclaw.android.core.network.ApiFactory
+import io.movieclaw.android.core.network.playbackMediaClient
 import io.movieclaw.android.core.session.SessionRepository
 import io.movieclaw.android.core.session.TokenVault
 import io.movieclaw.core.network.ClientIdentity
 import io.movieclaw.core.network.ServerAddress
 import io.movieclaw.core.playback.MemberBackend
 import io.movieclaw.core.playback.PlaybackBackend
+import io.movieclaw.core.playback.PlaybackConnection
 import io.movieclaw.core.playback.PlaybackController
 import io.movieclaw.core.playback.PlaybackHost
 import io.movieclaw.core.playback.PlaybackTarget
@@ -39,6 +41,7 @@ import kotlinx.coroutines.launch
 class PlaybackSessionHolder @Inject constructor(
     @ApplicationContext private val context: Context,
     private val apiFactory: ApiFactory,
+    private val addresses: io.movieclaw.android.core.network.ServerAddressBook,
     private val sessionRepository: SessionRepository,
     private val playbackEvents: PlaybackDataEvents,
     private val prefs: CorePlaybackPrefs,
@@ -113,7 +116,13 @@ class PlaybackSessionHolder @Inject constructor(
         }
         begin(owner) {
             val deviceId = sessionRepository.deviceId()
-            create(origin, MemberBackend(channel.api), channel.http, deviceId, owner?.token, target, guest = false) {
+            create(channel.server, MemberBackend(channel.api), channel.http, deviceId, owner?.token, target, guest = false,
+                connect = { reselect ->
+                    if (reselect) addresses.reselectAndAwait(origin)
+                    val current = apiFactory.corePlaybackForIdentity(origin, owner)
+                    PlaybackConnection(MemberBackend(current.api), current.server)
+                },
+            ) {
                 if (owner != null && sessionRepository.isCurrentIdentity(owner)) playbackEvents.committed(owner)
             }
         }
@@ -127,7 +136,7 @@ class PlaybackSessionHolder @Inject constructor(
             return
         }
         begin(owner = null) {
-            create(origin, ShareBackend(channel.api, slug), channel.http, "guest", null, target, guest = true) {}
+            create(channel.server, ShareBackend(channel.api, slug), channel.http, "guest", null, target, guest = true) {}
         }
     }
 
@@ -161,24 +170,22 @@ class PlaybackSessionHolder @Inject constructor(
     }
 
     private fun create(
-        origin: String,
+        server: ServerAddress,
         backend: PlaybackBackend,
         http: okhttp3.OkHttpClient,
         deviceId: String,
         token: String?,
         target: PlayTarget,
         guest: Boolean,
+        connect: (suspend (Boolean) -> PlaybackConnection)? = null,
         onStopCommitted: () -> Unit,
-    ): Active? {
-        val server = ServerAddress.parse(origin) ?: run {
-            _state.value = State.Failed("无效的服务器地址:$origin")
-            return null
-        }
+    ): Active {
+        val mediaHttp = playbackMediaClient(http)
         val controller = PlaybackController(
             context = context,
             backend = backend,
             server = server,
-            http = http,
+            http = mediaHttp,
             identity = identity,
             deviceId = deviceId,
             token = token,
@@ -200,8 +207,9 @@ class PlaybackSessionHolder @Inject constructor(
             host = PlaybackHost(playInBackground = true, ownsMediaSession = false),
             onStopCommitted = onStopCommitted,
             local = if (guest) null else localSource,
+            connect = connect,
         )
-        return Active(controller, target, guest, http)
+        return Active(controller, target, guest, mediaHttp)
     }
 
     /** 换掉当前控制器：旧的关掉（stop 上报与关会话在控制器自己的队列里发完） */

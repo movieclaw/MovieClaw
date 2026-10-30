@@ -103,6 +103,15 @@ private fun routeHeaderInterceptor(): Interceptor = Interceptor { chain ->
     chain.proceed(chain.request().newBuilder().header("X-MovieClaw-Route", route.header).build())
 }
 
+/** 媒体断流由控制器等待选路并重签 token；请求层不能拿旧 token 直接换入口。 */
+internal object PlaybackMediaRequest
+
+internal fun playbackMediaClient(http: OkHttpClient): OkHttpClient = http.newBuilder().apply {
+    interceptors().add(0, Interceptor { chain ->
+        chain.proceed(chain.request().newBuilder().tag(PlaybackMediaRequest::class.java, PlaybackMediaRequest).build())
+    })
+}.build()
+
 /** 换地址重试用过的标记，避免连环重试 */
 private const val FAILOVER_TRY = "X-MovieClaw-Retried"
 
@@ -116,6 +125,7 @@ private fun failoverInterceptor(): Interceptor = Interceptor { chain ->
     try {
         chain.proceed(request)
     } catch (e: java.io.IOException) {
+        if (request.tag(PlaybackMediaRequest::class.java) != null) throw e
         val hard = isHardNetworkFailure(e)
         if (hard) ServerRoutes.onHardError?.invoke()
         if (!hard || (request.method != "GET" && request.method != "HEAD") ||

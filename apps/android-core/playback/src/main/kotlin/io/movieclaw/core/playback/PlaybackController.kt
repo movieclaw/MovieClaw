@@ -97,8 +97,8 @@ import java.util.concurrent.atomic.AtomicLong
 class PlaybackController(
     context: Context,
     /** 成员走成员域播放接口（[MemberBackend]），访客走分享页通道（[ShareBackend]） */
-    private val backend: PlaybackBackend,
-    private val server: ServerAddress,
+    private var backend: PlaybackBackend,
+    private var server: ServerAddress,
     private val http: OkHttpClient,
     private val identity: ClientIdentity,
     private val deviceId: String,
@@ -118,6 +118,8 @@ class PlaybackController(
     private val onStopCommitted: () -> Unit = {},
     /** 本机副本（手机离线下载）：有就先放本机的；电视不传 */
     private val local: LocalPlaybackSource? = null,
+    /** 每次协商前冻结 API 与媒体入口；网络断流时先等待一轮重新选路。播放中不观察路由变化。 */
+    private val connect: (suspend (reselect: Boolean) -> PlaybackConnection)? = null,
 ) {
     private val denylist = DecoderDenylist(prefs, identity.appVersion)
     private val capability = capabilityOverride ?: CapabilityProbe(context, denylist::isDenied)
@@ -700,7 +702,7 @@ class PlaybackController(
     // ======================================================================
 
     /** 去后端要一个能播的地址。[next]：Deciding（新请求）/ SessionStarting（换会话）/ Degrading（降档） */
-    private fun request(startMs: Long?, next: Phase) {
+    private fun request(startMs: Long?, next: Phase, reselect: Boolean = false) {
         record?.mark("session_request")
         record?.event("request", "开会话（${next.name}${startMs?.let { " @${it / 1000}s" } ?: ""}）")
         attempt += 1
@@ -731,7 +733,7 @@ class PlaybackController(
                 reportedStart = false
                 viewing.finish(s.positionMs, completed = false)
             }
-            performRequest(body, startMs, myAttempt)
+            performRequest(body, startMs, myAttempt, reselect)
         }
     }
 
@@ -760,8 +762,13 @@ class PlaybackController(
         )
     }
 
-    private suspend fun performRequest(body: PlaybackSessionRequest, startMs: Long?, myAttempt: Int) {
+    private suspend fun performRequest(body: PlaybackSessionRequest, startMs: Long?, myAttempt: Int, reselect: Boolean) {
         val opened = try {
+            connect?.invoke(reselect)?.let { connection ->
+                if (myAttempt != attempt || closed) return
+                backend = connection.backend
+                server = connection.server
+            }
             backend.startSession(body)
         } catch (e: CancellationException) {
             throw e
@@ -777,7 +784,7 @@ class PlaybackController(
                     flash("连接中断，正在重连…")
                     delay(wait)
                     if (myAttempt != attempt || closed) return
-                    request(s.positionMs, Phase.SessionStarting)
+                    request(s.positionMs, Phase.SessionStarting, reselect = true)
                     return
                 }
             }
@@ -1041,7 +1048,7 @@ class PlaybackController(
         networkRestarts.reset()
         reconnectBackoff.reset()
         nativeRetries.reset()
-        request(s.positionMs, Phase.Deciding)
+        request(s.positionMs, Phase.Deciding, reselect = true)
     }
 
     /** 能不能在同意弹窗里直接开启软件转码（访客没有设置权，只能看说明） */
@@ -1269,7 +1276,14 @@ class PlaybackController(
                 record?.beginReconnect(reason)
                 log("network-restart", "reason" to str(reason), "attempt" to JsonPrimitive(networkRestarts.consecutive))
                 val probe = sourceProbeUrl
-                if (playsOriginalFile && probe != null) awaitSourceThenReconnect(probe) else request(s.positionMs, Phase.SessionStarting)
+                if (connect != null) {
+                    // 旧片源可能永远不可达；先等选路，再从当前位置协商新 token / 媒体地址。
+                    request(s.positionMs, Phase.SessionStarting, reselect = true)
+                } else if (playsOriginalFile && probe != null) {
+                    awaitSourceThenReconnect(probe)
+                } else {
+                    request(s.positionMs, Phase.SessionStarting)
+                }
             }
             FailurePolicy.Response.RetryNative -> {
                 log("native-retry", "reason" to str(reason))
