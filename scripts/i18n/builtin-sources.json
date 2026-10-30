@@ -410,5 +410,12 @@
     "function": "app_update_startup_check",
     "title": "plugins.builtins.appUpdateStartupCheckTitle",
     "description": "plugins.builtins.appUpdateStartupCheckDescription"
+  },
+  "agent.model-catalog": {
+    "path": "src/movieclaw_api/plugins/agent.py",
+    "function": "agent_model_catalog",
+    "manifest_ref": "agent.agent_model_catalog",
+    "title": "plugins.builtins.agentModelCatalogTitle",
+    "description": "plugins.builtins.agentModelCatalogDescription"
   }
 }

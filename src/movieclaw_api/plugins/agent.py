@@ -55,3 +55,12 @@ async def agent_invoke(ctx: Context) -> None:
 
     # 授权与代表谁沿用宿主操作那份用户批准（plugins.yaml 的 grants、插件包安装时的批准）
     ctx.provide(AGENT, AgentService(ctx.use(HOST_OPS)))
+
+
+@plugin("agent.model-catalog", title="模型目录更新", inject=(DB,), reloadable=True)
+async def agent_model_catalog(ctx: Context) -> None:
+    """每天从各模型服务商拉取最新的可用模型，并从 models.dev 更新模型参数。"""
+    from movieclaw_api.services import llm_catalog
+    from movieclaw_scheduler import contribute_tasks
+
+    contribute_tasks(ctx, llm_catalog)

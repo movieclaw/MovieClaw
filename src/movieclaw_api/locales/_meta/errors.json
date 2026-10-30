@@ -2791,5 +2791,14 @@
   },
   "playback.remoteBackendMissing": {
     "sourceHash": "d0b624063a25a411d676491af0a2a8d2379619da80295ab8e383ad6b261d737f"
+  },
+  "llm.catalogUnknown": {
+    "sourceHash": "7467427aa965e0ce1e0fe751c36133e968fc61a1fa8b51b0ec7a28bc67a1f279"
+  },
+  "llm.catalogModelMissing": {
+    "sourceHash": "6f4e551e9c294b8a977c70aa47a885a7cc6801b5f0d46fcf199142e8e6f52b8b"
+  },
+  "llm.modelParamsUnknown": {
+    "sourceHash": "6aeb36e833dc50cdb5293cdb936c48fbc746ff159a584ce83589c0c74205ff80"
   }
 }

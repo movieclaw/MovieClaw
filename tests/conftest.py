@@ -472,6 +472,29 @@ def _offline_tmdb_singleton(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_model_catalog(request, tmp_path_factory, monkeypatch):
+    """公共模型目录（models.dev）在测试里只用随包快照、缓存写进临时目录、不联网。
+
+    单例默认读写 <data_dir>/cache/llm-catalog：开发机跑过服务时那里有更新的缓存，
+    会让断言随本机状态漂移。需要模拟上游的用例自己 monkeypatch ``_fetch``。
+    """
+    if request.node.get_closest_marker("integration"):
+        yield
+        return
+    from movieclaw_api.services import llm_catalog
+
+    async def offline(url, headers):
+        raise OSError("测试环境不访问 models.dev")
+
+    monkeypatch.setattr(llm_catalog, "_fetch", offline)
+    llm_catalog.set_public_catalog(
+        llm_catalog.PublicCatalog(llm_catalog._BUNDLED, tmp_path_factory.mktemp("llm-catalog"))
+    )
+    yield
+    llm_catalog.set_public_catalog(None)
+
+
+@pytest.fixture(autouse=True)
 def _no_strm_prefetch_by_default(request, monkeypatch):
     """随带插件「网盘规格预探」在测试里默认停用（启动补丁层关掉它）。
 

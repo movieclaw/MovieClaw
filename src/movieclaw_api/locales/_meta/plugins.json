@@ -1099,5 +1099,11 @@
   },
   "settings.notEditable": {
     "sourceHash": "02c9c6b875680fd8cb16755fb783af5aa9584ba88af09776e264900dad8e5987"
+  },
+  "builtins.agentModelCatalogTitle": {
+    "sourceHash": "2e53b9a422e191c4d4c454e4a747d6012daa93512d898c4c1ffed081d745a483"
+  },
+  "builtins.agentModelCatalogDescription": {
+    "sourceHash": "e899c5c936642119ce465f9f04956844c619a6bc7d7136140fc7964211e8d6c0"
   }
 }

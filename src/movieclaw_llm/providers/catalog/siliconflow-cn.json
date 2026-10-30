@@ -1,0 +1,1212 @@
+{
+ "api": "https://api.siliconflow.cn/v1",
+ "fetched_at": "2026-10-30T10:25:11Z",
+ "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
+ "models": {
+  "ByteDance-Seed/Seed-OSS-36B-Instruct": {
+   "cost": {
+    "input": 0.22417122,
+    "output": 0.59778991
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "ByteDance-Seed/Seed-OSS-36B-Instruct",
+   "reasoning": false,
+   "release_date": "2025-09-04",
+   "temperature": true,
+   "tool_call": true
+  },
+  "PaddlePaddle/PaddleOCR-VL-1.5": {
+   "cost": {
+    "input": 0,
+    "output": 0
+   },
+   "limit": {
+    "context": 16384,
+    "output": 16384
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "PaddlePaddle/PaddleOCR-VL-1.5",
+   "reasoning": false,
+   "release_date": "2026-01-29",
+   "temperature": true,
+   "tool_call": false
+  },
+  "Pro/deepseek-ai/DeepSeek-R1": {
+   "cost": {
+    "cache_read": 0.05977899,
+    "input": 0.59778991,
+    "output": 2.39115964
+   },
+   "limit": {
+    "context": 164000,
+    "output": 164000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Pro/deepseek-ai/DeepSeek-R1",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2025-05-28",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Pro/deepseek-ai/DeepSeek-V3": {
+   "cost": {
+    "cache_read": 0.0298895,
+    "input": 0.29889496,
+    "output": 1.19557982
+   },
+   "limit": {
+    "context": 164000,
+    "output": 164000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Pro/deepseek-ai/DeepSeek-V3",
+   "reasoning": false,
+   "release_date": "2025-03-24",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Pro/deepseek-ai/DeepSeek-V3.1-Terminus": {
+   "cost": {
+    "cache_read": 0.05977899,
+    "input": 0.59778991,
+    "output": 1.79336973
+   },
+   "limit": {
+    "context": 164000,
+    "output": 164000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Pro/deepseek-ai/DeepSeek-V3.1-Terminus",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-09-29",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Pro/deepseek-ai/DeepSeek-V3.2": {
+   "cost": {
+    "cache_read": 0.05977899,
+    "input": 0.59778991,
+    "output": 0.89668487
+   },
+   "limit": {
+    "context": 164000,
+    "output": 164000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Pro/deepseek-ai/DeepSeek-V3.2",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-12-01",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Pro/moonshotai/Kimi-K2.5": {
+   "cost": {
+    "cache_read": 0.07,
+    "input": 0.45,
+    "output": 2.25
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Pro/moonshotai/Kimi-K2.5",
+   "reasoning": true,
+   "reasoning_options": [],
+   "release_date": "2026-01-27",
+   "status": "deprecated",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Pro/moonshotai/Kimi-K2.6": {
+   "cost": {
+    "cache_read": 0.16439223,
+    "input": 0.97140861,
+    "output": 4.0350819
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Pro/moonshotai/Kimi-K2.6",
+   "reasoning": true,
+   "reasoning_options": [],
+   "release_date": "2026-04-20",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Pro/zai-org/GLM-5": {
+   "cost": {
+    "input": 1,
+    "output": 3.2
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 205000,
+    "output": 205000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Pro/zai-org/GLM-5",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2026-02-12",
+   "status": "deprecated",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Pro/zai-org/GLM-5.1": {
+   "cost": {
+    "cache_read": 0.19428172,
+    "cache_write": 0,
+    "input": 0.89668487,
+    "output": 3.58673947,
+    "tiers": [
+     {
+      "cache_read": 0.29889496,
+      "cache_write": 0,
+      "input": 1.19557982,
+      "output": 4.18452938,
+      "tier": {
+       "size": 32000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 205000,
+    "output": 205000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Pro/zai-org/GLM-5.1",
+   "reasoning": true,
+   "reasoning_options": [],
+   "release_date": "2026-04-07",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen2.5-72B-Instruct": {
+   "cost": {
+    "input": 0.61721808,
+    "output": 0.61721808
+   },
+   "limit": {
+    "context": 33000,
+    "output": 4000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen2.5-72B-Instruct",
+   "reasoning": false,
+   "release_date": "2024-09-18",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen2.5-7B-Instruct": {
+   "cost": {
+    "input": 0,
+    "output": 0
+   },
+   "limit": {
+    "context": 33000,
+    "output": 4000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen2.5-7B-Instruct",
+   "reasoning": false,
+   "release_date": "2024-09-19",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3-14B": {
+   "cost": {
+    "input": 0.07472374,
+    "output": 0.29889496
+   },
+   "limit": {
+    "context": 131000,
+    "output": 131000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3-14B",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2025-04-30",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3-30B-A3B-Instruct-2507": {
+   "cost": {
+    "input": 0.10461323,
+    "output": 0.41845294
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+   "reasoning": false,
+   "release_date": "2025-07-28",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3-32B": {
+   "cost": {
+    "input": 0.14944748,
+    "output": 0.59778991
+   },
+   "limit": {
+    "context": 131000,
+    "output": 131000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3-32B",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2025-04-28",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3-8B": {
+   "cost": {
+    "input": 0,
+    "output": 0
+   },
+   "limit": {
+    "context": 131000,
+    "output": 131000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3-8B",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2025-04-29",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3-Coder-30B-A3B-Instruct": {
+   "cost": {
+    "input": 0.10461323,
+    "output": 0.41845294
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+   "reasoning": false,
+   "release_date": "2025-07-31",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3-VL-30B-A3B-Instruct": {
+   "cost": {
+    "input": 0.10461323,
+    "output": 0.41845294
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+   "reasoning": false,
+   "release_date": "2025-10-04",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3-VL-30B-A3B-Thinking": {
+   "cost": {
+    "input": 0.10461323,
+    "output": 0.41845294
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3-VL-30B-A3B-Thinking",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2025-10-11",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3-VL-32B-Instruct": {
+   "cost": {
+    "input": 0.14944748,
+    "output": 0.59778991
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3-VL-32B-Instruct",
+   "reasoning": false,
+   "release_date": "2025-10-21",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3-VL-32B-Thinking": {
+   "cost": {
+    "input": 0.14944748,
+    "output": 1.49447478
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3-VL-32B-Thinking",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2025-10-21",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3-VL-8B-Instruct": {
+   "cost": {
+    "input": 0.07472374,
+    "output": 0.29889496
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3-VL-8B-Instruct",
+   "reasoning": false,
+   "release_date": "2025-10-15",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3.5-122B-A10B": {
+   "cost": {
+    "input": 0.11955798,
+    "output": 0.95646386,
+    "tiers": [
+     {
+      "input": 0.29889496,
+      "output": 2.39115964,
+      "tier": {
+       "size": 128000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "limit": {
+    "context": 262144,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3.5-122B-A10B",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2026-02-23",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3.5-27B": {
+   "cost": {
+    "input": 0.08966849,
+    "output": 0.71734789,
+    "tiers": [
+     {
+      "input": 0.26900546,
+      "output": 2.15204368,
+      "tier": {
+       "size": 128000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "limit": {
+    "context": 262144,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3.5-27B",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2026-02-23",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3.5-35B-A3B": {
+   "cost": {
+    "input": 0.05977899,
+    "output": 0.47823193,
+    "tiers": [
+     {
+      "input": 0.23911596,
+      "output": 1.91292771,
+      "tier": {
+       "size": 128000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "limit": {
+    "context": 262144,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3.5-35B-A3B",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2026-02-23",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3.5-4B": {
+   "cost": {
+    "input": 0,
+    "output": 0
+   },
+   "limit": {
+    "context": 262144,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3.5-4B",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2026-03-02",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3.5-9B": {
+   "cost": {
+    "input": 0.07472374,
+    "output": 0.59778991,
+    "tiers": [
+     {
+      "input": 0.22417122,
+      "output": 1.79336973,
+      "tier": {
+       "size": 128000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "limit": {
+    "context": 262144,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3.5-9B",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2026-02-23",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3.6-35B-A3B": {
+   "cost": {
+    "input": 0.26900546,
+    "output": 1.61403276
+   },
+   "limit": {
+    "context": 262144,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen/Qwen3.6-35B-A3B",
+   "reasoning": false,
+   "release_date": "2026-04-17",
+   "temperature": true,
+   "tool_call": true
+  },
+  "deepseek-ai/DeepSeek-OCR": {
+   "cost": {
+    "input": 0,
+    "output": 0
+   },
+   "limit": {
+    "context": 8192,
+    "output": 8192
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "pdf"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "deepseek-ai/DeepSeek-OCR",
+   "reasoning": false,
+   "release_date": "2025-10-20",
+   "temperature": true,
+   "tool_call": false
+  },
+  "deepseek-ai/DeepSeek-R1": {
+   "cost": {
+    "cache_read": 0.05977899,
+    "input": 0.59778991,
+    "output": 2.39115964
+   },
+   "limit": {
+    "context": 164000,
+    "output": 164000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "deepseek-ai/DeepSeek-R1",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2025-05-28",
+   "temperature": true,
+   "tool_call": true
+  },
+  "deepseek-ai/DeepSeek-V3": {
+   "cost": {
+    "cache_read": 0.0298895,
+    "input": 0.29889496,
+    "output": 1.19557982
+   },
+   "limit": {
+    "context": 164000,
+    "output": 164000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "deepseek-ai/DeepSeek-V3",
+   "reasoning": false,
+   "release_date": "2025-03-24",
+   "temperature": true,
+   "tool_call": true
+  },
+  "deepseek-ai/DeepSeek-V3.1-Terminus": {
+   "cost": {
+    "cache_read": 0.05977899,
+    "input": 0.59778991,
+    "output": 1.79336973
+   },
+   "limit": {
+    "context": 164000,
+    "output": 164000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "deepseek-ai/DeepSeek-V3.1-Terminus",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-09-29",
+   "temperature": true,
+   "tool_call": true
+  },
+  "deepseek-ai/DeepSeek-V3.2": {
+   "cost": {
+    "cache_read": 0.05977899,
+    "input": 0.59778991,
+    "output": 0.89668487
+   },
+   "limit": {
+    "context": 164000,
+    "output": 164000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "deepseek-ai/DeepSeek-V3.2",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-12-01",
+   "temperature": true,
+   "tool_call": true
+  },
+  "deepseek-ai/DeepSeek-V4-Flash": {
+   "cost": {
+    "cache_read": 0.04483424,
+    "input": 0.44834243,
+    "output": 1.3450273
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1000000,
+    "output": 384000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "DeepSeek V4 Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-04-24",
+   "temperature": true,
+   "tool_call": true
+  },
+  "deepseek-ai/DeepSeek-V4-Pro": {
+   "cost": {
+    "cache_read": 0.14944748,
+    "input": 1.79336973,
+    "output": 3.58673947
+   },
+   "limit": {
+    "context": 1049000,
+    "output": 393000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "deepseek-ai/DeepSeek-V4-Pro",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-04-24",
+   "temperature": true,
+   "tool_call": true
+  },
+  "inclusionAI/Ling-flash-2.0": {
+   "cost": {
+    "input": 0.14944748,
+    "output": 0.59778991
+   },
+   "limit": {
+    "context": 131000,
+    "output": 131000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "inclusionAI/Ling-flash-2.0",
+   "reasoning": false,
+   "release_date": "2025-09-18",
+   "temperature": true,
+   "tool_call": true
+  },
+  "stepfun-ai/Step-3.5-Flash": {
+   "cost": {
+    "input": 0.10461323,
+    "output": 0.3138397
+   },
+   "limit": {
+    "context": 262000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "stepfun-ai/Step-3.5-Flash",
+   "reasoning": true,
+   "reasoning_options": [],
+   "release_date": "2026-01-29",
+   "temperature": true,
+   "tool_call": true
+  },
+  "tencent/Hunyuan-A13B-Instruct": {
+   "cost": {
+    "input": 0.14944748,
+    "output": 0.59778991
+   },
+   "limit": {
+    "context": 131000,
+    "output": 131000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "tencent/Hunyuan-A13B-Instruct",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-06-30",
+   "temperature": true,
+   "tool_call": false
+  },
+  "zai-org/GLM-4.5-Air": {
+   "cost": {
+    "input": 0.14944748,
+    "output": 0.89668487
+   },
+   "limit": {
+    "context": 131000,
+    "output": 131000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "zai-org/GLM-4.5-Air",
+   "reasoning": false,
+   "release_date": "2025-07-28",
+   "temperature": true,
+   "tool_call": true
+  },
+  "zai-org/GLM-5.2": {
+   "cost": {
+    "cache_read": 0.29889496,
+    "cache_write": 0,
+    "input": 1.19557982,
+    "output": 4.18452938
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1049000,
+    "output": 262000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-5.2",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-06-13",
+   "temperature": true,
+   "tool_call": true
+  }
+ },
+ "name": "SiliconFlow (China)"
+}

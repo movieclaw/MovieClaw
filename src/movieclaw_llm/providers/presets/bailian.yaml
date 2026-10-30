@@ -8,6 +8,12 @@ id: bailian
 display_name: 阿里云百炼
 protocol: openai_chat
 base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+# 公共目录（models.dev）对应的服务商与思考方式偏好（docs/design/llm-model-catalog.md §5）；
+# 下面 models 里的条目是内置修正，显式写出的字段覆盖公共目录。
+catalog_id: alibaba-cn
+# 百炼的原生思考字段是 enable_thinking / thinking_budget
+thinking_prefer: [budget_tokens, effort, toggle]
+thinking_off_body: {enable_thinking: false}
 compat:
   thinking_field: reasoning_content
   supports_stream_usage: true
@@ -136,6 +142,7 @@ models:
   # DeepSeek 第三方：1M 上下文 / 384K（393216）最大输出，思考默认开。
   # thinking_budget 不适用于 DeepSeek 系，控制方言未公布，不声明
   - id: deepseek-v4-pro
+    thinking_control: null  # 显式无菜单：公共目录给的是官方渠道方言
     context_window: 1000000
     max_input_tokens: 1000000
     max_output_tokens: 393216
@@ -156,6 +163,7 @@ models:
       off_body: {enable_thinking: false}
     modalities: [text, image]
   - id: deepseek-v4-flash
+    thinking_control: null  # 同上
     context_window: 1000000
     max_input_tokens: 1000000
     max_output_tokens: 393216
@@ -165,6 +173,8 @@ models:
   # Kimi 第三方旗舰：仅思考模式（不可关）、保留式思考；百炼口径收图不收视频。
   # 官方注明 kimi-k3 不支持 thinking_budget，强度参数百炼未公布，不声明
   - id: kimi-k3
+    thinking_control: null  # 显式无菜单：百炼未公布强度参数
+    fixed_sampling: false  # 百炼口径未要求固定采样
     context_window: 1048576
     max_input_tokens: 1048576
     max_input_tokens_thinking: 1048576
@@ -175,6 +185,7 @@ models:
   # Kimi K2 直供：默认不思考；公开卡片未公布思考预算，仅声明开关。
   # k2.5 在月之暗面官方已下线，百炼仍在售，按渠道保留。
   - id: kimi-k2.6
+    max_thinking_tokens: null  # 公开卡片未公布思考预算
     context_window: 262144
     max_input_tokens: 229376
     max_output_tokens: 16384
@@ -186,6 +197,7 @@ models:
       supports_off: true
     modalities: [text, image, video]
   - id: kimi-k2.5
+    max_thinking_tokens: null  # 同上
     context_window: 262144
     max_input_tokens: 229376
     max_output_tokens: 16384

@@ -192,7 +192,9 @@
     "playbackTranscodeTitle": "Web playback transcoding sessions",
     "playbackTranscodeDescription": "Manages web playback transcoding sessions, starting transcoding on demand and cleaning up idle sessions and files left by previous runs.",
     "appUpdateStartupCheckTitle": "Startup update check",
-    "appUpdateStartupCheckDescription": "Checks for a new version a few minutes after startup in Docker deployments."
+    "appUpdateStartupCheckDescription": "Checks for a new version a few minutes after startup in Docker deployments.",
+    "agentModelCatalogTitle": "Model catalog updates",
+    "agentModelCatalogDescription": "Fetches each model provider's current model list daily and refreshes model parameters from models.dev."
   },
   "groups": {
     "core": "Core",

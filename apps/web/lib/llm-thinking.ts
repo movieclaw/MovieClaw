@@ -16,6 +16,7 @@ import { useLocale } from "next-intl";
 import type { AppLocale } from "./i18n/negotiate";
 
 import { listLlmModels, type LlmModelOption } from "@/lib/api/llm";
+import { findModelOption } from "@/lib/composer-prefs";
 
 // 档位顺序与文案的事实源在 thinking-level-control.ts（纯逻辑、可单测）；
 // 这里转出口，设置页等既有引用不用改路径
@@ -54,7 +55,7 @@ export function resolveModelOption(
   ref: string | null | undefined,
 ): LlmModelOption | undefined {
   if (ref) {
-    const hit = options.find((o) => o.ref === ref);
+    const hit = findModelOption(options, ref);
     if (hit) return hit;
   }
   return options.find((o) => o.is_default) ?? options[0];

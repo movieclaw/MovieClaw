@@ -15,6 +15,11 @@ id: glm
 display_name: 智谱 GLM 官方
 protocol: openai_chat
 base_url: https://open.bigmodel.cn/api/paas/v4
+# 公共目录（models.dev）对应的服务商与思考方式偏好（docs/design/llm-model-catalog.md §5）；
+# 下面 models 里的条目是内置修正，显式写出的字段覆盖公共目录。
+catalog_id: zhipuai
+thinking_prefer: [effort, toggle]
+thinking_off_body: {thinking: {type: disabled}}
 compat:
   thinking_field: reasoning_content
   supports_stream_usage: true
@@ -80,6 +85,7 @@ models:
     modalities: [text]
   # 4.7 系：官方 API 文档标注"强制思考"（不可关、无强度参数）→ 无菜单
   - id: glm-4.7
+    thinking_control: null  # 强制思考、无强度参数（见文件头）
     context_window: 204800
     max_output_tokens: 131072
     supports_tools: true
@@ -88,6 +94,7 @@ models:
   # 免费档：30B-A3B MoE，200K 上下文；输出上限官方现已公布（128K）。
   # 思考控制官方仅明确"支持 enabled"，是否可关未写，按同系不声明
   - id: glm-4.7-flash
+    thinking_control: null  # 同上
     context_window: 204800
     max_output_tokens: 131072
     supports_tools: true

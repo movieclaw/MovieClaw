@@ -105,6 +105,10 @@ BUILTIN_MESSAGE_KEYS: dict[str, dict[str, str]] = {
         "title": "plugins.builtins.agentAttachmentsTitle",
         "description": "plugins.builtins.agentAttachmentsDescription",
     },
+    "agent.model-catalog": {
+        "title": "plugins.builtins.agentModelCatalogTitle",
+        "description": "plugins.builtins.agentModelCatalogDescription",
+    },
     "agent.invoke": {
         "title": "plugins.builtins.agentInvokeTitle",
         "description": "plugins.builtins.agentInvokeDescription",

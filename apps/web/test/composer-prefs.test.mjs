@@ -88,3 +88,20 @@ test("记忆仍然有效时原对象返回（不触发多余的状态更新）",
   const b = { model: null, thinking: "high" };
   assert.equal(reconcileComposerPrefs(b, OPTIONS), b);
 });
+
+test("升级前记下的裸模型 id 按 model_id 认回成限定引用，不当失效丢掉", () => {
+  const qualified = [
+    { ref: "Kimi/kimi-k3", model_id: "kimi-k3", is_default: true, thinking_levels: ["high"] },
+    { ref: "Kimi/kimi-k2.6", model_id: "kimi-k2.6", is_default: false, thinking_levels: ["off"] },
+  ];
+  assert.deepEqual(reconcileComposerPrefs({ model: "kimi-k2.6", thinking: "off" }, qualified), {
+    model: "Kimi/kimi-k2.6",
+    thinking: "off",
+  });
+  const same = { model: "Kimi/kimi-k3", thinking: "high" };
+  assert.equal(reconcileComposerPrefs(same, qualified), same);
+  assert.deepEqual(reconcileComposerPrefs({ model: "gone", thinking: null }, qualified), {
+    model: null,
+    thinking: null,
+  });
+});

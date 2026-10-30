@@ -872,7 +872,10 @@
       "unknown": "未知错误",
       "subscriptionIncomplete": "ChatGPT 响应未完成，请重试（可能已达到订阅额度）",
       "chatgptFailed": "ChatGPT 请求失败"
-    }
+    },
+    "catalogUnknown": "模型资料来源「{id}」不在公共模型目录里",
+    "catalogModelMissing": "这个供应商的目录里没有模型「{id}」",
+    "modelParamsUnknown": "模型「{id}」的参数未知，请先在自定义模型里补上上下文窗口等参数再显示它"
   },
   "webhook": {
     "endpointMissing": "Webhook endpoint 不存在：{id}",

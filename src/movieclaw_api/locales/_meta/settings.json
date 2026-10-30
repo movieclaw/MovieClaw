@@ -1177,5 +1177,11 @@
   },
   "webhook.sampleClient": {
     "sourceHash": "b0c44055395a57237c13f469d6a1c78f7628c1d2a6af645ab0dea21bcbcf8dce"
+  },
+  "scheduledTasks.catalog.llmCatalogRefreshTitle": {
+    "sourceHash": "0c2686d93df5a5e356505aabcbb706cb40b17ac80a3f743fd41c4eb7ea6686d6"
+  },
+  "scheduledTasks.catalog.llmCatalogRefreshDescription": {
+    "sourceHash": "563a43741094355b14f81cf12dc6a4206a47187356c6493acc005002d072ae73"
   }
 }

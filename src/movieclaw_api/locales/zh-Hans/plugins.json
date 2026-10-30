@@ -192,7 +192,9 @@
     "playbackTranscodeTitle": "网页播放转码会话",
     "playbackTranscodeDescription": "管理网页播放的转码会话：按需启动转码，清理闲置会话和上次残留的文件。",
     "appUpdateStartupCheckTitle": "启动后检查更新",
-    "appUpdateStartupCheckDescription": "Docker 部署时，启动几分钟后检查一次有无新版本，以便尽快发现更新。"
+    "appUpdateStartupCheckDescription": "Docker 部署时，启动几分钟后检查一次有无新版本，以便尽快发现更新。",
+    "agentModelCatalogTitle": "模型目录更新",
+    "agentModelCatalogDescription": "每天从各模型服务商拉取最新的可用模型，并从 models.dev 更新模型参数。"
   },
   "groups": {
     "core": "基础",

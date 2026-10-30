@@ -71,7 +71,7 @@ class SessionStartPayload(BaseModel):
     model: str = Field(
         default="",
         description=(
-            "模型引用：裸模型 id，或同 id 在多个实例时的「实例名/模型id」（见 llm.models）；"
+            "模型引用：「实例名/模型id」（取 llm.models 的 ref；裸模型 id 也接受）；"
             "传 default 显式用默认实例的默认模型；留空时沿用会话最近一条消息的模型（新会话即默认）"
         ),
     )

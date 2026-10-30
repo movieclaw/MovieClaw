@@ -62,6 +62,7 @@ class LlmProviderRepository:
         extra_models: list[dict] | None = None,
         user_agent: str | None = None,
         api_protocol: str | None = None,
+        catalog_id: str | None = None,
     ) -> LlmProvider:
         """新增实例。"""
         row = LlmProvider(
@@ -73,6 +74,7 @@ class LlmProviderRepository:
             extra_models=extra_models,
             user_agent=user_agent,
             api_protocol=api_protocol,
+            catalog_id=catalog_id,
         )
         self._session.add(row)
         await self._session.commit()
@@ -91,14 +93,20 @@ class LlmProviderRepository:
         extra_models: list[dict] | None = None,
         user_agent: str | None = None,
         api_protocol: str | None = None,
+        catalog_id: str | None = None,
     ) -> LlmProvider | None:
         """整体覆盖一个实例的接入配置；不存在返回 None。``api_key`` 为 None 时沿用原 Key。
 
-        连接信息变更后验证状态重置为 PENDING、清空历史错误与模型列表。
+        连接信息变更后验证状态重置为 PENDING、清空历史错误与模型列表。列表缓存
+        只在类型或端点变了时清掉——同一端点的列表仍有效，清了会让 AI 设定里
+        列表来的模型在重新验证完成前暂时「消失」、被改指别的模型。
         """
         row = await self.get(provider_id)
         if row is None:
             return None
+        if provider_type != row.provider_type or base_url != row.base_url:
+            row.model_listing = None
+        row.catalog_id = catalog_id
         row.name = name
         row.provider_type = provider_type
         row.base_url = base_url
@@ -149,6 +157,26 @@ class LlmProviderRepository:
                 row.last_error_ref = last_error_ref
             row.last_checked_at = now
         row.updated_at = now
+        await self._session.commit()
+        return True
+
+    async def save_listing(self, provider_id: int, listing: dict) -> bool:
+        """回写模型列表缓存（成功时同步 available_models 的 id 数组，旧客户端还读它）。"""
+        row = await self.get(provider_id)
+        if row is None:
+            return False
+        row.model_listing = listing
+        if listing.get("source") == "provider":
+            row.available_models = [m["id"] for m in listing.get("models") or []]
+        await self._session.commit()
+        return True
+
+    async def save_visibility(self, provider_id: int, visibility: dict | None) -> bool:
+        """保存显示/隐藏选择；None 表示全部回到默认规则。"""
+        row = await self.get(provider_id)
+        if row is None:
+            return False
+        row.model_visibility = visibility
         await self._session.commit()
         return True
 

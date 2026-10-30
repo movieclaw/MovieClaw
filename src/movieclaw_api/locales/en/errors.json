@@ -872,7 +872,10 @@
       "unknown": "Unknown error",
       "subscriptionIncomplete": "The ChatGPT response did not complete. Try again; the subscription usage limit may have been reached.",
       "chatgptFailed": "The ChatGPT request failed."
-    }
+    },
+    "catalogUnknown": "Model data source \"{id}\" is not in the public model catalog",
+    "catalogModelMissing": "This provider's catalog has no model \"{id}\"",
+    "modelParamsUnknown": "Model \"{id}\" has unknown parameters. Add its context window and other parameters as a custom model before showing it"
   },
   "webhook": {
     "endpointMissing": "Webhook endpoint {id} does not exist",

@@ -284,6 +284,16 @@ class ThinkingControl(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class ModelCost(BaseModel):
+    """单价（每百万 token）。0 与 None 都表示未知；价格与币种取自同一来源层。"""
+
+    input: float | None = None
+    output: float | None = None
+    cache_read: float | None = None
+    cache_write: float | None = None
+    currency: Literal["USD", "CNY"] = "USD"
+
+
 class ModelInfo(BaseModel):
     """模型目录条目：agent 做上下文预算 / 能力判断的依据。
 
@@ -324,6 +334,16 @@ class ModelInfo(BaseModel):
     #: 思考内容，不兼职暗示可控性）
     thinking_control: ThinkingControl | None = None
     modalities: list[str] = Field(default_factory=lambda: ["text"])
+    # 以下是目录元数据（docs/design/llm-model-catalog.md），只用于展示与菜单规则。
+    # 一律可空：客户端生成器把响应里非空的字段当必有，新 App 连旧服务端会解码失败
+    display_name: str | None = None
+    #: 发布日期 YYYY-MM-DD；默认显示规则按它挑新模型
+    released: str | None = None
+    #: 服务商已停用：默认不进菜单，但照常可路由
+    deprecated: bool | None = None
+    cost: ModelCost | None = None
+    #: 参与合并的来源层（高优先在前）：custom / preset / listing / public / borrowed
+    sources: list[str] | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -372,6 +392,14 @@ class ProviderPreset(BaseModel):
     requires_base_url: bool = False
     compat: ProviderCompat = Field(default_factory=ProviderCompat)
     models: list[ModelInfo] = Field(default_factory=list)
+    #: 公共目录（models.dev）里对应的服务商 id；None = 不查公共目录
+    catalog_id: str | None = None
+    #: 公共目录给出多种思考方式时依次取第一个出现的（线协议决定，见 catalog.derive_thinking）
+    thinking_prefer: list[Literal["effort", "budget_tokens", "toggle"]] = Field(
+        default_factory=lambda: ["effort", "budget_tokens", "toggle"]
+    )
+    #: 关闭思考的服务商级请求体（模型级 thinking_control.off_body 优先）
+    thinking_off_body: dict | None = None
 
 
 class LlmProviderConfig(BaseModel):
@@ -397,6 +425,19 @@ class LlmProviderConfig(BaseModel):
     user_agent: str | None = None
     #: 实例选用的协议；None = 跟随预设默认（预设升级默认协议时自动跟上）
     api_protocol: str | None = None
+    #: 应用层合并好的完整目录（docs/design/llm-model-catalog.md）；None = 退回
+    #: 预设 ∪ extra_models 的旧口径（不经应用层的直接调用、测试）
+    catalog: list[ModelInfo] | None = None
+    #: 目录内容摘要，进客户端缓存指纹（指纹本身不序列化整份目录）
+    catalog_version: str = ""
+
+    def model_catalog(self, preset: ProviderPreset) -> list[ModelInfo]:
+        """本实例可路由的模型目录：注入的合并目录，或预设 ∪ 用户补录（按 id 覆盖）。"""
+        if self.catalog is not None:
+            return self.catalog
+        merged = {m.id: m for m in preset.models}
+        merged.update({m.id: m for m in self.extra_models})
+        return list(merged.values())
 
     @field_validator("name")
     @classmethod
@@ -413,4 +454,6 @@ class ProviderInfo(BaseModel):
     """test_connection 的返回：连通性验证结果与端点上报的可用模型。"""
 
     models: list[str] = Field(default_factory=list)
+    #: 列表接口的原始条目（OpenRouter 等会带上下文窗口、价格），供目录第 3 层解析
+    entries: list[dict] = Field(default_factory=list)
     model_catalog: list[ModelInfo] | None = None

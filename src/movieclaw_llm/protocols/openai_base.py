@@ -98,19 +98,12 @@ class OpenAIProtocolBase(BaseLlmProtocol):
         self._client = _sdk().AsyncOpenAI(**kwargs)
 
     def _model_info(self, model_id: str) -> ModelInfo | None:
-        """按 id 查模型声明：用户补录（extra_models）优先于预设目录。
+        """按 id 查模型声明（与 LlmRouter._catalog 同一份目录）。
 
-        与 LlmRouter._catalog 同一合并口径；思考档位翻译靠它拿
-        thinking_control / max_thinking_tokens。目录外模型返回 None——
-        fail-closed，档位不落请求。
+        思考档位翻译靠它拿 thinking_control / max_thinking_tokens。目录外模型
+        返回 None——fail-closed，档位不落请求。
         """
-        for model in self.config.extra_models:
-            if model.id == model_id:
-                return model
-        for model in self.preset.models:
-            if model.id == model_id:
-                return model
-        return None
+        return next((m for m in self.config.model_catalog(self.preset) if m.id == model_id), None)
 
     @staticmethod
     def _parse_tool_call(tc_id: str, name: str, raw_arguments: str) -> ToolCall:
@@ -217,7 +210,9 @@ class OpenAIProtocolBase(BaseLlmProtocol):
             page = await self._client.models.list()
         except Exception as exc:  # noqa: BLE001
             raise self._translate_error(exc) from exc
-        return ProviderInfo(models=[m.id for m in page.data])
+        return ProviderInfo(
+            models=[m.id for m in page.data], entries=[m.model_dump() for m in page.data]
+        )
 
     async def close(self) -> None:
         await self._client.close()
