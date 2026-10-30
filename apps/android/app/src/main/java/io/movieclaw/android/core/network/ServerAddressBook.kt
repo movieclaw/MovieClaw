@@ -44,7 +44,8 @@ private val Context.addressStore by preferencesDataStore(name = "mc_addresses")
  * 拉地址簿 → 按当前网络预筛 → 竞速探测（/health?nonce= 验实例号 + proof）→
  * 把选中的地址挂进 [ApiFactory.setRoutedBase]，之后的请求自动走新地址。
  *
- * 预筛与竞速口径照设计稿：蜂窝一律不试内网；记过的网络直接用记忆（后台核实）；
+ * 预筛与竞速口径照设计稿：只剩蜂窝不试内网；开着 VPN 不等于能回家（出国代理也是系统 VPN），
+ * 内网探测通了才算经 VPN 回家；记过的网络（含 VPN 隧道）直接用记忆（后台核实）；
  * 内网 1.5s / 外网 5s 超时；外网晚 250ms 发（Happy Eyeballs）；先通先用。
  */
 @Singleton
@@ -202,34 +203,23 @@ class ServerAddressBook @Inject constructor(
         val loginUrl = origin.trimEnd('/')
         val candidates = (entries.map { it.url } + loginUrl).distinct()
 
-        val cellular = isCellular()
+        val net = readNetwork()
         val remembered = withTimeoutOrNull(2_000) {
             context.addressStore.data.first()[stringPreferencesKey(key(fp))]
         }?.trimEnd('/')
         val rememberedValid = remembered?.let { r -> candidates.firstOrNull { it == r } }
 
-        // 预筛（不发请求）：蜂窝只考虑外网与 https 的登录地址
-        val lanCandidates = entries.filter { it.kind == "lan" }
-            .map { it.url }
-            .filter { !cellular }
-        val wanCandidates = entries.filter { it.kind == "wan" }.map { it.url }
-        val inSubnet = lanCandidates.firstOrNull { inSameSubnet(it) }
-
-        // 候选排序：记忆 > 同网段内网 > 登录地址（非纯蜂窝）> 外网。
-        fun ordered(list: List<String>): List<String> {
-            val rememberedOne = rememberedValid?.takeIf { it in list }
-            val inSubnetOne = inSubnet?.takeIf { it in list }
-            return listOfNotNull(rememberedOne, inSubnetOne) + list.filter { it != rememberedOne && it != inSubnetOne }
-        }
-
-        val lanOrdered = ordered(
-            lanCandidates.ifEmpty { listOfNotNull(loginUrl.takeIf { isPrivateLiteral(it) }) },
+        val plan = planRoutes(
+            entries = entries,
+            loginUrl = loginUrl,
+            remembered = rememberedValid,
+            cellular = net?.cellularOnly == true,
+            vpn = net?.vpn != null,
+            inSameSubnet = { inSameSubnet(it, net) },
         )
-        val wanOrdered = ordered(
-            (wanCandidates + listOfNotNull(loginUrl.takeIf { wanCandidates.isEmpty() && !cellular }))
-                .filter { it !in lanCandidates }
-                .distinct(),
-        )
+        val lanOrdered = plan.lan
+        val wanOrdered = plan.wan
+        val prePick = plan.prePick
 
         // 当前在外网、网络变化后预筛出了内网候选：只探内网，不重探外网（§4.5）
         val previous = _selection.value
@@ -238,26 +228,15 @@ class ServerAddressBook @Inject constructor(
         val wanToRace = if (onlyLanUpgrade) emptyList() else wanOrdered
         if (onlyLanUpgrade) android.util.Log.i("McRoutes", "外网回内网：只探内网候选")
 
-        // 预选（§4.2 / §4.4）：先不发请求定一个，但只能先用「本来就信得过」的入口——
-        // 登录地址本身，或 https（证书已验过主机名）。http 内网记忆要等 /health 验过。
-        // 登录地址是内网 IP、人却不在那个网段（也没 VPN）时不能预选它，先走 https 外网。
-        val vpnActive = isVpnTransport()
-        val loginIsPrivate = isPrivateLiteral(loginUrl)
-        val loginUsable = !loginIsPrivate || vpnActive || rememberedValid == loginUrl ||
-            (!cellular && inSameSubnet(loginUrl))
-        val prePick = buildList {
-            rememberedValid?.let(::add)
-            inSubnet?.let(::add)
-            add(loginUrl)
-            addAll(wanOrdered)
-        }.distinct().firstOrNull { url ->
-            if (url == loginUrl) loginUsable else url.startsWith("https://")
-        }
         if (prePick != null) {
             val trusted = listOf(loginUrl, prePick).distinct()
             ServerTrust.allow(origin, trusted)
             apply(origin, prePick, kindOf(entries, prePick), verified = false, alternates = trusted)
             android.util.Log.i("McRoutes", "预选 $prePick")
+        } else if (isStaleLan(previousSelection, fp)) {
+            // 网络变了又预选不出：上个网络的内网入口（连同 lan / vpn 路线）不留着等竞速，先回登录地址（#1089）
+            ServerTrust.allow(origin, listOf(loginUrl))
+            apply(origin, loginUrl, "login", verified = false, alternates = listOf(loginUrl))
         }
 
         // 竞速核实：每个候选独立超时；第一个通过就切；内网后到就升级（§4.3）
@@ -314,8 +293,11 @@ class ServerAddressBook @Inject constructor(
         // 图片等按 origin 拼 URL 的地方跟着换入口
         ServerRoutes.provider = { o -> if (o == null || o == origin) url.trimEnd('/') else null }
         ServerRoutes.entry = url.trimEnd('/')
-        // 服务端按这个头判内外网（§5.2）：内网走 lan；经 VPN 回家走 vpn；其余 wan
-        ServerRoutes.route = routeFor(kind, url)
+        // 服务端按这个头判内外网（§5.2）：内网走 lan；经 VPN 回家走 vpn；其余 wan。
+        // 开着 VPN 不等于回家（出国代理也是系统 VPN）：没验过的不标 vpn，探测通过才算（#1089）
+        ServerRoutes.route = routeFor(kind, url).let {
+            if (!verified && it == ServerRoutes.Route.VPN) ServerRoutes.Route.WAN else it
+        }
         // 其它已验证入口：当前地址硬错误时幂等请求换过去
         ServerRoutes.alternates = alternates.map { it.trimEnd('/') }
             .filter { it != url.trimEnd('/') }
@@ -513,55 +495,69 @@ class ServerAddressBook @Inject constructor(
         }
     }
 
-    /** 网络指纹 = 传输类型 + IPv4 /24（不读 Wi-Fi 名，不需要定位权限） */
-    internal fun fingerprint(): String {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            ?: return "unknown"
-        val network = cm.activeNetwork ?: return "unknown"
-        val caps = cm.getNetworkCapabilities(network) ?: return "unknown"
+    /** 网络指纹见 [NetSnapshot.fingerprint]（不读 Wi-Fi 名，不需要定位权限） */
+    internal fun fingerprint(): String = readNetwork()?.fingerprint ?: "unknown"
+
+    /**
+     * 读当前网络。开着 VPN 时默认网络是隧道本身：实体网络（Wi-Fi / 有线 / 蜂窝）另找，
+     * 传输类型和网段按实体网络算，隧道网段单独记。
+     */
+    private fun readNetwork(): NetSnapshot? {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
+        val active = cm.activeNetwork ?: return null
+        val activeCaps = cm.getNetworkCapabilities(active) ?: return null
+        val vpn = activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        val (physical, caps) = if (!vpn) active to activeCaps else physicalNetwork(cm) ?: (active to activeCaps)
         val transport = when {
             caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cell"
             caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
             caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "eth"
             else -> "other"
         }
-        val lp = cm.getLinkProperties(network)
-        val subnet = lp?.linkAddresses
+        val cellularOnly = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+            !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+            !caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+        return NetSnapshot(
+            transport = transport,
+            subnet = subnetOf(cm.getLinkProperties(physical)),
+            vpn = if (vpn) subnetOf(cm.getLinkProperties(active)) else null,
+            cellularOnly = cellularOnly,
+        )
+    }
+
+    /** VPN 底下的实体网络：Wi-Fi > 有线 > 蜂窝 */
+    private fun physicalNetwork(cm: ConnectivityManager): Pair<android.net.Network, NetworkCapabilities>? {
+        @Suppress("DEPRECATION")
+        val all = cm.allNetworks
+        return all.mapNotNull { n -> cm.getNetworkCapabilities(n)?.let { n to it } }
+            .filter { (_, c) ->
+                !c.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            }
+            .minByOrNull { (_, c) ->
+                when {
+                    c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
+                    c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 1
+                    c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 2
+                    else -> 3
+                }
+            }
+    }
+
+    private fun subnetOf(lp: android.net.LinkProperties?): String =
+        lp?.linkAddresses
             ?.mapNotNull { it.address as? Inet4Address }
             ?.firstOrNull()
             ?.hostAddress
             ?.substringBeforeLast('.', "0.0.0.0")
             ?.let { "$it.0/24" }
             ?: "nosubnet"
-        return "$transport|$subnet"
-    }
 
-    private fun isCellular(): Boolean {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val network = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(network) ?: return false
-        return caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
-            !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
-            !caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-    }
-
-    private fun isVpnTransport(): Boolean {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val network = cm.activeNetwork ?: return false
-        return cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-    }
-
-    private fun inSameSubnet(url: String): Boolean {
-        val fpSubnet = fingerprint().substringAfter('|').substringBefore("/")
-        if (fpSubnet == "nosubnet") return false
+    private fun inSameSubnet(url: String, net: NetSnapshot?): Boolean {
+        val subnet = net?.subnet ?: return false
+        if (subnet == "nosubnet") return false
         val host = runCatching { java.net.URI(url).host }.getOrNull() ?: return false
-        return host.startsWith(fpSubnet.removeSuffix(".0/24") + ".")
-    }
-
-    private fun isPrivateLiteral(url: String): Boolean {
-        val host = runCatching { java.net.URI(url).host }.getOrNull() ?: return false
-        return host.startsWith("10.") || host.startsWith("192.168.") ||
-            Regex("^172\\.(1[6-9]|2\\d|3[01])\\.").containsMatchIn(host)
+        return host.startsWith(subnet.removeSuffix(".0/24") + ".")
     }
 
     /** 网络变化 → 重新选路（事件驱动，不轮询） */
@@ -640,11 +636,91 @@ internal fun settleRound(
     prePicked: Boolean,
     verified: List<String>,
 ): RoundSettle {
-    val staleLan = current != null && current.kind == "lan" && current.fingerprint != fingerprint
-    val fallback = !prePicked && (current == null || !current.verified || staleLan)
+    val fallback = !prePicked && (current == null || !current.verified || isStaleLan(current, fingerprint))
     val remember = !fallback && current != null && current.verified &&
         current.fingerprint == fingerprint && current.url in verified
     return RoundSettle(fallbackToLogin = fallback, remember = remember)
+}
+
+/** 手里那条是**别的网络上**选的内网入口：换了网络，内网多半已不可达，lan / vpn 路线也不再成立 */
+internal fun isStaleLan(current: ServerAddressBook.Selection?, fingerprint: String): Boolean =
+    current != null && current.kind == "lan" && current.fingerprint != fingerprint
+
+/**
+ * 本机网络：实体网络的传输类型与 IPv4 /24；[vpn] 为 VPN 隧道的 /24（隧道没有 IPv4 时为 `nosubnet`），没开 VPN 为 null。
+ */
+internal data class NetSnapshot(
+    val transport: String,
+    val subnet: String,
+    val vpn: String?,
+    val cellularOnly: Boolean,
+) {
+    /**
+     * 网络指纹 = 传输类型 + IPv4 /24，开着 VPN 时再加隧道网段：开关 VPN、换一条隧道（回家的 WireGuard ↔ 出国代理）
+     * 都算换了网络，要重新选、记忆也分开（#1089）。没开 VPN 时与旧格式相同，已记的结论不失效。
+     */
+    val fingerprint: String get() = "$transport|$subnet" + (vpn?.let { "|vpn:$it" } ?: "")
+}
+
+/** 预筛结果：参加竞速的内网 / 外网候选（已排序），以及不发请求先用的入口（null = 不预选） */
+internal data class RoutePlan(val lan: List<String>, val wan: List<String>, val prePick: String?)
+
+/**
+ * 预筛 + 预选（§4.2 / §4.4，不发请求）。
+ * - 只剩蜂窝不试内网；开着 VPN 时内网值得一试（Tailscale / WireGuard 回家），但只是参加竞速；
+ * - 候选排序：记忆 > 同网段内网 > 登录地址（非纯蜂窝）> 外网；
+ * - 预选只能用「本来就信得过」的入口：登录地址本身，或 https（证书已验过主机名）。http 内网记忆要等 /health 验过。
+ *   登录地址是内网 IP、人却不在那个网段时不预选它，先走 https 外网——**开着 VPN 也一样**：出国代理
+ *   （Shadowrocket 一类）也是系统 VPN，常把私网段排除在隧道外，内网探测通了才算经 VPN 回家（#1089）。
+ *   这个网络（含这条隧道）记过登录地址时照旧直接用。
+ */
+internal fun planRoutes(
+    entries: List<ServerAddressBook.Entry>,
+    loginUrl: String,
+    remembered: String?,
+    cellular: Boolean,
+    vpn: Boolean,
+    inSameSubnet: (String) -> Boolean,
+): RoutePlan {
+    val lanReachable = !cellular || vpn
+    val lanCandidates = entries.filter { it.kind == "lan" }
+        .map { it.url }
+        .filter { lanReachable }
+    val wanCandidates = entries.filter { it.kind == "wan" }.map { it.url }
+    val inSubnet = lanCandidates.firstOrNull { !cellular && inSameSubnet(it) }
+
+    fun ordered(list: List<String>): List<String> {
+        val rememberedOne = remembered?.takeIf { it in list }
+        val inSubnetOne = inSubnet?.takeIf { it in list }
+        return listOfNotNull(rememberedOne, inSubnetOne) + list.filter { it != rememberedOne && it != inSubnetOne }
+    }
+
+    val lan = ordered(
+        lanCandidates.ifEmpty { listOfNotNull(loginUrl.takeIf { isPrivateLiteral(it) }) },
+    )
+    val wan = ordered(
+        (wanCandidates + listOfNotNull(loginUrl.takeIf { wanCandidates.isEmpty() && !cellular }))
+            .filter { it !in lanCandidates }
+            .distinct(),
+    )
+
+    val loginUsable = !isPrivateLiteral(loginUrl) || remembered == loginUrl ||
+        (!cellular && inSameSubnet(loginUrl))
+    val prePick = buildList {
+        remembered?.let(::add)
+        inSubnet?.let(::add)
+        add(loginUrl)
+        addAll(wan)
+    }.distinct().firstOrNull { url ->
+        if (url == loginUrl) loginUsable else url.startsWith("https://")
+    }
+    return RoutePlan(lan = lan, wan = wan, prePick = prePick)
+}
+
+internal fun isPrivateLiteral(url: String): Boolean {
+    val host = runCatching { java.net.URI(url).host }.getOrNull() ?: return false
+    return host.startsWith("10.") || host.startsWith("192.168.") ||
+        Regex("^172\\.(1[6-9]|2\\d|3[01])\\.").containsMatchIn(host)
 }
 
 /** 竞速总超时：内网 1.5s、外网 5s，再留 1.5s 余量；到点没赢家就回登录地址。 */
