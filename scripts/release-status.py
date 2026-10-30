@@ -35,7 +35,8 @@ class Product(NamedTuple):
 PRODUCTS = (
     Product("服务器", "v", "pyproject.toml", (
         ".", *(f":(exclude){p}" for p in (
-            "apps/android", "apps/android-tv", "apps/android-core", APPLE, "apps/desktop", "macos",
+            "apps/android", "apps/android-tv", "apps/android-core", "apps/harmonyos",
+            APPLE, "apps/desktop", "macos",
             "docs", "ml", ".claude", ".github",
         )),
     )),
@@ -65,6 +66,7 @@ PRODUCTS = (
         "Android TV", "androidtv-v", "apps/android-tv/version.properties",
         ("apps/android-tv", "apps/android-core"),
     ),
+    Product("鸿蒙", "harmony-v", "apps/harmonyos/AppScope/app.json5", ("apps/harmonyos",)),
     Product("Windows", "windows-v", "apps/desktop/src-tauri/Cargo.toml", ("apps/desktop",)),
 )
 
@@ -83,6 +85,7 @@ def version_in(text: str, file: str) -> str | None:
         "pyproject.toml": r'(?m)^version = "([^"]+)"',
         "project.yml": r'(?m)^\s*MARKETING_VERSION:\s*"([^"]+)"',
         "version.properties": r"(?m)^versionName=(\S+)",
+        "app.json5": r'"versionName"\s*:\s*"([^"]+)"',
         "Cargo.toml": r'(?m)^version = "([^"]+)"',
     }
     match = re.search(patterns[Path(file).name], text)
