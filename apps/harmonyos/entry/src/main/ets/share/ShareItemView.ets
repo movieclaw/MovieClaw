@@ -6,6 +6,7 @@ import { MovieClawApi } from '../api/Endpoints';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls } from '../common/ImageUrls';
 import { libraryBytes } from '../library/LibraryShared';
+import { episodeRowKey } from '../library/EpisodeRanges';
 import { shareExpiryHint } from '../common/ShareLinks';
 import { ShareLocalProgress } from './ShareProgress';
 import {
@@ -938,7 +939,8 @@ export struct ShareItemView {
           Row({ space: 12 }) {
             ForEach((this.episodes as SeasonEpisodesView).episodes, (episode: EpisodeView) => {
               this.EpisodeCard(this.episodes as SeasonEpisodesView, episode)
-            }, (episode: EpisodeView) => `${episode.episode_number}`)
+            }, (episode: EpisodeView) =>
+              episodeRowKey((this.episodes as SeasonEpisodesView).season_number, episode))
           }
           .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
         }

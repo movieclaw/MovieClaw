@@ -1,16 +1,24 @@
-# OHOS (aarch64-linux-ohos) 交叉编译 toolchain，供 cmake 使用
+# OHOS (aarch64-linux-ohos) 交叉编译 toolchain，供 cmake 使用（macOS/Linux/Windows 通用）
+# 编译器路径与 target 三元组来自 env.sh 导出的环境变量：
+#   MPV_OHOS_CC_NATIVE / MPV_OHOS_CXX_NATIVE —— macOS/Linux 是 NDK wrapper，Windows 是 clang.exe
+#   MPV_OHOS_TARGET_TRIPLE —— 仅 Windows 导出（clang.exe 需要 --target，经 CMAKE_*_COMPILER_TARGET 下发）
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
 
 set(OHOS_TOOLS "$ENV{MPV_OHOS_TOOLS}")
 set(OHOS_SYSROOT "$ENV{MPV_OHOS_SYSROOT}")
 
-set(CMAKE_C_COMPILER   "${OHOS_TOOLS}/aarch64-unknown-linux-ohos-clang")
-set(CMAKE_CXX_COMPILER "${OHOS_TOOLS}/aarch64-unknown-linux-ohos-clang++")
-set(CMAKE_AR           "${OHOS_TOOLS}/llvm-ar" CACHE FILEPATH "ar")
-set(CMAKE_RANLIB       "${OHOS_TOOLS}/llvm-ranlib" CACHE FILEPATH "ranlib")
-set(CMAKE_STRIP        "${OHOS_TOOLS}/llvm-strip" CACHE FILEPATH "strip")
-set(CMAKE_NM           "${OHOS_TOOLS}/llvm-nm" CACHE FILEPATH "nm")
+set(CMAKE_C_COMPILER   "$ENV{MPV_OHOS_CC_NATIVE}")
+set(CMAKE_CXX_COMPILER "$ENV{MPV_OHOS_CXX_NATIVE}")
+if(DEFINED ENV{MPV_OHOS_TARGET_TRIPLE} AND NOT "$ENV{MPV_OHOS_TARGET_TRIPLE}" STREQUAL "")
+  set(CMAKE_C_COMPILER_TARGET   "$ENV{MPV_OHOS_TARGET_TRIPLE}")
+  set(CMAKE_CXX_COMPILER_TARGET "$ENV{MPV_OHOS_TARGET_TRIPLE}")
+endif()
+
+set(CMAKE_AR      "$ENV{AR}"      CACHE FILEPATH "ar")
+set(CMAKE_RANLIB  "$ENV{RANLIB}"  CACHE FILEPATH "ranlib")
+set(CMAKE_STRIP   "$ENV{STRIP}"   CACHE FILEPATH "strip")
+set(CMAKE_NM      "$ENV{NM}"      CACHE FILEPATH "nm")
 
 set(CMAKE_SYSROOT "${OHOS_SYSROOT}")
 set(CMAKE_C_FLAGS_INIT   "-D__MUSL__ -fPIC")

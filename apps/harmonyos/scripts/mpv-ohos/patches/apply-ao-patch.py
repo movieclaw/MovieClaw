@@ -15,7 +15,7 @@ import re
 import sys
 
 path = sys.argv[1]
-with open(path) as f:
+with open(path, encoding="utf-8") as f:
     src = f.read()
 
 # 幂等标记：钩子已存在就不再动文件（防止重复应用产生重复定义）
@@ -69,6 +69,6 @@ else:
     assert n == 1, "ao patch: init 函数签名未匹配"
     assert "SetRendererInterruptCallback" in src, "ao patch: 回调注册失败"
     assert "mpv_ohos_interrupt_hook" in src, "ao patch: 钩子导出失败"
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(src)
     print("ao patch: 已注入音频焦点中断转发（函数指针钩子）")

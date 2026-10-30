@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
-"""修复真机（Pura X 实测）上 eglCreateWindowSurface 失败 → 黑屏（只有声音）的问题。
+"""mpv ohos 上下文补丁（幂等，可重复执行）。用法：apply-egl-fix.py <context_ohos.c>
 
-模拟器宽松、真机 GPU/EGL 严格。两段防御：
-1. surfaceId 创建的 NativeWindow 在真机初建时几何可能为 0 —— eglCreateWindowSurface
-   直接失败。创建 surface 前读 GET_BUFFER_GEOMETRY，为 0 时先 SET 一个占位几何
-   （1280x720）；ohos_reconfig() 之后会用真实尺寸修正。
-2. mpegl 选中的 config 可能与 NativeWindow 不匹配（BAD_MATCH/BAD_NATIVE_WINDOW）——
-   枚举所有 WINDOW_BIT + GLES2 + RGB8 的 config，逐个「建 context + 建 surface +
-   试 MakeCurrent」，成功即采纳该 config/context。
-幂等：重复执行无副作用。用法：apply-egl-fix.py <context_ohos.c>
+补丁 1（EGL surface 兜底）：修复真机（Pura X 实测）eglCreateWindowSurface 失败 → 黑屏。
+1a. surfaceId 创建的 NativeWindow 初建时几何可能为 0 —— 先读 GET_BUFFER_GEOMETRY，
+    为 0 时 SET 占位几何（1280x720）；ohos_reconfig() 之后用真实尺寸修正。
+1b. mpegl 选中的 config 可能与 NativeWindow 不匹配（BAD_MATCH/BAD_NATIVE_WINDOW）——
+    枚举所有 WINDOW_BIT + GLES2 + RGB8 的 config，逐个「建 context + 建 surface +
+    试 MakeCurrent」，成功即采纳。
+
+补丁 2（旋转/布局自适应）：ArkUI 旋转/全屏切换会静默 resize XComponent 的
+NativeWindow，wid=surfaceId 模式下 mpv 收不到任何事件 → 横屏后视频仍按旧尺寸渲染
+（不能全屏）。vo 线程每次循环都发 VOCTRL_CHECK_EVENTS（vo.c），节流轮询真实几何，
+变化时更新 vo->dwidth/dheight + ra_gl_ctx_resize 刷新 backbuffer FBO，置
+VO_EVENT_RESIZE 让 vo_gpu 重算渲染矩形（context_win.c wgl_control 同款模式）。
 """
 import sys
 
 path = sys.argv[1]
-with open(path) as f:
+with open(path, encoding="utf-8") as f:
     src = f.read()
 orig = src
 
-OLD = """    EGLConfig config;
+# ---------- 补丁 1：EGL surface 创建兜底 ----------
+
+OLD1 = """    EGLConfig config;
     if (!mpegl_create_context(ctx, p->egl_display, &p->egl_context, &config))
         goto fail;
 
@@ -31,7 +37,7 @@ OLD = """    EGLConfig config;
     }
 """
 
-NEW = """    OHNativeWindow *native_window = vo_ohos_native_window(ctx->vo);
+NEW1 = """    OHNativeWindow *native_window = vo_ohos_native_window(ctx->vo);
 
     // MovieClaw patch (1/2): 真机上 surfaceId 窗口初建时几何可能为 0，
     // eglCreateWindowSurface 会直接失败。为 0 时先给占位几何，
@@ -118,15 +124,87 @@ NEW = """    OHNativeWindow *native_window = vo_ohos_native_window(ctx->vo);
     }
 """
 
-if OLD not in src:
-    if "MovieClaw patch (2/2)" in src:
-        print("egl patch: 无变化（已打过补丁）")
-        raise SystemExit(0)
+if OLD1 in src:
+    src = src.replace(OLD1, NEW1, 1)
+    print("egl patch: 已注入几何兜底 + config 枚举重试 + 错误码日志")
+elif "MovieClaw patch (2/2)" in src:
+    print("egl patch: 无变化（已打过补丁）")
+else:
     print("egl patch: 目标代码块未匹配！")
-    raise SystemExit(1)
+    sys.exit(1)
 
-src = src.replace(OLD, NEW, 1)
+# ---------- 补丁 2：旋转/布局变化自适应（VOCTRL_CHECK_EVENTS 节流轮询） ----------
 
-with open(path, "w") as f:
-    f.write(src)
-print("egl patch: 已注入几何兜底 + config 枚举重试 + 错误码日志")
+OLD2_STRUCT = """    OH_NativeVSync *native_vsync;
+    int64_t         vsync_period;  // vsync 周期 (ns)
+};"""
+
+NEW2_STRUCT = """    OH_NativeVSync *native_vsync;
+    int64_t         vsync_period;  // vsync 周期 (ns)
+    int             check_events_polls; // VOCTRL_CHECK_EVENTS 轮询节流计数
+};"""
+
+OLD2_CTRL = """static int ohos_control(struct ra_ctx *ctx, int *events, int request, void *arg)
+{
+    struct priv *p = ctx->priv;
+    switch (request) {
+    case VOCTRL_GET_DISPLAY_FPS: {
+        if (p->vsync_period > 0) {
+            *(double *)arg = 1e9 / (double)p->vsync_period;
+            return VO_TRUE;
+        }
+        return VO_NOTIMPL;
+    }
+    }
+    return VO_NOTIMPL;
+}"""
+
+NEW2_CTRL = """static int ohos_control(struct ra_ctx *ctx, int *events, int request, void *arg)
+{
+    struct priv *p = ctx->priv;
+    switch (request) {
+    case VOCTRL_GET_DISPLAY_FPS: {
+        if (p->vsync_period > 0) {
+            *(double *)arg = 1e9 / (double)p->vsync_period;
+            return VO_TRUE;
+        }
+        return VO_NOTIMPL;
+    }
+    case VOCTRL_CHECK_EVENTS: {
+        // MovieClaw rotate patch: ArkUI 旋转/布局变化会静默 resize XComponent 的
+        // NativeWindow，wid=surfaceId 模式下 mpv 收不到任何事件。vo 线程每次
+        // 循环都会发 CHECK_EVENTS（vo.c），节流轮询真实几何；变化时更新 vo
+        // 尺寸 + 刷新 swapchain backbuffer FBO，置 VO_EVENT_RESIZE 让
+        // vo_gpu 重算渲染矩形（context_win.c wgl_control 同款模式）。
+        if (++p->check_events_polls < 8)
+            return VO_TRUE;
+        p->check_events_polls = 0;
+        int w, h;
+        if (vo_ohos_surface_size(ctx->vo, &w, &h)
+            && (w != ctx->vo->dwidth || h != ctx->vo->dheight)) {
+            MP_WARN(ctx, "surface size changed %dx%d -> %dx%d, adapting\\n",
+                    ctx->vo->dwidth, ctx->vo->dheight, w, h);
+            ctx->vo->dwidth = w;
+            ctx->vo->dheight = h;
+            ra_gl_ctx_resize(ctx->swapchain, w, h, 0);
+            *events |= VO_EVENT_RESIZE;
+        }
+        return VO_TRUE;
+    }
+    }
+    return VO_NOTIMPL;
+}"""
+
+if "MovieClaw rotate patch" in src:
+    print("rotate patch: 无变化（已打过补丁）")
+elif OLD2_STRUCT in src and OLD2_CTRL in src:
+    src = src.replace(OLD2_STRUCT, NEW2_STRUCT, 1)
+    src = src.replace(OLD2_CTRL, NEW2_CTRL, 1)
+    print("rotate patch: 已注入 VOCTRL_CHECK_EVENTS 轮询自适应")
+else:
+    print("rotate patch: 目标代码块未匹配！")
+    sys.exit(1)
+
+if src != orig:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(src)

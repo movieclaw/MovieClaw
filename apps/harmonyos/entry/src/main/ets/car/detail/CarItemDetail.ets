@@ -31,6 +31,7 @@ import {
 import { ImageUrls } from '../../common/ImageUrls';
 import { ImageVariant } from '../../common/ImageUrls';
 import { LibraryHomeStore } from '../../library/LibraryHomeStore';
+import { episodeRowKey } from '../../library/EpisodeRanges';
 import { RemoteImage } from '../../common/RemoteImage';
 import {
   CarDetailRoute,
@@ -1412,7 +1413,7 @@ export struct CarItemDetail {
             }
           })
         }
-      }, (ep: EpisodeView) => `ep_${ep.episode_number}`)
+      }, (ep: EpisodeView) => episodeRowKey(this.browseSeason ?? 0, ep))
     }
     .listDirection(Axis.Horizontal)
     .width('100%')

@@ -194,6 +194,8 @@ export struct SubscriptionsPage {
     }, 10000);
     this.recentTimer = setInterval((): void => {
       this.loadRecent();
+      // 订阅清单一并轮询：别端删除的订阅停在订阅页签时也能在 20 秒内消失
+      this.loadSubscriptions();
     }, 20000);
     this.tasksTimer = setInterval((): void => {
       this.loadTasks();
@@ -930,11 +932,11 @@ export struct SubscriptionsPage {
   @Builder
   ScheduleRow() {
     Column({ space: 12 }) {
-      this.SectionTitle('日程', this.scheduleCaption())
+      SectionTitle({ title: '日程', trailing: this.scheduleCaption() })
       Row({ space: 6 }) {
         ForEach(this.scheduleDays(), (day: ScheduleDay) => {
           this.DayChip(day)
-        }, (day: ScheduleDay) => `${day.daysAhead}`)
+        }, (day: ScheduleDay) => `${day.daysAhead}#${day.count}`)
       }
       .width('100%')
       .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
@@ -1000,7 +1002,7 @@ export struct SubscriptionsPage {
               if (idx < this.dayGroups(this.currentDay()).length - 1) {
                 Divider().color('rgba(255,255,255,0.06)').margin({ left: 86 })
               }
-            }, (item: TodayArrivalView) => `${item.subscription_id}-${item.wanted_id}`)
+            }, (group: DayGroup) => `${this.currentDay()}#${group.subscriptionId}#${group.label()}#${this.groupTime(group)}#${this.groupPresentation(group).statusLabel}`)
           }
           .width('100%')
           .padding({ top: 4, bottom: 4 })
@@ -1122,7 +1124,7 @@ export struct SubscriptionsPage {
   @Builder
   RecentRow() {
     Column({ space: 10 }) {
-      this.SectionTitle('刚刚入库', this.recent.length > 1 ? `${this.recent.length} 部` : '')
+      SectionTitle({ title: '刚刚入库', trailing: this.recent.length > 1 ? `${this.recent.length} 部` : '' })
       Scroll() {
         Row({ space: 12 }) {
           ForEach(this.recent, (item: RecentArrivalView) => {
@@ -1163,13 +1165,17 @@ export struct SubscriptionsPage {
                   }
                   // 右下角播放角标
                   Stack({ alignContent: Alignment.BottomEnd }) {
-                    SymbolGlyph($r('sys.symbol.play_fill'))
-                      .fontSize(13)
-                      .fontColor([Theme.text])
-                      .width(32)
-                      .height(32)
-                      .backgroundColor('rgba(0,0,0,0.42)')
-                      .borderRadius(16)
+                    Column() {
+                      SymbolGlyph($r('sys.symbol.play_fill'))
+                        .fontSize(13)
+                        .fontColor([Theme.text])
+                    }
+                    .width(32)
+                    .height(32)
+                    .justifyContent(FlexAlign.Center)
+                    .alignItems(HorizontalAlign.Center)
+                    .backgroundColor('rgba(0,0,0,0.42)')
+                    .borderRadius(16)
                   }
                   .width('100%')
                   .height('100%')
@@ -1419,16 +1425,21 @@ export struct SubscriptionsPage {
     .height(165)
     .justifyContent(FlexAlign.Center)
   }
+}
 
-  @Builder
-  SectionTitle(title: string, trailing: string) {
+@ComponentV2
+struct SectionTitle {
+  @Param title: string = '';
+  @Param trailing: string = '';
+
+  build() {
     Row() {
-      Text(title)
+      Text(this.title)
         .fontSize(19)
         .fontWeight(600)
         .fontColor(Theme.text)
       Blank()
-      Text(trailing)
+      Text(this.trailing)
         .fontSize(12)
         .fontColor(Theme.textFaint)
     }

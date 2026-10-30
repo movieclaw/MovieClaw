@@ -189,6 +189,10 @@ export struct SubscriptionDetailPage {
       if (this.detail === null) {
         this.failed = true;
         this.errorMessage = this.messageOf(error);
+        // 订阅已被删除（别端删的）：广播一次，让订阅页签的清单立刻剔除这条
+        if (error instanceof ApiError && error.status === 404) {
+          SubscribeCenter.announceSubsRefresh();
+        }
       }
     }
   }
@@ -1235,7 +1239,11 @@ export struct SubscriptionDetailPage {
       });
     })
     .width('100%')
-    .height('100%')
+    // 不能用 height('100%')：根 Column 里有自绘顶栏，'100%' 按整窗高度算会把
+    // Refresh 底端顶出屏幕外（顶栏 311px 悬空），Scroll 的最大滚动量按「溢出后的
+    // 视口」算，最后一段永远滚不上来——排查记录/AppFooter 卡在悬浮胶囊底下。
+    // layoutWeight(1) 吃掉顶栏剩下的高度，Refresh 恰好到屏幕底。
+    .layoutWeight(1)
   }
 
   /** 摘要卡：海报身份 → 配置事实 → 进度条 → 操作区（对应 iOS 第 1 块） */

@@ -131,3 +131,15 @@ export function watchedAnyEpisode(view: SeasonEpisodesView): boolean {
   }
   return false;
 }
+
+/**
+ * 分集列表 ForEach 的 key：季 + 集号 + 影响行渲染的状态。
+ * 只拿集号当 key 时，换季（两季的 E1..EN 撞号）或同季刷新（入库/已看/进度变了）
+ * 都会被 ForEach 判成「同一项」而跳过重建，行上冻着上一份旧数据——
+ * 「日历卡已入库 6、分集却行行未入库」就是这么来的。
+ */
+export function episodeRowKey(season: number, episode: EpisodeView): string {
+  return `${season}-${episode.episode_number}-${episode.owned ? 'o' : 'x'}-${episode.played ? 'p' : 'x'}`
+    + `-${Math.round(episode.progress_percent ?? 0)}-${episode.position_ms}`
+    + `-${episode.name ?? ''}-${episode.air_date ?? ''}-${episode.still_url ?? ''}`;
+}

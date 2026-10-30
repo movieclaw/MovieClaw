@@ -9,7 +9,7 @@ import { http } from '@kit.NetworkKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { PlaybackGuard } from './PlaybackGuard';
 import { PlayerPrefs, SubStyle } from './PlayerPrefs';
-import { MpvPlayer, PlayerEngine } from './MpvPlayer';
+import { MpvPlayer, PlayerEngine, MpvEngineReading } from './MpvPlayer';
 import { Theme } from '../theme/AppTheme';
 import { Formatters } from '../common/Formatters';
 import { ShellChrome } from '../common/ShellChrome';
@@ -311,7 +311,25 @@ class TrickplayTiles {
  * - 左半屏竖滑 = 亮度（`setWindowBrightness`，退出恢复跟随系统）；右半屏竖滑 = 音量——
  *   **鸿蒙三方应用改不了系统音量**，与 iOS 音量不可调时的降级一致：弹「音量由系统侧键控制」；
  * - 按住 500ms 不动 = 2 倍速（抬手恢复；暂停时不起）。
+ *
+ * 本轮再补齐播放页操作五件套（参照桌面横屏规格）：倍速弹层（0.5–3.0 全档）、
+ * 防误触锁定（全手势禁用、左缘解锁）、画面比例三档（平铺/拉伸/裁切）、
+ * 左下技术信息行（编码/分辨率/帧率/码率/硬解/HDR）、顶栏传输速率（内网标注 + 实时下载速）。
  */
+
+/** 倍速弹层的一档：展示文字 + 系统枚举（mpv 侧由 speedOf 逐档映射） */
+interface SpeedOption {
+  label: string;
+  value: media.PlaybackSpeed;
+}
+
+/** 画面比例弹层的一档 */
+interface AspectOption {
+  id: string;
+  label: string;
+  desc: string;
+}
+
 @ComponentV2
 export struct PlayerPage {
   private navStack: NavPathStack = new NavPathStack();
@@ -387,9 +405,21 @@ export struct PlayerPage {
   /** 视频宽高比（用来把 surface 摆成视频的形状，不然画面会被拉伸） */
   @Local private videoAspect: number = 16 / 9;
   /** 字幕：候选轨、当前选中的下标（-1 = 关） */
-  /** 弹层槽位（一个组件只能绑一个 bindSheet）：空串=关，subtitle=字幕，stats=播放详情 */
+  /** 弹层槽位（一个组件只能绑一个 bindSheet）：空串=关，audio/subtitle/quality/speed/aspect/episodes/stats */
   @Local private sheetKind: string = '';
   @Local private showSheet: boolean = false;
+  /** 倍速：当前档（AVPlayer 用系统枚举；mpv 侧逐档映射，长按 2× 抬手回到这档） */
+  @Local private speedEnum: media.PlaybackSpeed = media.PlaybackSpeed.SPEED_FORWARD_1_00_X;
+  /** 画面比例：fit=平铺留黑（默认）| stretch=拉伸铺满 | crop=裁切铺满 */
+  @Local private aspectMode: string = 'fit';
+  /** 防误触锁定：手势全禁，只留左缘解锁钮 */
+  @Local private locked: boolean = false;
+  /** 左下技术信息行（mpv 读数拼成；系统引擎无读数不显示） */
+  @Local private techLine: string = '';
+  /** 顶栏副标题的传输速率段（内网/下载 + 实时速率；本机副本不显示） */
+  @Local private netLine: string = '';
+  /** 技术信息 + 速率的秒级轮询 */
+  private techTimer: number = -1;
   @Local private subtitleIndex: number = -1;
   /** 音轨：当前选中的 ref（空 = 服务端自动挑） */
   @Local private audioRef: string = '';
@@ -398,8 +428,10 @@ export struct PlayerPage {
   private loadedSubtitleTrack: number = -1;
 
   // —— 下一集 / 自动连播（对应 iOS PlaybackController 的 autoNext 一节）——
-  /** 本季分集（「即将播放」卡片与自动连播用） */
+  /** 本季分集（「即将播放」卡片、选集弹层与自动连播用） */
   @Local private episodes: EpisodeView[] = [];
+  /** 选集弹层的滚动器（打开时滚到当前集） */
+  private episodeScroller: Scroller = new Scroller();
   /** 播完了（AVPlayer completed）：卡片与自动连播的触发条件之一 */
   @Local private ended: boolean = false;
   /** 用户关掉了卡片（这一集里不再弹；换集时重置） */
@@ -448,15 +480,24 @@ export struct PlayerPage {
   /** 双击跳转后控制层要恢复成第一下点之前的样式（iOS lastTapChromeState） */
   private lastTapChromeState: boolean = true;
   private singleTapTimer: number = -1;
-  /** 手势层尺寸（判定排除带与满量程都要用） */
-  private layerWidth: number = 0;
-  private layerHeight: number = 0;
+  /** 手势层尺寸（判定排除带与满量程都要用）；
+   * 宽高挂 @Local：surface 的「平铺」档高度由它算（this.surfaceHeightVp），旋转后要跟着重排 */
+  @Local private layerWidth: number = 0;
+  @Local private layerHeight: number = 0;
   /** 手势层在窗口里的原点：把控制条测出来的全局坐标换算回手势层坐标系 */
   private layerOriginX: number = 0;
   private layerOriginY: number = 0;
   private backBtnX: number[] = [0, 0];
   private landscapeBtnX: number[] = [0, 0];
   private pipBtnX: number[] = [0, 0];
+  /** 顶栏「锁定」钮（控制条里的那颗；点了进锁定态） */
+  private chromeLockBtnX: number[] = [0, 0];
+  /** 锁定态左缘解锁钮的命中带（x 区间 + y 带） */
+  private lockBtnX: number[] = [0, 0];
+  private lockBtnY: number[] = [0, 0];
+  /** 锁定态轻点起手点（12vp 内的位移才算点到解锁钮） */
+  private lockTapX: number = 0;
+  private lockTapY: number = 0;
   private capsuleRowX: number[] = [0, 0];
   private capsuleRowY: number[] = [0, 0];
   private capsuleRowWidth: number = 0;
@@ -465,6 +506,8 @@ export struct PlayerPage {
   private rewindBtnX: number[] = [0, 0];
   private playBtnX: number[] = [0, 0];
   private forwardBtnX: number[] = [0, 0];
+  /** 下一集文字钮（传输排第四颗；剧集才有，随 nextEpisode() 出现/消失） */
+  private nextBtnX: number[] = [0, 0];
   /*
    * 控制条可见时的三个「禁区」纵向范围（对应 iOS `gestureExclusions` 的
    * topBarFrame / bottomBarFrame + ArkUI 特有的中央三键区）：
@@ -521,6 +564,8 @@ export struct PlayerPage {
 
   // —— 诊断面板（iOS PlayerDiagnosticsPanel：开着「详情」时 2 秒拉一次快照）——
   @Local private diag: PlaybackDiagnosticsView | null = null;
+  /** 引擎侧实时读数（mpv 引擎才有；掉帧/软解取证就靠这组数） */
+  @Local private engineReading: MpvEngineReading | null = null;
   private diagTimer: number = -1;
 
   // —— 自绘字幕样式（本机外挂轨；流式轨由系统渲染改不了，iOS SubtitleStyle）——
@@ -559,6 +604,7 @@ export struct PlayerPage {
     this.stopAutoNextClock();
     this.stopPingLoop();
     this.stopDiagnostics();
+    this.stopTechPoll();
     this.trickplayGen++;
     // 离开播放器：补发一次 stop（服务端记下最后位置，续播点 / 「继续观看」靠它）
     if (this.progressStarted) {
@@ -951,6 +997,7 @@ export struct PlayerPage {
     this.bindPlayerEvents(player);
     if (player instanceof MpvPlayer) {
       player.applySubStyle(this.subFontScale, this.subBottom, this.subBackground);
+      player.applyAspectMode(this.aspectMode, this.layerWidth, this.layerHeight);
     }
     player.url = url;
   }
@@ -969,6 +1016,7 @@ export struct PlayerPage {
     this.avPlayer = player;
     if (player instanceof MpvPlayer) {
       player.applySubStyle(this.subFontScale, this.subBottom, this.subBackground);
+      player.applyAspectMode(this.aspectMode, this.layerWidth, this.layerHeight);
     }
     this.deferPrepare = subtitleFd >= 0;
     this.bindPlayerEvents(player);
@@ -1024,6 +1072,18 @@ export struct PlayerPage {
         // 会话心跳：15 秒一次，会话被回收时原位重开（iOS startPingLoop）
         this.startPingLoop();
         this.armChromeTimer();
+        // 技术信息行 + 顶栏速率：秒级轮询引擎读数（系统引擎没有读数，行自己隐藏）
+        this.startTechPoll();
+        // 重挂引擎（换档/换集）后把用户选的倍速补回去——AVPlayer 重起会回 1×
+        if (this.speedEnum !== media.PlaybackSpeed.SPEED_FORWARD_1_00_X) {
+          player.setSpeed(this.speedEnum);
+        }
+        // 画面比例同理（mpv 的 override/panscan、AVPlayer 的 FIT_CROP 都是引擎侧状态）
+        try {
+          this.applyAspectMode();
+        } catch (error) {
+          // 个别状态拒设比例：跳过，画面维持上一档
+        }
         // 后台播放：AVSession + 长时任务（缺一个退后台就会被系统停掉）
         this.ensureGuard().then((guard: PlaybackGuard): Promise<void> => {
           return guard.start(this.title.length > 0 ? this.title : '播放');
@@ -1335,18 +1395,26 @@ export struct PlayerPage {
     }
   }
 
-  /** 换到下一集：重开会话（续播点由服务端按观看记录给），连播状态在 negotiate 里重置 */
+  /** 换到下一集：自动连播倒计时与「下一集」按钮共用；收尾协议与手动选集一致 */
   private playNext(): void {
     const next: EpisodeView | null = this.nextEpisode();
     if (next === null) {
       return;
     }
+    this.switchToEpisode(next);
+  }
+
+  /**
+   * 换到指定集（手动选集 / 下一集共用）：重开会话（续播点由服务端按观看记录给），
+   * 连播状态在 negotiate 里重置。
+   */
+  private switchToEpisode(target: EpisodeView): void {
     // 离开当前单元：给旧集补发 stop（位置还是旧集的，要先于换集发）
     if (this.progressStarted) {
       this.progressStarted = false;
       this.reportProgressEvent('stop');
     }
-    this.episodeNumber = next.episode_number;
+    this.episodeNumber = target.episode_number;
     // 换集不指定文件：让服务端自己挑这集的在位文件（同 iOS startUnit）
     this.fileId = 0;
     this.startMs = 0;
@@ -1355,10 +1423,38 @@ export struct PlayerPage {
     // 新的一集重新允许试本机副本（上一集的失败不作数）
     this.localFailedOnce = false;
     this.localFallingBack = false;
+    this.showSheet = false;
+    this.chromeVisible = false;
+    this.stopAutoNextClock();
     this.stopSession();
     this.releasePlayer().then((): void => {
       this.negotiate();
     });
+  }
+
+  /** 选集弹层的点选：缺集不给换；点当前集只收弹层 */
+  private pickEpisode(episode: EpisodeView): void {
+    if (!episode.owned) {
+      this.toast('这一集没有在位文件');
+      return;
+    }
+    if (episode.episode_number === this.episodeNumber) {
+      this.showSheet = false;
+      return;
+    }
+    // 手动换集是有人管：连播计数清零
+    this.noteUserActivity();
+    this.switchToEpisode(episode);
+  }
+
+  /** 选集弹层打开时滚到当前集（分集按集号升序） */
+  private scrollEpisodesToCurrent(): void {
+    for (let i = 0; i < this.episodes.length; i++) {
+      if (this.episodes[i].episode_number >= this.episodeNumber) {
+        this.episodeScroller.scrollToIndex(i, false);
+        return;
+      }
+    }
   }
 
   /** 卡片眉标：倒计时剩余秒数 / 「还在看吗」 */
@@ -1864,8 +1960,240 @@ export struct PlayerPage {
 
   /** 控制条必须常显（同 Web chromeMustStayVisible）：用户暂停在找播放键、弹层开着在等选择 */
   private chromeMustStayVisible(): boolean {
+    if (this.locked) {
+      return false;
+    }
     return (!this.playing && this.phase === PlayerPhase.ready) || this.showSheet;
   }
+
+  // MARK: 倍速 / 画面比例 / 锁定 / 技术信息行（参照桌面横屏规格的操作五件套）
+
+  /** 锁定：收控制条与弹层、掐掉长按倍速与自动收条计时——手势全禁，只留左缘解锁钮 */
+  private lockGestures(): void {
+    this.locked = true;
+    this.showSheet = false;
+    this.chromeVisible = false;
+    // 自动收条计时器一并掐掉（只有 arm，没有 disarm：手动清）
+    if (this.chromeTimer >= 0) {
+      clearTimeout(this.chromeTimer);
+      this.chromeTimer = -1;
+    }
+    this.endHoldSpeed();
+    this.disarmHoldTimer();
+  }
+
+  private unlockGestures(): void {
+    this.locked = false;
+    this.chromeVisible = true;
+    this.armChromeTimer();
+  }
+
+  /** 倍速换档：两边引擎都收系统枚举（mpv 的 speedOf 全档映射），长按 2× 抬手也回到这档 */
+  private pickSpeed(speed: media.PlaybackSpeed): void {
+    this.speedEnum = speed;
+    const player: PlayerEngine | null = this.avPlayer;
+    if (player !== null) {
+      player.setSpeed(speed);
+    }
+    this.showSheet = false;
+    this.armChromeTimer();
+  }
+
+  /** 倍速胶囊上的短标签（1.0× / 1.25×…） */
+  private speedLabel(): string {
+    const s: media.PlaybackSpeed = this.speedEnum;
+    if (s === media.PlaybackSpeed.SPEED_FORWARD_0_50_X) {
+      return '0.5×';
+    }
+    if (s === media.PlaybackSpeed.SPEED_FORWARD_0_75_X) {
+      return '0.75×';
+    }
+    if (s === media.PlaybackSpeed.SPEED_FORWARD_1_25_X) {
+      return '1.25×';
+    }
+    if (s === media.PlaybackSpeed.SPEED_FORWARD_1_50_X) {
+      return '1.5×';
+    }
+    if (s === media.PlaybackSpeed.SPEED_FORWARD_1_75_X) {
+      return '1.75×';
+    }
+    if (s === media.PlaybackSpeed.SPEED_FORWARD_2_00_X) {
+      return '2.0×';
+    }
+    if (s === media.PlaybackSpeed.SPEED_FORWARD_3_00_X) {
+      return '3.0×';
+    }
+    return '1.0×';
+  }
+
+  private speedOptions(): SpeedOption[] {
+    const labels: string[] = ['0.5×', '0.75×', '1.0×', '1.25×', '1.5×', '1.75×', '2.0×', '3.0×'];
+    const values: media.PlaybackSpeed[] = [
+      media.PlaybackSpeed.SPEED_FORWARD_0_50_X,
+      media.PlaybackSpeed.SPEED_FORWARD_0_75_X,
+      media.PlaybackSpeed.SPEED_FORWARD_1_00_X,
+      media.PlaybackSpeed.SPEED_FORWARD_1_25_X,
+      media.PlaybackSpeed.SPEED_FORWARD_1_50_X,
+      media.PlaybackSpeed.SPEED_FORWARD_1_75_X,
+      media.PlaybackSpeed.SPEED_FORWARD_2_00_X,
+      media.PlaybackSpeed.SPEED_FORWARD_3_00_X
+    ];
+    const options: SpeedOption[] = [];
+    for (let i: number = 0; i < labels.length; i++) {
+      const option: SpeedOption = { label: labels[i], value: values[i] };
+      options.push(option);
+    }
+    return options;
+  }
+
+  /** 画面比例三档的中文名（胶囊与弹层共用） */
+  private aspectModeLabel(): string {
+    if (this.aspectMode === 'stretch') {
+      return '拉伸';
+    }
+    if (this.aspectMode === 'crop') {
+      return '裁切';
+    }
+    return '平铺';
+  }
+
+  private aspectOptions(): AspectOption[] {
+    const options: AspectOption[] = [];
+    const fit: AspectOption = { id: 'fit', label: '平铺', desc: '保持比例居中，留黑边（默认）' };
+    const stretch: AspectOption = { id: 'stretch', label: '拉伸', desc: '铺满全屏，画面会被拉变形' };
+    const crop: AspectOption = { id: 'crop', label: '裁切', desc: '放大到铺满，裁掉超出部分' };
+    options.push(fit);
+    options.push(stretch);
+    options.push(crop);
+    return options;
+  }
+
+  /**
+   * surface 的高度：平铺档 = 宽 ÷ 视频宽高比（surface 摆成视频形状，两边引擎的默认行为
+   * 就是不变形）；拉伸/裁切档 = 全屏（变形与裁切都由引擎参数完成）。
+   * 宽高比或宽度未就绪时先给全屏，量出来后 @Local 触发重排。
+   */
+  private surfaceHeightVp(): Length {
+    if (this.aspectMode !== 'fit' || this.videoAspect <= 0 || this.layerWidth <= 0) {
+      return '100%';
+    }
+    return `${Math.round(this.layerWidth / this.videoAspect)}vp`;
+  }
+
+  /**
+   * 把画面比例档位落到当前引擎：
+   * - mpv：video-aspect-override（拉伸钉 surface 比例）+ panscan（裁切）；
+   * - AVPlayer：surface 形状已保证平铺/拉伸正确，只有裁切要显式 FIT_CROP，切回再还原 FIT。
+   */
+  private applyAspectMode(): void {
+    const player: PlayerEngine | null = this.avPlayer;
+    if (player === null) {
+      return;
+    }
+    if (player instanceof MpvPlayer) {
+      player.applyAspectMode(this.aspectMode, this.layerWidth, this.layerHeight);
+      return;
+    }
+    player.videoScaleType = this.aspectMode === 'crop'
+      ? media.VideoScaleType.VIDEO_SCALE_TYPE_FIT_CROP
+      : media.VideoScaleType.VIDEO_SCALE_TYPE_FIT;
+  }
+
+  private pickAspect(mode: string): void {
+    this.aspectMode = mode;
+    try {
+      this.applyAspectMode();
+    } catch (error) {
+      this.toast('切换画面比例失败');
+    }
+    this.showSheet = false;
+    this.armChromeTimer();
+  }
+
+  // —— 左下技术信息行 + 顶栏传输速率（秒级轮询，mpv 引擎才有读数） ——
+
+  private startTechPoll(): void {
+    this.stopTechPoll();
+    this.techTimer = setInterval((): void => {
+      this.refreshEngineLines();
+    }, 1000);
+  }
+
+  private stopTechPoll(): void {
+    if (this.techTimer >= 0) {
+      clearInterval(this.techTimer);
+      this.techTimer = -1;
+    }
+  }
+
+  /** 秒级刷新：一次 engineReading 同时喂 技术行 / 速率段 / 详情面板的引擎读数 */
+  private refreshEngineLines(): void {
+    const player: PlayerEngine | null = this.avPlayer;
+    if (player === null || !(player instanceof MpvPlayer)) {
+      this.techLine = '';
+      this.netLine = '';
+      return;
+    }
+    const reading: MpvEngineReading | null = player.engineReading();
+    if (reading === null) {
+      this.techLine = '';
+      this.netLine = '';
+      return;
+    }
+    this.engineReading = reading;
+    this.techLine = this.buildTechLine(reading);
+    this.netLine = this.buildNetLine(reading);
+  }
+
+  /** 「HEVC 3840×2160 60fps 45.2Mbps 硬解 SDR」（参照桌面规格的字段顺序） */
+  private buildTechLine(reading: MpvEngineReading): string {
+    const parts: string[] = [];
+    if (reading.codec.length > 0) {
+      parts.push(reading.codec.toUpperCase());
+    }
+    if (reading.width > 0 && reading.height > 0) {
+      parts.push(`${Math.round(reading.width)}×${Math.round(reading.height)}`);
+    }
+    if (reading.containerFps > 0) {
+      parts.push(`${Math.round(reading.containerFps)}fps`);
+    }
+    if (reading.videoBitrate > 0) {
+      parts.push(`${(reading.videoBitrate / 1000000).toFixed(1)}Mbps`);
+    }
+    parts.push(reading.hwdec.length > 0 && reading.hwdec !== 'no' ? '硬解' : '软解');
+    parts.push(this.isHdrReading(reading) ? 'HDR' : 'SDR');
+    return parts.join(' ');
+  }
+
+  private isHdrReading(reading: MpvEngineReading): boolean {
+    const gamma: string = reading.gamma.toLowerCase();
+    return gamma === 'pq' || gamma === 'hlg';
+  }
+
+  /** 顶栏速率段：「内网播放 12.3 Mbps」；外网标「下载」，本机副本不显示 */
+  private buildNetLine(reading: MpvEngineReading): string {
+    if (this.localUnit !== null) {
+      return '';
+    }
+    const prefix: string = this.isLanOrigin() ? '内网播放' : '下载';
+    return `${prefix} ${this.diagRateText(Math.max(0, reading.cacheSpeedBps))}`;
+  }
+
+  /** 服务器是不是内网地址（10.x / 192.168.x / 172.16–31.x / 回环）：决定速率前缀 */
+  private isLanOrigin(): boolean {
+    const origin: string = AppModel.origin();
+    const host: string = origin.replace(/^https?:\/\//, '').split(':')[0].split('/')[0];
+    if (host.startsWith('10.') || host.startsWith('192.168.') || host.startsWith('127.') || host === 'localhost') {
+      return true;
+    }
+    if (host.startsWith('172.')) {
+      const segments: string[] = host.split('.');
+      const second: number = segments.length > 1 ? Number(segments[1]) : 0;
+      return second >= 16 && second <= 31;
+    }
+    return false;
+  }
+
 
   // MARK: 手势层（对应 iOS PlayerGestureLayer）
 
@@ -1891,7 +2219,8 @@ export struct PlayerPage {
     this.holdSpeedActive = false;
     const player: PlayerEngine | null = this.avPlayer;
     if (player !== null) {
-      player.setSpeed(media.PlaybackSpeed.SPEED_FORWARD_1_00_X);
+      // 回到用户选的档（不是无脑 1×：倍速弹层选过 1.5 的话抬手要回 1.5）
+      player.setSpeed(this.speedEnum);
     }
   }
 
@@ -1927,6 +2256,26 @@ export struct PlayerPage {
   private onGesture(event: TouchEvent): void {
     const touch: TouchObject | undefined = event.changedTouches[0];
     if (touch === undefined) {
+      return;
+    }
+    /*
+     * 防误触锁定：手势全禁（误触是锁定的全部意义），只剩左缘解锁钮。
+     * Down 只记起手点，Up 时 12vp 内的轻点落在解锁钮上才解锁。
+     */
+    if (this.locked) {
+      if (event.type === TouchType.Down) {
+        this.lockTapX = touch.x;
+        this.lockTapY = touch.y;
+      } else if (event.type === TouchType.Up) {
+        const dx: number = touch.x - this.lockTapX;
+        const dy: number = touch.y - this.lockTapY;
+        const globalX: number = touch.x + this.layerOriginX;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) <= PlayerPage.activatePx
+          && this.lockBtnX[1] > this.lockBtnX[0] && this.inBand(touch.y, this.lockBtnY)
+          && globalX >= this.lockBtnX[0] && globalX <= this.lockBtnX[1]) {
+          this.unlockGestures();
+        }
+      }
       return;
     }
     /*
@@ -2145,6 +2494,11 @@ export struct PlayerPage {
       this.toggleLandscape();
       return;
     }
+    if (this.chromeLockBtnX[1] > this.chromeLockBtnX[0]
+      && globalX >= this.chromeLockBtnX[0] && globalX <= this.chromeLockBtnX[1]) {
+      this.lockGestures();
+      return;
+    }
     if (globalX <= 56) {
       this.navStack.pop();
       return;
@@ -2163,6 +2517,11 @@ export struct PlayerPage {
     } else if (this.forwardBtnX[1] > this.forwardBtnX[0] && globalX >= this.forwardBtnX[0] && globalX <= this.forwardBtnX[1]) {
       this.armChromeTimer();
       this.seekTo(this.positionMs + 10000);
+    } else if (this.nextBtnX[1] > this.nextBtnX[0] && globalX >= this.nextBtnX[0] && globalX <= this.nextBtnX[1]) {
+      this.armChromeTimer();
+      // 手动点「下一集」是有人管：连播计数清零（自动倒计时那路不走这里）
+      this.noteUserActivity();
+      this.playNext();
     } else {
       this.armChromeTimer();
     }
@@ -2185,8 +2544,11 @@ export struct PlayerPage {
     if (rowRight > rowLeft && this.inBand(y, this.capsuleRowY)
       && globalX >= rowLeft && globalX <= rowRight && this.capsuleRowWidth > 0) {
       const relX: number = globalX - rowLeft;
-      const segW: number = this.capsuleRowWidth / 4;
-      const idx: number = Math.min(3, Math.floor(relX / segW));
+      // 剧集时多一颗「选集」胶囊：段数跟着胶囊数走，索引与底栏构建顺序对齐
+      // （音轨 / 字幕 / 画质 / 倍速 / 比例 / [选集] / 详情）
+      const segCount: number = this.episodes.length > 0 ? 7 : 6;
+      const segW: number = this.capsuleRowWidth / segCount;
+      const idx: number = Math.min(segCount - 1, Math.floor(relX / segW));
       if (idx === 0) {
         this.armChromeTimer();
         this.sheetKind = 'audio';
@@ -2198,6 +2560,18 @@ export struct PlayerPage {
       } else if (idx === 2) {
         this.armChromeTimer();
         this.sheetKind = 'quality';
+        this.showSheet = true;
+      } else if (idx === 3) {
+        this.armChromeTimer();
+        this.sheetKind = 'speed';
+        this.showSheet = true;
+      } else if (idx === 4) {
+        this.armChromeTimer();
+        this.sheetKind = 'aspect';
+        this.showSheet = true;
+      } else if (segCount === 7 && idx === 5) {
+        this.armChromeTimer();
+        this.sheetKind = 'episodes';
         this.showSheet = true;
       } else {
         this.armChromeTimer();
@@ -2569,14 +2943,24 @@ export struct PlayerPage {
     }
   }
 
-  /** 横竖屏切换（iOS PlayerOrientation）：显式锁进目标方向，不锁会被系统转回去 */
+  /** 进播放器就允许传感器旋转（iOS 全屏播放器语义：拿着横就横，无视系统旋转锁） */
+  private async followSensorOrientation(): Promise<void> {
+    try {
+      const win: window.Window = await window.getLastWindow(getContext(this));
+      await win.setPreferredOrientation(window.Orientation.AUTO_ROTATION);
+    } catch (error) {
+      // 跟随不了不影响播放
+    }
+  }
+
+  /** 横竖屏切换（iOS PlayerOrientation）：解锁回传感器跟随；锁向锁进横屏 */
   private async toggleLandscape(): Promise<void> {
     this.armChromeTimer();
     try {
       const win: window.Window = await window.getLastWindow(getContext(this));
       if (this.landscapeLocked) {
         this.landscapeLocked = false;
-        await win.setPreferredOrientation(window.Orientation.PORTRAIT);
+        await win.setPreferredOrientation(window.Orientation.AUTO_ROTATION);
       } else {
         this.landscapeLocked = true;
         await win.setPreferredOrientation(window.Orientation.AUTO_ROTATION_LANDSCAPE);
@@ -2586,15 +2970,12 @@ export struct PlayerPage {
     }
   }
 
-  /** 退出播放器恢复竖屏（只有锁过横屏才动） */
+  /** 退出播放器恢复系统默认方向（进页时设过传感器跟随，无论锁没锁横屏都要还） */
   private async restoreOrientation(): Promise<void> {
-    if (!this.landscapeLocked) {
-      return;
-    }
     this.landscapeLocked = false;
     try {
       const win: window.Window = await window.getLastWindow(getContext(this));
-      await win.setPreferredOrientation(window.Orientation.PORTRAIT);
+      await win.setPreferredOrientation(window.Orientation.UNSPECIFIED);
     } catch (error) {
     }
   }
@@ -2762,6 +3143,9 @@ export struct PlayerPage {
   }
 
   private pollDiagnostics(): void {
+    // 引擎侧读数先落袋：直出 / 本机副本没有服务端快照，引擎读数是唯一的性能证据
+    const player: PlayerEngine | null = this.avPlayer;
+    this.engineReading = player instanceof MpvPlayer ? player.engineReading() : null;
     const api: MovieClawApi | null = this.api();
     const view: PlaybackSessionView | null = this.session;
     const sessionId: string | null = view !== null ? (view.session_id ?? null) : null;
@@ -2791,6 +3175,7 @@ export struct PlayerPage {
     this.stopDiagnostics();
     if (!this.showSheet) {
       this.diag = null;
+      this.engineReading = null;
     }
   }
 
@@ -2804,6 +3189,92 @@ export struct PlayerPage {
     }
     const digits: string = `${index}`;
     return `seg${'0'.repeat(Math.max(0, 5 - digits.length))}${digits}`;
+  }
+
+  // —— 引擎一节的逐行读数（mpv 引擎侧，2 秒随诊断一起刷新）——
+
+  /** 解码器 + 硬解在位与否（软解用 warn 色显眼：掉帧第一嫌疑） */
+  private diagEngineDecoderLine(): string {
+    const reading: MpvEngineReading | null = this.engineReading;
+    if (reading === null) {
+      return '';
+    }
+    const codec: string = reading.codec.length > 0 ? reading.codec : '—';
+    const hwdec: string = this.diagEngineSoftwareDecoding() ? '软件解码' : `硬解 ${reading.hwdec}`;
+    return `解码器 ${codec} · ${hwdec}`;
+  }
+
+  private diagEngineSoftwareDecoding(): boolean {
+    const reading: MpvEngineReading | null = this.engineReading;
+    return reading !== null && (reading.hwdec.length === 0 || reading.hwdec === 'no');
+  }
+
+  /** 画面分辨率 + 标称/实测帧率（实测落后标称 = 解码或渲染跟不上） */
+  private diagEngineVideoLine(): string {
+    const reading: MpvEngineReading | null = this.engineReading;
+    if (reading === null) {
+      return '';
+    }
+    const fps: string = reading.containerFps > 0 ? ` · 标称 ${reading.containerFps.toFixed(2)} fps` : '';
+    const live: string = reading.estimatedFps > 0 ? ` · 实测 ${reading.estimatedFps.toFixed(2)} fps` : '';
+    return `画面 ${reading.width}×${reading.height}${fps}${live}`;
+  }
+
+  private diagEngineDropLine(): string {
+    const reading: MpvEngineReading | null = this.engineReading;
+    if (reading === null) {
+      return '';
+    }
+    return `丢帧 渲染 ${Math.round(reading.voDropped)} · 解码 ${Math.round(reading.decoderDropped)}`
+      + ` · 合计 ${Math.round(reading.totalDropped)}`;
+  }
+
+  private diagEngineDropping(): boolean {
+    const reading: MpvEngineReading | null = this.engineReading;
+    return reading !== null && reading.totalDropped > 0;
+  }
+
+  /** 缓冲量 + 下载速度（网络跟不上时这里先露馅） */
+  private diagEngineCacheLine(): string {
+    const reading: MpvEngineReading | null = this.engineReading;
+    if (reading === null) {
+      return '';
+    }
+    const buffered: string = `已缓冲 ${reading.cacheSeconds.toFixed(1)} 秒（共 ${reading.cacheTotalSeconds.toFixed(1)} 秒）`;
+    const speed: string = reading.cacheSpeedBps > 0 ? ` · 下载 ${this.diagRateText(reading.cacheSpeedBps)}` : '';
+    const wait: string = reading.bufferingPercent > 0 && reading.bufferingPercent < 100
+      ? ` · 缓冲中 ${Math.round(reading.bufferingPercent)}%` : '';
+    return `${buffered}${speed}${wait}`;
+  }
+
+  private diagEngineRateLine(): string {
+    const reading: MpvEngineReading | null = this.engineReading;
+    if (reading === null || reading.videoBitrate <= 0) {
+      return '';
+    }
+    const audio: string = reading.audioBitrate > 0 ? ` · 音频 ${this.diagRateText(reading.audioBitrate)}` : '';
+    return `码率 视频 ${this.diagRateText(reading.videoBitrate)}${audio}`;
+  }
+
+  private diagEnginePosLine(): string {
+    const reading: MpvEngineReading | null = this.engineReading;
+    if (reading === null) {
+      return '';
+    }
+    const clock: string = reading.positionSeconds > 0 ? this.clockText(reading.positionSeconds * 1000) : '—';
+    const state: string = reading.paused ? '暂停中' : '播放中';
+    return `位置 ${clock} · ${state} · ${reading.speed.toFixed(2)}×`;
+  }
+
+  /** bps → 人话 */
+  private diagRateText(bps: number): string {
+    if (bps >= 1000000) {
+      return `${(bps / 1000000).toFixed(2)} Mbps`;
+    }
+    if (bps >= 1000) {
+      return `${Math.round(bps / 1000)} Kbps`;
+    }
+    return `${Math.round(bps)} bps`;
   }
 
   /** 处理方式标签（iOS processingLabels） */
@@ -3302,6 +3773,26 @@ export struct PlayerPage {
               const gx: number = this.vpOf(newArea.globalPosition?.x ?? 0);
               this.forwardBtnX = [gx, gx + this.vpOf(newArea.width)];
             })
+            // 下一集（剧集才有；华为符号表没有 forward_end 一类图标，按画中画先例用玻璃文字钮）
+            if (this.nextEpisode() !== null) {
+              Text('下一集')
+                .fontSize(13)
+                .fontColor('#ffffff')
+                .height(56)
+                .textAlign(TextAlign.Center)
+                .padding({ left: 16, right: 16 })
+                .backgroundColor('rgba(255,255,255,0.12)')
+                .borderRadius(28)
+                .hitTestBehavior(HitTestMode.Transparent)
+                .onAreaChange((_old: Area, newArea: Area) => {
+                  const gx: number = this.vpOf(newArea.globalPosition?.x ?? 0);
+                  this.nextBtnX = [gx, gx + this.vpOf(newArea.width)];
+                })
+                .onDisAppear(() => {
+                  // 换集后没有下一集了：带失效，避免旧坐标误触
+                  this.nextBtnX = [0, 0];
+                })
+            }
           }
           .justifyContent(FlexAlign.Center)
           .width('100%')
@@ -3365,6 +3856,31 @@ export struct PlayerPage {
         }
         this.TopHud()
         /*
+         * 防误触锁定：锁定时控制条已收、手势全禁，左缘这颗玻璃圆钮是唯一常驻钮
+         * （横屏握持防误触：解锁走 12vp 内轻点，判定在手势层 locked 分支里）。
+         */
+        if (this.locked) {
+          Column() {
+            SymbolGlyph($r('sys.symbol.lock_fill'))
+              .fontSize(18)
+              .fontColor(['rgba(255,255,255,0.9)'])
+          }
+          .width(44)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .backgroundColor('rgba(20,20,22,0.72)')
+          .borderRadius(22)
+          .border({ width: 1, color: 'rgba(255,255,255,0.25)' })
+          .position({ x: 16, y: '45%' })
+          .hitTestBehavior(HitTestMode.Transparent)
+          .onAreaChange((_old: Area, newArea: Area) => {
+            const gx: number = this.vpOf(newArea.globalPosition?.x ?? 0);
+            this.lockBtnX = [gx, gx + this.vpOf(newArea.width)];
+            this.lockBtnY = this.bandOf(newArea);
+          })
+        }
+        /*
          * 片尾「即将播放」卡片（iOS PlayerUpNextCard）：独立浮层，不随控制层收起；
          * 右下角、底栏上方。
          *
@@ -3398,10 +3914,20 @@ export struct PlayerPage {
     }
     .hideTitleBar(true)
     .onAreaChange((_old: Area, newArea: Area) => {
-      this.layerWidth = this.vpOf(newArea.width);
-      this.layerHeight = this.vpOf(newArea.height);
+      const newWidth: number = this.vpOf(newArea.width);
+      const newHeight: number = this.vpOf(newArea.height);
+      const rotated: boolean = newWidth !== this.layerWidth || newHeight !== this.layerHeight;
+      this.layerWidth = newWidth;
+      this.layerHeight = newHeight;
       this.layerOriginX = this.vpOf(newArea.globalPosition?.x ?? 0);
       this.layerOriginY = this.vpOf(newArea.globalPosition?.y ?? 0);
+      // 拉伸档的 override 钉的是 surface 比例：旋转后 surface 变形，带新宽高重设一次
+      if (rotated && this.aspectMode === 'stretch') {
+        try {
+          this.applyAspectMode();
+        } catch (error) {
+        }
+      }
     })
     .onTouch((event: TouchEvent) => {
       this.onGesture(event);
@@ -3410,6 +3936,8 @@ export struct PlayerPage {
       this.navStack = ctx.pathStack;
       // 整屏页：收起底部标签栏（iOS 同款行为）
       this.chrome.push('player');
+      // 传感器跟随（Pura X 折叠外屏会被系统强制竖屏，展开内屏物理转屏/锁向都能走）
+      this.followSensorOrientation();
       const params: PlayerParams | null = PlayerParams.of(ctx.pathInfo.param as Object | undefined);
       if (params !== null && !this.started) {
         this.started = true;
@@ -3448,11 +3976,13 @@ export struct PlayerPage {
         .hitTestBehavior(HitTestMode.Transparent)
         .hdrBrightness(0.0)
         /*
-         * **按视频比例摆放**：surface 是个画布，播放器会把画面铺满它——
+         * **按视频比例摆放（平铺档）**：surface 是个画布，播放器会把画面铺满它——
          * 给全屏尺寸就会把 16:9 的片子拉成竖屏（实测过：测试图的圆变成了竖椭圆）。
+         * 拉伸/裁切档反过来要全屏：变形与裁切都由引擎参数完成（mpv 的
+         * video-aspect-override/panscan、AVPlayer 的 FIT_CROP），surface 必须铺满。
          */
-        .aspectRatio(this.videoAspect)
         .width('100%')
+        .height(this.surfaceHeightVp())
         .onLoad((): void => {
           // surface 就绪：记下 id，若协商已完成则立刻挂上播放器
           this.surfaceId = this.surfaceController.getXComponentSurfaceId();
@@ -3575,12 +4105,29 @@ export struct PlayerPage {
               .fontColor('#ffffff')
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text(this.streamLabel())
+            // 档位 + 实时传输速率（内网播放/下载 + 秒级轮询的下载速；本机副本不显速率）
+            Text(this.netLine.length > 0 ? `${this.streamLabel()} · ${this.netLine}` : this.streamLabel())
               .fontSize(11)
               .fontColor('rgba(255,255,255,0.65)')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
           }
-          .layoutWeight(1)
-          .alignItems(HorizontalAlign.Start)
+           .layoutWeight(1)
+           .alignItems(HorizontalAlign.Start)
+          // 防误触锁定：点了收全部手势，只剩左缘解锁钮（横屏握持防误触）
+          Text('锁定')
+            .fontSize(13)
+            .fontColor('#ffffff')
+            .height(40)
+            .textAlign(TextAlign.Center)
+            .padding({ left: 14, right: 14 })
+            .backgroundColor('rgba(255,255,255,0.12)')
+            .borderRadius(20)
+            .hitTestBehavior(HitTestMode.Transparent)
+            .onAreaChange((_old: Area, newArea: Area) => {
+              const x: number = this.vpOf(newArea.globalPosition?.x ?? 0);
+              this.chromeLockBtnX = [x, x + this.vpOf(newArea.width)];
+            })
           // 横竖屏切换（iOS 底栏的旋转圆钮）：显式锁进目标方向
           Text(this.landscapeLocked ? '竖屏' : '横屏')
             .fontSize(13)
@@ -3689,10 +4236,26 @@ export struct PlayerPage {
               .fontColor('rgba(255,255,255,0.85)')
           }
           .width('100%')
+          // 左下技术信息行（参照桌面规格）：「HEVC 3840×2160 60fps 45.2Mbps 硬解 SDR」；
+          // 系统引擎没有实时读数，行自己不渲染
+          if (this.techLine.length > 0) {
+            Text(this.techLine)
+              .fontSize(11)
+              .fontColor('rgba(255,255,255,0.55)')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+              .margin({ top: 6 })
+          }
           Row({ space: 0 }) {
             this.CapsuleAction('音轨', this.audioRef.length > 0)
             this.CapsuleAction(this.subtitleIndex >= 0 ? '字幕 ✓' : '字幕', this.subtitleIndex >= 0)
             this.CapsuleAction(this.maxHeight > 0 ? `画质 ${this.maxHeight}p ✓` : '画质', this.maxHeight > 0)
+            this.CapsuleAction(`倍速 ${this.speedLabel()}`, this.speedEnum !== media.PlaybackSpeed.SPEED_FORWARD_1_00_X)
+            this.CapsuleAction(`比例 ${this.aspectModeLabel()}`, this.aspectMode !== 'fit')
+            if (this.episodes.length > 0) {
+              this.CapsuleAction('选集', false)
+            }
             this.CapsuleAction('详情', false)
           }
           .backgroundColor('rgba(255,255,255,0.12)')
@@ -4120,9 +4683,203 @@ export struct PlayerPage {
       this.SubtitleSheet()
     } else if (this.sheetKind === 'quality') {
       this.QualitySheet()
+    } else if (this.sheetKind === 'speed') {
+      this.SpeedSheet()
+    } else if (this.sheetKind === 'aspect') {
+      this.AspectSheet()
+    } else if (this.sheetKind === 'episodes') {
+      this.EpisodeSheet()
     } else {
       this.StatsSheet()
     }
+  }
+
+  /** 倍速选择（参照桌面规格：0.5–3.0 全档；长按 2× 抬手回到选中的这档） */
+  @Builder
+  SpeedSheet() {
+    Column({ space: 0 }) {
+      Text('倍速')
+        .fontSize(17)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.text)
+        .width('100%')
+        .padding({ left: 20, top: 16, bottom: 8 })
+      Text('换档即时生效；长按画面任意处 2 倍速快进不受影响，抬手回到这档')
+        .fontSize(12)
+        .fontColor(Theme.textFaint)
+        .width('100%')
+        .padding({ left: 20, right: 20, bottom: 12 })
+      List() {
+        ListItemGroup({ style: ListItemGroupStyle.NONE }) {
+          ForEach(this.speedOptions(), (option: SpeedOption) => {
+            ListItem() {
+              Row({ space: 10 }) {
+                Text(option.label)
+                  .fontSize(16)
+                  .fontColor(Theme.text)
+                  .layoutWeight(1)
+                if (this.speedEnum === option.value) {
+                  SymbolGlyph($r('sys.symbol.checkmark'))
+                    .fontSize(16)
+                    .fontColor([Theme.accent])
+                }
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Top)
+              .padding({ left: 20, right: 20, top: 13, bottom: 13 })
+              .onClick(() => {
+                this.pickSpeed(option.value);
+              })
+            }
+          }, (option: SpeedOption) => option.label)
+        }
+        .divider({ strokeWidth: 0.5, color: Theme.line, startMargin: 20, endMargin: 20 })
+        .borderRadius(Theme.cardRadius)
+        .backgroundColor(Theme.surface)
+        .border({ width: 1, color: Theme.line })
+      }
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .padding({ left: 16, right: 16 })
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(Theme.bg)
+  }
+
+  /** 画面比例（参照桌面规格：平铺/拉伸/裁切三档；mpv 与系统播放器都生效） */
+  @Builder
+  AspectSheet() {
+    Column({ space: 0 }) {
+      Text('画面比例')
+        .fontSize(17)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.text)
+        .width('100%')
+        .padding({ left: 20, top: 16, bottom: 8 })
+      Text('拉伸会变形，裁切会切掉超出部分；旋转屏幕后档位保持')
+        .fontSize(12)
+        .fontColor(Theme.textFaint)
+        .width('100%')
+        .padding({ left: 20, right: 20, bottom: 12 })
+      List() {
+        ListItemGroup({ style: ListItemGroupStyle.NONE }) {
+          ForEach(this.aspectOptions(), (option: AspectOption) => {
+            ListItem() {
+              Row({ space: 10 }) {
+                Column({ space: 2 }) {
+                  Text(option.label)
+                    .fontSize(15)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(Theme.text)
+                  Text(option.desc)
+                    .fontSize(12)
+                    .fontColor(Theme.textFaint)
+                }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+                if (this.aspectMode === option.id) {
+                  SymbolGlyph($r('sys.symbol.checkmark'))
+                    .fontSize(16)
+                    .fontColor([Theme.accent])
+                }
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Top)
+              .padding({ left: 20, right: 20, top: 13, bottom: 13 })
+              .onClick(() => {
+                this.pickAspect(option.id);
+              })
+            }
+          }, (option: AspectOption) => option.id)
+        }
+        .divider({ strokeWidth: 0.5, color: Theme.line, startMargin: 20, endMargin: 20 })
+        .borderRadius(Theme.cardRadius)
+        .backgroundColor(Theme.surface)
+        .border({ width: 1, color: Theme.line })
+      }
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .padding({ left: 16, right: 16 })
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(Theme.bg)
+  }
+
+  /** 选集：本季分集一览；缺集置灰，点选换集（收尾协议与自动连播相同） */
+  @Builder
+  EpisodeSheet() {
+    Column({ space: 0 }) {
+      Text('选集')
+        .fontSize(17)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.text)
+        .width('100%')
+        .padding({ left: 20, top: 16, bottom: 8 })
+      Text(`第 ${this.seasonNumber} 季 · 共 ${this.episodes.length} 集；灰掉的是没有在位文件的缺集`)
+        .fontSize(12)
+        .fontColor(Theme.textFaint)
+        .width('100%')
+        .padding({ left: 20, right: 20, bottom: 12 })
+      List({ scroller: this.episodeScroller }) {
+        ListItemGroup({ style: ListItemGroupStyle.NONE }) {
+          ForEach(this.episodes, (episode: EpisodeView) => {
+            ListItem() {
+              Row({ space: 10 }) {
+                Text(`第 ${episode.episode_number} 集`)
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(episode.owned ? Theme.text : Theme.textFaint)
+                  .constraintSize({ minWidth: 68 })
+                Text(episode.name ?? '')
+                  .fontSize(14)
+                  .fontColor(episode.owned ? Theme.textMuted : Theme.textFaint)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+                if (episode.episode_number === this.episodeNumber) {
+                  SymbolGlyph($r('sys.symbol.checkmark'))
+                    .fontSize(16)
+                    .fontColor([Theme.accent])
+                } else if (!episode.owned) {
+                  Text('未在位')
+                    .fontSize(11)
+                    .fontColor(Theme.textFaint)
+                } else if (episode.played) {
+                  Text('已看完')
+                    .fontSize(11)
+                    .fontColor(Theme.textFaint)
+                } else if ((episode.progress_percent ?? 0) > 0) {
+                  Text(`看到 ${episode.progress_percent ?? 0}%`)
+                    .fontSize(11)
+                    .fontColor(Theme.textFaint)
+                }
+              }
+              .width('100%')
+              .padding({ left: 20, right: 20, top: 12, bottom: 12 })
+              .onClick(() => {
+                this.pickEpisode(episode);
+              })
+            }
+          }, (episode: EpisodeView) => `${episode.episode_number}#${episode.owned ? 1 : 0}`
+            + `#${episode.name ?? ''}#${episode.episode_number === this.episodeNumber}`)
+        }
+        .divider({ strokeWidth: 0.5, color: Theme.line, startMargin: 20, endMargin: 20 })
+        .borderRadius(Theme.cardRadius)
+        .backgroundColor(Theme.surface)
+        .border({ width: 1, color: Theme.line })
+      }
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .padding({ left: 16, right: 16 })
+      .onAppear(() => {
+        this.scrollEpisodesToCurrent();
+      })
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(Theme.bg)
   }
 
   /** 画质选择（iOS SettingsMenu 的「画质」面板）：语义是上限——源不超所选档就照常直通 */
@@ -4434,6 +5191,58 @@ export struct PlayerPage {
                 .fontSize(11)
                 .fontColor(Theme.textFaint)
                 .width('100%')
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
+            .padding(16)
+            .backgroundColor(Theme.surface)
+            .borderRadius(Theme.cardRadius)
+            .border({ width: 1, color: Theme.line })
+          }
+          if (this.engineReading !== null) {
+            // 引擎：播放器自己此刻的状态（安卓 TV DiagnosticsReport 的 EngineReading 对位）。
+            // 掉帧取证三件套：硬解在位与否（hwdec）、丢帧计数、实测出帧率
+            Column({ space: 7 }) {
+              Text('引擎')
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.textMuted)
+              if (this.diagEngineDecoderLine().length > 0) {
+                Text(this.diagEngineDecoderLine())
+                  .fontSize(13)
+                  .fontColor(this.diagEngineSoftwareDecoding() ? Theme.warn : Theme.text)
+                  .width('100%')
+              }
+              if (this.diagEngineVideoLine().length > 0) {
+                Text(this.diagEngineVideoLine())
+                  .fontSize(13)
+                  .fontColor(Theme.text)
+                  .width('100%')
+              }
+              if (this.diagEngineDropLine().length > 0) {
+                Text(this.diagEngineDropLine())
+                  .fontSize(13)
+                  .fontColor(this.diagEngineDropping() ? Theme.warn : Theme.text)
+                  .width('100%')
+              }
+              if (this.diagEngineCacheLine().length > 0) {
+                Text(this.diagEngineCacheLine())
+                  .fontSize(13)
+                  .fontColor(Theme.text)
+                  .width('100%')
+              }
+              if (this.diagEngineRateLine().length > 0) {
+                Text(this.diagEngineRateLine())
+                  .fontSize(13)
+                  .fontColor(Theme.text)
+                  .width('100%')
+              }
+              if (this.diagEnginePosLine().length > 0) {
+                Text(this.diagEnginePosLine())
+                  .fontSize(13)
+                  .fontColor(Theme.textMuted)
+                  .width('100%')
+              }
             }
             .width('100%')
             .alignItems(HorizontalAlign.Start)

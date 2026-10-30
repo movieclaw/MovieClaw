@@ -151,10 +151,6 @@ export struct DiscoveredPersonPage {
         } else {
           this.Content(this.person as DiscoveredPersonDetailsView)
         }
-        // 顶栏放最后：盖在沉浸大图/内容上，返回键与标题不会被海报压住
-        PageTopBar({ title: this.title(), onBack: (): void => {
-          this.navStack.pop();
-        }})
       }
       .width('100%')
       .height('100%')
