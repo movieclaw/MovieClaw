@@ -88,6 +88,47 @@ final class DiscoverUITests: XCTestCase {
         item.tap()
     }
 
+    /// #1090：标题菜单收起后标题曾先停在偏右约 9pt 处半秒多、再滑回左边。根因是系统把菜单做成了工具栏按钮
+    /// （给标签加约 9pt 内边距，收起时按这套内边距把标签放回去）；改成普通视图后文字应贴着标题元素左边。
+    /// 收起那一下的瞬时偏移这里量不到（XCUITest 每次点按后都等动画结束才返回），只能锁住根因：
+    /// 文字与元素左边的距离，打开前与菜单开关后都贴边。偏移只在画面上、无障碍 frame 不变，所以按截图量
+    @MainActor
+    func testTitleMenuIsNotSystemToolbarButton() throws {
+        let app = try launch()
+        let title = app.buttons["discover-title-menu"]
+        XCTAssertTrue(title.waitForExistence(timeout: 30) && title.isHittable, "标题菜单不可点")
+        let rest = try XCTUnwrap(textLeftEdge(title), "量不到标题文字")
+        XCTAssertLessThan(rest, 4, "标题文字距元素左边 \(rest)pt：又被做成了带内边距的系统工具栏按钮")
+
+        title.tap()
+        XCTAssertTrue(app.buttons["剧集"].firstMatch.waitForExistence(timeout: 5), "标题菜单没有弹出")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
+        XCTAssertTrue(app.buttons["剧集"].firstMatch.waitForNonExistence(timeout: 5), "标题菜单没有收起")
+        let after = try XCTUnwrap(textLeftEdge(title), "量不到标题文字")
+        XCTAssertEqual(after, rest, accuracy: 2, "菜单收起后标题没回到原位")
+        snapshot("标题-菜单收起后")
+    }
+
+    /// 元素截图里白色文字（标题字色）最左一列距元素左边的距离（pt）；整块没有白字返回 nil
+    @MainActor
+    private func textLeftEdge(_ element: XCUIElement) -> CGFloat? {
+        guard let image = element.screenshot().image.cgImage else { return nil }
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        for x in 0..<width {
+            var bright = 0
+            for y in 0..<height {
+                let i = (y * width + x) * 4
+                if min(pixels[i], pixels[i + 1], pixels[i + 2]) >= 240 { bright += 1 }
+            }
+            if bright >= 3 { return CGFloat(x) * element.frame.width / CGFloat(width) }
+        }
+        return nil
+    }
+
     /// 切电影/剧集要清空筛选（两套类型 ID），回到该类型的发现首页（同 Web switchMediaType）
     @MainActor
     func testSwitchTypeClearsFilters() throws {
