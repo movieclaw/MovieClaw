@@ -615,6 +615,28 @@ export struct LibraryHomeView {
     return items.map((item: LibraryItemView): PosterRowItem => PosterRowItem.fromItem(item, fallback, origin));
   }
 
+  /** 行内容签名，拼进 LazyForEach 键值：键值只写 row.id 时，同键的行组件被框架按 key 复用、
+   * itemGenerator 不重跑，行内容停在首次构建（删剧后「最近添加」仍挂着已删条目）。
+   * 把整行条目拼进键值后，内容一变键跟着变、该行重建拿新数据；没变的行键值不变，
+   * 已建组件与横向滚动位置原样保留（同墙 WallRowSource 的口径，官方：键值不变不刷新子组件）。 */
+  private rowContentSignature(row: HomeRow): string {
+    if (row.kind instanceof UpNextKind) {
+      return this.upNext.map((item: UpNextItemView): string =>
+        `${item.media_item_id}:${item.season_number}:${item.episode_number}`).join(',');
+    }
+    if (row.kind instanceof FavoritesKind) {
+      return `${this.favoritesTotal}#${this.favoritesItems.map((item: PosterRowItem): string =>
+        `${item.id}`).join(',')}`;
+    }
+    if (row.kind instanceof LibrariesKind) {
+      return this.visibleLibraries.map((library: LibraryView): string =>
+        `${library.id}:${library.scanning ? 1 : 0}:${library.organizing ? 1 : 0}` +
+        `:${this.libraryHasPosters(library) ? 1 : 0}`).join(',');
+    }
+    const items: LibraryItemView[] = this.rowItems[LibraryHomeStore.fetchKey(row)] ?? [];
+    return items.map((item: LibraryItemView): string => `${item.media_item_id}`).join(',');
+  }
+
   /** 库卡片封面与默认「最近添加」行共用一份条目：有素材才请求服务端拼贴 */
   private libraryHasPosters(library: LibraryView): boolean {
     const items: LibraryItemView[] = this.rowItems[LibraryHomeStore.coverKey(library.id)] ?? [];
@@ -967,7 +989,7 @@ export struct LibraryHomeView {
           ListItem() {
             this.RowView(row)
           }
-        }, (row: HomeRow) => row.id)
+        }, (row: HomeRow) => `${row.id}#${this.rowContentSignature(row)}`)
       }
     }
   }

@@ -1320,8 +1320,10 @@ struct LibraryDetailPage {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    // 顶部让开浮在上面的自绘顶栏（返回 + 库名 + ⋯，高约 44）——不然两个库名会叠在一起
-    .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: 52 })
+    // 顶部让开浮在上面的自绘顶栏（返回 + 库名 + ⋯）：顶栏自身还含状态栏内衬
+    // shellTopInset + 6 + 内容 38 + 6 ≈ shellTopInset + 50，只让固定 52 会把「默认」
+    // 徽标埋进顶栏底下（实测被返回键+标题挡住），按实际高度 + 8 呼吸位让位。
+    .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: Theme.shellTopInset + 58 })
   }
 
   private lastScanText(scan: LastScanView): string {

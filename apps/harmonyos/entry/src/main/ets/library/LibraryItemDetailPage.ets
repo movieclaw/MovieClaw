@@ -41,6 +41,7 @@ import {
   EpisodeRange,
   EpisodeRanges,
   anchorEpisode,
+  episodeRowKey,
   watchedAnyEpisode
 } from './EpisodeRanges';
 import {
@@ -2146,7 +2147,7 @@ export struct LibraryItemDetailPage {
         Column({ space: 2 }) {
           ForEach(this.shownEpisodes(), (episode: EpisodeView) => {
             this.EpisodeRow(episode)
-          }, (episode: EpisodeView) => `${episode.episode_number}`)
+          }, (episode: EpisodeView) => episodeRowKey(this.season, episode))
         }
         .width('100%')
       }
@@ -2182,6 +2183,7 @@ export struct LibraryItemDetailPage {
   EpisodeGridSheetContent() {
     if (this.episodes !== null) {
       EpisodeGridSheet({
+        season: this.season,
         episodes: this.episodes.episodes,
         ranges: this.episodeRanges(),
         anchor: this.currentAnchorNumber(),
@@ -3000,6 +3002,8 @@ class FileSpecRow {
  */
 @Component
 struct EpisodeGridSheet {
+  /** 行 key 要带季：换季后宫格才肯重建（见 episodeRowKey） */
+  @Prop season: number = 0;
   @Prop episodes: EpisodeView[] = [];
   @Prop ranges: EpisodeRange[] = [];
   /** 锚点集号（-1 = 没有） */
@@ -3084,7 +3088,7 @@ struct EpisodeGridSheet {
             GridItem() {
               this.GridCell(episode)
             }
-          }, (episode: EpisodeView) => `${episode.episode_number}`)
+          }, (episode: EpisodeView) => episodeRowKey(this.season, episode))
         }
         .columnsTemplate('1fr 1fr 1fr 1fr 1fr')
         .columnsGap(8)

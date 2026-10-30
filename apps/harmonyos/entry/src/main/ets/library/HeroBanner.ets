@@ -193,16 +193,11 @@ export struct HeroBanner {
             this.onPlay(item);
           })
           Button() {
-            Row({ space: 5 }) {
-              SymbolGlyph($r('sys.symbol.play_square'))
-                .fontSize(13)
-                .fontColor(['#000000'])
-              Text('详情')
-                .fontSize(13)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(Theme.text)
-            }
-            .padding({ left: 13, right: 13, top: 7, bottom: 7 })
+            Text('详情')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
+              .padding({ left: 13, right: 13, top: 7, bottom: 7 })
           }
           .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
           .padding(0)
