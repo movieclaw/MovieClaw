@@ -820,7 +820,7 @@ private fun PickSheet(pick: Pick, onDismiss: () -> Unit, onChoose: (String, Stri
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
                 )
             }
-            LazyColumn(Modifier.padding(top = 6.dp)) {
+            LazyColumn(Modifier.padding(top = 6.dp).formSheetScroll()) {
                 items(rows) { (code, name) ->
                     Row(
                         Modifier.fillMaxWidth().clickable { onChoose(pick.key, code) }

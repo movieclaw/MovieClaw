@@ -135,6 +135,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import io.movieclaw.android.core.designsystem.mcCards
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /* ---------------- 设置索引 ---------------- */
 
@@ -965,7 +966,7 @@ private fun DeviceCleanupSheet(
                     Text("正在统计…", style = McType.footnote, color = TextMuted)
                 }
                 items!!.isEmpty() -> Text("没有超过 $days 天没用过的设备", style = McType.footnote, color = TextMuted)
-                else -> Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
+                else -> Column(Modifier.heightIn(max = 220.dp).formSheetScroll().verticalScroll(rememberScrollState())) {
                     Text("将注销 ${items!!.size} 台", style = McType.caption, color = TextFaint)
                     Spacer(Modifier.height(6.dp))
                     items!!.forEach { item ->

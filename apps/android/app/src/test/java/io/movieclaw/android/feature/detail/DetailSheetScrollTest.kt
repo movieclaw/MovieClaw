@@ -1,0 +1,146 @@
+package io.movieclaw.android.feature.detail
+
+import android.app.Application
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.unit.Dp
+import io.movieclaw.android.core.designsystem.MovieClawTheme
+import io.movieclaw.android.core.model.EpisodeView
+import io.movieclaw.android.core.model.SeasonAirSchedule
+import java.time.LocalDate
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+/**
+ * 详情页两张可滚动底部面板（播出日历、全部分集）的手势（issue #1103）：
+ * 在列表上下拉只滚列表、不把面板拖走；关面板仍可拖列表外的面板头部。
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class, sdk = [34], qualifiers = "w400dp-h800dp-xhdpi")
+class DetailSheetScrollTest {
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    private var open by mutableStateOf(true)
+
+    private val today = LocalDate.of(2026, 10, 30)
+
+    private fun setAirSheet() {
+        // 40 集周更，全部待播：列表远高于面板的 560dp 上限
+        val episodes = (1..40).map { EpisodeView(episodeNumber = it, airDate = today.plusWeeks(it - 1L).toString()) }
+        val schedule = SeasonAirSchedule(
+            today = today.toString(),
+            weekdays = listOf(today.dayOfWeek.value - 1),
+            lastAirDate = episodes.last().airDate,
+        )
+        compose.setContent {
+            MovieClawTheme {
+                if (open) {
+                    AirScheduleSheet(
+                        title = "测试剧",
+                        seasonLabel = "第 1 季",
+                        episodes = episodes,
+                        schedule = schedule,
+                        canSubscribe = false,
+                        searching = false,
+                        onFindMissing = {},
+                        onSubscribe = null,
+                        onDismiss = { open = false },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+    }
+
+    private fun setEpisodesSheet() {
+        // 120 集分三段，第一段 50 集 5 列 10 行，宫格高于 460dp 上限
+        val episodes = (1..120).map { EpisodeView(episodeNumber = it) }
+        compose.setContent {
+            MovieClawTheme {
+                if (open) {
+                    AllEpisodesSheet(
+                        episodes = episodes,
+                        ranges = EpisodeRanges.of(episodes),
+                        anchor = null,
+                        selected = null,
+                        onPick = {},
+                        onDismiss = { open = false },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+    }
+
+    private fun top(tag: String): Dp = compose.onNodeWithTag(tag, useUnmergedTree = true).getUnclippedBoundsInRoot().top
+
+    private fun pullDown(listTag: String, message: String) {
+        compose.onNodeWithTag(listTag, useUnmergedTree = true).performTouchInput { swipeDown() }
+        compose.waitForIdle()
+        assertTrue(message, open)
+    }
+
+    /** 列表在顶部时下拉：面板不关、不下移 */
+    private fun assertPullAtTopKeepsSheet(sheetTag: String, listTag: String) {
+        val before = top(sheetTag)
+        repeat(3) { pullDown(listTag, "列表在顶部下拉不应关闭面板") }
+        assertEquals("面板不应被拖动", before.value, top(sheetTag).value, 0.5f)
+    }
+
+    /** 先上滑再滑回顶部继续下拉：面板不关、回到原位不跳 */
+    private fun assertScrollBackKeepsSheet(sheetTag: String, listTag: String) {
+        val before = top(sheetTag)
+        compose.onNodeWithTag(listTag, useUnmergedTree = true).performTouchInput { swipeUp() }
+        compose.waitForIdle()
+        repeat(4) { pullDown(listTag, "滑回顶部继续下拉不应关闭面板") }
+        assertEquals("面板位置不应跳变", before.value, top(sheetTag).value, 0.5f)
+    }
+
+    @Test fun airSheetPullAtTopKeepsSheetOpen() {
+        setAirSheet()
+        assertPullAtTopKeepsSheet("air-schedule-sheet", "air-schedule-list")
+    }
+
+    @Test fun airSheetScrollBackToTopKeepsSheetStill() {
+        setAirSheet()
+        assertScrollBackKeepsSheet("air-schedule-sheet", "air-schedule-list")
+    }
+
+    @Test fun airSheetHeaderDragStillDismisses() {
+        setAirSheet()
+        compose.onNodeWithText("播出日历").performTouchInput { swipeDown(endY = centerY + 1500f) }
+        compose.waitForIdle()
+        assertFalse("拖面板头部仍应能关闭", open)
+    }
+
+    @Test fun episodesSheetPullAtTopKeepsSheetOpen() {
+        setEpisodesSheet()
+        assertPullAtTopKeepsSheet("ep-sheet", "ep-sheet-grid")
+    }
+
+    @Test fun episodesSheetScrollBackToTopKeepsSheetStill() {
+        setEpisodesSheet()
+        assertScrollBackKeepsSheet("ep-sheet", "ep-sheet-grid")
+    }
+
+    @Test fun episodesSheetHeaderDragStillDismisses() {
+        setEpisodesSheet()
+        compose.onNodeWithText("全部分集").performTouchInput { swipeDown(endY = centerY + 1500f) }
+        compose.waitForIdle()
+        assertFalse("拖面板头部仍应能关闭", open)
+    }
+}

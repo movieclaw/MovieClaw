@@ -62,6 +62,7 @@ import io.movieclaw.android.core.designsystem.TextPrimary
 import io.movieclaw.android.core.model.EpisodeView
 import io.movieclaw.android.core.designsystem.mcGridCells
 import io.movieclaw.android.core.designsystem.mcCards
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /*
  * 长剧集分段的界面件（docs/design/long-season-episode-ranges.md §4，手机版）：
@@ -256,7 +257,7 @@ internal fun AllEpisodesSheet(
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 30.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp).testTag("ep-sheet-grid").formSheetScroll(),
             ) {
                 items(range.episodes, key = { it.episodeNumber }) { episode ->
                     EpisodeCell(

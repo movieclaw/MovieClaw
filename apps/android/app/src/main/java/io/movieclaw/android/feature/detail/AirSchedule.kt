@@ -56,6 +56,7 @@ import io.movieclaw.android.core.designsystem.TextFaint
 import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.TextPrimary
 import io.movieclaw.android.core.designsystem.Warn
+import io.movieclaw.android.core.designsystem.formSheetScroll
 import io.movieclaw.android.core.model.EpisodeView
 import io.movieclaw.android.core.model.SeasonAirSchedule
 import java.time.DayOfWeek
@@ -396,7 +397,7 @@ internal fun AirScheduleSheet(
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-                modifier = Modifier.weight(1f, fill = false).heightIn(max = 560.dp),
+                modifier = Modifier.weight(1f, fill = false).heightIn(max = 560.dp).testTag("air-schedule-list").formSheetScroll(),
             ) {
                 if (past.isNotEmpty()) {
                     item(key = "past") {
