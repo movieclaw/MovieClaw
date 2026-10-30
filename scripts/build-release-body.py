@@ -35,6 +35,7 @@ CLIENTS = {
     "android": ("Android", "Android"),
     "androidtv": ("Android TV", "Android TV"),
     "windows": ("Windows", "Windows"),
+    "harmony": ("HarmonyOS", "鸿蒙"),
 }
 
 

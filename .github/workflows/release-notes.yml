@@ -43,7 +43,7 @@ jobs:
         run: |
           shopt -s nullglob
           for file in docs/changelog/v*.md docs/changelog/torrent-ner-v*.md \
-            docs/changelog/{android,androidtv,ios,tvos,macos,transcoder,windows}-v*.md; do
+            docs/changelog/{android,androidtv,ios,tvos,macos,transcoder,windows,harmony}-v*.md; do
             tag="$(basename "$file" .md)"
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
               echo "同步 $file → Release $tag"

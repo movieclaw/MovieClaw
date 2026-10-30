@@ -134,6 +134,14 @@ class ReleaseInfoTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.build_client("torrent-ner-v3", None)
 
+    def test_harmony_changelog_generates_independent_client_metadata(self):
+        text = (ROOT / "docs/changelog/harmony-v1.0.0.md").read_text(encoding="utf-8")
+        info = module.build_client("harmony-v1.0.0", text)
+        self.assertEqual((info["product"], info["version"]), ("harmony", "1.0.0"))
+        self.assertIn("AVPlayer", info["notes"]["zh"]["summary"])
+        with self.assertRaises(ValueError):
+            module.build_client("harmony-v1.0.1", text)
+
     def test_client_changelogs_follow_the_format(self):
         for path in sorted((ROOT / "docs" / "changelog").glob("*-v*.md")):
             if path.name.startswith("torrent-ner-"):

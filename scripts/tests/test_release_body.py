@@ -97,6 +97,14 @@ class ReleaseBodyTest(unittest.TestCase):
         self.assertIn(f"New since v0.37.0: [Windows 0.1.0]({URL}windows-v0.1.0).", body)
         self.assertIn("- **Windows 0.1.0** (new)", body)
 
+    def test_harmony_is_listed_only_after_publication(self):
+        draft = release("harmony-v1.0.0", None, draft=True)
+        self.assertNotIn("HarmonyOS 1.0.0", self.body(releases(draft)))
+        published = release("harmony-v1.0.0", "2026-10-18T00:00:00Z")
+        body = self.body(releases(published))
+        self.assertIn("**HarmonyOS 1.0.0**", body)
+        self.assertIn("**鸿蒙 1.0.0**", body)
+
     def test_without_any_app_release_the_changelog_is_unchanged(self):
         items = [release("v0.37.0"), release("v0.38.0", "2026-10-20T00:00:00Z")]
         self.assertEqual(self.body(items), CHANGELOG)
