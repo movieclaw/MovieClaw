@@ -139,6 +139,7 @@ from movieclaw_db.models.library_file import (
     UnidentifiedCode,
 )
 from movieclaw_db.models.scheduled_task import TriggerType
+from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
 from movieclaw_db.repositories.library_file_repo import LedgerPresence, LibraryFileRepository
 from movieclaw_db.repositories.library_repo import LibraryRepository
 from movieclaw_enrich import enrich
@@ -3474,6 +3475,12 @@ async def _ingest_file(
     见 _PROBE_AHEAD_WINDOW），没给就现场探测。
     ``cloud``：网盘文件夹里列出来的文件（纳管）。本地没有字节：不探测（规格由后台按预算
     补探）、大小取网盘列表、不参与改名归并，入账后记副本。"""
+    if cloud is not None:
+        owner = await LibraryCloudRepository(session).remote_owner(
+            cloud.account_id, cloud.remote.remote_id
+        )
+        if owner is not None and owner.library_file_id != (existing.id if existing else None):
+            return  # 列举之后已经入账；真正认领时仍会在写事务内复查
     kind = profile.kind
     if existing is None or existing.state == FileState.MISSING:
         summary.scanned += 1  # 新文件 / 回归的 missing 文件
@@ -3698,8 +3705,10 @@ async def _ingest_file(
         # 同路径旧行调用方已经持有（扫描开场的整库快照），不必再查一次
         existing=existing,
     )
-    if cloud is not None:
-        await library_cloud.record(session, scanned_row, cloud, fresh=existing is None)
+    if cloud is not None and not await library_cloud.record(
+        session, scanned_row, cloud, fresh=existing is None
+    ):
+        return  # 列举期间已被上传核验/其他扫描认领，虚拟新行已收敛
     if scanned_row.id is not None and (existing is None or existing.state == FileState.MISSING):
         strm = not is_disc and file.suffix.lower() == STRM_EXT
         summary.added_files.append((scanned_row.id, item_id, season, episode, strm))
