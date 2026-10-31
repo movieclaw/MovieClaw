@@ -275,8 +275,17 @@ _MIN_EVENTS = 50
 _MIN_COVERAGE = 0.5
 
 
-def assess_events(events: list[tuple[int, int, str]], runtime_seconds: int | None) -> Assessment:
-    """events 为 (start_ms, end_ms, text) 序列（加载层产物）。"""
+def assess_events(
+    events: list[tuple[int, int, str]],
+    runtime_seconds: int | None,
+    *,
+    provenance: str = "original",
+) -> Assessment:
+    """events 为 (start_ms, end_ms, text) 序列（加载层产物）。
+
+    ASR 在整段音频识别成功后才原子写出外挂；对白条数与首末跨度不能代表识别是否
+    完成（短片、长静音都可能很稀疏）。只检查非空，字幕轨与 OCR 仍按完整度筛选。
+    """
     count = len(events)
     if count == 0:
         return _assessment(0, 0.0, False, "library.subtitleSource.empty")
@@ -285,9 +294,9 @@ def assess_events(events: list[tuple[int, int, str]], runtime_seconds: int | Non
         coverage = min(1.0, span_ms / (runtime_seconds * 1000))
     else:
         coverage = 1.0
-    if count < _MIN_EVENTS:
+    if provenance != "asr" and count < _MIN_EVENTS:
         return _assessment(count, coverage, False, "library.subtitleSource.tooFew", count=count)
-    if coverage < _MIN_COVERAGE:
+    if provenance != "asr" and coverage < _MIN_COVERAGE:
         return _assessment(
             count, coverage, False, "library.subtitleSource.lowCoverage", coverage=coverage
         )

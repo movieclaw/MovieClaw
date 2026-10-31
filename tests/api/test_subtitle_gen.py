@@ -222,6 +222,19 @@ def test_assess_completeness() -> None:
     assert source.assess_events(full, 6000).ok
 
 
+@pytest.mark.parametrize("provenance", ["original", "pgs_ocr", "asr"])
+def test_assess_sparse_dialogue_depends_on_source(provenance: str) -> None:
+    sparse = [(i * 7500 + 1000, i * 7500 + 2500, "Hello.") for i in range(41)]
+    concentrated = [(i * 1000, i * 1000 + 500, "Hello.") for i in range(60)]
+    for events in (sparse, concentrated):
+        assessment = source.assess_events(events, 320, provenance=provenance)
+        assert assessment.ok == (provenance == "asr")
+        assert assessment.event_count == len(events)
+    empty = source.assess_events([], 320, provenance=provenance)
+    assert not empty.ok
+    assert empty.reason_message["message_key"] == "library.subtitleSource.empty"
+
+
 def test_preview_blocker_explains_graphic_subtitles() -> None:
     """图片字幕不是“没有字幕”，预检要用普通用户能理解的方式说明下一步。"""
     file = _file(
