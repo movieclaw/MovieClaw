@@ -1433,3 +1433,200 @@ def test_purging_duplicate_alias_keeps_shared_cloud_file(client, tmp_path, survi
     assert deleted.status_code == 200, deleted.text
     state = json.loads(client.state_path.read_text(encoding="utf-8"))
     assert state["deleted"] == ["f-dune"]
+
+
+@pytest.mark.parametrize("delete_succeeds", [True, False])
+def test_upload_verification_cannot_take_deleting_owner(
+    client, tmp_path, monkeypatch, delete_succeeds
+):
+    """删除已标记且远端响应未返回时，核验不能接管即将消失的文件。"""
+    from types import SimpleNamespace
+
+    from movieclaw_api.services import jobs
+    from movieclaw_api.services.drives import gateway, uploads
+    from movieclaw_api.services.library.recycle import purge_due_files
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import FileSource, Library, LibraryFile
+    from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
+    from movieclaw_sdk import drives as dv
+
+    payload = b"media"
+    _edit_state(
+        client,
+        lambda d: [
+            f.update(size=len(payload))
+            for f in d["trees"]["d-movies"]["files"]
+            if f["remote_id"] == "f-dune"
+        ],
+    )
+    library_id = _create_library(client, tmp_path)["id"]
+    original = ledger(client, library_id)["f-dune"]
+    path = tmp_path / "staging" / "uploading.mkv"
+    path.write_bytes(payload)
+    fingerprint = uploads.compute_fingerprint(path)
+
+    async def setup():
+        async with get_database().session() as session:
+            file = LibraryFile(
+                library_id=library_id,
+                file_path=str(path),
+                size_bytes=len(payload),
+                source=FileSource.IMPORTED,
+                media_item_id=original["media_item_id"],
+            )
+            session.add(file)
+            await session.commit()
+            library = await session.get(Library, library_id)
+            repo = LibraryCloudRepository(session)
+            folder = await repo.primary_folder(library_id)
+            await repo.start_upload(file, account_id=client.account_id, folder_id=folder.id)
+            return file, library, folder
+
+    file, library, folder = call(client, setup)
+    progress = {"details": {"checkpoint": {"file_id": file.id}}}
+
+    async def update_progress(**values):
+        progress.update(values)
+
+    uploader = uploads._Uploader(
+        SimpleNamespace(update_progress=update_progress), library, folder, "假网盘"
+    )
+    remote = dv.RemoteFile(
+        remote_id="f-dune", name=path.name, size=len(payload), sha1=fingerprint.sha1
+    )
+    original_call = gateway.call
+    deferred = []
+    cached = []
+
+    async def during_delete(account_id, method, **kwargs):
+        if method == "stat":
+            return remote
+        if method == "delete":
+            from movieclaw_db.models.base import utcnow
+
+            repo, stale = cached
+            assert stale.state == "verified"  # 删除标记提交前读取的 ORM 快照
+            await repo.mark_checked(
+                stale, remote_path=None, size_bytes=None, sha1=None, at=utcnow()
+            )
+            await repo.mark_lost(stale, at=utcnow())
+            await repo.commit()
+            await repo.fail_upload(original["id"], "迟到的上传失败")
+            async with get_database().session() as session:
+                deleting_file = await session.get(LibraryFile, original["id"])
+                with pytest.raises(jobs.JobRetry):
+                    await uploader.upload(deleting_file, None)
+                owner = await LibraryCloudRepository(session).remote_owner(account_id, "f-dune")
+                assert owner.state == "deleting"
+            try:
+                await uploader._verify(file, remote, fingerprint, "", path.name)
+            except jobs.JobRetry:
+                deferred.append(True)
+            if not delete_succeeds:
+                raise dv.Transient("测试删除失败")
+        return await original_call(account_id, method, **kwargs)
+
+    monkeypatch.setattr(gateway, "call", during_delete)
+    call(client, _trash_due, original["id"])
+
+    async def purge():
+        async with get_database().session() as session:
+            repo = LibraryCloudRepository(session)
+            cached.extend((repo, await repo.replica_of(original["id"])))
+            await purge_due_files()
+
+    call(client, purge)
+
+    async def check():
+        async with get_database().session() as session:
+            replica = await LibraryCloudRepository(session).replica_of(file.id)
+            assert (replica.state, replica.remote_id) == ("uploading", "")
+            owner = await LibraryCloudRepository(session).remote_owner(client.account_id, "f-dune")
+            if delete_succeeds:
+                assert owner is None
+            else:
+                assert owner.library_file_id == original["id"] and owner.state == "verified"
+
+    call(client, check)
+    assert deferred == [True]
+    assert "checkpoint" not in progress["details"]
+    assert progress["details"]["done"] == 0
+    assert path.read_bytes() == payload
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))
+    assert state.get("deleted", []) == (["f-dune"] if delete_succeeds else [])
+    # 删除结束后重新上传/核验：仅此时可以登记为 verified。
+    monkeypatch.setattr(gateway, "call", original_call)
+    _edit_state(
+        client,
+        lambda d: d["trees"]["d-movies"]["files"].append(
+            _file("f-new", "uploading.mkv", len(payload))
+        ),
+    )
+
+    async def finish():
+        async with get_database().session() as session:
+            repo = LibraryCloudRepository(session)
+            assert await repo.finish_upload(
+                file.id,
+                remote_id="f-new",
+                remote_path="影视/电影/uploading.mkv",
+                size_bytes=len(payload),
+                sha1=fingerprint.sha1,
+            )
+            replica = await repo.replica_of(file.id)
+            assert (replica.state, replica.remote_id) == ("verified", "f-new")
+
+    call(client, finish)
+
+
+def test_delete_rechecks_owner_after_reading_plan(client, tmp_path, monkeypatch):
+    """删除计划读取后、标记前已经被上传认领：旧计划不得发出网盘删除。"""
+    from movieclaw_api.services.drives.deletes import delete_cloud_copies
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import FileSource, LibraryFile
+    from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
+
+    library_id = _create_library(client, tmp_path)["id"]
+    original = ledger(client, library_id)["f-dune"]
+
+    async def setup():
+        async with get_database().session() as session:
+            file = LibraryFile(
+                library_id=library_id,
+                file_path=str(tmp_path / "staging" / "uploaded.mkv"),
+                source=FileSource.IMPORTED,
+                size_bytes=original["size"],
+            )
+            session.add(file)
+            await session.commit()
+            repo = LibraryCloudRepository(session)
+            folder = await repo.primary_folder(library_id)
+            await repo.start_upload(file, account_id=client.account_id, folder_id=folder.id)
+            return file.id
+
+    file_id = call(client, setup)
+    prepare = LibraryCloudRepository.prepare_delete
+
+    async def claim_before_mark(self, snapshots, **kwargs):
+        assert [r.library_file_id for r in snapshots] == [original["id"]]
+        async with get_database().session() as session:
+            assert await LibraryCloudRepository(session).finish_upload(
+                file_id,
+                remote_id="f-dune",
+                remote_path=original["remote_path"],
+                size_bytes=original["size"],
+                sha1=None,
+            )
+        return await prepare(self, snapshots, **kwargs)
+
+    monkeypatch.setattr(LibraryCloudRepository, "prepare_delete", claim_before_mark)
+    assert call(client, delete_cloud_copies, [original["id"]]) is None
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))
+    assert not state.get("deleted")
+
+    async def check():
+        async with get_database().session() as session:
+            owner = await LibraryCloudRepository(session).remote_owner(client.account_id, "f-dune")
+            assert (owner.library_file_id, owner.state) == (file_id, "verified")
+
+    call(client, check)

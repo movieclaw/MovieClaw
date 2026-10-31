@@ -27,6 +27,7 @@ from movieclaw_db.models.library_file_replica import (
     REPLICA_UPLOADING,
     LibraryFileReplica,
 )
+from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
 from movieclaw_sdk import drives as dv
 
 logger = logging.getLogger(__name__)
@@ -81,34 +82,27 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
     replicas = await replicas_of(ids)
     if not replicas:
         return None
-    # 即使旧库有双账，清理其中一行也只能摘掉引用，不能删掉别人仍持有的文件。
-    shared: set[tuple[int, str]] = set()
-    async with get_database().session() as session:
-        for account_id in {r.account_id for r in replicas}:
-            remote_ids = {r.remote_id for r in replicas if r.account_id == account_id}
-            rows = await session.execute(
-                select(LibraryFileReplica.remote_id).where(
-                    LibraryFileReplica.account_id == account_id,
-                    LibraryFileReplica.remote_id.in_(remote_ids),  # type: ignore[attr-defined]
-                    LibraryFileReplica.library_file_id.not_in(ids),  # type: ignore[attr-defined]
-                )
-            )
-            shared.update((account_id, remote_id) for remote_id in rows.scalars())
     by_account: dict[int, list[LibraryFileReplica]] = {}
     for replica in replicas:
         by_account.setdefault(replica.account_id, []).append(replica)
     done: list[LibraryFileReplica] = []
     error: str | None = None
     for account_id, group in by_account.items():
-        live = [
-            r for r in group if needs_remote_call(r) and (account_id, r.remote_id) not in shared
-        ]
+        live = [r for r in group if needs_remote_call(r)]
         done.extend(r for r in group if r not in live)
         remote_ids = list(dict.fromkeys(r.remote_id for r in live))
         for start in range(0, len(remote_ids), BATCH):
             batch_ids = remote_ids[start : start + BATCH]
-            chunk = [r for r in live if r.remote_id in batch_ids]
-            await _mark(chunk, REPLICA_DELETING)
+            candidates = [r for r in live if r.remote_id in batch_ids]
+            async with get_database().session() as session:
+                chunk = await LibraryCloudRepository(session).prepare_delete(
+                    candidates, file_ids=ids
+                )
+            ready_ids = {r.id for r in chunk}
+            done.extend(r for r in candidates if r.id not in ready_ids)
+            if not chunk:
+                continue
+            batch_ids = list(dict.fromkeys(r.remote_id for r in chunk))
             try:
                 await gateway.call(
                     account_id,
@@ -133,7 +127,11 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
         async with get_database().session() as session:
             for replica in done:
                 row = await session.get(LibraryFileReplica, replica.id)
-                if row is not None:
+                if row is not None and (row.library_file_id, row.account_id, row.remote_id) == (
+                    replica.library_file_id,
+                    replica.account_id,
+                    replica.remote_id,
+                ):
                     await session.delete(row)
             await session.commit()
         for replica in done:
@@ -142,22 +140,17 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
     return error
 
 
-async def _mark(replicas: list[LibraryFileReplica], state: str) -> None:
-    async with get_database().session() as session:
-        for replica in replicas:
-            row = await session.get(LibraryFileReplica, replica.id)
-            if row is not None:
-                row.state = state
-                session.add(row)
-        await session.commit()
-
-
 async def _restore(replicas: list[LibraryFileReplica]) -> None:
     """删失败：副本回到删之前的状态。"""
     async with get_database().session() as session:
         for replica in replicas:
             row = await session.get(LibraryFileReplica, replica.id)
-            if row is not None:
+            if (
+                row is not None
+                and row.state == REPLICA_DELETING
+                and (row.library_file_id, row.account_id, row.remote_id)
+                == (replica.library_file_id, replica.account_id, replica.remote_id)
+            ):
                 row.state = replica.state
                 session.add(row)
         await session.commit()

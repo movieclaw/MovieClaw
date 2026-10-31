@@ -22,8 +22,8 @@ def upgrade() -> None:
             SELECT r.id AS replica_id, f.id AS file_id, f.library_id, f.media_item_id,
                    ROW_NUMBER() OVER (
                        PARTITION BY r.account_id, r.remote_id
-                       ORDER BY CASE f.state WHEN 'IN_PLACE' THEN 0
-                                             WHEN 'MISSING' THEN 1 ELSE 2 END,
+                       ORDER BY CASE f.state WHEN 'in_place' THEN 0
+                                             WHEN 'missing' THEN 1 ELSE 2 END,
                                 f.local_bytes DESC, (r.origin = 'uploaded') DESC, f.id
                    ) AS position
             FROM library_file_replica r JOIN library_file f ON f.id = r.library_file_id
@@ -62,25 +62,25 @@ def upgrade() -> None:
     op.execute("""
         UPDATE library SET
             stats_file_count = (SELECT COUNT(*) FROM library_file f
-                WHERE f.library_id = library.id AND f.state = 'IN_PLACE'),
+                WHERE f.library_id = library.id AND f.state = 'in_place'),
             stats_total_size_bytes = (SELECT COALESCE(SUM(size_bytes), 0) FROM library_file f
-                WHERE f.library_id = library.id AND f.state = 'IN_PLACE'),
+                WHERE f.library_id = library.id AND f.state = 'in_place'),
             stats_item_count = (SELECT COUNT(DISTINCT media_item_id) FROM library_file f
-                WHERE f.library_id = library.id AND f.state != 'TRASHED'
+                WHERE f.library_id = library.id AND f.state != 'trashed'
                   AND f.unidentified_code IS NULL),
             stats_episode_count = CASE WHEN kind = 'tv' THEN (
                 SELECT COUNT(*) FROM (SELECT 1 FROM library_file f
-                    WHERE f.library_id = library.id AND f.state = 'IN_PLACE'
+                    WHERE f.library_id = library.id AND f.state = 'in_place'
                       AND f.unidentified_code IS NULL AND f.media_item_id IS NOT NULL
                     GROUP BY media_item_id, season_number, episode_number)
                 ) ELSE 0 END,
             stats_unidentified_count = (SELECT COUNT(*) FROM library_file f
-                WHERE f.library_id = library.id AND f.state = 'IN_PLACE'
+                WHERE f.library_id = library.id AND f.state = 'in_place'
                   AND f.unidentified_code IS NOT NULL AND f.ignored_at IS NULL),
             stats_missing_count = (SELECT COUNT(*) FROM library_file f
-                WHERE f.library_id = library.id AND f.state = 'MISSING'),
+                WHERE f.library_id = library.id AND f.state = 'missing'),
             stats_ignored_count = (SELECT COUNT(*) FROM library_file f
-                WHERE f.library_id = library.id AND f.state = 'IN_PLACE'
+                WHERE f.library_id = library.id AND f.state = 'in_place'
                   AND f.ignored_at IS NOT NULL),
             stats_refreshed_at = CURRENT_TIMESTAMP
         WHERE id IN (SELECT library_id FROM cloud_replica_alias)
