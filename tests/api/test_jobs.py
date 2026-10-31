@@ -184,6 +184,50 @@ async def test_dispatcher_rejects_unsupported_definition_without_retry(job_db) -
     assert row.attempt == 1
 
 
+async def test_registry_startup_only_claims_ready_handlers_then_blocks_unknown(job_db, monkeypatch):
+    from movieclaw_kernel import Registry
+
+    monkeypatch.setattr(jobs, "_known_types", {"startup.disabled"})
+    registry = Registry(jobs.JOB_HANDLERS)
+    ready = asyncio.Event()
+    unbind = jobs.bind_handler_registry(registry, ready=ready)
+    dispatcher = jobs.JobDispatcher()
+
+    async def work(_context, _payload):
+        return {"done": True}
+
+    registry.add(
+        "startup.active", jobs.RegisteredJobHandler(work, frozenset({1})), entry_id="active"
+    )
+    try:
+        async with job_db.session() as session:
+            for job_type in ("startup.unknown", "startup.disabled", "startup.active"):
+                await jobs.create_job(session, job_type=job_type, input_data={})
+
+        # 已就绪的处理器不必等整个启动结束；未知与已知但停用的类型都先留在队列。
+        claimed = await dispatcher._claim_one()
+        assert claimed is not None
+        await dispatcher._execute(*claimed)
+        async with job_db.session() as session:
+            active = await jobs.get_job(session, claimed[0])
+            assert active.job_type == "startup.active" and active.status is JobStatus.SUCCEEDED
+        assert await dispatcher._claim_one() is None
+
+        ready.set()
+        claimed = await dispatcher._claim_one()
+        assert claimed is not None
+        await dispatcher._execute(*claimed)
+        async with job_db.session() as session:
+            unknown = await jobs.get_job(session, claimed[0])
+            assert unknown.job_type == "startup.unknown" and unknown.status is JobStatus.BLOCKED
+            assert unknown.error["code"] == "JOB_HANDLER_UNAVAILABLE"
+            [disabled] = await jobs.list_jobs(session, job_type="startup.disabled")
+            assert disabled.status is JobStatus.QUEUED and disabled.attempt == 0
+        assert await dispatcher._claim_one() is None
+    finally:
+        unbind()
+
+
 async def test_graceful_restart_returns_running_job_to_queue_and_resumes(job_db) -> None:
     entered = asyncio.Event()
     release = asyncio.Event()

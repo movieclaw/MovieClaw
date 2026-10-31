@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import textwrap
 import time
 from datetime import timedelta
@@ -129,6 +130,107 @@ def test_process_plugin_creates_and_runs_its_own_jobs(env) -> None:
         assert reply.status_code == 400  # 本地插件不在插件页开关之列
         client.portal.call(app.state.kernel.unmount, "acme.queue")
         assert plugin_jobs(client)[0]["job_type_label"] == "排队干活"
+
+
+def test_restart_waits_for_process_plugin_handlers_before_claiming_jobs(env, monkeypatch):
+    """冷启动：存量任务在进程插件注册前保持排队，就绪后自动执行，未知类型仍阻塞。"""
+    from movieclaw_api.services import jobs, plugin_runtime
+    from movieclaw_db.engine import dispose_db, get_database, init_db
+    from movieclaw_db.migrations import run_migrations
+    from movieclaw_db.models import Job, JobStatus, utcnow
+
+    job_type = "acme.startup:work"
+    monkeypatch.setattr(jobs, "_known_types", set())
+
+    async def seed():
+        db = init_db(get_settings().database_url, echo=False)
+        try:
+            await run_migrations()
+            async with db.session() as session:
+                for status in (JobStatus.QUEUED, JobStatus.RETRY_WAIT, JobStatus.RUNNING):
+                    session.add(
+                        Job(
+                            id=f"startup_{status.value}",
+                            job_type=job_type,
+                            input_data={"n": status.value},
+                            status=status,
+                            attempt=1 if status is JobStatus.RUNNING else 0,
+                            lease_owner="previous-worker" if status is JobStatus.RUNNING else None,
+                            lease_expires_at=utcnow() - timedelta(seconds=1),
+                        )
+                    )
+                session.add(Job(id="startup_unknown", job_type="missing.plugin:work"))
+                await session.commit()
+        finally:
+            await dispose_db()
+
+    asyncio.run(seed())
+    (env / "plugins").mkdir()
+    (env / "plugins" / "startup_queue.py").write_text(
+        textwrap.dedent("""
+        import os
+        from movieclaw_sdk import plugin
+        from movieclaw_sdk.jobs import JOB_HANDLERS, RegisteredJobHandler
+
+        @plugin("acme.startup", title="启动队列")
+        async def apply(ctx):
+            async def work(context, data):
+                return {"n": data["n"], "pid": os.getpid()}
+            ctx.contribute(JOB_HANDLERS, "work", RegisteredJobHandler(work, frozenset({1})))
+        """),
+        encoding="utf-8",
+    )
+    (env / "plugins.yaml").write_text(
+        "- id: acme.startup\n  local: true\n  module: startup_queue\n  runtime: process\n",
+        encoding="utf-8",
+    )
+    scanned = asyncio.Event()
+    before_registration = []
+    real_claim = jobs.JobDispatcher._claim_one
+    real_start = plugin_runtime.Session.start
+
+    async def observe_claim(self):
+        claimed = await real_claim(self)
+        if claimed is None:
+            scanned.set()
+        return claimed
+
+    async def delayed_start(self):
+        if self.entry_id == "acme.startup":
+            # 明确等执行器完成一次扫描，避免依赖机器速度或任意 sleep。
+            await asyncio.wait_for(scanned.wait(), timeout=10)
+            await asyncio.gather(*list(jobs._dispatcher._running.values()))
+            async with get_database().session() as session:
+                before_registration.extend(await jobs.list_jobs(session, job_type=job_type))
+        return await real_start(self)
+
+    monkeypatch.setattr(jobs.JobDispatcher, "_claim_one", observe_claim)
+    monkeypatch.setattr(plugin_runtime.Session, "start", delayed_start)
+    app, client = make_client()
+    with client:
+        fiber = app.state.kernel.fiber("acme.startup")
+        assert fiber.state.value == "active", fiber.error
+        assert len(before_registration) == 3
+        assert all(
+            j.status in (JobStatus.QUEUED, JobStatus.RETRY_WAIT) for j in before_registration
+        ), [(j.status, j.error) for j in before_registration]
+        assert all(j.attempt == 0 and j.error is None for j in before_registration)
+
+        def completed():
+            reply = client.get("/api/v1/jobs", params={"job_type": job_type})
+            assert reply.status_code == 200, reply.text
+            return reply.json()["data"]["items"]
+
+        wait_for(lambda: all(j["status"] == "succeeded" for j in completed()))
+        assert len(completed()) == 3
+        assert all(j["attempt"] == 1 for j in completed())
+        assert all(j["result"]["pid"] != os.getpid() for j in completed())
+        wait_for(
+            lambda: client.get("/api/v1/jobs/startup_unknown").json()["data"]["status"] == "blocked"
+        )
+        unknown = client.get("/api/v1/jobs/startup_unknown").json()["data"]
+        assert unknown["status"] == "blocked"
+        assert unknown["error"]["code"] == "JOB_HANDLER_UNAVAILABLE"
 
 
 def test_plugins_only_create_their_own_job_types_and_dedupe_per_plugin(env) -> None:
