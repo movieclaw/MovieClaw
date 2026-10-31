@@ -12,18 +12,12 @@ export class MovieClawPlaybackSession implements PlaybackSessionPort {
   private api: MovieClawApi;
   private view: PlaybackSessionView;
   private params: PlayerParams;
-  private audio: () => string;
-  private subtitle: () => string;
   constructor(api: MovieClawApi,
     view: PlaybackSessionView,
-    params: PlayerParams,
-    audio: () => string,
-    subtitle: () => string) {
+    params: PlayerParams) {
     this.api = api;
     this.view = view;
     this.params = params;
-    this.audio = audio;
-    this.subtitle = subtitle;
   }
   async report(event: string, progress: SessionProgress): Promise<boolean> {
     if (this.params.clipEndMs > this.params.clipStartMs) { return false; }
@@ -31,8 +25,8 @@ export class MovieClawPlaybackSession implements PlaybackSessionPort {
       media_item_id: this.params.mediaItemId, season_number: this.params.seasonNumber,
       episode_number: this.params.episodeNumber, event: event,
       position_ms: event === 'start' ? null : progress.positionMs,
-      file_id: this.view.decision.file_id ?? null, audio_track: this.audio() || null,
-      subtitle_track: this.subtitle() || null, paused: !progress.playing
+      file_id: this.view.decision.file_id ?? null, audio_track: progress.audioTrack || null,
+      subtitle_track: progress.subtitleTrack || null, paused: !progress.playing
     };
     if (this.params.shareSlug.length > 0) {
       if (event !== 'start') {

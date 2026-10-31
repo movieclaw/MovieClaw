@@ -2,6 +2,8 @@ export interface SessionProgress {
   positionMs: number;
   durationMs: number;
   playing: boolean;
+  audioTrack?: string;
+  subtitleTrack?: string;
 }
 export interface PlaybackSessionPort {
   report(event: string, progress: SessionProgress): Promise<boolean>;
@@ -30,8 +32,10 @@ export class PlaybackSessionCoordinator {
     this.progress = { positionMs: 0, durationMs: 0, playing: false };
     this.timer = setInterval((): void => this.tick(), 1000);
   }
-  update(positionMs: number, durationMs: number, playing: boolean): void {
-    this.progress = { positionMs: positionMs, durationMs: durationMs, playing: playing };
+  update(positionMs: number, durationMs: number, playing: boolean,
+    audioTrack: string = '', subtitleTrack: string = ''): void {
+    this.progress = { positionMs: positionMs, durationMs: durationMs, playing: playing,
+      audioTrack: audioTrack, subtitleTrack: subtitleTrack };
     if (playing && !this.started) { this.started = true; this.report('start'); }
   }
   report(event: string): void {
@@ -39,6 +43,7 @@ export class PlaybackSessionCoordinator {
     if (port === null || this.stopped || (this.reporting && event === 'progress')) { return; }
     if (event === 'stop') { this.stopped = true; }
     const generation = this.generation;
+    // Updates replace the object; queued reports retain this episode's choices.
     const progress = this.progress;
     this.reporting = true;
     this.reportTail = this.reportTail.then((): Promise<boolean> => port.report(event, progress)).then((ended: boolean): void => {

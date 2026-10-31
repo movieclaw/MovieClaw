@@ -43,8 +43,12 @@ export class MpvEngine implements PlayerEngine {
       if (this.released) { return; }
       await this.send(['loadfile', source.fd >= 0 ? `fd://${source.fd}` : source.url, 'replace']);
       await loaded;
-      if (source.subtitleFd >= 0) { await this.send(['sub-add', `fd://${source.subtitleFd}`, 'select']); }
-      else if (source.subtitleUrl.length > 0) { await this.send(['sub-add', source.subtitleUrl, 'select']); }
+      try {
+        if (source.subtitleFd >= 0) { await this.send(['sub-add', `fd://${source.subtitleFd}`, 'select']); }
+        else if (source.subtitleUrl.length > 0) { await this.send(['sub-add', source.subtitleUrl, 'select']); }
+      } catch (error) {
+        const event = new EngineEvent(); event.type = 'diagnostic'; event.text = 'MPV 外挂字幕加载失败，继续播放'; this.onEvent(event);
+      }
       await this.send(['set', 'sub-delay', `${-(source.subtitleOffsetMs ?? 0) / 1000}`]);
     } catch (error) {
       if (error instanceof EngineFailure) { throw error; }
@@ -145,7 +149,9 @@ export class MpvEngine implements PlayerEngine {
     this.released = true; this.onEvent = (): void => {};
     const reject = this.rejectOpen; this.rejectOpen = null; this.resolveOpen = null;
     if (reject !== null) { reject(new EngineFailure('internal', 0, '播放已取消')); }
-    this.releaseTask = this.tail.then((): Promise<void> => destroyEngine(this.handle));
+    // Invalidate the native handle immediately, even if a command is still blocked.
+    // Native workers retain ownership until their operations and teardown finish.
+    this.releaseTask = destroyEngine(this.handle);
     return this.releaseTask;
   }
 }

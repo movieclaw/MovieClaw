@@ -11,6 +11,8 @@ class FakeEngine implements PlayerEngine {
   failure: EngineFailure | null = null;
   gate: Promise<void> = Promise.resolve();
   seekGate: Promise<void> = Promise.resolve();
+  playGate: Promise<void> = Promise.resolve();
+  releaseGate: Promise<void> = Promise.resolve();
   afterSeek: () => void = (): void => {};
   rejectRate: boolean = false;
   public id: EngineId;
@@ -25,7 +27,7 @@ class FakeEngine implements PlayerEngine {
     await this.gate;
     if (this.failure !== null) { throw this.failure; }
   }
-  async play(): Promise<void> { this.calls.push('play'); this.state('playing'); }
+  async play(): Promise<void> { this.calls.push('play'); await this.playGate; this.state('playing'); }
   async pause(): Promise<void> { this.calls.push('pause'); this.state('paused'); }
   async seek(ms: number): Promise<void> { this.calls.push(`seek:${ms}`); await this.seekGate; this.afterSeek(); }
   async setRate(rate: number): Promise<void> {
@@ -39,7 +41,9 @@ class FakeEngine implements PlayerEngine {
     return [{ id: this.id === 'avplayer' ? 2 : 17, kind: 'audio', language: 'jpn', title: '', selected: false }];
   }
   async selectTrack(kind: string, id: number): Promise<void> { this.calls.push(`${kind}:${id}`); }
-  async release(): Promise<void> { this.calls.push('release'); this.order.push(`${this.id}:release`); }
+  async release(): Promise<void> {
+    this.calls.push('release'); this.order.push(`${this.id}:release`); await this.releaseGate;
+  }
   state(state: 'playing' | 'paused' | 'ended'): void {
     const event = new EngineEvent(); event.type = 'state'; event.state = state; this.onEvent(event);
   }
@@ -98,6 +102,25 @@ async function microtasks(): Promise<void> {
 
 export default function playbackControllerTest() {
   describe('PlaybackController', () => {
+    it('release_completes_while_play_is_unacknowledged', 0, async () => {
+      const factory = new FakeFactory(); const gate = new Gate(); factory.avp.playGate = gate.promise;
+      const controller = new PlaybackController(factory);
+      const opening = controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent());
+      await microtasks(); await controller.release(); await opening;
+      expect(controller.current().phase).assertEqual('idle');
+      gate.release(); await microtasks();
+      expect(controller.current().phase).assertEqual('idle');
+    });
+    it('release_deadline_keeps_the_lease_until_native_teardown_finishes', 0, async () => {
+      const factory = new FakeFactory(); const gate = new Gate(); factory.mpv.releaseGate = gate.promise;
+      const controller = new PlaybackController(factory);
+      await controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent(), 'mpv');
+      await controller.release();
+      expect(controller.current().phase).assertEqual('idle');
+      expect(factory.order.join(',')).assertEqual('mpv:release');
+      gate.release(); await microtasks();
+      expect(factory.order.join(',')).assertEqual('mpv:release,lease:1:close');
+    });
     it('defaults_to_AVPlayer_without_creating_MPV', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       await controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent());
