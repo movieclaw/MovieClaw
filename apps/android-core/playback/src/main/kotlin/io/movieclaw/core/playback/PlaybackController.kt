@@ -285,6 +285,8 @@ class PlaybackController(
     private val networkRestarts = NetworkRestartBudget()
     private val prematureEnd = PrematureEndGuard()
     private val reconnectBackoff = ReconnectBackoff()
+    /** 断流恢复也可能发生在首帧前，不能用 reportedStart 判断是否退避重试 */
+    private var recoveringFromStreamDrop = false
     /** 已发出、还没落地的 seek：这段等待不算卡顿，看门狗也不把它当停顿 */
     private var seekStartedAt: Long? = null
     private var backgrounded = false
@@ -503,6 +505,7 @@ class PlaybackController(
         failureCount = 0
         networkRestarts.reset()
         reconnectBackoff.reset()
+        recoveringFromStreamDrop = false
         prematureEnd.reset()
         consentGranted = false
         deadSession = false
@@ -775,10 +778,10 @@ class PlaybackController(
         } catch (e: Exception) {
             if (myAttempt != attempt) return
             val transient = isTransient(e)
-            if (s.phase == Phase.SessionStarting && reportedStart && transient) {
+            if (s.phase == Phase.SessionStarting && recoveringFromStreamDrop && transient) {
                 val wait = reconnectBackoff.nextDelayMs()
                 if (wait != null) {
-                    // 播放中重开时服务端暂时连不上（多半在重启）：隔几秒自动再试，不直接落到错误页
+                    // 断流后重开时服务端暂时连不上：即使还没出过首帧，也隔几秒自动再试
                     record?.beginReconnect("开会话失败：${e.message}")
                     log("reconnect-retry", "reason" to str(e.message), "delay_s" to JsonPrimitive(wait / 1000))
                     flash("连接中断，正在重连…")
@@ -1016,6 +1019,7 @@ class PlaybackController(
         }
 
     private fun fail(message: String, suggestion: String?, category: String = "unknown") {
+        recoveringFromStreamDrop = false
         Log.w(TAG, "播放出错：$message｜${suggestion ?: "-"}")
         EngineLog.add("player", "错误页：$message")
         record?.noteError(message, category, recordStage)
@@ -1047,6 +1051,7 @@ class PlaybackController(
         failureCount = 0
         networkRestarts.reset()
         reconnectBackoff.reset()
+        recoveringFromStreamDrop = false
         nativeRetries.reset()
         request(s.positionMs, Phase.Deciding, reselect = true)
     }
@@ -1146,6 +1151,7 @@ class PlaybackController(
         failureCount = 0
         networkRestarts.reachedPlaying()
         reconnectBackoff.reset()
+        recoveringFromStreamDrop = false
         if (!memoryNoticeChecked) {
             // 出画这一刻提示（转圈时提示会被忽略）；只在打开播放器后第一次出画时判一次，自动连播下一集不再提示
             memoryNoticeChecked = true
@@ -1273,6 +1279,7 @@ class PlaybackController(
         }
         when (response) {
             FailurePolicy.Response.Reconnect -> {
+                recoveringFromStreamDrop = true
                 record?.beginReconnect(reason)
                 log("network-restart", "reason" to str(reason), "attempt" to JsonPrimitive(networkRestarts.consecutive))
                 val probe = sourceProbeUrl
