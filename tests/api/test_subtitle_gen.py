@@ -888,6 +888,20 @@ async def test_sample_sync_score_degrades_without_ffmpeg(monkeypatch, tmp_path) 
     assert score is None  # 无法检测=未知,不误判为不同步
 
 
+async def test_sample_sync_score_ignores_silent_credit_window(monkeypatch, tmp_path) -> None:
+    """Opening-card events must not turn a dialogue-free window into a failure."""
+    monkeypatch.setattr(sync, "_ffmpeg", lambda: "/usr/bin/ffmpeg")
+
+    async def fake_extract(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        return np.zeros(sync.SAMPLE_RATE * 120, dtype=np.float32)
+
+    monkeypatch.setattr(sync, "extract_pcm", fake_extract)
+    monkeypatch.setattr(sync, "speech_intervals", lambda _pcm: [])
+    events = [(i * 1000, i * 1000 + 500, "title") for i in range(100)]
+
+    assert await sync.sample_sync_score(tmp_path / "x.mkv", events, 6000) is None
+
+
 def test_sync_audio_skips_undecodable_first_track() -> None:
     """NAS 醉梦 E01 台账音轨：第一轨 Audio Vivid 探测不出 codec，抽样改用第二轨 EAC3。"""
     zui_meng = [
@@ -1031,6 +1045,29 @@ def test_calibration_none_on_empty() -> None:
     assert sync.estimate_calibration([], [(0, 1000)]) is None
 
 
+def test_calibration_confidence_is_normalized_to_sampled_windows() -> None:
+    """Six decoded windows retain confidence on a feature-length timeline."""
+    runtime = 5400
+    windows = [
+        (runtime * 0.05 + i * (runtime * 0.9 / 6), 120.0) for i in range(6)
+    ]
+    reference = []
+    for start, duration in windows:
+        t = int(start * 1000 + 5000)
+        end = int((start + duration) * 1000 - 1000)
+        while t < end:
+            reference.append((t, t + 1800))
+            t += 7000
+    subtitle = [(s - 4000, e - 4000) for s, e in reference]
+    coverage = [(int(s * 1000), int((s + d) * 1000)) for s, d in windows]
+
+    calibration = sync.estimate_calibration(reference, subtitle, coverage=coverage)
+
+    assert calibration is not None
+    assert calibration.offset_ms == 4000
+    assert calibration.score > 0.5
+
+
 async def test_generation_auto_calibrates_only_confident_global_offset(monkeypatch) -> None:
     row = _file([], [])
     events = [(1000, 2000, "a"), (5000, 6000, "b")]
@@ -1042,7 +1079,7 @@ async def test_generation_auto_calibrates_only_confident_global_offset(monkeypat
     monkeypatch.setattr(
         sync,
         "estimate_calibration",
-        lambda _reference, _subtitle: sync.Calibration(1.0, 3000, 0.8),
+        lambda _reference, _subtitle, **_kwargs: sync.Calibration(1.0, 3000, 0.8),
     )
 
     result = await tasks._try_auto_calibrate_events(row, events)
@@ -1064,7 +1101,7 @@ async def test_generation_does_not_apply_low_confidence_calibration(monkeypatch)
     monkeypatch.setattr(
         sync,
         "estimate_calibration",
-        lambda _reference, _subtitle: sync.Calibration(1.0, 3000, 0.49),
+        lambda _reference, _subtitle, **_kwargs: sync.Calibration(1.0, 3000, 0.49),
     )
 
     assert await tasks._try_auto_calibrate_events(row, events) is None

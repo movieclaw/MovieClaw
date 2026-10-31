@@ -30,6 +30,9 @@ logger = logging.getLogger("movieclaw_api.subtitle_gen")
 SAMPLE_RATE = 16_000
 _WINDOW_SECONDS = 120  # 每个抽样窗时长
 _FFMPEG_TIMEOUT = 60.0
+# A window with very little speech cannot distinguish a timing problem from
+# opening credits, title cards, or a quiet music-only passage.
+_MIN_COMPARABLE_SPEECH_MS = 1000
 #: 事件命中率低于该值判"疑似不同步"（§5.2 阈值；能量法噪声大，宽松取值）
 SYNC_THRESHOLD = 0.55
 
@@ -216,7 +219,7 @@ def event_hit_rate(
 
 
 def aggregate_sync_scores(scores: list[float]) -> float | None:
-    """Use the worst sampled window as the file-level quality score."""
+    """Use the worst comparable sampled window as the file-level score."""
     return min(scores) if scores else None
 
 
@@ -257,6 +260,10 @@ async def sample_sync_score(
             return None  # 音频抽不出来：整个检测按未知处理
         # VAD（尤其 silero 逐帧推理）放线程池：事件循环同时在服务所有请求
         speech = await asyncio.to_thread(speech_intervals, pcm)
+        # Opening credits and title cards can have subtitle events while the
+        # dialogue track is silent; such a window is unknown, not a mismatch.
+        if sum(e - s for s, e in speech) < _MIN_COMPARABLE_SPEECH_MS:
+            continue
         rate = event_hit_rate(speech, window_events)
         if rate is not None:
             scores.append(rate)
@@ -285,17 +292,39 @@ def _rasterize(intervals: list[tuple[int, int]], total_ms: int) -> np.ndarray:
     return signal
 
 
-def _best_offset(reference: np.ndarray, candidate: np.ndarray) -> tuple[int, float]:
+def _best_offset(
+    reference: np.ndarray,
+    candidate: np.ndarray,
+    coverage: list[tuple[int, int]] | None = None,
+) -> tuple[int, float]:
     """FFT 互相关求 candidate 相对 reference 的最优平移（毫秒）与相关分。
 
     去均值后做相关：全 1 段不该白得分；限幅在 ±_MAX_SHIFT_S 内取峰。
     """
     n = max(len(reference), len(candidate))
+    if coverage:
+        # Only decoded audio windows are evidence.  Include search-width
+        # padding for the candidate so a global offset remains observable,
+        # while unsampled parts of a feature-length film do not dilute the
+        # confidence score.
+        padding = _MAX_SHIFT_S * 1000
+        sampled = [(max(0, s - padding), e + padding) for s, e in coverage]
+        signal_end_ms = max(0, (n - 1) * _RASTER_MS)
+        ref_mask = _rasterize(coverage, signal_end_ms)
+        cand_mask = _rasterize(sampled, signal_end_ms)
+        ref_active = ref_mask.astype(bool)
+        cand_active = cand_mask.astype(bool)
+        if ref_active.any() and cand_active.any():
+            ref_mean = float(reference[ref_active].mean())
+            cand_mean = float(candidate[cand_active].mean())
+            reference = (reference - ref_mean) * ref_mask
+            candidate = (candidate - cand_mean) * cand_mask
+    else:
+        reference = reference - reference.mean()
+        candidate = candidate - candidate.mean()
     size = 1 << (2 * n - 1).bit_length()
-    ref = reference - reference.mean()
-    cand = candidate - candidate.mean()
-    fr = np.fft.rfft(ref, size)
-    fc = np.fft.rfft(cand, size)
+    fr = np.fft.rfft(reference, size)
+    fc = np.fft.rfft(candidate, size)
     corr = np.fft.irfft(fr * np.conj(fc), size)
     # corr[k] = sum ref[i+k]*cand[i]（k>=0：cand 需右移 k 格）；负位移在尾部
     # 搜索窗不能超过真实信号长度。短片的 FFT padding 可能小于固定 ±120s
@@ -313,7 +342,7 @@ def _best_offset(reference: np.ndarray, candidate: np.ndarray) -> tuple[int, flo
     )
     values = np.concatenate([corr[: max_shift + 1], corr[-max_shift:]])
     peak = int(np.argmax(values))
-    denom = float(np.sqrt((ref**2).sum() * (cand**2).sum())) or 1.0
+    denom = float(np.sqrt((reference**2).sum() * (candidate**2).sum())) or 1.0
     return int(lags[peak]) * _RASTER_MS, float(values[peak] / denom)
 
 
@@ -327,7 +356,9 @@ class Calibration:
 
 
 def estimate_calibration(
-    reference: list[tuple[int, int]], subtitle: list[tuple[int, int]]
+    reference: list[tuple[int, int]],
+    subtitle: list[tuple[int, int]],
+    coverage: list[tuple[int, int]] | None = None,
 ) -> Calibration | None:
     """字幕区间相对参考区间（语音区间或另一条已对齐字幕）的全局校准。
 
@@ -341,7 +372,9 @@ def estimate_calibration(
     best: Calibration | None = None
     for scale in SCALE_HYPOTHESES:
         scaled = [(int(s * scale), int(e * scale)) for s, e in subtitle]
-        offset, score = _best_offset(ref_signal, _rasterize(scaled, total))
+        offset, score = _best_offset(
+            ref_signal, _rasterize(scaled, total), coverage=coverage
+        )
         if best is None or score > best.score:
             best = Calibration(scale=scale, offset_ms=offset, score=score)
     return best

@@ -2525,25 +2525,32 @@ _CALIBRATE_WINDOWS = 6
 _CALIBRATE_WINDOW_S = 120
 
 
+def _calibration_windows(runtime: int) -> list[tuple[float, float]]:
+    """Return the audio windows used for calibration and their durations."""
+    if runtime <= 0:
+        return []
+    if runtime <= _CALIBRATE_WINDOWS * _CALIBRATE_WINDOW_S:
+        return [(0.0, float(runtime))]
+    # 均布起点,避开首尾 5%（片头 logo/片尾字幕常无对白）
+    usable = runtime * 0.9
+    step = usable / _CALIBRATE_WINDOWS
+    return [
+        (runtime * 0.05 + i * step, float(_CALIBRATE_WINDOW_S))
+        for i in range(_CALIBRATE_WINDOWS)
+    ]
+
+
 async def _audio_reference_intervals(
     row: LibraryFile, events: list[extract.SubEvent]
 ) -> list[tuple[int, int]] | None:
     """抽样语音区间（校准参考,映射回全片时间坐标）;无 ffmpeg/无音轨返回 None。"""
     runtime = row.duration_seconds or (max(e[1] for e in events) // 1000 if events else 0)
-    if runtime <= 0:
+    windows = _calibration_windows(runtime)
+    if not windows:
         return None
-    if runtime <= _CALIBRATE_WINDOWS * _CALIBRATE_WINDOW_S:
-        starts = [0]
-        window = float(runtime)
-    else:
-        # 均布起点,避开首尾 5%（片头 logo/片尾字幕常无对白）
-        usable = runtime * 0.9
-        step = usable / _CALIBRATE_WINDOWS
-        starts = [int(runtime * 0.05 + i * step) for i in range(_CALIBRATE_WINDOWS)]
-        window = float(_CALIBRATE_WINDOW_S)
     intervals: list[tuple[int, int]] = []
     audio = sync.audio_index(row.audio_streams)
-    for start in starts:
+    for start, window in windows:
         pcm = await sync.extract_pcm(Path(row.file_path), float(start), window, audio)
         if pcm is None:
             return intervals if intervals else None  # 首窗就失败=不可用
@@ -2566,7 +2573,14 @@ async def _try_auto_calibrate_events(
     reference = await _audio_reference_intervals(row, events)
     if not reference:
         return None
-    calibration = sync.estimate_calibration(reference, [(s, e) for s, e, _ in events])
+    runtime = row.duration_seconds or (max(e[1] for e in events) // 1000 if events else 0)
+    coverage = [
+        (int(start * 1000), int((start + duration) * 1000))
+        for start, duration in _calibration_windows(runtime)
+    ]
+    calibration = sync.estimate_calibration(
+        reference, [(s, e) for s, e, _ in events], coverage=coverage
+    )
     if calibration is None or calibration.score < _AUTO_CALIBRATE_MIN_SCORE:
         return None
     if (
@@ -2647,7 +2661,14 @@ async def calibrate_external_subtitle(
                 **stored_fields("library.subtitleCalibration.noReference"),
             )
 
-    calibration = sync.estimate_calibration(reference, [(s, e) for s, e, _ in events])
+    runtime = row.duration_seconds or (max(e[1] for e in events) // 1000 if events else 0)
+    coverage = [
+        (int(start * 1000), int((start + duration) * 1000))
+        for start, duration in _calibration_windows(runtime)
+    ]
+    calibration = sync.estimate_calibration(
+        reference, [(s, e) for s, e, _ in events], coverage=coverage
+    )
     if calibration is None or calibration.score < _CALIBRATE_MIN_SCORE:
         return CalibrateResult(
             ok=False,
