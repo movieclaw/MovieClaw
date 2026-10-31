@@ -1250,3 +1250,186 @@ def test_mass_import_failures_keep_job_records_small(client, tmp_path, request, 
     # 进度里只有条数（任务中心显示「N 个问题」照样能数）
     assert isinstance(progress["details"]["errors"], int)
     assert event_sizes and max(event_sizes) < 40_000, max(event_sizes)
+
+
+@pytest.mark.parametrize("finish_at", ["listing", "record", "after_scan", "concurrent"])
+def test_upload_and_cloud_scan_claim_one_ledger_row(client, tmp_path, monkeypatch, finish_at):
+    """快照之后核验、落账前核验、纳管先落账：都应认回订阅入库行。"""
+    from sqlmodel import select
+
+    from movieclaw_api.services.drives import gateway
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import FileSource, LibraryFile, LibraryFileReplica
+    from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
+
+    view = _create_library(client, tmp_path)
+    library_id = view["id"]
+    original = ledger(client, library_id)["f-dune"]
+
+    async def start():
+        async with get_database().session() as session:
+            row = LibraryFile(
+                library_id=library_id,
+                media_item_id=original["media_item_id"],
+                file_path=str(tmp_path / "staging" / "订阅入库.mkv"),
+                source=FileSource.IMPORTED,
+                size_bytes=4_000_000_000,
+            )
+            session.add(row)
+            await session.commit()
+            folder = await LibraryCloudRepository(session).primary_folder(library_id)
+            await LibraryCloudRepository(session).start_upload(
+                row,
+                account_id=client.account_id,
+                folder_id=folder.id,
+            )
+            return row.id
+
+    file_id = call(client, start)
+
+    async def finish():
+        async with get_database().session() as session:
+            await LibraryCloudRepository(session).finish_upload(
+                file_id,
+                remote_id="f-race",
+                remote_path="影视/电影/沙丘2.2024.mkv",
+                size_bytes=4_000_000_000,
+                sha1=None,
+            )
+
+    _edit_state(
+        client, lambda d: d["trees"]["d-movies"]["files"].append(_file("f-race", "沙丘2.2024.mkv"))
+    )
+    original_call = gateway.call
+    original_record = LibraryCloudRepository.record_import
+
+    async def listing(*args, **kwargs):
+        tree = await original_call(*args, **kwargs)
+        if args[1] == "list_tree":
+            await finish()
+        return tree
+
+    async def record(self, row, **kwargs):
+        if kwargs["remote_id"] == "f-race":
+            if finish_at == "concurrent":
+                import asyncio
+
+                _, replica = await asyncio.gather(finish(), original_record(self, row, **kwargs))
+                return replica
+            await finish()
+        return await original_record(self, row, **kwargs)
+
+    if finish_at == "listing":
+        monkeypatch.setattr(gateway, "call", listing)
+    elif finish_at in ("record", "concurrent"):
+        monkeypatch.setattr(LibraryCloudRepository, "record_import", record)
+    result = _scan(client, library_id, cloud_only=True)
+    assert result.errors == [], result.errors
+    if finish_at == "after_scan":
+        call(client, finish)
+
+    async def check():
+        async with get_database().session() as session:
+            owners = list(
+                (
+                    await session.execute(
+                        select(LibraryFileReplica).where(LibraryFileReplica.remote_id == "f-race")
+                    )
+                ).scalars()
+            )
+            assert [r.library_file_id for r in owners] == [file_id]
+            row = await session.get(LibraryFile, file_id)
+            assert row.source == FileSource.IMPORTED and row.local_bytes
+            # 新建的虚拟台账不能在副本冲突后留下孤儿。
+            rows = list(
+                (
+                    await session.execute(
+                        select(LibraryFile).where(LibraryFile.library_id == library_id)
+                    )
+                ).scalars()
+            )
+            assert len(rows) == 4
+
+    call(client, check)
+    # 用户重新扫描：仍是同一份订阅文件，且没有额外版本。
+    monkeypatch.setattr(gateway, "call", original_call)
+    monkeypatch.setattr(LibraryCloudRepository, "record_import", original_record)
+    assert _scan(client, library_id, cloud_only=True).errors == []
+    call(client, check)
+
+
+@pytest.mark.parametrize("survivor_state", ["verified", "lost"])
+def test_purging_duplicate_alias_keeps_shared_cloud_file(client, tmp_path, survivor_state):
+    """历史双账 → 留一个 → 到期清理：假网盘里唯一的文件必须还在。"""
+    from sqlalchemy import text
+
+    from movieclaw_api.services.library import recycle
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import FileSource, LibraryFile, LibraryFileReplica
+
+    library_id = _create_library(client, tmp_path)["id"]
+    original = ledger(client, library_id)["f-dune"]
+
+    async def legacy_duplicate():
+        async with get_database().session() as session:
+            # 模拟升级前已存在的双账，单独验证删除兜底，不依赖入账修复。
+            await session.execute(
+                text("DROP INDEX IF EXISTS uq_library_file_replica_account_remote")
+            )
+            row = LibraryFile(
+                library_id=library_id,
+                media_item_id=original["media_item_id"],
+                file_path=str(tmp_path / "legacy-alias.mkv"),
+                local_bytes=False,
+                source=FileSource.SCANNED,
+                size_bytes=original["size"],
+            )
+            session.add(row)
+            await session.flush()
+            session.add(
+                LibraryFileReplica(
+                    library_file_id=row.id,
+                    account_id=client.account_id,
+                    remote_id="f-dune",
+                    origin="imported",
+                    state="verified",
+                    size_bytes=original["size"],
+                )
+            )
+            from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
+
+            survivor = await LibraryCloudRepository(session).replica_of(original["id"])
+            survivor.state = survivor_state
+            await session.commit()
+            return row.id
+
+    alias_id = call(client, legacy_duplicate)
+    resolved = client.post(
+        "/api/v1/libraries/duplicate-files/resolve",
+        json={
+            "media_item_id": original["media_item_id"],
+            "season_number": 0,
+            "episode_number": 0,
+            "keep_file_id": original["id"],
+        },
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["data"]["done"] == 1
+    call(client, _trash_due, alias_id)
+    call(client, recycle.purge_due_files)
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))
+    assert "f-dune" not in state.get("deleted", [])
+    assert any(f["remote_id"] == "f-dune" for f in state["trees"]["d-movies"]["files"])
+    assert _scan(client, library_id, cloud_only=True).errors == []
+    assert ledger(client, library_id)["f-dune"]["id"] == original["id"]
+    assert ledger(client, library_id)["f-dune"]["state"] == "in_place"
+
+    from movieclaw_api.services.drives import sources
+
+    assert sources.cloud_file(original["path"]).remote_id == "f-dune"
+    # 全部引用都被用户明确删除时正常删网盘文件；同一 id 只传给插件一次。
+    call(client, legacy_duplicate)
+    deleted = client.delete(f"/api/v1/libraries/{library_id}/items/{original['media_item_id']}")
+    assert deleted.status_code == 200, deleted.text
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))
+    assert state["deleted"] == ["f-dune"]

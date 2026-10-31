@@ -77,26 +77,44 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
     """
     from movieclaw_api.services.drives import sources
 
-    replicas = await replicas_of(file_ids)
+    ids = set(file_ids)
+    replicas = await replicas_of(ids)
     if not replicas:
         return None
+    # 即使旧库有双账，清理其中一行也只能摘掉引用，不能删掉别人仍持有的文件。
+    shared: set[tuple[int, str]] = set()
+    async with get_database().session() as session:
+        for account_id in {r.account_id for r in replicas}:
+            remote_ids = {r.remote_id for r in replicas if r.account_id == account_id}
+            rows = await session.execute(
+                select(LibraryFileReplica.remote_id).where(
+                    LibraryFileReplica.account_id == account_id,
+                    LibraryFileReplica.remote_id.in_(remote_ids),  # type: ignore[attr-defined]
+                    LibraryFileReplica.library_file_id.not_in(ids),  # type: ignore[attr-defined]
+                )
+            )
+            shared.update((account_id, remote_id) for remote_id in rows.scalars())
     by_account: dict[int, list[LibraryFileReplica]] = {}
     for replica in replicas:
         by_account.setdefault(replica.account_id, []).append(replica)
     done: list[LibraryFileReplica] = []
     error: str | None = None
     for account_id, group in by_account.items():
-        live = [r for r in group if needs_remote_call(r)]
-        done.extend(r for r in group if not needs_remote_call(r))
-        for start in range(0, len(live), BATCH):
-            chunk = live[start : start + BATCH]
+        live = [
+            r for r in group if needs_remote_call(r) and (account_id, r.remote_id) not in shared
+        ]
+        done.extend(r for r in group if r not in live)
+        remote_ids = list(dict.fromkeys(r.remote_id for r in live))
+        for start in range(0, len(remote_ids), BATCH):
+            batch_ids = remote_ids[start : start + BATCH]
+            chunk = [r for r in live if r.remote_id in batch_ids]
             await _mark(chunk, REPLICA_DELETING)
             try:
                 await gateway.call(
                     account_id,
                     "delete",
                     priority=gateway.Priority.USER,
-                    remote_ids=[r.remote_id for r in chunk],
+                    remote_ids=batch_ids,
                 )
             except dv.DriveError as exc:
                 await _restore(chunk)

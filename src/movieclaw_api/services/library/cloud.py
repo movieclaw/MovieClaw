@@ -263,9 +263,9 @@ async def collect(
 
 async def record(
     session: AsyncSession, row: LibraryFile, entry: CloudEntry, *, fresh: bool = False
-) -> None:
+) -> bool:
     """新入账（或识别重试、缺失回归）的纳管文件：记副本，台账行标「只在网盘上」。"""
-    await LibraryCloudRepository(session).record_import(
+    replica = await LibraryCloudRepository(session).record_import(
         row,
         folder_id=entry.folder_id,
         account_id=entry.account_id,
@@ -275,6 +275,7 @@ async def record(
         sha1=entry.remote.sha1,
         fresh=fresh,
     )
+    return replica.library_file_id == row.id
 
 
 async def touch(session: AsyncSession, row: LibraryFile, entry: CloudEntry) -> None:
