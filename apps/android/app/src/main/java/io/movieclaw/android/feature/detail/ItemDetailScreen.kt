@@ -3013,7 +3013,7 @@ private fun SeasonSection(
     itemTitle: String,
     /** 分集的下载状态（本机已下载 / 下载中）与长按菜单：画在分集卡上 */
     offline: EpisodeOffline? = null,
-    /** 当前季的播出日历（issue #547）：有它才画入口卡、分清「还没播」与「缺集」 */
+    /** 当前季的播出日历（issue #547）：有它才画入口摘要、分清「还没播」与「缺集」 */
     schedule: io.movieclaw.android.core.model.SeasonAirSchedule? = null,
     onOpenSchedule: () -> Unit = {},
 ) {
@@ -3103,8 +3103,19 @@ private fun SeasonSection(
                         .clickable { allSheet = true }
                         .padding(start = 8.dp, top = 5.dp, bottom = 5.dp),
                 )
-            } else if (seasonEpisodes.isNotEmpty() && schedule == null) {
-                // 有播出日历时在库数交给进度条说
+            } else if (schedule != null) {
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "播出日历 ›",
+                    style = McType.caption,
+                    color = TextMuted,
+                    modifier = Modifier
+                        .testTag("air-schedule-open")
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onOpenSchedule)
+                        .padding(start = 8.dp, top = 5.dp, bottom = 5.dp),
+                )
+            } else if (seasonEpisodes.isNotEmpty()) {
                 Spacer(Modifier.width(10.dp))
                 Text(
                     "在库 ${seasonEpisodes.count { it.owned }} / ${seasonEpisodes.size} 集",
@@ -3115,8 +3126,8 @@ private fun SeasonSection(
         }
 
         if (schedule != null && list.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            AirScheduleCard(
+            Spacer(Modifier.height(10.dp))
+            AirScheduleSummary(
                 episodes = list,
                 schedule = schedule,
                 onOpen = onOpenSchedule,

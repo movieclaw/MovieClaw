@@ -52,7 +52,7 @@ class DetailSheetScrollTest {
         )
         compose.setContent {
             MovieClawTheme {
-                if (fromCard) AirScheduleCard(episodes, schedule, onOpen = { open = true })
+                if (fromCard) AirScheduleSummary(episodes, schedule, onOpen = { open = true })
                 if (open) {
                     AirScheduleSheet(
                         title = "测试剧",
@@ -128,7 +128,7 @@ class DetailSheetScrollTest {
     @Test fun airSheetDividerPullKeepsSheetStill() {
         setAirSheet(onSubscribe = {})
         val before = top("air-schedule-sheet")
-        // 列表上方 1px 的分隔线，不经过 LazyColumn 的手势处理。
+        // 列表上方 1px 的留白，不经过 LazyColumn 的手势处理。
         compose.onNodeWithTag("air-schedule-list").performTouchInput {
             down(Offset(centerX, -1f))
             moveBy(Offset(0f, 200f), delayMillis = 500)
@@ -160,11 +160,11 @@ class DetailSheetScrollTest {
         assertEquals(1, subscriptions)
     }
 
-    /** 真实卡片入口 → 浏览日历 → 固定区拖动 → 订阅回调 → 再打开并返回关闭。 */
+    /** 真实摘要入口 → 浏览日历 → 固定区拖动 → 订阅回调 → 再打开并返回关闭。 */
     @Test fun calendarToSubscribeUserFlow() {
         var subscribed = false
         setAirSheet(onSubscribe = { subscribed = true; open = false }, fromCard = true)
-        compose.onNodeWithTag("air-schedule-card").performClick()
+        compose.onNodeWithTag("air-schedule-summary").performClick()
         compose.waitForIdle()
         assertScrollBackKeepsSheet("air-schedule-sheet", "air-schedule-list")
         compose.onNodeWithTag("air-schedule-subscribe").performTouchInput {
@@ -176,7 +176,7 @@ class DetailSheetScrollTest {
         compose.waitForIdle()
         assertTrue(subscribed)
         compose.onNodeWithTag("air-schedule-sheet").assertDoesNotExist()
-        compose.onNodeWithTag("air-schedule-card").performClick()
+        compose.onNodeWithTag("air-schedule-summary").performClick()
         compose.waitForIdle()
         compose.runOnIdle { ShadowDialog.getLatestDialog().onBackPressed() }
         compose.waitForIdle()
