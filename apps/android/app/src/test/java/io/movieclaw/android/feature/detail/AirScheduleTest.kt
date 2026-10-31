@@ -42,13 +42,17 @@ class AirScheduleTest {
         assertEquals(AirTone.TodayFree, AirSchedule.tone(ep(5, "2026-10-28"), free))
     }
 
-    @Test fun `long seasons merge into runs`() {
-        assertEquals(episodes.size, AirSchedule.segments(episodes, schedule).size)
-        val long = (1..120).map { ep(it, "2026-10-01", it <= 60) }
+    @Test fun `week groups start on monday`() {
+        // 2026-10-28 是周三，本周是 10-26（周一）到 11-01（周日）
+        val d = { s: String -> LocalDate.parse(s) }
         assertEquals(
-            listOf(AirTone.Owned to 60, AirTone.Absent to 60),
-            AirSchedule.segments(long, schedule.copy(missingEpisodes = emptyList())),
+            listOf(0, 0, 0, 1, 2, -1),
+            listOf("2026-10-26", "2026-10-28", "2026-11-01", "2026-11-02", "2026-11-09", "2026-10-25")
+                .map { AirSchedule.weekOffset(d("2026-10-28"), d(it)) },
         )
+        assertEquals(0, AirSchedule.weekOffset(d("2026-11-01"), d("2026-10-26")))
+        assertEquals(0, AirSchedule.weekOffset(d("2026-10-26"), d("2026-11-01")))
+        assertEquals(listOf("本周", "下周", "之后"), (0..2).map(AirSchedule::groupTitle))
     }
 
     @Test fun `counts days and next update`() {
@@ -69,11 +73,14 @@ class AirScheduleTest {
         assertEquals("周二、周五更新", AirSchedule.cadence(listOf(1, 4)))
         assertNull(AirSchedule.cadence(emptyList()))
         val d = { s: String -> LocalDate.parse(s) }
-        assertEquals("周五至周日不更新", AirSchedule.gap(d("2026-10-29"), d("2026-11-02"), weekly = false))
-        assertEquals("周五不更新", AirSchedule.gap(d("2026-10-29"), d("2026-10-31"), weekly = false))
-        assertNull(AirSchedule.gap(d("2026-10-28"), d("2026-10-29"), weekly = false))
-        assertNull(AirSchedule.gap(d("2026-10-29"), d("2026-11-05"), weekly = true))
-        assertEquals("停更 13 天", AirSchedule.gap(d("2026-10-01"), d("2026-10-15"), weekly = true))
+        // 只标跳过了更新日的真停更：周四 → 下周一跳过了周五至周日三个更新日
+        assertEquals("周五至周日不更新", AirSchedule.gap(d("2026-10-29"), d("2026-11-02"), (0..6).toList()))
+        assertEquals("周五不更新", AirSchedule.gap(d("2026-10-29"), d("2026-10-31"), (0..6).toList()))
+        assertNull(AirSchedule.gap(d("2026-10-28"), d("2026-10-29"), listOf(2, 3)))
+        // 周五、周六更新：周六 → 下周五中间是周日到周四，正常节奏
+        assertNull(AirSchedule.gap(d("2026-10-31"), d("2026-11-06"), listOf(4, 5)))
+        assertNull(AirSchedule.gap(d("2026-10-29"), d("2026-11-05"), listOf(3)))
+        assertEquals("停更 13 天", AirSchedule.gap(d("2026-10-01"), d("2026-10-15"), listOf(3)))
     }
 
     @Test fun `arrival state of a day`() {
