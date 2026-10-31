@@ -20348,25 +20348,6 @@
     "library.item.airFinaleToday": {
       "sourceHash": "c9f69c4b9acff772da133061d4217928806b87e2aa89486343ca828676900803"
     },
-    "library.item.airTodayEpisodes": {
-      "sourceHash": "fdd972e3ae420318507453ffe544054a43e4b9769dcf30670450429576ef85c1",
-      "parameters": [
-        "range"
-      ]
-    },
-    "library.item.airTodayFinale": {
-      "sourceHash": "728f5e99c3a3da5c5d069cb6d650055dc7489a806ff64df7af541f7754685731",
-      "parameters": [
-        "range"
-      ]
-    },
-    "library.item.airNextEpisodes": {
-      "sourceHash": "36ddd78f4544713d391c39ea50c7d276deb48754423b8bfd314765965fdf524b",
-      "parameters": [
-        "date",
-        "range"
-      ]
-    },
     "library.item.airEpisodeRange": {
       "sourceHash": "46bc64ecf14106b379c06cf44c6f445ff6e938dcfcb9a73fd83c656e94c0bad3",
       "parameters": [
@@ -20433,20 +20414,6 @@
     },
     "library.item.airStatMissing": {
       "sourceHash": "90c2c6501404d985f0369292cd5ca316ec4b1f28b2cc22c6677a6941bc666a41",
-      "parameters": [
-        "count"
-      ],
-      "pluralParameter": "count"
-    },
-    "library.item.airStatUpcoming": {
-      "sourceHash": "1fbae434ecb636d7f95dfd4000687dc0492aecc6f2c02a0f85fc529af6fa309f",
-      "parameters": [
-        "count"
-      ],
-      "pluralParameter": "count"
-    },
-    "library.item.airStatEpisodes": {
-      "sourceHash": "18212cc5518c2c6123f1279d88eea11f94899452e818287121fb716b4a916a31",
       "parameters": [
         "count"
       ],
@@ -20519,15 +20486,6 @@
     "library.item.airLegendOwned": {
       "sourceHash": "2bfa8a13150e11a2667e0f9343f9db3ccad03733c11d7dd8f63f206122c94050"
     },
-    "library.item.airLegendMissing": {
-      "sourceHash": "554bdccf34191f24706f4c0e96f41262217380b67c8c2f0d2e2ded0f222ad6ec"
-    },
-    "library.item.airLegendToday": {
-      "sourceHash": "d5f5a7a010731feb6cc67fcbde1bc7133c86019f6d88186e5075344f59de5ff5"
-    },
-    "library.item.airLegendUpcoming": {
-      "sourceHash": "45e4b52ace431898ceb3bf494ba605fd46ec3d969a95aedf8a81417cfab8c9e5"
-    },
     "library.item.airToday": {
       "sourceHash": "d5f5a7a010731feb6cc67fcbde1bc7133c86019f6d88186e5075344f59de5ff5"
     },
@@ -20543,13 +20501,36 @@
     "library.item.airUnscheduled": {
       "sourceHash": "42e9c9fc72d22a1d57f7762cbf9c6b9862a2a9a8d318f266635ed61ae55cfd73"
     },
-    "library.item.airProgress": {
-      "sourceHash": "00631def80ecec6377c4411a83cfd97fbb951c3fd398a83a79b3b8cca9b32f6b",
+    "library.item.airEpisodesUpdate": {
+      "sourceHash": "938be36c405866ea7eb22510d5062498bccbb6137578c2347a7234687d4c72d2",
       "parameters": [
-        "owned",
-        "missing",
-        "upcoming"
+        "range"
       ]
+    },
+    "library.item.airEpisodesFinale": {
+      "sourceHash": "bb9e8b9f99d96e1a37aee7a63175108ecb6b743ea06e5b0130613ae6af87ef12",
+      "parameters": [
+        "range"
+      ]
+    },
+    "library.item.airRemaining": {
+      "sourceHash": "9c0ad3caf2e91134be4c1cacb943ef99d7f251e8cbf6b59949a01ebf66d0c938",
+      "parameters": [
+        "count"
+      ],
+      "pluralParameter": "count"
+    },
+    "library.item.airExpectedShort": {
+      "sourceHash": "c186afa1d5dfc0860114b64751a05f0dece2a8e022046ab8bccd72c51cede5cf"
+    },
+    "library.item.airThisWeek": {
+      "sourceHash": "b4c6c3eb0bce6b7888840f7353fe489160d23ae4c9db151e6a8b861404ceb2ea"
+    },
+    "library.item.airNextWeek": {
+      "sourceHash": "7f5fab4d966e23f67ce55167ea90f0fc3c656cef47169575718ebeeabb1003c8"
+    },
+    "library.item.airLater": {
+      "sourceHash": "28ff471d9a227562ea957fca1fbbb3c32f415f9a6fd3cca66bee657b398f8506"
     },
     "library.home.reelsPull": {
       "sourceHash": "9abf29d5b9a06eacce480dbc1ccb0eee80cff045343fb89c7fd2fbf133ec3fdd"

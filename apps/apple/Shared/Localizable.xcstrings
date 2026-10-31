@@ -130869,78 +130869,6 @@
         }
       }
     },
-    "library.item.airTodayEpisodes": {
-      "extractionState": "manual",
-      "generatesSymbol": true,
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今天更新 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今天更新 %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Today: %@"
-          }
-        }
-      }
-    },
-    "library.item.airTodayFinale": {
-      "extractionState": "manual",
-      "generatesSymbol": true,
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今天大结局 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今天大结局 %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Finale today: %@"
-          }
-        }
-      }
-    },
-    "library.item.airNextEpisodes": {
-      "extractionState": "manual",
-      "generatesSymbol": true,
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下次 %1$@ · %2$@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下次 %1$@ · %2$@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next %1$@ · %2$@"
-          }
-        }
-      }
-    },
     "library.item.airEpisodeRange": {
       "extractionState": "manual",
       "generatesSymbol": true,
@@ -131301,78 +131229,6 @@
         }
       }
     },
-    "library.item.airStatUpcoming": {
-      "extractionState": "manual",
-      "generatesSymbol": true,
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还有 %lld 集待播"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还有 %lld 集待播"
-          }
-        },
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld episode to air"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld episodes to air"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "library.item.airStatEpisodes": {
-      "extractionState": "manual",
-      "generatesSymbol": true,
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 集"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 集"
-          }
-        },
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld episode"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld episodes"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "library.item.airAiredRange": {
       "extractionState": "manual",
       "generatesSymbol": true,
@@ -131709,78 +131565,6 @@
         }
       }
     },
-    "library.item.airLegendMissing": {
-      "extractionState": "manual",
-      "generatesSymbol": true,
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "缺集"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "缺集"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Missing"
-          }
-        }
-      }
-    },
-    "library.item.airLegendToday": {
-      "extractionState": "manual",
-      "generatesSymbol": true,
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今天"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Today"
-          }
-        }
-      }
-    },
-    "library.item.airLegendUpcoming": {
-      "extractionState": "manual",
-      "generatesSymbol": true,
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "待播"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "待播"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Upcoming"
-          }
-        }
-      }
-    },
     "library.item.airToday": {
       "extractionState": "manual",
       "generatesSymbol": true,
@@ -131901,26 +131685,182 @@
         }
       }
     },
-    "library.item.airProgress": {
+    "library.item.airEpisodesUpdate": {
       "extractionState": "manual",
       "generatesSymbol": true,
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "本季进度：已入库 %1$lld，缺 %2$lld，待播 %3$lld"
+            "value": "%@更新"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "本季进度：已入库 %1$lld，缺 %2$lld，待播 %3$lld"
+            "value": "%@更新"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Season progress: %1$lld in library, %2$lld missing, %3$lld to air"
+            "value": "%@ airs"
+          }
+        }
+      }
+    },
+    "library.item.airEpisodesFinale": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 大结局"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 大结局"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ finale"
+          }
+        }
+      }
+    },
+    "library.item.airRemaining": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还剩 %lld 集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还剩 %lld 集"
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld episode left"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld episodes left"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "library.item.airExpectedShort": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预计入库"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预计入库"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected"
+          }
+        }
+      }
+    },
+    "library.item.airThisWeek": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本周"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本周"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This week"
+          }
+        }
+      }
+    },
+    "library.item.airNextWeek": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下周"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下周"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next week"
+          }
+        }
+      }
+    },
+    "library.item.airLater": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之后"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Later"
           }
         }
       }

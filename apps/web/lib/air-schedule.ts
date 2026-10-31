@@ -1,13 +1,13 @@
 /**
- * 剧集详情页播出日历（issue #547）的纯计算：季进度条分段、下次更新、更新规律、
- * 按天的日程。日期一律是 YYYY-MM-DD 的日历日，按字段比较与换算（UTC 零点），
+ * 剧集详情页播出日历（issue #547）的纯计算：下次更新、更新规律、按天与按周的日程。
+ * 日期一律是 YYYY-MM-DD 的日历日，按字段比较与换算（UTC 零点），
  * 不经浏览器时区——「今天」由服务端按站点日历给出。
  */
 import type { EpisodeArrival, LibraryEpisode, SeasonAirSchedule } from "@/lib/api/libraries";
 import type { AppLocale } from "@/lib/i18n/negotiate";
 import { formatDate } from "./i18n/format.ts";
 
-/** 进度条/分集卡的一集状态 */
+/** 分集卡的一集状态 */
 export type AirTone =
   | "owned" // 已入库
   | "missing" // 订阅范围内已播出、还没入库
@@ -16,12 +16,6 @@ export type AirTone =
   | "upcoming" // 还没播（含没定日期的）
   | "absent"; // 已播出、库里没有，但不算缺（没订阅 / 订阅起始集之前）
 
-export interface AirSegment {
-  tone: AirTone;
-  /** 合并的集数；不合并时恒为 1 */
-  count: number;
-}
-
 export interface AirDay {
   date: string;
   episodes: LibraryEpisode[];
@@ -29,9 +23,6 @@ export interface AirDay {
   today: boolean;
   finale: boolean;
 }
-
-/** 超过这么多集就把同状态的连续集合并成色段，一集一格太细 */
-const MERGE_ABOVE = 40;
 
 const DAY_MS = 86_400_000;
 
@@ -72,18 +63,6 @@ export function episodeTone(episode: LibraryEpisode, schedule: SeasonAirSchedule
   return "absent";
 }
 
-export function airSegments(episodes: LibraryEpisode[], schedule: SeasonAirSchedule): AirSegment[] {
-  const tones = episodes.map((e) => episodeTone(e, schedule));
-  if (tones.length <= MERGE_ABOVE) return tones.map((tone) => ({ tone, count: 1 }));
-  const runs: AirSegment[] = [];
-  for (const tone of tones) {
-    const last = runs.at(-1);
-    if (last?.tone === tone) last.count += 1;
-    else runs.push({ tone, count: 1 });
-  }
-  return runs;
-}
-
 export function airCounts(episodes: LibraryEpisode[], schedule: SeasonAirSchedule) {
   const tones = episodes.map((e) => episodeTone(e, schedule));
   return {
@@ -111,6 +90,16 @@ export function airDays(episodes: LibraryEpisode[], schedule: SeasonAirSchedule)
       finale: schedule.last_air_date != null && date === schedule.last_air_date.slice(0, 10),
     };
   });
+}
+
+/** 某天所在的周相对今天所在的周差几周（周一起算）：0 本周、1 下周，已播的为负 */
+export function weekOffset(today: string, day: string): number {
+  return Math.floor((daysBetween(today, day) + weekdayIndex(today)) / 7);
+}
+
+/** 0=周一…6=周日 */
+function weekdayIndex(day: string): number {
+  return (new Date(dayTime(day)).getUTCDay() + 6) % 7;
 }
 
 /** 今天或之后第一个有集播出的日子 */
@@ -158,6 +147,15 @@ export function gapBetween(previous: string, next: string, locale: AppLocale): A
   const first = formatWeekday(shiftDay(previous, 1), locale);
   if (skipped === 1) return { kind: "day", day: first };
   return { kind: "range", from: first, to: formatWeekday(shiftDay(next, -1), locale) };
+}
+
+/** 两个播出日之间跳过了本该更新的日子（真停更）；只跳过不更新的星期几是正常节奏 */
+export function breaksCadence(previous: string, next: string, weekdays: number[]): boolean {
+  const skipped = daysBetween(previous, next) - 1;
+  for (let i = 1; i <= skipped; i++) {
+    if (weekdays.includes(weekdayIndex(shiftDay(previous, i).toISOString().slice(0, 10)))) return true;
+  }
+  return false;
 }
 
 export type ArrivalState =
