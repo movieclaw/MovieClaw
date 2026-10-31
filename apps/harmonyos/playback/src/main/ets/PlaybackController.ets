@@ -42,6 +42,8 @@ export class PlaybackController {
   // On-demand HTTP segments can take 30 seconds to become available.
   // Release still cancels the pending native seek immediately.
   private static readonly seekTimeoutMs: number = 35000;
+  private static readonly startupTimeoutMs: number = 25000;
+  private static readonly releaseTimeoutMs: number = 3000;
   onSnapshot: (snapshot: PlaybackSnapshot) => void = (): void => {};
   onEvent: (event: EngineEvent) => void = (): void => {};
   onSeekOutsideWindow: (positionMs: number) => void = (): void => {};
@@ -65,6 +67,9 @@ export class PlaybackController {
   private releaseTail: Promise<void> = Promise.resolve();
   private style: SubtitleStyle = { fontScale: 5.2, bottomPercent: 8, background: true };
   private preference: string = 'auto';
+  private cancelStartup: (() => void) | null = null;
+  private startupConfirmed: boolean = false;
+  private startupPositionMs: number = 0;
 
   private factory: EngineFactory;
   constructor(factory: EngineFactory = new DefaultEngineFactory()) {
@@ -94,6 +99,7 @@ export class PlaybackController {
     const media = this.media;
     if (media === null || generation !== this.generation) { return; }
     this.openingFailure = null;
+    this.startupConfirmed = false;
     this.snapshot.engine = id; this.snapshot.phase = 'opening'; this.snapshot.playing = false;
     this.snapshot.firstFrame = false; this.snapshot.buffering = false; this.snapshot.failure = null; this.publish();
     let engine: PlayerEngine | null = null;
@@ -129,7 +135,7 @@ export class PlaybackController {
       if (openingFailure !== null) { throw openingFailure as EngineFailure; }
       this.available = true; this.switching = false;
       this.snapshot.phase = 'ready'; this.publish();
-      if (!this.intent.paused && !this.interrupted) { await engine.play(); }
+      if (!this.intent.paused && !this.interrupted) { await this.playEngine(engine); }
       else { await engine.pause(); this.snapshot.phase = 'paused'; this.publish(); }
     } catch (error) {
       if (!this.valid(generation, attempt)) { return; }
@@ -196,13 +202,40 @@ export class PlaybackController {
       }
       this.updateDuration(event.durationMs);
     } else if (event.type === 'duration') { this.updateDuration(event.durationMs); }
-    else if (event.type === 'firstFrame') { this.snapshot.firstFrame = true; }
+    else if (event.type === 'firstFrame') {
+      this.snapshot.firstFrame = true; this.confirmStartup();
+    }
     else if (event.type === 'buffering') { this.snapshot.buffering = event.hint === 'start'; }
     else if (event.type === 'state' && this.available) {
       this.snapshot.playing = event.state === 'playing'; this.snapshot.phase = event.state;
       if (event.state === 'ended') { this.intent.paused = true; }
     }
+    // MPV has no displayed-frame callback. Only an advancing clock confirms startup.
+    if (event.type === 'time' && this.engine?.id === 'mpv' && this.cancelStartup !== null &&
+      this.snapshot.positionMs > this.startupPositionMs) { this.confirmStartup(); }
     this.publish(); this.onEvent(event);
+  }
+  private confirmStartup(): void {
+    this.startupConfirmed = true; this.cancelStartup?.();
+  }
+  private async playEngine(engine: PlayerEngine): Promise<void> {
+    if (this.startupConfirmed) {
+      await this.deadline(engine.play(), PlaybackController.startupTimeoutMs); return;
+    }
+    this.cancelStartup?.();
+    const generation = this.generation; const attempt = this.attempt;
+    this.startupPositionMs = this.snapshot.positionMs;
+    const cancelled = new Promise<void>((resolve): void => {
+      const timer = setTimeout((): void => {
+        this.cancelStartup?.();
+        if (this.valid(generation, attempt) && !this.intent.paused && !this.interrupted) {
+          this.recover(new EngineFailure('timeout', 0, '播放启动超时，请重试'), generation, engine.id);
+        }
+      }, PlaybackController.startupTimeoutMs);
+      this.cancelStartup = (): void => { clearTimeout(timer); this.cancelStartup = null; resolve(); };
+    });
+    // Release/pause can cancel even a play() call which never acknowledges.
+    await Promise.race([engine.play(), cancelled]);
   }
   private updateDuration(duration: number): void {
     if ((this.media?.durationMs ?? 0) > 0) { this.snapshot.durationMs = this.media!.durationMs; }
@@ -242,10 +275,11 @@ export class PlaybackController {
   async play(): Promise<void> {
     this.intent.paused = false; this.interrupted = false;
     if (this.snapshot.phase === 'ended') { await this.seek(0); }
-    await this.command((engine: PlayerEngine): Promise<void> => engine.play());
+    await this.command((engine: PlayerEngine): Promise<void> => this.playEngine(engine));
   }
   async pause(): Promise<void> {
     this.intent.paused = true; this.interrupted = false;
+    this.cancelStartup?.();
     await this.command((engine: PlayerEngine): Promise<void> => engine.pause());
   }
   async seek(fileMs: number): Promise<void> {
@@ -301,29 +335,45 @@ export class PlaybackController {
     } else if (hint === 'resume') {
       if (this.interrupted && !this.intent.paused) {
         this.interrupted = false;
-        this.command((engine: PlayerEngine): Promise<void> => engine.play());
+        this.command((engine: PlayerEngine): Promise<void> => this.playEngine(engine));
       }
     } else if (hint === 'stop') { this.pause(); }
     else if (!this.intent.paused) {
       this.interrupted = true;
+      this.cancelStartup?.();
       this.command((engine: PlayerEngine): Promise<void> => engine.pause());
     }
   }
   private disposeEngine(): Promise<void> {
     const engine = this.engine; const lease = this.lease;
     this.engine = null; this.lease = null; this.available = false;
+    this.cancelStartup?.();
+    this.commandTail = Promise.resolve();
     if (engine !== null) { engine.onEvent = (): void => {}; }
     const cleanup = async (): Promise<void> => {
       // If release fails, retain the lease: closing a descriptor still in use is unsafe.
       if (engine !== null) { await engine.release(); }
       if (lease !== null) { await lease.close(); }
     };
-    this.releaseTail = this.releaseTail.then(cleanup);
+    this.releaseTail = this.releaseTail.catch((): void => {}).then((): Promise<void> =>
+      new Promise<void>((resolve, reject): void => {
+        const timer = setTimeout((): void => {
+          const event = new EngineEvent(); event.type = 'diagnostic'; event.text = '播放器后台释放中'; this.onEvent(event);
+          resolve();
+        }, PlaybackController.releaseTimeoutMs);
+        // Keep the lease alive until native teardown really completes. The UI/session
+        // may close after the deadline without closing descriptors still in use.
+        cleanup().then((): void => { clearTimeout(timer); resolve(); })
+          .catch((error: Error): void => { clearTimeout(timer); reject(error); });
+      }));
     return this.releaseTail;
   }
   async release(): Promise<void> {
     ++this.generation; ++this.attempt; this.media = null; this.switching = false;
-    await this.disposeEngine();
+    try { await this.disposeEngine(); }
+    catch (error) {
+      const event = new EngineEvent(); event.type = 'diagnostic'; event.text = '播放器释放失败，保留媒体文件句柄'; this.onEvent(event);
+    }
     this.snapshot.phase = 'idle'; this.snapshot.playing = false; this.snapshot.buffering = false; this.publish();
   }
 }

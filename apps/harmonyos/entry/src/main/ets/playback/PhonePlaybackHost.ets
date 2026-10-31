@@ -558,8 +558,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       this.phase = PlayerPhase.ready;
       this.sessionCoordinator.bind(new MovieClawPlaybackSession(api, view,
         new PlayerParams(this.mediaItemId, view.decision.file_id ?? 0, this.seasonNumber,
-          this.episodeNumber, view.start_ms, this.shareSlug, this.clipStartMs, this.clipEndMs),
-        (): string => this.audioRef, (): string => this.subtitleRef));
+          this.episodeNumber, view.start_ms, this.shareSlug, this.clipStartMs, this.clipEndMs)));
       this.loadItemInfo();
       this.loadEpisodes();
       this.loadTrickplay();
@@ -859,7 +858,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
         this.timeBucket = Math.floor(snapshot.positionMs / 500);
       }
       this.viewingRecorder?.tick(snapshot.positionMs, snapshot.playing, snapshot.durationMs);
-      this.sessionCoordinator.update(snapshot.positionMs, snapshot.durationMs, snapshot.playing);
+      this.sessionCoordinator.update(snapshot.positionMs, snapshot.durationMs, snapshot.playing,
+        this.audioRef, this.subtitleRef);
       if (snapshot.phase === 'ended') {
         this.ended = true;
         this.viewingRecorder?.finish(snapshot.positionMs, true);

@@ -78,10 +78,12 @@ export class PlaybackGuard {
   stop(): Promise<void> {
     this.disposed = true; this.wanted = false;
     return this.enqueue(async (): Promise<void> => {
-      await this.releaseBackground();
-      const session = this.session; this.session = null;
-      if (session !== null) {
-        try { await session.deactivate(); } finally { await session.destroy(); }
+      try { await this.releaseBackground(); }
+      finally {
+        const session = this.session; this.session = null;
+        if (session !== null) {
+          try { await session.deactivate(); } finally { await session.destroy(); }
+        }
       }
     });
   }
