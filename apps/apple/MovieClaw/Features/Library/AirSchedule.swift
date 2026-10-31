@@ -412,7 +412,8 @@ struct AirScheduleSheet: View {
                     }
                     Spacer(minLength: 4)
                     if let text = AirSchedule.missingText(missing) {
-                        Text(text).font(.caption).foregroundStyle(Theme.warning)
+                        // 能补集时右边的「补第 7 集」已经说了缺哪集，这里不再重复
+                        if !canFind { Text(text).font(.caption).foregroundStyle(Theme.warning) }
                     } else {
                         Text(owned == all.count ? String(localized: .libraryItemAirLegendOwned) : String(localized: .libraryItemAirStatOwned(owned)))
                             .font(.caption).monospacedDigit().foregroundStyle(owned == all.count ? Theme.success : Theme.textMuted)
@@ -473,19 +474,20 @@ struct AirScheduleSheet: View {
     private func dayRow(_ day: AirDay) -> some View {
         let dayMissing = day.episodes.filter { schedule.missingEpisodes.contains($0.episodeNumber) }.map(\.episodeNumber)
         let allOwned = day.episodes.allSatisfy(\.owned)
-        return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(day.today ? String(localized: .libraryItemAirToday) : AirSchedule.weekday(day.date))
-                    .font(.caption.weight(day.today ? .bold : .regular))
-                    .foregroundStyle(day.today ? Theme.info : Theme.textMuted)
+        // 星期单独占一行；日期、圆点、集号、右侧状态排在同一行按文字基线对齐，集号不会落在两行日期的中间
+        return VStack(alignment: .leading, spacing: 1) {
+            Text(day.today ? String(localized: .libraryItemAirToday) : AirSchedule.weekday(day.date))
+                .font(.caption.weight(day.today ? .bold : .regular))
+                .foregroundStyle(day.today ? Theme.info : Theme.textMuted)
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(AirSchedule.shortDate(day.date)).font(.subheadline.weight(.semibold)).monospacedDigit().foregroundStyle(Theme.text)
-            }
-            .lineLimit(1).minimumScaleFactor(0.8)
-            // 定宽：「11月2日」与「10月28日」两行的集号要对齐
-            .frame(width: 72, alignment: .leading)
-            dot(day, missing: !dayMissing.isEmpty, owned: allOwned)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 8) {
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                    // 定宽：「11月2日」与「10月28日」两行的集号要对齐
+                    .frame(width: 72, alignment: .leading)
+                dot(day, missing: !dayMissing.isEmpty, owned: allOwned)
+                    // 圆点没有基线：让圆心落在集号字身中部（基线上方约 6pt）
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 6 }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(AirSchedule.rangeLabel(day.episodes)).font(.body.weight(.semibold)).monospacedDigit().foregroundStyle(Theme.text)
                     if day.finale {
                         Text(String(localized: .libraryItemAirFinaleTag)).font(.caption2.weight(.bold))
@@ -494,26 +496,27 @@ struct AirScheduleSheet: View {
                             .background(Theme.warning, in: .rect(cornerRadius: 6))
                     }
                 }
-                if day.past, let text = AirSchedule.missingText(dayMissing) {
-                    Text(text).font(.caption).foregroundStyle(Theme.warning)
+                Spacer(minLength: 4)
+                if day.past {
+                    if allOwned {
+                        Label(String(localized: .libraryItemAirLegendOwned), systemImage: "checkmark")
+                            .font(.caption).foregroundStyle(Theme.success).labelStyle(.titleAndIcon)
+                    } else if dayMissing.isEmpty {
+                        Text(String(localized: .libraryItemAirAbsent)).font(.caption).foregroundStyle(Theme.textMuted)
+                    } else if canFind {
+                        findButton(String(localized: .libraryItemAirFindEpisode), filled: false)
+                    }
+                } else if day.today {
+                    if let status = AirSchedule.arrival(day.episodes, schedule) {
+                        Text(status.text).font(.caption.weight(.semibold)).foregroundStyle(status.color).lineLimit(1)
+                    }
+                } else {
+                    Text(AirSchedule.relative(day.date, schedule)).font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
                 }
             }
-            Spacer(minLength: 4)
-            if day.past {
-                if allOwned {
-                    Label(String(localized: .libraryItemAirLegendOwned), systemImage: "checkmark")
-                        .font(.caption).foregroundStyle(Theme.success).labelStyle(.titleAndIcon)
-                } else if dayMissing.isEmpty {
-                    Text(String(localized: .libraryItemAirAbsent)).font(.caption).foregroundStyle(Theme.textMuted)
-                } else if canFind {
-                    findButton(String(localized: .libraryItemAirFindEpisode), filled: false)
-                }
-            } else if day.today {
-                if let status = AirSchedule.arrival(day.episodes, schedule) {
-                    Text(status.text).font(.caption.weight(.semibold)).foregroundStyle(status.color).lineLimit(1)
-                }
-            } else {
-                Text(AirSchedule.relative(day.date, schedule)).font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
+            if day.past, let text = AirSchedule.missingText(dayMissing) {
+                // 与集号左缘对齐：日期 72 + 间距 12 + 圆点 10 + 间距 12
+                Text(text).font(.caption).foregroundStyle(Theme.warning).padding(.leading, 106)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
