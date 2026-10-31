@@ -403,8 +403,8 @@ def _reusable_asr(
     """（阻塞）可以直接复用的识别外挂：（外挂路径, 字幕条, 语言码）。
 
     要比视频新、不是这次要作废的旧结果（``stale``：重新识别前已有的外挂，文件名 →
-    [大小, 修改时间]）、读得出来且完整度合格——断电留下的半截文件不复用。``token``
-    是识别结果的语言码；台词语言未知时为 None，取最新的一份。
+    [大小, 修改时间]）、读得出来且非空。识别成功后才原子写出外挂，半截结果留在断点中。
+    ``token`` 是识别结果的语言码；台词语言未知时为 None，取最新的一份。
     """
     video = Path(row.file_path)
     paths = [_asr_sidecar_path(row, token)] if token else _asr_sidecars(row)
@@ -421,7 +421,7 @@ def _reusable_asr(
         except Exception:  # noqa: BLE001 -- 读不出来就当没有，重新识别
             logger.warning("识别外挂读不出来，不复用：%s", path, exc_info=True)
             continue
-        if events and source.assess_events(events, row.duration_seconds).ok:
+        if source.assess_events(events, row.duration_seconds, provenance="asr").ok:
             return path, events, path.name[len(video.stem) + len(".asr.") : -len(".srt")]
         logger.warning("识别外挂不完整，不复用：%s", path)
     return None
@@ -1103,7 +1103,9 @@ async def _pick_loadable(
             continue
         if cand.candidate.sdh:
             events = extract.strip_sdh_markers(events)
-        assessment = source.assess_events(events, row.duration_seconds)
+        assessment = source.assess_events(
+            events, row.duration_seconds, provenance=cand.candidate.provenance
+        )
         cand.reasons.append(assessment.reason)
         cand.reason_messages.append(
             assessment.reason_message or {"message_key": None, "message": assessment.reason}
@@ -2268,7 +2270,7 @@ async def _transcribe(
     spoken = spoken or transcript.language
     token = asr.LANGUAGE_TOKENS.get(spoken or "", "und")
     events = asr.build_cues(transcript.segments, token)
-    assessment = source.assess_events(events, row.duration_seconds)
+    assessment = source.assess_events(events, row.duration_seconds, provenance="asr")
     if not assessment.ok:
         # 识别本身没出错，再跑一遍结果也一样：不留音频缓存与断点
         with contextlib.suppress(OSError):

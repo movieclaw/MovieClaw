@@ -378,7 +378,6 @@ class _FakeDatabase:
 
 
 def _transcript() -> asr.Transcript:
-    # 台词铺满大半部片子：完整度检查要求覆盖 ≥50% 片长
     segments = [_english(i * 100_000 + 1000, ["Line", f"{i}", "here."]) for i in range(60)]
     return asr.Transcript(segments=segments, language="en", speech_seconds=120.0)
 
@@ -492,6 +491,54 @@ async def test_translation_job_keeps_the_transcript_and_tells_the_model_it_is_as
     assert "本地语音识别" in (result.source_desc or "")
 
 
+@pytest.mark.parametrize(("count", "step"), [(41, 7500), (60, 1000), (1, 1000)])
+async def test_completed_sparse_transcription_can_be_written_and_reused(
+    monkeypatch, tmp_path: Path, available, count: int, step: int
+) -> None:
+    row = _row(audio=[_ENGLISH_51])
+    row.duration_seconds = 320
+    calls = _wire_job(monkeypatch, tmp_path, row, "en")
+    transcript = asr.Transcript(
+        segments=[_english(i * step + 1000, ["Line", f"{i}", "here."]) for i in range(count)],
+        language="en",
+        speech_seconds=float(count),
+    )
+    monkeypatch.setattr(sys.modules[__name__], "_transcript", lambda: transcript)
+
+    result = await tasks._run(42, "eng", tasks.GenState(), cancelled=lambda: False)
+
+    assert result.ok, result.message
+    sidecar = tmp_path / "Movie.asr.eng.srt"
+    assert sidecar.read_text(encoding="utf-8").count("-->") == count
+    reused = await tasks._run(42, "eng", tasks.GenState(), cancelled=lambda: False)
+    assert reused.ok, reused.message
+    assert calls["transcribe"] == 1 and calls["extract"] == 1
+
+
+@pytest.mark.parametrize("worker_failed", [False, True])
+async def test_empty_or_failed_transcription_does_not_publish_a_sidecar(
+    monkeypatch, tmp_path: Path, available, worker_failed: bool
+) -> None:
+    row = _row(audio=[_ENGLISH_51])
+    _wire_job(monkeypatch, tmp_path, row, "en")
+
+    async def transcribe(*_args, **_kwargs):
+        if worker_failed:
+            raise asr.TranscribeError({"message": "worker failed"})
+        return asr.Transcript(language="en")
+
+    monkeypatch.setattr(asr, "transcribe", transcribe)
+    result = await tasks._run(42, "eng", tasks.GenState(), cancelled=lambda: False)
+
+    assert not result.ok
+    assert result.message_key == (
+        "library.subtitleJob.asrIncomplete"
+        if worker_failed
+        else "library.subtitleJob.asrAssessment"
+    )
+    assert not list(tmp_path.glob("*.srt"))
+
+
 async def test_restart_reuses_a_fresh_transcript_instead_of_transcribing_again(
     monkeypatch, tmp_path: Path, available
 ) -> None:
@@ -505,14 +552,14 @@ async def test_restart_reuses_a_fresh_transcript_instead_of_transcribing_again(
     assert calls["extract"] == 0 and calls["transcribe"] == 0
 
 
-async def test_truncated_or_outdated_transcripts_are_not_reused(
+async def test_empty_or_outdated_transcripts_are_not_reused(
     monkeypatch, tmp_path: Path, available
 ) -> None:
-    """断电留下的半截外挂、视频换过之后的旧外挂都不复用，重新识别。"""
+    """空外挂、视频换过之后的旧外挂都不复用，重新识别。"""
     row = _row(audio=[_ENGLISH_51])
     calls = _wire_job(monkeypatch, tmp_path, row, "en")
     sidecar = tmp_path / "Movie.asr.eng.srt"
-    translate.write_srt([(1000, 2000, "Only the first line made it.")], sidecar)
+    translate.write_srt([], sidecar)
     video = Path(row.file_path)
     os.utime(sidecar, ns=(video.stat().st_mtime_ns + 10**9,) * 2)
 
