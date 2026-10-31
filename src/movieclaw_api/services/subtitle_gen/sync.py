@@ -30,6 +30,9 @@ logger = logging.getLogger("movieclaw_api.subtitle_gen")
 SAMPLE_RATE = 16_000
 _WINDOW_SECONDS = 120  # 每个抽样窗时长
 _FFMPEG_TIMEOUT = 60.0
+# A window with very little speech cannot distinguish a timing problem from
+# opening credits, title cards, or a quiet music-only passage.
+_MIN_COMPARABLE_SPEECH_MS = 1000
 #: 事件命中率低于该值判"疑似不同步"（§5.2 阈值；能量法噪声大，宽松取值）
 SYNC_THRESHOLD = 0.55
 
@@ -93,9 +96,15 @@ async def extract_pcm(
 
 
 def _silero_model_path() -> Path:
-    return Path(os.environ.get("MOVIECLAW_VAD_DIR", "data/models/silero-vad")) / (
-        "silero_vad.onnx"
-    )
+    configured = os.environ.get("MOVIECLAW_VAD_DIR")
+    if configured:
+        base = Path(configured)
+    else:
+        # The ASR release already carries the matching Silero model.  Keep the
+        # dedicated VAD path for source installs, but do not silently miss the
+        # model in the production image when only MOVIECLAW_ASR_DIR is set.
+        base = Path(os.environ.get("MOVIECLAW_ASR_DIR", "data/models/silero-vad"))
+    return base / "silero_vad.onnx"
 
 
 @functools.cache
@@ -116,22 +125,39 @@ def _silero_session():
 
 
 def _speech_mask_silero(pcm: np.ndarray) -> np.ndarray | None:
-    """silero v5 逐 512 采样帧推理 → 每帧是否语音；失败返回 None。"""
+    """Silero 逐帧推理 → 每帧是否语音；失败返回 None。
+
+    The bundled ASR model uses the current ``x/h/c`` ONNX signature while
+    older standalone VAD releases use ``input/state/sr``.  Support both so a
+    model that is present is not silently replaced by the noisier energy
+    fallback.
+    """
     session = _silero_session()
     if session is None:
         return None
     try:
         frame = 512
         n = len(pcm) // frame
-        state = np.zeros((2, 1, 128), dtype=np.float32)
-        sr = np.array(SAMPLE_RATE, dtype=np.int64)
+        inputs = {item.name for item in session.get_inputs()}
+        current_signature = {"x", "h", "c"}.issubset(inputs)
+        if current_signature:
+            hidden = np.zeros((2, 1, 64), dtype=np.float32)
+            cell = np.zeros((2, 1, 64), dtype=np.float32)
+        else:
+            state = np.zeros((2, 1, 128), dtype=np.float32)
+            sr = np.array(SAMPLE_RATE, dtype=np.int64)
         probs = np.empty(n, dtype=np.float32)
         for i in range(n):
             chunk = pcm[i * frame : (i + 1) * frame].reshape(1, -1)
-            out, state = session.run(
-                None, {"input": chunk, "state": state, "sr": sr}
-            )[:2]
-            probs[i] = float(out.reshape(-1)[0])
+            if current_signature:
+                out = session.run(None, {"x": chunk, "h": hidden, "c": cell})
+                probs[i] = float(out[0].reshape(-1)[0])
+                hidden, cell = out[1], out[2]
+            else:
+                out, state = session.run(
+                    None, {"input": chunk, "state": state, "sr": sr}
+                )[:2]
+                probs[i] = float(out.reshape(-1)[0])
         return probs > 0.5
     except Exception as exc:  # noqa: BLE001 -- 推理形状不符等一律降级
         logger.warning("silero-vad 推理失败，同步检测降级为能量法：%s", exc)
@@ -192,13 +218,19 @@ def event_hit_rate(
     return hits / len(events)
 
 
+def aggregate_sync_scores(scores: list[float]) -> float | None:
+    """Use the worst comparable sampled window as the file-level score."""
+    return min(scores) if scores else None
+
+
 async def sample_sync_score(
     video_path: Path, events: list[SubEvent], runtime_seconds: int | None, audio: int = 0
 ) -> float | None:
     """抽样同步度（0..1）；None=无法检测（无 ffmpeg/无音轨/事件太少）。
 
     首/中/尾三窗各 2 分钟，逐窗算事件命中率后取平均；窗内事件不足 5 条
-    的窗跳过（片头片尾常无对白，不该拉低分数）。
+    的窗跳过（片头片尾常无对白，不该拉低分数）。返回最差窗口，避免一段
+    明显错位被其他两个窗口的高分平均掉。
     """
     if _ffmpeg() is None:
         logger.info("系统中未找到 ffmpeg，跳过字幕同步度检测（结果按未知处理）")
@@ -206,8 +238,10 @@ async def sample_sync_score(
     runtime = runtime_seconds or (max(e[1] for e in events) // 1000 if events else 0)
     if runtime < _WINDOW_SECONDS * 2 or len(events) < 20:
         return None  # 短片/事件太少，抽样无统计意义
+    # Keep the head sample near the beginning so a bad intro splice is visible;
+    # skip only the first minute on long files to avoid a logo-only window.
     starts = [
-        runtime * 0.1,
+        min(60.0, runtime * 0.1),
         runtime * 0.5 - _WINDOW_SECONDS / 2,
         runtime * 0.9 - _WINDOW_SECONDS,
     ]
@@ -226,12 +260,14 @@ async def sample_sync_score(
             return None  # 音频抽不出来：整个检测按未知处理
         # VAD（尤其 silero 逐帧推理）放线程池：事件循环同时在服务所有请求
         speech = await asyncio.to_thread(speech_intervals, pcm)
+        # Opening credits and title cards can have subtitle events while the
+        # dialogue track is silent; such a window is unknown, not a mismatch.
+        if sum(e - s for s, e in speech) < _MIN_COMPARABLE_SPEECH_MS:
+            continue
         rate = event_hit_rate(speech, window_events)
         if rate is not None:
             scores.append(rate)
-    if not scores:
-        return None
-    return sum(scores) / len(scores)
+    return aggregate_sync_scores(scores)
 
 
 # ---------------------------------------------------------------------------
@@ -256,17 +292,39 @@ def _rasterize(intervals: list[tuple[int, int]], total_ms: int) -> np.ndarray:
     return signal
 
 
-def _best_offset(reference: np.ndarray, candidate: np.ndarray) -> tuple[int, float]:
+def _best_offset(
+    reference: np.ndarray,
+    candidate: np.ndarray,
+    coverage: list[tuple[int, int]] | None = None,
+) -> tuple[int, float]:
     """FFT 互相关求 candidate 相对 reference 的最优平移（毫秒）与相关分。
 
     去均值后做相关：全 1 段不该白得分；限幅在 ±_MAX_SHIFT_S 内取峰。
     """
     n = max(len(reference), len(candidate))
+    if coverage:
+        # Only decoded audio windows are evidence.  Include search-width
+        # padding for the candidate so a global offset remains observable,
+        # while unsampled parts of a feature-length film do not dilute the
+        # confidence score.
+        padding = _MAX_SHIFT_S * 1000
+        sampled = [(max(0, s - padding), e + padding) for s, e in coverage]
+        signal_end_ms = max(0, (n - 1) * _RASTER_MS)
+        ref_mask = _rasterize(coverage, signal_end_ms)
+        cand_mask = _rasterize(sampled, signal_end_ms)
+        ref_active = ref_mask.astype(bool)
+        cand_active = cand_mask.astype(bool)
+        if ref_active.any() and cand_active.any():
+            ref_mean = float(reference[ref_active].mean())
+            cand_mean = float(candidate[cand_active].mean())
+            reference = (reference - ref_mean) * ref_mask
+            candidate = (candidate - cand_mean) * cand_mask
+    else:
+        reference = reference - reference.mean()
+        candidate = candidate - candidate.mean()
     size = 1 << (2 * n - 1).bit_length()
-    ref = reference - reference.mean()
-    cand = candidate - candidate.mean()
-    fr = np.fft.rfft(ref, size)
-    fc = np.fft.rfft(cand, size)
+    fr = np.fft.rfft(reference, size)
+    fc = np.fft.rfft(candidate, size)
     corr = np.fft.irfft(fr * np.conj(fc), size)
     # corr[k] = sum ref[i+k]*cand[i]（k>=0：cand 需右移 k 格）；负位移在尾部
     # 搜索窗不能超过真实信号长度。短片的 FFT padding 可能小于固定 ±120s
@@ -284,7 +342,7 @@ def _best_offset(reference: np.ndarray, candidate: np.ndarray) -> tuple[int, flo
     )
     values = np.concatenate([corr[: max_shift + 1], corr[-max_shift:]])
     peak = int(np.argmax(values))
-    denom = float(np.sqrt((ref**2).sum() * (cand**2).sum())) or 1.0
+    denom = float(np.sqrt((reference**2).sum() * (candidate**2).sum())) or 1.0
     return int(lags[peak]) * _RASTER_MS, float(values[peak] / denom)
 
 
@@ -298,7 +356,9 @@ class Calibration:
 
 
 def estimate_calibration(
-    reference: list[tuple[int, int]], subtitle: list[tuple[int, int]]
+    reference: list[tuple[int, int]],
+    subtitle: list[tuple[int, int]],
+    coverage: list[tuple[int, int]] | None = None,
 ) -> Calibration | None:
     """字幕区间相对参考区间（语音区间或另一条已对齐字幕）的全局校准。
 
@@ -312,7 +372,9 @@ def estimate_calibration(
     best: Calibration | None = None
     for scale in SCALE_HYPOTHESES:
         scaled = [(int(s * scale), int(e * scale)) for s, e in subtitle]
-        offset, score = _best_offset(ref_signal, _rasterize(scaled, total))
+        offset, score = _best_offset(
+            ref_signal, _rasterize(scaled, total), coverage=coverage
+        )
         if best is None or score > best.score:
             best = Calibration(scale=scale, offset_ms=offset, score=score)
     return best
