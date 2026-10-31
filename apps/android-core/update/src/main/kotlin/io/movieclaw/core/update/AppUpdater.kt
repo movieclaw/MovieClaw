@@ -2,6 +2,7 @@ package io.movieclaw.core.update
 
 import android.annotation.SuppressLint
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -12,6 +13,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.core.content.FileProvider
 import io.movieclaw.core.model.generated.ClientReleaseView
 import io.movieclaw.core.network.generated.McApi
 import okhttp3.HttpUrl
@@ -152,8 +154,27 @@ class AppUpdater(
                     PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                         @Suppress("DEPRECATION")
                         val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
-                        if (confirm != null) ctx.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        onStatus(InstallStatus.WaitingForUser)
+                        runCatching {
+                            try {
+                                ctx.startActivity(requireNotNull(confirm).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            } catch (_: ActivityNotFoundException) {
+                                // 部分电视安装器没有会话确认入口，改用同一 APK 的标准安装入口。
+                                // 新入口自建安装流程，不再接收旧会话的取消/失败通知。
+                                ctx.unregisterReceiver(this)
+                                installer.abandonSession(sessionId)
+                                val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.app-update", apk)
+                                ctx.startActivity(Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                            }
+                        }.fold(
+                            onSuccess = { onStatus(InstallStatus.WaitingForUser) },
+                            onFailure = {
+                                runCatching { ctx.unregisterReceiver(this) }
+                                runCatching { installer.abandonSession(sessionId) }
+                                onStatus(InstallStatus.Failed("没能交给系统安装器：${it.message ?: it.javaClass.simpleName}"))
+                            },
+                        )
                     }
                     PackageInstaller.STATUS_SUCCESS -> {
                         runCatching { ctx.unregisterReceiver(this) }
