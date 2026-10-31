@@ -9,6 +9,7 @@ import asyncio
 import inspect
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -856,6 +857,31 @@ def test_sync_returns_none_when_undetectable() -> None:
     assert sync.event_hit_rate([], []) is None
 
 
+def test_sync_uses_worst_sampled_window() -> None:
+    assert sync.aggregate_sync_scores([0.91, 0.58, 0.87]) == 0.58
+    assert sync.aggregate_sync_scores([]) is None
+
+
+def test_silero_current_onnx_signature_is_supported(monkeypatch) -> None:
+    """The ASR release's x/h/c model must not fall back to energy VAD."""
+
+    class Session:
+        def get_inputs(self):
+            return [SimpleNamespace(name=name) for name in ("x", "h", "c")]
+
+        def run(self, _outputs, inputs):  # noqa: ANN001
+            assert set(inputs) == {"x", "h", "c"}
+            return [
+                np.asarray([[0.9]], dtype=np.float32),
+                inputs["h"],
+                inputs["c"],
+            ]
+
+    monkeypatch.setattr(sync, "_silero_session", lambda: Session())
+    mask = sync._speech_mask_silero(np.zeros(sync.SAMPLE_RATE // 2, dtype=np.float32))
+    assert mask is not None and mask.all()
+
+
 async def test_sample_sync_score_degrades_without_ffmpeg(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(sync, "_ffmpeg", lambda: None)
     score = await sync.sample_sync_score(tmp_path / "x.mkv", _events(100), 6000)
@@ -1003,6 +1029,45 @@ def test_calibration_apply_roundtrip() -> None:
 
 def test_calibration_none_on_empty() -> None:
     assert sync.estimate_calibration([], [(0, 1000)]) is None
+
+
+async def test_generation_auto_calibrates_only_confident_global_offset(monkeypatch) -> None:
+    row = _file([], [])
+    events = [(1000, 2000, "a"), (5000, 6000, "b")]
+
+    async def fake_reference(_row, _events):  # noqa: ANN001
+        return [(4000, 5000), (8000, 9000)]
+
+    monkeypatch.setattr(tasks, "_audio_reference_intervals", fake_reference)
+    monkeypatch.setattr(
+        sync,
+        "estimate_calibration",
+        lambda _reference, _subtitle: sync.Calibration(1.0, 3000, 0.8),
+    )
+
+    result = await tasks._try_auto_calibrate_events(row, events)
+
+    assert result is not None
+    corrected, calibration = result
+    assert calibration.offset_ms == 3000
+    assert corrected == [(4000, 5000, "a"), (8000, 9000, "b")]
+
+
+async def test_generation_does_not_apply_low_confidence_calibration(monkeypatch) -> None:
+    row = _file([], [])
+    events = [(1000, 2000, "a")]
+
+    async def fake_reference(_row, _events):  # noqa: ANN001
+        return [(4000, 5000)]
+
+    monkeypatch.setattr(tasks, "_audio_reference_intervals", fake_reference)
+    monkeypatch.setattr(
+        sync,
+        "estimate_calibration",
+        lambda _reference, _subtitle: sync.Calibration(1.0, 3000, 0.49),
+    )
+
+    assert await tasks._try_auto_calibrate_events(row, events) is None
 
 
 # ---------------------------------------------------------------------------

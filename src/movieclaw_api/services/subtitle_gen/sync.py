@@ -93,9 +93,15 @@ async def extract_pcm(
 
 
 def _silero_model_path() -> Path:
-    return Path(os.environ.get("MOVIECLAW_VAD_DIR", "data/models/silero-vad")) / (
-        "silero_vad.onnx"
-    )
+    configured = os.environ.get("MOVIECLAW_VAD_DIR")
+    if configured:
+        base = Path(configured)
+    else:
+        # The ASR release already carries the matching Silero model.  Keep the
+        # dedicated VAD path for source installs, but do not silently miss the
+        # model in the production image when only MOVIECLAW_ASR_DIR is set.
+        base = Path(os.environ.get("MOVIECLAW_ASR_DIR", "data/models/silero-vad"))
+    return base / "silero_vad.onnx"
 
 
 @functools.cache
@@ -116,22 +122,39 @@ def _silero_session():
 
 
 def _speech_mask_silero(pcm: np.ndarray) -> np.ndarray | None:
-    """silero v5 逐 512 采样帧推理 → 每帧是否语音；失败返回 None。"""
+    """Silero 逐帧推理 → 每帧是否语音；失败返回 None。
+
+    The bundled ASR model uses the current ``x/h/c`` ONNX signature while
+    older standalone VAD releases use ``input/state/sr``.  Support both so a
+    model that is present is not silently replaced by the noisier energy
+    fallback.
+    """
     session = _silero_session()
     if session is None:
         return None
     try:
         frame = 512
         n = len(pcm) // frame
-        state = np.zeros((2, 1, 128), dtype=np.float32)
-        sr = np.array(SAMPLE_RATE, dtype=np.int64)
+        inputs = {item.name for item in session.get_inputs()}
+        current_signature = {"x", "h", "c"}.issubset(inputs)
+        if current_signature:
+            hidden = np.zeros((2, 1, 64), dtype=np.float32)
+            cell = np.zeros((2, 1, 64), dtype=np.float32)
+        else:
+            state = np.zeros((2, 1, 128), dtype=np.float32)
+            sr = np.array(SAMPLE_RATE, dtype=np.int64)
         probs = np.empty(n, dtype=np.float32)
         for i in range(n):
             chunk = pcm[i * frame : (i + 1) * frame].reshape(1, -1)
-            out, state = session.run(
-                None, {"input": chunk, "state": state, "sr": sr}
-            )[:2]
-            probs[i] = float(out.reshape(-1)[0])
+            if current_signature:
+                out = session.run(None, {"x": chunk, "h": hidden, "c": cell})
+                probs[i] = float(out[0].reshape(-1)[0])
+                hidden, cell = out[1], out[2]
+            else:
+                out, state = session.run(
+                    None, {"input": chunk, "state": state, "sr": sr}
+                )[:2]
+                probs[i] = float(out.reshape(-1)[0])
         return probs > 0.5
     except Exception as exc:  # noqa: BLE001 -- 推理形状不符等一律降级
         logger.warning("silero-vad 推理失败，同步检测降级为能量法：%s", exc)
@@ -192,13 +215,19 @@ def event_hit_rate(
     return hits / len(events)
 
 
+def aggregate_sync_scores(scores: list[float]) -> float | None:
+    """Use the worst sampled window as the file-level quality score."""
+    return min(scores) if scores else None
+
+
 async def sample_sync_score(
     video_path: Path, events: list[SubEvent], runtime_seconds: int | None, audio: int = 0
 ) -> float | None:
     """抽样同步度（0..1）；None=无法检测（无 ffmpeg/无音轨/事件太少）。
 
     首/中/尾三窗各 2 分钟，逐窗算事件命中率后取平均；窗内事件不足 5 条
-    的窗跳过（片头片尾常无对白，不该拉低分数）。
+    的窗跳过（片头片尾常无对白，不该拉低分数）。返回最差窗口，避免一段
+    明显错位被其他两个窗口的高分平均掉。
     """
     if _ffmpeg() is None:
         logger.info("系统中未找到 ffmpeg，跳过字幕同步度检测（结果按未知处理）")
@@ -206,8 +235,10 @@ async def sample_sync_score(
     runtime = runtime_seconds or (max(e[1] for e in events) // 1000 if events else 0)
     if runtime < _WINDOW_SECONDS * 2 or len(events) < 20:
         return None  # 短片/事件太少，抽样无统计意义
+    # Keep the head sample near the beginning so a bad intro splice is visible;
+    # skip only the first minute on long files to avoid a logo-only window.
     starts = [
-        runtime * 0.1,
+        min(60.0, runtime * 0.1),
         runtime * 0.5 - _WINDOW_SECONDS / 2,
         runtime * 0.9 - _WINDOW_SECONDS,
     ]
@@ -229,9 +260,7 @@ async def sample_sync_score(
         rate = event_hit_rate(speech, window_events)
         if rate is not None:
             scores.append(rate)
-    if not scores:
-        return None
-    return sum(scores) / len(scores)
+    return aggregate_sync_scores(scores)
 
 
 # ---------------------------------------------------------------------------
