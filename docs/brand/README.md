@@ -30,6 +30,7 @@
 | `masters/mark-ui-1024.png` | 细笔画标志母版（笔画占字形 11.5%）：网页侧栏等界面小尺寸用 |
 | `masters/app-icon-1024.png` | App 图标母版（纯黑底、不透明） |
 | `masters/favicon-1024.png` | 标签页图标母版 |
+| [`harmonyos/`](harmonyos/README.md) | 鸿蒙市场：1024 / 216 直角不透明 PNG、可编辑 SVG；1024 PNG 与 HAP 分层资源的合成结果逐像素一致 |
 | `transcoder/` | macOS 转码器专用三角循环标志：应用图标 SVG / 1024 PNG、透明标志 SVG / PNG、菜单栏单色 SVG、`AppIcon.icns`；`sizes/app-icon/` 与 `sizes/mark/` 含 16 / 32 / 64 / 128 / 256 / 512 PNG |
 | [`kit/`](kit/README.md) | 完整定稿资产包：`source/` 矢量、`brand/` 品牌位图、`ios/`、`macos/`、`web/` 平台资源，以及 `preview.png` 总览 |
 
@@ -46,6 +47,7 @@
 |---|---|---|
 | 网页 | `apps/web/public/brand/`、`apps/web/app/favicon.ico`、`apps/web/public/favicon.svg`、`apple-touch-icon.png`、`icons/`、`splash/` | `.venv/bin/python scripts/brand/generate_web_assets.py`（启动图的设备清单读 `apps/web/lib/apple-splash.ts`） |
 | iOS | `apps/apple/MovieClaw/Assets.xcassets/AppIcon.appiconset/`：默认（不透明）、深色（透明底）、着色（灰阶）三种外观 | 直接替换三张 1024 PNG |
+| HarmonyOS | `docs/brand/harmonyos/` 上架素材；`apps/harmonyos/AppScope/` 与 `entry/` 的公共分层图标、启动图 | `python3 apps/harmonyos/tools/gen_brand_icon.py`，后台 PNG 与包内图层同步生成 |
 | Apple TV | `apps/apple/MovieClawTV/Assets.xcassets/App Icon & Top Shelf Image.brandassets/`：分层图标（背景 + 标志两层，焦点视差）与 Top Shelf 横幅 | `.venv/bin/python scripts/brand/generate_tvos_assets.py`（macOS，字标经 Quick Look 从横版组合 SVG 取出） |
 | Android 手机 | `apps/android/app/src/main/res/`：API 26+ 自适应图标——`drawable-*/ic_launcher_foreground.png`（极光标志，外框占可见区 64%，位置对齐 iOS）、`ic_launcher_monochrome.png`（主题图标单色层）、`drawable/ic_launcher_background.xml`（与 iOS 一致的深色渐变底） | `.venv/bin/python scripts/brand/generate_android_assets.py` |
 | Android TV | `apps/android-tv/app/src/main/res/`：不透明 PNG 横幅（16:9，xhdpi 320×180）、方形 PNG 图标（xhdpi 160×160），mdpi 至 xxxhdpi 五档；API 26+ 为 108dp 自适应前景 + 纯黑背景 | `.venv/bin/python scripts/brand/generate_android_tv_assets.py`（macOS / Pillow，复用 tvOS 字标提取方法） |
