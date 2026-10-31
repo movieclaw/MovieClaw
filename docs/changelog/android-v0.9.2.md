@@ -15,6 +15,7 @@ Open a series that still has an air date today or later. Under the episodes titl
 - If the stream drops before the first frame, MovieClaw shows **连接中断，正在重连…** and tries again, instead of opening the error page immediately.
 - Playback stays on the address chosen for this session. When the stream drops, MovieClaw picks an address again before it asks for a new session, instead of keeping an address that no longer answers.
 - Inside **播出日历 (Air schedule)** and **全部分集 (All episodes)**, a drag on a blank area, a divider, or a fixed button no longer pulls the sheet closed. The list still scrolls. Drag the sheet header, tap the dimmed area, or press back to close it.
+- After **检查更新 (Check for updates)** downloads a new version, if the system has no session confirmation screen, MovieClaw opens the standard install screen for that same APK instead of stopping. On a phone this screen is usually present; the fallback is the same path the TV uses.
 
 Full changes: [android-v0.9.1 → android-v0.9.2](https://github.com/movieclaw/MovieClaw/compare/android-v0.9.1...android-v0.9.2).
 
@@ -39,5 +40,6 @@ Full changes: [android-v0.9.1 → android-v0.9.2](https://github.com/movieclaw/M
 - 第一帧出来之前断流，会显示「连接中断，正在重连…」并再试，不再立刻打开错误页。
 - 播放停在这一次选定的地址上。断流之后，会先重新选地址，再向服务器要新的播放会话，不再死守一个已经不应答的地址。
 - 在「播出日历」和「全部分集」里，空白处、分隔线或固定按钮上的拖动不再把底部面板拖走。列表照常滚动。要关掉，拖面板头部、点外面的遮罩，或按返回键。
+- 「检查更新」下载完新版本之后，如果系统没有会话确认页，会改用同一份 APK 的标准安装界面，不再停在装不上。手机上通常有这个确认页；这条退路和电视是同一条。
 
 完整改动：[android-v0.9.1 → android-v0.9.2](https://github.com/movieclaw/MovieClaw/compare/android-v0.9.1...android-v0.9.2)。
