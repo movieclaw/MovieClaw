@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import textwrap
 import time
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -155,3 +157,127 @@ def test_plugins_only_create_their_own_job_types_and_dedupe_per_plugin(env) -> N
             j["id"]: j["status"] for j in client.get("/api/v1/jobs").json()["data"]["items"]
         }
         assert statuses[first.id] == "queued" and statuses[theirs.id] == "queued"
+
+
+@pytest.mark.parametrize("interruption", ["lease", "settings"])
+def test_in_flight_process_jobs_recover_without_restarting_dispatcher(
+    env, monkeypatch, interruption
+):
+    """真实子进程 + SQLite + HTTP：四槽均等待时，回收租约或保存设置后队列继续走。"""
+    from sqlalchemy import update
+
+    from movieclaw_api.services import jobs, plugin_runtime
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import Job, JobLock, JobStatus, utcnow
+
+    recovered = asyncio.Event()
+    real_heartbeat = jobs.JobDispatcher._heartbeat
+
+    async def heartbeat_after_recovery(self, *args):
+        await recovered.wait()
+        await real_heartbeat(self, *args)
+
+    if interruption == "lease":
+        monkeypatch.setattr(jobs, "JOB_HEARTBEAT_SECONDS", 0.05)
+        monkeypatch.setattr(jobs.JobDispatcher, "_heartbeat", heartbeat_after_recovery)
+    (env / "plugins").mkdir()
+    (env / "plugins" / "acme_queue.py").write_text(
+        textwrap.dedent("""
+        import asyncio
+        import os
+        from pydantic import BaseModel
+        from movieclaw_sdk import plugin
+        from movieclaw_sdk.jobs import JOB_HANDLERS, PLUGIN_JOBS, RegisteredJobHandler
+
+        class Config(BaseModel):
+            release: bool = False
+
+        @plugin("acme.queue", title="队列插件", config=Config, inject=(PLUGIN_JOBS,))
+        async def apply(ctx):
+            seen = set()
+            async def work(context, data):
+                await context.update_progress(
+                    mode="indeterminate", phase="entered", message="读取条目"
+                )
+                n = data["n"]
+                if n < 4 and n not in seen and not ctx.config.release:
+                    seen.add(n)
+                    await asyncio.Event().wait()
+                return {"n": n, "pid": os.getpid()}
+
+            ctx.contribute(JOB_HANDLERS, "work", RegisteredJobHandler(work, frozenset({1})))
+            for n in range(24):
+                await ctx.use(PLUGIN_JOBS).scoped(ctx).create(
+                    "acme.queue:work", input={"n": n}, dedupe_key=f"item-{n}"
+                )
+        """),
+        encoding="utf-8",
+    )
+    (env / "plugins.yaml").write_text(
+        "- id: acme.queue\n  local: true\n  module: acme_queue\n  runtime: process\n",
+        encoding="utf-8",
+    )
+    app, client = make_client()
+    with client:
+        dispatcher = jobs._dispatcher
+        loop = dispatcher._loop_task
+        session = plugin_runtime.sessions["acme.queue"]
+        pid = session.pid
+        wait_for(lambda: sum(j["progress"]["phase"] == "entered" for j in plugin_jobs(client)) == 4)
+        held = [j["id"] for j in plugin_jobs(client) if j["status"] == "running"]
+        assert len(held) == 4
+
+        if interruption == "lease":
+
+            async def expire_and_recover():
+                async with get_database().session() as db_session:
+                    expired = utcnow() - timedelta(seconds=1)
+                    await db_session.execute(
+                        update(Job).where(Job.id.in_(held)).values(lease_expires_at=expired)
+                    )
+                    await db_session.execute(
+                        update(JobLock)
+                        .where(JobLock.job_id.in_(held))
+                        .values(lease_expires_at=expired)
+                    )
+                    await db_session.commit()
+                await dispatcher._recover_expired_jobs()
+                async with get_database().session() as db_session:
+                    rows = await jobs.list_jobs(db_session, job_type="acme.queue:work")
+                assert all(row.status is JobStatus.QUEUED for row in rows)
+                assert len(dispatcher._running) == 4
+                recovered.set()
+
+            client.portal.call(expire_and_recover)
+        else:
+            reply = client.put(
+                "/api/v1/app/plugins/acme.queue/settings", json={"values": {"release": True}}
+            )
+            assert reply.status_code == 200, reply.text
+
+        wait_for(lambda: all(j["status"] == "succeeded" for j in plugin_jobs(client)), timeout=60)
+        completed = plugin_jobs(client)
+        assert len(completed) == 24
+        assert sorted(j["result"]["n"] for j in completed) == list(range(24))
+        assert jobs._dispatcher is dispatcher and dispatcher._loop_task is loop
+        assert not loop.done()
+        if interruption == "lease":
+            assert plugin_runtime.sessions["acme.queue"] is session and session.pid == pid
+            assert session.jobs == {}
+            assert all(j["attempt"] == 1 for j in completed)
+
+        # 主程序任务也能继续领取，不能只证明插件自己的队列恢复。
+        async def enqueue_core():
+            async with get_database().session() as db_session:
+                result = await jobs.create_job(
+                    db_session, job_type="library.search-index.refresh", input_data={}
+                )
+            return result.job.id
+
+        core_id = client.portal.call(enqueue_core)
+        wait_for(
+            lambda: (
+                client.get(f"/api/v1/jobs/{core_id}").json()["data"]["status"]
+                == JobStatus.SUCCEEDED.value
+            )
+        )

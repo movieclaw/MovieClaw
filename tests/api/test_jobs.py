@@ -354,6 +354,81 @@ async def test_startup_recovery_tolerates_locked_database(job_db, monkeypatch) -
         await dispatcher.close()
 
 
+@pytest.mark.parametrize("takeover", [False, True])
+async def test_recovered_local_job_releases_its_execution_slot(job_db, monkeypatch, takeover):
+    """续租失败后旧 handler 仍在等待：台账全 queued，也必须能重新领取。"""
+    monkeypatch.setattr(jobs, "JOB_HEARTBEAT_SECONDS", 0.05)
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+    recovered = asyncio.Event()
+    calls = 0
+    real_heartbeat = jobs.JobDispatcher._heartbeat
+
+    async def heartbeat_after_recovery(self, *args):
+        await recovered.wait()
+        await real_heartbeat(self, *args)
+
+    monkeypatch.setattr(jobs.JobDispatcher, "_heartbeat", heartbeat_after_recovery)
+
+    job_type = f"test.recovered-slot.{takeover}"
+
+    @jobs.register_job_handler(job_type)
+    async def work(context, payload):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+        return {"calls": calls}
+
+    async with job_db.session() as session:
+        created = await jobs.create_job(
+            session,
+            job_type=job_type,
+            input_data={},
+            resources=[jobs.ResourceRef("library_file", 991)],
+        )
+    dispatcher = await jobs.init_job_dispatcher(max_parallel=1)
+    await asyncio.wait_for(started.wait(), timeout=2)
+    execution = dispatcher._running[created.job.id]
+
+    # 模拟慢盘导致心跳错过租约，由正常恢复路径把任务退回队列。
+    async with job_db.session() as session:
+        row = await jobs.get_job(session, created.job.id)
+        row.lease_expires_at = utcnow() - timedelta(seconds=1)
+        lock = await session.get(JobLock, "library_file:991")
+        lock.lease_expires_at = row.lease_expires_at
+        await session.commit()
+    await dispatcher._recover_expired_jobs()
+    # 有空闲槽位时也不能重领本地旧协程尚未退出的任务：否则按 id 保存的
+    # Task 会被覆盖，旧协程的 done 回调还会误删新执行的引用。
+    assert await dispatcher._claim_one() is None
+    if takeover:
+        successor = jobs.JobDispatcher(max_parallel=1)
+        claimed = await successor._claim_one()
+        assert claimed is not None and claimed[0] == created.job.id
+    recovered.set()
+    await asyncio.wait_for(stopped.wait(), timeout=2)
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(asyncio.shield(execution), timeout=2)
+    if takeover:
+        async with job_db.session() as session:
+            row = await jobs.get_job(session, created.job.id)
+            assert row.status is JobStatus.RUNNING and row.lease_owner == claimed[1]
+            assert await jobs.resource_lock_owner(session, "library_file", 991) == row.id
+            events = await jobs.job_events(session, row.id)
+            assert "paused" not in [event.event_type for event in events]
+        await successor._execute(*claimed)
+    completed = await _wait_status(created.job.id, JobStatus.SUCCEEDED)
+    assert completed.result == {"calls": 2}
+    assert completed.attempt == 1
+    async with job_db.session() as session:
+        assert await jobs.resource_lock_owner(session, "library_file", 991) is None
+
+
 async def test_retry_blocked_job_requeues_in_place(job_db) -> None:
     async with job_db.session() as session:
         created = await jobs.create_job(

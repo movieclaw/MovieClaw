@@ -1187,6 +1187,10 @@ class JobDispatcher:
                 Job.status.in_([JobStatus.QUEUED.value, JobStatus.RETRY_WAIT.value]),
                 Job.available_at <= now,
             ]
+            if self._running:
+                # 回收租约后，先等本地旧协程退出再重领，否则会覆盖其 Task 引用，
+                # 旧协程的 done 回调还会误删新执行的引用。
+                conditions.append(Job.id.not_in(list(self._running)))
             if _bound_handlers is not None:
                 # 内核接管时：所属插件没启用的任务类型留在队列里等；没有任何代码认识的类型
                 # 照旧领取，在执行时阻塞并提示检查更新
@@ -1280,8 +1284,10 @@ class JobDispatcher:
 
     async def _execute(self, job_id: str, lease_token: str) -> None:
         lease_lost = asyncio.Event()
+        execution = asyncio.current_task()
+        assert execution is not None
         heartbeat = asyncio.create_task(
-            self._heartbeat(job_id, lease_token, lease_lost), name=f"heartbeat-{job_id}"
+            self._heartbeat(job_id, lease_token, lease_lost, execution), name=f"heartbeat-{job_id}"
         )
         try:
             db = get_database()
@@ -1341,7 +1347,8 @@ class JobDispatcher:
         except JobFailed as exc:
             await self._finish_controlled(job_id, lease_token, JobStatus.FAILED, exc)
         except asyncio.CancelledError:
-            await self._pause_for_shutdown(job_id, lease_token)
+            if not lease_lost.is_set():
+                await self._pause_for_shutdown(job_id, lease_token)
             raise
         except Exception:  # noqa: BLE001 -- 未知错误只进日志，对用户返回收敛后的描述
             logger.exception("后台任务执行失败：job=%s", job_id)
@@ -1351,7 +1358,13 @@ class JobDispatcher:
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat
 
-    async def _heartbeat(self, job_id: str, lease_token: str, lease_lost: asyncio.Event) -> None:
+    async def _heartbeat(
+        self,
+        job_id: str,
+        lease_token: str,
+        lease_lost: asyncio.Event,
+        execution: asyncio.Task[None],
+    ) -> None:
         while True:
             await asyncio.sleep(JOB_HEARTBEAT_SECONDS)
             now = utcnow()
@@ -1366,9 +1379,7 @@ class JobDispatcher:
                     )
                     if not renewed.rowcount:
                         await session.rollback()
-                        lease_lost.set()
-                        logger.warning("任务执行租约已被接管：job=%s", job_id)
-                        return
+                        break
                     await session.execute(
                         update(JobLock)
                         .where(JobLock.job_id == job_id)
@@ -1380,6 +1391,12 @@ class JobDispatcher:
             except Exception:  # noqa: BLE001 -- 短暂 DB 抖动时继续争取在租约内续期
                 logger.exception("后台任务心跳续租失败，将自动重试：job=%s", job_id)
                 await asyncio.sleep(3)
+        # 先关闭心跳的 DB 会话，再取消旧执行，避免其 finally 反过来打断会话清理。
+        # 旧 handler 可能一直在等插件或子任务；仅置标记不会归还本地槽位，
+        # 最终会出现台账全 queued、执行器却已满的假死。
+        lease_lost.set()
+        logger.warning("任务执行租约已被接管：job=%s", job_id)
+        execution.cancel()
 
     async def _load_owned(self, session: AsyncSession, job_id: str, lease_token: str) -> Job | None:
         job = await _lock_job(session, job_id)
