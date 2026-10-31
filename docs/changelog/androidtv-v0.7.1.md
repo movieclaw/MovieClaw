@@ -7,6 +7,7 @@ If the stream drops before the first frame, playback tries again instead of open
 ### Fixed
 
 - If the stream drops before the first frame, MovieClaw shows **连接中断，正在重连…** and tries again, instead of opening the error page immediately. Choosing a new address before that retry is still the phone app's behavior; the TV keeps the address it already has.
+- After **立即更新**, if the TV's installer has no session confirmation screen, MovieClaw opens the standard install screen for that same APK instead of stopping. You can also start this from **检查更新** at the bottom of **谁在看**.
 
 Full changes: [androidtv-v0.7.0 → androidtv-v0.7.1](https://github.com/movieclaw/MovieClaw/compare/androidtv-v0.7.0...androidtv-v0.7.1).
 
@@ -23,5 +24,6 @@ Full changes: [androidtv-v0.7.0 → androidtv-v0.7.1](https://github.com/moviecl
 ### 修好了
 
 - 第一帧出来之前断流，会显示「连接中断，正在重连…」并再试，不再立刻打开错误页。断流后先重新选地址仍是手机上的行为；电视继续用已经选好的地址。
+- 点「立即更新」之后，如果电视的系统安装器没有会话确认页，会改开同一份 APK 的标准安装界面，不再停在装不上。也可以从「谁在看」底部的「检查更新」开始。
 
 完整改动：[androidtv-v0.7.0 → androidtv-v0.7.1](https://github.com/movieclaw/MovieClaw/compare/androidtv-v0.7.0...androidtv-v0.7.1)。
