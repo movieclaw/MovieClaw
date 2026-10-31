@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 MovieClaw 品牌母版生成鸿蒙应用图标（分层图标 + 启动页图标）。
+"""从 MovieClaw 品牌母版生成鸿蒙应用图标、市场 PNG 和 SVG 源文件。
 
 品牌母版是 MovieClaw/docs/brand/masters/app-icon-1024.png —— 已经合成好的成品：
 暗底 + 一圈淡淡的外溢光 + 极光播放三角。鸿蒙用的是「分层图标」，
@@ -8,12 +8,13 @@
 
   背景层 = 把三角笔画挖掉后做低频扩散填补（保留母版原有的暗底渐晕与外溢光），
            必须铺满画布且完全不透明；
-  前景层 = 「透明底三角」——按前景叠在背景层上能逐像素还原母版反解出来，
+  前景层 = 「透明底三角」——按前景叠在背景层上还原母版反解出来，
            所以自带母版那道外溢光，且不会和背景层的填补痕迹错位。
 
-拆出来的两层重新合成后与母版一致，换设备形状也只是裁掉四周留白。
+拆层有 8-bit 量化误差；市场 PNG 直接取最终两层的合成结果，保证与包内资源一致。
+换设备形状也只是裁掉四周留白，不在素材中预制圆角。
 
-用法：python3 tools/gen_brand_icon.py（在 Movie_Claw 工程根目录执行）
+用法：python3 apps/harmonyos/tools/gen_brand_icon.py（在仓库根目录执行）
 依赖 Pillow 与 numpy。
 """
 
@@ -23,7 +24,9 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MASTER = os.path.join(ROOT, 'MovieClaw/docs/brand/masters/app-icon-1024.png')
+BRAND = os.path.abspath(os.path.join(ROOT, '../../docs/brand'))
+MASTER = os.path.join(BRAND, 'masters/app-icon-1024.png')
+STORE = os.path.join(BRAND, 'harmonyos')
 
 # 分层图标要同时喂给 AppScope（应用图标）和 entry（入口 Ability 图标）
 MEDIA_DIRS = [
@@ -43,7 +46,11 @@ FEATHER_RADIUS = 10
 
 def load_master():
     """读取品牌母版，返回 (RGB 浮点数组, 笔画掩膜)。"""
-    rgb = np.asarray(Image.open(MASTER).convert('RGB')).astype(np.float32)
+    master = Image.open(MASTER)
+    opaque = master.convert('RGBA').getchannel('A').getextrema() == (255, 255)
+    if master.size != (SIZE, SIZE) or not opaque:
+        raise ValueError('品牌母版必须为 1024×1024、完全不透明的正方形图标')
+    rgb = np.asarray(master.convert('RGB')).astype(np.float32)
     stroke = rgb.max(axis=2) > STROKE_THRESHOLD
     return rgb, stroke
 
@@ -107,9 +114,9 @@ def build_layers():
 
 
 def write_outputs(background, foreground):
-    """写出两层图标到各模块，并从合成结果生成启动页图标。"""
-    background_img = Image.fromarray(background, 'RGB').convert('RGBA')
-    foreground_img = Image.fromarray(foreground, 'RGBA')
+    """写出两层图标到各模块，并从同一合成结果生成市场和启动页图标。"""
+    background_img = Image.fromarray(background).convert('RGBA')
+    foreground_img = Image.fromarray(foreground)
     # 启动页图标用合成结果：启动窗口底色已改成纯黑，暗底会自动融进背景，只看得见三角
     start_icon = Image.alpha_composite(background_img, foreground_img).convert('RGB')
 
@@ -122,6 +129,21 @@ def write_outputs(background, foreground):
     start_path = os.path.join(MEDIA_DIRS[1], 'startIcon.png')
     start_icon.resize((144, 144), Image.LANCZOS).save(start_path)
     print('写入', start_path)
+
+    os.makedirs(STORE, exist_ok=True)
+    for size in (SIZE, 216):
+        icon = start_icon if size == SIZE else start_icon.resize((size, size), Image.LANCZOS)
+        path = os.path.join(STORE, f'app-icon-{size}.png')
+        icon.save(path, optimize=True)
+        if os.path.getsize(path) > 3_000_000:
+            raise ValueError(f'市场图标超过 3 MB：{path}')
+        print('写入', path)
+
+    # 保留原始路径、渐变和滤镜；只指定导出的像素尺寸，不嵌入位图。
+    with open(os.path.join(BRAND, 'app-icon-dark.svg'), encoding='utf-8') as source:
+        svg = source.read().replace('<svg ', '<svg width="1024" height="1024" ', 1)
+    with open(os.path.join(STORE, 'app-icon.svg'), 'w', encoding='utf-8') as output:
+        output.write(svg)
 
 
 def main():
