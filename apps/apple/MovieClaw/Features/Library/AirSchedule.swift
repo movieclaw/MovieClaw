@@ -2,22 +2,12 @@ import SwiftUI
 
 // MARK: - 播出日历（issue #547，Web `lib/air-schedule.ts` + `components/library-air-schedule.tsx`）
 //
-// 分集区里的「季进度条」入口卡 + 按天的日程弹层。只在本季还有今天或以后的播出日期时出现
+// 分集标题下的两行摘要入口 + 分本周 / 下周 / 之后的日程弹层。只在本季还有今天或以后的播出日期时出现
 // （服务端不给 air_schedule 就整块不画），离线时也不画。日期一律是 yyyy-MM-dd 的日历日，
 // 按 UTC 零点换算，「今天」由服务端按站点日历给出，不用本机时钟。
 
 enum AirTone {
     case owned, missing, today, todayFree, upcoming, absent
-
-    var color: Color {
-        switch self {
-        case .owned: Color(red: 0xC3 / 255, green: 0xCA / 255, blue: 0xD6 / 255)
-        case .missing: Color(red: 0xF5 / 255, green: 0x9E / 255, blue: 0x0B / 255)
-        case .today: Color(red: 0x3B / 255, green: 0x82 / 255, blue: 0xF6 / 255)
-        case .todayFree: Color(red: 0x7C / 255, green: 0x84 / 255, blue: 0x94 / 255)
-        case .upcoming, .absent: .white.opacity(0.14)
-        }
-    }
 }
 
 struct AirDay: Identifiable {
@@ -30,9 +20,6 @@ struct AirDay: Identifiable {
 }
 
 enum AirSchedule {
-    /// 超过这么多集就把同状态的连续集合并成色段，一集一格太细
-    static let mergeAbove = 40
-
     private static let calendar: Calendar = {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(identifier: "UTC")!
@@ -79,6 +66,24 @@ enum AirSchedule {
         return AppLanguage.identifier == "en" ? longWeekdayFormatter.string(from: value) : weekdayFormatter.string(from: value)
     }
 
+    /// 0=周一…6=周日
+    private static func weekdayIndex(_ day: String) -> Int { date(day).map(weekdayIndex) ?? 0 }
+    private static func weekdayIndex(_ value: Date) -> Int { (calendar.component(.weekday, from: value) + 5) % 7 }
+
+    /// 某天所在的周相对今天所在的周差几周（周一起算）：0 本周、1 下周，已播的为负
+    static func weekOffset(today: String, day: String) -> Int {
+        Int((Double(days(from: today, to: day) + weekdayIndex(today)) / 7).rounded(.down))
+    }
+
+    /// 日程分组标题：本周 / 下周 / 之后（再往后按周分，周更剧就成了一行一个标题）
+    static func groupTitle(_ group: Int) -> String {
+        switch group {
+        case 0: String(localized: .libraryItemAirThisWeek)
+        case 1: String(localized: .libraryItemAirNextWeek)
+        default: String(localized: .libraryItemAirLater)
+        }
+    }
+
     static func tone(_ episode: API.EpisodeView, _ schedule: API.SeasonAirScheduleView) -> AirTone {
         if episode.owned { return .owned }
         if schedule.missingEpisodes.contains(episode.episodeNumber) { return .missing }
@@ -87,16 +92,6 @@ enum AirSchedule {
         if offset > 0 { return .upcoming }
         if offset == 0 { return schedule.subscriptionId != nil ? .today : .todayFree }
         return .absent
-    }
-
-    static func segments(_ episodes: [API.EpisodeView], _ schedule: API.SeasonAirScheduleView) -> [(tone: AirTone, count: Int)] {
-        let tones = episodes.map { tone($0, schedule) }
-        if tones.count <= mergeAbove { return tones.map { ($0, 1) } }
-        var runs: [(tone: AirTone, count: Int)] = []
-        for t in tones {
-            if let last = runs.last, last.tone == t { runs[runs.count - 1].count += 1 } else { runs.append((t, 1)) }
-        }
-        return runs
     }
 
     struct Counts { let owned: Int, missing: Int, upcoming: Int }
@@ -131,13 +126,6 @@ enum AirSchedule {
             : String(localized: .libraryItemAirEpisodeRange(from, to))
     }
 
-    /// 「10月29日 周四」，海外首播加地区「（美国）」
-    static func dayLabel(_ day: String, _ schedule: API.SeasonAirScheduleView) -> String {
-        let label = String(localized: .libraryItemAirDateWeekday(shortDate(day), weekday(day)))
-        guard let region = schedule.region else { return label }
-        return String(localized: .libraryItemAirDateRegion(label, regionName(region)))
-    }
-
     static func regionName(_ code: String) -> String {
         AppLanguage.locale.localizedString(forRegionCode: code) ?? code
     }
@@ -162,29 +150,55 @@ enum AirSchedule {
             : String(localized: .libraryItemAirFinale(shortDate(last)))
     }
 
-    /// 两个播出日之间的停更说明；周更剧的正常间隔不说（头部已经写了「每周四更新」）
-    static func gap(_ previous: String, _ next: String, weekly: Bool) -> String? {
+    /// 「明天 / 6 天后」
+    static func relative(_ day: String, _ schedule: API.SeasonAirScheduleView) -> String {
+        let offset = days(from: schedule.today, to: day)
+        return offset == 1 ? String(localized: .libraryItemAirTomorrow) : String(localized: .libraryItemAirInDays(offset))
+    }
+
+    static func missingText(_ numbers: [Int]) -> String? {
+        guard let first = numbers.first else { return nil }
+        return numbers.count == 1
+            ? String(localized: .libraryItemAirStatMissingOne(first))
+            : String(localized: .libraryItemAirStatMissing(numbers.count))
+    }
+
+    /// 两个播出日之间的停更说明。头部已经写了「周五至周六更新」，按节奏空着的日子不说，
+    /// 只标跳过了本该更新的日子的真停更
+    static func gap(_ previous: String, _ next: String, weekdays: [Int]) -> String? {
         let skipped = days(from: previous, to: next) - 1
-        guard skipped > 0 else { return nil }
+        guard skipped > 0, let start = date(previous), let end = date(next) else { return nil }
+        let breaks = (1...skipped).contains { offset in
+            calendar.date(byAdding: .day, value: offset, to: start).map { weekdays.contains(weekdayIndex($0)) } ?? false
+        }
+        guard breaks else { return nil }
         if skipped >= 7 { return String(localized: .libraryItemAirBreak(skipped)) }
-        guard !weekly, let start = date(previous), let end = date(next) else { return nil }
         let first = weekday(calendar.date(byAdding: .day, value: 1, to: start)!)
         if skipped == 1 { return String(localized: .libraryItemAirNoUpdateDay(first)) }
         return String(localized: .libraryItemAirNoUpdateRange(first, weekday(calendar.date(byAdding: .day, value: -1, to: end)!)))
     }
 
-    /// 一组同日播出的集在订阅里走到哪了（入口卡与日程「今天」行右侧）
+    /// 一组同日播出的集在订阅里走到哪了（日程「今天」行右侧）
     static func arrival(_ episodes: [API.EpisodeView], _ schedule: API.SeasonAirScheduleView) -> (text: String, color: Color)? {
+        if let at = expectedAt(episodes, schedule) {
+            return (String(localized: .libraryItemAirExpected(expectedTime(at))), Theme.info)
+        }
         let pending = Set(episodes.filter { !$0.owned }.map(\.episodeNumber))
         if pending.isEmpty { return (String(localized: .libraryItemAirInLibrary), Theme.success) }
         if schedule.subscriptionId == nil { return (String(localized: .libraryItemAirNotSubscribed), Theme.textMuted) }
         let arrivals = schedule.arrivals.filter { pending.contains($0.episodeNumber) }
         if arrivals.contains(where: { $0.stage == "organizing" }) { return (String(localized: .libraryItemAirOrganizing), Theme.info) }
         if arrivals.contains(where: { $0.stage == "downloading" }) { return (String(localized: .libraryItemAirDownloading), Theme.info) }
-        if let at = arrivals.compactMap(\.expectedAt).sorted().first {
-            return (String(localized: .libraryItemAirExpected(expectedTime(at))), Theme.info)
-        }
         return arrivals.isEmpty ? nil : (String(localized: .libraryItemAirWaiting), Theme.textMuted)
+    }
+
+    /// 还没入库、也不在下载 / 整理中的那几集最早的预计入库时刻
+    static func expectedAt(_ episodes: [API.EpisodeView], _ schedule: API.SeasonAirScheduleView) -> String? {
+        let pending = Set(episodes.filter { !$0.owned }.map(\.episodeNumber))
+        guard !pending.isEmpty, schedule.subscriptionId != nil else { return nil }
+        let arrivals = schedule.arrivals.filter { pending.contains($0.episodeNumber) }
+        if arrivals.contains(where: { $0.stage == "organizing" || $0.stage == "downloading" }) { return nil }
+        return arrivals.compactMap(\.expectedAt).sorted().first
     }
 
     /// 预计入库时刻：今天只给时分，跨天带上日期
@@ -198,99 +212,94 @@ enum AirSchedule {
     }
 }
 
-// MARK: - 季进度条
+// MARK: - 入口：分集标题下的两行摘要
 
-struct AirSeasonBar: View {
-    let episodes: [API.EpisodeView]
-    let schedule: API.SeasonAirScheduleView
-    var height: CGFloat = 8
-
-    var body: some View {
-        let segments = AirSchedule.segments(episodes, schedule)
-        let total = max(1, segments.reduce(0) { $0 + $1.count })
-        let counts = AirSchedule.counts(episodes, schedule)
-        GeometryReader { proxy in
-            let room = proxy.size.width - CGFloat(max(0, segments.count - 1)) * 2
-            HStack(spacing: 2) {
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(segment.tone.color)
-                        .frame(width: max(3, room * CGFloat(segment.count) / CGFloat(total)))
-                }
-            }
-        }
-        .frame(height: height)
-        .accessibilityElement()
-        .accessibilityLabel(String(localized: .libraryItemAirProgress(counts.owned, counts.missing, counts.upcoming)))
-    }
-}
-
-// MARK: - 入口卡
-
-struct AirScheduleCard: View {
+/// 左边今天 / 下次更新哪一集 + 一行本季节奏，右边入库时刻或还有几天；整块点开日程
+struct AirScheduleSummary: View {
     let episodes: [API.EpisodeView]
     let schedule: API.SeasonAirScheduleView
     var onOpen: () -> Void
 
+    private struct Side {
+        let value: String
+        var caption: String?
+        let color: Color
+        var large = false
+    }
+
     var body: some View {
-        let days = AirSchedule.airDays(episodes, schedule)
-        let next = days.first { !$0.past }
+        let next = AirSchedule.airDays(episodes, schedule).first { !$0.past }
         let counts = AirSchedule.counts(episodes, schedule)
-        let meta = [AirSchedule.cadence(schedule.weekdays), AirSchedule.finale(schedule)].compactMap { $0 }.joined(separator: " · ")
+        let cadence = AirSchedule.cadence(schedule.weekdays)
+        let remaining = counts.upcoming > 0 ? String(localized: .libraryItemAirRemaining(counts.upcoming)) : nil
+        let finale = AirSchedule.finale(schedule)
         Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "calendar").font(.subheadline).foregroundStyle(Theme.accentStrong)
-                    Text(String(localized: .libraryItemAirCalendar)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
-                    Spacer(minLength: 8)
-                    Text(meta).font(.caption).foregroundStyle(Theme.textMuted).lineLimit(1)
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.textFaint)
-                }
-                AirSeasonBar(episodes: episodes, schedule: schedule)
-                if let next {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(headline(next)).font(.body.weight(.semibold)).monospacedDigit().foregroundStyle(Theme.text)
-                            .lineLimit(1).minimumScaleFactor(0.8)
-                        Spacer(minLength: 4)
-                        if let note = note(next) {
-                            Text(note.text).font(.caption).foregroundStyle(note.color).lineLimit(1)
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    if let next {
+                        HStack(spacing: 8) {
+                            Text(next.today ? String(localized: .libraryItemAirToday) : AirSchedule.weekday(next.date))
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(next.today ? Color(red: 0x11 / 255, green: 0x13 / 255, blue: 0x18 / 255) : Theme.text)
+                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                .background(next.today ? Theme.text : .white.opacity(0.14), in: .rect(cornerRadius: 6))
+                            Text(headline(next)).font(.body.weight(.semibold)).monospacedDigit().foregroundStyle(Theme.text)
+                                .lineLimit(1)
                         }
                     }
+                    // 一行放不下先省完结日，再省更新节奏，别把「11月8日」折成两行
+                    ViewThatFits(in: .horizontal) {
+                        Text(join([cadence, remaining, finale])).lineLimit(1)
+                        Text(join([cadence, remaining])).lineLimit(1)
+                        Text(join([remaining]))
+                    }
+                    .font(.footnote).monospacedDigit().foregroundStyle(Theme.textMuted)
                 }
-                HStack(spacing: 10) {
-                    Text(String(localized: .libraryItemAirStatOwned(counts.owned)))
-                    if let missing = missingText(counts.missing) { Text(missing).foregroundStyle(Theme.warning) }
-                    if counts.upcoming > 0 { Text(String(localized: .libraryItemAirStatUpcoming(counts.upcoming))) }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if let next, let side = side(next) {
+                    Rectangle().fill(.white.opacity(0.18)).frame(width: 0.5, height: 38)
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(side.value).font(side.large ? .title2.weight(.semibold) : .body.weight(.semibold))
+                            .monospacedDigit().foregroundStyle(side.color)
+                        if let caption = side.caption {
+                            Text(caption).font(.caption2).foregroundStyle(Theme.textMuted)
+                        }
+                    }
+                    .lineLimit(1)
+                    .fixedSize()
                 }
-                .font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .cardStyle()
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("air-schedule-card")
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("air-schedule-summary")
     }
 
     private func headline(_ day: AirDay) -> String {
         let range = AirSchedule.rangeLabel(day.episodes)
-        if day.today {
-            return day.finale ? String(localized: .libraryItemAirTodayFinale(range)) : String(localized: .libraryItemAirTodayEpisodes(range))
+        return day.finale ? String(localized: .libraryItemAirEpisodesFinale(range)) : String(localized: .libraryItemAirEpisodesUpdate(range))
+    }
+
+    private func join(_ parts: [String?]) -> String { parts.compactMap { $0 }.joined(separator: " · ") }
+
+    /// 今天的看入库进度（预计时刻放大），之后的看还有几天
+    private func side(_ day: AirDay) -> Side? {
+        guard day.today else {
+            let date = AirSchedule.shortDate(day.date)
+            let caption = schedule.region.map { String(localized: .libraryItemAirDateRegion(date, AirSchedule.regionName($0))) } ?? date
+            return Side(value: AirSchedule.relative(day.date, schedule), caption: caption, color: Theme.text)
         }
-        return String(localized: .libraryItemAirNextEpisodes(AirSchedule.dayLabel(day.date, schedule), range))
-    }
-
-    private func note(_ day: AirDay) -> (text: String, color: Color)? {
-        if day.today { return AirSchedule.arrival(day.episodes, schedule) }
-        let offset = AirSchedule.days(from: schedule.today, to: day.date)
-        return (offset == 1 ? String(localized: .libraryItemAirTomorrow) : String(localized: .libraryItemAirInDays(offset)), Theme.textMuted)
-    }
-
-    private func missingText(_ count: Int) -> String? {
-        if count == 0 { return nil }
-        if count == 1, let only = schedule.missingEpisodes.first { return String(localized: .libraryItemAirStatMissingOne(only)) }
-        return String(localized: .libraryItemAirStatMissing(count))
+        if day.episodes.allSatisfy(\.owned) {
+            return Side(value: String(localized: .libraryItemAirLegendOwned), color: Theme.success)
+        }
+        if let at = AirSchedule.expectedAt(day.episodes, schedule) {
+            let sameDay = Formatters.date(at).map { Calendar.current.isDateInToday($0) } ?? false
+            return Side(value: AirSchedule.expectedTime(at), caption: String(localized: .libraryItemAirExpectedShort),
+                        color: Theme.info, large: sameDay)
+        }
+        return AirSchedule.arrival(day.episodes, schedule).map { Side(value: $0.text, color: $0.color) }
     }
 }
 
@@ -315,46 +324,45 @@ struct AirScheduleSheet: View {
         let past = days.filter(\.past)
         let coming = days.filter { !$0.past }
         let counts = AirSchedule.counts(episodes, schedule)
-        let weekly = Set(schedule.weekdays).count == 1
+        let finale = AirSchedule.finale(schedule)
         VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(String(localized: .libraryItemAirCalendar)).font(.title3.weight(.bold)).foregroundStyle(Theme.text)
-                    Text([title, seasonLabel, AirSchedule.cadence(schedule.weekdays)].compactMap { $0 }.joined(separator: " · "))
-                        .font(.footnote).foregroundStyle(Theme.textMuted).lineLimit(1)
+            HStack {
+                Color.clear.frame(width: 44, height: 44)
+                Text(String(localized: .libraryItemAirCalendar)).font(.headline).foregroundStyle(Theme.text)
+                    .frame(maxWidth: .infinity)
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.subheadline.weight(.semibold)).frame(width: 24, height: 24)
                 }
-                Spacer()
-                Button(String(localized: .commonDone)) { dismiss() }.font(.subheadline).foregroundStyle(Theme.textMuted)
+                .buttonStyle(.glass)
+                .accessibilityLabel(String(localized: .commonClose))
             }
-            .padding(.horizontal, 20).padding(.top, 20)
-            VStack(alignment: .leading, spacing: 8) {
-                AirSeasonBar(episodes: episodes, schedule: schedule, height: 10)
-                HStack(spacing: 12) {
-                    legend(.owned, "\(String(localized: .libraryItemAirLegendOwned)) \(counts.owned)")
-                    if counts.missing > 0 { legend(.missing, "\(String(localized: .libraryItemAirLegendMissing)) \(counts.missing)") }
-                    if let today = coming.first, today.today {
-                        legend(schedule.subscriptionId != nil ? .today : .todayFree,
-                               "\(String(localized: .libraryItemAirLegendToday)) \(today.episodes.filter { !$0.owned }.count)")
+            .padding(.horizontal, 14).padding(.top, 14)
+            VStack(alignment: .leading, spacing: 3) {
+                Text([title, seasonLabel, AirSchedule.cadence(schedule.weekdays)].compactMap { $0 }.joined(separator: " · "))
+                    .font(.footnote).foregroundStyle(Theme.textMuted).lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if counts.upcoming > 0 {
+                        Text(String(localized: .libraryItemAirRemaining(counts.upcoming))).font(.title.weight(.bold))
+                        if let finale { Text(finale).font(.subheadline).foregroundStyle(Theme.textMuted) }
+                    } else if let finale {
+                        Text(finale).font(.title.weight(.bold))
                     }
-                    legend(.upcoming, "\(String(localized: .libraryItemAirLegendUpcoming)) \(counts.upcoming)")
-                    Spacer(minLength: 0)
-                    if let finale = AirSchedule.finale(schedule) { Text(finale) }
                 }
-                .font(.caption2).monospacedDigit().foregroundStyle(Theme.textMuted).lineLimit(1)
+                .monospacedDigit().foregroundStyle(Theme.text).lineLimit(1).minimumScaleFactor(0.8)
             }
-            .padding(.horizontal, 20).padding(.top, 14)
-            Divider().overlay(Theme.line).padding(.top, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 14)
             ScrollView {
-                VStack(spacing: 6) {
-                    if !past.isEmpty { pastSummary(past) }
-                    if pastOpen { rows(past, weekly: weekly) }
-                    rows(coming, weekly: weekly)
+                VStack(spacing: 2) {
+                    if !past.isEmpty { pastSummary(past).padding(.bottom, 4) }
+                    if pastOpen { rows(past, grouped: false) }
+                    rows(coming, grouped: true)
                     if let region = schedule.region {
                         footnote(String(localized: .libraryItemAirRegionNote(AirSchedule.regionName(region))))
                     }
                     if schedule.subscriptionId != nil { footnote(String(localized: .libraryItemAirSource)) }
                 }
-                .padding(.horizontal, 12).padding(.vertical, 12)
+                .padding(.horizontal, 12).padding(.bottom, 12)
             }
             if schedule.subscriptionId == nil, let onSubscribe {
                 VStack(spacing: 8) {
@@ -374,37 +382,43 @@ struct AirScheduleSheet: View {
 
     private var canFind: Bool { canSubscribe && schedule.subscriptionId != nil && !schedule.missingEpisodes.isEmpty }
 
-    private func legend(_ tone: AirTone, _ label: String) -> some View {
-        HStack(spacing: 5) {
-            RoundedRectangle(cornerRadius: 2).fill(tone.color).frame(width: 8, height: 8)
-            Text(label)
-        }
-    }
-
     private func footnote(_ text: String) -> some View {
         Text(text).font(.caption2).foregroundStyle(Theme.textMuted)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4).padding(.top, 6)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.top, 8)
     }
 
     private func pastSummary(_ past: [AirDay]) -> some View {
         let all = past.flatMap(\.episodes)
-        let missing = all.filter { schedule.missingEpisodes.contains($0.episodeNumber) }
-        let title = past.count == 1
+        let missing = all.filter { schedule.missingEpisodes.contains($0.episodeNumber) }.map(\.episodeNumber)
+        let owned = all.filter(\.owned).count
+        let aired = past.count == 1
             ? String(localized: .libraryItemAirAiredDay(AirSchedule.shortDate(past[0].date)))
             : String(localized: .libraryItemAirAiredRange(AirSchedule.shortDate(past[0].date), AirSchedule.shortDate(past[past.count - 1].date)))
         return HStack(spacing: 8) {
             Button { withAnimation(.snappy) { pastOpen.toggle() } } label: {
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().fill((missing.isEmpty ? Theme.success : Theme.warning).opacity(0.18))
+                        if missing.isEmpty {
+                            Image(systemName: "checkmark").font(.caption.weight(.bold)).foregroundStyle(Theme.success)
+                        } else {
+                            Text(verbatim: "!").font(.subheadline.weight(.bold)).foregroundStyle(Theme.warning)
+                        }
+                    }
+                    .frame(width: 26, height: 26)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(AirSchedule.rangeLabel(all)).font(.subheadline.weight(.semibold)).monospacedDigit().foregroundStyle(Theme.text)
+                        Text(aired).font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    if let text = AirSchedule.missingText(missing) {
+                        Text(text).font(.caption).foregroundStyle(Theme.warning)
+                    } else {
+                        Text(owned == all.count ? String(localized: .libraryItemAirLegendOwned) : String(localized: .libraryItemAirStatOwned(owned)))
+                            .font(.caption).monospacedDigit().foregroundStyle(owned == all.count ? Theme.success : Theme.textMuted)
+                    }
                     Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.textMuted)
                         .rotationEffect(.degrees(pastOpen ? 90 : 0))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
-                        (Text([String(localized: .libraryItemAirStatEpisodes(all.count)),
-                               String(localized: .libraryItemAirStatOwned(all.filter(\.owned).count))].joined(separator: " · "))
-                            + Text(missing.isEmpty ? "" : " · \(missingText(missing))").foregroundStyle(Theme.warning))
-                            .font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
-                    }
-                    Spacer(minLength: 0)
                 }
                 .frame(minHeight: 44).contentShape(.rect)
             }
@@ -417,26 +431,27 @@ struct AirScheduleSheet: View {
                     : String(localized: .libraryItemAirFindMany(schedule.missingEpisodes.count)), filled: true)
             }
         }
-        .padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 6)
-        .background(.white.opacity(0.04), in: .rect(cornerRadius: 12))
-    }
-
-    private func missingText(_ list: [API.EpisodeView]) -> String {
-        list.count == 1
-            ? String(localized: .libraryItemAirStatMissingOne(list[0].episodeNumber))
-            : String(localized: .libraryItemAirStatMissing(list.count))
+        .padding(.leading, 14).padding(.trailing, 10).padding(.vertical, 6)
+        .background(.white.opacity(0.06), in: .rect(cornerRadius: 16))
     }
 
     @ViewBuilder
-    private func rows(_ list: [AirDay], weekly: Bool) -> some View {
+    private func rows(_ list: [AirDay], grouped: Bool) -> some View {
         ForEach(Array(list.enumerated()), id: \.element.id) { index, day in
-            if index > 0, let gap = AirSchedule.gap(list[index - 1].date, day.date, weekly: weekly) {
+            let group = min(AirSchedule.weekOffset(today: schedule.today, day: day.date), 2)
+            if grouped, index == 0 || min(AirSchedule.weekOffset(today: schedule.today, day: list[index - 1].date), 2) != group {
+                Text(AirSchedule.groupTitle(group))
+                    .font(.footnote.weight(.semibold)).foregroundStyle(Theme.textMuted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.top, index == 0 ? 4 : 16).padding(.bottom, 4)
+            }
+            if index > 0, let gap = AirSchedule.gap(list[index - 1].date, day.date, weekdays: schedule.weekdays) {
                 HStack(spacing: 10) {
                     dashed
                     Text(gap).font(.caption2).foregroundStyle(Theme.textMuted).fixedSize()
                     dashed
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 14)
             }
             dayRow(day)
         }
@@ -456,29 +471,31 @@ struct AirScheduleSheet: View {
     }
 
     private func dayRow(_ day: AirDay) -> some View {
-        let dayMissing = day.episodes.filter { schedule.missingEpisodes.contains($0.episodeNumber) }
+        let dayMissing = day.episodes.filter { schedule.missingEpisodes.contains($0.episodeNumber) }.map(\.episodeNumber)
         let allOwned = day.episodes.allSatisfy(\.owned)
-        return HStack(spacing: 10) {
-            VStack(spacing: 1) {
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(day.today ? String(localized: .libraryItemAirToday) : AirSchedule.weekday(day.date))
-                    .font(.caption2.weight(day.today ? .bold : .regular))
+                    .font(.caption.weight(day.today ? .bold : .regular))
                     .foregroundStyle(day.today ? Theme.info : Theme.textMuted)
-                Text(AirSchedule.shortDate(day.date)).font(.body.weight(.bold)).monospacedDigit().foregroundStyle(Theme.text)
+                Text(AirSchedule.shortDate(day.date)).font(.subheadline.weight(.semibold)).monospacedDigit().foregroundStyle(Theme.text)
             }
             .lineLimit(1).minimumScaleFactor(0.8)
             // 定宽：「11月2日」与「10月28日」两行的集号要对齐
-            .frame(width: 80)
+            .frame(width: 72, alignment: .leading)
+            dot(day, missing: !dayMissing.isEmpty, owned: allOwned)
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Text(AirSchedule.rangeLabel(day.episodes)).font(.body.weight(.semibold)).monospacedDigit().foregroundStyle(Theme.text)
                     if day.finale {
-                        Text(String(localized: .libraryItemAirFinaleTag)).font(.caption2.weight(.bold)).foregroundStyle(Theme.text)
+                        Text(String(localized: .libraryItemAirFinaleTag)).font(.caption2.weight(.bold))
+                            .foregroundStyle(Color(red: 0x24 / 255, green: 0x1A / 255, blue: 0x02 / 255))
                             .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(.white.opacity(0.14), in: .capsule)
+                            .background(Theme.warning, in: .rect(cornerRadius: 6))
                     }
                 }
-                if day.past, !dayMissing.isEmpty {
-                    Text(missingText(dayMissing)).font(.caption).foregroundStyle(Theme.warning)
+                if day.past, let text = AirSchedule.missingText(dayMissing) {
+                    Text(text).font(.caption).foregroundStyle(Theme.warning)
                 }
             }
             Spacer(minLength: 4)
@@ -491,28 +508,50 @@ struct AirScheduleSheet: View {
                 } else if canFind {
                     findButton(String(localized: .libraryItemAirFindEpisode), filled: false)
                 }
-            } else if day.today, let status = AirSchedule.arrival(day.episodes, schedule) {
-                Text(status.text).font(.caption.weight(.semibold)).foregroundStyle(status.color).lineLimit(1)
+            } else if day.today {
+                if let status = AirSchedule.arrival(day.episodes, schedule) {
+                    Text(status.text).font(.caption.weight(.semibold)).foregroundStyle(status.color).lineLimit(1)
+                }
+            } else {
+                Text(AirSchedule.relative(day.date, schedule)).font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
             }
         }
-        .padding(.leading, 4).padding(.trailing, 12).padding(.vertical, 8)
+        .padding(.horizontal, 14).padding(.vertical, 8)
         .frame(minHeight: 60)
-        .background(day.today ? AirTone.today.color.opacity(0.12) : .white.opacity(0.04), in: .rect(cornerRadius: 12))
-        .overlay {
-            if day.today { RoundedRectangle(cornerRadius: 12).strokeBorder(AirTone.today.color.opacity(0.5)) }
-        }
+        .background(day.today ? Theme.info.opacity(0.14) : .clear, in: .rect(cornerRadius: 16))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("air-day-\(day.date)")
+    }
+
+    /// 时间线上的点：今天实心蓝、大结局琥珀圈、已播按入库与否，之后的空心圈
+    @ViewBuilder
+    private func dot(_ day: AirDay, missing: Bool, owned: Bool) -> some View {
+        Group {
+            if day.today {
+                Circle().fill(Theme.info)
+            } else if day.finale {
+                Circle().strokeBorder(Theme.warning, lineWidth: 2)
+            } else if day.past, missing {
+                Circle().fill(Theme.warning)
+            } else if day.past, owned {
+                Circle().fill(Theme.success)
+            } else {
+                Circle().strokeBorder(.white.opacity(0.5), lineWidth: 1.5)
+            }
+        }
+        .frame(width: 10, height: 10)
+        .accessibilityHidden(true)
     }
 
     private func findButton(_ title: String, filled: Bool) -> some View {
         Button {
             Task { await findMissing() }
         } label: {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(Theme.warning)
-                .padding(.horizontal, 11).frame(minHeight: 32)
-                .background(filled ? Theme.warning.opacity(0.1) : .clear, in: .capsule)
-                .overlay(Capsule().strokeBorder(Theme.warning.opacity(0.55)))
+            Text(title).font(.caption.weight(.semibold))
+                .foregroundStyle(filled ? Color(red: 0x24 / 255, green: 0x1A / 255, blue: 0x02 / 255) : Theme.warning)
+                .padding(.horizontal, 12).frame(minHeight: 32)
+                .background(filled ? Theme.warning : .clear, in: .capsule)
+                .overlay(Capsule().strokeBorder(Theme.warning.opacity(filled ? 0 : 0.55)))
         }
         .buttonStyle(.plain)
         .disabled(searching)
@@ -544,7 +583,7 @@ struct UnairedStill: View {
         ZStack {
             if today {
                 RoundedRectangle(cornerRadius: 12).fill(Color(red: 0x11 / 255, green: 0x15 / 255, blue: 0x1D / 255))
-                RoundedRectangle(cornerRadius: 12).strokeBorder(AirTone.today.color.opacity(0.75), lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 12).strokeBorder(Color(red: 0x3B / 255, green: 0x82 / 255, blue: 0xF6 / 255).opacity(0.75), lineWidth: 1.5)
                 VStack(spacing: 4) {
                     Text(String(localized: .libraryItemAirAirsToday)).font(.subheadline.weight(.bold)).foregroundStyle(Theme.text)
                     if let status = AirSchedule.arrival([episode], schedule) {

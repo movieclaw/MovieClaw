@@ -1,29 +1,28 @@
 "use client";
 
 /**
- * 剧集详情页的播出日历（issue #547）：分集区里的「季进度条」入口卡 + 按天的日程弹层。
+ * 剧集详情页的播出日历（issue #547）：分集标题下的两行摘要入口 + 按周分组的日程弹层。
  *
  * 只在本季还有今天或以后的播出日期时出现（服务端不给 air_schedule 就整块不画）。
- * 进度条一集一格：已入库 / 缺集（只算订阅范围内的）/ 今天 / 待播；日程按播出日
- * 分组，已播部分折叠成一行汇总，停更的日子画一条虚线分隔，节奏看得出来。
+ * 摘要左边写今天 / 下次更新哪一集和本季节奏，右边写入库时刻或还有几天；日程按播出日
+ * 分行、分本周 / 下周 / 之后，已播部分折叠成一行汇总，停更的日子画一条虚线分隔，节奏看得出来。
  */
 import dayjs from "dayjs";
 import { useLocale } from "next-intl";
-import { useMemo, useState } from "react";
+import { Fragment, type ReactNode, useMemo, useState } from "react";
 
 import { useToast } from "@/components/feedback";
-import { CheckIcon, ChevronRightIcon } from "@/components/icons";
+import { CheckIcon, ChevronRightIcon, XIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import {
   type AirDay,
   type AirGap,
-  type AirTone,
   type ArrivalState,
   type Cadence,
   airCounts,
   airDays,
-  airSegments,
   arrivalState,
+  breaksCadence,
   cadenceOf,
   daysBetween,
   episodeSpan,
@@ -31,6 +30,7 @@ import {
   formatWeekday,
   gapBetween,
   nextAirDay,
+  weekOffset,
 } from "@/lib/air-schedule";
 import type { LibraryEpisode, SeasonAirSchedule } from "@/lib/api/libraries";
 import { searchMissingSubscriptionResources } from "@/lib/api/subscriptions";
@@ -40,34 +40,11 @@ import { formatClockTime } from "@/lib/time";
 
 type Translate = ReturnType<typeof appTranslator>;
 
-const TONE_CLASS: Record<AirTone, string> = {
-  owned: "bg-[#c3cad6]",
-  missing: "bg-[#f59e0b]",
-  today: "bg-[#3b82f6]",
-  todayFree: "bg-[#7c8494]",
-  upcoming: "bg-white/[0.14]",
-  absent: "bg-white/[0.14]",
-};
-
-function CalendarGlyph({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden className={className}>
-      <rect x="3.5" y="5" width="17" height="15.5" rx="3" />
-      <path d="M3.5 10h17M8 3v4M16 3v4" />
-    </svg>
-  );
-}
-
 function rangeLabel(episodes: LibraryEpisode[], t: Translate): string {
   const { from, to } = episodeSpan(episodes);
   return from === to
     ? t("library.item.episode", { episode: from })
     : t("library.item.airEpisodeRange", { from, to });
-}
-
-function dayLabel(day: string, schedule: SeasonAirSchedule, locale: AppLocale, t: Translate): string {
-  const date = t("library.item.airDateWeekday", { date: formatAirDay(day, locale), weekday: formatWeekday(day, locale) });
-  return schedule.region ? t("library.item.airDateRegion", { date, region: regionName(schedule.region, locale) }) : date;
 }
 
 function regionName(code: string, locale: AppLocale): string {
@@ -110,6 +87,18 @@ function gapText(gap: AirGap, t: Translate): string {
   }
 }
 
+function missingText(numbers: number[], t: Translate): string | null {
+  if (numbers.length === 0) return null;
+  return numbers.length === 1
+    ? t("library.item.airStatMissingOne", { episode: numbers[0] })
+    : t("library.item.airStatMissing", { count: numbers.length });
+}
+
+function relativeDay(today: string, day: string, t: Translate): string {
+  const offset = daysBetween(today, day);
+  return offset === 1 ? t("library.item.airTomorrow") : t("library.item.airInDays", { count: offset });
+}
+
 /** 预计入库时刻：今天只给时分，跨天带上日期 */
 function expectedTime(at: string, locale: AppLocale): string {
   const clock = formatClockTime(at, locale);
@@ -135,42 +124,41 @@ function arrivalView(state: ArrivalState | null, locale: AppLocale, t: Translate
   }
 }
 
-function statsText(counts: ReturnType<typeof airCounts>, schedule: SeasonAirSchedule, t: Translate) {
-  return {
-    owned: t("library.item.airStatOwned", { count: counts.owned }),
-    missing:
-      counts.missing === 0
-        ? null
-        : counts.missing === 1
-          ? t("library.item.airStatMissingOne", { episode: schedule.missing_episodes[0] })
-          : t("library.item.airStatMissing", { count: counts.missing }),
-    upcoming: counts.upcoming > 0 ? t("library.item.airStatUpcoming", { count: counts.upcoming }) : null,
-  };
+/** 摘要右侧：今天的看入库进度（预计时刻放大），之后的看还有几天 */
+function summarySide(
+  day: AirDay,
+  schedule: SeasonAirSchedule,
+  locale: AppLocale,
+  t: Translate,
+): { value: string; caption: string | null; className: string; large: boolean } | null {
+  if (!day.today) {
+    const date = formatAirDay(day.date, locale);
+    return {
+      value: relativeDay(schedule.today, day.date, t),
+      caption: schedule.region ? t("library.item.airDateRegion", { date, region: regionName(schedule.region, locale) }) : date,
+      className: "text-[var(--text)]",
+      large: false,
+    };
+  }
+  const state = arrivalState(day.episodes, schedule);
+  if (state?.kind === "expected") {
+    const sameDay = dayjs(state.at).isSame(dayjs(), "day");
+    return {
+      value: expectedTime(state.at, locale),
+      caption: t("library.item.airExpectedShort"),
+      className: "text-[var(--info-text)]",
+      large: sameDay,
+    };
+  }
+  if (state?.kind === "inLibrary") {
+    return { value: t("library.item.airLegendOwned"), caption: null, className: "text-[var(--ok)]", large: false };
+  }
+  const view = arrivalView(state, locale, t);
+  return view ? { value: view.text, caption: null, className: view.className, large: false } : null;
 }
 
-function SeasonBar({ episodes, schedule, className }: { episodes: LibraryEpisode[]; schedule: SeasonAirSchedule; className: string }) {
-  const t = appTranslator(useLocale() as AppLocale);
-  const segments = airSegments(episodes, schedule);
-  const counts = airCounts(episodes, schedule);
-  return (
-    <span
-      role="img"
-      aria-label={t("library.item.airProgress", { owned: counts.owned, missing: counts.missing, upcoming: counts.upcoming })}
-      className={`flex gap-[2px] ${className}`}
-    >
-      {segments.map((segment, i) => (
-        <span
-          key={i}
-          className={`min-w-[3px] rounded-[2px] ${TONE_CLASS[segment.tone]}`}
-          style={{ flexGrow: segment.count, flexBasis: 0 }}
-        />
-      ))}
-    </span>
-  );
-}
-
-/** 分集区里的入口卡：更新规律、季进度条、下次更新与入库状态、汇总 */
-export function AirScheduleCard({
+/** 分集标题下的入口：左边今天 / 下次更新哪一集 + 本季节奏，右边入库时刻或还有几天 */
+export function AirScheduleSummary({
   episodes,
   schedule,
   onOpen,
@@ -184,56 +172,62 @@ export function AirScheduleCard({
   const days = useMemo(() => airDays(episodes, schedule), [episodes, schedule]);
   const next = nextAirDay(days);
   const counts = airCounts(episodes, schedule);
-  const stats = statsText(counts, schedule, t);
-  const meta = [cadenceText(cadenceOf(schedule.weekdays, locale), t), finaleText(schedule, locale, t)].filter(Boolean).join(" · ");
-  let headline: string | null = null;
-  let note: { text: string; className: string } | null = null;
-  if (next) {
-    const range = rangeLabel(next.episodes, t);
-    if (next.today) {
-      headline = next.finale
-        ? t("library.item.airTodayFinale", { range })
-        : t("library.item.airTodayEpisodes", { range });
-      note = arrivalView(arrivalState(next.episodes, schedule), locale, t);
-    } else {
-      headline = t("library.item.airNextEpisodes", { date: dayLabel(next.date, schedule, locale, t), range });
-      const offset = daysBetween(schedule.today, next.date);
-      note = {
-        text: offset === 1 ? t("library.item.airTomorrow") : t("library.item.airInDays", { count: offset }),
-        className: "text-[var(--text-muted)]",
-      };
-    }
-  }
+  // 每一项整体不折行，窄屏只在项与项之间换行，别把「11月8日」折成两行
+  const meta = [
+    cadenceText(cadenceOf(schedule.weekdays, locale), t),
+    counts.upcoming > 0 ? t("library.item.airRemaining", { count: counts.upcoming }) : null,
+    finaleText(schedule, locale, t),
+  ].filter((part): part is string => Boolean(part));
+  const side = next ? summarySide(next, schedule, locale, t) : null;
   return (
     <button
       type="button"
       onClick={onOpen}
-      data-testid="air-schedule-card"
-      className="mb-3 flex w-full flex-col gap-2.5 rounded-2xl border border-white/[0.08] bg-[rgba(30,33,43,0.74)] px-3.5 pb-3 pt-3.5 text-left transition hover:border-white/20"
+      data-testid="air-schedule-summary"
+      className="group -mt-1 mb-3.5 flex w-full items-center gap-3.5 text-left"
     >
-      <span className="flex w-full items-center gap-2">
-        <CalendarGlyph className="size-4 shrink-0 text-[var(--accent-strong)]" />
-        <span className="text-sub font-semibold text-[var(--text)]">{t("library.item.airCalendar")}</span>
-        <span className="min-w-0 flex-1 truncate text-right text-caption text-[var(--text-muted)]">{meta}</span>
-        <ChevronRightIcon className="size-3.5 shrink-0 text-[var(--text-faint)]" />
-      </span>
-      <SeasonBar episodes={episodes} schedule={schedule} className="h-2 w-full" />
-      {headline && (
-        <span className="flex w-full flex-wrap items-baseline gap-x-2">
-          <span className="tnum text-body font-semibold text-[var(--text)]">{headline}</span>
-          {note && <span className={`ml-auto text-caption ${note.className}`}>{note.text}</span>}
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        {next && (
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className={`shrink-0 rounded-md px-[7px] py-0.5 text-micro font-bold ${
+                next.today ? "bg-[var(--text)] text-[#111318]" : "bg-white/[0.14] text-[var(--text)]"
+              }`}
+            >
+              {next.today ? t("library.item.airToday") : formatWeekday(next.date, locale)}
+            </span>
+            <span className="tnum truncate text-title-sm font-semibold text-[var(--text)] transition group-hover:text-white">
+              {next.finale
+                ? t("library.item.airEpisodesFinale", { range: rangeLabel(next.episodes, t) })
+                : t("library.item.airEpisodesUpdate", { range: rangeLabel(next.episodes, t) })}
+            </span>
+          </span>
+        )}
+        <span className="tnum text-caption text-[var(--text-muted)]">
+          {meta.map((part, i) => (
+            <Fragment key={part}>
+              {i > 0 && " · "}
+              <span className="whitespace-nowrap">{part}</span>
+            </Fragment>
+          ))}
         </span>
-      )}
-      <span className="tnum flex flex-wrap gap-x-2.5 text-caption text-[var(--text-muted)]">
-        <span>{stats.owned}</span>
-        {stats.missing && <span className="text-[var(--warn)]">{stats.missing}</span>}
-        {stats.upcoming && <span>{stats.upcoming}</span>}
       </span>
+      {side && (
+        <>
+          <span aria-hidden className="h-[38px] w-px shrink-0 bg-white/[0.18]" />
+          <span className="flex shrink-0 flex-col items-end">
+            <span className={`tnum font-semibold ${side.large ? "text-title-lg tracking-[-0.01em]" : "text-body"} ${side.className}`}>
+              {side.value}
+            </span>
+            {side.caption && <span className="text-micro text-[var(--text-muted)]">{side.caption}</span>}
+          </span>
+        </>
+      )}
     </button>
   );
 }
 
-/** 日程弹层：进度条 + 图例，已播折叠汇总，之后每个播出日一行 */
+/** 日程弹层：还剩几集，已播折叠汇总，之后的播出日分本周 / 下周 / 之后 */
 export function AirScheduleDialog({
   title,
   seasonLabel,
@@ -284,112 +278,133 @@ export function AirScheduleDialog({
       ? t("library.item.airFindOne", { episode: schedule.missing_episodes[0] })
       : t("library.item.airFindMany", { count: missing.size });
 
-  // 周更剧每周都隔六天，头部已经写了「每周四更新」，再每行画一条分隔是噪音；只留真停更
-  const weekly = new Set(schedule.weekdays).size === 1;
-  const rows = (list: AirDay[]) =>
-    list.flatMap((day, i) => {
-      const found = i > 0 ? gapBetween(list[i - 1].date, day.date, locale) : null;
-      const gap = weekly && found?.kind !== "break" ? null : found;
-      return [
-        gap && (
-          <div key={`gap-${day.date}`} className="flex items-center gap-2.5 px-3 py-0.5">
+  const groupTitle = (group: number) =>
+    t(group === 0 ? "library.item.airThisWeek" : group === 1 ? "library.item.airNextWeek" : "library.item.airLater");
+
+  const rows = (list: AirDay[], grouped: boolean) => {
+    const out: ReactNode[] = [];
+    let current: number | null = null;
+    list.forEach((day, i) => {
+      // 本周 / 下周 / 之后：再往后按周分，周更剧就成了一行一个标题
+      const group = Math.min(weekOffset(schedule.today, day.date), 2);
+      if (grouped && group !== current) {
+        current = group;
+        out.push(
+          <div key={`group-${group}`} className="px-3.5 pb-1 pt-4 text-caption font-semibold text-[var(--text-muted)] first:pt-1">
+            {groupTitle(group)}
+          </div>,
+        );
+      }
+      // 头部已经写了「周五至周六更新」，按节奏空着的日子不再每行画分隔；只标真停更
+      const gap =
+        i > 0 && breaksCadence(list[i - 1].date, day.date, schedule.weekdays)
+          ? gapBetween(list[i - 1].date, day.date, locale)
+          : null;
+      if (gap) {
+        out.push(
+          <div key={`gap-${day.date}`} className="flex items-center gap-2.5 px-3.5 py-0.5">
             <span className="flex-1 border-t border-dashed border-white/20" />
             <span className="text-micro text-[var(--text-muted)]">{gapText(gap, t)}</span>
             <span className="flex-1 border-t border-dashed border-white/20" />
-          </div>
-        ),
+          </div>,
+        );
+      }
+      out.push(
         <DayRow key={day.date} day={day} schedule={schedule} missing={missing} canFind={canFind} searching={searching} onFind={findMissing} />,
-      ];
+      );
     });
+    return out;
+  };
 
-  const pastMissing = past.flatMap((day) => day.episodes).filter((e) => missing.has(e.episode_number)).length;
   const pastEpisodes = past.flatMap((day) => day.episodes);
-  const pastSummary = [
-    t("library.item.airStatEpisodes", { count: pastEpisodes.length }),
-    t("library.item.airStatOwned", { count: pastEpisodes.filter((e) => e.owned).length }),
-  ];
+  const pastMissing = pastEpisodes.filter((e) => missing.has(e.episode_number)).map((e) => e.episode_number);
+  const pastOwned = pastEpisodes.filter((e) => e.owned).length;
+  const pastAllOwned = pastOwned === pastEpisodes.length;
 
   return (
     <Modal open onClose={onClose} label={t("library.item.airCalendar")} width="lg" panelClassName="flex max-h-[85vh] flex-col">
-      <div className="flex items-start gap-3 px-5 pb-1 pt-4">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-body-lg font-semibold text-[var(--text)]">{t("library.item.airCalendar")}</h2>
-          <p className="truncate text-caption text-[var(--text-muted)]">
-            {[title, seasonLabel, cadence].filter(Boolean).join(" · ")}
-          </p>
-        </div>
-        <button type="button" onClick={onClose} className="text-sub text-[var(--text-muted)] transition hover:text-white">
-          {t("common.done")}
+      <div className="flex items-center gap-3 pl-5 pr-4 pt-4">
+        <h2 className="min-w-0 flex-1 text-title font-semibold text-[var(--text)]">{t("library.item.airCalendar")}</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t("common.close")}
+          className="grid size-9 shrink-0 place-items-center rounded-full border border-white/[0.16] bg-white/[0.12] text-[var(--text)] transition hover:bg-white/20"
+        >
+          <XIcon className="size-4" />
         </button>
       </div>
-      <div className="px-5 pt-3">
-        <SeasonBar episodes={episodes} schedule={schedule} className="h-2.5 w-full" />
-        <div className="tnum mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-micro text-[var(--text-muted)]">
-          <Legend tone="owned" label={`${t("library.item.airLegendOwned")} ${counts.owned}`} />
-          {counts.missing > 0 && <Legend tone="missing" label={`${t("library.item.airLegendMissing")} ${counts.missing}`} />}
-          {coming[0]?.today && (
-            <Legend
-              tone={schedule.subscription_id != null ? "today" : "todayFree"}
-              label={`${t("library.item.airLegendToday")} ${coming[0].episodes.filter((e) => !e.owned).length}`}
-            />
+      <div className="px-5 pb-4 pt-1.5">
+        <p className="truncate text-caption text-[var(--text-muted)]">{[title, seasonLabel, cadence].filter(Boolean).join(" · ")}</p>
+        <p className="tnum mt-0.5 flex flex-wrap items-baseline gap-x-2.5">
+          {counts.upcoming > 0 ? (
+            <>
+              <span className="text-title-lg font-bold tracking-[-0.01em] text-[var(--text)]">
+                {t("library.item.airRemaining", { count: counts.upcoming })}
+              </span>
+              {finale && <span className="text-sub text-[var(--text-muted)]">{finale}</span>}
+            </>
+          ) : (
+            finale && <span className="text-title-lg font-bold tracking-[-0.01em] text-[var(--text)]">{finale}</span>
           )}
-          <Legend tone="upcoming" label={`${t("library.item.airLegendUpcoming")} ${counts.upcoming}`} />
-          {finale && <span className="ml-auto">{finale}</span>}
-        </div>
+        </p>
       </div>
-      <div className="mt-3.5 border-t border-white/[0.08]" />
-      <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto scroll-thin px-3 pb-5 pt-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto scroll-thin px-3 pb-5">
         {past.length > 0 && (
-          <div className="flex items-center gap-2 rounded-xl bg-white/[0.04] py-1.5 pl-3 pr-2.5">
+          <div className="mb-1 flex items-center gap-2 rounded-2xl bg-white/[0.06] py-1.5 pl-3.5 pr-2.5">
             <button
               type="button"
               aria-expanded={pastOpen}
               onClick={() => setPastOpen((open) => !open)}
-              className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 text-left"
+              data-testid="air-schedule-past"
+              className="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-left"
             >
-              <ChevronRightIcon className={`size-3.5 shrink-0 text-[var(--text-muted)] transition ${pastOpen ? "rotate-90" : ""}`} />
-              <span className="min-w-0">
-                <span className="block text-sub font-semibold text-[var(--text)]">
+              {pastMissing.length > 0 ? (
+                <span className="grid size-[26px] shrink-0 place-items-center rounded-full bg-[#fbbf24]/[0.18] text-sub font-bold text-[var(--warn)]">!</span>
+              ) : (
+                <span className="grid size-[26px] shrink-0 place-items-center rounded-full bg-[#4ade80]/[0.18] text-[var(--ok)]">
+                  <CheckIcon className="size-3 stroke-[3]" />
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="tnum block text-ui font-semibold text-[var(--text)]">{rangeLabel(pastEpisodes, t)}</span>
+                <span className="tnum block truncate text-caption text-[var(--text-muted)]">
                   {past.length === 1
                     ? t("library.item.airAiredDay", { date: formatAirDay(past[0].date, locale) })
                     : t("library.item.airAiredRange", { from: formatAirDay(past[0].date, locale), to: formatAirDay(past.at(-1)!.date, locale) })}
                 </span>
-                <span className="tnum block text-caption text-[var(--text-muted)]">
-                  {pastSummary.join(" · ")}
-                  {pastMissing > 0 && (
-                    <>
-                      {" · "}
-                      <span className="text-[var(--warn)]">
-                        {pastMissing === 1
-                          ? t("library.item.airStatMissingOne", { episode: schedule.missing_episodes[0] })
-                          : t("library.item.airStatMissing", { count: pastMissing })}
-                      </span>
-                    </>
-                  )}
-                </span>
               </span>
+              {pastMissing.length > 0 ? (
+                <span className="shrink-0 text-caption text-[var(--warn)]">{missingText(pastMissing, t)}</span>
+              ) : (
+                <span className={`tnum shrink-0 text-caption ${pastAllOwned ? "text-[var(--ok)]" : "text-[var(--text-muted)]"}`}>
+                  {pastAllOwned ? t("library.item.airLegendOwned") : t("library.item.airStatOwned", { count: pastOwned })}
+                </span>
+              )}
+              <ChevronRightIcon className={`size-3.5 shrink-0 text-[var(--text-muted)] transition ${pastOpen ? "rotate-90" : ""}`} />
             </button>
             {canFind && (
               <button
                 type="button"
                 disabled={searching}
                 onClick={findMissing}
-                className="h-8 shrink-0 rounded-full border border-[#f5c451]/55 bg-[#f5c451]/10 px-3 text-caption font-semibold text-[var(--warn)] transition hover:bg-[#f5c451]/20 disabled:opacity-60"
+                data-testid="air-schedule-find"
+                className="h-8 shrink-0 rounded-full bg-[var(--warn)] px-3 text-caption font-semibold text-[#241a02] transition hover:brightness-110 disabled:opacity-60"
               >
                 {findLabel}
               </button>
             )}
           </div>
         )}
-        {pastOpen && rows(past)}
-        {rows(coming)}
+        {pastOpen && rows(past, false)}
+        {rows(coming, true)}
         {schedule.region && (
-          <p className="mx-1 mt-2 text-micro text-[var(--text-muted)]">
+          <p className="mx-3.5 mt-3 text-micro text-[var(--text-muted)]">
             {t("library.item.airRegionNote", { region: regionName(schedule.region, locale) })}
           </p>
         )}
         {schedule.subscription_id != null && (
-          <p className="mx-1 mt-1 text-micro text-[var(--text-muted)]">{t("library.item.airSource")}</p>
+          <p className="mx-3.5 mt-2 text-micro text-[var(--text-muted)]">{t("library.item.airSource")}</p>
         )}
       </div>
       {schedule.subscription_id == null && onSubscribe && (
@@ -405,15 +420,6 @@ export function AirScheduleDialog({
         </div>
       )}
     </Modal>
-  );
-}
-
-function Legend({ tone, label }: { tone: AirTone; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className={`size-2 rounded-[2px] ${TONE_CLASS[tone]}`} />
-      {label}
-    </span>
   );
 }
 
@@ -434,37 +440,41 @@ function DayRow({
 }) {
   const locale = useLocale() as AppLocale;
   const t = appTranslator(locale);
-  const dayMissing = day.episodes.filter((e) => missing.has(e.episode_number));
+  const dayMissing = day.episodes.filter((e) => missing.has(e.episode_number)).map((e) => e.episode_number);
   const allOwned = day.episodes.every((e) => e.owned);
   const status = day.today ? arrivalView(arrivalState(day.episodes, schedule), locale, t) : null;
+  const dot = day.today
+    ? "bg-[var(--info)]"
+    : day.finale
+      ? "border-2 border-[var(--warn)]"
+      : day.past && dayMissing.length > 0
+        ? "bg-[var(--warn)]"
+        : day.past && allOwned
+          ? "bg-[var(--ok)]"
+          : "border-[1.5px] border-white/50";
   return (
     <div
       data-air-day={day.date}
-      className={`flex min-h-[60px] items-center gap-2.5 rounded-xl py-2 pl-1 pr-3 ${
-        day.today ? "border border-[#3b82f6]/50 bg-[#3b82f6]/[0.12]" : "bg-white/[0.04]"
-      }`}
+      className={`flex min-h-[60px] items-center gap-3 rounded-2xl px-3.5 py-2 ${day.today ? "bg-[#60a5fa]/[0.14]" : ""}`}
     >
-      <div className="flex w-[72px] shrink-0 flex-col items-center whitespace-nowrap">
+      <div className="flex w-[72px] shrink-0 flex-col whitespace-nowrap">
         <span className={`text-micro ${day.today ? "font-bold text-[var(--info-text)]" : "text-[var(--text-muted)]"}`}>
           {day.today ? t("library.item.airToday") : formatWeekday(day.date, locale)}
         </span>
-        <span className="tnum text-body font-bold text-[var(--text)]">{formatAirDay(day.date, locale)}</span>
+        <span className="tnum text-ui font-semibold text-[var(--text)]">{formatAirDay(day.date, locale)}</span>
       </div>
+      <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${dot}`} />
       <div className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5">
-          <span className="tnum text-body font-semibold text-[var(--text)]">{rangeLabel(day.episodes, t)}</span>
+        <span className="flex items-center gap-2">
+          <span className="tnum text-body-lg font-semibold text-[var(--text)]">{rangeLabel(day.episodes, t)}</span>
           {day.finale && (
-            <span className="rounded-full bg-white/[0.14] px-1.5 py-px text-micro font-bold text-[var(--text)]">
+            <span className="rounded-md bg-[var(--warn)] px-1.5 py-px text-micro font-bold text-[#241a02]">
               {t("library.item.airFinaleTag")}
             </span>
           )}
         </span>
         {day.past && dayMissing.length > 0 && (
-          <span className="block text-caption text-[var(--warn)]">
-            {dayMissing.length === 1
-              ? t("library.item.airStatMissingOne", { episode: dayMissing[0].episode_number })
-              : t("library.item.airStatMissing", { count: dayMissing.length })}
-          </span>
+          <span className="block text-caption text-[var(--warn)]">{missingText(dayMissing, t)}</span>
         )}
       </div>
       {day.past && allOwned && (
@@ -487,6 +497,9 @@ function DayRow({
         </button>
       )}
       {status && <span className={`shrink-0 text-caption font-semibold ${status.className}`}>{status.text}</span>}
+      {!day.past && !day.today && (
+        <span className="tnum shrink-0 text-caption text-[var(--text-muted)]">{relativeDay(schedule.today, day.date, t)}</span>
+      )}
     </div>
   );
 }

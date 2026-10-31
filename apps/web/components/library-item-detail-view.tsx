@@ -16,7 +16,7 @@ import { DeleteFollowUps, DeleteOptions, useDeletePreview } from "@/components/l
 import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
 import { useHeroEdgeColor } from "@/lib/hero-edge-color";
 import { ArtworkPickerDialog } from "@/components/artwork-picker-dialog";
-import { AirScheduleCard, AirScheduleDialog } from "@/components/library-air-schedule";
+import { AirScheduleDialog, AirScheduleSummary } from "@/components/library-air-schedule";
 import { daysBetween, episodeTone, formatAirDay, formatWeekday } from "@/lib/air-schedule";
 import { BrandLoader } from "@/components/brand-loader";
 import { CastRow } from "@/components/cast-row";
@@ -2008,12 +2008,19 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
               {t("library.item.allEpisodeCount", { count: data.episodes.length })}
               <ChevronRightIcon className="size-3.5" />
             </button>
+          ) : airSchedule ? (
+            <button
+              type="button"
+              onClick={() => setAirOpen(true)}
+              className="ml-auto flex shrink-0 items-center gap-0.5 text-sub text-[var(--text-muted)] transition hover:text-white"
+            >
+              {t("library.item.airCalendar")}
+              <ChevronRightIcon className="size-3.5" />
+            </button>
           ) : (
-            !airSchedule && (
-              <span className="tnum text-sub text-[var(--text-faint)]">
-                {t("library.item.ownedEpisodeCount", { owned: ownedCount, total: data.episodes.length })}
-              </span>
-            )
+            <span className="tnum text-sub text-[var(--text-faint)]">
+              {t("library.item.ownedEpisodeCount", { owned: ownedCount, total: data.episodes.length })}
+            </span>
           ))}
       </div>
 
@@ -2029,7 +2036,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
       )}
 
       {data && airSchedule && (
-        <AirScheduleCard episodes={data.episodes} schedule={airSchedule} onOpen={() => setAirOpen(true)} />
+        <AirScheduleSummary episodes={data.episodes} schedule={airSchedule} onOpen={() => setAirOpen(true)} />
       )}
 
       {failed && (

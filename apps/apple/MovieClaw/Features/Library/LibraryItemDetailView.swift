@@ -1557,15 +1557,29 @@ struct SeasonEpisodesSection: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("episode-ranges-all")
-                } else if let data, schedule == nil {
+                } else if schedule != nil {
+                    Spacer(minLength: 0)
+                    Button { showsAir = true } label: {
+                        HStack(spacing: 2) {
+                            Text(String(localized: .libraryItemAirCalendar))
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        }
+                        .font(.subheadline).foregroundStyle(Theme.textMuted)
+                        .padding(.vertical, 6)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("air-schedule-open")
+                } else if let data {
                     Text(String(localized: .libraryItemOwnedEpisodeCount(data.episodes.filter(\.owned).count, data.episodes.count)))
                         .font(.subheadline).monospacedDigit().foregroundStyle(Theme.textFaint)
                 }
             }
             .padding(.horizontal, cards.edge)
             if let data, let schedule {
-                AirScheduleCard(episodes: data.episodes, schedule: schedule) { showsAir = true }
+                AirScheduleSummary(episodes: data.episodes, schedule: schedule) { showsAir = true }
                     .padding(.horizontal, cards.edge)
+                    .padding(.top, -4)
             }
             if failed {
                 Text(String(localized: .libraryItemEpisodesFailed)).font(.subheadline).foregroundStyle(Theme.textMuted)

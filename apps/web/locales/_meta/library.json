@@ -4595,15 +4595,6 @@
   "item.airFinaleToday": {
     "sourceHash": "c9f69c4b9acff772da133061d4217928806b87e2aa89486343ca828676900803"
   },
-  "item.airTodayEpisodes": {
-    "sourceHash": "d4c37642befef23a2e867f536bb6d2c233507674a9e867464dbf8f47af82962e"
-  },
-  "item.airTodayFinale": {
-    "sourceHash": "80a9bea06290f6ec7b731a22be3a12919a3fdab0cd85e8056b945fff99f483ce"
-  },
-  "item.airNextEpisodes": {
-    "sourceHash": "d9d6e3e14c961f7b164f360d86f51bfa6b7409785aef6496feee4a571cfa579e"
-  },
   "item.airEpisodeRange": {
     "sourceHash": "a33a9cd357b723f68ec907f68ea88a50656c3ccdc2f2251d057ff6e3b1f27668"
   },
@@ -4646,12 +4637,6 @@
   "item.airStatMissing": {
     "sourceHash": "7ab389a8fc08238da646c7f0fb15c1d04a063248a5dfe1c717a5e351c9a96e9f"
   },
-  "item.airStatUpcoming": {
-    "sourceHash": "f1c00409b5b59342679940175175a23410afc8d345ef22ddd6f8e9e94031709c"
-  },
-  "item.airStatEpisodes": {
-    "sourceHash": "cc923ebb719a948026462fc67cebec6ec96d2c6b28c14de6dca6fad9bfb90222"
-  },
   "item.airAiredRange": {
     "sourceHash": "7784d9db5490d46fda71abf9b653c7d2c8803d10c8dab920a8528b0b166f8774"
   },
@@ -4691,15 +4676,6 @@
   "item.airLegendOwned": {
     "sourceHash": "2bfa8a13150e11a2667e0f9343f9db3ccad03733c11d7dd8f63f206122c94050"
   },
-  "item.airLegendMissing": {
-    "sourceHash": "554bdccf34191f24706f4c0e96f41262217380b67c8c2f0d2e2ded0f222ad6ec"
-  },
-  "item.airLegendToday": {
-    "sourceHash": "d5f5a7a010731feb6cc67fcbde1bc7133c86019f6d88186e5075344f59de5ff5"
-  },
-  "item.airLegendUpcoming": {
-    "sourceHash": "45e4b52ace431898ceb3bf494ba605fd46ec3d969a95aedf8a81417cfab8c9e5"
-  },
   "item.airToday": {
     "sourceHash": "d5f5a7a010731feb6cc67fcbde1bc7133c86019f6d88186e5075344f59de5ff5"
   },
@@ -4715,8 +4691,26 @@
   "item.airUnscheduled": {
     "sourceHash": "42e9c9fc72d22a1d57f7762cbf9c6b9862a2a9a8d318f266635ed61ae55cfd73"
   },
-  "item.airProgress": {
-    "sourceHash": "89a3fc932084bbd437b6bd33be6116c3d2fc407a7425c03ce5d04dc888150aec"
+  "item.airEpisodesUpdate": {
+    "sourceHash": "dadaafcfa887165189020cffb86ffaefdea45e03f0510f356d4421ce1e6692a9"
+  },
+  "item.airEpisodesFinale": {
+    "sourceHash": "1d00eed81bc6d60afef2cfb9a465cf8bf871be67009436142137befc4eb19ac3"
+  },
+  "item.airRemaining": {
+    "sourceHash": "a0055d33048303395814d4af298f3c96f8f6b7a96fe96b10b60f23c2c0953ce2"
+  },
+  "item.airExpectedShort": {
+    "sourceHash": "c186afa1d5dfc0860114b64751a05f0dece2a8e022046ab8bccd72c51cede5cf"
+  },
+  "item.airThisWeek": {
+    "sourceHash": "b4c6c3eb0bce6b7888840f7353fe489160d23ae4c9db151e6a8b861404ceb2ea"
+  },
+  "item.airNextWeek": {
+    "sourceHash": "7f5fab4d966e23f67ce55167ea90f0fc3c656cef47169575718ebeeabb1003c8"
+  },
+  "item.airLater": {
+    "sourceHash": "28ff471d9a227562ea957fca1fbbb3c32f415f9a6fd3cca66bee657b398f8506"
   },
   "reels.title": {
     "sourceHash": "908e56fe5ed8ba83057712b1d0403a2378c260b3f11806d5015b73cbfcc64b38"
