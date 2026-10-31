@@ -19,6 +19,7 @@ from movieclaw_api.services.playback.ffmpeg_args import (
     NVENC_TONEMAP,
     SEGMENT_SECONDS,
     VAAPI_LOW_POWER,
+    VAAPI_TONEMAP,
     VIDEOTOOLBOX_TONEMAP,
     WorkerVideoCaps,
     build_hls_command,
@@ -75,6 +76,29 @@ def probed_nvenc_tonemap():
     register_native_tonemap("nvenc", NVENC_TONEMAP)
     yield
     register_native_tonemap("nvenc", None)
+
+
+@pytest.fixture(autouse=True)
+def probed_vaapi_tonemap():
+    """原生链用例模拟已通过 HDR VPP 自检的 VAAPI。"""
+    register_native_tonemap("vaapi", VAAPI_TONEMAP)
+    yield
+    register_native_tonemap("vaapi", None)
+
+
+def test_vaapi_without_hdr_probe_is_not_an_effective_hdr_backend():
+    register_native_tonemap("vaapi", None)
+    hdr = plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(action="transcode", codec="h264", height=1080, tone_map=True),
+    )
+    assert effective_hw_backend(hdr, "vaapi") is None
+    assert "tonemap_vaapi" not in " ".join(argv_of(hdr, hw_backend="vaapi"))
+    sdr = plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(action="transcode", codec="h264", height=1080),
+    )
+    assert effective_hw_backend(sdr, "vaapi") == "vaapi"
 
 
 # ---------------------------------------------------------------------------
