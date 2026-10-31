@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from movieclaw_api.plugins.keys import DB, EGRESS, SECRETS, SETTING_STORE, SITE_
 
 # 顶层 import：测试的迁移模板快路径会扫描已加载模块里的 run_migrations 并替换
 from movieclaw_db.migrations import run_migrations
-from movieclaw_kernel import Context, plugin
+from movieclaw_kernel import KERNEL_READY, Context, plugin
 
 logger = logging.getLogger("movieclaw_api.plugins.core")
 
@@ -92,8 +93,16 @@ async def registries(ctx: Context) -> None:
     )
 
     ctx.effect(bind_registry(ctx.registry(SCHEDULED_TASKS)), label="unbind-scheduled-tasks")
+    ready = asyncio.Event()
+
+    def on_kernel_ready(_event) -> None:
+        ready.set()
+        jobs.wake_job_dispatcher()
+
+    ctx.on(KERNEL_READY, on_kernel_ready)
     ctx.effect(
-        jobs.bind_handler_registry(ctx.registry(jobs.JOB_HANDLERS)), label="unbind-job-handlers"
+        jobs.bind_handler_registry(ctx.registry(jobs.JOB_HANDLERS), ready=ready),
+        label="unbind-job-handlers",
     )
 
     def on_handlers_changed(change) -> None:

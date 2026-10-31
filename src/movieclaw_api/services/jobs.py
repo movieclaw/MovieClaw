@@ -94,17 +94,22 @@ class CreateJobResult:
 _handlers: dict[str, RegisteredJobHandler] = {}
 
 _bound_handlers: Registry[RegisteredJobHandler] | None = None
+_handler_registry_ready: asyncio.Event | None = None
 
 
-def bind_handler_registry(registry: Registry[RegisteredJobHandler]) -> Callable[[], None]:
-    """把内核注册表绑定为当前生效的处理器表；返回解绑函数。"""
-    global _bound_handlers
+def bind_handler_registry(
+    registry: Registry[RegisteredJobHandler], *, ready: asyncio.Event | None = None
+) -> Callable[[], None]:
+    """绑定生效的处理器表；``ready`` 置位前只领已有处理器的类型。返回解绑函数。"""
+    global _bound_handlers, _handler_registry_ready
     _bound_handlers = registry
+    _handler_registry_ready = ready
 
     def unbind() -> None:
-        global _bound_handlers
+        global _bound_handlers, _handler_registry_ready
         if _bound_handlers is registry:
             _bound_handlers = None
+            _handler_registry_ready = None
 
     return unbind
 
@@ -1192,6 +1197,10 @@ class JobDispatcher:
                 # 旧协程的 done 回调还会误删新执行的引用。
                 conditions.append(Job.id.not_in(list(self._running)))
             if _bound_handlers is not None:
+                # 启动发现尚未结束，未登记的类型可能属于正在 apply 的插件。
+                # 此时只领取已有处理器的类型；就绪后才把真正未知的类型领走阻塞。
+                if _handler_registry_ready is not None and not _handler_registry_ready.is_set():
+                    conditions.append(Job.job_type.in_(claimable_job_types() or ()))
                 # 内核接管时：所属插件没启用的任务类型留在队列里等；没有任何代码认识的类型
                 # 照旧领取，在执行时阻塞并提示检查更新
                 waiting = _waiting_job_types()
