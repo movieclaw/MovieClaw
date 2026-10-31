@@ -2,4 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 应用内更新：把下载好的新版 APK 交给系统安装器（用户在系统弹窗里确认） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <application>
+        <provider
+            android:name=".AppUpdateFileProvider"
+            android:authorities="${applicationId}.app-update"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/app_update_paths" />
+        </provider>
+    </application>
 </manifest>

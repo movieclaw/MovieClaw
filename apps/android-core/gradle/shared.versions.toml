@@ -31,3 +31,4 @@ androidx-annotation = { module = "androidx.annotation:annotation", version = "1.
 checker-qual = { module = "org.checkerframework:checker-qual", version = "3.49.3" }
 junit = { module = "junit:junit", version.ref = "junit" }
 robolectric = { module = "org.robolectric:robolectric", version = "4.16" }
+androidx-core = { module = "androidx.core:core", version = "1.16.0" }
