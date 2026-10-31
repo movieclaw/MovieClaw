@@ -3017,3 +3017,63 @@ def test_vaapi_without_hdr_vpp_selects_a_compatible_remote_backend(remote_worker
         hdr, available=("vaapi", "videotoolbox"), local_backends=("vaapi",),
         remote_video_available=True,
     ) == ("videotoolbox", True)
+
+
+@pytest.mark.parametrize("hdr", ["HDR10", "Dolby Vision"])
+def test_hdr_session_waits_for_initial_vaapi_tonemap_probe(
+    controlled_hardware_probe, client, tmp_path, monkeypatch, hdr
+):
+    import subprocess
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as FutureTimeout
+
+    from movieclaw_api.services.playback import hwprobe
+    from movieclaw_api.services.playback import plan as plan_mod
+
+    hdr_started = threading.Event()
+    release_hdr = threading.Event()
+    request_probing = threading.Event()
+    probe_calls = []
+    hwprobe.reset_probe_cache()
+    monkeypatch.setattr(hwprobe.shutil, "which", lambda _n: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(hwprobe, "_list_encoders", lambda: frozenset({"h264_vaapi"}))
+    monkeypatch.setattr(hwprobe, "_device_problem", lambda _name: None)
+
+    def fake_probe(encoder, filters, **kwargs):
+        if "tonemap_vaapi" in " ".join(filters):
+            probe_calls.append(True)
+            hdr_started.set()
+            assert release_hdr.wait(30)
+        return subprocess.CompletedProcess([], 0, b"", b"")
+
+    def hardware_available():
+        request_probing.set()
+        return hwprobe.hardware_available()
+
+    monkeypatch.setattr(hwprobe, "_run_probe", fake_probe)
+    monkeypatch.setattr(plan_mod, "hardware_available", hardware_available)
+    monkeypatch.setattr(routes_playback, "available_backends", hwprobe.available_backends)
+    monkeypatch.setattr(
+        routes_playback, "available_local_backends", hwprobe.available_local_backends
+    )
+    monkeypatch.setattr(routes_playback, "remote_backends_available", lambda **_k: ())
+    file_id = seed(client, tmp_path, codec="hevc", hdr=hdr, resolution="2160p")
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            warmup = pool.submit(hwprobe.probe_backends)
+            try:
+                assert hdr_started.wait(10)
+                playback = pool.submit(start_session, client, file_id)
+                assert request_probing.wait(10)
+                with pytest.raises(FutureTimeout):
+                    playback.result(timeout=0.2)
+            finally:
+                release_hdr.set()
+            warmup.result(timeout=10)
+            data = playback.result(timeout=30)
+        assert data["decision"]["outcome"] == "plan", data
+        assert data["decision"]["tier"] == int(PlaybackTier.HARDWARE_TRANSCODE)
+        assert data["hw_backend"] == "vaapi" and data["session_id"]
+        assert probe_calls == [True]
+    finally:
+        hwprobe.reset_probe_cache()

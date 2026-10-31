@@ -25,6 +25,7 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -132,6 +133,7 @@ class HwBackendStatus:
 
 
 _cache: list[HwBackendStatus] | None = None
+_probe_lock = threading.Lock()
 
 
 def probe_backends(*, force: bool = False) -> list[HwBackendStatus]:
@@ -141,6 +143,12 @@ def probe_backends(*, force: bool = False) -> list[HwBackendStatus]:
     逐次播放问。``force=True`` 用于设置页的「重新检测」按钮——用户按提示挂上
     设备后要能立刻看到结果，不必重启容器。
     """
+    # 编码、HEVC 和原生 tone-map 的能力登记都完成后，才能让并发查询读到结果。
+    with _probe_lock:
+        return _probe_backends(force=force)
+
+
+def _probe_backends(*, force: bool) -> list[HwBackendStatus]:
     global _cache
     if _cache is not None and not force:
         return _cache
@@ -158,9 +166,10 @@ def probe_backends(*, force: bool = False) -> list[HwBackendStatus]:
         return _cache
 
     encoders = _list_encoders()
-    _cache = [_probe_hevc(_probe_one(name, encoders), encoders) for name in HW_BACKENDS]
-    for status in _cache:
+    statuses = [_probe_hevc(_probe_one(name, encoders), encoders) for name in HW_BACKENDS]
+    for status in statuses:
         _probe_native_tonemap(status.name, available=status.available)
+    _cache = statuses
     usable = [s.name for s in _cache if s.available]
     if usable:
         logger.info("硬件加速自检通过：%s", "、".join(usable))
@@ -213,9 +222,7 @@ def available_local_backends() -> tuple[str, ...]:
     断线的竞态会把 ``h264_videotoolbox`` 错交给 Linux ffmpeg。执行层必须使用这份
     本地快照，远程执行则由会话路由单独选择。
     """
-    if _cache is None:
-        probe_backends()
-    return tuple(status.name for status in (_cache or ()) if status.available)
+    return tuple(status.name for status in probe_backends() if status.available)
 
 
 def hardware_available() -> bool:
@@ -225,12 +232,13 @@ def hardware_available() -> bool:
 def reset_probe_cache() -> None:
     """测试用：丢掉缓存。回写给装配层的 tone-map 结论也要一并撤销。"""
     global _cache
-    _cache = None
-    for name in _NATIVE_TONEMAP_PROBES:
-        register_native_tonemap(name, None)
-    for name in HW_BACKENDS:
-        register_encoder_options(name, ())
-        register_hevc_encoder(name, None)
+    with _probe_lock:
+        _cache = None
+        for name in _NATIVE_TONEMAP_PROBES:
+            register_native_tonemap(name, None)
+        for name in HW_BACKENDS:
+            register_encoder_options(name, ())
+            register_hevc_encoder(name, None)
 
 
 async def probe_backends_async(*, force: bool = False) -> list[HwBackendStatus]:

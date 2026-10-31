@@ -11,6 +11,9 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 
 import pytest
@@ -573,3 +576,44 @@ def test_vaapi_probe_sample_has_real_hdr10_frame_metadata():
         assert frame["color_space"] == "bt2020nc"
         side_data = {d["side_data_type"] for d in frame["side_data_list"]}
         assert "Mastering display metadata" in side_data
+
+
+def test_concurrent_backend_queries_wait_for_native_tonemap(monkeypatch, tmp_path):
+    _vaapi_ready(monkeypatch, tmp_path)
+    hdr_started = threading.Event()
+    release_hdr = threading.Event()
+    query_started = threading.Event()
+    encoders_calls = []
+    original_encoders = hwprobe._list_encoders
+
+    def list_encoders():
+        encoders_calls.append(True)
+        return original_encoders()
+
+    def fake_probe(encoder, filters, **kwargs):
+        if "tonemap_vaapi" in " ".join(filters):
+            hdr_started.set()
+            assert release_hdr.wait(10)
+        return subprocess.CompletedProcess([], 0, b"", b"")
+
+    def query_backends():
+        query_started.set()
+        return hwprobe.available_local_backends()
+
+    monkeypatch.setattr(hwprobe, "_list_encoders", list_encoders)
+    monkeypatch.setattr(hwprobe, "_run_probe", fake_probe)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        warmup = pool.submit(hwprobe.probe_backends)
+        try:
+            assert hdr_started.wait(10)
+            assert hwprobe._cache is None
+            query = pool.submit(query_backends)
+            assert query_started.wait(10)
+            with pytest.raises(FutureTimeout):
+                query.result(timeout=0.2)
+        finally:
+            release_hdr.set()
+        assert status_of(warmup.result(timeout=10), "vaapi").available
+        assert query.result(timeout=10) == ("vaapi",)
+    assert encoders_calls == [True], "并发查询必须复用同一次探测"
+    assert native_tonemap_filter(HW_BACKENDS["vaapi"]) == VAAPI_TONEMAP
