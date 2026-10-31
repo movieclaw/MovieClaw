@@ -90,7 +90,7 @@ def serve(log_path: Path) -> tuple[ThreadingHTTPServer, int]:
             "overview": "An isolated title for content browsing.",
             "vote_average": 8,
             "poster_path": "/i18n.png",
-            "backdrop_path": None,
+            "backdrop_path": "/i18n.png" if os.environ.get("E2E_SCRIM_HERO") == "1" else None,
             "genre_ids": [],
         }
         for index in range(1, 5)
@@ -155,6 +155,23 @@ def serve(log_path: Path) -> tuple[ThreadingHTTPServer, int]:
                     payload = {
                         "page": 1,
                         "results": discovery_titles,
+                        "total_pages": 1,
+                        "total_results": len(discovery_titles),
+                    }
+                elif os.environ.get("E2E_SCRIM_HERO") == "1" and parsed.path in (
+                    "/3/discover/tv",
+                    "/3/trending/tv/day",
+                    "/3/trending/tv/week",
+                    "/3/tv/popular",
+                    "/3/tv/airing_today",
+                    "/3/tv/on_the_air",
+                ):
+                    payload = {
+                        "page": 1,
+                        "results": [
+                            {**item, "name": item["title"], "first_air_date": item["release_date"]}
+                            for item in discovery_titles
+                        ],
                         "total_pages": 1,
                         "total_results": len(discovery_titles),
                     }
