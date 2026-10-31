@@ -108,8 +108,12 @@ export class AVPlayerEngine implements PlayerEngine {
   private async prepare(source: EngineSource): Promise<void> {
     const player = this.player;
     if (player === null || this.released) { return; }
-    if (source.subtitleFd >= 0) { await player.addSubtitleFromFd(source.subtitleFd); }
-    else if (source.subtitleUrl.length > 0) { await player.addSubtitleFromUrl(source.subtitleUrl); }
+    try {
+      if (source.subtitleFd >= 0) { await player.addSubtitleFromFd(source.subtitleFd); }
+      else if (source.subtitleUrl.length > 0) { await player.addSubtitleFromUrl(source.subtitleUrl); }
+    } catch (error) {
+      const event = new EngineEvent(); event.type = 'diagnostic'; event.text = '系统播放器外挂字幕加载失败，继续播放'; this.onEvent(event);
+    }
     if (!this.released) { await player.prepare(); }
   }
 

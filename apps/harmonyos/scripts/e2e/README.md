@@ -2,6 +2,20 @@
 
 Use an ARM64 HarmonyOS emulator/device with the real MPV libraries. x86 stub builds cannot validate fallback. Install a debug HAP, sign in to the test NAS, and open the app before running fixtures. `PlaybackTestProbe` ignores all requests in release builds. Fixtures contain file/item IDs, never authentication or signed media URLs.
 
+Host regressions can run without a device. They transpile the production ArkTS with the
+DevEco SDK compiler, run the shared Hypium controller/session/gateway suites, and exercise
+HTTP subtitle failures, queued episode reports, startup deadlines and platform cleanup
+with mocked platform boundaries:
+
+```sh
+DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk \
+  node --test apps/harmonyos/scripts/tests/playback.test.cjs
+```
+
+Run from the repository root with Node 20 or newer. For another SDK layout, set
+`HARMONY_TYPESCRIPT_PATH` to its `ets-loader/node_modules/typescript` directory.
+These tests do not establish decoder, rendered-frame or system-service behavior on a device.
+
 Build the app and `entry@ohosTest` separately from `apps/harmonyos`, using the DevEco SDK/JBR. Install both HAPs. Run the shared controller/session/gateway tests:
 
 ```sh
