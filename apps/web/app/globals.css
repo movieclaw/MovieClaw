@@ -3034,15 +3034,17 @@ html:not([data-glass="off"]) .page-nav-btn:hover {
   }
 }
 
-/* —— 桌面沉浸页（发现 / 订阅首页有 Hero 时，components/immersive-hero.tsx 的 useHeroWindowBackdrop）——
-   窗口背景已换成当前剧照：蒙版改成重模糊、轻压暗，侧栏四周的缝透出同一部片鲜艳的虚化版
-   （背景延伸），不再是一条压暗的灰带；海报行的可读性由主区自己的渐变压暗负责。
-   只在桌面宽度生效，手机不挂这个标记。 */
+/* 桌面沉浸页保留既有饱和度；模糊与暗度与全站蒙版共用用户偏好。 */
 @media (min-width: 768px) {
   html.hero-window .page-scrim {
-    background: rgb(0 0 0 / 0.16);
-    backdrop-filter: blur(36px) saturate(135%);
+    backdrop-filter: blur(var(--scrim-blur, 13px)) saturate(135%);
   }
+}
+
+/* 零模糊档关闭整个滤镜（含 Hero 饱和度），暗度仍由通用蒙版提供。 */
+html[data-scrim-no-blur] .page-scrim,
+html[data-scrim-no-blur] .search-palette-overlay {
+  backdrop-filter: none;
 }
 
 /* 媒体库首页「下拉二楼」（components/reels-floor.tsx）：拉的时候其余内容整体下移，露出上面的胶片。

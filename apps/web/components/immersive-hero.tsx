@@ -63,9 +63,8 @@ export const DESKTOP_CARD_FRAME =
  * 轮播换张时背景跟着交叉淡入；url 为空（手机、没有 Hero）时恢复用户自己的背景。
  * 只改运行时状态，不落外观设置。
  *
- * 同时给 <html> 挂 hero-window 标记，把全站蒙版从「压暗 + 模糊」换成「重模糊、轻压暗」
- * （globals.css）：默认蒙版把缝里的剧照压到七成黑，夹在鲜艳的大图与侧栏玻璃之间
- * 成了一条灰带（2026-09-27 用户截图）。压暗改由主区自己的渐变承担，只压海报行那一段。
+ * 同时给 <html> 挂 hero-window 标记，保留桌面 Hero 既有的饱和度；
+ * 蒙版的模糊与暗度仍跟随全站用户偏好（globals.css）。
  */
 export function useHeroWindowBackdrop(url: string | null | undefined) {
   const { setOverrideBackdrop } = useBackdrop();
