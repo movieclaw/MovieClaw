@@ -375,7 +375,8 @@ export function AirScheduleDialog({
                 </span>
               </span>
               {pastMissing.length > 0 ? (
-                <span className="shrink-0 text-caption text-[var(--warn)]">{missingText(pastMissing, t)}</span>
+                // 能补集时右边的「补第 7 集」已经说了缺哪集，这里不再重复
+                !canFind && <span className="shrink-0 text-caption text-[var(--warn)]">{missingText(pastMissing, t)}</span>
               ) : (
                 <span className={`tnum shrink-0 text-caption ${pastAllOwned ? "text-[var(--ok)]" : "text-[var(--text-muted)]"}`}>
                   {pastAllOwned ? t("library.item.airLegendOwned") : t("library.item.airStatOwned", { count: pastOwned })}
@@ -455,17 +456,19 @@ function DayRow({
   return (
     <div
       data-air-day={day.date}
-      className={`flex min-h-[60px] items-center gap-3 rounded-2xl px-3.5 py-2 ${day.today ? "bg-[#60a5fa]/[0.14]" : ""}`}
+      className={`flex min-h-[60px] flex-col justify-center rounded-2xl px-3.5 py-2 ${day.today ? "bg-[#60a5fa]/[0.14]" : ""}`}
     >
-      <div className="flex w-[72px] shrink-0 flex-col whitespace-nowrap">
-        <span className={`text-micro ${day.today ? "font-bold text-[var(--info-text)]" : "text-[var(--text-muted)]"}`}>
-          {day.today ? t("library.item.airToday") : formatWeekday(day.date, locale)}
+      {/* 星期单独占一行；日期、圆点、集号、右侧状态同一行按基线对齐，集号不会落在两行日期的中间 */}
+      <span className={`text-micro ${day.today ? "font-bold text-[var(--info-text)]" : "text-[var(--text-muted)]"}`}>
+        {day.today ? t("library.item.airToday") : formatWeekday(day.date, locale)}
+      </span>
+      <div className="flex items-baseline gap-3">
+        <span className="tnum w-[72px] shrink-0 whitespace-nowrap text-ui font-semibold text-[var(--text)]">
+          {formatAirDay(day.date, locale)}
         </span>
-        <span className="tnum text-ui font-semibold text-[var(--text)]">{formatAirDay(day.date, locale)}</span>
-      </div>
-      <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${dot}`} />
-      <div className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
+        {/* 圆点没有基线，按底边落在基线上，圆心正好在集号字身中部 */}
+        <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${dot}`} />
+        <span className="flex min-w-0 flex-1 items-baseline gap-2">
           <span className="tnum text-body-lg font-semibold text-[var(--text)]">{rangeLabel(day.episodes, t)}</span>
           {day.finale && (
             <span className="rounded-md bg-[var(--warn)] px-1.5 py-px text-micro font-bold text-[#241a02]">
@@ -473,32 +476,33 @@ function DayRow({
             </span>
           )}
         </span>
-        {day.past && dayMissing.length > 0 && (
-          <span className="block text-caption text-[var(--warn)]">{missingText(dayMissing, t)}</span>
+        {day.past && allOwned && (
+          <span className="flex shrink-0 items-center gap-1 text-caption text-[var(--ok)]">
+            <CheckIcon className="size-3 stroke-[3]" />
+            {t("library.item.airLegendOwned")}
+          </span>
+        )}
+        {day.past && !allOwned && dayMissing.length === 0 && (
+          <span className="shrink-0 text-caption text-[var(--text-muted)]">{t("library.item.airAbsent")}</span>
+        )}
+        {day.past && dayMissing.length > 0 && canFind && (
+          <button
+            type="button"
+            disabled={searching}
+            onClick={onFind}
+            className="h-8 shrink-0 rounded-full border border-[#f5c451]/55 px-2.5 text-caption font-semibold text-[var(--warn)] transition hover:bg-[#f5c451]/10 disabled:opacity-60"
+          >
+            {t("library.item.airFindEpisode")}
+          </button>
+        )}
+        {status && <span className={`shrink-0 text-caption font-semibold ${status.className}`}>{status.text}</span>}
+        {!day.past && !day.today && (
+          <span className="tnum shrink-0 text-caption text-[var(--text-muted)]">{relativeDay(schedule.today, day.date, t)}</span>
         )}
       </div>
-      {day.past && allOwned && (
-        <span className="flex shrink-0 items-center gap-1 text-caption text-[var(--ok)]">
-          <CheckIcon className="size-3 stroke-[3]" />
-          {t("library.item.airLegendOwned")}
-        </span>
-      )}
-      {day.past && !allOwned && dayMissing.length === 0 && (
-        <span className="shrink-0 text-caption text-[var(--text-muted)]">{t("library.item.airAbsent")}</span>
-      )}
-      {day.past && dayMissing.length > 0 && canFind && (
-        <button
-          type="button"
-          disabled={searching}
-          onClick={onFind}
-          className="h-8 shrink-0 rounded-full border border-[#f5c451]/55 px-2.5 text-caption font-semibold text-[var(--warn)] transition hover:bg-[#f5c451]/10 disabled:opacity-60"
-        >
-          {t("library.item.airFindEpisode")}
-        </button>
-      )}
-      {status && <span className={`shrink-0 text-caption font-semibold ${status.className}`}>{status.text}</span>}
-      {!day.past && !day.today && (
-        <span className="tnum shrink-0 text-caption text-[var(--text-muted)]">{relativeDay(schedule.today, day.date, t)}</span>
+      {day.past && dayMissing.length > 0 && (
+        // 与集号左缘对齐：日期 72 + 间距 12 + 圆点 10 + 间距 12
+        <span className="pl-[106px] text-caption text-[var(--warn)]">{missingText(dayMissing, t)}</span>
       )}
     </div>
   );
