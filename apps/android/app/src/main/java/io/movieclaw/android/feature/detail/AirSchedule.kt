@@ -57,6 +57,7 @@ import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.TextPrimary
 import io.movieclaw.android.core.designsystem.Warn
 import io.movieclaw.android.core.designsystem.formSheetScroll
+import io.movieclaw.android.core.designsystem.formSheetContent
 import io.movieclaw.android.core.model.EpisodeView
 import io.movieclaw.android.core.model.SeasonAirSchedule
 import java.time.DayOfWeek
@@ -392,52 +393,54 @@ internal fun AirScheduleSheet(
                     AirSchedule.finale(schedule)?.let { Text(it, style = McType.micro, color = TextMuted) }
                 }
             }
-            Spacer(Modifier.height(14.dp))
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.08f)))
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-                modifier = Modifier.weight(1f, fill = false).heightIn(max = 560.dp).testTag("air-schedule-list").formSheetScroll(),
-            ) {
-                if (past.isNotEmpty()) {
-                    item(key = "past") {
-                        PastSummary(past, schedule, pastOpen, canFind, searching, onToggle = { pastOpen = !pastOpen }, onFind = onFindMissing)
-                    }
-                }
-                val shown = (if (pastOpen) past else emptyList()) + coming
-                shown.forEachIndexed { index, day ->
-                    val previous = shown.getOrNull(index - 1)
-                    // 已播与待播之间（折叠时）不画间隙：中间隔着汇总行
-                    val gap = previous?.let { AirSchedule.gap(it.date, day.date, weekly) }
-                    if (gap != null) item(key = "gap-${day.date}") { GapRow(gap) }
-                    item(key = day.date.toString()) { DayRow(day, schedule, canFind, searching, onFindMissing) }
-                }
-                schedule.region?.let { code ->
-                    item(key = "region") { Footnote("播出日期为${AirSchedule.regionName(code)}当地日期") }
-                }
-                if (schedule.subscriptionId != null) {
-                    item(key = "source") { Footnote("播出日期来自 TMDB · 入库时间是订阅按站点发布规律推算的") }
-                }
-            }
-            if (schedule.subscriptionId == null && onSubscribe != null) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).navigationBarsPadding(),
+            Column(Modifier.weight(1f, fill = false).fillMaxWidth().formSheetContent()) {
+                Spacer(Modifier.height(14.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.08f)))
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
+                    modifier = Modifier.weight(1f, fill = false).heightIn(max = 560.dp).testTag("air-schedule-list").formSheetScroll(),
                 ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color.White)
-                            .clickable(onClick = onSubscribe)
-                            .testTag("air-schedule-subscribe"),
-                    ) {
-                        Text("订阅追更", style = McType.bodySemibold, color = Color.Black)
+                    if (past.isNotEmpty()) {
+                        item(key = "past") {
+                            PastSummary(past, schedule, pastOpen, canFind, searching, onToggle = { pastOpen = !pastOpen }, onFind = onFindMissing)
+                        }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Text("之后每一集播出后都会自动下载入库", style = McType.caption, color = TextMuted)
+                    val shown = (if (pastOpen) past else emptyList()) + coming
+                    shown.forEachIndexed { index, day ->
+                        val previous = shown.getOrNull(index - 1)
+                        // 已播与待播之间（折叠时）不画间隙：中间隔着汇总行
+                        val gap = previous?.let { AirSchedule.gap(it.date, day.date, weekly) }
+                        if (gap != null) item(key = "gap-${day.date}") { GapRow(gap) }
+                        item(key = day.date.toString()) { DayRow(day, schedule, canFind, searching, onFindMissing) }
+                    }
+                    schedule.region?.let { code ->
+                        item(key = "region") { Footnote("播出日期为${AirSchedule.regionName(code)}当地日期") }
+                    }
+                    if (schedule.subscriptionId != null) {
+                        item(key = "source") { Footnote("播出日期来自 TMDB · 入库时间是订阅按站点发布规律推算的") }
+                    }
+                }
+                if (schedule.subscriptionId == null && onSubscribe != null) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).navigationBarsPadding(),
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(Color.White)
+                                .clickable(onClick = onSubscribe)
+                                .testTag("air-schedule-subscribe"),
+                        ) {
+                            Text("订阅追更", style = McType.bodySemibold, color = Color.Black)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text("之后每一集播出后都会自动下载入库", style = McType.caption, color = TextMuted)
+                    }
                 }
             }
         }

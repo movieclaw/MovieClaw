@@ -63,6 +63,7 @@ import io.movieclaw.android.core.model.EpisodeView
 import io.movieclaw.android.core.designsystem.mcGridCells
 import io.movieclaw.android.core.designsystem.mcCards
 import io.movieclaw.android.core.designsystem.formSheetScroll
+import io.movieclaw.android.core.designsystem.formSheetContent
 
 /*
  * 长剧集分段的界面件（docs/design/long-season-episode-ranges.md §4，手机版）：
@@ -229,43 +230,45 @@ internal fun AllEpisodesSheet(
                         .padding(horizontal = 6.dp, vertical = 4.dp),
                 )
             }
-            Spacer(Modifier.height(12.dp))
-            EpisodeRangeChips(
-                ranges = ranges,
-                current = range.index,
-                anchor = anchor,
-                onPick = { sheetRange = it.index },
-                tagPrefix = "ep-sheet-chip",
-            )
-            val grid = rememberLazyGridState()
-            // 锚点在这一段就把它滚到可见（第 50 集在宫格最底下，不滚看不见）；不在就回到顶
-            LaunchedEffect(range.index) {
-                val hit = range.episodes.indexOfFirst { it.episodeNumber == anchor }
-                if (hit < 0) {
-                    grid.scrollToItem(0)
-                    return@LaunchedEffect
+            Column(Modifier.fillMaxWidth().formSheetContent()) {
+                Spacer(Modifier.height(12.dp))
+                EpisodeRangeChips(
+                    ranges = ranges,
+                    current = range.index,
+                    anchor = anchor,
+                    onPick = { sheetRange = it.index },
+                    tagPrefix = "ep-sheet-chip",
+                )
+                val grid = rememberLazyGridState()
+                // 锚点在这一段就把它滚到可见（第 50 集在宫格最底下，不滚看不见）；不在就回到顶
+                LaunchedEffect(range.index) {
+                    val hit = range.episodes.indexOfFirst { it.episodeNumber == anchor }
+                    if (hit < 0) {
+                        grid.scrollToItem(0)
+                        return@LaunchedEffect
+                    }
+                    grid.scrollToItem(hit)
+                    val info = grid.layoutInfo
+                    val cell = info.visibleItemsInfo.firstOrNull { it.index == hit } ?: return@LaunchedEffect
+                    val center = (info.viewportStartOffset + info.viewportEndOffset) / 2
+                    grid.scrollBy((cell.offset.y + cell.size.height / 2 - center).toFloat())
                 }
-                grid.scrollToItem(hit)
-                val info = grid.layoutInfo
-                val cell = info.visibleItemsInfo.firstOrNull { it.index == hit } ?: return@LaunchedEffect
-                val center = (info.viewportStartOffset + info.viewportEndOffset) / 2
-                grid.scrollBy((cell.offset.y + cell.size.height / 2 - center).toFloat())
-            }
-            LazyVerticalGrid(
-                columns = mcGridCells(phoneColumns = 5),
-                state = grid,
-                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 30.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp).testTag("ep-sheet-grid").formSheetScroll(),
-            ) {
-                items(range.episodes, key = { it.episodeNumber }) { episode ->
-                    EpisodeCell(
-                        episode = episode,
-                        anchor = episode.episodeNumber == anchor,
-                        selected = episode.episodeNumber == selected,
-                        onClick = { onPick(episode.episodeNumber) },
-                    )
+                LazyVerticalGrid(
+                    columns = mcGridCells(phoneColumns = 5),
+                    state = grid,
+                    contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 30.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp).testTag("ep-sheet-grid").formSheetScroll(),
+                ) {
+                    items(range.episodes, key = { it.episodeNumber }) { episode ->
+                        EpisodeCell(
+                            episode = episode,
+                            anchor = episode.episodeNumber == anchor,
+                            selected = episode.episodeNumber == selected,
+                            onClick = { onPick(episode.episodeNumber) },
+                        )
+                    }
                 }
             }
         }

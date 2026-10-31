@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -24,10 +26,11 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.shadows.ShadowDialog
 import org.robolectric.annotation.Config
 
 /**
- * 详情页两张可滚动底部面板（播出日历、全部分集）的手势（issue #1103）：
+ * 详情页两张可滚动底部面板（播出日历、全部分集）的手势（issue #1103 / #1117）：
  * 在列表上下拉只滚列表、不把面板拖走；关面板仍可拖列表外的面板头部。
  */
 @RunWith(RobolectricTestRunner::class)
@@ -38,7 +41,8 @@ class DetailSheetScrollTest {
 
     private val today = LocalDate.of(2026, 10, 30)
 
-    private fun setAirSheet() {
+    private fun setAirSheet(onSubscribe: (() -> Unit)? = null, fromCard: Boolean = false) {
+        if (fromCard) open = false
         // 40 集周更，全部待播：列表远高于面板的 560dp 上限
         val episodes = (1..40).map { EpisodeView(episodeNumber = it, airDate = today.plusWeeks(it - 1L).toString()) }
         val schedule = SeasonAirSchedule(
@@ -48,6 +52,7 @@ class DetailSheetScrollTest {
         )
         compose.setContent {
             MovieClawTheme {
+                if (fromCard) AirScheduleCard(episodes, schedule, onOpen = { open = true })
                 if (open) {
                     AirScheduleSheet(
                         title = "测试剧",
@@ -57,7 +62,7 @@ class DetailSheetScrollTest {
                         canSubscribe = false,
                         searching = false,
                         onFindMissing = {},
-                        onSubscribe = null,
+                        onSubscribe = onSubscribe,
                         onDismiss = { open = false },
                     )
                 }
@@ -120,6 +125,64 @@ class DetailSheetScrollTest {
         assertScrollBackKeepsSheet("air-schedule-sheet", "air-schedule-list")
     }
 
+    @Test fun airSheetDividerPullKeepsSheetStill() {
+        setAirSheet(onSubscribe = {})
+        val before = top("air-schedule-sheet")
+        // 列表上方 1px 的分隔线，不经过 LazyColumn 的手势处理。
+        compose.onNodeWithTag("air-schedule-list").performTouchInput {
+            down(Offset(centerX, -1f))
+            moveBy(Offset(0f, 200f), delayMillis = 500)
+        }
+        compose.waitForIdle()
+        assertEquals("拖动过程中面板不应下移", before.value, top("air-schedule-sheet").value, 0.5f)
+        compose.onNodeWithTag("air-schedule-list").performTouchInput { up() }
+        compose.waitForIdle()
+        assertTrue(open)
+    }
+
+    @Test fun airSheetSubscribePullKeepsButtonStillAndClickable() {
+        var subscriptions = 0
+        setAirSheet(onSubscribe = { subscriptions++ })
+        val sheetBefore = top("air-schedule-sheet")
+        val buttonBefore = top("air-schedule-subscribe")
+        compose.onNodeWithTag("air-schedule-subscribe").performTouchInput {
+            down(center)
+            moveBy(Offset(0f, 200f), delayMillis = 500)
+        }
+        compose.waitForIdle()
+        assertEquals("拖动过程中按钮不应下移", buttonBefore.value, top("air-schedule-subscribe").value, 0.5f)
+        compose.onNodeWithTag("air-schedule-subscribe").performTouchInput { up() }
+        compose.waitForIdle()
+        assertTrue("订阅区下拉不应关闭面板", open)
+        assertEquals(sheetBefore.value, top("air-schedule-sheet").value, 0.5f)
+        assertEquals("拖动不应误订阅", 0, subscriptions)
+        compose.onNodeWithTag("air-schedule-subscribe").performClick()
+        assertEquals(1, subscriptions)
+    }
+
+    /** 真实卡片入口 → 浏览日历 → 固定区拖动 → 订阅回调 → 再打开并返回关闭。 */
+    @Test fun calendarToSubscribeUserFlow() {
+        var subscribed = false
+        setAirSheet(onSubscribe = { subscribed = true; open = false }, fromCard = true)
+        compose.onNodeWithTag("air-schedule-card").performClick()
+        compose.waitForIdle()
+        assertScrollBackKeepsSheet("air-schedule-sheet", "air-schedule-list")
+        compose.onNodeWithTag("air-schedule-subscribe").performTouchInput {
+            swipeDown(endY = centerY + 300f)
+        }
+        compose.waitForIdle()
+        assertTrue("浏览后订阅入口应仍可用", open)
+        compose.onNodeWithTag("air-schedule-subscribe").performClick()
+        compose.waitForIdle()
+        assertTrue(subscribed)
+        compose.onNodeWithTag("air-schedule-sheet").assertDoesNotExist()
+        compose.onNodeWithTag("air-schedule-card").performClick()
+        compose.waitForIdle()
+        compose.runOnIdle { ShadowDialog.getLatestDialog().onBackPressed() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("air-schedule-sheet").assertDoesNotExist()
+    }
+
     @Test fun airSheetHeaderDragStillDismisses() {
         setAirSheet()
         compose.onNodeWithText("播出日历").performTouchInput { swipeDown(endY = centerY + 1500f) }
@@ -135,6 +198,23 @@ class DetailSheetScrollTest {
     @Test fun episodesSheetScrollBackToTopKeepsSheetStill() {
         setEpisodesSheet()
         assertScrollBackKeepsSheet("ep-sheet", "ep-sheet-grid")
+    }
+
+    @Test fun episodesSheetRangeChipsPullKeepsSheetStill() {
+        setEpisodesSheet()
+        val before = top("ep-sheet")
+        compose.onNodeWithTag("ep-sheet-chip-1-50", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveBy(Offset(0f, 200f), delayMillis = 500)
+        }
+        compose.waitForIdle()
+        assertEquals("分段选择区下拉不应移动面板", before.value, top("ep-sheet").value, 0.5f)
+        compose.onNodeWithTag("ep-sheet-chip-1-50", useUnmergedTree = true).performTouchInput { up() }
+        compose.waitForIdle()
+        assertTrue(open)
+        compose.onNodeWithTag("ep-sheet-chip-51-100", useUnmergedTree = true).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("ep-cell-51", useUnmergedTree = true).assertExists()
     }
 
     @Test fun episodesSheetHeaderDragStillDismisses() {
