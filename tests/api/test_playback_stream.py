@@ -34,7 +34,11 @@ from movieclaw_api.api.routes.transcode_worker import put_transcode_artifact
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.auth import reset_auth_state
 from movieclaw_api.services.playback import session as session_mod
-from movieclaw_api.services.playback.ffmpeg_args import TranscodeCommand
+from movieclaw_api.services.playback.ffmpeg_args import (
+    VAAPI_TONEMAP,
+    TranscodeCommand,
+    register_native_tonemap,
+)
 from movieclaw_api.services.playback.remote_signing import issue_remote_grant
 from movieclaw_api.services.playback.remote_worker import get_remote_worker_registry
 from movieclaw_api.services.playback.session import (
@@ -396,8 +400,15 @@ def test_prefer_hevc_output_needs_every_condition(monkeypatch):
     assert codec(prefer(_hw_plan(), hevc_client, "videotoolbox", remote=True)) == "h264"
 
 
+@pytest.fixture
+def probed_vaapi_hdr(controlled_hardware_probe):
+    register_native_tonemap("vaapi", VAAPI_TONEMAP)
+    yield
+    register_native_tonemap("vaapi", None)
+
+
 def test_profile_5_transcode_prefers_a_transcoder_whose_tonemap_reads_the_rpu(
-    remote_workers_run_any_plan,
+    remote_workers_run_any_plan, probed_vaapi_hdr,
 ):
     """P5 的 IPT 基础层要吃 RPU：VAAPI 的映射不认、出来整片发紫，Mac 转码器在线就交给它；
     不在线时照旧用本机（与原来相同）。不是 P5 的不受影响"""
@@ -420,7 +431,7 @@ def test_profile_5_transcode_prefers_a_transcoder_whose_tonemap_reads_the_rpu(
     assert select(p5(None), **both, remote_video_available=True) == ("vaapi", False)
 
 
-def test_profile_5_caveat_only_when_a_rpu_blind_local_gpu_does_the_tone_map():
+def test_profile_5_caveat_only_when_a_rpu_blind_local_gpu_does_the_tone_map(probed_vaapi_hdr):
     """P5 落到 VAAPI / QSV：片能放但整片偏绿，诊断的判定理由要说清原因与出路。认得 RPU 的
     （Mac 转码器、自检到 tonemap_cuda 的 NVENC）、退回软件 tonemapx 的、远程执行的，都不该提示。"""
     from movieclaw_api.services.playback.ffmpeg_args import NVENC_TONEMAP, register_native_tonemap
@@ -459,7 +470,7 @@ def test_profile_5_caveat_only_when_a_rpu_blind_local_gpu_does_the_tone_map():
 
 
 def test_profile_5_session_on_a_local_gpu_tells_the_user_why_the_colors_are_off(
-    client, tmp_path, monkeypatch
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
 ):
     """《空枪》（杜比视界 P5）在只有 VAAPI 的 NAS 上：能放，判定理由里写明为什么偏绿、怎么修；
     同样走 VAAPI 的普通 HDR10 不该有这句。"""
@@ -2943,3 +2954,66 @@ def test_diagnostic_encoder_marks_vaapi_low_power():
         assert routes_playback._diagnostic_encoder(remote) == "h264_vaapi"
     finally:
         register_encoder_options("vaapi", ())
+
+
+@pytest.fixture
+def controlled_hardware_probe(monkeypatch):
+    # 在 client 启动前关闭真实机器的探测预热，避免后台线程覆盖模拟的 VAAPI 快照。
+    async def no_warmup():
+        pass
+
+    monkeypatch.setattr("movieclaw_api.plugins.playback._warm_hardware_probe", no_warmup)
+
+
+@pytest.mark.parametrize("hdr", ["HDR10", "Dolby Vision"])
+def test_vaapi_without_hdr_vpp_rejects_before_creating_a_broken_session(
+    controlled_hardware_probe, client, tmp_path, monkeypatch, hdr
+):
+    """SDR 编码通过、HDR VPP 被驱动拒绝：请求会话即降档，不让 TV 等 init 404。"""
+    import subprocess
+
+    from movieclaw_api.services.playback import hwprobe
+
+    hwprobe.reset_probe_cache()
+    monkeypatch.setattr(hwprobe.shutil, "which", lambda _n: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(hwprobe, "_list_encoders", lambda: frozenset({"h264_vaapi"}))
+    monkeypatch.setattr(hwprobe, "_device_problem", lambda _name: None)
+
+    def fake_probe(encoder, filters, **kwargs):
+        hdr_chain = "tonemap_vaapi" in " ".join(filters)
+        return subprocess.CompletedProcess(
+            [], 234 if hdr_chain else 0, b"", b"VAAPI driver doesn't support HDR"
+        )
+
+    monkeypatch.setattr(hwprobe, "_run_probe", fake_probe)
+    # 只替身硬件进程；真实探测登记、执行后端选择、统一降档和 HTTP 路由照常跑。
+    monkeypatch.setattr(routes_playback, "available_backends", hwprobe.available_backends)
+    monkeypatch.setattr(
+        routes_playback, "available_local_backends", hwprobe.available_local_backends
+    )
+    monkeypatch.setattr(routes_playback, "remote_backends_available", lambda **_k: ())
+    try:
+        file_id = seed(client, tmp_path, codec="hevc", hdr=hdr, resolution="2160p")
+        data = start_session(client, file_id)
+        assert data["decision"]["outcome"] == "rejected", data
+        assert "色调映射" in data["decision"]["reason"]
+        assert data["session_id"] is None
+        assert hwprobe.available_local_backends() == ("vaapi",)
+        # 同一块卡仍可接 SDR，不把 HDR VPP 失败扩大成禁用所有 VAAPI 转码。
+        sdr_id = seed(client, tmp_path, codec="hevc", resolution="2160p")
+        sdr = start_session(client, sdr_id)
+        assert sdr["decision"]["outcome"] == "plan" and sdr["hw_backend"] == "vaapi"
+        assert sdr["session_id"]
+    finally:
+        hwprobe.reset_probe_cache()
+
+
+def test_vaapi_without_hdr_vpp_selects_a_compatible_remote_backend(remote_workers_run_any_plan):
+    register_native_tonemap("vaapi", None)
+    hdr = _hw_plan(
+        video=VideoPlan(action="transcode", codec="h264", height=1080, tone_map=True)
+    )
+    assert routes_playback.playback_plan.select_execution_backend(
+        hdr, available=("vaapi", "videotoolbox"), local_backends=("vaapi",),
+        remote_video_available=True,
+    ) == ("videotoolbox", True)

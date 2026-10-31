@@ -258,6 +258,10 @@ NVENC_TONEMAP = (
 )
 
 
+#: VAAPI 驱动能编码不代表支持 HDR VPP；只有真跑通色调映射链才启用。
+#: 三个色彩属性必须同时落到 BT.709：只设 transfer 会遗留 BT.2020 原色/矩阵（#331）。
+VAAPI_TONEMAP = "tonemap_vaapi=format=nv12:t=bt709:m=bt709:p=bt709"
+
 #: Mac 上整条 GPU 链路的 HDR → SDR（jellyfin-ffmpeg 的 Metal 滤镜）。参数与软件档
 #: ``_SOFTWARE_TONEMAP`` 对齐：BT.2390 EETF + 落到 BT.709 三件套 + 8-bit 输出；
 #: 杜比视界由滤镜默认的 ``apply_dovi`` 按元数据还原（CPU 那条链做不到，DV P5 会偏色）。
@@ -363,10 +367,7 @@ HW_BACKENDS: dict[str, HwBackend] = {
         hwaccel="vaapi",
         hwaccel_output_format="vaapi",
         scale_filter="scale_vaapi",
-        # 三项必须都写。只设 t=bt709 会把画面映射到 709 却仍标着 BT.2020 的
-        # 原色与矩阵，播放器照标签做色域扩展——实测渲染差平均 13.4/255、
-        # 最高 90，观感是整体偏红发品（issue #331）。
-        tonemap_filter="tonemap_vaapi=format=nv12:t=bt709:m=bt709:p=bt709",
+        tonemap_filter=None,  # VAAPI HDR VPP 由自检确认，见 VAAPI_TONEMAP
         scale_format="nv12",
         scale_range="tv",
         device="/dev/dri/renderD128",
@@ -470,7 +471,7 @@ def tonemap_ignores_dolby_vision(backend_name: str) -> bool:
 
 #: 要靠执行者的 ffmpeg 带着才有的原生 tone-map（不写死进 ``HW_BACKENDS`` 的那些）。
 #: 本机由自检确认后登记进 ``_PROBED_TONEMAP``；远程 Worker 看它申报的 ``filters``。
-_OPTIONAL_TONEMAP: dict[str, str] = {"nvenc": NVENC_TONEMAP}
+_OPTIONAL_TONEMAP: dict[str, str] = {"nvenc": NVENC_TONEMAP, "vaapi": VAAPI_TONEMAP}
 
 
 def native_tonemap_filter(backend: HwBackend, caps: WorkerVideoCaps | None = None) -> str | None:
