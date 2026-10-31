@@ -197,6 +197,7 @@ class GenResult:
     filename: str | None = None
     report: validate.QualityReport | None = None
     sync_score: float | None = None
+    sync_offset_ms: int | None = None
     source_desc: str | None = None
     finished_at: object = None
     message_key: str | None = None
@@ -1436,6 +1437,7 @@ def _result_payload(result: GenResult) -> dict[str, object]:
         "filename": result.filename,
         "report": asdict(result.report) if result.report is not None else None,
         "sync_score": result.sync_score,
+        "sync_offset_ms": result.sync_offset_ms,
         "source_desc": result.source_desc,
         "source_desc_key": result.source_message.get("message_key")
         if result.source_message
@@ -2001,6 +2003,7 @@ async def _run(
 
     state.total_events = len(events)
     sync_score: float | None = None
+    sync_offset_ms: int | None = None
     if chosen.candidate.kind != "audio":
         # L1 同步质检（§5.2）：错位参考在烧 LLM 钱之前拦下；无法检测按未知放行。
         # 音轨识别不检测：时间轴本来就出自这条音轨
@@ -2010,18 +2013,39 @@ async def _run(
             Path(row.file_path), events, row.duration_seconds, sync.audio_index(row.audio_streams)
         )
         if sync_score is not None and sync_score < sync.SYNC_THRESHOLD:
-            return GenResult(
-                ok=False,
-                sync_score=sync_score,
-                source_desc=source_desc,
-                source_message=source_message,
-                **stored_fields(
-                    "library.subtitleJob.unsynced",
-                    source=source_message,
-                    score=sync_score,
-                    threshold=sync.SYNC_THRESHOLD,
-                ),
-            )
+            calibrated = await _try_auto_calibrate_events(row, events)
+            if calibrated is not None:
+                events, calibration = calibrated
+                sync_offset_ms = calibration.offset_ms
+                logger.info(
+                    "字幕生成自动校准参考字幕：%s scale=%.6f offset=%dms score=%.2f",
+                    row.file_path,
+                    calibration.scale,
+                    calibration.offset_ms,
+                    calibration.score,
+                )
+                corrected_score = await sync.sample_sync_score(
+                    Path(row.file_path),
+                    events,
+                    row.duration_seconds,
+                    sync.audio_index(row.audio_streams),
+                )
+                if corrected_score is not None:
+                    sync_score = corrected_score
+            if sync_score < sync.SYNC_THRESHOLD:
+                return GenResult(
+                    ok=False,
+                    sync_score=sync_score,
+                    sync_offset_ms=sync_offset_ms,
+                    source_desc=source_desc,
+                    source_message=source_message,
+                    **stored_fields(
+                        "library.subtitleJob.unsynced",
+                        source=source_message,
+                        score=sync_score,
+                        threshold=sync.SYNC_THRESHOLD,
+                    ),
+                )
     assert chat is not None  # 只有同语种的音轨识别不建 chat，上面已经返回
 
     def _phase(phase: str, message: dict) -> None:
@@ -2154,6 +2178,7 @@ async def _run(
         filename=sidecar.name,
         report=report,
         sync_score=sync_score,
+        sync_offset_ms=sync_offset_ms,
         source_desc=source_desc,
         source_message=source_message,
     )
@@ -2486,6 +2511,11 @@ class CalibrateResult:
 _CALIBRATE_MIN_SCORE = 0.15
 #: 变化小于该量级视为"本就同步"，不动文件
 _NOOP_OFFSET_MS = 200
+#: Automatic generation may repair only a strong, global calibration result.
+#: Segmented/cut-version drift must stop before the LLM is charged instead of
+#: applying one misleading offset to the whole file.
+_AUTO_CALIBRATE_MIN_SCORE = 0.5
+_AUTO_CALIBRATE_MIN_OFFSET_MS = 500
 
 
 #: 校准参考的抽样窗：沿时间轴均布 6 窗 × 2 分钟。稀疏参考不影响互相关
@@ -2520,6 +2550,31 @@ async def _audio_reference_intervals(
         speech = await asyncio.to_thread(sync.speech_intervals, pcm)
         intervals.extend((s + start * 1000, e + start * 1000) for s, e in speech)
     return intervals
+
+
+async def _try_auto_calibrate_events(
+    row: LibraryFile, events: list[extract.SubEvent]
+) -> tuple[list[extract.SubEvent], sync.Calibration] | None:
+    """Apply a high-confidence global audio calibration before translation.
+
+    The existing one-click endpoint remains the explicit tool for user-owned
+    sidecars.  Generation only applies a correction when the sampled audio has
+    a strong, unambiguous global match; a low-confidence result is left for the
+    sync quality gate to report rather than silently rewriting a cut-version
+    subtitle with the wrong offset.
+    """
+    reference = await _audio_reference_intervals(row, events)
+    if not reference:
+        return None
+    calibration = sync.estimate_calibration(reference, [(s, e) for s, e, _ in events])
+    if calibration is None or calibration.score < _AUTO_CALIBRATE_MIN_SCORE:
+        return None
+    if (
+        abs(calibration.offset_ms) <= _AUTO_CALIBRATE_MIN_OFFSET_MS
+        and abs(calibration.scale - 1.0) <= 1e-6
+    ):
+        return None
+    return sync.apply_calibration(events, calibration), calibration
 
 
 async def _subtitle_reference_intervals(
