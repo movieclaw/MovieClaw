@@ -223,7 +223,8 @@ _INGEST_COPY_CHUNK_BYTES = 64 * 1024 * 1024
 # v6：季集号改为整批解析（library/units.py）——裸 E/EP 标记确定性出集号、
 #     季号按批次仲裁、推断季号过 TMDB 台账守卫。存量因 issue #185 挂起的
 #     「解析不出季号/集号」记录升级后自动补偿重跑
-_INGEST_HANDLER_REVISION = "library.ingest.v6"
+# v7：纯 E00 下载未实际入库时留在待处理，混合季包仍按占位跳过 E00
+_INGEST_HANDLER_REVISION = "library.ingest.v7"
 
 
 def _ingest_handler_revision() -> str:
@@ -2300,8 +2301,8 @@ async def _ingest_entry(
             if not episode:
                 if unit.explicit_pilot:
                     # 显式 E00：先导/特辑占位。集号 0 是管线的「无集号」哨兵，
-                    # 按设计不自动入库；这不是解析缺口——重试和模型升级都改变
-                    # 不了结果，不能把记录钉在待处理，如实说明后跳过即可
+                    # 不自动入库，也不当作解析缺口；混合季包如实说明后跳过，
+                    # 纯 E00 下载在整批收口时保留待处理，避免用户找不到文件
                     pilot_skipped.append(file.name)
                     completed_bytes += file.stat().st_size
                     continue
@@ -2669,9 +2670,19 @@ async def _ingest_entry(
         return await conclude(
             IngestStatus.FAILED if env_error else IngestStatus.PENDING, _summary(parts)
         )
+    elif pilot_skipped and len(pilot_skipped) == len(files):
+        # 只有 E00 且没有实际入库：交给人工处理，不能标成已完成后消失。
+        return await conclude(
+            IngestStatus.PENDING,
+            reference(
+                "library.ingest.pilotSkippedOf",
+                title=item.title,
+                names=_quoted(pilot_skipped),
+            ),
+        )
     elif dup_skipped or pilot_skipped:
         # 季包附带内容全部与库存同档重复（换源后两个包先后投递最常见），
-        # 或只剩 E00 先导占位：正常闭环，不是异常。
+        # 或混合季包剩余的 E00 先导占位：正常闭环，不是异常。
         # 同档跳过=单元内容已在库，必须与正常入库一样做库存对账关闭已
         # 满足的订阅工单——否则"整包都被同档跳过"的投递（工单集早已由
         # 别的源入库）会让下载任务永远挂在"等待入库"（NAS 实测 S06E11）
