@@ -1726,5 +1726,17 @@
     "cardOpen": "打开片段",
     "cardHint": "随便刷刷，挑今晚看什么",
     "clipFailedShort": "这一段放不出来"
+  },
+  "facets": {
+    "unwatched": "未看",
+    "unfinished": "未看完",
+    "watching": "在看",
+    "played": "已看完",
+    "favorite": "我收藏的"
+  },
+  "watchFilter": {
+    "all": "全部观看状态",
+    "seen": "看过的",
+    "empty": "没有符合条件的作品，可切换或清除观看筛选。"
   }
 }

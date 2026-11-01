@@ -80,7 +80,7 @@ const FAVORITES_SORT_STORAGE_KEY = "movieclaw.favorites.wall-sort";
  */
 function sortOptions(locale: AppLocale): readonly (readonly [WallSortPref, string])[] {
   const t = appTranslator(locale);
-  return [["default", t("library.favorites.recent")], ...(Object.entries(sortPrefLabels(locale)) as [WallSortPref, string][])];
+  return [["default", t("library.favorites.recent")], ...(Object.entries(sortPrefLabels(locale)) as [WallSortPref, string][]).filter(([key]) => key !== "random")];
 }
 
 /** 「最近收藏」档的自然方向是新→旧，与「最近添加」同一种说法。 */

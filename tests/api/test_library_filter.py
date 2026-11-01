@@ -496,6 +496,7 @@ def test_facets_endpoint_is_wired(tmp_path, monkeypatch) -> None:
         ]
         assert [row["value"] for row in data["watch"]] == [
             "unwatched",
+            "unfinished",
             "watching",
             "played",
             "favorite",
@@ -1069,3 +1070,146 @@ async def test_trashed_items_leave_the_wall(db) -> None:
         await session.flush()
         assert target in await _titles(session, library_id)
         assert len(ids) > 1
+
+
+async def test_unfinished_movies_include_unstarted_partial_and_rewatch(db) -> None:
+    """未看完是重叠的筛选：未开始、在看、重看都保留，只排除看完的。"""
+    async with db.session() as session:
+        library_id, ids = await _seed(session)
+        for title, played, position in [
+            ("千与千寻", True, 0),
+            ("你的名字", False, 1),
+            ("寄生虫", True, 30_000),
+        ]:
+            session.add(
+                PlaybackState(
+                    member_id=_ME,
+                    media_item_id=ids[title],
+                    season_number=0,
+                    episode_number=0,
+                    played=played,
+                    position_ms=position,
+                )
+            )
+        await session.flush()
+        assert await _titles(session, library_id, filters=LibraryFilter(watch="unfinished")) == set(
+            ids
+        ) - {"千与千寻"}
+        assert await _titles(session, library_id, filters=LibraryFilter(watch="unwatched")) == {
+            "盗梦空间",
+            "霸王别姬",
+        }
+        other = await build_library_wall(
+            session, library_id, member_id=7, filters=LibraryFilter(watch="unfinished")
+        )
+        assert {row.title for row in other} == set(ids)
+
+
+async def test_unfinished_tv_uses_owned_units_and_scope(db) -> None:
+    """看完 3/6 集不能消失；不同库/重复片源/收藏哨兵/回收站不改变完成范围。"""
+    from movieclaw_api.services.library.items import build_library_facets
+
+    async with db.session() as session:
+        first = await LibraryRepository(session).create(name="剧集", kind="tv", root_paths=["/tv"])
+        second = await LibraryRepository(session).create(
+            name="剧集2", kind="tv", root_paths=["/tv2"]
+        )
+        item = MediaItem(kind="tv", tmdb_id=991234, title="六集剧", original_title="六集剧")
+        session.add(item)
+        await session.flush()
+        for episode in range(1, 7):
+            session.add(
+                LibraryFile(
+                    library_id=first.id,
+                    media_item_id=item.id,
+                    season_number=1,
+                    episode_number=episode,
+                    file_path=f"/tv/e{episode}.mkv",
+                    size_bytes=1,
+                    source=FileSource.SCANNED,
+                )
+            )
+        session.add(
+            LibraryFile(
+                library_id=first.id,
+                media_item_id=item.id,
+                season_number=1,
+                episode_number=1,
+                file_path="/tv/e1-4k.mkv",
+                size_bytes=1,
+                source=FileSource.SCANNED,
+            )
+        )
+        for episode in range(1, 4):
+            session.add(
+                PlaybackState(
+                    member_id=_ME,
+                    media_item_id=item.id,
+                    season_number=1,
+                    episode_number=episode,
+                    played=True,
+                    position_ms=0,
+                )
+            )
+        session.add(
+            PlaybackState(
+                member_id=_ME,
+                media_item_id=item.id,
+                season_number=-1,
+                episode_number=-1,
+                is_favorite=True,
+                played=True,
+            )
+        )
+        await session.flush()
+        pending = LibraryFilter(watch="unfinished")
+        assert await _titles(session, first.id, filters=pending) == {"六集剧"}
+        facets = await build_library_facets(session, first.id, "tv", member_id=_ME, filters=pending)
+        assert facets.total == 1
+        assert next(v.count for v in facets.watch if v.value == "unfinished") == 1
+        for episode in range(4, 7):
+            session.add(
+                PlaybackState(
+                    member_id=_ME,
+                    media_item_id=item.id,
+                    season_number=1,
+                    episode_number=episode,
+                    played=True,
+                    position_ms=0,
+                )
+            )
+        await session.flush()
+        assert await _titles(session, first.id, filters=pending) == set()
+        # 新集在第二库：单库已看完，跨库未看完；多份已看单元只算一次。
+        session.add(
+            LibraryFile(
+                library_id=second.id,
+                media_item_id=item.id,
+                season_number=1,
+                episode_number=7,
+                file_path="/tv2/e7.mkv",
+                size_bytes=1,
+                source=FileSource.SCANNED,
+            )
+        )
+        trashed = LibraryFile(
+            library_id=first.id,
+            media_item_id=item.id,
+            season_number=1,
+            episode_number=8,
+            file_path="/tv/e8.mkv",
+            size_bytes=1,
+            source=FileSource.SCANNED,
+            state=FileState.TRASHED,
+        )
+        session.add(trashed)
+        await session.flush()
+        assert await _titles(session, first.id, filters=pending) == set()
+        assert await _wall_count(
+            session, frozenset({first.id, second.id}), filters=pending, member_id=_ME
+        ) == 1
+        # 同一库真正新增在架集数后，重新回到未看完。
+        trashed.state = FileState.IN_PLACE
+        session.add(trashed)
+        await session.flush()
+        assert await _titles(session, first.id, filters=pending) == {"六集剧"}

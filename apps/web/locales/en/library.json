@@ -1726,5 +1726,17 @@
     "cardOpen": "Open clips",
     "cardHint": "Browse clips and pick tonight’s watch",
     "clipFailedShort": "This clip can’t play"
+  },
+  "facets": {
+    "unwatched": "Unwatched",
+    "unfinished": "Unfinished",
+    "watching": "In progress",
+    "played": "Watched",
+    "favorite": "My favorites"
+  },
+  "watchFilter": {
+    "all": "All watch states",
+    "seen": "Previously watched",
+    "empty": "No matching titles. Change or clear the watch filter."
   }
 }
