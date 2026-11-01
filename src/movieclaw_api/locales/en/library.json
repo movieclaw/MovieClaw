@@ -208,7 +208,8 @@
     "played": "Watched",
     "favorite": "My favorites",
     "missing": "Files missing",
-    "unscraped": "No metadata"
+    "unscraped": "No metadata",
+    "unfinished": "Unfinished"
   },
   "gallery": {
     "poster": "Poster",

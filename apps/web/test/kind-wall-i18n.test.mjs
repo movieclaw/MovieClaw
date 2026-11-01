@@ -9,6 +9,7 @@ import ts from "typescript";
 import { appTranslator } from "../lib/i18n/translate.ts";
 import * as genreLabels from "../lib/genre-labels.ts";
 import * as homeRows from "../lib/home-rows.ts";
+import * as libraryFilter from "../lib/library-filter.ts";
 import * as wallSort from "../lib/wall-sort.ts";
 import { formatRecentAddition, buildRecentAdditionOverlay } from "../lib/recent-addition.ts";
 import { favoriteLevelLabel } from "../lib/favorites.ts";
@@ -19,6 +20,8 @@ function load(locale, values = [[], 0, 0, false], pref = "default") {
   const imports = {
     "react/jsx-runtime": jsx,
     "react": { ...React, useState: (initial) => [index < values.length ? values[index++] : initial, noop], useEffect: noop, useLayoutEffect: noop },
+    "next/navigation": { useSearchParams: () => new URLSearchParams() },
+    "@/lib/library-filter": libraryFilter,
     "next-intl": { useLocale: () => locale, useTranslations: () => appTranslator(locale) },
     "@/lib/i18n/translate": { appTranslator },
     "@/lib/genre-labels": genreLabels,

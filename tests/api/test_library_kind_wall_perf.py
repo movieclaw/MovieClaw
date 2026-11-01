@@ -132,6 +132,8 @@ async def test_kind_walls_correct_and_fast_without_query_stats(db, client) -> No
         summary = await _get(client, f"{base}/{kind}")
         assert summary["item_count"] == total, "同一部片跨库只算一部"
         assert len(summary["library_ids"]) == 2
+        pending = await _get(client, f"{base}/{kind}?w=unfinished")
+        assert pending["item_count"] == total
 
         # 首页一行（limit=20）：每一档排序都要快
         for query in (
@@ -142,6 +144,7 @@ async def test_kind_walls_correct_and_fast_without_query_stats(db, client) -> No
             "sort=random",
             "sort=title",
             "sort=added_at&w=unwatched",
+            "sort=title&w=unfinished",
         ):
             await _get(client, f"{base}/{kind}/items?{query}&limit=20")
 

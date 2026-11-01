@@ -228,6 +228,7 @@ function sortOptions(
     ["runtime", t("library.sort.runtime")],
     ["size", t("library.sort.size")],
     ["last_played", t("library.sort.lastPlayed")],
+    ["random", t("library.sort.random")],
   ];
 }
 
@@ -760,6 +761,12 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
     [reload],
   );
 
+  // 同一路由上的链接与浏览器前进/后退也按 URL 对账，复用筛选操作的窗口复位。
+  useEffect(() => {
+    const next = readLibraryFilter(searchParams);
+    if (filterKey(next) !== filterKey(wallFilter.current)) applyFilter(next);
+  }, [searchParams, applyFilter]);
+
   const jumpTo = useCallback(
     (offset: number) => {
       // 跳转期间两头的哨兵都挡住，别让旧窗口的追加/补页插进来
@@ -936,7 +943,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
     setWallSortPref,
     toggleWallSortReversed,
     wallSortReady,
-  ] = useWallSortPref();
+  ] = useWallSortPref(undefined, searchParams, timeline ? "release_date" : "title");
   const recentFirst = wallSortPref === "added_at" && !probing;
   // 当前真正生效的服务端排序键：补探阶段临时接管；其次是用户选的档；默认档按库的形态。
   // 图片库只认「最近添加」：偏好是全站共用的一个键，别的库里选的「按评分」
@@ -1822,7 +1829,7 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
               onSaveAsCollection={() => setSavingCollection(true)}
               sortControl={
                 <WallSortControl
-                  value={wallSortPref}
+                  value={wallSortPref === (timeline ? "release_date" : "title") ? "default" : wallSortPref}
                   options={sortOptions(timeline ? t("library.sort.contentDate") : t("library.sort.title"), timeline, locale)}
                   onChange={setWallSortPref}
                   disabled={probing}

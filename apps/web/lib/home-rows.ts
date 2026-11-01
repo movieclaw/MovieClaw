@@ -54,6 +54,7 @@ export interface HomeRowPref {
   order?: HomeRowOrder | null;
   name?: string | null;
   unwatched?: boolean | null;
+  unfinished?: boolean | null;
   hidden?: boolean | null;
   library_id?: number | null;
   collection_id?: number | null;
@@ -138,6 +139,7 @@ export type HomeRow =
       /** 是否反转了这一档的自然方向（random 没有方向，恒为 false） */
       reversed: boolean;
       unwatched: boolean;
+      unfinished?: boolean;
       /** 用户起的名字；空 = 跟随推荐（rowTitle 会按排序算） */
       name: string;
       library: HomeLibraryLike;
@@ -153,6 +155,7 @@ export type HomeRow =
       /** 是否反转了这一档的自然方向（random 没有方向，恒为 false） */
       reversed: boolean;
       unwatched: boolean;
+      unfinished?: boolean;
       /** 用户起的名字；空 = 跟随推荐（「全部电影 · 最近添加」） */
       name: string;
       mediaKind: HomeMediaKind;
@@ -432,7 +435,7 @@ export function rowMeta(row: HomeRow): string {
       return [
         t("library.rows.libraryMeta", { name: row.library.name }),
         homeSortPresets()[row.sort].short(row.reversed),
-        row.unwatched ? t("library.rows.onlyUnwatched") : null,
+        row.unfinished ? t("library.facets.unfinished") : row.unwatched ? t("library.rows.onlyUnwatched") : null,
       ]
         .filter(Boolean)
         .join(" · ");
@@ -440,7 +443,7 @@ export function rowMeta(row: HomeRow): string {
       return [
         t("library.rows.kindMeta", { kind: homeMediaKindLabels()[row.mediaKind], count: row.libraries.length }),
         homeSortPresets()[row.sort].short(row.reversed),
-        row.unwatched ? t("library.rows.onlyUnwatched") : null,
+        row.unfinished ? t("library.facets.unfinished") : row.unwatched ? t("library.rows.onlyUnwatched") : null,
       ]
         .filter(Boolean)
         .join(" · ");
@@ -681,7 +684,8 @@ function libraryRow(
     reversed,
     // 「最近观看」只要播过的，与「只看没看过的」互斥：两者同时为真会得到一行按 id
     // 排的没播过的片；以排序为准，开关作废
-    unwatched: pref.unwatched === true && sort !== "last_played",
+    unwatched: pref.unwatched === true && !pref.unfinished && sort !== "last_played",
+    unfinished: pref.unfinished === true && sort !== "last_played",
     name: (pref.name ?? "").trim(),
     library,
     builtin,
@@ -706,7 +710,8 @@ function mediaKindRow(
     sort,
     reversed,
     // 与库行同一条互斥：「最近观看」只要播过的
-    unwatched: pref.unwatched === true && sort !== "last_played",
+    unwatched: pref.unwatched === true && !pref.unfinished && sort !== "last_played",
+    unfinished: pref.unfinished === true && sort !== "last_played",
     name: (pref.name ?? "").trim(),
     mediaKind,
     libraries,
@@ -737,7 +742,8 @@ export function rowsToPrefs(rows: HomeRow[]): HomeRowPref[] {
           row.reversed,
         );
         if (order) base.order = order;
-        if (row.unwatched) base.unwatched = true;
+        if (row.unfinished) base.unfinished = true;
+        else if (row.unwatched) base.unwatched = true;
         if (row.name) base.name = row.name;
         return base;
       }
@@ -750,7 +756,8 @@ export function rowsToPrefs(rows: HomeRow[]): HomeRowPref[] {
           row.reversed,
         );
         if (order) base.order = order;
-        if (row.unwatched) base.unwatched = true;
+        if (row.unfinished) base.unfinished = true;
+        else if (row.unwatched) base.unwatched = true;
         if (row.name) base.name = row.name;
         return base;
       }
@@ -842,4 +849,22 @@ export function moveRowTo(
   const [row] = next.splice(from, 1);
   next.splice(to, 0, row);
   return next;
+}
+
+/** 首页取数与「查看全部」共享观看口径。 */
+export function homeRowWatch(row: HomeRow): "seen" | "unfinished" | "unwatched" | undefined {
+  if (row.kind !== "library" && row.kind !== "media-kind") return undefined;
+  return row.sort === "last_played" ? "seen" : row.unfinished ? "unfinished" : row.unwatched ? "unwatched" : undefined;
+}
+
+/** 显式传自然方向，避免目标列表的默认排序/历史偏好改变这一行的顺序。 */
+export function homeRowHref(row: HomeRow): string {
+  if (row.kind !== "library" && row.kind !== "media-kind") return "/library";
+  const query = new URLSearchParams({ sort: row.sort });
+  const direction = SORT_PRESETS[row.sort].direction;
+  if (direction) query.set("order", direction.naturalAsc !== row.reversed ? "asc" : "desc");
+  const watch = homeRowWatch(row);
+  if (watch) query.set("w", watch);
+  const base = row.kind === "library" ? `/library/${row.library.id}` : `/library/kind/${row.mediaKind}`;
+  return `${base}?${query}`;
 }

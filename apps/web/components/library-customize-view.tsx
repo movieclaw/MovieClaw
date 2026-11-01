@@ -729,6 +729,7 @@ function RowItem({
                       sort,
                       reversed: nextReversed,
                       unwatched: sort === "last_played" ? false : r.unwatched,
+                      unfinished: sort === "last_played" ? false : r.unfinished,
                     };
                   }
                   return r;
@@ -780,21 +781,22 @@ function RowItem({
               {showUnwatched &&
               (row.kind === "library" || row.kind === "media-kind") ? (
                 <label className="flex items-center gap-2 text-sub text-[var(--text-muted)]">
-                  <input
-                    type="checkbox"
-                    checked={row.unwatched}
+                  {t("library.filters.watch")}
+                  <select
+                    value={row.unfinished ? "unfinished" : row.unwatched ? "unwatched" : ""}
                     onChange={(e) => {
-                      const unwatched = e.target.checked;
-                      onChange((r) =>
-                        r.kind === "library" || r.kind === "media-kind"
-                          ? { ...r, unwatched }
-                          : r,
-                      );
+                      const watch = e.target.value;
+                      onChange((r) => r.kind === "library" || r.kind === "media-kind"
+                        ? { ...r, unwatched: watch === "unwatched", unfinished: watch === "unfinished" }
+                        : r);
                     }}
-                    className="size-4 accent-[#7fb0ff]"
-                    data-testid="row-unwatched"
-                  />
-                  {t("library.customize.unwatched")}
+                    className="h-8 rounded-md border border-white/15 bg-[var(--bg)] px-2 text-sub text-[var(--text)]"
+                    data-testid="row-watch"
+                  >
+                    <option value="">{t("library.watchFilter.all")}</option>
+                    <option value="unwatched">{t("library.facets.unwatched")}</option>
+                    <option value="unfinished">{t("library.facets.unfinished")}</option>
+                  </select>
                 </label>
               ) : (
                 <span />

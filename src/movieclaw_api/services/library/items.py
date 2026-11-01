@@ -375,11 +375,12 @@ def _ascending(sort: WallSort, order: WallOrder | None) -> bool:
 # [{field, op, values}]），所以「筛完存为合集」是一次纯粹的形状转换。
 
 #: 观看状态。前三者是一个**划分**：任何条目恰好落在其中一档，三档计数之和
-#: 等于总数（facet 计数因此永远对得上）。favorite 与它们正交，单选而已。
+#: 等于总数。unfinished 是重叠的「库内还有未完成单元」筛选，不能与前三档计数相加。
+#: favorite 与它们正交，单选而已。
 #: ``seen`` = watching ∪ played（"不是 unwatched"）：只是接口取值，不进筛选条、不进 facet
 #: 计数——媒体库首页「最近观看的 X」行用它把从没播过的片挡在外面（度量档把空度量
 #: 沉底而不是排除，取 20 条时看过的排完就轮到没播过的，首页那一行不能这样）
-WatchFilter = Literal["unwatched", "watching", "played", "favorite", "seen"]
+WatchFilter = Literal["unwatched", "unfinished", "watching", "played", "favorite", "seen"]
 
 #: 年代档 → 年份闭区间；None 表示不设下界。缺年份的条目（release_date 与
 #: media_item.year 都为空）不属于任何一档——「未知年份」不是年代，硬塞进
@@ -485,7 +486,7 @@ def _json_any_of(column, values: Sequence) -> Any:
     return select(1).select_from(each).where(each.c.value.in_(list(values))).exists()
 
 
-def _watch_clause(watch: WatchFilter, member_id: int):
+def _watch_clause(watch: WatchFilter, member_id: int, library_id: LibraryScope | None = None):
     """观看状态的判定（按 member_id 隔离，与 playback_state 的成员维度一致）。
 
     「已看完」对剧集是近似：真正的"看完"要对齐 TMDB 全集结构逐集比对，
@@ -501,6 +502,23 @@ def _watch_clause(watch: WatchFilter, member_id: int):
     # 有续播点就是「在看」：看完后重看到一半的（已看标记保留）也算，与详情页「继续观看」一致
     watching = _exists(PlaybackState.position_ms > 0)
     played = _exists(PlaybackState.played.is_(True))
+    if watch == "unfinished":
+        # 完成度只看当前库范围内的在架单元，不把未入库集数或别的库混进来。
+        # 同集多片源不影响 EXISTS；收藏哨兵 (-1,-1) 不会命中真实库存单元。
+        completed = (
+            select(1)
+            .where(
+                PlaybackState.media_item_id == LibraryFile.media_item_id,
+                PlaybackState.member_id == member_id,
+                PlaybackState.season_number == LibraryFile.season_number,
+                PlaybackState.episode_number == LibraryFile.episode_number,
+                PlaybackState.played.is_(True),
+                PlaybackState.position_ms == 0,
+            )
+            .correlate(LibraryFile)
+            .exists()
+        )
+        return _file_exists(library_id, LibraryFile.on_shelf(), not_(completed))
     if watch == "watching":
         return watching
     if watch == "played":
@@ -561,7 +579,7 @@ def _filter_subquery(
             conds.append(or_(*spans))
     if filters.watch and skip != "watch":
         # 观看状态是按人算的；不认人的调用（内部任务、CLI）落到超管哨兵 0
-        conds.append(_watch_clause(filters.watch, member_id or 0))
+        conds.append(_watch_clause(filters.watch, member_id or 0, library_id))
     if filters.rating_gte is not None and skip != "rating_gte":
         conds.append(MediaMetadata.vote_average >= filters.rating_gte)
     if filters.runtimes and skip != "runtimes":
@@ -858,10 +876,11 @@ async def build_library_index(
     return buckets
 
 
-#: 观看维度的四个候选值与展示名（前三者是一个划分，见 WatchFilter）
+#: 观看维度候选值与展示名；unfinished 与三档划分重叠，见 WatchFilter。
 def _watch_labels() -> list[tuple[WatchFilter, str]]:
     return [
         ("unwatched", t("library.facets.unwatched")),
+        ("unfinished", t("library.facets.unfinished")),
         ("watching", t("library.facets.watching")),
         ("played", t("library.facets.played")),
         ("favorite", t("library.facets.favorite")),
@@ -1166,7 +1185,7 @@ async def build_library_facets(
                 select(func.count())
                 .select_from(watch_items)
                 .join(MediaItem, MediaItem.id == watch_items.c.media_item_id)  # type: ignore[arg-type]
-                .where(_watch_clause(value, member_id or 0))
+                .where(_watch_clause(value, member_id or 0, library_id))
             )
         ).scalar_one()
         watch_counts.append((value, label, count))

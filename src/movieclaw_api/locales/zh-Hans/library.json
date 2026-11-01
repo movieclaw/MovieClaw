@@ -208,7 +208,8 @@
     "played": "已看完",
     "favorite": "我收藏的",
     "missing": "文件失联",
-    "unscraped": "没刮到档案"
+    "unscraped": "没刮到档案",
+    "unfinished": "未看完"
   },
   "gallery": {
     "poster": "海报",

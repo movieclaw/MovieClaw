@@ -56,6 +56,8 @@ import type { Subscription } from "@/lib/api/subscriptions";
 import { favoriteLevelLabel } from "@/lib/favorites";
 import {
   buildHomeRows,
+  homeRowWatch,
+  homeRowHref,
   homeCollectionIds,
   FAVORITES_SORT_PRESETS,
   type GenreRowKind,
@@ -613,10 +615,10 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
         );
       }
       case "library":
-        return contentRow(row, `/library/${row.library.id}` as Route);
+        return contentRow(row, homeRowHref(row) as Route);
       case "media-kind":
         // 「全部电影」：同类型的库合成一面墙，查看全部进 /library/kind/{类型}
-        return contentRow(row, `/library/kind/${row.mediaKind}` as Route);
+        return contentRow(row, homeRowHref(row) as Route);
       case "collection":
         return contentRow(
           row,
@@ -798,17 +800,17 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
 /** 一行取数的缓存键：同一个库同一种排序同一个方向（同一个只看没看过的开关）只请求一次。 */
 function rowFetchKey(row: HomeRow): string {
   if (row.kind === "library")
-    return `lib:${row.library.id}:${row.sort}:${row.reversed}:${row.unwatched}`;
+    return `lib:${row.library.id}:${row.sort}:${row.reversed}:${homeRowWatch(row)}`;
   if (row.kind === "collection") return `col:${row.collection.id}:${row.sort}:${row.reversed}`;
   if (row.kind === "media-kind")
-    return `kind:${row.mediaKind}:${row.sort}:${row.reversed}:${row.unwatched}`;
+    return `kind:${row.mediaKind}:${row.sort}:${row.reversed}:${homeRowWatch(row)}`;
   return row.id;
 }
 
 /** 库卡片封面用的那批条目：最近入账的前几部，与默认的「最近添加」行共用一份。
  *  键的形状必须与 rowFetchKey 对库行算出来的一致，否则默认行会多打一次同样的请求。 */
 function coverFetchKey(libraryId: number): string {
-  return `lib:${libraryId}:added_at:false:false`;
+  return `lib:${libraryId}:added_at:false:undefined`;
 }
 
 /**
@@ -822,10 +824,10 @@ function rowFetches(
   const fetches = new Map<string, () => Promise<LibraryItem[]>>();
   for (const row of rows) {
     if (row.kind === "library") {
-      const { library, sort, reversed, unwatched } = row;
+      const { library, sort, reversed } = row;
       // 「最近观看」行只要播过的：度量档把没播过的沉底而不是排除，取 20 条时
       // 看过的排完就轮到没播过的，首页这一行不能这样（w=seen）
-      const watch = sort === "last_played" ? "seen" : unwatched ? "unwatched" : undefined;
+      const watch = homeRowWatch(row);
       fetches.set(rowFetchKey(row), () =>
         listLibraryItems(library.id, {
           sort,
@@ -836,9 +838,9 @@ function rowFetches(
         }),
       );
     } else if (row.kind === "media-kind") {
-      const { mediaKind, sort, reversed, unwatched } = row;
+      const { mediaKind, sort, reversed } = row;
       // 与库行同一套取数规则，只是来源换成按类型的跨库墙（同一部片跨库只出现一次）
-      const watch = sort === "last_played" ? "seen" : unwatched ? "unwatched" : undefined;
+      const watch = homeRowWatch(row);
       fetches.set(rowFetchKey(row), () =>
         listKindItems(mediaKind, {
           sort,

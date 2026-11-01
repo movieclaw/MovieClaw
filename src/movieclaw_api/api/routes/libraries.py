@@ -2438,11 +2438,11 @@ def _filter_params(
         Query(description="年代档：2020s/2010s/2000s/1990s/earlier，逗号分隔（维内 OR）"),
     ] = None,
     w: Annotated[
-        Literal["unwatched", "watching", "played", "favorite", "seen"] | None,
+        Literal["unwatched", "unfinished", "watching", "played", "favorite", "seen"] | None,
         Query(
             description=(
                 "观看状态（单选）：未看/在看/已看完是一个划分，favorite 与之正交；"
-                "seen=在看或已看完（首页「最近观看」行用，筛选条里不出现）"
+                "unfinished=当前库内仍有未看完的单元；seen=在看或已看完（首页「最近观看」行用，筛选条里不出现）"
             )
         ),
     ] = None,

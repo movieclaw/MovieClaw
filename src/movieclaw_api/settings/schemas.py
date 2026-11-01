@@ -445,6 +445,9 @@ class HomeRowPref(BaseModel):
     )
     name: str | None = Field(default=None, max_length=40, description="用户起的名字；空 = 跟随推荐")
     unwatched: bool | None = Field(default=None, description="只显示没看过的（仅库行与类型行）")
+    unfinished: bool | None = Field(
+        default=None, description="只显示未看完的（仅库行与类型行，优先于 unwatched）"
+    )
     hidden: bool | None = Field(default=None, description="隐藏这一行，位置保留")
     library_id: int | None = Field(default=None, ge=1, description="自加库行的来源库")
     collection_id: int | None = Field(default=None, ge=1, description="合集行的来源合集")
