@@ -868,6 +868,10 @@ data class HomeRowPref(
      */
     @SerialName("unwatched") val unwatched: Boolean? = null,
     /**
+     * 只显示未看完的（仅库行与类型行，优先于 unwatched）
+     */
+    @SerialName("unfinished") val unfinished: Boolean? = null,
+    /**
      * 隐藏这一行，位置保留
      */
     @SerialName("hidden") val hidden: Boolean? = null,
