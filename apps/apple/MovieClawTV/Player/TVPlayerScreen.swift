@@ -12,6 +12,7 @@ import SwiftUI
 /// | 在触控板上左右滑 | 拖动进度，松手跳过去 |
 /// | 下滑 / 点按下 | 信息面板：字幕、音轨、画质 |
 /// | 返回键 | 依次：取消拖动 → 收起面板 → 收起「下一集」卡片 → 退出播放 |
+/// | 播完 | 有下一集：「下一集」卡片倒计时接着放；没有（电影、本季最后一集）：退出播放，回到这部片的详情页 |
 ///
 /// 片头片尾时段右下角出现「跳过」按钮、片尾出现「下一集」卡片，焦点自动落在上面，按一下就生效。
 struct TVPlayerScreen: View {
@@ -42,6 +43,10 @@ struct TVPlayerScreen: View {
         .onChange(of: scenePhase) { _, phase in
             controller?.setBackgrounded(phase == .background)
         }
+        .onChange(of: controller?.finishedWithNothingNext == true) { _, finished in
+            // 播完且没有下一集可接：回到这部片的详情页（同 Mac、iPhone）；有下一集的照旧走「下一集」卡片
+            if finished { exitToDetail() }
+        }
     }
 
     /// 接过点播放时就建好的控制器（`TVRouter.startPlaybackEarly`），没有就现建
@@ -67,6 +72,16 @@ struct TVPlayerScreen: View {
     private func exit() {
         finish()
         dismiss()
+    }
+
+    /// 播完退出：关掉播放器，落在这部片的详情页（从首页、海报墙、搜索等处起播的，压一层详情；本来就在详情页的不重复压）。
+    /// 分享播放没有成员详情页，只关播放器
+    private func exitToDetail() {
+        let info = controller?.info
+        exit()
+        guard request.shareSlug == nil, let info else { return }
+        let route = AppRoute.item(libraryId: info.libraryId, itemId: info.mediaItemId)
+        if router.path.last != route { router.push(route) }
     }
 
     /// 真正离开播放器：关会话、恢复屏保
