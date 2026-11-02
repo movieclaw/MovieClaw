@@ -8,6 +8,7 @@ from sqlmodel import select
 
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.library_cloud_folder import LibraryCloudFolder
+from movieclaw_db.models.library_cloud_sidecar import LibraryCloudSidecar
 from movieclaw_db.models.library_file import LibraryFile
 from movieclaw_db.models.library_file_fingerprint import LibraryFileFingerprint
 from movieclaw_db.models.library_file_replica import (
@@ -446,6 +447,62 @@ class LibraryCloudRepository:
         replica.error_ref = error_ref
         replica.updated_at = utcnow()
         self._session.add(replica)
+        await self._session.commit()
+
+    # -- 旁车文件 ----------------------------------------------------------
+
+    async def uploaded_paths(self, library_id: int, folder_id: int) -> list[str]:
+        """传到这个文件夹并核验过的库文件的本地路径（旁车文件跟着它们传）。"""
+        result = await self._session.execute(
+            select(LibraryFile.file_path)
+            .join(LibraryFileReplica, LibraryFileReplica.library_file_id == LibraryFile.id)
+            .where(
+                LibraryFile.library_id == library_id,
+                LibraryFile.in_place(),
+                LibraryFileReplica.folder_id == folder_id,
+                LibraryFileReplica.origin == REPLICA_ORIGIN_UPLOADED,
+                LibraryFileReplica.state == REPLICA_VERIFIED,
+            )
+        )
+        return list(result.scalars().all())
+
+    async def sidecars(self, folder_id: int) -> dict[str, LibraryCloudSidecar]:
+        """这个文件夹已传的旁车文件，按本地路径。"""
+        result = await self._session.execute(
+            select(LibraryCloudSidecar).where(LibraryCloudSidecar.folder_id == folder_id)
+        )
+        return {row.local_path: row for row in result.scalars().all()}
+
+    async def save_sidecar(
+        self,
+        folder_id: int,
+        local_path: str,
+        *,
+        remote_id: str,
+        size_bytes: int,
+        file_mtime_ns: int,
+        sha1: str,
+    ) -> None:
+        result = await self._session.execute(
+            select(LibraryCloudSidecar).where(
+                LibraryCloudSidecar.folder_id == folder_id,
+                LibraryCloudSidecar.local_path == local_path,
+            )
+        )
+        row = result.scalar_one_or_none() or LibraryCloudSidecar(
+            folder_id=folder_id,
+            local_path=local_path,
+            remote_id=remote_id,
+            size_bytes=size_bytes,
+            file_mtime_ns=file_mtime_ns,
+            sha1=sha1,
+        )
+        row.remote_id = remote_id
+        row.size_bytes = size_bytes
+        row.file_mtime_ns = file_mtime_ns
+        row.sha1 = sha1
+        row.updated_at = utcnow()
+        self._session.add(row)
         await self._session.commit()
 
     # -- 指纹 --------------------------------------------------------------

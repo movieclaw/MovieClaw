@@ -53,6 +53,7 @@
     "hashing": "读取「{name}」算指纹",
     "uploading": "上传「{name}」",
     "progress": "已上传 {done} 个（秒传 {rapid}）",
+    "sidecars": "同步海报、NFO、字幕到网盘（{done}/{total}）",
     "done": "上传完成：{done} 个文件（秒传 {rapid}）{failed, plural, =0 {} other {，# 个没传成（原因记在文件上，过一段时间再试）}}",
     "nothingToUpload": "这个库的新内容已不再存到网盘，没有要传的"
   },
