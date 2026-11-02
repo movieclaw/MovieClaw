@@ -141,6 +141,48 @@ test('first frame cancels the startup deadline', async () => {
   await f.controller.release();
 });
 
+for (const action of ['pause', 'interrupt', 'release']) {
+  test(`after first frame, ${action} cancels an unacknowledged resume`, async () => {
+    const f = playerFixture();
+    await f.controller.open(f.media, 'surface', f.intent); f.emit('firstFrame');
+    await f.controller.pause(); f.engine.play = pending;
+    let resumed = false;
+    const resuming = f.controller.play().then(() => { resumed = true; }); await drain();
+    const stopping = action === 'interrupt' ? f.emit('interrupt', { hint: 'pause' }) : f.controller[action]();
+    await drain(); assert.equal(resumed, true); await stopping; await resuming;
+    await f.timers.advance(30000);
+    assert.equal(f.controller.current().failure, null);
+    assert.equal(f.controller.current().phase === 'failed', false);
+    await f.controller.release();
+  });
+}
+
+test('after first frame, acknowledged resume clears its deadline but a blocked resume still times out', async () => {
+  const f = playerFixture();
+  await f.controller.open(f.media, 'surface', f.intent); f.emit('firstFrame');
+  await f.controller.pause(); await f.controller.play(); await f.timers.advance(30000);
+  assert.equal(f.controller.current().failure, null);
+  await f.controller.pause(); f.engine.play = pending;
+  const resuming = f.controller.play(); await drain();
+  f.emit('firstFrame'); // A duplicate frame callback cannot acknowledge the play command.
+  await f.timers.advance(25000); await resuming;
+  assert.equal(f.controller.current().failure.kind, 'timeout'); await f.controller.release();
+});
+
+test('late rejection of a cancelled resume cannot fail a replacement episode', async () => {
+  const f = playerFixture(); let rejectPlay;
+  await f.controller.open(f.media, 'old', f.intent); f.emit('firstFrame'); await f.controller.pause();
+  f.engine.play = () => new Promise((resolve, reject) => { rejectPlay = reject; });
+  const resuming = f.controller.play(); await drain();
+  const pausing = f.controller.pause(); await drain();
+  await f.timers.advance(30000); await pausing; await resuming;
+  assert.equal(f.controller.current().failure, null);
+  f.engine.play = async () => f.emit('firstFrame');
+  await f.controller.open(f.media, 'new', f.intent); rejectPlay(new Error('old play rejected'));
+  await drain(); await f.timers.advance(30000);
+  assert.equal(f.controller.current().failure, null); await f.controller.release();
+});
+
 test('MPV requires clock advancement and never invents a first-frame event', async () => {
   const f = playerFixture({ engineId: 'mpv' }); f.intent.positionMs = 42000;
   await f.controller.open(f.media, 'surface', f.intent, 'mpv');
@@ -201,6 +243,126 @@ test('a failed native teardown still lets the host close its session', async () 
   const f = playerFixture({ release: async () => { throw new Error('release failed'); } });
   await f.controller.open(f.media, 'surface', f.intent);
   await f.controller.release(); assert.equal(f.controller.current().phase, 'idle'); assert.equal(f.closes(), 0);
+});
+
+function mpvSurfaceFixture() {
+  const timers = clock(); const teardown = gate(); const owners = new Map(); const bindings = [];
+  const closed = []; const callbacks = new Map(); let handle = 0; let fd = 10;
+  const load = runtime({
+    '@kit.CoreFileKit': { fileIo: { OpenMode: {}, openSync: () => ({ fd: ++fd }),
+      closeSync: (file) => closed.push(file.fd) } },
+    'libmovieclaw_mpv.so': {
+      createEngine: () => ++handle,
+      initEngine: async (id, options, callback) => {
+        assert.equal(owners.has(options.wid), false, 'native Surface already has a producer');
+        owners.set(options.wid, id); bindings.push(options.wid); callbacks.set(id, callback);
+        callback({ type: 'ready' });
+      },
+      command: async (id, args) => {
+        if (args.join(' ') === 'set pause no') {
+          callbacks.get(id)({ type: 'property', name: 'pause', value: 0 });
+          callbacks.get(id)({ type: 'property', name: 'time-pos', value: 1 });
+        }
+      },
+      destroyEngine: async (id) => {
+        if (id === 1) { await teardown.promise; }
+        for (const [surface, owner] of owners) { if (owner === id) { owners.delete(surface); } }
+      },
+    },
+  }, timers);
+  const { PlaybackController, PlaybackIntent } = load('playback/Index.ets');
+  const { PhoneMedia } = load('entry/src/main/ets/playback/PhoneMedia.ets');
+  return { timers, teardown, owners, bindings, closed, callbacks, controller: new PlaybackController(),
+    intent: () => new PlaybackIntent(), media: new PhoneMedia(0, 100000, '', '/episode.mp4') };
+}
+
+for (const replacement of ['switch', 'retry', 'after-close']) {
+  test(`native MPV ${replacement} uses a fresh Surface while old teardown retains its fd`, async () => {
+    const f = mpvSurfaceFixture(); let resets = 0;
+    f.controller.onSurfaceReset = async () => { resets++; return 'fresh'; };
+    await f.controller.open(f.media, 'old', f.intent(), 'mpv');
+    if (replacement === 'after-close') {
+      const closing = f.controller.release(); await drain(); await f.timers.advance(3000); await closing;
+    } else if (replacement === 'retry') {
+      f.callbacks.get(1)({ type: 'end', reason: 4, code: -13 });
+      await drain(); await f.timers.advance(3000);
+      assert.equal(f.controller.current().phase, 'failed');
+    }
+    const opening = f.controller.open(f.media, 'old', f.intent(), 'mpv');
+    await drain(); if (replacement === 'switch') { await f.timers.advance(3000); }
+    await opening;
+    assert.equal(resets, 1); assert.deepEqual(f.bindings, ['old', 'fresh']);
+    assert.equal(f.controller.current().failure, null); assert.equal(f.controller.current().playing, true);
+    assert.equal(f.owners.get('old'), 1); assert.deepEqual(f.closed, []);
+    f.teardown.resolve(); await drain();
+    assert.equal(f.owners.has('old'), false); assert.deepEqual(f.closed, [11]);
+    await f.controller.release(); assert.deepEqual(f.closed, [11, 12]);
+  });
+}
+
+for (const reset of ['missing', 'unchanged', 'empty']) {
+  test(`unsafe Surface is never rebound when reset is ${reset}`, async () => {
+    const f = mpvSurfaceFixture();
+    if (reset !== 'missing') { f.controller.onSurfaceReset = async () => reset === 'empty' ? '' : 'old'; }
+    await f.controller.open(f.media, 'old', f.intent(), 'mpv');
+    const opening = f.controller.open(f.media, 'old', f.intent(), 'mpv');
+    await drain(); await f.timers.advance(3000); await opening;
+    assert.equal(f.controller.current().phase, 'failed'); assert.deepEqual(f.bindings, ['old']);
+    assert.deepEqual(f.closed, []); f.teardown.resolve(); await drain(); await f.controller.release();
+  });
+}
+
+test('completed native teardown allows Surface reuse without reset', async () => {
+  const f = mpvSurfaceFixture(); f.teardown.resolve();
+  await f.controller.open(f.media, 'same', f.intent(), 'mpv');
+  await f.controller.open(f.media, 'same', f.intent(), 'mpv');
+  assert.equal(f.controller.current().failure, null); assert.deepEqual(f.bindings, ['same', 'same']);
+  await f.controller.release();
+});
+
+test('an independent Surface can start immediately after the release bound, while the original stays reserved', async () => {
+  const f = mpvSurfaceFixture(); let resets = 0;
+  f.controller.onSurfaceReset = async () => { resets++; return 'fresh'; };
+  await f.controller.open(f.media, 'old', f.intent(), 'mpv');
+  const switching = f.controller.open(f.media, 'independent', f.intent(), 'mpv');
+  await drain(); await f.timers.advance(3000); await switching;
+  assert.equal(resets, 0); assert.deepEqual(f.bindings, ['old', 'independent']);
+  await f.controller.open(f.media, 'old', f.intent(), 'mpv');
+  assert.equal(resets, 1); assert.deepEqual(f.bindings, ['old', 'independent', 'fresh']);
+  assert.deepEqual(f.closed, [12]);
+  f.teardown.resolve(); await drain(); await f.controller.release();
+  assert.deepEqual(f.closed, [12, 11, 13]);
+});
+
+test('Surface replacement timeout fails without binding another native producer', async () => {
+  const f = mpvSurfaceFixture(); f.controller.onSurfaceReset = pending;
+  await f.controller.open(f.media, 'old', f.intent(), 'mpv');
+  const opening = f.controller.open(f.media, 'old', f.intent(), 'mpv');
+  await drain(); await f.timers.advance(8000); await opening;
+  assert.equal(f.controller.current().failure.kind, 'timeout'); assert.deepEqual(f.bindings, ['old']);
+  f.teardown.resolve(); await drain(); await f.controller.release();
+});
+
+test('late Surface replacement cannot overwrite a newer episode Surface', async () => {
+  const f = mpvSurfaceFixture(); const surface = gate(); f.controller.onSurfaceReset = () => surface.promise;
+  await f.controller.open(f.media, 'old', f.intent(), 'mpv');
+  const opening = f.controller.open(f.media, 'old', f.intent(), 'mpv');
+  await drain(); await f.timers.advance(3000);
+  await f.controller.open(f.media, 'newer', f.intent(), 'mpv');
+  surface.resolve('stale'); await opening;
+  assert.deepEqual(f.bindings, ['old', 'newer']); assert.equal(f.controller.current().playing, true);
+  f.teardown.resolve(); await drain(); await f.controller.release();
+});
+
+test('exit during Surface replacement cannot reopen a stale episode', async () => {
+  const f = mpvSurfaceFixture(); const surface = gate();
+  f.controller.onSurfaceReset = () => surface.promise;
+  await f.controller.open(f.media, 'old', f.intent(), 'mpv');
+  const opening = f.controller.open(f.media, 'old', f.intent(), 'mpv');
+  await drain(); await f.timers.advance(3000); await f.controller.release();
+  surface.resolve('stale'); await opening;
+  assert.deepEqual(f.bindings, ['old']); assert.equal(f.controller.current().phase, 'idle');
+  f.teardown.resolve(); await drain();
 });
 
 test('MPV invalidates its native handle without waiting for a blocked command tail', async () => {

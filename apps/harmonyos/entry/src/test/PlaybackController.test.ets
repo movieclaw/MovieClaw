@@ -121,6 +121,36 @@ export default function playbackControllerTest() {
       gate.release(); await microtasks();
       expect(factory.order.join(',')).assertEqual('mpv:release,lease:1:close');
     });
+    it('timed_out_teardown_recreates_surface_before_episode_reopen', 0, async () => {
+      const factory = new FakeFactory(); const gate = new Gate(); factory.mpv.releaseGate = gate.promise;
+      const controller = new PlaybackController(factory); const media = new FakeMedia(factory.order);
+      controller.onSurfaceReset = async (): Promise<string> => {
+        expect(factory.order.join(',')).assertEqual('mpv:release'); return 'replacement';
+      };
+      await controller.open(media, 'original', new PlaybackIntent(), 'mpv');
+      await controller.release();
+      await controller.open(media, 'original', new PlaybackIntent(), 'avplayer');
+      expect(factory.avp.calls.includes('open:replacement')).assertTrue();
+      expect(factory.order.join(',')).assertEqual('mpv:release');
+      gate.release(); await microtasks(); await controller.release();
+      expect(factory.order.join(',')).assertEqual('mpv:release,lease:1:close,avplayer:release,lease:2:close');
+    });
+    for (const action of ['pause', 'interrupt', 'release']) {
+      it(`confirmed_startup_${action}_cancels_unacknowledged_resume`, 0, async () => {
+        const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+        await controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent());
+        const frame = new EngineEvent(); frame.type = 'firstFrame'; factory.avp.onEvent(frame);
+        await controller.pause(); const gate = new Gate(); factory.avp.playGate = gate.promise;
+        let resumed = false;
+        const resuming = controller.play().then((): void => { resumed = true; }); await microtasks();
+        if (action === 'interrupt') { factory.avp.interrupt('pause'); }
+        else if (action === 'release') { await controller.release(); }
+        else { controller.pause(); }
+        await microtasks(); expect(resumed).assertTrue(); await resuming;
+        gate.release(); await microtasks(); await controller.release();
+        expect(controller.current().failure === null).assertTrue();
+      });
+    }
     it('defaults_to_AVPlayer_without_creating_MPV', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       await controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent());

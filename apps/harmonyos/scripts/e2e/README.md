@@ -16,6 +16,16 @@ Run from the repository root with Node 20 or newer. For another SDK layout, set
 `HARMONY_TYPESCRIPT_PATH` to its `ets-loader/node_modules/typescript` directory.
 These tests do not establish decoder, rendered-frame or system-service behavior on a device.
 
+The lifecycle regressions also run the real `PhoneMedia → PlaybackController → MpvEngine`
+path against a native boundary that rejects simultaneous producers on one Surface.
+They cover episode replacement/retry after the close deadline, fresh Surface acquisition,
+late native teardown and descriptor cleanup, plus cancellation of blocked resume calls
+after the first frame. The matching controller cases are included in the Hypium suite.
+On a device, verify repeated episode switches/subtitle reloads and retries while native
+teardown is delayed: the replacement must use a fresh XComponent Surface and show video.
+After rendering the first frame, stall a resume command, then pause, interrupt audio or
+exit; waiting beyond 25 seconds must not turn the cancelled operation into a timeout.
+
 Build the app and `entry@ohosTest` separately from `apps/harmonyos`, using the DevEco SDK/JBR. Install both HAPs. Run the shared controller/session/gateway tests:
 
 ```sh
