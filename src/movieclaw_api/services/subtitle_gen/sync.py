@@ -30,9 +30,9 @@ logger = logging.getLogger("movieclaw_api.subtitle_gen")
 SAMPLE_RATE = 16_000
 _WINDOW_SECONDS = 120  # 每个抽样窗时长
 _FFMPEG_TIMEOUT = 60.0
-# A window with very little speech cannot distinguish a timing problem from
-# opening credits, title cards, or a quiet music-only passage.
-_MIN_COMPARABLE_SPEECH_MS = 1000
+#: 离任何语音都超过该距离的事件不参与命中率：片头字卡、无对白的标牌/歌名
+#: 不是"错位的台词"；真错位的台词落在对白段里，离语音不会这么远
+_MAX_SPEECH_GAP_MS = 5000
 #: 事件命中率低于该值判"疑似不同步"（§5.2 阈值；能量法噪声大，宽松取值）
 SYNC_THRESHOLD = 0.55
 
@@ -146,6 +146,8 @@ def _speech_mask_silero(pcm: np.ndarray) -> np.ndarray | None:
         else:
             state = np.zeros((2, 1, 128), dtype=np.float32)
             sr = np.array(SAMPLE_RATE, dtype=np.int64)
+            # 官方 v5 包装器在 16kHz 下给每帧前置上一帧末尾 64 个采样
+            context = np.zeros((1, 64), dtype=np.float32)
         probs = np.empty(n, dtype=np.float32)
         for i in range(n):
             chunk = pcm[i * frame : (i + 1) * frame].reshape(1, -1)
@@ -154,10 +156,12 @@ def _speech_mask_silero(pcm: np.ndarray) -> np.ndarray | None:
                 probs[i] = float(out[0].reshape(-1)[0])
                 hidden, cell = out[1], out[2]
             else:
+                window = np.concatenate([context, chunk], axis=1)
                 out, state = session.run(
-                    None, {"input": chunk, "state": state, "sr": sr}
+                    None, {"input": window, "state": state, "sr": sr}
                 )[:2]
                 probs[i] = float(out.reshape(-1)[0])
+                context = window[:, -64:]
         return probs > 0.5
     except Exception as exc:  # noqa: BLE001 -- 推理形状不符等一律降级
         logger.warning("silero-vad 推理失败，同步检测降级为能量法：%s", exc)
@@ -218,6 +222,16 @@ def event_hit_rate(
     return hits / len(events)
 
 
+def comparable_events(
+    speech: list[tuple[int, int]], events: list[tuple[int, int]]
+) -> list[tuple[int, int]]:
+    """只留离语音 ``_MAX_SPEECH_GAP_MS`` 以内的事件（能拿来判同步的台词）。"""
+    gap = _MAX_SPEECH_GAP_MS
+    return [
+        (es, ee) for es, ee in events if any(es < se + gap and ss < ee + gap for ss, se in speech)
+    ]
+
+
 def aggregate_sync_scores(scores: list[float]) -> float | None:
     """Use the worst comparable sampled window as the file-level score."""
     return min(scores) if scores else None
@@ -228,9 +242,9 @@ async def sample_sync_score(
 ) -> float | None:
     """抽样同步度（0..1）；None=无法检测（无 ffmpeg/无音轨/事件太少）。
 
-    首/中/尾三窗各 2 分钟，逐窗算事件命中率后取平均；窗内事件不足 5 条
-    的窗跳过（片头片尾常无对白，不该拉低分数）。返回最差窗口，避免一段
-    明显错位被其他两个窗口的高分平均掉。
+    首/中/尾三窗各 2 分钟，逐窗算事件命中率；离语音很远的事件（片头字卡、
+    标牌）不计，可比事件不足 5 条的窗跳过（片头片尾常无对白，不该拉低分数）。
+    返回最差窗口，避免一段明显错位被其他两个窗口的高分平均掉。
     """
     if _ffmpeg() is None:
         logger.info("系统中未找到 ffmpeg，跳过字幕同步度检测（结果按未知处理）")
@@ -260,10 +274,9 @@ async def sample_sync_score(
             return None  # 音频抽不出来：整个检测按未知处理
         # VAD（尤其 silero 逐帧推理）放线程池：事件循环同时在服务所有请求
         speech = await asyncio.to_thread(speech_intervals, pcm)
-        # Opening credits and title cards can have subtitle events while the
-        # dialogue track is silent; such a window is unknown, not a mismatch.
-        if sum(e - s for s, e in speech) < _MIN_COMPARABLE_SPEECH_MS:
-            continue
+        window_events = comparable_events(speech, window_events)
+        if len(window_events) < 5:
+            continue  # 窗里几乎只有字卡/标牌：按未知处理，不是不同步
         rate = event_hit_rate(speech, window_events)
         if rate is not None:
             scores.append(rate)
@@ -300,8 +313,12 @@ def _best_offset(
     """FFT 互相关求 candidate 相对 reference 的最优平移（毫秒）与相关分。
 
     去均值后做相关：全 1 段不该白得分；限幅在 ±_MAX_SHIFT_S 内取峰。
+    给了 ``coverage``（参考只在这些抽样窗里有效）时，相关分是选定位移下
+    两条信号在抽样窗内的相关系数——完全吻合即 1，与片长、搜索余量无关。
     """
     n = max(len(reference), len(candidate))
+    ref_active: np.ndarray | None = None
+    raw_reference, raw_candidate = reference, candidate
     if coverage:
         # Only decoded audio windows are evidence.  Include search-width
         # padding for the candidate so a global offset remains observable,
@@ -319,6 +336,8 @@ def _best_offset(
             cand_mean = float(candidate[cand_active].mean())
             reference = (reference - ref_mean) * ref_mask
             candidate = (candidate - cand_mean) * cand_mask
+        else:
+            ref_active = None
     else:
         reference = reference - reference.mean()
         candidate = candidate - candidate.mean()
@@ -342,8 +361,21 @@ def _best_offset(
     )
     values = np.concatenate([corr[: max_shift + 1], corr[-max_shift:]])
     peak = int(np.argmax(values))
+    lag = int(lags[peak])
+    if ref_active is not None:
+        # 峰位来自上面带余量的相关；分数只按真正解码过的抽样窗算。按余量区
+        # 的字幕能量归一会把完全吻合压到 1/√(余量面积/抽样面积)≈0.58。
+        shifted = np.zeros_like(raw_candidate)
+        if lag >= 0:
+            shifted[lag:] = raw_candidate[: len(shifted) - lag]
+        else:
+            shifted[:lag] = raw_candidate[-lag:]
+        ref_win = raw_reference[ref_active] - raw_reference[ref_active].mean()
+        cand_win = shifted[ref_active] - shifted[ref_active].mean()
+        denom = float(np.sqrt((ref_win**2).sum() * (cand_win**2).sum())) or 1.0
+        return lag * _RASTER_MS, float((ref_win * cand_win).sum() / denom)
     denom = float(np.sqrt((reference**2).sum() * (candidate**2).sum())) or 1.0
-    return int(lags[peak]) * _RASTER_MS, float(values[peak] / denom)
+    return lag * _RASTER_MS, float(values[peak] / denom)
 
 
 @dataclass(frozen=True)
@@ -378,6 +410,24 @@ def estimate_calibration(
         if best is None or score > best.score:
             best = Calibration(scale=scale, offset_ms=offset, score=score)
     return best
+
+
+def window_residuals(
+    reference: list[tuple[int, int]],
+    subtitle: list[tuple[int, int]],
+    coverage: list[tuple[int, int]],
+) -> list[tuple[int, float]]:
+    """已校准字幕在每个抽样窗里的残余偏移与相关分。
+
+    全局偏移校准后各窗残余都应接近 0；剪辑版差异（分段错位）会在部分窗口
+    留下明显残余——这种文件不该套用一个全局偏移。
+    """
+    if not reference or not subtitle:
+        return []
+    total = max(max(e for _, e in reference), max(e for _, e in subtitle)) + 1000
+    ref_signal = _rasterize(reference, total)
+    sub_signal = _rasterize(subtitle, total)
+    return [_best_offset(ref_signal, sub_signal, coverage=[window]) for window in coverage]
 
 
 def apply_calibration(
