@@ -378,3 +378,80 @@ def test_removal_preview_reports_nothing_to_clean_for_fresh_subscription(
     )
     assert deleted.status_code == 200, deleted.text
     assert deleted.json()["data"]["cleanup_job_id"] is None
+
+
+def test_subscribing_existing_show_makes_overdue_metadata_refreshable(
+    client: TestClient, monkeypatch
+) -> None:
+    """真实 API 创建订阅 → 定时任务挑中 → TMDB 季资料更新 → 分集资料落库。"""
+    from datetime import timedelta
+
+    from sqlmodel import select
+
+    from movieclaw_api.services import media_discover, media_refresh
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import MediaEpisode, MediaItem, utcnow
+
+    preview = client.post("/api/v1/subscriptions/title-preview", json={"title_ref": "tmdb:tv:200"})
+    assert preview.status_code == 200, preview.text
+    refreshed = utcnow() - timedelta(days=2)
+    old_due = utcnow() + timedelta(days=20)
+
+    async def seed_schedule():
+        async with get_database().session() as session:
+            item = (
+                await session.execute(select(MediaItem).where(MediaItem.tmdb_id == 200))
+            ).scalar_one()
+            item.metadata_refreshed_at = refreshed
+            item.next_refresh_at = old_due
+            session.add(item)
+            await session.commit()
+
+    client.portal.call(seed_schedule)
+    requests = []
+    original = _fake_tmdb()
+
+    async def handler(request):
+        requests.append(request.url.path)
+        response = await original._client.send(request)
+        if request.url.path == "/3/tv/200/season/1":
+            payload = response.json()
+            payload["episodes"][0].update(name="更新后的集名", still_path="/new-still.jpg")
+            return httpx.Response(200, json=payload)
+        return response
+
+    monkeypatch.setattr(
+        media_discover,
+        "get_tmdb_client",
+        lambda: TmdbClient(_KEY, transport=httpx.MockTransport(handler)),
+    )
+    client.portal.call(media_refresh.refresh_media_metadata)
+    assert requests == []  # 空队列也不会挑到远期排期，复现与排队无关
+    created = client.post(
+        "/api/v1/subscriptions",
+        json={"title_ref": "tmdb:tv:200", "selected_seasons": [1], "follow_future": True},
+    )
+    assert created.status_code == 200, created.text
+    client.portal.call(media_refresh.refresh_media_metadata)
+    assert "/3/tv/200/season/1" in requests
+
+    async def verify():
+        async with get_database().session() as session:
+            item = (
+                await session.execute(select(MediaItem).where(MediaItem.tmdb_id == 200))
+            ).scalar_one()
+            episode = (
+                await session.execute(
+                    select(MediaEpisode).where(MediaEpisode.media_item_id == item.id)
+                )
+            ).scalar_one()
+            assert episode.name == "更新后的集名"
+            assert episode.still_path == "/new-still.jpg"
+            assert item.metadata_refreshed_at > refreshed
+            assert (
+                timedelta(hours=7, minutes=59)
+                < item.next_refresh_at - utcnow()
+                <= timedelta(hours=8)
+            )
+
+    client.portal.call(verify)

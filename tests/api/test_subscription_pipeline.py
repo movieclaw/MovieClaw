@@ -1985,3 +1985,46 @@ async def test_bonus_clip_with_episode_number_never_dispatched(db) -> None:
         await evaluate_and_dispatch(session, [bonus, episode], source="被动匹配")
         grabbed = [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
         assert [a.payload["torrent_id"] for a in grabbed] == ["real"]
+
+
+@pytest.mark.parametrize(
+    ("kind", "tmdb_id", "age", "scheduled_in", "delay"),
+    [
+        (MediaKind.TV, 200, 9, 720, 8),
+        (MediaKind.TV, 200, 1, 24, 8),
+        (MediaKind.TV, 200, 1, 2, 8),
+        (MediaKind.TV, 200, 1, -1, 8),
+        (MediaKind.TV, 200, 1, None, 8),
+        (MediaKind.TV, 200, None, 720, 8),
+        (MediaKind.MOVIE, 101, 48, 720, 24),
+        (MediaKind.MOVIE, 104, 240, 720, 168),
+    ],
+)
+async def test_subscription_advances_existing_metadata_schedule(
+    db, kind, tmdb_id, age, scheduled_in, delay
+) -> None:
+    """订阅进入新分档，以成功刷新时间为基准；NULL、到期和更早排期不后移。"""
+    now = utcnow()
+    refreshed = now - timedelta(hours=age) if age is not None else None
+    old_due = now + timedelta(hours=scheduled_in) if scheduled_in is not None else None
+    async with db.session() as session:
+        service = _service(session)
+        item, _, _ = await service.prepare(kind, tmdb_id)
+        item.metadata_refreshed_at = refreshed
+        item.next_refresh_at = old_due
+        session.add(item)
+        await session.commit()
+        await service.create(kind, tmdb_id, selected_seasons=[1] if kind is MediaKind.TV else [])
+        item_id = item.id
+    async with db.session() as session:
+        saved = await session.get(MediaItem, item_id)
+        if refreshed is None:
+            assert (
+                now + timedelta(hours=delay)
+                <= saved.next_refresh_at
+                <= utcnow() + timedelta(hours=delay)
+            )
+        else:
+            expected = min(old_due, refreshed + timedelta(hours=delay)) if old_due else None
+            assert saved.next_refresh_at == expected
+        assert saved.metadata_refreshed_at == refreshed
