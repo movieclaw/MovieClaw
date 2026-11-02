@@ -55,7 +55,8 @@ class LoginTlsTest {
                 if (createAdmin) repository.createAdminAndLogin("https://nas.example.xyz:6688", "alice", "secret")
                 else repository.login("https://nas.example.xyz:6688", "alice", "secret")
             }
-            assertSame(failure, result.exceptionOrNull())
+            // 协程的 stack-trace recovery 可复制异常，但原始异常仍应保留在 cause 链中。
+            assertTrue(generateSequence(result.exceptionOrNull()) { it.cause }.any { it === failure })
             assertTrue(friendlyMessage(result.exceptionOrNull()!!).contains("证书已过期"))
         }
     }
