@@ -14,7 +14,7 @@ import SwiftUI
 /// | 单击画面 | 唤出控制层（面板开着时先收面板） |
 /// | 双击画面 / F / ⌃⌘F | 全屏进出 |
 /// | 按住画面拖动 | 移动窗口（同 Infuse） |
-/// | ← → / ⌥← ⌥→ | 后退 / 前进 10 秒；⌘← ⌘→ 上一集 / 下一集 |
+/// | ← → / ⌥← ⌥→ | 后退 / 前进 10 秒（画面正中闪一下，不唤出控制层）；⌘← ⌘→ 上一集 / 下一集 |
 /// | ↑ ↓ / M | 音量 ±10% / 静音 |
 /// | Esc | 依次：收起面板 → 退出全屏 → 关闭播放器 |
 /// | ⌘. | 关闭播放器 |
@@ -522,8 +522,12 @@ private struct MacPlayerContent: View {
         controller.noteUserActivity()
         guard !isModal, controller.session != nil else { return }
         controller.seek(by: seconds, source: flashes ? .remote : .button)
-        showChrome()
-        if flashes { flash = MacPlayerFlash(symbol: seconds < 0 ? "gobackward.10" : "goforward.10") }
+        // 方向键跳转只在画面正中闪一下，不唤出控制层（只想看画面）；点控制栏上的按钮时控制层本来就在，接着重新计时
+        if flashes {
+            flash = MacPlayerFlash(symbol: seconds < 0 ? "gobackward.10" : "goforward.10")
+        } else {
+            showChrome()
+        }
     }
 
     /// 控件之间的空白处：单击不做事，双击全屏（连击数按 AppKit 事件认，同画面上的双击）
