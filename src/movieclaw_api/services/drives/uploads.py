@@ -7,7 +7,9 @@
 2. **秒传**：``begin_upload`` 按指纹试；网盘要校验一段字节就由宿主读出来再交过去；
 3. **真传**：秒传不中就按插件给的分片大小逐片读、逐片交给插件。读字节在宿主这边——外网有人
    在看片时先停（``uplink``），每传完一片把续传状态记进任务进度，重启后从那一片接着传；
-4. **核验**：``stat`` 网盘上的文件，大小与哈希对上才把副本记为已核验。释放本地是下一步（§6）。
+4. **核验**：``stat`` 网盘上的文件，大小与哈希对上才把副本记为已核验。释放本地是下一步（§6）；
+5. **旁车文件**：视频都传完后，把传上去的视频旁的海报、NFO、外挂字幕、分集剧照补到网盘同一目录，
+   本地变了就删掉网盘上的旧版本再传（``sidecars``，§5.5）。巡检发现它们新写出或有变化也会排任务。
 
 每个库一个任务（``drive.upload``），逐个文件传，新入库的先传；任务锁住网盘账号（同一账号一次
 只传一个），不锁媒体库——几十 GB 的上传不能挡住扫描与整理。新文件入库、库的主根换到网盘、
@@ -26,13 +28,14 @@ from typing import Any
 
 from movieclaw_api.i18n.stored import reference, source_render, source_text, stored_fields
 from movieclaw_api.services import jobs
-from movieclaw_api.services.drives import gateway, uplink
+from movieclaw_api.services.drives import gateway, sidecars, uplink
 from movieclaw_api.services.drives.messages import error_reference, keyed
 from movieclaw_api.services.drives.registry import BackendUnavailable
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.library import Library
 from movieclaw_db.models.library_cloud_folder import LibraryCloudFolder
+from movieclaw_db.models.library_cloud_sidecar import LibraryCloudSidecar
 from movieclaw_db.models.library_file import LibraryFile
 from movieclaw_db.models.scheduled_task import TriggerType
 from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
@@ -178,10 +181,10 @@ async def enqueue(library_id: int | None = None, *, origin: str = "system") -> l
             pending = await repo.upload_candidates(
                 folder.library_id, retry_failed_before=utcnow() - RETRY_FAILED_AFTER, limit=1
             )
-            if not pending:
-                continue
             library = await session.get(Library, folder.library_id)
             if library is None:
+                continue
+            if not pending and not (await sidecars.find_pending(library, folder))[0]:
                 continue
             result = await jobs.create_job(
                 session,
@@ -413,6 +416,66 @@ class _Uploader:
             raise LocalChanged("cloud.upload.changedDuringUpload")
         return await self.call("finish_upload", state=state)
 
+    async def upload_sidecar(
+        self, item: sidecars.Pending, previous: LibraryCloudSidecar | None
+    ) -> None:
+        """传一个旁车文件（§5.5）。网盘上有我们传过的旧版本就先删掉，再传新的。"""
+        assert self.folder.id is not None
+        data = await asyncio.to_thread(item.path.read_bytes)
+        if len(data) != item.size or await asyncio.to_thread(_stat, item.path) != (
+            item.size,
+            item.mtime_ns,
+        ):
+            raise LocalChanged("cloud.upload.changedDuringUpload")
+        sha1 = hashlib.sha1(data).hexdigest().upper()  # noqa: S324 -- 网盘秒传协议要 SHA1
+        remote_id = previous.remote_id if previous is not None else ""
+        if previous is None or previous.sha1 != sha1:
+            if remote_id:
+                await self.call("delete", remote_ids=[remote_id])
+            await self.wait_for_uplink()
+            remote_id = await self._send_bytes(item.path, data, sha1)
+        async with get_database().session() as session:
+            await LibraryCloudRepository(session).save_sidecar(
+                self.folder.id,
+                str(item.path),
+                remote_id=remote_id,
+                size_bytes=item.size,
+                file_mtime_ns=item.mtime_ns,
+                sha1=sha1,
+            )
+
+    async def _send_bytes(self, path: Path, data: bytes, sha1: str) -> str:
+        """把一份读进内存的小文件传到它在网盘上该在的目录，返回网盘文件 id。"""
+        fingerprint = dv.Fingerprint(
+            size=len(data),
+            sha1=sha1,
+            md5=hashlib.md5(data).hexdigest().upper(),  # noqa: S324 -- 同上
+            head_sha1=hashlib.sha1(data[: dv.HEAD_BYTES]).hexdigest().upper(),  # noqa: S324
+        )
+        dir_id = await self.dir_id(remote_dir_for(self.library, str(path)))
+        args = {"dir_id": dir_id, "name": path.name, "fingerprint": fingerprint}
+        step = await self.call("begin_upload", **args, state=None, range_data=None)
+        while step.need_range is not None:
+            offset, length = step.need_range
+            if length <= 0 or length > MAX_CHALLENGE_BYTES or offset + length > len(data):
+                raise keyed(dv.ApiChanged, "errors.drives.rangeInvalid", range=f"{offset}+{length}")
+            step = await self.call(
+                "begin_upload", **args, state=step.state, range_data=data[offset : offset + length]
+            )
+        if step.file is not None:
+            return step.file.remote_id
+        part_size = min(step.part_size or len(data), max(len(data), 1))
+        if part_size <= 0 or part_size > MAX_PART_BYTES:
+            raise keyed(dv.ApiChanged, "errors.drives.partSizeInvalid", size=part_size)
+        state = step.state
+        for index in range(step.next_part, max(1, -(-len(data) // part_size))):
+            chunk = data[index * part_size : (index + 1) * part_size]
+            state = await self.call("upload_part", state=state, index=index, data=chunk)
+        remote = await self.call("finish_upload", state=state)
+        if remote.size != len(data):
+            raise LocalChanged("cloud.upload.mismatch")
+        return remote.remote_id
+
     async def _verify(
         self,
         file: LibraryFile,
@@ -515,6 +578,7 @@ async def run_upload_job(
         await uploader.progress(
             "cloud.upload.progress", done=uploader.done, rapid=uploader.rapid
         )
+    synced = await _sync_sidecars(context, uploader)
     return {
         **stored_fields(
             "cloud.upload.done",
@@ -525,4 +589,41 @@ async def run_upload_job(
         "uploaded": uploader.done,
         "rapid": uploader.rapid,
         "failed": uploader.failed,
+        "sidecars": synced,
     }
+
+
+async def _sync_sidecars(context: jobs.JobContext, uploader: _Uploader) -> int:
+    """视频传完后，把传上去的视频的旁车文件补齐到网盘（§5.5）。返回这次传了几个。
+
+    单个文件的问题（读不了、网盘上有同名的别人的文件）不挡别的：按本地现在的样子记进台账
+    （SHA1 为空，网盘 id 留着上次传的、好在重试时先删掉），本地再变才重试，免得巡检为它反复排任务。
+    """
+    assert uploader.folder.id is not None
+    pending, ledger = await sidecars.find_pending(uploader.library, uploader.folder)
+    synced = 0
+    for index, item in enumerate(pending):
+        await context.raise_if_cancelled()
+        await uploader.progress("cloud.upload.sidecars", done=index, total=len(pending))
+        try:
+            await uploader.upload_sidecar(item, ledger.get(str(item.path)))
+            synced += 1
+        except LocalChanged:
+            continue  # 还在写：下一轮再传
+        except (OSError, dv.Conflict) as exc:
+            logger.info("旁车文件「%s」这次不上传：%s", item.path.name, exc)
+            previous = ledger.get(str(item.path))
+            async with get_database().session() as session:
+                await LibraryCloudRepository(session).save_sidecar(
+                    uploader.folder.id,
+                    str(item.path),
+                    remote_id=previous.remote_id if previous is not None else "",
+                    size_bytes=item.size,
+                    file_mtime_ns=item.mtime_ns,
+                    sha1="",
+                )
+        except BackendUnavailable as exc:
+            raise jobs.JobRetry(str(exc), delay_seconds=300) from exc
+        except dv.DriveError as exc:
+            raise _drive_error_to_job(exc, uploader.account_name) from exc
+    return synced

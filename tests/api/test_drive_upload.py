@@ -10,7 +10,10 @@
 - 外网有人在看片时上传让路，让完路接着传；
 - 核验对不上、本地文件在传的时候变了：这个文件记失败原因、不算已上传，任务接着传别的；
 - 网盘要重新登录：任务停在「需要处理」；
-- 复查不会把自己传上去、本地还在的文件当成纳管来的再入一遍账；网盘上没了的重新传。
+- 复查不会把自己传上去、本地还在的文件当成纳管来的再入一遍账；网盘上没了的重新传；
+- 旁车文件（海报、NFO、分集剧照、外挂字幕）跟着视频传到网盘同一目录：库根自己的图与非旁车文件不传，
+  图片与 NFO 跟随库开关、字幕总是传；本地换了海报、新出了字幕，下一次巡检删旧传新；网盘上别人的同名
+  文件不覆盖、不反复重试。
 """
 
 from __future__ import annotations
@@ -130,6 +133,16 @@ class FakeDrive(DriveBackend):
         drive = self._state()
         self._check(drive)
         drive.setdefault("calls", []).append(["begin", name, bool(state), range_data is not None])
+        if not state and drive.get("strict_names"):
+            # 同名文件已在：内容一样就当传完了，不一样就冲突（协议约定）
+            path = drive["dirs"][dir_id] + "/" + name
+            for rid, meta in drive["files"].items():
+                if meta["path"] == path:
+                    self._save(drive)
+                    if meta["sha1"] == fingerprint.sha1 and meta["size"] == fingerprint.size:
+                        return UploadStep(file=RemoteFile(
+                            remote_id=rid, name=name, size=meta["size"], sha1=meta["sha1"]))
+                    raise Conflict("同名的不同文件")
         pool = drive.get("pool", {})
         if fingerprint.sha1 in pool and (not state or state.get("rapid")):
             src = Path(pool[fingerprint.sha1])
@@ -179,6 +192,15 @@ class FakeDrive(DriveBackend):
         remote = self._add_file(drive, state["dir_id"], state["name"], data)
         self._save(drive)
         return remote
+
+    async def delete(self, account, remote_ids):
+        drive = self._state()
+        self._check(drive)
+        for rid in remote_ids:
+            drive.setdefault("deleted", []).append(rid)
+            if drive["files"].pop(rid, None) is not None:
+                (self.store / rid).unlink(missing_ok=True)
+        self._save(drive)
 
     async def stat(self, account, remote_id):
         meta = self._state()["files"].get(remote_id)
@@ -322,7 +344,7 @@ def replicas(client: TestClient, library_id: int) -> dict[str, dict]:
     return call(client, _replicas, library_id)
 
 
-def _library(client: TestClient, tmp_path: Path, files: dict[str, bytes]) -> int:
+def _library(client: TestClient, tmp_path: Path, files: dict[str, bytes], **extra: object) -> int:
     staging = tmp_path / "staging"
     for rel, data in files.items():
         target = staging / rel
@@ -343,6 +365,7 @@ def _library(client: TestClient, tmp_path: Path, files: dict[str, bytes]) -> int
                     "is_primary": True,
                 }
             ],
+            **extra,
         },
     )
     assert created.status_code == 200, created.text
@@ -898,3 +921,172 @@ def test_download_tasks_are_removed_after_release_unless_kept(client, monkeypatc
     assert saved.status_code == 200 and saved.json()["data"] == {"remove_download_tasks": False}
     call(client, remove_source.after_local_released, event)
     assert deleted == []
+
+
+# ---------------------------------------------------------------------- 旁车文件（§5.5）
+
+#: 一部剧（剧集目录 + 季目录）和一部直接放在库根下的片子，各带一套旁车文件
+SHOW_AND_MOVIE = {
+    "剧集/第一季/S01E01.mkv": _blob(3, 100_000),
+    "剧集/tvshow.nfo": b"<tvshow><title>show</title></tvshow>",
+    "剧集/poster.jpg": b"poster-v1",
+    "剧集/fanart.jpg": b"fanart",
+    "剧集/season01-poster.jpg": b"season-poster",
+    "剧集/第一季/S01E01.nfo": b"<episodedetails/>",
+    "剧集/第一季/S01E01-thumb.jpg": b"episode-thumb",
+    "剧集/第一季/S01E01.zh.srt": b"1\n00:00:01,000 --> 00:00:02,000\nhi\n",
+    "剧集/第一季/notes.txt": b"not a sidecar",
+    "单片.mp4": _blob(4, 60_000),
+    "单片.nfo": b"<movie/>",
+    "单片-poster.jpg": b"movie-poster",
+    # 库根自己的图不归任何一部片
+    "poster.jpg": b"library root art",
+}
+
+
+def drive_files(client: TestClient) -> dict[str, bytes]:
+    """网盘上现在的文件：路径 → 内容。
+
+    任务还在跑时假网盘随时在重写状态文件（非原子）、删文件：读到半截就重读。
+    """
+    store = client.drive / "store"  # type: ignore[attr-defined]
+    for _ in range(50):
+        try:
+            return {
+                meta["path"]: (store / rid).read_bytes()
+                for rid, meta in drive_state(client)["files"].items()
+            }
+        except (json.JSONDecodeError, FileNotFoundError):
+            time.sleep(0.05)
+    raise AssertionError("网盘状态一直读不全")
+
+
+def _sidecar_library(client: TestClient, tmp_path: Path, **extra: object) -> int:
+    """建 SHOW_AND_MOVIE 库；网盘按协议处理同名文件（同内容当传完、不同内容冲突）。"""
+    edit_drive(client, lambda d: d.update(strict_names=True))
+    return _library(client, tmp_path, SHOW_AND_MOVIE, **extra)
+
+
+def sweep(client: TestClient) -> list[str]:
+    """跑一次上传巡检（等价于每 10 分钟的定时任务），返回排上的任务。"""
+    from movieclaw_api.services.drives import uploads
+
+    return call(client, uploads.enqueue)
+
+
+def _idle(client: TestClient, library_id: int) -> None:
+    _wait(
+        lambda: client.get(f"/api/v1/libraries/{library_id}").json()["data"]["cloud_upload"] is None
+    )
+
+
+def test_sidecars_follow_uploaded_videos_into_the_same_cloud_folders(client, tmp_path):
+    library_id = _sidecar_library(client, tmp_path)
+    expected = {
+        "影视/剧集/第一季/S01E01.mkv",
+        "影视/剧集/tvshow.nfo",
+        "影视/剧集/poster.jpg",
+        "影视/剧集/fanart.jpg",
+        "影视/剧集/season01-poster.jpg",
+        "影视/剧集/第一季/S01E01.nfo",
+        "影视/剧集/第一季/S01E01-thumb.jpg",
+        "影视/剧集/第一季/S01E01.zh.srt",
+        "影视/单片.mp4",
+        "影视/单片.nfo",
+        "影视/单片-poster.jpg",
+    }
+    _wait(lambda: set(drive_files(client)) >= expected)
+    _idle(client, library_id)
+    files = drive_files(client)
+    # 不是旁车的（notes.txt）、库根自己的图（poster.jpg）不传
+    assert set(files) == expected
+    assert files["影视/剧集/poster.jpg"] == b"poster-v1"
+    assert files["影视/剧集/第一季/S01E01.zh.srt"] == SHOW_AND_MOVIE["剧集/第一季/S01E01.zh.srt"]
+    rows = replicas(client, library_id)
+    # 旁车文件不进库文件台账
+    assert set(rows) == {"S01E01.mkv", "单片.mp4"}
+    assert all(r["state"] == "verified" for r in rows.values())
+    # 都传过了：巡检不再排任务
+    assert sweep(client) == []
+
+
+def test_changed_and_new_sidecars_sync_on_the_next_sweep(client, tmp_path):
+    import os
+
+    library_id = _sidecar_library(client, tmp_path)
+    _wait(lambda: "影视/剧集/第一季/S01E01.zh.srt" in drive_files(client))
+    _idle(client, library_id)
+    old_poster = next(
+        rid
+        for rid, meta in drive_state(client)["files"].items()
+        if meta["path"] == "影视/剧集/poster.jpg"
+    )
+    show = tmp_path / "staging" / "剧集"
+    # 刮削换了海报：原地覆盖（shutil.copyfile 的写法，目录 mtime 不变）
+    poster = show / "poster.jpg"
+    poster.write_bytes(b"poster-v2-from-rescrape")
+    st = poster.stat()
+    os.utime(poster, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    # 新生成了一份英文字幕
+    (show / "第一季" / "S01E01.en.srt").write_bytes(b"1\n00:00:01,000 --> 00:00:02,000\nhello\n")
+    assert sweep(client), "有变化的旁车文件应当排上任务"
+    _wait(lambda: drive_files(client).get("影视/剧集/poster.jpg") == b"poster-v2-from-rescrape")
+    _wait(lambda: "影视/剧集/第一季/S01E01.en.srt" in drive_files(client))
+    _idle(client, library_id)
+    state = drive_state(client)
+    paths = [meta["path"] for meta in state["files"].values()]
+    # 旧海报先删掉再传新的：网盘上只有一份
+    assert paths.count("影视/剧集/poster.jpg") == 1
+    assert old_poster in state["deleted"] and old_poster not in state["files"]
+    # 其余没变的不重传、也不删
+    assert state["deleted"] == [old_poster]
+    assert sweep(client) == []
+
+    # 只是 touch 了一下（内容没变）：记下新的修改时间，不删不传
+    calls_before = len(drive_state(client)["calls"])
+    nfo = show / "tvshow.nfo"
+    st = nfo.stat()
+    os.utime(nfo, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
+    assert sweep(client)
+    _wait(lambda: not sweep(client))
+    assert drive_state(client)["deleted"] == [old_poster]
+    assert len(drive_state(client)["calls"]) == calls_before
+
+
+def test_artwork_and_nfo_follow_the_library_switches_but_subtitles_always_go(client, tmp_path):
+    library_id = _sidecar_library(
+        client,
+        tmp_path,
+        scrape_overrides={"mirror_images": False, "mirror_nfo": False},
+    )
+    _wait(lambda: "影视/剧集/第一季/S01E01.zh.srt" in drive_files(client))
+    _idle(client, library_id)
+    assert set(drive_files(client)) == {
+        "影视/剧集/第一季/S01E01.mkv",
+        "影视/剧集/第一季/S01E01.zh.srt",
+        "影视/单片.mp4",
+    }
+    assert sweep(client) == []
+
+
+def test_a_foreign_file_with_the_same_name_is_left_alone_without_retry_storms(client, tmp_path):
+    # 网盘目录里已经有一张别人放的同名海报（内容不同）：不能覆盖、不能删
+    edit_drive(
+        client,
+        lambda d: (
+            d["dirs"].update({"d-show": "影视/剧集"}),
+            d["files"].update(
+                {"f-foreign": {"path": "影视/剧集/poster.jpg", "size": 7, "sha1": "F" * 40}}
+            ),
+        ),
+    )
+    (client.drive / "store" / "f-foreign").write_bytes(b"foreign")  # type: ignore[attr-defined]
+    library_id = _sidecar_library(client, tmp_path)
+    _wait(lambda: "影视/剧集/第一季/S01E01.zh.srt" in drive_files(client))
+    _idle(client, library_id)
+    files = drive_files(client)
+    assert files["影视/剧集/poster.jpg"] == b"foreign"
+    assert "影视/剧集/fanart.jpg" in files  # 别的照传
+    assert "deleted" not in drive_state(client)
+    # 冲突记下了：本地不变就不再为它排任务
+    assert sweep(client) == []

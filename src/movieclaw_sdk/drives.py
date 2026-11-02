@@ -506,7 +506,8 @@ class DriveBackend:
     async def delete(self, account: DriveAccount, remote_ids: list[str]) -> None:
         """删掉这些文件。网盘有回收站就进回收站（``capabilities.recycle_bin``），不要清回收站。
 
-        主程序只传台账里的文件 id，只在用户确认的删除与回收站清理时调用，一次最多 100 个。
+        主程序只传台账里的文件 id，一次最多 100 个。在用户确认的删除、回收站清理时调用；
+        旁车文件（海报、NFO、字幕）本地变了时，也用它删掉上次传上去的那份再传新的。
         已经不在的文件当删成功（不抛 ``NotFound``）。
         """
         raise NotImplementedError
