@@ -1,5 +1,5 @@
 import { BusinessError } from '@kit.BasicServicesKit';
-import { createEngine, initEngine, destroyEngine, command, tracks, MpvEvent } from 'libmovieclaw_mpv.so';
+import { createEngine, initEngine, destroyEngine, command, setProperty, tracks, MpvEvent } from 'libmovieclaw_mpv.so';
 import { EngineEvent, EngineFailure, EngineSource, EngineTrack, PlayerEngine, SubtitleStyle } from './PlayerEngine';
 
 interface NativeTrack {
@@ -23,6 +23,9 @@ export class MpvEngine implements PlayerEngine {
   private duration: number = 0;
   private width: number = 0;
   private height: number = 0;
+  private hwdec: string = '';
+  private videoFormat: string = '';
+  private pixelFormat: string = '';
   private ready: boolean = false;
   private eof: boolean = false;
   private paused: boolean = true;
@@ -35,7 +38,14 @@ export class MpvEngine implements PlayerEngine {
     loaded.catch((): void => {});
     try {
       await initEngine(this.handle, {
-        'vo': 'gpu', 'gpu-context': 'ohos', 'ao': 'ohaudio', 'hwdec': 'ohcodec',
+        'vo': 'gpu', 'gpu-api': 'vulkan', 'gpu-context': 'ohosvk', 'ao': 'ohaudio',
+        // Buffer-mode hardware decode. The dex2oat fork (vd_lavc.c select_and_set_hwdec)
+        // only accepts ohcodec surface entries for vo=ohcodec* VOs; under vo=gpu the
+        // surface entry "ohcodec" is skipped and playback silently falls back to
+        // software decoding. "ohcodec-copy" is the contract for GL VOs (fork comment:
+        // "vo=gpu-next + hwdec=ohcodec-copy"): the OHCodec decoder outputs NV12
+        // system-memory frames which the ra_hwdec_ohcodec interop uploads to the GPU.
+        'hwdec': 'ohcodec-copy',
         // The host sizes the surface for fit/fill/stretch, just as for AVPlayer.
         'wid': surfaceId, 'pause': 'yes', 'keep-open': 'yes', 'keepaspect': 'no',
         'sub-fonts-dir': '/system/fonts', 'tls-verify': 'yes'
@@ -49,7 +59,7 @@ export class MpvEngine implements PlayerEngine {
       } catch (error) {
         const event = new EngineEvent(); event.type = 'diagnostic'; event.text = 'MPV 外挂字幕加载失败，继续播放'; this.onEvent(event);
       }
-      await this.send(['set', 'sub-delay', `${-(source.subtitleOffsetMs ?? 0) / 1000}`]);
+      await this.set('sub-delay', -(source.subtitleOffsetMs ?? 0) / 1000);
     } catch (error) {
       if (error instanceof EngineFailure) { throw error; }
       const native = error as BusinessError;
@@ -64,11 +74,19 @@ export class MpvEngine implements PlayerEngine {
     this.tail = task.catch((): void => {});
     return task;
   }
-  async play(): Promise<void> { await this.send(['set', 'pause', 'no']); }
-  async pause(): Promise<void> { await this.send(['set', 'pause', 'yes']); }
+  private set(name: string, value: string | number | boolean): Promise<void> {
+    const task = this.tail.then(async (): Promise<void> => {
+      if (this.released) { return; }
+      await setProperty(this.handle, name, value);
+    });
+    this.tail = task.catch((): void => {});
+    return task;
+  }
+  async play(): Promise<void> { await this.set('pause', false); }
+  async pause(): Promise<void> { await this.set('pause', true); }
   async seek(positionMs: number): Promise<void> { await this.send(['seek', `${positionMs / 1000}`, 'absolute+exact']); }
-  async setRate(rate: number): Promise<void> { await this.send(['set', 'speed', `${rate}`]); }
-  async setGain(gain: number): Promise<void> { await this.send(['set', 'volume', `${gain * 100}`]); }
+  async setRate(rate: number): Promise<void> { await this.set('speed', rate); }
+  async setGain(gain: number): Promise<void> { await this.set('volume', gain * 100); }
   async tracks(): Promise<EngineTrack[]> {
     const list: NativeTrack[] = JSON.parse(await tracks(this.handle)) as NativeTrack[];
     return list.map((track: NativeTrack): EngineTrack => {
@@ -77,13 +95,24 @@ export class MpvEngine implements PlayerEngine {
     });
   }
   async selectTrack(kind: string, id: number): Promise<void> {
-    await this.send(['set', kind === 'audio' ? 'aid' : 'sid', id < 0 ? 'no' : `${id}`]);
+    await this.set(kind === 'audio' ? 'aid' : 'sid', id < 0 ? 'no' : `${id}`);
   }
   async setSubtitleStyle(style: SubtitleStyle): Promise<void> {
     // libass's default PlayResY is 720. Font size is expressed relative to that canvas.
-    await this.send(['set', 'sub-font-size', `${720 * style.fontScale / 100}`]).catch((): void => {});
-    await this.send(['set', 'sub-pos', `${100 - style.bottomPercent}`]).catch((): void => {});
-    await this.send(['set', 'sub-border-style', style.background ? 'background-box' : 'outline-and-shadow']).catch((): void => {});
+    await this.set('sub-font-size', 720 * style.fontScale / 100).catch((): void => {});
+    await this.set('sub-pos', 100 - style.bottomPercent).catch((): void => {});
+    await this.set('sub-border-style', style.background ? 'background-box' : 'outline-and-shadow').catch((): void => {});
+  }
+  /** Push the accumulated local decode state so the diagnostics panel can show it. */
+  private emitDecode(): void {
+    const event = new EngineEvent();
+    event.type = 'decode';
+    event.hwdec = this.hwdec;
+    event.codec = this.videoFormat;
+    event.pixelFormat = this.pixelFormat;
+    event.width = this.width;
+    event.height = this.height;
+    this.onEvent(event);
   }
   private receive(native: MpvEvent): void {
     if (this.released) { return; }
@@ -103,7 +132,9 @@ export class MpvEngine implements PlayerEngine {
     if (native.type === 'end') {
       if (native.reason === 0) { event.type = 'state'; event.state = 'ended'; }
       else if (native.reason === 4) {
-        const kind = native.code === -17 || native.code === -18 || native.code === -16 ? 'unsupported'
+        // MPV_ERROR_* codes: -16 loading failed, -17 AO init, -18 VO init,
+        // -19 nothing to play, -20 unknown format, -21 unsupported, -22 not implemented.
+        const kind = native.code >= -22 && native.code <= -16 ? 'unsupported'
           : native.code === -14 || native.code === -15 ? 'unavailable'
           : native.code === -13 ? 'source' : 'internal';
         const failure = new EngineFailure(kind, native.code, `MPV 播放失败（${native.code}）`);
@@ -125,6 +156,15 @@ export class MpvEngine implements PlayerEngine {
       } else if (native.name === 'width' || native.name === 'height') {
         if (native.name === 'width') { this.width = native.value; } else { this.height = native.value; }
         event.type = 'size'; event.width = this.width; event.height = this.height;
+        this.emitDecode();
+      } else if (native.name === 'video-format') {
+        this.videoFormat = native.text;
+        this.emitDecode();
+        return;
+      } else if (native.name === 'video-params/pixelformat') {
+        this.pixelFormat = native.text;
+        this.emitDecode();
+        return;
       } else if (native.name === 'eof-reached') {
         const wasEnded = this.eof;
         this.eof = native.value === 1;
@@ -137,6 +177,14 @@ export class MpvEngine implements PlayerEngine {
         event.type = 'state'; event.state = this.paused ? 'paused' : 'playing';
       } else if (native.name === 'paused-for-cache') {
         event.type = 'buffering'; event.hint = native.value === 1 ? 'start' : 'end';
+      } else if (native.name === 'hwdec-current') {
+        // Observed as MPV_FORMAT_STRING: runtime decoder id ("h264_ohcodec" etc.),
+        // empty means software decoding. Surfaced as diagnostics so hardware
+        // decoding can be confirmed from logs and the diagnostics panel.
+        this.hwdec = native.text;
+        event.type = 'diagnostic';
+        event.text = native.text.length > 0 ? `MPV 硬解已启用: ${native.text}` : 'MPV 软件解码中';
+        this.emitDecode();
       } else { return; }
     } else {
       // playback-restart confirms resumption, not a displayed first frame.

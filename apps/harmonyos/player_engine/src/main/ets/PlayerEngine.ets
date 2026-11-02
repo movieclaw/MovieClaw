@@ -49,6 +49,9 @@ export class EngineEvent {
   bufferedMs: number = 0;
   width: number = 0;
   height: number = 0;
+  hwdec: string = '';
+  codec: string = '';
+  pixelFormat: string = '';
   text: string = '';
   hint: string = '';
   failure: EngineFailure | null = null;

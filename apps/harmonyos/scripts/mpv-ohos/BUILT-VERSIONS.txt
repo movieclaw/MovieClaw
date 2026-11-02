@@ -1,4 +1,7 @@
-ffmpeg dd2976b9 | mpv d974ee33 | zlib v1.3.1
-freetype VER-2-13-3 | fribidi v1.0.16 | harfbuzz 8.5.1
-libass 0.17.4 | mbedtls mbedtls-2.28.9
-built 2026-10-27 08:48
+ffmpeg dd2976b9 + MovieClaw ohdec r12b (stride/p010) | mpv d974ee33 + ohosvk/egl-fix
+freetype VER-2-13-3 | fribidi v1.0.16 | harfbuzz 8.5.1 | glslang (11-01)
+libass 0.17.4 | mbedtls mbedtls-2.28.9 | libplacebo v7.351.0 | zlib v1.3.1 (static)
+libmpv.so.2.5.0 built 2026-11-02 19:56, deployed 2026-11-03:
+  SONAME libmpv.so.2 -> libmpv.so (in-place .dynstr patch)
+  NEEDED libnative_buffer.so -> libc.so duplicate (device lacks libnative_buffer.so, no symbols used)
+  llvm-strip --strip-unneeded, 31,322,024 -> 28,053,192 bytes
