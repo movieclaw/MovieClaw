@@ -339,6 +339,20 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
     fun onMediaKey(event: KeyEvent): Boolean {
         val native = event.nativeKeyEvent
         val code = native.keyCode
+        // 菜单键开 / 关面板：国产盒子的遥控器大多有这颗键，电视 App 惯例是按它出设置（docs/design/playback-speed.md）
+        if (code == AndroidKeyEvent.KEYCODE_MENU) {
+            if (!panelOpen && (episodesOpen || state.isModal)) return false
+            if (event.type == KeyEventType.KeyDown && native.repeatCount == 0) {
+                controller.noteUserActivity()
+                if (panelOpen) {
+                    panelOpen = false
+                    focusSurfaceSoon()
+                } else {
+                    openPanel()
+                }
+            }
+            return true
+        }
         if (code !in MEDIA_KEYS) return false
         if (event.type != KeyEventType.KeyDown || native.repeatCount != 0) return true
         when (code) {

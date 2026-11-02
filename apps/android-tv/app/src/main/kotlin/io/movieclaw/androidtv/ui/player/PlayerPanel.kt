@@ -3,6 +3,7 @@ package io.movieclaw.androidtv.ui.player
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
@@ -49,6 +51,7 @@ import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Surface
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.core.playback.PlaybackController
+import io.movieclaw.core.playback.PlaybackSpeeds
 import io.movieclaw.core.playback.PlayerState
 import io.movieclaw.core.playback.QualityOption
 import io.movieclaw.core.playback.SubtitleSections
@@ -61,16 +64,17 @@ import io.movieclaw.androidtv.ui.theme.ptSp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** 面板的三栏（下键呼出） */
-enum class PanelTab(val title: String) { Subtitles("字幕"), Audio("音轨"), Quality("画质") }
+/** 面板的四栏（下键 / 菜单键呼出）。倍速也是一栏、不做二级菜单：遥控器上每多一层就多一次确认加一次返回（docs/design/playback-speed.md） */
+enum class PanelTab(val title: String) { Subtitles("字幕"), Audio("音轨"), Quality("画质"), Speed("倍速") }
 
 /**
- * 播放器的字幕 / 音轨 / 画质面板（Apple 端 TVPlayerPanel.swift，同 Netflix 电视版的「音频与字幕」）：
+ * 播放器的字幕 / 音轨 / 画质 / 倍速面板（Apple 端 TVPlayerPanel.swift，同 Netflix 电视版的「音频与字幕」）：
  * - 画面退后而不熄灭：整屏由中间向外渐暗（不磨砂），播放照常继续；
- * - 对称三栏竖排，左右换栏、上下选，每栏各自滚动（上下边缘渐隐）；
+ * - 对称多栏竖排，左右换栏、上下选，每栏各自滚动（上下边缘渐隐）；左右换栏落在那一栏已选中的那项；
  * - 字幕按语言分组：关闭 → 正在使用 → 中文 → 英语 → 其他语言（多时折叠成一行，按确认展开）；
  * - 选了就切：直接在画面上看到效果，面板不关、不加提示。返回键收起面板（由播放器处理）。
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun PlayerPanel(state: PlayerState, controller: PlaybackController) {
     var expanded by remember { mutableStateOf(false) }
@@ -119,7 +123,15 @@ fun PlayerPanel(state: PlayerState, controller: PlaybackController) {
             for (tab in tabs) {
                 val active = focusedRow?.startsWith(tab.prefix) == true
                 val headerColor by animateColorAsState(if (active) Color.White else Color.White.copy(alpha = 0.45f), tween(200), label = "header")
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(18.pt)) {
+                // 倍速只有「0.75×」这么短的字：定宽窄栏，把宽度让给画质说明、字幕与音轨的两行信息（同 Apple 端）
+                Column(
+                    (if (tab == PanelTab.Speed) Modifier.width(240.pt) else Modifier.weight(1f))
+                        // 左右换栏时落在这一栏已选中的那一项上，而不是位置最近的一行：倍速栏的「正常」在中间，
+                        // 按位置会落到最上面的 0.5×，顺手按确认就误选了
+                        .focusProperties { enter = { requesters[activeOptionId(tab, state)] ?: FocusRequester.Default } }
+                        .focusGroup(),
+                    verticalArrangement = Arrangement.spacedBy(18.pt),
+                ) {
                     Row(Modifier.padding(start = 28.pt), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.pt)) {
                         Text(tab.title, style = McType.size(32, FontWeight.Bold), color = headerColor, modifier = Modifier.alignByBaseline())
                         Text(
@@ -205,6 +217,11 @@ fun PlayerPanel(state: PlayerState, controller: PlaybackController) {
                                         controller.selectQuality(item.maxHeight)
                                     }
                                 }
+                                PanelTab.Speed -> for (speed in PlaybackSpeeds.ALL) {
+                                    row("speed-${PlaybackSpeeds.short(speed)}", PlaybackSpeeds.label(speed), null, state.speed == speed, false) {
+                                        controller.selectSpeed(speed)
+                                    }
+                                }
                             }
                         }
                     }
@@ -219,12 +236,23 @@ private val PanelTab.prefix: String
         PanelTab.Subtitles -> "subtitle-"
         PanelTab.Audio -> "audio-"
         PanelTab.Quality -> "quality-"
+        PanelTab.Speed -> "speed-"
     }
 
 private fun count(tab: PanelTab, state: PlayerState): Int = when (tab) {
     PanelTab.Subtitles -> state.subtitleCount
     PanelTab.Audio -> state.audioOptions.size
     PanelTab.Quality -> QualityOption.ALL.size
+    PanelTab.Speed -> PlaybackSpeeds.ALL.size
+}
+
+/** 一栏里已选中那一项的焦点标识 */
+private fun activeOptionId(tab: PanelTab, state: PlayerState): String = when (tab) {
+    PanelTab.Subtitles -> state.selectedSubtitle?.let { "subtitle-$it" } ?: "subtitle-off"
+    PanelTab.Audio -> (state.audioOptions.firstOrNull { it.ref == state.currentAudio } ?: state.audioOptions.firstOrNull { it.isDefault })
+        ?.let { "audio-${it.ref}" } ?: ""
+    PanelTab.Quality -> "quality-" + (QualityOption.ALL.firstOrNull { it.maxHeight == state.quality } ?: QualityOption.ALL.first()).label
+    PanelTab.Speed -> "speed-" + PlaybackSpeeds.short(state.speed)
 }
 
 /** 让渐隐蒙版左右各宽出 [amount]：拿焦点的行放大、投影时不被栏宽裁掉（同 Apple 端蒙版的 -40 内边距） */
