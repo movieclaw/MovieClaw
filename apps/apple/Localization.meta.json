@@ -1399,6 +1399,9 @@
     "player.controls.speed": {
       "sourceHash": "55020185554147176d775f7aae33a07e3c899b8beca27af75a2cf0f893e85926"
     },
+    "player.controls.speedShort": {
+      "sourceHash": "55020185554147176d775f7aae33a07e3c899b8beca27af75a2cf0f893e85926"
+    },
     "player.controls.diagnostics": {
       "sourceHash": "7363b0cba29e61d223c16bc2c42000ee09c54aed6235ba1f3214dcc0b6f82bc4"
     },
