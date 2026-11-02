@@ -1,6 +1,6 @@
 {
  "api": "https://ollama.com/v1",
- "fetched_at": "2026-10-30T10:25:11Z",
+ "fetched_at": "2026-11-02T09:30:16Z",
  "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
  "models": {
   "beam": {
@@ -499,6 +499,66 @@
    ],
    "release_date": "2026-07-16",
    "temperature": false,
+   "tool_call": true
+  },
+  "mimo-v2.6-flash": {
+   "cost": {
+    "cache_read": 0.0028,
+    "input": 0.14,
+    "output": 0.28
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "MiMo-V2.6-Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2026-09-22",
+   "temperature": true,
+   "tool_call": true
+  },
+  "mimo-v2.6-pro": {
+   "cost": {
+    "cache_read": 0.0036,
+    "input": 0.435,
+    "output": 0.87
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "MiMo-V2.6-Pro",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2026-09-22",
+   "temperature": true,
    "tool_call": true
   },
   "minimax-m2.7": {

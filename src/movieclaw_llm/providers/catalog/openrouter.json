@@ -1,6 +1,6 @@
 {
  "api": "https://openrouter.ai/api/v1",
- "fetched_at": "2026-10-30T10:25:11Z",
+ "fetched_at": "2026-11-02T09:30:16Z",
  "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
  "models": {
   "aion-labs/aion-2.0": {
@@ -1551,13 +1551,13 @@
   },
   "deepseek/deepseek-v3.2": {
    "cost": {
-    "cache_read": 0.028,
-    "input": 0.28,
-    "output": 0.42
+    "cache_read": 0.13,
+    "input": 0.26,
+    "output": 0.38
    },
    "limit": {
     "context": 163840,
-    "output": 65536
+    "output": 147456
    },
    "modalities": {
     "input": [
@@ -1716,16 +1716,16 @@
   },
   "deepseek/deepseek-v4-pro": {
    "cost": {
-    "cache_read": 0.06802,
-    "input": 0.816234,
-    "output": 1.632468
+    "cache_read": 0.135,
+    "input": 1.6,
+    "output": 3.2
    },
    "interleaved": {
     "field": "reasoning_content"
    },
    "limit": {
     "context": 1048576,
-    "output": 384000
+    "output": 393216
    },
    "modalities": {
     "input": [
@@ -1753,13 +1753,13 @@
   },
   "deepseek/deepseek-v4-pro-0813": {
    "cost": {
-    "cache_read": 0.044,
-    "input": 1.32,
-    "output": 3.96
+    "cache_read": 0.11,
+    "input": 0.115,
+    "output": 4
    },
    "limit": {
     "context": 1048576,
-    "output": 393216
+    "output": 943718
    },
    "modalities": {
     "input": [
@@ -2971,13 +2971,13 @@
   },
   "google/gemma-4-26b-a4b-it": {
    "cost": {
-    "cache_read": 0.05,
-    "input": 0.09,
-    "output": 0.3
+    "cache_read": 0.049,
+    "input": 0.098,
+    "output": 0.295
    },
    "limit": {
     "context": 262144,
-    "output": 235929
+    "output": 32768
    },
    "modalities": {
     "input": [
@@ -3640,12 +3640,12 @@
   },
   "meta-llama/llama-3.2-3b-instruct": {
    "cost": {
-    "input": 0.05,
-    "output": 0.33
+    "input": 0.0509,
+    "output": 0.335
    },
    "limit": {
     "context": 131072,
-    "output": 117964
+    "output": 72000
    },
    "modalities": {
     "input": [
@@ -3998,7 +3998,7 @@
    },
    "limit": {
     "context": 1048576,
-    "output": 131072
+    "output": 943718
    },
    "modalities": {
     "input": [
@@ -4227,15 +4227,15 @@
   "minimax/minimax-m2.5": {
    "cost": {
     "cache_read": 0.03,
-    "input": 0.3,
-    "output": 1.2
+    "input": 0.27,
+    "output": 0.95
    },
    "interleaved": {
     "field": "reasoning_details"
    },
    "limit": {
     "context": 204800,
-    "output": 131072
+    "output": 32768
    },
    "modalities": {
     "input": [
@@ -4572,7 +4572,8 @@
     {
      "type": "effort",
      "values": [
-      "none",
+      "low",
+      "medium",
       "high"
      ]
     }
@@ -5072,8 +5073,8 @@
   "moonshotai/kimi-k2.7-code": {
    "cost": {
     "cache_read": 0.15,
-    "input": 0.56,
-    "output": 3.1
+    "input": 0.6,
+    "output": 3.5
    },
    "limit": {
     "context": 262144,
@@ -7897,13 +7898,13 @@
   },
   "openai/gpt-oss-20b": {
    "cost": {
-    "cache_read": 0.009,
-    "input": 0.018,
-    "output": 0.09
+    "cache_read": 0.03,
+    "input": 0.03,
+    "output": 0.13
    },
    "limit": {
     "context": 131072,
-    "output": 32768
+    "output": 117964
    },
    "modalities": {
     "input": [
@@ -8135,8 +8136,8 @@
   "particle-ai/particle-1": {
    "cost": {
     "cache_read": 0.003,
-    "input": 0.25,
-    "output": 1
+    "input": 0.05,
+    "output": 0.5
    },
    "limit": {
     "context": 1048576,
@@ -8369,124 +8370,6 @@
    "release_date": "2025-03-07",
    "temperature": true,
    "tool_call": false
-  },
-  "poolside/laguna-s-2.1": {
-   "cost": {
-    "cache_read": 0.009,
-    "input": 0.09,
-    "output": 0.18
-   },
-   "limit": {
-    "context": 1048576,
-    "output": 131072
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Laguna S 2.1",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "toggle"
-    }
-   ],
-   "release_date": "2026-07-21",
-   "status": "deprecated",
-   "temperature": true,
-   "tool_call": true
-  },
-  "poolside/laguna-s-2.1:free": {
-   "cost": {
-    "input": 0,
-    "output": 0
-   },
-   "limit": {
-    "context": 262144,
-    "output": 32768
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Laguna S 2.1 (free)",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "toggle"
-    }
-   ],
-   "release_date": "2026-07-21",
-   "status": "deprecated",
-   "temperature": true,
-   "tool_call": true
-  },
-  "poolside/laguna-xs-2.1": {
-   "cost": {
-    "cache_read": 0.03,
-    "input": 0.06,
-    "output": 0.12
-   },
-   "limit": {
-    "context": 262144,
-    "output": 32768
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Laguna XS 2.1",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "toggle"
-    }
-   ],
-   "release_date": "2026-07-02",
-   "status": "deprecated",
-   "temperature": true,
-   "tool_call": true
-  },
-  "poolside/laguna-xs-2.1:free": {
-   "cost": {
-    "input": 0,
-    "output": 0
-   },
-   "limit": {
-    "context": 262144,
-    "output": 32768
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Laguna XS 2.1 (free)",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "toggle"
-    }
-   ],
-   "release_date": "2026-07-02",
-   "status": "deprecated",
-   "temperature": true,
-   "tool_call": true
   },
   "prism-ml/ternary-bonsai-2-27b": {
    "cost": {
@@ -9361,12 +9244,12 @@
   },
   "qwen/qwen3.6-27b": {
    "cost": {
-    "input": 0.32,
-    "output": 3.2
+    "input": 0.45,
+    "output": 2.7
    },
    "limit": {
     "context": 262144,
-    "output": 81920
+    "output": 65536
    },
    "modalities": {
     "input": [
@@ -9692,7 +9575,7 @@
     "output": 1.875
    },
    "limit": {
-    "context": 1000000,
+    "context": 1024000,
     "output": 235929
    },
    "modalities": {
@@ -11685,9 +11568,9 @@
   },
   "z-ai/glm-4.7": {
    "cost": {
-    "cache_read": 0.099,
-    "input": 0.54,
-    "output": 1.98
+    "cache_read": 0.11,
+    "input": 0.6,
+    "output": 2.2
    },
    "interleaved": {
     "field": "reasoning_details"
@@ -11846,7 +11729,7 @@
    "cost": {
     "cache_read": 0.005,
     "input": 0.006,
-    "output": 7
+    "output": 6.8
    },
    "interleaved": {
     "field": "reasoning_content"
@@ -11915,13 +11798,13 @@
   },
   "z-ai/glm-5.3-flash": {
    "cost": {
-    "cache_read": 0.03,
-    "input": 0.15,
-    "output": 0.5
+    "cache_read": 0.0285,
+    "input": 0.0285,
+    "output": 0.0923
    },
    "limit": {
     "context": 1048576,
-    "output": 943717
+    "output": 131072
    },
    "modalities": {
     "input": [
@@ -12221,9 +12104,9 @@
   },
   "~deepseek/deepseek-flash-latest": {
    "cost": {
-    "cache_read": 0.0336,
-    "input": 0.0339,
-    "output": 1.14
+    "cache_read": 0.005,
+    "input": 0.035,
+    "output": 0.5
    },
    "limit": {
     "context": 1048576,
@@ -12259,7 +12142,7 @@
    "cost": {
     "cache_read": 0.1,
     "input": 0.1035,
-    "output": 4
+    "output": 8
    },
    "limit": {
     "context": 1048576,
@@ -12292,9 +12175,9 @@
   },
   "~deepseek/deepseek-v4-flash-latest": {
    "cost": {
-    "cache_read": 0.028,
-    "input": 0.0341,
-    "output": 0.1677
+    "cache_read": 0.035,
+    "input": 0.059,
+    "output": 0.3
    },
    "limit": {
     "context": 1048576,
@@ -12425,9 +12308,9 @@
   },
   "~moonshotai/kimi-latest": {
    "cost": {
-    "cache_read": 0.16,
-    "input": 0.1615,
-    "output": 9.75
+    "cache_read": 0.07475,
+    "input": 0.1495,
+    "output": 7.15
    },
    "limit": {
     "context": 1048576,
@@ -12808,9 +12691,9 @@
   },
   "~z-ai/glm-flash-latest": {
    "cost": {
-    "cache_read": 0.03,
-    "input": 0.0345,
-    "output": 0.0823
+    "cache_read": 0.0285,
+    "input": 0.0285,
+    "output": 0.0923
    },
    "limit": {
     "context": 1048576,

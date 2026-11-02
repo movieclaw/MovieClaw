@@ -395,6 +395,11 @@
   "name": "Hetzner"
  },
  {
+  "api": "https://api.withhopper.com/v1",
+  "id": "hopper",
+  "name": "Hopper"
+ },
+ {
   "api": "https://api.hpc-ai.com/inference/v1",
   "id": "hpc-ai",
   "name": "HPC-AI"
@@ -1088,6 +1093,11 @@
   "api": "https://api.wallabytoken.com/v1",
   "id": "wallaby",
   "name": "Wallaby"
+ },
+ {
+  "api": "https://inference.runanywhere.ai/v1",
+  "id": "wally",
+  "name": "Wally"
  },
  {
   "api": "https://api.inference.wandb.ai/v1",

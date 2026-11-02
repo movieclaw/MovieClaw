@@ -1,6 +1,6 @@
 {
  "api": "https://api.siliconflow.cn/v1",
- "fetched_at": "2026-10-30T10:25:11Z",
+ "fetched_at": "2026-11-02T09:30:16Z",
  "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
  "models": {
   "ByteDance-Seed/Seed-OSS-36B-Instruct": {
@@ -840,6 +840,40 @@
    "temperature": true,
    "tool_call": true
   },
+  "Qwen/Qwen3.6-27B": {
+   "cost": {
+    "input": 0.44980438,
+    "output": 2.69882628
+   },
+   "limit": {
+    "context": 262144,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen3.6 27B",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2026-04-22",
+   "temperature": true,
+   "tool_call": true
+  },
   "Qwen/Qwen3.6-35B-A3B": {
    "cost": {
     "input": 0.26900546,
@@ -862,6 +896,48 @@
    "name": "Qwen/Qwen3.6-35B-A3B",
    "reasoning": false,
    "release_date": "2026-04-17",
+   "temperature": true,
+   "tool_call": true
+  },
+  "Qwen/Qwen3.8-27B": {
+   "cost": {
+    "input": 0.44980438,
+    "output": 1.79921752
+   },
+   "limit": {
+    "context": 262144,
+    "output": 32768
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Qwen3.8 27B",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "medium",
+      "xhigh"
+     ]
+    },
+    {
+     "max": 32768,
+     "min": 128,
+     "type": "budget_tokens"
+    }
+   ],
+   "release_date": "2026-08-14",
    "temperature": true,
    "tool_call": true
   },
@@ -1170,6 +1246,38 @@
    "temperature": true,
    "tool_call": true
   },
+  "zai-org/GLM-4.5V": {
+   "cost": {
+    "input": 0.14993479,
+    "output": 0.89960876
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 65536,
+    "output": 16384
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.5V",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-08-11",
+   "temperature": true,
+   "tool_call": true
+  },
   "zai-org/GLM-5.2": {
    "cost": {
     "cache_read": 0.29889496,
@@ -1204,6 +1312,81 @@
     }
    ],
    "release_date": "2026-06-13",
+   "temperature": true,
+   "tool_call": true
+  },
+  "zai-org/GLM-5.3": {
+   "cost": {
+    "cache_read": 0.29986959,
+    "input": 1.19947835,
+    "output": 4.19817421
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-5.3",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-08-14",
+   "temperature": true,
+   "tool_call": true
+  },
+  "zai-org/GLM-5.3-Flash": {
+   "cost": {
+    "cache_read": 0.034485,
+    "input": 0.11994783,
+    "output": 0.41981742
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-5.3-Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-08-26",
    "temperature": true,
    "tool_call": true
   }
