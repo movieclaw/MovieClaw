@@ -44,6 +44,8 @@ class PlaybackRoutingTest {
         assertEquals(FailureCause.SourceMissing, classify(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 404, true))
         assertEquals(FailureCause.Network, classify(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 404, false))
         assertEquals(FailureCause.DecodeFinal, classify(PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, null, true))
+        assertEquals(FailureCause.DecodeFinal, classify(PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES, null, true))
+        assertEquals(FailureCause.DecodeFinal, classify(PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, null, true))
         assertEquals(FailureCause.DecodeFinal, classify(PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED, null, true))
         assertEquals(FailureCause.Decode, classify(PlaybackException.ERROR_CODE_DECODING_FAILED, null, true))
         assertEquals(FailureCause.Decode, classify(PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, null, false))

@@ -1267,10 +1267,10 @@ class PlaybackController(
             ),
         )
         Log.w(TAG, "失败处置 cause=$cause original=$playsOriginalFile → $response｜$reason")
-        // 确定这一路本机解不了（原位重试也救不回来、要改走服务端）：出错的解码器以后不再选
+        // 仅最终解码失败才拉黑；普通播放失败即使重试耗尽，也不能全局禁用解码器
         val decodeGaveUp = response == FailurePolicy.Response.FallbackToServerStream ||
             (response == FailurePolicy.Response.StepDownTier && playsOriginalFile)
-        if (decodeGaveUp && (cause == FailureCause.Decode || cause == FailureCause.DecodeFinal)) {
+        if (decodeGaveUp && cause == FailureCause.DecodeFinal) {
             failedDecoder?.let { (name, mime) -> denylist.deny(name, mime, reason) }
         }
         EngineLog.add("player", "失败处置 $cause → $response：$reason")
