@@ -603,6 +603,12 @@ final class PlaybackController {
         phase == .ended && nextEpisode != nil && autoNextStreak >= SkipSegments.autoNextMaxStreak
     }
 
+    /// 放完了、没有下一集可接（电影、本季最后一集）：各端关掉播放器，回到这部片的详情页，不停在最后一帧。
+    /// 片段放到终点不算（停在那里可重播、可「看全片」）
+    var finishedWithNothingNext: Bool {
+        phase == .ended && clip == nil && nextEpisode == nil
+    }
+
     /// 停掉本集的倒计时，卡片留着只提示
     func cancelAutoNext() {
         noteUserActivity()

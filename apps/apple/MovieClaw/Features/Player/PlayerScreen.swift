@@ -218,11 +218,26 @@ struct PlayerScreen: View {
         .onChange(of: scenePhase) { _, phase in
             controller?.setBackgrounded(phase == .background)
         }
+        .onChange(of: controller?.finishedWithNothingNext == true) { _, finished in
+            // 播完且没有下一集可接：回到这部片的详情页（同 Mac、Apple TV）；有下一集的照旧走「即将播放」卡片
+            if finished { exitToDetail() }
+        }
     }
 
     private func exit() {
         finish()
         dismiss()
+    }
+
+    /// 播完退出：关掉播放器，落在这部片的详情页（从首页、海报墙、搜索等处起播的，压一层详情；本来就在详情页的不重复压）。
+    /// 分享播放没有成员详情页，只关播放器
+    private func exitToDetail() {
+        let info = controller?.info
+        exit()
+        guard request.shareSlug == nil, let info else { return }
+        if case let .libraryItem(libraryId, itemId, _, _)? = router.currentPath.last,
+           libraryId == info.libraryId, itemId == info.mediaItemId { return }
+        router.push(.libraryItem(libraryId: info.libraryId, itemId: info.mediaItemId))
     }
 
     /// 真正离开播放器：关会话、恢复亮度与常亮、解除方向锁
