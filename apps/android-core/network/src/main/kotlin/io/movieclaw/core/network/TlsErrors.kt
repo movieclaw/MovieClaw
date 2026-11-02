@@ -8,7 +8,15 @@ import javax.net.ssl.SSLPeerUnverifiedException
 
 /** 手机与 TV 共用的 TLS 提示；保留 cause 链，优先说明具体的证书问题。 */
 fun tlsErrorMessage(host: String?, error: Throwable): String? {
-    val causes = generateSequence(error) { it.cause }.toList()
+    // OkHttp 多地址重试会把后续失败放进 suppressed，首个失败可能只是拒绝连接。
+    val causes = mutableListOf(error)
+    var index = 0
+    while (index < causes.size) {
+        val current = causes[index++]
+        for (nested in listOfNotNull(current.cause) + current.suppressed) {
+            if (causes.none { it === nested }) causes += nested
+        }
+    }
     val who = host?.let { "「$it」" } ?: "服务器"
     return when {
         causes.any { it is CertificateExpiredException ||

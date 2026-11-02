@@ -57,4 +57,13 @@ class TlsErrorsTest {
         assertNull(tlsErrorMessage(null, ConnectException()))
         assertTrue(UnreachableException.networkMessage("nas", ConnectException()).contains("拒绝连接"))
     }
+
+    @Test fun tlsFailureFromAnotherAddressIsNotHiddenByAnEarlierConnectionFailure() {
+        val error = ConnectException("IPv6 connection refused").apply {
+            addSuppressed(handshake(CertificateException("Trust anchor not found")))
+        }
+        assertTrue(tlsErrorMessage(null, IOException(error))!!.contains("证书不受信任或证书链不完整"))
+        error.addSuppressed(handshake(CertificateExpiredException()))
+        assertTrue(UnreachableException.networkMessage(null, error).contains("证书已过期"))
+    }
 }
