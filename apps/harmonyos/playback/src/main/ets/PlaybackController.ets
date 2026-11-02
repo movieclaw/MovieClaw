@@ -56,6 +56,9 @@ export class PlaybackController {
   private lease: MediaLease | null = null;
   private media: PlaybackMedia | null = null;
   private surface: string = '';
+  private engineSurface: string = '';
+  // The close deadline does not mean the native producer has released its Surface.
+  private releasingSurfaces: Set<string> = new Set<string>();
   private generation: number = 0;
   private attempt: number = 0;
   private openingFailure: EngineFailure | null = null;
@@ -105,11 +108,13 @@ export class PlaybackController {
     let engine: PlayerEngine | null = null;
     let lease: MediaLease | null = null;
     try {
+      if (this.releasingSurfaces.has(this.surface)) { await this.resetSurface(generation); }
+      if (!this.valid(generation, attempt)) { return; }
       engine = await this.factory.create(id);
       if (!this.valid(generation, attempt)) { await engine.release(); return; }
       lease = await media.acquire(id);
       if (!this.valid(generation, attempt)) { await engine.release(); await lease.close(); return; }
-      this.engine = engine; this.lease = lease;
+      this.engine = engine; this.lease = lease; this.engineSurface = this.surface;
       engine.onEvent = (event: EngineEvent): void => {
         if (this.valid(generation, attempt)) { this.receive(event, generation); }
       };
@@ -164,11 +169,7 @@ export class PlaybackController {
       const event = new EngineEvent(); event.type = 'fallback'; event.failure = failure; this.onEvent(event);
       try {
         if (this.onSurfaceReset !== null) {
-          let surface = '';
-          await this.deadline(this.onSurfaceReset().then((value: string): void => { surface = value; }), 5000);
-          if (generation !== this.generation) { return; }
-          if (surface.length === 0) { throw new EngineFailure('internal', 0, '播放画面已关闭'); }
-          this.surface = surface;
+          await this.resetSurface(generation);
         }
         await this.startAttempt('mpv', generation);
       } catch (error) {
@@ -180,6 +181,17 @@ export class PlaybackController {
     }
     this.switching = false; this.snapshot.phase = 'failed'; this.snapshot.playing = false; this.snapshot.buffering = false;
     this.snapshot.failure = failure; this.publish(); this.onFailure(failure);
+  }
+
+  private async resetSurface(generation: number): Promise<void> {
+    if (this.onSurfaceReset === null) { throw new EngineFailure('internal', 0, '播放画面仍在释放，请退出后重试'); }
+    let surface = '';
+    await this.deadline(this.onSurfaceReset().then((value: string): void => { surface = value; }), 5000);
+    if (generation !== this.generation) { return; }
+    if (surface.length === 0 || this.releasingSurfaces.has(surface)) {
+      throw new EngineFailure('internal', 0, '无法重建播放画面');
+    }
+    this.surface = surface;
   }
 
   private receive(event: EngineEvent, generation: number): void {
@@ -216,26 +228,33 @@ export class PlaybackController {
     this.publish(); this.onEvent(event);
   }
   private confirmStartup(): void {
+    if (this.startupConfirmed) { return; }
     this.startupConfirmed = true; this.cancelStartup?.();
   }
   private async playEngine(engine: PlayerEngine): Promise<void> {
-    if (this.startupConfirmed) {
-      await this.deadline(engine.play(), PlaybackController.startupTimeoutMs); return;
-    }
+    if (this.intent.paused || this.interrupted || engine !== this.engine) { return; }
     this.cancelStartup?.();
     const generation = this.generation; const attempt = this.attempt;
+    const confirmed = this.startupConfirmed;
     this.startupPositionMs = this.snapshot.positionMs;
+    let cancel: () => void = (): void => {};
     const cancelled = new Promise<void>((resolve): void => {
       const timer = setTimeout((): void => {
-        this.cancelStartup?.();
+        cancel();
         if (this.valid(generation, attempt) && !this.intent.paused && !this.interrupted) {
           this.recover(new EngineFailure('timeout', 0, '播放启动超时，请重试'), generation, engine.id);
         }
       }, PlaybackController.startupTimeoutMs);
-      this.cancelStartup = (): void => { clearTimeout(timer); this.cancelStartup = null; resolve(); };
+      cancel = (): void => {
+        clearTimeout(timer);
+        if (this.cancelStartup === cancel) { this.cancelStartup = null; }
+        resolve();
+      };
+      this.cancelStartup = cancel;
     });
     // Release/pause can cancel even a play() call which never acknowledges.
-    await Promise.race([engine.play(), cancelled]);
+    try { await Promise.race([engine.play(), cancelled]); }
+    finally { if (confirmed) { cancel(); } }
   }
   private updateDuration(duration: number): void {
     if ((this.media?.durationMs ?? 0) > 0) { this.snapshot.durationMs = this.media!.durationMs; }
@@ -346,13 +365,20 @@ export class PlaybackController {
   }
   private disposeEngine(): Promise<void> {
     const engine = this.engine; const lease = this.lease;
+    const surface = this.engineSurface; this.engineSurface = '';
     this.engine = null; this.lease = null; this.available = false;
     this.cancelStartup?.();
     this.commandTail = Promise.resolve();
-    if (engine !== null) { engine.onEvent = (): void => {}; }
+    if (engine !== null) {
+      engine.onEvent = (): void => {};
+      this.releasingSurfaces.add(surface);
+    }
     const cleanup = async (): Promise<void> => {
       // If release fails, retain the lease: closing a descriptor still in use is unsafe.
-      if (engine !== null) { await engine.release(); }
+      if (engine !== null) {
+        await engine.release();
+        this.releasingSurfaces.delete(surface);
+      }
       if (lease !== null) { await lease.close(); }
     };
     this.releaseTail = this.releaseTail.catch((): void => {}).then((): Promise<void> =>
