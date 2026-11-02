@@ -2516,6 +2516,8 @@ _NOOP_OFFSET_MS = 200
 #: applying one misleading offset to the whole file.
 _AUTO_CALIBRATE_MIN_SCORE = 0.5
 _AUTO_CALIBRATE_MIN_OFFSET_MS = 500
+#: 全局校准后任一有效抽样窗的残余偏移超过该值 = 分段错位，不自动套用
+_AUTO_CALIBRATE_MAX_RESIDUAL_MS = 1000
 
 
 #: 校准参考的抽样窗：沿时间轴均布 6 窗 × 2 分钟。稀疏参考不影响互相关
@@ -2540,6 +2542,17 @@ def _calibration_windows(runtime: int) -> list[tuple[float, float]]:
     ]
 
 
+def _calibration_coverage(
+    row: LibraryFile, events: list[extract.SubEvent]
+) -> list[tuple[int, int]]:
+    """音频校准参考覆盖的全片区间（毫秒），与 ``_audio_reference_intervals`` 同窗。"""
+    runtime = row.duration_seconds or (max(e[1] for e in events) // 1000 if events else 0)
+    return [
+        (int(start * 1000), int((start + duration) * 1000))
+        for start, duration in _calibration_windows(runtime)
+    ]
+
+
 async def _audio_reference_intervals(
     row: LibraryFile, events: list[extract.SubEvent]
 ) -> list[tuple[int, int]] | None:
@@ -2555,7 +2568,8 @@ async def _audio_reference_intervals(
         if pcm is None:
             return intervals if intervals else None  # 首窗就失败=不可用
         speech = await asyncio.to_thread(sync.speech_intervals, pcm)
-        intervals.extend((s + start * 1000, e + start * 1000) for s, e in speech)
+        base = int(start * 1000)  # 窗起点是浮点秒；栅格化要整数毫秒
+        intervals.extend((s + base, e + base) for s, e in speech)
     return intervals
 
 
@@ -2573,11 +2587,7 @@ async def _try_auto_calibrate_events(
     reference = await _audio_reference_intervals(row, events)
     if not reference:
         return None
-    runtime = row.duration_seconds or (max(e[1] for e in events) // 1000 if events else 0)
-    coverage = [
-        (int(start * 1000), int((start + duration) * 1000))
-        for start, duration in _calibration_windows(runtime)
-    ]
+    coverage = _calibration_coverage(row, events)
     calibration = sync.estimate_calibration(
         reference, [(s, e) for s, e, _ in events], coverage=coverage
     )
@@ -2588,7 +2598,16 @@ async def _try_auto_calibrate_events(
         and abs(calibration.scale - 1.0) <= 1e-6
     ):
         return None
-    return sync.apply_calibration(events, calibration), calibration
+    corrected = sync.apply_calibration(events, calibration)
+    residuals = sync.window_residuals(reference, [(s, e) for s, e, _ in corrected], coverage)
+    if any(
+        score >= _AUTO_CALIBRATE_MIN_SCORE and abs(offset) > _AUTO_CALIBRATE_MAX_RESIDUAL_MS
+        for offset, score in residuals
+    ):
+        # 有窗口在全局校准后仍明显错位：剪辑版差异，一个全局偏移修不好
+        logger.info("字幕生成跳过自动校准（分段错位）：%s 各窗残余=%s", row.file_path, residuals)
+        return None
+    return corrected, calibration
 
 
 async def _subtitle_reference_intervals(
@@ -2653,6 +2672,8 @@ async def calibrate_external_subtitle(
 
     reference = await _audio_reference_intervals(row, events)
     ref_desc = stored_fields("library.subtitleCalibration.audioReference")
+    # 音频参考只在抽样窗里有效；字幕对字幕的参考覆盖全片，不加掩码
+    coverage = _calibration_coverage(row, events) if reference else None
     if not reference:
         reference, ref_desc = await _subtitle_reference_intervals(row, filename)
         if not reference:
@@ -2661,11 +2682,6 @@ async def calibrate_external_subtitle(
                 **stored_fields("library.subtitleCalibration.noReference"),
             )
 
-    runtime = row.duration_seconds or (max(e[1] for e in events) // 1000 if events else 0)
-    coverage = [
-        (int(start * 1000), int((start + duration) * 1000))
-        for start, duration in _calibration_windows(runtime)
-    ]
     calibration = sync.estimate_calibration(
         reference, [(s, e) for s, e, _ in events], coverage=coverage
     )
