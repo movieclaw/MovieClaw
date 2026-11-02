@@ -87,6 +87,7 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.16")
     testImplementation(shared.kotlinx.coroutines.test)
     testImplementation(shared.okhttp.mockwebserver.legacy)
+    testImplementation(shared.okhttp.tls)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
 
