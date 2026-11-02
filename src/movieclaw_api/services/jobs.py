@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import logging
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from types import ModuleType
@@ -58,6 +59,9 @@ JOB_HEARTBEAT_SECONDS = 15
 JOB_RECOVERY_SECONDS = 15
 DEFAULT_MAX_PARALLEL = 4
 ACTIVE_STATUS_VALUES = tuple(status.value for status in ACTIVE_JOB_STATUSES)
+_current_execution: contextvars.ContextVar[tuple[str, asyncio.Task[None]] | None] = (
+    contextvars.ContextVar("movieclaw_job_execution", default=None)
+)
 _SECRET_INPUT_KEYS = {
     "apikey",
     "authorization",
@@ -1057,6 +1061,7 @@ class JobDispatcher:
         self._closing = False
         self._loop_task: asyncio.Task[None] | None = None
         self._running: dict[str, asyncio.Task[None]] = {}
+        self._waits: dict[tuple[str, asyncio.Task[None], str], int] = {}
         self._last_cleanup = 0.0
         self._last_recovery = 0.0
 
@@ -1103,8 +1108,22 @@ class JobDispatcher:
                 if time.monotonic() - self._last_recovery >= JOB_RECOVERY_SECONDS:
                     await self._recover_expired_jobs()
                     self._last_recovery = time.monotonic()
-                while len(self._running) < self.max_parallel:
-                    claimed = await self._claim_one()
+                while True:
+                    targets = None
+                    if len(self._running) >= self.max_parallel:
+                        waits = [
+                            (parent, target)
+                            for parent, task, target in self._waits
+                            if self._running.get(parent) is task
+                        ]
+                        if len(self._running) - len({parent for parent, _ in waits}) >= (
+                            self.max_parallel
+                        ):
+                            break
+                        # 等待中的父任务只把容量借给正在等的任务，不能趁机把
+                        # 后续几百条插件任务全部拉起来。原任务仍受租约与资源锁保护。
+                        targets = {target for _, target in waits}
+                    claimed = await self._claim_one(job_ids=targets)
                     if claimed is None:
                         break
                     job_id, lease_token = claimed
@@ -1183,7 +1202,7 @@ class JobDispatcher:
                 logger.info("已恢复 %d 个租约过期的后台任务", recovered)
                 await notify_job_change()
 
-    async def _claim_one(self) -> tuple[str, str] | None:
+    async def _claim_one(self, *, job_ids: set[str] | None = None) -> tuple[str, str] | None:
         now = utcnow()
         lease_until = now + timedelta(seconds=JOB_LEASE_SECONDS)
         db = get_database()
@@ -1191,7 +1210,22 @@ class JobDispatcher:
             conditions = [
                 Job.status.in_([JobStatus.QUEUED.value, JobStatus.RETRY_WAIT.value]),
                 Job.available_at <= now,
+                # 先排除资源被占用的任务，再截取候选窗口。否则同一慢刷新
+                # 后面只要积压十条同库任务，就会挡住其他库的所有可执行任务。
+                ~select(JobResource.id)
+                .join(
+                    JobLock,
+                    JobLock.lock_key == JobResource.resource_type + ":" + JobResource.resource_id,
+                )
+                .where(
+                    JobResource.job_id == Job.id,
+                    JobResource.relation == "target",
+                    JobLock.lease_expires_at >= now,
+                )
+                .exists(),
             ]
+            if job_ids is not None:
+                conditions.append(Job.id.in_(job_ids))
             if self._running:
                 # 回收租约后，先等本地旧协程退出再重领，否则会覆盖其 Task 引用，
                 # 旧协程的 done 回调还会误删新执行的引用。
@@ -1295,6 +1329,7 @@ class JobDispatcher:
         lease_lost = asyncio.Event()
         execution = asyncio.current_task()
         assert execution is not None
+        execution_token = _current_execution.set((job_id, execution))
         heartbeat = asyncio.create_task(
             self._heartbeat(job_id, lease_token, lease_lost, execution), name=f"heartbeat-{job_id}"
         )
@@ -1363,6 +1398,7 @@ class JobDispatcher:
             logger.exception("后台任务执行失败：job=%s", job_id)
             await self._finish_unexpected(job_id, lease_token)
         finally:
+            _current_execution.reset(execution_token)
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat
@@ -1669,6 +1705,34 @@ class JobDispatcher:
 
 _dispatcher: JobDispatcher | None = None
 _change_condition: asyncio.Condition | None = None
+
+
+@contextlib.contextmanager
+def job_wait_slot(target_job_id: str) -> Iterator[None]:
+    """jobs.wait 等待期间借出父任务容量；超时/取消后立即收回，不等子任务结束。
+
+    process 插件的网关按调用号恢复这份上下文；普通 HTTP 读者没有执行上下文，
+    不会改变调度容量。并行的嵌套请求按引用计数，旧租约的请求不能影响新执行。
+    """
+    dispatcher = _dispatcher
+    execution = _current_execution.get()
+    key = None
+    if dispatcher is not None and execution is not None:
+        parent_id, task = execution
+        if parent_id != target_job_id and dispatcher._running.get(parent_id) is task:
+            key = (parent_id, task, target_job_id)
+            dispatcher._waits[key] = dispatcher._waits.get(key, 0) + 1
+            dispatcher.wake()
+    try:
+        yield
+    finally:
+        if key is not None:
+            count = dispatcher._waits[key] - 1
+            if count:
+                dispatcher._waits[key] = count
+            else:
+                del dispatcher._waits[key]
+            dispatcher.wake()
 
 
 async def init_job_dispatcher(*, max_parallel: int = DEFAULT_MAX_PARALLEL) -> JobDispatcher:

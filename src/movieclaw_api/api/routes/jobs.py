@@ -314,7 +314,8 @@ async def wait_job(
                 return ApiResponse(
                     data=JobWaitView(changed=False, job=await job_view(session, row))
                 )
-        await jobs.wait_for_job_change(remaining)
+        with jobs.job_wait_slot(job_id):
+            await jobs.wait_for_job_change(remaining)
 
 
 @router.get(

@@ -196,3 +196,41 @@ def test_routes_hand_files_over_with_range(world) -> None:
     # 交出没授权的文件：404，不泄露内容
     leaked = client.get(f"{BASE}/send", params={"path": str(root / "outside" / "secret.txt")})
     assert leaked.status_code == 404 and "别人的秘密" not in leaked.text
+
+
+@pytest.mark.parametrize("slow_path", ["file", "grant"])
+def test_slow_path_resolution_keeps_host_event_loop_responsive(world, monkeypatch, slow_path):
+    """真实插件读文件：NAS realpath 挂起时，宿主循环仍能运行超时/心跳协程。"""
+    import asyncio
+    import threading
+
+    root, client = world
+    target = root / "rw" / "slow.nfo"
+    target.write_text("<tvshow/>", encoding="utf-8")
+    blocked_path = target if slow_path == "file" else target.parent
+    entered = threading.Event()
+    release = threading.Event()
+    starved = threading.Event()
+    realpath = os.path.realpath
+
+    def slow_realpath(path, *args, **kwargs):
+        if os.fspath(path) == str(blocked_path):
+            entered.set()
+            if not release.wait(timeout=2):
+                starved.set()
+        return realpath(path, *args, **kwargs)
+
+    async def release_from_host_loop():
+        assert await asyncio.to_thread(entered.wait, 5)
+        release.set()
+
+    assert call(client, "GET", "/read", path=str(target))["ok"]
+    monkeypatch.setattr(os.path, "realpath", slow_realpath)
+    observer = client.portal.start_task_soon(release_from_host_loop)
+    try:
+        result = call(client, "GET", "/read", path=str(target))
+        observer.result(timeout=5)
+        assert result["ok"]
+        assert not starved.is_set(), "路径解析占住了宿主事件循环，超时/心跳也无法调度"
+    finally:
+        release.set()
