@@ -1,8 +1,14 @@
 #!/bin/zsh
 # MovieClaw mpv 交叉编译环境（aarch64-linux-ohos）
 # 被 build-all.sh source；不要单独执行。
-# DevEco Studio 自带的 OpenHarmony NDK
-export MPV_OHOS_NDK="/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/native"
+# DevEco Studio 自带的 OpenHarmony NDK（macOS），Windows 下回退到 ~/ohos-ndk
+if [ -d "/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/native/llvm/bin" ]; then
+  export MPV_OHOS_NDK="/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/native"
+elif [ -d "$HOME/ohos-ndk/llvm/bin" ]; then
+  export MPV_OHOS_NDK="$HOME/ohos-ndk"
+else
+  export MPV_OHOS_NDK="/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/native"
+fi
 export MPV_OHOS_SCRIPTS_DIR="${0:A:h}"
 export MPV_OHOS_BUILD_DIR="$MPV_OHOS_SCRIPTS_DIR/build"
 export MPV_OHOS_SRC_DIR="$MPV_OHOS_BUILD_DIR/src"
@@ -48,7 +54,8 @@ export MPV_OHOS_APP_CPP_DIR="$MPV_OHOS_SCRIPTS_DIR/../../player_engine/src/main/
 
 _ohos_env_ready() {
   [ -d "$MPV_OHOS_NDK/llvm/bin" ] || { echo "❌ 找不到 OHOS NDK: $MPV_OHOS_NDK"; return 1; }
-  [ -x "$CC" ] || { echo "❌ 找不到交叉编译器: $CC"; return 1; }
+  # Windows 下编译器带 .exe 后缀（MSYS 对 -x 会自动补全，显式回退兜底）
+  [ -x "$CC" ] || [ -x "$CC.exe" ] || { echo "❌ 找不到交叉编译器: $CC"; return 1; }
   command -v meson >/dev/null && command -v ninja >/dev/null && command -v cmake >/dev/null \
     || { echo "❌ 需要 meson/ninja/cmake（brew install meson ninja cmake）"; return 1; }
   return 0

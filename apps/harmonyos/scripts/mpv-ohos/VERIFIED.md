@@ -131,3 +131,75 @@
 6. 锁屏后台播 5 分钟（AVSession + 长时任务），锁屏控制中心播控可用。
 7. 蓝牙耳机插拔（音频路由切换）。
 8. 剧集播到片尾 → 连播卡出现 → 倒计时自动换集。
+
+## mpv 内核重构（11-02，对照 dex2oat/mpv 源码审计）
+
+对照 fork 源码（vd_lavc.c select_and_set_hwdec、ohos_common.c、hwdec_ohcodec.c、
+ao_ohaudio.c、context_ohos.c）逐条审计后发现的**硬解失效 bug**与重构：
+
+| 项 | 发现 | 修复 |
+|---|---|---|
+| **硬解静默失效（P0）** | `MpvEngine.ets` 配置 `hwdec=ohcodec`（surface 条目），但渲染走 `vo=gpu`。fork 的 `vd_lavc.c` 对非 ohcodec VO 只接受 `ohcodec-copy` 条目，surface 条目被 `Skipping... (need ohcodec-copy)` 跳过 → **mpv 一直纯软解**（真机验收"通过"是因为软解也扛得住 1080p，4K/高码率会卡顿发热） | `hwdec=ohcodec-copy`（buffer 模式契约：OHCodec 输出 NV12 系统内存帧 → `ra_hwdec_ohcodec` 上传 GPU；DV 由 fork 的 `inject_dovi_colorspace` 回填色彩） |
+| 硬解不可观测 | 无任何手段确认硬解是否生效 | `mpv_napi.cpp` observe `hwdec-current`（STRING），ArkTS 侧转为 diagnostic 事件（"MPV 硬解已启用: h264_ohcodec" / "MPV 软件解码中"） |
+| 属性全走 command 字符串 | `set speed 1.5` 等靠字符串拼接，无类型化通道 | NAPI 新增 `setProperty`（number→DOUBLE/boolean→FLAG/string→STRING 自动分派）与 `getProperty`（'string'/'number'）导出；play/pause/rate/gain/track/sub-delay/subtitle-style 全部改走 |
+| 错误信息不可读 | NAPI 错误统一 "Native player operation failed" | 改用 `mpv_error_string` 生成具体文案；END_FILE 错误码映射补全（-19~-22 → unsupported） |
+| `build-all.sh` 再跑会毁库 | `generate_cross_file()` 每次运行覆盖手改的 `meson-cross.txt`（丢失 `--no-undefined`/`-lc++`/`-I prefix` 等 r8 教训修正）；`cp "...libz.so.1"(N)` 编辑残留 | cross file 已存在则跳过（重生成需先删除）；`cp` 残留语法修复 |
+| `env.sh` 仅 macOS | NDK 路径写死 `/Applications/DevEco-Studio.app/...`，Windows 构建不可用 | NDK 探测回退：macOS DevEco → `~/ohos-ndk`；编译器 `-x` 检查加 `.exe` 兜底 |
+| 文档漂移 | README 写 `tls-verify=no`（实际代码 `yes`）、hwdec 描述过时 | README 对齐实际配置，新增 hwdec 模式契约说明一节 |
+
+验证：arkts_check 0 问题；devecocli build 成功。真机预期收益：硬解接管
+h264/hevc（10bit→8bit），软解仅兜底不支持的编码；高码率/4K 卡顿与发热改善。
+真机验收时先看诊断事件确认 `MPV 硬解已启用: *_ohcodec`。
+
+## 播放诊断面板补全（11-02，真机硬解验证后）
+
+真机 hilog 验证硬解已生效（app 进程内 `CodecClient [h.vdec]` + `HCODEC`
+fps 统计 + `ReporterHmi: displayWH[3840x2160], bitDepth 10, frameFreeze 0`），
+但 app 内「播放诊断」面板看不到本机解码状态。补全链路：
+
+| 层 | 改动 |
+|---|---|
+| `mpv_napi.cpp` | STRING 观测组扩展：`hwdec-current` + `video-format` + `video-params/pixelformat`（nv12=8bit / p010=10bit） |
+| `MpvEngine.ets` | 跟踪 hwdec/codec/pixelFormat，任一变化经 `emitDecode()` 发 `decode` 事件（带 width/height）；hwdec-current 仍额外发 diagnostic 文本（测试证据用） |
+| `EngineEvent` | 新增 `hwdec`/`codec`/`pixelFormat` 字段 |
+| `PhonePlaybackHost.ets` | `@Trace engineHwdec/engineCodec/enginePixel/engineWidth/engineHeight`；`releasePlayer()` 重置；新增 `decodeModeLine()`（本机解码：硬解（hevc_ohcodec）/软件解码/AVPlayer 系统调度）与 `decodeSpecLine()`（解码规格：3840 × 2160 · hevc · p010） |
+| `PlayerPage.ets` | StatsSheet 判定区两分支各加「本机解码」「解码规格」行（id `player-diag-decode`/`player-diag-spec`） |
+| 测试证据 | decode 事件进 `PlaybackTestProbe.record('decode', ...)`（需 mcPlaybackTest caseId） |
+
+验证：arkts_check 0 问题；devecocli build 成功（libmovieclaw_mpv.so 已含
+`video-params/pixelformat`/`video-format` 观测串）。重复 id 警告为 if/else
+互斥分支既有模式（同 `player-engine`），无运行时影响。
+
+**真机自检发现 P1**：面板首版渲染 `本机解码：硬解（𲥣Z）`、`解码规格：… · ðI · 0F`
+——三个 STRING 属性值全是指针地址字节。根因：client.h 规定
+`MPV_FORMAT_STRING` 的 `mpv_event_property.data` 是 `char**`（
+`char *value = *(char **)(event_property->data)`），Pump 里少一层解引用，
+DOUBLE/FLAG 均正确仅 STRING 漏掉（此前 hwdec-current 只进测试探针从未展示，
+故未暴露）。修复：解引用 + 空指针兜底。`uitest dumpLayout` 面板文本抽查
+作为本特性的验收手段。
+
+## 真机 10bit 花屏修复（11-03，r12b 部署 + Vulkan 渲染器）
+
+用户报告 4K 10bit HEVC 花屏（画面隐约可见、颜色错乱）。两层根因、两次修复：
+
+| 层 | 根因 | 修复 |
+|---|---|---|
+| 部署 | `player_engine/libs/arm64-v8a/libmpv.so` 实为 **10-27 旧构建**（字节级验证：ohdec r5-r12b 补丁全缺失），旧 ohdec 把 HCODEC 10bit 输出的 P010 内存（stride 7680）当 NV12 逐字节拷贝 → 花屏。11-2 20:41 曾拷入 r12b 新库，因**设备全系统无 `libnative_buffer.so`**（find /system /vendor /chipset 无果）dlopen 失败被整体回退——这就是"构建了却没生效"的原因 | 对 r12b 构建（`build/prefix/lib/libmpv.so.2.5.0`，31.3MB）原地 ELF 手术：SONAME `libmpv.so.2`→`libmpv.so`（.dynstr 等长补丁）；NEEDED `libnative_buffer.so`→重复 `libc.so`（该库 0 个未定义符号引用，纯 `--no-as-needed` 死依赖，重指安全）；`llvm-strip --strip-unneeded` 后 28MB 部署。Python 手术脚本注意：`b"libmpv.so\x00\x00"` 是 11 字节，替换 12 字节切片会让文件缩 1 字节——需 `b"libmpv.so\x00\x00\x00"` |
+| 渲染 | 部署后**颜色正常但画面左右复制**（两边各显示完整画面的左半）。ohdec r10 直通的设计前提是 Vulkan 渲染器（ohdec.c r10 注释：libplacebo R16_UNORM 多平面原生收 10bit）；应用仍配 `gpu-context=ohos`（GLES 无 norm16），P010 进 GLES 降级路径产生几何错乱 | `MpvEngine.ets`：加 `gpu-api=vulkan`、`gpu-context` 改 `ohosvk`（r9 起的设计配置，真机 VulkanSwapchainLayer 实证路径）。GLES+P010 左右复制的内部机制未深挖（已绕开），后续若需回 GLES 再查 |
+
+真机结果（用户确认）：4K 10bit 颜色/几何均正常（花屏与左右复制均消失）；
+普通 8bit 在 Vulkan 路径下正常播放。
+
+### 播放诊断「执行/供片」差异（用户疑问，非 bug）
+
+「执行」「供片」卡片仅在**服务端转码会话**存在时渲染（`host.diag !== null` /
+`diagHasSegments()`），报告的是服务端转码任务的执行/分片状态。10bit 那部走
+直出/本机副本（无转码任务）→ 两卡隐藏；8bit 对照那部走服务端转码会话 → 显示。
+与 10bit/8bit 无关，取决于该片当前的供片方式（首卡文字可对证：直出显示
+「没有服务端播放会话」或档位「直出」）。
+
+### 部署事实（复现用）
+
+- 新库：SONAME=libmpv.so；NEEDED 无 libnative_buffer.so（libc.so 出现两次，加载器去重无害）；`ohdec: P010 passthrough` / `ohosvk` 字符串在；HAP 内 28,053,008B
+- 设备系统库面：`libc++_shared`/`libvulkan`/`libnative_image`/`libnative_media_venc` ✓，`libnative_buffer` ✗（NEEDED 摘除后不再依赖）；HAP 自带 libc++_shared.so
+- `BUILT-VERSIONS.txt` 已同步（含手术记录）；未定义 OH_* 符号全为标准 OHCodec/OHAudio/NativeWindow API（与旧库同族，2024 设备库可解析）

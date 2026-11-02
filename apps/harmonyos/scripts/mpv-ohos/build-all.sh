@@ -248,7 +248,7 @@ export_lib() {
   patchelf --set-soname libmpv.so "$MPV_OHOS_APP_LIBS_DIR/libmpv.so"
   # 系统命名空间里没有 libz.so.1（应用 ndk namespace 找不到 zlib），改挂私有名字随 HAP 打包
   patchelf --replace-needed libz.so.1 libmovieclaw_z.so "$MPV_OHOS_APP_LIBS_DIR/libmpv.so"
-  cp "$MPV_OHOS_PREFIX/lib/libz.so.1"(N) "$MPV_OHOS_APP_LIBS_DIR/libmovieclaw_z.so"
+  cp "$MPV_OHOS_PREFIX/lib/libz.so.1" "$MPV_OHOS_APP_LIBS_DIR/libmovieclaw_z.so"
   rm -rf "$MPV_OHOS_APP_CPP_DIR/include/mpv"
   cp -R "$MPV_OHOS_PREFIX/include/mpv" "$MPV_OHOS_APP_CPP_DIR/include/mpv"
   local sz=$(du -h "$MPV_OHOS_APP_LIBS_DIR/libmpv.so" | cut -f1)
@@ -279,6 +279,12 @@ main() {
 }
 
 generate_cross_file() {
+  # meson-cross.txt 可能含手改内容（Windows 工具链路径、--no-undefined 链接旗等教训，
+  # 参见文件内注释）。已存在时绝不覆盖；需要重新生成请先删除该文件。
+  if [ -f "$SCRIPT_DIR/meson-cross.txt" ]; then
+    echo "✔ meson-cross.txt 已存在，保留现版（重生成请先删除该文件）"
+    return 0
+  fi
   cat > "$SCRIPT_DIR/meson-cross.txt" <<EOF
 [binaries]
 c = '$CC'

@@ -388,6 +388,12 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   // —— 诊断面板（iOS PlayerDiagnosticsPanel：开着「详情」时 2 秒拉一次快照）——
   @Trace diag: PlaybackDiagnosticsView | null = null;
   diagTimer: number = -1;
+  // —— 本机解码（诊断面板新增行：引擎上报的硬解状态与解码规格）——
+  @Trace engineHwdec: string = '';
+  @Trace engineCodec: string = '';
+  @Trace enginePixel: string = '';
+  @Trace engineWidth: number = 0;
+  @Trace engineHeight: number = 0;
 
   // —— 自绘字幕样式（本机外挂轨；流式轨由系统渲染改不了，iOS SubtitleStyle）——
   @Trace subFontScale: number = 5.2;
@@ -750,6 +756,25 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     return snapshot.engine.length > 0 ? `播放引擎：${snapshot.engine} · ${snapshot.phase}` : '播放引擎：未启动';
   }
 
+  /** 诊断面板「本机解码」行：MPV 显示实际硬解/软解，AVPlayer 由系统调度 */
+  decodeModeLine(): string {
+    const snapshot = this.controller.current();
+    if (snapshot.engine.length === 0 || snapshot.phase === 'idle' || snapshot.phase === 'opening') { return ''; }
+    if (snapshot.engine === 'mpv') {
+      return this.engineHwdec.length > 0 ? `本机解码：硬解（${this.engineHwdec}）` : '本机解码：软件解码';
+    }
+    return '本机解码：AVPlayer 系统调度';
+  }
+
+  /** 诊断面板「解码规格」行：分辨率 · 编码 · 像素格式（如 3840 × 2160 · hevc · p010） */
+  decodeSpecLine(): string {
+    const parts: string[] = [];
+    if (this.engineWidth > 0 && this.engineHeight > 0) { parts.push(`${this.engineWidth} × ${this.engineHeight}`); }
+    if (this.engineCodec.length > 0) { parts.push(this.engineCodec); }
+    if (this.enginePixel.length > 0) { parts.push(this.enginePixel); }
+    return parts.length === 0 ? '' : `解码规格：${parts.join(' · ')}`;
+  }
+
   surfaceReady(generation: number): void {
     if (generation !== this.surfaceGeneration || this.disposed) { return; }
     const surface = this.surfaceController.getXComponentSurfaceId();
@@ -893,8 +918,17 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       if (event.type === 'diagnostic') { PlaybackTestProbe.record('diagnostic', event.text); }
       if (event.type === 'buffered') { PlaybackTestProbe.record('buffered', `${event.bufferedMs}`); }
       if (event.type === 'firstFrame' || event.type === 'buffering') { PlaybackTestProbe.record(event.type, event.hint); }
-      if (event.type === 'size' && event.width > 0 && event.height > 0) { this.videoAspect = event.width / event.height; }
-      else if (event.type === 'subtitle') { this.subtitleCue = event.text; }
+      if (event.type === 'size' && event.width > 0 && event.height > 0) {
+        this.videoAspect = event.width / event.height;
+        this.engineWidth = event.width; this.engineHeight = event.height;
+      } else if (event.type === 'decode') {
+        this.engineHwdec = event.hwdec;
+        this.engineCodec = event.codec;
+        this.enginePixel = event.pixelFormat;
+        this.engineWidth = event.width;
+        this.engineHeight = event.height;
+        PlaybackTestProbe.record('decode', `${event.hwdec}|${event.codec}|${event.pixelFormat}|${event.width}x${event.height}`);
+      } else if (event.type === 'subtitle') { this.subtitleCue = event.text; }
     };
     this.controller.onFailure = (failure: EngineFailure): void => {
       PlaybackTestProbe.record('failure', `${failure.kind}:${failure.code}`);
@@ -950,6 +984,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
 
   async releasePlayer(): Promise<void> {
     await this.controller.release();
+    this.engineHwdec = ''; this.engineCodec = ''; this.enginePixel = '';
+    this.engineWidth = 0; this.engineHeight = 0;
   }
 
   togglePlay(): void {

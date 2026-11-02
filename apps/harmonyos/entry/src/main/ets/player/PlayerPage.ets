@@ -858,6 +858,16 @@ export struct PlayerPage {
               Text(this.host.engineLine()).id('player-engine')
                 .fontSize(12)
                 .fontColor(Theme.textMuted)
+              if (this.host.decodeModeLine().length > 0) {
+                Text(this.host.decodeModeLine()).id('player-diag-decode')
+                  .fontSize(12)
+                  .fontColor(Theme.textMuted)
+              }
+              if (this.host.decodeSpecLine().length > 0) {
+                Text(this.host.decodeSpecLine()).id('player-diag-spec')
+                  .fontSize(12)
+                  .fontColor(Theme.textMuted)
+              }
               Text(`容器 ${(this.host.session as PlaybackSessionView).decision.container ?? '—'}  ·  `
                 + `档位 ${(this.host.session as PlaybackSessionView).decision.tier ?? 0}`)
                 .fontSize(13)
@@ -909,6 +919,16 @@ export struct PlayerPage {
               Text(this.host.engineLine()).id('player-engine')
                 .fontSize(12)
                 .fontColor(Theme.textMuted)
+              if (this.host.decodeModeLine().length > 0) {
+                Text(this.host.decodeModeLine()).id('player-diag-decode')
+                  .fontSize(12)
+                  .fontColor(Theme.textMuted)
+              }
+              if (this.host.decodeSpecLine().length > 0) {
+                Text(this.host.decodeSpecLine()).id('player-diag-spec')
+                  .fontSize(12)
+                  .fontColor(Theme.textMuted)
+              }
               Text('没有服务端播放会话：原文件直出或本机副本，不产生转码')
                 .fontSize(12)
                 .fontColor(Theme.textMuted)

@@ -93,6 +93,13 @@ void Pump(Engine *engine) {
         event.type = "property"; event.name = property->name;
         if (property->format == MPV_FORMAT_DOUBLE) event.value = *static_cast<double *>(property->data);
         else if (property->format == MPV_FORMAT_FLAG) event.value = *static_cast<int *>(property->data);
+        else if (property->format == MPV_FORMAT_STRING) {
+          // client.h: for STRING the event data holds char* - "char *value =
+          // *(char **)(event_property->data)". Reading data directly yields
+          // pointer bytes, not the string.
+          const char *text = *static_cast<char **>(property->data);
+          event.text = text != nullptr ? text : "";
+        }
         else continue;
         break;
       }
@@ -145,10 +152,11 @@ struct Work {
   napi_async_work work = nullptr;
   napi_deferred deferred = nullptr;
   std::shared_ptr<Engine> engine;
-  std::string action, result;
+  std::string action, result, name, text;
+  double number = 0;
   std::vector<std::string> args;
   std::vector<std::pair<std::string, std::string>> options;
-  int error = 0;
+  int format = 0, flag = 0, error = 0;
 };
 void Execute(napi_env, void *data) {
   auto &work = *static_cast<Work *>(data);
@@ -184,6 +192,13 @@ void Execute(napi_env, void *data) {
       work.error = mpv_observe_property(engine.mpv, observer++, property, MPV_FORMAT_FLAG);
       if (work.error < 0) return;
     }
+    // hwdec-current is the runtime decoder actually in use ("h264_ohcodec" etc.,
+    // empty for software decode); video-format and video-params/pixelformat
+    // ("nv12"/"p010") identify codec and bit depth for the diagnostics panel.
+    for (const char *property : {"hwdec-current", "video-format", "video-params/pixelformat"}) {
+      work.error = mpv_observe_property(engine.mpv, observer++, property, MPV_FORMAT_STRING);
+      if (work.error < 0) return;
+    }
     try { engine.pump = std::thread(Pump, &engine); }
     catch (...) { work.error = MPV_ERROR_GENERIC; }
   } else if (!engine.mpv) {
@@ -192,6 +207,24 @@ void Execute(napi_env, void *data) {
     mpv_node node{};
     work.error = mpv_get_property(engine.mpv, "track-list", MPV_FORMAT_NODE, &node);
     if (work.error >= 0) { work.result = Json(node); mpv_free_node_contents(&node); }
+  } else if (work.action == "setProperty") {
+    if (work.format == MPV_FORMAT_DOUBLE) {
+      double value = work.number;
+      work.error = mpv_set_property(engine.mpv, work.name.c_str(), MPV_FORMAT_DOUBLE, &value);
+    } else if (work.format == MPV_FORMAT_FLAG) {
+      int value = work.flag;
+      work.error = mpv_set_property(engine.mpv, work.name.c_str(), MPV_FORMAT_FLAG, &value);
+    } else {
+      work.error = mpv_set_property_string(engine.mpv, work.name.c_str(), work.text.c_str());
+    }
+  } else if (work.action == "getProperty") {
+    if (work.format == MPV_FORMAT_DOUBLE) {
+      work.error = mpv_get_property(engine.mpv, work.name.c_str(), MPV_FORMAT_DOUBLE, &work.number);
+    } else {
+      char *value = mpv_get_property_string(engine.mpv, work.name.c_str());
+      if (value != nullptr) { work.result = value; mpv_free(value); work.error = 0; }
+      else { work.error = MPV_ERROR_PROPERTY_UNAVAILABLE; }
+    }
   } else {
     std::vector<const char *> args;
     for (const auto &arg : work.args) args.push_back(arg.c_str());
@@ -204,13 +237,18 @@ void Complete(napi_env env, napi_status status, void *data) {
   napi_value value;
   if (status != napi_ok || work->error < 0) {
     napi_value message;
-    napi_create_string_utf8(env, "Native player operation failed", NAPI_AUTO_LENGTH, &message);
+    const char *reason = work->error < 0 ? mpv_error_string(work->error) : "worker cancelled";
+    napi_create_string_utf8(env, reason, NAPI_AUTO_LENGTH, &message);
     napi_create_error(env, nullptr, message, &value);
     Number(env, value, "code", work->error);
     napi_reject_deferred(env, work->deferred, value);
   } else {
-    if (work->action == "tracks") napi_create_string_utf8(env, work->result.data(), work->result.size(), &value);
-    else napi_get_undefined(env, &value);
+    if (work->action == "tracks" || (work->action == "getProperty" && work->format != MPV_FORMAT_DOUBLE))
+      napi_create_string_utf8(env, work->result.data(), work->result.size(), &value);
+    else if (work->action == "getProperty")
+      napi_create_double(env, work->number, &value);
+    else
+      napi_get_undefined(env, &value);
     napi_resolve_deferred(env, work->deferred, value);
   }
   napi_delete_async_work(env, work->work);
@@ -264,6 +302,27 @@ napi_value Operation(napi_env env, napi_callback_info info) {
     if (count < 2) { napi_throw_type_error(env, nullptr, "Expected command"); return nullptr; }
     uint32_t length = 0; napi_get_array_length(env, args[1], &length);
     for (uint32_t i = 0; i < length; i++) { napi_value value; napi_get_element(env, args[1], i, &value); work->args.push_back(String(env, value)); }
+  } else if (work->action == "setProperty") {
+    if (count < 3) { napi_throw_type_error(env, nullptr, "Expected property name and value"); return nullptr; }
+    work->name = String(env, args[1]);
+    napi_valuetype type;
+    napi_typeof(env, args[2], &type);
+    if (type == napi_number) {
+      work->format = MPV_FORMAT_DOUBLE;
+      napi_get_value_double(env, args[2], &work->number);
+    } else if (type == napi_boolean) {
+      work->format = MPV_FORMAT_FLAG;
+      bool flag = false;
+      napi_get_value_bool(env, args[2], &flag);
+      work->flag = flag ? 1 : 0;
+    } else {
+      work->format = MPV_FORMAT_STRING;
+      work->text = String(env, args[2]);
+    }
+  } else if (work->action == "getProperty") {
+    if (count < 3) { napi_throw_type_error(env, nullptr, "Expected property name and format"); return nullptr; }
+    work->name = String(env, args[1]);
+    work->format = String(env, args[2]) == "number" ? MPV_FORMAT_DOUBLE : MPV_FORMAT_STRING;
   }
   return Queue(env, work.release());
 }
@@ -274,6 +333,8 @@ napi_value Init(napi_env env, napi_value exports) {
     {"createEngine", nullptr, Create, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"initEngine", nullptr, Operation, nullptr, nullptr, nullptr, napi_default, (void *)"init"},
     {"command", nullptr, Operation, nullptr, nullptr, nullptr, napi_default, (void *)"command"},
+    {"setProperty", nullptr, Operation, nullptr, nullptr, nullptr, napi_default, (void *)"setProperty"},
+    {"getProperty", nullptr, Operation, nullptr, nullptr, nullptr, napi_default, (void *)"getProperty"},
     {"tracks", nullptr, Operation, nullptr, nullptr, nullptr, napi_default, (void *)"tracks"},
     {"destroyEngine", nullptr, Operation, nullptr, nullptr, nullptr, napi_default, (void *)"release"}
   };

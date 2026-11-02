@@ -11,8 +11,8 @@ ArkTS PlayerPage (几乎不动)
         └─ MpvPlayer.ets                           ← 状态机/事件映射（本目录 ../player/）
              └─ libmovieclaw_mpv.so (player_engine/src/main/cpp/mpv_napi.cpp, NAPI 桥)
                   └─ libmpv.so (player_engine/libs/arm64-v8a/, 本脚本产物)
-                       ├─ vo_gpu + --gpu-context=ohos (EGL/GLES3, fork 的 video/out/context_ohos.c)
-                       ├─ hwdec=ohcodec (硬解, fork hwdec_ohcodec.c + ffmpeg hwcontext_oh)
+                        ├─ vo_gpu + --gpu-context=ohos (EGL/GLES3, fork 的 video/out/context_ohos.c)
+                        ├─ hwdec=ohcodec-copy (buffer 模式硬解, fork hwdec_ohcodec.c + ffmpeg hwcontext_oh)
                        ├─ ao_ohaudio (OHAudio, 打了焦点中断补丁)
                        └─ 静态链入: ffmpeg(ohcodec+mbedtls) / libass / libplacebo / freetype
                                    / fribidi / harfbuzz / mbedtls / zlib
@@ -108,6 +108,19 @@ pip3 install jinja2 jsonschema
 
 - libmpv.so 是 LGPLv3 组合（静态链入 ffmpeg/libass/libplacebo 等）；自用无碍，
   上架建议改动态链接或提供重链产物。
-- `tls-verify=no`：自签证书服务器场景。
+- `tls-verify=yes`（MpvEngine.ets 传给 mpv 的选项；mbedtls 校验服务端证书）。
 - av1/vp9 软解，能力申报封顶 1080。
 - 长稳播放与自动连播（播完→即将播放卡）：见 VERIFIED.md 的实测记录。
+
+## hwdec 模式说明（重要）
+
+fork 的 `vd_lavc.c`（select_and_set_hwdec）对 OHCodec 有模式过滤契约：
+- `vo=ohcodec*`（surface 直渲染 VO）→ 只接受 surface 条目 `hwdec=ohcodec`；
+- 其他 VO（`vo=gpu`/`gpu-next`）→ **只接受 buffer 条目 `hwdec=ohcodec-copy`**，
+  surface 条目会被跳过——此时若配 `hwdec=ohcodec`，会**静默回退纯软解**。
+- 本构建因 fork 未提交 `vo_ohcodec.c`（补丁移除其引用）只有 `vo=gpu` 一条渲染
+  路径，所以 MpvEngine.ets 必须也确实配置 `hwdec=ohcodec-copy`：OHCodec 解码器
+  输出 NV12 系统内存帧（10bit 内部转 8bit），经 `ra_hwdec_ohcodec` 互操作上传
+  GPU 渲染；DV 内容由 fork 的 `inject_dovi_colorspace` 回填 BT.2020/PQ 色彩。
+- 硬解是否生效可从 `hwdec-current` 属性观察（mpv_napi.cpp 已 observe，ArkTS 收
+  到 diagnostic 事件 "MPV 硬解已启用: h264_ohcodec" / "MPV 软件解码中"）。
