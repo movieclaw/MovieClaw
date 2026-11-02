@@ -58,27 +58,25 @@ enum AgentBubbleStyle {
 }
 
 /// 助手正文气泡的一截（见 AgentTranscriptRow.Bubble）：首截上圆角、末截下圆角，块间距画在底色里；
-/// 长按出原生菜单复制整段正文。超长正文才会拆成多截：长按时预览整个气泡（只在长按时把整段重新排一次版），
-/// 否则浮起来的只是按到的那一截，看着像几个不同的气泡
+/// 长按出原生菜单复制整段正文；预览按原气泡宽度重新排版，并限制高度。
+/// 超长正文只在长按时把整段重新排一次版，消息列的分截懒加载不变
 struct AgentAnswerBubbleSlice<Content: View>: View {
     let bubble: AgentTranscriptRow.Bubble
     @ViewBuilder let content: Content
-    /// 气泡宽度：整气泡预览按它排版，与列表里的气泡同宽
-    @State private var width: CGFloat = 0
+    /// 沿用气泡宽度，预览最多占消息可视区域的一半，为系统菜单留出空间。
+    @State private var previewSize: CGSize = .zero
 
     var body: some View {
         let shape = AgentBubbleStyle.shape(top: bubble.first, bottom: bubble.last)
         let menu = Button(String(localized: .commonCopy), systemImage: "doc.on.doc") { UIPasteboard.general.string = bubble.text }
-        Group {
-            if bubble.first && bubble.last {
-                sliced.contentShape(.contextMenuPreview, shape).contextMenu { menu }
-            } else {
-                sliced.contextMenu { menu } preview: { AgentAnswerBubblePreview(text: bubble.text, width: width) }
+        sliced
+            .contentShape(.contextMenuPreview, shape)
+            .contextMenu { menu } preview: {
+                AgentAnswerBubblePreview(text: bubble.text, size: previewSize)
             }
-        }
-        .accessibilityIdentifier("agent-answer-bubble")
-        .padding(.trailing, AgentBubbleStyle.assistantTrailingInset)
-        .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("agent-answer-bubble")
+            .padding(.trailing, AgentBubbleStyle.assistantTrailingInset)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var sliced: some View {
@@ -88,21 +86,30 @@ struct AgentAnswerBubbleSlice<Content: View>: View {
             .padding(.horizontal, AgentBubbleStyle.paddingH)
             .frame(maxWidth: bubble.hug ? nil : .infinity, alignment: .leading)
             .background(AgentBubbleStyle.assistantFill, in: AgentBubbleStyle.shape(top: bubble.first, bottom: bubble.last))
-            .onGeometryChange(for: CGFloat.self, of: \.size.width) { width = $0 }
+            .onGeometryChange(for: CGSize.self) { geometry in
+                CGSize(width: geometry.size.width,
+                       height: (geometry.bounds(of: .scrollView)?.height ?? geometry.size.height) / 2)
+            } action: { previewSize = $0 }
     }
 }
 
-/// 长按多截气泡时的预览：整段正文画成一个完整气泡
-private struct AgentAnswerBubblePreview: View {
+/// 预览沿用气泡宽度；限制高度，避免系统将超高正文挤成窄条。
+struct AgentAnswerBubblePreview: View {
     let text: String
-    let width: CGFloat
+    let size: CGSize
 
     var body: some View {
         AgentMarkdownBlocks(blocks: AgentMarkdownParser.parse(text), size: AgentTranscriptLayout.textSize)
             .padding(.horizontal, AgentBubbleStyle.paddingH)
             .padding(.vertical, AgentBubbleStyle.paddingV)
-            .frame(width: width > 0 ? width : nil)
+            .frame(width: size.width > 0 ? size.width : nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxHeight: size.height > 0 ? size.height : nil, alignment: .top)
+            .fixedSize(horizontal: false, vertical: true)
+            .clipped()
             .background(AgentBubbleStyle.assistantFill)
+            .clipShape(AgentBubbleStyle.shape())
+            .allowsHitTesting(false)
     }
 }
 
