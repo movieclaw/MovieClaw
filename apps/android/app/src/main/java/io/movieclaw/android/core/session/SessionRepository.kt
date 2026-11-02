@@ -323,8 +323,7 @@ class SessionRepository @Inject constructor(
      */
     private suspend fun probe(addr: ServerAddress.Normalized): ServerAddress.Normalized = withContext(Dispatchers.IO) {
         val request = okhttp3.Request.Builder().url("${addr.apiBase}/health").build()
-        val response = runCatching { rawClient.newCall(request).execute() }.getOrNull()
-            ?: throw ApiException("UNREACHABLE", "无法连接服务器,请检查地址与网络(${addr.origin})")
+        val response = rawClient.newCall(request).execute()
         response.use { r ->
             val body = r.body?.string().orEmpty()
             val isMovieClaw = r.isSuccessful &&
