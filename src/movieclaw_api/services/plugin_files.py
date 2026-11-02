@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -89,7 +90,9 @@ class PluginFiles:
 
     async def check(self, path: str | os.PathLike[str], *, write: bool) -> Path:
         """返回检查通过的真实路径；不在授权范围内抛 ``PermissionError``。"""
-        real = Path(os.path.realpath(path))
+        # realpath 会逐段 lstat/readlink；NAS 挂载阻塞时不能占住宿主循环，
+        # 否则无关任务的心跳、取消和等待超时都无法运行。
+        real = Path(await asyncio.to_thread(os.path.realpath, path))
         for root, mode in await self.roots():
             if real == root or real.is_relative_to(root):
                 if write and mode != "rw":
@@ -127,7 +130,7 @@ class PluginFiles:
             st = await asyncio.to_thread(os.stat, real)
         except FileNotFoundError:
             return None
-        return {"size": st.st_size, "mtime": st.st_mtime, "is_dir": os.path.isdir(real)}
+        return {"size": st.st_size, "mtime": st.st_mtime, "is_dir": stat.S_ISDIR(st.st_mode)}
 
     async def exists(self, path: str | os.PathLike[str]) -> bool:
         return await self.stat(path) is not None
@@ -181,15 +184,21 @@ class PluginFilesService:
         return PluginFiles(self, entry_id)
 
     async def roots(self, entry_id: str) -> list[tuple[Path, Mode]]:
-        roots: list[tuple[Path, Mode]] = [(self.private_dir(entry_id), "rw")]
+        roots: list[tuple[Path, Mode]] = [
+            (await asyncio.to_thread(self.private_dir, entry_id), "rw")
+        ]
         grants = self._grants.get(entry_id, ())
         libraries: list[Any] | None = None
         for grant in grants:
             if grant.path.startswith("/"):
-                roots.append((Path(os.path.realpath(grant.path)), grant.mode))
+                roots.append(
+                    (Path(await asyncio.to_thread(os.path.realpath, grant.path)), grant.mode)
+                )
             elif grant.path == "staging":
                 for target in await self._staging_dirs():
-                    roots.append((Path(os.path.realpath(target)), grant.mode))
+                    roots.append(
+                        (Path(await asyncio.to_thread(os.path.realpath, target)), grant.mode)
+                    )
             elif grant.path == "library" or grant.path.startswith("library:"):
                 if libraries is None:
                     libraries = await self._libraries()
@@ -197,7 +206,9 @@ class PluginFilesService:
                 for library in libraries:
                     if wanted is None or str(library.id) == wanted:
                         for root in library.root_paths or []:
-                            roots.append((Path(os.path.realpath(root)), grant.mode))
+                            roots.append(
+                                (Path(await asyncio.to_thread(os.path.realpath, root)), grant.mode)
+                            )
         return roots
 
     async def _libraries(self) -> list[Any]:

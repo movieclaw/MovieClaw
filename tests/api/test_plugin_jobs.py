@@ -189,8 +189,8 @@ def test_restart_waits_for_process_plugin_handlers_before_claiming_jobs(env, mon
     real_claim = jobs.JobDispatcher._claim_one
     real_start = plugin_runtime.Session.start
 
-    async def observe_claim(self):
-        claimed = await real_claim(self)
+    async def observe_claim(self, *, job_ids=None):
+        claimed = await real_claim(self, job_ids=job_ids)
         if claimed is None:
             scanned.set()
         return claimed
@@ -383,3 +383,152 @@ def test_in_flight_process_jobs_recover_without_restarting_dispatcher(
                 == JobStatus.SUCCEEDED.value
             )
         )
+
+
+@pytest.mark.parametrize("refresh_times_out", [False, True])
+def test_four_process_jobs_wait_for_metadata_refresh(env, monkeypatch, refresh_times_out):
+    """process 插件 → 刷新 API → SQLite 执行器 → jobs.wait；四父任务加两条排队任务。"""
+    from movieclaw_api.services import jobs, media_scrape, plugin_runtime
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import Job, Library, MediaItem
+
+    release_refresh = asyncio.Event()
+    monkeypatch.setattr(jobs, "JOB_HEARTBEAT_SECONDS", 0.2)
+
+    async def slow_scrape(*args, **kwargs):
+        # 只替换外部刮削工作：刷新 handler、租约、资源锁、进度与收尾均走生产链路。
+        await release_refresh.wait()
+        return True
+
+    monkeypatch.setattr(media_scrape, "scrape_media_item", slow_scrape)
+    (env / "plugins").mkdir()
+    (env / "plugins" / "cast_cn.py").write_text(
+        textwrap.dedent("""
+        import asyncio
+        import os
+        from movieclaw_sdk import plugin
+        from movieclaw_sdk.jobs import JOB_HANDLERS, RegisteredJobHandler, JobFailed
+        from movieclaw_sdk.ops import HOST_OPS
+
+        @plugin("cast-cn", title="演职员测试插件", inject=(HOST_OPS,),
+                permissions=("library.items.refresh-metadata", "jobs.wait"))
+        async def apply(ctx):
+            ops = await ctx.use(HOST_OPS).client(ctx)
+            entered = 0
+            ready = asyncio.Event()
+            refresh_sem = asyncio.Semaphore(1)
+            async def item(context, data):
+                nonlocal entered
+                entered += 1
+                if entered == 4:
+                    ready.set()
+                await ready.wait()
+                await context.update_progress(
+                    mode="indeterminate", phase="refresh-wait", message="等待主程序重新吸收 NFO"
+                )
+                # 与报告者公开的 add-cast-cn 分支一致：闸门覆盖创建和整个等待。
+                async with refresh_sem:
+                    return await refresh(context, data)
+
+            async def refresh(context, data):
+                ref = await ops.call("library.items.refresh-metadata", {
+                    "library_id": data["library_id"], "media_item_id": data["media_item_id"]
+                })
+                revision = 0
+                try:
+                    async with asyncio.timeout(data["timeout"]):
+                        while True:
+                            await context.raise_if_cancelled()
+                            reply = await ops.call("jobs.wait", {
+                                "job_id": ref["job_id"], "after_revision": revision,
+                                "wait_seconds": 0.1
+                            })
+                            job = reply["job"]
+                            revision = job["revision"]
+                            if job["status"] == "succeeded":
+                                return {"pid": os.getpid(), "refresh_id": job["id"]}
+                except TimeoutError:
+                    raise JobFailed("刷新等待超时", code="REFRESH_WAIT_TIMEOUT")
+            ctx.contribute(JOB_HANDLERS, "item", RegisteredJobHandler(item, frozenset({1})))
+        """),
+        encoding="utf-8",
+    )
+    (env / "plugins.yaml").write_text(
+        "- id: cast-cn\n  local: true\n  module: cast_cn\n  runtime: process\n"
+        "  grants: [library.items.refresh-metadata, jobs.wait]\n",
+        encoding="utf-8",
+    )
+    app, client = make_client()
+    with client:
+        session = plugin_runtime.sessions["cast-cn"]
+        pid = session._proc.pid
+        dispatcher = jobs._dispatcher
+        loop_task = dispatcher._loop_task
+
+        async def seed():
+            async with get_database().session() as db_session:
+                library = Library(name="动漫库", kind="tv", root_paths=[str(env / "media")])
+                db_session.add(library)
+                await db_session.commit()
+                ids = []
+                for n in range(6):
+                    item = MediaItem(
+                        kind="tv",
+                        tmdb_id=100 + n,
+                        title=f"测试剧 {n}",
+                        original_title=f"Show {n}",
+                        scrape_library_id=library.id,
+                    )
+                    db_session.add(item)
+                    await db_session.commit()
+                    ref = await jobs.create_job(
+                        db_session,
+                        job_type="cast-cn:item",
+                        priority=-10,
+                        input_data={
+                            "library_id": library.id,
+                            "media_item_id": item.id,
+                            "timeout": 5 if refresh_times_out and n < 4 else 15,
+                        },
+                    )
+                    ids.append(ref.job.id)
+                return ids
+
+        ids = client.portal.call(seed)
+
+        def rows():
+            reply = client.get("/api/v1/jobs", params={"job_type": "cast-cn:item"})
+            assert reply.status_code == 200, reply.text
+            indexed = {job["id"]: job for job in reply.json()["data"]["items"]}
+            return [indexed[jid] for jid in ids]
+
+        async def waiting():
+            return len({parent for parent, _, _ in dispatcher._waits}) == 1
+
+        wait_for(lambda: all(j["progress"]["phase"] == "refresh-wait" for j in rows()[:4]))
+        wait_for(lambda: client.portal.call(waiting))
+        assert [j["status"] for j in rows()[4:]] == ["queued", "queued"]
+
+        # 慢刷新仍占库级锁；父任务保持续租，普通查询也继续响应。
+        async def heartbeats():
+            async with get_database().session() as db_session:
+                return [(await db_session.get(Job, jid)).heartbeat_at for jid in ids[:4]]
+
+        before = client.portal.call(heartbeats)
+        wait_for(
+            lambda: all(a > b for a, b in zip(client.portal.call(heartbeats), before, strict=True))
+        )
+        refreshes = client.get("/api/v1/jobs", params={"job_type": "media.metadata.refresh"})
+        assert sum(j["status"] == "running" for j in refreshes.json()["data"]["items"]) == 1
+        if refresh_times_out:
+            wait_for(lambda: all(j["status"] == "failed" for j in rows()[:4]), timeout=45)
+            assert all(j["error"]["code"] == "REFRESH_WAIT_TIMEOUT" for j in rows()[:4])
+        client.portal.call(release_refresh.set)
+        wait_for(lambda: all(j["status"] == "succeeded" for j in rows()[4:]), timeout=60)
+        if not refresh_times_out:
+            assert all(j["status"] == "succeeded" for j in rows())
+        assert all(j["result"]["pid"] == pid for j in rows() if j["status"] == "succeeded")
+        wait_for(lambda: not session.jobs and not session._contexts)
+        assert jobs._dispatcher is dispatcher and dispatcher._loop_task is loop_task
+        assert not loop_task.done() and session._proc.pid == pid
+        wait_for(lambda: not dispatcher._waits)
