@@ -29,6 +29,7 @@ from pathlib import Path
 from movieclaw_api.i18n.stored import reference, source_render
 from movieclaw_api.services.library.layout import VIDEO_EXTS
 from movieclaw_api.services.library.units import resolve_units
+from movieclaw_matcher.seasons import SeasonMapping
 
 
 class UnsatisfiableSelection(ValueError):
@@ -84,6 +85,7 @@ def plan_file_selection(
     *,
     file_sizes: Sequence[int] | None = None,
     known_seasons: Collection[int] | None = None,
+    season_mapping: SeasonMapping | None = None,
 ) -> FileSelectionPlan | None:
     """规划种子内文件的取舍：跳过确定不需要的，保留其余一切。
 
@@ -93,6 +95,9 @@ def plan_file_selection(
     :param file_sizes: 与 file_paths 对齐的字节数，用于估算省下的体积。
     :param known_seasons: 条目真实存在的季号（订阅勾选的季），借给
         resolve_units 做季号推断守卫。
+    :param season_mapping: 条目的站点季号映射（issue #1155）。站点 S02 的文件
+        要先翻译成 ``(1, 13)`` 才和 ``needed_units`` 对得上；不翻译的话它们
+        会被当成"不需要"全部跳过，等于把要下的集全标成不下载。
     :returns: 取舍结论；``None`` = 不做选择（没有任何可跳过的文件，或
         保障单元映射不全，调用方应直接恢复全量下载）。
 
@@ -103,7 +108,7 @@ def plan_file_selection(
     if not file_paths or not needed_units:
         return None
     paths = [Path(p) for p in file_paths]
-    units = resolve_units(paths, known_seasons=known_seasons)
+    units = resolve_units(paths, known_seasons=known_seasons, season_mapping=season_mapping)
 
     keep: list[int] = []
     skip: list[int] = []
@@ -143,12 +148,17 @@ def plan_strict_file_selection(
     needed_units: set[tuple[int, int]],
     *,
     known_seasons: Collection[int] | None = None,
+    season_mapping: SeasonMapping | None = None,
 ) -> FileSelectionPlan:
     """智能补缺：只选可确定映射的独立正片文件，未知不回落全量。
 
     认不出季集、合并多集或集号为 0 的文件一律**不选**（issue #996）——它们
     不会被下载，也不会被当成任何一集；裁决只看每个需要的单元是否恰好落在
     一个可确定的文件上。合辑包里个别怪命名文件不再连累整颗候选。
+
+    ``season_mapping``：条目站点季号映射（issue #1155），口径同
+    :func:`plan_file_selection`——站点 S02 的文件必须先翻译成 ``(1, 13)``，
+    否则它们全部不选，整包等于什么都没下。
     """
     import re
 
@@ -162,6 +172,13 @@ def plan_strict_file_selection(
     paths = [Path(p) for p in file_paths]
     seasons = set(known_seasons or ()) - {0}
     sole_season = next(iter(seasons)) if len(seasons) == 1 else None
+
+    def _translate(key: tuple[int, int] | None) -> tuple[int, int] | None:
+        if key is None or season_mapping is None or key[0] is None:
+            return key
+        block = season_mapping.by_site_season(key[0])
+        return key if block is None else (block.season, key[1] + block.offset)
+
     selected, found, unclear = [], set(), []
     for index, path in enumerate(paths):
         if path.suffix.lower() not in VIDEO_EXTS:
@@ -178,6 +195,7 @@ def plan_strict_file_selection(
             re.I,
         )
         multiple = len(re.findall(r"S\d+E\d+|\d+x\d+", path.stem, re.I)) > 1
+        key = _translate(key)
         if combined or multiple or key is None or key[1] <= 0:
             unclear.append(path.name)  # 季集不明确或不可拆分：不选，也不算作任何一集
             continue

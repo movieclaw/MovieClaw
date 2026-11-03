@@ -233,6 +233,19 @@ async def load_season_titles(session: AsyncSession, media_item_id: int) -> tuple
     )
 
 
+def season_blocks_of(item: MediaItem) -> tuple[tuple[int, int, int, int], ...]:
+    """条目的站点季号映射（``media_item.season_mapping``）→ 内核形状。
+
+    所有构造 ``MediaIdentity`` 的路径都应带上它，判定口径才一致（同
+    ``load_season_titles`` 的理由）：缺口匹配、人工选种、换源救援、发布预测
+    四条路各自算一遍的话，会出现"自动匹配认得 S02、手动投递却拒收"的分裂。
+    NULL/[] 都读成空元组——匹配语义上"没算过"与"无需映射"等价。
+    """
+    from movieclaw_matcher.seasons import mapping_from_json
+
+    return mapping_from_json(item.season_mapping).as_identity_blocks()
+
+
 async def media_identity(
     session: AsyncSession, item: MediaItem, *, season_numbers: tuple[int, ...]
 ) -> MediaIdentity:
@@ -269,6 +282,7 @@ async def media_identity(
         season_titles=season_titles,
         runtime_minutes=runtime_minutes,
         aired_episodes=aired_episodes,
+        season_blocks=season_blocks_of(item),
     )
 
 

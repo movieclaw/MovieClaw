@@ -236,6 +236,43 @@ def test_season_dir_is_a_certain_source(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_explicit_site_season_is_translated_by_mapping(tmp_path) -> None:
+    """issue #1155：站点 S02 + 台账只有季 1 + 有映射 → 翻译成 (1, 13)。
+
+    不改原意地翻译，不是否决：翻译后它仍落在真实存在的季里，文件落
+    Season 01/ 而不是凭空建出 Season 02/。
+    """
+    from movieclaw_matcher.seasons import SeasonBlock, SeasonMapping
+
+    mapping = SeasonMapping(
+        blocks=(
+            SeasonBlock(site_season=1, season=1, start=1, end=12),
+            SeasonBlock(site_season=2, season=1, start=13, end=25),
+        )
+    )
+    _, files = _pack(tmp_path, "Solo Leveling S02", ["Solo Leveling S02E01.1080p.mkv"])
+    unit = resolve_units(
+        files,
+        entry_name="Solo Leveling S02",
+        known_seasons={1},
+        season_mapping=mapping,
+    )[files[0]]
+    assert (unit.season, unit.episode) == (1, 13)
+    assert unit.rejected_reason is None
+
+
+def test_site_season_without_mapping_keeps_explicit_season(tmp_path) -> None:
+    """S03 + 无映射 → 保持原行为（显式声明不被台账否决），不回归。"""
+    _, files = _pack(tmp_path, "Show.S03.1080p", ["Show.S03E01.1080p.mkv"])
+    unit = resolve_units(
+        files,
+        entry_name="Show.S03.1080p",
+        known_seasons={1},
+        season_mapping=None,
+    )[files[0]]
+    assert (unit.season, unit.episode) == (3, 1)
+
+
 def test_ledger_never_overrides_explicit_declaration(tmp_path) -> None:
     """显式 SxxEyy 不受台账约束：TMDB 元数据滞后不该否决发布组的明确意图。
 

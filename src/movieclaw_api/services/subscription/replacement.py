@@ -27,6 +27,7 @@ from movieclaw_api.services.subscription.matching import (
     covered_units,
     load_season_titles,
     publish_calendar_date,
+    season_blocks_of,
     to_candidate,
     units_reference,
 )
@@ -58,6 +59,7 @@ from movieclaw_matcher import (
     match_identity,
     site_rank,
 )
+from movieclaw_matcher.seasons import mapping_from_json
 from movieclaw_matcher.smart import SmartPolicy, watchable
 
 logger = logging.getLogger("movieclaw_api.subscription_replacement")
@@ -505,6 +507,8 @@ async def _try_candidates(
         douban_id=item.douban_id,
         season_numbers=tuple(sorted({season for season, _episode in open_units})),
         season_titles=await load_season_titles(session, subscription.media_item_id),
+        # 站点季号映射（issue #1155）：不带上它，换源救援会找不到站点 S02 的镜像
+        season_blocks=season_blocks_of(item),
     )
     excluded = await _excluded_candidates(session, attempt.subscription_id)
     accepted = []
@@ -614,6 +618,9 @@ async def _try_candidates(
                     subscription.kind,
                 ),
                 known_seasons=subscription.selected_seasons or None,
+                # 站点季号映射（issue #1155）：替代源整季包里的站点 S02 文件
+                # 要能对上订阅在等的 (1, 13)，否则会被当成"不需要"跳过
+                season_mapping=mapping_from_json(item.season_mapping),
                 route_hint=hooks.DownloaderQuery(
                     site_id=candidate.site_id,
                     title=candidate.title,

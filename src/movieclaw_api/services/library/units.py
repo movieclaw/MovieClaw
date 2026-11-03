@@ -46,6 +46,7 @@ from movieclaw_api.services.library.layout import (
     trailing_index_episode,
 )
 from movieclaw_enrich import enrich
+from movieclaw_matcher.seasons import SeasonMapping
 
 __all__ = ["FileUnit", "resolve_units"]
 
@@ -150,6 +151,7 @@ def resolve_units(
     *,
     entry_name: str | None = None,
     known_seasons: Collection[int] | None = None,
+    season_mapping: SeasonMapping | None = None,
 ) -> dict[Path, FileUnit]:
     """一批文件（同一个包 / 同一个目录）的季集号。
 
@@ -158,6 +160,9 @@ def resolve_units(
         逐文件走，父目录季号已在证据里，不必再为每个文件跑一遍模型）。
     :param known_seasons: TMDB 台账里该条目真实存在的季号。给定时作为推断季号的
         守卫；``None`` 表示调用方拿不到台账，跳过守卫。
+    :param season_mapping: 条目的站点季号映射（issue #1155）。**显式声明的季号**
+        不在台账里、却命中映射时，把它翻译成 TMDB 季号而不是否决——那是不改原意
+        地翻译，翻译后它仍落在真实存在的季里（与"台账不许否决显式声明"不冲突）。
     :return: 文件路径 → 结论。
     """
     evidence = {file: _file_evidence(file) for file in files}
@@ -197,12 +202,30 @@ def resolve_units(
     # len(certain) > 1 是真·多季合集包：不设批次季号，各文件用各自的，
     # 没有确定季号的那些宁可挂起，也不硬塞进其中某一季
 
-    return {
-        file: FileUnit(
-            season=ev.certain_season if ev.certain_season is not None else batch_season,
-            episode=ev.episode,
+    def _unit(ev: _Evidence) -> tuple[int | None, int]:
+        """(季, 集)，含站点季号归一（issue #1155）。
+
+        站点把 TMDB 的一季拆成 S01/S02 发布时，``S02E01`` / ``Season 02/`` 这类
+        显式声明在台账里查无此季。命中映射就**不改原意地翻译**成 TMDB 编号继续
+        入库（季号与集号一起平移，``S02E01`` → ``(1, 13)``）——这与「台账不许
+        否决显式声明」不冲突，翻译后它仍落在真实存在的季里。没命中映射就原样
+        保留，行为与改动前一致。
+        """
+        season = ev.certain_season if ev.certain_season is not None else batch_season
+        if season is None or season_mapping is None:
+            return season, ev.episode
+        block = season_mapping.by_site_season(season)
+        if block is None:
+            return season, ev.episode
+        return block.season, ev.episode + block.offset
+
+    units: dict[Path, FileUnit] = {}
+    for file, ev in evidence.items():
+        season, episode = _unit(ev)
+        units[file] = FileUnit(
+            season=season,
+            episode=episode,
             explicit_pilot=ev.explicit_pilot,
             rejected_reason=None if ev.certain_season is not None else reason,
         )
-        for file, ev in evidence.items()
-    }
+    return units
