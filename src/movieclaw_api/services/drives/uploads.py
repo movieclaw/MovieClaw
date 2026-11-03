@@ -419,7 +419,11 @@ class _Uploader:
     async def upload_sidecar(
         self, item: sidecars.Pending, previous: LibraryCloudSidecar | None
     ) -> None:
-        """传一个旁车文件（§5.5）。网盘上有我们传过的旧版本就先删掉，再传新的。"""
+        """传一个旁车文件（§5.5）。网盘上有我们传过的旧版本就先删掉，再传新的。
+
+        网盘不让同名不同内容的文件并存，只能先删后传；删掉后马上把台账这一行去掉，后面传失败了，
+        下一轮也会当没传过重新传（哪怕本地改回了旧内容）。
+        """
         assert self.folder.id is not None
         data = await asyncio.to_thread(item.path.read_bytes)
         if len(data) != item.size or await asyncio.to_thread(_stat, item.path) != (
@@ -430,10 +434,16 @@ class _Uploader:
         sha1 = hashlib.sha1(data).hexdigest().upper()  # noqa: S324 -- 网盘秒传协议要 SHA1
         remote_id = previous.remote_id if previous is not None else ""
         if previous is None or previous.sha1 != sha1:
+            # 刚删掉我们自己的旧版本：同名的位置空出来了，这次交回的文件只能是这次传的（含秒传）
+            ours_deleted = bool(remote_id)
             if remote_id:
                 await self.call("delete", remote_ids=[remote_id])
+                async with get_database().session() as session:
+                    await LibraryCloudRepository(session).forget_sidecar(
+                        self.folder.id, str(item.path)
+                    )
             await self.wait_for_uplink()
-            remote_id = await self._send_bytes(item.path, data, sha1)
+            remote_id = await self._send_bytes(item.path, data, sha1, claim_existing=ours_deleted)
         async with get_database().session() as session:
             await LibraryCloudRepository(session).save_sidecar(
                 self.folder.id,
@@ -444,8 +454,16 @@ class _Uploader:
                 sha1=sha1,
             )
 
-    async def _send_bytes(self, path: Path, data: bytes, sha1: str) -> str:
-        """把一份读进内存的小文件传到它在网盘上该在的目录，返回网盘文件 id。"""
+    async def _send_bytes(
+        self, path: Path, data: bytes, sha1: str, *, claim_existing: bool = False
+    ) -> str:
+        """把一份读进内存的小文件传到它在网盘上该在的目录，返回网盘文件 id。
+
+        ``begin_upload`` 直接交回文件时（秒传命中，或网盘上已有同名同内容的文件）协议分不出是不是
+        这次传的：一律当别人的，返回空串——台账不记它的 id，以后本地变了也不删它。
+        ``claim_existing``：刚删掉了我们自己的旧版本、同名的位置是空的，交回的文件只能是这次传的
+        （秒传），照常返回它的 id。
+        """
         fingerprint = dv.Fingerprint(
             size=len(data),
             sha1=sha1,
@@ -463,7 +481,7 @@ class _Uploader:
                 "begin_upload", **args, state=step.state, range_data=data[offset : offset + length]
             )
         if step.file is not None:
-            return step.file.remote_id
+            return step.file.remote_id if claim_existing else ""
         part_size = min(step.part_size or len(data), max(len(data), 1))
         if part_size <= 0 or part_size > MAX_PART_BYTES:
             raise keyed(dv.ApiChanged, "errors.drives.partSizeInvalid", size=part_size)
@@ -597,7 +615,8 @@ async def _sync_sidecars(context: jobs.JobContext, uploader: _Uploader) -> int:
     """视频传完后，把传上去的视频的旁车文件补齐到网盘（§5.5）。返回这次传了几个。
 
     单个文件的问题（读不了、网盘上有同名的别人的文件）不挡别的：按本地现在的样子记进台账
-    （SHA1 为空，网盘 id 留着上次传的、好在重试时先删掉），本地再变才重试，免得巡检为它反复排任务。
+    （SHA1 为空，网盘 id 留着台账里还在的、好在重试时先删掉），本地再变才重试，
+    免得巡检为它反复排任务。
     """
     assert uploader.folder.id is not None
     pending, ledger = await sidecars.find_pending(uploader.library, uploader.folder)
@@ -612,9 +631,11 @@ async def _sync_sidecars(context: jobs.JobContext, uploader: _Uploader) -> int:
             continue  # 还在写：下一轮再传
         except (OSError, dv.Conflict) as exc:
             logger.info("旁车文件「%s」这次不上传：%s", item.path.name, exc)
-            previous = ledger.get(str(item.path))
             async with get_database().session() as session:
-                await LibraryCloudRepository(session).save_sidecar(
+                repo = LibraryCloudRepository(session)
+                # 重读：旧版本可能刚删掉、行已去掉，不能把删掉的 id 再记回去
+                previous = await repo.sidecar(uploader.folder.id, str(item.path))
+                await repo.save_sidecar(
                     uploader.folder.id,
                     str(item.path),
                     remote_id=previous.remote_id if previous is not None else "",

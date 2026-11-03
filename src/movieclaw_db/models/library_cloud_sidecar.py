@@ -28,7 +28,9 @@ class LibraryCloudSidecar(TimestampMixin, table=True):
         description="传到的网盘文件夹（library_cloud_folder）",
     )
     local_path: str = Field(sa_column=Column(Text, nullable=False), description="本地文件")
-    remote_id: str = Field(description="网盘文件 id")
+    remote_id: str = Field(
+        description="网盘文件 id（这次上传建出来的才记；空串：不是我们传的，本地变了也不删）"
+    )
     size_bytes: int = Field(sa_column=Column(BigInteger, nullable=False), description="大小")
     file_mtime_ns: int = Field(
         sa_column=Column(BigInteger, nullable=False), description="传的时候本地的修改时间"

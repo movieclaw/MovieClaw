@@ -1090,3 +1090,150 @@ def test_a_foreign_file_with_the_same_name_is_left_alone_without_retry_storms(cl
     assert "deleted" not in drive_state(client)
     # 冲突记下了：本地不变就不再为它排任务
     assert sweep(client) == []
+
+
+def sidecar_ledger(client: TestClient, tmp_path: Path) -> dict[str, dict]:
+    """旁车台账：相对库根的路径 → 网盘 id 与 SHA1。"""
+    staging = tmp_path / "staging"
+    return {
+        Path(row.local_path).relative_to(staging).as_posix(): {
+            "remote_id": row.remote_id,
+            "sha1": row.sha1,
+        }
+        for row in call(client, _sidecar_rows)
+    }
+
+
+async def _sidecar_rows() -> list:
+    from sqlmodel import select
+
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import LibraryCloudSidecar
+
+    async with get_database().session() as session:
+        return list((await session.execute(select(LibraryCloudSidecar))).scalars().all())
+
+
+def _rewrite(path: Path, data: bytes, *, mtime_ns: int | None = None) -> None:
+    """原地覆盖；不给修改时间就往后挪一秒（保证和台账对不上）。"""
+    import os
+
+    before = path.stat()
+    path.write_bytes(data)
+    os.utime(path, ns=(before.st_atime_ns, mtime_ns or before.st_mtime_ns + 1_000_000_000))
+
+
+def test_a_same_content_file_already_on_the_drive_is_never_claimed_or_deleted(client, tmp_path):
+    # 用户自己早就放了一张一模一样的海报：begin_upload 直接交回它，但它不是我们传的
+    poster = SHOW_AND_MOVIE["剧集/poster.jpg"]
+    edit_drive(
+        client,
+        lambda d: (
+            d["dirs"].update({"d-show": "影视/剧集"}),
+            d["files"].update(
+                {
+                    "f-users": {
+                        "path": "影视/剧集/poster.jpg",
+                        "size": len(poster),
+                        "sha1": hashlib.sha1(poster).hexdigest().upper(),
+                    }
+                }
+            ),
+        ),
+    )
+    (client.drive / "store" / "f-users").write_bytes(poster)  # type: ignore[attr-defined]
+    library_id = _sidecar_library(client, tmp_path)
+    _wait(lambda: "影视/剧集/第一季/S01E01.zh.srt" in drive_files(client))
+    _idle(client, library_id)
+    ledger = sidecar_ledger(client, tmp_path)
+    # 台账不认领它；我们自己真传上去的照常记 id
+    assert ledger["剧集/poster.jpg"]["remote_id"] == ""
+    assert ledger["剧集/fanart.jpg"]["remote_id"]
+
+    # 本地换了海报：不能删用户的那张；新版本撞上同名不同内容，留着不覆盖
+    _rewrite(tmp_path / "staging" / "剧集" / "poster.jpg", b"poster-v2-from-rescrape")
+    assert sweep(client)
+    _wait(lambda: not sweep(client))
+    _idle(client, library_id)
+    state = drive_state(client)
+    assert "deleted" not in state
+    assert state["files"]["f-users"]["path"] == "影视/剧集/poster.jpg"
+    assert drive_files(client)["影视/剧集/poster.jpg"] == poster
+    assert sidecar_ledger(client, tmp_path)["剧集/poster.jpg"]["remote_id"] == ""
+
+
+@pytest.mark.parametrize("restore_mtime", [False, True], ids=["new-mtime", "same-mtime"])
+def test_old_version_deleted_then_upload_failed_is_reuploaded_on_retry(
+    client, tmp_path, restore_mtime
+):
+    from movieclaw_sdk.jobs import JobRetry
+
+    library_id = _sidecar_library(client, tmp_path)
+    _wait(lambda: "影视/剧集/第一季/S01E01.zh.srt" in drive_files(client))
+    _idle(client, library_id)
+    old_poster = sidecar_ledger(client, tmp_path)["剧集/poster.jpg"]["remote_id"]
+    assert old_poster
+    poster = tmp_path / "staging" / "剧集" / "poster.jpg"
+    original = poster.stat()
+
+    # 本地换了海报；删掉旧版本成功，传新版本时断网
+    _rewrite(poster, b"poster-v2-from-rescrape")
+    edit_drive(client, lambda d: d.update(fail_part=0))
+    _progress, outcome = call(client, _run_job, library_id)
+    assert isinstance(outcome, JobRetry), outcome
+    assert old_poster in drive_state(client)["deleted"]
+    assert "影视/剧集/poster.jpg" not in drive_files(client)
+    # 删掉的 id 不能还留在台账里
+    assert "剧集/poster.jpg" not in sidecar_ledger(client, tmp_path)
+
+    # 重试前用户把海报改回了旧内容（same-mtime：连修改时间都恢复成台账里那次的）
+    _rewrite(
+        poster,
+        SHOW_AND_MOVIE["剧集/poster.jpg"],
+        mtime_ns=original.st_mtime_ns if restore_mtime else None,
+    )
+    assert sweep(client), "删掉了还没传上去的旁车文件应当排上任务"
+    _wait(lambda: drive_files(client).get("影视/剧集/poster.jpg") == b"poster-v1")
+    _idle(client, library_id)
+    row = sidecar_ledger(client, tmp_path)["剧集/poster.jpg"]
+    assert row["remote_id"] and row["remote_id"] != old_poster
+    assert row["remote_id"] in drive_state(client)["files"]
+    assert sweep(client) == []
+
+
+def test_rapid_upload_right_after_deleting_our_old_version_is_still_ours(client, tmp_path):
+    library_id = _sidecar_library(client, tmp_path)
+    _wait(lambda: "影视/剧集/第一季/S01E01.zh.srt" in drive_files(client))
+    _idle(client, library_id)
+    v1 = sidecar_ledger(client, tmp_path)["剧集/poster.jpg"]["remote_id"]
+    assert v1
+    poster = tmp_path / "staging" / "剧集" / "poster.jpg"
+
+    # 刮削换成了网盘上早有人传过的 TMDB 海报：删掉我们的 v1 后，v2 秒传命中
+    v2_data = _blob(7, 4000)  # 秒传要校验 (10, 1000) 这段，得比它长
+    source = tmp_path / "pool-poster.jpg"
+    source.write_bytes(v2_data)
+    sha1 = hashlib.sha1(v2_data).hexdigest().upper()
+    edit_drive(client, lambda d: d["pool"].update({sha1: str(source)}))
+    uploads_before = len(drive_state(client).get("uploads", []))
+    _rewrite(poster, v2_data)
+    assert sweep(client)
+    _wait(lambda: drive_files(client).get("影视/剧集/poster.jpg") == v2_data)
+    _idle(client, library_id)
+    state = drive_state(client)
+    assert len(state.get("uploads", [])) == uploads_before, "v2 应当是秒传，没有真传"
+    v2 = sidecar_ledger(client, tmp_path)["剧集/poster.jpg"]["remote_id"]
+    # 同名的位置是我们刚腾空的：秒传出来的那份记成我们的
+    assert v2 and v2 != v1 and v2 in state["files"]
+    assert state["deleted"] == [v1]
+
+    # 再换一次：删掉 v2、传 v3，而不是撞上 Conflict 从此不同步
+    _rewrite(poster, b"poster-v3")
+    assert sweep(client)
+    _wait(lambda: drive_files(client).get("影视/剧集/poster.jpg") == b"poster-v3")
+    _idle(client, library_id)
+    state = drive_state(client)
+    assert state["deleted"] == [v1, v2]
+    v3 = sidecar_ledger(client, tmp_path)["剧集/poster.jpg"]
+    assert v3["remote_id"] in state["files"] and v3["sha1"]
+    assert sweep(client) == []
