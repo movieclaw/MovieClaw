@@ -26,6 +26,8 @@ export function PlayerBuilder() { PlayerPage() }
 export struct PlayerPage {
   @Local private host: PhonePlaybackHost = new PhonePlaybackHost();
   @Local private menuContentHeight: number = 1;
+  /** 锁定键按压中：按下缩放反馈用 */
+  @Local private lockPressed: boolean = false;
   aboutToAppear(): void { this.host.bindUI(this.getUIContext()); this.host.aboutToAppear(); }
   aboutToDisappear(): void { this.host.aboutToDisappear(); }
   build() {
@@ -51,7 +53,7 @@ export struct PlayerPage {
         }
         if (this.host.isLandscape() && (this.host.chromeVisible || this.host.controlsLocked)) {
           Row() {
-            this.IconAction(this.host.controlsLocked ? $r('app.media.player_unlock') : $r('app.media.player_lock'), this.host.controlsLocked ? '解锁控制' : '锁定控制', 'player-lock', (): void => { this.host.toggleControlLock(); })
+            this.LockAction()
           }
           .position({ x: 16, y: '50%' }).translate({ y: -22 })
         }
@@ -267,6 +269,30 @@ export struct PlayerPage {
     .border({ width: glass ? 0.5 : 0, color: 'rgba(255,255,255,0.16)' })
     .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
     .onClick((): void => { this.host.noteUserActivity(); action(); this.host.armChromeTimer(); })
+  }
+
+  /** 横屏锁定键：锁定态高亮 + 按压缩放反馈（点击锁定/解锁控制条） */
+  @Builder
+  LockAction() {
+    Button({ type: ButtonType.Circle }) {
+      // Read traced state here: ordinary @Builder arguments are not reactive.
+      Image(this.host.controlsLocked ? $r('app.media.player_unlock') : $r('app.media.player_lock')).width(22).height(22)
+    }
+    .id('player-lock').accessibilityText(this.host.controlsLocked ? '解锁控制' : '锁定控制').width(44).height(44)
+    .backgroundColor(this.host.controlsLocked ? 'rgba(255,255,255,0.24)' : 'rgba(45,45,48,0.65)')
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .border({ width: this.host.controlsLocked ? 1 : 0.5, color: this.host.controlsLocked ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.16)' })
+    .scale({ x: this.lockPressed ? 0.9 : 1, y: this.lockPressed ? 0.9 : 1 })
+    .animation({ duration: 130, curve: Curve.EaseOut })
+    .onTouch((event: TouchEvent): void => {
+      event.stopPropagation();
+      if (event.type === TouchType.Down) {
+        this.lockPressed = true;
+      } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+        this.lockPressed = false;
+      }
+    })
+    .onClick((): void => { this.host.noteUserActivity(); this.host.toggleControlLock(); this.host.armChromeTimer(); })
   }
 
   @Builder
