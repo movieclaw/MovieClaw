@@ -45,6 +45,7 @@ from movieclaw_db.models import (
 )
 from movieclaw_db.repositories import SubscriptionRepository
 from movieclaw_matcher import IdentityMatch, RuleVerdict, TorrentCandidate
+from movieclaw_matcher.seasons import mapping_from_json
 
 logger = logging.getLogger("movieclaw_api.download_dispatch")
 
@@ -283,6 +284,9 @@ async def dispatch(
                         subtitle=candidate.subtitle if entry_level else None,
                         select_units=selective_units,
                         known_seasons=subscription.selected_seasons or None,
+                        # 站点季号映射（issue #1155）：选择性下载要能认出
+                        # 站点 S02 的文件，否则会把要下的集全标成不下载
+                        season_mapping=mapping_from_json(item.season_mapping),
                         media_kind=item.kind,
                         **submit_options,
                     )
@@ -987,6 +991,7 @@ async def _submit_real(
     subtitle: str | None = None,
     select_units: set[tuple[int, int]] | None = None,
     known_seasons: Collection[int] | None = None,
+    season_mapping=None,
     before_submit=None,
     downloader_id: int | None = None,
     selection_owner: str | None = None,
@@ -1014,6 +1019,7 @@ async def _submit_real(
         subtitle=subtitle,
         select_units=select_units,
         known_seasons=known_seasons,
+        season_mapping=season_mapping,
         before_submit=before_submit,
         downloader_id=downloader_id,
         selection_owner=selection_owner,

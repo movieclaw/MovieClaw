@@ -146,6 +146,7 @@ from movieclaw_enrich import enrich
 from movieclaw_enrich.models import TorrentAttrs
 from movieclaw_enrich.structure import title_candidates
 from movieclaw_matcher import DISC_SOURCE
+from movieclaw_matcher.seasons import SeasonMapping, mapping_from_json
 from movieclaw_media.models import MediaKind
 from movieclaw_scheduler.registry import register_task
 
@@ -4221,7 +4222,11 @@ async def _with_unit(
     item = identified.item
     assert item is not None and item.id is not None
     known = {season.season_number for season in await media_service.seasons(item.id)}
-    season, episode = await asyncio.to_thread(_unit_for, MediaKind.TV, file, known)
+    # 站点季号映射（issue #1155）：库扫描也要认站点 S02 的目录/文件名，
+    # 否则同一批文件走监听导入能归位、走扫描却挂在"解析不出季号"
+    season, episode = await asyncio.to_thread(
+        _unit_for, MediaKind.TV, file, known, mapping_from_json(item.season_mapping)
+    )
     if season is not None:
         return replace(identified, unit=(season, episode))
     regular = sum(1 for number in known if number > 0)
@@ -4933,7 +4938,10 @@ def _stem_episode(stem: str) -> int | None:
 
 
 def _unit_for(
-    kind: MediaKind, file: Path, known_seasons: set[int] | None = None
+    kind: MediaKind,
+    file: Path,
+    known_seasons: set[int] | None = None,
+    season_mapping: SeasonMapping | None = None,
 ) -> tuple[int | None, int]:
     """期望单元：电影 (0,0)；剧集优先信分集 NFO，其次走确定性季集解析层。
 
@@ -4949,13 +4957,21 @@ def _unit_for(
     不传条目名；``known_seasons`` 是已认出作品的季台账（见 ``_with_unit``），
     作为推断季号的守卫与唯一季兜底。季号求解失败返回 None，由调用方决定
     是改判待识别（认出了作品）还是落 0（本来就待识别）。
+
+    ``season_mapping``：条目的站点季号映射（issue #1155），透传给
+    ``resolve_units`` 把站点 S02 翻译成 TMDB 第 1 季的顺延集号。
     """
     if kind is not MediaKind.TV:
         return 0, 0
     episode_nfo = read_episode_metadata(file.with_suffix(".nfo"))
     if episode_nfo and episode_nfo.season is not None and episode_nfo.episode is not None:
-        return episode_nfo.season, episode_nfo.episode
-    unit = resolve_units([file], known_seasons=known_seasons)[file]
+        block = season_mapping.by_site_season(episode_nfo.season) if season_mapping else None
+        if block is None:
+            return episode_nfo.season, episode_nfo.episode
+        # 分集 NFO 里写的也是站点的季号时同样要翻译——NFO 多半由我们上一版
+        # 写出去（或发布组自带），不是 TMDB 口径
+        return block.season, episode_nfo.episode + block.offset
+    unit = resolve_units([file], known_seasons=known_seasons, season_mapping=season_mapping)[file]
     return unit.season, unit.episode
 
 

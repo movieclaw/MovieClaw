@@ -14,6 +14,7 @@ from movieclaw_api.services.subscription.attempt_notes import set_note
 from movieclaw_api.services.subscription.smart_profiles import conflict
 from movieclaw_db.models import (
     DownloadAttemptStatus,
+    MediaItem,
     SmartSeason,
     Subscription,
     SubscriptionDownloadAttempt,
@@ -276,15 +277,25 @@ async def reconcile_remote(session, intent):
         payload = intent.submission or {}
         if payload.get("select_units"):
             from movieclaw_api.services.torrent_submit import apply_strict_file_selection
+            from movieclaw_matcher.seasons import mapping_from_json
 
             async def before_resume():
                 await ensure_can_submit(session, intent)
 
+            # 站点季号映射（issue #1155）：恢复时 match 不复存在，映射只能从
+            # 条目上重新读；缺了它站点 S02 的文件会被判成"不需要"跳过
+            subscription = await session.get(Subscription, intent.subscription_id)
+            item = (
+                await session.get(MediaItem, subscription.media_item_id)
+                if subscription is not None
+                else None
+            )
             result = await apply_strict_file_selection(
                 adapter,
                 result,
                 {tuple(u) for u in payload["select_units"]},
                 known_seasons=payload.get("known_seasons"),
+                season_mapping=mapping_from_json(item.season_mapping) if item else None,
                 owner=payload["selection_owner"],
                 before_resume=before_resume,
             )

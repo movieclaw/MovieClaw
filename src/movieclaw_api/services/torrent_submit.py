@@ -40,6 +40,7 @@ from movieclaw_db.repositories.downloader_repo import DownloaderRepository
 from movieclaw_downloader.factory import create_downloader
 from movieclaw_downloader.models import DownloaderConfig, DownloadRequest, SubmitResult
 from movieclaw_enrich import enrich
+from movieclaw_matcher.seasons import SeasonMapping
 from movieclaw_media.models import MediaKind
 
 if TYPE_CHECKING:
@@ -197,6 +198,7 @@ async def submit_torrent(
     category: str = "movieclaw",
     select_units: set[tuple[int, int]] | None = None,
     known_seasons: Collection[int] | None = None,
+    season_mapping: SeasonMapping | None = None,
     before_submit=None,
     selection_owner: str | None = None,
     route_hint: hooks.DownloaderQuery | None = None,
@@ -218,7 +220,9 @@ async def submit_torrent(
     select_units 非空时启用**选择性下载**：种子以暂停态提交，按文件清单
     只保留覆盖这些 (季, 集) 单元的文件，其余标记不下载后恢复——整季包
     只补缺口集用。known_seasons 是条目真实存在的季号，借给规划器做季号
-    守卫。规划或写入失败默认回退全量下载，绝不影响投递本身。
+    守卫；season_mapping 是条目的站点季号映射（issue #1155），让站点 S02
+    的文件能对上订阅在等的 (1, 13)。规划或写入失败默认回退全量下载，
+    绝不影响投递本身。
 
     ``strict_selection``（需同时给 ``selection_owner`` 作任务标签）：带订阅上限的
     订阅用，整包可能是上千集，"多下几个 GB 只是浪费"的前提不再成立。全新任务的
@@ -313,6 +317,7 @@ async def submit_torrent(
                 submit_result,
                 select_units,
                 known_seasons=known_seasons,
+                season_mapping=season_mapping,
                 owner=selection_owner,
                 before_resume=before_resume,
             )
@@ -328,6 +333,7 @@ async def submit_torrent(
                 submit_result,
                 select_units,
                 known_seasons=known_seasons,
+                season_mapping=season_mapping,
                 owner=selection_owner,
             )
         elif submit_result.already_exists and category != "movieclaw-boost":
@@ -342,6 +348,7 @@ async def submit_torrent(
                 submit_result,
                 select_units,
                 known_seasons=known_seasons,
+                season_mapping=season_mapping,
             )
     except Exception as exc:
         from movieclaw_api.services.subscription.file_selection import UnsatisfiableSelection
@@ -393,6 +400,7 @@ async def apply_strict_file_selection(
     needed_units: set[tuple[int, int]],
     *,
     known_seasons: Collection[int] | None,
+    season_mapping: SeasonMapping | None = None,
     owner: str,
     before_resume=None,
 ) -> SubmitResult:
@@ -413,6 +421,7 @@ async def apply_strict_file_selection(
         [f.path for f in status.files],
         needed_units,
         known_seasons=known_seasons,
+        season_mapping=season_mapping,
     )
     expected = set(plan.keep_indices)
     actual = {i for i, f in enumerate(status.files) if f.selected}
@@ -453,6 +462,7 @@ async def _apply_strict_to_new_task(
     *,
     known_seasons: Collection[int] | None,
     owner: str,
+    season_mapping: SeasonMapping | None = None,
 ) -> SubmitResult:
     """严格版文件取舍（``strict_selection``）：任何一步失败都不恢复下载，并移除刚加的任务。
 
@@ -466,6 +476,7 @@ async def _apply_strict_to_new_task(
             submit_result,
             select_units,
             known_seasons=known_seasons,
+            season_mapping=season_mapping,
             owner=owner,
         )
     except Exception:
@@ -482,6 +493,7 @@ async def _apply_file_selection(
     select_units: set[tuple[int, int]],
     *,
     known_seasons: Collection[int] | None,
+    season_mapping: SeasonMapping | None = None,
 ) -> SubmitResult:
     """在暂停态任务上应用"只下载缺口单元"的文件取舍，然后恢复下载。
 
@@ -504,6 +516,7 @@ async def _apply_file_selection(
                 select_units,
                 file_sizes=[f.size_bytes for f in status.files],
                 known_seasons=known_seasons,
+                season_mapping=season_mapping,
             )
         if plan is not None and plan.skip_indices:
             await downloader.set_file_selection(info_hash, plan.keep_indices)

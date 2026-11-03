@@ -54,6 +54,7 @@ from movieclaw_db.models.system_notice import NoticeSeverity
 from movieclaw_db.repositories import SubscriptionRepository
 from movieclaw_db.repositories.downloader_repo import DownloaderRepository
 from movieclaw_downloader import DownloaderConfig, TorrentStatus, create_downloader
+from movieclaw_matcher.seasons import SeasonMapping, mapping_from_json
 from movieclaw_media.models import MediaKind
 from movieclaw_scheduler.registry import register_task
 
@@ -1247,7 +1248,17 @@ _FILE_UNIT_RE = re.compile(r"[Ss](\d{1,2})((?:[Ee]\d{1,4})(?:(?:\s*[-~&+]\s*[Ee]
 _FILE_EP_RE = re.compile(r"\d{1,4}")
 
 
-def _observed_units(files) -> set[tuple[int, int]]:
+def season_mapping_of(item: MediaItem) -> SeasonMapping:
+    """条目的站点季号映射（``media_item.season_mapping``）。
+
+    核验与进度都要按它把文件名的站点 ``S02`` 换算成 TMDB 的 ``(1, 13)``
+    （issue #1155）：不换，站点 S02 的 13 个文件会被判成"13 集全缺"，
+    写进 ``content_missing`` 后该来源被永久排除。
+    """
+    return mapping_from_json(item.season_mapping)
+
+
+def _observed_units(files, mapping: SeasonMapping | None = None) -> set[tuple[int, int]]:
     """种子文件清单里能认出的 (季, 集) 集合。
 
     只认场景命名的 SxxEyy 高置信声明；恰好两个递增集号视为区间展开
@@ -1255,6 +1266,11 @@ def _observed_units(files) -> set[tuple[int, int]]:
     季集识别的完整口径在库扫描侧（NER 模型），这里刻意不复用——救援
     巡检要在无模型环境同样工作，而轻量正则的漏认只会让判定更保守
     （认不出 → 不动），不会造成误退。
+
+    ``mapping``：条目的站点季号映射（issue #1155）。站点按 S02 发布的包，
+    文件是 ``…S02E01.mkv``，而订阅在等的单元是 ``(1, 13)``——不换算的话
+    13 个文件会被判成"13 集全缺"、写入 ``content_missing`` 负面记忆、
+    **该来源被永久排除**。换算只对映射里存在的站点季号生效。
 
     下载器里**未选中**的文件（qB priority=0）不算：它们永远不会被写到磁盘。
     真实案例：全集包 208 集只勾了两集（MoviePilot 只补新集），订阅却按
@@ -1266,11 +1282,11 @@ def _observed_units(files) -> set[tuple[int, int]]:
         # 没有选中信息的文件（旧适配器 / 测试替身）按选中算，与 TorrentFile 默认一致
         if not getattr(file, "selected", True):
             continue
-        observed.update(_path_units(file.path))
+        observed.update(_path_units(file.path, mapping))
     return observed
 
 
-def _path_units(path: str) -> set[tuple[int, int]]:
+def _path_units(path: str, mapping: SeasonMapping | None = None) -> set[tuple[int, int]]:
     """一个文件路径里能认出的 (季, 集)；口径见 :func:`_observed_units`。"""
     units: set[tuple[int, int]] = set()
     for match in _FILE_UNIT_RE.finditer(path):
@@ -1278,23 +1294,32 @@ def _path_units(path: str) -> set[tuple[int, int]]:
         numbers = [int(n) for n in _FILE_EP_RE.findall(match.group(2))]
         if len(numbers) == 2 and numbers[0] < numbers[1] <= numbers[0] + 200:
             numbers = list(range(numbers[0], numbers[1] + 1))
-        units.update((season, episode) for episode in numbers)
+        block = mapping.by_site_season(season) if mapping else None
+        if block is None:
+            units.update((season, episode) for episode in numbers)
+        else:
+            units.update((block.season, episode + block.offset) for episode in numbers)
     return units
 
 
-def _unit_progress(files) -> dict[tuple[int, int], float]:
+def _unit_progress(
+    files, mapping: SeasonMapping | None = None
+) -> dict[tuple[int, int], float]:
     """包内每一集的下载进度 0..1：按认得出该集的**已选中**文件的完成字节合计。
 
     大包按单集分批入库，订阅详情要能看出「哪几集已经下完、哪几集还早」；
     速度下载器只按整个种子给，单集只有进度。认不出集号、或适配器没报
     单文件完成字节的，不给（调用方显示整包进度）。
+
+    ``mapping`` 与 :func:`_observed_units` 同口径：站点 S02 的文件进度要能
+    落到订阅在等的 ``(1, 13)`` 上，否则进度条会一直空白。
     """
     done: dict[tuple[int, int], int] = {}
     size: dict[tuple[int, int], int] = {}
     for file in files:
         if not getattr(file, "selected", True) or file.completed_bytes is None:
             continue
-        for unit in _path_units(file.path):
+        for unit in _path_units(file.path, mapping):
             done[unit] = done.get(unit, 0) + file.completed_bytes
             size[unit] = size.get(unit, 0) + file.size_bytes
     return {unit: done[unit] / size[unit] for unit in size if size[unit] > 0}
@@ -1325,7 +1350,7 @@ async def _verify_content(
         return
     if not status.files:
         return
-    observed = _observed_units(status.files)
+    observed = _observed_units(status.files, season_mapping_of(item))
     if not observed:
         return
     missing = [w for w in rows if (w.season_number, w.episode_number) not in observed]
@@ -1505,7 +1530,12 @@ async def subscription_download_snapshot(session: AsyncSession, subscription_id:
             continue
         downloader_row, status = found
         if multi:
-            per_unit = _unit_progress(status.files)
+            # 站点季号映射（issue #1155）：站点 S02E01 的文件进度要落到订阅
+            # 在等的 (1, 13) 上，否则详情页逐集进度条永远是空白
+            item = await session.get(MediaItem, rows[0].media_item_id)
+            per_unit = _unit_progress(
+                status.files, season_mapping_of(item) if item is not None else None
+            )
             for unit in units:
                 unit["progress"] = per_unit.get((unit["season_number"], unit["episode_number"]))
         snapshots.append(

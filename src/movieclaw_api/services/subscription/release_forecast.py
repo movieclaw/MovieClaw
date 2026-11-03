@@ -404,6 +404,8 @@ def _identity_for(
     item: MediaItem, episodes: list[MediaEpisode], season_titles: tuple[str, ...]
 ) -> MediaIdentity:
     """条目在匹配内核视角下的身份（季号取自本条目的全部单集）。"""
+    from movieclaw_api.services.subscription.matching import season_blocks_of
+
     return MediaIdentity(
         kind=item.kind,
         year=item.year,
@@ -412,6 +414,9 @@ def _identity_for(
         douban_id=item.douban_id,
         season_numbers=tuple(sorted({episode.season_number for episode in episodes})),
         season_titles=season_titles,
+        # 站点季号映射（issue #1155）：少了它，发布预测会把站点 S02 的新资源
+        # 当成"与本条目无关"直接略过，自动匹配与预测页的口径就分裂了
+        season_blocks=season_blocks_of(item),
     )
 
 

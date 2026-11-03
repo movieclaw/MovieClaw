@@ -129,6 +129,12 @@ class SeasonMapping:
     def to_json(self) -> list[dict]:
         return [block.to_json() for block in self.blocks]
 
+    def as_identity_blocks(self) -> tuple[tuple[int, int, int, int], ...]:
+        """内核 ``MediaIdentity.season_blocks`` 的形状：(站点季, TMDB 季, 起, 止)。"""
+        return tuple(
+            (block.site_season, block.season, block.start, block.end) for block in self.blocks
+        )
+
     @classmethod
     def from_json(cls, data: list | dict | None) -> SeasonMapping:
         """读 ``season_mapping`` 列。三种写法都接受：
