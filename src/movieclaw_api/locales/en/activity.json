@@ -122,7 +122,9 @@
     "releaseCleared": "The release date of “{title}” was withdrawn; searching resumes once it’s rescheduled or released",
     "truncated": "This season has episodes not yet subscribed; you can continue the subscription any time",
     "seasonUnmapped": "“{title}” from {site} lists {seasons}, which don’t exist for this title (it only has {known}). If the site split one season in two, try again later or contact the administrator",
-    "seasonMapped": "{site} released this as {target}; it has been mapped automatically and is included in matching (“{title}”)"
+    "seasonMapped": "{site} released this as {target}; it has been mapped automatically and is included in matching (“{title}”)",
+    "seasonRange": "season {season} episodes {start}–{end}",
+    "seasonRangeSingle": "season {season} episode {start}"
   },
   "jobActions": {
     "dismissAll": "{count, plural, one {Dismissed # failed task} other {Dismissed # failed tasks}}",

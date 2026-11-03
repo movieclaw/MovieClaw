@@ -1364,7 +1364,7 @@ async def _log_season_mapped(
             },
             **stored_fields(
                 "activity.subscription.seasonMapped",
-                site="、".join(f"第 {n} 季" for n in sorted(set(match.site_seasons))),
+                site=_season_list_reference(sorted(set(match.site_seasons))),
                 target=mapped,
                 title=candidate.title[:60],
             ),
@@ -1372,8 +1372,16 @@ async def _log_season_mapped(
     )
 
 
-def _mapped_ranges(ctx: MediaContext, match: IdentityMatch) -> str:
-    """ "第 1 季第 13–25 集"：换算后的 TMDB 集区间（多块时用、分隔）。"""
+def _season_list_reference(seasons: list[int]) -> dict:
+    """站点季号列表 → 可翻译的嵌套列表（复用既有的「第 N 季」文案）。"""
+    return {
+        "message_list": [reference("media.season.title", number=number) for number in seasons],
+        "separator_key": "common.list.separator",
+    }
+
+
+def _mapped_ranges(ctx: MediaContext, match: IdentityMatch) -> dict | str:
+    """换算后的 TMDB 集区间，做成可翻译的嵌套引用（多块时用、分隔）。"""
     from movieclaw_matcher.seasons import mapping_from_json
 
     blocks = {
@@ -1385,10 +1393,25 @@ def _mapped_ranges(ctx: MediaContext, match: IdentityMatch) -> str:
         if block is None:
             continue
         if block.start == block.end:
-            parts.append(f"第 {block.season} 季第 {block.start} 集")
+            parts.append(
+                reference(
+                    "activity.subscription.seasonRangeSingle",
+                    season=block.season,
+                    start=block.start,
+                )
+            )
         else:
-            parts.append(f"第 {block.season} 季第 {block.start}–{block.end} 集")
-    return "、".join(parts)
+            parts.append(
+                reference(
+                    "activity.subscription.seasonRange",
+                    season=block.season,
+                    start=block.start,
+                    end=block.end,
+                )
+            )
+    if not parts:
+        return ""
+    return {"message_list": parts, "separator_key": "common.list.separator"}
 
 
 async def _already_explained(
