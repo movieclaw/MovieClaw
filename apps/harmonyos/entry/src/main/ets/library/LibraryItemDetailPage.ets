@@ -1842,8 +1842,8 @@ export struct LibraryItemDetailPage {
 
   /**
    * 播放区（对应 iOS `playAction`）：
-   * **播放键独占一行通栏**，下面一行才是「收藏 · 标为已看」两颗次键，
-   * 再下面是续播进度条与「看过 N 次」。原来三颗挤一行是不对的。
+   * 播放键（占满剩余宽）与「收藏 · 标为已看」两颗**图标键**同一行，
+   * 再下面是续播进度条与「看过 N 次」。
    */
   @Builder
   PlayAction(detail: LibraryItemDetailView) {
@@ -1852,35 +1852,44 @@ export struct LibraryItemDetailPage {
       if (this.isMovie()) {
         OfflineDownloadControl({ mediaItemId: this.mediaItemId, title: detail.title })
       }
-      Button(this.playLabel())
-      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
-      .width('100%')
-      .height(46)
-      .fontSize(16)
-      .fontWeight(600)
-      .fontColor('#0b0d12')
-      .borderRadius(14)
-      .onClick(() => {
-        this.onPlay();
-      })
-
       Row({ space: 10 }) {
-        Button(this.favorite === true ? '已收藏' : '收藏')
+        Button(this.playLabel())
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .layoutWeight(1)
+          .height(46)
+          .fontSize(16)
+          .fontWeight(600)
+          .fontColor('#0b0d12')
+          .borderRadius(14)
+          .onClick(() => {
+            this.onPlay();
+          })
+        // 收藏图标键：heart ↔ heart_fill，已收藏点亮红
+        Button() {
+          SymbolGlyph(this.favorite === true ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
+            .fontSize(21)
+            .fontColor([this.favorite === true ? Theme.danger : Theme.text])
+        }
+        .accessibilityText(this.favorite === true ? '已收藏' : '收藏')
         .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
-        .height(42)
-        .fontSize(14)
-        .fontColor(this.favorite === true ? Theme.danger : Theme.text)
-        .borderRadius(12)
+        .width(46)
+        .height(46)
+        .borderRadius(14)
         .enabled(!this.marking)
         .onClick(() => {
           this.toggleFavorite();
         })
-        Button(this.watchedLabel())
+        // 标为已看图标键：checkmark_circle ↔ checkmark_circle_fill，已看完点亮绿
+        Button() {
+          SymbolGlyph(this.played() ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.checkmark_circle'))
+            .fontSize(21)
+            .fontColor([this.played() ? Theme.ok : Theme.text])
+        }
+        .accessibilityText(this.watchedLabel())
         .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
-        .height(42)
-        .fontSize(14)
-        .fontColor(this.played() ? Theme.ok : Theme.text)
-        .borderRadius(12)
+        .width(46)
+        .height(46)
+        .borderRadius(14)
         .enabled(!this.marking)
         .onClick(() => {
           this.toggleWatched();

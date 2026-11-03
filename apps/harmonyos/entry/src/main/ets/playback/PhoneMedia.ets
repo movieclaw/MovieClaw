@@ -68,7 +68,7 @@ export class PhoneMedia implements PlaybackMedia {
           subtitle = fileIo.openSync(temporaryPath, fileIo.OpenMode.READ_ONLY);
         } catch (error) {
           if (temporaryPath.length > 0) { fileIo.unlinkSync(temporaryPath); temporaryPath = ''; }
-          hilog.warn(0x0000, 'PhoneMedia', '外挂字幕下载或加载失败，跳过字幕继续播放');
+          hilog.warn(0x0000, 'MCSub', '字幕下载或加载失败，跳过字幕继续播放: %{public}s', `${error}`);
         }
       }
       if (this.path.length > 0) { media = fileIo.openSync(this.path, fileIo.OpenMode.READ_ONLY); }
@@ -89,22 +89,32 @@ export class PhoneMedia implements PlaybackMedia {
   private async downloadSubtitle(engine: EngineId): Promise<string> {
     const request = http.createHttp();
     try {
+      // 内封轨首抽要通读整个容器（PT 片源几十 GB 常见），服务端抽完才开始回包；
+      // readTimeout 给太短，客户端断开会反过来取消服务端抽取，缓存永远建不起来。
       const response = await request.request(this.subtitleUrl, { method: http.RequestMethod.GET,
-        expectDataType: http.HttpDataType.ARRAY_BUFFER, connectTimeout: 10000, readTimeout: 15000 });
+        expectDataType: http.HttpDataType.ARRAY_BUFFER, connectTimeout: 10000, readTimeout: 60000 });
       if (response.responseCode !== 200) { throw new EngineFailure('network', response.responseCode, '字幕下载失败'); }
       const shift = engine === 'avplayer' && this.originMs > 0;
-      // Preserve original bytes (including MPV bitmap subtitles) unless a text shift is needed.
-      let content: string | ArrayBuffer = response.result as ArrayBuffer;
+      const raw = response.result as ArrayBuffer;
+      const bytes = new Uint8Array(raw);
+      // 扩展名按内容定（mpv 按扩展名选解复用器）：文字轨给真实后缀，
+      // PGS（'PG' 魔数）保字节存 .sup，其余维持 .sub 原样写。
       let extension = 'sub';
-      if (shift) {
-        const text = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(content));
-        extension = text.includes('[Script Info]') ? 'ass' : text.includes('WEBVTT') ? 'vtt' : 'srt';
-        if (!text.includes('-->') && !text.includes('Dialogue:')) {
+      let content: string | ArrayBuffer = raw;
+      if (bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x47) {
+        extension = 'sup';
+        if (shift) { throw new EngineFailure('unsupported', 0, '系统播放器不支持此字幕格式'); }
+      } else {
+        const text = util.TextDecoder.create('utf-8').decodeToString(bytes);
+        if (text.includes('-->') || text.includes('Dialogue:') || text.includes('WEBVTT')) {
+          extension = text.includes('[Script Info]') ? 'ass' : text.includes('WEBVTT') ? 'vtt' : 'srt';
+          if (shift) { content = shiftSubtitleTimeline(text, this.originMs); }
+        } else if (shift) {
           throw new EngineFailure('unsupported', 0, '系统播放器不支持此字幕格式');
         }
-        content = shiftSubtitleTimeline(text, this.originMs);
       }
       const path = `${this.cacheDirectory}/playback-sub-${Date.now()}-${PhoneMedia.sequence++}.${extension}`;
+      hilog.info(0x0000, 'MCSub', '%{public}s', `字幕下载完成: ${bytes.length} 字节 → .${extension} engine=${engine}`);
       const file = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
       try { fileIo.writeSync(file.fd, content); }
       catch (error) { fileIo.closeSync(file); fileIo.unlinkSync(path); throw new EngineFailure('source', 0, '字幕临时文件写入失败'); }

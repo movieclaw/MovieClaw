@@ -1,5 +1,6 @@
 import { DefaultEngineFactory, EngineEvent, EngineFactory, EngineFailure, EngineId,
   EngineSource, EngineTrack, PlayerEngine, SubtitleStyle } from '@movieclaw/player-engine';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 
 /** Every attempt acquires its own file descriptors. Close only after engine.release. */
 export interface MediaLease {
@@ -156,6 +157,8 @@ export class PlaybackController {
     return generation === this.generation && attempt === this.attempt;
   }
   private async recover(failure: EngineFailure, generation: number, id: EngineId): Promise<void> {
+    hilog.error(0x0000, 'MCSub', 'engine 失败: id=%{public}s kind=%{public}s code=%{public}d msg=%{public}s',
+      id, failure.kind, failure.code, failure.message);
     this.available = false; this.switching = true; this.attempt++;
     try { await this.disposeEngine(); }
     catch (error) {
@@ -343,8 +346,19 @@ export class PlaybackController {
       // Only a unique identity may override the user's selected source ordinal.
       let selected = matches.length === 1 ? matches[0] : undefined;
       if (selected === undefined) { selected = preference.ordinal < 0 ? candidates[candidates.length - 1] : candidates[preference.ordinal]; }
-      if (selected !== undefined) { await engine.selectTrack(kind, selected.id); }
-      else if (kind === 'audio') { throw new EngineFailure('unsupported', 0, '当前内核无法选择指定音轨'); }
+      if (selected !== undefined) {
+        if (kind === 'subtitle') {
+          hilog.info(0x0000, 'MCSub', '%{public}s',
+            `restore sub: candidates=${candidates.length} ordinal=${preference.ordinal} sid=${selected.id}`);
+        }
+        await engine.selectTrack(kind, selected.id);
+      } else {
+        if (kind === 'subtitle') {
+          hilog.warn(0x0000, 'MCSub', '%{public}s',
+            `restore sub 跳过: candidates=${candidates.length} ordinal=${preference.ordinal} 越界`);
+        }
+        if (kind === 'audio') { throw new EngineFailure('unsupported', 0, '当前内核无法选择指定音轨'); }
+      }
     }
   }
   private interrupt(hint: string): void {

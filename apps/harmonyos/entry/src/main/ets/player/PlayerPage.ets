@@ -4,7 +4,7 @@ import { Theme } from '../theme/AppTheme';
 
 import { RemoteImage } from '../common/RemoteImage';
 
-import { PlaybackSessionView, AudioTrackView, SubtitlePlanView, PlaybackSegmentView } from '../api/Models';
+import { PlaybackSessionView, AudioTrackView, SubtitlePlanView, PlaybackSegmentView, EpisodeView } from '../api/Models';
 
 import { PlayerParams } from '../player/PlayerParams';
 
@@ -56,21 +56,6 @@ export struct PlayerPage {
             this.LockAction()
           }
           .position({ x: 16, y: '50%' }).translate({ y: -22 })
-        }
-        // 本机外挂字幕：系统只回调文本不代画，自己画在底栏上方（控制条之下、常驻显示）。
-        // 样式走本机偏好（iOS SubtitleStyle：字号 = 屏宽 × fontScale%、距底 bottomPercent%、背景开关）
-        if (this.host.subtitleCue.length > 0) {
-          Text(this.host.subtitleCue)
-            .fontSize(Math.max(12, this.host.subFontScale / 100 * this.host.layerWidth))
-            .fontColor('#ffffff')
-            .textAlign(TextAlign.Center)
-            .maxLines(2)
-            .padding({ left: 14, right: 14, top: 5, bottom: 5 })
-            .backgroundColor(this.host.subBackground ? 'rgba(0,0,0,0.55)' : Color.Transparent)
-            .borderRadius(6)
-            .constraintSize({ maxWidth: '80%' })
-            .hitTestBehavior(HitTestMode.None)
-            .position({ x: '10%', y: `${Math.max(30, 100 - this.host.subBottom)}%` })
         }
         // 横滑定位的落点读数：整屏正中（与中央三键同一个中心，拖动时控制条已收起）
         if (this.host.scrubMs >= 0) {
@@ -195,6 +180,28 @@ export struct PlayerPage {
           .onDestroy((): void => { this.host.surfaceDestroyed(generation); })
       }, (generation: number): string => `${generation}`)
 
+      // 本机外挂字幕：系统只回调文本不代画，自己画。锚到视频盒底部，与 mpv 渲染进
+      // surface 同一参照系：字号 = 视频高 × fontScale%（mpv 的 sub-font-size 量纲
+      // 是 720 画布，N 渲染为 N/720 视频高，同语义）、距视频盒底 bottomPercent%。
+      // （此前按全屏顶边 92% 锚：长文案底边截出屏外，短文案也不水平居中。）
+      if (this.host.subtitleCue.length > 0) {
+        Stack({ alignContent: Alignment.Bottom }) {
+          Text(this.host.subtitleCue)
+            .fontSize(Math.max(12, this.host.subFontScale / 100 * this.host.surfaceHeight()))
+            .fontColor('#ffffff')
+            .textAlign(TextAlign.Center)
+            .maxLines(2)
+            .padding({ left: 14, right: 14, top: 5, bottom: 5 })
+            .backgroundColor(this.host.subBackground ? 'rgba(0,0,0,0.55)' : Color.Transparent)
+            .borderRadius(6)
+            .constraintSize({ maxWidth: '88%' })
+            .margin({ left: 16, right: 16, bottom: this.host.subBottom / 100 * this.host.surfaceHeight() })
+        }
+        .width(this.host.surfaceWidth())
+        .height(this.host.surfaceHeight())
+        .hitTestBehavior(HitTestMode.None)
+      }
+
       if (this.host.phase === PlayerPhase.negotiating || this.host.engineOpening) {
         Column({ space: 10 }) {
           LoadingProgress().width(30).height(30).color('#ffffff')
@@ -300,7 +307,8 @@ export struct PlayerPage {
     Button({ type: ButtonType.Circle }) {
       Stack() {
         if (this.host.showSheet && (this.host.sheetKind === kind ||
-          (kind === 'settings' && this.host.sheetKind !== 'audio' && this.host.sheetKind !== 'subtitle'))) {
+          (kind === 'settings' && this.host.sheetKind !== 'audio' && this.host.sheetKind !== 'subtitle'
+            && this.host.sheetKind !== 'episodes'))) {
           Circle().width(36).height(36).fill('rgba(255,255,255,0.2)').id(id + '-active')
         }
         Image(icon).width(22).height(22)
@@ -380,6 +388,9 @@ export struct PlayerPage {
           Row({ space: 0 }) {
             this.MenuAction($r('app.media.player_audio'), '音轨', 'audio', 'player-audio')
             this.MenuAction($r('app.media.player_subtitle'), '字幕', 'subtitle', 'player-subtitle')
+            if (this.host.episodes.length > 0) {
+              this.MenuAction($r('app.media.player_episodes'), '选集', 'episodes', 'player-episodes')
+            }
             this.MenuAction($r('app.media.player_more'), '设置', 'settings', 'player-settings')
           }
           .backgroundColor('rgba(45,45,48,0.65)')
@@ -751,7 +762,8 @@ export struct PlayerPage {
       Column({ space: 0 }) {
         if (this.host.sheetKind !== 'settings' && this.host.sheetKind !== 'stats') {
           Row({ space: 4 }) {
-            if (this.host.sheetKind !== 'audio' && this.host.sheetKind !== 'subtitle') {
+            if (this.host.sheetKind !== 'audio' && this.host.sheetKind !== 'subtitle'
+              && this.host.sheetKind !== 'episodes') {
               Button('‹').padding(0).width(28).height(36).fontSize(24).fontColor('#ffffff').backgroundColor(Color.Transparent)
                 .id('player-menu-back').accessibilityText('返回设置').onClick((): void => { this.host.sheetKind = 'settings'; })
             }
@@ -832,7 +844,83 @@ export struct PlayerPage {
       this.MenuRow({ title: '完整显示', selected: this.host.displayMode === 'fit', id: 'player-display-fit', action: (): void => { this.host.selectDisplay('fit'); }, hint: '保持比例，显示完整画面' })
       this.MenuRow({ title: '等比例铺满', selected: this.host.displayMode === 'fill', id: 'player-display-fill', action: (): void => { this.host.selectDisplay('fill'); }, hint: '保持比例，裁去超出屏幕的部分' })
       this.MenuRow({ title: '拉伸铺满', selected: this.host.displayMode === 'stretch', id: 'player-display-stretch', action: (): void => { this.host.selectDisplay('stretch'); }, hint: '填满屏幕，改变画面比例' })
+    } else if (this.host.sheetKind === 'episodes') {
+      ForEach(this.host.episodes, (episode: EpisodeView) => {
+        this.EpisodeRow(episode)
+      }, (episode: EpisodeView): string => `${episode.episode_number}`)
     }
+  }
+
+  private episodeLabel(episode: EpisodeView): string {
+    const name: string = episode.name ?? '';
+    return name.length > 0 ? `第 ${episode.episode_number} 集 · ${name}` : `第 ${episode.episode_number} 集`;
+  }
+
+  /** 选集行：分集剧照 + 「第 N 集 · 集名」（最多两行自适应，长了才截断）+ 状态行（缺集/已看/进度）；缺集置灰不可点 */
+  @Builder
+  EpisodeRow(episode: EpisodeView) {
+    Button({ type: ButtonType.Normal }) {
+      Row({ space: 10 }) {
+        RemoteImage({ url: this.host.episodeStillUrl(episode) })
+          .width(64)
+          .height(36)
+          .borderRadius(8)
+          .clip(true)
+          .border({
+            width: episode.episode_number === this.host.episodeNumber ? 1.5 : 0,
+            color: 'rgba(255,255,255,0.9)'
+          })
+        Column({ space: 2 }) {
+          Text(this.episodeLabel(episode))
+            .fontSize(14)
+            .fontWeight(episode.episode_number === this.host.episodeNumber ? 600 : 400)
+            .fontColor('#ffffff')
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+          if (!episode.owned) {
+            Text('缺集')
+              .fontSize(11)
+              .fontColor('rgba(255,255,255,0.4)')
+          } else if (episode.played) {
+            Text('已看')
+              .fontSize(11)
+              .fontColor('rgba(255,255,255,0.4)')
+          } else if ((episode.progress_percent ?? 0) > 0) {
+            Text(`已看 ${Math.round(episode.progress_percent ?? 0)}%`)
+              .fontSize(11)
+              .fontColor('rgba(255,255,255,0.4)')
+          }
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        if (episode.episode_number === this.host.episodeNumber) {
+          SymbolGlyph($r('sys.symbol.checkmark'))
+            .fontSize(14)
+            .fontWeight(600)
+            .fontColor(['#ffffff'])
+        }
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      .padding({ left: 8, right: 12, top: 8, bottom: 8 })
+      .constraintSize({ minHeight: 52 })
+      .opacity(episode.owned ? 1 : 0.4)
+    }
+    .id(`player-episode-${episode.episode_number}`)
+    .accessibilityText(`第 ${episode.episode_number} 集`)
+    .width('100%')
+    .padding(0)
+    .backgroundColor(Color.Transparent)
+    .borderRadius(20)
+    .onClick((): void => {
+      this.host.noteUserActivity();
+      if (!episode.owned || episode.episode_number === this.host.episodeNumber) {
+        return;
+      }
+      this.host.closeMenu();
+      this.host.playEpisode(episode);
+    })
   }
 
   /** 样式行里的圆步进钮（iOS StepButton） */

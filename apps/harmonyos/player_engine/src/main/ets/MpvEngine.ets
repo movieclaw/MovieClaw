@@ -1,4 +1,5 @@
 import { BusinessError } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { createEngine, initEngine, destroyEngine, command, setProperty, tracks, MpvEvent } from 'libmovieclaw_mpv.so';
 import { EngineEvent, EngineFailure, EngineSource, EngineTrack, PlayerEngine, SubtitleStyle } from './PlayerEngine';
 
@@ -48,15 +49,24 @@ export class MpvEngine implements PlayerEngine {
         'hwdec': 'ohcodec-copy',
         // The host sizes the surface for fit/fill/stretch, just as for AVPlayer.
         'wid': surfaceId, 'pause': 'yes', 'keep-open': 'yes', 'keepaspect': 'no',
-        'sub-fonts-dir': '/system/fonts', 'tls-verify': 'yes'
+        'sub-fonts-dir': '/system/fonts', 'tls-verify': 'yes',
+        // mpv 内部日志按模块放开（其余压到 warn）：字幕加载/选择/渲染走
+        // MpvLog 进 hilog，用于排查「sid 选中但不渲染」类问题。
+        'msg-level': 'all=warn,sub=v,dec_sub=v,ass=v,osd=v,cplayer=info'
       }, (event: MpvEvent): void => this.receive(event));
       if (this.released) { return; }
       await this.send(['loadfile', source.fd >= 0 ? `fd://${source.fd}` : source.url, 'replace']);
       await loaded;
       try {
-        if (source.subtitleFd >= 0) { await this.send(['sub-add', `fd://${source.subtitleFd}`, 'select']); }
-        else if (source.subtitleUrl.length > 0) { await this.send(['sub-add', source.subtitleUrl, 'select']); }
+        if (source.subtitleFd >= 0) {
+          await this.send(['sub-add', `fd://${source.subtitleFd}`, 'select']);
+          hilog.info(0x0000, 'MCSub', '%{public}s', 'mpv sub-add fd 成功');
+        } else if (source.subtitleUrl.length > 0) {
+          await this.send(['sub-add', source.subtitleUrl, 'select']);
+          hilog.info(0x0000, 'MCSub', '%{public}s', 'mpv sub-add url 成功');
+        }
       } catch (error) {
+        hilog.error(0x0000, 'MCSub', 'mpv sub-add 失败: %{public}s', `${error}`);
         const event = new EngineEvent(); event.type = 'diagnostic'; event.text = 'MPV 外挂字幕加载失败，继续播放'; this.onEvent(event);
       }
       await this.set('sub-delay', -(source.subtitleOffsetMs ?? 0) / 1000);
@@ -98,8 +108,12 @@ export class MpvEngine implements PlayerEngine {
     await this.set(kind === 'audio' ? 'aid' : 'sid', id < 0 ? 'no' : `${id}`);
   }
   async setSubtitleStyle(style: SubtitleStyle): Promise<void> {
-    // libass's default PlayResY is 720. Font size is expressed relative to that canvas.
-    await this.set('sub-font-size', 720 * style.fontScale / 100).catch((): void => {});
+    // sub-font-size 的量纲是 720 高的画布：ass_mp.c 的换算是
+    // libass_font_size = FontSize × window_height / PlayResY（scale 以 720 折算），
+    // 即 N 渲染为 N/720 的视频高、与分辨率无关。这里取 fontScale% 视频高，
+    // 与自绘字幕锚视频高同一语义。
+    const fontSize = Math.max(16, Math.round(720 * style.fontScale / 100));
+    await this.set('sub-font-size', fontSize).catch((): void => {});
     await this.set('sub-pos', 100 - style.bottomPercent).catch((): void => {});
     await this.set('sub-border-style', style.background ? 'background-box' : 'outline-and-shadow').catch((): void => {});
   }
@@ -118,6 +132,7 @@ export class MpvEngine implements PlayerEngine {
     if (this.released) { return; }
     const event = new EngineEvent();
     if (native.type === 'diagnostic') {
+      hilog.info(0x0000, 'MpvLog', '%{public}s', native.text);
       event.type = 'diagnostic';
       event.text = native.text.replace(/https?:\/\/[^\s"'<>]+/g, '[media URL]');
       this.onEvent(event); return;
@@ -185,6 +200,10 @@ export class MpvEngine implements PlayerEngine {
         event.type = 'diagnostic';
         event.text = native.text.length > 0 ? `MPV 硬解已启用: ${native.text}` : 'MPV 软件解码中';
         this.emitDecode();
+      } else if (native.name === 'sub-text') {
+        // vo_gpu 的 OSD 合成层在本平台不绘制（libass 字幕与 show-text 自检均不可见）：
+        // 解码出的字幕文本走事件交给应用层覆盖层渲染，与 avp 引擎共用同一条 subtitle 事件链。
+        event.type = 'subtitle'; event.text = native.text;
       } else { return; }
     } else {
       // playback-restart confirms resumption, not a displayed first frame.
