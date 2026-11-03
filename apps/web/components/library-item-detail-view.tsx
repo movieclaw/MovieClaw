@@ -1931,6 +1931,18 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
       ? ((selected != null ? rangeContaining(ranges, selected) : undefined) ?? ranges[0])
       : null;
   const currentRangePos = currentRange ? ranges.indexOf(currentRange) : -1;
+  // 站点季号说明（issue #1155）：去重后整行列出，与分集横滚卡分开排
+  const siteSeasonNotes = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (data?.episodes ?? [])
+            .map((e) => e.site_season_note)
+            .filter((note): note is string => Boolean(note)),
+        ),
+      ),
+    [data],
+  );
   const rowEpisodes = useMemo(
     () =>
       data && currentRange
@@ -1942,8 +1954,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   );
   const selectEpisode = (episodeNumber: number) => {
     rowScrollTarget.current = episodeNumber;
-    setSelected(episodeNumber);
-    // 选的就是当前集（面板里点回原来那一格）时 selected 不变，靠它触发滚动
+    setSelected(episodeNumber);    // 选的就是当前集（面板里点回原来那一格）时 selected 不变，靠它触发滚动
     setRowScrollNonce((n) => n + 1);
   };
   // 手动换段：段里有锚点选锚点，否则段首
@@ -2039,6 +2050,16 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
         <AirScheduleSummary episodes={data.episodes} schedule={airSchedule} onOpen={() => setAirOpen(true)} />
       )}
 
+      {/* 站点季号说明（issue #1155）：站点把 TMDB 的一季拆成两季发布时，这一季
+          里会有几段来自不同"站点季"。整行说明一次讲清，不打断下面的横滚卡节奏 */}
+      {data && siteSeasonNotes.length > 0 && (
+        <ul className="-mt-2 mb-3.5 flex flex-col gap-1 text-sub leading-5 text-[var(--text-faint)]">
+          {siteSeasonNotes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      )}
+
       {failed && (
         <p className="text-sub text-[var(--text-muted)]">{t("library.item.episodesFailed")}</p>
       )}
@@ -2061,18 +2082,14 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
             />
           )}
           {rowEpisodes.map((episode) => (
-            <Fragment key={episode.episode_number}>
-              {/* 站点把 TMDB 的一季拆成两季发布时，在这一块的首集前插一行说明
-                  （issue #1155）：解释"为什么后面的集也都在这一季" */}
-              {episode.site_season_note && <SiteSeasonNote note={episode.site_season_note} />}
-              <EpisodeCard
-                episode={episode}
-                selected={episode.episode_number === selected}
-                resume={watched && episode.episode_number === anchor}
-                schedule={airSchedule}
-                onSelect={() => setSelected(episode.episode_number)}
-              />
-            </Fragment>
+            <EpisodeCard
+              key={episode.episode_number}
+              episode={episode}
+              selected={episode.episode_number === selected}
+              resume={watched && episode.episode_number === anchor}
+              schedule={airSchedule}
+              onSelect={() => setSelected(episode.episode_number)}
+            />
           ))}
           {currentRangePos >= 0 && currentRangePos < ranges.length - 1 && (
             <RangeEdgeCard
@@ -2206,19 +2223,6 @@ function RangeEdgeCard({
       <span>{dir === -1 ? t("library.item.previousRange") : t("library.item.nextRange")}</span>
       <span className="text-[var(--text-faint)]">{episodeRangeLabel(range)}</span>
     </button>
-  );
-}
-
-/**
- * 站点季号说明（issue #1155）：站点把 TMDB 的一季拆成两季发布时，插在那一块
- * 首集之前的一行小字。文案由服务端按请求语言渲染好，这里只负责排版——
- * 淡色 caption + 左侧竖线，与既有辅助说明同一视觉语言，不引入新的卡片形态。
- */
-function SiteSeasonNote({ note }: { note: string }) {
-  return (
-    <div className="flex h-[112.5px] w-[150px] shrink-0 items-center self-start border-l border-white/[0.08] pl-3 text-caption leading-5 text-[var(--text-faint)]">
-      {note}
-    </div>
   );
 }
 
