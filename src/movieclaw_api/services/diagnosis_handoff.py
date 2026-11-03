@@ -339,13 +339,13 @@ _ACTIONS: dict[str, list[str]] = {
         # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "忽略（仅失败任务；阻塞任务占着资源锁不能忽略，要么处理要么取消）",
         # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
-        "「设置 → 监听导入」清单里认领身份或忽略条目（入库阻塞时）",
+        "「设置 → 自动入库」清单里认领身份或忽略条目（入库阻塞时）",
         # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "「设置 → AI 模型」配置模型（字幕任务阻塞时）",
     ],
     "ingest": [
         # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
-        "「设置 → 监听导入」清单：搜索 TMDB 认领（claim）、忽略（ignore）、恢复处理（restore）",
+        "「设置 → 自动入库」清单：搜索 TMDB 认领（claim）、忽略（ignore）、恢复处理（restore）",
         # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "改文件名让指纹变化，系统会自动重跑识别",
     ],
