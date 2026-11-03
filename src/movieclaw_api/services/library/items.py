@@ -2736,6 +2736,10 @@ class EpisodeInfo:
     played: bool = False
     progress_percent: int | None = None  # 1~99；完成态由 played 单独表达
     last_played_at: datetime | None = None  # 只供 season_resume_episode 定锚点，不出接口
+    # 该集起点处的站点季号说明（issue #1155，只有该块的首集非空）：
+    # "站点按第 2 季发布，已自动归入本季"。前端在这一集之前渲染一行小字，
+    # 解释"为什么 25 集都在第一季"
+    site_season_note: str | None = None
 
 
 def season_resume_episode(infos: list[EpisodeInfo]) -> int | None:
@@ -2773,6 +2777,7 @@ def episode_view(info: EpisodeInfo) -> EpisodeView:
         position_ms=info.position_ms,
         played=info.played,
         progress_percent=info.progress_percent,
+        site_season_note=info.site_season_note,
     )
 
 
@@ -2909,6 +2914,8 @@ async def build_season_episodes(
 
             asyncio.get_running_loop().create_task(scrape_media_item(item.id))
 
+    _annotate_site_seasons(item, season_number, infos)
+
     if member_id is not None and item.id is not None:
         from movieclaw_playback import state as playback_state
 
@@ -2937,6 +2944,38 @@ async def build_season_episodes(
                         1, min(99, round(row.position_ms * 100 / duration_ms))
                     )
     return infos
+
+
+def _annotate_site_seasons(
+    item: MediaItem, season_number: int, infos: list[EpisodeInfo]
+) -> None:
+    """在每块的起始集上挂一行「站点按第 N 季发布」的说明（issue #1155）。
+
+    站点把 TMDB 的一季拆成两季发布时，25 集全在 ``Season 01/`` 下，用户看到
+    第 13 集突然出现会以为是错的；这一行小字负责解释。只在**块的首集**挂，
+    一条说明管一整段，不给每一集都加。没有映射（普通剧）时什么也不做。
+    """
+    from movieclaw_matcher.seasons import mapping_from_json
+
+    blocks = [
+        block
+        for block in mapping_from_json(item.season_mapping).blocks
+        if block.season == season_number and block.site_season != season_number
+    ]
+    if not blocks:
+        return
+    by_episode = {info.episode_number: info for info in infos}
+    for block in blocks:
+        info = by_episode.get(block.start)
+        if info is None:
+            continue
+        # t() 按当前请求的语言渲染：这是纯展示文案，与活动流水里的留存副本不同
+        info.site_season_note = t(
+            "library.episodes.siteSeasonNote",
+            site_season=block.site_season,
+            start=block.start,
+            end=block.end,
+        )
 
 
 async def _fill_from_tmdb_season(

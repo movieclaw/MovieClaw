@@ -126,8 +126,24 @@ class SeasonMapping:
                 return block
         return None
 
+    @property
+    def needs_mapping(self) -> tuple[SeasonBlock, ...]:
+        """真正需要换算的块：``站点季号 == TMDB 季号`` 且从该季第 1 集起的块
+        对消费侧毫无信息量（普通剧的每一块都是它），**落库时**把它们剔掉，
+        普通剧的 ``season_mapping`` 才是 ``[]``（"算过且无需映射"）。
+
+        推导本身仍然返回全部块——那是条目的客观事实，也是"89 天不切 /
+        91 天切"这类断言能落到具体块上的前提。
+        """
+        return tuple(
+            block
+            for block in self.blocks
+            if not (block.site_season == block.season and block.start == 1)
+        )
+
     def to_json(self) -> list[dict]:
-        return [block.to_json() for block in self.blocks]
+        """落库形状：只写真正需要换算的块（见 :attr:`needs_mapping`）。"""
+        return [block.to_json() for block in self.needs_mapping]
 
     def as_identity_blocks(self) -> tuple[tuple[int, int, int, int], ...]:
         """内核 ``MediaIdentity.season_blocks`` 的形状：(站点季, TMDB 季, 起, 止)。"""
@@ -174,7 +190,9 @@ def derive_season_mapping(
       归最后一块，全季日期之后只有它自己时同理；
     - 每个 block 必须已播完（末个**有日期**的集 ``air_date < today``）才
       参与，未播完的整块丢弃（G1，不对未来开口）；
-    - 全部 block 按首播日期排序后统一编号。
+    - 全部 block 按首播日期排序后统一编号。**推导一律返回全部块**——那是
+      条目的客观事实；恒等块在**落库时**才被 :attr:`SeasonMapping.needs_mapping`
+      剔除，好让普通剧的 ``season_mapping`` 是 ``[]``。
     """
     today = today or date.today()
     by_season: dict[int, list[tuple[int, date | None]]] = {}

@@ -1320,6 +1320,13 @@ class EpisodeView(BaseModel):
     progress_percent: int | None = Field(
         default=None, description="观看进度 1~99；已看完由 played 表达，不给百分比"
     )
+    site_season_note: str | None = Field(
+        default=None,
+        description=(
+            "该集起点处的站点季号说明（issue #1155）：站点把 TMDB 的一季拆成两季"
+            "发布时，在这一集之前渲染一行小字解释；只有每块的首集有值，普通剧恒为 null"
+        ),
+    )
 
 
 class EpisodeArrivalView(BaseModel):

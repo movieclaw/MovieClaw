@@ -916,5 +916,8 @@
     "en": "English",
     "ja": "Japanese",
     "ko": "Korean"
+  },
+  "episodes": {
+    "siteSeasonNote": "Episodes {start}–{end}: the site released these as season {site_season}; they are mapped into this season automatically"
   }
 }

@@ -2061,14 +2061,18 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
             />
           )}
           {rowEpisodes.map((episode) => (
-            <EpisodeCard
-              key={episode.episode_number}
-              episode={episode}
-              selected={episode.episode_number === selected}
-              resume={watched && episode.episode_number === anchor}
-              schedule={airSchedule}
-              onSelect={() => setSelected(episode.episode_number)}
-            />
+            <Fragment key={episode.episode_number}>
+              {/* 站点把 TMDB 的一季拆成两季发布时，在这一块的首集前插一行说明
+                  （issue #1155）：解释"为什么后面的集也都在这一季" */}
+              {episode.site_season_note && <SiteSeasonNote note={episode.site_season_note} />}
+              <EpisodeCard
+                episode={episode}
+                selected={episode.episode_number === selected}
+                resume={watched && episode.episode_number === anchor}
+                schedule={airSchedule}
+                onSelect={() => setSelected(episode.episode_number)}
+              />
+            </Fragment>
           ))}
           {currentRangePos >= 0 && currentRangePos < ranges.length - 1 && (
             <RangeEdgeCard
@@ -2202,6 +2206,19 @@ function RangeEdgeCard({
       <span>{dir === -1 ? t("library.item.previousRange") : t("library.item.nextRange")}</span>
       <span className="text-[var(--text-faint)]">{episodeRangeLabel(range)}</span>
     </button>
+  );
+}
+
+/**
+ * 站点季号说明（issue #1155）：站点把 TMDB 的一季拆成两季发布时，插在那一块
+ * 首集之前的一行小字。文案由服务端按请求语言渲染好，这里只负责排版——
+ * 淡色 caption + 左侧竖线，与既有辅助说明同一视觉语言，不引入新的卡片形态。
+ */
+function SiteSeasonNote({ note }: { note: string }) {
+  return (
+    <div className="flex h-[112.5px] w-[150px] shrink-0 items-center self-start border-l border-white/[0.08] pl-3 text-caption leading-5 text-[var(--text-faint)]">
+      {note}
+    </div>
   );
 }
 

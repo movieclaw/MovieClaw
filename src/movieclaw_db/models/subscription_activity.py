@@ -58,6 +58,11 @@ class ActivityType(StrEnum):
     SPEC_MISMATCH = "spec_mismatch"  # 入库文件实测规格与种子声称不符
     # 集数证据（services/subscription/episode_floor.py）
     EPISODE_HINT = "episode_hint"  # 站点/豆瓣显示本季集数多于 TMDB，待用户确认
+    # 站点季号映射（issue #1155）：TMDB 把实际分两季的剧登记成一条长季，
+    # 站点按 S01/S02 拆开发布；归一成功后记一条说明，回答"站点的第 2 季
+    # 为什么能补到第 13 集"。拒绝侧的对应原因码是 match_rejected 的
+    # ``season_unmapped``（读不懂季号，且映射没建立起来）
+    SEASON_MAPPED = "season_mapped"
 
 
 class SubscriptionActivity(TimestampMixin, table=True):
