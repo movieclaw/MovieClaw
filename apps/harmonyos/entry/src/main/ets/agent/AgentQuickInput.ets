@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { UIContext, window } from '@kit.ArkUI';
+import { KeyboardAvoidMode, UIContext, window } from '@kit.ArkUI';
 import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
@@ -291,14 +291,40 @@ export struct AgentQuickInput {
   /** 折叠态输入行的实测高：覆盖层（＋/发送）跟着它走，系统字号放大也不错位 */
   @Local private inputLineHeight: number = COLLAPSED_LINE;
   private keyboardWindow: window.Window | null = null;
+  /** 键盘高度回调的引用：off 必须带上它——不带会把同窗口其他组件（如会话页）的监听一并摘掉 */
+  private keyboardCallback: ((height: number) => void) | null = null;
+  /** 进入时记下的窗口键盘避让模式，失焦/销毁时还原（默认 OFFSET=整页上抬） */
+  private avoidDefault: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET;
 
   aboutToAppear(): void {
+    try {
+      this.avoidDefault = this.getUIContext().getKeyboardAvoidMode();
+    } catch (error) {
+    }
     this.observeKeyboard();
   }
 
+  /**
+   * 只抬输入卡、不推整页：聚焦时把窗口键盘避让切成 NONE——系统不再上抬整页，
+   * 输入卡只用 bottom margin 自己贴到键盘顶；失焦/销毁还原默认。
+   * 还原带守卫：中途避让模式被别的页面改过（如会话页设 RESIZE）就不再动它。
+   */
+  private setBarAvoid(focusIn: boolean): void {
+    try {
+      if (focusIn) {
+        this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
+      } else if (this.getUIContext().getKeyboardAvoidMode() === KeyboardAvoidMode.NONE) {
+        this.getUIContext().setKeyboardAvoidMode(this.avoidDefault);
+      }
+    } catch (error) {
+    }
+  }
+
   aboutToDisappear(): void {
-    if (this.keyboardWindow !== null) {
-      this.keyboardWindow.off('keyboardHeightChange');
+    this.setBarAvoid(false);
+    if (this.keyboardWindow !== null && this.keyboardCallback !== null) {
+      this.keyboardWindow.off('keyboardHeightChange', this.keyboardCallback);
+      this.keyboardCallback = null;
       this.keyboardWindow = null;
     }
   }
@@ -316,14 +342,15 @@ export struct AgentQuickInput {
     const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     window.getLastWindow(context).then((win: window.Window): void => {
       this.keyboardWindow = win;
-      win.on('keyboardHeightChange', (height: number): void => {
+      this.keyboardCallback = (height: number): void => {
         const inset: number = height > 0 ? px2vp(height) : 0;
         if (inset === 0 && this.store.draft.trim().length === 0 && this.store.attachments.length === 0
           && this.store.uploadError.length === 0) {
           this.expanded = false;
         }
         this.keyboardInset = inset;
-      });
+      };
+      win.on('keyboardHeightChange', this.keyboardCallback);
     }).catch((): void => {
     });
   }
@@ -369,7 +396,11 @@ export struct AgentQuickInput {
               this.store.draft = value;
             })
             .onFocus((): void => {
+              this.setBarAvoid(true);
               this.expanded = true;
+            })
+            .onBlur((): void => {
+              this.setBarAvoid(false);
             })
 
           if (this.expanded) {
@@ -425,9 +456,13 @@ export struct AgentQuickInput {
     .border({ width: 1, color: 'rgba(255, 255, 255, 0.07)' })
     .margin({
       /*
-       * 键盘弹出时贴键盘；否则抬到官方贴底页签栏上方：栏高 56 + 手势区，再留 12 呼吸。
+       * 键盘定位：聚焦时窗口避让已切成 NONE（见 setBarAvoid），系统不上抬整页，
+       * 输入卡只用 bottom margin 贴到键盘顶——容器全屏铺满、底边即屏幕底，
+       * keyboardInset 就是键盘离屏底的高度。收起时回到贴底页签栏上方：栏高 56 + 手势区 + 12 呼吸。
        */
-      bottom: this.keyboardInset > 0 ? 8 : BAR_LIFT_DOCKED + 56 + (this.tabBarStyle.floating ? 12 : 0) + WindowInsets.shared().bottom
+      bottom: this.keyboardInset > 0
+        ? this.keyboardInset
+        : BAR_LIFT_DOCKED + 56 + (this.tabBarStyle.floating ? 12 : 0) + WindowInsets.shared().bottom
     })
     .id('app-more-ai-input')
     .visibility(this.visible() ? Visibility.Visible : Visibility.None)
