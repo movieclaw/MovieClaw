@@ -4,4 +4,4 @@ export { PlaybackGuard } from './src/main/ets/SystemPlaybackBridge';
 export { PlaybackSessionCoordinator, PlaybackSessionPort, SessionProgress } from './src/main/ets/PlaybackSessionCoordinator';
 export { PlaybackOwnership } from './src/main/ets/PlaybackOwnership';
 export { SkipSegments, PlaybackSegment } from './src/main/ets/SkipSegments';
-export { shiftSubtitleTimeline } from './src/main/ets/SubtitleTimeline';
+export { shiftSubtitleTimeline, assToSrt } from './src/main/ets/SubtitleTimeline';

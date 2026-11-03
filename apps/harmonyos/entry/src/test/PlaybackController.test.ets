@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { EngineEvent, EngineFactory, EngineFailure, EngineId, EngineSource, EngineTrack,
   PlayerEngine, SubtitleStyle } from '@movieclaw/player-engine';
-import { MediaLease, PlaybackController, PlaybackIntent, PlaybackMedia, shiftSubtitleTimeline } from '@movieclaw/playback';
+import { assToSrt, MediaLease, PlaybackController, PlaybackIntent, PlaybackMedia, shiftSubtitleTimeline } from '@movieclaw/playback';
 
 class FakeEngine implements PlayerEngine {
   onEvent: (event: EngineEvent) => void = (): void => {};
@@ -275,6 +275,19 @@ export default function playbackControllerTest() {
         .assertEqual('00:00:02,500 --> 00:00:04,000\nHello');
       expect(shiftSubtitleTimeline('Dialogue: 0,0:00:32.50,0:00:34.00,Default,,0,0,0,,Hello', 30000))
         .assertContain('00:00:02.50,00:00:04.00');
+    });
+    it('ass_events_convert_to_plain_srt_cues', 0, () => {
+      const ass = '[Script Info]\nScriptType: v4.00+\n\n[Events]\n'
+        + 'Format: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
+        + 'Dialogue: Marked=0,0:01:02.03,0:01:03.00,Default,,0,0,0,,<i>bye</i>&amp;more\n'
+        + 'Dialogue: Marked=0,0:00:32.50,0:00:34.00,Default,,0,0,0,,{\\pos(100,200)}Hello, world\\Nsecond line\n';
+      expect(assToSrt(ass)).assertEqual(
+        '1\n00:00:32,500 --> 00:00:34,000\nHello, world\nsecond line\n\n'
+        + '2\n00:01:02,030 --> 00:01:03,000\nbye&more');
+    });
+    it('ass_without_events_or_format_yields_empty_srt', 0, () => {
+      expect(assToSrt('[Script Info]\nTitle: only')).assertEqual('');
+      expect(assToSrt('[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,orphan')).assertEqual('');
     });
     it('seek_before_server_window_requests_a_new_source', 0, async () => {
       const factory = new FakeFactory(); const media = new FakeMedia(factory.order); media.originMs = 30000;
