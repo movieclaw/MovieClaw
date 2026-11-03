@@ -391,5 +391,11 @@
   },
   "subscription.seasonMapped": {
     "sourceHash": "078b3c4b44ec02abe87dc9ae32e713fdf82e800a57ebb278e03e8cf2a0ab0198"
+  },
+  "subscription.seasonRange": {
+    "sourceHash": "1f8c1cc409d4d91e288e38882ac2124f61cb5a7aafe6979c98d8b31e9a052dba"
+  },
+  "subscription.seasonRangeSingle": {
+    "sourceHash": "bf32dbfa638f3bcd4d5e9b33f5fb8fe9425cd756280f2286b8e79c8b90925c04"
   }
 }

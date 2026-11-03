@@ -122,7 +122,9 @@
     "releaseCleared": "《{title}》档期撤销，重新定档/上映后再安排搜索",
     "truncated": "本季还有没订到的集，可随时继续订阅",
     "seasonUnmapped": "「{title}」来自 {site}，标的 {seasons} 在本条目里不存在（本条目只有 {known}）；如果是站点把一季拆成了两季发布，可稍后重试或联系管理员",
-    "seasonMapped": "{site}按{target}发布，已自动归入对应集参与匹配（来自「{title}」）"
+    "seasonMapped": "{site}按{target}发布，已自动归入对应集参与匹配（来自「{title}」）",
+    "seasonRange": "第 {season} 季第 {start}–{end} 集",
+    "seasonRangeSingle": "第 {season} 季第 {start} 集"
   },
   "jobActions": {
     "dismissAll": "已忽略 {count} 个失败任务",
