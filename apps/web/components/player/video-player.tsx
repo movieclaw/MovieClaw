@@ -846,7 +846,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
    * 为了这个，见 player-feel.md §2.A1，别从这里把它加回来）。
    */
   const [speedLabel, setSpeedLabel] = useState<string | null>(null);
-  /** 最近一次可用的取流速度（bps），下一次开会话带给服务端压码率（§C） */
+  /** 最近一次可用的线路带宽（bps），下一次开会话带给服务端压码率（§C） */
   const lastDownlinkRef = useRef<number | null>(null);
   /**
    * 本集是否已经按带宽同档重开过一次（已在转码、用户没限画质、线路跟不上时自动压码率，
@@ -1786,10 +1786,15 @@ export function VideoPlayer(props: VideoPlayerProps) {
       const seeking = phase === "seeking" || (recordRef.current?.seekInFlight ?? false);
       const stalled = phase === "buffering" || phase === "seeking";
       const suggestion = suggestionRef.current;
-      suggestion.tick({ stalled, seeking, loadingBps: stats.loadingBps });
+      const plan = session.decision.video;
+      // 转码产出速度不代表线路带宽；只用引擎排除服务端等待 / 半成品响应后的读数。
+      suggestion.tick({
+        stalled,
+        seeking,
+        loadingBps: plan?.action === "transcode" ? stats.downlinkBps : stats.loadingBps,
+      });
       // 这条流的码率：量得到（hls.js 已收完分片）用量的；量到之前，转码流用服务端的转码目标码率，
       // 视频直通才是片源码率
-      const plan = session.decision.video;
       const bitrate =
         stats.bitrate ?? (plan?.action === "transcode" ? transcodeBitrateBps(plan) : sourceBitrateRef.current);
       // 真卡住了、而且这一秒的加载速度确实比码率慢（线路跟不上，不是一时抖动）：放大前向缓冲，
@@ -1834,7 +1839,6 @@ export function VideoPlayer(props: VideoPlayerProps) {
         // 每集只一次；重开后仍跟不上，换成提示卡交给用户
         bandwidthRestartedRef.current = true;
         suggestionRef.current = new QualitySuggestion();
-        lastDownlinkRef.current = offer.measuredBps;
         freezeFrame();
         video.pause();
         wantsPlayRef.current = true;
