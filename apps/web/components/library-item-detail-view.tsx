@@ -1956,7 +1956,8 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   );
   const selectEpisode = (episodeNumber: number) => {
     rowScrollTarget.current = episodeNumber;
-    setSelected(episodeNumber);    // 选的就是当前集（面板里点回原来那一格）时 selected 不变，靠它触发滚动
+    setSelected(episodeNumber);
+    // 选的就是当前集（面板里点回原来那一格）时 selected 不变，靠它触发滚动
     setRowScrollNonce((n) => n + 1);
   };
   // 手动换段：段里有锚点选锚点，否则段首
