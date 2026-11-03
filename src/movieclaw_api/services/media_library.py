@@ -345,7 +345,7 @@ class MediaLibraryService:
         setting: MetadataScrapeSetting | None = None,
     ) -> tuple[MediaItem, list[MediaSeason], list[MediaEpisode], MediaMetadata]:
         """传输模型 → ORM 行（身份 + 展示层）。入口带来的别名合并进别名集合。"""
-        from movieclaw_api.services.media_scrape import build_display_rows
+        from movieclaw_api.services.media_scrape import build_display_rows, profile_season_mapping
 
         aliases = list(profile.aliases)
         merged = self._merge_aliases(aliases, extra_aliases)
@@ -366,6 +366,9 @@ class MediaLibraryService:
             poster_path=profile.poster_path,
             backdrop_path=profile.backdrop_path,
             logo_path=profile.logo_path,
+            # 站点季号映射与展示行同源（issue #1155）：建档后第一次匹配就要能
+            # 读到，不能等下一轮元数据刷新
+            season_mapping=profile_season_mapping(profile),
             metadata_refreshed_at=utcnow(),
             # NULL=立即到期：刷新任务首个 tick 会处理并按 status 分档重排
             next_refresh_at=None,
