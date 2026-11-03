@@ -182,7 +182,9 @@ void Execute(napi_env, void *data) {
     }
     work.error = mpv_initialize(engine.mpv);
     if (work.error < 0) return;
-    mpv_request_log_messages(engine.mpv, "warn");
+    // Client-side threshold at "v": per-module verbosity is governed by the
+    // msg-level option (MpvEngine passes all=warn,sub=v,dec_sub=v,ass=v,osd=v).
+    mpv_request_log_messages(engine.mpv, "v");
     uint64_t observer = 1;
     for (const char *property : {"time-pos", "duration", "width", "height", "demuxer-cache-duration"}) {
       work.error = mpv_observe_property(engine.mpv, observer++, property, MPV_FORMAT_DOUBLE);
@@ -195,7 +197,10 @@ void Execute(napi_env, void *data) {
     // hwdec-current is the runtime decoder actually in use ("h264_ohcodec" etc.,
     // empty for software decode); video-format and video-params/pixelformat
     // ("nv12"/"p010") identify codec and bit depth for the diagnostics panel.
-    for (const char *property : {"hwdec-current", "video-format", "video-params/pixelformat"}) {
+    // sub-text: the vo_gpu OSD composite layer draws nothing on this platform
+    // (libass subtitles and show-text are both invisible), so the decoded cue
+    // text is surfaced as events for the app-side ArkUI overlay renderer.
+    for (const char *property : {"hwdec-current", "video-format", "video-params/pixelformat", "sub-text"}) {
       work.error = mpv_observe_property(engine.mpv, observer++, property, MPV_FORMAT_STRING);
       if (work.error < 0) return;
     }
