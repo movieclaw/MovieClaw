@@ -82,22 +82,44 @@ def test_89_day_gap_does_not_split_but_91_does() -> None:
 
 
 def test_future_block_is_excluded() -> None:
-    """G1：末集还没播（air_date >= today）的 block 不参与，前面的照常。"""
+    """G1：**还没开播**的 block 不参与，已开播的（哪怕没播完）照常保留。"""
     today = date(2025, 2, 1)
+    # E13 于 2025-01-05 开播，此刻已开播但未播完 → 保留完整区间
     episodes = _SOLO_S1 + _weekly(1, 13, 13, date(2025, 1, 5))
     mapping = derive_season_mapping(episodes, today=today)
-    assert mapping.blocks == (SeasonBlock(site_season=1, season=1, start=1, end=12),)
+    assert mapping.blocks == (
+        SeasonBlock(site_season=1, season=1, start=1, end=12),
+        SeasonBlock(site_season=2, season=1, start=13, end=25),
+    )
 
-    # 断档左侧本身就没播完：整块丢弃，映射为空
-    assert not derive_season_mapping(_weekly(1, 1, 3, date(2025, 1, 20)), today=today)
+    # 开播日还在未来：整块丢弃，映射为空
+    assert not derive_season_mapping(_weekly(1, 1, 3, date(2025, 3, 1)), today=today)
 
 
-def test_block_ending_today_is_not_considered_aired() -> None:
-    """末集就是今天：严格小于才算播完，不提前开口。"""
-    today = date(2025, 3, 30)
+def test_partially_aired_block_keeps_full_range() -> None:
+    """在播中的块保留完整区间，未播集交给 covered_units 的发布时间上限剔除。
+
+    真实场景（issue #1155）：剧播到 E18 时建立订阅。若整块丢掉，站点 S02 的
+    已播单集 E13–E18 在整季播完前一条都收不到。
+    """
+    today = date(2025, 2, 20)  # E18 = 2025-02-16 已播，E19 = 2025-03-02 未播
+    episodes = list(_SOLO_S1)
+    episodes += _weekly(1, 13, 6, date(2025, 1, 5))  # E13–E18
+    episodes += _weekly(1, 19, 7, date(2025, 3, 2))  # E19–E25（未播）
+    mapping = derive_season_mapping(episodes, today=today)
+    assert mapping.blocks == (
+        SeasonBlock(site_season=1, season=1, start=1, end=12),
+        SeasonBlock(site_season=2, season=1, start=13, end=25),
+    )
+    # 已播的 E13–E18 现在就能被站点 S02 覆盖；E19+ 由 air_date 上限挡在门外
+    assert translate_unit(mapping, 2, 1) == (1, 13)
+
+
+def test_block_starting_today_counts_as_aired() -> None:
+    """开播日就是今天：判据是 <=，当天即参与（对齐 schedule_for 的当天可搜）。"""
+    today = date(2025, 1, 5)
     mapping = derive_season_mapping(_SOLO_S1 + _SOLO_S2, today=today)
-    # S02 末集 2025-03-30 == today → 整块排除
-    assert mapping.blocks == (SeasonBlock(site_season=1, season=1, start=1, end=12),)
+    assert mapping.blocks[1] == SeasonBlock(site_season=2, season=1, start=13, end=25)
 
 
 def test_season_zero_is_excluded() -> None:

@@ -30,9 +30,12 @@ TMDB S01
 
 ## 守卫
 
-- **G1**：block 必须已播完（``end`` 那集的 ``air_date < today``）才参与推导，
-  不对未来开口。TMDB 已经登记了后面的集、但还没播时，提前把站点季号切出来
-  只会让映射提前生效、指到还不存在的集上；
+- **G1**：block 必须**已开播**（首个已定档集的 ``air_date <= today``）才参与
+  推导，不对未来开口——TMDB 连首播日都还没有的块，站点季号切出来也只会在
+  开头那几天把映射指到还不存在的集上；
+- 块保留**完整集号区间**（若干集还没播也不截断）：在播中的块如果整块丢掉，
+  站点 S02 的已播单集在整季播完前一条都收不到。未播集由 ``covered_units``
+  的 air_date 上限自然剔除（``_airable`` / ``_explicit_airable``）；
 - **季 0（特别篇）**完全不参与——特别篇的发行季号是站点的私事，没有稳定规律。
 
 无 ``air_date`` 的集不参与断档判定（没有日期就没有间隔可言），但如果它的
@@ -188,8 +191,10 @@ def derive_season_mapping(
       [首集, 末集] 区间内直接归它；落在两块之间的空隙时归**后一块**
       （断档发生在它之前，它属于断档之后那一季）；比所有日期都靠后的
       归最后一块，全季日期之后只有它自己时同理；
-    - 每个 block 必须已播完（末个**有日期**的集 ``air_date < today``）才
-      参与，未播完的整块丢弃（G1，不对未来开口）；
+    - 每个 block 必须**已开播**（首个有日期的集 ``air_date <= today``）才参与，
+      未开播的整块丢弃（G1，不对未来开口）。**已开播但还没播完的块照常保留
+      完整区间**——在播期间站点 S02 的已播集也要能收到，未播集由
+      ``covered_units`` 的 air_date 上限剔除；
     - 全部 block 按首播日期排序后统一编号。**推导一律返回全部块**——那是
       条目的客观事实；恒等块在**落库时**才被 :attr:`SeasonMapping.needs_mapping`
       剔除，好让普通剧的 ``season_mapping`` 是 ``[]``。
@@ -233,9 +238,13 @@ def derive_season_mapping(
             home[0] = min(home[0], episode)
             home[1] = max(home[1], episode)
 
-        for start, end, first_day, last_day in chunks:
-            # G1：末个有日期的集必须已经播出（严格早于今天）
-            if not last_day < today:
+        for start, end, first_day, _last_day in chunks:
+            # G1：块必须**已开播**才参与（不对未来开口）。用「已开播」而不是
+            # 「已播完」：在播中的块如果整块丢掉，站点 S02 的已播单集在整季
+            # 播完前一条都收不到（#1155 的剧播到 E18 时订阅，S2 要等到 E19
+            # 播出后才生效）。块照常保留完整区间 start..end，未播集由
+            # covered_units 的 air_date 上限自然剔除（_airable/_explicit_airable）
+            if not first_day <= today:
                 continue
             blocks.append((first_day, season, start, end))
 
