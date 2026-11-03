@@ -531,6 +531,12 @@ class IdentityMatch:
     # 集数时，超出部分的占位单元没有播出日期、过不了发布时间上限，只能靠这个
     # 声明判断包里有没有它（issue #640）
     declared_total: int | None = None
+    # 这一次匹配是否发生过站点季号归一（issue #1155）。消费侧据此记一条
+    # ``SEASON_MAPPED`` 活动，解释"站点的第 2 季为什么补到了第 13 集"。
+    # 只有真的换算过才为 True——普通剧恒为 False，不产生任何新活动记录。
+    # 同时兼作 ``site_seasons`` 的携带者：换算前的站点季号（用于活动文案）
+    season_normalized: bool = False
+    site_seasons: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)

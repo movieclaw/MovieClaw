@@ -787,6 +787,8 @@ def _derive_units(
                 is_pack=is_pack,
                 confidence=confidence,
                 matched_alias=alias,
+                season_normalized=True,
+                site_seasons=frozenset({season}),
             )
         return IdentityMatch(
             episodes=frozenset((season, e) for e in episodes),
@@ -814,6 +816,8 @@ def _derive_units(
                     confidence=confidence,
                     matched_alias=alias,
                     declared_total=total,
+                    season_normalized=True,
+                    site_seasons=frozenset({seasons[0]}),
                 )
         return IdentityMatch(
             pack_seasons=frozenset(seasons),

@@ -918,5 +918,8 @@
     "en": "英语",
     "ja": "日语",
     "ko": "韩语"
+  },
+  "episodes": {
+    "siteSeasonNote": "第 {start}–{end} 集：站点按「第 {site_season} 季」发布，已自动归入本季"
   }
 }

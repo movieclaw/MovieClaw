@@ -154,18 +154,26 @@ def test_blocks_are_numbered_across_seasons_by_first_air_date() -> None:
 
 
 def test_json_round_trip_and_empty_states() -> None:
-    """落库形状：裸列表；NULL 与 [] 都读成空映射（"不要换算"）。"""
+    """落库形状：裸列表，且**不含恒等块**；NULL 与 [] 都读成空映射。"""
     mapping = derive_season_mapping(_SOLO_S1 + _SOLO_S2, today=_TODAY)
     payload = mapping_to_json(mapping)
-    assert payload == [
-        {"number": 1, "season": 1, "start": 1, "end": 12},
-        {"number": 2, "season": 1, "start": 13, "end": 25},
-    ]
-    assert mapping_from_json(payload) == mapping
+    # 站点 S01 == TMDB S01 且从 E01 起：不含需换算的信息，不落库
+    assert payload == [{"number": 2, "season": 1, "start": 13, "end": 25}]
+    assert mapping_from_json(payload) == SeasonMapping(
+        blocks=(SeasonBlock(site_season=2, season=1, start=13, end=25),)
+    )
     assert not mapping_from_json(None)
     assert not mapping_from_json([])
     # 设计文档 §6 的包裹写法也能读
-    assert mapping_from_json({"site_seasons": payload}) == mapping
+    assert mapping_from_json({"site_seasons": payload}).by_site_season(2) is not None
+
+
+def test_ordinary_show_persists_as_empty_mapping() -> None:
+    """普通两季剧：推得出两块，但两块都是恒等块 → 落库为空列表。"""
+    episodes = _weekly(1, 1, 10, date(2024, 1, 7)) + _weekly(2, 1, 10, date(2025, 3, 1))
+    mapping = derive_season_mapping(episodes, today=_TODAY)
+    assert len(mapping.blocks) == 2
+    assert mapping_to_json(mapping) == []
 
 
 def test_by_range_finds_the_block_for_an_episode() -> None:
