@@ -117,16 +117,16 @@ export function NetflixSubscriptionsPage() {
   const subs = useMemo(() => subscriptions ?? [], [subscriptions]);
 
   // 预告卡的画面与进度：横版剧照按订阅 id 就地取（没有横图才退回海报，卡片
-  // 按素材形态决定铺满还是走兜底）；下载进度取该订阅当前所有在传任务的最大值
-  // （0~1），只在「下载中」的卡上画红条。
+  // 按素材形态决定铺满还是走兜底；横图取不到时用同一份海报兜底）；下载进度取
+  // 该订阅当前所有在传任务的最大值（0~1），只在「下载中」的卡上画红条。
   const artworkBySubscription = useMemo(
     () =>
       new Map(
         subs.map((sub) => [
           sub.id,
           sub.media.backdrop_url
-            ? { url: sub.media.backdrop_url, wide: true }
-            : { url: sub.media.poster_url, wide: false },
+            ? { url: sub.media.backdrop_url, wide: true, poster: sub.media.poster_url }
+            : { url: sub.media.poster_url, wide: false, poster: null },
         ]),
       ),
     [subs],
@@ -358,7 +358,10 @@ function ComingSoonSection({
   groups: TodayArrivalGroup[];
   loading: boolean;
   failed: boolean;
-  artworkBySubscription: ReadonlyMap<number, { url: string | null; wide: boolean }>;
+  artworkBySubscription: ReadonlyMap<
+    number,
+    { url: string | null; wide: boolean; poster: string | null }
+  >;
   progressBySubscription: ReadonlyMap<number, number>;
   /** 仍在追踪的订阅数，用于空态说明「系统还在盯着」。 */
   trackingCount: number;
@@ -453,13 +456,44 @@ const comingStatusColor: Record<TodayArrivalGroup["presentation"]["statusLabel"]
 };
 
 /**
+ * 只有竖图时的画面：海报模糊铺底 + 中央按原比例完整显示（§5.4）。竖图硬裁进
+ * 横框会把海报切得认不出来，所以这一路不铺满。
+ */
+function PosterFill({ url, title }: { url: string; title: string }) {
+  const t = useAppTranslations();
+  return (
+    <>
+      {/* 模糊铺底与中央海报同一宽度（海报约 72 宽 = 卡高 126 × 86% × 2/3），
+          地址一致只取一次；imageUrl 兼容已入库订阅的本地资产相对路径 */}
+      <PosterImage
+        src={url}
+        width={72}
+        alt=""
+        className="nf:absolute nf:inset-0 nf:size-full nf:scale-125 nf:object-cover nf:opacity-45 nf:blur-xl"
+      />
+      <div className="nf:absolute nf:inset-0 nf:bg-black/30" />
+      <div className="nf:absolute nf:inset-0 nf:flex nf:items-center nf:justify-center nf:px-6">
+        <div className="nf:aspect-[2/3] nf:h-[86%] nf:overflow-hidden nf:rounded-[2px] nf:shadow-[0_0_24px_rgba(0,0,0,0.6)]">
+          <PosterImage
+            src={url}
+            width={72}
+            alt={t("media.artwork.posterLabel", { title })}
+            className="nf:size-full"
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
  * Coming Soon 横版卡：16:9 画面 + 左上日期徽标 + 底部标题与「季集 · 状态 ·
  * 预计时间」元信息行。下载中在画面底边画 3px 红色进度条。整卡点击进订阅详情
  * （追踪明细 + 活动时间线）。
  *
  * 画面按素材形态分两条路：有横版剧照就铺满 16:9（这是横卡的正确答案）；只有
- * 海报的条目走「海报模糊铺底 + 中央完整显示」的既有兜底（§5.4）——竖图硬裁进
- * 横框会把海报切得认不出来。
+ * 海报的条目走 {@link PosterFill}。横图取不到（资产改名 / 图床失效）时同样
+ * 回落 PosterFill——有海报却显示一块空底色是最糟的结果。
  */
 function ComingSoonCard({
   group,
@@ -467,8 +501,8 @@ function ComingSoonCard({
   progress,
 }: {
   group: TodayArrivalGroup;
-  /** 画面素材：wide 表示已是横图（铺满），否则是海报（走兜底） */
-  artwork: { url: string | null; wide: boolean } | undefined;
+  /** 画面素材：wide 表示已是横图（铺满），否则是海报（走兜底）；poster 供横图失效时回落 */
+  artwork: { url: string | null; wide: boolean; poster: string | null } | undefined;
   progress: number | undefined;
 }) {
   const t = useAppTranslations();
@@ -479,6 +513,7 @@ function ComingSoonCard({
   const percent =
     downloading && progress != null ? Math.round(Math.max(0, Math.min(1, progress)) * 100) : null;
   const artworkUrl = artwork?.url ? imageUrl(artwork.url) : null;
+  const posterUrl = artwork?.poster ? imageUrl(artwork.poster) : null;
   // 铺满时按卡宽取图（卡 224 / 移动 168，横图 16:9 不受高度限制）；兜底的海报
   // 只有中央那一块约 72 宽，与原来同档
   const artworkWidth = artwork?.wide ? 224 : 72;
@@ -492,35 +527,16 @@ function ComingSoonCard({
       {/* 6px 与全站卡片同一档（rounded-* 换档后的卡角；4px 是控件档） */}
       <div className="nf:relative nf:aspect-video nf:overflow-hidden nf:rounded-[6px] nf:bg-[#181818] nf:ring-1 nf:ring-white/[0.06] nf:transition-all nf:duration-150 nf:group-hover:ring-white/30">
         {artworkUrl && artwork?.wide ? (
-          // 横版剧照：直接铺满，横卡的正确答案
+          // 横版剧照：直接铺满，横卡的正确答案；取不到就回落到海报兜底
           <PosterImage
             src={artworkUrl}
             width={artworkWidth}
             alt={t("media.discovery.backdrop", { title: group.mediaTitle })}
             className="nf:size-full"
+            fallback={posterUrl ? <PosterFill url={posterUrl} title={group.mediaTitle} /> : undefined}
           />
         ) : artworkUrl ? (
-          <>
-            {/* 模糊铺底与中央海报同一宽度（海报约 72 宽 = 卡高 126 × 86% × 2/3），
-                地址一致只取一次；imageUrl 兼容已入库订阅的本地资产相对路径 */}
-            <PosterImage
-              src={artworkUrl}
-              width={72}
-              alt=""
-              className="nf:absolute nf:inset-0 nf:size-full nf:scale-125 nf:object-cover nf:opacity-45 nf:blur-xl"
-            />
-            <div className="nf:absolute nf:inset-0 nf:bg-black/30" />
-            <div className="nf:absolute nf:inset-0 nf:flex nf:items-center nf:justify-center nf:px-6">
-              <div className="nf:aspect-[2/3] nf:h-[86%] nf:overflow-hidden nf:rounded-[2px] nf:shadow-[0_0_24px_rgba(0,0,0,0.6)]">
-                <PosterImage
-                  src={artworkUrl}
-                  width={72}
-                  alt={t("media.artwork.posterLabel", { title: group.mediaTitle })}
-                  className="nf:size-full"
-                />
-              </div>
-            </div>
-          </>
+          <PosterFill url={artworkUrl} title={group.mediaTitle} />
         ) : (
           <span className="nf:flex nf:size-full nf:items-center nf:justify-center nf:px-4 nf:text-center nf:text-ui nf:font-semibold nf:text-white/25">
             {group.mediaTitle}
