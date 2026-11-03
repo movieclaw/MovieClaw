@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
+from collections import Counter
 from pathlib import Path
 
+from movieclaw_api.services.drives import sidecars
 from movieclaw_api.services.drives.sidecars import sidecar_files
 
 
@@ -95,3 +98,41 @@ def test_multi_root_library_stops_at_the_right_root_and_ignores_outside_videos(t
     assert _names(second, found) == {"片/poster.jpg"}
     # b 的上一级（tmp_path）不是库根，不往上找
     assert sidecar_files(roots, tmp_path / "outside.mkv", images=True, nfo=True) == []
+
+
+def test_one_pass_lists_each_directory_once_for_a_whole_season(tmp_path, monkeypatch):
+    episodes = [f"剧集/第一季/S01E{n:02d}.mkv" for n in range(1, 11)]
+    _tree(
+        tmp_path,
+        [
+            *episodes,
+            *(e.replace(".mkv", ".nfo") for e in episodes),
+            "剧集/tvshow.nfo",
+            "剧集/poster.jpg",
+            "剧集/第二季/S02E01.mkv",
+            "剧集/第二季/S02E01.zh.srt",
+            "单片.mp4",
+            "单片.nfo",
+        ],
+    )
+    listed: Counter[str] = Counter()
+    real_scandir = os.scandir
+
+    def counting_scandir(path=".", *args):
+        if isinstance(path, (str, os.PathLike)) and Path(path).is_relative_to(tmp_path):
+            listed[Path(path).relative_to(tmp_path).as_posix()] += 1
+        return real_scandir(path, *args)
+
+    monkeypatch.setattr(sidecars.os, "scandir", counting_scandir)
+    videos = [str(tmp_path / v) for v in [*episodes, "剧集/第二季/S02E01.mkv", "单片.mp4"]]
+    pending = sidecars._changed(videos, [str(tmp_path)], {}, images=True, nfo=True)
+    # 每个目录（季目录、剧集目录、库根）一轮只列一次
+    assert listed == {"剧集/第一季": 1, "剧集/第二季": 1, "剧集": 1, ".": 1}
+    # 列举结果共用后挑出的文件不变：每个旁车文件一份
+    assert _names(tmp_path, [item.path for item in pending]) == {
+        *(e.replace(".mkv", ".nfo") for e in episodes),
+        "剧集/tvshow.nfo",
+        "剧集/poster.jpg",
+        "剧集/第二季/S02E01.zh.srt",
+        "单片.nfo",
+    }

@@ -51,8 +51,19 @@ def _wanted(name: str, *, images: bool, nfo: bool) -> bool:
     return False
 
 
-def sidecar_files(roots: list[str], video: Path, *, images: bool, nfo: bool) -> list[Path]:
-    """（阻塞）一个视频的旁车文件。视频不在任何库根下就没有。"""
+def sidecar_files(
+    roots: list[str],
+    video: Path,
+    *,
+    images: bool,
+    nfo: bool,
+    listings: dict[Path, list[os.DirEntry[str]]] | None = None,
+) -> list[Path]:
+    """（阻塞）一个视频的旁车文件。视频不在任何库根下就没有。
+
+    ``listings`` 是一轮里共用的目录列举缓存：同一季的每一集都要看季目录、剧集目录，
+    每个目录只列一次。
+    """
     root = next(
         (Path(r) for r in roots if Path(r) == video.parent or Path(r) in video.parents), None
     )
@@ -62,10 +73,14 @@ def sidecar_files(roots: list[str], video: Path, *, images: bool, nfo: bool) -> 
     directory = video.parent
     while True:
         at_root = directory == root
-        try:
-            entries = list(os.scandir(directory))
-        except OSError:
-            entries = []
+        entries = listings.get(directory) if listings is not None else None
+        if entries is None:
+            try:
+                entries = list(os.scandir(directory))
+            except OSError:
+                entries = []
+            if listings is not None:
+                listings[directory] = entries
         for entry in entries:
             name = entry.name
             if at_root and not name.startswith((video.stem + ".", video.stem + "-")):
@@ -87,9 +102,10 @@ def _changed(
 ) -> list[Pending]:
     """（阻塞）这些视频的旁车文件里，和台账对不上的。"""
     seen: set[Path] = set()
+    listings: dict[Path, list[os.DirEntry[str]]] = {}
     pending: list[Pending] = []
     for video in videos:
-        for path in sidecar_files(roots, Path(video), images=images, nfo=nfo):
+        for path in sidecar_files(roots, Path(video), images=images, nfo=nfo, listings=listings):
             if path in seen:
                 continue
             seen.add(path)

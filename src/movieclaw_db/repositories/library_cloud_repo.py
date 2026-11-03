@@ -473,6 +473,22 @@ class LibraryCloudRepository:
         )
         return {row.local_path: row for row in result.scalars().all()}
 
+    async def sidecar(self, folder_id: int, local_path: str) -> LibraryCloudSidecar | None:
+        result = await self._session.execute(
+            select(LibraryCloudSidecar).where(
+                LibraryCloudSidecar.folder_id == folder_id,
+                LibraryCloudSidecar.local_path == local_path,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def forget_sidecar(self, folder_id: int, local_path: str) -> None:
+        """网盘上的那份已删掉：去掉台账这一行，下一轮当没传过。"""
+        row = await self.sidecar(folder_id, local_path)
+        if row is not None:
+            await self._session.delete(row)
+            await self._session.commit()
+
     async def save_sidecar(
         self,
         folder_id: int,
@@ -483,13 +499,7 @@ class LibraryCloudRepository:
         file_mtime_ns: int,
         sha1: str,
     ) -> None:
-        result = await self._session.execute(
-            select(LibraryCloudSidecar).where(
-                LibraryCloudSidecar.folder_id == folder_id,
-                LibraryCloudSidecar.local_path == local_path,
-            )
-        )
-        row = result.scalar_one_or_none() or LibraryCloudSidecar(
+        row = await self.sidecar(folder_id, local_path) or LibraryCloudSidecar(
             folder_id=folder_id,
             local_path=local_path,
             remote_id=remote_id,
