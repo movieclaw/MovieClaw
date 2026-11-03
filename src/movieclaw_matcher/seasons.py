@@ -131,18 +131,28 @@ class SeasonMapping:
 
     @property
     def needs_mapping(self) -> tuple[SeasonBlock, ...]:
-        """真正需要换算的块：``站点季号 == TMDB 季号`` 且从该季第 1 集起的块
-        对消费侧毫无信息量（普通剧的每一块都是它），**落库时**把它们剔掉，
-        普通剧的 ``season_mapping`` 才是 ``[]``（"算过且无需映射"）。
+        """真正需要换算的块：**某个 TMDB 季被切成了不止一块**时，第二块起的那些。
+
+        判据是「这个 TMDB 季在前面已经出现过」——不是逐块比较 ``site == season``。
+        两者的差别在 TMDB 季号与播出顺序不一致的剧上会暴露：那种剧按播出顺序
+        编号时，每一块的 ``site`` 都与 ``season`` 错位，逐块比较会把**普通剧**
+        全判成需要映射，于是 ``S01E05`` 被翻译成 ``S02E05``。
+
+        正确的语义是「站点季号是 TMDB 季号的细化」：站点把 TMDB 的季 1 拆成
+        站点 S01/S02 时，只有 S02 那块需要换算（它落在季 1 的 T13 起）；
+        站点 S01 那块就是 TMDB 季 1 自己，不需要。季号顺序错位是另一回事，
+        不构成映射需求——消费侧本来就只在「站点季号不在台账里」时才查表。
 
         推导本身仍然返回全部块——那是条目的客观事实，也是"89 天不切 /
         91 天切"这类断言能落到具体块上的前提。
         """
-        return tuple(
-            block
-            for block in self.blocks
-            if not (block.site_season == block.season and block.start == 1)
-        )
+        seen: set[int] = set()
+        result: list[SeasonBlock] = []
+        for block in self.blocks:  # 已按首播日期升序
+            if block.season in seen:
+                result.append(block)  # 这个 TMDB 季已被前面的块占过 → 细化出来的新季
+            seen.add(block.season)
+        return tuple(result)
 
     def to_json(self) -> list[dict]:
         """落库形状：只写真正需要换算的块（见 :attr:`needs_mapping`）。"""

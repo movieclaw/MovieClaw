@@ -198,6 +198,28 @@ def test_ordinary_show_persists_as_empty_mapping() -> None:
     assert mapping_to_json(mapping) == []
 
 
+def test_out_of_order_seasons_persist_as_empty_mapping() -> None:
+    """TMDB 季号不按播出顺序（S02 先播）：落库仍为空，不得产生换算。
+
+    这是「站点季号是 TMDB 季号的细化」判据的反例。逐块比较 ``site == season``
+    会把这种剧的每一块都判成需要映射，于是 ``S01E05`` 被翻译成 ``S02E05``
+    ——普通剧被改写入库季号，直接违反验收标准 6。
+    """
+    episodes = _weekly(2, 1, 10, date(2023, 1, 1)) + _weekly(1, 1, 10, date(2025, 1, 1))
+    mapping = derive_season_mapping(episodes, today=_TODAY)
+    # 客观事实：按播出顺序编号后，站点季 1 对应 TMDB 季 2
+    assert mapping.blocks[0] == SeasonBlock(site_season=1, season=2, start=1, end=10)
+    # 但这不是映射需求：每个 TMDB 季都只被切出一块
+    assert mapping_to_json(mapping) == []
+
+
+def test_second_block_of_a_split_season_needs_mapping() -> None:
+    """一个 TMDB 季被切成两块时，第二块才是需要换算的那一块。"""
+    mapping = derive_season_mapping(_SOLO_S1 + _SOLO_S2, today=_TODAY)
+    assert [b.site_season for b in mapping.needs_mapping] == [2]
+    assert mapping.needs_mapping[0] == SeasonBlock(site_season=2, season=1, start=13, end=25)
+
+
 def test_by_range_finds_the_block_for_an_episode() -> None:
     """分集区反查：TMDB (1, 20) 落在站点第 2 季那块。"""
     mapping = derive_season_mapping(_SOLO_S1 + _SOLO_S2, today=_TODAY)
