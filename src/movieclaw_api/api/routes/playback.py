@@ -158,7 +158,7 @@ from movieclaw_api.services.playback.signing import (
     verify_stream_token,
 )
 from movieclaw_api.services.playback.strm_direct import mounted_redirect
-from movieclaw_api.services.playback.track_context import files_with_contexts
+from movieclaw_api.services.playback.track_context import files_with_contexts, track_context
 from movieclaw_api.services.playback_activity import (
     end_playback,
     live_session_label,
@@ -217,6 +217,7 @@ from movieclaw_playback.subtitles import (
     resolve_external_subtitle,
     serve_subtitle,
 )
+from movieclaw_playback.track_policy import resolve_subtitle
 
 logger = logging.getLogger("movieclaw_api.playback")
 
@@ -1280,6 +1281,21 @@ async def start_playback_session(
             file = await session.get(LibraryFile, view.file_id)
             if file is None:
                 raise NotFoundException(message_key="errors.playback.fileUntracked")
+
+    # 无记忆/无沿用时的默认字幕（track_policy §3.4「字幕跟人走」）：保存侧对「上报
+    # 等于默认挑选」的选择故意不记（state.apply_track_selection 交回默认策略），
+    # 开会话视图就得把策略解析结果带回——否则客户端只看到空记忆，默认轨永远
+    # 不生效，每次起播都像没选过字幕（保存侧「交回默认策略」与播放侧对称才成立）。
+    # 记着的 / 沿用同剧的 / 明确关的照原样（上面已放进 watch_view），只补空缺。
+    if watch_view is not None and not watch_view.subtitle_track:
+        choice = resolve_subtitle(
+            file,
+            None,
+            await track_context(session, file),
+            view.audio.track_ref if view.audio is not None else None,
+        )
+        if choice.ref:
+            watch_view.subtitle_track = choice.ref
 
     # 诊断面板的「源 → 处理」层次要有左半边：台账真值原样带回（§6.5）
     source_view = PlaybackSourceView(
