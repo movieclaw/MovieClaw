@@ -150,6 +150,8 @@ export struct SubscriptionsPage {
   @Local private failed: boolean = false;
   @Local private errorMessage: string = '';
   @Local private today: TodayArrivalView[] = [];
+  /** today 的数据代数：每次替换自增。ForEach 同键不重建，刷新后同一天同一批订阅键不变，议程行会停在旧渲染 */
+  @Local private todaySeq: number = 0;
   @Local private recent: RecentArrivalView[] = [];
   @Local private refreshing: boolean = false;
   /** 内容区滚动器（宿主 bindToScrollable 要用同一个实例驱动标题栏） */
@@ -289,6 +291,7 @@ export struct SubscriptionsPage {
     try {
       const list: TodayArrivalView[] = await api.subscriptionsListTodayArrivals('week');
       this.today = list;
+      this.todaySeq += 1;
     } catch (error) {
       // 老服务端没有这个接口：保持空，版块自动不出现（同 iOS）
     }
@@ -1000,7 +1003,7 @@ export struct SubscriptionsPage {
               if (idx < this.dayGroups(this.currentDay()).length - 1) {
                 Divider().color('rgba(255,255,255,0.06)').margin({ left: 86 })
               }
-            }, (item: TodayArrivalView) => `${item.subscription_id}-${item.wanted_id}`)
+            }, (group: DayGroup) => `${this.currentDay()}-${group.subscriptionId}-${group.label()}-${this.todaySeq}`)
           }
           .width('100%')
           .padding({ top: 4, bottom: 4 })
@@ -1161,15 +1164,17 @@ export struct SubscriptionsPage {
                     .height('100%')
                     .padding(9)
                   }
-                  // 右下角播放角标
+                  // 右下角播放角标（圆底放容器上，glyph 用自然尺寸由 Stack 居中——尺寸直接挂 glyph 会锚偏）
                   Stack({ alignContent: Alignment.BottomEnd }) {
-                    SymbolGlyph($r('sys.symbol.play_fill'))
-                      .fontSize(13)
-                      .fontColor([Theme.text])
-                      .width(32)
-                      .height(32)
-                      .backgroundColor('rgba(0,0,0,0.42)')
-                      .borderRadius(16)
+                    Stack() {
+                      SymbolGlyph($r('sys.symbol.play_fill'))
+                        .fontSize(13)
+                        .fontColor([Theme.text])
+                    }
+                    .width(32)
+                    .height(32)
+                    .backgroundColor('rgba(0,0,0,0.42)')
+                    .borderRadius(16)
                   }
                   .width('100%')
                   .height('100%')

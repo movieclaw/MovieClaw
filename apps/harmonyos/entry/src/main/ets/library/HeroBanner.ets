@@ -196,7 +196,7 @@ export struct HeroBanner {
             Row({ space: 5 }) {
               SymbolGlyph($r('sys.symbol.play_square'))
                 .fontSize(13)
-                .fontColor(['#000000'])
+                .fontColor([Theme.text])
               Text('详情')
                 .fontSize(13)
                 .fontWeight(FontWeight.Medium)
