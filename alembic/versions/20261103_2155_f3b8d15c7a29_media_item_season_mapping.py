@@ -67,7 +67,9 @@ _SEARCH_TRIGGERS = {
 def _drop_search_triggers(connection) -> None:
     """摘掉挂在 media_item 上的搜索索引触发器（batch 重建会连带删除它们）。"""
     for event in _SEARCH_TRIGGERS:
-        connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS library_search_media_item_{event.lower()}")
+        connection.exec_driver_sql(
+            f"DROP TRIGGER IF EXISTS library_search_media_item_{event.lower()}"
+        )
 
 
 def _restore_search_triggers(connection) -> None:
