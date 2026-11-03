@@ -482,6 +482,12 @@ class MediaIdentity:
     # 已定档的正片集 (季号, 播出日期)：与包种子声明的「全 N 集」对照，发布前
     # 已播出的集数明显更多说明是同名的另一部剧（见 identity._episode_count_conflict）
     aired_episodes: tuple[tuple[int, date], ...] = ()
+    # 站点季号映射（issue #1155）：TMDB 把实际分两季播出的剧登记成一条长季时，
+    # 站点仍按 S01/S02 拆开发布。这里给内核一张「站点季号 → TMDB 集号区间」的
+    # 对照表，供 ``_derive_units`` 在**站点季号不在 season_numbers 里**时换算。
+    # 空元组=没有映射（普通剧的常态），此时内核行为与改动前逐字节相同。
+    # 元组顺序即站点季号顺序，元素是 (站点季号, TMDB 季号, 起始集, 结束集)
+    season_blocks: tuple[tuple[int, int, int, int], ...] = ()
 
 
 # ---------------------------------------------------------------------------

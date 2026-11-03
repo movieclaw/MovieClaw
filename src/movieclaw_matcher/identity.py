@@ -718,6 +718,19 @@ def _year_compatible(media: MediaIdentity, torrent_year: int | None) -> bool:
     return torrent_year >= media.year - 1
 
 
+def _season_block(media: MediaIdentity, site_season: int) -> tuple[int, int, int] | None:
+    """站点季号 → (TMDB 季号, 起始集, 结束集)；没命中映射返回 None。
+
+    只在**站点季号不在 ``media.season_numbers`` 里**时调用（见 ``_derive_units``）：
+    普通剧的站点季号本来就在季列表里，永远不会走到这里——这是"普通剧零影响"
+    的结构性保证，不是靠阈值调出来的（docs/design/subscription-season-split.md §2）。
+    """
+    for block_site, tmdb_season, start, end in media.season_blocks:
+        if block_site == site_season:
+            return tmdb_season, start, end
+    return None
+
+
 def _derive_units(
     candidate: TorrentCandidate,
     media: MediaIdentity,
@@ -725,7 +738,13 @@ def _derive_units(
     confidence: str,
     alias: str | None,
 ) -> IdentityMatch | None:
-    """从 enrich 属性推导覆盖单元。身份成立但单元无法落定时返回 None（不可用）。"""
+    """从 enrich 属性推导覆盖单元。身份成立但单元无法落定时返回 None（不可用）。
+
+    站点季号归一（issue #1155）：当解析出的季号**不在** ``media.season_numbers``
+    里、却命中 ``media.season_blocks`` 时，把它换算成 TMDB 的显式集列表。
+    ``pack_seasons`` 必须置空——保留 ``{1}`` 会让 S02 包把第 1–12 集也标成
+    已覆盖（那些集早就下过了）。
+    """
     attrs = candidate.attrs
 
     if media.kind == "movie":
@@ -758,6 +777,17 @@ def _derive_units(
                 confidence=confidence,
                 matched_alias=alias,
             )
+        if (
+            season not in media.season_numbers
+            and (block := _season_block(media, season)) is not None
+        ):
+            tmdb_season, start, _end = block
+            return IdentityMatch(
+                episodes=frozenset((tmdb_season, episode + start - 1) for episode in episodes),
+                is_pack=is_pack,
+                confidence=confidence,
+                matched_alias=alias,
+            )
         return IdentityMatch(
             episodes=frozenset((season, e) for e in episodes),
             is_pack=is_pack,
@@ -766,6 +796,25 @@ def _derive_units(
         )
 
     if seasons:
+        if len(seasons) == 1 and seasons[0] not in media.season_numbers:
+            block = _season_block(media, seasons[0])
+            if block is not None:
+                tmdb_season, start, end = block
+                total = attrs.episodes_total
+                # 集号上界取 max(block_end, 偏移 + 声明总集数)：站点声明 20 集、
+                # TMDB 只录 13 集时 (#640)，超出部分的占位单元仍要被覆盖
+                upper = max(end, start - 1 + total) if total else end
+                return IdentityMatch(
+                    episodes=frozenset(
+                        (tmdb_season, episode) for episode in range(start, upper + 1)
+                    ),
+                    is_pack=True,
+                    # 必须置空：保留 {1} 会把第 1–12 集也标成已覆盖
+                    pack_seasons=frozenset(),
+                    confidence=confidence,
+                    matched_alias=alias,
+                    declared_total=total,
+                )
         return IdentityMatch(
             pack_seasons=frozenset(seasons),
             is_pack=True,
