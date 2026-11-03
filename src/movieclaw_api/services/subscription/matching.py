@@ -1394,13 +1394,22 @@ def _mapped_ranges(ctx: MediaContext, match: IdentityMatch) -> str:
 async def _already_explained(
     repo: SubscriptionRepository, subscription_id: int, candidate: TorrentCandidate, code: str
 ) -> bool:
-    """这条候选的这个结论是否已经记过（查最近活动，避免每轮刷屏）。"""
+    """这条候选的这个结论是否已经记过（查最近活动，避免每轮刷屏）。
+
+    去重键是 (站点, 种子, 结论)。``season_mapped`` 走 ``SEASON_MAPPED`` 类型，
+    ``season_unmapped`` 走 ``MATCH_REJECTED``——**按类型分别判定**，不靠
+    payload 里 ``reason_code`` 缺省值兜底：``SEASON_MAPPED`` 本来就没有这个键，
+    靠 ``.get(..., "season_mapped")`` 的默认值凑巧成立，以后谁给它补上
+    ``reason_code`` 就会串到拒绝侧去。
+    """
+    mapped = code == "season_mapped"
+    expected = ActivityType.SEASON_MAPPED if mapped else ActivityType.MATCH_REJECTED
     for activity in await repo.list_activities(subscription_id, limit=200):
         if (
-            activity.type in (ActivityType.MATCH_REJECTED, ActivityType.SEASON_MAPPED)
+            activity.type == expected
             and activity.payload.get("site_id") == candidate.site_id
             and activity.payload.get("torrent_id") == candidate.torrent_id
-            and activity.payload.get("reason_code", "season_mapped") == code
+            and (mapped or activity.payload.get("reason_code") == code)
         ):
             return True
     return False
