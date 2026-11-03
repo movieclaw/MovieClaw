@@ -925,9 +925,10 @@ export struct AgentComposerPanel {
    * 工具行放在输入框**上方**，跟着输入框一起被抬上去，这里不再手动加键盘高度
    * （手动 + 系统会双重避让，实测面板悬到屏幕顶部）。 */
   private panelBottom(): number {
-    // 全屏铺满后根容器不再让底部安全区：这里自己把「手势区」算进去
+    // 全屏铺满后根容器不再让底部安全区：悬浮模式这里自己把「手势区」算进去；
+    // 经典贴底栏的 TabContent 已被 Tabs 的手势区 padding 抬高，不重复加
     const bottom: number = WindowInsets.shared().bottom;
-    return this.tabBarStyle.floating ? 132 + bottom : 76 + bottom;
+    return this.tabBarStyle.floating ? 132 + bottom : 76;
   }
 
   private toast(message: string): void {

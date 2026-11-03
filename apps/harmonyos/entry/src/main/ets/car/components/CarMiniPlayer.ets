@@ -17,14 +17,14 @@ import { RemoteImage } from '../../common/RemoteImage';
 import { CarColors } from '../theme/CarTheme';
 import { CarMetrics } from '../theme/CarTheme';
 import { CarType } from '../theme/CarTheme';
-import { CarPlayRequest, CarUiState } from '../model/CarUiState';
-import { CarAvPlayerEngine, CarPlayback, CarPlayPhase } from '../player/CarAvPlayerEngine';
+import { CarUiState } from '../model/CarUiState';
+import { CarPlaybackHost, CarPlayback, PlayPhase } from '../playback/CarPlaybackHost';
 import { CarFormat, CarPressable } from './CarCards';
 
 @ComponentV2
 export struct CarMiniPlayer {
   @Local ui: CarUiState = CarUiState.shared;
-  @Local engine: CarAvPlayerEngine | null = null;
+  @Local engine: CarPlaybackHost | null = null;
   private clockTimer: number = -1;
   /** 文案摘要已同步到的集号（-2 = 尚未同步/需强制刷新） */
   private summaryEpisode: number = -2;
@@ -151,25 +151,25 @@ export struct CarMiniPlayer {
   // MARK: - 显隐与实时态（引擎 @Trace 直读，细粒度响应）
 
   private visible(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     return engine !== null && this.ui.playerRequest === null
-      && engine.phase !== CarPlayPhase.idle;
+      && engine.phase !== PlayPhase.idle;
   }
 
   private playing(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
-    return engine !== null && engine.phase === CarPlayPhase.playing;
+    const engine: CarPlaybackHost | null = this.engine;
+    return engine !== null && engine.phase === PlayPhase.playing;
   }
 
   private hasNext(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     return engine !== null && engine.nextEpisode() !== null;
   }
 
   // MARK: - 250ms 心跳：接引擎 + 摘要同步 + 终态看护
 
   private tick(): void {
-    const engine: CarAvPlayerEngine | null = CarPlayback.adopt();
+    const engine: CarPlaybackHost | null = CarPlayback.adopt();
     if (engine !== this.engine) {
       this.engine = engine;
       this.summaryEpisode = -2;
@@ -184,12 +184,12 @@ export struct CarMiniPlayer {
       // 播放器开着：页面 100ms 钟在同步 mini 摘要，这里不掺和
       return;
     }
-    if (engine.phase === CarPlayPhase.error) {
+    if (engine.phase === PlayPhase.error) {
       // 后台出错无人展示错误视图：整体收尾，mini 条随之隐藏
       this.endPlayback();
       return;
     }
-    if (engine.phase === CarPlayPhase.ended) {
+    if (engine.phase === PlayPhase.ended) {
       // 播完：有下一集后台连播（播客式），没有整体收尾
       if (engine.nextEpisode() !== null) {
         engine.playNext();
@@ -202,14 +202,14 @@ export struct CarMiniPlayer {
   }
 
   /** 文案摘要：换集才重取（标题/集数/封面随引擎当前集走） */
-  private syncSummary(engine: CarAvPlayerEngine): void {
+  private syncSummary(engine: CarPlaybackHost): void {
     if (engine.currentEpisode !== this.summaryEpisode) {
       this.summaryEpisode = engine.currentEpisode;
       this.ui.mini.title = engine.request.title;
       this.ui.mini.subtitle = CarMiniPlayer.subtitleOf(engine);
       this.ui.mini.coverUrl = CarMiniPlayer.coverOf(engine);
     }
-    this.ui.mini.playing = engine.phase === CarPlayPhase.playing;
+    this.ui.mini.playing = engine.phase === PlayPhase.playing;
     this.ui.mini.hasNext = engine.nextEpisode() !== null;
   }
 
@@ -231,14 +231,14 @@ export struct CarMiniPlayer {
   // MARK: - 传输命令
 
   private togglePlay(): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine !== null) {
       engine.togglePlay();
     }
   }
 
   private playNext(): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine !== null && engine.nextEpisode() !== null) {
       engine.playNext();
     }
@@ -246,17 +246,17 @@ export struct CarMiniPlayer {
 
   /** 点条体回播放器：页面 adopt 现存引擎原位续接（Surface 变了原位重协商） */
   private reopenPlayer(): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null) {
       return;
     }
-    this.ui.openPlayer(engine.request as CarPlayRequest);
+    this.ui.openPlayer(engine.request);
   }
 
   // MARK: - 摘要派生
 
   /** 集数行：有集名带上集名（引擎 episodes 实时取） */
-  private static subtitleOf(engine: CarAvPlayerEngine): string {
+  private static subtitleOf(engine: CarPlaybackHost): string {
     if (engine.currentSeason <= 0 || engine.currentEpisode <= 0) {
       return '';
     }
@@ -271,7 +271,7 @@ export struct CarMiniPlayer {
   }
 
   /** 封面：剧集取当前集剧照，电影/取不到回落起播请求封面 */
-  private static coverOf(engine: CarAvPlayerEngine): string {
+  private static coverOf(engine: CarPlaybackHost): string {
     if (engine.currentSeason > 0 && engine.currentEpisode > 0) {
       for (const episode of engine.episodes) {
         if (episode.episode_number === engine.currentEpisode) {

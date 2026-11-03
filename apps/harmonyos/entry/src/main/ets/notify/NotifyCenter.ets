@@ -69,7 +69,7 @@ export class NotifyCenter {
 
   private inFlight: boolean = false;
   private timerId: number = -1;
-  private bundleName: string = 'io.movieclaw.HUAWEI';
+  private bundleName: string = 'io.movieclaw.hw';
 
   /** EntryAbility.onCreate / WorkExtension onWorkStart 里尽早调（wantAgent 要包名） */
   init(): void {

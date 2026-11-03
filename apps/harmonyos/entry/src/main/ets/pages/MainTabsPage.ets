@@ -1,8 +1,13 @@
 import { display } from '@kit.ArkUI';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   HdsTabs,
   HdsTabsController,
   HdsTabsFloatingStyle,
+  HdsTabsMiniBar,
+  HdsTabsBarChangeMode,
+  HdsBarLayoutMode,
+  HdsBarStyle,
   HdsAnimationMode,
   SystemMaterialParams
 } from '@kit.UIDesignKit';
@@ -82,6 +87,10 @@ export struct MainTabsPage {
   @Local private tabBarStyle: TabBarStyle = TabBarStyle.shared();
   /** 内容往下滚后底栏收成圆形按钮的信号（各页签根页在滚动时上报） */
   @Local private collapse: TabBarCollapse = TabBarCollapse.shared();
+  /** AI 快捷输入的草稿 / 发送（官方迷你栏方案与「我的」输入卡共用一个 store） */
+  @Local private composer: AgentComposerStore = AgentComposerStore.shared();
+  /** 迷你栏当前是否展开成长条输入框（官方的展开/折叠回调里同步） */
+  @Local private miniBarExpanded: boolean = false;
 
   /** App 已在跑又点了一条分享链接：推到当前页签的栈上（iOS 同款行为） */
   @Monitor('shareRouter.pendingSlug')
@@ -271,6 +280,8 @@ export struct MainTabsPage {
   /** 整屏页（播放器/会话/片段）关掉了：底栏放回来，最近播放可能也变了，「接着看」重新取一次 */
   @Monitor('chrome.immersive')
   onChromeImmersiveChange(): void {
+    hilog.info(0xD001, 'ChromeDebug', 'immersive monitor fired: %{public}s',
+      this.chrome.immersive ? 'true' : 'false');
     this.syncAccessoryInset();
     if (this.chrome.immersive) {
       this.tabsController.applyHideAnimation(HdsAnimationMode.CLICK_ANIMATION);
@@ -281,14 +292,19 @@ export struct MainTabsPage {
     this.resume.refresh(this.model.api);
   }
 
-  /** 滚动收起只保留当前页签；点圆钮或向上滚动恢复整条导航。 */
+  /**
+   * 滚动收起走官方迷你栏：`applyMiniBarStyle(EXPAND)` 让官方把五页签胶囊收成只剩当前页签
+   * 图标的圆钮（和点 ✨ 是同一套官方动效）；COLLAPSE 反向恢复整条页签。
+   */
   @Monitor('collapse.collapsed', 'tabBarStyle.floating')
   onTabBarCollapsed(): void {
     if (this.chrome.immersive) { return; }
-    if (this.compactTabs()) {
-      this.tabsController.applyHideAnimation(HdsAnimationMode.SCROLL_ANIMATION);
-    } else {
+    if (this.officialCollapse()) {
+      // 整条可能还被整屏页的 hide 收着（退出整屏页的一瞬间）：先放回再交迷你栏接管；
+      // 栏本来就显示时这是无害的空操作
       this.tabsController.applyShowAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+      this.tabsController.applyMiniBarStyle(
+        this.collapse.collapsed ? HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE);
     }
   }
 
@@ -296,9 +312,19 @@ export struct MainTabsPage {
     this.getUIContext().getPromptAction().showToast({ message: message });
   }
 
-  private compactTabs(): boolean {
-    return this.tabBarStyle.floating && this.collapse.collapsed && !this.chrome.immersive
-      && !(this.visibleTabs()[this.currentTab]?.title === '我的' && this.permissions.isAdmin);
+  /** 官方迷你栏收起方案生效中（悬浮 + 非整屏页；迷你栏没有 AI 内容后不限管理员） */
+  private officialCollapse(): boolean {
+    return this.tabBarStyle.floating && !this.chrome.immersive;
+  }
+
+  /** 「接着看」条是否进入收起布局：收起后与底栏圆钮同一条水平线 */
+  private resumeCompact(): boolean {
+    return this.tabBarStyle.floating && !this.chrome.immersive && this.collapse.collapsed;
+  }
+
+  /** 官方收起成圆钮的形态中：页签自带的高亮胶囊底会戳出圆钮弧线，此时不画 */
+  private tabCollapsed(): boolean {
+    return this.officialCollapse() && this.collapse.collapsed;
   }
 
   /**
@@ -385,16 +411,30 @@ export struct MainTabsPage {
     return Math.max(16, (screenVp - this.tabBarWidth()) / 2);
   }
 
-  /** 收起态：为左侧 56vp 导航圆钮留出位置，中间保留 12vp 间距。 */
+  /** 收起态左边界：官方收起后整行是迷你栏 + 页签圆钮，「接着看」圆片贴右边距 16
+   * 放在页签圆钮左边。 */
   private resumeCompactLeft(): number {
-    return 16 + 56 + 12;
+    const screenVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+    return Math.max(16, screenVp - 16 - 56);
   }
 
   private resumeCompactRight(): number {
     return 16;
   }
 
+  /** 迷你栏宽度：AI 输入下线期间为 0（不占位，resumeBarRight 不用让位）；接回后恢复 52 */
+  private miniBarWidth(): number {
+    return 0;
+  }
+
   private resumeBarRight(): number {
+    if (this.officialCollapse()) {
+      const screenVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+      const mini: number = this.miniBarWidth();
+      if (mini > 0) {
+        return Math.max(16, screenVp - (this.resumeBarLeft() + this.tabBarWidth() + 8 + mini));
+      }
+    }
     return this.resumeBarLeft();
   }
 
@@ -410,7 +450,111 @@ export struct MainTabsPage {
     if (material !== undefined) {
       style.systemMaterialEffect = material;
     }
+    // 官方收起方案：配迷你栏才有官方的「胶囊收成圆钮」形态（applyMiniBarStyle）
+    if (this.officialCollapse()) {
+      style.miniBar = this.miniBarConfig();
+    }
     return style;
+  }
+
+  /**
+   * 迷你栏：AI 输入暂时下线（builder 留空），宽度压成 0、不带背景——不占位，
+   * 只保留「官方把胶囊收成圆钮」这套收起动效；接回 AI 时删掉 miniBarWidth /
+   * enableMiniBarBackground 两行并恢复 AiMiniBarRow 里的内容即可。
+   */
+  private miniBarConfig(): HdsTabsMiniBar {
+    const bar: HdsTabsMiniBar = {
+      miniBarBuilder: (): void => {
+        this.AiMiniBarRow();
+      },
+      miniBarWidth: { smallWidth: 0, mediumWidth: 0, largeWidth: 0 },
+      enableMiniBarBackground: false,
+      barLayoutMode: HdsBarLayoutMode.HORIZONTAL,
+      miniBarStyle: HdsBarStyle.COLLAPSE,
+      onBarStyleChange: (miniStyle: HdsBarStyle, tabStyle: HdsBarStyle, miniWidth: number,
+        tabWidth: number, mode: HdsTabsBarChangeMode): void => {
+        this.miniBarExpanded = miniStyle === HdsBarStyle.EXPAND;
+      }
+    };
+    return bar;
+  }
+
+  /** 迷你栏内容：AI 按钮 / AI 按钮 + 草稿 + 发送（折叠时只露出第一枚按钮）。
+   * AI 按钮与输入框暂时注释（用户要求先隐藏），容器保留——收起动效不受影响。 */
+  @Builder
+  AiMiniBarRow() {
+    Row({ space: 8 }) {
+      /*
+       * TODO: AI 输入暂时下线，后续接回时恢复这一段
+      Row() {
+        SymbolGlyph($r('sys.symbol.star_message'))
+          .fontSize(24)
+          .fontColor([Theme.accentStrong])
+      }
+      .width(40)
+      .height(40)
+      .justifyContent(FlexAlign.Center)
+      .onClick((): void => {
+        // 折叠态点它就展开成长条；展开态不再做别的（半屏输入面板已去掉）
+        if (!this.miniBarExpanded) {
+          this.tabsController.applyMiniBarStyle(HdsBarStyle.EXPAND);
+        }
+      })
+      // 展开后直接在这里输入
+      TextInput({ text: this.composer.draft, placeholder: '给 AI 助手发消息' })
+        .fontSize(15)
+        .fontColor(Theme.text)
+        .placeholderColor(Theme.textFaint)
+        .placeholderFont({ size: 15 })
+        .caretColor(Theme.accentStrong)
+        .backgroundColor(Color.Transparent)
+        .padding(0)
+        .height(36)
+        .layoutWeight(1)
+        .onChange((value: string) => {
+          this.composer.draft = value;
+        })
+        .onSubmit((): void => {
+          this.sendFromMiniBar();
+        })
+      Row() {
+        SymbolGlyph($r('sys.symbol.arrow_up'))
+          .fontSize(15)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([Theme.bg])
+      }
+      .width(32)
+      .height(32)
+      .justifyContent(FlexAlign.Center)
+      .backgroundColor(Theme.accentStrong)
+      .borderRadius(16)
+      .opacity(this.composer.canSend() ? 1 : 0.4)
+      .onClick((): void => {
+        this.sendFromMiniBar();
+      })
+      */
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 8, right: 8 })
+  }
+
+  /** 迷你栏上的发送：有内容直接发；首次发送由官方 AlertDialog 征求同意 */
+  private sendFromMiniBar(): void {
+    this.composer.maybeSend(this.getUIContext()).then((result: string): void => {
+      if (result === 'sent') {
+        this.collapse.expand();
+        this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
+        return;
+      }
+      if (result === 'consent') {
+        // 官方 AlertDialog 已在 maybeSend 里弹出，同意后自动接着发
+        return;
+      }
+      if (result === 'failed') {
+        this.toast('发送失败，请重试');
+      }
+    });
   }
 
   private avatarUrl(): string {
@@ -421,10 +565,13 @@ export struct MainTabsPage {
   TabIcon(tab: AppTabItem) {
     if (tab.title === '我的') {
       Stack() {
-        Text(Permissions.initialsOf(this.model.session?.nickname ?? ''))
-          .fontSize(13)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.bg)
+        // 姓名缩写只在没头像时兜底：垫在头像底下会从图边缘若隐若现地露出来
+        if (this.avatarUrl().length === 0) {
+          Text(Permissions.initialsOf(this.model.session?.nickname ?? ''))
+            .fontSize(13)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Theme.bg)
+        }
         if (this.avatarUrl().length > 0) {
           RemoteImage({ url: this.avatarUrl(), placeholderSymbol: $r('sys.symbol.person_crop_circle_fill') })
             .width(26).height(26)
@@ -449,10 +596,11 @@ export struct MainTabsPage {
       }
     }
     .width('100%').height(48).justifyContent(FlexAlign.Center)
-    .opacity(this.currentTab === index ? 1 : 0.65)
-    .backgroundColor(this.currentTab === index ? Theme.accentSoft : Color.Transparent)
+    // 未选中页签压 0.65 区分选中态；「我的」例外——头像是照片，压透明会发灰
+    .opacity(this.currentTab === index || tab.title === '我的' ? 1 : 0.65)
+    .backgroundColor(this.currentTab === index && !this.tabCollapsed() ? Theme.accentSoft : Color.Transparent)
     .borderRadius(24)
-    .visibility(this.chrome.immersive || this.compactTabs() ? Visibility.Hidden : Visibility.Visible)
+    .visibility(this.chrome.immersive ? Visibility.Hidden : Visibility.Visible)
     .id(`app-tab-${tab.title}`)
     .accessibilityGroup(true)
     .accessibilityText(tab.title)
@@ -462,40 +610,37 @@ export struct MainTabsPage {
   build() {
     Stack() {
       this.Tabs()
-      if (this.compactTabs()) {
-        Row() {
-          Row() {
-            this.TabIcon(this.visibleTabs()[this.currentTab])
-          }
-          .width(56).height(56).justifyContent(FlexAlign.Center)
-          .backgroundColor(Theme.surfaceRaised).backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-          .border({ width: 0.5, color: Theme.lineStrong }).borderRadius(28)
-          .id('app-tabs-expand')
-          .accessibilityText('展开底部导航')
-          .onClick((): void => { this.collapse.expand(); })
-          Blank()
-        }
-        .width('100%').padding({ left: 16 })
-        .margin({ bottom: 12 + WindowInsets.shared().bottom })
+      /*
+       * 经典贴底栏：Tabs 垫的手势区 padding 会被 Tabs 自己的 bg 背景刷掉——在 Tabs
+       * 之上垫一条带子把栏底接到屏幕底。经典栏实际渲的是 HDS 默认深色面板（实测
+       * ≈ Theme.surface，barBackgroundColor 传什么都不改变它），带子必须跟它同色，
+       * 两处统一用 Theme.surface 才无缝；整屏页（底栏隐藏）不垫。
+       * 手势区只垫一半：栏往下压，与小白条的间距缩半；带子与 padding 同高。
+       */
+      if (!this.tabBarStyle.floating && !this.chrome.immersive) {
+        Row()
+          .width('100%')
+          .height(WindowInsets.shared().bottom / 2)
+          .backgroundColor(Theme.surface)
       }
       // 官方悬浮底栏上方的「接着看」条（贴底对齐，抬到底栏之上；可见性见 resumeItem）
       if (this.resumeItem() !== null) {
         ResumeBar({
           item: this.resumeItem() as UpNextItemView,
           // 跟着底栏一起收：滚动向下时整条下移、缩窄，和页签栏的圆钮同高同线
-          compact: this.compactTabs(),
+          compact: this.resumeCompact(),
           onHide: (): void => {
             this.resume.hide();
           }
         })
           .margin({
-            left: this.compactTabs() ? this.resumeCompactLeft() : this.resumeBarLeft(),
-            right: this.compactTabs() ? this.resumeCompactRight() : this.resumeBarRight(),
+            left: this.resumeCompact() ? this.resumeCompactLeft() : this.resumeBarLeft(),
+            right: this.resumeCompact() ? this.resumeCompactRight() : this.resumeBarRight(),
             /*
              * 展开：底栏高度（悬浮 56+12 / 贴底 56）+ 手势区，再留 12 呼吸；
              * 收起：与底栏圆钮同一条水平线（抬起 12 + 手势区）。
              */
-            bottom: this.compactTabs()
+            bottom: this.resumeCompact()
               ? 12 + WindowInsets.shared().bottom
               : (this.tabBarStyle.floating ? 56 + 12 : 56) + WindowInsets.shared().bottom + 12
           })
@@ -559,16 +704,23 @@ export struct MainTabsPage {
       }, (tab: AppTabItem, index: number) => `${tab.title}-${index}`)
     }
     .scrollable(false)
-    // 栏高固定 56：悬浮样式的默认值就是 56，贴底模式也按同一个口径（见 Theme.tabBarInset）
-    .barHeight(56)
+    // 栏高固定 56：悬浮样式的默认值就是 56，贴底模式也按同一个口径（见 Theme.tabBarInset）。
+    // 整屏页把经典栏收成 0：applyHideAnimation 只藏了页签，栏本身仍盖在页面底部、点它还会切页签
+    .barHeight(this.chrome.immersive && !this.tabBarStyle.floating ? 0 : 56)
     /*
-     * 悬浮样式（设置里的「底栏样式」）：官方要求 barPosition=End、vertical=false、
-     * barOverlap=true；切到经典贴底栏时不给 barFloatingStyle，走官方默认整宽底栏。
+     * 两种模式都 barOverlap=true：内容铺到栏底下、页面用 Theme.tabBarInset 让位
+     * （悬浮/经典同一口径）。悬浮样式（设置里的「底栏样式」）官方要求
+     * barPosition=End、vertical=false、barOverlap=true；经典贴底栏不给
+     * barFloatingStyle，走官方默认整宽底栏，但整棵 Tabs 垫手势区 padding 抬离小白条
+     * （悬浮模式的抬离由 barBottomMargin 负责，经典没有对应接口）。
      */
-    .barOverlap(this.tabBarStyle.floating)
+    .barOverlap(true)
+    .padding({ bottom: this.tabBarStyle.floating ? 0 : WindowInsets.shared().bottom / 2 })
     .vertical(false)
     .barFloatingStyle(this.tabBarStyle.floating ? this.floatingStyle() : undefined)
-    .barBackgroundColor(this.tabBarStyle.floating ? Color.Transparent : Theme.surfaceRaised)
+    // 经典栏实际渲 HDS 默认深色面板（≈ Theme.surface），这里显式传同一个色：与手势区
+    // 垫的带子（build 里的 Row）统一，barBackgroundColor 生不生效两块都无缝
+    .barBackgroundColor(this.tabBarStyle.floating ? Color.Transparent : Theme.surface)
     .onChange((index: number) => {
       this.currentTab = index;
       const title: string = this.visibleTabs()[index].title;

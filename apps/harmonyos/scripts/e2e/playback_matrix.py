@@ -38,7 +38,7 @@ def hdc(*args):
 def send(data):
     return hdc(
         "shell",
-        "aa start -b io.movieclaw.HUAWEI -a EntryAbility --ps mcPlaybackTest "
+        "aa start -b io.movieclaw.hw -a EntryAbility --ps mcPlaybackTest "
         + shlex.quote(json.dumps(data, separators=(",", ":"))),
     )
 

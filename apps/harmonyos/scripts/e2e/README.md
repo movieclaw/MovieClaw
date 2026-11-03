@@ -29,14 +29,14 @@ exit; waiting beyond 25 seconds must not turn the cancelled operation into a tim
 Build the app and `entry@ohosTest` separately from `apps/harmonyos`, using the DevEco SDK/JBR. Install both HAPs. Run the shared controller/session/gateway tests:
 
 ```sh
-hdc shell aa test -b io.movieclaw.HUAWEI -m entry_test \
+hdc shell aa test -b io.movieclaw.hw -m entry_test \
   -s unittest OpenHarmonyTestRunner \
   -s class PlayerInteraction,PlaybackController,PlaybackSessionCoordinator,PlaybackGateway -w 80
 ```
 
 The `HarmonyPhonePlaybackE2E` suite runs seven real UI scenarios: repeated play/pause glyph checks for AVPlayer/MPV, AVPlayer/MPV menu highlighting, submenu scroll reset, pause, rotation, lock, display and auto-hide interactions, plus AVPlayer/MPV/automatic-fallback playback, seeking, diagnostics and exit. Pass JSON strings through `-s avplayerFixture`, `-s mpvFixture`, and `-s fallbackFixture`, with `-s timeout 180000` and `-w 600`. Each fixture uses the matrix shape below. The forced MPV fixture sets `engine: "mpv"`; the fallback fixture must actually be rejected by the target device's AVPlayer.
 
-Screenshots are saved to the app cache as `mc-style-*.png` and `mc-toggle-*.png`; on the emulator, retrieve them from `/data/app/el2/100/base/io.movieclaw.HUAWEI/cache/`. Unlock the emulator before starting. Wait for menu transitions before clicking controls underneath.
+Screenshots are saved to the app cache as `mc-style-*.png` and `mc-toggle-*.png`; on the emulator, retrieve them from `/data/app/el2/100/base/io.movieclaw.hw/cache/`. Unlock the emulator before starting. Wait for menu transitions before clicking controls underneath.
 
 ## NAS format matrix
 

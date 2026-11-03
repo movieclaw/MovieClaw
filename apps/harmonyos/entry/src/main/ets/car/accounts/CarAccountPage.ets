@@ -17,7 +17,7 @@ import { CarColors } from '../theme/CarTheme';
 import { CarMetrics } from '../theme/CarTheme';
 import { CarType } from '../theme/CarTheme';
 import { CarUiState } from '../model/CarUiState';
-import { CarPlayback } from '../player/CarAvPlayerEngine';
+import { CarPlayback } from '../playback/CarPlaybackHost';
 import { CarPressable } from '../components/CarCards';
 
 @ComponentV2

@@ -18,10 +18,16 @@ export class MovieClawPlaybackGateway {
   }
   private api: MovieClawApi;
   private slug: string;
+  /** 按引擎的能力申报（TV/车机传 DeviceCapability 的端口径；缺省 = 手机既有口径） */
+  private capabilityOf: (engine: string) => ClientCapabilityIn;
   constructor(api: MovieClawApi,
-    slug: string) {
+    slug: string,
+    capabilityOf?: (engine: string) => ClientCapabilityIn) {
     this.api = api;
     this.slug = slug;
+    this.capabilityOf = capabilityOf !== undefined
+      ? capabilityOf
+      : (engine: string): ClientCapabilityIn => MovieClawPlaybackGateway.capability(engine);
   }
   private decide(body: PlaybackSessionRequest): Promise<PlaybackDecisionView> {
     const request: PlaybackDecideRequest = { file_id: body.file_id, media_item_id: body.media_item_id,
@@ -31,16 +37,16 @@ export class MovieClawPlaybackGateway {
     return this.slug.length > 0 ? this.api.sharePlaybackDecide(this.slug, request) : this.api.playbackDecide(request);
   }
   async open(body: PlaybackSessionRequest, preference: string): Promise<PlaybackSessionView> {
-    body.capability = MovieClawPlaybackGateway.capability(preference === 'mpv' ? 'mpv' : 'avplayer');
+    body.capability = this.capabilityOf(preference === 'mpv' ? 'mpv' : 'avplayer');
     if (preference === 'auto' && !(body.failed_tiers ?? []).includes(0)) {
       // Ask for a playable original before preparing any server conversion.
       // The local controller still tries AVPlayer first, regardless of this delivery capability.
-      body.capability = MovieClawPlaybackGateway.capability('mpv');
+      body.capability = this.capabilityOf('mpv');
       const original = await this.decide(body);
       if (original.outcome === 'plan' && original.tier === 0) {
         if (original.file_id !== undefined && original.file_id !== null) { body.file_id = original.file_id; }
       } else {
-        body.capability = MovieClawPlaybackGateway.capability('avplayer');
+        body.capability = this.capabilityOf('avplayer');
       }
     }
     return this.slug.length > 0 ? this.api.sharePlaybackSessionStart(this.slug, body) : this.api.playbackSessionStart(body);

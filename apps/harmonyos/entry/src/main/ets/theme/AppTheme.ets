@@ -134,16 +134,18 @@ export class Theme {
     /*
      * 底部内容要让开的高度：页面滚动内容的最后一行要停在底栏上方。
      *
-     * 底栏现在是官方 HdsTabs 渲染的悬浮页签栏（`barFloatingStyle`）：
-     * - **悬浮**：抬起 12 + 栏高 56 + 手势区 + 呼吸 4。
-     * - **经典贴底栏**：栏高 56 + 手势区 + 呼吸 4。
+     * 底栏是官方 HdsTabs 渲染的页签栏，两种模式都 barOverlap=true（内容铺到栏底下），
+     * 由这里统一给页面算让位：
+     * - **悬浮**：抬起 12 + 栏高 56 + 手势区 + 呼吸 4（栏的抬离在 barBottomMargin 里）。
+     * - **经典贴底栏**：整棵 HdsTabs 垫了手势区 padding（内容基线已抬离小白条），
+     *   页面只需让 栏高 56 + 呼吸 4。
      *
      * 读的是 `TabBarStyle.floating`（@Trace）：V2 页面在 build 里读这个 getter，
      * 设置页切换底栏样式时各页的底部留白会跟着重算。V1 页面另见 `shellLayoutRevision`。
      */
     const bottom: number = WindowInsets.shared().bottom;
     if (!TabBarStyle.shared().floating) {
-      return 56 + bottom + 4 + ShellChrome.shared.bottomAccessoryInset;
+      return 56 + 4 + ShellChrome.shared.bottomAccessoryInset;
     }
     return 12 + 56 + bottom + 4 + ShellChrome.shared.bottomAccessoryInset;
   }

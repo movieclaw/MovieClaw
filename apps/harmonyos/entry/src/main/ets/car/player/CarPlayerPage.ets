@@ -36,7 +36,9 @@ import { CarMetrics } from '../theme/CarTheme';
 import { CarType } from '../theme/CarTheme';
 import { CarMotion } from '../theme/CarTheme';
 import { CarPlayRequest, CarUiState } from '../model/CarUiState';
-import { CarAvPlayerEngine, CarPlayback, CarPlayPhase, CarSkipSegments } from './CarAvPlayerEngine';
+import { CarPlaybackHost, CarPlayback, PlayPhase } from '../playback/CarPlaybackHost';
+import { SkipSegments } from '@movieclaw/playback';
+import { PlayerPrefs } from '../../player/PlayerPrefs';
 import { CarFormat, CarPillButton, CarPressable } from '../components/CarCards';
 
 /** 画质选项（信息面板画质列；maxHeight 是上限语义：源不超就直通） */
@@ -58,6 +60,50 @@ class CarQualityOption {
       new CarQualityOption('1080p', 1080, '全高清'),
       new CarQualityOption('720p', 720, '高清'),
       new CarQualityOption('480p', 480, '标清')
+    ];
+  }
+}
+
+/** 倍速档位（信息面板倍速列；与手机端一致 0.5~3.0） */
+class CarSpeedOption {
+  readonly rate: number;
+  readonly label: string;
+
+  constructor(rate: number) {
+    this.rate = rate;
+    this.label = rate === 1 ? '正常' : `${rate}×`;
+  }
+
+  static all(): CarSpeedOption[] {
+    return [
+      new CarSpeedOption(0.5),
+      new CarSpeedOption(0.75),
+      new CarSpeedOption(1),
+      new CarSpeedOption(1.25),
+      new CarSpeedOption(1.5),
+      new CarSpeedOption(2),
+      new CarSpeedOption(3)
+    ];
+  }
+}
+
+/** 引擎选项（信息面板引擎列；读写全端共享偏好 player.engine.v2，与手机一致） */
+class CarEngineOption {
+  readonly label: string;
+  readonly name: string;
+  readonly hint: string;
+
+  constructor(label: string, name: string, hint: string) {
+    this.label = label;
+    this.name = name;
+    this.hint = hint;
+  }
+
+  static all(): CarEngineOption[] {
+    return [
+      new CarEngineOption('自动', 'auto', 'AVPlayer 优先，打不开换 MPV'),
+      new CarEngineOption('MPV', 'mpv', '格式兼容性最好'),
+      new CarEngineOption('AVPlayer', 'avplayer', '系统播放器')
     ];
   }
 }
@@ -155,7 +201,7 @@ struct CarRoundButton {
 @ComponentV2
 export struct CarPlayerPage {
   @Local ui: CarUiState = CarUiState.shared;
-  @Local engine: CarAvPlayerEngine | null = null;
+  @Local engine: CarPlaybackHost | null = null;
   /** 传输条可见性；CarMotion.chromeHideMs 无操作自动收起 */
   @Local chromeVisible: boolean = true;
   /** 信息面板（字幕/音轨/画质）打开 */
@@ -178,8 +224,6 @@ export struct CarPlayerPage {
   private pageHeight: number = 0;
   /** 传输条轨道宽（拖动/点击换算用） */
   private trackWidth: number = 0;
-  private surfaceId: string = '';
-  private surfaceController: XComponentController = new XComponentController();
   private chromeTimer: number = -1;
   private clockTimer: number = -1;
   private scrubBase: number = 0;
@@ -196,7 +240,7 @@ export struct CarPlayerPage {
   aboutToAppear(): void {
     hilog.info(0x0000, 'CarFlow', 'PLAYER_PAGE_APPEAR');
     const request: CarPlayRequest | null = this.ui.playerRequest;
-    const adopted: CarAvPlayerEngine | null = CarPlayback.adopt();
+    const adopted: CarPlaybackHost | null = CarPlayback.adopt();
     if (adopted !== null) {
       this.engine = adopted;
     } else if (request !== null) {
@@ -226,8 +270,8 @@ export struct CarPlayerPage {
   }
 
   /** 引擎非空断言：aboutToAppear 先于 build，页面挂起时引擎一定就位 */
-  private eng(): CarAvPlayerEngine {
-    return this.engine as CarAvPlayerEngine;
+  private eng(): CarPlaybackHost {
+    return this.engine as CarPlaybackHost;
   }
 
   // MARK: - 驾驶模式联动（无黑屏切换）
@@ -239,7 +283,7 @@ export struct CarPlayerPage {
   }
 
   private syncDriveSurface(): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine !== null) {
       engine.setVideoSurfaceVisible(!this.ui.drive.isAudioLocked());
     }
@@ -253,12 +297,12 @@ export struct CarPlayerPage {
   // MARK: - chrome 显隐
 
   private chromeMustStay(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null) {
       return true;
     }
     // 暂停时用户在找进度；面板开着；拖动中
-    return engine.phase === CarPlayPhase.paused || this.panelOpen || this.scrubMs >= 0;
+    return engine.phase === PlayPhase.paused || this.panelOpen || this.scrubMs >= 0;
   }
 
   private showChrome(): void {
@@ -304,7 +348,7 @@ export struct CarPlayerPage {
 
   /** 本季上一集（有在位文件的最近一集，缺集跳过）；没有返回 null */
   private prevEpisode(): EpisodeView | null {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || engine.currentSeason <= 0 || engine.currentEpisode <= 0) {
       return null;
     }
@@ -360,13 +404,13 @@ export struct CarPlayerPage {
   // MARK: - 收藏（行车播控卡）
 
   private isMovieUnit(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     return engine === null || engine.currentSeason <= 0 || engine.currentEpisode <= 0;
   }
 
   private async loadFavorite(): Promise<void> {
     const api: MovieClawApi | null = AppModel.shared.api;
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     const request: CarPlayRequest | null = this.ui.playerRequest;
     if (api === null || engine === null || request === null) {
       return;
@@ -385,7 +429,7 @@ export struct CarPlayerPage {
 
   private async toggleFavorite(): Promise<void> {
     const api: MovieClawApi | null = AppModel.shared.api;
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     const request: CarPlayRequest | null = this.ui.playerRequest;
     if (api === null || engine === null || request === null || this.favoriteBusy) {
       return;
@@ -410,7 +454,7 @@ export struct CarPlayerPage {
   // MARK: - 信息面板
 
   private openPanel(): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || engine.session === null || this.isModal()) {
       return;
     }
@@ -438,44 +482,59 @@ export struct CarPlayerPage {
     this.showChrome();
   }
 
+  private pickSpeed(rate: number): void {
+    this.eng().setPlaybackSpeed(rate);
+    this.showChrome();
+  }
+
+  private pickEngine(name: string): void {
+    this.eng().switchEngine(name);
+    this.showChrome();
+  }
+
+  /** 当前引擎偏好（面板引擎列选中态；全端共享 player.engine.v2） */
+  private enginePref(): string {
+    return PlayerPrefs.engine();
+  }
+
   // MARK: - 情境状态判定
 
   private isModal(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null) {
       return false;
     }
-    return engine.phase === CarPlayPhase.error || engine.phase === CarPlayPhase.consent
+    return engine.phase === PlayPhase.error || engine.phase === PlayPhase.consent
       || this.asksStillWatching();
   }
 
   /** 连播满上限后放完：不自动接，问一句「还在看吗」 */
   private asksStillWatching(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     const request: CarPlayRequest | null = this.ui.playerRequest;
     if (engine === null || request === null || !request.autoAdvance) {
       return false;
     }
-    return engine.phase === CarPlayPhase.ended && engine.nextEpisode() !== null
-      && this.autoNextStreak >= CarSkipSegments.autoNextMaxStreak;
+    return engine.phase === PlayPhase.ended && engine.nextEpisode() !== null
+      && this.autoNextStreak >= SkipSegments.autoNextMaxStreak;
   }
 
   /** 「即将播放」卡片可不可见（对话框占着时不给；「观看片尾」按过收起） */
   private showsUpNext(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || this.isModal() || this.nextDismissed) {
       return false;
     }
     if (engine.nextEpisode() === null) {
       return false;
     }
-    return CarSkipSegments.shouldShowUpNext(engine.segments(), engine.positionMs,
-      engine.phase === CarPlayPhase.ended);
+    return SkipSegments.shouldShowUpNext(engine.segments(), engine.positionMs,
+      engine.phase === PlayPhase.ended);
   }
 
   /** 卡片要不要倒计时自动播下一集（连播关了不倒计时；满上限不倒计时） */
   private autoNextArmed(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     const request: CarPlayRequest | null = this.ui.playerRequest;
     if (engine === null || request === null || !request.autoAdvance) {
       return false;
@@ -483,29 +542,29 @@ export struct CarPlayerPage {
     if (!this.showsUpNext() || this.autoNextCancelled) {
       return false;
     }
-    return CarSkipSegments.autoNextArmed(engine.segments(), engine.positionMs,
-      this.autoNextStreak, engine.phase === CarPlayPhase.ended);
+    return SkipSegments.autoNextArmed(engine.segments(), engine.positionMs,
+      this.autoNextStreak, engine.phase === PlayPhase.ended);
   }
 
   /** 右下角当前该显示的「跳过」段（无 = null） */
   private activeSkipSeg(): PlaybackSegmentView | null {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     return engine !== null ? engine.activeSkipSegment() : null;
   }
 
   private busyVisible(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || this.isModal()) {
       return false;
     }
-    return engine.phase === CarPlayPhase.negotiating
-      || (engine.buffering && (engine.phase === CarPlayPhase.playing
-        || engine.phase === CarPlayPhase.paused));
+    return engine.phase === PlayPhase.negotiating
+      || (engine.buffering && (engine.phase === PlayPhase.playing
+        || engine.phase === PlayPhase.paused));
   }
 
   private busyLabel(): string {
-    const engine: CarAvPlayerEngine | null = this.engine;
-    if (engine !== null && engine.phase === CarPlayPhase.negotiating) {
+    const engine: CarPlaybackHost | null = this.engine;
+    if (engine !== null && engine.phase === PlayPhase.negotiating) {
       return '正在打开…';
     }
     return '正在缓冲…';
@@ -527,7 +586,7 @@ export struct CarPlayerPage {
 
   /** 换会话/换集：随会话下发的自动跳过开关、本集跳过记账、收藏态重拉 */
   private syncSessionFlags(): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     const view: PlaybackSessionView | null = engine !== null ? engine.session : null;
     const id: string = view !== null
       ? `${view.session_id ?? ''}@${view.decision.file_id ?? 0}`
@@ -556,11 +615,11 @@ export struct CarPlayerPage {
    * 每段只自动跳一次——用户拖回去重看时只保留「跳过」按钮，不再硬拽。
    */
   private evaluateAutoSkip(): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || this.panelOpen || this.scrubMs >= 0 || this.isModal()) {
       return;
     }
-    if (engine.phase !== CarPlayPhase.playing) {
+    if (engine.phase !== PlayPhase.playing) {
       return;
     }
     const segment: PlaybackSegmentView | null = this.activeSkipSeg();
@@ -578,7 +637,7 @@ export struct CarPlayerPage {
   }
 
   private tickAutoNext(): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null) {
       return;
     }
@@ -587,11 +646,11 @@ export struct CarPlayerPage {
       return;
     }
     // 暂停时不走；播完照走（片尾短于倒计时时不能卡在最后一帧）
-    if (engine.phase !== CarPlayPhase.playing && engine.phase !== CarPlayPhase.ended) {
+    if (engine.phase !== PlayPhase.playing && engine.phase !== PlayPhase.ended) {
       return;
     }
     this.autoNextProgress = Math.min(1,
-      this.autoNextProgress + 100 / CarSkipSegments.autoNextMs);
+      this.autoNextProgress + 100 / SkipSegments.autoNextMs);
     if (this.autoNextProgress < 1) {
       return;
     }
@@ -603,7 +662,7 @@ export struct CarPlayerPage {
 
   /** mini 播控条状态同步（条体渲染以引擎实时态为准，这里给静态摘要） */
   private syncMini(): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     const request: CarPlayRequest | null = this.ui.playerRequest;
     if (engine === null || request === null) {
       return;
@@ -611,7 +670,7 @@ export struct CarPlayerPage {
     this.ui.mini.title = request.title;
     this.ui.mini.subtitle = this.episodeLine() ?? '';
     this.ui.mini.coverUrl = request.coverUrl;
-    this.ui.mini.playing = engine.phase === CarPlayPhase.playing;
+    this.ui.mini.playing = engine.phase === PlayPhase.playing;
     this.ui.mini.hasNext = engine.nextEpisode() !== null;
   }
 
@@ -656,7 +715,7 @@ export struct CarPlayerPage {
   private titleLine(): string {
     const request: CarPlayRequest | null = this.ui.playerRequest;
     const base: string = request !== null ? request.title : '播放';
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine !== null && engine.currentSeason > 0 && engine.currentEpisode > 0) {
       return `${base} · 第 ${engine.currentSeason} 季第 ${engine.currentEpisode} 集`;
     }
@@ -665,7 +724,7 @@ export struct CarPlayerPage {
 
   /** 当前集的集数行（mini 条副标题/播控卡副标题共用） */
   private episodeLine(): string | null {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || engine.currentSeason <= 0 || engine.currentEpisode <= 0) {
       return null;
     }
@@ -680,24 +739,24 @@ export struct CarPlayerPage {
   }
 
   private subtitlePlansList(): SubtitlePlanView[] {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     return engine !== null ? engine.subtitlePlans() : [];
   }
 
   private audioTracksList(): AudioTrackView[] {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     return engine !== null ? engine.audioTracks() : [];
   }
 
   /** 「关闭」行打勾条件：没选任何外挂轨且当前流没烧录字幕 */
   private subtitleOffActive(): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     return engine !== null && engine.selectedSubtitleIndex < 0
       && engine.burnedSubtitleRef().length === 0;
   }
 
   private subtitleActiveAt(index: number): boolean {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null) {
       return false;
     }
@@ -787,7 +846,7 @@ export struct CarPlayerPage {
     if (!this.autoNextArmed()) {
       return '下一集';
     }
-    const left: number = CarSkipSegments.autoNextMs * (1 - this.autoNextProgress) / 1000;
+    const left: number = SkipSegments.autoNextMs * (1 - this.autoNextProgress) / 1000;
     return `即将播放 · ${Math.max(1, Math.ceil(left))} 秒`;
   }
 
@@ -798,7 +857,7 @@ export struct CarPlayerPage {
   }
 
   private consentMessage(): string {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null) {
       return '';
     }
@@ -825,7 +884,7 @@ export struct CarPlayerPage {
 
   /** 时间轴上的「当前位置」：拖动中 = 落点，平时 = 播放位置 */
   private timelineMs(): number {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (this.scrubMs >= 0) {
       return this.scrubMs;
     }
@@ -833,7 +892,7 @@ export struct CarPlayerPage {
   }
 
   private playedPct(): string {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0) {
       return '0%';
     }
@@ -842,7 +901,7 @@ export struct CarPlayerPage {
   }
 
   private bufferedPct(): string {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0 || engine.bufferedEndMs <= 0) {
       return '0%';
     }
@@ -852,7 +911,7 @@ export struct CarPlayerPage {
 
   /** 可跳段（片头/片尾）在进度条上的亮条（拖动时一眼看出哪截是片头） */
   private segmentPct(segment: PlaybackSegmentView): string {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0) {
       return '0%';
     }
@@ -863,7 +922,7 @@ export struct CarPlayerPage {
   }
 
   private segmentLeftPct(segment: PlaybackSegmentView): string {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0) {
       return '0%';
     }
@@ -876,7 +935,7 @@ export struct CarPlayerPage {
   }
 
   private remainingClock(): string {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null) {
       return '-0:00';
     }
@@ -887,7 +946,7 @@ export struct CarPlayerPage {
   // MARK: - 画面尺寸（按视频宽高比 fit，双向夹紧）
 
   private fitWidth(): number {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     const aspect: number = engine !== null ? engine.videoAspect : 0;
     if (aspect <= 0) {
       return this.pageWidth > 0 ? this.pageWidth : CarMetrics.screenWidth;
@@ -899,7 +958,7 @@ export struct CarPlayerPage {
   }
 
   private fitHeight(): number {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     const aspect: number = engine !== null ? engine.videoAspect : 0;
     if (aspect <= 0) {
       return this.pageHeight > 0 ? this.pageHeight : CarMetrics.screenHeight;
@@ -910,7 +969,7 @@ export struct CarPlayerPage {
   // MARK: - 传输条拖动 / 点按（松手才跳）
 
   private beginTrackScrub(): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0 || this.isModal() || this.panelOpen
       || this.scrubMs >= 0) {
       return;
@@ -922,7 +981,7 @@ export struct CarPlayerPage {
   }
 
   private updateTrackScrub(offsetX: number): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || this.scrubMs < 0 || this.trackWidth <= 0) {
       return;
     }
@@ -944,7 +1003,7 @@ export struct CarPlayerPage {
 
   /** 点轨道任意处直接跳（点哪跳哪） */
   private seekAtX(x: number): void {
-    const engine: CarAvPlayerEngine | null = this.engine;
+    const engine: CarPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0 || this.trackWidth <= 0 || this.isModal()
       || this.panelOpen) {
       return;
@@ -985,27 +1044,33 @@ export struct CarPlayerPage {
     })
   }
 
-  /** 视频面：XComponent(SURFACE)，按视频宽高比完整放入屏幕；行车锁只隐藏不拆（无黑屏） */
+  /** 视频面：XComponent(SURFACE)，按视频宽高比完整放入屏幕；行车锁只隐藏不拆（无黑屏）；
+   * 宿主换代（surfaceGeneration 变化）时整体重建换新 surfaceId */
   @Builder
   private videoSurface(): void {
-    XComponent({
-      id: 'car_player_surface',
-      type: XComponentType.SURFACE,
-      controller: this.surfaceController
-    })
-      .width(this.fitWidth())
-      .height(this.fitHeight())
-      // SURFACE 型 XComponent 会消费触摸（真机实测），画面不需要触摸，交给根处理
-      .hitTestBehavior(HitTestMode.None)
-      .visibility(this.engine !== null && this.eng().videoSurfaceVisible
-        ? Visibility.Visible : Visibility.Hidden)
-      .onLoad((): void => {
-        this.surfaceId = this.surfaceController.getXComponentSurfaceId();
-        const engine: CarAvPlayerEngine | null = this.engine;
-        if (engine !== null) {
-          engine.start(this.surfaceId);
-        }
+    ForEach([this.eng().surfaceGeneration], (generation: number) => {
+      XComponent({
+        id: 'car_player_surface',
+        type: XComponentType.SURFACE,
+        controller: this.eng().surfaceController
       })
+        .width(this.fitWidth())
+        .height(this.fitHeight())
+        // SURFACE 型 XComponent 会消费触摸（真机实测），画面不需要触摸，交给根处理
+        .hitTestBehavior(HitTestMode.None)
+        .visibility(this.eng().videoSurfaceVisible ? Visibility.Visible : Visibility.Hidden)
+        .onLoad((): void => {
+          this.eng().surfaceReady(generation);
+        })
+        .onDestroy((): void => {
+          // aboutToDisappear 先于 XComponent 节点销毁跑：引擎此时可能已置空
+          // （收起/停止即此序），null 时直接跳过，收尾交给 CarPlayback.end()
+          const host: CarPlaybackHost | null = this.engine;
+          if (host !== null) {
+            host.surfaceDestroyed(generation);
+          }
+        })
+    }, (generation: number): string => `${generation}`)
   }
 
   // MARK: - 驻车视频模式
@@ -1106,9 +1171,9 @@ export struct CarPlayerPage {
         .width('100%')
         Row({ space: 14 }) {
           CarPillButton({
-            label: this.engine !== null && this.eng().phase === CarPlayPhase.playing
+            label: this.engine !== null && this.eng().phase === PlayPhase.playing
               ? '暂停' : '播放',
-            symbol: this.engine !== null && this.eng().phase === CarPlayPhase.playing
+            symbol: this.engine !== null && this.eng().phase === PlayPhase.playing
               ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'),
             filled: true,
             onActivate: (): void => {
@@ -1347,7 +1412,7 @@ export struct CarPlayerPage {
   private panelOverlay(): void {
     Column() {
       Row({ space: 12 }) {
-        Text('字幕 · 音轨 · 画质')
+        Text('字幕 · 音轨 · 画质 · 倍速 · 引擎')
           .fontSize(CarType.rowTitle)
           .fontWeight(FontWeight.Bold)
           .fontColor(CarColors.text)
@@ -1368,6 +1433,8 @@ export struct CarPlayerPage {
           this.panelAudioColumn()
         }
         this.panelQualityColumn()
+        this.panelSpeedColumn()
+        this.panelEngineColumn()
       }
       .width('100%')
       .padding({ left: CarMetrics.edge, right: CarMetrics.edge, bottom: 28 })
@@ -1482,6 +1549,70 @@ export struct CarPlayerPage {
     .alignItems(HorizontalAlign.Start)
   }
 
+  /** 倍速列：档位与手机一致（0.5~3.0），选中即调内核变速（不重协商） */
+  @Builder
+  private panelSpeedColumn(): void {
+    Column({ space: 10 }) {
+      Text('倍速')
+        .fontSize(CarType.body)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(CarColors.textMuted)
+      List({ space: 2 }) {
+        ForEach(CarSpeedOption.all(), (option: CarSpeedOption, index: number) => {
+          ListItem() {
+            CarPanelRow({
+              label: option.label,
+              detail: '',
+              active: this.eng().playbackSpeed === option.rate,
+              onPick: (): void => {
+                this.pickSpeed(option.rate);
+              }
+            })
+          }
+        }, (option: CarSpeedOption, index: number) => `${option.rate}_${index}`)
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .fadingEdge(false)
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 引擎列：auto/MPV/AVPlayer 三选一（全端共享偏好 player.engine.v2），选中重开生效 */
+  @Builder
+  private panelEngineColumn(): void {
+    Column({ space: 10 }) {
+      Text('引擎')
+        .fontSize(CarType.body)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(CarColors.textMuted)
+      List({ space: 2 }) {
+        ForEach(CarEngineOption.all(), (option: CarEngineOption, index: number) => {
+          ListItem() {
+            CarPanelRow({
+              label: option.label,
+              detail: option.hint,
+              active: this.enginePref() === option.name,
+              onPick: (): void => {
+                this.pickEngine(option.name);
+              }
+            })
+          }
+        }, (option: CarEngineOption, index: number) => `${option.name}_${index}`)
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .fadingEdge(false)
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
   // MARK: - 行车模式（大控件播控卡）
 
   @Builder
@@ -1564,7 +1695,7 @@ export struct CarPlayerPage {
             }
           })
           CarRoundButton({
-            symbol: this.engine !== null && this.eng().phase === CarPlayPhase.playing
+            symbol: this.engine !== null && this.eng().phase === PlayPhase.playing
               ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'),
             filled: true,
             diameter: 96,
@@ -1617,9 +1748,9 @@ export struct CarPlayerPage {
 
   @Builder
   private dialogs(): void {
-    if (this.engine !== null && this.eng().phase === CarPlayPhase.error) {
+    if (this.engine !== null && this.eng().phase === PlayPhase.error) {
       this.errorDialog()
-    } else if (this.engine !== null && this.eng().phase === CarPlayPhase.consent) {
+    } else if (this.engine !== null && this.eng().phase === PlayPhase.consent) {
       this.consentDialog()
     } else if (this.asksStillWatching()) {
       this.stillWatchingDialog()
@@ -1744,7 +1875,7 @@ export struct CarPlayerPage {
           .fontWeight(FontWeight.Medium)
           .fontColor(CarColors.text)
           .textAlign(TextAlign.Center)
-        Text(`已经连续自动播放 ${CarSkipSegments.autoNextMaxStreak} 集。下一集等你确认后再播。`)
+        Text(`已经连续自动播放 ${SkipSegments.autoNextMaxStreak} 集。下一集等你确认后再播。`)
           .fontSize(CarType.cardCaption)
           .fontColor(CarColors.textMuted)
           .textAlign(TextAlign.Center)

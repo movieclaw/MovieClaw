@@ -194,6 +194,11 @@
       "name": "networkExternal",
       "pageSourceFile": "src/main/ets/settings/ExternalAccessPage.ets",
       "buildFunction": "ExternalAccessBuilder"
+    },
+    {
+      "name": "pluginWeb",
+      "pageSourceFile": "src/main/ets/plugins/PluginWebPage.ets",
+      "buildFunction": "PluginWebPageBuilder"
     }
   ]
 }

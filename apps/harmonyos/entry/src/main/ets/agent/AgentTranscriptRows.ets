@@ -1,4 +1,5 @@
-import { AgentHandoff, AgentProcessItem, AgentSegment, AgentTimeline, AgentTurn } from './AgentTimeline';
+import { AgentHandoff, AgentProcessItem, AgentSegment, AgentTimeline, AgentToolCall, AgentTurn }
+  from './AgentTimeline';
 import { AgentMediaCardEntry, AgentMediaCardGroup, AgentMediaCards } from './AgentMediaCards';
 import { AgentMarkdownBlock, AgentMarkdownParser } from './AgentMarkdown';
 
@@ -40,11 +41,13 @@ export class AgentRow {
   readonly compaction: AgentSegment | null;
   readonly errorText: string;
   readonly footerTurn: AgentTurn | null;
+  /** 处理过程行专属：跨流式刷新稳定的展开状态键（id 含内容签名会变，这个不变） */
+  readonly openKey: string;
 
   private constructor(id: string, kind: string, spacing: number, handoff: AgentHandoff | null,
     question: AgentRowQuestion | null, processItems: AgentProcessItem[], active: boolean,
     group: AgentMediaCardGroup | null, block: AgentMarkdownBlock | null, compaction: AgentSegment | null,
-    errorText: string, footerTurn: AgentTurn | null) {
+    errorText: string, footerTurn: AgentTurn | null, openKey: string = '') {
     this.id = id;
     this.kind = kind;
     this.spacing = spacing;
@@ -57,6 +60,7 @@ export class AgentRow {
     this.compaction = compaction;
     this.errorText = errorText;
     this.footerTurn = footerTurn;
+    this.openKey = openKey;
   }
 
   static handoffRow(handoff: AgentHandoff): AgentRow {
@@ -68,8 +72,9 @@ export class AgentRow {
     return new AgentRow(id, 'question', spacing, null, question, [], false, null, null, null, '', null);
   }
 
-  static processRow(id: string, spacing: number, items: AgentProcessItem[], active: boolean): AgentRow {
-    return new AgentRow(id, 'process', spacing, null, null, items, active, null, null, null, '', null);
+  static processRow(id: string, openKey: string, spacing: number, items: AgentProcessItem[],
+    active: boolean): AgentRow {
+    return new AgentRow(id, 'process', spacing, null, null, items, active, null, null, null, '', null, openKey);
   }
 
   static mediaCardsRow(id: string, spacing: number, group: AgentMediaCardGroup): AgentRow {
@@ -160,8 +165,13 @@ export class AgentTranscriptLayout {
       if (segment.kind === 'process') {
         const entries: AgentMediaCardEntry[] = AgentMediaCards.groupsIn(segment.items);
         if (AgentTranscriptLayout.visibleProcessItems(segment.items).length > 0) {
-          rows.push(AgentRow.processRow(`${turn.id}.${index}p`, gap, segment.items,
-            active && isLast));
+          // id 带内容签名 + active 标志：LazyForEach 靠键值判变化，不带签名的话
+          // 流式期间思维链/工具状态变了这一行也永不重建（内容冻结在首帧）。
+          // openKey 不含签名：行重建后展开状态按它找回（见 ChatPage.processOpenStates）
+          const openKey: string = `${turn.id}.${index}p`;
+          rows.push(AgentRow.processRow(
+            `${openKey}-${AgentTranscriptLayout.processSignature(segment.items)}-${active && isLast ? 1 : 0}`,
+            openKey, gap, segment.items, active && isLast));
           gap = AgentTimeline.SEGMENT_SPACING;
         }
         for (const entry of entries) {
@@ -221,6 +231,25 @@ export class AgentTranscriptLayout {
       out.push(item);
     }
     return out;
+  }
+
+  /**
+   * 处理过程行键值里的内容签名（`AgentRow.id` 的一部分）：
+   * 思维链按文本长度、工具按参数生成进度（label 流式追加）/ 定稿 / 回执落地取值——
+   * 任一变化都让键值变化，LazyForEach 才会重建这一行、刷新实时状态。
+   */
+  static processSignature(items: AgentProcessItem[]): string {
+    const parts: string[] = [];
+    for (const item of items) {
+      if (item.tool !== null) {
+        const tool: AgentToolCall = item.tool;
+        parts.push(`t${tool.id.length}:${tool.label.length}:${tool.argsDone ? 1 : 0}` +
+          `:${tool.output !== null ? tool.output.length : -1}:${tool.isError ? 1 : 0}`);
+      } else {
+        parts.push(`k${item.text.length}`);
+      }
+    }
+    return parts.join('|');
   }
 
   /** 页脚会不会画出东西（与 `AgentTurnFooterView` 的分支一致） */
