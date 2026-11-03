@@ -144,7 +144,6 @@ async def test_lowercase_migration_then_purge_keeps_live_cloud_file(tmp_path, mo
         Library,
         LibraryFile,
         LibraryFileReplica,
-        MediaItem,
     )
     from movieclaw_db.models.base import utcnow
 
@@ -155,19 +154,23 @@ async def test_lowercase_migration_then_purge_keeps_live_cloud_file(tmp_path, mo
     config = _build_config()
     command.upgrade(config, _BEFORE)
     engine = create_engine(f"sqlite:///{database}")
+    with sqlite3.connect(database) as connection:
+        # media_item 只是 library_file 的外键靶子。这里用原生 SQL 而不是 ORM：
+        # 库停在 _BEFORE（要制造重复副本，不能升到 head），而 ORM 模型带上了
+        # 之后新增的列（season_mapping 等），insert 会报 "no column named"。
+        connection.executemany(
+            """INSERT INTO media_item
+               (id, created_at, updated_at, kind, source, external_id, tmdb_id,
+                title, original_title, year, aliases)
+               VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                       'tv', 'tmdb', ?, ?, ?, ?, 2026, '[]')""",
+            [
+                (item_id, str(item_id), item_id, f"剧集{item_id}", f"剧集{item_id}")
+                for item_id in (1, 2, 3)
+            ],
+        )
     with Session(engine) as session:
         session.add(Library(id=1, name="剧集", kind="tv", root_paths=[str(tmp_path)]))
-        for item_id in (1, 2, 3):
-            session.add(
-                MediaItem(
-                    id=item_id,
-                    kind="tv",
-                    tmdb_id=item_id,
-                    title=f"剧集{item_id}",
-                    original_title=f"剧集{item_id}",
-                    year=2026,
-                )
-            )
         for file_id, state, remote, origin in (
             (1, FileState.TRASHED, "shared", "uploaded"),
             (2, FileState.IN_PLACE, "shared", "imported"),
