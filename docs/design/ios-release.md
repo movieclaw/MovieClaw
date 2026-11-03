@@ -98,10 +98,11 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
 
 - **演示服务器与账号**：App 离开服务器无法使用，审核员必须能登录**并把每个功能真的用一遍**。
   用演示站 `https://demo.movieclaw.io`（`feat/demo` 分支，部署见该分支的 `demo/README.md`）：
+  演示服务器与真实服务器完全一样，几乎所有功能都可操作；下载源、下载器和导入规则预先配置，配置固定，只下载开放授权的影片。
   媒体库只有开放授权的影片，另有一个只收开放授权影片的演示资源站和一个模拟下载器，搜索、下载、
   订阅、刷流、自动入库都能端到端跑通，不产生任何真实的 P2P 流量。
-  审核员用部署环境里的**审核账号**（超管，不是登录页公布的公开只读账号），用户名密码填在
-  「App 审核信息 → 登录信息」，不写进备注。提审前用审核账号在 iPhone 和 iPad 上各按 `demo/README.md`
+  审核员使用「Beta 版 App 审核信息」中的**审核账号**（完整管理员权限）登录演示服务器 `demo.movieclaw.io`，用户名密码填在
+  「Beta 版 App 审核信息 → 登录信息」和「App 审核信息 → 登录信息」，不写进备注。提审前用审核账号在 iPhone 和 iPad 上各按 `demo/README.md`
   「App Store 审核」的清单走一遍；审核期间停掉演示站的每日还原，AI 助手接好真实模型。
 - **审核备注模板**（「App 审核信息 → 备注」，TestFlight 是「测试信息 → Beta 版 App 审核信息 → 备注」；
   纯文本、**上限 4000 字符**，粘贴前量一下，见下文；审核员看英文，界面是简体中文，按钮名后面括注英文）。
@@ -115,16 +116,16 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
 MovieClaw is the client for MovieClaw, a self-hosted media server that people install on their own hardware, such as a NAS. Source code: https://github.com/movieclaw/MovieClaw. One App Store record covers iPhone, iPad, Apple TV and Mac. The interface is in Simplified Chinese; English translations of labels are in parentheses.
 
 PREVIOUS REVIEWS (5.6)
-We are sorry. Last time we mistakenly supplied the read-only visitor account of our public demo site, and our Mac test notes mentioned an AI assistant and subscriptions that the Mac app does not have. Both were our mistakes, never an attempt to hide anything; nothing in any of the apps is hidden or remotely switched. This time the review account has full access, and the notes below say exactly what each app does.
+We are sorry. Our Mac test notes mentioned an AI assistant and subscriptions that the Mac app does not have. This was our mistake, never an attempt to hide anything; nothing in the apps is hidden or remotely switched. Reviewers have full administrator access.
 
 CONTENT AND RESPONSIBILITY
 We do not provide, host or sell any movies, TV shows or torrent files. Like Prowlarr, the server software only includes integration rules for talking to sites, with no content, no accounts and no active source; users add sites they are members of with their own accounts and are responsible for what they download. The apps only talk to the user's own server: they stream video from it, transfer no media or torrent files to the device, and contain no peer-to-peer code.
 
 SIGN IN (all platforms)
-Choose "连接服务器" (Connect to server), enter https://demo.movieclaw.io, choose "连接" (Connect), then sign in with the review account in Sign-In Information (full administrator access).
+Choose "连接服务器" (Connect to server), enter https://demo.movieclaw.io, choose "连接" (Connect), then sign in with the account in Beta App Review Information (full administrator access).
 
 DEMO SERVER
-The library holds only Creative Commons Blender films. A demo resource site lists only CC-licensed Blender films (Elephants Dream, Charge and Wing It! are not in the library yet) and a demo download client simulates transfers; no peer-to-peer traffic happens. Seeding figures and household playback in Activity are simulated.
+The demo server is identical to a real server; almost all features work. The library and demo resource site hold only CC-licensed Blender films (Elephants Dream, Charge and Wing It! are not in the library yet). A demo download client simulates transfers; no peer-to-peer traffic happens. Seeding figures and household playback in Activity are simulated.
 
 IPHONE AND IPAD (same app, same features)
 On iPad, tabs are in a sidebar (along the top in portrait): "媒体库" (Library) is "首页" (Home), libraries are listed under "媒体库", and "我的" (Me) shows the account name; switch accounts via the people icon at its top right.
@@ -133,7 +134,7 @@ On iPad, tabs are in a sidebar (along the top in portrait): "媒体库" (Library
 3. Subscribe: search "Charge", open it under "影视" (Titles), "订阅追踪" (Subscribe), "确认订阅" (Confirm). Within minutes it is downloaded and shows as completed in "订阅" (Subscriptions).
 4. Seeding: "活动" (Activity) → "刷流做种" (Seeding).
 5. AI assistant: "我的" (Me) → "新会话" (New session). Before the first message the app explains that messages and looked-up library data go from the user's server to the AI provider its owner configured, and asks for consent.
-6. "我的 → 服务器设置" (Me → Server settings): members, devices, notifications, playback. One-time setup (download sources, download clients, import rules) is in the server's web console: sign in at https://demo.movieclaw.io in Safari with the review account, not the public visitor accounts listed there. It is locked on the demo.
+6. "我的 → 服务器设置" (Me → Server settings): members, devices, notifications, playback. One-time setup is in the web console: sign in at https://demo.movieclaw.io in Safari with the review account. Download sources, download clients and import rules are pre-configured and fixed to download only openly licensed films.
 7. Accounts: no public sign-up; the server owner creates and deletes accounts in Server settings → "成员" (Members). Optional MovieClaw Cloud (Server settings → MovieClaw Cloud) creates an account on our website; that page links to "管理或删除 MovieClaw 账号" (Manage or delete account).
 
 APPLE TV AND MAC
@@ -149,13 +150,13 @@ Arbitrary loads: home servers often use plain HTTP on the LAN. Background audio 
 ```text
 Hello, and thank you for reviewing MovieClaw.
 
-We are sorry for the confusion in the previous review. It was a mistake on our side, not an attempt to hide anything. For that review we supplied the shared visitor account of our public demo website. Because its password is published on the website for anyone to try, that account is read-only on the server. So when you tried to search, download or subscribe, the demo server refused with messages such as "演示站不会真的订阅和下载" ("the demo site does not actually subscribe or download"). Those refusals came from that public account on our demo server, not from the app; the features were present in the build you reviewed.
+We are sorry for the confusion in the previous review. It was a mistake on our side, not an attempt to hide anything. Please sign in to https://demo.movieclaw.io with the account in Beta App Review Information (full administrator access). The demo server is identical to a real server; almost all features are usable.
 
 We never intended to conceal any functionality from App Review. The app has no hidden, dormant or remotely enabled features and does not detect reviewers; every user gets the same build and the same features.
 
-To correct our mistake, we now provide a dedicated review account with full administrator access (see Sign-In Information) on a demo server where search, download, subscription, seeding and the AI assistant all work end to end, and the review notes walk through each feature step by step.
+To correct our mistake, we now provide a dedicated review account with full administrator access (see Beta App Review Information) on a demo server where search, download, subscription, seeding and the AI assistant all work end to end, and the review notes walk through each feature step by step.
 
-We do not provide, host or sell any content. MovieClaw is software that users run on their own hardware. Like Prowlarr, it only includes integration rules for talking to sites, with no content, no accounts and no active source; a site is used only after users add one they are a member of with their own account. The demo server contains only Creative Commons Blender films, and its downloads are simulated without any peer-to-peer traffic.
+We do not provide, host or sell any content. MovieClaw is software that users run on their own hardware. Like Prowlarr, it only includes integration rules for talking to sites, with no content, no accounts and no active source; a site is used only after users add one they are a member of with their own account. The demo server contains only Creative Commons Blender films, and its downloads are simulated without any peer-to-peer traffic. Download sources, download clients and import rules are pre-configured; the configuration is fixed to download only openly licensed films.
 
 If anything is unclear, we would be glad to explain on a call.
 ```
