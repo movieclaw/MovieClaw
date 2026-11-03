@@ -1204,5 +1204,11 @@
   },
   "storage.directories.demoDownloaderDescription": {
     "sourceHash": "15dea5476b30357a3f6962f5cd9756ea13c9d4f4d84402eda18326adb3d8a448"
+  },
+  "scheduledTasks.catalog.llmCatalogRefreshTitle": {
+    "sourceHash": "0c2686d93df5a5e356505aabcbb706cb40b17ac80a3f743fd41c4eb7ea6686d6"
+  },
+  "scheduledTasks.catalog.llmCatalogRefreshDescription": {
+    "sourceHash": "563a43741094355b14f81cf12dc6a4206a47187356c6493acc005002d072ae73"
   }
 }

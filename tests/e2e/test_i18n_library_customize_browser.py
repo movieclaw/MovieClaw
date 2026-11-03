@@ -183,7 +183,7 @@ def test_custom_home_rows_preserve_facts_and_preferences(stack, browser, theme_i
     shot("sort-menu")
     page.get_by_role("menuitemradio", name="First added", exact=True).click()
     extra.get_by_test_id("row-name").fill("Author evening")
-    extra.get_by_test_id("row-unwatched").check()
+    extra.get_by_test_id("row-watch").select_option("unwatched")
     current = wait_saved(
         lambda p: any(
             r["id"] == new_id

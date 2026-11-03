@@ -39,5 +39,6 @@
   "src/movieclaw_api/services/demo.py": 41,
   "src/movieclaw_api/services/demo_activity.py": 4,
   "src/movieclaw_api/services/demo_agent.py": 142,
-  "src/movieclaw_api/services/image_proxy.py": 1
+  "src/movieclaw_api/services/image_proxy.py": 1,
+  "src/movieclaw_api/services/library/source_providers.py": 7
 }

@@ -3977,6 +3977,21 @@ nonisolated extension API {
         }
     }
 
+    /// 订阅对一集的入库预告（播出日历里的「预计 20:00 入库」「下载中」）。
+    struct EpisodeArrivalView: Codable, Hashable, Sendable {
+        var episodeNumber: Int
+        /// waiting=等资源发布 / downloading=下载中 / organizing=下完了在整理入库
+        var stage: String
+        /// 预计入库时刻（只给 waiting 且预测可信、还没过的）；给不出为 null
+        var expectedAt: String?
+
+        enum CodingKeys: String, CodingKey {
+            case episodeNumber = "episode_number"
+            case stage
+            case expectedAt = "expected_at"
+        }
+    }
+
     /// 剧集分集区的一集：季集结构 + 本地分集刮削 + TMDB 兜底的合并结果。
     struct EpisodeView: Codable, Hashable, Sendable {
         var episodeNumber: Int
@@ -11615,17 +11630,48 @@ nonisolated extension API {
         }
     }
 
+    /// 一季的播出日历（issue #547）：排期本身在分集的 air_date 里，这里给对照信息。
+    struct SeasonAirScheduleView: Codable, Hashable, Sendable {
+        /// 站点日历的今天；客户端按它判今天/已播/待播，不用本机时钟
+        var today: String
+        /// 首播地国家码（ISO 3166-1）：播出日期是当地日期、与本地可能差一天时才给
+        var region: String?
+        /// 最近的更新星期（0=周一…6=周日），用于「周一至周四更新」
+        var weekdays: [Int]
+        /// 本季最后一集的播出日；有集没定日期时为 null（说不准哪天完结）
+        var lastAirDate: String?
+        /// 这部剧的订阅；未订阅为 null
+        var subscriptionId: Int?
+        /// 订阅范围内已播出、库里还没有的集（缺集）
+        var missingEpisodes: [Int]
+        /// 订阅在追、还没入库的集的入库预告
+        var arrivals: [API.EpisodeArrivalView]
+
+        enum CodingKeys: String, CodingKey {
+            case today
+            case region
+            case weekdays
+            case lastAirDate = "last_air_date"
+            case subscriptionId = "subscription_id"
+            case missingEpisodes = "missing_episodes"
+            case arrivals
+        }
+    }
+
     /// 一季的分集清单（分集横滚区数据源）。
     struct SeasonEpisodesView: Codable, Hashable, Sendable {
         var seasonNumber: Int
         var episodes: [API.EpisodeView]
         /// 本季接着看的那一集（与首页「接下来继续」同规则：最近播放的一集，看完了取往后第一个没看完且有片源的）；分集区按它锁定集段、默认选中。本季没播放过为 null
         var resumeEpisode: Int?
+        /// 播出日历；本季没有今天或以后的播出日期（已完结、季间空档、无分集日期）为 null
+        var airSchedule: API.SeasonAirScheduleView?
 
         enum CodingKeys: String, CodingKey {
             case seasonNumber = "season_number"
             case episodes
             case resumeEpisode = "resume_episode"
+            case airSchedule = "air_schedule"
         }
     }
 

@@ -102,3 +102,114 @@ async def run(argv: list[str], *, timeout: float) -> Completed:
         raise ProcessTimeout(f"{name} 超过 {timeout:.0f} 秒没有结束，已停止") from None
     returncode = proc.returncode if proc.returncode is not None else -1
     return Completed(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+# ---------------------------------------------------------------------------
+# 逐行输出的长进程（本地语音识别，docs/design/subtitle-asr.md §4.2）
+# ---------------------------------------------------------------------------
+
+#: 识别子进程每段输出一行 JSON，带全部 token 与时间戳；放宽 asyncio 默认的 64 KiB 行长
+_LINE_LIMIT = 1 << 20
+#: stderr 只留末尾：失败时给用户看原因够用，不让一个话多的进程占满内存
+_STDERR_KEEP = 8192
+
+
+def _send(proc: asyncio.subprocess.Process, name: str) -> bool:
+    """给整个进程组发一个按名字取的信号；平台没有这个信号（Windows 无 SIGSTOP）时返回 False。"""
+    sig = getattr(signal, name, None)
+    pid = proc.pid
+    if sig is None or pid is None or pid <= 1 or proc.returncode is not None:
+        return False
+    with contextlib.suppress(OSError):
+        if hasattr(os, "killpg"):
+            os.killpg(pid, sig)
+        else:
+            proc.send_signal(sig)
+        return True
+    return False
+
+
+class Spawned:
+    """``spawn`` 起的子进程：逐行读输出，可暂停、继续，退出时由 ``spawn`` 连同进程组回收。"""
+
+    def __init__(self, proc: asyncio.subprocess.Process) -> None:
+        self._proc = proc
+        self._stderr = bytearray()
+        self._stderr_task = asyncio.ensure_future(self._drain_stderr())
+        self.paused = False
+
+    async def _drain_stderr(self) -> None:
+        stream = self._proc.stderr
+        if stream is None:
+            return
+        while chunk := await stream.read(4096):
+            self._stderr += chunk
+            del self._stderr[:-_STDERR_KEEP]
+
+    async def readline(self) -> bytes:
+        """下一行输出；进程结束且读完后返回空字节。"""
+        stream = self._proc.stdout
+        return await stream.readline() if stream is not None else b""
+
+    def pause(self) -> None:
+        """SIGSTOP 整个进程组（让出 CPU）；平台不支持时什么也不做。"""
+        if not self.paused and _send(self._proc, "SIGSTOP"):
+            self.paused = True
+
+    def resume(self) -> None:
+        if self.paused:
+            _send(self._proc, "SIGCONT")
+            self.paused = False
+
+    async def wait(self) -> int:
+        returncode = await self._proc.wait()
+        with contextlib.suppress(Exception):
+            await self._stderr_task
+        return returncode
+
+    def stderr_tail(self, limit: int = 400) -> str:
+        text = self._stderr.decode(errors="replace").strip().replace("\n", " ")
+        return text[-limit:]
+
+    async def stop(self) -> None:
+        """先让暂停的进程继续（停住的进程收不到 SIGTERM），再按 SIGTERM → SIGKILL 回收。"""
+        proc = self._proc
+        if proc.returncode is None:
+            if self.paused:
+                _send(proc, "SIGCONT")
+                self.paused = False
+            _signal(proc, force=False)
+            try:
+                await asyncio.wait_for(proc.wait(), _TERM_GRACE)
+            except (TimeoutError, OSError):
+                _signal(proc, force=True)
+                with contextlib.suppress(TimeoutError, OSError):
+                    await asyncio.wait_for(proc.wait(), _KILL_GRACE)
+        self._stderr_task.cancel()
+
+
+@contextlib.asynccontextmanager
+async def spawn(argv: list[str], *, stdin: bytes = b""):
+    """起一个逐行输出的子进程（独立进程组）；离开上下文时若还在跑就连同进程组结束。
+
+    启动失败原样抛 ``OSError``。被取消时回收也要护住：停机时协程可能被再次取消，
+    进程却不能留下来。
+    """
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        limit=_LINE_LIMIT,
+        **_spawn_options(),
+    )
+    spawned = Spawned(proc)
+    try:
+        if proc.stdin is not None:
+            with contextlib.suppress(OSError, ConnectionError):
+                proc.stdin.write(stdin)
+                await proc.stdin.drain()
+                proc.stdin.close()
+        yield spawned
+    finally:
+        await asyncio.shield(spawned.stop())

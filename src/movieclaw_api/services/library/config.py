@@ -94,6 +94,45 @@ def derive_save_path(
     return derive_entry_dir(root, title=title, year=year, item=item, library=library)
 
 
+def _provider_of_source(source: str | None):
+    """来源值 → 外部库源提供方；内置来源（含 None 的默认路径）返回 None。"""
+    if not source:
+        return None
+    from movieclaw_api.services.library.source_providers import provider_of
+
+    return provider_of(source)
+
+
+def _validate_source_config(source: str | None, provider, raw: dict | None) -> dict | None:
+    """外部库源连接配置的把关：按提供方声明的 JSON Schema 校验后原样透传。
+
+    - 内置来源不接受 source_config（tmdb/local 库没有"远程连接"这回事）；
+    - 来源未登记（插件停用/卸载后改配置）一律拒绝——写进一行主线不解释的
+      配置等于埋雷，宁可让用户先重新启用插件；
+    - schema 校验失败整体拒绝（400），不让坏配置静默落库。
+    None = 不改动（update 场景）。
+    """
+    if raw is None:
+        return None
+    if provider is None:
+        raise BadRequestException(
+            message_key="errors.library.sourceConfigUnsupported",
+            params={"source": source or ""},
+        )
+    schema = provider.config_schema
+    if schema:
+        import jsonschema
+
+        try:
+            jsonschema.validate(raw, schema)
+        except jsonschema.ValidationError as exc:
+            raise BadRequestException(
+                message_key="errors.library.sourceConfigInvalid",
+                params={"source": provider.source, "detail": exc.message},
+            ) from exc
+    return raw or None
+
+
 class LibraryConfigService:
     """媒体库配置的业务服务。绑定一个数据库会话。"""
 
@@ -140,12 +179,18 @@ class LibraryConfigService:
 
     # -- 写入 --------------------------------------------------------------
 
-    def _validate(self, *, name: str, root_paths: list[str]) -> list[str]:
-        """公共校验：名称非空、根路径非空且均为绝对路径。返回清洗后的根列表。"""
+    def _validate(
+        self, *, name: str, root_paths: list[str], allow_empty_roots: bool = False
+    ) -> list[str]:
+        """公共校验：名称非空、根路径非空且均为绝对路径。返回清洗后的根列表。
+
+        ``allow_empty_roots`` 供外部库源（内容不在本机目录树里，如飞牛镜像
+        库）使用：没有本地根是常态，不强制。内置来源不接受空根。
+        """
         if not name.strip():
             raise BadRequestException(message_key="errors.library.nameRequired")
         cleaned = [p.strip() for p in root_paths if p.strip()]
-        if not cleaned:
+        if not cleaned and not allow_empty_roots:
             raise BadRequestException(message_key="errors.library.rootsRequired")
         for path in cleaned:
             if not path.startswith("/"):
@@ -341,6 +386,7 @@ class LibraryConfigService:
         admin_visible: bool | None = None,
         member_ids: list[int] | None = None,
         keep_local: bool | None = None,
+        source_config: dict | None = None,
     ) -> Library:
         """新增一个库。该类型尚无默认库时自动成为默认。
 
@@ -348,14 +394,21 @@ class LibraryConfigService:
         成员开放、超管可浏览、没有显式授权行——与没有这层概念时的行为一致。
 
         ``source`` 不传按形态默认；(kind, source) 组合必须是已定义的能力档案
-        （profile_for 会拒绝 movie+local 这类没有识别策略的组合）。
+        （内置档案表或外部库源注册表，profile_for 都会把关）。
+
+        ``source_config`` 是外部库源的连接配置：来源已登记时按它声明的
+        config_schema（JSON Schema）把关后透传存储；内置来源不接受。
         """
         from movieclaw_api.services.library.collections import ensure_builtin_collections
         from movieclaw_api.services.library.profile import profile_for
         from movieclaw_api.services.library.routing import validate_match_rules
 
         profile = profile_for(kind, source)
-        roots = self._validate(name=name, root_paths=root_paths)
+        provider = _provider_of_source(source)
+        config = _validate_source_config(source, provider, source_config)
+        roots = self._validate(
+            name=name, root_paths=root_paths, allow_empty_roots=provider is not None
+        )
         rules = validate_match_rules(match_rules)
         overrides = self._validate_overrides(scrape_overrides)
         await self._assert_roots_clear_of_import_watch(roots)
@@ -387,6 +440,7 @@ class LibraryConfigService:
             access_mode=mode or "everyone",
             admin_visible=True if admin_visible is None else bool(admin_visible),
             keep_local=bool(keep_local),
+            source_config=config,
         )
         if members is not None:
             assert row.id is not None
@@ -420,18 +474,31 @@ class LibraryConfigService:
         admin_visible: bool | None = None,
         member_ids: list[int] | None = None,
         keep_local: bool | None = None,
+        source_config: dict | None = None,
     ) -> Library:
         """更新名称/根路径/收藏范围/可见范围。kind 创建后不可改（订阅按类型挂库）。
+
+        ``source_config`` 为 None 表示不改动（老客户端请求体没带该字段，不能
+        把外部库源的连接配置悄悄清掉）；传字典则按来源声明的 schema 把关后
+        整体覆盖（空字典 = 显式清空）。
 
         ``auto_clear_missing`` / ``realtime_watch`` / ``access_mode`` /
         ``admin_visible`` / ``member_ids`` 为 None 时保持原值（老客户端的请求体
         没带这些字段，不能把用户设好的范围悄悄改掉）。``member_ids`` 是整体
         覆盖式：传空列表 = 清空显式授权。
         """
-        await self.get(library_id)
+        row = await self.get(library_id)
         from movieclaw_api.services.library.routing import validate_match_rules
 
-        roots = self._validate(name=name, root_paths=root_paths)
+        provider = _provider_of_source(row.source)
+        config = _validate_source_config(row.source, provider, source_config)
+        from movieclaw_api.services.library.source_providers import is_external_source
+
+        roots = self._validate(
+            name=name,
+            root_paths=root_paths,
+            allow_empty_roots=is_external_source(row.source),
+        )
         rules = validate_match_rules(match_rules)
         overrides = self._validate_overrides(scrape_overrides)
         await self._assert_roots_clear_of_import_watch(roots)
@@ -458,6 +525,7 @@ class LibraryConfigService:
             access_mode=mode,
             admin_visible=admin_visible,
             keep_local=keep_local,
+            source_config=config,
         )
         assert updated is not None  # get() 已确认存在
         # 开关切换也走同一次后台差量重建：关掉的库拆监听、打开的库建监听

@@ -41,6 +41,8 @@ def test_ai_subtitle_detection() -> None:
     assert is_ai_generated("ai-cht") is True
     assert is_ai_generated("ai-bilingual-chs-eng") is True
     assert is_ai_generated("AI") is True
+    # 本地语音模型从音轨识别出来的外挂（<stem>.asr.<语言>.srt）同属机器产物
+    assert is_ai_generated("asr") is True
 
 
 def test_ai_subtitle_detection_ignores_publisher_tracks() -> None:

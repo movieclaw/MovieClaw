@@ -54,10 +54,8 @@ class LlmRouter:
                 await client.close()
 
     def _catalog(self, config: LlmProviderConfig) -> list[ModelInfo]:
-        """预设目录 + 用户补录，用户条目按 id 覆盖预设。"""
-        merged = {m.id: m for m in get_preset(config.provider_type).models}
-        merged.update({m.id: m for m in config.extra_models})
-        return list(merged.values())
+        """实例的完整目录（应用层注入的合并目录，或预设 + 用户补录）。"""
+        return config.model_catalog(get_preset(config.provider_type))
 
     def _enabled_providers(self) -> list[LlmProviderConfig]:
         # 默认实例排最前：裸模型 id 在多实例都有时优先命中默认实例
@@ -76,6 +74,12 @@ class LlmRouter:
         return enabled[0]
 
     # -- 路由解析 -----------------------------------------------------------
+
+    def _owners(self, model_id: str) -> list[LlmProviderConfig]:
+        """目录里有该模型 id 的已启用实例（默认实例在前）。"""
+        return [
+            p for p in self._enabled_providers() if any(m.id == model_id for m in self._catalog(p))
+        ]
 
     def resolve(self, model_ref: str) -> tuple[LlmProviderConfig, str]:
         """解析 model 引用 → (供应商实例配置, 具体模型 id)。"""
@@ -102,15 +106,24 @@ class LlmRouter:
                         )
                     # 显式指定实例时信任用户，模型不要求在目录里
                     return provider, model_id
+            # 前缀不是实例名：可能是实例改过名的旧引用，或裸的 org/model 写法。
+            # 按整串、再按斜杠后半段在目录里找；都找不到才报找不到实例
+            for candidate in (ref, model_id):
+                owners = self._owners(candidate)
+                if owners:
+                    logger.info(
+                        "模型引用「%s」的实例前缀不存在，按目录归属路由到「%s」",
+                        ref,
+                        owners[0].name,
+                    )
+                    return owners[0], candidate
             raise LlmRoutingError(
                 f"找不到名为「{name}」的供应商实例",
                 message_key="errors.llm.connection.providerMissing",
                 params={"name": name},
             )
 
-        owners = [
-            p for p in self._enabled_providers() if any(m.id == ref for m in self._catalog(p))
-        ]
+        owners = self._owners(ref)
         if owners:
             if len(owners) > 1:
                 # 多实例目录里都有这个 id：按默认实例优先的顺序命中。对话框选模型
@@ -142,7 +155,8 @@ class LlmRouter:
     # -- 客户端构建 ---------------------------------------------------------
 
     def _client_for(self, config: LlmProviderConfig) -> BaseLlmProtocol:
-        fingerprint = config.model_dump_json()
+        # 整份目录不进指纹（大目录每条消息序列化一遍不划算），由 catalog_version 代表
+        fingerprint = config.model_dump_json(exclude={"catalog"})
         cached = self._clients.get(config.name)
         if cached and cached[0] == fingerprint:
             return cached[1]

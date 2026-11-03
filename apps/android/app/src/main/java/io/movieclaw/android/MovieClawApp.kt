@@ -17,10 +17,15 @@ class MovieClawApp : Application() {
     @Inject
     lateinit var imageLoaders: ImageLoaders
 
+    @Inject
+    lateinit var offline: io.movieclaw.android.core.offline.OfflineCoordinator
+
     private val scope = AppScopes.default("MovieClawApp")
 
     override fun onCreate() {
         super.onCreate()
+        // 离线下载：跟踪登录的服务器、按账号读本机存档、回前台对账（docs/design/offline-download.md）
+        offline.start(this)
         // 播放质量记录（含上次异常退出的补报）由统一引擎在下一次起播时补发（core PlaybackReportStore）
         // 实时通知（core/push）：用户开着就随 App 启动拉起前台服务（开机由 PushStreamBootReceiver 拉起）
         scope.launch { io.movieclaw.android.core.push.PushStreamController.startIfEnabled(this@MovieClawApp) }

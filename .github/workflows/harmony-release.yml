@@ -1,0 +1,113 @@
+name: harmony-release
+on:
+  push:
+    tags: ['harmony-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'harmony-vX.Y.Z，与 AppScope/app.json5 一致'
+        required: true
+      build_only:
+        description: '仅验证 release 构建，输出未签名 Actions artifact，不公开 Release'
+        type: boolean
+        default: true
+permissions:
+  contents: write
+concurrency:
+  group: harmony-release-${{ inputs.tag || github.ref_name }}
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.build_only }}
+      HARMONY_TOOLS_URL: ${{ vars.HARMONY_TOOLS_URL }}
+      HARMONY_TOOLS_SHA256: ${{ vars.HARMONY_TOOLS_SHA256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 校验版本与配置
+        env:
+          KEYSTORE: ${{ secrets.HARMONY_KEYSTORE_BASE64 }}
+          CERT: ${{ secrets.HARMONY_CERT_BASE64 }}
+          PROFILE: ${{ secrets.HARMONY_PROFILE_BASE64 }}
+          ALIAS: ${{ secrets.HARMONY_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.HARMONY_KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.HARMONY_KEYSTORE_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          app = json.load(open('apps/harmonyos/AppScope/app.json5'))['app']
+          assert os.environ['RELEASE_TAG'] == 'harmony-v' + app['versionName'], 'tag 与应用版本不一致'
+          assert re.fullmatch(r'harmony-v\d+\.\d+\.\d+', os.environ['RELEASE_TAG']), 'tag 格式错误'
+          assert os.environ['HARMONY_TOOLS_URL'].startswith('https://'), '待配置 HARMONY_TOOLS_URL'
+          assert re.fullmatch('[a-fA-F0-9]{64}', os.environ['HARMONY_TOOLS_SHA256']), '待配置工具链 SHA256'
+          if os.environ['BUILD_ONLY'] != 'true':
+              for name in ['KEYSTORE', 'CERT', 'PROFILE', 'ALIAS', 'KEY_PASSWORD', 'STORE_PASSWORD']:
+                  assert os.environ.get(name), f'待配置鸿蒙发布签名：{name}'
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装官方命令行工具
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libgl1 unzip
+          curl --fail --location --retry 3 "$HARMONY_TOOLS_URL" -o "$RUNNER_TEMP/harmony-tools.zip"
+          printf '%s  %s\n' "$HARMONY_TOOLS_SHA256" "$RUNNER_TEMP/harmony-tools.zip" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/harmony-tools.zip" -d "$RUNNER_TEMP/harmony-tools"
+          echo "HARMONY_TOOLS_HOME=$RUNNER_TEMP/harmony-tools/command-line-tools" >> "$GITHUB_ENV"
+      - name: Release 构建与检查
+        run: bash apps/harmonyos/scripts/release/package.sh
+      - uses: actions/upload-artifact@v4
+        if: env.BUILD_ONLY == 'true'
+        with:
+          name: harmony-unsigned-build-validation
+          path: apps/harmonyos/build/release/MovieClaw-HarmonyOS-unsigned.hap
+          retention-days: 7
+      - name: 正式签名及验签
+        if: env.BUILD_ONLY != 'true'
+        env:
+          KEYSTORE: ${{ secrets.HARMONY_KEYSTORE_BASE64 }}
+          CERT: ${{ secrets.HARMONY_CERT_BASE64 }}
+          PROFILE: ${{ secrets.HARMONY_PROFILE_BASE64 }}
+          HARMONY_KEY_ALIAS: ${{ secrets.HARMONY_KEY_ALIAS }}
+          HARMONY_KEY_PASSWORD: ${{ secrets.HARMONY_KEY_PASSWORD }}
+          HARMONY_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_KEYSTORE_PASSWORD }}
+        run: |
+          umask 077
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          printf '%s' "$KEYSTORE" | base64 --decode > "$work/key.p12"
+          printf '%s' "$CERT" | base64 --decode > "$work/cert.cer"
+          printf '%s' "$PROFILE" | base64 --decode > "$work/profile.p7b"
+          export HARMONY_KEYSTORE_PATH="$work/key.p12"
+          export HARMONY_CERT_PATH="$work/cert.cer"
+          export HARMONY_PROFILE_PATH="$work/profile.p7b"
+          python3 apps/harmonyos/scripts/release/metadata.py sign \
+            apps/harmonyos/build/release/MovieClaw-HarmonyOS-unsigned.hap \
+            --tools "$HARMONY_TOOLS_HOME" --output apps/harmonyos/build/release/signed
+      - name: 上传并发布独立 Release
+        if: env.BUILD_ONLY != 'true'
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/is-draft"; then
+            test "$(cat "$RUNNER_TEMP/is-draft")" = true || { echo '该版本已发布，请递增版本号'; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft --latest=false \
+              --title "MovieClaw for HarmonyOS ${RELEASE_TAG#harmony-v}" \
+              --notes-file "docs/changelog/$RELEASE_TAG.md"
+          fi
+          gh release edit "$RELEASE_TAG" --target "$GITHUB_SHA" --notes-file "docs/changelog/$RELEASE_TAG.md"
+          gh release upload "$RELEASE_TAG" --clobber \
+            apps/harmonyos/build/release/signed/MovieClaw-HarmonyOS.hap \
+            apps/harmonyos/build/release/signed/MovieClaw-HarmonyOS.json
+          bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
+          bash scripts/publish-release-info.sh "$RELEASE_TAG"
+          gh release edit "$RELEASE_TAG" --draft=false --latest=false

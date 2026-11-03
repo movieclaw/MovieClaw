@@ -1,5 +1,7 @@
+import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
-import { PageTopBar } from '../common/PageTopBar';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppFooter } from '../common/AppFooter';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
@@ -36,6 +38,8 @@ class PortPayload implements WebPortPayload {
 @ComponentV2
 export struct ExternalAccessPage {
   private navStack: NavPathStack = new NavPathStack();
+  /** 滚动器：标题栏的渐变模糊 / 滑动显隐靠它驱动（同根页签） */
+  private scroller: Scroller = new Scroller();
   private started: boolean = false;
   @Local private config: AppConfigView | null = null;
   @Local private loading: boolean = true;
@@ -239,11 +243,8 @@ export struct ExternalAccessPage {
   // MARK: 视图
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        PageTopBar({ title: '外部访问', onBack: (): void => {
-          this.navStack.pop();
-        }})
         if (this.loading) {
           Column({ space: 10 }) {
             LoadingProgress().width(24).height(24).color(Theme.textMuted)
@@ -264,7 +265,7 @@ export struct ExternalAccessPage {
           .layoutWeight(1)
           .justifyContent(FlexAlign.Center)
         } else {
-          Scroll() {
+          Scroll(this.scroller) {
             Column({ space: 14 }) {
               if (this.newPort >= 0) {
                 this.PortChangedCard()
@@ -276,7 +277,8 @@ export struct ExternalAccessPage {
               AppFooter()
             }
             .width('100%')
-            .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+            // 内容从 y=0 铺到标题栏下面：首屏让开标题栏，滚动时产生渐变
+            .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
           }
           .layoutWeight(1)
           .align(Alignment.TopStart)
@@ -287,7 +289,11 @@ export struct ExternalAccessPage {
       .height('100%')
       .backgroundColor(Theme.bg)
     }
-    .hideTitleBar(true)
+    // 二级页标题栏：与根页签同一套「沉浸光感渐变模糊 + 自适应材质」（见 common/AppNavBar）
+    .titleMode(HdsNavDestinationTitleMode.MINI)
+    .titleBar(AppNavBar.subPageTitleBar('外部访问'))
+    .bindToScrollable([this.scroller])
+    .dynamicHideTitleBar(AppNavBar.dynamicHide())
     .onReady((ctx: NavDestinationContext) => {
       this.navStack = ctx.pathStack;
       if (!this.started) {
@@ -491,31 +497,35 @@ export struct ExternalAccessPage {
         Text(this.editorError).fontSize(12).fontColor(Theme.danger).width('100%')
       }
       Row({ space: 10 }) {
-        Text('取消')
-          .fontSize(15)
-          .fontColor(Theme.text)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            this.showSheet = false;
-          })
-        Text(this.busy ? '保存中…' : '保存')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.urlSavable() ? '#0b0d12' : Theme.textFaint)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(this.urlSavable() ? Theme.accent : Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            if (this.urlSavable()) {
-              this.saveUrl();
-            }
-          })
+        Button() {
+          Text('取消')
+            .fontSize(15)
+            .fontColor(Theme.text)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          this.showSheet = false;
+        })
+        Button() {
+          Text(this.busy ? '保存中…' : '保存')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.urlSavable() ? '#0b0d12' : Theme.textFaint)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(this.urlSavable() ? GlassTone.Primary : GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          if (this.urlSavable()) {
+            this.saveUrl();
+          }
+        })
       }
       .width('100%')
     }
@@ -586,32 +596,36 @@ export struct ExternalAccessPage {
         Text(this.editorError).fontSize(12).fontColor(Theme.danger).width('100%')
       }
       Row({ space: 10 }) {
-        Text('取消')
-          .fontSize(15)
-          .fontColor(Theme.text)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            this.showSheet = false;
-          })
-        Text(this.busy ? '重启中…' : '继续')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.portSavable() ? Theme.danger : Theme.textFaint)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            if (this.portSavable()) {
-              const port: number = this.validPort(this.draftPort);
-              this.askPortConfirm(port, port);
-            }
-          })
+        Button() {
+          Text('取消')
+            .fontSize(15)
+            .fontColor(Theme.text)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          this.showSheet = false;
+        })
+        Button() {
+          Text(this.busy ? '重启中…' : '继续')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.portSavable() ? Theme.danger : Theme.textFaint)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          if (this.portSavable()) {
+            const port: number = this.validPort(this.draftPort);
+            this.askPortConfirm(port, port);
+          }
+        })
       }
       .width('100%')
     }

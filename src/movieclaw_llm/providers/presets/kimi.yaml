@@ -12,6 +12,11 @@ id: kimi
 display_name: Kimi 官方（月之暗面）
 protocol: openai_chat
 base_url: https://api.moonshot.cn/v1
+# 公共目录（models.dev）对应的服务商与思考方式偏好（docs/design/llm-model-catalog.md §5）；
+# 下面 models 里的条目是内置修正，显式写出的字段覆盖公共目录。
+catalog_id: moonshotai-cn
+thinking_prefer: [effort, toggle]
+thinking_off_body: {thinking: {type: disabled}}
 compat:
   thinking_field: reasoning_content
   preserve_thinking: true
@@ -35,6 +40,7 @@ models:
     modalities: [text, image, video]
   # 官方当前 Code / 高速 Code 均为 256K、文本/图片/视频，不能关闭思考
   - id: kimi-k2.7-code
+    max_output_tokens: null  # 官方只公布默认输出（见文件头）
     context_window: 262144
     default_output_tokens: 32768
     fixed_sampling: true
@@ -42,6 +48,7 @@ models:
     supports_thinking: true
     modalities: [text, image, video]
   - id: kimi-k2.7-code-highspeed
+    max_output_tokens: null  # 同上
     context_window: 262144
     default_output_tokens: 32768
     fixed_sampling: true
@@ -52,6 +59,7 @@ models:
   # 思考走 thinking.type（enabled 默认 / disabled 可关）——toggle 方言，
   # 菜单为「默认/关」。temperature 分模式固定（思考 1.0 / 非思考 0.6）。
   - id: kimi-k2.6
+    max_output_tokens: null  # 同上
     context_window: 262144
     default_output_tokens: 32768
     fixed_sampling: true

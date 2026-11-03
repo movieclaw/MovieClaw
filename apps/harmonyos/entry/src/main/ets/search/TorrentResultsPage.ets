@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { PageTopBar } from '../common/PageTopBar';
@@ -1636,26 +1637,30 @@ export struct TorrentResultsPage {
         }
         Blank()
         if (this.sites.length > 0) {
-          Row({ space: 6 }) {
-            Circle({ width: 6, height: 6 })
-              .fill(this.loading ? Theme.accent : (this.failedSiteCount() > 0 ? Theme.danger : Theme.ok))
-            if (this.loading) {
-              Text(`${this.settledSiteCount()}/${this.sites.length} 站点`)
-                .fontSize(11)
-                .fontColor(Theme.textMuted)
-            } else {
-              Text(`${this.sites.length} 站点`)
-                .fontSize(11)
-                .fontColor(Theme.textMuted)
-              if (this.failedSiteCount() > 0) {
-                Text(`· ${this.failedSiteCount()} 失败`)
+          Button() {
+            Row({ space: 6 }) {
+              Circle({ width: 6, height: 6 })
+                .fill(this.loading ? Theme.accent : (this.failedSiteCount() > 0 ? Theme.danger : Theme.ok))
+              if (this.loading) {
+                Text(`${this.settledSiteCount()}/${this.sites.length} 站点`)
                   .fontSize(11)
-                  .fontColor(Theme.danger)
+                  .fontColor(Theme.textMuted)
+              } else {
+                Text(`${this.sites.length} 站点`)
+                  .fontSize(11)
+                  .fontColor(Theme.textMuted)
+                if (this.failedSiteCount() > 0) {
+                  Text(`· ${this.failedSiteCount()} 失败`)
+                    .fontSize(11)
+                    .fontColor(Theme.danger)
+                }
               }
             }
+            .padding({ left: 10, right: 10, top: 5, bottom: 5 })
           }
-          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-          .backgroundColor(Theme.glassFill)
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding(0)
+          .clip(true)
           .borderRadius(13)
           .onClick(() => {
             this.showSitesSheet = true;
@@ -1677,16 +1682,18 @@ export struct TorrentResultsPage {
       Row({ space: 6 }) {
         Blank()
         ForEach(TORRENT_VIEW_MODES, (mode: string) => {
-          Text(TorrentSearchLogic.viewModeLabel(mode))
-            .fontSize(12)
-            .fontColor(this.viewMode === mode ? Theme.text : Theme.textMuted)
-            .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-            .backgroundColor(this.viewMode === mode ? Theme.accentSoft : Theme.glassFill)
-            .borderRadius(13)
-            .onClick(() => {
-              this.viewMode = mode;
-              this.rebuildRows();
-            })
+          Button() {
+            Text(TorrentSearchLogic.viewModeLabel(mode))
+              .fontSize(12)
+              .fontColor(this.viewMode === mode ? Theme.text : Theme.textMuted)
+          }
+          .attributeModifier(new GlassButtonModifier(this.viewMode === mode ? GlassTone.Primary : GlassTone.Secondary))
+          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+          .borderRadius(13)
+          .onClick(() => {
+            this.viewMode = mode;
+            this.rebuildRows();
+          })
         }, (mode: string) => mode)
       }
       .width('100%')
@@ -1712,16 +1719,18 @@ export struct TorrentResultsPage {
   ConditionChips() {
     Row({ space: 8 }) {
       if (this.filters.isActive()) {
-        Text('✕ 清空')
-          .fontSize(12)
-          .fontColor(Theme.textMuted)
-          .padding({ left: 11, right: 11, top: 7, bottom: 7 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(15)
-          .onClick(() => {
-            this.filters = this.filters.clear();
-            this.rebuildRows();
-          })
+        Button() {
+          Text('✕ 清空')
+            .fontSize(12)
+            .fontColor(Theme.textMuted)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 11, right: 11, top: 7, bottom: 7 })
+        .borderRadius(15)
+        .onClick(() => {
+          this.filters = this.filters.clear();
+          this.rebuildRows();
+        })
       }
       Scroll() {
         Row({ space: 8 }) {
@@ -1838,109 +1847,112 @@ export struct TorrentResultsPage {
   /** 列表 / 分组里的一条种子：解析片名（或原始名）、副标题行、徽标流、体积·做种/下载·发布时间 */
   @Builder
   HitRow(hit: TorrentHit, row: ResultRow) {
-    Column({ space: 6 }) {
-      // 标题区：分组视图用规格摘要代替重复片名；列表视图直接展示原始种子名
-      if (row.specText.length > 0) {
-        Text(row.specText)
-          .fontSize(13)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
-          .maxLines(2)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-      } else if (row.primary.length > 0) {
-        Row({ space: 6 }) {
-          Text(row.primary)
-            .fontSize(14)
+    Button() {
+      Column({ space: 6 }) {
+        // 标题区：分组视图用规格摘要代替重复片名；列表视图直接展示原始种子名
+        if (row.specText.length > 0) {
+          Text(row.specText)
+            .fontSize(13)
             .fontWeight(FontWeight.Medium)
             .fontColor(Theme.text)
-            .maxLines(1)
-            .flexShrink(1)
-          if (row.secondary.length > 0) {
-            Text(row.secondary)
-              .fontSize(11)
-              .fontColor(Theme.textMuted)
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        } else if (row.primary.length > 0) {
+          Row({ space: 6 }) {
+            Text(row.primary)
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
               .maxLines(1)
               .flexShrink(1)
+            if (row.secondary.length > 0) {
+              Text(row.secondary)
+                .fontSize(11)
+                .fontColor(Theme.textMuted)
+                .maxLines(1)
+                .flexShrink(1)
+            }
+            if (row.yearText.length > 0) {
+              Text(row.yearText)
+                .fontSize(11)
+                .fontColor(Theme.textFaint)
+            }
           }
-          if (row.yearText.length > 0) {
-            Text(row.yearText)
-              .fontSize(11)
-              .fontColor(Theme.textFaint)
+          .width('100%')
+        } else {
+          Text(hit.title)
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        }
+      
+        if (row.subtitleLine.length > 0) {
+          Text(row.subtitleLine)
+            .fontSize(11)
+            .fontColor(Theme.textMuted)
+            .width('100%')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+      
+        // 徽标流：站点、全集、促销、属性（最多 4 个，其余折叠成 +N）
+        Flex({ wrap: FlexWrap.Wrap }) {
+          this.Tag(hit.site_name, Theme.accent2, 'rgba(159, 176, 201, 0.10)')
+          if (row.completeText.length > 0) {
+            this.Tag(row.completeText, '#99c7ff', 'rgba(127, 176, 255, 0.16)')
+          }
+          ForEach(row.promos, (promo: Promo) => {
+            this.Tag(promo.text, TorrentResultsPage.promoFg(promo.kind, false),
+              TorrentResultsPage.promoBg(promo.kind, false))
+          }, (promo: Promo) => `${promo.kind}-${promo.text}`)
+          ForEach(row.badges, (badge: AttrBadge) => {
+            this.Tag(badge.text, TorrentResultsPage.toneColor(badge.tone), Theme.glassFill)
+          }, (badge: AttrBadge) => `${badge.tone}-${badge.text}`)
+          if (row.badgeExtra > 0) {
+            this.Tag(`+${row.badgeExtra}`, Theme.textFaint, 'rgba(0, 0, 0, 0)')
           }
         }
         .width('100%')
-      } else {
-        Text(hit.title)
-          .fontSize(13)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
-          .maxLines(2)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-      }
-
-      if (row.subtitleLine.length > 0) {
-        Text(row.subtitleLine)
-          .fontSize(11)
-          .fontColor(Theme.textMuted)
-          .width('100%')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-      }
-
-      // 徽标流：站点、全集、促销、属性（最多 4 个，其余折叠成 +N）
-      Flex({ wrap: FlexWrap.Wrap }) {
-        this.Tag(hit.site_name, Theme.accent2, 'rgba(159, 176, 201, 0.10)')
-        if (row.completeText.length > 0) {
-          this.Tag(row.completeText, '#99c7ff', 'rgba(127, 176, 255, 0.16)')
+      
+        // 指标行：体积 · 做种（0 红、<5 黄、≥100 亮绿）· 下载 · 完成数 · 相对时间
+        Row({ space: 10 }) {
+          if (TorrentSearchLogic.sizeText(hit).length > 0) {
+            Text(TorrentSearchLogic.sizeText(hit))
+              .fontSize(11)
+              .fontColor(Theme.textMuted)
+          }
+          Text(`↑ ${hit.seeders}`)
+            .fontSize(11)
+            .fontColor(TorrentResultsPage.seederTone(hit.seeders))
+          Text(`↓ ${hit.leechers}`)
+            .fontSize(11)
+            .fontColor(Theme.textFaint)
+          if (hit.snatched > 0) {
+            Text(`完成 ${hit.snatched}`)
+              .fontSize(11)
+              .fontColor(Theme.textMuted)
+          }
+          Blank()
+          if ((hit.upload_time ?? '') !== '') {
+            Text(Formatters.relative(hit.upload_time ?? null))
+              .fontSize(11)
+              .fontColor(Theme.textMuted)
+          }
         }
-        ForEach(row.promos, (promo: Promo) => {
-          this.Tag(promo.text, TorrentResultsPage.promoFg(promo.kind, false),
-            TorrentResultsPage.promoBg(promo.kind, false))
-        }, (promo: Promo) => `${promo.kind}-${promo.text}`)
-        ForEach(row.badges, (badge: AttrBadge) => {
-          this.Tag(badge.text, TorrentResultsPage.toneColor(badge.tone), Theme.glassFill)
-        }, (badge: AttrBadge) => `${badge.tone}-${badge.text}`)
-        if (row.badgeExtra > 0) {
-          this.Tag(`+${row.badgeExtra}`, Theme.textFaint, 'rgba(0, 0, 0, 0)')
-        }
+        .width('100%')
       }
       .width('100%')
-
-      // 指标行：体积 · 做种（0 红、<5 黄、≥100 亮绿）· 下载 · 完成数 · 相对时间
-      Row({ space: 10 }) {
-        if (TorrentSearchLogic.sizeText(hit).length > 0) {
-          Text(TorrentSearchLogic.sizeText(hit))
-            .fontSize(11)
-            .fontColor(Theme.textMuted)
-        }
-        Text(`↑ ${hit.seeders}`)
-          .fontSize(11)
-          .fontColor(TorrentResultsPage.seederTone(hit.seeders))
-        Text(`↓ ${hit.leechers}`)
-          .fontSize(11)
-          .fontColor(Theme.textFaint)
-        if (hit.snatched > 0) {
-          Text(`完成 ${hit.snatched}`)
-            .fontSize(11)
-            .fontColor(Theme.textMuted)
-        }
-        Blank()
-        if ((hit.upload_time ?? '') !== '') {
-          Text(Formatters.relative(hit.upload_time ?? null))
-            .fontSize(11)
-            .fontColor(Theme.textMuted)
-        }
-      }
-      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 14, right: 14, top: 12, bottom: 12 })
     }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .backgroundColor('rgba(16, 18, 25, 0.82)')
+    .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+    .padding(0)
+    .clip(true)
     .borderRadius(16)
-    .border({ width: 1, color: 'rgba(255, 255, 255, 0.06)' })
     .onClick(() => {
       this.openActions(hit);
     })

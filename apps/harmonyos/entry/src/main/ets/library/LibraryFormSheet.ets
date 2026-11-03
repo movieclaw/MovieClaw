@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
@@ -301,16 +302,18 @@ export struct LibraryFormSheet {
         .fontSize(13)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('重试')
-        .fontSize(14)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(18)
-        .onClick(() => {
-          this.load();
-        })
+      Button() {
+        Text('重试')
+          .fontSize(14)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+      .borderRadius(18)
+      .onClick(() => {
+        this.load();
+      })
     }
     .width('100%')
     .layoutWeight(1)
@@ -469,15 +472,17 @@ export struct LibraryFormSheet {
 
   @Builder
   AccessChip(mode: string, label: string) {
-    Text(label)
-      .fontSize(14)
-      .fontColor(this.accessMode === mode ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-      .backgroundColor(this.accessMode === mode ? Theme.accent : Theme.glassFill)
-      .borderRadius(16)
-      .onClick(() => {
-        this.accessMode = mode;
-      })
+    Button() {
+      Text(label)
+        .fontSize(14)
+        .fontColor(this.accessMode === mode ? '#0b0d12' : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(this.accessMode === mode ? GlassTone.Primary : GlassTone.Secondary))
+    .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+    .borderRadius(16)
+    .onClick(() => {
+      this.accessMode = mode;
+    })
   }
 
   @Builder
@@ -503,10 +508,10 @@ export struct LibraryFormSheet {
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
       Toggle({ type: ToggleType.Switch, isOn: value })
-        .selectedColor(Theme.accent)
-        .onChange((isOn: boolean): void => {
-          onChange(isOn);
-        })
+      .attributeModifier(new GlassSwitchModifier())
+      .onChange((isOn: boolean): void => {
+        onChange(isOn);
+      })
     }
     .width('100%')
     .padding({ top: 10, bottom: 10 })

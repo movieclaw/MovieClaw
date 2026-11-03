@@ -33,6 +33,14 @@ final class OfflineStore {
         let season: Int
         let episode: Int
     }
+    /// 进行中的单元按下载顺序排（§5.5，含暂停、失败；正在下的排最前）：只在开始 / 完成 / 删除 / 调顺序 / 状态变化时变，
+    /// 下载进度不改它——排第几、「优先下载」该不该出现都看它，详情页开着的菜单不会每秒被重建
+    private(set) var queue: [OfflineQueue.Entry] = []
+    /// 「使用蜂窝网络下载」（设置菜单与「等待 Wi-Fi」提示里的按钮共用这一份）
+    private(set) var allowCellular = OfflineSettings.allowCellular
+    /// 下载在等 Wi-Fi：没开「使用蜂窝网络下载」，眼下又是计费网络（蜂窝、个人热点、低数据模式）——只用 Wi-Fi 的
+    /// 下载会话这时一动不动，界面要说出来，不然看着像卡住了
+    private(set) var waitingForWiFi = false
     /// 这台服务器支持离线下载（有实例号）：没有时下载入口不出现
     private(set) var serverSupported = false
     /// 读完本机存档了（离线首页据此区分「还在读」和「真的没有」）
@@ -44,6 +52,24 @@ final class OfflineStore {
     @ObservationIgnored private var adoptingKey: String?
 
     var key: String? { owner?.key }
+
+    private init() {
+        NotificationCenter.default.addObserver(forName: .networkCostChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshNetworkGate() }
+        }
+        refreshNetworkGate()
+    }
+
+    func setAllowCellular(_ value: Bool) {
+        OfflineSettings.allowCellular = value
+        allowCellular = value
+        refreshNetworkGate()
+    }
+
+    private func refreshNetworkGate() {
+        let waiting = !allowCellular && NetworkCost.shared.isMetered
+        if waiting != waitingForWiFi { waitingForWiFi = waiting }
+    }
 
     // MARK: 账号
 
@@ -163,6 +189,8 @@ final class OfflineStore {
         let active = Dictionary(grouping: units.values.filter(\.isActive)) { $0.mediaItemId }
             .mapValues { $0.map { ActiveUnit(fileId: $0.fileId, season: $0.season, episode: $0.episode) }.sorted { $0.fileId < $1.fileId } }
         if active != activeByItem { activeByItem = active }
+        let ordered = OfflineQueue.entries(units.values)
+        if ordered != queue { queue = ordered }
     }
 
     // MARK: 查询
@@ -189,10 +217,17 @@ final class OfflineStore {
         downloadedItemIds.compactMap { items[$0] }.sorted { $0.addedAt > $1.addedAt }
     }
 
-    /// 还在进行中（含失败、暂停）的单元：首页「正在下载」行
+    /// 还在进行中（含失败、暂停）的单元，按下载顺序：首页「正在下载」行、「下载」页的下载中
     var activeUnits: [OfflineUnit] {
-        units.values.filter(\.isActive).sorted { $0.createdAt < $1.createdAt }
+        queue.compactMap { units[$0.fileId] }
     }
+
+    /// 下载队列里排在它前面、还会轮到的有几个（「下一个下载」「前面还有 N 个」）
+    func queueAhead(of fileId: Int) -> Int { OfflineQueue.ahead(of: fileId, in: queue) }
+
+    func canPrioritize(fileId: Int) -> Bool { OfflineQueue.canPrioritize(fileId: fileId, in: queue) }
+
+    func canPrioritize(itemId: Int) -> Bool { OfflineQueue.canPrioritize(itemId: itemId, in: queue) }
 
     func localProgress(itemId: Int, season: Int, episode: Int) -> OfflineProgress? {
         progress[itemId]?["\(season)-\(episode)"]
@@ -291,13 +326,25 @@ final class OfflineStore {
         OfflineDisk.queue.async { try? OfflineDisk.write(unit, to: OfflineDisk.unitFile(key, unit.mediaItemId, unit.fileId)) }
     }
 
+    /// 按给定顺序给进行中的单元重新编号 0、1、2…（§5.5）；没列出的接在后面、保持原来的先后。只写编号变了的
+    func renumberQueue(_ fileIds: [Int]) {
+        for (index, fileId) in OfflineQueue.order(front: fileIds, in: queue).enumerated() {
+            guard var unit = units[fileId], unit.queueOrder != Double(index) else { continue }
+            unit.queueOrder = Double(index)
+            upsert(unit)
+        }
+    }
+
     /// 只改内存里的进度读数（下载进度每秒一次，不值得每次写盘）
     func updateReceived(fileId: Int, received: Int64, expected: Int64?) {
         guard var unit = units[fileId], unit.state == .downloading || unit.state == .queued else { return }
         unit.receivedBytes = received
         if let expected, expected > 0, unit.profile == "original" || unit.expectedBytes == 0 { unit.expectedBytes = expected }
-        if unit.state == .queued { unit.state = .downloading }
+        let started = unit.state == .queued
+        if started { unit.state = .downloading }
         units[fileId] = unit
+        // 开始下了：排到下载中的最前（一个任务只变一次，不是每秒）
+        if started { refreshDerived() }
         sampleSpeed(fileId, received)
     }
 

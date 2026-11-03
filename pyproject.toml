@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "movieclaw"
-version = "0.43.0"
+version = "0.47.0"
 description = "Best-practice Python HTTP service template powered by FastAPI."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -73,6 +73,10 @@ dependencies = [
   "onnxruntime>=1.19,<2.0",
   "tokenizers>=0.20,<1.0",
   "numpy>=1.26,<3.0",
+  # 本地语音识别（docs/design/subtitle-asr.md）：文件没有任何可用字幕时，AI 字幕用它跑
+  # SenseVoice-Small 从音轨识别台词。只在识别子进程里导入，主进程不加载；锁死版本——
+  # 2.x 刚升过大版本，模型导出格式与 Python 接口要随它一起验证（约 55 MB）
+  "sherpa-onnx==2.0.1",
   # 中文标题的拼音首字母（媒体库海报墙的排序与 A-Z 快速定位）：纯 Python、
   # 无二进制依赖，自带姓氏/多音字词库，比自维护一张码点表准。
   "pypinyin>=0.53.0,<1.0.0",
@@ -117,7 +121,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 # 基线 spec：构建期由 movieclaw_api.export_openapi 现场导出。服务端运行期读它
 # 渲染 Agent 的 mclaw 工具描述，Go CLI 在自己的构建期把同一份嵌进二进制。
-movieclaw_api = ["data/spec.json", "locales/**/*.json"]
+movieclaw_api = ["data/spec.json", "locales/**/*.json", "services/playback/fixtures/*.hevc"]
 # 内置技能层（docs/design/agent-skills.md）：Docker 部署整棵 src 拷贝本就带上，
 # 这行给 wheel 形态兜底。
 movieclaw_agent = ["builtin-skills/**/*"]
@@ -125,6 +129,8 @@ movieclaw_agent = ["builtin-skills/**/*"]
 movieclaw_plugins = ["*/movieclaw-plugin.toml"]
 # 网页主题的 CSS 契约表（docs/design/theme-plugins.md §4.4）
 movieclaw_sdk = ["theme_css.json"]
+# LLM 供应商预设与公共模型目录快照（docs/design/llm-model-catalog.md §9.1）
+movieclaw_llm = ["providers/presets/*.yaml", "providers/catalog/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

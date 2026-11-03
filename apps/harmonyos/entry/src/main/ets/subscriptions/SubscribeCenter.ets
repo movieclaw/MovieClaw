@@ -44,4 +44,32 @@ export class SubscribeCenter {
       SubscribeCenter.pending = request;
     }
   }
+
+  /** 订阅清单需要重拉的监听者（订阅首页/海报墙挂载时注册、卸载时注销） */
+  private static refreshListeners: (() => void)[] = [];
+
+  /** 挂载中的订阅页面注册回调；同引用重复注册自动去重 */
+  static observeSubsRefresh(listener: () => void): void {
+    if (SubscribeCenter.refreshListeners.indexOf(listener) < 0) {
+      SubscribeCenter.refreshListeners.push(listener);
+    }
+  }
+
+  static unobserveSubsRefresh(listener: () => void): void {
+    const at: number = SubscribeCenter.refreshListeners.indexOf(listener);
+    if (at >= 0) {
+      SubscribeCenter.refreshListeners.splice(at, 1);
+    }
+  }
+
+  /**
+   * 广播「订阅清单可能变了，请重拉」：创建/取消/删除成功后、切回订阅页签时调用。
+   * 没有监听者（页面未挂载）时是空操作——首次挂载的页面自己会拉。
+   */
+  static announceSubsRefresh(): void {
+    const listeners: (() => void)[] = SubscribeCenter.refreshListeners.slice();
+    for (const listener of listeners) {
+      listener();
+    }
+  }
 }

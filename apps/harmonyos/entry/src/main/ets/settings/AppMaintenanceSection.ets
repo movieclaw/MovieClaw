@@ -1,4 +1,6 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
 import { ApiError } from '../api/ApiClient';
@@ -11,13 +13,15 @@ import {
   DirUsageView,
   GithubTokenPayload,
   GithubTokenView,
+  LastAbnormalExitView,
   LibraryView,
   ScheduledTaskUpdate,
   ScheduledTaskView,
   StorageStateView,
   StorageUsageView,
   UpdateCheckView,
-  UpdateProgressView
+  UpdateProgressView,
+  UpdateStatusView
 } from '../api/Models';
 
 /** 三个页签（对应 iOS `AppMaintenanceSettingsView.Tab`） */
@@ -52,8 +56,10 @@ class TaskBody implements ScheduledTaskUpdate {
  * iOS 是三个胶囊页签，**默认停在「版本与更新」**——因为这一页的高频入口就是「有可用更新」，
  * 用户带着「来更新」的意图落地。
  *
- * 三个页签：
- * - **版本与更新**：当前版本 / 检查更新 / 更新日志 / 一键更新 / 更新进度 / GitHub Token（私有仓库要它）；
+ * 三个页签（分段按钮与发现页视角按钮同一套观感）：
+ * - **版本与更新**：服务器身份卡（图标 / 当前版本 / 部署方式 / 检查更新）→ 可更新版本卡
+ *   （版本号、发布时间、兼容性、更新日志、立即更新）→ 更新进度 → GitHub Token；
+ *   部署方式为源码部署、已安装版本未在运行、曾经回落、异常退出这些状态也在身份卡里说明；
  * - **缓存管理**：磁盘与缓存占用、逐目录明细、按目录清理；
  * - **定时任务**（对应 iOS `ScheduledTasksPanel`）：每个后台任务的周期与启停——「每隔一段时间」「每天
  *   固定时刻」两种人能说清的形状，其它 cron 照样能显示与保存；「媒体库对账」在有库挂在网上时建议调到
@@ -69,6 +75,8 @@ export struct AppMaintenanceSection {
   @Local private config: AppConfigView | null = null;
 
   // 版本与更新
+  /** 服务器状态（部署方式、能否应用内更新、异常退出等，同 iOS 的 `appUpdateStatus`） */
+  @Local private status: UpdateStatusView | null = null;
   @Local private check: UpdateCheckView | null = null;
   @Local private checking: boolean = false;
   @Local private progress: UpdateProgressView | null = null;
@@ -128,6 +136,7 @@ export struct AppMaintenanceSection {
     this.loading = true;
     try {
       this.config = await api.appShow();
+      await this.loadStatus();
       await this.loadCheck();
       if (this.tab === AppTab.storage) {
         await this.loadStorage();
@@ -138,6 +147,60 @@ export struct AppMaintenanceSection {
     } finally {
       this.loading = false;
     }
+  }
+
+  /** 服务器状态：失败静默（老服务端没有这个接口时只是少显示几行） */
+  private async loadStatus(): Promise<void> {
+    const api: MovieClawApi | null = this.api();
+    if (api === null) {
+      return;
+    }
+    try {
+      this.status = await api.appUpdateStatus();
+    } catch (error) {
+      // 忽略
+    }
+  }
+
+  /** 确认「应用曾异常退出」提示，之后不再展示（同 iOS `dismissExit`） */
+  private async dismissAbnormalExit(): Promise<void> {
+    const api: MovieClawApi | null = this.api();
+    if (api === null) {
+      return;
+    }
+    try {
+      await api.appUpdateLastExitDismiss();
+      await this.loadStatus();
+    } catch (error) {
+      this.toast(this.messageOf(error));
+    }
+  }
+
+  /** 当前版本：优先服务器状态，其次检查结果 */
+  private currentVersion(): string {
+    const status: UpdateStatusView | null = this.status;
+    if (status !== null && status.current_version.length > 0) {
+      return status.current_version;
+    }
+    const check: UpdateCheckView | null = this.check;
+    return check !== null ? check.current_version : '—';
+  }
+
+  /** 部署方式（同 iOS：overlay=应用内更新，baseline=Docker 镜像内置，其余=源码部署） */
+  private codeSourceLabel(): string {
+    const status: UpdateStatusView | null = this.status;
+    if (status === null) {
+      return '';
+    }
+    if (status.code_source === 'overlay') {
+      return '应用内更新';
+    }
+    return status.code_source === 'baseline' ? 'Docker 镜像内置' : '源码部署';
+  }
+
+  private canUpdate(): boolean {
+    const status: UpdateStatusView | null = this.status;
+    return status === null || status.can_update;
   }
 
   private async loadCheck(): Promise<void> {
@@ -197,7 +260,8 @@ export struct AppMaintenanceSection {
     this.checking = true;
     try {
       await this.loadCheck();
-      this.toast('已是最新检查结果');
+      this.toast(this.check !== null && (this.check as UpdateCheckView).update_available
+        ? '发现新版本' : '已是最新版本');
     } finally {
       this.checking = false;
     }
@@ -649,27 +713,40 @@ export struct AppMaintenanceSection {
 
   @Builder
   TabBar() {
-    Row({ space: 8 }) {
-      this.TabChip(AppTab.update, '版本与更新')
-      this.TabChip(AppTab.storage, '缓存管理')
-      this.TabChip(AppTab.tasks, '定时任务')
-      Blank()
+    Column() {
+      Row({ space: 4 }) {
+        this.TabChip(AppTab.update, '版本与更新')
+        this.TabChip(AppTab.storage, '缓存管理')
+        this.TabChip(AppTab.tasks, '定时任务')
+      }
+      .width('100%')
+      .padding(4)
+      .backgroundColor('rgba(255, 255, 255, 0.05)')
+      .borderRadius(14)
+      .border({ width: 1, color: 'rgba(255, 255, 255, 0.07)' })
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 8, bottom: 10 })
+    .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: 10 })
   }
 
+  /** 分段按钮：与发现页的四个视角按钮同一套观感 */
   @Builder
   TabChip(tab: string, label: string) {
-    Text(label)
-      .fontSize(14)
-      .fontColor(this.tab === tab ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-      .backgroundColor(this.tab === tab ? Theme.accent : Theme.glassFill)
-      .borderRadius(17)
-      .onClick(() => {
-        this.switchTab(tab);
-      })
+    Button() {
+      Text(label)
+        .fontSize(13)
+        .fontWeight(this.tab === tab ? FontWeight.Medium : FontWeight.Normal)
+        .fontColor(this.tab === tab ? '#0b0d12' : Theme.textMuted)
+        .textAlign(TextAlign.Center)
+        .maxLines(1)
+    }
+    .attributeModifier(new GlassButtonModifier(this.tab === tab ? GlassTone.Primary : GlassTone.Strong))
+    .padding({ top: 8, bottom: 8 })
+    .layoutWeight(1)
+    .borderRadius(11)
+    .onClick(() => {
+      this.switchTab(tab);
+    })
   }
 
   // MARK: 版本与更新
@@ -677,11 +754,14 @@ export struct AppMaintenanceSection {
   @Builder
   UpdateBody() {
     Scroll() {
-      Column({ space: 14 }) {
+      Column({ space: 16 }) {
         if (this.errorMessage.length > 0) {
-          Text(this.errorMessage).fontSize(13).fontColor(Theme.danger).width('100%')
+          this.WarningBanner(this.errorMessage)
         }
-        this.VersionCard()
+        this.ServerCard()
+        if (this.check !== null && (this.check as UpdateCheckView).update_available) {
+          this.UpdateCard(this.check as UpdateCheckView)
+        }
         if (this.progress !== null) {
           this.ProgressCard(this.progress as UpdateProgressView)
         }
@@ -695,115 +775,281 @@ export struct AppMaintenanceSection {
     .scrollBar(BarState.Off)
   }
 
+  /** 错误提示条 */
   @Builder
-  VersionCard() {
-    Column({ space: 12 }) {
-      Row({ space: 10 }) {
+  WarningBanner(message: string) {
+    Row({ space: 8 }) {
+      SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
+        .fontSize(15)
+        .fontColor([Theme.danger])
+      Text(message)
+        .fontSize(13)
+        .fontColor(Theme.danger)
+        .layoutWeight(1)
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
+    .padding(12)
+    .backgroundColor('rgba(255, 107, 107, 0.08)')
+    .borderRadius(12)
+    .border({ width: 1, color: 'rgba(255, 107, 107, 0.25)' })
+  }
+
+  /**
+   * 服务器卡（对齐 iOS 的身份区）：应用图标 + 名称 + 当前版本 + 部署方式；
+   * 下面是「检查更新」行，以及部署方式/回落版本/异常退出这些需要说明的状态。
+   */
+  @Builder
+  ServerCard() {
+    Column({ space: 14 }) {
+      Row({ space: 12 }) {
+        Image($r('app.media.startIcon'))
+          .width(44)
+          .height(44)
+          .borderRadius(12)
+          .clip(true)
         Column({ space: 3 }) {
-          Text('当前版本')
-            .fontSize(12)
-            .fontColor(Theme.textFaint)
-          Text(this.check !== null ? (this.check as UpdateCheckView).current_version : '—')
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
+          Text('MovieClaw 服务器')
+            .fontSize(13)
+            .fontColor(Theme.textMuted)
+          Text(`v${this.currentVersion()}`)
+            .fontSize(22)
+            .fontWeight(600)
             .fontColor(Theme.text)
+          if (this.codeSourceLabel().length > 0) {
+            Text(this.codeSourceLabel())
+              .fontSize(12)
+              .fontColor(Theme.textFaint)
+          }
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
-        if (this.check !== null && (this.check as UpdateCheckView).update_available) {
-          Text('有可用更新')
-            .fontSize(11)
-            .fontColor('#0b0d12')
-            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-            .backgroundColor(Theme.accent)
-            .borderRadius(9)
-        } else {
-          Text('已是最新')
-            .fontSize(12)
-            .fontColor(Theme.ok)
+        if (this.check !== null) {
+          if ((this.check as UpdateCheckView).update_available) {
+            Text('有可用更新')
+              .fontSize(11)
+              .fontWeight(600)
+              .fontColor('#0b0d12')
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .backgroundColor(Theme.accent)
+              .borderRadius(10)
+          } else {
+            Row({ space: 4 }) {
+              SymbolGlyph($r('sys.symbol.checkmark_circle_fill'))
+                .fontSize(13)
+                .fontColor([Theme.ok])
+              Text('已是最新')
+                .fontSize(12)
+                .fontColor(Theme.ok)
+            }
+          }
         }
       }
       .width('100%')
+      .alignItems(VerticalAlign.Center)
 
-      if (this.check !== null && (this.check as UpdateCheckView).update_available) {
-        Column({ space: 4 }) {
-          Text(`最新版本 ${(this.check as UpdateCheckView).latest_version}`)
-            .fontSize(14)
+      Divider().color(Theme.line)
+
+      if (this.canUpdate()) {
+        Row() {
+          Text('检查更新')
+            .fontSize(15)
             .fontColor(Theme.text)
-            .width('100%')
-          if ((this.check as UpdateCheckView).published_at.length > 0) {
-            Text(`发布于 ${Formatters.relative((this.check as UpdateCheckView).published_at)}`)
-              .fontSize(12)
-              .fontColor(Theme.textFaint)
-              .width('100%')
-          }
-          if (!(this.check as UpdateCheckView).compatible) {
-            Text(`需要运行时 ${(this.check as UpdateCheckView).requires_runtime}，当前不满足`)
-              .fontSize(12)
-              .fontColor(Theme.danger)
-              .width('100%')
-          }
-          if ((this.check as UpdateCheckView).latest_known_bad) {
-            Text('服务端把这一版标记为「已知有问题」')
-              .fontSize(12)
-              .fontColor(Theme.warn)
-              .width('100%')
+          Blank()
+          if (this.checking) {
+            LoadingProgress()
+              .width(18)
+              .height(18)
+              .color(Theme.textMuted)
+          } else {
+            Row({ space: 5 }) {
+              Text('检查')
+                .fontSize(13)
+                .fontColor(Theme.accentStrong)
+              SymbolGlyph($r('sys.symbol.arrow_clockwise'))
+                .fontSize(13)
+                .fontColor([Theme.accentStrong])
+            }
           }
         }
         .width('100%')
-        .alignItems(HorizontalAlign.Start)
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.recheck();
+        })
+      } else {
+        Text('当前为源码部署，请在服务器上更新。应用内更新适用于 Docker 镜像部署。')
+          .fontSize(12)
+          .fontColor(Theme.textMuted)
+          .width('100%')
       }
 
-      if (this.check !== null && (this.check as UpdateCheckView).changelog.length > 0) {
-        Column({ space: 4 }) {
-          Text(this.showChangelog ? '收起更新日志' : '看更新日志')
+      if (this.status !== null && (this.status as UpdateStatusView).inactive_overlay_version !== null
+        && (this.status as UpdateStatusView).inactive_overlay_version !== undefined) {
+        Text(this.inactiveOverlayText(this.status as UpdateStatusView))
+          .fontSize(12)
+          .fontColor(Theme.textMuted)
+          .width('100%')
+      }
+      if (this.status !== null && (this.status as UpdateStatusView).bad_versions.length > 0) {
+        Text(this.badVersionsText(this.status as UpdateStatusView))
+          .fontSize(12)
+          .fontColor(Theme.warn)
+          .width('100%')
+      }
+      if (this.status !== null && (this.status as UpdateStatusView).last_abnormal_exit !== null
+        && (this.status as UpdateStatusView).last_abnormal_exit !== undefined) {
+        this.AbnormalExitBlock(this.status as UpdateStatusView)
+      }
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding(16)
+    .backgroundColor(Theme.surface)
+    .borderRadius(Theme.cardRadius)
+    .border({ width: 1, color: Theme.line })
+  }
+
+  /** 异常退出提示块（同 iOS `app-abnormal-exit`）：说明 + 知道了 */
+  @Builder
+  AbnormalExitBlock(status: UpdateStatusView) {
+    Column({ space: 8 }) {
+      Row({ space: 6 }) {
+        SymbolGlyph($r('sys.symbol.exclamationmark_triangle_fill'))
+          .fontSize(14)
+          .fontColor([Theme.warn])
+        Text('应用曾异常退出')
+          .fontSize(13)
+          .fontWeight(600)
+          .fontColor(Theme.warn)
+      }
+      Text(this.abnormalExitText(status))
+        .fontSize(12)
+        .fontColor(Theme.textMuted)
+        .width('100%')
+      Row() {
+        Blank()
+        Button() {
+          Text('知道了')
+            .fontSize(12)
+            .fontWeight(600)
+            .fontColor(Theme.accentStrong)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(12)
+        .onClick(() => {
+          this.dismissAbnormalExit();
+        })
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding(12)
+    .backgroundColor('rgba(245, 196, 81, 0.08)')
+    .borderRadius(12)
+    .border({ width: 1, color: 'rgba(245, 196, 81, 0.25)' })
+  }
+
+  private inactiveOverlayText(status: UpdateStatusView): string {
+    const reason: string = status.inactive_overlay_reason ?? '';
+    return reason.length > 0
+      ? `已安装的 v${status.inactive_overlay_version} 未在运行：${reason}`
+      : `已安装的 v${status.inactive_overlay_version} 未在运行`;
+  }
+
+  private badVersionsText(status: UpdateStatusView): string {
+    const labels: string[] = [];
+    for (const version of status.bad_versions) {
+      labels.push(`v${version}`);
+    }
+    return `版本 ${labels.join('、')} 曾连续启动失败，已被自动回落到更新前的版本。`;
+  }
+
+  private abnormalExitText(status: UpdateStatusView): string {
+    const exit: LastAbnormalExitView | null = status.last_abnormal_exit ?? null;
+    if (exit === null) {
+      return '';
+    }
+    const when: string = Formatters.relative(new Date(exit.at * 1000).toISOString());
+    const prefix: string = when.length > 0 ? `于 ${when}` : '';
+    return `应用曾${prefix}异常退出并被容器自动恢复：${exit.detail}（exit=${exit.exit_code}）。若频繁出现，请查看容器日志。`;
+  }
+
+  /** 可更新版本卡：版本号 / 发布时间 / 兼容性与已知问题 / 更新日志 / 立即更新 */
+  @Builder
+  UpdateCard(view: UpdateCheckView) {
+    Column({ space: 12 }) {
+      Row({ space: 8 }) {
+        Text(`新版本 v${view.latest_version}`)
+          .fontSize(17)
+          .fontWeight(600)
+          .fontColor(Theme.text)
+        Blank()
+        if (view.published_at.length > 0) {
+          Text(Formatters.relative(view.published_at))
+            .fontSize(12)
+            .fontColor(Theme.textFaint)
+        }
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      if (!view.compatible) {
+        Text(`需要运行时 ${view.requires_runtime}，当前不满足，先升级运行时。`)
+          .fontSize(12)
+          .fontColor(Theme.danger)
+          .width('100%')
+      }
+      if (view.latest_known_bad) {
+        Text('服务端把这一版标记为「已知有问题」，更新前请谨慎。')
+          .fontSize(12)
+          .fontColor(Theme.warn)
+          .width('100%')
+      }
+
+      if (view.changelog.length > 0) {
+        Row({ space: 4 }) {
+          Text(this.showChangelog ? '收起更新日志' : '查看更新日志')
             .fontSize(13)
             .fontColor(Theme.accentStrong)
-            .onClick(() => {
-              this.showChangelog = !this.showChangelog;
-            })
-          if (this.showChangelog) {
-            Text((this.check as UpdateCheckView).changelog)
-              .fontSize(12)
-              .fontColor(Theme.textMuted)
-              .width('100%')
-              .padding(10)
-              .backgroundColor(Theme.surfaceRaised)
-              .borderRadius(8)
-          }
+          SymbolGlyph(this.showChangelog ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+            .fontSize(12)
+            .fontColor([Theme.accentStrong])
         }
-        .width('100%')
-        .alignItems(HorizontalAlign.Start)
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.showChangelog = !this.showChangelog;
+        })
+        if (this.showChangelog) {
+          Text(view.changelog)
+            .fontSize(12)
+            .fontColor(Theme.textMuted)
+            .width('100%')
+            .lineHeight(18)
+            .padding(12)
+            .backgroundColor(Theme.surfaceRaised)
+            .borderRadius(10)
+        }
       }
 
-      Row({ space: 10 }) {
-        Text(this.checking ? '检查中…' : '检查更新')
-          .fontSize(14)
-          .fontColor(Theme.text)
-          .padding({ left: 14, right: 14, top: 9, bottom: 9 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(16)
-          .border({ width: 1, color: Theme.line })
-          .onClick(() => {
-            this.recheck();
-          })
-        if (this.check !== null && (this.check as UpdateCheckView).update_available) {
-          Text(this.updating ? '更新中…' : '立即更新')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.updating ? Theme.textFaint : '#0b0d12')
-            .padding({ left: 16, right: 16, top: 9, bottom: 9 })
-            .backgroundColor(this.updating ? Theme.glassFill : Theme.accent)
-            .borderRadius(16)
-            .onClick(() => {
-              if (!this.updating) {
-                this.confirmApply();
-              }
-            })
-        }
-        Blank()
+      Button() {
+        Text(this.updating ? '更新中…' : '立即更新')
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor(this.updating ? Theme.textFaint : '#0b0d12')
+          .textAlign(TextAlign.Center)
       }
+      .attributeModifier(new GlassButtonModifier(this.updating ? GlassTone.Secondary : GlassTone.Primary))
       .width('100%')
+      .padding({ top: 11, bottom: 11 })
+      .borderRadius(14)
+      .onClick(() => {
+        if (!this.updating) {
+          this.confirmApply();
+        }
+      })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -817,11 +1063,20 @@ export struct AppMaintenanceSection {
   @Builder
   ProgressCard(view: UpdateProgressView) {
     Column({ space: 8 }) {
-      Text(this.phaseLabel(view.phase))
-        .fontSize(15)
-        .fontWeight(600)
-        .fontColor(Theme.text)
-        .width('100%')
+      Row() {
+        Text(this.phaseLabel(view.phase))
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor(Theme.text)
+        Blank()
+        if (view.percent !== null && view.percent !== undefined) {
+          Text(`${Math.round(view.percent)}%`)
+            .fontSize(13)
+            .fontColor(Theme.textMuted)
+        }
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
       if (view.percent !== null && view.percent !== undefined) {
         Row() {
           Row()
@@ -883,10 +1138,18 @@ export struct AppMaintenanceSection {
   TokenCard() {
     Column({ space: 10 }) {
       Column({ space: 3 }) {
-        Text('GitHub Token')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
+        Row({ space: 8 }) {
+          Text('GitHub Token')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+          Blank()
+          Text(this.tokenConfigured ? '已配置' : '未配置')
+            .fontSize(11)
+            .fontColor(this.tokenConfigured ? Theme.ok : Theme.textFaint)
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
         Text(this.tokenConfigured
           ? `已配置（${this.tokenMasked}）。仓库是私有的、或老被限流时需要它。`
           : '仓库是私有的、或老被限流时需要它；公开仓库可以不填。')
@@ -909,16 +1172,18 @@ export struct AppMaintenanceSection {
             this.tokenValue = v;
           })
         Row({ space: 10 }) {
-          Text('保存')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#0b0d12')
-            .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-            .backgroundColor(Theme.accent)
-            .borderRadius(15)
-            .onClick(() => {
-              this.saveToken();
-            })
+          Button() {
+            Text('保存')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#0b0d12')
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+          .borderRadius(15)
+          .onClick(() => {
+            this.saveToken();
+          })
           Text('取消')
             .fontSize(14)
             .fontColor(Theme.textMuted)
@@ -1163,18 +1428,20 @@ export struct AppMaintenanceSection {
         .fontColor(Theme.textMuted)
         .width('100%')
         .lineHeight(19)
-      Text(this.busyKey === task.key ? '调整中…' : '调到每 1 小时')
-        .fontSize(13)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.busyKey === task.key ? Theme.textFaint : '#0b0d12')
-        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-        .backgroundColor(this.busyKey === task.key ? Theme.glassFill : Theme.accent)
-        .borderRadius(15)
-        .onClick(() => {
-          if (this.busyKey.length === 0) {
-            this.applyReconcileSuggestion(task);
-          }
-        })
+      Button() {
+        Text(this.busyKey === task.key ? '调整中…' : '调到每 1 小时')
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.busyKey === task.key ? Theme.textFaint : '#0b0d12')
+      }
+      .attributeModifier(new GlassButtonModifier(this.busyKey === task.key ? GlassTone.Secondary : GlassTone.Primary))
+      .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+      .borderRadius(15)
+      .onClick(() => {
+        if (this.busyKey.length === 0) {
+          this.applyReconcileSuggestion(task);
+        }
+      })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -1259,10 +1526,10 @@ export struct AppMaintenanceSection {
               .fontColor(Theme.text)
               .layoutWeight(1)
             Toggle({ type: ToggleType.Switch, isOn: this.draftEnabled })
-              .selectedColor(Theme.accent)
-              .onChange((isOn: boolean): void => {
-                this.draftEnabled = isOn;
-              })
+            .attributeModifier(new GlassSwitchModifier())
+            .onChange((isOn: boolean): void => {
+              this.draftEnabled = isOn;
+            })
           }
           .width('100%')
 
@@ -1275,37 +1542,41 @@ export struct AppMaintenanceSection {
 
           if (this.draftMode === 'interval') {
             Row({ space: 14 }) {
-              Text('−')
-                .fontSize(20)
-                .fontColor(Theme.text)
-                .width(34)
-                .height(34)
-                .textAlign(TextAlign.Center)
-                .backgroundColor(Theme.glassFill)
-                .borderRadius(17)
-                .border({ width: 1, color: Theme.line })
-                .onClick(() => {
-                  if (this.draftHours > 1) {
-                    this.draftHours--;
-                  }
-                })
+              Button() {
+                Text('−')
+                  .fontSize(20)
+                  .fontColor(Theme.text)
+                  .textAlign(TextAlign.Center)
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .padding(0)
+              .width(34)
+              .height(34)
+              .borderRadius(17)
+              .onClick(() => {
+                if (this.draftHours > 1) {
+                  this.draftHours--;
+                }
+              })
               Text(this.draftIntervalLabel())
                 .fontSize(15)
                 .fontColor(Theme.text)
-              Text('+')
-                .fontSize(20)
-                .fontColor(Theme.text)
-                .width(34)
-                .height(34)
-                .textAlign(TextAlign.Center)
-                .backgroundColor(Theme.glassFill)
-                .borderRadius(17)
-                .border({ width: 1, color: Theme.line })
-                .onClick(() => {
-                  if (this.draftHours < 168) {
-                    this.draftHours++;
-                  }
-                })
+              Button() {
+                Text('+')
+                  .fontSize(20)
+                  .fontColor(Theme.text)
+                  .textAlign(TextAlign.Center)
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .padding(0)
+              .width(34)
+              .height(34)
+              .borderRadius(17)
+              .onClick(() => {
+                if (this.draftHours < 168) {
+                  this.draftHours++;
+                }
+              })
               Blank()
             }
             .width('100%')
@@ -1360,18 +1631,20 @@ export struct AppMaintenanceSection {
           }
 
           Row() {
-            Text(this.savingTask ? '保存中…' : '保存')
-              .fontSize(15)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.saveEnabled() ? '#0b0d12' : Theme.textFaint)
-              .padding({ left: 24, right: 24, top: 11, bottom: 11 })
-              .backgroundColor(this.saveEnabled() ? Theme.accent : Theme.glassFill)
-              .borderRadius(20)
-              .onClick(() => {
-                if (this.saveEnabled()) {
-                  this.saveDraft();
-                }
-              })
+            Button() {
+              Text(this.savingTask ? '保存中…' : '保存')
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.saveEnabled() ? '#0b0d12' : Theme.textFaint)
+            }
+            .attributeModifier(new GlassButtonModifier(this.saveEnabled() ? GlassTone.Primary : GlassTone.Secondary))
+            .padding({ left: 24, right: 24, top: 11, bottom: 11 })
+            .borderRadius(20)
+            .onClick(() => {
+              if (this.saveEnabled()) {
+                this.saveDraft();
+              }
+            })
             Blank()
           }
           .width('100%')
@@ -1421,14 +1694,16 @@ export struct AppMaintenanceSection {
 
   @Builder
   ModeChip(mode: string, label: string) {
-    Text(label)
-      .fontSize(12)
-      .fontColor(this.draftMode === mode ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 10, right: 10, top: 7, bottom: 7 })
-      .backgroundColor(this.draftMode === mode ? Theme.accent : Theme.glassFill)
-      .borderRadius(14)
-      .onClick(() => {
-        this.draftMode = mode;
-      })
+    Button() {
+      Text(label)
+        .fontSize(12)
+        .fontColor(this.draftMode === mode ? '#0b0d12' : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(this.draftMode === mode ? GlassTone.Primary : GlassTone.Secondary))
+    .padding({ left: 10, right: 10, top: 7, bottom: 7 })
+    .borderRadius(14)
+    .onClick(() => {
+      this.draftMode = mode;
+    })
   }
 }

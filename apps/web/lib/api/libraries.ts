@@ -76,8 +76,16 @@ export interface MediaLibrary {
   name: string;
   /** 每库单一形态（movie / tv / video），创建后不可改 */
   kind: LibraryKind;
-  /** 身份来源（tmdb / local），与 kind 一起定位能力档案，创建后不可改 */
-  source: ItemSource;
+  /** 身份来源（tmdb / local / 外部库源），与 kind 一起定位能力档案，创建后不可改 */
+  source: string;
+  /** 外部库源的展示名（如「飞牛影视」）；内置来源为 null */
+  source_title?: string | null;
+  /** 外部库源的标识图标；内置来源为 null */
+  source_icon?: string | null;
+  /** 外部库源是否已带连接配置 */
+  source_configured?: boolean;
+  /** 外部库源最近一次同步时间；内置来源或从未同步为 null */
+  last_source_sync_at?: string | null;
   capabilities: LibraryCapabilities;
   /** 缺图时是否从视频抓帧生成缩略图（本地内容封面、TMDB 无剧照的分集） */
   generate_thumbnails: boolean;
@@ -448,7 +456,9 @@ export interface LibraryPayload {
   name: string;
   kind: LibraryKind;
   /** 身份来源；不传按形态默认（movie/tv → tmdb，video → local） */
-  source?: ItemSource;
+  source?: string;
+  /** 外部库源的连接配置（按来源插件声明的表单提交）；内置来源不接受 */
+  source_config?: Record<string, unknown>;
   root_paths: string[];
   /** 缺图时是否从视频抓帧生成缩略图；不传=不改动（新建时默认开） */
   generate_thumbnails?: boolean;
@@ -514,6 +524,34 @@ export function listLibraryRoutingOptions(locale: AppLocale = requestLocale() ??
  * 接口的默认口径（只列可浏览的库）留给 CLI / Agent，它们没有「带锁卡片」
  * 这种形态，列出来的库必须是随后能访问的库。成员两种口径结果相同。
  */
+/** 外部库源（外部媒体服务器插件登记的来源）在来源列表端点的形态。 */
+/** 内置来源（能力档案写死在服务端 PROFILES 表里）；其余来源都是插件登记的外部库源。 */
+const BUILTIN_LIBRARY_SOURCES = new Set(["tmdb", "local"]);
+
+/** 是否插件登记的外部库源（没有本地根目录；连接配置由来源插件管理）。 */
+export function isExternalLibrarySource(source: string | null | undefined): boolean {
+  return source != null && !BUILTIN_LIBRARY_SOURCES.has(source);
+}
+
+export interface SourceProviderView {
+  source: string;
+  title: string;
+  kind_support: LibraryKind[];
+  config_schema: {
+    type?: string;
+    required?: string[];
+    properties?: Record<string, { type?: string; title?: string; description?: string }>;
+  };
+  icon: string;
+  help: string;
+  capabilities: Record<string, LibraryCapabilities>;
+}
+
+/** 已登记的外部库源：建库向导据此渲染"外部媒体服务器"选项；无插件时为空数组。 */
+export function listSourceProviders(init?: RequestInit): Promise<SourceProviderView[]> {
+  return unwrap(request<ApiEnvelope<SourceProviderView[]>>("/libraries/source-providers", init));
+}
+
 export function listLibraries(kind?: LibraryKind, init?: RequestInit): Promise<MediaLibrary[]> {
   const params = new URLSearchParams({ scope: "all" });
   if (kind) params.set("kind", kind);
@@ -1689,6 +1727,34 @@ export interface SeasonEpisodes {
   /** 本季接着看的那一集（同首页「接下来继续」规则），分集区按它锁定集段；本季没播放过、
    *  分享页（访客没有观看记录）为 null */
   resume_episode: number | null;
+  /** 播出日历（issue #547）；本季没有今天或以后的播出日期、分享页、旧服务端为 null/缺省 */
+  air_schedule?: SeasonAirSchedule | null;
+}
+
+/** 订阅对一集的入库预告。 */
+export interface EpisodeArrival {
+  episode_number: number;
+  /** waiting=等资源发布 / downloading=下载中 / organizing=下完了在整理入库 */
+  stage: "waiting" | "downloading" | "organizing";
+  /** 预计入库时刻（带时区 ISO）；给不出为 null */
+  expected_at: string | null;
+}
+
+/** 一季的播出日历：排期本身在分集的 air_date 里，这里给对照信息。 */
+export interface SeasonAirSchedule {
+  /** 站点日历的今天（YYYY-MM-DD）；判今天/已播/待播都按它，不用本机时钟 */
+  today: string;
+  /** 首播地国家码：播出日期是当地日期、与本地可能差一天时才给 */
+  region: string | null;
+  /** 最近的更新星期（0=周一…6=周日） */
+  weekdays: number[];
+  /** 本季最后一集的播出日；有集没定日期时为 null */
+  last_air_date: string | null;
+  /** 这部剧的订阅；未订阅为 null */
+  subscription_id: number | null;
+  /** 订阅范围内已播出、库里还没有的集 */
+  missing_episodes: number[];
+  arrivals: EpisodeArrival[];
 }
 
 /** 剧集条目一季的分集清单（分集横滚区数据源）。 */

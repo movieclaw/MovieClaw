@@ -315,6 +315,13 @@ fun LibraryDetailScreen(
     onOpenItem: (Long, Long) -> Unit,
     vm: LibraryDetailViewModel = hiltViewModel(),
 ) {
+    // 离线时换成该库已下载的条目（offline-download.md §1 海报墙）
+    val offlineEntry = io.movieclaw.android.feature.offline.rememberOffline()
+    val offlineMode by offlineEntry.reachability().mode.collectAsStateWithLifecycle()
+    if (offlineMode == io.movieclaw.android.core.offline.ServerReachability.Mode.OFFLINE) {
+        io.movieclaw.android.feature.offline.OfflineLibraryWall(libraryId, vm.origin, onBack, onOpenItem)
+        return
+    }
     val state by vm.ui.collectAsStateWithLifecycle()
     val facets by vm.facets.collectAsStateWithLifecycle()
     val index by vm.index.collectAsStateWithLifecycle()
@@ -425,11 +432,15 @@ fun LibraryDetailScreen(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(state.items, key = { it.mediaItemId }) { item ->
-                            LibraryItemCard(
-                                item = item,
-                                origin = origin,
-                                onClick = { onOpenItem(libraryId, item.mediaItemId) },
-                            )
+                            // 已下载的条目长按多一项「删除下载」（iOS `OfflineDeleteMenuButton`）
+                            io.movieclaw.android.feature.offline.OfflineDeleteMenu(item.mediaItemId, item.title) { longClick ->
+                                LibraryItemCard(
+                                    item = item,
+                                    origin = origin,
+                                    onClick = { onOpenItem(libraryId, item.mediaItemId) },
+                                    onLongClick = longClick,
+                                )
+                            }
                         }
                         if (state.loadingMore) {
                             item(span = { GridItemSpan(maxLineSpan) }) {

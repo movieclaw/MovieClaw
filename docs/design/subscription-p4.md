@@ -191,7 +191,9 @@ async def dispatch(session, wanted_ids: list[int], candidate: TorrentCandidate,
 | 在播剧 | tv & Returning Series & 有非 paused 订阅 | 8h |
 | 未上映 | movie 未上映 / tv 有未定档季，有订阅 | 24h |
 | 已完结/已上映有订阅 | 其余有订阅 | 7d |
-| 无订阅条目 | —— | 30d（仅保鲜别名，防归档条目腐烂） |
+| 无订阅在播剧 | tv & 近 7 天播过或之后有排期 | 24h（详情页播出日历 #547） |
+| 无订阅季间空档剧 | tv & 未完结/未取消 & 不在播 | 3d（新季定档后赶在首播前进库） |
+| 无订阅条目 | 其余 | 30d（仅保鲜别名，防归档条目腐烂） |
 
 ## 7. 并发与幂等（三层防线的实现落点）
 

@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
@@ -373,7 +374,8 @@ export struct RecycleBinContent {
       .cachedCount(4)
       .width('100%')
       .alignListItem(ListItemAlign.Start)
-      .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+      .padding({ left: 16, right: 16, top: 8 })
+      .contentEndOffset(Theme.tabBarInset)
       // 有选中文件时底部恢复/彻底删除条固定在下面（危险操作逻辑原样保留）
       if (this.picked.length > 0) {
         this.ActionBar()
@@ -417,28 +419,32 @@ export struct RecycleBinContent {
     if (this.data !== null && (this.data as TrashedFilesData).by_reason.length > 0) {
       Scroll() {
         Row({ space: 8 }) {
-          Text('全部')
-            .fontSize(13)
-            .fontColor(this.reason.length === 0 ? '#0b0d12' : Theme.textMuted)
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor(this.reason.length === 0 ? Theme.accent : Theme.glassFill)
-            .borderRadius(14)
-            .onClick(() => {
-              this.reason = '';
-              this.load();
-            })
+          Button() {
+            Text('全部')
+              .fontSize(13)
+              .fontColor(this.reason.length === 0 ? '#0b0d12' : Theme.textMuted)
+          }
+          .attributeModifier(new GlassButtonModifier(this.reason.length === 0 ? GlassTone.Primary : GlassTone.Secondary))
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .borderRadius(14)
+          .onClick(() => {
+            this.reason = '';
+            this.load();
+          })
           ForEach((this.data as TrashedFilesData).by_reason,
             (entry: TrashedReasonCountView) => {
-              Text(`${entry.reason} ${entry.count}`)
-                .fontSize(13)
-                .fontColor(this.reason === entry.reason ? '#0b0d12' : Theme.textMuted)
-                .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-                .backgroundColor(this.reason === entry.reason ? Theme.accent : Theme.glassFill)
-                .borderRadius(14)
-                .onClick(() => {
-                  this.reason = entry.reason;
-                  this.load();
-                })
+              Button() {
+                Text(`${entry.reason} ${entry.count}`)
+                  .fontSize(13)
+                  .fontColor(this.reason === entry.reason ? '#0b0d12' : Theme.textMuted)
+              }
+              .attributeModifier(new GlassButtonModifier(this.reason === entry.reason ? GlassTone.Primary : GlassTone.Secondary))
+              .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+              .borderRadius(14)
+              .onClick(() => {
+                this.reason = entry.reason;
+                this.load();
+              })
             }, (entry: TrashedReasonCountView) => entry.reason)
         }
       }
@@ -592,28 +598,33 @@ export struct RecycleBinContent {
         .onClick(() => {
           this.picked = this.allFileIds();
         })
-      Text(this.busy ? '…' : '恢复')
-        .fontSize(14)
-        .fontColor('#0b0d12')
-        .padding({ left: 16, right: 16, top: 9, bottom: 9 })
-        .backgroundColor(this.busy ? Theme.glassFill : Theme.accent)
-        .borderRadius(16)
-        .onClick(() => {
-          this.restore();
-        })
-      Text('彻底删除')
-        .fontSize(14)
-        .fontColor(Theme.danger)
-        .padding({ left: 16, right: 16, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(16)
-        .onClick(() => {
-          this.confirmPurge();
-        })
+      Button() {
+        Text(this.busy ? '…' : '恢复')
+          .fontSize(14)
+          .fontColor('#0b0d12')
+      }
+      .attributeModifier(new GlassButtonModifier(this.busy ? GlassTone.Secondary : GlassTone.Primary))
+      .padding({ left: 16, right: 16, top: 9, bottom: 9 })
+      .borderRadius(16)
+      .onClick(() => {
+        this.restore();
+      })
+      Button() {
+        Text('彻底删除')
+          .fontSize(14)
+          .fontColor(Theme.danger)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 16, right: 16, top: 9, bottom: 9 })
+      .borderRadius(16)
+      .onClick(() => {
+        this.confirmPurge();
+      })
     }
     .width('100%')
-    // 底部不滚动的批量条，要让开系统手势条，否则按钮被小白条压住
-    .padding({ top: 8, bottom: 8 + Theme.safeBottomInset })
+    // 这页被 push 进媒体库页签，悬浮胶囊盖在内容上：批量条要让开胶囊（tabBarInset），
+    // 只让手势条（safeBottomInset）的话按钮被胶囊压住
+    .padding({ top: 8, bottom: 8 + Theme.tabBarInset })
   }
 }
 

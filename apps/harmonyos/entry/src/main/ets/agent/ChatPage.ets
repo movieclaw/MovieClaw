@@ -1,7 +1,9 @@
 import { common } from '@kit.AbilityKit';
-import { window } from '@kit.ArkUI';
+import { KeyboardAvoidMode, window } from '@kit.ArkUI';
+import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
-import { PageTopBar } from '../common/PageTopBar';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { ShellChrome } from '../common/ShellChrome';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
@@ -31,7 +33,7 @@ import { AgentRow, AgentTranscriptLayout } from './AgentTranscriptRows';
 import { AgentSkillText, AgentSlashQuery } from './AgentSkills';
 import { AgentAttachment, AgentAttachments } from './AgentAttachments';
 import { AgentSessionsSignal } from './AgentSessionsSignal';
-import { AgentAIConsent, AgentAIConsentSheet } from './AgentAIConsent';
+import { AgentAIConsent } from './AgentAIConsent';
 import { AgentCompanion, AgentCompanionLogic, AgentCompanionState } from './AgentCompanion';
 import { AgentCatalog, AgentThinking } from './AgentCatalog';
 import { AgentMediaCardSpec, AgentMediaCardsBlockView } from './AgentMediaCards';
@@ -217,8 +219,6 @@ export struct ChatPage {
   @Local private slashMatches: SkillView[] = [];
   private slashStart: number = -1;
   /** 第一次发给 AI 前的同意弹层（同 iOS `AgentAIConsent`）：同意记在本机，之后不再询问 */
-  @Local private showConsent: boolean = false;
-  @Local private consentProviders: string[] = [];
   /**
    * 输入法高度（vp）。沉浸式布局（`setWindowLayoutFullScreen(true)`）下系统不再替我们避让，
    * 键盘会直接盖住输入区下半截（实测「发送」和工具行被盖住），所以自己监听键盘高度往上顶。
@@ -235,6 +235,12 @@ export struct ChatPage {
   @Local private thinkingValue: string = '';
 
   aboutToAppear(): void {
+    /*
+     * 官方键盘避让：本页用**压缩模式**（RESIZE）——键盘弹出时页面高度被压缩、整页重排，
+     * 输入卡、工具行、发送键一起留在键盘上方；默认的上抬模式只保证输入框本身可见，
+     * 框下方的工具行仍会被盖住。离开本页恢复系统默认的上抬模式。
+     */
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     this.loadSkills();
     this.loadModels();
     this.observeKeyboard();
@@ -273,6 +279,7 @@ export struct ChatPage {
       this.keyboardCallback = null;
       this.keyboardWindow = null;
     }
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET);
     if (this.stickTimer >= 0) {
       clearTimeout(this.stickTimer);
       this.stickTimer = -1;
@@ -592,8 +599,12 @@ export struct ChatPage {
   /** 第一次发给 AI 前先说明去向、取得同意（同 iOS `AgentAIConsent`）：没同意过先弹说明，草稿保留 */
   private submit(): void {
     if (!AgentAIConsent.granted) {
-      this.consentProviders = AgentAIConsent.providers(this.models);
-      this.showConsent = true;
+      const providers: string[] = AgentAIConsent.providers(this.models);
+      AgentAIConsent.showPrompt(this.getUIContext(), providers, (): void => {
+        AgentAIConsent.grant().catch((): void => {
+        });
+        this.send();
+      });
       return;
     }
     this.send();
@@ -891,12 +902,8 @@ export struct ChatPage {
   // MARK: 视图
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        // 自绘顶栏：原生标题栏在沉浸式布局下不避让状态栏（会压住时钟、返回键上半截点不动）
-        PageTopBar({ title: this.title, onBack: (): void => {
-          this.navStack.pop();
-        }})
         if (this.failed) {
           this.ErrorState()
         } else if (this.loading && this.turns.length === 0) {
@@ -916,7 +923,14 @@ export struct ChatPage {
         backgroundColor: Theme.bg
       })
     }
-    .hideTitleBar(true)
+    /*
+     * 标题栏交给官方：返回键、标题、滚动渐显磨砂、滑动收起都由 HdsNavDestination 渲染，
+     * 与设置页等二级页同一套（AppNavBar.subPageTitleBar + 沉浸光感材质）。
+     */
+    .titleMode(HdsNavDestinationTitleMode.MINI)
+    .titleBar(AppNavBar.subPageTitleBar(this.title))
+    .bindToScrollable([this.scroller])
+    .dynamicHideTitleBar(AppNavBar.dynamicHide())
     // 从子页面回来（黑屏兜底）：意图在底部但位置被推离了就校正，翻历史时不动
     .onShown((reason: VisibilityChangeReason): void => {
       this.restoreIfNeeded();
@@ -934,14 +948,6 @@ export struct ChatPage {
       }
       this.flushEvents();
       this.closeStream();
-    })
-    // 同意弹层挂在 NavDestination 上（模型面板的 bindSheet 挂在里面的 Column 上：
-    // 同一个组件只能挂一个 bindSheet，分开挂两个都能弹出）
-    .bindSheet($$this.showConsent, this.ConsentSheet(), {
-      height: SheetSize.MEDIUM,
-      dragBar: true,
-      showClose: false,
-      backgroundColor: Theme.bg
     })
     .onReady((ctx: NavDestinationContext) => {
       this.navStack = ctx.pathStack;
@@ -1005,6 +1011,8 @@ export struct ChatPage {
       .scrollBar(BarState.Off)
       .cachedCount(6)
       .padding({ left: 16, right: 16, top: 12, bottom: 16 })
+      // 内容从 y=0 铺到官方标题栏下面：首屏空出栏高，滚动时从栏下穿过
+      .contentStartOffset(AppNavBar.contentTop)
       .onScrollIndex((start: number, end: number): void => {
         // 几何：只记录结果，不做滚动（意图归 onDidScroll / onScrollStop 管）
         const total: number = this.rowSource.totalCount();
@@ -1036,17 +1044,20 @@ export struct ChatPage {
       })
 
       if (!this.nearBottom) {
-        Row() {
-          SymbolGlyph($r('sys.symbol.chevron_down'))
-            .fontSize(15)
-            .fontColor([Theme.text])
+        Button() {
+          Row() {
+            SymbolGlyph($r('sys.symbol.chevron_down'))
+              .fontSize(15)
+              .fontColor([Theme.text])
+          }
+          .width(36)
+          .height(36)
+          .justifyContent(FlexAlign.Center)
         }
-        .width(36)
-        .height(36)
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor('rgba(30, 30, 34, 0.9)')
+        .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+        .padding(0)
+        .clip(true)
         .borderRadius(18)
-        .border({ width: 1, color: Theme.line })
         .margin({ bottom: 12 })
         .onClick((): void => {
           this.pinToLatest();
@@ -1206,24 +1217,28 @@ export struct ChatPage {
           Blank()
 
           // 发送 / 停止（iOS：44×44 圆角 12、白 10% 底；停止时是一个小方块）
-          Row() {
-            if (this.running) {
-              Row()
-                .width(11)
-                .height(11)
-                .backgroundColor(Theme.text)
-                .borderRadius(3)
-            } else {
-              SymbolGlyph($r('sys.symbol.arrow_right'))
-                .fontSize(19)
-                .fontWeight(FontWeight.Bold)
-                .fontColor([Theme.text])
+          Button() {
+            Row() {
+              if (this.running) {
+                Row()
+                  .width(11)
+                  .height(11)
+                  .backgroundColor(Theme.text)
+                  .borderRadius(3)
+              } else {
+                SymbolGlyph($r('sys.symbol.arrow_right'))
+                  .fontSize(19)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor([Theme.text])
+              }
             }
+            .width(44)
+            .height(44)
+            .justifyContent(FlexAlign.Center)
           }
-          .width(44)
-          .height(44)
-          .justifyContent(FlexAlign.Center)
-          .backgroundColor('rgba(255, 255, 255, 0.1)')
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding(0)
+          .clip(true)
           .borderRadius(12)
           .opacity(this.canSubmit() ? 1 : 0.4)
           .onClick((): void => {
@@ -1240,17 +1255,20 @@ export struct ChatPage {
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
-      .backgroundColor('rgba(255, 255, 255, 0.05)')
+      .backgroundColor(Theme.glassFill)
       .borderRadius(22)
-      .border({ width: 1, color: 'rgba(255, 255, 255, 0.07)' })
+      .border({ width: 1, color: Theme.line })
       }
       .width('100%')
-      // 键盘弹出时座位落在键盘上方（这时手势条已被键盘盖住）；否则让开小白条
+      /*
+       * 键盘弹出时页面由官方压缩（RESIZE，见 aboutToAppear），布局底边就是键盘上沿，
+       * 不再手动加键盘高度，也不再叠加手势区；收起时只让开小白条。
+       */
       .padding({
         left: 12,
         right: 12,
         top: 8,
-        bottom: this.keyboardInset > 0 ? 60 : 8 + Theme.safeBottomInset
+        bottom: 8 + (this.keyboardInset > 0 ? 0 : Theme.safeBottomInset)
       })
       .backgroundColor(Theme.bg)
 
@@ -1371,7 +1389,7 @@ export struct ChatPage {
               .height(28)
               .objectFit(ImageFit.Cover)
               .borderRadius(6)
-              .backgroundColor('rgba(255, 255, 255, 0.08)')
+              .backgroundColor(Theme.line)
             Text(attachment.name)
               .fontSize(12)
               .fontColor(Theme.textMuted)
@@ -1392,9 +1410,9 @@ export struct ChatPage {
               })
           }
           .padding(4)
-          .backgroundColor('rgba(255, 255, 255, 0.05)')
+          .backgroundColor(Theme.glassFill)
           .borderRadius(8)
-          .border({ width: 1, color: 'rgba(255, 255, 255, 0.06)' })
+          .border({ width: 1, color: Theme.line })
           .margin({ right: 8, bottom: 4 })
         }, (attachment: AgentAttachment): string => `att-${attachment.attachmentId}`)
 
@@ -1405,7 +1423,7 @@ export struct ChatPage {
           }
           .height(36)
           .padding({ left: 10, right: 10 })
-          .backgroundColor('rgba(255, 255, 255, 0.05)')
+          .backgroundColor(Theme.glassFill)
           .borderRadius(8)
           .margin({ right: 8, bottom: 4 })
         }
@@ -1595,23 +1613,6 @@ export struct ChatPage {
     }
   }
 
-  /** 第一次发给 AI 前的说明与同意（同 iOS `AgentAIConsentSheet`）：同意后接着发，取消草稿保留 */
-  @Builder
-  ConsentSheet() {
-    AgentAIConsentSheet({
-      providers: this.consentProviders,
-      onAgree: (): void => {
-        AgentAIConsent.grant().catch((): void => {
-        });
-        this.showConsent = false;
-        this.send();
-      },
-      onCancel: (): void => {
-        this.showConsent = false;
-      }
-    })
-  }
-
   /** 模型 + 思维链档位面板（同 iOS `AgentModelMenu`：选模型收起，调档位不收起） */
   @Builder
   ModelSheet() {
@@ -1684,17 +1685,19 @@ export struct ChatPage {
 
   @Builder
   ThinkingChip(level: string, label: string) {
-    Text(label)
-      .fontSize(13)
-      .fontColor(this.displayedThinking() === level ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-      .backgroundColor(this.displayedThinking() === level ? Theme.accent : Theme.glassFill)
-      .borderRadius(14)
-      .margin({ right: 8, top: 8 })
-      .onClick((): void => {
-        this.thinkingTouched = true;
-        this.thinkingValue = level;
-      })
+    Button() {
+      Text(label)
+        .fontSize(13)
+        .fontColor(this.displayedThinking() === level ? Theme.bg : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(this.displayedThinking() === level ? GlassTone.Primary : GlassTone.Secondary))
+    .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+    .borderRadius(14)
+    .margin({ right: 8, top: 8 })
+    .onClick((): void => {
+      this.thinkingTouched = true;
+      this.thinkingValue = level;
+    })
   }
 
   /** 面板里当前选中的模型（没动过时按会话生效值判断） */

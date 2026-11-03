@@ -190,6 +190,7 @@ library items share revoke
 library items transfer
 library list
 library list-routing-options
+library list-source-providers
 library metadata get-refresh-status
 library metadata refresh-library
 library metadata stop-refresh
@@ -210,6 +211,7 @@ library subtitles delete
 library subtitles generate
 library subtitles preview-generation
 library update
+llm catalog providers
 llm defaults show
 llm defaults update
 llm models
@@ -218,6 +220,9 @@ llm presets
 llm providers create
 llm providers delete
 llm providers list
+llm providers models
+llm providers models refresh
+llm providers models visibility
 llm providers show
 llm providers update
 llm providers verify

@@ -1,0 +1,9 @@
+{
+  "name": "@movieclaw/player-engine",
+  "version": "1.0.0",
+  "description": "Shared HarmonyOS playback player_engine",
+  "main": "Index.ets",
+  "dependencies": {
+    "libmovieclaw_mpv.so": "file:./src/main/cpp/types/movieclaw_mpv"
+  }
+}

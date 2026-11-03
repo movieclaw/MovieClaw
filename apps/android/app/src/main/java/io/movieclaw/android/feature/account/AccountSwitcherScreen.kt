@@ -120,6 +120,7 @@ fun AccountSwitcherScreen(
     val current by vm.current.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     var confirmLogoutAll by remember { mutableStateOf(false) }
+    var askOfflineCleanup by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -226,11 +227,18 @@ fun AccountSwitcherScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmLogoutAll = false
-                    vm.logoutAll()
+                    askOfflineCleanup = true
                 }) { Text("退出", color = Danger) }
             },
             dismissButton = { TextButton(onClick = { confirmLogoutAll = false }) { Text("取消") } },
         )
+    }
+    // 共用设备交还前：问一句要不要连这台设备上的全部下载一起删
+    if (askOfflineCleanup) {
+        io.movieclaw.android.feature.offline.OfflineLogoutPrompt(everywhere = true) {
+            askOfflineCleanup = false
+            vm.logoutAll()
+        }
     }
 }
 

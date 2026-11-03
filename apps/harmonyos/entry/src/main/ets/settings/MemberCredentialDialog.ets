@@ -1,5 +1,6 @@
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 
 /**
  * 一次性凭据弹窗（新成员密码 / 重置后的新密码），**与「批准设备登录」同一套弹窗样式**。
@@ -74,36 +75,42 @@ export struct MemberCredentialDialog {
         .width('100%')
 
       Column({ space: 10 }) {
-        Row({ space: 8 }) {
-          SymbolGlyph($r('sys.symbol.doc_filled_on_doc'))
-            .fontSize(16)
-            .fontColor([Theme.text])
-          Text('复制全部登录信息')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
+        Button() {
+          Row({ space: 8 }) {
+            SymbolGlyph($r('sys.symbol.doc_filled_on_doc'))
+              .fontSize(16)
+              .fontColor([Theme.text])
+            Text('复制全部登录信息')
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
+          }
+          .width('100%')
+          .height(50)
+          .justifyContent(FlexAlign.Center)
         }
-        .width('100%')
-        .height(50)
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor(Theme.glassFill)
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding(0)
+        .clip(true)
         .borderRadius(18)
         .onClick((): void => {
           this.copy(`账号：${this.username}\n密码：${this.password}`);
         })
 
-        Text('完成')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#0b0d12')
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 15, bottom: 15 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(18)
-          .onClick((): void => {
-            this.onClose();
-          })
+        Button() {
+          Text('完成')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .width('100%')
+        .padding({ top: 15, bottom: 15 })
+        .borderRadius(18)
+        .onClick((): void => {
+          this.onClose();
+        })
       }
       .width('100%')
     }

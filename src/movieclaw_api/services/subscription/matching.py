@@ -334,9 +334,6 @@ async def load_match_context(
     from movieclaw_matcher import QualitySnapshot
 
     specs = await _load_specs(session)
-    from movieclaw_api.services.subscription.smart_runtime import runtime_settings
-
-    runtime = None
 
     contexts: dict[int, MediaContext] = {}
     result = await session.execute(
@@ -350,10 +347,6 @@ async def load_match_context(
         )
     )
     for wanted, subscription in result.all():
-        if subscription.selection_mode == "smart":
-            runtime = runtime or await runtime_settings()
-            if not runtime.enabled:
-                continue
         spec = (
             read_policy(subscription)
             if subscription.selection_mode == "smart"
@@ -437,10 +430,6 @@ async def load_match_context(
         )
         upgrade_subs: set[int] = set()
         for wanted, subscription in result.all():
-            if subscription.selection_mode == "smart":
-                runtime = runtime or await runtime_settings()
-                if not runtime.enabled:
-                    continue
             spec = (
                 read_policy(subscription)
                 if subscription.selection_mode == "smart"
@@ -948,10 +937,6 @@ async def evaluate_and_dispatch(
         )
         # 身份核验先于智能品质/等待决策：被拦截的候选不能占位或消耗等待预算。
         identity_rejections = identity_rejections_by_media.get(media_id, {})
-        notify_identity = True
-        if isinstance(ctx.spec, SmartPolicy):
-            from movieclaw_api.services.subscription.smart_runtime import runtime_settings
-            notify_identity = not (await runtime_settings()).shadow_only
         verified = []
         for candidate, match, verdict, rank in entries:
             published = publish_calendar_date(candidate.publish_time)
@@ -999,7 +984,6 @@ async def evaluate_and_dispatch(
                         identity=ctx.identity,
                         candidate=candidate,
                         twins=twins,
-                        notify=notify_identity,
                     )
                     summary.rejected += 1
                     await _log_rejection(
@@ -1217,11 +1201,6 @@ async def _log_rejection(
     source: str,
 ) -> None:
     """记一条规则拒绝活动；同一 (订阅, 站点, 种子) 去重（查最近活动）。"""
-    if isinstance(ctx.spec, SmartPolicy):
-        from movieclaw_api.services.subscription.smart_runtime import runtime_settings
-
-        if (await runtime_settings()).shadow_only:
-            return
     subscription_id = ctx.subscription.id
     assert subscription_id is not None
     recent = await repo.list_activities(subscription_id, limit=200)

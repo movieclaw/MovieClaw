@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { Formatters } from '../common/Formatters';
@@ -364,18 +365,19 @@ export struct MediaSearchResultsView {
               .fontColor(Theme.textMuted)
               .textAlign(TextAlign.Center)
             if (this.canTorrent) {
-              Text('搜索站点资源')
-                .fontSize(14)
-                .fontWeight(600)
-                .fontColor(Theme.accentStrong)
-                .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-                .backgroundColor(Theme.glassFill)
-                .borderRadius(18)
-                .border({ width: 1, color: Theme.lineStrong })
-                .margin({ top: 8 })
-                .onClick(() => {
-                  this.navStack.pushPathByName('torrents', new TorrentParams(this.keyword));
-                })
+              Button() {
+                Text('搜索站点资源')
+                  .fontSize(14)
+                  .fontWeight(600)
+                  .fontColor(Theme.accentStrong)
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+              .borderRadius(18)
+              .margin({ top: 8 })
+              .onClick(() => {
+                this.navStack.pushPathByName('torrents', new TorrentParams(this.keyword));
+              })
             }
           }
           .width('100%')
@@ -395,8 +397,9 @@ export struct MediaSearchResultsView {
     .height('100%')
     .scrollBar(BarState.Off)
     .cachedCount(4)
+    // 一次 padding 写全：同链两次 .padding 是覆盖不是合并，之前 bottom 那次把左右边距抹掉了
     .padding({ left: 20, right: 20 })
-    .padding({ bottom: Theme.tabBarInset })
+    .contentEndOffset(Theme.tabBarInset)
   }
 
   /** 单来源分区：标签 + 共 N 条结果 → 错误/空/两列海报（同 iOS section） */
@@ -643,30 +646,33 @@ export struct SearchResultsPage {
         .onClick(() => {
           this.navStack.pop();
         })
-      Row({ space: 6 }) {
-        SymbolGlyph($r('sys.symbol.magnifyingglass'))
-          .fontSize(14)
-          .fontColor([Theme.textMuted])
-        Text(this.keyword)
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.text)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Button() {
+        Row({ space: 6 }) {
+          SymbolGlyph($r('sys.symbol.magnifyingglass'))
+            .fontSize(14)
+            .fontColor([Theme.textMuted])
+          Text(this.keyword)
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(Theme.text)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .constraintSize({ maxWidth: 260 })
+        .height(40)
+        .padding({ left: 16, right: 16 })
       }
-      .constraintSize({ maxWidth: 260 })
-      .height(40)
-      .padding({ left: 16, right: 16 })
-      .backgroundColor(Theme.glassFill)
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding(0)
+      .clip(true)
       .borderRadius(20)
-      .border({ width: 1, color: Theme.lineStrong })
       .onClick(() => {
         this.editSearch();
       })
       Blank()
     }
     .width('100%')
-    .padding({ left: 12, right: 12, top: Theme.statusBarInset + 6, bottom: 6 })
+    .padding({ left: 12, right: 12, top: Theme.shellTopInset + 6, bottom: 6 })
   }
 
   /** 垂直选项卡（对应 iOS 顶部分段 Picker） */
@@ -674,15 +680,17 @@ export struct SearchResultsPage {
   VerticalTabs() {
     Row({ space: 8 }) {
       ForEach(this.visibleVerticals(), (mode: string) => {
-        Text(this.verticalLabel(mode))
-          .fontSize(14)
-          .fontColor(this.mode === mode ? '#0b0d12' : Theme.textMuted)
-          .padding({ left: 14, right: 14, top: 7, bottom: 7 })
-          .backgroundColor(this.mode === mode ? Theme.accent : Theme.glassFill)
-          .borderRadius(16)
-          .onClick(() => {
-            this.switchVertical(mode);
-          })
+        Button() {
+          Text(this.verticalLabel(mode))
+            .fontSize(14)
+            .fontColor(this.mode === mode ? '#0b0d12' : Theme.textMuted)
+        }
+        .attributeModifier(new GlassButtonModifier(this.mode === mode ? GlassTone.Primary : GlassTone.Secondary))
+        .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+        .borderRadius(16)
+        .onClick(() => {
+          this.switchVertical(mode);
+        })
       }, (mode: string) => mode)
     }
     .width('100%')

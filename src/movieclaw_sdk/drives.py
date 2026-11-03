@@ -222,6 +222,9 @@ class RemoteTree:
     files: tuple[RemoteFile, ...] = ()
     #: 全部子目录的 id（不含被列目录自己）：主程序据此判断操作动态落没落在库里
     dir_ids: tuple[str, ...] = ()
+    #: 被列目录在网盘上的位置：从根目录到它自己（含）的每一级。列举响应里顺带有的才填，不要为它
+    #: 多发请求（1.6）；主程序据此算出它在挂着的文件夹之下的路径，操作动态就只列有变化的那个目录
+    path: tuple[RemoteDir, ...] = ()
 
 
 #: 操作动态的种类：新文件 / 文件或目录被删 / 移动 / 改名 / 新建目录
@@ -513,8 +516,8 @@ DRIVE_BACKENDS: RegistryKey[DriveBackend] = RegistryKey(
     "drive-backends",
     # 1.1：stat / direct_link（取流）；1.2：list_dir / list_tree / changes（纳管）；
     # 1.3：ensure_dir / begin_upload / upload_part / finish_upload（上传）；1.4：delete；
-    # 1.5：Login.form / login_with_form（填表登录）
-    version="1.5",
+    # 1.5：Login.form / login_with_form（填表登录）；1.6：RemoteTree.path（被列目录的路径链）
+    version="1.6",
     stability=Stability.EXPERIMENTAL,
     schema=DriveBackend,
     doc="网盘存储后端：插件贡献一家网盘的协议实现（登录、文件操作），主程序负责账号、调度与界面",
@@ -711,6 +714,7 @@ def tree_dict(tree: RemoteTree) -> dict[str, Any]:
     return {
         "files": [remote_file_dict(f) for f in tree.files],
         "dir_ids": list(tree.dir_ids),
+        "path": [remote_dir_dict(d) for d in tree.path],
     }
 
 
@@ -718,6 +722,7 @@ def tree_from(data: dict[str, Any]) -> RemoteTree:
     return RemoteTree(
         files=tuple(remote_file_from(f) for f in data.get("files") or ()),
         dir_ids=tuple(str(d) for d in data.get("dir_ids") or ()),
+        path=tuple(remote_dir_from(d) for d in data.get("path") or ()),
     )
 
 

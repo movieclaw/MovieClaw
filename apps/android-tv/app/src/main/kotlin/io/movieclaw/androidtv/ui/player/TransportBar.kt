@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import io.movieclaw.androidtv.ui.components.Text
+import io.movieclaw.core.playback.PlaybackSpeeds
 import io.movieclaw.core.playback.PlayerFormat
 import io.movieclaw.core.playback.PlayerState
 import io.movieclaw.androidtv.ui.theme.McColors
@@ -83,6 +85,10 @@ fun TransportBar(state: PlayerState, scrubMs: Long?, trickplay: TrickplayImages,
         Row(Modifier.fillMaxWidth()) {
             Text(PlayerFormat.clockMs(position), style = TIME, color = Color.White.copy(alpha = 0.8f))
             Spacer(Modifier.weight(1f))
+            // 不是正常速度时常驻一个角标，免得忘了自己开着倍速（同 Apple 端）
+            if (state.speed != 1f) {
+                Text(PlaybackSpeeds.short(state.speed), style = TIME, color = Color.White, modifier = Modifier.padding(end = 24.pt))
+            }
             Text("-" + PlayerFormat.clockMs((duration - position).coerceAtLeast(0)), style = TIME, color = Color.White.copy(alpha = 0.8f))
         }
     }

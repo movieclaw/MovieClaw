@@ -2912,7 +2912,42 @@ async def test_ingest_records_imported_event_for_subscribed_plugins(db, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_explicit_e00_pilot_skipped_without_blocking(db, tmp_path, monkeypatch):
+@pytest.mark.parametrize("names", [
+    ["音乐缘计划.Melody.Journey.S03E00.2026.1080p.iQIYI.WEB-DL.H264.AAC-ADWeb.mkv"],
+    ["Show.S00E00.mkv"],
+    ["Show.S03E00.Pilot.mkv", "Show.S03E00.Preview.mkv"],
+])
+async def test_only_e00_download_stays_pending(db, tmp_path, monkeypatch, names):
+    """只有 E00 的下载没有可入库内容：留在待处理，不能当作已入库收口。"""
+    root, watch = tmp_path / "tv", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.TV, root=root)
+    item = await _make_item(db, kind=MediaKind.TV, title="音乐缘计划", year=2024)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", lambda _path: _FAKE_SPEC)
+    entry = watch / "音乐缘计划.S03"
+    entry.mkdir()
+    for name in names:
+        (entry / name).write_bytes(b"pilot-content")
+
+    await _sweep_twice(db, library_id, watch)
+    async with db.session() as session:
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+        assert record.status == IngestStatus.PENDING
+        assert record.imported_count == 0
+        assert "第 0 集（先导/特辑），暂不自动入库" in record.message
+        assert "无需整理" not in record.message
+        assert all(name in record.message for name in names)
+        assert not (await session.execute(select(LibraryFile))).scalars().all()
+    assert not list(root.rglob("*.mkv"))
+    assert all((entry / name).read_bytes() == b"pilot-content" for name in names)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("already_present", [False, True])
+async def test_explicit_e00_pilot_skipped_without_blocking(
+    db, tmp_path, monkeypatch, already_present
+):
     """显式 E00（先导/特辑占位）不入库但也不阻塞：正片照常入库、结论 imported、
     文案如实说明——不再误报「解析不出集号」把含 E00 的季包钉在待处理。"""
     root, watch = tmp_path / "tv", tmp_path / "watch"
@@ -2927,15 +2962,19 @@ async def test_explicit_e00_pilot_skipped_without_blocking(db, tmp_path, monkeyp
     # 真实走 _unit 的显式 SxxEyy 解析，不打桩
     (entry / "Show.S01E00.2160p.mp4").write_bytes(b"pilot-placeholder")
     (entry / "Show.S01E01.2160p.mp4").write_bytes(b"episode-1-content")
+    season_dir = root / "测试剧集 (2024)" / "Season 01"
+    if already_present:
+        season_dir.mkdir(parents=True)
+        (season_dir / "测试剧集 (2024) - S01E01.mp4").write_bytes(b"episode-1-content")
 
     await _sweep_twice(db, library_id, watch)
 
-    season_dir = root / "测试剧集 (2024)" / "Season 01"
     assert (season_dir / "测试剧集 (2024) - S01E01.mp4").exists()
     assert not (season_dir / "测试剧集 (2024) - S01E00.mp4").exists()
     async with db.session() as session:
         record = (await session.execute(select(IngestEntry))).scalar_one()
     assert record.status == IngestStatus.IMPORTED
+    assert record.imported_count == (0 if already_present else 1)
     assert "第 0 集（先导/特辑），暂不自动入库" in (record.message or "")
     assert "解析不出" not in (record.message or "")
 

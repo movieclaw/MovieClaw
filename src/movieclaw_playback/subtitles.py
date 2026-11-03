@@ -63,7 +63,7 @@ def parse_external_track(track: str) -> str | None:
 
 
 def is_ai_generated(title: str | None) -> bool:
-    """这条外挂字幕是不是本机 AI 生成的（含翻译与双语）。
+    """这条外挂字幕是不是本机 AI 生成的（含翻译、双语与本地语音识别）。
 
     判据是台账里**解析出来的 title 段**，不是整个文件名：title 只包含视频
     stem 之后的 token（``library/subtitles.py`` 的 ``parse_subtitle_tokens``），
@@ -71,14 +71,15 @@ def is_ai_generated(title: str | None) -> bool:
 
     命名规则见 ``subtitle_gen/tasks.py`` 的 ``_sidecar_path``：
     ``ai`` / ``ai-<语言>`` / ``ai-bilingual-<主>-<次>``，旧版是 ``<语言>.ai``
-    （两者的 title 段都以 ai 打头）。与 ``subtitle_gen/source.py`` 的
+    （两者的 title 段都以 ai 打头）；本地语音识别的产物是 ``asr``
+    （``_asr_sidecar_path``，时间轴与文字同样可能有偏差）。与 ``subtitle_gen/source.py`` 的
     ``_external_provenance`` 是同一套约定的两处实现——分层守护禁止本层
     import movieclaw_api，改命名规则时两边都要动。
     """
     if not title:
         return False
     marker = title.strip().lower()
-    return marker == "ai" or marker.startswith("ai-")
+    return marker in ("ai", "asr") or marker.startswith("ai-")
 
 
 # -- 字幕内容服务 -----------------------------------------------------------

@@ -1,6 +1,7 @@
 import { display } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { WindowInsets } from '../common/WindowInsets';
 import { Formatters } from '../common/Formatters';
 import { SharePanel, shareMessage } from './ShareSheet';
@@ -29,6 +30,7 @@ import {
   LibraryItemView,
   PlaybackMarksRequest,
   PlaybackStateView,
+  SeasonAirScheduleView,
   SeasonEpisodesView,
   SeriesPartView,
   LibraryView,
@@ -41,6 +43,14 @@ import {
   anchorEpisode,
   watchedAnyEpisode
 } from './EpisodeRanges';
+import {
+  AirTone,
+  arrivalText,
+  episodeTone,
+  futureAirText,
+  todayArrival
+} from './AirSchedule';
+import { AirScheduleCard, AirScheduleSheet, arrivalColor } from './AirScheduleCard';
 import { PersonParams } from '../discover/PersonDetailPage';
 import { DiscoverDetailParams } from '../discover/DiscoverDetailPage';
 import { SubscribeCenter } from '../subscriptions/SubscribeCenter';
@@ -180,6 +190,8 @@ export struct LibraryItemDetailPage {
   @State private episodeRangeIndex: number | null = null;
   /** 「全部分集」宫格面板（一季超过 50 集才有入口） */
   @State private showAllEpisodes: boolean = false;
+  /** 播出日历的日程面板（issue #547） */
+  @State private showAirSchedule: boolean = false;
 
   /** 下载面板：电影传选中的文件号，剧集传 -1（面板自己拉整季集表算范围） */
   @State private showDownloadSheet: boolean = false;
@@ -829,6 +841,8 @@ export struct LibraryItemDetailPage {
       }
       if (local !== null) {
         // 回落本机存档：只显示本机有的集、进度取本机（同 iOS 的 OfflineFallback）
+        // 播出日历不画（issue #547：离线模式不显示；存档里的排期也是旧的）
+        local.air_schedule = null;
         this.episodes = OfflineStore.shared.offlineSeason(local, mediaItemId);
         this.episodesFailed = false;
         this.pickEpisode(this.episodes as SeasonEpisodesView, previousAnchor);
@@ -937,6 +951,72 @@ export struct LibraryItemDetailPage {
       }
     }
     return count;
+  }
+
+  /** 本季的播出日历（issue #547）：服务端只在本季还有今天或以后的播出日时给；旧服务端/离线回落为 null */
+  private airSchedule(): SeasonAirScheduleView | null {
+    const view: SeasonEpisodesView | null = this.episodes;
+    if (view === null) {
+      return null;
+    }
+    return view.air_schedule ?? null;
+  }
+
+  /** 这集今天播出（未入库且播出日=站点今天） */
+  private airsToday(episode: EpisodeView): boolean {
+    const schedule: SeasonAirScheduleView | null = this.airSchedule();
+    if (schedule === null || episode.owned) {
+      return false;
+    }
+    const tone: AirTone = episodeTone(episode, schedule);
+    return tone === AirTone.Today || tone === AirTone.TodayFree;
+  }
+
+  /** 这集还没播（含没定日期的；有日历才分得清「还没播」与「缺集」） */
+  private isUnaired(episode: EpisodeView): boolean {
+    const schedule: SeasonAirScheduleView | null = this.airSchedule();
+    if (schedule === null || episode.owned) {
+      return false;
+    }
+    return episodeTone(episode, schedule) === AirTone.Upcoming;
+  }
+
+  /** 今天播出的那集右侧的入库状态（下载中/整理中/预计 HH:MM 入库/等待资源/未订阅） */
+  private todayStatusText(episode: EpisodeView): string {
+    const schedule: SeasonAirScheduleView | null = this.airSchedule();
+    return schedule === null ? '' : arrivalText(todayArrival(episode, schedule));
+  }
+
+  private todayStatusColor(episode: EpisodeView): string {
+    const schedule: SeasonAirScheduleView | null = this.airSchedule();
+    return schedule === null ? Theme.textMuted : arrivalColor(todayArrival(episode, schedule));
+  }
+
+  /** 还没播的那集的状态行：未来写播出日、没定档写「待定档」 */
+  private unairedStatusText(episode: EpisodeView): string {
+    const schedule: SeasonAirScheduleView | null = this.airSchedule();
+    return schedule === null ? '' : futureAirText(episode, schedule);
+  }
+
+  private rowBackground(episode: EpisodeView): ResourceColor {
+    if (this.isPicked(episode)) {
+      return Theme.glassFillHover;
+    }
+    if (this.airsToday(episode)) {
+      return 'rgba(59,130,246,0.10)';
+    }
+    return Color.Transparent;
+  }
+
+  /** 今天播出描蓝边、之后虚线框（同 Web/iOS 分集卡口径） */
+  private rowBorder(episode: EpisodeView): BorderOptions {
+    if (this.airsToday(episode)) {
+      return { width: 1, color: 'rgba(59,130,246,0.75)' };
+    }
+    if (this.isUnaired(episode)) {
+      return { width: 1, color: 'rgba(255,255,255,0.25)', style: BorderStyle.Dashed };
+    }
+    return { width: 0 };
   }
 
   /** 这张集卡要不要标「接着看」：本季有观看记录且它是锚点（短季同样标，对齐 iOS） */
@@ -1079,6 +1159,7 @@ export struct LibraryItemDetailPage {
     this.season = season;
     this.selectedEpisode = null;
     this.episodeRangeIndex = null;
+    this.showAirSchedule = false;
     this.loadEpisodes();
   }
 
@@ -1153,14 +1234,18 @@ export struct LibraryItemDetailPage {
     Row() {
       // 用 Stack 把字形居中：`SymbolGlyph` 自己带字形边距，直接给 width/height 时
       // 图标会偏在圆钮左边，看着「歪」（实测）
-      Stack({ alignContent: Alignment.Center }) {
-        SymbolGlyph($r('sys.symbol.chevron_left'))
-          .fontSize(22)
-          .fontColor([Theme.text])
+      Button() {
+        Stack({ alignContent: Alignment.Center }) {
+          SymbolGlyph($r('sys.symbol.chevron_left'))
+            .fontSize(22)
+            .fontColor([Theme.text])
+        }
+        .width(40)
+        .height(40)
       }
-      .width(40)
-      .height(40)
-      .backgroundColor('rgba(0, 0, 0, 0.35)')
+      .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+      .padding(0)
+      .clip(true)
       .borderRadius(20)
       .onClick(() => {
         this.navStack.pop();
@@ -1199,14 +1284,18 @@ export struct LibraryItemDetailPage {
           .margin({ right: 8 })
         }
         // 分享：生成一条不用登录就能看的公开链接（对应 iOS `LibraryShareSheet`）
-        Stack({ alignContent: Alignment.Center }) {
-          SymbolGlyph($r('sys.symbol.paperplane'))
-            .fontSize(20)
-            .fontColor([Theme.text])
+        Button() {
+          Stack({ alignContent: Alignment.Center }) {
+            SymbolGlyph($r('sys.symbol.paperplane'))
+              .fontSize(20)
+              .fontColor([Theme.text])
+          }
+          .width(40)
+          .height(40)
         }
-        .width(40)
-        .height(40)
-        .backgroundColor('rgba(0, 0, 0, 0.35)')
+        .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+        .padding(0)
+        .clip(true)
         .borderRadius(20)
         .onClick(() => {
           this.openShare();
@@ -1214,7 +1303,7 @@ export struct LibraryItemDetailPage {
       }
     }
     .width('100%')
-    .padding({ left: 8, right: 8, top: 8 + WindowInsets.top })
+    .padding({ left: 8, right: 8, top: 8 + WindowInsets.shared().top })
     .bindSheet($$this.showTransfer, this.TransferSheetContent(), {
       height: SheetSize.LARGE,
       dragBar: true,
@@ -1560,17 +1649,18 @@ export struct LibraryItemDetailPage {
         .fontSize(15)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('返回')
-        .fontSize(15)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 20, right: 20, top: 10, bottom: 10 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(20)
-        .border({ width: 1, color: Theme.lineStrong })
-        .onClick(() => {
-          this.navStack.pop();
-        })
+      Button() {
+        Text('返回')
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+      .borderRadius(20)
+      .onClick(() => {
+        this.navStack.pop();
+      })
     }
     .width('100%')
     .height('100%')
@@ -1628,7 +1718,7 @@ export struct LibraryItemDetailPage {
       .width('100%')
       .height('100%')
       .edgeEffect(EdgeEffect.None)
-      .padding({ bottom: Theme.tabBarInset })
+      .contentEndOffset(Theme.tabBarInset)
       .bindSheet($$this.showReidentify, this.ReidentifySheetContent(), {
         height: SheetSize.LARGE,
         dragBar: true,
@@ -1759,40 +1849,38 @@ export struct LibraryItemDetailPage {
         OfflineDownloadControl({ mediaItemId: this.mediaItemId, title: detail.title })
       }
       Button(this.playLabel())
-        .width('100%')
-        .height(46)
-        .fontSize(16)
-        .fontWeight(600)
-        .fontColor('#0b0d12')
-        .backgroundColor(Theme.accent)
-        .borderRadius(14)
-        .onClick(() => {
-          this.onPlay();
-        })
+      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+      .width('100%')
+      .height(46)
+      .fontSize(16)
+      .fontWeight(600)
+      .fontColor('#0b0d12')
+      .borderRadius(14)
+      .onClick(() => {
+        this.onPlay();
+      })
 
       Row({ space: 10 }) {
         Button(this.favorite === true ? '已收藏' : '收藏')
-          .height(42)
-          .fontSize(14)
-          .fontColor(this.favorite === true ? Theme.danger : Theme.text)
-          .backgroundColor(Theme.surfaceRaised)
-          .borderRadius(12)
-          .border({ width: 1, color: Theme.line })
-          .enabled(!this.marking)
-          .onClick(() => {
-            this.toggleFavorite();
-          })
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .height(42)
+        .fontSize(14)
+        .fontColor(this.favorite === true ? Theme.danger : Theme.text)
+        .borderRadius(12)
+        .enabled(!this.marking)
+        .onClick(() => {
+          this.toggleFavorite();
+        })
         Button(this.watchedLabel())
-          .height(42)
-          .fontSize(14)
-          .fontColor(this.played() ? Theme.ok : Theme.text)
-          .backgroundColor(Theme.surfaceRaised)
-          .borderRadius(12)
-          .border({ width: 1, color: Theme.line })
-          .enabled(!this.marking)
-          .onClick(() => {
-            this.toggleWatched();
-          })
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .height(42)
+        .fontSize(14)
+        .fontColor(this.played() ? Theme.ok : Theme.text)
+        .borderRadius(12)
+        .enabled(!this.marking)
+        .onClick(() => {
+          this.toggleWatched();
+        })
       }
       .width('100%')
 
@@ -1980,7 +2068,7 @@ export struct LibraryItemDetailPage {
             .onClick(() => {
               this.showAllEpisodes = true;
             })
-          } else {
+          } else if (this.airSchedule() === null) {
             Text(`在库 ${this.ownedEpisodeCount()} / ${this.episodes.episodes.length} 集`)
               .fontSize(14)
               .fontColor(Theme.textFaint)
@@ -1992,15 +2080,17 @@ export struct LibraryItemDetailPage {
       Scroll() {
         Row({ space: 8 }) {
           ForEach(detail.seasons, (season: number) => {
-            Text(`第 ${season} 季`)
-              .fontSize(14)
-              .fontColor(season === this.season ? '#0b0d12' : Theme.text)
-              .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-              .backgroundColor(season === this.season ? Theme.accent : Theme.glassFill)
-              .borderRadius(16)
-              .onClick(() => {
-                this.onSeasonPick(season);
-              })
+            Button() {
+              Text(`第 ${season} 季`)
+                .fontSize(14)
+                .fontColor(season === this.season ? '#0b0d12' : Theme.text)
+            }
+            .attributeModifier(new GlassButtonModifier(season === this.season ? GlassTone.Primary : GlassTone.Secondary))
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .borderRadius(16)
+            .onClick(() => {
+              this.onSeasonPick(season);
+            })
           }, (season: number) => `${season}`)
         }
       }
@@ -2011,6 +2101,26 @@ export struct LibraryItemDetailPage {
       // 段胶囊：选中的段白底黑字，锚点所在的段带橙点
       if (this.episodeRanges().length > 0) {
         this.RangeChipsRow()
+      }
+
+      // 播出日历入口卡（issue #547）：本季还有今天或以后的播出日才出现
+      if (this.airSchedule() !== null && this.episodes !== null) {
+        Column() {
+          AirScheduleCard({
+            episodes: (this.episodes as SeasonEpisodesView).episodes,
+            schedule: this.airSchedule() as SeasonAirScheduleView,
+            onOpen: (): void => {
+              this.showAirSchedule = true;
+            }
+          })
+        }
+        .width('100%')
+        .bindSheet($$this.showAirSchedule, this.AirScheduleSheetContent(), {
+          detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+          dragBar: true,
+          showClose: false,
+          backgroundColor: Theme.bg
+        })
       }
 
       if (this.episodesFailed) {
@@ -2086,6 +2196,49 @@ export struct LibraryItemDetailPage {
     }
   }
 
+  /** 播出日历日程面板（issue #547）：已播折叠、停更分隔、今天高亮、未订阅给「订阅追更」 */
+  @Builder
+  AirScheduleSheetContent() {
+    if (this.airSchedule() !== null && this.episodes !== null) {
+      AirScheduleSheet({
+        episodes: (this.episodes as SeasonEpisodesView).episodes,
+        schedule: this.airSchedule() as SeasonAirScheduleView,
+        title: this.detail !== null ? this.detail.title : '',
+        seasonLabel: `第 ${this.season} 季`,
+        canSubscribe: this.canSubscribeAir(),
+        onSubscribe: (): void => {
+          this.subscribeFromAir();
+        },
+        onClose: (): void => {
+          this.showAirSchedule = false;
+        }
+      })
+    }
+  }
+
+  /** 「订阅追更」可见：有订阅权限 + 条目来自 TMDB（订阅靠 TMDB 的别名与季集数据匹配站点资源） */
+  private canSubscribeAir(): boolean {
+    const detail: LibraryItemDetailView | null = this.detail;
+    if (detail === null) {
+      return false;
+    }
+    return Permissions.fromSession(AppModel.shared.session).canSubscribe && (detail.tmdb_id ?? 0) > 0;
+  }
+
+  /** 从播出日历拉起订阅（同 Web：关面板 + 全局订阅弹层） */
+  private subscribeFromAir(): void {
+    const detail: LibraryItemDetailView | null = this.detail;
+    if (detail === null) {
+      return;
+    }
+    const tmdb: number = detail.tmdb_id ?? 0;
+    if (tmdb <= 0) {
+      return;
+    }
+    this.showAirSchedule = false;
+    SubscribeCenter.present(`tmdb:tv:${tmdb}`, detail.title);
+  }
+
   /** 删除条目后果单（iOS DeleteItemSheet） */
   @Builder
   DeleteItemSheetContent() {
@@ -2149,59 +2302,88 @@ export struct LibraryItemDetailPage {
 
   @Builder
   EpisodeRow(episode: EpisodeView) {
-    Row({ space: 12 }) {
-      Text(`${episode.episode_number}`)
-        .fontSize(15)
-        .fontWeight(600)
-        .fontColor(this.isPicked(episode) ? Theme.accentStrong : Theme.textFaint)
-        .width(28)
-      Column({ space: 3 }) {
-        Row({ space: 6 }) {
-          if (this.isResumeEpisode(episode)) {
-            Text('接着看')
-              .fontSize(10)
-              .fontWeight(700)
-              .fontColor('#0b0d12')
-              .padding({ left: 5, right: 5, top: 1, bottom: 1 })
-              .backgroundColor(Theme.warning)
-              .borderRadius(4)
+    Button() {
+      Row({ space: 12 }) {
+        Text(`${episode.episode_number}`)
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor(this.isPicked(episode) ? Theme.accentStrong : Theme.textFaint)
+          .width(28)
+        Column({ space: 3 }) {
+          Row({ space: 6 }) {
+            if (this.isResumeEpisode(episode)) {
+              Text('接着看')
+                .fontSize(10)
+                .fontWeight(700)
+                .fontColor('#0b0d12')
+                .padding({ left: 5, right: 5, top: 1, bottom: 1 })
+                .backgroundColor(Theme.warning)
+                .borderRadius(4)
+            }
+            Text(episode.name !== null && episode.name !== undefined && episode.name.length > 0
+              ? episode.name : `第 ${episode.episode_number} 集`)
+              .fontSize(15)
+              // 还没播的集不再按缺集置灰（issue #547）
+              .fontColor(episode.owned || this.airsToday(episode) || this.isUnaired(episode)
+                ? Theme.text : Theme.textFaint)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
           }
-          Text(episode.name !== null && episode.name !== undefined && episode.name.length > 0
-            ? episode.name : `第 ${episode.episode_number} 集`)
-            .fontSize(15)
-            .fontColor(episode.owned ? Theme.text : Theme.textFaint)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
+          .width('100%')
+          if (!episode.owned && this.airsToday(episode)) {
+            // 今天播出：描蓝边、右侧写入库状态
+            Row({ space: 6 }) {
+              Text('今天播出')
+                .fontSize(12)
+                .fontWeight(600)
+                .fontColor(Theme.text)
+              Text(this.todayStatusText(episode))
+                .fontSize(12)
+                .fontColor(this.todayStatusColor(episode))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+          } else if (!episode.owned && this.isUnaired(episode)) {
+            // 之后播出：状态行写播出日（「10月30日 周五 播出 · 3 天后」），没定档「待定档」
+            Text(this.unairedStatusText(episode))
+              .fontSize(12)
+              .fontColor(Theme.textMuted)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          } else if (!episode.owned) {
+            Text('未入库')
+              .fontSize(12)
+              .fontColor(Theme.textFaint)
+          } else if (episode.played) {
+            Text('已看')
+              .fontSize(12)
+              .fontColor(Theme.ok)
+          } else if ((episode.progress_percent ?? 0) > 0) {
+            Text(`已看 ${Math.round(episode.progress_percent ?? 0)}%`)
+              .fontSize(12)
+              .fontColor(Theme.textFaint)
+          }
         }
-        .width('100%')
-        if (!episode.owned) {
-          Text('未入库')
-            .fontSize(12)
-            .fontColor(Theme.textFaint)
-        } else if (episode.played) {
-          Text('已看')
-            .fontSize(12)
-            .fontColor(Theme.ok)
-        } else if ((episode.progress_percent ?? 0) > 0) {
-          Text(`已看 ${Math.round(episode.progress_percent ?? 0)}%`)
-            .fontSize(12)
-            .fontColor(Theme.textFaint)
-        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        // 行尾的本机下载小标（本机已下 / 在下才有，见 OfflineEpisodeDownloadMark）
+        OfflineEpisodeDownloadMark({
+          mediaItemId: this.mediaItemId,
+          season: this.season,
+          episode: episode.episode_number
+        })
       }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
-      // 行尾的本机下载小标（本机已下 / 在下才有，见 OfflineEpisodeDownloadMark）
-      OfflineEpisodeDownloadMark({
-        mediaItemId: this.mediaItemId,
-        season: this.season,
-        episode: episode.episode_number
-      })
+      .width('100%')
+      .padding({ left: 10, right: 10, top: 10, bottom: 10 })
     }
     .width('100%')
     .padding({ left: 10, right: 10, top: 10, bottom: 10 })
-    .backgroundColor(this.isPicked(episode) ? Theme.glassFillHover : Color.Transparent)
+    .attributeModifier(new GlassButtonModifier(this.isPicked(episode) ? GlassTone.Strong : GlassTone.Secondary))
+    .backgroundColor(this.rowBackground(episode))
+    .clip(true)
     .borderRadius(10)
+    .border(this.rowBorder(episode))
     .onClick(() => {
       this.onEpisodePick(episode);
     })
@@ -2586,15 +2768,15 @@ export struct LibraryItemDetailPage {
         }
         if (!this.fileTrashed(file) && !file.missing) {
           Button('删除', { type: ButtonType.Normal, stateEffect: false })
-            .controlSize(ControlSize.NORMAL)
-            .fontSize(11)
-            .fontWeight(400)
-            .fontColor(Theme.textFaint)
-            .constraintSize({ minWidth: 0, minHeight: 0 })
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(8)
-            .onClick(() => this.openDeleteFile(file))
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .controlSize(ControlSize.NORMAL)
+          .fontSize(11)
+          .fontWeight(400)
+          .fontColor(Theme.textFaint)
+          .constraintSize({ minWidth: 0, minHeight: 0 })
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .borderRadius(8)
+          .onClick(() => this.openDeleteFile(file))
         }
         SymbolGlyph($r('sys.symbol.chevron_down'))
           .fontSize(14)
@@ -2646,17 +2828,17 @@ export struct LibraryItemDetailPage {
             .fontColor(Theme.textFaint)
           Row({ space: 8 }) {
             Button('恢复')
-              .controlSize(ControlSize.NORMAL)
-              .buttonStyle(ButtonStyleMode.NORMAL)
-              .backgroundColor(Theme.glassFill)
-              .fontColor(Theme.text)
-              .onClick(() => this.restoreFile(file))
+            .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+            .controlSize(ControlSize.NORMAL)
+            .buttonStyle(ButtonStyleMode.NORMAL)
+            .fontColor(Theme.text)
+            .onClick(() => this.restoreFile(file))
             Button('立即清理')
-              .controlSize(ControlSize.NORMAL)
-              .buttonStyle(ButtonStyleMode.NORMAL)
-              .backgroundColor(Theme.danger)
-              .fontColor(Color.White)
-              .onClick(() => this.purgeFile(file))
+            .attributeModifier(new GlassButtonModifier(GlassTone.Danger))
+            .controlSize(ControlSize.NORMAL)
+            .buttonStyle(ButtonStyleMode.NORMAL)
+            .fontColor(Color.White)
+            .onClick(() => this.purgeFile(file))
           }
         }
         .width('100%')

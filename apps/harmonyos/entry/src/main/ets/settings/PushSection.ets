@@ -1,4 +1,6 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
 import { ApiError } from '../api/ApiClient';
@@ -496,11 +498,16 @@ export struct PushSection {
     this.bindError = '';
   }
 
-  /** 切页签：另一侧卸载，回来重新拉（同 iOS/Web） */
+  /** 切页签：另一侧卸载，回来重新拉（同 iOS/Web）。
+   *  通道选择弹层挂在通道页上（见 ChannelsBody），切走=卸载，这里把状态一并收掉，
+   *  免得切回来时 showPicker 还是 true、弹层自己又弹出来。 */
   private switchTab(tab: string): void {
     if (tab === this.tab) {
       return;
     }
+    this.showPicker = false;
+    this.stopWeixinPoll();
+    this.stopBindPoll();
     this.tab = tab;
     this.loading = true;
     this.errorMessage = '';
@@ -619,17 +626,22 @@ export struct PushSection {
     }
     .width('100%')
     .height('100%')
+    /*
+     * **一个组件只能绑一个 `bindSheet`**（后绑的覆盖前面的，Members/Webhook/Mcp/Logs 都踩过）。
+     * 这里原本把「绑定」和「通道选择」两张都绑在根 Column 上——后绑的选择页覆盖了绑定页，
+     * 点「绑定」弹不出来。通道选择移到 ChannelsBody 的 Scroll 上（见下）。
+     * onDisappear 兜底：下滑/点遮罩关掉时也停轮询、清状态（✕ 按钮之外唯一可靠的关闭出口）。
+     */
     .bindSheet($$this.showBind, this.BindSheet(), {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
-      backgroundColor: Theme.bg
-    })
-    .bindSheet($$this.showPicker, this.ChannelPickerSheet(), {
-      height: SheetSize.FIT_CONTENT,
-      dragBar: true,
-      showClose: false,
-      backgroundColor: Theme.bg
+      backgroundColor: Theme.bg,
+      onDisappear: (): void => {
+        this.stopWeixinPoll();
+        this.stopBindPoll();
+        this.showPicker = false;
+      }
     })
   }
 
@@ -642,20 +654,22 @@ export struct PushSection {
       Blank()
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 8, bottom: 10 })
+    .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: 10 })
   }
 
   @Builder
   TabChip(tab: string, label: string) {
-    Text(label)
-      .fontSize(14)
-      .fontColor(this.tab === tab ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-      .backgroundColor(this.tab === tab ? Theme.accent : Theme.glassFill)
-      .borderRadius(17)
-      .onClick(() => {
-        this.switchTab(tab);
-      })
+    Button() {
+      Text(label)
+        .fontSize(14)
+        .fontColor(this.tab === tab ? '#0b0d12' : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(this.tab === tab ? GlassTone.Primary : GlassTone.Secondary))
+    .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+    .borderRadius(17)
+    .onClick(() => {
+      this.switchTab(tab);
+    })
   }
 
   // MARK: 接入通道（对应 iOS `SettingsBPushChannelsSections`）
@@ -698,16 +712,18 @@ export struct PushSection {
             .fontColor(Theme.textFaint)
             .layoutWeight(1)
           if (this.rows.length > 0) {
-            Text('＋ 新增通道')
-              .fontSize(13)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(Theme.text)
-              .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-              .backgroundColor(Theme.glassFill)
-              .borderRadius(12)
-              .onClick((): void => {
-                this.showPicker = true;
-              })
+            Button() {
+              Text('＋ 新增通道')
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.text)
+            }
+            .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+            .borderRadius(12)
+            .onClick((): void => {
+              this.showPicker = true;
+            })
           }
         }
         .width('100%')
@@ -735,6 +751,14 @@ export struct PushSection {
     .layoutWeight(1)
     .align(Alignment.TopStart)
     .scrollBar(BarState.Off)
+    // 通道选择弹层挂在这层 Scroll 上：根 Column 的 bindSheet 槽位已被绑定页占用
+    // （一个组件只能绑一个 bindSheet，后绑的覆盖前面的——Members/Webhook/Mcp/Logs 同款坑）。
+    .bindSheet($$this.showPicker, this.ChannelPickerSheet(), {
+      height: SheetSize.FIT_CONTENT,
+      dragBar: true,
+      showClose: false,
+      backgroundColor: Theme.bg
+    })
   }
 
   /** 空态（对应 iOS `emptyState`） */
@@ -758,18 +782,20 @@ export struct PushSection {
         .fontSize(12)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('接入通道')
-        .fontSize(15)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#0b0d12')
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 14, bottom: 14 })
-        .backgroundColor(Theme.accent)
-        .borderRadius(Theme.cardRadius)
-        .onClick((): void => {
-          this.showPicker = true;
-        })
+      Button() {
+        Text('接入通道')
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#0b0d12')
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+      .width('100%')
+      .padding({ top: 14, bottom: 14 })
+      .borderRadius(Theme.cardRadius)
+      .onClick((): void => {
+        this.showPicker = true;
+      })
     }
     .width('100%')
     .padding({ top: 24, bottom: 24 })
@@ -811,18 +837,20 @@ export struct PushSection {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
 
-        Text(this.busyId === row.account.accountId ? '…' : '解绑')
-          .fontSize(13)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.danger)
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(12)
-          .onClick((): void => {
-            if (this.busyId.length === 0) {
-              this.confirmUnbind(row);
-            }
-          })
+        Button() {
+          Text(this.busyId === row.account.accountId ? '…' : '解绑')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.danger)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(12)
+        .onClick((): void => {
+          if (this.busyId.length === 0) {
+            this.confirmUnbind(row);
+          }
+        })
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
@@ -985,18 +1013,20 @@ export struct PushSection {
           }
           .layoutWeight(1)
           .alignItems(HorizontalAlign.Start)
-          Text(this.testing ? '…' : '发送测试')
-            .fontSize(13)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
-            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(14)
-            .onClick((): void => {
-              if (!this.testing) {
-                this.sendTest();
-              }
-            })
+          Button() {
+            Text(this.testing ? '…' : '发送测试')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+          .borderRadius(14)
+          .onClick((): void => {
+            if (!this.testing) {
+              this.sendTest();
+            }
+          })
         }
         .width('100%')
         .padding(14)
@@ -1115,33 +1145,37 @@ export struct PushSection {
           .onChange((v: string): void => {
             this.weixinCode = v;
           })
-        Text('确认')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.weixinCode.trim().length === 0 ? Theme.textFaint : '#0b0d12')
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(this.weixinCode.trim().length === 0 ? Theme.glassFill : Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            this.submitWeixinCode();
-          })
+        Button() {
+          Text('确认')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.weixinCode.trim().length === 0 ? Theme.textFaint : '#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(this.weixinCode.trim().length === 0 ? GlassTone.Secondary : GlassTone.Primary))
+        .width('100%')
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          this.submitWeixinCode();
+        })
       }
 
       if (this.weixinStatus === 'expired' || this.weixinStatus === 'failed') {
-        Text('重新生成二维码')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#0b0d12')
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            this.startBind();
-          })
+        Button() {
+          Text('重新生成二维码')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .width('100%')
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          this.startBind();
+        })
       }
     }
     .width('100%')
@@ -1208,22 +1242,23 @@ export struct PushSection {
       .width('100%')
       .alignItems(HorizontalAlign.Start)
 
-      Text(this.bindLoading ? '接入中…' : '完成接入')
-        .fontSize(15)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.feishuWebhook.trim().length === 0 || this.bindLoading
-          ? Theme.textFaint : '#0b0d12')
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 13, bottom: 13 })
-        .backgroundColor(this.feishuWebhook.trim().length === 0 || this.bindLoading
-          ? Theme.glassFill : Theme.accent)
-        .borderRadius(Theme.cardRadius)
-        .onClick((): void => {
-          if (!this.bindLoading) {
-            this.bindFeishu();
-          }
-        })
+      Button() {
+        Text(this.bindLoading ? '接入中…' : '完成接入')
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.feishuWebhook.trim().length === 0 || this.bindLoading
+            ? Theme.textFaint : '#0b0d12')
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(this.feishuWebhook.trim().length === 0 || this.bindLoading ? GlassTone.Secondary : GlassTone.Primary))
+      .width('100%')
+      .padding({ top: 13, bottom: 13 })
+      .borderRadius(Theme.cardRadius)
+      .onClick((): void => {
+        if (!this.bindLoading) {
+          this.bindFeishu();
+        }
+      })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -1260,34 +1295,38 @@ export struct PushSection {
           .fontColor(Theme.textFaint)
           .textAlign(TextAlign.Center)
           .width('100%')
-        Text(this.bindLoading ? '查询中…' : '我已完成，刷新')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#0b0d12')
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            if (!this.bindLoading) {
-              this.refreshBind();
-            }
-          })
-        if ((this.bindValue as ImBindingView).status === 'expired'
-          || (this.bindValue as ImBindingView).status === 'failed') {
-          Text('重新发起')
+        Button() {
+          Text(this.bindLoading ? '查询中…' : '我已完成，刷新')
             .fontSize(15)
             .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
+            .fontColor('#0b0d12')
             .textAlign(TextAlign.Center)
-            .width('100%')
-            .padding({ top: 13, bottom: 13 })
-            .backgroundColor(Theme.glassFill)
-            .borderRadius(Theme.cardRadius)
-            .onClick((): void => {
-              this.restartTokenBind();
-            })
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .width('100%')
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          if (!this.bindLoading) {
+            this.refreshBind();
+          }
+        })
+        if ((this.bindValue as ImBindingView).status === 'expired'
+          || (this.bindValue as ImBindingView).status === 'failed') {
+          Button() {
+            Text('重新发起')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
+              .textAlign(TextAlign.Center)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .width('100%')
+          .padding({ top: 13, bottom: 13 })
+          .borderRadius(Theme.cardRadius)
+          .onClick((): void => {
+            this.restartTokenBind();
+          })
         }
       } else {
         // 第一步：粘贴 bot token（后端拿它连 bot，合成值必失败）
@@ -1316,22 +1355,23 @@ export struct PushSection {
         .width('100%')
         .alignItems(HorizontalAlign.Start)
 
-        Text(this.bindLoading ? '校验中…' : '获取配对码')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.botToken.trim().length < 8 || this.bindLoading
-            ? Theme.textFaint : '#0b0d12')
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(this.botToken.trim().length < 8 || this.bindLoading
-            ? Theme.glassFill : Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick((): void => {
-            if (!this.bindLoading) {
-              this.startTokenBind();
-            }
-          })
+        Button() {
+          Text(this.bindLoading ? '校验中…' : '获取配对码')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.botToken.trim().length < 8 || this.bindLoading
+              ? Theme.textFaint : '#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(this.botToken.trim().length < 8 || this.bindLoading ? GlassTone.Secondary : GlassTone.Primary))
+        .width('100%')
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick((): void => {
+          if (!this.bindLoading) {
+            this.startTokenBind();
+          }
+        })
       }
     }
     .width('100%')

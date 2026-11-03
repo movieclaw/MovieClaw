@@ -20,8 +20,20 @@ export interface ComposerPrefs {
 /** 校验记忆时只需要清单的这三样，避免把 API 类型拖进纯模块 */
 export interface ComposerPrefsModelOption {
   ref: string;
+  model_id?: string;
   is_default: boolean;
   thinking_levels?: string[];
+}
+
+/**
+ * 按引用找选项。引用现在一律是「实例名/模型id」，升级前记下的裸模型 id 按
+ * model_id 认回来（docs/design/llm-model-catalog.md §7），不当成失效。
+ */
+export function findModelOption<T extends ComposerPrefsModelOption>(
+  options: readonly T[],
+  ref: string,
+): T | undefined {
+  return options.find((o) => o.ref === ref) ?? options.find((o) => o.model_id === ref);
 }
 
 const STORAGE_KEY = "movieclaw.composer.choice";
@@ -69,14 +81,14 @@ export function reconcileComposerPrefs(
   options: readonly ComposerPrefsModelOption[],
 ): ComposerPrefs {
   if (options.length === 0) return prefs;
-  const model = prefs.model;
   let effective: ComposerPrefsModelOption | undefined;
-  if (model !== null) {
-    effective = options.find((o) => o.ref === model);
+  if (prefs.model !== null) {
+    effective = findModelOption(options, prefs.model);
     if (!effective) return EMPTY;
   } else {
     effective = options.find((o) => o.is_default) ?? options[0];
   }
+  const model = prefs.model === null ? null : effective.ref;
   const thinking =
     prefs.thinking !== null && effective.thinking_levels?.includes(prefs.thinking)
       ? prefs.thinking

@@ -1,6 +1,6 @@
 ---
 name: release
-description: 发布 movieclaw 新版本。当用户要求发版、发布新版本、打 tag、看看哪些该发，或发布服务器、NER 模型、Docker 镜像、各客户端（iPhone、Apple TV、Mac 版、Mac 转码器、Android、Android TV、Windows），或打包上传 iOS App 到 TestFlight / App Store、补传发版附件时使用。涵盖产品与 tag 总览、改动检查脚本、通用发版流程、各产品要点、changelog、失败补救与检查清单。
+description: 发布 movieclaw 新版本。当用户要求发版、发布新版本、打 tag、看看哪些该发，或发布服务器、NER 模型、Docker 镜像、各客户端（iPhone、Apple TV、Mac 版、Mac 转码器、Android、Android TV、鸿蒙、Windows），或打包上传 iOS App 到 TestFlight / App Store、补传发版附件时使用。涵盖产品与 tag 总览、改动检查脚本、通用发版流程、各产品要点、changelog、失败补救与检查清单。
 ---
 
 # movieclaw 发布规范
@@ -29,7 +29,12 @@ description: 发布 movieclaw 新版本。当用户要求发版、发布新版�
 | Android | `android-vX.Y.Z` | `apps/android/version.properties` | `android-release.yml` | MovieClaw for Android X.Y.Z | `movieclaw.io/download/android.apk` |
 | Android TV | `androidtv-vX.Y.Z` | `apps/android-tv/version.properties` | `android-release.yml` | MovieClaw for Android TV X.Y.Z | `movieclaw.io/download/androidtv.apk` |
 | Windows | `windows-vX.Y.Z` | `apps/desktop/src-tauri/Cargo.toml` + `apps/desktop/package.json` | `windows-release.yml` | MovieClaw for Windows X.Y.Z | 客户端内检查更新 |
+| 鸿蒙 | `harmony-vX.Y.Z` | `apps/harmonyos/AppScope/app.json5` | `harmony-release.yml` | MovieClaw for HarmonyOS X.Y.Z | 签名 HAP，安装受 Profile 授权范围限制 |
 | NER 模型 | `torrent-ner-vN` | 训练产物 | 手动（第五节） | MovieClaw NER Model N | 设置页一键更新模型 |
+
+鸿蒙的工具链与正式签名配置暂未就绪；配置项、仅构建模式与转正条件见
+`apps/harmonyos/scripts/release/README.md`。配置前保留 Release 草稿，不发布未签名产物，
+不把 GitHub HAP 发布视为 AppGallery 上架。
 
 硬规则：
 

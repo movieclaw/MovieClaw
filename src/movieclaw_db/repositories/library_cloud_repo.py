@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import and_, delete, or_
+from sqlalchemy import and_, delete, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -11,6 +11,7 @@ from movieclaw_db.models.library_cloud_folder import LibraryCloudFolder
 from movieclaw_db.models.library_file import LibraryFile
 from movieclaw_db.models.library_file_fingerprint import LibraryFileFingerprint
 from movieclaw_db.models.library_file_replica import (
+    REPLICA_DELETING,
     REPLICA_FAILED,
     REPLICA_LOST,
     REPLICA_ORIGIN_IMPORTED,
@@ -93,9 +94,82 @@ class LibraryCloudRepository:
 
     async def replica_of(self, file_id: int) -> LibraryFileReplica | None:
         result = await self._session.execute(
-            select(LibraryFileReplica).where(LibraryFileReplica.library_file_id == file_id)
+            select(LibraryFileReplica)
+            .where(LibraryFileReplica.library_file_id == file_id)
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
+
+    async def _lock_file(self, file_id: int) -> None:
+        # SQLite 的写事务串行：先写再查归属，避免 SELECT 后另一条链路抢先认领。
+        # 与文件/副本修改同一次提交；唯一索引也保护绕过本仓库的写入。
+        await self._session.execute(
+            update(LibraryFile).where(LibraryFile.id == file_id).values(updated_at=utcnow())
+        )
+
+    async def remote_owner(self, account_id: int, remote_id: str) -> LibraryFileReplica | None:
+        result = await self._session.execute(
+            select(LibraryFileReplica)
+            .where(
+                LibraryFileReplica.account_id == account_id,
+                LibraryFileReplica.remote_id == remote_id,
+                LibraryFileReplica.remote_id != "",
+            )
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
+    async def prepare_delete(
+        self, replicas: list[LibraryFileReplica], *, file_ids: set[int]
+    ) -> list[LibraryFileReplica]:
+        """与认领共用 SQLite 写锁：复查当前归属/外部引用后，原子标记 deleting。"""
+        if not replicas:
+            return []
+        await self._lock_file(replicas[0].library_file_id)
+        ready = []
+        for snapshot in replicas:
+            row = await self._session.get(LibraryFileReplica, snapshot.id, populate_existing=True)
+            if row is None or (row.library_file_id, row.account_id, row.remote_id) != (
+                snapshot.library_file_id,
+                snapshot.account_id,
+                snapshot.remote_id,
+            ):
+                continue  # 读取删除计划之后已经转归其他行，不能按旧快照删云端
+            if row.state not in (REPLICA_VERIFIED, REPLICA_DELETING):
+                continue
+            shared = await self._session.execute(
+                select(LibraryFileReplica.id)
+                .where(
+                    LibraryFileReplica.account_id == row.account_id,
+                    LibraryFileReplica.remote_id == row.remote_id,
+                    LibraryFileReplica.remote_id != "",
+                    LibraryFileReplica.library_file_id.not_in(file_ids),  # type: ignore[attr-defined]
+                )
+                .limit(1)
+            )
+            if shared.first() is not None:
+                continue
+            ready.append(row.model_copy())  # 保留当前归属和标记前的状态，失败时还原
+            row.state = REPLICA_DELETING
+            row.updated_at = utcnow()
+            self._session.add(row)
+        await self._session.commit()
+        return ready
+
+    async def _drop_alias(self, replica: LibraryFileReplica) -> int | None:
+        """只摘台账，绝不操作字节；真实本地文件仍然是独立的库存。"""
+        file = await self._session.get(LibraryFile, replica.library_file_id)
+        await self._session.delete(replica)
+        await self._session.flush()  # 先删引用，避免删文件的触发器先把副本删掉
+        if file is not None and not file.local_bytes:
+            await self._session.execute(
+                delete(LibraryFileFingerprint).where(
+                    LibraryFileFingerprint.library_file_id == file.id  # type: ignore[arg-type]
+                )
+            )
+            await self._session.delete(file)
+        await self._session.flush()
+        return file.library_id if file is not None and not file.local_bytes else None
 
     async def replica_paths(self) -> dict[tuple[int, str], tuple[str, bool, int]]:
         """已有副本的文件（全部库）：(账号, 网盘文件 id) → (台账路径, 本地有没有字节, 所在库)。
@@ -161,6 +235,16 @@ class LibraryCloudRepository:
 
         ``fresh``：台账行是刚插入的，不可能已有副本（省一次查询）。
         """
+        await self._lock_file(file.id)  # type: ignore[arg-type]
+        owner = await self.remote_owner(account_id, remote_id)
+        if owner is not None and (
+            owner.library_file_id != file.id or owner.state == REPLICA_DELETING
+        ):
+            # 列举快照过期或删除已开始：不能创建别名，也不能把 deleting 改回 verified。
+            if fresh and not file.local_bytes and owner.library_file_id != file.id:
+                await self._session.delete(file)
+            await self._session.commit()
+            return owner
         now = utcnow()
         replica = None if fresh else await self.replica_of(file.id)  # type: ignore[arg-type]
         if replica is None:
@@ -197,6 +281,10 @@ class LibraryCloudRepository:
         at: datetime,
     ) -> None:
         """复查看到了它：更新展示路径与列表给的大小、哈希；之前标了丢失的认回来。"""
+        await self._lock_file(replica.library_file_id)
+        await self._session.refresh(replica)
+        if replica.state == REPLICA_DELETING:
+            return
         replica.remote_path = remote_path or replica.remote_path
         if size_bytes is not None:
             replica.size_bytes = size_bytes
@@ -207,6 +295,10 @@ class LibraryCloudRepository:
         self._session.add(replica)
 
     async def mark_lost(self, replica: LibraryFileReplica, *, at: datetime) -> None:
+        await self._lock_file(replica.library_file_id)
+        await self._session.refresh(replica)
+        if replica.state == REPLICA_DELETING:
+            return
         replica.state = REPLICA_LOST
         replica.checked_at = at
         replica.updated_at = at
@@ -274,10 +366,14 @@ class LibraryCloudRepository:
 
     async def start_upload(
         self, file: LibraryFile, *, account_id: int, folder_id: int
-    ) -> LibraryFileReplica:
-        """记下「正在上传」（文件区据此显示上传中）。"""
+    ) -> LibraryFileReplica | None:
+        """记下「正在上传」；删除已开始的不能恢复为 uploading，返回 None 等待重试。"""
+        await self._lock_file(file.id)  # type: ignore[arg-type]
         now = utcnow()
         replica = await self.replica_of(file.id)  # type: ignore[arg-type]
+        if replica is not None and replica.state == REPLICA_DELETING:
+            await self._session.commit()
+            return None
         if replica is None:
             replica = LibraryFileReplica(
                 library_file_id=file.id,  # type: ignore[arg-type]
@@ -305,12 +401,22 @@ class LibraryCloudRepository:
         remote_path: str,
         size_bytes: int,
         sha1: str | None,
-    ) -> None:
-        """上传并核验过了：副本已核验。"""
+    ) -> bool:
+        """上传并核验过了才认领；删除进行中返回 False，调用方稍后重试。"""
+        await self._lock_file(file_id)
         now = utcnow()
         replica = await self.replica_of(file_id)
         if replica is None:
-            return
+            await self._session.commit()
+            return False
+        owner = await self.remote_owner(replica.account_id, remote_id)
+        if owner is not None and owner.state == REPLICA_DELETING:
+            await self._session.commit()
+            return False  # 远端请求已经可能发出：不能接管即将被删除的文件
+        removed_library = None
+        if owner is not None and owner.library_file_id != file_id:
+            # 纳管先看到上传产物：上传来源保留身份、规格和本地路径，收走虚拟双账。
+            removed_library = await self._drop_alias(owner)
         replica.remote_id = remote_id
         replica.remote_path = remote_path
         replica.size_bytes = size_bytes
@@ -323,10 +429,17 @@ class LibraryCloudRepository:
         replica.updated_at = now
         self._session.add(replica)
         await self._session.commit()
+        if removed_library is not None:
+            from movieclaw_db.repositories.library_repo import LibraryRepository
+
+            await LibraryRepository(self._session).refresh_stats([removed_library])
+        return True
 
     async def fail_upload(self, file_id: int, error: str, error_ref: dict | None = None) -> None:
+        await self._lock_file(file_id)
         replica = await self.replica_of(file_id)
-        if replica is None or replica.state == REPLICA_VERIFIED:
+        if replica is None or replica.state in (REPLICA_VERIFIED, REPLICA_DELETING):
+            await self._session.commit()
             return
         replica.state = REPLICA_FAILED
         replica.error = error

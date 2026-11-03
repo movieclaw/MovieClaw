@@ -251,6 +251,36 @@ data class SeasonEpisodesView(
     val episodes: List<EpisodeView> = emptyList(),
     /** 本季「接着看」的那一集（服务端 `season_resume_episode`）；没播放过 / 老服务端 / 分享页为 null */
     val resumeEpisode: Int? = null,
+    /** 播出日历（issue #547）；本季没有今天或以后的播出日期、老服务端为 null */
+    val airSchedule: SeasonAirSchedule? = null,
+)
+
+/** 订阅对一集的入库预告 */
+@Serializable
+data class EpisodeArrival(
+    val episodeNumber: Int = 0,
+    /** waiting=等资源发布 / downloading=下载中 / organizing=下完了在整理入库 */
+    val stage: String = "",
+    /** 预计入库时刻（带时区 ISO）；给不出为 null */
+    val expectedAt: String? = null,
+)
+
+/** 一季的播出日历：排期本身在分集的 airDate 里，这里给对照信息 */
+@Serializable
+data class SeasonAirSchedule(
+    /** 站点日历的今天（yyyy-MM-dd）；判今天/已播/待播都按它，不用本机时钟 */
+    val today: String = "",
+    /** 首播地国家码：播出日期是当地日期、与本地可能差一天时才给 */
+    val region: String? = null,
+    /** 最近的更新星期（0=周一…6=周日） */
+    val weekdays: List<Int> = emptyList(),
+    /** 本季最后一集的播出日；有集没定日期时为 null */
+    val lastAirDate: String? = null,
+    /** 这部剧的订阅；未订阅为 null */
+    val subscriptionId: Long? = null,
+    /** 订阅范围内已播出、库里还没有的集 */
+    val missingEpisodes: List<Int> = emptyList(),
+    val arrivals: List<EpisodeArrival> = emptyList(),
 )
 
 /* ---------------- 筛选面板与跳转索引(P2) ---------------- */

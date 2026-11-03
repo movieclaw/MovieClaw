@@ -196,6 +196,8 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
     const root = document.documentElement;
     root.style.setProperty("--scrim-blur", `${effectiveScrim.blur}px`);
     root.style.setProperty("--scrim-dark", `${effectiveScrim.dark}`);
+    // blur(0px) 仍启用滤镜；零档让共用蒙版彻底停用 backdrop-filter。
+    root.toggleAttribute("data-scrim-no-blur", effectiveScrim.blur === 0);
   }, [effectiveScrim.blur, effectiveScrim.dark]);
 
   // 主题同步：把生效主题（含设置页的预览草稿——点主题卡实时预览就靠它）写到

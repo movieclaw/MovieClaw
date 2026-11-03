@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-30",
+  "scope": "Harmony phone global app tabs, based on current iPhone MainTabView",
+  "unit": {
+    "passed": 42,
+    "failed": 0
+  },
+  "ui": {
+    "passed": 4,
+    "failed": 0
+  },
+  "normalColdStart": "passed",
+  "screenshots": ".tmp-uidev/harmony-app-tabs-2026-10-30",
+  "builds": [
+    {
+      "path": "apps/harmonyos/entry/build/default/outputs/default/entry-default-unsigned.hap",
+      "sha256": "4fd74d7fda78606b4497f45f1284b655734e51625faeb4b4f9f042d933fed29e"
+    },
+    {
+      "path": "apps/harmonyos/entry/build/default/outputs/ohosTest/entry-ohosTest-unsigned.hap",
+      "sha256": "54fee6684871f3398bae66e137f875bd065fa3005a2b9bbd823d8047850bfa6e"
+    }
+  ],
+  "notes": [
+    "Native HDS material approximates iPhone style; not identical Liquid Glass optics.",
+    "Includes history of initial harness failures, slow-scroll regression and stale test-package interface crash; final paired build passed.",
+    "Full codec matrix not rerun for this navigation-only change."
+  ]
+}

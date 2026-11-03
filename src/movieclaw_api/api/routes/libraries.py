@@ -4,6 +4,7 @@ import asyncio
 import mimetypes
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path, PurePath
 from typing import Annotated, Literal
 from urllib.parse import quote
@@ -149,6 +150,7 @@ from movieclaw_api.services.library.access import (
     content_limit_for,
     visible_library_ids,
 )
+from movieclaw_api.services.library.air_schedule import build_season_air_schedule
 from movieclaw_api.services.library.batch_transfer import (
     CONSOLIDATE_JOB_TYPE,
     BatchMember,
@@ -212,7 +214,7 @@ from movieclaw_api.services.library.preflight import (
     build_preflight,
     conflict_label,
 )
-from movieclaw_api.services.library.profile import profile_for
+from movieclaw_api.services.library.profile import capabilities_of, profile_for
 from movieclaw_api.services.library.scan import (
     ScanPhase,
     busy_phase,
@@ -993,6 +995,40 @@ async def routing_options() -> ApiResponse[dict]:
     return ok(routing_options_labels())
 
 
+@router.get(
+    "/source-providers",
+    response_model=ApiResponse[list[dict]],
+    summary="列出已登记的外部库源（外部媒体服务器插件的来源声明）",
+    operation_id="library.list-source-providers",
+    dependencies=[Depends(require_admin)],
+)
+async def source_providers_options() -> ApiResponse[list[dict]]:
+    """建库向导的"外部媒体服务器"选项卡数据源：来源值、展示名、支持的
+    形态、能力位与连接配置的表单声明（config_schema）都由登记方提供，
+    前端据此渲染表单与校验，不内置任何来源的名字。"""
+    from movieclaw_api.services.library.source_providers import registered_providers
+
+    providers = []
+    for provider in registered_providers().values():
+        providers.append(
+            {
+                "source": provider.source,
+                "title": provider.title,
+                "kind_support": sorted(provider.kind_support),
+                "config_schema": provider.config_schema,
+                "icon": provider.icon,
+                "help": provider.help,
+                # 能力位按形态各给一份：同一来源下电影库与剧集库的 Jellyfin
+                # 类型、卡片比例本就不同，前端选中形态后取对应那份
+                "capabilities": {
+                    kind: capabilities_of(profile)
+                    for kind, profile in provider.profiles.items()
+                },
+            }
+        )
+    return ok(providers)
+
+
 def _schedule_orphan_cleanup(item_ids: set[int]) -> None:
     """被腾空的临时本地条目交给孤儿清理（后台任务，不拖住响应）。
 
@@ -1366,13 +1402,15 @@ async def create_library(
         admin_visible=payload.admin_visible,
         member_ids=payload.member_ids,
         keep_local=payload.keep_local,
+        source_config=payload.source_config,
     )
     # 建库即扫描：根路径下的存量文件立刻开始识别入账，不用用户再手动点一次。
     # 网盘根目录没列过，这一轮一并纳管
     assert row.id is not None
     if folder_specs:
         await library_cloud.apply_folders(session, row, folder_specs)
-    await enqueue_scan_job(session, row.id, row.name, origin=_job_origin(client_name))
+    if row.root_paths:
+        await enqueue_scan_job(session, row.id, row.name, origin=_job_origin(client_name))
     if any(spec.is_primary for spec in folder_specs):
         # 主根在网盘：根路径下已有的本地文件开始往网盘传（新入库的会随入库事件再排）
         await drive_uploads.enqueue(row.id, origin=_job_origin(client_name))
@@ -1566,6 +1604,7 @@ async def update_library(
         access_mode=payload.access_mode,
         admin_visible=payload.admin_visible,
         member_ids=payload.member_ids,
+        source_config=payload.source_config,
     )
     folder_change: library_cloud.FolderChange | None = None
     if folder_specs is not None:
@@ -2399,11 +2438,11 @@ def _filter_params(
         Query(description="年代档：2020s/2010s/2000s/1990s/earlier，逗号分隔（维内 OR）"),
     ] = None,
     w: Annotated[
-        Literal["unwatched", "watching", "played", "favorite", "seen"] | None,
+        Literal["unwatched", "unfinished", "watching", "played", "favorite", "seen"] | None,
         Query(
             description=(
                 "观看状态（单选）：未看/在看/已看完是一个划分，favorite 与之正交；"
-                "seen=在看或已看完（首页「最近观看」行用，筛选条里不出现）"
+                "unfinished=当前库内仍有未看完的单元；seen=在看或已看完（首页「最近观看」行用，筛选条里不出现）"
             )
         ),
     ] = None,
@@ -3296,11 +3335,21 @@ async def list_item_episodes(
         season_number,
         member_id=principal.member_id if principal.member_id is not None else 0,
     )
+    air_schedule = await build_season_air_schedule(
+        session,
+        item,
+        season_number,
+        [
+            (e.episode_number, date.fromisoformat(e.air_date) if e.air_date else None, e.owned)
+            for e in episodes
+        ],
+    )
     return ok(
         SeasonEpisodesView(
             season_number=season_number,
             episodes=[episode_view(e) for e in episodes],
             resume_episode=season_resume_episode(episodes),
+            air_schedule=air_schedule,
         )
     )
 

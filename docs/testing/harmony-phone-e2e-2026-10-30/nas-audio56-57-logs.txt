@@ -1,0 +1,39 @@
+2026-10-30 18:14:18 | INFO | movieclaw_api.playback | 播放会话就绪：档 3 · 决策 15 毫秒 · 准备 0 毫秒 · ffmpeg 87 毫秒 · 共 117 毫秒（file_id=25037 hw=videotoolbox session=01M664V6JX7KTKG1B77288WJNV 缓存=未命中 attempt=-）
+2026-10-30 18:14:18 | INFO | movieclaw_api.access | method=POST path=/api/v1/playback/sessions status_code=200 duration_ms=127.55 message=request completed
+2026-10-30 18:14:18 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/files/25037/trickplay status_code=200 duration_ms=5.35 message=request completed
+2026-10-30 18:14:18 | INFO | movieclaw_api.access | method=GET path=/api/v1/transcode-worker/sessions/01M664V6JX7KTKG1B77288WJNV/poster status_code=200 duration_ms=28.04 message=request completed
+2026-10-30 18:14:18 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/items/7216 status_code=200 duration_ms=43.55 message=request completed
+2026-10-30 18:14:18 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/sessions/01M664V6JX7KTKG1B77288WJNV/index.m3u8 status_code=200 duration_ms=7.40 message=request completed
+2026-10-30 18:14:18 | INFO | movieclaw_api.access | method=GET path=/api/v1/transcode-worker/sessions/01M664V6JX7KTKG1B77288WJNV/source status_code=206 duration_ms=4.52 message=request completed
+2026-10-30 18:14:23 | WARNING | movieclaw_api.playback.session | 转码会话失败：session=01M664V6JX7KTKG1B77288WJNV（醉梦 (2026) - S01E03.mp4）ffmpeg 退出码：234；ffmpeg stderr：ng] UDTA parsing failed retrying raw
+[in#0 @ 0x75b7010000] [warning] UDTA parsing failed retrying raw
+[in#0 @ 0x75b7010000] [warning] stream 0, timescale not set
+[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x75b7010000] [warning] Stream #6: not enough frames to estimate rate; consider increasing probesize
+[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x75b7010000] [warning] Could not find codec parameters for stream 1 (Audio: none (av3a / 0x61337661), 48000 Hz, 10 channels, 448 kb/s): unknown codec
+2026-10-30 18:14:23 | WARNING | movieclaw_api.access | method=GET path=/api/v1/playback/sessions/01M664V6JX7KTKG1B77288WJNV/seg00000.m4s status_code=404 duration_ms=6.70 message=request completed
+2026-10-30 18:14:23 | WARNING | movieclaw_api.access | method=GET path=/api/v1/playback/sessions/01M664V6JX7KTKG1B77288WJNV/init.mp4 status_code=404 duration_ms=5028.04 message=request completed
+2026-10-30 18:14:24 | WARNING | movieclaw_api.playback.session | 转码会话结束：session=01M664V6JX7KTKG1B77288WJNV（醉梦 (2026) - S01E03.mp4）原因=播放器结束播放 · 档 3 远程 Worker macmini · 持续 0.1 分钟 · 供片 0 段 · 重启 0 次 · 等待超时 0 次 · 最后请求第 0 段 · 错误：ffmpeg 退出码：234；ffmpeg stderr：ng] UDTA parsing failed retrying raw | [in#0 @ 0x75b7010000] [warning] UDTA parsing failed retrying raw | [in#0 @ 0x75b7010000] [warning] UDTA parsing failed retrying raw | [in#0 @ 0x75b7010000] [warning] UDTA parsing failed retrying raw | [in#0 @ 0x75b7010000] [warning] stream 0, timescale not set | [in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x75b7010000] [warning] Stream #6: not enough frames to estimate rate; consider increasing probesize | [in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x（attempt=-）
+2026-10-30 18:14:24 | INFO | movieclaw_api.access | method=DELETE path=/api/v1/playback/sessions/01M664V6JX7KTKG1B77288WJNV status_code=200 duration_ms=7.21 message=request completed
+2026-10-30 18:14:27 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/up-next status_code=200 duration_ms=38.56 message=request completed
+2026-10-30 18:14:28 | INFO | movieclaw_api.access | method=POST path=/api/v1/playback/decide status_code=200 duration_ms=17.89 message=request completed
+2026-10-30 18:14:28 | INFO | movieclaw_api.playback.session | 远程转码会话已接单：session=01M664VGBCF09H9ENBHZ7PTDJK worker=macmini backend=videotoolbox
+2026-10-30 18:14:28 | INFO | movieclaw_api.playback | 播放会话就绪：档 3 · 决策 12 毫秒 · 准备 0 毫秒 · ffmpeg 86 毫秒 · 共 105 毫秒（file_id=15028 hw=videotoolbox session=01M664VGBCF09H9ENBHZ7PTDJK 缓存=未命中 attempt=-）
+2026-10-30 18:14:28 | INFO | movieclaw_api.access | method=POST path=/api/v1/playback/sessions status_code=200 duration_ms=113.62 message=request completed
+2026-10-30 18:14:28 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/files/15028/trickplay status_code=200 duration_ms=4.57 message=request completed
+2026-10-30 18:14:28 | INFO | movieclaw_api.access | method=GET path=/api/v1/transcode-worker/sessions/01M664VGBCF09H9ENBHZ7PTDJK/poster status_code=200 duration_ms=22.63 message=request completed
+2026-10-30 18:14:28 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/items/6697 status_code=200 duration_ms=18.46 message=request completed
+2026-10-30 18:14:28 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/sessions/01M664VGBCF09H9ENBHZ7PTDJK/index.m3u8 status_code=200 duration_ms=9.87 message=request completed
+2026-10-30 18:14:28 | INFO | movieclaw_api.access | method=GET path=/api/v1/transcode-worker/sessions/01M664VGBCF09H9ENBHZ7PTDJK/source status_code=206 duration_ms=4.23 message=request completed
+2026-10-30 18:14:33 | WARNING | movieclaw_api.playback.session | 转码会话失败：session=01M664VGBCF09H9ENBHZ7PTDJK（惊蛰无声 (2026) - 2160p HEVC.mp4）ffmpeg 退出码：234；ffmpeg stderr：rning] UDTA parsing failed retrying raw
+[in#0 @ 0x7a09034000] [warning] UDTA parsing failed retrying raw
+[in#0 @ 0x7a09034000] [warning] stream 0, timescale not set
+[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x7a09034000] [warning] Stream #7: not enough frames to estimate rate; consider increasing probesize
+[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x7a09034000] [warning] Could not find codec parameters for stream 1 (Audio: none (av3a / 0x61337661), 48000 Hz, 6 channels, 384 kb/s): unknown codec
+2026-10-30 18:14:33 | WARNING | movieclaw_api.access | method=GET path=/api/v1/playback/sessions/01M664VGBCF09H9ENBHZ7PTDJK/seg00000.m4s status_code=404 duration_ms=6.35 message=request completed
+2026-10-30 18:14:33 | WARNING | movieclaw_api.access | method=GET path=/api/v1/playback/sessions/01M664VGBCF09H9ENBHZ7PTDJK/init.mp4 status_code=404 duration_ms=5075.17 message=request completed
+2026-10-30 18:14:33 | INFO | movieclaw_api.access | method=GET path=/api/v1/health status_code=200 duration_ms=1.03 message=request completed
+2026-10-30 18:14:34 | WARNING | movieclaw_api.playback.session | 转码会话结束：session=01M664VGBCF09H9ENBHZ7PTDJK（惊蛰无声 (2026) - 2160p HEVC.mp4）原因=播放器结束播放 · 档 3 远程 Worker macmini · 持续 0.1 分钟 · 供片 0 段 · 重启 0 次 · 等待超时 0 次 · 最后请求第 0 段 · 错误：ffmpeg 退出码：234；ffmpeg stderr：rning] UDTA parsing failed retrying raw | [in#0 @ 0x7a09034000] [warning] UDTA parsing failed retrying raw | [in#0 @ 0x7a09034000] [warning] UDTA parsing failed retrying raw | [in#0 @ 0x7a09034000] [warning] UDTA parsing failed retrying raw | [in#0 @ 0x7a09034000] [warning] stream 0, timescale not set | [in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x7a09034000] [warning] Stream #7: not enough frames to estimate rate; consider increasing probesize | [in#0/mov,mp4,m4a,3gp,3g2,mj2 @（attempt=-）
+2026-10-30 18:14:34 | INFO | movieclaw_api.access | method=DELETE path=/api/v1/playback/sessions/01M664VGBCF09H9ENBHZ7PTDJK status_code=200 duration_ms=6.76 message=request completed
+2026-10-30 18:14:35 | INFO | movieclaw_api.access | method=GET path=/api/v1/libraries status_code=200 duration_ms=78.83 message=request completed
+2026-10-30 18:14:35 | INFO | movieclaw_api.access | method=GET path=/api/v1/playback/favorites status_code=200 duration_ms=72.83 message=request completed
+2026-10-30 18:14:35 | INFO | movieclaw_api.access | method=GET path=/api/v1/collections status_code=200 duration_ms=126.55 message=request completed

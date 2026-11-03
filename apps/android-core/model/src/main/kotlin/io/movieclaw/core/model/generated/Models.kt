@@ -600,6 +600,22 @@ data class DirectorView(
 )
 
 /**
+ * 订阅对一集的入库预告（播出日历里的「预计 20:00 入库」「下载中」）。
+ */
+@Serializable
+data class EpisodeArrivalView(
+    @SerialName("episode_number") val episodeNumber: Long = 0,
+    /**
+     * waiting=等资源发布 / downloading=下载中 / organizing=下完了在整理入库
+     */
+    @SerialName("stage") val stage: String = "",
+    /**
+     * 预计入库时刻（只给 waiting 且预测可信、还没过的）；给不出为 null
+     */
+    @SerialName("expected_at") val expectedAt: String? = null,
+)
+
+/**
  * 剧集分集区的一集：季集结构 + 本地分集刮削 + TMDB 兜底的合并结果。
  */
 @Serializable
@@ -851,6 +867,10 @@ data class HomeRowPref(
      * 只显示没看过的（仅库行与类型行）
      */
     @SerialName("unwatched") val unwatched: Boolean? = null,
+    /**
+     * 只显示未看完的（仅库行与类型行，优先于 unwatched）
+     */
+    @SerialName("unfinished") val unfinished: Boolean? = null,
     /**
      * 隐藏这一行，位置保留
      */
@@ -1582,9 +1602,25 @@ data class LibraryView(
     @SerialName("name") val name: String = "",
     @SerialName("kind") val kind: MediaKind = "",
     /**
-     * 身份来源：tmdb / local
+     * 身份来源：tmdb / local / 外部库源
      */
     @SerialName("source") val source: String = "",
+    /**
+     * 外部库源的展示名（如「飞牛影视」）；内置来源为 null
+     */
+    @SerialName("source_title") val sourceTitle: String? = null,
+    /**
+     * 外部库源的标识图标（前端图标库的 key）；内置来源为 null
+     */
+    @SerialName("source_icon") val sourceIcon: String? = null,
+    /**
+     * 外部库源是否已带连接配置（source_config 非空）；内置来源恒 false
+     */
+    @SerialName("source_configured") val sourceConfigured: Boolean = false,
+    /**
+     * 外部库源最近一次同步时间；内置来源或从未同步为 null
+     */
+    @SerialName("last_source_sync_at") val lastSourceSyncAt: String? = null,
     @SerialName("capabilities") val capabilities: LibraryCapabilitiesView = LibraryCapabilitiesView(),
     /**
      * 缺图时是否抓帧生成缩略图（本地内容封面、TMDB 无剧照的分集）
@@ -2640,6 +2676,41 @@ data class ScrimUiPrefs(
 )
 
 /**
+ * 一季的播出日历（issue #547）：排期本身在分集的 air_date 里，这里给对照信息。
+ */
+@Serializable
+data class SeasonAirScheduleView(
+    /**
+     * 站点日历的今天；客户端按它判今天/已播/待播，不用本机时钟
+     */
+    @SerialName("today") val today: String = "",
+    /**
+     * 首播地国家码（ISO 3166-1）：播出日期是当地日期、与本地可能差一天时才给
+     */
+    @SerialName("region") val region: String? = null,
+    /**
+     * 最近的更新星期（0=周一…6=周日），用于「周一至周四更新」
+     */
+    @SerialName("weekdays") val weekdays: List<Long> = emptyList(),
+    /**
+     * 本季最后一集的播出日；有集没定日期时为 null（说不准哪天完结）
+     */
+    @SerialName("last_air_date") val lastAirDate: String? = null,
+    /**
+     * 这部剧的订阅；未订阅为 null
+     */
+    @SerialName("subscription_id") val subscriptionId: Long? = null,
+    /**
+     * 订阅范围内已播出、库里还没有的集（缺集）
+     */
+    @SerialName("missing_episodes") val missingEpisodes: List<Long> = emptyList(),
+    /**
+     * 订阅在追、还没入库的集的入库预告
+     */
+    @SerialName("arrivals") val arrivals: List<EpisodeArrivalView> = emptyList(),
+)
+
+/**
  * 一季的分集清单（分集横滚区数据源）。
  */
 @Serializable
@@ -2650,6 +2721,10 @@ data class SeasonEpisodesView(
      * 本季接着看的那一集（与首页「接下来继续」同规则：最近播放的一集，看完了取往后第一个没看完且有片源的）；分集区按它锁定集段、默认选中。本季没播放过为 null
      */
     @SerialName("resume_episode") val resumeEpisode: Long? = null,
+    /**
+     * 播出日历；本季没有今天或以后的播出日期（已完结、季间空档、无分集日期）为 null
+     */
+    @SerialName("air_schedule") val airSchedule: SeasonAirScheduleView? = null,
 )
 
 /**

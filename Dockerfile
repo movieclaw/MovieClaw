@@ -175,6 +175,41 @@ RUN mkdir -p /model \
     && rm -f rapidocr.whl
 
 # ---------------------------------------------------------------------------
+# 阶段 3c：本地语音识别模型（SenseVoice-Small int8 + silero VAD，docs/design/subtitle-asr.md §6）
+# ---------------------------------------------------------------------------
+# 文件没有任何可用字幕时，AI 字幕从音轨识别台词。只能用官方原版 2024-07-17：同系列的
+# 2025-09-09 是粤语微调版，日语、韩语实测全坏。两份文件都锁 SHA256；模型与架构无关。
+# 附带一段模型自带的英语测试音频，最终镜像构建期用它真跑一次识别（见下方冒烟）。
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS asr-model
+ARG ASR_MODEL_BASE=https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models
+ARG APT_MIRROR=""
+RUN if [ -n "$APT_MIRROR" ]; then \
+        sed -i "s|deb.debian.org|$APT_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates bzip2 \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /model /tmp/asr \
+    && cd /tmp/asr \
+    && curl -fSL --retry 3 -o sv.tar.bz2 \
+        "$ASR_MODEL_BASE/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2" \
+    && echo "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e  sv.tar.bz2" | sha256sum -c - \
+    && tar xjf sv.tar.bz2 \
+    && SV=sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17 \
+    && cp "$SV/model.int8.onnx" "$SV/tokens.txt" "$SV/LICENSE" /model/ \
+    && cp "$SV/test_wavs/en.wav" /model/smoke-en.wav \
+    && curl -fSL --retry 3 -o /model/silero_vad.onnx "$ASR_MODEL_BASE/silero_vad.onnx" \
+    && echo "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6  /model/silero_vad.onnx" \
+        | sha256sum -c - \
+    && printf '%s\n' \
+        "SenseVoiceSmall (FunAudioLLM, Tongyi Lab, Alibaba Group), int8 ONNX export by sherpa-onnx (k2-fsa)." \
+        "Used under the FunASR Model Open Source License Agreement v1.1:" \
+        "https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE" \
+        "silero-vad (MIT, Silero Team), ONNX from the sherpa-onnx asr-models release." \
+        > /model/NOTICE \
+    && rm -rf /tmp/asr
+
+# ---------------------------------------------------------------------------
 # 阶段 4：PGS 转换器（按目标架构选 Subtitle Edit seconv 官方产物）
 # ---------------------------------------------------------------------------
 # 这里只下载/校验/解包，不执行目标架构二进制，因此固定在构建机架构上跑，
@@ -312,6 +347,8 @@ RUN rm -rf ./web/node_modules/.pnpm/@img* ./web/node_modules/.pnpm/sharp@* \
 COPY --from=ner-model /model ./models/torrent-ner
 # 画面文字识别模型（约 15 MB）：同样只读内置，MOVIECLAW_OCR_DIR 指过来
 COPY --from=ppocr-model /model ./models/ppocr
+# 本地语音识别模型（约 230 MB）：同样只读内置，MOVIECLAW_ASR_DIR 指过来
+COPY --from=asr-model /model ./models/asr
 
 COPY docker/entrypoint.sh /entrypoint.sh
 # 对外端口的解析脚本：entrypoint 与下面的 HEALTHCHECK 共用同一份逻辑，
@@ -355,7 +392,15 @@ ENV PATH="/venv/bin:${PATH}" \
     SUBSCRIPTION_DISPATCH_DRY_RUN=false \
     MOVIECLAW_NER_DIR=/app/models/torrent-ner \
     MOVIECLAW_OCR_DIR=/app/models/ppocr \
+    MOVIECLAW_ASR_DIR=/app/models/asr \
     MOVIECLAW_SECONV_PATH=/opt/movieclaw/seconv/seconv
+
+# 本地语音识别冒烟：构建期在目标架构上真跑一次识别（与 PGS 冒烟同一纪律）。sherpa-onnx
+# 的原生库、模型文件或 worker 有任何一处不对，直接阻断镜像产出，而不是等用户点了才失败
+RUN /venv/bin/python -I /app/src/movieclaw_api/services/subtitle_gen/asr_worker.py \
+        --self-test /app/models/asr /app/models/asr/smoke-en.wav | tee /tmp/asr-smoke.txt \
+    && grep -qi "chieftain" /tmp/asr-smoke.txt \
+    && rm -f /tmp/asr-smoke.txt
 
 # 运行期数据（SQLite、日志、缓存、上传、密钥）全部落在这个目录
 VOLUME /app/data

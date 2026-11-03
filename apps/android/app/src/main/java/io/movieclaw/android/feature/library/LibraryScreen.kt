@@ -5,6 +5,7 @@ import io.movieclaw.android.core.designsystem.MenuSurface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -111,9 +113,12 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import io.movieclaw.android.core.designsystem.mcCards
+
+private const val FLOOR_TIP = "library.reels-floor"
 
 /** 媒体库首屏的数据（统计行 / 接下来继续 / 我的收藏 / 每库一行 / 按类型的跨库行） */
 @HiltViewModel
@@ -128,13 +133,34 @@ class LibraryViewModel @Inject constructor(
     /** 离线模式：断网时首页换成本机已下载内容（offline-download.md §1「离线媒体库」） */
     private val offlineStore: io.movieclaw.android.core.offline.OfflineStore,
     private val reachability: io.movieclaw.android.core.offline.ServerReachability,
+    private val tips: io.movieclaw.android.core.tips.TipsStore,
 ) : ViewModel() {
-    val offlinePacks = offlineStore.packs
-    val offlinePhase = reachability.phase
+    /** 离线模式：首页换成本机已下载的内容（离线首页） */
+    val offlineMode = reachability.mode
+    val downloadedItemIds = offlineStore.downloadedItemIds
+
+    /** 与后端通信失败、画的是快照（iOS `failed`）：提示条上给「看手机上的 N 部」，用户点了才切离线 */
+    private val _stale = MutableStateFlow(false)
+    val stale = _stale.asStateFlow()
+
+    fun enterOffline() = reachability.enterOffline()
+
+    /**
+     * 下拉二楼的使用提示（docs/design/tips.md，同 iOS）：没用过的人在首页顶上看到一张卡；
+     * 从首页拉进过一次片段或点了关闭，所有设备上都不再出现
+     */
+    val floorTip: kotlinx.coroutines.flow.StateFlow<Boolean> = tips.eligible(FLOOR_TIP)
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
+
+    fun floorTipShown() = tips.recordDisplay(FLOOR_TIP)
+    fun closeFloorTip() = tips.invalidate(FLOOR_TIP, "closed")
+    fun usedFloor() = tips.invalidate(FLOOR_TIP, "action_performed")
 
     init {
-        // 冷启动先核一次通路；断网时首页直接进离线模式（offline-download.md §2.4「进难出易」）
-        reachability.syncInitial()
+        // 回到在线：重拉（离线时这一页没刷新）
+        viewModelScope.launch {
+            reachability.mode.drop(1).collect { if (it == io.movieclaw.android.core.offline.ServerReachability.Mode.ONLINE) load() }
+        }
     }
     private val _state = MutableStateFlow<Loadable<LibraryHome>>(Loadable.Loading)
     val state = _state.asStateFlow()
@@ -197,7 +223,19 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    private suspend fun loadOnce() = loadMutex.withLock { loadOnceUnlocked() }
+    private suspend fun loadOnce() = loadMutex.withLock {
+        // 离线模式：首页是本机的离线首页，不去连服务器
+        if (reachability.isOffline) return@withLock
+        tips.ensureLoaded()
+        try {
+            loadOnceUnlocked()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 并发子请求的失败会越过 coroutineScope 抛出来：同样按「与后端通信失败」处理，不能让它掀翻进程
+            if (_state.value is Loadable.Ready) _stale.value = true else _state.value = Loadable.Failed(friendlyMessage(e))
+        }
+    }
 
     private suspend fun loadOnceUnlocked() {
         // coroutineScope（不是 run）：下面要 async 并发拉，见「五路同发」
@@ -378,10 +416,11 @@ class LibraryViewModel @Inject constructor(
                         kindRows = kindRows,
                     ),
                 )
+                _stale.value = false
             } catch (e: Exception) {
                 if (_state.value is Loadable.Ready) {
-                    // 断网冷启动：快照照常显示，只挂一句提示（iOS：各页挂自己的「与后端通信失败」）
-                    feedback.error("与后端通信失败")
+                    // 断网冷启动：快照照常显示，顶上挂「与后端通信失败」提示条（iOS `libraryHomeStale`）
+                    _stale.value = true
                 } else {
                     _state.value = Loadable.Failed(friendlyMessage(e))
                 }
@@ -689,30 +728,52 @@ fun LibraryScreen(
     onOpenKind: (String) -> Unit = {},
     /** 「按类型找电影 / 剧集」色块点进带类型的跨库墙 */
     onOpenGenre: (String, String) -> Unit = { _, _ -> },
-    /** 顶栏最右「▶ 片段」→ 刷片页（docs/design/reels.md） */
+    /** 片段（docs/design/reels.md）：首页下拉二楼过线松手进；开着读屏时顶栏另有按钮 */
     onOpenReels: () -> Unit = {},
     /** ⋯ 菜单「自定义首页」→ 原生行清单编辑器（Web `/library/customize` 的对应页） */
     onOpenCustomize: () -> Unit = {},
     /** 首页合集行点标题 / 卡片进合集详情的落点（ref 传合集 id，与「全部合集」页同一形） */
     onOpenCollection: (Long, String) -> Unit = { _, _ -> },
+    /** 「正在下载」提示条 → 我的 → 下载 */
+    onOpenDownloads: () -> Unit = {},
     vm: LibraryViewModel = hiltViewModel(),
 ) {
-    // 离线模式（offline-download.md §1）：断网且服务器不可达时，首页换成本机已下载的内容
-    val offlinePacks by vm.offlinePacks.collectAsStateWithLifecycle()
-    val offlinePhase by vm.offlinePhase.collectAsStateWithLifecycle()
-    val offlineMode = offlinePhase == io.movieclaw.android.core.offline.ServerReachability.Phase.OFFLINE
+    // 离线模式（offline-download.md §1）：首页换成本机已下载的内容
+    val offlineMode = vm.offlineMode.collectAsStateWithLifecycle().value == io.movieclaw.android.core.offline.ServerReachability.Mode.OFFLINE
+    val downloadedItemIds by vm.downloadedItemIds.collectAsStateWithLifecycle()
+    val stale by vm.stale.collectAsStateWithLifecycle()
 
     val state by vm.state.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
+    val floorTip by vm.floorTip.collectAsStateWithLifecycle()
+    val touchExploration by rememberTouchExploration()
+    // 下拉二楼（ReelsFloor）：离开首页时这一次自然随组合一起丢掉，回来不会挂着半截
+    val floor = remember { ReelsFloorState() }
     var moreOpen by remember { mutableStateOf(false) }
     val libScroll = androidx.compose.foundation.rememberScrollState()
     io.movieclaw.android.core.designsystem.TrackTabBarMinimize(libScroll)
     val origin = vm.origin
 
     Box(Modifier.fillMaxSize().background(Bg)) {
-        // 离线模式（offline-download.md §1）：断网时整页换成本机已下载内容
+        // 离线模式（offline-download.md §1）：整页换成本机已下载内容（接着看 + 按库分组）
         if (offlineMode) {
-            OfflineLibraryHome(packs = offlinePacks)
+            Column(
+                Modifier.fillMaxSize().verticalScroll(libScroll).tabGlassSource()
+                    .padding(top = McMetrics.topBarHeight + 2.dp, bottom = McTabBarContentPadding),
+            ) {
+                Text(
+                    "媒体库",
+                    fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(horizontal = mcCards.pagePadding, vertical = 2.dp),
+                )
+                io.movieclaw.android.feature.offline.OfflineLibraryHome(
+                    origin = origin,
+                    onOpenItem = onOpenItem,
+                    onOpenLibrary = onOpenLibrary,
+                    onPlay = onPlay,
+                )
+            }
         } else when (val s = state) {
             Loadable.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = TextMuted)
@@ -720,38 +781,38 @@ fun LibraryScreen(
             is Loadable.Failed -> ErrorPane(message = s.message, onRetry = vm::load)
             is Loadable.Ready -> {
                 val home = s.value
-                // 下拉刷新（iOS `.refreshable`）：旧内容留着，转圈到新数据到齐。
-                // 指示器下沉到悬浮顶栏之下——默认位置（屏幕最顶）正好被顶栏盖住，看着像「没反应」
-                val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
-                androidx.compose.material3.pulltorefresh.PullToRefreshBox(
-                    isRefreshing = refreshing,
+                // 下拉刷新 + 下拉二楼（同 iOS）：轻拉刷新、旧内容留着转圈到新数据到齐；刷新后继续拉
+                // 露出胶片，过线松手进片段。不用 Material 下拉刷新——它只让转圈下滑、内容不动，露不出胶片的位置
+                val floorStills = remember(home) { floorStills(home) }
+                val floorScroll = rememberReelsFloorConnection(
+                    state = floor,
+                    refreshing = refreshing,
                     onRefresh = { vm.refresh() },
-                    state = pullState,
-                    modifier = Modifier.fillMaxSize(),
-                    indicator = {
-                        androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator(
-                            state = pullState,
-                            isRefreshing = refreshing,
-                            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier
-                                .align(androidx.compose.ui.Alignment.TopCenter)
-                                .padding(
-                                    top = androidx.compose.foundation.layout.WindowInsets.statusBars
-                                        .asPaddingValues().calculateTopPadding() +
-                                        McMetrics.topBarHeight + 6.dp,
-                                ),
-                        )
+                    onEnter = {
+                        vm.usedFloor()
+                        onOpenReels()
                     },
-                ) {
+                )
+                Box(Modifier.fillMaxSize().nestedScroll(floorScroll)) {
                 Column(
                     Modifier
                         .fillMaxSize()
+                        // 首页跟着下拉暗下去（只压内容，不压上面露出来的胶片）
+                        .drawWithContent {
+                            drawContent()
+                            val dim = floor.dimAlpha()
+                            if (dim > 0f) {
+                                val top = (McMetrics.topBarHeight + 2.dp).toPx() + floor.pull.dp.toPx()
+                                drawRect(Color.Black.copy(alpha = dim), topLeft = androidx.compose.ui.geometry.Offset(0f, top))
+                            }
+                        }
                         .verticalScroll(libScroll)
                         // 液态底栏的背景模糊源（Local 为 null 时原样返回，零代价）
                         .tabGlassSource()
                         // iOS 根页是 inlineLarge 大标题：标题占 52dp 之后统计行再往下 4dp
                         .padding(top = McMetrics.topBarHeight + 2.dp, bottom = McTabBarContentPadding),
                 ) {
+                    ReelsFloorGap(floor, floorStills, origin)
                     // 大标题（iOS inlineLarge：34/700，左对齐 16）
                     Text(
                         "媒体库",
@@ -760,6 +821,48 @@ fun LibraryScreen(
                         modifier = Modifier.padding(horizontal = mcCards.pagePadding, vertical = 2.dp),
                     )
                     StorageStatsLine(home)
+                    if (stale) {
+                        // 断网时不自动切离线（网慢不误判），给一个按钮由用户决定（offline-download.md §2.4）
+                        Column(
+                            Modifier
+                                .padding(start = mcCards.pagePadding, end = mcCards.pagePadding, top = 16.dp)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(io.movieclaw.android.core.designsystem.Warning.copy(alpha = 0.1f))
+                                .border(1.dp, io.movieclaw.android.core.designsystem.Warning.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text("与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据", style = McType.footnote, color = Color(0xFFFCE68A))
+                            if (downloadedItemIds.isNotEmpty()) {
+                                Text(
+                                    "看${io.movieclaw.android.feature.offline.deviceName()}上的 ${downloadedItemIds.size} 部",
+                                    style = McType.footnote.copy(fontWeight = FontWeight.SemiBold),
+                                    color = TextPrimary,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(Color.White.copy(alpha = 0.12f))
+                                        .clickable { vm.enterOffline() }
+                                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                                        .testTag("enter-offline"),
+                                )
+                            }
+                        }
+                    }
+                    // 下拉二楼的使用提示：开着读屏时顶栏有按钮，不提示
+                    if (floorTip && !touchExploration && home.libraries.isNotEmpty()) {
+                        androidx.compose.runtime.LaunchedEffect(Unit) { vm.floorTipShown() }
+                        io.movieclaw.android.core.designsystem.TipCard(
+                            title = "下拉，开始欣赏片段",
+                            message = "在这里一直往下拉，胶片走起来、片门合上时松手，就能开始欣赏片段。",
+                            onClose = vm::closeFloorTip,
+                            modifier = Modifier
+                                .padding(start = mcCards.pagePadding, end = mcCards.pagePadding, top = 12.dp)
+                                .testTag("tip-reels-floor"),
+                        )
+                    }
+                    // 有排队 / 下载中 / 暂停 / 失败的下载时多一条「正在下载」提示条，点进「我的 → 下载」
+                    io.movieclaw.android.feature.offline.OfflineDownloadingRow(onOpen = onOpenDownloads)
 
                     // 行清单：顺序 / 显隐 / 名字 / 排序全部来自 ui.preferences.home.rows
                     // （自定义首页可改；合并与裁剪见 HomeRows.build）
@@ -905,15 +1008,19 @@ fun LibraryScreen(
                                     horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
                                 ) {
                                     items(data.items, key = { "${data.row.id}-${it.mediaItemId}" }) { item ->
-                                        PosterCard(
-                                            imageUrl = item.posterUrl ?: item.backdropUrl,
-                                            origin = origin,
-                                            title = item.title,
-                                            meta = item.year?.toString(),
-                                            rating = item.rating?.takeIf { it > 0f },
-                                            modifier = Modifier.width(mcCards.posterWidth),
-                                            onClick = { onOpenItem(item.libraryId ?: targetLibraryId ?: -1L, item.mediaItemId) },
-                                        )
+                                        // 已下载的条目长按多一项「删除下载」（iOS `OfflineDeleteMenuButton`）
+                                        io.movieclaw.android.feature.offline.OfflineDeleteMenu(item.mediaItemId, item.title) { longClick ->
+                                            PosterCard(
+                                                imageUrl = item.posterUrl ?: item.backdropUrl,
+                                                origin = origin,
+                                                title = item.title,
+                                                meta = item.year?.toString(),
+                                                rating = item.rating?.takeIf { it > 0f },
+                                                modifier = Modifier.width(mcCards.posterWidth),
+                                                onClick = { onOpenItem(item.libraryId ?: targetLibraryId ?: -1L, item.mediaItemId) },
+                                                onLongClick = longClick,
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -972,6 +1079,19 @@ fun LibraryScreen(
                     }
                     Spacer(Modifier.height(16.dp))
                 }
+                // 刷新转圈：拉的时候逐格画满、拉到刷新点转起来；胶片出来时淡掉。
+                // 位置在悬浮顶栏之下——屏幕最顶会被顶栏盖住，看着像「没反应」
+                FloorRefreshIndicator(
+                    floor = floor,
+                    refreshing = refreshing,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(
+                            top = androidx.compose.foundation.layout.WindowInsets.statusBars
+                                .asPaddingValues().calculateTopPadding() +
+                                McMetrics.topBarHeight + 6.dp,
+                        ),
+                )
                 }
             }
         }
@@ -981,7 +1101,9 @@ fun LibraryScreen(
             title = "",   // 大标题在内容区（iOS inlineLarge），顶栏只留两组动作钮
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            // 顶栏右侧成组（iOS `▶ ⋯ · 搜索` 两组）：先撑开，「▶ ⋯」一颗玻璃胶囊、
+            // 离线：片段、菜单、搜索都要连服务器，顶栏只留大标题（iOS 离线首页同样不给）
+            if (offlineMode) return@McTopBar
+            // 顶栏右侧成组（iOS `⋯ · 搜索` 两组，开着读屏时多一颗 ▶）：先撑开，「▶ ⋯」一颗玻璃胶囊、
             // 每钮位 44 宽拉开间距，再用一段固定间隔接搜索圆钮（2026-10-05 用户反馈：
             // 原先把胶囊放最左、搜索顶最右，两钮太挤、离放大镜又太远）
             Spacer(Modifier.weight(1f))
@@ -997,20 +1119,23 @@ fun LibraryScreen(
                     .glassSurface(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    Modifier
-                        .width(44.dp)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(999.dp))
-                        .clickable { onOpenReels() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Rounded.PlayCircle,
-                        contentDescription = "片段",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(18.dp),
-                    )
+                // 片段的入口 2026-10-28 改成下拉二楼（同 iOS，省掉顶栏一颗按钮）；读屏做不了下拉手势，开着时照旧给按钮
+                if (touchExploration) {
+                    Box(
+                        Modifier
+                            .width(44.dp)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable { onOpenReels() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Rounded.PlayCircle,
+                            contentDescription = "片段",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
                 Box(
                     Modifier
@@ -1216,66 +1341,4 @@ internal fun formatBytes(bytes: Long): String {
         i++
     }
     return if (value >= 100 || i == 0) "%.0f %s".format(value, units[i]) else "%.2f %s".format(value, units[i])
-}
-
-
-/** 离线首页：断网时替代常规首页（offline-download.md §1 的「离线媒体库」） */
-@Composable
-private fun OfflineLibraryHome(
-    packs: List<io.movieclaw.android.core.offline.OfflineStore.Pack>,
-) {
-    // 点条目 → 本机副本播放：经通知同一条路由总线（AppNav 消费后 navigate）
-    val onPlay: (io.movieclaw.android.core.offline.OfflineStore.Pack) -> Unit = { pack ->
-        io.movieclaw.android.core.notify.NotifyRouteBus.publish("localPlayer/${pack.mediaItemId}/${pack.fileId}")
-    }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(top = 120.dp),
-    ) {
-        Text(
-            "离线中 · 看本机已下载的 \${packs.size} 部",
-            style = McType.title3,
-            color = TextPrimary,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "网络恢复后自动回到在线模式",
-            style = McType.caption,
-            color = TextFaint,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
-        Spacer(Modifier.height(18.dp))
-        packs.forEach { pack ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onPlay(pack) }
-                    .padding(horizontal = 24.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(pack.title, style = McType.subheadline, color = TextPrimary)
-                    pack.subtitle?.let {
-                        Text(it, style = McType.caption2, color = TextFaint)
-                    }
-                }
-                Text(
-                    McFormat.bytes(pack.sizeBytes),
-                    style = McType.caption2,
-                    color = TextMuted,
-                )
-            }
-        }
-        if (packs.isEmpty()) {
-            Text(
-                "本机还没有下载内容。联网时在影片详情页点「下载」存到本机。",
-                style = McType.footnote,
-                color = TextFaint,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-            )
-        }
-    }
 }

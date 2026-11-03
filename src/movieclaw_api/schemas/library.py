@@ -105,7 +105,18 @@ class LibraryPayload(BaseModel):
         ),
     )
     root_paths: list[str] = Field(
-        description="根路径列表（绝对路径），第一个为主根——新入库落在这里"
+        default_factory=list,
+        description=(
+            "根路径列表（绝对路径），第一个为主根——新入库落在这里。"
+            "外部库源（内容在远程媒体服务器上）可以为空"
+        ),
+    )
+    source_config: dict | None = Field(
+        default=None,
+        description=(
+            "外部库源的连接配置（远程地址、远程库 id 等，按来源插件声明的表单提交）；"
+            "内置来源（tmdb/local）不接受"
+        ),
     )
     match_rules: list[dict] = Field(
         default_factory=list,
@@ -360,11 +371,42 @@ class CloudUploadView(BaseModel):
     message: str = Field(default="", description="当前在做什么（一句话）")
 
 
+
+def _source_view_fields(row: Library) -> dict:
+    """外部库源在库视图上的展示字段；内置来源全部回落默认值。"""
+    from movieclaw_api.services.library.source_providers import provider_of
+
+    provider = provider_of(row.source)
+    if provider is None:
+        return {"source_title": None, "source_icon": None,
+                "source_configured": False, "last_source_sync_at": None}
+    return {
+        "source_title": provider.title,
+        "source_icon": provider.icon or None,
+        "source_configured": bool(row.source_config),
+        "last_source_sync_at": row.last_source_sync_at,
+    }
+
+
 class LibraryView(BaseModel):
     id: int
     name: str
     kind: MediaKind
-    source: str = Field(default="tmdb", description="身份来源：tmdb / local")
+    source: str = Field(default="tmdb", description="身份来源：tmdb / local / 外部库源")
+    source_title: str | None = Field(
+        default=None,
+        description="外部库源的展示名（如「飞牛影视」）；内置来源为 null",
+    )
+    source_icon: str | None = Field(
+        default=None, description="外部库源的标识图标（前端图标库的 key）；内置来源为 null"
+    )
+    source_configured: bool = Field(
+        default=False,
+        description="外部库源是否已带连接配置（source_config 非空）；内置来源恒 false",
+    )
+    last_source_sync_at: datetime | None = Field(
+        default=None, description="外部库源最近一次同步时间；内置来源或从未同步为 null"
+    )
     capabilities: LibraryCapabilitiesView
     generate_thumbnails: bool = Field(
         default=True, description="缺图时是否抓帧生成缩略图（本地内容封面、TMDB 无剧照的分集）"
@@ -485,6 +527,7 @@ class LibraryView(BaseModel):
             name=row.name,
             kind=MediaKind(row.kind),
             source=row.source,
+            **_source_view_fields(row),
             capabilities=LibraryCapabilitiesView(**capabilities_of(profile_of(row))),
             generate_thumbnails=row.generate_thumbnails,
             extract_chapter_images=row.extract_chapter_images,
@@ -1279,6 +1322,50 @@ class EpisodeView(BaseModel):
     )
 
 
+class EpisodeArrivalView(BaseModel):
+    """订阅对一集的入库预告（播出日历里的「预计 20:00 入库」「下载中」）。"""
+
+    episode_number: int
+    stage: Literal["waiting", "downloading", "organizing"] = Field(
+        description="waiting=等资源发布 / downloading=下载中 / organizing=下完了在整理入库"
+    )
+    expected_at: datetime | None = Field(
+        default=None,
+        description="预计入库时刻（只给 waiting 且预测可信、还没过的）；给不出为 null",
+    )
+
+    @field_serializer("expected_at")
+    def _serialize_utc(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.isoformat()
+
+
+class SeasonAirScheduleView(BaseModel):
+    """一季的播出日历（issue #547）：排期本身在分集的 air_date 里，这里给对照信息。"""
+
+    today: date = Field(description="站点日历的今天；客户端按它判今天/已播/待播，不用本机时钟")
+    region: str | None = Field(
+        default=None,
+        description="首播地国家码（ISO 3166-1）：播出日期是当地日期、与本地可能差一天时才给",
+    )
+    weekdays: list[int] = Field(
+        default_factory=list, description="最近的更新星期（0=周一…6=周日），用于「周一至周四更新」"
+    )
+    last_air_date: date | None = Field(
+        default=None, description="本季最后一集的播出日；有集没定日期时为 null（说不准哪天完结）"
+    )
+    subscription_id: int | None = Field(default=None, description="这部剧的订阅；未订阅为 null")
+    missing_episodes: list[int] = Field(
+        default_factory=list, description="订阅范围内已播出、库里还没有的集（缺集）"
+    )
+    arrivals: list[EpisodeArrivalView] = Field(
+        default_factory=list, description="订阅在追、还没入库的集的入库预告"
+    )
+
+
 class SeasonEpisodesView(BaseModel):
     """一季的分集清单（分集横滚区数据源）。"""
 
@@ -1290,6 +1377,10 @@ class SeasonEpisodesView(BaseModel):
             "本季接着看的那一集（与首页「接下来继续」同规则：最近播放的一集，看完了取往后"
             "第一个没看完且有片源的）；分集区按它锁定集段、默认选中。本季没播放过为 null"
         ),
+    )
+    air_schedule: SeasonAirScheduleView | None = Field(
+        default=None,
+        description="播出日历；本季没有今天或以后的播出日期（已完结、季间空档、无分集日期）为 null",
     )
 
 

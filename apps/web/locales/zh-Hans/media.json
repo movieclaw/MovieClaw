@@ -257,7 +257,8 @@
     "countTitle": "{kind} · 共 {count} 条",
     "sources": "内封 {embedded} · 外挂 {external}",
     "preview": "预览字幕：{language} · {format} · {primary} · {secondary}",
-    "deleteFile": "删除字幕文件：{file}"
+    "deleteFile": "删除字幕文件：{file}",
+    "asrExternal": "语音识别"
   },
   "subtitles": {
     "generateBadge": "AI 生成字幕",

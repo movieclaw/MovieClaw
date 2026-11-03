@@ -12,20 +12,21 @@
   reconcile_defaults）。设置页显示的就是真实存的值，不靠运行时隐式兜底；
   resolve_defaults 里的兜底只是预设目录变动等漂移场景的安全网。
 
-模型清单（对话框「模型」入口与 AI 设定的选项）的口径：
-- 一个实例接入后，它目录里的全部模型都可选：预设目录 ∪ 用户补录
-  （extra_models，按 id 覆盖预设），与 LlmRouter._catalog 同口径；
-- 端点上报的 available_models 不进清单——它们没有上下文窗口 / 思考能力
-  等元数据，选了之后自动压缩与思维链菜单都会失效；
-- 同一模型 id 只在一个实例里有 → 引用就是裸 id、展示也是裸 id；出现在多个
-  实例 → 引用用「实例名/模型id」精确路由，展示加括号「模型id（实例名）」；
-- 模型 id 本身含斜杠（SiliconFlow / OpenRouter 风格的 ``org/model``）时引用
-  也必须限定：路由层按第一个斜杠拆「实例名/模型id」，裸引用会把 org 当实例名。
+模型清单（对话框「模型」入口与 AI 设定的选项）的口径（docs/design/llm-model-catalog.md）：
+- 一个实例的目录 = 服务商列表 ∪ 预设 ∪ 用户补录，参数按字段合并公共目录
+  （models.dev）、列表自带参数、预设修正与补录（services.llm_catalog）；
+- 只有**参数已知**的模型进清单（菜单里的模型一定有上下文窗口，自动压缩与
+  思维链菜单才不会失效）；清单里 shown 标出默认显示规则 + 用户选择的结果；
+- 引用一律「实例名/模型id」：目录是动态的，裸 id 会在另一个实例的列表里冒出
+  同名模型后静默换服务商。展示只在同 id 出现在多个实例的菜单里时加括号
+  「模型id（实例名）」。升级前存下的裸 id 由 qualify_ref 改写成限定形式。
 """
 
 from __future__ import annotations
 
 import logging
+from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from types import EllipsisType
 from typing import Literal
@@ -41,13 +42,26 @@ from movieclaw_api.i18n.llm import error_reference, preset_name
 from movieclaw_api.i18n.stored import reference, render_value, source_text
 from movieclaw_api.schemas.llm import (
     LlmDefaultsView,
+    LlmListingView,
     LlmModelDiscoveryPayload,
     LlmModelOptionView,
+    LlmProviderModelView,
+    LlmProviderView,
 )
 from movieclaw_api.services.chatgpt_auth import (
     build_server_protocol,
     revoke_credentials,
     token_store,
+)
+from movieclaw_api.services.llm_catalog import (
+    CATALOG_DISABLED,
+    catalog_digest,
+    catalog_entries,
+    draft_entry,
+    effective_catalog_id,
+    get_public_catalog,
+    listing_after_error,
+    listing_from_entries,
 )
 from movieclaw_api.settings import LlmDefaultsSetting, get_setting_store
 from movieclaw_db.engine import get_database
@@ -55,6 +69,7 @@ from movieclaw_db.models.llm_provider import LlmProvider
 from movieclaw_db.models.site_credential import ConfigStatus
 from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
 from movieclaw_llm import ChatMessage, ChatRequest, LlmError, LlmRouter, ModelInfo, ModelSettings
+from movieclaw_llm.catalog import default_shown, visible_ids
 from movieclaw_llm.chatgpt import RESOURCE, ChatGPTCredentials, restore_account_model_controls
 from movieclaw_llm.models import LlmProviderConfig, ProviderPreset
 from movieclaw_llm.protocols import build_protocol
@@ -81,6 +96,8 @@ def to_domain_config(row: LlmProvider, api_key: str) -> LlmProviderConfig:
         extra_models=_extra_models(row),
         user_agent=row.user_agent,
         api_protocol=row.api_protocol,
+        catalog=provider_catalog(row),
+        catalog_version=catalog_digest(row),
     )
 
 
@@ -90,47 +107,37 @@ def _extra_models(row: LlmProvider) -> list[ModelInfo]:
 
 
 def provider_catalog(row: LlmProvider) -> list[ModelInfo]:
-    """预设目录 + 用户补录（按 id 覆盖），裁掉当前协议无法调用工具的模型。"""
-    merged = {m.id: m for m in get_preset(row.provider_type).models}
-    extras = _extra_models(row)
-    merged.update({m.id: m for m in extras})
-    protocol = row.api_protocol or get_preset(row.provider_type).protocol
-    return [
-        m
-        for m in merged.values()
-        if not (protocol == "openai_chat" and m.requires_responses_for_tools)
-    ]
+    """实例可路由的完整目录（合并结果，含隐藏与参数未知的模型）。"""
+    return [e.model for e in catalog_entries(row)]
 
 
 def build_model_options(
-    rows: list[LlmProvider], agent_default: str | None = None
+    rows: list[LlmProvider], agent_default: str | None = None, pinned: Iterable[str] = ()
 ) -> list[LlmModelOptionView]:
-    """把全部实例的目录拍平成模型清单（rows 按添加顺序）。
+    """把全部实例里参数已知的模型拍平成清单（rows 按添加顺序），shown 标出是否进菜单。
 
-    重复 id 的处理策略：同一模型 id 只在一个实例里有，引用与展示都是裸 id；
-    出现在多个实例里，引用改用「实例名/模型id」精确路由（LlmRouter 的显式
-    分支），展示加括号「模型id（实例名）」让用户分得清走哪家。
-    ``agent_default`` 是智能体默认模型的引用，命中的选项标 is_default。
+    引用一律「实例名/模型id」（LlmRouter 的显式分支）；展示文案在同一 id 出现在
+    多个实例的菜单里时加括号「模型id（实例名）」让用户分得清走哪家。
+    ``agent_default`` 命中的选项标 is_default；``pinned`` 是 AI 设定引用的模型，
+    用户隐藏了也照样显示（否则设置页的默认模型下拉框里找不到当前值）。
     """
-    catalogs = [(row, provider_catalog(row)) for row in rows]
-    owners: dict[str, int] = {}
-    for _, catalog in catalogs:
-        for model in catalog:
-            owners[model.id] = owners.get(model.id, 0) + 1
+    pinned = set(pinned)
     options: list[LlmModelOptionView] = []
-    for row, catalog in catalogs:
+    for row in rows:
+        entries = [e for e in catalog_entries(row) if e.known]
+        prefix = f"{row.name}/"
+        row_pinned = {ref.removeprefix(prefix) for ref in pinned if ref.startswith(prefix)}
+        shown = visible_ids(entries, row.model_visibility, row_pinned)
         chat_protocol = (
             row.api_protocol or get_preset(row.provider_type).protocol
         ) == "openai_chat"
-        for model in catalog:
-            ambiguous = owners[model.id] > 1
-            # 冲突或 id 含斜杠都要限定（见模块说明）；展示只在冲突时加括号
-            qualified = ambiguous or "/" in model.id
-            ref = f"{row.name}/{model.id}" if qualified else model.id
+        for entry in entries:
+            model = entry.model
+            ref = f"{row.name}/{model.id}"
             options.append(
                 LlmModelOptionView(
                     ref=ref,
-                    label=f"{model.id}（{row.name}）" if ambiguous else model.id,
+                    label=model.id,
                     model_id=model.id,
                     provider_id=row.id or 0,
                     provider_name=row.name,
@@ -140,9 +147,29 @@ def build_model_options(
                         if chat_protocol and model.chat_tools_require_no_reasoning
                         else model.thinking_levels
                     ),
+                    shown=entry.id in shown,
+                    deprecated=model.deprecated,
+                    released=model.released,
+                    display_name=model.display_name,
+                    context_window=model.context_window,
+                    cost=model.cost,
                 )
             )
+    counts = Counter(o.model_id for o in options if o.shown)
+    for option in options:
+        if counts[option.model_id] > 1:
+            option.label = f"{option.model_id}（{option.provider_name}）"
     return options
+
+
+def qualify_ref(ref: str | None, options: list[LlmModelOptionView]) -> str | None:
+    """把存下的引用对齐到清单：已在清单里的原样返回；升级前存的裸 id 改写成
+    「实例名/模型id」（按实例添加顺序取第一个归属）；对不上返回 None。"""
+    if not ref:
+        return None
+    if any(o.ref == ref for o in options):
+        return ref
+    return next((o.ref for o in options if o.model_id == ref), None)
 
 
 @dataclass(frozen=True)
@@ -168,7 +195,7 @@ def recommended_default(rows: list[LlmProvider], options: list[LlmModelOptionVie
     first = rows[0]
     return next(
         (o.ref for o in options if o.provider_id == first.id and o.model_id == first.default_model),
-        options[0].ref if options else None,
+        next((o.ref for o in options if o.shown), options[0].ref if options else None),
     )
 
 
@@ -183,11 +210,10 @@ def resolve_defaults(
     （如预设目录升级后删掉了某个模型 id）。热路径调用方把已构建的 options 传进来。
     """
     options = build_model_options(rows) if options is None else options
-    refs = {o.ref for o in options}
     fallback = recommended_default(rows, options)
 
     def pick(configured: str | None) -> str | None:
-        return configured if configured in refs else fallback
+        return qualify_ref(configured, options) or fallback
 
     return ResolvedDefaults(agent=pick(setting.agent_model), subtitle=pick(setting.subtitle_model))
 
@@ -209,7 +235,6 @@ async def reconcile_defaults(
     store = get_setting_store()
     setting = await store.get(LlmDefaultsSetting)
     options = build_model_options(rows)
-    refs = {o.ref for o in options}
     by_identity = {(o.provider_id, o.model_id): o.ref for o in options}
     fallback = recommended_default(rows, options)
 
@@ -219,7 +244,8 @@ async def reconcile_defaults(
         before = next((o for o in previous if o.ref == stored), None)
         if before is not None:
             return by_identity.get((before.provider_id, before.model_id), fallback)
-        return stored if stored in refs else fallback
+        # 不在改动前的清单里：升级前的裸 id（改写成限定形式）或漂移遗留
+        return qualify_ref(stored, options) or fallback
 
     agent, subtitle = carry(setting.agent_model), carry(setting.subtitle_model)
     if (agent, subtitle) != (setting.agent_model, setting.subtitle_model):
@@ -274,6 +300,16 @@ async def resolve_provider_endpoint(session: AsyncSession) -> tuple[str, str, st
     return base, repo.decrypted_api_key(row) or "", row.user_agent
 
 
+def _publicly_known(draft: LlmProvider, model_id: str) -> bool:
+    """模型的参数能否在公共目录查到（实例对应的那一家，或兼容端点向原厂目录借）。"""
+    entry = draft_entry(draft, model_id)
+    return (
+        entry is not None
+        and bool(entry.model.context_window)
+        and bool({"public", "borrowed"} & set(entry.model.sources or []))
+    )
+
+
 class LlmConfigService:
     """LLM 供应商实例接入与 AI 设定的业务服务。绑定一个数据库会话。"""
 
@@ -304,9 +340,90 @@ class LlmConfigService:
         """对话框与 AI 设定的模型清单（口径见模块说明），智能体默认项标 is_default。"""
         rows = await self._repo.list_all()
         setting = await get_setting_store().get(LlmDefaultsSetting)
-        agent = resolve_defaults(rows, setting).agent
-        # 设置页 / 对话框入口，不在热路径；再构建一次只为标记 is_default
-        return build_model_options(rows, agent)
+        effective = resolve_defaults(rows, setting)
+        # 设置页 / 对话框入口，不在热路径；再构建一次只为标记 is_default 与钉住默认模型
+        pinned = [ref for ref in (effective.agent, effective.subtitle) if ref]
+        return build_model_options(rows, effective.agent, pinned)
+
+    # -- 模型目录（docs/design/llm-model-catalog.md） -------------------------
+
+    async def _pinned(self, rows: list[LlmProvider]) -> list[str]:
+        """AI 设定引用的模型（总是显示）。"""
+        setting = await get_setting_store().get(LlmDefaultsSetting)
+        effective = resolve_defaults(rows, setting)
+        return [ref for ref in (effective.agent, effective.subtitle) if ref]
+
+    @staticmethod
+    def _listing_view(row: LlmProvider, pinned: list[str]) -> LlmListingView:
+        listing = row.model_listing or {}
+        error = listing.get("error") or None
+        options = build_model_options([row], pinned=pinned)
+        catalog_id = effective_catalog_id(row)
+        return LlmListingView(
+            source=listing.get("source") or "none",
+            fetched_at=listing.get("fetched_at") if listing.get("source") == "provider" else None,
+            error=(render_value(error["ref"]) if error.get("ref") else error.get("message"))
+            if error
+            else None,
+            total=len(options),
+            shown=sum(1 for o in options if o.shown),
+            catalog_id=catalog_id,
+            catalog_updated_at=get_public_catalog().fetched_at(catalog_id),
+        )
+
+    async def provider_views(self, rows: list[LlmProvider] | None = None) -> list[LlmProviderView]:
+        """实例视图（带模型目录概况）。"""
+        everything = await self._repo.list_all()
+        pinned = await self._pinned(everything)
+        return [
+            LlmProviderView.from_model(row, self._listing_view(row, pinned))
+            for row in (everything if rows is None else rows)
+        ]
+
+    async def provider_models(self, provider_id: int) -> list[LlmProviderModelView]:
+        """「管理模型」：实例目录里的全部模型（含参数未知、已隐藏的），按菜单排序。"""
+        row = await self.get(provider_id)
+        pinned = await self._pinned(await self._repo.list_all())
+        prefix = f"{row.name}/"
+        entries = catalog_entries(row)
+        shown = visible_ids(
+            entries,
+            row.model_visibility,
+            [ref.removeprefix(prefix) for ref in pinned if ref.startswith(prefix)],
+        )
+        return [
+            LlmProviderModelView(
+                model=e.model,
+                known=e.known,
+                shown=e.id in shown,
+                listed=e.listed,
+                in_preset=e.in_preset,
+                custom=e.custom,
+            )
+            for e in entries
+        ]
+
+    async def set_model_visibility(self, provider_id: int, model_id: str, shown: bool) -> None:
+        """显示或隐藏一个模型；与默认规则相同的选择不存（以后默认规则变了照样跟上）。"""
+        row = await self.get(provider_id)
+        entries = catalog_entries(row)
+        entry = next((e for e in entries if e.id == model_id), None)
+        if entry is None:
+            raise NotFoundException(
+                message_key="errors.llm.catalogModelMissing", params={"id": model_id}
+            )
+        if shown and not entry.known:
+            raise BadRequestException(
+                message_key="errors.llm.modelParamsUnknown", params={"id": model_id}
+            )
+        visibility = row.model_visibility or {}
+        show = [m for m in visibility.get("show") or [] if m != model_id]
+        hide = [m for m in visibility.get("hide") or [] if m != model_id]
+        if shown != (model_id in default_shown(entries)):
+            (show if shown else hide).append(model_id)
+        await self._repo.save_visibility(
+            provider_id, {"show": show, "hide": hide} if show or hide else None
+        )
 
     async def discover_models(self, payload: LlmModelDiscoveryPayload) -> list[str]:
         """只读查询；编辑时仅在类型与地址均未改变时允许沿用已存密钥。"""
@@ -364,6 +481,8 @@ class LlmConfigService:
 
     async def get_defaults(self) -> LlmDefaultsView:
         rows = await self._repo.list_all()
+        # 顺手维护不变量：升级前存的裸 id 在这里改写成限定形式落库
+        await reconcile_defaults(rows, build_model_options(rows))
         setting = await get_setting_store().get(LlmDefaultsSetting)
         effective = resolve_defaults(rows, setting)
         return LlmDefaultsView(
@@ -382,17 +501,20 @@ class LlmConfigService:
         空——只要还有实例，两个默认就始终有值，设置页显示的就是真实生效值。
         """
         rows = await self._repo.list_all()
-        refs = {o.ref for o in build_model_options(rows)}
+        options = build_model_options(rows)
         for label, ref in (
             (reference("settings.llm.agentScope"), agent_model),
             (reference("settings.llm.subtitleScope"), subtitle_model),
         ):
-            if ref is not None and ref not in refs:
+            if ref is not None and qualify_ref(ref, options) is None:
                 raise BadRequestException(
                     message_key="errors.llm.defaultModelMissing",
                     params={"scope": label, "ref": ref},
                 )
-        recommended = recommended_default(rows, build_model_options(rows))
+        # API / CLI 直接传裸 id 时存成限定形式
+        agent_model = qualify_ref(agent_model, options)
+        subtitle_model = qualify_ref(subtitle_model, options)
+        recommended = recommended_default(rows, options)
         await get_setting_store().set(
             LlmDefaultsSetting(
                 agent_model=agent_model or recommended,
@@ -408,13 +530,15 @@ class LlmConfigService:
         preset: ProviderPreset,
         extra_models: list[ModelInfo],
         model_id: str,
+        draft: LlmProvider | None = None,
     ) -> None:
         """连接测试模型的严格校验，按供应商类型分两条规则：
 
         - 固定官方渠道：模型必须在预设目录内；
-        - OpenAI 与兼容端点：预设外模型必须在 extra_models 里带完整参数。
-          其中「借用」自其它预设目录的模型（按 id 识别）参数随目录，
-          豁免手填规则——共享窗口类模型（如 Kimi）本就没有独立输出上限。
+        - OpenAI 与兼容端点：预设外模型要么能在公共目录查到参数（实例对应的那一家，
+          兼容端点没有对应家时向原厂目录借，见 services.llm_catalog），要么在
+          extra_models 里带完整参数。「借用」自其它预设目录的模型（按 id 识别）
+          参数随目录，同样豁免手填——共享窗口类模型（如 Kimi）本就没有独立输出上限。
 
         agent 做上下文预算、思考预算、并发决策都依赖这些参数，
         缺参数会让下游全部退化成瞎猜，所以在入口就拦住。
@@ -427,6 +551,8 @@ class LlmConfigService:
                 params={"id": model_id, "name": preset_name(preset)},
             )
         if any(m.id == model_id for m in preset.models):
+            return
+        if draft is not None and _publicly_known(draft, model_id):
             return
         custom = next((m for m in extra_models if m.id == model_id), None)
         if custom is None:
@@ -458,6 +584,7 @@ class LlmConfigService:
         default_model: str | None,
         extra_models: list[ModelInfo],
         api_protocol: str | None = None,
+        catalog_id: str | None = None,
         exclude_id: int | None = None,
     ) -> str:
         """新增与编辑共用的入参校验，返回实际使用的连接测试模型 id。
@@ -491,15 +618,42 @@ class LlmConfigService:
                     },
                 },
             )
+        if catalog_id not in (None, CATALOG_DISABLED) and not any(
+            p["id"] == catalog_id for p in get_public_catalog().index()
+        ):
+            raise BadRequestException(
+                message_key="errors.llm.catalogUnknown", params={"id": catalog_id}
+            )
+        # 还没保存的草稿实例：用来在公共目录里查参数（兼容端点按地址识别对应的家）
+        draft = LlmProvider(
+            name=name,
+            provider_type=provider_type,
+            base_url=base_url,
+            api_key="",
+            default_model="",
+            extra_models=[m.model_dump(exclude_unset=True) for m in extra_models] or None,
+            api_protocol=api_protocol,
+            catalog_id=catalog_id,
+        )
         if not preset.models or preset.id == "openai":
-            if not preset.models and not extra_models:
+            if (
+                not preset.models
+                and not extra_models
+                and not (default_model and _publicly_known(draft, default_model))
+            ):
                 raise BadRequestException(
                     message_key="errors.llm.modelEntryRequired",
                     params={"name": preset_name(preset)},
                 )
             for model in extra_models:
-                self._assert_model_configured(preset, extra_models, model.id)
+                self._assert_model_configured(preset, extra_models, model.id, draft)
         catalog = [*preset.models, *extra_models]
+        if default_model and not any(m.id == default_model for m in catalog):
+            # 目录外的测试模型：先确认参数来路（查不到会报「须补录参数」），再并入候选
+            self._assert_model_configured(preset, extra_models, default_model, draft)
+            entry = draft_entry(draft, default_model)
+            if entry is not None:
+                catalog.append(entry.model)
         effective_protocol = api_protocol or preset.protocol
         compatible = [
             m
@@ -509,7 +663,7 @@ class LlmConfigService:
         if not compatible:
             raise BadRequestException(message_key="errors.llm.responsesRequired")
         test_model = default_model or compatible[0].id
-        self._assert_model_configured(preset, extra_models, test_model)
+        self._assert_model_configured(preset, extra_models, test_model, draft)
         model = next(m for m in catalog if m.id == test_model)
         if effective_protocol == "openai_chat" and model.requires_responses_for_tools:
             raise BadRequestException(
@@ -531,6 +685,7 @@ class LlmConfigService:
         extra_models: list[ModelInfo] | None = None,
         user_agent: str | None = None,
         api_protocol: str | None = None,
+        catalog_id: str | None = None,
     ) -> LlmProvider:
         """新增实例。状态置 PENDING，等待后台验证。"""
         if not api_key:
@@ -548,6 +703,7 @@ class LlmConfigService:
             default_model=default_model,
             extra_models=extras,
             api_protocol=api_protocol,
+            catalog_id=catalog_id,
         )
         before = build_model_options(await self._repo.list_all())
         row = await self._repo.create(
@@ -556,9 +712,11 @@ class LlmConfigService:
             base_url=base_url,
             api_key=api_key,
             default_model=test_model,
-            extra_models=[m.model_dump() for m in extras] or None,
+            # 只存用户写了的字段：补录按字段覆盖公共目录（docs/design/llm-model-catalog.md §5.1）
+            extra_models=[m.model_dump(exclude_unset=True) for m in extras] or None,
             user_agent=user_agent,
             api_protocol=api_protocol,
+            catalog_id=catalog_id,
         )
         await reconcile_defaults(await self._repo.list_all(), before)
         return row
@@ -575,6 +733,7 @@ class LlmConfigService:
         extra_models: list[ModelInfo] | None = None,
         user_agent: str | None = None,
         api_protocol: str | None | EllipsisType = ...,
+        catalog_id: str | None | EllipsisType = ...,
     ) -> LlmProvider:
         """整体覆盖一个实例的接入配置。不存在抛 404，正在验证中抛 409。
 
@@ -597,6 +756,8 @@ class LlmConfigService:
             raise BadRequestException(message_key="errors.llm.apiKeyRefreshRequired")
         if api_protocol is ...:
             api_protocol = row.api_protocol if provider_type == row.provider_type else None
+        if catalog_id is ...:
+            catalog_id = row.catalog_id if provider_type == row.provider_type else None
         extras = extra_models or []
         test_model = await self._validate(
             name=name,
@@ -605,6 +766,7 @@ class LlmConfigService:
             default_model=default_model,
             extra_models=extras,
             api_protocol=api_protocol,
+            catalog_id=catalog_id,
             exclude_id=provider_id,
         )
         before = build_model_options(await self._repo.list_all())
@@ -615,9 +777,10 @@ class LlmConfigService:
             base_url=base_url,
             api_key=api_key,
             default_model=test_model,
-            extra_models=[m.model_dump() for m in extras] or None,
+            extra_models=[m.model_dump(exclude_unset=True) for m in extras] or None,
             user_agent=user_agent,
             api_protocol=api_protocol,
+            catalog_id=catalog_id,
         )
         assert updated is not None  # 上面 get 已确认存在
         # 实例改名或目录改动会改变引用的拼写，按稳定身份改写设定
@@ -756,13 +919,23 @@ async def verify_llm_provider(provider_id: int) -> None:
             )
             return
         else:
-            # 对话验证已通过；模型列表仅是设置页的补录提示，拉不到不影响结论
+            # 对话验证已通过；顺手拉模型列表进目录（llm_catalog），拉不到不影响结论
             available: list[str] | None = None
             try:
                 info = await protocol.test_connection()
                 available = sorted(info.models)
-                if row.provider_type == "chatgpt" and info.model_catalog:
-                    row.extra_models = [m.model_dump() for m in info.model_catalog]
+                if row.provider_type == "chatgpt":
+                    # 订阅目录来自账号（带账号上报的能力），仍走补录层
+                    if info.model_catalog:
+                        row.extra_models = [m.model_dump() for m in info.model_catalog]
+                else:
+                    entries = info.entries or [{"id": m} for m in info.models]
+                    await repo.save_listing(provider_id, listing_from_entries(entries))
+            except LlmError as exc:
+                logger.info("拉取模型列表失败，不影响验证结论：%s", exc)
+                if row.provider_type != "chatgpt":
+                    listing = listing_after_error(row.model_listing, exc)
+                    await repo.save_listing(provider_id, listing)
             except Exception:  # noqa: BLE001
                 logger.info("端点未提供模型列表接口，跳过（不影响验证结论）")
             logger.info("LLM 连接测试通过：%s / %s", row.name, row.default_model)

@@ -126,4 +126,9 @@ export class NavStacks {
     }
     return null;
   }
+
+  /** 该页签的栈是否已登记（没登记时 `of` 会走回退栈；要等目标栈挂载的调用方用它轮询） */
+  static has(tab: string): boolean {
+    return NavStacks.stacks[tab] !== undefined;
+  }
 }

@@ -67,7 +67,7 @@ function isAiSubtitle(filename: string | null): boolean {
   return filename
     .toLowerCase()
     .split(".")
-    .some((part) => part === "ai" || part.startsWith("ai-"));
+    .some((part) => part === "ai" || part === "asr" || part.startsWith("ai-"));
 }
 
 /*
@@ -147,15 +147,21 @@ function formatLabel(format: string | null, locale: AppLocale): string {
 
 function candidateLabel(candidate: SubtitleSourceCandidate, locale: AppLocale): string {
   const t = appTranslator(locale);
-  const location = candidate.kind === "embedded" ? t("library.subtitleGeneration.embedded") : t("library.subtitleGeneration.external");
-  const identity =
+  const location =
     candidate.kind === "embedded"
+      ? t("library.subtitleGeneration.embedded")
+      : candidate.kind === "audio"
+        ? t("library.subtitleGeneration.audio")
+        : t("library.subtitleGeneration.external");
+  const identity =
+    candidate.kind === "embedded" || candidate.kind === "audio"
       ? t("library.subtitleGeneration.track", { index: Number(candidate.key) + 1 })
       : candidate.key;
   const conversion = candidate.requires_ocr ? t("library.subtitleGeneration.ocrSuffix") : "";
   const provenanceLabels: Record<SubtitleSourceCandidate["provenance"], string> = {
     original: t("library.subtitleGeneration.original"),
     pgs_ocr: t("library.subtitleGeneration.pgsOcr"),
+    asr: t("library.subtitleGeneration.asr"),
     ai: t("library.subtitleGeneration.ai"),
     ai_bilingual: t("library.subtitleGeneration.aiBilingual"),
   };
@@ -176,7 +182,7 @@ function tokenEstimate(tokens: number, locale: AppLocale): string {
 }
 
 const PROGRESS_STAGES = [
-  { phases: ["preparing", "extracting", "ocr", "syncing"], labelKey: "library.subtitleGeneration.prepareStage" },
+  { phases: ["preparing", "extracting", "ocr", "transcribing", "syncing"], labelKey: "library.subtitleGeneration.prepareStage" },
   { phases: ["glossary"], labelKey: "library.subtitleGeneration.glossaryStage" },
   { phases: ["translating"], labelKey: "library.subtitleGeneration.translateStage" },
   { phases: ["validating", "compressing"], labelKey: "library.subtitleGeneration.qualityStage" },
@@ -200,6 +206,10 @@ interface SubtitleProgress {
   model_requests: number;
   model_tokens: number;
   uses_ocr: boolean;
+  /** 来源是音轨识别（本地语音模型），第一步显示为「识别台词」 */
+  uses_asr: boolean;
+  /** 本机正在为播放转码，识别暂停中 */
+  transcribe_paused: boolean;
   /** 读取阶段还在排队等别的文件读完（同一时间只通读一个视频） */
   extract_queued: boolean;
   target_language: string | null;
@@ -253,6 +263,8 @@ function subtitleProgress(job: JobView | null): SubtitleProgress | null {
     model_requests: detailNumber(job.usage, "request_count"),
     model_tokens: detailNumber(job.usage, "total_tokens"),
     uses_ocr: details.uses_ocr === true,
+    uses_asr: details.uses_asr === true,
+    transcribe_paused: details.transcribe_paused === true,
     extract_queued: details.extract_queued === true,
     target_language:
       detailString(details, "target_language") ??
@@ -301,6 +313,10 @@ function sourceKeyLabel(key: string | null, locale: AppLocale): string | null {
     const index = Number(key.slice("embedded:".length));
     return Number.isFinite(index) ? t("library.subtitleGeneration.sourceTrack", { index: index + 1 }) : t("library.subtitleGeneration.sourceEmbedded");
   }
+  if (key.startsWith("audio:")) {
+    const index = Number(key.slice("audio:".length));
+    return Number.isFinite(index) ? t("library.subtitleGeneration.sourceAudio", { index: index + 1 }) : key;
+  }
   return key.startsWith("external:") ? key.slice("external:".length) : key;
 }
 
@@ -319,6 +335,11 @@ function runningBadgeText(progress: SubtitleProgress | null, locale: AppLocale):
   if (progress?.phase === "translating") {
     const percent = progressPercent(progress);
     return percent === null ? t("library.subtitleGeneration.translating") : `AI ${percent}%`;
+  }
+  if (progress?.phase === "transcribing") {
+    if (progress.transcribe_paused) return t("library.subtitleGeneration.transcribePaused");
+    const percent = progressPercent(progress);
+    return percent === null ? t("library.subtitleGeneration.transcribing") : t("library.subtitleGeneration.transcribePercent", { percent });
   }
   if (progress?.phase === "extracting") {
     if (progress.extract_queued) return t("library.subtitleGeneration.queuedRead");
@@ -394,7 +415,12 @@ function ProgressDetails({
         {PROGRESS_STAGES.map((stage, index) => {
           const completed = index < currentStage;
           const current = index === currentStage;
-          const label = index === 0 && progress.uses_ocr ? t("library.subtitleGeneration.ocrStage") : t(stage.labelKey);
+          const label =
+            index === 0 && progress.uses_asr
+              ? t("library.subtitleGeneration.asrStage")
+              : index === 0 && progress.uses_ocr
+                ? t("library.subtitleGeneration.ocrStage")
+                : t(stage.labelKey);
           return (
             <li
               key={stage.labelKey}
@@ -447,6 +473,8 @@ export function SubtitleGenPanel({
   const [sourceCandidateKey, setSourceCandidateKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<SubtitleGenerationPreview | null>(null);
   const [pgsOcrLanguage, setPgsOcrLanguage] = useState("");
+  // 识别过的音轨默认复用上次的结果；用户勾了才重新识别（随每次预检重置）
+  const [retranscribe, setRetranscribe] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<"preview" | "status">("preview");
   const [previewing, setPreviewing] = useState(false);
@@ -499,6 +527,7 @@ export function SubtitleGenPanel({
     target: string,
     secondary: string | null,
     sourceKey: string | null = null,
+    again = false,
   ) => {
     cancelPreview();
     const requestId = previewRequestRef.current;
@@ -509,6 +538,7 @@ export function SubtitleGenPanel({
     setDialogOpen(true);
     setPreview(null);
     setPgsOcrLanguage("");
+    setRetranscribe(again);
     setRequestError(null);
     setPreviewing(true);
 
@@ -516,7 +546,7 @@ export function SubtitleGenPanel({
 
     try {
       const result = await previewSubtitleGeneration(
-        file.id, target, secondary, sourceKey, controller.signal,
+        file.id, target, secondary, sourceKey, controller.signal, again,
       );
       if (!isCurrent()) return;
       setPreview(result);
@@ -562,6 +592,7 @@ export function SubtitleGenPanel({
         pgsOcrLanguage: convertPgs ? pgsOcrLanguage || null : null,
         secondaryLanguage: bilingual ? secondaryLanguage : null,
         sourceCandidateKey,
+        retranscribe: retranscribe && sourceCandidateKey?.startsWith("audio:") === true,
       });
       upsert(started);
       setDialogOpen(false);
@@ -576,6 +607,7 @@ export function SubtitleGenPanel({
     file.id,
     pgsOcrLanguage,
     preview,
+    retranscribe,
     secondaryLanguage,
     sourceCandidateKey,
     targetLanguage,
@@ -691,6 +723,12 @@ export function SubtitleGenPanel({
   const selectedCandidate = preview?.candidates.find(
     (candidate) => candidateKey(candidate) === preview.selected_source_key,
   );
+  // 识别过的文件（有识别外挂）选中音轨时，才有「重新识别」可选
+  const canRetranscribe =
+    selectedCandidate?.kind === "audio" &&
+    preview?.candidates.some(
+      (candidate) => candidate.kind === "external" && candidate.provenance === "asr",
+    ) === true;
   const pgsConversion = preview?.pgs_conversion;
   const canPreparePgs =
     preview?.blocker?.code === "pgs_conversion_required" &&
@@ -783,7 +821,9 @@ export function SubtitleGenPanel({
                   ? running
                     ? t("library.subtitleGeneration.backgroundHint")
                     : t("library.subtitleGeneration.resultHint")
-                  : t("library.subtitleGeneration.confirmHint")}
+                  : preview?.chosen_key?.startsWith("audio:") && preview.estimated_tokens === 0
+                    ? t("library.subtitleGeneration.asrConfirmHint")
+                    : t("library.subtitleGeneration.confirmHint")}
               </p>
             </div>
           </div>
@@ -999,6 +1039,30 @@ export function SubtitleGenPanel({
                       {t("library.subtitleGeneration.imageSelected")}
                     </p>
                   )}
+                  {canRetranscribe && (
+                    <label className="mt-3 flex cursor-pointer items-start gap-2 text-sub text-white/75">
+                      <input
+                        type="checkbox"
+                        checked={retranscribe}
+                        disabled={starting}
+                        onChange={(event) =>
+                          void loadPreview(
+                            targetLanguage,
+                            bilingual ? secondaryLanguage : null,
+                            sourceCandidateKey,
+                            event.target.checked,
+                          )
+                        }
+                        className="mt-0.5 size-4 shrink-0 accent-[var(--info)]"
+                      />
+                      <span>
+                        {t("library.subtitleGeneration.retranscribe")}
+                        <span className="mt-0.5 block text-caption leading-5 text-[var(--text-faint)]">
+                          {t("library.subtitleGeneration.retranscribeHint")}
+                        </span>
+                      </span>
+                    </label>
+                  )}
                 </div>
               )}
 
@@ -1099,11 +1163,14 @@ export function SubtitleGenPanel({
                       </span>
                     </div>
                     <p className="tnum mt-1.5 text-sub text-[var(--text-muted)]">
-                      {preview.reference_notice
-                        ? preview.estimated_tokens > 0
-                          ? t("library.subtitleGeneration.runtimeEstimate", { estimate: tokenEstimate(preview.estimated_tokens, locale) })
-                          : t("library.subtitleGeneration.afterReadEstimate")
-                        : t("library.subtitleGeneration.dialogueEstimate", { count: preview.event_count, estimate: tokenEstimate(preview.estimated_tokens, locale) })}
+                      {/* 复用上次的识别结果时既有说明又有确切条数：按条数估，不算「按片长粗估」 */}
+                      {chosen.kind === "audio" && preview.estimated_tokens === 0
+                        ? t("library.subtitleGeneration.noAiCost")
+                        : preview.reference_notice && preview.event_count === 0
+                          ? preview.estimated_tokens > 0
+                            ? t("library.subtitleGeneration.runtimeEstimate", { estimate: tokenEstimate(preview.estimated_tokens, locale) })
+                            : t("library.subtitleGeneration.afterReadEstimate")
+                          : t("library.subtitleGeneration.dialogueEstimate", { count: preview.event_count, estimate: tokenEstimate(preview.estimated_tokens, locale) })}
                     </p>
                   </div>
 

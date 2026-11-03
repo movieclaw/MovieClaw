@@ -155,7 +155,7 @@ export interface TaskActivityBadge {
   alert: boolean;
   /** 要展示的数字；为 0 表示不该出现角标。 */
   count: number;
-  /** 点击落点（含视角查询参数）。 */
+  /** 点击落点（含视角查询参数），给 Netflix 两段版式选中「任务」段；银玻璃没有两段，入口一律落总览（#1100）。 */
   href: string;
   /** 无障碍/悬浮提示文案。 */
   hint: string;

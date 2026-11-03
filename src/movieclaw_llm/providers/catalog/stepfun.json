@@ -1,0 +1,222 @@
+{
+ "api": "https://api.stepfun.com/v1",
+ "fetched_at": "2026-10-30T10:25:11Z",
+ "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
+ "models": {
+  "step-3.5-flash": {
+   "cost": {
+    "cache_read": 0.02092,
+    "input": 0.10461,
+    "output": 0.31384
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 256000,
+    "input": 256000,
+    "output": 256000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Step 3.5 Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high"
+     ]
+    }
+   ],
+   "release_date": "2026-01-29",
+   "temperature": true,
+   "tool_call": true
+  },
+  "step-3.5-flash-2603": {
+   "cost": {
+    "cache_read": 0.02092,
+    "input": 0.10461,
+    "output": 0.31384
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 256000,
+    "input": 256000,
+    "output": 256000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Step 3.5 Flash 2603",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high"
+     ]
+    }
+   ],
+   "release_date": "2026-04-02",
+   "temperature": true,
+   "tool_call": true
+  },
+  "step-3.7-flash": {
+   "cost": {
+    "cache_read": 0.04035,
+    "input": 0.20175,
+    "output": 1.21052
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 256000,
+    "input": 256000,
+    "output": 256000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Step 3.7 Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "medium",
+      "high"
+     ]
+    }
+   ],
+   "release_date": "2026-05-29",
+   "temperature": true,
+   "tool_call": true
+  },
+  "step-5-preview": {
+   "cost": {
+    "cache_read": 0.10461,
+    "input": 1.04613,
+    "output": 2.98895
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1000000,
+    "input": 1000000,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Step 5 Preview",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "medium",
+      "high"
+     ]
+    }
+   ],
+   "release_date": "2026-09-16",
+   "temperature": true,
+   "tool_call": true
+  },
+  "step-tts-2": {
+   "limit": {
+    "context": 0,
+    "output": 0
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "audio"
+    ]
+   },
+   "name": "Step TTS 2",
+   "reasoning": false,
+   "release_date": "2026-03-01",
+   "temperature": false,
+   "tool_call": false,
+   "type": "speech"
+  },
+  "stepaudio-2.5-asr": {
+   "limit": {
+    "context": 0,
+    "output": 0
+   },
+   "modalities": {
+    "input": [
+     "audio"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "StepAudio 2.5 ASR",
+   "reasoning": false,
+   "release_date": "2026-04-24",
+   "temperature": false,
+   "tool_call": false,
+   "type": "transcription"
+  },
+  "stepaudio-2.5-tts": {
+   "limit": {
+    "context": 0,
+    "output": 0
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "audio"
+    ]
+   },
+   "name": "StepAudio 2.5 TTS",
+   "reasoning": false,
+   "release_date": "2026-04-16",
+   "temperature": false,
+   "tool_call": false,
+   "type": "speech"
+  }
+ },
+ "name": "StepFun (China)"
+}

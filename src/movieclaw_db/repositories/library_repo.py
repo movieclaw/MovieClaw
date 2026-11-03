@@ -229,9 +229,13 @@ class LibraryRepository:
         access_mode: str = "everyone",
         admin_visible: bool = True,
         keep_local: bool = False,
+        source_config: dict | None = None,
     ) -> Library:
         """新增一个库。该 kind 尚无默认库时，新库自动成为默认。新库置于
-        展示顺序末尾（现有最大 sort_order + 1，不打乱用户排好的顺序）。"""
+        展示顺序末尾（现有最大 sort_order + 1，不打乱用户排好的顺序）。
+
+        ``source_config`` 是外部库源（source_providers 注册表登记的来源）的
+        连接配置，内容由登记方定义，这里只透传存储。"""
         existing = await self.list_all()
         row = Library(
             name=name,
@@ -250,6 +254,7 @@ class LibraryRepository:
             access_mode=access_mode,
             admin_visible=admin_visible,
             keep_local=keep_local,
+            source_config=source_config,
             is_default=await self.get_default(kind) is None,
             sort_order=max((lib.sort_order for lib in existing), default=0) + 1,
         )
@@ -288,6 +293,7 @@ class LibraryRepository:
         access_mode: str | None = None,
         admin_visible: bool | None = None,
         keep_local: bool | None = None,
+        source_config: dict | None = None,
     ) -> Library | None:
         """更新名称/根路径/收藏范围（kind 创建后不可改）；不存在返回 None。
 
@@ -325,6 +331,9 @@ class LibraryRepository:
         if scrape_overrides is not None:
             # 空字典 = 显式清空覆盖（回到全跟全局）；None = 不改动
             row.scrape_overrides = scrape_overrides or None
+        if source_config is not None:
+            # 空字典 = 显式清空外部库源配置；None = 不改动
+            row.source_config = source_config or None
         row.updated_at = utcnow()
         await self._session.commit()
         await self._session.refresh(row)

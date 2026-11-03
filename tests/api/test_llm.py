@@ -227,7 +227,9 @@ def test_ai_defaults_auto_set_on_first_provider_then_configured(client) -> None:
     first_payload = {k: v for k, v in _PAYLOAD.items() if k != "default_model"}
     bailian = c.post("/api/v1/llm/providers", json=first_payload).json()["data"]
     presets = {p["id"]: p for p in c.get("/api/v1/llm/presets").json()["data"]}
-    flagship = presets["bailian"]["models"][0]["id"]
+    # 引用一律「实例名/模型id」（docs/design/llm-model-catalog.md §7）
+    flagship = "百炼/" + presets["bailian"]["models"][0]["id"]
+    local = "家里的 vLLM/my-local-model"
     defaults = c.get("/api/v1/llm/defaults").json()["data"]
     assert defaults == {
         "agent_model": flagship,
@@ -245,13 +247,14 @@ def test_ai_defaults_auto_set_on_first_provider_then_configured(client) -> None:
     )
     assert r.status_code == 200, r.text
     data = r.json()["data"]
-    assert data["agent_model"] == "my-local-model"
-    assert data["effective_agent_model"] == "my-local-model"
-    assert data["effective_subtitle_model"] == "qwen3.7-max"
+    # API / CLI 传裸 id 也接受，存成限定形式
+    assert data["agent_model"] == local
+    assert data["effective_agent_model"] == local
+    assert data["effective_subtitle_model"] == "百炼/qwen3.7-max"
     # 模型清单里的 is_default 跟随智能体默认模型
     options = {o["ref"]: o for o in c.get("/api/v1/llm/models").json()["data"]}
-    assert options["my-local-model"]["is_default"] is True
-    assert options["qwen3.7-max"]["is_default"] is False
+    assert options[local]["is_default"] is True
+    assert options["百炼/qwen3.7-max"]["is_default"] is False
 
     # 引用不在清单里 → 400
     r = c.put("/api/v1/llm/defaults", json={"agent_model": "nope"})
@@ -268,8 +271,8 @@ def test_ai_defaults_auto_set_on_first_provider_then_configured(client) -> None:
     )
     assert c.delete(f"/api/v1/llm/providers/{bailian['id']}").status_code == 200
     data = c.get("/api/v1/llm/defaults").json()["data"]
-    assert data["agent_model"] == "my-local-model"  # 仍有效，不动
-    assert data["subtitle_model"] == "my-local-model"  # 原指百炼，改指剩下的兼容端点
+    assert data["agent_model"] == local  # 仍有效，不动
+    assert data["subtitle_model"] == local  # 原指百炼，改指剩下的兼容端点
     # 全部删除 → 清空
     assert c.delete(f"/api/v1/llm/providers/{compat['id']}").status_code == 200
     assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] is None
@@ -360,29 +363,26 @@ def test_update_endpoint_change_requires_api_key(client) -> None:
     assert _captured_configs[-1].base_url == "https://new.example.com/v1"
 
 
-def test_model_options_bare_ids_when_unique(client) -> None:
-    """只有一家时清单里全是裸 id；智能体默认模型（未设定时兜底到测试模型）带 is_default。"""
+def test_model_options_always_qualified(client) -> None:
+    """引用一律「实例名/模型id」（目录是动态的，裸 id 会静默换服务商）；只有一家时
+    展示文案是裸 id；智能体默认模型（未设定时兜底到测试模型）带 is_default。"""
     c, _ = client
     c.post("/api/v1/llm/providers", json=_PAYLOAD)
     options = c.get("/api/v1/llm/models").json()["data"]
     by_id = {o["model_id"]: o for o in options}
     assert "qwen3.7-max" in by_id
-    assert by_id["qwen3.7-max"]["ref"] == "qwen3.7-max"
+    assert by_id["qwen3.7-max"]["ref"] == "百炼/qwen3.7-max"
     assert by_id["qwen3.7-max"]["label"] == "qwen3.7-max"
     assert by_id["qwen3.7-max"]["is_default"] is True
     assert by_id["qwen3.7-max"]["provider_name"] == "百炼"
     assert sum(o["is_default"] for o in options) == 1
-    # 目录里的其它模型也都可选（接入一家即可用它全部模型）
+    # 没有服务商列表时，预设目录里的模型都在菜单里（与升级前一致）
     assert len(options) > 1
-    assert all(
-        o["ref"] == (f"百炼/{o['model_id']}" if "/" in o["model_id"] else o["model_id"])
-        for o in options
-    )
+    assert all(o["ref"] == f"百炼/{o['model_id']}" and o["shown"] for o in options)
 
 
 def test_model_options_qualify_conflicting_ids(client) -> None:
-    """同一模型 id 出现在两个实例：引用改为「实例名/模型id」、展示加括号；
-    其它不冲突的 id 保持裸 id。"""
+    """同一模型 id 出现在两个实例：展示加括号；其它不冲突的 id 展示为裸 id。"""
     c, _ = client
     c.post("/api/v1/llm/providers", json=_PAYLOAD)
     # 兼容端点借用百炼目录里的 qwen3.7-max（同 id）
@@ -407,9 +407,7 @@ def test_model_options_qualify_conflicting_ids(client) -> None:
     assert conflicted[1]["is_default"] is False
     others = [o for o in options if o["model_id"] != "qwen3.7-max"]
     assert others and all(
-        o["ref"]
-        == (f"{o['provider_name']}/{o['model_id']}" if "/" in o["model_id"] else o["model_id"])
-        and "（" not in o["label"]
+        o["ref"] == f"{o['provider_name']}/{o['model_id']}" and "（" not in o["label"]
         for o in others
     )
 
@@ -684,8 +682,7 @@ def test_slash_model_id_is_always_qualified(client) -> None:
 
 def test_defaults_follow_ref_respelling(client) -> None:
     """引用拼写随实例集合变化时，用户的设定按稳定身份改写而不是被重置：
-    第二家借用同 id → 裸 id 变限定形式；实例改名 → 前半段跟着改；
-    第二家删除 → 降回裸 id。"""
+    升级前存的裸 id 改写成限定形式；实例改名 → 前半段跟着改；第二家增删 → 引用不变。"""
     c, _ = client
     bailian = c.post("/api/v1/llm/providers", json=_PAYLOAD).json()["data"]
     r = c.put("/api/v1/llm/defaults", json={"agent_model": "qwen3.7-plus"})
@@ -709,9 +706,9 @@ def test_defaults_follow_ref_respelling(client) -> None:
     )
     assert r.status_code == 200, r.text
     assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] == "百炼-主/qwen3.7-plus"
-    # 删除中转 → 不再冲突，降回裸 id
+    # 删除中转 → 引用不变（一律限定，不再随冲突与否改拼写）
     assert c.delete(f"/api/v1/llm/providers/{relay['id']}").status_code == 200
-    assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] == "qwen3.7-plus"
+    assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] == "百炼-主/qwen3.7-plus"
 
 
 def test_discover_draft_does_not_save_provider(client) -> None:
@@ -766,7 +763,7 @@ def test_openai_custom_effort_model_does_not_require_thinking_output_or_budget(c
     assert response.status_code == 200, response.text
     options = {o["model_id"]: o for o in c.get("/api/v1/llm/models").json()["data"]}
     assert options["my-finetuned-model"]["thinking_levels"] == ["low", "high"]
-    assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] == "my-finetuned-model"
+    assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] == "官方/my-finetuned-model"
 
 
 def test_chat_configuration_excludes_responses_only_tools_and_limits_effort_menu(client) -> None:
@@ -928,7 +925,7 @@ def test_discover_save_verify_and_edit_through_real_sdk(client, model_gateway, m
     created = c.post("/api/v1/llm/providers", json={**draft, "default_model": "gpt-6-luna"})
     assert created.status_code == 200, created.text
     assert _first(c)["status"] == "active"
-    assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] == "gpt-6-luna"
+    assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] == "官方/gpt-6-luna"
     assert [r[0] for r in requests] == ["/v1/models", "/v1/responses", "/v1/models"]
     assert requests[1][1]["model"] == "gpt-6-luna"
     assert requests[1][1]["max_output_tokens"] == 16

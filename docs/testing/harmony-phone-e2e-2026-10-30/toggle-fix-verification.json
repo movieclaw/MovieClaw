@@ -1,0 +1,6 @@
+{
+  "appHapSha256": "97f1ae9e791b82d95ee7440eaf89550106290b9e2a51c2b118ae6e0b5231d57a",
+  "change": "Play/pause builder directly observes traced playing state",
+  "newScenario": "3 pause/resume cycles per engine; glyph polling deadline 500ms after UiTest click returns; stopped/advancing clock assertions",
+  "scope": "AVPlayer and MPV on ARM64 API24 emulator; not a frame-accurate latency benchmark"
+}

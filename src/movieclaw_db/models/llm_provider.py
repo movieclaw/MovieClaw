@@ -66,3 +66,14 @@ class LlmProvider(TimestampMixin, table=True):
     extra_models: list[dict] | None = Field(
         default=None, sa_column=Column(JSON), description="用户补录的模型目录（含参数）"
     )
+    # 模型目录（docs/design/llm-model-catalog.md）。服务商 /models 列表的缓存：
+    # {"fetched_at", "source": provider/unsupported/none, "error", "models": [{"id", ...}]}
+    model_listing: dict | None = Field(
+        default=None, sa_column=Column(JSON), description="服务商模型列表缓存"
+    )
+    # 用户在「管理模型」里改过的选择 {"show": [...], "hide": [...]}，只存改动
+    model_visibility: dict | None = Field(
+        default=None, sa_column=Column(JSON), description="模型显示/隐藏选择"
+    )
+    # 兼容端点对应的公共目录服务商；NULL = 按 base_url 自动识别（预设实例用预设的）
+    catalog_id: str | None = Field(default=None, description="公共目录服务商 id")

@@ -35,6 +35,7 @@ SEPARATOR = "\n---\n\n## 简体中文\n"
 CLIENT_PRODUCTS = {
     "ios": "iphone", "tvos": "appletv", "macos": "mac", "transcoder": "transcoder",
     "android": "android", "androidtv": "androidtv", "windows": "windows",
+    "harmony": "harmony",
 }
 
 

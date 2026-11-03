@@ -78,7 +78,7 @@ from movieclaw_api.services.library.items import (
     backdrop_facts_many,
     poster_facts_many,
 )
-from movieclaw_api.services.library.profile import profile_for
+from movieclaw_api.services.library.profile import profile_of_values
 from movieclaw_api.services.media_extract import window_format
 from movieclaw_api.services.media_scrape import asset_version
 from movieclaw_api.services.people_images import avatar_url
@@ -161,10 +161,12 @@ async def _playable_library_kinds(session: AsyncSession, principal: Principal) -
             Library.id.in_(visible),  # type: ignore[union-attr]
         )
     )
+    # profile_of_values：存量库统一入口，插件停用的孤儿外部库回落孤儿档案
+    #（playable 照常可用）而不是让 /reels 整体 400（PR #1111 审查意见 1）
     return {
         int(lid): str(kind)
         for lid, kind, source in rows.all()
-        if profile_for(kind, source).playable
+        if profile_of_values(str(kind), str(source)).playable
     }
 
 

@@ -1,6 +1,7 @@
 import { appInfoManager } from '@kit.AppGalleryKit';
+import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
-import { PageTopBar } from '../common/PageTopBar';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppFooter } from '../common/AppFooter';
 import { AppIconStore, DesktopIcons, DesktopIconState, appLogoResource } from '../common/AppIcon';
 
@@ -37,6 +38,8 @@ export function IconPickerBuilder() {
 @ComponentV2
 export struct IconPickerPage {
   private navStack: NavPathStack = new NavPathStack();
+  /** 整页滚动器：内容铺到标题栏下面，滚动时驱动标题栏渐变（同根页签） */
+  @Param scroller: Scroller = new Scroller();
   @Local private selected: number = -1;
   @Local private desktop: DesktopIconState = new DesktopIconState();
   @Local private desktopLoaded: boolean = false;
@@ -133,94 +136,121 @@ export struct IconPickerPage {
     this.desktop = await DesktopIcons.query();
   }
 
+  /** 应用内图标按三个一行分好组（原来是 Grid，三段各自滚动做不到标题栏渐变） */
+  private iconRows(): IconOption[][] {
+    const rows: IconOption[][] = [];
+    for (let start: number = 0; start < this.options.length; start += 3) {
+      rows.push(this.options.slice(start, start + 3));
+    }
+    return rows;
+  }
+
   build() {
-    NavDestination() {
-      Column() {
-        PageTopBar({ title: '图标', onBack: (): void => {
-          this.navStack.pop();
-        }})
+    HdsNavDestination() {
+      /*
+       * 整页一个 List：桌面图标卡、小节标题、每行三个的应用内图标、页脚都在同一个滚动区里。
+       * 内容从 y=0 铺到标题栏下面，滚动时标题栏从透明渐显磨砂（同根页签）。
+       */
+      List({ scroller: this.scroller }) {
         // —— 桌面图标：真换桌面图标的这一节（AGC 图标管理服务）——
-        Column({ space: 10 }) {
-          Text('桌面图标')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
-            .width('100%')
-          if (!this.desktopLoaded) {
-            Row({ space: 8 }) {
-              LoadingProgress()
-                .width(16)
-                .height(16)
-                .color(Theme.textFaint)
-              Text('正在查询可用的动态图标…')
+        ListItem() {
+          Column({ space: 10 }) {
+            Text('桌面图标')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
+              .width('100%')
+            if (!this.desktopLoaded) {
+              Row({ space: 8 }) {
+                LoadingProgress()
+                  .width(16)
+                  .height(16)
+                  .color(Theme.textFaint)
+                Text('正在查询可用的动态图标…')
+                  .fontSize(12)
+                  .fontColor(Theme.textFaint)
+              }
+            } else if (this.desktop.available) {
+              Scroll() {
+                Row({ space: 12 }) {
+                  this.DesktopDefaultTile()
+                  ForEach(this.desktop.icons, (icon: appInfoManager.DynamicIconInfo, index: number) => {
+                    this.DesktopIconTile(icon, index)
+                  }, (icon: appInfoManager.DynamicIconInfo) => icon.iconId)
+                }
+                .padding({ bottom: 2 })
+              }
+              .scrollable(ScrollDirection.Horizontal)
+              .scrollBar(BarState.Off)
+              .width('100%')
+              .align(Alignment.Start)
+            } else {
+              Text(this.desktop.message)
                 .fontSize(12)
                 .fontColor(Theme.textFaint)
+                .width('100%')
             }
-          } else if (this.desktop.available) {
-            Scroll() {
-              Row({ space: 12 }) {
-                this.DesktopDefaultTile()
-                ForEach(this.desktop.icons, (icon: appInfoManager.DynamicIconInfo, index: number) => {
-                  this.DesktopIconTile(icon, index)
-                }, (icon: appInfoManager.DynamicIconInfo) => icon.iconId)
-              }
-              .padding({ bottom: 2 })
-            }
-            .scrollable(ScrollDirection.Horizontal)
-            .scrollBar(BarState.Off)
-            .width('100%')
-            .align(Alignment.Start)
-          } else {
-            Text(this.desktop.message)
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+          .padding(14)
+          .backgroundColor(Theme.surface)
+          .borderRadius(Theme.cardRadius)
+          .border({ width: 1, color: Theme.line })
+          .margin({ top: 8 })
+        }
+
+        // —— 应用内图标 ——
+        ListItem() {
+          Column({ space: 4 }) {
+            Text('应用内图标')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.text)
+              .width('100%')
+            Text('用在「关于」页等应用内的图标展示位')
               .fontSize(12)
               .fontColor(Theme.textFaint)
               .width('100%')
           }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+          .padding({ top: 16 })
         }
-        .alignItems(HorizontalAlign.Start)
-        .width('100%')
-        .padding(14)
-        .backgroundColor(Theme.surface)
-        .borderRadius(Theme.cardRadius)
-        .border({ width: 1, color: Theme.line })
-        .margin({ left: 16, right: 16, top: 8 })
 
-        // —— 应用内图标 ——
-        Text('应用内图标')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
-          .width('100%')
-          .padding({ left: 16, top: 16 })
-        Text('用在「关于」页等应用内的图标展示位')
-          .fontSize(12)
-          .fontColor(Theme.textFaint)
-          .width('100%')
-          .padding({ left: 16 })
-
-        Grid() {
-          ForEach(this.options, (option: IconOption) => {
-            GridItem() {
-              this.IconCell(option)
+        ForEach(this.iconRows(), (row: IconOption[], rowIndex: number) => {
+          ListItem() {
+            Row() {
+              ForEach(row, (option: IconOption) => {
+                Column() {
+                  this.IconCell(option)
+                }
+                .width('33.33%')
+                .padding({ left: 7, right: 7 })
+              }, (option: IconOption) => `opt-${option.index}`)
             }
-          }, (option: IconOption) => `opt-${option.index}`)
-        }
-        .columnsTemplate('1fr 1fr 1fr')
-        .columnsGap(14)
-        .rowsGap(16)
-        .padding({ left: 16, right: 16, top: 14, bottom: 16 })
-        .width('100%')
-        .layoutWeight(1)
-        .scrollBar(BarState.Off)
+            .width('100%')
+            .alignItems(VerticalAlign.Top)
+            .padding({ top: 14 })
+          }
+        }, (row: IconOption[], rowIndex: number) => `row-${rowIndex}`)
 
-        AppFooter({ topSpace: 0 })
-          .padding({ left: 16, right: 16, bottom: Theme.tabBarInset })
+        ListItem() {
+          AppFooter({ topSpace: 0 })
+        }
       }
       .width('100%')
-      .height('100%')
-      .backgroundColor($r('app.color.bg'))
+      .layoutWeight(1)
+      .padding({ left: 16, right: 16 })
+      .contentStartOffset(AppNavBar.contentTop)
+      .contentEndOffset(Theme.tabBarInset)
+      .scrollBar(BarState.Off)
     }
-    .hideTitleBar(true)
+    // 二级页标题栏：与根页签同一套「沉浸光感渐变模糊 + 自适应材质」（见 common/AppNavBar）
+    .titleMode(HdsNavDestinationTitleMode.MINI)
+    .titleBar(AppNavBar.subPageTitleBar('图标'))
+    .bindToScrollable([this.scroller])
+    .dynamicHideTitleBar(AppNavBar.dynamicHide())
     .onReady((ctx: NavDestinationContext) => {
       this.navStack = ctx.pathStack;
     })

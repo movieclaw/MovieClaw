@@ -9,6 +9,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.rememberScrollableState
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -287,6 +291,8 @@ fun PosterCard(
     instanceKey: String? = null,
     onAction: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    /** 长按（已下载的条目：「删除下载」菜单） */
+    onLongClick: (() -> Unit)? = null,
 ) {
     val host = LocalPosterReveal.current
     val cardKey = instanceKey ?: (title + "@" + imageUrl.orEmpty())
@@ -299,7 +305,13 @@ fun PosterCard(
         else -> null
     }
     Column(
-        modifier = modifier.then(if (tap != null) Modifier.clickable(onClick = tap) else Modifier),
+        modifier = modifier.then(
+            when {
+                onLongClick != null -> Modifier.combinedClickable(onClick = tap ?: {}, onLongClick = onLongClick)
+                tap != null -> Modifier.clickable(onClick = tap)
+                else -> Modifier
+            },
+        ),
     ) {
         Box(
             Modifier
@@ -839,8 +851,18 @@ fun LibraryItemCard(
     origin: String?,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    /** 长按（已下载的条目：「删除下载」菜单） */
+    onLongClick: (() -> Unit)? = null,
 ) {
-    Column(modifier.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
+    Column(
+        modifier.then(
+            when {
+                onLongClick != null -> Modifier.combinedClickable(onClick = onClick ?: {}, onLongClick = onLongClick)
+                onClick != null -> Modifier.clickable(onClick = onClick)
+                else -> Modifier
+            },
+        ),
+    ) {
         Box(
             Modifier
                 .fillMaxWidth()
@@ -974,3 +996,14 @@ fun Modifier.formSheetScroll(): Modifier = this.nestedScroll(object : androidx.c
         source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
     ): androidx.compose.ui.geometry.Offset = available
 })
+
+/**
+ * 面板正文（不含可拖动的头部）：子列表照常滚动，空白、分隔线和固定按钮上的纵向
+ * 手势也在正文内消耗。仅 nestedScroll 无法拦住这些区域触发的面板直接拖拽。
+ * scrollable 只消费位移，不移动正文，也不改变子列表的测量约束。
+ */
+@Composable
+fun Modifier.formSheetContent(): Modifier = formSheetScroll().scrollable(
+    state = rememberScrollableState { delta -> delta },
+    orientation = Orientation.Vertical,
+)

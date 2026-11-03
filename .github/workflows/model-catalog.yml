@@ -1,0 +1,53 @@
+name: Model catalog sync
+
+# 每周把 models.dev 的公共模型目录同步成随包快照（docs/design/llm-model-catalog.md §9.1），
+# 有变化就开 PR 附变化报告，人工审阅后合并。上游删除模型时 PR 标题注明。
+# 注意：GITHUB_TOKEN 开的 PR 不会自动触发 CI，审阅时手动点一次 ci（重点看
+# tests/llm/unit/test_catalog.py 的预设回归——失败说明要在 yaml 里显式写出新字段）。
+
+on:
+  schedule:
+    - cron: "17 2 * * 1"  # 每周一 02:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: model-catalog-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'movieclaw/MovieClaw'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - name: Sync snapshot
+        run: python scripts/sync_model_catalog.py --report "$RUNNER_TEMP/report.md"
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- src/movieclaw_llm/providers/catalog; then
+            echo "快照无变化"; exit 0
+          fi
+          branch="chore/model-catalog-$(date -u +%Y%m%d)"
+          title="chore(llm): 同步公共模型目录快照 $(date -u +%Y-%m-%d)"
+          if grep -q '\*\*删除\*\*' "$RUNNER_TEMP/report.md"; then
+            title="$title（含上游删除的模型）"
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add src/movieclaw_llm/providers/catalog
+          git commit -m "$title"
+          git push --force origin "$branch"
+          gh pr create --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/report.md" \
+            || gh pr edit "$branch" --title "$title" --body-file "$RUNNER_TEMP/report.md"

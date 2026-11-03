@@ -1,4 +1,6 @@
+import { AppNavBar } from '../common/AppNavBar';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls, ImageVariant } from '../common/ImageUrls';
@@ -72,6 +74,8 @@ export struct DiscoverFilteredGrid {
   @Require @Param mediaType: string;
   /** 共享单例：弹层改它、这里盯着它重查（同 iOS 的 `@Binding var filters`） */
   @Require @Param filters: DiscoveryFilters;
+  /** 与发现页共用同一个滚动器（宿主 bindToScrollable 驱动标题栏显隐） */
+  @Param scroller: Scroller = new Scroller();
 
   @Local private items: DiscoveredTitleView[] = [];
   @Local private totalResults: number = 0;
@@ -232,7 +236,13 @@ export struct DiscoverFilteredGrid {
 
   build() {
     Column() {
-      List() {
+      List({ scroller: this.scroller }) {
+        // 内容从 y=0 铺到标题栏下面：首屏空出标题栏高度（滚动时这段跟着走）
+        ListItem() {
+          Column()
+            .width('100%')
+            .height(AppNavBar.contentTop)
+        }
         ListItem() {
           this.Header()
         }
@@ -243,17 +253,18 @@ export struct DiscoverFilteredGrid {
                 .fontSize(14)
                 .fontColor(Theme.textMuted)
                 .textAlign(TextAlign.Center)
-              Text('重试')
-                .fontSize(15)
-                .fontWeight(600)
-                .fontColor(Theme.accentStrong)
-                .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-                .backgroundColor(Theme.glassFill)
-                .borderRadius(20)
-                .border({ width: 1, color: Theme.lineStrong })
-                .onClick(() => {
-                  this.reset();
-                })
+              Button() {
+                Text('重试')
+                  .fontSize(15)
+                  .fontWeight(600)
+                  .fontColor(Theme.accentStrong)
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+              .borderRadius(20)
+              .onClick(() => {
+                this.reset();
+              })
             }
             .width('100%')
             .alignItems(HorizontalAlign.Center)
@@ -352,11 +363,12 @@ export struct DiscoverFilteredGrid {
       .layoutWeight(1)
       .edgeEffect(EdgeEffect.Spring)
       .cachedCount(2)
+      // 一次 padding 写全：同链两次 .padding 是覆盖不是合并，之前 bottom 那次把左右边距抹掉了
+      .contentEndOffset(Theme.tabBarInset)
       .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
       .onReachEnd(() => {
         this.loadPage();
       })
-      .padding({ bottom: Theme.tabBarInset })
     }
     .width('100%')
     .height('100%')
@@ -402,18 +414,21 @@ export struct DiscoverFilteredGrid {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
 
-        Row({ space: 5 }) {
-          SymbolGlyph($r('sys.symbol.slider_horizontal_2'))
-            .fontSize(14)
-            .fontColor([Theme.textMuted])
-          Text('调整条件')
-            .fontSize(13)
-            .fontColor(Theme.textMuted)
+        Button() {
+          Row({ space: 5 }) {
+            SymbolGlyph($r('sys.symbol.slider_horizontal_2'))
+              .fontSize(14)
+              .fontColor([Theme.textMuted])
+            Text('调整条件')
+              .fontSize(13)
+              .fontColor(Theme.textMuted)
+          }
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
         }
-        .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-        .backgroundColor(Theme.glassFill)
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding(0)
+        .clip(true)
         .borderRadius(18)
-        .border({ width: 1, color: Theme.line })
         .onClick(() => {
           this.showSheet = true;
         })
@@ -425,15 +440,17 @@ export struct DiscoverFilteredGrid {
         Scroll() {
           Row({ space: 8 }) {
             if (this.filters.activeCount() > 0) {
-              Text('✕ 清空')
-                .fontSize(12)
-                .fontColor(Theme.danger)
-                .padding({ left: 11, right: 11, top: 6, bottom: 6 })
-                .backgroundColor(Theme.glassFill)
-                .borderRadius(14)
-                .onClick(() => {
-                  this.filters.clear();
-                })
+              Button() {
+                Text('✕ 清空')
+                  .fontSize(12)
+                  .fontColor(Theme.danger)
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .padding({ left: 11, right: 11, top: 6, bottom: 6 })
+              .borderRadius(14)
+              .onClick(() => {
+                this.filters.clear();
+              })
             }
             ForEach(this.summaryLabels(), (label: string) => {
               this.SummaryChip(label)

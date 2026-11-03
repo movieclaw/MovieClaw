@@ -1,5 +1,7 @@
 package io.movieclaw.android.core.network
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import kotlinx.serialization.Serializable
 
 /** GET /server/addresses：这台服务器的访问地址簿（内网 / 外网） */
@@ -30,6 +32,12 @@ object ServerRoutes {
     enum class Route(val header: String) { LAN("lan"), VPN("vpn"), WAN("wan") }
 
     @Volatile var provider: ((origin: String?) -> String?)? = null
+
+    /**
+     * 当前入口（绝对 origin），与 [provider] 同步更新。用 Compose 快照状态：图片在组合里读它，
+     * 换入口时自动重组、按新地址重新取图（切换中失败、重试用完的卡片不会一直停在占位图）。
+     */
+    var entry: String? by androidx.compose.runtime.mutableStateOf<String?>(null)
 
     /** 当前入口的路线；还没选路时按外网处理（服务端会把「认不准」往安全的一边算） */
     @Volatile var route: Route = Route.WAN

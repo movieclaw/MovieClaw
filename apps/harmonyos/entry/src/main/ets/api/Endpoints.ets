@@ -5,6 +5,7 @@ import { ApiClient, ApiQuery, QueryPair } from './ApiClient';
 import { JsonValue } from './JsonValue';
 import {
   AccountView,
+  ServerAddressesView,
   ActiveBackdropUpdate,
   ActivityView,
   ApiTokenCreateRequest,
@@ -368,7 +369,7 @@ import {
   WorkerConfigPayload,
 } from './Models';
 
-/** 改自动跳过的请求体 */
+/** 改自动跳过的请求体（总开关或某部剧的片头） */
 interface AutoSkipPayload {
   enabled: boolean;
 }
@@ -788,6 +789,14 @@ export class MovieClawApi {
   /** `GET /auth/me` */
   authMe(): Promise<SessionView> {
     return this.client.get<SessionView>('/auth/me');
+  }
+
+  /**
+   * `GET /server/addresses`：这台服务器的访问地址簿（内网 / 外网）。
+   * 登录可读；内外双地址自动选连用它做候选清单。
+   */
+  serverAddresses(): Promise<ServerAddressesView> {
+    return this.client.get<ServerAddressesView>('/server/addresses');
   }
 
   /** 修改密码（本人其余会话强制下线） */
@@ -2563,6 +2572,12 @@ export class MovieClawApi {
   playbackSessionStart(body: PlaybackSessionRequest): Promise<PlaybackSessionView> {
     const bodyText = (body === undefined || body === null) ? null : JSON.stringify(body);
     return this.client.post<PlaybackSessionView>('/playback/sessions', bodyText);
+  }
+
+  /** `PUT /playback/auto-skip`：自动跳过总开关（跟账号走，随下次会话带回） */
+  playbackAutoSkipSet(enabled: boolean): Promise<boolean> {
+    const payload: AutoSkipPayload = { enabled: enabled };
+    return this.client.put<boolean>('/playback/auto-skip', JSON.stringify(payload));
   }
 
   /** `PUT /playback/auto-skip/intro/{media_item_id}`：这部剧的片头自动跳（学/忘） */

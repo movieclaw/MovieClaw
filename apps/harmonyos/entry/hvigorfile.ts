@@ -48,6 +48,7 @@ function stubContent(): string {
     '  static readonly wanServer: string = \'\';',
     '  static readonly wanUsername: string = \'\';',
     '  static readonly wanPassword: string = \'\';',
+    '  static readonly forceTvMode: boolean = false;',
     '}',
     ''
   ].join('\n');
@@ -55,6 +56,7 @@ function stubContent(): string {
 
 function devContent(env: Map<string, string>): string {
   const get = (key: string): string => esc(env.get(key) ?? '');
+  const forceTv: string = get('FORCE_TV') === 'true' ? 'true' : 'false';
   return [
     '/**',
     ' * 本文件由 hvigorfile.ts 自动生成，勿手改。',
@@ -68,6 +70,7 @@ function devContent(env: Map<string, string>): string {
     `  static readonly wanServer: string = '${get('WAN_SERVER')}';`,
     `  static readonly wanUsername: string = '${get('WAN_USERNAME')}';`,
     `  static readonly wanPassword: string = '${get('WAN_PASSWORD')}';`,
+    `  static readonly forceTvMode: boolean = ${forceTv};`,
     '}',
     ''
   ].join('\n');

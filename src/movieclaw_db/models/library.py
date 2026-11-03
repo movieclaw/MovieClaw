@@ -41,8 +41,23 @@ class Library(TimestampMixin, table=True):
     kind: str = Field(index=True, description="内容形态：movie / tv / video")
     # 身份来源 tmdb / local——与 kind 一起定位能力档案（services/library/profile.py）：
     # (movie, tmdb) 电影库、(tv, tmdb) 剧集库、(video, local) 其他库。
-    # 存量库回填 tmdb
-    source: str = Field(default="tmdb", index=True, description="身份来源：tmdb / local")
+    # 存量库回填 tmdb。插件可经「外部库源」注册表（services/library/
+    # source_providers.py）登记新来源（如飞牛影视），主线不硬编码任何值
+    source: str = Field(
+        default="tmdb", index=True, description="身份来源：tmdb / local / 插件登记的外部库源"
+    )
+    # 来源相关配置（外部库源专用）：远程服务器地址、远程库 id 等由登记该来源
+    # 的插件定义与解释，主线只透传存储、不读里面的任何键。内置来源恒 NULL
+    source_config: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="外部库源的连接/映射配置；内容由来源插件定义，主线不解释",
+    )
+    # 最近一次来源同步时间（外部库源专用）：插件把远程内容同步进台账后回写，
+    # 管理页据此展示"最后同步"。内置来源恒 NULL
+    last_source_sync_at: datetime | None = Field(
+        default=None, description="外部库源最近一次同步时间；NULL=从未同步或内置来源"
+    )
     # 根路径数组，第一个为主根；路径指 movieclaw 视角的绝对路径
     root_paths: list = Field(
         default_factory=list,

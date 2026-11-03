@@ -1,0 +1,64 @@
+{
+  "completed": 3,
+  "playbackAdvanced": 3,
+  "controlsPassed": 3,
+  "fallbackCases": 2,
+  "audioSelectionFailures": [],
+  "unverifiedAudioCases": [],
+  "audioRunning": 3,
+  "missingExpectedAudio": [],
+  "visualReviewNeeded": [],
+  "slowClockCases": [],
+  "failedCases": [],
+  "firstFrameMs": {
+    "count": 1,
+    "min": 1025,
+    "median": 1025,
+    "p95": 1025,
+    "max": 1025
+  },
+  "mpvPlayingMs": {
+    "count": 2,
+    "min": 942,
+    "median": 2885.5,
+    "p95": 4829,
+    "max": 4829
+  },
+  "clockAdvanceMs": {
+    "count": 3,
+    "min": 3125,
+    "median": 3809,
+    "p95": 7115,
+    "max": 7115
+  },
+  "startupClockWaitMs": {
+    "count": 3,
+    "min": 1157,
+    "median": 1347,
+    "p95": 1951,
+    "max": 1951
+  },
+  "negotiationMs": {
+    "count": 3,
+    "min": 118,
+    "median": 186,
+    "p95": 631,
+    "max": 631
+  },
+  "enginePlayingMs": {
+    "count": 3,
+    "min": 298,
+    "median": 371,
+    "p95": 874,
+    "max": 874
+  },
+  "startupBufferMs": {
+    "count": 2,
+    "min": 62,
+    "median": 215.5,
+    "p95": 369,
+    "max": 369
+  },
+  "seekBufferMs": null,
+  "rebufferCases": []
+}

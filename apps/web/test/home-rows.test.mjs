@@ -457,3 +457,22 @@ test("类型色块行：存了就按存的位置与显隐，写回只带 id 与 
   const noTv = buildHomeRows(prefs, [lib(1, "电影")], []);
   assert.equal(noTv.some((row) => row.id === "genres:tv"), false);
 });
+
+test("未看完偏好与旧未观看兼容，首页取数和展开共享条件", async () => {
+  const { homeRowWatch, homeRowHref } = await import("../lib/home-rows.ts");
+  const rows = buildHomeRows({ rows: [
+    { id: "lib:1", sort: "release_date", order: "asc", unfinished: true, unwatched: true },
+    { id: "kind:tv", sort: "rating", unwatched: true },
+  ] }, LIBS, COLS);
+  const row = find(rows, "lib:1");
+  assert.equal(row.unwatched, false);
+  assert.equal(homeRowWatch(row), "unfinished");
+  assert.equal(homeRowHref(row), "/library/1?sort=release_date&order=asc&w=unfinished");
+  const prefs = rowsToPrefs(rows);
+  assert.equal(prefs.find(r => r.id === "lib:1").unfinished, true);
+  assert.equal(homeRowWatch(find(rows, "kind:tv")), "unwatched");
+  const recent = { ...row, sort: "last_played", reversed: false };
+  assert.equal(homeRowWatch(recent), "seen");
+  assert.match(homeRowHref(recent), /w=seen/);
+  assert.equal(homeRowHref({ ...row, sort: "random" }), "/library/1?sort=random&w=unfinished");
+});

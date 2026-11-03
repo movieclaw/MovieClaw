@@ -178,6 +178,21 @@ def describe_android(
     return entry
 
 
+def describe_harmony(hap: Path) -> dict:
+    entry = json.loads(hap.with_suffix(".json").read_text())
+    digest = hashlib.sha256(hap.read_bytes()).hexdigest()
+    if (entry.get("asset"), entry.get("size"), entry.get("sha256")) != (
+        hap.name, hap.stat().st_size, digest
+    ):
+        raise ValueError("鸿蒙包与签名元数据不一致")
+    if (entry.get("product") != "harmony" or entry.get("signed") is not True
+            or entry.get("applicationId") != "io.movieclaw.HUAWEI"
+            or not re.fullmatch(r"\d+\.\d+\.\d+", entry.get("version", ""))
+            or not re.fullmatch(r"[a-f0-9]{64}", entry.get("certificateSha256", ""))):
+        raise ValueError("鸿蒙发布元数据无效")
+    return entry
+
+
 def describe_ipa(ipa: Path) -> dict:
     """iPhone 未签名 IPA：版本、构建号与最低 iOS 从包内 Info.plist 读。"""
     with zipfile.ZipFile(ipa) as z:
@@ -242,7 +257,7 @@ def main() -> None:
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
     client = re.fullmatch(
-        r"(android|androidtv|macos|transcoder|ios|windows)-v(\d+\.\d+\.\d+)", args.tag
+        r"(android|androidtv|macos|transcoder|ios|windows|harmony)-v(\d+\.\d+\.\d+)", args.tag
     )
     if not client and not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[\w.-]+)?", args.tag):
         parser.error("tag 必须是 vX.Y.Z，或客户端前缀（如 android-v、macos-v）加 X.Y.Z")
@@ -269,6 +284,9 @@ def main() -> None:
     packages += [
         describe_android(p, "androidtv", "io.movieclaw.androidtv", "arm")
         for p in sorted(args.directory.glob("MovieClaw-AndroidTV.apk"))
+    ]
+    packages += [
+        describe_harmony(p) for p in sorted(args.directory.glob("MovieClaw-HarmonyOS.hap"))
     ]
     packages += [describe_ipa(p) for p in sorted(args.directory.glob("MovieClaw-iOS-*.ipa"))]
     if (args.directory / "release-manifest.json").exists():

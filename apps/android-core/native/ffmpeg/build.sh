@@ -35,7 +35,11 @@ TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/$HOST/bin"
 mkdir -p "$WORK"
 TARBALL="$WORK/ffmpeg-$FFMPEG_VERSION.tar.xz"
 if [[ ! -f "$TARBALL" ]]; then
-  curl -sSfL -o "$TARBALL" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+  # 下载偶发被重置（CI 上见过 Connection reset by peer，curl exit 35）：重试几次再判失败，
+  # 单个网络抖动不该让整条 Android 稳定性检查假红。半截文件删掉，别让校验去背锅
+  curl -sSfL --retry 3 --retry-delay 2 --retry-all-errors \
+    -o "$TARBALL" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" \
+    || { rm -f "$TARBALL"; echo "下载 FFmpeg 源码失败：$FFMPEG_VERSION" >&2; exit 1; }
 fi
 if command -v sha256sum > /dev/null; then
   echo "$FFMPEG_SHA256  $TARBALL" | sha256sum -c -

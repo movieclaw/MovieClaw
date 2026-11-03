@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
 
 /**
  * 设置页里反复用到的小控件，做成 **V2 组件**（不是 `@Builder`）。
@@ -19,18 +20,20 @@ export struct SettingsSegmentChip {
   };
 
   build() {
-    Text(this.label)
-      .fontSize(14)
-      .fontColor(this.selected ? '#0b0d12' : Theme.textMuted)
-      .textAlign(TextAlign.Center)
-      .layoutWeight(1)
-      .height(34)
-      .padding({ top: 7 })
-      .backgroundColor(this.selected ? Theme.accent : Color.Transparent)
-      .borderRadius(Theme.cardRadius - 2)
-      .onClick((): void => {
-        this.onPick();
-      })
+    Button() {
+      Text(this.label)
+        .fontSize(14)
+        .fontColor(this.selected ? '#0b0d12' : Theme.textMuted)
+        .textAlign(TextAlign.Center)
+    }
+    .attributeModifier(new GlassButtonModifier(this.selected ? GlassTone.Primary : GlassTone.Secondary))
+    .layoutWeight(1)
+    .height(34)
+    .padding({ top: 7 })
+    .borderRadius(Theme.cardRadius - 2)
+    .onClick((): void => {
+      this.onPick();
+    })
   }
 }
 
@@ -99,11 +102,11 @@ export struct SettingsSwitchRow {
       .alignItems(HorizontalAlign.Start)
 
       Toggle({ type: ToggleType.Switch, isOn: this.value })
-        .selectedColor(Theme.accent)
-        .enabled(!this.disabled)
-        .onChange((isOn: boolean): void => {
-          this.onToggle(isOn);
-        })
+      .attributeModifier(new GlassSwitchModifier())
+      .enabled(!this.disabled)
+      .onChange((isOn: boolean): void => {
+        this.onToggle(isOn);
+      })
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 11, bottom: 11 })

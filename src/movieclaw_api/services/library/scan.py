@@ -139,6 +139,7 @@ from movieclaw_db.models.library_file import (
     UnidentifiedCode,
 )
 from movieclaw_db.models.scheduled_task import TriggerType
+from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
 from movieclaw_db.repositories.library_file_repo import LedgerPresence, LibraryFileRepository
 from movieclaw_db.repositories.library_repo import LibraryRepository
 from movieclaw_enrich import enrich
@@ -973,7 +974,10 @@ async def enqueue_scan_job(
         input_data.update(cloud_only=True, backfill_existing_specs=False)
         dedupe_key = f"library.scan:{library_id}:cloud"
     if cloud_scopes:
-        scopes = sorted({(s.folder_id, s.dir_id, s.prefix) for s in cloud_scopes})
+        scopes = sorted(
+            {(s.folder_id, s.dir_id, s.prefix) for s in cloud_scopes},
+            key=lambda s: (s[0], s[1], s[2] or ""),
+        )
         input_data.update(
             cloud_only=True,
             backfill_existing_specs=False,
@@ -1218,7 +1222,11 @@ async def _run_scan_job(
     cloud_scopes = input_data.get("cloud_scopes")
     if isinstance(cloud_scopes, list) and cloud_scopes:
         scan_kwargs["cloud_scopes"] = [
-            library_cloud.CloudScope(int(s["folder_id"]), str(s["dir_id"]), str(s["prefix"]))
+            library_cloud.CloudScope(
+                int(s["folder_id"]),
+                str(s["dir_id"]),
+                None if s.get("prefix") is None else str(s["prefix"]),
+            )
             for s in cloud_scopes
         ]
     if input_data.get("reconcile_root_change") is True:
@@ -3467,6 +3475,12 @@ async def _ingest_file(
     见 _PROBE_AHEAD_WINDOW），没给就现场探测。
     ``cloud``：网盘文件夹里列出来的文件（纳管）。本地没有字节：不探测（规格由后台按预算
     补探）、大小取网盘列表、不参与改名归并，入账后记副本。"""
+    if cloud is not None:
+        owner = await LibraryCloudRepository(session).remote_owner(
+            cloud.account_id, cloud.remote.remote_id
+        )
+        if owner is not None and owner.library_file_id != (existing.id if existing else None):
+            return  # 列举之后已经入账；真正认领时仍会在写事务内复查
     kind = profile.kind
     if existing is None or existing.state == FileState.MISSING:
         summary.scanned += 1  # 新文件 / 回归的 missing 文件
@@ -3691,8 +3705,10 @@ async def _ingest_file(
         # 同路径旧行调用方已经持有（扫描开场的整库快照），不必再查一次
         existing=existing,
     )
-    if cloud is not None:
-        await library_cloud.record(session, scanned_row, cloud, fresh=existing is None)
+    if cloud is not None and not await library_cloud.record(
+        session, scanned_row, cloud, fresh=existing is None
+    ):
+        return  # 列举期间已被上传核验/其他扫描认领，虚拟新行已收敛
     if scanned_row.id is not None and (existing is None or existing.state == FileState.MISSING):
         strm = not is_disc and file.suffix.lower() == STRM_EXT
         summary.added_files.append((scanned_row.id, item_id, season, episode, strm))

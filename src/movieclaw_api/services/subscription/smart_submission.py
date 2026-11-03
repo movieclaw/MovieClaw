@@ -294,17 +294,9 @@ async def reconcile_remote(session, intent):
 
 
 async def ensure_can_submit(session, intent):
-    from movieclaw_api.services.subscription.smart_runtime import runtime_settings
-
     previous = intent.submission or {}
     subscription = await session.get(Subscription, intent.subscription_id, populate_existing=True)
-    runtime = await runtime_settings()
-    if (
-        subscription is None
-        or subscription.status == "paused"
-        or not runtime.enabled
-        or runtime.shadow_only
-    ):
+    if subscription is None or subscription.status == "paused":
         raise conflict()
     targets = (
         (

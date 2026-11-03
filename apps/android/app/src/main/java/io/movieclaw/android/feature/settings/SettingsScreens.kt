@@ -135,6 +135,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import io.movieclaw.android.core.designsystem.mcCards
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /* ---------------- 设置索引 ---------------- */
 
@@ -449,6 +450,7 @@ fun ProfileSettingsScreen(
     var signOutPaired by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     val busy by vm.busy.collectAsStateWithLifecycle()
+    var askLogout by remember { mutableStateOf(false) }
 
     val pickAvatar = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let { vm.uploadAvatar(it) { msg -> status = msg } }
@@ -581,11 +583,18 @@ fun ProfileSettingsScreen(
                     .clip(RoundedCornerShape(14.dp))
                     .background(Color.White.copy(alpha = 0.05f))
                     .border(1.dp, LineSoft, RoundedCornerShape(14.dp))
-                    .clickable { vm.logout() }
+                    .clickable { askLogout = true }
                     .padding(vertical = 14.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text("退出登录", style = McType.bodyMedium, color = Danger)
+            }
+            // 退出前问一句要不要连本机下载一起删（不删就留着，同一账号重新登录还在）
+            if (askLogout) {
+                io.movieclaw.android.feature.offline.OfflineLogoutPrompt(everywhere = false) {
+                    askLogout = false
+                    vm.logout()
+                }
             }
             Spacer(Modifier.height(30.dp))
         }
@@ -957,7 +966,7 @@ private fun DeviceCleanupSheet(
                     Text("正在统计…", style = McType.footnote, color = TextMuted)
                 }
                 items!!.isEmpty() -> Text("没有超过 $days 天没用过的设备", style = McType.footnote, color = TextMuted)
-                else -> Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
+                else -> Column(Modifier.heightIn(max = 220.dp).formSheetScroll().verticalScroll(rememberScrollState())) {
                     Text("将注销 ${items!!.size} 台", style = McType.caption, color = TextFaint)
                     Spacer(Modifier.height(6.dp))
                     items!!.forEach { item ->

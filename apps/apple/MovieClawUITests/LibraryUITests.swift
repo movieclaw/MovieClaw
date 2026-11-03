@@ -189,6 +189,59 @@ final class LibraryUITests: XCTestCase {
         snapshot("自定义首页")
     }
 
+    /// 片段的入口是首页的「下拉二楼」（2026-10-28 取代顶栏按钮）：照常下拉只刷新、留在首页；
+    /// 用力拉过线再松手进片段，返回回到首页。手指移动距离按 iPhone 17 / 17 Pro 实测：360 点约拉下 190
+    /// （刷新约在 183 触发，进入线在它后面 50），520 点约拉下 250；iPad 上刷新更晚，这两个距离不适用
+    /// 没用过时首页顶上有提示卡；拉进过一次片段，提示卡就消失并在服务端作废（所有设备都不再出现）
+    @MainActor
+    func testPullDownFloorOpensReels() {
+        _ = backend.request("DELETE", "/tips/state")
+        let app = launch(route: "/library")
+        let more = app.buttons["library-more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 20))
+        let rows = NSPredicate(format: "identifier BEGINSWITH 'home-row-' OR identifier IN {'up-next-row', 'favorites-row'}")
+        XCTAssertTrue(app.descendants(matching: .any).matching(rows).firstMatch.waitForExistence(timeout: 20), "首页应列出内容行")
+        XCTAssertFalse(app.buttons["library-reels"].exists, "顶栏不再有片段按钮（只在开着旁白时出现）")
+        let tip = app.descendants(matching: .any)["tip-reels-floor"]
+        XCTAssertTrue(tip.waitForExistence(timeout: 10), "没用过下拉二楼时应有提示卡")
+        snapshot("下拉二楼提示卡")
+        let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 360)), withVelocity: .slow, thenHoldForDuration: 0.5)
+        XCTAssertFalse(app.buttons["reels-filter"].waitForExistence(timeout: 3), "只拉到刷新的距离不该进片段")
+        XCTAssertTrue(more.exists)
+
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 520)), withVelocity: .slow, thenHoldForDuration: 0.5)
+        XCTAssertTrue(app.buttons["reels-filter"].waitForExistence(timeout: 10), "拉过线松手应进片段")
+        snapshot("下拉二楼进入片段")
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(more.waitForExistence(timeout: 10), "返回应回到媒体库首页")
+        XCTAssertFalse(tip.exists, "拉进过一次后提示卡不再出现")
+        XCTAssertEqual(floorTipRecord()?["invalidated_reason"] as? String, "action_performed")
+    }
+
+    /// 提示卡点关闭：当场消失，服务端记为关掉（换台设备也不再出现）
+    @MainActor
+    func testFloorTipClosesForGood() {
+        _ = backend.request("DELETE", "/tips/state")
+        let app = launch(route: "/library")
+        let tip = app.descendants(matching: .any)["tip-reels-floor"]
+        XCTAssertTrue(tip.waitForExistence(timeout: 20), "没用过下拉二楼时应有提示卡")
+        tip.buttons["关闭"].tap()
+        XCTAssertTrue(tip.waitForNonExistence(timeout: 5), "点关闭后提示卡消失")
+        XCTAssertEqual(floorTipRecord()?["invalidated_reason"] as? String, "closed")
+        app.terminate()
+        let again = launch(route: "/library")
+        XCTAssertTrue(again.buttons["library-more"].waitForExistence(timeout: 20))
+        XCTAssertFalse(again.descendants(matching: .any)["tip-reels-floor"].waitForExistence(timeout: 5), "关掉后重开也不再出现")
+    }
+
+    private func floorTipRecord() -> [String: Any]? {
+        let state = backend.request("GET", "/tips/state") as? [String: Any]
+        return (state?["tips"] as? [[String: Any]])?.first { $0["tip_id"] as? String == "library.reels-floor" }
+    }
+
     /// 单库海报墙：滚到底自动加载下一页（窗口进度文案随之前进）
     @MainActor
     func testWallPaginates() throws {

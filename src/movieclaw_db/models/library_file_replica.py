@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, Column, Index, Text
+from sqlalchemy import JSON, BigInteger, Column, Index, Text, text
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -24,7 +24,8 @@ class LibraryFileReplica(TimestampMixin, table=True):
     """库文件在网盘上的副本（docs/design/cloud-storage.md §3.5）。
 
     一切网盘操作只认 ``remote_id``（网盘文件 id），``remote_path`` 只用于展示。一期每个文件
-    最多一个副本（唯一约束），表结构不限制以后多副本。
+    最多一个副本（唯一约束），表结构不限制以后多副本。同账号非空 ``remote_id``
+    也唯一（含 lost 状态）：一份网盘文件不能被两条台账分别认领或清理。
 
     不设到 ``library_file`` 的级联外键：删台账行之前必须先处理副本（删云端或明确放弃），
     否则云端文件就成了孤儿（cloud-storage.md §10）。但副本记录随台账行一起删（迁移里的
@@ -35,7 +36,13 @@ class LibraryFileReplica(TimestampMixin, table=True):
     __tablename__ = "library_file_replica"
     __table_args__ = (
         Index("uq_library_file_replica_file", "library_file_id", unique=True),
-        Index("ix_library_file_replica_account_remote", "account_id", "remote_id"),
+        Index(
+            "uq_library_file_replica_account_remote",
+            "account_id",
+            "remote_id",
+            unique=True,
+            sqlite_where=text("remote_id != ''"),
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)

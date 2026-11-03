@@ -22,8 +22,11 @@ class ReleaseStatusTest(unittest.TestCase):
                 "<key>CFBundleShortVersionString</key><string>0.34.0</string></dict></plist>"
             ),
         }
+        cases["apps/harmonyos/AppScope/app.json5"] = '{"app":{"versionName":"1.0.0"}}'
         versions = {f: module.version_in(text, f) for f, text in cases.items()}
-        self.assertEqual(list(versions.values()), ["0.38.0", "0.7.1", "0.3.2", "0.1.0", "0.34.0"])
+        self.assertEqual(
+            list(versions.values()), ["0.38.0", "0.7.1", "0.3.2", "0.1.0", "0.34.0", "1.0.0"]
+        )
 
     def test_last_tag_is_the_highest_stable_tag_of_that_product(self):
         tags = ["v0.9.0", "v0.10.0", "v0.11.0-beta.1", "android-v0.3.10", "android-v0.3.9",

@@ -1,7 +1,9 @@
 import { bundleManager, common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppFooter } from '../common/AppFooter';
 import { AppIconStore, appLogoResource } from '../common/AppIcon';
 
@@ -37,6 +39,8 @@ export function AboutBuilder() {
 @ComponentV2
 export struct AboutPage {
   private navStack: NavPathStack = new NavPathStack();
+  /** 滚动器：标题栏的渐变模糊 / 滑动显隐靠它驱动（同根页签） */
+  private scroller: Scroller = new Scroller();
   @Local private version: string = '—';
   @Local private buildNo: string = '';
   /** 设置 → 图标 里选的应用内图标（-1 = 默认） */
@@ -92,11 +96,9 @@ export struct AboutPage {
   }
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        // 自绘顶栏：原生标题栏在沉浸式布局下会画进状态栏（实测「关于」压住时钟）
-        this.TopBar()
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 16 }) {
             this.BasicSection()
             this.OssSection()
@@ -104,7 +106,8 @@ export struct AboutPage {
             AppFooter()
           }
           .width('100%')
-          .padding({ left: 16, right: 16, bottom: Theme.tabBarInset })
+          // 内容从 y=0 铺到标题栏下面：首屏让开标题栏，滚动时产生渐变
+          .padding({ left: 16, right: 16, top: AppNavBar.contentTop, bottom: Theme.tabBarInset })
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
@@ -113,37 +116,15 @@ export struct AboutPage {
       .height('100%')
       .backgroundColor(Theme.bg)
     }
-    /*
-     * **不用原生标题栏**：沉浸式布局下它不避让状态栏，「关于」会和左上角时钟叠在一起
-     * （实测 y=17..32vp，状态栏高度约 38vp）。和媒体库详情页同样的修法：自绘顶栏。
-     */
-    .hideTitleBar(true)
+    // 二级页标题栏：与根页签同一套「沉浸光感渐变模糊 + 自适应材质」（见 common/AppNavBar）
+    .titleMode(HdsNavDestinationTitleMode.MINI)
+    .titleBar(AppNavBar.subPageTitleBar('关于'))
+    .bindToScrollable([this.scroller])
+    .dynamicHideTitleBar(AppNavBar.dynamicHide())
     .onReady((ctx: NavDestinationContext) => {
       this.navStack = ctx.pathStack;
       this.loadVersion();
     })
-  }
-
-  /** 自绘顶栏：返回 + 标题，高度把状态栏算进去 */
-  @Builder
-  TopBar() {
-    Row({ space: 8 }) {
-      SymbolGlyph($r('sys.symbol.chevron_left'))
-        .fontSize(22)
-        .fontColor([Theme.text])
-        .width(38)
-        .height(38)
-        .onClick(() => {
-          this.navStack.pop();
-        })
-      Text('关于')
-        .fontSize(17)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(Theme.text)
-      Blank()
-    }
-    .width('100%')
-    .padding({ left: 12, right: 12, top: Theme.statusBarInset + 6, bottom: 6 })
   }
 
   @Builder

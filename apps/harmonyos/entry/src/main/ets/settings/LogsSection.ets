@@ -1,4 +1,6 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
@@ -364,38 +366,42 @@ export struct LogsSection {
   Toolbar() {
     Column({ space: 10 }) {
       Row({ space: 8 }) {
-        Row({ space: 5 }) {
-          SymbolGlyph($r('sys.symbol.calendar'))
-            .fontSize(13)
-            .fontColor([Theme.textMuted])
-          Text(this.activeDay.length > 0 ? this.activeDay : '选择日期')
-            .fontSize(13)
-            .fontColor(Theme.text)
+        Button() {
+          Row({ space: 5 }) {
+            SymbolGlyph($r('sys.symbol.calendar'))
+              .fontSize(13)
+              .fontColor([Theme.textMuted])
+            Text(this.activeDay.length > 0 ? this.activeDay : '选择日期')
+              .fontSize(13)
+              .fontColor(Theme.text)
+          }
+          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
         }
-        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-        .backgroundColor(Theme.glassFill)
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding(0)
         .borderRadius(16)
-        .border({ width: 1, color: Theme.line })
         .onClick(() => {
           this.sheetKind = 'day';
-    this.showSheet = true;
+        this.showSheet = true;
         })
 
-        Row({ space: 5 }) {
-          SymbolGlyph($r('sys.symbol.arrow_clockwise'))
-            .fontSize(13)
-            .fontColor([this.isLatestDay() && this.refreshMs > 0 ? Theme.accent : Theme.textMuted])
-          Text(this.refreshLabel())
-            .fontSize(13)
-            .fontColor(Theme.text)
+        Button() {
+          Row({ space: 5 }) {
+            SymbolGlyph($r('sys.symbol.arrow_clockwise'))
+              .fontSize(13)
+              .fontColor([this.isLatestDay() && this.refreshMs > 0 ? Theme.accent : Theme.textMuted])
+            Text(this.refreshLabel())
+              .fontSize(13)
+              .fontColor(Theme.text)
+          }
+          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
         }
-        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-        .backgroundColor(Theme.glassFill)
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding(0)
         .borderRadius(16)
-        .border({ width: 1, color: Theme.line })
         .onClick(() => {
           this.sheetKind = 'refresh';
-    this.showSheet = true;
+        this.showSheet = true;
         })
         Blank()
       }
@@ -424,20 +430,22 @@ export struct LogsSection {
         })
     }
     .width('100%')
-    .padding({ left: 16, right: 16, bottom: 10 })
+    .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: 10 })
   }
 
   @Builder
   LevelChip(level: string, label: string) {
-    Text(`${label} ${this.countOf(level)}`)
-      .fontSize(12)
-      .fontColor(this.levelFilter === level ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-      .backgroundColor(this.levelFilter === level ? Theme.accent : Theme.glassFill)
-      .borderRadius(12)
-      .onClick(() => {
-        this.levelFilter = level;
-      })
+    Button() {
+      Text(`${label} ${this.countOf(level)}`)
+        .fontSize(12)
+        .fontColor(this.levelFilter === level ? '#0b0d12' : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(this.levelFilter === level ? GlassTone.Primary : GlassTone.Secondary))
+    .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+    .borderRadius(12)
+    .onClick(() => {
+      this.levelFilter = level;
+    })
   }
 
   /** 日志窗口：时间 / 级别 / 模块 / 内容；续行已在解析时并进上一条 */
@@ -509,18 +517,20 @@ export struct LogsSection {
           }
         })
         if (this.pendingNew > 0) {
-          Text(`${this.pendingNew} 条新日志`)
-            .fontSize(13)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#0b0d12')
-            .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-            .backgroundColor(Theme.accent)
-            .borderRadius(18)
-            .margin({ bottom: 14 })
-            .shadow({ radius: 12, color: 'rgba(0,0,0,0.35)', offsetY: 4 })
-            .onClick(() => {
-              this.jumpToLatest();
-            })
+          Button() {
+            Text(`${this.pendingNew} 条新日志`)
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#0b0d12')
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+          .borderRadius(18)
+          .margin({ bottom: 14 })
+          .shadow({ radius: 12, color: 'rgba(0,0,0,0.35)', offsetY: 4 })
+          .onClick(() => {
+            this.jumpToLatest();
+          })
         }
       }
       .width('100%')
@@ -556,8 +566,9 @@ export struct LogsSection {
       }
     }
     .width('100%')
-    // 页脚在整屏页最底部，要让开系统手势条，否则最后一行说明被小白条压住
-    .padding({ left: 16, right: 16, top: 8, bottom: 8 + Theme.safeBottomInset })
+    // 这页是「我的」页签里的分区页（非整屏页）：页脚要让开悬浮页签胶囊（tabBarInset），
+    // 只让手势条（safeBottomInset）的话最后一行说明被胶囊盖住
+    .padding({ left: 16, right: 16, top: 8, bottom: 8 + Theme.tabBarInset })
   }
 
   /** 唯一的弹层内容：按 sheetKind 切换 */

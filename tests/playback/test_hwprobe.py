@@ -8,8 +8,12 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 
 import pytest
@@ -19,9 +23,11 @@ from movieclaw_api.i18n.stored import render_value, source_render
 from movieclaw_api.services.playback import hwprobe
 from movieclaw_api.services.playback.ffmpeg_args import (
     HW_BACKENDS,
+    VAAPI_TONEMAP,
     encoder_options,
     hevc_encoder,
     hevc_encoder_options,
+    native_tonemap_filter,
 )
 
 
@@ -162,7 +168,7 @@ def test_vaapi_prefers_low_power_encoding_when_it_works(monkeypatch, tmp_path):
     vaapi = status_of(hwprobe.probe_backends(), "vaapi")
     assert vaapi.available is True
     assert "低功耗" in source_render(vaapi.detail)
-    (argv,) = [a for a in calls if "h264_vaapi" in a]
+    (argv,) = [a for a in calls if "h264_vaapi" in a and "tonemap_vaapi" not in " ".join(a)]
     after = argv[argv.index("h264_vaapi") + 1 :]
     assert after[:2] == ["-low_power", "1"]
     assert {"-profile:v", "-b:v", "-maxrate", "-bufsize"} <= set(after)
@@ -186,7 +192,10 @@ def test_vaapi_falls_back_to_normal_encoding_without_low_power(monkeypatch, tmp_
     vaapi = status_of(hwprobe.probe_backends(), "vaapi")
     assert vaapi.available is True
     assert "低功耗" not in source_render(vaapi.detail)
-    assert [("-low_power" in a) for a in calls if "h264_vaapi" in a] == [True, False]
+    assert [
+        "-low_power" in a for a in calls
+        if "h264_vaapi" in a and "tonemap_vaapi" not in " ".join(a)
+    ] == [True, False]
     assert encoder_options(HW_BACKENDS["vaapi"]) == ()
 
 
@@ -420,10 +429,13 @@ def test_native_tonemap_probe_source_parses_on_real_ffmpeg(name):
     ``colorspace`` 滤镜的 ``bt2020ncl``）。这里用真 ffmpeg 把这段跑一遍。"""
     filter_expr, chain = hwprobe._NATIVE_TONEMAP_PROBES[name]
     software_part = chain.format(filter=filter_expr).split(",hwupload", 1)[0]
+    input_args = (
+        ["-i", str(hwprobe._HDR10_PROBE_SOURCE)] if name == "vaapi"
+        else ["-f", "lavfi", "-i", hwprobe._PROBE_SOURCE]
+    )
     proc = subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-v", "error",
-            "-f", "lavfi", "-i", hwprobe._PROBE_SOURCE,
+            "ffmpeg", "-hide_banner", "-v", "error", *input_args,
             "-vf", software_part, "-f", "null", "-",
         ],
         capture_output=True,
@@ -512,3 +524,96 @@ def test_real_probe_runs_and_explains_itself():
     for status in statuses:
         assert status.detail, f"{status.name} 没有给出原因"
         assert status.label
+
+
+@pytest.mark.parametrize("result", [0, 234, None])
+def test_vaapi_hdr_probe_controls_only_hdr_capability(monkeypatch, tmp_path, result):
+    _vaapi_ready(monkeypatch, tmp_path)
+    calls = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        if "tonemap_vaapi" in " ".join(argv):
+            if result is None:
+                raise subprocess.TimeoutExpired(argv, 20)
+            return subprocess.CompletedProcess(
+                argv, result, b"", b"VAAPI driver doesn't support HDR" if result else b""
+            )
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(hwprobe.subprocess, "run", fake_run)
+    assert status_of(hwprobe.probe_backends(), "vaapi").available
+    assert native_tonemap_filter(HW_BACKENDS["vaapi"]) == (VAAPI_TONEMAP if result == 0 else None)
+    (argv,) = [a for a in calls if "tonemap_vaapi" in " ".join(a)]
+    assert argv[argv.index("-vaapi_device") + 1] == HW_BACKENDS["vaapi"].device
+    assert argv[argv.index("-low_power") + 1] == "1"
+    assert argv[argv.index("-i") + 1] == str(hwprobe._HDR10_PROBE_SOURCE)
+    chain = argv[argv.index("-vf") + 1]
+    assert "format=p010le,setparams=range=tv" in chain
+    assert "hwupload,tonemap_vaapi" in chain and "scale_vaapi=format=nv12" in chain
+    assert chain.endswith(":range=tv")
+    # 重新探测失败或设备消失必须清掉之前成功的 HDR 能力。
+    if result == 0:
+        monkeypatch.setattr(hwprobe, "_run_probe", lambda *_a, **_k: None)
+        hwprobe.probe_backends(force=True)
+        assert native_tonemap_filter(HW_BACKENDS["vaapi"]) is None
+
+
+@pytest.mark.skipif(shutil.which("ffprobe") is None, reason="需要 ffprobe")
+def test_vaapi_probe_sample_has_real_hdr10_frame_metadata():
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_frames", "-of", "json",
+         str(hwprobe._HDR10_PROBE_SOURCE)],
+        capture_output=True, timeout=20,
+    )
+    assert proc.returncode == 0, proc.stderr.decode()
+    frames = json.loads(proc.stdout)["frames"]
+    assert len(frames) == 25
+    for frame in frames:
+        assert frame["pix_fmt"] == "yuv420p10le"
+        assert frame["color_transfer"] == "smpte2084"
+        assert frame["color_primaries"] == "bt2020"
+        assert frame["color_space"] == "bt2020nc"
+        side_data = {d["side_data_type"] for d in frame["side_data_list"]}
+        assert "Mastering display metadata" in side_data
+
+
+def test_concurrent_backend_queries_wait_for_native_tonemap(monkeypatch, tmp_path):
+    _vaapi_ready(monkeypatch, tmp_path)
+    hdr_started = threading.Event()
+    release_hdr = threading.Event()
+    query_started = threading.Event()
+    encoders_calls = []
+    original_encoders = hwprobe._list_encoders
+
+    def list_encoders():
+        encoders_calls.append(True)
+        return original_encoders()
+
+    def fake_probe(encoder, filters, **kwargs):
+        if "tonemap_vaapi" in " ".join(filters):
+            hdr_started.set()
+            assert release_hdr.wait(10)
+        return subprocess.CompletedProcess([], 0, b"", b"")
+
+    def query_backends():
+        query_started.set()
+        return hwprobe.available_local_backends()
+
+    monkeypatch.setattr(hwprobe, "_list_encoders", list_encoders)
+    monkeypatch.setattr(hwprobe, "_run_probe", fake_probe)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        warmup = pool.submit(hwprobe.probe_backends)
+        try:
+            assert hdr_started.wait(10)
+            assert hwprobe._cache is None
+            query = pool.submit(query_backends)
+            assert query_started.wait(10)
+            with pytest.raises(FutureTimeout):
+                query.result(timeout=0.2)
+        finally:
+            release_hdr.set()
+        assert status_of(warmup.result(timeout=10), "vaapi").available
+        assert query.result(timeout=10) == ("vaapi",)
+    assert encoders_calls == [True], "并发查询必须复用同一次探测"
+    assert native_tonemap_filter(HW_BACKENDS["vaapi"]) == VAAPI_TONEMAP

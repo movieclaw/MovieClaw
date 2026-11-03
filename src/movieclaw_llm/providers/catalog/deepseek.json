@@ -1,0 +1,177 @@
+{
+ "api": "https://api.deepseek.com",
+ "fetched_at": "2026-10-30T10:25:11Z",
+ "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
+ "models": {
+  "deepseek-flash": {
+   "cost": {
+    "cache_read": 0.003,
+    "input": 0.15,
+    "output": 0.6,
+    "reasoning": 0.6
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 393216
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "DeepSeek V4.1 Flash 1017",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-10-17",
+   "temperature": true,
+   "tool_call": true
+  },
+  "deepseek-v4-flash": {
+   "cost": {
+    "cache_read": 0.003,
+    "input": 0.15,
+    "output": 0.6,
+    "reasoning": 0.6
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 393216
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "DeepSeek V4 Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-10-17",
+   "status": "deprecated",
+   "temperature": true,
+   "tool_call": true
+  },
+  "deepseek-v4-flash-vision-exp": {
+   "cost": {
+    "cache_read": 0.003,
+    "input": 0.15,
+    "output": 0.6,
+    "reasoning": 0.6
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 393216
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "DeepSeek V4 Flash Vision Exp",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-10-17",
+   "status": "deprecated",
+   "temperature": true,
+   "tool_call": true
+  },
+  "deepseek-v4-pro": {
+   "cost": {
+    "cache_read": 0.022,
+    "input": 0.66,
+    "output": 1.98,
+    "reasoning": 1.98
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 393216
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "DeepSeek V4 Pro",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-08-13",
+   "temperature": true,
+   "tool_call": true
+  }
+ },
+ "name": "DeepSeek"
+}

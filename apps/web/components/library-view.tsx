@@ -24,6 +24,11 @@ import {
 } from "@/components/icons";
 import { MediaRow } from "@/components/media-row";
 import { ReelClipsTip } from "@/components/reel-clips-tip";
+import { ReelsFloor } from "@/components/reels-floor";
+import { ReelsShelfCard } from "@/components/reels/reels-shelf-card";
+import { TipCard } from "@/components/tip-card";
+import { defineTip } from "@/lib/tips/engine";
+import { invalidateTip } from "@/lib/tips/store";
 import { TopBarMenu } from "@/components/top-bar-menu";
 import type { PosterCardAction } from "@/components/poster-card";
 import { UpNextRow } from "@/components/up-next-row";
@@ -51,6 +56,8 @@ import type { Subscription } from "@/lib/api/subscriptions";
 import { favoriteLevelLabel } from "@/lib/favorites";
 import {
   buildHomeRows,
+  homeRowWatch,
+  homeRowHref,
   homeCollectionIds,
   FAVORITES_SORT_PRESETS,
   type GenreRowKind,
@@ -69,7 +76,7 @@ import { usePermissions } from "@/lib/permissions";
 import { buildRecentAdditionOverlay } from "@/lib/recent-addition";
 import { formatRelativeTime } from "@/lib/time";
 import { useLayout, useUiPrefs } from "@/lib/ui-prefs";
-import { useIsMobile } from "@/lib/use-media-query";
+import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 
@@ -213,6 +220,18 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
   const { prefs } = useUiPrefs();
   const homePrefs = prefs.home;
   const scrollRef = useScrollRestoration("library");
+  // 片段的入口：手机触屏上首页下拉二楼（同 iOS / Android，docs/design/reels.md §6）。
+  // 鼠标拖不出下拉，窄窗口的电脑不算
+  const coarsePointer = useMediaQuery("(pointer: coarse)");
+  const touchPhone = isMobile && coarsePointer;
+  const [floorHost, setFloorHost] = useState<HTMLDivElement | null>(null);
+  const hostRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      scrollRef(node);
+      setFloorHost(node);
+    },
+    [scrollRef],
+  );
   // 各状态初值取上次会话留存的快照（没有则走加载态），见 lastLoadedHome
   const [libraries, setLibraries] = useState<MediaLibrary[] | null>(
     () => lastLoadedHome?.libraries ?? null,
@@ -553,6 +572,12 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
                   />
                 </div>
               ))}
+              {/* 片段：电脑 / 平板上的入口（手机上是下拉二楼），排在真实库后面 */}
+              {!touchPhone && visibleLibraries.some((library) => library.kind !== "photo") && (
+                <div className="w-[268px] shrink-0 rounded-2xl max-md:w-[230px]">
+                  <ReelsShelfCard stills={floorStills} />
+                </div>
+              )}
               {/* 合集与真实库同排；只读合并后的行清单，海报行继续在原位置展示。 */}
               {homeCollections.map((collection) => (
                 <div key={`collection:${collection.id}`} className="w-[268px] shrink-0 rounded-2xl max-md:w-[230px]">
@@ -590,10 +615,10 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
         );
       }
       case "library":
-        return contentRow(row, `/library/${row.library.id}` as Route);
+        return contentRow(row, homeRowHref(row) as Route);
       case "media-kind":
         // 「全部电影」：同类型的库合成一面墙，查看全部进 /library/kind/{类型}
-        return contentRow(row, `/library/kind/${row.mediaKind}` as Route);
+        return contentRow(row, homeRowHref(row) as Route);
       case "collection":
         return contentRow(
           row,
@@ -604,8 +629,33 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
     }
   };
 
+  // 胶片画格（手机的下拉二楼、电脑的「片段」卡）：首页已经拿到的剧照，去重后取 8 张（不另发请求）
+  const floorStills = useMemo(() => {
+    const urls = [
+      ...(upNext ?? []).map((item) => item.backdrop_url),
+      ...[...itemsByKey.values()].flat().map((item) => item.backdrop_url),
+    ].filter((url): url is string => Boolean(url));
+    return [...new Set(urls)].slice(0, 8).map((url) => imageUrl(url, { width: 240 }));
+  }, [upNext, itemsByKey]);
+  // 使用提示（docs/design/tips.md，与 iOS / Android 同一条）：拉进过一次或关掉后，所有设备都不再出现
+  const floorTip = defineTip({
+    id: "library.reels-floor",
+    title: t("library.reels.tipTitle"),
+    message: t("library.reels.tipMessage"),
+  });
+  const openReels = () => {
+    invalidateTip("library.reels-floor");
+    router.push("/reels" as Route);
+  };
+
   return (
-    <div ref={scrollRef} className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-10">
+    <div
+      ref={hostRef}
+      className={`scroll-thin scroll-safe flex-1 overflow-y-auto pb-10 ${touchPhone ? "reels-floor-host relative" : ""}`}
+    >
+      {touchPhone && (
+        <ReelsFloor host={floorHost} stills={floorStills} onRefresh={reload} onEnter={openReels} />
+      )}
       {/* Netflix 主题的全出血 Billboard（原内容首页并入，见 library-hero.tsx）：
           挂在滚动容器内、跟随页面一起滚走，页头与行清单依次排在其后 */}
       {hero}
@@ -670,6 +720,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
       </div>
 
       <ReelClipsTip className="page-inset-mx mt-4" />
+      {touchPhone && (libraries ?? []).length > 0 && <TipCard tip={floorTip} className="page-inset-mx mt-4" />}
 
       {libraries === null && !failed && (
         <div className="mt-16 flex items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
@@ -749,17 +800,17 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
 /** 一行取数的缓存键：同一个库同一种排序同一个方向（同一个只看没看过的开关）只请求一次。 */
 function rowFetchKey(row: HomeRow): string {
   if (row.kind === "library")
-    return `lib:${row.library.id}:${row.sort}:${row.reversed}:${row.unwatched}`;
+    return `lib:${row.library.id}:${row.sort}:${row.reversed}:${homeRowWatch(row)}`;
   if (row.kind === "collection") return `col:${row.collection.id}:${row.sort}:${row.reversed}`;
   if (row.kind === "media-kind")
-    return `kind:${row.mediaKind}:${row.sort}:${row.reversed}:${row.unwatched}`;
+    return `kind:${row.mediaKind}:${row.sort}:${row.reversed}:${homeRowWatch(row)}`;
   return row.id;
 }
 
 /** 库卡片封面用的那批条目：最近入账的前几部，与默认的「最近添加」行共用一份。
  *  键的形状必须与 rowFetchKey 对库行算出来的一致，否则默认行会多打一次同样的请求。 */
 function coverFetchKey(libraryId: number): string {
-  return `lib:${libraryId}:added_at:false:false`;
+  return `lib:${libraryId}:added_at:false:undefined`;
 }
 
 /**
@@ -773,10 +824,10 @@ function rowFetches(
   const fetches = new Map<string, () => Promise<LibraryItem[]>>();
   for (const row of rows) {
     if (row.kind === "library") {
-      const { library, sort, reversed, unwatched } = row;
+      const { library, sort, reversed } = row;
       // 「最近观看」行只要播过的：度量档把没播过的沉底而不是排除，取 20 条时
       // 看过的排完就轮到没播过的，首页这一行不能这样（w=seen）
-      const watch = sort === "last_played" ? "seen" : unwatched ? "unwatched" : undefined;
+      const watch = homeRowWatch(row);
       fetches.set(rowFetchKey(row), () =>
         listLibraryItems(library.id, {
           sort,
@@ -787,9 +838,9 @@ function rowFetches(
         }),
       );
     } else if (row.kind === "media-kind") {
-      const { mediaKind, sort, reversed, unwatched } = row;
+      const { mediaKind, sort, reversed } = row;
       // 与库行同一套取数规则，只是来源换成按类型的跨库墙（同一部片跨库只出现一次）
-      const watch = sort === "last_played" ? "seen" : unwatched ? "unwatched" : undefined;
+      const watch = homeRowWatch(row);
       fetches.set(rowFetchKey(row), () =>
         listKindItems(mediaKind, {
           sort,

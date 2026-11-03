@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
@@ -204,18 +205,20 @@ export struct MediaSourceAnnotationPage {
 
             this.Options()
 
-            Text(this.busy ? '标注中…' : '确认标注')
-              .fontSize(16)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.canApply() ? '#0b0d12' : Theme.textFaint)
-              .textAlign(TextAlign.Center)
-              .width('100%')
-              .padding({ top: 14, bottom: 14 })
-              .backgroundColor(this.canApply() ? Theme.accent : Theme.glassFill)
-              .borderRadius(Theme.cardRadius)
-              .onClick(() => {
-                this.apply();
-              })
+            Button() {
+              Text(this.busy ? '标注中…' : '确认标注')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.canApply() ? '#0b0d12' : Theme.textFaint)
+                .textAlign(TextAlign.Center)
+            }
+            .attributeModifier(new GlassButtonModifier(this.canApply() ? GlassTone.Primary : GlassTone.Secondary))
+            .width('100%')
+            .padding({ top: 14, bottom: 14 })
+            .borderRadius(Theme.cardRadius)
+            .onClick(() => {
+              this.apply();
+            })
 
             if (this.errorMessage.length > 0 && !this.failed) {
               Text(this.errorMessage)

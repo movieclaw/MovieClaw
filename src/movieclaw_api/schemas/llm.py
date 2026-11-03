@@ -10,7 +10,7 @@ from movieclaw_api.i18n.stored import render_value, stored_message
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_db.models.llm_provider import LlmProvider
 from movieclaw_db.models.site_credential import ConfigStatus
-from movieclaw_llm.models import ModelInfo, ProviderPreset
+from movieclaw_llm.models import ModelCost, ModelInfo, ProviderPreset
 
 
 def _sdk_default_user_agent() -> str:
@@ -54,6 +54,23 @@ class LlmPresetView(BaseModel):
         )
 
 
+class LlmListingView(BaseModel):
+    """实例模型目录的概况（docs/design/llm-model-catalog.md §6）：设置页状态行用。"""
+
+    source: str = Field(
+        description="列表来源：provider（服务商列表）/ unsupported（端点没有列表接口）/ "
+        "none（还没拉到过，菜单只有预设与补录的模型）"
+    )
+    fetched_at: str | None = Field(default=None, description="最近一次成功拉取列表的时间")
+    error: str | None = Field(default=None, description="最近一次拉取失败的原因（成功后清空）")
+    total: int = Field(description="参数已知、可进菜单的模型数")
+    shown: int = Field(description="其中当前显示在菜单里的数量")
+    catalog_id: str | None = Field(
+        default=None, description="实际使用的公共目录服务商（models.dev）；null = 不使用"
+    )
+    catalog_updated_at: str | None = Field(default=None, description="公共目录数据的更新时间")
+
+
 class LlmProviderView(BaseModel):
     """LLM 供应商实例的对外视图（**脱敏**：绝不回传 API Key）。"""
 
@@ -83,6 +100,11 @@ class LlmProviderView(BaseModel):
     extra_models: list[ModelInfo] = Field(
         default_factory=list, description="用户补录的自定义模型目录（含参数）"
     )
+    catalog_id: str | None = Field(
+        default=None,
+        description="用户为兼容端点指定的公共目录服务商；null = 自动识别，none = 不使用",
+    )
+    listing: LlmListingView | None = Field(default=None, description="模型目录概况")
     created_at: datetime
     updated_at: datetime
 
@@ -96,7 +118,7 @@ class LlmProviderView(BaseModel):
         return value.isoformat()
 
     @classmethod
-    def from_model(cls, row: LlmProvider) -> LlmProviderView:
+    def from_model(cls, row: LlmProvider, listing: LlmListingView | None = None) -> LlmProviderView:
         """从 ORM 记录构造脱敏视图。只挑选可公开字段，天然屏蔽密钥密文。"""
         account = None
         credentials_invalid = False
@@ -134,6 +156,8 @@ class LlmProviderView(BaseModel):
             last_checked_at=row.last_checked_at,
             available_models=row.available_models,
             extra_models=[ModelInfo.model_validate(m) for m in row.extra_models or []],
+            catalog_id=row.catalog_id,
+            listing=listing,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -144,10 +168,12 @@ class LlmModelOptionView(BaseModel):
 
     ref: str = Field(
         description=(
-            "提交给 session.start 的模型引用：裸模型 id，或同 id 在多个实例时的「实例名/模型id」"
+            "提交给 session.start 的模型引用，一律「实例名/模型id」"
         )
     )
-    label: str = Field(description="展示文案：裸模型 id，冲突时为「模型id（实例名）」")
+    label: str = Field(
+        description="展示文案：模型 id；同 id 出现在多个实例的菜单里时为「模型id（实例名）」"
+    )
     model_id: str = Field(description="模型 id")
     provider_id: int = Field(description="所属实例 id")
     provider_name: str = Field(description="所属实例名")
@@ -155,6 +181,43 @@ class LlmModelOptionView(BaseModel):
     thinking_levels: list[str] = Field(
         default_factory=list, description="该模型的思考档位菜单；空 = 隐藏档位选择器"
     )
+    # 以下字段可空：旧服务端不返回时新客户端照常解码
+    shown: bool | None = Field(
+        default=None, description="是否显示在模型菜单里（默认规则 + 用户在「管理模型」里的选择）"
+    )
+    deprecated: bool | None = Field(default=None, description="服务商已停用（照常可用）")
+    released: str | None = Field(default=None, description="发布日期 YYYY-MM-DD")
+    display_name: str | None = Field(default=None, description="模型的展示名（公共目录）")
+    context_window: int | None = Field(default=None, description="上下文窗口（token）")
+    cost: ModelCost | None = Field(default=None, description="单价（每百万 token）")
+
+
+class LlmProviderModelView(BaseModel):
+    """「管理模型」里的一行：实例目录里的一个模型（含参数未知的）。"""
+
+    model: ModelInfo = Field(description="合并后的模型参数（sources 记来源层）")
+    known: bool = Field(description="参数已知；未知的要先补录参数才能显示")
+    shown: bool = Field(description="当前是否显示在菜单里")
+    listed: bool | None = Field(
+        default=None, description="是否在服务商列表里；null = 没有列表，false = 列表未包含"
+    )
+    in_preset: bool = Field(description="是否为内置预设收录的模型")
+    custom: bool = Field(description="是否为用户补录的模型")
+
+
+class LlmModelVisibilityPayload(BaseModel):
+    """显示或隐藏实例里的一个模型。模型 id 可能含斜杠，所以放请求体。"""
+
+    model_id: str = Field(min_length=1, max_length=256, description="模型 id")
+    shown: bool = Field(description="true 显示、false 隐藏")
+
+
+class LlmCatalogProviderView(BaseModel):
+    """公共目录（models.dev）里的一家服务商：兼容端点选「模型资料来源」用。"""
+
+    id: str
+    name: str
+    api: str | None = Field(default=None, description="该服务商的 OpenAI 兼容端点（如有）")
 
 
 class LlmDefaultsView(BaseModel):
@@ -218,12 +281,18 @@ class LlmProviderPayload(BaseModel):
         default=None,
         description="连接测试用的模型 id；留空取目录里第一个（预设目录或自定义目录）",
     )
-    # 自定义端点的模型只有裸 id 没有参数，agent 无法做预算决策，所以必须带参数补录
+    catalog_id: str | None = Field(
+        default=None,
+        max_length=100,
+        description="兼容端点的模型资料来源：公共目录服务商 id（见 llm.catalog.providers），"
+        "none = 不使用；留空按端点地址自动识别。编辑时不传沿用原值",
+    )
+    # 公共目录查不到参数的模型（自建端点上的私有模型），agent 无法做预算决策，须带参数补录
     extra_models: list[ModelInfo] = Field(
         default_factory=list,
         description="自定义模型目录 JSON 数组，元素形如 "
         '{"id":"模型id","context_window":131072,"max_output_tokens":8192}'
-        "（openai_compat 端点至少一条）",
+        "（openai_compat 端点的测试模型在公共目录查不到参数时须补录）",
     )
 
     @field_validator(
@@ -234,6 +303,7 @@ class LlmProviderPayload(BaseModel):
         "api_protocol",
         "api_key",
         "default_model",
+        "catalog_id",
         mode="before",
     )
     @classmethod

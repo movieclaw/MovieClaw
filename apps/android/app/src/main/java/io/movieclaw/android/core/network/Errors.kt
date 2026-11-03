@@ -1,10 +1,11 @@
 package io.movieclaw.android.core.network
 
 import retrofit2.HttpException
+import io.movieclaw.core.network.tlsErrorMessage
 import java.io.IOException
 
 /** 把异常翻译成面向动作的中文提示(对齐 iOS APIError 风格) */
-fun friendlyMessage(e: Throwable): String = when (e) {
+fun friendlyMessage(e: Throwable): String = tlsErrorMessage(null, e) ?: when (e) {
     is ApiException -> e.message
     is HttpException -> when (e.code()) {
         401 -> "登录状态已失效,请重新登录"

@@ -196,7 +196,9 @@
     "coreDemoSeedTitle": "Demo data",
     "coreDemoSeedDescription": "",
     "coreDemoSiteTitle": "Demo resource catalog",
-    "coreDemoSiteDescription": ""
+    "coreDemoSiteDescription": "",
+    "agentModelCatalogTitle": "Model catalog updates",
+    "agentModelCatalogDescription": "Fetches each model provider's current model list daily and refreshes model parameters from models.dev."
   },
   "groups": {
     "core": "Core",

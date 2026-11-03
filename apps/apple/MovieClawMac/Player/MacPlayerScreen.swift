@@ -14,10 +14,11 @@ import SwiftUI
 /// | 单击画面 | 唤出控制层（面板开着时先收面板） |
 /// | 双击画面 / F / ⌃⌘F | 全屏进出 |
 /// | 按住画面拖动 | 移动窗口（同 Infuse） |
-/// | ← → / ⌥← ⌥→ | 后退 / 前进 10 秒；⌘← ⌘→ 上一集 / 下一集 |
+/// | ← → / ⌥← ⌥→ | 后退 / 前进 10 秒（画面正中闪一下，不唤出控制层）；⌘← ⌘→ 上一集 / 下一集 |
 /// | ↑ ↓ / M | 音量 ±10% / 静音 |
 /// | Esc | 依次：收起面板 → 退出全屏 → 关闭播放器 |
 /// | ⌘. | 关闭播放器 |
+/// | 播完 | 有下一集：「即将播放」卡片倒计时接着放；没有（电影、本季最后一集）：关掉播放器，回到这部片的详情页 |
 ///
 /// 字幕避让：控制层出现时，若字幕会被底部控制面板压住，就临时把字幕抬到面板上方（同 AVKit 系统播放器的做法），
 /// 控制层收起后落回原位；画面上下有黑边、字幕本来就在面板上方时不动。只改这一次显示，不改用户的字幕设置。
@@ -58,6 +59,10 @@ private struct MacPlayerHost: View {
         .accessibilityIdentifier("mac-player")
         .onAppear(perform: attach)
         .onChange(of: floatsOnTop, initial: true) { _, value in window.floatsOnTop = value }
+        .onChange(of: controller?.finishedWithNothingNext == true) { _, finished in
+            // 播完且没有下一集可接：回到这部片的详情页；有下一集的照旧走「即将播放」卡片
+            if finished { closeToDetail() }
+        }
         .onDisappear {
             // 仍在呈现同一个播放请求：只是视图被重建，控制器保留
             if router.player?.id == request.id { return }
@@ -85,6 +90,16 @@ private struct MacPlayerHost: View {
     private func close() {
         finish()
         router.player = nil
+    }
+
+    /// 播完退出：关掉播放器，落在这部片的详情页（从首页、海报墙、搜索等处起播的，压一层详情；本来就在详情页的不重复压）。
+    /// 分享播放没有成员详情页，只关播放器
+    private func closeToDetail() {
+        let info = controller?.info
+        close()
+        guard request.shareSlug == nil, let info else { return }
+        let route = AppRoute.item(libraryId: info.libraryId, itemId: info.mediaItemId)
+        if router.path.last != route { router.push(route) }
     }
 
     /// 真正离开播放器：关会话（补一次停止上报，页面收到 `.playbackStopReported` 自己刷新）、退出播放期间进的全屏、
@@ -507,8 +522,12 @@ private struct MacPlayerContent: View {
         controller.noteUserActivity()
         guard !isModal, controller.session != nil else { return }
         controller.seek(by: seconds, source: flashes ? .remote : .button)
-        showChrome()
-        if flashes { flash = MacPlayerFlash(symbol: seconds < 0 ? "gobackward.10" : "goforward.10") }
+        // 方向键跳转只在画面正中闪一下，不唤出控制层（只想看画面）；点控制栏上的按钮时控制层本来就在，接着重新计时
+        if flashes {
+            flash = MacPlayerFlash(symbol: seconds < 0 ? "gobackward.10" : "goforward.10")
+        } else {
+            showChrome()
+        }
     }
 
     /// 控件之间的空白处：单击不做事，双击全屏（连击数按 AppKit 事件认，同画面上的双击）

@@ -143,7 +143,35 @@ async def viewer_scope(
     async with get_database().session() as session:
         visible = await member_visible_ids(session, member_id)
         limit = await member_content_limit(session, member_id)
+        if visible:
+            visible = await _jellyfin_exposed_ids(session, visible)
     return ViewerScope(member_id, visible, limit)
+
+
+async def _jellyfin_exposed_ids(session: AsyncSession, visible: set[int]) -> set[int]:
+    """可见集再按「对 Jellyfin 暴露」收窄一次（PR #1111 审查意见 4）。
+
+    ``list_libraries`` 只挡住了库视图的列举；搜索、``/Items/Latest``、按库
+    GUID 直接浏览走的是这里的 ``scope.visible``——不在这里收窄的话，图片库
+    或插件停用的外部库条目仍会从这些口子漏出去。与库视图同一口径：能力位
+    ``jellyfin_exposed``（孤儿档案为 False，插件停用的外部库一并消失）。
+    """
+    from sqlalchemy import select as sa_select
+
+    rows = (
+        await session.execute(
+            sa_select(Library.id, Library.kind, Library.source).where(
+                Library.id.in_(visible)  # type: ignore[union-attr]
+            )
+        )
+    ).all()
+    from movieclaw_api.services.library.profile import profile_of_values
+
+    return {
+        int(lid)
+        for lid, kind, source in rows
+        if profile_of_values(str(kind), str(source)).jellyfin_exposed
+    }
 
 
 # 这些排序键要读**每一个候选条目**的文件行（入库时间 / 时长），骨架不够用

@@ -27,6 +27,7 @@ from movieclaw_db.models.library_file_replica import (
     REPLICA_UPLOADING,
     LibraryFileReplica,
 )
+from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
 from movieclaw_sdk import drives as dv
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,8 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
     """
     from movieclaw_api.services.drives import sources
 
-    replicas = await replicas_of(file_ids)
+    ids = set(file_ids)
+    replicas = await replicas_of(ids)
     if not replicas:
         return None
     by_account: dict[int, list[LibraryFileReplica]] = {}
@@ -87,16 +89,26 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
     error: str | None = None
     for account_id, group in by_account.items():
         live = [r for r in group if needs_remote_call(r)]
-        done.extend(r for r in group if not needs_remote_call(r))
-        for start in range(0, len(live), BATCH):
-            chunk = live[start : start + BATCH]
-            await _mark(chunk, REPLICA_DELETING)
+        done.extend(r for r in group if r not in live)
+        remote_ids = list(dict.fromkeys(r.remote_id for r in live))
+        for start in range(0, len(remote_ids), BATCH):
+            batch_ids = remote_ids[start : start + BATCH]
+            candidates = [r for r in live if r.remote_id in batch_ids]
+            async with get_database().session() as session:
+                chunk = await LibraryCloudRepository(session).prepare_delete(
+                    candidates, file_ids=ids
+                )
+            ready_ids = {r.id for r in chunk}
+            done.extend(r for r in candidates if r.id not in ready_ids)
+            if not chunk:
+                continue
+            batch_ids = list(dict.fromkeys(r.remote_id for r in chunk))
             try:
                 await gateway.call(
                     account_id,
                     "delete",
                     priority=gateway.Priority.USER,
-                    remote_ids=[r.remote_id for r in chunk],
+                    remote_ids=batch_ids,
                 )
             except dv.DriveError as exc:
                 await _restore(chunk)
@@ -115,7 +127,11 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
         async with get_database().session() as session:
             for replica in done:
                 row = await session.get(LibraryFileReplica, replica.id)
-                if row is not None:
+                if row is not None and (row.library_file_id, row.account_id, row.remote_id) == (
+                    replica.library_file_id,
+                    replica.account_id,
+                    replica.remote_id,
+                ):
                     await session.delete(row)
             await session.commit()
         for replica in done:
@@ -124,22 +140,17 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
     return error
 
 
-async def _mark(replicas: list[LibraryFileReplica], state: str) -> None:
-    async with get_database().session() as session:
-        for replica in replicas:
-            row = await session.get(LibraryFileReplica, replica.id)
-            if row is not None:
-                row.state = state
-                session.add(row)
-        await session.commit()
-
-
 async def _restore(replicas: list[LibraryFileReplica]) -> None:
     """删失败：副本回到删之前的状态。"""
     async with get_database().session() as session:
         for replica in replicas:
             row = await session.get(LibraryFileReplica, replica.id)
-            if row is not None:
+            if (
+                row is not None
+                and row.state == REPLICA_DELETING
+                and (row.library_file_id, row.account_id, row.remote_id)
+                == (replica.library_file_id, replica.account_id, replica.remote_id)
+            ):
                 row.state = replica.state
                 session.add(row)
         await session.commit()

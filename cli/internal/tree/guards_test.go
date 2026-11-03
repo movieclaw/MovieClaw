@@ -395,6 +395,7 @@ func TestDomainCommandSets(t *testing.T) {
 			"library.items.transfer",
 			"library.list",
 			"library.list-routing-options",
+			"library.list-source-providers",
 			"library.metadata.get-refresh-status",
 			"library.metadata.refresh-library",
 			"library.metadata.stop-refresh",

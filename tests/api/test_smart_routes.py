@@ -135,12 +135,6 @@ def test_member_can_reuse_but_cannot_edit_global_smart_settings(client):
     assert result.json()["data"]["subscription"]["smart_policy"]["resolution"] == "1080p"
 
 
-def test_smart_runtime_settings_registered_before_first_subscription(client):
-    from movieclaw_api.settings import get_descriptor
-
-    assert get_descriptor("subscription.smart") is not None
-
-
 @pytest.mark.parametrize("kind,legacy_wait", [("movie", 259200), ("tv", 7200)])
 def test_week_wait_profiles_validate_and_existing_subscriptions_follow(client, kind, legacy_wait):
     base = "/api/v1/subscriptions"

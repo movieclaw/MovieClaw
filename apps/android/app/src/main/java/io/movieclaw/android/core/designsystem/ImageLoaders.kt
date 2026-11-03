@@ -27,11 +27,16 @@ class ImageLoaders @Inject constructor(
     shareCookies: ShareCookieJar,
 ) {
     /** 图片用的带鉴权客户端；ambient 取色也走它（服务端图片需要带 token） */
-    val http: OkHttpClient get() = identityClient(baseClient, vault.snapshot())
+    val http: OkHttpClient get() = identityClient(baseClient, vault.snapshot()).newBuilder()
+        // 离线下载存下的图：离线模式直接用本机的，在线时请求失败才回落
+        .addInterceptor(io.movieclaw.android.core.offline.OfflineImages.interceptor)
+        .build()
 
     val loader: ImageLoader = ImageLoader.Builder(context)
         .components {
-            add(OkHttpNetworkFetcherFactory(callFactory = { http }))
+            // Coil 只调一次 callFactory（内部 lazy）：直接返回 http 会把**第一次取图时**的账号身份
+            // 冻结到进程结束（登录前就取过图、或切了账号，会员图一直 401）。每次请求现取身份。
+            add(OkHttpNetworkFetcherFactory(callFactory = { okhttp3.Call.Factory { request -> http.newCall(request) } }))
         }
         .diskCache {
             DiskCache.Builder()

@@ -35,21 +35,54 @@ struct LibraryHomeView: View {
     @State private var clearingLibrary = false
     /// 片段（docs/design/reels.md）：蜂窝网络下进入前的确认
     @State private var confirmingReelsOnCellular = false
+    /// 片段的入口是下拉二楼（见 ReelsFloor）；读屏做不了这个手势，开着旁白时顶栏照旧给按钮
+    @State private var reelsFloor = ReelsFloor()
+    /// 二楼胶片画格里的剧照顺序：每次进首页随机一次，拖动时不变
+    @State private var floorShuffle = Int.random(in: 0 ..< Int.max)
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    /// 没用过下拉二楼的人在首页顶上看到一张提示卡（docs/design/tips.md）；拉进过一次或关掉后，所有设备上都不再出现
+    @State private var tips = TipsStore.shared
+    private static let floorTip = "library.reels-floor"
+    /// 从二楼进了片段：松手那一刻就压栈，首页的回弹被打断、卡在拉开的位置（连同刷新转圈），
+    /// 返回时还挂着一截。首页被盖住后把它放回顶端
+    @State private var leftByFloor = false
     /// 离线模式（docs/design/offline-download.md §1）：同一个页签，内容换成 iPhone 上已下载的
     @State private var reachability = ServerReachability.shared
     @State private var offline = OfflineStore.shared
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if reachability.isOffline {
-                    OfflineLibraryHomeView()
-                } else {
-                    content
-                    footer
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if reachability.isOffline {
+                        OfflineLibraryHomeView()
+                    } else {
+                        content
+                        footer
+                    }
                 }
+                .padding(.bottom, 32)
+                .overlay {
+                    if !reachability.isOffline { ReelsFloorDim(floor: reelsFloor) }
+                }
+                .overlay(alignment: .top) {
+                    if !reachability.isOffline {
+                        ReelsFilmStrip(floor: reelsFloor, stills: floorStills)
+                    }
+                }
+                .id(Self.topAnchor)
             }
-            .padding(.bottom, 32)
+            .reelsFloor(reelsFloor, enabled: !reachability.isOffline) {
+                tips.invalidate(Self.floorTip, reason: "action_performed", api: api)
+                leftByFloor = true
+                openReels()
+            }
+            .onDisappear {
+                reelsFloor.reset()
+                guard leftByFloor else { return }
+                leftByFloor = false
+                proxy.scrollTo(Self.topAnchor, anchor: .top)
+            }
         }
         .appBackground()
         // iPad 上叫「首页」：各个库逐个列在侧边栏里（同 Mac 版）
@@ -59,18 +92,19 @@ struct LibraryHomeView: View {
             // 页面级动作都是低频的配置入口，收进一个 ⋯ 菜单：顶栏与发现、订阅页一致，
             // 只有「一个页面按钮 + 最右的搜索圆钮」。原先平铺的 list.bullet / 齿轮图标
             // 在 iOS 里分别像「切列表视图」「App 设置」，含义对不上（2026-09-26 用户要求整理）
-            // 「片段」是 2026-09-29 用户要求放在媒体库顶部试验的入口（docs/design/reels.md），图标用圆圈播放
-            // （不和底部「媒体库」页签的 play.square.stack 撞）。不常用：只留图标、排在最左，
-            // 与 ⋯ 合成一个玻璃胶囊，顶栏只剩「▶ ⋯ · 搜索」两组（2026-10-05 用户要求，原先三颗圆钮又多又乱）
+            // 「片段」的入口 2026-10-28 改成下拉二楼（见 ReelsFloor，用户要求省掉顶栏一颗按钮），顶栏只剩「⋯ · 搜索」；
+            // 开着旁白时做不了下拉手势，按钮照旧放在 ⋯ 左边（图标用圆圈播放，不和底部「媒体库」页签的 play.square.stack 撞）
             // 离线模式下片段、⋯ 菜单（自定义首页 / 合集 / 管理）都要连服务器，整组不显示（2026-10-19 用户要求）
             if !reachability.isOffline {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { openReels() } label: {
-                        // 带标题：iPhone Duo 上工具栏竖排时只显示图标，挤进系统溢出菜单时才用得上文字（docs/design/iphone-duo.md §6.3）
-                        Label(String(localized: .libraryHomeReelsAria), systemImage: "play.circle")
+                if voiceOver {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { openReels() } label: {
+                            // 带标题：iPhone Duo 上工具栏竖排时只显示图标，挤进系统溢出菜单时才用得上文字（docs/design/iphone-duo.md §6.3）
+                            Label(String(localized: .libraryHomeReelsAria), systemImage: "play.circle")
+                        }
+                        .accessibilityLabel(String(localized: .libraryHomeReelsAria))
+                        .accessibilityIdentifier("library-reels")
                     }
-                    .accessibilityLabel(String(localized: .libraryHomeReelsAria))
-                    .accessibilityIdentifier("library-reels")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -88,12 +122,16 @@ struct LibraryHomeView: View {
                 }
             }
         }
-        .refreshable { await reload() }
+        .refreshable {
+            reelsFloor.refreshTriggered()
+            await reload()
+        }
         .onAppear {
             guard !warmup else { return }
             PerfTrace.pageAppeared("library")
             if dataComplete { PerfTrace.pageDataReady("library") }
             Task { await reload() }
+            Task { await tips.ensureLoaded(api: api, owner: ownerKey) }
             // 「继续观看」多半从这里点：先把起播要用的连接连好（见 PlaybackPreconnect）
             PlaybackPreconnect.warm(api: api)
         }
@@ -139,6 +177,16 @@ struct LibraryHomeView: View {
     // MARK: 派生状态
 
     private var visibleLibraries: [API.LibraryView] { (libraries ?? []).filter(\.viewerAccess) }
+
+    /// 二楼胶片的画格：首页已经拿到的条目剧照，去重后随机取 8 张（不另发请求）
+    private var floorStills: [URL] {
+        let paths = (upNext ?? []).compactMap(\.backdropUrl) + itemsByKey.values.flatMap { $0.compactMap(\.backdropUrl) }
+        var seen = Set<String>()
+        return paths.filter { seen.insert($0).inserted }
+            .sorted { ($0.hashValue ^ floorShuffle) < ($1.hashValue ^ floorShuffle) }
+            .prefix(8)
+            .compactMap { api.image($0, width: ImageWidth.points(112)) }
+    }
 
     /// 整页数据都到了（打点用，见 PerfTrace）：库、接下来继续、收藏、各行条目
     private var dataComplete: Bool {
@@ -246,6 +294,17 @@ struct LibraryHomeView: View {
                     .padding(.horizontal, cards.edge)
                     .padding(.top, 64)
                     .accessibilityIdentifier("home-all-hidden")
+                }
+                if showsFloorTip {
+                    TipCard(systemImage: "arrow.down", title: String(localized: .libraryHomeReelsTipTitle),
+                            message: String(localized: .libraryHomeReelsTipMessage)) {
+                        withAnimation(.snappy) { tips.invalidate(Self.floorTip, reason: "closed", api: api) }
+                    }
+                    .onAppear { tips.recordDisplay(Self.floorTip, api: api) }
+                    .accessibilityIdentifier("tip-reels-floor")
+                    .padding(.horizontal, cards.edge)
+                    .padding(.top, 12)
+                    .transition(.opacity)
                 }
                 OfflineDownloadingRow()
                 ForEach(visibleRows) { row in
@@ -410,7 +469,16 @@ struct LibraryHomeView: View {
     // MARK: 加载
 
     private func reload() async {
-        await store.reload(api: api, owner: LibraryHomePrefs.ownerKey(api: api, username: model.session?.username))
+        await store.reload(api: api, owner: ownerKey)
+    }
+
+    private static let topAnchor = "library-home-top"
+
+    private var ownerKey: String { LibraryHomePrefs.ownerKey(api: api, username: model.session?.username) }
+
+    /// 下拉二楼的提示：开着旁白时顶栏有按钮、离线进不了片段，都不提示
+    private var showsFloorTip: Bool {
+        !voiceOver && !reachability.isOffline && tips.eligible(Self.floorTip)
     }
 }
 

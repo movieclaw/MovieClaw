@@ -661,7 +661,7 @@
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.5"
+    "version": "1.6"
   },
   "host-ops": {
     "doc": "宿主操作：插件以自己的身份调用本进程的 OpenAPI 操作（按操作授权）",
@@ -735,7 +735,7 @@
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.1"
+    "version": "1.2"
   },
   "kernel/durable-events": {
     "doc": "可靠事件的存储与投递：事务内写入、提交后投递、至少一次",

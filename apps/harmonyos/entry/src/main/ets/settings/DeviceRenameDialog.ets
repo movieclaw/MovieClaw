@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
@@ -106,30 +107,34 @@ export struct DeviceRenameDialog {
 
       // 保存 / 取消 水平并排（各占一半，同 MorePage 的重命名弹层）
       Row({ space: 10 }) {
-        Text('取消')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.text)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 15, bottom: 15 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(18)
-          .onClick((): void => {
-            this.onClose();
-          })
-        Text(this.busy ? '保存中…' : '保存')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.canSave() ? '#0b0d12' : Theme.textFaint)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 15, bottom: 15 })
-          .backgroundColor(this.canSave() ? Theme.accent : Theme.glassFill)
-          .borderRadius(18)
-          .onClick((): void => {
-            this.save();
-          })
+        Button() {
+          Text('取消')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.text)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 15, bottom: 15 })
+        .borderRadius(18)
+        .onClick((): void => {
+          this.onClose();
+        })
+        Button() {
+          Text(this.busy ? '保存中…' : '保存')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.canSave() ? '#0b0d12' : Theme.textFaint)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(this.canSave() ? GlassTone.Primary : GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 15, bottom: 15 })
+        .borderRadius(18)
+        .onClick((): void => {
+          this.save();
+        })
       }
       .width('100%')
     }

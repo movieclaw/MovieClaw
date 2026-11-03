@@ -1114,6 +1114,9 @@ class _FrameProbe:
         self.file = file
         self.engine = engine
         self.dirty = False
+        #: 拿到的帧（含缓存命中）/ 抽帧失败的次数：全部失败时要留下日志（#1094）
+        self.seen = 0
+        self.missed = 0
         # (请求时间, 是否精确, 帧)
         self.frames: list[tuple[float, bool, credits_logic.Frame]] = []
         try:
@@ -1144,11 +1147,15 @@ class _FrameProbe:
                 not accurate and not cached_accurate and abs(req - t) <= 1.5
             )
             if hit and (not corners or frame.corners is not None):
+                self.seen += 1
                 return frame
         width = _CORNER_FRAME_WIDTH if corners else _FRAME_WIDTH
         grabbed = await _grab_frame(self.file.file_path, t, accurate, width)
         if grabbed is None:
+            self.missed += 1
+            logger.debug("文件 #%s 在 %.1f 秒处抽帧失败", self.file.id, t)
             return None
+        self.seen += 1
         img, actual = grabbed
         luma, lines, corner_texts = await self.engine.recognize(img, corners)
         frame = credits_logic.Frame(actual, luma, lines, corner_texts)
@@ -1332,6 +1339,17 @@ async def _refine_episode(
         if chinese:
             notes += await segment_labels.label_head_ads(segments, probe.observe_corners)
         await asyncio.to_thread(probe.save)
+        gone = probe.missed > 0 and not os.path.exists(file.file_path)
+        if probe.missed and (not probe.seen or gone):
+            # 取不到帧时照常落库，不留日志就无从排查（#1094）
+            logger.warning(
+                "文件 #%s 的画面核对有 %s 次抽帧失败、只拿到 %s 帧%s，片头片尾可能没按画面修正：%s",
+                file.id,
+                probe.missed,
+                probe.seen,
+                "（本地文件已不在）" if gone else "",
+                file.file_path,
+            )
     except Exception as exc:  # noqa: BLE001 —— 画面核对锦上添花：抽帧、OCR 出任何错都退回声音结果
         logger.warning("文件 #%s 的画面核对失败，保留声音识别结果：%s", file.id, exc)
         return None

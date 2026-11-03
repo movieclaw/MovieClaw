@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { Formatters } from '../common/Formatters';
 import { RemoteImage } from '../common/RemoteImage';
 import { LibraryRecentAdditionView, LibraryView } from '../api/Models';
@@ -356,10 +357,10 @@ export struct LibraryPosterCell {
             .fontSize(11)
             .fontWeight(600)
             .fontColor('rgba(255, 255, 255, 0.9)')
+            // 一次 padding 写全：同链两次 .padding 是覆盖不是合并，之前 padding(7) 把上下 3 抹成 7
             .padding({ left: 7, right: 7, top: 3, bottom: 3 })
             .backgroundColor('rgba(0, 0, 0, 0.6)')
             .borderRadius(10)
-            .padding(7)
             .alignSelf(ItemAlign.Start)
         }
 
@@ -492,21 +493,22 @@ export struct EmptyState {
           .lineHeight(20)
       }
       if (this.actionTitle !== null && this.onAction !== null) {
-        Text(this.actionTitle)
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.accentStrong)
-          .padding({ left: 20, right: 20, top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(20)
-          .border({ width: 1, color: Theme.lineStrong })
-          .margin({ top: 6 })
-          .onClick(() => {
-            const handler = this.onAction;
-            if (handler !== null) {
-              handler();
-            }
-          })
+        Button() {
+          Text(this.actionTitle)
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(Theme.accentStrong)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .margin({ top: 6 })
+        .onClick(() => {
+          const handler = this.onAction;
+          if (handler !== null) {
+            handler();
+          }
+        })
       }
     }
     .alignItems(HorizontalAlign.Center)

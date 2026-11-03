@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { RemoteImage } from '../common/RemoteImage';
@@ -154,7 +155,9 @@ export struct PersonDetailPage {
 
   build() {
     NavDestination() {
-      Stack({ alignContent: Alignment.TopStart }) {
+      // 非沉浸页：顶栏走流式布局（同 ProfilePage/订阅详情），内容整体排在顶栏之下。
+      // 原先是 Stack 叠放——内容画在顶栏上层，PersonHeaderCard 的头像照片正好压住返回键和标题。
+      Column() {
         PageTopBar({ title: this.title(), onBack: (): void => {
           this.navStack.pop();
         }})
@@ -193,7 +196,7 @@ export struct PersonDetailPage {
         .fontColor(Theme.textMuted)
     }
     .width('100%')
-    .height('100%')
+    .layoutWeight(1)
     .justifyContent(FlexAlign.Center)
   }
 
@@ -215,18 +218,19 @@ export struct PersonDetailPage {
           .textAlign(TextAlign.Center)
           .lineHeight(22)
           .constraintSize({ maxWidth: 300 })
-        Text('去媒体库')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor(Theme.text)
-          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(20)
-          .border({ width: 1, color: Theme.lineStrong })
-          .margin({ top: 4 })
-          .onClick(() => {
-            ShellChrome.openTab('library');
-          })
+        Button() {
+          Text('去媒体库')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor(Theme.text)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .margin({ top: 4 })
+        .onClick(() => {
+          ShellChrome.openTab('library');
+        })
       } else {
         Text('未能加载影人档案')
           .fontSize(17)
@@ -236,21 +240,23 @@ export struct PersonDetailPage {
           .fontSize(14)
           .fontColor(Theme.textMuted)
           .textAlign(TextAlign.Center)
-        Text('重试')
-          .fontSize(15)
-          .fontWeight(600)
-          .fontColor('#0b0d12')
-          .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(20)
-          .margin({ top: 4 })
-          .onClick(() => {
-            this.load();
-          })
+        Button() {
+          Text('重试')
+            .fontSize(15)
+            .fontWeight(600)
+            .fontColor('#0b0d12')
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+        .borderRadius(20)
+        .margin({ top: 4 })
+        .onClick(() => {
+          this.load();
+        })
       }
     }
     .width('100%')
-    .height('100%')
+    .layoutWeight(1)
     .justifyContent(FlexAlign.Center)
     .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
   }
@@ -286,7 +292,7 @@ export struct PersonDetailPage {
       });
     })
     .width('100%')
-    .height('100%')
+    .layoutWeight(1)
   }
 
   @Builder

@@ -1838,6 +1838,12 @@
   "library.kindSourceUnsupported": {
     "sourceHash": "e5a2b0288a9e2f94d5d9970a903ad95538159f9b57d6f2a45c171b7de817424a"
   },
+  "library.sourceConfigUnsupported": {
+    "sourceHash": "69b4b81fa78a0ec9fad8381ac4f1a456e0b6c39169d27ad18b41a26010561841"
+  },
+  "library.sourceConfigInvalid": {
+    "sourceHash": "fbd16d15d566c70a50a235979ab5f1f856c248152516e14242c8ff39a0bd0058"
+  },
   "library.transferSame": {
     "sourceHash": "837910e6397cb4dcee517928d4e5c39f89515fad7f224bebe1c99fc334a56e7f"
   },
@@ -2791,5 +2797,14 @@
   },
   "playback.remoteBackendMissing": {
     "sourceHash": "d0b624063a25a411d676491af0a2a8d2379619da80295ab8e383ad6b261d737f"
+  },
+  "llm.catalogUnknown": {
+    "sourceHash": "7467427aa965e0ce1e0fe751c36133e968fc61a1fa8b51b0ec7a28bc67a1f279"
+  },
+  "llm.catalogModelMissing": {
+    "sourceHash": "6f4e551e9c294b8a977c70aa47a885a7cc6801b5f0d46fcf199142e8e6f52b8b"
+  },
+  "llm.modelParamsUnknown": {
+    "sourceHash": "6aeb36e833dc50cdb5293cdb936c48fbc746ff159a584ce83589c0c74205ff80"
   }
 }

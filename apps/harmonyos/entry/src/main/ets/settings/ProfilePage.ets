@@ -3,8 +3,10 @@ import { fileIo } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { request } from '@kit.BasicServicesKit';
+import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
-import { PageTopBar } from '../common/PageTopBar';
+import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { AppFooter } from '../common/AppFooter';
@@ -42,6 +44,8 @@ const AVATAR_MAX_EDGE: number = 512;
 @ComponentV2
 export struct ProfilePage {
   private navStack: NavPathStack = new NavPathStack();
+  /** 列表滚动器：标题栏的渐变模糊 / 滑动显隐靠它驱动（同根页签） */
+  private scroller: Scroller = new Scroller();
   @Local private model: AppModel = AppModel.shared;
 
   // 头像
@@ -408,12 +412,9 @@ export struct ProfilePage {
   // MARK: 视图
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        PageTopBar({ title: '个人信息', onBack: (): void => {
-          this.navStack.pop();
-        }})
-        List() {
+        List({ scroller: this.scroller }) {
           ListItem() {
             this.OverviewCard()
           }
@@ -439,13 +440,19 @@ export struct ProfilePage {
         .layoutWeight(1)
         .width('100%')
         .scrollBar(BarState.Off)
-        .padding({ left: 16, right: 16, bottom: Theme.tabBarInset })
+        .contentStartOffset(AppNavBar.contentTop)
+        .padding({ left: 16, right: 16 })
+        .contentEndOffset(Theme.tabBarInset)
       }
       .width('100%')
       .height('100%')
       .backgroundColor(Theme.bg)
     }
-    .hideTitleBar(true)
+    // 二级页标题栏：与根页签同一套「沉浸光感渐变模糊 + 自适应材质」（见 common/AppNavBar）
+    .titleMode(HdsNavDestinationTitleMode.MINI)
+    .titleBar(AppNavBar.subPageTitleBar('个人信息'))
+    .bindToScrollable([this.scroller])
+    .dynamicHideTitleBar(AppNavBar.dynamicHide())
     .onReady((ctx: NavDestinationContext) => {
       this.navStack = ctx.pathStack;
     })
@@ -585,15 +592,15 @@ export struct ProfilePage {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Button('编辑')
-                .type(ButtonType.Capsule)
-                .buttonStyle(ButtonStyleMode.NORMAL)
-                .controlSize(ControlSize.SMALL)
-                .fontSize(13)
-                .backgroundColor(Theme.glassFill)
-                .fontColor(Theme.text)
-                .onClick(() => {
-                  this.startEditNickname();
-                })
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .type(ButtonType.Capsule)
+              .buttonStyle(ButtonStyleMode.NORMAL)
+              .controlSize(ControlSize.SMALL)
+              .fontSize(13)
+              .fontColor(Theme.text)
+              .onClick(() => {
+                this.startEditNickname();
+              })
             }
           }
           .width('100%')
@@ -602,26 +609,26 @@ export struct ProfilePage {
             Row({ space: 10 }) {
               Blank()
               Button('取消')
-                .type(ButtonType.Capsule)
-                .buttonStyle(ButtonStyleMode.NORMAL)
-                .controlSize(ControlSize.SMALL)
-                .fontSize(13)
-                .backgroundColor(Theme.glassFill)
-                .fontColor(Theme.text)
-                .onClick(() => {
-                  this.editingNickname = false;
-                })
+              .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+              .type(ButtonType.Capsule)
+              .buttonStyle(ButtonStyleMode.NORMAL)
+              .controlSize(ControlSize.SMALL)
+              .fontSize(13)
+              .fontColor(Theme.text)
+              .onClick(() => {
+                this.editingNickname = false;
+              })
               Button(this.nicknameBusy ? '保存中…' : '保存')
-                .type(ButtonType.Capsule)
-                .buttonStyle(ButtonStyleMode.EMPHASIZED)
-                .controlSize(ControlSize.SMALL)
-                .fontSize(13)
-                .backgroundColor(Theme.accent)
-                .fontColor('#0b0d12')
-                .enabled(!this.nicknameBusy)
-                .onClick(() => {
-                  this.saveNickname();
-                })
+              .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+              .type(ButtonType.Capsule)
+              .buttonStyle(ButtonStyleMode.EMPHASIZED)
+              .controlSize(ControlSize.SMALL)
+              .fontSize(13)
+              .fontColor('#0b0d12')
+              .enabled(!this.nicknameBusy)
+              .onClick(() => {
+                this.saveNickname();
+              })
             }
             .width('100%')
           }
@@ -732,10 +739,10 @@ export struct ProfilePage {
             .layoutWeight(1)
             .alignItems(HorizontalAlign.Start)
             Toggle({ type: ToggleType.Switch, isOn: this.signOutPaired })
-              .selectedColor(Theme.accent)
-              .onChange((isOn: boolean): void => {
-                this.signOutPaired = isOn;
-              })
+            .attributeModifier(new GlassSwitchModifier())
+            .onChange((isOn: boolean): void => {
+              this.signOutPaired = isOn;
+            })
           }
           .width('100%')
         }
@@ -756,17 +763,17 @@ export struct ProfilePage {
         Row() {
           Blank()
           Button(this.passwordBusy ? '提交中…' : '修改密码')
-            .type(ButtonType.Capsule)
-            .buttonStyle(ButtonStyleMode.EMPHASIZED)
-            .controlSize(ControlSize.NORMAL)
-            .fontSize(15)
-            .backgroundColor(Theme.accent)
-            .fontColor('#0b0d12')
-            .enabled(!this.passwordBusy && this.oldPassword.length > 0
-              && this.newPassword.length > 0 && this.confirmPassword.length > 0)
-            .onClick(() => {
-              this.changePassword();
-            })
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .type(ButtonType.Capsule)
+          .buttonStyle(ButtonStyleMode.EMPHASIZED)
+          .controlSize(ControlSize.NORMAL)
+          .fontSize(15)
+          .fontColor('#0b0d12')
+          .enabled(!this.passwordBusy && this.oldPassword.length > 0
+            && this.newPassword.length > 0 && this.confirmPassword.length > 0)
+          .onClick(() => {
+            this.changePassword();
+          })
         }
         .width('100%')
       }
@@ -797,16 +804,16 @@ export struct ProfilePage {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
         Button(this.clearing ? '清空中…' : '清空')
-          .type(ButtonType.Capsule)
-          .buttonStyle(ButtonStyleMode.NORMAL)
-          .controlSize(ControlSize.SMALL)
-          .fontSize(13)
-          .backgroundColor(Theme.glassFill)
-          .fontColor(Theme.danger)
-          .enabled(!this.clearing)
-          .onClick(() => {
-            this.confirmClearHistory();
-          })
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .type(ButtonType.Capsule)
+        .buttonStyle(ButtonStyleMode.NORMAL)
+        .controlSize(ControlSize.SMALL)
+        .fontSize(13)
+        .fontColor(Theme.danger)
+        .enabled(!this.clearing)
+        .onClick(() => {
+          this.confirmClearHistory();
+        })
       }
       .width('100%')
       .padding(16)
@@ -823,27 +830,30 @@ export struct ProfilePage {
   @Builder
   SwitchCard() {
     Column({ space: 8 }) {
-      Row({ space: 12 }) {
-        SymbolGlyph($r('sys.symbol.person_2'))
-          .fontSize(18)
-          .fontColor([Theme.text])
-          .width(24)
-        Text('切换账号')
-          .fontSize(15)
-          .fontColor(Theme.text)
-          .layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.chevron_right'))
-          .fontSize(14)
-          .fontColor([Theme.textFaint])
+      Button() {
+        Row({ space: 12 }) {
+          SymbolGlyph($r('sys.symbol.person_2'))
+            .fontSize(18)
+            .fontColor([Theme.text])
+            .width(24)
+          Text('切换账号')
+            .fontSize(15)
+            .fontColor(Theme.text)
+            .layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_right'))
+            .fontSize(14)
+            .fontColor([Theme.textFaint])
+        }
+        .width('100%')
+        .padding(16)
       }
-      .width('100%')
-      .padding(16)
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding(0)
+      .clip(true)
       // 上面那张卡的小标题给了 14 的顶部留白，这张卡没有小标题——补上同样的节奏，
       // 否则「观看历史」与「切换账号」两张卡会贴在一起（用户反馈「留的太窄」）
       .margin({ top: 18 })
-      .backgroundColor(Theme.surface)
       .borderRadius(Theme.cardRadius)
-      .border({ width: 1, color: Theme.line })
       .onClick(() => {
         this.openSwitcher();
       })
@@ -858,19 +868,20 @@ export struct ProfilePage {
 
   @Builder
   SignOutCard() {
-    Text('退出登录')
-      .fontSize(16)
-      .fontWeight(FontWeight.Medium)
-      .fontColor(Theme.danger)
-      .textAlign(TextAlign.Center)
-      .width('100%')
-      .padding({ top: 15, bottom: 15 })
-      .backgroundColor(Theme.surface)
-      .borderRadius(Theme.cardRadius)
-      .border({ width: 1, color: Theme.line })
-      .margin({ top: 14 })
-      .onClick(() => {
-        this.confirmSignOut();
-      })
+    Button() {
+      Text('退出登录')
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.danger)
+        .textAlign(TextAlign.Center)
+    }
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .width('100%')
+    .padding({ top: 15, bottom: 15 })
+    .borderRadius(Theme.cardRadius)
+    .margin({ top: 14 })
+    .onClick(() => {
+      this.confirmSignOut();
+    })
   }
 }

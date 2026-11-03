@@ -1,14 +1,21 @@
 package io.movieclaw.android.feature.offline
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,598 +23,556 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import io.movieclaw.android.core.designsystem.Accent
 import io.movieclaw.android.core.designsystem.Bg
 import io.movieclaw.android.core.designsystem.Danger
 import io.movieclaw.android.core.designsystem.GlassCard
 import io.movieclaw.android.core.designsystem.Info
 import io.movieclaw.android.core.designsystem.McFormat
-import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.McTopBar
 import io.movieclaw.android.core.designsystem.McTopBarVariant
+import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.RemoteImage
 import io.movieclaw.android.core.designsystem.Success
 import io.movieclaw.android.core.designsystem.TextFaint
 import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.TextPrimary
 import io.movieclaw.android.core.designsystem.Warning
-import io.movieclaw.android.core.offline.OfflineDownloader
-import io.movieclaw.android.core.offline.OfflineStore
-import io.movieclaw.android.core.session.SessionRepository
-import javax.inject.Inject
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
+import io.movieclaw.android.core.offline.OfflineDisk
+import io.movieclaw.android.core.offline.OfflineFormat
+import io.movieclaw.android.core.offline.OfflineItemSummary
+import io.movieclaw.android.core.offline.OfflineOwner
+import io.movieclaw.android.core.offline.OfflineOwners
+import io.movieclaw.android.core.offline.OfflineQueue
+import io.movieclaw.android.core.offline.OfflineUnit
+import io.movieclaw.android.core.offline.OfflineUnitStatus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * 我的 → 下载（iOS `OfflineStorageView` 的对应物，docs/design/offline-download.md §8）：
- * 下载中（每一集一行：海报、片名、第 N 季第 M 集 · 档位、状态与速度、进度；下完移到「已下载」）
- * → 建议（有已看完的才出现：删除已看完的）
- * → 已下载（**按条目**一行：海报、标题、已下载 N 集/档位、占用；点进详情，删除二次确认）
- * → 容量条放最后（本机储存空间：下载 / 其他已用 / 剩余）。
- *
- * 与 iOS 的已知差异：iOS 会列「其他账号」在这台设备上的下载（各账号独立目录），
- * 安卓的本机副本目前只按当前安装存一份，没有多账号分区，故这一组不出现。
+ * 我的 → 下载（docs/design/offline-download.md §8；iOS `OfflineStorageView`）：
+ * 下载中（有才出现，每一集一行，下完就移到已下载）→ 清理建议（有已看完的才出现）
+ * → 已下载（点进条目、长按删除）→ 其他账号 → 容量条（放最后）；下载设置在右上角菜单。首页的「正在下载」提示条点进这里
  */
-@HiltViewModel
-class DownloadsViewModel @Inject constructor(
-    private val store: OfflineStore,
-    private val downloader: OfflineDownloader,
-    private val repository: SessionRepository,
-    private val apiFactory: io.movieclaw.android.core.network.ApiFactory,
-    private val prefs: io.movieclaw.android.core.offline.OfflinePrefs,
-) : ViewModel() {
-    data class Ui(
-        val packs: List<OfflineStore.Pack> = emptyList(),
-        val known: Map<Long, OfflineStore.Pack> = emptyMap(),
-        val tasks: Map<Long, OfflineDownloader.TaskState> = emptyMap(),
-        val totalBytes: Long = 0,
-        val otherOwners: List<OfflineStore.OtherOwner> = emptyList(),
-        val allowCellular: Boolean = false,
-    )
-
-    private val _ui = MutableStateFlow(Ui())
-    val ui: StateFlow<Ui> = _ui.asStateFlow()
-
-    /** 容量条的读数：打开页面 / 下完一集 / 删除时取一次（同 iOS，不跟着进度每秒跳） */
-    private val _capacity = MutableStateFlow<Pair<Long, Long?>?>(null) // (free, total)
-    val capacity: StateFlow<Pair<Long, Long?>?> = _capacity.asStateFlow()
-
-    val origin: String? get() = repository.ui.value.origin
-    val deviceName: String = android.os.Build.MODEL ?: "本机"
-
-    init {
-        viewModelScope.launch {
-            combine(
-                store.packs,
-                downloader.known,
-                downloader.tasks,
-                store.otherOwners,
-                prefs.allowCellular,
-            ) { packs, known, tasks, others, allowCellular ->
-                Ui(packs, known, tasks, packs.sumOf { it.sizeBytes }, others, allowCellular)
-            }.collect { _ui.value = it }
-        }
-        viewModelScope.launch {
-            store.packs.collect { readCapacity() }
-        }
-    }
-
-    fun readCapacity() {
-        _capacity.value = store.freeBytes() to store.totalCapacityBytes()
-    }
-
-    fun setAllowCellular(on: Boolean) {
-        viewModelScope.launch { prefs.setAllowCellular(on) }
-    }
-
-    fun deleteOtherOwner(owner: OfflineStore.OtherOwner) {
-        store.deleteOwner(owner.owner)
-        readCapacity()
-    }
-
-    fun pause(fileId: Long) = downloader.pause(fileId)
-
-    fun resume(pack: OfflineStore.Pack) {
-        origin?.let { downloader.resumePack(it, pack) }
-    }
-
-    fun cancel(pack: OfflineStore.Pack) {
-        origin?.let { downloader.deleteLocal(it, pack) }
-    }
-
-    fun deleteItem(mediaItemId: Long) {
-        store.deleteItem(mediaItemId)
-        readCapacity()
-    }
-
-    fun deleteWatched(packs: List<OfflineStore.Pack>) {
-        val o = origin
-        packs.forEach { pack ->
-            if (o != null) downloader.deleteLocal(o, pack) else store.delete(pack.mediaItemId, pack.fileId)
-        }
-        readCapacity()
-    }
-
-    fun syncViewings() {
-        val o = origin ?: return
-        viewModelScope.launch { runCatching { store.syncViewings(o, apiFactory.forOrigin(o)) } }
-    }
-}
-
-/** 已下载的一个条目（把同一 mediaItemId 的副本聚成一行，iOS `OfflineItemSummary`） */
-private data class ItemSummary(
-    val mediaItemId: Long,
-    val libraryId: Long,
-    val title: String,
-    val posterUrl: String?,
-    val kind: String,
-    val doneCount: Int,
-    val activeCount: Int,
-    val bytes: Long,
-    val packs: List<OfflineStore.Pack>,
-)
-
 @Composable
 fun DownloadsScreen(
     onBack: () -> Unit,
-    onPlayLocal: (mediaItemId: Long, fileId: Long) -> Unit,
-    /** 点条目 → 该条目的库内详情（iOS 的 NavigationLink） */
-    onOpenItem: (libraryId: Long, mediaItemId: Long) -> Unit = { _, _ -> },
-    vm: DownloadsViewModel = hiltViewModel(),
+    /** 点条目 → 该条目的库内详情 */
+    onOpenItem: (libraryId: Long, mediaItemId: Long) -> Unit,
+    origin: String?,
 ) {
-    val ui by vm.ui.collectAsStateWithLifecycle()
-    val capacity by vm.capacity.collectAsStateWithLifecycle()
-    var menuFor by remember { mutableStateOf<OfflineStore.Pack?>(null) }
-    var confirmDelete by remember { mutableStateOf<DeleteTarget?>(null) }
-    var settingsOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { vm.syncViewings(); vm.readCapacity() }
+    val offline = rememberOffline()
+    val store = offline.store()
+    val state by store.state.collectAsStateWithLifecycle()
+    val speeds by store.speeds.collectAsStateWithLifecycle()
+    val doneBytes by store.doneBytes.collectAsStateWithLifecycle()
+    val doneBytesByItem by store.doneBytesByItem.collectAsStateWithLifecycle()
+    val allowCellular by offline.prefs().allowCellular.collectAsStateWithLifecycle()
+    val queue by store.queue.collectAsStateWithLifecycle()
+    val waitingForWiFi by offline.downloader().waitingForWiFi.collectAsStateWithLifecycle()
+    val device = deviceName()
+    val scope = rememberCoroutineScope()
+    var confirm by remember { mutableStateOf<Confirm?>(null) }
+    var settings by remember { mutableStateOf(false) }
+    var otherOwners by remember { mutableStateOf<List<Triple<OfflineOwner, Long, Int>>>(emptyList()) }
+    /** 容量条的读数：打开页面、下完一集、删除时才取一次（下载中也不该每秒跳） */
+    var capacity by remember { mutableStateOf<Pair<Long?, Long?>?>(null) }
 
-    // 下载中：本机还没有副本、但在下（排队/下载中/暂停/失败）的单元
-    val activePacks = ui.known.values
-        .filter { pack -> ui.packs.none { it.fileId == pack.fileId } }
-        .sortedBy { it.title }
-    val doneItems = ui.packs
-        .groupBy { it.mediaItemId }
-        .map { (mediaItemId, packs) ->
-            val first = packs.first()
-            ItemSummary(
-                mediaItemId = mediaItemId,
-                libraryId = packs.firstOrNull { it.libraryId > 0 }?.libraryId ?: 0L,
-                title = first.title,
-                posterUrl = packs.firstNotNullOfOrNull { it.posterUrl },
-                kind = if (packs.any { it.seasonNumber > 0 }) "tv" else "movie",
-                doneCount = packs.size,
-                activeCount = activePacks.count { it.mediaItemId == mediaItemId },
-                bytes = packs.sumOf { it.sizeBytes },
-                packs = packs,
-            )
+    LaunchedEffect(state.owner?.key) {
+        val current = state.owner?.key
+        otherOwners = withContext(Dispatchers.IO) {
+            OfflineOwners.scan().filter { it.key != current }.map { owner ->
+                val (bytes, items) = OfflineOwners.usage(owner)
+                Triple(owner, bytes, items)
+            }.filter { it.second > 0 }
         }
-        .sortedBy { it.title }
-    val watched = ui.packs.filter { it.played }
+    }
+    LaunchedEffect(doneBytes) {
+        capacity = withContext(Dispatchers.IO) { OfflineDisk.availableBytes() to OfflineDisk.totalCapacity() }
+    }
 
-    Column(Modifier.fillMaxSize().background(Bg)) {
+    val items = store.downloadedItems(state)
+    val active = store.activeUnits(state)
+    val listState = rememberLazyListState()
+    val drag = remember { QueueDrag() }
+    val shown = drag.order?.mapNotNull { id -> active.firstOrNull { it.fileId == id } } ?: active
+    val watched = state.units.values.filter { unit ->
+        unit.playable && store.localProgress(unit.mediaItemId, unit.season, unit.episode, state)?.played == true
+    }
+
+    Column(Modifier.fillMaxSize().background(Bg).testTag("offline-storage")) {
         McTopBar(
             variant = McTopBarVariant.Sub,
             title = "下载",
             onBack = onBack,
             actions = {
                 Box {
-                    androidx.compose.material3.IconButton(onClick = { settingsOpen = true }) {
+                    IconButton(onClick = { settings = true }, modifier = Modifier.testTag("offline-settings")) {
                         Icon(Icons.Rounded.Settings, contentDescription = "下载设置", tint = TextPrimary, modifier = Modifier.size(20.dp))
                     }
-                    DropdownMenu(expanded = settingsOpen, onDismissRequest = { settingsOpen = false }) {
+                    DropdownMenu(expanded = settings, onDismissRequest = { settings = false }) {
+                        Text("关闭时只在 Wi-Fi 下下载", style = McType.caption2, color = TextMuted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                         DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text("使用蜂窝网络下载", style = McType.sub, color = TextPrimary)
-                                    Text("关闭时只在 Wi-Fi 下下载", style = McType.caption2, color = TextMuted)
-                                }
-                            },
-                            trailingIcon = {
-                                if (ui.allowCellular) Icon(Icons.Rounded.Check, contentDescription = null, tint = Accent)
-                            },
+                            text = { Text("使用蜂窝网络下载", style = McType.sub, color = TextPrimary) },
+                            trailingIcon = { if (allowCellular) Icon(Icons.Rounded.Check, contentDescription = null, tint = Info) },
                             onClick = {
-                                vm.setAllowCellular(!ui.allowCellular)
-                                settingsOpen = false
+                                settings = false
+                                scope.launch { offline.prefs().setAllowCellular(!allowCellular) }
                             },
                         )
                     }
                 }
             },
         )
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-            if (activePacks.isNotEmpty()) {
-                item {
-                    SectionTitle("下载中")
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), state = listState) {
+            if (active.isNotEmpty()) {
+                item { SectionTitle("下载中", Modifier.testTag("offline-storage-downloading")) }
+                if (waitingForWiFi) {
+                    item(key = "waiting-wifi") {
+                        WaitingWiFiNotice { scope.launch { offline.prefs().setAllowCellular(true) } }
+                    }
                 }
-                items(activePacks, key = { "active-${it.fileId}" }) { pack ->
+                // 顺序就是优先级（§5.5）：长按出菜单，按住移动就是拖动换先后
+                items(shown, key = { "active-${it.fileId}" }) { unit ->
+                    val item = state.items[unit.mediaItemId] ?: return@items
+                    val dragging = drag.id == unit.fileId
+                    val interaction = remember { MutableInteractionSource() }
                     DownloadingRow(
-                        pack = pack,
-                        task = ui.tasks[pack.fileId],
-                        origin = vm.origin,
-                        onClick = { if (pack.libraryId > 0) onOpenItem(pack.libraryId, pack.mediaItemId) },
-                        onLongClick = { menuFor = pack },
+                        unit, item, speeds[unit.fileId], origin,
+                        ahead = OfflineQueue.ahead(unit.fileId, queue),
+                        canPrioritize = OfflineQueue.canPrioritize(unit.fileId, queue),
+                        waitingForWiFi = waitingForWiFi,
+                        menuOpen = drag.menu == unit.fileId,
+                        onMenuDismiss = { drag.menu = null },
+                        modifier = (if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = drag.offset; shadowElevation = 12f } else Modifier.animateItem())
+                            .indication(interaction, ripple())
+                            .queueDrag(unit.fileId, drag, listState, active.map { it.fileId }, interaction, onTap = { onOpenItem(item.libraryId, item.mediaItemId) }) { order ->
+                                offline.downloader().reorder(order)
+                            },
                     )
                 }
             }
-
             if (watched.isNotEmpty()) {
                 item {
-                    Spacer(Modifier.height(14.dp))
-                    GlassCard(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    SectionTitle("建议")
+                    GlassCard(Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Success, modifier = Modifier.size(22.dp))
-                            Spacer(Modifier.width(10.dp))
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Success, modifier = Modifier.size(26.dp))
+                            Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text("删除已看完的", style = McType.sub, color = TextPrimary)
-                                Text(
-                                    "${watched.size} 个已看完，占用 ${McFormat.bytes(watched.sumOf { it.sizeBytes })}",
-                                    style = McType.caption2, color = TextMuted,
-                                )
+                                Text("删除已看完的", style = McType.bodyMedium, color = TextPrimary)
+                                Text("${watched.size} 个已看完，占用 ${McFormat.bytes(watched.sumOf { it.receivedBytes })}", style = McType.footnote, color = TextMuted)
                             }
                             Text(
-                                "删除",
-                                style = McType.caption,
-                                color = Danger,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(Danger.copy(alpha = 0.12f))
-                                    .clickable { confirmDelete = DeleteTarget.Watched(watched) }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                "删除", style = McType.caption, color = Danger,
+                                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Danger.copy(alpha = 0.12f))
+                                    .clickable { confirm = Confirm.Watched(watched) }.padding(horizontal = 12.dp, vertical = 6.dp).testTag("offline-delete-watched"),
                             )
                         }
                     }
                 }
             }
-
             item {
-                SectionTitle(
-                    if (doneItems.isEmpty()) "已下载" else "已下载 · ${doneItems.size} 部",
-                )
-            }
-            if (doneItems.isEmpty() && activePacks.isEmpty()) {
-                item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SectionTitle("已下载")
+                    if (items.isNotEmpty()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text("${items.size} 部", style = McType.sub, color = TextMuted)
+                    }
+                }
+                if (items.isEmpty()) {
                     Text(
-                        "还没有下载。在影片详情页点「⋯ → 下载」，没网的时候也能看。",
-                        style = McType.footnote, color = TextFaint,
-                        modifier = Modifier.padding(vertical = 20.dp),
+                        if (active.isEmpty()) "还没有下载。在影片详情页点「下载」，没网的时候也能看。" else "下完的会出现在这里。",
+                        style = McType.sub, color = TextMuted, modifier = Modifier.padding(vertical = 8.dp),
                     )
                 }
-            } else if (doneItems.isEmpty()) {
-                item {
-                    Text("下完的会出现在这里。", style = McType.footnote, color = TextFaint)
-                }
             }
-            items(doneItems, key = { "item-${it.mediaItemId}" }) { item ->
+            items(items, key = { "item-${it.mediaItemId}" }) { item ->
                 DownloadedItemRow(
                     item = item,
-                    origin = vm.origin,
-                    onClick = { if (item.libraryId > 0) onOpenItem(item.libraryId, item.mediaItemId) },
-                    onPlay = {
-                        val single = item.packs.minByOrNull { it.episodeNumber }
-                        if (single != null) onPlayLocal(single.mediaItemId, single.fileId)
-                    },
-                    onDelete = { confirmDelete = DeleteTarget.Item(item) },
+                    units = store.unitsOfItem(item.mediaItemId, state),
+                    bytes = doneBytesByItem[item.mediaItemId] ?: 0,
+                    origin = origin,
+                    onOpen = { onOpenItem(item.libraryId, item.mediaItemId) },
+                    onDelete = { confirm = Confirm.Item(item) },
                 )
-                Spacer(Modifier.height(8.dp))
             }
-
-            if (ui.otherOwners.isNotEmpty()) {
-                item {
-                    Spacer(Modifier.height(14.dp))
-                    SectionTitle("其他账号")
-                }
-                items(ui.otherOwners, key = { "owner-${it.owner.key}" }) { other ->
-                    OtherOwnerRow(other = other, onDelete = { confirmDelete = DeleteTarget.OtherOwner(other) })
+            if (otherOwners.isNotEmpty()) {
+                item { SectionTitle("其他账号") }
+                items(otherOwners, key = { "owner-${it.first.key}" }) { (owner, bytes, count) ->
+                    OwnerRow(owner, bytes, count) { confirm = Confirm.Owner(owner, bytes) }
                 }
                 item {
-                    Text(
-                        "这台 ${vm.deviceName} 上其他账号的下载，重新登录那个账号就能看。",
-                        style = McType.caption2, color = TextFaint,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
-                    )
+                    Text("这台${device}上其他账号的下载，重新登录那个账号就能看。", style = McType.caption2, color = TextFaint, modifier = Modifier.padding(vertical = 4.dp))
                 }
             }
-
+            // 容量放最后：这一页先管下载，剩余空间是参考（空间不够时选档面板会直接提示）
             item {
-                Spacer(Modifier.height(16.dp))
-                StorageCard(used = ui.totalBytes, free = capacity?.first, total = capacity?.second)
-                Spacer(Modifier.height(30.dp))
+                Spacer(Modifier.height(20.dp))
+                StorageCard(doneBytes, capacity?.first, capacity?.second)
+                Spacer(Modifier.height(32.dp))
             }
         }
     }
 
-    // 下载中那一行的操作（iOS 的左滑 / 长按菜单）
-    menuFor?.let { pack ->
-        Box(Modifier.fillMaxSize()) {
-            DropdownMenu(expanded = true, onDismissRequest = { menuFor = null }) {
-                when (val task = ui.tasks[pack.fileId]) {
-                    is OfflineDownloader.TaskState.Paused,
-                    is OfflineDownloader.TaskState.Failed ->
-                        DropdownMenuItem(text = { Text("继续下载") }, onClick = { menuFor = null; vm.resume(pack) })
-                    OfflineDownloader.TaskState.Queued,
-                    OfflineDownloader.TaskState.WaitingForWifi -> Unit
-                    else -> DropdownMenuItem(text = { Text("暂停") }, onClick = { menuFor = null; vm.pause(pack.fileId) })
-                }
-                DropdownMenuItem(
-                    text = { Text("取消下载", color = Danger) },
-                    onClick = { menuFor = null; confirmDelete = DeleteTarget.Pack(pack) },
-                )
-            }
-        }
-    }
-
-    when (val target = confirmDelete) {
-        is DeleteTarget.Item -> ConfirmDeleteDialog(
+    when (val target = confirm) {
+        is Confirm.Item -> OfflineConfirmDialog(
             title = "删除「${target.item.title}」的下载？",
-            bytes = target.item.bytes,
-            actionLabel = "删除（释放 ${McFormat.bytes(target.item.bytes)}）",
-            deviceName = vm.deviceName,
-            onDismiss = { confirmDelete = null },
-            onConfirm = { vm.deleteItem(target.item.mediaItemId) },
+            message = "只删${device}上的副本，观看进度会保留。",
+            action = "删除（释放 ${McFormat.bytes(store.bytesOfItem(target.item.mediaItemId))}）",
+            onDismiss = { confirm = null },
+            onConfirm = { offline.downloader().deleteItem(target.item.mediaItemId) },
         )
-        is DeleteTarget.Watched -> ConfirmDeleteDialog(
-            title = "删除 ${target.packs.size} 个已看完的下载？",
-            bytes = target.packs.sumOf { it.sizeBytes },
-            actionLabel = "删除（释放 ${McFormat.bytes(target.packs.sumOf { it.sizeBytes })}）",
-            deviceName = vm.deviceName,
-            onDismiss = { confirmDelete = null },
-            onConfirm = { vm.deleteWatched(target.packs) },
+        is Confirm.Watched -> OfflineConfirmDialog(
+            title = "删除 ${target.units.size} 个已看完的下载？",
+            message = "只删${device}上的副本，观看进度会保留。",
+            action = "删除（释放 ${McFormat.bytes(target.units.sumOf { it.receivedBytes })}）",
+            onDismiss = { confirm = null },
+            onConfirm = { target.units.forEach { offline.downloader().delete(it.fileId) } },
         )
-        is DeleteTarget.Pack -> ConfirmDeleteDialog(
-            title = "取消下载？",
-            bytes = 0,
-            actionLabel = "取消下载",
-            deviceName = vm.deviceName,
-            onDismiss = { confirmDelete = null },
-            onConfirm = { vm.cancel(target.pack) },
-        )
-        is DeleteTarget.OtherOwner -> ConfirmDeleteDialog(
-            title = "删除「${target.owner.owner.username}」在这台设备上的下载？",
-            bytes = target.owner.bytes,
-            actionLabel = "删除（释放 ${McFormat.bytes(target.owner.bytes)}）",
-            deviceName = vm.deviceName,
-            onDismiss = { confirmDelete = null },
-            onConfirm = { vm.deleteOtherOwner(target.owner) },
+        is Confirm.Owner -> OfflineConfirmDialog(
+            title = "删除「${target.owner.username}」在这台${device}上的全部下载？",
+            message = "只删${device}上的副本，观看进度会保留。",
+            action = "删除（释放 ${McFormat.bytes(target.bytes)}）",
+            onDismiss = { confirm = null },
+            onConfirm = {
+                OfflineOwners.remove(target.owner)
+                otherOwners = otherOwners.filter { it.first.key != target.owner.key }
+                // 别的账号的下载不在本账号的目录里，删了容量条读数不会自己变
+                scope.launch { capacity = withContext(Dispatchers.IO) { OfflineDisk.availableBytes() to OfflineDisk.totalCapacity() } }
+            },
         )
         null -> Unit
     }
 }
 
-private sealed interface DeleteTarget {
-    data class Item(val item: ItemSummary) : DeleteTarget
-    data class Watched(val packs: List<OfflineStore.Pack>) : DeleteTarget
-    data class Pack(val pack: OfflineStore.Pack) : DeleteTarget
-    data class OtherOwner(val owner: OfflineStore.OtherOwner) : DeleteTarget
+private sealed interface Confirm {
+    data class Item(val item: OfflineItemSummary) : Confirm
+    data class Watched(val units: List<OfflineUnit>) : Confirm
+    data class Owner(val owner: OfflineOwner, val bytes: Long) : Confirm
 }
 
 @Composable
-private fun OtherOwnerRow(other: OfflineStore.OtherOwner, onDelete: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(other.owner.username, style = McType.sub, color = TextPrimary)
-            Text(
-                "${other.owner.host} · ${other.items} 部",
-                style = McType.caption2, color = TextMuted,
-            )
-        }
-        Text(McFormat.bytes(other.bytes), style = McType.caption2, color = TextMuted)
-        androidx.compose.material3.IconButton(onClick = onDelete) {
-            Icon(Icons.Rounded.Delete, contentDescription = "删除其他账号的下载", tint = Danger, modifier = Modifier.size(18.dp))
-        }
-    }
-}
-
-@Composable
-private fun SectionTitle(text: String) {
-    Spacer(Modifier.height(12.dp))
-    Text(text, style = McType.subheadlineSemibold, color = TextPrimary)
-    Spacer(Modifier.height(8.dp))
-}
-
-/** 下载中的一行：海报 + 片名 + 集/档位 + 状态与速度 + 进度（下完就从这组消失） */
-@Composable
-private fun DownloadingRow(
-    pack: OfflineStore.Pack,
-    task: OfflineDownloader.TaskState?,
-    origin: String?,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-) {
-    val tint = when (task) {
-        is OfflineDownloader.TaskState.Failed -> Danger
-        OfflineDownloader.TaskState.Paused, OfflineDownloader.TaskState.WaitingForWifi -> Warning
-        else -> Info
-    }
-    val fraction = (task as? OfflineDownloader.TaskState.Downloading)?.let {
-        if (it.totalBytes > 0) (it.downloadedBytes.toFloat() / it.totalBytes).coerceIn(0f, 1f) else 0f
-    }
-    val speed = (task as? OfflineDownloader.TaskState.Downloading)?.speedBps?.takeIf { it > 0 }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .combinedClickableCompat(onClick = onClick, onLongClick = onLongClick)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Poster(pack.posterUrl, origin)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(pack.title, style = McType.subheadlineSemibold, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(3.dp))
-            Text(
-                buildString {
-                    if (pack.seasonNumber > 0) append("第 ${pack.seasonNumber} 季第 ${pack.episodeNumber} 集 · ")
-                    append(if (pack.profile == "original") "原画" else pack.profile)
-                },
-                style = McType.caption2, color = TextMuted,
-            )
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    when (task) {
-                        is OfflineDownloader.TaskState.Failed -> "下载失败"
-                        OfflineDownloader.TaskState.Paused -> "已暂停"
-                        OfflineDownloader.TaskState.WaitingForWifi -> "等待 Wi-Fi"
-                        OfflineDownloader.TaskState.Queued -> if (pack.profile == "original") "准备下载" else "等待转码"
-                        is OfflineDownloader.TaskState.Downloading -> "下载中 ${((fraction ?: 0f) * 100).toInt()}%"
-                        null -> "准备下载"
-                    },
-                    style = McType.caption2, color = tint,
-                )
-                if (speed != null) {
-                    Spacer(Modifier.width(6.dp))
-                    Text("${McFormat.bytes(speed)}/s", style = McType.caption2, color = TextMuted)
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = 0.12f)),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(fraction ?: 0f)
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(tint),
-                )
-            }
-        }
-    }
-}
-
-/** 已下载的一个条目（按条目聚成一行）：海报 + 标题 + 「已下载 N 集」/档位 + 占用 */
-@Composable
-private fun DownloadedItemRow(
-    item: ItemSummary,
-    origin: String?,
-    onClick: () -> Unit,
-    onPlay: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Poster(item.posterUrl, origin)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(item.title, style = McType.subheadlineSemibold, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(3.dp))
-            Text(
-                buildString {
-                    if (item.kind == "tv") append("已下载 ${item.doneCount} 集")
-                    else append(item.packs.firstOrNull()?.profile?.takeIf { it != "original" } ?: "原画")
-                    if (item.activeCount > 0) append(" · 还有 ${item.activeCount} 个在下载")
-                },
-                style = McType.caption2, color = TextMuted,
-            )
-            Spacer(Modifier.height(3.dp))
-            Text(McFormat.bytes(item.bytes), style = McType.caption2, color = TextMuted)
-        }
-        androidx.compose.material3.IconButton(onClick = onPlay) {
-            Icon(Icons.Rounded.PlayArrow, contentDescription = "播放本机副本", tint = Success)
-        }
-        androidx.compose.material3.IconButton(onClick = onDelete) {
-            Icon(Icons.Rounded.Delete, contentDescription = "删除下载", tint = Danger)
-        }
-    }
+private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(text, style = McType.headline, color = TextPrimary, modifier = modifier.padding(top = 18.dp, bottom = 8.dp))
 }
 
 @Composable
 private fun Poster(url: String?, origin: String?) {
-    Box(
-        Modifier
-            .width(60.dp)
-            .aspectRatio(2f / 3f)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.White.copy(alpha = 0.06f)),
-    ) {
-        RemoteImage(
-            url = url,
-            origin = origin,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-        )
+    Box(Modifier.width(60.dp).height(90.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.06f))) {
+        RemoteImage(url = url, origin = origin, contentDescription = null, modifier = Modifier.fillMaxSize())
     }
 }
 
-/** 容量条（iOS `StorageUsageBar`）：下载 / 其他已用 / 剩余 */
-@Composable
-private fun StorageCard(used: Long, free: Long?, total: Long?) {
-    GlassCard(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("本机储存空间", style = McType.sub, color = TextPrimary, modifier = Modifier.weight(1f))
-            free?.let { Text("可用 ${McFormat.bytes(it)}", style = McType.caption2, color = TextMuted) }
-        }
-        Spacer(Modifier.height(10.dp))
-        if (total != null && total > 0 && free != null) {
-            val other = (total - free - used).coerceAtLeast(0)
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(999.dp)),
-            ) {
-                if (used > 0) Box(Modifier.weight(used.toFloat().coerceAtLeast(1f)).height(6.dp).background(Info))
-                if (other > 0) Box(Modifier.weight(other.toFloat()).height(6.dp).background(Color.White.copy(alpha = 0.25f)))
-                Box(Modifier.weight(free.toFloat().coerceAtLeast(1f)).height(6.dp).background(Color.White.copy(alpha = 0.06f)))
+/** 「下载中」的拖动排序与长按菜单（iOS 的 List `onMove` + 长按菜单）：长按出菜单，按住移动就收起菜单、拖着走 */
+private class QueueDrag {
+    /** 拖着的那一行 */
+    var id by mutableStateOf<Long?>(null)
+    /** 拖动中的临时顺序（松手才交给下载器） */
+    var order by mutableStateOf<List<Long>?>(null)
+    /** 拖着的那一行相对它此刻排版位置的位移 */
+    var offset by mutableFloatStateOf(0f)
+    /** 长按菜单开在哪一行 */
+    var menu by mutableStateOf<Long?>(null)
+    /** 这次按住后手指走了多远：超过一点就是在拖，菜单收起 */
+    var moved = 0f
+}
+
+private fun Modifier.queueDrag(
+    fileId: Long,
+    drag: QueueDrag,
+    list: LazyListState,
+    ids: List<Long>,
+    interaction: MutableInteractionSource,
+    onTap: () -> Unit,
+    onDrop: (List<Long>) -> Unit,
+): Modifier =
+    semantics { role = Role.Button; onClick { onTap(); true } }.pointerInput(fileId, ids) {
+        val threshold = 12.dp.toPx()
+        val edge = 96.dp.toPx()
+        fun move(dy: Float) {
+            drag.offset += dy
+            drag.moved += kotlin.math.abs(dy)
+            if (drag.moved > threshold) drag.menu = null
+            val info = list.layoutInfo
+            val current = info.visibleItemsInfo.firstOrNull { it.key == "active-$fileId" } ?: return
+            // 拖到屏幕边上：列表跟着滚（滚多少，拖着的那一行就往回补多少，留在手指下面）
+            val top = current.offset + drag.offset
+            val scroll = when {
+                dy > 0 && top + current.size > info.viewportEndOffset - edge -> 16f
+                dy < 0 && top < info.viewportStartOffset + edge -> -16f
+                else -> 0f
             }
+            if (scroll != 0f) drag.offset += list.dispatchRawDelta(scroll)
+            val center = current.offset + drag.offset + current.size / 2f
+            val target = info.visibleItemsInfo.firstOrNull {
+                val key = it.key as? String ?: return@firstOrNull false
+                key.startsWith("active-") && key != current.key && center >= it.offset && center <= it.offset + it.size
+            } ?: return
+            val targetId = (target.key as String).removePrefix("active-").toLong()
+            val order = drag.order.orEmpty().toMutableList()
+            val from = order.indexOf(fileId)
+            val to = order.indexOf(targetId)
+            if (from < 0 || to < 0) return
+            order.removeAt(from)
+            order.add(to, fileId)
+            drag.order = order
+            // 换位后这一行排到目标的位置上：位移扣掉这段距离，仍停在手指下面
+            drag.offset -= (target.offset - current.offset)
+        }
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            // 按下反馈（水波纹）：点按、长按都先亮一下
+            val press = PressInteraction.Press(down.position)
+            interaction.tryEmit(press)
+            val longPress = awaitLongPressOrCancellation(down.id)
+            interaction.tryEmit(PressInteraction.Release(press))
+            if (longPress == null) {
+                // 没到长按就松手、且没怎么动：点按（滚动列表时位移早超过阈值，不算）
+                val up = currentEvent.changes.firstOrNull { it.id == down.id }
+                if (up != null && up.changedToUp() && !up.isConsumed && (up.position - down.position).getDistance() < viewConfiguration.touchSlop) {
+                    up.consume()
+                    onTap()
+                }
+                return@awaitEachGesture
+            }
+            drag.id = fileId
+            drag.order = ids
+            drag.offset = 0f
+            drag.moved = 0f
+            drag.menu = fileId
+            var released = false
+            try {
+                released = drag(longPress.id) { change ->
+                    val dy = change.positionChange().y
+                    change.consume()
+                    move(dy)
+                }
+            } finally {
+                // 拖到一半这一行的手势被重启（有一集下完、新加了下载）也要收尾，不然这一行一直悬着
+                val order = drag.order
+                val moved = drag.moved > threshold
+                drag.id = null
+                drag.order = null
+                drag.offset = 0f
+                if (released && moved && order != null && order != ids) onDrop(order)
+            }
+        }
+    }
+
+/** 「下载中」顶上的提示：没开「使用蜂窝网络下载」、眼下又是计费网络时，下载会一直等 Wi-Fi——说清楚，并给一键打开 */
+@Composable
+private fun WaitingWiFiNotice(onUseCellular: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(12.dp)).background(Warning.copy(alpha = 0.1f))
+            .padding(12.dp).testTag("offline-waiting-wifi"),
+    ) {
+        Icon(Icons.Rounded.WifiOff, contentDescription = null, tint = Warning, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("正在用蜂窝网络、个人热点或计费网络，下载会等连上 Wi-Fi 再继续", style = McType.sub, color = TextPrimary)
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Legend(Info, "下载 ${McFormat.bytes(used)}")
+            Text(
+                "使用蜂窝网络下载", style = McType.subSemibold, color = TextPrimary,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.12f))
+                    .clickable(onClick = onUseCellular).padding(horizontal = 14.dp, vertical = 7.dp).testTag("offline-use-cellular"),
+            )
+        }
+    }
+}
+
+/**
+ * 「下载中」的一行：海报 + 片名 + 哪一集 · 档位 + 状态与速度 + 进度。
+ * 点进条目（点按、长按、拖动都在 [queueDrag] 里）；长按出菜单（优先下载、暂停 / 继续、取消），按住移动是拖动换顺序。
+ * 下完就从这一组消失
+ */
+@Composable
+private fun DownloadingRow(
+    unit: OfflineUnit,
+    item: OfflineItemSummary,
+    speed: Double?,
+    origin: String?,
+    ahead: Int,
+    canPrioritize: Boolean,
+    waitingForWiFi: Boolean,
+    menuOpen: Boolean,
+    onMenuDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val offline = rememberOffline()
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(menuOpen) { if (menuOpen) haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+    val tint = if (unit.needsAttention) Warning else Info
+    Box(modifier.background(Bg)) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("offline-downloading-${unit.fileId}"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Poster(item.posterUrl, origin)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(item.title, style = McType.bodySemibold, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    listOfNotNull(if (unit.isMovie) null else OfflineFormat.seasonEpisode(unit.season, unit.episode), unit.profileLabel).joinToString(" · "),
+                    style = McType.footnote, color = TextMuted,
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(OfflineUnitStatus.text(unit, ahead, waitingForWiFi), style = McType.footnote, color = tint)
+                    if (speed != null && speed > 0 && unit.state == OfflineUnit.State.downloading && !waitingForWiFi) {
+                        Text("${McFormat.bytes(speed.toLong())}/s", style = McType.footnote, color = TextMuted)
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.12f))) {
+                    Box(Modifier.fillMaxWidth(unit.progressFraction.toFloat().coerceIn(0f, 1f)).height(4.dp).clip(RoundedCornerShape(999.dp)).background(tint))
+                }
+            }
+            Icon(androidx.compose.material.icons.Icons.Rounded.KeyboardArrowRight, null, tint = TextFaint, modifier = Modifier.size(22.dp))
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = onMenuDismiss) {
+            val downloader = offline.downloader()
+            if (canPrioritize) {
+                DropdownMenuItem(text = { Text("优先下载") }, onClick = { onMenuDismiss(); downloader.prioritize(listOf(unit.fileId)) })
+            }
+            if (unit.waitingForTranscode) {
+                // 排队等服务器转码：到点自己会再去问，只给取消
+            } else if (unit.state == OfflineUnit.State.paused || unit.state == OfflineUnit.State.failed) {
+                DropdownMenuItem(text = { Text("继续下载") }, onClick = { onMenuDismiss(); downloader.resume(unit.fileId) })
+            } else {
+                DropdownMenuItem(text = { Text("暂停") }, onClick = { onMenuDismiss(); downloader.pause(unit.fileId) })
+            }
+            DropdownMenuItem(text = { Text("取消下载", color = Danger) }, onClick = { onMenuDismiss(); downloader.delete(unit.fileId) })
+        }
+    }
+}
+
+/** 已下载的一个条目：海报 + 标题 + 「已下载 N 集」/档位（+ 还有 N 个在下载）+ 占用；点进详情，长按删除 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DownloadedItemRow(item: OfflineItemSummary, units: List<OfflineUnit>, bytes: Long, origin: String?, onOpen: () -> Unit, onDelete: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val done = units.filter { it.playable }
+    val active = units.filter { it.isActive }
+    val detail = buildList {
+        if (item.kind == "tv") add("已下载 ${done.size} 集") else done.firstOrNull()?.let { add(it.profileLabel) }
+        if (active.isNotEmpty()) add("还有 ${active.size} 个在下载")
+    }.joinToString(" · ")
+    Box {
+        Row(
+            Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = { menu = true }).padding(vertical = 8.dp).testTag("offline-storage-item-${item.mediaItemId}"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Poster(item.posterUrl, origin)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(item.title, style = McType.bodySemibold, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(6.dp))
+                Text(detail, style = McType.footnote, color = TextMuted)
+                Spacer(Modifier.height(6.dp))
+                Text(McFormat.bytes(bytes), style = McType.footnote, color = TextMuted)
+            }
+            Icon(androidx.compose.material.icons.Icons.Rounded.KeyboardArrowRight, null, tint = TextFaint, modifier = Modifier.size(22.dp))
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text("删除下载", color = Danger) }, onClick = { menu = false; onDelete() })
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun OwnerRow(owner: OfflineOwner, bytes: Long, count: Int, onDelete: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { menu = true }).padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(owner.username, style = McType.body, color = TextPrimary)
+                Text("${owner.host} · $count 部", style = McType.caption, color = TextMuted)
+            }
+            Text(McFormat.bytes(bytes), style = McType.sub, color = TextMuted)
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text("删除", color = Danger) }, onClick = { menu = false; onDelete() })
+        }
+    }
+}
+
+/** 容量条（同系统「储存空间」）：MovieClaw 下载 / 其他已用 / 剩余。读数是快照，不跟下载进度变 */
+@Composable
+private fun StorageCard(downloads: Long, free: Long?, total: Long?) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.04f)).padding(16.dp).testTag("offline-storage-summary"),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("本机储存空间", style = McType.subheadline, color = TextPrimary, modifier = Modifier.weight(1f))
+            free?.let { Text("可用 ${McFormat.bytes(it)}", style = McType.footnote, color = TextMuted) }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (total != null && total > 0 && free != null) {
+            val other = (total - free - downloads).coerceAtLeast(0)
+            Row(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp))) {
+                // 最小可见下载段仍计入总宽
+                if (downloads > 0) Box(Modifier.weight(maxOf(downloads.toFloat(), total * 0.01f)).height(6.dp).background(Info))
+                if (other > 0) Box(Modifier.weight(other.toFloat()).height(6.dp).background(Color.White.copy(alpha = 0.25f)))
+                Box(Modifier.weight(maxOf(free.toFloat(), 1f)).height(6.dp).background(Color.White.copy(alpha = 0.06f)))
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Legend(Info, "下载 ${McFormat.bytes(downloads)}")
+                Spacer(Modifier.weight(1f))
                 Legend(Color.White.copy(alpha = 0.25f), "其他已用")
             }
         } else {
-            Text("MovieClaw 下载 ${McFormat.bytes(used)}", style = McType.caption, color = TextMuted)
+            Text("MovieClaw 下载 ${McFormat.bytes(downloads)}", style = McType.subheadline, color = TextPrimary)
         }
     }
 }
@@ -617,47 +582,6 @@ private fun Legend(color: Color, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(5.dp))
-        Text(text, style = McType.caption2, color = TextMuted)
+        Text(text, style = McType.footnote, color = TextMuted)
     }
 }
-
-/** 删除确认（iOS `ConfirmDelete`）：写明释放多少、「观看进度会保留」 */
-@Composable
-private fun ConfirmDeleteDialog(
-    title: String,
-    bytes: Long,
-    actionLabel: String,
-    deviceName: String,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF15161A),
-        titleContentColor = TextPrimary,
-        textContentColor = TextMuted,
-        title = { Text(title, style = McType.title3) },
-        text = {
-            Text(
-                "只删 $deviceName 上的副本，观看进度会保留。",
-                style = McType.footnote, color = TextMuted, lineHeight = 20.sp,
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onDismiss(); onConfirm() }) {
-                Text(actionLabel, color = Danger, style = McType.subheadlineSemibold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("保留", color = TextPrimary) }
-        },
-    )
-}
-
-/** 长按 + 点按同一行（iOS 左滑 / 长按菜单的等价入口） */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun Modifier.combinedClickableCompat(onClick: () -> Unit, onLongClick: () -> Unit): Modifier =
-    this.then(
-        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
-    )

@@ -13,7 +13,7 @@ import { AccountView, SessionView } from '../api/Models';
 /**
  * 切换账号（对应 iOS `Features/Root/AccountSwitcherSheet.swift`）。
  *
- * 入口两处（同 iOS）：**长按底部头像页签**（半屏抽屉，见 `MainTabsPage`）、个人信息页的「切换账号」。
+ * 入口两处：**「我的」页个人信息卡上的「切换账号」**（系统自定义弹窗，见 `MorePage`）、个人信息页的「切换账号」。
  * 列出本机登录过的全部账号，**可以跨服务器**：每台服务器一个分组（只有一台时不显示服务器名）。
  * 每个账号在本机是一枚设备令牌，切换就是换用它的令牌。
  *

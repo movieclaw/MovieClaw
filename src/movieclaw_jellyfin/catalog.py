@@ -1151,7 +1151,12 @@ async def list_libraries(
     if visible_ids is not None:
         q = q.where(Library.id.in_(visible_ids))
     q = q.order_by(Library.sort_order.asc(), Library.id.asc())  # type: ignore[union-attr]
-    return list((await session.execute(q)).scalars())
+    rows = list((await session.execute(q)).scalars())
+    # 形态之外的暴露开关：能力档案按 (形态, 来源) 定位，同一形态下外部库源
+    # 插件停用时走的是不暴露的孤儿档案（library-other-kind.md 3.1 同款口径）
+    from movieclaw_api.services.library.profile import profile_of
+
+    return [row for row in rows if profile_of(row).jellyfin_exposed]
 
 
 # ---------------------------------------------------------------------------

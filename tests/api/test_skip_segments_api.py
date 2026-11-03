@@ -35,6 +35,7 @@ from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
     FileSource,
     FileState,
+    Library,
     LibraryFile,
     MediaItem,
     MediaMetadata,
@@ -2475,3 +2476,92 @@ def test_auto_skip_preferences_follow_account(client, tmp_path) -> None:
     client.put(f"{_PB}/auto-skip/intro/{ids['show']}", json={"enabled": False})
     client.put(f"{_PB}/auto-skip", json={"enabled": True})
     assert start_session(client, episode)["auto_skip"] == {"enabled": True, "intro": False}
+
+
+async def _file_size(file_id: int) -> int:
+    async with get_database().session() as session:
+        return (await session.get(LibraryFile, file_id)).size_bytes
+
+
+async def _release_gate(file_id: int) -> str | None:
+    from movieclaw_api.services.drives import release
+
+    async with get_database().session() as session:
+        file = await session.get(LibraryFile, file_id)
+        library = await session.get(Library, file.library_id)
+        return await release._segments_done(session, library, file)
+
+
+def test_release_gate_waits_until_frames_are_checked(
+    client: TestClient, tmp_path: Path, monkeypatch
+) -> None:
+    """网盘库腾空本地的片头片尾闸门（#1094）：指纹算完不算完，要等整季识别连同画面核对
+    落库；画面核对要读本地文件，提前放行就被删掉、片尾被静默截断。"""
+    ids = call(client, _seed, tmp_path, 3)
+    file_id = ids["files"][0]
+    in_frames = asyncio.Event()
+    finish = asyncio.Event()
+    real_refine = skip_segments._refine_with_frames
+
+    async def slow_refine(*args, **kwargs):
+        in_frames.set()
+        await finish.wait()
+        return await real_refine(*args, **kwargs)
+
+    monkeypatch.setattr(skip_segments, "_refine_with_frames", slow_refine)
+    assert call(client, _release_gate, file_id) is not None  # 还没算指纹
+
+    async def run_and_probe() -> tuple[str | None, str | None]:
+        task = asyncio.create_task(skip_segments.analyze_season(ids["show"], 1))
+        await asyncio.wait_for(in_frames.wait(), 60)
+        # 指纹已提交为 ok、画面核对正在读文件：此时闸门必须挡住
+        assert (await _states())[file_id].fingerprint_status == "ok"
+        during = await _release_gate(file_id)
+        finish.set()
+        await asyncio.wait_for(task, 60)
+        return during, await _release_gate(file_id)
+
+    during, after = call(client, run_and_probe)
+    assert during == "片头片尾还没整季识别完"
+    assert after is None
+
+    async def set_state(**values) -> None:
+        async with get_database().session() as session:
+            row = await session.get(MediaSegmentState, file_id)
+            for key, value in values.items():
+                setattr(row, key, value)
+            session.add(row)
+            await session.commit()
+
+    # 算法升级待重算、片源变了：都还要读本地
+    call(client, set_state, algo_version=skip_segments.ALGO_VERSION - 1)
+    assert call(client, _release_gate, file_id) == "片头片尾还没整季识别完"
+    call(client, set_state, algo_version=skip_segments.ALGO_VERSION, source_size=1)
+    assert call(client, _release_gate, file_id) == "片头片尾指纹还没算"
+    # 指纹算不了（无音轨、读不了）：不挡
+    call(client, set_state, fingerprint_status="failed", analyzed_at=None, source_size=None)
+    call(client, set_state, source_size=call(client, _file_size, file_id))
+    assert call(client, _release_gate, file_id) is None
+
+
+def test_frame_check_logs_when_no_frame_can_be_read(tmp_path, monkeypatch, caplog) -> None:
+    """画面核对一帧都抽不到（本地文件被删、读不了）时退回声音结果，但要留下 warning（#1094）。"""
+    import logging
+    from types import SimpleNamespace
+
+    async def no_frame(path, t, accurate, width=960):
+        return None
+
+    monkeypatch.setattr(skip_segments, "_grab_frame", no_frame)
+    monkeypatch.setenv("MOVIECLAW_AUDIO_FINGERPRINT_DIR", str(tmp_path / "fp"))
+    get_settings.cache_clear()
+    file = SimpleNamespace(
+        id=9, file_path=str(tmp_path / "gone.mkv"), size_bytes=1, duration_seconds=DURATION
+    )
+    outro = {"type": "outro", "start_ms": 2_500_000, "end_ms": 2_590_000, "support": 3}
+    with caplog.at_level(logging.WARNING, logger=skip_segments.logger.name):
+        result = asyncio.run(skip_segments._refine_episode(file, [outro], object(), chinese=False))
+    get_settings.cache_clear()
+    assert result is None  # 保留声音结果
+    warned = [r.getMessage() for r in caplog.records if "抽帧失败" in r.getMessage()]
+    assert len(warned) == 1 and "本地文件已不在" in warned[0], warned

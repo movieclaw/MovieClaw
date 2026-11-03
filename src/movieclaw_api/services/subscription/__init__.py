@@ -13,6 +13,7 @@ wanted_search / wanted_fulfillment / subscription_health）互相成环、靠函
 - ``release_forecast``   从种子索引推导追新发布时间，并提供站点临时探测点
 - ``replacement``        无进度种子的跨站搜索、试用晋升与安全清理
 - ``recent_arrivals``    订阅首页「刚刚入库」：最近入库、当前账号还没看完的内容
+- ``season_tracking``    媒体库播出日历要的一季追踪：缺集与入库预告（经获取领域接口取用）
 
 **包外只允许从本 ``__init__`` 导入**（下方显式导出的公共接口）；包内模块
 之间用完整子模块路径互相引用。守护测试（tests/api/test_subscription_package.py）
@@ -63,6 +64,7 @@ from movieclaw_api.services.subscription.replacement import (
     run_replacement_search,
     try_replacement_candidates,
 )
+from movieclaw_api.services.subscription.season_tracking import season_tracking
 from movieclaw_api.services.subscription.upgrade import (
     run_upgrade_round,
     upgrade_attempt_wanted_rows,
@@ -116,6 +118,7 @@ __all__ = [
     "request_replacement",
     "run_replacement_search",
     "schedule_for",
+    "season_tracking",
     "search_wanted",
     "units_reference",
     "units_text",

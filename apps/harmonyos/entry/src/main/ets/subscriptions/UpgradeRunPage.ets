@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
@@ -266,18 +267,20 @@ export struct UpgradeRunPage {
                   this.openAnnotation(season);
                 }
               })
-              Text('完成')
-                .fontSize(16)
-                .fontWeight(FontWeight.Medium)
-                .fontColor('#0b0d12')
-                .textAlign(TextAlign.Center)
-                .width('100%')
-                .padding({ top: 14, bottom: 14 })
-                .backgroundColor(Theme.accent)
-                .borderRadius(Theme.cardRadius)
-                .onClick(() => {
-                  this.navStack.pop();
-                })
+              Button() {
+                Text('完成')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor('#0b0d12')
+                  .textAlign(TextAlign.Center)
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+              .width('100%')
+              .padding({ top: 14, bottom: 14 })
+              .borderRadius(Theme.cardRadius)
+              .onClick(() => {
+                this.navStack.pop();
+              })
             } else {
               this.Confirm(this.detail as SubscriptionDetailView)
             }
@@ -490,18 +493,20 @@ export struct UpgradeRunPage {
         .width('100%')
       }
 
-      Text(this.busy ? '处理中…' : (this.paused() ? '恢复并触发洗版' : '开始体检并洗版'))
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.canRun() ? '#0b0d12' : Theme.textFaint)
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 14, bottom: 14 })
-        .backgroundColor(this.canRun() ? Theme.accent : Theme.glassFill)
-        .borderRadius(Theme.cardRadius)
-        .onClick(() => {
-          this.run();
-        })
+      Button() {
+        Text(this.busy ? '处理中…' : (this.paused() ? '恢复并触发洗版' : '开始体检并洗版'))
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.canRun() ? '#0b0d12' : Theme.textFaint)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(this.canRun() ? GlassTone.Primary : GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 14, bottom: 14 })
+      .borderRadius(Theme.cardRadius)
+      .onClick(() => {
+        this.run();
+      })
     }
     .width('100%')
   }

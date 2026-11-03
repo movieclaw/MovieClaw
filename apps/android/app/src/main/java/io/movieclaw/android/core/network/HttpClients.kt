@@ -82,8 +82,10 @@ internal fun authInterceptor(@Suppress("UNUSED_PARAMETER") vault: TokenVault) = 
     chain.proceed(builder.build())
 }
 
-private fun baseClient(vault: TokenVault): OkHttpClient.Builder =
+private fun baseClient(vault: TokenVault, reachability: Boolean = false): OkHttpClient.Builder =
     OkHttpClient.Builder()
+        // 页面与播放请求的结果交给离线下载的可达性判断（旁听，不发额外请求）；实时通道（SSE）不计
+        .apply { if (reachability) addInterceptor(io.movieclaw.android.core.offline.ReachabilityTap.interceptor) }
         // 连不上要**快**失败：内网地址在蜂窝下根本不可达，15 秒的干等既卡界面又让
         // 「切错地址 / 不在同一网络」这件事 15 秒后才可见（实机：切账号后每轮请求都要等满 15 秒）
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -101,6 +103,15 @@ private fun routeHeaderInterceptor(): Interceptor = Interceptor { chain ->
     chain.proceed(chain.request().newBuilder().header("X-MovieClaw-Route", route.header).build())
 }
 
+/** 媒体断流由控制器等待选路并重签 token；请求层不能拿旧 token 直接换入口。 */
+internal object PlaybackMediaRequest
+
+internal fun playbackMediaClient(http: OkHttpClient): OkHttpClient = http.newBuilder().apply {
+    interceptors().add(0, Interceptor { chain ->
+        chain.proceed(chain.request().newBuilder().tag(PlaybackMediaRequest::class.java, PlaybackMediaRequest).build())
+    })
+}.build()
+
 /** 换地址重试用过的标记，避免连环重试 */
 private const val FAILOVER_TRY = "X-MovieClaw-Retried"
 
@@ -114,6 +125,7 @@ private fun failoverInterceptor(): Interceptor = Interceptor { chain ->
     try {
         chain.proceed(request)
     } catch (e: java.io.IOException) {
+        if (request.tag(PlaybackMediaRequest::class.java) != null) throw e
         val hard = isHardNetworkFailure(e)
         if (hard) ServerRoutes.onHardError?.invoke()
         if (!hard || (request.method != "GET" && request.method != "HEAD") ||
@@ -215,7 +227,7 @@ object NetworkModule {
     @Provides
     @Singleton
     @GeneralChannel
-    fun generalClient(vault: TokenVault): OkHttpClient = baseClient(vault).build()
+    fun generalClient(vault: TokenVault): OkHttpClient = baseClient(vault, reachability = true).build()
 
     @Provides
     @Singleton
@@ -227,7 +239,7 @@ object NetworkModule {
     @Provides
     @Singleton
     @PlaybackChannel
-    fun playbackClient(vault: TokenVault): OkHttpClient = baseClient(vault)
+    fun playbackClient(vault: TokenVault): OkHttpClient = baseClient(vault, reachability = true)
         .connectionPool(ConnectionPool(4, 65, TimeUnit.SECONDS))
         .build()
 }

@@ -56,6 +56,51 @@ async def _wait_status(job_id: str, expected: JobStatus, timeout: float = 2.0):
         await asyncio.sleep(0.01)
 
 
+async def test_four_parents_can_wait_for_queued_children(job_db, monkeypatch):
+    from movieclaw_api.api.routes.jobs import wait_job
+
+    entered = 0
+    ready = asyncio.Event()
+    children = []
+
+    async def child(context, data):
+        children.append(context.job_id)
+        return {}
+
+    async def parent(context, data):
+        nonlocal entered
+        entered += 1
+        if entered == 4:
+            ready.set()
+        await ready.wait()
+        async with job_db.session() as session:
+            ref = await jobs.create_job(session, job_type="test.wait-child", input_data={})
+        revision = 0
+        async with asyncio.timeout(2):
+            while True:
+                reply = await wait_job(ref.job.id, after_revision=revision, wait_seconds=0.1)
+                if reply.data.job.status == JobStatus.SUCCEEDED:
+                    return {}
+                revision = reply.data.job.revision
+
+    monkeypatch.setitem(
+        jobs._handlers, "test.wait-parent", jobs.RegisteredJobHandler(parent, frozenset({1}))
+    )
+    monkeypatch.setitem(
+        jobs._handlers, "test.wait-child", jobs.RegisteredJobHandler(child, frozenset({1}))
+    )
+    parents = []
+    async with job_db.session() as session:
+        for _ in range(4):
+            parents.append(
+                await jobs.create_job(session, job_type="test.wait-parent", input_data={})
+            )
+    await jobs.init_job_dispatcher(max_parallel=4)
+    for ref in parents:
+        await _wait_status(ref.job.id, JobStatus.SUCCEEDED, timeout=4)
+    assert len(children) == 4
+
+
 async def test_create_job_deduplicates_active_work_and_indexes_resources(job_db) -> None:
     async with job_db.session() as session:
         first = await jobs.create_job(
@@ -182,6 +227,50 @@ async def test_dispatcher_rejects_unsupported_definition_without_retry(job_db) -
     assert row.error is not None
     assert row.error["code"] == "JOB_DEFINITION_UNSUPPORTED"
     assert row.attempt == 1
+
+
+async def test_registry_startup_only_claims_ready_handlers_then_blocks_unknown(job_db, monkeypatch):
+    from movieclaw_kernel import Registry
+
+    monkeypatch.setattr(jobs, "_known_types", {"startup.disabled"})
+    registry = Registry(jobs.JOB_HANDLERS)
+    ready = asyncio.Event()
+    unbind = jobs.bind_handler_registry(registry, ready=ready)
+    dispatcher = jobs.JobDispatcher()
+
+    async def work(_context, _payload):
+        return {"done": True}
+
+    registry.add(
+        "startup.active", jobs.RegisteredJobHandler(work, frozenset({1})), entry_id="active"
+    )
+    try:
+        async with job_db.session() as session:
+            for job_type in ("startup.unknown", "startup.disabled", "startup.active"):
+                await jobs.create_job(session, job_type=job_type, input_data={})
+
+        # 已就绪的处理器不必等整个启动结束；未知与已知但停用的类型都先留在队列。
+        claimed = await dispatcher._claim_one()
+        assert claimed is not None
+        await dispatcher._execute(*claimed)
+        async with job_db.session() as session:
+            active = await jobs.get_job(session, claimed[0])
+            assert active.job_type == "startup.active" and active.status is JobStatus.SUCCEEDED
+        assert await dispatcher._claim_one() is None
+
+        ready.set()
+        claimed = await dispatcher._claim_one()
+        assert claimed is not None
+        await dispatcher._execute(*claimed)
+        async with job_db.session() as session:
+            unknown = await jobs.get_job(session, claimed[0])
+            assert unknown.job_type == "startup.unknown" and unknown.status is JobStatus.BLOCKED
+            assert unknown.error["code"] == "JOB_HANDLER_UNAVAILABLE"
+            [disabled] = await jobs.list_jobs(session, job_type="startup.disabled")
+            assert disabled.status is JobStatus.QUEUED and disabled.attempt == 0
+        assert await dispatcher._claim_one() is None
+    finally:
+        unbind()
 
 
 async def test_graceful_restart_returns_running_job_to_queue_and_resumes(job_db) -> None:
@@ -352,6 +441,81 @@ async def test_startup_recovery_tolerates_locked_database(job_db, monkeypatch) -
         await asyncio.wait_for(recovered.wait(), timeout=2)
     finally:
         await dispatcher.close()
+
+
+@pytest.mark.parametrize("takeover", [False, True])
+async def test_recovered_local_job_releases_its_execution_slot(job_db, monkeypatch, takeover):
+    """续租失败后旧 handler 仍在等待：台账全 queued，也必须能重新领取。"""
+    monkeypatch.setattr(jobs, "JOB_HEARTBEAT_SECONDS", 0.05)
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+    recovered = asyncio.Event()
+    calls = 0
+    real_heartbeat = jobs.JobDispatcher._heartbeat
+
+    async def heartbeat_after_recovery(self, *args):
+        await recovered.wait()
+        await real_heartbeat(self, *args)
+
+    monkeypatch.setattr(jobs.JobDispatcher, "_heartbeat", heartbeat_after_recovery)
+
+    job_type = f"test.recovered-slot.{takeover}"
+
+    @jobs.register_job_handler(job_type)
+    async def work(context, payload):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+        return {"calls": calls}
+
+    async with job_db.session() as session:
+        created = await jobs.create_job(
+            session,
+            job_type=job_type,
+            input_data={},
+            resources=[jobs.ResourceRef("library_file", 991)],
+        )
+    dispatcher = await jobs.init_job_dispatcher(max_parallel=1)
+    await asyncio.wait_for(started.wait(), timeout=2)
+    execution = dispatcher._running[created.job.id]
+
+    # 模拟慢盘导致心跳错过租约，由正常恢复路径把任务退回队列。
+    async with job_db.session() as session:
+        row = await jobs.get_job(session, created.job.id)
+        row.lease_expires_at = utcnow() - timedelta(seconds=1)
+        lock = await session.get(JobLock, "library_file:991")
+        lock.lease_expires_at = row.lease_expires_at
+        await session.commit()
+    await dispatcher._recover_expired_jobs()
+    # 有空闲槽位时也不能重领本地旧协程尚未退出的任务：否则按 id 保存的
+    # Task 会被覆盖，旧协程的 done 回调还会误删新执行的引用。
+    assert await dispatcher._claim_one() is None
+    if takeover:
+        successor = jobs.JobDispatcher(max_parallel=1)
+        claimed = await successor._claim_one()
+        assert claimed is not None and claimed[0] == created.job.id
+    recovered.set()
+    await asyncio.wait_for(stopped.wait(), timeout=2)
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(asyncio.shield(execution), timeout=2)
+    if takeover:
+        async with job_db.session() as session:
+            row = await jobs.get_job(session, created.job.id)
+            assert row.status is JobStatus.RUNNING and row.lease_owner == claimed[1]
+            assert await jobs.resource_lock_owner(session, "library_file", 991) == row.id
+            events = await jobs.job_events(session, row.id)
+            assert "paused" not in [event.event_type for event in events]
+        await successor._execute(*claimed)
+    completed = await _wait_status(created.job.id, JobStatus.SUCCEEDED)
+    assert completed.result == {"calls": 2}
+    assert completed.attempt == 1
+    async with job_db.session() as session:
+        assert await jobs.resource_lock_owner(session, "library_file", 991) is None
 
 
 async def test_retry_blocked_job_requeues_in_place(job_db) -> None:
@@ -623,3 +787,120 @@ async def test_cancel_and_handler_exit_serialize_their_state_changes(job_db, mon
         assert row.lease_owner is None and row.lease_expires_at is None
         events = await jobs.job_events(session, job_id)
         assert events[-1].event_type == "cancelled"
+
+
+async def test_locked_candidates_do_not_starve_unrelated_jobs(job_db, monkeypatch):
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def work(context, data):
+        if data.get("hold"):
+            started.set()
+            await release.wait()
+        return {}
+
+    monkeypatch.setitem(
+        jobs._handlers, "test.lock-queue", jobs.RegisteredJobHandler(work, frozenset({1}))
+    )
+    async with job_db.session() as session:
+        await jobs.create_job(
+            session,
+            job_type="test.lock-queue",
+            input_data={"hold": True},
+            resources=[jobs.ResourceRef("library", 42)],
+        )
+    await jobs.init_job_dispatcher(max_parallel=2)
+    await asyncio.wait_for(started.wait(), timeout=2)
+    try:
+        async with job_db.session() as session:
+            for _ in range(10):
+                await jobs.create_job(
+                    session,
+                    job_type="test.lock-queue",
+                    input_data={},
+                    priority=10,
+                    resources=[jobs.ResourceRef("library", 42)],
+                )
+            independent = await jobs.create_job(
+                session,
+                job_type="test.lock-queue",
+                input_data={},
+                priority=-10,
+                resources=[jobs.ResourceRef("library", 43)],
+            )
+        await _wait_status(independent.job.id, JobStatus.SUCCEEDED)
+    finally:
+        release.set()
+
+
+async def test_job_wait_timeout_and_cancellation_keep_parent_lock_and_release_capacity(
+    job_db, monkeypatch
+):
+    from movieclaw_api.api.routes.jobs import wait_job
+
+    checked = asyncio.Event()
+    release = asyncio.Event()
+    child_started = asyncio.Event()
+
+    async def child(context, data):
+        child_started.set()
+        return {}
+
+    async def parent(context, data):
+        async with job_db.session() as session:
+            ref = await jobs.create_job(
+                session,
+                job_type="test.wait-locked-child",
+                input_data={},
+                resources=[jobs.ResourceRef("library", 42)],
+            )
+        # 子任务与父任务目标冲突时仍须遵守锁，等待超时不能等子任务归还容量。
+        reply = await wait_job(ref.job.id, after_revision=ref.job.revision, wait_seconds=0.1)
+        assert reply.data.changed is False
+        assert not jobs._dispatcher._waits
+        pending = [
+            asyncio.create_task(
+                wait_job(ref.job.id, after_revision=ref.job.revision, wait_seconds=30)
+            )
+            for _ in range(2)
+        ]
+        while sum(jobs._dispatcher._waits.values()) != 2:
+            await asyncio.sleep(0.01)
+        pending[0].cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending[0]
+        assert sum(jobs._dispatcher._waits.values()) == 1
+        pending[1].cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending[1]
+        assert not jobs._dispatcher._waits
+        async with job_db.session() as session:
+            assert await jobs.resource_lock_owner(session, "library", 42) == context.job_id
+        assert not child_started.is_set()
+        checked.set()
+        await release.wait()
+        return {}
+
+    for job_type, handler in [
+        ("test.wait-locked-parent", parent),
+        ("test.wait-locked-child", child),
+    ]:
+        monkeypatch.setitem(
+            jobs._handlers, job_type, jobs.RegisteredJobHandler(handler, frozenset({1}))
+        )
+    async with job_db.session() as session:
+        ref = await jobs.create_job(
+            session,
+            job_type="test.wait-locked-parent",
+            input_data={},
+            resources=[jobs.ResourceRef("library", 42)],
+        )
+    dispatcher = await jobs.init_job_dispatcher(max_parallel=1)
+    try:
+        await asyncio.wait_for(checked.wait(), timeout=3)
+        assert len(dispatcher._running) == 1
+        assert not dispatcher._waits
+    finally:
+        release.set()
+    await _wait_status(ref.job.id, JobStatus.SUCCEEDED)
+    await asyncio.wait_for(child_started.wait(), timeout=2)

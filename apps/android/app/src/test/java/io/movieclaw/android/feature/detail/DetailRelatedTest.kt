@@ -94,17 +94,16 @@ class DetailRelatedTest {
         val ui = SessionRepository::class.java.getDeclaredField("_ui").apply { isAccessible = true }
             .get(repository) as MutableStateFlow<SessionUi>
         ui.value = SessionUi(phase = SessionPhase.READY, origin = origin, session = SessionView("alice"))
+        val offlineStore = io.movieclaw.android.core.offline.OfflineStore(context, api, json)
+        val reachability = io.movieclaw.android.core.offline.ServerReachability(context, client)
         val vm = ItemDetailViewModel(
             SavedStateHandle(mapOf("libraryId" to "1", "itemId" to "7")),
             repository, api, PlaybackPreconnect(api, repository), EventStream(client, repository, api),
-            io.movieclaw.android.core.offline.OfflineStore(context, repository).also {},
+            offlineStore,
             io.movieclaw.android.core.offline.OfflineDownloader(
-                context,
-                api,
-                io.movieclaw.android.core.offline.OfflineStore(context, repository),
-                io.movieclaw.android.core.offline.OfflinePrefs(context),
+                context, api, offlineStore, io.movieclaw.android.core.offline.OfflinePrefs(context), reachability,
             ),
-        io.movieclaw.android.core.offline.OfflinePrefs(context),
+            reachability,
         )
         try {
             block(vm, similarCalls)

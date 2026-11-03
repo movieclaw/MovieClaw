@@ -68,14 +68,26 @@ async def _chapters_done(session: AsyncSession, library: Library, file: LibraryF
 
 
 async def _segments_done(session: AsyncSession, library: Library, file: LibraryFile) -> str | None:
+    from movieclaw_api.services.library.skip_segments import ALGO_VERSION
     from movieclaw_db.models.media_segment import MediaSegmentState
 
     if library.kind != "tv" or not library.detect_media_segments:
         return None
     state = await session.get(MediaSegmentState, file.id)
-    if state is None or state.fingerprint_status == "pending":
+    if (
+        state is None
+        or state.fingerprint_status == "pending"
+        or state.source_size != file.size_bytes
+    ):
         # i18n-ignore: release gate reason for logs only
         return "片头片尾指纹还没算"
+    # 指纹算完就提交成 ok，之后整季识别的画面核对还要读本地抽帧；识别结果落库（analyzed_at 在
+    # 画面核对之后才写）才算做完（#1094）。算不了指纹的（failed）不挡
+    if state.fingerprint_status == "ok" and (
+        state.analyzed_at is None or state.algo_version != ALGO_VERSION
+    ):
+        # i18n-ignore: release gate reason for logs only
+        return "片头片尾还没整季识别完"
     return None
 
 

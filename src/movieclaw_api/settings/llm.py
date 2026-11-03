@@ -17,6 +17,7 @@ from pydantic import Field
 from movieclaw_api.settings.base import SettingSchema, register_setting
 
 LLM_DEFAULTS_NAMESPACE = "llm.defaults"
+LLM_CATALOG_NAMESPACE = "llm.catalog"
 
 
 @register_setting(namespace=LLM_DEFAULTS_NAMESPACE, title="AI 设定")
@@ -29,4 +30,14 @@ class LlmDefaultsSetting(SettingSchema):
     )
     subtitle_model: str | None = Field(
         default=None, description="字幕处理默认模型：字幕翻译 / 生成任务使用"
+    )
+
+
+@register_setting(namespace=LLM_CATALOG_NAMESPACE, title="模型目录")
+class LlmCatalogSetting(SettingSchema):
+    """公共模型目录（models.dev）的联网开关（docs/design/llm-model-catalog.md §9.2）。"""
+
+    online: bool = Field(
+        default=True,
+        description="每天从 models.dev 更新模型参数；关闭后只用随版本附带的快照",
     )

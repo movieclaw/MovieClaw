@@ -14,11 +14,15 @@ from . import test_member_auth as member_tests
 client = auth_tests.client
 
 
-def test_parallel_first_requests_create_one_admin_language_history(client):
+def test_parallel_first_requests_create_one_admin_language_history(client, monkeypatch):
     from movieclaw_api.i18n import use_locale
+    from movieclaw_api.services import locale_preferences
     from movieclaw_api.services.auth import Principal
     from movieclaw_api.services.locale_preferences import member_locale, record_request_language
 
+    # 模块级锁一旦在别的用例里被争用，就绑在那个用例的事件循环上；同进程里排在
+    # 后面跑本用例会报「bound to a different event loop」（取决于分片顺序）
+    monkeypatch.setattr(locale_preferences, "_admin_locale_lock", asyncio.Lock())
     auth_tests._bootstrap(client)
 
     async def parallel():

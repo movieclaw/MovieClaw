@@ -66,9 +66,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!session || splashPhase !== "on") return;
     setSplashPhase("leaving");
+  }, [session, splashPhase]);
+  useEffect(() => {
+    // 定时器属于 leaving 阶段，避免 on → leaving 的 effect 清理将它取消。
+    if (splashPhase !== "leaving") return;
     const timer = setTimeout(() => setSplashPhase("off"), 520);
     return () => clearTimeout(timer);
-  }, [session, splashPhase]);
+  }, [splashPhase]);
 
   /** 改昵称等处更新会话时，缓存要一起跟上，否则下次跨 layout 会闪回旧数据 */
   const updateSession = useCallback((next: SessionView) => {

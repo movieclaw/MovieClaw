@@ -1,5 +1,7 @@
 import { display, promptAction } from '@kit.ArkUI';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { MemberCredentialDialog } from './MemberCredentialDialog';
 import { SettingsSegmentChip, SettingsSwitchRow, SettingsTwoStateSegment } from '../common/SettingsControls';
 import { AppModel } from '../common/AppModel';
@@ -69,6 +71,8 @@ class MemberMode {
  */
 @ComponentV2
 export struct MembersSection {
+  /** 页面级滚动器：内容铺到标题栏下面，滚动时由宿主绑定驱动渐变模糊 */
+  @Param scroller: Scroller = new Scroller();
   @Local private members: MemberView[] = [];
   @Local private libraries: LibraryView[] = [];
   @Local private loading: boolean = true;
@@ -502,7 +506,7 @@ export struct MembersSection {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else {
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 14 }) {
             this.Header()
             if (this.errorMessage.length > 0) {
@@ -516,7 +520,7 @@ export struct MembersSection {
             AppFooter()
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+          .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
         }
         .layoutWeight(1)
         .align(Alignment.TopStart)
@@ -551,16 +555,18 @@ export struct MembersSection {
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
-      Text('添加成员')
-        .fontSize(14)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#0b0d12')
-        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-        .backgroundColor(Theme.accent)
-        .borderRadius(16)
-        .onClick(() => {
-          this.openCreate();
-        })
+      Button() {
+        Text('添加成员')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#0b0d12')
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+      .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+      .borderRadius(16)
+      .onClick(() => {
+        this.openCreate();
+      })
     }
     .width('100%')
     .padding(14)
@@ -1123,22 +1129,20 @@ export struct MembersSection {
   Chips(options: ChipOption[], onPick: (key: string) => void) {
     Flex({ wrap: FlexWrap.Wrap }) {
       ForEach(options, (option: ChipOption) => {
-        Text(option.label)
-          .fontSize(13)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(option.selected ? Theme.accent : Theme.textMuted)
-          .maxLines(1)
-          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-          .backgroundColor(option.selected ? Theme.accentSoft : 'rgba(255, 255, 255, 0.035)')
-          .borderRadius(9)
-          .border({
-            width: 1,
-            color: option.selected ? 'rgba(205, 214, 230, 0.5)' : Theme.line
-          })
-          .margin({ right: 8, bottom: 8 })
-          .onClick((): void => {
-            onPick(option.key);
-          })
+        Button() {
+          Text(option.label)
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(option.selected ? Theme.accent : Theme.textMuted)
+            .maxLines(1)
+        }
+        .attributeModifier(new GlassButtonModifier(option.selected ? GlassTone.Primary : GlassTone.Strong))
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .borderRadius(9)
+        .margin({ right: 8, bottom: 8 })
+        .onClick((): void => {
+          onPick(option.key);
+        })
       }, (option: ChipOption): string => `chip-${option.key}-${option.selected}`)
     }
     .width('100%')

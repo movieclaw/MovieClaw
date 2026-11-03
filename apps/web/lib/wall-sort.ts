@@ -25,7 +25,8 @@ export type WallSortPref =
   | "rating"
   | "runtime"
   | "size"
-  | "last_played";
+  | "last_played"
+  | "random";
 
 /** 偏好 → 服务端排序键。`default` 由各面墙自己决定（单库页按库的形态，合集页是合集自己的序）；
  *  `probing` 是扫描临时接管的序，不是用户能选的档。 */
@@ -40,6 +41,7 @@ export const PREF_TO_SORT: Record<
   runtime: "runtime",
   size: "size",
   last_played: "last_played",
+  random: "random",
 };
 
 /** 非默认档的展示名，各面墙拼自己的选项列表时取用（与筛选条的 SORT_LABELS 同一套叫法）。 */
@@ -57,6 +59,7 @@ export function sortPrefLabels(locale?: AppLocale): Record<
     runtime: t("library.sort.runtime"),
     size: t("library.sort.size"),
     last_played: t("library.sort.lastPlayed"),
+    random: t("library.sort.random"),
   };
 }
 
@@ -105,6 +108,7 @@ const WALL_SORT_PREFS: readonly WallSortPref[] = [
   "runtime",
   "size",
   "last_played",
+  "random",
 ];
 
 /** 排序偏好：选的哪一档，以及是否反转了这一档的自然方向。 */
@@ -124,6 +128,8 @@ export interface WallSortState {
  */
 export function useWallSortPref(
   storageKey: string = WALL_SORT_STORAGE_KEY,
+  params?: Pick<URLSearchParams, "get">,
+  defaultPref?: Exclude<WallSortPref, "default">,
 ): [WallSortState, (next: WallSortPref) => void, () => void, boolean] {
   const [state, setState] = useState<WallSortState>({
     pref: "default",
@@ -132,8 +138,18 @@ export function useWallSortPref(
   // 读完的是哪个键：合集页的键随合集 id 变，换合集的那一帧手上还是上一个合集的
   // 偏好，「读完了没有」必须按键算，否则会先按错的排序拉一页再重拉
   const [readyFor, setReadyFor] = useState<string | null>(null);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  // 首页传入的排序是当前导航意图，优先于历史偏好；不把它写回全局偏好。
+  const sort = params?.get("sort");
+  const urlSort = sort && WALL_SORT_PREFS.includes(sort as WallSortPref) && sort !== "default"
+    ? sort as Exclude<WallSortPref, "default"> : null;
+  const order = params?.get("order");
+  const current = urlSort ? {
+    pref: urlSort,
+    reversed: urlSort !== "random" && (order === "asc" || order === "desc")
+      ? (order === "asc") !== SORT_DIRECTIONS[urlSort].naturalAsc : false,
+  } : state;
+  const stateRef = useRef(current);
+  stateRef.current = current;
   useEffect(() => {
     let next: WallSortState = { pref: "default", reversed: false };
     try {
@@ -149,10 +165,24 @@ export function useWallSortPref(
     setState(next);
     setReadyFor(storageKey);
   }, [storageKey]);
-  const ready = readyFor === storageKey;
+  const ready = urlSort !== null || readyFor === storageKey;
   const persist = useCallback(
     (next: WallSortState) => {
       setState(next);
+      if (params) {
+        const query = new URLSearchParams(window.location.search);
+        const urlPref = next.pref === "default" ? defaultPref : next.pref;
+        if (!urlPref) {
+          query.delete("sort");
+          query.delete("order");
+        } else {
+          query.set("sort", urlPref);
+          const ascending = SORT_DIRECTIONS[urlPref].naturalAsc !== next.reversed;
+          query.set("order", ascending ? "asc" : "desc");
+        }
+        const rest = query.toString();
+        window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`);
+      }
       try {
         window.localStorage.setItem(
           storageKey,
@@ -162,7 +192,7 @@ export function useWallSortPref(
         /* 同上 */
       }
     },
-    [storageKey],
+    [storageKey, params, defaultPref],
   );
   const update = useCallback(
     (pref: WallSortPref) => persist({ pref, reversed: false }),
@@ -170,10 +200,13 @@ export function useWallSortPref(
   );
   const toggleReversed = useCallback(
     () =>
-      persist({ ...stateRef.current, reversed: !stateRef.current.reversed }),
-    [persist],
+      persist({
+        pref: stateRef.current.pref === defaultPref ? "default" : stateRef.current.pref,
+        reversed: !stateRef.current.reversed,
+      }),
+    [persist, defaultPref],
   );
-  return [state, update, toggleReversed, ready];
+  return [current, update, toggleReversed, ready];
 }
 
 /**

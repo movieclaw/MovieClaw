@@ -44,4 +44,33 @@ class RemoteImageUrlTest {
         val url = resolveImageUrl("/images/assets/12/poster.jpg", base, 240)
         assertEquals("$base/api/v1/images/assets/12/poster.jpg?w=240", url)
     }
+
+    @Test
+    fun `缓存键与入口无关：内网和外网取同一张图命中同一份缓存`() {
+        val origin = "http://192.168.5.211:3010"
+        val wan = "https://nas.example.com"
+        val path = "/api/v1/images/proxy?url=x&w=720"
+        assertEquals(
+            imageCacheKey("$base$path", origin, base),
+            imageCacheKey("$wan$path", origin, wan),
+        )
+        assertEquals("$origin$path", imageCacheKey("$wan$path", origin, wan))
+    }
+
+    @Test
+    fun `缓存键带登录 origin，换服务器不串图`() {
+        val path = "/api/v1/libraries/1/cover?w=720"
+        val a = imageCacheKey("http://10.0.0.2:3010$path", "http://a.example.com", "http://10.0.0.2:3010")
+        val b = imageCacheKey("http://10.0.0.3:3010$path", "http://b.example.com", "http://10.0.0.3:3010")
+        assert(a != b)
+    }
+
+    @Test
+    fun `不是当前入口的地址缓存键原样用`() {
+        assertEquals(
+            "http://192.168.5.211:30100/api/v1/x",
+            imageCacheKey("http://192.168.5.211:30100/api/v1/x", "http://o", base),
+        )
+        assertEquals("https://cdn/x.jpg", imageCacheKey("https://cdn/x.jpg", "http://o", base))
+    }
 }

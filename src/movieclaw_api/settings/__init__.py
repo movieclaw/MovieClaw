@@ -32,7 +32,7 @@ from movieclaw_api.settings.base import (
 )
 from movieclaw_api.settings.cloud import CloudSetting, PushChannelsSetting
 from movieclaw_api.settings.drives import DriveReleaseSetting
-from movieclaw_api.settings.llm import LlmDefaultsSetting
+from movieclaw_api.settings.llm import LlmCatalogSetting, LlmDefaultsSetting
 from movieclaw_api.settings.mcp import McpEndpoint, McpEndpointsSetting
 from movieclaw_api.settings.metadata import (
     DiscoverPreferencesSetting,
@@ -60,7 +60,6 @@ from movieclaw_api.settings.schemas import (
     mark_initialized,
     revoke_sync_token,
 )
-from movieclaw_api.settings.smart_subscription import SmartAutomationSettings
 from movieclaw_api.settings.store import (
     SettingStore,
     get_setting_store,
@@ -76,7 +75,6 @@ from movieclaw_api.settings.webhook import (
 )
 
 __all__ = [
-    "SmartAutomationSettings",
     # 基类与注册表
     "SettingSchema",
     "SettingDescriptor",
@@ -119,6 +117,7 @@ __all__ = [
     "PushChannelsSetting",
     "BUILTIN_EGRESS_SERVICES",
     # AI 设定（各用途默认模型、网页搜索）
+    "LlmCatalogSetting",
     "LlmDefaultsSetting",
     "WebSearchSetting",
     "McpEndpoint",

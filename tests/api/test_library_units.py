@@ -279,8 +279,8 @@ def test_vetoed_season_without_unique_fallback_stays_pending(tmp_path, monkeypat
 def test_explicit_pilot_is_not_a_parser_gap(tmp_path) -> None:
     """显式 E00（先导/特辑占位）与"解析不出集号"性质不同，必须能被区分。
 
-    占位按设计就不入库，重试和模型升级都改变不了结果——混为一谈会把记录
-    永远钉在待处理清单里。
+    占位不自动入库，重试和模型升级都改变不了结果——混为一谈会把混合季包
+    永远钉在待处理清单里；纯 E00 下载则由入库层保留待处理。
     """
     _, files = _pack(tmp_path, "Show.S01", ["Show.S01E00.Pilot.mkv", "Show.E00.Preview.mkv"])
     units = resolve_units(files, entry_name="Show.S01")

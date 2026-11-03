@@ -227,10 +227,12 @@ struct DiscoverView: View {
                 }
                 .fixedSize()
                 .contentShape(.rect)
-                // 不要用 offset 往左挪去对齐其它页的系统大标题（工具栏按钮自带约 9pt 内边距）：
-                // 菜单弹出 / 收起的形变动画以按钮边界为起点，挪出边界的部分会被裁掉，切换瞬间「电」字缺一截（真机截图）。
-                // 系统大标题位置（ToolbarItem .largeTitle）又不能交互，只能接受这 9pt 缩进
+                // 不要用 offset 挪位置：菜单弹出 / 收起的形变动画以按钮边界为起点，挪出边界的部分会被裁掉（「电」字缺一截）
             }
+            // 按普通 SwiftUI 视图画，不让系统把它做成工具栏按钮：系统按钮给标签加约 9pt 内边距，
+            // 菜单收起后还会把标签先放回偏右约 9pt 处停半秒多、再滑回原位（#1090）。两个修饰缺一不可（iOS 26 实测）
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .accessibilityLabel(String(localized: .mediaDiscoveryBrowsingSource(currentType == "tv" ? String(localized: .mediaKindTv) : String(localized: .mediaKindMovie),
                                                                          source == "tmdb" ? "TMDB" : String(localized: .mediaSourceDouban))))
             .accessibilityHint(String(localized: .mediaDiscoverySwitchHint))

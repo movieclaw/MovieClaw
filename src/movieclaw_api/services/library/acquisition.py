@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -143,6 +143,24 @@ class IngestedFacts:
     consumable: list[str] | None  # 分批入库时本批已可收尾的任务；整条目为 None
     batch_id: str
     imported: bool  # 本轮确有新文件入库
+
+
+@dataclass(frozen=True)
+class EpisodeArrival:
+    """获取领域对一集「什么时候进库」的说法（播出日历的「预计 20:00 入库」「下载中」）。"""
+
+    episode_number: int
+    stage: str  # "waiting" 等资源发布 | "downloading" 下载中 | "organizing" 下完了在整理
+    expected_at: datetime | None = None  # 预计入库时刻（naive UTC）；给不出为 None
+
+
+@dataclass(frozen=True)
+class SeasonTracking:
+    """获取领域对一季的追踪：谁在追、缺哪几集、哪几集在路上（issue #547 播出日历）。"""
+
+    tracker_id: int  # 订阅 id：客户端据此「补缺集」
+    missing: list[int]  # 追踪范围内已播出、库里还没有的集
+    arrivals: list[EpisodeArrival]
 
 
 async def _nothing() -> None:
@@ -281,6 +299,22 @@ class AcquisitionBridge(Protocol):
         """这些单元的最优文件被人工标注了片源 {(季, 集): 片源}；返回跟着改了几处。不提交。"""
         ...
 
+    # ---- 播出日历（issue #547）
+    async def season_tracking(
+        self,
+        session: AsyncSession,
+        media_item_id: int,
+        season_number: int,
+        air_dates: dict[int, date | None],
+        owned: set[int],
+        today: date,
+    ) -> SeasonTracking | None:
+        """这一季有没有人在追、缺哪几集、哪几集在路上；没人追为 None。
+
+        ``air_dates`` 是媒体库这一季每集的播出日（集号 → 日期），``owned`` 是库里有的集。
+        """
+        ...
+
 
 class NullBridge:
     """没有获取领域：媒体库作为纯本地库运行。"""
@@ -370,6 +404,17 @@ class NullBridge:
         self, session: AsyncSession, media_item_id: int, sources: dict[tuple[int, int], str]
     ) -> int:
         return 0
+
+    async def season_tracking(
+        self,
+        session: AsyncSession,
+        media_item_id: int,
+        season_number: int,
+        air_dates: dict[int, date | None],
+        owned: set[int],
+        today: date,
+    ) -> SeasonTracking | None:
+        return None
 
 
 _NULL = NullBridge()

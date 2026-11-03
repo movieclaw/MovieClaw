@@ -1,0 +1,690 @@
+{
+ "api": "https://open.bigmodel.cn/api/paas/v4",
+ "fetched_at": "2026-10-30T10:25:11Z",
+ "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
+ "models": {
+  "glm-4.5": {
+   "cost": {
+    "cache_read": 0.11,
+    "cache_write": 0,
+    "input": 0.6,
+    "output": 2.2
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 131072,
+    "output": 98304
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.5",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-07-28",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-4.5-air": {
+   "cost": {
+    "cache_read": 0.0239,
+    "cache_write": 0,
+    "input": 0.11952,
+    "output": 0.89637,
+    "tiers": [
+     {
+      "cache_read": 0.03585,
+      "cache_write": 0,
+      "input": 0.17927,
+      "output": 1.19516,
+      "tier": {
+       "size": 32000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 131072,
+    "output": 98304
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.5-Air",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-07-28",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-4.5-flash": {
+   "cost": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "input": 0,
+    "output": 0
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 131072,
+    "output": 98304
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.5-Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-07-28",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-4.5v": {
+   "cost": {
+    "cache_read": 0.05976,
+    "cache_write": 0,
+    "input": 0.29879,
+    "output": 0.89637,
+    "tiers": [
+     {
+      "cache_read": 0.11952,
+      "cache_write": 0,
+      "input": 0.59758,
+      "output": 1.79274,
+      "tier": {
+       "size": 32000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 64000,
+    "output": 16384
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.5V",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-08-11",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-4.6": {
+   "cost": {
+    "cache_read": 0.11,
+    "cache_write": 0,
+    "input": 0.6,
+    "output": 2.2
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 204800,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.6",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-09-30",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-4.6v": {
+   "cost": {
+    "cache_read": 0.02988,
+    "cache_write": 0,
+    "input": 0.1494,
+    "output": 0.44819,
+    "tiers": [
+     {
+      "cache_read": 0.05976,
+      "cache_write": 0,
+      "input": 0.29879,
+      "output": 0.89637,
+      "tier": {
+       "size": 32000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 128000,
+    "output": 32768
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.6V",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-12-08",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-4.6v-flash": {
+   "cost": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "input": 0,
+    "output": 0
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 128000,
+    "output": 32768
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.6V-Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-12-08",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-4.7": {
+   "cost": {
+    "cache_read": 0.08964,
+    "cache_write": 0,
+    "input": 0.44819,
+    "output": 2.09153,
+    "tiers": [
+     {
+      "cache_read": 0.11952,
+      "cache_write": 0,
+      "input": 0.59758,
+      "output": 2.39032,
+      "tier": {
+       "size": 32000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 204800,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.7",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2025-12-22",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-4.7-flash": {
+   "cost": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "input": 0,
+    "output": 0
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 200000,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.7-Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2026-01-19",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-4.7-flashx": {
+   "cost": {
+    "cache_read": 0.01494,
+    "cache_write": 0,
+    "input": 0.0747,
+    "output": 0.44819
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 200000,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-4.7-FlashX",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2026-01-19",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-5": {
+   "cost": {
+    "cache_read": 0.1494,
+    "cache_write": 0,
+    "input": 0.59758,
+    "output": 2.68911,
+    "tiers": [
+     {
+      "cache_read": 0.22409,
+      "cache_write": 0,
+      "input": 0.89637,
+      "output": 3.28669,
+      "tier": {
+       "size": 32000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 204800,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-5",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2026-02-12",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-5.1": {
+   "cost": {
+    "cache_read": 0.19421,
+    "cache_write": 0,
+    "input": 0.89637,
+    "output": 3.58548,
+    "tiers": [
+     {
+      "cache_read": 0.29879,
+      "cache_write": 0,
+      "input": 1.19516,
+      "output": 4.18306,
+      "tier": {
+       "size": 32000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 200000,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-5.1",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2026-04-07",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-5.2": {
+   "cost": {
+    "cache_read": 0.29879,
+    "cache_write": 0,
+    "input": 1.19516,
+    "output": 4.18306
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1000000,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-5.2",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    },
+    {
+     "type": "effort",
+     "values": [
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-06-13",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-5.3": {
+   "cost": {
+    "cache_read": 0.29879,
+    "cache_write": 0,
+    "input": 1.19516,
+    "output": 4.18306
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1000000,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-5.3",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-08-14",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-5.3-flash": {
+   "cost": {
+    "cache_read": 0.03436,
+    "cache_write": 0,
+    "input": 0.11952,
+    "output": 0.41831
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1000000,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video",
+     "pdf"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-5.3-Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-08-26",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-5.3-flashx": {
+   "cost": {
+    "cache_read": 0.08516,
+    "cache_write": 0,
+    "input": 0.29879,
+    "output": 1.04577
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 1000000,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video",
+     "pdf"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-5.3-FlashX",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-09-18",
+   "temperature": true,
+   "tool_call": true
+  },
+  "glm-5v-turbo": {
+   "cost": {
+    "cache_read": 0.17927,
+    "cache_write": 0,
+    "input": 0.74698,
+    "output": 3.28669,
+    "tiers": [
+     {
+      "cache_read": 0.26891,
+      "cache_write": 0,
+      "input": 1.04577,
+      "output": 3.88427,
+      "tier": {
+       "size": 32000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "interleaved": {
+    "field": "reasoning_content"
+   },
+   "limit": {
+    "context": 200000,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video",
+     "pdf"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM-5V-Turbo",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2026-04-01",
+   "temperature": true,
+   "tool_call": true
+  }
+ },
+ "name": "Zhipu AI"
+}

@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Collection
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,7 @@ from movieclaw_api.services.library.acquisition import (
     EntryDelivery,
     IdentityHint,
     IngestedFacts,
+    SeasonTracking,
     TaskFiles,
 )
 from movieclaw_db.models import (
@@ -304,3 +305,16 @@ class Acquisition:
             wanted.updated_at = now
             changed += 1
         return changed
+
+    async def season_tracking(
+        self,
+        session: AsyncSession,
+        media_item_id: int,
+        season_number: int,
+        air_dates: dict[int, date | None],
+        owned: set[int],
+        today: date,
+    ) -> SeasonTracking | None:
+        from movieclaw_api.services.subscription import season_tracking
+
+        return await season_tracking(session, media_item_id, season_number, air_dates, owned, today)

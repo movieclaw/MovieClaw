@@ -188,6 +188,10 @@ class Settings(BaseSettings):
     # /app/models/ppocr（Dockerfile 的 ENV 指过去）；本地开发放 data/models/ppocr。缺失时
     # 片头片尾识别只用声音（docs/design/skip-intro.md §2.12）
     ocr_model_dir: str = Field(default="./data/models/ppocr", alias="MOVIECLAW_OCR_DIR")
+    # 本地语音识别模型目录（SenseVoice-Small + silero VAD）：文件没有任何可用字幕时，AI 字幕
+    # 从音轨识别台词（docs/design/subtitle-asr.md）。镜像内置在 /app/models/asr；本地开发放
+    # data/models/asr。缺失时预检如实说明，其他字幕功能不受影响
+    asr_model_dir: str = Field(default="./data/models/asr", alias="MOVIECLAW_ASR_DIR")
     # AI 字幕生成的中间品：内封轨抽取、PGS 图片与翻译断点（断点删了任务从头翻）。
     subtitle_gen_cache_dir: str = Field(
         default="./data/cache/subtitle_gen", alias="MOVIECLAW_SUBTITLE_GEN_CACHE_DIR"

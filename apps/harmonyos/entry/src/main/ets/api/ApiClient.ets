@@ -168,6 +168,8 @@ export interface ApiMessageResult<T> {
 export class ApiClient {
   /** 服务器 origin，如 `https://demo.movieclaw.io`（不带末尾斜杠） */
   readonly origin: string;
+  /** 当前路由类别（lan/wan/login，双地址选连）：请求带上 X-MovieClaw-Route；login 不带 */
+  routeKind: string = 'login';
   private token: string | null;
   private connectTimeoutMs: number;
   private readTimeoutMs: number;
@@ -365,6 +367,10 @@ export class ApiClient {
       }
       if (this.token !== null && this.token.length > 0) {
         header['Authorization'] = `Bearer ${this.token}`;
+      }
+      // 内外双地址选连（同 iOS X-MovieClaw-Route）：服务端按它区分本次请求走的哪条路
+      if (this.routeKind.length > 0 && this.routeKind !== 'login') {
+        header['X-MovieClaw-Route'] = this.routeKind;
       }
       const cookie: string = ApiClient.cookieHeaderFor(fullUrl);
       if (cookie.length > 0) {

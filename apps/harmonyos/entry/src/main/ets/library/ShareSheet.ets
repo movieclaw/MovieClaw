@@ -1,5 +1,6 @@
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { ShareView } from '../api/Models';
@@ -138,15 +139,17 @@ export struct SharePanel {
         .width('100%')
       Row({ space: 8 }) {
         ForEach(SHARE_EXPIRIES, (option: ShareExpiry) => {
-          Text(option.label)
-            .fontSize(13)
-            .fontColor(this.days === option.days ? '#0b0d12' : Theme.textMuted)
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor(this.days === option.days ? Theme.accent : Theme.glassFill)
-            .borderRadius(14)
-            .onClick(() => {
-              this.days = option.days;
-            })
+          Button() {
+            Text(option.label)
+              .fontSize(13)
+              .fontColor(this.days === option.days ? '#0b0d12' : Theme.textMuted)
+          }
+          .attributeModifier(new GlassButtonModifier(this.days === option.days ? GlassTone.Primary : GlassTone.Secondary))
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .borderRadius(14)
+          .onClick(() => {
+            this.days = option.days;
+          })
         }, (option: ShareExpiry) => `${option.days}`)
       }
       .width('100%')
@@ -166,20 +169,22 @@ export struct SharePanel {
           this.password = value;
         })
 
-      Text(this.busy ? '正在生成…' : '生成链接')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.busy ? Theme.textFaint : '#0b0d12')
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 13, bottom: 13 })
-        .backgroundColor(this.busy ? Theme.glassFill : Theme.accent)
-        .borderRadius(Theme.cardRadius)
-        .onClick(() => {
-          if (!this.busy) {
-            this.onCreate(this.days, this.password);
-          }
-        })
+      Button() {
+        Text(this.busy ? '正在生成…' : '生成链接')
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.busy ? Theme.textFaint : '#0b0d12')
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(this.busy ? GlassTone.Secondary : GlassTone.Primary))
+      .width('100%')
+      .padding({ top: 13, bottom: 13 })
+      .borderRadius(Theme.cardRadius)
+      .onClick(() => {
+        if (!this.busy) {
+          this.onCreate(this.days, this.password);
+        }
+      })
     }
     .width('100%')
     .padding({ left: 16, right: 16 })
@@ -216,31 +221,35 @@ export struct SharePanel {
       }
 
       // 一段可以直接粘进聊天框的话（同 iOS shareCopyText：《标题》 链接：… 密码：…）
-      Text(this.hasPassword(view) ? '复制链接和密码' : '复制链接')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#0b0d12')
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 13, bottom: 13 })
-        .backgroundColor(Theme.accent)
-        .borderRadius(Theme.cardRadius)
-        .onClick(() => {
-          this.copy(shareCopyText(view.title, this.absoluteUrl(view), view.password ?? ''), 'combined',
-            '链接和密码');
-        })
+      Button() {
+        Text(this.hasPassword(view) ? '复制链接和密码' : '复制链接')
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#0b0d12')
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+      .width('100%')
+      .padding({ top: 13, bottom: 13 })
+      .borderRadius(Theme.cardRadius)
+      .onClick(() => {
+        this.copy(shareCopyText(view.title, this.absoluteUrl(view), view.password ?? ''), 'combined',
+          '链接和密码');
+      })
 
-      Text('取消分享')
-        .fontSize(15)
-        .fontColor(Theme.danger)
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 12, bottom: 12 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(Theme.cardRadius)
-        .onClick(() => {
-          this.confirmRevoke();
-        })
+      Button() {
+        Text('取消分享')
+          .fontSize(15)
+          .fontColor(Theme.danger)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 12, bottom: 12 })
+      .borderRadius(Theme.cardRadius)
+      .onClick(() => {
+        this.confirmRevoke();
+      })
 
       Text('注意：拿到链接的人在有效期内不用登录就能打开，访客的播放会出现在「活动」页。改主意了就点「取消分享」。')
         .fontSize(12)
@@ -275,15 +284,17 @@ export struct SharePanel {
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .copyOption(CopyOptions.LocalDevice)
-      Text(this.copiedRow === row ? '已复制' : '复制')
-        .fontSize(14)
-        .fontColor(this.copiedRow === row ? Theme.ok : Theme.accentStrong)
-        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(12)
-        .onClick(() => {
-          this.copy(value, row, label);
-        })
+      Button() {
+        Text(this.copiedRow === row ? '已复制' : '复制')
+          .fontSize(14)
+          .fontColor(this.copiedRow === row ? Theme.ok : Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+      .borderRadius(12)
+      .onClick(() => {
+        this.copy(value, row, label);
+      })
     }
     .width('100%')
   }

@@ -526,19 +526,9 @@ async def _detail_view(
             row.provisional = row.episode_number > known_max.get(row.season_number, 0)
     if sub.selection_mode == "smart":
         from movieclaw_api.services.subscription.smart_profiles import read_policy
-        from movieclaw_api.services.subscription.smart_runtime import runtime_settings
 
-        runtime = await runtime_settings()
         policy = read_policy(sub)
-        view.smart_status = (
-            "invalid_policy"
-            if policy is None
-            else "disabled"
-            if not runtime.enabled
-            else "shadow"
-            if runtime.shadow_only
-            else "active"
-        )
+        view.smart_status = "invalid_policy" if policy is None else "active"
         if policy is None:
             view.smart_policy = None
         else:

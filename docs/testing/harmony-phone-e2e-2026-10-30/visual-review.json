@@ -1,0 +1,725 @@
+{
+  "format-086": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-087": {
+    "initialVisible": true,
+    "resumedVisible": false,
+    "needsFollowup": false,
+    "followup": "followups/visual-087: both screenshots visibly rendered; controls passed"
+  },
+  "format-088": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-089": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-090": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-091": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-092": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-093": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-094": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-095": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-096": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-097": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-098": {
+    "initialVisible": true,
+    "resumedVisible": false,
+    "needsFollowup": false,
+    "followup": "followups/visual-098: both screenshots visibly rendered; controls passed"
+  },
+  "format-099": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-100": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-101": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-102": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-103": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false,
+    "note": "Contact sheet shows visible stylized dark opening and credits; central-strip luminance flag is a false positive."
+  },
+  "format-104": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-105": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-106": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-107": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-108": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-109": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-110": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-111": {
+    "initialVisible": false,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-112": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-113": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-114": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false,
+    "note": "Dark resumed frame contains a visible outline of Africa (opening credits); review at another timestamp too.",
+    "followup": "followups/visual-114: both screenshots visibly rendered; controls passed"
+  },
+  "format-115": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-116": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-117": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-118": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-135": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-136": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-137": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-138": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-139": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-140": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-141": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-142": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-143": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-144": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-001": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-002": {
+    "initialVisible": true,
+    "resumedVisible": false,
+    "needsFollowup": false,
+    "followup": "followups/visual-002: visible picture after seek; controls passed"
+  },
+  "format-003": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-004": {
+    "initialVisible": false,
+    "resumedVisible": false,
+    "needsFollowup": false,
+    "followup": "early-review/review-004: visible video from 120 seconds, pause/seek/resume passed"
+  },
+  "format-005": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-006": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-007": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false,
+    "followup": "seek-fixed/review-007 passes after 35-second seek deadline"
+  },
+  "format-008": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-009": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-010": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-011": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-012": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-013": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false,
+    "followup": "followups/visual-013: visible picture after seek; controls passed"
+  },
+  "format-014": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-015": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-016": {
+    "initialVisible": false,
+    "resumedVisible": true,
+    "needsFollowup": false,
+    "followup": "followups/visual-016: visible picture after seek; controls passed"
+  },
+  "format-017": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-019": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-020": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false,
+    "followup": "followups/visual-020: both screenshots visibly rendered; controls passed"
+  },
+  "format-021": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-022": {
+    "initialVisible": true,
+    "resumedVisible": false,
+    "needsFollowup": false,
+    "followup": "followups/visual-022: both screenshots visibly rendered; controls passed"
+  },
+  "format-023": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-024": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false,
+    "followup": "followups/visual-024: both screenshots visibly rendered; controls passed"
+  },
+  "format-025": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-026": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-028": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-029": {
+    "initialVisible": false,
+    "resumedVisible": true,
+    "needsFollowup": false,
+    "followup": "followups/pause-029: visible picture after seek; controls passed"
+  },
+  "format-030": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-031": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-032": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-033": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-034": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-035": {
+    "initialVisible": false,
+    "resumedVisible": true,
+    "needsFollowup": false,
+    "followup": "followups/visual-035: both screenshots visibly rendered; controls passed"
+  },
+  "format-036": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-037": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-038": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-039": {
+    "initialVisible": true,
+    "resumedVisible": false,
+    "needsFollowup": false,
+    "followup": "followups/visual-039: both screenshots visibly rendered; controls passed"
+  },
+  "format-040": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-041": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-042": {
+    "initialVisible": false,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-043": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-044": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-045": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-046": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-047": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-048": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-049": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-050": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-051": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-052": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-053": {
+    "initialVisible": false,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-054": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-055": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-056": {
+    "initialVisible": false,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-120": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-121": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-122": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-123": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-124": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-125": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-126": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-127": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-128": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-129": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-130": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-131": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-132": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-133": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-134": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-058": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-059": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-060": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-061": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-062": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-063": {
+    "initialVisible": false,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-064": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-065": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-066": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-067": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-068": {
+    "initialVisible": true,
+    "resumedVisible": false,
+    "needsFollowup": false,
+    "followup": "followups/visual-068: both screenshots visibly rendered; controls passed"
+  },
+  "format-069": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-057": {
+    "initialVisible": false,
+    "resumedVisible": false,
+    "needsFollowup": false,
+    "followup": "play-error-fixed/play-error-057: AVPlayer audio-output failure falls back to MPV; both pictures visible"
+  },
+  "format-070": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-071": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-072": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-073": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-074": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-075": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-076": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-077": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-078": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-079": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-080": {
+    "initialVisible": false,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-081": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-082": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-083": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-084": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  },
+  "format-085": {
+    "initialVisible": true,
+    "resumedVisible": true,
+    "needsFollowup": false
+  }
+}

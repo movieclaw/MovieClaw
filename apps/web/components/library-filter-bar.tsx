@@ -95,7 +95,15 @@ export function LibraryFilterBar({
     let alive = true;
     getLibraryFacets(libraryId, filter, needsAllFacets ? "all" : "primary")
       .then((data) => {
-        if (alive) setFacets(data);
+        if (alive) setFacets(filter.watch === "seen" ? {
+          ...data,
+          watch: [...data.watch, {
+            value: "seen",
+            label: t("library.watchFilter.seen"),
+            count: data.watch.filter((row) => row.value === "watching" || row.value === "played")
+              .reduce((sum, row) => sum + row.count, 0),
+          }],
+        } : data);
       })
       .catch(() => {
         // 计数拿不到就不显示数字（下拉仍可用）：数字缺席比数字错了好
@@ -104,7 +112,7 @@ export function LibraryFilterBar({
     return () => {
       alive = false;
     };
-  }, [libraryId, filter, open, empty, needsAllFacets, locale]);
+  }, [libraryId, filter, open, empty, needsAllFacets, locale, t]);
 
   const toggle = useCallback(
     (dim: "genres" | "countries" | "decades", value: string) => {
@@ -380,7 +388,8 @@ function ConditionRow({
   const t = useTranslations();
   /** 取值 → 展示名。查不到就给省略号，**绝不把裸值印出来**（见 labelFallback）。 */
   const labelOf = (dim: string, value: string): string =>
-    poolOf(dim, facets)?.find((row) => row.value === value)?.label ?? labelFallback(dim, value);
+    dim === "watch" && value === "seen" ? t("library.watchFilter.seen")
+      : poolOf(dim, facets)?.find((row) => row.value === value)?.label ?? labelFallback(dim, value);
 
   /** 摘掉一个取值。单值维度清成 null，多值维度只去掉这一个。 */
   const drop = (dim: string, value: string) => {

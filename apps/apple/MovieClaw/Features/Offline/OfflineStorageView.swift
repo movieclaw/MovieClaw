@@ -49,10 +49,19 @@ struct OfflineStorageSections: View {
         Group {
             if !active.isEmpty {
                 Section {
-                    ForEach(active) { unit in
-                        if let item = store.items[unit.mediaItemId] {
-                            OfflineDownloadingStorageRow(unit: unit, item: item)
+                    if store.waitingForWiFi { OfflineWaitingWiFiNotice() }
+                    // 顺序就是优先级（§5.5）：按住一行拖动换先后，拖到最前、能马上下的那个立刻开始
+                    // 只列有展示摘要的：拖动的序号按画出来的行算
+                    let rows = active.filter { store.items[$0.mediaItemId] != nil }.map(OfflineDownloadingRowModel.init)
+                    ForEach(rows) { row in
+                        if let item = store.items[row.mediaItemId] {
+                            OfflineDownloadingStorageRow(row: row, item: item)
                         }
+                    }
+                    .onMove { from, to in
+                        var ids = rows.map(\.fileId)
+                        ids.move(fromOffsets: from, toOffset: to)
+                        OfflineDownloader.shared.reorder(ids)
                     }
                 } header: {
                     // 标识只挂在标题上：挂在 Section 上会盖掉每一行自己的标识
@@ -257,14 +266,37 @@ private struct OfflineStoragePoster: View {
     }
 }
 
+/// 「下载中」顶上的提示：没开「使用蜂窝网络下载」、眼下又是计费网络时，下载会一直等 Wi-Fi——说清楚，并给一键打开
+private struct OfflineWaitingWiFiNotice: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "wifi.exclamationmark").font(.title3).foregroundStyle(Theme.warning)
+            VStack(alignment: .leading, spacing: 8) {
+                // 标识挂在文字上：挂在整条上会盖掉按钮自己的标识
+                Text(String(localized: .offlineWaitingWifiHint)).font(.subheadline).foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("offline-waiting-wifi")
+                Button(String(localized: .offlineUseCellular)) { OfflineDownloader.shared.setAllowCellular(true) }
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("offline-use-cellular")
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.warning.opacity(0.1), in: .rect(cornerRadius: 12))
+    }
+}
+
 /// 独立下载页用工具栏，内嵌下载列表用分区标题；共享同一个本机设置菜单。
 private struct OfflineStorageSettingsMenu: View {
-    @State private var allowCellular = OfflineSettings.allowCellular
+    @State private var store = OfflineStore.shared
 
     var body: some View {
         Menu {
             Section(String(localized: .offlineCellularFooter)) {
-                Toggle(String(localized: .offlineUseCellular), systemImage: "antenna.radiowaves.left.and.right", isOn: $allowCellular)
+                Toggle(String(localized: .offlineUseCellular), systemImage: "antenna.radiowaves.left.and.right",
+                       isOn: Binding(get: { store.allowCellular }, set: { OfflineDownloader.shared.setAllowCellular($0) }))
                     .toggleStyle(.automatic)
             }
         } label: {
@@ -274,27 +306,46 @@ private struct OfflineStorageSettingsMenu: View {
         }
         .accessibilityLabel(String(localized: .offlineSettings))
         .accessibilityIdentifier("offline-settings")
-        .onChange(of: allowCellular) { _, value in
-            OfflineSettings.allowCellular = value
-            OfflineDownloader.shared.applyNetworkSettings()
-        }
     }
 }
 
 /// 「下载中」的一行：海报 + 片名 + 哪一集 · 档位 + 状态与速度 + 进度。
 /// 点进条目；左滑 / 长按暂停、继续、取消。下完就从这一组消失
+/// 「下载中」一行里不随进度变的部分：进度每秒刷新只重绘行里的进度那一块（`OfflineDownloadingProgress`），
+/// 行本身不跟着重绘——否则按住拖动 / 长按菜单时行被刷新，菜单里点「暂停」会落空（模拟器实测）
+private struct OfflineDownloadingRowModel: Hashable, Identifiable {
+    let fileId: Int
+    let mediaItemId: Int
+    let season: Int
+    let episode: Int
+    let profileLabel: String
+    let state: OfflineUnit.State
+    let waitingForTranscode: Bool
+
+    init(_ unit: OfflineUnit) {
+        fileId = unit.fileId
+        mediaItemId = unit.mediaItemId
+        season = unit.season
+        episode = unit.episode
+        profileLabel = unit.profileLabel
+        state = unit.state
+        waitingForTranscode = unit.waitingForTranscode
+    }
+
+    var id: Int { fileId }
+    var isMovie: Bool { season == 0 && episode == 0 }
+}
+
 private struct OfflineDownloadingStorageRow: View {
-    let unit: OfflineUnit
+    let row: OfflineDownloadingRowModel
     let item: OfflineItemSummary
     @State private var store = OfflineStore.shared
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
-        let tint = unit.needsAttention ? Theme.warning : Theme.info
         NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId,
-                                                   season: unit.isMovie ? nil : unit.season,
-                                                   episode: unit.isMovie ? nil : unit.episode)) {
+                                                   season: row.isMovie ? nil : row.season,
+                                                   episode: row.isMovie ? nil : row.episode)) {
             let layout = dynamicTypeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
                 : AnyLayout(HStackLayout(spacing: 16))
@@ -304,37 +355,81 @@ private struct OfflineDownloadingStorageRow: View {
                     Text(item.title).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text([unit.isMovie ? nil : String(localized: .offlineSeasonEpisode(unit.season, unit.episode)), unit.profileLabel]
+                    Text([row.isMovie ? nil : String(localized: .offlineSeasonEpisode(row.season, row.episode)), row.profileLabel]
                         .compactMap { $0 }.joined(separator: " · "))
                         .font(.footnote).foregroundStyle(Theme.textMuted)
                         .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 6) {
-                        Text(OfflineUnitStatus.text(unit)).foregroundStyle(tint)
-                        if let speed {
-                            Text("\(Formatters.bytes(Int(speed)))/s").foregroundStyle(Theme.textMuted)
-                        }
-                    }
-                    .font(.footnote).monospacedDigit()
-                    ProgressView(value: max(0, min(1, unit.progressFraction))).tint(tint)
+                    OfflineDownloadingProgress(fileId: row.fileId)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // 长按出菜单，按住拖动换顺序；轻扫同样能操作（行首一侧优先下载，另一侧暂停 / 继续 / 取消）。行上不放按钮。
+        // 菜单的预览用一张不随进度变的小卡：拿正在刷新进度的行当预览，菜单一直处在动画里、点「暂停」会落空
+        .swipeActions(edge: .leading) { prioritize }
         .swipeActions { actions }
-        .contextMenu { actions }
-        .accessibilityIdentifier("offline-downloading-\(unit.fileId)")
+        .contextMenu {
+            prioritize
+            actions
+        } preview: {
+            HStack(spacing: 12) {
+                OfflineStoragePoster(item: item)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.title).font(.body.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                    Text([row.isMovie ? nil : String(localized: .offlineSeasonEpisode(row.season, row.episode)), row.profileLabel]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .font(.footnote).foregroundStyle(Theme.textMuted)
+                }
+            }
+            .padding(12)
+            .frame(width: 300, alignment: .leading)
+            .background(Color(red: 30 / 255, green: 33 / 255, blue: 43 / 255))
+        }
+        .accessibilityIdentifier("offline-downloading-\(row.fileId)")
+    }
+
+    @ViewBuilder
+    private var prioritize: some View {
+        if store.canPrioritize(fileId: row.fileId) {
+            Button(String(localized: .offlinePrioritize), systemImage: "arrow.up.to.line") {
+                OfflineDownloader.shared.prioritize([row.fileId])
+            }
+            .tint(Theme.info)
+        }
     }
 
     @ViewBuilder
     private var actions: some View {
-        if unit.waitingForTranscode {
+        if row.waitingForTranscode {
             // 排队等服务器转码：到点自己会再去问，只给取消
-        } else if unit.state == .paused || unit.state == .failed {
-            Button(String(localized: .offlineResumeDownload), systemImage: "play") { OfflineDownloader.shared.resume(fileId: unit.fileId) }.tint(Theme.info)
+        } else if row.state == .paused || row.state == .failed {
+            Button(String(localized: .offlineResumeDownload), systemImage: "play") { OfflineDownloader.shared.resume(fileId: row.fileId) }.tint(Theme.info)
         } else {
-            Button(String(localized: .playerControlsPause), systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }.tint(.gray)
+            Button(String(localized: .playerControlsPause), systemImage: "pause") { OfflineDownloader.shared.pause(fileId: row.fileId) }.tint(.gray)
         }
-        Button(String(localized: .offlineCancelDownload), systemImage: "xmark") { OfflineDownloader.shared.delete(fileId: unit.fileId) }.tint(.red)
+        Button(String(localized: .offlineCancelDownload), systemImage: "xmark") { OfflineDownloader.shared.delete(fileId: row.fileId) }.tint(.red)
+    }
+}
+
+/// 「下载中」一行的状态、速度与进度条：只有这一块跟着进度每秒刷新
+private struct OfflineDownloadingProgress: View {
+    let fileId: Int
+    @State private var store = OfflineStore.shared
+
+    var body: some View {
+        if let unit = store.units[fileId] {
+            let speed = unit.state == .downloading && !store.waitingForWiFi ? store.speeds[fileId].flatMap { $0 > 0 ? $0 : nil } : nil
+            let tint = unit.needsAttention ? Theme.warning : Theme.info
+            HStack(spacing: 6) {
+                Text(OfflineUnitStatus.text(unit, ahead: store.queueAhead(of: fileId), waitingForWiFi: store.waitingForWiFi))
+                    .foregroundStyle(tint)
+                if let speed {
+                    Text("\(Formatters.bytes(Int(speed)))/s").foregroundStyle(Theme.textMuted)
+                }
+            }
+            .font(.footnote).monospacedDigit()
+            ProgressView(value: max(0, min(1, unit.progressFraction))).tint(tint)
+        }
     }
 }
 

@@ -1,5 +1,7 @@
+import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
-import { WindowInsets } from '../common/WindowInsets';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { AppNavBar, AppNavTitleBar } from '../common/AppNavBar';
 import { Permissions } from '../common/Permissions';
 import { AppModel } from '../common/AppModel';
 import { NavStacks, ShareRouter } from '../common/ShareLinks';
@@ -11,12 +13,14 @@ import { ManageParams } from './LibraryManagePage';
 /**
  * 媒体库页签的导航宿主（对应 iOS 端 NavigationStack + 系统导航栏）。
  *
- * **顶栏用 `Navigation` 的原生标题栏**，不是自绘的 Row——这是照 iOS 来的：
- * iOS 那边是 `.navigationTitle("媒体库")` + `.toolbarTitleDisplayMode(.inlineLarge)`，
- * 也就是「大标题，滚动时收缩成 inline」；鸿蒙对应的原生能力就是
- * `titleMode(NavigationTitleMode.Free)`（不滚动时 Full 高度、滚动时收到 Mini 高度）。
+ * **用 UIDesignKit 的 `HdsNavigation`（华为官方组件）**，标题栏走官方 `titleBar` 体系：
+ * - `ScrollEffectType.GRADIENT_BLUR`：官方「滚动渐变模糊」——静止时标题栏融入内容
+ *   （海报大图透出），滚动后渐显毛玻璃（华为自家应用的标准行为）；
+ * - `BlurStrategy.ENABLE`：标题栏背景模糊（系统实现，模拟器/真机一致）；
+ * - 菜单行用 `stackBuilder`（官方提供的标题栏内容扩展点）：⋯ · 搜索 · 片段 的
+ *   自定义胶囊（bindMenu 下拉）原样迁入，标题栏背景/布局仍由官方渲染。
  *
- * 右上角三个动作的顺序也照 iOS 的工具栏排布：**⋯ · 搜索 · 片段**
+ * 右上角三个动作的顺序照 iOS 的工具栏排布：**⋯ · 搜索 · 片段**
  * （片段是媒体库顶部的主操作，放最右；⋯ 是低频配置入口，放最里）。
  *
  * 子页面用系统路由表（router_map.json）按名字 push——单库页 libraryDetail、
@@ -25,6 +29,8 @@ import { ManageParams } from './LibraryManagePage';
 @Component
 export struct LibraryNavHost {
   private navStack: NavPathStack = new NavPathStack();
+  /** 首页 List 的滚动器：标题栏的渐变模糊 / 滑动显隐都靠它驱动（文档 bindToScrollable） */
+  private scroller: Scroller = new Scroller();
   /** 每次「自定义首页」加一；LibraryHomeView 用 @Watch 接住（菜单与弹层不在同一层） */
   @State private customizeSignal: number = 0;
 
@@ -39,34 +45,52 @@ export struct LibraryNavHost {
   }
 
   build() {
-    Navigation(this.navStack) {
-      LibraryHomeView({ navStack: this.navStack, customizeSignal: this.customizeSignal })
+    HdsNavigation(this.navStack) {
+      LibraryHomeView({
+        navStack: this.navStack,
+        customizeSignal: this.customizeSignal,
+        scroller: this.scroller
+      })
     }
     .mode(NavigationMode.Stack)
-    // 原生标题栏（华为组件，不自绘）：`titleMode(Mini)` = 常规字号的小标题栏。
-    // **不用 `Free`**：Free 的大标题栏会自己再留一份状态栏高度，实测标题被顶到距屏顶 111vp
-    // （窗口已是「系统避让安全区」，等于状态栏算两遍）。
-    // 标题栏底色显式接 App 纯黑：系统默认是暗灰，状态栏区域会露出一条割裂的灰带。
-    .title('媒体库', { backgroundColor: Theme.bg })
-    .titleMode(NavigationTitleMode.Mini)
+    .titleMode(HdsNavigationTitleMode.MINI)
     // 根页没有可返回的上层：别显示那个空的返回键圆圈
     .hideBackButton(true)
-    .menus(this.TopMenus())
-    .hideTitleBar(false)
+    // 沉浸：内容从 y=0 铺起，标题栏浮在上面（样式与其余页签同一份，见 common/AppNavBar）
+    .ignoreLayoutSafeArea(AppNavBar.SAFE_AREA_TYPES, AppNavBar.SAFE_AREA_EDGES)
+    // 文档要求：绑内容区滚动器 → 渐变模糊/滑动显隐才真正跟着滚
+    .bindToScrollable([this.scroller])
+    .dynamicHideTitleBar(AppNavBar.dynamicHide())
+    .titleBar({
+      // 全屏布局窗口下的官方安全区开关：标题栏自己撑起状态栏避让与组件安全区
+      avoidLayoutSafeArea: true,
+      enableComponentSafeArea: false,
+      content: {
+        stackBuilder: (): void => {
+          this.TitleRow();
+        }
+      },
+      style: AppNavBar.style()
+    })
     .width('100%')
     .height('100%')
     .backgroundColor(Theme.bg)
     /*
-     * HdsTabs 已整体顶进状态栏（见 MainTabsPage），本页签不沉浸：
-     * 用状态栏高度把自己推回安全区，几何与之前完全一致；
-     * padding 区域由上面的 backgroundColor 铺成纯黑，状态栏底下不露灰。
+     * 窗口是全屏布局（见 MainTabsPage）：官方标题栏自带状态栏避让（titleBar 从 y=0
+     * 铺起、标题行让开状态栏图标）。标题栏同时是组件级安全区，页面内容由系统排在
+     * 标题栏下方——页面不要再自己加顶部留白，否则标题栏与第一行之间会多一条空带。
      */
-    .padding({ top: WindowInsets.top })
   }
 
+  /** 标题栏内容行（stackBuilder 扩展点）：标题 + ⋯ · 搜索 · 片段（顺序同 iOS 工具栏） */
+  @Builder
+  TitleRow() {
+    AppNavTitleBar({ title: '媒体库' }) {
+      this.TopMenus()
+    }
+  }
 
-
-  /** 右上角动作（原生工具栏菜单）：⋯ · 搜索 · 片段（顺序同 iOS 工具栏） */
+  /** 右上角动作：⋯ · 搜索 · 片段（顺序同 iOS 工具栏） */
   @Builder
   TopMenus() {
     Row({ space: 2 }) {
@@ -84,18 +108,21 @@ export struct LibraryNavHost {
         .onClick(() => {
           this.navStack.pushPathByName('search', null);
         })
-      Row({ space: 4 }) {
-        SymbolGlyph($r('sys.symbol.play_circle'))
-          .fontSize(16)
-          .fontColor([Theme.textMuted])
-        Text('片段')
-          .fontSize(13)
-          .fontColor(Theme.textMuted)
+      Button() {
+        Row({ space: 4 }) {
+          SymbolGlyph($r('sys.symbol.play_circle'))
+            .fontSize(16)
+            .fontColor([Theme.textMuted])
+          Text('片段')
+            .fontSize(13)
+            .fontColor(Theme.textMuted)
+        }
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
       }
-      .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-      .backgroundColor(Theme.glassFill)
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding(0)
+      .clip(true)
       .borderRadius(17)
-      .border({ width: 1, color: Theme.line })
       .margin({ left: 4 })
       .onClick(() => {
         this.navStack.pushPathByName('reels', new ReelsParams(0));

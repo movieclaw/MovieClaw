@@ -63,11 +63,16 @@ fun RemoteImage(
         val loaders = (context as io.movieclaw.android.MovieClawApp).imageLoaders
         if (guest) loaders.guestLoader else loaders.loader
     }
-    var failed by remember(url, origin, guest) { mutableStateOf(false) }
+    // 双地址自动选连：图片地址跟着当前选中的入口走（在家=内网，出门=外网）。
+    // 读的是快照状态：换入口时这里重组，失败/重试计数随之清零，按新地址重新取图——
+    // 否则切换途中失败、重试用完的卡片会一直停在占位图，冷启动才恢复（实机反馈）。
+    val entry = io.movieclaw.android.core.network.ServerRoutes.entry
+    val base = remember(origin, entry) { io.movieclaw.android.core.network.ServerRoutes.baseFor(origin?.trimEnd('/')) }
+    var failed by remember(url, origin, guest, entry) { mutableStateOf(false) }
     // 失败自动重试：冷启动时服务端/网络常常还没热起来（图片代理批量超时、DNS 未就绪），
     // 首批请求会整批失败；不重试的话页面就一直是无图占位，退出重进才恢复（实机反馈）。
     // 重试期间 AsyncImage 离开组合 → failed=false 再回来即重新发起请求。
-    var attempt by remember(url, origin, guest) { mutableIntStateOf(0) }
+    var attempt by remember(url, origin, guest, entry) { mutableIntStateOf(0) }
     LaunchedEffect(failed) {
         if (failed && attempt < MAX_IMAGE_RETRIES) {
             // 退避：1s / 3s / 6s
@@ -93,12 +98,21 @@ fun RemoteImage(
                 else -> ImageWidth.pixels(w.value, density, zoom)
             }
         }
-        // 双地址自动选连：图片地址跟着当前选中的入口走（在家=内网，出门=外网）
-        val base = io.movieclaw.android.core.network.ServerRoutes.baseFor(origin?.trimEnd('/'))
         val resolved = remember(url, base, px) { resolveImageUrl(url, base, px) }
+        // 缓存键不带入口主机：同一张图在家走内网、出门走外网是同一份缓存，换入口不重下、不闪白
+        val request = remember(resolved, origin, base) {
+            resolved?.let {
+                val cacheKey = imageCacheKey(it, origin, base)
+                coil3.request.ImageRequest.Builder(context)
+                    .data(it)
+                    .memoryCacheKey(cacheKey)
+                    .diskCacheKey(cacheKey)
+                    .build()
+            }
+        }
         key(attempt) {
             AsyncImage(
-                model = resolved,
+                model = request,
                 imageLoader = loader,
                 contentDescription = contentDescription,
                 contentScale = contentScale,
@@ -160,6 +174,18 @@ internal fun resolveImageUrl(raw: String?, base: String?, px: Int?): String? {
         append(java.net.URLEncoder.encode(raw, "UTF-8"))
         if (width != null) append("&w=").append(width)
     }
+}
+
+/**
+ * 图片缓存键：自家服务器的图把「当前入口」换回登录 origin（内网 / 外网两个入口是同一台服务器、同一张图）；
+ * 不是从当前入口取的（远程直链等）原样用地址。键里保留登录 origin，换服务器不会串图。
+ */
+internal fun imageCacheKey(resolved: String, origin: String?, base: String?): String {
+    if (origin == null || base == null || !resolved.startsWith(base)) return resolved
+    val rest = resolved.removePrefix(base)
+    // 前缀要落在路径边界上（`:3010` 不能吃掉 `:30100`）
+    if (rest.isNotEmpty() && rest[0] != '/' && rest[0] != '?') return resolved
+    return origin.trimEnd('/') + rest
 }
 
 /** 站内绝对地址 → 站内路径（保留查询）；不是 `/api/v1/…` 的第三方图返回 null，继续走代理 */

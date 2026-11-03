@@ -5,6 +5,8 @@
   "main": "",
   "author": "",
   "license": "",
-  "dependencies": {}
+  "dependencies": {
+    "@movieclaw/player-engine": "file:../player_engine",
+    "@movieclaw/playback": "file:../playback"
+  }
 }
-

@@ -100,6 +100,10 @@ class GenStartPayload(BaseModel):
     )
     convert_pgs: bool = Field(default=False, description="确认把图片字幕识别为文本")
     pgs_ocr_language: str | None = Field(default=None, description="图片字幕原始语言")
+    retranscribe: bool = Field(
+        default=False,
+        description="参考选的是音轨时不用上次的识别结果，重新识别（默认直接复用）",
+    )
 
 
 class CalibratePayload(BaseModel):

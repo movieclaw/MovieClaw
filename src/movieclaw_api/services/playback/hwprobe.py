@@ -25,6 +25,7 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -33,6 +34,7 @@ from movieclaw_api.services.playback.ffmpeg_args import (
     HW_BACKENDS,
     NVENC_TONEMAP,
     VAAPI_LOW_POWER,
+    VAAPI_TONEMAP,
     encoder_options,
     register_encoder_options,
     register_hevc_encoder,
@@ -47,6 +49,8 @@ _PROBE_TIMEOUT = 20.0
 
 #: 探测用的合成源：一秒、小分辨率，编码器初始化得起来就够，不追求真实负载。
 _PROBE_SOURCE = "testsrc2=size=320x240:rate=25:duration=1"
+#: VAAPI 还要求 mastering-display side data；只有 PQ 标签的 lavfi 源会被拒绝。
+_HDR10_PROBE_SOURCE = Path(__file__).with_name("fixtures") / "hdr10.hevc"
 
 #: 各后端的探测参数。与 ``ffmpeg_args.HW_BACKENDS`` 共用编码器名，避免两处漂移；
 #: 但**上传路径不同**——探测是软件源要送进 GPU，播放是 GPU 解码直连编码。
@@ -91,6 +95,12 @@ _HEVC_PROBE_ARGS: list[str] = [
 #: 矩阵名取 ``AVColorSpace`` 枚举（``bt2020nc``），不是 ``colorspace`` 滤镜的
 #: ``bt2020ncl``——写错了整条链在上传显存前就解析失败，能用的卡被判成没有（#963）。
 _NATIVE_TONEMAP_PROBES: dict[str, tuple[str, str]] = {
+    "vaapi": (
+        VAAPI_TONEMAP,
+        "format=p010le,setparams=range=tv:color_primaries=bt2020:color_trc=smpte2084"
+        ":colorspace=bt2020nc,hwupload,{filter},scale_vaapi=format=nv12:w=-2:h=240"
+        ":out_range=tv,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv",
+    ),
     "nvenc": (
         NVENC_TONEMAP,
         "format=p010le,setparams=color_primaries=bt2020:color_trc=smpte2084"
@@ -123,6 +133,7 @@ class HwBackendStatus:
 
 
 _cache: list[HwBackendStatus] | None = None
+_probe_lock = threading.Lock()
 
 
 def probe_backends(*, force: bool = False) -> list[HwBackendStatus]:
@@ -132,6 +143,12 @@ def probe_backends(*, force: bool = False) -> list[HwBackendStatus]:
     逐次播放问。``force=True`` 用于设置页的「重新检测」按钮——用户按提示挂上
     设备后要能立刻看到结果，不必重启容器。
     """
+    # 编码、HEVC 和原生 tone-map 的能力登记都完成后，才能让并发查询读到结果。
+    with _probe_lock:
+        return _probe_backends(force=force)
+
+
+def _probe_backends(*, force: bool) -> list[HwBackendStatus]:
     global _cache
     if _cache is not None and not force:
         return _cache
@@ -149,9 +166,10 @@ def probe_backends(*, force: bool = False) -> list[HwBackendStatus]:
         return _cache
 
     encoders = _list_encoders()
-    _cache = [_probe_hevc(_probe_one(name, encoders), encoders) for name in HW_BACKENDS]
-    for status in _cache:
+    statuses = [_probe_hevc(_probe_one(name, encoders), encoders) for name in HW_BACKENDS]
+    for status in statuses:
         _probe_native_tonemap(status.name, available=status.available)
+    _cache = statuses
     usable = [s.name for s in _cache if s.available]
     if usable:
         logger.info("硬件加速自检通过：%s", "、".join(usable))
@@ -204,9 +222,7 @@ def available_local_backends() -> tuple[str, ...]:
     断线的竞态会把 ``h264_videotoolbox`` 错交给 Linux ffmpeg。执行层必须使用这份
     本地快照，远程执行则由会话路由单独选择。
     """
-    if _cache is None:
-        probe_backends()
-    return tuple(status.name for status in (_cache or ()) if status.available)
+    return tuple(status.name for status in probe_backends() if status.available)
 
 
 def hardware_available() -> bool:
@@ -216,12 +232,13 @@ def hardware_available() -> bool:
 def reset_probe_cache() -> None:
     """测试用：丢掉缓存。回写给装配层的 tone-map 结论也要一并撤销。"""
     global _cache
-    _cache = None
-    for name in _NATIVE_TONEMAP_PROBES:
-        register_native_tonemap(name, None)
-    for name in HW_BACKENDS:
-        register_encoder_options(name, ())
-        register_hevc_encoder(name, None)
+    with _probe_lock:
+        _cache = None
+        for name in _NATIVE_TONEMAP_PROBES:
+            register_native_tonemap(name, None)
+        for name in HW_BACKENDS:
+            register_encoder_options(name, ())
+            register_hevc_encoder(name, None)
 
 
 async def probe_backends_async(*, force: bool = False) -> list[HwBackendStatus]:
@@ -307,11 +324,15 @@ def _probe_hevc(status: HwBackendStatus, encoders: frozenset[str]) -> HwBackendS
 
 
 def _run_probe(
-    encoder: str, filters: list[str], *, encoder_args: list[str] | None = None
+    encoder: str,
+    filters: list[str],
+    *,
+    encoder_args: list[str] | None = None,
+    input_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[bytes] | None:
     argv = [
         "ffmpeg", "-hide_banner", "-v", "error",
-        "-f", "lavfi", "-i", _PROBE_SOURCE,
+        *(input_args or ["-f", "lavfi", "-i", _PROBE_SOURCE]),
         *filters,
         "-c:v", encoder, *(encoder_args or []), "-f", "null", "-",
     ]
@@ -324,9 +345,8 @@ def _run_probe(
 def _probe_native_tonemap(name: str, *, available: bool) -> None:
     """确认该后端的原生 tone-map 链能不能真跑起来，结论回写给命令装配层。
 
-    探不到不是错误，只是回到「软件 tone-map + 硬件编解码」：多花 CPU，但
-    HDR 片照样能放。探到了则整条链留在 GPU 上——NVIDIA 用户的 4K HDR 从
-    「CPU 扛 tone-map」变成全程显卡，这是这个探测存在的唯一理由。
+    探不到时由执行后端选择走既有兼容性降档：NVENC 可接软件滤镜，VAAPI
+    不能接软件帧，交给其它可用执行者。不能把 SDR 编码通过当成 HDR VPP 可用。
     """
     entry = _NATIVE_TONEMAP_PROBES.get(name)
     if entry is None:
@@ -336,7 +356,13 @@ def _probe_native_tonemap(name: str, *, available: bool) -> None:
         register_native_tonemap(name, None)
         return
     proc = _run_probe(
-        HW_BACKENDS[name].encoder, ["-vf", chain.format(filter=filter_expr)]
+        HW_BACKENDS[name].encoder,
+        [
+            *(["-vaapi_device", HW_BACKENDS[name].device] if name == "vaapi" else []),
+            "-vf", chain.format(filter=filter_expr),
+        ],
+        encoder_args=list(encoder_options(HW_BACKENDS[name])),
+        input_args=["-i", str(_HDR10_PROBE_SOURCE)] if name == "vaapi" else None,
     )
     if proc is not None and proc.returncode == 0:
         register_native_tonemap(name, filter_expr)
@@ -353,7 +379,7 @@ def _probe_native_tonemap(name: str, *, available: bool) -> None:
         else " ".join(proc.stderr.decode(errors="replace").split())[:200]
     )
     logger.info(
-        "%s 没有可用的原生色调映射，HDR 片改用软件色调映射（画质一致，多占些 CPU）。原因：%s",
+        "%s 没有可用的原生色调映射，按滤镜链兼容性选择其它执行路径。原因：%s",
         source_render(BACKEND_LABELS.get(name, name)),
         reason or source_text("player.hw.noReason"),
     )

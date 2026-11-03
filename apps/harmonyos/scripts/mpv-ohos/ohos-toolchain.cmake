@@ -1,0 +1,23 @@
+# OHOS (aarch64-linux-ohos) 交叉编译 toolchain，供 cmake 使用
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+
+set(OHOS_TOOLS "$ENV{MPV_OHOS_TOOLS}")
+set(OHOS_SYSROOT "$ENV{MPV_OHOS_SYSROOT}")
+
+set(CMAKE_C_COMPILER   "${OHOS_TOOLS}/aarch64-unknown-linux-ohos-clang")
+set(CMAKE_CXX_COMPILER "${OHOS_TOOLS}/aarch64-unknown-linux-ohos-clang++")
+set(CMAKE_AR           "${OHOS_TOOLS}/llvm-ar" CACHE FILEPATH "ar")
+set(CMAKE_RANLIB       "${OHOS_TOOLS}/llvm-ranlib" CACHE FILEPATH "ranlib")
+set(CMAKE_STRIP        "${OHOS_TOOLS}/llvm-strip" CACHE FILEPATH "strip")
+set(CMAKE_NM           "${OHOS_TOOLS}/llvm-nm" CACHE FILEPATH "nm")
+
+set(CMAKE_SYSROOT "${OHOS_SYSROOT}")
+set(CMAKE_C_FLAGS_INIT   "-D__MUSL__ -fPIC")
+set(CMAKE_CXX_FLAGS_INIT "-D__MUSL__ -fPIC")
+
+set(CMAKE_FIND_ROOT_PATH "${OHOS_SYSROOT}")
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)

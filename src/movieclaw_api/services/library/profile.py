@@ -188,7 +188,7 @@ def profile_for(kind: MediaKind | str, source: str | None = None) -> LibraryProf
     """
     value = kind.value if isinstance(kind, MediaKind) else kind
     resolved_source = source or default_source_for(value)
-    profile = PROFILES.get((value, resolved_source))
+    profile = profile_for_key(value, resolved_source)
     if profile is None:
         raise BadRequestException(
             message_key="errors.library.kindSourceUnsupported",
@@ -197,9 +197,76 @@ def profile_for(kind: MediaKind | str, source: str | None = None) -> LibraryProf
     return profile
 
 
+def profile_for_key(kind: str, source: str) -> LibraryProfile | None:
+    """内置档案表查不到时回落外部库源注册表（source_providers）。
+
+    插件登记的来源自带完整能力档案，四条消费链（扫描/展示/播放/Jellyfin）
+    都经 profile_for 走到这里——主线消费代码不因新来源多一行。组合两边
+    都没有时返回 None，由调用方决定报错方式。
+    """
+    profile = PROFILES.get((kind, source))
+    if profile is not None:
+        return profile
+    from movieclaw_api.services.library.source_providers import provider_of
+
+    provider = provider_of(source)
+    if provider is not None:
+        return provider.profiles.get(kind)
+    return None
+
+
+def _orphan_external_profile(kind: MediaKind) -> LibraryProfile:
+    """外部库源插件停用/卸载期间的兜底档案（docs：source_providers 模块注）。
+
+    来源登记没了，库和它的台账还在：浏览与编辑不能整个 400。能力位收敛到
+    最小可用的保守集——不刮削、不命名、不可订阅、不对 Jellyfin 暴露；插件
+    重新启用后 profile_for 直接命中登记档案，本表不再被走到。
+    """
+    return LibraryProfile(
+        kind=kind,
+        source="",  # 由 profile_of 填实际来源；档案本身不参与登记校验
+        scraped=False,
+        naming=False,
+        ignore_rules=IgnoreProfile.PLAIN,
+        write_nfo=False,
+        subscribable=False,
+        jellyfin_type={"movie": "Movie", "tv": "Series", "video": "Video", "photo": "Photo"}[
+            kind.value
+        ],
+        jellyfin_collection="homevideos" if kind.value != "photo" else "photos",
+        default_aspect=_POSTER if kind is MediaKind.MOVIE else _THUMB,
+        media_exts=_VIDEO_EXTS if kind is not MediaKind.PHOTO else _IMAGE_EXTS,
+        playable=kind is not MediaKind.PHOTO,
+        jellyfin_exposed=False,
+    )
+
+
+def profile_of_values(kind: str, source: str | None) -> LibraryProfile:
+    """(形态, 来源) 二元组 → 能力档案：存量库的统一入口，登记缺失回落孤儿档案。
+
+    与 ``profile_of`` 的差别只在入参形态——不需要库行、只有二元组的地方
+    （抽样器的可见库投影、Jellyfin 的可见集收窄）走这里，孤儿回落语义
+    完全一致：插件停用/卸载不该让任何读这条链的接口整体 400。
+    """
+    try:
+        return profile_for(kind, source)
+    except BadRequestException:
+        from movieclaw_api.services.library.source_providers import is_external_source
+
+        if is_external_source(source):
+            profile = _orphan_external_profile(MediaKind(kind))
+            object.__setattr__(profile, "source", source or "")
+            return profile
+        raise
+
+
 def profile_of(library: Library) -> LibraryProfile:
-    """库行 → 能力档案（存量库的 source 已由迁移回填为 tmdb）。"""
-    return profile_for(library.kind, library.source)
+    """库行 → 能力档案（存量库的 source 已由迁移回填为 tmdb）。
+
+    外部库源在登记缺失（插件停用/卸载）时回落孤儿档案而不是 400：插件
+    不可用不该让存量库的浏览、编辑与后台任务（实时监控、统计）跟着挂。
+    """
+    return profile_of_values(str(library.kind), library.source)
 
 
 def capabilities_of(profile: LibraryProfile) -> dict:

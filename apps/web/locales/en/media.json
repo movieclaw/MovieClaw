@@ -257,7 +257,8 @@
     "countTitle": "{kind} · {count, plural, one {# track} other {# tracks}} total",
     "sources": "{embedded, number} embedded · {external, number} external",
     "preview": "Preview subtitle: {language} · {format} · {primary} · {secondary}",
-    "deleteFile": "Delete subtitle file: {file}"
+    "deleteFile": "Delete subtitle file: {file}",
+    "asrExternal": "Transcribed from audio"
   },
   "subtitles": {
     "generateBadge": "Generate AI subtitles",

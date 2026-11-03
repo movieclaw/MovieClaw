@@ -289,7 +289,8 @@ struct OfflineDownloadingRow: View {
     var body: some View {
         let active = store.activeUnits
         if !active.isEmpty {
-            let summary = OfflineDownloadSummary(active, speeds: store.speeds, titles: store.items.mapValues(\.title))
+            let summary = OfflineDownloadSummary(active, speeds: store.speeds, titles: store.items.mapValues(\.title),
+                                                 waitingForWiFi: store.waitingForWiFi)
             NavigationLink(value: AppRoute.offlineStorage) {
                 HStack(spacing: 12) {
                     OfflineProgressRing(fraction: summary.fraction, tint: summary.tint, paused: summary.allPaused)
@@ -324,7 +325,8 @@ struct OfflineDownloadSummary {
     let allPaused: Bool
 
     /// - Parameter titles: 条目号 → 片名（只下一部时标题写片名）
-    init(_ units: [OfflineUnit], speeds: [Int: Double], titles: [Int: String] = [:]) {
+    /// - Parameter waitingForWiFi: 只许 Wi-Fi 下、眼下是计费网络：明说在等 Wi-Fi
+    init(_ units: [OfflineUnit], speeds: [Int: Double], titles: [Int: String] = [:], waitingForWiFi: Bool = false) {
         let downloading = units.filter { $0.state == .downloading }
         let failed = units.filter(\.needsAttention)
         let waitingTranscode = units.filter(\.waitingForTranscode)
@@ -337,7 +339,9 @@ struct OfflineDownloadSummary {
         tint = !failed.isEmpty && downloading.isEmpty ? Theme.warning : Theme.info
         title = Self.title(units, titles: titles, paused: allPaused)
         var parts: [String] = []
-        if speed > 0 {
+        if waitingForWiFi, !allPaused, units.contains(where: { $0.state == .queued || $0.state == .downloading }) {
+            parts.append(String(localized: .offlineWaitingWifi))
+        } else if speed > 0 {
             parts.append("\(Formatters.bytes(Int(speed)))/s")
         } else if !failed.isEmpty, downloading.isEmpty {
             parts.append(String(localized: .offlineInterruptedCount(failed.count)))
@@ -409,13 +413,14 @@ struct OfflineDownloadStrip: View {
 
     var body: some View {
         let tint = unit.needsAttention ? Theme.warning : Theme.info
-        let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
+        let speed = unit.state == .downloading && !store.waitingForWiFi ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
+        let status = Self.status(unit, ahead: store.queueAhead(of: unit.fileId), waitingForWiFi: store.waitingForWiFi)
         ZStack(alignment: .bottom) {
             RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(tint, lineWidth: 2)
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     icon(tint)
-                    Text(Self.status(unit)).lineLimit(1)
+                    Text(status).lineLimit(1)
                     Spacer(minLength: 4)
                     if let speed {
                         Text("\(Formatters.bytes(Int(speed)))/s").monospacedDigit().lineLimit(1)
@@ -436,7 +441,7 @@ struct OfflineDownloadStrip: View {
             .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: cornerRadius, bottomTrailingRadius: cornerRadius))
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(speed.map { "\(Self.status(unit))，\(Formatters.bytes(Int($0)))/s" } ?? Self.status(unit))
+        .accessibilityLabel(speed.map { "\(status)，\(Formatters.bytes(Int($0)))/s" } ?? status)
     }
 
     @ViewBuilder
@@ -453,13 +458,16 @@ struct OfflineDownloadStrip: View {
         }
     }
 
-    /// 一行状态（卡片窄，比通用文案短）
-    static func status(_ unit: OfflineUnit) -> String {
+    /// 一行状态（卡片窄，比通用文案短）。`ahead`：下载队列里排在它前面的个数；`waitingForWiFi`：只许 Wi-Fi 下、眼下是计费网络
+    static func status(_ unit: OfflineUnit, ahead: Int = 0, waitingForWiFi: Bool = false) -> String {
         let percent = unit.expectedBytes > 0 ? " \(Int(unit.progressFraction * 100))%" : ""
         if unit.damaged { return String(localized: .offlineDamaged) }
+        if waitingForWiFi, unit.state == .queued || unit.state == .downloading { return String(localized: .offlineWaitingWifi) }
         return switch unit.state {
         case .preparing: String(localized: .offlinePreparing)
-        case .queued: String(localized: .offlineWaitingDownload)
+        case .queued:
+            ahead == 1 ? String(localized: .offlineQueueNext)
+                : ahead > 1 ? String(localized: .offlineQueueAhead(ahead)) : String(localized: .offlineWaitingDownload)
         case .downloading: String(localized: .subscriptionArrivalsStatusDownloading) + percent
         case .paused: String(localized: .subscriptionSectionsPaused) + percent
         case .failed: unit.waitingForTranscode ? unit.transcodeWait ?? String(localized: .offlineWaitingTranscode) : unit.retryable ? String(localized: .offlineInterruptedRetry) : String(localized: .settingsPluginMarketDownloadFailed)
@@ -470,10 +478,15 @@ struct OfflineDownloadStrip: View {
 
 /// 单元状态的一句话（存储页「下载中」、详情页下载按钮共用）
 enum OfflineUnitStatus {
-    static func text(_ unit: OfflineUnit) -> String {
-        switch unit.state {
+    /// `ahead`：下载队列里排在它前面的个数（「下一个下载」「等待下载，前面还有 N 个」）；
+    /// `waitingForWiFi`：只许 Wi-Fi 下、眼下是计费网络，排队和下着的都在等 Wi-Fi
+    static func text(_ unit: OfflineUnit, ahead: Int = 0, waitingForWiFi: Bool = false) -> String {
+        if waitingForWiFi, unit.state == .queued || unit.state == .downloading { return String(localized: .offlineWaitingWifi) }
+        return switch unit.state {
         case .preparing: String(localized: .offlinePreparingEllipsis)
-        case .queued: String(localized: .offlineWaitingDownload)
+        case .queued:
+            ahead == 1 ? String(localized: .offlineQueueNext)
+                : ahead > 1 ? String(localized: .offlineQueueWaitingAhead(ahead)) : String(localized: .offlineWaitingDownload)
         case .downloading:
             unit.expectedBytes > 0 ? String(localized: .subscriptionArrivalsStatusDownloading) + " \(Int(unit.progressFraction * 100))%" : String(localized: .offlineDownloadingBytes(Formatters.bytes(Int(unit.receivedBytes))))
         case .paused: String(localized: .playerControlsPaused)

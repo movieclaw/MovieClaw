@@ -196,7 +196,9 @@
     "coreDemoSeedTitle": "演示站数据",
     "coreDemoSeedDescription": "",
     "coreDemoSiteTitle": "演示资源站目录",
-    "coreDemoSiteDescription": ""
+    "coreDemoSiteDescription": "",
+    "agentModelCatalogTitle": "模型目录更新",
+    "agentModelCatalogDescription": "每天从各模型服务商拉取最新的可用模型，并从 models.dev 更新模型参数。"
   },
   "groups": {
     "core": "基础",

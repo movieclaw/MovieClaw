@@ -340,9 +340,12 @@ class _Uploader:
         path = Path(file.file_path)
         name = path.name
         async with get_database().session() as session:
-            await LibraryCloudRepository(session).start_upload(
+            started = await LibraryCloudRepository(session).start_upload(
                 file, account_id=self.folder.account_id, folder_id=self.folder.id or 0
             )
+        if started is None:
+            await self.progress("cloud.upload.queued")
+            raise jobs.JobRetry(**stored_fields("cloud.upload.queued"), delay_seconds=60)
         await self.progress("cloud.upload.hashing", name=name)
         fingerprint, seen_stat = await fingerprint_for(file)
         relative = remote_dir_for(self.library, file.file_path)
@@ -435,13 +438,17 @@ class _Uploader:
         ):
             raise LocalChanged("cloud.upload.mismatch")
         async with get_database().session() as session:
-            await LibraryCloudRepository(session).finish_upload(
+            claimed = await LibraryCloudRepository(session).finish_upload(
                 file.id,
                 remote_id=remote.remote_id,
                 remote_path=posixpath.join(self.folder.display_path, relative, name),
                 size_bytes=seen.size,
                 sha1=(seen.sha1 or fingerprint.sha1).upper(),
             )
+        if not claimed:
+            # 同一远端文件正在删除：不计成功、不释放本地；清掉旧续传点后重试。
+            await self.progress("cloud.upload.queued")
+            raise jobs.JobRetry(**stored_fields("cloud.upload.queued"), delay_seconds=60)
 
 
 @jobs.register_job_handler(JOB_TYPE)

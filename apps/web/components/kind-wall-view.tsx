@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { Route } from "next";
+import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { appTranslator } from "@/lib/i18n/translate";
 import type { AppLocale } from "@/lib/i18n/negotiate";
@@ -20,7 +21,7 @@ import {
 } from "@/lib/api/libraries";
 import { genreLabels } from "@/lib/genre-labels";
 import { homeMediaKindLabels } from "@/lib/home-rows";
-import type { LibraryFilter } from "@/lib/library-filter";
+import { readLibraryFilter, filterKey, type LibraryFilter, type WatchFilter } from "@/lib/library-filter";
 import {
   PREF_TO_SORT,
   SORT_DIRECTIONS,
@@ -85,19 +86,30 @@ const snapshots = new Map<string, KindWallSnapshot>();
  * 标题是类型名。
  */
 export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: number }) {
+  const params = useSearchParams();
+  const filter = readLibraryFilter(params);
+  if (genre !== undefined) filter.genres = [genre];
+  // 条件/排序不同就用独立窗口，避免旧请求和会话快照串到新墙里。
+  const key = `${kind}:${filterKey(filter)}:${params.get("sort") ?? ""}:${params.get("order") ?? ""}`;
+  return <KindWallContent key={key} kind={kind} genre={genre} filter={filter} />;
+}
+
+function KindWallContent({ kind, genre, filter }: {
+  kind: HomeMediaKind; genre?: number; filter: LibraryFilter;
+}) {
+  const params = useSearchParams();
   const locale = useLocale();
   const t = useTranslations();
   const kindLabels = homeMediaKindLabels(locale);
   const genreName = genre === undefined ? null : (genreLabels(locale)[genre] ?? t("library.kindWall.genreUnknown", { id: genre }));
   const label = genreName ?? t("library.kindWall.all", { kind: kindLabels[kind] });
   usePageTitle(genreName ? t("library.kindWall.genreTitle", { genre: genreName, kind: kindLabels[kind] }) : label);
-  const wallKey = genre === undefined ? kind : `${kind}:${genre}`;
-  const filter: LibraryFilter | undefined = genre === undefined ? undefined : { genres: [genre] };
+  const wallKey = `${kind}:${filterKey(filter)}:${params.get("sort") ?? ""}:${params.get("order") ?? ""}`;
   // ref 版：load / reload 回调里读，不必为它重建回调链（genre 变了组件会整个重挂，见 page.tsx）
   const filterRef = useRef(filter);
   const initialSnapshot = snapshots.get(wallKey) ?? null;
   const [{ pref: sortPref, reversed: sortReversed }, setSortPref, toggleSortReversed, sortReady] =
-    useWallSortPref(`movieclaw.library.kind-wall-sort.${kind}`);
+    useWallSortPref(`movieclaw.library.kind-wall-sort.${kind}`, params, "added_at");
   const effectiveSort: LibraryItemSort =
     sortPref === "default" ? "added_at" : PREF_TO_SORT[sortPref];
   const sortAscending = SORT_DIRECTIONS[effectiveSort].naturalAsc !== sortReversed;
@@ -214,7 +226,20 @@ export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: num
   const loadMore = useCallback(() => void load(loaded), [load, loaded]);
   /** 跨库的一面墙，每一格落回它自己的库（服务端给的落点） */
   const ownerLibraryOf = useCallback((item: LibraryItem) => item.library_id ?? 0, []);
-  const empty = items !== null && items.length === 0;
+  const changeWatch = (watch: string) => {
+    const query = new URLSearchParams(window.location.search);
+    if (watch) query.set("w", watch); else query.delete("w");
+    const rest = query.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`);
+  };
+  const watchOptions: readonly (readonly [WatchFilter, string])[] = [
+    ["unwatched", t("library.facets.unwatched")],
+    ["unfinished", t("library.facets.unfinished")],
+    ["watching", t("library.facets.watching")],
+    ["played", t("library.facets.played")],
+    ["favorite", t("library.facets.favorite")],
+    ["seen", t("library.watchFilter.seen")],
+  ];
 
   return (
     <div ref={restoreScrollRef} className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-10">
@@ -232,10 +257,10 @@ export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: num
                 ? t("library.kindWall.summary", { count: total, libraries: libraryCount })
                 : t("library.kindWall.genreSummary", { count: total, kind, libraries: libraryCount })}
         </p>
-        {!empty && items !== null && (
-          <div className="mt-3 flex items-center">
+        {items !== null && (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
             <WallSortControl
-              value={sortPref}
+              value={sortPref === "added_at" ? "default" : sortPref}
               options={sortOptions(kind, locale)}
               onChange={setSortPref}
               disabled={!sortReady}
@@ -245,6 +270,23 @@ export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: num
                 onToggle: toggleSortReversed,
               }}
             />
+            <select
+              aria-label={t("library.filters.watch")}
+              value={filter.watch ?? ""}
+              onChange={(event) => changeWatch(event.target.value)}
+              className="h-9 rounded-lg border border-white/15 bg-[var(--bg)] px-3 text-ui text-[var(--text)]"
+              data-testid="kind-watch-filter"
+            >
+              <option value="">{t("library.watchFilter.all")}</option>
+              {watchOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            {filter.watch && (
+              <button type="button" onClick={() => changeWatch("")}
+                className="btn-glass px-3 py-2 text-ui text-[var(--text)]"
+                data-testid="kind-watch-clear">
+                {watchOptions.find(([value]) => value === filter.watch)?.[1]} ×
+              </button>
+            )}
           </div>
         )}
 
@@ -261,6 +303,11 @@ export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: num
           </div>
         )}
 
+        {items !== null && items.length === 0 && (
+          <p role="status" className="mt-12 text-center text-ui text-[var(--text-muted)]">
+            {t("library.watchFilter.empty")}
+          </p>
+        )}
         {items !== null && items.length > 0 && (
           <>
             <div className="mt-6">

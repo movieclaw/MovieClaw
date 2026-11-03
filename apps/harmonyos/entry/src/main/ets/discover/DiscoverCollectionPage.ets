@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { PageTopBar } from '../common/PageTopBar';
 import { RemoteImage } from '../common/RemoteImage';
@@ -302,17 +303,18 @@ export struct DiscoverCollectionPage {
                   .fontSize(14)
                   .fontColor(Theme.textMuted)
                   .textAlign(TextAlign.Center)
-                Text('重试')
-                  .fontSize(15)
-                  .fontWeight(600)
-                  .fontColor(Theme.accentStrong)
-                  .padding({ left: 22, right: 22, top: 10, bottom: 10 })
-                  .backgroundColor(Theme.glassFill)
-                  .borderRadius(20)
-                  .border({ width: 1, color: Theme.lineStrong })
-                  .onClick(() => {
-                    this.loadFirstPage();
-                  })
+                Button() {
+                  Text('重试')
+                    .fontSize(15)
+                    .fontWeight(600)
+                    .fontColor(Theme.accentStrong)
+                }
+                .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+                .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+                .borderRadius(20)
+                .onClick(() => {
+                  this.loadFirstPage();
+                })
               }
               .width('100%')
               .alignItems(HorizontalAlign.Center)
@@ -422,7 +424,7 @@ export struct DiscoverCollectionPage {
             this.loadNextPage();
           }
         })
-        .padding({ bottom: Theme.tabBarInset })
+        .contentEndOffset(Theme.tabBarInset)
       }
       .width('100%')
       .height('100%')
@@ -516,19 +518,23 @@ export struct DiscoverCollectionPage {
   /** 类型胶囊：选中高亮，带可选计数 */
   @Builder
   GenreChip(label: string, active: boolean, count: string, onTap: () => void) {
-    Row({ space: 5 }) {
-      Text(label)
-        .fontSize(12)
-        .fontColor(active ? '#ffffff' : 'rgba(255, 255, 255, 0.7)')
-      if (count.length > 0) {
-        Text(count)
+    Button() {
+      Row({ space: 5 }) {
+        Text(label)
           .fontSize(12)
-          .fontColor('rgba(255, 255, 255, 0.4)')
+          .fontColor(active ? '#ffffff' : 'rgba(255, 255, 255, 0.7)')
+        if (count.length > 0) {
+          Text(count)
+            .fontSize(12)
+            .fontColor('rgba(255, 255, 255, 0.4)')
+        }
       }
+      .padding({ left: 10, right: 10 })
+      .height(28)
     }
-    .padding({ left: 10, right: 10 })
-    .height(28)
-    .backgroundColor(active ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.05)')
+    .attributeModifier(new GlassButtonModifier(active ? GlassTone.Strong : GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(14)
     .onClick(() => {
       onTap();

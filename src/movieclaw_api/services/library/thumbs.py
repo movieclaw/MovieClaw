@@ -498,9 +498,9 @@ def primary_aspect(item: MediaItem, width: int | None, height: int | None) -> fl
     """
     if width and height:
         return round(width / height, 4)
-    from movieclaw_api.services.library.profile import PROFILES
+    from movieclaw_api.services.library.profile import profile_for_key
 
-    profile = PROFILES.get((item.kind, item.source))
+    profile = profile_for_key(item.kind, item.source)
     if profile is not None:
         return round(profile.default_aspect, 4)
     return round(2 / 3, 4) if item.source == MediaSource.TMDB else round(16 / 9, 4)

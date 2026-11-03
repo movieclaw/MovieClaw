@@ -259,6 +259,8 @@
     "localOrganizeUnsupported": "Library \"{name}\" contains local content. Its files keep their original names, so standard naming does not apply.",
     "kindUnsupported": "Unsupported library type: {kind}",
     "kindSourceUnsupported": "Unsupported library type combination: \"{kind}\" × source \"{source}\"",
+    "sourceConfigInvalid": "Invalid connection settings for external library source \"{source}\": {detail}",
+    "sourceConfigUnsupported": "Source \"{source}\" is not a registered external library source (or its plugin is disabled); external connection settings cannot be saved",
     "transferSame": "The target and current libraries are the same; no transfer is needed",
     "transferKindMismatch": "Transfers require libraries of the same type (movie, series or other). If the type was identified incorrectly, use Reidentify or claim it in the unidentified list.",
     "transferTargetRootMissing": "Target library \"{name}\" has no root path and cannot receive transfers",
@@ -872,7 +874,10 @@
       "unknown": "Unknown error",
       "subscriptionIncomplete": "The ChatGPT response did not complete. Try again; the subscription usage limit may have been reached.",
       "chatgptFailed": "The ChatGPT request failed."
-    }
+    },
+    "catalogUnknown": "Model data source \"{id}\" is not in the public model catalog",
+    "catalogModelMissing": "This provider's catalog has no model \"{id}\"",
+    "modelParamsUnknown": "Model \"{id}\" has unknown parameters. Add its context window and other parameters as a custom model before showing it"
   },
   "webhook": {
     "endpointMissing": "Webhook endpoint {id} does not exist",

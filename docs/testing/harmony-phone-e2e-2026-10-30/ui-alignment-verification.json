@@ -1,0 +1,12 @@
+{
+  "appSha256": "58f03bed8ac724d33bdf4c25b3587474c689b7cb80a20aa61480ebda31006a48",
+  "unitTests": 37,
+  "uiScenarios": 5,
+  "reference": "apps/apple/MovieClaw/Features/Player/PlayerControls.swift, PlayerMenus.swift, PlayerScreen.swift",
+  "referenceDevice": "iPhone 17 Pro / iOS 26.0",
+  "targetDevice": "MovieClaw_Phone_API24 / HarmonyOS 6.1.1 ARM64",
+  "limitations": [
+    "HarmonyOS blur/transparency approximates the layout and contrast; it is not Apple Liquid Glass rendering.",
+    "No new full-format matrix run for this UI change."
+  ]
+}

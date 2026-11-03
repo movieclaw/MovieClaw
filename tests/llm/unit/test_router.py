@@ -128,3 +128,27 @@ def test_resolve_explicit_ref_with_slash_in_model_id():
     provider, model_id = make_router().resolve("我的百炼/deepseek-ai/DeepSeek-V3")
     assert provider.name == "我的百炼"
     assert model_id == "deepseek-ai/DeepSeek-V3"
+
+
+def test_stale_instance_prefix_falls_back_to_catalog_owner():
+    """实例改名后会话转录里的旧「实例名/模型id」：前缀不是实例名时按目录归属路由。"""
+    provider, model = make_router().resolve("旧名字/qwen3-235b")
+    assert (provider.name, model) == ("我的百炼", "qwen3-235b")
+    with pytest.raises(LlmRoutingError):
+        make_router().resolve("旧名字/nowhere-model")
+
+
+def test_injected_catalog_replaces_preset_merge():
+    """应用层注入的合并目录是唯一口径：路由与 get_model_info 都只认它。"""
+    router = LlmRouter(
+        [
+            LlmProviderConfig(
+                name="中转",
+                provider_type="openai_compat",
+                api_key="sk",
+                catalog=[ModelInfo(id="org/listed", context_window=4096)],
+            )
+        ]
+    )
+    assert router.resolve("org/listed")[0].name == "中转"
+    assert router.get_model_info("中转/org/listed").context_window == 4096

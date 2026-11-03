@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
@@ -425,16 +426,18 @@ export struct LibraryCustomizeSheet {
         .fontSize(13)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('重试')
-        .fontSize(14)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(18)
-        .onClick(() => {
-          this.load();
-        })
+      Button() {
+        Text('重试')
+          .fontSize(14)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+      .borderRadius(18)
+      .onClick(() => {
+        this.load();
+      })
     }
     .width('100%')
     .layoutWeight(1)
@@ -509,18 +512,19 @@ export struct LibraryCustomizeSheet {
   /** 恢复默认：红字放清单最底部，二次确认（iOS 明确不占右上角） */
   @Builder
   RestoreButton() {
-    Text('恢复默认布局')
-      .fontSize(16)
-      .fontColor(Theme.danger)
-      .textAlign(TextAlign.Center)
-      .width('100%')
-      .padding({ top: 14, bottom: 14 })
-      .backgroundColor(Theme.surface)
-      .borderRadius(Theme.cardRadius)
-      .border({ width: 1, color: Theme.line })
-      .onClick(() => {
-        this.confirmRestore();
-      })
+    Button() {
+      Text('恢复默认布局')
+        .fontSize(16)
+        .fontColor(Theme.danger)
+        .textAlign(TextAlign.Center)
+    }
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .width('100%')
+    .padding({ top: 14, bottom: 14 })
+    .borderRadius(Theme.cardRadius)
+    .onClick(() => {
+      this.confirmRestore();
+    })
   }
 
   /** 添加一行：按来源分组（媒体库 / 合集） */
@@ -575,28 +579,31 @@ export struct LibraryCustomizeSheet {
 
   @Builder
   AddRow(title: string, subtitle: string, onTap: () => void) {
-    Row({ space: 12 }) {
-      Column({ space: 2 }) {
-        Text(title)
+    Button() {
+      Row({ space: 12 }) {
+        Column({ space: 2 }) {
+          Text(title)
+            .fontSize(16)
+            .fontColor(Theme.text)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(subtitle)
+            .fontSize(12)
+            .fontColor(Theme.textFaint)
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        SymbolGlyph($r('sys.symbol.plus'))
           .fontSize(16)
-          .fontColor(Theme.text)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(subtitle)
-          .fontSize(12)
-          .fontColor(Theme.textFaint)
+          .fontColor([Theme.accent])
       }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
-      SymbolGlyph($r('sys.symbol.plus'))
-        .fontSize(16)
-        .fontColor([Theme.accent])
+      .width('100%')
+      .padding(14)
     }
-    .width('100%')
-    .padding(14)
-    .backgroundColor(Theme.surface)
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
     .borderRadius(Theme.cardRadius)
-    .border({ width: 1, color: Theme.line })
     .onClick(() => {
       onTap();
     })

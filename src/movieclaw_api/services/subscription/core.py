@@ -625,6 +625,17 @@ class SubscriptionService:
         )
         assert subscription.id is not None
 
+        # 已建档条目可能仍在无订阅的低频档；按上次成功刷新重排，只提前。
+        # NULL 本就立即到期，不能改成未来时间。
+        from movieclaw_api.services.media_scrape import next_refresh_delay
+
+        if item.next_refresh_at is not None:
+            refreshed_at = item.metadata_refreshed_at or utcnow()
+            next_refresh_at = refreshed_at + next_refresh_delay(item, subscription)
+            if next_refresh_at < item.next_refresh_at:
+                item.next_refresh_at = next_refresh_at
+                self._session.add(item)
+
         units = expected_units(
             kind, episodes, selected, follow_future, floors_of(subscription), caps_of(subscription)
         )

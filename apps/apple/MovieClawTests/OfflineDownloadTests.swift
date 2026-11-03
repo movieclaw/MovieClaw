@@ -319,3 +319,94 @@ struct OfflineTranscodeWaitTests {
         #expect(OfflineUnitStatus.text(unit) == "下载中断，稍后自动重试")
     }
 }
+
+/// 下载顺序（§5.5）：顺序就是优先级，优先下载 = 排到最前
+struct OfflineQueueTests {
+    private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func unit(_ fileId: Int, item: Int = 1, episode: Int = 0, _ state: OfflineUnit.State = .queued,
+                      added: TimeInterval = 0, order: Double? = nil, retryable: Bool = true) -> OfflineUnit {
+        var unit = OfflineUnit(fileId: fileId, mediaItemId: item, season: episode == 0 ? 0 : 1, episode: episode, profile: "original",
+                               profileLabel: "原画", state: state, expectedBytes: 100, fileExtension: "mkv", createdAt: t0 + added)
+        unit.retryable = retryable
+        unit.queueOrder = order
+        return unit
+    }
+
+    @Test func addedOrderUntilReordered() {
+        let queue = OfflineQueue.entries([unit(3, added: 2), unit(1, added: 0), unit(2, added: 1), unit(4, .done, added: 3)])
+        #expect(queue.map(\.fileId) == [1, 2, 3], "按加入时间；下完的不在队里")
+    }
+
+    /// 调过顺序的编号 0、1、2…，之后新加的按加入时间排在它们后面
+    @Test func numberedComeBeforeLaterAdditions() {
+        let queue = OfflineQueue.entries([unit(1, added: 0, order: 1), unit(2, added: 1, order: 0), unit(3, added: 5)])
+        #expect(queue.map(\.fileId) == [2, 1, 3])
+    }
+
+    /// 暂停的、要人处理的失败不算在前面；会自动重试的（含等转码）算
+    @Test func aheadCountsOnlyUnitsThatWillRun() {
+        let queue = OfflineQueue.entries([
+            unit(1, .downloading, added: 0),
+            unit(2, .paused, added: 1),
+            unit(3, .failed, added: 2, retryable: false),
+            unit(4, .failed, added: 3),
+            unit(5, added: 4),
+        ])
+        #expect(OfflineQueue.ahead(of: 1, in: queue) == 0)
+        #expect(OfflineQueue.ahead(of: 5, in: queue) == 2)
+        #expect(OfflineQueue.ahead(of: 9, in: queue) == 0, "不在队里")
+    }
+
+    /// 正在下的排在下载中的最前：继续下载的那集排序在它前面、但不打断它，写「下一个下载」
+    @Test func downloadingIsListedFirst() {
+        let queue = OfflineQueue.entries([unit(1, added: 0), unit(2, .downloading, added: 1), unit(3, added: 2)])
+        #expect(queue.map(\.fileId) == [2, 1, 3])
+        #expect(OfflineQueue.ahead(of: 1, in: queue) == 1)
+        #expect(OfflineQueue.canPrioritize(fileId: 1, in: queue), "要它立刻开始，就得打断正在下的")
+    }
+
+    @Test func prioritizeOfferedUnlessAlreadyFirst() {
+        let queue = OfflineQueue.entries([unit(1, .downloading), unit(2, added: 1), unit(3, .paused, added: 2)])
+        #expect(!OfflineQueue.canPrioritize(fileId: 1, in: queue), "已经排在最前")
+        #expect(OfflineQueue.canPrioritize(fileId: 2, in: queue))
+        #expect(OfflineQueue.canPrioritize(fileId: 3, in: queue), "暂停的也能优先（顺带继续）")
+        #expect(!OfflineQueue.canPrioritize(fileId: 9, in: queue))
+    }
+
+    /// 整部剧插队：只有别的条目排在它某一集前面时才有意义
+    @Test func wholeShowOnlyWhenSomethingElseIsAhead() {
+        let behind = OfflineQueue.entries([unit(1, item: 1), unit(2, item: 2, episode: 1, added: 1), unit(3, item: 2, episode: 2, added: 2)])
+        #expect(OfflineQueue.canPrioritize(itemId: 2, in: behind))
+        #expect(!OfflineQueue.canPrioritize(itemId: 1, in: behind), "电影已经在最前")
+        let mixed = OfflineQueue.entries([unit(2, item: 2, episode: 1), unit(1, item: 1, added: 1), unit(3, item: 2, episode: 2, added: 2)])
+        #expect(OfflineQueue.canPrioritize(itemId: 2, in: mixed), "第 2 集排在电影后面")
+        #expect(!OfflineQueue.canPrioritize(itemId: 2, in: OfflineQueue.entries([unit(2, item: 2, episode: 1)])), "只有它一部")
+    }
+
+    @Test func newOrderPutsListedFirstAndKeepsTheRest() {
+        let queue = OfflineQueue.entries((1 ... 5).map { unit($0, added: Double($0)) })
+        #expect(OfflineQueue.order(front: [4], in: queue) == [4, 1, 2, 3, 5])
+        #expect(OfflineQueue.order(front: [5, 3, 5, 99], in: queue) == [5, 3, 1, 2, 4], "去重、不认队外的")
+    }
+
+    @Test func queuedStatusSaysHowManyAhead() {
+        let queued = unit(1)
+        #expect(OfflineUnitStatus.text(queued) == "等待下载")
+        #expect(OfflineUnitStatus.text(queued, ahead: 1) == "下一个下载")
+        #expect(OfflineUnitStatus.text(queued, ahead: 3) == "等待下载，前面还有 3 个")
+        #expect(OfflineDownloadStrip.status(queued, ahead: 3) == "前面还有 3 个", "分集卡上写短的")
+        #expect(OfflineUnitStatus.text(unit(2, .paused), ahead: 3) == "已暂停", "只有排队的写排第几")
+    }
+
+    /// 排序键写进存档；没有这个字段的旧存档照样读
+    @Test func orderSurvivesArchiveAndOldArchivesStillRead() throws {
+        let saved = unit(1, order: 2)
+        let data = try OfflineDisk.encoder.encode(saved)
+        #expect(try OfflineDisk.decoder.decode(OfflineUnit.self, from: data).queueOrder == 2)
+        var legacy = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        legacy.removeValue(forKey: "queueOrder")
+        let old = try OfflineDisk.decoder.decode(OfflineUnit.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(old.queueOrder == nil)
+    }
+}

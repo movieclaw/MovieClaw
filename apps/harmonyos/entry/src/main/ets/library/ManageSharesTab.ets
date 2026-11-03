@@ -1,5 +1,6 @@
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
@@ -326,28 +327,30 @@ export struct ManageSharesTab {
 
       Row({ space: 8 }) {
         Blank()
-        Text('复制')
-          .fontSize(13)
-          .fontColor(Theme.textMuted)
-          .padding({ left: 14, right: 14, top: 7, bottom: 7 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(15)
-          .border({ width: 1, color: Theme.line })
-          .onClick(() => {
-            this.copy(share);
-          })
-        Text(this.busyId === share.id ? '取消中…' : '取消')
-          .fontSize(13)
-          .fontColor(Theme.danger)
-          .padding({ left: 14, right: 14, top: 7, bottom: 7 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(15)
-          .border({ width: 1, color: Theme.line })
-          .onClick(() => {
-            if (this.busyId !== share.id) {
-              this.confirmRevoke(share);
-            }
-          })
+        Button() {
+          Text('复制')
+            .fontSize(13)
+            .fontColor(Theme.textMuted)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+        .borderRadius(15)
+        .onClick(() => {
+          this.copy(share);
+        })
+        Button() {
+          Text(this.busyId === share.id ? '取消中…' : '取消')
+            .fontSize(13)
+            .fontColor(Theme.danger)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+        .borderRadius(15)
+        .onClick(() => {
+          if (this.busyId !== share.id) {
+            this.confirmRevoke(share);
+          }
+        })
       }
       .width('100%')
     }

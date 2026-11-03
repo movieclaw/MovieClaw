@@ -9,6 +9,7 @@ import asyncio
 import inspect
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -222,6 +223,19 @@ def test_assess_completeness() -> None:
     assert source.assess_events(full, 6000).ok
 
 
+@pytest.mark.parametrize("provenance", ["original", "pgs_ocr", "asr"])
+def test_assess_sparse_dialogue_depends_on_source(provenance: str) -> None:
+    sparse = [(i * 7500 + 1000, i * 7500 + 2500, "Hello.") for i in range(41)]
+    concentrated = [(i * 1000, i * 1000 + 500, "Hello.") for i in range(60)]
+    for events in (sparse, concentrated):
+        assessment = source.assess_events(events, 320, provenance=provenance)
+        assert assessment.ok == (provenance == "asr")
+        assert assessment.event_count == len(events)
+    empty = source.assess_events([], 320, provenance=provenance)
+    assert not empty.ok
+    assert empty.reason_message["message_key"] == "library.subtitleSource.empty"
+
+
 def test_preview_blocker_explains_graphic_subtitles() -> None:
     """图片字幕不是“没有字幕”，预检要用普通用户能理解的方式说明下一步。"""
     file = _file(
@@ -246,7 +260,7 @@ def test_preview_blocker_explains_missing_subtitles() -> None:
     blocker = tasks._preview_blocker([])
 
     assert blocker.code == "no_subtitle"
-    assert "不会从音轨听写" in blocker.message
+    assert "没有可以识别的音轨" in blocker.message
 
 
 # ---------------------------------------------------------------------------
@@ -843,10 +857,128 @@ def test_sync_returns_none_when_undetectable() -> None:
     assert sync.event_hit_rate([], []) is None
 
 
+def test_sync_uses_worst_sampled_window() -> None:
+    assert sync.aggregate_sync_scores([0.91, 0.58, 0.87]) == 0.58
+    assert sync.aggregate_sync_scores([]) is None
+
+
+def test_silero_current_onnx_signature_is_supported(monkeypatch) -> None:
+    """The ASR release's x/h/c model must not fall back to energy VAD."""
+
+    class Session:
+        def get_inputs(self):
+            return [SimpleNamespace(name=name) for name in ("x", "h", "c")]
+
+        def run(self, _outputs, inputs):  # noqa: ANN001
+            assert set(inputs) == {"x", "h", "c"}
+            return [
+                np.asarray([[0.9]], dtype=np.float32),
+                inputs["h"],
+                inputs["c"],
+            ]
+
+    monkeypatch.setattr(sync, "_silero_session", lambda: Session())
+    mask = sync._speech_mask_silero(np.zeros(sync.SAMPLE_RATE // 2, dtype=np.float32))
+    assert mask is not None and mask.all()
+
+
+def test_silero_legacy_signature_prepends_context(monkeypatch) -> None:
+    """input/state/sr 版本按官方包装器给每帧前置上一帧末尾 64 个采样。"""
+    seen = []
+
+    class Session:
+        def get_inputs(self):
+            return [SimpleNamespace(name=name) for name in ("input", "state", "sr")]
+
+        def run(self, _outputs, inputs):  # noqa: ANN001
+            seen.append(inputs["input"].copy())
+            return [np.asarray([[0.9]], dtype=np.float32), inputs["state"]]
+
+    monkeypatch.setattr(sync, "_silero_session", lambda: Session())
+    pcm = np.arange(512 * 3, dtype=np.float32)
+    mask = sync._speech_mask_silero(pcm)
+    assert mask is not None and mask.all()
+    assert [x.shape for x in seen] == [(1, 576)] * 3
+    assert not seen[0][0, :64].any()  # 首帧上下文为零
+    assert (seen[1][0, :64] == pcm[448:512]).all()  # 之后是上一帧的尾巴
+
+
 async def test_sample_sync_score_degrades_without_ffmpeg(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(sync, "_ffmpeg", lambda: None)
     score = await sync.sample_sync_score(tmp_path / "x.mkv", _events(100), 6000)
     assert score is None  # 无法检测=未知,不误判为不同步
+
+
+async def test_sample_sync_score_ignores_silent_credit_window(monkeypatch, tmp_path) -> None:
+    """Opening-card events must not turn a dialogue-free window into a failure."""
+    monkeypatch.setattr(sync, "_ffmpeg", lambda: "/usr/bin/ffmpeg")
+
+    async def fake_extract(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        return np.zeros(sync.SAMPLE_RATE * 120, dtype=np.float32)
+
+    monkeypatch.setattr(sync, "extract_pcm", fake_extract)
+    monkeypatch.setattr(sync, "speech_intervals", lambda _pcm: [])
+    events = [(i * 1000, i * 1000 + 500, "title") for i in range(100)]
+
+    assert await sync.sample_sync_score(tmp_path / "x.mkv", events, 6000) is None
+
+
+def _fake_windows(monkeypatch, speech: list[tuple[int, int]]) -> None:
+    """抽样窗的音频按全片语音表伪造：每窗返回窗内语音（窗内相对时间）。"""
+    monkeypatch.setattr(sync, "_ffmpeg", lambda: "/usr/bin/ffmpeg")
+
+    async def fake_extract(_path, start, duration, _audio=0):  # noqa: ANN001
+        return np.asarray([start, duration], dtype=np.float64)
+
+    def fake_speech(pcm):  # noqa: ANN001
+        start, end = int(pcm[0] * 1000), int((pcm[0] + pcm[1]) * 1000)
+        return [
+            (max(s, start) - start, min(e, end) - start)
+            for s, e in speech
+            if s < end and e > start
+        ]
+
+    monkeypatch.setattr(sync, "extract_pcm", fake_extract)
+    monkeypatch.setattr(sync, "speech_intervals", fake_speech)
+
+
+def _dialogue_track(runtime_ms: int, first_ms: int = 0) -> list[tuple[int, int]]:
+    rng = np.random.default_rng(11)
+    out, t = [], first_ms
+    while t < runtime_ms - 5000:
+        d = int(rng.integers(1200, 3000))
+        out.append((t, t + d))
+        t += d + int(rng.integers(2500, 4000))
+    return out
+
+
+async def test_sample_sync_score_ignores_opening_cards_beside_dialogue(
+    monkeypatch, tmp_path
+) -> None:
+    """评审复现：2 小时片，片头窗前段是片头字卡（无人声）、后段有对白，对白全对齐。
+
+    字卡离语音很远，不算“错位的台词”；旧逻辑（字卡算 miss + 取最差窗）会把
+    这条对齐的字幕判成不同步。
+    """
+    runtime = 7200
+    speech = _dialogue_track(runtime * 1000, first_ms=120_000)
+    cards = [(t, t + 3500, "CARD") for t in range(62_000, 112_000, 6_000)]
+    _fake_windows(monkeypatch, speech)
+    events = sorted(cards + [(s, e, "line") for s, e in speech])
+
+    score = await sync.sample_sync_score(tmp_path / "x.mkv", events, runtime)
+
+    assert score == 1.0
+
+
+async def test_sample_sync_score_still_flags_shifted_dialogue(monkeypatch, tmp_path) -> None:
+    """离语音 5 秒内的错位台词照样计 miss：过滤只去掉字卡，不掩盖错位。"""
+    runtime = 7200
+    speech = [(t, t + 2000) for t in range(60_000, runtime * 1000 - 10_000, 5000)]
+    _fake_windows(monkeypatch, speech)
+    shifted = [(s + 2500, e + 2500, "line") for s, e in speech]  # 恰好落在对白间隙
+
+    assert await sync.sample_sync_score(tmp_path / "x.mkv", shifted, runtime) == 0.0
 
 
 def test_sync_audio_skips_undecodable_first_track() -> None:
@@ -990,6 +1122,181 @@ def test_calibration_apply_roundtrip() -> None:
 
 def test_calibration_none_on_empty() -> None:
     assert sync.estimate_calibration([], [(0, 1000)]) is None
+
+
+def _sampled_reference(runtime: int, speech: list[tuple[int, int]]):
+    """按生成任务的 6 窗抽样，把全片语音裁成校准参考 + 覆盖区间。"""
+    coverage = [
+        (int(start * 1000), int((start + duration) * 1000))
+        for start, duration in tasks._calibration_windows(runtime)
+    ]
+    reference = [
+        (max(s, a), min(e, b)) for s, e in speech for a, b in coverage if s < b and e > a
+    ]
+    return reference, coverage
+
+
+@pytest.mark.parametrize("runtime", [3600, 5400, 7200])
+def test_calibration_confidence_is_normalized_to_sampled_windows(runtime: int) -> None:
+    """全长字幕 + 只在 6 个抽样窗里有的音频参考：完全吻合的偏移置信度接近 1。
+
+    按带搜索余量的字幕能量归一时，这里封顶约 0.58，且随片长下降。
+    """
+    speech = _dialogue_track(runtime * 1000, first_ms=30_000)
+    reference, coverage = _sampled_reference(runtime, speech)
+    subtitle = [(s - 4000, e - 4000) for s, e in speech]  # 全片字幕整体早 4 秒
+
+    calibration = sync.estimate_calibration(reference, subtitle, coverage=coverage)
+
+    assert calibration is not None
+    assert calibration.offset_ms == 4000
+    assert calibration.score > 0.95
+
+
+def test_calibration_unrelated_subtitle_stays_low_confidence() -> None:
+    runtime = 5400
+    reference, coverage = _sampled_reference(runtime, _dialogue_track(runtime * 1000))
+    rng = np.random.default_rng(5)
+    unrelated, t = [], 0
+    while t < runtime * 1000:
+        d = int(rng.integers(800, 4000))
+        unrelated.append((t, t + d))
+        t += d + int(rng.integers(300, 7000))
+
+    calibration = sync.estimate_calibration(reference, unrelated, coverage=coverage)
+
+    assert calibration is not None and calibration.score < 0.5
+
+
+async def test_generation_applies_real_global_calibration(monkeypatch) -> None:
+    """不 mock 估计：整体偏移的全长字幕被校准，事件回到语音上。"""
+    row = _file([], [])  # 6000 秒
+    speech = _dialogue_track(6_000_000, first_ms=30_000)
+    reference, _coverage = _sampled_reference(6000, speech)
+
+    async def fake_reference(_row, _events):  # noqa: ANN001
+        return reference
+
+    monkeypatch.setattr(tasks, "_audio_reference_intervals", fake_reference)
+    events = [(s + 3000, e + 3000, "line") for s, e in speech]
+
+    result = await tasks._try_auto_calibrate_events(row, events)
+
+    assert result is not None
+    corrected, calibration = result
+    assert calibration.offset_ms == -3000 and calibration.score > 0.9
+    assert [(s, e) for s, e, _ in corrected[:3]] == speech[:3]
+
+
+async def test_generation_refuses_segmented_drift(monkeypatch) -> None:
+    """剪辑版差异：前后两段偏移不同。全局分数可能过线，但各窗残余不一致，不套用。"""
+    row = _file([], [])
+    speech = _dialogue_track(6_000_000, first_ms=30_000)
+    reference, coverage = _sampled_reference(6000, speech)
+
+    async def fake_reference(_row, _events):  # noqa: ANN001
+        return reference
+
+    monkeypatch.setattr(tasks, "_audio_reference_intervals", fake_reference)
+    # 前 2/3 早 4 秒，后 1/3 早 12 秒：全局峰落在多数段上
+    events = [
+        (s - (4000 if s < 4_000_000 else 12000), e - (4000 if s < 4_000_000 else 12000), "l")
+        for s, e in speech
+    ]
+    global_fit = sync.estimate_calibration(
+        reference, [(s, e) for s, e, _ in events], coverage=coverage
+    )
+    assert global_fit is not None and global_fit.score >= tasks._AUTO_CALIBRATE_MIN_SCORE
+
+    assert await tasks._try_auto_calibrate_events(row, events) is None
+
+
+async def test_audio_reference_intervals_are_integer_ms(monkeypatch) -> None:
+    """长片 6 窗起点是浮点秒；参考区间必须是整数毫秒，否则栅格化 TypeError。"""
+    row = _file([], [])  # 6000 秒 > 6×120 秒，走均布 6 窗
+
+    async def fake_extract(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        return np.zeros(10, dtype=np.float32)
+
+    monkeypatch.setattr(sync, "extract_pcm", fake_extract)
+    monkeypatch.setattr(sync, "speech_intervals", lambda _pcm: [(1000, 2500), (4000, 6000)])
+
+    reference = await tasks._audio_reference_intervals(row, _events(100))
+
+    assert reference and all(isinstance(v, int) for pair in reference for v in pair)
+    assert sync.estimate_calibration(reference, reference) is not None
+
+
+async def test_manual_calibration_subtitle_reference_is_not_masked(monkeypatch) -> None:
+    """无音频时退字幕对字幕：参考覆盖全片，不能套音频抽样窗的掩码。"""
+    row = _file([], [{"filename": "Movie.eng.srt", "format": "srt", "language": "eng"}])
+    seen = {}
+
+    async def fake_load_row(_session, _file_id):  # noqa: ANN001
+        return row
+
+    async def fake_events(_row, _cand, **_kwargs):  # noqa: ANN001, ANN003
+        return _events(60)
+
+    async def no_audio(_row, _events):  # noqa: ANN001
+        return None
+
+    async def subtitle_reference(_row, _name):  # noqa: ANN001
+        return [(0, 1000), (5000, 6000)], {"message": "内封字幕"}
+
+    def fake_estimate(_reference, _subtitle, coverage=None):  # noqa: ANN001
+        seen["coverage"] = coverage
+        return None
+
+    monkeypatch.setattr(tasks, "_load_row", fake_load_row)
+    monkeypatch.setattr(extract, "load_candidate_events", fake_events)
+    monkeypatch.setattr(tasks, "_audio_reference_intervals", no_audio)
+    monkeypatch.setattr(tasks, "_subtitle_reference_intervals", subtitle_reference)
+    monkeypatch.setattr(sync, "estimate_calibration", fake_estimate)
+
+    result = await tasks.calibrate_external_subtitle(None, 1, "Movie.eng.srt")
+
+    assert not result.ok
+    assert seen == {"coverage": None}
+
+
+async def test_generation_auto_calibrates_only_confident_global_offset(monkeypatch) -> None:
+    row = _file([], [])
+    events = [(1000, 2000, "a"), (5000, 6000, "b")]
+
+    async def fake_reference(_row, _events):  # noqa: ANN001
+        return [(4000, 5000), (8000, 9000)]
+
+    monkeypatch.setattr(tasks, "_audio_reference_intervals", fake_reference)
+    monkeypatch.setattr(
+        sync,
+        "estimate_calibration",
+        lambda _reference, _subtitle, **_kwargs: sync.Calibration(1.0, 3000, 0.8),
+    )
+
+    result = await tasks._try_auto_calibrate_events(row, events)
+
+    assert result is not None
+    corrected, calibration = result
+    assert calibration.offset_ms == 3000
+    assert corrected == [(4000, 5000, "a"), (8000, 9000, "b")]
+
+
+async def test_generation_does_not_apply_low_confidence_calibration(monkeypatch) -> None:
+    row = _file([], [])
+    events = [(1000, 2000, "a")]
+
+    async def fake_reference(_row, _events):  # noqa: ANN001
+        return [(4000, 5000)]
+
+    monkeypatch.setattr(tasks, "_audio_reference_intervals", fake_reference)
+    monkeypatch.setattr(
+        sync,
+        "estimate_calibration",
+        lambda _reference, _subtitle, **_kwargs: sync.Calibration(1.0, 3000, 0.49),
+    )
+
+    assert await tasks._try_auto_calibrate_events(row, events) is None
 
 
 # ---------------------------------------------------------------------------

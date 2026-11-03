@@ -1,3 +1,4 @@
+import { SubtitleStyle } from '@movieclaw/player-engine';
 import { preferences } from '@kit.ArkData';
 import { Context } from '@kit.AbilityKit';
 
@@ -10,16 +11,62 @@ import { Context } from '@kit.AbilityKit';
  */
 export class PlayerPrefs {
   private static store: preferences.Preferences | null = null;
-  private static ready: Promise<void> | null = null;
+  /** 恒为 Promise（未 init 时是已完成的空 Promise），await 处不用判空 */
+  private static ready: Promise<void> = Promise.resolve();
+  /** 播放引擎缓存（loadEngine 异步刷新；默认 auto：AVPlayer 优先，MPV 兜底；v1 的默认 MPV 不迁移） */
+  private static engineName: string = 'auto';
 
   /** EntryAbility.onCreate 里尽早调用 */
   static init(context: Context): void {
-    if (PlayerPrefs.ready === null) {
+    if (PlayerPrefs.store === null) {
       PlayerPrefs.ready = preferences.getPreferences(context, 'movieclaw_player_prefs')
         .then((store: preferences.Preferences): void => {
           PlayerPrefs.store = store;
         });
     }
+  }
+
+  /** 读播放引擎设置（异步刷新缓存；PlayerPage 在 attach 前用 engine() 同步读） */
+  static async loadEngine(): Promise<string> {
+    await PlayerPrefs.ready;
+    const store: preferences.Preferences | null = PlayerPrefs.store;
+    if (store === null) {
+      return PlayerPrefs.engineName;
+    }
+    try {
+      const raw: string = await store.get('player.engine.v2', 'auto') as string;
+      PlayerPrefs.engineName = raw === 'avplayer' || raw === 'mpv' ? raw : 'auto';
+    } catch (error) {
+      // 读不到使用自动模式
+    }
+    return PlayerPrefs.engineName;
+  }
+
+  /** 当前引擎（同步；未加载完时是默认值） */
+  static engine(): string {
+    return PlayerPrefs.engineName;
+  }
+
+  /**
+   * 记播放引擎（设置页切换用）；未知值归一为自动模式。
+   * 缓存先同步刷：PlayerPage 在 attach 前用 engine() 同步读，落盘慢半拍也不能读到旧值。
+   */
+  static writeEngine(name: string): void {
+    const normalized: string = name === 'avplayer' || name === 'mpv' ? name : 'auto';
+    PlayerPrefs.engineName = normalized;
+    const save = async (): Promise<void> => {
+      await PlayerPrefs.ready;
+      const store: preferences.Preferences | null = PlayerPrefs.store;
+      if (store === null) {
+        return;
+      }
+      try {
+        await store.put('player.engine.v2', normalized);
+        await store.flush();
+      } catch (error) {
+      }
+    };
+    save();
   }
 
   /** 读这一集记过的画质上限（0 = 自动 / 原画）；没有记录返回 0 */
@@ -39,7 +86,7 @@ export class PlayerPrefs {
   }
 
   /** 记画质上限（0 = 自动）；失败静默——记不住不影响播放 */
-  static writeQuality(mediaItemId: number, season: number, episode: number, maxHeight: number): void {
+  static writeQuality(mediaItemId: number, season: number, episode: number, maxHeight: number): Promise<void> {
     const save = async (): Promise<void> => {
       await PlayerPrefs.ready;
       const store: preferences.Preferences | null = PlayerPrefs.store;
@@ -52,7 +99,7 @@ export class PlayerPrefs {
       } catch (error) {
       }
     };
-    save();
+    return save();
   }
 
   /** 读自绘字幕样式；读取失败给 iOS 的默认值（fontScale 5.2%、底部 8%、带背景） */
@@ -107,7 +154,7 @@ export class PlayerPrefs {
 }
 
 /** 自绘字幕样式（iOS `SubtitleStyle`：刻意不设描边——中文字形描边有黑缝） */
-export class SubStyle {
+export class SubStyle implements SubtitleStyle {
   /** 字号 = 屏宽 × fontScale%（2–10，默认 5.2） */
   fontScale: number = 5.2;
   /** 距屏幕底部的高度百分比（0–40，默认 8） */

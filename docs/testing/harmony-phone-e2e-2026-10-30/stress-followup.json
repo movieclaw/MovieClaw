@@ -1,0 +1,56 @@
+[
+  {
+    "caseId": "stress-h264-burn-retry",
+    "fileId": 15619,
+    "itemId": 6790,
+    "season": 4,
+    "episode": 7,
+    "engine": "auto",
+    "startMs": 120000,
+    "title": "绝命毒师",
+    "format": [
+      "mkv",
+      "h264",
+      "2160p",
+      8
+    ],
+    "bitRate": 85342165,
+    "subtitleRef": "embedded:0"
+  },
+  {
+    "caseId": "stress-h264-original",
+    "fileId": 15619,
+    "itemId": 6790,
+    "season": 4,
+    "episode": 7,
+    "engine": "auto",
+    "startMs": 120000,
+    "title": "绝命毒师",
+    "format": [
+      "mkv",
+      "h264",
+      "2160p",
+      8
+    ],
+    "bitRate": 85342165,
+    "subtitleRef": "off"
+  },
+  {
+    "caseId": "stress-hevc-original",
+    "fileId": 15663,
+    "itemId": 6790,
+    "season": 1,
+    "episode": 1,
+    "engine": "auto",
+    "startMs": 120000,
+    "title": "绝命毒师",
+    "format": [
+      "mkv",
+      "hevc",
+      "2160p",
+      10
+    ],
+    "bitRate": 42494821,
+    "subtitleRef": "off"
+  }
+]

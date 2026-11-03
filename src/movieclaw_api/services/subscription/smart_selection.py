@@ -256,14 +256,11 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
         drop_proven_missing,
         publish_calendar_date,
     )
-    from movieclaw_api.services.subscription.smart_runtime import runtime_settings
     from movieclaw_matcher import TorrentCandidate
     from movieclaw_matcher.smart import quality_vector
 
     now = utcnow()
     identity_rejections = identity_rejections or {}
-    runtime = await runtime_settings()
-    mode = "shadow" if runtime.shadow_only else "active"
     all_rows = (
         (
             await session.execute(
@@ -379,7 +376,7 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
             select(SmartDecisionRecord)
             .where(
                 SmartDecisionRecord.wanted_id.in_([w.id for w in open_rows.values()]),
-                SmartDecisionRecord.mode == mode,
+                SmartDecisionRecord.mode == "active",
             )
             .order_by(SmartDecisionRecord.id)
         )
@@ -387,23 +384,11 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
         records[record.wanted_id] = record
     saved = {}
     for unit, wanted in open_rows.items():
-        record = records.get(wanted.id)
-        payload = (
-            record.outcome.get("state")
-            if runtime.shadow_only and record
-            else wanted.selection_state
-        )
+        payload = wanted.selection_state
         try:
             saved[unit] = SelectionState.model_validate(payload) if payload else None
             if saved[unit] is not None:
-                saved[unit].messages = dict(
-                    (
-                        record.outcome.get("state_messages")
-                        if runtime.shadow_only and record
-                        else wanted.selection_messages
-                    )
-                    or {}
-                )
+                saved[unit].messages = dict(wanted.selection_messages or {})
         except ValueError:
             continue  # 损坏状态不能重新计时，也不能回落到规则模式。
     # 先比较同品质版本在本季的覆盖，再比较单个资源；镜像不累加覆盖。
@@ -438,9 +423,7 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
             current=QualitySnapshot.model_validate(wanted.quality)
             if wanted.status == WantedStatus.IMPORTED and wanted.quality
             else None,
-            release_history=release_history.get(unit[0], [])
-            if runtime.prediction_enabled
-            else None,
+            release_history=release_history.get(unit[0], []),
             episode=unit[1],
             coverage={
                 candidate_key(c): [
@@ -507,7 +490,7 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
             session.add(
                 SmartDecisionRecord(
                     wanted_id=wanted.id,
-                    mode=mode,
+                    mode="active",
                     inputs={
                         "policy": ctx.spec.model_dump(mode="json"),
                         "candidates": candidates,
@@ -522,8 +505,6 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
                     outcome=outcome,
                 )
             )
-        if runtime.shadow_only:
-            continue
         payload = result.state.model_dump(mode="json") if result.state else None
         messages = result.state.messages if result.state else None
         state_changed = (
@@ -559,8 +540,6 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
                 return [], {}
     await transaction.commit()
     await session.commit()
-    if runtime.shadow_only:
-        return [], {}
     expired = [
         unit
         for unit, result in decisions.items()

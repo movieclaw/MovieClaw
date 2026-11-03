@@ -23,12 +23,17 @@ display_name: OpenAI
 protocol: openai_responses
 selectable_protocols: [openai_responses, openai_chat]
 base_url: https://api.openai.com/v1
+# 公共目录（models.dev）对应的服务商与思考方式偏好（docs/design/llm-model-catalog.md §5）；
+# 下面 models 里的条目是内置修正，显式写出的字段覆盖公共目录。
+catalog_id: openai
+thinking_prefer: [effort]
 compat:
   thinking_field: null
   supports_stream_usage: true
 models:
   # Astra / 6.1 Sol 不支持 none；函数工具必须使用 Responses API。
   - id: gpt-6-astra
+    fixed_sampling: false  # 采样限制由 sampling_requires_no_reasoning 精确表达
     context_window: 1050000
     max_output_tokens: 128000
     max_tokens_parameter: max_completion_tokens
@@ -42,6 +47,7 @@ models:
       supports_off: false
     modalities: [text, image]
   - id: gpt-6.1-sol
+    fixed_sampling: false
     context_window: 1050000
     max_output_tokens: 128000
     max_tokens_parameter: max_completion_tokens
@@ -56,6 +62,7 @@ models:
     modalities: [text, image]
   # Sol / Luna 的 Chat Completions 工具调用只允许 reasoning_effort=none。
   - id: gpt-6-sol
+    fixed_sampling: false
     context_window: 1050000
     max_output_tokens: 128000
     max_tokens_parameter: max_completion_tokens
@@ -69,6 +76,7 @@ models:
       supports_off: true
     modalities: [text, image]
   - id: gpt-6-luna
+    fixed_sampling: false
     context_window: 1050000
     max_output_tokens: 128000
     max_tokens_parameter: max_completion_tokens
@@ -83,6 +91,7 @@ models:
     modalities: [text, image]
   # 旗舰：复杂推理与关键任务
   - id: gpt-5.6-sol
+    fixed_sampling: false
     context_window: 1050000
     max_output_tokens: 128000
     supports_tools: true
@@ -95,6 +104,7 @@ models:
     modalities: [text, image]
   # 均衡：日常编码 / 推理 / agent 任务
   - id: gpt-5.6-terra
+    fixed_sampling: false
     context_window: 1050000
     max_output_tokens: 128000
     supports_tools: true
@@ -107,6 +117,7 @@ models:
     modalities: [text, image]
   # 轻量：成本敏感的大批量任务
   - id: gpt-5.6-luna
+    fixed_sampling: false
     context_window: 1050000
     max_output_tokens: 128000
     supports_tools: true

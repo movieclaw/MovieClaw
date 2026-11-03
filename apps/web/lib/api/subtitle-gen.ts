@@ -20,11 +20,12 @@ async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
 
 /** 一个候选参考字幕的打分结论（预检确认框展示）。 */
 export interface SubtitleSourceCandidate {
-  kind: "embedded" | "external";
+  /** audio = 没有任何可用字幕时，由本地语音模型从这条音轨识别台词（docs/design/subtitle-asr.md） */
+  kind: "embedded" | "external" | "audio";
   key: string;
   language: string | null;
   format: string | null;
-  provenance: "original" | "pgs_ocr" | "ai" | "ai_bilingual";
+  provenance: "original" | "pgs_ocr" | "asr" | "ai" | "ai_bilingual";
   /** 非空 = 被排除原因（forced/目标语言/图形轨） */
   excluded: string | null;
   /** 打分明细："为什么选了这条"要能看懂 */
@@ -104,10 +105,12 @@ export function previewSubtitleGeneration(
   secondaryLanguage: string | null = null,
   sourceCandidateKey: string | null = null,
   signal?: AbortSignal,
+  retranscribe = false,
 ): Promise<SubtitleGenerationPreview> {
   const query = new URLSearchParams({ target_language: targetLanguage });
   if (secondaryLanguage) query.set("secondary_language", secondaryLanguage);
   if (sourceCandidateKey) query.set("source_candidate_key", sourceCandidateKey);
+  if (retranscribe) query.set("retranscribe", "true");
   return unwrap(
     request<ApiEnvelope<SubtitleGenerationPreview>>(
       `/libraries/files/${fileId}/subtitles/generation-preview?${query}`,
@@ -126,6 +129,8 @@ export function generateSubtitles(
     pgsOcrLanguage?: string | null;
     secondaryLanguage?: string | null;
     sourceCandidateKey?: string | null;
+    /** 参考选的是音轨时不用上次的识别结果，重新识别（默认复用） */
+    retranscribe?: boolean;
   } = {},
 ): Promise<JobView> {
   const {
@@ -133,6 +138,7 @@ export function generateSubtitles(
     pgsOcrLanguage = null,
     secondaryLanguage = null,
     sourceCandidateKey = null,
+    retranscribe = false,
   } = options;
   return unwrap(
     request<ApiEnvelope<JobView>>(
@@ -146,6 +152,7 @@ export function generateSubtitles(
           source_candidate_key: sourceCandidateKey,
           convert_pgs: convertPgs,
           pgs_ocr_language: pgsOcrLanguage,
+          retranscribe,
         }),
       },
     ),

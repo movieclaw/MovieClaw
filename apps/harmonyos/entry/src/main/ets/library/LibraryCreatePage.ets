@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
@@ -126,7 +127,7 @@ export struct LibraryCreatePage {
     }
   }
 
-  private async createLibrary(): Promise<void> {
+  private async create(): Promise<void> {
     const api: MovieClawApi | null = this.api();
     if (api === null || this.busy) {
       return;
@@ -365,18 +366,19 @@ export struct LibraryCreatePage {
           .backgroundColor(Theme.surface)
           .borderRadius(10)
         }, (path: string) => path)
-        Text('+ 添加目录')
-          .fontSize(14)
-          .fontColor(Theme.accentStrong)
-          .padding({ left: 12, right: 12, top: 11, bottom: 11 })
-          .width('100%')
-          .textAlign(TextAlign.Center)
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(10)
-          .border({ width: 1, color: Theme.lineStrong })
-          .onClick(() => {
-            this.addRoot();
-          })
+        Button() {
+          Text('+ 添加目录')
+            .fontSize(14)
+            .fontColor(Theme.accentStrong)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 11, bottom: 11 })
+        .width('100%')
+        .borderRadius(10)
+        .onClick(() => {
+          this.addRoot();
+        })
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
@@ -401,34 +403,38 @@ export struct LibraryCreatePage {
           .width('100%')
       }
 
-      Text(this.busy ? '创建中…' : '创建并开始扫描')
-        .fontSize(16)
-        .fontWeight(600)
-        .fontColor(this.ready() && !this.busy ? '#0b0d12' : Theme.textFaint)
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .padding({ top: 14, bottom: 14 })
-        .backgroundColor(this.ready() && !this.busy ? Theme.accent : Theme.glassFill)
-        .borderRadius(Theme.cardRadius)
-        .onClick(() => {
-          if (this.ready() && !this.busy) {
-            this.createLibrary();
-          }
-        })
+      Button() {
+        Text(this.busy ? '创建中…' : '创建并开始扫描')
+          .fontSize(16)
+          .fontWeight(600)
+          .fontColor(this.ready() && !this.busy ? '#0b0d12' : Theme.textFaint)
+          .textAlign(TextAlign.Center)
+      }
+      .attributeModifier(new GlassButtonModifier(this.ready() && !this.busy ? GlassTone.Primary : GlassTone.Secondary))
+      .width('100%')
+      .padding({ top: 14, bottom: 14 })
+      .borderRadius(Theme.cardRadius)
+      .onClick(() => {
+        if (this.ready() && !this.busy) {
+          this.create();
+        }
+      })
     }
     .width('100%')
   }
 
   @Builder
   AccessChip(mode: string, label: string) {
-    Text(label)
-      .fontSize(14)
-      .fontColor(this.accessMode === mode ? '#0b0d12' : Theme.textMuted)
-      .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-      .backgroundColor(this.accessMode === mode ? Theme.accent : Theme.glassFill)
-      .borderRadius(16)
-      .onClick(() => {
-        this.accessMode = mode;
-      })
+    Button() {
+      Text(label)
+        .fontSize(14)
+        .fontColor(this.accessMode === mode ? '#0b0d12' : Theme.textMuted)
+    }
+    .attributeModifier(new GlassButtonModifier(this.accessMode === mode ? GlassTone.Primary : GlassTone.Secondary))
+    .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+    .borderRadius(16)
+    .onClick(() => {
+      this.accessMode = mode;
+    })
   }
 }

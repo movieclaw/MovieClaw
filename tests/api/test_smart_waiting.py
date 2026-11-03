@@ -32,9 +32,3 @@ async def test_nas_old_episode_real_pipeline_selects_once_without_new_wait(db, m
         assert (
             await evaluate_and_dispatch(session, candidates, source="重复回放")
         ).dispatched_units == 0
-
-
-async def test_default_prediction_is_enabled_without_runtime_override():
-    from movieclaw_api.settings.smart_subscription import SmartAutomationSettings
-
-    assert SmartAutomationSettings().prediction_enabled

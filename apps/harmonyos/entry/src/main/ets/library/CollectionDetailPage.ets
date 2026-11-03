@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { RemoteImage } from '../common/RemoteImage';
@@ -877,7 +878,7 @@ export struct CollectionDetailPage {
         .bindMenu(this.ActionsMenu(), { showInSubWindow: false })
     }
     .width('100%')
-    .padding({ left: 12, right: 12, top: Theme.statusBarInset + 6, bottom: 6 })
+    .padding({ left: 12, right: 12, top: Theme.shellTopInset + 6, bottom: 6 })
     .bindSheet($$this.showRename, this.RenameSheet(), {
       height: SheetSize.FIT_CONTENT,
       dragBar: true,
@@ -981,29 +982,33 @@ export struct CollectionDetailPage {
           this.renameText = value;
         })
       Row({ space: 10 }) {
-        Text('取消')
-          .fontSize(16)
-          .fontColor(Theme.textMuted)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            this.showRename = false;
-          })
-        Text('保存')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#0b0d12')
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 13, bottom: 13 })
-          .backgroundColor(Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            this.saveRename();
-          })
+        Button() {
+          Text('取消')
+            .fontSize(16)
+            .fontColor(Theme.textMuted)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          this.showRename = false;
+        })
+        Button() {
+          Text('保存')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .layoutWeight(1)
+        .padding({ top: 13, bottom: 13 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          this.saveRename();
+        })
       }
       .width('100%')
     }
@@ -1166,17 +1171,18 @@ export struct CollectionDetailPage {
         .fontSize(13)
         .fontColor(Theme.textMuted)
         .textAlign(TextAlign.Center)
-      Text('重试')
-        .fontSize(14)
-        .fontWeight(600)
-        .fontColor(Theme.accentStrong)
-        .padding({ left: 20, right: 20, top: 9, bottom: 9 })
-        .backgroundColor(Theme.glassFill)
-        .borderRadius(18)
-        .border({ width: 1, color: Theme.lineStrong })
-        .onClick(() => {
-          this.load();
-        })
+      Button() {
+        Text('重试')
+          .fontSize(14)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+      }
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding({ left: 20, right: 20, top: 9, bottom: 9 })
+      .borderRadius(18)
+      .onClick(() => {
+        this.load();
+      })
     }
     .width('100%')
     .layoutWeight(1)
@@ -1257,7 +1263,7 @@ export struct CollectionDetailPage {
       .height('100%')
       .edgeEffect(EdgeEffect.None)
       .cachedCount(4)
-      .padding({ bottom: Theme.tabBarInset })
+      .contentEndOffset(Theme.tabBarInset)
       .onAreaChange((oldArea: Area, newArea: Area) => {
         const h: Length = newArea.height;
         this.wallViewportHeight = typeof h === 'number' ? h : 0;
@@ -1331,18 +1337,21 @@ export struct CollectionDetailPage {
   @Builder
   SortBar() {
     Row({ space: 8 }) {
-      Row({ space: 5 }) {
-        Text(this.sortLabel())
-          .fontSize(13)
-          .fontColor(Theme.text)
-        SymbolGlyph($r('sys.symbol.chevron_down'))
-          .fontSize(11)
-          .fontColor([Theme.textMuted])
+      Button() {
+        Row({ space: 5 }) {
+          Text(this.sortLabel())
+            .fontSize(13)
+            .fontColor(Theme.text)
+          SymbolGlyph($r('sys.symbol.chevron_down'))
+            .fontSize(11)
+            .fontColor([Theme.textMuted])
+        }
+        .padding({ left: 13, right: 13, top: 7, bottom: 7 })
       }
-      .padding({ left: 13, right: 13, top: 7, bottom: 7 })
-      .backgroundColor(Theme.glassFill)
+      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+      .padding(0)
+      .clip(true)
       .borderRadius(16)
-      .border({ width: 1, color: Theme.line })
       .onClick(() => {
         this.showSortMenu = true;
       })
@@ -1426,31 +1435,35 @@ export struct CollectionDetailPage {
         }
       })
       Row({ space: 10 }) {
-        Text('取消')
-          .fontSize(15)
-          .fontColor(Theme.textMuted)
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 11, bottom: 11 })
-          .backgroundColor(Theme.glassFill)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            this.editingFilter = null;
-          })
-        Text(this.editingFilterOrEmpty().isEmpty() ? '至少选一个条件' : '保存条件')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.editingFilterOrEmpty().isEmpty() ? Theme.textFaint : '#0b0d12')
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-          .padding({ top: 11, bottom: 11 })
-          .backgroundColor(this.editingFilterOrEmpty().isEmpty() ? Theme.glassFill : Theme.accent)
-          .borderRadius(Theme.cardRadius)
-          .onClick(() => {
-            if (!this.editingFilterOrEmpty().isEmpty()) {
-              this.saveRules();
-            }
-          })
+        Button() {
+          Text('取消')
+            .fontSize(15)
+            .fontColor(Theme.textMuted)
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .layoutWeight(1)
+        .padding({ top: 11, bottom: 11 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          this.editingFilter = null;
+        })
+        Button() {
+          Text(this.editingFilterOrEmpty().isEmpty() ? '至少选一个条件' : '保存条件')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.editingFilterOrEmpty().isEmpty() ? Theme.textFaint : '#0b0d12')
+            .textAlign(TextAlign.Center)
+        }
+        .attributeModifier(new GlassButtonModifier(this.editingFilterOrEmpty().isEmpty() ? GlassTone.Secondary : GlassTone.Primary))
+        .layoutWeight(1)
+        .padding({ top: 11, bottom: 11 })
+        .borderRadius(Theme.cardRadius)
+        .onClick(() => {
+          if (!this.editingFilterOrEmpty().isEmpty()) {
+            this.saveRules();
+          }
+        })
       }
       .width('100%')
     }

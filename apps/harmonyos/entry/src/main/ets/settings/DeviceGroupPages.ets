@@ -1,7 +1,9 @@
 import { display, promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
-import { PageTopBar } from '../common/PageTopBar';
+import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { DeviceText } from '../common/DeviceText';
@@ -148,6 +150,8 @@ export function DeviceDetailBuilder() {
 @ComponentV2
 export struct DeviceGroupListPage {
   private navStack: NavPathStack = new NavPathStack();
+  /** 列表滚动器：标题栏的渐变模糊 / 滑动显隐靠它驱动（同根页签） */
+  private scroller: Scroller = new Scroller();
   private started: boolean = false;
   /** 首次 onShown 不刷（onReady 已加载）；之后每次重新可见（从详情页返回）静默刷新 */
   private shownOnce: boolean = false;
@@ -365,11 +369,8 @@ export struct DeviceGroupListPage {
   // MARK: 视图
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        PageTopBar({ title: this.currentGroup().title, onBack: (): void => {
-          this.navStack.pop();
-        }})
         if (this.loading) {
           Column({ space: 10 }) {
             LoadingProgress().width(26).height(26).color(Theme.textMuted)
@@ -380,7 +381,7 @@ export struct DeviceGroupListPage {
           .justifyContent(FlexAlign.Center)
         } else {
           Refresh({ refreshing: $$this.refreshing }) {
-            Scroll() {
+            Scroll(this.scroller) {
               Column({ space: 16 }) {
                 if (this.errorMessage.length > 0) {
                   Text(this.errorMessage)
@@ -414,7 +415,7 @@ export struct DeviceGroupListPage {
                 }
               }
               .width('100%')
-              .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+              .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
             }
             .width('100%')
             .layoutWeight(1)
@@ -436,7 +437,11 @@ export struct DeviceGroupListPage {
       .height('100%')
       .backgroundColor(Theme.bg)
     }
-    .hideTitleBar(true)
+    // 二级页标题栏：与根页签同一套「沉浸光感渐变模糊 + 自适应材质」（见 common/AppNavBar）
+    .titleMode(HdsNavDestinationTitleMode.MINI)
+    .titleBar(AppNavBar.subPageTitleBar(this.currentGroup().title))
+    .bindToScrollable([this.scroller])
+    .dynamicHideTitleBar(AppNavBar.dynamicHide())
     .onReady((ctx: NavDestinationContext) => {
       this.navStack = ctx.pathStack;
       const params: GroupListParams | null = GroupListParams.of(ctx.pathInfo.param as Object | undefined);
@@ -581,34 +586,38 @@ export struct DeviceGroupListPage {
         // 尾部两个竖排按钮（右对齐）：改名 / 注销
         Column({ space: 6 }) {
           if (device.renamable) {
-            Text('改名')
-              .fontSize(13)
-              .fontColor(Theme.textMuted)
-              .textAlign(TextAlign.Center)
-              .padding({ left: 12, right: 12, top: 5, bottom: 5 })
-              .backgroundColor(Theme.glassFill)
-              .borderRadius(10)
-              .onClick((): void => {
-                this.promptRename(device);
-              })
-          }
-          Text(this.busyId === device.id ? '…' : '注销')
-            .fontSize(13)
-            .fontColor(Theme.danger)
-            .textAlign(TextAlign.Center)
+            Button() {
+              Text('改名')
+                .fontSize(13)
+                .fontColor(Theme.textMuted)
+                .textAlign(TextAlign.Center)
+            }
+            .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
             .padding({ left: 12, right: 12, top: 5, bottom: 5 })
-            .backgroundColor(Theme.glassFill)
             .borderRadius(10)
             .onClick((): void => {
-              if (this.busyId === device.id) {
-                return;
-              }
-              if (device.current) {
-                this.confirmLogout();
-              } else {
-                this.confirmRevoke(device);
-              }
+              this.promptRename(device);
             })
+          }
+          Button() {
+            Text(this.busyId === device.id ? '…' : '注销')
+              .fontSize(13)
+              .fontColor(Theme.danger)
+              .textAlign(TextAlign.Center)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 12, right: 12, top: 5, bottom: 5 })
+          .borderRadius(10)
+          .onClick((): void => {
+            if (this.busyId === device.id) {
+              return;
+            }
+            if (device.current) {
+              this.confirmLogout();
+            } else {
+              this.confirmRevoke(device);
+            }
+          })
         }
         .alignItems(HorizontalAlign.End)
       }
@@ -631,6 +640,8 @@ export struct DeviceGroupListPage {
 @ComponentV2
 export struct DeviceDetailPage {
   private navStack: NavPathStack = new NavPathStack();
+  /** 列表滚动器：标题栏的渐变模糊 / 滑动显隐靠它驱动（同根页签） */
+  private scroller: Scroller = new Scroller();
   private started: boolean = false;
 
   @Local private deviceId: string = '';
@@ -858,11 +869,8 @@ export struct DeviceDetailPage {
   // MARK: 视图
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        PageTopBar({ title: '设备详情', onBack: (): void => {
-          this.navStack.pop();
-        }})
         if (this.loading) {
           Column({ space: 10 }) {
             LoadingProgress().width(26).height(26).color(Theme.textMuted)
@@ -886,7 +894,7 @@ export struct DeviceDetailPage {
           .layoutWeight(1)
           .justifyContent(FlexAlign.Center)
         } else {
-          Scroll() {
+          Scroll(this.scroller) {
             Column({ space: 16 }) {
               this.BasicCard(this.device)
               this.ActivityCard(this.device)
@@ -909,7 +917,7 @@ export struct DeviceDetailPage {
                 .padding({ left: 4 })
             }
             .width('100%')
-            .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset })
+            .padding({ left: 16, right: 16, top: AppNavBar.contentTop + 8, bottom: Theme.tabBarInset })
           }
           .width('100%')
           .layoutWeight(1)
@@ -921,7 +929,11 @@ export struct DeviceDetailPage {
       .height('100%')
       .backgroundColor(Theme.bg)
     }
-    .hideTitleBar(true)
+    // 二级页标题栏：与根页签同一套「沉浸光感渐变模糊 + 自适应材质」（见 common/AppNavBar）
+    .titleMode(HdsNavDestinationTitleMode.MINI)
+    .titleBar(AppNavBar.subPageTitleBar('设备详情'))
+    .bindToScrollable([this.scroller])
+    .dynamicHideTitleBar(AppNavBar.dynamicHide())
     .onReady((ctx: NavDestinationContext) => {
       this.navStack = ctx.pathStack;
       const params: DetailParams | null = DetailParams.of(ctx.pathInfo.param as Object | undefined);

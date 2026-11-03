@@ -1,3 +1,5 @@
+import { WindowInsets } from './WindowInsets';
+
 /**
  * 全局外壳（底部标签栏）的显隐状态。
  *
@@ -19,6 +21,15 @@ export class ShellChrome {
       ShellChrome.instance = new ShellChrome();
     }
     return ShellChrome.instance;
+  }
+
+  /** 「接着看」或 AI 输入卡的占位，列表末尾可滚到附件上方。收起时保留占位以免滚动跳动。 */
+  @Trace bottomAccessoryInset: number = 0;
+
+  setBottomAccessoryInset(value: number): void {
+    if (this.bottomAccessoryInset === value) { return; }
+    this.bottomAccessoryInset = value;
+    WindowInsets.bumpRevision();
   }
 
   /** 当前压在上面的整屏页标记（底 → 顶） */

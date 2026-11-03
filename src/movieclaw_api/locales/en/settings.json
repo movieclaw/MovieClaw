@@ -88,7 +88,9 @@
       "smartSelectionDueTitle": "Resolve smart subscription waits",
       "smartSelectionDueDescription": "Recover smart submission intents and make decisions when a fixed deadline or observation window expires.",
       "backfillUpgradeSnapshotsTitle": "Backfill upgrade baselines",
-      "backfillUpgradeSnapshotsDescription": "Fill quality snapshots for previously ingested units in subscriptions referenced by rule sets with upgrade targets. These snapshots are the baseline for upgrade comparisons. Runs gradually in database-only batches and becomes a no-op when complete."
+      "backfillUpgradeSnapshotsDescription": "Fill quality snapshots for previously ingested units in subscriptions referenced by rule sets with upgrade targets. These snapshots are the baseline for upgrade comparisons. Runs gradually in database-only batches and becomes a no-op when complete.",
+      "llmCatalogRefreshTitle": "Update model catalog",
+      "llmCatalogRefreshDescription": "Fetches the latest model list from each model provider and refreshes model parameters from models.dev. Skips anything updated within the last 24 hours, and does nothing when no model provider is connected."
     }
   },
   "ai": {

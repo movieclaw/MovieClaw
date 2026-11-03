@@ -264,6 +264,7 @@ library items share revoke
 library items transfer
 library list
 library list-routing-options
+library list-source-providers
 library metadata
 library metadata get-refresh-status
 library metadata refresh-library
@@ -293,6 +294,8 @@ library subtitles generate
 library subtitles preview-generation
 library update
 llm
+llm catalog
+llm catalog providers
 llm chatgpt
 llm chatgpt login
 llm defaults
@@ -305,6 +308,9 @@ llm providers
 llm providers create
 llm providers delete
 llm providers list
+llm providers models
+llm providers models refresh
+llm providers models visibility
 llm providers show
 llm providers update
 llm providers verify
