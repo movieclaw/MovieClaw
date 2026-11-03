@@ -183,7 +183,7 @@
   },
   "ingestFailed": {
     "title": "{count, plural, one {# entry failed} other {# entries failed}} to import from watch folder {path}",
-    "body": "{names}{overflow, select, yes { and other entries (# {count} total)} other {}} failed to process. MovieClaw will retry with backoff. See the list in Settings → Watch folders for details.",
+    "body": "{names}{overflow, select, yes { and other entries (# {count} total)} other {}} failed to process. MovieClaw will retry with backoff. See the list in Settings → Automatic import for details.",
     "names": "{count, plural, =1 {\"{first}\"} =2 {\"{first}\", \"{second}\"} other {\"{first}\", \"{second}\", \"{third}\"}}"
   },
   "pluginRollback": {
@@ -229,6 +229,6 @@
     "testSent": "Sent to {count, plural, one {# account} other {# accounts}}"
   },
   "landingIgnored": {
-    "body": "\"{name}\" finished downloading, but downloaded content for {units} was skipped because it is in the ignored watch entry \"{paths}\" and cannot be imported automatically. Go to Settings → Watch Import, restore the entry in the corresponding rule’s list, and wait for the next scan. To keep it ignored, handle these files manually."
+    "body": "\"{name}\" finished downloading, but downloaded content for {units} was skipped because it is in the ignored watch entry \"{paths}\" and cannot be imported automatically. Go to Settings → Automatic import, restore the entry in the corresponding rule’s list, and wait for the next scan. To keep it ignored, handle these files manually."
   }
 }

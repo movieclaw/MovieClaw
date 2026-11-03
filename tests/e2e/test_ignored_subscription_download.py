@@ -119,6 +119,7 @@ async def test_ignored_new_episode_is_visible_and_manual_restore_clears_notice(
         assert notice["payload"]["ignored_paths"] == [str(entry)]
         assert "S01E01" in notice["message"] and "被跳过" in notice["message"]
         assert str(entry) in notice["message"] and "恢复该条目后等待巡检" in notice["message"]
+        assert "设置 → 自动入库" in notice["message"]
         async with db.session() as session:
             assert (await _landing_errors(session))[(sub_id, info_hash)] == notice["message"]
             assert (await session.get(IngestEntry, entry_id)).status == IngestStatus.IGNORED
@@ -138,6 +139,7 @@ async def test_ignored_new_episode_is_visible_and_manual_restore_clears_notice(
                 .all()
             )
             assert activity.payload["reason"] == "ingest_ignored"
+            assert activity.message == notice["message"]
             assert activity.payload["ignored_paths"] == [str(entry)]
             assert not (await session.execute(select(Job))).scalars().all()
             assert not (await session.execute(select(LibraryFile))).scalars().all()

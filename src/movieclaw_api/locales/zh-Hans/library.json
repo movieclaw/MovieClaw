@@ -724,7 +724,7 @@
     "queued": "等待自动整理入库",
     "upgradeActor": "MovieClaw 升级补偿",
     "sweepActor": "监听导入巡检",
-    "listActor": "监听导入清单",
+    "listActor": "自动入库清单",
     "baselineIgnored": "规则生效时已存在于源目录，按「跳过存量」设置未处理；可在清单中恢复处理",
     "progress": {
       "checking": "正在检查「{name}」是否完整",
@@ -748,7 +748,7 @@
     "probeFailed": "主视频「{name}」探测失败——可能尚未下载完成或已损坏，文件变化后自动重试",
     "claimRebuildFailed": "按认领身份重建条目失败（{error}）；将自动重试",
     "identifyInterrupted": "识别中断：{reason}；将自动重试",
-    "unidentified": "无法自动识别「{name}」对应的影视条目；可在监听导入清单中搜索认领，或把条目改名为「标题 (年份)」形式自动重试",
+    "unidentified": "无法自动识别「{name}」对应的影视条目；可在自动入库清单中搜索认领，或把条目改名为「标题 (年份)」形式自动重试",
     "routeSubscription": "入库到订阅指定的「{name}」",
     "routeManual": "入库到手动下载时确认的「{name}」",
     "noRouteLibrary": "没有可用的{kind}媒体库，无法自动路由入库；请先到「媒体库」创建",
@@ -831,15 +831,15 @@
       "done": "监听条目已完成入库"
     },
     "blocked": {
-      "identity": "无法自动识别该条目，请到监听导入清单认领",
+      "identity": "无法自动识别该条目，请到自动入库清单认领",
       "review": "监听条目需要人工确认"
     },
     "action": {
-      "view": "查看监听导入",
-      "claim": "去监听导入认领"
+      "view": "查看自动入库",
+      "claim": "去自动入库认领"
     },
     "ignoredManually": "已手动忽略；如需处理可在清单中恢复",
-    "cancelIgnored": "条目已在监听导入清单中手动忽略，任务随之取消；如需处理可在清单中恢复",
+    "cancelIgnored": "条目已在自动入库清单中手动忽略，任务随之取消；如需处理可在清单中恢复",
     "cancelIgnoredStartup": "监听导入条目已被忽略，系统在启动对账时自动收口遗留任务",
     "batchSuperseded": "该条目所有文件已完整入库，本批次任务被新一轮入库取代，系统自动收口",
     "cancelDiscSegment": "原盘流分段不是独立视频，本批次由升级后的入库逻辑自动收口",

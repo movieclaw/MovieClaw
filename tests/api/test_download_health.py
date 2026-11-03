@@ -452,6 +452,7 @@ async def test_ignored_landing_reports_mapped_watch_entry_once(db, monkeypatch, 
     assert notice.payload["units"] == [[1, 1]]
     assert "S01E01" in notice.message and str(entry) in notice.message
     assert "被跳过" in notice.message and "恢复该条目后等待巡检" in notice.message
+    assert "设置 → 自动入库" in notice.message
     async with db.session() as session:
         [activity] = (await session.execute(select(SubscriptionActivity))).scalars().all()
         assert activity.type == ActivityType.IMPORT_FAILED

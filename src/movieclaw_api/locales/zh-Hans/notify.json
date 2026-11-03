@@ -183,7 +183,7 @@
   },
   "ingestFailed": {
     "title": "监听目录 {path} 有 {count} 个条目导入失败",
-    "body": "{names}{overflow, select, yes { 等 {count} 个条目} other {}}处理失败，将自动退避重试；具体原因见「设置 → 监听导入」的清单。",
+    "body": "{names}{overflow, select, yes { 等 {count} 个条目} other {}}处理失败，将自动退避重试；具体原因见「设置 → 自动入库」的清单。",
     "names": "{count, plural, =1 {「{first}」} =2 {「{first}」、「{second}」} other {「{first}」、「{second}」、「{third}」}}"
   },
   "pluginRollback": {
@@ -229,6 +229,6 @@
     "testSent": "已推送到 {count} 个账号"
   },
   "landingIgnored": {
-    "body": "「{name}」已下载完成，但 {units} 的下载内容落在已忽略的监听条目「{paths}」中，被跳过，无法自动入库。请前往「设置 → 监听导入」的对应规则清单，恢复该条目后等待巡检；若要继续忽略，请手动处理这些文件。"
+    "body": "「{name}」已下载完成，但 {units} 的下载内容落在已忽略的监听条目「{paths}」中，被跳过，无法自动入库。请前往「设置 → 自动入库」的对应规则清单，恢复该条目后等待巡检；若要继续忽略，请手动处理这些文件。"
   }
 }
