@@ -3,7 +3,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { util } from '@kit.ArkTS';
 import { EngineSource, EngineFailure, EngineId } from '@movieclaw/player-engine';
-import { MediaLease, PlaybackMedia, shiftSubtitleTimeline } from '@movieclaw/playback';
+import { assToSrt, MediaLease, PlaybackMedia, shiftSubtitleTimeline } from '@movieclaw/playback';
 import { OfflineDisk } from '../offline/OfflineDisk';
 
 class PhoneMediaLease implements MediaLease {
@@ -27,6 +27,15 @@ class PhoneMediaLease implements MediaLease {
     if (this.media !== null) { fileIo.closeSync(this.media); }
     if (this.subtitle !== null) { fileIo.closeSync(this.subtitle); }
     if (this.temporaryPath.length > 0) { fileIo.unlinkSync(this.temporaryPath); }
+  }
+}
+
+class DownloadedSubtitle {
+  public path: string;
+  public format: string;
+  constructor(path: string, format: string) {
+    this.path = path;
+    this.format = format;
   }
 }
 
@@ -59,12 +68,15 @@ export class PhoneMedia implements PlaybackMedia {
     let media: fileIo.File | null = null;
     let subtitle: fileIo.File | null = null;
     let temporaryPath = '';
+    let subtitleFormat = '';
     try {
       // Fetch optional subtitles outside the native command queue, with HTTP deadlines.
       // A missing subtitle must never prevent acquisition of the video source.
       if (this.subtitleUrl.length > 0 && this.subtitlePath.length === 0) {
         try {
-          temporaryPath = await this.downloadSubtitle(engine);
+          const downloaded = await this.downloadSubtitle(engine);
+          temporaryPath = downloaded.path;
+          subtitleFormat = downloaded.format;
           subtitle = fileIo.openSync(temporaryPath, fileIo.OpenMode.READ_ONLY);
         } catch (error) {
           if (temporaryPath.length > 0) { fileIo.unlinkSync(temporaryPath); temporaryPath = ''; }
@@ -72,11 +84,16 @@ export class PhoneMedia implements PlaybackMedia {
         }
       }
       if (this.path.length > 0) { media = fileIo.openSync(this.path, fileIo.OpenMode.READ_ONLY); }
-      if (this.subtitlePath.length > 0) { subtitle = fileIo.openSync(this.subtitlePath, fileIo.OpenMode.READ_ONLY); }
+      if (this.subtitlePath.length > 0) {
+        subtitle = fileIo.openSync(this.subtitlePath, fileIo.OpenMode.READ_ONLY);
+        // 离线外挂按文件扩展名给格式（mpv 用它判定原生上屏层开关）。
+        subtitleFormat = this.subtitlePath.split('.').pop()?.toLowerCase() ?? '';
+      }
       const source: EngineSource = { url: this.url, fd: media?.fd ?? -1,
         length: media === null ? 0 : OfflineDisk.fileSize(this.path),
         subtitleUrl: '', subtitleFd: subtitle?.fd ?? -1,
-        subtitleOffsetMs: engine === 'mpv' ? this.originMs : 0 };
+        subtitleOffsetMs: engine === 'mpv' ? this.originMs : 0,
+        subtitleFormat: subtitleFormat };
       return new PhoneMediaLease(source, media, subtitle, temporaryPath);
     } catch (error) {
       if (media !== null) { fileIo.closeSync(media); }
@@ -86,7 +103,7 @@ export class PhoneMedia implements PlaybackMedia {
       throw new EngineFailure('source', 0, '本机媒体或字幕文件不可用');
     }
   }
-  private async downloadSubtitle(engine: EngineId): Promise<string> {
+  private async downloadSubtitle(engine: EngineId): Promise<DownloadedSubtitle> {
     const request = http.createHttp();
     try {
       // 内封轨首抽要通读整个容器（PT 片源几十 GB 常见），服务端抽完才开始回包；
@@ -108,7 +125,13 @@ export class PhoneMedia implements PlaybackMedia {
         const text = util.TextDecoder.create('utf-8').decodeToString(bytes);
         if (text.includes('-->') || text.includes('Dialogue:') || text.includes('WEBVTT')) {
           extension = text.includes('[Script Info]') ? 'ass' : text.includes('WEBVTT') ? 'vtt' : 'srt';
-          if (shift) { content = shiftSubtitleTimeline(text, this.originMs); }
+          if (extension === 'ass' && engine === 'avplayer') {
+            // 系统播放器外挂只认 SRT/VTT：ASS 就地转纯文本 SRT（Android SubtitleCues 同口径，样式丢弃）。
+            extension = 'srt';
+            content = shift ? shiftSubtitleTimeline(assToSrt(text), this.originMs) : assToSrt(text);
+          } else if (shift) {
+            content = shiftSubtitleTimeline(text, this.originMs);
+          }
         } else if (shift) {
           throw new EngineFailure('unsupported', 0, '系统播放器不支持此字幕格式');
         }
@@ -119,7 +142,7 @@ export class PhoneMedia implements PlaybackMedia {
       try { fileIo.writeSync(file.fd, content); }
       catch (error) { fileIo.closeSync(file); fileIo.unlinkSync(path); throw new EngineFailure('source', 0, '字幕临时文件写入失败'); }
       fileIo.closeSync(file);
-      return path;
+      return new DownloadedSubtitle(path, extension);
     } finally { request.destroy(); }
   }
 

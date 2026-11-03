@@ -25,6 +25,8 @@ export interface EngineSource {
   subtitleUrl: string;
   subtitleFd: number;
   subtitleOffsetMs?: number;
+  /** Content-sniffed sidecar format: 'ass' | 'srt' | 'vtt' | 'sup' | 'sub' | '' (none/offline-unknown). */
+  subtitleFormat?: string;
 }
 
 export interface EngineTrack {

@@ -9,6 +9,19 @@ interface NativeTrack {
   lang?: string;
   title?: string;
   selected?: boolean;
+  codec?: string;
+}
+
+/**
+ * mpv track-list codec 里的位图字幕家族（PGS/DVB/DVD/XSUB/teletext）：
+ * 原生渲染、sub-text 恒空；其余（ass/subrip/webvtt/mov_text 等）是文字轨，
+ * 交给 ArkTS 覆盖层，mpv 原生上屏层关掉。
+ */
+const BITMAP_SUBTITLE_CODECS: string[] =
+  ['hdmv_pgs_subtitle', 'pgssub', 'dvd_subtitle', 'dvb_subtitle', 'xsub', 'dvb_teletext'];
+
+function isTextualSubtitleCodec(codec: string): boolean {
+  return codec.length > 0 && !BITMAP_SUBTITLE_CODECS.includes(codec);
 }
 
 /** Loaded only when the factory selects MPV. No AVPlayer-shaped compatibility API. */
@@ -57,6 +70,14 @@ export class MpvEngine implements PlayerEngine {
       if (this.released) { return; }
       await this.send(['loadfile', source.fd >= 0 ? `fd://${source.fd}` : source.url, 'replace']);
       await loaded;
+      // 外挂文字字幕（ass/srt/vtt）关掉 mpv 原生上屏层：sub-visibility=no 仍选择并解码，
+      // sub-text 事件照常触发（mpv 手册：The current subtitle text regardless of sub
+      // visibility），ArkTS 覆盖层成为唯一渲染层——与 avp/iOS/Android 同构。
+      // 位图（PGS）与未知 .sub 保持原生渲染（sub-text 恒空，覆盖层无事可做）。
+      // 每次打开都显式重设，避免上一次播放的设置残留到本次默认轨。
+      const format = source.subtitleFormat ?? '';
+      const textSub = format === 'ass' || format === 'srt' || format === 'vtt';
+      await this.set('sub-visibility', textSub ? 'no' : 'yes');
       try {
         if (source.subtitleFd >= 0) {
           await this.send(['sub-add', `fd://${source.subtitleFd}`, 'select']);
@@ -106,6 +127,17 @@ export class MpvEngine implements PlayerEngine {
   }
   async selectTrack(kind: string, id: number): Promise<void> {
     await this.set(kind === 'audio' ? 'aid' : 'sid', id < 0 ? 'no' : `${id}`);
+    if (kind !== 'subtitle') { return; }
+    // 内封字幕轨经 sid 直选/关闭后，按新轨的 codec 重判上屏层：文字轨继续交给覆盖层
+    // （sub-text 与 sub-visibility 无关，事件照常），位图轨恢复原生渲染；关闭字幕时复位。
+    try {
+      const list: NativeTrack[] = JSON.parse(await tracks(this.handle)) as NativeTrack[];
+      const chosen = list.find((track: NativeTrack): boolean => track.type === 'sub' && track.selected === true);
+      await this.set('sub-visibility',
+        chosen !== undefined && isTextualSubtitleCodec(chosen.codec ?? '') ? 'no' : 'yes');
+    } catch (error) {
+      hilog.warn(0x0000, 'MCSub', '内封字幕轨 sub-visibility 重判失败: %{public}s', `${error}`);
+    }
   }
   async setSubtitleStyle(style: SubtitleStyle): Promise<void> {
     // sub-font-size 的量纲是 720 高的画布：ass_mp.c 的换算是
@@ -201,8 +233,10 @@ export class MpvEngine implements PlayerEngine {
         event.text = native.text.length > 0 ? `MPV 硬解已启用: ${native.text}` : 'MPV 软件解码中';
         this.emitDecode();
       } else if (native.name === 'sub-text') {
-        // vo_gpu 的 OSD 合成层在本平台不绘制（libass 字幕与 show-text 自检均不可见）：
-        // 解码出的字幕文本走事件交给应用层覆盖层渲染，与 avp 引擎共用同一条 subtitle 事件链。
+        // sub-text 与 sub-visibility 无关（mpv 手册：current subtitle text regardless
+        // of sub visibility, formatting stripped）。文字轨由 open()/selectTrack 设
+        // sub-visibility=no 关掉原生上屏后，本事件是覆盖层的唯一数据源；位图轨
+        // （PGS）sub-text 恒空，走 mpv 原生渲染。
         event.type = 'subtitle'; event.text = native.text;
       } else { return; }
     } else {

@@ -197,9 +197,12 @@ void Execute(napi_env, void *data) {
     // hwdec-current is the runtime decoder actually in use ("h264_ohcodec" etc.,
     // empty for software decode); video-format and video-params/pixelformat
     // ("nv12"/"p010") identify codec and bit depth for the diagnostics panel.
-    // sub-text: the vo_gpu OSD composite layer draws nothing on this platform
-    // (libass subtitles and show-text are both invisible), so the decoded cue
-    // text is surfaced as events for the app-side ArkUI overlay renderer.
+    // sub-text fires regardless of sub-visibility (mpv manual: "The current
+    // subtitle text regardless of sub visibility"), so it remains the sole
+    // data source for the app-side ArkUI overlay. Textual subtitle tracks set
+    // sub-visibility=no from ArkTS (MpvEngine open/selectTrack) to keep the
+    // libass native render layer off — the overlay is the single subtitle
+    // layer; bitmap tracks (PGS) keep native rendering, sub-text stays empty.
     for (const char *property : {"hwdec-current", "video-format", "video-params/pixelformat", "sub-text"}) {
       work.error = mpv_observe_property(engine.mpv, observer++, property, MPV_FORMAT_STRING);
       if (work.error < 0) return;
