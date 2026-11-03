@@ -36,6 +36,9 @@ from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
     ActivityType,
     DownloadAttemptStatus,
+    ImportWatch,
+    IngestEntry,
+    IngestStatus,
     MediaItem,
     SiteTorrent,
     SubscriptionActivity,
@@ -1035,7 +1038,7 @@ async def _verify_landing(
     downloader: DownloaderClient,
     status,
 ) -> bool:
-    """核验已完成种子的落点：movieclaw 侧看不到内容则记告警活动（去重）。
+    """核验已完成种子的落点：内容不可见或监听条目被忽略则记告警活动（去重）。
 
     判定：下载器上报的实际保存目录反向过路径映射翻译回 movieclaw 视角，
     在本地 stat 种子内容根（首个文件的顶层段，或任务名）。看不到就说明
@@ -1043,7 +1046,7 @@ async def _verify_landing(
     监听导入和库扫描永远等不到它，必须把问题亮到时间线上。
     不退回重找：数据真实存在，重找只会重复下载到同一个黑洞。
 
-    返回落点是否可见——只有确认可见（True）才有资格进入后续的内容核验；
+    返回落点是否可交给入库——可见且未被监听忽略才进入后续的内容核验；
     宽限期内或证据不全一律返回 False（本轮不判，不代表落点有问题）。
     """
     from movieclaw_api.services.torrent_submit import translate_to_local
@@ -1061,6 +1064,10 @@ async def _verify_landing(
     # 测试替身可能没有——没有就只做单种子告警，不做分组
     downloader_id = getattr(downloader, "id", None)
     if (Path(local_dir) / root).exists():
+        if downloader_id is not None:
+            await resolve_landing_group(session, downloader_id, local_dir)
+        if await _report_ignored_landing(session, repo, rows, info_hash, local_dir, status):
+            return False
         # 落点可见，等监听导入/库扫描接管即可；此前若报过"看不到"（映射
         # 刚修好/卷刚挂上），问题已消失，红灯就地熄灭——目录级红灯一并熄灭：
         # 这个目录里的内容看得见了，"目录不可见"的前提已不成立
@@ -1068,8 +1075,6 @@ async def _verify_landing(
             session,
             dedupe_key=f"subscription.landing:{rows[0].subscription_id}:{info_hash}",
         )
-        if downloader_id is not None:
-            await resolve_landing_group(session, downloader_id, local_dir)
         return True
 
     # 不给"可能是映射缺失、或卷未挂载、或文件被移动"的选择题——系统自己
@@ -1151,6 +1156,88 @@ async def _verify_landing(
         status.save_path,
     )
     return False
+
+
+async def _report_ignored_landing(
+    session: AsyncSession,
+    repo: SubscriptionRepository,
+    rows: list[WantedItem],
+    info_hash: str,
+    local_dir: str,
+    status: TorrentStatus,
+) -> bool:
+    """下载已落盘，但监听条目被永久忽略：只报告阻塞，不恢复或重下。"""
+    files = [file.path for file in status.files if getattr(file, "selected", True)]
+    paths = [Path(local_dir) / path for path in (files if status.files else [status.name])]
+    sources = (await session.execute(select(ImportWatch.source_path))).scalars().all()
+    candidates = set()
+    for source in sources:
+        source_path = Path(source)
+        for path in paths:
+            if path.is_relative_to(source_path) and path != source_path:
+                candidates.add(str(source_path / path.relative_to(source_path).parts[0]))
+    if not candidates:
+        return False
+    ignored = sorted(
+        (
+            await session.execute(
+                select(IngestEntry.entry_path).where(
+                    IngestEntry.entry_path.in_(candidates),  # type: ignore[attr-defined]
+                    IngestEntry.status == IngestStatus.IGNORED,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not ignored:
+        return False
+
+    params = {"name": status.name, "units": units_reference(rows), "paths": "、".join(ignored)}
+    payload = {
+        "subscription_id": rows[0].subscription_id,
+        "info_hash": info_hash,
+        "reason": "ingest_ignored",
+        "ignored_paths": ignored,
+        "units": [[row.season_number, row.episode_number] for row in rows],
+    }
+    await upsert_notice(
+        session,
+        dedupe_key=f"subscription.landing:{rows[0].subscription_id}:{info_hash}",
+        severity=NoticeSeverity.ERROR,
+        source="subscription",
+        title_key="notify.landingFailed.title",
+        message_key="notify.landingIgnored.body",
+        message_params=params,
+        payload=payload,
+    )
+    existing = (
+        (
+            await session.execute(
+                select(SubscriptionActivity).where(
+                    SubscriptionActivity.subscription_id == rows[0].subscription_id,
+                    SubscriptionActivity.type == ActivityType.IMPORT_FAILED,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not any(
+        (activity.payload or {}).get("info_hash") == info_hash
+        and (activity.payload or {}).get("reason") == "ingest_ignored"
+        for activity in existing
+    ):
+        await repo.add_activity(
+            SubscriptionActivity(
+                subscription_id=rows[0].subscription_id,
+                wanted_item_id=rows[0].id,
+                type=ActivityType.IMPORT_FAILED,
+                **reference_fields(reference("notify.landingIgnored.body", **params)),
+                payload=payload,
+            )
+        )
+    return True
 
 
 # 种子内文件的季集声明：场景命名 SxxEyy。第二组抓整段集号串——连写
