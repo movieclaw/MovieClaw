@@ -183,7 +183,9 @@ def seed_preview_fixture(root):
     for name, count in [("whole", 3), ("split", 14)]:
         session_id = "preview-" + name
         store.create(session_id)
-        store.append(session_id, ChatMessage(role="user", content="Recommend films with headings and a list"))
+        store.append(
+            session_id, ChatMessage(role="user", content="Recommend films with headings and a list")
+        )
         text = "\n\n".join(
             f"## Recommendation {index + 1}\n\n"
             + "A quiet film with warm characters, thoughtful photography and a gentle story. " * 3
