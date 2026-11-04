@@ -258,6 +258,26 @@ async def test_scan_video_library_makes_local_items_without_tmdb(db, tmp_path) -
         assert len((await session.execute(select(MediaItem))).scalars().all()) == 2
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="需要系统 ffmpeg / ffprobe")
+async def test_scan_records_the_main_title_spec_of_a_disc_image(db, tmp_path) -> None:
+    """用户把 ISO 放进库里扫一遍（真 ffprobe）：台账的片长与码率都按盘内正片算。"""
+    from tests.api.test_iso_source import real_bluray_image
+
+    root = tmp_path / "media" / "home"
+    root.mkdir(parents=True)
+    image, title_bytes = real_bluray_image(tmp_path)
+    (root / "老电影.iso").write_bytes(image)
+    library = await _make_video_library(db, root)
+
+    await scan_library(library.id)
+
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+    assert (row.container, row.video_codec) == ("iso", "mpeg2video")
+    assert row.duration_seconds == 6
+    assert row.bit_rate == round(title_bytes * 8 / 6)
+
+
 async def test_scan_video_library_absorbs_late_sidecar_nfo(db, tmp_path) -> None:
     """扫描后才补进来的 NFO 也要被吸收（秒过行重读 sidecar）。"""
     root = tmp_path / "media" / "home"

@@ -209,7 +209,9 @@ def _probe_disc_image(path: str | Path) -> MediaSpec | None:
     （``subfile`` 协议），带上 PID 与 CLPI 里的语言——按剪辑直推的播放器靠它们对轨
     （disc-clip-play.md）。片长换成盘内正片的时长（蓝光主播放列表 / DVD 正片节目链）：ffprobe 对
     整个镜像估的片长常常离谱，NAS 实测一集 DVD 记成 4 秒、一部蓝光多出一小时。
-    剪辑探不出（或不是蓝光镜像）才退回探整个镜像。
+    码率换成正片字节算的平均码率（``DiscSource.bit_rate``）：ffprobe 的码率跟着它估的片长走，
+    探第一段剪辑又只代表那一段（NAS 实测高出上千倍的和低到二十分之一的都有）；读不出盘内结构时
+    无从核实，记未知。剪辑探不出（或不是蓝光镜像）才退回探整个镜像。
     """
     # 延迟导入：播放源模块依赖面大，探测模块保持轻量；bluray 模块反过来依赖本模块
     from movieclaw_api.services.library.bluray import (
@@ -239,7 +241,10 @@ def _probe_disc_image(path: str | Path) -> MediaSpec | None:
     if spec is None:
         payload = _ffprobe(path)
         spec = _parse_probe(payload) if payload is not None else None
-    if spec is None or source is None or source.duration_s <= 0:
+    if spec is None:
+        return None
+    spec = replace(spec, bit_rate=source.bit_rate if source is not None else None)
+    if source is None or source.duration_s <= 0:
         return spec
     return replace(spec, duration_seconds=round(source.duration_s))
 
