@@ -190,3 +190,24 @@ def test_chinese_season_episode_names_are_selectable(path, unit):
 def test_chinese_ranges_are_never_selected(name):
     with pytest.raises(UnsatisfiableSelection):
         plan_strict_file_selection([name], {(1, 1)}, known_seasons=[1])
+
+
+def test_site_season_pilot_is_never_selected_as_a_regular_episode():
+    """PR #1176 评审第 4 点：站点 S02E00（特辑）不能被翻译成 (1, 12) 选中下载。
+
+    严格文件选择先翻译季号再判零集号：E00 若先被平移，就绕过了"集号为 0
+    不选"的既有规则，特辑被当成正片 E12 下载、入库。
+    """
+    from movieclaw_matcher.seasons import SeasonBlock, SeasonMapping
+
+    mapping = SeasonMapping(blocks=(SeasonBlock(site_season=2, season=1, start=13, end=25),))
+    files = ["Solo.Leveling.S02/Solo.Leveling.S02E00.Special.mkv"] + [
+        f"Solo.Leveling.S02/Solo.Leveling.S02E{n:02}.mkv" for n in range(1, 14)
+    ]
+    plan = plan_strict_file_selection(
+        files, {(1, 13), (1, 14)}, known_seasons=[1], season_mapping=mapping
+    )
+    assert plan.keep_indices == [1, 2]
+    # 订阅确实在等 E12 时，特辑也不能顶替它：E12 在这个包里不存在
+    with pytest.raises(UnsatisfiableSelection):
+        plan_strict_file_selection(files, {(1, 12)}, known_seasons=[1], season_mapping=mapping)

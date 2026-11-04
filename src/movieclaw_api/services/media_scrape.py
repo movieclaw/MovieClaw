@@ -1266,6 +1266,10 @@ def profile_season_mapping(profile: MediaProfile) -> list[dict]:
 
     建档（``media_library._to_rows``）与刷新（``apply_display_profile``）两条
     落库路径共用：新条目建档后第一次匹配就要能读到映射，不能等下一轮刷新。
+
+    条目完整的季列表（含集表还空着的季）一并传入：站点季号撞上 TMDB 真实
+    存在的季时不落映射。季台账（``media_season``）也只在这两条路径上、由同
+    一份档案写入，映射因此总是按最新的季表过滤过——消费侧不必各自再查。
     """
     from movieclaw_matcher.seasons import derive_season_mapping, mapping_to_json
 
@@ -1279,7 +1283,8 @@ def profile_season_mapping(profile: MediaProfile) -> list[dict]:
                 )
                 for season in profile.seasons
                 for episode in season.episodes
-            ]
+            ],
+            seasons=[season.season_number for season in profile.seasons],
         )
     )
 

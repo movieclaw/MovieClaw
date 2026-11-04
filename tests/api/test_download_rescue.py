@@ -541,3 +541,15 @@ async def test_empty_file_list_untouched(db, tmp_path, monkeypatch) -> None:
     async with db.session() as session:
         wanted = await _wanted_map(session, sub_id)
         assert all(w.status == WantedStatus.GRABBED for w in wanted.values())
+
+
+def test_observed_units_does_not_shift_site_season_pilot() -> None:
+    """PR #1176 评审第 4 点：清单里的站点 S02E00 是特辑，不能被认成正片 (1, 12)。
+
+    否则"包里有 E12"的错误结论会让核验放过真正缺的 E12。
+    """
+    from movieclaw_matcher.seasons import SeasonBlock, SeasonMapping
+
+    mapping = SeasonMapping(blocks=(SeasonBlock(site_season=2, season=1, start=13, end=25),))
+    files = _files("Show.S02E00.Special.mkv", "Show.S02E01.mkv")
+    assert _observed_units(files, mapping) == {(2, 0), (1, 13)}

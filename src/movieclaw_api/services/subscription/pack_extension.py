@@ -33,7 +33,7 @@ from movieclaw_db.repositories.downloader_repo import DownloaderRepository
 from movieclaw_downloader.factory import create_downloader
 from movieclaw_downloader.models import DownloaderConfig, SubmitResult
 from movieclaw_matcher import TorrentCandidate
-from movieclaw_matcher.seasons import mapping_from_json
+from movieclaw_matcher.seasons import mapping_for_task
 
 logger = logging.getLogger("movieclaw_api.pack_extension")
 
@@ -123,8 +123,11 @@ async def extend_owned_pack(
                 [f.path for f in status.files],
                 needed,
                 known_seasons=subscription.selected_seasons or None,
-                # 站点季号映射（issue #1155）：站点 S02 的文件要能对上 (1, 13)
-                season_mapping=mapping_from_json(item.season_mapping) if item else None,
+                # 站点季号映射（issue #1155）：站点 S02 的文件要能对上 (1, 13)。
+                # 用这个包首次投递时冻结的那份，previous 里的单元就是按它换算的
+                season_mapping=mapping_for_task(
+                    attempt.submission, item.season_mapping if item is not None else None
+                ),
             )
         except ValueError as exc:
             raise ExtensionRefused(

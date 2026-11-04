@@ -743,7 +743,8 @@ def _derive_units(
     站点季号归一（issue #1155）：当解析出的季号**不在** ``media.season_numbers``
     里、却命中 ``media.season_blocks`` 时，把它换算成 TMDB 的显式集列表。
     ``pack_seasons`` 必须置空——保留 ``{1}`` 会让 S02 包把第 1–12 集也标成
-    已覆盖（那些集早就下过了）。
+    已覆盖（那些集早就下过了）。``season_blocks`` 来自落库映射，TMDB 真实
+    存在的季号早在落库前就被剔除，这里不会把真 S02 换算掉。
     """
     attrs = candidate.attrs
 
@@ -783,7 +784,12 @@ def _derive_units(
         ):
             tmdb_season, start, _end = block
             return IdentityMatch(
-                episodes=frozenset((tmdb_season, episode + start - 1) for episode in episodes),
+                # E00 不换算：站点 S02E00 是站点第 2 季的先导/特辑，平移成 (1, 12)
+                # 就成了正片第 12 集；原样留成 (2, 0)，谁也覆盖不到
+                episodes=frozenset(
+                    (tmdb_season, episode + start - 1) if episode > 0 else (season, episode)
+                    for episode in episodes
+                ),
                 is_pack=is_pack,
                 confidence=confidence,
                 matched_alias=alias,
@@ -803,9 +809,10 @@ def _derive_units(
             if block is not None:
                 tmdb_season, start, end = block
                 total = attrs.episodes_total
-                # 集号上界取 max(block_end, 偏移 + 声明总集数)：站点声明 20 集、
-                # TMDB 只录 13 集时 (#640)，超出部分的占位单元仍要被覆盖
-                upper = max(end, start - 1 + total) if total else end
+                # 集号上界：声明了「全 N 集」就按偏移后的声明总数截断——包里不可能
+                # 有第 N+1 集，「全 5 集」只认 E13–E17；声明比块长时照样延伸，兜住
+                # TMDB 少录的占位集（#640）。没声明就到块终点
+                upper = start - 1 + total if total else end
                 return IdentityMatch(
                     episodes=frozenset(
                         (tmdb_season, episode) for episode in range(start, upper + 1)
@@ -818,6 +825,8 @@ def _derive_units(
                     declared_total=total,
                     season_normalized=True,
                     site_seasons=frozenset({seasons[0]}),
+                    # 这些集是整季包平移出来的、不是标题写明的：覆盖时按整季包语义
+                    normalized_pack=True,
                 )
         return IdentityMatch(
             pack_seasons=frozenset(seasons),

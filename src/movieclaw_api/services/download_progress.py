@@ -51,7 +51,7 @@ from movieclaw_db.models.system_notice import NoticeSeverity
 from movieclaw_db.repositories import SubscriptionRepository
 from movieclaw_db.repositories.downloader_repo import DownloaderRepository
 from movieclaw_downloader import DownloaderConfig, TorrentStatus, create_downloader
-from movieclaw_matcher.seasons import SeasonMapping, mapping_from_json
+from movieclaw_matcher.seasons import SeasonMapping, mapping_for_task, translate_unit
 from movieclaw_media.models import MediaKind
 from movieclaw_scheduler.registry import register_task
 
@@ -1161,14 +1161,28 @@ _FILE_UNIT_RE = re.compile(r"[Ss](\d{1,2})((?:[Ee]\d{1,4})(?:(?:\s*[-~&+]\s*[Ee]
 _FILE_EP_RE = re.compile(r"\d{1,4}")
 
 
-def season_mapping_of(item: MediaItem) -> SeasonMapping:
-    """条目的站点季号映射（``media_item.season_mapping``）。
+async def task_season_mapping(
+    session: AsyncSession, subscription_id: int, info_hash: str, item: MediaItem | None
+) -> SeasonMapping:
+    """在途任务解释文件名用的站点季号映射（issue #1155）。
 
-    核验与进度都要按它把文件名的站点 ``S02`` 换算成 TMDB 的 ``(1, 13)``
-    （issue #1155）：不换，站点 S02 的 13 个文件会被判成"13 集全缺"，
-    写进 ``content_missing`` 后该来源被永久排除。
+    核验与进度都要按它把文件名的站点 ``S02`` 换算成 TMDB 的 ``(1, 13)``：不换，
+    站点 S02 的 13 个文件会被判成"13 集全缺"，写进 ``content_missing`` 后该
+    来源被永久排除。用的是**投递时冻结进任务的那一份**（mapping_for_task）：
+    下载期间元数据刷新改了映射，同一个文件也不能换个集号再核验一遍。
     """
-    return mapping_from_json(item.season_mapping)
+    attempt = (
+        await session.execute(
+            select(SubscriptionDownloadAttempt).where(
+                SubscriptionDownloadAttempt.subscription_id == subscription_id,
+                SubscriptionDownloadAttempt.info_hash == info_hash.lower(),
+            )
+        )
+    ).scalar_one_or_none()
+    return mapping_for_task(
+        attempt.submission if attempt is not None else None,
+        item.season_mapping if item is not None else None,
+    )
 
 
 def _observed_units(files, mapping: SeasonMapping | None = None) -> set[tuple[int, int]]:
@@ -1207,11 +1221,7 @@ def _path_units(path: str, mapping: SeasonMapping | None = None) -> set[tuple[in
         numbers = [int(n) for n in _FILE_EP_RE.findall(match.group(2))]
         if len(numbers) == 2 and numbers[0] < numbers[1] <= numbers[0] + 200:
             numbers = list(range(numbers[0], numbers[1] + 1))
-        block = mapping.by_site_season(season) if mapping else None
-        if block is None:
-            units.update((season, episode) for episode in numbers)
-        else:
-            units.update((block.season, episode + block.offset) for episode in numbers)
+        units.update(translate_unit(mapping, season, episode) for episode in numbers)
     return units
 
 
@@ -1263,7 +1273,8 @@ async def _verify_content(
         return
     if not status.files:
         return
-    observed = _observed_units(status.files, season_mapping_of(item))
+    mapping = await task_season_mapping(session, rows[0].subscription_id, info_hash, item)
+    observed = _observed_units(status.files, mapping)
     if not observed:
         return
     missing = [w for w in rows if (w.season_number, w.episode_number) not in observed]
@@ -1446,9 +1457,8 @@ async def subscription_download_snapshot(session: AsyncSession, subscription_id:
             # 站点季号映射（issue #1155）：站点 S02E01 的文件进度要落到订阅
             # 在等的 (1, 13) 上，否则详情页逐集进度条永远是空白
             item = await session.get(MediaItem, rows[0].media_item_id)
-            per_unit = _unit_progress(
-                status.files, season_mapping_of(item) if item is not None else None
-            )
+            mapping = await task_season_mapping(session, subscription_id, info_hash, item)
+            per_unit = _unit_progress(status.files, mapping)
             for unit in units:
                 unit["progress"] = per_unit.get((unit["season_number"], unit["episode_number"]))
         snapshots.append(

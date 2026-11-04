@@ -146,7 +146,7 @@ from movieclaw_enrich import enrich
 from movieclaw_enrich.models import TorrentAttrs
 from movieclaw_enrich.structure import title_candidates
 from movieclaw_matcher import DISC_SOURCE
-from movieclaw_matcher.seasons import SeasonMapping, mapping_from_json
+from movieclaw_matcher.seasons import SeasonMapping, mapping_from_json, translate_unit
 from movieclaw_media.models import MediaKind
 from movieclaw_scheduler.registry import register_task
 
@@ -4937,12 +4937,10 @@ def _unit_for(
         return 0, 0
     episode_nfo = read_episode_metadata(file.with_suffix(".nfo"))
     if episode_nfo and episode_nfo.season is not None and episode_nfo.episode is not None:
-        block = season_mapping.by_site_season(episode_nfo.season) if season_mapping else None
-        if block is None:
-            return episode_nfo.season, episode_nfo.episode
         # 分集 NFO 里写的也是站点的季号时同样要翻译——NFO 多半由我们上一版
-        # 写出去（或发布组自带），不是 TMDB 口径
-        return block.season, episode_nfo.episode + block.offset
+        # 写出去（或发布组自带），不是 TMDB 口径。口径同 resolve_units：只翻译
+        # TMDB 没有的季号，E00 不翻译
+        return translate_unit(season_mapping, episode_nfo.season, episode_nfo.episode)
     unit = resolve_units([file], known_seasons=known_seasons, season_mapping=season_mapping)[file]
     return unit.season, unit.episode
 

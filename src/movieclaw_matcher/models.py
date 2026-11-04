@@ -537,6 +537,11 @@ class IdentityMatch:
     # 同时兼作 ``site_seasons`` 的携带者：换算前的站点季号（用于活动文案）
     season_normalized: bool = False
     site_seasons: frozenset[int] = frozenset()
+    # ``episodes`` 是站点**整季包**平移出来的集区间（站点 S02 整季包 →
+    # (1,13)…），不是标题写明的集号。覆盖时按整季包的原语义走
+    # （covered_units）：只认种子发布前已播出的集，未定档的只在声明了总集数
+    # 时才认——不能像显式集号那样信到底
+    normalized_pack: bool = False
 
 
 @dataclass(frozen=True)

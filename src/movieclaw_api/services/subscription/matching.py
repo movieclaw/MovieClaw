@@ -175,6 +175,9 @@ class MediaContext:
     # 整季包铁律的另一半——包覆盖到任何一个这样的单元就整体放弃洗版维度，
     # 否则"为洗一部分重下整季"会把已到顶的集也重新下一遍
     upgrade_blocked: dict[tuple[int, int], WantedItem] = field(default_factory=dict)
+    # 条目完整的 TMDB 季列表（media_season）。identity.season_numbers 只是本轮
+    # 缺口/洗版涉及的季，判"站点的季号是不是 TMDB 根本没有的"要看这一份
+    tmdb_seasons: frozenset[int] = frozenset()
 
 
 @dataclass
@@ -307,6 +310,17 @@ async def _ensure_context(
         subscription=subscription,
         spec=spec,
         open_wanted={},
+        tmdb_seasons=frozenset(
+            (
+                await session.execute(
+                    select(MediaSeason.season_number).where(
+                        MediaSeason.media_item_id == media_item_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        ),
     )
     contexts[media_item_id] = ctx
     return ctx
@@ -675,6 +689,20 @@ def covered_units(
             and (
                 _airable(w, require_dated=True)
                 or (single_season and w.season_number != 0 and _declared(w))
+            )
+        ]
+    if match.normalized_pack:
+        # 站点整季包平移成的集区间（issue #1155）：区间已按声明总集数截断，覆盖
+        # 语义同下面的单季 pack_seasons 通道——只认发布前已播出的集，未定档的
+        # 只在声明了总集数时才认（截断后的区间就是声明范围）。不能走显式集号
+        # 通道：那条路信标题写明的集号，会认领包里根本没有的远期/未定档集
+        return [
+            w
+            for key, w in open_units.items()
+            if key in match.episodes
+            and (
+                _airable(w, require_dated=True)
+                or (w.air_date is None and bool(match.declared_total))
             )
         ]
     result = [
@@ -1289,8 +1317,17 @@ def _season_unmapped(ctx: MediaContext, match: IdentityMatch) -> bool:
     seasons = set(match.pack_seasons) | set(match.site_seasons)
     if not seasons:
         return False
-    known = set(ctx.identity.season_numbers)
-    return not (seasons & known)
+    return not (seasons & _known_seasons(ctx))
+
+
+def _known_seasons(ctx: MediaContext) -> set[int]:
+    """条目完整的 TMDB 季列表。
+
+    不能只看 ``ctx.identity.season_numbers``：那是本轮缺口/洗版涉及的季。只订
+    了第 5 季的五季剧，站点每发一个真实存在的 S01–S04 包都会被说成"读不懂
+    季号"——既刷屏，文案「本条目只有 S05」也不是事实。
+    """
+    return set(ctx.tmdb_seasons) | set(ctx.identity.season_numbers)
 
 
 async def _log_uncovered(
@@ -1329,7 +1366,7 @@ async def _log_uncovered(
                 title=candidate.title[:60],
                 site=candidate.site_id,
                 seasons="、".join(f"S{n:02d}" for n in seasons),
-                known="、".join(f"S{n:02d}" for n in sorted(ctx.identity.season_numbers)) or "—",
+                known="、".join(f"S{n:02d}" for n in sorted(_known_seasons(ctx) - {0})) or "—",
             ),
         )
     )

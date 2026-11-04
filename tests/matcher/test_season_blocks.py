@@ -12,10 +12,12 @@ from datetime import date, timedelta
 import pytest
 
 from movieclaw_matcher.seasons import (
+    SNAPSHOT_KEY,
     SPLIT_GAP_DAYS,
     SeasonBlock,
     SeasonMapping,
     derive_season_mapping,
+    mapping_for_task,
     mapping_from_json,
     mapping_to_json,
     translate_unit,
@@ -248,3 +250,94 @@ def test_invalid_block_is_rejected(bad: dict) -> None:
     """非法区间当场拒绝，不把坏映射带去下游。"""
     with pytest.raises(ValueError):
         SeasonBlock(**bad)
+
+
+# ---------------------------------------------------------------------------
+# PR #1176 评审反例
+# ---------------------------------------------------------------------------
+
+
+def test_real_season_two_is_never_mapped() -> None:
+    """TMDB S01 中途停播 ≥ 90 天、同时**真有** S02：站点 S02 就是 TMDB S02。
+
+    断档照样切出第二块（客观事实），但它的站点季号 2 撞上了 TMDB 真实存在的
+    第 2 季——落库的映射里不能有它，否则 ``S02E01`` 会被改写成 ``S01E13``，
+    匹配、入库、核验一起错。
+    """
+    episodes = (
+        _weekly(1, 1, 12, date(2024, 1, 7))
+        + _weekly(1, 13, 12, date(2024, 7, 7))  # 同季停播 ~3 个月后续播
+        + _weekly(2, 1, 10, date(2025, 4, 6))  # 真正的第 2 季
+    )
+    mapping = derive_season_mapping(episodes, today=_TODAY)
+    assert [(b.site_season, b.season, b.start) for b in mapping.blocks] == [
+        (1, 1, 1),
+        (2, 1, 13),
+        (3, 2, 1),
+    ]
+    assert mapping.needs_mapping == ()
+    assert mapping_to_json(mapping) == []
+
+
+def test_announced_empty_season_also_blocks_the_mapping() -> None:
+    """TMDB 刚登记第 2 季、集表还空着：季号同样算"真实存在"（来自 seasons 参数）。"""
+    mapping = derive_season_mapping(_SOLO_S1 + _SOLO_S2, today=_TODAY, seasons=[0, 1, 2])
+    assert mapping_to_json(mapping) == []
+    # 没登记第 2 季时照常映射（#1155 本身）
+    assert mapping_to_json(derive_season_mapping(_SOLO_S1 + _SOLO_S2, today=_TODAY)) == [
+        {"number": 2, "season": 1, "start": 13, "end": 25}
+    ]
+
+
+def test_undated_episode_on_the_boundary_drops_that_block() -> None:
+    """边界缺日期：E11 三月、E12 没有日期、E13 次年一月——E12 归哪段没有证据。
+
+    旧逻辑把 E12 划进后一块、块起点改成 12，站点 ``S02E01`` 就成了 E12，后面
+    整段错一位。现在这一块不落库（站点 S02 宁可读不懂，也不错位）。
+    """
+    episodes = (
+        _weekly(1, 1, 11, date(2024, 1, 7))  # E01–E11，最后一集 2024-03-17
+        + [(1, 12, None)]
+        + _weekly(1, 13, 13, date(2025, 1, 5))  # E13–E25
+    )
+    mapping = derive_season_mapping(episodes, today=_TODAY)
+    assert mapping.blocks[1].site_season == 2 and mapping.blocks[1].certain is False
+    assert mapping_to_json(mapping) == []
+
+
+def test_uncertain_block_keeps_its_number_for_later_blocks() -> None:
+    """不确定的块仍占站点季号：后面边界清楚的块照常落库，编号不前移。"""
+    episodes = (
+        _weekly(1, 1, 11, date(2023, 1, 1))
+        + [(1, 12, None)]  # 第一道边界缺日期 → 第 2 块不落库
+        + _weekly(1, 13, 13, date(2024, 1, 7))  # E13–E25
+        + _weekly(1, 26, 12, date(2025, 1, 5))  # E26–E37，边界两侧都有日期
+    )
+    mapping = derive_season_mapping(episodes, today=_TODAY)
+    assert mapping_to_json(mapping) == [{"number": 3, "season": 1, "start": 26, "end": 37}]
+
+
+def test_undated_episode_after_the_last_block_is_not_a_boundary() -> None:
+    """末尾还没定档的集（在播剧常见）不是边界问题：照常归最后一块并落库。"""
+    episodes = _SOLO_S1 + _weekly(1, 13, 11, date(2025, 1, 5)) + [(1, 24, None), (1, 25, None)]
+    mapping = derive_season_mapping(episodes, today=_TODAY)
+    assert mapping_to_json(mapping) == [{"number": 2, "season": 1, "start": 13, "end": 25}]
+
+
+def test_translate_unit_never_shifts_episode_zero() -> None:
+    """E00 是站点那一季的先导/特辑，不能平移成正片 (1, 12)。"""
+    mapping = derive_season_mapping(_SOLO_S1 + _SOLO_S2, today=_TODAY)
+    assert translate_unit(mapping, 2, 0) == (2, 0)
+    assert translate_unit(mapping, 2, 1) == (1, 13)
+    assert translate_unit(None, 2, 1) == (2, 1)
+
+
+def test_task_snapshot_wins_over_current_mapping() -> None:
+    """在途任务按投递时冻结的映射认文件；没有快照（旧任务）才读条目当前的。"""
+    frozen = [{"number": 2, "season": 1, "start": 13, "end": 25}]
+    current = [{"number": 2, "season": 1, "start": 14, "end": 26}]
+    assert translate_unit(mapping_for_task({SNAPSHOT_KEY: frozen}, current), 2, 1) == (1, 13)
+    assert translate_unit(mapping_for_task({"stage": "claimed"}, current), 2, 1) == (1, 14)
+    assert translate_unit(mapping_for_task(None, current), 2, 1) == (1, 14)
+    # 快照里明确"没有映射"也算数：投递时没换算，核验也不换算
+    assert translate_unit(mapping_for_task({SNAPSHOT_KEY: []}, current), 2, 1) == (2, 1)
