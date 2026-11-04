@@ -79,6 +79,10 @@ ENDPOINTS = [
     "GET /playback/resume",
     "GET /playback/marks",
     "POST /playback/marks",
+    # 详情页播出日历上的「补缺集」「订阅追更」
+    "POST /subscriptions/title-preview",
+    "POST /subscriptions",
+    "POST /subscriptions/{subscription_id}/missing-resource-searches",
     # 搜索
     "GET /search/library",
     # 播放

@@ -70,11 +70,16 @@ fun episodes(count: Int, played: Int = 0, owned: (Long) -> Boolean = { true }) =
 typealias TvRule = AndroidComposeTestRule<*, ComponentActivity>
 
 /** 摆上电视界面：主题、依赖图、已登录账号（接口走 [routes] 假服务端，[delays] 见 [FakeTransport]） */
-fun TvRule.setTvContent(routes: Map<String, Any>, delays: Map<String, Long> = emptyMap(), content: @Composable () -> Unit): TvEnv {
+fun TvRule.setTvContent(
+    routes: Map<String, Any>,
+    delays: Map<String, Long> = emptyMap(),
+    account: SessionView = SessionView(username = "u", nickname = "我"),
+    content: @Composable () -> Unit,
+): TvEnv {
     val graph = AppGraph(activity.application)
     val server = ServerAddress("http://127.0.0.1:9".toHttpUrl())
     val transport = FakeTransport(routes, delays)
-    val session = AccountSession(server, "token", SessionView(username = "u", nickname = "我"), McApi(transport))
+    val session = AccountSession(server, "token", account, McApi(transport))
     setContent {
         McTheme {
             CompositionLocalProvider(LocalGraph provides graph, LocalSession provides session, LocalServer provides server, content = content)

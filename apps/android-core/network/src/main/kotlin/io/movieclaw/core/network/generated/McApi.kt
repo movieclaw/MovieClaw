@@ -292,6 +292,24 @@ class McApi(private val transport: ApiTransport) {
         return transport.send("POST", "/playback/marks", query, McJson.encodeToJsonElement(body), serializer<PlaybackMarksView>(), enveloped = true)
     }
 
+    /** 预览订阅目标的季集、库存和现有订阅状态（`POST /subscriptions/title-preview`） */
+    suspend fun uiSubscriptionsPreviewTitle(body: SubscriptionTargetPreviewPayload): PrepareView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/subscriptions/title-preview", query, McJson.encodeToJsonElement(body), serializer<PrepareView>(), enveloped = true)
+    }
+
+    /** 从 Discover 影视条目创建订阅并生成初始追踪工单（`POST /subscriptions`） */
+    suspend fun subscriptionsCreate(body: SubscriptionCreatePayload): SubscriptionCreateView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/subscriptions", query, McJson.encodeToJsonElement(body), serializer<SubscriptionCreateView>(), enveloped = true)
+    }
+
+    /** 立即为一条订阅搜索目前缺失且已经可搜索的资源（`POST /subscriptions/{subscription_id}/missing-resource-searches`） */
+    suspend fun subscriptionsSearchMissingResources(subscriptionId: Long): SearchNowView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/subscriptions/${subscriptionId}/missing-resource-searches", query, null, serializer<SearchNowView>(), enveloped = true)
+    }
+
     /** 媒体库名称、别名、拼音及人物搜索（相关度排序，稳定分页）（`GET /search/library`） */
     suspend fun searchLibrary(q: String? = null, personId: Long? = null, limit: Long? = null, cursor: String? = null): LibrarySearchView {
         val query = buildList<Pair<String, String>> {

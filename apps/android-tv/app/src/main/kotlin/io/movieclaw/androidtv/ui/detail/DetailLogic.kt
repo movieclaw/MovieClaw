@@ -150,9 +150,9 @@ object DetailLogic {
      */
     fun lowerGap(isMovie: Boolean): Int = if (isMovie) 20 else 82
 
-    /** 下半截滑上来后第一行在屏幕上的 y：250，有选季、有集段页签各往下让 80 */
-    fun lowerScreenTop(hasSeasonTabs: Boolean, hasRangeTabs: Boolean = false): Int =
-        250 + (if (hasSeasonTabs) 80 else 0) + (if (hasRangeTabs) 80 else 0)
+    /** 下半截滑上来后第一行在屏幕上的 y：250，有选季、有集段页签各往下让 80，有播出日历再让一条 */
+    fun lowerScreenTop(hasSeasonTabs: Boolean, hasRangeTabs: Boolean = false, hasAirStrip: Boolean = false): Int =
+        250 + (if (hasSeasonTabs) 80 else 0) + (if (hasRangeTabs) 80 else 0) + (if (hasAirStrip) AirStripHeight + 2 * AirStripMargin else 0)
 
     /** 分集卡剧照左下的字：看了一半写「看到 m:ss」，否则片长 */
     fun episodeBandText(episode: EpisodeView, runtimeMinutes: Long?): String? = when {

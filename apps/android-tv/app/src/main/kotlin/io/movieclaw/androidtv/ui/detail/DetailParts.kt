@@ -39,6 +39,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.SeasonAirScheduleView
 import io.movieclaw.androidtv.ui.components.initials
 import io.movieclaw.androidtv.ui.components.CardBadge
 import io.movieclaw.androidtv.ui.components.FocusCard
@@ -133,7 +134,8 @@ internal fun SeasonTab(label: String, selected: Boolean, onClick: () -> Unit, mo
 
 /**
  * 一集（TVEpisodeCard）：剧照 416×234（左下片长或看到哪、进度条，看完的标「已看」）+ 第几集、集名、四行简介、首播日期。
- * 焦点效果只在剧照上；缺集整张 45% 不透明。[resume] 是这一季的锚点（接着看的那一集），左上角标橙色「接着看」
+ * 焦点效果只在剧照上；缺集整张 45% 不透明。[resume] 是这一季的锚点（接着看的那一集），左上角标橙色「接着看」。
+ * [schedule] 是这一季的播出日历：有它才分得清「还没播」与「缺集」，还没播的剧照位换成播出日，不置灰
  */
 @Composable
 internal fun EpisodeCard(
@@ -144,14 +146,20 @@ internal fun EpisodeCard(
     modifier: Modifier = Modifier,
     onFocus: (Boolean) -> Unit = {},
     resume: Boolean = false,
+    schedule: SeasonAirScheduleView? = null,
 ) {
     val width = McMetrics.LandscapeWidth
     val number = episode.episodeNumber
-    Column(modifier.width(width).alpha(if (episode.owned) 1f else 0.45f), verticalArrangement = Arrangement.spacedBy(18.pt)) {
+    val unaired = AirSchedule.isUnaired(episode, schedule)
+    Column(modifier.width(width).alpha(if (episode.owned || unaired) 1f else 0.45f), verticalArrangement = Arrangement.spacedBy(18.pt)) {
         FocusCard(onClick, Modifier.width(width).height(234.pt), onLongClick = onLongClick, onFocus = onFocus) {
             Box(Modifier.fillMaxSize()) {
-                RemoteImage(episode.stillUrl, 416f, Modifier.fillMaxSize(), zoom = McMetrics.FocusZoom, placeholder = "第 $number 集")
-                StillBand(episode, runtimeMinutes, Modifier.align(Alignment.BottomStart))
+                if (schedule != null && unaired) {
+                    UnairedStill(episode, schedule, AirSchedule.airsToday(episode, schedule), Modifier.fillMaxSize())
+                } else {
+                    RemoteImage(episode.stillUrl, 416f, Modifier.fillMaxSize(), zoom = McMetrics.FocusZoom, placeholder = "第 $number 集")
+                    StillBand(episode, runtimeMinutes, Modifier.align(Alignment.BottomStart))
+                }
                 if (resume) ResumeTag(Modifier.align(Alignment.TopStart))
                 else if (episode.played) CardBadge("已看", Modifier.align(Alignment.TopStart))
             }
@@ -170,7 +178,7 @@ internal fun EpisodeCard(
                 modifier = Modifier.height(116.pt),
             )
             Text(
-                if (episode.owned) episode.airDate?.take(10).orEmpty() else "缺集",
+                if (episode.owned || unaired) episode.airDate?.take(10).orEmpty() else "缺集",
                 style = McType.size(20),
                 color = Color.White.copy(alpha = 0.55f),
             )
