@@ -424,3 +424,31 @@ def test_page_error_cannot_forge_log_lines(caplog) -> None:
     assert "伪造" in lines[0]  # 消息里的换行被压掉，伪造的内容留在第一行里
     assert all(line.startswith("    ") for line in lines[1:])  # 出处逐行缩进
     assert "\x1b" not in text
+
+
+def test_bundled_plugins_with_web_are_hosted(tmp_path, monkeypatch):
+    """随应用携带的插件包只要带 ``web/``，就和已安装的包一样出现在插件网页清单里。
+
+    它们没有安装记录（不经过批准），所以确认记录按「官方插件」默认：进侧边栏、只给管理员。
+    """
+
+    from movieclaw_api.plugins import bundled
+
+    packaged = tmp_path / "movieclaw_plugins"
+    source = packaged / "acme-bundled"
+    (source / "web").mkdir(parents=True)
+    (source / "movieclaw-plugin.toml").write_text(
+        '[plugin]\nid = "acme-bundled"\ntitle = "随带看板"\nversion = "1.0.0"\nentry = "acme"\n',
+        encoding="utf-8",
+    )
+    (source / "web" / "index.html").write_text("<!doctype html><title>hi</title>", encoding="utf-8")
+    monkeypatch.setattr(bundled, "root", lambda: packaged)
+    bundled.bundled.cache_clear()
+    try:
+        found = {p.id: p for p in plugin_web.web_plugins(get_settings())}
+        assert "acme-bundled" in found
+        plugin = found["acme-bundled"]
+        assert plugin.source == "bundled"
+        assert plugin.consent is not None and plugin.consent.nav and not plugin.consent.members
+    finally:
+        bundled.bundled.cache_clear()
