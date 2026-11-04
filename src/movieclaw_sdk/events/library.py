@@ -142,6 +142,26 @@ LIBRARY_FILE_LOCAL_RELEASED = define(
     title="库文件的本地副本已腾空（已在网盘上）",
     group="媒体库",
 )
+
+
+class SegmentsUpdated(Frozen):
+    """一季的片头片尾识别完并写回了（结果可能和上次一样，要比对的自己比）。
+
+    结果按 ``library.items.segments`` 读，一季可能横跨几个库。
+    """
+
+    media: MediaRef
+    season: int
+    library_ids: tuple[int, ...]
+    file_ids: tuple[int, ...]
+
+
+LIBRARY_SEGMENTS_UPDATED = define(
+    "library.segments.updated",
+    SegmentsUpdated,
+    title="片头片尾的识别结果更新了",
+    group="媒体库",
+)
 LIBRARY_ITEM_FAVORITED = define(
     "library.item.favorited",
     ItemFavorite,

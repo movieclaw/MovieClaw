@@ -152,6 +152,7 @@
       "fallback": "Incomplete specifications: most recently imported"
     },
     "recycleFailed": "Could not move to the recycle bin: {detail}",
+    "readOnly": "This file is on a read-only source and can’t be cleaned up from here.",
     "unitChanged": "This unit no longer has duplicate files. A scan or upgrade may have changed it. Refresh the list.",
     "episodeRequired": "Select an episode to keep a specific file.",
     "fileChanged": "The file to keep is no longer in this unit. The file set changed; refresh the list.",
@@ -660,6 +661,7 @@
   "cloud": {
     "listFailed": "Could not list the cloud folder “{path}”: {detail}",
     "onePrimary": "Only one primary root is allowed",
+    "readOnlyPrimary": "{name} is read-only and can’t be the primary root: new titles are uploaded to the primary root.",
     "missingId": "The cloud folder is missing an id",
     "scopeOutside": "“{path}” is not inside a cloud folder attached to this library",
     "scopeNotFound": "Could not find the folder “{path}” on the cloud drive",

@@ -152,6 +152,7 @@
       "fallback": "规格没探全，最近入库"
     },
     "recycleFailed": "移入回收站失败：{detail}",
+    "readOnly": "文件在只读的来源上，不能从这里清理",
     "unitChanged": "这个单元已经没有重复文件（可能刚被扫描或洗版改动过），请刷新列表",
     "episodeRequired": "按文件「留这个」必须指定到集",
     "fileChanged": "要保留的文件已不在这个单元里（文件集合已变化），请刷新列表",
@@ -660,6 +661,7 @@
   "cloud": {
     "listFailed": "网盘文件夹「{path}」没列出来：{detail}",
     "onePrimary": "主根只能有一个",
+    "readOnlyPrimary": "「{name}」是只读的，不能当主根：主根是新片上传的去处",
     "missingId": "网盘目录缺少 id",
     "scopeOutside": "「{path}」不在这个库挂的网盘文件夹里",
     "scopeNotFound": "网盘上找不到文件夹「{path}」",

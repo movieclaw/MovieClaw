@@ -782,6 +782,9 @@
   "webhook.events.libraryFileLocalReleased": {
     "sourceHash": "ead67145c9f75e1a1ae2ef64cce3ddd277889749bde15cb3434f4c4735d4b165"
   },
+  "webhook.events.librarySegmentsUpdated": {
+    "sourceHash": "917cef0e4291a55875ce271410a24aa87fa78b12c9cb5589844594b5c8fec91c"
+  },
   "webhook.events.libraryItemFavorited": {
     "sourceHash": "60a53514eb9228a2cee1e6914eb36819fd13716e5df64eb5e9dd1868ebda5a0b"
   },

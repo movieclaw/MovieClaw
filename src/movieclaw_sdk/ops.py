@@ -29,16 +29,29 @@ HOST_OPS: ServiceKey[Any] = ServiceKey(
 
 
 class OpsError(Exception):
-    """宿主操作失败：HTTP 状态、错误码、可读原因与明细（与接口的错误响应同构）。"""
+    """宿主操作失败：HTTP 状态、错误码、可读原因与明细（与接口的错误响应同构）。
+
+    要按原因分支时看 ``message_key``（如 ``errors.library.nameInUse``），别比较文案：文案随语言变。
+    ``params`` 是这句话的参数（如撞了哪个库）。不是每个错误都有这两项。
+    """
 
     def __init__(
-        self, status: int, code: str, message: str, details: list[dict[str, Any]] | None = None
+        self,
+        status: int,
+        code: str,
+        message: str,
+        details: list[dict[str, Any]] | None = None,
+        *,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(f"{code}（{status}）：{message}")
         self.status = status
         self.code = code
         self.message = message
         self.details = details or []
+        self.message_key = message_key
+        self.params = params or {}
 
 
 @dataclass(frozen=True)
@@ -115,6 +128,8 @@ def parse_response(status: int, text: str) -> Any:
             str(payload.get("code") or "HTTP_ERROR"),
             str(payload.get("message") or f"请求失败（HTTP {status}）"),
             payload.get("details") if isinstance(payload.get("details"), list) else None,
+            message_key=payload.get("message_key") if payload.get("message_key") else None,
+            params=payload.get("params") if isinstance(payload.get("params"), dict) else None,
         )
     return payload.get("data") if isinstance(payload, dict) and "data" in payload else payload
 

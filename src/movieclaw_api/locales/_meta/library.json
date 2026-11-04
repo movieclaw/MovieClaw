@@ -1205,6 +1205,9 @@
   "duplicates.recycleFailed": {
     "sourceHash": "3870064f96d48d4bbbcf356cef51b61514e86f06102503722fca38dbcbfe0039"
   },
+  "duplicates.readOnly": {
+    "sourceHash": "fb7480e338c074ccb10ed46a8b39ff725c8f9bfce7e025989125e99b59009169"
+  },
   "duplicates.unitChanged": {
     "sourceHash": "2dea086fb49eaa08d58cb38281b36b5d7f0dce7488802d3d4330c6c2d4a385f3"
   },
@@ -1603,6 +1606,9 @@
   },
   "cloud.onePrimary": {
     "sourceHash": "249b1179e1b7f11d9231bf4b28df11b07226bb106fbb957e80687b21e811b355"
+  },
+  "cloud.readOnlyPrimary": {
+    "sourceHash": "75e5bf2564b3e431d9798a3b4e6d5bc3c1d1b0465639f7b59954222d691b9ac7"
   },
   "cloud.missingId": {
     "sourceHash": "78118a8b848fd3a52a879cbd9fcda662631eaf1bfc464404502cf4ee9d3cea9d"

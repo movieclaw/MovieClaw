@@ -6,6 +6,9 @@
 
 先删网盘再删台账：网盘没删掉就整件事不做（调用方据此保留台账行），不留「账没了、网盘上的
 文件成了孤儿」。
+
+只读后端（``writable=False``）绝不调写方法：要删的文件在它上面就拒绝
+（docs/design/media-server-plugins.md §4）。
 """
 
 from __future__ import annotations
@@ -13,12 +16,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.i18n import t
 from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.services.drives import gateway
 from movieclaw_api.services.drives.messages import error_reference
+from movieclaw_api.services.drives.registry import backends
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.library_file_replica import (
     REPLICA_DELETING,
@@ -27,6 +32,7 @@ from movieclaw_db.models.library_file_replica import (
     REPLICA_UPLOADING,
     LibraryFileReplica,
 )
+from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
 from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
 from movieclaw_sdk import drives as dv
 
@@ -55,6 +61,25 @@ async def replicas_of(file_ids: Iterable[int]) -> list[LibraryFileReplica]:
             .scalars()
             .all()
         )
+
+
+async def read_only_title(session: AsyncSession, account_id: int) -> str | None:
+    """这个账号的后端是只读的：返回后端名（给人看）。能写、或插件不在（不知道）返回 None。"""
+    account = await DriveAccountRepository(session).get(account_id)
+    backend = backends().get(account.backend) if account is not None else None
+    return backend.title if backend is not None and not backend.capabilities.writable else None
+
+
+async def on_read_only_backend(session: AsyncSession, file_id: int) -> bool:
+    """这个库文件的副本在只读后端上（自动清理不能动它）。"""
+    account_id = (
+        await session.execute(
+            select(LibraryFileReplica.account_id).where(
+                LibraryFileReplica.library_file_id == file_id
+            )
+        )
+    ).scalar_one_or_none()
+    return account_id is not None and await read_only_title(session, account_id) is not None
 
 
 def needs_remote_call(replica: LibraryFileReplica) -> bool:
@@ -90,6 +115,12 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
     for account_id, group in by_account.items():
         live = [r for r in group if needs_remote_call(r)]
         done.extend(r for r in group if r not in live)
+        if live:
+            async with get_database().session() as session:
+                read_only = await read_only_title(session, account_id)
+            if read_only is not None:
+                error = t("errors.drives.readOnly", name=read_only)
+                break
         remote_ids = list(dict.fromkeys(r.remote_id for r in live))
         for start in range(0, len(remote_ids), BATCH):
             batch_ids = remote_ids[start : start + BATCH]

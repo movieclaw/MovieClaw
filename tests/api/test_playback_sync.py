@@ -148,6 +148,16 @@ def test_paging_member_isolation_and_import_idempotency(client):
     assert c.post(BASE + "/import", json={"member_id": 2, "records": [item]}).status_code == 403
 
 
+def test_catalog_narrows_to_one_title_for_compare_and_set(client):
+    """对方报来一条进度时，插件只要这部作品的状态与版本，不用翻整个目录。"""
+    c, _app, _ids = client
+    data = snapshot(c, 2, tmdb_id=101)
+    assert [u["media"]["tmdb_id"] for u in data["items"]] == [101]
+    assert data["next_cursor"] is None
+    assert snapshot(c, 2, tmdb_id=99999)["items"] == []
+    assert c.get(BASE + "/catalog?tmdb_id=0").status_code == 422
+
+
 def test_rewatches_versions_and_non_playback_fields_are_preserved(client):
     c, _, ids = client
 

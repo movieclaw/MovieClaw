@@ -2588,6 +2588,9 @@
   "drives.deleteFailed": {
     "sourceHash": "d7e8a9185269310ba9f84963cab2069b2ba4854c051c219b2cdbdc4cbf6ce659"
   },
+  "drives.readOnly": {
+    "sourceHash": "2660f475e1c1f54b029ba22d9c85c0793932e19982ec02dd55c197781bc9545d"
+  },
   "drives.partSizeInvalid": {
     "sourceHash": "c052c3e2ce561e46ecd23151ca27ca30a1873b3a9e3ae37bf3944b45d206c50f"
   },

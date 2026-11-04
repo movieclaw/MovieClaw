@@ -648,6 +648,16 @@ class PlaybackSegmentView(BaseModel):
     to_end: bool = False
 
 
+class ItemFileSegmentsView(BaseModel):
+    """一个在位文件的片头片尾（``library.items.segments``，内容与播放器拿到的相同）。"""
+
+    file_id: int
+    season: int = Field(description="季号；电影为 0")
+    episode: int = Field(description="集号；电影为 0")
+    duration_seconds: int | None = Field(default=None, description="文件时长；没探过规格为 null")
+    segments: list[PlaybackSegmentView] = Field(description="库没开识别、还没识别出来时为空")
+
+
 class PlaybackAutoSkipView(BaseModel):
     """这个人的自动跳过设定（docs/design/skip-intro.md §5），跟账号走。
 
