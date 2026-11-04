@@ -93,10 +93,14 @@ def _bluray(path: Path, reader: UDFReader) -> DiscSource | None:
             playlists.append(parse_mpls_playlist(data, path=Path(f"{stem}.mpls")))
         except (UDFError, MplsParseError) as exc:
             logger.debug("镜像里的 MPLS 跳过：%s（%s）", entry.name, exc)
-    playlist = select_main_playlist(playlists, set(streams))
+    sizes = stream_sizes(reader, streams)
+    playlist = select_main_playlist(playlists, sizes)
     if playlist is None:
         logger.info("蓝光镜像里没有可用的主播放列表：%s", path)
         return None
+    # 字节全当 0，比不出差别，就是只比时长的旧规则
+    longest = select_main_playlist(playlists, dict.fromkeys(sizes, 0))
+    assert longest is not None  # 候选与上面相同
     clpis = _files(reader, ["BDMV", "CLIPINF"], "clpi")
     clips: list[DiscClip] = []
     clpi_data: dict[str, bytes] = {}
@@ -125,6 +129,7 @@ def _bluray(path: Path, reader: UDFReader) -> DiscSource | None:
         clips=tuple(clips),
         clpi=clpi_data,
         image="bluray",
+        longest_playlist_name=longest.path.name,
     )
 
 
@@ -200,6 +205,21 @@ def _dvd(path: Path, reader: UDFReader) -> DiscSource | None:
         clips=tuple(clips),
         image="dvd",
     )
+
+
+def stream_sizes(reader: UDFReader, streams: dict[str, UDFEntry]) -> dict[str, int]:
+    """镜像里各 m2ts 的字节数（选主播放列表要比）。
+
+    文件项读不出的记 0：只是少了个比较依据，不值得让整个镜像读不出。
+    """
+    sizes: dict[str, int] = {}
+    for clip_id, entry in streams.items():
+        try:
+            sizes[clip_id] = reader.size(entry)
+        except UDFError as exc:
+            logger.debug("镜像里的 m2ts 读不出大小：%s（%s）", entry.name, exc)
+            sizes[clip_id] = 0
+    return sizes
 
 
 def _files(reader: UDFReader, folder: list[str], suffix: str) -> dict[str, UDFEntry]:

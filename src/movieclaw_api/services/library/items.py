@@ -3089,6 +3089,26 @@ async def _tmdb_fallback_meta(session: AsyncSession, item: MediaItem) -> EntryMe
     return meta if meta.has_content() else None
 
 
+def reset_probed_spec(row: LibraryFile) -> None:
+    """主片换了：旧规格说的是另一段视频，退回「未探测」。
+
+    补探只补空值，不清掉就换不过来。探测失败时这一行留在未探测，由定期对账带退避重试，
+    总好过一直挂着另一段视频的分辨率和音轨。
+    """
+    row.resolution = None
+    row.video_codec = None
+    row.hdr = None
+    row.dv_profile = None
+    row.dv_bl_compatible = None
+    row.bit_depth = None
+    row.bit_rate = None
+    row.frame_rate = None
+    row.color_space = None
+    row.probe_version = None
+    row.audio_streams = None
+    row.subtitle_streams = None
+
+
 async def backfill_streams(
     session: AsyncSession,
     files: list[LibraryFile],
@@ -3101,13 +3121,15 @@ async def backfill_streams(
 
     这是「ffprobe 后装」和「旧 BDMV 尚未读取 CLPI」的统一补救路径——扫描对
     已识别且在位的行整体秒过，不会在主循环回头重探。**只由扫描的补探阶段
-    调用**（有进度与停止按钮的后台任务，慢没关系，半途而废才是问题），用
+    调用**（有进度与停止按钮的后台任务，慢没关系，半途而废才是问题；另有启动后
+    台的主片自愈，``library/disc_main_playlists.py``），用
     ``on_processed`` 汇报进度——无论最终是否需要 ffprobe，每检查完一个
     候选都回调一次，返回 False 即收尾（用户点了停止）。详情页曾经也会
     限量触发补探，已移除：浏览不碰媒体文件本体（云盘挂载上 ffprobe 读文件
     就是流量与延迟），未探测的行由前端提示用户重新扫描补齐。
 
-    探测失败的行保持原值、下次再试：失败常常是暂时的（挂载还没就绪）。
+    探测失败的行保持原值、下次再试：失败常常是暂时的（挂载还没就绪）。主片换了的
+    行例外：旧值说的是另一段视频，已退回未探测（``reset_probed_spec``）。
     失败会记入 media_probe 的失败记忆（进程内、翻倍退避）：退避未到点的行
     本轮直接跳过，坏文件不再让每轮手动扫描都全额付一次 30 秒超时。
     BDMV 已有流但缺 CLPI 版本戳时先读对应 CLPI；只有 CLPI 有效才重探 m2ts，
@@ -3175,18 +3197,43 @@ async def backfill_streams(
         path = Path(row.file_path)
         if needs_disc:
             playlist = await asyncio.to_thread(read_main_playlist, path)
+            old = row.disc_playlist if isinstance(row.disc_playlist, dict) else {}
+            old_clips = old.get("clips")
             if playlist is not None and playlist.duration_seconds > 0:
-                # 时长按主播放列表**覆盖**而不是补空：旧行可能记着诱饵列表的虚高时长
-                row.disc_playlist = disc_playlist_record(playlist)
-                row.duration_seconds = playlist.duration_seconds
-                row.chapters = playlist.chapters()
+                record = disc_playlist_record(playlist)
+                row.disc_playlist = record
+                if record["clips"] == old_clips:
+                    # 清单只是版本落后（选主片的规则改过），这张盘的主片没换：只换版本号
+                    needs_disc = False
+                else:
+                    if old_clips:
+                        reset_probed_spec(row)
+                    # 时长按主播放列表**覆盖**而不是补空：旧行可能记着诱饵列表的虚高时长
+                    row.duration_seconds = playlist.duration_seconds
+                    row.chapters = playlist.chapters()
+                    row.updated_at = utcnow()
+            elif old_clips:
+                # 旧清单是好的，这次读不出（挂载抖动、盘被挪走）：留着下次再试，写哨兵就丢了
+                if not await keep_going():
+                    break
+                continue
             else:
                 # 读不出主播放列表（残缺盘）：写"读过但没有"的哨兵，下轮不再重读；
                 # 播放时 disc_source 见到空清单会再试一次读盘（盘补齐后自愈）。
                 # 没有主播放列表就没有"主片换了"的理由，不为此强制重读 m2ts
                 row.disc_playlist = disc_playlist_record(None)
                 needs_disc = False
-            row.updated_at = utcnow()
+                row.updated_at = utcnow()
+            if (
+                row.audio_streams is not None
+                and not needs_clpi
+                and not needs_disc
+                and not needs_visual_details
+                and not needs_image
+            ):
+                if not await keep_going():
+                    break
+                continue
         target = disc_main_stream(path) if row.container in ("bluray", "dvd") else path
         if target is None or not await asyncio.to_thread(target.exists):
             if not await keep_going():

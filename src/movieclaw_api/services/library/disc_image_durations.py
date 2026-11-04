@@ -92,14 +92,18 @@ def start_disc_image_duration_heal() -> None:
 
 
 async def _run() -> None:
+    from movieclaw_api.services.library.disc_main_playlists import heal_disc_main_playlists
+
     try:
+        # 先让换了主片的行重探，片长和码率再按新主片校准
+        await heal_disc_main_playlists()
         changed = await heal_disc_image_durations()
         if changed:
             logger.info("光盘镜像规格校准完成：改正 %d 个", changed)
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001 -- 自愈失败不影响启动，下次启动重试
-        logger.warning("光盘镜像片长校准异常退出（下次启动将重试）", exc_info=True)
+        logger.warning("原盘规格校准异常退出（下次启动将重试）", exc_info=True)
 
 
 async def close_disc_image_duration_heal() -> None:

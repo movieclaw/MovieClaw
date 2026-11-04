@@ -98,6 +98,9 @@ class DiscSource:
     clpi: dict[str, bytes] | None = None
     #: 光盘镜像来源："bluray" / "dvd"；None = 原盘目录
     image: str | None = None
+    #: 蓝光镜像只比时长会选哪条列表：旧规则就是这么选的，存量台账的规格按它探测。与
+    #: ``playlist_name`` 不同说明这张盘的台账要重探（``library/disc_main_playlists.py``）
+    longest_playlist_name: str | None = None
 
     @property
     def duration_s(self) -> float:

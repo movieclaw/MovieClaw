@@ -20,6 +20,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from sqlmodel import select
+from tests.api.test_reels_disc_index import _UdfBuilder
 
 import movieclaw_api.services.library.ingest as ingest_mod
 import movieclaw_api.services.library.scan as scan_mod
@@ -31,6 +32,7 @@ from movieclaw_api.schemas.library import LibraryView
 from movieclaw_api.services import acquisition_ingest, jobs
 from movieclaw_api.services.library import items as items_mod
 from movieclaw_api.services.library.config import LibraryConfigService, derive_save_path
+from movieclaw_api.services.library.disc_main_playlists import heal_disc_main_playlists
 from movieclaw_api.services.library.organize import build_organize_plan
 from movieclaw_api.services.library.profile import profile_for, profile_of
 from movieclaw_api.services.library.scan import scan_library
@@ -276,6 +278,62 @@ async def test_scan_records_the_main_title_spec_of_a_disc_image(db, tmp_path) ->
     assert (row.container, row.video_codec) == ("iso", "mpeg2video")
     assert row.duration_seconds == 6
     assert row.bit_rate == round(title_bytes * 8 / 6)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="需要系统 ffmpeg / ffprobe")
+@pytest.mark.parametrize("layout", ["folder", "image"])
+async def test_disc_ledger_follows_the_film_not_a_smaller_copy(db, tmp_path, layout) -> None:
+    """真 ffmpeg 编的盘：一样长的正片（720p，两条音轨）和小拷贝（240p，一条音轨）。
+
+    新入库的行记正片的规格；旧版选了小拷贝留下的存量行，启动后的自愈换成同样的结果。
+    """
+    from tests.api.test_iso_source import real_film_and_small_copy
+
+    root = tmp_path / "media" / "home"
+    root.mkdir(parents=True)
+    tree = real_film_and_small_copy(tmp_path)
+    if layout == "image":
+        target = root / "老电影.iso"
+        target.write_bytes(_UdfBuilder(metadata=False).build({"BDMV": tree}))
+    else:
+        target = root / "老电影"
+        for folder, files in tree.items():
+            (target / "BDMV" / folder).mkdir(parents=True)
+            for name, data in files.items():
+                (target / "BDMV" / folder / name).write_bytes(data)
+    library = await _make_video_library(db, root)
+
+    await scan_library(library.id)
+
+    fields = ("resolution", "video_codec", "bit_rate", "duration_seconds")
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+        assert row.resolution == "720p" and row.duration_seconds == 2
+        assert len(row.audio_streams) == 2
+        scanned = [getattr(row, field) for field in fields]
+        # 改回旧版留下的样子：规格全是小拷贝的；原盘目录还记着它的清单，镜像什么都不记
+        row.resolution, row.video_codec, row.bit_rate = "240p", "h264", 1
+        row.audio_streams, row.subtitle_streams = [{"codec": "ac3", "pid": 0x1100}], []
+        row.disc_playlist = (
+            {
+                "version": 1,
+                "name": "00002.mpls",
+                "clips": [{"id": "00002", "in": 0, "out": 2 * 45_000}],
+            }
+            if layout == "folder"
+            else None
+        )
+        file_id = row.id
+        await session.commit()
+
+    assert await heal_disc_main_playlists() == 1
+
+    async with db.session() as session:
+        row = await session.get(LibraryFile, file_id)
+        assert [getattr(row, field) for field in fields] == scanned
+        assert len(row.audio_streams) == 2
+        assert row.disc_playlist["name"] == "00001.mpls"
+    assert await heal_disc_main_playlists() == 0  # 重启不再重探
 
 
 async def test_scan_video_library_absorbs_late_sidecar_nfo(db, tmp_path) -> None:
