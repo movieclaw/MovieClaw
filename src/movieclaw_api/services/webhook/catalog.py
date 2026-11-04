@@ -77,6 +77,10 @@ _BUILTIN_TEXT = {
         "settings.webhook.events.libraryFileLocalReleased",
         "settings.webhook.groups.library",
     ),
+    "library.segments.updated": (
+        "settings.webhook.events.librarySegmentsUpdated",
+        "settings.webhook.groups.library",
+    ),
     "library.item.favorited": (
         "settings.webhook.events.libraryItemFavorited",
         "settings.webhook.groups.favorites",

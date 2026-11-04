@@ -661,7 +661,7 @@
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.6"
+    "version": "1.7"
   },
   "host-ops": {
     "doc": "宿主操作：插件以自己的身份调用本进程的 OpenAPI 操作（按操作授权）",
@@ -2766,6 +2766,109 @@
       "required": [
         "library_id",
         "items"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "library.segments.updated": {
+    "doc": "片头片尾的识别结果更新了",
+    "durable": true,
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "file_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "library_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaRef"
+        },
+        "season": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "media",
+        "season",
+        "library_ids",
+        "file_ids"
       ],
       "type": "object"
     },

@@ -659,7 +659,7 @@ def parse_strm(file_path: str | Path) -> StrmLink | Path:
             option, _, value = candidate[len("#EXTVLCOPT:") :].partition("=")
             name = _VLC_HEADER_OPTIONS.get(option.strip().lower())
             if name is not None:
-                _add_header(headers, name, value.strip())
+                add_header(headers, name, value.strip())
             continue
         if not candidate or candidate.startswith("#"):
             continue
@@ -681,7 +681,7 @@ def parse_strm(file_path: str | Path) -> StrmLink | Path:
         except (ValueError, httpx.InvalidURL) as exc:
             raise StrmError(f"strm 里的地址格式不对（{exc}）：{url}") from exc
         for name, value in parse_qsl(suffix, keep_blank_values=False):
-            _add_header(headers, name.strip(), value.strip())
+            add_header(headers, name.strip(), value.strip())
         return StrmLink(url=url, headers=headers)
     raise StrmError("strm 文件里没有播放地址")
 
@@ -731,7 +731,8 @@ def resolve_strm(file_path: str | Path) -> StrmLink | Path | None:
         return None
 
 
-def _add_header(headers: dict[str, str], name: str, value: str) -> None:
+def add_header(headers: dict[str, str], name: str, value: str) -> None:
+    """收一个请求头：头名只收字母数字与连字符，值里不许有换行（值会原样进 ffmpeg）。"""
     if _HEADER_NAME.match(name) and value and not any(c in value for c in "\r\n"):
         headers[name] = value
 

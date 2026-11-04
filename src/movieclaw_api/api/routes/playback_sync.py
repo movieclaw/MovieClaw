@@ -31,10 +31,15 @@ async def catalog(
     member_id: Annotated[int, Query(ge=0)] = 0,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    tmdb_id: Annotated[
+        int | None, Query(ge=1, description="只看这部作品（电影与剧集可能同号，看返回的 kind）")
+    ] = None,
     principal: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    return ok(await playback_sync.catalog(session, principal, member_id, cursor, limit))
+    return ok(
+        await playback_sync.catalog(session, principal, member_id, cursor, limit, tmdb_id=tmdb_id)
+    )
 
 
 @router.post(

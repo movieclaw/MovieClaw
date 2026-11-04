@@ -732,6 +732,7 @@
     "fileUnavailable": "Cloud storage couldn’t provide this file: {reason}",
     "streamFailed": "Streaming from cloud storage failed: {reason}",
     "deleteFailed": "The file in cloud storage wasn’t deleted: {reason}",
+    "readOnly": "Files on {name} are read-only and can’t be deleted from here. Delete them in {name}; they’ll disappear here after the next sync.",
     "partSizeInvalid": "The provider returned an invalid part size ({size} bytes)",
     "rangeInvalid": "The provider requested an invalid byte range to verify ({range})"
   },

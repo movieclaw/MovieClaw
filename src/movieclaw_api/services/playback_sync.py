@@ -72,7 +72,13 @@ async def target(session: AsyncSession, member_id: int) -> Principal:
 
 
 async def catalog(
-    session: AsyncSession, actor: Principal, member_id: int, cursor: str | None, limit: int
+    session: AsyncSession,
+    actor: Principal,
+    member_id: int,
+    cursor: str | None,
+    limit: int,
+    *,
+    tmdb_id: int | None = None,
 ) -> SyncCatalog:
     owner = await target(session, member_id)
     visible = await visible_library_ids(session, actor) & await visible_library_ids(session, owner)
@@ -86,6 +92,8 @@ async def catalog(
         )
         .distinct()
     )
+    if tmdb_id is not None:
+        query = query.where(MediaItem.tmdb_id == tmdb_id)
     cols = (LibraryFile.media_item_id, LibraryFile.season_number, LibraryFile.episode_number)
     if cursor:
         try:

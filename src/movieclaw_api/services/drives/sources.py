@@ -33,7 +33,7 @@ from movieclaw_db.engine import get_database
 from movieclaw_db.models.library_file import LibraryFile
 from movieclaw_db.models.library_file_replica import REPLICA_VERIFIED, LibraryFileReplica
 from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
-from movieclaw_playback.streaming import StrmLink
+from movieclaw_playback.streaming import StrmLink, add_header, strm_needs_relay
 from movieclaw_sdk import drives as dv
 
 logger = logging.getLogger("movieclaw_api.drives")
@@ -80,31 +80,31 @@ class CloudFile:
 
 @dataclass(slots=True)
 class _CachedLink:
-    url: str
+    link: dv.DirectLink
     expires_at: float
 
 
 _links: dict[tuple[int, str, str], _CachedLink] = {}
-_inflight: dict[tuple[int, str, str], asyncio.Future[str]] = {}
+_inflight: dict[tuple[int, str, str], asyncio.Future[dv.DirectLink]] = {}
 
 
-async def direct_url(
+async def direct_link(
     account_id: int,
     remote_id: str,
     user_agent: str,
     *,
     priority: gateway.Priority = gateway.Priority.PLAYBACK,
-) -> str:
+) -> dv.DirectLink:
     """一个网盘文件的直链（缓存、并发合并）。失败抛 ``DriveError`` 的子类。"""
     key = (account_id, remote_id, user_agent)
     now = time.monotonic()
     cached = _links.get(key)
     if cached is not None and cached.expires_at > now:
-        return cached.url
+        return cached.link
     pending = _inflight.get(key)
     if pending is not None:
         return await asyncio.shield(pending)
-    future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    future: asyncio.Future[dv.DirectLink] = asyncio.get_running_loop().create_future()
     _inflight[key] = future
     try:
         link: dv.DirectLink = await gateway.call(
@@ -118,9 +118,9 @@ async def direct_url(
         if ttl > 0:
             if len(_links) >= _LINK_CACHE_MAX:
                 _links.pop(next(iter(_links)))
-            _links[key] = _CachedLink(link.url, time.monotonic() + ttl)
-        future.set_result(link.url)
-        return link.url
+            _links[key] = _CachedLink(link, time.monotonic() + ttl)
+        future.set_result(link)
+        return link
     except BaseException as exc:
         future.set_exception(exc)
         # 没人等这个 future 时别让 asyncio 报「异常没被取走」
@@ -137,10 +137,10 @@ def forget_links(account_id: int, remote_id: str | None = None) -> None:
         _links.pop(key, None)
 
 
-def _cached_url(account_id: int, remote_id: str, user_agent: str) -> str | None:
+def _cached_link(account_id: int, remote_id: str, user_agent: str) -> dv.DirectLink | None:
     cached = _links.get((account_id, remote_id, user_agent))
     if cached is not None and cached.expires_at > time.monotonic():
-        return cached.url
+        return cached.link
     return None
 
 
@@ -206,9 +206,12 @@ async def refresh_file(file_id: int) -> CloudFile | None:
     return item
 
 
-def server_link(item: CloudFile, url: str) -> StrmLink:
-    """服务器自己读用的直链：请求时带上取链时的 UA（按 UA 签发的直链换了 UA 就不认）。"""
-    return StrmLink(url=url, headers={"User-Agent": SERVER_USER_AGENT})
+def server_link(link: dv.DirectLink) -> StrmLink:
+    """服务器自己读用的直链：带上取链时的 UA（按 UA 签发的直链换了 UA 就不认）和插件要的请求头。"""
+    headers = {"User-Agent": SERVER_USER_AGENT}
+    for name, value in link.headers.items():
+        add_header(headers, name, value)
+    return StrmLink(url=link.url, headers=headers)
 
 
 async def prefetch(
@@ -218,8 +221,9 @@ async def prefetch(
     item = _paths.get(file_path)
     if item is None:
         return None
-    url = await direct_url(item.account_id, item.remote_id, SERVER_USER_AGENT, priority=priority)
-    return server_link(item, url)
+    return server_link(
+        await direct_link(item.account_id, item.remote_id, SERVER_USER_AGENT, priority=priority)
+    )
 
 
 def resolve(file_path: str) -> StrmLink | None:
@@ -227,9 +231,9 @@ def resolve(file_path: str) -> StrmLink | None:
     item = _paths.get(file_path)
     if item is None:
         return None
-    url = _cached_url(item.account_id, item.remote_id, SERVER_USER_AGENT)
-    if url is not None:
-        return server_link(item, url)
+    cached = _cached_link(item.account_id, item.remote_id, SERVER_USER_AGENT)
+    if cached is not None:
+        return server_link(cached)
     loop = _loop
     if loop is None or loop.is_closed():
         return None
@@ -445,6 +449,7 @@ async def stream_target(
     ``holder`` 是这路播放的标识（同一台设备同一个文件的几条 Range 请求共用一个名额）。``side`` /
     ``place`` 见 ``choose_direct``；不许直连（``allow_direct=False``）时不用给。
     直连网盘不经过家里，不占名额。失败抛 ``SlotsFull`` / ``BackendUnavailable`` / ``DriveError``。
+    内网地址、带请求头的直链播放器用不了（``strm_needs_relay``），一律转发。
     """
     from movieclaw_api.services.drives.registry import BackendUnavailable
 
@@ -467,11 +472,13 @@ async def stream_target(
         force_relay=force_relay,
         original_link=backend.capabilities.original_link,
     ):
-        url = await direct_url(item.account_id, item.remote_id, user_agent or SERVER_USER_AGENT)
-        return CloudStream(direct_url=url, relay=None)
+        link = await direct_link(item.account_id, item.remote_id, user_agent or SERVER_USER_AGENT)
+        # 内网地址、要带请求头的直链：302 出去播放器连不上，还会把令牌交出去。不管设置怎么选都转发
+        if not strm_needs_relay(link.url, link.headers):
+            return CloudStream(direct_url=link.url, relay=None)
     await take_slot(item.account_id, holder)
-    url = await direct_url(item.account_id, item.remote_id, SERVER_USER_AGENT)
-    return CloudStream(direct_url=None, relay=server_link(item, url))
+    link = await direct_link(item.account_id, item.remote_id, SERVER_USER_AGENT)
+    return CloudStream(direct_url=None, relay=server_link(link))
 
 
 def stream_error(exc: Exception) -> str:

@@ -507,14 +507,15 @@ def test_local_scans_leave_cloud_only_rows_alone(client, tmp_path):
 
     # 复查到期：定期对账顺带列一次
     async def expire():
-        from movieclaw_api.services.library.cloud import RECHECK_INTERVAL
+        from datetime import timedelta
+
         from movieclaw_db.engine import get_database
         from movieclaw_db.models import LibraryCloudFolder
         from movieclaw_db.models.base import utcnow
 
         async with get_database().session() as session:
             folder = await session.get(LibraryCloudFolder, view["cloud_folders"][0]["id"])
-            folder.listed_at = utcnow() - RECHECK_INTERVAL * 2
+            folder.listed_at = utcnow() - timedelta(days=14)
             session.add(folder)
             await session.commit()
 
@@ -1025,6 +1026,7 @@ def test_deleting_a_cloud_item_deletes_the_drive_file_first(client, tmp_path):
         "files": 1,
         "bytes": 3_000_000_000,
         "recycle_bin": True,
+        "read_only": False,
     }
     # 网盘删不掉：整件事不做
     _edit_state(client, lambda d: d.update(fail_delete=True))

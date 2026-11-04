@@ -1876,12 +1876,15 @@ nonisolated extension API {
         var bytes: Int
         /// 网盘有回收站：删的是进网盘回收站，还能在网盘里还原
         var recycleBin: Bool
+        /// 文件在只读的后端上：这次删除会被拒绝，要到对方那里删
+        var readOnly: Bool?
 
         enum CodingKeys: String, CodingKey {
             case backendTitle = "backend_title"
             case files
             case bytes
             case recycleBin = "recycle_bin"
+            case readOnly = "read_only"
         }
     }
 

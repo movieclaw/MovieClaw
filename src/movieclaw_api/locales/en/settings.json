@@ -331,6 +331,7 @@
       "downloadImported": "Manual download imported",
       "libraryFilesAdded": "Files added to the library",
       "libraryFileLocalReleased": "Local library copy released (available in cloud storage)",
+      "librarySegmentsUpdated": "Intro and outro detection updated",
       "libraryItemFavorited": "Added to favorites",
       "libraryItemUnfavorited": "Removed from favorites",
       "libraryItemViewed": "Item details opened",

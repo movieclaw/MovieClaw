@@ -54,6 +54,11 @@
 网络错误都不是。其余异常一律按 ``Transient`` 处理。插件里不要自己睡眠重试、不要自己
 限速；每个 HTTP 请求都要设超时。
 
+**只读后端**（Emby、Plex 这类媒体服务器，docs/design/media-server-plugins.md）：
+``writable=False``，只实现登录、``account_info``、``list_dir``、``list_tree``、``direct_link``。
+主程序绝不调写方法：不能当库的主根，用户在库里删这些文件会被拒绝。
+身份写进 ``rel_path`` 的 ``[tmdbid=N]`` 标记，长期凭据放 ``DirectLink.headers``。
+
 同一份后端既能在主进程里运行，也能在独立进程里运行（宿主经代理调用它的方法）。
 """
 
@@ -71,7 +76,8 @@ from movieclaw_kernel import RegistryKey, Stability
 class Capabilities:
     """后端能做什么、默认怎么用（cloud-storage.md §11.1）。主程序据此决定界面与调度。"""
 
-    #: 能不能写（上传、移动、删除）；只读网盘目前不支持，须为 True 并实现上传与删除
+    #: 能不能写（上传、移动、删除）。为真要实现上传与删除；为假（只读）时主程序绝不调写方法：
+    #: 不能当库的主根，用户在库里删这些文件会被拒绝（docs/design/media-server-plugins.md §4）
     writable: bool = False
     #: 秒传用哪些指纹（``sha1`` / ``md5``）；空 = 不支持秒传
     rapid_upload_hashes: tuple[str, ...] = ()
@@ -97,6 +103,8 @@ class Capabilities:
     upload_concurrency: int = 1
     #: 单文件大小上限（字节）；未知为 None
     max_file_bytes: int | None = None
+    #: 多久整树复查一次（小时）。定期对账每 6 小时一轮，到点的才列；想每轮都列就写 1
+    recheck_hours: int = 168
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,11 +188,14 @@ class AccountInfo:
 
 @dataclass(frozen=True, slots=True)
 class DirectLink:
-    """一个文件的直链。不带请求头：要带头才能访问的直链，302 出去的播放器也不会带。"""
+    """一个文件的直链。"""
 
     url: str
     #: 这条链接能复用多久（秒）；主程序按它缓存，最长一小时
     expires_in: float = 300.0
+    #: 主程序读这条直链时带的请求头（令牌这类长期凭据放这里，不要放地址里）。播放器不会带请求头，
+    #: 所以带了请求头的直链一律由家里转发，不会 302 给播放器；内网地址同样如此
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,12 +204,14 @@ class RemoteFile:
 
     remote_id: str
     name: str
+    #: 文件大小（字节）；对方不给就填 0
     size: int
     #: 网盘给的 SHA1（大写十六进制）；不给就是 None
     sha1: str | None = None
     #: 所在目录的 id
     parent_id: str | None = None
-    #: ``list_tree`` 里：相对被列目录的路径（含文件名，``/`` 分隔），其余方法不填
+    #: ``list_tree`` 里：相对被列目录的路径（含文件名，``/`` 分隔），其余方法不填。识别按它走，所以
+    #: 对方已知身份时可以写进去：``片名 (2024) [tmdbid=603]/Season 01/S01E02.mkv``（剧集写剧的编号）
     rel_path: str | None = None
 
 
@@ -216,7 +229,7 @@ class RemoteDir:
 
 @dataclass(frozen=True, slots=True)
 class RemoteTree:
-    """一个目录下整棵树的文件（``list_tree``，纳管与每周复查用）。"""
+    """一个目录下整棵树的文件（``list_tree``，纳管与定期复查用）。"""
 
     #: 全部文件（不只视频，主程序自己挑），``rel_path`` 必填
     files: tuple[RemoteFile, ...] = ()
@@ -437,6 +450,9 @@ class DriveBackend:
         """一次拉回目录下整棵树的文件（相对路径、大小、哈希、文件 id）。
 
         用网盘的整树列举接口，不要逐个目录往下列；目录不存在抛 ``NotFound``。
+
+        **结果必须完整**：主程序把没出现的文件标成缺失。某一页、某一季拉失败时要抛异常（``Transient``），
+        不能吞掉再返回半截结果：抛了这一轮就不对账，一次网络抖动不会让整季播不了。
         """
         raise NotImplementedError
 
@@ -507,6 +523,7 @@ class DriveBackend:
 
         主程序自己读（转发、转码、抽字幕）时传主程序的 UA，给播放器 302 时传播放器的 UA。
         对已删除的文件取链容易触发风控：主程序只对已核验、没进回收站的副本取链。
+        地址要支持 Range（读索引、拖进度都靠它）。
         """
         raise NotImplementedError
 
@@ -516,8 +533,9 @@ DRIVE_BACKENDS: RegistryKey[DriveBackend] = RegistryKey(
     "drive-backends",
     # 1.1：stat / direct_link（取流）；1.2：list_dir / list_tree / changes（纳管）；
     # 1.3：ensure_dir / begin_upload / upload_part / finish_upload（上传）；1.4：delete；
-    # 1.5：Login.form / login_with_form（填表登录）；1.6：RemoteTree.path（被列目录的路径链）
-    version="1.6",
+    # 1.5：Login.form / login_with_form（填表登录）；1.6：RemoteTree.path（被列目录的路径链）；
+    # 1.7：只读后端（writable=False 真正可用）、DirectLink.headers、Capabilities.recheck_hours
+    version="1.7",
     stability=Stability.EXPERIMENTAL,
     schema=DriveBackend,
     doc="网盘存储后端：插件贡献一家网盘的协议实现（登录、文件操作），主程序负责账号、调度与界面",
@@ -549,6 +567,7 @@ def backend_spec(backend: DriveBackend) -> dict[str, Any]:
             "default_read_slots": caps.default_read_slots,
             "upload_concurrency": caps.upload_concurrency,
             "max_file_bytes": caps.max_file_bytes,
+            "recheck_hours": caps.recheck_hours,
         },
         "login": {
             "scan": login.scan,
@@ -663,11 +682,15 @@ def info_from(data: dict[str, Any]) -> AccountInfo:
 
 
 def link_dict(link: DirectLink) -> dict[str, Any]:
-    return {"url": link.url, "expires_in": link.expires_in}
+    return {"url": link.url, "expires_in": link.expires_in, "headers": dict(link.headers)}
 
 
 def link_from(data: dict[str, Any]) -> DirectLink:
-    return DirectLink(url=str(data["url"]), expires_in=float(data.get("expires_in") or 300.0))
+    return DirectLink(
+        url=str(data["url"]),
+        expires_in=float(data.get("expires_in") or 300.0),
+        headers={str(k): str(v) for k, v in (data.get("headers") or {}).items()},
+    )
 
 
 def remote_file_dict(item: RemoteFile) -> dict[str, Any]:

@@ -2,8 +2,8 @@
 
 挂在库上的网盘文件夹由扫描一并处理，只是「遍历」换成网盘的整树列举：
 
-- **列谁**：新挂上、还没列过的文件夹；手动扫描时全部；其余每周复查一次（定期对账顺带判断
-  到没到期）；操作动态只列有变化的那个目录（``cloud_only`` 的扫描，不碰本地根目录）；
+- **列谁**：新挂上、还没列过的文件夹；手动扫描时全部；其余按后端声明的周期复查（默认每周，定期
+  对账顺带判断到没到期）；操作动态只列有变化的那个目录（``cloud_only`` 的扫描，不碰本地根目录）；
   插件/外部工具点名了文件夹下的子目录时只列那棵子树（``CloudScope``，判缺失也只在子树里）。
 - **怎么入账**：列出来的视频按文件名走现有识别链，台账行 ``local_bytes`` 为假 + 副本记为已
   核验。文件的台账路径是虚拟位置（``local_dir`` + 相对路径），已经入账的按网盘文件 id 认回
@@ -28,8 +28,9 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.i18n import t
-from movieclaw_api.i18n.stored import source_text, stored_fields
+from movieclaw_api.i18n.stored import keyed_error, source_text, stored_fields
 from movieclaw_api.services.drives import gateway
+from movieclaw_api.services.drives.registry import backends
 from movieclaw_api.services.library.profile import LibraryProfile
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.library import Library
@@ -37,6 +38,7 @@ from movieclaw_db.models.library_cloud_folder import LibraryCloudFolder
 from movieclaw_db.models.library_file import FileState, LibraryFile
 from movieclaw_db.models.library_file_replica import REPLICA_LOST, REPLICA_VERIFIED
 from movieclaw_db.models.scheduled_task import TriggerType
+from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
 from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
 from movieclaw_db.repositories.library_file_repo import LibraryFileRepository
 from movieclaw_scheduler.registry import register_task
@@ -44,8 +46,6 @@ from movieclaw_sdk import drives as dv
 
 logger = logging.getLogger(__name__)
 
-#: 没有操作动态兜底的变化（复制、改名、第三方上传）多久复查一次
-RECHECK_INTERVAL = timedelta(days=7)
 #: 纳管文件虚拟位置的目录名（在库主根下，扫描不进隐藏目录）
 CLOUD_DIR_NAME = ".movieclaw-cloud"
 
@@ -121,8 +121,20 @@ async def folders_to_list(
         return [f for f in folders if f.id in folder_ids]
     if everything:
         return folders
-    due = utcnow() - RECHECK_INTERVAL
-    return [f for f in folders if f.listed_at is None or f.listed_at < due]
+    now = utcnow()
+    return [
+        f
+        for f in folders
+        if f.listed_at is None or f.listed_at < now - await _recheck_after(session, f.account_id)
+    ]
+
+
+async def _recheck_after(session: AsyncSession, account_id: int) -> timedelta:
+    """这个账号的文件夹多久复查一次：后端声明的周期（插件不在时按默认值，反正也列不了）。"""
+    account = await DriveAccountRepository(session).get(account_id)
+    backend = backends().get(account.backend) if account is not None else None
+    caps = backend.capabilities if backend is not None else dv.Capabilities()
+    return timedelta(hours=caps.recheck_hours)
 
 
 async def resolve_scopes(
@@ -410,7 +422,6 @@ async def validate_folders(
 ) -> list[FolderSpec]:
     """检查一组网盘根目录能不能这样挂；不行抛 ``ValueError``（给用户看的一句话）。"""
     from movieclaw_db.models.library import Library as LibraryModel
-    from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
 
     cleaned = [
         FolderSpec(s.account_id, s.remote_dir_id.strip(), _clean_path(s.display_path), s.is_primary)
@@ -422,16 +433,24 @@ async def validate_folders(
     for spec in cleaned:
         if not spec.remote_dir_id:
             raise ValueError(t("library.cloud.missingId"))
-        if await accounts.get(spec.account_id) is None:
+        account = await accounts.get(spec.account_id)
+        if account is None:
             raise ValueError(t("library.cloud.accountMissing"))
+        backend = backends().get(account.backend)
+        if spec.is_primary and backend is not None and not backend.capabilities.writable:
+            # 主根是新片上传的去处：只读的后端传不上去
+            raise keyed_error(ValueError, "library.cloud.readOnlyPrimary", name=backend.title)
     for i, a in enumerate(cleaned):
         for b in cleaned[i + 1 :]:
             if a.account_id == b.account_id and (
                 a.remote_dir_id == b.remote_dir_id or _nested(a.display_path, b.display_path)
             ):
                 root = t("library.cloud.rootDir")
-                raise ValueError(
-                    t("library.cloud.overlap", a=a.display_path or root, b=b.display_path or root)
+                raise keyed_error(
+                    ValueError,
+                    "library.cloud.overlap",
+                    a=a.display_path or root,
+                    b=b.display_path or root,
                 )
     library_id = library.id if library is not None else None
     for other in await LibraryCloudRepository(session).all_folders():
@@ -444,13 +463,12 @@ async def validate_folders(
                 spec.display_path, other.display_path
             ):
                 owner = await session.get(LibraryModel, other.library_id)
-                raise ValueError(
-                    t(
-                        "library.cloud.overlapLibrary",
-                        path=spec.display_path or t("library.cloud.rootDir"),
-                        library=owner.name if owner else "?",
-                        other=other.display_path,
-                    )
+                raise keyed_error(
+                    ValueError,
+                    "library.cloud.overlapLibrary",
+                    path=spec.display_path or t("library.cloud.rootDir"),
+                    library=owner.name if owner else "?",
+                    other=other.display_path,
                 )
     return cleaned
 
@@ -517,9 +535,7 @@ CHANGE_DIRS_MAX = 50
     description_key="settings.scheduledTasks.catalog.driveChangesDescription",
 )
 async def poll_drive_changes() -> None:
-    from movieclaw_api.services.drives.registry import backends
     from movieclaw_db.engine import get_database
-    from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
 
     async with get_database().session() as session:
         folders = await LibraryCloudRepository(session).all_folders()
@@ -685,11 +701,9 @@ async def probe_cloud_specs() -> int:
     """探一批还没有规格的只在网盘上的文件。返回这轮探成了几个。"""
     from sqlmodel import select
 
-    from movieclaw_api.services.drives.registry import backends
     from movieclaw_api.services.playback.strm_probe import probe_file
     from movieclaw_db.engine import get_database
     from movieclaw_db.models.library_file_replica import REPLICA_VERIFIED, LibraryFileReplica
-    from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
 
     async with get_database().session() as session:
         rows = (

@@ -1746,6 +1746,9 @@ class DeleteCloudView(BaseModel):
     files: int = Field(description="要删的网盘文件数")
     bytes: int = Field(description="这些文件的大小")
     recycle_bin: bool = Field(description="网盘有回收站：删的是进网盘回收站，还能在网盘里还原")
+    read_only: bool | None = Field(
+        default=None, description="文件在只读的后端上：这次删除会被拒绝，要到对方那里删"
+    )
 
 
 class ItemDeletePreviewView(BaseModel):

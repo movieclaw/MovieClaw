@@ -732,6 +732,7 @@
     "fileUnavailable": "网盘取不到这个文件：{reason}",
     "streamFailed": "网盘取流失败：{reason}",
     "deleteFailed": "网盘上的文件没删掉：{reason}",
+    "readOnly": "「{name}」上的文件是只读的，不能从这里删除。要删请到 {name} 里操作，下次同步后这里会跟着消失",
     "partSizeInvalid": "网盘给的分片大小不合理（{size} 字节）",
     "rangeInvalid": "网盘要校验的字节段不合理（{range}）"
   },
