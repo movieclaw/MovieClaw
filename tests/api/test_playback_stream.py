@@ -200,7 +200,7 @@ def seed(client: TestClient, tmp_path: Path, **kwargs) -> int:
     return client.portal.call(partial(_seed, tmp_path, **kwargs))  # type: ignore[attr-defined]
 
 
-def start_session(client: TestClient, file_id: int, **extra) -> dict:
+def start_session(client: TestClient, file_id: int | None = None, **extra) -> dict:
     resp = client.post(
         f"{_PB}/sessions",
         json={"file_id": file_id, "capability": CAPABILITY, **extra},
@@ -502,6 +502,192 @@ def test_profile_5_session_on_a_local_gpu_tells_the_user_why_the_colors_are_off(
     plain = start_session(client, hdr10)
     assert plain["hw_backend"] == "vaapi"
     assert "杜比视界" not in plain["decision"]["reason"]
+
+
+# ---------------------------------------------------------------------------
+# #1174：手动选 PGS —— 网页自己画；烧录执行不了不能把片子变成错误页
+# ---------------------------------------------------------------------------
+
+# 能直放 4K HEVC + HDR 的客户端。老客户端：选中 PGS 就要烧录
+_HDR_CLIENT = {
+    "video": [{"codec": "h264"}, {"codec": "hevc"}],
+    "audio": [{"codec": "aac"}],
+    "containers": ["mp4", "hls-fmp4"],
+    "hdr_passthrough": True,
+}
+# 网页：PGS 自己画
+_OVERLAY_CLIENT = {**_HDR_CLIENT, "pgs_overlay": True}
+_PGS_STREAMS = [
+    {"codec": "hdmv_pgs_subtitle", "language": "chi", "default": True},
+    {"codec": "hdmv_pgs_subtitle", "language": "eng"},
+]
+
+
+def _seed_pgs(client: TestClient, tmp_path: Path, **kwargs) -> tuple[int, int]:
+    """带两条内封 PGS 的片子，返回 (file_id, media_item_id)。"""
+    file_id = seed(client, tmp_path, **kwargs)
+
+    async def attach() -> int:
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            row.subtitle_streams = _PGS_STREAMS
+            await session.commit()
+            return row.media_item_id
+
+    return file_id, client.portal.call(attach)  # type: ignore[attr-defined]
+
+
+def _only_backend(monkeypatch, name: str) -> None:
+    from movieclaw_api.services.playback import hwprobe
+    from movieclaw_api.services.playback import plan as plan_mod
+
+    backends = lambda: (name,)  # noqa: E731
+    monkeypatch.setattr(hwprobe, "available_backends", backends)
+    monkeypatch.setattr(routes_playback, "available_backends", backends)
+    monkeypatch.setattr(routes_playback, "available_local_backends", backends)
+    monkeypatch.setattr(routes_playback, "remote_backends_available", lambda *_a, **_k: ())
+    monkeypatch.setattr(plan_mod, "hardware_available", lambda: True)
+
+
+def _remember_subtitle(client: TestClient, item_id: int, file_id: int, ref: str) -> None:
+    response = client.post(
+        f"{_PB}/progress",
+        json={
+            "media_item_id": item_id,
+            "event": "stop",
+            "position_ms": 60_000,
+            "subtitle_track": ref,
+            "file_id": file_id,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["subtitle_track"] == ref
+
+
+def test_burn_that_cannot_run_keeps_a_playable_hdr_movie_playing(
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
+):
+    """只有 VAAPI：烧录执行不了，HDR 又不许软转，以前落成拒绝——正在放的片变错误页。"""
+    _only_backend(monkeypatch, "vaapi")
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+
+    data = start_session(client, file_id, capability=_HDR_CLIENT, subtitle_track="embedded:1")
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["tier"] == int(PlaybackTier.REMUX)
+    assert data["decision"]["video"]["action"] == "copy"
+    assert data["decision"]["video"]["burn_subtitle"] is None
+
+    decided = client.post(
+        f"{_PB}/decide",
+        json={"file_id": file_id, "capability": _HDR_CLIENT, "subtitle_track": "embedded:1"},
+    ).json()["data"]
+    assert decided["outcome"] == "plan", "决策接口与开会话同一口径"
+    assert decided["video"]["burn_subtitle"] is None
+
+
+def test_remembered_pgs_no_longer_locks_the_movie_out(
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
+):
+    """选择被记住后，以前再打开这部片也是错误页，错误页上又改不了字幕。"""
+    _only_backend(monkeypatch, "vaapi")
+    file_id, item_id = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+    _remember_subtitle(client, item_id, file_id, "embedded:1")
+
+    data = start_session(client, None, media_item_id=item_id, capability=_HDR_CLIENT)
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["video"]["burn_subtitle"] is None
+    assert data["watch"]["subtitle_track"] == "embedded:1", "记忆轨照样带回，客户端据此选中"
+
+
+def test_dropping_a_burn_can_land_on_direct_play(probed_vaapi_hdr, client, tmp_path, monkeypatch):
+    """撤掉烧录后可能回到档 0：要走直出那条路，不能给档 0 的计划起转码会话。"""
+    _only_backend(monkeypatch, "vaapi")
+    file_id, _ = _seed_pgs(
+        client, tmp_path, container="mp4", codec="hevc", hdr="HDR10", resolution="2160p"
+    )
+    data = start_session(client, file_id, capability=_HDR_CLIENT, subtitle_track="embedded:1")
+    assert data["decision"]["tier"] == int(PlaybackTier.DIRECT_PLAY), data["decision"]
+    assert data["session_id"] is None
+    assert f"/files/{file_id}/stream?token=" in data["stream_url"]
+
+
+def test_sdr_burn_on_vaapi_still_falls_back_to_software_consent(client, tmp_path, monkeypatch):
+    """只有 HDR 是死路。SDR 片烧录照旧走统一降档：软转没开就问同意，开了就软转。"""
+    _only_backend(monkeypatch, "vaapi")
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", resolution="2160p")
+
+    body = {"file_id": file_id, "capability": _HDR_CLIENT, "subtitle_track": "embedded:1"}
+    assert client.post(f"{_PB}/decide", json=body).json()["data"]["outcome"] == "consent"
+    assert start_session(client, **body)["decision"]["outcome"] == "consent"
+
+    assert client.put(f"{_PB}/policy", json={"software_transcode_enabled": True}).status_code == 200
+    decided = client.post(f"{_PB}/decide", json=body).json()["data"]
+    assert decided["tier"] == int(PlaybackTier.SOFTWARE_TRANSCODE), "问到的就是真实结果，不是硬件档"
+    data = start_session(client, **body)
+    assert data["decision"]["tier"] == int(PlaybackTier.SOFTWARE_TRANSCODE)
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["hw_backend"] is None
+
+
+def test_overlay_client_never_burns_from_selection_or_memory(
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
+):
+    _only_backend(monkeypatch, "nvenc")
+    file_id, item_id = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+
+    selected = start_session(
+        client, file_id, capability=_OVERLAY_CLIENT, subtitle_track="embedded:1"
+    )
+    assert selected["decision"]["tier"] == int(PlaybackTier.REMUX)
+    assert selected["decision"]["video"]["action"] == "copy"
+
+    _remember_subtitle(client, item_id, file_id, "embedded:1")
+    reopened = start_session(client, None, media_item_id=item_id, capability=_OVERLAY_CLIENT)
+    assert reopened["decision"]["video"]["action"] == "copy", "记住的 PGS 不能让下次起播转码"
+    assert reopened["decision"]["video"]["burn_subtitle"] is None
+    assert reopened["watch"]["subtitle_track"] == "embedded:1"
+
+
+def test_explicit_burn_runs_on_a_backend_that_can_take_software_frames(
+    client, tmp_path, monkeypatch
+):
+    _only_backend(monkeypatch, "nvenc")
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", resolution="2160p")
+    body = {
+        "file_id": file_id,
+        "capability": _OVERLAY_CLIENT,
+        "subtitle_track": "embedded:1",
+        "burn_requested": True,
+    }
+
+    decided = client.post(f"{_PB}/decide", json=body).json()["data"]
+    assert decided["tier"] == int(PlaybackTier.HARDWARE_TRANSCODE)
+    assert decided["video"]["burn_subtitle"] == "embedded:1"
+
+    data = start_session(client, **body)
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["decision"]["video"]["height"] == 1080
+    assert data["hw_backend"] == "nvenc"
+
+
+def test_explicit_burn_that_cannot_run_reports_no_burn_in_the_plan(
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
+):
+    """网页靠计划里没有 burn_subtitle 判断「这台服务器压制不了」，正在放的片不受影响。"""
+    _only_backend(monkeypatch, "vaapi")
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+    decided = client.post(
+        f"{_PB}/decide",
+        json={
+            "file_id": file_id,
+            "capability": _OVERLAY_CLIENT,
+            "subtitle_track": "embedded:1",
+            "burn_requested": True,
+        },
+    ).json()["data"]
+    assert decided["outcome"] == "plan"
+    assert decided["video"]["action"] == "copy"
+    assert decided["video"]["burn_subtitle"] is None
 
 
 # ---------------------------------------------------------------------------

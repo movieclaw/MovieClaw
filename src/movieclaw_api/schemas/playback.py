@@ -403,6 +403,9 @@ class ClientCapabilityIn(BaseModel):
     #: 不把硬件档记成失败（#1008）。服务端还要 ``video`` 里有 HEVC、高度够、显卡能编，才出 HEVC
     #: （决策的 ``video.codec`` 写 ``hevc``）。老客户端不带 = 一律 H.264
     hevc_transcode: bool = False
+    #: 自己能画内封 PGS（服务端抽 .sup、播放器叠在画面上）：选中 PGS 不再触发烧录，只有带
+    #: ``burn_requested`` 才烧。老客户端不带 = 选中 PGS 就烧录
+    pgs_overlay: bool = False
 
 
 class PlaybackDecideRequest(BaseModel):
@@ -420,10 +423,15 @@ class PlaybackDecideRequest(BaseModel):
     #: 自动换轨。**选了非默认轨会把档 0 顶成档 1**——直出时浏览器只放默认轨，
     #: 必须重封装才能把选中的那条带上。
     audio_track: str | None = None
-    #: 用户选中的字幕轨（中性引用）。只在指向**内封 PGS 轨**时改变决策：
-    #: 视频转码 + 字幕烧录进画面（Emby 语义，硬边界 1 的唯一例外）。
+    #: 用户选中的字幕轨（中性引用）。只在指向**内封 PGS 轨**时可能改变决策：
+    #: 视频转码 + 字幕烧录进画面（硬边界 1 的唯一例外）。申报了 ``pgs_overlay`` 的客户端
+    #: 自己画，要带 ``burn_requested`` 才烧。
     #: None = 用观看状态里记住的轨；"off" 与文本轨都不影响视频策略。
     subtitle_track: str | None = None
+    #: 用户显式要求把 ``subtitle_track`` 压制进画面（字幕菜单里的操作）：只对申报了
+    #: ``pgs_overlay`` 的客户端有意义，老客户端选中 PGS 本来就烧。这次要不要压制不进观看记忆，
+    #: 下次打开还是播放器自己画。压制执行不了时服务端撤掉烧录，计划里 ``burn_subtitle`` 为空
+    burn_requested: bool = False
     #: 用户选的画质上限（如 720）。语义是上限而非目标：源不超就照常直通，
     #: 超了才转码降下去。None = 自动。弱网救急用（§10「手动选清晰度」）。
     max_height: int | None = Field(default=None, ge=240, le=2160)

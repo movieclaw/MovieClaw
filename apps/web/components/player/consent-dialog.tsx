@@ -147,3 +147,91 @@ export function ConsentDialog({
     </div>
   );
 }
+
+/**
+ * 压制字幕前的确认（#1174）：只有软件转码能压制时才弹。这是对这一次代价的确认，
+ * 全局软转开关同意过也要问：在弱机上它意味着这部片从流畅直放变成卡顿。
+ */
+export function BurnPromptDialog({
+  softwareEnabled,
+  canSelfEnable,
+  onContinue,
+  onCancel,
+}: {
+  /** 软件转码开关已开：只差用户确认这一次的代价 */
+  softwareEnabled: boolean;
+  /** 开关没开时，这个账号能不能自己开（只有超管可以） */
+  canSelfEnable: boolean;
+  onContinue: () => void;
+  onCancel: () => void;
+}) {
+  const t = useTranslations();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const enableAndContinue = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await savePlaybackPolicy({ software_transcode_enabled: true });
+      if (!saved.software_transcode_enabled) throw new Error(t("player.consent.saveFailed"));
+      onContinue();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("player.consent.enableFailed"));
+      setSaving(false);
+    }
+  };
+
+  return (
+    // role=dialog 与 pointer-events-auto 的理由同上面的 ConsentDialog。视频在下面照常放，
+    // 这时还没有动会话：选「不压制」什么都不会变
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-black/75 px-6"
+    >
+      <div className="solid-popover w-full max-w-[460px] rounded-2xl border border-white/10 bg-[rgba(16,18,26,0.92)] p-7 text-white shadow-[0_32px_90px_rgba(0,0,0,0.7)] backdrop-blur-2xl">
+        <h2 className="text-[19px] font-semibold leading-snug">{t("player.burnPrompt.title")}</h2>
+        <p className="mt-4 text-[13px] leading-relaxed text-white/85">
+          {t("player.burnPrompt.softwareOnly")}
+        </p>
+        <p className="mt-2 text-[13px] leading-relaxed text-white/70">
+          {t("player.burnPrompt.quality")}
+        </p>
+        {!softwareEnabled ? (
+          <p className="mt-2 text-[13px] leading-relaxed text-white/70">
+            {canSelfEnable ? t("player.burnPrompt.enableHint") : t("player.consent.adminRequired")}
+          </p>
+        ) : null}
+
+        {error ? (
+          <p className="mt-4 rounded-xl bg-[var(--danger)]/20 px-3 py-2 text-[13px] text-white">{error}</p>
+        ) : null}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-full px-5 py-2.5 text-[14px] text-white/70 transition-colors hover:bg-white/10"
+          >
+            {t("player.burnPrompt.keep")}
+          </button>
+          {softwareEnabled || canSelfEnable ? (
+            <button
+              type="button"
+              onClick={softwareEnabled ? onContinue : enableAndContinue}
+              disabled={saving}
+              className="rounded-full bg-[var(--player-accent)] px-5 py-2.5 text-[14px] font-semibold text-black transition-colors hover:bg-[var(--player-accent-hover)] disabled:opacity-50"
+            >
+              {saving
+                ? t("player.consent.enabling")
+                : softwareEnabled
+                  ? t("player.burnPrompt.continue")
+                  : t("player.burnPrompt.enableAndContinue")}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}

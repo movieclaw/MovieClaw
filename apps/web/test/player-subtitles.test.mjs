@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  burnStepFor,
   clampSubtitleOffset,
   fetchSupBytes,
   pickInitialSubtitle,
@@ -119,6 +120,27 @@ test("时间轴微调钳到 ±30 秒并去掉浮点毛刺", () => {
   assert.equal(clampSubtitleOffset(0.1 + 0.2), 0.3);
   assert.equal(clampSubtitleOffset(99), 30);
   assert.equal(clampSubtitleOffset(-99), -30);
+});
+
+test("PGS 和其它轨一样：默认轨和记住的轨都选得上", () => {
+  const { options } = planSubtitleTracks(
+    [plan("embedded:0", "pgs", { is_default: true }), plan("embedded:1", "pgs")],
+    ["/a", "/b"],
+  );
+  assert.equal(pickInitialSubtitle(options, null), "embedded:0");
+  assert.equal(pickInitialSubtitle(options, "embedded:1"), "embedded:1");
+});
+
+test("压制前的试算决定下一步：有硬件直接开始，只能软转先问代价", () => {
+  const planned = (tier, burned) => ({ outcome: "plan", tier, video: { burn_subtitle: burned } });
+  assert.equal(burnStepFor(planned(3, "embedded:1"), "embedded:1"), "start");
+  assert.equal(burnStepFor(planned(4, "embedded:1"), "embedded:1"), "confirm");
+  assert.equal(burnStepFor({ outcome: "consent", tier: 4, video: null }, "embedded:1"), "consent");
+  // 服务端撤掉了烧录：HDR 片只有 VAAPI / QSV，片子照放，只是压制不了
+  assert.equal(burnStepFor(planned(1, null), "embedded:1"), "unavailable");
+  // 烧的不是这条（换了版本文件）也不能当成功
+  assert.equal(burnStepFor(planned(3, "embedded:0"), "embedded:1"), "unavailable");
+  assert.equal(burnStepFor({ outcome: "rejected", tier: null, video: null }, "embedded:1"), "unavailable");
 });
 
 test("快捷键按 YouTube 惯例，输入框里一律不接管", () => {
