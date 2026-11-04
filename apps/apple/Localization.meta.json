@@ -20477,6 +20477,9 @@
     "library.item.airSubscribeHint": {
       "sourceHash": "47c0496dd15f01c18153b2e60fcd3424865aa0c43d024b84bd13f5357e98fd74"
     },
+    "library.item.airSubscribeSetup": {
+      "sourceHash": "f50a60191ef80669f3c8624871e05d1ddc6d1f4a1fb936ef1e496e3210b6a703"
+    },
     "library.item.airSource": {
       "sourceHash": "625f5f205513ad5603340a8dd4049940e9e8feb73bb55b5242045beb3eb8ff66"
     },
