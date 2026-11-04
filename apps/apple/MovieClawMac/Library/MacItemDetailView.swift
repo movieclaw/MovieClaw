@@ -15,6 +15,8 @@ import SwiftUI
 /// 一季超过 50 集分段（docs/design/long-season-episode-ranges.md）：季胶囊下面一排段胶囊 + 右侧「全部 N 集 ›」（弹出段 + 10 列宫格），
 /// 横排只放当前段的集、首尾各一张「上一段 / 下一段」；锚点的段带橙点。≤50 集不出段胶囊与面板入口。
 /// 这一季有观看记录（任一集看过或看了一半）时锚点那张卡标「接着看」，短季同样标。
+/// 这一季还有今天或以后的播出日期时，季胶囊下面多一条播出日历（`MacAirSchedule.swift`，issue #547）：
+/// 点开日程面板；还没播的集不再按缺集置灰，剧照位换成播出日。
 /// Mac 上同样不做任何管理操作（修正识别、换图、删除……都在网页上）。
 struct MacItemDetailView: View {
     let libraryId: Int
@@ -22,6 +24,7 @@ struct MacItemDetailView: View {
 
     @Environment(\.api) private var api
     @Environment(MacRouter.self) private var router
+    @Environment(\.permissions) private var permissions
 
     @State private var detail: API.LibraryItemDetailView?
     @State private var failed: String?
@@ -38,6 +41,9 @@ struct MacItemDetailView: View {
     @State private var browseRange: Int?
     @State private var browseFocus: Int?
     @State private var showsAllEpisodes = false
+    /// 下面那一季的播出日历；服务端只在这一季还有今天或以后的播出日期时给
+    @State private var browseSchedule: API.SeasonAirScheduleView?
+    @State private var showsAirSchedule = false
     @State private var watched: API.PlaybackStateView?
     @State private var series: API.CollectionSeriesView?
     /// 相似推荐（只在自己库里挑；有系列一行时排除同系列的片，见 `ItemRelated`）
@@ -264,6 +270,7 @@ struct MacItemDetailView: View {
         if !isMovie, !detail.seasons.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 if detail.seasons.count > 1 { seasonTabs(detail) }
+                if let browseSchedule { airSchedule(detail, browseSchedule) }
                 if !browseRanges.isEmpty { rangeBar }
                 episodeShelf(detail)
             }
@@ -307,6 +314,26 @@ struct MacItemDetailView: View {
         .scrollIndicators(.never)
     }
 
+    /// 播出日历入口条：点开日程面板（同「全部分集」，从入口弹出）
+    private func airSchedule(_ detail: API.LibraryItemDetailView, _ schedule: API.SeasonAirScheduleView) -> some View {
+        MacAirScheduleStrip(episodes: browseEpisodes, schedule: schedule) { showsAirSchedule = true }
+            .popover(isPresented: $showsAirSchedule, arrowEdge: .bottom) {
+                let season = browseSeason ?? 1
+                MacAirSchedulePanel(
+                    title: detail.title,
+                    seasonLabel: season == 0 ? String(localized: .mediaSeasonSpecials) : String(localized: .mediaSeasonTitle(season)),
+                    episodes: browseEpisodes,
+                    schedule: schedule,
+                    canSubscribe: permissions.canSubscribe,
+                    tmdbId: detail.tmdbId,
+                    libraryId: permissions.canManageSubscriptions ? libraryId : nil
+                ) {
+                    await refreshBrowse()
+                }
+            }
+            .padding(.horizontal, MacMetrics.edge)
+    }
+
     private func episodeShelf(_ detail: API.LibraryItemDetailView) -> some View {
         let ranges = browseRanges
         let current = ranges.first { $0.index == browseRange } ?? ranges.first
@@ -318,7 +345,7 @@ struct MacItemDetailView: View {
         // 「接着看」只在这一季有观看记录时标：一集没碰过的季，锚点只是第一集，不标
         let watchedAny = browseEpisodes.contains { $0.played || $0.positionMs > 0 }
         return MacShelf(title: browseSeason.map { $0 == 0 ? String(localized: .mediaSeasonSpecials) : String(localized: .mediaSeasonTitle($0)) } ?? String(localized: .libraryItemEpisodes),
-                        detail: Self.seasonSummary(browseEpisodes),
+                        detail: Self.seasonSummary(browseEpisodes, schedule: browseSchedule),
                         artHeight: MacMetrics.landscapeWidth * 9 / 16,
                         scrollTo: entryEpisode) {
             if let previous {
@@ -332,6 +359,7 @@ struct MacItemDetailView: View {
                     runtimeMinutes: detail.localMeta?.runtimeMinutes,
                     isStage: browseSeason == season && episode.episodeNumber == selectedEpisode?.episodeNumber,
                     isResume: watchedAny && episode.episodeNumber == browseAnchor,
+                    schedule: browseSchedule,
                     select: { selectEpisode(episode) },
                     play: { playEpisode(episode) },
                     toggleWatched: { Task { await markEpisode(episode, played: !episode.played) } }
@@ -388,13 +416,13 @@ struct MacItemDetailView: View {
         .padding(.trailing, MacMetrics.edge)
     }
 
-    /// 分集横排标题旁的小字：「共 10 集 · 已看 3 集 · 缺 2 集」
-    private static func seasonSummary(_ episodes: [API.EpisodeView]) -> String? {
+    /// 分集横排标题旁的小字：「共 10 集 · 已看 3 集 · 缺 2 集」（还没播的不算缺）
+    private static func seasonSummary(_ episodes: [API.EpisodeView], schedule: API.SeasonAirScheduleView?) -> String? {
         guard !episodes.isEmpty else { return nil }
         var parts = [String(localized: .activityTaskCenterSeasonEpisodes(episodes.count))]
         let played = episodes.filter(\.played).count
         if played > 0 { parts.append(String(localized: .libraryWatchedEpisodes(played))) }
-        let missing = episodes.filter { !$0.owned }.count
+        let missing = episodes.filter { !$0.owned && !AirSchedule.isUnaired($0, schedule) }.count
         if missing > 0 { parts.append(String(localized: .subscriptionProgressMissing(missing))) }
         return parts.joined(separator: " · ")
     }
@@ -566,6 +594,7 @@ struct MacItemDetailView: View {
                     browseSeason = start
                     browseEpisodes = episodes
                     browseAnchor = result?.anchorEpisode?.episodeNumber
+                    browseSchedule = result?.airSchedule
                     lockBrowse(selectedEpisode?.episodeNumber)
                 }
             }
@@ -600,6 +629,7 @@ struct MacItemDetailView: View {
             browseSeason = number
             browseEpisodes = result.episodes
             browseAnchor = result.anchorEpisode?.episodeNumber
+            browseSchedule = result.airSchedule
             // 换季：段落在头图那一集（同一季）或那一季锚点所在的段
             lockBrowse(number == season ? selectedEpisode?.episodeNumber ?? browseAnchor : browseAnchor)
         }
@@ -614,6 +644,7 @@ struct MacItemDetailView: View {
         let previous = browseAnchor
         browseEpisodes = result.episodes
         browseAnchor = result.anchorEpisode?.episodeNumber
+        browseSchedule = result.airSchedule
         guard let anchor = browseAnchor, anchor != previous else { return nil }
         lockBrowse(anchor)
         return anchor
@@ -711,7 +742,7 @@ struct MacItemDetailView: View {
 
 /// 一集：剧照（左下「▶ 片长」或「看到 mm:ss」+ 进度，看完标「已看」）+ 第几集、集名、三行简介、首播日期。
 /// 简介固定三行高，一排卡的日期对齐在同一条线上（同 Apple TV App 的分集卡）。点一下就播；悬停浮出播放键；
-/// 右键菜单：播放、标为已看 / 未看。缺集的置灰、不可点
+/// 右键菜单：播放、标为已看 / 未看。缺集的置灰、不可点；还没播的（有播出日历时才分得清）剧照位换成播出日，不置灰
 private struct MacEpisodeCard: View {
     let episode: API.EpisodeView
     let imageURL: URL?
@@ -720,6 +751,8 @@ private struct MacEpisodeCard: View {
     let isStage: Bool
     /// 这一季有观看记录时，锚点那张卡左上角标「接着看」
     var isResume = false
+    /// 这一季的播出日历：有它才分得清「还没播」与「缺集」
+    var schedule: API.SeasonAirScheduleView?
     /// 点卡片：选中这一集（头图改讲它）
     let select: () -> Void
     /// 点悬停浮出的播放键：起播
@@ -729,12 +762,24 @@ private struct MacEpisodeCard: View {
     private let width = MacMetrics.landscapeWidth
     @State private var hovering = MacCardDebug.forceHover
 
+    private var unaired: Bool { AirSchedule.isUnaired(episode, schedule) }
+
+    @ViewBuilder
+    private var still: some View {
+        if let schedule, unaired {
+            UnairedStill(episode: episode, schedule: schedule, today: AirSchedule.airsToday(episode, schedule),
+                         corner: MacMetrics.cardCorner, titleFont: .system(size: 15), captionFont: .system(size: 12))
+        } else {
+            RemoteImage(url: imageURL, placeholderText: String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
+                .overlay(alignment: .bottomLeading) { stillBand }
+        }
+    }
+
     var body: some View {
         Button(action: select) {
             VStack(alignment: .leading, spacing: 9) {
-                RemoteImage(url: imageURL, placeholderText: String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
+                still
                     .frame(width: width, height: width * 9 / 16)
-                    .overlay(alignment: .bottomLeading) { stillBand }
                     .overlay(alignment: .topLeading) {
                         HStack(spacing: 5) {
                             if isResume {
@@ -794,7 +839,7 @@ private struct MacEpisodeCard: View {
                         .foregroundStyle(.white.opacity(0.72))
                         .lineLimit(3)
                         .frame(height: 46, alignment: .top)
-                    Text(episode.owned ? (episode.airDate.map { String($0.prefix(10)) } ?? "") : String(localized: .libraryItemMissingEpisode))
+                    Text(episode.owned || unaired ? (episode.airDate.map { String($0.prefix(10)) } ?? "") : String(localized: .libraryItemMissingEpisode))
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                 }
@@ -804,7 +849,7 @@ private struct MacEpisodeCard: View {
         }
         .buttonStyle(MacCardButtonStyle())
         .disabled(!episode.owned)
-        .opacity(episode.owned ? 1 : 0.45)
+        .opacity(episode.owned || unaired ? 1 : 0.45)
         .onHover { inside in withAnimation(.easeOut(duration: 0.15)) { hovering = inside } }
         .contextMenu {
             if episode.owned {
@@ -814,7 +859,7 @@ private struct MacEpisodeCard: View {
         }
         .help(episode.owned ? String(localized: .mediaEpisodeNumber(episode.episodeNumber)) : String(localized: .libraryEpisodeNoSource))
         .accessibilityLabel(String(localized: .mediaEpisodeNumber(episode.episodeNumber)) + " " + (episode.name ?? ""))
-        .accessibilityValue(isResume ? String(localized: .libraryItemContinue) : "")
+        .accessibilityValue(isResume ? String(localized: .libraryItemContinue) : episode.airDate.flatMap { unaired ? AirSchedule.relative($0, schedule!) : nil } ?? "")
         .accessibilityAddTraits(isStage ? .isSelected : [])
     }
 
