@@ -5,6 +5,7 @@
 > **本文是一个扩展点**（§1.1）：主程序里没有任何 115 代码，文中的「115」都指「装了某个存储后端插件的网盘」，
 > 以第一个插件为例写，便于读。
 > v2 吸收了评审的两条诉求：取流必须能走「家里转发」、不可强制 302（§7）；115 上已有的存量要能直接纳管（§4）。
+> 2026-11-05：媒体服务器（Emby、Plex）按只读后端接入同一套内核，见 [media-server-plugins.md](media-server-plugins.md)。
 > 关联：[library-boundary.md](library-boundary.md)（领域边界、删除参与方）、[strm-playback.md](strm-playback.md)
 > （远程读取、直链）、[plugin-strm-prefetch.md](plugin-strm-prefetch.md)（远程规格预探）、
 > [plugin-extension-model.md](plugin-extension-model.md) §2.2（原「传网盘再入库」的插件推演，本文取代它）、
@@ -488,13 +489,14 @@ strm 的那些规则（不探规格、不挑字幕）也是为「没有规格和
 
 | 能力 | 说明 |
 |---|---|
-| `writable` | 能不能写（不能写的盘一期不支持） |
+| `writable` | 能不能写。只读后端（契约 1.7）绝不调写方法，不能当主根，语义见 [media-server-plugins.md](media-server-plugins.md) §4 |
 | `rapid_upload_hashes`、`range_challenge` | 秒传用哪些指纹；会不会要求回答任意区间的哈希 |
 | `list_hashes` | 列目录时给不给哈希（纳管的文件能不能直接带指纹） |
 | `change_feed` | 有没有操作动态（§4.3） |
 | `original_link`、`link_needs_ua` | 直链是不是原画；是否按取链时的 UA 签发 |
 | `recycle_bin` | 删除是否进网盘回收站 |
 | `default_qps`、`default_daily_budget`、`default_read_slots`、`upload_concurrency`、`max_file_bytes` | 默认值与上限 |
+| `recheck_hours` | 多久整树复查一次，默认一周（契约 1.7）。定期对账每 6 小时一轮，到点的才列 |
 
 ### 11.2 方法（`DriveBackend`）
 
@@ -511,7 +513,7 @@ strm 的那些规则（不探规格、不挑字幕）也是为「没有规格和
 | `rapid_upload(dir_id, name, fingerprint, size, challenge)` | 秒传；不中返回 None，可附带续传状态 |
 | `upload(dir_id, name, source, resume_state, on_state, on_progress)` | 真传，断点续传 |
 | `stat(remote_id)` | 大小、哈希、名字（核验、对账） |
-| `direct_link(remote_id, user_agent)` | 地址、可复用秒数（不带请求头） |
+| `direct_link(remote_id, user_agent)` | 地址、可复用秒数；可带请求头（契约 1.7），带请求头或内网地址的一律家里转发，不 302 |
 | `move` / `rename` / `delete(remote_ids)` | 删除有回收站就进回收站 |
 
 插件拿不到数据库、拿不到别的账号；本地文件只能经宿主给的读取器（或路径授权的只读库根）读。
