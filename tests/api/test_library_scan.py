@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
 
 import httpx
+import pytest
 import pytest_asyncio
 from fastapi import BackgroundTasks
 from sqlmodel import select
@@ -2180,6 +2181,203 @@ async def test_scan_relinks_renamed_file(db, tmp_path) -> None:
         assert moved.missing_since is None
 
 
+@pytest.mark.parametrize("with_nfo", [False, True])
+@pytest.mark.parametrize("legacy_unit", [False, True])
+async def test_scan_relink_refreshes_episode_unit(db, tmp_path, with_nfo, legacy_unit) -> None:
+    """真实扫描入账后外部改名；只更新季集，作品身份和原台账行必须保留。"""
+    root = _make_tv_library(tmp_path)
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="剧集库", kind="tv", root_paths=[str(root)]
+        )
+    await scan_library(library.id)
+    old = root / "测试剧集 (2024)" / "Season 01" / "测试剧集.S01E01.1080p.mkv"
+    async with db.session() as session:
+        row = (
+            await session.execute(select(LibraryFile).where(LibraryFile.file_path == str(old)))
+        ).scalar_one()
+        old_id, item_id, source = row.id, row.media_item_id, row.identity_source
+        if legacy_unit:
+            row.season_number = row.episode_number = 0
+            await session.commit()
+    new = old.with_name("另一部剧 - S02E03.mkv")
+    old.rename(new)
+    if with_nfo:
+        new.with_suffix(".nfo").write_text(
+            "<episodedetails><season>0</season><episode>4</episode></episodedetails>"
+        )
+    summary = await scan_library(library.id)
+    assert summary.relinked == 1
+    async with db.session() as session:
+        moved = await session.get(LibraryFile, old_id)
+        assert moved.file_path == str(new)
+        assert (moved.media_item_id, moved.identity_source) == (item_id, source)
+        assert (moved.season_number, moved.episode_number) == ((0, 4) if with_nfo else (2, 3))
+
+
+@pytest.mark.parametrize(
+    "source", [None, IdentitySource.NFO, IdentitySource.RESOLVED, IdentitySource.MANUAL]
+)
+async def test_scan_repairs_legacy_relinked_episode_units(db, tmp_path, source) -> None:
+    """模拟旧版归并留下的在位 S0E0；再次扫描应恢复且不触发远程识别。"""
+    root = _make_tv_library(tmp_path)
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="剧集库", kind="tv", root_paths=[str(root)]
+        )
+    await scan_library(library.id)
+    async with db.session() as session:
+        rows = list(
+            (
+                await session.execute(select(LibraryFile).where(LibraryFile.episode_number > 0))
+            ).scalars()
+        )
+        expected = {row.id: (row.media_item_id, source, row.episode_number) for row in rows}
+        for row in rows:
+            row.season_number = row.episode_number = 0
+            row.identity_source = source
+            row.resolved_version = scan_mod.RESOLVER_VERSION
+        await session.commit()
+    summary = await scan_library(library.id)
+    assert summary.relinked == 0
+    async with db.session() as session:
+        for file_id, (item_id, source, episode) in expected.items():
+            row = await session.get(LibraryFile, file_id)
+            assert (row.media_item_id, row.identity_source) == (item_id, source)
+            assert (row.season_number, row.episode_number) == (
+                (0, 0) if source == IdentitySource.MANUAL else (1, episode)
+            )
+
+
+@pytest.mark.parametrize(
+    "kind, overrides, filename, nfo",
+    [
+        (MediaKind.MOVIE, {}, "Show.S02E03.mkv", None),
+        (MediaKind.TV, {"identity_source": IdentitySource.MANUAL}, "Show.S02E03.mkv", None),
+        (MediaKind.TV, {"ignored_at": scan_mod.utcnow()}, "Show.S02E03.mkv", None),
+        (MediaKind.TV, {"state": "trashed"}, "Show.S02E03.mkv", None),
+        (MediaKind.TV, {"container": "bluray"}, "Show.S02E03.mkv", None),
+        (MediaKind.TV, {}, "zzqx.mkv", None),
+        (MediaKind.TV, {}, "zzqx.mkv", "<season>2</season>"),
+        (MediaKind.TV, {}, "zzqx.mkv", "<season>2</season><episode>0</episode>"),
+    ],
+)
+async def test_refresh_episode_unit_preserves_without_safe_replacement(
+    tmp_path, kind, overrides, filename, nfo
+) -> None:
+    file = tmp_path / filename
+    if nfo:
+        file.with_suffix(".nfo").write_text(f"<episodedetails>{nfo}</episodedetails>")
+    row = LibraryFile(
+        library_id=1, file_path=str(file), season_number=1, episode_number=7, **overrides
+    )
+    assert not await scan_mod._refresh_episode_unit(row, kind, file)
+    assert (row.season_number, row.episode_number) == (1, 7)
+
+
+async def test_scan_relink_26_episodes_e2e(db, tmp_path, monkeypatch) -> None:
+    """重放 0.47.1 的 S0E0 台账：25 行归并 + 1 集新入账，HTTP 分集全部在库。"""
+    from movieclaw_api.api.deps import require_admin, require_login
+    from movieclaw_api.app import create_app
+    from movieclaw_api.services.auth import Principal
+    from movieclaw_api.services.media_probe import MediaSpec
+
+    monkeypatch.setitem(
+        _ROUTES,
+        "/3/tv/200/season/1",
+        {
+            "name": "第 1 季",
+            "episodes": [{"episode_number": n, "name": f"E{n}"} for n in range(1, 27)],
+        },
+    )
+    monkeypatch.setattr(
+        scan_mod, "probe_media", lambda _: MediaSpec("1080p", "h264", None, 8, 1200, None)
+    )
+    root = tmp_path / "media"
+    show = root / "测试剧集 (2024)"
+    show.mkdir(parents=True)
+    (show / "tvshow.nfo").write_text("<tvshow><tmdbid>200</tmdbid></tvshow>")
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="剧集库", kind="tv", root_paths=[str(root)]
+        )
+        item = await MediaLibraryService(session, _fake_tmdb()).ensure_media_item(MediaKind.TV, 200)
+        item_id = item.id
+        # 首集未归并、按新文件识别；其余 25 行使用报告中的旧版入账状态。
+        old_ids = set()
+        for n in range(2, 27):
+            old = show / f"[TFSub][Transformers_Prime][{n:02d}][黑暗崛起].mkv"
+            old.write_bytes(b"video" * n)
+            row = LibraryFile(
+                library_id=library.id,
+                media_item_id=item_id,
+                file_path=str(old),
+                season_number=0,
+                episode_number=0,
+                size_bytes=old.stat().st_size,
+                container="mkv",
+                identity_source=IdentitySource.NFO,
+                resolved_version=scan_mod.RESOLVER_VERSION,
+                release_name=old.name,
+                source="scanned",
+                duration_seconds=1200,
+            )
+            session.add(row)
+            await session.flush()
+            old_ids.add(row.id)
+        await session.commit()
+    season = show / "Season 01"
+    season.mkdir()
+    for n in range(1, 27):
+        new = season / f"测试剧集 - S01E{n:02d}.mkv"
+        if n == 1:
+            new.write_bytes(b"video")
+        else:
+            (show / f"[TFSub][Transformers_Prime][{n:02d}][黑暗崛起].mkv").rename(new)
+        new.with_suffix(".nfo").write_text(
+            f"<episodedetails><season>1</season><episode>{n}</episode></episodedetails>"
+        )
+    summary = await scan_library(library.id)
+    assert not summary.errors
+    assert summary.relinked == 25
+    assert summary.identified == 1
+    async with db.session() as session:
+        rows = list((await session.execute(select(LibraryFile))).scalars())
+        assert len(rows) == 26
+        assert old_ids <= {row.id for row in rows}
+        assert all(row.media_item_id == item_id and row.missing_since is None for row in rows)
+        assert {(row.season_number, row.episode_number) for row in rows} == {
+            (1, n) for n in range(1, 27)
+        }
+        for row in rows:
+            if row.id in old_ids:
+                assert row.identity_source == IdentitySource.NFO
+                assert row.release_name.startswith("[TFSub]")
+        # 再重放「已经被旧版归并」的现场，下一次扫描也必须能恢复。
+        for row in rows:
+            if row.id in old_ids:
+                row.season_number = row.episode_number = 0
+        await session.commit()
+    summary = await scan_library(library.id)
+    assert not summary.errors
+    assert summary.relinked == summary.scanned == 0
+    app = create_app()
+    admin = Principal(kind="admin", name="episode-relink-e2e")
+    app.dependency_overrides[require_login] = lambda: admin
+    app.dependency_overrides[require_admin] = lambda: admin
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            f"/api/v1/libraries/{library.id}/items/{item_id}/episodes",
+            params={"season_number": 1},
+        )
+        assert response.status_code == 200, response.text
+        episodes = response.json()["data"]["episodes"]
+        assert len(episodes) == 26
+        assert all(episode["owned"] for episode in episodes)
+
+
 async def test_scan_relink_preserves_manual_claim(db, tmp_path) -> None:
     """人工认领过的待识别文件被改名 → 认领成果随行保留，不用重新认领。"""
     root = _make_tv_library(tmp_path)
@@ -2203,24 +2401,23 @@ async def test_scan_relink_preserves_manual_claim(db, tmp_path) -> None:
         item = await media_service.ensure_media_item(MediaKind.TV, 200)
         await repo.claim_identity(row.id, media_item_id=item.id, season_number=1, episode_number=3)
 
-    junk.rename(junk.with_name("还是认不出的新名字.mkv"))
+    new = junk.with_name("另一部剧 - S02E02.mkv")
+    junk.rename(new)
+    new.with_suffix(".nfo").write_text(
+        "<episodedetails><season>2</season><episode>2</episode></episodedetails>"
+    )
     summary = await scan_library(library.id)
     assert summary.relinked == 1
 
     async with db.session() as session:
         moved = (
-            (
-                await session.execute(
-                    select(LibraryFile).where(
-                        LibraryFile.file_path.endswith("还是认不出的新名字.mkv")
-                    )
-                )
-            )
+            (await session.execute(select(LibraryFile).where(LibraryFile.file_path == str(new))))
             .scalars()
             .one()
         )
         assert moved.media_item_id is not None  # 认领结果延续
         assert (moved.season_number, moved.episode_number) == (1, 3)
+        assert moved.identity_source == IdentitySource.MANUAL
 
 
 async def test_scan_copy_is_not_relink(db, tmp_path) -> None:
