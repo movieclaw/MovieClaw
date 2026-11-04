@@ -15,6 +15,7 @@ from tests.api.test_reels_disc_index import S, _bcd, _clpi, _UdfBuilder, _vmg_if
 
 from movieclaw_api.services import media_probe
 from movieclaw_api.services.playback import iso_source
+from movieclaw_api.services.reels import disc_index
 from movieclaw_playback.streaming import FileWindowResponse, slice_windows
 
 CLOCK = 45_000
@@ -79,6 +80,48 @@ def test_bluray_iso_main_clips_become_byte_ranges_of_the_image(tmp_path, metadat
     assert index is not None
     assert index.times_s[0] == pytest.approx(0, abs=0.01)
     assert index.times_s[-1] == pytest.approx(898, abs=0.01)
+
+
+def _image_with_a_smaller_copy(*, metadata: bool) -> bytes:
+    """《沉默的羔羊》蓝光盘的形状：1080p 正片之外还有一份比它长 6 秒的 480i 画中画解说版。"""
+    points = [(CLOCK * 60 * k, 10 * k) for k in range(5)]
+    return _UdfBuilder(metadata=metadata).build(
+        {
+            "BDMV": {
+                "PLAYLIST": {
+                    "00013.mpls": _mpls(("00097", 0, CLOCK * 7112)),
+                    "00019.mpls": _mpls(("00122", 0, CLOCK * 7118)),
+                },
+                "CLIPINF": {"00097.clpi": _clpi(points), "00122.clpi": _clpi(points)},
+                "STREAM": {
+                    "00097.m2ts": bytes([1]) * (30 * S),
+                    "00122.m2ts": bytes([2]) * (10 * S),
+                },
+            },
+        }
+    )
+
+
+@pytest.mark.parametrize("metadata", [False, True])
+def test_bluray_iso_prefers_the_film_over_a_smaller_copy_of_similar_length(tmp_path, metadata):
+    path = tmp_path / "movie.iso"
+    path.write_bytes(_image_with_a_smaller_copy(metadata=metadata))
+
+    source = iso_source.iso_disc_source(path)
+    assert source is not None and source.playlist_name == "00013.mpls"
+    assert [clip.clip_id for clip in source.clips] == ["00097"]
+    assert source.duration_s == pytest.approx(7112)
+
+
+def test_reel_index_of_a_bluray_iso_uses_the_same_main_playlist(tmp_path):
+    """刷片挑点和起播读的必须是同一部片，否则片段里切到的是标清版。"""
+    path = tmp_path / "movie.iso"
+    path.write_bytes(_image_with_a_smaller_copy(metadata=False))
+
+    index = disc_index.iso_index(str(path))
+    assert index is not None
+    assert index.duration_s == pytest.approx(7112)
+    assert index.file_size == 30 * S
 
 
 class _SplitBuilder(_UdfBuilder):
@@ -410,6 +453,40 @@ def test_probe_keeps_the_bit_rate_ffprobe_reports_for_ordinary_files(tmp_path, m
 
     monkeypatch.setattr(media_probe.subprocess, "run", fake_ffprobe)
     assert media_probe.probe_media(path).bit_rate == 8_000_000
+
+
+def real_film_and_small_copy(tmp_path) -> dict[str, dict[str, bytes]]:
+    """真 ffmpeg 编的 BDMV 目录树：一样长的正片（720p，两条音轨）和小拷贝（240p，一条音轨）。
+
+    只比时长时靠列表名选中小拷贝，标清版、分镜版就是这样的形状。
+    """
+
+    def encode(name: str, size: str, quality: str, audio_tracks: int) -> bytes:
+        clip = tmp_path / name
+        audio_maps = [arg for _ in range(audio_tracks) for arg in ("-map", "1:a")]
+        subprocess.run(
+            [
+                "ffmpeg", "-v", "error",
+                "-f", "lavfi", "-i", f"testsrc=duration=2:size={size}:rate=25",
+                "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                "-map", "0:v", *audio_maps,
+                "-c:v", "mpeg2video", "-q:v", quality, "-c:a", "ac3", "-f", "mpegts", str(clip),
+            ],
+            check=True,
+        )  # fmt: skip
+        return clip.read_bytes()
+
+    film = encode("film.m2ts", "1280x720", "2", 2)
+    copy = encode("copy.m2ts", "320x240", "20", 1)
+    assert len(film) > 2 * len(copy)
+    return {
+        "PLAYLIST": {
+            "00001.mpls": _mpls(("00001", 0, CLOCK * 2)),
+            "00002.mpls": _mpls(("00002", 0, CLOCK * 2)),
+        },
+        "CLIPINF": {},
+        "STREAM": {"00001.m2ts": film, "00002.m2ts": copy},
+    }
 
 
 def real_bluray_image(tmp_path) -> tuple[bytes, int]:

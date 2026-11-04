@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from movieclaw_api.services.library.bluray import (
@@ -82,6 +84,108 @@ def test_main_playlist_accepts_uppercase_disc_extensions(tmp_path):
     selected = read_main_playlist(disc)
     assert selected is not None and selected.path.suffix == ".MPLS"
     assert disc_main_stream(disc) == stream
+
+
+def _disc(
+    tmp_path, playlists: dict[str, list[tuple[str, int, int]]], streams: dict[str, int]
+) -> Path:
+    """造一张原盘目录：``playlists`` 是列表名 → 各段 (剪辑, IN 秒, OUT 秒)，``streams`` 是剪辑 → GB。
+
+    m2ts 是稀疏文件，只有大小有意义。
+    """  # noqa: E501
+    disc = tmp_path / "Movie"
+    playlist_dir = disc / "BDMV" / "PLAYLIST"
+    stream_dir = disc / "BDMV" / "STREAM"
+    playlist_dir.mkdir(parents=True)
+    stream_dir.mkdir()
+    for clip_id, gigabytes in streams.items():
+        with (stream_dir / f"{clip_id}.m2ts").open("wb") as fh:
+            fh.truncate(round(gigabytes * 1_000_000_000))
+    for name, items in playlists.items():
+        clock = [(clip_id, 45_000 * start, 45_000 * end) for clip_id, start, end in items]
+        (playlist_dir / f"{name}.mpls").write_bytes(_mpls(*clock))
+    return disc
+
+
+def test_main_playlist_prefers_the_film_over_a_smaller_copy_a_few_seconds_longer(tmp_path):
+    """《沉默的羔羊》蓝光盘上的 480i 画中画解说版比 1080p 正片长 6 秒（7.2 GB 对 22.3 GB）。"""
+    disc = _disc(
+        tmp_path,
+        {"00013": [("00097", 0, 7112)], "00019": [("00122", 0, 7118)]},
+        {"00097": 22.3, "00122": 7.2},
+    )
+    selected = read_main_playlist(disc)
+    assert selected is not None and selected.path.name == "00013.mpls"
+    assert selected.duration_seconds == 7112
+
+
+def test_main_playlist_prefers_the_film_over_a_smaller_copy_of_the_same_length(tmp_path):
+    """吉卜力的日版蓝光自带全片分镜版：时长与正片分秒不差，只有一条音轨（5 GB 对 27 GB）。"""
+    disc = _disc(
+        tmp_path,
+        {"00001": [("00001", 0, 5648)], "00002": [("00002", 0, 5648)]},
+        {"00001": 27.0, "00002": 5.0},
+    )
+    selected = read_main_playlist(disc)
+    assert selected is not None and selected.path.name == "00001.mpls"
+
+
+def test_main_playlist_stays_the_same_when_bytes_barely_differ(tmp_path):
+    """语言分支、片头 logo 不同的等价列表字节只差万分之几（NAS 实测最多 0.07%）：不因此改选。"""
+    disc = _disc(
+        tmp_path,
+        {
+            "00004": [("00004", 0, 4866)],
+            "00803": [("00803", 0, 4866)],
+            "00900": [("00900", 0, 4834)],
+        },
+        {"00004": 48.32, "00803": 48.29, "00900": 48.40},
+    )
+    selected = read_main_playlist(disc)
+    assert selected is not None and selected.path.name == "00803.mpls"
+
+
+@pytest.mark.parametrize(
+    ("shorter_by", "expected"),
+    [(60, "00800.mpls"), (61, "00300.mpls")],
+)
+def test_main_playlist_only_compares_bytes_between_similar_lengths(tmp_path, shorter_by, expected):
+    """差一分钟以上就可能是另一个剪辑版（NAS 实测不同剪辑版至少差 310 秒）：仍取最长。"""
+    disc = _disc(
+        tmp_path,
+        {"00300": [("00007", 0, 10000)], "00800": [("00012", 0, 10000 - shorter_by)]},
+        {"00007": 27.9, "00012": 62.9},
+    )
+    selected = read_main_playlist(disc)
+    assert selected is not None and selected.path.name == expected
+
+
+def test_main_playlist_never_picks_a_loop_decoy_for_its_bytes(tmp_path):
+    """诱饵列表循环引用大剪辑，长度和字节都可能占优，仍要排除。"""
+    disc = _disc(
+        tmp_path,
+        {
+            "00001": [("00001", 0, 7000)],
+            "00152": [("00009", 0, 3500), ("00009", 0, 3500)],
+        },
+        {"00001": 20.0, "00009": 50.0},
+    )
+    selected = read_main_playlist(disc)
+    assert selected is not None and selected.path.name == "00001.mpls"
+
+
+def test_main_playlist_counts_a_reused_clip_once(tmp_path):
+    """同一剪辑分段引用（IN 不同，不算循环）只占一份字节，不能重复累加成「明显更大」。"""
+    disc = _disc(
+        tmp_path,
+        {
+            "00001": [("00001", 0, 3000), ("00001", 3000, 6000)],
+            "00002": [("00002", 0, 6010)],
+        },
+        {"00001": 20.0, "00002": 21.0},
+    )
+    selected = read_main_playlist(disc)
+    assert selected is not None and selected.path.name == "00002.mpls"
 
 
 def _coding_info(coding_type: int, language: str) -> bytes:

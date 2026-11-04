@@ -48,15 +48,16 @@ async def enrich_backfill(ctx: Context) -> None:
 
 
 # i18n-ignore: source default of plugins.builtins.* (guarded by test)
-@plugin("library.disc-image-durations", title="光盘镜像规格修正", inject=(DB,), reloadable=True)
+@plugin("library.disc-image-durations", title="原盘规格修正", inject=(DB,), reloadable=True)
 async def disc_image_durations(ctx: Context) -> None:
-    """启动后在后台修正光盘镜像（ISO）记错的片长和码率，避免一开播就算看完、进度显示不对，或线路够用却提示换低画质。"""
+    """启动后在后台修正原盘记错的规格：光盘镜像（ISO）的片长和码率，避免一开播就算看完、进度显示不对，或线路够用却提示换低画质；主片选错的原盘换回正片，并重新探测分辨率和音轨。"""
     from movieclaw_api.services.library.disc_image_durations import (
         close_disc_image_duration_heal,
         start_disc_image_duration_heal,
     )
 
-    # 存量光盘镜像的台账片长、码率换成盘内正片的（ffprobe 对镜像估得离谱，见模块注释）
+    # 存量光盘镜像的台账片长、码率换成盘内正片的（ffprobe 对镜像估得离谱，见模块注释）；
+    # 选主片的规则改过后，主片换了的原盘重探规格（library/disc_main_playlists.py）
     start_disc_image_duration_heal()
     ctx.effect(close_disc_image_duration_heal, label="close-disc-image-durations")
 

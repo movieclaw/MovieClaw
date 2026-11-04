@@ -32,6 +32,7 @@ from movieclaw_api.services.library.bluray import (
 )
 from movieclaw_api.services.library.udf import UDFEntry, UDFError, UDFReader
 from movieclaw_api.services.playback.disc_source import disc_source_for_file
+from movieclaw_api.services.playback.iso_source import stream_sizes
 from movieclaw_db.models import LibraryFile
 from movieclaw_playback.container_index import ContainerIndex, KeyframePoint
 
@@ -134,7 +135,7 @@ def _bluray_iso_index(reader: UDFReader) -> ContainerIndex | None:
             playlists.append(parse_mpls_playlist(data, path=Path(f"{stem}.mpls")))
         except (UDFError, MplsParseError) as exc:
             logger.debug("镜像里的 MPLS 跳过：%s（%s）", entry.name, exc)
-    playlist = select_main_playlist(playlists, set(streams))
+    playlist = select_main_playlist(playlists, stream_sizes(reader, streams))
     if playlist is None:
         return None
 

@@ -8,20 +8,27 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
 import pytest
 import pytest_asyncio
 from sqlmodel import select
+from tests.api.test_bluray_clpi import _mpls
+from tests.api.test_reels_disc_index import S, _UdfBuilder
 
 import movieclaw_api.services.library.items as items_mod
 import movieclaw_api.services.library.scan as scan_mod
 import movieclaw_api.services.media_discover as discover_mod
 import movieclaw_api.services.media_probe as probe_mod
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.services.library.bluray import DISC_PLAYLIST_VERSION
+from movieclaw_api.services.library.disc_main_playlists import heal_disc_main_playlists
 from movieclaw_api.services.library.scan import ScanSummary, scan_library
 from movieclaw_api.services.media_probe import MediaSpec
+from movieclaw_api.services.playback import iso_source
+from movieclaw_api.services.playback.disc_source import disc_source_for_file
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
 from movieclaw_db.models import LibraryFile
@@ -599,6 +606,325 @@ async def test_backfill_missing_clpi_still_completes_candidate_progress(
 
     assert summary.probed == 0
     assert state.processed == state.total == 1
+
+
+# ---------------------------------------------------------------------------
+# 选主片的规则改过之后，存量行怎么跟上
+# ---------------------------------------------------------------------------
+
+_MAIN_SPEC = MediaSpec(
+    resolution="1080p",
+    video_codec="h264",
+    hdr="HDR10",
+    bit_depth=10,
+    duration_seconds=5648,
+    bit_rate=38_000_000,
+    frame_rate=23.976,
+    color_space="BT.2020",
+    audio_streams=[{"codec": "truehd", "pid": 0x1100}, {"codec": "ac3", "pid": 0x1101}],
+    subtitle_streams=[{"codec": "hdmv_pgs_subtitle", "pid": 0x1200}],
+)
+#: 探错的那段视频的规格（一条音轨、没有字幕）
+_SMALL_COPY_FIELDS = {
+    "resolution": "720p",
+    "video_codec": "mpeg2video",
+    "hdr": None,
+    "dv_profile": 8,
+    "dv_bl_compatible": True,
+    "bit_depth": 8,
+    "duration_seconds": 5648,
+    "bit_rate": 7_000_000,
+    "frame_rate": 29.97,
+    "color_space": "BT.709",
+    "audio_streams": [{"codec": "ac3", "pid": 0x1100}],
+    "subtitle_streams": [],
+    "probe_version": probe_mod.PROBE_SCHEMA_VERSION,
+}
+
+
+def _two_copies_on_disk(disc: Path) -> None:
+    """同样长的两条列表：名字靠后的是小拷贝，只比时长的旧规则选它。"""
+    playlist_dir = disc / "BDMV" / "PLAYLIST"
+    stream_dir = disc / "BDMV" / "STREAM"
+    playlist_dir.mkdir(parents=True)
+    stream_dir.mkdir()
+    clock = 45_000
+    (playlist_dir / "00001.mpls").write_bytes(_mpls(("00001", 0, clock * 5648)))
+    (playlist_dir / "00002.mpls").write_bytes(_mpls(("00002", 0, clock * 5648)))
+    (stream_dir / "00001.m2ts").write_bytes(b"f" * 5000)
+    (stream_dir / "00002.m2ts").write_bytes(b"c" * 1000)
+
+
+def _version_1_record(clip_id: str) -> dict:
+    return {
+        "version": 1,
+        "name": f"{clip_id}.mpls",
+        "clips": [{"id": clip_id, "in": 0, "out": 45_000 * 5648}],
+    }
+
+
+async def _stored_folder_disc(db, tmp_path, *, recorded_clip: str, on_disk: bool = True) -> int:
+    root = tmp_path / "bluray-library"
+    disc = root / "Movie (2010)"
+    if on_disk:
+        _two_copies_on_disk(disc)
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="蓝光库", kind="movie", root_paths=[str(root)]
+        )
+        row = LibraryFile(
+            library_id=library.id,
+            file_path=str(disc),
+            size_bytes=6000,
+            container="bluray",
+            source="scanned",
+            chapters=[{"start_ms": 0, "end_ms": None, "title": None}],
+            disc_playlist=_version_1_record(recorded_clip),
+            **_SMALL_COPY_FIELDS,
+        )
+        session.add(row)
+        await session.commit()
+        return row.id
+
+
+async def _load(db, file_id: int) -> LibraryFile:
+    async with db.session() as session:
+        row = await session.get(LibraryFile, file_id)
+        assert row is not None
+        return row
+
+
+async def test_heal_reprobes_a_folder_disc_whose_main_playlist_changed(
+    db, tmp_path, monkeypatch
+) -> None:
+    """魔女宅急便那样的盘：台账记的是全片分镜版。规格整组换成正片的，不是只补空。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    calls: list[str] = []
+
+    def probe(path):
+        calls.append(Path(path).name)
+        return _MAIN_SPEC
+
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(items_mod, "probe_media", probe)
+
+    assert await heal_disc_main_playlists() == 1
+    assert calls == ["00001.m2ts"]
+    row = await _load(db, file_id)
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["name"] == "00001.mpls"
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert (row.resolution, row.video_codec, row.hdr) == ("1080p", "h264", "HDR10")
+    assert (row.bit_depth, row.bit_rate) == (10, 38_000_000)
+    assert (row.frame_rate, row.color_space) == (23.976, "BT.2020")
+    assert (row.dv_profile, row.dv_bl_compatible) == (None, None)  # 探错那段的杜比视界记录不留
+    assert [stream["codec"] for stream in row.audio_streams or []] == ["truehd", "ac3"]
+    assert len(row.subtitle_streams or []) == 1
+    assert row.duration_seconds == 5648
+
+    # 幂等：跟上之后不再读盘重探
+    calls.clear()
+    assert await heal_disc_main_playlists() == 0
+    assert calls == []
+    # 播放链路用的清单是新的
+    source = disc_source_for_file(row, read_disc=False)
+    assert source is not None and source.playlist_name == "00001.mpls"
+
+
+async def test_heal_only_refreshes_the_version_when_the_main_playlist_is_unchanged(
+    db, tmp_path, monkeypatch
+) -> None:
+    """绝大多数盘不受影响：版本号换掉就好，不跑 ffprobe，规格一个字段都不动。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00001")
+    before = await _load(db, file_id)
+
+    def unexpected_probe(_path):
+        raise AssertionError("主片没换不该重探")
+
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(items_mod, "probe_media", unexpected_probe)
+
+    assert await heal_disc_main_playlists() == 0
+    row = await _load(db, file_id)
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert row.updated_at == before.updated_at
+    for field, value in _SMALL_COPY_FIELDS.items():
+        assert getattr(row, field) == value, field
+
+
+async def test_heal_leaves_discs_alone_while_the_library_is_not_mounted(
+    db, tmp_path, monkeypatch
+) -> None:
+    """片库没挂上不是残缺盘：不能把好清单写成哨兵，等下次启动。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002", on_disk=False)
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+
+    assert await heal_disc_main_playlists() == 0
+    row = await _load(db, file_id)
+    assert row.disc_playlist == _version_1_record("00002")
+    assert row.resolution == "720p"
+
+
+async def test_heal_does_nothing_without_ffprobe(db, tmp_path, monkeypatch) -> None:
+    """重探不了就别把规格清掉。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    _no_ffprobe(monkeypatch)
+
+    assert await heal_disc_main_playlists() == 0
+    row = await _load(db, file_id)
+    assert row.disc_playlist == _version_1_record("00002")
+    assert row.resolution == "720p"
+
+
+async def test_failed_reprobe_stays_unprobed_and_the_reconcile_retries_it(
+    db, tmp_path, monkeypatch
+) -> None:
+    """探测失败不能留着另一段视频的规格；退回未探测后，定期对账的限量自愈捞得到。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    _with_failing_ffprobe(monkeypatch)
+
+    assert await heal_disc_main_playlists() == 1
+    row = await _load(db, file_id)
+    assert row.disc_playlist is not None and row.disc_playlist["name"] == "00001.mpls"
+    assert row.resolution is None and row.audio_streams is None
+
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: _MAIN_SPEC)
+    probe_mod._retry_state.clear()  # 退避到点
+    async with db.session() as session:
+        summary = ScanSummary(library_id=row.library_id)
+        await scan_mod._probe_backfill(
+            session,
+            row.library_id,
+            summary,
+            scan_mod.ScanState(phase=scan_mod.ScanPhase.WALKING),
+            limit=10,
+        )
+    assert summary.probed == 1
+    row = await _load(db, file_id)
+    assert row.resolution == "1080p" and row.audio_streams
+
+
+async def test_manual_scan_also_replaces_the_spec_when_the_main_playlist_changed(
+    db, tmp_path, monkeypatch
+) -> None:
+    """启动时片库没挂上的行由手动扫描接手：同一条路径，结果一样。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: _MAIN_SPEC)
+    row = await _load(db, file_id)
+
+    async with db.session() as session:
+        summary = ScanSummary(library_id=row.library_id)
+        await scan_mod._probe_backfill(
+            session,
+            row.library_id,
+            summary,
+            scan_mod.ScanState(phase=scan_mod.ScanPhase.WALKING),
+        )
+    assert summary.probed == 1
+    row = await _load(db, file_id)
+    assert row.resolution == "1080p" and len(row.audio_streams or []) == 2
+
+
+async def test_unreadable_playlists_keep_a_good_record_until_they_read_again(
+    db, tmp_path, monkeypatch
+) -> None:
+    """目录在、MPLS 读不出（NFS soft 挂载抖动）：旧清单是好的，不能写成「读过但没有」的哨兵。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(items_mod, "read_main_playlist", lambda _path: None)
+
+    def unexpected_probe(_path):
+        raise AssertionError("读不出清单时不该重探")
+
+    monkeypatch.setattr(items_mod, "probe_media", unexpected_probe)
+
+    assert await heal_disc_main_playlists() == 0
+    row = await _load(db, file_id)
+    assert row.disc_playlist == _version_1_record("00002")
+    assert row.resolution == "720p"
+
+
+def _bluray_image_with_copies(*, smaller_is_longer: bool) -> bytes:
+    """蓝光镜像：smaller_is_longer 时小拷贝比正片长 6 秒（旧规则选它），否则正片本身最长。"""
+    copy_seconds = 7118 if smaller_is_longer else 7106
+    clock = 45_000
+    return _UdfBuilder(metadata=False).build(
+        {
+            "BDMV": {
+                "PLAYLIST": {
+                    "00013.mpls": _mpls(("00097", 0, clock * 7112)),
+                    "00019.mpls": _mpls(("00122", 0, clock * copy_seconds)),
+                },
+                "CLIPINF": {},
+                "STREAM": {
+                    "00097.m2ts": bytes([1]) * (30 * S),
+                    "00122.m2ts": bytes([2]) * (10 * S),
+                },
+            },
+        }
+    )
+
+
+async def _stored_image(db, tmp_path, name: str, image: bytes) -> int:
+    root = tmp_path / "iso-library"
+    root.mkdir(exist_ok=True)
+    path = root / f"{name}.iso"
+    path.write_bytes(image)
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name=name, kind="movie", root_paths=[str(root)]
+        )
+        row = LibraryFile(
+            library_id=library.id,
+            file_path=str(path),
+            size_bytes=len(image),
+            container="iso",
+            source="scanned",
+            **_SMALL_COPY_FIELDS,
+        )
+        session.add(row)
+        await session.commit()
+        return row.id
+
+
+async def test_heal_reprobes_only_the_images_whose_main_playlist_changed(
+    db, tmp_path, monkeypatch
+) -> None:
+    """镜像的台账不记清单，靠「只比时长会选哪条」认出受影响的盘；其余镜像的台账一个字节不动。"""
+    iso_source.clear_cache()
+    replaced = await _stored_image(
+        db, tmp_path, "replaced", _bluray_image_with_copies(smaller_is_longer=True)
+    )
+    same = await _stored_image(
+        db, tmp_path, "same", _bluray_image_with_copies(smaller_is_longer=False)
+    )
+    calls: list[str] = []
+
+    def probe(path):
+        calls.append(Path(path).name)
+        return replace(_MAIN_SPEC, duration_seconds=7112)
+
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(items_mod, "probe_media", probe)
+
+    assert await heal_disc_main_playlists() == 1
+    assert calls == ["replaced.iso"]
+    row = await _load(db, replaced)
+    assert row.disc_playlist is not None and row.disc_playlist["name"] == "00013.mpls"
+    assert (row.resolution, row.duration_seconds) == ("1080p", 7112)
+    assert [stream["codec"] for stream in row.audio_streams or []] == ["truehd", "ac3"]
+    untouched = await _load(db, same)
+    assert untouched.disc_playlist is None
+    for field, value in _SMALL_COPY_FIELDS.items():
+        assert getattr(untouched, field) == value, field
+
+    # 重启不再重探，也不因为清单写成了 ISO 就被当成原盘目录
+    calls.clear()
+    assert await heal_disc_main_playlists() == 0
+    assert calls == []
+    assert disc_source_for_file(row) is None
 
 
 # ---------------------------------------------------------------------------
