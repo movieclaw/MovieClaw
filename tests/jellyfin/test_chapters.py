@@ -2,7 +2,8 @@
 
 - ``Chapters`` 受 fields 门控：不传不出，传了出；单条目接口全字段语义带出；
 - 内嵌章节按起点输出，合成章节输出图上那一帧的真实时间；无标题补「第 N 章」；
-- 有图才给 ImageTag / ImageDateModified，``ImagePath`` 省略（偏离⑫）；
+- 有图才给 ImageTag，ImageDateModified 恒输出（无图是 DateTime.MinValue），
+  ``ImagePath`` 省略（偏离⑫）；
 - 章节图路由 ``/Items/{id}/Images/Chapter/{index}``：有图 200、无图/越界 404；
 - 库没开「生成章节」（默认关）：只出内嵌章节、不给 ImageTag，合成章节不出，
   章节图 404——图还在盘上，只是不展示；
@@ -233,7 +234,9 @@ def test_chapters_are_field_gated_and_full_on_single_item(
     assert [c["Name"] for c in chapters] == ["Opening", "第 2 章", "Finale"]
     # 有图才给 ImageTag；ImagePath 永远不出（偏离⑫）
     assert "ImageTag" not in chapters[0]
+    assert chapters[0]["ImageDateModified"] == "0001-01-01T00:00:00.0000000Z"
     assert chapters[1]["ImageTag"] and chapters[1]["ImageDateModified"].endswith("Z")
+    assert chapters[1]["ImageDateModified"] != chapters[0]["ImageDateModified"]
     assert all("ImagePath" not in c for c in chapters)
 
     single = client.get(f"/Items/{item_guid(seeded_chapters['movie'])}", params=auth).json()
