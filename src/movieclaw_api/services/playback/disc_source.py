@@ -76,6 +76,16 @@ class DiscClip:
     def duration_s(self) -> float:
         return max(0, self.out_time - self.in_time) / MPLS_CLOCK_HZ
 
+    @property
+    def size_bytes(self) -> int:
+        """这段要读的字节数（估通读耗时用）；文件 stat 不到算 0。"""
+        if self.byte_ranges is not None:
+            return sum(end - start for start, end in self.byte_ranges)
+        try:
+            return self.path.stat().st_size
+        except OSError:
+            return 0
+
 
 @dataclass(frozen=True)
 class DiscSource:

@@ -693,7 +693,7 @@ mid-2026 GA，官方迁移指南计划 Q4 2026）。**因此：**
 | SRT / mov_text | 服务端转 VTT，`<track>` 原生渲染 |
 | ASS / SSA | 原样下发 + **JASSUB**（libass WASM）渲染 |
 | ASS 内嵌字体 | `ffmpeg -dump_attachment` 抽出缓存，随计划下发。**不做这条字体会回退成默认字体，番剧字幕效果直接崩** |
-| PGS | 服务端抽成 `.sup`（`-c:s copy`，二进制直出不进文本管线）+ 前端 **libbitsub**（libpgs 后继，Jellyfin 10.9+ 同款）WASM 解码、canvas 合成。timeOffset 语义与 JASSUB 相同；iOS 上内联播放由 canvas 层负责（位图进不了 HLS 字幕组，原生全屏/画中画不显示——与 ASS 特效同类限制） |
+| PGS | 服务端抽成 `.sup`（`-c:s copy`，二进制直出不进文本管线）+ 前端 **libbitsub**（libpgs 后继，Jellyfin 10.9+ 同款）WASM 解码、canvas 合成。timeOffset 语义与 JASSUB 相同；iOS 上内联播放由 canvas 层负责（位图进不了 HLS 字幕组，原生全屏/画中画不显示——与 ASS 特效同类限制）。字节由前端自己取、取到再推给渲染器：首次抽取可能要几分钟，请求被浏览器或反代掐断时接着等，换轨时中止（原盘见 [disc-playback.md](disc-playback.md) §8） |
 | VobSub | 暂不支持，明示原因（libbitsub 有 VobSubRenderer，后续顺路可加） |
 
 外挂字幕的**时间轴微调（±0.1s 步进）与样式配置**（字号/字体/背景/位置）

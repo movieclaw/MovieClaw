@@ -19,6 +19,9 @@ import pytest
 import movieclaw_api.services.media_extract as media_extract
 from movieclaw_api.i18n import use_locale
 from movieclaw_api.i18n.stored import render_value, source_render
+from movieclaw_api.services.library.bluray import DISC_PLAYLIST_VERSION
+from movieclaw_api.services.playback import iso_source
+from movieclaw_api.services.playback.disc_source import DiscClip, DiscSource
 from movieclaw_db.models import FileSource, FileState, LibraryFile
 
 
@@ -665,3 +668,301 @@ async def test_failure_reason_tells_timeout_from_ffmpeg_error(
     os.utime(broken, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
     assert media_extract.failure_reason(broken_file, 0) is None
     assert media_extract.needs_extraction(broken_file, 0) is True
+
+
+# ---------------------------------------------------------------------------
+# 原盘：file_path 是目录，按主播放列表的各段读（docs/design/disc-playback.md §8）
+# ---------------------------------------------------------------------------
+
+_CLOCK = 45_000
+
+
+def make_disc_file(disc: Path, clips: list[tuple[str, int, int]], codecs: list[str]) -> LibraryFile:
+    """一行原盘台账 + 盘上的 m2ts：剪辑清单是（id, IN 秒, OUT 秒）。"""
+    stream_dir = disc / "BDMV" / "STREAM"
+    stream_dir.mkdir(parents=True)
+    for clip_id, _, _ in clips:
+        (stream_dir / f"{clip_id}.m2ts").write_bytes(b"m2ts")
+    file = make_multi_file(disc, codecs)
+    file.container = "bluray"
+    file.disc_playlist = {
+        "version": DISC_PLAYLIST_VERSION,
+        "name": "00001.mpls",
+        "clips": [
+            {"id": clip_id, "in": start * _CLOCK, "out": end * _CLOCK}
+            for clip_id, start, end in clips
+        ],
+    }
+    return file
+
+
+@pytest.fixture
+def disc_cache(tmp_path: Path, monkeypatch) -> Path:
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(media_extract, "cache_dir", lambda: cache)
+    monkeypatch.setattr(media_extract.shutil, "which", lambda _n: "/fake/ffmpeg")
+    return cache
+
+
+def _capture_exec(monkeypatch, *, body: str = "PG") -> list[dict]:
+    """假 ffmpeg：写出产物，并把启动那一刻的命令行与 concat 清单内容记下来。"""
+    calls: list[dict] = []
+
+    async def fake_exec(*argv, **_kwargs):
+        listing = argv[argv.index("-i") + 1]
+        calls.append({"argv": argv, "listing": Path(listing).read_text(encoding="utf-8")})
+        for out in _outputs(argv):
+            Path(out).write_text(body, encoding="utf-8")
+        return _DoneProcess()
+
+    monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_disc_track_is_read_through_the_main_playlist(
+    tmp_path: Path, disc_cache: Path, monkeypatch
+) -> None:
+    """目录交给 ffmpeg 必然失败：要读主播放列表的各段，只读 IN/OUT 之内，一趟抽出全部轨。"""
+    calls = _capture_exec(monkeypatch)
+    disc = tmp_path / "盘's"
+    file = make_disc_file(
+        disc,
+        [("00001", 100, 120), ("00002", 505, 525)],
+        ["hdmv_pgs_subtitle", "hdmv_pgs_subtitle"],
+    )
+
+    track = await media_extract.extract_track_async(file, 1)
+
+    assert track is not None and track.format == "sup"
+    assert len(calls) == 1, "原盘也只该通读一遍"
+    argv, listing = calls[0]["argv"], calls[0]["listing"]
+    assert argv[argv.index("-f") + 1] == "concat"
+    assert argv[argv.index("-safe") + 1] == "0"
+    assert str(disc) not in argv, "目录不能当输入"
+    assert argv.count("-map") == 2 and "0:s:0" in argv and "0:s:1" in argv
+    escaped = str(disc).replace("'", "'\\''")
+    assert f"file '{escaped}/BDMV/STREAM/00001.m2ts'" in listing
+    assert f"file '{escaped}/BDMV/STREAM/00002.m2ts'" in listing
+    assert "inpoint 505.000000" in listing and "outpoint 525.000000" in listing
+    assert "duration 20.000000" in listing
+    assert media_extract.cached_track(file, 0) is not None
+    # 进度文件与清单都只活这一趟
+    assert [p.name for p in disc_cache.glob(".read-*")] == []
+
+
+@pytest.mark.asyncio
+async def test_disc_does_not_try_the_matroska_cue_path(
+    tmp_path: Path, disc_cache: Path, monkeypatch
+) -> None:
+    """光盘没有字幕索引：按索引读会对着目录报错，还多绕一趟线程。"""
+
+    async def must_not_run(_pending) -> bool:
+        raise AssertionError("原盘不该走按字幕索引读取")
+
+    monkeypatch.setattr(media_extract, "_run_sparse_extraction", must_not_run)
+    _capture_exec(monkeypatch)
+    file = make_disc_file(tmp_path / "disc", [("00001", 0, 60)], ["hdmv_pgs_subtitle"])
+    assert await media_extract.extract_track_async(file, 0) is not None
+
+
+@pytest.mark.asyncio
+async def test_disc_with_a_missing_clip_starts_nothing_and_stays_retryable(
+    tmp_path: Path, disc_cache: Path, monkeypatch
+) -> None:
+    """挂载卸了、盘还没拷完：不起 ffmpeg，也不记失败——片子回来了要能接着抽。"""
+    calls = _capture_exec(monkeypatch)
+    disc = tmp_path / "disc"
+    file = make_disc_file(disc, [("00001", 0, 60), ("00002", 0, 60)], ["hdmv_pgs_subtitle"])
+    second = disc / "BDMV" / "STREAM" / "00002.m2ts"
+    second.unlink()
+
+    assert await media_extract.extract_track_async(file, 0) is None
+    assert calls == []
+    assert media_extract.extraction_failed(file, 0) is False
+
+    second.write_bytes(b"m2ts")
+    assert await media_extract.extract_track_async(file, 0) is not None
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_disc_failure_is_remembered_like_any_other_file(
+    tmp_path: Path, disc_cache: Path, monkeypatch
+) -> None:
+    """通读一张盘要几分钟，读不出来就记住，别每次打开播放器再读一遍。"""
+    starts = 0
+
+    async def fake_exec(*_argv, **_kwargs):
+        nonlocal starts
+        starts += 1
+        return _DoneProcess(returncode=1)
+
+    monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
+    file = make_disc_file(tmp_path / "disc", [("00001", 0, 60)], ["hdmv_pgs_subtitle"])
+
+    assert await media_extract.extract_track_async(file, 0) is None
+    assert await media_extract.extract_track_async(file, 0) is None
+    assert starts == 1
+    assert media_extract.extraction_failed(file, 0) is True
+
+
+@pytest.mark.asyncio
+async def test_disc_without_a_playable_source_has_nothing_to_extract(
+    tmp_path: Path, disc_cache: Path, monkeypatch
+) -> None:
+    """读不出盘内结构的镜像：对着整个镜像跑 ffmpeg 认不出流，白读一遍。"""
+    calls = _capture_exec(monkeypatch)
+    image = tmp_path / "broken.iso"
+    image.write_bytes(b"not an image")
+    file = make_multi_file(image, ["hdmv_pgs_subtitle"])
+    file.container = "iso"
+
+    assert await media_extract.extract_track_async(file, 0) is None
+    assert media_extract.schedule_extraction(file, 0) is False
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_bluray_image_reads_the_clips_inside_the_image(
+    tmp_path: Path, disc_cache: Path, monkeypatch
+) -> None:
+    """蓝光镜像的台账也有 PGS 轨（探测读的是盘内主片）：清单里是镜像上的 subfile 区间。"""
+    calls = _capture_exec(monkeypatch)
+    image = tmp_path / "movie.iso"
+    image.write_bytes(b"image")
+    source = DiscSource(
+        disc_dir=image,
+        playlist_name="00800.mpls",
+        clips=(DiscClip("00001", image, 0, 60 * _CLOCK, byte_ranges=((2048, 4096),)),),
+        image="bluray",
+    )
+    monkeypatch.setattr(iso_source, "iso_disc_source", lambda _path: source)
+    file = make_multi_file(image, ["hdmv_pgs_subtitle"])
+    file.container = "iso"
+
+    assert await media_extract.extract_track_async(file, 0) is not None
+    argv, listing = calls[0]["argv"], calls[0]["listing"]
+    assert argv[argv.index("-protocol_whitelist") + 1] == "file,subfile,concat"
+    assert f"file 'subfile,,start,2048,end,4096,,:{image}'" in listing
+
+
+def test_disc_timeout_counts_the_clips_not_the_directory(tmp_path: Path) -> None:
+    """目录自己只有几 KB，按它估就是固定 120 秒，读不完任何一张盘，超时还会被记成失败。"""
+
+    def spec(*sizes: int) -> media_extract._ExtractionSpec:
+        image = tmp_path / "disc.iso"
+        clips = tuple(
+            DiscClip(f"{i:05d}", image, 0, _CLOCK, byte_ranges=((0, size),))
+            for i, size in enumerate(sizes)
+        )
+        return media_extract._ExtractionSpec(
+            fmt="sup",
+            video=tmp_path,
+            out_path=tmp_path / "x.sup",
+            disc=DiscSource(disc_dir=tmp_path, playlist_name="1.mpls", clips=clips),
+        )
+
+    gib = 1024**3
+    assert media_extract._spec_timeout(spec(1024)) == media_extract.EXTRACT_TIMEOUT
+    # 两段各 20 GB：按 20 MB/s 估 2048 秒，只算一段或只看目录都不够
+    assert media_extract._spec_timeout(spec(20 * gib, 20 * gib)) == pytest.approx(2048)
+    assert media_extract._spec_timeout(spec(200 * gib)) == media_extract._MAX_EXTRACT_TIMEOUT
+
+
+def test_disc_clip_size_reads_the_file(tmp_path: Path) -> None:
+    clip = tmp_path / "00001.m2ts"
+    clip.write_bytes(b"x" * 188)
+    assert DiscClip("00001", clip, 0, 1).size_bytes == 188
+    assert DiscClip("00002", tmp_path / "gone.m2ts", 0, 1).size_bytes == 0
+
+
+# ---------------------------------------------------------------------------
+# 等待者都走了也不当场取消：通读比一个请求活得久（Safari 60 秒、反代 60～100 秒）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_returning_waiter_picks_up_the_same_read(video: Path, monkeypatch) -> None:
+    """浏览器或反代掐断请求后，播放器接着再问：还是那一趟 ffmpeg，进度不丢。"""
+    starts = 0
+    terminated = []
+    release = asyncio.Event()
+
+    class SlowProcess(_DoneProcess):
+        async def communicate(self):
+            await release.wait()
+            return await super().communicate()
+
+    async def fake_exec(*argv, **_kwargs):
+        nonlocal starts
+        starts += 1
+        for out in _outputs(argv):
+            Path(out).write_text(_SRT, encoding="utf-8")
+        return SlowProcess()
+
+    monkeypatch.setattr(media_extract.shutil, "which", lambda _n: "/fake/ffmpeg")
+    monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(media_extract, "_signal_process_group", lambda *_a: terminated.append(_a))
+    monkeypatch.setattr(media_extract, "_ABANDON_GRACE_SECONDS", 0.05)
+
+    file = make_multi_file(video, ["hdmv_pgs_subtitle"])
+    first = asyncio.create_task(media_extract.extract_track_async(file, 0))
+    while starts == 0:
+        await asyncio.sleep(0)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    timer = media_extract._EXTRACTION_JOBS[str(video)].abandon_timer
+    assert timer is not None
+
+    second = asyncio.create_task(media_extract.extract_track_async(file, 0))
+    await asyncio.sleep(0)
+    # 定时要撤掉，不能只在到点时看「此刻有没有人」：下一个请求的间隙里到点，读取一样被杀
+    assert timer.cancelled()
+    await asyncio.sleep(0.1)  # 宽限早过了：第二个等待者在，不算没人要
+    assert terminated == [], "还有人在等，通读却被取消了"
+
+    release.set()
+    assert (await second) is not None
+    assert starts == 1, f"接着等的请求又从头读了一遍（起了 {starts} 个 ffmpeg）"
+
+
+@pytest.mark.asyncio
+async def test_nobody_returning_cancels_the_read_after_the_grace(video: Path, monkeypatch) -> None:
+    """用户真的走了：一张盘几十 GB 不能白读完。宽限期过后回收进程和临时文件。"""
+    killed = asyncio.Event()
+    started = asyncio.Event()
+
+    class HangingProcess(_DoneProcess):
+        pid = 4321
+
+        async def communicate(self):
+            started.set()
+            await killed.wait()
+            return await super().communicate()
+
+    async def fake_exec(*argv, **_kwargs):
+        for out in _outputs(argv):
+            Path(out).write_text(_SRT, encoding="utf-8")
+        return HangingProcess()
+
+    monkeypatch.setattr(media_extract.shutil, "which", lambda _n: "/fake/ffmpeg")
+    monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(media_extract, "_signal_process_group", lambda *_a: killed.set())
+    monkeypatch.setattr(media_extract, "_ABANDON_GRACE_SECONDS", 0.5)
+
+    file = make_multi_file(video, ["hdmv_pgs_subtitle"])
+    waiter = asyncio.create_task(media_extract.extract_track_async(file, 0))
+    await started.wait()
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    assert not killed.is_set(), "最后一个等待者一走就取消了，没有宽限"
+
+    await asyncio.wait_for(killed.wait(), timeout=10)
+    # 让 ffmpeg 协程跑完收尾：不留半成品，也不记失败（下次打开要能重新读）
+    while media_extract._EXTRACTION_JOBS:
+        await asyncio.sleep(0.01)
+    assert list((video.parent / "cache").glob("*.part*")) == []
+    assert media_extract.extraction_failed(file, 0) is False

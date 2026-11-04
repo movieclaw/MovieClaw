@@ -157,6 +157,36 @@ export function pickInitialSubtitle(
   return options.find((o) => o.isDefault)?.ref ?? null;
 }
 
+/** 字幕请求没等到结果（见 fetchSupBytes）之后，隔多久再接着等。 */
+export const SUP_RETRY_MS = 3000;
+
+/**
+ * 取 PGS 轨的 .sup 字节，等到拿到或确定拿不到为止；中止只能靠 `signal`。
+ *
+ * 服务端首次要通读整个容器（原盘是分钟级），这个请求可能挂很久。Safari 约 60 秒就放弃等待，
+ * 外层反代也常常几十秒就掐断（504），这些都只是这一个请求没等到：服务端还在读（等待者走了
+ * 也留一段宽限，见 media_extract），再发一次接着等就行。4xx（轨不存在、服务端判定抽不出来）
+ * 才是真的拿不到。
+ */
+export async function fetchSupBytes(
+  url: string,
+  signal: AbortSignal,
+  retryMs: number = SUP_RETRY_MS,
+): Promise<ArrayBuffer> {
+  for (;;) {
+    let status = 0;
+    try {
+      const response = await fetch(url, { signal });
+      status = response.status;
+      if (response.ok) return await response.arrayBuffer();
+    } catch (error) {
+      if (signal.aborted) throw error;
+    }
+    if (status >= 400 && status < 500) throw new Error(`Subtitle request failed: HTTP ${status}`);
+    await new Promise((resolve) => setTimeout(resolve, retryMs));
+  }
+}
+
 /**
  * VTT cue 文本 → 可直接渲染的纯文本。
  *

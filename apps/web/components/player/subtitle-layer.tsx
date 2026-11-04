@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { fetchEmbeddedFonts } from "@/lib/api/playback";
 import { displayLayout, subtitleCanvasTransform, type DisplayMode } from "@/lib/player/display-mode";
-import { plainCueText } from "@/lib/player/subtitles";
+import { fetchSupBytes, plainCueText } from "@/lib/player/subtitles";
 import type { SubtitleOption, SubtitleStyle } from "@/lib/player/subtitles";
 
 /**
@@ -154,8 +154,10 @@ function shiftCues(track: TextTrack, delta: number): void {
  * libpgs 的后继）。动态 import：不选 PGS 轨不付 WASM 代价，与 JASSUB 同款
  * 懒加载。timeOffset 语义与 JASSUB 相同（查表时间 = 播放时间 + offset）。
  *
- * streamingLoad：.sup 可达几十 MB，边收边解，首条字幕不用等整个文件；
- * rangeRequests 不开——字幕端点是 FileResponse 整流下发，没实现 Range。
+ * 字节自己取、取到再推给渲染器（libbitsub 的推送模式），不把地址给它：首次抽取要通读整个容器，
+ * 原盘是分钟级，请求可能挂很久。它的 fetch 中止不了（换一次轨就多占一条连接，HTTP/1.1 只有
+ * 6 条，攒够了连视频分片都取不了），断了也只重试一次（见 fetchSupBytes）。也不用 subContent：
+ * 它把整个文件留在主线程直到销毁，真盘的轨能到 170 MB。
  */
 function usePgs(
   video: HTMLVideoElement | null,
@@ -167,8 +169,12 @@ function usePgs(
   useEffect(() => {
     if (!video || !track || track.kind !== "pgs") return;
     let disposed = false;
+    const abort = new AbortController();
+    const reportFailure = (error: unknown) => {
+      if (!disposed) console.error("PGS 字幕加载失败：", error);
+    };
 
-    void import("libbitsub").then(({ PgsRenderer }) => {
+    void import("libbitsub").then(async ({ PgsRenderer }) => {
       if (disposed) return;
       // 渲染 canvas 会被追加到 video 的父节点末尾，而且是**异步**创建的
       // （要先等 WASM 初始化）；先记下已有的 canvas，之后新出现的那块就是
@@ -186,14 +192,9 @@ function usePgs(
       };
       const created = new PgsRenderer({
         video,
-        subUrl: track.url,
         timeOffset,
-        streamingLoad: true,
-        rangeRequests: false,
         onLoaded: exemptNewCanvases,
-        onError: (error: Error) => {
-          console.error("PGS 字幕加载失败：", error);
-        },
+        onError: reportFailure,
         // 非致命诊断保留在控制台：位图轨的坏段/解析退化肉眼只看得到
         // 「字幕没出来」，没有这行用户报障时什么线索都没有
         onWarning: (warning: unknown) => {
@@ -202,10 +203,15 @@ function usePgs(
       });
       instance.current = created;
       exemptNewCanvases();
-    });
+      const bytes = await fetchSupBytes(track.url, abort.signal);
+      if (disposed) return;
+      await created.append(bytes);
+      await created.flush();
+    }).catch(reportFailure);
 
     return () => {
       disposed = true;
+      abort.abort();
       instance.current?.dispose();
       instance.current = null;
     };

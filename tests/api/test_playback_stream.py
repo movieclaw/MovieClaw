@@ -32,7 +32,9 @@ from movieclaw_api.api.routes import playback as routes_playback
 from movieclaw_api.api.routes import transcode_worker as routes_transcode_worker
 from movieclaw_api.api.routes.transcode_worker import put_transcode_artifact
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.services import media_extract
 from movieclaw_api.services.auth import reset_auth_state
+from movieclaw_api.services.library.bluray import DISC_PLAYLIST_VERSION
 from movieclaw_api.services.playback import session as session_mod
 from movieclaw_api.services.playback.ffmpeg_args import (
     VAAPI_TONEMAP,
@@ -1496,6 +1498,57 @@ def test_pgs_subtitle_served_as_binary_sup(client, tmp_path, monkeypatch):
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("application/octet-stream")
     assert resp.content == raw
+
+
+def test_disc_pgs_subtitle_is_extracted_from_the_main_playlist(client, tmp_path, monkeypatch):
+    """原盘的台账路径是目录：字幕接口曾直接 404，网页上默认选中 PGS 时静默没字幕。"""
+    raw = b"PG" + bytes(range(256)) * 4
+    disc = tmp_path / "某原盘" / "BDMV"
+    (disc / "STREAM").mkdir(parents=True)
+    (disc / "STREAM" / "00001.m2ts").write_bytes(b"m2ts")
+    file_id = seed(client, tmp_path)
+
+    async def to_disc() -> None:
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            row.file_path = str(disc.parent)
+            row.container = "bluray"
+            row.subtitle_streams = [{"codec": "hdmv_pgs_subtitle"}]
+            row.disc_playlist = {
+                "version": DISC_PLAYLIST_VERSION,
+                "name": "00001.mpls",
+                "clips": [{"id": "00001", "in": 0, "out": 45_000 * 60}],
+            }
+            await session.commit()
+
+    client.portal.call(to_disc)
+    inputs: list[str] = []
+
+    class Done:
+        pid = None
+        returncode = 0
+
+        async def communicate(self):
+            return b"", b""
+
+    async def fake_exec(*argv, **_kwargs):
+        inputs.append(Path(argv[argv.index("-i") + 1]).read_text(encoding="utf-8"))
+        Path(argv[-1]).write_bytes(raw)
+        return Done()
+
+    monkeypatch.setattr(media_extract.shutil, "which", lambda _n: "/fake/ffmpeg")
+    monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(media_extract, "cache_dir", lambda: tmp_path / "subs-cache")
+    token = client.portal.call(
+        partial(issue_stream_token, member_id=0, file_id=file_id, session_id=None)
+    )
+
+    resp = client.get(f"{_PB}/files/{file_id}/subtitles?track=embedded:0&token={token}")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("application/octet-stream")
+    assert resp.content == raw
+    assert f"file '{disc}/STREAM/00001.m2ts'" in inputs[0]
 
 
 @pytest.mark.asyncio

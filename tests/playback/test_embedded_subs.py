@@ -15,11 +15,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from disc_fixture import Clip, make_bdmv, mpls_bytes, sup_presentations
 
 # 抽取本体住在中性的 media_extract（播放器与 AI 字幕生成共用同一份产物，
 # issue #432）；embedded_subs 只剩播放侧的包装与内嵌字体。进程替身因此分两处：
 # 字幕抽取打 media_extract，字体抽取打 embedded_subs。
 import movieclaw_api.services.media_extract as media_extract
+from movieclaw_api.services.library.bluray import DISC_PLAYLIST_VERSION
 from movieclaw_api.services.playback.embedded_subs import (
     embedded_subtitle_format,
     embedded_track_codec,
@@ -119,8 +121,9 @@ def test_missing_video_file_is_none(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_async_extraction_cancels_ffmpeg_and_removes_partial_file(tmp_path, monkeypatch):
-    """播放器放弃字幕请求时，PGS 抽取进程和临时文件都必须回收。"""
+    """播放器放弃字幕请求时，PGS 抽取进程和临时文件都必须回收（宽限期过后，这里设成 0）。"""
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(media_extract, "_ABANDON_GRACE_SECONDS", 0)
     video = tmp_path / "movie.mkv"
     video.write_bytes(b"source")
     file = make_file(tmp_path, [{"codec": "hdmv_pgs_subtitle"}], path=video)
@@ -441,3 +444,160 @@ def test_extracts_pgs_track_as_binary_sup(tmp_path, monkeypatch, video_with_pgs)
         capture_output=True, timeout=60,
     )
     assert b"hdmv_pgs_subtitle" in probe.stdout
+
+
+# ---------------------------------------------------------------------------
+# 原盘：真 m2ts、真 PGS、真 ffmpeg。时间轴是这里要守的东西（disc-playback.md §8）
+# ---------------------------------------------------------------------------
+
+
+def _disc_row(disc: Path, clips: list, subtitle_tracks: int, *, file_id: int = 7) -> LibraryFile:
+    file = make_file(
+        disc,
+        [{"codec": "hdmv_pgs_subtitle"} for _ in range(subtitle_tracks)],
+        path=disc,
+    )
+    file.id = file_id
+    file.container = "bluray"
+    file.disc_playlist = {
+        "version": DISC_PLAYLIST_VERSION,
+        "name": "00001.mpls",
+        "clips": [{"id": c.clip_id, "in": c.in_time, "out": c.out_time} for c in clips],
+    }
+    return file
+
+
+#: 夹具的音频比视频早约 20 毫秒开始，视频会话的零点也在它那里，两边一起后移：对齐看的是这个量级
+_TIMELINE_TOLERANCE = 0.05
+
+
+@integration
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_disc_subtitles_land_on_the_playlist_timeline(tmp_path, monkeypatch):
+    """多剪辑：第二段接在第一段后面，只算 IN/OUT 之内；PTS 基准是什么都不影响结果。"""
+    monkeypatch.chdir(tmp_path)
+    clips = [
+        Clip("00001", 8, 100.0, [[{"start_s": 2, "end_s": 4}], [{"start_s": 5, "end_s": 6}]]),
+        Clip(
+            "00002",
+            20,
+            500.0,
+            [
+                [
+                    {"start_s": 2, "end_s": 3},  # IN 之前
+                    {"start_s": 7, "end_s": 9},  # 播放列表 8 + (7-5) = 10～12
+                    {"start_s": 17, "end_s": 19},  # OUT 之后
+                ],
+                [{"start_s": 8, "end_s": 10}],  # 播放列表 11～13
+            ],
+            in_s=5,
+            out_s=15,
+        ),
+    ]
+    disc = make_bdmv(tmp_path / "disc", clips)
+    file = _disc_row(disc, clips, 2)
+
+    first = await extract_embedded_subtitle_async(file, 0)
+    assert first is not None and first.format == "sup"
+    assert sup_presentations(first.path.read_bytes()) == pytest.approx(
+        [2, 4, 10, 12], abs=_TIMELINE_TOLERANCE
+    )
+    # 第二条轨在同一趟里抽好了，不用再读一遍
+    second = media_extract.cached_track(file, 1)
+    assert second is not None
+    assert sup_presentations(second.path.read_bytes()) == pytest.approx(
+        [5, 6, 11, 13], abs=_TIMELINE_TOLERANCE
+    )
+    assert list((tmp_path / "data" / "cache" / "playback-subs").glob(".read-*")) == []
+
+
+@integration
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_single_clip_disc_uses_playlist_time(tmp_path, monkeypatch):
+    """单剪辑也走 concat：播放列表只用一截时按播放列表时间，不按剪辑时间。"""
+    monkeypatch.chdir(tmp_path)
+    clips = [Clip("00007", 12, 300.0, [[{"start_s": 6, "end_s": 8}]], in_s=4, out_s=10)]
+    disc = make_bdmv(tmp_path / "disc", clips)
+
+    track = await extract_embedded_subtitle_async(_disc_row(disc, clips, 1), 0)
+
+    assert track is not None
+    assert sup_presentations(track.path.read_bytes()) == pytest.approx(
+        [2, 4], abs=_TIMELINE_TOLERANCE
+    )
+
+
+@integration
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_disc_clips_with_fewer_tracks_do_not_shift_the_others(tmp_path, monkeypatch):
+    """真盘的后面几段常常轨更少（《阿凡达：水之道》13 条与 7 条交替，片尾还有只带视频的一小段）。
+
+    ``0:s:<k>`` 按第一段的流表解析，后面的段按序号对上：少的是末尾的轨，不能串到别的轨上。
+    """
+    monkeypatch.chdir(tmp_path)
+    clips = [
+        Clip("00001", 6, 100.0, [[{"start_s": 1, "end_s": 2}], [{"start_s": 3, "end_s": 4}]]),
+        Clip("00002", 6, 200.0, [[{"start_s": 1, "end_s": 2}]]),
+        Clip("00003", 2, 300.0, [], has_audio=False),
+        Clip("00004", 6, 400.0, [[{"start_s": 1, "end_s": 2}], [{"start_s": 3, "end_s": 4}]]),
+    ]
+    disc = make_bdmv(tmp_path / "disc", clips)
+    file = _disc_row(disc, clips, 2)
+
+    first = await extract_embedded_subtitle_async(file, 0)
+    assert first is not None
+    assert sup_presentations(first.path.read_bytes()) == pytest.approx(
+        [1, 2, 7, 8, 15, 16], abs=_TIMELINE_TOLERANCE
+    )
+    second = media_extract.cached_track(file, 1)
+    assert second is not None
+    assert sup_presentations(second.path.read_bytes()) == pytest.approx(
+        [3, 4, 17, 18], abs=_TIMELINE_TOLERANCE
+    )
+
+
+@integration
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_bluray_image_subtitles_come_from_inside_the_image(tmp_path, monkeypatch):
+    """蓝光镜像：ffmpeg 经 subfile 区间读盘内 m2ts，时间轴与原盘目录同一口径。"""
+    from tests.api.test_reels_disc_index import _UdfBuilder
+
+    from movieclaw_api.services.playback import iso_source
+
+    monkeypatch.chdir(tmp_path)
+    iso_source.clear_cache()
+    clips = [
+        Clip("00001", 6, 100.0, [[{"start_s": 2, "end_s": 3}]]),
+        Clip("00002", 6, 200.0, [[{"start_s": 3, "end_s": 4}]], in_s=1),
+    ]
+    disc = make_bdmv(tmp_path / "disc", clips)
+    streams = disc / "BDMV" / "STREAM"
+    image = tmp_path / "movie.iso"
+    image.write_bytes(
+        _UdfBuilder(metadata=False).build(
+            {
+                "BDMV": {
+                    "PLAYLIST": {"00001.mpls": mpls_bytes(clips)},
+                    "CLIPINF": {},
+                    "STREAM": {
+                        f"{c.clip_id}.m2ts": (streams / f"{c.clip_id}.m2ts").read_bytes()
+                        for c in clips
+                    },
+                }
+            }
+        )
+    )
+    shutil.rmtree(disc)
+    file = make_file(tmp_path, [{"codec": "hdmv_pgs_subtitle"}], path=image)
+    file.container = "iso"
+
+    track = await extract_embedded_subtitle_async(file, 0)
+
+    assert track is not None
+    assert sup_presentations(track.path.read_bytes()) == pytest.approx(
+        [2, 3, 8, 9], abs=_TIMELINE_TOLERANCE
+    )
