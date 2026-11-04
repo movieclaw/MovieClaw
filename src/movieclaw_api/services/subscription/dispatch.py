@@ -45,7 +45,7 @@ from movieclaw_db.models import (
 )
 from movieclaw_db.repositories import SubscriptionRepository
 from movieclaw_matcher import IdentityMatch, RuleVerdict, TorrentCandidate
-from movieclaw_matcher.seasons import mapping_from_json
+from movieclaw_matcher.seasons import SNAPSHOT_KEY, mapping_for_task
 
 logger = logging.getLogger("movieclaw_api.download_dispatch")
 
@@ -169,6 +169,9 @@ async def dispatch(
                 known_seasons=subscription.selected_seasons,
                 selection_owner=f"movieclaw-intent-{intent.id}",
             )
+            # 站点季号映射也一起冻结（issue #1155）：select_units 是按这份映射
+            # 换算出来的，恢复时必须用同一份去认文件
+            payload[SNAPSHOT_KEY] = item.season_mapping or []
             intent.submission = payload
             await session.commit()
         if payload.get("select_units"):
@@ -285,8 +288,12 @@ async def dispatch(
                         select_units=selective_units,
                         known_seasons=subscription.selected_seasons or None,
                         # 站点季号映射（issue #1155）：选择性下载要能认出
-                        # 站点 S02 的文件，否则会把要下的集全标成不下载
-                        season_mapping=mapping_from_json(item.season_mapping),
+                        # 站点 S02 的文件，否则会把要下的集全标成不下载。
+                        # 智能投递用意图里冻结的那份（与 select_units 同源）
+                        season_mapping=mapping_for_task(
+                            intent.submission if intent is not None else None,
+                            item.season_mapping,
+                        ),
                         media_kind=item.kind,
                         **submit_options,
                     )
@@ -510,6 +517,13 @@ async def dispatch(
                 ),
                 "updated_at": now,
             }
+            # 在途任务的站点季号映射快照（issue #1155）：核验、逐集进度、整包扩选
+            # 都按投递时用的这一份解释文件名，下载期间元数据刷新改了映射也不会把
+            # 同一个文件认成另一集。同一 hash 续用时保留首次冻结的那份（智能投递
+            # 的意图上早已冻结），其余载荷原样保留
+            frozen = dict((existing_attempt.submission if existing_attempt else None) or {})
+            frozen.setdefault(SNAPSHOT_KEY, item.season_mapping or [])
+            values["submission"] = frozen
             if existing_attempt is None:
                 session.add(
                     SubscriptionDownloadAttempt(

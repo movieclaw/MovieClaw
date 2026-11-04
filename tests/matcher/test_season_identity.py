@@ -113,8 +113,12 @@ def test_declared_total_extends_the_upper_bound() -> None:
     assert (1, 12) not in match.episodes  # 下界不因声明而前移
 
 
-def test_declared_total_below_block_end_does_not_shrink() -> None:
-    """声明少于块长度时上界仍是块终点（TMDB 记了就在包里）。"""
+def test_declared_total_below_block_end_truncates() -> None:
+    """声明「全 5 集」：只认 E13–E17（PR #1176 评审第 3 点）。
+
+    旧上界 ``max(块终点, 偏移 + 声明数)`` 会生成 E13–E25 全部单元，认领包里
+    根本没有的 8 集，后续选择性下载或核验必然失败。
+    """
     match = match_identity(
         _candidate(
             "Solo Leveling S02 Complete 1080p",
@@ -125,8 +129,35 @@ def test_declared_total_below_block_end_does_not_shrink() -> None:
         _solo(),
     )
     assert match is not None
-    assert max(ep for _season, ep in match.episodes) == 25
+    assert match.episodes == frozenset((1, ep) for ep in range(13, 18))
     assert match.declared_total == 5
+    # 整季包平移出来的集按整季包语义覆盖，而不是显式集号（见 covered_units）
+    assert match.normalized_pack is True
+
+
+def test_explicit_site_episodes_keep_explicit_semantics() -> None:
+    """标题写明了集号的 S02E01-E03 不是整季包：仍走显式集号的覆盖语义。"""
+    match = match_identity(
+        _candidate("Solo Leveling S02E01-E03 1080p", seasons=[2], episodes=[1, 2, 3]), _solo()
+    )
+    assert match is not None
+    assert match.episodes == frozenset({(1, 13), (1, 14), (1, 15)})
+    assert match.normalized_pack is False
+
+
+def test_site_season_episode_zero_is_not_shifted() -> None:
+    """站点 S02E00（先导/特辑）不能平移成正片 (1, 12)（评审第 4 点）。"""
+    match = match_identity(
+        _candidate("Solo Leveling S02E00 Special 1080p", seasons=[2], episodes=[0]), _solo()
+    )
+    assert match is not None
+    assert match.episodes == frozenset({(2, 0)})
+
+    mixed = match_identity(
+        _candidate("Solo Leveling S02E00-E01 1080p", seasons=[2], episodes=[0, 1]), _solo()
+    )
+    assert mixed is not None
+    assert mixed.episodes == frozenset({(2, 0), (1, 13)})
 
 
 def test_site_season_one_inside_ledger_stays_literal() -> None:

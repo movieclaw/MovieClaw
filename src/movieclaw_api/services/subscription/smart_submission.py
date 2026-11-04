@@ -277,13 +277,14 @@ async def reconcile_remote(session, intent):
         payload = intent.submission or {}
         if payload.get("select_units"):
             from movieclaw_api.services.torrent_submit import apply_strict_file_selection
-            from movieclaw_matcher.seasons import mapping_from_json
+            from movieclaw_matcher.seasons import mapping_for_task
 
             async def before_resume():
                 await ensure_can_submit(session, intent)
 
-            # 站点季号映射（issue #1155）：恢复时 match 不复存在，映射只能从
-            # 条目上重新读；缺了它站点 S02 的文件会被判成"不需要"跳过
+            # 站点季号映射（issue #1155）：恢复时 match 不复存在，用首次提交时
+            # 与 select_units 一起冻结的那份——下载期间元数据刷新改了映射，按新
+            # 映射认文件会对不上冻结的单元。冻结前的旧意图才退回条目当前的映射
             subscription = await session.get(Subscription, intent.subscription_id)
             item = (
                 await session.get(MediaItem, subscription.media_item_id)
@@ -295,7 +296,9 @@ async def reconcile_remote(session, intent):
                 result,
                 {tuple(u) for u in payload["select_units"]},
                 known_seasons=payload.get("known_seasons"),
-                season_mapping=mapping_from_json(item.season_mapping) if item else None,
+                season_mapping=mapping_for_task(
+                    payload, item.season_mapping if item is not None else None
+                ),
                 owner=payload["selection_owner"],
                 before_resume=before_resume,
             )

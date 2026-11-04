@@ -46,7 +46,7 @@ from movieclaw_api.services.library.layout import (
     trailing_index_episode,
 )
 from movieclaw_enrich import enrich
-from movieclaw_matcher.seasons import SeasonMapping
+from movieclaw_matcher.seasons import SeasonMapping, translate_unit
 
 __all__ = ["FileUnit", "resolve_units"]
 
@@ -209,15 +209,13 @@ def resolve_units(
         显式声明在台账里查无此季。命中映射就**不改原意地翻译**成 TMDB 编号继续
         入库（季号与集号一起平移，``S02E01`` → ``(1, 13)``）——这与「台账不许
         否决显式声明」不冲突，翻译后它仍落在真实存在的季里。没命中映射就原样
-        保留，行为与改动前一致。
+        保留，行为与改动前一致。映射里不会有 TMDB 真实存在的季号（落库前已
+        剔除），E00 也不换算（仍是 ``explicit_pilot``，见 translate_unit）。
         """
         season = ev.certain_season if ev.certain_season is not None else batch_season
-        if season is None or season_mapping is None:
+        if season is None:
             return season, ev.episode
-        block = season_mapping.by_site_season(season)
-        if block is None:
-            return season, ev.episode
-        return block.season, ev.episode + block.offset
+        return translate_unit(season_mapping, season, ev.episode)
 
     units: dict[Path, FileUnit] = {}
     for file, ev in evidence.items():

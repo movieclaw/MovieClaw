@@ -261,6 +261,51 @@ def test_explicit_site_season_is_translated_by_mapping(tmp_path) -> None:
     assert unit.rejected_reason is None
 
 
+def test_real_season_two_is_not_rewritten_on_ingest(tmp_path) -> None:
+    """PR #1176 评审第 1 点：TMDB S01 中途停播 + 真有 S02，入库不能把 S02 改写成 S01E13+。
+
+    映射走一遍真实的推导与落库往返——落库前已按条目完整季表过滤，入库、扫描、
+    文件选择读到的都是这一份。
+    """
+    from datetime import date, timedelta
+
+    from movieclaw_matcher.seasons import derive_season_mapping, mapping_from_json, mapping_to_json
+
+    def weekly(season: int, first: int, count: int, start: date) -> list:
+        return [(season, first + i, start + timedelta(days=7 * i)) for i in range(count)]
+
+    episodes = (
+        weekly(1, 1, 12, date(2024, 1, 7))
+        + weekly(1, 13, 12, date(2024, 7, 7))  # 同季停播 ~3 个月后续播
+        + weekly(2, 1, 10, date(2025, 4, 6))  # 真正的第 2 季
+    )
+    stored = mapping_from_json(mapping_to_json(derive_season_mapping(episodes)))
+    _, files = _pack(tmp_path, "Show.S02.1080p", ["Show.S02E01.1080p.mkv"])
+    unit = resolve_units(
+        files, entry_name="Show.S02.1080p", known_seasons={1, 2}, season_mapping=stored
+    )[files[0]]
+    assert (unit.season, unit.episode) == (2, 1)
+
+
+def test_site_season_pilot_is_not_shifted_into_a_regular_episode(tmp_path) -> None:
+    """评审第 4 点：站点 S02E00 不能变成 (1, 12)——那是正片第 12 集。
+
+    原样保留 (2, 0) + explicit_pilot，入库层按 E00 的既有规则处理（不自动入库）。
+    """
+    from movieclaw_matcher.seasons import SeasonBlock, SeasonMapping
+
+    mapping = SeasonMapping(blocks=(SeasonBlock(site_season=2, season=1, start=13, end=25),))
+    _, files = _pack(
+        tmp_path, "Solo Leveling S02", ["Solo Leveling S02E00.mkv", "Solo Leveling S02E01.mkv"]
+    )
+    units = resolve_units(
+        files, entry_name="Solo Leveling S02", known_seasons={0, 1}, season_mapping=mapping
+    )
+    pilot, first = units[files[0]], units[files[1]]
+    assert (pilot.season, pilot.episode, pilot.explicit_pilot) == (2, 0, True)
+    assert (first.season, first.episode, first.explicit_pilot) == (1, 13, False)
+
+
 def test_site_season_without_mapping_keeps_explicit_season(tmp_path) -> None:
     """S03 + 无映射 → 保持原行为（显式声明不被台账否决），不回归。"""
     _, files = _pack(tmp_path, "Show.S03.1080p", ["Show.S03E01.1080p.mkv"])

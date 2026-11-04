@@ -59,7 +59,7 @@ from movieclaw_matcher import (
     match_identity,
     site_rank,
 )
-from movieclaw_matcher.seasons import mapping_from_json
+from movieclaw_matcher.seasons import SNAPSHOT_KEY, mapping_from_json
 from movieclaw_matcher.smart import SmartPolicy, watchable
 
 logger = logging.getLogger("movieclaw_api.subscription_replacement")
@@ -587,6 +587,8 @@ async def _try_candidates(
             )
         ).scalars()
     )
+    # 本轮投递用的站点季号映射：选文件与试用台账的快照必须是同一份
+    snapshot = item.season_mapping or []
     for candidate, covered, _verdict, match in accepted:
         if subscription.selection_mode == "smart":
             from movieclaw_api.services.subscription.dispatch import dispatch
@@ -620,7 +622,7 @@ async def _try_candidates(
                 known_seasons=subscription.selected_seasons or None,
                 # 站点季号映射（issue #1155）：替代源整季包里的站点 S02 文件
                 # 要能对上订阅在等的 (1, 13)，否则会被当成"不需要"跳过
-                season_mapping=mapping_from_json(item.season_mapping),
+                season_mapping=mapping_from_json(snapshot),
                 route_hint=hooks.DownloaderQuery(
                     site_id=candidate.site_id,
                     title=candidate.title,
@@ -683,6 +685,9 @@ async def _try_candidates(
             # 试用源继承被替换源的投递目的：洗版源的替代仍是洗版投递，
             # 晋升后入库验证与在途去重才能正确认领它
             purpose=attempt.purpose,
+            # 投递时用的站点季号映射快照（issue #1155）：核验/进度按它认文件，
+            # 与上面 submit_torrent 选文件用的是同一份
+            submission={SNAPSHOT_KEY: snapshot},
             status=DownloadAttemptStatus.TRIAL,
             baseline_completed_bytes=0 if not result.already_exists else None,
             last_completed_bytes=0 if not result.already_exists else None,

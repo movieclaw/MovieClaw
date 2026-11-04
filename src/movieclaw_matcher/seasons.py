@@ -42,19 +42,32 @@ TMDB S01
 集号落在某个 block 的集号区间内，就归那个 block——TMDB 常给还没定档的集留
 空日期，它们物理上属于前后两个 block 之间的那一截。
 
+落库（:attr:`SeasonMapping.needs_mapping`）还有三道闸，保证消费侧读到的映射
+可以直接用、不必各自再判：
+
+- **站点季号撞上 TMDB 真实存在的季**（条目完整季表，含集表还空着的季）的块
+  不落库——TMDB S01 中途停播 90 天以上、同时又真有 S02 时，站点 ``S02E01``
+  就是 TMDB 的 S02E01，不是 S01 的后半段；
+- **起点不确定**的块不落库：断档边界上夹着无日期的集时，它属于哪一块没有
+  证据，后一块的偏移跟着定不下来；
+- E00（先导/特辑）永远不换算（:func:`translate_unit`）。
+
 本模块是**纯函数**：输入 ``(季, 集, 播出日期)`` 三元组，不碰数据库、不做 IO。
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date
 
 __all__ = [
+    "SNAPSHOT_KEY",
     "SPLIT_GAP_DAYS",
     "SeasonBlock",
     "SeasonMapping",
     "derive_season_mapping",
+    "mapping_for_task",
     "mapping_from_json",
     "mapping_to_json",
     "translate_unit",
@@ -65,6 +78,10 @@ __all__ = [
 #: 漏掉紧凑的 split-cour。
 SPLIT_GAP_DAYS = 90
 
+#: 在途任务冻结映射快照的键（``subscription_download_attempt.submission`` 里），
+#: 见 :func:`mapping_for_task`
+SNAPSHOT_KEY = "season_mapping"
+
 
 @dataclass(frozen=True)
 class SeasonBlock:
@@ -74,6 +91,11 @@ class SeasonBlock:
     season: int  # TMDB 季号
     start: int  # 起始集号（含）
     end: int  # 结束集号（含）
+    # 起点是否可靠：断档边界上夹着无日期的集时，那几集属于前一块还是后一块
+    # 无从判断，后一块的起点（也就是偏移）跟着不确定。这种块照常占一个站点
+    # 季号（它确实存在、首播日也确定，后面的块不能因此前移编号），但不落库、
+    # 不做换算（见 needs_mapping）
+    certain: bool = True
 
     @property
     def offset(self) -> int:
@@ -112,6 +134,9 @@ class SeasonMapping:
     """一个条目的站点季号映射表（block 按站点季号升序）。"""
 
     blocks: tuple[SeasonBlock, ...] = ()
+    # 条目完整的 TMDB 季列表（推导时才有；从 JSON 读回的映射为空集——落库前
+    # 已经按它过滤过）。站点季号在这里面，就是 TMDB 真实存在的那一季
+    tmdb_seasons: frozenset[int] = frozenset()
 
     def __bool__(self) -> bool:
         return bool(self.blocks)
@@ -145,12 +170,27 @@ class SeasonMapping:
 
         推导本身仍然返回全部块——那是条目的客观事实，也是"89 天不切 /
         91 天切"这类断言能落到具体块上的前提。
+
+        另外两类块即便是细化出来的也不落库：
+
+        - 站点季号在 :attr:`tmdb_seasons` 里：TMDB 真有这一季，站点的 ``S02``
+          说的就是它。否则 S01 中途停播、同时又有真 S02 的剧，``S02E01`` 会被
+          改写成 ``S01E13`` 入库（下载核验还会给正确来源记上 content_missing）；
+        - 起点不确定（:attr:`SeasonBlock.certain` 为假）：偏移定不下来，换算
+          出来的集号可能整段错一位，宁可不换算。
+
+        这两道闸放在落库这一处，而不是让匹配、入库、扫描、文件选择、下载核验
+        各判一遍：它们读到的映射本来就不含这两类块，口径天然一致。
         """
         seen: set[int] = set()
         result: list[SeasonBlock] = []
         for block in self.blocks:  # 已按首播日期升序
-            if block.season in seen:
-                result.append(block)  # 这个 TMDB 季已被前面的块占过 → 细化出来的新季
+            if (
+                block.season in seen  # 这个 TMDB 季已被前面的块占过 → 细化出来的新季
+                and block.site_season not in self.tmdb_seasons
+                and block.certain
+            ):
+                result.append(block)
             seen.add(block.season)
         return tuple(result)
 
@@ -183,6 +223,7 @@ def derive_season_mapping(
     episodes: list[tuple[int, int, date | None]] | tuple[tuple[int, int, date | None], ...],
     *,
     today: date | None = None,
+    seasons: Collection[int] = (),
 ) -> SeasonMapping:
     """从 ``media_episode`` 台账推导站点季号映射。
 
@@ -190,6 +231,9 @@ def derive_season_mapping(
         直接对应 ``MediaEpisode`` 的三列；顺序无关、允许重复。
     :param today: 判定"block 已播完"（G1）的基准日；缺省取 ``date.today()``。
         可注入是为了测试不受运行时钟影响。
+    :param seasons: 条目完整的 TMDB 季列表，包括集表还空着的季（刚公布的
+        第 2 季）。与 ``episodes`` 里出现过的季号合起来就是"TMDB 真实存在的
+        季"，落库时站点季号撞上它们的块一律剔除（见 ``needs_mapping``）。
     :return: 映射表。无法推导（没有任何已定档的集）时为空。
 
     推导细节：
@@ -198,9 +242,9 @@ def derive_season_mapping(
     - 同一季内按集号排序，**只有两侧都有日期**的相邻两集才可能断开：
       间隔 ≥ 90 天即一次断档；
     - 无日期的集不参与断档判定，靠集号归属到某个 block：落在某块的
-      [首集, 末集] 区间内直接归它；落在两块之间的空隙时归**后一块**
-      （断档发生在它之前，它属于断档之后那一季）；比所有日期都靠后的
-      归最后一块，全季日期之后只有它自己时同理；
+      [首集, 末集] 区间内直接归它；比所有日期都靠后的归最后一块。落在两块
+      之间的空隙时它属于哪一块**没有证据**：后一块的起点因此不确定
+      （``certain=False``），照常编号、但不落库；
     - 每个 block 必须**已开播**（首个有日期的集 ``air_date <= today``）才参与，
       未开播的整块丢弃（G1，不对未来开口）。**已开播但还没播完的块照常保留
       完整区间**——在播期间站点 S02 的已播集也要能收到，未播集由
@@ -210,14 +254,15 @@ def derive_season_mapping(
       剔除，好让普通剧的 ``season_mapping`` 是 ``[]``。
     """
     today = today or date.today()
+    tmdb_seasons = frozenset(seasons) | {season for season, _episode, _day in episodes}
     by_season: dict[int, list[tuple[int, date | None]]] = {}
     for season, episode, air_date in episodes:
         if season <= 0 or episode <= 0:
             continue
         by_season.setdefault(season, []).append((episode, air_date))
 
-    # (首播日期, 季号, 起点, 终点)：先攒成可排序元组，最后统一编号
-    blocks: list[tuple[date, int, int, int]] = []
+    # (首播日期, 季号, 起点, 终点, 起点可靠)：先攒成可排序元组，最后统一编号
+    blocks: list[tuple[date, int, int, int, bool]] = []
     for season, rows in by_season.items():
         rows.sort(key=lambda row: row[0])
         dated = [(episode, day) for episode, day in rows if day is not None]
@@ -236,6 +281,16 @@ def derive_season_mapping(
             else:
                 chunks.append([episode, episode, day, day])
 
+        # 断档边界上夹着无日期的集：E11 三月播、E12 没有日期、E13 次年一月播，
+        # E12 是前一季的收尾还是后一季的开头没有任何证据——后一块的起点（站点
+        # S02E01 是 E12 还是 E13）就定不下来，换算出来可能整段错一位。这种块
+        # 记为起点不确定：照常占站点季号，但不落库（必须在下面扩边界之前判）
+        uncertain = {
+            index + 1
+            for index in range(len(chunks) - 1)
+            if any(chunks[index][1] < episode < chunks[index + 1][0] for episode in undated)
+        }
+
         # 无日期的集按集号归属（不改变分块，只扩块边界）
         for episode in undated:
             home = next(
@@ -243,12 +298,13 @@ def derive_season_mapping(
                 None,
             )
             if home is None:
-                # 落在两块之间的空隙 → 后一块；比所有日期都靠后 → 最后一块
+                # 落在两块之间的空隙 → 区间上暂归后一块（该块上面已记为起点不确定，
+                # 不会落库）；比所有日期都靠后 → 最后一块
                 home = next((chunk for chunk in chunks if chunk[0] > episode), chunks[-1])
             home[0] = min(home[0], episode)
             home[1] = max(home[1], episode)
 
-        for start, end, first_day, _last_day in chunks:
+        for index, (start, end, first_day, _last_day) in enumerate(chunks):
             # G1：块必须**已开播**才参与（不对未来开口）。用「已开播」而不是
             # 「已播完」：在播中的块如果整块丢掉，站点 S02 的已播单集在整季
             # 播完前一条都收不到（#1155 的剧播到 E18 时订阅，S2 要等到 E19
@@ -256,27 +312,37 @@ def derive_season_mapping(
             # covered_units 的 air_date 上限自然剔除（_airable/_explicit_airable）
             if not first_day <= today:
                 continue
-            blocks.append((first_day, season, start, end))
+            blocks.append((first_day, season, start, end, index not in uncertain))
 
     if not blocks:
-        return SeasonMapping()
+        return SeasonMapping(tmdb_seasons=tmdb_seasons)
 
     blocks.sort()
     return SeasonMapping(
         blocks=tuple(
-            SeasonBlock(site_season=index, season=season, start=start, end=end)
-            for index, (_day, season, start, end) in enumerate(blocks, start=1)
-        )
+            SeasonBlock(site_season=index, season=season, start=start, end=end, certain=certain)
+            for index, (_day, season, start, end, certain) in enumerate(blocks, start=1)
+        ),
+        tmdb_seasons=tmdb_seasons,
     )
 
 
-def translate_unit(mapping: SeasonMapping, site_season: int, site_episode: int) -> tuple[int, int]:
-    """站点 ``(季, 集)`` → TMDB ``(季, 集)``。
+def translate_unit(
+    mapping: SeasonMapping | None, site_season: int, site_episode: int
+) -> tuple[int, int]:
+    """站点 ``(季, 集)`` → TMDB ``(季, 集)``；所有消费侧都经这一处换算。
 
     季号命中 block 时按偏移平移；集号超出该块区间时**不夹紧**——站点声明的
     集数常比 TMDB 已录的多（#640），上界由调用方按 ``declared_total`` 决定
     （见 identity._derive_units）。没命中映射时原样返回。
+
+    **E00 永远不换算**：站点 ``S02E00`` 是站点第 2 季的先导/特辑，TMDB 里它
+    多半在第 0 季、集号对不上；平移成 ``(1, 12)`` 会把特辑当成正片第 12 集
+    入库、下载、核验。原样返回 ``(2, 0)``，下游按"集号为 0"的既有规则处理
+    （入库看 ``explicit_pilot``、严格文件选择不选）。
     """
+    if mapping is None or site_episode <= 0:
+        return site_season, site_episode
     block = mapping.by_site_season(site_season)
     if block is None:
         return site_season, site_episode
@@ -295,3 +361,18 @@ def mapping_from_json(data: list | None) -> SeasonMapping:
 def mapping_to_json(mapping: SeasonMapping) -> list[dict]:
     """:class:`SeasonMapping` → 可落 JSON 列的字典列表。"""
     return mapping.to_json()
+
+
+def mapping_for_task(submission: dict | None, current: list | dict | None) -> SeasonMapping:
+    """在途任务该用哪份映射解释种子里的文件名。
+
+    投递时把当时用的映射原样冻结进任务（``submission[SNAPSHOT_KEY]``），之后
+    的核验、逐集进度、提交恢复、整包扩选都读这一份：下载期间元数据刷新改了
+    映射，同一个 ``S02E01.mkv`` 也不会一会儿是 E13、一会儿是别的集，进而被
+    误判缺失、给来源记上 content_missing。没有快照（快照上线前的任务、没有
+    台账的投递）才退回条目当前的映射 ``current``。
+    """
+    payload = submission or {}
+    if SNAPSHOT_KEY in payload:
+        return SeasonMapping.from_json(payload[SNAPSHOT_KEY])
+    return SeasonMapping.from_json(current)
