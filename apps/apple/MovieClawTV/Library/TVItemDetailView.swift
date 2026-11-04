@@ -11,6 +11,8 @@ import SwiftUI
 /// 与 iPhone 版同一套数据：`libraryItemsGet` 拿详情（含演职员）、`playbackResume` 拿续播点（主按钮三态：播放 / 继续 mm:ss /
 /// 重新播放）、`librarySetMarks` 收藏与标记已看。电视上不做任何管理操作（修正识别、换图、删除……都在手机和网页上）。
 /// 播放器关掉、服务端收下「停止」后（`.playbackStopReported`）重拉续播点与分集进度，按钮立刻跟上刚才看到的位置。
+/// 这一季还有今天或以后的播出日期时，下半截选季下面多一条播出日历（`TVAirSchedule.swift`，issue #547）：
+/// 按确认打开整屏日程；还没播的集不再按缺集置灰，剧照位换成播出日。
 struct TVItemDetailView: View {
     let libraryId: Int
     let itemId: Int
@@ -18,6 +20,7 @@ struct TVItemDetailView: View {
     @Environment(\.api) private var api
     @Environment(TVRouter.self) private var router
     @Environment(\.resetFocus) private var resetFocus
+    @Environment(\.permissions) private var permissions
     /// 页面的焦点范围：回首屏交焦点时，赋值不灵就请焦点引擎在这里面重挑一次（落到声明了首选的主按钮上）
     @Namespace private var focusScope
 
@@ -47,6 +50,9 @@ struct TVItemDetailView: View {
     @State private var rowFocus = TVLowerRowFocus()
     /// 「全部分集」面板：打开时落在哪一段（nil 为没开）
     @State private var panelRange: EpisodeRange?
+    /// 下半截那一季的播出日历；服务端只在这一季还有今天或以后的播出日期时给
+    @State private var browseSchedule: API.SeasonAirScheduleView?
+    @State private var showsAirSchedule = false
     /// 从面板挑了一集、焦点还没落到横排那一集上：这期间焦点先回到段页签，不能按「换段」把横排跳走
     @State private var pendingRowFocus: Int?
     @State private var watched: API.PlaybackStateView?
@@ -86,6 +92,7 @@ struct TVItemDetailView: View {
         /// 段页签（按段序号）
         case range(Int)
         case collection(Int)
+        case airSchedule
     }
 
     private var isMovie: Bool { detail?.kind != "tv" }
@@ -147,6 +154,26 @@ struct TVItemDetailView: View {
                 pendingRowFocus = number
                 jumpRow(to: number)
             }
+        }
+        .fullScreenCover(isPresented: $showsAirSchedule) {
+            if let browseSchedule {
+                TVAirSchedulePanel(
+                    title: detail?.title ?? "",
+                    seasonLabel: browseSeason == 0 ? String(localized: .mediaSeasonSpecials) : String(localized: .mediaSeasonTitle(browseSeason ?? 1)),
+                    episodes: browseEpisodes,
+                    schedule: browseSchedule,
+                    canSubscribe: permissions.canSubscribe,
+                    tmdbId: detail?.tmdbId,
+                    libraryId: permissions.canManageSubscriptions ? libraryId : nil,
+                    ambientURL: api.image(detail?.backdropUrl ?? detail?.posterUrl, width: ImageWidth.points(TVMetrics.blurredBackdropWidth))
+                ) {
+                    await refreshBrowse()
+                }
+            }
+        }
+        // 开着的时候这一季的日历没了（过了零点播完了）：收起来，别留一块空屏
+        .onChange(of: browseSchedule == nil) { _, gone in
+            if gone { showsAirSchedule = false }
         }
         .task(id: pendingRowFocus) {
             guard let number = pendingRowFocus else { return }
@@ -365,9 +392,12 @@ struct TVItemDetailView: View {
     /// 下半截滑上来之后，第一行在屏幕上的 y：上面留给居中的片名（和选季，有多季时）——只有一季就不给选季留空，
     /// 否则片名和分集之间空出一大块（2026-10-03 用户在真机上指出）
     /// 长剧集（超过 50 集）选季下面还有一排段页签，再往下让一行
-    private var lowerScreenTop: CGFloat { (hasSeasonTabs ? 330 : 250) + (hasRangeTabs ? Self.rangeTabsHeight : 0) }
+    /// 还有播出日历的再让一条
+    private var lowerScreenTop: CGFloat { (hasSeasonTabs ? 330 : 250) + (hasRangeTabs ? Self.rangeTabsHeight : 0) + (browseSchedule == nil ? 0 : airStripTop + TVAirScheduleStrip.height) }
     /// 段页签一排（含与上面的间距）占的高度
     private static let rangeTabsHeight: CGFloat = 76
+    /// 播出日历入口条与上面的间距：紧贴选季（胶囊自己有上下边距）；没有选季时离片名远一点
+    private var airStripTop: CGFloat { hasSeasonTabs ? 8 : 28 }
     /// 首屏下沿（918）到下半截的距离，决定首屏底下露出多少（2026-10-04 用户改定）：
     /// - 剧集露分集剧照的上沿约 60 点，与首页「接下来继续」露出的一样多（此前露 120 多点，嫌太高）；
     /// - 电影露演职员一行（2026-10-12 用户定）：行标题「演职员」加竖版人物卡的上沿约 60 点，与原先露系列一行同样多。
@@ -424,9 +454,16 @@ struct TVItemDetailView: View {
                     .padding(.top, 36)
                     .overlay(alignment: .trailing) { rangeHint }
             }
+            if let browseSchedule {
+                TVAirScheduleStrip(episodes: browseEpisodes, schedule: browseSchedule) { showsAirSchedule = true }
+                    .focused($lowerFocus, equals: .airSchedule)
+                    .padding(.horizontal, TVMetrics.edge)
+                    .padding(.top, airStripTop)
+                    .focusSection()
+            }
             if hasRangeTabs {
                 TVRangeTabs(ranges: browseRanges, anchor: browseAnchor, rowEpisode: $rowEpisode, focus: $lowerFocus) { panelRange = $0 }
-                    .padding(.top, hasSeasonTabs ? 4 : 36)
+                    .padding(.top, hasSeasonTabs || browseSchedule != nil ? 4 : 36)
             }
         }
     }
@@ -528,7 +565,7 @@ struct TVItemDetailView: View {
     /// 分集横排（`TVEpisodeRow`）：焦点、停在哪一集都由它自己管，页面只在程序交焦点、跳集时介入
     private var episodeRow: some View {
         TVEpisodeRow(
-            episodes: browseEpisodes, anchor: browseAnchor, showsResumeTag: browseWatched,
+            episodes: browseEpisodes, anchor: browseAnchor, showsResumeTag: browseWatched, schedule: browseSchedule,
             runtimeMinutes: detail?.localMeta?.runtimeMinutes, ranges: browseRanges,
             rowEpisode: $rowEpisode, scrollPosition: $episodeScroll, focusRequest: rowFocusRequest, report: rowFocus,
             play: { episode in
@@ -748,9 +785,9 @@ struct TVItemDetailView: View {
                     ?? fresh.seasons.first(where: { owned.contains($0) })
                     ?? fresh.seasons.first(where: { $0 > 0 }) ?? fresh.seasons.first
                 if let start {
-                    await loadEpisodes(start, keepSelection: false)
+                    let result = await loadEpisodes(start, keepSelection: false)
                     browseSeason = start
-                    applyBrowse(episodes, anchor: anchor)
+                    applyBrowse(episodes, anchor: anchor, schedule: result?.airSchedule)
                     rowEpisode = selectedEpisode?.episodeNumber
                 }
             }
@@ -768,8 +805,9 @@ struct TVItemDetailView: View {
 
     /// 读首屏那一季的分集；不保留选择时选「接着看的那一集」：服务端给的锚点（本季没播放过时退回客户端规则：
     /// 看了一半的 → 第一集没看过的 → 第一集，见 `anchorEpisode`）。`followAnchor`：保留选择时锚点变了就换到新锚点
-    private func loadEpisodes(_ number: Int, keepSelection: Bool, followAnchor: Bool = false) async {
-        guard let result = try? await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: number) else { return }
+    @discardableResult
+    private func loadEpisodes(_ number: Int, keepSelection: Bool, followAnchor: Bool = false) async -> API.SeasonEpisodesView? {
+        guard let result = try? await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: number) else { return nil }
         let fresh = result.anchorEpisode?.episodeNumber
         let anchorMoved = followAnchor && number == season && fresh != anchor
         season = number
@@ -778,16 +816,17 @@ struct TVItemDetailView: View {
         if keepSelection, !anchorMoved, let current = selectedEpisode,
            let kept = result.episodes.first(where: { $0.episodeNumber == current.episodeNumber }) {
             selectedEpisode = kept
-            return
+            return result
         }
         selectedEpisode = result.anchorEpisode
+        return result
     }
 
     /// 下半截换一季：分集横排换成那一季，滚到那一季接着看的那一集
     private func loadBrowse(_ number: Int) async {
         guard let result = try? await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: number) else { return }
         browseSeason = number
-        applyBrowse(result.episodes, anchor: result.anchorEpisode?.episodeNumber)
+        applyBrowse(result.episodes, anchor: result.anchorEpisode?.episodeNumber, schedule: result.airSchedule)
         if let entry = seasonEntry { jumpRow(to: entry) }
     }
 
@@ -798,16 +837,17 @@ struct TVItemDetailView: View {
               let result = try? await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: browseSeason)
         else { return }
         let previous = browseAnchor
-        applyBrowse(result.episodes, anchor: result.anchorEpisode?.episodeNumber)
+        applyBrowse(result.episodes, anchor: result.anchorEpisode?.episodeNumber, schedule: result.airSchedule)
         guard followAnchor, let fresh = browseAnchor, fresh != previous else { return }
         jumpRow(to: fresh)
         // 在下半截（从横排点播回来、在横排里标了已看）：焦点跟到新锚点；在首屏就只把横排挪过去
         if scroll.offset > lowerScroll / 2 { pendingRowFocus = fresh }
     }
 
-    private func applyBrowse(_ list: [API.EpisodeView], anchor: Int?) {
+    private func applyBrowse(_ list: [API.EpisodeView], anchor: Int?, schedule: API.SeasonAirScheduleView?) {
         browseEpisodes = list
         browseAnchor = anchor
+        browseSchedule = schedule
         browseRanges = EpisodeRanges.ranges(list)
         browseWatched = list.contains { $0.played || $0.positionMs > 0 }
     }
@@ -930,6 +970,8 @@ private struct TVEpisodeRow: View {
     let episodes: [API.EpisodeView]
     let anchor: Int?
     let showsResumeTag: Bool
+    /// 这一季的播出日历：有它才分得清「还没播」与「缺集」
+    let schedule: API.SeasonAirScheduleView?
     let runtimeMinutes: Int?
     /// 段（长剧集才有）：横排里走过段的边界时要更新 `rowEpisode`
     let ranges: [EpisodeRange]
@@ -956,7 +998,8 @@ private struct TVEpisodeRow: View {
                         episode: episode,
                         imageURL: api.image(episode.stillUrl, width: ImageWidth.tvCard(TVMetrics.landscapeWidth)),
                         runtimeMinutes: runtimeMinutes,
-                        resumeTag: showsResumeTag && episode.episodeNumber == anchor
+                        resumeTag: showsResumeTag && episode.episodeNumber == anchor,
+                        schedule: schedule
                     ) {
                         play(episode)
                     }
@@ -1191,6 +1234,12 @@ private struct TVDetailSnap: ScrollTargetBehavior {
             target.rect.origin.y = lowerTop
             return
         }
+        // 已经停在下半截的顶上，系统只想多滚一点点（焦点从入口条、段页签下到分集横排时要多滚 80 点露出页底，实测）：
+        // 焦点那一行本来就露全了，不动，页面不跳。再下面的行差得多，照常滚
+        if y > lowerTop + 0.5, y <= lowerTop + 100, abs(scroll.offset - lowerTop) < 1 {
+            target.rect.origin.y = lowerTop
+            return
+        }
         // 从首屏往下进来，系统想滚过下半截的顶：第一行是高的海报（系列一行）时，系统为了把焦点那张卡连同下面的字
         // 露全会多滚一截，片名和行标题被顶出屏幕（2026-10-04 实测）。从首屏出发的一律停在下半截的顶
         if y > lowerTop + 0.5, scroll.offset < lowerTop - 1 {
@@ -1212,29 +1261,43 @@ private struct TVDetailSnap: ScrollTargetBehavior {
 }
 
 /// 一集：剧照（左下角片长或剩多久，看了一半的压进度条，看完的标「已看」，接着看的那一集标「接着看」）+ 第几集、集名、
-/// 四行简介、首播日期。简介固定占四行高，一排卡的日期对齐在同一条线上（同系统 Apple TV App 的分集卡）
+/// 四行简介、首播日期。简介固定占四行高，一排卡的日期对齐在同一条线上（同系统 Apple TV App 的分集卡）。
+/// 还没播的（有播出日历时才分得清）剧照位换成播出日，不置灰
 private struct TVEpisodeCard: View, Equatable {
     let episode: API.EpisodeView
     let imageURL: URL?
     let runtimeMinutes: Int?
     /// 接着看的那一集（长剧集里没开始看的下一集也认得出来）
     var resumeTag = false
+    var schedule: API.SeasonAirScheduleView?
     let action: () -> Void
 
     /// 按值比较、不比按下的动作（它只在按下时读页面的状态，不会过时）：焦点在横排里挪动、横排重算时，没变的卡不重画
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.episode == rhs.episode && lhs.imageURL == rhs.imageURL && lhs.runtimeMinutes == rhs.runtimeMinutes
-            && lhs.resumeTag == rhs.resumeTag
+            && lhs.resumeTag == rhs.resumeTag && lhs.schedule == rhs.schedule
     }
 
     private let width = TVMetrics.landscapeWidth
 
+    private var unaired: Bool { AirSchedule.isUnaired(episode, schedule) }
+
+    @ViewBuilder
+    private var still: some View {
+        if let schedule, unaired {
+            UnairedStill(episode: episode, schedule: schedule, today: AirSchedule.airsToday(episode, schedule),
+                         corner: TVMetrics.cardCorner, titleFont: .system(size: 30), captionFont: .system(size: 24), lineScale: 2)
+        } else {
+            RemoteImage(url: imageURL, placeholderText: String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
+                .overlay(alignment: .bottomLeading) { stillBand }
+        }
+    }
+
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 18) {
-                RemoteImage(url: imageURL, placeholderText: String(localized: .mediaEpisodeNumber(episode.episodeNumber)))
+                still
                     .frame(width: width, height: width * 9 / 16)
-                    .overlay(alignment: .bottomLeading) { stillBand }
                     .overlay(alignment: .topLeading) {
                         if resumeTag {
                             Text(String(localized: .libraryItemContinue))
@@ -1268,7 +1331,7 @@ private struct TVEpisodeCard: View, Equatable {
                         .foregroundStyle(.white.opacity(0.78))
                         .lineLimit(4)
                         .frame(height: 116, alignment: .top)
-                    Text(episode.owned ? (episode.airDate.map { String($0.prefix(10)) } ?? "") : String(localized: .libraryItemMissingEpisode))
+                    Text(episode.owned || unaired ? (episode.airDate.map { String($0.prefix(10)) } ?? "") : String(localized: .libraryItemMissingEpisode))
                         .font(.system(size: 20))
                         .foregroundStyle(.white.opacity(0.55))
                 }
@@ -1276,7 +1339,7 @@ private struct TVEpisodeCard: View, Equatable {
             }
         }
         .buttonStyle(.borderless)
-        .opacity(episode.owned ? 1 : 0.45)
+        .opacity(episode.owned || unaired ? 1 : 0.45)
     }
 
     /// 剧照左下：▶ 片长（看了一半的写剩多久、压进度条）

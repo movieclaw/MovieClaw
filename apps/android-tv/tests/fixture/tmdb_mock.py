@@ -17,6 +17,7 @@ import colorsys
 import hashlib
 import io
 import json
+import os
 import re
 import sys
 from functools import lru_cache
@@ -26,8 +27,11 @@ from urllib.parse import urlsplit
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+#: MC_TMDB_CATALOG 可换一份目录（播出日历的夹具要按今天改写播出日期）
 CATALOG: dict[str, dict] = json.loads(
-    (Path(__file__).with_name("tmdb_catalog.json")).read_text(encoding="utf-8")
+    Path(
+        os.environ.get("MC_TMDB_CATALOG") or Path(__file__).with_name("tmdb_catalog.json")
+    ).read_text(encoding="utf-8")
 )
 FONT_PATHS = (
     "/System/Library/Fonts/Hiragino Sans GB.ttc",
