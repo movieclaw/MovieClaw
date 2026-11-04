@@ -181,7 +181,7 @@ P2 兜底兼容。**凡列出 legacy 别名的都必须与新路由一起实现*
 | `GET /Branding/Configuration`、`GET /QuickConnect/Enabled` | 匿名轻量 JSON（固定值） |
 | `GET /Branding/Css` + `/Branding/Css.css` | 匿名，**`text/css` 裸文本**（空串即可），非 JSON |
 | `GET /Sessions` → `[]`、`DELETE /Videos/ActiveEncodings` → 204、`GET /System/Endpoint` → `{"IsLocal":true,"IsInNetwork":true}` | 敷衍实现防客户端卡启动/退出（Fileball/VidHub 退出时会无条件发 ActiveEncodings 清理） |
-| `GET /Search/Hints` | 搜索建议（Jellyfin 官方 Web/Android 的搜索框走它；Infuse 不用）。输出是扁平的 `{SearchHints, TotalRecordCount}`，不是 QueryResult |
+| `GET /Search/Hints` | 搜索建议（Jellyfin 官方 Web/Android 的搜索框走它；Infuse 不用）。输出是扁平的 `{SearchHints, TotalRecordCount}`，不是 QueryResult；`Artists` 是非空列表，恒输出空数组（官方 SDK 里缺键即解码失败，#1185） |
 | `GET\|HEAD /Items/{itemId}/Download` 与 `/Items/{itemId}/File` | 整文件下载。Policy 宣告了 `EnableContentDownloading:true`，VidHub 等客户端的下载按钮打 Download，缺失则下载 404 无法开始。本地文件回 FileResponse（Download 带 attachment 文件名，File 不带，均支持 Range 断点续传）；strm 偏离真 Jellyfin（后者回 .strm 文本）：302 到云端直链 |
 
 **P2 兜底**：legacy `POST /PlayingItems/{itemId}`、`POST /PlayingItems/{itemId}/Progress`、
@@ -487,11 +487,15 @@ Movie/Episode=`"Video"`，Series/Season=`"Unknown"`）`IndexNumber`
 `OriginalTitle` `ChildCount` `RecursiveItemCount` `Chapters`（2026-09-06 起：
 Movie/Video/Episode 输出单元首文件的有效章节——内嵌章节按起点，无内嵌时按
 时长合成的章节按图上那一帧的真实时间；无标题补 `第 N 章`；有场景图才给
-`ImageTag`/`ImageDateModified`，`ImagePath` 省略（偏离⑫）；没有章节输出空列表。
+`ImageTag`；`ImageDateModified` 是非可空 DateTime、恒输出，无图时写
+`0001-01-01T00:00:00.0000000Z`（DateTime.MinValue，同真 Jellyfin）；
+`ImagePath` 省略（偏离⑫）；没有章节输出空列表。
 文件所在库没开「生成章节」（2026-09-29 起默认关）时只输出内嵌/原盘章节、不给
 `ImageTag`，合成章节不出——同真 Jellyfin 关着抽图且不开虚拟章节。
 数据源 `library_file.chapters` ⋈ `chapter_images`，见
 docs/design/video-chapters.md §4.5「库开关」与 §4.7）。
+
+`Studios[]` 是 `NameGuidPair`：`Id` 非可空，必须和 `Name` 一起给（名字派生，见 8.1）。
 
 **绝不输出清单**（协议合法且是"明确不做"的前提）：`PartCount`（否则客户端
 调 /AdditionalParts）、`Trickplay`（否则调 Trickplay 接口）。
@@ -657,7 +661,7 @@ Backdrop 数组下标即 index，本设计每条目至多 1 张背景，只需�
  "SupportsProbing": false, "VideoType": "VideoFile",
  "MediaStreams": [<见6.3>], "MediaAttachments": [], "Formats": [],
  "Bitrate": 25000000, "RequiredHttpHeaders": {},
- "TranscodingSubProtocol": "Http",
+ "TranscodingSubProtocol": "http",
  "DefaultAudioStreamIndex": 1, "DefaultSubtitleStreamIndex": null,
  "HasSegments": false}
 ```
@@ -667,7 +671,8 @@ Backdrop 数组下标即 index，本设计每条目至多 1 张背景，只需�
 见 jellyfin-transcode.md §3）：
 
 - `SupportsTranscoding: false` + **不输出** `TranscodingUrl`；
-  `TranscodingSubProtocol` 是非可空枚举、恒输出，给 `"Http"`；
+  `TranscodingSubProtocol` 是非可空枚举、恒输出，给 `"http"`（`MediaStreamProtocol`
+  的成员就是小写 `http`/`hls`，写成 `"Http"` 官方 Kotlin SDK 直接解码失败，#1185）；
 - `SupportsDirectPlay: true` 必须同时成立（客户端三选一：DirectPlay →
   DirectStream → Transcode，前两者可用就不会碰转码）；
 - `SupportsProbing: false`、`RequiresOpening: false`（否则客户端会调
@@ -696,6 +701,16 @@ SDR→`"SDR"/"SDR"`；HDR10→`"HDR"/"HDR10"`；HLG→`"HDR"/"HLG"`；
 
 音频流（`audio_streams` JSON 逐条映射）：`Type:"Audio"`、`Codec`、`Language`
 （ISO 639-2 三字母）、`Channels`、`ChannelLayout`、`SampleRate`、`IsDefault`。
+
+所有流恒输出五个非可空布尔（`media_streams_dto` 出口统一补，官方 Kotlin SDK 里缺一个
+整条响应都解码失败，#1185）：`IsInterlaced` `IsHearingImpaired` `IsOriginal` 探测层
+没有事实时给 false，外挂字幕的听障标记按台账；`IsTextSubtitleStream`
+`SupportsExternalStream` 对能抽成 srt/ass 的内封字幕和外挂字幕为 true，其余为 false。
+哪些字段算必填以 SDK 模型「有没有默认值」为准，`tests/jellyfin/test_sdk_contract.py`
+走真实 HTTP 守这张表；可空字段照旧省略，不要用 0、-1 这类假值填满。
+
+`MediaStream.BitRate` 与 `MediaSourceInfo.Bitrate` 是 32 位 int：超范围（ffprobe 对
+ISO 镜像报过 45 Gbps）按未知省略，否则一个文件就能让整页列表解码失败。
 
 `DisplayTitle` 需服务端拼好（客户端直接展示），照 Jellyfin 规则：
 音频 `"Chinese - AAC - 5.1 - Default"`（有 Profile 时 Profile 顶掉 Codec 名，
@@ -860,8 +875,13 @@ Jellyfin 的一切 ID 都是 32 位 hex GUID；movieclaw 是整型主键 + 数�
 类型 0x03 季          载荷 = media_item.id (8B) + season (2B)
 类型 0x04 集          载荷 = media_item.id (8B) + season (2B) + episode (2B)
 类型 0x05 媒体源      载荷 = library_file.id (8B)
+类型 0x0A 工作室      载荷 = 名字 md5 前 7 字节（不可逆）
 类型 0x00 用户/服务器  载荷 = 固定常量
 ```
+
+- 工作室没有实体行，GUID 由名字派生（大小写与首尾空白归一，同名恒同），只当标识用，
+  请求它一律 404。载荷不能取满 8 字节：路由解出载荷会当整数主键查库，高位为 1 时超出
+  SQLite 的有符号整数范围；
 
 - 集的 GUID 编码 `(item, season, episode)` 数字对而非 `media_episode.id`——
   集行随元数据刷新可能增删重建，行 id 不稳定，数字对才是 movieclaw 全局

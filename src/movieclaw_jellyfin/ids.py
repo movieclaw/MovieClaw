@@ -15,6 +15,7 @@ Jellyfin 协议里一切 ID 都是 32 位 hex GUID；movieclaw 是整型主键 +
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -45,6 +46,9 @@ class EntityKind(IntEnum):
     # 同一个 id 在合集视图下是 BoxSet、在根下是 CollectionFolder，各家客户端
     # 的表现不可预期。一行数据两种协议形态，就该有两个稳定 GUID。
     COLLECTION_VIEW = 0x09
+    # 工作室（BaseItemDto.Studios[].Id）：只是元数据里的一个名字、没有实体行，
+    # 载荷是名字摘要（见 studio_guid），只当标识用、不回解。
+    STUDIO = 0x0A
 
 
 # 固定实体的载荷常量（FIXED 类型下细分）
@@ -110,6 +114,19 @@ def collections_view_guid() -> str:
 
 def person_guid(person_id: int) -> str:
     return _pack(EntityKind.PERSON, person_id)
+
+
+def studio_guid(name: str) -> str:
+    """工作室名 → 稳定 GUID，同名恒同（大小写与首尾空白归一）。
+
+    官方 SDK 的 NameGuidPair.Id 是必填 UUID，只给 Name 整条响应都解码失败（#1185）。
+    真 Jellyfin 同样由名字派生（LibraryManager.GetStudioId）。
+
+    载荷只取摘要前 7 字节：客户端可能拿这个 GUID 回来请求，路由解出载荷后会当整数主键
+    查库，取满 8 字节时约一半的名字超出 SQLite 的有符号整数范围（OverflowError → 500）。
+    """
+    digest = hashlib.md5(name.strip().casefold().encode()).digest()
+    return _pack(EntityKind.STUDIO, int.from_bytes(digest[:7], "big"))
 
 
 def user_guid() -> str:

@@ -473,7 +473,7 @@ Agent 工具无需改动：`spec.json` 重导出后 `library.items.get` 自动�
   {"StartPositionTicks": start_ms * 10_000,
    "Name": title or f"第 {i+1} 章",
    "ImageTag": _asset_tag(rel, file.updated_at),   # 仅有图时
-   "ImageDateModified": ...}                        # 仅有图时
+   "ImageDateModified": ...}                        # 恒输出，无图写 DateTime.MinValue
   ```
 
   合成章节同样输出（等价于 Jellyfin 打开了 DummyChapterDuration），

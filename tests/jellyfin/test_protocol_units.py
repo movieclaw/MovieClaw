@@ -12,6 +12,7 @@ from movieclaw_jellyfin.ids import (
     media_source_guid,
     normalize_guid,
     season_guid,
+    studio_guid,
 )
 from movieclaw_playback.progress import resolve_progress
 
@@ -35,6 +36,16 @@ class TestGuidCodec:
                 season,
                 episode,
             )
+
+    def test_studio_guid_derives_from_name_and_fits_sqlite_integer(self) -> None:
+        assert studio_guid("Marvel Studios") == studio_guid("  marvel studios ")
+        assert studio_guid("NBC") != studio_guid("HBO")
+        # 这些名字的 md5 首字节高位为 1：载荷取满 8 字节会超出 SQLite 的有符号整数范围
+        for name in ("Legendary Pictures", "A24", "Universal Pictures"):
+            ref = decode_guid(studio_guid(name))
+            assert ref is not None
+            assert ref.kind is EntityKind.STUDIO
+            assert ref.entity_id < 2**63
 
     def test_accepts_dashed_and_uppercase(self) -> None:
         guid = episode_guid(5, 1, 2)
