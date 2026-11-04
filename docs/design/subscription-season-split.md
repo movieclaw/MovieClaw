@@ -129,9 +129,18 @@ TMDB S01
 
 「普通剧零影响」因此是**结构性保证**，不是靠调阈值调出来的。
 
+「TMDB 的季列表」指**条目完整的季表**（`media_season` 全部季号，含集表还空着、
+刚公布的季），不是订阅或缺口涉及的季——匹配侧的 `season_numbers` 只是后者：
+只订了第 1 季时它是 `(1,)`，拿它判就会把真实存在的 `S02E01` 改写成 `S01E13`。
+所以这道闸放在**落库**这一处：`derive_season_mapping(..., seasons=条目完整季表)`
+推导时，站点季号撞上 TMDB 真实存在的季的块一律不写进 `season_mapping`。季台账
+与映射由同一份档案在同一处写入，匹配、入库、扫描（含分集 NFO）、严格文件选择、
+下载核验读到的都是这份过滤过的表，不必各自再查季表，口径天然一致。
+
 自洽性：映射只会在「站点季号 TMDB 没有」时被查询，而这只可能发生在
 站点确实拆了季的条目上。普通剧即使在季内出现了 90 天以上的断档（比如中途停播），
-也不会被误伤——因为它的站点季号本来就在 TMDB 的季列表里。
+也不会被误伤——它若真有 S02，这一块根本不会落库；它若没有 S02，站点的 `S02`
+就只能是那段停播后的续播。
 
 ### 3. 归一化的落点只有一处
 
@@ -149,18 +158,26 @@ IdentityMatch(
     is_pack=True,
     pack_seasons=frozenset(),   # 置空
     declared_total=13,
+    normalized_pack=True,       # 这些集是整季包平移出来的
 )
 ```
-
-这样 `covered_units`（`matching.py:606`）**零改动**：显式集走它现成的
-`key in match.episodes` 分支，上下界天然正确——`_explicit_airable` 对未定档集返回
-True，所以 issue #640 的占位集行为原样保留。
 
 **不能保留 `pack_seasons={1}`。** 一旦保留，S02 包会把第 1–12 集也标成「已覆盖」，
 等于把已经下过的集再下一次。
 
-集号上界取 `max(block_end, 偏移 + declared_total)`，让「站点声明 20 集、
-TMDB 只录 13 集」这类 #640 证据链继续生效。
+集号区间：声明了「全 N 集」就截断到 `偏移 + N`——包里不可能有第 N+1 集，
+「全 5 集」只认 E13–E17；声明比块长时照样延伸，让「站点声明 20 集、TMDB 只录
+13 集」这类 #640 证据链继续生效。没声明就到块终点。
+
+覆盖语义保持**整季包**的：`covered_units` 对 `normalized_pack` 的集只认种子
+发布时已播出的，未定档的只在声明了总集数时才认，不享受显式集号的提前首发
+容错。不能直接走显式集号通道——那条路信标题写明的集号（未定档也认、晚两天
+播的也认），会让整季包认领它根本没有的集。
+
+单集同理平移（`S02E05` → `(1, 17)`），但 **E00 不平移**：站点 `S02E00` 是站点
+第 2 季的先导/特辑，TMDB 里多半在第 0 季，平移成 `(1, 12)` 就成了正片第 12 集。
+所有消费侧都经 `seasons.translate_unit` 这一处换算，E00 原样保留，下游按
+「集号为 0」的既有规则处理（入库看 `explicit_pilot`、严格文件选择不选）。
 
 ### 4. 两处不同步就会出真 bug
 
@@ -185,6 +202,14 @@ block 的边界就是从同一份 `media_episode` 台账推出来的，不存在
 
 归一必须同时进 `_observed_units`（`:1163`，核验用）和 `_unit_progress`
 （`:1198`，详情页的逐集进度条）。
+
+**在途任务用投递时的映射快照。** 投递时记下的是换算后的单元；下载期间元数据
+刷新改了映射的话，核验若重新读条目当前的映射，同一个 `S02E01.mkv` 就会被解释成
+另一集、误判缺失。所以投递时把当时用的映射原样冻结进任务
+（`subscription_download_attempt.submission["season_mapping"]`；智能投递在首次
+提交冻结 `select_units` 时一并冻结），核验、逐集进度、智能投递恢复、整包扩选都读
+这一份（`seasons.mapping_for_task`）。同一 hash 续用时保留首次冻结的那份；没有
+快照的旧任务才退回条目当前的映射。
 
 ### 5. 入库：保持 TMDB 编号
 
@@ -248,6 +273,9 @@ block 的边界就是从同一份 `media_episode` 台账推出来的，不存在
 为 `season_unmapped`。这就是「不再静默无资源」的落点。
 
 判定要保守：只有**候选的每个季号都不在台账里**才记，避免多季包覆盖到部分季时误报。
+这里的台账同样是条目完整的季表（匹配上下文另行加载的 `media_season`），不是本轮
+缺口涉及的季——否则只订第 5 季的五季剧，站点每发一个真实存在的 S01–S04 包都会被
+说成「读不懂季号」。
 
 ### 8. 可见性：只有两处
 
@@ -280,14 +308,19 @@ block 的边界就是从同一份 `media_episode` 台账推出来的，不存在
 停 3 个月以上）。可调，但调低会把「中途停播三周」误判成新季，调高会漏掉紧凑的
 split-cour。
 
-两道守卫：
+三道守卫：
 
 - **G1**：block 必须**已开播**（首集 `air_date <= 今天`）才参与，不对未来开口。
   已开播但**还没播完**的块照常保留完整集号区间——在播中的块若整块丢掉，站点
   S02 的已播单集在整季播完前一条都收不到（剧播到 E18 时订阅，S2 要等 E19 播出
   才生效）。未播集由 `covered_units` 的 `air_date` 上限自然剔除
   （`_airable` / `_explicit_airable`），不会误标；
-- **G2**：映射只作用于 TMDB 不存在的季号（第 2 条）。
+- **G2**：映射只作用于 TMDB 不存在的季号——按**条目完整季表**在落库时过滤（第 2 条）；
+- **G3**：断档边界上夹着无日期的集时（E11 三月播、E12 没有日期、E13 次年一月播），
+  E12 属于哪一段没有证据，后一块的起点跟着定不下来，换算出来可能整段错一位。
+  这一块**不落库**（`SeasonBlock.certain=False`），但仍占一个站点季号，后面边界
+  清楚的块编号不前移。站点 S02 因此回到「读不懂季号」并记 `season_unmapped`，
+  TMDB 补上日期后下一次刷新自愈。末尾还没定档的集不是边界问题，照常归最后一块。
 
 **残余风险**：TMDB 尚未登记 S02、站点已按 S02 发布时，会被映射到 S01E13+。
 TMDB 补登记后，`media_season` 出现第 2 季 → 映射重算 → 站点 S02 回到字面匹配，
@@ -361,6 +394,9 @@ TMDB 补登记后，`media_season` 出现第 2 季 → 映射重算 → 站点 S
 5. **季 0 特别篇**：不参与推导，行为不变。
 6. **一季内被平台切成多段播出**（如中间停播一季再续）：会被识别成站点新季，
    但换算后仍指向同一个 TMDB 季的正确集号，**行为正确**；只是活动流水会多一条说明。
+   该条目若同时真有下一季，站点的那个季号指的就是真实的那一季，不换算（G2）。
+7. **断档边界上的集没有日期**：那一段不生成映射（G3），站点 S02 回到读不懂、记
+   `season_unmapped`；TMDB 补上日期后下一次刷新自愈。
 
 ## 验收标准
 
@@ -389,6 +425,8 @@ TMDB 补登记后，`media_season` 出现第 2 季 → 映射重算 → 站点 S
 | 新活动类型 | `movieclaw_db/models/subscription_activity.py:60` 附近 |
 | 下载核验归一 | `movieclaw_api/services/download_progress.py:1163` / `:1198` / `:1216` |
 | 入库季号翻译 | `movieclaw_api/services/library/units.py:148` `resolve_units` |
+| 唯一换算口（E00 不平移） | `movieclaw_matcher/seasons.py` `translate_unit` |
+| 在途任务映射快照 | `seasons.mapping_for_task`；`dispatch.py` / `replacement.py` 写入，`download_progress.py` / `smart_submission.py` / `pack_extension.py` 读取 |
 | 分集区字段 | `movieclaw_api/services/library/items.py:2720` + `schemas/library.py:1303` |
 | i18n | `src/movieclaw_api/locales/{zh-Hans,en}/activity.json` + `_meta` 哈希，跑 `scripts/i18n/check.py` |
 
@@ -401,12 +439,24 @@ TMDB 补登记后，`media_season` 出现第 2 季 → 映射重算 → 站点 S
   - 断档 89 天 → 不切；91 天 → 切
   - 未开播的块（G1 守卫）不参与；**已开播但未播完的块保留完整区间**
   - 季 0 被排除
+  - 第 1 季中途停播 + 真有第 2 季 → 不落映射（G2）；刚公布、集表为空的第 2 季同样算数
+  - 边界缺日期 → 那一块不落库，后面的块编号不前移（G3）；末尾未定档不受影响
+  - `translate_unit` 不动 E00；在途任务快照优先于条目当前映射
+- `tests/matcher/test_season_identity.py`
+  - 「全 5 集」只认 E13–E17；显式集号 `S02E01-E03` 不打整季包标记；`S02E00` 原样保留
 - `tests/api/test_library_units.py`
   - 显式 `S02E01` + 台账只有季 1 + 有映射 → 翻译成 `(1, 13)`
   - 显式 `S03E01` + 无映射 → 保持原行为（`test_ledger_never_overrides_explicit_declaration` 不回归）
+  - 真有第 2 季时入库不改写（映射走真实推导与落库往返）；`S02E00` 仍是 `explicit_pilot`
+- `tests/api/test_smart_file_selection.py` / `test_download_rescue.py`：`S02E00` 不被选中、不被认成 E12
 - `tests/api/test_subscription_season_split.py`（新增，端到端）
   - 用 #1155 的真实日期建条目（S01 25 集，E13 起断档 280 天）
   - 喂三类种子：`S01 Complete(12)` / `S02 Complete(13)` / `S01E13-25`，断言全部覆盖正确集、无重复
   - 普通两季剧（S01 10 集 + S02 10 集）回归：行为零变化、`season_mapping == []`
   - `list_item_episodes` 返回分集区标注字段
   - 同时存在两套编号时去重只入库一份
+  - 评审反例：真有第 2 季只订第 1 季（S02 不被改写、不记 `season_unmapped`）；只订第 2 季
+    的普通剧不为 S01 包记 `season_unmapped`；边界缺日期；`S02E00`；「全 5 集」；整季包
+    不认未定档集、不享受提前首发容错
+  - 在途快照：真实投递（替身下载器）→ 下载期间映射改变 → 下载完成核验不判缺失；
+    智能投递中断 → 映射改变 → 恢复时按冻结的映射选文件
