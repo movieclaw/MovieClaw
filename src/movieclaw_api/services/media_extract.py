@@ -27,7 +27,8 @@ pysubs2 从 ASS 里取（``plaintext``），不需要为它再抽一份 SRT。
 4. **失败要记住**：超时或 ffmpeg 报错的轨记下当时视频的 mtime，视频没换就
    不再重抽——否则每次打开播放器都把同一个读不出来的文件再通读一遍。
 5. **可取消**：子进程可取消，取消时连同整个进程组一起回收；只有最后一个
-   等待者离开才真的取消，避免播放器与预检互相误杀。
+   等待者离开才真的取消，避免播放器与预检互相误杀，而且留一段宽限：大文件读得比
+   一个请求活得久，播放器断了会回来接着等（``_ABANDON_GRACE_SECONDS``）。
 6. **不留残片**：先写临时文件再原子替换，失败/超时/取消都不会把半成品留成
    下一次的「缓存命中」。
 7. **看得见进度**：ffmpeg 用 ``-progress`` 把已处理到的时间点写进一个小文件，
@@ -37,6 +38,10 @@ pysubs2 从 ASS 里取（``plaintext``），不需要为它再抽一份 SRT。
    抽样 98%），先按索引只读字幕块（``playback.subtitle_cues``），拼成只含字幕轨的
    小 MKV 再交 ffmpeg——不过闸门、不排队，几秒出结果；网盘（strm）条目从此不用为
    字幕把整片拉下来。索引不全才退回上面的整片通读（docs/design/subtitle-cues.md）。
+9. **光盘按主播放列表读**：原盘的台账路径是目录，镜像里装着整张盘，ffmpeg 读的是
+   与播放会话同一份 concat 清单（``DiscSource.concat_list``）。字幕因此落在播放列表
+   时间上、与视频同一条时间轴，IN/OUT 之外的字幕也不会混进来；``0:s:<k>`` 仍是
+   主片的第 k 条字幕流。光盘没有索引可走，一律整片通读（disc-playback.md §8）。
 """
 
 from __future__ import annotations
@@ -50,14 +55,18 @@ import signal
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.i18n.stored import reference
 from movieclaw_db.models import LibraryFile
 from movieclaw_playback.streaming import file_stamp, is_remote, media_input, open_strm_range
 from movieclaw_playback.subtitle_cues import SubtitleTracks, build_subtitle_mkv
+
+if TYPE_CHECKING:
+    from movieclaw_api.services.playback.disc_source import DiscSource
 
 logger = logging.getLogger("movieclaw_api.media_extract")
 
@@ -68,6 +77,10 @@ EXTRACT_TIMEOUT = 120.0
 _ASSUMED_READ_BYTES_PER_SEC = 20 * 1024 * 1024
 #: 体积估算的封顶：再大的文件也不该让一个卡死的 ffmpeg 挂上几个小时。
 _MAX_EXTRACT_TIMEOUT = 3600.0
+#: 最后一个等待者离开后，还给这趟通读留多久才取消。原盘要读几分钟，一个请求常常等不到读完：
+#: Safari 约 60 秒就放弃，外层反代（群晖默认 60 秒、Cloudflare 100 秒）会先掐断，换音轨、换清晰度
+#: 要重开会话。这些都是播放器马上还要回来接着等，当场取消的话进度全丢，永远读不完。
+_ABANDON_GRACE_SECONDS = 60.0
 #: 按字幕索引取块的并发：本地是 pread（NFS 上也只是小读），网盘是 Range 请求（复用连接；
 #: 仿网盘服务每请求 80 毫秒延迟时，一集 600 来个请求 8 路 17 秒、16 路 8.5 秒）
 _LOCAL_WORKERS = 16
@@ -105,6 +118,8 @@ class _ExtractionSpec:
     fmt: str
     video: Path
     out_path: Path
+    #: 光盘的主片：ffmpeg 读它的 concat 清单，不读 ``video``。真要抽取时才解析（见 ``_file_specs``）
+    disc: DiscSource | None = None
 
 
 @dataclass
@@ -113,6 +128,8 @@ class _ExtractionJob:
 
     task: asyncio.Task[None]
     waiters: int = 0
+    #: 没人等之后的取消定时（``_ABANDON_GRACE_SECONDS``）；有人回来就撤掉
+    abandon_timer: asyncio.TimerHandle | None = None
 
 
 #: 单条轨的身份：同一个视频的同一条轨、同一个产物路径即同一件活。
@@ -207,12 +224,24 @@ def _extraction_spec(file: LibraryFile, index: int) -> _ExtractionSpec | None:
 
 
 def _file_specs(file: LibraryFile) -> list[tuple[int, _ExtractionSpec]]:
-    """这个文件所有能抽的内封轨——一趟通读顺手全抽，下次换轨直接命中缓存。"""
+    """这个文件所有能抽的内封轨——一趟通读顺手全抽，下次换轨直接命中缓存。
+
+    光盘要在这里解析主片（列一次 STREAM 目录，镜像还要读盘内结构）：只查缓存、查失败的路径
+    不该为此碰盘。读不出主片的光盘没有能抽的轨——ffmpeg 读不了目录，读整个镜像也认不出流。
+    """
+    disc = None
+    if file.is_disc():
+        # 延迟导入：播放源模块依赖面大，且它的上游（bluray → media_probe）不该依赖抽取
+        from movieclaw_api.services.playback.iso_source import transcode_disc_source
+
+        disc = transcode_disc_source(file)
+        if disc is None:
+            return []
     specs = []
     for index in range(len(file.subtitle_streams or [])):
         spec = _extraction_spec(file, index)
         if spec is not None:
-            specs.append((index, spec))
+            specs.append((index, replace(spec, disc=disc)))
     return specs
 
 
@@ -230,6 +259,21 @@ def _ffmpeg_input(video: Path) -> list[str]:
     return [*options, "-i", url]
 
 
+def _concat_input(listing: Path) -> list[str]:
+    """光盘主片的 ``-i``：-safe 0 放行绝对路径，镜像里的段是 subfile 区间（iso_source.py）。
+
+    不加 -copyts：ffmpeg 默认减去输入的起始时间，正好与视频会话的时间轴同一个零点
+    （VOD 是 -copyts -start_at_zero，会话相对制是 -ss，减的都是它）。"""
+    return [
+        "-f", "concat", "-safe", "0", "-protocol_whitelist", "file,subfile,concat",
+        "-i", str(listing),
+    ]  # fmt: skip
+
+
+def _timeout_for_size(size: int) -> float:
+    return min(_MAX_EXTRACT_TIMEOUT, max(EXTRACT_TIMEOUT, size / _ASSUMED_READ_BYTES_PER_SEC))
+
+
 def _extract_timeout(video: Path) -> float:
     """按体积估算通读上限：下限 EXTRACT_TIMEOUT，封顶 _MAX_EXTRACT_TIMEOUT。
 
@@ -240,7 +284,14 @@ def _extract_timeout(video: Path) -> float:
         size = video.stat().st_size
     except OSError:
         return EXTRACT_TIMEOUT
-    return min(_MAX_EXTRACT_TIMEOUT, max(EXTRACT_TIMEOUT, size / _ASSUMED_READ_BYTES_PER_SEC))
+    return _timeout_for_size(size)
+
+
+def _spec_timeout(spec: _ExtractionSpec) -> float:
+    """这次通读的上限。光盘按主片各段的总字节算：目录自己的体积说明不了什么。"""
+    if spec.disc is None:
+        return _extract_timeout(spec.video)
+    return _timeout_for_size(sum(clip.size_bytes for clip in spec.disc.clips))
 
 
 def _read_gate() -> asyncio.Semaphore:
@@ -349,6 +400,8 @@ def _can_extract(spec: _ExtractionSpec) -> bool:
             "或为该影片放置外挂字幕文件（官方 Docker 镜像已内置 ffmpeg）"
         )
         return False
+    if spec.disc is not None:
+        return all(clip.path.is_file() for clip in spec.disc.clips)
     return spec.video.is_file() or is_remote(str(spec.video))
 
 
@@ -375,7 +428,7 @@ def _extract_command(spec: _ExtractionSpec, index: int, tmp_path: Path) -> list[
 
 
 def _batch_command(
-    video: Path, outputs: list[tuple[int, _ExtractionSpec, Path]], progress_path: Path
+    input_args: list[str], outputs: list[tuple[int, _ExtractionSpec, Path]], progress_path: Path
 ) -> list[str]:
     """一次读入、多路输出：每条轨一组 ``-map … 输出文件``，ffmpeg 只通读一遍。
 
@@ -385,7 +438,7 @@ def _batch_command(
     argv = [
         "ffmpeg", "-nostdin", "-v", "error", "-y",
         "-progress", str(progress_path), "-nostats",
-        *_ffmpeg_input(video),
+        *input_args,
     ]
     for index, spec, tmp_path in outputs:
         argv += ["-map", f"0:s:{index}", *_codec_args(spec), str(tmp_path)]
@@ -481,7 +534,11 @@ async def extract_track_async(file: LibraryFile, index: int) -> ExtractedTrack |
         return cached
     if extraction_failed(file, index):
         return None
-    return await _shared_extract(_file_specs(file), spec, index)
+    # 光盘解析主片要碰盘（存量行要读全部 MPLS，诱饵盘走 NFS 一到三秒），不占事件循环
+    batch = await asyncio.to_thread(_file_specs, file) if file.is_disc() else _file_specs(file)
+    if not batch:
+        return None
+    return await _shared_extract(batch, spec, index)
 
 
 async def extract_audio_async(
@@ -599,6 +656,9 @@ async def _shared_extract(
         _EXTRACTION_JOBS[key] = job
         task.add_done_callback(lambda done: _forget_extraction_job(key, done))
     job.waiters += 1
+    if job.abandon_timer is not None:
+        job.abandon_timer.cancel()
+        job.abandon_timer = None
     try:
         # 请求取消不能直接取消共享任务；finally 会在最后一个等待者离开时
         # 负责取消它，并由子进程协程完成 SIGTERM/SIGKILL 清理。
@@ -607,7 +667,10 @@ async def _shared_extract(
     finally:
         job.waiters -= 1
         if job.waiters == 0 and not job.task.done():
-            job.task.cancel()
+            # 宽限期满还没有人回来接着等，才真的取消
+            job.abandon_timer = asyncio.get_running_loop().call_later(
+                _ABANDON_GRACE_SECONDS, job.task.cancel
+            )
 
 
 def _video_stamp(spec: _ExtractionSpec) -> int | None:
@@ -666,6 +729,8 @@ def schedule_extraction(file: LibraryFile, index: int) -> bool:
     except RuntimeError:  # 没有事件循环（同步上下文）时不调度
         return False
     batch = _file_specs(file)
+    if not batch:
+        return False
 
     async def _run() -> None:
         # spec/batch 在调度时已算好：后台任务不再触碰 ORM 对象，避免请求的
@@ -739,7 +804,8 @@ async def _extract_batch(batch: list[tuple[int, _ExtractionSpec]]) -> None:
         for index, spec in batch
         if _cached_track(spec) is None and not _known_failed(spec, index)
     ]
-    if pending and _can_extract(pending[0][1]):
+    # 光盘不是 MKV，没有字幕索引可走
+    if pending and pending[0][1].disc is None and _can_extract(pending[0][1]):
         # 按索引读不随请求取消：它很轻，网盘上却是几百个请求，播放器换轨、关页面就作废的话
         # 下次还得重来一遍。在独立任务里跑完、落进缓存，等待者走了也照样
         sparse = asyncio.create_task(_run_sparse_extraction(pending))
@@ -779,17 +845,25 @@ async def _run_extraction(pending: list[tuple[int, _ExtractionSpec]]) -> bool:
     返回 False 仅表示多轨一趟时 ffmpeg 报错退出（产物已清掉、未记失败，交给
     调用方逐轨重试）；其余结局（成功、超时、单轨失败）都已就地记账。
     """
-    video = pending[0][1].video
-    state = _READ_STATES.get(str(video))
+    spec = pending[0][1]
+    state = _READ_STATES.get(str(spec.video))
     progress_path = _new_progress_path()
     if state is not None:
         state.progress_path = progress_path
+    # 光盘的 concat 清单只活这一趟，跟进度文件一起收拾
+    listing = progress_path.with_suffix(".ffconcat")
     try:
-        return await _run_ffmpeg(pending, progress_path)
+        if spec.disc is None:
+            input_args = _ffmpeg_input(spec.video)
+        else:
+            listing.write_text(spec.disc.concat_list(), encoding="utf-8")
+            input_args = _concat_input(listing)
+        return await _run_ffmpeg(pending, progress_path, input_args)
     finally:
         if state is not None:
             state.progress_path = None
         _cleanup(progress_path)
+        _cleanup(listing)
 
 
 def _new_progress_path() -> Path:
@@ -808,10 +882,12 @@ def _ffmpeg_failure(returncode: int | None, stderr: bytes) -> dict:
     return reference("library.subtitleSource.noContent")
 
 
-async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path: Path) -> bool:
+async def _run_ffmpeg(
+    pending: list[tuple[int, _ExtractionSpec]], progress_path: Path, input_args: list[str]
+) -> bool:
     video = pending[0][1].video
     outputs = [(index, spec, _new_tmp_path(spec.out_path)) for index, spec in pending]
-    timeout = _extract_timeout(video)
+    timeout = _spec_timeout(pending[0][1])
 
     def _discard(reason: dict | None) -> None:
         # reason 为空 = 不记失败（取消、多轨整趟失败待逐轨重试）
@@ -823,7 +899,7 @@ async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path:
     started_at = time.monotonic()
     try:
         proc = await asyncio.create_subprocess_exec(
-            *_batch_command(video, outputs, progress_path),
+            *_batch_command(input_args, outputs, progress_path),
             stdin=subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

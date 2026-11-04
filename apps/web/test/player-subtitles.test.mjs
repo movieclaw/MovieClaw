@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   clampSubtitleOffset,
+  fetchSupBytes,
   pickInitialSubtitle,
   plainCueText,
   planSubtitleTracks,
@@ -212,4 +213,46 @@ test("大量同名字幕和中间缺地址仍按引用选轨，不串位", () =>
   assert.equal(options.find((option) => option.ref === "embedded:18").url, "/sub?track=18&format=vtt");
   assert.equal(options.at(-1).detail, "中文 · WebVTT · 内封轨 200");
   assert.equal(pickInitialSubtitle(options, "embedded:199"), "embedded:199");
+});
+
+
+function stubFetch(t, answers) {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, signal: init.signal });
+    init.signal.throwIfAborted();
+    const answer = answers.shift();
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
+  t.after(() => { globalThis.fetch = original; });
+  return calls;
+}
+
+test("PGS 字节：浏览器或反代等不及断开时接着等，直到拿到", async (t) => {
+  const bytes = new Uint8Array([0x50, 0x47]);
+  const calls = stubFetch(t, [
+    new TypeError("Load failed"), // Safari 等了 60 秒放弃
+    new Response("", { status: 504 }), // 外层反代掐断
+    new Response(bytes),
+  ]);
+  const data = await fetchSupBytes("/sub?track=0", new AbortController().signal, 1);
+  assert.deepEqual(new Uint8Array(data), bytes);
+  assert.equal(calls.length, 3);
+});
+
+test("PGS 字节：4xx 是真的拿不到，不再反复问", async (t) => {
+  const calls = stubFetch(t, [new Response("", { status: 404 })]);
+  await assert.rejects(fetchSupBytes("/sub", new AbortController().signal, 1), /404/);
+  assert.equal(calls.length, 1);
+});
+
+test("PGS 字节：换轨、关字幕就中止，请求和重试都停", async (t) => {
+  const calls = stubFetch(t, [new TypeError("Load failed"), new Response("never")]);
+  const abort = new AbortController();
+  const pending = fetchSupBytes("/sub", abort.signal, 1);
+  abort.abort();
+  await assert.rejects(pending);
+  assert.equal(calls.length, 1, "中止之后不该再发请求");
 });
