@@ -199,7 +199,8 @@ private fun DetailContent(
     val series = state.series
     // 分段的长季（> 50 集）：选季下面一排集段页签，横排仍是整季
     val ranges = remember(state.browseEpisodes) { EpisodeRanges.ranges(state.browseEpisodes) }
-    val screenTop = DetailLogic.lowerScreenTop(state.hasSeasonTabs, ranges.isNotEmpty())
+    val airSchedule = state.browseSchedule
+    val screenTop = DetailLogic.lowerScreenTop(state.hasSeasonTabs, ranges.isNotEmpty(), airSchedule != null)
     val gap = DetailLogic.lowerGap(isMovie)
     val lowerPx by rememberUpdatedState((918 + gap - screenTop) * ptPx)
     SideEffect { stageFadePx.floatValue = lowerPx }
@@ -240,6 +241,7 @@ private fun DetailContent(
     val rowState = rememberLazyListState()
     // 在哪个段页签上按确认打开了「全部分集」面板；null 是没开
     var panelFrom by remember { mutableStateOf<Int?>(null) }
+    var airOpen by remember { mutableStateOf(false) }
     // 横排直接定位到某一集（换段、从面板选集、锚点变了）：不播一长段滚动动画；[focus] 时焦点跟过去
     fun jumpRow(number: Long, focus: Boolean) {
         state.rowEpisode = number
@@ -321,10 +323,14 @@ private fun DetailContent(
                                 segmented = ranges.isNotEmpty(),
                                 fromStage = { zone.zone == DetailZone.Stage },
                                 jumpRow = ::jumpRow,
-                                // 页签还没随下半截滑出来（不接焦点）时按几何就近，照旧回首屏
+                                // 页签、日历还没随下半截滑出来（不接焦点）时按几何就近，照旧回首屏
                                 above = {
-                                    if (!lowerShown()) FocusRequester.Default
-                                    else req("range:${max(0, EpisodeRanges.position(state.rowEpisode ?: state.entryEpisode, ranges))}")
+                                    when {
+                                        !lowerShown() -> FocusRequester.Default
+                                        ranges.isNotEmpty() -> req("range:${max(0, EpisodeRanges.position(state.rowEpisode ?: state.entryEpisode, ranges))}")
+                                        airSchedule != null -> req("air")
+                                        else -> FocusRequester.Default
+                                    }
                                 },
                                 track = { k -> Modifier.track(k, zoneOf("episodes")) },
                                 req = { req(it) },
@@ -395,11 +401,46 @@ private fun DetailContent(
                         ranges = ranges,
                         onRangeFocus = { jumpRow(EpisodeRanges.entry(ranges[it], state.browseAnchor), focus = false) },
                         onRangeOpen = { panelFrom = it },
+                        onAirOpen = { airOpen = true },
+                        stage = { req(stageKey) },
                     )
                 }
                 Spacer(Modifier.height(80.pt))
             }
         }
+    }
+    // 播出日历：盖满整屏，焦点关在里面；返回键回到入口条。开着的时候这一季的日历没了（过了零点播完了）就收起来
+    LaunchedEffect(airSchedule == null) {
+        if (airSchedule == null && airOpen) {
+            airOpen = false
+            backToStage()
+        }
+    }
+    if (airOpen && airSchedule != null) {
+        val account = LocalSession.current
+        val session = account.session
+        val admin = session.role == "admin"
+        val season = state.browseSeason
+        AirSchedulePanel(
+            title = detail.title,
+            seasonLabel = season?.let(DetailLogic::seasonLabel).orEmpty(),
+            episodes = state.browseEpisodes,
+            schedule = airSchedule,
+            actions = remember { AirScheduleActions(account.api) },
+            canSubscribe = admin || session.capabilities.allowSubscribe,
+            tmdbId = detail.tmdbId,
+            libraryId = state.libraryId.takeIf { admin },
+            changed = { state.refreshBrowse() },
+            onClose = {
+                airOpen = false
+                scope.launch {
+                    repeat(5) {
+                        delay(16)
+                        if (req("air").tryFocus()) return@launch
+                    }
+                }
+            },
+        )
     }
     // 全部分集：盖满整屏，焦点关在里面；返回键回到打开它的段页签，选一集回到横排的那一集
     val from = panelFrom
@@ -510,7 +551,14 @@ private fun LowerHeader(
     ranges: List<EpisodeRange>,
     onRangeFocus: (Int) -> Unit,
     onRangeOpen: (Int) -> Unit,
+    onAirOpen: () -> Unit,
+    /** 首屏的主按钮：头部最上面一排往上回它。有日历时下半截的顶压得更低，滑走的首屏按钮在几何上跑到了选季下面，就近找不到 */
+    stage: () -> FocusRequester,
 ) {
+    val airSchedule = state.browseSchedule
+    // 当前段页签：从选季、日历往下直接到它（理由同集段页签往上）
+    fun currentRange() = req("range:${max(0, EpisodeRanges.position(state.rowEpisode ?: state.entryEpisode, ranges))}")
+    fun seasonAbove() = state.browseSeason?.takeIf { state.hasSeasonTabs }?.let { req("season:$it") }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(36.pt)) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
             TitleArt(detail.title, detail.logoUrl, maxWidthPt = 620, maxHeightPt = 110, textSizePt = 52, alignment = Alignment.BottomCenter)
@@ -544,9 +592,12 @@ private fun LowerHeader(
                                 .testTag("season-tab:$number")
                                 .focusProperties {
                                     this.canFocus = canFocus()
-                                    // 有集段页签时往下直接到当前段（理由同集段页签往上）
-                                    if (ranges.isNotEmpty()) {
-                                        down = req("range:${max(0, EpisodeRanges.position(state.rowEpisode ?: state.entryEpisode, ranges))}")
+                                    up = stage()
+                                    // 有日历、集段页签时往下直接到它们（理由同集段页签往上）
+                                    if (airSchedule != null) {
+                                        down = req("air")
+                                    } else if (ranges.isNotEmpty()) {
+                                        down = currentRange()
                                     }
                                 }
                                 .onFocusChanged {
@@ -556,9 +607,25 @@ private fun LowerHeader(
                     }
                 }
             }
+            if (airSchedule != null) {
+                AirScheduleStrip(
+                    episodes = state.browseEpisodes,
+                    schedule = airSchedule,
+                    onClick = onAirOpen,
+                    modifier = Modifier
+                        .padding(horizontal = McMetrics.Edge, vertical = AirStripMargin.pt)
+                        .then(track("air"))
+                        .testTag("air-schedule-summary")
+                        .focusProperties {
+                            this.canFocus = canFocus()
+                            up = seasonAbove() ?: stage()
+                            if (ranges.isNotEmpty()) down = currentRange()
+                        },
+                )
+            }
             if (ranges.isNotEmpty()) {
                 RangeTabs(state, ranges, canFocus, track, req, onRangeFocus, onRangeOpen) {
-                    state.browseSeason?.takeIf { state.hasSeasonTabs }?.let { req("season:$it") }
+                    if (airSchedule != null) req("air") else seasonAbove()
                 }
             }
         }
@@ -704,10 +771,11 @@ private fun EpisodeRow(
                 },
                 modifier = track("ep:${episode.episodeNumber}")
                     .testTag("ep:${episode.episodeNumber}")
-                    // 长季往上直接到当前段页签：首屏按钮滑走后在几何上和页签叠着，就近会越过页签回首屏
-                    .then(if (segmented) Modifier.focusProperties { up = above() } else Modifier),
+                    // 长季往上直接到当前段页签、有日历到日历条：首屏按钮滑走后在几何上和它们叠着，就近会越过去回首屏
+                    .then(if (segmented || state.browseSchedule != null) Modifier.focusProperties { up = above() } else Modifier),
                 onFocus = { if (it) state.rowEpisode = episode.episodeNumber },
                 resume = episode.episodeNumber == tagged,
+                schedule = state.browseSchedule,
             )
         }
     }

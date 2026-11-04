@@ -12,6 +12,7 @@ import io.movieclaw.core.model.generated.LibraryItemDetailView
 import io.movieclaw.core.model.generated.LibraryItemView
 import io.movieclaw.core.model.generated.PlaybackMarksRequest
 import io.movieclaw.core.model.generated.PlaybackStateView
+import io.movieclaw.core.model.generated.SeasonAirScheduleView
 import io.movieclaw.core.network.generated.McApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -76,6 +77,9 @@ internal class DetailState(
     /** 下半截那一季服务端给的锚点（resume_episode）；没播放过或旧服务端为 null */
     var browseResume by mutableStateOf<Long?>(null)
         private set
+    /** 下半截那一季的播出日历；服务端只在这一季还有今天或以后的播出日期时给 */
+    var browseSchedule by mutableStateOf<SeasonAirScheduleView?>(null)
+        private set
     /** 刷新后锚点变了 +1：分集横排跳到 [browseJumpTarget]，焦点在横排里就跟过去 */
     var browseJumpRequest by mutableIntStateOf(0)
         private set
@@ -85,6 +89,8 @@ internal class DetailState(
     var rowEpisode by mutableStateOf<Long?>(null)
     /** 首屏那一季上次读到的锚点：刷新后变了就改讲新锚点 */
     private var stageResume: Long? = null
+    /** 首屏那一季的播出日历：一进页面下半截也是这一季 */
+    private var stageSchedule: SeasonAirScheduleView? = null
     var watched by mutableStateOf<PlaybackStateView?>(null)
         private set
     /** 电影所属的作品系列；没有、只有一部或拉不到上游档案时为 null */
@@ -145,6 +151,7 @@ internal class DetailState(
                     browseSeason = start
                     browseEpisodes = episodes
                     browseResume = stageResume
+                    browseSchedule = stageSchedule
                     browseScrollRequest++
                 }
             }
@@ -187,6 +194,7 @@ internal class DetailState(
         season = number
         episodes = result.episodes
         stageResume = result.resumeEpisode
+        stageSchedule = result.airSchedule
         val current = selectedEpisode
         if (keepSelection && current != null && !anchorMoved) {
             result.episodes.firstOrNull { it.episodeNumber == current.episodeNumber }?.let {
@@ -206,6 +214,7 @@ internal class DetailState(
         browseSeason = number
         browseEpisodes = result.episodes
         browseResume = result.resumeEpisode
+        browseSchedule = result.airSchedule
         browseScrollRequest++
     }
 
@@ -216,6 +225,7 @@ internal class DetailState(
         val moved = anchorMoved(browseResume, result.resumeEpisode)
         browseEpisodes = result.episodes
         browseResume = result.resumeEpisode
+        browseSchedule = result.airSchedule
         if (moved) {
             browseJumpTarget = result.resumeEpisode
             browseJumpRequest++
