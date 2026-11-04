@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 
 import pytest
@@ -64,6 +65,9 @@ def test_bluray_iso_main_clips_become_byte_ranges_of_the_image(tmp_path, metadat
         assert image[start:end] == payload  # 区间里正好是这段剪辑的字节
     assert source.duration_s == pytest.approx(900)
     assert source.uses_subfile
+    # 码率只算正片的字节，诱饵列表的剪辑和镜像其余部分不算
+    assert source.bit_rate == round((len(first) + len(second)) * 8 / 900)
+    assert source.bit_rate < len(image) * 8 / 900
 
     listing = source.concat_list()
     ((start, end),) = source.clips[0].byte_ranges
@@ -120,6 +124,7 @@ def test_bluray_clip_split_across_the_image_is_read_piece_by_piece(tmp_path):
     (clip,) = source.clips
     assert len(clip.byte_ranges) == 2
     assert b"".join(image[a:b] for a, b in clip.byte_ranges) == first
+    assert source.bit_rate == round(len(first) * 8 / 600)  # 夹在中间的别的数据不算
     # ffmpeg 用 concat 协议把各截按字节拼起来读
     parts = [f"subfile,,start,{a},end,{b},,:{path}" for a, b in clip.byte_ranges]
     assert clip.read_url == "concat:" + "|".join(parts)
@@ -206,6 +211,7 @@ def test_dvd_iso_range_is_the_main_program_chain_not_the_whole_title_set(tmp_pat
     ((start, end),) = clip.byte_ranges  # 两个 VOB 首尾相接：合成一截
     assert image[start:end] == (vob1 + vob2)[: 5 * S]
     assert source.duration_s == pytest.approx(5400)
+    assert source.bit_rate == round(5 * S * 8 / 5400)  # 花絮单元那个扇区不算
     # DVD 段没有播放列表时间：清单只写时长，不写 IN/OUT
     listing = source.concat_list()
     assert "inpoint" not in listing and "duration 5400.000000" in listing
@@ -239,6 +245,7 @@ def test_dvd_iso_program_chain_is_split_where_the_vob_changes(tmp_path):
     listing = source.concat_list()
     assert "duration 2670.000000" in listing and "duration 2640.000000" in listing
     assert source.duration_s == pytest.approx(5310)
+    assert source.bit_rate == round(6 * S * 8 / 5310)
 
 
 def test_dvd_iso_with_scattered_title_vobs_is_read_piece_by_piece(tmp_path):
@@ -319,6 +326,141 @@ def test_probe_takes_the_disc_image_duration_from_the_main_title(tmp_path, monke
     plain = tmp_path / "plain.iso"
     plain.write_bytes(b"\0" * (300 * S))
     assert media_probe.probe_media(plain).duration_seconds == 4
+
+
+@pytest.mark.parametrize("clip_recognized", [True, False])
+def test_probe_takes_the_bluray_image_bit_rate_from_the_main_title(
+    tmp_path, monkeypatch, clip_recognized
+):
+    """ffprobe 报的码率不可信（NAS 实测《阿甘正传》报 45.75 Gbps，实际 91 Mbps；《萤火之森》报
+    2 Mbps，实际 42 Mbps）：探到正片剪辑、还是退回探整个镜像，台账都记正片的平均码率。"""
+    image, first, second = _bluray_image(metadata=False)
+    path = tmp_path / "movie.iso"
+    path.write_bytes(image)
+    video = [{"codec_type": "video", "codec_name": "h264"}]
+    payload = {
+        "format": {"duration": "4.0", "bit_rate": "45750061748"},
+        "streams": video if clip_recognized else [],
+    }
+
+    def fake_ffprobe(args, **_kwargs):
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload).encode(), b"")
+
+    monkeypatch.setattr(media_probe.subprocess, "run", fake_ffprobe)
+    spec = media_probe.probe_media(path)
+    assert spec.bit_rate == round((len(first) + len(second)) * 8 / 900)
+    assert spec.duration_seconds == 900
+
+
+def test_probe_takes_the_dvd_image_bit_rate_from_the_main_title(tmp_path, monkeypatch):
+    """DVD 镜像整个交给 ffprobe，时间戳一重来片长就估成几秒，码率跟着高出上千倍（NAS 实测《公司的
+    力量》报 6.5 Gbps，实际 5.7 Mbps）。"""
+    image = _UdfBuilder(metadata=False).build(
+        {
+            "VIDEO_TS": {
+                "VIDEO_TS.IFO": _vmg_ifo([1]),
+                "VTS_01_0.IFO": _vts_ifo_with_cells(600, [(0, 1, 1, 600)], []),
+                "VTS_01_1.VOB": bytes([1]) * (2 * S),
+            },
+        }
+    )
+    path = tmp_path / "dvd.iso"
+    path.write_bytes(image)
+    payload = {
+        "format": {"duration": "4.0", "bit_rate": "6480594006"},
+        "streams": [{"codec_type": "video", "codec_name": "mpeg2video"}],
+    }
+
+    def fake_ffprobe(args, **_kwargs):
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload).encode(), b"")
+
+    monkeypatch.setattr(media_probe.subprocess, "run", fake_ffprobe)
+    assert media_probe.probe_media(path).bit_rate == round(2 * S * 8 / 600)
+
+
+def test_probe_leaves_the_bit_rate_unknown_when_the_image_is_unreadable(tmp_path, monkeypatch):
+    """读不出盘内结构就无从核实：ffprobe 的码率宁可不记（未知按允许直连），别的规格照旧。"""
+    plain = tmp_path / "plain.iso"
+    plain.write_bytes(b"\0" * (300 * S))
+    payload = {
+        "format": {"duration": "4.0", "bit_rate": "6480594006"},
+        "streams": [{"codec_type": "video", "codec_name": "mpeg2video"}],
+    }
+
+    def fake_ffprobe(args, **_kwargs):
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload).encode(), b"")
+
+    monkeypatch.setattr(media_probe.subprocess, "run", fake_ffprobe)
+    spec = media_probe.probe_media(plain)
+    assert spec.bit_rate is None
+    assert spec.video_codec == "mpeg2video" and spec.duration_seconds == 4
+
+
+def test_probe_keeps_the_bit_rate_ffprobe_reports_for_ordinary_files(tmp_path, monkeypatch):
+    """只有光盘镜像改口径：普通文件 ffprobe 算的码率是对的（NAS 上 14320 条没有一条高出 3 倍）。"""
+    path = tmp_path / "movie.mkv"
+    path.write_bytes(b"\0" * S)
+    payload = {
+        "format": {"duration": "600.0", "bit_rate": "8000000"},
+        "streams": [{"codec_type": "video", "codec_name": "h264"}],
+    }
+
+    def fake_ffprobe(args, **_kwargs):
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload).encode(), b"")
+
+    monkeypatch.setattr(media_probe.subprocess, "run", fake_ffprobe)
+    assert media_probe.probe_media(path).bit_rate == 8_000_000
+
+
+def real_bluray_image(tmp_path) -> tuple[bytes, int]:
+    """真 ffmpeg 编的蓝光镜像，返回（镜像字节, 正片字节数）；正片 6 秒，共两段。
+
+    第一段是码率很低的片头，后面才是正片（NAS 实测《喜马拉雅》片头一小段把 ffprobe 的码率拉成
+    4 Mbps，实际 42 Mbps）；花絮比正片大得多，按整个镜像的大小算会高出好几倍。
+    """
+
+    def encode(name: str, seconds: int, quality: str) -> bytes:
+        clip = tmp_path / name
+        subprocess.run(
+            [
+                "ffmpeg", "-v", "error", "-f", "lavfi",
+                "-i", f"testsrc=duration={seconds}:size=320x240:rate=25",
+                "-c:v", "mpeg2video", "-q:v", quality, "-f", "mpegts", str(clip),
+            ],
+            check=True,
+        )  # fmt: skip
+        return clip.read_bytes()
+
+    logo, feature = encode("logo.m2ts", 2, "31"), encode("feature.m2ts", 4, "1")
+    assert len(feature) / 4 > 2 * len(logo) / 2  # 两段码率确实悬殊
+    image = _UdfBuilder(metadata=False).build(
+        {
+            "BDMV": {
+                "PLAYLIST": {"00001.mpls": _mpls(("00001", 0, CLOCK * 2), ("00002", 0, CLOCK * 4))},
+                "CLIPINF": {},
+                "STREAM": {
+                    "00001.m2ts": logo,
+                    "00002.m2ts": feature,
+                    "00099.m2ts": b"\0" * (len(feature) * 5),
+                },
+            },
+        }
+    )
+    return image, len(logo) + len(feature)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="需要系统 ffmpeg / ffprobe")
+def test_real_ffprobe_on_a_bluray_image_records_the_main_title_bit_rate(tmp_path):
+    """真 ffprobe 经 subfile 读第一段：编码等规格来自它，码率不能也只看它。"""
+    image, title_bytes = real_bluray_image(tmp_path)
+    path = tmp_path / "movie.iso"
+    path.write_bytes(image)
+
+    spec = media_probe.probe_media(path)
+    assert spec is not None and spec.video_codec == "mpeg2video"
+    assert spec.duration_seconds == 6
+    assert spec.bit_rate == round(title_bytes * 8 / 6)
+    assert spec.bit_rate < len(image) * 8 / 6
 
 
 def test_probe_reads_the_main_clip_inside_a_bluray_image(tmp_path, monkeypatch):

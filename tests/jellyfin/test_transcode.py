@@ -282,6 +282,51 @@ def test_playback_info_stays_direct_when_bitrate_fits(
     assert fits["SupportsDirectPlay"] is True and "TranscodingUrl" not in fits
 
 
+def test_disc_image_is_never_transcoded_for_its_ledger_bit_rate(
+    client: TestClient, seeded: dict, media_root: Path, transcode_env: list
+) -> None:
+    """光盘镜像只按原字节直连（disc-direct-play.md §2.2）：台账码率再离谱、播放器的上限再低，
+    协商都不会把它转成 HLS——码率条款只对普通文件起作用。"""
+    _enable_software_transcode(client)
+    path = media_root / "Forrest Gump (1994)" / "Forrest.Gump.1994.iso"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"I" * 4096)
+
+    async def _insert() -> int:
+        async with get_database().session() as session:
+            item = MediaItem(
+                kind="movie", tmdb_id=13, title="阿甘正传", original_title="Forrest Gump", year=1994
+            )
+            session.add(item)
+            await session.flush()
+            session.add(
+                LibraryFile(
+                    library_id=seeded["movie_lib"],
+                    media_item_id=item.id,
+                    file_path=str(path),
+                    size_bytes=4096,
+                    container="iso",
+                    resolution="2160p",
+                    video_codec="hevc",
+                    duration_seconds=8528,
+                    bit_rate=1_500_000_000,
+                    audio_streams=[{"codec": "truehd", "channels": 8, "default": True}],
+                    source=FileSource.SCANNED,
+                )
+            )
+            await session.commit()
+            return item.id
+
+    guid = item_guid(client.portal.call(_insert))  # type: ignore[attr-defined]
+    ms = client.post(
+        f"/Items/{guid}/PlaybackInfo",
+        params=_auth(client),
+        json={"DeviceProfile": {"MaxStreamingBitrate": 3_000_000}},
+    ).json()["MediaSources"][0]
+    assert ms["SupportsDirectPlay"] is True and ms["SupportsDirectStream"] is True
+    assert "TranscodingUrl" not in ms
+
+
 def test_bitrate_limit_negotiates_transcode_and_starts_session(
     client: TestClient, seeded: dict, media_root: Path, transcode_env: list
 ) -> None:

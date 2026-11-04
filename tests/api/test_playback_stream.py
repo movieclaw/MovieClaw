@@ -149,6 +149,7 @@ async def _seed(
     strm_url: str = "https://pan.example.com/a.mkv",
     dv_profile: int | None = None,
     dv_bl_compatible: bool | None = None,
+    bit_rate: int | None = None,
 ) -> int:
     """建库 + 建条目 + 落一个真实存在的文件，返回 library_file.id。
 
@@ -184,6 +185,7 @@ async def _seed(
             dv_profile=dv_profile,
             dv_bl_compatible=dv_bl_compatible,
             duration_seconds=duration_seconds,
+            bit_rate=bit_rate,
             audio_streams=[{"codec": "aac", "channels": 2, "default": True}],
         )
         session.add(row)
@@ -1288,6 +1290,79 @@ def test_stored_disc_image_durations_are_healed_from_the_main_title(client, tmp_
             return [row.duration_seconds for row in rows]
 
     assert client.portal.call(durations) == [900, 4]
+
+
+def test_stored_disc_image_bit_rates_are_healed_without_reprobing(client, tmp_path, monkeypatch):
+    """存量 ISO 的台账码率（ffprobe 算的，NAS 实测高出上千倍、也有低到二十分之一的）随片长自愈一起
+    换成盘内正片的平均码率，不跑 ffprobe。读不出盘内结构的记未知；片库没挂上、还没探测过的不动。
+    起播接口回给客户端的片源码率跟着变对。"""
+    from tests.api.test_iso_source import _bluray_image
+
+    from movieclaw_api.services import media_probe
+    from movieclaw_api.services.library.disc_image_durations import heal_disc_image_durations
+    from movieclaw_api.services.playback import iso_source
+
+    def no_subprocess(args, **_kwargs):
+        raise AssertionError(f"自愈不该跑子进程：{args}")
+
+    iso_source.clear_cache()
+    image, first, second = _bluray_image(metadata=False)
+    title_rate = round((len(first) + len(second)) * 8 / 900)
+    too_high = seed(
+        client, tmp_path, container="iso", data=image, duration_seconds=900,
+        bit_rate=45_750_061_748,
+    )  # fmt: skip
+    too_low = seed(
+        client, tmp_path, container="iso", data=image, duration_seconds=4, bit_rate=2_000_000
+    )
+    missing = seed(client, tmp_path, container="iso", data=image, duration_seconds=900)
+    correct = seed(
+        client, tmp_path, container="iso", data=image, duration_seconds=900, bit_rate=title_rate
+    )
+    unreadable = seed(client, tmp_path, container="iso", bit_rate=5_746_829, duration_seconds=4)
+    never_probed = seed(client, tmp_path, container="iso", data=image, duration_seconds=900)
+    offline = seed(
+        client, tmp_path, container="iso", data=image, duration_seconds=900, bit_rate=6_480_594_006
+    )
+
+    async def prepare():
+        async with get_database().session() as session:
+            (await session.get(LibraryFile, never_probed)).audio_streams = None
+            Path((await session.get(LibraryFile, offline)).file_path).unlink()
+            await session.commit()
+
+    client.portal.call(prepare)
+    with monkeypatch.context() as patch:
+        patch.setattr(media_probe.subprocess, "run", no_subprocess)
+        # too_high、too_low、missing、unreadable 四行要改；correct 本来就对
+        assert client.portal.call(heal_disc_image_durations) == 4
+        assert client.portal.call(heal_disc_image_durations) == 0  # 幂等：校准过的不再改
+
+    async def rates():
+        async with get_database().session() as session:
+            ids = (too_high, too_low, missing, correct, unreadable, never_probed, offline)
+            return [(await session.get(LibraryFile, i)).bit_rate for i in ids]
+
+    assert client.portal.call(rates) == [
+        title_rate,  # 高得离谱的
+        title_rate,  # 低得离谱的（片长也一起校准）
+        title_rate,  # ffprobe 没给码率的
+        title_rate,
+        None,  # 读不出盘内结构
+        None,  # 还没探测过：留给探测（码率有值即算「实测过」，自愈不能抢先）
+        6_480_594_006,  # 片库没挂上：下次启动再说
+    ]
+
+    def fake_build(plan, *, source_path, session_dir, **kw):
+        playlist = Path(session_dir) / "index.m3u8"
+        return TranscodeCommand(
+            argv=["python3", "-c", FAKE_FFMPEG, str(playlist)],
+            playlist_path=playlist,
+            init_path=Path(session_dir) / "init.mp4",
+        )
+
+    monkeypatch.setattr(session_mod, "build_hls_command", fake_build)
+    assert start_session(client, too_high)["source"]["bit_rate"] == title_rate
 
 
 def test_stored_dolby_vision_files_get_their_profile_backfilled(client, tmp_path, monkeypatch):

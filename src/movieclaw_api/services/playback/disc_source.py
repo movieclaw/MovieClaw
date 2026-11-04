@@ -94,6 +94,17 @@ class DiscSource:
         return sum(clip.duration_s for clip in self.clips)
 
     @property
+    def bit_rate(self) -> int | None:
+        """光盘镜像正片的平均码率（bps）：正片在镜像上的字节 ÷ 正片时长。
+
+        只算正片：镜像里还有花絮、菜单、别的版本，按整个镜像的大小算，NAS 实测 1080p 蓝光算出
+        121 Mbps（格式上限 48 Mbps，正片实际 38 Mbps）。原盘目录的段没有字节区间，返回 None。
+        """
+        seconds = self.duration_s
+        size = sum(end - start for clip in self.clips for start, end in clip.byte_ranges or ())
+        return round(size * 8 / seconds) if size and seconds > 0 else None
+
+    @property
     def single_clip(self) -> DiscClip | None:
         """主片只有一个 m2ts 时返回它（可直接按文件供流）；多剪辑返回 None。"""
         return self.clips[0] if len(self.clips) == 1 else None
