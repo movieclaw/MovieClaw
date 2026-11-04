@@ -755,6 +755,12 @@
   "form.makePrimary": {
     "sourceHash": "c669996c4c78b8f84969e74c588ac3bb6c4ad31f2194a6a9a1a963058c6b7b93"
   },
+  "form.cloudReadOnly": {
+    "sourceHash": "3b5ec3533b0e44856a0266eff1dcdc2886fa48be4a8c34aaf43c4bec211383e3"
+  },
+  "form.cloudReadOnlyHint": {
+    "sourceHash": "964e780bddb30ab3c5b737ca26e50afa092d8a6bd2eb11c9d5b6d8f48e5da560"
+  },
   "form.needStaging": {
     "sourceHash": "2627b56b346c3d192545896918d51f8bb9f564aa4e8132a6d85836cbd58484f4"
   },
@@ -2794,6 +2800,9 @@
   },
   "deletion.cloudWarning": {
     "sourceHash": "7b4a8601e1e38ef91b369804182ec51d200c5d557e15eebec999ba8a81577569"
+  },
+  "deletion.cloudReadOnly": {
+    "sourceHash": "24c446f661fc87d522c86bacdd6ea29244b089c259d9d6a5b548ce99b11d70d6"
   },
   "deletion.hardlinks": {
     "sourceHash": "9b4acaed069ca6a8821f55c3badacd10d3fc7c6b06c3f7c10e738bf3b586d433"

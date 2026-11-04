@@ -195,6 +195,7 @@ function kindExcludedFromHome(kind: LibraryKind): boolean {
 /** 表单里的一个网盘根目录（已挂上的带着服务端给的文件数） */
 interface CloudRootDraft extends CloudFolderPayload {
   account_name: string;
+  backend: string;
   backend_title: string;
   file_count?: number;
 }
@@ -206,6 +207,7 @@ function cloudDraftsOf(folders: LibraryCloudFolder[] | null | undefined): CloudR
     display_path: f.display_path,
     is_primary: f.is_primary,
     account_name: f.account_name,
+    backend: f.backend,
     backend_title: f.backend_title,
     file_count: f.file_count,
   }));
@@ -227,16 +229,25 @@ function draftOf(picked: PickedDriveFolder): CloudRootDraft {
     display_path: picked.path,
     is_primary: false,
     account_name: picked.account.name,
+    backend: picked.account.backend,
     backend_title: picked.account.backend_title,
   };
 }
 
+interface DriveRootOptions {
+  accounts: DriveAccount[];
+  hasBackends: boolean;
+  /** 只读的网盘类型（媒体服务器）：不能当主根 */
+  readOnlyBackends: ReadonlySet<string>;
+}
+
 /** 网盘账号与可用的网盘（决定「＋ 网盘目录」出不出现）；查不到按没有处理。
  *  网盘功能休眠（没装网盘插件）时只问一次状态就停（cloud-storage.md §11.8）。 */
-function useDriveRootOptions(enabled: boolean): { accounts: DriveAccount[]; hasBackends: boolean } {
-  const [state, setState] = useState<{ accounts: DriveAccount[]; hasBackends: boolean }>({
+function useDriveRootOptions(enabled: boolean): DriveRootOptions {
+  const [state, setState] = useState<DriveRootOptions>({
     accounts: [],
     hasBackends: false,
+    readOnlyBackends: new Set(),
   });
   useEffect(() => {
     if (!enabled) return;
@@ -245,7 +256,13 @@ function useDriveRootOptions(enabled: boolean): { accounts: DriveAccount[]; hasB
       .then(async (status) => {
         if (!status.active) return;
         const [accounts, backends] = await Promise.all([listDriveAccounts(), listDriveBackends()]);
-        if (!cancelled) setState({ accounts, hasBackends: backends.length > 0 });
+        if (!cancelled) {
+          setState({
+            accounts,
+            hasBackends: backends.length > 0,
+            readOnlyBackends: new Set(backends.filter((b) => !b.capabilities.writable).map((b) => b.type)),
+          });
+        }
       })
       .catch(() => {});
     return () => {
@@ -266,7 +283,7 @@ function CloudRootRows({
   drafts: CloudRootDraft[];
   onChange: (next: CloudRootDraft[]) => void;
   onAdd: () => void;
-  options: { accounts: DriveAccount[]; hasBackends: boolean };
+  options: DriveRootOptions;
   /** 还没有服务器目录：主根得是一个服务器目录 */
   needsLocal: boolean;
 }) {
@@ -311,6 +328,12 @@ function CloudRootRows({
             >
               <span className="shrink-0 cursor-default rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-micro font-semibold text-[var(--accent)]">
                 {t("library.form.primaryRoot")}
+              </span>
+            </Tooltip>
+          ) : options.readOnlyBackends.has(d.backend) ? (
+            <Tooltip content={t("library.form.cloudReadOnlyHint")}>
+              <span className="shrink-0 cursor-default rounded-full bg-white/[0.08] px-2 py-0.5 text-micro font-medium text-[var(--text-muted)]">
+                {t("library.form.cloudReadOnly")}
               </span>
             </Tooltip>
           ) : (
