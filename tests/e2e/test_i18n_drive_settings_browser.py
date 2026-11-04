@@ -8,7 +8,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -122,21 +122,17 @@ def drive_http():
         server.server_close()
 
 
-@pytest.fixture(scope="module")
-def stack(tmp_path_factory, search_provider, drive_http):
+@contextmanager
+def running_stack(root, *, plugin_id, plugin_source, search_upstream):
+    """起一套 Next + API，装上这个进程外的网盘插件。"""
     from movieclaw_api.core.config import Settings
 
-    root = tmp_path_factory.mktemp("drive-settings-browser")
     data = root / "data"
     data.mkdir()
     (data / "plugins").mkdir()
-    (data / "plugins" / "fixture_drive.py").write_text(
-        (REPO / "tests/e2e/_drive_settings_fixture.py")
-        .read_text()
-        .replace('os.environ["E2E_DRIVE_UPSTREAM"]', repr(drive_http[0]))
-    )
+    (data / "plugins" / "fixture_drive.py").write_text(plugin_source)
     (data / "plugins.yaml").write_text(
-        "- id: drive-settings-fixture\n  local: true\n  module: fixture_drive\n  runtime: process\n"
+        f"- id: {plugin_id}\n  local: true\n  module: fixture_drive\n  runtime: process\n"
     )
     paths = {
         "data_dir": ".",
@@ -167,7 +163,7 @@ def stack(tmp_path_factory, search_provider, drive_http):
         **{Settings.model_fields[key].alias: str(data / value) for key, value in paths.items()},
         "DATABASE_URL": f"sqlite+aiosqlite:///{data / 'movieclaw.db'}",
         "SCHEDULER_ENABLED": "false",
-        "E2E_SEARCH_UPSTREAM": search_provider[0],
+        "E2E_SEARCH_UPSTREAM": search_upstream,
         "PYTHONPATH": f"{REPO / 'src'}:{REPO}",
     }
     api_port, web_port = _free_port(), _free_port()
@@ -224,6 +220,22 @@ def stack(tmp_path_factory, search_provider, drive_http):
                 process.wait(timeout=10)
         for log in logs:
             log.close()
+
+
+@pytest.fixture(scope="module")
+def stack(tmp_path_factory, search_provider, drive_http):
+    source = (
+        (REPO / "tests/e2e/_drive_settings_fixture.py")
+        .read_text()
+        .replace('os.environ["E2E_DRIVE_UPSTREAM"]', repr(drive_http[0]))
+    )
+    with running_stack(
+        tmp_path_factory.mktemp("drive-settings-browser"),
+        plugin_id="drive-settings-fixture",
+        plugin_source=source,
+        search_upstream=search_provider[0],
+    ) as running:
+        yield running
 
 
 @pytest.mark.parametrize(

@@ -1838,6 +1838,8 @@ export interface DeleteCloud {
   bytes: number;
   /** 网盘有回收站：删的是进网盘回收站，还能在网盘里还原 */
   recycle_bin: boolean;
+  /** 文件在只读的后端上：删不了，要到对方那里删（老服务器没有这个字段） */
+  read_only?: boolean | null;
 }
 
 export function getDeletePreview(

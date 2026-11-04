@@ -3235,6 +3235,12 @@ function DeleteDialog({
               </button>
             </div>
           </>
+        ) : deletePreview.preview?.cloud?.read_only ? (
+          <ReadOnlyDeleteNotice
+            heading={t("library.item.deleteHeading", { title: detail.title })}
+            backend={deletePreview.preview.cloud.backend_title}
+            onClose={onClose}
+          />
         ) : (
           <>
             <h3 className="flex items-center gap-2 text-title-sm font-semibold text-[var(--text)]">
@@ -3399,6 +3405,12 @@ function DeleteFileDialog({
               </button>
             </div>
           </>
+        ) : deletePreview.preview?.cloud?.read_only ? (
+          <ReadOnlyDeleteNotice
+            heading={t("library.item.deleteFile")}
+            backend={deletePreview.preview.cloud.backend_title}
+            onClose={onClose}
+          />
         ) : (
           <>
             <h3 className="flex items-center gap-2 text-title-sm font-semibold text-[var(--text)]">
@@ -3484,6 +3496,39 @@ function DeleteFileDialog({
         )}
       </div>
     </Modal>
+  );
+}
+
+/** 文件在只读的后端上（媒体服务器）：没有可确认的删除，只说清楚原因（media-server-plugins.md §4）。 */
+function ReadOnlyDeleteNotice({
+  heading,
+  backend,
+  onClose,
+}: {
+  heading: string;
+  backend: string;
+  onClose: () => void;
+}) {
+  const t = useTranslations();
+  return (
+    <>
+      <h3 className="flex items-center gap-2 text-title-sm font-semibold text-[var(--text)]">
+        <TrashIcon className="size-4.5 text-[#ff9f9f]" />
+        {heading}
+      </h3>
+      <p className="mt-3 text-ui leading-6 text-white/80">
+        {t("library.deletion.cloudReadOnly", { backend })}
+      </p>
+      <div className="mt-5 flex justify-end">
+        <button
+          type="button"
+          onClick={onClose}
+          className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
+        >
+          {t("common.close")}
+        </button>
+      </div>
+    </>
   );
 }
 
