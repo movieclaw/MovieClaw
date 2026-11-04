@@ -326,6 +326,56 @@ async def test_reread_local_nfo_applies_edits_a_rescan_skips(db, tmp_path) -> No
         assert meta.overview == "新简介"  # NFO 没写的字段不清空
 
 
+async def test_local_nfo_actor_thumb_survives_scan_and_reread(db, tmp_path) -> None:
+    """NFO ``<actor><thumb>`` 是 http(s) 绝对地址：扫描入库、「重新读取 NFO」后详情都要带上头像。
+
+    扫描与重读走同一个 ``build_local_identity``，演员表要和吸收路径
+    （``nfo_absorb._merge_cast``）存成同一个键 ``nfo_thumb``，详情页只认这个键。
+    """
+    root = tmp_path / "media" / "home"
+    root.mkdir(parents=True)
+    video = root / "ABC-123.mp4"
+    video.write_bytes(b"v")
+    nfo = video.with_suffix(".nfo")
+
+    def write_nfo(thumb: str) -> None:
+        nfo.write_text(
+            "<movie><title>ABC-123</title>"
+            "<actor><name>演员甲</name><role>主演</role>"
+            f"<thumb>{thumb}</thumb></actor>"
+            "<actor><name>演员乙</name></actor></movie>",
+            encoding="utf-8",
+        )
+
+    async def detail_thumbs() -> dict[str, str | None]:
+        async with db.session() as session:
+            item = (await session.execute(select(MediaItem))).scalar_one()
+            meta = await items_mod._db_meta(session, item)
+            return {a.name: a.thumb for a in meta.actors}
+
+    write_nfo("https://img.example.com/a.jpg")
+    library = await _make_video_library(db, root)
+    await scan_library(library.id)
+    assert await detail_thumbs() == {"演员甲": "https://img.example.com/a.jpg", "演员乙": None}
+
+    # 事后换了头像地址：重读后详情跟着变，而不是丢掉
+    write_nfo("https://img.example.com/b.jpg")
+    async with db.session() as session:
+        item = (await session.execute(select(MediaItem))).scalar_one()
+    assert await scrape_mod.reread_local_nfo(item.id)
+    assert await detail_thumbs() == {"演员甲": "https://img.example.com/b.jpg", "演员乙": None}
+
+    # 修复前扫描写下的老档案（头像在 ``thumb`` 键下）不用重读也能显示
+    async with db.session() as session:
+        meta = (await session.execute(select(MediaMetadata))).scalar_one()
+        legacy = [dict(a) for a in meta.cast]
+        legacy[0]["thumb"] = legacy[0].pop("nfo_thumb")
+        meta.cast = legacy
+        session.add(meta)
+        await session.commit()
+    assert await detail_thumbs() == {"演员甲": "https://img.example.com/b.jpg", "演员乙": None}
+
+
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="需要系统 ffmpeg")
 async def test_ensure_local_assets_absorbs_poster_and_fanart(db, tmp_path) -> None:
     """sidecar 海报 + fanart 一起入账：主图按真实尺寸记比例，背景图给播放器的 Backdrop。"""

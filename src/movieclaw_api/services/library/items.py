@@ -2999,7 +2999,8 @@ async def _db_meta(session: AsyncSession, item: MediaItem) -> EntryMetadata | No
     def _thumb(actor: dict) -> str | None:
         # NFO 自带的非 TMDB 头像地址原样给（吸收时存下，见 nfo_absorb._merge_cast）；
         # TMDB 头像（含 NFO 里的 TMDB 地址）本地有就给本地，断网可用，否则图床兜底
-        nfo = actor.get("nfo_thumb")
+        # 旧版本地库扫描把 NFO 头像存在 ``thumb`` 键下，没重读过的老档案照样认
+        nfo = actor.get("nfo_thumb") or actor.get("thumb")
         if nfo and profile_path_of(nfo) is None:
             return str(nfo)
         return avatar_url(profile_path_of(nfo) or actor.get("profile_path"))
