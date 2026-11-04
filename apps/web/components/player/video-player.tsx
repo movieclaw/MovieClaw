@@ -9,7 +9,7 @@ import { MediaController } from "media-chrome/react";
 
 import { ChevronLeftIcon, LockIcon, PlayIcon, XIcon } from "@/components/icons";
 
-import { ConsentDialog } from "@/components/player/consent-dialog";
+import { BurnPromptDialog, ConsentDialog } from "@/components/player/consent-dialog";
 import { DiagnosticsPanel } from "@/components/player/diagnostics-panel";
 import { PlayerCenterControls, PlayerControls } from "@/components/player/player-controls";
 import { SubtitleLayer, useVideoContentBox } from "@/components/player/subtitle-layer";
@@ -28,6 +28,7 @@ import {
   reportPlaybackProgressOnUnload,
   resolveStreamUrl,
   setAutoSkipIntro,
+  decidePlayback,
   startPlaybackSession,
   fetchTrickplay,
   reportPlaybackRecord,
@@ -132,6 +133,7 @@ import {
 import type { SubtitleStyle } from "@/lib/player/subtitles";
 import {
   loadSubtitleStyle,
+  burnStepFor,
   pickInitialSubtitle,
   planSubtitleTracks,
   saveSubtitleStyle,
@@ -455,10 +457,24 @@ export function VideoPlayer(props: VideoPlayerProps) {
   const [requestedAudio, setRequestedAudio] = useState<string | null>(null);
   /**
    * 用户点选的字幕轨请求值。null = 让服务端用观看记忆；"off"/轨引用 = 显式。
-   * 只有涉及**烧录**（选中/撤下 PGS）才会随会话请求上送并触发重开——
-   * 文本轨切换纯前端完成，不惊动服务端。
+   * 只有涉及**烧录**（压制 / 取消压制）才会随会话请求上送并触发重开——
+   * 文本轨和 PGS 的切换纯前端完成，不惊动服务端。
    */
   const [requestedSubtitle, setRequestedSubtitle] = useState<string | null>(null);
+  /**
+   * 用户要求压制进画面；null = 没要求。`file` 是当时正在放的文件，压制针对的是它的这条轨：多版本
+   * 的片子不锁定的话，服务端择优可能挑走另一个版本（同样的轨引用在那边未必是 PGS），于是没压制。
+   * 不进观看记忆，换一集或下次打开都回到播放器自己画。
+   */
+  const [burn, setBurn] = useState<{ file: number | null } | null>(null);
+  /** 压制前要用户确认这一次的代价（只能软件转码时）。null = 没在问 */
+  const [burnPrompt, setBurnPrompt] = useState<{
+    ref: string;
+    softwareEnabled: boolean;
+    canSelfEnable: boolean;
+  } | null>(null);
+  /** 压制试算的序号：换集、再点一次之后，上一次的结果作废 */
+  const burnCheckRef = useRef(0);
   /**
    * 本单元内用户是否亲手选过字幕（选轨或关闭都算）。表过态之后，「初始
    * 字幕选择」不再插手——换会话（换音轨/画质/撤烧/seek 重开）会带来新的
@@ -1291,6 +1307,9 @@ export function VideoPlayer(props: VideoPlayerProps) {
     setSelectedSubtitle(null);
     setRequestedAudio(null);
     setRequestedSubtitle(null);
+    setBurn(null);
+    setBurnPrompt(null);
+    burnCheckRef.current += 1;
     subtitleTouchedRef.current = false;
     setTrickplay(null); // 换片必须清掉：旧片的缩略图配新片的进度条是错的
     // 新的一集重新获得自动播放的资格：上一集用户按过暂停不代表下一集也不想看
@@ -1324,7 +1343,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     // 指纹必须覆盖**全部**会影响请求参数的依赖（quality 也在内）：漏一项的
     // 后果是该项单独变化时 effect 重跑却撞上相同指纹被去重跳过，而上一次
     // 在途请求已被 cancelled——响应回来没人认领，起播就永远停在转圈里。
-    const key = `${unitKey}|${phase}|${state.startMs}|${failedKey}|${state.failureCount}|${state.hevcRefused}|${state.attempt}|${requestedAudio ?? ""}|${requestedSubtitle ?? ""}|${quality ?? ""}|${lockFile ?? ""}`;
+    const key = `${unitKey}|${phase}|${state.startMs}|${failedKey}|${state.failureCount}|${state.hevcRefused}|${state.attempt}|${requestedAudio ?? ""}|${requestedSubtitle ?? ""}|${burn ? `burn:${burn.file}` : ""}|${quality ?? ""}|${lockFile ?? ""}`;
     if (startedKeyRef.current === key) return;
     startedKeyRef.current = key;
 
@@ -1342,15 +1361,20 @@ export function VideoPlayer(props: VideoPlayerProps) {
             ...unit,
             // 详情页版本选择器带来的 `?file=`：锁定这个文件起播，服务端跳过
             // 多版本自动择优（undefined = 没锁 / 已切到别的集，照旧择优）
-            file_id: lockFile,
+            file_id: burn?.file ?? lockFile,
             // HEVC 输出（#1008）按本轮状态现填：HEVC 放不了过就不再要
-            capability: { ...capabilityRef.current, hevc_transcode: !state.hevcRefused },
+            capability: {
+              ...capabilityRef.current,
+              hevc_transcode: !state.hevcRefused,
+              pgs_overlay: true,
+            },
             failed_tiers: state.failedTiers,
             // null = 服务端接续播点；显式值（seek 重开 / 换轨 / ?t=）原样发
             start_ms: state.startMs ?? undefined,
             max_height: quality ?? undefined,
             audio_track: requestedAudio ?? undefined,
             subtitle_track: requestedSubtitle ?? undefined,
+            burn_requested: burn ? true : undefined,
             // 上一路引擎量到的线路速度：服务端据此压转码码率（§C）。首次
             // 起播还没有读数，服务端按阶梯值；重开（seek 换会话 / 缺粮重开
             // / 换轨）时才带得上——正是外网用户最需要它的时刻
@@ -1443,6 +1467,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     unitKey,
     requestedAudio,
     requestedSubtitle,
+    burn,
     quality,
   ]);
 
@@ -2791,49 +2816,122 @@ export function VideoPlayer(props: VideoPlayerProps) {
     [state.session, video, freezeFrame],
   );
 
-  /**
-   * 换字幕。
-   *
-   * 文本轨（VTT/ASS）纯前端换：旁挂渲染层立即切，零停顿。涉及**烧录**的
-   * 两种情况要走「换音轨」同一条重开会话的路（约一秒停顿，菜单里写明）：
-   * - 选中 PGS 轨 → 服务端转码并把字幕压制进画面（Emby 语义）；
-   * - 当前正在烧录、换成文本轨/关闭 → 撤下烧录回到直通策略。
-   */
-  const selectSubtitle = useCallback(
-    (ref: string | null) => {
-      subtitleTouchedRef.current = true;
-      const record = recordRef.current;
-      record?.noteSubtitleChange(selectedSubtitle, ref);
-      record?.beginSwitch("subtitle", selectedSubtitle, ref ?? "off");
-      setSelectedSubtitle(ref);
-      const target = ref ? subtitles.options.find((o) => o.ref === ref) : null;
-      const wantBurn = target?.kind === "pgs";
-      if (!wantBurn && burnedSubtitle === null) {
-        record?.closeSwitch(true); // 纯文本切换，前端搞定，即刻生效
-        return;
-      }
-      if (wantBurn && burnedSubtitle === ref) {
-        record?.closeSwitch(true); // 已在烧这条，白重启
-        return;
-      }
-      setRequestedSubtitle(ref ?? "off");
+  /** 换字幕的烧录策略要重开会话（压制 / 取消压制）：带着当前位置，换完接着播。 */
+  const reopenForSubtitle = useCallback(
+    (requested: string, nextBurn: { file: number | null } | null) => {
+      setRequestedSubtitle(requested);
+      setBurn(nextBurn);
       freezeFrame();
       video?.pause();
       wantsPlayRef.current = true;
       pendingFileMsRef.current = positionRef.current;
       dispatch({ type: "request", startMs: positionRef.current });
     },
-    [subtitles, burnedSubtitle, selectedSubtitle, video, freezeFrame],
+    [video, freezeFrame],
+  );
+
+  /** 开始压制：用户已经知道代价了。 */
+  const startBurn = useCallback(
+    (ref: string, file: number | null) => {
+      subtitleTouchedRef.current = true;
+      const record = recordRef.current;
+      record?.noteSubtitleChange(selectedSubtitle, ref);
+      record?.beginSwitch("subtitle", selectedSubtitle, ref);
+      setSelectedSubtitle(ref);
+      reopenForSubtitle(ref, { file });
+    },
+    [selectedSubtitle, reopenForSubtitle],
   );
 
   /**
-   * 烧录撞上软件转码同意：**自动退回旁挂渲染，不打断观看**。
+   * 把图形字幕压制进画面（#1174）。先试算：这台服务器压不压得了、用不用得上硬件，
+   * 都要问过服务端才知道；试算不动会话，这一步里视频照常在放。
+   */
+  const requestBurn = useCallback(
+    async (ref: string) => {
+      const check = ++burnCheckRef.current;
+      const file = state.session?.decision.file_id ?? null;
+      let decision;
+      try {
+        capabilityRef.current ??= await getCapabilitySnapshot();
+        decision = await decidePlayback(
+          {
+            ...unit,
+            file_id: file ?? lockFile,
+            capability: { ...capabilityRef.current, pgs_overlay: true },
+            failed_tiers: state.failedTiers,
+            max_height: quality ?? undefined,
+            audio_track: requestedAudio ?? undefined,
+            subtitle_track: ref,
+            burn_requested: true,
+          },
+          apiRef.current,
+        );
+      } catch {
+        if (check === burnCheckRef.current) flashNotice(t("player.subtitles.burnCheckFailed"));
+        return;
+      }
+      if (check !== burnCheckRef.current) return;
+      switch (burnStepFor(decision, ref)) {
+        case "start":
+          startBurn(ref, file);
+          return;
+        case "confirm":
+          setBurnPrompt({ ref, softwareEnabled: true, canSelfEnable: false });
+          return;
+        case "consent":
+          setBurnPrompt({
+            ref,
+            softwareEnabled: false,
+            canSelfEnable: decision.can_self_enable === true,
+          });
+          return;
+        case "unavailable":
+          flashNotice(t("player.subtitles.burnUnavailable"));
+      }
+    },
+    // unit 是对象字面量，按内容比较
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [unitKey, state.session, state.failedTiers, lockFile, quality, requestedAudio, startBurn, flashNotice, t],
+  );
+
+  /** 取消压制：回到播放器自己画，服务端按直通策略重新决策。 */
+  const unburnSubtitle = useCallback(() => {
+    if (!burnedSubtitle) return;
+    recordRef.current?.beginSwitch("subtitle", burnedSubtitle, burnedSubtitle);
+    reopenForSubtitle(burnedSubtitle, null);
+  }, [burnedSubtitle, reopenForSubtitle]);
+
+  /**
+   * 换字幕。
    *
-   * 用户点的是「换条字幕」，不是「给我弹一个转码协商」。服务器没显卡又没
-   * 开软转时，把烧录意图撤掉重开会话——canvas 旁挂照样能看（只是进不了
-   * 画中画），观看不中断。只有非烧录导致的 consent（片子本来就要软转）才
-   * 走原来的弹窗。记忆轨触发的烧录（requestedSubtitle 为 null）同样弹窗：
-   * 那是用户上次的明确选择，值得问一次。
+   * 文本轨和 PGS 都由播放器自己画，纯前端换：渲染层立即切，零停顿，视频不重开。选 PGS 不再
+   * 触发烧录（#1174）：同一条字幕，默认选中走前端渲染、手动选却把 4K HDR 直放压成 1080p SDR
+   * 转码，弱机上还跟不上。只有当前正在烧录、换成别的时才重开会话：撤下烧录回到直通策略。
+   */
+  const selectSubtitle = useCallback(
+    (ref: string | null) => {
+      subtitleTouchedRef.current = true;
+      burnCheckRef.current += 1; // 还在试算的压制作废：用户已经换了主意
+      setBurnPrompt(null);
+      const record = recordRef.current;
+      record?.noteSubtitleChange(selectedSubtitle, ref);
+      record?.beginSwitch("subtitle", selectedSubtitle, ref ?? "off");
+      setSelectedSubtitle(ref);
+      if (burnedSubtitle === null || burnedSubtitle === ref) {
+        record?.closeSwitch(true); // 前端搞定，即刻生效；或已在烧这条，白重启
+        return;
+      }
+      reopenForSubtitle(ref ?? "off", null);
+    },
+    [burnedSubtitle, selectedSubtitle, reopenForSubtitle],
+  );
+
+  /**
+   * 试算之后真开会话却撞上软件转码同意（硬件刚好没了）：**自动退回旁挂渲染，不打断观看**。
+   *
+   * 把烧录意图撤掉重开会话，观看不中断。只有非烧录导致的 consent（片子本来就要软转）才
+   * 走原来的弹窗。
    */
   const burnFallbackRef = useRef(false);
   useEffect(() => {
@@ -2845,6 +2943,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     if (requestedSubtitle && requestedSubtitle !== "off") {
       burnFallbackRef.current = true;
       setRequestedSubtitle("off");
+      setBurn(null);
       dispatch({ type: "reset" });
       dispatch({ type: "request", startMs: positionRef.current });
     }
@@ -4541,6 +4640,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
           // 控制条三行（时间行 + 进度条 + 操作行）展开时的实占高度，字幕
           // 压到会被盖住；收起时只剩贴边细进度条，不用让
           avoidBottomPx={chromeVisible ? 172 : 8}
+          onPgsFailed={() => flashNotice(t("player.subtitles.loadFailed"))}
         />
 
         {/* 中央播放簇：退十秒 / 播放暂停 / 进十秒。与控制条同步淡入淡出。
@@ -4916,6 +5016,18 @@ export function VideoPlayer(props: VideoPlayerProps) {
           />
         ) : null}
 
+        {burnPrompt ? (
+          <BurnPromptDialog
+            softwareEnabled={burnPrompt.softwareEnabled}
+            canSelfEnable={burnPrompt.canSelfEnable}
+            onContinue={() => {
+              setBurnPrompt(null);
+              startBurn(burnPrompt.ref, state.session?.decision.file_id ?? null);
+            }}
+            onCancel={() => setBurnPrompt(null)}
+          />
+        ) : null}
+
         {diagnosticsOpen && state.session ? (
           <DiagnosticsPanel
             session={state.session}
@@ -4976,6 +5088,11 @@ export function VideoPlayer(props: VideoPlayerProps) {
             subtitles={subtitles}
             selectedSubtitle={selectedSubtitle}
             onSelectSubtitle={selectSubtitle}
+            burnedSubtitle={burnedSubtitle}
+            onBurnSubtitle={() => {
+              if (selectedSubtitle) void requestBurn(selectedSubtitle);
+            }}
+            onUnburnSubtitle={unburnSubtitle}
             audioOptions={audioOptions}
             selectedAudio={state.session?.decision.audio?.track_ref ?? null}
             onSelectAudio={selectAudio}

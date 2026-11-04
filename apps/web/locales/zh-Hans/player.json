@@ -49,7 +49,6 @@
     "audioRestartHint": "换音轨需要重新起流，会从当前位置续上，中间大约停顿一秒。",
     "off": "关闭",
     "empty": "这个文件没有可用字幕",
-    "bitmapHint": "图形字幕会转码压制进画面（切换约一秒），画中画等场景也能看到",
     "systemHint": "字幕由 iOS 系统渲染，样式在系统设置 → 辅助功能 → 字幕与隐藏式字幕中调整",
     "offset": "时间轴",
     "offsetValue": "{value} 秒",
@@ -68,7 +67,15 @@
     "external": "外挂",
     "embedded": "内封",
     "default": "默认",
-    "forced": "强制"
+    "forced": "强制",
+    "overlayHint": "图形字幕由播放器绘制，不影响画质。画中画、投屏和系统全屏里看不到。",
+    "burn": "压制进画面",
+    "burned": "字幕已压制进画面。视频正在转码：最高 1080p，HDR 变为 SDR。",
+    "unburn": "取消压制",
+    "burnUnavailable": "这台服务器压制不了这条字幕",
+    "burnCheckFailed": "暂时无法压制字幕，请稍后重试",
+    "preparing": "字幕准备中…",
+    "loadFailed": "图形字幕加载失败。可以在字幕菜单里选择压制进画面"
   },
   "tracks": {
     "mono": "单声道",
@@ -275,5 +282,14 @@
     "lastUpload": "最近上传 {upload}",
     "lastSegmentWait": "最近供片等待 {seconds} 秒",
     "missingCredentials": "播放地址缺少诊断凭据"
+  },
+  "burnPrompt": {
+    "title": "把字幕压制进画面？",
+    "softwareOnly": "这台服务器没有能压制字幕的硬件，只能用 CPU 转码。4K 片很可能跟不上，播放会卡顿，还会拖慢服务器上的其他任务。",
+    "quality": "压制后视频要转码：最高 1080p，HDR 变为 SDR。",
+    "enableHint": "软件转码开关还没打开。开启后长期生效，其他需要软件转码的片子也会用上它。",
+    "keep": "不压制",
+    "continue": "继续压制",
+    "enableAndContinue": "开启并压制"
   }
 }

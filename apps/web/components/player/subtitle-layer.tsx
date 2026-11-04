@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
 import { fetchEmbeddedFonts } from "@/lib/api/playback";
@@ -34,7 +35,12 @@ export interface SubtitleLayerProps {
   baseOffsetSeconds: number;
   /** 控制条展开时要让出的底部高度（px）；收起时传 0 */
   avoidBottomPx: number;
+  /** 图形字幕加载失败。canvas 上什么都不会出现，不告诉用户就只是「字幕没出来」 */
+  onPgsFailed?: () => void;
 }
+
+/** 等多久才出「字幕准备中」：抽过的字幕一眨眼就好，别闪一下 */
+const PGS_PREPARING_DELAY_MS = 1200;
 
 /**
  * object-contain 之后画面在元素里的实际矩形（竖屏看横片时上下是大片黑边）。
@@ -158,20 +164,31 @@ function shiftCues(track: TextTrack, delta: number): void {
  * 原盘是分钟级，请求可能挂很久。它的 fetch 中止不了（换一次轨就多占一条连接，HTTP/1.1 只有
  * 6 条，攒够了连视频分片都取不了），断了也只重试一次（见 fetchSupBytes）。也不用 subContent：
  * 它把整个文件留在主线程直到销毁，真盘的轨能到 170 MB。
+ *
+ * 返回这条轨的字幕好了没有：没抽过的片子，字幕端点要等抽取完才回第一个字节（按索引读十几秒，
+ * 没索引时整片通读，分钟级），视频照常在放，得让用户知道字幕在路上。
  */
 function usePgs(
   video: HTMLVideoElement | null,
   track: SubtitleOption | null,
   timeOffset: number,
-): void {
+  onFailed: (() => void) | undefined,
+): "idle" | "loading" | "ready" | "failed" {
   const instance = useRef<{ timeOffset: number; dispose(): void } | null>(null);
+  const [settled, setSettled] = useState<{ url: string; status: "ready" | "failed" } | null>(null);
+  const failed = useRef(onFailed);
+  failed.current = onFailed;
 
   useEffect(() => {
     if (!video || !track || track.kind !== "pgs") return;
     let disposed = false;
     const abort = new AbortController();
-    const reportFailure = (error: unknown) => {
-      if (!disposed) console.error("PGS 字幕加载失败：", error);
+    // 换轨时中止取字幕也会抛到这里，那不算失败
+    const fail = (error: unknown) => {
+      if (disposed) return;
+      console.error("PGS 字幕加载失败：", error);
+      setSettled({ url: track.url, status: "failed" });
+      failed.current?.();
     };
 
     void import("libbitsub").then(async ({ PgsRenderer }) => {
@@ -194,7 +211,7 @@ function usePgs(
         video,
         timeOffset,
         onLoaded: exemptNewCanvases,
-        onError: reportFailure,
+        onError: fail,
         // 非致命诊断保留在控制台：位图轨的坏段/解析退化肉眼只看得到
         // 「字幕没出来」，没有这行用户报障时什么线索都没有
         onWarning: (warning: unknown) => {
@@ -207,7 +224,9 @@ function usePgs(
       if (disposed) return;
       await created.append(bytes);
       await created.flush();
-    }).catch(reportFailure);
+      // 推送模式下 onLoaded 和 indexed 事件在字节到之前就会触发，到这里才算好了
+      if (!disposed) setSettled({ url: track.url, status: "ready" });
+    }).catch(fail);
 
     return () => {
       disposed = true;
@@ -222,6 +241,9 @@ function usePgs(
   useEffect(() => {
     if (instance.current) instance.current.timeOffset = timeOffset;
   }, [timeOffset]);
+
+  if (!track || track.kind !== "pgs") return "idle";
+  return settled?.url === track.url ? settled.status : "loading";
 }
 
 /** ASS：JASSUB 实例的生命周期。换轨要重建（v2 没有换轨 API），改偏移不用。 */
@@ -305,15 +327,23 @@ export function SubtitleLayer({
   style,
   baseOffsetSeconds,
   avoidBottomPx,
+  onPgsFailed,
 }: SubtitleLayerProps) {
+  const t = useTranslations();
   // VTT：cue 时间（文件绝对）→ 会话相对，再加上用户微调（正数 = 字幕延后）
   const vttLines = useVttCues(video, track, -baseOffsetSeconds + style.offsetSeconds);
   // JASSUB / libbitsub：查表时间 = 播放时间 + timeOffset，方向与上面相反
   useJassub(video, track, baseOffsetSeconds - style.offsetSeconds, displayMode);
-  usePgs(video, track, baseOffsetSeconds - style.offsetSeconds);
+  const pgsStatus = usePgs(video, track, baseOffsetSeconds - style.offsetSeconds, onPgsFailed);
   const contentBox = useVideoContentBox(video, displayMode);
 
-  if (!track || track.kind !== "vtt" || vttLines.length === 0) return null;
+  const pgsUrl = pgsStatus === "loading" ? (track?.url ?? null) : null;
+  const [preparingUrl, setPreparingUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pgsUrl) return;
+    const timer = window.setTimeout(() => setPreparingUrl(pgsUrl), PGS_PREPARING_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [pgsUrl]);
 
   // 锚在画面内底部；控制条展开且会压到时整体抬升（YouTube 同款避让）。
   // 竖屏时画面下沿本来就远高于控制条，max 自然不生效，字幕纹丝不动。
@@ -321,6 +351,23 @@ export function SubtitleLayer({
     contentBox.bottomInset + (style.bottomPercent / 100) * contentBox.height,
     avoidBottomPx,
   );
+
+  if (pgsUrl && preparingUrl === pgsUrl) {
+    return (
+      <div
+        {...{ noautohide: "" }}
+        data-testid="subtitle-preparing"
+        className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-[6%] transition-[bottom] duration-300"
+        style={{ bottom: `${bottomPx}px` }}
+      >
+        <p className="rounded-full bg-black/60 px-3 py-1 text-[13px] text-white/80">
+          {t("player.subtitles.preparing")}
+        </p>
+      </div>
+    );
+  }
+
+  if (!track || track.kind !== "vtt" || vttLines.length === 0) return null;
 
   return (
     // noautohide：media-controller 会在用户无操作时把普通子元素统一淡出，

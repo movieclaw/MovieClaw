@@ -514,6 +514,9 @@ export interface ClientCapability {
   /** 硬件转码时能接 HEVC 输出，且 HEVC 放不了会不带它重来、不记硬件档失败（#1008）。
    * 不进能力快照（缓存）：每次请求按播放器状态现填 */
   hevc_transcode?: boolean;
+  /** PGS 自己画（服务端抽 .sup，libbitsub 叠在画面上）：选中 PGS 不触发烧录（#1174）。
+   * 不进能力快照：缓存的老快照没有它，每次请求现填 */
+  pgs_overlay?: boolean;
 }
 
 /** 播放单元：电影用 (0, 0) 哨兵，与台账、playback_state 的约定一致。 */
@@ -736,10 +739,12 @@ interface DecideBody extends PlaybackUnit {
    * 换轨走的是和 seek 出界一样的「带着当前位置重开会话」那条路。
    */
   audio_track?: string;
-  /** 用户选中的字幕轨。只在指向内封 PGS 轨时改变决策——视频转码并把字幕
-   * 烧录进画面（Emby 语义）。缺省 = 服务端用观看状态里记住的轨；
-   * "off" 显式不烧。文本轨传了也无妨（服务端 no-op），顺带刷新轨记忆。 */
+  /** 用户选中的字幕轨。缺省 = 服务端用观看状态里记住的轨；"off" 显式不烧。
+   * 申报了 pgs_overlay 时选中 PGS 也不改变视频策略，要烧录得带 burn_requested。 */
   subtitle_track?: string;
+  /** 用户显式要求把 subtitle_track 压制进画面：视频转码，最高 1080p、HDR 变 SDR。
+   * 执行不了时服务端撤掉烧录，计划里 burn_subtitle 为空 */
+  burn_requested?: boolean;
   /** 画质上限（如 720）。上限而非目标：源不超就照常直通。省略 = 自动 */
   max_height?: number;
   /**

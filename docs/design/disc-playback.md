@@ -288,9 +288,9 @@ def resolve_disc_source(file_path: str) -> DiscSource | None
 
 ## 8. 内封 PGS 的前端渲染（2026-11）
 
-网页播放器的 PGS 有两条路：烧录（服务端转码压制，用户手动选轨时）和前端渲染（服务端抽 `.sup`，
-libbitsub 画在 canvas 上，默认轨）。原盘的 `file_path` 是目录，抽取一直走不通，字幕接口 404、
-网页上静默没字幕；现在两条路都通，且视频不用转码。
+网页播放器的 PGS 有两条路：前端渲染（服务端抽 `.sup`，libbitsub 画在 canvas 上，选中轨时）和烧录
+（服务端转码压制，用户显式要求时，见 web-player.md §6.2）。原盘的 `file_path` 是目录，抽取一直走不通，
+字幕接口 404、网页上静默没字幕；现在两条路都通，前端渲染时视频不用转码。
 
 **读取**：`media_extract` 让 ffmpeg 读与播放会话同一份 concat 清单（§3.4，`DiscSource.concat_list`，
 蓝光镜像是 `subfile` 区间，§7），一趟多路输出抽全部轨。光盘没有 Cues，一律整片通读。
@@ -320,7 +320,7 @@ libbitsub 画在 canvas 上，默认轨）。原盘的 `file_path` 是目录，�
 - 前端：`.sup` 自己取（`fetchSupBytes`），网络错误和 5xx 隔 3 秒再问，4xx 才算拿不到；换轨、关字幕时
   中止请求（libbitsub 自己的 fetch 中止不了，换几次轨就占满 HTTP/1.1 的 6 条连接）。
 
-**不做**：读取期间的进度提示（首次播放一张盘，字幕要等读完才出现，这期间没有任何提示）；边读边出字幕
+**不做**：读取进度（首次播放一张盘，字幕要等读完才出现，这期间只显示「字幕准备中」）；边读边出字幕
 （libbitsub 的推送模式接得住，但要服务端跟着正在写的文件下发）。
 
 **验证**：`tests/e2e/test_disc_pgs_browser.py`（真 BDMV + Chrome：多剪辑、单剪辑、读取比请求久），

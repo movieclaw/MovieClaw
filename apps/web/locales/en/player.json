@@ -49,7 +49,6 @@
     "audioRestartHint": "Switching audio restarts the stream at the current position, with a pause of about one second.",
     "off": "Off",
     "empty": "This file has no available subtitles",
-    "bitmapHint": "Image subtitles are burned into the video (switching takes about a second) and remain visible in picture in picture.",
     "systemHint": "iOS renders these subtitles. Adjust their style in Settings → Accessibility → Subtitles & Captioning.",
     "offset": "Timing",
     "offsetValue": "{value}s",
@@ -68,7 +67,15 @@
     "external": "External",
     "embedded": "Embedded",
     "default": "Default",
-    "forced": "Forced"
+    "forced": "Forced",
+    "overlayHint": "Image subtitles are drawn by the player, so video quality is unaffected. They don't appear in picture in picture, casting, or system full screen.",
+    "burn": "Burn into video",
+    "burned": "Subtitles are burned into the video. The video is being transcoded: up to 1080p, and HDR becomes SDR.",
+    "unburn": "Stop burning in",
+    "burnUnavailable": "This server can't burn in this subtitle track",
+    "burnCheckFailed": "Can't burn in subtitles right now. Try again later.",
+    "preparing": "Preparing subtitles…",
+    "loadFailed": "Image subtitles failed to load. You can burn them into the video from the subtitle menu."
   },
   "tracks": {
     "mono": "Mono",
@@ -275,5 +282,14 @@
     "lastUpload": "Latest upload {upload}",
     "lastSegmentWait": "Last segment wait {seconds}s",
     "missingCredentials": "The playback URL is missing diagnostics credentials"
+  },
+  "burnPrompt": {
+    "title": "Burn subtitles into the video?",
+    "softwareOnly": "This server has no hardware that can burn in subtitles, so the CPU has to transcode. 4K will likely fall behind, playback will stutter, and other server tasks will slow down.",
+    "quality": "The video is transcoded when burning in: up to 1080p, and HDR becomes SDR.",
+    "enableHint": "Software transcoding is turned off. Once enabled, it stays on and other movies that need software transcoding will use it too.",
+    "keep": "Don't burn in",
+    "continue": "Burn in anyway",
+    "enableAndContinue": "Enable and burn in"
   }
 }

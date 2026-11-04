@@ -177,6 +177,7 @@ data class ClientCapabilityIn(
     @SerialName("dolby_vision_record_audit") val dolbyVisionRecordAudit: Boolean? = null,
     @SerialName("mp4_sample_limit") val mp4SampleLimit: Long? = null,
     @SerialName("hevc_transcode") val hevcTranscode: Boolean? = null,
+    @SerialName("pgs_overlay") val pgsOverlay: Boolean? = null,
 )
 
 /**
@@ -2486,6 +2487,7 @@ data class PlaybackSessionRequest(
     @SerialName("failed_tiers") val failedTiers: List<Long>? = null,
     @SerialName("audio_track") val audioTrack: String? = null,
     @SerialName("subtitle_track") val subtitleTrack: String? = null,
+    @SerialName("burn_requested") val burnRequested: Boolean? = null,
     @SerialName("max_height") val maxHeight: Long? = null,
     @SerialName("device_id") val deviceId: String? = null,
     @SerialName("downlink_bps") val downlinkBps: Long? = null,

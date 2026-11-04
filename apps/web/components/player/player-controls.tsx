@@ -274,6 +274,12 @@ export interface PlayerControlsProps {
   subtitles: SubtitleTracks;
   selectedSubtitle: string | null;
   onSelectSubtitle: (ref: string | null) => void;
+  /** 服务端正在压制进画面的字幕轨；null = 没压制 */
+  burnedSubtitle: string | null;
+  /** 把当前选中的图形字幕压制进画面（要转码，代价写在菜单里） */
+  onBurnSubtitle: () => void;
+  /** 取消压制，回到播放器自己画 */
+  onUnburnSubtitle: () => void;
   /** 可选音轨。**少于两条时为空数组**，那时整个按钮都不出现——没得选的菜单是噪音 */
   audioOptions: AudioOption[];
   /** 当前音轨；null = 还没表态，由服务端自动选 */
@@ -335,6 +341,9 @@ export function PlayerControls(props: PlayerControlsProps) {
     subtitles,
     selectedSubtitle,
     onSelectSubtitle,
+    burnedSubtitle,
+    onBurnSubtitle,
+    onUnburnSubtitle,
     audioOptions,
     selectedAudio,
     onSelectAudio,
@@ -1039,6 +1048,9 @@ export function PlayerControls(props: PlayerControlsProps) {
                     tracks={subtitles}
                     selected={selectedSubtitle}
                     onSelect={(ref) => onSelectSubtitle(ref)}
+                    burned={burnedSubtitle}
+                    onBurn={onBurnSubtitle}
+                    onUnburn={onUnburnSubtitle}
                     style={subtitleStyle}
                     onStyleChange={onSubtitleStyleChange}
                     systemRendered={systemSubtitles}
@@ -1253,6 +1265,9 @@ function SubtitleMenu({
   tracks,
   selected,
   onSelect,
+  burned,
+  onBurn,
+  onUnburn,
   style,
   onStyleChange,
   systemRendered,
@@ -1261,6 +1276,9 @@ function SubtitleMenu({
   tracks: SubtitleTracks;
   selected: string | null;
   onSelect: (ref: string | null) => void;
+  burned: string | null;
+  onBurn: () => void;
+  onUnburn: () => void;
   style: SubtitleStyle;
   onStyleChange: (style: SubtitleStyle) => void;
   /** 字幕由系统渲染（iOS 原生 HLS）：样式与时间轴调节不经我们的手，全部隐藏 */
@@ -1268,6 +1286,34 @@ function SubtitleMenu({
   onClose: () => void;
 }) {
   const t = useTranslations();
+  const active = tracks.options.find((option) => option.ref === selected) ?? null;
+  // 压制的代价在点之前写明；只在选中图形字幕时出现，其余时候菜单不多一行字
+  const burnNote =
+    active && active.ref === burned ? (
+      <>
+        <p>{t("player.subtitles.burned")}</p>
+        <MenuAction
+          onClick={() => {
+            onUnburn();
+            onClose();
+          }}
+        >
+          {t("player.subtitles.unburn")}
+        </MenuAction>
+      </>
+    ) : active?.kind === "pgs" ? (
+      <>
+        <p>{t("player.subtitles.overlayHint")}</p>
+        <MenuAction
+          onClick={() => {
+            onBurn();
+            onClose();
+          }}
+        >
+          {t("player.subtitles.burn")}
+        </MenuAction>
+      </>
+    ) : null;
   return (
     <MenuPanel title={t("player.controls.subtitles")} onClose={onClose}>
       <div className="scroll-thin max-h-[240px] overflow-y-auto">
@@ -1308,12 +1354,13 @@ function SubtitleMenu({
         ) : null}
       </div>
 
-      {tracks.options.some((option) => option.kind === "pgs") ? (
-        // 用户点之前就该知道代价：选图形字幕会换成转码播放（约一秒切换），
-        // 换来的是画中画/投屏里也带字幕——与 Emby 的「字幕压制」同语义
-        <p className="mt-2 border-t border-white/10 px-4 pt-2.5 text-[12px] leading-relaxed text-white/55">
-          {t("player.subtitles.bitmapHint")}
-        </p>
+      {burnNote ? (
+        <div
+          data-testid="subtitle-burn-note"
+          className="mt-2 border-t border-white/10 px-4 pt-2.5 text-[12px] leading-relaxed text-white/55"
+        >
+          {burnNote}
+        </div>
       ) : null}
 
       {selected && systemRendered ? (
@@ -1518,6 +1565,19 @@ function StepButton({ onClick, children }: { onClick: () => void; children: Reac
       // pointer-coarse 档放大到 32px：24px 的「+ / −」在触屏上很难点中，
       // 与控制条按钮的 pointer-coarse 分档同一原则
       className="size-6 rounded-[7px] border border-white/10 bg-white/[0.06] leading-none text-white/85 transition-colors hover:bg-white/[0.14] hover:text-white pointer-coarse:size-8 pointer-coarse:text-[13px]"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** 菜单说明文字下面的小按钮：比选项轻，一次性的动作 */
+function MenuAction({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-[12px] font-medium text-white/80 transition-colors hover:bg-white/[0.14] hover:text-white pointer-coarse:py-2"
     >
       {children}
     </button>

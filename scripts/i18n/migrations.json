@@ -482,7 +482,6 @@
   "player.subtitles.audioRestartHint": "换音轨需要重新起流，会从当前位置续上，中间大约停顿一秒。",
   "player.subtitles.off": "关闭",
   "player.subtitles.empty": "这个文件没有可用字幕",
-  "player.subtitles.bitmapHint": "图形字幕会转码压制进画面（切换约一秒），画中画等场景也能看到",
   "player.subtitles.systemHint": "字幕由 iOS 系统渲染，样式在系统设置 → 辅助功能 → 字幕与隐藏式字幕中调整",
   "player.subtitles.offset": "时间轴",
   "player.subtitles.offsetValue": "{value} 秒",
