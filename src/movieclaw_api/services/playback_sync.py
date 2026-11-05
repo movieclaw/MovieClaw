@@ -49,14 +49,18 @@ def naive(value: datetime) -> datetime:
 
 
 def same_identity(media: MediaItem | None, record: SyncRecordIn | SyncChangeIn) -> bool:
-    """请求声明的类型与 TMDB / IMDb 编号须与本地条目吻合，防止插件按过期映射写错片。"""
+    """请求声明的类型与 TMDB / IMDb 编号须与本地条目吻合，防止插件按过期映射写错片。
+
+    本地条目两个外部编号都没有时，请求也不得声明任何编号，此时只凭 media_item_id + kind
+    定位——不存在可能过期的外部映射。有外部编号的条目仍须声明吻合的编号。
+    """
+    if not media or media.kind != record.kind:
+        return False
+    if media.tmdb_id is None and media.imdb_id is None:
+        return not record.tmdb_id and not record.imdb_id
     return bool(
-        media
-        and media.kind == record.kind
-        and (
-            (record.tmdb_id and media.tmdb_id == record.tmdb_id)
-            or (record.imdb_id and media.imdb_id == record.imdb_id)
-        )
+        (record.tmdb_id and media.tmdb_id == record.tmdb_id)
+        or (record.imdb_id and media.imdb_id == record.imdb_id)
     )
 
 
@@ -79,6 +83,7 @@ async def catalog(
     limit: int,
     *,
     tmdb_id: int | None = None,
+    kinds: list[str] | None = None,
 ) -> SyncCatalog:
     owner = await target(session, member_id)
     visible = await visible_library_ids(session, actor) & await visible_library_ids(session, owner)
@@ -88,7 +93,8 @@ async def catalog(
         .where(
             LibraryFile.state == FileState.IN_PLACE,
             LibraryFile.library_id.in_(visible),
-            MediaItem.kind.in_(["movie", "tv"]),
+            # 默认只给 movie / tv；video 须调用方显式要，免得只认影视的插件意外收到。
+            MediaItem.kind.in_(kinds or ["movie", "tv"]),
         )
         .distinct()
     )
@@ -305,7 +311,7 @@ async def import_records(
         media = await session.get(MediaItem, record.media_item_id)
         if (
             not same_identity(media, record)
-            or (record.kind == "movie" and (record.season or record.episode))
+            or (record.kind != "tv" and (record.season or record.episode))
             or (record.kind == "tv" and record.episode < 1)
         ):
             outcomes.append(SyncOutcome(status="mismatch"))
@@ -422,8 +428,9 @@ async def apply_state(
             continue
         assert media is not None and media.id is not None
         # 写入落点：叶子即自身；整剧 / 整季收藏落哨兵行，与 marks.favorite_unit 同一约定。
-        season = 0 if change.kind == "movie" else change.season
-        episode = 0 if change.kind == "movie" else change.episode
+        # video 与电影同为单一单元 0/0。
+        season = 0 if change.kind != "tv" else change.season
+        episode = 0 if change.kind != "tv" else change.episode
         unit = (media.id, -1 if season is None else season, -1 if episode is None else episode)
         query = select(LibraryFile.id).where(
             LibraryFile.media_item_id == media.id,

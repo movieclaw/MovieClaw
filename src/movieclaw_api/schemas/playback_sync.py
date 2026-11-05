@@ -25,7 +25,7 @@ class SyncSeasonFavorite(SyncFavorite):
 
 class SyncMedia(BaseModel):
     id: int
-    kind: Literal["movie", "tv"]
+    kind: Literal["movie", "tv", "video"]
     title: str
     tmdb_id: int | None
     imdb_id: str | None
@@ -70,7 +70,7 @@ def _aware_past(value: datetime | None) -> datetime | None:
 class SyncRecordIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     media_item_id: int = Field(ge=1)
-    kind: Literal["movie", "tv"]
+    kind: Literal["movie", "tv", "video"]
     tmdb_id: int | None = Field(default=None, ge=1)
     imdb_id: str | None = None
     season: int = Field(default=0, ge=0)
@@ -108,7 +108,7 @@ class SyncChangeIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     media_item_id: int = Field(ge=1)
-    kind: Literal["movie", "tv"]
+    kind: Literal["movie", "tv", "video"]
     tmdb_id: int | None = Field(default=None, ge=1)
     imdb_id: str | None = None
     season: int | None = Field(default=None, ge=0)
@@ -130,7 +130,7 @@ class SyncChangeIn(BaseModel):
             raise ValueError(t("errors.playbackSync.nothingToWrite"))
         if self.season is None and self.episode is not None:
             raise ValueError(t("errors.playbackSync.seasonRequired"))
-        if self.kind == "movie" and (self.season or self.episode):
+        if self.kind != "tv" and (self.season or self.episode):
             raise ValueError(t("errors.playbackSync.movieUnits"))
         if self.kind == "tv" and self.episode == 0:
             raise ValueError(t("errors.playbackSync.episodeFromOne"))
