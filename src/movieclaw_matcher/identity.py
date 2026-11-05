@@ -718,6 +718,19 @@ def _year_compatible(media: MediaIdentity, torrent_year: int | None) -> bool:
     return torrent_year >= media.year - 1
 
 
+def _season_block(media: MediaIdentity, site_season: int) -> tuple[int, int, int] | None:
+    """站点季号 → (TMDB 季号, 起始集, 结束集)；没命中映射返回 None。
+
+    只在**站点季号不在 ``media.season_numbers`` 里**时调用（见 ``_derive_units``）：
+    普通剧的站点季号本来就在季列表里，永远不会走到这里——这是"普通剧零影响"
+    的结构性保证，不是靠阈值调出来的（docs/design/subscription-season-split.md §2）。
+    """
+    for block_site, tmdb_season, start, end in media.season_blocks:
+        if block_site == site_season:
+            return tmdb_season, start, end
+    return None
+
+
 def _derive_units(
     candidate: TorrentCandidate,
     media: MediaIdentity,
@@ -725,7 +738,14 @@ def _derive_units(
     confidence: str,
     alias: str | None,
 ) -> IdentityMatch | None:
-    """从 enrich 属性推导覆盖单元。身份成立但单元无法落定时返回 None（不可用）。"""
+    """从 enrich 属性推导覆盖单元。身份成立但单元无法落定时返回 None（不可用）。
+
+    站点季号归一（issue #1155）：当解析出的季号**不在** ``media.season_numbers``
+    里、却命中 ``media.season_blocks`` 时，把它换算成 TMDB 的显式集列表。
+    ``pack_seasons`` 必须置空——保留 ``{1}`` 会让 S02 包把第 1–12 集也标成
+    已覆盖（那些集早就下过了）。``season_blocks`` 来自落库映射，TMDB 真实
+    存在的季号早在落库前就被剔除，这里不会把真 S02 换算掉。
+    """
     attrs = candidate.attrs
 
     if media.kind == "movie":
@@ -758,6 +778,24 @@ def _derive_units(
                 confidence=confidence,
                 matched_alias=alias,
             )
+        if (
+            season not in media.season_numbers
+            and (block := _season_block(media, season)) is not None
+        ):
+            tmdb_season, start, _end = block
+            return IdentityMatch(
+                # E00 不换算：站点 S02E00 是站点第 2 季的先导/特辑，平移成 (1, 12)
+                # 就成了正片第 12 集；原样留成 (2, 0)，谁也覆盖不到
+                episodes=frozenset(
+                    (tmdb_season, episode + start - 1) if episode > 0 else (season, episode)
+                    for episode in episodes
+                ),
+                is_pack=is_pack,
+                confidence=confidence,
+                matched_alias=alias,
+                season_normalized=True,
+                site_seasons=frozenset({season}),
+            )
         return IdentityMatch(
             episodes=frozenset((season, e) for e in episodes),
             is_pack=is_pack,
@@ -766,6 +804,30 @@ def _derive_units(
         )
 
     if seasons:
+        if len(seasons) == 1 and seasons[0] not in media.season_numbers:
+            block = _season_block(media, seasons[0])
+            if block is not None:
+                tmdb_season, start, end = block
+                total = attrs.episodes_total
+                # 集号上界：声明了「全 N 集」就按偏移后的声明总数截断——包里不可能
+                # 有第 N+1 集，「全 5 集」只认 E13–E17；声明比块长时照样延伸，兜住
+                # TMDB 少录的占位集（#640）。没声明就到块终点
+                upper = start - 1 + total if total else end
+                return IdentityMatch(
+                    episodes=frozenset(
+                        (tmdb_season, episode) for episode in range(start, upper + 1)
+                    ),
+                    is_pack=True,
+                    # 必须置空：保留 {1} 会把第 1–12 集也标成已覆盖
+                    pack_seasons=frozenset(),
+                    confidence=confidence,
+                    matched_alias=alias,
+                    declared_total=total,
+                    season_normalized=True,
+                    site_seasons=frozenset({seasons[0]}),
+                    # 这些集是整季包平移出来的、不是标题写明的：覆盖时按整季包语义
+                    normalized_pack=True,
+                )
         return IdentityMatch(
             pack_seasons=frozenset(seasons),
             is_pack=True,

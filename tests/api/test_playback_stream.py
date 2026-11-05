@@ -32,7 +32,9 @@ from movieclaw_api.api.routes import playback as routes_playback
 from movieclaw_api.api.routes import transcode_worker as routes_transcode_worker
 from movieclaw_api.api.routes.transcode_worker import put_transcode_artifact
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.services import media_extract
 from movieclaw_api.services.auth import reset_auth_state
+from movieclaw_api.services.library.bluray import DISC_PLAYLIST_VERSION
 from movieclaw_api.services.playback import session as session_mod
 from movieclaw_api.services.playback.ffmpeg_args import (
     VAAPI_TONEMAP,
@@ -149,6 +151,7 @@ async def _seed(
     strm_url: str = "https://pan.example.com/a.mkv",
     dv_profile: int | None = None,
     dv_bl_compatible: bool | None = None,
+    bit_rate: int | None = None,
 ) -> int:
     """建库 + 建条目 + 落一个真实存在的文件，返回 library_file.id。
 
@@ -184,6 +187,7 @@ async def _seed(
             dv_profile=dv_profile,
             dv_bl_compatible=dv_bl_compatible,
             duration_seconds=duration_seconds,
+            bit_rate=bit_rate,
             audio_streams=[{"codec": "aac", "channels": 2, "default": True}],
         )
         session.add(row)
@@ -196,7 +200,7 @@ def seed(client: TestClient, tmp_path: Path, **kwargs) -> int:
     return client.portal.call(partial(_seed, tmp_path, **kwargs))  # type: ignore[attr-defined]
 
 
-def start_session(client: TestClient, file_id: int, **extra) -> dict:
+def start_session(client: TestClient, file_id: int | None = None, **extra) -> dict:
     resp = client.post(
         f"{_PB}/sessions",
         json={"file_id": file_id, "capability": CAPABILITY, **extra},
@@ -498,6 +502,351 @@ def test_profile_5_session_on_a_local_gpu_tells_the_user_why_the_colors_are_off(
     plain = start_session(client, hdr10)
     assert plain["hw_backend"] == "vaapi"
     assert "杜比视界" not in plain["decision"]["reason"]
+
+
+# ---------------------------------------------------------------------------
+# #1174：手动选 PGS —— 网页自己画；烧录执行不了不能把片子变成错误页
+# ---------------------------------------------------------------------------
+
+# 能直放 4K HEVC + HDR 的客户端。老客户端：选中 PGS 就要烧录
+_HDR_CLIENT = {
+    "video": [{"codec": "h264"}, {"codec": "hevc"}],
+    "audio": [{"codec": "aac"}],
+    "containers": ["mp4", "hls-fmp4"],
+    "hdr_passthrough": True,
+}
+# 网页：PGS 自己画
+_OVERLAY_CLIENT = {**_HDR_CLIENT, "pgs_overlay": True}
+_PGS_STREAMS = [
+    {"codec": "hdmv_pgs_subtitle", "language": "chi", "default": True},
+    {"codec": "hdmv_pgs_subtitle", "language": "eng"},
+]
+
+
+def _seed_pgs(client: TestClient, tmp_path: Path, **kwargs) -> tuple[int, int]:
+    """带两条内封 PGS 的片子，返回 (file_id, media_item_id)。"""
+    file_id = seed(client, tmp_path, **kwargs)
+
+    async def attach() -> int:
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            row.subtitle_streams = _PGS_STREAMS
+            await session.commit()
+            return row.media_item_id
+
+    return file_id, client.portal.call(attach)  # type: ignore[attr-defined]
+
+
+def _only_backend(monkeypatch, name: str) -> None:
+    from movieclaw_api.services.playback import hwprobe
+    from movieclaw_api.services.playback import plan as plan_mod
+
+    backends = lambda: (name,)  # noqa: E731
+    monkeypatch.setattr(hwprobe, "available_backends", backends)
+    monkeypatch.setattr(routes_playback, "available_backends", backends)
+    monkeypatch.setattr(routes_playback, "available_local_backends", backends)
+    monkeypatch.setattr(routes_playback, "remote_backends_available", lambda *_a, **_k: ())
+    monkeypatch.setattr(plan_mod, "hardware_available", lambda: True)
+
+
+def _remember_subtitle(client: TestClient, item_id: int, file_id: int, ref: str) -> None:
+    response = client.post(
+        f"{_PB}/progress",
+        json={
+            "media_item_id": item_id,
+            "event": "stop",
+            "position_ms": 60_000,
+            "subtitle_track": ref,
+            "file_id": file_id,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["subtitle_track"] == ref
+
+
+def test_burn_that_cannot_run_keeps_a_playable_hdr_movie_playing(
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
+):
+    """只有 VAAPI：烧录执行不了，HDR 又不许软转，以前落成拒绝——正在放的片变错误页。"""
+    _only_backend(monkeypatch, "vaapi")
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+
+    data = start_session(client, file_id, capability=_HDR_CLIENT, subtitle_track="embedded:1")
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["tier"] == int(PlaybackTier.REMUX)
+    assert data["decision"]["video"]["action"] == "copy"
+    assert data["decision"]["video"]["burn_subtitle"] is None
+
+    decided = client.post(
+        f"{_PB}/decide",
+        json={"file_id": file_id, "capability": _HDR_CLIENT, "subtitle_track": "embedded:1"},
+    ).json()["data"]
+    assert decided["outcome"] == "plan", "决策接口与开会话同一口径"
+    assert decided["video"]["burn_subtitle"] is None
+
+
+def test_remembered_pgs_no_longer_locks_the_movie_out(
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
+):
+    """选择被记住后，以前再打开这部片也是错误页，错误页上又改不了字幕。"""
+    _only_backend(monkeypatch, "vaapi")
+    file_id, item_id = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+    _remember_subtitle(client, item_id, file_id, "embedded:1")
+
+    data = start_session(client, None, media_item_id=item_id, capability=_HDR_CLIENT)
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["video"]["burn_subtitle"] is None
+    assert data["watch"]["subtitle_track"] == "embedded:1", "记忆轨照样带回，客户端据此选中"
+
+
+def test_dropping_a_burn_can_land_on_direct_play(probed_vaapi_hdr, client, tmp_path, monkeypatch):
+    """撤掉烧录后可能回到档 0：要走直出那条路，不能给档 0 的计划起转码会话。"""
+    _only_backend(monkeypatch, "vaapi")
+    file_id, _ = _seed_pgs(
+        client, tmp_path, container="mp4", codec="hevc", hdr="HDR10", resolution="2160p"
+    )
+    data = start_session(client, file_id, capability=_HDR_CLIENT, subtitle_track="embedded:1")
+    assert data["decision"]["tier"] == int(PlaybackTier.DIRECT_PLAY), data["decision"]
+    assert data["session_id"] is None
+    assert f"/files/{file_id}/stream?token=" in data["stream_url"]
+
+
+def test_sdr_burn_on_vaapi_still_falls_back_to_software_consent(client, tmp_path, monkeypatch):
+    """只有 HDR 是死路。SDR 片烧录照旧走统一降档：软转没开就问同意，开了就软转。"""
+    _only_backend(monkeypatch, "vaapi")
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", resolution="2160p")
+
+    body = {"file_id": file_id, "capability": _HDR_CLIENT, "subtitle_track": "embedded:1"}
+    assert client.post(f"{_PB}/decide", json=body).json()["data"]["outcome"] == "consent"
+    assert start_session(client, **body)["decision"]["outcome"] == "consent"
+
+    assert client.put(f"{_PB}/policy", json={"software_transcode_enabled": True}).status_code == 200
+    decided = client.post(f"{_PB}/decide", json=body).json()["data"]
+    assert decided["tier"] == int(PlaybackTier.SOFTWARE_TRANSCODE), "问到的就是真实结果，不是硬件档"
+    data = start_session(client, **body)
+    assert data["decision"]["tier"] == int(PlaybackTier.SOFTWARE_TRANSCODE)
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["hw_backend"] is None
+
+
+def test_overlay_client_never_burns_from_selection_or_memory(
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
+):
+    _only_backend(monkeypatch, "nvenc")
+    file_id, item_id = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+
+    selected = start_session(
+        client, file_id, capability=_OVERLAY_CLIENT, subtitle_track="embedded:1"
+    )
+    assert selected["decision"]["tier"] == int(PlaybackTier.REMUX)
+    assert selected["decision"]["video"]["action"] == "copy"
+
+    _remember_subtitle(client, item_id, file_id, "embedded:1")
+    reopened = start_session(client, None, media_item_id=item_id, capability=_OVERLAY_CLIENT)
+    assert reopened["decision"]["video"]["action"] == "copy", "记住的 PGS 不能让下次起播转码"
+    assert reopened["decision"]["video"]["burn_subtitle"] is None
+    assert reopened["watch"]["subtitle_track"] == "embedded:1"
+
+
+def test_explicit_burn_runs_on_a_backend_that_can_take_software_frames(
+    client, tmp_path, monkeypatch
+):
+    _only_backend(monkeypatch, "nvenc")
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", resolution="2160p")
+    body = {
+        "file_id": file_id,
+        "capability": _OVERLAY_CLIENT,
+        "subtitle_track": "embedded:1",
+        "burn_requested": True,
+    }
+
+    decided = client.post(f"{_PB}/decide", json=body).json()["data"]
+    assert decided["tier"] == int(PlaybackTier.HARDWARE_TRANSCODE)
+    assert decided["video"]["burn_subtitle"] == "embedded:1"
+
+    data = start_session(client, **body)
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["decision"]["video"]["height"] == 1080
+    assert data["hw_backend"] == "nvenc"
+
+
+def test_explicit_burn_that_cannot_run_reports_no_burn_in_the_plan(
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
+):
+    """网页靠计划里没有 burn_subtitle 判断「这台服务器压制不了」，正在放的片不受影响。"""
+    _only_backend(monkeypatch, "vaapi")
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+    decided = client.post(
+        f"{_PB}/decide",
+        json={
+            "file_id": file_id,
+            "capability": _OVERLAY_CLIENT,
+            "subtitle_track": "embedded:1",
+            "burn_requested": True,
+        },
+    ).json()["data"]
+    assert decided["outcome"] == "plan"
+    assert decided["video"]["action"] == "copy"
+    assert decided["video"]["burn_subtitle"] is None
+
+
+def _hold_remote_burn_slot(monkeypatch, file_id: int, *, frees_hardware: bool) -> str:
+    """同一文件的旧会话占着唯一能烧录的远程 Worker。本机只有 VAAPI，烧不了 overlay。
+
+    ``frees_hardware``：``stop_for_file`` 让出旧会话之后，远程才算空闲。否则让出
+    也没有能烧录的后端（旧会话并不是那台转码器）。
+    """
+    from movieclaw_api.services.playback import hwprobe
+    from movieclaw_api.services.playback import plan as plan_mod
+
+    availability = {"value": False}
+
+    def backends() -> tuple[str, ...]:
+        if availability["value"]:
+            return ("vaapi", "videotoolbox")
+        return ("vaapi",)
+
+    monkeypatch.setattr(hwprobe, "available_backends", backends)
+    monkeypatch.setattr(routes_playback, "available_backends", backends)
+    monkeypatch.setattr(routes_playback, "available_local_backends", lambda: ("vaapi",))
+    monkeypatch.setattr(
+        routes_playback,
+        "remote_backends_available",
+        lambda *_args, **_kwargs: ("videotoolbox",) if availability["value"] else (),
+    )
+    monkeypatch.setattr(plan_mod, "remote_backend_can_run", lambda _plan, _backend: True)
+    monkeypatch.setattr(
+        routes_playback,
+        "effective_remote_transcode_config",
+        lambda: SimpleNamespace(base_url="http://nas.local"),
+    )
+
+    manager = get_session_manager()
+    old_id = "old-burn-session"
+    old_directory = Path(get_settings().transcode_dir) / old_id
+    old_directory.mkdir(parents=True, exist_ok=True)
+    manager._sessions[old_id] = session_mod.TranscodeSession(
+        id=old_id,
+        file_id=file_id,
+        member_id=0,
+        tier=PlaybackTier.HARDWARE_TRANSCODE,
+        directory=old_directory,
+        start_ms=0,
+        plan=PlaybackPlan(
+            tier=PlaybackTier.HARDWARE_TRANSCODE,
+            file_id=file_id,
+            container="hls-fmp4",
+            video=VideoPlan(action="transcode", codec="h264", height=1080),
+            audio=AudioPlan(action="copy", track_ref=None),
+            reason="测试",
+        ),
+        remote=True,
+    )
+    original_stop_for_file = manager.stop_for_file
+
+    async def stop_and_release(file_id_value: int, member_id: int) -> int:
+        replaced = await original_stop_for_file(file_id_value, member_id)
+        if replaced and frees_hardware:
+            availability["value"] = True
+        return replaced
+
+    monkeypatch.setattr(manager, "stop_for_file", stop_and_release)
+
+    async def fake_spawn_remote(remote_session, _base_url: str) -> None:
+        remote_session.state = "ready"
+        remote_session.remote_worker_id = "mac-mini"
+
+    monkeypatch.setattr(manager, "_spawn_remote", fake_spawn_remote)
+    return old_id
+
+
+def test_pgs_switch_reuses_remote_hardware_freed_by_the_old_session(client, tmp_path, monkeypatch):
+    """旧会话占满唯一能烧录的远程名额：让出之后要从原始烧录请求重算。
+
+    以前 ``_settle_burn`` 把档 3 记成失败，让出旧会话后的重算还带着它，空出来的
+    VideoToolbox 不会再被考虑。HDR 因此被判拒绝，字幕被撤掉（#1187 评审）。
+    """
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+    old_id = _hold_remote_burn_slot(monkeypatch, file_id, frees_hardware=True)
+
+    data = start_session(client, file_id, capability=_HDR_CLIENT, subtitle_track="embedded:1")
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["tier"] == int(PlaybackTier.HARDWARE_TRANSCODE)
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["hw_backend"] == "videotoolbox"
+    assert get_session_manager().get(old_id) is None
+
+
+def test_freed_remote_slot_skips_the_software_consent_prompt(client, tmp_path, monkeypatch):
+    """软转没开、远程名额被自己的旧会话占着：让出后直接硬件烧录，不再问软转同意。"""
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", resolution="1080p")
+    _hold_remote_burn_slot(monkeypatch, file_id, frees_hardware=True)
+
+    data = start_session(
+        client,
+        file_id,
+        capability=_OVERLAY_CLIENT,
+        subtitle_track="embedded:1",
+        burn_requested=True,
+    )
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["tier"] == int(PlaybackTier.HARDWARE_TRANSCODE)
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["hw_backend"] == "videotoolbox"
+
+
+def test_explicit_burn_uses_remote_hardware_freed_by_the_old_session(client, tmp_path, monkeypatch):
+    """软转开着时，占满的远程名额让出后不能留在 CPU 软转上。"""
+    assert client.put(f"{_PB}/policy", json={"software_transcode_enabled": True}).status_code == 200
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", resolution="1080p")
+    _hold_remote_burn_slot(monkeypatch, file_id, frees_hardware=True)
+
+    data = start_session(
+        client,
+        file_id,
+        capability=_OVERLAY_CLIENT,
+        subtitle_track="embedded:1",
+        burn_requested=True,
+    )
+    assert data["decision"]["tier"] == int(PlaybackTier.HARDWARE_TRANSCODE), data["decision"]
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["hw_backend"] == "videotoolbox"
+
+
+def test_client_hardware_failure_is_not_cleared_when_the_old_session_stops(
+    client, tmp_path, monkeypatch
+):
+    """客户端报上来的档 3 失败要留着。让出旧会话只丢掉这次临时加上的失败。"""
+    assert client.put(f"{_PB}/policy", json={"software_transcode_enabled": True}).status_code == 200
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", resolution="1080p")
+    _hold_remote_burn_slot(monkeypatch, file_id, frees_hardware=True)
+
+    data = start_session(
+        client,
+        file_id,
+        capability=_OVERLAY_CLIENT,
+        subtitle_track="embedded:1",
+        burn_requested=True,
+        failed_tiers=[int(PlaybackTier.HARDWARE_TRANSCODE)],
+    )
+    assert data["decision"]["tier"] == int(PlaybackTier.SOFTWARE_TRANSCODE), data["decision"]
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["hw_backend"] is None
+
+
+def test_releasing_a_session_that_does_not_free_hardware_still_drops_the_burn(
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
+):
+    """让出旧会话之后仍然没有能烧录的后端：HDR 撤掉烧录，片子照放，不能变错误页。"""
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+    _hold_remote_burn_slot(monkeypatch, file_id, frees_hardware=False)
+
+    data = start_session(client, file_id, capability=_HDR_CLIENT, subtitle_track="embedded:1")
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["tier"] == int(PlaybackTier.REMUX)
+    assert data["decision"]["video"]["action"] == "copy"
+    assert data["decision"]["video"]["burn_subtitle"] is None
+    assert data["session_id"] is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1290,6 +1639,79 @@ def test_stored_disc_image_durations_are_healed_from_the_main_title(client, tmp_
     assert client.portal.call(durations) == [900, 4]
 
 
+def test_stored_disc_image_bit_rates_are_healed_without_reprobing(client, tmp_path, monkeypatch):
+    """存量 ISO 的台账码率（ffprobe 算的，NAS 实测高出上千倍、也有低到二十分之一的）随片长自愈一起
+    换成盘内正片的平均码率，不跑 ffprobe。读不出盘内结构的记未知；片库没挂上、还没探测过的不动。
+    起播接口回给客户端的片源码率跟着变对。"""
+    from tests.api.test_iso_source import _bluray_image
+
+    from movieclaw_api.services import media_probe
+    from movieclaw_api.services.library.disc_image_durations import heal_disc_image_durations
+    from movieclaw_api.services.playback import iso_source
+
+    def no_subprocess(args, **_kwargs):
+        raise AssertionError(f"自愈不该跑子进程：{args}")
+
+    iso_source.clear_cache()
+    image, first, second = _bluray_image(metadata=False)
+    title_rate = round((len(first) + len(second)) * 8 / 900)
+    too_high = seed(
+        client, tmp_path, container="iso", data=image, duration_seconds=900,
+        bit_rate=45_750_061_748,
+    )  # fmt: skip
+    too_low = seed(
+        client, tmp_path, container="iso", data=image, duration_seconds=4, bit_rate=2_000_000
+    )
+    missing = seed(client, tmp_path, container="iso", data=image, duration_seconds=900)
+    correct = seed(
+        client, tmp_path, container="iso", data=image, duration_seconds=900, bit_rate=title_rate
+    )
+    unreadable = seed(client, tmp_path, container="iso", bit_rate=5_746_829, duration_seconds=4)
+    never_probed = seed(client, tmp_path, container="iso", data=image, duration_seconds=900)
+    offline = seed(
+        client, tmp_path, container="iso", data=image, duration_seconds=900, bit_rate=6_480_594_006
+    )
+
+    async def prepare():
+        async with get_database().session() as session:
+            (await session.get(LibraryFile, never_probed)).audio_streams = None
+            Path((await session.get(LibraryFile, offline)).file_path).unlink()
+            await session.commit()
+
+    client.portal.call(prepare)
+    with monkeypatch.context() as patch:
+        patch.setattr(media_probe.subprocess, "run", no_subprocess)
+        # too_high、too_low、missing、unreadable 四行要改；correct 本来就对
+        assert client.portal.call(heal_disc_image_durations) == 4
+        assert client.portal.call(heal_disc_image_durations) == 0  # 幂等：校准过的不再改
+
+    async def rates():
+        async with get_database().session() as session:
+            ids = (too_high, too_low, missing, correct, unreadable, never_probed, offline)
+            return [(await session.get(LibraryFile, i)).bit_rate for i in ids]
+
+    assert client.portal.call(rates) == [
+        title_rate,  # 高得离谱的
+        title_rate,  # 低得离谱的（片长也一起校准）
+        title_rate,  # ffprobe 没给码率的
+        title_rate,
+        None,  # 读不出盘内结构
+        None,  # 还没探测过：留给探测（码率有值即算「实测过」，自愈不能抢先）
+        6_480_594_006,  # 片库没挂上：下次启动再说
+    ]
+
+    def fake_build(plan, *, source_path, session_dir, **kw):
+        playlist = Path(session_dir) / "index.m3u8"
+        return TranscodeCommand(
+            argv=["python3", "-c", FAKE_FFMPEG, str(playlist)],
+            playlist_path=playlist,
+            init_path=Path(session_dir) / "init.mp4",
+        )
+
+    monkeypatch.setattr(session_mod, "build_hls_command", fake_build)
+    assert start_session(client, too_high)["source"]["bit_rate"] == title_rate
+
+
 def test_stored_dolby_vision_files_get_their_profile_backfilled(client, tmp_path, monkeypatch):
     """dv_profile 是后加的列：存量杜比视界文件启动后补记（只读文件头），读不出的留空、不乱填"""
     from movieclaw_api.services.library import dolby_vision_backfill as backfill
@@ -1496,6 +1918,57 @@ def test_pgs_subtitle_served_as_binary_sup(client, tmp_path, monkeypatch):
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("application/octet-stream")
     assert resp.content == raw
+
+
+def test_disc_pgs_subtitle_is_extracted_from_the_main_playlist(client, tmp_path, monkeypatch):
+    """原盘的台账路径是目录：字幕接口曾直接 404，网页上默认选中 PGS 时静默没字幕。"""
+    raw = b"PG" + bytes(range(256)) * 4
+    disc = tmp_path / "某原盘" / "BDMV"
+    (disc / "STREAM").mkdir(parents=True)
+    (disc / "STREAM" / "00001.m2ts").write_bytes(b"m2ts")
+    file_id = seed(client, tmp_path)
+
+    async def to_disc() -> None:
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            row.file_path = str(disc.parent)
+            row.container = "bluray"
+            row.subtitle_streams = [{"codec": "hdmv_pgs_subtitle"}]
+            row.disc_playlist = {
+                "version": DISC_PLAYLIST_VERSION,
+                "name": "00001.mpls",
+                "clips": [{"id": "00001", "in": 0, "out": 45_000 * 60}],
+            }
+            await session.commit()
+
+    client.portal.call(to_disc)
+    inputs: list[str] = []
+
+    class Done:
+        pid = None
+        returncode = 0
+
+        async def communicate(self):
+            return b"", b""
+
+    async def fake_exec(*argv, **_kwargs):
+        inputs.append(Path(argv[argv.index("-i") + 1]).read_text(encoding="utf-8"))
+        Path(argv[-1]).write_bytes(raw)
+        return Done()
+
+    monkeypatch.setattr(media_extract.shutil, "which", lambda _n: "/fake/ffmpeg")
+    monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(media_extract, "cache_dir", lambda: tmp_path / "subs-cache")
+    token = client.portal.call(
+        partial(issue_stream_token, member_id=0, file_id=file_id, session_id=None)
+    )
+
+    resp = client.get(f"{_PB}/files/{file_id}/subtitles?track=embedded:0&token={token}")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("application/octet-stream")
+    assert resp.content == raw
+    assert f"file '{disc}/STREAM/00001.m2ts'" in inputs[0]
 
 
 @pytest.mark.asyncio

@@ -43,6 +43,12 @@ if os.environ.get("E2E_I18N_ARTWORK") == "1":
     # Only this isolated HTTP fixture may use a loopback address and random port.
     ImageProxy._validated_host = _fixture_image_host
 
+if os.environ.get("E2E_NO_HW_TRANSCODE") == "1":
+    # 硬件自检结论写成「没有显卡」：跑在带 VideoToolbox 的 Mac 上也走无显卡的路
+    from movieclaw_api.services.playback import hwprobe
+
+    hwprobe._cache = []
+
 import uvicorn  # noqa: E402
 
 import movieclaw_api.services.library.ingest as ingest_mod  # noqa: E402

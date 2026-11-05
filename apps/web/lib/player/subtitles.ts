@@ -4,14 +4,15 @@ import { requestLocale, type AppLocale } from "../i18n/negotiate.ts";
 /**
  * 字幕轨规划：服务端给的 SubtitlePlan → 前端真能渲染的选项（§6.2）。
  *
- * 字幕**永远旁挂、绝不烧录**（硬边界 1）——烧录会把任何档位瞬间拖进全转码。
- * 因此这里只做"用哪条渲染路径"的分派：
+ * 字幕默认**旁挂、不烧录**（硬边界 1）——烧录会把任何档位瞬间拖进全转码，最高 1080p、
+ * HDR 变 SDR。烧录只在用户显式要求时才发生。
+ * 这里只做"用哪条渲染路径"的分派：
  *
  * | 类型 | 路径 |
  * |---|---|
  * | SRT / mov_text | 服务端转 VTT，`<track>` 原生渲染 |
  * | ASS / SSA | 原样下发 + JASSUB（libass WASM），保留特效与排版 |
- * | PGS | 位图轨，P0 不渲染 |
+ * | PGS | 服务端抽 .sup，libbitsub 画在 canvas 上 |
  *
  * 外挂与内封轨一视同仁：内封轨由服务端按需 ffmpeg 抽出来再下发（首次要通读
  * 整个容器，之后走缓存）。PT 片源的字幕绝大多数是内封的，只服务外挂等于对
@@ -21,7 +22,7 @@ import { requestLocale, type AppLocale } from "../i18n/negotiate.ts";
  * 用户点了没反应会以为播放器坏了。
  */
 
-import type { SubtitlePlan } from "@/lib/api/playback";
+import type { PlaybackDecision, SubtitlePlan } from "@/lib/api/playback";
 // 相对路径而不是 @/ 别名：本模块进 node --test，而 Node 的类型擦除只会抹掉
 // `import type`，值导入会照原样解析——别名在测试进程里没有解析器。
 import { languageLabel } from "../language-labels.ts";
@@ -155,6 +156,56 @@ export function pickInitialSubtitle(
   if (remembered === "off") return null;
   if (remembered && options.some((o) => o.ref === remembered)) return remembered;
   return options.find((o) => o.isDefault)?.ref ?? null;
+}
+
+/** 软件转码档（decide.py 的 PlaybackTier.SOFTWARE_TRANSCODE） */
+const SOFTWARE_TRANSCODE_TIER = 4;
+
+/**
+ * 用户要压制字幕时，试算（/decide）结果决定下一步：
+ *
+ * - `start`：有硬件能压制，菜单里已写明代价，直接开始；
+ * - `confirm`：只能软件转码，4K 很可能跟不上，先问一句（全局软转开关同意的不是这一次的代价）；
+ * - `consent`：要软件转码而开关没开；
+ * - `unavailable`：压制不了。服务端已撤掉烧录（计划里没有 burn_subtitle），比如 HDR 片
+ *   只有 VAAPI / QSV：烧录用不了显卡，软件色调映射又是幻灯片。
+ */
+export type BurnStep = "start" | "confirm" | "consent" | "unavailable";
+
+export function burnStepFor(decision: PlaybackDecision, ref: string): BurnStep {
+  if (decision.outcome === "consent") return "consent";
+  if (decision.outcome !== "plan" || decision.video?.burn_subtitle !== ref) return "unavailable";
+  return decision.tier === SOFTWARE_TRANSCODE_TIER ? "confirm" : "start";
+}
+
+/** 字幕请求没等到结果（见 fetchSupBytes）之后，隔多久再接着等。 */
+export const SUP_RETRY_MS = 3000;
+
+/**
+ * 取 PGS 轨的 .sup 字节，等到拿到或确定拿不到为止；中止只能靠 `signal`。
+ *
+ * 服务端首次要通读整个容器（原盘是分钟级），这个请求可能挂很久。Safari 约 60 秒就放弃等待，
+ * 外层反代也常常几十秒就掐断（504），这些都只是这一个请求没等到：服务端还在读（等待者走了
+ * 也留一段宽限，见 media_extract），再发一次接着等就行。4xx（轨不存在、服务端判定抽不出来）
+ * 才是真的拿不到。
+ */
+export async function fetchSupBytes(
+  url: string,
+  signal: AbortSignal,
+  retryMs: number = SUP_RETRY_MS,
+): Promise<ArrayBuffer> {
+  for (;;) {
+    let status = 0;
+    try {
+      const response = await fetch(url, { signal });
+      status = response.status;
+      if (response.ok) return await response.arrayBuffer();
+    } catch (error) {
+      if (signal.aborted) throw error;
+    }
+    if (status >= 400 && status < 500) throw new Error(`Subtitle request failed: HTTP ${status}`);
+    await new Promise((resolve) => setTimeout(resolve, retryMs));
+  }
 }
 
 /**

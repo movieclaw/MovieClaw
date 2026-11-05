@@ -131517,6 +131517,30 @@
         }
       }
     },
+    "library.item.airSubscribeSetup": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次订阅要先在手机或网页上完成智能设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次订阅要先在手机或网页上完成智能设置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish setting up smart selection on your phone or the web first."
+          }
+        }
+      }
+    },
     "library.item.airSource": {
       "extractionState": "manual",
       "generatesSymbol": true,

@@ -1320,6 +1320,13 @@ class EpisodeView(BaseModel):
     progress_percent: int | None = Field(
         default=None, description="观看进度 1~99；已看完由 played 表达，不给百分比"
     )
+    site_season_note: str | None = Field(
+        default=None,
+        description=(
+            "该集起点处的站点季号说明（issue #1155）：站点把 TMDB 的一季拆成两季"
+            "发布时，在这一集之前渲染一行小字解释；只有每块的首集有值，普通剧恒为 null"
+        ),
+    )
 
 
 class EpisodeArrivalView(BaseModel):
@@ -1746,6 +1753,9 @@ class DeleteCloudView(BaseModel):
     files: int = Field(description="要删的网盘文件数")
     bytes: int = Field(description="这些文件的大小")
     recycle_bin: bool = Field(description="网盘有回收站：删的是进网盘回收站，还能在网盘里还原")
+    read_only: bool | None = Field(
+        default=None, description="文件在只读的后端上：这次删除会被拒绝，要到对方那里删"
+    )
 
 
 class ItemDeletePreviewView(BaseModel):

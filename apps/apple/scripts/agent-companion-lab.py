@@ -174,6 +174,27 @@ def seed_scroll_fixture(root):
             )
 
 
+def seed_preview_fixture(root):
+    """长按预览验收：普通整气泡与超过 1500 字的分截气泡。"""
+    from movieclaw_api.services.agent_sessions import AgentSessionStore
+    from movieclaw_llm import ChatMessage
+
+    store = AgentSessionStore(root / "data/sessions")
+    for name, count in [("whole", 3), ("split", 14)]:
+        session_id = "preview-" + name
+        store.create(session_id)
+        store.append(
+            session_id, ChatMessage(role="user", content="Recommend films with headings and a list")
+        )
+        text = "\n\n".join(
+            f"## Recommendation {index + 1}\n\n"
+            + "A quiet film with warm characters, thoughtful photography and a gentle story. " * 3
+            + "\n\n- A warm and peaceful story\n- Beautiful scenery\n- Watch this weekend"
+            for index in range(count)
+        )
+        store.append(session_id, ChatMessage(role="assistant", content=text), finish_reason="stop")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=18831)
@@ -182,6 +203,7 @@ def main():
     parser.add_argument(
         "--keyboard-fixture", action="store_true", help="额外创建 100KB 以上的单条 Markdown 回复"
     )
+    parser.add_argument("--preview-fixture", action="store_true")
     args = parser.parse_args()
     if args.model:
         import uvicorn
@@ -191,6 +213,8 @@ def main():
 
     root = Path(tempfile.mkdtemp(prefix="movieclaw-moon-"))
     (root / "data").mkdir()
+    if args.preview_fixture:
+        seed_preview_fixture(root)
     if args.scroll_fixture:
         seed_scroll_fixture(root)
     if args.keyboard_fixture:

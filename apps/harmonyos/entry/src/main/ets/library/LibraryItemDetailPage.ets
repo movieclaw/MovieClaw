@@ -183,6 +183,8 @@ export struct LibraryItemDetailPage {
   @State private episodes: SeasonEpisodesView | null = null;
   /** 集列表拉失败：与「加载中」分开，否则失败会一直转圈（对应 iOS SeasonEpisodesSection 的 failed） */
   @State private episodesFailed: boolean = false;
+  /** 集列表数据代数：每次替换 episodes 自增。ForEach 同键不重建，季内刷新/慢换季时数据换了键不变，行会一直停在旧渲染 */
+  @State private episodesSeq: number = 0;
   @State private season: number = 1;
   /** 选中的集（剧集才有；电影恒为 null） */
   @State private selectedEpisode: EpisodeView | null = null;
@@ -832,6 +834,7 @@ export struct LibraryItemDetailPage {
         return;
       }
       this.episodes = view;
+      this.episodesSeq += 1;
       this.episodesFailed = false;
       this.pickEpisode(view, previousAnchor);
     } catch (error) {
@@ -844,6 +847,7 @@ export struct LibraryItemDetailPage {
         // 播出日历不画（issue #547：离线模式不显示；存档里的排期也是旧的）
         local.air_schedule = null;
         this.episodes = OfflineStore.shared.offlineSeason(local, mediaItemId);
+        this.episodesSeq += 1;
         this.episodesFailed = false;
         this.pickEpisode(this.episodes as SeasonEpisodesView, previousAnchor);
         return;
@@ -2146,7 +2150,7 @@ export struct LibraryItemDetailPage {
         Column({ space: 2 }) {
           ForEach(this.shownEpisodes(), (episode: EpisodeView) => {
             this.EpisodeRow(episode)
-          }, (episode: EpisodeView) => `${episode.episode_number}`)
+          }, (episode: EpisodeView) => `${this.season}-${episode.episode_number}-${this.episodesSeq}`)
         }
         .width('100%')
       }
@@ -2184,6 +2188,8 @@ export struct LibraryItemDetailPage {
       EpisodeGridSheet({
         episodes: this.episodes.episodes,
         ranges: this.episodeRanges(),
+        season: this.season,
+        seq: this.episodesSeq,
         anchor: this.currentAnchorNumber(),
         selectedNumber: this.selectedEpisode === null ? -1 : (this.selectedEpisode as EpisodeView).episode_number,
         onPick: (episodeNumber: number): void => {
@@ -3002,6 +3008,10 @@ class FileSpecRow {
 struct EpisodeGridSheet {
   @Prop episodes: EpisodeView[] = [];
   @Prop ranges: EpisodeRange[] = [];
+  /** 季号：宫格键要带它，换季后旧键不复用（ForEach 同键不重渲染） */
+  @Prop season: number = 1;
+  /** 集列表数据代数：季内刷新数据换了也要换键，否则宫格停在旧渲染 */
+  @Prop seq: number = 0;
   /** 锚点集号（-1 = 没有） */
   @Prop anchor: number = -1;
   /** 选中的集号（-1 = 没有） */
@@ -3084,7 +3094,7 @@ struct EpisodeGridSheet {
             GridItem() {
               this.GridCell(episode)
             }
-          }, (episode: EpisodeView) => `${episode.episode_number}`)
+          }, (episode: EpisodeView) => `${this.season}-${episode.episode_number}-${this.seq}`)
         }
         .columnsTemplate('1fr 1fr 1fr 1fr 1fr')
         .columnsGap(8)

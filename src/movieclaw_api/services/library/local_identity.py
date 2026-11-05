@@ -166,7 +166,8 @@ def build_local_identity(
                 "character": actor.role or "",
                 "order": index,
                 "profile_path": None,
-                "thumb": actor.thumb,
+                # 与吸收路径（nfo_absorb._merge_cast）同一个键：详情页只读 nfo_thumb
+                "nfo_thumb": actor.thumb or None,
                 "tmdb_person_id": actor.tmdb_person_id,
             }
             for index, actor in enumerate(nfo.actors)

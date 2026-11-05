@@ -253,8 +253,8 @@
     "sortDuplicate": "The sort order contains duplicate library IDs",
     "sortListChanged": "The sort list must contain every library ID exactly once. The library list may have changed; refresh and try again.",
     "scrapeOverridesInvalid": "Invalid library metadata settings: {detail}",
-    "rootOverlapsWatch": "The root path overlaps an import watch source: {root} ↔ {source}. Adjust Import watch settings first.",
-    "rootOverlapsTarget": "The root path overlaps an import watch custom directory: {root} ↔ {target}. Adjust Import watch settings first.",
+    "rootOverlapsWatch": "The root path overlaps an import watch source: {root} ↔ {source}. Adjust Automatic import settings first.",
+    "rootOverlapsTarget": "The root path overlaps an import watch custom directory: {root} ↔ {target}. Adjust Automatic import settings first.",
     "rootOverlapsLibrary": "The root path overlaps library \"{name}\": {root} ↔ {other}. A directory can belong to only one library. To merge \"{sourceName}\", use Bulk transfer first (mclaw library items transfer '<source-library>' --all --to '<target-library>'), delete the source library after it is empty, then use Merge root paths (mclaw library consolidate-roots '<target-library>' --into '<parent-directory>').",
     "localOrganizeUnsupported": "Library \"{name}\" contains local content. Its files keep their original names, so standard naming does not apply.",
     "kindUnsupported": "Unsupported library type: {kind}",
@@ -732,6 +732,7 @@
     "fileUnavailable": "Cloud storage couldn’t provide this file: {reason}",
     "streamFailed": "Streaming from cloud storage failed: {reason}",
     "deleteFailed": "The file in cloud storage wasn’t deleted: {reason}",
+    "readOnly": "Files on {name} are read-only and can’t be deleted from here. Delete them in {name}; they’ll disappear here after the next sync.",
     "partSizeInvalid": "The provider returned an invalid part size ({size} bytes)",
     "rangeInvalid": "The provider requested an invalid byte range to verify ({range})"
   },

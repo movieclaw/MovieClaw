@@ -331,6 +331,7 @@
       "downloadImported": "手动下载已入库",
       "libraryFilesAdded": "媒体库新入账了文件",
       "libraryFileLocalReleased": "库文件的本地副本已腾空（已在网盘上）",
+      "librarySegmentsUpdated": "片头片尾的识别结果更新了",
       "libraryItemFavorited": "收藏",
       "libraryItemUnfavorited": "取消收藏",
       "libraryItemViewed": "打开条目详情",

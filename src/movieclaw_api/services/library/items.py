@@ -430,6 +430,10 @@ class LibraryFilter:
     #: 一个库几百个系列，下拉根本没法用，合集才是它正确的呈现形态。它存在是
     #: 因为系列合集就是一条规则驱动的合集，规则正是「series_key = X」
     series_keys: tuple[str, ...] = ()
+    #: 演员名（``media_metadata.cast[].name``）。本地/NFO 库没有影人页，详情页点演员
+    #: 落到这里看「同库里他的其他作品」；与 nfo_absorb._merge_cast 同名回填同一口径：
+    #: 去首尾空白后整名相等（ASCII 不分大小写），不做子串匹配
+    actor: str | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -445,6 +449,7 @@ class LibraryFilter:
             or self.hdr is not None
             or self.stock
             or self.series_keys
+            or self.actor
         )
 
 
@@ -605,6 +610,15 @@ def _filter_subquery(
         conds.append(clause if filters.hdr else not_(clause))
     if filters.series_keys and skip != "series_keys":
         conds.append(MediaMetadata.series_key.in_(filters.series_keys))
+    if filters.actor and skip != "actor":
+        each = func.json_each(MediaMetadata.cast).table_valued("value")
+        name = func.json_extract(each.c.value, "$.name")
+        conds.append(
+            select(1)
+            .select_from(each)
+            .where(func.lower(func.trim(name)) == func.lower(filters.actor.strip()))
+            .exists()
+        )
     if filters.stock and skip != "stock":
         spans = []
         if "missing" in filters.stock:
@@ -2736,6 +2750,10 @@ class EpisodeInfo:
     played: bool = False
     progress_percent: int | None = None  # 1~99；完成态由 played 单独表达
     last_played_at: datetime | None = None  # 只供 season_resume_episode 定锚点，不出接口
+    # 该集起点处的站点季号说明（issue #1155，只有该块的首集非空）：
+    # "站点按第 2 季发布，已自动归入本季"。前端在这一集之前渲染一行小字，
+    # 解释"为什么 25 集都在第一季"
+    site_season_note: str | None = None
 
 
 def season_resume_episode(infos: list[EpisodeInfo]) -> int | None:
@@ -2773,6 +2791,7 @@ def episode_view(info: EpisodeInfo) -> EpisodeView:
         position_ms=info.position_ms,
         played=info.played,
         progress_percent=info.progress_percent,
+        site_season_note=info.site_season_note,
     )
 
 
@@ -2909,6 +2928,8 @@ async def build_season_episodes(
 
             asyncio.get_running_loop().create_task(scrape_media_item(item.id))
 
+    _annotate_site_seasons(item, season_number, infos)
+
     if member_id is not None and item.id is not None:
         from movieclaw_playback import state as playback_state
 
@@ -2937,6 +2958,38 @@ async def build_season_episodes(
                         1, min(99, round(row.position_ms * 100 / duration_ms))
                     )
     return infos
+
+
+def _annotate_site_seasons(
+    item: MediaItem, season_number: int, infos: list[EpisodeInfo]
+) -> None:
+    """在每块的起始集上挂一行「站点按第 N 季发布」的说明（issue #1155）。
+
+    站点把 TMDB 的一季拆成两季发布时，25 集全在 ``Season 01/`` 下，用户看到
+    第 13 集突然出现会以为是错的；这一行小字负责解释。只在**块的首集**挂，
+    一条说明管一整段，不给每一集都加。没有映射（普通剧）时什么也不做。
+    """
+    from movieclaw_matcher.seasons import mapping_from_json
+
+    blocks = [
+        block
+        for block in mapping_from_json(item.season_mapping).blocks
+        if block.season == season_number and block.site_season != season_number
+    ]
+    if not blocks:
+        return
+    by_episode = {info.episode_number: info for info in infos}
+    for block in blocks:
+        info = by_episode.get(block.start)
+        if info is None:
+            continue
+        # t() 按当前请求的语言渲染：这是纯展示文案，与活动流水里的留存副本不同
+        info.site_season_note = t(
+            "library.episodes.siteSeasonNote",
+            site_season=block.site_season,
+            start=block.start,
+            end=block.end,
+        )
 
 
 async def _fill_from_tmdb_season(
@@ -2999,7 +3052,8 @@ async def _db_meta(session: AsyncSession, item: MediaItem) -> EntryMetadata | No
     def _thumb(actor: dict) -> str | None:
         # NFO 自带的非 TMDB 头像地址原样给（吸收时存下，见 nfo_absorb._merge_cast）；
         # TMDB 头像（含 NFO 里的 TMDB 地址）本地有就给本地，断网可用，否则图床兜底
-        nfo = actor.get("nfo_thumb")
+        # 旧版本地库扫描把 NFO 头像存在 ``thumb`` 键下，没重读过的老档案照样认
+        nfo = actor.get("nfo_thumb") or actor.get("thumb")
         if nfo and profile_path_of(nfo) is None:
             return str(nfo)
         return avatar_url(profile_path_of(nfo) or actor.get("profile_path"))
@@ -3088,6 +3142,26 @@ async def _tmdb_fallback_meta(session: AsyncSession, item: MediaItem) -> EntryMe
     return meta if meta.has_content() else None
 
 
+def reset_probed_spec(row: LibraryFile) -> None:
+    """主片换了：旧规格说的是另一段视频，退回「未探测」。
+
+    补探只补空值，不清掉就换不过来。探测失败时这一行留在未探测，由定期对账带退避重试，
+    总好过一直挂着另一段视频的分辨率和音轨。
+    """
+    row.resolution = None
+    row.video_codec = None
+    row.hdr = None
+    row.dv_profile = None
+    row.dv_bl_compatible = None
+    row.bit_depth = None
+    row.bit_rate = None
+    row.frame_rate = None
+    row.color_space = None
+    row.probe_version = None
+    row.audio_streams = None
+    row.subtitle_streams = None
+
+
 async def backfill_streams(
     session: AsyncSession,
     files: list[LibraryFile],
@@ -3100,13 +3174,15 @@ async def backfill_streams(
 
     这是「ffprobe 后装」和「旧 BDMV 尚未读取 CLPI」的统一补救路径——扫描对
     已识别且在位的行整体秒过，不会在主循环回头重探。**只由扫描的补探阶段
-    调用**（有进度与停止按钮的后台任务，慢没关系，半途而废才是问题），用
+    调用**（有进度与停止按钮的后台任务，慢没关系，半途而废才是问题；另有启动后
+    台的主片自愈，``library/disc_main_playlists.py``），用
     ``on_processed`` 汇报进度——无论最终是否需要 ffprobe，每检查完一个
     候选都回调一次，返回 False 即收尾（用户点了停止）。详情页曾经也会
     限量触发补探，已移除：浏览不碰媒体文件本体（云盘挂载上 ffprobe 读文件
     就是流量与延迟），未探测的行由前端提示用户重新扫描补齐。
 
-    探测失败的行保持原值、下次再试：失败常常是暂时的（挂载还没就绪）。
+    探测失败的行保持原值、下次再试：失败常常是暂时的（挂载还没就绪）。主片换了的
+    行例外：旧值说的是另一段视频，已退回未探测（``reset_probed_spec``）。
     失败会记入 media_probe 的失败记忆（进程内、翻倍退避）：退避未到点的行
     本轮直接跳过，坏文件不再让每轮手动扫描都全额付一次 30 秒超时。
     BDMV 已有流但缺 CLPI 版本戳时先读对应 CLPI；只有 CLPI 有效才重探 m2ts，
@@ -3174,18 +3250,43 @@ async def backfill_streams(
         path = Path(row.file_path)
         if needs_disc:
             playlist = await asyncio.to_thread(read_main_playlist, path)
+            old = row.disc_playlist if isinstance(row.disc_playlist, dict) else {}
+            old_clips = old.get("clips")
             if playlist is not None and playlist.duration_seconds > 0:
-                # 时长按主播放列表**覆盖**而不是补空：旧行可能记着诱饵列表的虚高时长
-                row.disc_playlist = disc_playlist_record(playlist)
-                row.duration_seconds = playlist.duration_seconds
-                row.chapters = playlist.chapters()
+                record = disc_playlist_record(playlist)
+                row.disc_playlist = record
+                if record["clips"] == old_clips:
+                    # 清单只是版本落后（选主片的规则改过），这张盘的主片没换：只换版本号
+                    needs_disc = False
+                else:
+                    if old_clips:
+                        reset_probed_spec(row)
+                    # 时长按主播放列表**覆盖**而不是补空：旧行可能记着诱饵列表的虚高时长
+                    row.duration_seconds = playlist.duration_seconds
+                    row.chapters = playlist.chapters()
+                    row.updated_at = utcnow()
+            elif old_clips:
+                # 旧清单是好的，这次读不出（挂载抖动、盘被挪走）：留着下次再试，写哨兵就丢了
+                if not await keep_going():
+                    break
+                continue
             else:
                 # 读不出主播放列表（残缺盘）：写"读过但没有"的哨兵，下轮不再重读；
                 # 播放时 disc_source 见到空清单会再试一次读盘（盘补齐后自愈）。
                 # 没有主播放列表就没有"主片换了"的理由，不为此强制重读 m2ts
                 row.disc_playlist = disc_playlist_record(None)
                 needs_disc = False
-            row.updated_at = utcnow()
+                row.updated_at = utcnow()
+            if (
+                row.audio_streams is not None
+                and not needs_clpi
+                and not needs_disc
+                and not needs_visual_details
+                and not needs_image
+            ):
+                if not await keep_going():
+                    break
+                continue
         target = disc_main_stream(path) if row.container in ("bluray", "dvd") else path
         if target is None or not await asyncio.to_thread(target.exists):
             if not await keep_going():

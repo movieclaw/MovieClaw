@@ -948,7 +948,7 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                         await session.delete(file)  # 文件早没了：行删掉与磁盘一致
                     elif outcome == "moved_to_trash":
                         trash_paths.append(file.file_path)
-                    else:
+                    elif outcome == "kept_in_place":
                         kept_in_place += 1  # 移动失败降级：原地待回收，照常倒计时
             await session.commit()
             if item is not None:

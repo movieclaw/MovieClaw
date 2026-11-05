@@ -46,7 +46,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 |---|---|
 | 某件事发生后自动做点什么：下载完成、入库完成、删片 / 删文件 / 回收站、订阅新建 / 删除 / 开始下载 / 收齐 / 状态变化 | 可靠事件 |
 | 改变系统的判断：订阅搜索词、淘汰或重排候选种子、选下载器、否决删种、网盘挂载文件给播放器换直链（302） | 决策钩子 |
-| 加一种新实现：IM 通道（含只推送的，如 Bark）、下载器（Deluge、Aria2……）、网盘（115、123……：登录、取流、纳管、上传、删除）、站点类 / 站点数据包、定时任务（可整段替换内置的）、后台任务、入库流水线步骤 | 注册表 |
+| 加一种新实现：IM 通道（含只推送的，如 Bark）、下载器（Deluge、Aria2……）、网盘（115、123……：登录、取流、纳管、上传、删除）、媒体服务器（Emby、Plex……：按只读网盘接）、站点类 / 站点数据包、定时任务（可整段替换内置的）、后台任务、入库流水线步骤 | 注册表 |
 | 删影片 / 删文件的弹窗里加一个「顺带清理」的勾选项（默认不勾，先预览后果，勾了才执行） | 注册表 `library.delete-participants` |
 | 给 AI 助手加一个能力（查天气、查某个外部服务）、给外部系统开接口 | 插件接口：自动成为 mclaw 命令，AI 助手直接能调 |
 | 用户自己的页面（看板、统计、片单、管理页），出现在网页左侧栏 | 插件网页：`web/` 里一个普通网页，同源调接口（`references/web-pages.md`） |
@@ -95,7 +95,8 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 |---|---|
 | 任何插件 | `references/extension-points.md`（确认要用的契约存在、没落在「做不到」里）、`templates/starter/` |
 | 事件 / 钩子类（删片联动、关键字规则、选下载器） | `references/recipes.md` 第 1～3 节，对应示例 `references/examples/{delete_cascade,keyword_rules}.py` |
-| 网盘（接一家网盘做媒体库的存储） | `references/recipes.md` 第 18 节（**先看登录方式与能写的限制**）、`$SRC/movieclaw_sdk/drives.py` 文件头（契约与骨架）；完整的真实插件是插件仓库的 `plugins/cloud-115/`（<https://github.com/movieclaw/movieclaw-plugins>，带第三方依赖，见 `references/manifest.md`「第三方依赖」） |
+| 媒体服务器（Emby、Plex、飞牛：把对方的片库接进来、同步进度） | `references/recipes.md` 第 19 节（**先问片库文件这边看不看得到**；不写台账、不读写主程序的表） |
+| 网盘（接一家网盘做媒体库的存储） | `references/recipes.md` 第 18 节（**先看登录方式**）、`$SRC/movieclaw_sdk/drives.py` 文件头（契约与骨架）；完整的真实插件是插件仓库的 `plugins/cloud-115/`（<https://github.com/movieclaw/movieclaw-plugins>，带第三方依赖，见 `references/manifest.md`「第三方依赖」） |
 | 下载器（接一款新的下载软件） | `$SRC/movieclaw_sdk/downloaders.py` 文件头（骨架、连接参数只能取 url / username / password）、随带的 `$SRC/movieclaw_plugins/qbittorrent/`、`transmission/` |
 | 删除弹窗加勾选项 | `references/extension-points.md` 的 `library.delete-participants`、`$SRC/movieclaw_api/services/library/delete_participants.py` 文件头、内置参与方 `$SRC/movieclaw_api/services/remove_source.py` |
 | IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头；只推送的通道再看 `$SRC/movieclaw_plugins/feishu/`；靠平台回调收消息的看 `references/examples/wecom-channel/` |

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  burnStepFor,
   clampSubtitleOffset,
+  fetchSupBytes,
   pickInitialSubtitle,
   plainCueText,
   planSubtitleTracks,
@@ -120,6 +122,27 @@ test("时间轴微调钳到 ±30 秒并去掉浮点毛刺", () => {
   assert.equal(clampSubtitleOffset(-99), -30);
 });
 
+test("PGS 和其它轨一样：默认轨和记住的轨都选得上", () => {
+  const { options } = planSubtitleTracks(
+    [plan("embedded:0", "pgs", { is_default: true }), plan("embedded:1", "pgs")],
+    ["/a", "/b"],
+  );
+  assert.equal(pickInitialSubtitle(options, null), "embedded:0");
+  assert.equal(pickInitialSubtitle(options, "embedded:1"), "embedded:1");
+});
+
+test("压制前的试算决定下一步：有硬件直接开始，只能软转先问代价", () => {
+  const planned = (tier, burned) => ({ outcome: "plan", tier, video: { burn_subtitle: burned } });
+  assert.equal(burnStepFor(planned(3, "embedded:1"), "embedded:1"), "start");
+  assert.equal(burnStepFor(planned(4, "embedded:1"), "embedded:1"), "confirm");
+  assert.equal(burnStepFor({ outcome: "consent", tier: 4, video: null }, "embedded:1"), "consent");
+  // 服务端撤掉了烧录：HDR 片只有 VAAPI / QSV，片子照放，只是压制不了
+  assert.equal(burnStepFor(planned(1, null), "embedded:1"), "unavailable");
+  // 烧的不是这条（换了版本文件）也不能当成功
+  assert.equal(burnStepFor(planned(3, "embedded:0"), "embedded:1"), "unavailable");
+  assert.equal(burnStepFor({ outcome: "rejected", tier: null, video: null }, "embedded:1"), "unavailable");
+});
+
 test("快捷键按 YouTube 惯例，输入框里一律不接管", () => {
   const press = (key, extra = {}) =>
     resolveShortcut({ key, inEditable: false, ...extra });
@@ -212,4 +235,46 @@ test("大量同名字幕和中间缺地址仍按引用选轨，不串位", () =>
   assert.equal(options.find((option) => option.ref === "embedded:18").url, "/sub?track=18&format=vtt");
   assert.equal(options.at(-1).detail, "中文 · WebVTT · 内封轨 200");
   assert.equal(pickInitialSubtitle(options, "embedded:199"), "embedded:199");
+});
+
+
+function stubFetch(t, answers) {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, signal: init.signal });
+    init.signal.throwIfAborted();
+    const answer = answers.shift();
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
+  t.after(() => { globalThis.fetch = original; });
+  return calls;
+}
+
+test("PGS 字节：浏览器或反代等不及断开时接着等，直到拿到", async (t) => {
+  const bytes = new Uint8Array([0x50, 0x47]);
+  const calls = stubFetch(t, [
+    new TypeError("Load failed"), // Safari 等了 60 秒放弃
+    new Response("", { status: 504 }), // 外层反代掐断
+    new Response(bytes),
+  ]);
+  const data = await fetchSupBytes("/sub?track=0", new AbortController().signal, 1);
+  assert.deepEqual(new Uint8Array(data), bytes);
+  assert.equal(calls.length, 3);
+});
+
+test("PGS 字节：4xx 是真的拿不到，不再反复问", async (t) => {
+  const calls = stubFetch(t, [new Response("", { status: 404 })]);
+  await assert.rejects(fetchSupBytes("/sub", new AbortController().signal, 1), /404/);
+  assert.equal(calls.length, 1);
+});
+
+test("PGS 字节：换轨、关字幕就中止，请求和重试都停", async (t) => {
+  const calls = stubFetch(t, [new TypeError("Load failed"), new Response("never")]);
+  const abort = new AbortController();
+  const pending = fetchSupBytes("/sub", abort.signal, 1);
+  abort.abort();
+  await assert.rejects(pending);
+  assert.equal(calls.length, 1, "中止之后不该再发请求");
 });

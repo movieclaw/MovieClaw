@@ -76,6 +76,16 @@ class DiscClip:
     def duration_s(self) -> float:
         return max(0, self.out_time - self.in_time) / MPLS_CLOCK_HZ
 
+    @property
+    def size_bytes(self) -> int:
+        """这段要读的字节数（估通读耗时用）；文件 stat 不到算 0。"""
+        if self.byte_ranges is not None:
+            return sum(end - start for start, end in self.byte_ranges)
+        try:
+            return self.path.stat().st_size
+        except OSError:
+            return 0
+
 
 @dataclass(frozen=True)
 class DiscSource:
@@ -88,10 +98,24 @@ class DiscSource:
     clpi: dict[str, bytes] | None = None
     #: 光盘镜像来源："bluray" / "dvd"；None = 原盘目录
     image: str | None = None
+    #: 蓝光镜像只比时长会选哪条列表：旧规则就是这么选的，存量台账的规格按它探测。与
+    #: ``playlist_name`` 不同说明这张盘的台账要重探（``library/disc_main_playlists.py``）
+    longest_playlist_name: str | None = None
 
     @property
     def duration_s(self) -> float:
         return sum(clip.duration_s for clip in self.clips)
+
+    @property
+    def bit_rate(self) -> int | None:
+        """光盘镜像正片的平均码率（bps）：正片在镜像上的字节 ÷ 正片时长。
+
+        只算正片：镜像里还有花絮、菜单、别的版本，按整个镜像的大小算，NAS 实测 1080p 蓝光算出
+        121 Mbps（格式上限 48 Mbps，正片实际 38 Mbps）。原盘目录的段没有字节区间，返回 None。
+        """
+        seconds = self.duration_s
+        size = sum(end - start for clip in self.clips for start, end in clip.byte_ranges or ())
+        return round(size * 8 / seconds) if size and seconds > 0 else None
 
     @property
     def single_clip(self) -> DiscClip | None:

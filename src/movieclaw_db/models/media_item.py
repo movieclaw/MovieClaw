@@ -177,6 +177,22 @@ class MediaItem(TimestampMixin, table=True):
         description="刮削归属库；NULL=未定（读取时推断并回填）",
     )
 
+    # -- 站点季号映射（issue #1155）------------------------------------------
+    # TMDB 把实际分两季播出的剧登记成一条连着编号的长季时（《我独自升级》
+    # 一季 25 集、E13 起断档 280 天），站点仍按 S01/S02 拆开发布。由播出
+    # 断档推出的"站点季号 → TMDB 集号区间"映射存这里，形如
+    # ``[{"number": 2, "season": 1, "start": 13, "end": 25}]``。
+    # **条目级属性**（不是订阅级）：同一部剧的多个订阅与库扫描共用同一套编号
+    # 常识——与订阅级的 ``episode_evidence.douban_ref`` 不同，那个是"这次订阅
+    # 从哪个豆瓣条目进来"的历史。
+    # 三态：NULL=没算过、[]=算过且无需映射（普通剧恒为此值）、非空=有映射。
+    # 推导规则见 movieclaw_matcher/seasons.py。
+    season_mapping: list | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="站点季号映射；NULL=没算过，[]=无需映射",
+    )
+
     # -- 元数据刷新台账（仿 SiteSyncCursor 的 tick 模式）--------------------
     metadata_refreshed_at: datetime | None = Field(
         default=None, description="上次成功刷新元数据；NULL=建档后未刷过"

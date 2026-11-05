@@ -71,6 +71,7 @@ async def decide_for_file(
     failed_tiers: frozenset[Tier] = frozenset(),
     preferred_audio: str | None = None,
     preferred_subtitle: str | None = None,
+    burn_requested: bool = False,
     max_height: int | None = None,
     visible_library_ids: set[int] | None = None,
 ) -> PlaybackDecision | None:
@@ -90,6 +91,7 @@ async def decide_for_file(
         failed_tiers=failed_tiers,
         preferred_audio=preferred_audio,
         preferred_subtitle=preferred_subtitle,
+        burn_requested=burn_requested,
         max_height=max_height,
         contexts=await track_contexts(session, [file]),
     )
@@ -103,6 +105,7 @@ async def decide_for_files(
     failed_tiers: frozenset[Tier] = frozenset(),
     preferred_audio: str | None = None,
     preferred_subtitle: str | None = None,
+    burn_requested: bool = False,
     max_height: int | None = None,
     contexts: dict[int, TrackContext] | None = None,
 ) -> PlaybackDecision | None:
@@ -162,6 +165,7 @@ async def decide_for_files(
             failed_tiers=failed_tiers,
             preferred_audio=preferred_audio,
             preferred_subtitle=preferred_subtitle,
+            burn_requested=burn_requested,
             max_height=max_height,
         ):
             probe_started = time.perf_counter()
@@ -191,6 +195,7 @@ async def decide_for_files(
                     failed_tiers=failed_tiers,
                     preferred_audio=preferred_audio,
                     preferred_subtitle=preferred_subtitle,
+                    burn_requested=burn_requested,
                     max_height=max_height,
                 ),
                 profile.height,
@@ -447,4 +452,5 @@ def capability_from_request(payload) -> ClientCapability:  # noqa: ANN001
         dolby_vision_record_audit=payload.dolby_vision_record_audit,
         mp4_sample_limit=payload.mp4_sample_limit,
         hevc_transcode=payload.hevc_transcode,
+        pgs_overlay=payload.pgs_overlay,
     )

@@ -2,9 +2,21 @@ package io.movieclaw.core.playback.disc
 
 import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.extractor.DefaultExtractorInput
 import androidx.media3.extractor.DiscardingTrackOutput
+import androidx.media3.extractor.Extractor
+import androidx.media3.extractor.PositionHolder
 import io.movieclaw.core.model.generated.PlaybackBlurayClipView
 import io.movieclaw.core.model.generated.PlaybackBlurayStreamView
+import mockwebserver3.Dispatcher
+import mockwebserver3.MockResponse
+import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
+import okhttp3.OkHttpClient
+import okio.Buffer
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -88,6 +100,74 @@ class BluRayClipExtractorTest {
         val first = video.samples[before]
         assertTrue(first.isKey)
         assertEquals(BluRayClipExtractor.ptsToUs(27_074_250).toDouble(), first.timeUs.toDouble(), 1_000.0)
+    }
+
+    @Test(timeout = 30_000)
+    fun `HTTP direct play discovers tracks then seeks once and preserves every sample`() {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val start = request.headers["Range"]!!.removePrefix("bytes=").removeSuffix("-").toInt()
+                return MockResponse.Builder().code(206)
+                    .addHeader("Content-Range", "bytes $start-${bytes.lastIndex}/${bytes.size}")
+                    .body(Buffer().write(bytes, start, bytes.size - start))
+                    .build()
+            }
+        }
+        server.start()
+        val http = OkHttpClient()
+        val source = M2tsDataSource(OkHttpDataSource.Factory(http).createDataSource())
+        val extractor = extractor()
+        try {
+            val spec = DataSpec.Builder().setUri(server.url("/bluray/0").toString()).build()
+            val out = FakeOutput()
+            extractor.init(out)
+            assertEquals(C.LENGTH_UNSET.toLong(), source.open(spec))
+            val input = DefaultExtractorInput(source, 0, C.LENGTH_UNSET.toLong())
+            val holder = PositionHolder()
+            // 起播先读节目表和首个视频样本，模拟裁剪源随后按入口点定位。
+            while (!out.tracksEnded || out.tracks[0x1011]?.samples.isNullOrEmpty()) {
+                assertEquals(Extractor.RESULT_CONTINUE, extractor.read(input, holder))
+            }
+            source.close()
+
+            val target = BluRayClipExtractor.ptsToUs(27_074_250) + 10_000
+            val position = out.seekMap!!.getSeekPoints(target).first.position
+            val before = out.tracks.mapValues { it.value.samples.size }
+            extractor.seek(position, target)
+            source.open(spec.buildUpon().setPosition(position).build())
+            val seekInput = DefaultExtractorInput(source, position, C.LENGTH_UNSET.toLong())
+            var result = Extractor.RESULT_CONTINUE
+            while (result == Extractor.RESULT_CONTINUE) result = extractor.read(seekInput, holder)
+            assertEquals(Extractor.RESULT_END_OF_INPUT, result)
+
+            // 对照同一剪辑从头解出的样本，检查 Range + 去头 + 真实 TS/音频读取器的完整链路。
+            val expected = extractM2ts(extractor(), bytes)
+            assertEquals(expected.tracks.keys, out.tracks.keys)
+            for ((pid, track) in out.tracks) {
+                val samples = track.samples.drop(before.getValue(pid))
+                assertTrue("seek 后轨 $pid 仍有数据", samples.isNotEmpty())
+                val reference = expected.tracks.getValue(pid)
+                assertEquals(reference.format, track.format)
+                val tail = reference.samples.filter { it.timeUs >= samples.first().timeUs }
+                assertEquals(tail.size, samples.size)
+                samples.zip(tail).forEach { (actual, wanted) ->
+                    assertEquals(wanted.timeUs, actual.timeUs)
+                    assertEquals(wanted.flags, actual.flags)
+                    assertArrayEquals(wanted.data, actual.data)
+                }
+            }
+            assertTrue(out.tracks.getValue(0x1011).samples[before.getValue(0x1011)].isKey)
+            assertEquals("只允许起播和显式 seek 两次请求", 2, server.requestCount)
+            assertEquals("bytes=4-", server.takeRequest().headers["Range"])
+            assertEquals("bytes=${M2tsDataSource.physical(position)}-", server.takeRequest().headers["Range"])
+        } finally {
+            source.close()
+            extractor.release()
+            http.connectionPool.evictAll()
+            http.dispatcher.executorService.shutdown()
+            server.close()
+        }
     }
 
     @Test

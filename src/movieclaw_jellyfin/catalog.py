@@ -31,6 +31,7 @@ from movieclaw_api.services.library.chapters import chapter_image_map, effective
 from movieclaw_api.services.library.thumbs import primary_aspect
 from movieclaw_api.services.playback import trickplay
 from movieclaw_api.services.playback.disc_source import DiscSource, disc_source_for_file
+from movieclaw_api.services.playback.embedded_subs import embedded_subtitle_format
 from movieclaw_db.models import (
     Collection,
     Library,
@@ -56,6 +57,7 @@ from movieclaw_jellyfin.ids import (
     person_guid,
     root_guid,
     season_guid,
+    studio_guid,
 )
 from movieclaw_jellyfin.search import SearchTerm, person_name_matches
 from movieclaw_playback.streaming import container_mime_type, is_strm  # noqa: F401
@@ -1268,7 +1270,7 @@ def _apply_metadata_fields(dto: dict[str, Any], bundle: ItemBundle, options: Dto
     if options.has("Genres"):
         dto["Genres"] = list(meta.genres or [])
     if options.has("Studios"):
-        dto["Studios"] = [{"Name": s} for s in (meta.studios or [])]
+        dto["Studios"] = [{"Name": s, "Id": studio_guid(s)} for s in (meta.studios or [])]
     if options.has("Taglines") and meta.tagline:
         dto["Taglines"] = [meta.tagline]
 
@@ -1398,6 +1400,9 @@ _RESOLUTION_WH = {
     "480p": (720, 480),
 }
 
+# C# 的 DateTime.MinValue：非空日期字段没有值时真 Jellyfin 输出的形态
+_DATETIME_MIN = "0001-01-01T00:00:00.0000000Z"
+
 
 def _apply_chapters(
     dto: dict[str, Any],
@@ -1410,8 +1415,10 @@ def _apply_chapters(
     取单元首文件的有效章节（与 MediaSources[0] / Path 同一个 files[0]）：内嵌
     章节按起点输出；合成章节输出图上那一帧的真实时间（名义起点是算出来的，
     没有比"图上这一帧"更好的定义）。有图才给 ImageTag，客户端据此决定要不要
-    来取 ``/Items/{id}/Images/Chapter/{index}``。``ImagePath`` 省略（偏离⑫：
-    服务器内部路径对客户端无意义）。没有章节输出空列表——真 Jellyfin 同款。
+    来取 ``/Items/{id}/Images/Chapter/{index}``。``ImageDateModified`` 是非空
+    DateTime、官方 SDK 里必填（#1185），恒输出，无图时同真 Jellyfin 写
+    DateTime.MinValue。``ImagePath`` 省略（偏离⑫：服务器内部路径对客户端无意义）。
+    没有章节输出空列表——真 Jellyfin 同款。
 
     文件所在库没开「生成章节」（默认关）时只输出文件自带的内嵌/原盘章节、
     不给 ImageTag：合成章节与场景图都是这个功能的产物，随开关一起收起；真章节
@@ -1434,6 +1441,7 @@ def _apply_chapters(
         row: dict[str, Any] = {
             "StartPositionTicks": start_ms * TICKS_PER_MS,
             "Name": chapter.title or f"第 {chapter.index + 1} 章",
+            "ImageDateModified": _DATETIME_MIN,
         }
         if entry:
             row["ImageTag"] = _asset_tag(str(entry["image"]), f.updated_at)
@@ -1946,6 +1954,14 @@ def _video_range(f: LibraryFile) -> tuple[str, str]:
     return "HDR", "HDR10"
 
 
+def _protocol_bit_rate(f: LibraryFile) -> int | None:
+    """协议里码率是 32 位 int，超范围官方 SDK 解码失败，一个文件就能带崩整页列表（#1185）。
+
+    这种值来自 ffprobe 对 ISO 镜像的误报（实测报过 45 Gbps），本身也不可信，按未知省略。
+    """
+    return f.bit_rate if f.bit_rate and f.bit_rate < 2**31 else None
+
+
 def _resolution_text(f: LibraryFile) -> str:
     if f.resolution:
         return f.resolution.replace("2160p", "4K").replace("4320p", "8K")
@@ -1972,8 +1988,9 @@ def _video_stream(f: LibraryFile, index: int) -> dict[str, Any]:
         stream["Codec"] = codec
     if f.bit_depth:
         stream["BitDepth"] = f.bit_depth
-    if f.bit_rate:
-        stream["BitRate"] = f.bit_rate
+    bit_rate = _protocol_bit_rate(f)
+    if bit_rate:
+        stream["BitRate"] = bit_rate
     if f.resolution:
         # 归一化分辨率标签反推常见宽高（探测层未落 width/height，先给标称值）
         heights = {
@@ -2100,6 +2117,27 @@ def _external_subtitle_stream(entry: dict, index: int, media_dir: Path) -> dict[
     return stream
 
 
+def _with_required_flags(stream: dict[str, Any]) -> dict[str, Any]:
+    """补上 MediaStream 的非空布尔：真 Jellyfin 恒输出，官方 SDK 里缺一个整条响应都
+    解码失败（#1185）。
+
+    探测层没有隔行、听障、原始轨这些事实，给协议默认值；外挂字幕已有的值不覆盖。
+    文本字幕的判定与 PlaybackInfo 下发 DeliveryUrl 同口径（内封轨能抽成 srt/ass）。
+    """
+    is_text = stream["Type"] == "Subtitle" and embedded_subtitle_format(stream.get("Codec")) in (
+        "srt",
+        "ass",
+    )
+    return {
+        "IsInterlaced": False,
+        "IsHearingImpaired": False,
+        "IsOriginal": False,
+        "IsTextSubtitleStream": is_text,
+        "SupportsExternalStream": is_text,
+        **stream,
+    }
+
+
 def media_streams_dto(f: LibraryFile) -> list[dict[str, Any]]:
     """合成流编号是 Jellyfin 方言、唯一产地在本层（jellyfin-subtitle.md §4.1）：
     **外挂字幕置前**（台账数组序），再接 video、audio、内封字幕。此顺序
@@ -2121,7 +2159,7 @@ def media_streams_dto(f: LibraryFile) -> list[dict[str, Any]]:
     for raw in f.subtitle_streams or []:
         streams.append(_subtitle_stream(raw, index))
         index += 1
-    return streams
+    return [_with_required_flags(s) for s in streams]
 
 
 # -- 合成编号 ↔ 中性轨引用（协议层 ↔ 领域层的翻译，§4.1） --------------------
@@ -2248,13 +2286,15 @@ def media_source_dto(f: LibraryFile, *, resolve_strm: bool = False) -> dict[str,
         "MediaAttachments": [],
         "Formats": [],
         "RequiredHttpHeaders": {},
-        "TranscodingSubProtocol": "Http",
+        # 枚举成员就是小写 http/hls；字段无默认值，官方 SDK 收到别的写法直接解码失败（#1185）
+        "TranscodingSubProtocol": "http",
         "HasSegments": False,
     }
     if f.container and not is_strm(f.file_path):
         source["Container"] = f.container
-    if f.bit_rate:
-        source["Bitrate"] = f.bit_rate
+    bit_rate = _protocol_bit_rate(f)
+    if bit_rate:
+        source["Bitrate"] = bit_rate
     if audio_index is not None:
         source["DefaultAudioStreamIndex"] = audio_index
 

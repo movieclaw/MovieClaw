@@ -177,6 +177,7 @@ data class ClientCapabilityIn(
     @SerialName("dolby_vision_record_audit") val dolbyVisionRecordAudit: Boolean? = null,
     @SerialName("mp4_sample_limit") val mp4SampleLimit: Long? = null,
     @SerialName("hevc_transcode") val hevcTranscode: Boolean? = null,
+    @SerialName("pgs_overlay") val pgsOverlay: Boolean? = null,
 )
 
 /**
@@ -600,6 +601,85 @@ data class DirectorView(
 )
 
 /**
+ * 投递路由预检（订阅弹窗选库时的即时提示）。
+ * 与真实投递的三级兜底 + 映射守门同源判定，把"下载完成后能不能进库"
+ * 这个问题在订阅那一刻就回答掉，而不是等投递失败/落点告警才暴露。
+ */
+@Serializable
+data class DispatchPreviewView(
+    /**
+     * 投递路由：监听导入目录 / 直接下载进库 / 下载器默认目录
+     */
+    @SerialName("mode") val mode: String = "",
+    /**
+     * movieclaw 视角的投递基底目录
+     */
+    @SerialName("path") val path: String? = null,
+    /**
+     * 条目目录的完整路径预览（按生效的命名模板渲染）。前端展示「直接下载到 …」时必须用它，不要自己拼「标题 (年份)」——命名模板可全局/按库自定义，自己拼会与真实落点不一致
+     */
+    @SerialName("entry_dir") val entryDir: String? = null,
+    /**
+     * 命中自定义目录规则时的整理落点：下载完成后整理到该目录（不直接入库），文件外部流转回库根后才入账
+     */
+    @SerialName("staging_path") val stagingPath: String? = null,
+    /**
+     * 解析出的目标库（前端预选用）
+     */
+    @SerialName("library_id") val libraryId: Long? = null,
+    @SerialName("library_name") val libraryName: String? = null,
+    @SerialName("downloader_name") val downloaderName: String? = null,
+    /**
+     * 收藏范围路由结论：true=命中声明库 / false=默认库兜底；未走路由为 null
+     */
+    @SerialName("route_matched") val routeMatched: Boolean? = null,
+    @SerialName("route_reason_key") val routeReasonKey: String? = null,
+    @SerialName("route_reason_params") val routeReasonParams: JsonObject? = null,
+    /**
+     * 路由理由（中文整句，弹窗徽标直接展示）
+     */
+    @SerialName("route_reason") val routeReason: String? = null,
+    /**
+     * 按规则组适用范围自动选出的规则组（与 route_* 同条件：走了路由才有）
+     */
+    @SerialName("rule_set_id") val ruleSetId: Long? = null,
+    @SerialName("rule_set_name") val ruleSetName: String? = null,
+    /**
+     * true=命中某组适用范围 / false=默认规则组兜底
+     */
+    @SerialName("rule_set_matched") val ruleSetMatched: Boolean? = null,
+    @SerialName("rule_set_reason_key") val ruleSetReasonKey: String? = null,
+    @SerialName("rule_set_reason_params") val ruleSetReasonParams: JsonObject? = null,
+    /**
+     * 选组理由（中文整句，弹窗与模拟一单直接展示）
+     */
+    @SerialName("rule_set_reason") val ruleSetReason: String? = null,
+    /**
+     * 按当前配置投递能否顺利入库
+     */
+    @SerialName("ok") val ok: Boolean = false,
+    @SerialName("warning_key") val warningKey: String? = null,
+    @SerialName("warning_params") val warningParams: JsonObject? = null,
+    /**
+     * 不 ok 时的中文指引
+     */
+    @SerialName("warning") val warning: String? = null,
+)
+
+/**
+ * 订阅弹层的豆瓣集数提示：豆瓣说本季比 TMDB 录的多。
+ */
+@Serializable
+data class DoubanEpisodesView(
+    @SerialName("season_number") val seasonNumber: Long = 0,
+    @SerialName("douban_count") val doubanCount: Long = 0,
+    /**
+     * TMDB 已录到的最大集号
+     */
+    @SerialName("tmdb_count") val tmdbCount: Long = 0,
+)
+
+/**
  * 订阅对一集的入库预告（播出日历里的「预计 20:00 入库」「下载中」）。
  */
 @Serializable
@@ -613,6 +693,86 @@ data class EpisodeArrivalView(
      * 预计入库时刻（只给 waiting 且预测可信、还没过的）；给不出为 null
      */
     @SerialName("expected_at") val expectedAt: String? = null,
+)
+
+/**
+ * 一季的订阅窗口：从第 ``start`` 集起（含），到第 ``end`` 集（含）。
+ * ``end=None`` 不设上界（在播季「从第 X 集起」，之后播出的新集照常纳入）；
+ * ``start=1`` 且 ``end`` 设值即「订阅到第 N 集」。两头都收的混合窗口不接受。
+ */
+@Serializable
+data class EpisodeCapSpec(
+    /**
+     * 从第几集起（含）
+     */
+    @SerialName("start") val start: Long = 0,
+    /**
+     * 订阅到第几集（含）；null=不设上界，新集照常纳入
+     */
+    @SerialName("end") val end: Long? = null,
+)
+
+/**
+ * 一季的订阅窗口：从第 ``start`` 集起（含），到第 ``end`` 集（含）。
+ * ``end=None`` 不设上界（在播季「从第 X 集起」，之后播出的新集照常纳入）；
+ * ``start=1`` 且 ``end`` 设值即「订阅到第 N 集」。两头都收的混合窗口不接受。
+ */
+@Serializable
+data class EpisodeCapSpecInput(
+    /**
+     * 从第几集起（含）
+     */
+    @SerialName("start") val start: Long? = null,
+    /**
+     * 订阅到第几集（含）；null=不设上界，新集照常纳入
+     */
+    @SerialName("end") val end: Long? = null,
+)
+
+/**
+ * 待确认的集数提示：站点或豆瓣显示本季比现在追的更多集。
+ */
+@Serializable
+data class EpisodeHintView(
+    @SerialName("season_number") val seasonNumber: Long = 0,
+    @SerialName("tmdb_count") val tmdbCount: Long = 0,
+    @SerialName("floor") val floor: Long? = null,
+    /**
+     * 建议集数（站点与豆瓣证据取大）
+     */
+    @SerialName("suggested") val suggested: Long = 0,
+    /**
+     * 站点种子出现的最大集号
+     */
+    @SerialName("site_episode") val siteEpisode: Long? = null,
+    /**
+     * 给出该集号的种子标题
+     */
+    @SerialName("site_title") val siteTitle: String? = null,
+    /**
+     * 豆瓣标注的集数
+     */
+    @SerialName("douban_count") val doubanCount: Long? = null,
+)
+
+/**
+ * 「调整集数」编辑器的一行：订阅范围内的一季。
+ */
+@Serializable
+data class EpisodeSeasonView(
+    @SerialName("season_number") val seasonNumber: Long = 0,
+    /**
+     * TMDB 已录到的最大集号
+     */
+    @SerialName("tmdb_count") val tmdbCount: Long = 0,
+    /**
+     * 已设的集数下限；null=以 TMDB 为准
+     */
+    @SerialName("floor") val floor: Long? = null,
+    /**
+     * 已设的订阅窗口；null=订阅整季。旧服务端没有
+     */
+    @SerialName("window") val window: EpisodeCapSpec? = null,
 )
 
 /**
@@ -651,6 +811,34 @@ data class EpisodeView(
      * 观看进度 1~99；已看完由 played 表达，不给百分比
      */
     @SerialName("progress_percent") val progressPercent: Long? = null,
+    /**
+     * 该集起点处的站点季号说明（issue #1155）：站点把 TMDB 的一季拆成两季发布时，在这一集之前渲染一行小字解释；只有每块的首集有值，普通剧恒为 null
+     */
+    @SerialName("site_season_note") val siteSeasonNote: String? = null,
+)
+
+/**
+ * 被订阅窗口截断的一季：从第 start 集起到 end（None=含今后新集），本季已录 total 集。
+ */
+@Serializable
+data class EpisodeWindowView(
+    @SerialName("season_number") val seasonNumber: Long = 0,
+    /**
+     * 从第几集起（含）
+     */
+    @SerialName("start") val start: Long = 0,
+    /**
+     * 订阅到第几集（含）；null=不设上界，新集照常纳入
+     */
+    @SerialName("end") val end: Long? = null,
+    /**
+     * 本季已录集数（TMDB 最大集号与集数下限取大）
+     */
+    @SerialName("total") val total: Long = 0,
+    /**
+     * 这一季是否在播（剧还在播且是最近开播的季）；end 为 null 时在播读作「最新 N 集」，完结读作「从第 N 集起」。旧服务端没有
+     */
+    @SerialName("airing") val airing: Boolean? = null,
 )
 
 /**
@@ -1836,6 +2024,37 @@ data class MatroskaCuesView(
 )
 
 /**
+ * 弹层与列表共用的条目摘要。
+ */
+@Serializable
+data class MediaBrief(
+    @SerialName("media_item_id") val mediaItemId: Long = 0,
+    @SerialName("kind") val kind: MediaKind = "",
+    @SerialName("tmdb_id") val tmdbId: Long = 0,
+    @SerialName("douban_id") val doubanId: String? = null,
+    @SerialName("title") val title: String = "",
+    @SerialName("original_title") val originalTitle: String = "",
+    /**
+     * 国际英文名；「手动选种」与中文名、原名一起搜
+     */
+    @SerialName("english_title") val englishTitle: String? = null,
+    @SerialName("year") val year: Long? = null,
+    /**
+     * 完整海报 URL（按配置的图床基址拼好）
+     */
+    @SerialName("poster_url") val posterUrl: String? = null,
+    /**
+     * 宽幅剧照 URL（w1280，沉浸场景可换 original 档）
+     */
+    @SerialName("backdrop_url") val backdropUrl: String? = null,
+    /**
+     * 片名 Logo URL（透明底 PNG）；没有时前端显示文字片名
+     */
+    @SerialName("logo_url") val logoUrl: String? = null,
+    @SerialName("status") val status: String? = null,
+)
+
+/**
  * 内容形态：电影 / 剧集 / 其他视频 / 图片（docs/design/library-other-kind.md 3.1、
  * library-photo-kind.md 2.1）。
  * ``movie`` 与 ``tv`` 的取值与 TMDB 的路径段一致，在 ``source=tmdb`` 的
@@ -2272,6 +2491,7 @@ data class PlaybackSessionRequest(
     @SerialName("failed_tiers") val failedTiers: List<Long>? = null,
     @SerialName("audio_track") val audioTrack: String? = null,
     @SerialName("subtitle_track") val subtitleTrack: String? = null,
+    @SerialName("burn_requested") val burnRequested: Boolean? = null,
     @SerialName("max_height") val maxHeight: Long? = null,
     @SerialName("device_id") val deviceId: String? = null,
     @SerialName("downlink_bps") val downlinkBps: Long? = null,
@@ -2333,6 +2553,51 @@ data class PlaybackStateView(
     @SerialName("audio_track") val audioTrack: String? = null,
     @SerialName("subtitle_track") val subtitleTrack: String? = null,
     @SerialName("ended_by_admin") val endedByAdmin: Boolean = false,
+)
+
+/**
+ * 预检结果三态：ready 可直接渲染弹层；ambiguous 先让用户选候选；
+ * not_found 提示该条目暂无法订阅。
+ */
+@Serializable
+data class PrepareView(
+    @SerialName("status") val status: String = "",
+    @SerialName("media") val media: MediaBrief? = null,
+    @SerialName("seasons") val seasons: List<SeasonOverview> = emptyList(),
+    /**
+     * 该条目已有订阅时给出，前端展示「已订阅」态
+     */
+    @SerialName("existing_subscription_id") val existingSubscriptionId: Long? = null,
+    /**
+     * 电影：媒体库里已有本片（弹层提示，不拦订阅）
+     */
+    @SerialName("movie_owned") val movieOwned: Boolean = false,
+    /**
+     * 建议预勾选的季号。豆瓣把剧集按季拆条目，用户点进「中餐厅 第十季」要订的就是那一季；这里给出收敛通路用首播日期定案的 TMDB 季号（与豆瓣季号未必相同）。为空表示无可信结论，前端按原默认规则勾选
+     */
+    @SerialName("suggested_seasons") val suggestedSeasons: List<Long> = emptyList(),
+    @SerialName("candidates") val candidates: List<ResolveCandidateView> = emptyList(),
+    /**
+     * 从豆瓣条目订阅、且豆瓣集数多于 TMDB 已录集数时给出（issue #640）；弹层据此提示「按豆瓣集数追」，确认后随创建请求带 episode_floors
+     */
+    @SerialName("douban_episodes") val doubanEpisodes: DoubanEpisodesView? = null,
+    /**
+     * 智能选择摘要（docs/design/smart-subscription-memory.md）
+     */
+    @SerialName("smart") val smart: SmartPlanView? = null,
+)
+
+/**
+ * 列表页进度：total = 工单总数，wanted 子集是缺口，imported 是已入库终态。
+ */
+@Serializable
+data class ProgressView(
+    @SerialName("total") val total: Long = 0,
+    @SerialName("wanted") val wanted: Long = 0,
+    @SerialName("grabbed") val grabbed: Long = 0,
+    @SerialName("downloaded") val downloaded: Long = 0,
+    @SerialName("imported") val imported: Long = 0,
+    @SerialName("upgrading") val upgrading: Long = 0,
 )
 
 @Serializable
@@ -2631,6 +2896,38 @@ data class RelaxSuggestionView(
 )
 
 /**
+ * 豆瓣收敛歧义时的确认候选。
+ */
+@Serializable
+data class ResolveCandidateView(
+    @SerialName("tmdb_id") val tmdbId: Long = 0,
+    /**
+     * 选定候选后用于订阅的稳定引用
+     */
+    @SerialName("title_ref") val titleRef: String = "",
+    @SerialName("title") val title: String = "",
+    @SerialName("original_title") val originalTitle: String = "",
+    @SerialName("year") val year: Long? = null,
+    @SerialName("poster_url") val posterUrl: String? = null,
+)
+
+/**
+ * 一集最近一次成功投递所使用资源的发布→发现→提交时间链。
+ */
+@Serializable
+data class ResourceTimingView(
+    @SerialName("site_id") val siteId: String = "",
+    @SerialName("torrent_id") val torrentId: String = "",
+    @SerialName("publish_time") val publishTime: String? = null,
+    @SerialName("first_seen_at") val firstSeenAt: String? = null,
+    @SerialName("submitted_at") val submittedAt: String = "",
+    @SerialName("publish_to_seen_seconds") val publishToSeenSeconds: Long? = null,
+    @SerialName("seen_to_submit_seconds") val seenToSubmitSeconds: Long? = null,
+    @SerialName("publish_to_submit_seconds") val publishToSubmitSeconds: Long? = null,
+    @SerialName("dry_run") val dryRun: Boolean = false,
+)
+
+/**
  * 进行中扫描/整理的实时进度（前端在库封面上画进度环，两种任务共用）。
  * ``phase`` 是必填的：一次"扫描"内部分好几段（盘点 → 逐文件入账 →
  * 补齐图片资产），分子分母各段各算。前端**必须**按阶段选文案，否则
@@ -2673,6 +2970,17 @@ data class ScrimUiPrefs(
      * 蒙版压暗程度：0 完全不压暗，1 全黑
      */
     @SerialName("dark") val dark: Double = 0.0,
+)
+
+/**
+ * 立即搜索缺失资源的结果。
+ */
+@Serializable
+data class SearchNowView(
+    /**
+     * 跳过冷却、重新排队的缺口工单数
+     */
+    @SerialName("reset_count") val resetCount: Long = 0,
 )
 
 /**
@@ -2725,6 +3033,25 @@ data class SeasonEpisodesView(
      * 播出日历；本季没有今天或以后的播出日期（已完结、季间空档、无分集日期）为 null
      */
     @SerialName("air_schedule") val airSchedule: SeasonAirScheduleView? = null,
+)
+
+/**
+ * 弹层季选择器的一行：季号 + 播出进度 + 库存进度。
+ */
+@Serializable
+data class SeasonOverview(
+    @SerialName("season_number") val seasonNumber: Long = 0,
+    @SerialName("name") val name: String = "",
+    @SerialName("air_date") val airDate: String? = null,
+    @SerialName("episode_count") val episodeCount: Long? = null,
+    /**
+     * 已播集数（air_date<=今天）
+     */
+    @SerialName("aired_count") val airedCount: Long = 0,
+    /**
+     * 媒体库已有的集数（库存 H）
+     */
+    @SerialName("owned_count") val ownedCount: Long = 0,
 )
 
 /**
@@ -2810,6 +3137,248 @@ data class SidebarUiPrefs(
      * 玻璃厚度（边缘曲率带宽度，px）
      */
     @SerialName("depth") val depth: Double = 0.0,
+)
+
+/**
+ * 订阅弹层的智能选择摘要：按当前设置、记忆和作品信息解析出的结果与整句文案。
+ */
+@Serializable
+data class SmartPlanView(
+    /**
+     * 智能设置是否已保存；未保存时其余字段为空
+     */
+    @SerialName("configured") val configured: Boolean = false,
+    @SerialName("profile_revision") val profileRevision: Long = 0,
+    @SerialName("memory_revision") val memoryRevision: Long = 0,
+    @SerialName("resolution") val resolution: String? = null,
+    @SerialName("source") val source: String? = null,
+    /**
+     * 如「优先 4K WEB-DL」
+     */
+    @SerialName("quality_label") val qualityLabel: String? = null,
+    /**
+     * 如「按「韩国的剧」的习惯」
+     */
+    @SerialName("quality_note") val qualityNote: String? = null,
+    /**
+     * 被更具体的习惯盖住的那条，如「「韩国的剧」是 1080p」
+     */
+    @SerialName("quality_shadow") val qualityShadow: String? = null,
+    /**
+     * 如「最多等 1 天 · 达标后停止洗版」
+     */
+    @SerialName("wait_label") val waitLabel: String? = null,
+    @SerialName("subtitle_language") val subtitleLanguage: String? = null,
+    @SerialName("subtitle_language_label") val subtitleLanguageLabel: String? = null,
+    /**
+     * 作品语言是否看得懂；未知语言为空
+     */
+    @SerialName("subtitle_understood") val subtitleUnderstood: Boolean? = null,
+    /**
+     * 如「英语 · 只下带中文字幕的」；中文或未知语言为空
+     */
+    @SerialName("subtitle_line") val subtitleLine: String? = null,
+    /**
+     * 仅管理员、且这种语言还没回答过时给出
+     */
+    @SerialName("question") val question: SmartQuestionView? = null,
+    @SerialName("subtitle_edit_question") val subtitleEditQuestion: SmartQuestionView? = null,
+    @SerialName("scope_options") val scopeOptions: List<SmartScopeOptionView> = emptyList(),
+    /**
+     * 管理员可改字幕、画质并写入记忆
+     */
+    @SerialName("can_edit") val canEdit: Boolean = false,
+)
+
+/**
+ * 第一次碰到某种语言时问的那一句；文案由服务端生成，各端原样显示。
+ */
+@Serializable
+data class SmartQuestionView(
+    /**
+     * 语言键，如 en / ja / yue
+     */
+    @SerialName("language") val language: String = "",
+    /**
+     * 如「这是英语片，要中文字幕吗？」
+     */
+    @SerialName("prompt") val prompt: String = "",
+    /**
+     * 默认选项，如「要，只下带中文字幕的」
+     */
+    @SerialName("subtitles_label") val subtitlesLabel: String = "",
+    /**
+     * 如「不用，我看得懂英语」
+     */
+    @SerialName("understood_label") val understoodLabel: String = "",
+)
+
+@Serializable
+data class SmartScopeOptionView(
+    /**
+     * 回传给创建接口的 smart_scope；only = 只这部
+     */
+    @SerialName("value") val value: String = "",
+    /**
+     * 如「只这部」「所有剧集」「韩国的剧」「tvN 的剧」
+     */
+    @SerialName("label") val label: String = "",
+)
+
+/**
+ * 订阅详情：这部作品的字幕要求，「这次先下原版」之后追问看不看得懂要用。
+ */
+@Serializable
+data class SmartSubtitleView(
+    @SerialName("language") val language: String = "",
+    @SerialName("language_label") val languageLabel: String = "",
+    @SerialName("line") val line: String = "",
+    @SerialName("understood") val understood: Boolean = false,
+)
+
+/**
+ * 从 Discover 条目创建订阅的公开请求。
+ * 调用方只传递上游返回的稳定引用；来源识别、豆瓣到 TMDB 的锚定、媒体
+ * 建档和初始工单生成均由服务端完成。豆瓣发生歧义时，错误详情会返回可重试
+ * 的 TMDB ``title_ref`` 候选。
+ */
+@Serializable
+data class SubscriptionCreatePayload(
+    /**
+     * Discover 搜索、片单或详情返回的影视条目稳定引用
+     */
+    @SerialName("title_ref") val titleRef: String,
+    /**
+     * 可选的原始来源引用；从豆瓣歧义候选改选 TMDB 条目时原样回传，用于保留豆瓣身份
+     */
+    @SerialName("source_title_ref") val sourceTitleRef: String? = null,
+    /**
+     * 剧集要订阅的季号数组，如 [1,2]；剧集至少要给一季，只想追以后播出的新集就留空并把 follow_future 设为 true；电影留空
+     */
+    @SerialName("selected_seasons") val selectedSeasons: List<Long>? = null,
+    /**
+     * 自动续订：未来新集与新季自动纳入订阅
+     */
+    @SerialName("follow_future") val followFuture: Boolean? = null,
+    /**
+     * 缺省按规则组适用范围自动选组，都不命中用默认规则组
+     */
+    @SerialName("rule_set_id") val ruleSetId: Long? = null,
+    /**
+     * 入库目标库；缺省用该类型默认库
+     */
+    @SerialName("library_id") val libraryId: Long? = null,
+    @SerialName("selection_mode") val selectionMode: String? = null,
+    @SerialName("smart_profile_revision") val smartProfileRevision: Long? = null,
+    /**
+     * 管理员对字幕问题的回答，写入「看得懂的语言」
+     */
+    @SerialName("smart_language_answer") val smartLanguageAnswer: String? = null,
+    /**
+     * 管理员在弹层里改过的分辨率
+     */
+    @SerialName("smart_resolution") val smartResolution: String? = null,
+    /**
+     * 管理员在弹层里改过的片源
+     */
+    @SerialName("smart_source") val smartSource: String? = null,
+    /**
+     * 改过的画质记在哪：only=只这部，或 title-preview 给出的范围选项
+     */
+    @SerialName("smart_scope") val smartScope: String? = null,
+    /**
+     * 弹层读到的记忆版本；不一致返回 409
+     */
+    @SerialName("smart_memory_revision") val smartMemoryRevision: Long? = null,
+    /**
+     * 每季集数下限 {季号: 集数}：TMDB 少录集数时按这个数追，超出部分先占位（如 {"1": 27}）；不超过 TMDB 已录集数的季忽略
+     */
+    @SerialName("episode_floors") val episodeFloors: Map<String, Long>? = null,
+    /**
+     * 每季的订阅窗口 {季号: {start, end}}：一季上千集时先订阅一部分——完结季从第 1 集订起（如 {"1": {"start": 1, "end": 20}}），在播季订最新一批（如 {"1": {"start": 1081, "end": null}}，新集照常纳入）；之后可随时调整；盖住整季的窗口忽略
+     */
+    @SerialName("episode_caps") val episodeCaps: Map<String, EpisodeCapSpecInput>? = null,
+)
+
+/**
+ * 完整创建工作流结果：订阅本身以及管理员可见的下载路由预检。
+ */
+@Serializable
+data class SubscriptionCreateView(
+    @SerialName("subscription") val subscription: SubscriptionDetailView = SubscriptionDetailView(),
+    /**
+     * 管理员可见的下载与入库路由预检；成员调用时为空
+     */
+    @SerialName("download_routing") val downloadRouting: DispatchPreviewView? = null,
+)
+
+@Serializable
+data class SubscriptionDetailView(
+    @SerialName("id") val id: Long = 0,
+    @SerialName("media") val media: MediaBrief = MediaBrief(),
+    @SerialName("status") val status: String = "",
+    @SerialName("selected_seasons") val selectedSeasons: List<Long> = emptyList(),
+    @SerialName("follow_future") val followFuture: Boolean = false,
+    /**
+     * 规则组 id；智能模式为 0（兼容旧客户端整数契约），以 selection_mode 为准
+     */
+    @SerialName("rule_set_id") val ruleSetId: Long = 0,
+    @SerialName("selection_mode") val selectionMode: String = "",
+    @SerialName("smart_policy") val smartPolicy: JsonObject? = null,
+    @SerialName("smart_status") val smartStatus: String? = null,
+    /**
+     * 入库目标库；null=该类型默认库
+     */
+    @SerialName("library_id") val libraryId: Long? = null,
+    @SerialName("progress") val progress: ProgressView = ProgressView(),
+    /**
+     * 剧集按季收录统计；电影或无需展示时为空
+     */
+    @SerialName("season_collection") val seasonCollection: List<SeasonOverview> = emptyList(),
+    /**
+     * 被订阅上限截断的季（订阅到第几集 / 本季共几集）；有内容时订阅不会判「已收齐」，用户可以继续订阅；没有上限或电影为 null
+     */
+    @SerialName("episode_windows") val episodeWindows: List<EpisodeWindowView>? = null,
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("updated_at") val updatedAt: String = "",
+    @SerialName("wanted") val wanted: List<WantedView> = emptyList(),
+    /**
+     * 剧集订阅范围内各季的 TMDB 集数与集数下限；电影为 null
+     */
+    @SerialName("episode_seasons") val episodeSeasons: List<EpisodeSeasonView>? = null,
+    /**
+     * 待确认的集数提示；有提示时订阅不会判「已收齐」；电影为 null
+     */
+    @SerialName("episode_hints") val episodeHints: List<EpisodeHintView>? = null,
+    /**
+     * 当前观看者能否调整这条订阅（改季、暂停、立即搜索、洗版、手动选种）：超管与发起人为 true；只关注不发起的成员为 false，只能取消关注
+     */
+    @SerialName("can_manage") val canManage: Boolean = false,
+    /**
+     * 资源发布时间预测正在后台刷新（订阅创建/调整/恢复后的几秒内）；为 true 时 wanted[].release_forecast 可能还是旧值或空值，稍后重取即可
+     */
+    @SerialName("forecast_pending") val forecastPending: Boolean = false,
+    /**
+     * 智能订阅的字幕要求；中文、语言未知或规则模式为 null
+     */
+    @SerialName("smart_subtitle") val smartSubtitle: SmartSubtitleView? = null,
+    /**
+     * 智能订阅的画质按哪条习惯，如「按「韩国的剧」的习惯」
+     */
+    @SerialName("smart_quality_note") val smartQualityNote: String? = null,
+)
+
+/**
+ * 订阅表单打开前的内部预览请求。
+ * ``title_ref`` 必须直接来自 Discover；服务端负责识别来源、解析豆瓣候选并
+ * 建立 TMDB 锚点，Web 不再拼装 ``source/kind/external_id`` 组合。
+ */
+@Serializable
+data class SubscriptionTargetPreviewPayload(
+    /**
+     * Discover 返回的影视条目稳定引用
+     */
+    @SerialName("title_ref") val titleRef: String,
 )
 
 @Serializable
@@ -3007,5 +3576,59 @@ data class VideoSupportIn(
     @SerialName("max_height") val maxHeight: Long? = null,
     @SerialName("smooth") val smooth: Boolean? = null,
     @SerialName("power_efficient") val powerEfficient: Boolean? = null,
+)
+
+/**
+ * 单元的洗版派生状态（docs/design/quality-upgrade.md §8.3/§9）。
+ * 只在"已入库且规则组配置了洗版目标"的单元上出现；标签由后端用统一的
+ * 档位阶梯生成，前端零拼接直接展示。
+ */
+@Serializable
+data class WantedUpgradeView(
+    /**
+     * 是否洗版中（可证明低于目标且未熔断）
+     */
+    @SerialName("active") val active: Boolean = false,
+    /**
+     * 当前版本档位标签（如「1080p WEB-DL」）
+     */
+    @SerialName("current_label") val currentLabel: String = "",
+    /**
+     * 洗版目标档位标签（如「1080p Remux」）
+     */
+    @SerialName("target_label") val targetLabel: String = "",
+    /**
+     * 已洗版搜索次数
+     */
+    @SerialName("search_attempts") val searchAttempts: Long = 0,
+    /**
+     * 无法确认档位：证明不了低于目标也证明不了已达标——不参与自动洗版，可手动选种替换（§13.8）
+     */
+    @SerialName("indeterminate") val indeterminate: Boolean = false,
+)
+
+@Serializable
+data class WantedView(
+    @SerialName("id") val id: Long = 0,
+    @SerialName("season_number") val seasonNumber: Long = 0,
+    @SerialName("episode_number") val episodeNumber: Long = 0,
+    @SerialName("status") val status: String = "",
+    @SerialName("air_date") val airDate: String? = null,
+    @SerialName("priority") val priority: Long = 0,
+    @SerialName("info_hash") val infoHash: String? = null,
+    @SerialName("next_search_at") val nextSearchAt: String? = null,
+    @SerialName("search_attempts") val searchAttempts: Long = 0,
+    @SerialName("last_search_at") val lastSearchAt: String? = null,
+    @SerialName("release_forecast") val releaseForecast: JsonObject? = null,
+    @SerialName("resource_timing") val resourceTiming: ResourceTimingView? = null,
+    @SerialName("grabbed_at") val grabbedAt: String? = null,
+    @SerialName("downloaded_at") val downloadedAt: String? = null,
+    @SerialName("imported_at") val importedAt: String? = null,
+    @SerialName("last_reject_reason") val lastRejectReason: String? = null,
+    @SerialName("grab_title") val grabTitle: String? = null,
+    @SerialName("upgrade") val upgrade: WantedUpgradeView? = null,
+    @SerialName("selection_state") val selectionState: JsonObject? = null,
+    @SerialName("selection_version") val selectionVersion: Long = 0,
+    @SerialName("provisional") val provisional: Boolean? = null,
 )
 

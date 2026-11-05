@@ -1718,6 +1718,9 @@ export interface LibraryEpisode {
   played: boolean;
   /** 观看进度 1~99；已看完由 played 表达，不给百分比 */
   progress_percent: number | null;
+  /** 该集起点处的站点季号说明（issue #1155）：站点把 TMDB 的一季拆成两季发布时，
+   *  在每块的首集之前渲染一行小字；普通剧与旧服务端为 null/缺省 */
+  site_season_note?: string | null;
 }
 
 /** 一季的分集清单。 */
@@ -1838,6 +1841,8 @@ export interface DeleteCloud {
   bytes: number;
   /** 网盘有回收站：删的是进网盘回收站，还能在网盘里还原 */
   recycle_bin: boolean;
+  /** 文件在只读的后端上：删不了，要到对方那里删（老服务器没有这个字段） */
+  read_only?: boolean | null;
 }
 
 export function getDeletePreview(

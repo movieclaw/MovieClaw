@@ -140,9 +140,6 @@
   "subtitles.empty": {
     "sourceHash": "70e1e86d1455bfb7f14a81b9ffa196cc4238e66cb4bf62754b50fc05553297a4"
   },
-  "subtitles.bitmapHint": {
-    "sourceHash": "34ad74479540a69e2a0d1e45222d3eb90c9e6bf28ecf8c891bb9cb11cb3c7ae5"
-  },
   "subtitles.systemHint": {
     "sourceHash": "97fcd5668ffe570d7d4c312af0824e9cdad12e0f4c080ed5f6642545781b417d"
   },
@@ -721,5 +718,50 @@
   },
   "diagnostics.missingCredentials": {
     "sourceHash": "3e283dbd6d6e279c176e8b6eea79e797e4037c992bc7b5ebe7b3827fb0afbf58"
+  },
+  "subtitles.overlayHint": {
+    "sourceHash": "db8769f4cd696ff1695bea47896b9acd88c227822f381cef863a741910444bcd"
+  },
+  "subtitles.burn": {
+    "sourceHash": "1dcffc8733da4adb192d55385f36f80a66d6bfa1384af4210a993b1aaa53cbd3"
+  },
+  "subtitles.burned": {
+    "sourceHash": "f61871080672b01605f8c919ed53bc9849f085e7970db27012661b0cba579531"
+  },
+  "subtitles.unburn": {
+    "sourceHash": "f59df7009f0e17d45e8e8b83dd42f593c3ff2683ad8aaefe264ee14576cff71a"
+  },
+  "subtitles.burnUnavailable": {
+    "sourceHash": "cf4e2486a0e512a1c056a03bdc54b3674681cc364b09f91d3402320b335072ed"
+  },
+  "subtitles.burnCheckFailed": {
+    "sourceHash": "9a4e4ef1a1aef210afe292e152178bf510e5554d29a68f5ac549fcbb0c4eb8f3"
+  },
+  "subtitles.preparing": {
+    "sourceHash": "130ba8cf486fdcd918029814d6f93bda1b83d21989cc672e4317fe6bd40089d1"
+  },
+  "subtitles.loadFailed": {
+    "sourceHash": "0a0ca72939b5e7f31a489e8fbde0800b9703d6bc5f1f98aa1225aeec9fb18818"
+  },
+  "burnPrompt.title": {
+    "sourceHash": "b3049f480c61c33daefba34d9bc805993b35f5a143b6ff62c51ecda7d1c88af5"
+  },
+  "burnPrompt.softwareOnly": {
+    "sourceHash": "2321d01e83d70890b5a52e66a07321dd2bd28d7f1b1c7b4cc8270213901305b7"
+  },
+  "burnPrompt.quality": {
+    "sourceHash": "25206632a9a4b68252bd8b72f1a15cc190d9664ad7d9ef74896d060cf204ac6c"
+  },
+  "burnPrompt.enableHint": {
+    "sourceHash": "722cb6a723141a10f0c1b103bad899ad049037280cb6b1ca4ea240e5ebbc4a22"
+  },
+  "burnPrompt.keep": {
+    "sourceHash": "2c48ffdffee1d84c560205d615169307c1208cb1c361fe0828620e20bb613aca"
+  },
+  "burnPrompt.continue": {
+    "sourceHash": "0f367978b6847eb9e2a502e56d681b5dc7658d4fb2e99bfe4598a961f9c4174f"
+  },
+  "burnPrompt.enableAndContinue": {
+    "sourceHash": "5a77afe45ee3d9100f45fe14df895c282e3f239447abaf5fbddb4c7d3568fbcb"
   }
 }

@@ -128,6 +128,9 @@
   "upload.progress": {
     "sourceHash": "7f41c68b72e6923a15592e2b6cabbda36a278c00ca1675177edfb82340b9fa4a"
   },
+  "upload.sidecars": {
+    "sourceHash": "0d37de4851a7f867efa34a786ce471dd18d32be35ce30d0c10ad2c9ef131730d"
+  },
   "upload.done": {
     "sourceHash": "3a7e399780fd86934bd83b9470f168e473d7af326f3da382f3d85ae77d1715c7"
   },

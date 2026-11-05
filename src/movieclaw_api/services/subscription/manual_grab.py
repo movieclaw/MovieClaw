@@ -90,6 +90,7 @@ async def grab_manual(
         covered_units,
         load_season_titles,
         publish_calendar_date,
+        season_blocks_of,
     )
 
     subscription = await session.get(Subscription, subscription_id)
@@ -205,6 +206,8 @@ async def grab_manual(
         douban_id=item.douban_id,
         season_numbers=tuple(sorted({s for s, _ in open_wanted} | {s for s, _ in upgrade_pool})),
         season_titles=await load_season_titles(session, subscription.media_item_id),
+        # 站点季号映射（issue #1155）：少了它，手动投 S02 包会报 unitsNotCovered
+        season_blocks=season_blocks_of(item),
     )
     match = match_identity(candidate, identity)
     if match is None:

@@ -32,6 +32,7 @@ from movieclaw_api.exceptions import (
     ConflictException,
     NotFoundException,
     UpstreamServiceException,
+    exception_fields,
 )
 from movieclaw_api.i18n import t
 from movieclaw_api.i18n.content import chinese_title, display_title, in_reader_language
@@ -133,6 +134,7 @@ from movieclaw_api.schemas.library import (
     UnidentifiedGroupView,
 )
 from movieclaw_api.schemas.library_search import LibrarySearchView
+from movieclaw_api.schemas.playback import ItemFileSegmentsView, PlaybackSegmentView
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services import jobs, media_scrape
 from movieclaw_api.services.auth import Principal
@@ -587,6 +589,7 @@ async def _delete_cloud_view(session: AsyncSession, file_ids: list[int]) -> Dele
     available = backends()
     titles: list[str] = []
     recycle = True
+    read_only = False
     for account_id in {r.account_id for r in live}:
         account = accounts.get(account_id)
         backend = available.get(account.backend) if account is not None else None
@@ -598,11 +601,13 @@ async def _delete_cloud_view(session: AsyncSession, file_ids: list[int]) -> Dele
         if title not in titles:
             titles.append(title)
         recycle = recycle and bool(backend is not None and backend.capabilities.recycle_bin)
+        read_only = read_only or bool(backend is not None and not backend.capabilities.writable)
     return DeleteCloudView(
         backend_title="、".join(titles),
         files=len(live),
         bytes=sum(r.size_bytes or 0 for r in live),
         recycle_bin=recycle,
+        read_only=read_only,
     )
 
 
@@ -1383,7 +1388,7 @@ async def create_library(
                 session, None, _folder_specs(payload.cloud_folders)
             )
         except ValueError as exc:
-            raise BadRequestException(str(exc)) from exc
+            raise BadRequestException(**exception_fields(exc)) from exc
     row = await service.create(
         name=payload.name,
         kind=payload.kind,
@@ -1573,7 +1578,7 @@ async def update_library(
                 session, before, _folder_specs(payload.cloud_folders)
             )
         except ValueError as exc:
-            raise BadRequestException(str(exc)) from exc
+            raise BadRequestException(**exception_fields(exc)) from exc
         if folder_specs and not profile_for(before.kind, before.source).playable:
             raise BadRequestException(message_key="errors.library.cloudUnsupported")
         current = {
@@ -2468,6 +2473,15 @@ def _filter_params(
             )
         ),
     ] = None,
+    actor: Annotated[
+        str | None,
+        Query(
+            description=(
+                "演员名：只留演员表里有此人的条目（去首尾空白后整名相等，ASCII 不分大小写）。"
+                "本地/NFO 库没有影人页，详情页点演员落到这里"
+            )
+        ),
+    ] = None,
 ) -> LibraryFilter:
     """筛选参数 → LibraryFilter。
 
@@ -2494,6 +2508,7 @@ def _filter_params(
         hdr=hdr,
         stock=tuple(_split(stock)),
         series_keys=tuple(_split(series_keys)),
+        actor=(actor or "").strip() or None,
     )
 
 
@@ -3748,6 +3763,40 @@ async def preview_library_delete(
             ],
         )
     )
+
+
+@router.get(
+    "/{library_id}/items/{media_item_id}/segments",
+    response_model=ApiResponse[list[ItemFileSegmentsView]],
+    summary="条目每个在位文件的片头片尾（给要把结果同步到别处的插件；内容与播放器拿到的相同）",
+    operation_id="library.items.segments",
+    dependencies=[Depends(require_admin)],
+)
+async def item_segments(
+    library_id: int,
+    media_item_id: int,
+    season: Annotated[int | None, Query(ge=0, description="只看这一季")] = None,
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[list[ItemFileSegmentsView]]:
+    _, rows = await _item_rows(session, library_id, media_item_id)
+    views: list[ItemFileSegmentsView] = []
+    for row in rows:
+        if row.state != FileState.IN_PLACE or season not in (None, row.season_number):
+            continue
+        assert row.id is not None
+        views.append(
+            ItemFileSegmentsView(
+                file_id=row.id,
+                season=row.season_number,
+                episode=row.episode_number,
+                duration_seconds=row.duration_seconds,
+                segments=[
+                    PlaybackSegmentView(**segment)
+                    for segment in await skip_segments_mod.segments_for_file(session, row)
+                ],
+            )
+        )
+    return ok(views)
 
 
 @router.delete(

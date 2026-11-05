@@ -427,6 +427,61 @@ def test_season_analysis_feeds_session_and_jellyfin(client: TestClient, tmp_path
     assert client.get(f"/MediaSegments/{special}", params={"ApiKey": token}).json()["Items"] == []
 
 
+def test_sync_plugins_read_segments_and_hear_when_a_season_changes(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """要把片头片尾同步到别处的插件：不碰 media_segment 表（media-server-plugins.md §6.1）。"""
+    from movieclaw_api.services import durable_events
+    from movieclaw_db.models import DomainEvent, EventConsumer
+    from movieclaw_sdk.events import LIBRARY_SEGMENTS_UPDATED as updated
+
+    ids = call(client, _seed, tmp_path)
+    url = f"/api/v1/libraries/{ids['tv']}/items/{ids['show']}/segments"
+
+    async def subscribe() -> None:  # 模拟有插件可靠订阅（真实订阅时由投递插件写这一行）
+        async with get_database().session() as session:
+            session.add(
+                EventConsumer(
+                    consumer_id="test:segments", event_name=updated.name, event_names=[updated.name]
+                )
+            )
+            await session.commit()
+        durable_events.reset_subscribed()
+
+    async def published() -> list[dict]:
+        async with get_database().session() as session:
+            query = select(DomainEvent).where(DomainEvent.name == updated.name)
+            return [row.payload for row in (await session.execute(query)).scalars()]
+
+    call(client, subscribe)
+    # 还没识别：照常回，片段为空
+    before = client.get(url, params={"season": 1})
+    assert before.status_code == 200, before.text
+    assert [f["episode"] for f in before.json()["data"]] == [1, 2, 3, 4, 5]
+    assert all(f["segments"] == [] for f in before.json()["data"])
+
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+
+    # 一季写回发一个事件，带上去哪读
+    [payload] = call(client, published)
+    assert payload["media"]["id"] == ids["show"] and payload["season"] == 1
+    assert payload["library_ids"] == [ids["tv"]]
+    assert sorted(payload["file_ids"]) == sorted(ids["files"])
+
+    # 读到的与播放器拿到的相同，插件按季自己算代表值
+    rows = client.get(url, params={"season": 1}).json()["data"]
+    assert [f["file_id"] for f in rows] == ids["files"]
+    assert rows[2]["duration_seconds"] == DURATION
+    assert rows[2]["segments"] == start_session(client, ids["files"][2])["segments"]
+    assert {s["type"] for s in rows[2]["segments"]} == {"intro", "outro"}
+    # 不带季号是整部（特别篇没识别，片段为空）；条目不在这个库里 404
+    whole = client.get(url).json()["data"]
+    assert [f["season"] for f in whole] == [0, 1, 1, 1, 1, 1]
+    assert whole[0]["segments"] == []
+    other = client.get(f"/api/v1/libraries/{ids['movie_lib']}/items/{ids['show']}/segments")
+    assert other.status_code == 404
+
+
 def test_switch_off_hides_segments_and_cancels_job(client: TestClient, tmp_path: Path) -> None:
     ids = call(client, _seed, tmp_path)
     call(client, skip_segments.analyze_season, ids["show"], 1)

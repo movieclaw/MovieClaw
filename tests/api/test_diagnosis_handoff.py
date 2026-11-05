@@ -134,7 +134,7 @@ async def test_job_prompt_includes_error_actions_and_events(db):
             error={
                 "code": "INGEST_IDENTITY_REQUIRED",
                 "message": "无法自动识别该条目",
-                "actions": [{"type": "open_settings", "label": "去监听导入认领"}],
+                "actions": [{"type": "open_settings", "label": "去自动入库认领"}],
             },
         )
         session.add(job)
@@ -146,7 +146,8 @@ async def test_job_prompt_includes_error_actions_and_events(db):
     async with db.session() as session:
         result = await build_handoff_prompt(session, "job", "job_test1")
     p = result.prompt
-    assert "INGEST_IDENTITY_REQUIRED" in p and "去监听导入认领" in p
+    assert "INGEST_IDENTITY_REQUIRED" in p and "去自动入库认领" in p
+    assert "设置 → 自动入库" in p
     assert "[blocked]" in p and "no match" in p
     assert "阻塞任务占着资源锁不能忽略" in p
 

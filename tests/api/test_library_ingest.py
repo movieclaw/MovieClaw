@@ -208,11 +208,11 @@ async def test_ignore_entry_cancels_every_active_job_without_rewriting_history(d
         for suffix in ("queued", "waiting", "retry", "blocked"):
             row = await session.get(Job, f"job_ignored_{suffix}")
             assert row is not None and row.status == JobStatus.CANCELLED
-            assert row.cancel_requested_by == "监听导入清单"
+            assert row.cancel_requested_by == "自动入库清单"
         running = await session.get(Job, "job_ignored_running")
         cancelling = await session.get(Job, "job_ignored_cancelling")
         assert running is not None and running.status == JobStatus.CANCELLING
-        assert running.cancel_requested_by == "监听导入清单"
+        assert running.cancel_requested_by == "自动入库清单"
         assert cancelling is not None and cancelling.status == JobStatus.CANCELLING
         assert cancelling.cancel_requested_by == "prior-request"
         succeeded = await session.get(Job, "job_ignored_succeeded")

@@ -152,6 +152,7 @@
       "fallback": "Incomplete specifications: most recently imported"
     },
     "recycleFailed": "Could not move to the recycle bin: {detail}",
+    "readOnly": "This file is on a read-only source and can’t be cleaned up from here.",
     "unitChanged": "This unit no longer has duplicate files. A scan or upgrade may have changed it. Refresh the list.",
     "episodeRequired": "Select an episode to keep a specific file.",
     "fileChanged": "The file to keep is no longer in this unit. The file set changed; refresh the list.",
@@ -660,6 +661,7 @@
   "cloud": {
     "listFailed": "Could not list the cloud folder “{path}”: {detail}",
     "onePrimary": "Only one primary root is allowed",
+    "readOnlyPrimary": "{name} is read-only and can’t be the primary root: new titles are uploaded to the primary root.",
     "missingId": "The cloud folder is missing an id",
     "scopeOutside": "“{path}” is not inside a cloud folder attached to this library",
     "scopeNotFound": "Could not find the folder “{path}” on the cloud drive",
@@ -724,7 +726,7 @@
     "queued": "Waiting to organize into the library",
     "upgradeActor": "MovieClaw upgrade catch-up",
     "sweepActor": "Watch import check",
-    "listActor": "Watch import list",
+    "listActor": "Automatic import list",
     "baselineIgnored": "Already in the source folder when the rule took effect, so it was skipped by the “Skip existing” setting. You can restore it from the list.",
     "progress": {
       "checking": "Checking whether “{name}” is complete",
@@ -748,7 +750,7 @@
     "probeFailed": "Couldn’t probe the main video “{name}”. It may be incomplete or damaged. It will be retried when the files change.",
     "claimRebuildFailed": "Couldn’t rebuild the item from its claimed identity ({error}). It will be retried automatically.",
     "identifyInterrupted": "Identification was interrupted: {reason}. It will be retried automatically.",
-    "unidentified": "Couldn’t identify “{name}” automatically. Search and claim it from the watch import list, or rename it to “Title (Year)” to retry.",
+    "unidentified": "Couldn’t identify “{name}” automatically. Search and claim it from the Automatic import list, or rename it to “Title (Year)” to retry.",
     "routeSubscription": "imported into “{name}” chosen by the subscription",
     "routeManual": "imported into “{name}” confirmed at download time",
     "noRouteLibrary": "No {kind} library is available for automatic routing. Create one in Libraries first.",
@@ -831,15 +833,15 @@
       "done": "The watched item was imported"
     },
     "blocked": {
-      "identity": "This item couldn’t be identified automatically. Claim it from the watch import list",
+      "identity": "This item couldn’t be identified automatically. Claim it from the Automatic import list",
       "review": "The watched item needs review"
     },
     "action": {
-      "view": "View watch import",
-      "claim": "Claim in watch import"
+      "view": "View automatic import",
+      "claim": "Claim in automatic import"
     },
     "ignoredManually": "Ignored manually. Restore it from the list to process it.",
-    "cancelIgnored": "The item was ignored in the watch import list, so this job was cancelled. Restore it from the list to process it.",
+    "cancelIgnored": "The item was ignored in the Automatic import list, so this job was cancelled. Restore it from the list to process it.",
     "cancelIgnoredStartup": "The watched item was ignored; leftover jobs were closed automatically at startup",
     "batchSuperseded": "All files of this item were imported, so this batch was superseded and closed automatically",
     "cancelDiscSegment": "Disc stream segments aren’t standalone videos; this batch was closed by the updated import logic",
@@ -916,5 +918,8 @@
     "en": "English",
     "ja": "Japanese",
     "ko": "Korean"
+  },
+  "episodes": {
+    "siteSeasonNote": "Episodes {start}–{end}: the site released these as season {site_season}; they are mapped into this season automatically"
   }
 }

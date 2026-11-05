@@ -305,6 +305,8 @@ function dimensions(t: ReturnType<typeof appTranslator>) {
     { key: "resolutions", label: t("library.filters.quality") },
     { key: "hdr", label: t("library.filters.dynamicRange") },
     { key: "stock", label: t("library.filters.stock") },
+    // 只由详情页的演员链接带进来，面板里没有这一维；取值就是姓名本身
+    { key: "actor", label: t("library.filters.actor") },
   ] as const;
 }
 
@@ -312,7 +314,7 @@ function dimensions(t: ReturnType<typeof appTranslator>) {
  * 取值本身就是人话的维度：facet 里它们的 label 等于 value（"2160p"、"ja"）。
  * 这类维度在展示名还没到的时候直接印取值就行，不必等。
  */
-const SELF_LABELLING = new Set(["resolutions", "languages"]);
+const SELF_LABELLING = new Set(["resolutions", "languages", "actor"]);
 
 /**
  * 展示名查不到时印什么。
@@ -393,7 +395,7 @@ function ConditionRow({
 
   /** 摘掉一个取值。单值维度清成 null，多值维度只去掉这一个。 */
   const drop = (dim: string, value: string) => {
-    if (dim === "watch" || dim === "ratingGte" || dim === "hdr") {
+    if (dim === "watch" || dim === "ratingGte" || dim === "hdr" || dim === "actor") {
       onFilterChange({ ...filter, [dim]: null });
       return;
     }
@@ -412,6 +414,8 @@ function ConditionRow({
     } else if (key === "hdr") {
       // facet 里 HDR/SDR 的取值是 "1"/"0"，与筛选条件的布尔值对上
       values = filter.hdr == null ? [] : [filter.hdr ? "1" : "0"];
+    } else if (key === "actor") {
+      values = filter.actor ? [filter.actor] : [];
     } else {
       values = ((filter[key] ?? []) as (string | number)[]).map(String);
     }
@@ -462,8 +466,9 @@ function ConditionRow({
       >
         {t("common.clear")}
       </button>
-      {/* 已经等于某个合集时不再提「存为合集」——那只会存出一个重名的孪生体 */}
-      {onSaveAsCollection && !collectionName && (
+      {/* 已经等于某个合集时不再提「存为合集」——那只会存出一个重名的孪生体。
+          有演员条件时也不提：合集规则没有演员这一维，存下来会比眼前这面墙多 */}
+      {onSaveAsCollection && !collectionName && !filter.actor && (
         <button
           type="button"
           onClick={onSaveAsCollection}

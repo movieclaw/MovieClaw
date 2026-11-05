@@ -1178,6 +1178,91 @@ def test_probed_strm_burns_selected_pgs():
     assert decision.video.burn_subtitle is not None
 
 
+# 网页自己画 PGS（#1174）：选中不烧，用户显式要求才烧
+OVERLAY_CHROME = ClientCapability(
+    video=CHROME_NO_HEVC.video,
+    audio=CHROME_NO_HEVC.audio,
+    containers=CHROME_NO_HEVC.containers,
+    pgs_overlay=True,
+)
+
+
+def test_overlay_client_selecting_pgs_keeps_video_copy():
+    """观看记忆里的轨走同一个入参，所以下次打开也不会因为上次选过 PGS 整片转码。"""
+    decision = decide_playback(
+        media(**PGS_MEDIA_KW), OVERLAY_CHROME, WITH_GPU, preferred_subtitle="embedded:1"
+    )
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.tier is PlaybackTier.REMUX
+    assert decision.video.action == "copy"
+    assert decision.video.burn_subtitle is None
+
+
+def test_overlay_client_burns_only_on_explicit_request():
+    decision = decide_playback(
+        media(**PGS_MEDIA_KW),
+        OVERLAY_CHROME,
+        WITH_GPU,
+        preferred_subtitle="embedded:1",
+        burn_requested=True,
+    )
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+    assert decision.video.burn_subtitle == "embedded:1"
+
+
+def test_explicit_burn_without_gpu_still_asks_for_software_consent():
+    decision = decide_playback(
+        media(**PGS_MEDIA_KW),
+        OVERLAY_CHROME,
+        NO_GPU,
+        preferred_subtitle="embedded:1",
+        burn_requested=True,
+    )
+    assert isinstance(decision, ConsentRequired)
+
+
+@pytest.mark.parametrize("selected", [None, "off", "embedded:0", "embedded:9"])
+def test_burn_request_only_applies_to_a_pgs_track_of_this_file(selected):
+    """文本轨 / 关字幕 / 引用不在本文件：带着显式要求也不烧，宁可不烧也不能烧错轨。"""
+    decision = decide_playback(
+        media(**PGS_MEDIA_KW),
+        OVERLAY_CHROME,
+        WITH_GPU,
+        preferred_subtitle=selected,
+        burn_requested=True,
+    )
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.video.action == "copy"
+    assert decision.video.burn_subtitle is None
+
+
+def test_disc_pgs_follows_the_same_rule_for_overlay_clients():
+    """原盘的字幕也抽得出来（disc-playback.md §8）：选中由播放器画，要压制还得显式要求。"""
+    disc = media(container="bluray", disc_clips=2, **PGS_MEDIA_KW)
+    drawn = decide_playback(disc, OVERLAY_CHROME, WITH_GPU, preferred_subtitle="embedded:1")
+    assert isinstance(drawn, PlaybackPlan)
+    assert drawn.video.action == "copy"
+    assert drawn.video.burn_subtitle is None
+    burned = decide_playback(
+        disc, OVERLAY_CHROME, WITH_GPU, preferred_subtitle="embedded:1", burn_requested=True
+    )
+    assert isinstance(burned, PlaybackPlan)
+    assert burned.video.burn_subtitle == "embedded:1"
+
+
+def test_keyframe_probe_follows_the_burn_decision():
+    """网页选中 PGS 仍是直通，关键帧密度要照常采样；显式压制才不需要。"""
+    profile = media(**PGS_MEDIA_KW)
+    assert needs_keyframe_probe(profile, OVERLAY_CHROME, WITH_GPU, preferred_subtitle="embedded:1")
+    assert not needs_keyframe_probe(
+        profile, OVERLAY_CHROME, WITH_GPU, preferred_subtitle="embedded:1", burn_requested=True
+    )
+    assert not needs_keyframe_probe(
+        profile, CHROME_NO_HEVC, WITH_GPU, preferred_subtitle="embedded:1"
+    )
+
+
 def test_unrelated_failure_history_is_not_marked_as_degraded():
     """带着「档 1 失败」的历史来开烧录会话：目标本来就是档 3，与那次失败
     无关，不能标 degraded_from——否则诊断面板给毫无关系的会话挂红字。"""

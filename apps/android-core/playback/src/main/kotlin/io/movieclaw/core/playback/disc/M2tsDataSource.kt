@@ -17,7 +17,7 @@ import androidx.media3.datasource.TransferListener
  */
 @UnstableApi
 class M2tsDataSource(private val upstream: DataSource) : DataSource {
-    private val buffer = ByteArray(PACKET * 64)
+    private val buffer = ByteArray(PACKET * 256)
     private var start = 0
     private var end = 0
     /** buffer[start] 在它那一包（192 字节）里的位置 */
@@ -49,6 +49,23 @@ class M2tsDataSource(private val upstream: DataSource) : DataSource {
                 start = 0
                 end = n
                 continue
+            }
+            if (inPacket == 0) {
+                // 整包直接批量去头：每包只拷一次，不逐包重复边界判断与成员状态更新。
+                val packets = minOf((end - start) / PACKET, (length - written) / TS)
+                if (packets > 0) {
+                    var src = start
+                    var dst = offset + written
+                    val stop = src + packets * PACKET
+                    while (src < stop) {
+                        System.arraycopy(buffer, src + HEADER, target, dst, TS)
+                        src += PACKET
+                        dst += TS
+                    }
+                    start = src
+                    written += packets * TS
+                    continue
+                }
             }
             if (inPacket < HEADER) {
                 val skip = minOf(HEADER - inPacket, end - start)

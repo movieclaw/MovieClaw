@@ -53,9 +53,10 @@ _MEDIA_KINDS = {"Movie", "Video", "Series", "Season", "Episode"}
 def _hint(ctx: DtoContext, entry: Entry) -> dict[str, Any]:
     """Entry → SearchHint（MediaBrowser.Model/Search/SearchHint.cs）。
 
-    只输出本层拿得到的字段：SearchHint 里 Album/Artists/ChannelName 等音乐与
-    直播电视字段在 movieclaw 没有对应数据，按"可空字段值为 null 时省略"的
-    全局约定不输出（设计文档 5.3）。
+    只输出本层拿得到的字段：SearchHint 里 Album/ChannelName 等音乐与直播电视字段
+    在 movieclaw 没有对应数据，按"可空字段值为 null 时省略"的全局约定不输出
+    （设计文档 5.3）。Artists 例外：它是非空列表（真 Jellyfin 默认空数组，官方 SDK
+    里缺键即解码失败，#1185），恒输出空列表。
     """
     kind, payload, season, episode = entry
     if kind == "Person":
@@ -67,6 +68,7 @@ def _hint(ctx: DtoContext, entry: Entry) -> dict[str, Any]:
             "MatchedTerm": dto["Name"],
             "Type": "Person",
             "MediaType": "Unknown",
+            "Artists": [],
             **({"PrimaryImageTag": dto["ImageTags"]["Primary"]} if dto["ImageTags"] else {}),
         }
 
@@ -91,6 +93,7 @@ def _hint(ctx: DtoContext, entry: Entry) -> dict[str, Any]:
         "MatchedTerm": name,
         "Type": kind,
         "MediaType": "Unknown" if kind in ("Series", "Season") else "Video",
+        "Artists": [],
     }
     if kind in ("Series", "Season"):
         hint["IsFolder"] = True

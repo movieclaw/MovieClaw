@@ -236,7 +236,7 @@ function sortOptions(
 function writeFilterToUrl(filter: LibraryFilter): void {
   if (typeof window === "undefined") return;
   const params = new URLSearchParams(window.location.search);
-  for (const key of ["g", "c", "d", "w", "rating_gte", "rt", "lang", "res", "hdr", "stock"])
+  for (const key of ["g", "c", "d", "w", "rating_gte", "rt", "lang", "res", "hdr", "stock", "actor"])
     params.delete(key);
   filterQuery(filter, params);
   const rest = params.toString();

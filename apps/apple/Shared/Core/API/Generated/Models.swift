@@ -1188,6 +1188,7 @@ nonisolated extension API {
         var dolbyVisionRecordAudit: Bool?
         var mp4SampleLimit: Int?
         var hevcTranscode: Bool?
+        var pgsOverlay: Bool?
 
         enum CodingKeys: String, CodingKey {
             case video
@@ -1207,6 +1208,7 @@ nonisolated extension API {
             case dolbyVisionRecordAudit = "dolby_vision_record_audit"
             case mp4SampleLimit = "mp4_sample_limit"
             case hevcTranscode = "hevc_transcode"
+            case pgsOverlay = "pgs_overlay"
         }
     }
 
@@ -1876,12 +1878,15 @@ nonisolated extension API {
         var bytes: Int
         /// 网盘有回收站：删的是进网盘回收站，还能在网盘里还原
         var recycleBin: Bool
+        /// 文件在只读的后端上：这次删除会被拒绝，要到对方那里删
+        var readOnly: Bool?
 
         enum CodingKeys: String, CodingKey {
             case backendTitle = "backend_title"
             case files
             case bytes
             case recycleBin = "recycle_bin"
+            case readOnly = "read_only"
         }
     }
 
@@ -8706,6 +8711,7 @@ nonisolated extension API {
         var failedTiers: [Int]?
         var audioTrack: String?
         var subtitleTrack: String?
+        var burnRequested: Bool?
         var maxHeight: Int?
         var deviceId: String?
         var downlinkBps: Int?
@@ -8719,6 +8725,7 @@ nonisolated extension API {
             case failedTiers = "failed_tiers"
             case audioTrack = "audio_track"
             case subtitleTrack = "subtitle_track"
+            case burnRequested = "burn_requested"
             case maxHeight = "max_height"
             case deviceId = "device_id"
             case downlinkBps = "downlink_bps"
@@ -9254,6 +9261,7 @@ nonisolated extension API {
         var failedTiers: [Int]?
         var audioTrack: String?
         var subtitleTrack: String?
+        var burnRequested: Bool?
         var maxHeight: Int?
         var deviceId: String?
         var downlinkBps: Int?
@@ -9270,6 +9278,7 @@ nonisolated extension API {
             case failedTiers = "failed_tiers"
             case audioTrack = "audio_track"
             case subtitleTrack = "subtitle_track"
+            case burnRequested = "burn_requested"
             case maxHeight = "max_height"
             case deviceId = "device_id"
             case downlinkBps = "downlink_bps"

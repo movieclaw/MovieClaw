@@ -1596,6 +1596,7 @@ async def analyze_season(
         for segment in segments:
             segment.pop("lead_start_ms", None)
     now = utcnow()
+    written_files: list[tuple[int, int]] = []
     async with db.session() as session:
         for f, snapshot in ready:
             needs_rebuild = int(f.id or 0) in unreadable
@@ -1633,6 +1634,7 @@ async def analyze_season(
                 else:
                     outcome.with_intro += any(s.get("type") == "intro" for s in segments)
                     outcome.with_outro += any(s.get("type") == "outro" for s in segments)
+                    written_files.append((int(f.id or 0), int(f.library_id or 0)))
         await session.commit()
     outcome.analyzed = True
     logger.info(
@@ -1643,7 +1645,33 @@ async def analyze_season(
         outcome.with_intro,
         outcome.with_outro,
     )
+    if written_files:
+        await _publish_updated(media_item_id, season_number, written_files)
     return outcome
+
+
+async def _publish_updated(
+    media_item_id: int, season_number: int, files: list[tuple[int, int]]
+) -> None:
+    """一季写回了：通知要把结果同步到别处的插件（docs/design/media-server-plugins.md §6.1）。"""
+    from movieclaw_api import events
+    from movieclaw_api.event_refs import media_ref
+    from movieclaw_db.models import MediaItem
+    from movieclaw_sdk.events import LIBRARY_SEGMENTS_UPDATED, SegmentsUpdated
+
+    async with get_database().session() as session:
+        media = media_ref(await session.get(MediaItem, media_item_id))
+    if media is None:
+        return
+    await events.publish_now(
+        LIBRARY_SEGMENTS_UPDATED,
+        lambda: SegmentsUpdated(
+            media=media,
+            season=season_number,
+            library_ids=tuple(sorted({library_id for _, library_id in files})),
+            file_ids=tuple(file_id for file_id, _ in files),
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

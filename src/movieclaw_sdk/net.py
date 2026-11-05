@@ -5,6 +5,7 @@
     from movieclaw_sdk import net
 
     client = httpx.AsyncClient(transport=net.http_transport("telegram"))
+    client = httpx.AsyncClient(transport=net.http_transport("my-plugin", verify="/data/nas-ca.pem"))
     proxy = await net.proxy_url("discord")   # 给 websockets 这类不吃 httpx transport 的库
 
 - 主进程里运行（随应用携带的插件包、本地插件）：直接用主程序的出口层，配置改了即时生效；
@@ -19,6 +20,7 @@
 from __future__ import annotations
 
 import contextvars
+import ssl
 import time
 from collections.abc import Awaitable, Callable
 
@@ -52,13 +54,19 @@ async def proxy_url(service: str) -> str | None:
     return resolve_proxy_url(service)
 
 
-def http_transport(service: str) -> httpx.AsyncBaseTransport:
-    """某服务的 httpx transport：构造客户端时传 ``transport=``。"""
+def http_transport(service: str, *, verify: bool | str = True) -> httpx.AsyncBaseTransport:
+    """某服务的 httpx transport：构造客户端时传 ``transport=``。
+
+    ``verify``：默认校验证书；字符串是 CA 文件路径（自签证书的正解）；``False`` 不校验，凭据可能被
+    冒充的服务器拿到，只应由用户显式开启。传了 transport 之后客户端上的 ``verify=`` 不起作用，
+    要传在这里。
+    """
+    context = ssl.create_default_context(cafile=verify) if isinstance(verify, str) else verify
     if _resolver is None:
         from movieclaw_net import egress_transport
 
-        return _Paced(egress_transport(service))
-    return _Paced(_RemoteTransport(service))
+        return _Paced(egress_transport(service, verify=context))
+    return _Paced(_RemoteTransport(service, context))
 
 
 class _Paced(httpx.AsyncBaseTransport):
@@ -78,8 +86,9 @@ class _Paced(httpx.AsyncBaseTransport):
 class _RemoteTransport(httpx.AsyncBaseTransport):
     """进程外：按宿主告知的代理建连接，代理设置变了就换一条（旧连接随本 transport 一起关）。"""
 
-    def __init__(self, service: str) -> None:
+    def __init__(self, service: str, verify: ssl.SSLContext | bool = True) -> None:
         self._service = service
+        self._verify = verify
         self._inner: httpx.AsyncHTTPTransport | None = None
         self._proxy: str | None = None
         self._checked = 0.0
@@ -93,7 +102,7 @@ class _RemoteTransport(httpx.AsyncBaseTransport):
             if self._inner is None or proxy != self._proxy:
                 if self._inner is not None:
                     self._retired.append(self._inner)
-                self._inner = httpx.AsyncHTTPTransport(proxy=proxy)
+                self._inner = httpx.AsyncHTTPTransport(proxy=proxy, verify=self._verify)
                 self._proxy = proxy
         return await self._inner.handle_async_request(request)
 

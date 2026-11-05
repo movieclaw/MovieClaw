@@ -48,7 +48,7 @@ DEFAULT_RETENTION = timedelta(days=7)
 # 触发方有特殊语义（如联动删除）时可显式传值覆盖
 _AUTO = object()
 
-RecycleOutcome = Literal["moved_to_trash", "kept_in_place", "already_gone"]
+RecycleOutcome = Literal["moved_to_trash", "kept_in_place", "already_gone", "read_only"]
 
 
 def _trash_dir_for(file_path: Path, root_paths: list[str]) -> Path:
@@ -116,7 +116,9 @@ async def recycle_file(
     - ``kept_in_place``：原盘目录（内部可能住着其他在案文件行，移动会让
       那些行的路径失效）与移动失败（权限/只读挂载）的降级形态——文件
       原地不动、同样按保留期倒计时，到期清理走 purge_file（含目录的
-      爆炸半径保护）。
+      爆炸半径保护）；
+    - ``read_only``：文件在只读后端上（媒体服务器，docs/design/media-server-plugins.md §4），
+      到期也删不掉：**什么都没改**，行照旧在位，调用方当它留下了。
 
     ``trigger``：审计快照 ``{"kind": "subscription"|"member"|"system",
     "id": ..., "label": "《九门》订阅洗版"}``——存快照不外键，机制不认识
@@ -145,6 +147,11 @@ async def recycle_file(
         return "kept_in_place"
 
     if not file.local_bytes:
+        from movieclaw_api.services.drives.deletes import on_read_only_backend
+
+        assert file.id is not None
+        if await on_read_only_backend(session, file.id):
+            return "read_only"
         # 只在网盘上（cloud-storage.md §10）：本地没东西可搬，原地待回收；网盘上的文件留到清理时再删
         # i18n-ignore: log text
         outcome = _keep_in_place("只在网盘上")

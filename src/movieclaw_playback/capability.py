@@ -118,6 +118,10 @@ class ClientCapability:
     #: ``video`` 里有 HEVC、高度够。老客户端不带 = 一律 H.264：它们把 HEVC 解不了当作硬件档
     #: 失败，会直接降到软件转码
     hevc_transcode: bool = False
+    #: 自己能画内封 PGS（服务端抽 .sup、播放器叠在画面上，目前是网页的 libbitsub）：选中 PGS 不再
+    #: 触发烧录，只有用户显式要求压制（``burn_requested``）才烧。老客户端不带 = 选中 PGS 就烧录：
+    #: 它们自己画不了
+    pgs_overlay: bool = False
 
     @property
     def uses_native_hls_player(self) -> bool:

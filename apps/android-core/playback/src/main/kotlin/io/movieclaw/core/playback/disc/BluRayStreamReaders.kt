@@ -1,4 +1,4 @@
-@file:OptIn(UnstableApi::class)
+@file:androidx.annotation.OptIn(UnstableApi::class)
 
 package io.movieclaw.core.playback.disc
 
@@ -39,6 +39,7 @@ internal class TrueHdReader(private val channels: Int, private val hasCore: Bool
     private var pesFlags = 0
     /** 当前 PES 里还没切出来的字节（访问单元可能跨 PES） */
     private var buffer = ByteArray(4096)
+    private val sample = ParsableByteArray()
     private var size = 0
     private var unitTimeUs = C.TIME_UNSET
     private var unitDurationUs = 833L
@@ -120,7 +121,10 @@ internal class TrueHdReader(private val channels: Int, private val hasCore: Bool
                     groupTimeUs = unitTimeUs
                     groupKey = major
                 }
-                output.sampleData(ParsableByteArray(buffer.copyOfRange(pos, pos + length)), length)
+                // TrackOutput 同步消费字节，复用视图，不为每个访问单元分配数组。
+                sample.reset(buffer, pos + length)
+                sample.setPosition(pos)
+                output.sampleData(sample, length)
                 pending += length
                 if (++units == GROUP) flush()
             }
@@ -349,6 +353,7 @@ internal class BdLpcmReader : ElementaryStreamReader {
 internal class PgsReader : ElementaryStreamReader {
     private lateinit var output: TrackOutput
     private var buffer = ByteArray(16 * 1024)
+    private val sample = ParsableByteArray()
     private var size = 0
     private var pesTimeUs = C.TIME_UNSET
     private var setTimeUs = C.TIME_UNSET
@@ -394,7 +399,8 @@ internal class PgsReader : ElementaryStreamReader {
             if (end > size) return
             pos = end
             if (type == SEGMENT_END) {
-                output.sampleData(ParsableByteArray(buffer.copyOf(pos)), pos)
+                sample.reset(buffer, pos)
+                output.sampleData(sample, pos)
                 output.sampleMetadata(setTimeUs, C.BUFFER_FLAG_KEY_FRAME, pos, 0, null)
                 System.arraycopy(buffer, pos, buffer, 0, size - pos)
                 size -= pos

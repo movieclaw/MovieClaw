@@ -175,6 +175,9 @@ class MediaContext:
     # 整季包铁律的另一半——包覆盖到任何一个这样的单元就整体放弃洗版维度，
     # 否则"为洗一部分重下整季"会把已到顶的集也重新下一遍
     upgrade_blocked: dict[tuple[int, int], WantedItem] = field(default_factory=dict)
+    # 条目完整的 TMDB 季列表（media_season）。identity.season_numbers 只是本轮
+    # 缺口/洗版涉及的季，判"站点的季号是不是 TMDB 根本没有的"要看这一份
+    tmdb_seasons: frozenset[int] = frozenset()
 
 
 @dataclass
@@ -233,6 +236,19 @@ async def load_season_titles(session: AsyncSession, media_item_id: int) -> tuple
     )
 
 
+def season_blocks_of(item: MediaItem) -> tuple[tuple[int, int, int, int], ...]:
+    """条目的站点季号映射（``media_item.season_mapping``）→ 内核形状。
+
+    所有构造 ``MediaIdentity`` 的路径都应带上它，判定口径才一致（同
+    ``load_season_titles`` 的理由）：缺口匹配、人工选种、换源救援、发布预测
+    四条路各自算一遍的话，会出现"自动匹配认得 S02、手动投递却拒收"的分裂。
+    NULL/[] 都读成空元组——匹配语义上"没算过"与"无需映射"等价。
+    """
+    from movieclaw_matcher.seasons import mapping_from_json
+
+    return mapping_from_json(item.season_mapping).as_identity_blocks()
+
+
 async def media_identity(
     session: AsyncSession, item: MediaItem, *, season_numbers: tuple[int, ...]
 ) -> MediaIdentity:
@@ -269,6 +285,7 @@ async def media_identity(
         season_titles=season_titles,
         runtime_minutes=runtime_minutes,
         aired_episodes=aired_episodes,
+        season_blocks=season_blocks_of(item),
     )
 
 
@@ -293,6 +310,17 @@ async def _ensure_context(
         subscription=subscription,
         spec=spec,
         open_wanted={},
+        tmdb_seasons=frozenset(
+            (
+                await session.execute(
+                    select(MediaSeason.season_number).where(
+                        MediaSeason.media_item_id == media_item_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        ),
     )
     contexts[media_item_id] = ctx
     return ctx
@@ -663,6 +691,20 @@ def covered_units(
                 or (single_season and w.season_number != 0 and _declared(w))
             )
         ]
+    if match.normalized_pack:
+        # 站点整季包平移成的集区间（issue #1155）：区间已按声明总集数截断，覆盖
+        # 语义同下面的单季 pack_seasons 通道——只认发布前已播出的集，未定档的
+        # 只在声明了总集数时才认（截断后的区间就是声明范围）。不能走显式集号
+        # 通道：那条路信标题写明的集号，会认领包里根本没有的远期/未定档集
+        return [
+            w
+            for key, w in open_units.items()
+            if key in match.episodes
+            and (
+                _airable(w, require_dated=True)
+                or (w.air_date is None and bool(match.declared_total))
+            )
+        ]
     result = [
         w for key, w in open_units.items() if key in match.episodes and _explicit_airable(w)
     ]
@@ -837,8 +879,20 @@ async def evaluate_and_dispatch(
                 repo, ctx, candidate, match, ctx.upgrade_wanted, published, source
             )
             if not covered and not upgrade_covered:
+                # 两种完全不同的情形，不能共用一个静默的 continue（issue #1155）：
+                # - 包里就是没有我要的集：日常情况，保持静默（全记下来会刷屏）；
+                # - 该条目的季号被站点拆开发布、而这个季号在内核眼里根本不存在
+                #   （"我读不懂它的编号"）：这是一条真问题，必须留下解释，
+                #   否则用户只看到"没有资源"，分不清是站点没发还是软件坏了
+                if _season_unmapped(ctx, match):
+                    summary.rejected += 1
+                    await _log_uncovered(repo, ctx, candidate, match, source)
                 continue  # 身份命中但既无缺口也无可洗单元，无需任何动作
             summary.identity_hits += 1
+            if match.season_normalized:
+                # 站点季号换算成功且真的覆盖到了单元：留一条说明，回答
+                # "为什么站点的第 2 季能补第 13 集"（设计 §8）
+                await _log_season_mapped(repo, ctx, candidate, match, source)
             if match.id_conflict:
                 if ctx.item.kind == "movie":
                     identity_rejections_by_media.setdefault(media_id, {})[
@@ -1243,6 +1297,182 @@ async def _log_rejection(
             ),
         )
     )
+
+
+def _season_unmapped(ctx: MediaContext, match: IdentityMatch) -> bool:
+    """这份候选的季号**每一个**都不在该条目的季台账里吗（issue #1155）？
+
+    判据要保守：多季包里只要有一个季号在台账里，就说明我们读得懂这份发布的
+    编号，空覆盖只是"包里没有我要的集"——那属于日常情况，不该记账。只有
+    全部季号都读不懂时，才值得写一条 ``season_unmapped``：站点确实把条目
+    拆成 TMDB 没有的季号发布了，而映射（还）没建立起来。
+
+    身份命中是前提（调用方已在 match 非 None 的分支里）。认不出季号的情况
+    （显式集列表 + 无季号）不在此列：那种候选的季号是从台账推断出来的。
+    **已完成归一的候选也不在此列**——它的季号我们读懂了，空覆盖只是
+    "包里没有我要的集"。
+    """
+    if match.season_normalized:
+        return False
+    seasons = set(match.pack_seasons) | set(match.site_seasons)
+    if not seasons:
+        return False
+    return not (seasons & _known_seasons(ctx))
+
+
+def _known_seasons(ctx: MediaContext) -> set[int]:
+    """条目完整的 TMDB 季列表。
+
+    不能只看 ``ctx.identity.season_numbers``：那是本轮缺口/洗版涉及的季。只订
+    了第 5 季的五季剧，站点每发一个真实存在的 S01–S04 包都会被说成"读不懂
+    季号"——既刷屏，文案「本条目只有 S05」也不是事实。
+    """
+    return set(ctx.tmdb_seasons) | set(ctx.identity.season_numbers)
+
+
+async def _log_uncovered(
+    repo: SubscriptionRepository,
+    ctx: MediaContext,
+    candidate: TorrentCandidate,
+    match: IdentityMatch,
+    source: str,
+) -> None:
+    """记一条「读不懂这份资源的季号」的拒绝；同一 (订阅, 站点, 种子) 去重。
+
+    与 ``_log_rejection`` 同款去重：查最近活动里同站点/同种子/同 reason_code
+    的记录。``wanted_item_id`` 为 None——这种候选没有覆盖任何工单
+    （``subscription_activity.wanted_item_id`` 本来就允许为空）。
+    """
+    subscription_id = ctx.subscription.id
+    assert subscription_id is not None
+    if await _already_explained(repo, subscription_id, candidate, "season_unmapped"):
+        return
+    seasons = sorted(set(match.pack_seasons) | set(match.site_seasons))
+    await repo.add_activity(
+        SubscriptionActivity(
+            subscription_id=subscription_id,
+            wanted_item_id=None,
+            type=ActivityType.MATCH_REJECTED,
+            payload={
+                "site_id": candidate.site_id,
+                "torrent_id": candidate.torrent_id,
+                "reason_code": "season_unmapped",
+                "source": source,
+                "site_seasons": seasons,
+                "units": [],
+            },
+            **stored_fields(
+                "activity.subscription.seasonUnmapped",
+                title=candidate.title[:60],
+                site=candidate.site_id,
+                seasons="、".join(f"S{n:02d}" for n in seasons),
+                known="、".join(f"S{n:02d}" for n in sorted(_known_seasons(ctx) - {0})) or "—",
+            ),
+        )
+    )
+
+
+async def _log_season_mapped(
+    repo: SubscriptionRepository,
+    ctx: MediaContext,
+    candidate: TorrentCandidate,
+    match: IdentityMatch,
+    source: str,
+) -> None:
+    """记一条「站点第 N 季已按 TMDB 集号纳入匹配」；按 (订阅, 站点, 种子) 去重。"""
+    subscription_id = ctx.subscription.id
+    assert subscription_id is not None
+    if await _already_explained(repo, subscription_id, candidate, "season_mapped"):
+        return
+    mapped = _mapped_ranges(ctx, match)
+    if not mapped:
+        return
+    await repo.add_activity(
+        SubscriptionActivity(
+            subscription_id=subscription_id,
+            wanted_item_id=None,
+            type=ActivityType.SEASON_MAPPED,
+            payload={
+                "site_id": candidate.site_id,
+                "torrent_id": candidate.torrent_id,
+                "source": source,
+                "site_seasons": sorted(set(match.site_seasons)),
+                "units": [[season, episode] for season, episode in sorted(match.episodes)],
+            },
+            **stored_fields(
+                "activity.subscription.seasonMapped",
+                site=_season_list_reference(sorted(set(match.site_seasons))),
+                target=mapped,
+                title=candidate.title[:60],
+            ),
+        )
+    )
+
+
+def _season_list_reference(seasons: list[int]) -> dict:
+    """站点季号列表 → 可翻译的嵌套列表（复用既有的「第 N 季」文案）。"""
+    return {
+        "message_list": [reference("media.season.title", number=number) for number in seasons],
+        "separator_key": "common.list.separator",
+    }
+
+
+def _mapped_ranges(ctx: MediaContext, match: IdentityMatch) -> dict | str:
+    """换算后的 TMDB 集区间，做成可翻译的嵌套引用（多块时用、分隔）。"""
+    from movieclaw_matcher.seasons import mapping_from_json
+
+    blocks = {
+        block.site_season: block for block in mapping_from_json(ctx.item.season_mapping).blocks
+    }
+    parts = []
+    for site_season in sorted(set(match.site_seasons)):
+        block = blocks.get(site_season)
+        if block is None:
+            continue
+        if block.start == block.end:
+            parts.append(
+                reference(
+                    "activity.subscription.seasonRangeSingle",
+                    season=block.season,
+                    start=block.start,
+                )
+            )
+        else:
+            parts.append(
+                reference(
+                    "activity.subscription.seasonRange",
+                    season=block.season,
+                    start=block.start,
+                    end=block.end,
+                )
+            )
+    if not parts:
+        return ""
+    return {"message_list": parts, "separator_key": "common.list.separator"}
+
+
+async def _already_explained(
+    repo: SubscriptionRepository, subscription_id: int, candidate: TorrentCandidate, code: str
+) -> bool:
+    """这条候选的这个结论是否已经记过（查最近活动，避免每轮刷屏）。
+
+    去重键是 (站点, 种子, 结论)。``season_mapped`` 走 ``SEASON_MAPPED`` 类型，
+    ``season_unmapped`` 走 ``MATCH_REJECTED``——**按类型分别判定**，不靠
+    payload 里 ``reason_code`` 缺省值兜底：``SEASON_MAPPED`` 本来就没有这个键，
+    靠 ``.get(..., "season_mapped")`` 的默认值凑巧成立，以后谁给它补上
+    ``reason_code`` 就会串到拒绝侧去。
+    """
+    mapped = code == "season_mapped"
+    expected = ActivityType.SEASON_MAPPED if mapped else ActivityType.MATCH_REJECTED
+    for activity in await repo.list_activities(subscription_id, limit=200):
+        if (
+            activity.type == expected
+            and activity.payload.get("site_id") == candidate.site_id
+            and activity.payload.get("torrent_id") == candidate.torrent_id
+            and (mapped or activity.payload.get("reason_code") == code)
+        ):
+            return True
+    return False
 
 
 def units_text(rows: list[WantedItem]) -> str:

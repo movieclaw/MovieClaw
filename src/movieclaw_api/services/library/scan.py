@@ -146,6 +146,7 @@ from movieclaw_enrich import enrich
 from movieclaw_enrich.models import TorrentAttrs
 from movieclaw_enrich.structure import title_candidates
 from movieclaw_matcher import DISC_SOURCE
+from movieclaw_matcher.seasons import SeasonMapping, mapping_from_json, translate_unit
 from movieclaw_media.models import MediaKind
 from movieclaw_scheduler.registry import register_task
 
@@ -1577,7 +1578,7 @@ async def _scan(
         downloader = _DownloaderEvidence()  # 惰性：本轮没有疑似写入中的文件就一次也不问
         deferred_dirs: set[str] = set()
         mtime_backfilled = 0
-        rows_refreshed = 0  # 秒过行的外挂字幕/规格刷新计数（批量一次 commit）
+        rows_refreshed = 0  # 秒过行的季集/外挂字幕/规格刷新计数（批量一次 commit）
         identity_refreshed = 0  # 秒过行吸收了新出现的 sidecar NFO（同样批量一次 commit）
 
         async def advance(done: int) -> None:
@@ -1714,6 +1715,13 @@ async def _scan(
                         mtime_backfilled += 1
                     except OSError:
                         pass
+                # 旧版改名归并只迁路径，可能留下已识别的 S0E0；只补这类
+                # 未定位单元，不重识别作品，也不改人工结论或已有的有效单元。
+                if (
+                    (existing.season_number, existing.episode_number) == (0, 0)
+                    and await _refresh_episode_unit(existing, kind, file)
+                ):
+                    rows_refreshed += 1
                 # 外挂字幕重发现 + 视频变化重探（jellyfin-subtitle.md §2.4）。
                 # 前者纯内存匹配 + 对命中的少数字幕文件 stat，每轮都做；
                 # 后者要对视频本体 stat，只在手动扫描（backfill 开启）或
@@ -1836,7 +1844,7 @@ async def _scan(
             await session.commit()
         if rows_refreshed:
             logger.info(
-                "媒体库 #%s：%d 个在位文件的外挂字幕/介质规格已刷新",
+                "媒体库 #%s：%d 个在位文件的季集/外挂字幕/介质规格已刷新",
                 library_id,
                 rows_refreshed,
             )
@@ -4067,8 +4075,29 @@ async def _try_relink(
     old = candidates[0]
     assert old.id is not None
     old_path = old.file_path
+    await _refresh_episode_unit(old, MediaKind(library.kind), file)
     await repo.relocate(old.id, file_path=path_str, container=container)
     logger.info("检测到文件改名，台账已随迁（身份保留）：%s → %s", old_path, path_str)
+    return True
+
+
+async def _refresh_episode_unit(row: LibraryFile, kind: MediaKind, file: Path) -> bool:
+    """按当前路径/NFO 刷新机器推断的季集；解析失败时保留原单元与身份。"""
+    if (
+        kind is not MediaKind.TV
+        or row.identity_source == IdentitySource.MANUAL
+        or row.ignored_at is not None
+        or row.state == FileState.TRASHED
+        or row.container in DISC_CONTAINERS
+    ):
+        return False
+    season, episode = await asyncio.to_thread(_unit_for, kind, file)
+    if season is None or season < 0 or episode <= 0:
+        return False
+    if (row.season_number, row.episode_number) == (season, episode):
+        return False
+    row.season_number, row.episode_number = season, episode
+    row.updated_at = utcnow()
     return True
 
 
@@ -4193,7 +4222,11 @@ async def _with_unit(
     item = identified.item
     assert item is not None and item.id is not None
     known = {season.season_number for season in await media_service.seasons(item.id)}
-    season, episode = await asyncio.to_thread(_unit_for, MediaKind.TV, file, known)
+    # 站点季号映射（issue #1155）：库扫描也要认站点 S02 的目录/文件名，
+    # 否则同一批文件走监听导入能归位、走扫描却挂在"解析不出季号"
+    season, episode = await asyncio.to_thread(
+        _unit_for, MediaKind.TV, file, known, mapping_from_json(item.season_mapping)
+    )
     if season is not None:
         return replace(identified, unit=(season, episode))
     regular = sum(1 for number in known if number > 0)
@@ -4905,7 +4938,10 @@ def _stem_episode(stem: str) -> int | None:
 
 
 def _unit_for(
-    kind: MediaKind, file: Path, known_seasons: set[int] | None = None
+    kind: MediaKind,
+    file: Path,
+    known_seasons: set[int] | None = None,
+    season_mapping: SeasonMapping | None = None,
 ) -> tuple[int | None, int]:
     """期望单元：电影 (0,0)；剧集优先信分集 NFO，其次走确定性季集解析层。
 
@@ -4921,13 +4957,19 @@ def _unit_for(
     不传条目名；``known_seasons`` 是已认出作品的季台账（见 ``_with_unit``），
     作为推断季号的守卫与唯一季兜底。季号求解失败返回 None，由调用方决定
     是改判待识别（认出了作品）还是落 0（本来就待识别）。
+
+    ``season_mapping``：条目的站点季号映射（issue #1155），透传给
+    ``resolve_units`` 把站点 S02 翻译成 TMDB 第 1 季的顺延集号。
     """
     if kind is not MediaKind.TV:
         return 0, 0
     episode_nfo = read_episode_metadata(file.with_suffix(".nfo"))
     if episode_nfo and episode_nfo.season is not None and episode_nfo.episode is not None:
-        return episode_nfo.season, episode_nfo.episode
-    unit = resolve_units([file], known_seasons=known_seasons)[file]
+        # 分集 NFO 里写的也是站点的季号时同样要翻译——NFO 多半由我们上一版
+        # 写出去（或发布组自带），不是 TMDB 口径。口径同 resolve_units：只翻译
+        # TMDB 没有的季号，E00 不翻译
+        return translate_unit(season_mapping, episode_nfo.season, episode_nfo.episode)
+    unit = resolve_units([file], known_seasons=known_seasons, season_mapping=season_mapping)[file]
     return unit.season, unit.episode
 
 

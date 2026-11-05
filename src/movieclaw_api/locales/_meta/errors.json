@@ -1821,10 +1821,10 @@
     "sourceHash": "f5235ee437f6ea5e6ec7bdc1bc2a241b5cd9544971bb090f2c4769c1ae3ac2b9"
   },
   "library.rootOverlapsWatch": {
-    "sourceHash": "a2cf28e10022d997cd487a0b6b5e201da845503e6f07d7eeae759d0e718a76d1"
+    "sourceHash": "7e062d76ccb124d3060c4e6110d1a95e7a6efa43f0a60bbc725319c51a4db240"
   },
   "library.rootOverlapsTarget": {
-    "sourceHash": "f2156d33c76952b76a0ca5482528c03bef78e2ff673eaac4bf9d954810371a83"
+    "sourceHash": "741db0f4eef96e4ab0802df1edbb4034da75174a3d09f0adebe52f9f6cfd3325"
   },
   "library.rootOverlapsLibrary": {
     "sourceHash": "e56bef991589fa2bc42385f90f9dfe5c5813941957fdf41429f284a5b89c4857"
@@ -2587,6 +2587,9 @@
   },
   "drives.deleteFailed": {
     "sourceHash": "d7e8a9185269310ba9f84963cab2069b2ba4854c051c219b2cdbdc4cbf6ce659"
+  },
+  "drives.readOnly": {
+    "sourceHash": "2660f475e1c1f54b029ba22d9c85c0793932e19982ec02dd55c197781bc9545d"
   },
   "drives.partSizeInvalid": {
     "sourceHash": "c052c3e2ce561e46ecd23151ca27ca30a1873b3a9e3ae37bf3944b45d206c50f"

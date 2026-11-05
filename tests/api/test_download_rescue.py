@@ -18,7 +18,11 @@ from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services import download_progress
-from movieclaw_api.services.download_progress import _observed_units, _rescue_group
+from movieclaw_api.services.download_progress import (
+    _observed_units,
+    _rescue_group,
+    _unit_progress,
+)
 from movieclaw_api.services.media_library import MediaLibraryService
 from movieclaw_api.services.subscription import SubscriptionService
 from movieclaw_api.services.subscription.matching import covered_units
@@ -224,6 +228,38 @@ def test_observed_units_ignores_unselected_files() -> None:
 def test_observed_units_unrecognized_is_empty() -> None:
     """认不出集数（原盘结构/裸名）返回空集——调用方据此保守不动。"""
     assert _observed_units(_files("BDMV/STREAM/00001.m2ts", "Movie.2020.1080p.mkv")) == set()
+
+
+def test_observed_units_translates_site_season(monkeypatch) -> None:
+    """issue #1155：站点 S02 的文件名按映射归一到 TMDB 的 (1, 13)+。
+
+    不换算的话（本用例的第二个断言）13 个文件会被判成「13 集全缺」，
+    写进 content_missing 后该来源被永久排除，订阅彻底废掉。
+    """
+    from movieclaw_matcher.seasons import SeasonBlock, SeasonMapping
+
+    mapping = SeasonMapping(
+        blocks=(
+            SeasonBlock(site_season=1, season=1, start=1, end=12),
+            SeasonBlock(site_season=2, season=1, start=13, end=25),
+        )
+    )
+    files = _files(*[f"Show.S02E{n:02d}.1080p.mkv" for n in range(1, 14)])
+    assert _observed_units(files, mapping) == {(1, ep) for ep in range(13, 26)}
+    assert _observed_units(files) == {(2, ep) for ep in range(1, 14)}
+
+
+def test_unit_progress_translates_site_season() -> None:
+    """详情页逐集进度条同一口径：站点 S02E01 的进度要落到 (1, 13)。"""
+    from movieclaw_matcher.seasons import SeasonBlock, SeasonMapping
+
+    mapping = SeasonMapping(blocks=(SeasonBlock(site_season=2, season=1, start=13, end=25),))
+    files = [
+        TorrentFile(path="Show.S02E01.mkv", size_bytes=100, completed_bytes=50),
+        TorrentFile(path="Show.S02E02.mkv", size_bytes=100, completed_bytes=100),
+    ]
+    assert _unit_progress(files, mapping) == {(1, 13): 0.5, (1, 14): 1.0}
+    assert set(_unit_progress(files)) == {(2, 1), (2, 2)}
 
 
 # ---------------------------------------------------------------------------
@@ -505,3 +541,15 @@ async def test_empty_file_list_untouched(db, tmp_path, monkeypatch) -> None:
     async with db.session() as session:
         wanted = await _wanted_map(session, sub_id)
         assert all(w.status == WantedStatus.GRABBED for w in wanted.values())
+
+
+def test_observed_units_does_not_shift_site_season_pilot() -> None:
+    """PR #1176 评审第 4 点：清单里的站点 S02E00 是特辑，不能被认成正片 (1, 12)。
+
+    否则"包里有 E12"的错误结论会让核验放过真正缺的 E12。
+    """
+    from movieclaw_matcher.seasons import SeasonBlock, SeasonMapping
+
+    mapping = SeasonMapping(blocks=(SeasonBlock(site_season=2, season=1, start=13, end=25),))
+    files = _files("Show.S02E00.Special.mkv", "Show.S02E01.mkv")
+    assert _observed_units(files, mapping) == {(2, 0), (1, 13)}

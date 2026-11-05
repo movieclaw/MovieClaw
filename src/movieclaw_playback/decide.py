@@ -61,8 +61,7 @@ _RESOLUTION_HEIGHT = {
 _TEXT_SUBTITLE_CODECS = frozenset({"subrip", "srt", "mov_text", "webvtt", "text"})
 #: ASS/SSA：原样下发交给 JASSUB（libass WASM）渲染，保留特效。
 _ASS_SUBTITLE_CODECS = frozenset({"ass", "ssa"})
-#: PGS 位图字幕：默认前端 libbitsub 解码；用户显式选中时烧录（硬边界 1 的
-#: 唯一例外，Emby 语义，见 decide_playback 的 preferred_subtitle）。
+#: PGS 位图字幕：默认前端 libbitsub 解码；烧录是硬边界 1 的唯一例外，见 ``_burn_target``。
 _PGS_SUBTITLE_CODECS = frozenset({"hdmv_pgs_subtitle", "pgs"})
 
 #: 能原样 copy 进 fMP4（HLS 分片）的音频编码。TrueHD 在 ffmpeg 的 mov muxer 里
@@ -341,6 +340,7 @@ def decide_playback(
     failed_tiers: frozenset[PlaybackTier] = frozenset(),
     preferred_audio: str | None = None,
     preferred_subtitle: str | None = None,
+    burn_requested: bool = False,
     max_height: int | None = None,
 ) -> PlaybackDecision:
     """按 web-player.md §3.3 的判定顺序算出最优播放计划。
@@ -361,10 +361,11 @@ def decide_playback(
     不受它影响：前者是全解码客户端自己拉流，后者无从判断、只能乐观直连。
 
     ``preferred_subtitle`` 是**用户选中的字幕轨**（None/"off" 与文本轨都是
-    no-op）。只有当它指向本文件的**内封 PGS 轨**时才改变决策：视频强制转码、
-    字幕烧录进画面（Emby 语义的「字幕压制」）。这是硬边界 1 唯一的例外，
-    由用户的显式选择触发；文本字幕永远旁挂，视频策略不因它变。universal
-    分支与未探测到规格的 strm 同样不受影响，位图字幕退回前端 canvas 渲染。
+    no-op）。只有当它指向本文件的**内封 PGS 轨**时才可能改变决策：视频强制转码、
+    字幕烧录进画面（「字幕压制」）。这是硬边界 1 唯一的例外，由用户的选择触发，
+    能不能算数见 ``_burn_target``（``burn_requested`` 是用户显式要求压制）；文本字幕
+    永远旁挂，视频策略不因它变。universal 分支与未探测到规格的 strm 同样不受影响，
+    位图字幕退回前端 canvas 渲染。
     """
     # 1. 网盘（strm）条目：播放时按需探测过规格的，与本地文件走同一套判定——服务端的
     #    ffmpeg 直接读直链换封装 / 转码（docs/design/strm-playback.md）。探测不到规格
@@ -479,9 +480,9 @@ def decide_playback(
     # 3–5. 视频、HDR、音频三项判定，各自算出「能不能 copy」。
     video_verdict = _judge_video(media, capability, policy, max_height)
 
-    # 用户显式选中内封 PGS → 烧录：视频不再允许 copy（硬边界 1 唯一例外）。
+    # 要烧录内封 PGS：视频不再允许 copy（硬边界 1 唯一例外）。
     # blocked（如 HDR 无 GPU）原样保留——烧录也救不了放不出来的画面。
-    burn_track = _burn_target(media, preferred_subtitle)
+    burn_track = _burn_target(media, preferred_subtitle, capability, burn_requested)
     if burn_track is not None and video_verdict.blocked is None:
         video_verdict = _VideoVerdict(
             can_copy=False,
@@ -504,8 +505,7 @@ def decide_playback(
             can_self_enable=can_self_enable,
         )
 
-    # 8. 字幕规划。文本轨不影响档位；PGS 只在用户显式选中时通过烧录改档
-    #    （已并入上面的 video_verdict）。
+    # 8. 字幕规划。文本轨不影响档位；PGS 只在要烧录时改档（已并入上面的 video_verdict）。
     subtitles = plan_subtitles(media)
 
     return PlaybackPlan(
@@ -1344,6 +1344,7 @@ def needs_keyframe_probe(
     failed_tiers: frozenset[PlaybackTier] = frozenset(),
     preferred_audio: str | None = None,
     preferred_subtitle: str | None = None,
+    burn_requested: bool = False,
     max_height: int | None = None,
 ) -> bool:
     """判断当前候选是否需要读取源片关键帧密度。
@@ -1357,7 +1358,7 @@ def needs_keyframe_probe(
         return False
 
     video_verdict = _judge_video(media, capability, policy, max_height)
-    burn_track = _burn_target(media, preferred_subtitle)
+    burn_track = _burn_target(media, preferred_subtitle, capability, burn_requested)
     if burn_track is not None and video_verdict.blocked is None:
         video_verdict = _VideoVerdict(
             can_copy=False,
@@ -1458,13 +1459,23 @@ def _transcode_source_color(media: MediaProfile) -> str | None:
     return "BT.709" if (media.height or 0) >= 720 else None
 
 
-def _burn_target(media: MediaProfile, preferred_subtitle: str | None) -> SubtitleTrack | None:
+def _burn_target(
+    media: MediaProfile,
+    preferred_subtitle: str | None,
+    capability: ClientCapability,
+    burn_requested: bool = False,
+) -> SubtitleTrack | None:
     """选中的字幕是否触发烧录：**只认本文件里的内封 PGS 轨**。
 
     None / "off" / 文本轨 / 外挂轨 / 引用不在本文件里（换了版本文件轨序变了）
     一律返回 None——烧录必须是用户对「这条位图轨」的明确选择，宁可不烧也
     不能烧错轨。外挂 .sup 不烧：ffmpeg 的 overlay 需要字幕在同一输入里，
     外挂位图字幕极罕见，前端 canvas 渲染已覆盖。
+
+    烧录的代价是整片转码：最高 1080p、HDR 变 SDR，弱机上还跟不上（#1174）。所以能自己画
+    PGS 的客户端（``pgs_overlay``）选中这条轨也不烧，要用户显式要求（``burn_requested``）。
+    观看记忆里的轨走同一条判定，下次打开不会因为上次选过 PGS 又整片转码。其它客户端自己
+    画不了，选中就烧。
     """
     if not preferred_subtitle or preferred_subtitle == "off":
         return None
@@ -1474,6 +1485,8 @@ def _burn_target(media: MediaProfile, preferred_subtitle: str | None) -> Subtitl
     if track is None or track.is_external:
         return None
     if (track.codec or "").lower() not in _PGS_SUBTITLE_CODECS:
+        return None
+    if capability.pgs_overlay and not burn_requested:
         return None
     return track
 
@@ -1536,9 +1549,9 @@ def plan_subtitles(media: MediaProfile) -> tuple[SubtitlePlan, ...]:
     """字幕规划（§3.3 步骤 8）——**默认永不烧录**（硬边界 1）。
 
     字幕一律旁挂：文本轨转 VTT 交 ``<track>``，ASS/SSA 原样交 JASSUB 保留
-    特效，PGS 交前端 libbitsub 解码。VobSub 暂不支持。唯一例外是用户显式
-    选中内封 PGS 触发的烧录（见 ``_burn_target``），那不改变本清单——被烧
-    的轨仍在清单里，前端据 ``video.burn_subtitle`` 决定不再旁挂渲染它。
+    特效，PGS 交前端 libbitsub 解码。VobSub 暂不支持。唯一例外是内封 PGS 的
+    烧录（见 ``_burn_target``），那不改变本清单——被烧的轨仍在清单里，前端据
+    ``video.burn_subtitle`` 决定不再旁挂渲染它。
     """
     plans: list[SubtitlePlan] = []
     for track in media.subtitle_tracks:

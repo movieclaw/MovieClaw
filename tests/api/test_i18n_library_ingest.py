@@ -54,7 +54,9 @@ async def test_pending_then_claimed_conclusions_follow_the_reader(db, tmp_path, 
     # 中文原文照旧落库：旧版本回滚与历史标记匹配都靠它
     assert row.message.startswith("无法自动识别「obscure-release-x264」对应的影视条目")
     assert _view(row, "zh-Hans") == row.message
+    assert "自动入库清单" in row.message
     assert _view(row, "en").startswith("Couldn’t identify “obscure-release-x264” automatically.")
+    assert "Automatic import list" in _view(row, "en")
 
     async with db.session() as session:
         row = await ingest_mod.claim_entry(session, row.id, 300, execute_inline=True)

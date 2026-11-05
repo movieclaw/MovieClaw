@@ -482,6 +482,12 @@ class MediaIdentity:
     # 已定档的正片集 (季号, 播出日期)：与包种子声明的「全 N 集」对照，发布前
     # 已播出的集数明显更多说明是同名的另一部剧（见 identity._episode_count_conflict）
     aired_episodes: tuple[tuple[int, date], ...] = ()
+    # 站点季号映射（issue #1155）：TMDB 把实际分两季播出的剧登记成一条长季时，
+    # 站点仍按 S01/S02 拆开发布。这里给内核一张「站点季号 → TMDB 集号区间」的
+    # 对照表，供 ``_derive_units`` 在**站点季号不在 season_numbers 里**时换算。
+    # 空元组=没有映射（普通剧的常态），此时内核行为与改动前逐字节相同。
+    # 元组顺序即站点季号顺序，元素是 (站点季号, TMDB 季号, 起始集, 结束集)
+    season_blocks: tuple[tuple[int, int, int, int], ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -525,6 +531,17 @@ class IdentityMatch:
     # 集数时，超出部分的占位单元没有播出日期、过不了发布时间上限，只能靠这个
     # 声明判断包里有没有它（issue #640）
     declared_total: int | None = None
+    # 这一次匹配是否发生过站点季号归一（issue #1155）。消费侧据此记一条
+    # ``SEASON_MAPPED`` 活动，解释"站点的第 2 季为什么补到了第 13 集"。
+    # 只有真的换算过才为 True——普通剧恒为 False，不产生任何新活动记录。
+    # 同时兼作 ``site_seasons`` 的携带者：换算前的站点季号（用于活动文案）
+    season_normalized: bool = False
+    site_seasons: frozenset[int] = frozenset()
+    # ``episodes`` 是站点**整季包**平移出来的集区间（站点 S02 整季包 →
+    # (1,13)…），不是标题写明的集号。覆盖时按整季包的原语义走
+    # （covered_units）：只认种子发布前已播出的集，未定档的只在声明了总集数
+    # 时才认——不能像显式集号那样信到底
+    normalized_pack: bool = False
 
 
 @dataclass(frozen=True)

@@ -1235,6 +1235,59 @@ async def apply_display_profile(
         if key not in fresh_keys and profile.seasons:
             await session.delete(row)
 
+    # 站点季号映射（issue #1155）：从刚落库的这套集日期推导，与上面写集行的
+    # 同一个 session。**不往 media_episode / media_season 里写任何东西**——
+    # 那两张表随每次刷新删改，写进去会被下一轮冲掉（design §5）。
+    # 推导结果落 media_item.season_mapping：NULL=没算过、[]=无需映射、非空=有映射
+    await apply_season_mapping(session, media_item_id, profile)
+
+
+async def apply_season_mapping(
+    session: AsyncSession, media_item_id: int, profile: MediaProfile
+) -> None:
+    """按本次档案的集日期重算并写 ``media_item.season_mapping``（不 commit）。
+
+    直接吃 ``profile`` 里的 (季, 集, 日期) 而不是回查 ``MediaEpisode``：此刻
+    新行还在 session 里没 flush，回查读不到；而两者是同一份数据，没必要多一次
+    往返。普通剧推导出来恒为空映射，写成 ``[]``（"算过且无需映射"），与
+    ``NULL``（"没算过"）区分得开——存量条目靠下一次刷新自愈。
+    """
+    item = await session.get(MediaItem, media_item_id)
+    if item is None:
+        return
+    payload = profile_season_mapping(profile)
+    if item.season_mapping != payload:
+        item.season_mapping = payload
+        session.add(item)
+
+
+def profile_season_mapping(profile: MediaProfile) -> list[dict]:
+    """:class:`MediaProfile` → ``media_item.season_mapping`` 的 JSON 值。
+
+    建档（``media_library._to_rows``）与刷新（``apply_display_profile``）两条
+    落库路径共用：新条目建档后第一次匹配就要能读到映射，不能等下一轮刷新。
+
+    条目完整的季列表（含集表还空着的季）一并传入：站点季号撞上 TMDB 真实
+    存在的季时不落映射。季台账（``media_season``）也只在这两条路径上、由同
+    一份档案写入，映射因此总是按最新的季表过滤过——消费侧不必各自再查。
+    """
+    from movieclaw_matcher.seasons import derive_season_mapping, mapping_to_json
+
+    return mapping_to_json(
+        derive_season_mapping(
+            [
+                (
+                    season.season_number,
+                    episode.episode_number,
+                    _parse_iso_date(episode.air_date),
+                )
+                for season in profile.seasons
+                for episode in season.episodes
+            ],
+            seasons=[season.season_number for season in profile.seasons],
+        )
+    )
+
 
 def build_display_rows(
     profile: MediaProfile, language: str

@@ -100,7 +100,7 @@
   "health": {
     "goSites": "Set up sites",
     "goDownloaders": "Downloader settings",
-    "goWatch": "Import-watch settings",
+    "goWatch": "Automatic import settings",
     "goLibraries": "Media libraries",
     "noSites": "No active release sites; subscriptions cannot find releases",
     "brokenSites": "All configured sites are unavailable (verification failed or disabled); subscriptions cannot find releases",
@@ -145,7 +145,7 @@
     "mappingWhy": "Mappings cover directory prefixes. One mapping for the common parent covers all libraries below it. Use this when the downloader can access library directories and downloads may go directly into the library.",
     "mappingSteps": "Add a mapping: local path {anchor} → its path as seen by the downloader. If the downloader sees the same path, enter it on both sides.",
     "goMapping": "Add mapping",
-    "watchFix": "Use import watch (separate downloads from libraries)",
+    "watchFix": "Use automatic import (separate downloads from libraries)",
     "watchWhy": "Downloads go to a separate directory, so mappings only need to cover that directory, regardless of how many libraries you have. Completed files are hardlinked or copied into the library. Source files keep seeding, and removing a torrent keeps the library copy. Recommended for private trackers.",
     "watchSteps": "Create one automatic-routing rule for each of these types: {kinds}. Use the downloader’s download directory as the source; it must be outside all media library roots.",
     "goRule": "Create rules",

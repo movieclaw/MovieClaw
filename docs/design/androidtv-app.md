@@ -30,7 +30,7 @@
 
 ## 2. 功能范围（一期）
 
-对齐 Apple TV 首版，**不做发现和订阅**（用户 2026-10-08 定）。
+对齐 Apple TV 首版，**不做发现和订阅**（用户 2026-10-08 定；详情页播出日历上的「订阅追更」「补缺集」例外，2026-11-05 用户要求与手机功能一致）。
 
 | 功能 | 怎么做 | 用到的接口 |
 |---|---|---|
@@ -40,7 +40,7 @@
 | 谁在看 / 多账号 | 侧边栏第一项；跨服务器切换 = 换令牌、不联网、整棵界面树与 `AppGraph` 重建；启动直接进上次的账号 | 本机存储；退出登录 `DELETE /auth/devices/current`（失败入队重试） |
 | 首页 | 首屏是跟着焦点走的「接下来继续」大图区，下面接用户在网页自定义的行 | `GET /playback/up-next`、`GET /ui/preferences`（只读）、各行取数（库 / 类型 / 合集 / 收藏 / 按类型找）、`GET /libraries/showcase` |
 | 媒体库海报墙 | 从首页「我的媒体库」行进；标题行一枚「排序与筛选」：排序、只看没看过的、类型 / 年代 / 画质；大库有索引条快速跳转（§10.8，与 Apple TV 同一套） | `GET /libraries?scope=all`、`GET /libraries/{id}/items`、`…/facets`、`…/item-index`、`…/relax`、`GET /libraries/kinds/{kind}/items` |
-| 条目详情 | 大剧照 + 片名 Logo + 事实行 + 主按钮「继续 mm:ss」；季、分集横排、演职员；版本、标记已看 / 收藏 | `GET /libraries/{lid}/items/{id}`、`…/episodes`、`GET /playback/resume`、`GET/POST /playback/marks`、`GET /people/{id}` |
+| 条目详情 | 大剧照 + 片名 Logo + 事实行 + 主按钮「继续 mm:ss」；季、分集横排、演职员；版本、标记已看 / 收藏；在播的季有播出日历（§10.9） | `GET /libraries/{lid}/items/{id}`、`…/episodes`、`GET /playback/resume`、`GET/POST /playback/marks`、`GET /people/{id}`；日历上的动作 `POST /subscriptions/title-preview`、`POST /subscriptions`、`POST /subscriptions/{id}/missing-resource-searches` |
 | 搜索 | 屏幕键盘 + 系统语音输入，只搜媒体库 | `GET /search/library` |
 | 播放 | §4、§5 | `/playback/sessions` 一族 |
 | 关于 | 版本号 + 开源组件许可（**LGPL 合规必需**） | — |
@@ -418,3 +418,12 @@ release 包装到 Android 8.0 镜像：登录 NAS、杜比视界服务端流、E
   去掉西部后「4K · 未看 · 540 部」、按上映的年份索引条（2025 · 203 部 … 90s / 80s / 70s / 60s）、收藏「查看全部」墙。
 - 未覆盖：真机（索尼）按住方向键的连发节奏与 0.55 秒门槛、快速滚动的流畅度与预取效果；影人页仍只写饰演角色（tvOS 同样未改）。
 
+### 10.9 播出日历（2026-11-05，issue #547）
+
+与 Apple TV 同一套交互（docs/design/tvos-app.md §3.6）：下半截选季下面一条入口，按确认打开整屏日程，打开时焦点落在今天 / 下一个更新日；
+往上是折叠的「已播出」，往左是补缺集、订阅追更（确认默认值后建好），缺集那一行整行按确认就补，返回键回入口条。还没播的集不置灰、不标缺集，剧照位换成播出日。
+
+- 口径在 `ui/detail/AirSchedule.kt`，界面在 `AirSchedulePanel.kt`。minSdk 23 没有 `java.time`、工程也没开脱糖：日历日用 `AirDate`（从 1970-01-01 起的天数）自己算。
+- 页面头部几排有显式的上下焦点（`up` / `down`）：首屏按钮滑走后在几何上和它们叠着，就近找焦点会越过去回首屏。
+- 单测：`AirScheduleTest`（口径）、`AirSchedulePanelTest`（真页面 + 假服务端，遥控器走全流程，出图在 `app/build/ui-previews/air-schedule-*.png`）。
+  模拟器走查用 `tests/fixture/air_schedule_fixture.py`（隔离后端，播出日期按今天现算）。

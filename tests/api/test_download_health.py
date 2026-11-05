@@ -400,3 +400,105 @@ async def test_landing_group_folds_under_path_probe_notice_both_orders(db):
         )
         assert len(rows) == 2
         assert all(r.payload["grouped_under"] == paths_key(dl.id) for r in rows)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("layout", ["nested", "second_root", "no_files"])
+async def test_ignored_landing_reports_mapped_watch_entry_once(db, monkeypatch, tmp_path, layout):
+    from movieclaw_db.models import ActivityType, ImportWatch, IngestEntry, IngestStatus
+
+    stale = utcnow() - timedelta(minutes=progress_mod._LANDING_GRACE_MINUTES + 5)
+    sub_id, wanted_id = await _seed(
+        db, tmdb_id=1, title="剧A", info_hash="a" * 40, grabbed_at=stale
+    )
+    watch = tmp_path / "download" / "剧集"
+    entry = watch / "Show"
+    entry.mkdir(parents=True)
+    status = _completed("Show", 100)
+    if layout == "nested":
+        (entry / "Season 01").mkdir()
+        status.save_path += "/Show/Season 01"
+        status.files[0].path = "Show.S01E01.mkv"
+        (entry / "Season 01" / status.files[0].path).touch()
+    elif layout == "second_root":
+        (watch / "Other").mkdir()
+        status.files = [
+            SimpleNamespace(path="Other/Show.S01E01.mkv", selected=True),
+            SimpleNamespace(path="Show/Show.S01E01.mkv", selected=True),
+        ]
+    else:
+        status.files = []
+    async with db.session() as session:
+        session.add(ImportWatch(source_path=str(watch), strategy="hardlink", kind="tv"))
+        session.add(
+            IngestEntry(entry_path=str(entry), fingerprint="old", status=IngestStatus.IGNORED)
+        )
+        await session.commit()
+    downloader = SimpleNamespace(
+        id=7,
+        name="qb",
+        path_mappings=[{"local": str(tmp_path / "download"), "remote": "/downloads"}],
+    )
+
+    async def lookup(*args, **kwargs):
+        return progress_mod._TorrentLookup(match=(downloader, status), reachable_count=1)
+
+    monkeypatch.setattr(progress_mod, "_lookup_torrent", lookup)
+    for _ in range(2):
+        await progress_mod._rescue_group(sub_id, "a" * 40, downloaders=[])
+    [notice] = await _active_notices(db)
+    assert notice.payload["reason"] == "ingest_ignored"
+    assert notice.payload["ignored_paths"] == [str(entry)]
+    assert notice.payload["units"] == [[1, 1]]
+    assert "S01E01" in notice.message and str(entry) in notice.message
+    assert "被跳过" in notice.message and "恢复该条目后等待巡检" in notice.message
+    assert "设置 → 自动入库" in notice.message
+    async with db.session() as session:
+        [activity] = (await session.execute(select(SubscriptionActivity))).scalars().all()
+        assert activity.type == ActivityType.IMPORT_FAILED
+        assert activity.message == notice.message
+        assert activity.payload["reason"] == "ingest_ignored"
+        assert (await session.get(WantedItem, wanted_id)).status == WantedStatus.GRABBED
+        [record] = (await session.execute(select(IngestEntry))).scalars().all()
+        assert record.status == IngestStatus.IGNORED
+        assert record.fingerprint == "old"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["sibling", "unselected", "removed_rule", "restored"])
+async def test_ignored_landing_does_not_report_unrelated_entries(db, monkeypatch, tmp_path, case):
+    from movieclaw_db.models import ImportWatch, IngestEntry, IngestStatus
+
+    stale = utcnow() - timedelta(minutes=progress_mod._LANDING_GRACE_MINUTES + 5)
+    sub_id, _ = await _seed(db, tmdb_id=1, title="剧A", info_hash="a" * 40, grabbed_at=stale)
+    watch = tmp_path / "download" / "剧集"
+    (watch / "Show.Extended").mkdir(parents=True)
+    (watch / "Show").mkdir()
+    status = _completed("Show.Extended", 100)
+    if case == "unselected":
+        status.files.append(SimpleNamespace(path="Show/Show.S01E01.mkv", selected=False))
+    async with db.session() as session:
+        if case != "removed_rule":
+            session.add(ImportWatch(source_path=str(watch), strategy="hardlink", kind="tv"))
+        session.add(
+            IngestEntry(
+                entry_path=str(
+                    watch / ("Show" if case in {"sibling", "unselected"} else "Show.Extended")
+                ),
+                fingerprint="old",
+                status=IngestStatus.PENDING if case == "restored" else IngestStatus.IGNORED,
+            )
+        )
+        await session.commit()
+    downloader = SimpleNamespace(
+        id=7,
+        name="qb",
+        path_mappings=[{"local": str(tmp_path / "download"), "remote": "/downloads"}],
+    )
+
+    async def lookup(*args, **kwargs):
+        return progress_mod._TorrentLookup(match=(downloader, status), reachable_count=1)
+
+    monkeypatch.setattr(progress_mod, "_lookup_torrent", lookup)
+    await progress_mod._rescue_group(sub_id, "a" * 40, downloaders=[])
+    assert await _active_notices(db) == []

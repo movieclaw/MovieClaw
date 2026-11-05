@@ -102,7 +102,7 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 按类型的跨库海报墙（同一部片跨库只出现一次）（`GET /libraries/kinds/{kind}/items`） */
-    suspend fun uiLibraryKindItems(kind: String, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null): List<LibraryItemView> {
+    suspend fun uiLibraryKindItems(kind: String, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): List<LibraryItemView> {
         val query = buildList<Pair<String, String>> {
             sort?.let { add("sort" to it.toString()) }
             order?.let { add("order" to it.toString()) }
@@ -119,6 +119,7 @@ class McApi(private val transport: ApiTransport) {
             hdr?.let { add("hdr" to it.toString()) }
             stock?.let { add("stock" to it.toString()) }
             seriesKeys?.let { add("series_keys" to it.toString()) }
+            actor?.let { add("actor" to it.toString()) }
         }
         return transport.send("GET", "/libraries/kinds/${kind}/items", query, null, serializer<List<LibraryItemView>>(), enveloped = true)
     }
@@ -157,7 +158,7 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 库内媒体条目的库存聚合（单库海报墙数据源）（`GET /libraries/{library_id}/items`） */
-    suspend fun libraryItemsList(libraryId: Long, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, identity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null): List<LibraryItemView> {
+    suspend fun libraryItemsList(libraryId: Long, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, identity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): List<LibraryItemView> {
         val query = buildList<Pair<String, String>> {
             sort?.let { add("sort" to it.toString()) }
             order?.let { add("order" to it.toString()) }
@@ -175,12 +176,13 @@ class McApi(private val transport: ApiTransport) {
             hdr?.let { add("hdr" to it.toString()) }
             stock?.let { add("stock" to it.toString()) }
             seriesKeys?.let { add("series_keys" to it.toString()) }
+            actor?.let { add("actor" to it.toString()) }
         }
         return transport.send("GET", "/libraries/${libraryId}/items", query, null, serializer<List<LibraryItemView>>(), enveloped = true)
     }
 
     /** 筛选面板的候选值与计数（每一维排除自身条件后算）（`GET /libraries/{library_id}/facets`） */
-    suspend fun libraryItemsFacets(libraryId: Long, tier: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null): LibraryFacetsView {
+    suspend fun libraryItemsFacets(libraryId: Long, tier: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): LibraryFacetsView {
         val query = buildList<Pair<String, String>> {
             tier?.let { add("tier" to it.toString()) }
             g?.let { add("g" to it.toString()) }
@@ -194,12 +196,13 @@ class McApi(private val transport: ApiTransport) {
             hdr?.let { add("hdr" to it.toString()) }
             stock?.let { add("stock" to it.toString()) }
             seriesKeys?.let { add("series_keys" to it.toString()) }
+            actor?.let { add("actor" to it.toString()) }
         }
         return transport.send("GET", "/libraries/${libraryId}/facets", query, null, serializer<LibraryFacetsView>(), enveloped = true)
     }
 
     /** 海报墙的跳转索引（按标题：A-Z 首字母档；按内容时间：月份档）（`GET /libraries/{library_id}/item-index`） */
-    suspend fun uiLibraryItemsIndex(libraryId: Long, sort: String? = null, order: String? = null, granularity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null): List<LibraryIndexEntryView> {
+    suspend fun uiLibraryItemsIndex(libraryId: Long, sort: String? = null, order: String? = null, granularity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): List<LibraryIndexEntryView> {
         val query = buildList<Pair<String, String>> {
             sort?.let { add("sort" to it.toString()) }
             order?.let { add("order" to it.toString()) }
@@ -215,12 +218,13 @@ class McApi(private val transport: ApiTransport) {
             hdr?.let { add("hdr" to it.toString()) }
             stock?.let { add("stock" to it.toString()) }
             seriesKeys?.let { add("series_keys" to it.toString()) }
+            actor?.let { add("actor" to it.toString()) }
         }
         return transport.send("GET", "/libraries/${libraryId}/item-index", query, null, serializer<List<LibraryIndexEntryView>>(), enveloped = true)
     }
 
     /** 筛空时的放宽建议（只列救得回内容的条件）（`GET /libraries/{library_id}/relax`） */
-    suspend fun libraryItemsRelax(libraryId: Long, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null): LibraryRelaxView {
+    suspend fun libraryItemsRelax(libraryId: Long, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): LibraryRelaxView {
         val query = buildList<Pair<String, String>> {
             g?.let { add("g" to it.toString()) }
             c?.let { add("c" to it.toString()) }
@@ -233,6 +237,7 @@ class McApi(private val transport: ApiTransport) {
             hdr?.let { add("hdr" to it.toString()) }
             stock?.let { add("stock" to it.toString()) }
             seriesKeys?.let { add("series_keys" to it.toString()) }
+            actor?.let { add("actor" to it.toString()) }
         }
         return transport.send("GET", "/libraries/${libraryId}/relax", query, null, serializer<LibraryRelaxView>(), enveloped = true)
     }
@@ -290,6 +295,24 @@ class McApi(private val transport: ApiTransport) {
     suspend fun playbackMarksSet(body: PlaybackMarksRequest): PlaybackMarksView {
         val query = emptyList<Pair<String, String>>()
         return transport.send("POST", "/playback/marks", query, McJson.encodeToJsonElement(body), serializer<PlaybackMarksView>(), enveloped = true)
+    }
+
+    /** 预览订阅目标的季集、库存和现有订阅状态（`POST /subscriptions/title-preview`） */
+    suspend fun uiSubscriptionsPreviewTitle(body: SubscriptionTargetPreviewPayload): PrepareView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/subscriptions/title-preview", query, McJson.encodeToJsonElement(body), serializer<PrepareView>(), enveloped = true)
+    }
+
+    /** 从 Discover 影视条目创建订阅并生成初始追踪工单（`POST /subscriptions`） */
+    suspend fun subscriptionsCreate(body: SubscriptionCreatePayload): SubscriptionCreateView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/subscriptions", query, McJson.encodeToJsonElement(body), serializer<SubscriptionCreateView>(), enveloped = true)
+    }
+
+    /** 立即为一条订阅搜索目前缺失且已经可搜索的资源（`POST /subscriptions/{subscription_id}/missing-resource-searches`） */
+    suspend fun subscriptionsSearchMissingResources(subscriptionId: Long): SearchNowView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/subscriptions/${subscriptionId}/missing-resource-searches", query, null, serializer<SearchNowView>(), enveloped = true)
     }
 
     /** 媒体库名称、别名、拼音及人物搜索（相关度排序，稳定分页）（`GET /search/library`） */

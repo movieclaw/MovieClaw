@@ -19,7 +19,7 @@ PID 关联两边的轨道，绝不按数组下标猜测——播放列表裁剪�
 from __future__ import annotations
 
 import logging
-from collections.abc import Collection, Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -208,9 +208,10 @@ def _parse_playlist_marks(data: bytes, items: tuple[MplsPlayItem, ...]) -> tuple
     return tuple(sorted(marks))
 
 
-#: 台账 ``library_file.disc_playlist`` 的结构版本。字段集变了就 +1，补探会把
-#: 旧版本的行重算一遍（与 CLPI 语言版本戳同一思路）。
-DISC_PLAYLIST_VERSION = 1
+#: 台账 ``library_file.disc_playlist`` 的版本。字段集或选主片的规则变了就 +1，
+#: 补探会把旧版本的行重算一遍（与 CLPI 语言版本戳同一思路）。
+#: 2 = 长度相近时比字节（见 ``select_main_playlist``），字段集没变。
+DISC_PLAYLIST_VERSION = 2
 
 
 def disc_playlist_record(playlist: MplsPlaylist | None) -> dict:
@@ -246,6 +247,7 @@ def read_main_playlist(disc_dir: Path) -> MplsPlaylist | None:
     候选必须引用实际存在的 STREAM 文件，且**不含循环剪辑**（``has_loops``，
     防拷贝诱饵列表的判据，与 Jellyfin/BDInfo 同口径）。按有效播放时长优先，
     同一剪辑序列只保留一个，避免不同语言/菜单入口的等价 MPLS 放大候选数量。
+    长度相近时字节明显更多的才是正片（见 ``select_main_playlist``）。
     """
     playlist_dir = disc_dir / "BDMV" / "PLAYLIST"
     stream_dir = disc_dir / "BDMV" / "STREAM"
@@ -257,8 +259,8 @@ def read_main_playlist(disc_dir: Path) -> MplsPlaylist | None:
             for path in playlist_dir.iterdir()
             if path.is_file() and path.suffix.lower() == ".mpls"
         )
-        streams = {
-            path.stem: path
+        stream_sizes = {
+            path.stem: path.stat().st_size
             for path in stream_dir.iterdir()
             if path.is_file() and path.suffix.lower() == ".m2ts"
         }
@@ -270,27 +272,56 @@ def read_main_playlist(disc_dir: Path) -> MplsPlaylist | None:
             playlists.append(parse_mpls_playlist(path.read_bytes(), path=path))
         except (OSError, MplsParseError) as exc:
             logger.warning("蓝光 MPLS 解析失败，跳过候选：%s（%s）", path, exc)
-    return select_main_playlist(playlists, set(streams))
+    return select_main_playlist(playlists, stream_sizes)
+
+
+#: 长度差多少秒以内才比字节。NAS 上 186 张蓝光盘：同一部片的不同拷贝差 0～32 秒，
+#: 不同剪辑版至少差 310 秒（后者字节再多也不该改选，用户要的可能是加长版）
+_SIMILAR_LENGTH_S = 60
+#: 字节要到最长候选的多少倍才改选。同一部片的等价列表（语言分支、片头不同）字节只差 0.07% 以内，
+#: 解说版、分镜版只有正片的三分之一到五分之一
+_LARGER_COPY_RATIO = 1.5
 
 
 def select_main_playlist(
-    playlists: Iterable[MplsPlaylist], stream_ids: Collection[str]
+    playlists: Iterable[MplsPlaylist], stream_sizes: Mapping[str, int]
 ) -> MplsPlaylist | None:
-    """在已解析的候选里选主播放列表（原盘目录与光盘镜像共用的规则，见 ``read_main_playlist``）。"""
+    """在已解析的候选里选主播放列表（原盘目录与光盘镜像共用的规则，见 ``read_main_playlist``）。
+
+    只比时长会选错同一部片的小拷贝：《沉默的羔羊》盘上的 480i 画中画解说版比 1080p 正片长 6 秒，
+    吉卜力日版盘的全片分镜版与正片分秒不差、靠列表名排在后面才胜出，放出来全是铅笔稿。所以长度
+    相近的候选里，字节明显多的优先。
+
+    ``stream_sizes`` 是盘上各 m2ts 的字节数（读不出的记 0）。同一剪辑被引用多次只算一份。
+    """
     by_sequence: dict[tuple[str, ...], MplsPlaylist] = {}
     for playlist in playlists:
-        if not all(clip_id in stream_ids for clip_id in playlist.clip_ids):
+        if not all(clip_id in stream_sizes for clip_id in playlist.clip_ids):
             continue
         if playlist.has_loops:
             continue
         current = by_sequence.get(playlist.clip_ids)
         if current is None or playlist.duration_seconds > current.duration_seconds:
             by_sequence[playlist.clip_ids] = playlist
-    return max(
-        by_sequence.values(),
-        key=lambda row: (row.duration_seconds, len(row.items), row.path.name),
-        default=None,
+    if not by_sequence:
+        return None
+
+    def rank(row: MplsPlaylist) -> tuple[int, int, str]:
+        return (row.duration_seconds, len(row.items), row.path.name)
+
+    def size(row: MplsPlaylist) -> int:
+        return sum(stream_sizes[clip_id] for clip_id in set(row.clip_ids))
+
+    longest = max(by_sequence.values(), key=rank)
+    largest = max(
+        (
+            row
+            for row in by_sequence.values()
+            if longest.duration_seconds - row.duration_seconds <= _SIMILAR_LENGTH_S
+        ),
+        key=lambda row: (size(row), rank(row)),
     )
+    return largest if size(largest) >= size(longest) * _LARGER_COPY_RATIO else longest
 
 
 # 写进音轨/字幕 JSON 的内部版本戳。API 会显式投影公开字段，因此不会把它暴露

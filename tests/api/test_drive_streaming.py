@@ -303,7 +303,14 @@ def test_home_clients_get_bytes_relayed_with_the_server_user_agent(client, tmp_p
     assert {ua for _p, _r, ua in cdn.requests} == {SERVER_USER_AGENT}
 
 
-def test_direct_mode_redirects_outside_clients_with_their_own_user_agent(client, tmp_path, cdn):
+def test_direct_mode_redirects_outside_clients_with_their_own_user_agent(
+    client, tmp_path, cdn, monkeypatch
+):
+    from movieclaw_api.services.drives import sources
+
+    # 测试里的假 CDN 在回环地址上，真直链是公网地址：这里测的是公网直链（内网地址一律转发，
+    # 见 test_media_server_plugin.py）
+    monkeypatch.setattr(sources, "strm_needs_relay", lambda *_args: False)
     file_id, _path = seed(client, tmp_path)
     # 外面的手机经外网域名进来（外层反代传了 X-Forwarded-Host）
     outside = {"User-Agent": "Mozilla/Phone", "X-Forwarded-Host": OUTSIDE_HOST}
@@ -389,17 +396,17 @@ def test_direct_links_are_cached_and_coalesced(client, tmp_path):
 
     async def burst():
         return await asyncio.gather(
-            *(sources.direct_url(client.account_id, "f1", "UA-1") for _ in range(5))
+            *(sources.direct_link(client.account_id, "f1", "UA-1") for _ in range(5))
         )
 
-    urls = call(client, burst)
+    urls = [link.url for link in call(client, burst)]
     assert len(set(urls)) == 1, "并发只取一次"
-    again = call(client, sources.direct_url, client.account_id, "f1", "UA-1")
-    other = call(client, sources.direct_url, client.account_id, "f1", "UA-2")
+    again = call(client, sources.direct_link, client.account_id, "f1", "UA-1").url
+    other = call(client, sources.direct_link, client.account_id, "f1", "UA-2").url
     assert again == urls[0] and other != urls[0], "按 UA 分开缓存"
     assert gateway.usage_today(client.account_id) - before == 2
     sources.forget_links(client.account_id, "f1")
-    assert call(client, sources.direct_url, client.account_id, "f1", "UA-1") != urls[0]
+    assert call(client, sources.direct_link, client.account_id, "f1", "UA-1").url != urls[0]
 
 
 def test_byte_readers_resolve_cloud_paths(client, tmp_path):
@@ -447,8 +454,13 @@ def test_auth_expired_drive_gives_a_clear_reason(client, tmp_path):
     assert english.json()["message"].startswith("Cloud storage needs you to sign in again")
 
 
-def test_auto_mode_redirects_apps_that_declare_fallback_in_the_query(client, tmp_path):
+def test_auto_mode_redirects_apps_that_declare_fallback_in_the_query(
+    client, tmp_path, monkeypatch
+):
     """自研播放引擎自己发取流请求、带不了请求头：在地址上带 fallback=1 声明能降级。"""
+    from movieclaw_api.services.drives import sources
+
+    monkeypatch.setattr(sources, "strm_needs_relay", lambda *_args: False)  # 假 CDN 在回环地址上
     file_id, _path = seed(client, tmp_path)
 
     def stream(**params):

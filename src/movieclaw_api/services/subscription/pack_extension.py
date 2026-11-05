@@ -25,6 +25,7 @@ from movieclaw_api.services.subscription.smart_submission import SubmissionRejec
 from movieclaw_db.models import (
     DownloadAttemptStatus,
     DownloaderClient,
+    MediaItem,
     Subscription,
     SubscriptionDownloadAttempt,
 )
@@ -32,6 +33,7 @@ from movieclaw_db.repositories.downloader_repo import DownloaderRepository
 from movieclaw_downloader.factory import create_downloader
 from movieclaw_downloader.models import DownloaderConfig, SubmitResult
 from movieclaw_matcher import TorrentCandidate
+from movieclaw_matcher.seasons import mapping_for_task
 
 logger = logging.getLogger("movieclaw_api.pack_extension")
 
@@ -116,10 +118,16 @@ async def extend_owned_pack(
         previous = {(int(season), int(episode)) for season, episode in attempt.units}
         needed = previous | targets
         try:
+            item = await session.get(MediaItem, subscription.media_item_id)
             plan = plan_strict_file_selection(
                 [f.path for f in status.files],
                 needed,
                 known_seasons=subscription.selected_seasons or None,
+                # 站点季号映射（issue #1155）：站点 S02 的文件要能对上 (1, 13)。
+                # 用这个包首次投递时冻结的那份，previous 里的单元就是按它换算的
+                season_mapping=mapping_for_task(
+                    attempt.submission, item.season_mapping if item is not None else None
+                ),
             )
         except ValueError as exc:
             raise ExtensionRefused(

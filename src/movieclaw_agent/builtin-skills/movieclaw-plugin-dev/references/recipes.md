@@ -103,6 +103,7 @@ async def apply(ctx: Context) -> None:
 ```
 
 清单 `permissions.operations` 同步写上。返回值是该操作响应的 `data` 部分（字典）。
+要按失败原因分支时看 `exc.message_key`（如 `errors.library.nameInUse`，参数在 `exc.params`）：`exc.message` 随界面语言变，别比较文案。
 支持演练的危险操作（如 `dl.torrent.delete` 的 `dry_run`）开发时先传 `"dry_run": True`。
 
 示例：`references/examples/watchlist_feed.py`。
@@ -292,6 +293,9 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
 
 服务名写**条目 id**（如 `"douban-wish"`）：独立进程里宿主只为这个名字给出代理设置，
 写成别的名字会悄悄直连、不走用户「设置 → 网络与代理」的规则。清单写 `network = true`。
+连用户内网里自签证书的服务：`net.http_transport("me-feed", verify="/path/to/ca.pem")`（只信这张证书，优先用它），
+或做成设置项让用户显式关校验（`verify=False`，凭据可能被冒充的服务器拿到）。默认校验，别默认关。
+传了 `transport=` 之后客户端上的 `verify=` 不起作用，要传给 `http_transport`。
 装之前可以在 bash 里用 curl 请求外部公开接口，核对返回格式再写解析代码（不要带用户的凭据）。
 外部服务出错时捕获 `httpx.HTTPError`，记日志后在接口里 `raise HTTPException(502, detail="天气服务暂时不可用")`，
 不要把堆栈抛给用户；后台循环里则记日志、下一轮再试。
@@ -673,8 +677,8 @@ audience = "admins"
   `login_with_form` 里**真去网盘换一次令牌、读一次用户信息**，交回真实的网盘用户 id；密钥不对抛 `AuthExpired`，限流照常抛 `RateLimited`。
   令牌由长期密钥换来的，把密钥、令牌、过期时间一起放进凭据，快过期时在调用里重新换、赋给 `account.credentials`。
   不要拿插件设置存网盘密钥（设置是全局一份，网盘账号是每个一份，对不上），也不要把密钥伪装成 Cookie。
-- **只支持能写的网盘**（`Capabilities(writable=True)`，只读网盘这一期不支持）：上传（`ensure_dir` / `begin_upload` /
-  `upload_part` / `finish_upload`）和删除（`delete`）都要实现。
+- **能写的网盘**（`Capabilities(writable=True)`）：上传（`ensure_dir` / `begin_upload` / `upload_part` / `finish_upload`）和删除
+  （`delete`）都要实现。只读的来源（Emby、Plex 这类媒体服务器）见第 19 节。
 - **建库时网盘有两种用法**（`mclaw library create --help`）：`--cloud-folders-json` 挂上已有的网盘文件夹即纳管（按文件名识别入库，
   不下载、不改动网盘上的文件，播放时从网盘取）；主根放在网盘则新入库的文件整理后上传，核验后腾空本地（`--keep-local` 保留本地一份）。
 - 账号与凭据加密、限速与每日预算、同时播放数、超时与重试、错误归类、设置页都是主程序的：插件里**不要自己睡眠重试、不要自己限速**，
@@ -695,3 +699,123 @@ audience = "admins"
    限流 / 失效的异常归类。
 2. 再请用户配合：装好后在网页「设置 → 网盘」用自己的账号登录，给一个可以随便动的测试文件夹；你用 `drives accounts list` 确认账号在、
    `drives accounts dirs <账号 id>` 能列出目录，再建一个只挂这个文件夹的测试库，让用户播放一集确认取流。上传要单独征得同意再测。
+
+## 19. 第三方媒体服务器：Emby、Plex、飞牛这类已经整理好片库的服务
+
+**不要写台账、不要读写主程序的表**（插件包也拿不到）。先问清片库文件 MovieClaw 这边看不看得到：
+
+- **看得到**（挂载进了容器）：不用写后端。让用户建普通本地库（或插件调 `library.create`，`scrape_overrides` 关掉
+  `mirror_images` / `mirror_nfo` / `mirror_episode_thumbs`，不往对方目录写文件），主程序扫描入账、本地直出，对方挂了也能播。
+  插件只做进度和片头片尾同步（见下）。认不出的按对方给的编号调 `library.identification.assign-files-to-title`。
+  库根不能嵌套：对方把父目录和子目录挂进同一个库时，自己按「父目录优先」去重。
+- **看不到**：写一个**只读的网盘后端**（第 18 节的账号、限速、错误归类都适用）：
+
+```python
+import httpx
+from pydantic import BaseModel, Field, SecretStr
+
+from movieclaw_sdk import net, plugin
+from movieclaw_sdk.drives import (
+    DRIVE_BACKENDS, AccountInfo, AuthExpired, Capabilities, DirectLink, DriveBackend, Login,
+    LoginResult, RemoteDir, RemoteFile, RemoteTree, Transient,
+)
+
+
+class Credentials(BaseModel):
+    base_url: str = Field(title="服务器地址")
+    token: SecretStr = Field(title="访问令牌")
+
+
+class Server(DriveBackend):
+    type = "my-server"
+    title = "某媒体服务器"
+    capabilities = Capabilities(
+        writable=False,    # 主程序绝不调写方法：不能当主根，用户在库里删这些文件会被拒绝
+        recheck_hours=1,   # 每轮定期对账（6 小时）都整树列一遍；默认一周是按网盘的接口预算定的
+        default_qps=20.0, default_daily_budget=1_000_000, default_read_slots=8,  # 内网服务不用抠
+    )
+    login = Login(form=Credentials)
+
+    def __init__(self):
+        self._http = httpx.AsyncClient(transport=net.http_transport("my-server"), timeout=15.0)
+
+    async def _get(self, creds, path, **params):
+        resp = await self._http.get(
+            creds["base_url"] + path, headers={"X-Token": creds["token"]}, params=params
+        )
+        if resp.status_code == 401:
+            raise AuthExpired("服务器不认这个令牌")
+        if resp.status_code >= 400:
+            raise Transient(f"服务器返回 {resp.status_code}：{path}")
+        return resp.json()
+
+    async def login_with_form(self, values):
+        form = Credentials.model_validate(values)
+        creds = {"base_url": form.base_url, "token": form.token.get_secret_value()}
+        info = await self._get(creds, "/info")   # 真去验一次，交回真实的服务器 id
+        return LoginResult(user_id=info["server_id"], display_name=info["name"], credentials=creds)
+
+    async def account_info(self, account):
+        return AccountInfo(display_name=(await self._get(account.credentials, "/info"))["name"])
+
+    async def list_dir(self, account, dir_id):
+        if dir_id:
+            return []          # 对方的库下面不再分层：建库向导的目录选择器直接选库
+        rows = await self._get(account.credentials, "/libraries")
+        return [RemoteDir(remote_id=r["id"], name=r["name"], has_children=False) for r in rows]
+
+    async def list_tree(self, account, dir_id):
+        files, page = [], 0
+        while True:
+            # 哪一页、哪一季失败都要抛，不能吞掉：返回的就是完整列表，没出现的文件会被标缺失
+            data = await self._get(account.credentials, f"/libraries/{dir_id}/items", page=page)
+            files += [
+                RemoteFile(remote_id=i["id"], name=i["name"], size=i["size"], rel_path=rel_path(i))
+                for i in data["items"]
+            ]
+            if not data["more"]:
+                return RemoteTree(files=tuple(files))
+            page += 1
+
+    async def direct_link(self, account, remote_id, user_agent):
+        return DirectLink(
+            url=f"{account.credentials['base_url']}/stream/{remote_id}",   # 要支持 Range
+            headers={"X-Token": account.credentials["token"]},             # 令牌放这里，别放地址里
+            expires_in=3600,
+        )
+
+
+def rel_path(item):
+    # 身份写进路径：[tmdbid=N] 是识别链最优先的声明（还会对片名年份做校验）。剧集写剧的编号，不是集的
+    if not item.get("tmdb_id"):
+        return f"{item['title']}/{item['name']}"      # 对方也不知道：按文件名识别，认不出进待识别
+    folder = f"{item['title']} ({item['year']}) [tmdbid={item['tmdb_id']}]"
+    if item.get("episode"):
+        s, e, ext = item["season"], item["episode"], item["name"].rsplit(".", 1)[-1]
+        return f"{folder}/Season {s:02d}/S{s:02d}E{e:02d}.{ext}"
+    return f"{folder}/{item['name']}"
+
+
+@plugin("my-server", title="某媒体服务器")
+async def apply(ctx):
+    ctx.contribute(DRIVE_BACKENDS, "my-server", Server())
+```
+
+清单 `[requires]` 写 `"drive-backends" = "^1.7"`，`network = true`。用户在「设置 → 网盘」填地址和令牌，建库时选「＋ 某媒体服务器目录」，
+库的本地根目录放字幕等附属文件和新下载。识别、入账、缺失对账、取流、转码、Jellyfin 兼容都是主程序的。
+
+- **带请求头或地址是内网的直链一律由家里转发**，不会 302 给播放器，所以令牌不会到播放器手里。地址里带令牌又是公网地址的，主程序分辨不出、可能 302 出去。
+- 取流地址要支持 Range。对方只给转码的 HLS（飞牛目前如此）内核不支持，这种先只做「看得到」的那种接法。
+- 自签证书的 `verify` 只管插件自己的请求；主程序读直链仍校验证书，直链要给 HTTP 内网地址或受信证书的地址。
+- 要支持「在 MovieClaw 里自动接入新库」：插件调 `library.create` 带 `cloud_folders`（账号 id 从 `drives.accounts.list` 拿），按 `exc.message_key`
+  分辨失败：`library.cloud.overlapLibrary`（这个目录已经挂上了）、`errors.library.nameInUse`（库名重了）。这些操作都要写进 `permissions.operations`。
+
+**两边同步观看进度**（只按 TMDB 编号、季、集对应，和文件在哪无关）：
+
+- 订阅 `playback.progress` / `playback.stopped` / `playback.completed`（清单 `events = ["playback.*"]`）。事件的 `member_id` 是谁在看（超管为 0），
+  `media.tmdb_id`、`unit` 是看的哪一集。「成员 ↔ 对方账号」的映射存在插件数据里，没映射的成员跳过，别把全家的进度写进一个账号。
+- 对方的进度写回来：先 `playback.sync.catalog`（`member_id`、`tmdb_id`）拿到这部作品每个单元的 `media.id` 与 `updated_at`，再 `playback.sync.state`
+  带 `expected_updated_at` 写（compare-and-set，不发播放事件，所以不会来回打）。成员停用或不存在时返回 404。
+
+**片头片尾写回对方**：订阅 `library.segments.updated`（一季识别完发，结果可能没变，自己比对），按 `library_ids` 调 `library.items.segments`
+（`library_id`、`media_item_id`、`season`）读每个文件的片段，再按对方的规矩写（有的按季存一套秒数，就自己算代表值）。写回是插件的事，主程序不提供。

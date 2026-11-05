@@ -53,6 +53,7 @@
     "hashing": "Reading “{name}” to fingerprint it",
     "uploading": "Uploading “{name}”",
     "progress": "Uploaded {done} (instant {rapid})",
+    "sidecars": "Syncing artwork, NFO and subtitles to cloud storage ({done}/{total})",
     "done": "Upload finished: {done, plural, one {# file} other {# files}} (instant {rapid}){failed, plural, =0 {} one {; # failed (the reason is recorded on the file; it retries later)} other {; # failed (the reasons are recorded on the files; they retry later)}}",
     "nothingToUpload": "New content of this library is no longer stored in cloud storage; nothing to upload"
   },

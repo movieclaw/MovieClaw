@@ -1101,6 +1101,8 @@ export function LibraryItemDetailView({
                 role: actor.role,
                 avatarUrl: actor.thumb_url ? imageUrl(actor.thumb_url) : null,
                 tmdbPersonId: actor.tmdb_person_id,
+                // 没有 TMDB 影人 id 的（NFO / 本地库）点进去看同库里他的其他作品
+                actorLibraryId: libraryId,
               })),
             ]}
           />
@@ -1931,6 +1933,18 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
       ? ((selected != null ? rangeContaining(ranges, selected) : undefined) ?? ranges[0])
       : null;
   const currentRangePos = currentRange ? ranges.indexOf(currentRange) : -1;
+  // 站点季号说明（issue #1155）：去重后整行列出，与分集横滚卡分开排
+  const siteSeasonNotes = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (data?.episodes ?? [])
+            .map((e) => e.site_season_note)
+            .filter((note): note is string => Boolean(note)),
+        ),
+      ),
+    [data],
+  );
   const rowEpisodes = useMemo(
     () =>
       data && currentRange
@@ -2037,6 +2051,16 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
 
       {data && airSchedule && (
         <AirScheduleSummary episodes={data.episodes} schedule={airSchedule} onOpen={() => setAirOpen(true)} />
+      )}
+
+      {/* 站点季号说明（issue #1155）：站点把 TMDB 的一季拆成两季发布时，这一季
+          里会有几段来自不同"站点季"。整行说明一次讲清，不打断下面的横滚卡节奏 */}
+      {data && siteSeasonNotes.length > 0 && (
+        <ul className="-mt-2 mb-3.5 flex flex-col gap-1 text-sub leading-5 text-[var(--text-faint)]">
+          {siteSeasonNotes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
       )}
 
       {failed && (
@@ -3235,6 +3259,12 @@ function DeleteDialog({
               </button>
             </div>
           </>
+        ) : deletePreview.preview?.cloud?.read_only ? (
+          <ReadOnlyDeleteNotice
+            heading={t("library.item.deleteHeading", { title: detail.title })}
+            backend={deletePreview.preview.cloud.backend_title}
+            onClose={onClose}
+          />
         ) : (
           <>
             <h3 className="flex items-center gap-2 text-title-sm font-semibold text-[var(--text)]">
@@ -3399,6 +3429,12 @@ function DeleteFileDialog({
               </button>
             </div>
           </>
+        ) : deletePreview.preview?.cloud?.read_only ? (
+          <ReadOnlyDeleteNotice
+            heading={t("library.item.deleteFile")}
+            backend={deletePreview.preview.cloud.backend_title}
+            onClose={onClose}
+          />
         ) : (
           <>
             <h3 className="flex items-center gap-2 text-title-sm font-semibold text-[var(--text)]">
@@ -3484,6 +3520,39 @@ function DeleteFileDialog({
         )}
       </div>
     </Modal>
+  );
+}
+
+/** 文件在只读的后端上（媒体服务器）：没有可确认的删除，只说清楚原因（media-server-plugins.md §4）。 */
+function ReadOnlyDeleteNotice({
+  heading,
+  backend,
+  onClose,
+}: {
+  heading: string;
+  backend: string;
+  onClose: () => void;
+}) {
+  const t = useTranslations();
+  return (
+    <>
+      <h3 className="flex items-center gap-2 text-title-sm font-semibold text-[var(--text)]">
+        <TrashIcon className="size-4.5 text-[#ff9f9f]" />
+        {heading}
+      </h3>
+      <p className="mt-3 text-ui leading-6 text-white/80">
+        {t("library.deletion.cloudReadOnly", { backend })}
+      </p>
+      <div className="mt-5 flex justify-end">
+        <button
+          type="button"
+          onClick={onClose}
+          className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
+        >
+          {t("common.close")}
+        </button>
+      </div>
+    </>
   );
 }
 

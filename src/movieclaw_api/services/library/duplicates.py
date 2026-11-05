@@ -706,6 +706,13 @@ async def recycle_extras(
                 note=_note(keep, f, unit.bucket),
                 note_ref=_note_reference(keep, f, unit.bucket),
             )
+            if result == "read_only":
+                file_id, file_name = marks[id(f)]
+                outcome.failed.append(
+                    (file_id, file_name, source_text("library.duplicates.readOnly"))
+                )
+                outcome.failure_refs[file_id] = reference("library.duplicates.readOnly")
+                continue
             if result == "already_gone":
                 await session.delete(row)
             await session.commit()
