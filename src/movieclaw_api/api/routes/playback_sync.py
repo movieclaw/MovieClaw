@@ -1,6 +1,6 @@
 """管理员批准的观看历史与状态交换，亦进入插件宿主操作目录。"""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,11 +34,17 @@ async def catalog(
     tmdb_id: Annotated[
         int | None, Query(ge=1, description="只看这部作品（电影与剧集可能同号，看返回的 kind）")
     ] = None,
+    kinds: Annotated[
+        list[Literal["movie", "tv", "video"]] | None,
+        Query(description="只看这些类型，可重复；省略为 movie + tv，video 须显式要"),
+    ] = None,
     principal: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     return ok(
-        await playback_sync.catalog(session, principal, member_id, cursor, limit, tmdb_id=tmdb_id)
+        await playback_sync.catalog(
+            session, principal, member_id, cursor, limit, tmdb_id=tmdb_id, kinds=kinds
+        )
     )
 
 

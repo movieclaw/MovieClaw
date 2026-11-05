@@ -886,3 +886,120 @@ def test_state_operation_is_a_grantable_host_op(client):
         assert [u["is_favorite"] for u in data["items"]].count(True) == 1
 
     c.portal.call(probe)
+
+
+def seed_local(c, kind, key):
+    """无 TMDB / IMDb 的本地条目（source=local），带一个在库文件。"""
+
+    async def run():
+        async with get_database().session() as s:
+            any_file = (await s.execute(select(LibraryFile))).scalars().first()
+            media = MediaItem(
+                source="local",
+                kind=kind,
+                external_id=key,
+                tmdb_id=None,
+                imdb_id=None,
+                title=f"本地 {key}",
+                original_title="L",
+            )
+            s.add(media)
+            await s.flush()
+            s.add(
+                LibraryFile(
+                    library_id=any_file.library_id,
+                    media_item_id=media.id,
+                    file_path=any_file.file_path + f".{key}.mkv",
+                    size_bytes=1,
+                    source=FileSource.SCANNED,
+                    state=FileState.IN_PLACE,
+                    duration_seconds=600,
+                )
+            )
+            s.add(PlaybackState(member_id=2, media_item_id=media.id, position_ms=90_000))
+            await s.commit()
+            return media.id
+
+    return c.portal.call(run)
+
+
+def local_change(item, kind, expected, **fields):
+    return {"media_item_id": item, "kind": kind, "expected_updated_at": expected, **fields}
+
+
+@pytest.mark.parametrize("kind", ["movie", "video"])
+def test_state_clears_resume_for_local_item_without_external_ids(client, kind):
+    c, _, _ = client
+    item = seed_local(c, kind, f"local-test-{kind}")
+    unit = unit_of_kinds(c, 2, item)
+    assert (unit["media"]["kind"], unit["position_ms"]) == (kind, 90_000)
+    assert unit["media"]["tmdb_id"] is None and unit["media"]["imdb_id"] is None
+
+    out = put_state(c, 2, [local_change(item, kind, unit["updated_at"], position_ms=0)])[0]
+    assert out["status"] == "applied"
+    assert unit_of_kinds(c, 2, item)["position_ms"] == 0
+
+
+def unit_of_kinds(c, member, item):
+    items = snapshot(c, member, kinds=["movie", "tv", "video"])["items"]
+    return next(u for u in items if u["media"]["id"] == item)
+
+
+def test_local_item_identity_still_rejects_forged_ids_and_wrong_kind(client):
+    c, _, ids = client
+    item = seed_local(c, "movie", "local-test-1")
+    v = unit_of_kinds(c, 2, item)["updated_at"]
+    outs = put_state(
+        c,
+        2,
+        [
+            local_change(item, "movie", v, position_ms=0, tmdb_id=1),
+            local_change(item, "movie", v, position_ms=0, imdb_id="tt1"),
+            local_change(item, "video", v, position_ms=0),
+            local_change(item, "tv", v, position_ms=0, season=1, episode=1),
+            # 有 TMDB 的条目不能只凭 media_item_id 过关
+            local_change(ids[0], "movie", None, played=True),
+        ],
+    )
+    assert [o["status"] for o in outs] == ["mismatch"] * 5
+    assert unit_of_kinds(c, 2, item)["position_ms"] == 90_000
+    # video 与电影同为 0/0 单元：带季集号是形状错误
+    r = c.post(
+        BASE + "/state",
+        json={"member_id": 2, "changes": [local_change(item, "video", v, played=True, season=1)]},
+    )
+    assert r.status_code == 422
+
+
+def test_import_watch_for_local_item_without_external_ids(client):
+    c, _, _ = client
+    item = seed_local(c, "video", "local-test-import")
+    v = unit_of_kinds(c, 2, item)["updated_at"]
+    rec = {
+        "media_item_id": item,
+        "kind": "video",
+        "source_id": "local-1",
+        "watched_at": "2020-01-01T12:00:00Z",
+        "expected_updated_at": v,
+    }
+    assert post(c, 2, [rec])[0]["status"] == "applied"
+    assert post(c, 2, [{**rec, "source_id": "local-2", "tmdb_id": 5}])[0]["status"] == "mismatch"
+    unit = unit_of_kinds(c, 2, item)
+    assert unit["played"] is True and unit["position_ms"] == 0
+    assert [w["basis"] for w in unit["watches"]] == ["import"]
+
+
+def test_catalog_kinds_default_excludes_video(client):
+    c, _, ids = client
+    video = seed_local(c, "video", "local-test-video")
+    movie = seed_local(c, "movie", "local-test-movie")
+
+    def listed(**params):
+        return {u["media"]["id"]: u["media"]["kind"] for u in snapshot(c, 2, **params)["items"]}
+
+    default = listed()
+    assert video not in default and movie in default and set(ids) <= set(default)
+    assert listed(kinds=["video"]) == {video: "video"}
+    assert listed(kinds=["movie", "tv", "video"])[video] == "video"
+    bad = c.get(BASE + "/catalog", params={"member_id": 2, "kinds": "photo"})
+    assert bad.status_code == 422

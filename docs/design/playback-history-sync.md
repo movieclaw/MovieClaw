@@ -19,9 +19,9 @@ Use `HOST_OPS` with the same `permissions=(...)` on the plugin entry point. Decl
 
 ## `playback.sync.catalog` — `GET /api/v1/playback/sync/catalog`
 
-Parameters: `member_id=0`, optional opaque `cursor`, `limit=50` (1–100). Returns `{items, next_cursor}`. Continue until `next_cursor` is null, including a page with no visible items but a non-null cursor. Keyset order is media ID, season, episode; duplicate files/versions do not duplicate units. Catalog inventory is not a transactionally frozen snapshot; callers should recheck state before writing and restart a preview if needed.
+Parameters: `member_id=0`, optional opaque `cursor`, `limit=50` (1–100), optional `tmdb_id`, optional repeated `kinds` (`movie` / `tv` / `video`; unknown values → 422). Omitting `kinds` returns `movie` + `tv` only, as before; local `video` items (the "other" library kind) appear only when the caller asks for them, so movie/TV-only consumers such as Trakt sync are unaffected. Returns `{items, next_cursor}`. Continue until `next_cursor` is null, including a page with no visible items but a non-null cursor. Keyset order is media ID, season, episode; duplicate files/versions do not duplicate units. Catalog inventory is not a transactionally frozen snapshot; callers should recheck state before writing and restart a preview if needed.
 
-Each item contains media identity/title, season/episode (movies use 0/0), played, position_ms, is_favorite, updated_at, last_played_at and `watches`. For TV items, `media.favorite` (`{is_favorite, updated_at}` or null) and `media.season_favorites` (`[{season, is_favorite, updated_at}]`, only seasons that have a state row) expose series/season favorites, which are stored on sentinel rows `(-1,-1)` / `(s,-1)` and never appear as episode units. Unwatching does not delete imported watches, so a unit with `played=false` may still list `watches`; use `played` for current state. Watches have a stable source `id`, `watched_at` and `basis`:
+Each item contains media identity/title, season/episode (movies and videos use 0/0), played, position_ms, is_favorite, updated_at, last_played_at and `watches`. For TV items, `media.favorite` (`{is_favorite, updated_at}` or null) and `media.season_favorites` (`[{season, is_favorite, updated_at}]`, only seasons that have a state row) expose series/season favorites, which are stored on sentinel rows `(-1,-1)` / `(s,-1)` and never appear as episode units. Unwatching does not delete imported watches, so a unit with `played=false` may still list `watches`; use `played` for current state. Watches have a stable source `id`, `watched_at` and `basis`:
 
 - `playback`: completed viewings using the existing playback-statistics completion and resume-segment grouping rules. Rewatches remain separate; raw `PlaybackLog.completed` is not treated as a rewatch count.
 - `import`: dated external facts from this API, deduplicated against native facts at the same time.
@@ -31,7 +31,9 @@ The API does not invent missing historical watches. Existing manual marks may re
 
 ## `playback.sync.import` — `POST /api/v1/playback/sync/import`
 
-Body: `{member_id, records}` with 1–100 records. Each record supplies media_item_id, kind, a matching tmdb_id or imdb_id, season/episode, stable source_id, timezone-aware watched_at and required expected_updated_at. Use null only when catalog had no PlaybackState row. Reject naive/future dates and unexpected fields.
+Body: `{member_id, records}` with 1–100 records. Each record supplies media_item_id, kind, a matching tmdb_id or imdb_id (see identity rule below), season/episode, stable source_id, timezone-aware watched_at and required expected_updated_at. Use null only when catalog had no PlaybackState row. Reject naive/future dates and unexpected fields.
+
+Identity rule (shared with state write-back): `kind` must equal the local item's kind, and a declared tmdb_id/imdb_id must match the local one. A local item that has an external id still requires a matching declared id — media_item_id alone never bypasses it. A local-only item with neither tmdb_id nor imdb_id (e.g. `source=local` items in the "other" library or unrecognized files) is addressed by media_item_id + kind, and the request must declare neither id; there is no stale external mapping to guard against. Any declared id against such an item is `mismatch`. `video` behaves like a movie: one unit 0/0, no season/episode.
 
 The source namespace comes from the authenticated plugin's entry ID (`plugin:<entry_id>`), never from request data. Non-plugin administrators use `api`. Uniqueness is `(member_id, source, source_id)`. The source ID must identify one immutable watch, e.g. remote account plus remote history record ID. Repeating the same fact returns `already`; changing the unit/time under that key returns `mismatch`.
 
@@ -43,9 +45,9 @@ Imports do not create media, files, seasons or episodes, and do not unwatch or d
 
 ## `playback.sync.state` — `POST /api/v1/playback/sync/state`
 
-State write-back for two-way sync plugins (Emby, Plex, Trakt…). Body: `{member_id, changes}` with 1–100 changes. Each change supplies media_item_id, kind, a matching tmdb_id or imdb_id, the target unit and required expected_updated_at, plus any of `played`, `position_ms`, `is_favorite` (omitted = unchanged) and an optional timezone-aware `last_played_at`.
+State write-back for two-way sync plugins (Emby, Plex, Trakt…). Body: `{member_id, changes}` with 1–100 changes. Each change supplies media_item_id, kind, a matching tmdb_id or imdb_id (same identity rule as import; none for local-only items), the target unit and required expected_updated_at, plus any of `played`, `position_ms`, `is_favorite` (omitted = unchanged) and an optional timezone-aware `last_played_at`.
 
-Targets: a movie (season/episode 0 or omitted), an episode (`season` + `episode ≥ 1`), a season (`season` only) or a series (both omitted). Seasons and series accept only `is_favorite`; played/resume are per episode, and the caller expands a folder-level watched mark itself (catalog already enumerates episodes). Shape errors — nothing to change, `played=true` with `position_ms>0`, folder played/resume, naive/future times, unexpected fields — reject the request with 422.
+Targets: a movie or video (season/episode 0 or omitted), an episode (`season` + `episode ≥ 1`), a season (`season` only) or a series (both omitted). Seasons and series accept only `is_favorite`; played/resume are per episode, and the caller expands a folder-level watched mark itself (catalog already enumerates episodes). Shape errors — nothing to change, `played=true` with `position_ms>0`, folder played/resume, naive/future times, unexpected fields — reject the request with 422.
 
 Semantics, applied in this order:
 
