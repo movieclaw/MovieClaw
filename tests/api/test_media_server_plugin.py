@@ -732,6 +732,41 @@ def test_read_only_backend_is_never_written_to(client, tmp_path, server):
     assert outcome == "read_only"
     assert state.endswith("in_place") and purge_after is None
 
+    # 写方法入口再挡一次：不把 delete 交到插件（插件会用 BUG 把痕迹带出来）
+    from movieclaw_api.services.drives import gateway
+    from movieclaw_sdk.drives import DriveError
+
+    async def call_delete() -> None:
+        await gateway.call(account_id, "delete", remote_ids=["e1"])
+
+    with pytest.raises(DriveError) as exc:
+        call(client, call_delete)
+    assert "只读" in str(exc.value) and "BUG" not in str(exc.value)
+
+    # 取消订阅清理：没回收的只读文件不算成功
+    from movieclaw_api.services.subscription.cleanup import _run_subscription_cleanup_job
+
+    class _Ctx:
+        async def raise_if_cancelled(self) -> None:
+            return None
+
+        def progress_due(self, *, min_interval: float = 1.0) -> bool:
+            return False
+
+        async def update_progress(self, **kwargs) -> None:
+            return None
+
+    async def cleanup():
+        return await _run_subscription_cleanup_job(
+            _Ctx(),
+            {"title": "测试剧集", "files": [{"file_id": file_id, "path": rows["e1"]["path"]}]},
+        )
+
+    result = call(client, cleanup)
+    assert result["file_recycled"] == 0 and result["failed"] == 1
+    assert "只读" in result["failures"][0]["message"]
+    assert rows_of(client, library_id)["e1"]["state"].endswith("in_place")
+
     # 从库里拿掉目录：只删台账
     removed = client.put(
         f"/api/v1/libraries/{library_id}",
@@ -874,3 +909,193 @@ def test_unplayable_when_the_plugin_is_gone_but_the_library_stays(client, tmp_pa
     stream = _stream(client, rows["e1"]["id"])
     assert stream.status_code == 503, stream.text
     assert set(rows_of(client, library_id)) == {"e1", "e2", "e3"}
+
+
+def test_mixed_account_delete_stops_before_any_writable_delete(client, tmp_path, server):
+    """只读和可写混在同一次删除里：两种处理顺序都整批拒绝，远端和台账行都不动。"""
+    from movieclaw_api.services.drives import deletes, gateway
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import FileSource, FileState, LibraryFile, LibraryFileReplica
+    from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
+    from movieclaw_sdk.drives import Capabilities
+
+    account_id = _connect(client, server)
+    library_id = _mount(client, tmp_path, account_id, "v-tv", "tv")["id"]
+    readonly_id = rows_of(client, library_id)["e1"]["id"]
+
+    class _Writable:
+        title = "可写盘"
+        capabilities = Capabilities(writable=True)
+
+    async def add_writable() -> tuple[int, int]:
+        async with get_database().session() as session:
+            account, _created = await DriveAccountRepository(session).upsert_login(
+                backend="writable",
+                remote_user_id="w1",
+                display_name="可写盘",
+                credentials={"token": "t"},
+                login_method="form",
+                login_detail=None,
+            )
+            file = LibraryFile(
+                library_id=library_id,
+                file_path=str(tmp_path / "writable-copy.mkv"),
+                source=FileSource.SCANNED,
+                state=FileState.IN_PLACE,
+                local_bytes=False,
+                size_bytes=10,
+            )
+            session.add(file)
+            await session.flush()
+            replica = LibraryFileReplica(
+                library_file_id=file.id,
+                account_id=account.id,
+                remote_id="w-file",
+                origin="imported",
+                state="verified",
+                size_bytes=10,
+            )
+            session.add(replica)
+            await session.commit()
+            return account.id, file.id
+
+    writable_account, writable_file = call(client, add_writable)
+    real_backends = deletes.backends
+    real_replicas = deletes.replicas_of
+    calls: list[str] = []
+    original_call = gateway.call
+
+    def patched_backends():
+        found = dict(real_backends())
+        found["writable"] = _Writable()
+        return found
+
+    async def spy(account_id, method, **kwargs):
+        calls.append(method)
+        if method == "delete":
+            return None
+        return await original_call(account_id, method, **kwargs)
+
+    async def snapshot() -> list[tuple]:
+        from sqlmodel import select
+
+        async with get_database().session() as session:
+            out = []
+            for file_id in (readonly_id, writable_file):
+                row = await session.get(LibraryFile, file_id)
+                replica = (
+                    await session.execute(
+                        select(LibraryFileReplica).where(
+                            LibraryFileReplica.library_file_id == file_id
+                        )
+                    )
+                ).scalar_one()
+                out.append(
+                    (
+                        row.id,
+                        str(row.state),
+                        row.purge_after,
+                        replica.id,
+                        replica.state,
+                        replica.remote_id,
+                        replica.account_id,
+                    )
+                )
+            return out
+
+    before = call(client, snapshot)
+
+    deletes.backends = patched_backends  # type: ignore[method-assign]
+    gateway.call = spy  # type: ignore[method-assign]
+    try:
+        for writable_first in (True, False):
+
+            async def ordered(file_ids, _first=writable_first):
+                rows = await real_replicas(file_ids)
+                rows.sort(
+                    key=lambda row: 0 if (row.account_id == writable_account) == _first else 1
+                )
+                return rows
+
+            deletes.replicas_of = ordered  # type: ignore[method-assign]
+            calls.clear()
+            error = call(client, deletes.delete_cloud_copies, [readonly_id, writable_file])
+            assert error and "只读" in error
+            assert "delete" not in calls
+            assert call(client, snapshot) == before
+    finally:
+        deletes.backends = real_backends  # type: ignore[method-assign]
+        deletes.replicas_of = real_replicas  # type: ignore[method-assign]
+        gateway.call = original_call  # type: ignore[method-assign]
+
+
+def test_disabled_plugin_stays_unwritable(client, tmp_path, server):
+    """插件停用后只读库不能被当成可写：不进回收站、不删、不能新设主根。"""
+    from movieclaw_api.services.library.recycle import recycle_file
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import LibraryCloudFolder, LibraryFile
+
+    account_id = _connect(client, server)
+    mounted = _mount(client, tmp_path, account_id, "v-tv", "tv")
+    library_id = mounted["id"]
+    folder_id = mounted["cloud_folders"][0]["id"]
+    rows = rows_of(client, library_id)
+    file_id = rows["e1"]["id"]
+
+    call(client, client.app.state.kernel.disable, "fake-server")
+
+    item_id = rows["e1"]["media_item_id"]
+    preview = client.get(f"/api/v1/libraries/{library_id}/items/{item_id}/delete-preview")
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["data"]["cloud"]["read_only"] is True
+
+    deleted = client.delete(f"/api/v1/libraries/{library_id}/items/{rows['e1']['media_item_id']}")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["data"]["rows_deleted"] == 0
+    assert deleted.json()["data"]["errors"]
+    assert "fake-server" in deleted.json()["data"]["errors"][0]
+    assert rows_of(client, library_id)["e1"]["state"].endswith("in_place")
+
+    async def auto_recycle() -> tuple[str, str, object]:
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            outcome = await recycle_file(
+                session, row, reason="upgrade_replaced", trigger={"kind": "system"}
+            )
+            await session.commit()
+            await session.refresh(row)
+            return outcome, str(row.state), row.purge_after
+
+    outcome, state, purge_after = call(client, auto_recycle)
+    assert outcome == "read_only"
+    assert state.endswith("in_place") and purge_after is None
+
+    payload = {
+        "name": "v-tv",
+        "kind": "tv",
+        "root_paths": [str(tmp_path / "local-v-tv")],
+        "cloud_folders": [
+            {
+                "account_id": account_id,
+                "remote_dir_id": "v-tv",
+                "display_path": "v-tv",
+                "is_primary": True,
+            }
+        ],
+    }
+    refused = client.put(f"/api/v1/libraries/{library_id}", json=payload)
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["message_key"] == "errors.driveLogin.backendUnavailable"
+
+    # 本来就是主根的，插件临时不在时仍可原样保存
+    async def mark_primary() -> None:
+        async with get_database().session() as session:
+            folder = await session.get(LibraryCloudFolder, folder_id)
+            folder.is_primary = True
+            session.add(folder)
+            await session.commit()
+
+    call(client, mark_primary)
+    kept = client.put(f"/api/v1/libraries/{library_id}", json=payload)
+    assert kept.status_code == 200, kept.text
+    assert rows_of(client, library_id)["e1"]["state"].endswith("in_place")

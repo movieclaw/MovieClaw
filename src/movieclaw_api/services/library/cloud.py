@@ -429,6 +429,11 @@ async def validate_folders(
     ]
     if sum(1 for s in cleaned if s.is_primary) > 1:
         raise ValueError(t("library.cloud.onePrimary"))
+    already_primary: set[tuple[int, str]] = set()
+    if library is not None and library.id is not None:
+        for folder in await LibraryCloudRepository(session).folders(library.id):
+            if folder.is_primary:
+                already_primary.add((folder.account_id, folder.remote_dir_id))
     accounts = DriveAccountRepository(session)
     for spec in cleaned:
         if not spec.remote_dir_id:
@@ -440,6 +445,16 @@ async def validate_folders(
         if spec.is_primary and backend is not None and not backend.capabilities.writable:
             # 主根是新片上传的去处：只读的后端传不上去
             raise keyed_error(ValueError, "library.cloud.readOnlyPrimary", name=backend.title)
+        if (
+            spec.is_primary
+            and backend is None
+            and (spec.account_id, spec.remote_dir_id) not in already_primary
+        ):
+            # 插件不在就确认不了能不能写，不能新设成主根。本来就是主根的
+            # （可写插件重启的窗口）仍允许原样保存。
+            raise keyed_error(
+                ValueError, "errors.driveLogin.backendUnavailable", type=account.backend
+            )
     for i, a in enumerate(cleaned):
         for b in cleaned[i + 1 :]:
             if a.account_id == b.account_id and (

@@ -152,9 +152,7 @@ async def build_cleanup_plan(
         .all()
     )
     downloader_names = dict(
-        (
-            await session.execute(select(DownloaderClient.id, DownloaderClient.name))
-        ).all()
+        (await session.execute(select(DownloaderClient.id, DownloaderClient.name))).all()
     )
     torrents: list[TorrentTarget] = []
     retained: list[RetainedTorrent] = []
@@ -251,9 +249,7 @@ async def _covered_seasons(session: AsyncSession, subscription: Subscription) ->
     seasons = {int(s) for s in subscription.selected_seasons}
     rows = (
         await session.execute(
-            select(WantedItem.season_number).where(
-                WantedItem.subscription_id == subscription.id
-            )
+            select(WantedItem.season_number).where(WantedItem.subscription_id == subscription.id)
         )
     ).scalars()
     seasons.update(int(s) for s in rows.all())
@@ -313,8 +309,7 @@ async def enqueue_cleanup_job(
                 for t in torrents
             ],
             "files": [
-                {"file_id": f.file_id, "library_id": f.library_id, "path": f.path}
-                for f in files
+                {"file_id": f.file_id, "library_id": f.library_id, "path": f.path} for f in files
             ],
         },
         resources=[jobs.ResourceRef("media_item", plan.media_item_id)],
@@ -487,14 +482,16 @@ async def _run_subscription_cleanup_job(
             continue
         try:
             async with db.session() as session:
-                recycled = await _recycle_one(session, file_id, title)
-            if recycled is not None:
+                recycled, blocked = await _recycle_one(session, file_id, title)
+            if blocked:
+                failures.append(
+                    stored_fields("subscription.cleanup.fileFailed", path=path, error=blocked)
+                )
+            elif recycled is not None:
                 file_recycled += 1
                 library_ids.add(recycled)
         except Exception as exc:  # noqa: BLE001 -- 单个文件失败不影响其余
-            failures.append(
-                stored_fields("subscription.cleanup.fileFailed", path=path, error=exc)
-            )
+            failures.append(stored_fields("subscription.cleanup.fileFailed", path=path, error=exc))
             logger.warning("取消订阅清理：回收文件失败 id=%s", file_id, exc_info=True)
         done += 1
         if done == total or context.progress_due():
@@ -533,15 +530,18 @@ async def _run_subscription_cleanup_job(
     }
 
 
-async def _recycle_one(session: AsyncSession, file_id: int, title: str) -> int | None:
-    """回收单个台账行；返回受影响的库 id（无事可做时返回 None）。
+async def _recycle_one(
+    session: AsyncSession, file_id: int, title: str
+) -> tuple[int | None, str | None]:
+    """回收单个台账行。返回（受影响的库 id，没回收的原因）。
 
-    行已不在（并发删除）或已在回收站的直接跳过——取消订阅清理必须可以重复
-    执行而不产生第二次搬运。
+    两者都是 None：行已不在或已在回收站，跳过。只读（含插件停用、确认不了
+    写能力）不算回收成功。行已不在（并发删除）或已在回收站的直接跳过——取消
+    订阅清理必须可以重复执行而不产生第二次搬运。
     """
     row = await session.get(LibraryFile, file_id)
     if row is None or row.state == FileState.TRASHED:
-        return None
+        return None, None
     library_id = row.library_id
     label_ref = reference("subscription.cleanup.trigger", title=title)
     outcome = await recycle_file(
@@ -556,7 +556,9 @@ async def _recycle_one(session: AsyncSession, file_id: int, title: str) -> int |
         },
         note_ref=reference("subscription.cleanup.recycleNote"),
     )
+    if outcome == "read_only":
+        return None, source_text("library.duplicates.readOnly")
     if outcome == "already_gone":
         await session.delete(row)  # 文件早没了：行删掉与磁盘一致
     await session.commit()
-    return library_id
+    return library_id, None
