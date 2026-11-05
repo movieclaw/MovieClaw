@@ -64,6 +64,22 @@ class BluRayStreamReadersTest {
     }
 
     @Test
+    fun `PGS sample views survive buffer growth compaction and seek`() {
+        val reader = PgsReader().start(0x1200)
+        val large = byteArrayOf(0x16, 0x50, 0) + ByteArray(0x5000) { it.toByte() } + hex("800000")
+        val small = hex("1600020909800000")
+        reader.pes(1_000, large + small)
+        reader.pes(2_000, small.copyOf(5))
+        reader.seek()
+        reader.pes(3_000, small)
+        val samples = output.tracks.getValue(0x1200).samples
+        assertEquals(listOf(1_000L, 1_000L, 3_000L), samples.map { it.timeUs })
+        assertArrayEquals(large, samples[0].data)
+        assertArrayEquals(small, samples[1].data)
+        assertArrayEquals(small, samples[2].data)
+    }
+
+    @Test
     fun `DTS-HD joins the core frame and its extension substream`() {
         val reader = DtsHdReader().start()
         val core = hex("7ffe8001fc3c75b276c005380009ef7b") + ByteArray(16)
@@ -107,9 +123,11 @@ class BluRayStreamReadersTest {
         // 前 16 个单元一个样本（关键帧）；第 17 个单元赶上下一个主同步，单独成一个非关键样本
         assertEquals(2, trueHd.samples.size)
         assertEquals(16 * 20, trueHd.samples[0].data.size)
+        assertArrayEquals((0 until 16).flatMap { unit(it == 0, it).toList() }.toByteArray(), trueHd.samples[0].data)
         assertTrue(trueHd.samples[0].isKey)
         assertEquals(1_000L, trueHd.samples[0].timeUs)
         assertEquals(20, trueHd.samples[1].data.size)
+        assertArrayEquals(unit(false, 16), trueHd.samples[1].data)
         assertFalse(trueHd.samples[1].isKey)
         assertEquals(1_000L + 16 * 833, trueHd.samples[1].timeUs)
 
@@ -128,8 +146,24 @@ class BluRayStreamReadersTest {
         // 跨 PES 的半个单元接上；第二个主同步把前三个单元收成一个样本
         assertEquals(1, track.samples.size)
         assertEquals(60, track.samples[0].data.size)
+        assertArrayEquals(unit(true, 0) + unit(false, 1) + unit(false, 2), track.samples[0].data)
         assertEquals(5_000L, track.samples[0].timeUs)
         assertEquals(setOf(0x1100), output.tracks.keys)
+    }
+
+    @Test
+    fun `TrueHD sample views survive buffer growth and seek`() {
+        val reader = TrueHdReader(channels = 2, hasCore = false).start()
+        val units = (0 until 256).flatMap { unit(it == 0, it).toList() }.toByteArray()
+        reader.pes(5_000, units)
+        reader.seek()
+        reader.pes(10_000, unit(false, 9))
+        reader.pes(20_000, unit(true, 7) + unit(true, 8))
+        val samples = output.tracks.getValue(0x1100).samples
+        assertEquals(17, samples.size)
+        assertArrayEquals(units, samples.take(16).flatMap { it.data.toList() }.toByteArray())
+        assertArrayEquals(unit(true, 7), samples.last().data)
+        assertEquals(20_000L, samples.last().timeUs)
     }
 
     private companion object {
