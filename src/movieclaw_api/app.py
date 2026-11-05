@@ -26,6 +26,15 @@ def create_app() -> FastAPI:
         lifespan=build_lifespan(settings),
     )
 
+    from movieclaw_api.api.routes.ffmpeg_relay import relay_url
+    from movieclaw_api.api.routes.ffmpeg_relay import router as ffmpeg_relay_router
+    from movieclaw_playback.credential_redirects import bind_ffmpeg_relay
+
+    bind_ffmpeg_relay(
+        lambda url, headers: relay_url(f"http://127.0.0.1:{settings.port}", url, headers)
+    )
+    app.include_router(ffmpeg_relay_router)
+
     register_exception_handlers(app)
     register_middlewares(app, settings)
     app.include_router(api_router, prefix=settings.api_v1_prefix)

@@ -793,8 +793,7 @@ def media_input(file_path: str) -> tuple[str, list[str]] | None:
 def strm_source_input(source: StrmLink | Path) -> tuple[str, list[str]]:
     """``parse_strm`` 的结果 → ffmpeg / ffprobe 的（输入地址, ``-i`` 前的输入选项）。
 
-    带厂商令牌头时先自己跟跳转：ffmpeg 会把 ``-headers`` 原样带到每一跳，跨源就换成
-    最终地址并不再附上令牌。
+    带凭据时使用宿主转发地址，每次实际取流都由宿主逐跳处理凭据；这里不访问网络。
     """
     if isinstance(source, Path):
         return str(source), []

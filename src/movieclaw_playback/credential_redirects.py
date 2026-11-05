@@ -8,21 +8,22 @@ httpx 自己跟跳转只会剥掉 ``Authorization`` / ``Cookie``，认不出插�
 
 from __future__ import annotations
 
-import time
-from collections.abc import Mapping
+import asyncio
+from collections.abc import Callable, Mapping
 
 import httpx
 
-#: 实际读字节最多跟这么多跳（httpx 默认 20）。探测给 ffmpeg 的地址也用这个上限，
-#: 整段探测另有 5 秒超时。
 MAX_HOPS = 20
-_PROBE_TIMEOUT = 5.0
-_CACHE_TTL_S = 60.0
-_CACHE_MAX = 256
+_REDIRECT_TIMEOUT = 5.0
+_ffmpeg_relay: Callable[[str, dict[str, str]], str] | None = None
 _EXACT_TOKEN_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie"})
 _API_KEY_HEADERS = frozenset({"x-api-key", "api-key"})
 
-_cache: dict[tuple, tuple[float, str, tuple[tuple[str, str], ...]]] = {}
+
+def bind_ffmpeg_relay(resolve: Callable[[str, dict[str, str]], str]) -> None:
+    """宿主提供支持 Range 的取流转发地址；装配输入不访问网络。"""
+    global _ffmpeg_relay
+    _ffmpeg_relay = resolve
 
 
 def is_vendor_token_header(name: str) -> bool:
@@ -69,78 +70,53 @@ def next_http_url(current: httpx.URL, location: str | None) -> httpx.URL | None:
 
 
 def resolve_ffmpeg_input(url: str, headers: Mapping[str, str]) -> tuple[str, dict[str, str]]:
-    """ffmpeg 会把 ``-headers`` 原样跟到每一跳。有厂商令牌时先自己跟一遍。
-
-    全程同源：仍把原始地址和头交给 ffmpeg（它自己跟，令牌只发给这个源）。
-    中途换了源：交给它的是最终地址，以及已经去掉令牌的头，这样它不会再把令牌发出去。
-    没有令牌头时什么都不探。探不到、又还没换源：保持原样，不把一次网络抖动变成播不了。
-    """
+    """带凭据的输入始终由宿主取流，不能把凭据交给会自行跳转的 ffmpeg。"""
     sent = dict(headers)
     if not any(is_vendor_token_header(name) for name in sent):
         return url, sent
-    key = (url, tuple(sorted(sent.items())))
-    cached = _cache.get(key)
-    if cached is not None and cached[0] > time.monotonic():
-        return cached[1], dict(cached[2])
-    current = httpx.URL(url)
-    crossed = False
-    try:
-        with httpx.Client(follow_redirects=False, timeout=_PROBE_TIMEOUT) as client:
-            for _ in range(MAX_HOPS):
-                with client.stream(
-                    "GET", current, headers={**sent, "Range": "bytes=0-0"}
-                ) as response:
-                    if not response.is_redirect:
-                        break
-                    nxt = next_http_url(current, response.headers.get("location"))
-                if nxt is None:
-                    break
-                if not same_origin(current, nxt):
-                    crossed = True
-                sent = headers_for_hop(sent, current, nxt)
-                current = nxt
-            else:
-                if crossed:
-                    return str(current), sent
-                return url, dict(headers)
-    except httpx.HTTPError:
-        if crossed:
-            return str(current), sent
-        return url, dict(headers)
-    result = (url, dict(headers)) if not crossed else (str(current), sent)
-    if len(_cache) >= _CACHE_MAX:
-        _cache.clear()
-    _cache[key] = (time.monotonic() + _CACHE_TTL_S, result[0], tuple(result[1].items()))
-    return result
+    if _ffmpeg_relay is None:
+        raise RuntimeError("credentialed ffmpeg input requires the host stream relay")
+    return _ffmpeg_relay(url, sent), {}
 
 
 def final_status(url: str, headers: Mapping[str, str], *, timeout: float = 5.0) -> int | None:
-    """跟跳转后的 HTTP 状态码。跨源时令牌头不往下带。连不上返回 None。"""
-    current = httpx.URL(url)
-    sent = dict(headers)
+    """（阻塞，须在线程中调用）整条跳转链共享超时预算。"""
+
+    async def check() -> int:
+        async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
+            response = await open_followed_stream(client, url, headers, timeout=timeout)
+            try:
+                return response.status_code
+            finally:
+                await response.aclose()
+
     try:
-        with httpx.Client(follow_redirects=False, timeout=timeout) as client:
-            for _ in range(MAX_HOPS):
-                with client.stream("GET", current, headers=sent) as response:
-                    if not response.is_redirect:
-                        return response.status_code
-                    nxt = next_http_url(current, response.headers.get("location"))
-                if nxt is None:
-                    return None
-                sent = headers_for_hop(sent, current, nxt)
-                current = nxt
+        return asyncio.run(check())
     except httpx.HTTPError:
         return None
-    return None
 
 
 async def open_followed_stream(
-    client: httpx.AsyncClient, url: str, headers: Mapping[str, str]
+    client: httpx.AsyncClient,
+    url: str,
+    headers: Mapping[str, str],
+    *,
+    timeout: float = _REDIRECT_TIMEOUT,
 ) -> httpx.Response:
     """GET 并自己跟跳转，返回最终那一跳的流。调用方负责关闭。
 
     客户端须 ``follow_redirects=False``。跨源跳转先去掉厂商令牌头。
     """
+    try:
+        async with asyncio.timeout(timeout):
+            return await _open_followed_stream(client, url, headers)
+    except TimeoutError as exc:
+        raise httpx.ReadTimeout("redirect chain deadline exceeded") from exc
+
+
+async def _open_followed_stream(
+    client: httpx.AsyncClient, url: str, headers: Mapping[str, str]
+) -> httpx.Response:
     current = httpx.URL(url)
     sent = dict(headers)
     for _ in range(MAX_HOPS):

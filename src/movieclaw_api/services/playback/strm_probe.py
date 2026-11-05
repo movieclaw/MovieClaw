@@ -189,9 +189,11 @@ async def _probe_and_store(file_id: int, file_path: str, *, background: bool = F
         _failed_at[file_path] = time.monotonic()
         logger.warning("strm 用不了：%s（%s）", exc, file_path)
         return await _record_failure(file_id, file_path, None, str(exc))
-    url, input_args = strm_source_input(source)
+    probe_url, input_args = strm_source_input(source)
+    # 台账身份和容器取原始地址，宿主转发票据只用于 ffprobe 取字节。
+    url = source.url if isinstance(source, StrmLink) else str(source)
     started = time.perf_counter()
-    spec = await asyncio.to_thread(probe_media, url, input_args=input_args)
+    spec = await asyncio.to_thread(probe_media, probe_url, input_args=input_args)
     elapsed = time.perf_counter() - started
     if spec is None or spec.video_codec is None:
         _failed_at[file_path] = time.monotonic()
