@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import pytest_asyncio
 
 import movieclaw_api.services.media_extract as media_extract
 from movieclaw_api.i18n import use_locale
@@ -190,22 +191,38 @@ async def test_one_caller_leaving_does_not_kill_the_others(video: Path, monkeypa
 # ---------------------------------------------------------------------------
 
 
+@pytest_asyncio.fixture
+async def extraction_release(video: Path):
+    """失败时也先放行并等后台抽取收尾，再还原补丁、关闭事件循环。"""
+    release = asyncio.Event()
+    try:
+        yield release
+    finally:
+        release.set()
+        tasks = [
+            task for key, task in media_extract._BACKGROUND_TASKS.items() if key[0] == str(video)
+        ]
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=5)
+
+
 @pytest.mark.asyncio
 async def test_scheduling_is_idempotent_and_finishes_after_the_caller_leaves(
-    video: Path, monkeypatch
+    video: Path, monkeypatch, extraction_release: asyncio.Event
 ) -> None:
     """轮询期间反复调度只跑一个进程；用户关掉对话框，抽取仍要做完落缓存。
 
     那趟昂贵的通读只值得做一次——半路丢掉等于下次从零再来。
     """
     starts = 0
-    release = asyncio.Event()
+    started = asyncio.Event()
+    release = extraction_release
 
     class SlowProcess:
         pid = 99
         returncode: int | None = None
 
         async def communicate(self):
+            started.set()
             await release.wait()
             self.returncode = 0
             return b"", b""
@@ -213,25 +230,32 @@ async def test_scheduling_is_idempotent_and_finishes_after_the_caller_leaves(
     async def fake_exec(*argv, **_kwargs):
         nonlocal starts
         starts += 1
-        Path(argv[-1]).write_text("1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", encoding="utf-8")
+        output = Path(argv[-1])
+        # 假抽取太快时源文件与产物的 mtime 可能相等，会被缓存判为过期。
+        _fresh_product(video, output.parent, output.name, _SRT)
         return SlowProcess()
 
     monkeypatch.setattr(media_extract.shutil, "which", lambda _n: "/fake/ffmpeg")
     monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
 
     file = make_file(video)
-    # 前端轮询三次 = 三次调度，只应该有一个 ffmpeg
-    assert media_extract.schedule_extraction(file, 0) is True
-    await asyncio.sleep(0)
-    assert media_extract.schedule_extraction(file, 0) is True
-    assert media_extract.schedule_extraction(file, 0) is True
+
+    async def poll():
+        # 前端轮询三次 = 三次调度，只应该有一个 ffmpeg
+        assert media_extract.schedule_extraction(file, 0) is True
+        await started.wait()
+        assert media_extract.schedule_extraction(file, 0) is True
+        assert media_extract.schedule_extraction(file, 0) is True
+
+    caller = asyncio.create_task(poll())
+    await asyncio.wait_for(caller, timeout=5)
+    assert media_extract.cached_track(file, 0) is None
 
     # 调用方全部离开（用户关掉对话框），后台任务继续把产物抽完
     release.set()
-    for _ in range(10):
-        await asyncio.sleep(0)
-        if media_extract.cached_track(file, 0) is not None:
-            break
+    async with asyncio.timeout(5):
+        while media_extract.cached_track(file, 0) is None:
+            await asyncio.sleep(0.01)
 
     assert starts == 1, f"轮询把同一条轨抽了 {starts} 遍"
     assert media_extract.cached_track(file, 0) is not None, "后台抽取没有落成缓存"
