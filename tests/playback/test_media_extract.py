@@ -33,7 +33,9 @@ def _no_cue_extraction(monkeypatch):
     async def not_applicable(_pending) -> bool:
         return False
 
+    original = media_extract._run_sparse_extraction
     monkeypatch.setattr(media_extract, "_run_sparse_extraction", not_applicable)
+    return original
 
 
 def make_file(video: Path, codec: str = "subrip") -> LibraryFile:
@@ -263,10 +265,8 @@ async def test_a_failed_track_is_not_retried_on_every_poll(video: Path, monkeypa
 
     file = make_file(video)
     assert media_extract.schedule_extraction(file, 0) is True
-    for _ in range(10):
-        await asyncio.sleep(0)
-        if media_extract.extraction_failed(file, 0):
-            break
+    # 收尾在线程中完成，等待后台任务，而不是假设固定几轮事件循环就能结束。
+    await asyncio.wait_for(asyncio.gather(*media_extract._BACKGROUND_TASKS.values()), timeout=5)
 
     assert media_extract.extraction_failed(file, 0) is True
     # 后续轮询一律被拒，ffmpeg 不再起第二次
@@ -1172,3 +1172,104 @@ async def test_nobody_returning_cancels_the_read_after_the_grace(video: Path, mo
         await asyncio.sleep(0.01)
     assert list((video.parent / "cache").glob("*.part*")) == []
     assert media_extract.extraction_failed(file, 0) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [None, "0", "current"])
+async def test_iso_pgs_cache_requires_processing_version(
+    tmp_path: Path, disc_cache: Path, monkeypatch, version
+) -> None:
+    from disc_fixture import sup_events
+    from pgs_sup import make_sup
+
+    calls = []
+
+    async def fake_exec(*argv, **_kwargs):
+        calls.append({"argv": argv})
+        for out in _outputs(argv):
+            Path(out).write_bytes(make_sup(start_s=5, end_s=8))
+        return _DoneProcess()
+
+    monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
+    image = tmp_path / "movie.iso"
+    image.write_bytes(b"image")
+    source = DiscSource(
+        disc_dir=image,
+        playlist_name="00800.mpls",
+        clips=(DiscClip("00001", image, 0, 6 * _CLOCK, byte_ranges=((0, 4),)),),
+        image="bluray",
+    )
+    monkeypatch.setattr(iso_source, "iso_disc_source", lambda _path: source)
+    file = make_multi_file(image, ["hdmv_pgs_subtitle"])
+    file.container = "iso"
+    old = _fresh_product(image, disc_cache, "7.s0.sup")
+    old.write_bytes(make_sup(start_s=5, end_s=8))
+    spec = media_extract._lookup_spec(file, 0)
+    assert spec is not None
+    if version == "current":
+        media_extract._write_product_version(spec)
+    elif version is not None:
+        old.with_name(old.name + ".version").write_text(version, encoding="ascii")
+
+    assert (media_extract.cached_track(file, 0) is not None) == (version == "current")
+    track = await media_extract.extract_track_async(file, 0)
+    assert track is not None
+    assert len(calls) == (0 if version == "current" else 1)
+    if version != "current":
+        assert sup_events(track.path.read_bytes()) == [(5.0, 1), (6.0, 0), (8.0, 0)]
+    assert media_extract.cached_track(file, 0) is not None
+    assert await media_extract.extract_track_async(file, 0) is not None
+    assert len(calls) == (0 if version == "current" else 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sparse", [False, True])
+async def test_async_extraction_finishes_tracks_off_the_loop(
+    tmp_path: Path, disc_cache: Path, monkeypatch, _no_cue_extraction, sparse
+) -> None:
+    import threading
+
+    file = make_disc_file(tmp_path / "disc", [("00001", 0, 6)], ["hdmv_pgs_subtitle"] * 2)
+    pending = media_extract._file_specs(file)
+    entered = asyncio.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
+    loop_thread = threading.get_ident()
+    sealed = []
+    active = 0
+
+    def seal(spec, tmp_path):
+        nonlocal active
+        assert threading.get_ident() != loop_thread
+        active += 1
+        assert active == 1, "整轨后处理应串行，避免同时持有多轨缓冲"
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(5), "后处理期间事件循环必须能继续服务请求"
+        sealed.append(spec.out_path)
+        active -= 1
+
+    monkeypatch.setattr(media_extract, "_seal_trimmed_pgs", seal)
+
+    async def fake_exec(*argv, **_kwargs):
+        for out in _outputs(argv):
+            Path(out).write_bytes(b"PG")
+        return _DoneProcess()
+
+    monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
+    if sparse:
+        monkeypatch.setattr(
+            media_extract, "_sparse_tracks",
+            lambda _video: SimpleNamespace(data=b"mkv", start_s=0, blocks={0: 1, 1: 1}),
+        )
+        operation = _no_cue_extraction(pending)
+    else:
+        operation = media_extract._run_ffmpeg(pending, disc_cache / "progress", ["-i", "fake"])
+    task = asyncio.create_task(operation)
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        assert not task.done()
+    finally:
+        release.set()
+        await task
+    assert len(sealed) == 2
+    assert all(media_extract._cached_track(spec) is not None for _, spec in pending)
