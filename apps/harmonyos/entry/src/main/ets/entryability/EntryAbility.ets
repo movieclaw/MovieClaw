@@ -51,9 +51,10 @@ export default class EntryAbility extends UIAbility {
     OfflineDisk.init(this.context);
     OfflineDownloader.shared.activate(this.context);
     // 系统通知（M1 本机差分）：偏好先就位（点按参数、WorkExtension 进程都要读它），
-    // NotifyCenter 记下包名（wantAgent 拉回本 Ability 用）
+    // NotifyCenter 记下包名（wantAgent 拉回本 Ability 用）；开关开着就幂等重注册后台兜底任务
     NotifyPrefs.init(this.context);
     NotifyCenter.shared().init();
+    NotifyCenter.shared().rearmBackgroundIfNeeded();
     this.captureShareLink(want);
     this.captureNotifyTap(want);
     PlaybackTestProbe.handle(want);
