@@ -78,7 +78,7 @@ class TrackChip {
 /**
  * 条目详情的媒体轨道区（iOS MediaTrackSection.swift 的可搬子集）：
  * - 多版本（同一部片多个在位文件）时给版本选择菜单；
- * - 音轨 / 字幕各一行：按语言分组的芯片摘要 + 「全部轨道」展开整单；
+ * - 音轨 / 字幕各一行：按语言分组的芯片摘要，「全部轨道」挂在首个有芯片的行尾，点开整单；
  * - 默认轨（`playback_defaults`）的芯片带「默认」角标，展开行里注明原因。
  *
  * 交互部分（轨道列表弹层、字幕预览、AI 字幕生成、外挂字幕删除）留待后续批次。
@@ -252,9 +252,12 @@ export struct MediaTrackSection {
           .width('100%')
         }
         this.TrackLineRow('音轨', this.audioChips(this.selectedFile() as LibraryFileView),
-          this.audioLines(this.selectedFile() as LibraryFileView), '尚未探测')
+          this.audioLines(this.selectedFile() as LibraryFileView), '尚未探测',
+          this.audioChips(this.selectedFile() as LibraryFileView).length > 0)
         this.TrackLineRow('字幕', this.subtitleChips(this.selectedFile() as LibraryFileView),
-          this.subtitleLines(this.selectedFile() as LibraryFileView), '无内封或外挂字幕')
+          this.subtitleLines(this.selectedFile() as LibraryFileView), '无内封或外挂字幕',
+          this.audioChips(this.selectedFile() as LibraryFileView).length === 0
+            && this.subtitleChips(this.selectedFile() as LibraryFileView).length > 0)
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
@@ -276,7 +279,7 @@ export struct MediaTrackSection {
   }
 
   @Builder
-  TrackLineRow(label: string, chips: TrackChip[], lines: string[], emptyText: string) {
+  TrackLineRow(label: string, chips: TrackChip[], lines: string[], emptyText: string, showToggle: boolean) {
     if (chips.length === 0) {
       Row({ space: 16 }) {
         Text(label)
@@ -291,19 +294,37 @@ export struct MediaTrackSection {
       .alignItems(VerticalAlign.Center)
     } else {
       Column({ space: 6 }) {
-        Scroll() {
-          Row({ space: 6 }) {
-            Text(label)
-              .fontSize(15)
-              .fontColor(Theme.textFaint)
-            ForEach(chips, (chip: TrackChip) => {
-              this.TrackChipView(chip)
-            }, (chip: TrackChip) => chip.key())
+        Row({ space: 16 }) {
+          Text(label)
+            .fontSize(15)
+            .fontColor(Theme.textFaint)
+            .width(40)
+          Scroll() {
+            Row({ space: 6 }) {
+              ForEach(chips, (chip: TrackChip) => {
+                this.TrackChipView(chip)
+              }, (chip: TrackChip) => chip.key())
+            }
+          }
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
+          // layoutWeight 定宽后视口比内容宽时，Scroll 默认把内容居中排布（faqs-arkui-725），强制起始对齐
+          .align(Alignment.Start)
+          if (showToggle) {
+            Text(this.expanded ? '收起' : '全部轨道')
+              .fontSize(13)
+              .fontColor(Theme.textMuted)
+              .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+              .backgroundColor('rgba(255,255,255,0.045)')
+              .borderRadius(16)
+              .onClick(() => {
+                this.expanded = !this.expanded;
+              })
           }
         }
-        .scrollable(ScrollDirection.Horizontal)
-        .scrollBar(BarState.Off)
         .width('100%')
+        .alignItems(VerticalAlign.Center)
         if (this.expanded) {
           Column({ space: 4 }) {
             ForEach(lines, (line: string) => {
@@ -311,19 +332,13 @@ export struct MediaTrackSection {
                 .fontSize(13)
                 .fontColor('rgba(255,255,255,0.7)')
                 .width('100%')
-                .padding({ left: 4, right: 4, top: 3, bottom: 3 })
+                .padding({ right: 4, top: 3, bottom: 3 })
             }, (line: string) => line)
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
-          .padding({ left: 52 })
+          .padding({ left: 56 })
         }
-        Text(this.expanded ? '收起' : '全部轨道')
-          .fontSize(13)
-          .fontColor(Theme.textFaint)
-          .onClick(() => {
-            this.expanded = !this.expanded;
-          })
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
