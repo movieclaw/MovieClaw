@@ -655,20 +655,22 @@ export struct ShareItemView {
     return '请选择一集。';
   }
 
-  /** 音轨 / 字幕（只读）：芯片摘要 + 点开整单 */
+  /** 音轨 / 字幕（只读）：芯片摘要，「全部轨道」挂在首个有芯片的行尾点开整单 */
   @Builder
   TrackRows(file: SharedFileView) {
     Column({ space: 10 }) {
       this.TrackLineRow('音轨', this.audioChips(file), this.audioLines(file),
-        file.audio_streams === null || file.audio_streams === undefined ? '尚未探测' : '文件内没有音轨')
-      this.TrackLineRow('字幕', this.subtitleChips(file), this.subtitleLines(file), '无内封或外挂字幕')
+        file.audio_streams === null || file.audio_streams === undefined ? '尚未探测' : '文件内没有音轨',
+        this.audioChips(file).length > 0)
+      this.TrackLineRow('字幕', this.subtitleChips(file), this.subtitleLines(file), '无内封或外挂字幕',
+        this.audioChips(file).length === 0 && this.subtitleChips(file).length > 0)
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
-  TrackLineRow(label: string, chips: TrackChip[], lines: TrackLine[], emptyText: string) {
+  TrackLineRow(label: string, chips: TrackChip[], lines: TrackLine[], emptyText: string, showToggle: boolean) {
     if (chips.length === 0) {
       Row({ space: 16 }) {
         Text(label)
@@ -683,27 +685,48 @@ export struct ShareItemView {
       .alignItems(VerticalAlign.Center)
     } else {
       Column({ space: 6 }) {
-        Row({ space: 6 }) {
+        Row({ space: 16 }) {
           Text(label)
             .fontSize(15)
             .fontColor(Theme.textFaint)
             .width(40)
-          ForEach(chips, (chip: TrackChip) => {
+          Scroll() {
             Row({ space: 6 }) {
-              Text(chip.text)
-                .fontSize(13)
-                .fontColor('rgba(255,255,255,0.85)')
-              Text(chip.detail)
-                .fontSize(11)
-                .fontWeight(FontWeight.Medium)
-                .fontColor('rgba(255,255,255,0.5)')
+              ForEach(chips, (chip: TrackChip) => {
+                Row({ space: 6 }) {
+                  Text(chip.text)
+                    .fontSize(13)
+                    .fontColor('rgba(255,255,255,0.85)')
+                  Text(chip.detail)
+                    .fontSize(11)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor('rgba(255,255,255,0.5)')
+                }
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .backgroundColor('rgba(255,255,255,0.075)')
+                .borderRadius(16)
+              }, (chip: TrackChip) => chip.text + chip.detail)
             }
-            .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-            .backgroundColor('rgba(255,255,255,0.075)')
-            .borderRadius(16)
-          }, (chip: TrackChip) => chip.text + chip.detail)
+          }
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
+          // layoutWeight 定宽后视口比内容宽时，Scroll 默认把内容居中排布（faqs-arkui-725），强制起始对齐
+          .align(Alignment.Start)
+          if (showToggle) {
+            Text(this.tracksExpanded ? '收起' : '全部轨道')
+              .fontSize(13)
+              .fontColor(Theme.textMuted)
+              .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+              .backgroundColor('rgba(255,255,255,0.045)')
+              .borderRadius(16)
+              .onClick(() => {
+                this.tracksExpanded = !this.tracksExpanded;
+              })
+          }
         }
         .width('100%')
+        .alignItems(VerticalAlign.Center)
         if (this.tracksExpanded) {
           Column({ space: 4 }) {
             ForEach(lines, (line: TrackLine) => {
@@ -711,19 +734,13 @@ export struct ShareItemView {
                 .fontSize(13)
                 .fontColor('rgba(255,255,255,0.7)')
                 .width('100%')
-                .padding({ left: 4, right: 4, top: 3, bottom: 3 })
+                .padding({ right: 4, top: 3, bottom: 3 })
             }, (line: TrackLine) => line.text)
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
           .padding({ left: 56 })
         }
-        Text(this.tracksExpanded ? '收起' : '全部轨道')
-          .fontSize(13)
-          .fontColor(Theme.textFaint)
-          .onClick(() => {
-            this.tracksExpanded = !this.tracksExpanded;
-          })
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
