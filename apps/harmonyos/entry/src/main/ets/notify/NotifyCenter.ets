@@ -85,6 +85,21 @@ export class NotifyCenter {
       });
   }
 
+  /**
+   * 冷启动自愈：通知开关开着但 workScheduler 的持久化任务可能已被系统清理
+   * （应用重装、系统回收），幂等重注册（同 workId 覆盖）；开关关着不动。
+   */
+  rearmBackgroundIfNeeded(): void {
+    NotifyPrefs.load()
+      .then((settings: NotifySettingsSnapshot): void => {
+        if (settings.enabled) {
+          this.scheduleBackground();
+        }
+      })
+      .catch((): void => {
+      });
+  }
+
   // MARK: - 权限
 
   /** 系统通知开关是否已授权（没授权时 publish 静默无效） */
