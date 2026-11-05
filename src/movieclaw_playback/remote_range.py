@@ -20,6 +20,8 @@ from types import TracebackType
 
 import httpx
 
+from movieclaw_playback.credential_redirects import MAX_HOPS, headers_for_hop, next_http_url
+
 #: 每次请求至少取这么多：Matroska 头部的 SeekHead、Tracks、Info 都在开头几十 KB 里
 _MIN_FETCH = 64 * 1024
 
@@ -99,17 +101,31 @@ class RemoteRangeFile:
         self._block_start = start
 
     def _request(self, start: int, length: int) -> bytes:
-        headers = {**self._headers, "Range": f"bytes={start}-{start + length - 1}"}
+        headers = dict(self._headers)
+        url = httpx.URL(self._url)
         try:
-            with _client().stream("GET", self._url, headers=headers, timeout=self._timeout) as r:
-                if r.status_code != 206:
-                    raise OSError(f"远端不支持按区间读取（HTTP {r.status_code}）")
-                total = (r.headers.get("Content-Range") or "").rpartition("/")[2]
-                if total.isdigit():
-                    self.size = int(total)
-                # 网盘直链常是「签名地址 302 到 CDN」：后续的读直接打最终地址，不再每次绕一圈
-                self._url = str(r.url)
-                return r.read()[:length]
+            for _ in range(MAX_HOPS):
+                request_headers = {**headers, "Range": f"bytes={start}-{start + length - 1}"}
+                with _client().stream(
+                    "GET", url, headers=request_headers, timeout=self._timeout
+                ) as response:
+                    if response.is_redirect:
+                        nxt = next_http_url(url, response.headers.get("location"))
+                        if nxt is None:
+                            raise OSError("远端跳转没有可用的地址")
+                        # 换源就去掉厂商令牌，并让后面的读直接打最终地址
+                        headers = headers_for_hop(headers, url, nxt)
+                        url = nxt
+                        continue
+                    if response.status_code != 206:
+                        raise OSError(f"远端不支持按区间读取（HTTP {response.status_code}）")
+                    total = (response.headers.get("Content-Range") or "").rpartition("/")[2]
+                    if total.isdigit():
+                        self.size = int(total)
+                    self._url = str(url)
+                    self._headers = headers
+                    return response.read()[:length]
+            raise OSError("远端跳转次数过多")
         except httpx.HTTPError as exc:
             raise OSError(f"远端读取失败：{exc}") from exc
 
@@ -153,12 +169,12 @@ _CLIENT_LOCK = threading.Lock()
 
 
 def _client() -> httpx.Client:
-    """进程内共享的连接池（线程安全）。跟随跳转；代理按环境变量（与 ffmpeg 一致）。"""
+    """进程内共享的连接池（线程安全）。跳转由读取方自己跟（跨源去掉令牌头）；代理按环境变量。"""
     global _CLIENT
     with _CLIENT_LOCK:
         if _CLIENT is None:
             _CLIENT = httpx.Client(
-                follow_redirects=True,
+                follow_redirects=False,
                 limits=httpx.Limits(max_connections=16, max_keepalive_connections=16),
             )
         return _CLIENT

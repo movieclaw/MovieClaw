@@ -118,7 +118,7 @@ async def recycle_file(
       原地不动、同样按保留期倒计时，到期清理走 purge_file（含目录的
       爆炸半径保护）；
     - ``read_only``：文件在只读后端上（媒体服务器，docs/design/media-server-plugins.md §4），
-      到期也删不掉：**什么都没改**，行照旧在位，调用方当它留下了。
+      或插件不在、确认不了能不能写。到期也删不掉：**什么都没改**，行照旧在位，调用方当它留下了。
 
     ``trigger``：审计快照 ``{"kind": "subscription"|"member"|"system",
     "id": ..., "label": "《九门》订阅洗版"}``——存快照不外键，机制不认识

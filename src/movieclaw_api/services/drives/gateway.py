@@ -80,6 +80,8 @@ RATE_LIMIT_PAUSE = 600.0
 RISK_CONTROL_PAUSE = 3600.0
 #: 这些方法一定要请求网盘：调完一个请求都没经过 SDK 网络出口，说明插件绕过了限速
 _NETWORK_METHODS = frozenset({"account_info", "list_dir", "list_tree", "changes"})
+#: 会改网盘上的东西。只读后端到这里再挡一次（主根若在插件停用期间被设上，恢复后也不能传）
+_WRITE_METHODS = frozenset({"ensure_dir", "begin_upload", "upload_part", "finish_upload", "delete"})
 #: 已经提醒过绕过出口的后端类型（每种只记一次日志）
 _unpaced_warned: set[str] = set()
 
@@ -289,6 +291,8 @@ async def call(
         status, status_until, backend_type = row.status, row.status_until, row.backend
         name = row.name
     backend = get_backend(backend_type)
+    if method in _WRITE_METHODS and not backend.capabilities.writable:
+        raise keyed(dv.DriveError, "errors.drives.readOnly", name=backend.title)
     _check_status(status, status_until, priority, name)
     qps, budget, _slots = effective(row, backend)
     meter = _Meter(account_id, name, qps, budget, priority)

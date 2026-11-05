@@ -601,7 +601,8 @@ async def _delete_cloud_view(session: AsyncSession, file_ids: list[int]) -> Dele
         if title not in titles:
             titles.append(title)
         recycle = recycle and bool(backend is not None and backend.capabilities.recycle_bin)
-        read_only = read_only or bool(backend is not None and not backend.capabilities.writable)
+        # 插件不在时确认不了写能力，预览也按只读：对话框不要走永久删除
+        read_only = read_only or backend is None or not backend.capabilities.writable
     return DeleteCloudView(
         backend_title="、".join(titles),
         files=len(live),

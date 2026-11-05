@@ -8,7 +8,8 @@
 文件成了孤儿」。
 
 只读后端（``writable=False``）绝不调写方法：要删的文件在它上面就拒绝
-（docs/design/media-server-plugins.md §4）。
+（docs/design/media-server-plugins.md §4）。一次删除里混着可写网盘时先整批看过，
+发现只读或确认不了写能力的账号就直接拒绝，可写那边也不会先删。
 """
 
 from __future__ import annotations
@@ -63,15 +64,33 @@ async def replicas_of(file_ids: Iterable[int]) -> list[LibraryFileReplica]:
         )
 
 
-async def read_only_title(session: AsyncSession, account_id: int) -> str | None:
-    """这个账号的后端是只读的：返回后端名（给人看）。能写、或插件不在（不知道）返回 None。"""
+async def _write_access(session: AsyncSession, account_id: int) -> tuple[str, str]:
+    """这个账号能不能写：（``writable`` / ``read_only`` / ``unavailable``，给人看的名字）。
+
+    插件不在注册表里是 ``unavailable``：确认不了能力，不能当成能写。
+    """
     account = await DriveAccountRepository(session).get(account_id)
-    backend = backends().get(account.backend) if account is not None else None
-    return backend.title if backend is not None and not backend.capabilities.writable else None
+    if account is None:
+        return "unavailable", ""
+    backend = backends().get(account.backend)
+    if backend is None:
+        return "unavailable", account.backend
+    if backend.capabilities.writable:
+        return "writable", backend.title
+    return "read_only", backend.title
+
+
+def _write_refusal(kind: str, label: str) -> str:
+    if kind == "read_only":
+        return t("errors.drives.readOnly", name=label)
+    return t("errors.driveLogin.backendUnavailable", type=label or "?")
 
 
 async def on_read_only_backend(session: AsyncSession, file_id: int) -> bool:
-    """这个库文件的副本在只读后端上（自动清理不能动它）。"""
+    """这个库文件的副本不能写：只读，或插件不在、确认不了能不能写。
+
+    自动清理不能动它。插件停用期间也不当成能写。
+    """
     account_id = (
         await session.execute(
             select(LibraryFileReplica.account_id).where(
@@ -79,7 +98,24 @@ async def on_read_only_backend(session: AsyncSession, file_id: int) -> bool:
             )
         )
     ).scalar_one_or_none()
-    return account_id is not None and await read_only_title(session, account_id) is not None
+    if account_id is None:
+        return False
+    kind, _label = await _write_access(session, account_id)
+    return kind != "writable"
+
+
+async def _unwritable_reason(
+    by_account: dict[int, list[LibraryFileReplica]],
+) -> str | None:
+    """这些副本里有只读或确认不了写能力、并且网盘上可能还有文件的账号：返回拒绝原因。"""
+    async with get_database().session() as session:
+        for account_id, group in by_account.items():
+            if not any(needs_remote_call(replica) for replica in group):
+                continue
+            kind, label = await _write_access(session, account_id)
+            if kind != "writable":
+                return _write_refusal(kind, label)
+    return None
 
 
 def needs_remote_call(replica: LibraryFileReplica) -> bool:
@@ -99,7 +135,8 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
     """删掉这些库文件在网盘上的副本，并删副本记录。全部成功返回 None，否则返回原因（给用户看）。
 
     出错时网盘上可能已经删了一部分：删掉的那些副本记录照常清掉，没删的保持原样，调用方保留全部台账行，
-    重试会把剩下的删完（已经不在的文件插件按删成功处理）。
+    重试会把剩下的删完（已经不在的文件插件按删成功处理）。只读或插件不在是例外：任何远端删除和
+    状态修改之前就整批拒绝，一行都不改。
     """
     from movieclaw_api.services.drives import sources
 
@@ -110,17 +147,14 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
     by_account: dict[int, list[LibraryFileReplica]] = {}
     for replica in replicas:
         by_account.setdefault(replica.account_id, []).append(replica)
+    blocked = await _unwritable_reason(by_account)
+    if blocked is not None:
+        return blocked
     done: list[LibraryFileReplica] = []
     error: str | None = None
     for account_id, group in by_account.items():
         live = [r for r in group if needs_remote_call(r)]
         done.extend(r for r in group if r not in live)
-        if live:
-            async with get_database().session() as session:
-                read_only = await read_only_title(session, account_id)
-            if read_only is not None:
-                error = t("errors.drives.readOnly", name=read_only)
-                break
         remote_ids = list(dict.fromkeys(r.remote_id for r in live))
         for start in range(0, len(remote_ids), BATCH):
             batch_ids = remote_ids[start : start + BATCH]

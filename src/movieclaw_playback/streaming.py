@@ -35,6 +35,11 @@ from starlette.datastructures import MutableHeaders
 from starlette.responses import FileResponse, Response
 from starlette.types import Message, Receive, Scope, Send
 
+from movieclaw_playback.credential_redirects import (
+    final_status,
+    open_followed_stream,
+    resolve_ffmpeg_input,
+)
 from movieclaw_playback.mp4_sample_entry import (
     BytePatch,
     apply_byte_patches,
@@ -68,10 +73,14 @@ STRM_PROTOCOL_WHITELIST = "http,https,httpproxy,tcp,tls,crypto,rtsp,rtp,udp"
 #: 读直链的断线续读：网盘 CDN 中途断开是常态，不续读就会被 ffmpeg 当成读到了片尾。
 #: ``rw_timeout``（微秒）让卡死的连接按超时断开后走续读，而不是让会话永远挂着。
 _STRM_HTTP_OPTIONS = (
-    "-reconnect", "1",
-    "-reconnect_on_network_error", "1",
-    "-reconnect_delay_max", "10",
-    "-rw_timeout", "30000000",
+    "-reconnect",
+    "1",
+    "-reconnect_on_network_error",
+    "1",
+    "-reconnect_delay_max",
+    "10",
+    "-rw_timeout",
+    "30000000",
 )
 
 # 一个播放器设备在停止播放后，可能仍保留若干 HTTP Range 连接。它们不一定马上
@@ -782,10 +791,15 @@ def media_input(file_path: str) -> tuple[str, list[str]] | None:
 
 
 def strm_source_input(source: StrmLink | Path) -> tuple[str, list[str]]:
-    """``parse_strm`` 的结果 → ffmpeg / ffprobe 的（输入地址, ``-i`` 前的输入选项）。"""
+    """``parse_strm`` 的结果 → ffmpeg / ffprobe 的（输入地址, ``-i`` 前的输入选项）。
+
+    带厂商令牌头时先自己跟跳转：ffmpeg 会把 ``-headers`` 原样带到每一跳，跨源就换成
+    最终地址并不再附上令牌。
+    """
     if isinstance(source, Path):
         return str(source), []
-    return source.url, strm_input_args(source.url, source.headers)
+    url, headers = resolve_ffmpeg_input(source.url, source.headers)
+    return url, strm_input_args(url, headers)
 
 
 def strm_link_status(link: StrmLink) -> int | None:
@@ -795,15 +809,7 @@ def strm_link_status(link: StrmLink) -> int | None:
     """
     if urlsplit(link.url).scheme.lower() not in {"http", "https"}:
         return None
-    headers = {**link.headers, "Range": "bytes=0-0"}
-    try:
-        with (
-            httpx.Client(follow_redirects=True, timeout=5.0) as client,
-            client.stream("GET", link.url, headers=headers) as response,
-        ):
-            return response.status_code
-    except httpx.HTTPError:
-        return None
+    return final_status(link.url, {**link.headers, "Range": "bytes=0-0"})
 
 
 def open_strm_range(file_path: str | Path) -> RemoteRangeFile | LocalRangeFile | None:
@@ -987,35 +993,39 @@ class RemoteRelayResponse(Response):
             if self._range:
                 headers["Range"] = self._range
             client = httpx.AsyncClient(
-                follow_redirects=True, trust_env=False, timeout=httpx.Timeout(30.0, read=60.0)
+                follow_redirects=False, trust_env=False, timeout=httpx.Timeout(30.0, read=60.0)
             )
-            async with client, client.stream("GET", self._url, headers=headers) as upstream:
-                relayed = [
-                    (name.encode(), value.encode())
-                    for name in _RELAY_HEADERS
-                    if (value := upstream.headers.get(name)) is not None
-                ]
-                await send(
-                    {
-                        "type": "http.response.start",
-                        "status": upstream.status_code,
-                        "headers": relayed,
-                    }
-                )
-                started = True
-                if scope.get("method") == "HEAD" or upstream.status_code >= 400:
-                    await send({"type": "http.response.body", "body": b"", "more_body": False})
-                    return
-                async for chunk in upstream.aiter_raw(self.chunk_size):
-                    if self._should_stop():
+            async with client:
+                upstream = await open_followed_stream(client, self._url, headers)
+                try:
+                    relayed = [
+                        (name.encode(), value.encode())
+                        for name in _RELAY_HEADERS
+                        if (value := upstream.headers.get(name)) is not None
+                    ]
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": upstream.status_code,
+                            "headers": relayed,
+                        }
+                    )
+                    started = True
+                    if scope.get("method") == "HEAD" or upstream.status_code >= 400:
+                        await send({"type": "http.response.body", "body": b"", "more_body": False})
                         return
-                    if self._probe is not None:
-                        self._probe.first_chunk()
-                    self._bytes += len(chunk)
-                    if self._byte_sink is not None:
-                        self._byte_sink(len(chunk))
-                    await send({"type": "http.response.body", "body": chunk, "more_body": True})
-                await send({"type": "http.response.body", "body": b"", "more_body": False})
+                    async for chunk in upstream.aiter_raw(self.chunk_size):
+                        if self._should_stop():
+                            return
+                        if self._probe is not None:
+                            self._probe.first_chunk()
+                        self._bytes += len(chunk)
+                        if self._byte_sink is not None:
+                            self._byte_sink(len(chunk))
+                        await send({"type": "http.response.body", "body": chunk, "more_body": True})
+                    await send({"type": "http.response.body", "body": b"", "more_body": False})
+                finally:
+                    await upstream.aclose()
         except httpx.HTTPError as exc:
             logger.warning("转发网盘直链失败：%s", exc)
             if not started:
