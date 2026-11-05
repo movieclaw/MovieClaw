@@ -13,6 +13,7 @@ import io.movieclaw.core.model.generated.SeasonAirScheduleView
 import io.movieclaw.core.model.generated.SmartPlanView
 import io.movieclaw.core.model.generated.SubscriptionCreatePayload
 import io.movieclaw.core.model.generated.SubscriptionTargetPreviewPayload
+import io.movieclaw.core.network.ApiException
 import io.movieclaw.core.network.generated.McApi
 import kotlinx.coroutines.CancellationException
 import java.util.Calendar
@@ -526,7 +527,23 @@ internal class AirScheduleActions(private val api: McApi) {
             stage = AirSubscribeStage.Confirming(draft)
             throw e
         } catch (e: Exception) {
-            stage = AirSubscribeStage.Confirming(draft)
+            // 409：确认期间别人改了智能设置或记忆。同手机订阅弹层，重读 title-preview，
+            // 只换摘要和版本号，季和续订不动。留在确认态等用户再按一次，不要拿旧版本自动重试。
+            var next = draft
+            if (e is ApiException && e.status == 409) {
+                try {
+                    val prepared = api.uiSubscriptionsPreviewTitle(
+                        SubscriptionTargetPreviewPayload("tmdb:${draft.media.kind}:${draft.media.tmdbId}"),
+                    )
+                    QuickSubscribe.of(prepared)?.let { next = draft.copy(smart = it.smart) }
+                } catch (cancelled: CancellationException) {
+                    stage = AirSubscribeStage.Confirming(draft)
+                    throw cancelled
+                } catch (_: Exception) {
+                    // 刷新失败就留着打开时的稿，下面仍报这次冲突
+                }
+            }
+            stage = AirSubscribeStage.Confirming(next)
             message = AirMessage(e.message ?: "订阅失败，请稍后重试", true)
             false
         }
