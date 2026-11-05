@@ -135,10 +135,11 @@ async def test_lowercase_migration_then_purge_keeps_live_cloud_file(tmp_path, mo
     from sqlalchemy import create_engine
     from sqlmodel import Session, select
 
-    from movieclaw_api.services.drives import gateway
+    from movieclaw_api.services.drives import deletes, gateway
     from movieclaw_api.services.library.recycle import purge_due_files
     from movieclaw_db.engine import dispose_db, get_database, init_db
     from movieclaw_db.models import (
+        DriveAccount,
         FileSource,
         FileState,
         Library,
@@ -146,6 +147,13 @@ async def test_lowercase_migration_then_purge_keeps_live_cloud_file(tmp_path, mo
         LibraryFileReplica,
     )
     from movieclaw_db.models.base import utcnow
+    from movieclaw_sdk.drives import Capabilities
+
+    class WritableCloud:
+        title = "测试网盘"
+        capabilities = Capabilities(writable=True)
+
+    monkeypatch.setattr(deletes, "backends", lambda: {"fake-cloud": WritableCloud()})
 
     database = tmp_path / "purge.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{database}")
@@ -170,6 +178,16 @@ async def test_lowercase_migration_then_purge_keeps_live_cloud_file(tmp_path, mo
             ],
         )
     with Session(engine) as session:
+        # 清理必须确认账号和插件可写，不能用孤立副本绕过删除前的能力检查。
+        session.add(
+            DriveAccount(
+                id=1,
+                backend="fake-cloud",
+                remote_user_id="1",
+                name="测试网盘",
+                credentials="",
+            )
+        )
         session.add(Library(id=1, name="剧集", kind="tv", root_paths=[str(tmp_path)]))
         for file_id, state, remote, origin in (
             (1, FileState.TRASHED, "shared", "uploaded"),

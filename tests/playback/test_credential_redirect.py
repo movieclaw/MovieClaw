@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import socket
-import subprocess
 import threading
 import time
 from contextlib import suppress
@@ -208,31 +207,22 @@ def test_ffmpeg_actual_redirect_after_same_origin_range_probe():
         )
         url, args = strm_source_input(StrmLink(url=f"{src.base}/start", headers=_headers()))
         assert len(src.seen) == 1  # 输入装配没有同步网络请求
-        result = subprocess.run(
-            [
-                "ffmpeg",
-                "-v",
-                "error",
-                *args,
-                "-f",
-                "data",
-                "-i",
-                url,
-                "-map",
-                "0:0",
-                "-c",
-                "copy",
-                "-f",
-                "data",
-                "pipe:1",
-            ],
-            capture_output=True,
-            timeout=15,
-        )
-        assert result.returncode == 0, result.stderr.decode()
-        assert result.stdout == BODY
-        assert all(item["token"] == TOKEN for item in src.seen)
-        assert dest.seen and all(item["token"] is None for item in dest.seen)
+        assert "/internal/ffmpeg-stream/" in url
+        assert TOKEN not in url and TOKEN not in " ".join(args)
+        assert "X-Emby-Token" not in " ".join(args)
+        # 模拟 ffmpeg 的取流、seek 和重连；走真实宿主转发，不依赖外部二进制。
+        for headers, status, expected in (
+            ({}, 200, BODY),
+            ({"Range": "bytes=4-7"}, 206, BODY[4:8]),
+            ({"Range": "bytes=8-"}, 206, BODY[8:]),
+        ):
+            response = httpx.get(url, headers=headers, trust_env=False)
+            assert response.status_code == status
+            assert response.content == expected
+        assert [item["token"] for item in src.seen] == [TOKEN] * 4
+        assert [item["token"] for item in dest.seen] == [None] * 3
+        assert all(item["ua"] == "MovieClaw" for item in dest.seen)
+        assert all(item["referer"] == "https://emby.local/web" for item in dest.seen)
     finally:
         src.close()
         dest.close()
