@@ -6,8 +6,9 @@ struct QuickSubscribe: Equatable {
     let media: API.MediaBrief
     let seasons: [Int]
     let followFuture: Bool
-    /// 智能选择摘要；服务器早于 0.42.0 时为空，按规则模式订阅（同 `SubscribeSheet`）
-    let smart: API.SmartPlanView?
+    /// 智能选择摘要；服务器早于 0.42.0 时为空，按规则模式订阅（同 `SubscribeSheet`）。
+    /// 确认撞上版本冲突时换成新预检的摘要和版本号，季和续订不动
+    var smart: API.SmartPlanView?
 
     init?(_ prepared: API.PrepareView) {
         guard prepared.status == "ready", let media = prepared.media else { return nil }
@@ -135,7 +136,22 @@ final class AirScheduleActions {
             stage = .confirming(draft)
             return false
         } catch {
-            stage = .confirming(draft)
+            // 409：确认期间别人改了智能设置或记忆。同 iPhone `SubscribeSheet.refreshSmartPlan`，
+            // 重读 title-preview，只换摘要和版本号，季和续订不动。留在确认态等用户再按一次，
+            // 不要拿旧版本自动重试（否则会一直 409）。
+            var next = draft
+            if (error as? APIError)?.status == 409 {
+                do {
+                    let prepared = try await api.uiSubscriptionsPreviewTitle(body: .init(titleRef: "tmdb:\(draft.media.kind):\(draft.media.tmdbId)"))
+                    if let refreshed = QuickSubscribe(prepared) { next.smart = refreshed.smart }
+                } catch is CancellationError {
+                    stage = .confirming(draft)
+                    return false
+                } catch {
+                    // 刷新失败就留着打开时的稿，下面仍报这次冲突
+                }
+            }
+            stage = .confirming(next)
             message = Message(text: error.localizedDescription.isEmpty ? String(localized: .subscriptionSubscribeCreateFailed) : error.localizedDescription, isError: true)
             return false
         }
