@@ -186,6 +186,7 @@
     "upgrade": "洗版",
     "favorited": "已收藏",
     "personPage": "查看 {name} 的影人页",
+    "actorInLibrary": "在本库查看 {name} 的作品",
     "footer": "{label}，收录 {value}",
     "upgradingEpisodes": "，{count} 集洗版中",
     "upgrading": "，洗版中",

@@ -186,6 +186,7 @@
     "upgrade": "Upgrade",
     "favorited": "In favorites",
     "personPage": "View credits for {name}",
+    "actorInLibrary": "View {name}'s titles in this library",
     "footer": "{label}, {value} collected",
     "upgradingEpisodes": ", {count, plural, one {# episode upgrading} other {# episodes upgrading}}",
     "upgrading": ", upgrading",

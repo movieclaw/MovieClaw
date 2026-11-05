@@ -1213,3 +1213,152 @@ async def test_unfinished_tv_uses_owned_units_and_scope(db) -> None:
         session.add(trashed)
         await session.flush()
         assert await _titles(session, first.id, filters=pending) == {"六集剧"}
+
+
+# ---------------------------------------------------------------------------
+# 演员（本地/NFO 库没有影人页，详情页点演员 → 同库按演员名筛）
+# ---------------------------------------------------------------------------
+
+
+def _actors(*names: str) -> list[dict]:
+    """与 local_identity / nfo_absorb 写入的演员表同形。"""
+    return [
+        {"name": name, "character": "", "order": i, "nfo_thumb": None, "tmdb_person_id": None}
+        for i, name in enumerate(names)
+    ]
+
+
+async def _seed_local_cast(session):
+    """一个 video 库（NFO 身份、无 TMDB）+ 另一个库里同名演员的条目（不得串库）。
+
+    返回 (library_id, other_library_id, {标题: media_item_id})。
+    """
+    repo = LibraryRepository(session)
+    library = await repo.create(name="本地库", kind="video", root_paths=["/videos"])
+    other = await repo.create(name="另一个库", kind="video", root_paths=["/other"])
+    spec = [
+        # 标题, 库, 演员表, genre_ids
+        ("甲", library.id, _actors("张三", "Alice Smith"), [18]),
+        ("乙", library.id, _actors(" 张三 ", "李四"), [35]),
+        ("丙", library.id, _actors("ALICE SMITH"), [18]),
+        ("丁", library.id, _actors("张三丰"), [18]),  # 子串不算命中
+        ("戊", library.id, [], [18]),
+        ("己", other.id, _actors("张三"), [18]),
+    ]
+    ids: dict[str, int] = {}
+    for title, lib_id, cast, genres in spec:
+        item = MediaItem(
+            kind="video",
+            source="local",
+            external_id=f"local-{title}",
+            title=title,
+            original_title=title,
+        )
+        session.add(item)
+        await session.flush()
+        assert item.id is not None
+        ids[title] = item.id
+        session.add(MediaMetadata(media_item_id=item.id, cast=cast, genre_ids=genres))
+        session.add(_file(lib_id, item.id))
+    await session.flush()
+    assert library.id is not None and other.id is not None
+    return library.id, other.id, ids
+
+
+async def test_actor_filter_matches_whole_name_in_this_library(db) -> None:
+    """整名相等（去首尾空白、ASCII 不分大小写），子串不算，别的库不串进来。"""
+    async with db.session() as session:
+        library_id, other_id, _ = await _seed_local_cast(session)
+
+        assert await _titles(session, library_id, filters=LibraryFilter(actor="张三")) == {
+            "甲",
+            "乙",
+        }
+        assert await _titles(session, library_id, filters=LibraryFilter(actor="alice smith")) == {
+            "甲",
+            "丙",
+        }
+        assert await _titles(session, library_id, filters=LibraryFilter(actor="无此人")) == set()
+        assert await _titles(session, other_id, filters=LibraryFilter(actor="张三")) == {"己"}
+
+
+async def test_actor_filter_combines_with_other_dimensions_and_paging(db) -> None:
+    """与其他维度 AND；计数与分页走同一条收窄路径。"""
+    async with db.session() as session:
+        library_id, _, ids = await _seed_local_cast(session)
+
+        both = LibraryFilter(actor="张三", genres=(18,))
+        assert await _titles(session, library_id, filters=both) == {"甲"}
+
+        only_actor = LibraryFilter(actor="张三")
+        assert await _wall_count(session, library_id, filters=only_actor, member_id=_ME) == 2
+        first = await build_library_wall(
+            session, library_id, member_id=_ME, limit=1, offset=0, filters=only_actor
+        )
+        second = await build_library_wall(
+            session, library_id, member_id=_ME, limit=1, offset=1, filters=only_actor
+        )
+        assert {r.media_item_id for r in (*first, *second)} == {ids["甲"], ids["乙"]}
+
+
+def test_actor_param_parsing() -> None:
+    """去首尾空白；空串等于没给，不收窄。"""
+    from movieclaw_api.api.routes.libraries import _filter_params
+
+    assert _filter_params(actor="  张三 ").actor == "张三"
+    assert _filter_params(actor="   ").is_empty
+    assert not _filter_params(actor="张三").is_empty
+
+
+def test_actor_filter_over_http(tmp_path, monkeypatch) -> None:
+    """走真实 HTTP：/items 按演员收窄、带分页与其他维度，/facets 同口径，OpenAPI 有参数。"""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'actor.db'}")
+    monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    get_settings.cache_clear()
+
+    import asyncio
+
+    async def _prepare() -> tuple[int, int]:
+        init_db(get_settings().database_url, echo=False)
+        await run_migrations()
+        async with get_database().session() as session:
+            library_id, other_id, _ = await _seed_local_cast(session)
+            await session.commit()
+        await dispose_db()
+        return library_id, other_id
+
+    library_id, other_id = asyncio.run(_prepare())
+
+    from movieclaw_api.api.deps import require_login
+    from movieclaw_api.app import create_app
+    from movieclaw_api.services.auth import Principal
+
+    app = create_app()
+    app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
+
+    def _items(lib: int, query: str) -> list[str]:
+        resp = client.get(f"/api/v1/libraries/{lib}/items?{query}")
+        assert resp.status_code == 200, resp.text
+        return [row["title"] for row in resp.json()["data"]]
+
+    with TestClient(app) as client:
+        # 详情页链接里的名字是 URL 编码过的
+        assert sorted(_items(library_id, "actor=%E5%BC%A0%E4%B8%89")) == ["乙", "甲"]
+        assert sorted(_items(library_id, "actor=Alice%20Smith")) == ["丙", "甲"]
+        assert _items(library_id, "actor=%E5%BC%A0%E4%B8%89&g=35") == ["乙"]
+        assert len(_items(library_id, "actor=%E5%BC%A0%E4%B8%89&limit=1")) == 1
+        assert _items(other_id, "actor=%E5%BC%A0%E4%B8%89") == ["己"]
+        assert len(_items(library_id, "actor=")) == 5  # 空值不收窄
+
+        facets = client.get(f"/api/v1/libraries/{library_id}/facets?actor=%E5%BC%A0%E4%B8%89")
+        assert facets.status_code == 200, facets.text
+        assert facets.json()["data"]["total"] == 2
+
+        paths = app.openapi()["paths"]
+        params = paths["/api/v1/libraries/{library_id}/items"]["get"]["parameters"]
+        assert "actor" in {p["name"] for p in params}
+
+    get_settings.cache_clear()

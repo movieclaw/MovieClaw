@@ -2473,6 +2473,15 @@ def _filter_params(
             )
         ),
     ] = None,
+    actor: Annotated[
+        str | None,
+        Query(
+            description=(
+                "演员名：只留演员表里有此人的条目（去首尾空白后整名相等，ASCII 不分大小写）。"
+                "本地/NFO 库没有影人页，详情页点演员落到这里"
+            )
+        ),
+    ] = None,
 ) -> LibraryFilter:
     """筛选参数 → LibraryFilter。
 
@@ -2499,6 +2508,7 @@ def _filter_params(
         hdr=hdr,
         stock=tuple(_split(stock)),
         series_keys=tuple(_split(series_keys)),
+        actor=(actor or "").strip() or None,
     )
 
 

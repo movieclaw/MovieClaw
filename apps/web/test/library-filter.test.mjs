@@ -125,9 +125,30 @@ test("route query parsing preserves all filters without reading the outgoing bro
   const { readLibraryFilter } = await import("../lib/library-filter.ts");
   const params = new URLSearchParams("g=16,878,NaN&c=US,JP&d=2020s&w=played&rating_gte=8&rt=gt120&lang=ja&res=2160p&hdr=false&stock=missing");
   const parsed = readLibraryFilter(params);
-  assert.deepEqual(parsed, { genres: [16, 878], countries: ["US", "JP"], decades: ["2020s"], watch: "played", ratingGte: 8, runtimes: ["gt120"], languages: ["ja"], resolutions: ["2160p"], hdr: false, stock: ["missing"] });
+  assert.deepEqual(parsed, { genres: [16, 878], countries: ["US", "JP"], decades: ["2020s"], watch: "played", ratingGte: 8, runtimes: ["gt120"], languages: ["ja"], resolutions: ["2160p"], hdr: false, stock: ["missing"], actor: null });
   const restored = new URLSearchParams();
   filterQuery(parsed, restored);
   assert.deepEqual(readLibraryFilter(restored), parsed);
   assert.equal(isFilterEmpty(readLibraryFilter(new URLSearchParams())), true);
+});
+
+test("演员名经 URL 往返：编码、去空白，计入条数与指纹，但不进合集规则", async () => {
+  const { readLibraryFilter } = await import("../lib/library-filter.ts");
+  const parsed = readLibraryFilter(new URLSearchParams(`actor=${encodeURIComponent(" 张三 ")}&g=18`));
+  assert.equal(parsed.actor, "张三");
+  assert.equal(isFilterEmpty({ actor: "张三" }), false);
+  assert.equal(filterCount(parsed), 2);
+  assert.notEqual(filterKey(parsed), filterKey({ genres: [18] }));
+
+  const query = new URLSearchParams();
+  filterQuery(parsed, query);
+  assert.equal(query.get("actor"), "张三");
+  assert.equal(query.toString(), "g=18&actor=%E5%BC%A0%E4%B8%89");
+  assert.deepEqual(readLibraryFilter(query), parsed);
+
+  // 空值等于没给：不进查询串、不算筛选
+  assert.equal(readLibraryFilter(new URLSearchParams("actor=%20")).actor, null);
+  assert.equal(isFilterEmpty(readLibraryFilter(new URLSearchParams("actor="))), true);
+  // 合集规则（后端 rules_to_filter）没有演员这一维：不写进去，存合集入口在有演员条件时隐藏
+  assert.deepEqual(filterToRules({ actor: "张三" }), []);
 });

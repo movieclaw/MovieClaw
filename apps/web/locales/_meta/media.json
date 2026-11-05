@@ -485,6 +485,9 @@
   "cards.personPage": {
     "sourceHash": "1aab07fbd2437a784b0b1f754fb6d47f5478bab7587ecf6149601e6bf19c8108"
   },
+  "cards.actorInLibrary": {
+    "sourceHash": "c42dcf249f3877cc0b5c73816d2ff3452cc0ff60d4ea15b69ab54912b24c23ed"
+  },
   "cards.footer": {
     "sourceHash": "4c3abaa6bf86cb02efb334f7e02bfcf8fdaf78cfd8c627bc7599eda30f8ca080"
   },
