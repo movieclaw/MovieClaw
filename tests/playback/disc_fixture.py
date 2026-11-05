@@ -47,19 +47,26 @@ class Clip:
         return round((self.pts_base + end) * MPLS_HZ)
 
 
-def sup_presentations(data: bytes) -> list[float]:
-    """``.sup`` 里每个合成段（PCS）的显示时间（秒）：既有显示集也有清屏集。"""
-    times: list[float] = []
+def sup_events(data: bytes) -> list[tuple[float, int]]:
+    """``.sup`` 里每个合成段（PCS）的（显示时间秒, 合成对象数）。对象数为 0 是清屏。"""
+    events: list[tuple[float, int]] = []
     pos = 0
     while pos + 13 <= len(data):
         if data[pos : pos + 2] != b"PG":
             # i18n-ignore: test fixture diagnostic
             raise ValueError(f"第 {pos} 字节不是 PGS 段头")
         pts, _dts, seg_type, size = struct.unpack(">IIBH", data[pos + 2 : pos + 13])
+        payload = data[pos + 13 : pos + 13 + size]
         if seg_type == 0x16:
-            times.append(round(pts / 90_000, 3))
+            objects = payload[10] if len(payload) > 10 else -1
+            events.append((round(pts / 90_000, 3), objects))
         pos += 13 + size
-    return times
+    return events
+
+
+def sup_presentations(data: bytes) -> list[float]:
+    """``.sup`` 里每个合成段（PCS）的显示时间（秒）：既有显示集也有清屏集。"""
+    return [when for when, _objects in sup_events(data)]
 
 
 def mpls_bytes(clips: list[Clip]) -> bytes:
@@ -162,8 +169,6 @@ def make_bdmv(
     for clip in clips:
         _write_m2ts(stream_dir / f"{clip.clip_id}.m2ts", clip)
         keyframes = [round((clip.pts_base + s) * MPLS_HZ) for s in range(clip.seconds)]
-        (clip_dir / f"{clip.clip_id}.clpi").write_bytes(
-            clpi_bytes(languages or [], keyframes)
-        )
+        (clip_dir / f"{clip.clip_id}.clpi").write_bytes(clpi_bytes(languages or [], keyframes))
     (playlist_dir / "00001.mpls").write_bytes(mpls_bytes(clips))
     return disc

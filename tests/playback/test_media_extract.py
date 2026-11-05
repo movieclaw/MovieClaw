@@ -877,6 +877,212 @@ def test_disc_clip_size_reads_the_file(tmp_path: Path) -> None:
     assert DiscClip("00002", tmp_path / "gone.m2ts", 0, 1).size_bytes == 0
 
 
+def test_open_pgs_at_a_clip_boundary_gets_an_empty_display_set() -> None:
+    """清屏包在 OUT 之后：切点上还显示着的字幕要补一个 0 对象的合成段。"""
+    from disc_fixture import sup_events
+    from pgs_sup import make_sup
+
+    raw = make_sup(start_s=5, end_s=8) + make_sup(start_s=14, end_s=16)
+    closed = media_extract._close_trimmed_pgs(raw, [6 * 90_000, 20 * 90_000])
+
+    assert sup_events(closed) == [(5.0, 1), (6.0, 0), (8.0, 0), (14.0, 1), (16.0, 0)]
+    # 再走一遍不能再补一个：边界上已经有清屏
+    assert media_extract._close_trimmed_pgs(closed, [6 * 90_000, 20 * 90_000]) == closed
+
+
+def test_pgs_already_clear_at_the_boundary_is_left_alone() -> None:
+    from disc_fixture import sup_events
+    from pgs_sup import make_sup
+
+    inside = make_sup(start_s=1, end_s=2)
+    exact = make_sup(start_s=1, end_s=6)
+    boundary = [6 * 90_000]
+    assert media_extract._close_trimmed_pgs(inside, boundary) is inside
+    assert media_extract._close_trimmed_pgs(exact, boundary) is exact
+    assert media_extract._close_trimmed_pgs(b"not a sup", boundary) == b"not a sup"
+
+    still_up = make_sup(start_s=5, end_s=30)
+    assert sup_events(media_extract._close_trimmed_pgs(still_up, [20 * 90_000])) == [
+        (5.0, 1),
+        (20.0, 0),
+        (30.0, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_disc_extraction_closes_pgs_at_the_playlist_trim(
+    tmp_path: Path, disc_cache: Path, monkeypatch
+) -> None:
+    """假 ffmpeg 交出的是裁完的流：钩子按播放列表的切点补清屏，不按盘根。"""
+    from disc_fixture import sup_events
+    from pgs_sup import make_sup
+
+    async def fake_exec(*argv, **_kwargs):
+        for out in _outputs(argv):
+            Path(out).write_bytes(make_sup(start_s=5, end_s=8))
+        return _DoneProcess()
+
+    monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
+    file = make_disc_file(
+        tmp_path / "disc", [("00001", 0, 6), ("00002", 0, 10)], ["hdmv_pgs_subtitle"]
+    )
+
+    track = await media_extract.extract_track_async(file, 0)
+
+    assert track is not None
+    # 6 秒是第一段的 OUT；8 秒的原清屏还在。第二段结束于 16 秒，那时画面已经清了。
+    assert sup_events(track.path.read_bytes()) == [(5.0, 1), (6.0, 0), (8.0, 0)]
+
+
+def test_directory_disc_stamp_follows_clips_and_playlist_not_the_root(tmp_path: Path) -> None:
+    """替换深层剪辑、改 IN/OUT，指纹都要变；只动盘根目录则不变。"""
+    import os
+
+    disc = tmp_path / "disc"
+    file = make_disc_file(disc, [("00001", 0, 60), ("00002", 0, 60)], ["hdmv_pgs_subtitle"])
+    clip = disc / "BDMV" / "STREAM" / "00001.m2ts"
+    spec = media_extract._lookup_spec(file, 0)
+    assert spec is not None and spec.disc is not None
+    original = media_extract._source_stamp(spec)
+
+    os.utime(disc, ns=(disc.stat().st_mtime_ns + 10**9,) * 2)
+    assert media_extract._source_stamp(spec) == original
+
+    stat = clip.stat()
+    clip.write_bytes(b"m2ts-replaced")
+    os.utime(clip, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert media_extract._source_stamp(spec) != original
+
+    os.utime(clip, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    clip.write_bytes(b"m2ts")
+    os.utime(clip, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert media_extract._source_stamp(spec) == original
+
+    playlist = file.disc_playlist
+    assert isinstance(playlist, dict)
+    clips = [dict(item) for item in playlist["clips"]]
+    clips[0]["out"] = 30 * _CLOCK
+    file.disc_playlist = {**playlist, "clips": clips}
+    shifted = media_extract._lookup_spec(file, 0)
+    assert shifted is not None
+    assert media_extract._source_stamp(shifted) != original
+
+
+@pytest.mark.asyncio
+async def test_disc_cache_and_failure_share_the_clip_stamp(
+    tmp_path: Path, disc_cache: Path, monkeypatch
+) -> None:
+    """成功缓存认剪辑指纹：剪辑变了重抽，只把盘根目录改新则留着。"""
+    import os
+
+    calls = _capture_exec(monkeypatch)
+    disc = tmp_path / "disc"
+    file = make_disc_file(disc, [("00001", 0, 60), ("00002", 0, 60)], ["hdmv_pgs_subtitle"])
+    clip = disc / "BDMV" / "STREAM" / "00001.m2ts"
+    root_ns = disc.stat().st_mtime_ns
+
+    assert await media_extract.extract_track_async(file, 0) is not None
+    assert len(calls) == 1
+    sidecar = disc_cache / "7.s0.sup.src"
+    spec = media_extract._lookup_spec(file, 0)
+    assert spec is not None
+    assert sidecar.read_text(encoding="ascii").strip() == str(media_extract._source_stamp(spec))
+
+    cached = media_extract.cached_track(file, 0)
+    assert cached is not None
+    # 根目录比产物还新：旧逻辑按 mtime 会判失效。剪辑没变，缓存得留着。
+    os.utime(disc, ns=(cached.path.stat().st_mtime_ns + 10**9,) * 2)
+    assert media_extract.cached_track(file, 0) is not None
+    assert await media_extract.extract_track_async(file, 0) is not None
+    assert len(calls) == 1, "盘根目录更新不该让字幕缓存失效"
+
+    os.utime(clip, ns=(clip.stat().st_mtime_ns + 10**9,) * 2)
+    os.utime(disc, ns=(root_ns,) * 2)
+    assert media_extract.cached_track(file, 0) is None
+    assert await media_extract.extract_track_async(file, 0) is not None
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_disc_failure_clears_when_a_clip_changes_not_when_the_root_does(
+    tmp_path: Path, disc_cache: Path, monkeypatch
+) -> None:
+    import os
+
+    starts = 0
+
+    async def fake_exec(*_argv, **_kwargs):
+        nonlocal starts
+        starts += 1
+        return _DoneProcess(returncode=1)
+
+    monkeypatch.setattr(media_extract.asyncio, "create_subprocess_exec", fake_exec)
+    disc = tmp_path / "disc"
+    file = make_disc_file(disc, [("00001", 0, 60)], ["hdmv_pgs_subtitle"])
+    clip = disc / "BDMV" / "STREAM" / "00001.m2ts"
+
+    assert await media_extract.extract_track_async(file, 0) is None
+    assert media_extract.extraction_failed(file, 0) is True
+    assert await media_extract.extract_track_async(file, 0) is None
+    assert starts == 1
+
+    os.utime(disc, ns=(disc.stat().st_mtime_ns + 10**9,) * 2)
+    assert media_extract.extraction_failed(file, 0) is True
+    assert await media_extract.extract_track_async(file, 0) is None
+    assert starts == 1, "盘根目录更新不该让失败结论作废"
+
+    os.utime(clip, ns=(clip.stat().st_mtime_ns + 10**9,) * 2)
+    assert media_extract.extraction_failed(file, 0) is False
+    assert media_extract.needs_extraction(file, 0) is True
+    assert await media_extract.extract_track_async(file, 0) is None
+    assert starts == 2
+
+    playlist = file.disc_playlist
+    assert isinstance(playlist, dict)
+    clips = [dict(item) for item in playlist["clips"]]
+    clips[0]["out"] = 30 * _CLOCK
+    file.disc_playlist = {**playlist, "clips": clips}
+    assert media_extract.extraction_failed(file, 0) is False
+    assert await media_extract.extract_track_async(file, 0) is None
+    assert starts == 3
+
+
+@pytest.mark.asyncio
+async def test_bluray_image_cache_follows_the_image_file(
+    tmp_path: Path, disc_cache: Path, monkeypatch
+) -> None:
+    """ISO 的指纹仍是镜像文件本身，不另写一份播放列表指纹。"""
+    import os
+
+    calls = _capture_exec(monkeypatch)
+    image = tmp_path / "movie.iso"
+    image.write_bytes(b"image")
+    # 产物和镜像落在同一个时间戳上时，按 mtime 会把刚抽完的结果判失效。先把镜像拨回过去。
+    os.utime(image, ns=(1_000_000_000_000_000_000,) * 2)
+    source = DiscSource(
+        disc_dir=image,
+        playlist_name="00800.mpls",
+        clips=(DiscClip("00001", image, 0, 60 * _CLOCK, byte_ranges=((0, 4),)),),
+        image="bluray",
+    )
+    monkeypatch.setattr(iso_source, "iso_disc_source", lambda _path: source)
+    file = make_multi_file(image, ["hdmv_pgs_subtitle"])
+    file.container = "iso"
+
+    assert await media_extract.extract_track_async(file, 0) is not None
+    assert list(disc_cache.glob("*.src")) == []
+    cached = media_extract.cached_track(file, 0)
+    assert cached is not None
+    assert len(calls) == 1
+    spec = media_extract._ExtractionSpec(fmt="sup", video=image, out_path=cached.path, disc=source)
+    assert media_extract._source_stamp(spec) == image.stat().st_mtime_ns
+
+    os.utime(image, ns=(cached.path.stat().st_mtime_ns + 10**9,) * 2)
+    assert media_extract.cached_track(file, 0) is None
+    assert media_extract._source_stamp(spec) == image.stat().st_mtime_ns
+
+
+
 # ---------------------------------------------------------------------------
 # 等待者都走了也不当场取消：通读比一个请求活得久（Safari 60 秒、反代 60～100 秒）
 # ---------------------------------------------------------------------------

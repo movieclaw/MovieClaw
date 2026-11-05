@@ -299,7 +299,10 @@ def resolve_disc_source(file_path: str) -> DiscSource | None
 
 **时间轴**：不加 `-copyts`。ffmpeg 默认减去输入起始时间，与视频会话是同一个零点（VOD 的
 `-copyts -start_at_zero`、会话相对制的 `-ss`，减的都是它），字幕因此落在播放列表时间上：
-`剪辑内 PTS − IN + 前面各段时长`，IN/OUT 之外的字幕不会混进来。真盘实测（NAS，jellyfin-ffmpeg 7.1）：
+`剪辑内 PTS − IN + 前面各段时长`，IN/OUT 之外的字幕不会混进来。concat demuxer 只按包裁：一条字幕在
+OUT 之前出现、清屏包落在 OUT 之后时，清屏包被丢掉，字会一直留到下一条。抽完按播放列表时间看 PGS
+的显示状态，剪辑结束时若画面上还有字，就在该时刻补一个空显示集（0 个合成对象）。BDMV 和蓝光镜像
+同一条路径。真盘实测（NAS，jellyfin-ffmpeg 7.1）：
 《阿凡达》33 段，三段小剪辑单独抽原始时间戳换算后与产物逐条相同（误差 < 1e-12 秒），全轨 PTS
 单调、末条落在片长之内。
 
@@ -310,7 +313,10 @@ def resolve_disc_source(file_path: str) -> DiscSource | None
 **耗时与超时**：通读就是把主片的字节过一遍（TS 解复用要读全部包），《阿凡达》49 GB 用 7 分 12 秒、
 蓝光镜像《鬼子来了》19 GB 用 163 秒（最低 I/O 优先级，约 115 MB/s）。超时按各段总字节算（目录自己的
 体积说明不了什么），仍是 20 MB/s 估算、封顶 1 小时：100 GB 的盘要不低于约 28 MB/s，再慢就判超时、
-记失败（盘不变就不再重试）。产物不小：《阿凡达》10 条轨合计约 750 MB，一趟全抽，换轨不用再读；单条
+记失败（源指纹不变就不再重试）。原盘目录的成功缓存和失败记录共用一个指纹：主播放列表（列表名与各段
+IN/OUT）加上所引用剪辑的大小和 mtime，写在产物旁边。盘根目录的 mtime 不跟着深层剪辑走，替换或补全
+一段 m2ts 不会让根目录变新，用它判断的话坏剪辑修好了仍跳过、旧字幕也下不掉。ISO 的字节都在镜像文件
+里，继续用镜像自己的 mtime。产物不小：《阿凡达》10 条轨合计约 750 MB，一趟全抽，换轨不用再读；单条
 最大 177 MB，这个真实文件在 Chrome 里解析时主线程最长卡 148 毫秒。
 
 **请求断开**：几分钟的读取比一个请求活得久。实测 Chrome 等响应头 15 分钟不放弃，但 Safari 约 60 秒
@@ -326,7 +332,7 @@ def resolve_disc_source(file_path: str) -> DiscSource | None
 （libbitsub 的推送模式接得住，但要服务端跟着正在写的文件下发）。
 
 **验证**：`tests/e2e/test_disc_pgs_browser.py`（真 BDMV + Chrome：多剪辑、单剪辑、读取比请求久），
-`tests/playback/test_embedded_subs.py`（真 ffmpeg：时间轴、轨数不一致、蓝光镜像）。
+`tests/playback/test_embedded_subs.py`（真 ffmpeg：时间轴、轨数不一致、跨越 IN/OUT 的清屏、蓝光镜像）。
 
 ## 9. 长度相近的候选比字节（2026-11）
 
