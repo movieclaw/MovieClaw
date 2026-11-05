@@ -1,15 +1,15 @@
 # 2026-11-05 发版准备
 
-检测命令：`python3 scripts/release-status.py --ref origin/main`，再用 `scripts/release-surface-diff.py` 对上一版 tag 看界面文字。盘点时 `origin/main` 为 `d68e901e4`。流程以 `.claude/skills/release/SKILL.md` 为准，这里只记这一轮的取舍。
+检测命令：`python3 scripts/release-status.py --ref origin/main`，再用 `scripts/release-surface-diff.py` 对上一版 tag 看界面文字。盘点时 `origin/main` 先是 `d68e901e4`。发版 PR 的 CI 转绿之后，main 又进了三笔：`29eaae708` 网盘旁车文件、`3a578b3d6` 不删别人已有的旁车文件、`378097dda` Mac / Apple TV / Android TV 订阅确认撞上 409 时重读摘要。说明按合入后的 main 写，合入提交会带上这三笔。流程以 `.claude/skills/release/SKILL.md` 为准，这里只记这一轮的取舍。
 
 ## 要发
 
 | 产品 | 上一版 | 这一版 | tag（合并后打，本 PR 不打） | 理由 |
 |---|---|---|---|---|
-| 服务器 / Web / CLI | 0.47.2，runtime 25 | 0.48.0，runtime 仍是 25 | `v0.48.0` | 有新功能，走 minor。站点把 TMDB 长季拆成下一季发布时，刷新元数据后能归到正确的集（可空列 `season_mapping`）。网页上 PGS 由播放器绘制，压制进画面改为显式操作。本地 / NFO 库点演员跳到同库按演员筛的海报墙。只读插件目录标「只读」。另外修正主片选错的原盘和 ISO 码率，以及 Kotlin SDK 的 Jellyfin 客户端打不开详情。有数据库迁移。没有新的运行时依赖。 |
-| Mac | 0.12.3 | 0.12.4（工程里已经是这个号，本 PR 不再递增） | `macos-v0.12.4` | 详情页播出日历。旧服务器上这条藏起来，还没播的集仍按缺集置灰。最低服务器版本仍是 0.31.0。 |
-| Apple TV | 0.12.3 | 0.12.4（同上，不另递增） | `tvos-v0.12.4` | 同一份播出日历，按遥控器排。最低服务器版本仍是 0.28.0。GitHub Release 只有说明。 |
-| Android TV | 0.7.2（versionCode 11） | 0.7.3（versionCode 12） | `androidtv-v0.7.3` | 详情页播出日历。界面仍是中文。最低服务器版本仍是 0.28.0。 |
+| 服务器 / Web / CLI | 0.47.2，runtime 25 | 0.48.0，runtime 仍是 25 | `v0.48.0` | 有新功能，走 minor。站点把 TMDB 长季拆成下一季发布时，刷新元数据后能归到正确的集（可空列 `season_mapping`）。网页上 PGS 由播放器绘制，压制进画面改为显式操作。传到网盘的库会把海报、NFO、外挂字幕传到同一目录（新表 `library_cloud_sidecar`）；已在网盘上的同名同哈希文件不删。本地 / NFO 库点演员跳到同库按演员筛的海报墙。只读插件目录标「只读」。另外修正主片选错的原盘和 ISO 码率，以及 Kotlin SDK 的 Jellyfin 客户端打不开详情。两次数据库迁移。没有新的运行时依赖。 |
+| Mac | 0.12.3 | 0.12.4（工程里已经是这个号，本 PR 不再递增） | `macos-v0.12.4` | 详情页播出日历。旧服务器上这条藏起来，还没播的集仍按缺集置灰。确认订阅时如果智能选择刚被改过，重读摘要后再按一次，不再拿旧稿一直失败。最低服务器版本仍是 0.31.0。 |
+| Apple TV | 0.12.3 | 0.12.4（同上，不另递增） | `tvos-v0.12.4` | 同一份播出日历，按遥控器排。订阅确认的 409 与 Mac 同一处修。最低服务器版本仍是 0.28.0。GitHub Release 只有说明。 |
+| Android TV | 0.7.2（versionCode 11） | 0.7.3（versionCode 12） | `androidtv-v0.7.3` | 详情页播出日历。界面仍是中文。订阅确认的 409 同样重读摘要。最低服务器版本仍是 0.28.0。 |
 
 Apple 三端共用 `MARKETING_VERSION`。iPhone 已经发过 `ios-v0.12.4`，Mac 和 Apple TV 还没发过 0.12.4，所以这两个 tag 用现有的 0.12.4，不再把工程号抬到 0.12.5。
 
