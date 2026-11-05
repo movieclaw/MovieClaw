@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from disc_fixture import Clip, make_bdmv, mpls_bytes, sup_presentations
+from disc_fixture import Clip, make_bdmv, mpls_bytes, sup_events, sup_presentations
 
 # 抽取本体住在中性的 media_extract（播放器与 AI 字幕生成共用同一份产物，
 # issue #432）；embedded_subs 只剩播放侧的包装与内嵌字体。进程替身因此分两处：
@@ -527,6 +527,45 @@ async def test_single_clip_disc_uses_playlist_time(tmp_path, monkeypatch):
     assert sup_presentations(track.path.read_bytes()) == pytest.approx(
         [2, 4], abs=_TIMELINE_TOLERANCE
     )
+
+
+@integration
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_subtitle_cut_by_in_or_out_is_cleared_at_the_trim(tmp_path, monkeypatch):
+    """字幕跨过播放列表的 IN/OUT 时，concat 只留切点内侧的包。
+
+    清屏包落在 OUT 之后会被丢掉，不在切点补一个空显示集的话，这条字幕会一直挂到
+    下一条出现。显示包落在 IN 之前同样被丢掉，切点内侧若只剩清屏，就只留这个清屏，
+    不凭空补一条已经看不到的字幕。
+    """
+    monkeypatch.chdir(tmp_path)
+    clips = [
+        # 5–8 秒的字幕，播放列表只用到 6 秒：显示留下，清屏在 OUT 之外
+        Clip("00001", 10, 100.0, [[{"start_s": 5, "end_s": 8}]], out_s=6),
+        Clip(
+            "00002",
+            12,
+            200.0,
+            [[
+                {"start_s": 0.5, "end_s": 3},  # IN=1 之前出现，清屏落在窗口里
+                {"start_s": 8, "end_s": 10},  # 整段都在窗口里，接在全片第 13 秒
+            ]],
+            in_s=1,
+        ),
+    ]
+    disc = make_bdmv(tmp_path / "disc", clips)
+
+    track = await extract_embedded_subtitle_async(_disc_row(disc, clips, 1), 0)
+
+    assert track is not None
+    events = sup_events(track.path.read_bytes())
+    # 第一段在 6 秒被裁掉清屏，这里补一个空显示集。第二段从 IN=1 起：0.5 秒那条只剩
+    # 8 秒的清屏，8–10 秒那条落在 13–15 秒，显示和清屏都还在。
+    assert [when for when, _objects in events] == pytest.approx(
+        [5, 6, 8, 13, 15], abs=_TIMELINE_TOLERANCE
+    )
+    assert [objects for _when, objects in events] == [1, 0, 0, 1, 0]
 
 
 @integration

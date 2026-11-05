@@ -24,8 +24,10 @@ pysubs2 从 ASS 里取（``plaintext``），不需要为它再抽一份 SRT。
    UI 测试批量打开详情页，一天白读几百 GB）。
 3. **超时按体积估**：固定 120 秒读不完一部 60 GB 的 Remux，超时即白读；
    按保守吞吐估算上限，只拿它兜住真正卡死的进程。
-4. **失败要记住**：超时或 ffmpeg 报错的轨记下当时视频的 mtime，视频没换就
+4. **失败要记住**：超时或 ffmpeg 报错的轨记下当时的源指纹，指纹没变就
    不再重抽——否则每次打开播放器都把同一个读不出来的文件再通读一遍。
+   普通文件和 ISO 的指纹是文件 mtime；原盘目录是主播放列表加各剪辑的大小和
+   mtime，盘根目录的 mtime 不跟着深层剪辑走。
 5. **可取消**：子进程可取消，取消时连同整个进程组一起回收；只有最后一个
    等待者离开才真的取消，避免播放器与预检互相误杀，而且留一段宽限：大文件读得比
    一个请求活得久，播放器断了会回来接着等（``_ABANDON_GRACE_SECONDS``）。
@@ -41,17 +43,21 @@ pysubs2 从 ASS 里取（``plaintext``），不需要为它再抽一份 SRT。
 9. **光盘按主播放列表读**：原盘的台账路径是目录，镜像里装着整张盘，ffmpeg 读的是
    与播放会话同一份 concat 清单（``DiscSource.concat_list``）。字幕因此落在播放列表
    时间上、与视频同一条时间轴，IN/OUT 之外的字幕也不会混进来；``0:s:<k>`` 仍是
-   主片的第 k 条字幕流。光盘没有索引可走，一律整片通读（disc-playback.md §8）。
+   主片的第 k 条字幕流。concat 只按包裁，清屏包落在 OUT 之后会被丢掉，PGS 还要在
+   剪辑结束处补一个空显示集，否则这条字幕会一直留在画面上。光盘没有索引可走，
+   一律整片通读（disc-playback.md §8）。
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import os
 import shutil
 import signal
+import struct
 import subprocess
 import time
 import uuid
@@ -98,6 +104,8 @@ _ASS_CODECS = frozenset({"ass", "ssa"})
 #: 交前端 libbitsub 在 canvas 上渲染——与 Jellyfin 10.9+ 的做法一致。
 #: 绝不烧录（硬边界 1），也绝不 OCR（错字比没字幕更糟）。
 _PGS_CODECS = frozenset({"hdmv_pgs_subtitle", "pgssub", "pgs"})
+#: .sup 段头里的显示时间是 90 kHz。播放列表 IN/OUT 是 45 kHz，二者是整数倍。
+_PGS_CLOCK_HZ = 90_000
 
 #: 能进文本管线（pysubs2 解析）的产物格式；sup 是二进制位图，只能渲染。
 TEXT_FORMATS = frozenset({"srt", "ass"})
@@ -148,9 +156,9 @@ _BACKGROUND_TASKS: dict[_JobKey, asyncio.Task[None]] = {}
 # 按字幕索引读取的任务（不随请求取消，见 ``_extract_batch``）：只为留住引用
 _SPARSE_TASKS: set[asyncio.Task[bool]] = set()
 
-# 抽取失败过的轨 → 当时视频的 mtime_ns。**失败结论必须记住**：前端在轮询，
-# 不记就会每隔两三秒催起一个新的 ffmpeg 去读同一个坏轨，一条读不出来的轨
-# 足以把 CPU 吃满。只有视频本体变了（洗版、重新压制）才值得再试一次。
+# 抽取失败过的轨 → 当时的源指纹（``_source_stamp``）。**失败结论必须记住**：
+# 前端在轮询，不记就会每隔两三秒催起一个新的 ffmpeg 去读同一个坏轨，一条读不出来的轨
+# 足以把 CPU 吃满。只有片子变了（洗版、重新压制、原盘换了剪辑）才值得再试一次。
 _FAILED_EXTRACTIONS: dict[_JobKey, int] = {}
 # 失败原因（超时 / ffmpeg 报错 / 启动失败）：任务失败时直接告诉用户，而不是
 # 一句「具体原因见服务端日志」。随失败结论一起失效。
@@ -245,6 +253,23 @@ def _file_specs(file: LibraryFile) -> list[tuple[int, _ExtractionSpec]]:
     return specs
 
 
+def _lookup_spec(file: LibraryFile, index: int) -> _ExtractionSpec | None:
+    """缓存和失败查询用的规格。
+
+    原盘目录附上主播放列表：指纹要对着各剪辑，而不是盘根。清单已经在台账里时
+    只列一次 STREAM（扩展名大小写）再 stat 剪辑；过期的存量行才回盘上读 MPLS，
+    结果按 PLAYLIST 目录的 mtime 缓存。ISO 不附——镜像文件自己的 mtime 就是指纹，
+    不必把盘内结构读出来。
+    """
+    spec = _extraction_spec(file, index)
+    if spec is None or (file.container or "") != "bluray":
+        return spec
+    from movieclaw_api.services.playback.disc_source import disc_source_for_file
+
+    disc = disc_source_for_file(file)
+    return replace(spec, disc=disc) if disc is not None else spec
+
+
 def _job_key(spec: _ExtractionSpec, index: int) -> _JobKey:
     return (str(spec.video), index, str(spec.out_path))
 
@@ -304,16 +329,71 @@ def _read_gate() -> asyncio.Semaphore:
 
 
 def _remember_failure(spec: _ExtractionSpec, index: int, reason: dict) -> None:
-    """记下这条轨在当前视频版本上抽不出来及原因；视频换了（mtime 变）自然作废。"""
-    stamp = _video_stamp(spec)
+    """记下这条轨在当前源指纹上抽不出来及原因；片子换了指纹自然作废。"""
+    stamp = _source_stamp(spec)
     if stamp is not None:
         key = _job_key(spec, index)
         _FAILED_EXTRACTIONS[key] = stamp
         _FAILURE_REASONS[key] = reason
 
 
+def _source_stamp(spec: _ExtractionSpec) -> int | None:
+    """这次抽取所读内容的指纹。取不到（文件不在、剪辑 stat 失败）返回 None。
+
+    原盘目录实际读的是 ``BDMV/STREAM/*.m2ts``。根目录的 mtime 在替换深层剪辑时
+    不变，用它当指纹的话，坏剪辑修好了仍判定「抽过且失败」，缓存里的旧时间轴也
+    下不掉。成功缓存和失败记录共用这一份：播放列表（列表名与各段 IN/OUT）加上
+    所引用剪辑的大小和 mtime。ISO 的字节都在镜像文件里，继续用镜像自己的 mtime。
+    """
+    if spec.disc is not None and spec.disc.image is None:
+        return _clip_stamp(spec.disc)
+    found = file_stamp(spec.video)
+    return None if found is None else found[1]
+
+
+def _clip_stamp(disc: DiscSource) -> int | None:
+    parts: list[bytes] = [disc.playlist_name.encode()]
+    for clip in disc.clips:
+        try:
+            st = clip.path.stat()
+        except OSError:
+            return None
+        parts.append(
+            f"{clip.clip_id}\0{clip.in_time}\0{clip.out_time}\0"
+            f"{st.st_size}\0{st.st_mtime_ns}".encode()
+        )
+    # 8 字节就够区分「哪一版」；0 留给「没有指纹」，哈希真的落成 0 时挪开
+    digest = int.from_bytes(hashlib.blake2s(b"\0".join(parts), digest_size=8).digest(), "big")
+    return digest or 1
+
+
+def _stamp_path(out_path: Path) -> Path:
+    """原盘目录产物旁边的指纹。和字幕放同一目录，缓存清理按文件名前缀整数一起收。"""
+    return out_path.with_name(out_path.name + ".src")
+
+
+def _recorded_stamp(out_path: Path) -> int | None:
+    try:
+        text = _stamp_path(out_path).read_text(encoding="ascii").strip()
+    except OSError:
+        return None
+    return int(text) if text.isdigit() else None
+
+
+def _write_source_stamp(spec: _ExtractionSpec) -> None:
+    if spec.disc is None or spec.disc.image is not None:
+        return
+    stamp = _source_stamp(spec)
+    if stamp is None:
+        return
+    try:
+        _stamp_path(spec.out_path).write_text(f"{stamp}\n", encoding="ascii")
+    except OSError:
+        logger.warning("原盘字幕指纹写失败：%s", spec.out_path, exc_info=True)
+
+
 def _is_fresh(out_path: Path, video: Path) -> bool:
-    """产物比视频新且非空即可复用。
+    """产物比视频新且非空即可复用（窗口抽取；整轨见 ``_product_is_fresh``）。
 
     抽取要通读整个容器，不能每次点开字幕都重来一遍；而只有视频本体变了
     （洗版、改名归并）才需要重抽。
@@ -331,8 +411,24 @@ def _is_fresh(out_path: Path, video: Path) -> bool:
         return False  # stat 失败按未缓存处理，走正常抽取
 
 
+def _product_is_fresh(spec: _ExtractionSpec) -> bool:
+    """整轨产物还能不能用。原盘目录对指纹，不比产物和盘根谁更新。"""
+    stamp = _source_stamp(spec)
+    if stamp is None:
+        return False
+    try:
+        info = spec.out_path.stat()
+    except OSError:
+        return False
+    if not spec.out_path.is_file() or info.st_size <= 0:
+        return False
+    if spec.disc is not None and spec.disc.image is None:
+        return _recorded_stamp(spec.out_path) == stamp
+    return info.st_mtime_ns > stamp
+
+
 def _cached_track(spec: _ExtractionSpec) -> ExtractedTrack | None:
-    if not _is_fresh(spec.out_path, spec.video):
+    if not _product_is_fresh(spec):
         return None
     return ExtractedTrack(path=spec.out_path, format=spec.fmt)
 
@@ -343,7 +439,7 @@ def cached_track(file: LibraryFile, index: int) -> ExtractedTrack | None:
     预检用它判断「这次能不能立刻给出结论」——没有缓存就转后台抽取 + 轮询，
     而不是把请求挂在那里等分钟级的通读（issue #432）。
     """
-    spec = _extraction_spec(file, index)
+    spec = _lookup_spec(file, index)
     if spec is None:
         return None
     return _cached_track(spec)
@@ -354,7 +450,7 @@ def needs_extraction(file: LibraryFile, index: int) -> bool:
 
     AI 字幕预检据此决定「现在就能给结论」还是「交给任务第一步去读」。
     """
-    spec = _extraction_spec(file, index)
+    spec = _lookup_spec(file, index)
     return spec is not None and _cached_track(spec) is None and not _known_failed(spec, index)
 
 
@@ -386,8 +482,8 @@ def _last_position(path: Path) -> float | None:
 
 
 def failure_reason(file: LibraryFile, index: int) -> dict | None:
-    """这条轨上次抽取失败的原因（视频没换才有效）；没失败过返回 None。"""
-    spec = _extraction_spec(file, index)
+    """这条轨上次抽取失败的原因（源指纹没变才有效）；没失败过返回 None。"""
+    spec = _lookup_spec(file, index)
     if spec is None or not _known_failed(spec, index):
         return None
     return _FAILURE_REASONS.get(_job_key(spec, index))
@@ -445,6 +541,189 @@ def _batch_command(
     return argv
 
 
+@dataclass(frozen=True)
+class _PgsTemplate:
+    """补清屏时要抄的画面参数。来自这条流里最近一个合成段。"""
+
+    width: int
+    height: int
+    frame_rate: int
+    composition: int
+    palette_id: int
+    wds: bytes
+
+
+@dataclass(frozen=True)
+class _PgsSet:
+    pts: int
+    start: int
+    end: int
+    showing: bool
+    template: _PgsTemplate | None
+
+
+def _playlist_boundaries(disc: DiscSource) -> list[int]:
+    """各剪辑在播放列表时间上的结束点，单位是 .sup 的 90 kHz。
+
+    没有 IN/OUT 的段（DVD 正片）concat 不按包裁，清屏包不会被丢掉，不用补。
+    """
+    if not disc.clips or any(not clip.timed for clip in disc.clips):
+        return []
+    from movieclaw_api.services.library.bluray import MPLS_CLOCK_HZ
+
+    scale = _PGS_CLOCK_HZ // MPLS_CLOCK_HZ
+    ends: list[int] = []
+    acc = 0
+    for clip in disc.clips:
+        acc += max(0, clip.out_time - clip.in_time) * scale
+        if acc > 0 and (not ends or ends[-1] != acc):
+            ends.append(acc)
+    return ends
+
+
+def _pgs_sets(data: bytes) -> list[_PgsSet] | None:
+    """把 .sup 拆成显示集。不是完整的 PGS（魔数不对、半截段）就返回 None，调用方保持原样。"""
+    sets: list[_PgsSet] = []
+    pos = 0
+    limit = len(data)
+    carried_wds = b""
+    set_start: int | None = None
+    pts: int | None = None
+    showing = False
+    saw_pcs = False
+    width = height = rate = comp = palette = 0
+    wds = b""
+
+    while pos + 13 <= limit:
+        if data[pos : pos + 2] != b"PG":
+            return None
+        seg_pts, _dts, seg_type, size = struct.unpack_from(">IIBH", data, pos + 2)
+        end = pos + 13 + size
+        if end > limit:
+            return None
+        if set_start is None:
+            set_start = pos
+            pts = seg_pts
+        payload = data[pos + 13 : end]
+        if seg_type == 0x16 and len(payload) >= 11:
+            width, height, rate = struct.unpack_from(">HHB", payload)
+            comp = struct.unpack_from(">H", payload, 5)[0]
+            palette = payload[9]
+            showing = payload[10] > 0
+            saw_pcs = True
+        elif seg_type == 0x17:
+            wds = payload
+        if seg_type == 0x80:
+            if set_start is None or pts is None:
+                return None
+            template = None
+            if saw_pcs:
+                if wds:
+                    carried_wds = bytes(wds)
+                template = _PgsTemplate(width, height, rate, comp, palette, carried_wds)
+            sets.append(_PgsSet(pts, set_start, end, showing, template))
+            set_start = None
+            pts = None
+            showing = False
+            saw_pcs = False
+            wds = b""
+        pos = end
+    if pos != limit or not sets:
+        return None
+    cursor = 0
+    for item in sets:
+        if item.start != cursor:
+            return None
+        cursor = item.end
+    if cursor != limit:
+        return None
+    return sets
+
+
+def _pgs_segment(seg_type: int, pts: int, payload: bytes) -> bytes:
+    return b"PG" + struct.pack(">IIBH", pts & 0xFFFFFFFF, 0, seg_type, len(payload)) + payload
+
+
+def _clear_display_set(pts: int, template: _PgsTemplate) -> bytes:
+    """空显示集：合成段里 0 个对象，解码器据此清掉还挂着的字幕。"""
+    comp = (template.composition + 1) & 0xFFFF
+    pcs = struct.pack(">HHBH", template.width, template.height, template.frame_rate, comp)
+    pcs += bytes((0x00, 0x00, template.palette_id, 0))
+    wds = template.wds or (
+        bytes((1, 0)) + struct.pack(">HHHH", 0, 0, template.width, template.height)
+    )
+    return b"".join(
+        (
+            _pgs_segment(0x16, pts, pcs),
+            _pgs_segment(0x17, pts, wds),
+            _pgs_segment(0x80, pts, b""),
+        )
+    )
+
+
+def _close_trimmed_pgs(data: bytes, boundaries: list[int]) -> bytes:
+    """播放列表裁切丢掉了清屏包时，在剪辑结束处补一个空显示集。
+
+    concat demuxer 只按包裁。字幕在 OUT 之前出现、清屏包落在 OUT 之后时，清屏包
+    不在产物里，这条字幕会一直挂到下一条出现。已经清掉的、或者边界上本来就有
+    一个显示集（新字幕或清屏刚好卡在切点）的，不动。
+    """
+    if not boundaries:
+        return data
+    sets = _pgs_sets(data)
+    if not sets:
+        return data
+    inserts: list[tuple[int, bytes]] = []
+    index = 0
+    showing = False
+    template: _PgsTemplate | None = None
+    for boundary in sorted(point for point in boundaries if point > 0):
+        while index < len(sets) and sets[index].pts < boundary:
+            showing = sets[index].showing
+            if sets[index].template is not None:
+                template = sets[index].template
+            index += 1
+        if index < len(sets) and sets[index].pts == boundary:
+            continue
+        if showing and template is not None and template.width > 0 and template.height > 0:
+            inserts.append((boundary, _clear_display_set(boundary, template)))
+            showing = False
+    if not inserts:
+        return data
+    out = bytearray()
+    cursor = 0
+    for item in sets:
+        while cursor < len(inserts) and inserts[cursor][0] < item.pts:
+            out += inserts[cursor][1]
+            cursor += 1
+        out += data[item.start : item.end]
+    while cursor < len(inserts):
+        out += inserts[cursor][1]
+        cursor += 1
+    return bytes(out)
+
+
+def _seal_trimmed_pgs(spec: _ExtractionSpec, tmp_path: Path) -> None:
+    if spec.fmt != "sup" or spec.disc is None:
+        return
+    boundaries = _playlist_boundaries(spec.disc)
+    if not boundaries:
+        return
+    try:
+        original = tmp_path.read_bytes()
+    except OSError:
+        return
+    closed = _close_trimmed_pgs(original, boundaries)
+    if closed is original:
+        return
+    try:
+        tmp_path.write_bytes(closed)
+    except OSError:
+        logger.warning("原盘 PGS 清屏补写失败：%s", spec.video, exc_info=True)
+        return
+    logger.info("原盘 PGS 在剪辑结束处补了被裁掉的清屏：%s", spec.video.name)
+
+
 def _finish_extraction(
     spec: _ExtractionSpec,
     index: int,
@@ -461,18 +740,25 @@ def _finish_extraction(
         _cleanup(tmp_path)
         logger.warning(
             "内封字幕抽取失败：%s 轨 %d（%s）",
-            spec.video, index, stderr.decode(errors="replace")[:200],
+            spec.video,
+            index,
+            stderr.decode(errors="replace")[:200],
         )
         return None
+    _seal_trimmed_pgs(spec, tmp_path)
     try:
         tmp_path.replace(spec.out_path)
     except OSError as exc:
         _cleanup(tmp_path)
         logger.warning("内封字幕缓存写入失败：%s（%s）", spec.out_path, exc)
         return None
+    _write_source_stamp(spec)
     logger.info(
         "内封字幕抽取完成：%s 轨 %d → %s 耗时 %.1f 秒",
-        spec.video.name, index, spec.fmt, time.monotonic() - started_at,
+        spec.video.name,
+        index,
+        spec.fmt,
+        time.monotonic() - started_at,
     )
     return ExtractedTrack(path=spec.out_path, format=spec.fmt)
 
@@ -483,7 +769,7 @@ def extract_track(file: LibraryFile, index: int) -> ExtractedTrack | None:
     Web 请求使用下面的异步入口；这里仍保留同步 API，避免影响扫描脚本和已有
     调用者，但进程同样独立成组，超时会清理，不会遗留 ``.part`` 文件。
     """
-    spec = _extraction_spec(file, index)
+    spec = _lookup_spec(file, index)
     if spec is None:
         return None
     cached = _cached_track(spec)
@@ -524,15 +810,20 @@ async def extract_track_async(file: LibraryFile, index: int) -> ExtractedTrack |
 
     同一个文件的调用共享一个任务。调用方取消只释放自己的等待者；没有其它
     等待者时才取消底层任务，避免播放器请求与字幕预检互相误杀。上次已经
-    失败过（且视频没换）的轨直接返回 None，不再通读一遍。
+    失败过（且源指纹没变）的轨直接返回 None，不再通读一遍。
     """
-    spec = _extraction_spec(file, index)
+    # 原盘目录的指纹要列 STREAM、stat 剪辑（过期清单还要读 MPLS）。和下面解析主片
+    # 一样挪出事件循环：诱饵盘走 NFS 时读完全部 MPLS 要一到三秒。
+    if (file.container or "") == "bluray":
+        spec = await asyncio.to_thread(_lookup_spec, file, index)
+    else:
+        spec = _lookup_spec(file, index)
     if spec is None:
         return None
     cached = _cached_track(spec)
     if cached is not None:
         return cached
-    if extraction_failed(file, index):
+    if _known_failed(spec, index):
         return None
     # 光盘解析主片要碰盘（存量行要读全部 MPLS，诱饵盘走 NFS 一到三秒），不占事件循环
     batch = await asyncio.to_thread(_file_specs, file) if file.is_disc() else _file_specs(file)
@@ -673,18 +964,13 @@ async def _shared_extract(
             )
 
 
-def _video_stamp(spec: _ExtractionSpec) -> int | None:
-    stamp = file_stamp(spec.video)
-    return None if stamp is None else stamp[1]
-
-
 def extraction_failed(file: LibraryFile, index: int) -> bool:
-    """这条轨上一次抽取是否已经失败过（且视频本体没换）。
+    """这条轨上一次抽取是否已经失败过（且源指纹没变）。
 
     预检据此在轮询里**立刻给出错误**，而不是一遍遍重试一条读不出来的轨。
-    视频换了就忘掉旧结论——洗版之后值得再试一次。
+    片子换了就忘掉旧结论——洗版、或原盘换了一段剪辑之后，值得再试一次。
     """
-    spec = _extraction_spec(file, index)
+    spec = _lookup_spec(file, index)
     return spec is not None and _known_failed(spec, index)
 
 
@@ -693,7 +979,7 @@ def _known_failed(spec: _ExtractionSpec, index: int) -> bool:
     stamp = _FAILED_EXTRACTIONS.get(key)
     if stamp is None:
         return False
-    current = _video_stamp(spec)
+    current = _source_stamp(spec)
     if current is not None and current != stamp:
         _FAILED_EXTRACTIONS.pop(key, None)
         _FAILURE_REASONS.pop(key, None)
@@ -713,12 +999,12 @@ def schedule_extraction(file: LibraryFile, index: int) -> bool:
     昂贵的通读只做一次，之后无论播放器还是预检都直接命中。返回 False 的三种
     情况：已有缓存、轨不支持、上次已经失败过（都不该再起进程）。
     """
-    spec = _extraction_spec(file, index)
+    spec = _lookup_spec(file, index)
     if spec is None:
         return False
     if _cached_track(spec) is not None:
         return False
-    if extraction_failed(file, index):
+    if _known_failed(spec, index):
         return False
     key = _job_key(spec, index)
     running = _BACKGROUND_TASKS.get(key)
@@ -740,13 +1026,11 @@ def schedule_extraction(file: LibraryFile, index: int) -> bool:
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 -- 后台抽取失败只影响下一次预检
-            logger.warning(
-                "内封字幕后台抽取失败：%s 轨 %d", spec.video, index, exc_info=True
-            )
+            logger.warning("内封字幕后台抽取失败：%s 轨 %d", spec.video, index, exc_info=True)
             produced = None
         # 记住成败：失败不记，前端轮询会每隔两三秒把同一条坏轨再抽一遍。
         if produced is None:
-            stamp = _video_stamp(spec)
+            stamp = _source_stamp(spec)
             if stamp is not None:
                 _FAILED_EXTRACTIONS[key] = stamp
                 _FAILURE_REASONS.setdefault(key, reference("library.subtitleSource.readError"))
@@ -1119,7 +1403,7 @@ def _window_spec(file: LibraryFile, index: int, start_ms: int, end_ms: int) -> _
         start_s=start_s,
         end_s=end_s,
         out_path=cache_dir() / f"{file.id}.s{index}.w{start_s}-{end_s}.{fmt}",
-        full=_extraction_spec(file, index),
+        full=_lookup_spec(file, index),
     )
 
 
