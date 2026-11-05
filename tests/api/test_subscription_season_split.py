@@ -16,7 +16,7 @@ E01–E12 周更于 2024-01-07…2024-03-31，E13–E25 隔了 280 天于
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from importlib import import_module
 from types import SimpleNamespace
 
@@ -724,12 +724,14 @@ async def test_normalised_pack_skips_undated_episodes_without_a_declared_total(d
         assert await _claimed(session, sub.id) == {(1, ep) for ep in range(13, 26)}
 
 
-async def test_normalised_pack_gets_no_early_release_tolerance(db) -> None:
+async def test_normalised_pack_gets_no_early_release_tolerance(db, monkeypatch) -> None:
     """评审第 3 点：整季包不享受提前首发容错——不能拿它批量认领发布后才播的集。
 
     包发布于 2025-02-01，E17 在 2025-02-02 播出：显式集号通道（容错 2 天）会把
     E17 也认下，整季包通道只认发布时已播的 E13–E16。
     """
+    # 固定 naive UTC 午夜，避免保留当前小时后跨过上海日历的午夜边界。
+    monkeypatch.setattr(__name__ + ".utcnow", lambda: datetime(2025, 4, 1))
     async with db.session() as session:
         sub = await _service(session).create(MediaKind.TV, 127532, selected_seasons=[1])
         early = await _torrent(
