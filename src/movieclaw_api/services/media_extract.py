@@ -106,6 +106,8 @@ _ASS_CODECS = frozenset({"ass", "ssa"})
 _PGS_CODECS = frozenset({"hdmv_pgs_subtitle", "pgssub", "pgs"})
 #: .sup 段头里的显示时间是 90 kHz。播放列表 IN/OUT 是 45 kHz，二者是整数倍。
 _PGS_CLOCK_HZ = 90_000
+#: 光盘 PGS 的处理版本：旧产物没有剪辑边界清屏，源没变也必须重建。
+_DISC_PGS_PRODUCT_VERSION = "1"
 
 #: 能进文本管线（pysubs2 解析）的产物格式；sup 是二进制位图，只能渲染。
 TEXT_FORMATS = frozenset({"srt", "ass"})
@@ -128,6 +130,8 @@ class _ExtractionSpec:
     out_path: Path
     #: 光盘的主片：ffmpeg 读它的 concat 清单，不读 ``video``。真要抽取时才解析（见 ``_file_specs``）
     disc: DiscSource | None = None
+    #: 查询 ISO 缓存时不解析盘内结构，也必须检查产物处理版本。
+    product_version: str | None = None
 
 
 @dataclass
@@ -228,6 +232,7 @@ def _extraction_spec(file: LibraryFile, index: int) -> _ExtractionSpec | None:
         fmt=fmt,
         video=video,
         out_path=cache_dir() / f"{file.id}.s{index}.{fmt}",
+        product_version=_DISC_PGS_PRODUCT_VERSION if file.is_disc() and fmt == "sup" else None,
     )
 
 
@@ -392,6 +397,19 @@ def _write_source_stamp(spec: _ExtractionSpec) -> None:
         logger.warning("原盘字幕指纹写失败：%s", spec.out_path, exc_info=True)
 
 
+def _product_version_path(spec: _ExtractionSpec) -> Path:
+    return spec.out_path.with_name(spec.out_path.name + ".version")
+
+
+def _write_product_version(spec: _ExtractionSpec) -> None:
+    if spec.product_version is None:
+        return
+    try:
+        _product_version_path(spec).write_text(spec.product_version, encoding="ascii")
+    except OSError:
+        logger.warning("光盘字幕处理版本写失败：%s", spec.out_path, exc_info=True)
+
+
 def _is_fresh(out_path: Path, video: Path) -> bool:
     """产物比视频新且非空即可复用（窗口抽取；整轨见 ``_product_is_fresh``）。
 
@@ -413,6 +431,13 @@ def _is_fresh(out_path: Path, video: Path) -> bool:
 
 def _product_is_fresh(spec: _ExtractionSpec) -> bool:
     """整轨产物还能不能用。原盘目录对指纹，不比产物和盘根谁更新。"""
+    if spec.product_version is not None:
+        try:
+            version = _product_version_path(spec).read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError):
+            return False
+        if version != spec.product_version:
+            return False
     stamp = _source_stamp(spec)
     if stamp is None:
         return False
@@ -661,7 +686,7 @@ def _clear_display_set(pts: int, template: _PgsTemplate) -> bytes:
     )
 
 
-def _close_trimmed_pgs(data: bytes, boundaries: list[int]) -> bytes:
+def _close_trimmed_pgs(data: bytes, boundaries: list[int]) -> bytes | bytearray:
     """播放列表裁切丢掉了清屏包时，在剪辑结束处补一个空显示集。
 
     concat demuxer 只按包裁。字幕在 OUT 之前出现、清屏包落在 OUT 之后时，清屏包
@@ -700,7 +725,7 @@ def _close_trimmed_pgs(data: bytes, boundaries: list[int]) -> bytes:
     while cursor < len(inserts):
         out += inserts[cursor][1]
         cursor += 1
-    return bytes(out)
+    return out  # 直接交给 write_bytes，避免再复制一份整轨缓冲
 
 
 def _seal_trimmed_pgs(spec: _ExtractionSpec, tmp_path: Path) -> None:
@@ -716,6 +741,7 @@ def _seal_trimmed_pgs(spec: _ExtractionSpec, tmp_path: Path) -> None:
     closed = _close_trimmed_pgs(original, boundaries)
     if closed is original:
         return
+    del original
     try:
         tmp_path.write_bytes(closed)
     except OSError:
@@ -753,6 +779,7 @@ def _finish_extraction(
         logger.warning("内封字幕缓存写入失败：%s（%s）", spec.out_path, exc)
         return None
     _write_source_stamp(spec)
+    _write_product_version(spec)
     logger.info(
         "内封字幕抽取完成：%s 轨 %d → %s 耗时 %.1f 秒",
         spec.video.name,
@@ -1216,7 +1243,10 @@ async def _run_ffmpeg(
         _discard(None)
         return False
     for index, spec, tmp_path in outputs:
-        _finish_extraction(spec, index, tmp_path, proc.returncode, stderr, started_at)
+        # 逐轨等待：整轨 PGS 的读、补清屏、写回都在线程里，且不并发持有多轨缓冲。
+        await asyncio.to_thread(
+            _finish_extraction, spec, index, tmp_path, proc.returncode, stderr, started_at
+        )
         if _cached_track(spec) is None:
             _remember_failure(spec, index, _ffmpeg_failure(proc.returncode, stderr))
     return True
@@ -1311,7 +1341,10 @@ async def _run_sparse_extraction(pending: list[tuple[int, _ExtractionSpec]]) -> 
         )
         return False
     for index, spec, tmp_path in outputs:
-        _finish_extraction(spec, index, tmp_path, proc.returncode, stderr, started_at)
+        # 逐轨等待：整轨 PGS 的读、补清屏、写回都在线程里，且不并发持有多轨缓冲。
+        await asyncio.to_thread(
+            _finish_extraction, spec, index, tmp_path, proc.returncode, stderr, started_at
+        )
     logger.info(
         "按字幕索引抽出 %d 条字幕轨：%s（%d 个字幕块，读取 %.1f 秒，共 %.1f 秒）",
         len(outputs), video.name, sum(tracks.blocks.values()), read_s,

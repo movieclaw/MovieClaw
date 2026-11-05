@@ -601,7 +601,10 @@ async def test_disc_clips_with_fewer_tracks_do_not_shift_the_others(tmp_path, mo
 @integration
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_bluray_image_subtitles_come_from_inside_the_image(tmp_path, monkeypatch):
+@pytest.mark.parametrize("legacy_cache", [False, True])
+async def test_bluray_image_subtitles_come_from_inside_the_image(
+    tmp_path, monkeypatch, legacy_cache
+):
     """蓝光镜像：ffmpeg 经 subfile 区间读盘内 m2ts，时间轴与原盘目录同一口径。"""
     from tests.api.test_reels_disc_index import _UdfBuilder
 
@@ -633,6 +636,17 @@ async def test_bluray_image_subtitles_come_from_inside_the_image(tmp_path, monke
     shutil.rmtree(disc)
     file = make_file(tmp_path, [{"codec": "hdmv_pgs_subtitle"}], path=image)
     file.container = "iso"
+    if legacy_cache:
+        import os
+
+        from pgs_sup import make_sup
+
+        # 升级前的缓存比镜像新，但没有处理版本；真实 ISO/ffmpeg 路径必须重建它。
+        old = media_extract.cache_dir() / "7.s0.sup"
+        old.parent.mkdir(parents=True, exist_ok=True)
+        old.write_bytes(make_sup(start_s=2, end_s=50))
+        os.utime(old, ns=(image.stat().st_mtime_ns + 10**9,) * 2)
+        assert media_extract.cached_track(file, 0) is None
 
     track = await extract_embedded_subtitle_async(file, 0)
 
@@ -640,3 +654,6 @@ async def test_bluray_image_subtitles_come_from_inside_the_image(tmp_path, monke
     assert sup_presentations(track.path.read_bytes()) == pytest.approx(
         [2, 3, 8, 9], abs=_TIMELINE_TOLERANCE
     )
+
+    assert media_extract.cached_track(file, 0) is not None
+    assert await extract_embedded_subtitle_async(file, 0) == track
