@@ -1547,6 +1547,9 @@
   "filters.stock": {
     "sourceHash": "780c5fd5b10533dc553830d88d33b17ef95698d05bad978ccc582467adb19b4c"
   },
+  "filters.actor": {
+    "sourceHash": "64c9568e6a8420834195f7eba989d4b4197bd21b9db223239cf427f9a7a15de3"
+  },
   "filters.and": {
     "sourceHash": "9f00f6770f8cfe0b1ec666b0af2ac6798bff6e9b98d51b3fe59a481c96d898cf"
   },

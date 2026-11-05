@@ -37,6 +37,11 @@ export interface LibraryFilter {
   hdr?: boolean | null;
   /** 库存状态：missing=有文件失联 / unscraped=没刮到档案 */
   stock?: string[];
+  /**
+   * 演员名（整名相等）。本地/NFO 库没有影人页，详情页点演员落到这里看同库作品；
+   * 筛选面板里没有这一维，只由链接带进来、在条件行里可摘掉
+   */
+  actor?: string | null;
 }
 
 /** 筛选条件 → 查询串片段。三个接口（items / facets / item-index）共用它，
@@ -54,6 +59,7 @@ export function filterQuery(filter: LibraryFilter | undefined, query: URLSearchP
   if (filter.resolutions?.length) query.set("res", filter.resolutions.join(","));
   if (filter.hdr !== undefined && filter.hdr !== null) query.set("hdr", String(filter.hdr));
   if (filter.stock?.length) query.set("stock", filter.stock.join(","));
+  if (filter.actor) query.set("actor", filter.actor);
 }
 
 /** 筛选是否为空——为空时一切按"未筛选"走（不改 URL、不加指纹、不显示条件行）。 */
@@ -69,7 +75,8 @@ export function isFilterEmpty(filter: LibraryFilter | undefined): boolean {
     !filter.languages?.length &&
     !filter.resolutions?.length &&
     (filter.hdr === undefined || filter.hdr === null) &&
-    !filter.stock?.length
+    !filter.stock?.length &&
+    !filter.actor
   );
 }
 
@@ -87,7 +94,8 @@ export function filterCount(filter: LibraryFilter | undefined): number {
     (filter.languages?.length ?? 0) +
     (filter.resolutions?.length ?? 0) +
     (filter.hdr !== undefined && filter.hdr !== null ? 1 : 0) +
-    (filter.stock?.length ?? 0)
+    (filter.stock?.length ?? 0) +
+    (filter.actor ? 1 : 0)
   );
 }
 
@@ -195,6 +203,7 @@ export function filterKey(filter: LibraryFilter | undefined): string {
     res: filter?.resolutions ?? [],
     hdr: filter?.hdr == null ? null : String(filter.hdr),
     st: filter?.stock ?? [],
+    a: filter?.actor || null,
   };
   const pieces: string[] = [];
   for (const key of Object.keys(parts).sort()) {
@@ -224,5 +233,6 @@ export function readLibraryFilter(params: Pick<URLSearchParams, "get">): Library
     resolutions: list("res"),
     hdr: hdr === null ? null : hdr === "true",
     stock: list("stock"),
+    actor: params.get("actor")?.trim() || null,
   };
 }

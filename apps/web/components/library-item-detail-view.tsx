@@ -1101,6 +1101,8 @@ export function LibraryItemDetailView({
                 role: actor.role,
                 avatarUrl: actor.thumb_url ? imageUrl(actor.thumb_url) : null,
                 tmdbPersonId: actor.tmdb_person_id,
+                // 没有 TMDB 影人 id 的（NFO / 本地库）点进去看同库里他的其他作品
+                actorLibraryId: libraryId,
               })),
             ]}
           />

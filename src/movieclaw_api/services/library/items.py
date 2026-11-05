@@ -430,6 +430,10 @@ class LibraryFilter:
     #: 一个库几百个系列，下拉根本没法用，合集才是它正确的呈现形态。它存在是
     #: 因为系列合集就是一条规则驱动的合集，规则正是「series_key = X」
     series_keys: tuple[str, ...] = ()
+    #: 演员名（``media_metadata.cast[].name``）。本地/NFO 库没有影人页，详情页点演员
+    #: 落到这里看「同库里他的其他作品」；与 nfo_absorb._merge_cast 同名回填同一口径：
+    #: 去首尾空白后整名相等（ASCII 不分大小写），不做子串匹配
+    actor: str | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -445,6 +449,7 @@ class LibraryFilter:
             or self.hdr is not None
             or self.stock
             or self.series_keys
+            or self.actor
         )
 
 
@@ -605,6 +610,15 @@ def _filter_subquery(
         conds.append(clause if filters.hdr else not_(clause))
     if filters.series_keys and skip != "series_keys":
         conds.append(MediaMetadata.series_key.in_(filters.series_keys))
+    if filters.actor and skip != "actor":
+        each = func.json_each(MediaMetadata.cast).table_valued("value")
+        name = func.json_extract(each.c.value, "$.name")
+        conds.append(
+            select(1)
+            .select_from(each)
+            .where(func.lower(func.trim(name)) == func.lower(filters.actor.strip()))
+            .exists()
+        )
     if filters.stock and skip != "stock":
         spans = []
         if "missing" in filters.stock:

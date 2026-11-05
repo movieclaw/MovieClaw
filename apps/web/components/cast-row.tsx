@@ -36,6 +36,12 @@ export interface CastRowPerson {
    * 豆瓣来源、以及第三方刮削器写的老 NFO 都可能没有这个 id。
    */
   tmdbPersonId?: number | null;
+  /**
+   * 本地/NFO 库的演员没有影人页：给了库 id 就链到同库按演员名筛的海报墙
+   * （/library/{id}?actor=姓名），看「他在这个库里的其他作品」。只给演员，
+   * 不给导演——后端按演员表筛，导演点进去会是空墙。TMDB 影人 id 优先。
+   */
+  actorLibraryId?: number | null;
 }
 
 type PersonHrefPrefix = "/people" | "/discover/people";
@@ -87,7 +93,7 @@ export function CastRow({
   );
 }
 
-/** 一格演员：有 TMDB 影人 ID 时整格是通往人物页的链接，否则是静态块。 */
+/** 一格演员：有 TMDB 影人 ID 时整格是通往人物页的链接；没有但给了库 id 时链到同库按演员筛；否则是静态块。 */
 function CastCard({
   person,
   personHrefPrefix,
@@ -99,7 +105,7 @@ function CastCard({
   const subtitle = person.credit ?? (person.role ? t("media.person.character", { character: person.role }) : null);
   // tapGuard：演员卡在横滚行里，滑动/刹车手势派发的 click 拦下不跳人物页
   // （Link 分支不传动作，放行的点击走默认导航——同 PosterCard 的接法）。
-  // 无 tmdbPersonId 的静态块用不到，但 hook 必须无条件先调
+  // 静态块用不到，但 hook 必须无条件先调
   const tapGuard = useTapGuard();
   const body = (
     <>
@@ -127,6 +133,18 @@ function CastCard({
     </>
   );
 
+  if (!person.tmdbPersonId && person.actorLibraryId) {
+    return (
+      <Link
+        href={`/library/${person.actorLibraryId}?actor=${encodeURIComponent(person.name.trim())}` as Route}
+        {...tapGuard}
+        aria-label={t("media.cards.actorInLibrary", { name: person.name })}
+        className="group/cast w-[104px] shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
+      >
+        {body}
+      </Link>
+    );
+  }
   if (!person.tmdbPersonId) {
     return <div className="w-[104px] shrink-0">{body}</div>;
   }

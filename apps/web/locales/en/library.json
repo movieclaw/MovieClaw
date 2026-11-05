@@ -710,6 +710,7 @@
     "quality": "Quality",
     "dynamicRange": "Dynamic range",
     "stock": "Inventory",
+    "actor": "Actor",
     "and": "AND",
     "or": "OR",
     "saveCollection": "Save as collection",
