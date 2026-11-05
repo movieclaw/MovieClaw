@@ -1039,7 +1039,9 @@ async def _settle_burn(
 
     ``overlay`` 是软件滤镜，只有吃得下软件帧的后端（NVENC、VideoToolbox、远程转码器）能烧；
     只有 VAAPI / QSV 时按统一降档重新决策：软转开着就软转，没开就问同意。返回的请求带着
-    这次失败的档位，后面让出旧会话再决策时结论不变。
+    这次临时加上的档位：那是名额被占或本机烧不了，不是客户端报上来的失败。调用方若随后
+    ``stop_for_file`` 让出了旧会话，必须从**原始请求**再走一遍本函数，不能拿这份带着
+    档 3 失败的请求接着决策——否则空出来的远程硬件不会再被考虑（#1187 评审）。
     """
     decision = await _decide(payload, principal, session)
     if (
@@ -1215,20 +1217,37 @@ async def start_playback_session(
     if decision is None:
         raise NotFoundException(message_key="errors.playback.noPlayableFile")
     view = playback_plan.to_view(decision)
+
+    async def resettle_after_release() -> None:
+        """旧会话让出名额之后，从原始请求重走烧录落定。
+
+        第一次 ``_settle_burn`` 可能已经把档 3 写进 ``failed_tiers``。那份失败只说明
+        「让出之前没人能烧」，让出之后远程转码器可能空了，要按用户原来的烧录请求重算。
+        重算仍拒绝、而这次点了字幕：撤掉烧录，片子照放（#1174）。
+        """
+        nonlocal payload, decision, view
+        payload, decision = await _settle_burn(requested, principal, session)
+        if decision is None:
+            raise NotFoundException(message_key="errors.playback.noPlayableFile")
+        view = playback_plan.to_view(decision)
+        if view.outcome == "rejected" and _names_subtitle(requested):
+            payload = _without_burn(requested)
+            decision = await _decide(payload, principal, session)
+            if decision is None:
+                raise NotFoundException(message_key="errors.playback.noPlayableFile")
+            view = playback_plan.to_view(decision)
+
     if view.outcome != "plan":
         # 同一成员对同一文件的旧会话（换字幕要烧录、换音轨、降档重开时还没让出来的）可能正占着
         # 唯一的色调映射名额，让这次决策判成「转码器正忙」——自己挡住自己（Android TV 故障注入
-        # 实测：杜比视界换 PGS 字幕直接落错误页）。这次请求本来就要替换它：先让出来再决策一次。
-        # 拒绝的决策不带文件，按请求解出这个单元的文件
+        # 实测：杜比视界换 PGS 字幕直接落错误页）。这次请求本来就要替换它：先让出来，再从原始
+        # 请求重走烧录落定。拒绝的决策不带文件，按请求解出这个单元的文件。
         manager = get_session_manager()
         replaced = 0
         for candidate in await _requested_file_ids(session, payload):
             replaced += await manager.stop_for_file(candidate, member_id)
         if replaced:
-            decision = await _decide(payload, principal, session)
-            if decision is None:
-                raise NotFoundException(message_key="errors.playback.noPlayableFile")
-            view = playback_plan.to_view(decision)
+            await resettle_after_release()
     if view.outcome == "rejected" and _names_subtitle(requested):
         payload = _without_burn(requested)
         decision = await _decide(payload, principal, session)
@@ -1246,18 +1265,15 @@ async def start_playback_session(
     manager = get_session_manager()
     if view.tier != int(Tier.DIRECT_PLAY):
         # 第一次决策可能看到同文件旧会话仍占着远程 Worker 的槽位，暂时落到
-        # 软件转码。先释放旧会话，再重新决策一次，才能把刚空出来的远程能力
-        # 纳入最终结果；没有旧会话时不重复做这次决策。
+        # 软件转码，或把档 3 记成失败。先释放旧会话，再从原始请求重走烧录落定，
+        # 才能把刚空出来的远程能力纳入最终结果；没有旧会话时不重复做这次决策。
         replaced = await manager.stop_for_file(file.id, member_id)
         # 同一台电视 / 手机上一部片的会话（播放器被强杀没来得及结束的）也让出名额；
         # 浏览器可以多开标签页同时放两部，不算
         if principal.device is not None and principal.device.kind in _SINGLE_PLAYER_KINDS:
             replaced += await manager.stop_stale_for_device(device_id, keep_file_id=file.id)
         if replaced:
-            decision = await _decide(payload, principal, session)
-            if decision is None:
-                raise NotFoundException(message_key="errors.playback.noPlayableFile")
-            view = playback_plan.to_view(decision)
+            await resettle_after_release()
             if view.outcome != "plan":
                 attempt_started(view.file_id, -1, view, decide=decide_ms)
                 return ok(PlaybackSessionView(decision=view, watch=watch_view))

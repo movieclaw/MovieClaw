@@ -690,6 +690,165 @@ def test_explicit_burn_that_cannot_run_reports_no_burn_in_the_plan(
     assert decided["video"]["burn_subtitle"] is None
 
 
+def _hold_remote_burn_slot(monkeypatch, file_id: int, *, frees_hardware: bool) -> str:
+    """同一文件的旧会话占着唯一能烧录的远程 Worker。本机只有 VAAPI，烧不了 overlay。
+
+    ``frees_hardware``：``stop_for_file`` 让出旧会话之后，远程才算空闲。否则让出
+    也没有能烧录的后端（旧会话并不是那台转码器）。
+    """
+    from movieclaw_api.services.playback import hwprobe
+    from movieclaw_api.services.playback import plan as plan_mod
+
+    availability = {"value": False}
+
+    def backends() -> tuple[str, ...]:
+        if availability["value"]:
+            return ("vaapi", "videotoolbox")
+        return ("vaapi",)
+
+    monkeypatch.setattr(hwprobe, "available_backends", backends)
+    monkeypatch.setattr(routes_playback, "available_backends", backends)
+    monkeypatch.setattr(routes_playback, "available_local_backends", lambda: ("vaapi",))
+    monkeypatch.setattr(
+        routes_playback,
+        "remote_backends_available",
+        lambda *_args, **_kwargs: ("videotoolbox",) if availability["value"] else (),
+    )
+    monkeypatch.setattr(plan_mod, "remote_backend_can_run", lambda _plan, _backend: True)
+    monkeypatch.setattr(
+        routes_playback,
+        "effective_remote_transcode_config",
+        lambda: SimpleNamespace(base_url="http://nas.local"),
+    )
+
+    manager = get_session_manager()
+    old_id = "old-burn-session"
+    old_directory = Path(get_settings().transcode_dir) / old_id
+    old_directory.mkdir(parents=True, exist_ok=True)
+    manager._sessions[old_id] = session_mod.TranscodeSession(
+        id=old_id,
+        file_id=file_id,
+        member_id=0,
+        tier=PlaybackTier.HARDWARE_TRANSCODE,
+        directory=old_directory,
+        start_ms=0,
+        plan=PlaybackPlan(
+            tier=PlaybackTier.HARDWARE_TRANSCODE,
+            file_id=file_id,
+            container="hls-fmp4",
+            video=VideoPlan(action="transcode", codec="h264", height=1080),
+            audio=AudioPlan(action="copy", track_ref=None),
+            reason="测试",
+        ),
+        remote=True,
+    )
+    original_stop_for_file = manager.stop_for_file
+
+    async def stop_and_release(file_id_value: int, member_id: int) -> int:
+        replaced = await original_stop_for_file(file_id_value, member_id)
+        if replaced and frees_hardware:
+            availability["value"] = True
+        return replaced
+
+    monkeypatch.setattr(manager, "stop_for_file", stop_and_release)
+
+    async def fake_spawn_remote(remote_session, _base_url: str) -> None:
+        remote_session.state = "ready"
+        remote_session.remote_worker_id = "mac-mini"
+
+    monkeypatch.setattr(manager, "_spawn_remote", fake_spawn_remote)
+    return old_id
+
+
+def test_pgs_switch_reuses_remote_hardware_freed_by_the_old_session(client, tmp_path, monkeypatch):
+    """旧会话占满唯一能烧录的远程名额：让出之后要从原始烧录请求重算。
+
+    以前 ``_settle_burn`` 把档 3 记成失败，让出旧会话后的重算还带着它，空出来的
+    VideoToolbox 不会再被考虑。HDR 因此被判拒绝，字幕被撤掉（#1187 评审）。
+    """
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+    old_id = _hold_remote_burn_slot(monkeypatch, file_id, frees_hardware=True)
+
+    data = start_session(client, file_id, capability=_HDR_CLIENT, subtitle_track="embedded:1")
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["tier"] == int(PlaybackTier.HARDWARE_TRANSCODE)
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["hw_backend"] == "videotoolbox"
+    assert get_session_manager().get(old_id) is None
+
+
+def test_freed_remote_slot_skips_the_software_consent_prompt(client, tmp_path, monkeypatch):
+    """软转没开、远程名额被自己的旧会话占着：让出后直接硬件烧录，不再问软转同意。"""
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", resolution="1080p")
+    _hold_remote_burn_slot(monkeypatch, file_id, frees_hardware=True)
+
+    data = start_session(
+        client,
+        file_id,
+        capability=_OVERLAY_CLIENT,
+        subtitle_track="embedded:1",
+        burn_requested=True,
+    )
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["tier"] == int(PlaybackTier.HARDWARE_TRANSCODE)
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["hw_backend"] == "videotoolbox"
+
+
+def test_explicit_burn_uses_remote_hardware_freed_by_the_old_session(client, tmp_path, monkeypatch):
+    """软转开着时，占满的远程名额让出后不能留在 CPU 软转上。"""
+    assert client.put(f"{_PB}/policy", json={"software_transcode_enabled": True}).status_code == 200
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", resolution="1080p")
+    _hold_remote_burn_slot(monkeypatch, file_id, frees_hardware=True)
+
+    data = start_session(
+        client,
+        file_id,
+        capability=_OVERLAY_CLIENT,
+        subtitle_track="embedded:1",
+        burn_requested=True,
+    )
+    assert data["decision"]["tier"] == int(PlaybackTier.HARDWARE_TRANSCODE), data["decision"]
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["hw_backend"] == "videotoolbox"
+
+
+def test_client_hardware_failure_is_not_cleared_when_the_old_session_stops(
+    client, tmp_path, monkeypatch
+):
+    """客户端报上来的档 3 失败要留着。让出旧会话只丢掉这次临时加上的失败。"""
+    assert client.put(f"{_PB}/policy", json={"software_transcode_enabled": True}).status_code == 200
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", resolution="1080p")
+    _hold_remote_burn_slot(monkeypatch, file_id, frees_hardware=True)
+
+    data = start_session(
+        client,
+        file_id,
+        capability=_OVERLAY_CLIENT,
+        subtitle_track="embedded:1",
+        burn_requested=True,
+        failed_tiers=[int(PlaybackTier.HARDWARE_TRANSCODE)],
+    )
+    assert data["decision"]["tier"] == int(PlaybackTier.SOFTWARE_TRANSCODE), data["decision"]
+    assert data["decision"]["video"]["burn_subtitle"] == "embedded:1"
+    assert data["hw_backend"] is None
+
+
+def test_releasing_a_session_that_does_not_free_hardware_still_drops_the_burn(
+    probed_vaapi_hdr, client, tmp_path, monkeypatch
+):
+    """让出旧会话之后仍然没有能烧录的后端：HDR 撤掉烧录，片子照放，不能变错误页。"""
+    file_id, _ = _seed_pgs(client, tmp_path, codec="hevc", hdr="HDR10", resolution="2160p")
+    _hold_remote_burn_slot(monkeypatch, file_id, frees_hardware=False)
+
+    data = start_session(client, file_id, capability=_HDR_CLIENT, subtitle_track="embedded:1")
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["tier"] == int(PlaybackTier.REMUX)
+    assert data["decision"]["video"]["action"] == "copy"
+    assert data["decision"]["video"]["burn_subtitle"] is None
+    assert data["session_id"] is not None
+
+
 # ---------------------------------------------------------------------------
 # 档 0：原文件直出
 # ---------------------------------------------------------------------------
