@@ -14,6 +14,10 @@ An episode that has not aired no longer looks like a missing file. Its still sho
 
 **Follow new episodes** uses the subscription already on the server. If smart selection has never been saved, the panel says **Finish setting up smart selection on your phone or the web first.** A member who cannot edit that setup sees the existing notice to ask an administrator.
 
+### Fixed
+
+- Confirming **Follow new episodes** after smart selection changed while the panel was open used to fail, and pressing confirm again failed the same way. The summary is read again. Press confirm once more. It does not send the old draft again.
+
 The GitHub release contains release notes only. Installation requires the corresponding TestFlight build.
 
 Full changes: [tvos-v0.12.3 → tvos-v0.12.4](https://github.com/movieclaw/MovieClaw/compare/tvos-v0.12.3...tvos-v0.12.4).
@@ -37,6 +41,10 @@ Full changes: [tvos-v0.12.3 → tvos-v0.12.4](https://github.com/movieclaw/Movie
 还没播的集不再看起来像缺了文件。剧照位换成播出日。已经播出、库里却没有的集仍是缺集，不能点播。
 
 「订阅追更」用的是服务器上已有的订阅。智能选择还没保存过时，面板写「首次订阅要先在手机或网页上完成智能设置」。不能改这项设置的成员，仍看到请管理员先完成的说明。
+
+### 修好了
+
+- 面板开着的时候智能选择被改过，再确认「订阅追更」会失败，再按一次还是失败。现在会重新读一遍摘要。再按一次确认。不会再用打开时的旧稿提交。
 
 这个 GitHub Release 只有说明。安装要对应的 TestFlight 构建。
 
