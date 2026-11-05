@@ -34,9 +34,11 @@ import {
   SeasonEpisodesView,
   SeriesPartView,
   LibraryView,
-  SubscriptionView
+  SubscriptionView,
+  UpNextItemView
 } from '../api/Models';
 import { libraryBytes } from './LibraryShared';
+import { LibraryHomeStore } from './LibraryHomeStore';
 import {
   EpisodeRange,
   EpisodeRanges,
@@ -825,20 +827,57 @@ export struct LibraryItemDetailPage {
   }
 
   /**
-   * 选起始集：路由带了季/集就用它（且该集确实在库），否则用库里有的第一季的第一集。
-   * 对应 iOS SeasonEpisodesSection 的 requestedSeason 兜底链。
+   * 选起始季（对应 iOS currentSeason / TV 端 startSeasonOf 的兜底链）：
+   * 路由带的季（得有片源）→ 首页「接下来继续」里这部剧的那一季（得有片源）
+   * → 第一个有片源的正片季 → 第一个有片源的季（特别篇）→ 第一个正片季 → 第一个季。
+   * 一二季没片源、只有四季有文件时落在第四季；特别篇排在最前但不该先开它。
    */
   private pickInitialEpisode(detail: LibraryItemDetailView): void {
     const seasons: number[] = detail.seasons;
     if (seasons.length === 0) {
       return;
     }
-    let season: number = seasons[0];
-    const wantedSeason: number | null = this.initialSeason;
-    if (wantedSeason !== null && seasons.indexOf(wantedSeason) >= 0) {
-      season = wantedSeason;
+    // 有片源的季：只算在库文件（同 TV 端 startSeasonOf）
+    const owned: Set<number> = new Set<number>();
+    for (const file of detail.files) {
+      if (file.state === 'in_place') {
+        owned.add(file.season_number);
+      }
     }
-    this.season = season;
+    const wantedSeason: number | null = this.initialSeason;
+    if (wantedSeason !== null && seasons.indexOf(wantedSeason) >= 0 && owned.has(wantedSeason)) {
+      this.season = wantedSeason;
+      return;
+    }
+    const upNext: UpNextItemView[] = LibraryHomeStore.shared.upNext ?? [];
+    for (const item of upNext) {
+      if (item.media_item_id === this.mediaItemId && item.kind === 'tv') {
+        if (seasons.includes(item.season_number) && owned.has(item.season_number)) {
+          this.season = item.season_number;
+          return;
+        }
+        break;
+      }
+    }
+    for (const s of seasons) {
+      if (s > 0 && owned.has(s)) {
+        this.season = s;
+        return;
+      }
+    }
+    for (const s of seasons) {
+      if (owned.has(s)) {
+        this.season = s;
+        return;
+      }
+    }
+    for (const s of seasons) {
+      if (s > 0) {
+        this.season = s;
+        return;
+      }
+    }
+    this.season = seasons[0];
   }
 
   /** 拉当前季的集列表 */
@@ -1194,6 +1233,11 @@ export struct LibraryItemDetailPage {
     this.episodeRangeIndex = null;
     this.showAirSchedule = false;
     this.loadEpisodes();
+  }
+
+  /** 季显示名：0 是特别篇（同 LibraryWall 与通知文案） */
+  private seasonLabel(season: number): string {
+    return season === 0 ? '特别篇' : `第 ${season} 季`;
   }
 
   /** 选集：换简介、换文件区、换播放键的进度；段跟到它所在的段 */
@@ -2086,7 +2130,20 @@ export struct LibraryItemDetailPage {
     .width('100%')
   }
 
-  /** 剧集：季切换 + 本季集列表；一季超过 50 集分段（段胶囊 + 「全部 N 集」宫格入口） */
+  /** 季下拉菜单：当前季打勾 */
+  @Builder
+  SeasonMenu(detail: LibraryItemDetailView) {
+    Menu() {
+      ForEach(detail.seasons, (season: number) => {
+        MenuItem({ content: this.seasonLabel(season) + (season === this.season ? ' ✓' : '') })
+          .onClick(() => {
+            this.onSeasonPick(season);
+          })
+      }, (season: number) => `${season}`)
+    }
+  }
+
+  /** 剧集：季选择（多季下拉、单季直接显示）+ 本季集列表；一季超过 50 集分段（段胶囊 + 「全部 N 集」宫格入口） */
   @Builder
   SeasonBlock(detail: LibraryItemDetailView) {
     Column({ space: 12 }) {
@@ -2095,6 +2152,29 @@ export struct LibraryItemDetailPage {
           .fontSize(17)
           .fontWeight(600)
           .fontColor(Theme.text)
+        if (detail.seasons.length > 1) {
+          Button() {
+            Row({ space: 4 }) {
+              Text(this.seasonLabel(this.season))
+                .fontSize(14)
+                .fontColor(Theme.text)
+              SymbolGlyph($r('sys.symbol.chevron_down'))
+                .fontSize(12)
+                .fontWeight(600)
+                .fontColor([Theme.textMuted])
+            }
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .borderRadius(16)
+          .margin({ left: 8 })
+          .bindMenu(this.SeasonMenu(detail))
+        } else {
+          Text(this.seasonLabel(this.season))
+            .fontSize(14)
+            .fontColor(Theme.textFaint)
+            .margin({ left: 8 })
+        }
         Blank()
         if (this.episodes !== null) {
           if (this.episodeRanges().length > 0) {
@@ -2117,27 +2197,6 @@ export struct LibraryItemDetailPage {
           }
         }
       }
-      .width('100%')
-
-      Scroll() {
-        Row({ space: 8 }) {
-          ForEach(detail.seasons, (season: number) => {
-            Button() {
-              Text(`第 ${season} 季`)
-                .fontSize(14)
-                .fontColor(season === this.season ? '#0b0d12' : Theme.text)
-            }
-            .attributeModifier(new GlassButtonModifier(season === this.season ? GlassTone.Primary : GlassTone.Secondary))
-            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-            .borderRadius(16)
-            .onClick(() => {
-              this.onSeasonPick(season);
-            })
-          }, (season: number) => `${season}`)
-        }
-      }
-      .scrollable(ScrollDirection.Horizontal)
-      .scrollBar(BarState.Off)
       .width('100%')
 
       // 段胶囊：选中的段白底黑字，锚点所在的段带橙点
