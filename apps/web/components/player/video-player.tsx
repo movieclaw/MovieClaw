@@ -475,6 +475,21 @@ export function VideoPlayer(props: VideoPlayerProps) {
   } | null>(null);
   /** 压制试算的序号：换集、再点一次之后，上一次的结果作废 */
   const burnCheckRef = useRef(0);
+  /** 「开启并压制」的记号。取消、换集、卸载加一，迟到的保存回调对不上就不再继续 */
+  const burnIntentRef = useRef(0);
+  /** 还在飞的软转开关保存。作废时中止，避免取消之后请求仍把开关写上 */
+  const burnSaveAbortRef = useRef<AbortController | null>(null);
+  const invalidateBurnIntent = useCallback(() => {
+    burnIntentRef.current += 1;
+    burnSaveAbortRef.current?.abort();
+    burnSaveAbortRef.current = null;
+  }, []);
+  const burnUnitRef = useRef(unitKey);
+  if (burnUnitRef.current !== unitKey) {
+    // 换集写在渲染里：保存的回调是微任务，等 effect 清弹窗就来不及了
+    burnUnitRef.current = unitKey;
+    invalidateBurnIntent();
+  }
   /**
    * 本单元内用户是否亲手选过字幕（选轨或关闭都算）。表过态之后，「初始
    * 字幕选择」不再插手——换会话（换音轨/画质/撤烧/seek 重开）会带来新的
@@ -2913,6 +2928,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     (ref: string | null) => {
       subtitleTouchedRef.current = true;
       burnCheckRef.current += 1; // 还在试算的压制作废：用户已经换了主意
+      invalidateBurnIntent();
       setBurnPrompt(null);
       const record = recordRef.current;
       record?.noteSubtitleChange(selectedSubtitle, ref);
@@ -2924,7 +2940,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
       }
       reopenForSubtitle(ref ?? "off", null);
     },
-    [burnedSubtitle, selectedSubtitle, reopenForSubtitle],
+    [burnedSubtitle, selectedSubtitle, reopenForSubtitle, invalidateBurnIntent],
   );
 
   /**
@@ -5020,11 +5036,16 @@ export function VideoPlayer(props: VideoPlayerProps) {
           <BurnPromptDialog
             softwareEnabled={burnPrompt.softwareEnabled}
             canSelfEnable={burnPrompt.canSelfEnable}
+            intentRef={burnIntentRef}
+            saveAbortRef={burnSaveAbortRef}
             onContinue={() => {
               setBurnPrompt(null);
               startBurn(burnPrompt.ref, state.session?.decision.file_id ?? null);
             }}
-            onCancel={() => setBurnPrompt(null)}
+            onCancel={() => {
+              invalidateBurnIntent();
+              setBurnPrompt(null);
+            }}
           />
         ) : null}
 

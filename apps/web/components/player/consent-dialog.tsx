@@ -2,10 +2,11 @@
 
 import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { savePlaybackPolicy } from "@/lib/api/playback";
 import type { PlaybackDecision } from "@/lib/api/playback";
+import { enableSoftwareTranscodeForBurn } from "@/lib/player/burn-prompt";
 
 /**
  * 软件转码同意弹窗（docs/design/web-player.md §3.6）。
@@ -155,6 +156,8 @@ export function ConsentDialog({
 export function BurnPromptDialog({
   softwareEnabled,
   canSelfEnable,
+  intentRef,
+  saveAbortRef,
   onContinue,
   onCancel,
 }: {
@@ -162,6 +165,10 @@ export function BurnPromptDialog({
   softwareEnabled: boolean;
   /** 开关没开时，这个账号能不能自己开（只有超管可以） */
   canSelfEnable: boolean;
+  /** 取消、换集、卸载会把 current 加一。保存回来对不上就不再继续 */
+  intentRef: { current: number };
+  /** 同一次作废要中止还在飞的保存，免得取消之后开关仍被写上 */
+  saveAbortRef: { current: AbortController | null };
   onContinue: () => void;
   onCancel: () => void;
 }) {
@@ -169,14 +176,33 @@ export function BurnPromptDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const intent = intentRef;
+    const abort = saveAbortRef;
+    return () => {
+      // 换集、离开播放页会卸掉弹窗。保存若还在飞，回来不能再继续
+      intent.current += 1;
+      abort.current?.abort();
+      abort.current = null;
+    };
+  }, [intentRef, saveAbortRef]);
+
   const enableAndContinue = async () => {
+    const controller = new AbortController();
+    saveAbortRef.current = controller;
+    const token = intentRef.current;
     setSaving(true);
     setError(null);
     try {
-      const saved = await savePlaybackPolicy({ software_transcode_enabled: true });
-      if (!saved.software_transcode_enabled) throw new Error(t("player.consent.saveFailed"));
+      const outcome = await enableSoftwareTranscodeForBurn(
+        (signal) => savePlaybackPolicy({ software_transcode_enabled: true }, signal),
+        { token, current: () => intentRef.current, signal: controller.signal },
+      );
+      if (outcome === "dropped") return;
+      if (outcome === "rejected") throw new Error(t("player.consent.saveFailed"));
       onContinue();
     } catch (err) {
+      if (controller.signal.aborted || intentRef.current !== token) return;
       setError(err instanceof Error ? err.message : t("player.consent.enableFailed"));
       setSaving(false);
     }

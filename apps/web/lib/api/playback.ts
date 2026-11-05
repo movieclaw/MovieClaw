@@ -1140,10 +1140,12 @@ export async function savePlaybackPolicy(
   changes: Partial<
     Omit<PlaybackPolicy, "hardware_available" | "hw_backends" | "reel_clips_progress">
   >,
+  signal?: AbortSignal,
 ): Promise<PlaybackPolicy> {
   const response = await request<ApiEnvelope<PlaybackPolicy>>("/playback/policy", {
     method: "PUT",
     body: JSON.stringify(changes),
+    signal,
   });
   return response.data;
 }
