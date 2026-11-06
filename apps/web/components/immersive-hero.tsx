@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -26,8 +27,11 @@ import { useTapGuard } from "@/lib/use-tap-guard";
  *   手动切换（点圆点 / 触屏横滑）重新计时，页面不可见时不推进；
  * - 指示器：居中底部，当前格是 26×5 的胶囊，其余是 5×5 可点的小圆点；
  * - 文字随滚动淡出（滚过 260px 全透明）并轻微下沉；
- * - 预载：帧壳常驻、交叉淡入，大图只在轮到（当前 / 下一张）时才写 src；取图宽度按剧照框
- *   实测尺寸 × 屏幕倍率 × 推近 1.1 算（lib/image-resolution.ts），远程 TMDB 图不够时升 original。
+ * - 预载：帧壳常驻、交叉淡入，大图只在轮到（当前 / 下一张 / 正要切过去的那张）时才写 src；取图宽度按剧照框
+ *   实测尺寸 × 屏幕倍率 × 推近 1.1 算（lib/image-resolution.ts），远程 TMDB 图不够时升 original；
+ * - 上屏闸门：图**解码就位**之后才让那张帧淡入（预载期间就把解码做完）。只提前写 src 是不够的
+ *   —— 浏览器会先把位置画成空白、等后台解码完再补画，切换那一下就会先露白再出图（详见
+ *   HeroFrame 与 READY_TIMEOUT_MS 的说明）。
  *
  * 滚动联动不走 React 状态：调用方用 useHeroScrollVar 把滚动距离写成祖先元素上的 CSS 变量
  * --hero-scroll（px 数值、不带单位），视差 / 淡出 / 氛围底退淡都由 CSS calc 读它，
@@ -72,10 +76,14 @@ export function useHeroWindowBackdrop(url: string | null | undefined) {
   // 两边算出来几乎总落在同一档，同一张图浏览器只下载一次（窗口背景是重模糊，略大无妨）
   const width = useViewportCoverWidth(IMAGE_ASPECT.backdrop, HERO_ZOOM);
   const sized = url && width ? tmdbImageForWidth(url, width) : null;
+  // 解码就位后再交给覆盖层：覆盖层换图的规矩是「先把旧图淡出、新图就绪再淡入」，
+  // 直接把还没下载完的地址塞过去，整窗会在那段加载期里空着——桌面轮播换张时看到的
+  // 「整个页面空一下」就是从这来的。先留旧图，新图就位才换（模糊背景上看不出硬切）。
+  const decoded = useDecodedUrl(sized);
   useEffect(() => {
-    setOverrideBackdrop(sized);
-    document.documentElement.classList.toggle("hero-window", Boolean(sized));
-  }, [sized, setOverrideBackdrop]);
+    setOverrideBackdrop(decoded);
+    document.documentElement.classList.toggle("hero-window", Boolean(decoded));
+  }, [decoded, setOverrideBackdrop]);
   useEffect(
     () => () => {
       setOverrideBackdrop(null);
@@ -85,11 +93,59 @@ export function useHeroWindowBackdrop(url: string | null | undefined) {
   );
 }
 
+/**
+ * 只交出「已经加载并解码完成」的地址。
+ *
+ * 换 URL 时先保留上一个已经解码好的地址，等新图加载+解码完成才换成新的；url 变成 null
+ * （离开沉浸页 / 手机上不需要）时立即交 null，让覆盖层照旧淡出。
+ *
+ * 为什么非要 decode：只等 onload 不够——首帧绘制要的是解码好的位图，没解码的图上去
+ * 就是一帧空白（detail-backdrop-slideshow、BackdropProvider 的覆盖层都是同一个规矩）。
+ */
+function useDecodedUrl(url: string | null): string | null {
+  const [decoded, setDecoded] = useState<string | null>(null);
+  useEffect(() => {
+    if (!url) {
+      setDecoded(null);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      void img
+        .decode()
+        .catch(() => {})
+        .then(() => {
+          if (!cancelled) setDecoded(url);
+        });
+    };
+    // 图坏了不能把上一张一直挂在窗口上：放行，让覆盖层自己走 onerror 的兜底
+    img.onerror = () => {
+      if (!cancelled) setDecoded(url);
+    };
+    img.src = url;
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+  return decoded;
+}
+
 /** 剧照推近的终点倍数（12 秒 1 → 1.1），取图宽度要把它算进去，推到底也不糊 */
 const HERO_ZOOM = 1.1;
 
 /** 默认每张停留时长（毫秒），同 iOS SubsHomeHero.interval */
 const DEFAULT_INTERVAL = 8000;
+
+/**
+ * 等目标帧的图就位的上限（毫秒）。
+ *
+ * 正常情况下下一张在停留的 8 秒里早就下载并解码完了，切换是「一张直接化进下一张」；
+ * 但手动跳到隔了几张的那张、或者图坏了/网很慢时，不能一直卡在上一张不换——
+ * 超时就照常切过去（帧底是深色，宁可空一下也不假装没响应）。
+ */
+const READY_TIMEOUT_MS = 1200;
 
 /** 滚动距离（px）：只算向上滚的部分，下拉回弹不参与 */
 const SCROLL = "max(var(--hero-scroll, 0), 0)";
@@ -174,6 +230,20 @@ export function ImmersiveHero<T>({
   const changeRef = useRef(onIndexChange);
   changeRef.current = onIndexChange;
 
+  // 已经解码好图的幻灯片（只增不减）：只有它就位的那一张才允许上台。
+  // 单独记一份而不是“当前帧自己的 state”，是因为要提前决定“这一帧该不该淡入”，
+  // 而这个决定属于父层（指示器、文字、下一张预载都跟着它走）。
+  const [decodedKeys, setDecodedKeys] = useState<ReadonlySet<string | number>>(() => new Set());
+  const markDecoded = useCallback((key: string | number) => {
+    setDecodedKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+  }, []);
+  const targetKey = count > 0 ? slideKey(slides[current]) : null;
+  const targetReady = targetKey !== null && decodedKeys.has(targetKey);
+  // 实际上台的是哪一张（记 key 而不是下标：幻灯片会因为订阅数据刷新而重排，
+  // 同一个下标底下可能已经换成另一部片）。目标帧的图还没就位时先留着上一张，
+  // 等它解码完成再切（超时则照旧切，见 READY_TIMEOUT_MS）——切换中途不留空帧。
+  const [presentedKey, setPresentedKey] = useState<string | number | null>(targetKey);
+
   // 轮播计时：index 变了（自动或手动）即重新计时；页面不可见时停表，回来后从头计
   useEffect(() => {
     if (count <= 1) return;
@@ -199,8 +269,25 @@ export function ImmersiveHero<T>({
     if (count > 0 && index >= count) onIndexChange(0);
   }, [count, index, onIndexChange]);
 
+  // 上台的时机：目标帧已解码→立刻切；还没解码→留上一张，等就位（或超时兜底）。
+  // 预载本身在渲染时就开始了（下面 preload 里包含 current），不等这个 effect。
+  useEffect(() => {
+    if (count === 0 || targetKey === null || targetKey === presentedKey) return;
+    // 还什么都没有上台时没有「上一张」可留，直接展示（否则第一张要白等一个超时）
+    if (presentedKey === null || targetReady) {
+      setPresentedKey(targetKey);
+      return;
+    }
+    const timer = window.setTimeout(() => setPresentedKey(targetKey), READY_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [count, targetKey, presentedKey, targetReady]);
+
   if (count === 0) return null;
-  const next = (current + 1) % count;
+  // 正在展示的那张的下标；它已经被从清单里拿掉时（极少见）退回目标张
+  const presentedIndex =
+    presentedKey === null ? -1 : slides.findIndex((slide) => slideKey(slide) === presentedKey);
+  const visible = presentedIndex >= 0 ? presentedIndex : current;
+  const next = (visible + 1) % count;
 
   return (
     <div
@@ -225,13 +312,17 @@ export function ImmersiveHero<T>({
       {slides.map((slide, offset) => (
         <HeroFrame
           key={slideKey(slide)}
-          active={offset === current}
-          preload={offset === current || offset === next}
+          active={offset === visible}
+          // 当前 / 下一张照旧，另外把「正要切过去的那张」也算上：手动跳到隔了几张的那张时，
+          // 它得从点下去的那一刻就开始下载+解码（否则只能等到超时才切）。
+          preload={offset === visible || offset === next || offset === current}
+          slideId={slideKey(slide)}
+          onDecoded={markDecoded}
           image={imageOf(slide)}
           onActivate={onActivate ? () => onActivate(slide) : undefined}
           label={activateLabel?.(slide)}
         >
-          {renderContent(slide, offset === current)}
+          {renderContent(slide, offset === visible)}
         </HeroFrame>
       ))}
 
@@ -242,7 +333,7 @@ export function ImmersiveHero<T>({
           style={FADE_STYLE}
         >
           {slides.map((slide, offset) =>
-            offset === current ? (
+            offset === visible ? (
               // 当前格：26×5 胶囊，内层按停留时长从左到右线性填满
               <span
                 key={slideKey(slide)}
@@ -250,7 +341,7 @@ export function ImmersiveHero<T>({
                 className="relative h-[5px] w-[26px] overflow-hidden rounded-full bg-white/[0.26] transition-[width] duration-300"
               >
                 <span
-                  key={`${current}-${cycle}`}
+                  key={`${visible}-${cycle}`}
                   className="absolute inset-0 origin-left rounded-full bg-white/95"
                   style={{ animation: `immersive-hero-fill ${interval}ms linear forwards` }}
                 />
@@ -280,14 +371,20 @@ function HeroFrame({
   active,
   preload,
   image,
+  slideId,
+  onDecoded,
   onActivate,
   label,
   children,
 }: {
   active: boolean;
-  /** 是否该装载大图（当前帧或下一帧）；装载过一次就保持，淡出时不闪白 */
+  /** 是否该装载大图（当前 / 下一张 / 正要切过去的那张）；装载过一次就保持，淡出时不重拉 */
   preload: boolean;
   image: string | undefined;
+  /** 这张幻灯片在 slides 里的稳定标识（跟 key 同一个） */
+  slideId: string | number;
+  /** 大图已解码就位（父层据此决定什么时候让它上台） */
+  onDecoded: (slideId: string | number) => void;
   onActivate?: () => void;
   label?: string;
   children: ReactNode;
@@ -300,6 +397,34 @@ function HeroFrame({
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const width = useElementCoverWidth(frameEl, IMAGE_ASPECT.backdrop, HERO_ZOOM);
   const src = useUpgradedBackdrop(revealed, image, width);
+  // 预载期间就把解码做完（不是只写 src）。
+  //
+  // decoding=async 的规矩是：光栅化之前不解码，先把它那一片画成空白、后台解完再补画——
+  // 帧靠透明度淡入，于是切换那一瞬间新帧已经上台、图还没到，看到的就是一闪白。
+  // 这条 effect 在“轮到它装图”的那刻就把图加载并 decode 好，切换时是有位图可画的状态；
+  // 父层再把“上台”推迟到它解码之后（见 ImmersiveHero 的 presentedKey）。
+  useEffect(() => {
+    if (!src) return;
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      void img
+        .decode()
+        .catch(() => {})
+        .then(() => {
+          if (!cancelled) onDecoded(slideId);
+        });
+    };
+    // 图坏了也要放行：否则这张永远等不到就位，只能白白卡到超时
+    img.onerror = () => {
+      if (!cancelled) onDecoded(slideId);
+    };
+    img.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [src, slideId, onDecoded]);
   // 首帧挂载时就是 active 的那张要从 1 起推：挂载完成后再认推近标记，否则一出生就是终态
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -328,7 +453,7 @@ function HeroFrame({
     >
       {/* 剧照层：渐隐遮罩固定在 Hero 框上（底边永远化开，视差不会把硬边带出来），
           画面在框里做视差与推近 */}
-      <div ref={setFrameEl} className="absolute inset-0 overflow-hidden [-webkit-mask-image:linear-gradient(to_bottom,#000_0%,#000_56%,rgba(0,0,0,0.6)_80%,transparent_100%)] [mask-image:linear-gradient(to_bottom,#000_0%,#000_56%,rgba(0,0,0,0.6)_80%,transparent_100%)]">
+      <div ref={setFrameEl} className="absolute inset-0 overflow-hidden bg-[#05070c] [-webkit-mask-image:linear-gradient(to_bottom,#000_0%,#000_56%,rgba(0,0,0,0.6)_80%,transparent_100%)] [mask-image:linear-gradient(to_bottom,#000_0%,#000_56%,rgba(0,0,0,0.6)_80%,transparent_100%)]">
         <div
           className="absolute inset-0"
           style={{ transform: `translate3d(0, calc(${SCROLL} * 0.4px), 0)` }}
@@ -337,9 +462,10 @@ function HeroFrame({
             <img
               src={src}
               alt=""
-              decoding="async"
+              // 同步解码：图早就预载解码好了，这里不该再有“先画空白、后台补画”的一帧
+              decoding="sync"
               referrerPolicy="no-referrer"
-              className="size-full object-cover"
+              className="size-full bg-[#05070c] object-cover"
               style={{
                 transform: `scale(${zooming ? HERO_ZOOM : 1})`,
                 // 推近 12 秒线性；离场时等淡出走完（0.8 秒）再无动画归位，看不到回缩
