@@ -189,6 +189,8 @@ export function DiscoverView({
   );
   const heroRootRef = useRef<HTMLDivElement>(null);
   const [heroIndex, setHeroIndex] = useState(0);
+  // 实际上台的那一张（Hero 图解码就位、开始淡入）：氛围色与整窗背景跟它走，不跟目标下标走
+  const [shownHeroIndex, setShownHeroIndex] = useState(0);
   const [page, setPage] = useState<DiscoveryPageData | null>(() => pageCache.get(cacheKey) ?? null);
   // Hero 三态：undefined=加载中（出骨架）、[]=无或失败（收起）、有值=轮播
   const [hero, setHero] = useState<MediaItem[] | undefined>();
@@ -406,11 +408,11 @@ export function DiscoverView({
     (hero === undefined || hero.length > 0);
   // 氛围底（银玻璃有 Hero 时，桌面与手机同订阅首页）：取当前那张剧照的主色
   const ambient = immersiveHero;
-  const currentHero = hero && hero.length > 0 ? hero[Math.min(heroIndex, hero.length - 1)] : null;
-  const tint = useHeroAmbientColor(ambient && currentHero ? heroBackdropOf(currentHero) : null);
+  const shownHero = hero && hero.length > 0 ? hero[Math.min(shownHeroIndex, hero.length - 1)] : null;
+  const tint = useHeroAmbientColor(ambient && shownHero ? heroBackdropOf(shownHero) : null);
   // 桌面沉浸：窗口背景换成当前这张剧照（同订阅首页，见 useHeroWindowBackdrop）；筛选结果页没有 Hero
   useHeroWindowBackdrop(
-    ambient && !isMobile && !filtering && currentHero ? heroBackdropOf(currentHero) : null,
+    ambient && !isMobile && !filtering && shownHero ? heroBackdropOf(shownHero) : null,
   );
   useHeroScrollVar(scrollRootRef, heroRootRef, `${Boolean(page)}:${filtering}:${Boolean(error)}`);
 
@@ -538,7 +540,12 @@ export function DiscoverView({
           <HeroBanner items={hero} />
         ) : (
           <HeroBleed>
-            <SilverDiscoverHero items={hero} index={heroIndex} onIndexChange={setHeroIndex} />
+            <SilverDiscoverHero
+              items={hero}
+              index={heroIndex}
+              onIndexChange={setHeroIndex}
+              onPresented={setShownHeroIndex}
+            />
           </HeroBleed>
         ))}
       {/* 银玻璃手机：有 Hero 时图已向下渐隐，常规行紧跟着接上（首行标题落在渐隐带里）；
@@ -1180,10 +1187,13 @@ function SilverDiscoverHero({
   items,
   index,
   onIndexChange,
+  onPresented,
 }: {
   items: MediaItem[];
   index: number;
   onIndexChange: (index: number) => void;
+  /** 实际上台的那一张（解码就位、开始淡入）：氛围色与整窗背景跟它走 */
+  onPresented?: (index: number) => void;
 }) {
   const t = useTranslations();
   const { open } = useMediaDetail();
@@ -1192,6 +1202,7 @@ function SilverDiscoverHero({
       slides={items}
       index={index}
       onIndexChange={onIndexChange}
+      onPresented={onPresented}
       slideKey={(item) => item.id}
       imageOf={heroBackdropOf}
       onActivate={(item) => open(item)}

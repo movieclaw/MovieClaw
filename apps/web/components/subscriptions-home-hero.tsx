@@ -46,10 +46,13 @@ export function SubsHomeHero({
   slides,
   index,
   onIndexChange,
+  onPresented,
 }: {
   slides: SubsHomeHeroSlide[];
   index: number;
   onIndexChange: (index: number) => void;
+  /** 实际上台的那一张（解码就位、开始淡入）：氛围色与整窗背景跟它走 */
+  onPresented?: (index: number) => void;
 }) {
   const locale = useLocale();
   const t = useTranslations();
@@ -64,6 +67,7 @@ export function SubsHomeHero({
       slides={slides}
       index={index}
       onIndexChange={onIndexChange}
+      onPresented={onPresented}
       slideKey={(slide) => slide.subscriptionId}
       imageOf={heroImageOf}
       onActivate={openSubscription}

@@ -23,8 +23,8 @@ import { useTapGuard } from "@/lib/use-tap-guard";
  *
  * - 剧照层：慢速推近（Ken Burns，12 秒 1 → 1.1）、上滑视差（画面只跟 0.6 倍，相对下沉 0.4）、
  *   下半部压暗托字、底部渐隐进页面氛围色、顶部压暗托住状态栏与顶栏；
- * - 轮播：每张停留 8 秒，指示器当前格按 8 秒线性填满（看得出「还有多久换下一张」），
- *   手动切换（点圆点 / 触屏横滑）重新计时，页面不可见时不推进；
+ * - 轮播：每张停留 8 秒，指示器当前格按 8 秒线性填满（看得出「还有多久换下一张」）；
+ *   计时从**真正上台的那一刻**算起（手动切换 / 等解码期间不计也不切），页面不可见时不推进；
  * - 指示器：居中底部，当前格是 26×5 的胶囊，其余是 5×5 可点的小圆点；
  * - 文字随滚动淡出（滚过 260px 全透明）并轻微下沉；
  * - 预载：帧壳常驻、交叉淡入，大图只在轮到（当前 / 下一张 / 正要切过去的那张）时才写 src；取图宽度按剧照框
@@ -203,6 +203,13 @@ export interface ImmersiveHeroProps<T> {
   indicatorLabel: (slide: T) => string;
   /** 每张停留时长（毫秒） */
   interval?: number;
+  /**
+   * 真正上台的那一张的下标（图解码就位、开始淡入的那一刻）。
+   *
+   * 页面的氛围色、整窗背景要跟着它走，而不是跟着传进来的 `index`（目标下标）走：
+   * 解码还没就位的那一两秒里，`index` 已经变了，但画面上还是上一张。
+   */
+  onPresented?: (index: number) => void;
   /** 追加到外框的类名：高度、圆角、外边距由调用方决定 */
   className?: string;
 }
@@ -218,6 +225,7 @@ export function ImmersiveHero<T>({
   activateLabel,
   indicatorLabel,
   interval = DEFAULT_INTERVAL,
+  onPresented,
   className = "",
 }: ImmersiveHeroProps<T>) {
   const count = slides.length;
@@ -225,10 +233,10 @@ export function ImmersiveHero<T>({
   // 页面从后台回到前台时 +1：重新计时、指示器从头填（后台期间不推进）
   const [cycle, setCycle] = useState(0);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
-  const indexRef = useRef(current);
-  indexRef.current = current;
   const changeRef = useRef(onIndexChange);
   changeRef.current = onIndexChange;
+  const onPresentedRef = useRef(onPresented);
+  onPresentedRef.current = onPresented;
 
   // 已经解码好图的幻灯片（只增不减）：只有它就位的那一张才允许上台。
   // 单独记一份而不是“当前帧自己的 state”，是因为要提前决定“这一帧该不该淡入”，
@@ -244,13 +252,36 @@ export function ImmersiveHero<T>({
   // 等它解码完成再切（超时则照旧切，见 READY_TIMEOUT_MS）——切换中途不留空帧。
   const [presentedKey, setPresentedKey] = useState<string | number | null>(targetKey);
 
-  // 轮播计时：index 变了（自动或手动）即重新计时；页面不可见时停表，回来后从头计
+  // 正在展示的那张的下标与 key（它已经被从清单里拿掉时，退回目标张）
+  const presentedIndex =
+    presentedKey === null ? -1 : slides.findIndex((slide) => slideKey(slide) === presentedKey);
+  const visible = presentedIndex >= 0 ? presentedIndex : current;
+  const visibleKey = count > 0 ? slideKey(slides[visible]) : null;
+  // 目标张还没上台（等解码）：这期间计时器停着，不把上一张的剩余时间算到新张头上
+  const pendingSwitch = targetKey !== null && presentedKey !== null && targetKey !== presentedKey;
+  const presentedIndexRef = useRef(visible);
+  presentedIndexRef.current = visible;
+
+  // 告诉调用方「现在轮到哪一张了」：氛围色、整窗背景跟着它走
   useEffect(() => {
-    if (count <= 1) return;
+    onPresentedRef.current?.(visible);
+  }, [visible, visibleKey]);
+
+  // 轮播计时：**从真正上台的那一刻**开始算满一个停留时长，不跟目标下标走。
+  //
+  // 跟 index 走的话，手动点隔了几张的圆点（或图还在解码）时，计时已经开跑、画面
+  // 却还没切，那一张只能停剩零头，而进度条是上台时从头跑满的——就成了「条没填满
+  // 就换张」。依赖里放的是上台的那张 key：订阅首页每 10/20 秒重排幻灯片时，同一个
+  // 下标可能已经换成另一部片，光看 count / current 不会重启计时，新片会被旧计时器切走。
+  useEffect(() => {
+    if (count <= 1 || pendingSwitch) return;
     let timer = 0;
     const start = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => changeRef.current((indexRef.current + 1) % count), interval);
+      timer = window.setTimeout(
+        () => changeRef.current((presentedIndexRef.current + 1) % count),
+        interval,
+      );
     };
     const onVisibility = () => {
       if (document.hidden) window.clearTimeout(timer);
@@ -262,7 +293,7 @@ export function ImmersiveHero<T>({
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [count, current, cycle, interval]);
+  }, [count, visibleKey, pendingSwitch, cycle, interval]);
 
   // 张数变少时把越界的 index 拉回 0
   useEffect(() => {
@@ -283,10 +314,6 @@ export function ImmersiveHero<T>({
   }, [count, targetKey, presentedKey, targetReady]);
 
   if (count === 0) return null;
-  // 正在展示的那张的下标；它已经被从清单里拿掉时（极少见）退回目标张
-  const presentedIndex =
-    presentedKey === null ? -1 : slides.findIndex((slide) => slideKey(slide) === presentedKey);
-  const visible = presentedIndex >= 0 ? presentedIndex : current;
   const next = (visible + 1) % count;
 
   return (
@@ -341,7 +368,7 @@ export function ImmersiveHero<T>({
                 className="relative h-[5px] w-[26px] overflow-hidden rounded-full bg-white/[0.26] transition-[width] duration-300"
               >
                 <span
-                  key={`${visible}-${cycle}`}
+                  key={`${visibleKey === null ? "" : String(visibleKey)}-${cycle}`}
                   className="absolute inset-0 origin-left rounded-full bg-white/95"
                   style={{ animation: `immersive-hero-fill ${interval}ms linear forwards` }}
                 />

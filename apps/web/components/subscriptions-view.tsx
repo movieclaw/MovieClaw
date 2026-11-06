@@ -86,6 +86,9 @@ export function SubscriptionsView() {
   // 体检整体为 error 时的库错误数；null = 不亮警示钮（拉取失败也静默——它只是提示层）
   const [healthErrors, setHealthErrors] = useState<number | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
+  // 实际上台的那一张（Hero 图解码就位、开始淡入）。氛围色与整窗背景跟它走，
+  // 不跟目标下标走：解码还没就位的一两秒里，目标下标已经变了、画面还是上一张。
+  const [shownHeroIndex, setShownHeroIndex] = useState(0);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
@@ -140,10 +143,10 @@ export function SubscriptionsView() {
   const hasHero = !showError && subs.length > 0 && slides.length > 0;
   // 沉浸态（Hero 顶到最上沿）：加载中先按沉浸态占位，数据到达原位替换不跳版
   const immersive = loading || hasHero;
-  const currentSlide = hasHero ? slides[Math.min(heroIndex, slides.length - 1)] : null;
-  const tint = useHeroAmbientColor(currentSlide ? heroImageOf(currentSlide) : null);
+  const shownSlide = hasHero ? slides[Math.min(shownHeroIndex, slides.length - 1)] : null;
+  const tint = useHeroAmbientColor(shownSlide ? heroImageOf(shownSlide) : null);
   // 桌面沉浸：窗口背景换成当前这张剧照，侧栏玻璃与四周缝隙都透出同一部片（手机不需要，本来就铺满）
-  useHeroWindowBackdrop(!isMobile && !cinema && currentSlide ? heroImageOf(currentSlide) : null);
+  useHeroWindowBackdrop(!isMobile && !cinema && shownSlide ? heroImageOf(shownSlide) : null);
 
   return (
     <div
@@ -230,7 +233,12 @@ export function SubscriptionsView() {
           <>
             {hasHero && (
               <HeroBleed>
-                <SubsHomeHero slides={slides} index={heroIndex} onIndexChange={setHeroIndex} />
+                <SubsHomeHero
+                  slides={slides}
+                  index={heroIndex}
+                  onIndexChange={setHeroIndex}
+                  onPresented={setShownHeroIndex}
+                />
               </HeroBleed>
             )}
             <div className={`space-y-9 ${hasHero ? "mt-[22px]" : "mt-3"}`}>
