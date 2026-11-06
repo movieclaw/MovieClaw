@@ -229,6 +229,36 @@ async def test_runner_failure_before_first_event_does_not_emit_cancel_notice(mon
     assert recorder.terminals == []
 
 
+async def test_runner_failure_after_first_event_does_not_emit_cancel_notice(monkeypatch) -> None:
+    """runner 已启动但普通异常也不能合成服务停机。"""
+
+    class BrokenRunner:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def start(self, params, *, run_id):
+            yield AgentEvent(type="agent_start", run_id=run_id)
+            raise RuntimeError("runner stream failed")
+
+    recorder = _Recorder()
+    _patch_run_dependencies(monkeypatch, BrokenRunner, recorder)
+    emitted: list[str] = []
+
+    async def emit(text: str) -> None:
+        emitted.append(text)
+
+    with pytest.raises(RuntimeError, match="runner stream failed"):
+        await channel_agent._run_agent(
+            SimpleNamespace(capabilities=SimpleNamespace(typing=False)),
+            SimpleNamespace(member_id=0),
+            _message(),
+            emit,
+        )
+
+    assert emitted == ["思考中💭"]
+    assert recorder.terminals == []
+
+
 async def test_shutdown_does_not_cancel_completed_answer_finalizer(monkeypatch) -> None:
     """agent_done 已发最终答案并进入慢 recorder 后，停机不得改判为中断。"""
     recorder_started = asyncio.Event()
