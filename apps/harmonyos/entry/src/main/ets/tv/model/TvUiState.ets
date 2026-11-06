@@ -110,6 +110,7 @@ export class TvWallPrefs {
   sort: string = 'added_at';
   order: string = 'desc';
   unwatched: boolean = false;
+  unfinished: boolean = false;
   /** 筛选：类型/年代/分辨率/观看状态（对应 libraryItemsList 的 g/d/res/w 参数） */
   genre: string | null = null;
   decade: string | null = null;
@@ -129,6 +130,7 @@ export class TvWallPrefs {
       if (typeof parsed.order === 'string') {
         prefs.order = parsed.order;
       }
+      prefs.unfinished = parsed.unfinished === true;
       if (typeof parsed.unwatched === 'boolean') {
         prefs.unwatched = parsed.unwatched;
       }

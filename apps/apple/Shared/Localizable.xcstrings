@@ -132037,6 +132037,30 @@
         }
       },
       "comment": "Opens the untruncated overview on Apple TV."
+    },
+    "library.facets.unfinished": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未看完"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未看完"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unfinished"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -14,7 +14,7 @@ class UiPreferencesRoundTripTest {
     }
 
     @Test fun `type row source survives decoding and encoding`() {
-        val source = """{"id":"row:tv","media_kind":"tv","sort":"random","name":"今晚追哪部","hidden":true}"""
+        val source = """{"id":"row:tv","media_kind":"tv","sort":"random","unfinished":true,"name":"今晚追哪部","hidden":true}"""
         val row = json.decodeFromString<HomeRowPref>(source)
         assertEquals(json.parseToJsonElement(source).jsonObject,
             json.parseToJsonElement(json.encodeToString(row)).jsonObject)

@@ -36,6 +36,32 @@ struct HomeRowsTests {
                            kind: "user", hidden: false, position: 0)
     }
 
+    @Test func unfinishedPreferenceSurvivesNativeEditing() throws {
+        let decoded = try JSONDecoder().decode(API.HomeRowPref.self, from: Data(#"{"id":"lib:1","sort":"rating","order":"asc","unfinished":true,"unwatched":true}"#.utf8))
+        let row = try #require(HomeRows.build(prefs: [decoded], libraries: [library(1, "movie")], collections: []).first { $0.id == "lib:1" })
+        #expect(row.watch == "unfinished")
+        #expect(row.reversed)
+        let saved = HomeRows.toPrefs([row])[0]
+        #expect(saved.unfinished == true)
+        #expect(saved.unwatched != true)
+        #expect(saved.order == "asc")
+    }
+
+    @Test func unfinishedKindAndLegacyUnwatchedRemainDistinct() throws {
+        let prefs = [API.HomeRowPref(id: "kind:movie", unfinished: true), API.HomeRowPref(id: "lib:1", unwatched: true)]
+        let rows = HomeRows.build(prefs: prefs, libraries: [library(1, "movie")], collections: [])
+        #expect(rows.first { $0.id == "kind:movie" }?.watch == "unfinished")
+        #expect(rows.first { $0.id == "lib:1" }?.watch == "unwatched")
+        #expect(HomeRows.toPrefs(rows).first { $0.id == "kind:movie" }?.unfinished == true)
+    }
+
+    @Test func recentWatchedClearsBothExclusivePreferences() throws {
+        let row = try #require(HomeRows.build(prefs: [API.HomeRowPref(id: "lib:1", sort: "last_played", unwatched: true, unfinished: true)], libraries: [library(1, "movie")], collections: []).first { $0.id == "lib:1" })
+        #expect(row.watch == "seen")
+        #expect(!row.unfinished)
+        #expect(HomeRows.toPrefs([row])[0].unfinished == nil)
+    }
+
     @Test func collectionCardsFollowVisibleRowsAndDeduplicate() {
         let collections = [collection(7, name: "宫崎骏"), collection(8, name: "诺兰")]
         let prefs = [pref("row:hidden", hidden: true, collectionId: 7), pref("row:nolan", sort: "random", collectionId: 8),

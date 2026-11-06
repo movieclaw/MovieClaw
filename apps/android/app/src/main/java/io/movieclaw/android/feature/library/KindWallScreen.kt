@@ -127,6 +127,7 @@ class KindWallViewModel @Inject constructor(
         val total: Int = 0,
         val libraryCount: Int = 0,
         val sort: String = "added_at",
+        val watch: String? = null,
         val loadingMore: Boolean = false,
     )
 
@@ -135,23 +136,27 @@ class KindWallViewModel @Inject constructor(
 
     val origin: String? get() = repository.ui.value.origin
 
+    private var requestJob: kotlinx.coroutines.Job? = null
+
     init { load() }
 
     fun load() {
-        viewModelScope.launch {
+        requestJob?.cancel()
+        requestJob = viewModelScope.launch {
             val origin = origin
             if (origin == null) { _ui.update { it.copy(loading = false, error = "尚未连接服务器") }; return@launch }
             _ui.update { it.copy(loading = true, error = null) }
             try {
                 val api = apiFactory.forOrigin(origin)
                 // 概况也要带 g：页头计数是「这面墙」的口径（带类型进来的墙不该报全类型的部数）
-                val summary = api.libraryKindSummary(kind, genres = genre).dataOrThrow()
+                val summary = api.libraryKindSummary(kind, watch = _ui.value.watch, genres = genre).dataOrThrow()
                 val items = api.libraryKindItems(
                     kind = kind,
                     sort = _ui.value.sort,
                     limit = PAGE_SIZE,
                     offset = 0,
                     genres = genre,
+                    watch = _ui.value.watch,
                 ).dataOrThrow()
                 _ui.update {
                     it.copy(
@@ -161,10 +166,17 @@ class KindWallViewModel @Inject constructor(
                         libraryCount = summary.libraryIds.size,
                     )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _ui.update { it.copy(loading = false, error = friendlyMessage(e)) }
             }
         }
+    }
+
+    fun setWatch(watch: String?) {
+        _ui.update { it.copy(watch = watch) }
+        load()
     }
 
     fun setSort(sort: String) {
@@ -176,7 +188,7 @@ class KindWallViewModel @Inject constructor(
     fun loadMore() {
         val state = _ui.value
         if (state.loading || state.loadingMore || state.items.size >= state.total) return
-        viewModelScope.launch {
+        requestJob = viewModelScope.launch {
             val origin = origin ?: return@launch
             _ui.update { it.copy(loadingMore = true) }
             runCatching {
@@ -186,6 +198,7 @@ class KindWallViewModel @Inject constructor(
                     limit = PAGE_SIZE,
                     offset = state.items.size,
                     genres = genre,
+                    watch = state.watch,
                 ).dataOrThrow()
             }
                 .onSuccess { more -> _ui.update { it.copy(loadingMore = false, items = it.items + more) } }
@@ -244,6 +257,13 @@ fun KindWallScreen(
                         style = McType.body,
                         color = TextMuted,
                     )
+                }
+            }
+
+            LazyRow(contentPadding = PaddingValues(horizontal = mcCards.pagePadding), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf("" to "全部", "unwatched" to "未看", "unfinished" to "未看完")) { (watch, label) ->
+                    Text(label, style = McType.caption, color = if (state.watch.orEmpty() == watch) TextPrimary else TextMuted,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).clickable { vm.setWatch(watch.ifBlank { null }) }.padding(horizontal = 12.dp, vertical = 8.dp))
                 }
             }
 

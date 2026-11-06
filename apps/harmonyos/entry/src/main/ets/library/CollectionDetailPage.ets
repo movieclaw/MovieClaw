@@ -654,6 +654,7 @@ export struct CollectionDetailPage {
         order: row.order ?? null,
         name: row.name ?? null,
         unwatched: row.unwatched ?? null,
+        unfinished: row.unfinished ?? null,
         hidden: isThis ? (wasOnHome ? true : null) : (row.hidden ?? null),
         library_id: row.library_id ?? null,
         collection_id: row.collection_id ?? null

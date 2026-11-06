@@ -26,6 +26,7 @@ enum AppRoute: Hashable {
     /// /library（标签根）
     case libraryHome
     case libraryCustomize
+    case homeRow(HomeRows.Row)
     case favorites
     case allCollections
     /// /library/{id}/c/{cid} 或 /library/c/{cid}
@@ -331,7 +332,7 @@ extension AppRoute {
     var tab: MainTab? {
         switch self {
         case .discover, .discoverCollection, .mediaDetail, .person, .discoveredPerson: .discover
-        case .libraryHome, .libraryCustomize, .favorites, .allCollections, .collection, .library, .libraryKind, .libraryItem, .libraryManage, .reels: .library
+        case .libraryHome, .libraryCustomize, .homeRow, .favorites, .allCollections, .collection, .library, .libraryKind, .libraryItem, .libraryManage, .reels: .library
         case .subscriptions, .subscription, .subscriptionWall: .subscriptions
         case .activity, .activityPage: .activity
         case .my, .offlineStorage: .more

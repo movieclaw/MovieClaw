@@ -128,7 +128,11 @@ class LibraryDetailViewModel @Inject constructor(
         val windowStart: Int = 0,
     )
 
-    private val _ui = MutableStateFlow(UiState())
+    private val _ui = MutableStateFlow(UiState(filter = LibraryFilter(
+        watch = savedStateHandle.get<String>("w")?.takeIf { it in setOf("unwatched", "unfinished", "seen", "watching", "played", "favorite") }?.let { setOf(it) } ?: emptySet(),
+        sort = savedStateHandle.get<String>("sort")?.takeIf { it.isNotBlank() } ?: "title",
+        order = savedStateHandle.get<String>("order")?.takeIf { it in setOf("asc", "desc") },
+    )))
     val ui = _ui.asStateFlow()
 
     private val _facets = MutableStateFlow<Loadable<LibraryFacets>>(Loadable.Loading)
@@ -617,7 +621,7 @@ private fun FilterSheetContent(
                     FacetGroup("类型", data.genres, draft.genres) { draft = draft.copy(genres = it) }
                     FacetGroup("年代", data.decades, draft.decades) { draft = draft.copy(decades = it) }
                     FacetGroup("地区", data.countries, draft.countries) { draft = draft.copy(countries = it) }
-                    FacetGroup("观看", data.watch, draft.watch) { draft = draft.copy(watch = it) }
+                    FacetSingle("观看", data.watch, draft.watch.firstOrNull()) { draft = draft.copy(watch = it?.let { setOf(it) } ?: emptySet()) }
                     SheetDivider()
                     FacetSingle("评分", data.ratings, draft.ratingGte?.let { gte -> "%.0f".format(gte) }) { value ->
                         draft = draft.copy(ratingGte = value?.toFloatOrNull())
