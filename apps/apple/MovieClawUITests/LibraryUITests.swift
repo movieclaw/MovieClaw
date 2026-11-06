@@ -121,6 +121,34 @@ final class LibraryUITests: XCTestCase {
         XCTAssertNotEqual(savedRows.first { $0["id"] as? String == rowID }?["unfinished"] as? Bool, true)
     }
 
+    @MainActor
+    func testDelayedKindSummaryCannotRestoreClearedWatchFilter() throws {
+        try XCTSkipUnless(env["MC_TEST_UNFINISHED_DELAY_FIXTURE"] == "1", "Requires --delay-kind-summary 6 fixture")
+        _ = backend.request("POST", "/__fixture/reset")
+        let app = launch(route: "/library")
+        let more = app.buttons.matching(identifier: "home-row-kind:tv")
+            .matching(NSPredicate(format: "label CONTAINS '查看全部' OR label CONTAINS 'View all'")).firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 30))
+        more.tap()
+        let picker = app.descendants(matching: .any)["kind-wall-watch"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        let status = backend.request("GET", "/__fixture/delayed-summary") as? [String: Any]
+        XCTAssertEqual(status?["started"] as? Bool, true)
+        XCTAssertEqual(status?["released"] as? Bool, false, "Must clear while the unfinished summary is still pending")
+        picker.tap()
+        let all = app.buttons.matching(NSPredicate(format: "label == '全部' OR label == 'All'")).firstMatch
+        XCTAssertTrue(all.waitForExistence(timeout: 5))
+        all.tap()
+        let completed = app.buttons.matching(NSPredicate(format: "label CONTAINS 'tv watch 900 000'")).firstMatch
+        XCTAssertTrue(completed.waitForExistence(timeout: 10))
+        // Let the first unfinished summary return after the all-items query has completed.
+        RunLoop.current.run(until: Date().addingTimeInterval(7))
+        let released = backend.request("GET", "/__fixture/delayed-summary") as? [String: Any]
+        XCTAssertEqual(released?["released"] as? Bool, true)
+        XCTAssertTrue(completed.exists, "A stale unfinished response must not replace the cleared result")
+        snapshot("kind-wall-cleared-after-stale-summary")
+    }
+
     /// 合集与媒体库共用 ⋯ 中的切换入口，顶栏不再有独立图标键。
     @MainActor
     func testCollectionGalleryModeIsInMoreMenu() throws {

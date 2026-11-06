@@ -129,7 +129,8 @@ export struct LibraryCustomizeSheet {
   }
 
   /** 用偏好 + 库/合集清单算出可编辑的行列表（同首页那套 `HomeRows.build`） */
-  private preservedRows: HomeRowPref[] = [];
+  private originalRows: HomeRowPref[] = [];
+  private editableIds: string[] = [];
 
   private rebuild(prefs: HomeRowPref[]): void {
     const built: HomeRow[] = HomeRows.build(prefs, this.libraries, this.collections);
@@ -138,8 +139,9 @@ export struct LibraryCustomizeSheet {
       out.push(new EditableRow(row, this.prefOf(prefs, row.id)));
     }
     this.rows = out;
-    const ids: string[] = built.map((row: HomeRow): string => row.id);
-    this.preservedRows = prefs.filter((pref: HomeRowPref): boolean => !ids.includes(pref.id));
+    const editableIds: string[] = built.map((row: HomeRow): string => row.id);
+    this.originalRows = prefs.slice();
+    this.editableIds = editableIds;
   }
 
   private prefOf(prefs: HomeRowPref[], id: string): HomeRowPref {
@@ -165,7 +167,8 @@ export struct LibraryCustomizeSheet {
 
   private currentPrefs(): HomeRowPrefInput[] {
     const out: HomeRowPrefInput[] = [];
-    const rows: HomeRowPref[] = [...this.rows.map((row: EditableRow): HomeRowPref => row.pref), ...this.preservedRows];
+    const rows: HomeRowPref[] = HomeRows.preserveUnsupportedRows(
+      this.rows.map((row: EditableRow): HomeRowPref => row.pref), this.originalRows, this.editableIds);
     for (const item of rows) {
       const pref: HomeRowPrefInput = {
         id: item.id,
@@ -252,7 +255,8 @@ export struct LibraryCustomizeSheet {
     const item: EditableRow = this.rows[index];
     item.pref.unwatched = watch === 'unwatched';
     item.pref.unfinished = watch === 'unfinished';
-    this.rebuild([...this.rows.map((row: EditableRow): HomeRowPref => row.pref), ...this.preservedRows]);
+    this.rebuild(HomeRows.preserveUnsupportedRows(
+      this.rows.map((row: EditableRow): HomeRowPref => row.pref), this.originalRows, this.editableIds));
     this.scheduleSave();
   }
 

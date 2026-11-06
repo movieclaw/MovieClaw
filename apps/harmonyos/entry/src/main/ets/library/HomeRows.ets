@@ -226,6 +226,17 @@ export class HomeRows {
   /** 库行 / 合集行可选的排序档 */
   static readonly allSorts: string[] =
     ['added_at', 'release_date', 'last_played', 'rating', 'random', 'title'];
+  /** 未展示的行按原位置插回，编辑筛选不能改变其它客户端的首页顺序。 */
+  static preserveUnsupportedRows(edited: HomeRowPref[], original: HomeRowPref[], editableIds: string[]): HomeRowPref[] {
+    const result: HomeRowPref[] = edited.slice();
+    original.forEach((pref: HomeRowPref, index: number): void => {
+      if (!editableIds.includes(pref.id)) {
+        result.splice(Math.min(index, result.length), 0, pref);
+      }
+    });
+    return result;
+  }
+
   /** 「我的收藏」行的排序档 */
   static readonly favoritesSorts: string[] = ['unwatched_first', 'favorited_at', 'rating', 'title'];
 

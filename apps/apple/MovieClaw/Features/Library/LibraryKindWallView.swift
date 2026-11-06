@@ -138,29 +138,42 @@ struct LibraryKindWallView: View {
         }
     }
 
-    /// 总数与组成库只在墙首取一次：往下翻页时数量不变，不必每页多打一个请求
-    private func loadSummary() async {
-        guard let summary = try? await api.uiLibraryKindSummary(kind: kind, g: genreQuery, w: watch) else { return }
+    private struct Query: Equatable {
+        let kind: String
+        let sort: String
+        let order: String?
+        let genre: String?
+        let watch: String?
+    }
+
+    private var query: Query {
+        Query(kind: kind, sort: effectiveSort, order: order, genre: genreQuery, watch: watch)
+    }
+
+    /// 统计请求也属于同一轮查询；旧统计晚到时不能再重置分页器。
+    private func loadSummary(_ query: Query) async {
+        guard let summary = try? await api.uiLibraryKindSummary(kind: query.kind, g: query.genre, w: query.watch),
+              query == self.query, !Task.isCancelled else { return }
         pager.total = summary.itemCount
         libraryCount = summary.libraryIds.count
     }
 
     private func reload() async {
         let api = self.api
-        let kind = self.kind
-        let sort = effectiveSort
-        let order = self.order
-        let genre = genreQuery
-        let watch = self.watch
-        await loadSummary()
+        let query = self.query
+        await loadSummary(query)
+        guard query == self.query, !Task.isCancelled else { return }
         await pager.reset({ offset, limit in
-            try await api.uiLibraryKindItems(kind: kind, sort: sort, order: order, limit: limit, offset: offset, g: genre, w: watch)
+            try await api.uiLibraryKindItems(kind: query.kind, sort: query.sort, order: query.order,
+                                            limit: limit, offset: offset, g: query.genre, w: query.watch)
         })
     }
 
-    /// 从详情页返回 / 下拉：按已加载的页数整窗重拉（在详情页删掉的片要跟着消失）
+    /// 从详情页返回 / 下拉：按已加载的页数整窗重拉。
     private func refresh() async {
-        await loadSummary()
+        let query = self.query
+        await loadSummary(query)
+        guard query == self.query, !Task.isCancelled else { return }
         await pager.refresh()
     }
 }
