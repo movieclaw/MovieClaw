@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from movieclaw_agent.events import AgentEvent
+from movieclaw_agent.events import AgentDone, AgentEvent
 from movieclaw_api.services import channel_agent
 from movieclaw_channel import dispatcher as dispatcher_mod
 from movieclaw_channel.dispatcher import (
@@ -162,6 +162,100 @@ async def test_stream_cancelled_terminal_is_not_emitted_twice(monkeypatch) -> No
 
     assert emitted == ["思考中💭", SERVICE_INTERRUPTED_TEXT]
     assert recorder.terminals == [("agent_cancelled", "service_interrupted")]
+
+
+async def test_prompt_failure_before_runner_does_not_emit_cancel_notice(monkeypatch) -> None:
+    """runner 尚未真正开始时的普通异常不能伪装成服务停机。"""
+
+    class UnusedRunner:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def start(self, params, *, run_id):  # pragma: no cover - prompt 先失败
+            yield AgentEvent(type="agent_start", run_id=run_id)
+
+    recorder = _Recorder()
+    _patch_run_dependencies(monkeypatch, UnusedRunner, recorder)
+
+    async def broken_prompt(*args, **kwargs):
+        raise RuntimeError("prompt failed")
+
+    monkeypatch.setattr(channel_agent, "agent_system_prompt", broken_prompt)
+    emitted: list[str] = []
+
+    async def emit(text: str) -> None:
+        emitted.append(text)
+
+    with pytest.raises(RuntimeError, match="prompt failed"):
+        await channel_agent._run_agent(
+            SimpleNamespace(capabilities=SimpleNamespace(typing=False)),
+            SimpleNamespace(member_id=0),
+            _message(),
+            emit,
+        )
+
+    assert emitted == ["思考中💭"]
+    assert recorder.terminals == []
+
+
+async def test_shutdown_does_not_cancel_completed_answer_finalizer(monkeypatch) -> None:
+    """agent_done 已发最终答案并进入慢 recorder 后，停机不得改判为中断。"""
+    recorder_started = asyncio.Event()
+    release_recorder = asyncio.Event()
+
+    class DoneRunner:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def start(self, params, *, run_id):
+            yield AgentEvent(type="text_delta", run_id=run_id, delta="最终答案")
+            yield AgentEvent(type="agent_done", run_id=run_id, result=AgentDone(text="最终答案"))
+
+    class SlowRecorder(_Recorder):
+        async def on_terminal(self, event: AgentEvent, reason: str) -> None:
+            recorder_started.set()
+            await release_recorder.wait()
+            await super().on_terminal(event, reason)
+
+    class OutboundAdapter:
+        channel_id = "weixin"
+        max_text_len = 1000
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send_text(self, reply, text: str) -> None:
+            self.sent.append(text)
+
+    recorder = SlowRecorder()
+    _patch_run_dependencies(monkeypatch, DoneRunner, recorder)
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_RUN_TIMEOUT_S", 0.01)
+    driver = SimpleNamespace(capabilities=SimpleNamespace(typing=False))
+    account = SimpleNamespace(member_id=0)
+
+    async def run_agent(msg, emit) -> None:
+        await channel_agent._run_agent(driver, account, msg, emit)
+
+    adapter = OutboundAdapter()
+    dispatcher = make_dispatcher(adapter, is_allowed=lambda _user: True, run_agent=run_agent)
+    dispatcher.start()
+    await dispatcher.submit_inbound(_message())
+    await asyncio.wait_for(recorder_started.wait(), timeout=2)
+    session = next(iter(dispatcher._sessions.values()))  # noqa: SLF001
+    run = session.current_run
+    assert run is not None
+
+    close_task = asyncio.create_task(dispatcher.close())
+    await asyncio.sleep(0.05)
+
+    assert run.cancelling() == 0
+    assert adapter.sent == ["思考中💭", "最终答案"]
+    assert not close_task.done()
+
+    release_recorder.set()
+    await asyncio.wait_for(close_task, timeout=2)
+    assert adapter.sent == ["思考中💭", "最终答案"]
+    assert recorder.terminals == [("agent_done", "service_interrupted")]
 
 
 async def test_user_stop_keeps_single_dispatcher_ack(monkeypatch) -> None:

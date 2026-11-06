@@ -228,6 +228,48 @@ async def test_close_retries_cancel_without_waiting_for_stuck_upstream(monkeypat
     assert [text for _, text in adapter.sent] == [dispatcher_mod.SERVICE_INTERRUPTED_TEXT]
 
 
+async def test_close_is_bounded_when_finalizer_never_returns(monkeypatch):
+    """进入 finalizing 后即使永久卡住，账号停机也必须在应用级期限内返回。"""
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_RUN_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_FORCE_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_FINALIZE_TIMEOUT_S", 0.01)
+    adapter = FakeAdapter()
+    finalizing = asyncio.Event()
+    forced_cancel = asyncio.Event()
+    release = asyncio.Event()
+
+    async def run_agent(msg, emit):
+        await emit("最终答案")
+        state = dispatcher_mod.current_channel_run_state()
+        assert state is not None
+        state.finalizing = True
+        state.outbound_finalized.set()
+        finalizing.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            # 模拟 recorder/typing 吞掉 cancel 并继续挂住；测试结束后再放行，
+            # 避免遗留后台任务。
+            forced_cancel.set()
+            await release.wait()
+
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=run_agent)
+    d.start()
+    await d.submit_inbound(_msg("处理", msg_id="m1"))
+    await asyncio.wait_for(finalizing.wait(), timeout=2)
+    session = next(iter(d._sessions.values()))  # noqa: SLF001
+    worker = session.worker
+    assert worker is not None
+
+    try:
+        await asyncio.wait_for(d.close(), timeout=0.5)
+        assert forced_cancel.is_set()
+        assert adapter.sent == [("u1@im.wechat", "最终答案")]
+    finally:
+        release.set()
+        await asyncio.wait_for(worker, timeout=2)
+
+
 async def test_close_notifies_third_session_waiting_for_semaphore():
     """消息 dequeue 后即使还在等全局并发槽，停机也不能静默丢失。"""
     adapter = FakeAdapter()

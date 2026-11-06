@@ -10,6 +10,7 @@ from movieclaw_plugins.discord.discord_channel.adapter import DiscordAdapter
 from movieclaw_plugins.discord.discord_channel.client import DiscordClient
 from movieclaw_plugins.telegram.telegram_channel.adapter import TelegramAdapter
 from movieclaw_plugins.telegram.telegram_channel.client import TelegramClient
+from movieclaw_plugins.weixin.weixin_channel.adapter import WeixinAdapter
 
 
 def _tg_adapter() -> TelegramAdapter:
@@ -155,3 +156,73 @@ async def test_telegram_client_non_json_response() -> None:
         assert not exc_info.value.auth_failed
     finally:
         await client.aclose()
+
+
+@pytest.mark.parametrize("channel", ["telegram", "weixin"])
+async def test_cursor_is_saved_only_after_inbound_survives_quiesce(channel: str) -> None:
+    """旧顺序在 save_cursor 回调触发 quiesce 后会丢 inbound 且永久推进游标。"""
+    from movieclaw_channel.adapter import ChannelContext
+
+    stop = asyncio.Event()
+    quiescing = asyncio.Event()
+    calls: list[str] = []
+
+    async def on_inbound(_msg) -> None:
+        if not quiescing.is_set():
+            calls.append("inbound")
+
+    async def save_cursor(_cursor: str) -> None:
+        calls.append("cursor")
+        # 精确制造复审指出的交错：旧实现 save_cursor 返回后、on_inbound
+        # 调用前进入 quiesce，宿主门闩会丢消息但游标已经持久化。
+        quiescing.set()
+        stop.set()
+
+    if channel == "telegram":
+
+        class Client:
+            async def get_updates(self, offset, *, stop):
+                return [
+                    {
+                        "update_id": 7,
+                        "message": {
+                            "message_id": 3,
+                            "date": 1,
+                            "text": "hello",
+                            "chat": {"id": 2, "type": "private"},
+                            "from": {"id": 2, "is_bot": False},
+                        },
+                    }
+                ]
+
+        adapter = TelegramAdapter(Client(), "bot1")  # type: ignore[arg-type]
+    else:
+
+        class Client:
+            async def notify_start(self) -> None:
+                return None
+
+            async def get_updates(self, cursor, *, stop, timeout_s):
+                return {
+                    "get_updates_buf": "next",
+                    "msgs": [
+                        {
+                            "message_id": "m1",
+                            "from_user_id": "u1",
+                            "item_list": [{"type": 1, "text_item": {"text": "hello"}}],
+                        }
+                    ],
+                }
+
+        adapter = WeixinAdapter(Client(), "bot1")  # type: ignore[arg-type]
+
+    await adapter.run(
+        ChannelContext(
+            account_id="bot1",
+            on_inbound=on_inbound,
+            save_cursor=save_cursor,
+            stop=stop,
+        )
+    )
+
+    assert calls == ["inbound", "cursor"]

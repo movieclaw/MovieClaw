@@ -103,8 +103,15 @@ class RemoteChannelDriver(ChannelDriver):
                 self._targets.pop(account.id, None)
 
     async def quiesce(self, account: Account) -> None:
+        from movieclaw_api.services.plugin_runtime import PluginProcessGone, RemoteCallError
+
         account.quiescing.set()
-        await self._call("quiesce", account=ch.account_dict(account))
+        try:
+            await self._call("quiesce", account=ch.account_dict(account))
+        except (PluginProcessGone, RemoteCallError) as exc:
+            # 插件进程先退出是正常竞态：接收端已经不存在，宿主仍须继续关闭
+            # dispatcher、置 stopping 并完成账号清理，不能让 quiesce 异常截断。
+            logger.info("通道插件已退出，跳过远程 quiesce channel=%s: %s", self._cid, exc)
 
     async def send(self, account: Account, reply: ReplyContext, text: str) -> None:
         await self._call(

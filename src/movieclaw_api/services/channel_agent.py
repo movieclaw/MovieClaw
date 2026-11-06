@@ -151,13 +151,14 @@ async def _run_agent(
             # 即使取消落在 typing-on 的 await 内，也要在统一 finally 尝试关掉。
             typing_active = True
             await _typing(driver, account, msg, on=True)
+        system_prompt = await agent_system_prompt(tools, speaker=account.member_id)
         runner_started = True
         async for ev in runner.start(
             AgentStartParams(
                 input=prepared.input_for_run,
                 history=prepared.history_for_run,
                 # 通道账号绑定在某个成员名下（0=超管），对面说话的就是他
-                system_prompt=await agent_system_prompt(tools, speaker=account.member_id),
+                system_prompt=system_prompt,
             ),
             run_id=run_id,
         ):
