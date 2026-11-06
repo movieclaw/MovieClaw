@@ -201,6 +201,31 @@ async def test_close_delivers_cancel_notice_before_stopping_pump():
     assert [text for _, text in adapter.sent] == [dispatcher_mod.SERVICE_INTERRUPTED_TEXT]
 
 
+async def test_close_before_invoke_agent_first_tick_still_delivers_one_notice():
+    """current_run 已发布但子任务尚未首 tick 时取消，也必须恰好提示一次。"""
+    adapter = FakeAdapter()
+    agent_started = asyncio.Event()
+
+    async def run_agent(msg, emit):
+        agent_started.set()
+        await asyncio.Event().wait()
+
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=run_agent)
+    d.start()
+    await d.submit_inbound(_msg("处理", msg_id="pre-tick"))
+    # ready 队列顺序：worker 先创建并发布 current_run，当前测试任务随后
+    # 恢复，channel-run 子任务还排在其后，尚未执行首行。
+    await asyncio.sleep(0)
+    session = next(iter(d._sessions.values()))  # noqa: SLF001
+    assert session.current_run is not None
+    assert not agent_started.is_set()
+
+    await asyncio.wait_for(d.close(), timeout=2)
+
+    assert adapter.sent == [("u1@im.wechat", dispatcher_mod.SERVICE_INTERRUPTED_TEXT)]
+    assert not agent_started.is_set()
+
+
 async def test_close_retries_cancel_without_waiting_for_stuck_upstream(monkeypatch):
     """上游吞掉首次取消时补一次取消，仍在有限时间内发出中断提示并结束。"""
     monkeypatch.setattr(dispatcher_mod, "_CLOSE_RUN_TIMEOUT_S", 0.01)
@@ -318,6 +343,51 @@ async def test_close_is_bounded_when_outbound_queue_is_full_and_send_hangs(monke
             asyncio.gather(d._pump_task, return_exceptions=True),
             timeout=2,  # noqa: SLF001
         )
+
+
+async def test_full_outbound_queue_delivers_shutdown_notice_when_sender_recovers(monkeypatch):
+    """发送在 close 期限内恢复时，满队列后的中断提示必须保留并优先送达。"""
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_OUTBOUND_TIMEOUT_S", 1.0)
+    send_started = asyncio.Event()
+    release_send = asyncio.Event()
+
+    class RecoveringAdapter(FakeAdapter):
+        async def send_text(self, reply: ReplyContext, text: str) -> None:
+            if not send_started.is_set():
+                send_started.set()
+                await release_send.wait()
+            await super().send_text(reply, text)
+
+    async def unused_agent(msg, emit):  # pragma: no cover - 停在图片聚合阶段
+        raise AssertionError("unexpected agent run")
+
+    adapter = RecoveringAdapter()
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=unused_agent)
+    d.start()
+    reply = ReplyContext(channel_id="weixin", account_id="bot1", user_id="blocked")
+    await d.push_outbound(OutboundEnvelope(reply=reply, text="占住发送泵"))
+    await asyncio.wait_for(send_started.wait(), timeout=2)
+    for index in range(dispatcher_mod._OUTBOUND_QUEUE_SIZE):  # noqa: SLF001
+        d._outbound.put_nowait(  # noqa: SLF001
+            OutboundEnvelope(reply=reply, text=f"普通消息-{index}")
+        )
+
+    await d.submit_inbound(_msg("", msg_id="recover-notice", images=(InboundImage(data=b"image"),)))
+    session = next(iter(d._sessions.values()))  # noqa: SLF001
+    while session.inflight is None:
+        await asyncio.sleep(0)
+
+    close_task = asyncio.create_task(d.close())
+    while not d._shutdown_outbound:  # noqa: SLF001
+        await asyncio.sleep(0)
+    await asyncio.sleep(0.01)
+    release_send.set()
+    await asyncio.wait_for(close_task, timeout=2)
+
+    texts = [text for _user, text in adapter.sent]
+    assert texts.count(dispatcher_mod.SERVICE_INTERRUPTED_TEXT) == 1
+    assert len(texts) == dispatcher_mod._OUTBOUND_QUEUE_SIZE + 2  # noqa: SLF001
+    assert texts[1] == dispatcher_mod.SERVICE_INTERRUPTED_TEXT
 
 
 async def test_close_notifies_third_session_waiting_for_semaphore():
