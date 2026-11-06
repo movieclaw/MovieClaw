@@ -194,7 +194,7 @@ class ChannelDispatcher:
             ):
                 if session.run_state is not None:
                     session.run_state.cancel_reason = SERVICE_STOP_CANCEL_REASON
-                await self.push_outbound(
+                notice_queued = self._push_shutdown_outbound(
                     OutboundEnvelope(
                         reply=session.inflight.reply,
                         text=SERVICE_INTERRUPTED_TEXT,
@@ -202,12 +202,12 @@ class ChannelDispatcher:
                     )
                 )
                 if session.run_state is not None:
-                    session.run_state.cancel_notice_pushed = True
+                    session.run_state.cancel_notice_pushed = notice_queued
                     session.run_state.outbound_finalized.set()
                 session.worker.cancel()
             while not session.queue.empty():
                 msg = session.queue.get_nowait()
-                await self.push_outbound(
+                self._push_shutdown_outbound(
                     OutboundEnvelope(
                         reply=msg.reply,
                         text=SERVICE_INTERRUPTED_TEXT,
@@ -486,6 +486,15 @@ class ChannelDispatcher:
     async def push_outbound(self, env: OutboundEnvelope) -> None:
         """出站统一入口(Agent 回复 / 命令回执 / 未来的主动推送)。"""
         await self._outbound.put(env)
+
+    def _push_shutdown_outbound(self, env: OutboundEnvelope) -> bool:
+        """停机提示只做非阻塞入队；发送泵卡死时不能让 close 永久堵在背压上。"""
+        try:
+            self._outbound.put_nowait(env)
+        except asyncio.QueueFull:
+            logger.warning("渠道停机提示因出站队列已满而放弃 user=%s", env.reply.user_id)
+            return False
+        return True
 
     async def _outbound_pump(self) -> None:
         """发送泵:串行取信封 → 图文优先 → 分片 → 调 adapter 发送(带一次重试)。"""

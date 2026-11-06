@@ -19,6 +19,8 @@ from movieclaw_sdk.channels import Account, ChannelAuthError, ChannelDriver, Rep
 
 logger = logging.getLogger("movieclaw_api.plugin_channels")
 
+_QUIESCE_TIMEOUT_S = 3.0
+
 
 class RemoteChannelDriver(ChannelDriver):
     def __init__(self, session: Any, cid: str, spec: dict[str, Any]) -> None:
@@ -107,7 +109,9 @@ class RemoteChannelDriver(ChannelDriver):
 
         account.quiescing.set()
         try:
-            await self._call("quiesce", account=ch.account_dict(account))
+            await self._call(
+                "quiesce", timeout=_QUIESCE_TIMEOUT_S, account=ch.account_dict(account)
+            )
         except (PluginProcessGone, RemoteCallError) as exc:
             # 插件进程先退出是正常竞态：接收端已经不存在，宿主仍须继续关闭
             # dispatcher、置 stopping 并完成账号清理，不能让 quiesce 异常截断。

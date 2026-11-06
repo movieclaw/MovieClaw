@@ -270,6 +270,56 @@ async def test_close_is_bounded_when_finalizer_never_returns(monkeypatch):
         await asyncio.wait_for(worker, timeout=2)
 
 
+async def test_close_is_bounded_when_outbound_queue_is_full_and_send_hangs(monkeypatch):
+    """停机补提示不能在满队列背压上卡住，必须走到出站硬超时。"""
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_OUTBOUND_TIMEOUT_S", 0.01)
+    send_started = asyncio.Event()
+    release_send = asyncio.Event()
+
+    class HangingAdapter(FakeAdapter):
+        async def send_text(self, reply: ReplyContext, text: str) -> None:
+            send_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await release_send.wait()
+                raise
+
+    async def unused_agent(msg, emit):  # pragma: no cover - 停在图片聚合阶段
+        raise AssertionError("unexpected agent run")
+
+    adapter = HangingAdapter()
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=unused_agent)
+    d.start()
+    reply = ReplyContext(channel_id="weixin", account_id="bot1", user_id="blocked")
+    await d.push_outbound(OutboundEnvelope(reply=reply, text="占住发送泵"))
+    await asyncio.wait_for(send_started.wait(), timeout=2)
+    for index in range(dispatcher_mod._OUTBOUND_QUEUE_SIZE):  # noqa: SLF001
+        d._outbound.put_nowait(  # noqa: SLF001
+            OutboundEnvelope(reply=reply, text=f"填满队列-{index}")
+        )
+    assert d._outbound.full()  # noqa: SLF001
+
+    await d.submit_inbound(
+        _msg("", msg_id="shutdown-notice", images=(InboundImage(data=b"image"),))
+    )
+    session = next(iter(d._sessions.values()))  # noqa: SLF001
+    while session.inflight is None:
+        await asyncio.sleep(0)
+
+    try:
+        await asyncio.wait_for(d.close(), timeout=0.5)
+        assert d._pump_task is not None  # noqa: SLF001
+        assert not d._pump_task.done()  # noqa: SLF001 -- send 故意吞掉 cancel
+    finally:
+        release_send.set()
+        assert d._pump_task is not None  # noqa: SLF001
+        await asyncio.wait_for(
+            asyncio.gather(d._pump_task, return_exceptions=True),
+            timeout=2,  # noqa: SLF001
+        )
+
+
 async def test_close_notifies_third_session_waiting_for_semaphore():
     """消息 dequeue 后即使还在等全局并发槽，停机也不能静默丢失。"""
     adapter = FakeAdapter()
