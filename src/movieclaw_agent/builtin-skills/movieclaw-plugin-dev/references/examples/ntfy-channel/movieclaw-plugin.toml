@@ -8,7 +8,7 @@ sdk = "^1.0"
 description = "在 ntfy 里和 MovieClaw 对话、接收推送"
 
 [requires]
-"im-channels" = "^1.0"
+"im-channels" = "^1.3"
 
 [permissions]
 operations = []

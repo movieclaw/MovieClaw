@@ -259,3 +259,43 @@ def test_third_party_channel_binds_chats_and_pushes(world, ntfy) -> None:
         assert removed.status_code == 200
         wait(lambda: fake.live("mc-in-7f3a") == 0)
         assert client.get("/api/v1/channels").json()["data"]["accounts"] == []
+
+
+def test_process_channel_quiesce_does_not_advance_cursor_and_replays(world, ntfy) -> None:
+    """进程外插件 quiesce 后的消息不落游标，应用重启后仍会重放。"""
+    if world != "process":
+        pytest.skip("只验证进程外 runner 协议")
+
+    from movieclaw_api.services.channel_hub import get_hub
+
+    fake, server = ntfy
+    fields = {"server": server, "inbox": "mc-in-replay", "outbox": "mc-out-replay"}
+    with make_client() as client:
+        channels = client.get("/api/v1/channels").json()["data"]["channels"]
+        [channel] = [c for c in channels if c["title"] == "ntfy"]
+        cid = channel["id"]
+        bound = client.post("/api/v1/channels/bindings", json={"channel_id": cid, "fields": fields})
+        assert bound.status_code == 201, bound.text
+        wait(lambda: fake.live("mc-in-replay") == 1)
+
+        fake.post("mc-in-replay", "先推进一次游标")
+        wait(lambda: "收到：先推进一次游标" in fake.published("mc-out-replay"))
+        [view] = client.get("/api/v1/channels").json()["data"]["accounts"]
+        hub = get_hub()
+        assert hub is not None
+        account = hub.running_account(cid, view["account_id"])
+        assert account is not None
+
+        # 直接走宿主 RemoteChannelDriver → 插件 runner 的 quiesce RPC；插件
+        # 仍可发送，但之后到达的 inbound/save_state 都被两端账号门闩挡住。
+        client.portal.call(hub.driver(cid).quiesce, account)
+        assert account.quiescing.is_set()
+        wait(lambda: fake.live("mc-in-replay") == 0)
+        fake.post("mc-in-replay", "停收窗口消息")
+        time.sleep(0.3)
+        assert "收到：停收窗口消息" not in fake.published("mc-out-replay")
+
+    wait(lambda: fake.live("mc-in-replay") == 0)
+    with make_client():
+        wait(lambda: "收到：停收窗口消息" in fake.published("mc-out-replay"))
+        assert fake.published("mc-out-replay").count("收到：先推进一次游标") == 1

@@ -245,8 +245,8 @@ class Account:
     """账号句柄：中枢构造，交给驱动的 ``run`` / ``send`` 等方法。
 
     驱动只读 ``credentials`` / ``state`` 等字段，经 ``inbound`` 把消息交给中枢、经 ``save_state``
-    持久化自己的私有状态（游标、会话令牌），中枢不解读它们。``stopping`` 置位表示中枢要停这个账号：
-    长轮询应尽快中断并退出 ``run``（宽限期过后中枢会直接取消）。
+    持久化自己的私有状态（游标、会话令牌），中枢不解读它们。``quiescing`` 置位表示先停收消息、
+    保留发送能力；``stopping`` 置位才表示最终关闭账号。
     """
 
     channel_id: str
@@ -255,6 +255,7 @@ class Account:
     bound_user: str | None
     credentials: dict[str, str]
     state: dict[str, Any]
+    quiescing: asyncio.Event
     stopping: asyncio.Event
 
     async def inbound(self, message: InboundMessage) -> None:
@@ -303,8 +304,8 @@ class ChannelDriver:
         await account.stopping.wait()
 
     async def quiesce(self, account: Account) -> None:
-        """停止接收新消息但保留发送能力；自管客户端的驱动可覆盖。"""
-        return None
+        """停止接收新消息但保留发送能力；中枢已先封住账号的入站与游标写入。"""
+        account.quiescing.set()
 
     async def send(self, account: Account, reply: ReplyContext, text: str) -> None:
         """发一条文本（中枢已按 ``max_text_len`` 拆好）。失败抛异常，中枢会重试一次。"""
@@ -374,6 +375,7 @@ class AdapterDriver(ChannelDriver):
         entry = (client, adapter)
         receive_stop = asyncio.Event()
         receive_stopped = asyncio.Event()
+        account.quiescing.clear()
         self._live[key] = entry
         self._receive_controls[key] = (receive_stop, receive_stopped)
 
@@ -419,10 +421,16 @@ class AdapterDriver(ChannelDriver):
                 await client.aclose()
 
     async def quiesce(self, account: Account) -> None:
+        account.quiescing.set()
         control = self._receive_controls.get((account.channel_id, account.id))
         if control is None:
             return
         receive_stop, receive_stopped = control
+        entry = self._live.get((account.channel_id, account.id))
+        if entry is not None:
+            quiesce_adapter = getattr(entry[1], "quiesce", None)
+            if quiesce_adapter is not None:
+                await quiesce_adapter()
         receive_stop.set()
         await receive_stopped.wait()
 
@@ -444,7 +452,7 @@ class AdapterDriver(ChannelDriver):
 #: 通道插件往这个注册表贡献驱动（贡献 id 即通道 id；第三方插件自动带插件 id 前缀）
 IM_CHANNELS: RegistryKey[ChannelDriver] = RegistryKey(
     "im-channels",
-    version="1.2",  # 1.2：可选的名称、表单及绑定状态语言映射
+    version="1.3",  # 1.3：两阶段停机 quiesce；1.2：可选的多语言元数据
     stability=Stability.EXPERIMENTAL,
     schema=ChannelDriver,
     doc="IM 通道：插件贡献一个通道驱动（收发与绑定），中枢负责账号、对话与推送",

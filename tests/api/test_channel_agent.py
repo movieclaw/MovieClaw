@@ -224,6 +224,78 @@ async def test_user_stop_keeps_single_dispatcher_ack(monkeypatch) -> None:
         await dispatcher.close()
 
 
+@pytest.mark.parametrize("stage", ["acquire", "prepare", "typing"])
+async def test_cancel_during_acked_setup_still_finalizes_once(monkeypatch, stage: str) -> None:
+    """ACK 后任一慢初始化阶段被停机取消，都只发一次中断提示且不被二次取消。"""
+    stage_started = asyncio.Event()
+
+    class UnusedRunner:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def start(self, params, *, run_id):  # pragma: no cover - 不会进入 runner
+            yield AgentEvent(type="agent_start", run_id=run_id)
+
+    class StageDriver:
+        capabilities = SimpleNamespace(typing=stage == "typing")
+
+        async def typing(self, account, reply, on: bool) -> None:
+            if on:
+                stage_started.set()
+                await asyncio.Event().wait()
+
+    class OutboundAdapter:
+        channel_id = "weixin"
+        max_text_len = 1000
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send_text(self, reply, text: str) -> None:
+            self.sent.append(text)
+
+    recorder = _Recorder()
+    _patch_run_dependencies(monkeypatch, UnusedRunner, recorder)
+    if stage == "acquire":
+
+        async def slow_acquire(_session):
+            stage_started.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(channel_agent, "acquire_llm_router", slow_acquire)
+    elif stage == "prepare":
+
+        async def slow_prepare(**kwargs):
+            stage_started.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(channel_agent, "prepare_agent_input", slow_prepare)
+
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_RUN_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_FORCE_TIMEOUT_S", 0.02)
+    driver = StageDriver()
+    account = SimpleNamespace(member_id=0)
+
+    async def run_agent(msg, emit) -> None:
+        await channel_agent._run_agent(driver, account, msg, emit)
+
+    adapter = OutboundAdapter()
+    dispatcher = make_dispatcher(adapter, is_allowed=lambda _user: True, run_agent=run_agent)
+    dispatcher.start()
+    await dispatcher.submit_inbound(_message())
+    await asyncio.wait_for(stage_started.wait(), timeout=2)
+    session = next(iter(dispatcher._sessions.values()))  # noqa: SLF001
+    run = session.current_run
+    assert run is not None
+
+    await dispatcher.close()
+
+    assert adapter.sent == ["思考中💭", SERVICE_INTERRUPTED_TEXT]
+    assert run.cancelling() == 1
+    expected_terminals = [] if stage == "acquire" else [("agent_cancelled", "service_interrupted")]
+    assert recorder.terminals == expected_terminals
+
+
 async def test_finalizing_is_not_recancelled_during_slow_recorder_and_typing(monkeypatch) -> None:
     """提示先发；慢 recorder/typing 已进入 finalizing 后不能再被停机看门狗补刀。"""
     started = asyncio.Event()
@@ -284,21 +356,28 @@ async def test_finalizing_is_not_recancelled_during_slow_recorder_and_typing(mon
     dispatcher.start()
     await dispatcher.submit_inbound(_message())
     await asyncio.wait_for(started.wait(), timeout=2)
-
-    await dispatcher.close()
-
-    assert adapter.sent == ["思考中💭", SERVICE_INTERRUPTED_TEXT]
-    await asyncio.wait_for(recorder_started.wait(), timeout=2)
     session = next(iter(dispatcher._sessions.values()))  # noqa: SLF001
-    assert session.current_run is not None
-    assert session.current_run.cancelling() == 1
+    run = session.current_run
+    assert run is not None
+
+    close_task = asyncio.create_task(dispatcher.close())
+
+    await asyncio.wait_for(recorder_started.wait(), timeout=2)
+    await asyncio.wait_for(
+        _wait_until(lambda: adapter.sent == ["思考中💭", SERVICE_INTERRUPTED_TEXT]), timeout=2
+    )
+    assert run.cancelling() == 1
+    assert not close_task.done()
 
     release_recorder.set()
     await asyncio.wait_for(typing_off_started.wait(), timeout=2)
     assert not typing_off_finished.is_set()
     release_typing.set()
-    assert session.worker is not None
-    with pytest.raises(asyncio.CancelledError):
-        await session.worker
+    await asyncio.wait_for(close_task, timeout=2)
     assert typing_off_finished.is_set()
     assert recorder.terminals == [("agent_cancelled", "service_interrupted")]
+
+
+async def _wait_until(predicate) -> None:
+    while not predicate():
+        await asyncio.sleep(0.01)

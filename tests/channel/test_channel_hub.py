@@ -16,10 +16,12 @@ import contextlib
 import json
 import time
 from collections.abc import Callable
+from types import SimpleNamespace
 
 import pytest
 from sqlmodel import SQLModel
 
+from movieclaw_channel.dispatcher import SERVICE_INTERRUPTED_TEXT
 from movieclaw_db.engine import dispose_db, init_db
 from movieclaw_sdk.channels import (
     Account,
@@ -559,6 +561,165 @@ async def test_shutdown_delivers_agent_interruption_before_driver_stops(db, monk
         assert driver.sent == [("alice", "服务更新中断了这次处理，请重新发送。")]
         assert "bot1" not in driver.live
     finally:
+        await hub.stop()
+
+
+async def test_hub_keeps_adapter_client_live_through_slow_finalizer(db, monkeypatch) -> None:
+    """完整 Hub 停机链路须等慢 recorder/typing 清理结束后才关闭发送 client。"""
+    from movieclaw_agent.events import AgentEvent
+    from movieclaw_api.services import channel_agent
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
+
+    runner_started = asyncio.Event()
+    recorder_started = asyncio.Event()
+    release_recorder = asyncio.Event()
+    typing_off_started = asyncio.Event()
+    release_typing = asyncio.Event()
+
+    class Store:
+        def build_history(self, session_id: str) -> list:
+            return []
+
+    class SlowRecorder:
+        async def record_user_message(self, content) -> None:
+            return None
+
+        async def begin(self, run_id: str) -> None:
+            return None
+
+        async def on_message(self, *args) -> None:
+            return None
+
+        async def on_compaction(self, *args) -> None:
+            return None
+
+        async def on_terminal(self, event, reason: str) -> None:
+            recorder_started.set()
+            await release_recorder.wait()
+
+    class HangingRunner:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def start(self, params, *, run_id):
+            yield AgentEvent(type="agent_start", run_id=run_id)
+            runner_started.set()
+            await asyncio.Event().wait()
+            yield  # pragma: no cover
+
+    class Client:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class Adapter:
+        def __init__(self, client: Client, sent: list[str]) -> None:
+            self.client = client
+            self.sent = sent
+
+        async def run(self, ctx) -> None:
+            await (ctx.stop or asyncio.Event()).wait()
+
+        async def quiesce(self) -> None:
+            return None
+
+        async def send_text(self, reply, text: str) -> None:
+            assert not self.client.closed
+            self.sent.append(text)
+
+    class Driver(AdapterDriver):
+        title = "慢收尾通道"
+        capabilities = Capabilities(receive=True, typing=True, max_text_len=1000)
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.client = Client()
+            self.sent: list[str] = []
+
+        def open(self, account: Account):
+            return self.client, Adapter(self.client, self.sent)
+
+        async def typing(self, account, reply, on: bool) -> None:
+            assert not self.client.closed
+            if not on:
+                typing_off_started.set()
+                await release_typing.wait()
+                assert not self.client.closed
+
+    async def acquire(_session):
+        return object()
+
+    async def ensure_session(*args):
+        return "session-1"
+
+    async def prepare(**kwargs):
+        return SimpleNamespace(user_content="你好", input_for_run="你好", history_for_run=[])
+
+    async def tools(*args):
+        return []
+
+    async def prompt(*args, **kwargs):
+        return "system"
+
+    async def run_agent(driver, account, msg, emit) -> None:
+        await channel_agent._run_agent(driver, account, msg, emit)
+
+    monkeypatch.setattr(channel_agent, "run_agent", run_agent)
+    monkeypatch.setattr(channel_agent, "t", lambda _key: "思考中💭")
+    monkeypatch.setattr(channel_agent, "acquire_llm_router", acquire)
+    monkeypatch.setattr(channel_agent, "get_agent_session_store", Store)
+    monkeypatch.setattr(channel_agent, "ensure_agent_session", ensure_session)
+    monkeypatch.setattr(channel_agent, "AgentSessionRecorder", lambda *a, **kw: SlowRecorder())
+    monkeypatch.setattr(
+        channel_agent, "get_settings", lambda: SimpleNamespace(agent_skills_dir=".")
+    )
+    monkeypatch.setattr(channel_agent, "discover_skills", lambda _path: [])
+    monkeypatch.setattr(channel_agent, "prepare_agent_input", prepare)
+    monkeypatch.setattr(channel_agent, "profile_tools", tools)
+    monkeypatch.setattr(channel_agent, "agent_system_prompt", prompt)
+    monkeypatch.setattr(channel_agent, "AgentRunner", HangingRunner)
+
+    async with get_database().session() as session:
+        await ChannelAccountRepository(session).upsert(
+            channel_id="slow",
+            account_id="bot1",
+            credentials={"token": "t"},
+            display_name="slow",
+            bound_user_id="alice",
+        )
+
+    driver = Driver()
+    hub = make_hub({"slow": driver})
+    try:
+        await hub.start()
+        await _wait_for(lambda: hub.running_account("slow", "bot1") is not None)
+        account = hub.running_account("slow", "bot1")
+        assert account is not None
+        await _wait_for(lambda: ("slow", "bot1") in driver._live)  # noqa: SLF001
+        await account.inbound(_message(account, "慢任务", 1, user="alice"))
+        await asyncio.wait_for(runner_started.wait(), timeout=2)
+
+        stop_task = asyncio.create_task(hub.stop())
+        await asyncio.wait_for(recorder_started.wait(), timeout=2)
+        await _wait_for(lambda: SERVICE_INTERRUPTED_TEXT in driver.sent)
+        assert not driver.client.closed
+        assert not stop_task.done()
+
+        release_recorder.set()
+        await asyncio.wait_for(typing_off_started.wait(), timeout=2)
+        assert not driver.client.closed
+        assert not stop_task.done()
+
+        release_typing.set()
+        await asyncio.wait_for(stop_task, timeout=2)
+        assert driver.client.closed
+        assert driver.sent == ["思考中💭", SERVICE_INTERRUPTED_TEXT]
+    finally:
+        release_recorder.set()
+        release_typing.set()
         await hub.stop()
 
 

@@ -102,6 +102,10 @@ class RemoteChannelDriver(ChannelDriver):
                 del self.accounts[account.id]
                 self._targets.pop(account.id, None)
 
+    async def quiesce(self, account: Account) -> None:
+        account.quiescing.set()
+        await self._call("quiesce", account=ch.account_dict(account))
+
     async def send(self, account: Account, reply: ReplyContext, text: str) -> None:
         await self._call(
             "send", account=ch.account_dict(account), reply=ch.reply_dict(reply), text=text
@@ -142,6 +146,8 @@ class RemoteChannelDriver(ChannelDriver):
         if account is None:
             # i18n-ignore: developer error
             raise LookupError(f"账号 {params['account']} 没有在运行")
+        if account.quiescing.is_set() and method in ("channel.inbound", "channel.save_state"):
+            return
         if method == "channel.inbound":
             await account.inbound(ch.message_from(params["message"]))
         elif method == "channel.save_state":
