@@ -854,10 +854,11 @@ async def test_unreadable_playlists_keep_a_good_record_until_they_read_again(
     assert row.resolution == "720p"
 
 
-async def test_partial_playlist_io_failure_waits_for_a_complete_retry(
-    db, tmp_path, monkeypatch
+@pytest.mark.parametrize("failure", ["io_error", "short_read"])
+async def test_incomplete_playlist_candidate_waits_for_a_complete_retry(
+    db, tmp_path, monkeypatch, failure
 ) -> None:
-    """正片 MPLS 暂时读失败时不扶正小拷贝；恢复后仍会换正片并在线程里找流。"""
+    """正片 MPLS 读不全时不扶正小拷贝；恢复后仍会换正片并在线程里找流。"""
     file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
     monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
     original_read_bytes = Path.read_bytes
@@ -865,7 +866,9 @@ async def test_partial_playlist_io_failure_waits_for_a_complete_retry(
 
     def flaky_read_bytes(path: Path) -> bytes:
         if fail_main_playlist and path.name == "00001.mpls":
-            raise OSError("temporary NFS read failure")
+            if failure == "io_error":
+                raise OSError("temporary NFS read failure")
+            return original_read_bytes(path)[:30]
         return original_read_bytes(path)
 
     monkeypatch.setattr(Path, "read_bytes", flaky_read_bytes)

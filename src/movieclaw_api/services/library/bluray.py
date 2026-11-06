@@ -104,7 +104,7 @@ class MplsPlaylist:
 
 @dataclass(frozen=True)
 class MainPlaylistReadResult:
-    """主播放列表读取结果；``retryable`` 表示候选未完整读完。"""
+    """主播放列表读取结果；``retryable`` 表示候选未完整读取或解析。"""
 
     playlist: MplsPlaylist | None
     retryable: bool = False
@@ -288,6 +288,7 @@ def read_main_playlist_result(disc_dir: Path) -> MainPlaylistReadResult:
             retryable = True
             logger.warning("蓝光 MPLS 读取失败，跳过候选：%s（%s）", path, exc)
         except MplsParseError as exc:
+            retryable = True
             logger.warning("蓝光 MPLS 解析失败，跳过候选：%s（%s）", path, exc)
     return MainPlaylistReadResult(
         select_main_playlist(playlists, stream_sizes), retryable=retryable
