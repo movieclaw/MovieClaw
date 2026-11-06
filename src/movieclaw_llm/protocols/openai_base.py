@@ -77,6 +77,11 @@ _RESPONSES_REQUIRED_HINT = (
 # 百炼等国内端点内容审查拦截的错误码/关键词
 _CONTENT_FILTER_CODES = {"data_inspection_failed", "content_filter"}
 
+# issue #1210 中正常调用为 12–17 秒；90 秒给慢推理端点留足余量，又避免
+# openai SDK 默认 600 秒 read timeout 让无首字节/流式断流长期占住渠道「思考中」。
+# connect 保持 SDK 原有的 5 秒；read timeout 同时约束首字节和流式分片间空闲。
+_DEFAULT_TIMEOUT = httpx.Timeout(90.0, connect=5.0)
+
 
 class OpenAIProtocolBase(BaseLlmProtocol):
     def __init__(self, config: LlmProviderConfig, preset: ProviderPreset) -> None:
@@ -85,8 +90,12 @@ class OpenAIProtocolBase(BaseLlmProtocol):
         base_url = config.base_url or preset.base_url
         if base_url:
             kwargs["base_url"] = base_url
-        if config.timeout_seconds is not None:
-            kwargs["timeout"] = config.timeout_seconds
+        kwargs["timeout"] = (
+            config.timeout_seconds if config.timeout_seconds is not None else _DEFAULT_TIMEOUT
+        )
+        # SDK 默认会把一次超时重试两遍，令 90 秒空闲上限膨胀到约 270 秒；
+        # 协议层只负责报错，是否重试应由能看到业务上下文的上层决定。
+        kwargs["max_retries"] = 0
         if config.user_agent:
             # default_headers 在 SDK 内部是最后一层合并，能盖掉 SDK 自带的
             # 「AsyncOpenAI/Python x.y.z」；留空则完全不干预，保持 SDK 默认。
