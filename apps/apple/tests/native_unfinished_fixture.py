@@ -9,7 +9,11 @@ import asyncio
 import json
 import sys
 import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from socketserver import TCPServer
+from urllib.parse import parse_qs, urlsplit
 
 import requests
 
@@ -23,6 +27,12 @@ from tests.e2e.test_library_watch_filters_browser import _seed  # noqa: E402
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument(
+        "--delay-kind-summary",
+        type=float,
+        default=0,
+        help="Delay the first unfinished TV summary to exercise stale responses",
+    )
     args = parser.parse_args()
     directory = args.directory.resolve()
     directory.mkdir(parents=True, exist_ok=True)
@@ -35,6 +45,7 @@ def main():
             result.mkdir()
             return result
 
+    proxy = None
     fixture = stack.__wrapped__(Factory(), ["http://127.0.0.1:9"])
     try:
         env = next(fixture)
@@ -66,13 +77,102 @@ def main():
             ],
         ]
         session.put(api + "/api/v1/ui/preferences", json=prefs).raise_for_status()
-        connection = {"server": api, **admin, "libraries": libraries}
+        server_url = api
+        if args.delay_kind_summary > 0:
+            delayed = threading.Event()
+            released = threading.Event()
+
+            class Proxy(BaseHTTPRequestHandler):
+                def log_message(self, *args):
+                    pass
+
+                def forward(self):
+                    parsed = urlsplit(self.path)
+                    if parsed.path in {
+                        "/api/v1/__fixture/delayed-summary",
+                        "/api/v1/__fixture/reset",
+                    }:
+                        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                        if parsed.path.endswith("/reset"):
+                            delayed.clear()
+                            released.clear()
+                        result = json.dumps(
+                            {
+                                "success": True,
+                                "data": {
+                                    "started": delayed.is_set(),
+                                    "released": released.is_set(),
+                                },
+                            }
+                        ).encode()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(result)))
+                        self.end_headers()
+                        self.wfile.write(result)
+                        return
+                    if (
+                        parsed.path == "/api/v1/libraries/kinds/tv"
+                        and parse_qs(parsed.query).get("w") == ["unfinished"]
+                        and not delayed.is_set()
+                    ):
+                        delayed.set()
+                        time.sleep(args.delay_kind_summary)
+                        released.set()
+                    body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                    headers = {
+                        key: value
+                        for key, value in self.headers.items()
+                        if key.lower()
+                        not in {"host", "connection", "content-length", "accept-encoding"}
+                    }
+                    headers["Accept-Encoding"] = "identity"
+                    response = requests.request(
+                        self.command,
+                        api + self.path,
+                        headers=headers,
+                        data=body,
+                        timeout=30,
+                        allow_redirects=False,
+                    )
+                    self.send_response(response.status_code)
+                    for key, value in response.headers.items():
+                        if key.lower() not in {
+                            "connection",
+                            "transfer-encoding",
+                            "content-length",
+                            "content-encoding",
+                        }:
+                            self.send_header(key, value)
+                    self.send_header("Content-Length", str(len(response.content)))
+                    self.end_headers()
+                    self.wfile.write(response.content)
+
+                do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = forward
+
+            class FixtureServer(ThreadingHTTPServer):
+                def server_bind(self):
+                    # This loopback fixture needs no potentially slow reverse DNS lookup.
+                    TCPServer.server_bind(self)
+                    self.server_name = "localhost"
+                    self.server_port = self.server_address[1]
+
+            proxy = FixtureServer(("127.0.0.1", 0), Proxy)
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
+            server_url = f"http://127.0.0.1:{proxy.server_port}"
+        connection = {"server": server_url, **admin, "libraries": libraries}
         (directory / "connection.json").write_text(json.dumps(connection, indent=2) + "\n")
-        print(f"Fixture ready: {api}; connection.json contains local fixture settings", flush=True)
+        print(
+            f"Fixture ready: {server_url}; connection.json contains local fixture settings",
+            flush=True,
+        )
         threading.Event().wait()
     except KeyboardInterrupt:
         pass
     finally:
+        if proxy is not None:
+            proxy.shutdown()
+            proxy.server_close()
         fixture.close()
 
 
