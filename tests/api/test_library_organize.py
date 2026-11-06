@@ -228,6 +228,34 @@ async def test_organize_moves_files_and_relocates_ledger(db, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_organize_records_missing_sidecar_and_continues(db, tmp_path):
+    """计划中的附属文件源与目标都消失时记录逐文件错误，不中止整理。"""
+    root = tmp_path / "movies"
+    async with db.session() as session:
+        library = await _make_library(session, kind=MediaKind.MOVIE, root=root)
+        movie = await _make_item(
+            session, kind=MediaKind.MOVIE, tmdb_id=300, title="某电影", year=2020
+        )
+        source = root / "some.movie.mkv"
+        sidecar = root / "some.movie.zh.srt"
+        source.write_bytes(b"main")
+        sidecar.write_bytes(b"sub")
+        _add_file(session, library, movie, source)
+        await session.commit()
+        library_id = library.id
+        plan = await build_organize_plan(session, library)
+
+    sidecar.unlink()
+    summary = await organize_library(library_id, plan=plan, raise_unexpected=True)
+
+    assert summary.renamed == 1
+    assert summary.sidecars_renamed == 0
+    assert summary.errors == [f"附属文件改名失败：附属文件已不存在：{sidecar}"]
+    assert summary.error_messages[0]["message_key"] == "library.organize.sidecarFailed"
+    assert (root / "某电影 (2020)" / "某电影 (2020).mkv").read_bytes() == b"main"
+
+
+@pytest.mark.asyncio
 async def test_organize_skips_occupied_target(db, tmp_path):
     """目标路径已被磁盘上的其他文件占用：跳过，绝不覆盖。"""
     root = tmp_path / "movies"

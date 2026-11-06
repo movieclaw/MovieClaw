@@ -884,7 +884,7 @@ def _resolve_and_move(src: Path, dst: Path, *, missing_message: dict) -> None:
         )
     raise _MoveError(
         message_key=missing_message["message_key"],
-        message_params={None: missing_message["message_params"]},
+        message_params=missing_message["message_params"],
     )
 
 
