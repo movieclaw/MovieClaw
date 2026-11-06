@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import logging
 import uuid
@@ -29,6 +30,7 @@ from movieclaw_api.services.agent_sessions import get_agent_session_store
 from movieclaw_api.services.agent_toolkit import agent_system_prompt, profile_tools
 from movieclaw_api.services.im_attachments import prepare_agent_input
 from movieclaw_api.services.llm_config import acquire_llm_router
+from movieclaw_channel.dispatcher import USER_STOP_CANCEL_REASON
 from movieclaw_channel.pusher import StepReplyPusher
 from movieclaw_db.engine import get_database
 from movieclaw_db.repositories.agent_session_repo import AgentSessionRepository
@@ -133,6 +135,8 @@ async def _run_agent(
         await _typing(driver, account, msg, on=True)
     pusher = StepReplyPusher(emit)
     last_event: AgentEvent | None = None
+    cancel_notice_pushed = False
+    cancel_reason: object | None = None
     try:
         async for ev in runner.start(
             AgentStartParams(
@@ -145,6 +149,11 @@ async def _run_agent(
         ):
             last_event = ev
             await pusher.feed(ev)
+            if ev.type == "agent_cancelled":
+                cancel_notice_pushed = True
+    except asyncio.CancelledError as exc:
+        cancel_reason = exc.args[0] if exc.args else None
+        raise
     finally:
         if typing:
             await _typing(driver, account, msg, on=False)
@@ -155,7 +164,16 @@ async def _run_agent(
             and last_event.type in ("agent_done", "agent_error", "agent_cancelled")
             else AgentEvent(type="agent_cancelled", run_id=run_id)
         )
-        # 通道里没有用户主动停止的入口（/stop 走 dispatcher 取消），取消多半来自停机
+        # runner 收到 task.cancel() 时会直接抛 CancelledError，事件流没有机会
+        # yield agent_cancelled。服务停机必须把合成终态也交给渠道 pusher；若
+        # runner 已正常产出过该终态则不重复。/stop 已由 dispatcher 即时回执。
+        if (
+            terminal.type == "agent_cancelled"
+            and not cancel_notice_pushed
+            and cancel_reason != USER_STOP_CANCEL_REASON
+        ):
+            await pusher.feed(terminal)
+        # 通道 /stop 已由 dispatcher 回执；其余取消按服务中断收尾。
         await recorder.on_terminal(terminal, reason="service_interrupted")
 
 

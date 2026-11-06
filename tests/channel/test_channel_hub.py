@@ -101,6 +101,15 @@ class FakeDriver(ChannelDriver):
         return [text for _user, text in self.sent]
 
 
+class StrictLiveDriver(FakeDriver):
+    """模拟 AdapterDriver：收消息循环退出后 client 注销，不能再发送。"""
+
+    async def send(self, account: Account, reply: ReplyContext, text: str) -> None:
+        if self.live.get(account.id) is not account:
+            raise RuntimeError("账号 client 已停止")
+        await super().send(account, reply, text)
+
+
 def _message(account: Account, text: str, seq: int, user: str = "u1") -> InboundMessage:
     reply = ReplyContext(channel_id="whatever", account_id=account.id, user_id=user)
     return InboundMessage(
@@ -432,6 +441,47 @@ async def test_inbound_whitelist_state_and_auth_error(db, monkeypatch) -> None:
         await _wait_for(lambda: bool(failing.runs))
         async with get_database().session() as session:
             await _wait_for_status(session, "stale")
+    finally:
+        await hub.stop()
+
+
+async def test_shutdown_delivers_agent_interruption_before_driver_stops(db, monkeypatch) -> None:
+    """真实中枢停机顺序：client 仍 live 时取消 Agent 并送出中断提示。"""
+    from movieclaw_api.services import channel_agent
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
+
+    started = asyncio.Event()
+
+    async def hanging_agent(driver, account, msg, emit) -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await emit("已取消本次处理。")
+
+    monkeypatch.setattr(channel_agent, "run_agent", hanging_agent)
+    async with get_database().session() as session:
+        await ChannelAccountRepository(session).upsert(
+            channel_id="weixin",
+            account_id="bot1",
+            credentials={"token": "t"},
+            display_name="微信",
+            bound_user_id="alice",
+        )
+    driver = StrictLiveDriver()
+    hub = make_hub({"weixin": driver})
+    try:
+        await hub.start()
+        await _wait_for(lambda: "bot1" in driver.live)
+        account = driver.live["bot1"]
+        await account.inbound(_message(account, "跑个长任务", 1, user="alice"))
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        await hub.stop()
+
+        assert driver.sent == [("alice", "已取消本次处理。")]
+        assert "bot1" not in driver.live
     finally:
         await hub.stop()
 

@@ -147,13 +147,16 @@ class ChannelManager:
         rt = self._accounts.pop(key, None)
         if rt is None:
             return
+        # AdapterDriver.run 退出时会先注销 live client；必须趁发送能力仍在，
+        # 让 dispatcher 取消在飞 Agent 并把中断提示送达，再停收消息循环。
+        # dispatcher 先置 closing，新到的入站在这段短窗口里会被直接忽略。
+        await rt.dispatcher.close()
         rt.stop.set()
         if rt.task is not None and not rt.task.done():
             # 优雅窗口:stop 信号会掐断在飞长轮询,循环自然退出并发 notifystop;
             # 超时兜底强制取消(wait_for 超时时已自动 cancel 并等待任务结束)
             with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
                 await asyncio.wait_for(rt.task, timeout=_GRACEFUL_STOP_TIMEOUT_S)
-        await rt.dispatcher.close()
         logger.info("通道账号已停止 %s:%s", *key)
 
     async def close(self) -> None:
