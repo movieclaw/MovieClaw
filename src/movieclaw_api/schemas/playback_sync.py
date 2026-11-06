@@ -29,6 +29,8 @@ class SyncMedia(BaseModel):
     title: str
     tmdb_id: int | None
     imdb_id: str | None
+    # 不可复用身份令牌（= media_item.external_id）。本地无 tmdb/imdb 写回必须回传。
+    identity: str
     # 只有剧集有；null 表示整剧没有状态行（写回时 expected_updated_at 传 null）。
     favorite: SyncFavorite | None = None
     season_favorites: list[SyncSeasonFavorite] = []
@@ -73,6 +75,7 @@ class SyncRecordIn(BaseModel):
     kind: Literal["movie", "tv", "video"]
     tmdb_id: int | None = Field(default=None, ge=1)
     imdb_id: str | None = None
+    identity: str | None = Field(default=None, min_length=1)
     season: int = Field(default=0, ge=0)
     episode: int = Field(default=0, ge=0)
     source_id: str = Field(min_length=1, max_length=128)
@@ -111,6 +114,7 @@ class SyncChangeIn(BaseModel):
     kind: Literal["movie", "tv", "video"]
     tmdb_id: int | None = Field(default=None, ge=1)
     imdb_id: str | None = None
+    identity: str | None = Field(default=None, min_length=1)
     season: int | None = Field(default=None, ge=0)
     episode: int | None = Field(default=None, ge=0)
     expected_updated_at: datetime | None  # 必填；null 表示预览时没有该状态行。

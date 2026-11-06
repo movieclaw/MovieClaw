@@ -888,7 +888,7 @@ def test_state_operation_is_a_grantable_host_op(client):
     c.portal.call(probe)
 
 
-def seed_local(c, kind, key):
+def seed_local(c, kind, key, *, with_state=True):
     """无 TMDB / IMDb 的本地条目（source=local），带一个在库文件。"""
 
     async def run():
@@ -916,15 +916,27 @@ def seed_local(c, kind, key):
                     duration_seconds=600,
                 )
             )
-            s.add(PlaybackState(member_id=2, media_item_id=media.id, position_ms=90_000))
+            if with_state:
+                s.add(PlaybackState(member_id=2, media_item_id=media.id, position_ms=90_000))
             await s.commit()
             return media.id
 
     return c.portal.call(run)
 
 
-def local_change(item, kind, expected, **fields):
-    return {"media_item_id": item, "kind": kind, "expected_updated_at": expected, **fields}
+def local_change(item, kind, expected, *, identity, **fields):
+    return {
+        "media_item_id": item,
+        "kind": kind,
+        "identity": identity,
+        "expected_updated_at": expected,
+        **fields,
+    }
+
+
+def unit_of_kinds(c, member, item):
+    items = snapshot(c, member, kinds=["movie", "tv", "video"])["items"]
+    return next(u for u in items if u["media"]["id"] == item)
 
 
 @pytest.mark.parametrize("kind", ["movie", "video"])
@@ -934,39 +946,51 @@ def test_state_clears_resume_for_local_item_without_external_ids(client, kind):
     unit = unit_of_kinds(c, 2, item)
     assert (unit["media"]["kind"], unit["position_ms"]) == (kind, 90_000)
     assert unit["media"]["tmdb_id"] is None and unit["media"]["imdb_id"] is None
+    assert unit["media"]["identity"] == f"local-test-{kind}"
 
-    out = put_state(c, 2, [local_change(item, kind, unit["updated_at"], position_ms=0)])[0]
+    out = put_state(
+        c,
+        2,
+        [
+            local_change(
+                item, kind, unit["updated_at"], identity=unit["media"]["identity"], position_ms=0
+            )
+        ],
+    )[0]
     assert out["status"] == "applied"
     assert unit_of_kinds(c, 2, item)["position_ms"] == 0
-
-
-def unit_of_kinds(c, member, item):
-    items = snapshot(c, member, kinds=["movie", "tv", "video"])["items"]
-    return next(u for u in items if u["media"]["id"] == item)
 
 
 def test_local_item_identity_still_rejects_forged_ids_and_wrong_kind(client):
     c, _, ids = client
     item = seed_local(c, "movie", "local-test-1")
-    v = unit_of_kinds(c, 2, item)["updated_at"]
+    unit = unit_of_kinds(c, 2, item)
+    v = unit["updated_at"]
+    identity = unit["media"]["identity"]
     outs = put_state(
         c,
         2,
         [
-            local_change(item, "movie", v, position_ms=0, tmdb_id=1),
-            local_change(item, "movie", v, position_ms=0, imdb_id="tt1"),
-            local_change(item, "video", v, position_ms=0),
-            local_change(item, "tv", v, position_ms=0, season=1, episode=1),
+            local_change(item, "movie", v, identity=identity, position_ms=0, tmdb_id=1),
+            local_change(item, "movie", v, identity=identity, position_ms=0, imdb_id="tt1"),
+            local_change(item, "video", v, identity=identity, position_ms=0),
+            local_change(item, "tv", v, identity=identity, position_ms=0, season=1, episode=1),
             # 有 TMDB 的条目不能只凭 media_item_id 过关
-            local_change(ids[0], "movie", None, played=True),
+            local_change(ids[0], "movie", None, identity="ignored", played=True),
+            # 本地条目缺 identity / 错 identity
+            {"media_item_id": item, "kind": "movie", "expected_updated_at": v, "position_ms": 0},
+            local_change(item, "movie", v, identity="not-the-token", position_ms=0),
         ],
     )
-    assert [o["status"] for o in outs] == ["mismatch"] * 5
+    assert [o["status"] for o in outs] == ["mismatch"] * 7
     assert unit_of_kinds(c, 2, item)["position_ms"] == 90_000
     # video 与电影同为 0/0 单元：带季集号是形状错误
     r = c.post(
         BASE + "/state",
-        json={"member_id": 2, "changes": [local_change(item, "video", v, played=True, season=1)]},
+        json={
+            "member_id": 2,
+            "changes": [local_change(item, "video", v, identity=identity, played=True, season=1)],
+        },
     )
     assert r.status_code == 422
 
@@ -974,16 +998,22 @@ def test_local_item_identity_still_rejects_forged_ids_and_wrong_kind(client):
 def test_import_watch_for_local_item_without_external_ids(client):
     c, _, _ = client
     item = seed_local(c, "video", "local-test-import")
-    v = unit_of_kinds(c, 2, item)["updated_at"]
+    unit = unit_of_kinds(c, 2, item)
+    v = unit["updated_at"]
+    identity = unit["media"]["identity"]
     rec = {
         "media_item_id": item,
         "kind": "video",
+        "identity": identity,
         "source_id": "local-1",
         "watched_at": "2020-01-01T12:00:00Z",
         "expected_updated_at": v,
     }
     assert post(c, 2, [rec])[0]["status"] == "applied"
     assert post(c, 2, [{**rec, "source_id": "local-2", "tmdb_id": 5}])[0]["status"] == "mismatch"
+    assert post(c, 2, [{**rec, "source_id": "local-3", "identity": "stale"}])[0]["status"] == (
+        "mismatch"
+    )
     unit = unit_of_kinds(c, 2, item)
     assert unit["played"] is True and unit["position_ms"] == 0
     assert [w["basis"] for w in unit["watches"]] == ["import"]
@@ -1003,3 +1033,78 @@ def test_catalog_kinds_default_excludes_video(client):
     assert listed(kinds=["movie", "tv", "video"])[video] == "video"
     bad = c.get(BASE + "/catalog", params={"member_id": 2, "kinds": "photo"})
     assert bad.status_code == 422
+
+
+def test_stale_local_preview_rejected_after_id_reuse(client):
+    """删 A 后同数字 id 再建 B：带着 A 的 identity 写回必须 mismatch。"""
+    c, _, _ = client
+    old_id = seed_local(c, "movie", "local-item-a", with_state=False)
+    preview = unit_of_kinds(c, 2, old_id)
+    assert preview["updated_at"] is None
+    old_identity = preview["media"]["identity"]
+    assert old_identity == "local-item-a"
+
+    async def replace_with_b():
+        async with get_database().session() as s:
+            old = await s.get(MediaItem, old_id)
+            assert old is not None
+            files = (
+                await s.execute(select(LibraryFile).where(LibraryFile.media_item_id == old_id))
+            ).scalars().all()
+            library_id = files[0].library_id
+            for row in files:
+                await s.delete(row)
+            await s.delete(old)
+            await s.flush()
+            # 无 AUTOINCREMENT 时显式写入同一主键，模拟 SQLite 复用最大已删 id。
+            media = MediaItem(
+                id=old_id,
+                source="local",
+                kind="movie",
+                external_id="local-item-b",
+                tmdb_id=None,
+                imdb_id=None,
+                title="本地 B",
+                original_title="B",
+            )
+            s.add(media)
+            await s.flush()
+            assert media.id == old_id
+            s.add(
+                LibraryFile(
+                    library_id=library_id,
+                    media_item_id=media.id,
+                    file_path=f"/tmp/local-item-b-{old_id}.mkv",
+                    size_bytes=1,
+                    source=FileSource.SCANNED,
+                    state=FileState.IN_PLACE,
+                    duration_seconds=600,
+                )
+            )
+            await s.commit()
+
+    c.portal.call(replace_with_b)
+
+    fresh = unit_of_kinds(c, 2, old_id)
+    assert fresh["media"]["identity"] == "local-item-b"
+    assert fresh["updated_at"] is None
+
+    stale_state = local_change(
+        old_id, "movie", None, identity=old_identity, position_ms=0
+    )
+    assert put_state(c, 2, [stale_state])[0]["status"] == "mismatch"
+    stale_import = {
+        "media_item_id": old_id,
+        "kind": "movie",
+        "identity": old_identity,
+        "source_id": "stale-a",
+        "watched_at": "2020-01-01T12:00:00Z",
+        "expected_updated_at": None,
+    }
+    assert post(c, 2, [stale_import])[0]["status"] == "mismatch"
+
+    good = local_change(
+        old_id, "movie", None, identity=fresh["media"]["identity"], played=True
+    )
+    assert put_state(c, 2, [good])[0]["status"] == "applied"
+    assert unit_of_kinds(c, 2, old_id)["played"] is True
