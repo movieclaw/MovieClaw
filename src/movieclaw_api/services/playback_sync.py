@@ -51,13 +51,20 @@ def naive(value: datetime) -> datetime:
 def same_identity(media: MediaItem | None, record: SyncRecordIn | SyncChangeIn) -> bool:
     """请求声明的类型与 TMDB / IMDb 编号须与本地条目吻合，防止插件按过期映射写错片。
 
-    本地条目两个外部编号都没有时，请求也不得声明任何编号，此时只凭 media_item_id + kind
-    定位——不存在可能过期的外部映射。有外部编号的条目仍须声明吻合的编号。
+    本地条目两个外部编号都没有时：请求也不得声明任何编号，且必须回传 catalog 下发的
+    ``identity``（= ``media_item.external_id``）。SQLite 在无 AUTOINCREMENT 时会复用
+    数字主键，只凭 media_item_id + kind 会把旧预览写到新片子上。有外部编号的条目仍须
+    声明吻合的编号（不必带 identity，兼容既有 Trakt 等调用方）。
     """
     if not media or media.kind != record.kind:
         return False
     if media.tmdb_id is None and media.imdb_id is None:
-        return not record.tmdb_id and not record.imdb_id
+        return (
+            not record.tmdb_id
+            and not record.imdb_id
+            and bool(record.identity)
+            and record.identity == media.external_id
+        )
     return bool(
         (record.tmdb_id and media.tmdb_id == record.tmdb_id)
         or (record.imdb_id and media.imdb_id == record.imdb_id)
@@ -246,6 +253,7 @@ async def catalog(
                     title=m.title,
                     tmdb_id=m.tmdb_id,
                     imdb_id=m.imdb_id,
+                    identity=m.external_id,
                     favorite=SyncFavorite(
                         is_favorite=series.is_favorite, updated_at=series.updated_at
                     )
