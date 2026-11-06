@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import httpx
+import openai
+
+from movieclaw_agent import AgentRunner, AgentStartParams
 from movieclaw_agent.events import AgentDone, AgentEvent
 from movieclaw_channel.pusher import StepReplyPusher
-from movieclaw_llm import ToolCall
+from movieclaw_llm import LlmProviderConfig, LlmRouter, ToolCall
+from movieclaw_llm.protocols.openai_chat import OpenAIChatProtocol
+from movieclaw_llm.providers import get_preset
 
 
 def _collector() -> tuple[list[str], StepReplyPusher]:
@@ -57,6 +65,43 @@ async def test_error_flushes_then_notifies():
     await pusher.feed(_ev("agent_error", error="模型超时"))
     assert emitted == ["进行到一半", "⚠️ 处理失败:模型超时"]
     assert pusher.errored is True
+
+
+async def test_model_timeout_reaches_channel_user():
+    """SDK 超时 → LlmConnectError → agent_error → 渠道失败消息。"""
+
+    class TimeoutCompletions:
+        async def create(self, **kwargs):
+            raise openai.APITimeoutError(request=httpx.Request("POST", "http://llm.test/v1"))
+
+    class TimeoutClient:
+        chat = SimpleNamespace(completions=TimeoutCompletions())
+
+        async def close(self):
+            pass
+
+    config = LlmProviderConfig(
+        name="测试百炼",
+        provider_type="bailian",
+        api_key="sk-test",
+        default_model="qwen3.7-max",
+        is_default=True,
+    )
+    protocol = OpenAIChatProtocol(config, get_preset("bailian"))
+    await protocol.close()
+    protocol._client = TimeoutClient()
+    router = LlmRouter([config], protocol_factory=lambda *_: protocol)
+    runner = AgentRunner(router)
+    emitted, pusher = _collector()
+
+    async for event in runner.start(AgentStartParams(input="订阅这部剧并追更")):
+        await pusher.feed(event)
+
+    assert pusher.errored is True
+    assert len(emitted) == 1
+    assert emitted[0].startswith("⚠️ 处理失败:")
+    assert "连接模型服务失败" in emitted[0]
+    await router.aclose()
 
 
 async def test_cancelled_notice():

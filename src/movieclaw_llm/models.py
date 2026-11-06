@@ -419,7 +419,7 @@ class LlmProviderConfig(BaseModel):
     extra_models: list[ModelInfo] = Field(default_factory=list)
     enabled: bool = True
     is_default: bool = False
-    timeout_seconds: float | None = None  # None 用 SDK 默认
+    timeout_seconds: float | None = None  # None 用应用默认（首字节/流式读空闲 90 秒）
     #: 自定义 User-Agent 请求头。None = 用 openai SDK 自带的 UA；
     #: 自建网关 / 反代前置 WAF 常按 UA 放行或限流，这里给用户一个覆盖口子。
     user_agent: str | None = None

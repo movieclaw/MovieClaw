@@ -83,6 +83,27 @@ def test_kimi_k3_uses_native_output_field_and_fixed_sampling():
 # -- 客户端构建 -------------------------------------------------------------
 
 
+def test_default_timeout_bounds_first_byte_and_stream_idle():
+    """未显式配置时不用 SDK 的 600 秒默认，且不让内建重试放大上限。"""
+    p = make_protocol()
+    timeout = p._client.timeout
+    assert timeout.connect == 5.0
+    assert timeout.read == timeout.write == timeout.pool == 90.0
+    assert p._client.max_retries == 0
+
+
+def test_explicit_timeout_seconds_takes_precedence():
+    config = LlmProviderConfig(
+        name="慢速自建端点",
+        provider_type="openai_compat",
+        api_key="sk-test",
+        base_url="http://192.168.1.5:8000/v1",
+        timeout_seconds=180.0,
+    )
+    p = OpenAIChatProtocol(config, get_preset("openai_compat"))
+    assert p._client.timeout == 180.0
+
+
 def test_default_user_agent_is_sdk_builtin():
     """不配 user_agent → 保持 openai SDK 自带 UA，不做任何干预。"""
     p = make_protocol()
@@ -395,7 +416,7 @@ async def test_stream_event_sequence_and_final_partial():
 async def test_stream_error_ends_with_error_event_preserving_partial():
     def broken():
         yield chunk({"choices": [{"index": 0, "delta": {"content": "部分"}}]})
-        raise openai.APIConnectionError(request=httpx.Request("POST", "http://x"))
+        raise openai.APITimeoutError(request=httpx.Request("POST", "http://x"))
 
     events = await collect_events(make_protocol(), broken)
     assert events[-1].type == "error"
