@@ -480,6 +480,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     const api: MovieClawApi | null = this.api();
     if (this.disposed) { return; }
     const epoch = ++this.sessionEpoch;
+    hilog.info(0x0000, 'MCSub', '%{public}s', `negotiate 触发: failedTiers=[${this.failedTiers.join(',')}] retry=${this.retryCount}`);
     await this.releasePlayer();
     if (epoch !== this.sessionEpoch || this.disposed) { return; }
     this.stopSession();
@@ -800,9 +801,15 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     const view = this.session;
     if (view === null) { return; }
     const origin = view.timeline === 'file' || view.decision.tier === 0 ? 0 : view.start_ms;
-    const subtitleUrl = this.subtitleIndex >= 0 && this.subtitleIndex < view.subtitle_urls.length
+    // mpv 直连档选内封轨走原生 sid，不下旁挂字幕（首抽慢/PGS 解不了都绕开）。
+    const subtitleUrl = this.nativeEmbeddedOrdinal() === null && this.subtitleIndex >= 0
+      && this.subtitleIndex < view.subtitle_urls.length
       ? playbackUrl(AppModel.origin(), view.subtitle_urls[this.subtitleIndex]) : '';
     const intent = this.makeIntent();
+    const plans = view.decision.subtitles;
+    hilog.info(0x0000, 'MCSub', '%{public}s', `attach: engine=${PlayerPrefs.engine()} tier=${view.decision.tier}` +
+      ` subIndex=${this.subtitleIndex} ref=${this.subtitleIndex >= 0 && this.subtitleIndex < plans.length ? plans[this.subtitleIndex].track_ref : '-'}` +
+      ` nativeOrdinal=${this.nativeEmbeddedOrdinal()} sidecar=${subtitleUrl.length > 0}`);
     await this.controller.open(new PhoneMedia(origin, view.watch?.duration_ms ?? 0,
       PlaybackTestProbe.mediaUrl(playbackUrl(AppModel.origin(), url)), '', subtitleUrl, '',
       this.getUIContext().getHostContext()?.cacheDir ?? ''), this.surfaceId, intent, PlayerPrefs.engine());
@@ -826,7 +833,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     intent.paused = this.pausedIntent;
     intent.rate = this.holdSpeedActive ? 2 : this.playbackRate;
     intent.subtitlesOff = this.subtitleIndex < 0;
-    if (this.subtitleIndex >= 0) { intent.subtitle = { language: '', title: '', ordinal: -1 }; }
+    if (this.subtitleIndex >= 0) { intent.subtitle = { language: '', title: '', ordinal: this.nativeEmbeddedOrdinal() ?? -1 }; }
     const tracks = this.session?.decision.audio_tracks ?? [];
     const index = tracks.findIndex((track: AudioTrackView): boolean => track.ref === this.audioRef);
     if (index >= 0 && (this.localSpec !== null || this.session?.decision.tier === 0)) {
@@ -1132,7 +1139,18 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   /** 换到下一集：重开会话（续播点由服务端按观看记录给），连播状态在 negotiate 里重置 */
   playNext(): void {
     const next: EpisodeView | null = this.nextEpisode();
-    if (next === null || this.reopening) {
+    if (next === null) {
+      return;
+    }
+    this.playEpisode(next);
+  }
+
+  /**
+   * 换到指定的一集（选集菜单与自动连播共用）：重开会话，续播点由服务端按观看记录给，
+   * 连播状态在 negotiate 里重置；缺集（没有在位文件）不响应。
+   */
+  playEpisode(target: EpisodeView): void {
+    if (!target.owned || target.episode_number === this.episodeNumber || this.reopening) {
       return;
     }
     this.reopening = true;
@@ -1143,7 +1161,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       if (this.disposed) { return; }
       this.pausedIntent = false; this.subtitleIndex = -1; this.subtitleRef = ''; this.audioRef = '';
       this.positionMs = 0;
-      this.episodeNumber = next.episode_number;
+      this.episodeNumber = target.episode_number;
       this.resumeExplicit = false;
       // 换集不指定文件：让服务端自己挑这集的在位文件（同 iOS startUnit）
       this.fileId = 0;
@@ -1174,6 +1192,14 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   upNextStillUrl(): string {
     const next: EpisodeView | null = this.nextEpisode();
     const raw: string | null = next !== null ? (next.still_url ?? null) : null;
+    const resolved: string | null = raw !== null
+      ? ImageUrls.resolve(AppModel.origin(), raw, null) : null;
+    return resolved !== null ? resolved : '';
+  }
+
+  /** 选集列表里一集的剧照（同 upNextStillUrl 的解析：本地缩略图或 TMDB 图床） */
+  episodeStillUrl(episode: EpisodeView): string {
+    const raw: string | null = episode.still_url ?? null;
     const resolved: string | null = raw !== null
       ? ImageUrls.resolve(AppModel.origin(), raw, null) : null;
     return resolved !== null ? resolved : '';
@@ -1375,9 +1401,60 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (index >= view.decision.subtitles.length) { return; }
     this.subtitleIndex = index; this.subtitleRef = index < 0 ? 'off' : view.decision.subtitles[index].track_ref;
     this.subtitleCue = '';
+    if (this.liveNativeSubtitleSwitch()) { return; }
     this.pendingSeekMs = this.positionMs;
     if (this.localSpec !== null) { await this.attachLocalPlayer(); }
     else if (view.stream_url) { await this.attachPlayer(view.stream_url); }
+  }
+
+  /**
+   * 直连档（tier 0，非文件夹光盘）的内封轨序号：服务端 `embedded:k` 是 ffprobe
+   * 顺序的第 k 条字幕流，mpv track-list 的字幕轨同序，ordinal=k 直接对上。
+   * PGS 只能走这条路——旁挂裸 .sup mpv 解不了。外挂轨 / 转码档 / 本地文件
+   * 返回 null（照旧走旁挂下载 + sub-add）。
+   */
+  private embeddedOrdinalFor(index: number): number | null {
+    const view = this.session;
+    if (view === null || this.localSpec !== null) { return null; }
+    if (view.decision.tier !== 0 || (view.decision.disc ?? '').length > 0) { return null; }
+    if (index < 0 || index >= view.decision.subtitles.length) { return null; }
+    const ref = view.decision.subtitles[index].track_ref;
+    if (!ref.startsWith('embedded:')) { return null; }
+    const ordinal = Number.parseInt(ref.substring('embedded:'.length), 10);
+    return Number.isNaN(ordinal) || ordinal < 0 ? null : ordinal;
+  }
+
+  /** mpv 偏好下的内封轨原生序号；其余偏好无法预知落哪个引擎，一律旁挂。 */
+  private nativeEmbeddedOrdinal(): number | null {
+    if (PlayerPrefs.engine() !== 'mpv') { return null; }
+    return this.embeddedOrdinalFor(this.subtitleIndex);
+  }
+
+  /**
+   * mpv 正在播时，切内封轨 / 关字幕不必重挂播放器：容器轨就在 track-list 里，
+   * 直接换 sid。返回是否已就地完成；false 走原来的重挂流程。
+   */
+  private liveNativeSubtitleSwitch(): boolean {
+    const snapshot = this.controller.current();
+    const live = snapshot.phase === 'ready' || snapshot.phase === 'playing'
+      || snapshot.phase === 'paused' || snapshot.phase === 'buffering';
+    if (snapshot.engine !== 'mpv' || !live) {
+      hilog.info(0x0000, 'MCSub', '%{public}s', `liveSwitch 不可用: engine=${snapshot.engine} phase=${snapshot.phase} index=${this.subtitleIndex}`);
+      return false;
+    }
+    if (this.subtitleIndex < 0) {
+      hilog.info(0x0000, 'MCSub', '%{public}s', 'liveSwitch: 关闭字幕');
+      this.controller.selectTrack('subtitle', null).catch((): void => {});
+      return true;
+    }
+    const ordinal = this.embeddedOrdinalFor(this.subtitleIndex);
+    if (ordinal === null) {
+      hilog.info(0x0000, 'MCSub', '%{public}s', `liveSwitch: ordinal=null index=${this.subtitleIndex} 走重挂`);
+      return false;
+    }
+    hilog.info(0x0000, 'MCSub', '%{public}s', `liveSwitch: index=${this.subtitleIndex} ordinal=${ordinal}`);
+    this.controller.selectTrack('subtitle', { language: '', title: '', ordinal: ordinal }).catch((): void => {});
+    return true;
   }
 
   async pickAudio(ref: string): Promise<void> {
@@ -1763,6 +1840,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   menuTitle(): string {
     if (this.sheetKind === 'audio') { return '音轨'; }
     if (this.sheetKind === 'subtitle') { return '字幕'; }
+    if (this.sheetKind === 'episodes') { return '选集'; }
     if (this.sheetKind === 'quality') { return '画质'; }
     if (this.sheetKind === 'speed') { return '倍速'; }
     if (this.sheetKind === 'display') { return '画面'; }

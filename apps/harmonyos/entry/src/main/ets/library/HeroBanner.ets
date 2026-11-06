@@ -114,7 +114,7 @@ export struct HeroBanner {
     Stack({ alignContent: Alignment.BottomStart }) {
       RemoteImage({
         url: this.artUrl(item),
-        placeholderSymbol: $r('sys.symbol.play_square')
+        placeholderSymbol: $r('sys.symbol.film')
       })
         .width('100%')
         .height('100%')
@@ -181,10 +181,15 @@ export struct HeroBanner {
         }
         Row({ space: 10 }) {
           Button() {
-            Text(this.progressLabel(item))
-              .fontSize(13)
-              .fontWeight(FontWeight.Medium)
-              .fontColor('#000000')
+            Row({ space: 5 }) {
+              SymbolGlyph($r('sys.symbol.play_fill'))
+                .fontSize(13)
+                .fontColor(['#000000'])
+              Text(this.progressLabel(item))
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor('#000000')
+            }
           }
           .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
           .padding({ left: 16, right: 16, top: 8, bottom: 8 })
@@ -194,7 +199,7 @@ export struct HeroBanner {
           })
           Button() {
             Row({ space: 5 }) {
-              SymbolGlyph($r('sys.symbol.play_square'))
+              SymbolGlyph($r('sys.symbol.film'))
                 .fontSize(13)
                 .fontColor([Theme.text])
               Text('详情')
