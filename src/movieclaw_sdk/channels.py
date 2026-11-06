@@ -36,6 +36,14 @@ from movieclaw_sdk.callbacks import CallbackRequest, CallbackResponse
 
 logger = logging.getLogger("movieclaw_sdk.channels")
 
+_ADAPTER_QUIESCE_TIMEOUT_S = 3.0
+
+
+def _consume_task_result(task: asyncio.Task[Any]) -> None:
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        task.result()
+
+
 # 与清单的 W3C 语言映射一致；未声明的语言保留作者原文。
 LocalizedText = dict[str, str | dict[str, str]]
 
@@ -426,13 +434,23 @@ class AdapterDriver(ChannelDriver):
         if control is None:
             return
         receive_stop, receive_stopped = control
+        receive_stop.set()
+        waits: list[asyncio.Task[Any]] = [asyncio.create_task(receive_stopped.wait())]
         entry = self._live.get((account.channel_id, account.id))
         if entry is not None:
             quiesce_adapter = getattr(entry[1], "quiesce", None)
             if quiesce_adapter is not None:
-                await quiesce_adapter()
-        receive_stop.set()
-        await receive_stopped.wait()
+                waits.append(asyncio.create_task(quiesce_adapter()))
+        done, pending = await asyncio.wait(waits, timeout=_ADAPTER_QUIESCE_TIMEOUT_S)
+        for task in pending:
+            task.cancel()
+            task.add_done_callback(_consume_task_result)
+        for task in done:
+            task.result()
+        if pending:
+            logger.warning(
+                "通道适配器 quiesce 超时 account=%s pending=%d", account.id, len(pending)
+            )
 
     def live(self, account: Account) -> tuple[Any, Any]:
         entry = self._live.get((account.channel_id, account.id))

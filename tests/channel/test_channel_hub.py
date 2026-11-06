@@ -851,6 +851,162 @@ async def test_remote_plugin_exit_before_stop_still_cleans_dispatcher(error_kind
     assert dispatcher._pump_task.done()  # noqa: SLF001
 
 
+async def test_adapter_driver_quiesce_is_bounded_when_adapter_never_stops(monkeypatch) -> None:
+    """直连 AdapterDriver 的适配器和收泵都卡住时，quiesce 仍须按硬期限返回。"""
+    from movieclaw_api.services.channel_hub import HostAccount
+    from movieclaw_sdk import channels as sdk_channels
+
+    run_started = asyncio.Event()
+    quiesce_cancelled = asyncio.Event()
+    release_quiesce = asyncio.Event()
+    quiesce_finished = asyncio.Event()
+
+    class Client:
+        closed = False
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class Adapter:
+        async def run(self, ctx) -> None:
+            run_started.set()
+            await asyncio.Event().wait()
+
+        async def quiesce(self) -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                quiesce_cancelled.set()
+                await release_quiesce.wait()
+            finally:
+                quiesce_finished.set()
+
+    class Driver(AdapterDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.client = Client()
+            self.adapter = Adapter()
+
+        def open(self, account):
+            return self.client, self.adapter
+
+    monkeypatch.setattr(sdk_channels, "_ADAPTER_QUIESCE_TIMEOUT_S", 0.01)
+    driver = Driver()
+    account = HostAccount(
+        channel_id="stuck",
+        account_id="bot1",
+        display_name="stuck",
+        bound_user=None,
+        credentials={},
+        state={},
+        persist=False,
+    )
+    run_task = asyncio.create_task(driver.run(account))
+    await asyncio.wait_for(run_started.wait(), timeout=2)
+
+    try:
+        await asyncio.wait_for(driver.quiesce(account), timeout=0.5)
+        await asyncio.wait_for(quiesce_cancelled.wait(), timeout=2)
+        assert account.quiescing.is_set()
+    finally:
+        run_task.cancel()
+        await asyncio.gather(run_task, return_exceptions=True)
+        release_quiesce.set()
+        await asyncio.wait_for(quiesce_finished.wait(), timeout=2)
+    assert driver.client.closed
+
+
+async def test_stop_account_cleans_up_when_remote_quiesce_hangs(monkeypatch) -> None:
+    """远程 quiesce 吞掉取消也不能阻止 dispatcher、stopping 与账号任务清理。"""
+    from movieclaw_api.services.channel_hub import HostAccount, _DriverAdapter
+    from movieclaw_api.services.plugin_channels import RemoteChannelDriver
+    from movieclaw_channel import manager as manager_mod
+    from movieclaw_channel.dispatcher import make_dispatcher
+    from movieclaw_channel.manager import ChannelManager
+    from movieclaw_sdk.channels import driver_spec
+
+    class HangingSession:
+        _stopping = False
+
+        def __init__(self) -> None:
+            self.running = asyncio.Event()
+            self.quiesce_started = asyncio.Event()
+            self.quiesce_cancelled = asyncio.Event()
+            self.release_quiesce = asyncio.Event()
+            self.quiesce_finished = asyncio.Event()
+            self.quiesce_timeout: float | None = None
+
+        async def call(self, _cid, payload, **kwargs):
+            if payload["method"] == "push_target":
+                return None
+            if payload["method"] == "run":
+                self.running.set()
+                await asyncio.Event().wait()
+            if payload["method"] == "quiesce":
+                self.quiesce_timeout = kwargs.get("timeout")
+                self.quiesce_started.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    self.quiesce_cancelled.set()
+                    await self.release_quiesce.wait()
+                finally:
+                    self.quiesce_finished.set()
+                return None
+            raise AssertionError(payload["method"])
+
+    monkeypatch.setattr(manager_mod, "_QUIESCE_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(manager_mod, "_STOP_ACCOUNT_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(manager_mod, "_GRACEFUL_STOP_TIMEOUT_S", 0.01)
+    session = HangingSession()
+    remote = RemoteChannelDriver(session, "plugin:hanging", driver_spec(FakeDriver()))
+    account = HostAccount(
+        channel_id="plugin:hanging",
+        account_id="bot1",
+        display_name="hanging",
+        bound_user=None,
+        credentials={},
+        state={},
+        persist=False,
+    )
+    adapter = _DriverAdapter(remote, account)
+
+    async def unused_agent(msg, emit):  # pragma: no cover - 没有入站
+        raise AssertionError("unexpected inbound")
+
+    async def save_cursor(_cursor: str) -> None:
+        return None
+
+    dispatcher = make_dispatcher(adapter, is_allowed=lambda _user: True, run_agent=unused_agent)
+    manager = ChannelManager()
+    await manager.start_account(
+        adapter,
+        dispatcher,
+        account_id="bot1",
+        initial_cursor="",
+        save_cursor=save_cursor,
+    )
+    runtime = manager._accounts[("plugin:hanging", "bot1")]  # noqa: SLF001
+    await asyncio.wait_for(session.running.wait(), timeout=2)
+
+    try:
+        await asyncio.wait_for(manager.stop_account("plugin:hanging", "bot1"), timeout=0.5)
+
+        assert session.quiesce_started.is_set()
+        assert session.quiesce_cancelled.is_set()
+        assert session.quiesce_timeout is not None
+        assert session.quiesce_timeout < 30
+        assert account.stopping.is_set()
+        assert manager._accounts == {}  # noqa: SLF001
+        assert dispatcher._pump_task is not None  # noqa: SLF001
+        assert dispatcher._pump_task.done()  # noqa: SLF001
+        assert runtime.task is not None
+        await _wait_for(runtime.task.done)
+    finally:
+        session.release_quiesce.set()
+        await asyncio.wait_for(session.quiesce_finished.wait(), timeout=2)
+
+
 async def _wait_for_status(session, status: str) -> None:
     from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
 

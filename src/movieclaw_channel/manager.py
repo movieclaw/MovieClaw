@@ -28,6 +28,16 @@ _RESTART_BACKOFF_S = 30.0
 #: 停止账号时的优雅退出窗口:先置 stop 让长轮询中断、notifystop 送达,
 #: 超时仍未退出才强制取消
 _GRACEFUL_STOP_TIMEOUT_S = 5.0
+#: 停收与整个账号清理的硬期限。各阶段用 asyncio.wait 而非 wait_for，
+#: 即使第三方驱动吞掉 CancelledError 也不会反过来无限拖住应用停机。
+_QUIESCE_TIMEOUT_S = 2.0
+_STOP_ACCOUNT_TIMEOUT_S = 10.0
+
+
+def _consume_detached_task(task: asyncio.Task[object]) -> None:
+    """取走超时后脱离清理主链的任务结果，避免稍后产生未读取异常。"""
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        task.result()
 
 
 @dataclass(slots=True)
@@ -147,16 +157,44 @@ class ChannelManager:
         rt = self._accounts.pop(key, None)
         if rt is None:
             return
-        # 两阶段停机：先让收泵不再推进游标/提交新消息，但保留 live 发送
-        # client；再取消 Agent 并排空提示；最后才注销 client。
-        await rt.adapter.quiesce()
-        await rt.dispatcher.close()
-        rt.stop.set()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _STOP_ACCOUNT_TIMEOUT_S
+
+        async def wait_phase(task: asyncio.Task[object], limit: float, phase: str) -> bool:
+            remaining = min(limit, max(0.0, deadline - loop.time()))
+            done, _pending = await asyncio.wait((task,), timeout=remaining)
+            if task not in done:
+                logger.warning("通道账号停止阶段超时 phase=%s account=%s:%s", phase, *key)
+                task.cancel()
+                task.add_done_callback(_consume_detached_task)
+                return False
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                logger.warning("通道账号停止阶段被取消 phase=%s account=%s:%s", phase, *key)
+            except Exception:
+                logger.exception("通道账号停止阶段失败 phase=%s account=%s:%s", phase, *key)
+            return True
+
+        try:
+            # 两阶段停机：先让收泵不再推进游标/提交新消息，但保留 live 发送
+            # client；再取消 Agent 并排空提示。任一阶段失败仍继续必要清理。
+            await wait_phase(
+                asyncio.create_task(rt.adapter.quiesce()), _QUIESCE_TIMEOUT_S, "quiesce"
+            )
+            await wait_phase(
+                asyncio.create_task(rt.dispatcher.close()),
+                _STOP_ACCOUNT_TIMEOUT_S,
+                "dispatcher",
+            )
+        finally:
+            # 无论停收/出站清理是否成功，都必须让账号任务进入最终关闭。
+            rt.stop.set()
+
         if rt.task is not None and not rt.task.done():
-            # 优雅窗口:stop 信号会掐断在飞长轮询,循环自然退出并发 notifystop;
-            # 超时兜底强制取消(wait_for 超时时已自动 cancel 并等待任务结束)
-            with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
-                await asyncio.wait_for(rt.task, timeout=_GRACEFUL_STOP_TIMEOUT_S)
+            # stop 信号会掐断在飞长轮询；只使用整体 deadline 剩余时间，
+            # 到点直接 cancel 并脱离，不能等待一个吞取消的驱动。
+            await wait_phase(rt.task, _GRACEFUL_STOP_TIMEOUT_S, "account-task")
         logger.info("通道账号已停止 %s:%s", *key)
 
     async def close(self) -> None:
