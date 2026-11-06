@@ -407,7 +407,14 @@ private struct RowSettingsView: View {
 
             if let unwatched {
                 Section {
-                    Toggle(String(localized: .libraryCustomizeUnwatched), isOn: Binding(mcGet: { unwatched }, set: setUnwatched))
+                    Picker(String(localized: .libraryFiltersWatch), selection: Binding(
+                        mcGet: { row.unfinished ? "unfinished" : unwatched ? "unwatched" : "" },
+                        set: setWatch
+                    )) {
+                        Text(String(localized: .commonAll)).tag("")
+                        Text(String(localized: .libraryUnwatched)).tag("unwatched")
+                        Text(String(localized: .libraryFacetsUnfinished)).tag("unfinished")
+                    }
                         .accessibilityIdentifier("row-unwatched")
                 }
             }
@@ -437,6 +444,7 @@ private struct RowSettingsView: View {
 
     private func setSort(_ key: String, reversed: Bool) {
         onChange { r in
+            if key == "last_played" { r.unfinished = false }
             switch r.kind {
             case .favorites: r.kind = .favorites(sort: key, reversed: reversed)
             case let .library(library, _, _, unwatched, name, builtin):
@@ -452,8 +460,10 @@ private struct RowSettingsView: View {
         }
     }
 
-    private func setUnwatched(_ value: Bool) {
+    private func setWatch(_ watch: String) {
         onChange { r in
+            r.unfinished = watch == "unfinished"
+            let value = watch == "unwatched"
             switch r.kind {
             case let .library(library, sort, reversed, _, name, builtin):
                 r.kind = .library(library: library, sort: sort, reversed: reversed, unwatched: value, name: name, builtin: builtin)

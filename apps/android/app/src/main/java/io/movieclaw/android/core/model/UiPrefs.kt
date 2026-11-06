@@ -25,6 +25,7 @@ data class HomeRowPref(
     val name: String? = null,
     /** 只显示没看过的（仅库行） */
     val unwatched: Boolean? = null,
+    val unfinished: Boolean? = null,
     val hidden: Boolean? = null,
     val libraryId: Long? = null,
     val collectionId: Long? = null,

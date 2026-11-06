@@ -30,6 +30,14 @@ extension AppRoute {
         case .favorites: FavoritesView()
         case .allCollections: AllCollectionsView()
         case let .collection(libraryId, collectionId): CollectionDetailView(libraryId: libraryId, collectionId: collectionId)
+        case let .homeRow(row):
+            switch row.kind {
+            case let .library(library, _, _, _, _, _):
+                LibraryDetailView(libraryId: library.id, homeRow: row)
+            case let .mediaKind(kind, _, _, _, _, _, _):
+                LibraryKindWallView(kind: kind, homeRow: row)
+            default: EmptyView()
+            }
         case let .library(id, view, pending):
             LibraryDetailView(libraryId: id, initialView: view.flatMap(LibraryDetailView.WallView.init(rawValue:)) ?? .items, openPending: pending)
         case let .libraryKind(kind, genre): LibraryKindWallView(kind: kind, genre: genre)

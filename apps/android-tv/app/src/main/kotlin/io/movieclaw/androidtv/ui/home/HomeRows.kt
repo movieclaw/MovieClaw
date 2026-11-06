@@ -63,8 +63,8 @@ object HomeRows {
         data class Favorites(val sort: String, val reversed: Boolean) : Kind
         data object Libraries : Kind
         data class Genres(val kind: String, val libraries: List<LibraryView>) : Kind
-        data class Library(val library: LibraryView, val sort: String, val reversed: Boolean, val unwatched: Boolean, val name: String, val builtin: Boolean) : Kind
-        data class MediaKind(val kind: String, val libraries: List<LibraryView>, val sort: String, val reversed: Boolean, val unwatched: Boolean, val name: String) : Kind
+        data class Library(val library: LibraryView, val sort: String, val reversed: Boolean, val unwatched: Boolean, val name: String, val builtin: Boolean, val unfinished: Boolean = false) : Kind
+        data class MediaKind(val kind: String, val libraries: List<LibraryView>, val sort: String, val reversed: Boolean, val unwatched: Boolean, val name: String, val unfinished: Boolean = false) : Kind
         data class Collection(val collection: CollectionView, val sort: String, val reversed: Boolean, val name: String) : Kind
     }
 
@@ -204,18 +204,18 @@ object HomeRows {
 
     private fun libraryRow(pref: HomeRowPref, library: LibraryView, builtin: Boolean): Row {
         val (sort, reversed) = asRowSort(pref.sort, pref.order, sorts(library.kind))
-        return Row(pref.id, pref.hidden == true, Kind.Library(library, sort, reversed, pref.unwatched == true && sort != "last_played", pref.name?.trim().orEmpty(), builtin))
+        return Row(pref.id, pref.hidden == true, Kind.Library(library, sort, reversed, pref.unwatched == true && pref.unfinished != true && sort != "last_played", pref.name?.trim().orEmpty(), builtin, pref.unfinished == true && sort != "last_played"))
     }
 
     private fun mediaKindRow(pref: HomeRowPref, kind: String, libraries: List<LibraryView>): Row {
         val (sort, reversed) = asRowSort(pref.sort, pref.order, sorts(kind))
-        return Row(pref.id, pref.hidden == true, Kind.MediaKind(kind, libraries, sort, reversed, pref.unwatched == true && sort != "last_played", pref.name?.trim().orEmpty()))
+        return Row(pref.id, pref.hidden == true, Kind.MediaKind(kind, libraries, sort, reversed, pref.unwatched == true && pref.unfinished != true && sort != "last_played", pref.name?.trim().orEmpty(), pref.unfinished == true && sort != "last_played"))
     }
 
     /** 一行取数的缓存键：同一个库同一种排序同一方向（同一个未看开关）只请求一次 */
     fun fetchKey(row: Row): String = when (val k = row.kind) {
-        is Kind.Library -> "lib:${k.library.id}:${k.sort}:${k.reversed}:${k.unwatched}"
-        is Kind.MediaKind -> "kind:${k.kind}:${k.sort}:${k.reversed}:${k.unwatched}"
+        is Kind.Library -> "lib:${k.library.id}:${k.sort}:${k.reversed}:${k.unwatched}:${k.unfinished}"
+        is Kind.MediaKind -> "kind:${k.kind}:${k.sort}:${k.reversed}:${k.unwatched}:${k.unfinished}"
         is Kind.Collection -> "col:${k.collection.id}:${k.sort}:${k.reversed}"
         else -> row.id
     }

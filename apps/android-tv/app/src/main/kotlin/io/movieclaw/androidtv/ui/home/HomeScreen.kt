@@ -577,13 +577,13 @@ private fun HomeRow(
             }
             LaunchedEffect(entries.map { it.id }) { store.loadShowcase(entries.map { it.id }) }
             val source = when (kind) {
-                is HomeRows.Kind.Library -> WallSource.Library(kind.library.id, kind.sort, kind.reversed, kind.unwatched, kind.library.stats.itemCount)
-                is HomeRows.Kind.MediaKind -> WallSource.MediaKind(kind.kind, kind.sort, kind.reversed, kind.unwatched)
+                is HomeRows.Kind.Library -> WallSource.Library(kind.library.id, kind.sort, kind.reversed, kind.unwatched, kind.library.stats.itemCount, kind.unfinished)
+                is HomeRows.Kind.MediaKind -> WallSource.MediaKind(kind.kind, kind.sort, kind.reversed, kind.unwatched, kind.unfinished)
                 is HomeRows.Kind.Collection -> WallSource.Collection(kind.collection.id, kind.sort, kind.reversed)
                 else -> null
             }
             // 「查看全部」上写的总数：只在确切知道时写（媒体库没加筛选时用库的统计）
-            val total = (kind as? HomeRows.Kind.Library)?.takeIf { !it.unwatched && it.sort != "last_played" }?.library?.stats?.itemCount
+            val total = (kind as? HomeRows.Kind.Library)?.takeIf { !it.unfinished && !it.unwatched && it.sort != "last_played" }?.library?.stats?.itemCount
             ShowcaseShelf(row.title, entries, store.showcase, onOpen = { e -> e.libraryId?.let { router.push(Route.Item(it, e.id)) } }, onRowFocus = onRowFocus) { seeAll ->
                 if (source != null) {
                     item("see-all") { SeeAllCard(total?.toInt(), modifier = seeAll, onClick = { router.push(Route.RowWall(row.title, source)) }) }

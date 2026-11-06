@@ -18,14 +18,19 @@ struct LibraryKindWallView: View {
     @Environment(\.api) private var api
     @State private var pager = LibraryWallPager<API.LibraryItemView>(pageSize: 60)
     @State private var sort: WallSortState
+    @State private var watch: String?
     @State private var libraryCount: Int?
 
-    init(kind: String, genre: Int? = nil) {
+    init(kind: String, genre: Int? = nil, homeRow: HomeRows.Row? = nil) {
         self.kind = kind
         self.genre = genre
+        _watch = State(initialValue: homeRow?.watch)
         _sort = State(initialValue: WallSortState.load(
             Self.sortKey(kind), default: WallSortState(sort: "default"), allowed: Self.sortOptions(kind).map(\.value)
         ))
+        if let homeRow, let rowSort = homeRow.sort {
+            _sort = State(initialValue: WallSortState(sort: rowSort, reversed: homeRow.reversed))
+        }
     }
 
     /// 排序记在本机，键与 Web localStorage 同名，按类型各一份
@@ -65,6 +70,13 @@ struct LibraryKindWallView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
+                Picker(String(localized: .libraryFiltersWatch), selection: $watch) {
+                    Text(String(localized: .commonAll)).tag(String?.none)
+                    Text(String(localized: .libraryUnwatched)).tag(String?.some("unwatched"))
+                    Text(String(localized: .libraryFacetsUnfinished)).tag(String?.some("unfinished"))
+                    Text(String(localized: .libraryRowsRecentWatched)).tag(String?.some("seen"))
+                }
+                .accessibilityIdentifier("kind-wall-watch")
                 content
             }
             .padding(.bottom, 32)
@@ -75,6 +87,7 @@ struct LibraryKindWallView: View {
         .task {
             if pager.items == nil { await reload() }
         }
+        .onChange(of: watch) { Task { await reload() } }
         .onChange(of: sort) {
             sort.save(Self.sortKey(kind))
             Task { await reload() }
@@ -127,7 +140,7 @@ struct LibraryKindWallView: View {
 
     /// 总数与组成库只在墙首取一次：往下翻页时数量不变，不必每页多打一个请求
     private func loadSummary() async {
-        guard let summary = try? await api.uiLibraryKindSummary(kind: kind, g: genreQuery) else { return }
+        guard let summary = try? await api.uiLibraryKindSummary(kind: kind, g: genreQuery, w: watch) else { return }
         pager.total = summary.itemCount
         libraryCount = summary.libraryIds.count
     }
@@ -138,9 +151,10 @@ struct LibraryKindWallView: View {
         let sort = effectiveSort
         let order = self.order
         let genre = genreQuery
+        let watch = self.watch
         await loadSummary()
         await pager.reset({ offset, limit in
-            try await api.uiLibraryKindItems(kind: kind, sort: sort, order: order, limit: limit, offset: offset, g: genre)
+            try await api.uiLibraryKindItems(kind: kind, sort: sort, order: order, limit: limit, offset: offset, g: genre, w: watch)
         })
     }
 

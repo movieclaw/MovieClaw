@@ -313,6 +313,7 @@ class LibraryViewModel @Inject constructor(
                                 // 「只看没看过的」与它互斥，HomeRows 合并时已经保证不会同时成立
                                 val watch = when {
                                     k.sort == "last_played" -> "seen"
+                                    k.unfinished -> "unfinished"
                                     k.unwatched -> "unwatched"
                                     else -> null
                                 }
@@ -717,6 +718,7 @@ private fun GenreCoverFallback(scale: Float) {
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
+    onOpenHomeRow: (HomeRows.Row) -> Unit = {},
     onOpenLibrary: (Long, String) -> Unit,
     onOpenItem: (Long, Long) -> Unit,
     onPlay: (io.movieclaw.android.core.playback.PlayTarget) -> Unit = {},
@@ -996,7 +998,7 @@ fun LibraryScreen(
                                     actionText = "查看全部",
                                     onAction = {
                                         when (k) {
-                                            is HomeRows.Kind.Library -> onOpenLibrary(k.library.id, k.library.name)
+                                            is HomeRows.Kind.Library -> onOpenHomeRow(data.row)
                                             is HomeRows.Kind.Collection -> onOpenCollection(k.collection.id, k.collection.name)
                                             else -> Unit
                                         }

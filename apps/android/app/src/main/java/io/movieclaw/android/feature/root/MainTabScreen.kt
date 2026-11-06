@@ -105,6 +105,7 @@ class MainTabViewModel @Inject constructor(
  */
 @Composable
 fun MainTabScreen(
+    onOpenHomeRow: (io.movieclaw.android.core.model.HomeRows.Row) -> Unit = {},
     onOpenLibrary: (Long, String) -> Unit,
     onOpenItem: (Long, Long) -> Unit,
     onPlay: (PlayTarget) -> Unit,
@@ -257,6 +258,7 @@ fun MainTabScreen(
                 subscriptions = subscriptions,
             ) }
             MainTab.LIBRARY -> LibraryScreen(
+                onOpenHomeRow = onOpenHomeRow,
                 onOpenLibrary = onOpenLibrary,
                 onOpenItem = onOpenItem,
                 onPlay = onPlay,

@@ -1035,7 +1035,7 @@ export struct LibraryHomeView {
    */
   private moreForLibrary(kind: LibraryRowKind): () => void {
     return (): void => {
-      this.navStack.pushPathByName('libraryDetail', new LibraryRouteParams(kind.library.id));
+      this.navStack.pushPathByName('libraryDetail', new LibraryRouteParams(kind.library.id, kind.sort === 'last_played' ? 'seen' : kind.unfinished ? 'unfinished' : kind.unwatched ? 'unwatched' : null, kind.sort, kind.reversed));
     };
   }
 

@@ -640,27 +640,21 @@ private fun CustomizeRow(
                 if (showUnwatched || row.removable) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         if (libraryKind != null && showUnwatched) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable {
+                            Column {
+                                listOf("" to "全部", "unwatched" to "未看", "unfinished" to "未看完").forEach { (watch, label) ->
+                                    val selected = if (libraryKind.unfinished) "unfinished" else if (libraryKind.unwatched) "unwatched" else ""
+                                    Row(Modifier.clip(RoundedCornerShape(6.dp)).clickable {
                                         onChange { r ->
                                             val lib = r.kind as? HomeRows.Kind.Library ?: return@onChange r
-                                            r.copy(kind = lib.copy(unwatched = !lib.unwatched))
+                                            r.copy(kind = lib.copy(unwatched = watch == "unwatched", unfinished = watch == "unfinished"))
                                         }
+                                    }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(if (selected == watch) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                                            contentDescription = null, tint = if (selected == watch) Info else TextFaint, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(label, fontSize = 14.sp, color = TextMuted)
                                     }
-                                    .padding(vertical = 4.dp),
-                            ) {
-                                Icon(
-                                    if (libraryKind.unwatched) Icons.Rounded.CheckCircle
-                                    else Icons.Rounded.RadioButtonUnchecked,
-                                    contentDescription = null,
-                                    tint = if (libraryKind.unwatched) Info else TextFaint,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("只显示我没看过的", fontSize = 14.sp, color = TextMuted)
+                                }
                             }
                         }
                         Spacer(Modifier.weight(1f))
@@ -766,6 +760,7 @@ private fun applySort(row: HomeRows.Row, option: SortOption): HomeRows.Row = whe
             reversed = option.reversed,
             // 换成「最近观看」时把「只看没看过的」收掉（两者互斥）
             unwatched = if (option.key == "last_played") false else k.unwatched,
+            unfinished = if (option.key == "last_played") false else k.unfinished,
         ),
     )
     is HomeRows.Kind.Collection -> row.copy(kind = k.copy(sort = option.key, reversed = option.reversed))

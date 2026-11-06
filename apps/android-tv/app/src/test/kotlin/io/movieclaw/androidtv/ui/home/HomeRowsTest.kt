@@ -14,6 +14,17 @@ class HomeRowsTest {
     private val col = CollectionView(id = 9, name = "漫威", sort = "release_date")
 
     @Test
+    fun unfinishedPreferenceWinsAndSeparatesCacheEntries() {
+        val rows = HomeRows.build(listOf(HomeRowPref(id = "lib:1", unfinished = true, unwatched = true), HomeRowPref(id = "kind:movie", unfinished = true)), listOf(movies), emptyList())
+        val lib = rows.first { it.id == "lib:1" }
+        assertEquals(true, (lib.kind as HomeRows.Kind.Library).unfinished)
+        assertEquals(false, (lib.kind as HomeRows.Kind.Library).unwatched)
+        assertEquals(true, (rows.first { it.id == "kind:movie" }.kind as HomeRows.Kind.MediaKind).unfinished)
+        val plain = HomeRows.build(emptyList(), listOf(movies), emptyList()).first { it.id == "lib:1" }
+        org.junit.Assert.assertNotEquals(HomeRows.fetchKey(plain), HomeRows.fetchKey(lib))
+    }
+
+    @Test
     fun factoryLayout() {
         val rows = HomeRows.build(emptyList(), listOf(movies, shows, hiddenLib), emptyList())
         assertEquals(listOf("up-next", "favorites", "libraries", "genres:movie", "genres:tv", "lib:1", "lib:2"), rows.map { it.id })
@@ -45,7 +56,7 @@ class HomeRowsTest {
         )
         assertEquals("电影 Z–A", rows[0].title)
         assertEquals("最早上映的剧集", rows[1].title)
-        assertEquals("lib:1:title:true:false", HomeRows.fetchKey(rows[0]))
+        assertEquals("lib:1:title:true:false:false", HomeRows.fetchKey(rows[0]))
     }
 
     @Test

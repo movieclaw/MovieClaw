@@ -124,12 +124,12 @@ class HomeStore(private val api: McApi) {
         for (row in rows) {
             when (val k = row.kind) {
                 is HomeRows.Kind.Library -> {
-                    val watch = if (k.sort == "last_played") "seen" else if (k.unwatched) "unwatched" else null
+                    val watch = if (k.sort == "last_played") "seen" else if (k.unfinished) "unfinished" else if (k.unwatched) "unwatched" else null
                     val order = HomeRows.preset(k.sort).direction?.orderParam(k.reversed)
                     fetches[HomeRows.fetchKey(row)] = { api.libraryItemsList(k.library.id, sort = k.sort, order = order, limit = ROW_COUNT, w = watch) }
                 }
                 is HomeRows.Kind.MediaKind -> {
-                    val watch = if (k.sort == "last_played") "seen" else if (k.unwatched) "unwatched" else null
+                    val watch = if (k.sort == "last_played") "seen" else if (k.unfinished) "unfinished" else if (k.unwatched) "unwatched" else null
                     val order = HomeRows.preset(k.sort).direction?.orderParam(k.reversed)
                     fetches[HomeRows.fetchKey(row)] = { api.uiLibraryKindItems(k.kind, sort = k.sort, order = order, limit = ROW_COUNT, w = watch) }
                 }

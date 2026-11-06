@@ -142,16 +142,18 @@ export class LibraryRowKind extends HomeRowKind {
   readonly sort: string;
   readonly reversed: boolean;
   readonly unwatched: boolean;
+  readonly unfinished: boolean;
   readonly name: string;
   readonly builtin: boolean;
 
   constructor(library: LibraryView, sort: string, reversed: boolean,
-    unwatched: boolean, name: string, builtin: boolean) {
+    unwatched: boolean, name: string, builtin: boolean, unfinished: boolean = false) {
     super();
     this.library = library;
     this.sort = sort;
     this.reversed = reversed;
     this.unwatched = unwatched;
+    this.unfinished = unfinished;
     this.name = name;
     this.builtin = builtin;
   }
@@ -485,7 +487,7 @@ export class HomeRows {
     // 「最近观看」只要播过的，与「只看没看过的」互斥：以排序为准，开关作废
     return new HomeRow(pref.id, pref.hidden === true, new LibraryRowKind(
       library, resolved.sort, resolved.reversed,
-      pref.unwatched === true && resolved.sort !== 'last_played',
-      (pref.name ?? '').trim(), builtin));
+      pref.unwatched === true && pref.unfinished !== true && resolved.sort !== 'last_played',
+      (pref.name ?? '').trim(), builtin, pref.unfinished === true && resolved.sort !== 'last_played'));
   }
 }

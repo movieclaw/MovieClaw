@@ -22,11 +22,15 @@ struct LibraryDetailView: View {
     /// 数据到齐后自动打开待处理抽屉（Web `?pending=1`）
     var openPending = false
 
-    init(libraryId: Int, initialView: WallView = .items, openPending: Bool = false) {
+    init(libraryId: Int, initialView: WallView = .items, openPending: Bool = false, homeRow: HomeRows.Row? = nil) {
         self.libraryId = libraryId
         self.initialView = initialView
         self.openPending = openPending
         _view = State(initialValue: initialView)
+        if let homeRow, let rowSort = homeRow.sort {
+            _filter = State(initialValue: LibraryFilter(watch: homeRow.watch))
+            _sort = State(initialValue: WallSortState(sort: rowSort, reversed: homeRow.reversed))
+        }
     }
 
     @Environment(\.api) private var api

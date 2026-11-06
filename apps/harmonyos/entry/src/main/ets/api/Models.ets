@@ -2384,6 +2384,8 @@ export interface HomeRowPref {
   name?: string | null
   /// 只显示没看过的（仅库行与类型行）
   unwatched?: boolean | null
+  /// 只显示未看完的（仅库行与类型行，优先于 unwatched）
+  unfinished?: boolean | null
   /// 隐藏这一行，位置保留
   hidden?: boolean | null
   /// 自加库行的来源库
@@ -2418,6 +2420,8 @@ export interface HomeRowPrefInput {
   name?: string | null
   /// 只显示没看过的（仅库行与类型行）
   unwatched?: boolean | null
+  /// 只显示未看完的（仅库行与类型行，优先于 unwatched）
+  unfinished?: boolean | null
   /// 隐藏这一行，位置保留
   hidden?: boolean | null
   /// 自加库行的来源库

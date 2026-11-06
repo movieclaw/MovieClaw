@@ -52,9 +52,15 @@ import { GalleryDensity, GalleryPrefs, GalleryWall } from './GalleryWall';
 /** 单库页路由参数 */
 export class LibraryRouteParams {
   readonly libraryId: number;
+  readonly watch: string | null;
+  readonly sort: string | null;
+  readonly reversed: boolean;
 
-  constructor(libraryId: number) {
+  constructor(libraryId: number, watch: string | null = null, sort: string | null = null, reversed: boolean = false) {
     this.libraryId = libraryId;
+    this.watch = watch;
+    this.sort = sort;
+    this.reversed = reversed;
   }
 
   /**
@@ -980,6 +986,15 @@ struct LibraryDetailPage {
       const id: number = LibraryRouteParams.idOf(ctx.pathInfo.param as Object | undefined);
       if (id > 0) {
         this.libraryId = id;
+        const params = ctx.pathInfo.param as LibraryRouteParams;
+        if (params.sort !== undefined && params.sort !== null) {
+          this.sort = new WallSortState(params.sort, params.reversed === true);
+        }
+        if (params.watch !== undefined && params.watch !== null) {
+          const filter: LibraryFilter = new LibraryFilter();
+          filter.watch = params.watch;
+          this.filter = filter;
+        }
         this.start();
       }
     })
