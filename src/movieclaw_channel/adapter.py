@@ -33,6 +33,10 @@ class ChannelAdapter(Protocol):
         """
         ...
 
+    async def quiesce(self) -> None:
+        """停止收泵但保留发送能力，供停机时完成在飞消息收尾。"""
+        ...
+
     async def send_text(self, reply: ReplyContext, text: str) -> None:
         """发送一条文本消息(调用方已完成分片,text 不超过 max_text_len)。"""
         ...

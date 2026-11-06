@@ -169,8 +169,11 @@ class WeixinAdapter:
                         await self._remember_context_token(msg)
                         await ctx.on_inbound(msg)
         finally:
-            await self._client.notify_stop()
             logger.info("微信收消息循环退出 account=%s", self._account_id)
+
+    async def close(self) -> None:
+        """发送 client 注销前再通知停止；quiesce 阶段仍可发送中断提示。"""
+        await self._client.notify_stop()
 
     def _normalize(self, raw: dict[str, Any]) -> InboundMessage | None:
         """iLink WeixinMessage → 归一化入站消息;非用户消息返回 None。"""

@@ -147,9 +147,9 @@ class ChannelManager:
         rt = self._accounts.pop(key, None)
         if rt is None:
             return
-        # AdapterDriver.run 退出时会先注销 live client；必须趁发送能力仍在，
-        # 让 dispatcher 取消在飞 Agent 并把中断提示送达，再停收消息循环。
-        # dispatcher 先置 closing，新到的入站在这段短窗口里会被直接忽略。
+        # 两阶段停机：先让收泵不再推进游标/提交新消息，但保留 live 发送
+        # client；再取消 Agent 并排空提示；最后才注销 client。
+        await rt.adapter.quiesce()
         await rt.dispatcher.close()
         rt.stop.set()
         if rt.task is not None and not rt.task.done():
