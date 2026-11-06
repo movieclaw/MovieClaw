@@ -27,3 +27,18 @@ test('recently watched clears incompatible unfinished and unwatched preferences'
   assert.equal(actual.unfinished, false);
   assert.equal(actual.unwatched, false);
 });
+test('editing a visible row preserves unsupported rows at their original positions', () => {
+  const original = [{ id: 'kind:movie', unfinished: true }, { id: 'lib:1' }, { id: 'row:tv', media_kind: 'tv', unfinished: true }, { id: 'libraries' }];
+  const edited = [{ id: 'lib:1', unfinished: true }, { id: 'libraries' }];
+  const actual = HomeRows.preserveUnsupportedRows(edited, original, ['lib:1', 'libraries']);
+  assert.deepEqual(actual.map(row => row.id), original.map(row => row.id));
+  assert.equal(actual[0], original[0]);
+  assert.equal(actual[2], original[2]);
+  assert.equal(actual[1].unfinished, true);
+});
+test('removing supported rows does not restore them while unsupported rows remain intact', () => {
+  const original = [{ id: 'row:removed', library_id: 1 }, { id: 'row:tv', media_kind: 'tv', unfinished: true }, { id: 'libraries' }];
+  const actual = HomeRows.preserveUnsupportedRows([{ id: 'libraries' }], original, ['row:removed', 'libraries']);
+  assert.deepEqual(actual.map(row => row.id), ['libraries', 'row:tv']);
+  assert.equal(actual[1].unfinished, true);
+});

@@ -25,6 +25,8 @@ Apple `HomeRowsTests` 验证偏好往返、旧值兼容、互斥和类型行。`
 
 夹具输出 `connection.json`，其中只有本地测试服务器和测试账号。按该文件为 `xcodebuild test` 设置 `TEST_RUNNER_MC_TEST_SERVER`、`TEST_RUNNER_MC_TEST_USERNAME`、`TEST_RUNNER_MC_TEST_PASSWORD`，并设置 `TEST_RUNNER_MC_TEST_UNFINISHED_FIXTURE=1`。不设置后者时，此特定用例会跳过；不要用个人服务器替代夹具。按 Ctrl-C 关闭夹具及其子服务。
 
+竞态回归 `LibraryUITests/testDelayedKindSummaryCannotRestoreClearedWatchFilter` 使用夹具参数 `--delay-kind-summary 6`，同时设置 `TEST_RUNNER_MC_TEST_UNFINISHED_DELAY_FIXTURE=1`。本地代理把第一条“未看完”类型墙统计请求延后，状态探针确认旧请求仍未返回时清除筛选，再检查晚到的旧响应不会覆盖完整列表。
+
 Android 手机与 TV 共用 `apps/android-core` 的构建产物，须**顺序运行**，避免两个 Gradle 工程同时改写同一输出目录：
 
 ```sh
