@@ -220,7 +220,10 @@ async def test_close_before_invoke_agent_first_tick_still_delivers_one_notice():
     assert session.current_run is not None
     assert not agent_started.is_set()
 
-    await asyncio.wait_for(d.close(), timeout=2)
+    # timeout 上下文不会把 close 调度成新 task；确保 close 在已经 ready 的
+    # channel-run 获得首 tick 前同步取消它。
+    async with asyncio.timeout(2):
+        await d.close()
 
     assert adapter.sent == [("u1@im.wechat", dispatcher_mod.SERVICE_INTERRUPTED_TEXT)]
     assert not agent_started.is_set()
