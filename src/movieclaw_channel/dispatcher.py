@@ -50,6 +50,7 @@ _SEND_RETRY_DELAY_S = 2.0
 #: 两段都有限时，避免上游或渠道发送挂起反过来拖死应用重启。
 _CLOSE_RUN_TIMEOUT_S = 1.0
 _CLOSE_FORCE_TIMEOUT_S = 0.25
+_CLOSE_FINALIZE_TIMEOUT_S = 3.0
 _CLOSE_OUTBOUND_TIMEOUT_S = 3.0
 USER_STOP_CANCEL_REASON = "user_cancelled"
 SERVICE_STOP_CANCEL_REASON = "service_interrupted"
@@ -178,11 +179,13 @@ class ChannelDispatcher:
         active: list[tuple[asyncio.Task[None], ChannelRunState | None]] = []
         for session in self._sessions.values():
             if session.current_run and not session.current_run.done():
-                if session.run_state is not None:
-                    session.run_state.cancel_reason = SERVICE_STOP_CANCEL_REASON
-                session.current_run.cancel()
+                state = session.run_state
+                if state is None or not state.finalizing:
+                    if state is not None:
+                        state.cancel_reason = SERVICE_STOP_CANCEL_REASON
+                    session.current_run.cancel()
                 if session.worker and not session.worker.done():
-                    active.append((session.worker, session.run_state))
+                    active.append((session.worker, state))
             elif (
                 session.current_run is None
                 and session.inflight is not None
@@ -239,12 +242,23 @@ class ChannelDispatcher:
         # finalizer 可能先发渠道提示、再做慢 recorder/typing 清理。确认它不再
         # 产生出站后再 join；已经进入 finalizing 的任务绝不复投取消。
         outbound_waiters = [
-            state.outbound_finalized.wait()
+            asyncio.create_task(state.outbound_finalized.wait())
             for _worker, state in active
             if state is not None and not state.outbound_finalized.is_set()
         ]
         if outbound_waiters:
-            await asyncio.gather(*outbound_waiters)
+            _done, pending_outbound = await asyncio.wait(
+                outbound_waiters, timeout=_CLOSE_FINALIZE_TIMEOUT_S
+            )
+            if pending_outbound:
+                logger.warning(
+                    "渠道停机时 %d 个 Agent 未在 %.0f 秒内完成出站收尾",
+                    len(pending_outbound),
+                    _CLOSE_FINALIZE_TIMEOUT_S,
+                )
+                for waiter in pending_outbound:
+                    waiter.cancel()
+                await asyncio.gather(*pending_outbound, return_exceptions=True)
 
         # 此时发送泵仍活着；排空 Agent 收尾刚放入的提示后才能关闭。渠道网络
         # 挂起时限时放弃，最终仍由应用级强制退出兜底。
@@ -253,10 +267,21 @@ class ChannelDispatcher:
         except TimeoutError:
             logger.warning("渠道停机时出站消息未在 %.0f 秒内发完", _CLOSE_OUTBOUND_TIMEOUT_S)
 
-        # 中断提示排空后仍保留发送 client，直到 recorder / typing 等 finalizer
-        # 清理结束；应用级停机超时负责最终强退，不能在这里提前拆掉 client。
+        # 中断提示排空后仍保留发送 client，等待 recorder / typing 等 finalizer；
+        # 超过应用级收尾期限才强制取消，不能无界拖住账号/应用停机。
         if active:
-            await asyncio.gather(*(worker for worker, _state in active), return_exceptions=True)
+            _done, pending_finalizers = await asyncio.wait(
+                [worker for worker, _state in active], timeout=_CLOSE_FINALIZE_TIMEOUT_S
+            )
+            if pending_finalizers:
+                logger.warning(
+                    "渠道停机时 %d 个 Agent finalizer 未在 %.0f 秒内结束，强制取消",
+                    len(pending_finalizers),
+                    _CLOSE_FINALIZE_TIMEOUT_S,
+                )
+                for worker in pending_finalizers:
+                    worker.cancel()
+                await asyncio.wait(pending_finalizers, timeout=_CLOSE_FORCE_TIMEOUT_S)
 
         if self._pump_task and not self._pump_task.done():
             self._pump_task.cancel()

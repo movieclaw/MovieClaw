@@ -160,16 +160,17 @@ class WeixinAdapter:
                     timeout_s = suggested / 1000
 
                 new_cursor = resp.get("get_updates_buf")
-                if new_cursor:
-                    cursor = new_cursor
-                    await ctx.save_cursor(new_cursor)
-
                 for raw in resp.get("msgs") or []:
                     msg = self._normalize(raw)
                     if msg is not None:
                         msg = await self._with_images(raw, msg)
                         await self._remember_context_token(msg)
                         await ctx.on_inbound(msg)
+                # 整批入站提交后才确认游标。停收若夹在中间，宿主会拒绝
+                # 游标写入并在重启后重放，不能出现已确认但消息被丢弃。
+                if new_cursor:
+                    cursor = new_cursor
+                    await ctx.save_cursor(new_cursor)
         finally:
             self._receive_stop = None
             logger.info("微信收消息循环退出 account=%s", self._account_id)

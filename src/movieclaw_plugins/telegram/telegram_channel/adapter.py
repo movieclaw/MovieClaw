@@ -107,12 +107,14 @@ class TelegramAdapter:
 
             for update in updates:
                 update_id = update.get("update_id")
-                if isinstance(update_id, int):
-                    offset = update_id + 1
-                    await ctx.save_cursor(str(offset))
                 msg = self._normalize(update)
                 if msg is not None:
                     await ctx.on_inbound(await self._with_images(update, msg))
+                # 先把消息交给中枢，再确认游标。quiesce 若落在两者之间，
+                # 最多重放一次，不能先确认后被入站门闩丢掉而永久漏消息。
+                if isinstance(update_id, int):
+                    offset = update_id + 1
+                    await ctx.save_cursor(str(offset))
 
         logger.info("Telegram 收消息循环退出 account=%s", self._account_id)
 

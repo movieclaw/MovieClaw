@@ -776,6 +776,81 @@ async def test_message_arriving_during_quiesce_replays_from_persisted_cursor(
         await restarted.stop()
 
 
+@pytest.mark.parametrize("error_kind", ["gone", "remote"])
+async def test_remote_plugin_exit_before_stop_still_cleans_dispatcher(error_kind: str) -> None:
+    """插件进程先退后，quiesce 失败不能截断 dispatcher/stop 清理。"""
+    from movieclaw_api.services.channel_hub import HostAccount, _DriverAdapter
+    from movieclaw_api.services.plugin_channels import RemoteChannelDriver
+    from movieclaw_api.services.plugin_runtime import PluginProcessGone, RemoteCallError
+    from movieclaw_channel.dispatcher import make_dispatcher
+    from movieclaw_channel.manager import ChannelManager
+    from movieclaw_sdk.channels import driver_spec
+
+    class GoneSession:
+        def __init__(self) -> None:
+            self._stopping = False
+            self.running = asyncio.Event()
+            self.gone = asyncio.Event()
+
+        def error(self):
+            if error_kind == "gone":
+                return PluginProcessGone("plugin exited")
+            return RemoteCallError("plugin connection closed")
+
+        async def call(self, _cid, payload, **kwargs):
+            if payload["method"] == "push_target":
+                return None
+            if payload["method"] == "run":
+                self.running.set()
+                await self.gone.wait()
+                self._stopping = True
+                raise self.error()
+            if payload["method"] == "quiesce":
+                raise self.error()
+            raise AssertionError(payload["method"])
+
+    session = GoneSession()
+    remote = RemoteChannelDriver(session, "plugin:test", driver_spec(FakeDriver()))
+    account = HostAccount(
+        channel_id="plugin:test",
+        account_id="bot1",
+        display_name="test",
+        bound_user="u1",
+        credentials={},
+        state={},
+        persist=False,
+    )
+    adapter = _DriverAdapter(remote, account)
+
+    async def unused_agent(msg, emit):  # pragma: no cover - 没有入站
+        raise AssertionError("unexpected inbound")
+
+    async def save_cursor(_cursor: str) -> None:
+        return None
+
+    dispatcher = make_dispatcher(adapter, is_allowed=lambda _user: True, run_agent=unused_agent)
+    manager = ChannelManager()
+    await manager.start_account(
+        adapter,
+        dispatcher,
+        account_id="bot1",
+        initial_cursor="",
+        save_cursor=save_cursor,
+    )
+    runtime = manager._accounts[("plugin:test", "bot1")]  # noqa: SLF001
+    await asyncio.wait_for(session.running.wait(), timeout=2)
+    session.gone.set()
+    assert runtime.task is not None
+    await asyncio.wait_for(runtime.task, timeout=2)
+
+    await asyncio.wait_for(manager.stop_account("plugin:test", "bot1"), timeout=2)
+
+    assert account.stopping.is_set()
+    assert manager._accounts == {}  # noqa: SLF001
+    assert dispatcher._pump_task is not None  # noqa: SLF001
+    assert dispatcher._pump_task.done()  # noqa: SLF001
+
+
 async def _wait_for_status(session, status: str) -> None:
     from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
 
