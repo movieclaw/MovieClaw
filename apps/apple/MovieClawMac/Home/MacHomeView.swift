@@ -379,7 +379,7 @@ struct MacHomeView: View {
     }
 
     private func posterShelf(_ row: HomeRows.Row, items: [API.LibraryItemView], total: Int?) -> some View {
-        let source = MacWallSource(row.kind)
+        let source = MacWallSource(row.kind, unfinished: row.unfinished)
         let seeAll: (() -> Void)? = source.map { source in { router.push(.rowWall(title: row.title, source: source)) } }
         return MacShelf(title: row.title, seeAll: seeAll, artHeight: MacMetrics.posterWidth * 1.5) {
             ForEach(items, id: \.mediaItemId) { item in
@@ -434,7 +434,7 @@ struct MacHomeView: View {
 
     /// 「查看全部」上写的总数：只在确切知道时写
     static func rowTotal(_ row: HomeRows.Row) -> Int? {
-        if case let .library(library, sort, _, unwatched, _, _) = row.kind, !unwatched, sort != "last_played" {
+        if case let .library(library, sort, _, unwatched, _, _) = row.kind, !row.unfinished, !unwatched, sort != "last_played" {
             return library.stats.itemCount
         }
         return nil

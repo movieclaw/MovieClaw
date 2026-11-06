@@ -445,6 +445,14 @@ fun AppNav() {
     NavHost(navController = navController, startDestination = "tabs") {
         composable("tabs") {
             MainTabScreen(
+                onOpenHomeRow = { row ->
+                    val k = row.kind as? io.movieclaw.android.core.model.HomeRows.Kind.Library
+                    if (k != null) {
+                        val watch = if (k.sort == "last_played") "seen" else if (k.unfinished) "unfinished" else if (k.unwatched) "unwatched" else ""
+                        val order = io.movieclaw.android.core.model.HomeRows.preset(k.sort).direction?.orderParam(k.reversed).orEmpty()
+                        navController.navigate("library/${k.library.id}?name=${Uri.encode(k.library.name)}&w=$watch&sort=${k.sort}&order=$order")
+                    }
+                },
                 onOpenLibrary = { id, name ->
                     navController.navigate("library/$id?name=${Uri.encode(name)}")
                 },
@@ -964,7 +972,7 @@ fun AppNav() {
                 )
             }
         }
-        composable("library/{libraryId}?name={name}") { entry ->
+        composable("library/{libraryId}?name={name}&w={w}&sort={sort}&order={order}") { entry ->
             val libraryId = entry.arguments?.getString("libraryId")?.toLongOrNull() ?: return@composable
             LibraryDetailScreen(
                 libraryId = libraryId,

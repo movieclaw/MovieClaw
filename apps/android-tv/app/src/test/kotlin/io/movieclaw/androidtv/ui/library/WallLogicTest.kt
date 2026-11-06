@@ -22,6 +22,19 @@ class WallLogicTest {
     }
 
     @Test
+    fun unfinishedFlowsIntoLibraryAndKindQueries() {
+        assertEquals("unfinished", WallLogic.watchParam("rating", false, true))
+        assertEquals("seen", WallLogic.watchParam("last_played", false, true))
+        val source = WallSource.Library(1, "rating", true, false, unfinished = true)
+        assertEquals("unfinished", WallLogic.rowQuery(source).w)
+        assertEquals("asc", WallLogic.rowQuery(source).order)
+        assertNull(WallLogic.rowCount(source, 100))
+        assertEquals("unfinished", WallLogic.rowQuery(WallSource.MediaKind("tv", "title", false, false, true)).w)
+        assertEquals("unfinished", WallFilters.of(WallPicks(), false, true).w)
+        assertEquals(listOf("未看完"), WallFilters.conditions(WallPicks(), false, null, true))
+    }
+
+    @Test
     fun watchParam() {
         assertEquals("seen", WallLogic.watchParam("last_played", false))
         assertEquals("seen", WallLogic.watchParam("last_played", true))

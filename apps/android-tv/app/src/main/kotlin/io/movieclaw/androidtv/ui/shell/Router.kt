@@ -24,8 +24,8 @@ sealed interface Route {
 
 /** 一面海报墙从哪儿取数（TVRowWallView 的 source） */
 sealed interface WallSource {
-    data class Library(val id: Long, val sort: String, val reversed: Boolean, val unwatched: Boolean, val count: Long? = null) : WallSource
-    data class MediaKind(val kind: String, val sort: String, val reversed: Boolean, val unwatched: Boolean) : WallSource
+    data class Library(val id: Long, val sort: String, val reversed: Boolean, val unwatched: Boolean, val count: Long? = null, val unfinished: Boolean = false) : WallSource
+    data class MediaKind(val kind: String, val sort: String, val reversed: Boolean, val unwatched: Boolean, val unfinished: Boolean = false) : WallSource
     data class Collection(val id: Long, val sort: String, val reversed: Boolean) : WallSource
     data class Genre(val kind: String, val genre: Long, val count: Long) : WallSource
     data class Favorites(val sort: String, val reversed: Boolean, val total: Long?) : WallSource

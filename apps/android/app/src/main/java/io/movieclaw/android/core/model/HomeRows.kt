@@ -141,6 +141,7 @@ object HomeRows {
             val unwatched: Boolean,
             val name: String,
             val builtin: Boolean,
+            val unfinished: Boolean = false,
         ) : Kind
         data class Collection(
             val collection: CollectionView,
@@ -189,7 +190,7 @@ object HomeRows {
                 is Kind.Library -> listOfNotNull(
                     "${k.library.name}库",
                     preset(k.sort).short(k.reversed),
-                    if (k.unwatched) "只看没看过的" else null,
+                    if (k.unfinished) "未看完" else if (k.unwatched) "只看没看过的" else null,
                 ).joinToString(" · ")
                 is Kind.Collection -> "合集 · ${preset(k.sort).short(k.reversed)}"
             }
@@ -365,7 +366,8 @@ object HomeRows {
             pref.id, pref.hidden == true,
             Kind.Library(
                 library = library, sort = sort, reversed = reversed,
-                unwatched = pref.unwatched == true && sort != "last_played",
+                unwatched = pref.unwatched == true && pref.unfinished != true && sort != "last_played",
+                unfinished = pref.unfinished == true && sort != "last_played",
                 name = (pref.name ?: "").trim(), builtin = builtin,
             ),
         )
@@ -405,6 +407,7 @@ object HomeRows {
             order = order,
             name = name,
             unwatched = unwatched,
+            unfinished = (row.kind as? Kind.Library)?.unfinished?.takeIf { it },
             hidden = if (row.hidden) true else null,
             libraryId = libraryId,
             collectionId = collectionId,

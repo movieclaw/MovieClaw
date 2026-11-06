@@ -116,6 +116,7 @@ fun LibraryWallScreen(libraryId: Long) {
     val key = WallLogic.sortKey(libraryId)
     var sort by remember { mutableStateOf(WallLogic.decodeSort(store.string(key))) }
     var unwatched by remember { mutableStateOf(store.string("$key.unwatched") == "true") }
+    var unfinished by remember { mutableStateOf(store.string("$key.unfinished") == "true") }
     var menuOpen by remember { mutableStateOf(false) }
     val buttonFocus = remember { FocusRequester() }
     // 面板关着焦点出不去：等它从树上撤掉再把焦点还给按钮
@@ -137,7 +138,7 @@ fun LibraryWallScreen(libraryId: Long) {
     }
 
     val picks = state.picks
-    val filter = WallFilters.of(picks, unwatched)
+    val filter = WallFilters.of(picks, unwatched, unfinished)
     val queryKey = "${sort.sort}-${sort.reversed}-$filter"
 
     suspend fun reload() {
@@ -170,12 +171,16 @@ fun LibraryWallScreen(libraryId: Long) {
     }
 
     val facets = state.facets
-    val conditions = WallFilters.conditions(picks, unwatched, facets)
+    val conditions = WallFilters.conditions(picks, unwatched, facets, unfinished)
     // 当前条件下共几部：用 facet 的命中数（与墙同一套参数）；还没回来时，没加条件先用库的统计顶上
     val total = facets?.total ?: if (filter.isEmpty) pager.count else null
     val emptyActions = if (!filter.isEmpty && pager.items?.isEmpty() == true) {
         state.relax.map { suggestion ->
             WallAction("${suggestion.dim}:${suggestion.value}", "去掉“${WallFilters.relaxLabel(suggestion)}”可看 ${suggestion.count} 部") {
+                if (suggestion.dim == "watch") {
+                    unfinished = false
+                    store.putString("$key.unfinished", "false")
+                }
                 val (p, u) = WallFilters.remove(suggestion.dim, state.picks, unwatched)
                 state.picks = p
                 if (u != unwatched) {
@@ -185,6 +190,8 @@ fun LibraryWallScreen(libraryId: Long) {
             }
         } + WallAction("clear", "清除全部条件") {
             state.picks = WallPicks()
+            unfinished = false
+            store.putString("$key.unfinished", "false")
             unwatched = false
             store.putString("$key.unwatched", "false")
         }
@@ -212,6 +219,13 @@ fun LibraryWallScreen(libraryId: Long) {
                 LibraryMenu(
                     sort = sort.sort,
                     unwatched = unwatched,
+                    unfinished = unfinished,
+                    onToggleUnfinished = {
+                        unfinished = !unfinished
+                        unwatched = false
+                        store.putString("$key.unfinished", unfinished.toString())
+                        store.putString("$key.unwatched", "false")
+                    },
                     picks = picks,
                     facets = facets,
                     onSort = {
@@ -220,6 +234,8 @@ fun LibraryWallScreen(libraryId: Long) {
                     },
                     onToggleUnwatched = {
                         unwatched = !unwatched
+                        unfinished = false
+                        store.putString("$key.unfinished", "false")
                         store.putString("$key.unwatched", unwatched.toString())
                     },
                     onPicks = { state.picks = it },
@@ -295,12 +311,13 @@ fun CollectionWallScreen(collectionId: Long, name: String) {
 fun RowWallScreen(title: String, source: WallSource) {
     val session = LocalSession.current
     val pager = rememberPageState("row") { WallPager() }
+    var cleared by rememberPageState("row-watch") { mutableStateOf(false) }
+    val query = WallLogic.rowQuery(source).let { if (cleared) it.copy(w = null) else it }
     suspend fun reload() {
-        val query = WallLogic.rowQuery(source)
-        pager.reset("row") { offset, limit -> session.api.fetchWall(query, offset, limit) }
+        pager.reset("row:$query") { offset, limit -> session.api.fetchWall(query, offset, limit) }
     }
-    LaunchedEffect(source) {
-        if (pager.items != null) return@LaunchedEffect
+    LaunchedEffect(query) {
+        if (pager.loadedKey == "row:$query" && pager.items != null) return@LaunchedEffect
         reload()
     }
     // 媒体库那一行没带部数时，按库的统计补上（只在没加筛选时写）
@@ -309,7 +326,7 @@ fun RowWallScreen(title: String, source: WallSource) {
         if (WallLogic.rowCount(source, 0) == null) return@LaunchedEffect
         attempt { session.api.libraryList(scope = "all") }?.firstOrNull { it.id == source.id }?.let { pager.count = it.stats.itemCount }
     }
-    val total = WallLogic.rowCount(source, pager.count)
+    val total = if (cleared) null else WallLogic.rowCount(source, pager.count)
     PosterWall(
         title = title,
         pager = pager,
@@ -317,6 +334,12 @@ fun RowWallScreen(title: String, source: WallSource) {
         subtitle = total?.let { "$it 部" },
         fallbackLibrary = (source as? WallSource.Library)?.id,
         total = total,
+        accessory = { enabled ->
+            if (query.w != null) {
+                WallMenuButton("清除观看筛选", enabled, Modifier) { cleared = true }
+            }
+        },
+        emptyActions = if (query.w != null) listOf(WallAction("clear-watch", "清除观看筛选") { cleared = true }) else emptyList(),
     )
 }
 
@@ -345,6 +368,8 @@ private enum class FacetMenu(val title: String) { Genre("类型"), Decade("年�
 private fun BoxScope.LibraryMenu(
     sort: String,
     unwatched: Boolean,
+    unfinished: Boolean,
+    onToggleUnfinished: () -> Unit,
     picks: WallPicks,
     facets: LibraryFacetsView?,
     onSort: (String) -> Unit,
@@ -404,6 +429,7 @@ private fun BoxScope.LibraryMenu(
                 }
             }
             MenuDivider()
+            MenuRow("未看完", checked = unfinished, enabled = open == null) { onToggleUnfinished() }
             MenuRow("只看没看过的", checked = unwatched, enabled = open == null) {
                 onToggleUnwatched()
                 onDismiss()
