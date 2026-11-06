@@ -179,6 +179,55 @@ async def test_stop_cancels_running_agent():
         await d.close()
 
 
+async def test_close_delivers_cancel_notice_before_stopping_pump():
+    """服务停机取消运行时，Agent 的 finally 回执必须经发送泵真正送达。"""
+    adapter = FakeAdapter()
+    started = asyncio.Event()
+
+    async def run_agent(msg, emit):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await emit("已取消本次处理。")
+
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=run_agent)
+    d.start()
+    await d.submit_inbound(_msg("跑个长任务", msg_id="m1"))
+    await asyncio.wait_for(started.wait(), timeout=2)
+
+    await d.close()
+
+    assert [text for _, text in adapter.sent] == ["已取消本次处理。"]
+
+
+async def test_close_retries_cancel_without_waiting_for_stuck_upstream(monkeypatch):
+    """上游吞掉首次取消时补一次取消，仍在有限时间内发出中断提示并结束。"""
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_RUN_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_FORCE_TIMEOUT_S", 0.1)
+    adapter = FakeAdapter()
+    started = asyncio.Event()
+
+    async def run_agent(msg, emit):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            try:
+                await asyncio.Event().wait()  # 模拟上游吞掉首次取消后继续挂起
+            finally:
+                await emit("已取消本次处理。")
+
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=run_agent)
+    d.start()
+    await d.submit_inbound(_msg("跑个长任务", msg_id="m1"))
+    await asyncio.wait_for(started.wait(), timeout=2)
+
+    await d.close()
+
+    assert [text for _, text in adapter.sent] == ["已取消本次处理。"]
+
+
 async def test_dead_worker_is_revived():
     """worker 意外死亡后,下一条消息触发自动复活,会话不永久卡死。"""
     adapter = FakeAdapter()

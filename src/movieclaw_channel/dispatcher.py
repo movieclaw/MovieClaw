@@ -44,6 +44,14 @@ _MAX_CONCURRENT_RUNS = 2
 #: 出站发送失败的重试次数与间隔
 _SEND_RETRIES = 1
 _SEND_RETRY_DELAY_S = 2.0
+#: 停机时先给 Agent 一小段时间执行取消收尾，再排空已经生成的渠道提示。
+#: 两段都有限时，避免上游或渠道发送挂起反过来拖死应用重启。
+_CLOSE_RUN_TIMEOUT_S = 1.0
+_CLOSE_FORCE_TIMEOUT_S = 0.25
+_CLOSE_OUTBOUND_TIMEOUT_S = 3.0
+#: Task.cancel 的消息也承担取消来源标记；服务层据此避免和 /stop 回执重复提示。
+USER_STOP_CANCEL_REASON = "channel_user_stop"
+SERVICE_STOP_CANCEL_REASON = "service_interrupted"
 #: 图文消息的文案上限:Telegram caption 1024 字符是各平台里最紧的口径,
 #: 超过就放弃随图发送、退回纯文本分片(推送文案实际都很短,达不到)
 _PHOTO_CAPTION_LIMIT = 1000
@@ -139,21 +147,51 @@ class ChannelDispatcher:
         )
 
     async def close(self) -> None:
-        """停止全部 worker 与发送泵(不排空队列:进程要退了,快停优先)。"""
+        """取消运行、等待其渠道收尾发出，再停止 worker 与发送泵。"""
         self._closing = True
-        tasks: list[asyncio.Task[None]] = []
+        workers: list[asyncio.Task[None]] = []
+        active_workers: list[asyncio.Task[None]] = []
         for session in self._sessions.values():
             if session.current_run and not session.current_run.done():
-                session.current_run.cancel()
+                session.current_run.cancel(SERVICE_STOP_CANCEL_REASON)
+                if session.worker and not session.worker.done():
+                    active_workers.append(session.worker)
             if session.worker and not session.worker.done():
-                session.worker.cancel()
-                tasks.append(session.worker)
+                workers.append(session.worker)
+                if session.worker not in active_workers:
+                    # 空闲 worker 正阻塞在 queue.get()，无需占用 Agent 收尾窗口。
+                    session.worker.cancel(SERVICE_STOP_CANCEL_REASON)
+
+        # worker 正在 await current_run；只取消运行一次，让它的 finally 有机会把
+        # 中断提示放进出站队列。直接再 cancel worker 会把收尾里的 await 补第二刀。
+        pending: set[asyncio.Task[None]] = set()
+        if active_workers:
+            _done, pending = await asyncio.wait(active_workers, timeout=_CLOSE_RUN_TIMEOUT_S)
+        if pending:
+            logger.warning("渠道停机时 %d 个会话未及时结束，强制取消 worker", len(pending))
+            for worker in pending:
+                worker.cancel(SERVICE_STOP_CANCEL_REASON)
+            await asyncio.wait(pending, timeout=_CLOSE_FORCE_TIMEOUT_S)
+
+        # 此时发送泵仍活着；排空 Agent 收尾刚放入的提示后才能关闭。渠道网络
+        # 挂起时限时放弃，最终仍由应用级强制退出兜底。
+        try:
+            await asyncio.wait_for(self._outbound.join(), timeout=_CLOSE_OUTBOUND_TIMEOUT_S)
+        except TimeoutError:
+            logger.warning("渠道停机时出站消息未在 %.0f 秒内发完", _CLOSE_OUTBOUND_TIMEOUT_S)
+
         if self._pump_task and not self._pump_task.done():
             self._pump_task.cancel()
-            tasks.append(self._pump_task)
-        for t in tasks:
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await t
+        tasks = [*workers, *([self._pump_task] if self._pump_task is not None else [])]
+        if tasks:
+            done, still_pending = await asyncio.wait(tasks, timeout=0.1)
+            for task in done:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    task.result()
+            if still_pending:
+                logger.warning(
+                    "渠道停机后仍有 %d 个任务未退出，交由进程退出回收", len(still_pending)
+                )
 
     # ------------------------------------------------------------------
     # 入站
@@ -221,7 +259,7 @@ class ChannelDispatcher:
             session = self._sessions.get(msg.session_key)
             run = session.current_run if session else None
             if run and not run.done():
-                run.cancel()
+                run.cancel(USER_STOP_CANCEL_REASON)
                 text = "已取消当前处理。"
             else:
                 text = "当前没有正在进行的处理。"
@@ -312,10 +350,13 @@ class ChannelDispatcher:
         """发送泵:串行取信封 → 图文优先 → 分片 → 调 adapter 发送(带一次重试)。"""
         while True:
             env = await self._outbound.get()
-            if env.photo is not None and await self._try_send_photo(env):
-                continue
-            for chunk in split_message(env.text, self._adapter.max_text_len):
-                await self._send_with_retry(env.reply, chunk, env.origin)
+            try:
+                if env.photo is not None and await self._try_send_photo(env):
+                    continue
+                for chunk in split_message(env.text, self._adapter.max_text_len):
+                    await self._send_with_retry(env.reply, chunk, env.origin)
+            finally:
+                self._outbound.task_done()
 
     async def _try_send_photo(self, env: OutboundEnvelope) -> bool:
         """图文一体发送,返回是否成功。
