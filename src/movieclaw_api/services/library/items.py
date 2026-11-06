@@ -74,7 +74,7 @@ from movieclaw_api.services.library.bluray import (
     disc_playlist_stale,
     enrich_spec_with_clpi,
     read_clpi_languages,
-    read_main_playlist,
+    read_main_playlist_result,
     streams_have_clpi_metadata,
 )
 from movieclaw_api.services.library.bulk import scalar_rows
@@ -3248,8 +3248,15 @@ async def backfill_streams(
                 break
             continue
         path = Path(row.file_path)
+        playlist = None
         if needs_disc:
-            playlist = await asyncio.to_thread(read_main_playlist, path)
+            playlist_result = await asyncio.to_thread(read_main_playlist_result, path)
+            if playlist_result.retryable:
+                # 候选没读全时剩余候选可能只是花絮；不落账、不清规格，留到下次重试。
+                if not await keep_going():
+                    break
+                continue
+            playlist = playlist_result.playlist
             old = row.disc_playlist if isinstance(row.disc_playlist, dict) else {}
             old_clips = old.get("clips")
             if playlist is not None and playlist.duration_seconds > 0:
@@ -3287,7 +3294,11 @@ async def backfill_streams(
                 if not await keep_going():
                     break
                 continue
-        target = disc_main_stream(path) if row.container in ("bluray", "dvd") else path
+        target = (
+            await asyncio.to_thread(disc_main_stream, path, playlist=playlist)
+            if row.container in ("bluray", "dvd")
+            else path
+        )
         if target is None or not await asyncio.to_thread(target.exists):
             if not await keep_going():
                 break

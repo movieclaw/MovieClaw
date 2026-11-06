@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -23,7 +24,10 @@ import movieclaw_api.services.library.scan as scan_mod
 import movieclaw_api.services.media_discover as discover_mod
 import movieclaw_api.services.media_probe as probe_mod
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.services.library.bluray import DISC_PLAYLIST_VERSION
+from movieclaw_api.services.library.bluray import (
+    DISC_PLAYLIST_VERSION,
+    MainPlaylistReadResult,
+)
 from movieclaw_api.services.library.disc_main_playlists import heal_disc_main_playlists
 from movieclaw_api.services.library.scan import ScanSummary, scan_library
 from movieclaw_api.services.media_probe import MediaSpec
@@ -833,7 +837,11 @@ async def test_unreadable_playlists_keep_a_good_record_until_they_read_again(
     """目录在、MPLS 读不出（NFS soft 挂载抖动）：旧清单是好的，不能写成「读过但没有」的哨兵。"""
     file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
     monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
-    monkeypatch.setattr(items_mod, "read_main_playlist", lambda _path: None)
+    monkeypatch.setattr(
+        items_mod,
+        "read_main_playlist_result",
+        lambda _path: MainPlaylistReadResult(None, retryable=True),
+    )
 
     def unexpected_probe(_path):
         raise AssertionError("读不出清单时不该重探")
@@ -844,6 +852,59 @@ async def test_unreadable_playlists_keep_a_good_record_until_they_read_again(
     row = await _load(db, file_id)
     assert row.disc_playlist == _version_1_record("00002")
     assert row.resolution == "720p"
+
+
+async def test_partial_playlist_io_failure_waits_for_a_complete_retry(
+    db, tmp_path, monkeypatch
+) -> None:
+    """正片 MPLS 暂时读失败时不扶正小拷贝；恢复后仍会换正片并在线程里找流。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    original_read_bytes = Path.read_bytes
+    fail_main_playlist = True
+
+    def flaky_read_bytes(path: Path) -> bytes:
+        if fail_main_playlist and path.name == "00001.mpls":
+            raise OSError("temporary NFS read failure")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", flaky_read_bytes)
+    loop_thread = threading.get_ident()
+    stream_calls: list[str] = []
+
+    def locate_stream(path: Path, *, playlist=None):
+        assert threading.get_ident() != loop_thread
+        assert playlist is not None
+        stream_calls.append(playlist.path.name)
+        return path / "BDMV" / "STREAM" / "00001.m2ts"
+
+    probe_calls: list[str] = []
+
+    def probe(path: Path):
+        probe_calls.append(path.name)
+        return _MAIN_SPEC
+
+    monkeypatch.setattr(scan_mod, "disc_main_stream", locate_stream)
+    monkeypatch.setattr(items_mod, "probe_media", probe)
+
+    assert await heal_disc_main_playlists() == 0
+    row = await _load(db, file_id)
+    assert row.disc_playlist == _version_1_record("00002")
+    for field, value in _SMALL_COPY_FIELDS.items():
+        assert getattr(row, field) == value, field
+    assert row.chapters == [{"start_ms": 0, "end_ms": None, "title": None}]
+    assert stream_calls == [] and probe_calls == []
+
+    fail_main_playlist = False
+    assert await heal_disc_main_playlists() == 1
+    row = await _load(db, file_id)
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert row.disc_playlist["name"] == "00001.mpls"
+    assert row.duration_seconds == 5648
+    assert row.resolution == "1080p"
+    assert stream_calls == ["00001.mpls"]
+    assert probe_calls == ["00001.m2ts"]
 
 
 def _bluray_image_with_copies(*, smaller_is_longer: bool) -> bytes:

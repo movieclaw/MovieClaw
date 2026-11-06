@@ -102,6 +102,14 @@ class MplsPlaylist:
         return [{"start_ms": start_ms, "end_ms": None, "title": None} for start_ms in self.marks]
 
 
+@dataclass(frozen=True)
+class MainPlaylistReadResult:
+    """主播放列表读取结果；``retryable`` 表示候选未完整读完。"""
+
+    playlist: MplsPlaylist | None
+    retryable: bool = False
+
+
 def parse_mpls_playlist(data: bytes, *, path: Path = Path("unknown.mpls")) -> MplsPlaylist:
     """解析 MPLS 的 PlayList 与 PlayListMark 小节。
 
@@ -249,10 +257,15 @@ def read_main_playlist(disc_dir: Path) -> MplsPlaylist | None:
     同一剪辑序列只保留一个，避免不同语言/菜单入口的等价 MPLS 放大候选数量。
     长度相近时字节明显更多的才是正片（见 ``select_main_playlist``）。
     """
+    return read_main_playlist_result(disc_dir).playlist
+
+
+def read_main_playlist_result(disc_dir: Path) -> MainPlaylistReadResult:
+    """读取主播放列表，并标记可重试的 I/O 失败。"""
     playlist_dir = disc_dir / "BDMV" / "PLAYLIST"
     stream_dir = disc_dir / "BDMV" / "STREAM"
     if not playlist_dir.is_dir() or not stream_dir.is_dir():
-        return None
+        return MainPlaylistReadResult(None)
     try:
         paths = sorted(
             path
@@ -265,14 +278,20 @@ def read_main_playlist(disc_dir: Path) -> MplsPlaylist | None:
             if path.is_file() and path.suffix.lower() == ".m2ts"
         }
     except OSError:
-        return None
+        return MainPlaylistReadResult(None, retryable=True)
     playlists = []
+    retryable = False
     for path in paths:
         try:
             playlists.append(parse_mpls_playlist(path.read_bytes(), path=path))
-        except (OSError, MplsParseError) as exc:
+        except OSError as exc:
+            retryable = True
+            logger.warning("蓝光 MPLS 读取失败，跳过候选：%s（%s）", path, exc)
+        except MplsParseError as exc:
             logger.warning("蓝光 MPLS 解析失败，跳过候选：%s（%s）", path, exc)
-    return select_main_playlist(playlists, stream_sizes)
+    return MainPlaylistReadResult(
+        select_main_playlist(playlists, stream_sizes), retryable=retryable
+    )
 
 
 #: 长度差多少秒以内才比字节。NAS 上 186 张蓝光盘：同一部片的不同拷贝差 0～32 秒，

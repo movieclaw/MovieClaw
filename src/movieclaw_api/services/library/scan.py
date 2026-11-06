@@ -71,6 +71,7 @@ from movieclaw_api.services.foreground import yield_to_foreground
 from movieclaw_api.services.library import acquisition
 from movieclaw_api.services.library import cloud as library_cloud
 from movieclaw_api.services.library.bluray import (
+    MplsPlaylist,
     disc_playlist_record,
     disc_playlist_stale,
     enrich_spec_with_clpi,
@@ -2665,9 +2666,9 @@ def scanned_media_source(attrs: TorrentAttrs, container: str | None = None) -> s
     return attrs.media_source
 
 
-def disc_main_stream(disc_dir: Path) -> Path | None:
+def disc_main_stream(disc_dir: Path, *, playlist: MplsPlaylist | None = None) -> Path | None:
     """原盘主流文件（探测用）：蓝光优先按 MPLS 主播放列表，损坏盘降级取最大流。"""
-    playlist = read_main_playlist(disc_dir)
+    playlist = playlist or read_main_playlist(disc_dir)
     if playlist is not None:
         stream_dir = disc_dir / "BDMV" / "STREAM"
         try:
