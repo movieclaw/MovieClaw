@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -105,6 +105,7 @@ class ChannelRunState:
     """dispatcher 与服务层共享的一次运行状态，不依赖 CancelledError 参数传递语义。"""
 
     cancel_reason: Literal["user_cancelled", "service_interrupted"] | None = None
+    invoke_started: bool = False
     finalizing: bool = False
     cancel_notice_pushed: bool = False
     #: channel_agent 已完成所有可能产生出站消息的收尾；之后可安全排空发送队列。
@@ -160,6 +161,7 @@ class ChannelDispatcher:
         self._outbound: asyncio.Queue[OutboundEnvelope] = asyncio.Queue(
             maxsize=_OUTBOUND_QUEUE_SIZE
         )
+        self._shutdown_outbound: deque[OutboundEnvelope] = deque()
         self._run_sema = asyncio.Semaphore(_MAX_CONCURRENT_RUNS)
         self._pump_task: asyncio.Task[None] | None = None
         self._closing = False
@@ -184,6 +186,17 @@ class ChannelDispatcher:
                     if state is not None:
                         state.cancel_reason = SERVICE_STOP_CANCEL_REASON
                     session.current_run.cancel()
+                    # create_task 后、invoke_agent 首 tick 前取消时协程体及其
+                    # finally 都不会运行；dispatcher 必须同步补上唯一提示。
+                    if state is not None and not state.invoke_started:
+                        state.cancel_notice_pushed = self._push_shutdown_outbound(
+                            OutboundEnvelope(
+                                reply=session.inflight.reply,
+                                text=SERVICE_INTERRUPTED_TEXT,
+                                origin="system",
+                            )
+                        )
+                        state.outbound_finalized.set()
                 if session.worker and not session.worker.done():
                     active.append((session.worker, state))
             elif (
@@ -406,6 +419,7 @@ class ChannelDispatcher:
                     async def invoke_agent(
                         *, _state: ChannelRunState = run_state, _msg: InboundMessage = msg
                     ) -> None:
+                        _state.invoke_started = True
                         token = _current_run_state.set(_state)
                         try:
                             await self._deps.run_agent(_msg, emit)
@@ -488,25 +502,28 @@ class ChannelDispatcher:
         await self._outbound.put(env)
 
     def _push_shutdown_outbound(self, env: OutboundEnvelope) -> bool:
-        """停机提示只做非阻塞入队；发送泵卡死时不能让 close 永久堵在背压上。"""
+        """停机提示非阻塞入队；主队列满时保留到优先待发区，不能丢。"""
         try:
             self._outbound.put_nowait(env)
         except asyncio.QueueFull:
-            logger.warning("渠道停机提示因出站队列已满而放弃 user=%s", env.reply.user_id)
-            return False
+            self._shutdown_outbound.append(env)
         return True
 
     async def _outbound_pump(self) -> None:
         """发送泵:串行取信封 → 图文优先 → 分片 → 调 adapter 发送(带一次重试)。"""
         while True:
-            env = await self._outbound.get()
+            from_main_queue = not self._shutdown_outbound
+            env = (
+                await self._outbound.get() if from_main_queue else self._shutdown_outbound.popleft()
+            )
             try:
                 if env.photo is not None and await self._try_send_photo(env):
                     continue
                 for chunk in split_message(env.text, self._adapter.max_text_len):
                     await self._send_with_retry(env.reply, chunk, env.origin)
             finally:
-                self._outbound.task_done()
+                if from_main_queue:
+                    self._outbound.task_done()
 
     async def _try_send_photo(self, env: OutboundEnvelope) -> bool:
         """图文一体发送,返回是否成功。

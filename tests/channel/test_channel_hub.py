@@ -851,15 +851,18 @@ async def test_remote_plugin_exit_before_stop_still_cleans_dispatcher(error_kind
     assert dispatcher._pump_task.done()  # noqa: SLF001
 
 
-async def test_adapter_driver_quiesce_is_bounded_when_adapter_never_stops(monkeypatch) -> None:
-    """直连 AdapterDriver 的适配器和收泵都卡住时，quiesce 仍须按硬期限返回。"""
-    from movieclaw_api.services.channel_hub import HostAccount
+async def test_manager_timeout_cancels_adapter_driver_quiesce_children(monkeypatch) -> None:
+    """外层 manager 期限短于 AdapterDriver 时，内层 quiesce 不能成为孤儿。"""
+    from movieclaw_api.services.channel_hub import HostAccount, _DriverAdapter
+    from movieclaw_channel import manager as manager_mod
+    from movieclaw_channel.dispatcher import make_dispatcher
+    from movieclaw_channel.manager import ChannelManager
     from movieclaw_sdk import channels as sdk_channels
 
     run_started = asyncio.Event()
-    quiesce_cancelled = asyncio.Event()
-    release_quiesce = asyncio.Event()
+    quiesce_started = asyncio.Event()
     quiesce_finished = asyncio.Event()
+    quiesce_task: asyncio.Task[None] | None = None
 
     class Client:
         closed = False
@@ -870,14 +873,14 @@ async def test_adapter_driver_quiesce_is_bounded_when_adapter_never_stops(monkey
     class Adapter:
         async def run(self, ctx) -> None:
             run_started.set()
-            await asyncio.Event().wait()
+            await ctx.stop.wait()
 
         async def quiesce(self) -> None:
+            nonlocal quiesce_task
+            quiesce_task = asyncio.current_task()
+            quiesce_started.set()
             try:
                 await asyncio.Event().wait()
-            except asyncio.CancelledError:
-                quiesce_cancelled.set()
-                await release_quiesce.wait()
             finally:
                 quiesce_finished.set()
 
@@ -890,7 +893,10 @@ async def test_adapter_driver_quiesce_is_bounded_when_adapter_never_stops(monkey
         def open(self, account):
             return self.client, self.adapter
 
-    monkeypatch.setattr(sdk_channels, "_ADAPTER_QUIESCE_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(sdk_channels, "_ADAPTER_QUIESCE_TIMEOUT_S", 1.0)
+    monkeypatch.setattr(manager_mod, "_QUIESCE_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(manager_mod, "_STOP_ACCOUNT_TIMEOUT_S", 0.5)
+    monkeypatch.setattr(manager_mod, "_GRACEFUL_STOP_TIMEOUT_S", 0.1)
     driver = Driver()
     account = HostAccount(
         channel_id="stuck",
@@ -901,18 +907,35 @@ async def test_adapter_driver_quiesce_is_bounded_when_adapter_never_stops(monkey
         state={},
         persist=False,
     )
-    run_task = asyncio.create_task(driver.run(account))
+    adapter = _DriverAdapter(driver, account)
+
+    async def unused_agent(msg, emit):  # pragma: no cover - 没有入站
+        raise AssertionError("unexpected inbound")
+
+    async def save_cursor(_cursor: str) -> None:
+        return None
+
+    dispatcher = make_dispatcher(adapter, is_allowed=lambda _user: True, run_agent=unused_agent)
+    manager = ChannelManager()
+    await manager.start_account(
+        adapter,
+        dispatcher,
+        account_id="bot1",
+        initial_cursor="",
+        save_cursor=save_cursor,
+    )
     await asyncio.wait_for(run_started.wait(), timeout=2)
 
-    try:
-        await asyncio.wait_for(driver.quiesce(account), timeout=0.5)
-        await asyncio.wait_for(quiesce_cancelled.wait(), timeout=2)
-        assert account.quiescing.is_set()
-    finally:
-        run_task.cancel()
-        await asyncio.gather(run_task, return_exceptions=True)
-        release_quiesce.set()
-        await asyncio.wait_for(quiesce_finished.wait(), timeout=2)
+    await asyncio.wait_for(manager.stop_account("stuck", "bot1"), timeout=1)
+
+    assert quiesce_started.is_set()
+    await asyncio.wait_for(quiesce_finished.wait(), timeout=2)
+    assert quiesce_task is not None
+    await _wait_for(quiesce_task.done)
+    assert quiesce_task.cancelled()
+    assert manager._accounts == {}  # noqa: SLF001
+    assert dispatcher._pump_task is not None  # noqa: SLF001
+    assert dispatcher._pump_task.done()  # noqa: SLF001
     assert driver.client.closed
 
 

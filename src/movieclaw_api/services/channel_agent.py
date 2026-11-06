@@ -152,7 +152,6 @@ async def _run_agent(
             typing_active = True
             await _typing(driver, account, msg, on=True)
         system_prompt = await agent_system_prompt(tools, speaker=account.member_id)
-        runner_started = True
         async for ev in runner.start(
             AgentStartParams(
                 input=prepared.input_for_run,
@@ -162,6 +161,7 @@ async def _run_agent(
             ),
             run_id=run_id,
         ):
+            runner_started = True
             last_event = ev
             await pusher.feed(ev)
             if ev.type == "agent_cancelled":

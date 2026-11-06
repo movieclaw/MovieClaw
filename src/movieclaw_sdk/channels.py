@@ -441,7 +441,16 @@ class AdapterDriver(ChannelDriver):
             quiesce_adapter = getattr(entry[1], "quiesce", None)
             if quiesce_adapter is not None:
                 waits.append(asyncio.create_task(quiesce_adapter()))
-        done, pending = await asyncio.wait(waits, timeout=_ADAPTER_QUIESCE_TIMEOUT_S)
+        try:
+            done, pending = await asyncio.wait(waits, timeout=_ADAPTER_QUIESCE_TIMEOUT_S)
+        except asyncio.CancelledError:
+            # manager 的外层期限短于本层时会取消这里；必须把已经创建的
+            # adapter.quiesce / receive_stopped waiter 一并取消并消费。
+            for task in waits:
+                if not task.done():
+                    task.cancel()
+                task.add_done_callback(_consume_task_result)
+            raise
         for task in pending:
             task.cancel()
             task.add_done_callback(_consume_task_result)
