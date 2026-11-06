@@ -410,9 +410,15 @@ class ChannelDispatcher:
                     _reply: ReplyContext = msg.reply,
                     _state: ChannelRunState = run_state,
                 ) -> None:
-                    await self.push_outbound(OutboundEnvelope(reply=_reply, text=text))
-                    if text == SERVICE_INTERRUPTED_TEXT:
+                    env = OutboundEnvelope(reply=_reply, text=text)
+                    if (
+                        text == SERVICE_INTERRUPTED_TEXT
+                        and _state.cancel_reason == SERVICE_STOP_CANCEL_REASON
+                    ):
+                        self._push_shutdown_outbound(env)
                         _state.cancel_notice_pushed = True
+                    else:
+                        await self.push_outbound(env)
 
                 async with self._run_sema:
 

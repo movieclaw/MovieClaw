@@ -296,10 +296,11 @@ async def test_close_is_bounded_when_finalizer_never_returns(monkeypatch):
 
 
 async def test_close_is_bounded_when_outbound_queue_is_full_and_send_hangs(monkeypatch):
-    """停机补提示不能在满队列背压上卡住，必须走到出站硬超时。"""
+    """运行中 Agent 的停机提示遇到永久背压时，关闭仍必须有界。"""
     monkeypatch.setattr(dispatcher_mod, "_CLOSE_OUTBOUND_TIMEOUT_S", 0.01)
     send_started = asyncio.Event()
     release_send = asyncio.Event()
+    agent_started = asyncio.Event()
 
     class HangingAdapter(FakeAdapter):
         async def send_text(self, reply: ReplyContext, text: str) -> None:
@@ -310,11 +311,15 @@ async def test_close_is_bounded_when_outbound_queue_is_full_and_send_hangs(monke
                 await release_send.wait()
                 raise
 
-    async def unused_agent(msg, emit):  # pragma: no cover - 停在图片聚合阶段
-        raise AssertionError("unexpected agent run")
+    async def run_agent(msg, emit):
+        agent_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await emit(dispatcher_mod.SERVICE_INTERRUPTED_TEXT)
 
     adapter = HangingAdapter()
-    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=unused_agent)
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=run_agent)
     d.start()
     reply = ReplyContext(channel_id="weixin", account_id="bot1", user_id="blocked")
     await d.push_outbound(OutboundEnvelope(reply=reply, text="占住发送泵"))
@@ -325,12 +330,8 @@ async def test_close_is_bounded_when_outbound_queue_is_full_and_send_hangs(monke
         )
     assert d._outbound.full()  # noqa: SLF001
 
-    await d.submit_inbound(
-        _msg("", msg_id="shutdown-notice", images=(InboundImage(data=b"image"),))
-    )
-    session = next(iter(d._sessions.values()))  # noqa: SLF001
-    while session.inflight is None:
-        await asyncio.sleep(0)
+    await d.submit_inbound(_msg("处理中", msg_id="shutdown-notice"))
+    await asyncio.wait_for(agent_started.wait(), timeout=2)
 
     try:
         await asyncio.wait_for(d.close(), timeout=0.5)
@@ -376,6 +377,54 @@ async def test_full_outbound_queue_delivers_shutdown_notice_when_sender_recovers
     session = next(iter(d._sessions.values()))  # noqa: SLF001
     while session.inflight is None:
         await asyncio.sleep(0)
+
+    close_task = asyncio.create_task(d.close())
+    while not d._shutdown_outbound:  # noqa: SLF001
+        await asyncio.sleep(0)
+    await asyncio.sleep(0.01)
+    release_send.set()
+    await asyncio.wait_for(close_task, timeout=2)
+
+    texts = [text for _user, text in adapter.sent]
+    assert texts.count(dispatcher_mod.SERVICE_INTERRUPTED_TEXT) == 1
+    assert len(texts) == dispatcher_mod._OUTBOUND_QUEUE_SIZE + 2  # noqa: SLF001
+    assert texts[1] == dispatcher_mod.SERVICE_INTERRUPTED_TEXT
+
+
+async def test_active_run_cancel_notice_bypasses_full_outbound_queue(monkeypatch):
+    """运行中 Agent 的停机提示也必须绕过已满的普通出站队列。"""
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_OUTBOUND_TIMEOUT_S", 1.0)
+    send_started = asyncio.Event()
+    release_send = asyncio.Event()
+    agent_started = asyncio.Event()
+
+    class RecoveringAdapter(FakeAdapter):
+        async def send_text(self, reply: ReplyContext, text: str) -> None:
+            if not send_started.is_set():
+                send_started.set()
+                await release_send.wait()
+            await super().send_text(reply, text)
+
+    async def run_agent(msg, emit):
+        agent_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await emit(dispatcher_mod.SERVICE_INTERRUPTED_TEXT)
+
+    adapter = RecoveringAdapter()
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=run_agent)
+    d.start()
+    reply = ReplyContext(channel_id="weixin", account_id="bot1", user_id="blocked")
+    await d.push_outbound(OutboundEnvelope(reply=reply, text="占住发送泵"))
+    await asyncio.wait_for(send_started.wait(), timeout=2)
+    for index in range(dispatcher_mod._OUTBOUND_QUEUE_SIZE):  # noqa: SLF001
+        d._outbound.put_nowait(  # noqa: SLF001
+            OutboundEnvelope(reply=reply, text=f"普通消息-{index}")
+        )
+
+    await d.submit_inbound(_msg("处理中", msg_id="active-run-notice"))
+    await asyncio.wait_for(agent_started.wait(), timeout=2)
 
     close_task = asyncio.create_task(d.close())
     while not d._shutdown_outbound:  # noqa: SLF001

@@ -107,6 +107,7 @@ async def _run_agent(
     cancel_notice_pushed = False
     fallback_cancel_reason: object | None = None
     cancelled = False
+    runner_failed = False
     try:
         try:
             async with get_database().session() as session:
@@ -174,6 +175,9 @@ async def _run_agent(
             run_state.finalizing = True
         fallback_cancel_reason = exc.args[0] if exc.args else None
         raise
+    except Exception:
+        runner_failed = True
+        raise
     finally:
         try:
             terminal = (
@@ -183,7 +187,7 @@ async def _run_agent(
                 if last_event is not None
                 and last_event.type in ("agent_done", "agent_error", "agent_cancelled")
                 else AgentEvent(type="agent_cancelled", run_id=run_id)
-                if runner_started
+                if runner_started and not runner_failed
                 else None
             )
             if terminal is not None:
