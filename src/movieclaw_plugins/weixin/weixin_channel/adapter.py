@@ -100,9 +100,11 @@ class WeixinAdapter:
         self._bound_user_id = bound_user_id
         self._context_token = initial_context_token
         self._on_context_token = on_context_token
+        self._receive_stop: asyncio.Event | None = None
 
     async def run(self, ctx: ChannelContext) -> None:
         stop = ctx.stop or asyncio.Event()
+        self._receive_stop = stop
         await self._client.notify_start()
         logger.info("微信收消息循环启动 account=%s", self._account_id)
 
@@ -169,7 +171,12 @@ class WeixinAdapter:
                         await self._remember_context_token(msg)
                         await ctx.on_inbound(msg)
         finally:
+            self._receive_stop = None
             logger.info("微信收消息循环退出 account=%s", self._account_id)
+
+    async def quiesce(self) -> None:
+        if self._receive_stop is not None:
+            self._receive_stop.set()
 
     async def close(self) -> None:
         """发送 client 注销前再通知停止；quiesce 阶段仍可发送中断提示。"""

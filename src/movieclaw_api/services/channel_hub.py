@@ -91,13 +91,14 @@ class HostAccount(Account):
         self.bound_user = bound_user
         self.credentials = credentials
         self.state = dict(state)
+        self.quiescing = asyncio.Event()
         self.stopping = asyncio.Event()
         #: 配对期的临时账号不落库（确认后才有那一行）
         self._persist = persist
         self._on_inbound: Callable[[InboundMessage], Awaitable[None]] | None = None
 
     async def inbound(self, message: InboundMessage) -> None:
-        if self._on_inbound is None:
+        if self.quiescing.is_set() or self._on_inbound is None:
             return
         # 通道 id 以注册表为准（第三方通道带插件前缀，驱动自己不一定知道）
         if message.channel_id != self.channel_id or message.account_id != self.id:
@@ -110,6 +111,9 @@ class HostAccount(Account):
         await self._on_inbound(message)
 
     async def save_state(self, patch: dict[str, Any]) -> None:
+        # quiesce 后到达的长轮询响应不能推进游标，否则重启无法重放。
+        if self.quiescing.is_set():
+            return
         self.state.update(patch)
         if not self._persist:
             return
@@ -129,11 +133,16 @@ class _DriverAdapter:
             self.send_photo = self._send_photo
 
     async def run(self, ctx: ChannelContext) -> None:
+        self.account.quiescing.clear()
         self.account.stopping = ctx.stop or asyncio.Event()
         self.account._on_inbound = ctx.on_inbound
         await self.driver.run(self.account)
+        if self.account.quiescing.is_set() and not self.account.stopping.is_set():
+            await self.account.stopping.wait()
 
     async def quiesce(self) -> None:
+        # 先封住入站与游标写入，再通知驱动停收；发送方法仍可使用账号/client。
+        self.account.quiescing.set()
         await self.driver.quiesce(self.account)
 
     async def send_text(self, reply: ReplyContext, text: str) -> None:

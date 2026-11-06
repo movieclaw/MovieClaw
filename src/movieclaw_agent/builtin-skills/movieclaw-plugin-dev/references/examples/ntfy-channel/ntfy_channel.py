@@ -17,7 +17,6 @@ ntfy 的主题没有发送者身份：知道「收消息的主题」名字的人
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import re
@@ -113,14 +112,18 @@ class NtfyDriver(ChannelDriver):
         async with httpx.AsyncClient(
             transport=net.http_transport(SERVICE), timeout=httpx.Timeout(10.0, read=None)
         ) as client:
-            while not account.stopping.is_set():
+            while not account.quiescing.is_set() and not account.stopping.is_set():
                 listen = asyncio.ensure_future(self._listen(client, url, account))
+                quiesce = asyncio.ensure_future(account.quiescing.wait())
                 stop = asyncio.ensure_future(account.stopping.wait())
-                done, _ = await asyncio.wait({listen, stop}, return_when=asyncio.FIRST_COMPLETED)
+                done, _ = await asyncio.wait(
+                    {listen, quiesce, stop}, return_when=asyncio.FIRST_COMPLETED
+                )
                 if listen not in done:
                     listen.cancel()
                     await asyncio.gather(listen, return_exceptions=True)
                     return
+                quiesce.cancel()
                 stop.cancel()
                 try:
                     listen.result()
@@ -128,8 +131,13 @@ class NtfyDriver(ChannelDriver):
                     raise
                 except Exception as exc:  # noqa: BLE001 -- 断线、服务器重启：等一会儿重连
                     logger.warning("ntfy 订阅断开，%.0f 秒后重连：%s", RECONNECT_S, exc)
-                    with contextlib.suppress(TimeoutError):
-                        await asyncio.wait_for(account.stopping.wait(), RECONNECT_S)
+                    quiesce = asyncio.ensure_future(account.quiescing.wait())
+                    stop = asyncio.ensure_future(account.stopping.wait())
+                    done, pending = await asyncio.wait(
+                        {quiesce, stop}, timeout=RECONNECT_S, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for task in (*done, *pending):
+                        task.cancel()
 
     async def _listen(self, client: httpx.AsyncClient, url: str, account: Account) -> None:
         params = {}

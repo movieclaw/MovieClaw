@@ -105,6 +105,7 @@ class ChannelRunState:
 
     cancel_reason: Literal["user_cancelled", "service_interrupted"] | None = None
     finalizing: bool = False
+    cancel_notice_pushed: bool = False
     #: channel_agent 已完成所有可能产生出站消息的收尾；之后可安全排空发送队列。
     outbound_finalized: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -124,6 +125,8 @@ class _Session:
 
     queue: asyncio.Queue[InboundMessage]
     worker: asyncio.Task[None] | None = None
+    #: 已从队列取出、正在聚合/等并发槽/运行 Agent 的消息。
+    inflight: InboundMessage | None = None
     #: 正在执行的 Agent 运行任务(/stop 的取消目标)
     current_run: asyncio.Task[None] | None = None
     run_state: ChannelRunState | None = None
@@ -180,6 +183,25 @@ class ChannelDispatcher:
                 session.current_run.cancel()
                 if session.worker and not session.worker.done():
                     active.append((session.worker, session.run_state))
+            elif (
+                session.current_run is None
+                and session.inflight is not None
+                and session.worker
+                and not session.worker.done()
+            ):
+                if session.run_state is not None:
+                    session.run_state.cancel_reason = SERVICE_STOP_CANCEL_REASON
+                await self.push_outbound(
+                    OutboundEnvelope(
+                        reply=session.inflight.reply,
+                        text=SERVICE_INTERRUPTED_TEXT,
+                        origin="system",
+                    )
+                )
+                if session.run_state is not None:
+                    session.run_state.cancel_notice_pushed = True
+                    session.run_state.outbound_finalized.set()
+                session.worker.cancel()
             while not session.queue.empty():
                 msg = session.queue.get_nowait()
                 await self.push_outbound(
@@ -217,14 +239,12 @@ class ChannelDispatcher:
         # finalizer 可能先发渠道提示、再做慢 recorder/typing 清理。确认它不再
         # 产生出站后再 join；已经进入 finalizing 的任务绝不复投取消。
         outbound_waiters = [
-            asyncio.create_task(state.outbound_finalized.wait())
+            state.outbound_finalized.wait()
             for _worker, state in active
             if state is not None and not state.outbound_finalized.is_set()
         ]
         if outbound_waiters:
-            _done, waiting = await asyncio.wait(outbound_waiters, timeout=_CLOSE_FORCE_TIMEOUT_S)
-            for waiter in waiting:
-                waiter.cancel()
+            await asyncio.gather(*outbound_waiters)
 
         # 此时发送泵仍活着；排空 Agent 收尾刚放入的提示后才能关闭。渠道网络
         # 挂起时限时放弃，最终仍由应用级强制退出兜底。
@@ -232,6 +252,11 @@ class ChannelDispatcher:
             await asyncio.wait_for(self._outbound.join(), timeout=_CLOSE_OUTBOUND_TIMEOUT_S)
         except TimeoutError:
             logger.warning("渠道停机时出站消息未在 %.0f 秒内发完", _CLOSE_OUTBOUND_TIMEOUT_S)
+
+        # 中断提示排空后仍保留发送 client，直到 recorder / typing 等 finalizer
+        # 清理结束；应用级停机超时负责最终强退，不能在这里提前拆掉 client。
+        if active:
+            await asyncio.gather(*(worker for worker, _state in active), return_exceptions=True)
 
         if self._pump_task and not self._pump_task.done():
             self._pump_task.cancel()
@@ -333,49 +358,71 @@ class ChannelDispatcher:
     async def _session_worker(self, session_key: str, session: _Session) -> None:
         """会话 worker:串行消费本会话队列,每条消息驱动一次 Agent 运行。"""
         while not self._closing:
-            msg = await self._aggregate(session, await session.queue.get())
+            msg = await session.queue.get()
+            session.inflight = msg
+            run_state = ChannelRunState()
+            session.run_state = run_state
+            try:
+                msg = await self._aggregate(session, msg)
+                session.inflight = msg
 
-            async def emit(text: str, *, _reply: ReplyContext = msg.reply) -> None:
-                await self.push_outbound(OutboundEnvelope(reply=_reply, text=text))
-
-            async with self._run_sema:
-                run_state = ChannelRunState()
-
-                async def invoke_agent(
-                    *, _state: ChannelRunState = run_state, _msg: InboundMessage = msg
+                async def emit(
+                    text: str,
+                    *,
+                    _reply: ReplyContext = msg.reply,
+                    _state: ChannelRunState = run_state,
                 ) -> None:
-                    token = _current_run_state.set(_state)
-                    try:
-                        await self._deps.run_agent(_msg, emit)
-                    finally:
-                        _current_run_state.reset(token)
+                    await self.push_outbound(OutboundEnvelope(reply=_reply, text=text))
+                    if text == SERVICE_INTERRUPTED_TEXT:
+                        _state.cancel_notice_pushed = True
 
-                run_task = asyncio.create_task(
-                    invoke_agent(),
-                    name=f"channel-run-{session_key}",
-                )
-                session.current_run = run_task
-                session.run_state = run_state
-                try:
-                    await run_task
-                except asyncio.CancelledError:
-                    if run_task.cancelled() and not self._closing:
-                        # /stop 取消的是运行而非 worker(命令处理已回执过,
-                        # 这里不再重复发消息),继续消费下一条
-                        continue
-                    raise
-                except Exception:
-                    logger.exception("Agent 运行异常 session=%s", session_key)
-                    await self.push_outbound(
-                        OutboundEnvelope(
-                            reply=msg.reply,
-                            text="⚠️ 处理出错了,请稍后再试。",
-                            origin="system",
-                        )
+                async with self._run_sema:
+
+                    async def invoke_agent(
+                        *, _state: ChannelRunState = run_state, _msg: InboundMessage = msg
+                    ) -> None:
+                        token = _current_run_state.set(_state)
+                        try:
+                            await self._deps.run_agent(_msg, emit)
+                        finally:
+                            try:
+                                if (
+                                    _state.cancel_reason == SERVICE_STOP_CANCEL_REASON
+                                    and not _state.cancel_notice_pushed
+                                ):
+                                    await emit(SERVICE_INTERRUPTED_TEXT)
+                            finally:
+                                _state.outbound_finalized.set()
+                                _current_run_state.reset(token)
+
+                    run_task = asyncio.create_task(
+                        invoke_agent(),
+                        name=f"channel-run-{session_key}",
                     )
-                finally:
-                    session.current_run = None
-                    session.run_state = None
+                    session.current_run = run_task
+                    try:
+                        await run_task
+                    except asyncio.CancelledError:
+                        if run_task.cancelled() and not self._closing:
+                            # /stop 取消的是运行而非 worker(命令处理已回执过,
+                            # 这里不再重复发消息),继续消费下一条
+                            continue
+                        raise
+                    except Exception:
+                        logger.exception("Agent 运行异常 session=%s", session_key)
+                        await self.push_outbound(
+                            OutboundEnvelope(
+                                reply=msg.reply,
+                                text="⚠️ 处理出错了,请稍后再试。",
+                                origin="system",
+                            )
+                        )
+                    finally:
+                        session.current_run = None
+            finally:
+                session.current_run = None
+                session.run_state = None
+                session.inflight = None
 
     @staticmethod
     async def _aggregate(session: _Session, first: InboundMessage) -> InboundMessage:
@@ -405,6 +452,7 @@ class ChannelDispatcher:
                 reply=extra.reply,
                 timestamp_ms=extra.timestamp_ms or msg.timestamp_ms,
             )
+            session.inflight = msg
         return msg
 
     # ------------------------------------------------------------------

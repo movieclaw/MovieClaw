@@ -189,7 +189,7 @@ async def test_close_delivers_cancel_notice_before_stopping_pump():
         try:
             await asyncio.Event().wait()
         finally:
-            await emit("已取消本次处理。")
+            await emit(dispatcher_mod.SERVICE_INTERRUPTED_TEXT)
 
     d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=run_agent)
     d.start()
@@ -198,7 +198,7 @@ async def test_close_delivers_cancel_notice_before_stopping_pump():
 
     await d.close()
 
-    assert [text for _, text in adapter.sent] == ["已取消本次处理。"]
+    assert [text for _, text in adapter.sent] == [dispatcher_mod.SERVICE_INTERRUPTED_TEXT]
 
 
 async def test_close_retries_cancel_without_waiting_for_stuck_upstream(monkeypatch):
@@ -216,7 +216,7 @@ async def test_close_retries_cancel_without_waiting_for_stuck_upstream(monkeypat
             try:
                 await asyncio.Event().wait()  # 模拟上游吞掉首次取消后继续挂起
             finally:
-                await emit("已取消本次处理。")
+                await emit(dispatcher_mod.SERVICE_INTERRUPTED_TEXT)
 
     d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=run_agent)
     d.start()
@@ -225,7 +225,62 @@ async def test_close_retries_cancel_without_waiting_for_stuck_upstream(monkeypat
 
     await d.close()
 
-    assert [text for _, text in adapter.sent] == ["已取消本次处理。"]
+    assert [text for _, text in adapter.sent] == [dispatcher_mod.SERVICE_INTERRUPTED_TEXT]
+
+
+async def test_close_notifies_third_session_waiting_for_semaphore():
+    """消息 dequeue 后即使还在等全局并发槽，停机也不能静默丢失。"""
+    adapter = FakeAdapter()
+    started: set[str] = set()
+    two_started = asyncio.Event()
+
+    async def run_agent(msg, emit):
+        started.add(msg.user_id)
+        if len(started) == 2:
+            two_started.set()
+        await asyncio.Event().wait()
+
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=run_agent)
+    d.start()
+    for index, user in enumerate(("u1", "u2", "u3"), 1):
+        await d.submit_inbound(_msg("处理", msg_id=f"m{index}", user=user))
+    await asyncio.wait_for(two_started.wait(), timeout=2)
+    third = d._sessions["weixin:bot1:u3"]  # noqa: SLF001
+    deadline = asyncio.get_running_loop().time() + 2
+    while third.inflight is None or third.current_run is not None:
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError("第三会话没有进入 semaphore 等待")
+        await asyncio.sleep(0.01)
+
+    await d.close()
+
+    assert sorted(adapter.sent) == [
+        ("u1", dispatcher_mod.SERVICE_INTERRUPTED_TEXT),
+        ("u2", dispatcher_mod.SERVICE_INTERRUPTED_TEXT),
+        ("u3", dispatcher_mod.SERVICE_INTERRUPTED_TEXT),
+    ]
+
+
+async def test_close_notifies_image_message_during_aggregation():
+    """纯图已取出并等待聚合时停机，原会话仍收到中断提示。"""
+    adapter = FakeAdapter()
+
+    async def run_agent(msg, emit):  # pragma: no cover - 不应越过聚合窗口
+        raise AssertionError("停机前不应启动 Agent")
+
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=run_agent)
+    d.start()
+    await d.submit_inbound(_msg("", msg_id="image-1", images=(InboundImage(data=b"image"),)))
+    session = d._sessions["weixin:bot1:u1@im.wechat"]  # noqa: SLF001
+    deadline = asyncio.get_running_loop().time() + 2
+    while session.inflight is None:
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError("纯图消息没有进入聚合阶段")
+        await asyncio.sleep(0.01)
+
+    await d.close()
+
+    assert adapter.sent == [("u1@im.wechat", dispatcher_mod.SERVICE_INTERRUPTED_TEXT)]
 
 
 async def test_dead_worker_is_revived():

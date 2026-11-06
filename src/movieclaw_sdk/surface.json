@@ -679,6 +679,7 @@
         "flow_input": "(self, flow_id: 'str', value: 'str') -> 'FlowState'",
         "flow_state": "(self, flow_id: 'str') -> 'FlowState'",
         "push_target": "(self, account: 'Account') -> 'ReplyContext | None'",
+        "quiesce": "(self, account: 'Account') -> 'None'",
         "run": "(self, account: 'Account') -> 'None'",
         "send": "(self, account: 'Account', reply: 'ReplyContext', text: 'str') -> 'None'",
         "send_photo": "(self, account: 'Account', reply: 'ReplyContext', photo: 'bytes', caption: 'str') -> 'None'",
@@ -689,7 +690,7 @@
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.2"
+    "version": "1.3"
   },
   "ingest-steps": {
     "doc": "入库流水线槽位的步骤：暂存完成后为每个步骤建一个挂在入库任务下的持久化任务",

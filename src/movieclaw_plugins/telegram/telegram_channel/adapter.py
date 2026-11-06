@@ -73,9 +73,11 @@ class TelegramAdapter:
     def __init__(self, client: TelegramClient, account_id: str) -> None:
         self._client = client
         self._account_id = account_id
+        self._receive_stop: asyncio.Event | None = None
 
     async def run(self, ctx: ChannelContext) -> None:
         stop = ctx.stop or asyncio.Event()
+        self._receive_stop = stop
         logger.info("Telegram 收消息循环启动 account=%s", self._account_id)
         offset = int(ctx.initial_cursor) if ctx.initial_cursor.isdigit() else None
         failures = 0
@@ -113,6 +115,10 @@ class TelegramAdapter:
                     await ctx.on_inbound(await self._with_images(update, msg))
 
         logger.info("Telegram 收消息循环退出 account=%s", self._account_id)
+
+    async def quiesce(self) -> None:
+        if self._receive_stop is not None:
+            self._receive_stop.set()
 
     def _normalize(self, update: dict[str, Any]) -> InboundMessage | None:
         message = update.get("message")

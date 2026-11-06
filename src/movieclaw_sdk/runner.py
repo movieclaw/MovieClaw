@@ -717,16 +717,21 @@ class _RemoteAccount:
         self.bound_user = data.get("bound_user")
         self.credentials = dict(data.get("credentials") or {})
         self.state = dict(data.get("state") or {})
+        self.quiescing = asyncio.Event()
         self.stopping = asyncio.Event()
 
     async def inbound(self, message: Any) -> None:
         from movieclaw_sdk.channels import message_dict
 
+        if self.quiescing.is_set():
+            return
         await self._runner.service("channels").inbound(
             channel=self._channel, account=self.id, message=message_dict(message)
         )
 
     async def save_state(self, patch: dict[str, Any]) -> None:
+        if self.quiescing.is_set():
+            return
         self.state.update(patch)
         await self._runner.service("channels").save_state(
             channel=self._channel, account=self.id, patch=patch
@@ -1208,10 +1213,18 @@ class Runner:
                 self._stoppers[call_id] = account.stopping
                 try:
                     await driver.run(account)
+                    if account.quiescing.is_set() and not account.stopping.is_set():
+                        # 停收后仍保留 live account，宿主可完成中断提示与 typing
+                        # 清理；最终取消 run RPC 时才进入 stopping 并注销。
+                        await account.stopping.wait()
                 finally:
                     self._stoppers.pop(call_id, None)
                     if self._accounts.get(key) is account:
                         del self._accounts[key]
+            elif method == "quiesce":
+                account = self._account(cid, payload["account"])
+                account.quiescing.set()
+                await driver.quiesce(account)
             elif method == "push_target":
                 target = driver.push_target(self._account(cid, payload["account"]))
                 result = ch.reply_dict(target) if target is not None else None

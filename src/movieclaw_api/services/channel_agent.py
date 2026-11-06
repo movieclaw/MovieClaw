@@ -97,52 +97,61 @@ async def _run_agent(
 ) -> None:
     """dispatcher 的 run_agent 回调：一条入站消息驱动一次 AI 助手运行，分步回复。"""
     await emit(t(ACK_TEXT_KEY))
-    try:
-        async with get_database().session() as session:
-            llm_router = await acquire_llm_router(session)
-    except NotFoundException as exc:
-        await emit(f"⚠️ {exc.message}")
-        return
-
-    store = get_agent_session_store()
-    session_id = await ensure_agent_session(driver, account, msg)
-    history = store.build_history(session_id)
-    recorder = AgentSessionRecorder(store, session_id, entry_count=len(history), source="channel")
-
-    # 显式技能调用（/skill:名字）与网页同样展开为技能正文（docs/design/agent-skills.md §9）
-    msg = dataclasses.replace(
-        msg,
-        text=expand_skill_invocations(
-            msg.text, discover_skills(Path(get_settings().agent_skills_dir).resolve())
-        ),
-    )
-    # 图片入库 + 提醒回执 + 请求水合
-    prepared = await prepare_agent_input(
-        llm_router=llm_router, session_id=session_id, msg=msg, history=history, emit=emit
-    )
-    if prepared is None:
-        # 纯图消息且图片全军覆没：失败原因已回执，不留空消息进转录
-        return
-    await recorder.record_user_message(prepared.user_content)
-
-    tools = await profile_tools("full", session_id, None)
-    runner = AgentRunner(
-        llm_router,
-        tools=tools,
-        on_message=recorder.on_message,
-        on_compaction=recorder.on_compaction,
-    )
     run_id = uuid.uuid4().hex[:12]
-    await recorder.begin(run_id)
-
-    typing = driver.capabilities.typing
-    if typing:
-        await _typing(driver, account, msg, on=True)
     pusher = StepReplyPusher(emit, cancelled_text=SERVICE_INTERRUPTED_TEXT)
+    run_state = current_channel_run_state()
+    recorder: AgentSessionRecorder | None = None
+    typing_active = False
+    runner_started = False
     last_event: AgentEvent | None = None
     cancel_notice_pushed = False
     fallback_cancel_reason: object | None = None
+    cancelled = False
     try:
+        try:
+            async with get_database().session() as session:
+                llm_router = await acquire_llm_router(session)
+        except NotFoundException as exc:
+            await emit(f"⚠️ {exc.message}")
+            return
+
+        store = get_agent_session_store()
+        session_id = await ensure_agent_session(driver, account, msg)
+        history = store.build_history(session_id)
+        recorder = AgentSessionRecorder(
+            store, session_id, entry_count=len(history), source="channel"
+        )
+
+        # 显式技能调用（/skill:名字）与网页同样展开为技能正文（docs/design/agent-skills.md §9）
+        msg = dataclasses.replace(
+            msg,
+            text=expand_skill_invocations(
+                msg.text, discover_skills(Path(get_settings().agent_skills_dir).resolve())
+            ),
+        )
+        # 图片入库 + 提醒回执 + 请求水合
+        prepared = await prepare_agent_input(
+            llm_router=llm_router, session_id=session_id, msg=msg, history=history, emit=emit
+        )
+        if prepared is None:
+            # 纯图消息且图片全军覆没：失败原因已回执，不留空消息进转录
+            return
+        await recorder.record_user_message(prepared.user_content)
+
+        tools = await profile_tools("full", session_id, None)
+        runner = AgentRunner(
+            llm_router,
+            tools=tools,
+            on_message=recorder.on_message,
+            on_compaction=recorder.on_compaction,
+        )
+        await recorder.begin(run_id)
+
+        if driver.capabilities.typing:
+            # 即使取消落在 typing-on 的 await 内，也要在统一 finally 尝试关掉。
+            typing_active = True
+            await _typing(driver, account, msg, on=True)
+        runner_started = True
         async for ev in runner.start(
             AgentStartParams(
                 input=prepared.input_for_run,
@@ -158,48 +167,53 @@ async def _run_agent(
                 cancel_notice_pushed = True
     except asyncio.CancelledError as exc:
         # dispatcher 的共享 run state 是事实源；参数只兼容直接取消该协程的调用方。
+        cancelled = True
+        if run_state is not None:
+            # 必须在任何收尾 await 前同步置位，dispatcher 才不会补第二次 cancel。
+            run_state.finalizing = True
         fallback_cancel_reason = exc.args[0] if exc.args else None
         raise
     finally:
-        run_state = current_channel_run_state()
-        if run_state is not None:
-            run_state.finalizing = True
-        cancel_reason = (
-            run_state.cancel_reason
-            if run_state is not None and run_state.cancel_reason is not None
-            else fallback_cancel_reason
-        )
-        # 任务被取消（服务停机）时事件流没有终态事件，合成 cancelled 供收尾统一处理
-        terminal = (
-            last_event
-            if last_event is not None
-            and last_event.type in ("agent_done", "agent_error", "agent_cancelled")
-            else AgentEvent(type="agent_cancelled", run_id=run_id)
-        )
-        # runner 收到 task.cancel() 时会直接抛 CancelledError，事件流没有机会
-        # yield agent_cancelled。服务停机必须把合成终态也交给渠道 pusher；若
-        # runner 已正常产出过该终态则不重复。/stop 已由 dispatcher 即时回执。
         try:
-            # 中断提示必须排在可能很慢的 typing/recorder 清理之前；dispatcher
-            # 看到 finalizing 后也不会再 cancel 这段收尾。
-            if (
-                terminal.type == "agent_cancelled"
-                and not cancel_notice_pushed
-                and cancel_reason != USER_STOP_CANCEL_REASON
-            ):
-                await pusher.feed(terminal)
-        finally:
-            if run_state is not None:
-                run_state.outbound_finalized.set()
-        try:
-            reason = (
-                USER_STOP_CANCEL_REASON
-                if cancel_reason == USER_STOP_CANCEL_REASON
-                else SERVICE_STOP_CANCEL_REASON
+            terminal = (
+                AgentEvent(type="agent_cancelled", run_id=run_id)
+                if cancelled
+                else last_event
+                if last_event is not None
+                and last_event.type in ("agent_done", "agent_error", "agent_cancelled")
+                else AgentEvent(type="agent_cancelled", run_id=run_id)
+                if runner_started
+                else None
             )
-            await recorder.on_terminal(terminal, reason=reason)
+            if terminal is not None:
+                if run_state is not None:
+                    run_state.finalizing = True
+                cancel_reason = (
+                    run_state.cancel_reason
+                    if run_state is not None and run_state.cancel_reason is not None
+                    else fallback_cancel_reason
+                )
+                # runner 收到 task.cancel() 时可能来不及 yield 终态；服务停机
+                # 的提示必须先于 recorder / typing 等慢清理。
+                try:
+                    if (
+                        terminal.type == "agent_cancelled"
+                        and not cancel_notice_pushed
+                        and cancel_reason != USER_STOP_CANCEL_REASON
+                    ):
+                        await pusher.feed(terminal)
+                finally:
+                    if run_state is not None:
+                        run_state.outbound_finalized.set()
+                if recorder is not None:
+                    reason = (
+                        USER_STOP_CANCEL_REASON
+                        if cancel_reason == USER_STOP_CANCEL_REASON
+                        else SERVICE_STOP_CANCEL_REASON
+                    )
+                    await recorder.on_terminal(terminal, reason=reason)
         finally:
-            if typing:
+            if typing_active:
                 await _typing(driver, account, msg, on=False)
 
 
