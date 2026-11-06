@@ -22,7 +22,9 @@ import contextlib
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
+from typing import Literal
 
 from movieclaw_channel.adapter import ChannelAdapter
 from movieclaw_channel.types import InboundMessage, OutboundEnvelope, ReplyContext
@@ -49,9 +51,9 @@ _SEND_RETRY_DELAY_S = 2.0
 _CLOSE_RUN_TIMEOUT_S = 1.0
 _CLOSE_FORCE_TIMEOUT_S = 0.25
 _CLOSE_OUTBOUND_TIMEOUT_S = 3.0
-#: Task.cancel 的消息也承担取消来源标记；服务层据此避免和 /stop 回执重复提示。
-USER_STOP_CANCEL_REASON = "channel_user_stop"
+USER_STOP_CANCEL_REASON = "user_cancelled"
 SERVICE_STOP_CANCEL_REASON = "service_interrupted"
+SERVICE_INTERRUPTED_TEXT = "服务更新中断了这次处理，请重新发送。"
 #: 图文消息的文案上限:Telegram caption 1024 字符是各平台里最紧的口径,
 #: 超过就放弃随图发送、退回纯文本分片(推送文案实际都很短,达不到)
 _PHOTO_CAPTION_LIMIT = 1000
@@ -98,6 +100,25 @@ def split_message(text: str, limit: int) -> list[str]:
 
 
 @dataclass(slots=True)
+class ChannelRunState:
+    """dispatcher 与服务层共享的一次运行状态，不依赖 CancelledError 参数传递语义。"""
+
+    cancel_reason: Literal["user_cancelled", "service_interrupted"] | None = None
+    finalizing: bool = False
+    #: channel_agent 已完成所有可能产生出站消息的收尾；之后可安全排空发送队列。
+    outbound_finalized: asyncio.Event = field(default_factory=asyncio.Event)
+
+
+_current_run_state: ContextVar[ChannelRunState | None] = ContextVar(
+    "movieclaw_channel_run_state", default=None
+)
+
+
+def current_channel_run_state() -> ChannelRunState | None:
+    return _current_run_state.get()
+
+
+@dataclass(slots=True)
 class _Session:
     """一条会话的运行时状态(队列 + worker + 当前运行)。"""
 
@@ -105,6 +126,7 @@ class _Session:
     worker: asyncio.Task[None] | None = None
     #: 正在执行的 Agent 运行任务(/stop 的取消目标)
     current_run: asyncio.Task[None] | None = None
+    run_state: ChannelRunState | None = None
 
 
 async def _noop_reset(_key: str) -> None:
@@ -150,28 +172,59 @@ class ChannelDispatcher:
         """取消运行、等待其渠道收尾发出，再停止 worker 与发送泵。"""
         self._closing = True
         workers: list[asyncio.Task[None]] = []
-        active_workers: list[asyncio.Task[None]] = []
+        active: list[tuple[asyncio.Task[None], ChannelRunState | None]] = []
         for session in self._sessions.values():
             if session.current_run and not session.current_run.done():
-                session.current_run.cancel(SERVICE_STOP_CANCEL_REASON)
+                if session.run_state is not None:
+                    session.run_state.cancel_reason = SERVICE_STOP_CANCEL_REASON
+                session.current_run.cancel()
                 if session.worker and not session.worker.done():
-                    active_workers.append(session.worker)
+                    active.append((session.worker, session.run_state))
+            while not session.queue.empty():
+                msg = session.queue.get_nowait()
+                await self.push_outbound(
+                    OutboundEnvelope(
+                        reply=msg.reply,
+                        text=SERVICE_INTERRUPTED_TEXT,
+                        origin="system",
+                    )
+                )
             if session.worker and not session.worker.done():
                 workers.append(session.worker)
-                if session.worker not in active_workers:
+                if all(session.worker is not worker for worker, _state in active):
                     # 空闲 worker 正阻塞在 queue.get()，无需占用 Agent 收尾窗口。
-                    session.worker.cancel(SERVICE_STOP_CANCEL_REASON)
+                    session.worker.cancel()
 
         # worker 正在 await current_run；只取消运行一次，让它的 finally 有机会把
         # 中断提示放进出站队列。直接再 cancel worker 会把收尾里的 await 补第二刀。
         pending: set[asyncio.Task[None]] = set()
-        if active_workers:
-            _done, pending = await asyncio.wait(active_workers, timeout=_CLOSE_RUN_TIMEOUT_S)
+        if active:
+            _done, pending = await asyncio.wait(
+                [worker for worker, _state in active], timeout=_CLOSE_RUN_TIMEOUT_S
+            )
         if pending:
-            logger.warning("渠道停机时 %d 个会话未及时结束，强制取消 worker", len(pending))
-            for worker in pending:
-                worker.cancel(SERVICE_STOP_CANCEL_REASON)
+            retry = [
+                worker
+                for worker, state in active
+                if worker in pending and not (state and state.finalizing)
+            ]
+            if retry:
+                logger.warning("渠道停机时 %d 个 Agent 尚未进入收尾，再次取消", len(retry))
+            for worker in retry:
+                worker.cancel()
             await asyncio.wait(pending, timeout=_CLOSE_FORCE_TIMEOUT_S)
+
+        # finalizer 可能先发渠道提示、再做慢 recorder/typing 清理。确认它不再
+        # 产生出站后再 join；已经进入 finalizing 的任务绝不复投取消。
+        outbound_waiters = [
+            asyncio.create_task(state.outbound_finalized.wait())
+            for _worker, state in active
+            if state is not None and not state.outbound_finalized.is_set()
+        ]
+        if outbound_waiters:
+            _done, waiting = await asyncio.wait(outbound_waiters, timeout=_CLOSE_FORCE_TIMEOUT_S)
+            for waiter in waiting:
+                waiter.cancel()
 
         # 此时发送泵仍活着；排空 Agent 收尾刚放入的提示后才能关闭。渠道网络
         # 挂起时限时放弃，最终仍由应用级强制退出兜底。
@@ -259,7 +312,9 @@ class ChannelDispatcher:
             session = self._sessions.get(msg.session_key)
             run = session.current_run if session else None
             if run and not run.done():
-                run.cancel(USER_STOP_CANCEL_REASON)
+                if session.run_state is not None:
+                    session.run_state.cancel_reason = USER_STOP_CANCEL_REASON
+                run.cancel()
                 text = "已取消当前处理。"
             else:
                 text = "当前没有正在进行的处理。"
@@ -284,11 +339,23 @@ class ChannelDispatcher:
                 await self.push_outbound(OutboundEnvelope(reply=_reply, text=text))
 
             async with self._run_sema:
+                run_state = ChannelRunState()
+
+                async def invoke_agent(
+                    *, _state: ChannelRunState = run_state, _msg: InboundMessage = msg
+                ) -> None:
+                    token = _current_run_state.set(_state)
+                    try:
+                        await self._deps.run_agent(_msg, emit)
+                    finally:
+                        _current_run_state.reset(token)
+
                 run_task = asyncio.create_task(
-                    self._deps.run_agent(msg, emit),
+                    invoke_agent(),
                     name=f"channel-run-{session_key}",
                 )
                 session.current_run = run_task
+                session.run_state = run_state
                 try:
                     await run_task
                 except asyncio.CancelledError:
@@ -308,6 +375,7 @@ class ChannelDispatcher:
                     )
                 finally:
                     session.current_run = None
+                    session.run_state = None
 
     @staticmethod
     async def _aggregate(session: _Session, first: InboundMessage) -> InboundMessage:

@@ -30,7 +30,12 @@ from movieclaw_api.services.agent_sessions import get_agent_session_store
 from movieclaw_api.services.agent_toolkit import agent_system_prompt, profile_tools
 from movieclaw_api.services.im_attachments import prepare_agent_input
 from movieclaw_api.services.llm_config import acquire_llm_router
-from movieclaw_channel.dispatcher import USER_STOP_CANCEL_REASON
+from movieclaw_channel.dispatcher import (
+    SERVICE_INTERRUPTED_TEXT,
+    SERVICE_STOP_CANCEL_REASON,
+    USER_STOP_CANCEL_REASON,
+    current_channel_run_state,
+)
 from movieclaw_channel.pusher import StepReplyPusher
 from movieclaw_db.engine import get_database
 from movieclaw_db.repositories.agent_session_repo import AgentSessionRepository
@@ -133,10 +138,10 @@ async def _run_agent(
     typing = driver.capabilities.typing
     if typing:
         await _typing(driver, account, msg, on=True)
-    pusher = StepReplyPusher(emit)
+    pusher = StepReplyPusher(emit, cancelled_text=SERVICE_INTERRUPTED_TEXT)
     last_event: AgentEvent | None = None
     cancel_notice_pushed = False
-    cancel_reason: object | None = None
+    fallback_cancel_reason: object | None = None
     try:
         async for ev in runner.start(
             AgentStartParams(
@@ -152,11 +157,18 @@ async def _run_agent(
             if ev.type == "agent_cancelled":
                 cancel_notice_pushed = True
     except asyncio.CancelledError as exc:
-        cancel_reason = exc.args[0] if exc.args else None
+        # dispatcher 的共享 run state 是事实源；参数只兼容直接取消该协程的调用方。
+        fallback_cancel_reason = exc.args[0] if exc.args else None
         raise
     finally:
-        if typing:
-            await _typing(driver, account, msg, on=False)
+        run_state = current_channel_run_state()
+        if run_state is not None:
+            run_state.finalizing = True
+        cancel_reason = (
+            run_state.cancel_reason
+            if run_state is not None and run_state.cancel_reason is not None
+            else fallback_cancel_reason
+        )
         # 任务被取消（服务停机）时事件流没有终态事件，合成 cancelled 供收尾统一处理
         terminal = (
             last_event
@@ -167,14 +179,28 @@ async def _run_agent(
         # runner 收到 task.cancel() 时会直接抛 CancelledError，事件流没有机会
         # yield agent_cancelled。服务停机必须把合成终态也交给渠道 pusher；若
         # runner 已正常产出过该终态则不重复。/stop 已由 dispatcher 即时回执。
-        if (
-            terminal.type == "agent_cancelled"
-            and not cancel_notice_pushed
-            and cancel_reason != USER_STOP_CANCEL_REASON
-        ):
-            await pusher.feed(terminal)
-        # 通道 /stop 已由 dispatcher 回执；其余取消按服务中断收尾。
-        await recorder.on_terminal(terminal, reason="service_interrupted")
+        try:
+            # 中断提示必须排在可能很慢的 typing/recorder 清理之前；dispatcher
+            # 看到 finalizing 后也不会再 cancel 这段收尾。
+            if (
+                terminal.type == "agent_cancelled"
+                and not cancel_notice_pushed
+                and cancel_reason != USER_STOP_CANCEL_REASON
+            ):
+                await pusher.feed(terminal)
+        finally:
+            if run_state is not None:
+                run_state.outbound_finalized.set()
+        try:
+            reason = (
+                USER_STOP_CANCEL_REASON
+                if cancel_reason == USER_STOP_CANCEL_REASON
+                else SERVICE_STOP_CANCEL_REASON
+            )
+            await recorder.on_terminal(terminal, reason=reason)
+        finally:
+            if typing:
+                await _typing(driver, account, msg, on=False)
 
 
 async def _typing(

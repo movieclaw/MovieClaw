@@ -108,3 +108,14 @@ async def test_cancelled_notice():
     emitted, pusher = _collector()
     await pusher.feed(_ev("agent_cancelled"))
     assert emitted == ["已取消本次处理。"]
+
+
+async def test_custom_cancelled_notice():
+    emitted: list[str] = []
+
+    async def emit(text: str) -> None:
+        emitted.append(text)
+
+    pusher = StepReplyPusher(emit, cancelled_text="服务更新中断了这次处理，请重新发送。")
+    await pusher.feed(_ev("agent_cancelled"))
+    assert emitted == ["服务更新中断了这次处理，请重新发送。"]

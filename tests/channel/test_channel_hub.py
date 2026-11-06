@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 from collections.abc import Callable
@@ -22,6 +23,7 @@ from sqlmodel import SQLModel
 from movieclaw_db.engine import dispose_db, init_db
 from movieclaw_sdk.channels import (
     Account,
+    AdapterDriver,
     Binding,
     BindResult,
     Capabilities,
@@ -108,6 +110,80 @@ class StrictLiveDriver(FakeDriver):
         if self.live.get(account.id) is not account:
             raise RuntimeError("账号 client 已停止")
         await super().send(account, reply, text)
+
+
+class ReplaySource:
+    """带持久游标的假服务端；停收泵期间到达的消息留给下次启动。"""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+        self.available = asyncio.Event()
+        self.receiving = asyncio.Event()
+        self.quiescing = asyncio.Event()
+        self.release_quiesce = asyncio.Event()
+
+    def add(self, text: str) -> None:
+        self.messages.append(text)
+        self.available.set()
+
+    def reset_runtime_events(self) -> None:
+        self.available = asyncio.Event()
+        self.receiving = asyncio.Event()
+        self.quiescing = asyncio.Event()
+        self.release_quiesce = asyncio.Event()
+
+
+class ReplayClient:
+    async def aclose(self) -> None:
+        return None
+
+
+class ReplayAdapter:
+    def __init__(self, source: ReplaySource, sent: list[tuple[str, str]]) -> None:
+        self.source = source
+        self.sent = sent
+
+    async def run(self, ctx) -> None:
+        cursor = int(ctx.initial_cursor or 0)
+        stop = ctx.stop or asyncio.Event()
+        while not stop.is_set():
+            if cursor < len(self.source.messages):
+                text = self.source.messages[cursor]
+                cursor += 1
+                await ctx.save_cursor(str(cursor))
+                await ctx.on_inbound(
+                    InboundMessage(
+                        channel_id="replay",
+                        account_id=ctx.account_id,
+                        user_id="alice",
+                        text=text,
+                        reply=ReplyContext("replay", ctx.account_id, "alice"),
+                        provider_message_id=f"replay-{cursor}",
+                    )
+                )
+                continue
+            self.source.receiving.set()
+            self.source.available.clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self.source.available.wait(), timeout=0.02)
+        self.source.quiescing.set()
+        await self.source.release_quiesce.wait()
+
+    async def send_text(self, reply: ReplyContext, text: str) -> None:
+        self.sent.append((reply.user_id, text))
+
+
+class ReplayDriver(AdapterDriver):
+    title = "游标回放通道"
+    capabilities = Capabilities(receive=True, max_text_len=1000)
+
+    def __init__(self, source: ReplaySource) -> None:
+        super().__init__()
+        self.source = source
+        self.sent: list[tuple[str, str]] = []
+
+    def open(self, account: Account):
+        return ReplayClient(), ReplayAdapter(self.source, self.sent)
 
 
 def _message(account: Account, text: str, seq: int, user: str = "u1") -> InboundMessage:
@@ -458,7 +534,7 @@ async def test_shutdown_delivers_agent_interruption_before_driver_stops(db, monk
         try:
             await asyncio.Event().wait()
         finally:
-            await emit("已取消本次处理。")
+            await emit("服务更新中断了这次处理，请重新发送。")
 
     monkeypatch.setattr(channel_agent, "run_agent", hanging_agent)
     async with get_database().session() as session:
@@ -480,10 +556,63 @@ async def test_shutdown_delivers_agent_interruption_before_driver_stops(db, monk
 
         await hub.stop()
 
-        assert driver.sent == [("alice", "已取消本次处理。")]
+        assert driver.sent == [("alice", "服务更新中断了这次处理，请重新发送。")]
         assert "bot1" not in driver.live
     finally:
         await hub.stop()
+
+
+async def test_message_arriving_during_quiesce_replays_from_persisted_cursor(
+    db, monkeypatch
+) -> None:
+    """停机先停收泵且不推进游标；此窗口到达的消息由重启后的账号重放。"""
+    from movieclaw_api.services import channel_agent
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
+
+    async def echo_agent(driver, account, msg, emit) -> None:
+        await emit(f"收到：{msg.text}")
+
+    monkeypatch.setattr(channel_agent, "run_agent", echo_agent)
+    async with get_database().session() as session:
+        await ChannelAccountRepository(session).upsert(
+            channel_id="replay",
+            account_id="bot1",
+            credentials={"token": "t"},
+            display_name="replay",
+            bound_user_id="alice",
+        )
+
+    source = ReplaySource()
+    driver = ReplayDriver(source)
+    hub = make_hub({"replay": driver})
+    await hub.start()
+    await asyncio.wait_for(source.receiving.wait(), timeout=2)
+    stop_task = asyncio.create_task(hub.stop())
+    await asyncio.wait_for(source.quiescing.wait(), timeout=2)
+
+    source.add("停机窗口消息")
+    assert not stop_task.done()
+    source.release_quiesce.set()
+    await asyncio.wait_for(stop_task, timeout=2)
+
+    async with get_database().session() as session:
+        row = await ChannelAccountRepository(session).get("replay", "bot1")
+        assert row is not None
+        assert ChannelAccountRepository.state(row).get("cursor") is None
+
+    source.reset_runtime_events()
+    restarted = make_hub({"replay": driver})
+    try:
+        await restarted.start()
+        await _wait_for(lambda: driver.sent == [("alice", "收到：停机窗口消息")])
+        async with get_database().session() as session:
+            row = await ChannelAccountRepository(session).get("replay", "bot1")
+            assert row is not None
+            assert ChannelAccountRepository.state(row)["cursor"] == "1"
+    finally:
+        source.release_quiesce.set()
+        await restarted.stop()
 
 
 async def _wait_for_status(session, status: str) -> None:

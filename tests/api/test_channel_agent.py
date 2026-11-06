@@ -9,7 +9,12 @@ import pytest
 
 from movieclaw_agent.events import AgentEvent
 from movieclaw_api.services import channel_agent
-from movieclaw_channel.dispatcher import SERVICE_STOP_CANCEL_REASON, USER_STOP_CANCEL_REASON
+from movieclaw_channel import dispatcher as dispatcher_mod
+from movieclaw_channel.dispatcher import (
+    SERVICE_INTERRUPTED_TEXT,
+    SERVICE_STOP_CANCEL_REASON,
+    make_dispatcher,
+)
 from movieclaw_sdk.channels import InboundMessage, ReplyContext
 
 
@@ -128,7 +133,7 @@ async def test_service_cancel_emits_synthesized_interruption_notice(monkeypatch)
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert emitted == ["思考中💭", "已取消本次处理。"]
+    assert emitted == ["思考中💭", SERVICE_INTERRUPTED_TEXT]
     assert recorder.terminals == [("agent_cancelled", "service_interrupted")]
 
 
@@ -155,12 +160,12 @@ async def test_stream_cancelled_terminal_is_not_emitted_twice(monkeypatch) -> No
 
     await channel_agent._run_agent(driver, account, _message(), emit)
 
-    assert emitted == ["思考中💭", "已取消本次处理。"]
+    assert emitted == ["思考中💭", SERVICE_INTERRUPTED_TEXT]
     assert recorder.terminals == [("agent_cancelled", "service_interrupted")]
 
 
 async def test_user_stop_keeps_single_dispatcher_ack(monkeypatch) -> None:
-    """/stop 已由 dispatcher 回执，channel_agent 不再补第二条取消消息。"""
+    """/stop 的共享 run state 让 channel_agent 记 user_cancelled，且不重复提示。"""
     started = asyncio.Event()
 
     class HangingRunner:
@@ -175,19 +180,125 @@ async def test_user_stop_keeps_single_dispatcher_ack(monkeypatch) -> None:
 
     recorder = _Recorder()
     _patch_run_dependencies(monkeypatch, HangingRunner, recorder)
-    emitted: list[str] = []
-
-    async def emit(text: str) -> None:
-        emitted.append(text)
-
     driver = SimpleNamespace(capabilities=SimpleNamespace(typing=False))
     account = SimpleNamespace(member_id=0)
-    task = asyncio.create_task(channel_agent._run_agent(driver, account, _message(), emit))
+
+    class OutboundAdapter:
+        channel_id = "weixin"
+        max_text_len = 1000
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send_text(self, reply, text: str) -> None:
+            self.sent.append(text)
+
+    async def run_agent(msg, emit) -> None:
+        await channel_agent._run_agent(driver, account, msg, emit)
+
+    adapter = OutboundAdapter()
+    dispatcher = make_dispatcher(adapter, is_allowed=lambda _user: True, run_agent=run_agent)
+    dispatcher.start()
+    try:
+        await dispatcher.submit_inbound(_message())
+        await asyncio.wait_for(started.wait(), timeout=2)
+        stop = _message()
+        stop = InboundMessage(
+            channel_id=stop.channel_id,
+            account_id=stop.account_id,
+            user_id=stop.user_id,
+            text="/stop",
+            reply=stop.reply,
+            provider_message_id="m2",
+        )
+        await dispatcher.submit_inbound(stop)
+        deadline = asyncio.get_running_loop().time() + 2
+        while (
+            len(adapter.sent) < 2 or not recorder.terminals
+        ) and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.01)
+
+        assert adapter.sent == ["思考中💭", "已取消当前处理。"]
+        assert recorder.terminals == [("agent_cancelled", "user_cancelled")]
+    finally:
+        await dispatcher.close()
+
+
+async def test_finalizing_is_not_recancelled_during_slow_recorder_and_typing(monkeypatch) -> None:
+    """提示先发；慢 recorder/typing 已进入 finalizing 后不能再被停机看门狗补刀。"""
+    started = asyncio.Event()
+    recorder_started = asyncio.Event()
+    release_recorder = asyncio.Event()
+    typing_off_started = asyncio.Event()
+    release_typing = asyncio.Event()
+    typing_off_finished = asyncio.Event()
+
+    class HangingRunner:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def start(self, params, *, run_id):
+            yield AgentEvent(type="agent_start", run_id=run_id)
+            started.set()
+            await asyncio.Event().wait()
+            yield  # pragma: no cover
+
+    class SlowRecorder(_Recorder):
+        async def on_terminal(self, event: AgentEvent, reason: str) -> None:
+            recorder_started.set()
+            await release_recorder.wait()
+            await super().on_terminal(event, reason)
+
+    class TypingDriver:
+        capabilities = SimpleNamespace(typing=True)
+
+        async def typing(self, account, reply, on: bool) -> None:
+            if on:
+                return
+            typing_off_started.set()
+            await release_typing.wait()
+            typing_off_finished.set()
+
+    class OutboundAdapter:
+        channel_id = "weixin"
+        max_text_len = 1000
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send_text(self, reply, text: str) -> None:
+            self.sent.append(text)
+
+    recorder = SlowRecorder()
+    _patch_run_dependencies(monkeypatch, HangingRunner, recorder)
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_RUN_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(dispatcher_mod, "_CLOSE_FORCE_TIMEOUT_S", 0.02)
+    driver = TypingDriver()
+    account = SimpleNamespace(member_id=0)
+
+    async def run_agent(msg, emit) -> None:
+        await channel_agent._run_agent(driver, account, msg, emit)
+
+    adapter = OutboundAdapter()
+    dispatcher = make_dispatcher(adapter, is_allowed=lambda _user: True, run_agent=run_agent)
+    dispatcher.start()
+    await dispatcher.submit_inbound(_message())
     await asyncio.wait_for(started.wait(), timeout=2)
 
-    task.cancel(USER_STOP_CANCEL_REASON)
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    await dispatcher.close()
 
-    assert emitted == ["思考中💭"]
+    assert adapter.sent == ["思考中💭", SERVICE_INTERRUPTED_TEXT]
+    await asyncio.wait_for(recorder_started.wait(), timeout=2)
+    session = next(iter(dispatcher._sessions.values()))  # noqa: SLF001
+    assert session.current_run is not None
+    assert session.current_run.cancelling() == 1
+
+    release_recorder.set()
+    await asyncio.wait_for(typing_off_started.wait(), timeout=2)
+    assert not typing_off_finished.is_set()
+    release_typing.set()
+    assert session.worker is not None
+    with pytest.raises(asyncio.CancelledError):
+        await session.worker
+    assert typing_off_finished.is_set()
     assert recorder.terminals == [("agent_cancelled", "service_interrupted")]

@@ -24,8 +24,9 @@ EmitFn = Callable[[str], Awaitable[None]]
 class StepReplyPusher:
     """消费一次 Agent 运行的事件流,产出离散消息文本。"""
 
-    def __init__(self, emit: EmitFn) -> None:
+    def __init__(self, emit: EmitFn, *, cancelled_text: str = "已取消本次处理。") -> None:
         self._emit = emit
+        self._cancelled_text = cancelled_text
         self._buf: list[str] = []
         #: 终答文本(agent_done 携带),供调用方写入会话历史
         self.final_text: str = ""
@@ -48,7 +49,7 @@ class StepReplyPusher:
             await self._emit(f"⚠️ 处理失败:{ev.error or '未知错误'}")
         elif ev.type == "agent_cancelled":
             await self._flush()
-            await self._emit("已取消本次处理。")
+            await self._emit(self._cancelled_text)
         # thinking_delta / tool_call_start / tool_call_delta / tool_result /
         # context_compacted / agent_start:中间过程,全部丢弃
 

@@ -133,6 +133,9 @@ class _DriverAdapter:
         self.account._on_inbound = ctx.on_inbound
         await self.driver.run(self.account)
 
+    async def quiesce(self) -> None:
+        await self.driver.quiesce(self.account)
+
     async def send_text(self, reply: ReplyContext, text: str) -> None:
         await self.driver.send(self.account, reply, text)
 

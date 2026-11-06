@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
@@ -301,6 +302,10 @@ class ChannelDriver:
         """收消息循环，直到 ``account.stopping`` 置位。只能推送的通道等着停即可（默认实现）。"""
         await account.stopping.wait()
 
+    async def quiesce(self, account: Account) -> None:
+        """停止接收新消息但保留发送能力；自管客户端的驱动可覆盖。"""
+        return None
+
     async def send(self, account: Account, reply: ReplyContext, text: str) -> None:
         """发一条文本（中枢已按 ``max_text_len`` 拆好）。失败抛异常，中枢会重试一次。"""
         raise NotImplementedError
@@ -358,6 +363,7 @@ class AdapterDriver(ChannelDriver):
 
     def __init__(self) -> None:
         self._live: dict[tuple[str, str], tuple[Any, Any]] = {}
+        self._receive_controls: dict[tuple[str, str], tuple[asyncio.Event, asyncio.Event]] = {}
 
     def open(self, account: Account) -> tuple[Any, Any]:
         raise NotImplementedError
@@ -366,26 +372,59 @@ class AdapterDriver(ChannelDriver):
         client, adapter = self.open(account)
         key = (account.channel_id, account.id)
         entry = (client, adapter)
+        receive_stop = asyncio.Event()
+        receive_stopped = asyncio.Event()
         self._live[key] = entry
+        self._receive_controls[key] = (receive_stop, receive_stopped)
 
         async def save_cursor(cursor: str) -> None:
             await account.save_state({"cursor": cursor})
 
+        async def stop_receiving_on_shutdown() -> None:
+            await account.stopping.wait()
+            receive_stop.set()
+
+        shutdown_relay = asyncio.create_task(stop_receiving_on_shutdown())
         try:
-            await adapter.run(
-                ChannelContext(
-                    account_id=account.id,
-                    on_inbound=account.inbound,
-                    save_cursor=save_cursor,
-                    initial_cursor=str(account.state.get("cursor") or ""),
-                    stop=account.stopping,
+            try:
+                await adapter.run(
+                    ChannelContext(
+                        account_id=account.id,
+                        on_inbound=account.inbound,
+                        save_cursor=save_cursor,
+                        initial_cursor=str(account.state.get("cursor") or ""),
+                        stop=receive_stop,
+                    )
                 )
-            )
+            finally:
+                receive_stopped.set()
+            # quiesce 只停收泵；发送 client 保持 live，直到 manager 完成 Agent
+            # 取消提示和出站排空后再置 account.stopping。
+            if receive_stop.is_set() and not account.stopping.is_set():
+                await account.stopping.wait()
         finally:
-            # 同一账号重新启动时新句柄可能已登记：只注销自己那份
-            if self._live.get(key) is entry:
-                del self._live[key]
-            await client.aclose()
+            shutdown_relay.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await shutdown_relay
+            try:
+                close_adapter = getattr(adapter, "close", None)
+                if close_adapter is not None:
+                    await close_adapter()
+            finally:
+                # 同一账号重新启动时新句柄可能已登记：只注销自己那份
+                if self._live.get(key) is entry:
+                    del self._live[key]
+                if self._receive_controls.get(key) == (receive_stop, receive_stopped):
+                    del self._receive_controls[key]
+                await client.aclose()
+
+    async def quiesce(self, account: Account) -> None:
+        control = self._receive_controls.get((account.channel_id, account.id))
+        if control is None:
+            return
+        receive_stop, receive_stopped = control
+        receive_stop.set()
+        await receive_stopped.wait()
 
     def live(self, account: Account) -> tuple[Any, Any]:
         entry = self._live.get((account.channel_id, account.id))
