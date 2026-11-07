@@ -201,7 +201,8 @@ def test_web_only_package_from_upload_to_sidebar(data_dir) -> None:
         assert "acme-web" not in apps(client)
         assert client.get("/api/v1/plugins/acme-web/web/").status_code == 404
         pages = client.get("/api/v1/app/plugins/pages").json()["data"]
-        assert [(p["id"], p["approved"]) for p in pages] == [("acme-web", False)]
+        # 随带插件自带的网页也会在列表里（例如飞牛影视库源），这里只确认 acme-web 的授信被撤销了
+        assert ("acme-web", False) in [(p["id"], p["approved"]) for p in pages]
 
 
 def test_package_without_entry_or_web_is_rejected(data_dir) -> None:
@@ -231,8 +232,9 @@ def test_local_web_plugin_needs_one_confirmation_then_edits_are_live(data_dir) -
         state = client.get("/api/v1/app/plugins/weekly-board").json()["data"]["plugin"]["state"]
         assert state == "active"
         pages = client.get("/api/v1/app/plugins/pages").json()["data"]
-        assert [(p["id"], p["source"], p["approved"]) for p in pages] == [
-            ("weekly-board", "local", False)
+        # 同上：随带插件的网页也在列表里，只确认这个本地插件还没被确认
+        assert ("weekly-board", "local", False) in [
+            (p["id"], p["source"], p["approved"]) for p in pages
         ]
         assert client.get("/api/v1/plugins/weekly-board/web/").status_code == 404
         assert "weekly-board" not in apps(client)

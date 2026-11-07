@@ -1661,17 +1661,6 @@ async def apply(ctx: Context) -> None:
     ctx.task(startup_sync(), name="startup-sync")
 
     # ---- 观看进度：事件驱动（MC → 飞牛）+ 轮询（飞牛 → MC）----------------
-    async def trim_libraries() -> list[tuple[int, str, dict]]:
-        """当前所有飞牛库：(id, kind, source_config)。"""
-        from sqlmodel import select
-
-        db2 = get_database()
-        async with db2.session() as session:
-            rows = (
-                await session.execute(select(Library).where(Library.source == SOURCE))
-            ).scalars().all()
-        return [(row.id or 0, row.kind, dict(row.source_config or {})) for row in rows]
-
     #: 成员名 → 成员 id 的小缓存（事件与轮询都查，没必要每次都打库）
     _member_cache: dict[str, Any] = {"at": 0.0, "id": 0}
 
@@ -1725,13 +1714,9 @@ async def apply(ctx: Context) -> None:
         if not settings.sync_progress:
             return
         note_activity()  # 有人在看片：让进度轮询临时加速
-        libs = await trim_libraries()
-        if not libs:
-            return
         try:
             await handle_playback_event(
                 payload=payload,
-                libraries=libs,
                 client_factory=client,
                 log=log,
                 force=force,

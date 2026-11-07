@@ -227,7 +227,6 @@ async def resolve_guid(
 async def handle_playback_event(
     *,
     payload: Any,
-    libraries: list[tuple[int, str, dict]],
     client_factory: Any,
     log: Any,
     force: bool,
@@ -235,7 +234,6 @@ async def handle_playback_event(
 ) -> int:
     """处理一次播放事件：定位到飞牛条目后写进度。
 
-    :param libraries: [(library_id, kind, source_config)] —— 该用户可见的飞牛库
     :param force: 停止 / 看完事件不节流
     :param member_id: 这个飞牛账号对应的 MovieClaw 成员（超管为 0）。
         只有这个成员的事件会写进飞牛——飞牛的进度是按飞牛账号存的，
