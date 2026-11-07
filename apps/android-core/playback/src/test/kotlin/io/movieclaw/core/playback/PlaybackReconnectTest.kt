@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
+import androidx.media3.exoplayer.trackselection.TrackSelectorResult
 import io.movieclaw.core.model.McJson
 import io.movieclaw.core.model.generated.PlaybackSessionRequest
 import io.movieclaw.core.network.ClientIdentity
@@ -34,6 +35,7 @@ import mockwebserver3.RecordedRequest
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -336,6 +338,18 @@ class PlaybackReconnectTest {
         fun emitEmbeddedPgsTrack(): TrackGroup {
             val group = TrackGroup(Format.Builder().setId("0").setSampleMimeType(androidx.media3.common.MimeTypes.APPLICATION_PGS).build())
             val tracks = Tracks(listOf(Tracks.Group(group, false, intArrayOf(C.FORMAT_HANDLED), booleanArrayOf(false))))
+            // Exo publishes currentTracks before onTracksChanged. Copy its application-thread
+            // snapshot so this injected event does not mutate the playback thread's shared info.
+            val exo = PlaybackController::class.java.getDeclaredField("exo").apply { isAccessible = true }.get(controller)
+            val infoField = exo.javaClass.getDeclaredField("playbackInfo").apply { isAccessible = true }
+            val info = infoField.get(exo)
+            val updated = info.javaClass.getDeclaredMethod("copyWithPlaybackState", Int::class.javaPrimitiveType)
+                .apply { isAccessible = true }.invoke(info, controller.player.playbackState)
+            val resultField = updated.javaClass.getDeclaredField("trackSelectorResult").apply { isAccessible = true }
+            val result = resultField.get(updated) as TrackSelectorResult
+            resultField.set(updated, TrackSelectorResult(result.rendererConfigurations, result.selections, tracks, result.info))
+            infoField.set(exo, updated)
+            assertSame(tracks, controller.player.currentTracks)
             PlaybackController::class.java.getDeclaredMethod("handleTracks", Tracks::class.java)
                 .apply { isAccessible = true }.invoke(controller, tracks)
             return group
