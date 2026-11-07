@@ -2742,7 +2742,11 @@ const App = {
       };
       if (item.file_id != null) body.file_id = Number(item.file_id);
       if (item.audio_track != null) body.audio_track = item.audio_track;
-      if (item.subtitle_track != null) body.subtitle_track = item.subtitle_track;
+      // mpv's tier is not known yet. Let the first direct-play session open
+      // without a PGS selection; initializeTracks can then select an embedded
+      // native track. A non-direct session reopens with the conservative claim
+      // and the server burns PGS instead of receiving a .sup sidecar.
+      if (item.subtitle_track != null && !(wantsMpv && !item.__pgsNegotiated && String(item.subtitle_track).startsWith('embedded:'))) body.subtitle_track = item.subtitle_track;
       if (item.seasonNumber != null) body.season_number = Number(item.seasonNumber);
       if (item.episodeNumber != null) body.episode_number = Number(item.episodeNumber);
       // 上几档播失败了：带上让服务端跳过它们换下一档（decide.py 降档回路）
@@ -2851,10 +2855,12 @@ const App = {
         // 档 0 直出的是裸文件，mpv 自己就 demux 得出 MKV 内封字幕轨。再把
         // embedded:N 当 --sub-file 传进去：轨重复一遍，还让服务端现场从几十 GB
         // 的 MKV 里逐条抽字幕——同一部片 10 条字幕首播实测 30 秒没出首帧。
-        // 只留外挂字幕（容器里没有，必须旁挂）。HLS 档的流里没有内封轨，全留
-        const nativeSubs = decision.tier === 0
-          ? subtitleUrls.filter((_, i) => !decision.subtitles?.[i]?.track_ref?.startsWith('embedded:'))
-          : subtitleUrls;
+        // 只留文本外挂字幕（容器里没有，必须旁挂）；PGS .sup 由服务端烧录，绝不旁挂。
+        const nativeSubs = subtitleUrls.filter((_, i) => {
+          const plan = decision.subtitles?.[i];
+          if (plan?.kind === 'pgs') return false;
+          return decision.tier !== 0 || !plan?.track_ref?.startsWith('embedded:');
+        });
         await this.openEmbeddedPlayer(item, streamUrl, nativeSubs, startMs, session, seq);
       } else {
         // 打开内置 HTML5 播放器

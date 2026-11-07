@@ -332,6 +332,12 @@ class McApi(private val transport: ApiTransport) {
         return transport.send("POST", "/playback/sessions", query, McJson.encodeToJsonElement(body), serializer<PlaybackSessionView>(), enveloped = true)
     }
 
+    /** 只问播放决策（`POST /playback/decide`） */
+    suspend fun playbackDecide(body: PlaybackDecideRequest): PlaybackDecisionView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/playback/decide", query, McJson.encodeToJsonElement(body), serializer<PlaybackDecisionView>(), enveloped = true)
+    }
+
     /** 播放心跳（`POST /playback/sessions/{session_id}/ping`） */
     suspend fun playbackSessionPing(sessionId: String): JsonObject {
         val query = emptyList<Pair<String, String>>()
@@ -435,6 +441,12 @@ class McApi(private val transport: ApiTransport) {
     suspend fun sharePlaybackSessionStart(slug: String, body: PlaybackSessionRequest): PlaybackSessionView {
         val query = emptyList<Pair<String, String>>()
         return transport.send("POST", "/share/${slug}/playback/sessions", query, McJson.encodeToJsonElement(body), serializer<PlaybackSessionView>(), enveloped = true)
+    }
+
+    /** 分享页只问播放决策（`POST /share/{slug}/playback/decide`） */
+    suspend fun sharePlaybackDecide(slug: String, body: PlaybackDecideRequest): PlaybackDecisionView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/share/${slug}/playback/decide", query, McJson.encodeToJsonElement(body), serializer<PlaybackDecisionView>(), enveloped = true)
     }
 
     /** 分享页播放心跳（`POST /share/{slug}/playback/sessions/{session_id}/ping`） */

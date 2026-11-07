@@ -322,7 +322,7 @@ function getUniversalCapabilitySnapshot() {
     // it does not claim the attached monitor is HDR. Actual target is observed below.
     hdr_passthrough: true,
     mse: 'full', is_mobile: false, native_hls: false,
-    universal: true, disc_image: false, disc_folder: false, pgs_overlay: true,
+    universal: true, disc_image: false, disc_folder: false, pgs_overlay: false,
   };
 }
 window.getUniversalCapabilitySnapshot = getUniversalCapabilitySnapshot;
@@ -1426,6 +1426,14 @@ const Player = {
     const generation = this.generation;
     if (this.isMpv()) {
       const track = plan ? this.mpvTracks.subtitles.find(t => t.ref === ref) : null;
+      if (plan?.kind === 'pgs' && !this.playsOriginalFile) {
+        // mpv cannot render the server's ffmpeg .sup sidecar on HLS/transcode.
+        // Re-negotiate with the conservative capability so the server burns it.
+        this.context.subtitle_track = ref;
+        this.context.__pgsNegotiated = true;
+        if (remember) this.context.__subtitleTouched = true;
+        return App.restartPlaybackAt(Math.floor(this.engPos() * 1000));
+      }
       if (plan && !track) { this.controlError('这条字幕尚未被播放器载入'); return false; }
       const result = await this.mpvCmd(['set_property', 'sid', track?.id ?? 'no']);
       if (generation !== this.generation || selection !== this._subtitleSelectionSeq) return false;

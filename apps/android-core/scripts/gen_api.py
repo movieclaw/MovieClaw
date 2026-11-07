@@ -86,6 +86,7 @@ ENDPOINTS = [
     # 搜索
     "GET /search/library",
     # 播放
+    "POST /playback/decide",
     "POST /playback/sessions",
     "POST /playback/sessions/{session_id}/ping",
     "DELETE /playback/sessions/{session_id}",
@@ -104,6 +105,7 @@ ENDPOINTS = [
     # App 自身更新（APK 走流式下载，不生成接口函数）
     "GET /app/clients/{product}/latest",
     # 访客分享页的播放（手机打开分享链接；与成员播放同一套请求 / 响应）
+    "POST /share/{slug}/playback/decide",
     "POST /share/{slug}/playback/sessions",
     "POST /share/{slug}/playback/sessions/{session_id}/ping",
     "DELETE /share/{slug}/playback/sessions/{session_id}",

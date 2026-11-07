@@ -39,6 +39,7 @@ import androidx.media3.session.MediaSession
 import io.movieclaw.core.model.generated.PlaybackAutoSkipView
 import io.movieclaw.core.model.generated.PlaybackBlurayView
 import io.movieclaw.core.model.generated.PlaybackClientLogPayload
+import io.movieclaw.core.model.generated.PlaybackDecideRequest
 import io.movieclaw.core.model.generated.PlaybackDecisionView
 import io.movieclaw.core.model.generated.PlaybackMetricPayload
 import io.movieclaw.core.model.generated.PlaybackProgressRequest
@@ -257,6 +258,8 @@ class PlaybackController(
     private var requestedSubtitle: String? = null
     /** 用户显式要求服务端压制的 PGS 轨；普通选轨永远留给 Exo。 */
     private var requestedBurnSubtitle: String? = null
+    private var burnCheck = 0
+    private var burnJob: Job? = null
     private var requestedAudio: String? = null
     /** 起播音轨：直连原文件时 Exo 读到轨后显式选服务端计划里的那条 */
     private var pendingInitialAudio: Int? = null
@@ -432,6 +435,7 @@ class PlaybackController(
         leaveUnit()
         closed = true
         startJob?.cancel()
+        burnJob?.cancel()
         tickJob?.cancel()
         trickplayJob?.cancel()
         noticeJob?.cancel()
@@ -500,6 +504,9 @@ class PlaybackController(
         requestedAudio = null
         requestedSubtitle = null
         requestedBurnSubtitle = null
+        burnJob?.cancel()
+        burnJob = null
+        burnCheck++
         nativeFailed = false
         localFailed = false
         nativeRetries.reset()
@@ -754,7 +761,12 @@ class PlaybackController(
             seasonNumber = unit.season,
             episodeNumber = unit.episode,
             // 正片播放器能按剪辑清单放蓝光原盘（disc-clip-play.md）；刷片的片段播放器不能，所以不放进 CapabilityProbe
-            capability = capability.probe().copy(blurayClips = true),
+            capability = capability.probe().copy(
+                blurayClips = true,
+                // The delivery tier is unknown until this request returns.
+                // Only an already-known direct-play/clip session can claim local PGS.
+                pgsOverlay = playsOriginalFile || playsBlurayClips,
+            ),
             failedTiers = tiers.toList().takeIf { it.isNotEmpty() },
             audioTrack = requestedAudio,
             // Exo 直连时自己画内封 / 外挂字幕，不需要服务端烧录：默认显式传 off，挡住记忆轨触发的烧录
@@ -966,7 +978,7 @@ class PlaybackController(
                     setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build())
                 }
             }
-            .setSubtitleConfigurations(externalSubtitles(subtitles, playsLocal, includePgs = !original))
+            .setSubtitleConfigurations(externalSubtitles(subtitles, playsLocal))
             .build()
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
             .clearOverrides()
@@ -999,23 +1011,25 @@ class PlaybackController(
         deadSession = false
         startPingLoop()
         loadTrickplay(fileId, token)
-        // 预选的是图形字幕、这一路又画不了（服务端流）：照播放器里选它的口径，请服务端压制进画面
+        // 预选的是图形字幕、这一路又画不了（服务端流）：旁挂 .sup 不能交给 Media3，
+        // 保守地清掉并提示用户从菜单确认服务端转码。
         val graphic = preselected?.let { ref -> subtitles.options.firstOrNull { it.ref == ref && it.kind == "pgs" } }
         if (graphic != null && burned == null && !exoRenders(graphic)) {
-            requestedSubtitle = graphic.ref
-            requestedBurnSubtitle = graphic.ref
-            request(s.positionMs, Phase.SessionStarting)
+            requestedSubtitle = "off"
+            requestedBurnSubtitle = null
+            set { copy(selectedSubtitle = null) }
+            applySubtitle()
+            flash("图形字幕需要服务端转码才能显示，请在菜单中确认")
         }
     }
 
-    /** 外挂字幕旁挂给 Exo；服务端流额外挂 PGS，让 Media3 的原生解码器本地画。 */
+    /** 只把文本外挂字幕旁挂给 Exo；服务端生成的 .sup 不是 Media3 可直接消费的 PGS。 */
     private fun externalSubtitles(
         tracks: SubtitleTracks,
         playsLocal: Boolean = false,
-        includePgs: Boolean = false,
     ): List<MediaItem.SubtitleConfiguration> =
         tracks.options.filter {
-            it.path.isNotEmpty() && ((it.ref.startsWith(EXTERNAL) && it.kind != "pgs") || (includePgs && it.kind == "pgs"))
+            it.path.isNotEmpty() && it.ref.startsWith(EXTERNAL) && it.kind != "pgs"
         }.mapNotNull { option ->
             if (playsLocal) {
                 // 本机副本的旁挂字幕是下载时存下的文件（SRT / VTT / ASS 原样），按扩展名告诉 Exo 格式
@@ -1028,7 +1042,6 @@ class PlaybackController(
                     .setId(option.ref).setMimeType(mime).setLanguage(option.language).setLabel(option.displayTitle).build()
             }
             val (mime, suffix) = when (option.kind) {
-                "pgs" -> MimeTypes.APPLICATION_PGS to ""
                 "ass" -> MimeTypes.TEXT_SSA to ""
                 else -> MimeTypes.TEXT_VTT to "&format=vtt"
             }
@@ -1701,8 +1714,8 @@ class PlaybackController(
      * （外挂文件小，取得快；内封轨改走服务端要通读整个容器，不这么做）。
      */
     private fun exoRenders(option: SubtitleOption?): Boolean {
-        if (option == null || burnedSubtitle != null) return false
-        if (!playsOriginalFile) return option.kind == "pgs" && option.path.isNotEmpty()
+        if (option == null) return false
+        if (!playsOriginalFile) return option.kind != "pgs" && option.path.isNotEmpty()
         if (option.ref.startsWith(EXTERNAL)) {
             // 本机副本的 ASS 没有服务端转好的 VTT 可给叠层：调了时间轴也只能交给 Exo
             val toOverlay = subtitleTimingAdjusted && !(localViewing != null && option.kind == "ass")
@@ -1728,29 +1741,33 @@ class PlaybackController(
         subtitleTouched = true
         set { copy(selectedSubtitle = ref) }
         val option = ref?.let { r -> s.subtitles.options.firstOrNull { it.ref == r } }
-        // Selecting a PGS track is local rendering. Burn-in is a separate,
-        // explicit action via [burnSubtitle].
-        if (changing) requestedBurnSubtitle = null
-        val wantBurn = option?.kind == "pgs" && !exoRenders(option)
-        if (!wantBurn) {
-            if (changing) record?.beginSwitch("subtitle", previous, ref, immediate = burnedSubtitle == null)
-            applySubtitle()
+        burnCheck++ // 取消仍在进行的烧录预检
+        burnJob?.cancel()
+        burnJob = null
+        requestedBurnSubtitle = null
+        if (option?.kind == "pgs" && !exoRenders(option)) {
+            // 普通选轨不能隐式启动整片转码；保留选择但明确提示，菜单可继续
+            // 提供带代价说明的显式烧录入口。
+            requestedSubtitle = "off"
+            if (changing) record?.beginSwitch("subtitle", previous, ref)
             if (burnedSubtitle != null) {
-                // 在放烧录过的服务端流：撤下烧录（直连能放的话服务端会直接给回原文件）
-                requestedSubtitle = "off"
                 set { copy(wantsPlay = true) }
                 request(s.positionMs, Phase.SessionStarting)
+            } else {
+                applySubtitle()
+                flash("此字幕需服务端转码才能显示，请在菜单中确认")
             }
-            if (reportedStart) sendProgress(paused = s.paused)
             return
         }
-        if (burnedSubtitle == ref) return
-        // 图形字幕（PGS）放服务端流时画不了：服务端转码压制进画面（约一秒切换）
-        record?.beginSwitch("subtitle", previous, ref)
-        requestedSubtitle = ref
-        requestedBurnSubtitle = ref
-        set { copy(wantsPlay = true) }
-        request(s.positionMs, Phase.SessionStarting)
+        if (changing) record?.beginSwitch("subtitle", previous, ref, immediate = burnedSubtitle == null)
+        applySubtitle()
+        if (burnedSubtitle != null) {
+            // 重新选轨也撤掉显式烧录，回到当前计划能本地渲染的轨道。
+            requestedSubtitle = ref ?: "off"
+            set { copy(wantsPlay = true) }
+            request(s.positionMs, Phase.SessionStarting)
+        }
+        if (reportedStart) sendProgress(paused = s.paused)
     }
 
     /** 显式把当前 PGS 轨压制进画面；普通选轨不会调用此入口。 */
@@ -1758,15 +1775,57 @@ class PlaybackController(
         noteUserActivity()
         val option = s.subtitles.options.firstOrNull { it.ref == ref && it.kind == "pgs" } ?: return
         subtitleTouched = true
-        requestedSubtitle = option.ref
-        requestedBurnSubtitle = option.ref
-        set { copy(selectedSubtitle = option.ref, wantsPlay = true) }
-        request(s.positionMs, Phase.SessionStarting)
+        val check = ++burnCheck
+        set { copy(selectedSubtitle = option.ref) }
+        burnJob?.cancel()
+        burnJob = scope.launch {
+            val decision = try {
+                backend.decide(
+                    PlaybackDecideRequest(
+                        fileId = session?.decision?.fileId,
+                        mediaItemId = unit.mediaItemId,
+                        seasonNumber = unit.season,
+                        episodeNumber = unit.episode,
+                        capability = capability.probe().copy(
+                            blurayClips = true,
+                            pgsOverlay = playsOriginalFile || playsBlurayClips,
+                        ),
+                        failedTiers = failedTiers.toList().takeIf { it.isNotEmpty() },
+                        audioTrack = requestedAudio,
+                        subtitleTrack = option.ref,
+                        burnRequested = true,
+                        maxHeight = s.quality?.toLong(),
+                        deviceId = deviceId,
+                        downlinkBps = lastDownlinkBps?.toLong(),
+                        client = identity.kind,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            if (closed || check != burnCheck) return@launch
+            if (decision?.outcome != "plan" || decision.video?.burnSubtitle != option.ref) {
+                set { copy(selectedSubtitle = null) }
+                requestedSubtitle = "off"
+                applySubtitle()
+                flash("此字幕当前无法服务端转码显示")
+                return@launch
+            }
+            requestedSubtitle = option.ref
+            requestedBurnSubtitle = option.ref
+            set { copy(wantsPlay = true) }
+            request(s.positionMs, Phase.SessionStarting)
+        }
     }
 
     /** 取消显式压制，保留当前 PGS 选择并回到播放器本地渲染。 */
     fun unburnSubtitle() {
         if (burnedSubtitle == null) return
+        burnCheck++
+        burnJob?.cancel()
+        burnJob = null
         requestedBurnSubtitle = null
         requestedSubtitle = "off"
         set { copy(wantsPlay = true) }
@@ -1794,6 +1853,9 @@ class PlaybackController(
         }
         set { copy(engineSubtitles = engine, overlaySubtitleUrl = overlay) }
     }
+
+    /** 当前选择的字幕是否由 Exo 在当前播放通路本地渲染。 */
+    fun subtitleCanRender(ref: String): Boolean = s.subtitles.options.firstOrNull { it.ref == ref }?.let(::exoRenders) == true
 
     /** 上报用的字幕记忆：只报用户这次动过的（"off" = 用户明确关掉）；不报时服务端保持原记忆 */
     private val subtitleMemory: String? get() = if (subtitleTouched) s.selectedSubtitle ?: "off" else null

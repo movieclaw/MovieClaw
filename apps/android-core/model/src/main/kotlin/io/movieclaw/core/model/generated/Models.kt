@@ -2500,6 +2500,24 @@ data class PlaybackSessionRequest(
     @SerialName("client") val client: String? = null,
 )
 
+/** 只问播放决策，不创建服务端会话。 */
+@Serializable
+data class PlaybackDecideRequest(
+    @SerialName("file_id") val fileId: Long? = null,
+    @SerialName("media_item_id") val mediaItemId: Long? = null,
+    @SerialName("season_number") val seasonNumber: Long? = null,
+    @SerialName("episode_number") val episodeNumber: Long? = null,
+    @SerialName("capability") val capability: ClientCapabilityIn,
+    @SerialName("failed_tiers") val failedTiers: List<Long>? = null,
+    @SerialName("audio_track") val audioTrack: String? = null,
+    @SerialName("subtitle_track") val subtitleTrack: String? = null,
+    @SerialName("burn_requested") val burnRequested: Boolean? = null,
+    @SerialName("max_height") val maxHeight: Long? = null,
+    @SerialName("device_id") val deviceId: String? = null,
+    @SerialName("downlink_bps") val downlinkBps: Long? = null,
+    @SerialName("client") val client: String? = null,
+)
+
 /**
  * 开会话的结果。
  * 三态里只有 ``plan`` 才会真的起会话；``consent`` / ``rejected`` 原样把

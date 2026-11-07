@@ -802,7 +802,9 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (view === null) { return; }
     const origin = view.timeline === 'file' || view.decision.tier === 0 ? 0 : view.start_ms;
     // mpv 直连档选内封轨走原生 sid，不下旁挂字幕（首抽慢/PGS 解不了都绕开）。
-    const subtitleUrl = this.nativeEmbeddedOrdinal() === null && this.subtitleIndex >= 0
+    const selectedPlan = this.subtitleIndex >= 0 && this.subtitleIndex < view.decision.subtitles.length
+      ? view.decision.subtitles[this.subtitleIndex] : null;
+    const subtitleUrl = selectedPlan?.kind !== 'pgs' && this.nativeEmbeddedOrdinal() === null && this.subtitleIndex >= 0
       && this.subtitleIndex < view.subtitle_urls.length
       ? playbackUrl(AppModel.origin(), view.subtitle_urls[this.subtitleIndex]) : '';
     const intent = this.makeIntent();
