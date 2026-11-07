@@ -31,6 +31,7 @@ from movieclaw_api.services.library.bluray import (
     disc_playlist_audit_mutex,
     disc_playlist_failure_record,
     disc_playlist_pending_ledger,
+    disc_playlist_pending_matches,
     disc_playlist_probe_pending,
     disc_playlist_stale,
 )
@@ -52,7 +53,10 @@ async def audit_disc_image_playlist(row: LibraryFile, *, force: bool = False) ->
     if not disc_playlist_stale(row.disc_playlist):
         return False, False
     path = Path(row.file_path)
-    if disc_playlist_probe_pending(row.disc_playlist):
+    was_pending = disc_playlist_probe_pending(row.disc_playlist)
+    if was_pending and await asyncio.to_thread(
+        disc_playlist_pending_matches, row.disc_playlist, path
+    ):
         return False, True
     if not await asyncio.to_thread(disc_playlist_audit_due, row.disc_playlist, path, force=force):
         return False, False
@@ -68,6 +72,13 @@ async def audit_disc_image_playlist(row: LibraryFile, *, force: bool = False) ->
         return True, False
     record = row.disc_playlist if isinstance(row.disc_playlist, dict) else {}
     fresh_clips = _image_clips(source)
+    if was_pending:
+        # 盘已变化，旧 pending 的规格目标也失效；完整重审后用新指纹重新等待探测。
+        row.disc_playlist = disc_playlist_pending_ledger(source.playlist_name, fresh_clips, path)
+        reset_probed_spec(row)
+        row.duration_seconds = None
+        row.updated_at = utcnow()
+        return True, True
     stored_clips = record.get("clips")
     # 版本已是最新、清单却是另一条（部分读取把花絮落了账）。只比时长选不出的盘，
     # 旧逻辑在 longest == playlist 时直接返回，挂载恢复后也不会再看这条台账。

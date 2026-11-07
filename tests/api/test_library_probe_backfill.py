@@ -20,6 +20,7 @@ from sqlmodel import select
 from tests.api.test_bluray_clpi import _mpls
 from tests.api.test_reels_disc_index import S, _UdfBuilder
 
+import movieclaw_api.services.library.disc_main_playlists as playlist_heal_mod
 import movieclaw_api.services.library.items as items_mod
 import movieclaw_api.services.library.scan as scan_mod
 import movieclaw_api.services.media_discover as discover_mod
@@ -314,8 +315,14 @@ async def test_disc_images_without_a_video_codec_are_reprobed_once(
     _with_ffprobe(monkeypatch)
     library_id = await _build(db, tmp_path)
     await scan_library(library_id)
+    image = _bluray_image_with_copies(smaller_is_longer=False)
+    iso_source.clear_cache()
     async with db.session() as session:
         for row in (await session.execute(select(LibraryFile))).scalars().all():
+            path = Path(row.file_path)
+            path.write_bytes(image)
+            row.size_bytes = len(image)
+            row.file_mtime_ns = path.stat().st_mtime_ns
             row.container = "iso"
             row.video_codec = None
             row.audio_streams = []
@@ -332,6 +339,27 @@ async def test_disc_images_without_a_video_codec_are_reprobed_once(
     calls.clear()
     assert (await scan_library(library_id)).probed == 0
     assert calls == []
+
+
+async def test_failed_disc_image_audit_blocks_missing_spec_probe(db, tmp_path, monkeypatch) -> None:
+    """坏 ISO 的失败指纹一旦落账，缺规格补探不能紧接着再走 probe_media 重读整盘。"""
+    _with_ffprobe(monkeypatch)
+    library_id = await _build(db, tmp_path, count=1)
+    await scan_library(library_id)
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+        row.container = "iso"
+        row.video_codec = None
+        row.audio_streams = []
+        await session.commit()
+
+    calls: list[str] = []
+    _with_ffprobe(monkeypatch, calls)
+    summary = await scan_library(library_id)
+    assert summary.probed == 0 and calls == []
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+        assert row.disc_playlist["audit"]["state"] == "failed"
 
 
 async def test_files_without_color_tags_are_not_reprobed_forever(
@@ -730,6 +758,11 @@ async def test_heal_reprobes_a_folder_disc_whose_main_playlist_changed(
 ) -> None:
     """魔女宅急便那样的盘：台账记的是全片分镜版。规格整组换成正片的，不是只补空。"""
     file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    async with db.session() as session:
+        stored = await session.get(LibraryFile, file_id)
+        assert stored is not None
+        stored.chapter_images = [{"start_ms": 0, "frame_ms": 1000, "image": "old.jpg"}]
+        await session.commit()
     calls: list[str] = []
 
     def probe(path):
@@ -752,6 +785,8 @@ async def test_heal_reprobes_a_folder_disc_whose_main_playlist_changed(
     assert [stream["codec"] for stream in row.audio_streams or []] == ["truehd", "ac3"]
     assert len(row.subtitle_streams or []) == 1
     assert row.duration_seconds == 5648
+    assert row.chapters == []
+    assert row.chapter_images is None
 
     # 幂等：跟上之后不再读盘重探
     calls.clear()
@@ -859,6 +894,49 @@ async def test_failed_reprobe_stays_unprobed_and_the_reconcile_retries_it(
     assert row.resolution == "1080p" and row.audio_streams
     assert row.disc_playlist is not None
     assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+
+
+async def test_changed_folder_disc_does_not_promote_stale_pending_playlist(
+    db, tmp_path, monkeypatch
+) -> None:
+    """ffprobe 失败后盘被替换：pending 的旧 clips 不能直接盖 v3，必须按新指纹重审。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: None)
+
+    assert await heal_disc_main_playlists() == 1
+    pending = await _load(db, file_id)
+    assert pending.disc_playlist is not None
+    assert pending.disc_playlist["audit"]["state"] == "pending_probe"
+    assert pending.disc_playlist["name"] == "00001.mpls"
+
+    disc = Path(pending.file_path)
+    (disc / "BDMV" / "STREAM" / "00002.m2ts").write_bytes(b"n" * 10_000)
+    original = items_mod.read_main_playlist_result
+    reads = 0
+
+    def counted_read(path):
+        nonlocal reads
+        reads += 1
+        return original(path)
+
+    targets: list[str] = []
+
+    def probe(path):
+        targets.append(Path(path).name)
+        return _MAIN_SPEC
+
+    probe_mod._retry_state.clear()
+    monkeypatch.setattr(items_mod, "read_main_playlist_result", counted_read)
+    monkeypatch.setattr(items_mod, "probe_media", probe)
+
+    assert await heal_disc_main_playlists() == 1
+    row = await _load(db, file_id)
+    assert reads == 1
+    assert targets == ["00002.m2ts"]
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert row.disc_playlist["name"] == "00002.mpls"
 
 
 async def test_manual_scan_also_replaces_the_spec_when_the_main_playlist_changed(
@@ -1203,6 +1281,23 @@ async def test_permanently_broken_folder_is_reaudited_only_after_fingerprint_cha
     assert calls == 1
 
     async with db.session() as session:
+        unprobed = await session.get(LibraryFile, file_id)
+        assert unprobed is not None
+        unprobed.audio_streams = None
+        unprobed.video_codec = None
+        await session.commit()
+        summary = ScanSummary(library_id=failed.library_id)
+        await scan_mod._probe_backfill(
+            session,
+            failed.library_id,
+            summary,
+            scan_mod.ScanState(phase=scan_mod.ScanPhase.WALKING),
+        )
+    assert summary.probed == 0
+    assert calls == 1
+
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: _MAIN_SPEC)
+    async with db.session() as session:
         summary = ScanSummary(library_id=failed.library_id)
         await scan_mod._probe_backfill(
             session,
@@ -1212,6 +1307,7 @@ async def test_permanently_broken_folder_is_reaudited_only_after_fingerprint_cha
             force_disc_playlist_audit=True,
         )
     assert calls == 2
+    assert summary.probed == 1
 
     broken.write_bytes(b"still broken, but changed size")
     assert await heal_disc_main_playlists() == 0
@@ -1488,6 +1584,47 @@ async def test_incomplete_image_read_does_not_replace_a_current_version_playlist
     assert row.disc_playlist is not None and row.disc_playlist["name"] == "00013.mpls"
     assert row.resolution == "1080p"
     assert await heal_disc_main_playlists() == 0
+
+
+async def test_changed_image_reaudits_before_promoting_pending_playlist(
+    db, tmp_path, monkeypatch
+) -> None:
+    """ISO pending 后换盘，即使清单名碰巧相同，也要按新指纹重新完整审计。"""
+    iso_source.clear_cache()
+    file_id = await _stored_image(
+        db, tmp_path, "pending-replaced", _bluray_image_with_copies(smaller_is_longer=True)
+    )
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: None)
+
+    assert await heal_disc_main_playlists() == 1
+    pending = await _load(db, file_id)
+    assert pending.disc_playlist is not None
+    assert pending.disc_playlist["audit"]["state"] == "pending_probe"
+
+    image = Path(pending.file_path)
+    before = image.stat()
+    image.touch()
+    if image.stat().st_mtime_ns == before.st_mtime_ns:
+        image.write_bytes(image.read_bytes() + b"\0")
+    iso_source.clear_cache()
+    original = playlist_heal_mod.iso_disc_source
+    reads = 0
+
+    def counted_read(path):
+        nonlocal reads
+        reads += 1
+        return original(path)
+
+    probe_mod._retry_state.clear()
+    monkeypatch.setattr(playlist_heal_mod, "iso_disc_source", counted_read)
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: _MAIN_SPEC)
+
+    assert await heal_disc_main_playlists() == 1
+    row = await _load(db, file_id)
+    assert reads == 1
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
 
 
 # ---------------------------------------------------------------------------

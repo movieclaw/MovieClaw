@@ -455,7 +455,17 @@ async def test_reconciled_legacy_disc_job_is_replaced_by_complete_disc_ingest(
     entry = watch / "Legacy.Disc.2026"
     stream = entry / "BDMV" / "STREAM" / "00001.m2ts"
     stream.parent.mkdir(parents=True)
+    (entry / "BDMV" / "PLAYLIST").mkdir()
     stream.write_bytes(b"complete-main-feature")
+    original_read = ingest_mod.read_main_playlist_result
+    playlist_reads = 0
+
+    def counted_read(path):
+        nonlocal playlist_reads
+        playlist_reads += 1
+        return original_read(path)
+
+    monkeypatch.setattr(ingest_mod, "read_main_playlist_result", counted_read)
     fingerprint = ingest_mod._snapshot(entry).fingerprint
     async with db.session() as session:
         record = IngestEntry(
@@ -504,6 +514,9 @@ async def test_reconciled_legacy_disc_job_is_replaced_by_complete_disc_ingest(
     assert record.status == IngestStatus.IMPORTED
     assert len(files) == 1 and files[0].container == "bluray"
     assert Path(files[0].file_path).is_dir()
+    assert playlist_reads == 1
+    assert files[0].disc_playlist["audit"]["state"] == "failed"
+    assert files[0].resolution == _FAKE_SPEC.resolution
 
 
 @pytest.mark.asyncio

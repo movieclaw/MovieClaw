@@ -411,6 +411,8 @@ async def test_new_bluray_with_an_incomplete_playlist_stays_unstamped(
     clock = 45_000
     (playlist_dir / "00001.mpls").write_bytes(_mpls(("00001", 0, clock * 7200)))
     (playlist_dir / "00002.mpls").write_bytes(_mpls(("00002", 0, clock * 600)))
+    broken_playlist = playlist_dir / "00003.mpls"
+    broken_playlist.write_bytes(b"permanently malformed")
     (stream_dir / "00001.m2ts").write_bytes(b"m" * 100)
     (stream_dir / "00002.m2ts").write_bytes(b"x" * 10)
 
@@ -465,6 +467,7 @@ async def test_new_bluray_with_an_incomplete_playlist_stays_unstamped(
         assert row.resolution is None and row.video_codec is None
 
     fail_main = False
+    broken_playlist.unlink()
     await scan_library(library.id)
     async with db.session() as session:
         row = (await session.execute(select(LibraryFile))).scalars().one()

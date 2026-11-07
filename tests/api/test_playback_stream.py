@@ -1670,6 +1670,33 @@ def test_incomplete_disc_image_does_not_heal_persistent_duration(client, tmp_pat
     assert client.portal.call(duration) == 4
 
 
+def test_failed_disc_image_fingerprint_blocks_duration_reparse(client, tmp_path, monkeypatch):
+    """主片审计已稳定失败且镜像未变时，随后片长校准不能在同次或下次启动又读整盘。"""
+    from tests.api.test_iso_source import _bluray_image
+
+    import movieclaw_api.services.library.disc_image_durations as durations_mod
+    from movieclaw_api.services.library.bluray import disc_playlist_failure_record
+    from movieclaw_api.services.library.disc_image_durations import heal_disc_image_durations
+
+    image, _, _ = _bluray_image(metadata=False)
+    file_id = seed(client, tmp_path, container="iso", data=image, duration_seconds=4)
+
+    async def mark_failed():
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            assert row is not None
+            row.disc_playlist = disc_playlist_failure_record(None, Path(row.file_path))
+            await session.commit()
+
+    client.portal.call(mark_failed)
+
+    def unexpected_read(_path):
+        raise AssertionError("失败指纹未变时不应再次读取 ISO")
+
+    monkeypatch.setattr(durations_mod, "iso_disc_source", unexpected_read)
+    assert client.portal.call(heal_disc_image_durations) == 0
+
+
 def test_stored_disc_image_bit_rates_are_healed_without_reprobing(client, tmp_path, monkeypatch):
     """存量 ISO 的台账码率（ffprobe 算的，NAS 实测高出上千倍、也有低到二十分之一的）随片长自愈一起
     换成盘内正片的平均码率，不跑 ffprobe。读不出盘内结构的记未知；片库没挂上、还没探测过的不动。
