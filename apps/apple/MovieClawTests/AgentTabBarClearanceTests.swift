@@ -56,6 +56,28 @@ struct AgentTabBarClearanceTests {
         #expect(AgentTabBarClearance.appliedInset(tabBarHidden: false, pageOnScreen: true, measured: measured) == measured)
     }
 
+    @Test func pinningReappliesAnInsetWhileTheEffectiveSafeAreaIsStillInterpolating() {
+        let target: CGFloat = 67
+        #expect(AgentTabBarClearance.needsInsetUpdate(
+            currentAdditionalInset: target,
+            effectiveBottomInset: 60,
+            windowBottomInset: 34,
+            targetAdditionalInset: target
+        ))
+        #expect(!AgentTabBarClearance.needsInsetUpdate(
+            currentAdditionalInset: target,
+            effectiveBottomInset: 101,
+            windowBottomInset: 34,
+            targetAdditionalInset: target
+        ))
+        #expect(!AgentTabBarClearance.needsInsetUpdate(
+            currentAdditionalInset: target,
+            effectiveBottomInset: 120,
+            windowBottomInset: 34,
+            targetAdditionalInset: target
+        ))
+    }
+
     @Test func keyboardCoveringTheTabBarDoesNotAddAnotherLift() {
         let docked = CGRect(x: 0, y: 520, width: 393, height: 332)
         #expect(inset(tabBar: phoneBar, page: phone, windowBottom: 34, keyboard: docked) == 0)
