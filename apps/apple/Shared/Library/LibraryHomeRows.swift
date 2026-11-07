@@ -74,6 +74,15 @@ enum HomeRows {
         }
     }
 
+    /// 观看条件把墙筛空时的标题：说清是哪个筛选造成的（不写成「这里没有作品」）
+    static func watchEmptyTitle(_ watch: String) -> String {
+        switch watch {
+        case "unwatched": String(localized: .libraryKindWallEmptyUnwatched)
+        case "seen": String(localized: .libraryKindWallEmptySeen)
+        default: String(localized: .libraryKindWallEmptyUnfinished)
+        }
+    }
+
     /// 类型行的推荐名：「全部电影 · 最近添加」。
     /// 不套库行的「最近添加的{库}」：很多人的电影库就叫「电影」，那样类型行与那个库的默认行会同名并排，分不清
     static func mediaKindRowName(_ kind: String, sort: String, reversed: Bool) -> String {

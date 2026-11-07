@@ -149,6 +149,31 @@ final class LibraryUITests: XCTestCase {
         snapshot("kind-wall-cleared-after-stale-summary")
     }
 
+    /// 「未看完」把类型墙筛空：要说清是筛选造成的，并能一键清除回到全部（PR #1205 维护者 P2）。
+    @MainActor
+    func testUnfinishedEmptyKindWallExplainsAndClearsFilter() throws {
+        try XCTSkipUnless(env["MC_TEST_UNFINISHED_EMPTY_FIXTURE"] == "1", "Requires --all-tv-watched fixture")
+        let app = launch(route: "/library/kind/tv")
+        let picker = app.descendants(matching: .any)["kind-wall-watch"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 30))
+        let watched = app.buttons.matching(NSPredicate(format: "label CONTAINS 'tv watch 900 000'")).firstMatch
+        XCTAssertTrue(watched.waitForExistence(timeout: 20), "All TV must be non-empty before filtering")
+        picker.tap()
+        let unfinished = app.buttons.matching(NSPredicate(format: "label == '未看完' OR label == 'Unfinished'")).firstMatch
+        XCTAssertTrue(unfinished.waitForExistence(timeout: 5))
+        unfinished.tap()
+        let empty = app.descendants(matching: .any)["kind-wall-watch-empty"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 15), "Filtered-empty wall must explain the watch filter")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == '没有未看完的作品' OR label == 'No Unfinished Titles'")).firstMatch.exists)
+        snapshot("kind-wall-unfinished-empty")
+        let clear = app.buttons.matching(NSPredicate(format: "label == '清除观看筛选' OR label == 'Clear Watch Filter'")).firstMatch
+        XCTAssertTrue(clear.exists)
+        clear.tap()
+        XCTAssertTrue(watched.waitForExistence(timeout: 15), "Clearing must restore the full wall")
+        XCTAssertFalse(empty.exists)
+        snapshot("kind-wall-unfinished-cleared")
+    }
+
     /// 合集与媒体库共用 ⋯ 中的切换入口，顶栏不再有独立图标键。
     @MainActor
     func testCollectionGalleryModeIsInMoreMenu() throws {

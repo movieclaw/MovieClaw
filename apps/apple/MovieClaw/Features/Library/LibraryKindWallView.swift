@@ -135,6 +135,14 @@ struct LibraryKindWallView: View {
             WallLoadMoreFooter(hasMore: pager.hasMore, start: pager.start, loaded: items.count, total: pager.total) {
                 await pager.loadMore()
             }
+        } else if let watch {
+            // 观看条件把墙筛空了：说清是筛选造成的，并给一键清除（不写成「这个类型没有作品」）
+            EmptyState(systemImage: "line.3.horizontal.decrease.circle",
+                       title: HomeRows.watchEmptyTitle(watch),
+                       message: String(localized: .libraryKindWallEmptyWatchHint),
+                       actionTitle: String(localized: .libraryKindWallClearWatch)) { self.watch = nil }
+                .padding(.top, 40)
+                .accessibilityIdentifier("kind-wall-watch-empty")
         }
     }
 

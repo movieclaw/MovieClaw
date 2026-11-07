@@ -48,6 +48,7 @@ import { LibraryFormSheet } from './LibraryFormSheet';
 import { OrganizeSheet } from './OrganizeSheet';
 import { SaveAsCollectionSheet } from './SaveAsCollectionSheet';
 import { GalleryDensity, GalleryPrefs, GalleryWall } from './GalleryWall';
+import { LatestRequestGate } from './LatestRequestGate';
 
 /** 单库页路由参数 */
 export class LibraryRouteParams {
@@ -164,6 +165,8 @@ struct LibraryDetailPage {
   private navStack: NavPathStack = new NavPathStack();
   private permissions: Permissions = Permissions.none();
   private pager: LibraryWallPager = new LibraryWallPager(60);
+  /** A–Z 索引请求守卫：只提交最后一次发起的索引响应 */
+  private indexGate: LatestRequestGate = new LatestRequestGate();
   private scroller: Scroller = new Scroller();
   private pollTimer: number = -1;
   private started: boolean = false;
@@ -516,6 +519,8 @@ struct LibraryDetailPage {
     }
     const id: number = this.libraryId;
     const manage: boolean = this.canManage();
+    // 轮询记下开始时的查询身份（不作废进行中的查询）；期间切了筛选/排序，这一轮的索引就作废
+    const query: number = this.indexGate.current();
     try {
       // 库列表先 await：它是页面的门槛，回来了就能从「正在加载」进到正文
       const libs: LibraryView[] = await api.libraryList(undefined, 'all');
@@ -546,7 +551,11 @@ struct LibraryDetailPage {
       this.syncWall();
       if (this.effectiveSort() === 'title' || this.effectiveSort() === 'release_date') {
         try {
-          this.index = await fetchWallIndex(api, id, this.filter, this.effectiveSort(), this.order());
+          const entries: LibraryIndexEntryView[] | undefined = await this.indexGate.run(
+            query, () => fetchWallIndex(api, id, this.filter, this.effectiveSort(), this.order()));
+          if (entries !== undefined) {
+            this.index = entries;
+          }
         } catch (error) {
           // 索引拿不到就先不显示 A–Z 条，下一轮轮询再试
         }
@@ -646,11 +655,14 @@ struct LibraryDetailPage {
 
   /** 排序 / 筛选变了：整面墙回到墙首重载，索引条跟着换 */
   private async reloadWall(): Promise<void> {
+    // 新查询的身份必须在任何 await 之前取得：旧查询的墙晚到之后才去取索引时，
+    // 它拿的仍是旧身份，索引请求不会发出，也不会盖掉新索引（换到不带索引的排序同理）
+    const query: number = this.indexGate.begin();
+    this.index = [];
     const api: MovieClawApi | null = AppModel.shared.api;
     if (api === null) {
       return;
     }
-    this.index = [];
     // 换排序 / 筛选：图廊窗口也回墙首（同 iOS onChange(of: wallKey)）
     this.galleryStart = 0;
     const filter: LibraryFilter = this.filter;
@@ -671,9 +683,16 @@ struct LibraryDetailPage {
     this.syncWall();
     if (sort === 'title' || sort === 'release_date') {
       try {
-        this.index = await fetchWallIndex(api, libraryId, filter, sort, order);
+        // 索引只认本次查询：墙回来时查询已被换掉就不再取；取回来（成功或失败）时被换掉也不提交
+        const entries: LibraryIndexEntryView[] | undefined = await this.indexGate.run(
+          query, () => fetchWallIndex(api, libraryId, filter, sort, order));
+        if (entries !== undefined) {
+          this.index = entries;
+        }
       } catch (error) {
-        this.index = [];
+        if (this.indexGate.isCurrent(query)) {
+          this.index = [];
+        }
       }
     }
   }

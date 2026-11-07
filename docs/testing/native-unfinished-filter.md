@@ -36,11 +36,15 @@ Android 手机与 TV 共用 `apps/android-core` 的构建产物，须**顺序运
 
 手机的 `LibraryCustomizeProtocolTest` 运行真实 ViewModel、序列化和 HTTP 请求，验证从另一客户端读入、原生修改和保存、切换回未看，以及未展示类型行的字段保留。TV 的 `BigLibraryWallTest` 运行 Compose 遥控交互，核对作品与 facet 请求一致、开关持久化及取消；另有首页合并和查询参数测试。
 
-鸿蒙首页逻辑测试直接运行生产 `HomeRows.ets`：
+筛空态：`LibraryUITests/testUnfinishedEmptyKindWallExplainsAndClearsFilter` 需要夹具参数 `--all-tv-watched`（夹具内剧集全部标为看完，「未看完」真实筛空）并设置 `TEST_RUNNER_MC_TEST_UNFINISHED_EMPTY_FIXTURE=1`，验证类型墙说明是观看筛选造成的空结果、一键清除后恢复全部。
+
+Android 手机 `LibraryDetailStaleResponseTest` 用真实 HTTP 卡住旧请求：清除「未看完」后迟到的旧第一页与旧 A–Z 索引、旧筛选的下一页，以及切换筛选同一帧内的触底加载，都不能覆盖或拼接到新结果。`KindWallWatchFilterTest` 用真实 ViewModel 与 Compose 验证观看筛选的单选语义（TalkBack 可读选中状态）、筛空说明和一键清除。
+
+鸿蒙首页逻辑测试直接运行生产 `HomeRows.ets`；`library-index-gate.test.cjs` 运行生产 `LatestRequestGate.ets`，覆盖「旧墙晚到后才取索引」、旧索引失败、轮询期间切筛选等交错，并检查单库页在任何 await 之前取得查询身份：
 
 ```sh
 HARMONY_TYPESCRIPT_PATH=<TypeScript模块路径> \
-  node --test apps/harmonyos/scripts/tests/library-watch.test.cjs
+  node --test apps/harmonyos/scripts/tests/library-watch.test.cjs apps/harmonyos/scripts/tests/library-index-gate.test.cjs
 ```
 
 这类筛选/偏好改动可以用自动化测试、编译和模拟器验证提交审阅。上述测试不构成 Android/TV/鸿蒙真机验收，也不覆盖播放、解码或遥控器硬件行为；是否接受以及何时发布仍由维护者决定。鸿蒙主机逻辑测试不能替代 DevEco/ArkTS 编译。

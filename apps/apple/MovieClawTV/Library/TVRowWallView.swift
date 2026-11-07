@@ -65,6 +65,9 @@ struct TVRowWallView: View {
 
     var body: some View {
         TVPosterWall(title: title, subtitle: total.map { String(localized: .libraryStatusTitleCount($0)) }, pager: pager, fallbackLibrary: fallbackLibrary, total: total,
+                     emptyTitle: watch.map(HomeRows.watchEmptyTitle) ?? String(localized: .libraryNothingHere),
+                     emptyMessage: watch == nil ? nil : String(localized: .libraryKindWallEmptyWatchHint),
+                     emptyActions: watch == nil ? [] : [TVWallAction(id: "clear-watch", title: String(localized: .libraryKindWallClearWatch)) { watch = nil }],
                      retry: { await reload() }) {
             if source.watch != nil {
                 Picker(String(localized: .libraryFiltersWatch), selection: $watch) {

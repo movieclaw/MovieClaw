@@ -339,6 +339,13 @@ fun RowWallScreen(title: String, source: WallSource) {
                 WallMenuButton("清除观看筛选", enabled, Modifier) { cleared = true }
             }
         },
+        emptyTitle = when (query.w) {
+            null -> "这里还没有内容"
+            "unfinished" -> "没有未看完的作品"
+            "seen" -> "没有看过的作品"
+            else -> "没有未看的作品"
+        },
+        emptyMessage = if (query.w != null) "当前观看筛选下没有作品，清除筛选即可查看全部。" else null,
         emptyActions = if (query.w != null) listOf(WallAction("clear-watch", "清除观看筛选") { cleared = true }) else emptyList(),
     )
 }
