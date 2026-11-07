@@ -22,6 +22,7 @@ from pathlib import Path
 
 from sqlmodel import select
 
+from movieclaw_api.services.library.bluray import disc_playlist_audit_due
 from movieclaw_api.services.playback.disc_source import DiscSource
 from movieclaw_api.services.playback.iso_source import iso_disc_source
 from movieclaw_db.engine import get_database
@@ -77,8 +78,11 @@ async def heal_disc_image_durations() -> int:
         )
         changed = 0
         for row in rows:
+            path = Path(row.file_path)
+            if not await asyncio.to_thread(disc_playlist_audit_due, row.disc_playlist, path):
+                continue
             source = await asyncio.to_thread(iso_disc_source, row.file_path)
-            if source is None and not await asyncio.to_thread(Path(row.file_path).exists):
+            if source is None and not await asyncio.to_thread(path.exists):
                 continue  # 片库没挂上：看不出镜像读不读得出，下次启动再校准
             if _heal_duration(row, source) | _heal_bit_rate(row, source):
                 changed += 1

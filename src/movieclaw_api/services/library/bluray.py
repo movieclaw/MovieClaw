@@ -278,6 +278,17 @@ def disc_playlist_probe_pending(record: object) -> bool:
     )
 
 
+def disc_playlist_pending_matches(record: object, path: Path) -> bool:
+    """pending 台账是否仍属于当前这张盘；指纹取不到时也不能复用。"""
+    if not disc_playlist_probe_pending(record):
+        return False
+    assert isinstance(record, dict)
+    fingerprint = disc_playlist_fingerprint(path)
+    return fingerprint is not None and fingerprint == (record.get(_AUDIT_KEY) or {}).get(
+        "fingerprint"
+    )
+
+
 def disc_playlist_audit_due(record: object, path: Path, *, force: bool = False) -> bool:
     """失败指纹没变就不重做完整审计；显式重试可传 ``force=True``。"""
     if force or not disc_playlist_audit_failed(record):
@@ -321,9 +332,9 @@ def disc_playlist_pending_ledger(name: str | None, clips: list[dict], path: Path
     }
 
 
-def disc_playlist_success_record(record: object) -> dict | None:
+def disc_playlist_success_record(record: object, path: Path) -> dict | None:
     """把 ``pending_probe`` 清单转为 v3 成功台账。"""
-    if not disc_playlist_probe_pending(record):
+    if not disc_playlist_pending_matches(record, path):
         return None
     assert isinstance(record, dict)
     return {
@@ -335,7 +346,7 @@ def disc_playlist_success_record(record: object) -> dict | None:
 
 def pending_disc_playlist(record: object, disc_dir: Path) -> MplsPlaylist | None:
     """从已完整审计的 pending 台账恢复探测目标，不再重读全部 MPLS。"""
-    if not disc_playlist_probe_pending(record):
+    if not disc_playlist_pending_matches(record, disc_dir):
         return None
     assert isinstance(record, dict)
     try:

@@ -71,6 +71,7 @@ from movieclaw_api.services.library.artwork import (
 )
 from movieclaw_api.services.library.bluray import (
     disc_playlist_audit_due,
+    disc_playlist_audit_failed,
     disc_playlist_failure_record,
     disc_playlist_pending_record,
     disc_playlist_probe_pending,
@@ -3166,6 +3167,8 @@ def reset_probed_spec(row: LibraryFile) -> None:
     row.probe_version = None
     row.audio_streams = None
     row.subtitle_streams = None
+    row.chapters = None
+    row.chapter_images = None
 
 
 async def backfill_streams(
@@ -3229,18 +3232,16 @@ async def backfill_streams(
         # 探测目标都要按真正的主片重算
         path = Path(row.file_path)
         pending_playlist_probe = disc_playlist_probe_pending(row.disc_playlist)
+        disc_audit_due = await asyncio.to_thread(
+            disc_playlist_audit_due,
+            row.disc_playlist,
+            path,
+            force=force_disc_playlist_audit,
+        )
         needs_disc = (
             row.container == "bluray"
             and disc_playlist_stale(row.disc_playlist)
-            and (
-                pending_playlist_probe
-                or await asyncio.to_thread(
-                    disc_playlist_audit_due,
-                    row.disc_playlist,
-                    path,
-                    force=force_disc_playlist_audit,
-                )
-            )
+            and (pending_playlist_probe or disc_audit_due)
         )
         # 新增帧率/色彩空间后，历史行两列同时为空时允许整库扫描补探一次。
         # 正常视频至少能取得其中一项，避免个别元数据缺失的文件每轮重复 ffprobe。
@@ -3261,6 +3262,11 @@ async def backfill_streams(
             if not await keep_going():
                 break
             continue  # strm 占位文件没有媒体流，探了必失败，别每轮白试
+        if disc_playlist_audit_failed(row.disc_playlist) and not disc_audit_due:
+            # 稳定坏盘在指纹变化/显式重试前，规格补探也不能绕过失败台账再次整盘读取。
+            if not await keep_going():
+                break
+            continue
         if not probe_retry_due(row.file_path):
             # 失败退避中（media_probe 的失败记忆）：上次探测失败且还没到
             # 重试点，跳过省一次几乎必然的失败——坏文件一次就是 30 秒超时。
@@ -3304,8 +3310,7 @@ async def backfill_streams(
                     row.disc_playlist = disc_playlist_pending_record(playlist, path)
                     # 时长按主播放列表**覆盖**而不是补空：旧行可能记着诱饵列表的虚高时长
                     row.duration_seconds = playlist.duration_seconds
-                    if not pending_playlist_probe:
-                        row.chapters = playlist.chapters()
+                    row.chapters = playlist.chapters()
                     row.updated_at = utcnow()
             elif not audit_failed:
                 if not await keep_going():
@@ -3365,7 +3370,7 @@ async def backfill_streams(
             row.bit_rate = row.bit_rate or spec.bit_rate
             row.frame_rate = row.frame_rate or spec.frame_rate
             row.color_space = row.color_space or spec.color_space
-            success_record = disc_playlist_success_record(row.disc_playlist)
+            success_record = disc_playlist_success_record(row.disc_playlist, path)
             if success_record is not None:
                 row.disc_playlist = success_record
             # 补探的终止条件：写上当前字段集版本，这一行下次就不再进补探队列。

@@ -126,10 +126,12 @@ from movieclaw_api.services.library.acquisition import (
     TaskFiles,
 )
 from movieclaw_api.services.library.bluray import (
+    MainPlaylistReadResult,
+    disc_playlist_failure_record,
     disc_playlist_record,
     enrich_spec_with_clpi,
     read_clpi_languages,
-    read_main_playlist,
+    read_main_playlist_result,
 )
 from movieclaw_api.services.library.config import (
     derive_entry_dir,
@@ -1805,6 +1807,8 @@ async def _ingest_entry(
         return await conclude(verdict[0], verdict[1], imported)
 
     disc_root: Path | None = None
+    playlist_result: MainPlaylistReadResult | None = None
+    playlist = None
     if snap.has_disc:
         if kind is not MediaKind.MOVIE:
             return await conclude(IngestStatus.PENDING, reference("library.ingest.tvDisc"))
@@ -1816,7 +1820,17 @@ async def _ingest_entry(
                 reference("library.ingest.mixedDiscs", count=len(snap.disc_roots)),
             )
         disc_root = snap.disc_roots[0]
-        main = await asyncio.to_thread(disc_main_stream, disc_root)
+        if (disc_root / "BDMV").is_dir():
+            playlist_result = await asyncio.to_thread(read_main_playlist_result, disc_root)
+            if not playlist_result.retryable and not playlist_result.audit_failed:
+                playlist = playlist_result.playlist
+            main = (
+                None
+                if playlist_result.retryable
+                else await asyncio.to_thread(disc_main_stream, disc_root, playlist=playlist)
+            )
+        else:
+            main = await asyncio.to_thread(disc_main_stream, disc_root)
         if main is None:
             return await conclude(
                 IngestStatus.FAILED,
@@ -1849,11 +1863,10 @@ async def _ingest_entry(
             IngestStatus.FAILED, reference("library.ingest.probeFailed", name=main.name)
         )
     disc_playlist: dict | None = None
-    if spec is not None and disc_root is not None and (disc_root / "BDMV").is_dir():
+    if spec is not None and disc_root is not None and playlist_result is not None:
         languages = await asyncio.to_thread(read_clpi_languages, main)
         if languages is not None:
             spec = enrich_spec_with_clpi(spec, languages)
-        playlist = await asyncio.to_thread(read_main_playlist, disc_root)
         if playlist is not None and playlist.duration_seconds > 0:
             # 时长与章节以主播放列表为准（与扫描端同口径，见 scan._register_file）
             spec = replace(
@@ -2159,6 +2172,8 @@ async def _ingest_entry(
             )
         assert dest_library is not None and dest_library.id is not None
         stat = final.stat()
+        if playlist_result is not None and playlist_result.audit_failed:
+            disc_playlist = await asyncio.to_thread(disc_playlist_failure_record, None, final)
         disc_site, disc_torrent = provenance(None, None)
         disc_hash, disc_downloader = torrent_of(None, None)
         disc_row = await repo.upsert_by_path(

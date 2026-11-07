@@ -3566,7 +3566,7 @@ async def _ingest_file(
         else:
             note_probe_success(str(file))
     disc_playlist: dict | None = None
-    if is_bluray and playlist_audit_failed:
+    if is_bluray and playlist_audit_failed and not playlist_retryable:
         disc_playlist = await asyncio.to_thread(
             disc_playlist_failure_record,
             existing.disc_playlist if existing is not None else None,
