@@ -144,6 +144,35 @@ def test_incomplete_bluray_iso_is_not_cached_or_persistently_probed(tmp_path, mo
     assert main_reads == 3
 
 
+def test_bluray_subdirectory_short_read_retries_with_the_same_fingerprint(
+    tmp_path, monkeypatch
+):
+    """根目录已读到后子目录瞬时短读也不能变成空目录并缓存失败结论。"""
+    path = tmp_path / "movie.iso"
+    path.write_bytes(_bluray_image(metadata=False)[0])
+    before = path.stat()
+    original = iso_source.UDFReader.list
+    failed = False
+
+    def flaky_list(reader, folder):
+        nonlocal failed
+        if not failed and folder == ["BDMV", "STREAM"]:
+            failed = True
+            raise iso_source.UDFReadError("temporary directory short read")
+        return original(reader, folder)
+
+    monkeypatch.setattr(iso_source.UDFReader, "list", flaky_list)
+    first = iso_source.iso_disc_source_result(path)
+    assert first.source is None
+    assert first.retryable is True and first.audit_failed is False
+
+    second = iso_source.iso_disc_source_result(path)
+    after = path.stat()
+    assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
+    assert second.source is not None and second.source.playlist_name == "00800.mpls"
+    assert second.retryable is False and second.audit_failed is False
+
+
 def test_unreadable_bluray_stream_size_marks_the_source_incomplete(tmp_path, monkeypatch):
     path = tmp_path / "movie.iso"
     path.write_bytes(_image_with_a_smaller_copy(metadata=False))
@@ -357,6 +386,41 @@ def test_dvd_iso_with_scattered_title_vobs_is_read_piece_by_piece(tmp_path):
     (clip,) = source.clips
     assert len(clip.byte_ranges) == 2
     assert b"".join(image[a:b] for a, b in clip.byte_ranges) == vob1 + vob2
+
+
+def test_retryable_dvd_audit_result_is_not_cached_as_clean(tmp_path, monkeypatch):
+    """VIDEO_TS.IFO 短读时的降级标题不能在第二次审计中变成 clean 缓存命中。"""
+    image = _ContiguousBuilder().build(
+        {
+            "VIDEO_TS": {
+                "VIDEO_TS.IFO": _vmg_ifo([1]),
+                "VTS_01_0.IFO": _vts_ifo_with_cells(600, [(0, 1, 1, 600)], []),
+                "VTS_01_1.VOB": bytes([1]) * (2 * S),
+                "VTS_02_0.IFO": _vts_ifo_with_cells(1200, [(0, 3, 1, 1200)], []),
+                "VTS_02_1.VOB": bytes([2]) * (4 * S),
+            },
+        }
+    )
+    path = tmp_path / "two-titles.iso"
+    path.write_bytes(image)
+    original = iso_source.UDFReader.read
+    failed = False
+
+    def flaky_read(reader, entry, limit):
+        nonlocal failed
+        if not failed and entry.name == "VIDEO_TS.IFO":
+            failed = True
+            raise iso_source.UDFReadError("temporary VIDEO_TS.IFO short read")
+        return original(reader, entry, limit)
+
+    monkeypatch.setattr(iso_source.UDFReader, "read", flaky_read)
+    first = iso_source.iso_disc_source_result(path)
+    assert first.source is not None and first.source.playlist_name == "VTS_02"
+    assert first.retryable is True and first.audit_failed is False
+
+    second = iso_source.iso_disc_source_result(path)
+    assert second.source is not None and second.source.playlist_name == "VTS_01"
+    assert second.retryable is False and second.audit_failed is False
 
 
 def test_not_udf_image_has_no_source(tmp_path):

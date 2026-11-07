@@ -308,9 +308,14 @@ def disc_playlist_audit_due(record: object, path: Path, *, force: bool = False) 
     return fingerprint is None or fingerprint != (record.get(_AUDIT_KEY) or {}).get("fingerprint")
 
 
-def disc_playlist_failure_record(record: object, path: Path) -> dict | None:
+def disc_playlist_failure_record(
+    record: object,
+    path: Path,
+    *,
+    fingerprint: object = _FINGERPRINT_UNSET,
+) -> dict | None:
     """保留旧清单并记下永久审计失败；取不到指纹时按瞬时失败处理。"""
-    fingerprint = disc_playlist_fingerprint(path)
+    fingerprint = _disc_playlist_fingerprint(path, fingerprint)
     if fingerprint is None:
         return dict(record) if isinstance(record, dict) else None
     failed = dict(record) if isinstance(record, dict) else {}
