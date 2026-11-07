@@ -17,7 +17,6 @@ import { MovieClawApi } from '../../api/Endpoints';
 import {
   CollectionView,
   FacetValueView,
-  FavoritesView,
   LibraryFacetsView,
   LibraryItemView,
   LibraryView,
@@ -26,8 +25,17 @@ import {
 } from '../../api/Models';
 import { AppModel } from '../../common/AppModel';
 import { ImageUrls } from '../../common/ImageUrls';
-import { HomeRows, WallSortDirection, WallSortDirections } from '../../library/HomeRows';
 import { RemoteImage } from '../../common/RemoteImage';
+import {
+  WallDataSource,
+  WallFetch,
+  WallItem,
+  WallMode,
+  WallPage,
+  WallQuery,
+  WallRawPage,
+  WallRow
+} from '../../shell/WallShared';
 import {
   CarCollectionRoute,
   CarDetailRoute,
@@ -58,37 +66,14 @@ const WALL_BACKDROP_PX: number = 960;
 /** 按压换背景的防抖（毫秒） */
 const WALL_BACKDROP_DEBOUNCE_MS: number = 200;
 
-/** 墙上一格的轻量模型（LazyForEach 数据源持有，不参与观察） */
-export class CarWallItem {
-  /** LazyForEach 复用键（页内唯一即可） */
-  readonly key: string;
-  readonly itemId: number;
-  /** 详情落点库；0 = 不知道（跨库墙里服务端没给就没法进详情） */
-  readonly libraryId: number;
-  readonly title: string;
-  readonly year: number | null;
-  /** 已解析并按显示宽度补 &w= 的海报 URL */
-  readonly posterUrl: string;
-  /** 已解析的剧照 URL（页面背景用，比海报宽） */
-  readonly backdropUrl: string;
-
-  constructor(key: string, itemId: number, libraryId: number, title: string,
-    year: number | null, posterUrl: string, backdropUrl: string) {
-    this.key = key;
-    this.itemId = itemId;
-    this.libraryId = libraryId;
-    this.title = title;
-    this.year = year;
-    this.posterUrl = posterUrl;
-    this.backdropUrl = backdropUrl;
-  }
-
+/** 墙上一格的轻量模型（LazyForEach 数据源持有，不参与观察）；共享字段与构造见 WallItem */
+export class CarWallItem extends WallItem {
   static fromView(view: LibraryItemView, origin: string, cellWidth: number): CarWallItem {
-    const poster: string = CarWallItem.sized(
+    const poster: string = WallItem.sized(
       ImageUrls.resolve(origin, view.poster_url ?? view.backdrop_url ?? null, null),
       CarArt.pxWidth(cellWidth));
     const backdropBase: string | null = ImageUrls.resolve(origin, view.backdrop_url ?? view.poster_url ?? null, null);
-    const backdrop: string = backdropBase === null ? '' : CarWallItem.sized(backdropBase, WALL_BACKDROP_PX);
+    const backdrop: string = backdropBase === null ? '' : WallItem.sized(backdropBase, WALL_BACKDROP_PX);
     return new CarWallItem(
       `w${view.media_item_id}`,
       view.media_item_id,
@@ -102,8 +87,8 @@ export class CarWallItem {
   /** 影人作品墙的一格（peopleShow 的 credit：只有海报，背景也用海报） */
   static fromCredit(credit: PersonCreditView, origin: string, cellWidth: number): CarWallItem {
     const posterBase: string | null = ImageUrls.resolve(origin, credit.poster_url ?? null, null);
-    const poster: string = posterBase === null ? '' : CarWallItem.sized(posterBase, CarArt.pxWidth(cellWidth));
-    const backdrop: string = posterBase === null ? '' : CarWallItem.sized(posterBase, WALL_BACKDROP_PX);
+    const poster: string = posterBase === null ? '' : WallItem.sized(posterBase, CarArt.pxWidth(cellWidth));
+    const backdrop: string = posterBase === null ? '' : WallItem.sized(posterBase, WALL_BACKDROP_PX);
     return new CarWallItem(
       `w${credit.media_item_id}`,
       credit.media_item_id,
@@ -112,129 +97,6 @@ export class CarWallItem {
       credit.year ?? null,
       poster,
       backdrop);
-  }
-
-  /** 解析好的 URL 再按显示宽度补 &w=（后端按 w 降采样出图） */
-  private static sized(url: string | null, px: number): string {
-    if (url === null) {
-      return '';
-    }
-    return `${url}${url.includes('?') ? '&' : '?'}w=${px}`;
-  }
-}
-
-/** 一页取数结果 */
-class CarWallPage {
-  readonly items: CarWallItem[];
-  /** 整份结果共几部；不知道为 null（收藏接口会给） */
-  readonly total: number | null;
-
-  constructor(items: CarWallItem[], total: number | null) {
-    this.items = items;
-    this.total = total;
-  }
-}
-
-/** 海报墙的 LazyForEach 数据源：整批换 / 尾部追加 / 头部补页 */
-class CarWallDataSource implements IDataSource {
-  private items: CarWallItem[] = [];
-  private listeners: DataChangeListener[] = [];
-
-  totalCount(): number {
-    return this.items.length;
-  }
-
-  getData(index: number): CarWallItem {
-    return this.items[index];
-  }
-
-  registerDataChangeListener(listener: DataChangeListener): void {
-    if (this.listeners.indexOf(listener) < 0) {
-      this.listeners.push(listener);
-    }
-  }
-
-  unregisterDataChangeListener(listener: DataChangeListener): void {
-    const at: number = this.listeners.indexOf(listener);
-    if (at >= 0) {
-      this.listeners.splice(at, 1);
-    }
-  }
-
-  /** 整批换成这一批（换排序） */
-  setItems(items: CarWallItem[]): void {
-    this.items = items;
-    for (const listener of this.listeners) {
-      listener.onDataReloaded();
-    }
-  }
-
-  /** 尾部追加一页（向下翻） */
-  append(items: CarWallItem[]): void {
-    if (items.length === 0) {
-      return;
-    }
-    const at: number = this.items.length;
-    this.items = this.items.concat(items);
-    for (const listener of this.listeners) {
-      for (let i: number = 0; i < items.length; i++) {
-        listener.onDataAdd(at + i);
-      }
-    }
-  }
-
-  /** 头部补一页（往回走）：逐条 onDataAdd，已建好的格子按 key 复用不重建 */
-  prepend(items: CarWallItem[]): void {
-    if (items.length === 0) {
-      return;
-    }
-    this.items = items.concat(this.items);
-    for (const listener of this.listeners) {
-      for (let i: number = 0; i < items.length; i++) {
-        listener.onDataAdd(i);
-      }
-    }
-  }
-
-  indexOfItem(itemId: number): number {
-    for (let i: number = 0; i < this.items.length; i++) {
-      if (this.items[i].itemId === itemId) {
-        return i;
-      }
-    }
-    return -1;
-  }
-}
-
-/** 筛选抽屉里的一行（小节标题 / 选项） */
-class CarWallRow {
-  /** option | header */
-  readonly key: string;
-  readonly kind: string;
-  readonly label: string;
-  readonly countText: string | null;
-  readonly selected: boolean;
-  readonly dimmed: boolean;
-  readonly onPick: (() => void) | null;
-
-  constructor(key: string, kind: string, label: string, countText: string | null,
-    selected: boolean, dimmed: boolean, onPick: (() => void) | null) {
-    this.key = key;
-    this.kind = kind;
-    this.label = label;
-    this.countText = countText;
-    this.selected = selected;
-    this.dimmed = dimmed;
-    this.onPick = onPick;
-  }
-
-  static header(key: string, label: string): CarWallRow {
-    return new CarWallRow(key, 'header', label, null, false, false, null);
-  }
-
-  static option(key: string, label: string, countText: string | null, selected: boolean,
-    dimmed: boolean, onPick: () => void): CarWallRow {
-    return new CarWallRow(key, 'option', label, countText, selected, dimmed, onPick);
   }
 }
 
@@ -319,7 +181,7 @@ export struct CarLibraryWall {
   @Local cellWidth: number = 198;
 
   /** 非响应式状态 */
-  private readonly wallSource: CarWallDataSource = new CarWallDataSource();
+  private readonly wallSource: WallDataSource = new WallDataSource();
   private readonly wallScroller: Scroller = new Scroller();
   /** ForEach 键后缀：同一面墙可能叠多层（墙 A 上开墙 B），key 不能撞 */
   private readonly salt: string = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
@@ -572,7 +434,7 @@ export struct CarLibraryWall {
         .margin({ bottom: 6 })
 
         List({ space: 2 }) {
-          ForEach(this.panelRows(), (row: CarWallRow) => {
+          ForEach(this.panelRows(), (row: WallRow) => {
             ListItem() {
               if (row.kind === 'header') {
                 Text(row.label)
@@ -591,7 +453,7 @@ export struct CarLibraryWall {
                 })
               }
             }
-          }, (row: CarWallRow) => row.key)
+          }, (row: WallRow) => row.key)
         }
         .width('100%')
         .layoutWeight(1)
@@ -609,80 +471,35 @@ export struct CarLibraryWall {
     .height('100%')
   }
 
-  // MARK: - 模式与键
+  // MARK: - 模式与键（模式、排序方向与条件文案的共用逻辑见 shell/WallShared.ets）
 
   /** 四路复用的数据源模式 */
   private mode(): string {
-    if (this.sourceKey !== '') {
-      return 'rowWall';
-    }
-    if (this.collectionId > 0) {
-      return 'collection';
-    }
-    if (this.kindSource !== '') {
-      return 'kind';
-    }
-    return 'library';
+    return WallMode.of(this.sourceKey, this.collectionId, this.kindSource);
   }
 
   /** 排序与筛选记忆的存储键；行墙没有面板，不记 */
   private wallKey(): string {
-    const mode: string = this.mode();
-    if (mode === 'library') {
-      return `${this.libraryId}`;
-    }
-    if (mode === 'kind') {
-      return `kind_${this.kindSource}`;
-    }
-    if (mode === 'collection') {
-      return `col_${this.collectionId}`;
-    }
-    return '';
+    return WallMode.wallKeyOf(this.mode(), this.libraryId, this.kindSource, this.collectionId);
   }
 
   private sortKeys(): string[] {
-    if (this.mode() === 'collection') {
-      return ['collection', 'added_at', 'release_date', 'rating', 'title'];
-    }
-    return ['added_at', 'release_date', 'rating', 'title'];
+    return WallMode.sortKeysOf(this.mode());
   }
 
   private defaultSort(): string {
-    return this.mode() === 'collection' ? 'collection' : 'added_at';
+    return WallMode.defaultSortOf(this.mode());
   }
 
   private canFilter(): boolean {
     return this.mode() !== 'rowWall';
   }
 
-  private isReversed(): boolean {
-    const direction: WallSortDirection | null = WallSortDirections.of(this.prefs.sort);
-    if (direction === null) {
-      return false;
-    }
-    return direction.isReversed(this.prefs.order.length === 0 ? null : this.prefs.order);
-  }
-
-  private orderParam(): string | undefined {
-    const direction: WallSortDirection | null = WallSortDirections.of(this.prefs.sort);
-    if (direction === null) {
-      return undefined;
-    }
-    return direction.orderParam(this.isReversed()) ?? undefined;
-  }
-
   private sortLabel(sort: string): string {
-    if (sort === 'collection') {
-      return '合集顺序';
-    }
-    return HomeRows.preset(sort).short(this.isReversed());
+    return WallMode.sortLabel(this.prefs, sort);
   }
 
   // MARK: - 条件与文案
-
-  private picksActive(): boolean {
-    return this.prefs.genre !== null || this.prefs.decade !== null || this.prefs.resolution !== null;
-  }
 
   private genreTitle(): string {
     const facets: LibraryFacetsView | null = this.facets;
@@ -696,68 +513,26 @@ export struct CarLibraryWall {
     return '类型';
   }
 
-  private qualityTitle(): string {
-    const value: string | null = this.prefs.resolution;
-    if (value === null) {
-      return '';
-    }
-    if (value === 'hdr') {
-      return 'HDR';
-    }
-    if (value === '2160p') {
-      return '4K';
-    }
-    return value;
+  private picksActive(): boolean {
+    return WallMode.picksActive(this.prefs);
   }
 
   /** 标题旁的条件摘要（「科幻 · 2010 年代 · 未看 · 516 部」） */
   private summaryText(): string | null {
-    const parts: string[] = this.conditionParts();
+    const parts: string[] = WallMode.conditionParts(this.prefs, this.genreTitle());
     if (this.total !== null) {
       parts.push(`${this.total} 部`);
     }
     return parts.length === 0 ? null : parts.join(' · ');
   }
 
-  private conditionParts(): string[] {
-    const parts: string[] = [];
-    if (this.prefs.genre !== null) {
-      parts.push(this.genreTitle());
-    }
-    if (this.prefs.decade !== null) {
-      parts.push(CarLibraryWall.decadeTitle(this.prefs.decade));
-    }
-    if (this.prefs.resolution !== null) {
-      parts.push(this.qualityTitle());
-    }
-    if (this.prefs.unwatched) {
-      parts.push('未看');
-    }
-    return parts;
-  }
-
   private emptyMessage(): string {
-    const parts: string[] = this.conditionParts();
-    if (parts.length === 0) {
-      return '换一个条件试试';
-    }
-    return `「${parts.join(' · ')}」下没有影片，换一个条件试试`;
+    return WallMode.emptyMessage(this.prefs, this.genreTitle());
   }
 
   /** 分辨率按习惯叫法：2160p 写「4K」 */
   private resolutionLabel(facet: FacetValueView): string {
-    return facet.value === '2160p' ? '4K' : facet.label;
-  }
-
-  /** 年代档展示名（服务端的「2010s」→「2010 年代」） */
-  private static decadeTitle(value: string): string {
-    if (value.length === 5 && value.endsWith('s')) {
-      const year: number = Number(value.substring(0, 4));
-      if (!Number.isNaN(year) && year > 0) {
-        return `${value.substring(0, 4)} 年代`;
-      }
-    }
-    return value;
+    return WallMode.resolutionLabel(facet);
   }
 
   // MARK: - 取数
@@ -783,7 +558,7 @@ export struct CarLibraryWall {
       this.loadFacets(gen);
     }
     this.fetchPage(0, this.pageSize())
-      .then((page: CarWallPage): void => {
+      .then((page: WallPage): void => {
         if (gen !== this.generation) {
           return;
         }
@@ -816,15 +591,7 @@ export struct CarLibraryWall {
     if (api === null) {
       return;
     }
-    const prefs: CarWallPrefs = this.prefs;
-    const g: string | undefined = prefs.genre ?? undefined;
-    const d: string | undefined = prefs.decade ?? undefined;
-    const w: string | undefined = prefs.unwatched ? 'unwatched' : undefined;
-    const res: string | undefined =
-      prefs.resolution !== null && prefs.resolution !== 'hdr' ? prefs.resolution : undefined;
-    const hdr: boolean | undefined = prefs.resolution === 'hdr' ? true : undefined;
-    api.libraryItemsFacets(this.libraryId, 'all', g, undefined, d, w,
-      undefined, undefined, undefined, res, hdr)
+    WallFetch.facets(api, this.libraryId, this.prefs)
       .then((view: LibraryFacetsView): void => {
         if (gen !== this.generation) {
           return;
@@ -836,114 +603,54 @@ export struct CarLibraryWall {
       });
   }
 
-  /** 按模式取一页（offset 是整份结果里的位置，窗口式分页的核心） */
-  private fetchPage(offset: number, limit: number): Promise<CarWallPage> {
+  /** 按模式取一页（offset 是整份结果里的位置，窗口式分页的核心；影人墙除外全走共享内核） */
+  private fetchPage(offset: number, limit: number): Promise<WallPage> {
     const api: MovieClawApi | null = AppModel.shared.api;
     if (api === null) {
-      return Promise.reject<CarWallPage>(new Error('未连接服务器'));
+      return Promise.reject<WallPage>(new Error('未连接服务器'));
     }
     const mode: string = this.mode();
-    if (mode === 'library' || mode === 'kind') {
-      const prefs: CarWallPrefs = this.prefs;
-      if (mode === 'library') {
-        const g: string | undefined = prefs.genre ?? undefined;
-        const d: string | undefined = prefs.decade ?? undefined;
-        const w: string | undefined = prefs.unwatched ? 'unwatched' : undefined;
-        const res: string | undefined =
-          prefs.resolution !== null && prefs.resolution !== 'hdr' ? prefs.resolution : undefined;
-        const hdr: boolean | undefined = prefs.resolution === 'hdr' ? true : undefined;
-        return api.libraryItemsList(this.libraryId, prefs.sort, this.orderParam(), limit, offset,
-          undefined, g, undefined, d, w, undefined, undefined, undefined, res, hdr)
-          .then((views: LibraryItemView[]): CarWallPage => this.pageOf(views, null));
+    if (mode === 'rowWall') {
+      const personId: number | null = WallFetch.personIdOf(this.sourceKey);
+      if (personId !== null) {
+        return this.fetchPersonPage(api, personId, offset, limit);
       }
-      return api.uiLibraryKindItems(this.kindSource, prefs.sort, this.orderParam(), limit, offset,
-        undefined, undefined, undefined, prefs.unwatched ? 'unwatched' : undefined)
-        .then((views: LibraryItemView[]): CarWallPage => this.pageOf(views, null));
+      return WallFetch.fetchRowWallViews(api, this.sourceKey, offset, limit)
+        .then((raw: WallRawPage): WallPage => this.pageOf(raw.views, raw.total));
     }
-    if (mode === 'collection') {
-      const own: boolean = this.prefs.sort === 'collection';
-      const sort: string | undefined = own ? undefined : this.prefs.sort;
-      const order: string | undefined = own ? undefined : this.orderParam();
-      return api.collectionItemsList(this.collectionId, limit, offset, sort, order)
-        .then((views: LibraryItemView[]): CarWallPage => this.pageOf(views, null));
-    }
-    return this.fetchRowWallPage(api, offset, limit);
+    const query: WallQuery = new WallQuery();
+    query.mode = mode;
+    query.libraryId = this.libraryId;
+    query.kindSource = this.kindSource;
+    query.collectionId = this.collectionId;
+    return WallFetch.fetchViews(api, query, this.prefs, offset, limit)
+      .then((raw: WallRawPage): WallPage => this.pageOf(raw.views, raw.total));
   }
 
-  /** 行墙取数：sourceKey 与首页那一行同一套参数，进来看到的顺序和行里一致 */
-  private fetchRowWallPage(api: MovieClawApi, offset: number, limit: number): Promise<CarWallPage> {
-    const parts: string[] = this.sourceKey.split(':');
-    if (parts[0] === 'lib' && parts.length >= 5) {
-      const id: number = Number(parts[1]);
-      const sort: string = parts[2];
-      const reversed: boolean = parts[3] === 'true';
-      const unwatched: boolean = parts[4] === 'true';
-      const direction: WallSortDirection | null = WallSortDirections.of(sort);
-      const order: string | undefined = direction === null
-        ? undefined : (direction.orderParam(reversed) ?? undefined);
-      // 「最近观看」行只要播过的（w=seen），同首页取数
-      const watch: string | undefined = sort === 'last_played'
-        ? 'seen' : (unwatched ? 'unwatched' : undefined);
-      return api.libraryItemsList(id, sort, order, limit, offset,
-        undefined, undefined, undefined, undefined, watch)
-        .then((views: LibraryItemView[]): CarWallPage => this.pageOf(views, null));
-    }
-    if (parts[0] === 'col' && parts.length >= 4) {
-      const id: number = Number(parts[1]);
-      const sort: string = parts[2];
-      const reversed: boolean = parts[3] === 'true';
-      const direction: WallSortDirection | null = WallSortDirections.of(sort);
-      const order: string | undefined = direction === null
-        ? undefined : (direction.orderParam(reversed) ?? undefined);
-      return api.collectionItemsList(id, limit, offset, sort, order)
-        .then((views: LibraryItemView[]): CarWallPage => this.pageOf(views, null));
-    }
-    if (parts[0] === 'favorites' && parts.length >= 3) {
-      const sort: string = parts[1];
-      const reversed: boolean = parts[2] === 'true';
-      // 「未看优先」是首页收藏行的一档：进来时换成收藏时间序
-      const unwatchedFirst: boolean = sort === 'unwatched_first';
-      const actualSort: string = unwatchedFirst ? 'favorited_at' : sort;
-      const direction: WallSortDirection | null =
-        HomeRows.favoritesPreset(sort).direction ?? null;
-      const order: string | undefined = direction === null
-        ? undefined : (direction.orderParam(reversed) ?? undefined);
-      return api.playbackFavorites(limit, offset, unwatchedFirst, actualSort, order)
-        .then((view: FavoritesView): CarWallPage => this.pageOf(view.items, view.total));
-    }
-    if (parts[0] === 'genre' && parts.length >= 3) {
-      const kind: string = parts[1];
-      const value: string = parts[2];
-      // 类型格子墙：按 TMDB 类型筛好的跨库墙，最近添加在前
-      return api.uiLibraryKindItems(kind, 'added_at', undefined, limit, offset, value)
-        .then((views: LibraryItemView[]): CarWallPage => this.pageOf(views, null));
-    }
-    if (parts[0] === 'person' && parts.length >= 2) {
-      // 影人作品墙：peopleShow 一次给全量 credits，本地按 offset/limit 开窗翻页
-      const personId: number = Number(parts[1]);
-      const origin: string = AppModel.origin();
-      const cellWidth: number = this.cellWidth;
-      return api.peopleShow(personId)
-        .then((view: PersonView): CarWallPage => {
-          const items: CarWallItem[] = [];
-          const credits: PersonCreditView[] = view.credits.slice(offset, offset + limit);
-          for (const credit of credits) {
-            items.push(CarWallItem.fromCredit(credit, origin, cellWidth));
-          }
-          return new CarWallPage(items, view.credits.length);
-        });
-    }
-    return Promise.reject<CarWallPage>(new Error('未知的数据源'));
+  /** 影人作品墙：peopleShow 一次给全量 credits，本地按 offset/limit 开窗翻页 */
+  private fetchPersonPage(api: MovieClawApi, personId: number, offset: number,
+    limit: number): Promise<WallPage> {
+    const origin: string = AppModel.origin();
+    const cellWidth: number = this.cellWidth;
+    return api.peopleShow(personId)
+      .then((view: PersonView): WallPage => {
+        const items: CarWallItem[] = [];
+        const credits: PersonCreditView[] = view.credits.slice(offset, offset + limit);
+        for (const credit of credits) {
+          items.push(CarWallItem.fromCredit(credit, origin, cellWidth));
+        }
+        return new WallPage(items, view.credits.length);
+      });
   }
 
   /** 服务端视图 → 墙上的轻量格（收藏条目与库存条目字段同名，直接走同一映射） */
-  private pageOf(views: LibraryItemView[], total: number | null): CarWallPage {
+  private pageOf(views: LibraryItemView[], total: number | null): WallPage {
     const origin: string = AppModel.origin();
     const items: CarWallItem[] = [];
     for (const view of views) {
       items.push(CarWallItem.fromView(view, origin, this.cellWidth));
     }
-    return new CarWallPage(items, total);
+    return new WallPage(items, total);
   }
 
   /** 离窗口底还有三排就取下一页：手指往下滚时，下一页已经在路上 */
@@ -959,7 +666,7 @@ export struct CarLibraryWall {
     this.loadingMore = true;
     const from: number = this.startOffset + this.wallSource.totalCount();
     this.fetchPage(from, this.pageSize())
-      .then((page: CarWallPage): void => {
+      .then((page: WallPage): void => {
         this.loadingMore = false;
         if (gen !== this.generation) {
           return;
@@ -993,7 +700,7 @@ export struct CarLibraryWall {
     const scroller: Scroller = this.wallScroller;
     this.loadingPrev = true;
     this.fetchPage(prevStart, count)
-      .then((page: CarWallPage): void => {
+      .then((page: WallPage): void => {
         this.loadingPrev = false;
         if (gen !== this.generation) {
           return;
@@ -1128,8 +835,8 @@ export struct CarLibraryWall {
   }
 
   /** 抽屉全部行（小节标题 + 选项），键稳定供 ForEach 复用 */
-  private panelRows(): CarWallRow[] {
-    const rows: CarWallRow[] = [];
+  private panelRows(): WallRow[] {
+    const rows: WallRow[] = [];
     if (!this.canFilter()) {
       return rows;
     }
@@ -1137,10 +844,10 @@ export struct CarLibraryWall {
     const prefs: CarWallPrefs = this.prefs;
     const salt: string = this.salt;
 
-    rows.push(CarWallRow.header(`${salt}_h_sort`, '排序'));
+    rows.push(WallRow.header(`${salt}_h_sort`, '排序'));
     const sorts: string[] = this.sortKeys();
     for (const sort of sorts) {
-      rows.push(CarWallRow.option(
+      rows.push(WallRow.option(
         `${salt}_opt_sort_${sort}`,
         this.sortLabel(sort),
         null,
@@ -1152,8 +859,8 @@ export struct CarLibraryWall {
     }
 
     if (mode === 'library' || mode === 'kind') {
-      rows.push(CarWallRow.header(`${salt}_h_watch`, '观看状态'));
-      rows.push(CarWallRow.option(
+      rows.push(WallRow.header(`${salt}_h_watch`, '观看状态'));
+      rows.push(WallRow.option(
         `${salt}_opt_unwatched`,
         '只看没看过的',
         null,
@@ -1167,8 +874,8 @@ export struct CarLibraryWall {
     if (mode === 'library') {
       const facets: LibraryFacetsView | null = this.facets;
       if (facets !== null) {
-        rows.push(CarWallRow.header(`${salt}_h_genre`, '类型'));
-        rows.push(CarWallRow.option(
+        rows.push(WallRow.header(`${salt}_h_genre`, '类型'));
+        rows.push(WallRow.option(
           `${salt}_opt_g_all`,
           '全部',
           null,
@@ -1179,7 +886,7 @@ export struct CarLibraryWall {
           }));
         for (const facet of facets.genres) {
           const value: string = facet.value;
-          rows.push(CarWallRow.option(
+          rows.push(WallRow.option(
             `${salt}_opt_g_${value}`,
             facet.label,
             `${facet.count} 部`,
@@ -1190,8 +897,8 @@ export struct CarLibraryWall {
             }));
         }
 
-        rows.push(CarWallRow.header(`${salt}_h_decade`, '年代'));
-        rows.push(CarWallRow.option(
+        rows.push(WallRow.header(`${salt}_h_decade`, '年代'));
+        rows.push(WallRow.option(
           `${salt}_opt_d_all`,
           '全部',
           null,
@@ -1202,9 +909,9 @@ export struct CarLibraryWall {
           }));
         for (const facet of facets.decades) {
           const value: string = facet.value;
-          rows.push(CarWallRow.option(
+          rows.push(WallRow.option(
             `${salt}_opt_d_${value}`,
-            CarLibraryWall.decadeTitle(value),
+            WallMode.decadeTitle(value),
             `${facet.count} 部`,
             prefs.decade === value,
             facet.count === 0 && prefs.decade !== value,
@@ -1213,8 +920,8 @@ export struct CarLibraryWall {
             }));
         }
 
-        rows.push(CarWallRow.header(`${salt}_h_quality`, '画质'));
-        rows.push(CarWallRow.option(
+        rows.push(WallRow.header(`${salt}_h_quality`, '画质'));
+        rows.push(WallRow.option(
           `${salt}_opt_q_all`,
           '全部',
           null,
@@ -1225,7 +932,7 @@ export struct CarLibraryWall {
           }));
         for (const facet of facets.resolutions) {
           const value: string = facet.value;
-          rows.push(CarWallRow.option(
+          rows.push(WallRow.option(
             `${salt}_opt_q_${value}`,
             this.resolutionLabel(facet),
             `${facet.count} 部`,
@@ -1239,7 +946,7 @@ export struct CarLibraryWall {
           if (facet.value !== '1') {
             continue;
           }
-          rows.push(CarWallRow.option(
+          rows.push(WallRow.option(
             `${salt}_opt_q_hdr`,
             facet.label,
             `${facet.count} 部`,
@@ -1253,8 +960,8 @@ export struct CarLibraryWall {
     }
 
     if (this.picksActive()) {
-      rows.push(CarWallRow.header(`${salt}_h_clear`, ''));
-      rows.push(CarWallRow.option(
+      rows.push(WallRow.header(`${salt}_h_clear`, ''));
+      rows.push(WallRow.option(
         `${salt}_opt_clear`,
         '清除筛选',
         null,
@@ -1265,8 +972,8 @@ export struct CarLibraryWall {
         }));
     }
 
-    rows.push(CarWallRow.header(`${salt}_h_done`, ''));
-    rows.push(CarWallRow.option(
+    rows.push(WallRow.header(`${salt}_h_done`, ''));
+    rows.push(WallRow.option(
       `${salt}_opt_done`,
       '完成',
       null,

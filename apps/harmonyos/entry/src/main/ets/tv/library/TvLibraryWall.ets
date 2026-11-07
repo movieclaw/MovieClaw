@@ -16,14 +16,22 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { MovieClawApi } from '../../api/Endpoints';
 import {
   FacetValueView,
-  FavoritesView,
   LibraryFacetsView,
   LibraryIndexEntryView,
   LibraryItemView
 } from '../../api/Models';
 import { AppModel } from '../../common/AppModel';
 import { ImageUrls } from '../../common/ImageUrls';
-import { HomeRows, WallSortDirection, WallSortDirections } from '../../library/HomeRows';
+import {
+  WallDataSource,
+  WallFetch,
+  WallItem,
+  WallMode,
+  WallPage,
+  WallQuery,
+  WallRawPage,
+  WallRow
+} from '../../shell/WallShared';
 import { TvCardCaption, TvPillButton, TvPosterCard, TvStateView } from '../components/TvCards';
 import { TvFocus } from '../components/TvFocus';
 import { TvStageBackdrop } from '../components/TvStage';
@@ -39,40 +47,23 @@ const WALL_PAGE_SIZE: number = 60;
 /** 连续两次焦点移动间隔小于此值（毫秒）= 按住方向键快速滚动，出中央定位提示 */
 const QUICK_STEP_MS: number = 550;
 
-/** 墙上一格的轻量模型（LazyForEach 数据源持有，不参与观察） */
-export class TvWallItem {
-  /** LazyForEach 复用键（页内唯一即可） */
-  readonly key: string;
-  readonly itemId: number;
-  /** 详情落点库；0 = 不知道（跨库墙里服务端没给就没法进详情） */
-  readonly libraryId: number;
-  readonly title: string;
-  readonly year: number | null;
-  /** 已解析并按显示宽度补 &w= 的海报 URL */
-  readonly posterUrl: string;
-  /** 已解析的剧照 URL（页面背景用，比海报宽） */
-  readonly backdropUrl: string;
+/** 墙上一格的轻量模型（LazyForEach 数据源持有，不参与观察）；共享字段与构造见 WallItem */
+export class TvWallItem extends WallItem {
   /** 按添加时间排序时的位置提示（「2026 年 8 月」） */
   readonly addedMonth: string | null;
 
   constructor(key: string, itemId: number, libraryId: number, title: string,
     year: number | null, posterUrl: string, backdropUrl: string, addedMonth: string | null) {
-    this.key = key;
-    this.itemId = itemId;
-    this.libraryId = libraryId;
-    this.title = title;
-    this.year = year;
-    this.posterUrl = posterUrl;
-    this.backdropUrl = backdropUrl;
+    super(key, itemId, libraryId, title, year, posterUrl, backdropUrl);
     this.addedMonth = addedMonth;
   }
 
   static fromView(view: LibraryItemView, origin: string, cellWidth: number): TvWallItem {
-    const poster: string = TvWallItem.sized(
+    const poster: string = WallItem.sized(
       ImageUrls.resolve(origin, view.poster_url ?? view.backdrop_url ?? null, null),
       TvArt.pxWidth(cellWidth));
     const backdropBase: string | null = ImageUrls.resolve(origin, view.backdrop_url ?? view.poster_url ?? null, null);
-    const backdrop: string = backdropBase === null ? '' : TvWallItem.sized(backdropBase, 1280);
+    const backdrop: string = backdropBase === null ? '' : WallItem.sized(backdropBase, 1280);
     return new TvWallItem(
       `w${view.media_item_id}`,
       view.media_item_id,
@@ -82,14 +73,6 @@ export class TvWallItem {
       poster,
       backdrop,
       TvWallItem.addedMonth(view.added_at ?? null));
-  }
-
-  /** 解析好的 URL 再按显示宽度补 &w=（后端按 w 降采样出图） */
-  private static sized(url: string | null, px: number): string {
-    if (url === null) {
-      return '';
-    }
-    return `${url}${url.includes('?') ? '&' : '?'}w=${px}`;
   }
 
   /** added_at 是 ISO 时间，只取年月做位置提示 */
@@ -103,18 +86,6 @@ export class TvWallItem {
       return null;
     }
     return `${year} 年 ${month} 月`;
-  }
-}
-
-/** 一页取数结果 */
-class TvWallPage {
-  readonly items: TvWallItem[];
-  /** 整份结果共几部；不知道为 null（收藏接口会给） */
-  readonly total: number | null;
-
-  constructor(items: TvWallItem[], total: number | null) {
-    this.items = items;
-    this.total = total;
   }
 }
 
@@ -172,17 +143,6 @@ class TvWallIndex {
       }
     }
     return best;
-  }
-
-  /** 年代档在电视上写成「2010 年代」（服务端的展示名是「2010s」） */
-  static decadeTitle(value: string): string {
-    if (value.length === 5 && value.endsWith('s')) {
-      const year: number = Number(value.substring(0, 4));
-      if (!Number.isNaN(year) && year > 0) {
-        return `${value.substring(0, 4)} 年代`;
-      }
-    }
-    return value;
   }
 
   /** 按标题：A–Z 加 #（# 在最后，同服务端的排序）全部列出，库里没有的字母压暗——字母表不缺字 */
@@ -257,7 +217,7 @@ class TvWallIndex {
       const decade: boolean = key.endsWith('s');
       out.push(new TvWallIndexEntry(key,
         decade ? key.substring(2) : key,
-        decade ? TvWallIndex.decadeTitle(key) : key,
+        decade ? WallMode.decadeTitle(key) : key,
         count, offset));
     }
     if (unknownCount > 0) {
@@ -292,109 +252,6 @@ class TvWallIndex {
       out.push(new TvWallIndexEntry(entry.initial, label, title, entry.count, entry.offset));
     }
     return out;
-  }
-}
-
-/** 海报墙的 LazyForEach 数据源：整批换 / 尾部追加 / 头部补页 */
-class TvWallDataSource implements IDataSource {
-  private items: TvWallItem[] = [];
-  private listeners: DataChangeListener[] = [];
-
-  totalCount(): number {
-    return this.items.length;
-  }
-
-  getData(index: number): TvWallItem {
-    return this.items[index];
-  }
-
-  registerDataChangeListener(listener: DataChangeListener): void {
-    if (this.listeners.indexOf(listener) < 0) {
-      this.listeners.push(listener);
-    }
-  }
-
-  unregisterDataChangeListener(listener: DataChangeListener): void {
-    const at: number = this.listeners.indexOf(listener);
-    if (at >= 0) {
-      this.listeners.splice(at, 1);
-    }
-  }
-
-  /** 整批换成这一批（换排序 / 跳档） */
-  setItems(items: TvWallItem[]): void {
-    this.items = items;
-    for (const listener of this.listeners) {
-      listener.onDataReloaded();
-    }
-  }
-
-  /** 尾部追加一页（向下翻） */
-  append(items: TvWallItem[]): void {
-    if (items.length === 0) {
-      return;
-    }
-    const at: number = this.items.length;
-    this.items = this.items.concat(items);
-    for (const listener of this.listeners) {
-      for (let i: number = 0; i < items.length; i++) {
-        listener.onDataAdd(at + i);
-      }
-    }
-  }
-
-  /** 头部补一页（往回走 / 跳档后补上面）：逐条 onDataAdd，已建好的格子按 key 复用不重建 */
-  prepend(items: TvWallItem[]): void {
-    if (items.length === 0) {
-      return;
-    }
-    this.items = items.concat(this.items);
-    for (const listener of this.listeners) {
-      for (let i: number = 0; i < items.length; i++) {
-        listener.onDataAdd(i);
-      }
-    }
-  }
-
-  indexOfItem(itemId: number): number {
-    for (let i: number = 0; i < this.items.length; i++) {
-      if (this.items[i].itemId === itemId) {
-        return i;
-      }
-    }
-    return -1;
-  }
-}
-
-/** 筛选面板里的一行（小节标题 / 选项） */
-class TvWallRow {
-  /** option | header */
-  readonly key: string;
-  readonly kind: string;
-  readonly label: string;
-  readonly countText: string | null;
-  readonly selected: boolean;
-  readonly dimmed: boolean;
-  readonly onPick: (() => void) | null;
-
-  constructor(key: string, kind: string, label: string, countText: string | null,
-    selected: boolean, dimmed: boolean, onPick: (() => void) | null) {
-    this.key = key;
-    this.kind = kind;
-    this.label = label;
-    this.countText = countText;
-    this.selected = selected;
-    this.dimmed = dimmed;
-    this.onPick = onPick;
-  }
-
-  static header(key: string, label: string): TvWallRow {
-    return new TvWallRow(key, 'header', label, null, false, false, null);
-  }
-
-  static option(key: string, label: string, countText: string | null, selected: boolean,
-    dimmed: boolean, onPick: () => void): TvWallRow {
-    return new TvWallRow(key, 'option', label, countText, selected, dimmed, onPick);
   }
 }
 
@@ -541,7 +398,7 @@ export struct TvLibraryWall {
   @Local focusedItemId: number = -1;
 
   /** 非响应式状态 */
-  private readonly wallSource: TvWallDataSource = new TvWallDataSource();
+  private readonly wallSource: WallDataSource = new WallDataSource();
   private readonly wallScroller: Scroller = new Scroller();
   /** 焦点键后缀：同一面墙可能叠多层（墙 A 上开墙 B），key 不能撞 */
   private readonly salt: string = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
@@ -846,7 +703,7 @@ export struct TvLibraryWall {
         .margin({ bottom: 10 })
 
       List({ space: 2 }) {
-        ForEach(this.panelRows(), (row: TvWallRow) => {
+        ForEach(this.panelRows(), (row: WallRow) => {
           ListItem() {
             if (row.kind === 'header') {
               Text(row.label)
@@ -866,7 +723,7 @@ export struct TvLibraryWall {
               })
             }
           }
-        }, (row: TvWallRow) => row.key)
+        }, (row: WallRow) => row.key)
       }
       .width('100%')
       .layoutWeight(1)
@@ -881,46 +738,24 @@ export struct TvLibraryWall {
     .border({ width: 1, color: TvColors.line })
   }
 
-  // MARK: - 模式与键
+  // MARK: - 模式与键（模式、排序方向与条件文案的共用逻辑见 shell/WallShared.ets）
 
   /** 四路复用的数据源模式 */
   private mode(): string {
-    if (this.sourceKey !== '') {
-      return 'rowWall';
-    }
-    if (this.collectionId > 0) {
-      return 'collection';
-    }
-    if (this.kindSource !== '') {
-      return 'kind';
-    }
-    return 'library';
+    return WallMode.of(this.sourceKey, this.collectionId, this.kindSource);
   }
 
   /** 排序与筛选记忆的存储键；行墙没有面板，不记 */
   private wallKey(): string {
-    const mode: string = this.mode();
-    if (mode === 'library') {
-      return `${this.libraryId}`;
-    }
-    if (mode === 'kind') {
-      return `kind_${this.kindSource}`;
-    }
-    if (mode === 'collection') {
-      return `col_${this.collectionId}`;
-    }
-    return '';
+    return WallMode.wallKeyOf(this.mode(), this.libraryId, this.kindSource, this.collectionId);
   }
 
   private sortKeys(): string[] {
-    if (this.mode() === 'collection') {
-      return ['collection', 'added_at', 'release_date', 'rating', 'title'];
-    }
-    return ['added_at', 'release_date', 'rating', 'title'];
+    return WallMode.sortKeysOf(this.mode());
   }
 
   private defaultSort(): string {
-    return this.mode() === 'collection' ? 'collection' : 'added_at';
+    return WallMode.defaultSortOf(this.mode());
   }
 
   private canFilter(): boolean {
@@ -936,32 +771,21 @@ export struct TvLibraryWall {
   }
 
   private isReversed(): boolean {
-    const direction: WallSortDirection | null = WallSortDirections.of(this.prefs.sort);
-    if (direction === null) {
-      return false;
-    }
-    return direction.isReversed(this.prefs.order.length === 0 ? null : this.prefs.order);
+    return WallMode.isReversed(this.prefs);
   }
 
   private orderParam(): string | undefined {
-    const direction: WallSortDirection | null = WallSortDirections.of(this.prefs.sort);
-    if (direction === null) {
-      return undefined;
-    }
-    return direction.orderParam(this.isReversed()) ?? undefined;
+    return WallMode.orderParam(this.prefs);
   }
 
   private sortLabel(sort: string): string {
-    if (sort === 'collection') {
-      return '合集顺序';
-    }
-    return HomeRows.preset(sort).short(this.isReversed());
+    return WallMode.sortLabel(this.prefs, sort);
   }
 
   // MARK: - 条件与文案
 
   private picksActive(): boolean {
-    return this.prefs.genre !== null || this.prefs.decade !== null || this.prefs.resolution !== null;
+    return WallMode.picksActive(this.prefs);
   }
 
   private genreTitle(): string {
@@ -976,57 +800,22 @@ export struct TvLibraryWall {
     return '类型';
   }
 
-  private qualityTitle(): string {
-    const value: string | null = this.prefs.resolution;
-    if (value === null) {
-      return '';
-    }
-    if (value === 'hdr') {
-      return 'HDR';
-    }
-    if (value === '2160p') {
-      return '4K';
-    }
-    return value;
-  }
-
   /** 标题旁的条件摘要（「科幻 · 2010 年代 · 未看 · 516 部」） */
   private summaryText(): string | null {
-    const parts: string[] = this.conditionParts();
+    const parts: string[] = WallMode.conditionParts(this.prefs, this.genreTitle());
     if (this.total !== null) {
       parts.push(`${this.total} 部`);
     }
     return parts.length === 0 ? null : parts.join(' · ');
   }
 
-  private conditionParts(): string[] {
-    const parts: string[] = [];
-    if (this.prefs.genre !== null) {
-      parts.push(this.genreTitle());
-    }
-    if (this.prefs.decade !== null) {
-      parts.push(TvWallIndex.decadeTitle(this.prefs.decade));
-    }
-    if (this.prefs.resolution !== null) {
-      parts.push(this.qualityTitle());
-    }
-    if (this.prefs.unwatched) {
-      parts.push('未看');
-    }
-    return parts;
-  }
-
   private emptyMessage(): string {
-    const parts: string[] = this.conditionParts();
-    if (parts.length === 0) {
-      return '换一个条件试试';
-    }
-    return `「${parts.join(' · ')}」下没有影片，换一个条件试试`;
+    return WallMode.emptyMessage(this.prefs, this.genreTitle());
   }
 
   /** 分辨率在电视上按习惯叫法：2160p 写「4K」 */
   private resolutionLabel(facet: FacetValueView): string {
-    return facet.value === '2160p' ? '4K' : facet.label;
+    return WallMode.resolutionLabel(facet);
   }
 
   // MARK: - 取数
@@ -1051,7 +840,7 @@ export struct TvLibraryWall {
       this.loadIndex(gen);
     }
     this.fetchPage(0, WALL_PAGE_SIZE)
-      .then((page: TvWallPage): void => {
+      .then((page: WallPage): void => {
         if (gen !== this.generation) {
           return;
         }
@@ -1080,15 +869,7 @@ export struct TvLibraryWall {
     if (api === null) {
       return;
     }
-    const prefs: TvWallPrefs = this.prefs;
-    const g: string | undefined = prefs.genre ?? undefined;
-    const d: string | undefined = prefs.decade ?? undefined;
-    const w: string | undefined = prefs.unwatched ? 'unwatched' : undefined;
-    const res: string | undefined =
-      prefs.resolution !== null && prefs.resolution !== 'hdr' ? prefs.resolution : undefined;
-    const hdr: boolean | undefined = prefs.resolution === 'hdr' ? true : undefined;
-    api.libraryItemsFacets(this.libraryId, 'all', g, undefined, d, w,
-      undefined, undefined, undefined, res, hdr)
+    WallFetch.facets(api, this.libraryId, this.prefs)
       .then((view: LibraryFacetsView): void => {
         if (gen !== this.generation) {
           return;
@@ -1125,99 +906,30 @@ export struct TvLibraryWall {
       });
   }
 
-  /** 按模式取一页（offset 是整份结果里的位置，窗口式分页的核心） */
-  private fetchPage(offset: number, limit: number): Promise<TvWallPage> {
+  /** 按模式取一页（offset 是整份结果里的位置，窗口式分页的核心；全走共享内核） */
+  private fetchPage(offset: number, limit: number): Promise<WallPage> {
     const api: MovieClawApi | null = AppModel.shared.api;
     if (api === null) {
-      return Promise.reject<TvWallPage>(new Error('未连接服务器'));
+      return Promise.reject<WallPage>(new Error('未连接服务器'));
     }
-    const mode: string = this.mode();
-    if (mode === 'library' || mode === 'kind') {
-      const prefs: TvWallPrefs = this.prefs;
-      if (mode === 'library') {
-        const g: string | undefined = prefs.genre ?? undefined;
-        const d: string | undefined = prefs.decade ?? undefined;
-        const w: string | undefined = prefs.unwatched ? 'unwatched' : undefined;
-        const res: string | undefined =
-          prefs.resolution !== null && prefs.resolution !== 'hdr' ? prefs.resolution : undefined;
-        const hdr: boolean | undefined = prefs.resolution === 'hdr' ? true : undefined;
-        return api.libraryItemsList(this.libraryId, prefs.sort, this.orderParam(), limit, offset,
-          undefined, g, undefined, d, w, undefined, undefined, undefined, res, hdr)
-          .then((views: LibraryItemView[]): TvWallPage => this.pageOf(views, null));
-      }
-      return api.uiLibraryKindItems(this.kindSource, prefs.sort, this.orderParam(), limit, offset,
-        undefined, undefined, undefined, prefs.unwatched ? 'unwatched' : undefined)
-        .then((views: LibraryItemView[]): TvWallPage => this.pageOf(views, null));
-    }
-    if (mode === 'collection') {
-      const own: boolean = this.prefs.sort === 'collection';
-      const sort: string | undefined = own ? undefined : this.prefs.sort;
-      const order: string | undefined = own ? undefined : this.orderParam();
-      return api.collectionItemsList(this.collectionId, limit, offset, sort, order)
-        .then((views: LibraryItemView[]): TvWallPage => this.pageOf(views, null));
-    }
-    return this.fetchRowWallPage(api, offset, limit);
-  }
-
-  /** 行墙取数：sourceKey 与首页那一行同一套参数，进来看到的顺序和行里一致 */
-  private fetchRowWallPage(api: MovieClawApi, offset: number, limit: number): Promise<TvWallPage> {
-    const parts: string[] = this.sourceKey.split(':');
-    if (parts[0] === 'lib' && parts.length >= 5) {
-      const id: number = Number(parts[1]);
-      const sort: string = parts[2];
-      const reversed: boolean = parts[3] === 'true';
-      const unwatched: boolean = parts[4] === 'true';
-      const direction: WallSortDirection | null = WallSortDirections.of(sort);
-      const order: string | undefined = direction === null
-        ? undefined : (direction.orderParam(reversed) ?? undefined);
-      // 「最近观看」行只要播过的（w=seen），同首页取数
-      const watch: string | undefined = sort === 'last_played'
-        ? 'seen' : (unwatched ? 'unwatched' : undefined);
-      return api.libraryItemsList(id, sort, order, limit, offset,
-        undefined, undefined, undefined, undefined, watch)
-        .then((views: LibraryItemView[]): TvWallPage => this.pageOf(views, null));
-    }
-    if (parts[0] === 'col' && parts.length >= 4) {
-      const id: number = Number(parts[1]);
-      const sort: string = parts[2];
-      const reversed: boolean = parts[3] === 'true';
-      const direction: WallSortDirection | null = WallSortDirections.of(sort);
-      const order: string | undefined = direction === null
-        ? undefined : (direction.orderParam(reversed) ?? undefined);
-      return api.collectionItemsList(id, limit, offset, sort, order)
-        .then((views: LibraryItemView[]): TvWallPage => this.pageOf(views, null));
-    }
-    if (parts[0] === 'favorites' && parts.length >= 3) {
-      const sort: string = parts[1];
-      const reversed: boolean = parts[2] === 'true';
-      // 「未看优先」是首页收藏行的一档：进来时换成收藏时间序
-      const unwatchedFirst: boolean = sort === 'unwatched_first';
-      const actualSort: string = unwatchedFirst ? 'favorited_at' : sort;
-      const direction: WallSortDirection | null =
-        HomeRows.favoritesPreset(sort).direction ?? null;
-      const order: string | undefined = direction === null
-        ? undefined : (direction.orderParam(reversed) ?? undefined);
-      return api.playbackFavorites(limit, offset, unwatchedFirst, actualSort, order)
-        .then((view: FavoritesView): TvWallPage => this.pageOf(view.items, view.total));
-    }
-    if (parts[0] === 'genre' && parts.length >= 3) {
-      const kind: string = parts[1];
-      const value: string = parts[2];
-      // 类型格子墙：按 TMDB 类型筛好的跨库墙，最近添加在前
-      return api.uiLibraryKindItems(kind, 'added_at', undefined, limit, offset, value)
-        .then((views: LibraryItemView[]): TvWallPage => this.pageOf(views, null));
-    }
-    return Promise.reject<TvWallPage>(new Error('未知的数据源'));
+    const query: WallQuery = new WallQuery();
+    query.mode = this.mode();
+    query.libraryId = this.libraryId;
+    query.kindSource = this.kindSource;
+    query.collectionId = this.collectionId;
+    query.sourceKey = this.sourceKey;
+    return WallFetch.fetchViews(api, query, this.prefs, offset, limit)
+      .then((raw: WallRawPage): WallPage => this.pageOf(raw.views, raw.total));
   }
 
   /** 服务端视图 → 墙上的轻量格（收藏条目与库存条目字段同名，直接走同一映射） */
-  private pageOf(views: LibraryItemView[], total: number | null): TvWallPage {
+  private pageOf(views: LibraryItemView[], total: number | null): WallPage {
     const origin: string = AppModel.origin();
     const items: TvWallItem[] = [];
     for (const view of views) {
       items.push(TvWallItem.fromView(view, origin, this.cellWidth));
     }
-    return new TvWallPage(items, total);
+    return new WallPage(items, total);
   }
 
   /** 离窗口底还有三排就取下一页：按住方向键滚下去时，下一页已经在路上 */
@@ -1233,7 +945,7 @@ export struct TvLibraryWall {
     this.loadingMore = true;
     const from: number = this.startOffset + this.wallSource.totalCount();
     this.fetchPage(from, WALL_PAGE_SIZE)
-      .then((page: TvWallPage): void => {
+      .then((page: WallPage): void => {
         this.loadingMore = false;
         if (gen !== this.generation) {
           return;
@@ -1267,7 +979,7 @@ export struct TvLibraryWall {
     const scroller: Scroller = this.wallScroller;
     this.loadingPrev = true;
     this.fetchPage(prevStart, count)
-      .then((page: TvWallPage): void => {
+      .then((page: WallPage): void => {
         this.loadingPrev = false;
         if (gen !== this.generation) {
           return;
@@ -1297,7 +1009,7 @@ export struct TvLibraryWall {
     const gen: number = this.generation + 1;
     this.generation = gen;
     this.fetchPage(aligned, WALL_PAGE_SIZE)
-      .then((page: TvWallPage): void => {
+      .then((page: WallPage): void => {
         if (gen !== this.generation) {
           return;
         }
@@ -1314,7 +1026,7 @@ export struct TvLibraryWall {
         if (position < 0) {
           return;
         }
-        const item: TvWallItem = page.items[position];
+        const item: WallItem = page.items[position];
         this.showHudAt(entry.title, target);
         const scroller: Scroller = this.wallScroller;
         const itemId: number = item.itemId;
@@ -1435,7 +1147,7 @@ export struct TvLibraryWall {
     if (ui.routes.length === 0 || ui.routes[ui.routes.length - 1] !== this.route) {
       return;
     }
-    const first: TvWallItem = this.wallSource.getData(0);
+    const first: WallItem = this.wallSource.getData(0);
     if (this.gridFocusTimer >= 0) {
       clearTimeout(this.gridFocusTimer);
     }
@@ -1506,7 +1218,7 @@ export struct TvLibraryWall {
     }
     this.panelFocusTimer = setTimeout((): void => {
       this.panelFocusTimer = -1;
-      const rows: TvWallRow[] = this.panelRows();
+      const rows: WallRow[] = this.panelRows();
       for (const row of rows) {
         if (row.kind === 'option') {
           TvFocus.request(this.getUIContext(), row.key);
@@ -1539,8 +1251,8 @@ export struct TvLibraryWall {
   }
 
   /** 面板全部行（小节标题 + 选项），键稳定供 ForEach 复用与 requestFocus 定位 */
-  private panelRows(): TvWallRow[] {
-    const rows: TvWallRow[] = [];
+  private panelRows(): WallRow[] {
+    const rows: WallRow[] = [];
     if (!this.canFilter()) {
       return rows;
     }
@@ -1548,10 +1260,10 @@ export struct TvLibraryWall {
     const prefs: TvWallPrefs = this.prefs;
     const salt: string = this.salt;
 
-    rows.push(TvWallRow.header(`${salt}_h_sort`, '排序'));
+    rows.push(WallRow.header(`${salt}_h_sort`, '排序'));
     const sorts: string[] = this.sortKeys();
     for (const sort of sorts) {
-      rows.push(TvWallRow.option(
+      rows.push(WallRow.option(
         `${salt}_opt_sort_${sort}`,
         this.sortLabel(sort),
         null,
@@ -1563,8 +1275,8 @@ export struct TvLibraryWall {
     }
 
     if (mode === 'library' || mode === 'kind') {
-      rows.push(TvWallRow.header(`${salt}_h_watch`, '观看状态'));
-      rows.push(TvWallRow.option(
+      rows.push(WallRow.header(`${salt}_h_watch`, '观看状态'));
+      rows.push(WallRow.option(
         `${salt}_opt_unwatched`,
         '只看没看过的',
         null,
@@ -1578,8 +1290,8 @@ export struct TvLibraryWall {
     if (mode === 'library') {
       const facets: LibraryFacetsView | null = this.facets;
       if (facets !== null) {
-        rows.push(TvWallRow.header(`${salt}_h_genre`, '类型'));
-        rows.push(TvWallRow.option(
+        rows.push(WallRow.header(`${salt}_h_genre`, '类型'));
+        rows.push(WallRow.option(
           `${salt}_opt_g_all`,
           '全部',
           null,
@@ -1590,7 +1302,7 @@ export struct TvLibraryWall {
           }));
         for (const facet of facets.genres) {
           const value: string = facet.value;
-          rows.push(TvWallRow.option(
+          rows.push(WallRow.option(
             `${salt}_opt_g_${value}`,
             facet.label,
             `${facet.count} 部`,
@@ -1601,8 +1313,8 @@ export struct TvLibraryWall {
             }));
         }
 
-        rows.push(TvWallRow.header(`${salt}_h_decade`, '年代'));
-        rows.push(TvWallRow.option(
+        rows.push(WallRow.header(`${salt}_h_decade`, '年代'));
+        rows.push(WallRow.option(
           `${salt}_opt_d_all`,
           '全部',
           null,
@@ -1613,9 +1325,9 @@ export struct TvLibraryWall {
           }));
         for (const facet of facets.decades) {
           const value: string = facet.value;
-          rows.push(TvWallRow.option(
+          rows.push(WallRow.option(
             `${salt}_opt_d_${value}`,
-            TvWallIndex.decadeTitle(value),
+            WallMode.decadeTitle(value),
             `${facet.count} 部`,
             prefs.decade === value,
             facet.count === 0 && prefs.decade !== value,
@@ -1624,8 +1336,8 @@ export struct TvLibraryWall {
             }));
         }
 
-        rows.push(TvWallRow.header(`${salt}_h_quality`, '画质'));
-        rows.push(TvWallRow.option(
+        rows.push(WallRow.header(`${salt}_h_quality`, '画质'));
+        rows.push(WallRow.option(
           `${salt}_opt_q_all`,
           '全部',
           null,
@@ -1636,7 +1348,7 @@ export struct TvLibraryWall {
           }));
         for (const facet of facets.resolutions) {
           const value: string = facet.value;
-          rows.push(TvWallRow.option(
+          rows.push(WallRow.option(
             `${salt}_opt_q_${value}`,
             this.resolutionLabel(facet),
             `${facet.count} 部`,
@@ -1650,7 +1362,7 @@ export struct TvLibraryWall {
           if (facet.value !== '1') {
             continue;
           }
-          rows.push(TvWallRow.option(
+          rows.push(WallRow.option(
             `${salt}_opt_q_hdr`,
             facet.label,
             `${facet.count} 部`,
@@ -1664,8 +1376,8 @@ export struct TvLibraryWall {
     }
 
     if (this.picksActive()) {
-      rows.push(TvWallRow.header(`${salt}_h_clear`, ''));
-      rows.push(TvWallRow.option(
+      rows.push(WallRow.header(`${salt}_h_clear`, ''));
+      rows.push(WallRow.option(
         `${salt}_opt_clear`,
         '清除筛选',
         null,
@@ -1676,8 +1388,8 @@ export struct TvLibraryWall {
         }));
     }
 
-    rows.push(TvWallRow.header(`${salt}_h_done`, ''));
-    rows.push(TvWallRow.option(
+    rows.push(WallRow.header(`${salt}_h_done`, ''));
+    rows.push(WallRow.option(
       `${salt}_opt_done`,
       '完成',
       null,

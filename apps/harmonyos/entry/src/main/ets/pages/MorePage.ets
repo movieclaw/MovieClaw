@@ -5,6 +5,7 @@ import { TabBarCollapse } from '../common/TabBarCollapse';
 import { AccountSwitcherSheet } from '../common/AccountSwitcherSheet';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { DeviceApprovalDialog } from '../settings/DeviceApprovalDialog';
+import { PairingScanner, ScanOutcome, ScanOutcomeKind } from '../common/PairingScanner';
 import { AppModel, AppPhase, SavedAccount } from '../common/AppModel';
 import { ServerRoutes } from '../common/ServerRoutes';
 import { Permissions } from '../common/Permissions';
@@ -18,6 +19,7 @@ import { MovieClawApi } from '../api/Endpoints';
 import { SessionSummary, SessionTranscriptView } from '../api/Models';
 import { ChatParams } from '../agent/ChatParams';
 import { AgentSessionsSignal } from '../agent/AgentSessionsSignal';
+import { PluginsSection } from '../plugins/PluginsSection';
 import { OfflineStore } from '../offline/OfflineStore';
 import {
   OfflineCapacityCard,
@@ -28,9 +30,10 @@ import {
 } from '../offline/OfflineStoragePage';
 
 /**
- * 「我的」页（对应 iOS 端 MorePage 重构版）：居中个人信息 + 会话 / 下载 / 服务器胶囊切换。
+ * 「我的」页（对应 iOS 端 MorePage 重构版）：居中个人信息 + 会话 / 下载 / 插件 / 服务器胶囊切换。
  * 会话保持单行标题、时间、分页、左滑和长按操作；下载管理直接内嵌在页签中（复用
- * OfflineStoragePage 的五个分区组件）；服务器段是当前服务器地址卡 + 服务器设置行 +
+ * OfflineStoragePage 的五个分区组件）；插件段对齐 Web「设置 → 插件」（清单 + 插件市场，
+ * 见 `plugins/PluginsSection`）；服务器段是当前服务器地址卡 + 服务器设置行 +
  * 管理员的「待处理」瓷砖；有待处理时胶囊上打红点。旧版的「新会话」行不再保留
  * （同 iOS：新会话改由页底的快捷输入进入）。
  *
@@ -38,10 +41,11 @@ import {
  * `@Trace` 字段，账号、下载一变页面自己就更新。
  */
 
-/** 「我的」页的三个胶囊段（同 iOS MorePageSection） */
+/** 「我的」页的胶囊段（同 iOS MorePageSection；插件段在下载与服务器之间） */
 enum MoreSection {
   conversations,
   downloads,
+  plugins,
   server
 }
 
@@ -85,6 +89,10 @@ export struct MorePage {
   @Local private sessionsSignal: AgentSessionsSignal = AgentSessionsSignal.shared;
   /** 扫码批准的弹窗句柄（顶栏右上角的扫码钮） */
   @Local private approvalDialogId: number = -1;
+  /** 打开配对码卡片时带进去的码：扫到的二维码原文（`/activate?code=…` 或 `MCLW-XXXX`）；空 = 手输 */
+  private approvalInitialCode: string = '';
+  /** 打开配对码卡片时带进去的提示（扫了但不是登录二维码 / 相机用不了） */
+  private approvalInitialHint: string = '';
   /** 「切换账号」原生弹窗的句柄 */
   @Local private accountDialogId: number = -1;
   /** 本机下载（下载段可见性、内嵌分区用） */
@@ -415,6 +423,10 @@ export struct MorePage {
     if (permissions.canDownloadVideo || this.store.items.size > 0) {
       out.push(MoreSection.downloads);
     }
+    // 插件是管理员能力（与 Web「设置 → 插件」同口径）
+    if (permissions.isAdmin && online) {
+      out.push(MoreSection.plugins);
+    }
     if (online) {
       out.push(MoreSection.server);
     }
@@ -439,6 +451,9 @@ export struct MorePage {
     if (section === MoreSection.downloads) {
       return '下载';
     }
+    if (section === MoreSection.plugins) {
+      return '插件';
+    }
     return '服务器';
   }
 
@@ -448,6 +463,9 @@ export struct MorePage {
     }
     if (section === MoreSection.downloads) {
       return $r('sys.symbol.arrow_down_to_line');
+    }
+    if (section === MoreSection.plugins) {
+      return $r('sys.symbol.square_grid_2x2');
     }
     return $r('sys.symbol.externaldrive');
   }
@@ -523,7 +541,47 @@ export struct MorePage {
     }
   }
 
+  /** 扫码钮：先拉系统扫码，扫完再开配对码卡片（弹窗在扫码界面盖上来时保不住） */
   private openScanApproval(): void {
+    this.scanForApproval(false);
+  }
+
+  /** 头像卡「批准登录」：打开配对码卡片（同设置 → 设备的批准入口，手输为主） */
+  private openApproval(): void {
+    this.approvalInitialCode = '';
+    this.approvalInitialHint = '';
+    this.openApprovalDialog();
+  }
+
+  /**
+   * 拉系统扫码，扫完按结果开配对码卡片。`reopenOnCancel`：从卡片里的
+   * 「扫描二维码」进来时置 true——用户在扫码界面点了取消，回到手输的卡片；
+   * 从顶栏扫码钮进来时置 false，取消就什么都不开。
+   */
+  private async scanForApproval(reopenOnCancel: boolean): Promise<void> {
+    const outcome: ScanOutcome = await PairingScanner.scan();
+    if (outcome.kind === ScanOutcomeKind.cancelled) {
+      if (reopenOnCancel) {
+        this.approvalInitialCode = '';
+        this.approvalInitialHint = '';
+        this.openApprovalDialog();
+      }
+      return;
+    }
+    if (outcome.kind === ScanOutcomeKind.recognized) {
+      this.approvalInitialCode = outcome.text;
+      this.approvalInitialHint = '';
+    } else if (outcome.kind === ScanOutcomeKind.unrecognized) {
+      this.approvalInitialCode = '';
+      this.approvalInitialHint = '这不是 MovieClaw 的登录二维码，换一张试试';
+    } else {
+      this.approvalInitialCode = '';
+      this.approvalInitialHint = '这台设备上用不了相机扫码，请改为手动输入配对码';
+    }
+    this.openApprovalDialog();
+  }
+
+  private openApprovalDialog(): void {
     const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
     const options: promptAction.CustomDialogOptions = {
       builder: (): void => {
@@ -587,6 +645,26 @@ export struct MorePage {
     this.accountDialogId = -1;
   }
 
+  /** 退出账号：确认后注销当前令牌（同「个人信息」页的退出流程） */
+  private confirmSignOut(): void {
+    this.getUIContext().showAlertDialog({
+      title: '退出账号',
+      message: '退出后需要重新输入密码才能连回这台服务器。',
+      primaryButton: {
+        value: '取消',
+        action: (): void => {
+        }
+      },
+      secondaryButton: {
+        value: '退出',
+        fontColor: Theme.danger,
+        action: (): void => {
+          this.model.logout();
+        }
+      }
+    });
+  }
+
   /** 切换账号弹窗的内容（与旧版长按头像页签弹出的同一个组件） */
   @Builder
   AccountSwitcherCard() {
@@ -600,7 +678,13 @@ export struct MorePage {
   @Builder
   ApprovalCard() {
     DeviceApprovalDialog({
-      scanFirst: true,
+      initialCode: this.approvalInitialCode,
+      initialHint: this.approvalInitialHint,
+      onRescan: (): void => {
+        // 弹窗在扫码界面盖上来时保不住：先关弹窗再扫，扫完带着结果重开
+        this.closeApproval();
+        this.scanForApproval(true);
+      },
       onClose: (): void => {
         this.closeApproval();
       }
@@ -640,6 +724,10 @@ export struct MorePage {
           OfflineWatchedCard()
           OfflineDownloadedSection({ navStack: this.navStack })
           OfflineOtherOwnersSection()
+        } else if (this.visibleSection() === MoreSection.plugins) {
+          ListItem() {
+            PluginsSection({ navStack: this.navStack })
+          }
         } else {
           this.ServerSectionItem()
         }
@@ -683,97 +771,175 @@ export struct MorePage {
   }
 
   /**
-   * 个人信息卡：80 号头像 + 铅笔角标 + 昵称 + 身份小字，整块是一张卡片；
-   * 卡片底部一颗「切换账号」，打开与旧版长按头像页签同款的切换账号弹窗。
-   * 点头像/昵称那一块仍进个人信息（同 iOS `profile`）。
+   * 个人信息卡（左右布局）：左边头像（点进个人信息改昵称 / 头像），右边 2×2 操作格——
+   * 批准登录（打开新设备配对码卡片）、切换账号（打开切换账号弹窗）、
+   * 退出账号（确认后注销当前账号），第四格预留待定。
    */
   @Builder
   ProfileCard() {
-    Column({ space: 12 }) {
-      Column({ space: 8 }) {
-      Stack({ alignContent: Alignment.BottomEnd }) {
-        Stack() {
-          // 底层：渐变圆 + 昵称首字。iOS `AvatarBadge` 同款，也是「没设头像」或「图还没下来」时的样子
-          Text(Permissions.initialsOf(this.nickname()))
-            .fontSize(30)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('rgba(0, 0, 0, 0.75)')
-          // 上层：有头像就盖上去（同 iOS：`AvatarBadge` 里 RemoteImage 叠加）
-          if (this.avatarUrl().length > 0) {
-            RemoteImage({
-              url: this.avatarUrl(),
-              placeholderSymbol: $r('sys.symbol.person_crop_circle_fill')
-            })
-              .width(80)
-              .height(80)
-              .borderRadius(40)
-              .clip(true)
+    Row({ space: 14 }) {
+      // 左：头像 + 铅笔角标 + 昵称 + 身份小字，整块点进个人信息（同 iOS `profile`）
+      Column({ space: 6 }) {
+        Stack({ alignContent: Alignment.BottomEnd }) {
+          Stack() {
+            // 底层：渐变圆 + 昵称首字。iOS `AvatarBadge` 同款，也是「没设头像」或「图还没下来」时的样子
+            Text(Permissions.initialsOf(this.nickname()))
+              .fontSize(24)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('rgba(0, 0, 0, 0.75)')
+            // 上层：有头像就盖上去（同 iOS：`AvatarBadge` 里 RemoteImage 叠加）
+            if (this.avatarUrl().length > 0) {
+              RemoteImage({
+                url: this.avatarUrl(),
+                placeholderSymbol: $r('sys.symbol.person_crop_circle_fill')
+              })
+                .width(64)
+                .height(64)
+                .borderRadius(32)
+                .clip(true)
+            }
           }
+          .width(64)
+          .height(64)
+          .borderRadius(32)
+          .linearGradient({
+            angle: 180,
+            colors: [[Theme.accentStrong, 0], [Theme.accent2, 1]]
+          })
+          .alignContent(Alignment.Center)
+          // 铅笔角标：点个人信息改昵称 / 头像
+          Stack({ alignContent: Alignment.Center }) {
+            SymbolGlyph($r('sys.symbol.square_and_pencil'))
+              .fontSize(11)
+              .fontColor([Theme.text])
+          }
+          .width(24)
+          .height(24)
+          .backgroundColor(Theme.surfaceRaised)
+          .borderRadius(12)
+          .border({ width: 3, color: Theme.surface })
+          .offset({ x: 4, y: 3 })
         }
-        .width(80)
-        .height(80)
-        .borderRadius(40)
-        .linearGradient({
-          angle: 180,
-          colors: [[Theme.accentStrong, 0], [Theme.accent2, 1]]
-        })
-        .alignContent(Alignment.Center)
-        // 铅笔角标：点个人信息改昵称 / 头像（同 iOS 80 号头像右下角的 pencil 徽标）
-        Stack({ alignContent: Alignment.Center }) {
-          SymbolGlyph($r('sys.symbol.square_and_pencil'))
-            .fontSize(13)
-            .fontColor([Theme.text])
-        }
-        .width(28)
-        .height(28)
-        .backgroundColor(Theme.surfaceRaised)
-        .borderRadius(14)
-        .border({ width: 3, color: Theme.bg })
-        .offset({ x: 6, y: 4 })
+        .width(64)
+        .height(64)
+        .alignContent(Alignment.BottomEnd)
+
+        Text(this.nickname())
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.text)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .textAlign(TextAlign.Center)
+        Text(this.identityLine())
+          .fontSize(11)
+          .fontColor(Theme.textMuted)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .textAlign(TextAlign.Center)
       }
-      .width(80)
-      .height(80)
-      Text(this.nickname())
-        .fontSize(22)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.text)
-        .maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .textAlign(TextAlign.Center)
-      Text(this.identityLine())
-        .fontSize(12)
-        .fontColor(Theme.textMuted)
-        .maxLines(2)
-        .textAlign(TextAlign.Center)
-      }
+      .width(104)
       .alignItems(HorizontalAlign.Center)
       .onClick(() => {
         this.navStack.pushPathByName('profile', null);
       })
 
-      Divider().color(Theme.line)
-
-      Button() {
+      // 右：2×2 操作格——批准登录（新设备配对码卡片，同设置 → 设备的入口）、
+      // 切换账号、退出账号，最后一格留给第四个按钮（内容待定，先占位保持网格完整）
+      Column({ space: 8 }) {
         Row({ space: 8 }) {
-          SymbolGlyph($r('sys.symbol.person_2'))
-            .fontSize(16)
-            .fontColor([Theme.textMuted])
-          Text('切换账号')
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
+          Button() {
+            Row({ space: 6 }) {
+              SymbolGlyph($r('sys.symbol.qrcode'))
+                .fontSize(16)
+                .fontColor([Theme.accent])
+              Text('批准登录')
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.text)
+                .maxLines(1)
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .layoutWeight(1)
+          .padding(0)
+          .clip(true)
+          .borderRadius(12)
+          .constraintSize({ minHeight: 44 })
+          .id('app-profile-approval')
+          .onClick(() => {
+            this.openApproval();
+          })
+
+          Button() {
+            Row({ space: 6 }) {
+              SymbolGlyph($r('sys.symbol.person_2'))
+                .fontSize(16)
+                .fontColor([Theme.textMuted])
+              Text('切换账号')
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.text)
+                .maxLines(1)
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .layoutWeight(1)
+          .padding(0)
+          .clip(true)
+          .borderRadius(12)
+          .constraintSize({ minHeight: 44 })
+          .id('app-profile-switch')
+          .onClick(() => {
+            this.openAccountSwitcher();
+          })
         }
-        .justifyContent(FlexAlign.Center)
+        .width('100%')
+
+        Row({ space: 8 }) {
+          Button() {
+            Row({ space: 6 }) {
+              SymbolGlyph($r('sys.symbol.person_xmark'))
+                .fontSize(16)
+                .fontColor([Theme.danger])
+              Text('退出账号')
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.danger)
+                .maxLines(1)
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .layoutWeight(1)
+          .padding(0)
+          .clip(true)
+          .borderRadius(12)
+          .constraintSize({ minHeight: 44 })
+          .id('app-profile-signout')
+          .onClick(() => {
+            this.confirmSignOut();
+          })
+
+          // 预留位：第四个按钮想好放什么后，用上面任意一颗按钮的写法替换这里
+          Column()
+            .layoutWeight(1)
+            .constraintSize({ minHeight: 44 })
+            .borderRadius(12)
+            .border({ width: 1, color: Theme.line, style: BorderStyle.Dashed })
+        }
         .width('100%')
       }
-      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
-      .padding({ top: 10, bottom: 10 })
-      .borderRadius(12)
-      .onClick(() => {
-        this.openAccountSwitcher();
-      })
+      .layoutWeight(1)
+      .justifyContent(FlexAlign.Center)
     }
     .width('100%')
+    .alignItems(VerticalAlign.Center)
     .padding(16)
     .backgroundColor(Theme.surface)
     .borderRadius(16)

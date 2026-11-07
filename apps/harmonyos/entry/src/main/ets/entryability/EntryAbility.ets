@@ -2,6 +2,7 @@ import { PlaybackTestProbe } from '../playback/PlaybackTestProbe';
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { webview } from '@kit.ArkWeb';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { AppModel } from '../common/AppModel';
 import { TokenVault } from '../common/TokenVault';
@@ -24,8 +25,26 @@ import { Theme } from '../theme/AppTheme';
 
 const DOMAIN = 0x0000;
 
+/** 插件网页用的自定义 scheme（必须在任何 Web 组件创建前注册，见 onCreate） */
+class PluginWebSchemeConfig implements webview.WebCustomScheme {
+  schemeName: string = 'mclawplugin';
+  isSupportCORS: boolean = true;
+  isSupportFetch: boolean = true;
+  isStandard: boolean = true;
+  isSecure: boolean = true;
+}
+
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    /*
+     * 插件网页（`plugins/PluginWebPage`）把页面挂在自定义 scheme 下，由 WebSchemeHandler
+     * 逐请求代理、补设备令牌。注册必须早于任何 Web 组件初始化，所以放在 Ability 创建时。
+     */
+    try {
+      webview.WebviewController.customizeSchemes([new PluginWebSchemeConfig()]);
+    } catch (error) {
+      hilog.warn(DOMAIN, 'MovieClaw', '注册插件网页协议失败：%{public}s', `${error}`);
+    }
     // App 全局深色（对应 iOS/Web 的暗色基调），不跟随系统外观
     this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     // 会话偏好存储尽早初始化；异步加载不阻塞首帧

@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { KeyboardAvoidMode, window } from '@kit.ArkUI';
+import { window } from '@kit.ArkUI';
 import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
@@ -42,6 +42,7 @@ import {
   AgentCompactionCardView,
   AgentHandoffCardView,
   AgentProcessBlockView,
+  AgentProcessOpenState,
   AgentStreamingCursorView,
   AgentTurnErrorView,
   AgentTurnFooterView,
@@ -161,6 +162,8 @@ export struct ChatPage {
   // MARK: 事件流句柄与定时器（页面消失/停止必须全清）
   private stream: StreamHandle | null = null;
   private rowSource: AgentRowSource = new AgentRowSource();
+  /** 处理过程行的展开状态：行 id 带内容签名（流式期间变），展开态按稳定的 openKey 挂在这 */
+  private processOpenStates: Map<string, AgentProcessOpenState> = new Map();
   private scroller: Scroller = new Scroller();
   /** 已确认到的事件序号游标（Last-Event-ID 续传用） */
   private lastId: number = 0;
@@ -220,8 +223,9 @@ export struct ChatPage {
   private slashStart: number = -1;
   /** 第一次发给 AI 前的同意弹层（同 iOS `AgentAIConsent`）：同意记在本机，之后不再询问 */
   /**
-   * 输入法高度（vp）。沉浸式布局（`setWindowLayoutFullScreen(true)`）下系统不再替我们避让，
-   * 键盘会直接盖住输入区下半截（实测「发送」和工具行被盖住），所以自己监听键盘高度往上顶。
+   * 输入法高度（vp），只做三件事：底部安全区让位切换（键盘在就不叠手势区）、
+   * 贴底跟随重贴、点输入框外收键盘。键盘避让本身交给系统默认的 OFFSET 模式：
+   * 聚焦输入框被抬到键盘上方时，放在输入框**上方**的工具行跟着可见（见 Composer）。
    */
   @Local private keyboardInset: number = 0;
   private keyboardWindow: window.Window | null = null;
@@ -235,12 +239,6 @@ export struct ChatPage {
   @Local private thinkingValue: string = '';
 
   aboutToAppear(): void {
-    /*
-     * 官方键盘避让：本页用**压缩模式**（RESIZE）——键盘弹出时页面高度被压缩、整页重排，
-     * 输入卡、工具行、发送键一起留在键盘上方；默认的上抬模式只保证输入框本身可见，
-     * 框下方的工具行仍会被盖住。离开本页恢复系统默认的上抬模式。
-     */
-    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     this.loadSkills();
     this.loadModels();
     this.observeKeyboard();
@@ -279,7 +277,6 @@ export struct ChatPage {
       this.keyboardCallback = null;
       this.keyboardWindow = null;
     }
-    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET);
     if (this.stickTimer >= 0) {
       clearTimeout(this.stickTimer);
       this.stickTimer = -1;
@@ -513,6 +510,8 @@ export struct ChatPage {
     const entries: JsonValue[] = view.entries as JsonValue[];
     const running: boolean = session.running;
     const transcript = AgentTimeline.parse(entries, running, this.titleOf(session));
+    // 轮次被服务端权威数据整体替换（乐观轮次 id 失效）：展开状态随之清空
+    this.processOpenStates.clear();
     this.turns = transcript.turns;
     this.handoff = transcript.handoff;
     this.title = transcript.title;
@@ -541,6 +540,16 @@ export struct ChatPage {
     this.rowSource.setRows(rows);
     // 意图跟随时校正到最新内容；用户在翻历史（意图已离开）时不动
     this.restoreIfNeeded();
+  }
+
+  /** 处理过程行的展开状态（get-or-create）：行被 LazyForEach 重建后按 openKey 找回展开态 */
+  private processOpenOf(openKey: string): AgentProcessOpenState {
+    let state: AgentProcessOpenState | undefined = this.processOpenStates.get(openKey);
+    if (state === undefined) {
+      state = new AgentProcessOpenState();
+      this.processOpenStates.set(openKey, state);
+    }
+    return state;
   }
 
   /** 明确要求贴底（发送 / 「回到最新」）：置意图并立刻校正（同 iOS `pinToLatest`） */
@@ -583,7 +592,13 @@ export struct ChatPage {
     if (total === 0) {
       return;
     }
-    this.scroller.scrollToIndex(total - 1, !animated, ScrollAlign.END);
+    if (animated) {
+      this.scroller.scrollToIndex(total - 1, true, ScrollAlign.END);
+      return;
+    }
+    // 懒加载列表的行高要边渲染边量：scrollToIndex 到的行没建出来就不动，
+    // 贴底必须用 scrollEdge（官方「进页面显示最新内容」的写法），它按内容底边滚
+    this.scroller.scrollEdge(Edge.Bottom);
   }
 
   private messageOf(error: Object): string {
@@ -1013,6 +1028,11 @@ export struct ChatPage {
       .padding({ left: 16, right: 16, top: 12, bottom: 16 })
       // 内容从 y=0 铺到官方标题栏下面：首屏空出栏高，滚动时从栏下穿过
       .contentStartOffset(AppNavBar.contentTop)
+      // 进页面先贴底显示最新内容（同 iOS `.defaultScrollAnchor(.bottom, for: .initialOffset)`）。
+      // 首次挂载不触发 onAreaChange，只靠它的话长会话会停在顶部、看不到最新回答
+      .onAppear((): void => {
+        this.pinToLatest();
+      })
       .onScrollIndex((start: number, end: number): void => {
         // 几何：只记录结果，不做滚动（意图归 onDidScroll / onScrollStop 管）
         const total: number = this.rowSource.totalCount();
@@ -1097,7 +1117,11 @@ export struct ChatPage {
         }
       })
     } else if (row.kind === 'process') {
-      AgentProcessBlockView({ items: row.processItems, active: row.active })
+      AgentProcessBlockView({
+        items: row.processItems,
+        active: row.active,
+        openState: this.processOpenOf(row.openKey)
+      })
     } else if (row.kind === 'mediaCards' && row.group !== null) {
       AgentMediaCardsBlockView({
         group: row.group,
@@ -1130,7 +1154,9 @@ export struct ChatPage {
 
   /**
    * 输入区（逐值照 iOS `AgentComposer`）：**一张圆角卡**里装
-   * 「多行输入（最多 6 行）→ 工具行」，工具行 = ＋（图片/技能）· 模型（文字 + ▼）· 发送箭头；
+   * 「工具行 → 多行输入（最多 6 行）」，工具行 = ＋（图片/技能）· 模型（文字 + ▼）· 发送箭头。
+   * **工具行必须在输入框上方**：系统键盘避让（OFFSET）只把聚焦的输入框抬到键盘上方，
+   * 放在框下方的行会被键盘盖住（实测发送键不可见）；放上方的行跟着输入框一起可见。
    * 卡片外是页面底色，不是整条色带。
    */
   @Builder
@@ -1158,25 +1184,6 @@ export struct ChatPage {
           this.SlashMenu()
         }
         this.Tray()
-        TextArea({ text: this.draft, placeholder: this.placeholderText() })
-          .width('100%')
-          .fontSize(15)
-          .fontColor(Theme.text)
-          .backgroundColor(Color.Transparent)
-          .padding({ left: 16, right: 16, top: 14, bottom: 4 })
-          .maxLines(6)
-          .barState(BarState.Off)
-          .enabled(!this.running)
-          .onFocus((): void => {
-            this.composerFocus = true;
-          })
-          .onBlur((): void => {
-            this.composerFocus = false;
-          })
-          .onChange((value: string): void => {
-            this.draft = value;
-            this.refreshSlash();
-          })
 
         Row({ space: 4 }) {
           // ＋：图片 / 技能（iOS 同一颗按钮出 popover）
@@ -1251,7 +1258,26 @@ export struct ChatPage {
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
-        .padding({ left: 8, right: 8, bottom: 8 })
+        .padding({ left: 8, right: 8, top: 10 })
+
+        TextArea({ text: this.draft, placeholder: this.placeholderText() })
+          .width('100%')
+          .fontSize(15)
+          .fontColor(Theme.text)
+          .backgroundColor(Color.Transparent)
+          .padding({ left: 16, right: 16, top: 8, bottom: 12 })
+          .maxLines(6)
+          .barState(BarState.Off)
+          .onFocus((): void => {
+            this.composerFocus = true;
+          })
+          .onBlur((): void => {
+            this.composerFocus = false;
+          })
+          .onChange((value: string): void => {
+            this.draft = value;
+            this.refreshSlash();
+          })
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
@@ -1261,8 +1287,8 @@ export struct ChatPage {
       }
       .width('100%')
       /*
-       * 键盘弹出时页面由官方压缩（RESIZE，见 aboutToAppear），布局底边就是键盘上沿，
-       * 不再手动加键盘高度，也不再叠加手势区；收起时只让开小白条。
+       * 键盘避让交给系统默认的 OFFSET 模式（聚焦输入框被抬到键盘上方，工具行在框上方跟着可见），
+       * 不手动加键盘高度（手动 + 系统会双重避让，面板会悬到屏幕顶部）；收起时只让开小白条。
        */
       .padding({
         left: 12,

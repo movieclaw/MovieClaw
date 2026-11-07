@@ -15,6 +15,9 @@ export class PlaybackGuard {
   private onPlay: () => void;
   private onPause: () => void;
   private onSeek: (positionMs: number) => void;
+  /** 可选的上一集/下一集播控指令（TV/车机注册；不注册行为与现状一致） */
+  private onPlayPrevious: (() => void) | null = null;
+  private onPlayNext: (() => void) | null = null;
   constructor(context: common.UIAbilityContext,
     onPlay: () => void,
     onPause: () => void,
@@ -23,6 +26,16 @@ export class PlaybackGuard {
     this.onPlay = onPlay;
     this.onPause = onPause;
     this.onSeek = onSeek;
+  }
+
+  /**
+   * 注册上一集/下一集播控指令（系统媒体卡片 / 播控中心按钮）。
+   * 必须在 start() 之前调用：AVSession 的指令监听只在建会话时挂；
+   * 不注册时这些指令不下发，行为与现状完全一致（手机端零影响）。
+   */
+  setEpisodeCommands(onPlayPrevious: () => void, onPlayNext: () => void): void {
+    this.onPlayPrevious = onPlayPrevious;
+    this.onPlayNext = onPlayNext;
   }
 
   private enqueue(action: () => Promise<void>): Promise<void> {
@@ -41,6 +54,12 @@ export class PlaybackGuard {
         session.on('pause', this.onPause);
         session.on('stop', this.onPause);
         session.on('seek', this.onSeek);
+        if (this.onPlayPrevious !== null) {
+          session.on('playPrevious', this.onPlayPrevious);
+        }
+        if (this.onPlayNext !== null) {
+          session.on('playNext', this.onPlayNext);
+        }
         await session.setAVMetadata({ assetId: 'movieclaw', title: title });
         await session.activate();
       }

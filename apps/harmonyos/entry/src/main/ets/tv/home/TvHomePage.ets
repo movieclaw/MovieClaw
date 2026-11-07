@@ -41,7 +41,7 @@ import { TvStageAction, TvStageBackdrop, TvStageBlock } from '../components/TvSt
 import { TvShelf, TvShelfCard } from '../components/TvShelf';
 import { TvFocus } from '../components/TvFocus';
 import { TvFormat, TvStateView } from '../components/TvCards';
-import { TvPlayback } from '../player/TvAvPlayerEngine';
+import { TvPlayback } from '../playback/TvPlaybackHost';
 import { TvColors } from '../theme/TvTheme';
 import { TvMetrics } from '../theme/TvTheme';
 

@@ -40,3 +40,17 @@
 # 本机验证截图与工具清单（含个人媒体库内容与本机路径）
 /.verify-screens
 /.claude
+
+# 签名材料（证书 / 描述文件 / CSR / 密钥库）——本机凭据，不入库
+/signing/
+*.cer
+*.csr
+*.p7b
+*.p12
+*.jks
+*.keystore
+
+# 本地 UI 测试产物（截图 / 坐标 JSON，含内网地址与配对码），不入库
+/.tmp_ui/
+/.verify_shots/
+/qa-shots/
