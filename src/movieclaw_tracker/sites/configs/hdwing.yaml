@@ -1,0 +1,59 @@
+# 瓷器（HDWing / HDChina），基于 2026-11-07 已登录页面核对。
+site_id: hdwing
+display_name: 瓷器
+base_url: https://hdwing.org
+framework: nexusphp
+custom_class: hdwing
+
+# 本站账号登录需要 Turnstile；MovieClaw 当前登录提供者尚未支持它。
+# 先开放已验证的 Cookie 方式，避免默认展示不可用的账号密码选项。
+auth:
+  supported: [cookie]
+
+min_request_interval: 5.0
+
+selectors:
+  torrent_row_css: "table.torrent_list > tr:has(td.t_name)"
+  torrent_title_css: "td.t_name h3 a[href^='details.php?id=']"
+  torrent_subtitle_css: "td.t_name h4"
+  torrent_category_css: "td.t_cat a[href^='?cat=']::attr(href)"
+  torrent_detail_url_css: "td.t_name h3 a[href^='details.php?id=']::attr(href)"
+  torrent_download_url_css: "td.t_name a[href^='download.php?hash=']::attr(href)"
+  torrent_time_css: "td.t_time > span::attr(title)"
+  torrent_time_fallback_css: "td.t_time"
+  torrent_size_css: "td.t_size"
+  torrent_seeders_css: "td.t_torrents"
+  torrent_leechers_css: "td.t_leech"
+  torrent_snatched_css: "td.t_completed"
+  torrent_uploader_css: "td.t_uploader span.nowrap"
+  page_offset: -1
+
+  # 优惠通过 ajax_promotion.php 返回标准 img.pro_*；由自定义类先补入占位符。
+  torrent_promo_deadline_css: "td.discount span[title]"
+  # share_rule 图片表示转载许可，不是 H&R；考核保持未知。
+  torrent_hr_css: ""
+
+  detail_title_css: "h2#top::text"
+  detail_subtitle_css: "table.movie_details h3"
+  detail_size_css: "td.info_box i:has(b:contains('大小'))::text"
+  detail_download_css: "td.info_box a[href^='download.php?hash=']::attr(href)"
+  # 文件树需要另外展开；默认页只有展开链接，不能把它当成文件名。
+  detail_file_list_css: ".file_structure li::text"
+
+  profile_username_css: "div.noraml_box h2 > span.nowrap > b"
+  profile_class_css: "td.rowhead:contains('等级') + td > img::attr(alt)"
+  profile_uploaded_css: "td.rowhead:contains('传输') + td strong:contains('上传量')::next_sibling_text"
+  profile_downloaded_css: "td.rowhead:contains('传输') + td strong:contains('下载量')::next_sibling_text"
+  profile_ratio_css: "td.rowhead:contains('传输') + td strong:contains('分享率') ~ font"
+  profile_bonus_css: "td.rowhead:contains('魔力值') + td"
+  profile_seeding_css: "td.rowhead:contains('当前做种') + td::text"
+  profile_leeching_css: "td.rowhead:contains('当前下载') + td::text"
+  profile_vip_css: "td.rowhead:contains('等级') + td > img[alt*='VIP']"
+
+categories:
+  movie: [20, 17, 16, 9, 410]  # Full BD、1080p/i、720p、4K
+  tv: [13, 25, 26, 24, 21, 22, 23, 15, 401]  # 剧集、剧集包、体育、综艺
+  documentary: [5]
+  anime: [14]
+  music: [402, 406, 408, 19]  # 演唱会、MV、音乐、补充音轨
+  other: [27, 405, 404, 409, 411, 412]  # iPad 视频、戏剧、书籍、其他、旅游、饮食

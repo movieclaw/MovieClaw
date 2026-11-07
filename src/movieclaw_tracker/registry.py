@@ -98,6 +98,7 @@ def list_sites() -> list[SiteConfig]:
 #: 历史上的完整导入路径——但只认这张表里的：此前任意导入路径都能被 ``importlib`` 执行，用户数据
 #: 目录里的一个 YAML 就能运行任意模块的顶层代码
 BUILTIN_SITE_CLASSES: dict[str, str] = {
+    "hdwing": "movieclaw_tracker.sites.custom.hdwing.HDWingSite",
     "mteam": "movieclaw_tracker.sites.custom.mteam.MTeamSite",
     "sunnypt": "movieclaw_tracker.sites.custom.sunnypt.SunnyPTSite",
     "ourbits": "movieclaw_tracker.sites.custom.ourbits.OurBitsSite",
