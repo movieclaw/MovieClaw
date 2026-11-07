@@ -520,7 +520,20 @@ export struct CarLibraryWall {
   /** 空态：没加条件 = 真的没内容；加了条件 = 给一条「清除全部条件」的出路 */
   @Builder
   private EmptyState() {
-    if (this.picksActive() || this.prefs.unfinished || this.prefs.unwatched) {
+    if (this.mode() === 'rowWall' && this.rowWatch() !== undefined) {
+      // 首页展开带进来的观看条件把墙筛空了：说清是筛选造成的，并给一键清除
+      CarStateView({
+        symbol: $r('sys.symbol.film'),
+        title: this.rowWatch() === 'unfinished' ? '没有未看完的作品'
+          : this.rowWatch() === 'seen' ? '没有看过的作品' : '没有未看的作品',
+        message: '当前观看筛选下没有作品，清除筛选即可查看全部。',
+        actionTitle: '清除观看筛选',
+        onAction: (): void => {
+          this.rowWatchCleared = true;
+          this.reload();
+        }
+      })
+    } else if (this.picksActive() || this.prefs.unfinished || this.prefs.unwatched) {
       CarStateView({
         symbol: $r('sys.symbol.film'),
         title: '没有符合条件的影片',
