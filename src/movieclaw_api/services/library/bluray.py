@@ -111,12 +111,13 @@ class MainPlaylistReadResult:
 
     ``retryable`` 是瞬时 I/O 失败；``audit_failed`` 是字节完整读到、但有 MPLS
     永久解析失败或没有可用主片。两者都不能信任剩余候选，后者可按文件指纹记账，
-    避免坏盘每次启动都重读。
+    避免坏盘每次启动都重读。``fingerprint`` 仅在完整读取前后盘面一致时携带。
     """
 
     playlist: MplsPlaylist | None
     retryable: bool = False
     audit_failed: bool = False
+    fingerprint: dict | None = None
 
 
 def parse_mpls_playlist(data: bytes, *, path: Path = Path("unknown.mpls")) -> MplsPlaylist:
@@ -249,10 +250,18 @@ def disc_playlist_fingerprint(path: Path) -> dict | None:
         if path.is_file():
             stat = path.stat()
             return {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+        if not (path / "BDMV").is_dir():
+            return None
         rows: list[tuple[str, int, int]] = []
+        missing: list[str] = []
         for subdir, suffix in (("PLAYLIST", ".mpls"), ("STREAM", ".m2ts")):
             directory = path / "BDMV" / subdir
-            for child in sorted(directory.iterdir()):
+            try:
+                children = sorted(directory.iterdir())
+            except FileNotFoundError:
+                missing.append(subdir)
+                continue
+            for child in children:
                 if not child.is_file() or child.suffix.lower() != suffix:
                     continue
                 stat = child.stat()
@@ -260,6 +269,8 @@ def disc_playlist_fingerprint(path: Path) -> dict | None:
     except OSError:
         return None
     digest = hashlib.sha256()
+    for subdir in missing:
+        digest.update(f"{subdir}\0missing\n".encode())
     for name, size, mtime_ns in rows:
         digest.update(f"{name}\0{size}\0{mtime_ns}\n".encode())
     return {
@@ -442,6 +453,17 @@ def read_main_playlist(disc_dir: Path) -> MplsPlaylist | None:
 
 
 def read_main_playlist_result(disc_dir: Path) -> MainPlaylistReadResult:
+    """读取主播放列表，只返回读前后盘面未变化的完整结论。"""
+    before = disc_playlist_fingerprint(disc_dir)
+    if before is None:
+        return MainPlaylistReadResult(None, retryable=True)
+    result = _read_main_playlist_result(disc_dir)
+    if disc_playlist_fingerprint(disc_dir) != before:
+        return MainPlaylistReadResult(None, retryable=True)
+    return replace(result, fingerprint=before)
+
+
+def _read_main_playlist_result(disc_dir: Path) -> MainPlaylistReadResult:
     """读取主播放列表，区分瞬时 I/O 与稳定的坏盘结论。"""
     playlist_dir = disc_dir / "BDMV" / "PLAYLIST"
     stream_dir = disc_dir / "BDMV" / "STREAM"

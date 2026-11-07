@@ -74,6 +74,7 @@ from movieclaw_api.services.library.bluray import (
     MplsPlaylist,
     disc_playlist_audit_mutex,
     disc_playlist_failure_record,
+    disc_playlist_fingerprint,
     disc_playlist_pending_record,
     disc_playlist_record,
     disc_playlist_stale,
@@ -3557,6 +3558,13 @@ async def _ingest_file(
         spec = await prefetched_probe
     else:
         spec = await asyncio.to_thread(probe_media, probe_target)
+    if is_bluray and not playlist_retryable:
+        current_fingerprint = await asyncio.to_thread(disc_playlist_fingerprint, file)
+        if current_fingerprint != playlist_result.fingerprint:
+            playlist_retryable = True
+            playlist_audit_failed = False
+            playlist = None
+            spec = None
     # 失败记忆（media_probe）：ffprobe 在位却探不出来（半截文件/挂载抖动/
     # 坏文件）要记账，之后由定期对账带退避限量重试，不再只能等手动扫描；
     # 成功则抹掉记录，退避从头起算
@@ -3571,12 +3579,15 @@ async def _ingest_file(
             disc_playlist_failure_record,
             existing.disc_playlist if existing is not None else None,
             file,
+            fingerprint=playlist_result.fingerprint,
         )
     elif is_bluray and playlist is not None and playlist.duration_seconds > 0:
         disc_playlist = (
             disc_playlist_record(playlist)
             if spec is not None
-            else disc_playlist_pending_record(playlist, file)
+            else disc_playlist_pending_record(
+                playlist, file, fingerprint=playlist_result.fingerprint
+            )
         )
     if spec is not None and is_bluray:
         # m2ts 常常不带语言描述符；同编号 CLPI 用 PID 补齐，已有 ffprobe
