@@ -879,7 +879,12 @@ private fun PlayingSurface(
                                 selectedRef = state.selectedSubtitle,
                                 includeOff = true,
                                 onSelect = { ref -> controller.selectSubtitle(ref.takeIf { it != "off" }) },
-                                burnableRefs = state.subtitles.options.filter { it.kind == "pgs" }.map { it.ref }.toSet(),
+                                burnableRefs = state.subtitles.options
+                                    .filter {
+                                        it.kind == "pgs" && it.ref == state.selectedSubtitle &&
+                                            (!controller.subtitleCanRender(it.ref) || controller.decision?.video?.burnSubtitle == it.ref)
+                                    }
+                                    .map { it.ref }.toSet(),
                                 burnedRef = controller.decision?.video?.burnSubtitle,
                                 onBurn = controller::burnSubtitle,
                                 onUnburn = controller::unburnSubtitle,
@@ -1385,7 +1390,7 @@ private fun TrackMenuButton(
             if (burnRef != null && burnAction != null) {
                 androidx.compose.material3.HorizontalDivider(color = io.movieclaw.android.core.designsystem.LineColor)
                 DropdownMenuItem(
-                    text = { Text(if (burnedRef == burnRef) "取消压制，播放器本地渲染" else "压制进画面（服务端转码）") },
+                    text = { Text(if (burnedRef == burnRef) "取消压制，播放器本地渲染" else "此字幕需服务端转码才能显示（较慢、画质略降）") },
                     onClick = {
                         if (burnedRef == burnRef) onUnburn?.invoke() else burnAction(burnRef)
                         expanded = false

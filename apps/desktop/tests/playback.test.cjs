@@ -896,7 +896,7 @@ test('browser codec decode probes never claim HDR output; HDR source prefers nat
   assert.equal(h.A.needsNativePlayer({ container: 'mp4', video_codec: 'hevc', hdr: 'HDR10' }, []), true);
   assert.equal(h.context.getUniversalCapabilitySnapshot().disc_image, false);
   assert.equal(h.context.getUniversalCapabilitySnapshot().disc_folder, false);
-  assert.equal(h.context.getUniversalCapabilitySnapshot().pgs_overlay, true);
+  assert.equal(h.context.getUniversalCapabilitySnapshot().pgs_overlay, false);
 });
 
 test('known ISO and DVD request server remux without disc-reader claims; legacy raw discs never reach an engine', async () => {

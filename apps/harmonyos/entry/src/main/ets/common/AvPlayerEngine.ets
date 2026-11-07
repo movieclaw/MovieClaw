@@ -518,7 +518,7 @@ export class AvPlayerEngine {
       return;
     }
     const urls: string[] = view.subtitle_urls;
-    const sidecar: boolean = this.burnedSubtitleRef().length === 0
+    const sidecar: boolean = plans[index].kind !== 'pgs' && this.burnedSubtitleRef().length === 0
       && index < urls.length && urls[index].length > 0;
     if (!sidecar) {
       // 烧录型 / 需要服务端重决策的字幕：带 track_ref 重新协商

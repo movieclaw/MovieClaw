@@ -46,10 +46,11 @@ class CapabilityProbe(
             dolbyVisionProfiles = dolbyVision.map(Int::toLong).sorted(),
             dolbyVisionBaseLayerProfiles = baseLayer.map(Int::toLong).sorted(),
             mp4SampleLimit = BufferBudget.mp4SampleLimit(Runtime.getRuntime().maxMemory()),
-            // Media3 includes a native PGS decoder for embedded MKV/MP4 and subtitle
-            // configurations. Declaring this keeps the server from treating a
-            // selected bitmap track as an implicit burn-in request.
-            pgsOverlay = true,
+            // This snapshot is sent before the server has selected a delivery tier.
+            // A server .sup sidecar is not a Media3-renderable embedded PGS track;
+            // claim the capability only when the controller knows it is on a
+            // direct-play/clip path.
+            pgsOverlay = false,
         )
     }
 

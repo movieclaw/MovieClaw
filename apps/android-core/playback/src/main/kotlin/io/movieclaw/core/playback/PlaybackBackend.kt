@@ -10,6 +10,8 @@ import io.movieclaw.core.model.generated.PlaybackPolicyPayload
 import io.movieclaw.core.model.generated.PlaybackProgressRequest
 import io.movieclaw.core.model.generated.PlaybackSessionRequest
 import io.movieclaw.core.model.generated.PlaybackSessionView
+import io.movieclaw.core.model.generated.PlaybackDecideRequest
+import io.movieclaw.core.model.generated.PlaybackDecisionView
 import io.movieclaw.core.model.generated.PlaybackStateView
 import io.movieclaw.core.model.generated.SeasonEpisodesView
 import io.movieclaw.core.model.generated.TrickplayView
@@ -23,6 +25,7 @@ interface PlaybackBackend {
     suspend fun itemInfo(mediaItemId: Long): PlaybackItemView
     suspend fun episodes(mediaItemId: Long, season: Long): SeasonEpisodesView
     suspend fun startSession(body: PlaybackSessionRequest): PlaybackSessionView
+    suspend fun decide(body: PlaybackDecideRequest): PlaybackDecisionView
     suspend fun pingSession(sessionId: String)
     suspend fun stopSession(sessionId: String)
     suspend fun progress(body: PlaybackProgressRequest): PlaybackStateView
@@ -56,6 +59,7 @@ class MemberBackend(private val api: McApi) : PlaybackBackend {
     override suspend fun itemInfo(mediaItemId: Long) = api.playbackItemInfo(mediaItemId)
     override suspend fun episodes(mediaItemId: Long, season: Long) = api.playbackItemEpisodes(mediaItemId, season)
     override suspend fun startSession(body: PlaybackSessionRequest) = api.playbackSessionStart(body)
+    override suspend fun decide(body: PlaybackDecideRequest) = api.playbackDecide(body)
     override suspend fun pingSession(sessionId: String) {
         api.playbackSessionPing(sessionId)
     }
@@ -84,6 +88,7 @@ class ShareBackend(private val api: McApi, private val slug: String) : PlaybackB
     override suspend fun itemInfo(mediaItemId: Long) = api.sharePlaybackItem(mediaItemId, slug)
     override suspend fun episodes(mediaItemId: Long, season: Long) = api.sharePlaybackItemEpisodes(mediaItemId, slug, season)
     override suspend fun startSession(body: PlaybackSessionRequest) = api.sharePlaybackSessionStart(slug, body)
+    override suspend fun decide(body: PlaybackDecideRequest) = api.sharePlaybackDecide(slug, body)
     override suspend fun pingSession(sessionId: String) {
         api.sharePlaybackSessionPing(sessionId, slug)
     }
