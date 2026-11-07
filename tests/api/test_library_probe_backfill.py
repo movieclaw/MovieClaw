@@ -433,6 +433,73 @@ async def test_limited_self_heal_ignores_stale_version_rows(
     assert calls == []
 
 
+async def test_limited_self_heal_does_not_fingerprint_successful_blurays(
+    db, tmp_path, monkeypatch
+) -> None:
+    """限量对账应先用廉价条件过滤，不遍历规格完整的 success 原盘。"""
+    root = tmp_path / "blurays"
+    root.mkdir()
+    count = 25
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="蓝光库", kind="movie", root_paths=[str(root)]
+        )
+        for index in range(count):
+            session.add(
+                LibraryFile(
+                    library_id=library.id,
+                    file_path=str(root / f"Disc {index:02d}"),
+                    size_bytes=1,
+                    container="bluray",
+                    source="scanned",
+                    resolution="1080p",
+                    video_codec="hevc",
+                    probe_version=probe_mod.PROBE_SCHEMA_VERSION,
+                    audio_streams=[
+                        {"codec": "truehd", "clpi_language_version": 1}
+                    ],
+                    subtitle_streams=[],
+                    disc_playlist={
+                        "version": DISC_PLAYLIST_VERSION,
+                        "name": "00001.mpls",
+                        "clips": [{"id": "00001", "in": 0, "out": 45_000}],
+                        "audit": {
+                            "state": "success",
+                            "version": DISC_PLAYLIST_VERSION,
+                            "fingerprint": {
+                                "files": 2,
+                                "size": 2,
+                                "digest": f"disc-{index}",
+                            },
+                        },
+                    },
+                )
+            )
+        await session.commit()
+
+    path_checks: list[Path] = []
+
+    def counted_stale(record, path=None):
+        if path is not None:
+            path_checks.append(Path(path))
+        return False
+
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(scan_mod, "disc_playlist_stale", counted_stale)
+    async with db.session() as session:
+        summary = ScanSummary(library_id=library.id)
+        await scan_mod._probe_backfill(
+            session,
+            library.id,
+            summary,
+            scan_mod.ScanState(phase=scan_mod.ScanPhase.WALKING),
+            limit=10,
+        )
+
+    assert summary.probed == 0
+    assert path_checks == []
+
+
 async def test_backfill_skipped_when_ffprobe_missing(db, tmp_path, monkeypatch) -> None:
     """没装 ffprobe 时整段跳过：每轮扫描白跑一遍必然失败的探测毫无意义。"""
     calls: list[str] = []
