@@ -210,6 +210,7 @@ struct MacLibraryView: View {
     @State private var wall = MacWallLoader()
     @State private var sort = WallSortState(sort: "added_at")
     @State private var unwatched = false
+    @State private var unfinished = false
     @State private var restored = false
 
     /// 提供的排序档（同 Apple TV 版）
@@ -221,21 +222,23 @@ struct MacLibraryView: View {
     var body: some View {
         MacPosterWall(title: library?.name ?? String(localized: .libraryCustomizeLibrary), subtitle: library.map { String(localized: .libraryStatusTitleCount($0.stats.itemCount)) },
                       wall: wall, fallbackLibrary: libraryId,
-                      emptyTitle: unwatched ? String(localized: .libraryAllWatched) : String(localized: .libraryLibraryEmpty),
-                      emptyMessage: unwatched ? nil : String(localized: .libraryScanOnWebHint),
+                      emptyTitle: (unfinished || unwatched) ? String(localized: .libraryAllWatched) : String(localized: .libraryLibraryEmpty),
+                      emptyMessage: (unfinished || unwatched) ? nil : String(localized: .libraryScanOnWebHint),
                       retry: { await reload() }) {
             sortMenu
         }
-        .task(id: restored ? "\(sort.sort)-\(sort.reversed)-\(unwatched)" : nil) {
+        .task(id: restored ? "\(sort.sort)-\(sort.reversed)-\(unwatched)-\(unfinished)" : nil) {
             guard restored else { return }
             await reload()
         }
         .onAppear {
             sort = WallSortState.load(sortKey, default: WallSortState(sort: "added_at"), allowed: Self.sorts)
             unwatched = UserDefaults.standard.bool(forKey: sortKey + ".unwatched")
+            unfinished = UserDefaults.standard.bool(forKey: sortKey + ".unfinished")
             restored = true
         }
         .onChange(of: sort) { _, value in value.save(sortKey) }
+        .onChange(of: unfinished) { _, value in UserDefaults.standard.set(value, forKey: sortKey + ".unfinished") }
         .onChange(of: unwatched) { _, value in UserDefaults.standard.set(value, forKey: sortKey + ".unwatched") }
         .accessibilityIdentifier("mac-library-\(libraryId)")
     }
@@ -257,7 +260,14 @@ struct MacLibraryView: View {
                 .pickerStyle(.inline)
             }
             Divider()
-            Toggle(String(localized: .libraryRowsOnlyUnwatched), isOn: $unwatched)
+            Picker(String(localized: .libraryFiltersWatch), selection: Binding(
+                get: { unfinished ? "unfinished" : unwatched ? "unwatched" : "" },
+                set: { unfinished = $0 == "unfinished"; unwatched = $0 == "unwatched" }
+            )) {
+                Text(String(localized: .commonAll)).tag("")
+                Text(String(localized: .libraryUnwatched)).tag("unwatched")
+                Text(String(localized: .libraryFacetsUnfinished)).tag("unfinished")
+            }
         } label: {
             Label(sortLabel, systemImage: "line.3.horizontal.decrease")
         }
@@ -268,14 +278,14 @@ struct MacLibraryView: View {
     }
 
     private var sortLabel: String {
-        HomeRows.preset(sort.sort).short(sort.reversed) + (unwatched ? " · " + String(localized: .libraryUnwatched) : "")
+        HomeRows.preset(sort.sort).short(sort.reversed) + (unfinished ? " · " + String(localized: .libraryFacetsUnfinished) : unwatched ? " · " + String(localized: .libraryUnwatched) : "")
     }
 
     private func reload() async {
         let id = libraryId
         let sortValue = sort.sort
         let order = WallSortDirections.of(sortValue)?.orderParam(reversed: sort.reversed)
-        let watch = unwatched ? "unwatched" : nil
+        let watch = unfinished ? "unfinished" : unwatched ? "unwatched" : nil
         await wall.reset { [api] offset, limit in
             try await api.libraryItemsList(libraryId: id, sort: sortValue, order: order, limit: limit, offset: offset, w: watch)
         }
@@ -307,20 +317,28 @@ struct MacCollectionView: View {
 
 /// 首页一行的「查看全部」从哪取数：与这一行同一套参数（排序、正倒序、只看未看），进来看到的顺序和行里一致
 enum MacWallSource: Hashable {
-    case library(id: Int, sort: String, reversed: Bool, unwatched: Bool)
-    case mediaKind(kind: String, sort: String, reversed: Bool, unwatched: Bool)
+    case library(id: Int, sort: String, reversed: Bool, unwatched: Bool, unfinished: Bool = false)
+    case mediaKind(kind: String, sort: String, reversed: Bool, unwatched: Bool, unfinished: Bool = false)
     case collection(id: Int, sort: String, reversed: Bool)
     case favorites(sort: String, reversed: Bool)
     /// 首页「按类型找电影 / 剧集」的一格：按一个 TMDB 类型筛好的跨库墙（最近添加在前），count 是卡片上的部数
     case genre(kind: String, genre: Int, count: Int)
 
     /// 首页这一行对应的来源；「接下来继续」「我的媒体库」两行没有「查看全部」，类型行每一格自己就是一面墙的入口
-    init?(_ kind: HomeRows.Kind) {
+    var watch: String? {
+        switch self {
+        case let .library(_, sort, _, unwatched, unfinished), let .mediaKind(_, sort, _, unwatched, unfinished):
+            sort == "last_played" ? "seen" : unfinished ? "unfinished" : unwatched ? "unwatched" : nil
+        default: nil
+        }
+    }
+
+    init?(_ kind: HomeRows.Kind, unfinished: Bool = false) {
         switch kind {
         case let .library(library, sort, reversed, unwatched, _, _):
-            self = .library(id: library.id, sort: sort, reversed: reversed, unwatched: unwatched)
+            self = .library(id: library.id, sort: sort, reversed: reversed, unwatched: unwatched, unfinished: unfinished)
         case let .mediaKind(kind, _, sort, reversed, unwatched, _, _):
-            self = .mediaKind(kind: kind, sort: sort, reversed: reversed, unwatched: unwatched)
+            self = .mediaKind(kind: kind, sort: sort, reversed: reversed, unwatched: unwatched, unfinished: unfinished)
         case let .collection(collection, sort, reversed, _):
             self = .collection(id: collection.id, sort: sort, reversed: reversed)
         case let .favorites(sort, reversed):
@@ -335,6 +353,17 @@ enum MacWallSource: Hashable {
 struct MacRowWallView: View {
     let title: String
     let source: MacWallSource
+    @State private var watch: String?
+    private struct Query: Hashable {
+        let source: MacWallSource
+        let watch: String?
+    }
+
+    init(title: String, source: MacWallSource) {
+        self.title = title
+        self.source = source
+        _watch = State(initialValue: source.watch)
+    }
 
     @Environment(\.api) private var api
     @Environment(MacLibraryDirectory.self) private var directory
@@ -344,8 +373,18 @@ struct MacRowWallView: View {
         MacPosterWall(title: title, subtitle: total.map { String(localized: .libraryStatusTitleCount($0)) }, wall: wall, fallbackLibrary: fallbackLibrary,
                       emptyTitle: isFavorites ? String(localized: .libraryNoFavorites) : String(localized: .libraryNothingHere),
                       emptyMessage: isFavorites ? String(localized: .libraryFavoritesHint) : nil,
-                      retry: { await reload() })
-            .task(id: source) { await reload() }
+                      retry: { await reload() }) {
+            if source.watch != nil {
+                Picker(String(localized: .libraryFiltersWatch), selection: $watch) {
+                    Text(String(localized: .commonAll)).tag(String?.none)
+                    Text(String(localized: .libraryUnwatched)).tag(String?.some("unwatched"))
+                    Text(String(localized: .libraryFacetsUnfinished)).tag(String?.some("unfinished"))
+                    Text(String(localized: .libraryRowsRecentWatched)).tag(String?.some("seen"))
+                }
+            }
+        }
+            .task(id: Query(source: source, watch: watch)) { await reload() }
+            .onChange(of: source) { _, source in watch = source.watch }
             .accessibilityIdentifier(isFavorites ? "mac-favorites" : "mac-row-wall")
     }
 
@@ -357,8 +396,8 @@ struct MacRowWallView: View {
     /// 标题旁的总数：只在确切知道时写
     private var total: Int? {
         switch source {
-        case let .library(id, sort, _, unwatched):
-            return unwatched || sort == "last_played" ? nil : directory.library(id)?.stats.itemCount
+        case let .library(id, _, _, _, _):
+            return watch != nil ? nil : directory.library(id)?.stats.itemCount
         case .favorites:
             return favoritesTotal
         case let .genre(_, _, count):
@@ -371,22 +410,22 @@ struct MacRowWallView: View {
     @State private var favoritesTotal: Int?
 
     private var fallbackLibrary: Int? {
-        if case let .library(id, _, _, _) = source { return id }
+        if case let .library(id, _, _, _, _) = source { return id }
         return nil
     }
 
     private func reload() async {
         let api = api
         switch source {
-        case let .library(id, sort, reversed, unwatched):
+        case let .library(id, sort, reversed, _, _):
             // 「最近观看」行只要播过的（w=seen），同首页取数
-            let watch: String? = sort == "last_played" ? "seen" : unwatched ? "unwatched" : nil
+            let watch = self.watch
             let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
             await wall.reset { offset, limit in
                 try await api.libraryItemsList(libraryId: id, sort: sort, order: order, limit: limit, offset: offset, w: watch)
             }
-        case let .mediaKind(kind, sort, reversed, unwatched):
-            let watch: String? = sort == "last_played" ? "seen" : unwatched ? "unwatched" : nil
+        case let .mediaKind(kind, sort, reversed, _, _):
+            let watch = self.watch
             let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
             await wall.reset { offset, limit in
                 try await api.uiLibraryKindItems(kind: kind, sort: sort, order: order, limit: limit, offset: offset, w: watch)

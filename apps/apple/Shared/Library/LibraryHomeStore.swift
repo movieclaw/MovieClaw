@@ -239,8 +239,8 @@ final class LibraryHomeStore {
     /// 一行取数的缓存键：同一个库同一种排序同一方向（同一个未看开关）只请求一次
     static func fetchKey(_ row: HomeRows.Row) -> String {
         switch row.kind {
-        case let .library(library, sort, reversed, unwatched, _, _): "lib:\(library.id):\(sort):\(reversed):\(unwatched)"
-        case let .mediaKind(kind, _, sort, reversed, unwatched, _, _): "kind:\(kind):\(sort):\(reversed):\(unwatched)"
+        case let .library(library, sort, reversed, unwatched, _, _): "lib:\(library.id):\(sort):\(reversed):\(unwatched):\(row.unfinished)"
+        case let .mediaKind(kind, _, sort, reversed, unwatched, _, _): "kind:\(kind):\(sort):\(reversed):\(unwatched):\(row.unfinished)"
         case let .collection(collection, sort, reversed, _): "col:\(collection.id):\(sort):\(reversed)"
         default: row.id
         }
@@ -316,15 +316,15 @@ final class LibraryHomeStore {
         let limit = rowCount
         for row in rows {
             switch row.kind {
-            case let .library(library, sort, reversed, unwatched, _, _):
+            case let .library(library, sort, reversed, _, _, _):
                 // 「最近观看」行只要播过的（w=seen）
-                let watch: String? = sort == "last_played" ? "seen" : unwatched ? "unwatched" : nil
+                let watch = row.watch
                 let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
                 let id = library.id
                 fetches[fetchKey(row)] = { try await api.libraryItemsList(libraryId: id, sort: sort, order: order, limit: limit, w: watch) }
-            case let .mediaKind(kind, _, sort, reversed, unwatched, _, _):
+            case let .mediaKind(kind, _, sort, reversed, _, _, _):
                 // 与库行同一套取数规则，只是来源换成按类型的跨库墙（同一部片跨库只出现一次）
-                let watch: String? = sort == "last_played" ? "seen" : unwatched ? "unwatched" : nil
+                let watch = row.watch
                 let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
                 fetches[fetchKey(row)] = { try await api.uiLibraryKindItems(kind: kind, sort: sort, order: order, limit: limit, w: watch) }
             case let .collection(collection, sort, reversed, _):

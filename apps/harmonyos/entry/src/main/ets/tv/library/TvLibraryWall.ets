@@ -522,6 +522,7 @@ export struct TvLibraryWall {
   @Param collectionId: number = 0;
   /** 行墙数据源形状：lib:/col:/favorites:/genre:（与首页行取数同构） */
   @Param sourceKey: string = '';
+  @Local rowWatchCleared: boolean = false;
   @Param title: string = '';
 
   /** 响应式状态（@Local）：build 依赖这些 */
@@ -662,6 +663,16 @@ export struct TvLibraryWall {
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
 
+      if (this.mode() === 'rowWall' && this.rowWatch() !== undefined) {
+        TvPillButton({
+          label: this.rowWatch() === 'unfinished' ? '未看完 · 清除' : this.rowWatch() === 'seen' ? '最近观看 · 清除' : '未看 · 清除',
+          focusKey: this.filterKey(),
+          onActivate: (): void => {
+            this.rowWatchCleared = true;
+            this.reload();
+          }
+        })
+      }
       if (this.canFilter()) {
         TvPillButton({
           label: `排序与筛选 · ${this.sortLabel(this.prefs.sort)}`,
@@ -758,7 +769,21 @@ export struct TvLibraryWall {
   /** 空态：没加条件 = 真的没内容；加了条件 = 给一条「清除全部条件」的出路 */
   @Builder
   private EmptyState() {
-    if (this.picksActive() || this.prefs.unwatched) {
+    if (this.mode() === 'rowWall' && this.rowWatch() !== undefined) {
+      // 首页展开带进来的观看条件把墙筛空了：说清是筛选造成的，并给一键清除
+      TvStateView({
+        symbol: $r('sys.symbol.film'),
+        title: this.rowWatch() === 'unfinished' ? '没有未看完的作品'
+          : this.rowWatch() === 'seen' ? '没有看过的作品' : '没有未看的作品',
+        message: '当前观看筛选下没有作品，清除筛选即可查看全部。',
+        actionTitle: '清除观看筛选',
+        defaultFocusAction: true,
+        onAction: (): void => {
+          this.rowWatchCleared = true;
+          this.reload();
+        }
+      })
+    } else if (this.picksActive() || this.prefs.unfinished || this.prefs.unwatched) {
       TvStateView({
         symbol: $r('sys.symbol.film'),
         title: '没有符合条件的影片',
@@ -1010,7 +1035,9 @@ export struct TvLibraryWall {
     if (this.prefs.resolution !== null) {
       parts.push(this.qualityTitle());
     }
-    if (this.prefs.unwatched) {
+    if (this.prefs.unfinished) {
+      parts.push('未看完');
+    } else if (this.prefs.unwatched) {
       parts.push('未看');
     }
     return parts;
@@ -1083,7 +1110,7 @@ export struct TvLibraryWall {
     const prefs: TvWallPrefs = this.prefs;
     const g: string | undefined = prefs.genre ?? undefined;
     const d: string | undefined = prefs.decade ?? undefined;
-    const w: string | undefined = prefs.unwatched ? 'unwatched' : undefined;
+    const w: string | undefined = prefs.unfinished ? 'unfinished' : prefs.unwatched ? 'unwatched' : undefined;
     const res: string | undefined =
       prefs.resolution !== null && prefs.resolution !== 'hdr' ? prefs.resolution : undefined;
     const hdr: boolean | undefined = prefs.resolution === 'hdr' ? true : undefined;
@@ -1109,7 +1136,7 @@ export struct TvLibraryWall {
     const prefs: TvWallPrefs = this.prefs;
     const g: string | undefined = prefs.genre ?? undefined;
     const d: string | undefined = prefs.decade ?? undefined;
-    const w: string | undefined = prefs.unwatched ? 'unwatched' : undefined;
+    const w: string | undefined = prefs.unfinished ? 'unfinished' : prefs.unwatched ? 'unwatched' : undefined;
     const res: string | undefined =
       prefs.resolution !== null && prefs.resolution !== 'hdr' ? prefs.resolution : undefined;
     const hdr: boolean | undefined = prefs.resolution === 'hdr' ? true : undefined;
@@ -1137,7 +1164,7 @@ export struct TvLibraryWall {
       if (mode === 'library') {
         const g: string | undefined = prefs.genre ?? undefined;
         const d: string | undefined = prefs.decade ?? undefined;
-        const w: string | undefined = prefs.unwatched ? 'unwatched' : undefined;
+        const w: string | undefined = prefs.unfinished ? 'unfinished' : prefs.unwatched ? 'unwatched' : undefined;
         const res: string | undefined =
           prefs.resolution !== null && prefs.resolution !== 'hdr' ? prefs.resolution : undefined;
         const hdr: boolean | undefined = prefs.resolution === 'hdr' ? true : undefined;
@@ -1146,7 +1173,7 @@ export struct TvLibraryWall {
           .then((views: LibraryItemView[]): TvWallPage => this.pageOf(views, null));
       }
       return api.uiLibraryKindItems(this.kindSource, prefs.sort, this.orderParam(), limit, offset,
-        undefined, undefined, undefined, prefs.unwatched ? 'unwatched' : undefined)
+        undefined, undefined, undefined, prefs.unfinished ? 'unfinished' : prefs.unwatched ? 'unwatched' : undefined)
         .then((views: LibraryItemView[]): TvWallPage => this.pageOf(views, null));
     }
     if (mode === 'collection') {
@@ -1160,6 +1187,12 @@ export struct TvLibraryWall {
   }
 
   /** 行墙取数：sourceKey 与首页那一行同一套参数，进来看到的顺序和行里一致 */
+  private rowWatch(): string | undefined {
+    if (this.rowWatchCleared || !this.sourceKey.startsWith('lib:')) { return undefined; }
+    const parts: string[] = this.sourceKey.split(':');
+    return parts[2] === 'last_played' ? 'seen' : parts[5] === 'true' ? 'unfinished' : parts[4] === 'true' ? 'unwatched' : undefined;
+  }
+
   private fetchRowWallPage(api: MovieClawApi, offset: number, limit: number): Promise<TvWallPage> {
     const parts: string[] = this.sourceKey.split(':');
     if (parts[0] === 'lib' && parts.length >= 5) {
@@ -1171,8 +1204,7 @@ export struct TvLibraryWall {
       const order: string | undefined = direction === null
         ? undefined : (direction.orderParam(reversed) ?? undefined);
       // 「最近观看」行只要播过的（w=seen），同首页取数
-      const watch: string | undefined = sort === 'last_played'
-        ? 'seen' : (unwatched ? 'unwatched' : undefined);
+      const watch: string | undefined = this.rowWatch();
       return api.libraryItemsList(id, sort, order, limit, offset,
         undefined, undefined, undefined, undefined, watch)
         .then((views: LibraryItemView[]): TvWallPage => this.pageOf(views, null));
@@ -1565,14 +1597,11 @@ export struct TvLibraryWall {
     if (mode === 'library' || mode === 'kind') {
       rows.push(TvWallRow.header(`${salt}_h_watch`, '观看状态'));
       rows.push(TvWallRow.option(
-        `${salt}_opt_unwatched`,
-        '只看没看过的',
-        null,
-        prefs.unwatched,
-        false,
-        (): void => {
-          this.toggleUnwatched();
-        }));
+        `${salt}_opt_unwatched`, '只看没看过的', null, prefs.unwatched, false,
+        (): void => { this.toggleUnwatched(); }));
+      rows.push(TvWallRow.option(
+        `${salt}_opt_unfinished`, '未看完', null, prefs.unfinished, false,
+        (): void => { this.toggleUnfinished(); }));
     }
 
     if (mode === 'library') {
@@ -1701,9 +1730,18 @@ export struct TvLibraryWall {
     this.reload();
   }
 
+  private toggleUnfinished(): void {
+    this.mutatePrefs((prefs: TvWallPrefs): void => {
+      prefs.unfinished = !prefs.unfinished;
+      prefs.unwatched = false;
+    });
+    this.reload();
+  }
+
   private toggleUnwatched(): void {
     this.mutatePrefs((prefs: TvWallPrefs): void => {
       prefs.unwatched = !prefs.unwatched;
+      prefs.unfinished = false;
     });
     this.reload();
   }
@@ -1746,6 +1784,7 @@ export struct TvLibraryWall {
       prefs.decade = null;
       prefs.resolution = null;
       prefs.unwatched = false;
+      prefs.unfinished = false;
     });
     this.reload();
   }
@@ -1755,6 +1794,7 @@ export struct TvLibraryWall {
     next.sort = this.prefs.sort;
     next.order = this.prefs.order;
     next.unwatched = this.prefs.unwatched;
+    next.unfinished = this.prefs.unfinished;
     next.genre = this.prefs.genre;
     next.decade = this.prefs.decade;
     next.resolution = this.prefs.resolution;

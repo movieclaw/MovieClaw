@@ -132012,6 +132012,155 @@
         }
       },
       "comment": "Tip card message on the library home: how to use the pull-down entry to Clips."
+    },
+    "library.facets.unfinished": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未看完"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未看完"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unfinished"
+          }
+        }
+      }
+    },
+    "library.kindWall.emptyUnfinished": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有未看完的作品"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有未看完的作品"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Unfinished Titles"
+          }
+        }
+      },
+      "comment": "Kind wall empty state when the Unfinished watch filter leaves no titles."
+    },
+    "library.kindWall.emptyUnwatched": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有未看的作品"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有未看的作品"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Unwatched Titles"
+          }
+        }
+      },
+      "comment": "Kind wall empty state when the Unwatched watch filter leaves no titles."
+    },
+    "library.kindWall.emptySeen": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有看过的作品"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有看过的作品"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Watched Titles"
+          }
+        }
+      },
+      "comment": "Kind wall empty state when the Watched watch filter leaves no titles."
+    },
+    "library.kindWall.emptyWatchHint": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前观看筛选下没有作品，清除筛选即可查看全部。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前观看筛选下没有作品，清除筛选即可查看全部。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No titles match the current watch filter. Clear it to see everything."
+          }
+        }
+      },
+      "comment": "Kind wall empty state message under a watch filter."
+    },
+    "library.kindWall.clearWatch": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除观看筛选"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除观看筛选"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Watch Filter"
+          }
+        }
+      },
+      "comment": "Kind wall empty state button that removes the watch filter."
     }
   },
   "version": "1.0"

@@ -54,6 +54,126 @@ final class LibraryUITests: XCTestCase {
 
     // MARK: 用例
 
+    /// Opt-in isolated fixture: never mutates a personal server's preferences.
+    @MainActor
+    func testUnfinishedHomeExpansionAndNativePreferenceRoundTrip() throws {
+        try XCTSkipUnless(env["MC_TEST_UNFINISHED_FIXTURE"] == "1", "Requires isolated watch-filter fixture")
+        let prefs = try XCTUnwrap(backend.request("GET", "/ui/preferences") as? [String: Any])
+        defer { backend.saveUiPreferences(prefs) }
+        let home = try XCTUnwrap(prefs["home"] as? [String: Any])
+        let rows = try XCTUnwrap(home["rows"] as? [[String: Any]])
+        let row = try XCTUnwrap(rows.first { $0["name"] as? String == "Native unfinished" })
+        let rowID = try XCTUnwrap(row["id"] as? String)
+
+        let app = launch(route: "/library")
+        let section = app.descendants(matching: .any)["home-row-\(rowID)"]
+        XCTAssertTrue(section.waitForExistence(timeout: 30))
+        snapshot("unfinished-home")
+        let more = app.buttons.matching(identifier: "home-row-\(rowID)").matching(NSPredicate(format: "label CONTAINS '查看全部' OR label CONTAINS 'View all'")).firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        more.tap()
+        XCTAssertTrue(app.buttons["library-filter-button"].waitForExistence(timeout: 20))
+        let unfinished = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '未看完' OR label CONTAINS 'Unfinished'")).firstMatch
+        XCTAssertTrue(unfinished.waitForExistence(timeout: 15), "Expanded list must expose its inherited condition")
+        snapshot("unfinished-expanded-library")
+        let partial = app.buttons.matching(NSPredicate(format: "label CONTAINS 'tv watch 900 001'")).firstMatch
+        XCTAssertTrue(partial.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS 'tv watch 900 000'")).firstMatch.exists)
+        let clear = app.buttons.matching(NSPredicate(format: "label == '清空' OR label == 'Clear'")).firstMatch
+        XCTAssertTrue(clear.exists)
+        clear.tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'tv watch 900 000'")).firstMatch.waitForExistence(timeout: 10))
+        XCTAssertEqual(((backend.request("GET", "/ui/preferences") as? [String: Any])?["home"] as? [String: Any])?["rows"] as? NSArray, rows as NSArray)
+
+
+        let customize = launch(route: "/library/customize")
+        let rowButton = customize.buttons["row-title-\(rowID)"]
+        XCTAssertTrue(rowButton.waitForExistence(timeout: 20))
+        rowButton.tap()
+        let picker = customize.descendants(matching: .any)["row-unwatched"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        snapshot("unfinished-native-row-settings")
+        // Trigger an actual save through the native editor and verify both rows survive it.
+        customize.buttons["row-sort-rating"].tap()
+        let deadline = Date().addingTimeInterval(15)
+        var savedRows: [[String: Any]] = []
+        repeat {
+            let saved = backend.request("GET", "/ui/preferences") as? [String: Any]
+            savedRows = (saved?["home"] as? [String: Any])?["rows"] as? [[String: Any]] ?? []
+            if savedRows.first(where: { $0["id"] as? String == rowID })?["sort"] as? String == "rating" { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        } while Date() < deadline
+        XCTAssertEqual(savedRows.first { $0["id"] as? String == rowID }?["unfinished"] as? Bool, true)
+        XCTAssertEqual(savedRows.first { $0["id"] as? String == "kind:tv" }?["unfinished"] as? Bool, true)
+        XCTAssertEqual(savedRows.first { $0["id"] as? String == rowID }?["sort"] as? String, "rating")
+        picker.tap()
+        let unwatchedOption = customize.buttons.matching(NSPredicate(format: "label == '未看' OR label == 'Unwatched'")).firstMatch
+        XCTAssertTrue(unwatchedOption.waitForExistence(timeout: 5))
+        unwatchedOption.tap()
+        let watchDeadline = Date().addingTimeInterval(15)
+        repeat {
+            let saved = backend.request("GET", "/ui/preferences") as? [String: Any]
+            savedRows = (saved?["home"] as? [String: Any])?["rows"] as? [[String: Any]] ?? []
+            if savedRows.first(where: { $0["id"] as? String == rowID })?["unwatched"] as? Bool == true { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        } while Date() < watchDeadline
+        XCTAssertEqual(savedRows.first { $0["id"] as? String == rowID }?["unwatched"] as? Bool, true)
+        XCTAssertNotEqual(savedRows.first { $0["id"] as? String == rowID }?["unfinished"] as? Bool, true)
+    }
+
+    @MainActor
+    func testDelayedKindSummaryCannotRestoreClearedWatchFilter() throws {
+        try XCTSkipUnless(env["MC_TEST_UNFINISHED_DELAY_FIXTURE"] == "1", "Requires --delay-kind-summary 6 fixture")
+        _ = backend.request("POST", "/__fixture/reset")
+        let app = launch(route: "/library")
+        let more = app.buttons.matching(identifier: "home-row-kind:tv")
+            .matching(NSPredicate(format: "label CONTAINS '查看全部' OR label CONTAINS 'View all'")).firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 30))
+        more.tap()
+        let picker = app.descendants(matching: .any)["kind-wall-watch"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        let status = backend.request("GET", "/__fixture/delayed-summary") as? [String: Any]
+        XCTAssertEqual(status?["started"] as? Bool, true)
+        XCTAssertEqual(status?["released"] as? Bool, false, "Must clear while the unfinished summary is still pending")
+        picker.tap()
+        let all = app.buttons.matching(NSPredicate(format: "label == '全部' OR label == 'All'")).firstMatch
+        XCTAssertTrue(all.waitForExistence(timeout: 5))
+        all.tap()
+        let completed = app.buttons.matching(NSPredicate(format: "label CONTAINS 'tv watch 900 000'")).firstMatch
+        XCTAssertTrue(completed.waitForExistence(timeout: 10))
+        // Let the first unfinished summary return after the all-items query has completed.
+        RunLoop.current.run(until: Date().addingTimeInterval(7))
+        let released = backend.request("GET", "/__fixture/delayed-summary") as? [String: Any]
+        XCTAssertEqual(released?["released"] as? Bool, true)
+        XCTAssertTrue(completed.exists, "A stale unfinished response must not replace the cleared result")
+        snapshot("kind-wall-cleared-after-stale-summary")
+    }
+
+    /// 「未看完」把类型墙筛空：要说清是筛选造成的，并能一键清除回到全部（PR #1205 维护者 P2）。
+    @MainActor
+    func testUnfinishedEmptyKindWallExplainsAndClearsFilter() throws {
+        try XCTSkipUnless(env["MC_TEST_UNFINISHED_EMPTY_FIXTURE"] == "1", "Requires --all-tv-watched fixture")
+        let app = launch(route: "/library/kind/tv")
+        let picker = app.descendants(matching: .any)["kind-wall-watch"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 30))
+        let watched = app.buttons.matching(NSPredicate(format: "label CONTAINS 'tv watch 900 000'")).firstMatch
+        XCTAssertTrue(watched.waitForExistence(timeout: 20), "All TV must be non-empty before filtering")
+        picker.tap()
+        let unfinished = app.buttons.matching(NSPredicate(format: "label == '未看完' OR label == 'Unfinished'")).firstMatch
+        XCTAssertTrue(unfinished.waitForExistence(timeout: 5))
+        unfinished.tap()
+        let empty = app.descendants(matching: .any)["kind-wall-watch-empty"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 15), "Filtered-empty wall must explain the watch filter")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == '没有未看完的作品' OR label == 'No Unfinished Titles'")).firstMatch.exists)
+        snapshot("kind-wall-unfinished-empty")
+        let clear = app.buttons.matching(NSPredicate(format: "label == '清除观看筛选' OR label == 'Clear Watch Filter'")).firstMatch
+        XCTAssertTrue(clear.exists)
+        clear.tap()
+        XCTAssertTrue(watched.waitForExistence(timeout: 15), "Clearing must restore the full wall")
+        XCTAssertFalse(empty.exists)
+        snapshot("kind-wall-unfinished-cleared")
+    }
+
     /// 合集与媒体库共用 ⋯ 中的切换入口，顶栏不再有独立图标键。
     @MainActor
     func testCollectionGalleryModeIsInMoreMenu() throws {

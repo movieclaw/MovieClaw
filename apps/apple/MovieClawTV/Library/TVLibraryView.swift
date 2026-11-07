@@ -12,6 +12,7 @@ struct TVLibraryView: View {
     @Environment(TVLibraryDirectory.self) private var directory
     @State private var pager = LibraryWallPager<API.LibraryItemView>(pageSize: TVWallLayout.pageSize)
     @State private var sort: WallSortState
+    @State private var unfinished: Bool
     @State private var unwatched: Bool
     @State private var picks = TVWallPicks()
     @State private var facets: API.LibraryFacetsView?
@@ -25,6 +26,7 @@ struct TVLibraryView: View {
         self.libraryId = libraryId
         let key = Self.sortKey(libraryId)
         _sort = State(initialValue: WallSortState.load(key, default: WallSortState(sort: "added_at"), allowed: Self.sorts))
+        _unfinished = State(initialValue: UserDefaults.standard.bool(forKey: key + ".unfinished"))
         _unwatched = State(initialValue: UserDefaults.standard.bool(forKey: key + ".unwatched"))
     }
 
@@ -45,6 +47,7 @@ struct TVLibraryView: View {
             facets = try? await api.libraryFacetsFiltered(libraryId: libraryId, filter: filter, allTiers: true)
         }
         .onChange(of: sort) { _, value in value.save(Self.sortKey(libraryId)) }
+        .onChange(of: unfinished) { _, value in UserDefaults.standard.set(value, forKey: Self.sortKey(libraryId) + ".unfinished") }
         .onChange(of: unwatched) { _, value in UserDefaults.standard.set(value, forKey: Self.sortKey(libraryId) + ".unwatched") }
         .accessibilityIdentifier("tv-library-\(libraryId)")
     }
@@ -76,7 +79,7 @@ struct TVLibraryView: View {
         } else if let resolution = picks.quality {
             filter.resolutions = [resolution]
         }
-        if unwatched { filter.watch = "unwatched" }
+        if unfinished { filter.watch = "unfinished" } else if unwatched { filter.watch = "unwatched" }
         return filter
     }
 
@@ -88,7 +91,7 @@ struct TVLibraryView: View {
         }
         if let decade = picks.decade { parts.append(Self.decadeLabel(decade, facets?.decades)) }
         if let quality = picks.quality { parts.append(qualityLabel(quality)) }
-        if unwatched { parts.append(String(localized: .libraryUnwatched)) }
+        if unfinished { parts.append(String(localized: .libraryFacetsUnfinished)) } else if unwatched { parts.append(String(localized: .libraryUnwatched)) }
         return parts
     }
 
@@ -139,7 +142,14 @@ struct TVLibraryView: View {
                     Text(HomeRows.preset(key).short(false)).tag(key)
                 }
             }
-            Toggle(String(localized: .libraryRowsOnlyUnwatched), isOn: $unwatched)
+            Picker(String(localized: .libraryFiltersWatch), selection: Binding(
+                get: { unfinished ? "unfinished" : unwatched ? "unwatched" : "" },
+                set: { unfinished = $0 == "unfinished"; unwatched = $0 == "unwatched" }
+            )) {
+                Text(String(localized: .commonAll)).tag("")
+                Text(String(localized: .libraryUnwatched)).tag("unwatched")
+                Text(String(localized: .libraryFacetsUnfinished)).tag("unfinished")
+            }
             Section(String(localized: .mediaFiltersFilter)) {
                 facetMenu(String(localized: .mediaDiscoveryType), options: facets?.genres, selected: picks.genre.map(String.init)) { value in
                     picks.genre = value.flatMap { Int($0) }
@@ -198,7 +208,7 @@ struct TVLibraryView: View {
         }
         actions.append(TVWallAction(id: "clear", title: String(localized: .libraryClearAllFilters)) {
             picks = TVWallPicks()
-            unwatched = false
+            unwatched = false; unfinished = false
         })
         return actions
     }
@@ -217,7 +227,7 @@ struct TVLibraryView: View {
         case "genres": picks.genre = nil
         case "decades": picks.decade = nil
         case "resolutions", "hdr": picks.quality = nil
-        case "watch": unwatched = false
+        case "watch": unwatched = false; unfinished = false
         default: break
         }
     }

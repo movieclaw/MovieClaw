@@ -129,6 +129,9 @@ export struct LibraryCustomizeSheet {
   }
 
   /** 用偏好 + 库/合集清单算出可编辑的行列表（同首页那套 `HomeRows.build`） */
+  private originalRows: HomeRowPref[] = [];
+  private editableIds: string[] = [];
+
   private rebuild(prefs: HomeRowPref[]): void {
     const built: HomeRow[] = HomeRows.build(prefs, this.libraries, this.collections);
     const out: EditableRow[] = [];
@@ -136,6 +139,9 @@ export struct LibraryCustomizeSheet {
       out.push(new EditableRow(row, this.prefOf(prefs, row.id)));
     }
     this.rows = out;
+    const editableIds: string[] = built.map((row: HomeRow): string => row.id);
+    this.originalRows = prefs.slice();
+    this.editableIds = editableIds;
   }
 
   private prefOf(prefs: HomeRowPref[], id: string): HomeRowPref {
@@ -161,16 +167,20 @@ export struct LibraryCustomizeSheet {
 
   private currentPrefs(): HomeRowPrefInput[] {
     const out: HomeRowPrefInput[] = [];
-    for (const item of this.rows) {
+    const rows: HomeRowPref[] = HomeRows.preserveUnsupportedRows(
+      this.rows.map((row: EditableRow): HomeRowPref => row.pref), this.originalRows, this.editableIds);
+    for (const item of rows) {
       const pref: HomeRowPrefInput = {
-        id: item.pref.id,
-        sort: item.pref.sort ?? null,
-        order: item.pref.order ?? null,
-        name: item.pref.name ?? null,
-        unwatched: item.pref.unwatched ?? null,
-        hidden: item.pref.hidden ?? null,
-        library_id: item.pref.library_id ?? null,
-        collection_id: item.pref.collection_id ?? null
+        id: item.id,
+        sort: item.sort ?? null,
+        order: item.order ?? null,
+        name: item.name ?? null,
+        unwatched: item.unwatched ?? null,
+        unfinished: item.unfinished ?? null,
+        hidden: item.hidden ?? null,
+        library_id: item.library_id ?? null,
+        collection_id: item.collection_id ?? null,
+        media_kind: item.media_kind ?? null
       };
       out.push(pref);
     }
@@ -238,6 +248,15 @@ export struct LibraryCustomizeSheet {
     const copy: EditableRow[] = [...this.rows];
     copy[index] = new EditableRow(item.row, item.pref);
     this.rows = copy;
+    this.scheduleSave();
+  }
+
+  private setWatch(index: number, watch: string): void {
+    const item: EditableRow = this.rows[index];
+    item.pref.unwatched = watch === 'unwatched';
+    item.pref.unfinished = watch === 'unfinished';
+    this.rebuild(HomeRows.preserveUnsupportedRows(
+      this.rows.map((row: EditableRow): HomeRowPref => row.pref), this.originalRows, this.editableIds));
     this.scheduleSave();
   }
 
@@ -313,6 +332,7 @@ export struct LibraryCustomizeSheet {
     const kind = item.row.kind;
     if (kind instanceof LibraryRowKind) {
       parts.push(kind.library.name);
+      if (kind.unfinished) { parts.push('未看完'); } else if (kind.unwatched) { parts.push('未看'); }
       if (kind.sort.length > 0) {
         parts.push(HomeRows.preset(kind.sort).name(kind.library.name, kind.reversed));
       }
@@ -496,6 +516,15 @@ export struct LibraryCustomizeSheet {
           }
           .width('100%')
           .padding({ left: 16, right: 10, top: 11, bottom: 11 })
+          if (item.row.kind instanceof LibraryRowKind && item.pref.sort !== 'last_played') {
+            Row({ space: 16 }) {
+              ForEach(['', 'unwatched', 'unfinished'], (watch: string) => {
+                Button(watch === 'unfinished' ? '未看完' : watch === 'unwatched' ? '未看' : '全部')
+                  .fontColor((item.pref.unfinished === true ? 'unfinished' : item.pref.unwatched === true ? 'unwatched' : '') === watch ? Theme.accent : Theme.textMuted)
+                  .onClick(() => { this.setWatch(index, watch); })
+              })
+            }.padding({ left: 50, bottom: 12 })
+          }
           if (index < this.rows.length - 1) {
             Divider().color(Theme.line).margin({ left: 50, right: 16 })
           }

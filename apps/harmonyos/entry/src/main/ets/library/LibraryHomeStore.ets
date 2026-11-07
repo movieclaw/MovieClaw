@@ -372,7 +372,7 @@ export class LibraryHomeStore {
   static fetchKey(row: HomeRow): string {
     if (row.kind instanceof LibraryRowKind) {
       const kind = row.kind;
-      return `lib:${kind.library.id}:${kind.sort}:${kind.reversed}:${kind.unwatched}`;
+      return `lib:${kind.library.id}:${kind.sort}:${kind.reversed}:${kind.unwatched}:${kind.unfinished}`;
     }
     if (row.kind instanceof CollectionRowKind) {
       const kind = row.kind;
@@ -479,7 +479,7 @@ export class LibraryHomeStore {
         const kind = row.kind;
         // 「最近观看」行只要播过的（w=seen）
         const watch: string | undefined =
-          kind.sort === 'last_played' ? 'seen' : (kind.unwatched ? 'unwatched' : undefined);
+          kind.sort === 'last_played' ? 'seen' : (kind.unfinished ? 'unfinished' : kind.unwatched ? 'unwatched' : undefined);
         const order: string | undefined =
           HomeRows.preset(kind.sort).direction?.orderParam(kind.reversed) ?? undefined;
         const id: number = kind.library.id;

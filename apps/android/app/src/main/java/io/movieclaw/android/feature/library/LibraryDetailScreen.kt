@@ -97,6 +97,7 @@ import io.movieclaw.android.core.network.dataOrThrow
 import io.movieclaw.android.core.network.friendlyMessage
 import io.movieclaw.android.core.session.SessionRepository
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -128,7 +129,11 @@ class LibraryDetailViewModel @Inject constructor(
         val windowStart: Int = 0,
     )
 
-    private val _ui = MutableStateFlow(UiState())
+    private val _ui = MutableStateFlow(UiState(filter = LibraryFilter(
+        watch = savedStateHandle.get<String>("w")?.takeIf { it in setOf("unwatched", "unfinished", "seen", "watching", "played", "favorite") }?.let { setOf(it) } ?: emptySet(),
+        sort = savedStateHandle.get<String>("sort")?.takeIf { it.isNotBlank() } ?: "title",
+        order = savedStateHandle.get<String>("order")?.takeIf { it in setOf("asc", "desc") },
+    )))
     val ui = _ui.asStateFlow()
 
     private val _facets = MutableStateFlow<Loadable<LibraryFacets>>(Loadable.Loading)
@@ -145,11 +150,31 @@ class LibraryDetailViewModel @Inject constructor(
 
     fun consumeNotice() = _ui.update { it.copy(error = null) }
 
+    /**
+     * 列表请求的代次:切筛选/排序(reload)或 A–Z 跳窗(jumpTo)都会开新一代并取消上一代,
+     * 回来的响应代次不对就丢弃——否则慢的旧请求会把列表盖回旧筛选,旧分页会拼到新列表后面。
+     */
+    private var pageJob: Job? = null
+    private var pageGeneration = 0
+    /** 索引只跟查询条件走(跳窗不换索引),单独记一代 */
+    private var indexJob: Job? = null
+    private var queryGeneration = 0
+
     fun reload() {
-        viewModelScope.launch {
-            val origin = origin ?: return@launch
-            _ui.update { it.copy(loading = true, error = null, windowStart = 0) }
-            runCatching { apiFactory.forOrigin(origin).libraryPage(libraryId, 0, _ui.value.filter) }
+        pageJob?.cancel()
+        indexJob?.cancel()
+        val gen = ++pageGeneration
+        val queryGen = ++queryGeneration
+        val filter = _ui.value.filter
+        // 旧条件的索引 offset 对新条件无效,先清掉,避免新索引到达前点到旧档
+        _index.value = emptyList()
+        val origin = origin ?: return
+        // 同步置 loading:协程开跑前的空隙里 loadMore 也必须被挡住(否则会按旧列表长度、新代次去取下一页)
+        _ui.update { it.copy(loading = true, loadingMore = false, error = null, windowStart = 0) }
+        pageJob = viewModelScope.launch {
+            val result = runCatching { apiFactory.forOrigin(origin).libraryPage(libraryId, 0, filter) }
+            if (gen != pageGeneration) return@launch
+            result
                 .onSuccess { items ->
                     _ui.update {
                         it.copy(
@@ -160,18 +185,21 @@ class LibraryDetailViewModel @Inject constructor(
                     }
                 }
                 .onFailure { e -> _ui.update { it.copy(loading = false, error = friendlyMessage(e)) } }
-            loadIndex()
         }
+        indexJob = viewModelScope.launch { loadIndex(queryGen, filter) }
     }
 
     fun loadMore() {
         val state = _ui.value
         if (state.loadingMore || !state.hasMore || state.loading) return
+        val gen = pageGeneration
         viewModelScope.launch {
             val origin = origin ?: return@launch
             _ui.update { it.copy(loadingMore = true) }
             val nextOffset = state.windowStart + state.items.size
-            runCatching { apiFactory.forOrigin(origin).libraryPage(libraryId, nextOffset, state.filter) }
+            val result = runCatching { apiFactory.forOrigin(origin).libraryPage(libraryId, nextOffset, state.filter) }
+            if (gen != pageGeneration) return@launch
+            result
                 .onSuccess { more ->
                     _ui.update {
                         it.copy(
@@ -211,24 +239,24 @@ class LibraryDetailViewModel @Inject constructor(
         }
     }
 
-    private suspend fun loadIndex() {
+    private suspend fun loadIndex(queryGen: Int, filter: LibraryFilter) {
         val origin = origin ?: return
-        val filter = _ui.value.filter
-        if (filter.sort != "title") {
-            _index.value = emptyList()
-            return
-        }
-        runCatching { apiFactory.forOrigin(origin).libraryItemIndex(libraryId, filter) }
-            .onSuccess { entries -> _index.value = entries }
-            .onFailure { _index.value = emptyList() }
+        if (filter.sort != "title") return
+        val entries = runCatching { apiFactory.forOrigin(origin).libraryItemIndex(libraryId, filter) }.getOrDefault(emptyList())
+        if (queryGen == queryGeneration) _index.value = entries
     }
 
     /** 跳转到首字母档:以该档 offset 为窗口起点重取一页(offset 与排序口径由服务端保证一致) */
     fun jumpTo(entry: LibraryIndexEntry) {
-        viewModelScope.launch {
-            val origin = origin ?: return@launch
-            _ui.update { it.copy(loading = true, windowStart = entry.offset) }
-            runCatching { apiFactory.forOrigin(origin).libraryPage(libraryId, entry.offset, _ui.value.filter) }
+        pageJob?.cancel()
+        val gen = ++pageGeneration
+        val filter = _ui.value.filter
+        val origin = origin ?: return
+        _ui.update { it.copy(loading = true, loadingMore = false, windowStart = entry.offset) }
+        pageJob = viewModelScope.launch {
+            val result = runCatching { apiFactory.forOrigin(origin).libraryPage(libraryId, entry.offset, filter) }
+            if (gen != pageGeneration) return@launch
+            result
                 .onSuccess { items ->
                     _ui.update {
                         it.copy(
@@ -617,7 +645,7 @@ private fun FilterSheetContent(
                     FacetGroup("类型", data.genres, draft.genres) { draft = draft.copy(genres = it) }
                     FacetGroup("年代", data.decades, draft.decades) { draft = draft.copy(decades = it) }
                     FacetGroup("地区", data.countries, draft.countries) { draft = draft.copy(countries = it) }
-                    FacetGroup("观看", data.watch, draft.watch) { draft = draft.copy(watch = it) }
+                    FacetSingle("观看", data.watch, draft.watch.firstOrNull()) { draft = draft.copy(watch = it?.let { setOf(it) } ?: emptySet()) }
                     SheetDivider()
                     FacetSingle("评分", data.ratings, draft.ratingGte?.let { gte -> "%.0f".format(gte) }) { value ->
                         draft = draft.copy(ratingGte = value?.toFloatOrNull())

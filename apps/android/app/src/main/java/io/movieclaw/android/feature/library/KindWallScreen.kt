@@ -19,9 +19,12 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,6 +43,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.movieclaw.android.core.designsystem.Accent
 import io.movieclaw.android.core.designsystem.Bg
 import io.movieclaw.android.core.designsystem.ErrorPane
 import io.movieclaw.android.core.designsystem.LineSoft
@@ -127,6 +132,7 @@ class KindWallViewModel @Inject constructor(
         val total: Int = 0,
         val libraryCount: Int = 0,
         val sort: String = "added_at",
+        val watch: String? = null,
         val loadingMore: Boolean = false,
     )
 
@@ -135,23 +141,27 @@ class KindWallViewModel @Inject constructor(
 
     val origin: String? get() = repository.ui.value.origin
 
+    private var requestJob: kotlinx.coroutines.Job? = null
+
     init { load() }
 
     fun load() {
-        viewModelScope.launch {
+        requestJob?.cancel()
+        requestJob = viewModelScope.launch {
             val origin = origin
             if (origin == null) { _ui.update { it.copy(loading = false, error = "尚未连接服务器") }; return@launch }
             _ui.update { it.copy(loading = true, error = null) }
             try {
                 val api = apiFactory.forOrigin(origin)
                 // 概况也要带 g：页头计数是「这面墙」的口径（带类型进来的墙不该报全类型的部数）
-                val summary = api.libraryKindSummary(kind, genres = genre).dataOrThrow()
+                val summary = api.libraryKindSummary(kind, watch = _ui.value.watch, genres = genre).dataOrThrow()
                 val items = api.libraryKindItems(
                     kind = kind,
                     sort = _ui.value.sort,
                     limit = PAGE_SIZE,
                     offset = 0,
                     genres = genre,
+                    watch = _ui.value.watch,
                 ).dataOrThrow()
                 _ui.update {
                     it.copy(
@@ -161,10 +171,17 @@ class KindWallViewModel @Inject constructor(
                         libraryCount = summary.libraryIds.size,
                     )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _ui.update { it.copy(loading = false, error = friendlyMessage(e)) }
             }
         }
+    }
+
+    fun setWatch(watch: String?) {
+        _ui.update { it.copy(watch = watch) }
+        load()
     }
 
     fun setSort(sort: String) {
@@ -176,7 +193,7 @@ class KindWallViewModel @Inject constructor(
     fun loadMore() {
         val state = _ui.value
         if (state.loading || state.loadingMore || state.items.size >= state.total) return
-        viewModelScope.launch {
+        requestJob = viewModelScope.launch {
             val origin = origin ?: return@launch
             _ui.update { it.copy(loadingMore = true) }
             runCatching {
@@ -186,6 +203,7 @@ class KindWallViewModel @Inject constructor(
                     limit = PAGE_SIZE,
                     offset = state.items.size,
                     genres = genre,
+                    watch = state.watch,
                 ).dataOrThrow()
             }
                 .onSuccess { more -> _ui.update { it.copy(loadingMore = false, items = it.items + more) } }
@@ -198,6 +216,9 @@ class KindWallViewModel @Inject constructor(
         const val PAGE_SIZE = 60
     }
 }
+
+/** 类型墙观看条件（值 → 文案）；"" = 全部 */
+private val KIND_WALL_WATCH_OPTIONS = listOf("" to "全部", "unwatched" to "未看", "unfinished" to "未看完")
 
 @Composable
 fun KindWallScreen(
@@ -247,6 +268,23 @@ fun KindWallScreen(
                 }
             }
 
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = mcCards.pagePadding),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.selectableGroup(),
+            ) {
+                items(KIND_WALL_WATCH_OPTIONS) { (watch, label) ->
+                    // 单选语义：TalkBack 要读出「已选中 / 未选中」，不能只靠颜色区分
+                    val on = state.watch.orEmpty() == watch
+                    Text(label, style = McType.caption, color = if (on) TextPrimary else TextMuted,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (on) Color.White.copy(alpha = 0.14f) else Color.Transparent)
+                            .selectable(selected = on, role = Role.RadioButton) { vm.setWatch(watch.ifBlank { null }) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp))
+                }
+            }
+
             // 排序档（横向 chips）：只有排序，没有筛选条与索引条（网页这面墙刻意做薄）
             LazyRow(
                 contentPadding = PaddingValues(horizontal = mcCards.pagePadding),
@@ -275,7 +313,17 @@ fun KindWallScreen(
                 }
                 state.error != null -> ErrorPane(message = state.error!!, onRetry = vm::load)
                 state.items.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("这个类型下还没有作品", style = McType.body, color = TextFaint)
+                    val watchLabel = KIND_WALL_WATCH_OPTIONS.firstOrNull { it.first == state.watch }?.second
+                    if (watchLabel == null) {
+                        Text("这个类型下还没有作品", style = McType.body, color = TextFaint)
+                    } else {
+                        // 观看条件把墙筛空了：说清是筛选造成的，并给一键清除
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("没有${watchLabel}的作品", style = McType.body, color = TextPrimary)
+                            Text("当前观看筛选下没有作品，清除筛选即可查看全部。", style = McType.caption, color = TextFaint)
+                            TextButton(onClick = { vm.setWatch(null) }) { Text("清除观看筛选", style = McType.caption, color = Accent) }
+                        }
+                    }
                 }
                 else -> LazyVerticalGrid(
                     state = gridState,

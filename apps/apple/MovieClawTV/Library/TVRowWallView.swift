@@ -3,9 +3,9 @@ import SwiftUI
 /// 首页一行的「查看全部」从哪取数：与这一行同一套参数（排序、正倒序、只看未看），进来看到的顺序和行里一致
 enum TVWallSource: Hashable {
     /// 某个媒体库（「最近添加」「最近观看」……）
-    case library(id: Int, sort: String, reversed: Bool, unwatched: Bool)
+    case library(id: Int, sort: String, reversed: Bool, unwatched: Bool, unfinished: Bool = false)
     /// 按类型的跨库墙（「全部电影」）：同一部片跨库只出现一次
-    case mediaKind(kind: String, sort: String, reversed: Bool, unwatched: Bool)
+    case mediaKind(kind: String, sort: String, reversed: Bool, unwatched: Bool, unfinished: Bool = false)
     /// 合集
     case collection(id: Int, sort: String, reversed: Bool)
     /// 我的收藏
@@ -13,13 +13,21 @@ enum TVWallSource: Hashable {
     /// 首页「按类型找电影 / 剧集」色块：按一个 TMDB 类型筛好的跨库墙（最近添加在前），count 是色块上的部数
     case genre(kind: String, genre: Int, count: Int)
 
+    var watch: String? {
+        switch self {
+        case let .library(_, sort, _, unwatched, unfinished), let .mediaKind(_, sort, _, unwatched, unfinished):
+            sort == "last_played" ? "seen" : unfinished ? "unfinished" : unwatched ? "unwatched" : nil
+        default: nil
+        }
+    }
+
     /// 首页这一行对应的来源；「接下来继续」「我的媒体库」两行没有「查看全部」
-    init?(_ kind: HomeRows.Kind) {
+    init?(_ kind: HomeRows.Kind, unfinished: Bool = false) {
         switch kind {
         case let .library(library, sort, reversed, unwatched, _, _):
-            self = .library(id: library.id, sort: sort, reversed: reversed, unwatched: unwatched)
+            self = .library(id: library.id, sort: sort, reversed: reversed, unwatched: unwatched, unfinished: unfinished)
         case let .mediaKind(kind, _, sort, reversed, unwatched, _, _):
-            self = .mediaKind(kind: kind, sort: sort, reversed: reversed, unwatched: unwatched)
+            self = .mediaKind(kind: kind, sort: sort, reversed: reversed, unwatched: unwatched, unfinished: unfinished)
         case let .collection(collection, sort, reversed, _):
             self = .collection(id: collection.id, sort: sort, reversed: reversed)
         case let .favorites(sort, reversed):
@@ -39,6 +47,17 @@ enum TVWallSource: Hashable {
 struct TVRowWallView: View {
     let title: String
     let source: TVWallSource
+    @State private var watch: String?
+    private struct Query: Hashable {
+        let source: TVWallSource
+        let watch: String?
+    }
+
+    init(title: String, source: TVWallSource) {
+        self.title = title
+        self.source = source
+        _watch = State(initialValue: source.watch)
+    }
 
     @Environment(\.api) private var api
     @Environment(TVLibraryDirectory.self) private var directory
@@ -46,16 +65,29 @@ struct TVRowWallView: View {
 
     var body: some View {
         TVPosterWall(title: title, subtitle: total.map { String(localized: .libraryStatusTitleCount($0)) }, pager: pager, fallbackLibrary: fallbackLibrary, total: total,
-                     retry: { await reload() })
-            .task { await reload() }
+                     emptyTitle: watch.map(HomeRows.watchEmptyTitle) ?? String(localized: .libraryNothingHere),
+                     emptyMessage: watch == nil ? nil : String(localized: .libraryKindWallEmptyWatchHint),
+                     emptyActions: watch == nil ? [] : [TVWallAction(id: "clear-watch", title: String(localized: .libraryKindWallClearWatch)) { watch = nil }],
+                     retry: { await reload() }) {
+            if source.watch != nil {
+                Picker(String(localized: .libraryFiltersWatch), selection: $watch) {
+                    Text(String(localized: .commonAll)).tag(String?.none)
+                    Text(String(localized: .libraryUnwatched)).tag(String?.some("unwatched"))
+                    Text(String(localized: .libraryFacetsUnfinished)).tag(String?.some("unfinished"))
+                    Text(String(localized: .libraryRowsRecentWatched)).tag(String?.some("seen"))
+                }
+            }
+        }
+            .task(id: Query(source: source, watch: watch)) { await reload() }
+            .onChange(of: source) { _, source in watch = source.watch }
             .accessibilityIdentifier("tv-row-wall")
     }
 
     /// 标题旁的总数：只在确切知道时写（媒体库没加筛选时用库的统计，收藏用接口给的总数）
     private var total: Int? {
         switch source {
-        case let .library(id, sort, _, unwatched):
-            return unwatched || sort == "last_played" ? nil : directory.library(id)?.stats.itemCount
+        case let .library(id, _, _, _, _):
+            return watch != nil ? nil : directory.library(id)?.stats.itemCount
         case .favorites:
             return LibraryHomeStore.shared.favorites?.total
         case let .genre(_, _, count):
@@ -67,22 +99,22 @@ struct TVRowWallView: View {
 
     /// 条目里没带库 id 时的详情落点（单库墙里的片就在这个库）
     private var fallbackLibrary: Int? {
-        if case let .library(id, _, _, _) = source { return id }
+        if case let .library(id, _, _, _, _) = source { return id }
         return nil
     }
 
     private func reload() async {
         let api = api
         switch source {
-        case let .library(id, sort, reversed, unwatched):
+        case let .library(id, sort, reversed, _, _):
             // 「最近观看」行只要播过的（w=seen），同首页取数
-            let watch: String? = sort == "last_played" ? "seen" : unwatched ? "unwatched" : nil
+            let watch = self.watch
             let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
             await pager.reset { offset, limit in
                 try await api.libraryItemsList(libraryId: id, sort: sort, order: order, limit: limit, offset: offset, w: watch)
             }
-        case let .mediaKind(kind, sort, reversed, unwatched):
-            let watch: String? = sort == "last_played" ? "seen" : unwatched ? "unwatched" : nil
+        case let .mediaKind(kind, sort, reversed, _, _):
+            let watch = self.watch
             let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
             await pager.reset { offset, limit in
                 try await api.uiLibraryKindItems(kind: kind, sort: sort, order: order, limit: limit, offset: offset, w: watch)

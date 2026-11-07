@@ -32,6 +32,7 @@ class LibraryCustomizeProtocolTest {
     private val puts = AtomicInteger()
     @Volatile private var prefs = json.parseToJsonElement("""{"theme":"silver","home":{"rows":[]}}""")
     @Volatile private var failRead = false
+    @Volatile private var includeLibrary = false
     private lateinit var server: MockWebServer
     private val http = OkHttpClient()
     // 本地端到端验证可连接隔离的真实后端；CI 默认用内存服务验证整条页面请求链。
@@ -76,6 +77,9 @@ class LibraryCustomizeProtocolTest {
                         MockResponse().setResponseCode(it.code).setBody(it.body!!.string())
                     }
                 }
+                if (request.path == "/api/v1/libraries" && includeLibrary) {
+                    return MockResponse().setBody("""{"success":true,"data":[{"id":1,"name":"Movies","kind":"movie"}]}""")
+                }
                 if (request.path == "/api/v1/libraries" || request.path == "/api/v1/collections") {
                     return MockResponse().setBody("""{"success":true,"data":[]}""")
                 }
@@ -117,8 +121,31 @@ class LibraryCustomizeProtocolTest {
         }
     }
 
+    @Test fun `unfinished survives native editing and can switch back to legacy unwatched`() = runTest {
+        includeLibrary = true
+        prefs = json.parseToJsonElement("""{"theme":"silver","home":{"rows":[{"id":"lib:1","sort":"rating","unfinished":true}]}}""")
+        withEditor { vm ->
+            val native = vm.ui.value.rows.single { it.id == "lib:1" }.kind as io.movieclaw.android.core.model.HomeRows.Kind.Library
+            assertTrue(native.unfinished)
+            assertFalse(native.unwatched)
+            var before = puts.get()
+            vm.update("lib:1") { row -> row.copy(kind = native.copy(name = "Finish these")) }
+            advanceTimeBy(401)
+            waitFor { puts.get() > before && !vm.ui.value.saving }
+            var saved = peer("GET")["home"]!!.jsonObject["rows"]!!.jsonArray.single { it.jsonObject["id"]!!.jsonPrimitive.content == "lib:1" }.jsonObject
+            assertEquals(true, saved["unfinished"]!!.jsonPrimitive.boolean)
+            before = puts.get()
+            vm.update("lib:1") { row -> row.copy(kind = (row.kind as io.movieclaw.android.core.model.HomeRows.Kind.Library).copy(unwatched = true, unfinished = false)) }
+            advanceTimeBy(401)
+            waitFor { puts.get() > before && !vm.ui.value.saving }
+            saved = peer("GET")["home"]!!.jsonObject["rows"]!!.jsonArray.single { it.jsonObject["id"]!!.jsonPrimitive.content == "lib:1" }.jsonObject
+            assertEquals(true, saved["unwatched"]!!.jsonPrimitive.boolean)
+            assertNotEquals(JsonPrimitive(true), saved["unfinished"])
+        }
+    }
+
     @Test fun `saving preserves type rows and the other clients latest preferences`() = runTest {
-        val types = json.parseToJsonElement("""[{"id":"kind:movie","sort":"rating","unwatched":true},{"id":"row:tv","media_kind":"tv","name":"今晚追哪部","hidden":true}]""")
+        val types = json.parseToJsonElement("""[{"id":"kind:movie","sort":"rating","unfinished":true},{"id":"row:tv","media_kind":"tv","unfinished":true,"name":"今晚追哪部","hidden":true}]""")
         prefs = buildJsonObject {
             put("theme", "silver")
             put("home", buildJsonObject { put("rows", types) })

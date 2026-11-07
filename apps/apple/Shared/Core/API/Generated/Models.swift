@@ -4694,6 +4694,8 @@ nonisolated extension API {
         var name: String?
         /// 只显示没看过的（仅库行与类型行）
         var unwatched: Bool?
+        /// 只显示未看完的（仅库行与类型行，优先于 unwatched）
+        var unfinished: Bool?
         /// 隐藏这一行，位置保留
         var hidden: Bool?
         /// 自加库行的来源库
@@ -4709,6 +4711,7 @@ nonisolated extension API {
             case order
             case name
             case unwatched
+            case unfinished
             case hidden
             case libraryId = "library_id"
             case collectionId = "collection_id"
@@ -4740,6 +4743,8 @@ nonisolated extension API {
         var name: String?
         /// 只显示没看过的（仅库行与类型行）
         var unwatched: Bool?
+        /// 只显示未看完的（仅库行与类型行，优先于 unwatched）
+        var unfinished: Bool?
         /// 隐藏这一行，位置保留
         var hidden: Bool?
         /// 自加库行的来源库
@@ -4755,6 +4760,7 @@ nonisolated extension API {
             case order
             case name
             case unwatched
+            case unfinished
             case hidden
             case libraryId = "library_id"
             case collectionId = "collection_id"

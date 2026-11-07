@@ -125,12 +125,12 @@ data class WallFilter(
 
 /** 媒体库墙的条件与叫法（TVLibraryView 的条件部分） */
 object WallFilters {
-    fun of(picks: WallPicks, unwatched: Boolean) = WallFilter(
+    fun of(picks: WallPicks, unwatched: Boolean, unfinished: Boolean = false) = WallFilter(
         g = picks.genre?.toString(),
         d = picks.decade,
         res = picks.quality?.takeIf { it != WallPicks.HDR },
         hdr = if (picks.quality == WallPicks.HDR) true else null,
-        w = if (unwatched) "unwatched" else null,
+        w = if (unfinished) "unfinished" else if (unwatched) "unwatched" else null,
     )
 
     /** 年代档在电视上写成「2010 年代」（服务端的展示名是「2010s」） */
@@ -156,11 +156,11 @@ object WallFilters {
     }
 
     /** 标题旁的条件摘要（「科幻 · 2010 年代 · 未看」），名字取服务端 facet 的展示名 */
-    fun conditions(picks: WallPicks, unwatched: Boolean, facets: LibraryFacetsView?): List<String> = buildList {
+    fun conditions(picks: WallPicks, unwatched: Boolean, facets: LibraryFacetsView?, unfinished: Boolean = false): List<String> = buildList {
         picks.genre?.let { genre -> add(facets?.genres?.firstOrNull { it.value == genre.toString() }?.label ?: "类型") }
         picks.decade?.let { add(decadeLabel(it, facets?.decades)) }
         picks.quality?.let { add(qualityLabel(it, facets)) }
-        if (unwatched) add("未看")
+        if (unfinished) add("未看完") else if (unwatched) add("未看")
     }
 
     /** 「西部 · 4K · 49 部」；什么都没有时为 null */

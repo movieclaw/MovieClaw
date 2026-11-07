@@ -74,6 +74,15 @@ enum HomeRows {
         }
     }
 
+    /// 观看条件把墙筛空时的标题：说清是哪个筛选造成的（不写成「这里没有作品」）
+    static func watchEmptyTitle(_ watch: String) -> String {
+        switch watch {
+        case "unwatched": String(localized: .libraryKindWallEmptyUnwatched)
+        case "seen": String(localized: .libraryKindWallEmptySeen)
+        default: String(localized: .libraryKindWallEmptyUnfinished)
+        }
+    }
+
     /// 类型行的推荐名：「全部电影 · 最近添加」。
     /// 不套库行的「最近添加的{库}」：很多人的电影库就叫「电影」，那样类型行与那个库的默认行会同名并排，分不清
     static func mediaKindRowName(_ kind: String, sort: String, reversed: Bool) -> String {
@@ -132,6 +141,16 @@ enum HomeRows {
         var id: String
         var hidden: Bool
         var kind: Kind
+        var unfinished = false
+
+        /// 首页取数和展开列表共用同一观看条件。
+        var watch: String? {
+            switch kind {
+            case let .library(_, sort, _, unwatched, _, _), let .mediaKind(_, _, sort, _, unwatched, _, _):
+                sort == "last_played" ? "seen" : unfinished ? "unfinished" : unwatched ? "unwatched" : nil
+            default: nil
+            }
+        }
 
         var sort: String? {
             switch kind {
@@ -171,10 +190,10 @@ enum HomeRows {
             case .libraries: String(localized: .libraryRowsLibrariesMeta)
             case let .genres(_, libraries): String(localized: .libraryRowsGenresMeta(libraries.count))
             case let .library(library, sort, reversed, unwatched, _, _):
-                [String(localized: .libraryRowsLibraryMeta(library.name)), HomeRows.preset(sort).short(reversed), unwatched ? String(localized: .libraryRowsOnlyUnwatched) : nil]
+                [String(localized: .libraryRowsLibraryMeta(library.name)), HomeRows.preset(sort).short(reversed), unfinished ? String(localized: .libraryFacetsUnfinished) : unwatched ? String(localized: .libraryRowsOnlyUnwatched) : nil]
                     .compactMap { $0 }.joined(separator: " · ")
             case let .mediaKind(kind, libraries, sort, reversed, unwatched, _, _):
-                [String(localized: .libraryRowsKindMeta(HomeRows.mediaKindLabel(kind), libraries.count)), HomeRows.preset(sort).short(reversed), unwatched ? String(localized: .libraryRowsOnlyUnwatched) : nil]
+                [String(localized: .libraryRowsKindMeta(HomeRows.mediaKindLabel(kind), libraries.count)), HomeRows.preset(sort).short(reversed), unfinished ? String(localized: .libraryFacetsUnfinished) : unwatched ? String(localized: .libraryRowsOnlyUnwatched) : nil]
                     .compactMap { $0 }.joined(separator: " · ")
             case let .collection(_, sort, reversed, _): String(localized: .libraryRowsCollectionMeta(HomeRows.preset(sort).short(reversed)))
             }
@@ -356,9 +375,9 @@ enum HomeRows {
         // 「最近观看」只要播过的，与「只看没看过的」互斥：以排序为准，开关作废
         return Row(id: pref.id, hidden: pref.hidden == true, kind: .library(
             library: library, sort: sort, reversed: reversed,
-            unwatched: pref.unwatched == true && sort != "last_played",
+            unwatched: pref.unwatched == true && pref.unfinished != true && sort != "last_played",
             name: (pref.name ?? "").trimmingCharacters(in: .whitespaces), builtin: builtin
-        ))
+        ), unfinished: pref.unfinished == true && sort != "last_played")
     }
 
     private static func mediaKindRow(_ pref: API.HomeRowPref, _ kind: String, _ libraries: [API.LibraryView], builtin: Bool) -> Row {
@@ -366,9 +385,9 @@ enum HomeRows {
         // 与库行同一条互斥：「最近观看」只要播过的
         return Row(id: pref.id, hidden: pref.hidden == true, kind: .mediaKind(
             kind: kind, libraries: libraries, sort: sort, reversed: reversed,
-            unwatched: pref.unwatched == true && sort != "last_played",
+            unwatched: pref.unwatched == true && pref.unfinished != true && sort != "last_played",
             name: (pref.name ?? "").trimmingCharacters(in: .whitespaces), builtin: builtin
-        ))
+        ), unfinished: pref.unfinished == true && sort != "last_played")
     }
 
     /// 反向：把合并后的行写回可存的形状。只存与默认不同的字段，空即默认
@@ -384,14 +403,16 @@ enum HomeRows {
                 if !builtin { pref.libraryId = library.id }
                 pref.sort = sort
                 pref.order = preset(sort).direction?.orderParam(reversed: reversed)
-                if unwatched { pref.unwatched = true }
+                if row.watch == "unfinished" { pref.unfinished = true }
+                else if unwatched { pref.unwatched = true }
                 if !name.isEmpty { pref.name = name }
             case let .mediaKind(kind, _, sort, reversed, unwatched, name, _):
                 // 老的 kind:<类型> 行的类型写在 id 里，服务端不许它再带来源字段
                 if row.id.hasPrefix("row:") { pref.mediaKind = kind }
                 pref.sort = sort
                 pref.order = preset(sort).direction?.orderParam(reversed: reversed)
-                if unwatched { pref.unwatched = true }
+                if row.watch == "unfinished" { pref.unfinished = true }
+                else if unwatched { pref.unwatched = true }
                 if !name.isEmpty { pref.name = name }
             case let .collection(collection, sort, reversed, name):
                 pref.collectionId = collection.id

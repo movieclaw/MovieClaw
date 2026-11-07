@@ -51,8 +51,9 @@ object WallLogic {
     }
 
     /** 「最近观看」只要播过的（w=seen）；只看未看是 w=unwatched；否则不带 */
-    fun watchParam(sort: String, unwatched: Boolean): String? = when {
+    fun watchParam(sort: String, unwatched: Boolean, unfinished: Boolean = false): String? = when {
         sort == "last_played" -> "seen"
+        unfinished -> "unfinished"
         unwatched -> "unwatched"
         else -> null
     }
@@ -103,14 +104,14 @@ object WallLogic {
             id = source.id,
             sort = source.sort,
             order = orderParam(source.sort, source.reversed),
-            w = watchParam(source.sort, source.unwatched),
+            w = watchParam(source.sort, source.unwatched, source.unfinished),
         )
         is WallSource.MediaKind -> WallQuery(
             WallQuery.Endpoint.MediaKind,
             kind = source.kind,
             sort = source.sort,
             order = orderParam(source.sort, source.reversed),
-            w = watchParam(source.sort, source.unwatched),
+            w = watchParam(source.sort, source.unwatched, source.unfinished),
         )
         is WallSource.Collection -> WallQuery(
             WallQuery.Endpoint.Collection,
@@ -135,7 +136,7 @@ object WallLogic {
      * 标题旁的总数：只在确切知道时写——媒体库没加筛选（不是只看未看、不是最近观看）时用库的统计，收藏用接口给的总数，类型墙用色块上的部数。
      */
     fun rowCount(source: WallSource, libraryItemCount: Long?): Long? = when (source) {
-        is WallSource.Library -> if (source.unwatched || source.sort == "last_played") null else source.count ?: libraryItemCount
+        is WallSource.Library -> if (source.unfinished || source.unwatched || source.sort == "last_played") null else source.count ?: libraryItemCount
         is WallSource.Favorites -> source.total
         is WallSource.Genre -> source.count
         is WallSource.MediaKind, is WallSource.Collection -> null

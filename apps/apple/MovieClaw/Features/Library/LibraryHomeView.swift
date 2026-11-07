@@ -418,14 +418,14 @@ struct LibraryHomeView: View {
         case let .library(library, _, _, _, _, _):
             let items = itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
             if !items.isEmpty {
-                posterRow(title: row.title, moreTitle: String(localized: .libraryHomeViewAll), more: .library(id: library.id), items: items.map { PosterRowItem($0, fallbackLibrary: library.id) })
+                posterRow(title: row.title, moreTitle: String(localized: .libraryHomeViewAll), more: .homeRow(row), items: items.map { PosterRowItem($0, fallbackLibrary: library.id) })
                     .accessibilityIdentifier("home-row-\(row.id)")
             }
         case let .mediaKind(kind, _, _, _, _, _, _):
             // 「全部电影」：同类型的库合成一面墙，查看全部进跨库墙页；每格落回服务端给的落点库
             let items = itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
             if !items.isEmpty {
-                posterRow(title: row.title, moreTitle: String(localized: .libraryHomeViewAll), more: .libraryKind(kind: kind), items: items.map { PosterRowItem($0, fallbackLibrary: 0) })
+                posterRow(title: row.title, moreTitle: String(localized: .libraryHomeViewAll), more: .homeRow(row), items: items.map { PosterRowItem($0, fallbackLibrary: 0) })
                     .accessibilityIdentifier("home-row-\(row.id)")
             }
         case let .collection(collection, _, _, _):

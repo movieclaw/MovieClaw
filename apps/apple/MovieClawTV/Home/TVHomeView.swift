@@ -360,7 +360,7 @@ struct TVHomeView: View {
 
     /// 「查看全部」上写的总数：只在确切知道时写——媒体库没加筛选时用库的统计（「最近观看」「只看未看」的量不知道）
     static func rowTotal(_ row: HomeRows.Row) -> Int? {
-        if case let .library(library, sort, _, unwatched, _, _) = row.kind, !unwatched, sort != "last_played" {
+        if case let .library(library, sort, _, unwatched, _, _) = row.kind, !row.unfinished, !unwatched, sort != "last_played" {
             return library.stats.itemCount
         }
         return nil
@@ -653,7 +653,7 @@ private struct TVHomeRow: View, Equatable {
     /// 行末尾的「查看全部」：进与这一行同一套取数参数的完整海报墙（每行只取前 20 部），与这一行的海报同大
     @ViewBuilder
     private func seeAll(total: Int?) -> some View {
-        if let source = TVWallSource(row.kind) {
+        if let source = TVWallSource(row.kind, unfinished: row.unfinished) {
             TVSeeAllCard(total: total, width: TVMetrics.showcasePosterWidth) {
                 router.push(.rowWall(title: row.title, source: source))
             }

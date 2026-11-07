@@ -176,6 +176,22 @@ class BigLibraryWallTest {
     }
 
     @Test
+    fun unfinishedMenuUsesTheSameConditionForItemsAndFacets() {
+        val env = open()
+        rule.press(KeyEvent.KEYCODE_DPAD_UP)
+        rule.press(KeyEvent.KEYCODE_DPAD_CENTER)
+        repeat(4) { rule.press(KeyEvent.KEYCODE_DPAD_DOWN) }
+        assertEquals("未看完", rule.focusedText())
+        rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_000)
+        assertTrue(env.transport.queries.any { (path, q) -> path == "/libraries/1/items" && q.toMap()["w"] == "unfinished" })
+        assertTrue(env.transport.queries.any { (path, q) -> path == "/libraries/1/facets" && q.toMap()["w"] == "unfinished" })
+        assertEquals("true", env.graph.store.string("${WallLogic.sortKey(1)}.unfinished"))
+        rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_000)
+        assertEquals("false", env.graph.store.string("${WallLogic.sortKey(1)}.unfinished"))
+        assertEquals(null, env.transport.queries.last { it.first == "/libraries/1/items" }.second.toMap()["w"])
+    }
+
+    @Test
     fun filterThenRelaxBringsTitlesBack() {
         val env = open()
         // 第一排往上：标题行的「排序与筛选」
@@ -183,8 +199,8 @@ class BigLibraryWallTest {
         assertEquals("排序与筛选 · A–Z", rule.focusedText())
         rule.press(KeyEvent.KEYCODE_DPAD_CENTER)
         assertEquals("最近添加", rule.focusedText())
-        // 四档排序、只看没看过的、类型
-        repeat(5) { rule.press(KeyEvent.KEYCODE_DPAD_DOWN) }
+        // 四档排序、未看完、只看没看过的、类型
+        repeat(6) { rule.press(KeyEvent.KEYCODE_DPAD_DOWN) }
         assertEquals("类型 全部", rule.focusedText())
         rule.press(KeyEvent.KEYCODE_DPAD_CENTER)
         rule.onNodeWithTag("submenu").assertExists()
@@ -236,7 +252,7 @@ class BigLibraryWallTest {
         // 选类型「西部」：筛空
         rule.press(KeyEvent.KEYCODE_DPAD_UP)
         rule.press(KeyEvent.KEYCODE_DPAD_CENTER)
-        repeat(5) { rule.press(KeyEvent.KEYCODE_DPAD_DOWN) }
+        repeat(6) { rule.press(KeyEvent.KEYCODE_DPAD_DOWN) }
         rule.press(KeyEvent.KEYCODE_DPAD_CENTER)
         rule.press(KeyEvent.KEYCODE_DPAD_DOWN)
         rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_000)
