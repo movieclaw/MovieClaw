@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from dataclasses import replace
@@ -761,6 +762,27 @@ async def test_heal_reprobes_a_folder_disc_whose_main_playlist_changed(
     assert source is not None and source.playlist_name == "00001.mpls"
 
 
+async def test_first_trusted_folder_audit_overwrites_degraded_specs(
+    db, tmp_path, monkeypatch
+) -> None:
+    """历史残缺入库没有旧 clips 时，首次完整审计也必须整组覆盖最大 m2ts 的错规格。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    async with db.session() as session:
+        row = await session.get(LibraryFile, file_id)
+        assert row is not None
+        row.disc_playlist = None
+        await session.commit()
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: _MAIN_SPEC)
+
+    assert await heal_disc_main_playlists() == 1
+    row = await _load(db, file_id)
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert row.disc_playlist["name"] == "00001.mpls"
+    assert (row.resolution, row.video_codec, row.bit_rate) == ("1080p", "h264", 38_000_000)
+
+
 async def test_heal_only_refreshes_the_version_when_the_main_playlist_is_unchanged(
     db, tmp_path, monkeypatch
 ) -> None:
@@ -817,6 +839,8 @@ async def test_failed_reprobe_stays_unprobed_and_the_reconcile_retries_it(
     assert await heal_disc_main_playlists() == 1
     row = await _load(db, file_id)
     assert row.disc_playlist is not None and row.disc_playlist["name"] == "00001.mpls"
+    assert row.disc_playlist["audit"]["state"] == "pending_probe"
+    assert "version" not in row.disc_playlist
     assert row.resolution is None and row.audio_streams is None
 
     monkeypatch.setattr(items_mod, "probe_media", lambda _path: _MAIN_SPEC)
@@ -833,6 +857,8 @@ async def test_failed_reprobe_stays_unprobed_and_the_reconcile_retries_it(
     assert summary.probed == 1
     row = await _load(db, file_id)
     assert row.resolution == "1080p" and row.audio_streams
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
 
 
 async def test_manual_scan_also_replaces_the_spec_when_the_main_playlist_changed(
@@ -855,6 +881,62 @@ async def test_manual_scan_also_replaces_the_spec_when_the_main_playlist_changed
     assert summary.probed == 1
     row = await _load(db, file_id)
     assert row.resolution == "1080p" and len(row.audio_streams or []) == 2
+
+
+@pytest.mark.parametrize("first", ["startup", "manual"])
+async def test_startup_heal_and_manual_scan_serialize_the_same_library(
+    db, tmp_path, monkeypatch, first
+) -> None:
+    """后到的会话拿锁后重读 v3，不会用旧快照再清空已成功的规格。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    row = await _load(db, file_id)
+    entered = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    def probe(_path):
+        nonlocal calls
+        calls += 1
+        entered.set()
+        assert release.wait(5)
+        return _MAIN_SPEC
+
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(items_mod, "probe_media", probe)
+
+    async def manual_scan() -> ScanSummary:
+        async with db.session() as session:
+            summary = ScanSummary(library_id=row.library_id)
+            await scan_mod._probe_backfill(
+                session,
+                row.library_id,
+                summary,
+                scan_mod.ScanState(phase=scan_mod.ScanPhase.WALKING),
+            )
+            return summary
+
+    first_task = asyncio.create_task(
+        heal_disc_main_playlists() if first == "startup" else manual_scan()
+    )
+    assert await asyncio.to_thread(entered.wait, 5)
+    second_task = asyncio.create_task(
+        manual_scan() if first == "startup" else heal_disc_main_playlists()
+    )
+    await asyncio.sleep(0)
+    release.set()
+    first_result, second_result = await asyncio.gather(first_task, second_task)
+    healed, summary = (
+        (first_result, second_result)
+        if first == "startup"
+        else (second_result, first_result)
+    )
+
+    assert healed + summary.probed == 1
+    assert calls == 1
+    final = await _load(db, file_id)
+    assert final.disc_playlist is not None
+    assert final.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert final.resolution == "1080p" and final.audio_streams
 
 
 async def test_unreadable_playlists_keep_a_good_record_until_they_read_again(
@@ -1083,8 +1165,57 @@ async def test_current_version_folder_without_playlists_keeps_the_record(
 
     assert await heal_disc_main_playlists() == 0
     row = await _load(db, file_id)
-    assert row.disc_playlist == _current_record("00002")
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["name"] == "00002.mpls"
+    assert row.disc_playlist["clips"] == _current_record("00002")["clips"]
+    assert row.disc_playlist["audit"]["state"] == "failed"
+    assert "version" not in row.disc_playlist
     assert row.resolution == "720p"
+
+
+async def test_permanently_broken_folder_is_reaudited_only_after_fingerprint_change(
+    db, tmp_path, monkeypatch
+) -> None:
+    """稳定损坏的 MPLS 记失败指纹；启动/手扫不反复读，文件变化后再审计。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    broken = _folder(tmp_path) / "BDMV" / "PLAYLIST" / "00001.mpls"
+    broken.write_bytes(b"permanently broken mpls")
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    original = items_mod.read_main_playlist_result
+    calls = 0
+
+    def counted(path):
+        nonlocal calls
+        calls += 1
+        return original(path)
+
+    monkeypatch.setattr(items_mod, "read_main_playlist_result", counted)
+    monkeypatch.setattr(items_mod, "probe_media", _unexpected_probe)
+
+    assert await heal_disc_main_playlists() == 0
+    assert calls == 1
+    failed = await _load(db, file_id)
+    assert failed.disc_playlist is not None
+    assert failed.disc_playlist["audit"]["state"] == "failed"
+    assert failed.resolution == "720p"
+
+    assert await heal_disc_main_playlists() == 0
+    assert calls == 1
+
+    async with db.session() as session:
+        summary = ScanSummary(library_id=failed.library_id)
+        await scan_mod._probe_backfill(
+            session,
+            failed.library_id,
+            summary,
+            scan_mod.ScanState(phase=scan_mod.ScanPhase.WALKING),
+            force_disc_playlist_audit=True,
+        )
+    assert calls == 2
+
+    broken.write_bytes(b"still broken, but changed size")
+    assert await heal_disc_main_playlists() == 0
+    assert calls == 3
 
 
 async def test_full_scan_corrects_current_version_wrong_folder_limited_reconcile_does_not(
@@ -1236,6 +1367,30 @@ async def _stamp_image_playlist(db, file_id: int, playlist: dict) -> LibraryFile
         return row
 
 
+async def test_compat_manual_scan_stop_skips_iso_preread(db, tmp_path, monkeypatch) -> None:
+    """bridge=None 的兼容扫描在 ISO 完整审计前也响应停止。"""
+    iso_source.clear_cache()
+    file_id = await _stored_image(
+        db, tmp_path, "cancel-before-audit", _bluray_image_with_copies(smaller_is_longer=False)
+    )
+    row = await _load(db, file_id)
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    scan_mod._scan_tasks._stops.add(row.library_id)
+    try:
+        async with db.session() as session:
+            summary = ScanSummary(library_id=row.library_id)
+            await scan_mod._probe_backfill(
+                session,
+                row.library_id,
+                summary,
+                scan_mod.ScanState(phase=scan_mod.ScanPhase.WALKING),
+            )
+    finally:
+        scan_mod._scan_tasks._stops.discard(row.library_id)
+    assert summary.probed == 0
+    assert (await _load(db, file_id)).disc_playlist is None
+
+
 async def test_current_version_wrong_image_recovers_when_duration_already_picks_the_main(
     db, tmp_path, monkeypatch
 ) -> None:
@@ -1295,8 +1450,15 @@ async def test_incomplete_image_read_does_not_replace_a_current_version_playlist
 
     monkeypatch.setattr(iso_source, "parse_mpls_playlist", flaky_parse)
     assert await heal_disc_main_playlists() == 0
+    failed_once = _ledger_view(await _load(db, file_id))
+    assert failed_once["disc_playlist"]["name"] == correct["name"]
+    assert failed_once["disc_playlist"]["clips"] == correct["clips"]
+    assert failed_once["disc_playlist"]["audit"]["state"] == "failed"
+    for field, value in before.items():
+        if field not in {"disc_playlist", "updated_at"}:
+            assert failed_once[field] == value
     assert await heal_disc_main_playlists() == 0
-    assert _ledger_view(await _load(db, file_id)) == before
+    assert _ledger_view(await _load(db, file_id)) == failed_once
 
     # 台账是花絮、正片那条又读不全：剩下的候选正好是花絮，也不能借这次残缺读取改账。
     iso_source.clear_cache()
@@ -1304,11 +1466,18 @@ async def test_incomplete_image_read_does_not_replace_a_current_version_playlist
     wrong_view = _ledger_view(await _load(db, file_id))
     fail_name = "00019.mpls"
     assert await heal_disc_main_playlists() == 0
-    assert _ledger_view(await _load(db, file_id)) == wrong_view
+    failed_wrong = _ledger_view(await _load(db, file_id))
+    assert failed_wrong["disc_playlist"]["name"] == wrong["name"]
+    assert failed_wrong["disc_playlist"]["clips"] == wrong["clips"]
+    assert failed_wrong["disc_playlist"]["audit"]["state"] == "failed"
+    for field, value in wrong_view.items():
+        if field not in {"disc_playlist", "updated_at"}:
+            assert failed_wrong[field] == value
 
-    # 重启后读全：才把花絮扶正成正片。
+    # 镜像被修复（mtime 指纹变化）后读全：才把花絮扶正成正片。
     iso_source.clear_cache()
     monkeypatch.setattr(iso_source, "parse_mpls_playlist", original)
+    Path((await _load(db, file_id)).file_path).touch()
 
     def probe(path):
         return replace(_MAIN_SPEC, duration_seconds=7112)

@@ -70,9 +70,15 @@ from movieclaw_api.services.library.artwork import (
     find_artwork,
 )
 from movieclaw_api.services.library.bluray import (
+    disc_playlist_audit_due,
+    disc_playlist_failure_record,
+    disc_playlist_pending_record,
+    disc_playlist_probe_pending,
     disc_playlist_record,
     disc_playlist_stale,
+    disc_playlist_success_record,
     enrich_spec_with_clpi,
+    pending_disc_playlist,
     read_clpi_languages,
     read_main_playlist_result,
     streams_have_clpi_metadata,
@@ -3169,6 +3175,7 @@ async def backfill_streams(
     limit: int | None = None,
     on_processed: Callable[[], bool | Awaitable[bool]] | None = None,
     on_checkpoint: Callable[[], None | Awaitable[None]] | None = None,
+    force_disc_playlist_audit: bool = False,
 ) -> int:
     """补齐未探测的介质详情，并为存量 BDMV 回填 CLPI 语言；返回 ffprobe 数。
 
@@ -3220,7 +3227,21 @@ async def backfill_streams(
         # 原盘主播放列表清单缺失/版本落后（docs/design/disc-playback.md §3.1）：
         # 播放链路要靠它；选主片规则修过（排除循环诱饵列表）后，时长、章节与
         # 探测目标都要按真正的主片重算
-        needs_disc = row.container == "bluray" and disc_playlist_stale(row.disc_playlist)
+        path = Path(row.file_path)
+        pending_playlist_probe = disc_playlist_probe_pending(row.disc_playlist)
+        needs_disc = (
+            row.container == "bluray"
+            and disc_playlist_stale(row.disc_playlist)
+            and (
+                pending_playlist_probe
+                or await asyncio.to_thread(
+                    disc_playlist_audit_due,
+                    row.disc_playlist,
+                    path,
+                    force=force_disc_playlist_audit,
+                )
+            )
+        )
         # 新增帧率/色彩空间后，历史行两列同时为空时允许整库扫描补探一次。
         # 正常视频至少能取得其中一项，避免个别元数据缺失的文件每轮重复 ffprobe。
         needs_visual_details = row.frame_rate is None and row.color_space is None
@@ -3247,43 +3268,49 @@ async def backfill_streams(
             if not await keep_going():
                 break
             continue
-        path = Path(row.file_path)
         playlist = None
         if needs_disc:
-            playlist_result = await asyncio.to_thread(read_main_playlist_result, path)
-            if playlist_result.retryable:
-                # 候选没读全时剩余候选可能只是花絮；不落账、不清规格，留到下次重试。
-                if not await keep_going():
-                    break
-                continue
-            playlist = playlist_result.playlist
+            audit_failed = False
+            playlist = pending_disc_playlist(row.disc_playlist, path)
+            if playlist is None:
+                playlist_result = await asyncio.to_thread(read_main_playlist_result, path)
+                if playlist_result.retryable:
+                    # 候选没读全时剩余候选可能只是花絮；不落账、不清规格，留到下次重试。
+                    if not await keep_going():
+                        break
+                    continue
+                if playlist_result.audit_failed:
+                    failed = await asyncio.to_thread(
+                        disc_playlist_failure_record, row.disc_playlist, path
+                    )
+                    if failed != row.disc_playlist:
+                        row.disc_playlist = failed
+                        row.updated_at = utcnow()
+                    needs_disc = False
+                    audit_failed = True
+                else:
+                    playlist = playlist_result.playlist
             old = row.disc_playlist if isinstance(row.disc_playlist, dict) else {}
             old_clips = old.get("clips")
-            if playlist is not None and playlist.duration_seconds > 0:
+            if not audit_failed and playlist is not None and playlist.duration_seconds > 0:
                 record = disc_playlist_record(playlist)
-                row.disc_playlist = record
-                if record["clips"] == old_clips:
+                if record["clips"] == old_clips and not pending_playlist_probe:
                     # 清单只是版本落后（选主片的规则改过），这张盘的主片没换：只换版本号
+                    row.disc_playlist = record
                     needs_disc = False
                 else:
-                    if old_clips:
-                        reset_probed_spec(row)
+                    # 第一次可信审计也必须整组覆盖：旧规格可能来自残缺读取时退化选中的最大 m2ts。
+                    reset_probed_spec(row)
+                    row.disc_playlist = disc_playlist_pending_record(playlist, path)
                     # 时长按主播放列表**覆盖**而不是补空：旧行可能记着诱饵列表的虚高时长
                     row.duration_seconds = playlist.duration_seconds
-                    row.chapters = playlist.chapters()
+                    if not pending_playlist_probe:
+                        row.chapters = playlist.chapters()
                     row.updated_at = utcnow()
-            elif old_clips:
-                # 旧清单是好的，这次读不出（挂载抖动、盘被挪走）：留着下次再试，写哨兵就丢了
+            elif not audit_failed:
                 if not await keep_going():
                     break
                 continue
-            else:
-                # 读不出主播放列表（残缺盘）：写"读过但没有"的哨兵，下轮不再重读；
-                # 播放时 disc_source 见到空清单会再试一次读盘（盘补齐后自愈）。
-                # 没有主播放列表就没有"主片换了"的理由，不为此强制重读 m2ts
-                row.disc_playlist = disc_playlist_record(None)
-                needs_disc = False
-                row.updated_at = utcnow()
             if (
                 row.audio_streams is not None
                 and not needs_clpi
@@ -3338,6 +3365,9 @@ async def backfill_streams(
             row.bit_rate = row.bit_rate or spec.bit_rate
             row.frame_rate = row.frame_rate or spec.frame_rate
             row.color_space = row.color_space or spec.color_space
+            success_record = disc_playlist_success_record(row.disc_playlist)
+            if success_record is not None:
+                row.disc_playlist = success_record
             # 补探的终止条件：写上当前字段集版本，这一行下次就不再进补探队列。
             # 少了它，缺色彩标签的文件会每次手动扫描都被白探一遍。
             row.probe_version = PROBE_SCHEMA_VERSION

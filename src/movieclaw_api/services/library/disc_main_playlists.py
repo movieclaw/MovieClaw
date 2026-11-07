@@ -6,11 +6,11 @@
 
 - **原盘目录**：台账 ``disc_playlist`` 记着探测时选中的清单。版本落后的行重读一次 MPLS（只在
   升级后第一次启动，NAS 137 张 5～20 秒）：主片没换只换版本号，换了才重探。读不全不盖戳，
-  下次启动或手动全量扫描继续重试；已盖最新版本的行不再读盘。
+  瞬时 I/O 下次继续；稳定坏盘按文件指纹记失败，文件没变不重复审计。已盖最新版本的行不再读盘。
 - **蓝光镜像**：探测时不记清单，但旧规则只比时长，算得出当时选的是哪条
   （``DiscSource.longest_playlist_name``）。与现在选的不同才重探，并把清单记进台账，下次启动
   不再重探；主片未变的镜像只盖清单版本，规格不动。已经记下的清单和完整重读不一致时
-  同样扶正；任一列表没读全时不改。
+  同样扶正；任一列表没读全时只记失败指纹，不拿残余候选改清单。
 
 片库没挂上的行留到下次启动；探测失败的行已退回「未探测」，由定期对账带退避重试。
 """
@@ -27,6 +27,11 @@ from movieclaw_api.services import media_probe
 from movieclaw_api.services.foreground import yield_to_foreground
 from movieclaw_api.services.library.bluray import (
     DISC_PLAYLIST_VERSION,
+    disc_playlist_audit_due,
+    disc_playlist_audit_mutex,
+    disc_playlist_failure_record,
+    disc_playlist_pending_ledger,
+    disc_playlist_probe_pending,
     disc_playlist_stale,
 )
 from movieclaw_api.services.library.items import backfill_streams, reset_probed_spec
@@ -42,14 +47,25 @@ def _image_clips(source: DiscSource) -> list[dict]:
     return [{"id": clip.clip_id, "in": clip.in_time, "out": clip.out_time} for clip in source.clips]
 
 
-async def audit_disc_image_playlist(row: LibraryFile) -> tuple[bool, bool]:
-    """完整审计一张版本落后的 ISO，返回 ``(已盖戳, 需重探)``。"""
+async def audit_disc_image_playlist(row: LibraryFile, *, force: bool = False) -> tuple[bool, bool]:
+    """完整审计一张版本落后的 ISO，返回 ``(台账有变, 需重探)``。"""
     if not disc_playlist_stale(row.disc_playlist):
         return False, False
-    source = await asyncio.to_thread(iso_disc_source, row.file_path)
-    # 读不出，或有列表没读全：剩下的候选可能只是花絮，不能拿来改台账
-    if source is None or source.playlist_incomplete:
+    path = Path(row.file_path)
+    if disc_playlist_probe_pending(row.disc_playlist):
+        return False, True
+    if not await asyncio.to_thread(disc_playlist_audit_due, row.disc_playlist, path, force=force):
         return False, False
+    source = await asyncio.to_thread(iso_disc_source, row.file_path)
+    # 读不出，或有列表没读全：剩下的候选可能只是花絮。记失败指纹但不盖 v3，
+    # 文件没变时启动与手动扫描都不再反复付整盘读取成本。
+    if source is None or source.playlist_incomplete:
+        failed = await asyncio.to_thread(disc_playlist_failure_record, row.disc_playlist, path)
+        if failed == row.disc_playlist:
+            return False, False
+        row.disc_playlist = failed
+        row.updated_at = utcnow()
+        return True, False
     record = row.disc_playlist if isinstance(row.disc_playlist, dict) else {}
     fresh_clips = _image_clips(source)
     stored_clips = record.get("clips")
@@ -64,12 +80,12 @@ async def audit_disc_image_playlist(row: LibraryFile) -> tuple[bool, bool]:
         )
         and record.get("name") != source.playlist_name
     )
-    row.disc_playlist = {
-        "version": DISC_PLAYLIST_VERSION,
-        "name": source.playlist_name,
-        "clips": fresh_clips,
-    }
     if not clips_differ and not selection_differs:
+        row.disc_playlist = {
+            "version": DISC_PLAYLIST_VERSION,
+            "name": source.playlist_name,
+            "clips": fresh_clips,
+        }
         return True, False
     if clips_differ:
         logger.info(
@@ -85,6 +101,7 @@ async def audit_disc_image_playlist(row: LibraryFile) -> tuple[bool, bool]:
             source.longest_playlist_name,
             source.playlist_name,
         )
+    row.disc_playlist = disc_playlist_pending_ledger(source.playlist_name, fresh_clips, path)
     reset_probed_spec(row)
     row.duration_seconds = None
     row.updated_at = utcnow()
@@ -95,50 +112,76 @@ async def heal_disc_main_playlists() -> int:
     """让存量原盘和蓝光镜像跟上主片的选择，返回跑了几次 ffprobe。"""
     if not media_probe.ffprobe_available():
         return 0  # 探不了就别动：退回未探测也补不回来，装好 ffmpeg 后下次启动再来
+    total_probed = 0
+    total_pending = 0
     async with get_database().session() as session:
-        rows = (
+        library_ids = list(
             (
                 await session.execute(
-                    select(LibraryFile)
+                    select(LibraryFile.library_id)
                     .where(
                         LibraryFile.container.in_(("bluray", "iso")),  # type: ignore[union-attr]
                         LibraryFile.in_place(),
                         LibraryFile.ignored_at.is_(None),  # type: ignore[union-attr]
-                        # 只在网盘上的文件走按预算的后台补探（library/cloud_probe.py）
                         LibraryFile.local_bytes.is_(True),  # type: ignore[attr-defined]
                     )
-                    .order_by(LibraryFile.id)  # type: ignore[arg-type]
+                    .distinct()
+                    .order_by(LibraryFile.library_id)  # type: ignore[arg-type]
                 )
             )
             .scalars()
             .all()
         )
-        pending: list[LibraryFile] = []
-        stamped = False
-        for row in rows:
-            # 每一行都可能读网盘；页面加载时退开。前台空闲时这次让路没有等待。
-            await yield_to_foreground()
-            if row.container == "iso":
-                verified, reprobe = await audit_disc_image_playlist(row)
-                stamped |= verified
-                if reprobe:
-                    pending.append(row)
-                continue
-            # 目录不在（片库没挂上）时补探会把读不出当成残缺盘
-            if not await asyncio.to_thread(Path(row.file_path, "BDMV").is_dir):
-                continue
-            if disc_playlist_stale(row.disc_playlist):
-                pending.append(row)
-        if not pending:
-            if stamped:
-                await session.commit()
-            return 0
+        # 只取 id 的盘点事务到此结束；若随后等同库互斥锁，拿到锁后的行查询
+        # 必须开启新快照，才能看见先完成那条链路刚提交的 v3/规格。
+        await session.commit()
+        for library_id in library_ids:
+            async with disc_playlist_audit_mutex(library_id):
+                # 等锁之后再读：另一条链路可能刚把 pending 探测成功并盖了 v3。
+                rows = list(
+                    (
+                        await session.execute(
+                            select(LibraryFile)
+                            .where(
+                                LibraryFile.library_id == library_id,
+                                LibraryFile.container.in_(("bluray", "iso")),  # type: ignore[union-attr]
+                                LibraryFile.in_place(),
+                                LibraryFile.ignored_at.is_(None),  # type: ignore[union-attr]
+                                LibraryFile.local_bytes.is_(True),  # type: ignore[attr-defined]
+                            )
+                            .order_by(LibraryFile.id)  # type: ignore[arg-type]
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                pending: list[LibraryFile] = []
+                changed = False
+                for row in rows:
+                    await yield_to_foreground()
+                    if row.container == "iso":
+                        ledger_changed, reprobe = await audit_disc_image_playlist(row)
+                        changed |= ledger_changed
+                        if reprobe:
+                            pending.append(row)
+                        continue
+                    path = Path(row.file_path)
+                    if not await asyncio.to_thread(Path(path, "BDMV").is_dir):
+                        continue
+                    if disc_playlist_stale(row.disc_playlist) and await asyncio.to_thread(
+                        disc_playlist_audit_due, row.disc_playlist, path
+                    ):
+                        pending.append(row)
+                total_pending += len(pending)
+                if not pending:
+                    if changed:
+                        await session.commit()
+                    continue
 
-        async def _yield() -> bool:
-            # 每一行都是网络盘上的读取，页面加载时退开
-            await yield_to_foreground()
-            return True
+                async def _yield() -> bool:
+                    await yield_to_foreground()
+                    return True
 
-        probed = await backfill_streams(session, pending, on_processed=_yield)
-    logger.info("原盘主片校准：检查 %d 张，重探 %d 张", len(pending), probed)
-    return probed
+                total_probed += await backfill_streams(session, pending, on_processed=_yield)
+    logger.info("原盘主片校准：检查 %d 张，重探 %d 张", total_pending, total_probed)
+    return total_probed

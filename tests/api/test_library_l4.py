@@ -17,9 +17,11 @@ import pytest_asyncio
 from sqlmodel import select
 from tests.api.test_bluray_clpi import _mpls
 
+import movieclaw_api.services.library.items as items_mod
 import movieclaw_api.services.library.scan as scan_mod
 import movieclaw_api.services.library.watch as watch_mod
 import movieclaw_api.services.media_discover as discover_mod
+import movieclaw_api.services.media_probe as probe_mod
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.library.bluray import DISC_PLAYLIST_VERSION
 from movieclaw_api.services.library.nfo import write_entry_nfo, write_full_nfo
@@ -412,18 +414,25 @@ async def test_new_bluray_with_an_incomplete_playlist_stays_unstamped(
     (stream_dir / "00001.m2ts").write_bytes(b"m" * 100)
     (stream_dir / "00002.m2ts").write_bytes(b"x" * 10)
 
-    monkeypatch.setattr(
-        scan_mod,
-        "probe_media",
-        lambda _path: MediaSpec(
-            resolution="1080p",
-            video_codec="h264",
-            hdr=None,
-            bit_depth=8,
-            duration_seconds=600,
-            bit_rate=10_000_000,
-        ),
+    degraded = MediaSpec(
+        resolution="480p",
+        video_codec="mpeg2video",
+        hdr=None,
+        bit_depth=8,
+        duration_seconds=600,
+        bit_rate=2_000_000,
     )
+    trusted = MediaSpec(
+        resolution="1080p",
+        video_codec="h264",
+        hdr=None,
+        bit_depth=8,
+        duration_seconds=7200,
+        bit_rate=30_000_000,
+    )
+    monkeypatch.setattr(scan_mod, "probe_media", lambda _path: degraded)
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: trusted)
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
     original = scan_mod.read_main_playlist_result
     original_read_bytes = Path.read_bytes
     loop_thread = threading.get_ident()
@@ -453,6 +462,7 @@ async def test_new_bluray_with_an_incomplete_playlist_stays_unstamped(
     async with db.session() as session:
         row = (await session.execute(select(LibraryFile))).scalars().one()
         assert row.disc_playlist is None
+        assert row.resolution is None and row.video_codec is None
 
     fail_main = False
     await scan_library(library.id)
@@ -461,7 +471,9 @@ async def test_new_bluray_with_an_incomplete_playlist_stays_unstamped(
         assert row.disc_playlist is not None
         assert row.disc_playlist["name"] == "00001.mpls"
         assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+        assert (row.resolution, row.video_codec, row.bit_rate) == ("1080p", "h264", 30_000_000)
         verified_record = row.disc_playlist
+        verified_specs = (row.resolution, row.video_codec, row.bit_rate, row.audio_streams)
         row.mark_missing()
         await session.commit()
 
@@ -470,6 +482,7 @@ async def test_new_bluray_with_an_incomplete_playlist_stays_unstamped(
     async with db.session() as session:
         row = (await session.execute(select(LibraryFile))).scalars().one()
         assert row.disc_playlist == verified_record, "缺失回归遇到部分读取应保留旧清单"
+        assert (row.resolution, row.video_codec, row.bit_rate, row.audio_streams) == verified_specs
 
 
 async def test_movie_runtime_disambiguation(db, tmp_path, monkeypatch) -> None:
