@@ -3539,7 +3539,17 @@ async def _ingest_file(
     async def discard_changed_bluray_snapshot() -> None:
         nonlocal playlist_retryable, playlist_audit_failed, bluray_snapshot_changed
         nonlocal playlist, spec, disc_playlist
-        if not is_bluray or playlist_retryable:
+        if not is_bluray:
+            return
+        if playlist_result.snapshot_changed:
+            playlist_retryable = True
+            playlist_audit_failed = False
+            bluray_snapshot_changed = True
+            playlist = None
+            spec = None
+            disc_playlist = None
+            return
+        if playlist_retryable:
             return
         current_fingerprint = await asyncio.to_thread(disc_playlist_fingerprint, file)
         if current_fingerprint != playlist_result.fingerprint:
@@ -4010,37 +4020,40 @@ async def _probe_backfill_locked(
         .scalars()
         .all()
     )
-    # 普通文件仍只补 audio_streams=NULL；蓝光旧行即使已有流数组，也要在
-    # CLPI 版本戳缺失时做一次 PID 级重探。版本写进 JSON，后续手动扫描秒过。
-    rows = []
-    for row in fetched:
-        needs_probe = (
-            row.audio_streams is None
-            or (row.probe_version or 0) < PROBE_SCHEMA_VERSION
-            or (row.container == "iso" and row.video_codec is None)
-        )
-        if row.container == "bluray" and not needs_probe:
-            needs_probe = not streams_have_clpi_metadata(
-                row.audio_streams, row.subtitle_streams
-            ) or disc_playlist_stale(row.disc_playlist)
-            if not needs_probe and (row.disc_playlist.get("audit") or {}).get("state") == "success":
-                # 只有成功台账需要遍历 BDMV 做换盘比对；旧版/缺失台账的判断不碰磁盘。
-                needs_probe = await asyncio.to_thread(
-                    disc_playlist_stale, row.disc_playlist, Path(row.file_path)
-                )
-        if needs_probe:
-            rows.append(row)
-    # strm 占位文件永远探不出规格（本体没有媒体流），不进分母——否则
-    # strm 库每轮扫描都会报"待补 N、探测 0"，像坏了一样
-    rows = [row for row in rows if not row.file_path.lower().endswith(STRM_EXT)]
     if limit is not None:
         # 限量自愈：只挑从未探测成功且退避到点的行，取前 limit 个。ffprobe
         # 后装的存量库也借此每轮慢慢补上一小批，而不是干等手动扫描。
         # 不在这里重读已是最新版本的原盘：十个名额是给瞬时失败收敛的。
         rows = [
-            row for row in rows if row.audio_streams is None and probe_retry_due(row.file_path)
+            row
+            for row in fetched
+            if row.audio_streams is None
+            and not row.file_path.lower().endswith(STRM_EXT)
+            and probe_retry_due(row.file_path)
         ][:limit]
     else:
+        # 普通文件仍只补 audio_streams=NULL；蓝光旧行即使已有流数组，也要在
+        # CLPI 版本戳缺失时做一次 PID 级重探。手动全量模式才按路径检查成功台账是否换盘。
+        rows = []
+        for row in fetched:
+            needs_probe = (
+                row.audio_streams is None
+                or (row.probe_version or 0) < PROBE_SCHEMA_VERSION
+                or (row.container == "iso" and row.video_codec is None)
+            )
+            if row.container == "bluray" and not needs_probe:
+                needs_probe = not streams_have_clpi_metadata(
+                    row.audio_streams, row.subtitle_streams
+                ) or disc_playlist_stale(row.disc_playlist)
+                if (
+                    not needs_probe
+                    and (row.disc_playlist.get("audit") or {}).get("state") == "success"
+                ):
+                    needs_probe = await asyncio.to_thread(
+                        disc_playlist_stale, row.disc_playlist, Path(row.file_path)
+                    )
+            if needs_probe and not row.file_path.lower().endswith(STRM_EXT):
+                rows.append(row)
         # ISO 与启动自愈共用同一个完整性审计入口；只审计版本落后的行。
         from movieclaw_api.services.library.disc_main_playlists import (
             audit_disc_image_playlist,

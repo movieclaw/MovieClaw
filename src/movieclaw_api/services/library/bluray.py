@@ -109,13 +109,16 @@ class MplsPlaylist:
 class MainPlaylistReadResult:
     """主播放列表读取结果。
 
-    ``retryable`` 是瞬时 I/O 失败；``audit_failed`` 是字节完整读到、但有 MPLS
-    永久解析失败或没有可用主片。两者都不能信任剩余候选，后者可按文件指纹记账，
-    避免坏盘每次启动都重读。``fingerprint`` 仅在完整读取前后盘面一致时携带。
+    ``retryable`` 表示本轮没有可信结论、需要保留旧行后重试；没有
+    ``snapshot_changed`` 时是瞬时 I/O 失败，后者则明确表示读前、读后指纹均可取
+    但已确认换盘。``audit_failed`` 是字节完整读到、但有 MPLS 永久解析失败或没有
+    可用主片，可按文件指纹记账，避免坏盘每次启动都重读。``fingerprint`` 仅在完整
+    读取前后盘面一致时携带。
     """
 
     playlist: MplsPlaylist | None
     retryable: bool = False
+    snapshot_changed: bool = False
     audit_failed: bool = False
     fingerprint: dict | None = None
 
@@ -479,8 +482,11 @@ def read_main_playlist_result(disc_dir: Path) -> MainPlaylistReadResult:
     if before is None:
         return MainPlaylistReadResult(None, retryable=True)
     result = _read_main_playlist_result(disc_dir)
-    if disc_playlist_fingerprint(disc_dir) != before:
+    after = disc_playlist_fingerprint(disc_dir)
+    if after is None:
         return MainPlaylistReadResult(None, retryable=True)
+    if after != before:
+        return MainPlaylistReadResult(None, retryable=True, snapshot_changed=True)
     return replace(result, fingerprint=before)
 
 

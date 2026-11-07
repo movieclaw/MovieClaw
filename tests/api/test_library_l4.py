@@ -17,6 +17,7 @@ import pytest_asyncio
 from sqlmodel import select
 from tests.api.test_bluray_clpi import _mpls
 
+import movieclaw_api.services.library.bluray as bluray_mod
 import movieclaw_api.services.library.items as items_mod
 import movieclaw_api.services.library.scan as scan_mod
 import movieclaw_api.services.library.watch as watch_mod
@@ -644,6 +645,85 @@ async def test_existing_bluray_changed_during_identification_reaudits_without_ol
     assert healed.disc_playlist["name"] == "00002.mpls"
     assert healed.disc_playlist["audit"]["state"] == "success"
     assert healed.resolution == "1080p" and healed.duration_seconds == 5400
+
+
+async def test_existing_bluray_changed_inside_playlist_read_discards_old_snapshot(
+    db, tmp_path, monkeypatch
+) -> None:
+    """首次完整读取的前后指纹之间换盘，不能恢复 existing 的旧盘台账。"""
+    root = tmp_path / "movies"
+    disc = root / "阿凡达 (2009)"
+    playlist_dir = disc / "BDMV" / "PLAYLIST"
+    stream_dir = disc / "BDMV" / "STREAM"
+    playlist_dir.mkdir(parents=True)
+    stream_dir.mkdir()
+    clock = 45_000
+    old_playlist = _mpls(("00001", 0, clock * 7200))
+    (playlist_dir / "00001.mpls").write_bytes(old_playlist)
+    (stream_dir / "00001.m2ts").write_bytes(b"old-disc")
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="电影库", kind="movie", root_paths=[str(root)]
+        )
+        session.add(
+            LibraryFile(
+                library_id=library.id,
+                file_path=str(disc),
+                size_bytes=len(old_playlist) + len(b"old-disc"),
+                container="bluray",
+                source="scanned",
+                resolution="1080p",
+                video_codec="hevc",
+                hdr="HDR10",
+                dv_profile=8,
+                dv_bl_compatible=True,
+                bit_depth=10,
+                duration_seconds=7200,
+                bit_rate=30_000_000,
+                frame_rate=23.976,
+                color_space="BT.2020",
+                probe_version=probe_mod.PROBE_SCHEMA_VERSION,
+                audio_streams=[{"codec": "truehd"}],
+                subtitle_streams=[{"codec": "hdmv_pgs_subtitle"}],
+                chapters=[{"start_ms": 0, "end_ms": None, "title": None}],
+                disc_playlist={
+                    "version": DISC_PLAYLIST_VERSION,
+                    "name": "00001.mpls",
+                    "clips": [{"id": "00001", "in": 0, "out": clock * 7200}],
+                },
+            )
+        )
+        await session.commit()
+
+    original_fingerprint = bluray_mod.disc_playlist_fingerprint
+    fingerprint_calls = 0
+
+    def replace_disc_before_after_fingerprint(path):
+        nonlocal fingerprint_calls
+        fingerprint_calls += 1
+        if fingerprint_calls == 2:
+            (playlist_dir / "00001.mpls").unlink()
+            (stream_dir / "00001.m2ts").unlink()
+            (playlist_dir / "00002.mpls").write_bytes(_mpls(("00002", 0, clock * 5400)))
+            (stream_dir / "00002.m2ts").write_bytes(b"new-disc-content")
+        return original_fingerprint(path)
+
+    monkeypatch.setattr(
+        bluray_mod, "disc_playlist_fingerprint", replace_disc_before_after_fingerprint
+    )
+
+    def unexpected_probe(_path):
+        raise AssertionError("完整读取内部已确认换盘时不应探测旧盘目标")
+
+    monkeypatch.setattr(scan_mod, "probe_media", unexpected_probe)
+    await scan_library(library.id, backfill_existing_specs=False)
+
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+    assert fingerprint_calls == 2
+    assert row.disc_playlist is None
+    for column in scan_mod._SPEC_COLUMNS:
+        assert getattr(row, column) is None, column
 
 
 async def test_movie_runtime_disambiguation(db, tmp_path, monkeypatch) -> None:
