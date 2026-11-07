@@ -72,6 +72,9 @@ from movieclaw_api.services.library import acquisition
 from movieclaw_api.services.library import cloud as library_cloud
 from movieclaw_api.services.library.bluray import (
     MplsPlaylist,
+    disc_playlist_audit_mutex,
+    disc_playlist_failure_record,
+    disc_playlist_pending_record,
     disc_playlist_record,
     disc_playlist_stale,
     enrich_spec_with_clpi,
@@ -1029,6 +1032,7 @@ async def scan_library(
     cloud_scopes: list[library_cloud.CloudScope] | None = None,
     job_context: jobs.JobContext | None = None,
     raise_unexpected: bool = False,
+    force_disc_playlist_audit: bool = False,
 ) -> ScanSummary:
     """扫描一个库的全部根路径（后台任务入口；自开会话，不向外抛异常）。
 
@@ -1043,6 +1047,9 @@ async def scan_library(
     暂时性探测失败（挂载抖动/半截文件）由此自动到点重试，无 watch 的网络
     挂载库不再只能靠用户手动扫描补救。与 backfill_existing_specs=True 同给
     时后者优先（全量补探已覆盖）。
+
+    ``force_disc_playlist_audit`` 只给任务中心的显式“重试”使用：忽略稳定坏盘
+    记下的失败指纹，再完整审计一次；普通手动扫描与启动自愈仍遵守指纹退避。
 
     ``reprobe_paths``：需要重探的在位行点名集合，来自 watchdog 的"内容被
     修改过"事件（jellyfin-subtitle.md §2.4）与定期对账的失败记忆到点名单
@@ -1153,6 +1160,7 @@ async def scan_library(
             cloud_folder_ids=cloud_folder_ids,
             cloud_only=cloud_only,
             cloud_scopes=cloud_scopes,
+            force_disc_playlist_audit=force_disc_playlist_audit,
         )
         finished_normally = True
         return result
@@ -1195,6 +1203,7 @@ async def _run_scan_job(
     db = get_database()
     async with db.session() as session:
         library = await session.get(Library, library_id)
+        job = await session.get(Job, context.job_id)
     if library is None:
         raise jobs.JobFailed(message_key="library.scan.libraryMissingJob", code="LIBRARY_NOT_FOUND")
     running = _scan_tasks.state_of(library_id)
@@ -1214,6 +1223,9 @@ async def _run_scan_job(
         "job_context": context,
         "raise_unexpected": True,
     }
+    if job is not None and job.retry_of_job_id is not None:
+        # 任务中心点“重试”是显式要求：即使坏盘指纹没变，也允许再做一次完整审计。
+        scan_kwargs["force_disc_playlist_audit"] = True
     scope = input_data.get("scope_paths")
     if isinstance(scope, list) and scope:
         scan_kwargs["scope_paths"] = {str(path) for path in scope}
@@ -1354,6 +1366,7 @@ async def _scan(
     cloud_folder_ids: set[int] | None = None,
     cloud_only: bool = False,
     cloud_scopes: list[library_cloud.CloudScope] | None = None,
+    force_disc_playlist_audit: bool = False,
 ) -> ScanSummary:
     db = get_database()
     async with db.session() as session:
@@ -1980,7 +1993,14 @@ async def _scan(
         # 没有这一步，「装好 ffmpeg 再重新扫描」这个最直觉的动作就是无效的，
         # 用户只能一个条目一个条目点开、靠详情页那点限量补探慢慢磨。
         if backfill_existing_specs:
-            await _probe_backfill(session, library_id, summary, state, bridge=bridge)
+            await _probe_backfill(
+                session,
+                library_id,
+                summary,
+                state,
+                bridge=bridge,
+                force_disc_playlist_audit=force_disc_playlist_audit,
+            )
         elif probe_retry_limit:
             # 定期对账的限量自愈：只补「从未探测成功且失败退避到点」的行，
             # 上限 probe_retry_limit 个，见 _probe_backfill 的 limit 说明
@@ -3511,13 +3531,21 @@ async def _ingest_file(
     is_bluray = is_disc and (file / "BDMV").is_dir()
     playlist: MplsPlaylist | None = None
     playlist_retryable = False
+    playlist_audit_failed = False
     if is_bluray:
         playlist_result = await asyncio.to_thread(read_main_playlist_result, file)
         playlist_retryable = playlist_result.retryable
-        if not playlist_retryable:
+        playlist_audit_failed = playlist_result.audit_failed
+        if not playlist_retryable and not playlist_audit_failed:
             playlist = playlist_result.playlist
-        # 显式传 None 表示清单已读完但无结果，不在事件循环里二次重读。
-        probe_target = await asyncio.to_thread(disc_main_stream, file, playlist=playlist)
+        # 瞬时残缺不能退化选最大 m2ts：它可能正是 480p 画中画/花絮，落下的规格
+        # 会在后续 fill-empty 补探中永久压住真正主片。稳定坏盘仍保留原有降级能力，
+        # 但以 audit=failed 而非 v3 成功戳记账。
+        probe_target = (
+            None
+            if playlist_retryable
+            else await asyncio.to_thread(disc_main_stream, file, playlist=playlist)
+        )
     elif is_disc:
         probe_target = await asyncio.to_thread(disc_main_stream, file)
     else:
@@ -3538,6 +3566,18 @@ async def _ingest_file(
         else:
             note_probe_success(str(file))
     disc_playlist: dict | None = None
+    if is_bluray and playlist_audit_failed:
+        disc_playlist = await asyncio.to_thread(
+            disc_playlist_failure_record,
+            existing.disc_playlist if existing is not None else None,
+            file,
+        )
+    elif is_bluray and playlist is not None and playlist.duration_seconds > 0:
+        disc_playlist = (
+            disc_playlist_record(playlist)
+            if spec is not None
+            else disc_playlist_pending_record(playlist, file)
+        )
     if spec is not None and is_bluray:
         # m2ts 常常不带语言描述符；同编号 CLPI 用 PID 补齐，已有 ffprobe
         # 语言保持不动。缺失/损坏 CLPI 只降级，不影响原盘入账。
@@ -3550,7 +3590,6 @@ async def _ingest_file(
             spec = replace(
                 spec, duration_seconds=playlist.duration_seconds, chapters=playlist.chapters()
             )
-            disc_playlist = disc_playlist_record(playlist)
     if cloud is not None:
         size_bytes = cloud.remote.size
         file_mtime_ns = None
@@ -3723,9 +3762,12 @@ async def _ingest_file(
         review_suggestion=review_suggestion,
         local_bytes=cloud is None,
     )
-    if playlist_retryable and existing is not None:
-        # 缺失回归时保留旧清单；新行留空，由 stale 补探重试。
-        new_row.disc_playlist = existing.disc_playlist
+    if (playlist_retryable or playlist_audit_failed) and existing is not None:
+        # 缺失回归遇到不可信审计时保留全部旧规格；新行不落退化选中的最大 m2ts 规格。
+        if playlist_retryable:
+            new_row.disc_playlist = existing.disc_playlist
+        for column in _SPEC_COLUMNS:
+            setattr(new_row, column, getattr(existing, column))
     if cloud is not None and existing is not None:
         # 纳管文件重走识别链（识别重试、缺失回归）时本轮没探测：后台补探过的规格原样保留
         for column in _SPEC_COLUMNS:
@@ -3856,6 +3898,32 @@ async def _probe_backfill(
     *,
     bridge: _ScanJobBridge | None = None,
     limit: int | None = None,
+    force_disc_playlist_audit: bool = False,
+) -> None:
+    """串行同库的启动自愈与扫描补探，并在拿锁后重新读取台账。"""
+    async with disc_playlist_audit_mutex(library_id):
+        await session.commit()
+        session.expire_all()
+        await _probe_backfill_locked(
+            session,
+            library_id,
+            summary,
+            state,
+            bridge=bridge,
+            limit=limit,
+            force_disc_playlist_audit=force_disc_playlist_audit,
+        )
+
+
+async def _probe_backfill_locked(
+    session,
+    library_id: int,
+    summary: ScanSummary,
+    state: ScanState,
+    *,
+    bridge: _ScanJobBridge | None = None,
+    limit: int | None = None,
+    force_disc_playlist_audit: bool = False,
 ) -> None:
     """补齐未探测规格，并给存量 BDMV 回填 CLPI 语言。
 
@@ -3960,7 +4028,11 @@ async def _probe_backfill(
             summary.yield_seconds += await yield_to_foreground()
             if bridge is not None:
                 await bridge.raise_if_cancelled()
-            verified, reprobe = await audit_disc_image_playlist(row)
+            if _scan_tasks.stop_requested(library_id):
+                return
+            verified, reprobe = await audit_disc_image_playlist(
+                row, force=force_disc_playlist_audit
+            )
             image_stamped |= verified
             if reprobe and row.id not in seen:
                 rows.append(row)
@@ -3993,6 +4065,7 @@ async def _probe_backfill(
         limit=None,
         on_processed=_tick,
         on_checkpoint=_checkpoint,
+        force_disc_playlist_audit=force_disc_playlist_audit,
     )
     logger.info(
         "媒体库 #%s 介质规格补探结束：探测 %d / 待补 %d%s",

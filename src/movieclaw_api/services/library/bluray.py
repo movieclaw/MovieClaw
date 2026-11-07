@@ -18,8 +18,11 @@ PID 关联两边的轨道，绝不按数组下标猜测——播放列表裁剪�
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import AsyncIterator, Iterable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -104,10 +107,16 @@ class MplsPlaylist:
 
 @dataclass(frozen=True)
 class MainPlaylistReadResult:
-    """主播放列表读取结果；``retryable`` 表示候选未完整读取或解析。"""
+    """主播放列表读取结果。
+
+    ``retryable`` 是瞬时 I/O 失败；``audit_failed`` 是字节完整读到、但有 MPLS
+    永久解析失败或没有可用主片。两者都不能信任剩余候选，后者可按文件指纹记账，
+    避免坏盘每次启动都重读。
+    """
 
     playlist: MplsPlaylist | None
     retryable: bool = False
+    audit_failed: bool = False
 
 
 def parse_mpls_playlist(data: bytes, *, path: Path = Path("unknown.mpls")) -> MplsPlaylist:
@@ -221,6 +230,128 @@ def _parse_playlist_marks(data: bytes, items: tuple[MplsPlayItem, ...]) -> tuple
 #: 2 = 长度相近时比字节（见 ``select_main_playlist``），字段集没变。
 #: 3 = 用完整性状态重读 v2 清单，修正历史上部分读取落账的候选。
 DISC_PLAYLIST_VERSION = 3
+_AUDIT_KEY = "audit"
+_audit_mutexes: dict[int, asyncio.Lock] = {}
+
+
+@asynccontextmanager
+async def disc_playlist_audit_mutex(library_id: int) -> AsyncIterator[None]:
+    """同一媒体库的启动自愈与手动扫描共用一把主片审计锁。"""
+    lock = _audit_mutexes.setdefault(library_id, asyncio.Lock())
+    async with lock:
+        yield
+
+
+def disc_playlist_fingerprint(path: Path) -> dict | None:
+    """ISO 或 BDMV 选主片相关文件的 ``(size, mtime)`` 指纹。"""
+    try:
+        if path.is_file():
+            stat = path.stat()
+            return {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+        rows: list[tuple[str, int, int]] = []
+        for subdir, suffix in (("PLAYLIST", ".mpls"), ("STREAM", ".m2ts")):
+            directory = path / "BDMV" / subdir
+            for child in sorted(directory.iterdir()):
+                if not child.is_file() or child.suffix.lower() != suffix:
+                    continue
+                stat = child.stat()
+                rows.append((f"{subdir}/{child.name}", stat.st_size, stat.st_mtime_ns))
+    except OSError:
+        return None
+    digest = hashlib.sha256()
+    for name, size, mtime_ns in rows:
+        digest.update(f"{name}\0{size}\0{mtime_ns}\n".encode())
+    return {
+        "files": len(rows),
+        "size": sum(size for _name, size, _mtime in rows),
+        "digest": digest.hexdigest(),
+    }
+
+
+def disc_playlist_audit_failed(record: object) -> bool:
+    return isinstance(record, dict) and (record.get(_AUDIT_KEY) or {}).get("state") == "failed"
+
+
+def disc_playlist_probe_pending(record: object) -> bool:
+    return (
+        isinstance(record, dict) and (record.get(_AUDIT_KEY) or {}).get("state") == "pending_probe"
+    )
+
+
+def disc_playlist_audit_due(record: object, path: Path, *, force: bool = False) -> bool:
+    """失败指纹没变就不重做完整审计；显式重试可传 ``force=True``。"""
+    if force or not disc_playlist_audit_failed(record):
+        return True
+    assert isinstance(record, dict)
+    fingerprint = disc_playlist_fingerprint(path)
+    return fingerprint is None or fingerprint != (record.get(_AUDIT_KEY) or {}).get("fingerprint")
+
+
+def disc_playlist_failure_record(record: object, path: Path) -> dict | None:
+    """保留旧清单并记下永久审计失败；取不到指纹时按瞬时失败处理。"""
+    fingerprint = disc_playlist_fingerprint(path)
+    if fingerprint is None:
+        return dict(record) if isinstance(record, dict) else None
+    failed = dict(record) if isinstance(record, dict) else {}
+    failed.pop("version", None)
+    failed[_AUDIT_KEY] = {
+        "state": "failed",
+        "version": DISC_PLAYLIST_VERSION,
+        "fingerprint": fingerprint,
+    }
+    return failed
+
+
+def disc_playlist_pending_record(playlist: MplsPlaylist, path: Path) -> dict:
+    """完整选主已成功、但新主片规格尚未探测成功。"""
+    record = disc_playlist_record(playlist)
+    return disc_playlist_pending_ledger(record["name"], record["clips"], path)
+
+
+def disc_playlist_pending_ledger(name: str | None, clips: list[dict], path: Path) -> dict:
+    """任意完整主片读取结果 → 等待规格重探的台账。"""
+    return {
+        "name": name,
+        "clips": clips,
+        _AUDIT_KEY: {
+            "state": "pending_probe",
+            "version": DISC_PLAYLIST_VERSION,
+            "fingerprint": disc_playlist_fingerprint(path),
+        },
+    }
+
+
+def disc_playlist_success_record(record: object) -> dict | None:
+    """把 ``pending_probe`` 清单转为 v3 成功台账。"""
+    if not disc_playlist_probe_pending(record):
+        return None
+    assert isinstance(record, dict)
+    return {
+        "version": DISC_PLAYLIST_VERSION,
+        "name": record.get("name"),
+        "clips": list(record.get("clips") or []),
+    }
+
+
+def pending_disc_playlist(record: object, disc_dir: Path) -> MplsPlaylist | None:
+    """从已完整审计的 pending 台账恢复探测目标，不再重读全部 MPLS。"""
+    if not disc_playlist_probe_pending(record):
+        return None
+    assert isinstance(record, dict)
+    try:
+        items = tuple(
+            MplsPlayItem(
+                clip_id=str(clip["id"]), in_time=int(clip["in"]), out_time=int(clip["out"])
+            )
+            for clip in record.get("clips") or []
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not items:
+        return None
+    return MplsPlaylist(
+        path=disc_dir / "BDMV" / "PLAYLIST" / str(record.get("name") or ""), items=items
+    )
 
 
 def disc_playlist_record(playlist: MplsPlaylist | None) -> dict:
@@ -262,11 +393,11 @@ def read_main_playlist(disc_dir: Path) -> MplsPlaylist | None:
 
 
 def read_main_playlist_result(disc_dir: Path) -> MainPlaylistReadResult:
-    """读取主播放列表，并标记可重试的 I/O 失败。"""
+    """读取主播放列表，区分瞬时 I/O 与稳定的坏盘结论。"""
     playlist_dir = disc_dir / "BDMV" / "PLAYLIST"
     stream_dir = disc_dir / "BDMV" / "STREAM"
     if not playlist_dir.is_dir() or not stream_dir.is_dir():
-        return MainPlaylistReadResult(None)
+        return MainPlaylistReadResult(None, audit_failed=True)
     try:
         paths = sorted(
             path
@@ -282,17 +413,26 @@ def read_main_playlist_result(disc_dir: Path) -> MainPlaylistReadResult:
         return MainPlaylistReadResult(None, retryable=True)
     playlists = []
     retryable = False
+    parse_failed = False
     for path in paths:
         try:
-            playlists.append(parse_mpls_playlist(path.read_bytes(), path=path))
+            data = path.read_bytes()
+            if len(data) != path.stat().st_size:
+                retryable = True
+                logger.warning("蓝光 MPLS 短读，跳过候选：%s", path)
+                continue
+            playlists.append(parse_mpls_playlist(data, path=path))
         except OSError as exc:
             retryable = True
             logger.warning("蓝光 MPLS 读取失败，跳过候选：%s（%s）", path, exc)
         except MplsParseError as exc:
-            retryable = True
+            parse_failed = True
             logger.warning("蓝光 MPLS 解析失败，跳过候选：%s（%s）", path, exc)
+    playlist = select_main_playlist(playlists, stream_sizes)
     return MainPlaylistReadResult(
-        select_main_playlist(playlists, stream_sizes), retryable=retryable
+        playlist,
+        retryable=retryable,
+        audit_failed=parse_failed or (not retryable and playlist is None),
     )
 
 
