@@ -211,6 +211,24 @@ test('explicit zero remains zero in negotiation and does not reuse an old video 
   assert.equal(h.video.currentTime, 0);
 });
 
+for (const kind of ['ass', 'pgs']) test(`native playback sends the selected embedded ${kind} reference in the first session`, async () => {
+  const h = harness({ request: () => Promise.resolve(session({
+    decision: { tier: 0, file_id: 81, subtitles: [{ track_ref: 'embedded:1', kind }] },
+    subtitle_urls: ['/playback/subs/1'],
+  })) });
+  h.A.hasEmbeddedPlayer = async () => true;
+  const opened = [];
+  h.A.openEmbeddedPlayer = async (...args) => opened.push(args);
+  await h.A.startPlayback(item({ file_id: 81, subtitle_track: 'embedded:1',
+    files: [{ id: 81, container: 'mkv', video_codec: 'hevc' }] }));
+  const body = h.calls.find(c => c[0] === 'request' && c[1] === '/playback/sessions')[2].body;
+  assert.equal(body.capability.universal, true);
+  assert.equal(body.capability.pgs_overlay, false);
+  assert.equal(body.subtitle_track, 'embedded:1');
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0][2].length, 0);
+});
+
 test('authentication and context transitions block old playback buttons before mutating playback state', async () => {
   for (const flag of ['_authPending', '_changingContext']) {
     const h = harness();
@@ -896,6 +914,7 @@ test('browser codec decode probes never claim HDR output; HDR source prefers nat
   assert.equal(h.A.needsNativePlayer({ container: 'mp4', video_codec: 'hevc', hdr: 'HDR10' }, []), true);
   assert.equal(h.context.getUniversalCapabilitySnapshot().disc_image, false);
   assert.equal(h.context.getUniversalCapabilitySnapshot().disc_folder, false);
+  assert.equal(h.context.getUniversalCapabilitySnapshot().pgs_overlay, false);
 });
 
 test('known ISO and DVD request server remux without disc-reader claims; legacy raw discs never reach an engine', async () => {

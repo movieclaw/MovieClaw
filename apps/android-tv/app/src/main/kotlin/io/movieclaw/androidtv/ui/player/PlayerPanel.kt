@@ -174,7 +174,8 @@ fun PlayerPanel(state: PlayerState, controller: PlaybackController) {
                                 )
                             }
                             when (tab) {
-                                PanelTab.Subtitles -> for (section in SubtitleSections.build(state.subtitles, pinned, state.selectedSubtitle, expanded)) {
+                                PanelTab.Subtitles -> {
+                                    for (section in SubtitleSections.build(state.subtitles, pinned, state.selectedSubtitle, expanded)) {
                                     section.title?.let {
                                         Text(
                                             it,
@@ -204,6 +205,18 @@ fun PlayerPanel(state: PlayerState, controller: PlaybackController) {
                                                 }
                                             }
                                         }
+                                    }
+                                    }
+                                    val selected = state.selectedSubtitle?.let { ref -> state.subtitles.options.firstOrNull { it.ref == ref && it.kind == "pgs" } }
+                                    if (selected != null && (!controller.subtitleCanRender(selected.ref) || controller.decision?.video?.burnSubtitle == selected.ref)) {
+                                        val burned = controller.decision?.video?.burnSubtitle == selected.ref
+                                        row(
+                                            "subtitle-burn",
+                                            if (burned) "取消压制，播放器本地渲染" else "此字幕需服务端转码才能显示（较慢、画质略降）",
+                                            "服务端转码会稍慢，画质略有降低",
+                                            false,
+                                            false,
+                                        ) { if (burned) controller.unburnSubtitle() else controller.burnSubtitle(selected.ref) }
                                     }
                                 }
                                 PanelTab.Audio -> for (item in state.audioOptions) {

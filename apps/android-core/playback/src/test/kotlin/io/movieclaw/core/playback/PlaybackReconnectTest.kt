@@ -3,12 +3,18 @@ package io.movieclaw.core.playback
 import android.app.Application
 import android.media.MediaFormat
 import androidx.media3.common.Format
+import androidx.media3.common.C
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
+import androidx.media3.exoplayer.trackselection.TrackSelectorResult
 import io.movieclaw.core.model.McJson
 import io.movieclaw.core.model.generated.PlaybackSessionRequest
 import io.movieclaw.core.network.ClientIdentity
@@ -29,6 +35,7 @@ import mockwebserver3.RecordedRequest
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,7 +48,7 @@ import org.robolectric.shadows.ShadowMediaCodecList
 /** 真实 HTTP 协商 → 控制器 → Exo 装载；引擎事件由测试注入，不依赖设备解码器。 */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, UnstableApi::class)
 class PlaybackReconnectTest {
     @Test fun ordinaryDecodeFailureRetriesThenFallsBackWithoutDisablingHevcForTheNextMovie() = runTest {
         installHevcDecoder()
@@ -52,6 +59,10 @@ class PlaybackReconnectTest {
             val hevc = f.sessionRequest(0).capability.video!!.single { it.codec == "hevc" }
             assertTrue(hevc.maxHeight!! >= 2160)
             assertEquals(true, hevc.powerEfficient)
+            // Tier is not known when the first request is made, so PGS capability
+            // is conservative and cannot suppress a server burn on HLS.
+            assertFalse(f.sessionRequest(0).capability.pgsOverlay == true)
+            assertFalse(f.sessionRequest(0).burnRequested == true)
 
             // 普通解码失败先原位重开；预算耗尽后仅当前影片回退服务端流。
             repeat(2) { index ->
@@ -98,6 +109,42 @@ class PlaybackReconnectTest {
                 assertEquals(listOf(3L), f.sessionRequest(1).failedTiers)
                 assertTrue(DecoderDenylist(f.prefs, "test").entries().isEmpty())
             }
+        }
+    }
+
+    @Test fun selectingEmbeddedPgsStaysLocalUntilBurnIsExplicit() = runTest {
+        Fixture(this, pgs = true).use { f ->
+            f.open()
+            f.await { f.controller.state.value.phase == Phase.Buffering }
+            f.controller.selectSubtitle("embedded:0")
+            runCurrent()
+            assertEquals(1, f.sessions.size)
+            assertFalse(f.sessionRequest(0).burnRequested == true)
+            val group = f.emitEmbeddedPgsTrack()
+            val override = f.controller.player.trackSelectionParameters.overrides.get<TrackGroup, TrackSelectionOverride>(group)
+            assertTrue(override != null)
+            assertEquals(listOf(0), override!!.trackIndices)
+
+            f.controller.burnSubtitle("embedded:0")
+            f.await { f.decides.size == 1 }
+            f.await { f.sessions.size == 2 }
+            assertTrue(f.sessionRequest(1).burnRequested == true)
+            assertTrue(f.sessionRequest(1).capability.pgsOverlay == true)
+        }
+    }
+
+    @Test fun selectingPgsOnHlsFallsBackExplicitlyWithoutPretendingToRenderSidecar() = runTest {
+        Fixture(this, pgs = true, tier = 1).use { f ->
+            f.open()
+            f.await { f.controller.state.value.phase == Phase.Buffering }
+            f.controller.selectSubtitle("embedded:0")
+            runCurrent()
+            assertEquals(1, f.sessions.size)
+            assertFalse(f.sessionRequest(0).burnRequested == true)
+            assertEquals("embedded:0", f.controller.state.value.selectedSubtitle)
+            assertTrue(f.controller.player.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty().none {
+                it.mimeType == androidx.media3.common.MimeTypes.APPLICATION_PGS
+            })
         }
     }
 
@@ -218,20 +265,36 @@ class PlaybackReconnectTest {
         val prefs: PrefsStore = MemoryPrefs(),
         private val mediaItemId: Long = 7,
         private val tier: Int = 0,
+        private val pgs: Boolean = false,
     ) : AutoCloseable {
         val sessions = CopyOnWriteArrayList<RecordedRequest>()
+        val decides = CopyOnWriteArrayList<RecordedRequest>()
         val connections = mutableListOf<Boolean>()
         @Volatile var status = 200
         var connectFailure: IOException? = null
         private val server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.url.encodedPath == "/api/v1/playback/decide") {
+                        decides += request
+                        val body = McJson.decodeFromString<io.movieclaw.core.model.generated.PlaybackDecideRequest>(request.body!!.utf8())
+                        val burn = if (body.burnRequested == true) ",\"burn_subtitle\":\"embedded:0\"" else ""
+                        return MockResponse.Builder().body(
+                            """{"data":{"outcome":"plan","tier":$tier,"file_id":7,"video":{"action":"transcode"$burn},"subtitles":[]}}""",
+                        ).build()
+                    }
                     if (request.url.encodedPath == "/api/v1/playback/sessions") {
                         sessions += request
-                        val failed = McJson.decodeFromString<PlaybackSessionRequest>(request.body!!.utf8()).failedTiers.orEmpty()
+                        val sessionBody = McJson.decodeFromString<PlaybackSessionRequest>(request.body!!.utf8())
+                        val failed = sessionBody.failedTiers.orEmpty()
                         val nextTier = if (tier.toLong() in failed) tier + 1 else tier
+                        val decision = if (pgs) {
+                            val burn = if (sessionBody.burnRequested == true) ",\"burn_subtitle\":\"embedded:0\"" else ""
+                            ",\"subtitles\":[{\"track_ref\":\"embedded:0\",\"kind\":\"pgs\",\"language\":\"eng\",\"is_default\":false}],\"video\":{\"action\":\"copy\"$burn}"
+                        } else ""
+                        val urls = if (pgs) "\"subtitle_urls\":[\"/subtitle.sup\"]," else ""
                         return MockResponse.Builder().code(status).body(
-                            """{"data":{"decision":{"outcome":"play","tier":$nextTier,"file_id":7},"stream_url":"/stream?token=t","start_ms":45000}}"""
+                            """{"data":{"decision":{"outcome":"play","tier":$nextTier,"file_id":7$decision},"stream_url":"/stream?token=t","start_ms":45000,$urls"watch":null}}"""
                         ).build()
                     }
                     return MockResponse.Builder().body("""{"data":{}}""").build()
@@ -271,6 +334,26 @@ class PlaybackReconnectTest {
         }
 
         fun sessionRequest(index: Int) = McJson.decodeFromString<PlaybackSessionRequest>(sessions[index].body!!.utf8())
+
+        fun emitEmbeddedPgsTrack(): TrackGroup {
+            val group = TrackGroup(Format.Builder().setId("0").setSampleMimeType(androidx.media3.common.MimeTypes.APPLICATION_PGS).build())
+            val tracks = Tracks(listOf(Tracks.Group(group, false, intArrayOf(C.FORMAT_HANDLED), booleanArrayOf(false))))
+            // Exo publishes currentTracks before onTracksChanged. Copy its application-thread
+            // snapshot so this injected event does not mutate the playback thread's shared info.
+            val exo = PlaybackController::class.java.getDeclaredField("exo").apply { isAccessible = true }.get(controller)
+            val infoField = exo.javaClass.getDeclaredField("playbackInfo").apply { isAccessible = true }
+            val info = infoField.get(exo)
+            val updated = info.javaClass.getDeclaredMethod("copyWithPlaybackState", Int::class.javaPrimitiveType)
+                .apply { isAccessible = true }.invoke(info, controller.player.playbackState)
+            val resultField = updated.javaClass.getDeclaredField("trackSelectorResult").apply { isAccessible = true }
+            val result = resultField.get(updated) as TrackSelectorResult
+            resultField.set(updated, TrackSelectorResult(result.rendererConfigurations, result.selections, tracks, result.info))
+            infoField.set(exo, updated)
+            assertSame(tracks, controller.player.currentTracks)
+            PlaybackController::class.java.getDeclaredMethod("handleTracks", Tracks::class.java)
+                .apply { isAccessible = true }.invoke(controller, tracks)
+            return group
+        }
 
         fun decoderFailure(code: Int) {
             val info = MediaCodecInfo.newInstance("OMX.MS.HEVC.Decoder", "video/hevc", "video/hevc", null,

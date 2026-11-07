@@ -326,6 +326,12 @@ class McApi(private val transport: ApiTransport) {
         return transport.send("GET", "/search/library", query, null, serializer<LibrarySearchView>(), enveloped = true)
     }
 
+    /** 播放决策（`POST /playback/decide`） */
+    suspend fun playbackDecide(body: PlaybackDecideRequest): PlaybackDecisionView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/playback/decide", query, McJson.encodeToJsonElement(body), serializer<PlaybackDecisionView>(), enveloped = true)
+    }
+
     /** 开始播放（`POST /playback/sessions`） */
     suspend fun playbackSessionStart(body: PlaybackSessionRequest): PlaybackSessionView {
         val query = emptyList<Pair<String, String>>()
@@ -429,6 +435,12 @@ class McApi(private val transport: ApiTransport) {
             refresh?.let { add("refresh" to it.toString()) }
         }
         return transport.send("GET", "/app/clients/${product}/latest", query, null, serializer<ClientReleaseView>(), enveloped = true)
+    }
+
+    /** 分享页播放决策（`POST /share/{slug}/playback/decide`） */
+    suspend fun sharePlaybackDecide(slug: String, body: PlaybackDecideRequest): PlaybackDecisionView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/share/${slug}/playback/decide", query, McJson.encodeToJsonElement(body), serializer<PlaybackDecisionView>(), enveloped = true)
     }
 
     /** 分享页开始播放（`POST /share/{slug}/playback/sessions`） */

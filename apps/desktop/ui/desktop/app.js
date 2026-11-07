@@ -2851,10 +2851,12 @@ const App = {
         // 档 0 直出的是裸文件，mpv 自己就 demux 得出 MKV 内封字幕轨。再把
         // embedded:N 当 --sub-file 传进去：轨重复一遍，还让服务端现场从几十 GB
         // 的 MKV 里逐条抽字幕——同一部片 10 条字幕首播实测 30 秒没出首帧。
-        // 只留外挂字幕（容器里没有，必须旁挂）。HLS 档的流里没有内封轨，全留
-        const nativeSubs = decision.tier === 0
-          ? subtitleUrls.filter((_, i) => !decision.subtitles?.[i]?.track_ref?.startsWith('embedded:'))
-          : subtitleUrls;
+        // 只留文本外挂字幕（容器里没有，必须旁挂）；PGS .sup 由服务端烧录，绝不旁挂。
+        const nativeSubs = subtitleUrls.filter((_, i) => {
+          const plan = decision.subtitles?.[i];
+          if (plan?.kind === 'pgs') return false;
+          return decision.tier !== 0 || !plan?.track_ref?.startsWith('embedded:');
+        });
         await this.openEmbeddedPlayer(item, streamUrl, nativeSubs, startMs, session, seq);
       } else {
         // 打开内置 HTML5 播放器

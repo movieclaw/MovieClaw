@@ -2254,6 +2254,26 @@ data class PlaybackClientLogPayload(
 )
 
 /**
+ * 一次播放决策请求。``file_id`` 与播放单元二选一——给单元时服务端会在
+ * 该单元的全部版本文件里择优（能直通的 1080p 胜过要转码的 2160p）。
+ */
+@Serializable
+data class PlaybackDecideRequest(
+    @SerialName("file_id") val fileId: Long? = null,
+    @SerialName("media_item_id") val mediaItemId: Long? = null,
+    @SerialName("season_number") val seasonNumber: Long? = null,
+    @SerialName("episode_number") val episodeNumber: Long? = null,
+    @SerialName("capability") val capability: ClientCapabilityIn,
+    @SerialName("failed_tiers") val failedTiers: List<Long>? = null,
+    @SerialName("audio_track") val audioTrack: String? = null,
+    @SerialName("subtitle_track") val subtitleTrack: String? = null,
+    @SerialName("burn_requested") val burnRequested: Boolean? = null,
+    @SerialName("max_height") val maxHeight: Long? = null,
+    @SerialName("device_id") val deviceId: String? = null,
+    @SerialName("downlink_bps") val downlinkBps: Long? = null,
+)
+
+/**
  * 决策结果的三态并集。``outcome`` 决定其余字段哪些有值。
  * - ``plan``    —— 可以播，按 ``tier`` 走；
  * - ``consent`` —— 需要用户同意开启软件转码（§3.6）；

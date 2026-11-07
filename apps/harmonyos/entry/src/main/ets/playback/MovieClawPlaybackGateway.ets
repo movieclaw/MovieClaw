@@ -4,7 +4,7 @@ import { ClientCapabilityIn, PlaybackSessionRequest, PlaybackSessionView, Playba
 
 /** Existing-server adapter. Each candidate is evaluated independently, never unioned. */
 export class MovieClawPlaybackGateway {
-  static capability(engine: string): ClientCapabilityIn {
+  static capability(engine: string, tier0DirectEmbedded: boolean = false): ClientCapabilityIn {
     const video: VideoSupportIn[] = [];
     const audio: AudioSupportIn[] = [];
     const videos = engine === 'mpv' ? ['h264', 'hevc', 'vp8', 'vp9', 'mpeg2video', 'mpeg4', 'vc1'] : ['h264', 'hevc'];
@@ -14,7 +14,10 @@ export class MovieClawPlaybackGateway {
     for (const codec of audios) { audio.push({ codec: codec }); }
     return { video: video, audio: audio, containers: engine === 'mpv'
       ? ['mp4', 'mkv', 'ts', 'avi', 'mov', 'webm', 'flv'] : ['mp4', 'mkv', 'ts'],
-      local_tracks: true, hdr_passthrough: false, mse: 'full', native_hls: true, is_mobile: true, universal: false };
+      local_tracks: true, hdr_passthrough: false, mse: 'full', native_hls: true, is_mobile: true, universal: false,
+      // Only mpv on a known tier-0 direct file can render native embedded PGS.
+      // A session-level request is made before tier selection, so the default is conservative.
+      pgs_overlay: engine === 'mpv' && tier0DirectEmbedded };
   }
   private api: MovieClawApi;
   private slug: string;
@@ -36,8 +39,16 @@ export class MovieClawPlaybackGateway {
       // Ask for a playable original before preparing any server conversion.
       // The local controller still tries AVPlayer first, regardless of this delivery capability.
       body.capability = MovieClawPlaybackGateway.capability('mpv');
-      const original = await this.decide(body);
+      // Do not let a remembered embedded PGS force the preflight into a
+      // transcode before the direct tier is known; the real request below
+      // gets the native-PGS capability once tier 0 is established.
+      const probeBody = body.subtitle_track?.startsWith('embedded:')
+        ? { ...body, subtitle_track: null } : body;
+      const original = await this.decide(probeBody);
       if (original.outcome === 'plan' && original.tier === 0) {
+        // The preflight established a tier-0 direct file, so mpv may claim
+        // native embedded PGS for the real session.
+        body.capability = MovieClawPlaybackGateway.capability('mpv', true);
         if (original.file_id !== undefined && original.file_id !== null) { body.file_id = original.file_id; }
       } else {
         body.capability = MovieClawPlaybackGateway.capability('avplayer');
