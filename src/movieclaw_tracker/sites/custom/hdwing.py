@@ -15,6 +15,13 @@ from movieclaw_tracker.models import (
     UserProfile,
 )
 
+#: 促销片段里的 class 属性（站点返回的片段不保证是合式的 HTML）
+_CLASS_RE = re.compile(r'class="([^"]*)"')
+#: 类名只允许这些字符，避免把片段里的脏内容拼成畸形标签
+_CLASS_NAME_RE = re.compile(r"[\w-]+")
+#: 截止时间藏在 timeout 片段的 title 属性里
+_TITLE_RE = re.compile(r'title="([^"]+)"')
+
 
 class HDWingSite(NexusPHPSite):
     """HDWing：异步优惠占位符，以及必须带 UID 的用户资料页。"""
@@ -50,7 +57,9 @@ class HDWingSite(NexusPHPSite):
                 state, timeout = entry["sp_state"], entry["timeout"]
                 if not isinstance(state, str) or not isinstance(timeout, str):
                     raise ValueError
-                replacement = Selector(text=f"<span>{state}{timeout}</span>").css("body > span")
+                replacement = Selector(
+                    text=f"<span>{self._promotion_markup(state, timeout)}</span>"
+                ).css("body > span")
                 node.root.getparent().replace(node.root, replacement[0].root)
         except (ValueError, KeyError, TypeError, IndexError) as exc:
             # 不能把失败或缺项的查询静默当作「无优惠」。错误不携带回包或 CSRF。
@@ -79,6 +88,32 @@ class HDWingSite(NexusPHPSite):
             page=query.page,
             total_pages=self._parse_total_pages(doc),
         )
+
+    @staticmethod
+    def _promotion_markup(state: str, timeout: str) -> str:
+        """把促销片段转成干净、可解析的标签。
+
+        ``ajax_promotion.php`` 返回的 ``sp_state`` 是**被截断的半截 HTML**——
+        ``onmouseover`` 属性的引号没有闭合就被切断了::
+
+            <p style="display: none"> <img class="pro_free" src="pic/trans.gif"
+            alt="Free" onmouseover="domTT_activate(this, event, 'content', '<b>…
+
+        直接塞进解析器会让整个 ``<img>`` 被丢掉，促销就静默变成「无优惠」——全站免费
+        时每个种子都会被当成普通种。这里只保留两样真正用得上的东西：促销类名
+        （免费 / 2X / 50%）与截止时间的 ``title``，其余属性一律不要。
+        """
+        names = {
+            name
+            for group in _CLASS_RE.findall(state)
+            for name in group.split()
+            if _CLASS_NAME_RE.fullmatch(name)
+        }
+        markup = "".join(f'<img class="{name}">' for name in sorted(names))
+        deadline = _TITLE_RE.search(timeout)
+        if deadline:
+            markup += f'<span title="{deadline.group(1)}"></span>'
+        return markup
 
     def _parse_total_pages(self, doc: Selector) -> int | None:
         pages = [
