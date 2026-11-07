@@ -144,7 +144,7 @@ private nonisolated final class SubscribeConflictBox: @unchecked Sendable {
     }
 
     func snapshot() -> (previews: [String], creates: [(profile: Int?, memory: Int?, library: Int?)]) {
-        lock.withLock { (previews, creates) }
+        lock.withLock { (previews: previews, creates: creates) }
     }
 }
 
