@@ -20,6 +20,7 @@ from types import SimpleNamespace
 import pytest
 import pytest_asyncio
 from sqlmodel import select
+from tests.api.test_bluray_clpi import _mpls
 
 import movieclaw_api.services.library.ingest as ingest_mod
 from movieclaw_api.core.config import get_settings
@@ -27,6 +28,7 @@ from movieclaw_api.exceptions import BadRequestException
 from movieclaw_api.services import acquisition_ingest, jobs
 from movieclaw_api.services.import_watch_config import ImportWatchConfigService
 from movieclaw_api.services.library.layout import explicit_unit
+from movieclaw_api.services.media_probe import MediaSpec
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
 from movieclaw_db.models import (
@@ -514,9 +516,119 @@ async def test_reconciled_legacy_disc_job_is_replaced_by_complete_disc_ingest(
     assert record.status == IngestStatus.IMPORTED
     assert len(files) == 1 and files[0].container == "bluray"
     assert Path(files[0].file_path).is_dir()
-    assert playlist_reads == 1
+    assert playlist_reads == 2  # 源目录初审 + 最终发布目录复审
     assert files[0].disc_playlist["audit"]["state"] == "failed"
     assert files[0].resolution == _FAKE_SPEC.resolution
+
+
+@pytest.mark.asyncio
+async def test_disc_ingest_changed_during_probe_is_retryable(db, tmp_path, monkeypatch):
+    """探测期间换盘不搬运，也不把旧 MPLS 结论写进台账。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    await _make_rule(db, library_id=library_id, source=watch)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="换盘电影", year=2026)
+    entry = watch / "Changing.Disc.2026"
+    playlist_dir = entry / "BDMV" / "PLAYLIST"
+    stream_dir = entry / "BDMV" / "STREAM"
+    playlist_dir.mkdir(parents=True)
+    stream_dir.mkdir()
+    clock = 45_000
+    (playlist_dir / "00001.mpls").write_bytes(_mpls(("00001", 0, clock * 7200)))
+    (stream_dir / "00001.m2ts").write_bytes(b"old-disc")
+
+    def changing_probe(_path):
+        (playlist_dir / "00001.mpls").unlink()
+        (stream_dir / "00001.m2ts").unlink()
+        (playlist_dir / "00002.mpls").write_bytes(_mpls(("00002", 0, clock * 5400)))
+        (stream_dir / "00002.m2ts").write_bytes(b"new-disc-content")
+        return MediaSpec("1080p", "h264", None, 8, 5400, 20_000_000)
+
+    monkeypatch.setattr(ingest_mod, "_probe_for_ingest", changing_probe)
+    snap = ingest_mod._snapshot(entry)
+    async with db.session() as session:
+        rule = (await session.execute(select(ImportWatch))).scalar_one()
+        library = await session.get(Library, library_id)
+        fresh_item = await session.get(MediaItem, item.id)
+        with pytest.raises(ingest_mod.IngestSourceChanged):
+            await ingest_mod._ingest_entry(
+                session,
+                rule,
+                library,
+                watch,
+                entry,
+                snap,
+                None,
+                forced_item=fresh_item,
+            )
+    async with db.session() as session:
+        assert list((await session.execute(select(LibraryFile))).scalars()) == []
+    assert not any(root.iterdir())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("audit_outcome", ["success", "pending", "failure"])
+async def test_disc_ingest_changed_during_transfer_writes_no_audit(
+    db, tmp_path, monkeypatch, audit_outcome
+):
+    """整盘搬运调用返回前换盘：不得给发布目录盖旧成功或旧失败结论。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    await _make_rule(db, library_id=library_id, source=watch)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="换盘电影", year=2026)
+    entry = watch / "Changing.Disc.2026"
+    playlist_dir = entry / "BDMV" / "PLAYLIST"
+    stream_dir = entry / "BDMV" / "STREAM"
+    playlist_dir.mkdir(parents=True)
+    stream_dir.mkdir()
+    clock = 45_000
+    (playlist_dir / "00001.mpls").write_bytes(
+        b"malformed"
+        if audit_outcome == "failure"
+        else _mpls(("00001", 0, clock * 7200))
+    )
+    (stream_dir / "00001.m2ts").write_bytes(b"old-disc")
+    spec = (
+        None
+        if audit_outcome == "pending"
+        else MediaSpec("1080p", "h264", None, 8, 7200, 20_000_000)
+    )
+    monkeypatch.setattr(ingest_mod, "_probe_for_ingest", lambda _path: spec)
+    monkeypatch.setattr(ingest_mod, "ffprobe_available", lambda: False)
+    original_transfer = ingest_mod._transfer_disc_tree
+
+    def changing_transfer(*args, **kwargs):
+        result = original_transfer(*args, **kwargs)
+        (playlist_dir / "00001.mpls").unlink()
+        (stream_dir / "00001.m2ts").unlink()
+        (playlist_dir / "00002.mpls").write_bytes(_mpls(("00002", 0, clock * 5400)))
+        (stream_dir / "00002.m2ts").write_bytes(b"new-disc-content")
+        return result
+
+    monkeypatch.setattr(ingest_mod, "_transfer_disc_tree", changing_transfer)
+    snap = ingest_mod._snapshot(entry)
+    async with db.session() as session:
+        rule = (await session.execute(select(ImportWatch))).scalar_one()
+        library = await session.get(Library, library_id)
+        fresh_item = await session.get(MediaItem, item.id)
+        result = await ingest_mod._ingest_entry(
+            session,
+            rule,
+            library,
+            watch,
+            entry,
+            snap,
+            None,
+            forced_item=fresh_item,
+        )
+        await session.commit()
+    assert result.status == IngestStatus.IMPORTED
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+    assert row.disc_playlist is None
+    assert row.resolution is None and row.duration_seconds is None
 
 
 @pytest.mark.asyncio

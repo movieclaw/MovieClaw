@@ -128,6 +128,8 @@ from movieclaw_api.services.library.acquisition import (
 from movieclaw_api.services.library.bluray import (
     MainPlaylistReadResult,
     disc_playlist_failure_record,
+    disc_playlist_fingerprint,
+    disc_playlist_pending_record,
     disc_playlist_record,
     enrich_spec_with_clpi,
     read_clpi_languages,
@@ -1851,6 +1853,10 @@ async def _ingest_entry(
             details={"entry_name": entry.name, "rule_id": rule.id},
         )
     spec = await asyncio.to_thread(_probe_for_ingest, main)
+    if playlist_result is not None and await asyncio.to_thread(
+        disc_playlist_fingerprint, disc_root
+    ) != playlist_result.fingerprint:
+        raise IngestSourceChanged("library.ingest.sourceChanging", name=disc_root.name)
     if strm_problem := await asyncio.to_thread(_strm_problem, main):
         return await conclude(
             IngestStatus.FAILED,
@@ -1872,7 +1878,6 @@ async def _ingest_entry(
             spec = replace(
                 spec, duration_seconds=playlist.duration_seconds, chapters=playlist.chapters()
             )
-            disc_playlist = disc_playlist_record(playlist)
 
     # 身份优先级：人工认领（forced_item，用户拍板最高权威）→ 订阅工单认领
     # （info_hash 命中在途投递 → 继承投递时锚定的精确身份，零猜测）→
@@ -2126,7 +2131,14 @@ async def _ingest_entry(
         try:
             if job_context is None:
                 final, created = await asyncio.to_thread(
-                    _transfer_disc_tree, disc_root, Path(dest_dir), strategy, label
+                    _transfer_disc_tree,
+                    disc_root,
+                    Path(dest_dir),
+                    strategy,
+                    label,
+                    expected_fingerprint=(
+                        playlist_result.fingerprint if playlist_result is not None else None
+                    ),
                 )
             else:
 
@@ -2156,6 +2168,9 @@ async def _ingest_entry(
                     label,
                     job_context,
                     report_disc_copy,
+                    expected_fingerprint=(
+                        playlist_result.fingerprint if playlist_result is not None else None
+                    ),
                 )
         except (IngestConflictError, IngestError) as exc:
             return await conclude(IngestStatus.FAILED, exc.ref)
@@ -2172,8 +2187,43 @@ async def _ingest_entry(
             )
         assert dest_library is not None and dest_library.id is not None
         stat = final.stat()
-        if playlist_result is not None and playlist_result.audit_failed:
-            disc_playlist = await asyncio.to_thread(disc_playlist_failure_record, None, final)
+        source_stable = playlist_result is None or await asyncio.to_thread(
+            disc_playlist_fingerprint, disc_root
+        ) == playlist_result.fingerprint
+        if not source_stable:
+            spec = None
+        final_playlist_result = (
+            await asyncio.to_thread(read_main_playlist_result, final)
+            if playlist_result is not None and source_stable
+            else None
+        )
+        if (
+            final_playlist_result is not None
+            and final_playlist_result.fingerprint != playlist_result.fingerprint
+        ):
+            final_playlist_result = None
+            spec = None
+        if final_playlist_result is not None and not final_playlist_result.retryable:
+            if final_playlist_result.audit_failed:
+                disc_playlist = await asyncio.to_thread(
+                    disc_playlist_failure_record,
+                    None,
+                    final,
+                    fingerprint=final_playlist_result.fingerprint,
+                )
+            elif (
+                final_playlist_result.playlist is not None
+                and final_playlist_result.playlist.duration_seconds > 0
+            ):
+                disc_playlist = (
+                    disc_playlist_record(final_playlist_result.playlist)
+                    if spec is not None
+                    else disc_playlist_pending_record(
+                        final_playlist_result.playlist,
+                        final,
+                        fingerprint=final_playlist_result.fingerprint,
+                    )
+                )
         disc_site, disc_torrent = provenance(None, None)
         disc_hash, disc_downloader = torrent_of(None, None)
         disc_row = await repo.upsert_by_path(
@@ -3530,7 +3580,12 @@ def _disc_destination(source: Path, base: Path, version_label: str) -> tuple[Pat
 
 
 def _transfer_disc_tree(
-    source: Path, base: Path, strategy: str, version_label: str
+    source: Path,
+    base: Path,
+    strategy: str,
+    version_label: str,
+    *,
+    expected_fingerprint: dict | None = None,
 ) -> tuple[Path, bool]:
     """完整保留 BDMV/VIDEO_TS 树并一次发布；不 remux、不拼接、不修改保种源。"""
     final, already_present = _disc_destination(source, base, version_label)
@@ -3569,6 +3624,11 @@ def _transfer_disc_tree(
             copied += 1
         if copied == 0:
             raise IngestError("library.ingest.discEmpty")
+        if (
+            expected_fingerprint is not None
+            and disc_playlist_fingerprint(source) != expected_fingerprint
+        ):
+            raise IngestSourceChanged("library.ingest.sourceChanging", name=source.name)
         rename_no_replace(stage, final)
         return final, True
     except FileExistsError as exc:
@@ -3649,6 +3709,8 @@ async def _transfer_disc_tree_for_job(
     version_label: str,
     context: jobs.JobContext,
     on_progress: Callable[[int, int], Awaitable[None]],
+    *,
+    expected_fingerprint: dict | None = None,
 ) -> tuple[Path, bool]:
     """Job 专用完整原盘搬运：复制可续传，整树完成后才原子发布。"""
     final, already_present = await asyncio.to_thread(_disc_destination, source, base, version_label)
@@ -3728,6 +3790,10 @@ async def _transfer_disc_tree_for_job(
             completed += size
 
         await context.raise_if_cancelled()
+        if expected_fingerprint is not None and await asyncio.to_thread(
+            disc_playlist_fingerprint, source
+        ) != expected_fingerprint:
+            raise IngestSourceChanged("library.ingest.sourceChanging", name=source.name)
         try:
             await asyncio.to_thread(rename_no_replace, stage, final)
         except FileExistsError as exc:

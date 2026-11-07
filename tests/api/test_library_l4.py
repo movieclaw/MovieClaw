@@ -488,6 +488,51 @@ async def test_new_bluray_with_an_incomplete_playlist_stays_unstamped(
         assert (row.resolution, row.video_codec, row.bit_rate, row.audio_streams) == verified_specs
 
 
+@pytest.mark.parametrize("audit_outcome", ["success", "pending", "failure"])
+async def test_new_bluray_changed_after_playlist_read_discards_audit(
+    db, tmp_path, monkeypatch, audit_outcome
+) -> None:
+    """MPLS 读完后换盘：成功、待探测、失败结论都不能绑定新盘指纹。"""
+    root = tmp_path / "movies"
+    disc = root / "阿凡达 (2009)"
+    playlist_dir = disc / "BDMV" / "PLAYLIST"
+    stream_dir = disc / "BDMV" / "STREAM"
+    playlist_dir.mkdir(parents=True)
+    stream_dir.mkdir()
+    clock = 45_000
+    (playlist_dir / "00001.mpls").write_bytes(
+        b"malformed"
+        if audit_outcome == "failure"
+        else _mpls(("00001", 0, clock * 7200))
+    )
+    (stream_dir / "00001.m2ts").write_bytes(b"old-disc")
+    original = scan_mod.read_main_playlist_result
+
+    def changing_read(path):
+        result = original(path)
+        (playlist_dir / "00001.mpls").unlink()
+        (stream_dir / "00001.m2ts").unlink()
+        (playlist_dir / "00002.mpls").write_bytes(_mpls(("00002", 0, clock * 5400)))
+        (stream_dir / "00002.m2ts").write_bytes(b"new-disc-content")
+        return result
+
+    spec = MediaSpec("1080p", "h264", None, 8, 5400, 20_000_000)
+    monkeypatch.setattr(scan_mod, "read_main_playlist_result", changing_read)
+    monkeypatch.setattr(
+        scan_mod, "probe_media", lambda _path: None if audit_outcome == "pending" else spec
+    )
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="电影库", kind="movie", root_paths=[str(root)]
+        )
+
+    await scan_library(library.id, backfill_existing_specs=False)
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+    assert row.disc_playlist is None
+    assert row.resolution is None and row.duration_seconds is None
+
+
 async def test_movie_runtime_disambiguation(db, tmp_path, monkeypatch) -> None:
     """同名双候选、文件名无年份：实测 120 分钟 → 唯一命中 runtime=120 的候选。"""
     root = tmp_path / "movies"
