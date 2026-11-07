@@ -232,6 +232,45 @@ async def test_empty_successful_promotion_means_no_discount(site):
     assert not item.free and item.download_volume_factor == item.upload_volume_factor == 1
 
 
+# 2026-11-07 站点真实返回：``onmouseover`` 的引号没闭合就被截断的半截 HTML
+TRUNCATED_FREE = (
+    '<p style="display: none"> <img class="pro_free" src="pic/trans.gif" alt="Free" '
+    "onmouseover=\"domTT_activate(this, event, 'content', "
+    "'<b><font class=&quot;free&quot;>免费</font></b>"
+)
+
+
+async def test_truncated_promotion_fragment_is_not_silently_dropped(site):
+    """半截 HTML 也要能认出免费，否则全站免费时每个种子都会被当成普通种。"""
+    instance, _, control = site
+    control["promotion"] = {
+        "status": 200,
+        "message": {"101": {"sp_state": TRUNCATED_FREE, "timeout": ""}},
+    }
+
+    item = (await instance.list_torrents()).items[0]
+
+    assert item.free and item.download_volume_factor == 0.0
+
+
+async def test_truncated_promotion_fragment_keeps_deadline(site):
+    instance, _, control = site
+    control["promotion"] = {
+        "status": 200,
+        "message": {
+            "101": {
+                "sp_state": TRUNCATED_FREE,
+                "timeout": '<span title="2026-11-08 12:00:00">限时</span>',
+            }
+        },
+    }
+
+    item = (await instance.list_torrents()).items[0]
+
+    assert item.download_volume_factor == 0.0
+    assert item.free_deadline == datetime(2026, 11, 8, 4)
+
+
 async def test_missing_csrf_prevents_promotion_post(site):
     instance, requests, control = site
     control["listing"] = listing(csrf=False)
