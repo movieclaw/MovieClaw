@@ -27,6 +27,7 @@ from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
 from movieclaw_api.services import acquisition_ingest, jobs
 from movieclaw_api.services.import_watch_config import ImportWatchConfigService
+from movieclaw_api.services.library.bluray import disc_playlist_stale
 from movieclaw_api.services.library.layout import explicit_unit
 from movieclaw_api.services.media_probe import MediaSpec
 from movieclaw_db.engine import dispose_db, get_database, init_db
@@ -629,6 +630,52 @@ async def test_disc_ingest_changed_during_transfer_writes_no_audit(
         row = (await session.execute(select(LibraryFile))).scalars().one()
     assert row.disc_playlist is None
     assert row.resolution is None and row.duration_seconds is None
+
+
+@pytest.mark.asyncio
+async def test_disc_ingest_success_record_tracks_final_fingerprint(db, tmp_path, monkeypatch):
+    """完整原盘成功入库时记录发布目录指纹，换盘后能判为陈旧。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    await _make_rule(db, library_id=library_id, source=watch)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="指纹电影", year=2026)
+    entry = watch / "Fingerprint.Disc.2026"
+    playlist_dir = entry / "BDMV" / "PLAYLIST"
+    stream_dir = entry / "BDMV" / "STREAM"
+    playlist_dir.mkdir(parents=True)
+    stream_dir.mkdir()
+    clock = 45_000
+    (playlist_dir / "00001.mpls").write_bytes(_mpls(("00001", 0, clock * 7200)))
+    (stream_dir / "00001.m2ts").write_bytes(b"main-feature")
+    spec = MediaSpec("1080p", "h264", None, 8, 7200, 20_000_000)
+    monkeypatch.setattr(ingest_mod, "_probe_for_ingest", lambda _path: spec)
+    snap = ingest_mod._snapshot(entry)
+    async with db.session() as session:
+        rule = (await session.execute(select(ImportWatch))).scalar_one()
+        library = await session.get(Library, library_id)
+        fresh_item = await session.get(MediaItem, item.id)
+        result = await ingest_mod._ingest_entry(
+            session,
+            rule,
+            library,
+            watch,
+            entry,
+            snap,
+            None,
+            forced_item=fresh_item,
+        )
+        await session.commit()
+
+    assert result.status == IngestStatus.IMPORTED
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["audit"]["state"] == "success"
+    final = Path(row.file_path)
+    assert not disc_playlist_stale(row.disc_playlist, final)
+    (final / "BDMV" / "STREAM" / "00001.m2ts").write_bytes(b"replacement-disc")
+    assert disc_playlist_stale(row.disc_playlist, final)
 
 
 @pytest.mark.asyncio

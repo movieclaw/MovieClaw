@@ -378,6 +378,7 @@ def disc_playlist_success_record(
     fingerprint: object = _FINGERPRINT_UNSET,
 ) -> dict | None:
     """把 ``pending_probe`` 清单转为 v3 成功台账。"""
+    fingerprint = _disc_playlist_fingerprint(path, fingerprint)
     if not disc_playlist_pending_matches(record, path, fingerprint=fingerprint):
         return None
     assert isinstance(record, dict)
@@ -385,6 +386,11 @@ def disc_playlist_success_record(
         "version": DISC_PLAYLIST_VERSION,
         "name": record.get("name"),
         "clips": list(record.get("clips") or []),
+        _AUDIT_KEY: {
+            "state": "success",
+            "version": DISC_PLAYLIST_VERSION,
+            "fingerprint": fingerprint,
+        },
     }
 
 

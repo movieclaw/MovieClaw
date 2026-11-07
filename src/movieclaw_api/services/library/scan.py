@@ -3533,16 +3533,19 @@ async def _ingest_file(
     playlist: MplsPlaylist | None = None
     playlist_retryable = False
     playlist_audit_failed = False
+    bluray_snapshot_changed = False
     disc_playlist: dict | None = None
 
     async def discard_changed_bluray_snapshot() -> None:
-        nonlocal playlist_retryable, playlist_audit_failed, playlist, spec, disc_playlist
+        nonlocal playlist_retryable, playlist_audit_failed, bluray_snapshot_changed
+        nonlocal playlist, spec, disc_playlist
         if not is_bluray or playlist_retryable:
             return
         current_fingerprint = await asyncio.to_thread(disc_playlist_fingerprint, file)
         if current_fingerprint != playlist_result.fingerprint:
             playlist_retryable = True
             playlist_audit_failed = False
+            bluray_snapshot_changed = True
             playlist = None
             spec = None
             disc_playlist = None
@@ -3786,11 +3789,13 @@ async def _ingest_file(
         local_bytes=cloud is None,
     )
     if (playlist_retryable or playlist_audit_failed) and existing is not None:
-        # 缺失回归遇到不可信审计时保留全部旧规格；新行不落退化选中的最大 m2ts 规格。
-        if playlist_retryable:
+        # 缺失回归遇到不可信审计时保留全部旧规格；识别期间确认换盘则整组丢弃，
+        # 绝不能把 existing 所属旧盘的清单与规格恢复回来。
+        if playlist_retryable and not bluray_snapshot_changed:
             new_row.disc_playlist = existing.disc_playlist
-        for column in _SPEC_COLUMNS:
-            setattr(new_row, column, getattr(existing, column))
+        if not bluray_snapshot_changed:
+            for column in _SPEC_COLUMNS:
+                setattr(new_row, column, getattr(existing, column))
     if cloud is not None and existing is not None:
         # 纳管文件重走识别链（识别重试、缺失回归）时本轮没探测：后台补探过的规格原样保留
         for column in _SPEC_COLUMNS:
@@ -4007,22 +4012,24 @@ async def _probe_backfill_locked(
     )
     # 普通文件仍只补 audio_streams=NULL；蓝光旧行即使已有流数组，也要在
     # CLPI 版本戳缺失时做一次 PID 级重探。版本写进 JSON，后续手动扫描秒过。
-    rows = [
-        row
-        for row in fetched
-        if row.audio_streams is None
-        or (row.probe_version or 0) < PROBE_SCHEMA_VERSION
-        or (row.container == "iso" and row.video_codec is None)
-        or (
-            row.container == "bluray"
-            and (
-                not streams_have_clpi_metadata(row.audio_streams, row.subtitle_streams)
-                # 主播放列表清单缺失/版本落后：播放链路要靠它，且选主片规则
-                # 修过（排除循环诱饵列表）后时长与章节都要重算
-                or disc_playlist_stale(row.disc_playlist)
-            )
+    rows = []
+    for row in fetched:
+        needs_probe = (
+            row.audio_streams is None
+            or (row.probe_version or 0) < PROBE_SCHEMA_VERSION
+            or (row.container == "iso" and row.video_codec is None)
         )
-    ]
+        if row.container == "bluray" and not needs_probe:
+            needs_probe = not streams_have_clpi_metadata(
+                row.audio_streams, row.subtitle_streams
+            ) or disc_playlist_stale(row.disc_playlist)
+            if not needs_probe and (row.disc_playlist.get("audit") or {}).get("state") == "success":
+                # 只有成功台账需要遍历 BDMV 做换盘比对；旧版/缺失台账的判断不碰磁盘。
+                needs_probe = await asyncio.to_thread(
+                    disc_playlist_stale, row.disc_playlist, Path(row.file_path)
+                )
+        if needs_probe:
+            rows.append(row)
     # strm 占位文件永远探不出规格（本体没有媒体流），不进分母——否则
     # strm 库每轮扫描都会报"待补 N、探测 0"，像坏了一样
     rows = [row for row in rows if not row.file_path.lower().endswith(STRM_EXT)]
@@ -4045,7 +4052,9 @@ async def _probe_backfill_locked(
             if (
                 row.container != "iso"
                 or row.id is None
-                or not disc_playlist_stale(row.disc_playlist)
+                or not await asyncio.to_thread(
+                    disc_playlist_stale, row.disc_playlist, Path(row.file_path)
+                )
             ):
                 continue
             summary.yield_seconds += await yield_to_foreground()
