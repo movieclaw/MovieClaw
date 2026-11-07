@@ -3533,6 +3533,20 @@ async def _ingest_file(
     playlist: MplsPlaylist | None = None
     playlist_retryable = False
     playlist_audit_failed = False
+    disc_playlist: dict | None = None
+
+    async def discard_changed_bluray_snapshot() -> None:
+        nonlocal playlist_retryable, playlist_audit_failed, playlist, spec, disc_playlist
+        if not is_bluray or playlist_retryable:
+            return
+        current_fingerprint = await asyncio.to_thread(disc_playlist_fingerprint, file)
+        if current_fingerprint != playlist_result.fingerprint:
+            playlist_retryable = True
+            playlist_audit_failed = False
+            playlist = None
+            spec = None
+            disc_playlist = None
+
     if is_bluray:
         playlist_result = await asyncio.to_thread(read_main_playlist_result, file)
         playlist_retryable = playlist_result.retryable
@@ -3558,13 +3572,7 @@ async def _ingest_file(
         spec = await prefetched_probe
     else:
         spec = await asyncio.to_thread(probe_media, probe_target)
-    if is_bluray and not playlist_retryable:
-        current_fingerprint = await asyncio.to_thread(disc_playlist_fingerprint, file)
-        if current_fingerprint != playlist_result.fingerprint:
-            playlist_retryable = True
-            playlist_audit_failed = False
-            playlist = None
-            spec = None
+    await discard_changed_bluray_snapshot()
     # 失败记忆（media_probe）：ffprobe 在位却探不出来（半截文件/挂载抖动/
     # 坏文件）要记账，之后由定期对账带退避限量重试，不再只能等手动扫描；
     # 成功则抹掉记录，退避从头起算
@@ -3573,7 +3581,6 @@ async def _ingest_file(
             note_probe_failure(str(file))
         else:
             note_probe_success(str(file))
-    disc_playlist: dict | None = None
     if is_bluray and playlist_audit_failed and not playlist_retryable:
         disc_playlist = await asyncio.to_thread(
             disc_playlist_failure_record,
@@ -3581,9 +3588,10 @@ async def _ingest_file(
             file,
             fingerprint=playlist_result.fingerprint,
         )
+        await discard_changed_bluray_snapshot()
     elif is_bluray and playlist is not None and playlist.duration_seconds > 0:
         disc_playlist = (
-            disc_playlist_record(playlist)
+            disc_playlist_record(playlist, fingerprint=playlist_result.fingerprint)
             if spec is not None
             else disc_playlist_pending_record(
                 playlist, file, fingerprint=playlist_result.fingerprint
@@ -3593,7 +3601,8 @@ async def _ingest_file(
         # m2ts 常常不带语言描述符；同编号 CLPI 用 PID 补齐，已有 ffprobe
         # 语言保持不动。缺失/损坏 CLPI 只降级，不影响原盘入账。
         languages = await asyncio.to_thread(read_clpi_languages, probe_target)
-        if languages is not None:
+        await discard_changed_bluray_snapshot()
+        if spec is not None and languages is not None:
             spec = enrich_spec_with_clpi(spec, languages)
         if playlist is not None and playlist.duration_seconds > 0:
             # 时长与章节都以主播放列表为准：m2ts 没有章节，单个剪辑的时长也
@@ -3607,6 +3616,7 @@ async def _ingest_file(
         container = file.suffix.lstrip(".").lower() or None
     elif is_disc:
         size_bytes = await asyncio.to_thread(_disc_total_size, file)
+        await discard_changed_bluray_snapshot()
         container = "bluray" if (file / "BDMV").is_dir() else "dvd"
         # 原盘条目 file_path 是目录，取目录 mtime——语义同样是"变了就变"
         try:
@@ -3625,11 +3635,9 @@ async def _ingest_file(
     # strm 不参与归并：指纹靠"尺寸 + 时长"，而 strm 只有几百字节且无时长，
     # 同剧各集的 URL 长度往往完全相同，尺寸毫无区分度——错并会把身份锚
     # 挂到另一集头上，宁可当新文件重走识别链
-    if (
-        existing is None
-        and not is_strm
-        and cloud is None
-        and await _try_relink(
+    relinked = False
+    if existing is None and not is_strm and cloud is None:
+        relinked = await _try_relink(
             repo,
             library,
             file,
@@ -3637,7 +3645,8 @@ async def _ingest_file(
             container=container,
             duration_seconds=spec.duration_seconds if spec else None,
         )
-    ):
+        await discard_changed_bluray_snapshot()
+    if relinked:
         summary.relinked += 1
         return
 
@@ -3674,6 +3683,7 @@ async def _ingest_file(
             hint=hint,
             is_disc=is_disc,
         )
+        await discard_changed_bluray_snapshot()
         provisional = identified.provisional
         unidentified_reason, candidates = identified.reason, identified.candidates
         unidentified_message = identified.reason_message
@@ -3708,6 +3718,7 @@ async def _ingest_file(
                 (existing.media_item_id, existing.season_number, existing.episode_number),
                 (item_id, season, episode),
             )
+            await discard_changed_bluray_snapshot()
             summary.reanchored_item_ids.add(existing.media_item_id)
             logger.info(
                 "「%s」身份已从条目 #%s 改挂到 #%s（观看状态随迁）",
@@ -3725,6 +3736,7 @@ async def _ingest_file(
         if is_disc or cloud is not None
         else await discover_external_subtitles_async(file, dir_names)
     )
+    await discard_changed_bluray_snapshot()
     assert library.id is not None
     new_row = LibraryFile(
         library_id=library.id,

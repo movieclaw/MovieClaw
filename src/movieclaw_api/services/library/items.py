@@ -3244,6 +3244,7 @@ async def backfill_streams(
         # 探测目标都要按真正的主片重算
         path = Path(row.file_path)
         pending_playlist_probe = disc_playlist_probe_pending(row.disc_playlist)
+        disc_stale = await asyncio.to_thread(disc_playlist_stale, row.disc_playlist, path)
         disc_audit_due = await asyncio.to_thread(
             disc_playlist_audit_due,
             row.disc_playlist,
@@ -3251,9 +3252,7 @@ async def backfill_streams(
             force=force_disc_playlist_audit,
         )
         needs_disc = (
-            row.container == "bluray"
-            and disc_playlist_stale(row.disc_playlist)
-            and (pending_playlist_probe or disc_audit_due)
+            row.container == "bluray" and disc_stale and (pending_playlist_probe or disc_audit_due)
         )
         # 新增帧率/色彩空间后，历史行两列同时为空时允许整库扫描补探一次。
         # 正常视频至少能取得其中一项，避免个别元数据缺失的文件每轮重复 ffprobe。
