@@ -26,13 +26,21 @@ struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
 
         @objc private final class Pin: NSObject {
             weak var marker: Marker?
-            @objc func tick() { marker?.pinClearance() }
+            @objc func tick(_ link: CADisplayLink) {
+                guard let marker else {
+                    link.invalidate()
+                    return
+                }
+                marker.pinClearance()
+            }
         }
-
-        deinit { pin?.invalidate() }
 
         override func didMove(toParent parent: UIViewController?) {
             super.didMove(toParent: parent)
+            guard parent != nil else {
+                stopPinning()
+                return
+            }
             var page = parent
             while let current = page, !(current.parent is UINavigationController) { page = current.parent }
             if let page { Self.pages.add(page) }
@@ -104,7 +112,7 @@ struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
         private func startPinning() {
             stopPinning()
             pinTarget.marker = self
-            let link = CADisplayLink(target: pinTarget, selector: #selector(Pin.tick))
+            let link = CADisplayLink(target: pinTarget, selector: #selector(Pin.tick(_:)))
             link.add(to: .main, forMode: .common)
             pin = link
         }
@@ -142,7 +150,12 @@ struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
                     continue
                 }
                 let inset = AgentTabBarClearance.appliedInset(tabBarHidden: tabBarHidden, pageOnScreen: onScreen, measured: measured)
-                Self.setInset(inset, on: page, animated: animated && inset == 0)
+                Self.setInset(
+                    inset,
+                    windowBottomInset: page.viewIfLoaded?.window?.safeAreaInsets.bottom,
+                    on: page,
+                    animated: animated && inset == 0
+                )
             }
         }
 
@@ -187,9 +200,23 @@ struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
             return frame
         }
 
-        private static func setInset(_ inset: CGFloat, on page: UIViewController, animated: Bool) {
-            guard abs(page.additionalSafeAreaInsets.bottom - inset) > 0.5 else { return }
-            let updates = { page.additionalSafeAreaInsets.bottom = inset }
+        private static func setInset(
+            _ inset: CGFloat,
+            windowBottomInset: CGFloat?,
+            on page: UIViewController,
+            animated: Bool
+        ) {
+            guard AgentTabBarClearance.needsInsetUpdate(
+                currentAdditionalInset: page.additionalSafeAreaInsets.bottom,
+                effectiveBottomInset: page.viewIfLoaded?.safeAreaInsets.bottom,
+                windowBottomInset: windowBottomInset,
+                targetAdditionalInset: inset
+            ) else { return }
+            let updates = {
+                page.additionalSafeAreaInsets.bottom = inset
+                page.viewIfLoaded?.setNeedsLayout()
+                page.viewIfLoaded?.layoutIfNeeded()
+            }
             guard animated else {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
@@ -233,6 +260,18 @@ struct AgentTabBarClearance {
     static func appliedInset(tabBarHidden: Bool, pageOnScreen: Bool, measured: CGFloat) -> CGFloat {
         guard pageOnScreen, !tabBarHidden else { return 0 }
         return max(0, measured)
+    }
+
+    /// 转场可能仍在插值实际安全区；即使模型值已经相同，只要实际底边还没到目标就继续写回。
+    static func needsInsetUpdate(
+        currentAdditionalInset: CGFloat,
+        effectiveBottomInset: CGFloat?,
+        windowBottomInset: CGFloat?,
+        targetAdditionalInset: CGFloat
+    ) -> Bool {
+        if abs(currentAdditionalInset - targetAdditionalInset) > 0.5 { return true }
+        guard let effectiveBottomInset, let windowBottomInset else { return false }
+        return effectiveBottomInset < windowBottomInset + targetAdditionalInset - 0.5
     }
 
     /// 底边那一条短胶囊，而不是通高的侧栏或贴在顶上的标签栏。
