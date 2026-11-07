@@ -231,6 +231,7 @@ def _parse_playlist_marks(data: bytes, items: tuple[MplsPlayItem, ...]) -> tuple
 #: 3 = 用完整性状态重读 v2 清单，修正历史上部分读取落账的候选。
 DISC_PLAYLIST_VERSION = 3
 _AUDIT_KEY = "audit"
+_FINGERPRINT_UNSET = object()
 _audit_mutexes: dict[int, asyncio.Lock] = {}
 
 
@@ -278,15 +279,24 @@ def disc_playlist_probe_pending(record: object) -> bool:
     )
 
 
-def disc_playlist_pending_matches(record: object, path: Path) -> bool:
+def _disc_playlist_fingerprint(path: Path, fingerprint: object) -> dict | None:
+    if fingerprint is _FINGERPRINT_UNSET:
+        return disc_playlist_fingerprint(path)
+    return fingerprint if isinstance(fingerprint, dict) else None
+
+
+def disc_playlist_pending_matches(
+    record: object,
+    path: Path,
+    *,
+    fingerprint: object = _FINGERPRINT_UNSET,
+) -> bool:
     """pending 台账是否仍属于当前这张盘；指纹取不到时也不能复用。"""
     if not disc_playlist_probe_pending(record):
         return False
     assert isinstance(record, dict)
-    fingerprint = disc_playlist_fingerprint(path)
-    return fingerprint is not None and fingerprint == (record.get(_AUDIT_KEY) or {}).get(
-        "fingerprint"
-    )
+    current = _disc_playlist_fingerprint(path, fingerprint)
+    return current is not None and current == (record.get(_AUDIT_KEY) or {}).get("fingerprint")
 
 
 def disc_playlist_audit_due(record: object, path: Path, *, force: bool = False) -> bool:
@@ -313,13 +323,26 @@ def disc_playlist_failure_record(record: object, path: Path) -> dict | None:
     return failed
 
 
-def disc_playlist_pending_record(playlist: MplsPlaylist, path: Path) -> dict:
+def disc_playlist_pending_record(
+    playlist: MplsPlaylist,
+    path: Path,
+    *,
+    fingerprint: object = _FINGERPRINT_UNSET,
+) -> dict:
     """完整选主已成功、但新主片规格尚未探测成功。"""
     record = disc_playlist_record(playlist)
-    return disc_playlist_pending_ledger(record["name"], record["clips"], path)
+    return disc_playlist_pending_ledger(
+        record["name"], record["clips"], path, fingerprint=fingerprint
+    )
 
 
-def disc_playlist_pending_ledger(name: str | None, clips: list[dict], path: Path) -> dict:
+def disc_playlist_pending_ledger(
+    name: str | None,
+    clips: list[dict],
+    path: Path,
+    *,
+    fingerprint: object = _FINGERPRINT_UNSET,
+) -> dict:
     """任意完整主片读取结果 → 等待规格重探的台账。"""
     return {
         "name": name,
@@ -327,14 +350,19 @@ def disc_playlist_pending_ledger(name: str | None, clips: list[dict], path: Path
         _AUDIT_KEY: {
             "state": "pending_probe",
             "version": DISC_PLAYLIST_VERSION,
-            "fingerprint": disc_playlist_fingerprint(path),
+            "fingerprint": _disc_playlist_fingerprint(path, fingerprint),
         },
     }
 
 
-def disc_playlist_success_record(record: object, path: Path) -> dict | None:
+def disc_playlist_success_record(
+    record: object,
+    path: Path,
+    *,
+    fingerprint: object = _FINGERPRINT_UNSET,
+) -> dict | None:
     """把 ``pending_probe`` 清单转为 v3 成功台账。"""
-    if not disc_playlist_pending_matches(record, path):
+    if not disc_playlist_pending_matches(record, path, fingerprint=fingerprint):
         return None
     assert isinstance(record, dict)
     return {
@@ -344,9 +372,14 @@ def disc_playlist_success_record(record: object, path: Path) -> dict | None:
     }
 
 
-def pending_disc_playlist(record: object, disc_dir: Path) -> MplsPlaylist | None:
+def pending_disc_playlist(
+    record: object,
+    disc_dir: Path,
+    *,
+    fingerprint: object = _FINGERPRINT_UNSET,
+) -> MplsPlaylist | None:
     """从已完整审计的 pending 台账恢复探测目标，不再重读全部 MPLS。"""
-    if not disc_playlist_pending_matches(record, disc_dir):
+    if not disc_playlist_pending_matches(record, disc_dir, fingerprint=fingerprint):
         return None
     assert isinstance(record, dict)
     try:

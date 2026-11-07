@@ -365,6 +365,35 @@ def test_not_udf_image_has_no_source(tmp_path):
     assert iso_source.iso_disc_source(path) is None
 
 
+def test_iso_short_read_is_retryable(tmp_path, monkeypatch):
+    """stat 仍成功但底层短读是瞬时 I/O，审计不能把同一镜像判成永久损坏。"""
+    path = tmp_path / "movie.iso"
+    path.write_bytes(_bluray_image(metadata=False)[0])
+    real_open = open
+
+    class ShortReader:
+        def __init__(self):
+            self._fh = real_open(path, "rb")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self._fh.close()
+
+        def seek(self, offset):
+            return self._fh.seek(offset)
+
+        def read(self, length):
+            return self._fh.read(max(0, length - 1))
+
+    monkeypatch.setattr(iso_source, "open", lambda *_args, **_kwargs: ShortReader(), raising=False)
+    result = iso_source.iso_disc_source_result(path)
+    assert result.source is None
+    assert result.retryable is True
+    assert result.audit_failed is False
+
+
 def test_file_window_response_stitches_pieces_and_maps_ranges(tmp_path):
     path = tmp_path / "image.bin"
     data = bytes(range(256)) * 64  # 16 KB

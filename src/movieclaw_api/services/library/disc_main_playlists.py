@@ -37,7 +37,7 @@ from movieclaw_api.services.library.bluray import (
 )
 from movieclaw_api.services.library.items import backfill_streams, reset_probed_spec
 from movieclaw_api.services.playback.disc_source import DiscSource
-from movieclaw_api.services.playback.iso_source import iso_disc_source
+from movieclaw_api.services.playback.iso_source import iso_disc_source_result
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LibraryFile, utcnow
 
@@ -60,10 +60,14 @@ async def audit_disc_image_playlist(row: LibraryFile, *, force: bool = False) ->
         return False, True
     if not await asyncio.to_thread(disc_playlist_audit_due, row.disc_playlist, path, force=force):
         return False, False
-    source = await asyncio.to_thread(iso_disc_source, row.file_path)
-    # 读不出，或有列表没读全：剩下的候选可能只是花絮。记失败指纹但不盖 v3，
+    result = await asyncio.to_thread(iso_disc_source_result, row.file_path)
+    if result.retryable:
+        # 挂载抖动或短读不改变台账，也不绑失败指纹；同一镜像恢复后下轮继续审计。
+        return False, False
+    source = result.source
+    # 确定性的格式/解析损坏：剩下的候选可能只是花絮。记失败指纹但不盖 v3，
     # 文件没变时启动与手动扫描都不再反复付整盘读取成本。
-    if source is None or source.playlist_incomplete:
+    if result.audit_failed or source is None or source.playlist_incomplete:
         failed = await asyncio.to_thread(disc_playlist_failure_record, row.disc_playlist, path)
         if failed == row.disc_playlist:
             return False, False

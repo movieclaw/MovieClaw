@@ -73,6 +73,7 @@ from movieclaw_api.services.library.bluray import (
     disc_playlist_audit_due,
     disc_playlist_audit_failed,
     disc_playlist_failure_record,
+    disc_playlist_fingerprint,
     disc_playlist_pending_record,
     disc_playlist_probe_pending,
     disc_playlist_record,
@@ -3277,7 +3278,16 @@ async def backfill_streams(
         playlist = None
         if needs_disc:
             audit_failed = False
-            playlist = pending_disc_playlist(row.disc_playlist, path)
+            probe_fingerprint = None
+            if pending_playlist_probe:
+                probe_fingerprint = await asyncio.to_thread(disc_playlist_fingerprint, path)
+                playlist = await asyncio.to_thread(
+                    pending_disc_playlist,
+                    row.disc_playlist,
+                    path,
+                    fingerprint=probe_fingerprint,
+                )
+            playlist_from_pending = playlist is not None
             if playlist is None:
                 playlist_result = await asyncio.to_thread(read_main_playlist_result, path)
                 if playlist_result.retryable:
@@ -3307,7 +3317,11 @@ async def backfill_streams(
                 else:
                     # 第一次可信审计也必须整组覆盖：旧规格可能来自残缺读取时退化选中的最大 m2ts。
                     reset_probed_spec(row)
-                    row.disc_playlist = disc_playlist_pending_record(playlist, path)
+                    if not playlist_from_pending:
+                        probe_fingerprint = await asyncio.to_thread(disc_playlist_fingerprint, path)
+                    row.disc_playlist = disc_playlist_pending_record(
+                        playlist, path, fingerprint=probe_fingerprint
+                    )
                     # 时长按主播放列表**覆盖**而不是补空：旧行可能记着诱饵列表的虚高时长
                     row.duration_seconds = playlist.duration_seconds
                     row.chapters = playlist.chapters()
@@ -3349,6 +3363,21 @@ async def backfill_streams(
         if spec is None:
             note_probe_failure(row.file_path)
         else:
+            success_record = None
+            if disc_playlist_probe_pending(row.disc_playlist):
+                probed_fingerprint = await asyncio.to_thread(disc_playlist_fingerprint, path)
+                success_record = await asyncio.to_thread(
+                    disc_playlist_success_record,
+                    row.disc_playlist,
+                    path,
+                    fingerprint=probed_fingerprint,
+                )
+                if success_record is None:
+                    # ffprobe 期间换盘：探到的是旧目标，任何规格都不能落库。保留 pending，
+                    # 下轮会因指纹不匹配重新完整审计。
+                    if not await keep_going():
+                        break
+                    continue
             note_probe_success(row.file_path)
         if spec is not None:
             if languages is not None:
@@ -3370,7 +3399,6 @@ async def backfill_streams(
             row.bit_rate = row.bit_rate or spec.bit_rate
             row.frame_rate = row.frame_rate or spec.frame_rate
             row.color_space = row.color_space or spec.color_space
-            success_record = disc_playlist_success_record(row.disc_playlist, path)
             if success_record is not None:
                 row.disc_playlist = success_record
             # 补探的终止条件：写上当前字段集版本，这一行下次就不再进补探队列。
