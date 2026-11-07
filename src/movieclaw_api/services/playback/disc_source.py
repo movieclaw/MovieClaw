@@ -101,6 +101,8 @@ class DiscSource:
     #: 蓝光镜像只比时长会选哪条列表：旧规则就是这么选的，存量台账的规格按它探测。与
     #: ``playlist_name`` 不同说明这张盘的台账要重探（``library/disc_main_playlists.py``）
     longest_playlist_name: str | None = None
+    #: 有播放列表没读全（I/O 或解析失败）。自愈见到它不得改台账。
+    playlist_incomplete: bool = False
 
     @property
     def duration_s(self) -> float:

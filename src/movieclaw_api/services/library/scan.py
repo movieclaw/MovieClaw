@@ -3869,7 +3869,7 @@ async def _probe_backfill(
 
     if not ffprobe_available():
         return
-    rows = list(
+    fetched = list(
         (
             await session.execute(
                 select(LibraryFile).where(
@@ -3897,7 +3897,7 @@ async def _probe_backfill(
     # CLPI 版本戳缺失时做一次 PID 级重探。版本写进 JSON，后续手动扫描秒过。
     rows = [
         row
-        for row in rows
+        for row in fetched
         if row.audio_streams is None
         or (row.probe_version or 0) < PROBE_SCHEMA_VERSION
         or (row.container == "iso" and row.video_codec is None)
@@ -3914,12 +3914,31 @@ async def _probe_backfill(
     # strm 占位文件永远探不出规格（本体没有媒体流），不进分母——否则
     # strm 库每轮扫描都会报"待补 N、探测 0"，像坏了一样
     rows = [row for row in rows if not row.file_path.lower().endswith(STRM_EXT)]
+    disc_replacements: dict = {}
     if limit is not None:
         # 限量自愈：只挑从未探测成功且退避到点的行，取前 limit 个。ffprobe
-        # 后装的存量库也借此每轮慢慢补上一小批，而不是干等手动扫描
+        # 后装的存量库也借此每轮慢慢补上一小批，而不是干等手动扫描。
+        # 不在这里重读已是最新版本的原盘：十个名额是给瞬时失败收敛的。
         rows = [
             row for row in rows if row.audio_streams is None and probe_retry_due(row.file_path)
         ][:limit]
+    else:
+        # 版本已是最新、清单却可能是旧版部分读取落下的花絮。只把完整重读
+        # 对不上的行加进补探；对得上的不进分母，也不改台账。
+        from movieclaw_api.services.library.disc_main_playlists import conflicting_disc_playlist
+
+        seen = {row.id for row in rows}
+        for row in fetched:
+            if row.container != "bluray" or row.id is None:
+                continue
+            summary.yield_seconds += await yield_to_foreground()
+            replacement = await conflicting_disc_playlist(row)
+            if replacement is None:
+                continue
+            disc_replacements[row.id] = replacement
+            if row.id not in seen:
+                rows.append(row)
+                seen.add(row.id)
     if not rows:
         return
     state.phase = ScanPhase.PROBING
@@ -3946,6 +3965,7 @@ async def _probe_backfill(
         limit=None,
         on_processed=_tick,
         on_checkpoint=_checkpoint,
+        disc_replacements=disc_replacements,
     )
     logger.info(
         "媒体库 #%s 介质规格补探结束：探测 %d / 待补 %d%s",

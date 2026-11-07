@@ -70,6 +70,7 @@ from movieclaw_api.services.library.artwork import (
     find_artwork,
 )
 from movieclaw_api.services.library.bluray import (
+    MplsPlaylist,
     disc_playlist_record,
     disc_playlist_stale,
     enrich_spec_with_clpi,
@@ -3169,6 +3170,7 @@ async def backfill_streams(
     limit: int | None = None,
     on_processed: Callable[[], bool | Awaitable[bool]] | None = None,
     on_checkpoint: Callable[[], None | Awaitable[None]] | None = None,
+    disc_replacements: dict[int, MplsPlaylist] | None = None,
 ) -> int:
     """补齐未探测的介质详情，并为存量 BDMV 回填 CLPI 语言；返回 ffprobe 数。
 
@@ -3190,6 +3192,7 @@ async def backfill_streams(
     """
     from movieclaw_api.services.library.scan import disc_main_stream
 
+    replacements = disc_replacements or {}
     probed = 0
     since_checkpoint = 0
 
@@ -3220,7 +3223,12 @@ async def backfill_streams(
         # 原盘主播放列表清单缺失/版本落后（docs/design/disc-playback.md §3.1）：
         # 播放链路要靠它；选主片规则修过（排除循环诱饵列表）后，时长、章节与
         # 探测目标都要按真正的主片重算
-        needs_disc = row.container == "bluray" and disc_playlist_stale(row.disc_playlist)
+        # disc_replacements：版本已是最新、但完整重读和台账不是同一条主片（旧版部分
+        # 读取把花絮落了账）。调用方已经确认这次读取是完整的，这里直接沿用。
+        forced = replacements.get(row.id) if row.id is not None else None
+        needs_disc = row.container == "bluray" and (
+            disc_playlist_stale(row.disc_playlist) or forced is not None
+        )
         # 新增帧率/色彩空间后，历史行两列同时为空时允许整库扫描补探一次。
         # 正常视频至少能取得其中一项，避免个别元数据缺失的文件每轮重复 ffprobe。
         needs_visual_details = row.frame_rate is None and row.color_space is None
@@ -3250,13 +3258,16 @@ async def backfill_streams(
         path = Path(row.file_path)
         playlist = None
         if needs_disc:
-            playlist_result = await asyncio.to_thread(read_main_playlist_result, path)
-            if playlist_result.retryable:
-                # 候选没读全时剩余候选可能只是花絮；不落账、不清规格，留到下次重试。
-                if not await keep_going():
-                    break
-                continue
-            playlist = playlist_result.playlist
+            if forced is not None:
+                playlist = forced
+            else:
+                playlist_result = await asyncio.to_thread(read_main_playlist_result, path)
+                if playlist_result.retryable:
+                    # 候选没读全时剩余候选可能只是花絮；不落账、不清规格，留到下次重试。
+                    if not await keep_going():
+                        break
+                    continue
+                playlist = playlist_result.playlist
             old = row.disc_playlist if isinstance(row.disc_playlist, dict) else {}
             old_clips = old.get("clips")
             if playlist is not None and playlist.duration_seconds > 0:

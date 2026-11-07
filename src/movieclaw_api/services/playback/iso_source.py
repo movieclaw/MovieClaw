@@ -87,11 +87,14 @@ def _read(path: Path, reader: UDFReader) -> DiscSource | None:
 def _bluray(path: Path, reader: UDFReader) -> DiscSource | None:
     streams = _files(reader, ["BDMV", "STREAM"], "m2ts")
     playlists: list[MplsPlaylist] = []
+    incomplete = False
     for stem, entry in sorted(_files(reader, ["BDMV", "PLAYLIST"], "mpls").items()):
         try:
             data = reader.read(entry, _SMALL_FILE_LIMIT)
             playlists.append(parse_mpls_playlist(data, path=Path(f"{stem}.mpls")))
         except (UDFError, MplsParseError) as exc:
+            # 没读全就还不能选主片：剩下的候选可能只是花絮
+            incomplete = True
             logger.debug("镜像里的 MPLS 跳过：%s（%s）", entry.name, exc)
     sizes = stream_sizes(reader, streams)
     playlist = select_main_playlist(playlists, sizes)
@@ -130,6 +133,7 @@ def _bluray(path: Path, reader: UDFReader) -> DiscSource | None:
         clpi=clpi_data,
         image="bluray",
         longest_playlist_name=longest.path.name,
+        playlist_incomplete=incomplete,
     )
 
 
