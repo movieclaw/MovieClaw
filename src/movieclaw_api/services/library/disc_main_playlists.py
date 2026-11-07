@@ -30,6 +30,7 @@ from movieclaw_api.services.library.bluray import (
     disc_playlist_audit_due,
     disc_playlist_audit_mutex,
     disc_playlist_failure_record,
+    disc_playlist_fingerprint,
     disc_playlist_pending_ledger,
     disc_playlist_pending_matches,
     disc_playlist_probe_pending,
@@ -37,7 +38,10 @@ from movieclaw_api.services.library.bluray import (
 )
 from movieclaw_api.services.library.items import backfill_streams, reset_probed_spec
 from movieclaw_api.services.playback.disc_source import DiscSource
-from movieclaw_api.services.playback.iso_source import iso_disc_source_result
+from movieclaw_api.services.playback.iso_source import (
+    IsoDiscSourceReadResult,
+    iso_disc_source_result,
+)
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LibraryFile, utcnow
 
@@ -46,6 +50,17 @@ logger = logging.getLogger("movieclaw_api.disc_main_playlists")
 
 def _image_clips(source: DiscSource) -> list[dict]:
     return [{"id": clip.clip_id, "in": clip.in_time, "out": clip.out_time} for clip in source.clips]
+
+
+def _read_image_snapshot(path: Path) -> tuple[IsoDiscSourceReadResult, dict | None]:
+    """读取完整镜像审计，并只返回读取前后未变化的指纹。"""
+    before = disc_playlist_fingerprint(path)
+    if before is None:
+        return IsoDiscSourceReadResult(None, retryable=True), None
+    result = iso_disc_source_result(path)
+    if disc_playlist_fingerprint(path) != before:
+        return IsoDiscSourceReadResult(None, retryable=True), None
+    return result, before
 
 
 async def audit_disc_image_playlist(row: LibraryFile, *, force: bool = False) -> tuple[bool, bool]:
@@ -60,7 +75,7 @@ async def audit_disc_image_playlist(row: LibraryFile, *, force: bool = False) ->
         return False, True
     if not await asyncio.to_thread(disc_playlist_audit_due, row.disc_playlist, path, force=force):
         return False, False
-    result = await asyncio.to_thread(iso_disc_source_result, row.file_path)
+    result, fingerprint = await asyncio.to_thread(_read_image_snapshot, path)
     if result.retryable:
         # 挂载抖动或短读不改变台账，也不绑失败指纹；同一镜像恢复后下轮继续审计。
         return False, False
@@ -68,7 +83,12 @@ async def audit_disc_image_playlist(row: LibraryFile, *, force: bool = False) ->
     # 确定性的格式/解析损坏：剩下的候选可能只是花絮。记失败指纹但不盖 v3，
     # 文件没变时启动与手动扫描都不再反复付整盘读取成本。
     if result.audit_failed or source is None or source.playlist_incomplete:
-        failed = await asyncio.to_thread(disc_playlist_failure_record, row.disc_playlist, path)
+        failed = await asyncio.to_thread(
+            disc_playlist_failure_record,
+            row.disc_playlist,
+            path,
+            fingerprint=fingerprint,
+        )
         if failed == row.disc_playlist:
             return False, False
         row.disc_playlist = failed
@@ -78,7 +98,9 @@ async def audit_disc_image_playlist(row: LibraryFile, *, force: bool = False) ->
     fresh_clips = _image_clips(source)
     if was_pending:
         # 盘已变化，旧 pending 的规格目标也失效；完整重审后用新指纹重新等待探测。
-        row.disc_playlist = disc_playlist_pending_ledger(source.playlist_name, fresh_clips, path)
+        row.disc_playlist = disc_playlist_pending_ledger(
+            source.playlist_name, fresh_clips, path, fingerprint=fingerprint
+        )
         reset_probed_spec(row)
         row.duration_seconds = None
         row.updated_at = utcnow()
@@ -116,7 +138,9 @@ async def audit_disc_image_playlist(row: LibraryFile, *, force: bool = False) ->
             source.longest_playlist_name,
             source.playlist_name,
         )
-    row.disc_playlist = disc_playlist_pending_ledger(source.playlist_name, fresh_clips, path)
+    row.disc_playlist = disc_playlist_pending_ledger(
+        source.playlist_name, fresh_clips, path, fingerprint=fingerprint
+    )
     reset_probed_spec(row)
     row.duration_seconds = None
     row.updated_at = utcnow()

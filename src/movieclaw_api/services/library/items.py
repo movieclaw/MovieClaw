@@ -70,6 +70,7 @@ from movieclaw_api.services.library.artwork import (
     find_artwork,
 )
 from movieclaw_api.services.library.bluray import (
+    MainPlaylistReadResult,
     disc_playlist_audit_due,
     disc_playlist_audit_failed,
     disc_playlist_failure_record,
@@ -3172,6 +3173,16 @@ def reset_probed_spec(row: LibraryFile) -> None:
     row.chapter_images = None
 
 
+def _read_main_playlist_snapshot(path: Path) -> tuple[MainPlaylistReadResult, dict | None]:
+    """读取完整 BDMV 审计，并只返回读取前后未变化的指纹。"""
+    before = disc_playlist_fingerprint(path)
+    result = read_main_playlist_result(path)
+    after = disc_playlist_fingerprint(path)
+    if after != before or (before is None and not result.retryable and not result.audit_failed):
+        return MainPlaylistReadResult(None, retryable=True), None
+    return result, before
+
+
 async def backfill_streams(
     session: AsyncSession,
     files: list[LibraryFile],
@@ -3289,7 +3300,9 @@ async def backfill_streams(
                 )
             playlist_from_pending = playlist is not None
             if playlist is None:
-                playlist_result = await asyncio.to_thread(read_main_playlist_result, path)
+                playlist_result, audit_fingerprint = await asyncio.to_thread(
+                    _read_main_playlist_snapshot, path
+                )
                 if playlist_result.retryable:
                     # 候选没读全时剩余候选可能只是花絮；不落账、不清规格，留到下次重试。
                     if not await keep_going():
@@ -3297,7 +3310,10 @@ async def backfill_streams(
                     continue
                 if playlist_result.audit_failed:
                     failed = await asyncio.to_thread(
-                        disc_playlist_failure_record, row.disc_playlist, path
+                        disc_playlist_failure_record,
+                        row.disc_playlist,
+                        path,
+                        fingerprint=audit_fingerprint,
                     )
                     if failed != row.disc_playlist:
                         row.disc_playlist = failed
@@ -3318,7 +3334,7 @@ async def backfill_streams(
                     # 第一次可信审计也必须整组覆盖：旧规格可能来自残缺读取时退化选中的最大 m2ts。
                     reset_probed_spec(row)
                     if not playlist_from_pending:
-                        probe_fingerprint = await asyncio.to_thread(disc_playlist_fingerprint, path)
+                        probe_fingerprint = audit_fingerprint
                     row.disc_playlist = disc_playlist_pending_record(
                         playlist, path, fingerprint=probe_fingerprint
                     )

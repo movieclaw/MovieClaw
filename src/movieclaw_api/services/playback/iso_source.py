@@ -114,7 +114,12 @@ def iso_disc_source_result(path: str | Path) -> IsoDiscSourceReadResult:
         return IsoDiscSourceReadResult(None, audit_failed=True)
     if source is None:
         status.audit_failed = True
-    if source is not None and not source.playlist_incomplete:
+    if (
+        source is not None
+        and not source.playlist_incomplete
+        and not status.retryable
+        and not status.audit_failed
+    ):
         if len(_cache) >= _CACHE_MAX:
             _cache.clear()
         _cache[key] = source
@@ -321,6 +326,8 @@ def stream_sizes(
 def _files(reader: UDFReader, folder: list[str], suffix: str) -> dict[str, UDFEntry]:
     try:
         entries = reader.list(folder)
+    except UDFReadError:
+        raise
     except UDFError:
         return {}
     out: dict[str, UDFEntry] = {}

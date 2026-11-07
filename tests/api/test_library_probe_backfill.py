@@ -1018,6 +1018,47 @@ async def test_disc_changed_during_probe_discards_all_probed_specs(
     assert row.audio_streams
 
 
+async def test_folder_disc_changed_during_complete_audit_is_retried(
+    db, tmp_path, monkeypatch
+) -> None:
+    """完整读取期间换盘：旧清单不能绑定新指纹，下一轮按新盘重审。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00001")
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    original = items_mod.read_main_playlist_result
+    changed = False
+
+    def changing_read(path):
+        nonlocal changed
+        result = original(path)
+        if not changed:
+            changed = True
+            (path / "BDMV" / "STREAM" / "00002.m2ts").write_bytes(b"n" * 10_000)
+        return result
+
+    targets: list[str] = []
+
+    def probe(path):
+        targets.append(Path(path).name)
+        return _MAIN_SPEC
+
+    monkeypatch.setattr(items_mod, "read_main_playlist_result", changing_read)
+    monkeypatch.setattr(items_mod, "probe_media", probe)
+
+    assert await heal_disc_main_playlists() == 0
+    unchanged = await _load(db, file_id)
+    assert unchanged.disc_playlist == _version_1_record("00001")
+    assert unchanged.resolution == "720p"
+    assert targets == []
+
+    assert await heal_disc_main_playlists() == 1
+    row = await _load(db, file_id)
+    assert targets == ["00002.m2ts"]
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert row.disc_playlist["name"] == "00002.mpls"
+    assert row.resolution == "1080p"
+
+
 async def test_manual_scan_also_replaces_the_spec_when_the_main_playlist_changed(
     db, tmp_path, monkeypatch
 ) -> None:
@@ -1751,6 +1792,62 @@ async def test_changed_image_reaudits_before_promoting_pending_playlist(
     assert reads == 1
     assert row.disc_playlist is not None
     assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+
+
+async def test_image_changed_during_complete_audit_is_retried_off_loop(
+    db, tmp_path, monkeypatch
+) -> None:
+    """ISO 完整读取期间换盘：丢弃混合快照，指纹读取也不阻塞事件循环。"""
+    iso_source.clear_cache()
+    file_id = await _stored_image(
+        db, tmp_path, "changed-during-audit", _bluray_image_with_copies(smaller_is_longer=True)
+    )
+    old = _image_record("00019.mpls", "00122", 7118)
+    await _stamp_image_playlist(db, file_id, old)
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    loop_thread = threading.get_ident()
+    fingerprint = playlist_heal_mod.disc_playlist_fingerprint
+
+    def threaded_fingerprint(path):
+        assert threading.get_ident() != loop_thread
+        return fingerprint(path)
+
+    original = playlist_heal_mod.iso_disc_source_result
+    changed = False
+
+    def changing_read(path):
+        nonlocal changed
+        assert threading.get_ident() != loop_thread
+        result = original(path)
+        if not changed:
+            changed = True
+            image = Path(path)
+            image.write_bytes(image.read_bytes() + b"\0")
+        return result
+
+    probes: list[str] = []
+
+    def probe(path):
+        probes.append(Path(path).name)
+        return replace(_MAIN_SPEC, duration_seconds=7112)
+
+    monkeypatch.setattr(playlist_heal_mod, "disc_playlist_fingerprint", threaded_fingerprint)
+    monkeypatch.setattr(playlist_heal_mod, "iso_disc_source_result", changing_read)
+    monkeypatch.setattr(items_mod, "probe_media", probe)
+
+    assert await heal_disc_main_playlists() == 0
+    unchanged = await _load(db, file_id)
+    assert unchanged.disc_playlist == old
+    assert unchanged.resolution == "720p"
+    assert probes == []
+
+    assert await heal_disc_main_playlists() == 1
+    row = await _load(db, file_id)
+    assert probes == ["changed-during-audit.iso"]
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert row.disc_playlist["name"] == "00013.mpls"
+    assert row.resolution == "1080p"
 
 
 # ---------------------------------------------------------------------------
