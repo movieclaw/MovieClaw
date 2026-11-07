@@ -46,7 +46,8 @@ logger = logging.getLogger("movieclaw_api.iso_source")
 #: 镜像里单个小文件（MPLS / CLPI / IFO）的读取上限：超了多半是结构读错了
 _SMALL_FILE_LIMIT = 16 << 20
 _CACHE_MAX = 64
-#: (路径, 大小, 修改时间) → 解析结果（None 也缓存：读不出的镜像不必每次开会话都重读）
+#: (路径, 大小, 修改时间) → 完整解析结果。读取失败或不完整不缓存，
+#: 同一挂载恢复后的下次补探必须能重读。
 _cache: dict[tuple[str, int, int], DiscSource | None] = {}
 
 
@@ -66,9 +67,10 @@ def iso_disc_source(path: str | Path) -> DiscSource | None:
     except (OSError, UDFError) as exc:
         logger.info("光盘镜像读不出盘内结构：%s（%s）", path, exc)
         source = None
-    if len(_cache) >= _CACHE_MAX:
-        _cache.clear()
-    _cache[key] = source
+    if source is not None and not source.playlist_incomplete:
+        if len(_cache) >= _CACHE_MAX:
+            _cache.clear()
+        _cache[key] = source
     return source
 
 
@@ -96,7 +98,8 @@ def _bluray(path: Path, reader: UDFReader) -> DiscSource | None:
             # 没读全就还不能选主片：剩下的候选可能只是花絮
             incomplete = True
             logger.debug("镜像里的 MPLS 跳过：%s（%s）", entry.name, exc)
-    sizes = stream_sizes(reader, streams)
+    sizes, sizes_incomplete = stream_sizes(reader, streams)
+    incomplete |= sizes_incomplete
     playlist = select_main_playlist(playlists, sizes)
     if playlist is None:
         logger.info("蓝光镜像里没有可用的主播放列表：%s", path)
@@ -211,19 +214,22 @@ def _dvd(path: Path, reader: UDFReader) -> DiscSource | None:
     )
 
 
-def stream_sizes(reader: UDFReader, streams: dict[str, UDFEntry]) -> dict[str, int]:
+def stream_sizes(reader: UDFReader, streams: dict[str, UDFEntry]) -> tuple[dict[str, int], bool]:
     """镜像里各 m2ts 的字节数（选主播放列表要比）。
 
-    文件项读不出的记 0：只是少了个比较依据，不值得让整个镜像读不出。
+    文件项读不出的记 0，同时返回 incomplete：播放可以用残余候选降级，
+    但持久化消费者不得据此改主片、片长或码率。
     """
     sizes: dict[str, int] = {}
+    incomplete = False
     for clip_id, entry in streams.items():
         try:
             sizes[clip_id] = reader.size(entry)
         except UDFError as exc:
             logger.debug("镜像里的 m2ts 读不出大小：%s（%s）", entry.name, exc)
             sizes[clip_id] = 0
-    return sizes
+            incomplete = True
+    return sizes, incomplete
 
 
 def _files(reader: UDFReader, folder: list[str], suffix: str) -> dict[str, UDFEntry]:

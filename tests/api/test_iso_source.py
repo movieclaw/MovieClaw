@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 from starlette.applications import Starlette
@@ -111,6 +112,51 @@ def test_bluray_iso_prefers_the_film_over_a_smaller_copy_of_similar_length(tmp_p
     assert source is not None and source.playlist_name == "00013.mpls"
     assert [clip.clip_id for clip in source.clips] == ["00097"]
     assert source.duration_s == pytest.approx(7112)
+
+
+def test_incomplete_bluray_iso_is_not_cached_or_persistently_probed(tmp_path, monkeypatch):
+    """一条 MPLS 暂时读不全时，残余候选可供本次降级，但不缓存也不落规格。"""
+    path = tmp_path / "movie.iso"
+    path.write_bytes(_image_with_a_smaller_copy(metadata=False))
+    original = iso_source.parse_mpls_playlist
+    fail_main = True
+    main_reads = 0
+
+    def flaky_parse(data, *, path=Path("unknown.mpls")):
+        nonlocal main_reads
+        if path.name == "00013.mpls":
+            main_reads += 1
+            if fail_main:
+                raise iso_source.MplsParseError("temporary short read")
+        return original(data, path=path)
+
+    monkeypatch.setattr(iso_source, "parse_mpls_playlist", flaky_parse)
+    partial = iso_source.iso_disc_source(path)
+    assert partial is not None and partial.playlist_incomplete
+    assert partial.playlist_name == "00019.mpls"
+    assert media_probe.probe_media(path) is None
+    assert main_reads == 2, "incomplete 结果不应进缓存"
+
+    fail_main = False
+    complete = iso_source.iso_disc_source(path)
+    assert complete is not None and not complete.playlist_incomplete
+    assert complete.playlist_name == "00013.mpls"
+    assert main_reads == 3
+
+
+def test_unreadable_bluray_stream_size_marks_the_source_incomplete(tmp_path, monkeypatch):
+    path = tmp_path / "movie.iso"
+    path.write_bytes(_image_with_a_smaller_copy(metadata=False))
+    original = iso_source.UDFReader.size
+
+    def flaky_size(reader, entry):
+        if entry.name == "00097.m2ts":
+            raise iso_source.UDFError("temporary size failure")
+        return original(reader, entry)
+
+    monkeypatch.setattr(iso_source.UDFReader, "size", flaky_size)
+    source = iso_source.iso_disc_source(path)
+    assert source is not None and source.playlist_incomplete
 
 
 def test_reel_index_of_a_bluray_iso_uses_the_same_main_playlist(tmp_path):

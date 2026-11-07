@@ -8,16 +8,20 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+from pathlib import Path
 
 import httpx
 import pytest
 import pytest_asyncio
 from sqlmodel import select
+from tests.api.test_bluray_clpi import _mpls
 
 import movieclaw_api.services.library.scan as scan_mod
 import movieclaw_api.services.library.watch as watch_mod
 import movieclaw_api.services.media_discover as discover_mod
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.services.library.bluray import DISC_PLAYLIST_VERSION
 from movieclaw_api.services.library.nfo import write_entry_nfo, write_full_nfo
 from movieclaw_api.services.library.scan import scan_library
 from movieclaw_api.services.media_probe import MediaSpec
@@ -390,6 +394,82 @@ async def test_new_bluray_scan_enriches_languages_from_clpi(db, tmp_path, monkey
         assert row.audio_streams[0]["language"] == "eng"
         assert row.subtitle_streams[0]["language"] == "zho"
         assert row.subtitle_streams[0]["language_source"] == "clpi"
+
+
+async def test_new_bluray_with_an_incomplete_playlist_stays_unstamped(
+    db, tmp_path, monkeypatch
+) -> None:
+    """新盘部分 MPLS 读取失败时不把残余花絮盖成最新清单；恢复后补探收敛。"""
+    root = tmp_path / "movies"
+    disc = root / "阿凡达 (2009)"
+    playlist_dir = disc / "BDMV" / "PLAYLIST"
+    stream_dir = disc / "BDMV" / "STREAM"
+    playlist_dir.mkdir(parents=True)
+    stream_dir.mkdir()
+    clock = 45_000
+    (playlist_dir / "00001.mpls").write_bytes(_mpls(("00001", 0, clock * 7200)))
+    (playlist_dir / "00002.mpls").write_bytes(_mpls(("00002", 0, clock * 600)))
+    (stream_dir / "00001.m2ts").write_bytes(b"m" * 100)
+    (stream_dir / "00002.m2ts").write_bytes(b"x" * 10)
+
+    monkeypatch.setattr(
+        scan_mod,
+        "probe_media",
+        lambda _path: MediaSpec(
+            resolution="1080p",
+            video_codec="h264",
+            hdr=None,
+            bit_depth=8,
+            duration_seconds=600,
+            bit_rate=10_000_000,
+        ),
+    )
+    original = scan_mod.read_main_playlist_result
+    original_read_bytes = Path.read_bytes
+    loop_thread = threading.get_ident()
+    calls = 0
+    fail_main = True
+
+    def flaky_read_bytes(path):
+        if fail_main and path.name == "00001.mpls":
+            raise OSError("temporary NFS read failure")
+        return original_read_bytes(path)
+
+    def flaky_read(path):
+        nonlocal calls
+        assert threading.get_ident() != loop_thread
+        calls += 1
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", flaky_read_bytes)
+    monkeypatch.setattr(scan_mod, "read_main_playlist_result", flaky_read)
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="电影库", kind="movie", root_paths=[str(root)]
+        )
+
+    await scan_library(library.id, backfill_existing_specs=False)
+    assert calls == 1
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+        assert row.disc_playlist is None
+
+    fail_main = False
+    await scan_library(library.id)
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+        assert row.disc_playlist is not None
+        assert row.disc_playlist["name"] == "00001.mpls"
+        assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+        verified_record = row.disc_playlist
+        row.mark_missing()
+        await session.commit()
+
+    fail_main = True
+    await scan_library(library.id, backfill_existing_specs=False)
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+        assert row.disc_playlist == verified_record, "缺失回归遇到部分读取应保留旧清单"
 
 
 async def test_movie_runtime_disambiguation(db, tmp_path, monkeypatch) -> None:

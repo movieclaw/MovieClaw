@@ -36,7 +36,7 @@ _task: asyncio.Task[None] | None = None
 
 
 def _heal_duration(row: LibraryFile, source: DiscSource | None) -> bool:
-    if source is None or source.duration_s <= 0:
+    if source is None or source.playlist_incomplete or source.duration_s <= 0:
         return False
     seconds = round(source.duration_s)
     if row.duration_seconds and abs(row.duration_seconds - seconds) <= _TOLERANCE_S:
@@ -49,6 +49,8 @@ def _heal_duration(row: LibraryFile, source: DiscSource | None) -> bool:
 def _heal_bit_rate(row: LibraryFile, source: DiscSource | None) -> bool:
     # 还没探测成功过的行留给探测：质量快照把「码率有值」当成实测过，HDR 为空就成了测得 SDR
     if row.audio_streams is None:
+        return False
+    if source is not None and source.playlist_incomplete:
         return False
     bit_rate = source.bit_rate if source is not None else None
     if row.bit_rate == bit_rate:

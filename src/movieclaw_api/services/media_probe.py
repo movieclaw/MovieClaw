@@ -223,6 +223,8 @@ def _probe_disc_image(path: str | Path) -> MediaSpec | None:
 
     spec = None
     source = iso_disc_source(path)
+    if source is not None and source.playlist_incomplete:
+        return None
     first = source.clips[0] if source is not None and source.clips else None
     if source is not None and source.image == "bluray" and first is not None and first.byte_ranges:
         start, end = first.byte_ranges[0]
