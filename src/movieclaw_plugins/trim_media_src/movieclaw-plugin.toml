@@ -1,0 +1,35 @@
+[plugin]
+id = "trim-media-src"
+title = "飞牛影视库源"
+title_localized = { en = "fnOS Trim Media library source" }
+version = "0.1.0"
+entry = "trim_media_src"
+runtime = "inline"
+sdk = "^1.0"
+description = "把 fnOS 影视（Trim Media）接成 MovieClaw 的媒体库来源：条目同步进主线台账，浏览/详情/合集/订阅对账/Jellyfin 与内置库一致；观看进度双向同步、片头片尾写回飞牛；本机可见模式下飞牛挂了照常播。"
+description_localized = { en = "Connect fnOS Trim Media libraries to MovieClaw as a library source: entries sync into the main ledger (browse, details, collections, subscriptions and Jellyfin behave like built-in libraries); watch progress syncs both ways and intro/outro markers are written back to Trim Media. With a locally visible mount the library keeps playing even if Trim Media is down." }
+
+[requires]
+"plugin-data" = "^1.0"
+"plugin-files" = "^1.0"
+"plugin-routes" = "^1.0"
+"plugin-jobs" = "^1.0"
+"scheduled-tasks" = "^1.0"
+"host-ops" = "^1.0"
+"job-handlers" = "^1.2"
+# library.source-providers 是 v0.46.0 的实验性注册表，校验器的契约目录里还没有它，
+# 写进来会被判「未知契约」；代码里照常登记，等主线把它纳入契约目录后再补。
+"playback.completed" = "^1.1"
+"playback.progress" = "^1.0"
+"playback.stopped" = "^1.1"
+
+[permissions]
+# playback.sync.state：把飞牛里看的进度写回 MC 时走主程序的观看状态接口
+# （带成员可见性、compare-and-set 与事件抑制，不自己动 PlaybackState 表）
+operations = ["playback.sync.state"]
+# 播放进度/停止/看完属于敏感事件，订阅要在这里单独声明
+events = ["playback.*"]
+# 远程模式的 .strm 占位文件写在插件自己的文件目录里，不需要额外路径授权
+paths = []
+# 访问飞牛影视服务（内网 / 反代地址）
+network = true

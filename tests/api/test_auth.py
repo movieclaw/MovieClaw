@@ -305,6 +305,11 @@ _PUBLIC_ALLOWLIST = {
     # 原盘目录直推（disc-direct-play.md）：App 的自研引擎按文件取字节，与原文件直出一样
     # 只凭查询参数里的签名 token，引擎的读取器不带登录凭据
     ("GET", "/api/v1/playback/files/{file_id}/disc"),
+    # 外部库源（如飞牛影视）的远程播放：播放器直接拉 HLS，带不了 header，
+    # 地址由来源插件用短期签名签发（routes.sign），签名不符一律 404。
+    # 本机可见模式下不走这两条路由，由主线直接读本地文件。
+    ("GET", "/api/v1/plugins/trim-media-src/hls/{guid}/playlist.m3u8"),
+    ("GET", "/api/v1/plugins/trim-media-src/hls/{guid}/{media_hash}/{segment}"),
     ("GET", "/api/v1/playback/files/{file_id}/disc/{relative_path}"),
     # 蓝光剪辑清单（disc-clip-play.md）：Android 统一引擎的读取器同样只凭签名 token
     ("GET", "/api/v1/playback/files/{file_id}/bluray"),
@@ -421,6 +426,11 @@ def fill_path_params(path: str) -> str:
         .replace("{task_key}", "library_reconcile")
         .replace("{user_code}", "MCLW-TEST")
         .replace("{name}", "seg00000.m4s")
+        # 第三方库源（飞牛影视）的 HLS 转发：条目 guid、媒体 hash、分片名
+        .replace("{guid}", "f" * 32)
+        .replace("{item_guid}", "f" * 32)
+        .replace("{media_hash}", "f" * 32)
+        .replace("{segment}", "seg00000.ts")
         .replace("{index}", "0")
         .replace("{slug}", "no-such-share")
         .replace("{share_id}", "1")

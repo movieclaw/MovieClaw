@@ -336,7 +336,9 @@ def test_scaffolded_web_page_checks_installs_and_is_served(data_dir) -> None:
         ).json()["data"]
         assert result["status"] == "active", result
         apps = client.get("/api/v1/ui/apps").json()["data"]
-        assert [(a["id"], a["entries"][0]["monochrome"]) for a in apps] == [("weekly-board", True)]
+        # 侧边栏里可能已经有随带插件自带的网页（例如飞牛影视库源），这里只确认新装的那个在里面
+        served = {(a["id"], a["entries"][0]["monochrome"]) for a in apps}
+        assert ("weekly-board", True) in served
         page = client.get("/api/v1/plugins/weekly-board/web/")
         assert page.status_code == 200 and "本周看板" in page.text
 

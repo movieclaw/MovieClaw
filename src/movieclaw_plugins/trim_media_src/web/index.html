@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>飞牛影视</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <img class="logo" src="icon.png" alt="飞牛影视" width="40" height="40">
+    <div>
+      <h1>飞牛影视</h1>
+      <p class="sub">fnOS TRIM Media</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <span id="conn-dot" class="dot" title="连接状态"></span>
+    <button id="btn-sync" class="btn btn-primary">立即同步</button>
+    <button id="btn-align" class="btn">对齐检查</button>
+  </div>
+</header>
+
+<!-- 全局状态条 -->
+<section id="conn-bar" class="statusbar">
+  <div class="cell"><span class="k">连接</span><span id="st-conn" class="v">—</span></div>
+  <div class="cell"><span class="k">飞牛服务</span><span id="st-host" class="v">—</span></div>
+  <div class="cell"><span class="k">接入库</span><span id="st-libs" class="v">—</span></div>
+  <div class="cell"><span class="k">最近同步</span><span id="st-sync" class="v">—</span></div>
+  <div class="cell"><span class="k">同步成员</span><span id="st-member" class="v">—</span></div>
+  <div class="cell"><span class="k">证书校验</span><span id="st-tls" class="v">—</span></div>
+</section>
+
+<!-- 通知 -->
+<div id="toast" class="toast hidden"></div>
+
+<main>
+
+<!-- ═══════════ 媒体库 ═══════════ -->
+<section class="panel" id="view-libraries">
+  <div class="panel-head">
+    <h2>媒体库映射</h2>
+    <button id="btn-add-lib" class="btn btn-sm">+ 接入飞牛库</button>
+  </div>
+  <p class="hint">把飞牛影视的媒体库接成 MovieClaw 的库：条目同步进主线台账，浏览 / 刮削 / Jellyfin / 订阅对账与内置库一致；飞牛停了照常播。</p>
+  <div id="lib-list" class="cards"></div>
+  <div id="sync-summary"></div>
+</section>
+
+<!-- ═══════════ 飞牛上未接入的库 ═══════════ -->
+<section class="panel">
+  <div class="panel-head">
+    <h2>飞牛侧媒体库</h2>
+    <span class="tag" id="fn-libs-count">—</span>
+  </div>
+  <p class="hint">与 MC 自有库目录重叠的库会标「重叠」，自动接入已跳过它们（内容已在对应库里）。</p>
+  <div id="fn-libs" class="table-wrap"><table class="table">
+    <thead><tr><th>库名</th><th>类型</th><th>目录</th><th>状态</th></tr></thead>
+    <tbody id="fn-libs-body"><tr><td colspan="4" class="empty">加载中…</td></tr></tbody>
+  </table></div>
+</section>
+
+<!-- ═══════════ 观看进度 ═══════════ -->
+<section class="panel">
+  <div class="panel-head">
+    <h2>观看进度同步</h2>
+    <span class="tag" id="prog-tag">—</span>
+  </div>
+  <p class="hint">飞牛 ←→ MC 双向：MC 播放事件实时写飞牛；飞牛的进度由定时任务拉回（设置 → 定时任务 → 同步飞牛观看进度）。</p>
+  <div id="progress-list" class="list"></div>
+</section>
+
+<!-- ═══════════ 待识别 ═══════════ -->
+<section class="panel">
+  <div class="panel-head">
+    <h2>待识别</h2>
+    <span class="tag warn" id="unid-count">0</span>
+  </div>
+  <p class="hint">飞牛上有、但 TMDB 与 MC 都没匹配上的内容。去 <a href="/library" target="_top">媒体库</a> 对应库的「待识别」页人工认领。</p>
+  <div id="unid-list" class="list"></div>
+</section>
+
+<!-- ═══════════ 成员进度 ═══════════ -->
+<section class="panel">
+  <div class="panel-head">
+    <h2>成员</h2>
+    <span class="tag" id="member-count">—</span>
+  </div>
+  <p class="hint">MC 的成员与其观看状态概览。飞牛侧进度按用户隔离，写入的是插件配置的账号。</p>
+  <div id="member-list" class="list"></div>
+</section>
+
+<!-- ═══════════ 飞牛账号 ═══════════ -->
+<section class="panel">
+  <div class="panel-head">
+    <h2>飞牛账号</h2>
+    <div class="log-actions">
+      <span class="tag" id="acc-state">—</span>
+      <button id="btn-acc-refresh" class="btn btn-sm">刷新</button>
+    </div>
+  </div>
+  <p class="hint">插件用这里的账号连飞牛：进度写回、片头片尾都记在这个账号名下。账号列表需要管理员权限。</p>
+  <div id="acc-current" class="list"></div>
+  <div id="acc-users" class="table-wrap" style="margin-top:10px"><table class="table">
+    <thead><tr><th>账号</th><th>角色</th><th>可见的库</th><th>最近登录</th></tr></thead>
+    <tbody id="acc-users-body"><tr><td colspan="4" class="empty">加载中…</td></tr></tbody>
+  </table></div>
+</section>
+
+<!-- ═══════════ 运行日志 ═══════════ -->
+<section class="panel">
+  <div class="panel-head">
+    <h2>运行日志</h2>
+    <div class="log-actions">
+      <span class="tag" id="log-state">—</span>
+      <button id="btn-log-toggle" class="btn btn-sm">暂停</button>
+      <button id="btn-log-clear" class="btn btn-sm">清屏</button>
+    </div>
+  </div>
+  <p class="hint">插件自己的运行记录：同步、进度回写、片头片尾、错误。每 3 秒自动拉一次，滚到底会跟着走。</p>
+  <div id="log-box" class="logbox"><div class="empty">加载中…</div></div>
+</section>
+
+</main>
+
+<!-- 接入库弹窗 -->
+<dialog id="dlg-add" class="dlg">
+  <form method="dialog" class="dlg-body">
+    <h3>接入飞牛媒体库</h3>
+    <label>飞牛库
+      <select id="add-lib-select"></select>
+    </label>
+    <label>显示名
+      <input id="add-lib-name" type="text" placeholder="留空用飞牛库名">
+    </label>
+    <label>本机挂载路径（可选）
+      <input id="add-lib-local" type="text" placeholder="如 /downloads/Media/TV_Shows">
+      <small>飞牛目录在本机容器里的可见路径。填了走「本机直连」；不填走远程模式。</small>
+    </label>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn">取消</button>
+      <button id="add-lib-ok" value="ok" class="btn btn-primary">接入</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
