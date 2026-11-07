@@ -414,31 +414,46 @@ def pending_disc_playlist(
     )
 
 
-def disc_playlist_record(playlist: MplsPlaylist | None) -> dict:
+def disc_playlist_record(playlist: MplsPlaylist | None, *, fingerprint: dict | None = None) -> dict:
     """主播放列表 → 台账 ``disc_playlist`` 列（docs/design/disc-playback.md §3.2）。
 
-    只落播放所需的最小事实：列表名、各剪辑 id 与 IN/OUT（45 kHz 整数）。播放
-    时据此构造 concat 清单与关键帧索引，不必再读盘上成百上千个 MPLS——诱饵盘
-    动辄上千个列表，NFS 上每次全读要一到三秒。
+    只落播放所需的最小事实：列表名、各剪辑 id 与 IN/OUT（45 kHz 整数）；扫描
+    路径可附带稳定读取指纹，供后续自愈识别换盘。播放时据此构造 concat 清单与
+    关键帧索引，不必再读盘上成百上千个 MPLS——诱饵盘动辄上千个列表，NFS 上
+    每次全读要一到三秒。
 
     ``playlist=None`` 写「读过但没有主播放列表」的哨兵（剪辑清单为空）：残缺盘
     不该每轮补探都重读一遍，播放时播放源解析器见到空清单会再试一次读盘。
     """
     if playlist is None:
-        return {"version": DISC_PLAYLIST_VERSION, "name": None, "clips": []}
-    return {
-        "version": DISC_PLAYLIST_VERSION,
-        "name": playlist.path.name,
-        "clips": [
-            {"id": item.clip_id, "in": item.in_time, "out": item.out_time}
-            for item in playlist.items
-        ],
-    }
+        record = {"version": DISC_PLAYLIST_VERSION, "name": None, "clips": []}
+    else:
+        record = {
+            "version": DISC_PLAYLIST_VERSION,
+            "name": playlist.path.name,
+            "clips": [
+                {"id": item.clip_id, "in": item.in_time, "out": item.out_time}
+                for item in playlist.items
+            ],
+        }
+    if fingerprint is not None:
+        record[_AUDIT_KEY] = {
+            "state": "success",
+            "version": DISC_PLAYLIST_VERSION,
+            "fingerprint": fingerprint,
+        }
+    return record
 
 
-def disc_playlist_stale(record: object) -> bool:
-    """台账里的 ``disc_playlist`` 是否缺失或版本落后，需要补探重算。"""
-    return not isinstance(record, dict) or record.get("version") != DISC_PLAYLIST_VERSION
+def disc_playlist_stale(record: object, path: Path | None = None) -> bool:
+    """清单是否缺失、版本落后，或成功审计指纹已变化，需要补探重算。"""
+    if not isinstance(record, dict) or record.get("version") != DISC_PLAYLIST_VERSION:
+        return True
+    audit = record.get(_AUDIT_KEY) or {}
+    if path is None or audit.get("state") != "success":
+        return False
+    fingerprint = audit.get("fingerprint")
+    return fingerprint is not None and disc_playlist_fingerprint(path) != fingerprint
 
 
 def read_main_playlist(disc_dir: Path) -> MplsPlaylist | None:

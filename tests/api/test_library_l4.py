@@ -533,6 +533,44 @@ async def test_new_bluray_changed_after_playlist_read_discards_audit(
     assert row.resolution is None and row.duration_seconds is None
 
 
+async def test_new_bluray_changed_during_identification_discards_audit(
+    db, tmp_path, monkeypatch
+) -> None:
+    """probe 后、识别期间换盘：不能把旧盘清单和规格写到新盘。"""
+    root = tmp_path / "movies"
+    disc = root / "阿凡达 (2009)"
+    playlist_dir = disc / "BDMV" / "PLAYLIST"
+    stream_dir = disc / "BDMV" / "STREAM"
+    playlist_dir.mkdir(parents=True)
+    stream_dir.mkdir()
+    clock = 45_000
+    (playlist_dir / "00001.mpls").write_bytes(_mpls(("00001", 0, clock * 7200)))
+    (stream_dir / "00001.m2ts").write_bytes(b"old-disc")
+    spec = MediaSpec("1080p", "h264", None, 8, 7200, 20_000_000)
+    monkeypatch.setattr(scan_mod, "probe_media", lambda _path: spec)
+    original_identify = scan_mod._identify_with_fallback
+
+    async def changing_identify(*args, **kwargs):
+        identified = await original_identify(*args, **kwargs)
+        (playlist_dir / "00001.mpls").unlink()
+        (stream_dir / "00001.m2ts").unlink()
+        (playlist_dir / "00002.mpls").write_bytes(_mpls(("00002", 0, clock * 5400)))
+        (stream_dir / "00002.m2ts").write_bytes(b"new-disc-content")
+        return identified
+
+    monkeypatch.setattr(scan_mod, "_identify_with_fallback", changing_identify)
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="电影库", kind="movie", root_paths=[str(root)]
+        )
+
+    await scan_library(library.id, backfill_existing_specs=False)
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+    assert row.disc_playlist is None
+    assert row.resolution is None and row.duration_seconds is None
+
+
 async def test_movie_runtime_disambiguation(db, tmp_path, monkeypatch) -> None:
     """同名双候选、文件名无年份：实测 120 分钟 → 唯一命中 runtime=120 的候选。"""
     root = tmp_path / "movies"

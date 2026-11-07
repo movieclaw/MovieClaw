@@ -207,9 +207,9 @@ async def heal_disc_main_playlists() -> int:
                     path = Path(row.file_path)
                     if not await asyncio.to_thread(Path(path, "BDMV").is_dir):
                         continue
-                    if disc_playlist_stale(row.disc_playlist) and await asyncio.to_thread(
-                        disc_playlist_audit_due, row.disc_playlist, path
-                    ):
+                    if await asyncio.to_thread(
+                        disc_playlist_stale, row.disc_playlist, path
+                    ) and await asyncio.to_thread(disc_playlist_audit_due, row.disc_playlist, path):
                         pending.append(row)
                 total_pending += len(pending)
                 if not pending:
