@@ -1430,7 +1430,6 @@ const Player = {
         // mpv cannot render the server's ffmpeg .sup sidecar on HLS/transcode.
         // Re-negotiate with the conservative capability so the server burns it.
         this.context.subtitle_track = ref;
-        this.context.__pgsNegotiated = true;
         if (remember) this.context.__subtitleTouched = true;
         return App.restartPlaybackAt(Math.floor(this.engPos() * 1000));
       }

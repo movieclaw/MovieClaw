@@ -1797,7 +1797,6 @@ class PlaybackController(
                         maxHeight = s.quality?.toLong(),
                         deviceId = deviceId,
                         downlinkBps = lastDownlinkBps?.toLong(),
-                        client = identity.kind,
                     ),
                 )
             } catch (e: CancellationException) {
