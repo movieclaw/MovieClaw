@@ -143,6 +143,12 @@ class LibraryDetailViewModel @Inject constructor(
 
     val origin: String? get() = repository.ui.value.origin
 
+    /**
+     * 每次换查询（重载、跳转）加一。请求在发起时记下这个数，写回前再对一次。
+     * 只取消协程不够：`runCatching` 会吃掉取消，慢响应仍可能在回调里盖掉新结果。
+     */
+    private var queryGeneration = 0
+
     init {
         reload()
     }
@@ -150,11 +156,16 @@ class LibraryDetailViewModel @Inject constructor(
     fun consumeNotice() = _ui.update { it.copy(error = null) }
 
     fun reload() {
+        val originNow = origin ?: return
+        val generation = ++queryGeneration
+        val filter = _ui.value.filter
+        _index.value = emptyList()
+        _ui.update { it.copy(loading = true, loadingMore = false, error = null, windowStart = 0) }
         viewModelScope.launch {
-            val origin = origin ?: return@launch
-            _ui.update { it.copy(loading = true, error = null, windowStart = 0) }
-            runCatching { apiFactory.forOrigin(origin).libraryPage(libraryId, 0, _ui.value.filter) }
+            if (generation != queryGeneration) return@launch
+            runCatching { apiFactory.forOrigin(originNow).libraryPage(libraryId, 0, filter) }
                 .onSuccess { items ->
+                    if (generation != queryGeneration) return@onSuccess
                     _ui.update {
                         it.copy(
                             loading = false,
@@ -163,20 +174,28 @@ class LibraryDetailViewModel @Inject constructor(
                         )
                     }
                 }
-                .onFailure { e -> _ui.update { it.copy(loading = false, error = friendlyMessage(e)) } }
-            loadIndex()
+                .onFailure { e ->
+                    if (generation != queryGeneration) return@onFailure
+                    _ui.update { it.copy(loading = false, error = friendlyMessage(e)) }
+                }
+            if (generation != queryGeneration) return@launch
+            loadIndex(generation, originNow, filter)
         }
     }
 
     fun loadMore() {
         val state = _ui.value
         if (state.loadingMore || !state.hasMore || state.loading) return
+        val originNow = origin ?: return
+        val generation = queryGeneration
+        val filter = state.filter
+        val nextOffset = state.windowStart + state.items.size
+        _ui.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
-            val origin = origin ?: return@launch
-            _ui.update { it.copy(loadingMore = true) }
-            val nextOffset = state.windowStart + state.items.size
-            runCatching { apiFactory.forOrigin(origin).libraryPage(libraryId, nextOffset, state.filter) }
+            if (generation != queryGeneration) return@launch
+            runCatching { apiFactory.forOrigin(originNow).libraryPage(libraryId, nextOffset, filter) }
                 .onSuccess { more ->
+                    if (generation != queryGeneration) return@onSuccess
                     _ui.update {
                         it.copy(
                             loadingMore = false,
@@ -185,7 +204,10 @@ class LibraryDetailViewModel @Inject constructor(
                         )
                     }
                 }
-                .onFailure { _ui.update { it.copy(loadingMore = false) } }
+                .onFailure {
+                    if (generation != queryGeneration) return@onFailure
+                    _ui.update { it.copy(loadingMore = false) }
+                }
         }
     }
 
@@ -215,25 +237,35 @@ class LibraryDetailViewModel @Inject constructor(
         }
     }
 
-    private suspend fun loadIndex() {
-        val origin = origin ?: return
-        val filter = _ui.value.filter
+    private suspend fun loadIndex(generation: Int, origin: String, filter: LibraryFilter) {
+        if (generation != queryGeneration) return
         if (filter.sort != "title") {
             _index.value = emptyList()
             return
         }
         runCatching { apiFactory.forOrigin(origin).libraryItemIndex(libraryId, filter) }
-            .onSuccess { entries -> _index.value = entries }
-            .onFailure { _index.value = emptyList() }
+            .onSuccess { entries ->
+                if (generation != queryGeneration) return@onSuccess
+                _index.value = entries
+            }
+            .onFailure {
+                if (generation != queryGeneration) return@onFailure
+                _index.value = emptyList()
+            }
     }
 
     /** 跳转到首字母档:以该档 offset 为窗口起点重取一页(offset 与排序口径由服务端保证一致) */
     fun jumpTo(entry: LibraryIndexEntry) {
+        val originNow = origin ?: return
+        val generation = ++queryGeneration
+        val filter = _ui.value.filter
+        val offset = entry.offset
+        _ui.update { it.copy(loading = true, loadingMore = false, error = null, windowStart = offset) }
         viewModelScope.launch {
-            val origin = origin ?: return@launch
-            _ui.update { it.copy(loading = true, windowStart = entry.offset) }
-            runCatching { apiFactory.forOrigin(origin).libraryPage(libraryId, entry.offset, _ui.value.filter) }
+            if (generation != queryGeneration) return@launch
+            runCatching { apiFactory.forOrigin(originNow).libraryPage(libraryId, offset, filter) }
                 .onSuccess { items ->
+                    if (generation != queryGeneration) return@onSuccess
                     _ui.update {
                         it.copy(
                             loading = false,
@@ -242,7 +274,10 @@ class LibraryDetailViewModel @Inject constructor(
                         )
                     }
                 }
-                .onFailure { e -> _ui.update { it.copy(loading = false, error = friendlyMessage(e)) } }
+                .onFailure { e ->
+                    if (generation != queryGeneration) return@onFailure
+                    _ui.update { it.copy(loading = false, error = friendlyMessage(e)) }
+                }
         }
     }
 }

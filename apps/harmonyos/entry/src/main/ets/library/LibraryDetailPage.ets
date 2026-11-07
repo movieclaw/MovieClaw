@@ -38,6 +38,7 @@ import {
   fetchWallIndex,
   fetchWallItems
 } from './LibraryWall';
+import { WallIndexGuard } from './WallIndexGuard';
 import { LibraryFilterBar, LibraryFilterEmptyState } from './LibraryFilterBar';
 import { AppFooter } from '../common/AppFooter';
 import { LibraryCollectionsGrid } from './AllCollectionsPage';
@@ -167,6 +168,7 @@ struct LibraryDetailPage {
   private scroller: Scroller = new Scroller();
   private pollTimer: number = -1;
   private started: boolean = false;
+  private wallIndexGeneration: number = 0;
 
   @State private libraries: LibraryView[] | null = null;
   @State private loadFailed: boolean = false;
@@ -514,6 +516,7 @@ struct LibraryDetailPage {
     if (api === null) {
       return;
     }
+    const indexGeneration: number = ++this.wallIndexGeneration;
     const id: number = this.libraryId;
     const manage: boolean = this.canManage();
     try {
@@ -545,8 +548,21 @@ struct LibraryDetailPage {
       await this.pager.refresh();
       this.syncWall();
       if (this.effectiveSort() === 'title' || this.effectiveSort() === 'release_date') {
+        const queryKey: string = this.wallKey();
+        const filter: LibraryFilter = this.filter;
+        const sort: string = this.effectiveSort();
+        const order: string | null = this.order();
         try {
-          this.index = await fetchWallIndex(api, id, this.filter, this.effectiveSort(), this.order());
+          const index: LibraryIndexEntryView[] | null = await WallIndexGuard.load<LibraryIndexEntryView[]>(
+            indexGeneration,
+            (): number => this.wallIndexGeneration,
+            queryKey,
+            (): string => this.wallKey(),
+            (): Promise<LibraryIndexEntryView[]> => fetchWallIndex(api, id, filter, sort, order),
+          );
+          if (index !== null) {
+            this.index = index;
+          }
         } catch (error) {
           // 索引拿不到就先不显示 A–Z 条，下一轮轮询再试
         }
@@ -650,12 +666,14 @@ struct LibraryDetailPage {
     if (api === null) {
       return;
     }
+    const indexGeneration: number = ++this.wallIndexGeneration;
     this.index = [];
     // 换排序 / 筛选：图廊窗口也回墙首（同 iOS onChange(of: wallKey)）
     this.galleryStart = 0;
     const filter: LibraryFilter = this.filter;
     const sort: string = this.effectiveSort();
     const order: string | null = this.order();
+    const queryKey: string = this.wallKey();
     const libraryId: number = this.libraryId;
     const fetch = (offset: number, limit: number): Promise<LibraryItemView[]> => {
       return fetchWallItems(api, libraryId, filter, sort, order, limit, offset)
@@ -671,9 +689,20 @@ struct LibraryDetailPage {
     this.syncWall();
     if (sort === 'title' || sort === 'release_date') {
       try {
-        this.index = await fetchWallIndex(api, libraryId, filter, sort, order);
+        const index: LibraryIndexEntryView[] | null = await WallIndexGuard.load<LibraryIndexEntryView[]>(
+          indexGeneration,
+          (): number => this.wallIndexGeneration,
+          queryKey,
+          (): string => this.wallKey(),
+          (): Promise<LibraryIndexEntryView[]> => fetchWallIndex(api, libraryId, filter, sort, order),
+        );
+        if (index !== null) {
+          this.index = index;
+        }
       } catch (error) {
-        this.index = [];
+        if (indexGeneration === this.wallIndexGeneration && queryKey === this.wallKey()) {
+          this.index = [];
+        }
       }
     }
   }
