@@ -29,7 +29,7 @@ class HarmonyReleaseTest(unittest.TestCase):
             "debug": debug,
             "buildMode": "debug" if debug else "release",
             "versionName": "1.0.0",
-            "versionCode": 1000000,
+            "versionCode": 1000002,
             "minAPIVersion": 60101024,
         }
         with zipfile.ZipFile(path, "w") as archive:

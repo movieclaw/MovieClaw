@@ -32,6 +32,7 @@
 
 - 版本应为：服务器 `pyproject.toml` 与 `src/movieclaw_api/__init__.py` 均是 0.49.0；Apple 共用 `MARKETING_VERSION` 是 0.12.5。
 - `release-status.py --ref HEAD --offline` 应显示服务器和 iPhone / iPad 可以发；Apple TV 与 Mac 会因为共用的 `MARKETING_VERSION` 机械显示可以发，但它们没有用户可见产品变化，不打 tag。
+- `downloads / metadata` 首次运行和一次重跑都暴露了同一处确定性问题：Harmony CLI 测试包仍写 `versionCode=1000000`，但当前 `AppScope/app.json5` 已是 `1000002`。本 PR 同步这一个测试夹具字段；真实 CLI 的版本一致性校验保持不变。
 - iOS 改了返回转场布局。CI 编译和测试之外，仍建议在 iPhone 与 iPad 宽度各检查一次完成/取消返回手势和键盘展开/收起。
 - 服务器改了默认字幕、远端取流、跨源跳转和蓝光补探。仍需用真实媒体服务器插件与原盘检查直放、seek / 重连、字幕、转码和启动自愈，并完成 release skill 第七节的硬件矩阵。
 - 不运行 Apple 打包，不上传 TestFlight，不提交 App Store 审核。
