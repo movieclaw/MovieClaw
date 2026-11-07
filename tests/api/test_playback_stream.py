@@ -1639,6 +1639,37 @@ def test_stored_disc_image_durations_are_healed_from_the_main_title(client, tmp_
     assert client.portal.call(durations) == [900, 4]
 
 
+def test_incomplete_disc_image_does_not_heal_persistent_duration(client, tmp_path, monkeypatch):
+    from tests.api.test_iso_source import _image_with_a_smaller_copy
+
+    from movieclaw_api.services.library.disc_image_durations import heal_disc_image_durations
+    from movieclaw_api.services.playback import iso_source
+
+    file_id = seed(
+        client,
+        tmp_path,
+        container="iso",
+        data=_image_with_a_smaller_copy(metadata=False),
+        duration_seconds=4,
+    )
+    original = iso_source.parse_mpls_playlist
+
+    def incomplete(data, *, path=Path("unknown.mpls")):
+        if path.name == "00013.mpls":
+            raise iso_source.MplsParseError("temporary short read")
+        return original(data, path=path)
+
+    iso_source.clear_cache()
+    monkeypatch.setattr(iso_source, "parse_mpls_playlist", incomplete)
+    assert client.portal.call(heal_disc_image_durations) == 0
+
+    async def duration():
+        async with get_database().session() as session:
+            return (await session.get(LibraryFile, file_id)).duration_seconds
+
+    assert client.portal.call(duration) == 4
+
+
 def test_stored_disc_image_bit_rates_are_healed_without_reprobing(client, tmp_path, monkeypatch):
     """存量 ISO 的台账码率（ffprobe 算的，NAS 实测高出上千倍、也有低到二十分之一的）随片长自愈一起
     换成盘内正片的平均码率，不跑 ffprobe。读不出盘内结构的记未知；片库没挂上、还没探测过的不动。

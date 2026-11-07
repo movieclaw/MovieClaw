@@ -135,7 +135,8 @@ def _bluray_iso_index(reader: UDFReader) -> ContainerIndex | None:
             playlists.append(parse_mpls_playlist(data, path=Path(f"{stem}.mpls")))
         except (UDFError, MplsParseError) as exc:
             logger.debug("镜像里的 MPLS 跳过：%s（%s）", entry.name, exc)
-    playlist = select_main_playlist(playlists, stream_sizes(reader, streams))
+    sizes, _incomplete = stream_sizes(reader, streams)
+    playlist = select_main_playlist(playlists, sizes)
     if playlist is None:
         return None
 

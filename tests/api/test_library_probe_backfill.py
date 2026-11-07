@@ -669,9 +669,9 @@ def _version_1_record(clip_id: str) -> dict:
 
 
 def _current_record(clip_id: str, *, seconds: int = 5648) -> dict:
-    """版本已是最新的台账清单。旧版部分读取落账之后就是这个形状。"""
+    """v2 台账清单：历史部分读取落账之后就是这个形状。"""
     return {
-        "version": DISC_PLAYLIST_VERSION,
+        "version": 2,
         "name": f"{clip_id}.mpls",
         "clips": [{"id": clip_id, "in": 0, "out": 45_000 * seconds}],
     }
@@ -1020,7 +1020,7 @@ async def test_current_version_wrong_folder_recovers_only_after_a_complete_read(
 
 
 async def test_current_version_correct_folder_is_not_rewritten(db, tmp_path, monkeypatch) -> None:
-    """清单本来就是正片：部分读取失败和随后的完整重读都不改台账，也不跑 ffprobe。"""
+    """清单本来就是正片：完整重读只盖 v3，之后启动和手动扫描都不再读。"""
     file_id = await _stored_folder_disc(
         db, tmp_path, recorded_clip="00001", playlist=_current_record("00001")
     )
@@ -1041,7 +1041,19 @@ async def test_current_version_correct_folder_is_not_rewritten(db, tmp_path, mon
 
     fail_main = False
     assert await heal_disc_main_playlists() == 0
-    assert _ledger_view(await _load(db, file_id)) == before
+    verified = await _load(db, file_id)
+    assert verified.disc_playlist is not None
+    assert verified.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert verified.disc_playlist["clips"] == before["disc_playlist"]["clips"]
+    for field, value in _SMALL_COPY_FIELDS.items():
+        assert getattr(verified, field) == value, field
+    after_verification = _ledger_view(verified)
+
+    def unexpected_read(_path):
+        raise AssertionError("v3 清单不应再完整重读")
+
+    monkeypatch.setattr(items_mod, "read_main_playlist_result", unexpected_read)
+    assert await heal_disc_main_playlists() == 0
 
     row = await _load(db, file_id)
     async with db.session() as session:
@@ -1053,7 +1065,7 @@ async def test_current_version_correct_folder_is_not_rewritten(db, tmp_path, mon
             scan_mod.ScanState(phase=scan_mod.ScanPhase.WALKING),
         )
     assert summary.probed == 0
-    assert _ledger_view(await _load(db, file_id)) == before
+    assert _ledger_view(await _load(db, file_id)) == after_verification
 
 
 async def test_current_version_folder_without_playlists_keeps_the_record(
@@ -1194,7 +1206,9 @@ async def test_heal_reprobes_only_the_images_whose_main_playlist_changed(
     assert (row.resolution, row.duration_seconds) == ("1080p", 7112)
     assert [stream["codec"] for stream in row.audio_streams or []] == ["truehd", "ac3"]
     untouched = await _load(db, same)
-    assert untouched.disc_playlist is None
+    assert untouched.disc_playlist is not None
+    assert untouched.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert untouched.disc_playlist["name"] == "00013.mpls"
     for field, value in _SMALL_COPY_FIELDS.items():
         assert getattr(untouched, field) == value, field
 
@@ -1207,7 +1221,7 @@ async def test_heal_reprobes_only_the_images_whose_main_playlist_changed(
 
 def _image_record(name: str, clip_id: str, seconds: int) -> dict:
     return {
-        "version": DISC_PLAYLIST_VERSION,
+        "version": 2,
         "name": name,
         "clips": [{"id": clip_id, "in": 0, "out": 45_000 * seconds}],
     }

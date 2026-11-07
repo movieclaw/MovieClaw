@@ -77,6 +77,7 @@ from movieclaw_api.services.library.bluray import (
     enrich_spec_with_clpi,
     read_clpi_languages,
     read_main_playlist,
+    read_main_playlist_result,
     streams_have_clpi_metadata,
 )
 from movieclaw_api.services.library.layout import (
@@ -2666,9 +2667,16 @@ def scanned_media_source(attrs: TorrentAttrs, container: str | None = None) -> s
     return attrs.media_source
 
 
-def disc_main_stream(disc_dir: Path, *, playlist: MplsPlaylist | None = None) -> Path | None:
+_PLAYLIST_UNREAD = object()
+
+
+def disc_main_stream(
+    disc_dir: Path, *, playlist: MplsPlaylist | None | object = _PLAYLIST_UNREAD
+) -> Path | None:
     """原盘主流文件（探测用）：蓝光优先按 MPLS 主播放列表，损坏盘降级取最大流。"""
-    playlist = playlist or read_main_playlist(disc_dir)
+    if playlist is _PLAYLIST_UNREAD:
+        playlist = read_main_playlist(disc_dir)
+    assert playlist is None or isinstance(playlist, MplsPlaylist)
     if playlist is not None:
         stream_dir = disc_dir / "BDMV" / "STREAM"
         try:
@@ -3500,9 +3508,20 @@ async def _ingest_file(
     # 直接跳过——去探 strm 内部的 URL 既慢又不可靠（直链多带时效鉴权），
     # 还违背 strm"扫库零流量"的初衷，规格列留空即可
     is_strm = not is_disc and file.suffix.lower() == STRM_EXT
-    probe_target = (
-        None if is_strm or cloud is not None else (disc_main_stream(file) if is_disc else file)
-    )
+    is_bluray = is_disc and (file / "BDMV").is_dir()
+    playlist: MplsPlaylist | None = None
+    playlist_retryable = False
+    if is_bluray:
+        playlist_result = await asyncio.to_thread(read_main_playlist_result, file)
+        playlist_retryable = playlist_result.retryable
+        if not playlist_retryable:
+            playlist = playlist_result.playlist
+        # 显式传 None 表示清单已读完但无结果，不在事件循环里二次重读。
+        probe_target = await asyncio.to_thread(disc_main_stream, file, playlist=playlist)
+    elif is_disc:
+        probe_target = await asyncio.to_thread(disc_main_stream, file)
+    else:
+        probe_target = None if is_strm or cloud is not None else file
     if probe_target is None:
         spec = None
     elif prefetched_probe is not None:
@@ -3519,13 +3538,12 @@ async def _ingest_file(
         else:
             note_probe_success(str(file))
     disc_playlist: dict | None = None
-    if spec is not None and is_disc and (file / "BDMV").is_dir():
+    if spec is not None and is_bluray:
         # m2ts 常常不带语言描述符；同编号 CLPI 用 PID 补齐，已有 ffprobe
         # 语言保持不动。缺失/损坏 CLPI 只降级，不影响原盘入账。
         languages = await asyncio.to_thread(read_clpi_languages, probe_target)
         if languages is not None:
             spec = enrich_spec_with_clpi(spec, languages)
-        playlist = await asyncio.to_thread(read_main_playlist, file)
         if playlist is not None and playlist.duration_seconds > 0:
             # 时长与章节都以主播放列表为准：m2ts 没有章节，单个剪辑的时长也
             # 不等于正片（多剪辑主片 / 播放列表只用剪辑的一截）
@@ -3705,6 +3723,9 @@ async def _ingest_file(
         review_suggestion=review_suggestion,
         local_bytes=cloud is None,
     )
+    if playlist_retryable and existing is not None:
+        # 缺失回归时保留旧清单；新行留空，由 stale 补探重试。
+        new_row.disc_playlist = existing.disc_playlist
     if cloud is not None and existing is not None:
         # 纳管文件重走识别链（识别重试、缺失回归）时本轮没探测：后台补探过的规格原样保留
         for column in _SPEC_COLUMNS:
@@ -3914,7 +3935,6 @@ async def _probe_backfill(
     # strm 占位文件永远探不出规格（本体没有媒体流），不进分母——否则
     # strm 库每轮扫描都会报"待补 N、探测 0"，像坏了一样
     rows = [row for row in rows if not row.file_path.lower().endswith(STRM_EXT)]
-    disc_replacements: dict = {}
     if limit is not None:
         # 限量自愈：只挑从未探测成功且退避到点的行，取前 limit 个。ffprobe
         # 后装的存量库也借此每轮慢慢补上一小批，而不是干等手动扫描。
@@ -3923,22 +3943,30 @@ async def _probe_backfill(
             row for row in rows if row.audio_streams is None and probe_retry_due(row.file_path)
         ][:limit]
     else:
-        # 版本已是最新、清单却可能是旧版部分读取落下的花絮。只把完整重读
-        # 对不上的行加进补探；对得上的不进分母，也不改台账。
-        from movieclaw_api.services.library.disc_main_playlists import conflicting_disc_playlist
+        # ISO 与启动自愈共用同一个完整性审计入口；只审计版本落后的行。
+        from movieclaw_api.services.library.disc_main_playlists import (
+            audit_disc_image_playlist,
+        )
 
         seen = {row.id for row in rows}
+        image_stamped = False
         for row in fetched:
-            if row.container != "bluray" or row.id is None:
+            if (
+                row.container != "iso"
+                or row.id is None
+                or not disc_playlist_stale(row.disc_playlist)
+            ):
                 continue
             summary.yield_seconds += await yield_to_foreground()
-            replacement = await conflicting_disc_playlist(row)
-            if replacement is None:
-                continue
-            disc_replacements[row.id] = replacement
-            if row.id not in seen:
+            if bridge is not None:
+                await bridge.raise_if_cancelled()
+            verified, reprobe = await audit_disc_image_playlist(row)
+            image_stamped |= verified
+            if reprobe and row.id not in seen:
                 rows.append(row)
                 seen.add(row.id)
+        if image_stamped:
+            await session.commit()
     if not rows:
         return
     state.phase = ScanPhase.PROBING
@@ -3965,7 +3993,6 @@ async def _probe_backfill(
         limit=None,
         on_processed=_tick,
         on_checkpoint=_checkpoint,
-        disc_replacements=disc_replacements,
     )
     logger.info(
         "媒体库 #%s 介质规格补探结束：探测 %d / 待补 %d%s",

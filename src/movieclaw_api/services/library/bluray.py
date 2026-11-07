@@ -219,7 +219,8 @@ def _parse_playlist_marks(data: bytes, items: tuple[MplsPlayItem, ...]) -> tuple
 #: 台账 ``library_file.disc_playlist`` 的版本。字段集或选主片的规则变了就 +1，
 #: 补探会把旧版本的行重算一遍（与 CLPI 语言版本戳同一思路）。
 #: 2 = 长度相近时比字节（见 ``select_main_playlist``），字段集没变。
-DISC_PLAYLIST_VERSION = 2
+#: 3 = 用完整性状态重读 v2 清单，修正历史上部分读取落账的候选。
+DISC_PLAYLIST_VERSION = 3
 
 
 def disc_playlist_record(playlist: MplsPlaylist | None) -> dict:
