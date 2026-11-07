@@ -2742,11 +2742,7 @@ const App = {
       };
       if (item.file_id != null) body.file_id = Number(item.file_id);
       if (item.audio_track != null) body.audio_track = item.audio_track;
-      // mpv's tier is not known yet. Let the first direct-play session open
-      // without a PGS selection; initializeTracks can then select an embedded
-      // native track. A non-direct session reopens with the conservative claim
-      // and the server burns PGS instead of receiving a .sup sidecar.
-      if (item.subtitle_track != null && !(wantsMpv && !item.__pgsNegotiated && String(item.subtitle_track).startsWith('embedded:'))) body.subtitle_track = item.subtitle_track;
+      if (item.subtitle_track != null) body.subtitle_track = item.subtitle_track;
       if (item.seasonNumber != null) body.season_number = Number(item.seasonNumber);
       if (item.episodeNumber != null) body.episode_number = Number(item.episodeNumber);
       // 上几档播失败了：带上让服务端跳过它们换下一档（decide.py 降档回路）

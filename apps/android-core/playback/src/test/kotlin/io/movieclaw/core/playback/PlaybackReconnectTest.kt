@@ -5,6 +5,7 @@ import android.media.MediaFormat
 import androidx.media3.common.Format
 import androidx.media3.common.C
 import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.PlaybackException
@@ -117,8 +118,8 @@ class PlaybackReconnectTest {
             runCurrent()
             assertEquals(1, f.sessions.size)
             assertFalse(f.sessionRequest(0).burnRequested == true)
-            f.emitEmbeddedPgsTrack()
-            val override = f.controller.player.trackSelectionParameters.overrides[C.TRACK_TYPE_TEXT]
+            val group = f.emitEmbeddedPgsTrack()
+            val override = f.controller.player.trackSelectionParameters.overrides.get<TrackGroup, TrackSelectionOverride>(group)
             assertTrue(override != null)
             assertEquals(listOf(0), override!!.trackIndices)
 
@@ -275,9 +276,9 @@ class PlaybackReconnectTest {
                     if (request.url.encodedPath == "/api/v1/playback/decide") {
                         decides += request
                         val body = McJson.decodeFromString<io.movieclaw.core.model.generated.PlaybackDecideRequest>(request.body!!.utf8())
-                        val burn = if (body.burnRequested == true) "\"burn_subtitle\":\"embedded:0\"," else ""
+                        val burn = if (body.burnRequested == true) ",\"burn_subtitle\":\"embedded:0\"" else ""
                         return MockResponse.Builder().body(
-                            """{"data":{"outcome":"plan","tier":$tier,"file_id":7,"video":{"action":"transcode","$burn"subtitles":[]}}}""",
+                            """{"data":{"outcome":"plan","tier":$tier,"file_id":7,"video":{"action":"transcode"$burn},"subtitles":[]}}""",
                         ).build()
                     }
                     if (request.url.encodedPath == "/api/v1/playback/sessions") {
@@ -286,12 +287,12 @@ class PlaybackReconnectTest {
                         val failed = sessionBody.failedTiers.orEmpty()
                         val nextTier = if (tier.toLong() in failed) tier + 1 else tier
                         val decision = if (pgs) {
-                            val burn = if (sessionBody.burnRequested == true) "\"burn_subtitle\":\"embedded:0\"," else "\"burn_subtitle\":null,"
-                            "\"subtitles\":[{\"track_ref\":\"embedded:0\",\"kind\":\"pgs\",\"language\":\"eng\",\"is_default\":false}],\"video\":{\"action\":\"copy\",$burn"
+                            val burn = if (sessionBody.burnRequested == true) ",\"burn_subtitle\":\"embedded:0\"" else ""
+                            ",\"subtitles\":[{\"track_ref\":\"embedded:0\",\"kind\":\"pgs\",\"language\":\"eng\",\"is_default\":false}],\"video\":{\"action\":\"copy\"$burn}"
                         } else ""
                         val urls = if (pgs) "\"subtitle_urls\":[\"/subtitle.sup\"]," else ""
                         return MockResponse.Builder().code(status).body(
-                            """{"data":{"decision":{"outcome":"play","tier":$nextTier,"file_id":7,$decision"stream_url":"/stream?token=t","start_ms":45000,$urls"watch":null}}}"""
+                            """{"data":{"decision":{"outcome":"play","tier":$nextTier,"file_id":7$decision},"stream_url":"/stream?token=t","start_ms":45000,$urls"watch":null}}"""
                         ).build()
                     }
                     return MockResponse.Builder().body("""{"data":{}}""").build()
@@ -332,11 +333,12 @@ class PlaybackReconnectTest {
 
         fun sessionRequest(index: Int) = McJson.decodeFromString<PlaybackSessionRequest>(sessions[index].body!!.utf8())
 
-        fun emitEmbeddedPgsTrack() {
+        fun emitEmbeddedPgsTrack(): TrackGroup {
             val group = TrackGroup(Format.Builder().setId("0").setSampleMimeType(androidx.media3.common.MimeTypes.APPLICATION_PGS).build())
             val tracks = Tracks(listOf(Tracks.Group(group, false, intArrayOf(C.FORMAT_HANDLED), booleanArrayOf(false))))
             PlaybackController::class.java.getDeclaredMethod("handleTracks", Tracks::class.java)
                 .apply { isAccessible = true }.invoke(controller, tracks)
+            return group
         }
 
         fun decoderFailure(code: Int) {
