@@ -230,7 +230,8 @@ export function ImmersiveHero<T>({
 }: ImmersiveHeroProps<T>) {
   const count = slides.length;
   const current = count > 0 ? Math.min(index, count - 1) : 0;
-  // 页面从后台回到前台时 +1：重新计时、指示器从头填（后台期间不推进）
+  // 页面从后台回到前台时 +1：重新计时、指示器从头填（后台期间不推进）。
+  // 另外「待上台被取消」时也 +1：让计时器和进度条从同一个时刻一起重头跑（见下方 pendingSwitch）。
   const [cycle, setCycle] = useState(0);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const changeRef = useRef(onIndexChange);
@@ -266,6 +267,18 @@ export function ImmersiveHero<T>({
   useEffect(() => {
     onPresentedRef.current?.(visible);
   }, [visible, visibleKey]);
+
+  // 待上台被取消（目标又回到正在展示的那张）时，把计时和进度条一起从头开始。
+  //
+  // 不这么做就会脱节：A 在展示 → 点未解码的 B（pendingSwitch，JS 计时器停了，
+  // A 的进度条动画还在跑）→ 又切回 A（pendingSwitch 变回 false），计时 effect 会重开
+  // 一个完整 interval，而进度条的 key 还是 A——动画既不暂停也不重启，条可能已经
+  // 填满甚至停在满格，实际停留却才刚开始。
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pendingSwitch) setCycle((value) => value + 1);
+    wasPending.current = pendingSwitch;
+  }, [pendingSwitch]);
 
   // 轮播计时：**从真正上台的那一刻**开始算满一个停留时长，不跟目标下标走。
   //
@@ -370,7 +383,11 @@ export function ImmersiveHero<T>({
                 <span
                   key={`${visibleKey === null ? "" : String(visibleKey)}-${cycle}`}
                   className="absolute inset-0 origin-left rounded-full bg-white/95"
-                  style={{ animation: `immersive-hero-fill ${interval}ms linear forwards` }}
+                  style={{
+                    animation: `immersive-hero-fill ${interval}ms linear forwards`,
+                    // 等目标张解码的那一小段先冻住：这张又还没走完，让它把条填满再回来会误导
+                    animationPlayState: pendingSwitch ? "paused" : "running",
+                  }}
                 />
               </span>
             ) : (
