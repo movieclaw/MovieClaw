@@ -14,7 +14,9 @@ export class MovieClawPlaybackGateway {
     for (const codec of audios) { audio.push({ codec: codec }); }
     return { video: video, audio: audio, containers: engine === 'mpv'
       ? ['mp4', 'mkv', 'ts', 'avi', 'mov', 'webm', 'flv'] : ['mp4', 'mkv', 'ts'],
-      local_tracks: true, hdr_passthrough: false, mse: 'full', native_hls: true, is_mobile: true, universal: false };
+      local_tracks: true, hdr_passthrough: false, mse: 'full', native_hls: true, is_mobile: true, universal: false,
+      // mpv renders embedded PGS itself; AVPlayer does not and must retain the server burn-in fallback.
+      pgs_overlay: engine === 'mpv' };
   }
   private api: MovieClawApi;
   private slug: string;

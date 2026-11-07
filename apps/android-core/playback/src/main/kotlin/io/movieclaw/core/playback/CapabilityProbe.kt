@@ -46,6 +46,10 @@ class CapabilityProbe(
             dolbyVisionProfiles = dolbyVision.map(Int::toLong).sorted(),
             dolbyVisionBaseLayerProfiles = baseLayer.map(Int::toLong).sorted(),
             mp4SampleLimit = BufferBudget.mp4SampleLimit(Runtime.getRuntime().maxMemory()),
+            // Media3 includes a native PGS decoder for embedded MKV/MP4 and subtitle
+            // configurations. Declaring this keeps the server from treating a
+            // selected bitmap track as an implicit burn-in request.
+            pgsOverlay = true,
         )
     }
 
