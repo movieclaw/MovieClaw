@@ -34,10 +34,11 @@ const { WallIndexGuard } = load('entry/src/main/ets/library/WallIndexGuard.ets')
 
 test('a late index from the previous query is dropped', async () => {
   let current = 'title||wunfinished';
+  let generation = 0;
   const published = [];
   const first = deferred();
   const second = deferred();
-  const run = (key, pending) => WallIndexGuard.load(key, () => current, () => pending.promise)
+  const run = (key, pending) => WallIndexGuard.load(++generation, () => generation, key, () => current, () => pending.promise)
     .then((index) => {
       if (index !== null) published.push(index);
     });
@@ -53,10 +54,11 @@ test('a late index from the previous query is dropped', async () => {
 
 test('a late index failure does not clear the index of the newer query', async () => {
   let current = 'title||wunfinished';
+  let generation = 0;
   const published = [];
   const first = deferred();
   const second = deferred();
-  const run = (key, pending) => WallIndexGuard.load(key, () => current, () => pending.promise)
+  const run = (key, pending) => WallIndexGuard.load(++generation, () => generation, key, () => current, () => pending.promise)
     .then((index) => {
       if (index !== null) published.push(index);
       return 'kept';
@@ -74,16 +76,61 @@ test('a late index failure does not clear the index of the newer query', async (
 
 test('the current query still publishes its index and still reports its own failure', async () => {
   let current = 'title||';
-  const index = await WallIndexGuard.load(current, () => current, async () => [{ initial: 'A' }]);
+  let generation = 1;
+  const index = await WallIndexGuard.load(generation, () => generation, current, () => current, async () => [{ initial: 'A' }]);
   assert.deepEqual(index, [{ initial: 'A' }]);
+  generation += 1;
   await assert.rejects(
-    WallIndexGuard.load(current, () => current, async () => { throw new Error('down'); }),
+    WallIndexGuard.load(generation, () => generation, current, () => current, async () => { throw new Error('down'); }),
     /down/,
   );
+});
+
+test('an old A response is dropped after the query changes from A to B to A', async () => {
+  let current = 'A';
+  let generation = 0;
+  const published = [];
+  const firstA = deferred();
+  const middleB = deferred();
+  const latestA = deferred();
+  const run = (key, pending) => WallIndexGuard.load(++generation, () => generation, key, () => current, () => pending.promise)
+    .then((index) => {
+      if (index !== null) published.push(index);
+    });
+
+  const oldLoad = run('A', firstA);
+  current = 'B';
+  const middleLoad = run('B', middleB);
+  current = 'A';
+  const newLoad = run('A', latestA);
+  latestA.resolve([{ initial: 'new A' }]);
+  await newLoad;
+  middleB.resolve([{ initial: 'B' }]);
+  await middleLoad;
+  firstA.resolve([{ initial: 'old A' }]);
+  await oldLoad;
+
+  assert.deepEqual(published, [[{ initial: 'new A' }]]);
+});
+
+test('the older of two concurrent requests for the same key is dropped', async () => {
+  const current = 'A';
+  let generation = 0;
+  const first = deferred();
+  const second = deferred();
+  const oldLoad = WallIndexGuard.load(++generation, () => generation, current, () => current, () => first.promise);
+  const newLoad = WallIndexGuard.load(++generation, () => generation, current, () => current, () => second.promise);
+
+  second.resolve([{ initial: 'new A' }]);
+  assert.deepEqual(await newLoad, [{ initial: 'new A' }]);
+  first.resolve([{ initial: 'old A' }]);
+  assert.equal(await oldLoad, null);
 });
 
 test('both library detail index writes go through the guard', () => {
   const page = fs.readFileSync(path.join(root, 'entry/src/main/ets/library/LibraryDetailPage.ets'), 'utf8');
   assert.equal(page.includes('this.index = await fetchWallIndex'), false);
   assert.equal(page.split('WallIndexGuard.load').length - 1, 2);
+  assert.equal(page.split('++this.wallIndexGeneration').length - 1, 2);
+  assert.equal(page.split('(): number => this.wallIndexGeneration').length - 1, 2);
 });

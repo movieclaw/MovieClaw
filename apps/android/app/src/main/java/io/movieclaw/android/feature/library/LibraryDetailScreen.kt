@@ -159,6 +159,7 @@ class LibraryDetailViewModel @Inject constructor(
         val originNow = origin ?: return
         val generation = ++queryGeneration
         val filter = _ui.value.filter
+        _index.value = emptyList()
         _ui.update { it.copy(loading = true, loadingMore = false, error = null, windowStart = 0) }
         viewModelScope.launch {
             if (generation != queryGeneration) return@launch

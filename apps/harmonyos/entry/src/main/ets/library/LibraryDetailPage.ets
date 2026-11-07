@@ -168,6 +168,7 @@ struct LibraryDetailPage {
   private scroller: Scroller = new Scroller();
   private pollTimer: number = -1;
   private started: boolean = false;
+  private wallIndexGeneration: number = 0;
 
   @State private libraries: LibraryView[] | null = null;
   @State private loadFailed: boolean = false;
@@ -515,6 +516,7 @@ struct LibraryDetailPage {
     if (api === null) {
       return;
     }
+    const indexGeneration: number = ++this.wallIndexGeneration;
     const id: number = this.libraryId;
     const manage: boolean = this.canManage();
     try {
@@ -552,6 +554,8 @@ struct LibraryDetailPage {
         const order: string | null = this.order();
         try {
           const index: LibraryIndexEntryView[] | null = await WallIndexGuard.load<LibraryIndexEntryView[]>(
+            indexGeneration,
+            (): number => this.wallIndexGeneration,
             queryKey,
             (): string => this.wallKey(),
             (): Promise<LibraryIndexEntryView[]> => fetchWallIndex(api, id, filter, sort, order),
@@ -662,6 +666,7 @@ struct LibraryDetailPage {
     if (api === null) {
       return;
     }
+    const indexGeneration: number = ++this.wallIndexGeneration;
     this.index = [];
     // 换排序 / 筛选：图廊窗口也回墙首（同 iOS onChange(of: wallKey)）
     this.galleryStart = 0;
@@ -685,6 +690,8 @@ struct LibraryDetailPage {
     if (sort === 'title' || sort === 'release_date') {
       try {
         const index: LibraryIndexEntryView[] | null = await WallIndexGuard.load<LibraryIndexEntryView[]>(
+          indexGeneration,
+          (): number => this.wallIndexGeneration,
           queryKey,
           (): string => this.wallKey(),
           (): Promise<LibraryIndexEntryView[]> => fetchWallIndex(api, libraryId, filter, sort, order),
@@ -693,7 +700,7 @@ struct LibraryDetailPage {
           this.index = index;
         }
       } catch (error) {
-        if (queryKey === this.wallKey()) {
+        if (indexGeneration === this.wallIndexGeneration && queryKey === this.wallKey()) {
           this.index = [];
         }
       }

@@ -44,9 +44,11 @@ class LibraryDetailStaleResponseTest {
     private lateinit var gate: HoldGate
 
     @Test fun `slow reload and index do not overwrite a newer filter`() = runLibrary {
-        gate.hold("items:unfinished:0")
         gate.hold("index:unfinished")
         val vm = newModel("unfinished")
+        assertTrue(gate.await("index:unfinished"))
+        gate.hold("items:unfinished:0")
+        vm.reload()
         assertTrue(gate.await("items:unfinished:0"))
         vm.applyFilter(LibraryFilter(sort = "title"))
         waitFor { vm.ui.value.items.singleOrNull()?.title == "All" && vm.index.value.singleOrNull()?.initial == "A" }
@@ -56,6 +58,24 @@ class LibraryDetailStaleResponseTest {
         assertEquals(listOf("All"), vm.ui.value.items.map { it.title })
         assertEquals(listOf("A"), vm.index.value.map { it.initial })
         assertNull(vm.ui.value.error)
+    }
+
+    @Test fun `old index cannot jump while the new index is loading`() = runLibrary {
+        val vm = newModel("unfinished")
+        waitFor { vm.index.value.singleOrNull()?.initial == "U" }
+        gate.hold("index:all")
+        vm.applyFilter(LibraryFilter(sort = "title"))
+        assertTrue(gate.await("index:all"))
+        waitFor { vm.ui.value.items.singleOrNull()?.title == "All" && !vm.ui.value.loading }
+
+        assertTrue(vm.index.value.isEmpty())
+        vm.index.value.firstOrNull()?.let(vm::jumpTo)
+        settle()
+        assertEquals(listOf("All"), vm.ui.value.items.map { it.title })
+        assertEquals(0, vm.ui.value.windowStart)
+
+        gate.release("index:all")
+        waitFor { vm.index.value.singleOrNull()?.initial == "A" }
     }
 
     @Test fun `slow load more is not appended onto the new filter`() = runLibrary {
@@ -172,7 +192,7 @@ class LibraryDetailStaleResponseTest {
             val watch = watchOf(path)
             val offset = offsetOf(path)
             val body = when {
-                path.contains("item-index") -> """{"success":true,"data":[{"initial":"${initialOf(watch)}","count":1,"offset":0}]}"""
+                path.contains("item-index") -> """{"success":true,"data":[{"initial":"${initialOf(watch)}","count":1,"offset":${indexOffsetOf(watch)}}]}"""
                 path.contains("/items") && offset == 60 -> items("Late", 1, 1000)
                 path.contains("/items") && offset == 40 -> items("Jump", 1, 2000)
                 path.contains("/items") && watch == "unfinished" -> items("Unfinished", if (wide && offset == 0) 60 else 1, 1)
@@ -195,6 +215,8 @@ class LibraryDetailStaleResponseTest {
             Regex("""[?&]offset=(\d+)""").find(path)?.groupValues?.get(1)?.toInt() ?: 0
 
         private fun initialOf(watch: String): String = if (watch == "unfinished") "U" else "A"
+
+        private fun indexOffsetOf(watch: String): Int = if (watch == "unfinished") 40 else 0
 
         private fun items(title: String, count: Int, idBase: Long): String {
             val rows = (0 until count).joinToString(",") { index ->
