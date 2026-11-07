@@ -255,6 +255,8 @@ class PlaybackController(
     private var rememberedSubtitle: String? = null
     /** 要服务端烧录的字幕（图形字幕放服务端流时）；"off" = 撤下烧录 */
     private var requestedSubtitle: String? = null
+    /** 用户显式要求服务端压制的 PGS 轨；普通选轨永远留给 Exo。 */
+    private var requestedBurnSubtitle: String? = null
     private var requestedAudio: String? = null
     /** 起播音轨：直连原文件时 Exo 读到轨后显式选服务端计划里的那条 */
     private var pendingInitialAudio: Int? = null
@@ -497,6 +499,7 @@ class PlaybackController(
         rememberedSubtitle = null
         requestedAudio = null
         requestedSubtitle = null
+        requestedBurnSubtitle = null
         nativeFailed = false
         localFailed = false
         nativeRetries.reset()
@@ -756,6 +759,7 @@ class PlaybackController(
             audioTrack = requestedAudio,
             // Exo 直连时自己画内封 / 外挂字幕，不需要服务端烧录：默认显式传 off，挡住记忆轨触发的烧录
             subtitleTrack = requestedSubtitle ?: "off",
+            burnRequested = requestedBurnSubtitle != null,
             maxHeight = s.quality?.toLong(),
             downlinkBps = lastDownlinkBps?.toLong(),
             startMs = startMs,
@@ -836,9 +840,17 @@ class PlaybackController(
             "consent" -> {
                 val wanted = requestedSubtitle
                 if (wanted != null && wanted != "off") {
+                    if (requestedBurnSubtitle != null) {
+                        // Explicit burn action: keep the request intact while the user
+                        // decides whether to enable software transcode.
+                        record?.beginUserWait()
+                        set { copy(pendingDecision = decision, phase = Phase.Consent) }
+                        return
+                    }
                     // 烧录撞上软件转码同意：自动退回不烧录，不打断观看；图形字幕画不了，菜单里不能还挂着选中态
                     val dropped = s.subtitles.options.firstOrNull { it.ref == wanted }
                     requestedSubtitle = "off"
+                    requestedBurnSubtitle = null
                     if (dropped?.kind == "pgs") {
                         subtitleTouched = true
                         set { copy(selectedSubtitle = null) }
@@ -954,7 +966,7 @@ class PlaybackController(
                     setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build())
                 }
             }
-            .setSubtitleConfigurations(if (original) externalSubtitles(subtitles, playsLocal) else emptyList())
+            .setSubtitleConfigurations(externalSubtitles(subtitles, playsLocal, includePgs = !original))
             .build()
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
             .clearOverrides()
@@ -991,13 +1003,20 @@ class PlaybackController(
         val graphic = preselected?.let { ref -> subtitles.options.firstOrNull { it.ref == ref && it.kind == "pgs" } }
         if (graphic != null && burned == null && !exoRenders(graphic)) {
             requestedSubtitle = graphic.ref
+            requestedBurnSubtitle = graphic.ref
             request(s.positionMs, Phase.SessionStarting)
         }
     }
 
-    /** 外挂字幕旁挂给 Exo（直连时）：文本轨要服务端转成 VTT（SRT 等编码五花八门），ASS 取原文件保留定位；图形外挂轨 Exo 读不了 */
-    private fun externalSubtitles(tracks: SubtitleTracks, playsLocal: Boolean = false): List<MediaItem.SubtitleConfiguration> =
-        tracks.options.filter { it.ref.startsWith(EXTERNAL) && it.kind != "pgs" && it.path.isNotEmpty() }.mapNotNull { option ->
+    /** 外挂字幕旁挂给 Exo；服务端流额外挂 PGS，让 Media3 的原生解码器本地画。 */
+    private fun externalSubtitles(
+        tracks: SubtitleTracks,
+        playsLocal: Boolean = false,
+        includePgs: Boolean = false,
+    ): List<MediaItem.SubtitleConfiguration> =
+        tracks.options.filter {
+            it.path.isNotEmpty() && ((it.ref.startsWith(EXTERNAL) && it.kind != "pgs") || (includePgs && it.kind == "pgs"))
+        }.mapNotNull { option ->
             if (playsLocal) {
                 // 本机副本的旁挂字幕是下载时存下的文件（SRT / VTT / ASS 原样），按扩展名告诉 Exo 格式
                 val mime = when (option.path.substringAfterLast('.').lowercase()) {
@@ -1008,7 +1027,11 @@ class PlaybackController(
                 return@mapNotNull MediaItem.SubtitleConfiguration.Builder(Uri.parse(option.path))
                     .setId(option.ref).setMimeType(mime).setLanguage(option.language).setLabel(option.displayTitle).build()
             }
-            val (mime, suffix) = if (option.kind == "ass") MimeTypes.TEXT_SSA to "" else MimeTypes.TEXT_VTT to "&format=vtt"
+            val (mime, suffix) = when (option.kind) {
+                "pgs" -> MimeTypes.APPLICATION_PGS to ""
+                "ass" -> MimeTypes.TEXT_SSA to ""
+                else -> MimeTypes.TEXT_VTT to "&format=vtt"
+            }
             val url = server.resolve(option.path + suffix) ?: return@mapNotNull null
             MediaItem.SubtitleConfiguration.Builder(Uri.parse(url.toString()))
                 .setId(option.ref)
@@ -1415,16 +1438,19 @@ class PlaybackController(
             engineReportedFailure("本机没有能解这路音频的解码器", FailureCause.DecodeFinal)
             return
         }
-        if (!playsOriginalFile) return
-        // 起播音轨：服务端挑的轨交给 Exo（只做一次）
-        pendingInitialAudio?.let { index ->
-            pendingInitialAudio = null
-            embeddedGroup(audioGroups(tracks), index)?.takeIf { !it.isSelected && it.isSupported(true) }?.let { group ->
-                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
-                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0)).build()
+        if (playsOriginalFile) {
+            // 起播音轨：服务端挑的轨交给 Exo（只做一次）
+            pendingInitialAudio?.let { index ->
+                pendingInitialAudio = null
+                embeddedGroup(audioGroups(tracks), index)?.takeIf { !it.isSelected && it.isSupported(true) }?.let { group ->
+                    exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                        .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0)).build()
+                }
             }
+            adoptEngineTracks(tracks)
         }
-        adoptEngineTracks(tracks)
+        // HLS sessions attach PGS sidecars as MediaItem subtitle configurations;
+        // their text groups arrive after prepare just like embedded groups do.
         applySubtitle()
     }
 
@@ -1675,11 +1701,12 @@ class PlaybackController(
      * （外挂文件小，取得快；内封轨改走服务端要通读整个容器，不这么做）。
      */
     private fun exoRenders(option: SubtitleOption?): Boolean {
-        if (option == null || !playsOriginalFile || burnedSubtitle != null) return false
+        if (option == null || burnedSubtitle != null) return false
+        if (!playsOriginalFile) return option.kind == "pgs" && option.path.isNotEmpty()
         if (option.ref.startsWith(EXTERNAL)) {
             // 本机副本的 ASS 没有服务端转好的 VTT 可给叠层：调了时间轴也只能交给 Exo
             val toOverlay = subtitleTimingAdjusted && !(localViewing != null && option.kind == "ass")
-            return option.kind != "pgs" && !toOverlay
+            return !toOverlay && option.kind != "pgs"
         }
         if (option.embeddedIndex == null) return false
         // 轨还没读到时先按能画算（读到后 applySubtitle 再核对一次）
@@ -1701,6 +1728,9 @@ class PlaybackController(
         subtitleTouched = true
         set { copy(selectedSubtitle = ref) }
         val option = ref?.let { r -> s.subtitles.options.firstOrNull { it.ref == r } }
+        // Selecting a PGS track is local rendering. Burn-in is a separate,
+        // explicit action via [burnSubtitle].
+        if (changing) requestedBurnSubtitle = null
         val wantBurn = option?.kind == "pgs" && !exoRenders(option)
         if (!wantBurn) {
             if (changing) record?.beginSwitch("subtitle", previous, ref, immediate = burnedSubtitle == null)
@@ -1718,6 +1748,27 @@ class PlaybackController(
         // 图形字幕（PGS）放服务端流时画不了：服务端转码压制进画面（约一秒切换）
         record?.beginSwitch("subtitle", previous, ref)
         requestedSubtitle = ref
+        requestedBurnSubtitle = ref
+        set { copy(wantsPlay = true) }
+        request(s.positionMs, Phase.SessionStarting)
+    }
+
+    /** 显式把当前 PGS 轨压制进画面；普通选轨不会调用此入口。 */
+    fun burnSubtitle(ref: String) {
+        noteUserActivity()
+        val option = s.subtitles.options.firstOrNull { it.ref == ref && it.kind == "pgs" } ?: return
+        subtitleTouched = true
+        requestedSubtitle = option.ref
+        requestedBurnSubtitle = option.ref
+        set { copy(selectedSubtitle = option.ref, wantsPlay = true) }
+        request(s.positionMs, Phase.SessionStarting)
+    }
+
+    /** 取消显式压制，保留当前 PGS 选择并回到播放器本地渲染。 */
+    fun unburnSubtitle() {
+        if (burnedSubtitle == null) return
+        requestedBurnSubtitle = null
+        requestedSubtitle = "off"
         set { copy(wantsPlay = true) }
         request(s.positionMs, Phase.SessionStarting)
     }

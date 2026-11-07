@@ -322,7 +322,7 @@ function getUniversalCapabilitySnapshot() {
     // it does not claim the attached monitor is HDR. Actual target is observed below.
     hdr_passthrough: true,
     mse: 'full', is_mobile: false, native_hls: false,
-    universal: true, disc_image: false, disc_folder: false,
+    universal: true, disc_image: false, disc_folder: false, pgs_overlay: true,
   };
 }
 window.getUniversalCapabilitySnapshot = getUniversalCapabilitySnapshot;

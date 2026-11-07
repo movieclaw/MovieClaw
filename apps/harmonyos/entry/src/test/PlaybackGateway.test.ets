@@ -52,5 +52,9 @@ export default function playbackGatewayTest() {
         expect((body.capability.audio ?? []).some((audio): boolean => audio.codec === 'flac')).assertEqual(engine === 'mpv');
       }
     });
+    it('only_mpv_declares_local_pgs_rendering', 0, () => {
+      expect(MovieClawPlaybackGateway.capability('mpv').pgs_overlay).assertTrue();
+      expect(MovieClawPlaybackGateway.capability('avplayer').pgs_overlay).assertFalse();
+    });
   });
 }

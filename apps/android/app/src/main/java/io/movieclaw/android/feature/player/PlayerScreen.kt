@@ -879,6 +879,10 @@ private fun PlayingSurface(
                                 selectedRef = state.selectedSubtitle,
                                 includeOff = true,
                                 onSelect = { ref -> controller.selectSubtitle(ref.takeIf { it != "off" }) },
+                                burnableRefs = state.subtitles.options.filter { it.kind == "pgs" }.map { it.ref }.toSet(),
+                                burnedRef = controller.decision?.video?.burnSubtitle,
+                                onBurn = controller::burnSubtitle,
+                                onUnburn = controller::unburnSubtitle,
                                 onExpandedChange = { menuOpen = it },
                                 // 样式行**永远显示**：以前按"有没有选中字幕"决定显不显示，
                                 // 关闭字幕时菜单就只剩上半截，看着像没显示全（用户反馈）
@@ -1328,6 +1332,11 @@ private fun TrackMenuButton(
     selectedRef: String?,
     includeOff: Boolean,
     onSelect: (String) -> Unit,
+    /** PGS subtitle refs that may be explicitly burned by the server. */
+    burnableRefs: Set<String> = emptySet(),
+    burnedRef: String? = null,
+    onBurn: ((String) -> Unit)? = null,
+    onUnburn: (() -> Unit)? = null,
     /** 字幕菜单尾部的外观编辑器（iOS SubtitleStyleEditor）：只在选中某条字幕时出现 */
     styleEditor: (@Composable () -> Unit)? = null,
     /** 菜单开合通知：开着的时候控制层不能自动收起（否则菜单会跟着消失） */
@@ -1370,6 +1379,18 @@ private fun TrackMenuButton(
                         onClick = { onSelect(option.ref); expanded = false },
                     )
                 }
+            }
+            val burnRef = selectedRef?.takeIf { it in burnableRefs }
+            val burnAction = onBurn
+            if (burnRef != null && burnAction != null) {
+                androidx.compose.material3.HorizontalDivider(color = io.movieclaw.android.core.designsystem.LineColor)
+                DropdownMenuItem(
+                    text = { Text(if (burnedRef == burnRef) "取消压制，播放器本地渲染" else "压制进画面（服务端转码）") },
+                    onClick = {
+                        if (burnedRef == burnRef) onUnburn?.invoke() else burnAction(burnRef)
+                        expanded = false
+                    },
+                )
             }
             styleEditor?.let {
                 androidx.compose.material3.HorizontalDivider(color = io.movieclaw.android.core.designsystem.LineColor)

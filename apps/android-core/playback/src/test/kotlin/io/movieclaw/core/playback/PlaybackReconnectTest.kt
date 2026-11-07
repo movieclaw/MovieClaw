@@ -52,6 +52,10 @@ class PlaybackReconnectTest {
             val hevc = f.sessionRequest(0).capability.video!!.single { it.codec == "hevc" }
             assertTrue(hevc.maxHeight!! >= 2160)
             assertEquals(true, hevc.powerEfficient)
+            // Media3 renders PGS locally; a normal playback request must advertise
+            // that capability without turning it into a burn-in request.
+            assertTrue(f.sessionRequest(0).capability.pgsOverlay == true)
+            assertFalse(f.sessionRequest(0).burnRequested == true)
 
             // 普通解码失败先原位重开；预算耗尽后仅当前影片回退服务端流。
             repeat(2) { index ->
@@ -98,6 +102,33 @@ class PlaybackReconnectTest {
                 assertEquals(listOf(3L), f.sessionRequest(1).failedTiers)
                 assertTrue(DecoderDenylist(f.prefs, "test").entries().isEmpty())
             }
+        }
+    }
+
+    @Test fun selectingEmbeddedPgsStaysLocalUntilBurnIsExplicit() = runTest {
+        Fixture(this, pgs = true).use { f ->
+            f.open()
+            f.await { f.controller.state.value.phase == Phase.Buffering }
+            f.controller.selectSubtitle("embedded:0")
+            runCurrent()
+            assertEquals(1, f.sessions.size)
+            assertFalse(f.sessionRequest(0).burnRequested == true)
+
+            f.controller.burnSubtitle("embedded:0")
+            f.await { f.sessions.size == 2 }
+            assertTrue(f.sessionRequest(1).burnRequested == true)
+            assertTrue(f.sessionRequest(1).capability.pgsOverlay == true)
+        }
+    }
+
+    @Test fun selectingPgsOnHlsKeepsTheSessionLocal() = runTest {
+        Fixture(this, pgs = true, tier = 1).use { f ->
+            f.open()
+            f.await { f.controller.state.value.phase == Phase.Buffering }
+            f.controller.selectSubtitle("embedded:0")
+            runCurrent()
+            assertEquals(1, f.sessions.size)
+            assertFalse(f.sessionRequest(0).burnRequested == true)
         }
     }
 
@@ -218,6 +249,7 @@ class PlaybackReconnectTest {
         val prefs: PrefsStore = MemoryPrefs(),
         private val mediaItemId: Long = 7,
         private val tier: Int = 0,
+        private val pgs: Boolean = false,
     ) : AutoCloseable {
         val sessions = CopyOnWriteArrayList<RecordedRequest>()
         val connections = mutableListOf<Boolean>()
@@ -230,8 +262,12 @@ class PlaybackReconnectTest {
                         sessions += request
                         val failed = McJson.decodeFromString<PlaybackSessionRequest>(request.body!!.utf8()).failedTiers.orEmpty()
                         val nextTier = if (tier.toLong() in failed) tier + 1 else tier
+                        val decision = if (pgs) {
+                            "\"subtitles\":[{\"track_ref\":\"embedded:0\",\"kind\":\"pgs\",\"language\":\"eng\",\"is_default\":false}],\"video\":{\"action\":\"copy\",\"burn_subtitle\":null},"
+                        } else ""
+                        val urls = if (pgs) "\"subtitle_urls\":[\"/subtitle.sup\"]," else ""
                         return MockResponse.Builder().code(status).body(
-                            """{"data":{"decision":{"outcome":"play","tier":$nextTier,"file_id":7},"stream_url":"/stream?token=t","start_ms":45000}}"""
+                            """{"data":{"decision":{"outcome":"play","tier":$nextTier,"file_id":7,$decision"stream_url":"/stream?token=t","start_ms":45000,$urls"watch":null}}}"""
                         ).build()
                     }
                     return MockResponse.Builder().body("""{"data":{}}""").build()
