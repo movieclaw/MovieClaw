@@ -3324,7 +3324,10 @@ async def backfill_streams(
             old = row.disc_playlist if isinstance(row.disc_playlist, dict) else {}
             old_clips = old.get("clips")
             if not audit_failed and playlist is not None and playlist.duration_seconds > 0:
-                record = disc_playlist_record(playlist)
+                record = disc_playlist_record(
+                    playlist,
+                    fingerprint=(probe_fingerprint if playlist_from_pending else audit_fingerprint),
+                )
                 if record["clips"] == old_clips and not pending_playlist_probe:
                     # 清单只是版本落后（选主片的规则改过），这张盘的主片没换：只换版本号
                     row.disc_playlist = record

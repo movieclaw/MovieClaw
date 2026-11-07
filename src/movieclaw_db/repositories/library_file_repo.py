@@ -337,11 +337,14 @@ class LibraryFileRepository:
         existing.resolution = row.resolution
         existing.video_codec = row.video_codec
         existing.hdr = row.hdr
+        existing.dv_profile = row.dv_profile
+        existing.dv_bl_compatible = row.dv_bl_compatible
         existing.bit_depth = row.bit_depth
         existing.duration_seconds = row.duration_seconds
         existing.bit_rate = row.bit_rate
         existing.frame_rate = row.frame_rate
         existing.color_space = row.color_space
+        existing.probe_version = row.probe_version
         existing.audio_streams = row.audio_streams
         existing.subtitle_streams = row.subtitle_streams
         existing.external_subtitles = row.external_subtitles

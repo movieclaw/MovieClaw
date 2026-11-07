@@ -2216,7 +2216,10 @@ async def _ingest_entry(
                 and final_playlist_result.playlist.duration_seconds > 0
             ):
                 disc_playlist = (
-                    disc_playlist_record(final_playlist_result.playlist)
+                    disc_playlist_record(
+                        final_playlist_result.playlist,
+                        fingerprint=final_playlist_result.fingerprint,
+                    )
                     if spec is not None
                     else disc_playlist_pending_record(
                         final_playlist_result.playlist,

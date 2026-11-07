@@ -30,6 +30,10 @@ from movieclaw_api.services.library.bluray import (
     DISC_PLAYLIST_VERSION,
     MainPlaylistReadResult,
     MplsParseError,
+    disc_playlist_fingerprint,
+    disc_playlist_record,
+    disc_playlist_stale,
+    read_main_playlist,
 )
 from movieclaw_api.services.library.disc_main_playlists import heal_disc_main_playlists
 from movieclaw_api.services.library.scan import ScanSummary, scan_library
@@ -838,6 +842,10 @@ async def test_heal_only_refreshes_the_version_when_the_main_playlist_is_unchang
     assert row.updated_at == before.updated_at
     for field, value in _SMALL_COPY_FIELDS.items():
         assert getattr(row, field) == value, field
+    assert row.disc_playlist["audit"]["state"] == "success"
+    disc = Path(row.file_path)
+    (disc / "BDMV" / "STREAM" / "00002.m2ts").write_bytes(b"changed")
+    assert disc_playlist_stale(row.disc_playlist, disc)
 
 
 async def test_heal_leaves_discs_alone_while_the_library_is_not_mounted(
@@ -894,6 +902,10 @@ async def test_failed_reprobe_stays_unprobed_and_the_reconcile_retries_it(
     assert row.resolution == "1080p" and row.audio_streams
     assert row.disc_playlist is not None
     assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert row.disc_playlist["audit"]["state"] == "success"
+    disc = Path(row.file_path)
+    (disc / "BDMV" / "STREAM" / "00002.m2ts").write_bytes(b"changed")
+    assert disc_playlist_stale(row.disc_playlist, disc)
 
 
 async def test_changed_folder_disc_does_not_promote_stale_pending_playlist(
@@ -1079,6 +1091,56 @@ async def test_manual_scan_also_replaces_the_spec_when_the_main_playlist_changed
     assert summary.probed == 1
     row = await _load(db, file_id)
     assert row.resolution == "1080p" and len(row.audio_streams or []) == 2
+
+
+async def test_manual_scan_detects_replaced_success_disc_off_the_event_loop(
+    db, tmp_path, monkeypatch
+) -> None:
+    """同路径换盘后，带指纹的成功行也会进入手动补探，且遍历不阻塞事件循环。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00001")
+    row = await _load(db, file_id)
+    disc = Path(row.file_path)
+    playlist = read_main_playlist(disc)
+    fingerprint = disc_playlist_fingerprint(disc)
+    assert playlist is not None and fingerprint is not None
+    async with db.session() as session:
+        stored = await session.get(LibraryFile, file_id)
+        assert stored is not None
+        stored.disc_playlist = disc_playlist_record(playlist, fingerprint=fingerprint)
+        stored.audio_streams = []
+        stored.subtitle_streams = []
+        await session.commit()
+
+    (disc / "BDMV" / "STREAM" / "00002.m2ts").write_bytes(b"n" * 10_000)
+    loop_thread = threading.get_ident()
+    original_stale = scan_mod.disc_playlist_stale
+    checked_paths: list[Path] = []
+
+    def threaded_stale(record, path=None):
+        if path is not None:
+            assert threading.get_ident() != loop_thread
+            checked_paths.append(Path(path))
+        return original_stale(record, path)
+
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(scan_mod, "disc_playlist_stale", threaded_stale)
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: _MAIN_SPEC)
+    async with db.session() as session:
+        summary = ScanSummary(library_id=row.library_id)
+        await scan_mod._probe_backfill(
+            session,
+            row.library_id,
+            summary,
+            scan_mod.ScanState(phase=scan_mod.ScanPhase.WALKING),
+        )
+
+    assert checked_paths == [disc]
+    assert summary.probed == 1
+    row = await _load(db, file_id)
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["name"] == "00002.mpls"
+    assert row.disc_playlist["audit"]["state"] == "success"
+    assert row.resolution == "1080p"
 
 
 @pytest.mark.parametrize("first", ["startup", "manual"])
