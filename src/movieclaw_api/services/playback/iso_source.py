@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from movieclaw_api.services.library import dvd
@@ -32,7 +33,13 @@ from movieclaw_api.services.library.bluray import (
     parse_mpls_playlist,
     select_main_playlist,
 )
-from movieclaw_api.services.library.udf import SECTOR, UDFEntry, UDFError, UDFReader
+from movieclaw_api.services.library.udf import (
+    SECTOR,
+    UDFEntry,
+    UDFError,
+    UDFReader,
+    UDFReadError,
+)
 from movieclaw_api.services.playback.disc_source import (
     DiscClip,
     DiscSource,
@@ -51,42 +58,91 @@ _CACHE_MAX = 64
 _cache: dict[tuple[str, int, int], DiscSource | None] = {}
 
 
-def iso_disc_source(path: str | Path) -> DiscSource | None:
-    """光盘镜像 → 服务端可读的播放源；读不出返回 None。结果按镜像的大小与修改时间缓存。"""
+@dataclass(frozen=True)
+class IsoDiscSourceReadResult:
+    """镜像播放源读取结果；瞬时短读与稳定格式损坏必须分开记账。"""
+
+    source: DiscSource | None
+    retryable: bool = False
+    audit_failed: bool = False
+
+
+@dataclass
+class _ReadStatus:
+    image_size: int
+    retryable: bool = False
+    audit_failed: bool = False
+
+    def mark_short_read(self, exc: UDFReadError) -> None:
+        # 文件本来就短到覆盖不了请求区间，是确定性的格式损坏；stat 显示区间存在却
+        # 没读全，才是挂载/NFS 的瞬时短读。
+        if (
+            exc.offset is not None
+            and exc.length is not None
+            and exc.offset + exc.length > self.image_size
+        ):
+            self.audit_failed = True
+        else:
+            self.retryable = True
+
+
+def iso_disc_source_result(path: str | Path) -> IsoDiscSourceReadResult:
+    """读取镜像播放源，并区分可重试 I/O 与确定性的格式损坏。"""
     path = Path(path)
     try:
         stat = path.stat()
     except OSError:
-        return None
+        return IsoDiscSourceReadResult(None, retryable=True)
     key = (str(path), stat.st_size, stat.st_mtime_ns)
     if key in _cache:
-        return _cache[key]
+        return IsoDiscSourceReadResult(_cache[key])
+    status = _ReadStatus(stat.st_size)
     try:
         with open(path, "rb") as fh:
-            source = _read(path, UDFReader(fh))
-    except (OSError, UDFError) as exc:
+            source = _read(path, UDFReader(fh), status)
+    except OSError as exc:
         logger.info("光盘镜像读不出盘内结构：%s（%s）", path, exc)
-        source = None
+        return IsoDiscSourceReadResult(None, retryable=True)
+    except UDFReadError as exc:
+        logger.info("光盘镜像短读：%s（%s）", path, exc)
+        status.mark_short_read(exc)
+        return IsoDiscSourceReadResult(
+            None, retryable=status.retryable, audit_failed=status.audit_failed
+        )
+    except UDFError as exc:
+        logger.info("光盘镜像盘内结构损坏：%s（%s）", path, exc)
+        return IsoDiscSourceReadResult(None, audit_failed=True)
+    if source is None:
+        status.audit_failed = True
     if source is not None and not source.playlist_incomplete:
         if len(_cache) >= _CACHE_MAX:
             _cache.clear()
         _cache[key] = source
-    return source
+    return IsoDiscSourceReadResult(
+        source,
+        retryable=status.retryable,
+        audit_failed=status.audit_failed,
+    )
 
 
-def _read(path: Path, reader: UDFReader) -> DiscSource | None:
+def iso_disc_source(path: str | Path) -> DiscSource | None:
+    """光盘镜像 → 服务端可读的播放源；读不出返回 None。结果按镜像的大小与修改时间缓存。"""
+    return iso_disc_source_result(path).source
+
+
+def _read(path: Path, reader: UDFReader, status: _ReadStatus) -> DiscSource | None:
     top = {entry.name.upper(): entry for entry in reader.list([])}
     if "BDMV" in top:
-        return _bluray(path, reader)
+        return _bluray(path, reader, status)
     if "VIDEO_TS" in top:
-        return _dvd(path, reader)
+        return _dvd(path, reader, status)
     return None
 
 
 # --- 蓝光 -----------------------------------------------------------------------
 
 
-def _bluray(path: Path, reader: UDFReader) -> DiscSource | None:
+def _bluray(path: Path, reader: UDFReader, status: _ReadStatus) -> DiscSource | None:
     streams = _files(reader, ["BDMV", "STREAM"], "m2ts")
     playlists: list[MplsPlaylist] = []
     incomplete = False
@@ -94,11 +150,16 @@ def _bluray(path: Path, reader: UDFReader) -> DiscSource | None:
         try:
             data = reader.read(entry, _SMALL_FILE_LIMIT)
             playlists.append(parse_mpls_playlist(data, path=Path(f"{stem}.mpls")))
+        except UDFReadError as exc:
+            incomplete = True
+            status.mark_short_read(exc)
+            logger.debug("镜像里的 MPLS 短读，跳过：%s（%s）", entry.name, exc)
         except (UDFError, MplsParseError) as exc:
             # 没读全就还不能选主片：剩下的候选可能只是花絮
             incomplete = True
+            status.audit_failed = True
             logger.debug("镜像里的 MPLS 跳过：%s（%s）", entry.name, exc)
-    sizes, sizes_incomplete = stream_sizes(reader, streams)
+    sizes, sizes_incomplete = stream_sizes(reader, streams, status=status)
     incomplete |= sizes_incomplete
     playlist = select_main_playlist(playlists, sizes)
     if playlist is None:
@@ -143,11 +204,21 @@ def _bluray(path: Path, reader: UDFReader) -> DiscSource | None:
 # --- DVD ------------------------------------------------------------------------
 
 
-def _dvd(path: Path, reader: UDFReader) -> DiscSource | None:
+def _dvd(path: Path, reader: UDFReader, status: _ReadStatus) -> DiscSource | None:
     entries = {e.name.upper(): e for e in reader.list(["VIDEO_TS"]) if not e.is_dir}
 
     def read_ifo(name: str) -> bytes:
-        return reader.read(entries[name], _SMALL_FILE_LIMIT)
+        try:
+            return reader.read(entries[name], _SMALL_FILE_LIMIT)
+        except OSError:
+            status.retryable = True
+            raise
+        except UDFReadError as exc:
+            status.mark_short_read(exc)
+            raise
+        except UDFError:
+            status.audit_failed = True
+            raise
 
     vobs = {name: e for name, e in entries.items() if name.endswith(".VOB")}
     main = dvd.main_title_set({name: reader.size(e) for name, e in vobs.items()}, read_ifo)
@@ -156,6 +227,8 @@ def _dvd(path: Path, reader: UDFReader) -> DiscSource | None:
     try:
         chain = dvd.longest_program_chain(read_ifo(f"VTS_{main:02d}_0.IFO"))
     except (KeyError, ValueError) as exc:
+        if not status.retryable:
+            status.audit_failed = True
         logger.info("DVD 镜像主标题 IFO 读不出：%s VTS_%02d（%s）", path, main, exc)
         return None
     if chain.seconds <= 0 or not chain.cells:
@@ -214,7 +287,12 @@ def _dvd(path: Path, reader: UDFReader) -> DiscSource | None:
     )
 
 
-def stream_sizes(reader: UDFReader, streams: dict[str, UDFEntry]) -> tuple[dict[str, int], bool]:
+def stream_sizes(
+    reader: UDFReader,
+    streams: dict[str, UDFEntry],
+    *,
+    status: _ReadStatus | None = None,
+) -> tuple[dict[str, int], bool]:
     """镜像里各 m2ts 的字节数（选主播放列表要比）。
 
     文件项读不出的记 0，同时返回 incomplete：播放可以用残余候选降级，
@@ -225,7 +303,15 @@ def stream_sizes(reader: UDFReader, streams: dict[str, UDFEntry]) -> tuple[dict[
     for clip_id, entry in streams.items():
         try:
             sizes[clip_id] = reader.size(entry)
+        except UDFReadError as exc:
+            if status is not None:
+                status.mark_short_read(exc)
+            logger.debug("镜像里的 m2ts 大小短读：%s（%s）", entry.name, exc)
+            sizes[clip_id] = 0
+            incomplete = True
         except UDFError as exc:
+            if status is not None:
+                status.audit_failed = True
             logger.debug("镜像里的 m2ts 读不出大小：%s（%s）", entry.name, exc)
             sizes[clip_id] = 0
             incomplete = True

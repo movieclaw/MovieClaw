@@ -939,6 +939,85 @@ async def test_changed_folder_disc_does_not_promote_stale_pending_playlist(
     assert row.disc_playlist["name"] == "00002.mpls"
 
 
+async def test_pending_fingerprint_checks_run_off_the_event_loop(db, tmp_path, monkeypatch) -> None:
+    """慢 BDMV 的探测前后指纹与 pending 校验都不能卡住 API 事件循环。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: None)
+    assert await heal_disc_main_playlists() == 1
+
+    loop_thread = threading.get_ident()
+    fingerprint = items_mod.disc_playlist_fingerprint
+    pending = items_mod.pending_disc_playlist
+    success = items_mod.disc_playlist_success_record
+    fingerprint_calls = 0
+
+    def threaded_fingerprint(path):
+        nonlocal fingerprint_calls
+        assert threading.get_ident() != loop_thread
+        fingerprint_calls += 1
+        return fingerprint(path)
+
+    def threaded_pending(*args, **kwargs):
+        assert threading.get_ident() != loop_thread
+        return pending(*args, **kwargs)
+
+    def threaded_success(*args, **kwargs):
+        assert threading.get_ident() != loop_thread
+        return success(*args, **kwargs)
+
+    probe_mod._retry_state.clear()
+    monkeypatch.setattr(items_mod, "disc_playlist_fingerprint", threaded_fingerprint)
+    monkeypatch.setattr(items_mod, "pending_disc_playlist", threaded_pending)
+    monkeypatch.setattr(items_mod, "disc_playlist_success_record", threaded_success)
+    monkeypatch.setattr(items_mod, "probe_media", lambda _path: _MAIN_SPEC)
+
+    assert await heal_disc_main_playlists() == 1
+    assert fingerprint_calls == 2
+    row = await _load(db, file_id)
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+
+
+async def test_disc_changed_during_probe_discards_all_probed_specs(
+    db, tmp_path, monkeypatch
+) -> None:
+    """ffprobe 期间换盘：旧目标的规格一项都不落，下一轮按新盘完整重审。"""
+    file_id = await _stored_folder_disc(db, tmp_path, recorded_clip="00002")
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    targets: list[str] = []
+
+    def probe(path):
+        targets.append(Path(path).name)
+        if len(targets) == 1:
+            disc = Path(path).parents[2]
+            (disc / "BDMV" / "STREAM" / "00002.m2ts").write_bytes(b"n" * 10_000)
+        return _MAIN_SPEC
+
+    monkeypatch.setattr(items_mod, "probe_media", probe)
+    assert await heal_disc_main_playlists() == 1
+
+    pending = await _load(db, file_id)
+    assert targets == ["00001.m2ts"]
+    assert pending.disc_playlist is not None
+    assert pending.disc_playlist["audit"]["state"] == "pending_probe"
+    assert pending.disc_playlist["name"] == "00001.mpls"
+    assert pending.resolution is None
+    assert pending.video_codec is None
+    assert pending.audio_streams is None
+    assert pending.subtitle_streams is None
+    assert pending.probe_version is None
+
+    assert await heal_disc_main_playlists() == 1
+    row = await _load(db, file_id)
+    assert targets == ["00001.m2ts", "00002.m2ts"]
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert row.disc_playlist["name"] == "00002.mpls"
+    assert row.resolution == "1080p"
+    assert row.audio_streams
+
+
 async def test_manual_scan_also_replaces_the_spec_when_the_main_playlist_changed(
     db, tmp_path, monkeypatch
 ) -> None:
@@ -1586,6 +1665,53 @@ async def test_incomplete_image_read_does_not_replace_a_current_version_playlist
     assert await heal_disc_main_playlists() == 0
 
 
+@pytest.mark.parametrize("failure", ["oserror", "short_read"])
+async def test_transient_image_io_keeps_the_ledger_and_retries_the_same_fingerprint(
+    db, tmp_path, monkeypatch, failure
+) -> None:
+    """ISO 瞬时 I/O 不能落失败指纹；文件未变，恢复后仍要自动扶正。"""
+    iso_source.clear_cache()
+    file_id = await _stored_image(
+        db, tmp_path, f"transient-{failure}", _bluray_image_with_copies(smaller_is_longer=True)
+    )
+    old = _image_record("00019.mpls", "00122", 7118)
+    await _stamp_image_playlist(db, file_id, old)
+    monkeypatch.setattr(probe_mod, "ffprobe_available", lambda: True)
+    original = iso_source.UDFReader._read_at
+    fail = True
+
+    def flaky_read(reader, offset, length):
+        if fail:
+            if failure == "oserror":
+                raise OSError("temporary NFS read failure")
+            raise iso_source.UDFReadError("temporary short read")
+        return original(reader, offset, length)
+
+    monkeypatch.setattr(iso_source.UDFReader, "_read_at", flaky_read)
+    before = await _load(db, file_id)
+    before_fingerprint = Path(before.file_path).stat()
+    assert await heal_disc_main_playlists() == 0
+    failed_once = await _load(db, file_id)
+    assert failed_once.disc_playlist == old
+    assert failed_once.resolution == "720p"
+
+    fail = False
+    monkeypatch.setattr(
+        items_mod, "probe_media", lambda _path: replace(_MAIN_SPEC, duration_seconds=7112)
+    )
+    assert await heal_disc_main_playlists() == 1
+    row = await _load(db, file_id)
+    after_fingerprint = Path(row.file_path).stat()
+    assert (after_fingerprint.st_size, after_fingerprint.st_mtime_ns) == (
+        before_fingerprint.st_size,
+        before_fingerprint.st_mtime_ns,
+    )
+    assert row.disc_playlist is not None
+    assert row.disc_playlist["version"] == DISC_PLAYLIST_VERSION
+    assert row.disc_playlist["name"] == "00013.mpls"
+    assert row.resolution == "1080p"
+
+
 async def test_changed_image_reaudits_before_promoting_pending_playlist(
     db, tmp_path, monkeypatch
 ) -> None:
@@ -1608,7 +1734,7 @@ async def test_changed_image_reaudits_before_promoting_pending_playlist(
     if image.stat().st_mtime_ns == before.st_mtime_ns:
         image.write_bytes(image.read_bytes() + b"\0")
     iso_source.clear_cache()
-    original = playlist_heal_mod.iso_disc_source
+    original = playlist_heal_mod.iso_disc_source_result
     reads = 0
 
     def counted_read(path):
@@ -1617,7 +1743,7 @@ async def test_changed_image_reaudits_before_promoting_pending_playlist(
         return original(path)
 
     probe_mod._retry_state.clear()
-    monkeypatch.setattr(playlist_heal_mod, "iso_disc_source", counted_read)
+    monkeypatch.setattr(playlist_heal_mod, "iso_disc_source_result", counted_read)
     monkeypatch.setattr(items_mod, "probe_media", lambda _path: _MAIN_SPEC)
 
     assert await heal_disc_main_playlists() == 1

@@ -38,6 +38,15 @@ class UDFError(ValueError):
     """不是 UDF 镜像，或结构损坏、越界。"""
 
 
+class UDFReadError(UDFError):
+    """镜像读取发生短读；调用方结合文件大小区分瞬时 I/O 与截断镜像。"""
+
+    def __init__(self, message: str, *, offset: int | None = None, length: int | None = None):
+        super().__init__(message)
+        self.offset = offset
+        self.length = length
+
+
 @dataclass(frozen=True)
 class UDFEntry:
     """目录里的一项。"""
@@ -164,7 +173,7 @@ class UDFReader:
         data = self._fh.read(length)
         if len(data) != length:
             # i18n-ignore: parser diagnostic, logged only
-            raise UDFError(f"读到镜像末尾：偏移 {offset}")
+            raise UDFReadError(f"读到镜像末尾：偏移 {offset}", offset=offset, length=length)
         return data
 
     def _sector(self, sector: int) -> bytes:
