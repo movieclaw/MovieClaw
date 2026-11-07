@@ -24,6 +24,48 @@ from tests.e2e.test_i18n_ai_settings_browser import stack  # noqa: E402
 from tests.e2e.test_library_watch_filters_browser import _seed  # noqa: E402
 
 
+async def _finish_tv(database_url):
+    """Every seeded TV episode becomes played: unfinished TV is empty, all TV is not."""
+    from sqlalchemy import delete, select
+
+    from movieclaw_db.engine import Database
+    from movieclaw_db.models import LibraryFile, MediaItem, PlaybackState
+
+    database = Database(database_url)
+    try:
+        async with database.session() as session:
+            episodes = (
+                await session.execute(
+                    select(
+                        LibraryFile.media_item_id,
+                        LibraryFile.season_number,
+                        LibraryFile.episode_number,
+                    )
+                    .join(MediaItem, MediaItem.id == LibraryFile.media_item_id)
+                    .where(MediaItem.kind == "tv")
+                )
+            ).all()
+            await session.execute(
+                delete(PlaybackState).where(
+                    PlaybackState.media_item_id.in_({row[0] for row in episodes})
+                )
+            )
+            for media_item_id, season, episode in episodes:
+                session.add(
+                    PlaybackState(
+                        member_id=0,
+                        media_item_id=media_item_id,
+                        season_number=season,
+                        episode_number=episode,
+                        played=True,
+                        position_ms=0,
+                    )
+                )
+            await session.commit()
+    finally:
+        await database.dispose()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
@@ -32,6 +74,11 @@ def main():
         type=float,
         default=0,
         help="Delay the first unfinished TV summary to exercise stale responses",
+    )
+    parser.add_argument(
+        "--all-tv-watched",
+        action="store_true",
+        help="Mark every seeded TV episode watched so the unfinished TV wall is empty",
     )
     args = parser.parse_args()
     directory = args.directory.resolve()
@@ -57,6 +104,8 @@ def main():
         for folder in roots:
             folder.mkdir()
         libraries = asyncio.run(_seed(env["database_url"], roots, 900))
+        if args.all_tv_watched:
+            asyncio.run(_finish_tv(env["database_url"]))
         prefs = session.get(api + "/api/v1/ui/preferences").json()["data"]
         prefs["home"]["rows"] = [
             {
