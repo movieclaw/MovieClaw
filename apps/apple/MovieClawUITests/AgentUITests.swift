@@ -709,6 +709,82 @@ final class AgentUITests: XCTestCase {
         XCTAssertTrue(element(forkedApp, "agent-handoff").waitForExistence(timeout: 30), "派生会话缺少来源卡片")
         snapshot("agent-live-handoff")
     }
+
+    /// 左边缘返回：中途标签栏与输入框不能叠住；取消回到沉浸页；滑完标签栏在、会话输入框离开。
+    /// 键盘收起展开和长列表滚动放在同一次进会话里，确认让位没有把这两处带坏。
+    /// 手势进行到一半的矩形由 AgentTabBarClearanceTests 锁定——XCTest 的拖动手势松手才返回，停不住中间那一帧。
+    @MainActor
+    func testConversationPopKeepsComposerClearOfTabBar() throws {
+        let id = try XCTUnwrap(backend.idleSessionId(), "没有可打开的历史会话")
+        let app = launch(route: "/sessions/\(id)")
+        let input = element(app, "agent-composer-input")
+        XCTAssertTrue(input.waitForExistence(timeout: 30), "会话页缺少输入框")
+        let transcript = app.scrollViews["agent-transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 30), "长会话消息列没有出现")
+        assertTabBarHidden(app)
+        snapshot("agent-tab-clearance-settled")
+
+        safeTap(app, input, "输入框")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "点输入框应弹出键盘")
+        XCTAssertLessThanOrEqual(input.frame.maxY, app.keyboards.firstMatch.frame.minY + 1, "键盘展开时输入框应在键盘之上")
+        assertTabBarHidden(app)
+        snapshot("agent-tab-clearance-keyboard")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "往下拖应收起键盘")
+        assertTabBarHidden(app)
+
+        // 长会话往上翻一截再回到底，输入框仍贴在标签栏藏起后的位置
+        let restY = input.frame.minY
+        transcript.swipeDown(velocity: .slow)
+        transcript.swipeUp(velocity: .slow)
+        XCTAssertEqual(input.frame.minY, restY, accuracy: 2, "翻历史不应把输入框抬离底部")
+        assertTabBarHidden(app)
+
+        edgePan(app, to: 0.16)
+        XCTAssertTrue(transcript.waitForExistence(timeout: 3), "滑到约一成六松手应取消返回，人还在会话页")
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            self.tabBarHidden(app) && abs(input.frame.minY - restY) <= 2
+        }, "取消后标签栏应藏回，输入框回到原高度")
+        snapshot("agent-tab-clearance-cancelled")
+
+        edgePan(app, to: 0.92)
+        XCTAssertTrue(waitUntil(timeout: 3) {
+            guard self.tabBarShown(app) else { return false }
+            return !input.exists || !input.frame.intersects(app.tabBars.firstMatch.frame)
+        }, "滑过大半应完成返回：标签栏出现，且不再与输入框重叠")
+        snapshot("agent-tab-clearance-completed")
+    }
+
+    @MainActor
+    private func tabBarHidden(_ app: XCUIApplication) -> Bool {
+        let bar = app.tabBars.firstMatch
+        return !(bar.exists && bar.isHittable)
+    }
+
+    @MainActor
+    private func tabBarShown(_ app: XCUIApplication) -> Bool {
+        let bar = app.tabBars.firstMatch
+        return bar.exists && bar.isHittable
+    }
+
+    /// 从屏幕左边缘向右拖，模拟交互返回。比例是相对屏幕宽度的落点。
+    @MainActor
+    private func edgePan(_ app: XCUIApplication, to endX: CGFloat) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 2, dy: 0))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: endX, dy: 0.5))
+        start.press(forDuration: 0.15, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.05)
+    }
+
+    @MainActor
+    private func waitUntil(timeout: TimeInterval, _ check: @MainActor () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if check() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return check()
+    }
 }
 
 /// 直连后端的只读查询（选历史会话、找本用例创建的会话）与清理
@@ -773,6 +849,11 @@ private final class AgentBackend {
 
     /// 会话数（只读）
     func sessionCount() -> Int { sessions().count }
+
+    /// 任意一条没在跑的历史会话，供只读打开
+    func idleSessionId() -> String? {
+        sessions().first { $0["running"] as? Bool != true }?["id"] as? String
+    }
 
     /// 从源会话派生独立新会话（不触发模型运行），返回新会话 id
     func fork(_ id: String) -> String? {
