@@ -545,9 +545,11 @@ public final class AetherPlayback {
         }
     }
 
-    public func seek(to seconds: Double) {
+    /// exact：软件通路的 AV1 平时落到附近关键帧（上游 7.54 `SWKeyframeSnap`），跳过片头 / 片尾这类要落准的
+    /// 跳转传 true；其余通路两种都是精确落点
+    public func seek(to seconds: Double, exact: Bool = false) {
         let engine = self.engine
-        Task { await engine.seek(to: max(0, seconds)) }
+        Task { await engine.seek(to: max(0, seconds), exact: exact) }
     }
 
     /// 宿主选的倍速。引擎每装载一个新片源都把速率归回 1（上游 #436），装载在后台任务里跑、比这里的调用晚，
