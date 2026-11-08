@@ -5,7 +5,7 @@ import SwiftUI
 ///   商店版是灰的「由 TestFlight 更新」，开发版没有，见 MacUpdater）；「设置…」⌘, 由 Settings 场景自带；
 /// - 「前往」：首页 ⌘1、我的收藏 ⌘2、各个媒体库 ⌘3…、搜索 ⌘F、返回 ⌘[；
 /// - 「账号」：切换到本机登录过的其他账号、添加账号、退出登录；
-/// - 「窗口 › 播放时置顶」：播放期间窗口浮在所有窗口前面（默认开，见 `MacPlayerWindow`）。
+/// - 「窗口 › 播放时置顶」：播放期间窗口浮在所有窗口前面，暂停时不浮（默认开，见 `MacPlayerWindow`）。
 /// 播放器里的快捷键（空格、←→、F……）由播放器自己处理（`MacPlayerScreen`）。
 struct MacCommands: Commands {
     let model: AppModel

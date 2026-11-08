@@ -216,6 +216,9 @@ private struct MacPlayerContent: View {
         .onChange(of: controller.paused, initial: true) { _, paused in
             sleepGuard.update(playing: !paused)
         }
+        .onChange(of: userPaused, initial: true) { _, paused in
+            window.userPaused = paused
+        }
         .onChange(of: engineID, initial: true) {
             // 降档、换集都会换一个新引擎：音量设回去
             volume.apply(to: controller.engine)
