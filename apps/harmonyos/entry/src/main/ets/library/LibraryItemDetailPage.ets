@@ -209,6 +209,8 @@ export struct LibraryItemDetailPage {
   @State private episodesFailed: boolean = false;
   /** 集列表数据代数：每次替换 episodes 自增。ForEach 同键不重建，季内刷新/慢换季时数据换了键不变，行会一直停在旧渲染 */
   @State private episodesSeq: number = 0;
+  /** 是否已显示过一次：NavDestination.onShown 首显跳过（初始加载已拉过），从播放页/下级页返回时再刷新 */
+  private hasShownOnce: boolean = false;
   @State private season: number = 1;
   /** 选中的集（剧集才有；电影恒为 null） */
   @State private selectedEpisode: EpisodeView | null = null;
@@ -1192,6 +1194,8 @@ export struct LibraryItemDetailPage {
       };
       await api.playbackMarksSet(body);
       await this.loadResume();
+      // 集卡角标（已看 / 已看 N%）实时跟上：只重拉当前季列表，锚点与用户浏览位不动
+      this.loadEpisodes();
       const toaster = this.getUIContext().getPromptAction();
       toaster.showToast({ message: next ? '已标记为已看' : '已标记为未看' });
     } catch (error) {
@@ -1286,6 +1290,15 @@ export struct LibraryItemDetailPage {
       })
     }
     .hideTitleBar(true)
+    .onShown((): void => {
+      // 首显时初始加载已拉过，跳过；从播放页/下级详情返回时刷新集卡角标与播放键进度
+      if (!this.hasShownOnce) {
+        this.hasShownOnce = true;
+        return;
+      }
+      this.loadEpisodes();
+      this.loadResume();
+    })
     .bindSheet($$this.showShare, this.ShareSheetContent(), {
       height: SheetSize.MEDIUM,
       dragBar: true,
