@@ -9,6 +9,8 @@ import { SharePageParams } from '../share/SharePage';
 import { LibraryHomeView } from './LibraryHomeView';
 import { ReelsParams } from '../reels/ReelsPage';
 import { ManageParams } from './LibraryManagePage';
+import { SearchMode } from '../search/SearchResultsPage';
+import { SearchLaunchParams } from '../search/SearchPage';
 
 /**
  * 媒体库页签的导航宿主（对应 iOS 端 NavigationStack + 系统导航栏）。
@@ -106,7 +108,7 @@ export struct LibraryNavHost {
         .width(36)
         .height(36)
         .onClick(() => {
-          this.navStack.pushPathByName('search', null);
+          this.navStack.pushPathByName('search', new SearchLaunchParams(SearchMode.library));
         })
       Button() {
         Row({ space: 4 }) {

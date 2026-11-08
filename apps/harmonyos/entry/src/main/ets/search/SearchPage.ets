@@ -84,6 +84,28 @@ class SearchDraft {
   }
 }
 
+/**
+ * 搜索入口的路由参数（同 iOS `preferredSearchMode`）：各页签进搜索时预选的分区——
+ * 订阅/发现→影视、媒体库→媒体库、活动→资源；「我的」不传，沿用上次模式。
+ */
+export class SearchLaunchParams {
+  readonly preferredMode: string;
+
+  constructor(preferredMode: string) {
+    this.preferredMode = preferredMode;
+  }
+
+  static of(param: Object | undefined | null): SearchLaunchParams | null {
+    if (param === undefined || param === null) {
+      return null;
+    }
+    const raw: SearchLaunchParams = param as SearchLaunchParams;
+    const preferredMode: string = raw.preferredMode;
+    return preferredMode !== undefined && preferredMode !== null && preferredMode.length > 0
+      ? new SearchLaunchParams(preferredMode) : null;
+  }
+}
+
 /** 路由表注册用（router_map.json 的 buildMethod） */
 @Builder
 export function SearchBuilder() {
@@ -544,6 +566,13 @@ export struct SearchPage {
       this.navStack = ctx.pathStack;
       if (!this.started) {
         this.started = true;
+        // 入口预选分区（各页签 push 时带 SearchLaunchParams）：只定本次初值，
+        // 没带沿用上次（restoreMode 已恢复）；权限不足由 resolveAccess 落到第一个可用分区
+        const launch: SearchLaunchParams | null =
+          SearchLaunchParams.of(ctx.pathInfo.param as Object | undefined);
+        if (launch !== null) {
+          this.mode = launch.preferredMode;
+        }
         this.resolveAccess();
         this.takeDraft();
       }

@@ -4,6 +4,8 @@ import { AppNavBar, AppNavTitleBar } from '../common/AppNavBar';
 import { NavStacks, ShareRouter } from '../common/ShareLinks';
 import { SharePageParams } from '../share/SharePage';
 import { SubscriptionsPage } from './SubscriptionsPage';
+import { SearchMode } from '../search/SearchResultsPage';
+import { SearchLaunchParams } from '../search/SearchPage';
 
 /**
  * 订阅页签的导航宿主（对应 iOS 端订阅页所在的 NavigationStack）。
@@ -67,6 +69,21 @@ export struct SubscriptionsNavHost {
   /** 标题栏内容行：与其余页签同一份版式（common/AppNavBar） */
   @Builder
   TitleRow() {
-    AppNavTitleBar({ title: '订阅' })
+    AppNavTitleBar({ title: '订阅' }) {
+      this.SearchButton()
+    }
+  }
+
+  /** 右上角搜索（对齐 iOS 订阅页顶栏的放大镜，预选影视分区，压栈搜索首页） */
+  @Builder
+  SearchButton() {
+    SymbolGlyph($r('sys.symbol.magnifyingglass'))
+      .fontSize(22)
+      .fontColor([Theme.textMuted])
+      .width(36)
+      .height(36)
+      .onClick(() => {
+        this.navStack.pushPathByName('search', new SearchLaunchParams(SearchMode.media));
+      })
   }
 }

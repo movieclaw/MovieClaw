@@ -4,6 +4,8 @@ import { AppNavBar, AppNavTitleBar } from '../common/AppNavBar';
 import { NavStacks, ShareRouter } from '../common/ShareLinks';
 import { SharePageParams } from '../share/SharePage';
 import { ActivityPage } from './ActivityPage';
+import { SearchMode } from '../search/SearchResultsPage';
+import { SearchLaunchParams } from '../search/SearchPage';
 
 /**
  * 活动页签的导航宿主（对应 iOS 端 NavigationStack）。
@@ -58,6 +60,21 @@ export struct ActivityNavHost {
   /** 标题栏内容行：与其余页签同一份版式（common/AppNavBar） */
   @Builder
   TitleRow() {
-    AppNavTitleBar({ title: '活动' })
+    AppNavTitleBar({ title: '活动' }) {
+      this.SearchButton()
+    }
+  }
+
+  /** 右上角搜索（对齐 iOS 活动页顶栏的放大镜，预选资源分区，压栈搜索首页） */
+  @Builder
+  SearchButton() {
+    SymbolGlyph($r('sys.symbol.magnifyingglass'))
+      .fontSize(22)
+      .fontColor([Theme.textMuted])
+      .width(36)
+      .height(36)
+      .onClick(() => {
+        this.navStack.pushPathByName('search', new SearchLaunchParams(SearchMode.torrent));
+      })
   }
 }

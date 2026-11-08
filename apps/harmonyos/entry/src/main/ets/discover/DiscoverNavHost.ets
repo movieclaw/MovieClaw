@@ -6,6 +6,8 @@ import { NavStacks, ShareRouter } from '../common/ShareLinks';
 import { SharePageParams } from '../share/SharePage';
 import { DiscoverPage } from './DiscoverPage';
 import { DiscoveryFilters, DiscoverFilterSheet } from './DiscoverFilter';
+import { SearchMode } from '../search/SearchResultsPage';
+import { SearchLaunchParams } from '../search/SearchPage';
 
 /**
  * 发现页签的导航宿主（对应 iOS 端发现页所在的 NavigationStack）。
@@ -50,8 +52,8 @@ export struct DiscoverNavHost {
         navStack: this.navStack,
         viewpointRequest: this.viewpointRequest,
         scroller: this.scroller,
-        onViewpointChange: (mediaType: string, source: string): void => {
-          this.requestViewpoint(mediaType, source);
+        onViewpointChange: (nextMediaType: string, nextSource: string): void => {
+          this.requestViewpoint(nextMediaType, nextSource);
         }
       })
     }
@@ -78,14 +80,29 @@ export struct DiscoverNavHost {
     .backgroundColor(Theme.bg)
   }
 
-  /** 标题栏内容行（stackBuilder 扩展点）：动态标题 + 筛选胶囊（视角改到页内四个按钮） */
+  /** 标题栏内容行（stackBuilder 扩展点）：动态标题 + 筛选胶囊 + 搜索（视角改到页内四个按钮） */
   @Builder
   TitleRow() {
     AppNavTitleBar({ title: this.mediaType === 'tv' ? '剧集' : '电影' }) {
       if (this.source === 'tmdb') {
         this.FilterCapsule()
       }
+      this.SearchButton()
     }
+  }
+
+  /** 右上角搜索（对齐 iOS 发现页顶栏最右的放大镜，预选影视分区，压栈搜索首页） */
+  @Builder
+  SearchButton() {
+    SymbolGlyph($r('sys.symbol.magnifyingglass'))
+      .fontSize(22)
+      .fontColor([Theme.textMuted])
+      .width(36)
+      .height(36)
+      .margin({ left: 8 })
+      .onClick(() => {
+        this.navStack.pushPathByName('search', new SearchLaunchParams(SearchMode.media));
+      })
   }
 
   /**
