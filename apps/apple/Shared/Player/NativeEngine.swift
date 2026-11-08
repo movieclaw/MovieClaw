@@ -261,11 +261,11 @@ final class NativeEngine: NSObject, PlayerEngine {
     func setPrefetchSuspended(_ suspended: Bool) { core.setPrefetchSuspended(suspended) }
     func pause() { core.pause() }
 
-    /// 引擎的定位本身就是精确的（主力通路由 AVPlayer 按帧落点），exact 不区分
+    /// 主力通路由 AVPlayer 按帧落点，两种都精确；软件通路的 AV1 不要求精确时落到附近关键帧（上游 7.54）
     func seek(to seconds: Double, exact: Bool) {
         awaitingSeekPicture = true
         seekLanded = false
-        core.seek(to: seconds)
+        core.seek(to: seconds, exact: exact)
     }
 
     func setRate(_ rate: Float) { core.setRate(rate) }
