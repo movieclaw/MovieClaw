@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import threading
 import time
+import weakref
 from dataclasses import replace
 from pathlib import Path
 
@@ -30,6 +32,7 @@ from movieclaw_api.services.library.bluray import (
     DISC_PLAYLIST_VERSION,
     MainPlaylistReadResult,
     MplsParseError,
+    disc_playlist_audit_mutex,
     disc_playlist_fingerprint,
     disc_playlist_record,
     disc_playlist_stale,
@@ -1264,6 +1267,37 @@ async def test_startup_heal_and_manual_scan_serialize_the_same_library(
     assert final.disc_playlist is not None
     assert final.disc_playlist["version"] == DISC_PLAYLIST_VERSION
     assert final.resolution == "1080p" and final.audio_streams
+
+
+def test_audit_mutex_contention_survives_a_new_event_loop() -> None:
+    """上一个事件循环里争用过的同库锁，不能把新循环里的争用打成 RuntimeError，也不能留住旧循环。"""
+
+    async def contend() -> None:
+        held = asyncio.Event()
+
+        async def holder() -> None:
+            async with disc_playlist_audit_mutex(1):
+                held.set()
+                await asyncio.sleep(0)
+
+        task = asyncio.create_task(holder())
+        await held.wait()
+        async with disc_playlist_audit_mutex(1):
+            pass
+        await task
+
+    def run_in_new_loop() -> weakref.ref[asyncio.AbstractEventLoop]:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(contend())
+        finally:
+            loop.close()
+        return weakref.ref(loop)
+
+    first = run_in_new_loop()
+    run_in_new_loop()
+    gc.collect()
+    assert first() is None
 
 
 async def test_unreadable_playlists_keep_a_good_record_until_they_read_again(
