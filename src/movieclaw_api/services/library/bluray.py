@@ -236,15 +236,25 @@ def _parse_playlist_marks(data: bytes, items: tuple[MplsPlayItem, ...]) -> tuple
 DISC_PLAYLIST_VERSION = 3
 _AUDIT_KEY = "audit"
 _FINGERPRINT_UNSET = object()
-_audit_mutexes: dict[int, asyncio.Lock] = {}
+#: 同库锁只在有持有者或等待者时存在，用完即删：asyncio.Lock 首次争用会绑定
+#: 当时的事件循环，常驻会让后来的事件循环（测试每个用例一个）拿到旧循环的锁。
+_audit_mutexes: dict[int, tuple[asyncio.Lock, int]] = {}
 
 
 @asynccontextmanager
 async def disc_playlist_audit_mutex(library_id: int) -> AsyncIterator[None]:
     """同一媒体库的启动自愈与手动扫描共用一把主片审计锁。"""
-    lock = _audit_mutexes.setdefault(library_id, asyncio.Lock())
-    async with lock:
-        yield
+    lock, users = _audit_mutexes.get(library_id, (asyncio.Lock(), 0))
+    _audit_mutexes[library_id] = (lock, users + 1)
+    try:
+        async with lock:
+            yield
+    finally:
+        lock, users = _audit_mutexes[library_id]
+        if users == 1:
+            del _audit_mutexes[library_id]
+        else:
+            _audit_mutexes[library_id] = (lock, users - 1)
 
 
 def disc_playlist_fingerprint(path: Path) -> dict | None:
