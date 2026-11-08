@@ -29,7 +29,10 @@ from movieclaw_api.i18n.stored import (
     stored_fields,
 )
 from movieclaw_api.services.subscription.attempt_notes import note_fields, set_note
-from movieclaw_api.services.subscription.matching import units_reference
+from movieclaw_api.services.subscription.matching import (
+    UNIT_UNRESOLVED_MEMORY_KEY,
+    units_reference,
+)
 from movieclaw_db.models import (
     ActivityType,
     DownloadAttemptStatus,
@@ -56,6 +59,24 @@ def _utc_text(value: datetime | None) -> str | None:
         return None
     value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     return value.isoformat()
+
+
+def _retries_unresolved_snapshot(
+    submission: dict,
+    targets: list[WantedItem],
+) -> bool:
+    """本次是否在用新映射重试旧快照下证伪过的同一 hash/单元。"""
+    old_mapping = submission.get(SNAPSHOT_KEY)
+    units = {(row.season_number, row.episode_number) for row in targets}
+    return any(
+        record.get("mapping") == old_mapping
+        and any(
+            isinstance(unit, list) and len(unit) == 2 and tuple(unit) in units
+            for unit in record.get("units", [])
+        )
+        for record in submission.get(UNIT_UNRESOLVED_MEMORY_KEY, [])
+        if isinstance(record, dict)
+    )
 
 
 async def dispatch(
@@ -422,6 +443,44 @@ async def dispatch(
             now = utcnow()
             normalized_hash = submit_result.info_hash.lower()
             submitted_info_hash = normalized_hash
+            existing_attempt = (
+                await session.execute(
+                    select(SubscriptionDownloadAttempt).where(
+                        SubscriptionDownloadAttempt.subscription_id == subscription.id,
+                        SubscriptionDownloadAttempt.info_hash == normalized_hash,
+                    )
+                )
+            ).scalar_one_or_none()
+            current_mapping = item.season_mapping or []
+            frozen = dict((existing_attempt.submission if existing_attempt else None) or {})
+            retrying_new_mapping = (
+                existing_attempt is not None
+                and SNAPSHOT_KEY in frozen
+                and frozen[SNAPSHOT_KEY] != current_mapping
+                and _retries_unresolved_snapshot(frozen, all_targets)
+            )
+            if retrying_new_mapping:
+                # 同一 attempt 只能冻结一份映射。旧快照负责的单元还在等待入库时，
+                # 新单元不能共享该 hash：既不能改写旧解释，也不能沿用旧解释重放。
+                old_targets = (
+                    await session.execute(
+                        select(WantedItem.id).where(
+                            WantedItem.subscription_id == subscription.id,
+                            WantedItem.info_hash == normalized_hash,
+                            WantedItem.status.in_(  # type: ignore[attr-defined]
+                                (WantedStatus.GRABBED, WantedStatus.DOWNLOADED)
+                            ),
+                        )
+                    )
+                ).first()
+                if old_targets is not None:
+                    await _rollback_claim(session, claimed, retry_delay=DISPATCH_RETRY_DELAY)
+                    logger.info(
+                        "同一 hash 仍有旧映射单元在途，暂缓用新映射重投：%s/%s",
+                        candidate.site_id,
+                        candidate.torrent_id,
+                    )
+                    return False
             for wanted in [] if is_trial else claimed:
                 await session.execute(
                     update(WantedItem)
@@ -460,14 +519,6 @@ async def dispatch(
                     and parent.status == DownloadAttemptStatus.REPLACEMENT_PENDING
                     and any(w.in_scope for w in all_targets)
                 )
-            existing_attempt = (
-                await session.execute(
-                    select(SubscriptionDownloadAttempt).where(
-                        SubscriptionDownloadAttempt.subscription_id == subscription.id,
-                        SubscriptionDownloadAttempt.info_hash == normalized_hash,
-                    )
-                )
-            ).scalar_one_or_none()
             # 所有权：全新提交归我们；「已存在」通常是用户自己的任务（不碰），
             # 但刷流引擎抢下后被接管的（reclaimed_from_boost）本来就是
             # movieclaw 的，数据也已迁到目标目录——按自有任务记
@@ -519,10 +570,13 @@ async def dispatch(
             }
             # 在途任务的站点季号映射快照（issue #1155）：核验、逐集进度、整包扩选
             # 都按投递时用的这一份解释文件名，下载期间元数据刷新改了映射也不会把
-            # 同一个文件认成另一集。同一 hash 续用时保留首次冻结的那份（智能投递
-            # 的意图上早已冻结），其余载荷原样保留
-            frozen = dict((existing_attempt.submission if existing_attempt else None) or {})
-            frozen.setdefault(SNAPSHOT_KEY, item.season_mapping or [])
+            # 同一个文件认成另一集。同一 hash 续用通常保留首次冻结的那份（智能
+            # 投递的意图上早已冻结）；只有旧解释已证伪、旧单元也全部结束后，才
+            # 允许重投时换成当前映射。其余载荷原样保留。
+            if retrying_new_mapping:
+                frozen[SNAPSHOT_KEY] = current_mapping
+            else:
+                frozen.setdefault(SNAPSHOT_KEY, current_mapping)
             values["submission"] = frozen
             if existing_attempt is None:
                 session.add(

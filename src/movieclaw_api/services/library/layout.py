@@ -168,6 +168,21 @@ _TRAILING_INDEX = re.compile(r"(?<![0-9A-Za-z])(\d{1,3})\s*$")
 # 显式 SxxEyy 标记：场景命名里语义最强的季集声明。前界挡住词内片段
 # （"XS06E01"），后界挡住数字粘连（"S02E051080p" 宁可不中，交回模型通道）
 _EXPLICIT_SXXEYY = re.compile(r"(?i)(?<![0-9A-Za-z])S(\d{1,3})[ ._-]?E(\d{1,4})(?!\d)")
+# 同一 Sxx 后连续声明多集：``S01E01-E02`` / ``S01E01E02`` / ``S01E01+E02``。
+# ``explicit_unit`` 的返回类型只能表达一个单元，因此这类名字必须交回上层，
+# 不能悄悄拿首集冒充整个文件。省略第二个 E 时只认 1~3 位集号，避免把
+# ``S01E01-1080p`` 的分辨率误判成第 1080 集。
+_EXPLICIT_SXX_MULTI = re.compile(
+    r"(?i)(?<![0-9A-Za-z])S\d{1,3}[ ._-]?E\d{1,4}"
+    r"(?:\s*(?:[-~&+._]\s*E|E)\d{1,4}|\s*[-~&+]\s*\d{1,3})(?!\d)"
+)
+
+
+def has_explicit_multi_unit(stem: str) -> bool:
+    """名字是否显式声明同季多个集号；单单元解析链必须据此 fail-closed。"""
+    return _EXPLICIT_SXX_MULTI.search(stem) is not None
+
+
 # NxMM 写法（Kodi/Plex/Emby 都认的 "House - 4x01 - Alone"）。季号 1~2 位、
 # 集号 2~3 位且两端不贴数字：挡住 "1920x1080" 分辨率与 "x264" 编码
 _EXPLICIT_NXMM = re.compile(r"(?<![0-9A-Za-z])(\d{1,2})[xX](\d{2,3})(?![0-9])")
@@ -232,6 +247,8 @@ def explicit_unit(stem: str) -> tuple[int, int] | None:
     (season, 0)：集号 0 在管线里是「无集号」哨兵，入库层据此识别"这是
     显式声明的第 0 集"并按占位跳过，而不是误报解析失败。
     """
+    if has_explicit_multi_unit(stem):
+        return None
     match = _EXPLICIT_SXXEYY.search(stem) or _EXPLICIT_NXMM.search(stem)
     if match is not None:
         return int(match.group(1)), int(match.group(2))
@@ -256,6 +273,8 @@ def explicit_episode(stem: str) -> int | None:
     与 ``explicit_unit`` 同口径（0 是管线的「无集号」哨兵，上层据此按先导/
     特辑占位跳过，而不是误报解析失败）。
     """
+    if has_explicit_multi_unit(stem):
+        return None
     values = {int(match.group(1)) for match in _EXPLICIT_EPISODE.finditer(stem)}
     values |= _cn_episodes(stem)
     return values.pop() if len(values) == 1 else None

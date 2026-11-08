@@ -69,6 +69,7 @@ from movieclaw_matcher import (
     match_identity,
     site_rank,
 )
+from movieclaw_matcher.seasons import SNAPSHOT_KEY
 from movieclaw_matcher.smart import SmartPolicy, candidate_key
 from movieclaw_tracker.datetime_utils import DEFAULT_SITE_TIMEZONE
 
@@ -403,8 +404,9 @@ async def load_match_context(
         ctx.open_wanted[(wanted.season_number, wanted.episode_number)] = wanted
 
     # -- 下载核验的负面记忆 ---------------------------------------------------
-    # 实测缺集的来源永久按单元排除；文件集号无法解释的来源只在映射快照未变时
-    # 排除。两者都要在选种前生效，否则会立刻再次认领同一份已完成内容。
+    # 实测缺集的来源永久按单元排除；文件集号无法解释的来源通常只在映射快照
+    # 未变时排除。旧快照仍有单元在途时也暂不放行，避免同一 hash 同时承担两份
+    # 解释。两者都要在选种前生效，否则会立刻再次认领同一份已完成内容。
     gap_subscriptions = {
         ctx.subscription.id
         for ctx in contexts.values()
@@ -419,6 +421,21 @@ async def load_match_context(
             ctx.subscription.id: ctx
             for ctx in contexts.values()
             if ctx.subscription.id is not None
+        }
+        in_flight_tasks = {
+            (subscription_id, info_hash.lower())
+            for subscription_id, info_hash in (
+                await session.execute(
+                    select(WantedItem.subscription_id, WantedItem.info_hash).where(
+                        WantedItem.subscription_id.in_(gap_subscriptions),  # type: ignore[union-attr]
+                        WantedItem.info_hash.is_not(None),  # type: ignore[union-attr]
+                        WantedItem.status.in_(  # type: ignore[attr-defined]
+                            (WantedStatus.GRABBED, WantedStatus.DOWNLOADED)
+                        ),
+                    )
+                )
+            ).tuples()
+            if info_hash
         }
         attempts = (
             await session.execute(
@@ -444,8 +461,19 @@ async def load_match_context(
             if ctx is None:
                 continue
             current_mapping = ctx.item.season_mapping or []
-            for memory in (attempt.submission or {}).get(UNIT_UNRESOLVED_MEMORY_KEY, []):
-                if not isinstance(memory, dict) or memory.get("mapping") != current_mapping:
+            submission = attempt.submission or {}
+            frozen_mapping = submission.get(SNAPSHOT_KEY)
+            task_still_active = (
+                attempt.subscription_id,
+                attempt.info_hash.lower(),
+            ) in in_flight_tasks
+            for memory in submission.get(UNIT_UNRESOLVED_MEMORY_KEY, []):
+                if not isinstance(memory, dict):
+                    continue
+                memory_mapping = memory.get("mapping")
+                if memory_mapping != current_mapping and not (
+                    task_still_active and frozen_mapping == memory_mapping
+                ):
                     continue
                 sources = {
                     (str(source[0]), str(source[1]))

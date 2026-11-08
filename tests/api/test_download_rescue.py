@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from importlib import import_module
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -40,7 +42,7 @@ from movieclaw_db.models import (
     WantedStatus,
 )
 from movieclaw_db.models.base import utcnow
-from movieclaw_downloader import TorrentStatus
+from movieclaw_downloader import SubmitResult, TorrentStatus
 from movieclaw_downloader.models import TorrentFile
 from movieclaw_matcher.models import IdentityMatch
 from movieclaw_media.models import MediaKind
@@ -606,6 +608,131 @@ async def test_unit_unresolved_source_retries_only_after_mapping_changes(
         wanted = await _wanted_map(session, sub_id)
         assert changed_mapping.dispatched_units == 1
         assert wanted[(2, 3)].status == WantedStatus.GRABBED
+
+
+@pytest.mark.asyncio
+async def test_partial_unit_unresolved_replaces_snapshot_before_same_hash_retry(
+    db, tmp_path, monkeypatch
+) -> None:
+    """部分单元仍按旧快照在途时拒绝重投；结束后同 hash 重投必须冻结新快照。"""
+    old_mapping = [
+        {"absolute": True, "season": 1, "start": 1, "end": 2},
+        {"absolute": True, "season": 2, "start": 3, "end": 4},
+    ]
+    new_mapping = [
+        *old_mapping,
+        {"absolute": True, "season": 3, "start": 5, "end": 6},
+    ]
+    async with db.session() as session:
+        sub_id = await _grabbed_subscription(session, MediaKind.TV, 300, selected_seasons=[2])
+        item = (
+            await session.execute(select(MediaItem).where(MediaItem.tmdb_id == 300))
+        ).scalar_one()
+        item.season_mapping = old_mapping
+        attempt = SubscriptionDownloadAttempt(
+            subscription_id=sub_id,
+            info_hash=_HASH,
+            submission={"season_mapping": old_mapping},
+            site_id="testsite",
+            torrent_id="partial-bad-unit",
+            units=[[2, 3], [2, 4]],
+            last_progress_at=utcnow(),
+            status=DownloadAttemptStatus.COMPLETED,
+        )
+        torrent = SiteTorrent(
+            site_id="testsite",
+            torrent_id="partial-bad-unit",
+            title="Test Show S02E02 1080p WEB-DL",
+            attrs={
+                "media_type": "tv",
+                "seasons": [2],
+                "episodes": [2],
+                "resolution": "1080p",
+            },
+            enrich_version=1,
+            source=TorrentSource.LIST,
+            seeders=10,
+            publish_time=utcnow(),
+        )
+        session.add_all([item, attempt, torrent])
+        await session.commit()
+
+    status = _completed_status(
+        tmp_path,
+        ["Show/Show.S02E01.mkv", "Show/Show.S02E99.mkv"],
+    )
+    _stub_query(monkeypatch, status)
+    await _rescue_group(sub_id, _HASH, [(object(), object())])
+
+    submitted_mappings = []
+
+    async def submit(*args, **kwargs):
+        submitted_mappings.append(kwargs["season_mapping"].to_json())
+        return (
+            SubmitResult(info_hash=_HASH, name="Test.Show", already_exists=True),
+            SimpleNamespace(id=None),
+        )
+
+    monkeypatch.setenv("SUBSCRIPTION_DISPATCH_DRY_RUN", "false")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        import_module("movieclaw_api.services.subscription.dispatch"), "_submit_real", submit
+    )
+    async with db.session() as session:
+        item = (
+            await session.execute(select(MediaItem).where(MediaItem.tmdb_id == 300))
+        ).scalar_one()
+        item.season_mapping = new_mapping
+        session.add(item)
+        await session.commit()
+        torrent = (
+            await session.execute(
+                select(SiteTorrent).where(SiteTorrent.torrent_id == "partial-bad-unit")
+            )
+        ).scalar_one()
+
+        # E3 仍等待按旧快照入库；此时不能让 E4 复用同 hash 后改写或沿用快照。
+        blocked = await evaluate_and_dispatch(session, [torrent], source="主动搜索")
+        wanted = await _wanted_map(session, sub_id)
+        assert blocked.dispatched_units == 0
+        assert submitted_mappings == []
+        assert wanted[(2, 3)].status == WantedStatus.GRABBED
+        assert wanted[(2, 4)].status == WantedStatus.WANTED
+
+        # 旧快照负责的单元结束后，重投同一 hash；此时必须换成新映射。
+        wanted[(2, 3)].status = WantedStatus.IMPORTED
+        session.add(wanted[(2, 3)])
+        await session.commit()
+        retried = await evaluate_and_dispatch(session, [torrent], source="主动搜索")
+        wanted = await _wanted_map(session, sub_id)
+        attempt = (
+            await session.execute(
+                select(SubscriptionDownloadAttempt).where(
+                    SubscriptionDownloadAttempt.subscription_id == sub_id
+                )
+            )
+        ).scalar_one()
+        assert retried.dispatched_units == 1
+        assert submitted_mappings == [new_mapping]
+        assert attempt.submission["season_mapping"] == new_mapping
+        assert wanted[(2, 4)].status == WantedStatus.GRABBED
+        wanted[(2, 4)].grabbed_at = utcnow() - timedelta(minutes=25)
+        session.add(wanted[(2, 4)])
+        await session.commit()
+
+    # 新映射下再次证伪会写入新版本记忆；同一来源不再完成→退回→重选。
+    await _rescue_group(sub_id, _HASH, [(object(), object())])
+    async with db.session() as session:
+        torrent = (
+            await session.execute(
+                select(SiteTorrent).where(SiteTorrent.torrent_id == "partial-bad-unit")
+            )
+        ).scalar_one()
+        repeated = await evaluate_and_dispatch(session, [torrent], source="主动搜索")
+        wanted = await _wanted_map(session, sub_id)
+        assert repeated.dispatched_units == 0
+        assert submitted_mappings == [new_mapping]
+        assert wanted[(2, 4)].status == WantedStatus.WANTED
 
 
 @pytest.mark.asyncio
