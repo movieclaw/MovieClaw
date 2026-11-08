@@ -329,17 +329,38 @@ def test_episode_count_conflict_is_skipped_for_normalised_pack() -> None:
     assert match.id_conflict is None
 
 
-def test_multi_season_pack_with_episodes_is_unchanged() -> None:
-    """S01-S03 + 集号的合集仍按整季包处理，不做逐季换算（多季歧义）。"""
+def test_cross_season_episode_range_is_not_downgraded_to_season_pack() -> None:
+    """跨季范围无法可靠配对季集，不能降级成多个整季包批量认领。"""
+    media = MediaIdentity(
+        kind="tv",
+        year=1999,
+        aliases=("One Piece",),
+        season_numbers=(1, 21, 22),
+        episode_ranges=tuple(
+            (season, start, end) for _site, season, start, end in _ONE_PIECE_BLOCKS
+        ),
+    )
+    match = match_identity(
+        _candidate(
+            "One Piece S21E01-S22E02 1080p",
+            seasons=[21, 22],
+            episodes=[1, 2],
+        ),
+        media,
+    )
+    assert match is None
+
+
+def test_multi_season_pack_without_episode_markers_stays_a_pack() -> None:
     media = MediaIdentity(
         kind="tv",
         year=2024,
-        aliases=("Solo Leveling",),
-        season_numbers=(1,),
-        season_blocks=_SOLO_BLOCKS,
+        aliases=("Some Show",),
+        season_numbers=(1, 2, 3),
     )
     match = match_identity(
-        _candidate("Solo Leveling S01-S03 E01 1080p", seasons=[1, 2, 3], episodes=[1]), media
+        _candidate("Some Show S01-S03 Complete 1080p", seasons=[1, 2, 3], complete=True),
+        media,
     )
     assert match is not None
     assert match.pack_seasons == frozenset({1, 2, 3})

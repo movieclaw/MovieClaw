@@ -194,7 +194,8 @@ def plan_strict_file_selection(
             episode = explicit_episode(path.stem)
             key = (season, episode) if season is not None and episode is not None else None
         combined = re.search(
-            r"(?:EP?\d+|\d+x\d+)\s*(?:[-~+&]\s*(?:S\d+)?(?:EP?)?\d+|E\d+)",
+            r"(?:EP?\d+|\d+x\d+)\s*"
+            r"(?:[-~+&]\s*(?:S\d+)?(?:EP?)?\d+(?![0-9A-Za-z])|E\d+)",
             path.stem,
             re.I,
         )

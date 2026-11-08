@@ -154,6 +154,16 @@ def test_explicit_filename_release_separator_and_unknown_season():
         plan_strict_file_selection(["EP16.mkv"], {(1, 16)}, known_seasons=[1, 2])
 
 
+@pytest.mark.parametrize("resolution", ["1080p", "2160p"])
+def test_resolution_suffix_is_not_mistaken_for_a_second_episode(resolution: str) -> None:
+    plan = plan_strict_file_selection(
+        [f"One.Piece.S21E01-{resolution}.mkv"],
+        {(21, 1)},
+        known_seasons=[1, 21],
+    )
+    assert plan.keep_indices == [0]
+
+
 # NAS 现场（智能投递 #219）：13 集纪录片订阅被投到全 8 集的同名剧整季包
 STAIRCASE = [
     "The.Staircase.S01.2160p.Max.WEB-DL.DDP.5.1.Atmos.DoVi.HDR.H.265-CHDWEB/"
