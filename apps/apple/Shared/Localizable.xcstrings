@@ -132012,6 +132012,31 @@
         }
       },
       "comment": "Tip card message on the library home: how to use the pull-down entry to Clips."
+    },
+    "library.item.fullOverview": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整简介"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整简介"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Overview"
+          }
+        }
+      },
+      "comment": "Opens the untruncated overview on Apple TV."
     }
   },
   "version": "1.0"

@@ -444,6 +444,8 @@ struct TVStageInfo: View {
     /// 片名 Logo 的最大宽高：首页与详情页一致 860×200（2026-10-04 用户要求统一成详情页的大小——
     /// 从首页点进详情，同一个 Logo 不再突然变大一圈）
     var logoSize = CGSize(width: 860, height: 200)
+    /// 简介被截断时按确认看完整简介（详情页给，issue #1238）：给了简介才能接焦点；首页不给，简介只是一段字
+    var onOverviewSelect: (() -> Void)?
 
     // 排法（首页、详情页同一套，2026-10-03 用户定）：片名 → 年份、类型、片长（加粗主文字，后面跟规格小标签）
     // → 第几集（降一级）→ 简介。段距照系统 Apple TV App 详情页量出来的节奏：组内紧、组间松约 2～3 倍——
@@ -465,13 +467,18 @@ struct TVStageInfo: View {
                     .padding(.bottom, 20)
             }
             if let overview = overview?.trimmingCharacters(in: .whitespacesAndNewlines), !overview.isEmpty {
-                TVInfoText.overview(overview, lines: overviewLines)
+                if let onOverviewSelect {
+                    TVOverviewButton(text: overview, lines: overviewLines, action: onOverviewSelect)
+                } else {
+                    TVInfoText.overview(overview, lines: overviewLines)
+                }
             }
         }
         // 剧照的左侧压暗减弱了，靠字自己的阴影托住
         .shadow(color: .black.opacity(0.55), radius: 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        // 简介能接焦点时不能合并成一个元素：合并了按钮就从无障碍树（UI 测试）里消失
+        .accessibilityElement(children: onOverviewSelect == nil ? .combine : .contain)
     }
 
     /// 年份、类型、片长 + 画质、音频小标签
@@ -511,14 +518,77 @@ enum TVInfoText {
             .lineLimit(1)
     }
 
-    /// 简介：25 号，行距 +7（中文字面满，比 Apple 的英文再松一点），82% 亮度，最宽 720
-    static func overview(_ text: String, lines: Int) -> some View {
+    /// 简介：25 号，行距 +7（中文字面满，比 Apple 的英文再松一点），82% 亮度，最宽 720。`lines` 为 nil 不限行
+    static func overview(_ text: String, lines: Int?) -> some View {
         Text(text)
             .font(.system(size: 25))
             .lineSpacing(7)
             .foregroundStyle(.white.opacity(0.82))
             .lineLimit(lines)
             .frame(maxWidth: 720, alignment: .leading)
+    }
+}
+
+/// 详情页首屏的简介（issue #1238）：被截断时能接焦点，按确认打开完整简介，同系统 Apple TV App、Infuse。
+/// 没截断就只是一段字、不接焦点——全文都看得见，多一个焦点停靠点只会让「往上」多按一下。
+/// 截不截断靠量：同样宽度下不限行的那份比限行的高，就是截了
+struct TVOverviewButton: View {
+    let text: String
+    let lines: Int
+    let action: () -> Void
+
+    @State private var shownHeight: CGFloat = 0
+    @State private var fullHeight: CGFloat = 0
+    private var truncated: Bool { fullHeight > shownHeight + 1 }
+
+    var body: some View {
+        if truncated {
+            Button(action: action) { measured }
+                .buttonStyle(TVOverviewButtonStyle())
+                .accessibilityLabel(text)
+                .accessibilityHint(String(localized: .libraryItemFullOverview))
+                .accessibilityIdentifier("tv-item-overview")
+        } else {
+            measured
+        }
+    }
+
+    private var measured: some View {
+        TVInfoText.overview(text, lines: lines)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { shownHeight = $0 }
+            // 同宽不限行的一份，藏起来只量高度
+            .background(alignment: .topLeading) {
+                TVInfoText.overview(text, lines: nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .hidden()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
+            }
+    }
+}
+
+/// 简介的焦点样式：字底下垫一块半透明的圆角浅底、微微放大（同系统 Apple TV App 详情页的简介）。
+/// 浅底往四周外扩，不占排版——接不接焦点，字的位置都不动
+private struct TVOverviewButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        StyledLabel(configuration: configuration)
+    }
+
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            configuration.label
+                .background {
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(.white.opacity(isFocused ? 0.16 : 0))
+                        .padding(.horizontal, -20)
+                        .padding(.vertical, -14)
+                }
+                .scaleEffect(configuration.isPressed ? 0.99 : isFocused ? 1.03 : 1, anchor: .leading)
+                .animation(.easeOut(duration: 0.2), value: isFocused)
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        }
     }
 }
 

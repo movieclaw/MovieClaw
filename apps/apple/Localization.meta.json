@@ -20549,6 +20549,9 @@
     },
     "library.home.reelsTipMessage": {
       "sourceHash": "252efeb5ba330cea9f038a40b261b44c712e723995ae0c8900b0c125c1b1eba3"
+    },
+    "library.item.fullOverview": {
+      "sourceHash": "78e5fafa04df313a166b0d6522b1cc6d42ac71d05899f50982b7ea582328571c"
     }
   },
   "MovieClaw/InfoPlist.xcstrings": {

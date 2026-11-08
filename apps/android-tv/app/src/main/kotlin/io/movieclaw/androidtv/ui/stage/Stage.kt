@@ -360,6 +360,9 @@ fun StageInfo(
     badges: List<StageBadge> = emptyList(),
     overview: String? = null,
     overviewLines: Int = 2,
+    // 简介被截断时按确认看完整简介（详情页给，issue #1238）；[overviewModifier] 挂在能接焦点的简介上（焦点登记）
+    onOverviewClick: (() -> Unit)? = null,
+    overviewModifier: Modifier = Modifier,
 ) {
     val shadow = Shadow(Color.Black.copy(alpha = 0.55f), blurRadius = 20f)
     Column(modifier.fillMaxWidth()) {
@@ -386,13 +389,13 @@ fun StageInfo(
             )
         }
         overview?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            Text(
+            StageOverview(
                 it,
+                lines = overviewLines,
                 style = McType.size(25).copy(lineHeight = (25 + 7 + 7).ptSp, shadow = shadow),
                 color = Color.White.copy(alpha = 0.82f),
-                maxLines = overviewLines,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 720.pt),
+                onClick = onOverviewClick,
+                modifier = overviewModifier,
             )
         }
     }

@@ -53,6 +53,19 @@ struct TVItemDetailView: View {
     /// 下半截那一季的播出日历；服务端只在这一季还有今天或以后的播出日期时给
     @State private var browseSchedule: API.SeasonAirScheduleView?
     @State private var showsAirSchedule = false
+    /// 完整简介（首屏的简介、分集卡长按菜单打开，issue #1238）；nil 为没开
+    @State private var overviewPanel: TVOverviewContent?
+    /// 完整简介是从哪一集的长按菜单打开的：关掉时焦点交回那张卡。菜单项已经没了，不管的话系统把焦点放回首屏主按钮
+    @State private var overviewEpisode: Int?
+    /// 首屏的简介能接焦点了。简介排在按钮上面：主界面把焦点整页交给详情页时（冷启动直接落在详情页、从后台回来焦点停在侧边栏，
+    /// 见 `TVMainView.reclaimFocus`、`TVDestination`），焦点先落到主按钮、约 50 毫秒后系统又按位置重挑一次最上面的，这一刻简介能接焦点
+    /// 就会被它抢走（`defaultFocus`、`prefersDefaultFocus` 都压不住，2026-11-08 模拟器实测）；过了这一下再放开就不会。
+    /// 所以进页面、每次整页要回焦点时简介先当普通文字，等按钮那一排拿到焦点、再过 `overviewArmDelay` 才能接焦点
+    @State private var overviewSelectable = false
+    /// 简介锁着、等按钮那一排拿到焦点后开始计时
+    @State private var overviewNeedsArm = true
+    /// 每变一次重新计时放开简介的焦点
+    @State private var overviewArm = 0
     /// 从面板挑了一集、焦点还没落到横排那一集上：这期间焦点先回到段页签，不能按「换段」把横排跳走
     @State private var pendingRowFocus: Int?
     @State private var watched: API.PlaybackStateView?
@@ -86,6 +99,8 @@ struct TVItemDetailView: View {
     /// 大图预告里认这一页的牌子（见 `TVStagePreview`）
     @State private var previewOwner = UUID()
 
+    /// 按钮那一排拿到焦点之后多久放开简介的焦点（见 `overviewSelectable`；实测被抢发生在这之后约 50 毫秒内）
+    private static let overviewArmDelay = Duration.milliseconds(600)
     private enum DetailAction { case play, restart, favorite, played }
     fileprivate enum LowerFocus: Hashable {
         case season(Int)
@@ -171,6 +186,15 @@ struct TVItemDetailView: View {
                 }
             }
         }
+        .fullScreenCover(item: $overviewPanel, onDismiss: {
+            if let number = overviewEpisode {
+                overviewEpisode = nil
+                pendingRowFocus = number
+            }
+        }) { content in
+            TVOverviewPanel(content: content,
+                            ambientURL: api.image(detail?.backdropUrl ?? detail?.posterUrl, width: ImageWidth.points(TVMetrics.blurredBackdropWidth)))
+        }
         // 开着的时候这一季的日历没了（过了零点播完了）：收起来，别留一块空屏
         .onChange(of: browseSchedule == nil) { _, gone in
             if gone { showsAirSchedule = false }
@@ -207,6 +231,17 @@ struct TVItemDetailView: View {
                 if let season { await loadEpisodes(season, keepSelection: true, followAnchor: true) }
             }
         }
+        .task(id: overviewArm) {
+            guard overviewArm > 0 else { return }
+            try? await Task.sleep(for: Self.overviewArmDelay)
+            // 计时期间又整页要了一次焦点：等按钮那一排重新拿到焦点再计时
+            guard !Task.isCancelled, !overviewNeedsArm else { return }
+            overviewSelectable = true
+        }
+        .onChange(of: router.reclaimPageFocus) {
+            overviewSelectable = false
+            overviewNeedsArm = true
+        }
         .onChange(of: router.player?.id) {
             guard let request = router.player, request.mediaItemId == itemId,
                   let season = request.season, let episode = request.episode else { return }
@@ -234,8 +269,12 @@ struct TVItemDetailView: View {
                         headline: episodeHeadline,
                         meta: metaLine(detail),
                         badges: Self.mediaBadges(detail),
-                        overview: isMovie ? detail.localMeta?.plot : (selectedEpisode?.overview ?? detail.localMeta?.plot),
-                        overviewLines: 3
+                        overview: stageOverview(detail),
+                        overviewLines: 3,
+                        onOverviewSelect: overviewSelectable ? {
+                            guard let text = stageOverview(detail) else { return }
+                            overviewPanel = TVOverviewContent(title: detail.title, subtitle: episodeHeadline ?? metaLine(detail), text: text)
+                        } : nil
                     )
                     .accessibilityIdentifier("tv-item-stage")
                 } actions: {
@@ -290,6 +329,10 @@ struct TVItemDetailView: View {
         .ignoresSafeArea(edges: [.horizontal, .bottom])
         // 焦点从下半截回到按钮：滚回顶部恢复首屏——系统只滚到按钮刚好露出为止
         .onChange(of: actionFocus) { old, new in
+            if new != nil, overviewNeedsArm {
+                overviewNeedsArm = false
+                overviewArm += 1
+            }
             guard old == nil, new != nil else { return }
             withAnimation(.easeInOut(duration: 0.4)) { position.scrollTo(edge: .top) }
         }
@@ -299,6 +342,11 @@ struct TVItemDetailView: View {
             guard scroll.offset > old / 2 else { return }
             withAnimation(.easeInOut(duration: 0.3)) { position.scrollTo(y: new) }
         }
+    }
+
+    /// 首屏的简介：电影是片子的，剧集是接着看的那一集的（没有就用整部剧的）
+    private func stageOverview(_ detail: API.LibraryItemDetailView) -> String? {
+        isMovie ? detail.localMeta?.plot : (selectedEpisode?.overview ?? detail.localMeta?.plot)
     }
 
     /// 「第 2 季 第 6 集 · 集名」（剧集：接着看的那一集）
@@ -573,6 +621,15 @@ struct TVItemDetailView: View {
                 router.play(PlayRequest(mediaItemId: itemId, season: browseSeason, episode: episode.episodeNumber))
             },
             togglePlayed: { episode in Task { await markEpisode(episode, played: !episode.played) } },
+            showOverview: { episode in
+                guard let text = episode.overview?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
+                overviewEpisode = episode.episodeNumber
+                overviewPanel = TVOverviewContent(
+                    title: detail?.title ?? "",
+                    subtitle: TVStageInfo.episodeLine(season: browseSeason ?? 1, episode: episode.episodeNumber, name: episode.name),
+                    text: text
+                )
+            },
             arrived: { number in rowArrived(number) }
         )
     }
@@ -984,6 +1041,8 @@ private struct TVEpisodeRow: View {
     let report: TVLowerRowFocus
     let play: (API.EpisodeView) -> Void
     let togglePlayed: (API.EpisodeView) -> Void
+    /// 长按菜单里的「完整简介」：卡片下面的简介只有四行（issue #1238）
+    let showOverview: (API.EpisodeView) -> Void
     /// 焦点落到了某一集
     let arrived: (Int) -> Void
 
@@ -1007,6 +1066,9 @@ private struct TVEpisodeRow: View {
                     .contextMenu {
                         if episode.owned {
                             Button(episode.played ? String(localized: .libraryMarkUnwatched) : String(localized: .libraryItemSetWatched)) { togglePlayed(episode) }
+                        }
+                        if episode.overview?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                            Button(String(localized: .libraryItemFullOverview)) { showOverview(episode) }
                         }
                     }
                     .focused($focused, equals: episode.episodeNumber)
