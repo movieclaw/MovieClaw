@@ -384,37 +384,47 @@ _RULES = [
 
 def _render(title: str, sections: list[tuple[str, list[str]]], actions: list[str]) -> str:
     # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
-    out = [f"# MovieClaw 诊断工单：{title}", ""]
+    head_lines = [f"# MovieClaw 诊断工单：{title}", ""]
     for heading, lines in sections:
-        out.append(f"## {heading}")
+        head_lines.append(f"## {heading}")
         # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
-        out.extend(lines or ["- 无"])
-        out.append("")
+        head_lines.extend(lines or ["- 无"])
+        head_lines.append("")
+    head = "\n".join(head_lines).rstrip()
+
     # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
-    out.append("## 你可以执行的动作（与界面一致，不要越过这份清单）")
-    out.extend(f"- {a}" for a in actions)
-    out.append("")
+    footer_lines = ["## 你可以执行的动作（与界面一致，不要越过这份清单）"]
+    footer_lines.extend(f"- {a}" for a in actions)
+    footer_lines.append("")
     # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
-    out.append("## 请你做什么")
-    out.extend(f"{i}. {r}" for i, r in enumerate(_RULES, 1))
-    prompt = "\n".join(out)
+    footer_lines.append("## 请你做什么")
+    footer_lines.extend(f"{i}. {r}" for i, r in enumerate(_RULES, 1))
+    footer = "\n".join(footer_lines)
+
+    prompt = f"{head}\n\n{footer}"
     if len(prompt) <= SESSION_CONTENT_MAX_LENGTH:
         return prompt
 
     # 工单的开头含任务 id / info_hash / 告警标题，末尾是动作边界与诊断规则；
     # 两端都比中间可能很长的错误原文和时间线更重要。保留两端并明确告诉 Agent
     # 重新按标识读取详情，既不放宽所有普通用户消息的协议上限，也不悄悄伪装成完整工单。
-    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
-    footer_at = prompt.index("## 你可以执行的动作")
-    footer = prompt[footer_at:]
     marker = (
         # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "\n\n## 工单内容已截断\n"
         "- 详细错误与时间线超过会话输入上限；请根据上方任务、下载或告警标识，"
         "先用现有只读工具重新读取完整详情。\n\n"
     )
+
+    if len(marker) + len(footer) > SESSION_CONTENT_MAX_LENGTH:
+        # actions 当前均为固定短文案；若未来改动令 footer 本身超限，也必须守住会话协议。
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
+        footer_marker = "\n\n## 工单内容已截断\n- 可执行动作与诊断规则超过会话输入上限。"
+        footer_limit = SESSION_CONTENT_MAX_LENGTH - len(footer_marker)
+        return (footer[:footer_limit].rstrip() + footer_marker)[:SESSION_CONTENT_MAX_LENGTH]
+
     head_limit = SESSION_CONTENT_MAX_LENGTH - len(marker) - len(footer)
-    return prompt[:head_limit].rstrip() + marker + footer
+    result = head[:head_limit].rstrip() + marker + footer
+    return result[:SESSION_CONTENT_MAX_LENGTH]
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +440,7 @@ async def _for_notice(session: AsyncSession, notice_id: int) -> HandoffPrompt:
     payload = notice.payload or {}
     happened = [
         # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
-        f"- 告警：{notice.title}",
+        f"- 告警 #{notice.id}：{notice.title}",
         # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 说明：{notice.message}",
         # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
