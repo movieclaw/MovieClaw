@@ -126,14 +126,23 @@ export class GenresKind extends HomeRowKind {
   }
 }
 
-/** 「全部电影 / 全部剧集」：同类型多个库合成一面墙（对应 iOS `case mediaKind`，只在自定义里添加） */
+/** 「全部电影 / 全部剧集 / 全部视频」：同类型多个库合成一面墙（对应 iOS `case mediaKind`，只在自定义里添加） */
 export class MediaKindRowKind extends HomeRowKind {
   readonly kind: string;
+  readonly libraryCount: number;
+  readonly sort: string;
+  readonly reversed: boolean;
+  readonly unwatched: boolean;
   readonly name: string;
 
-  constructor(kind: string, name: string) {
+  constructor(kind: string, libraryCount: number, sort: string, reversed: boolean,
+    unwatched: boolean, name: string) {
     super();
     this.kind = kind;
+    this.libraryCount = libraryCount;
+    this.sort = sort;
+    this.reversed = reversed;
+    this.unwatched = unwatched;
     this.name = name;
   }
 }
@@ -210,7 +219,12 @@ export class HomeRow {
       return this.kind.kind === 'tv' ? '按类型找剧集' : '按类型找电影';
     }
     if (this.kind instanceof MediaKindRowKind) {
-      return this.kind.kind === 'tv' ? '全部剧集' : '全部电影';
+      const kind: MediaKindRowKind = this.kind;
+      // 推荐名「全部电影 · 最近添加」：不套库行的「最近添加的{库}」——
+      // 很多人的电影库就叫「电影」，那样类型行与那个库的默认行会同名并排，分不清（同 iOS）
+      return kind.name.length === 0
+        ? `全部${HomeRows.kindLabel(kind.kind)} · ${HomeRows.preset(kind.sort).short(kind.reversed)}`
+        : kind.name;
     }
     return '接下来继续';
   }
@@ -317,6 +331,49 @@ export class HomeRows {
       null, '没看完的在前，再按收藏时间');
   }
 
+  /** 能做「按类型」跨库行的库类型。照片库不做：照片墙是时间线 + 瀑布流，另一种形态（同 iOS `mediaKinds`） */
+  static readonly mediaKinds: string[] = ['movie', 'tv', 'video'];
+
+  /** 类型行的叫法：「全部电影 / 全部剧集 / 全部视频」里的那段 */
+  static kindLabel(kind: string): string {
+    if (kind === 'tv') {
+      return '剧集';
+    }
+    if (kind === 'video') {
+      return '视频';
+    }
+    return '电影';
+  }
+
+  /** 每种类型由哪些库组成：可见 ∩ 该类型 ∩ 没勾「从首页排除」——与服务端 `kind_library_ids` 同一口径 */
+  static mediaKindGroups(libraries: LibraryView[]): Map<string, LibraryView[]> {
+    const groups: Map<string, LibraryView[]> = new Map<string, LibraryView[]>();
+    for (const kind of HomeRows.mediaKinds) {
+      const members: LibraryView[] = HomeRows.librariesOfKind(libraries, kind)
+        .filter((library: LibraryView): boolean => !library.exclude_from_home);
+      if (members.length > 0) {
+        groups.set(kind, members);
+      }
+    }
+    return groups;
+  }
+
+  /** 新加的行用随机 id：`row:` + 6 位小写字母数字（同 iOS `newRowId`） */
+  static newRowId(): string {
+    const chars: string = '0123456789abcdefghijklmnopqrstuvwxyz';
+    let slug: string = '';
+    for (let i: number = 0; i < 6; i++) {
+      slug += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return `row:${slug}`;
+  }
+
+  /** 自定义首页新加的类型行（排序取「最近添加」，名字留空跟随推荐） */
+  static newMediaKindRow(id: string, kind: string, libraryCount: number): HomeRow {
+    return new HomeRow(id, false,
+      new MediaKindRowKind(kind, libraryCount, 'added_at', false, false, ''));
+  }
+
   /** 有类型色块行的库类型（TMDB 的类型表只分电影与剧集，同 iOS `genreKinds`） */
   private static readonly genreKinds: string[] = ['movie', 'tv'];
 
@@ -332,8 +389,9 @@ export class HomeRows {
       new HomeRow('favorites', false, new FavoritesKind('unwatched_first', false)),
       new HomeRow('libraries', false, new LibrariesKind())
     ];
+    const groups: Map<string, LibraryView[]> = HomeRows.mediaKindGroups(libraries);
     for (const kind of HomeRows.genreKinds) {
-      if (HomeRows.librariesOfKind(libraries, kind).length > 0) {
+      if (groups.has(kind)) {
         rows.push(new HomeRow(`genres:${kind}`, false, new GenresKind(kind)));
       }
     }
@@ -375,6 +433,7 @@ export class HomeRows {
     if (prefs.length === 0) {
       return defaults;
     }
+    const kindGroups: Map<string, LibraryView[]> = HomeRows.mediaKindGroups(visible);
     const libById: Map<number, LibraryView> = new Map<number, LibraryView>();
     for (const library of visible) {
       if (!libById.has(library.id)) {
@@ -393,7 +452,7 @@ export class HomeRows {
       if (seen.has(pref.id)) {
         continue;
       }
-      const row: HomeRow | null = HomeRows.resolve(pref, libById, colById);
+      const row: HomeRow | null = HomeRows.resolve(pref, libById, colById, kindGroups);
       if (row === null) {
         continue;
       }
@@ -402,7 +461,7 @@ export class HomeRows {
     }
     // 没存过的内置行追加在末尾（版本升级新增的入口不能消失）
     for (const row of defaults) {
-      if (row.kind instanceof LibraryRowKind) {
+      if (row.kind instanceof LibraryRowKind || row.kind instanceof GenresKind) {
         continue;
       }
       if (seen.has(row.id)) {
@@ -411,29 +470,51 @@ export class HomeRows {
       seen.add(row.id);
       rows.push(row);
     }
+    // 没存过的类型色块行（版本升级新增）插在「我的媒体库」之后，与出厂布局同一位置
+    // ——追加到队尾会落在一长串库行、合集行后面，老用户几乎看不到（同 iOS）
+    const missingGenres: HomeRow[] = defaults.filter((row: HomeRow): boolean => {
+      return row.kind instanceof GenresKind && !seen.has(row.id);
+    });
+    if (missingGenres.length > 0) {
+      for (const row of missingGenres) {
+        seen.add(row.id);
+      }
+      let at: number = rows.length;
+      for (let i: number = 0; i < rows.length; i++) {
+        if (rows[i].kind instanceof LibrariesKind) {
+          at = i + 1;
+          break;
+        }
+      }
+      for (let i: number = missingGenres.length - 1; i >= 0; i--) {
+        rows.splice(at, 0, missingGenres[i]);
+      }
+    }
     // 没存过的库补一条默认行，插在最后一条库行之后（没有库行时插在「我的媒体库」之后）
     const missing: HomeRow[] = defaults.filter((row: HomeRow): boolean => {
       return row.kind instanceof LibraryRowKind && !seen.has(row.id);
     });
     if (missing.length > 0) {
       let at: number = rows.length;
-      let anchor: number = -1;
+      let anchored: boolean = false;
       for (let i: number = rows.length - 1; i >= 0; i--) {
         if (rows[i].kind instanceof LibraryRowKind) {
-          anchor = i;
+          at = i + 1;
+          anchored = true;
           break;
         }
       }
-      if (anchor < 0) {
+      if (!anchored) {
         for (let i: number = 0; i < rows.length; i++) {
           if (rows[i].kind instanceof LibrariesKind) {
-            anchor = i;
+            // 出厂布局里类型色块行紧跟「我的媒体库」，库行在它们之后
+            at = i + 1;
+            while (at < rows.length && rows[at].kind instanceof GenresKind) {
+              at++;
+            }
             break;
           }
         }
-      }
-      if (anchor >= 0) {
-        at = anchor + 1;
       }
       for (let i: number = missing.length - 1; i >= 0; i--) {
         rows.splice(at, 0, missing[i]);
@@ -443,13 +524,21 @@ export class HomeRows {
   }
 
   private static resolve(pref: HomeRowPref, libById: Map<number, LibraryView>,
-    colById: Map<number, CollectionView>): HomeRow | null {
+    colById: Map<number, CollectionView>, kindGroups: Map<string, LibraryView[]>): HomeRow | null {
     const hidden: boolean = pref.hidden === true;
     if (pref.id === 'up-next') {
       return new HomeRow('up-next', hidden, new UpNextKind());
     }
     if (pref.id === 'libraries') {
       return new HomeRow('libraries', hidden, new LibrariesKind());
+    }
+    if (pref.id === 'genres:movie' || pref.id === 'genres:tv') {
+      const kind: string = pref.id.substring('genres:'.length);
+      // 这一类型一个没被排除的库都没了：色块行跟着消失
+      if (!kindGroups.has(kind)) {
+        return null;
+      }
+      return new HomeRow(pref.id, hidden, new GenresKind(kind));
     }
     if (pref.id === 'favorites') {
       const sort: string = pref.sort !== null && pref.sort !== undefined
@@ -470,8 +559,30 @@ export class HomeRows {
       }
       return HomeRows.libraryRow(pref, library, true);
     }
+    if (pref.id.startsWith('kind:')) {
+      // v0.30.0 出厂布局里每种类型生成过一条 kind:<类型>（单库时隐藏），存一次就进了偏好。
+      // 现在类型行只能主动添加：隐藏的那些是当年默认塞进来的，丢掉；显示中的是用户在用的，保留且能删。
+      // 这一类型一个可见库都没了时同样静默消失（同 iOS）
+      if (hidden) {
+        return null;
+      }
+      const kind: string = pref.id.substring('kind:'.length);
+      const members: LibraryView[] | undefined = kindGroups.get(kind);
+      if (members === undefined) {
+        return null;
+      }
+      return HomeRows.mediaKindRow(pref, kind, members.length);
+    }
     if (!pref.id.startsWith('row:')) {
       return null;
+    }
+    const mediaKind: string | null = pref.media_kind ?? null;
+    if (mediaKind !== null) {
+      const members: LibraryView[] | undefined = kindGroups.get(mediaKind);
+      if (members === undefined) {
+        return null;
+      }
+      return HomeRows.mediaKindRow(pref, mediaKind, members.length);
     }
     const cid: number | null = pref.collection_id ?? null;
     if (cid !== null) {
@@ -505,5 +616,15 @@ export class HomeRows {
       library, resolved.sort, resolved.reversed,
       pref.unwatched === true && pref.unfinished !== true && resolved.sort !== 'last_played',
       (pref.name ?? '').trim(), builtin, pref.unfinished === true && resolved.sort !== 'last_played'));
+  }
+
+  /** 「全部 xx」跨库行：排序档沿库行同款档案（同 iOS `mediaKindRow`） */
+  private static mediaKindRow(pref: HomeRowPref, kind: string, libraryCount: number): HomeRow {
+    const resolved: ResolvedSort =
+      HomeRows.asRowSort(pref.sort ?? null, pref.order ?? null, HomeRows.sortsFor(kind));
+    return new HomeRow(pref.id, pref.hidden === true, new MediaKindRowKind(
+      kind, libraryCount, resolved.sort, resolved.reversed,
+      pref.unwatched === true && resolved.sort !== 'last_played',
+      (pref.name ?? '').trim()));
   }
 }

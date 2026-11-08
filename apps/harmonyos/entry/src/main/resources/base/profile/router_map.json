@@ -11,6 +11,11 @@
       "buildFunction": "AllCollectionsBuilder"
     },
     {
+      "name": "libraryKindWall",
+      "pageSourceFile": "src/main/ets/library/LibraryKindWallPage.ets",
+      "buildFunction": "LibraryKindWallBuilder"
+    },
+    {
       "name": "libraryItem",
       "pageSourceFile": "src/main/ets/library/LibraryItemDetailPage.ets",
       "buildFunction": "LibraryItemBuilder"
