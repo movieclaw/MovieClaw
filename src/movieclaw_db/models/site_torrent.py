@@ -56,6 +56,8 @@ class SiteTorrent(TimestampMixin, table=True):
         # 发布预测的别名预筛只读这两列（外加隐含的 rowid），走覆盖索引即可，
         # 不必把带 attrs 大 JSON 的整行读出来（见 match_text 字段注释）
         Index("ix_site_torrent_publish_match", "publish_time", "match_text"),
+        # 被动匹配按更新时间游标重评同步刷新的旧行，避免扫描整张历史索引
+        Index("ix_site_torrent_updated_id", "updated_at", "id"),
     )
 
     id: int | None = Field(default=None, primary_key=True)

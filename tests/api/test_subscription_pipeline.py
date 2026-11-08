@@ -39,6 +39,7 @@ from movieclaw_db.models import (
 )
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.repositories.library_repo import LibraryRepository
+from movieclaw_db.repositories.torrent_repo import TorrentObservation, TorrentRepository
 from movieclaw_downloader.models import SubmitResult
 from movieclaw_enrich.models import TorrentAttrs
 from movieclaw_matcher import RuleVerdict, TorrentCandidate
@@ -339,6 +340,31 @@ async def test_corrupt_watermark_self_heals(db) -> None:
     get_setting_store().invalidate()  # 绕开缓存，从库里读回验证脏行已被修复
     watermark = await get_setting_store().get(MatchWatermark)
     assert watermark.last_id is not None and watermark.last_id >= 1
+
+
+async def test_legacy_watermark_initializes_refresh_cursor_without_replaying_history(
+    db, monkeypatch
+) -> None:
+    """升级前只有 ID 的水位从当前时刻跟随刷新，不把历史缓存当候选重放。"""
+    from movieclaw_api.services.torrent_matcher import MatchWatermark
+    from movieclaw_api.settings.store import get_setting_store
+
+    async with db.session() as session:
+        sub = await _service(session).create(MediaKind.TV, 200, selected_seasons=[1])
+        row = await _insert_torrent(
+            session, "history", "Test Show S01 2160p WEB-DL", _S1_PACK_ATTRS
+        )
+    monkeypatch.setattr(
+        "movieclaw_api.services.torrent_matcher._refresh_tracking_started_at", utcnow()
+    )
+    await get_setting_store().set(MatchWatermark(last_id=row.id))
+
+    await process_new_torrents()
+
+    state = await get_setting_store().get(MatchWatermark)
+    assert state.last_updated_at is not None
+    async with db.session() as session:
+        assert not [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
 
 
 async def test_dispatch_derives_save_path_from_library(db) -> None:
@@ -2028,3 +2054,50 @@ async def test_subscription_advances_existing_metadata_schedule(
             expected = min(old_due, refreshed + timedelta(hours=delay)) if old_due else None
             assert saved.next_refresh_at == expected
         assert saved.metadata_refreshed_at == refreshed
+
+
+async def test_refreshed_torrent_is_reevaluated_after_seeders_rise(db) -> None:
+    """新种做种不足被拒后，同步刷新同一行达到门槛时应重新匹配。"""
+    async with db.session() as session:
+        rule = await RuleSetService(session).create(
+            "4K 至少 3 做种", {"resolutions": ["2160p"], "min_seeders": 3}
+        )
+        sub = await _service(session).create(
+            MediaKind.TV, 200, selected_seasons=[1], rule_set_id=rule.id
+        )
+    await process_new_torrents()  # 首跑：初始化水位
+
+    async with db.session() as session:
+        row = await _insert_torrent(
+            session, "fresh", "Test Show S01 2160p WEB-DL", _S1_PACK_ATTRS, seeders=1
+        )
+        row_id = row.id
+    await process_new_torrents()  # 刚发布 1 做种：按规则拒绝，水位越过这一行
+    async with db.session() as session:
+        rejected = [a for a in await _activities(session, sub.id) if a.type == "match_rejected"]
+        assert rejected and rejected[-1].payload["reason_code"] == "seeders_too_few"
+
+        # 站点同步 upsert 同一行（id 不变），做种数涨到 25
+        stats = await TorrentRepository(session).bulk_upsert(
+            [
+                TorrentObservation(
+                    site_id="testsite",
+                    torrent_id="fresh",
+                    source=TorrentSource.LIST,
+                    title="Test Show S01 2160p WEB-DL",
+                    seeders=25,
+                )
+            ]
+        )
+        fresh = await session.get(SiteTorrent, row_id)
+        assert stats.updated == 1 and fresh.id == row_id and fresh.seeders == 25
+
+    # 模拟同步落库后进程退出：每小时兜底从持久化水位恢复也必须看到这次刷新。
+    reset_setting_store()
+    init_setting_store()
+    await process_new_torrents(full_forecast_refresh=True)
+    async with db.session() as session:
+        wanted = await _wanted_map(session, sub.id)
+        grabbed = [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
+        assert len(grabbed) == 1
+        assert all(w.status == WantedStatus.GRABBED for w in wanted.values())
