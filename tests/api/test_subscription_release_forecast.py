@@ -180,6 +180,102 @@ async def test_selected_episode_forecast_ignores_follow_future(db) -> None:
         assert wanted.release_forecast is not None
 
 
+@pytest.mark.parametrize("site_episode", [1, 892])
+async def test_absolute_episode_labels_feed_the_same_release_forecast(
+    db, site_episode: int
+) -> None:
+    """S21E01（季内号）与 S21E892（绝对号）都应成为 TMDB S21E892 样本。"""
+    async with db.session() as session:
+        today = utcnow().date()
+        first_air = today - timedelta(days=1)
+        target_air = first_air + timedelta(days=7)
+        first_publish = datetime.combine(first_air, time(15, 35))
+        rule = RuleSet(name=f"绝对号预测-{site_episode}", is_default=True, spec={})
+        item = MediaItem(
+            kind="tv",
+            tmdb_id=92100 + site_episode,
+            title="绝对号长番",
+            original_title="Absolute Show",
+            year=today.year,
+            aliases=["绝对号长番", "Absolute Show"],
+            status="Returning Series",
+            season_mapping=[
+                {"absolute": True, "season": 1, "start": 1, "end": 61},
+                {"absolute": True, "season": 21, "start": 892, "end": 1088},
+            ],
+        )
+        session.add_all([rule, item])
+        await session.commit()
+        await session.refresh(rule)
+        await session.refresh(item)
+        assert rule.id is not None and item.id is not None
+        session.add_all(
+            [
+                MediaEpisode(
+                    media_item_id=item.id,
+                    season_number=21,
+                    episode_number=892,
+                    name="E892",
+                    air_date=first_air,
+                ),
+                MediaEpisode(
+                    media_item_id=item.id,
+                    season_number=21,
+                    episode_number=893,
+                    name="E893",
+                    air_date=target_air,
+                ),
+            ]
+        )
+        subscription = Subscription(
+            media_item_id=item.id,
+            kind="tv",
+            selected_seasons=[21],
+            follow_future=True,
+            rule_set_id=rule.id,
+            status=SubscriptionStatus.ACTIVE,
+        )
+        session.add(subscription)
+        await session.commit()
+        await session.refresh(subscription)
+        assert subscription.id is not None
+        wanted = WantedItem(
+            subscription_id=subscription.id,
+            media_item_id=item.id,
+            season_number=21,
+            episode_number=893,
+            status=WantedStatus.WANTED,
+            air_date=target_air,
+            next_search_at=datetime.combine(target_air, time()) + timedelta(hours=48),
+        )
+        torrent = SiteTorrent(
+            site_id="site-a",
+            torrent_id=f"absolute-{site_episode}",
+            title=f"Absolute Show S21E{site_episode:02d} 1080p WEB-DL",
+            attrs={
+                "media_type": "tv",
+                "year": today.year,
+                "seasons": [21],
+                "episodes": [site_episode],
+                "resolution": "1080p",
+            },
+            enrich_version=1,
+            source=TorrentSource.LIST,
+            publish_time=first_publish,
+        )
+        session.add_all([wanted, torrent])
+        await session.commit()
+
+        changed = await refresh_release_forecasts(session, media_item_ids={item.id})
+
+        assert changed == 1
+        assert wanted.release_forecast is not None
+        assert wanted.release_forecast["basis_units"] == [[21, 892]]
+        assert datetime.fromisoformat(wanted.release_forecast["predicted_at"]).astimezone(
+            UTC
+        ).replace(tzinfo=None) == first_publish + timedelta(days=7)
+
+
 async def test_displayed_probe_uses_scheduler_courtesy_time(db) -> None:
     """首页返回的探测点必须与调度器应用 5 分钟礼貌间隔后的时间一致。"""
     async with db.session() as session:

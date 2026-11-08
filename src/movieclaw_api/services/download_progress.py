@@ -55,6 +55,7 @@ from movieclaw_db.repositories import SubscriptionRepository
 from movieclaw_db.repositories.downloader_repo import DownloaderRepository
 from movieclaw_downloader import DownloaderConfig, TorrentStatus, create_downloader
 from movieclaw_matcher.seasons import (
+    SNAPSHOT_KEY,
     SeasonMapping,
     mapping_for_task,
     normalize_unit,
@@ -1456,23 +1457,102 @@ async def _record_content_missing(
         if isinstance(unit, list) and len(unit) == 2
     }
     units.update((row.season_number, row.episode_number) for row in rows)
-    sources = {
+    sources = await _attempt_sources(repo, attempt, info_hash)
+    sources.update(
         (str(source[0]), str(source[1]))
         for source in memory.get("sources", [])
         if isinstance(source, list) and len(source) == 2
+    )
+    attempt.content_missing = {
+        "units": [[season, episode] for season, episode in sorted(units)],
+        "sources": [[site_id, torrent_id] for site_id, torrent_id in sorted(sources)],
     }
+    session.add(attempt)
+
+
+async def _attempt_sources(
+    repo: SubscriptionRepository,
+    attempt: SubscriptionDownloadAttempt,
+    info_hash: str,
+) -> set[tuple[str, str]]:
+    """本次内容历次投递过的站点来源（含同 hash 的跨站镜像）。"""
+    sources: set[tuple[str, str]] = set()
     if attempt.site_id and attempt.torrent_id:
         sources.add((attempt.site_id, attempt.torrent_id))
-    for activity in await repo.list_activities(rows[0].subscription_id, limit=200):
+    for activity in await repo.list_activities(attempt.subscription_id, limit=200):
         payload = activity.payload or {}
         if payload.get("info_hash") != info_hash.lower():
             continue
         if payload.get("site_id") and payload.get("torrent_id"):
             sources.add((str(payload["site_id"]), str(payload["torrent_id"])))
-    attempt.content_missing = {
-        "units": [[season, episode] for season, episode in sorted(units)],
-        "sources": [[site_id, torrent_id] for site_id, torrent_id in sorted(sources)],
+    return sources
+
+
+async def _record_unit_unresolved(
+    session: AsyncSession,
+    repo: SubscriptionRepository,
+    item: MediaItem,
+    rows: list[WantedItem],
+    info_hash: str,
+) -> None:
+    """记住某来源在投递时映射下无法解释；映射变化后结论自动失效。"""
+    from movieclaw_api.services.subscription.matching import UNIT_UNRESOLVED_MEMORY_KEY
+
+    attempt = (
+        await session.execute(
+            select(SubscriptionDownloadAttempt).where(
+                SubscriptionDownloadAttempt.subscription_id == rows[0].subscription_id,
+                SubscriptionDownloadAttempt.info_hash == info_hash.lower(),
+            )
+        )
+    ).scalar_one_or_none()
+    if attempt is None:
+        return
+    payload = dict(attempt.submission or {})
+    snapshot = payload.get(SNAPSHOT_KEY, item.season_mapping or [])
+    records = [
+        dict(record)
+        for record in payload.get(UNIT_UNRESOLVED_MEMORY_KEY, [])
+        if isinstance(record, dict)
+    ]
+    record = next((entry for entry in records if entry.get("mapping") == snapshot), None)
+    if record is None:
+        record = {"mapping": snapshot, "units": [], "sources": []}
+        records.append(record)
+    units = {
+        (int(unit[0]), int(unit[1]))
+        for unit in record.get("units", [])
+        if isinstance(unit, list) and len(unit) == 2
     }
+    units.update((row.season_number, row.episode_number) for row in rows)
+    sources = await _attempt_sources(repo, attempt, info_hash)
+    sources.update(
+        (str(source[0]), str(source[1]))
+        for source in record.get("sources", [])
+        if isinstance(source, list) and len(source) == 2
+    )
+    record["units"] = [[season, episode] for season, episode in sorted(units)]
+    record["sources"] = [[site_id, torrent_id] for site_id, torrent_id in sorted(sources)]
+    payload[UNIT_UNRESOLVED_MEMORY_KEY] = records
+
+    # 本 hash 的全部在途工单都将退回时，冻结解释已经完成使命；移除顶层快照，
+    # 让映射更新后的再次投递冻结新版本。仍有单元在途则必须保留原解释。
+    active_ids = set(
+        (
+            await session.execute(
+                select(WantedItem.id).where(
+                    WantedItem.subscription_id == rows[0].subscription_id,
+                    WantedItem.info_hash == info_hash.lower(),
+                    WantedItem.status.in_(_IN_FLIGHT),  # type: ignore[attr-defined]
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if active_ids and active_ids.issubset({row.id for row in rows}):
+        payload.pop(SNAPSHOT_KEY, None)
+    attempt.submission = payload
     session.add(attempt)
 
 
@@ -1486,10 +1566,12 @@ async def _requeue(
     message: dict,
     reason: str,
 ) -> None:
-    """只把物理内容缺失的工单退回 wanted，保留同种子中实际存在的单元。"""
+    """把核验不满足的工单退回 wanted，保留同种子中已确认存在的单元。"""
     now = utcnow()
     if reason == "content_missing":
         await _record_content_missing(session, repo, rows, info_hash)
+    elif reason == "unit_unresolved":
+        await _record_unit_unresolved(session, repo, item, rows, info_hash)
     retry_at = now + timedelta(minutes=_MISSING_RETRY_MINUTES)
     for row in rows:
         await session.execute(
