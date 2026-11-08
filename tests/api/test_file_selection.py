@@ -116,6 +116,26 @@ class TestPlanFileSelection:
         assert plan is not None
         assert plan.keep_indices == [7]
 
+    def test_first_season_absolute_episode_selects_tmdb_target(self):
+        from movieclaw_matcher.seasons import EpisodeRange, SeasonMapping
+
+        mapping = SeasonMapping(
+            episode_ranges=(
+                EpisodeRange(1, 1, 61),
+                EpisodeRange(21, 892, 1088),
+            )
+        )
+        paths = ["One.Piece.S01E892.mkv", "One.Piece.S01E893.mkv"]
+        plan = plan_file_selection(
+            paths,
+            {(21, 892)},
+            known_seasons=[1, 21],
+            season_mapping=mapping,
+        )
+
+        assert plan is not None
+        assert plan.keep_indices == [0] and plan.skip_indices == [1]
+
 
 # -- 编排：submit_torrent 的暂停→规划→设选中→恢复 -----------------------------
 

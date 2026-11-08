@@ -1856,6 +1856,12 @@
   "ingest.seasonRejected": {
     "sourceHash": "ff1a832f527e231e2d15ce96e30ee7c7d5872c8e4897b8cd95efe8715b7c5545"
   },
+  "ingest.episodeOutOfRange": {
+    "sourceHash": "a8766f0744e3c7259d42f829028fcdf31d89bebcba8a7c964bc4a54b36220675"
+  },
+  "ingest.episodeAmbiguous": {
+    "sourceHash": "4190ee69a0a16e3628ee065e05e580958e4f157214ce277404c5ce11d7d10b59"
+  },
   "ingest.strmSkipped": {
     "sourceHash": "f3b1e855742287ec16279227b7ea703b22ee665cd4d947bfc1289b9ad1f3fcd2"
   },

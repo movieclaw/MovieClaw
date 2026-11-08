@@ -124,7 +124,13 @@
     "seasonUnmapped": "“{title}” from {site} lists {seasons}, which don’t exist for this title (it only has {known}). If the site split one season in two, try again later or contact the administrator",
     "seasonMapped": "{site} released this as {target}; it has been mapped automatically and is included in matching (“{title}”)",
     "seasonRange": "season {season} episodes {start}–{end}",
-    "seasonRangeSingle": "season {season} episode {start}"
+    "seasonRangeSingle": "season {season} episode {start}",
+    "episodeNumberRejected": "“{title}” from {site} could not be mapped safely to a TMDB episode: {reason}; it was not claimed",
+    "episodeFileListUnavailable": "the title has no episode number, and the detail file list did not identify one",
+    "episodeBaseAmbiguous": "the episode number matches multiple TMDB season ranges and has no unique target",
+    "episodeOutOfRange": "the episode number is outside the ledger ranges and has no unique target",
+    "episodeZeroRejected": "E00 denotes a pilot or special and cannot satisfy a regular episode",
+    "episodeNumberUnresolved": "The file numbering in “{name}” could not be mapped safely to {units}; those episodes will be searched again"
   },
   "jobActions": {
     "dismissAll": "{count, plural, one {Dismissed # failed task} other {Dismissed # failed tasks}}",

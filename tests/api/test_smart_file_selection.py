@@ -21,6 +21,36 @@ def test_only_last_three_and_no_archive_or_extra_files():
     assert len(plan.skip_indices) == 17
 
 
+def test_strict_selection_maps_first_season_absolute_episode():
+    from movieclaw_matcher.seasons import EpisodeRange, SeasonMapping
+
+    mapping = SeasonMapping(
+        episode_ranges=(EpisodeRange(1, 1, 2), EpisodeRange(3, 5, 6))
+    )
+    plan = plan_strict_file_selection(
+        ["Absolute.Show.S01E05.mkv"],
+        {(3, 5)},
+        known_seasons=[1, 3],
+        season_mapping=mapping,
+    )
+    assert plan.keep_indices == [0]
+
+
+def test_strict_selection_rejects_duplicate_after_episode_normalization():
+    from movieclaw_matcher.seasons import EpisodeRange, SeasonMapping
+
+    mapping = SeasonMapping(
+        episode_ranges=(EpisodeRange(1, 1, 61), EpisodeRange(21, 892, 1088))
+    )
+    with pytest.raises(UnsatisfiableSelection):
+        plan_strict_file_selection(
+            ["One.Piece.S21E01.mkv", "One.Piece.S21E892.mkv"],
+            {(21, 892)},
+            known_seasons=[1, 21],
+            season_mapping=mapping,
+        )
+
+
 @pytest.mark.parametrize(
     "files",
     [

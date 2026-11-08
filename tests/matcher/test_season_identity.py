@@ -20,6 +20,13 @@ from movieclaw_matcher import MediaIdentity, TorrentCandidate, match_identity
 #: season_blocks 元组 = (站点季号, TMDB 季号, 起始集, 结束集)
 _SOLO_BLOCKS = ((1, 1, 1, 12), (2, 1, 13, 25))
 
+# 《海贼王》使用跨季连续绝对集号；这里只保留复现需要的三个区间。
+_ONE_PIECE_BLOCKS = (
+    (1, 1, 1, 61),
+    (21, 21, 892, 1088),
+    (22, 22, 1089, 1155),
+)
+
 
 def _candidate(title: str, subtitle: str = "", **attrs) -> TorrentCandidate:
     return TorrentCandidate(
@@ -222,6 +229,61 @@ def test_plain_two_season_show_is_untouched() -> None:
     )
     assert single is not None
     assert single.episodes == frozenset({(2, 5)})
+
+
+def test_absolute_numbered_season_accepts_local_and_absolute_episode_numbers() -> None:
+    """跨季绝对号既接受季内 E01，也不重复平移原生绝对号 E892。"""
+    media = MediaIdentity(
+        kind="tv",
+        year=1999,
+        aliases=("One Piece",),
+        season_numbers=(1, 21, 22),
+        episode_ranges=tuple(
+            (season, start, end) for _site, season, start, end in _ONE_PIECE_BLOCKS
+        ),
+    )
+
+    local = match_identity(
+        _candidate("One Piece S21E01 1080p", seasons=[21], episodes=[1]), media
+    )
+    absolute = match_identity(
+        _candidate("One Piece S21E892 1080p", seasons=[21], episodes=[892]), media
+    )
+
+    assert local is not None and local.episodes == frozenset({(21, 892)})
+    assert absolute is not None and absolute.episodes == frozenset({(21, 892)})
+
+
+def test_absolute_numbered_season_rejects_out_of_range_zero_and_ambiguous_ranges() -> None:
+    media = MediaIdentity(
+        kind="tv",
+        year=1999,
+        aliases=("One Piece",),
+        season_numbers=(1, 21, 22),
+        episode_ranges=tuple(
+            (season, start, end) for _site, season, start, end in _ONE_PIECE_BLOCKS
+        ),
+    )
+
+    out_of_range = match_identity(
+        _candidate("One Piece S22E100", seasons=[22], episodes=[100]), media
+    )
+    zero = match_identity(_candidate("One Piece S21E00", seasons=[21], episodes=[0]), media)
+    ambiguous_media = MediaIdentity(
+        kind="tv",
+        year=1999,
+        aliases=("One Piece",),
+        season_numbers=(1, 2, 3),
+        episode_ranges=((1, 1, 2), (2, 3, 5), (3, 5, 6)),
+    )
+    ambiguous = match_identity(
+        _candidate("One Piece S01E05", seasons=[1], episodes=[5]), ambiguous_media
+    )
+
+    assert out_of_range is not None and out_of_range.unit_rejection == "episode_out_of_range"
+    assert zero is not None and zero.unit_rejection == "episode_zero"
+    assert ambiguous is not None and ambiguous.unit_rejection == "episode_base_ambiguous"
+    assert not out_of_range.episodes and not ambiguous.episodes
 
 
 def test_mapping_does_not_affect_the_other_season() -> None:

@@ -152,7 +152,7 @@ from movieclaw_enrich import enrich
 from movieclaw_enrich.models import TorrentAttrs
 from movieclaw_enrich.structure import title_candidates
 from movieclaw_matcher import DISC_SOURCE
-from movieclaw_matcher.seasons import SeasonMapping, mapping_from_json, translate_unit
+from movieclaw_matcher.seasons import SeasonMapping, normalize_unit
 from movieclaw_media.models import MediaKind
 from movieclaw_scheduler.registry import register_task
 
@@ -3695,6 +3695,7 @@ async def _ingest_file(
             spec=spec,
             hint=hint,
             is_disc=is_disc,
+            torrent=torrent,
         )
         await discard_changed_bluray_snapshot()
         provisional = identified.provisional
@@ -4315,6 +4316,7 @@ async def _identify_with_fallback(
     duration_seconds: int | None = None,
     hint: _SubtitleHint | None = None,
     is_disc: bool = False,
+    torrent: object | None = None,
 ) -> _Identified:
     """识别策略分派（docs/design/library-other-kind.md 4.1 / 4.2）。
 
@@ -4344,7 +4346,7 @@ async def _identify_with_fallback(
             is_disc=is_disc,
         )
         if identified.item is not None and kind is MediaKind.TV and not is_disc:
-            identified = await _with_unit(media_service, file, identified)
+            identified = await _with_unit(media_service, file, identified, torrent=torrent)
         if identified.item is not None or identified.code == UnidentifiedCode.KIND_MISMATCH:
             return identified
         evidence = identified.evidence
@@ -4375,7 +4377,11 @@ async def _identify_with_fallback(
 
 
 async def _with_unit(
-    media_service: MediaLibraryService, file: Path, identified: _Identified
+    media_service: MediaLibraryService,
+    file: Path,
+    identified: _Identified,
+    *,
+    torrent: object | None = None,
 ) -> _Identified:
     """剧集认出作品后，按作品的季台账解季集号；季号定不下来就改判为待识别。
 
@@ -4390,9 +4396,8 @@ async def _with_unit(
     known = {season.season_number for season in await media_service.seasons(item.id)}
     # 站点季号映射（issue #1155）：库扫描也要认站点 S02 的目录/文件名，
     # 否则同一批文件走监听导入能归位、走扫描却挂在"解析不出季号"
-    season, episode = await asyncio.to_thread(
-        _unit_for, MediaKind.TV, file, known, mapping_from_json(item.season_mapping)
-    )
+    mapping = acquisition.current().season_mapping(torrent, item.season_mapping)
+    season, episode = await asyncio.to_thread(_unit_for, MediaKind.TV, file, known, mapping)
     if season is not None:
         return replace(identified, unit=(season, episode))
     regular = sum(1 for number in known if number > 0)
@@ -5132,9 +5137,10 @@ def _unit_for(
     episode_nfo = read_episode_metadata(file.with_suffix(".nfo"))
     if episode_nfo and episode_nfo.season is not None and episode_nfo.episode is not None:
         # 分集 NFO 里写的也是站点的季号时同样要翻译——NFO 多半由我们上一版
-        # 写出去（或发布组自带），不是 TMDB 口径。口径同 resolve_units：只翻译
-        # TMDB 没有的季号，E00 不翻译
-        return translate_unit(season_mapping, episode_nfo.season, episode_nfo.episode)
+        # 写出去（或发布组自带），不是 TMDB 口径。口径同 resolve_units：只做
+        # 能唯一落到 TMDB 单元的换算；E00 与越界集号保持未决
+        translated = normalize_unit(season_mapping, episode_nfo.season, episode_nfo.episode)
+        return translated.unit or (None, episode_nfo.episode)
     unit = resolve_units([file], known_seasons=known_seasons, season_mapping=season_mapping)[file]
     return unit.season, unit.episode
 

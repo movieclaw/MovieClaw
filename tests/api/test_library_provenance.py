@@ -17,6 +17,7 @@ from sqlmodel import select
 
 import movieclaw_api.services.library.scan as scan_mod
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.services import acquisition_ingest
 from movieclaw_api.services.acquisition_bridge import Acquisition
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import _build_config, run_migrations
@@ -34,6 +35,7 @@ from movieclaw_db.models import (
 )
 from movieclaw_db.repositories.library_file_repo import LibraryFileRepository
 from movieclaw_db.repositories.library_repo import LibraryRepository
+from movieclaw_matcher.seasons import SNAPSHOT_KEY, normalize_unit
 
 
 @pytest_asyncio.fixture
@@ -106,10 +108,61 @@ async def test_download_roots_map_pack_folders_and_single_files(db, tmp_path) ->
     async with db.session() as session:
         roots = await Acquisition().download_roots(session)
     pack = root / "Test.Show.S01.1080p"
-    assert scan_mod._download_for(pack / "Season 1" / "E01.mkv", roots) == ("packhash", 1)
+    assert scan_mod._download_for(pack / "Season 1" / "E01.mkv", roots) == (
+        "packhash",
+        1,
+        None,
+    )
     assert scan_mod._download_for(root / "Test.Movie.2024.mkv", roots) == ("moviehash", 1)
     assert scan_mod._download_for(root / "Other" / "E01.mkv", roots) is None
     assert scan_mod._download_for(root / "Test.Show.S01.1080p.extra", roots) is None
+
+
+async def test_download_root_and_ingest_delivery_keep_frozen_episode_mapping(db, tmp_path) -> None:
+    root = tmp_path / "media" / "tv"
+    await _seed_sources(db, root)
+    frozen = [
+        {"absolute": True, "season": 1, "start": 1, "end": 2},
+        {"absolute": True, "season": 2, "start": 3, "end": 4},
+        {"absolute": True, "season": 3, "start": 5, "end": 6},
+    ]
+    refreshed = [
+        {"absolute": True, "season": 1, "start": 1, "end": 2},
+        {"absolute": True, "season": 2, "start": 3, "end": 6},
+    ]
+    async with db.session() as session:
+        attempt = (
+            await session.execute(
+                select(SubscriptionDownloadAttempt).where(
+                    SubscriptionDownloadAttempt.info_hash == "PACKHASH"
+                )
+            )
+        ).scalar_one()
+        attempt.info_hash = "packhash"
+        attempt.site_id = "test"
+        attempt.torrent_id = "1"
+        attempt.submission = {SNAPSHOT_KEY: frozen}
+        await session.commit()
+
+        roots = await Acquisition().download_roots(session)
+        token = scan_mod._download_for(root / "Test.Show.S01.1080p" / "S01E05.mkv", roots)
+        scan_mapping = Acquisition().season_mapping(token, refreshed)
+
+        async def file_writers():
+            return {"S01E05.mkv": frozenset({"packhash"})}
+
+        delivery = await acquisition_ingest.entry_delivery(
+            session,
+            ["packhash"],
+            None,
+            item_title="测试剧集",
+            strategy="hardlink",
+            file_writers=file_writers,
+        )
+        ingest_mapping = delivery.season_mapping("S01E05.mkv", refreshed)
+
+    assert normalize_unit(scan_mapping, 1, 5).unit == (3, 5)
+    assert normalize_unit(ingest_mapping, 1, 5).unit == (3, 5)
 
 
 async def test_scan_records_source_torrent_of_inplace_downloads(db, tmp_path) -> None:

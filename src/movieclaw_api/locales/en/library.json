@@ -764,6 +764,8 @@
     "noSeason": "Couldn’t parse a season number from “{name}”; not imported",
     "noSeasonBecause": "Couldn’t parse a season number from “{name}”; not imported ({reason})",
     "seasonRejected": "Inferred season {season}, but TMDB has no such season for this title",
+    "episodeOutOfRange": "The file declares S{season}E{episode}, but that episode is outside the ledger ranges and has no unique TMDB target",
+    "episodeAmbiguous": "The file declares S{season}E{episode}, but that episode matches multiple TMDB season ranges",
     "strmSkipped": "“{name}” can’t be used: {problem}. Not imported; it will be retried when the files change",
     "probeSkipped": "Couldn’t probe “{name}” (it may be incomplete). Not imported; it will be retried when the files change",
     "importedFiles": "Identified as “{title}”. {strategy, select, hardlink {Hardlinked} other {Copied}} {count, plural, one {# file} other {# files}} to {path}",

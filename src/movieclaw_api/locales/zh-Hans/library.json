@@ -764,6 +764,8 @@
     "noSeason": "「{name}」解析不出季号，未入库",
     "noSeasonBecause": "「{name}」解析不出季号，未入库（{reason}）",
     "seasonRejected": "推断出第 {season} 季，但该条目在 TMDB 没有这一季",
+    "episodeOutOfRange": "文件标注 S{season}E{episode}，但集号越出台账区间，无法唯一对应到 TMDB 集",
+    "episodeAmbiguous": "文件标注 S{season}E{episode}，但该集号可同时落入多个 TMDB 季区间",
     "strmSkipped": "「{name}」用不了：{problem}；未入库，文件变化后自动重试",
     "probeSkipped": "「{name}」探测失败（可能不完整），未入库；文件变化后自动重试",
     "importedFiles": "已识别为《{title}》，{strategy, select, hardlink {硬链接} other {复制}} {count} 个文件到 {path}",

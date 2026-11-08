@@ -33,6 +33,10 @@ from movieclaw_api.services.subscription.identity_recheck import (
 )
 from movieclaw_api.services.subscription.smart_profiles import read_policy
 from movieclaw_api.services.subscription.twins import ambiguous_verdict, ensure_twins
+from movieclaw_api.services.subscription.unit_recheck import (
+    FILE_LIST_UNAVAILABLE,
+    recheck_file_units,
+)
 from movieclaw_db.models import (
     ActivityType,
     MediaEpisode,
@@ -249,6 +253,13 @@ def season_blocks_of(item: MediaItem) -> tuple[tuple[int, int, int, int], ...]:
     return mapping_from_json(item.season_mapping).as_identity_blocks()
 
 
+def episode_ranges_of(item: MediaItem) -> tuple[tuple[int, int, int], ...]:
+    """条目的跨季连续绝对集号区间；普通剧返回空元组。"""
+    from movieclaw_matcher.seasons import mapping_from_json
+
+    return mapping_from_json(item.season_mapping).as_identity_episode_ranges()
+
+
 async def media_identity(
     session: AsyncSession, item: MediaItem, *, season_numbers: tuple[int, ...]
 ) -> MediaIdentity:
@@ -286,6 +297,7 @@ async def media_identity(
         runtime_minutes=runtime_minutes,
         aired_episodes=aired_episodes,
         season_blocks=season_blocks_of(item),
+        episode_ranges=episode_ranges_of(item),
     )
 
 
@@ -872,6 +884,11 @@ async def evaluate_and_dispatch(
             match = match_identity(candidate, ctx.identity)
             if match is None:
                 continue
+            match = await recheck_file_units(session, candidate, ctx.identity, match)
+            if match.unit_rejection:
+                summary.rejected += 1
+                await _log_unit_rejection(repo, ctx, candidate, match, source)
+                continue
             covered = drop_proven_missing(
                 ctx, candidate, covered_units(match, ctx.open_wanted, published=published)
             )
@@ -1372,6 +1389,53 @@ async def _log_uncovered(
     )
 
 
+async def _log_unit_rejection(
+    repo: SubscriptionRepository,
+    ctx: MediaContext,
+    candidate: TorrentCandidate,
+    match: IdentityMatch,
+    source: str,
+) -> None:
+    """季集号越界、多落点或文件清单不可得：拒绝并留下可解释活动。"""
+    from movieclaw_matcher.seasons import (
+        EPISODE_AMBIGUOUS,
+        EPISODE_OUT_OF_RANGE,
+        EPISODE_ZERO,
+    )
+
+    subscription_id = ctx.subscription.id
+    assert subscription_id is not None and match.unit_rejection is not None
+    if await _already_explained(repo, subscription_id, candidate, match.unit_rejection):
+        return
+    reason_key = {
+        FILE_LIST_UNAVAILABLE: "activity.subscription.episodeFileListUnavailable",
+        EPISODE_AMBIGUOUS: "activity.subscription.episodeBaseAmbiguous",
+        EPISODE_OUT_OF_RANGE: "activity.subscription.episodeOutOfRange",
+        EPISODE_ZERO: "activity.subscription.episodeZeroRejected",
+    }.get(match.unit_rejection, "activity.subscription.episodeOutOfRange")
+    await repo.add_activity(
+        SubscriptionActivity(
+            subscription_id=subscription_id,
+            wanted_item_id=None,
+            type=ActivityType.MATCH_REJECTED,
+            payload={
+                "site_id": candidate.site_id,
+                "torrent_id": candidate.torrent_id,
+                "reason_code": match.unit_rejection,
+                "source": source,
+                "site_seasons": sorted(match.site_seasons),
+                "units": [],
+            },
+            **stored_fields(
+                "activity.subscription.episodeNumberRejected",
+                title=candidate.title[:60],
+                site=candidate.site_id,
+                reason=reference(reason_key),
+            ),
+        )
+    )
+
+
 async def _log_season_mapped(
     repo: SubscriptionRepository,
     ctx: MediaContext,
@@ -1446,6 +1510,28 @@ def _mapped_ranges(ctx: MediaContext, match: IdentityMatch) -> dict | str:
                     end=block.end,
                 )
             )
+    if not parts and match.episodes:
+        by_season: dict[int, list[int]] = {}
+        for season, episode in sorted(match.episodes):
+            by_season.setdefault(season, []).append(episode)
+        for season, episodes in by_season.items():
+            start = end = episodes[0]
+            for episode in [*episodes[1:], None]:
+                if episode is not None and episode == end + 1:
+                    end = episode
+                    continue
+                parts.append(
+                    reference(
+                        "activity.subscription.seasonRangeSingle"
+                        if start == end
+                        else "activity.subscription.seasonRange",
+                        season=season,
+                        start=start,
+                        **({"end": end} if start != end else {}),
+                    )
+                )
+                if episode is not None:
+                    start = end = episode
     if not parts:
         return ""
     return {"message_list": parts, "separator_key": "common.list.separator"}

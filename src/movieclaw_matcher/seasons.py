@@ -62,14 +62,20 @@ from dataclasses import dataclass
 from datetime import date
 
 __all__ = [
+    "EPISODE_AMBIGUOUS",
+    "EPISODE_OUT_OF_RANGE",
+    "EPISODE_ZERO",
     "SNAPSHOT_KEY",
     "SPLIT_GAP_DAYS",
+    "EpisodeRange",
     "SeasonBlock",
     "SeasonMapping",
+    "UnitTranslation",
     "derive_season_mapping",
     "mapping_for_task",
     "mapping_from_json",
     "mapping_to_json",
+    "normalize_unit",
     "translate_unit",
 ]
 
@@ -81,6 +87,61 @@ SPLIT_GAP_DAYS = 90
 #: 在途任务冻结映射快照的键（``subscription_download_attempt.submission`` 里），
 #: 见 :func:`mapping_for_task`
 SNAPSHOT_KEY = "season_mapping"
+
+EPISODE_OUT_OF_RANGE = "episode_out_of_range"
+EPISODE_AMBIGUOUS = "episode_base_ambiguous"
+EPISODE_ZERO = "episode_zero"
+
+
+@dataclass(frozen=True)
+class EpisodeRange:
+    """TMDB 一季真实使用的集号闭区间。
+
+    只有确认各正季集号从 1 开始、跨季连续且每季内部无缺口时才会落库。普通剧
+    每季都从 E01 重新编号，不满足这个条件，因此不会产生任何范围数据。
+    """
+
+    season: int
+    start: int
+    end: int
+
+    def __post_init__(self) -> None:
+        if self.season < 1 or self.start < 1 or self.end < self.start:
+            raise ValueError("TMDB 季集号区间必须为正数且递增")
+
+    @property
+    def length(self) -> int:
+        return self.end - self.start + 1
+
+    def to_json(self) -> dict:
+        return {
+            "absolute": True,
+            "season": self.season,
+            "start": self.start,
+            "end": self.end,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict) -> EpisodeRange:
+        return cls(
+            season=int(data["season"]),
+            start=int(data["start"]),
+            end=int(data["end"]),
+        )
+
+
+@dataclass(frozen=True)
+class UnitTranslation:
+    """一个站点季集号的确定性解释；``reason`` 非空表示不能安全映射。"""
+
+    season: int
+    episode: int
+    mode: str = "literal"
+    reason: str | None = None
+
+    @property
+    def unit(self) -> tuple[int, int] | None:
+        return None if self.reason else (self.season, self.episode)
 
 
 @dataclass(frozen=True)
@@ -134,12 +195,15 @@ class SeasonMapping:
     """一个条目的站点季号映射表（block 按站点季号升序）。"""
 
     blocks: tuple[SeasonBlock, ...] = ()
+    # 跨季连续绝对集号的 TMDB 季区间（issue #1224）。与 blocks 分开保存：前者
+    # 描述「同一季内两套集号基准」，后者描述「站点季号与 TMDB 季号不同」。
+    episode_ranges: tuple[EpisodeRange, ...] = ()
     # 条目完整的 TMDB 季列表（推导时才有；从 JSON 读回的映射为空集——落库前
     # 已经按它过滤过）。站点季号在这里面，就是 TMDB 真实存在的那一季
     tmdb_seasons: frozenset[int] = frozenset()
 
     def __bool__(self) -> bool:
-        return bool(self.blocks)
+        return bool(self.blocks or self.episode_ranges)
 
     def by_site_season(self, site_season: int) -> SeasonBlock | None:
         for block in self.blocks:
@@ -152,6 +216,12 @@ class SeasonMapping:
         for block in self.blocks:
             if block.season == season and block.start <= episode <= block.end:
                 return block
+        return None
+
+    def episode_range(self, season: int) -> EpisodeRange | None:
+        for item in self.episode_ranges:
+            if item.season == season:
+                return item
         return None
 
     @property
@@ -195,14 +265,20 @@ class SeasonMapping:
         return tuple(result)
 
     def to_json(self) -> list[dict]:
-        """落库形状：只写真正需要换算的块（见 :attr:`needs_mapping`）。"""
-        return [block.to_json() for block in self.needs_mapping]
+        """落库形状：站点拆季块 + 已证实的跨季连续绝对集号区间。"""
+        return [
+            *(block.to_json() for block in self.needs_mapping),
+            *(episode_range.to_json() for episode_range in self.episode_ranges),
+        ]
 
     def as_identity_blocks(self) -> tuple[tuple[int, int, int, int], ...]:
         """内核 ``MediaIdentity.season_blocks`` 的形状：(站点季, TMDB 季, 起, 止)。"""
         return tuple(
             (block.site_season, block.season, block.start, block.end) for block in self.blocks
         )
+
+    def as_identity_episode_ranges(self) -> tuple[tuple[int, int, int], ...]:
+        return tuple((item.season, item.start, item.end) for item in self.episode_ranges)
 
     @classmethod
     def from_json(cls, data: list | dict | None) -> SeasonMapping:
@@ -213,10 +289,63 @@ class SeasonMapping:
         - 设计文档 §6 举例的包裹形式 ``{"site_seasons": [{...}]}``。
         """
         if isinstance(data, dict):
-            data = data.get("site_seasons")
+            data = [
+                *(data.get("site_seasons") or []),
+                *(
+                    {**item, "absolute": True}
+                    for item in (data.get("episode_ranges") or [])
+                ),
+            ]
         if not data:
             return cls()
-        return cls(blocks=tuple(SeasonBlock.from_json(item) for item in data))
+        return cls(
+            blocks=tuple(
+                SeasonBlock.from_json(item) for item in data if not item.get("absolute")
+            ),
+            episode_ranges=tuple(
+                EpisodeRange.from_json(item) for item in data if item.get("absolute")
+            ),
+        )
+
+
+def _absolute_episode_ranges(
+    episodes: Collection[tuple[int, int, date | None]],
+) -> tuple[EpisodeRange, ...]:
+    """证明 TMDB 正季使用跨季连续绝对号；证据不完整时返回空。
+
+    守卫同时成立才启用：至少两季、季号从 1 连续、每季内部无缺号、全剧从 E01
+    起且下一季紧接上一季。这样 TMDB 少回一季/一集、某季从 E02 才有资料、区间
+    重叠时都不会猜。
+    """
+    by_season: dict[int, set[int]] = {}
+    for season, episode, _day in episodes:
+        if season > 0 and episode > 0:
+            by_season.setdefault(season, set()).add(episode)
+    if len(by_season) < 2:
+        return ()
+
+    ranges: list[EpisodeRange] = []
+    for season in sorted(by_season):
+        numbers = sorted(by_season[season])
+        if numbers != list(range(numbers[0], numbers[-1] + 1)):
+            return ()
+        ranges.append(EpisodeRange(season, numbers[0], numbers[-1]))
+    if ranges[0].season != 1 or ranges[0].start != 1:
+        return ()
+    if any(
+        current.season != previous.season + 1
+        for previous, current in zip(ranges, ranges[1:], strict=False)
+    ):
+        return ()
+    if any(
+        current.start != previous.end + 1
+        for previous, current in zip(ranges, ranges[1:], strict=False)
+    ):
+        return ()
+    # 两季都从 E01 起的普通剧会在上一道连续性检查被挡住；显式判断让意图更清楚。
+    if not any(item.start > 1 for item in ranges):
+        return ()
+    return tuple(ranges)
 
 
 def derive_season_mapping(
@@ -255,6 +384,7 @@ def derive_season_mapping(
     """
     today = today or date.today()
     tmdb_seasons = frozenset(seasons) | {season for season, _episode, _day in episodes}
+    episode_ranges = _absolute_episode_ranges(episodes)
     by_season: dict[int, list[tuple[int, date | None]]] = {}
     for season, episode, air_date in episodes:
         if season <= 0 or episode <= 0:
@@ -315,7 +445,7 @@ def derive_season_mapping(
             blocks.append((first_day, season, start, end, index not in uncertain))
 
     if not blocks:
-        return SeasonMapping(tmdb_seasons=tmdb_seasons)
+        return SeasonMapping(episode_ranges=episode_ranges, tmdb_seasons=tmdb_seasons)
 
     blocks.sort()
     return SeasonMapping(
@@ -323,7 +453,68 @@ def derive_season_mapping(
             SeasonBlock(site_season=index, season=season, start=start, end=end, certain=certain)
             for index, (_day, season, start, end, certain) in enumerate(blocks, start=1)
         ),
+        episode_ranges=episode_ranges,
         tmdb_seasons=tmdb_seasons,
+    )
+
+
+def normalize_unit(
+    mapping: SeasonMapping | None, site_season: int, site_episode: int
+) -> UnitTranslation:
+    """把站点季集号按条目冻结的编号事实解释成 TMDB 单元。
+
+    跨季绝对号只允许三种确定结论：原生绝对号原样；合法季内号平移；第一季
+    固定为 S01 而集号唯一落在后续季区间时改季。其余一律返回拒绝原因。
+    """
+    if mapping is None:
+        return UnitTranslation(site_season, site_episode)
+    if site_episode <= 0:
+        return UnitTranslation(
+            site_season,
+            site_episode,
+            reason=EPISODE_ZERO if mapping.episode_ranges else None,
+        )
+
+    source = mapping.episode_range(site_season)
+    if source is not None:
+        if source.start <= site_episode <= source.end:
+            return UnitTranslation(site_season, site_episode)
+        if site_episode < source.start and site_episode <= source.length:
+            return UnitTranslation(
+                site_season,
+                source.start + site_episode - 1,
+                mode="season_relative",
+            )
+        first = min(mapping.episode_ranges, key=lambda item: item.season)
+        if source == first and site_episode > source.end:
+            targets = [
+                item for item in mapping.episode_ranges if item.start <= site_episode <= item.end
+            ]
+            if len(targets) == 1:
+                return UnitTranslation(
+                    targets[0].season,
+                    site_episode,
+                    mode="first_season_absolute",
+                )
+            if len(targets) > 1:
+                return UnitTranslation(
+                    site_season,
+                    site_episode,
+                    reason=EPISODE_AMBIGUOUS,
+                )
+        return UnitTranslation(
+            site_season,
+            site_episode,
+            reason=EPISODE_OUT_OF_RANGE,
+        )
+
+    block = mapping.by_site_season(site_season)
+    if block is None:
+        return UnitTranslation(site_season, site_episode)
+    return UnitTranslation(
+        block.season,
+        site_episode + block.offset,
+        mode="season_block",
     )
 
 
@@ -341,15 +532,11 @@ def translate_unit(
     入库、下载、核验。原样返回 ``(2, 0)``，下游按"集号为 0"的既有规则处理
     （入库看 ``explicit_pilot``、严格文件选择不选）。
     """
-    if mapping is None or site_episode <= 0:
-        return site_season, site_episode
-    block = mapping.by_site_season(site_season)
-    if block is None:
-        return site_season, site_episode
-    return block.season, site_episode + block.offset
+    translated = normalize_unit(mapping, site_season, site_episode)
+    return translated.unit or (site_season, site_episode)
 
 
-def mapping_from_json(data: list | None) -> SeasonMapping:
+def mapping_from_json(data: list | dict | None) -> SeasonMapping:
     """``media_item.season_mapping`` JSON → :class:`SeasonMapping`。
 
     ``NULL``/``[]`` 都读成空映射（"没算过"与"算过且无需映射"在匹配语义上等价，
