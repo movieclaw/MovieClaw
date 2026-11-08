@@ -1451,6 +1451,23 @@ def _result_payload(result: GenResult) -> dict[str, object]:
     }
 
 
+def _translation_abort_reason(
+    exc: translate.TranslationAborted, state: GenState
+) -> dict | str:
+    """让熔断建议与模型实际终止原因一致，其他中止原因保持原样。"""
+    reason = exc.reference
+    if (
+        reason
+        and reason.get("message_key") == "library.subtitleJob.circuitBreaker"
+        and not state.llm_usage.finish_reasons.get("length")
+    ):
+        return reference(
+            "library.subtitleJob.circuitBreakerValidation",
+            **reason.get("message_params", {}),
+        )
+    return reason or str(exc)
+
+
 #: 这些阶段只在等外部进程或读盘，收到停止请求就立即取消（见 _run_generation_job）
 _STOP_AT_ONCE_PHASES = frozenset({"preparing", "extracting", "ocr", "transcribing", "syncing"})
 #: 模型服务暂时不可用时，隔多久自动重试一次（从断点继续，不重复花钱）
@@ -1567,7 +1584,7 @@ async def _run_generation_job(
         raise jobs.JobFailed(
             **stored_fields(
                 "library.subtitleJob.aborted",
-                reason=exc.reference or str(exc),
+                reason=_translation_abort_reason(exc, state),
                 model=model_ref or reference("library.subtitleJob.defaultModel"),
             ),
             code="SUBTITLE_TRANSLATION_ABORTED",

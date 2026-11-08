@@ -26,6 +26,8 @@ from movieclaw_api.services.agent_sessions import (
     SessionHandoffEntry,
     reset_agent_session_store,
 )
+from movieclaw_db.engine import get_database
+from movieclaw_db.models import Job
 from movieclaw_llm import ChatMessage, ChatResponse, TokenUsage, ToolCall
 from movieclaw_llm.protocols import PROTOCOLS
 
@@ -595,6 +597,43 @@ def test_start_creates_session_and_persists_message(client) -> None:
 
     listing = client.get("/api/v1/sessions").json()["data"]
     assert [s["id"] for s in listing] == [session_id]
+
+
+def test_long_job_handoff_starts_agent_session_end_to_end(client) -> None:
+    """活动页的真实两段调用：生成长工单后，session.start 仍应接受并创建会话。"""
+    configure_provider(client)
+
+    async def seed() -> None:
+        async with get_database().session() as session:
+            session.add(
+                Job(
+                    id="job_handoff_e2e",
+                    job_type="subtitle.generate",
+                    subject="Movie.mkv",
+                    status="failed",
+                    progress={"message": "翻译失败"},
+                    error={
+                        "code": "SUBTITLE_TRANSLATION_ABORTED",
+                        "message": "返回内容未通过校验；" * 600,
+                        "actions": [{"type": "handoff_agent", "label": "交给 Agent"}],
+                    },
+                )
+            )
+            await session.commit()
+
+    client.portal.call(seed)
+    handoff = client.post(
+        "/api/v1/agent-handoff", json={"kind": "job", "ref": "job_handoff_e2e"}
+    )
+    assert handoff.status_code == 200
+    prompt = handoff.json()["data"]["prompt"]
+    assert len(prompt) <= 4000 and "工单内容已截断" in prompt
+
+    session_id, _ = _send_message_and_wait(client, {"content": prompt})
+    detail = client.get(f"/api/v1/sessions/{session_id}").json()["data"]
+    first_message = detail["entries"][0]["message"]["content"]
+    assert "job_handoff_e2e" in first_message
+    assert "SUBTITLE_TRANSLATION_ABORTED" in first_message
 
 
 def test_followup_message_builds_history_from_transcript(client, monkeypatch) -> None:

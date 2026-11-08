@@ -493,6 +493,7 @@
     "cancelledSaved": "The task was cancelled. Completed blocks are saved and can be resumed.",
     "ocrStopped": "Image subtitle recognition finished. Further AI translation was stopped at your request.",
     "circuitBreaker": "{failed}/{total} blocks failed, exceeding the failure threshold. The task stopped and saved successful blocks. Start generation again with a model that has a larger output budget to resume failed blocks.",
+    "circuitBreakerValidation": "The responses for {failed}/{total} blocks failed validation and exhausted their retries, exceeding the failure threshold. The task stopped and saved successful blocks. Start generation again with a model that follows the output format reliably to resume failed blocks.",
     "enqueued": "Task queued",
     "rateLimitPaused": "The model service keeps rate-limiting, so the job paused (finished blocks are saved; start it again later to continue)",
     "bilingualLabel": "{primary} + {secondary} bilingual",

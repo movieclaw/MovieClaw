@@ -493,6 +493,7 @@
     "cancelledSaved": "任务被用户取消（已完成块已暂存，可续传）",
     "ocrStopped": "图片字幕识别完成，已按你的请求停止后续 AI 翻译",
     "circuitBreaker": "本次已有 {failed}/{total} 块翻译失败，超过熔断阈值，任务中止（成功块已暂存，换用输出预算更充裕的模型后重新发起可从断点续译失败块）",
+    "circuitBreakerValidation": "本次已有 {failed}/{total} 块翻译的返回内容未通过校验，重试用尽并超过熔断阈值，任务中止（成功块已暂存，换用能稳定遵循输出格式的模型后重新发起可从断点续译失败块）",
     "enqueued": "任务已入队",
     "rateLimitPaused": "模型服务持续限流，任务已暂停（已完成块已保存，稍后重新发起可继续）",
     "bilingualLabel": "{primary} + {secondary}双语",

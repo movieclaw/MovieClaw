@@ -1753,6 +1753,42 @@ async def test_stop_while_translating_stays_cooperative(monkeypatch) -> None:
     assert not hard_cancelled
 
 
+@pytest.mark.parametrize(
+    ("finish_reasons", "expected", "unexpected"),
+    [
+        ({"stop": 31}, "返回内容未通过校验", "输出预算更充裕"),
+        ({"stop": 30, "length": 1}, "输出预算更充裕", "返回内容未通过校验"),
+    ],
+)
+async def test_subtitle_circuit_breaker_message_matches_finish_reason(
+    monkeypatch, finish_reasons: dict[str, int], expected: str, unexpected: str
+) -> None:
+    """熔断建议必须区分真实截断与结构/完整性校验重试耗尽。"""
+    from movieclaw_api.i18n.stored import stored_fields
+    from movieclaw_api.services import jobs
+
+    class Context:
+        async def update_progress(self, **_kwargs):  # noqa: ANN003
+            return None
+
+        async def cancel_requested(self) -> bool:
+            return False
+
+    async def aborted(_file_id, _target, state, **_kwargs):  # noqa: ANN001, ANN003
+        state.llm_usage.finish_reasons.update(finish_reasons)
+        state.validation_retries = 13
+        raise translate.TranslationAborted(
+            stored_fields("library.subtitleJob.circuitBreaker", failed=4, total=19)
+        )
+
+    monkeypatch.setattr(tasks, "_run", aborted)
+    with pytest.raises(jobs.JobFailed) as captured:
+        await tasks._run_generation_job(Context(), {"file_id": 101})
+
+    assert expected in captured.value.message
+    assert unexpected not in captured.value.message
+
+
 async def test_subtitle_job_handler_allows_different_files_to_run_concurrently(
     monkeypatch,
 ) -> None:

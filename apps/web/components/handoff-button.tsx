@@ -21,6 +21,7 @@ import { useToast } from "@/components/feedback";
 import { useLlmCapability } from "@/components/llm-gate";
 import { useAgentConversations } from "@/lib/agent-conversations";
 import { fetchHandoffPrompt, type HandoffKind } from "@/lib/api/handoff";
+import { HttpError } from "@/lib/http";
 
 export function HandoffButton({
   kind,
@@ -51,7 +52,11 @@ export function HandoffButton({
       onBeforeNavigate?.();
       router.push(`/sessions/${sessionId}` as Route);
     } catch (caught) {
-      toast.error((caught as Error).message || t("agent.handoff.failed"));
+      toast.error(
+        caught instanceof HttpError && caught.status === 422
+          ? t("agent.handoff.failed")
+          : (caught as Error).message || t("agent.handoff.failed"),
+      );
     } finally {
       setBusy(false);
     }

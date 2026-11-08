@@ -37,6 +37,7 @@ import {
   type JobView,
 } from "@/lib/api/jobs";
 import { isDismissed, jobCancellable } from "@/lib/job-attention";
+import { HttpError } from "@/lib/http";
 
 import { useJobs } from "@/lib/jobs";
 import { taskActivityBadge, useTaskActivity } from "@/lib/task-activity";
@@ -286,7 +287,11 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
       onNavigate();
       router.push(`/settings/${section}` as Route);
     } catch (error) {
-      setActionError((error as Error).message || { key: "activity.jobs.actionFailed" });
+      setActionError(
+        type === "handoff_agent" && error instanceof HttpError && error.status === 422
+          ? t("agent.handoff.failed")
+          : (error as Error).message || { key: "activity.jobs.actionFailed" },
+      );
     } finally {
       setBusyAction(null);
     }

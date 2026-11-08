@@ -1752,6 +1752,7 @@
   "library.subtitleJob.checkModel": "检查 AI 模型设置",
   "library.subtitleJob.checkingSource": "正在检查参考字幕",
   "library.subtitleJob.circuitBreaker": "本次已有 {failed}/{total} 块翻译失败，超过熔断阈值，任务中止（成功块已暂存，换用输出预算更充裕的模型后重新发起可从断点续译失败块）",
+  "library.subtitleJob.circuitBreakerValidation": "本次已有 {failed}/{total} 块翻译的返回内容未通过校验，重试用尽并超过熔断阈值，任务中止（成功块已暂存，换用能稳定遵循输出格式的模型后重新发起可从断点续译失败块）",
   "library.subtitleJob.completed": "已生成 {filename}（参考：{source}，{count} 条对白{failed, plural, =0 {} other {，{failed} 块翻译失败保留原文}}{compressed, plural, =0 {} other {，压缩改写 {compressed} 条超读速译文}}{overrun, plural, =0 {} other {，仍有 {overrun} 条超读速}}）",
   "library.subtitleJob.compressing": "正在压缩 {count} 条超读速译文",
   "library.subtitleJob.configureModel": "配置 AI 模型",

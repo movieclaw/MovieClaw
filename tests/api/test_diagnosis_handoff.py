@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.schemas.agent import SessionStartPayload
 from movieclaw_api.services.diagnosis_handoff import build_handoff_prompt
 from movieclaw_api.services.download_health import landing_group_key
 from movieclaw_db.engine import dispose_db, get_database, init_db
@@ -150,6 +151,89 @@ async def test_job_prompt_includes_error_actions_and_events(db):
     assert "设置 → 自动入库" in p
     assert "[blocked]" in p and "no match" in p
     assert "阻塞任务占着资源锁不能忽略" in p
+
+
+@pytest.mark.asyncio
+async def test_long_job_handoff_prompt_fits_session_start_contract(db):
+    """交接工单最终会原样成为 session.start.content，不能超过其 4000 字符契约。"""
+    async with db.session() as session:
+        job = Job(
+            id="job_long_subtitle_error",
+            job_type="subtitle.generate",
+            subject="Movie.mkv",
+            status="failed",
+            progress={"message": "翻译失败", "details": {"validation_retries": 13}},
+            error={
+                "code": "SUBTITLE_TRANSLATION_ABORTED",
+                "message": "返回内容未通过校验；" * 600,
+                "actions": [{"type": "handoff_agent", "label": "交给 Agent"}],
+            },
+        )
+        session.add(job)
+        await session.commit()
+
+    async with db.session() as session:
+        result = await build_handoff_prompt(session, "job", job.id)
+
+    payload = SessionStartPayload.model_validate({"content": result.prompt})
+    assert payload.content == result.prompt
+    assert "job_long_subtitle_error" in result.prompt
+    assert "SUBTITLE_TRANSLATION_ABORTED" in result.prompt
+    assert "工单内容已截断" in result.prompt
+    assert "## 你可以执行的动作" in result.prompt
+    assert "## 请你做什么" in result.prompt
+
+
+@pytest.mark.asyncio
+async def test_long_notice_and_download_handoffs_fit_session_start_contract(db):
+    """同一工单生成器服务告警与下载任务，两类长时间线也必须遵守会话上限。"""
+    async with db.session() as session:
+        notice = SystemNotice(
+            dedupe_key="test:long-notice",
+            severity="error",
+            source="test",
+            title="超长告警",
+            message="现场诊断详情；" * 800,
+            payload={},
+        )
+        media = MediaItem(kind="tv", tmdb_id=3, title="剧C", original_title="C")
+        rule = RuleSet(name="r3", spec={})
+        session.add_all([notice, media, rule])
+        await session.flush()
+        sub = Subscription(media_item_id=media.id, kind="tv", rule_set_id=rule.id)
+        session.add(sub)
+        await session.flush()
+        session.add_all(
+            [
+                SubscriptionDownloadAttempt(
+                    subscription_id=sub.id,
+                    info_hash="c" * 40,
+                    torrent_title="Show.C.S01E01",
+                    units=[[1, 1]],
+                    status="active",
+                    last_progress_at=utcnow(),
+                ),
+                SubscriptionActivity(
+                    subscription_id=sub.id,
+                    type="download_failed",
+                    message="下载器返回的超长诊断；" * 800,
+                    payload={},
+                ),
+            ]
+        )
+        await session.commit()
+        notice_id = notice.id
+
+    async with db.session() as session:
+        prompts = [
+            (await build_handoff_prompt(session, "notice", str(notice_id))).prompt,
+            (await build_handoff_prompt(session, "download", "C" * 40)).prompt,
+        ]
+
+    for prompt in prompts:
+        SessionStartPayload.model_validate({"content": prompt})
+        assert "工单内容已截断" in prompt
+        assert "## 请你做什么" in prompt
 
 
 @pytest.mark.asyncio
