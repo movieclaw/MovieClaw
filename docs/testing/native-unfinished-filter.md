@@ -40,7 +40,7 @@ Android 手机与 TV 共用 `apps/android-core` 的构建产物，须**顺序运
 
 Android 手机 `LibraryDetailStaleResponseTest` 用真实 HTTP 卡住旧请求：清除「未看完」后迟到的旧第一页与旧 A–Z 索引、旧筛选的下一页，以及切换筛选同一帧内的触底加载，都不能覆盖或拼接到新结果。`KindWallWatchFilterTest` 用真实 ViewModel 与 Compose 验证观看筛选的单选语义（TalkBack 可读选中状态）、筛空说明和一键清除。
 
-鸿蒙首页逻辑测试直接运行生产 `HomeRows.ets`；`library-index-gate.test.cjs` 运行生产 `LatestRequestGate.ets`，覆盖「旧墙晚到后才取索引」、旧索引失败、轮询期间切筛选等交错，并检查单库页在任何 await 之前取得查询身份：
+鸿蒙首页逻辑测试直接运行生产 `HomeRows.ets`，其中包括「查看全部」尾卡总数：只有整库都在行里时才写库的作品数，「未看完」「未看」「最近观看」行不写（与 Android TV 一致），并检查 TV、车机首页都从 `LibraryRowKind.seeAllTotal()` 取值；`library-index-gate.test.cjs` 运行生产 `LatestRequestGate.ets`，覆盖「旧墙晚到后才取索引」、旧索引失败、轮询期间切筛选等交错，并检查单库页在任何 await 之前取得查询身份：
 
 ```sh
 HARMONY_TYPESCRIPT_PATH=<TypeScript模块路径> \

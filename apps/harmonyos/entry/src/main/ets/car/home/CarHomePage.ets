@@ -369,14 +369,14 @@ export struct CarHomePage {
       || row.kind instanceof CollectionRowKind;
   }
 
-  /** 尾卡上写的总数：只在确切知道时写（「最近观看」「只看未看」的量不知道） */
+  /** 尾卡上写的总数：只在确切知道时写（「最近观看」「只看未看」「未看完」的量不知道） */
   private seeAllTotal(row: HomeRow): number | null {
     if (row.kind instanceof FavoritesKind) {
       return this.favoritesTotal;
     }
     if (row.kind instanceof LibraryRowKind) {
       const kind = row.kind;
-      return !kind.unwatched && kind.sort !== 'last_played' ? kind.library.stats.item_count : null;
+      return kind.seeAllTotal();
     }
     if (row.kind instanceof CollectionRowKind) {
       const kind = row.kind;

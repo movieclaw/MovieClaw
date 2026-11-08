@@ -42,3 +42,19 @@ test('removing supported rows does not restore them while unsupported rows remai
   assert.deepEqual(actual.map(row => row.id), ['libraries', 'row:tv']);
   assert.equal(actual[1].unfinished, true);
 });
+test('see-all total is the library size only when the row shows the whole library', () => {
+  const sized = [{ ...libraries[0], stats: { item_count: 100 } }];
+  const kindOf = pref => HomeRows.build([{ id: 'lib:1', ...pref }], sized, []).find(row => row.id === 'lib:1').kind;
+  assert.equal(kindOf({ sort: 'title' }).seeAllTotal(), 100);
+  assert.equal(kindOf({ unfinished: true, sort: 'title' }).seeAllTotal(), null);
+  assert.equal(kindOf({ unwatched: true, sort: 'title' }).seeAllTotal(), null);
+  assert.equal(kindOf({ sort: 'last_played' }).seeAllTotal(), null);
+});
+test('TV and car home pages take the see-all total from the shared row kind', () => {
+  for (const page of ['tv/home/TvHomePage.ets', 'car/home/CarHomePage.ets']) {
+    const text = fs.readFileSync(path.resolve(__dirname, '../../entry/src/main/ets', page), 'utf8');
+    const body = text.slice(text.indexOf('private seeAllTotal('), text.indexOf('private openSeeAll('));
+    assert.match(body, /kind\.seeAllTotal\(\)/, `${page} should delegate to LibraryRowKind.seeAllTotal()`);
+    assert.doesNotMatch(body, /stats\.item_count/, `${page} should not decide the library total inline`);
+  }
+});
