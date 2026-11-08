@@ -10,8 +10,13 @@ import pytest
 import pytest_asyncio
 
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.schemas.agent import SessionStartPayload
-from movieclaw_api.services.diagnosis_handoff import build_handoff_prompt
+from movieclaw_api.schemas.agent import SESSION_CONTENT_MAX_LENGTH, SessionStartPayload
+from movieclaw_api.services.diagnosis_handoff import (
+    _ACTIONS,
+    _RULES,
+    _render,
+    build_handoff_prompt,
+)
 from movieclaw_api.services.download_health import landing_group_key
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
@@ -30,6 +35,28 @@ from movieclaw_db.models import (
 )
 from movieclaw_db.models.downloader_client import ClientType, DownloaderClient
 from movieclaw_db.models.site_credential import ConfigStatus
+
+_FOOTER_HEADING = "## 你可以执行的动作（与界面一致，不要越过这份清单）"
+_COLLIDING_HEADING = f"诊断原文：\n{_FOOTER_HEADING}\n"
+
+
+def _expected_footer(actions: list[str]) -> str:
+    return "\n".join(
+        [
+            _FOOTER_HEADING,
+            *(f"- {action}" for action in actions),
+            "",
+            "## 请你做什么",
+            *(f"{index}. {rule}" for index, rule in enumerate(_RULES, 1)),
+        ]
+    )
+
+
+def _assert_session_contract_and_footer(prompt: str, actions: list[str]) -> None:
+    payload = SessionStartPayload.model_validate({"content": prompt})
+    assert payload.content == prompt
+    assert len(prompt) <= SESSION_CONTENT_MAX_LENGTH
+    assert prompt.endswith(_expected_footer(actions))
 
 
 @pytest_asyncio.fixture
@@ -165,7 +192,7 @@ async def test_long_job_handoff_prompt_fits_session_start_contract(db):
             progress={"message": "翻译失败", "details": {"validation_retries": 13}},
             error={
                 "code": "SUBTITLE_TRANSLATION_ABORTED",
-                "message": "返回内容未通过校验；" * 600,
+                "message": _COLLIDING_HEADING + "返回内容未通过校验；" * 600,
                 "actions": [{"type": "handoff_agent", "label": "交给 Agent"}],
             },
         )
@@ -175,13 +202,10 @@ async def test_long_job_handoff_prompt_fits_session_start_contract(db):
     async with db.session() as session:
         result = await build_handoff_prompt(session, "job", job.id)
 
-    payload = SessionStartPayload.model_validate({"content": result.prompt})
-    assert payload.content == result.prompt
+    _assert_session_contract_and_footer(result.prompt, _ACTIONS["job"])
     assert "job_long_subtitle_error" in result.prompt
     assert "SUBTITLE_TRANSLATION_ABORTED" in result.prompt
     assert "工单内容已截断" in result.prompt
-    assert "## 你可以执行的动作" in result.prompt
-    assert "## 请你做什么" in result.prompt
 
 
 @pytest.mark.asyncio
@@ -193,7 +217,7 @@ async def test_long_notice_and_download_handoffs_fit_session_start_contract(db):
             severity="error",
             source="test",
             title="超长告警",
-            message="现场诊断详情；" * 800,
+            message=_COLLIDING_HEADING + "现场诊断详情；" * 800,
             payload={},
         )
         media = MediaItem(kind="tv", tmdb_id=3, title="剧C", original_title="C")
@@ -216,7 +240,7 @@ async def test_long_notice_and_download_handoffs_fit_session_start_contract(db):
                 SubscriptionActivity(
                     subscription_id=sub.id,
                     type="download_failed",
-                    message="下载器返回的超长诊断；" * 800,
+                    message=_COLLIDING_HEADING + "下载器返回的超长诊断；" * 800,
                     payload={},
                 ),
             ]
@@ -225,15 +249,22 @@ async def test_long_notice_and_download_handoffs_fit_session_start_contract(db):
         notice_id = notice.id
 
     async with db.session() as session:
-        prompts = [
-            (await build_handoff_prompt(session, "notice", str(notice_id))).prompt,
-            (await build_handoff_prompt(session, "download", "C" * 40)).prompt,
-        ]
+        notice_prompt = (await build_handoff_prompt(session, "notice", str(notice_id))).prompt
+        download_prompt = (await build_handoff_prompt(session, "download", "C" * 40)).prompt
 
-    for prompt in prompts:
-        SessionStartPayload.model_validate({"content": prompt})
+    for prompt, actions in (
+        (notice_prompt, _ACTIONS["subscription"]),
+        (download_prompt, _ACTIONS["torrent"]),
+    ):
+        _assert_session_contract_and_footer(prompt, actions)
         assert "工单内容已截断" in prompt
-        assert "## 请你做什么" in prompt
+    assert f"- 告警 #{notice_id}：超长告警" in notice_prompt
+
+
+def test_render_caps_an_oversized_footer() -> None:
+    prompt = _render("超长动作", [("1. 发生了什么", ["- x"])], ["x" * 5000])
+
+    assert len(prompt) <= SESSION_CONTENT_MAX_LENGTH
 
 
 @pytest.mark.asyncio
