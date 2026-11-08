@@ -303,7 +303,19 @@ def test_multi_season_pack_does_not_force_a_season(tmp_path) -> None:
     assert units[files[2]].episode == 5
 
 
-@pytest.mark.parametrize("stem", ["Show.S21E01-E02", "Show.S21E01E02", "Show.S21E01+E02"])
+@pytest.mark.parametrize(
+    "stem",
+    [
+        "Show.S21E01-E02",
+        "Show.S21E01E02",
+        "Show.S21E01+E02",
+        "Show.S21E01_E02",
+        "Show.S21E01.E02",
+        "Show.S21E01–E02",
+        "Show.S21E01—E02",
+        "Show.S21E01-S22E02",
+    ],
+)
 def test_multi_episode_file_is_not_reduced_to_one_library_unit(tmp_path, stem: str) -> None:
     file = tmp_path / f"{stem}.mkv"
     unit = resolve_units([file], known_seasons={21})[file]

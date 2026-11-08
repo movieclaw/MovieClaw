@@ -480,6 +480,14 @@ async def load_match_context(
                     for source in memory.get("sources", [])
                     if isinstance(source, list) and len(source) == 2
                 }
+                if memory_mapping != current_mapping:
+                    # 旧快照仍有单元在途时，同一来源不能抢先按新边界认领任何
+                    # 当前缺口；等旧解释结束后，映射版本变化才让它重新参选。
+                    for unit in ctx.open_wanted:
+                        unresolved.setdefault(attempt.subscription_id, {}).setdefault(
+                            unit, set()
+                        ).update(sources)
+                    continue
                 for unit in memory.get("units", []):
                     if isinstance(unit, list) and len(unit) == 2:
                         unresolved.setdefault(attempt.subscription_id, {}).setdefault(

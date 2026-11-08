@@ -61,19 +61,11 @@ def _utc_text(value: datetime | None) -> str | None:
     return value.isoformat()
 
 
-def _retries_unresolved_snapshot(
-    submission: dict,
-    targets: list[WantedItem],
-) -> bool:
-    """本次是否在用新映射重试旧快照下证伪过的同一 hash/单元。"""
+def _has_unresolved_snapshot(submission: dict) -> bool:
+    """冻结映射下是否有同一 hash 已证伪的解析记忆。"""
     old_mapping = submission.get(SNAPSHOT_KEY)
-    units = {(row.season_number, row.episode_number) for row in targets}
     return any(
         record.get("mapping") == old_mapping
-        and any(
-            isinstance(unit, list) and len(unit) == 2 and tuple(unit) in units
-            for unit in record.get("units", [])
-        )
         for record in submission.get(UNIT_UNRESOLVED_MEMORY_KEY, [])
         if isinstance(record, dict)
     )
@@ -457,7 +449,7 @@ async def dispatch(
                 existing_attempt is not None
                 and SNAPSHOT_KEY in frozen
                 and frozen[SNAPSHOT_KEY] != current_mapping
-                and _retries_unresolved_snapshot(frozen, all_targets)
+                and _has_unresolved_snapshot(frozen)
             )
             if retrying_new_mapping:
                 # 同一 attempt 只能冻结一份映射。旧快照负责的单元还在等待入库时，

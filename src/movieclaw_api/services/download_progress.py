@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -30,7 +29,12 @@ from movieclaw_api.services.download_health import (
     upsert_landing_group,
 )
 from movieclaw_api.services.downloader_paths import diagnose_landing
-from movieclaw_api.services.subscription import set_note, units_reference
+from movieclaw_api.services.library.layout import explicit_sxx_units
+from movieclaw_api.services.subscription import (
+    UNIT_UNRESOLVED_MEMORY_KEY,
+    set_note,
+    units_reference,
+)
 from movieclaw_api.services.system_notice import resolve_notices, upsert_notice
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
@@ -57,6 +61,7 @@ from movieclaw_downloader import DownloaderConfig, TorrentStatus, create_downloa
 from movieclaw_matcher.seasons import (
     SNAPSHOT_KEY,
     SeasonMapping,
+    UnitTranslation,
     mapping_for_task,
     normalize_unit,
 )
@@ -1246,11 +1251,7 @@ async def _report_ignored_landing(
     return True
 
 
-# 种子内文件的季集声明：场景命名 SxxEyy。第二组抓整段集号串——连写
-# （E05E06）与区间简写（E05-E08）都收进来，展开规则见 _observed_units。
-# 裸数字段必须有分隔符引导（防止把 E05.1080p 的技术串吞进集号）
-_FILE_UNIT_RE = re.compile(r"[Ss](\d{1,2})((?:[Ee]\d{1,4})(?:(?:\s*[-~&+]\s*[Ee]?|[Ee])\d{1,4})*)")
-_FILE_EP_RE = re.compile(r"\d{1,4}")
+_MULTI_UNIT_AMBIGUOUS = "episode_multi_unit_ambiguous"
 
 
 async def task_season_mapping(
@@ -1311,14 +1312,10 @@ def _path_units(path: str, mapping: SeasonMapping | None = None) -> set[tuple[in
 
 def _path_unit_translations(path: str, mapping: SeasonMapping | None = None):
     """路径里的每个季集声明及其归一结论；拒绝原因供完成核验解释。"""
-    translated = []
-    for match in _FILE_UNIT_RE.finditer(path):
-        season = int(match.group(1))
-        numbers = [int(n) for n in _FILE_EP_RE.findall(match.group(2))]
-        if len(numbers) == 2 and numbers[0] < numbers[1] <= numbers[0] + 200:
-            numbers = list(range(numbers[0], numbers[1] + 1))
-        translated.extend(normalize_unit(mapping, season, episode) for episode in numbers)
-    return translated
+    units = explicit_sxx_units(Path(path.replace("\\", "/")).stem)
+    if units is None:
+        return [UnitTranslation(0, 0, reason=_MULTI_UNIT_AMBIGUOUS)]
+    return [normalize_unit(mapping, season, episode) for season, episode in units]
 
 
 def _observed_unit_rejections(files, mapping: SeasonMapping | None = None) -> set[str]:
@@ -1496,8 +1493,6 @@ async def _record_unit_unresolved(
     info_hash: str,
 ) -> None:
     """记住某来源在投递时映射下无法解释；映射变化后结论自动失效。"""
-    from movieclaw_api.services.subscription.matching import UNIT_UNRESOLVED_MEMORY_KEY
-
     attempt = (
         await session.execute(
             select(SubscriptionDownloadAttempt).where(
