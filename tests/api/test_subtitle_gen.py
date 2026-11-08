@@ -481,8 +481,9 @@ async def test_translate_block_retry_then_keep_original(tmp_path: Path, monkeypa
         return "垃圾输出不是 JSON"
 
     events = _events(40)  # 1 块;全失败→保留原文,1/1 块失败率 100% > 熔断阈值
-    with pytest.raises(translate.TranslationAborted):
+    with pytest.raises(translate.TranslationAborted) as captured:
         await translate.translate_events(chat, events, CTX, "chs", file_id=2)
+    assert captured.value.failed_block_truncated is False
 
 
 async def test_translate_checkpoint_resume(tmp_path: Path, monkeypatch) -> None:
@@ -644,9 +645,10 @@ async def test_translate_gives_up_when_split_cap_exhausted(tmp_path: Path, monke
         calls["n"] += 1
         raise translate.ChatOutputTruncated("再怎么拆都写不完")
 
-    with pytest.raises(translate.TranslationAborted):  # 1/1 失败率触发熔断
+    with pytest.raises(translate.TranslationAborted) as captured:  # 1/1 失败率触发熔断
         await translate.translate_events(chat, _events(50), CTX, "chs", file_id=43)
     assert calls["n"] <= 1 + 2 + 4, "拆分深度必须有硬上限"
+    assert captured.value.failed_block_truncated is True
 
 
 def test_validate_block_rejects_non_integer_index() -> None:
@@ -1754,16 +1756,35 @@ async def test_stop_while_translating_stays_cooperative(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("finish_reasons", "expected", "unexpected"),
+    ("responses", "failed_block_truncated", "expected", "unexpected"),
     [
-        ({"stop": 31}, "返回内容未通过校验", "输出预算更充裕"),
-        ({"stop": 30, "length": 1}, "输出预算更充裕", "返回内容未通过校验"),
+        (
+            [
+                ("glossary", "length"),
+                ("translate", "stop"),
+                ("translate", "stop"),
+                ("translate", "stop"),
+            ],
+            False,
+            "返回内容未通过校验",
+            "输出预算更充裕",
+        ),
+        (
+            [("glossary", "stop"), ("translate", "length")],
+            True,
+            "输出预算更充裕",
+            "返回内容未通过校验",
+        ),
     ],
 )
 async def test_subtitle_circuit_breaker_message_matches_finish_reason(
-    monkeypatch, finish_reasons: dict[str, int], expected: str, unexpected: str
+    monkeypatch,
+    responses: list[tuple[str, str]],
+    failed_block_truncated: bool,
+    expected: str,
+    unexpected: str,
 ) -> None:
-    """熔断建议必须区分真实截断与结构/完整性校验重试耗尽。"""
+    """只看导致熔断的翻译块，不能让 glossary 的 length 污染建议。"""
     from movieclaw_api.i18n.stored import stored_fields
     from movieclaw_api.services import jobs
 
@@ -1775,10 +1796,21 @@ async def test_subtitle_circuit_breaker_message_matches_finish_reason(
             return False
 
     async def aborted(_file_id, _target, state, **_kwargs):  # noqa: ANN001, ANN003
-        state.llm_usage.finish_reasons.update(finish_reasons)
+        for purpose, finish_reason in responses:
+            state.llm_usage.record_success(
+                translate.ChatCall(purpose=purpose),
+                duration_ms=1,
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                cache_read_tokens=0,
+                finish_reason=finish_reason,
+                has_thinking=False,
+            )
         state.validation_retries = 13
         raise translate.TranslationAborted(
-            stored_fields("library.subtitleJob.circuitBreaker", failed=4, total=19)
+            stored_fields("library.subtitleJob.circuitBreaker", failed=4, total=19),
+            failed_block_truncated=failed_block_truncated,
         )
 
     monkeypatch.setattr(tasks, "_run", aborted)

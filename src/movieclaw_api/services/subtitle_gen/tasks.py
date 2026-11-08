@@ -1451,15 +1451,13 @@ def _result_payload(result: GenResult) -> dict[str, object]:
     }
 
 
-def _translation_abort_reason(
-    exc: translate.TranslationAborted, state: GenState
-) -> dict | str:
+def _translation_abort_reason(exc: translate.TranslationAborted) -> dict | str:
     """让熔断建议与模型实际终止原因一致，其他中止原因保持原样。"""
     reason = exc.reference
     if (
         reason
         and reason.get("message_key") == "library.subtitleJob.circuitBreaker"
-        and not state.llm_usage.finish_reasons.get("length")
+        and not exc.failed_block_truncated
     ):
         return reference(
             "library.subtitleJob.circuitBreakerValidation",
@@ -1584,7 +1582,7 @@ async def _run_generation_job(
         raise jobs.JobFailed(
             **stored_fields(
                 "library.subtitleJob.aborted",
-                reason=_translation_abort_reason(exc, state),
+                reason=_translation_abort_reason(exc),
                 model=model_ref or reference("library.subtitleJob.defaultModel"),
             ),
             code="SUBTITLE_TRANSLATION_ABORTED",

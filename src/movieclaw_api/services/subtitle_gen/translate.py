@@ -133,8 +133,9 @@ class TranslationProgress:
 class TranslationAborted(Exception):
     """失败块超熔断阈值 / 用户取消，保留中文日志及消息引用。"""
 
-    def __init__(self, message: str | dict):
+    def __init__(self, message: str | dict, *, failed_block_truncated: bool = False):
         self.reference = message if isinstance(message, dict) else None
+        self.failed_block_truncated = failed_block_truncated
         super().__init__(message["message"] if self.reference else message)
 
 
@@ -437,10 +438,20 @@ async def _translate_block(
     *,
     context: list[tuple[str, str]],
     previous_source: list[str],
-) -> tuple[int, list[str], bool, int]:
+) -> tuple[int, list[str], bool, int, bool]:
     """翻译一个块；仅返回结果，不在并发协程里写共享断点。"""
+    output_truncated = False
+
+    async def tracked_chat(system: str, user: str, call: ChatCall) -> str:
+        nonlocal output_truncated
+        try:
+            return await chat(system, user, call)
+        except ChatOutputTruncated:
+            output_truncated = True
+            raise
+
     result, validation_retries = await _translate_span(
-        chat,
+        tracked_chat,
         system,
         block,
         block_index,
@@ -451,9 +462,15 @@ async def _translate_block(
         splits_left=_SPLIT_MAX_DEPTH,
     )
     if result is not None:
-        return block_index, result, False, validation_retries
+        return block_index, result, False, validation_retries, False
     # 输出结构连续失败时保留原文；失败率熔断由中央协调器统一判断。
-    return block_index, [text for _, text in block], True, validation_retries
+    return (
+        block_index,
+        [text for _, text in block],
+        True,
+        validation_retries,
+        output_truncated,
+    )
 
 
 async def _translate_span(
@@ -644,6 +661,7 @@ async def translate_events(
 ) -> tuple[list[SubEvent], TranslationStats]:
     """整片翻译：术语表 → 分块翻译（带断点/重试/熔断）→ 保时间轴回填。"""
     stats = TranslationStats()
+    has_truncated_failure = False
     output_key = (
         target_language if secondary_language is None else f"{target_language}-{secondary_language}"
     )
@@ -758,7 +776,7 @@ async def translate_events(
         )
 
     remaining = deque(bi for bi in range(stats.total_blocks) if bi not in translated)
-    running: dict[asyncio.Task[tuple[int, list[str], bool, int]], int] = {}
+    running: dict[asyncio.Task[tuple[int, list[str], bool, int, bool]], int] = {}
     rate_limit_attempts: dict[int, int] = {}
     stable_successes = 0
     cooldown_until = 0.0
@@ -840,7 +858,7 @@ async def translate_events(
                 active_started.pop(bi, None)
             # 同一事件循环 tick 内完成的块按原顺序落断点，文件始终由这个
             # 协调器单写，避免多个模型回调同时覆盖 checkpoint。
-            results: list[tuple[int, list[str], bool, int]] = []
+            results: list[tuple[int, list[str], bool, int, bool]] = []
             rate_limited: list[int] = []
             retry_delay = 0.0
             first_error: BaseException | None = None
@@ -871,7 +889,7 @@ async def translate_events(
                 except BaseException as exc:  # noqa: BLE001 -- 写完同批成功断点再原样抛出
                     if first_error is None:
                         first_error = exc
-            for bi, result, block_failed, validation_retries in results:
+            for bi, result, block_failed, validation_retries, block_truncated in results:
                 rate_limit_attempts.pop(bi, None)
                 stats.validation_retries += validation_retries
                 translated[bi] = result
@@ -879,6 +897,8 @@ async def translate_events(
                 if block_failed:
                     checkpoint.failed_blocks.add(bi)
                     stats.failed_blocks += 1
+                    if block_truncated:
+                        has_truncated_failure = True
                     stats.kept_original += len(blocks[bi])
                 else:
                     # 历史失败块这次翻成了：从断点的失败名单里销账，
@@ -948,7 +968,8 @@ async def translate_events(
                         "library.subtitleJob.circuitBreaker",
                         failed=stats.failed_blocks,
                         total=stats.total_blocks,
-                    )
+                    ),
+                    failed_block_truncated=has_truncated_failure,
                 )
             schedule()
             notify(tuple(sorted(bi + 1 for bi in running.values())))
