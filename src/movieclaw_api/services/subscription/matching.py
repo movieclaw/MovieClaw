@@ -111,6 +111,7 @@ UPGRADE_FIRST_SEARCH_SPREAD_HOURS = 24  # 首搜在 24h 内错峰，避免瞬时
 # 用空元组而不是 (-1, -1)：档位向量的长度随规则组的 upgrade_ladder 变化，
 # 定长哨兵会在多维阶梯下与真实向量按位比较出无意义的结果
 _NO_UPGRADE_RANK: tuple[int, ...] = ()
+UNIT_UNRESOLVED_MEMORY_KEY = "unit_unresolved"
 
 
 def upgrade_backoff_delay(attempts: int) -> timedelta:
@@ -172,6 +173,8 @@ class MediaContext:
     # 被证明不含该集，选种阶段直接跳过，否则会无限重抓（见
     # SubscriptionDownloadAttempt.content_missing）
     content_missing: dict[tuple[int, int], set[tuple[str, str]]] = field(default_factory=dict)
+    # 文件季集号在某份映射下无法解释的来源；只在条目仍使用同一映射快照时排除。
+    unit_unresolved: dict[tuple[int, int], set[tuple[str, str]]] = field(default_factory=dict)
     upgrade_wanted: dict[tuple[int, int], WantedItem] = field(default_factory=dict)
     upgrade_snapshots: dict[tuple[int, int], QualitySnapshot] = field(default_factory=dict)
     upgrade_excluded: frozenset[tuple[str, str]] = frozenset()
@@ -399,10 +402,9 @@ async def load_match_context(
             continue
         ctx.open_wanted[(wanted.season_number, wanted.episode_number)] = wanted
 
-    # -- 内容核验的负面记忆 ---------------------------------------------------
-    # 下完后被证明"包里根本没有这一集"的发布不再参与该集的选种。缺了这一步，
-    # 退回重找会立刻再次选中同一个种子（它还在下载器里且已完成），秒完成 →
-    # 再核验 → 再退回，无限循环。
+    # -- 下载核验的负面记忆 ---------------------------------------------------
+    # 实测缺集的来源永久按单元排除；文件集号无法解释的来源只在映射快照未变时
+    # 排除。两者都要在选种前生效，否则会立刻再次认领同一份已完成内容。
     gap_subscriptions = {
         ctx.subscription.id
         for ctx in contexts.values()
@@ -412,6 +414,12 @@ async def load_match_context(
         from movieclaw_db.models import SubscriptionDownloadAttempt
 
         proven: dict[int, dict[tuple[int, int], set[tuple[str, str]]]] = {}
+        unresolved: dict[int, dict[tuple[int, int], set[tuple[str, str]]]] = {}
+        contexts_by_subscription = {
+            ctx.subscription.id: ctx
+            for ctx in contexts.values()
+            if ctx.subscription.id is not None
+        }
         attempts = (
             await session.execute(
                 select(SubscriptionDownloadAttempt).where(
@@ -426,16 +434,33 @@ async def load_match_context(
                 for source in memory.get("sources", [])
                 if isinstance(source, list) and len(source) == 2
             }
-            if not sources:
+            if sources:
+                for unit in memory.get("units", []):
+                    if isinstance(unit, list) and len(unit) == 2:
+                        proven.setdefault(attempt.subscription_id, {}).setdefault(
+                            (int(unit[0]), int(unit[1])), set()
+                        ).update(sources)
+            ctx = contexts_by_subscription.get(attempt.subscription_id)
+            if ctx is None:
                 continue
-            for unit in memory.get("units", []):
-                if isinstance(unit, list) and len(unit) == 2:
-                    proven.setdefault(attempt.subscription_id, {}).setdefault(
-                        (int(unit[0]), int(unit[1])), set()
-                    ).update(sources)
+            current_mapping = ctx.item.season_mapping or []
+            for memory in (attempt.submission or {}).get(UNIT_UNRESOLVED_MEMORY_KEY, []):
+                if not isinstance(memory, dict) or memory.get("mapping") != current_mapping:
+                    continue
+                sources = {
+                    (str(source[0]), str(source[1]))
+                    for source in memory.get("sources", [])
+                    if isinstance(source, list) and len(source) == 2
+                }
+                for unit in memory.get("units", []):
+                    if isinstance(unit, list) and len(unit) == 2:
+                        unresolved.setdefault(attempt.subscription_id, {}).setdefault(
+                            (int(unit[0]), int(unit[1])), set()
+                        ).update(sources)
         for ctx in contexts.values():
             if ctx.subscription.id is not None:
                 ctx.content_missing = proven.get(ctx.subscription.id, {})
+                ctx.unit_unresolved = unresolved.get(ctx.subscription.id, {})
 
     # -- 洗版单元（quality-upgrade.md §5）------------------------------------
     upgrade_rule_ids = {
@@ -736,18 +761,21 @@ def covered_units(
 def drop_proven_missing(
     ctx: MediaContext, candidate: TorrentCandidate, covered: list[WantedItem]
 ) -> list[WantedItem]:
-    """剔除"这份发布下完后被证明没有"的集。
+    """剔除该来源实测缺失、或在当前映射下无法解释的集。
 
     负面记忆按 (季, 集) 记，不是整个候选一票否决：全集包缺一集特别篇时，它对
-    其余集仍然有效——真实教训是"缺 1 集"把整包重抓无数遍，不是包本身没用。
+    其余集仍然有效。集号无法解释的结论还带映射快照，元数据修正后允许重试。
     """
-    if not ctx.content_missing:
+    if not ctx.content_missing and not ctx.unit_unresolved:
         return covered
     source = (candidate.site_id, candidate.torrent_id)
     return [
         wanted
         for wanted in covered
-        if source not in ctx.content_missing.get((wanted.season_number, wanted.episode_number), ())
+        if source
+        not in ctx.content_missing.get((wanted.season_number, wanted.episode_number), ())
+        and source
+        not in ctx.unit_unresolved.get((wanted.season_number, wanted.episode_number), ())
     ]
 
 

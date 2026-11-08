@@ -25,15 +25,17 @@ from movieclaw_api.services.download_progress import (
 )
 from movieclaw_api.services.media_library import MediaLibraryService
 from movieclaw_api.services.subscription import SubscriptionService
-from movieclaw_api.services.subscription.matching import covered_units
+from movieclaw_api.services.subscription.matching import covered_units, evaluate_and_dispatch
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
 from movieclaw_db.models import (
     ActivityType,
     DownloadAttemptStatus,
     MediaItem,
+    SiteTorrent,
     SubscriptionActivity,
     SubscriptionDownloadAttempt,
+    TorrentSource,
     WantedItem,
     WantedStatus,
 )
@@ -61,7 +63,11 @@ _ROUTES = {
         "external_ids": {},
         "alternative_titles": {"results": []},
         "translations": {"translations": []},
-        "seasons": [{"season_number": 0}, {"season_number": 1}],
+        "seasons": [
+            {"season_number": 0},
+            {"season_number": 1},
+            {"season_number": 2},
+        ],
     },
     "/3/tv/300/season/0": {
         "name": "特别篇",
@@ -77,6 +83,14 @@ _ROUTES = {
         "episodes": [
             {"episode_number": 1, "name": "E1", "air_date": _AIRED},
             {"episode_number": 2, "name": "E2", "air_date": _AIRED},
+        ],
+    },
+    "/3/tv/300/season/2": {
+        "name": "第 2 季",
+        "air_date": _AIRED,
+        "episodes": [
+            {"episode_number": 3, "name": "E3", "air_date": _AIRED},
+            {"episode_number": 4, "name": "E4", "air_date": _AIRED},
         ],
     },
     "/3/movie/100": {
@@ -496,6 +510,102 @@ async def test_out_of_range_absolute_episode_is_requeued_with_explanation(
         activities = await _dispatch_failed(session, sub_id)
         assert activities[-1].payload["reason"] == "unit_unresolved"
         assert "无法安全对应" in activities[-1].message
+
+
+@pytest.mark.asyncio
+async def test_unit_unresolved_source_retries_only_after_mapping_changes(
+    db, tmp_path, monkeypatch
+) -> None:
+    """越界文件证伪来源；同映射不重选，映射快照变化后才允许重新判断。"""
+    async with db.session() as session:
+        sub_id = await _grabbed_subscription(session, MediaKind.TV, 300, selected_seasons=[2])
+        item = (
+            await session.execute(select(MediaItem).where(MediaItem.tmdb_id == 300))
+        ).scalar_one()
+        snapshot = [
+            {"absolute": True, "season": 1, "start": 1, "end": 2},
+            {"absolute": True, "season": 2, "start": 3, "end": 4},
+        ]
+        item.season_mapping = snapshot
+        attempt = SubscriptionDownloadAttempt(
+            subscription_id=sub_id,
+            info_hash=_HASH,
+            submission={"season_mapping": snapshot},
+            site_id="testsite",
+            torrent_id="bad-unit",
+            units=[[2, 3], [2, 4]],
+            last_progress_at=utcnow(),
+            status=DownloadAttemptStatus.COMPLETED,
+        )
+        torrent = SiteTorrent(
+            site_id="testsite",
+            torrent_id="bad-unit",
+            title="Test Show S02E01 1080p WEB-DL",
+            attrs={
+                "media_type": "tv",
+                "seasons": [2],
+                "episodes": [1],
+                "resolution": "1080p",
+            },
+            enrich_version=1,
+            source=TorrentSource.LIST,
+            seeders=10,
+            publish_time=utcnow(),
+        )
+        session.add_all([item, attempt, torrent])
+        await session.commit()
+
+    _stub_query(
+        monkeypatch,
+        _completed_status(tmp_path, ["Show/Show.S02E99.mkv"]),
+    )
+    await _rescue_group(sub_id, _HASH, [(object(), object())])
+
+    monkeypatch.setenv("SUBSCRIPTION_DISPATCH_DRY_RUN", "true")
+    get_settings.cache_clear()
+    async with db.session() as session:
+        attempt = (
+            await session.execute(
+                select(SubscriptionDownloadAttempt).where(
+                    SubscriptionDownloadAttempt.subscription_id == sub_id
+                )
+            )
+        ).scalar_one()
+        assert not attempt.content_missing
+        unresolved = (attempt.submission or {}).get("unit_unresolved", [])
+        assert unresolved == [
+            {
+                "mapping": snapshot,
+                "sources": [["testsite", "bad-unit"]],
+                "units": [[2, 3], [2, 4]],
+            }
+        ]
+        assert "season_mapping" not in (attempt.submission or {})
+
+        torrent = (
+            await session.execute(
+                select(SiteTorrent).where(SiteTorrent.torrent_id == "bad-unit")
+            )
+        ).scalar_one()
+        same_mapping = await evaluate_and_dispatch(session, [torrent], source="主动搜索")
+        wanted = await _wanted_map(session, sub_id)
+        assert same_mapping.dispatched_units == 0
+        assert wanted[(2, 3)].status == WantedStatus.WANTED
+
+        item = (
+            await session.execute(select(MediaItem).where(MediaItem.tmdb_id == 300))
+        ).scalar_one()
+        item.season_mapping = [
+            *snapshot,
+            {"absolute": True, "season": 3, "start": 5, "end": 6},
+        ]
+        session.add(item)
+        await session.commit()
+
+        changed_mapping = await evaluate_and_dispatch(session, [torrent], source="主动搜索")
+        wanted = await _wanted_map(session, sub_id)
+        assert changed_mapping.dispatched_units == 1
+        assert wanted[(2, 3)].status == WantedStatus.GRABBED
 
 
 @pytest.mark.asyncio

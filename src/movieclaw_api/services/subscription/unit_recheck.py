@@ -94,9 +94,17 @@ async def recheck_file_units(
         path = Path(raw)
         if path.suffix.lower() not in VIDEO_EXTS:
             continue
+        # 与影视库扫描共用 sample / extras 判定；这些文件不构成正片证据。
+        # 除此之外每个视频都必须能唯一落到一个单元，不能只挑认得出的文件。
+        from movieclaw_api.services.library.scan import classify_cloud_path
+
+        classified = classify_cloud_path(str(raw).replace("\\", "/"))
+        if classified is not None and classified[0] == "extra":
+            continue
         unit = explicit_unit(path.stem)
-        if unit is not None:
-            translated.append(normalize_unit(mapping, *unit))
+        if unit is None:
+            return _rejected(match, FILE_LIST_UNAVAILABLE, site_season)
+        translated.append(normalize_unit(mapping, *unit))
     if not translated:
         return _rejected(match, FILE_LIST_UNAVAILABLE, site_season)
 
@@ -104,7 +112,10 @@ async def recheck_file_units(
     if reasons:
         return _rejected(match, sorted(reasons)[0], site_season)
 
-    units = frozenset(item.unit for item in translated if item.unit is not None)
+    resolved = [item.unit for item in translated if item.unit is not None]
+    if len(set(resolved)) != len(resolved):
+        return _rejected(match, FILE_LIST_UNAVAILABLE, site_season)
+    units = frozenset(resolved)
     normalized = any(item.mode != "literal" for item in translated)
     return replace(
         match,

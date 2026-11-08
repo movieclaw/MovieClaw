@@ -91,9 +91,13 @@ async def db(tmp_path, monkeypatch):
     get_settings.cache_clear()
 
 
-async def _setup(session) -> tuple[int, SiteTorrent]:
+async def _setup(
+    session, *, selected_seasons: list[int] | None = None
+) -> tuple[int, SiteTorrent]:
     service = SubscriptionService(session, MediaLibraryService(session, _fake_tmdb()))
-    subscription = await service.create(MediaKind.TV, 1224, selected_seasons=[1, 3])
+    subscription = await service.create(
+        MediaKind.TV, 1224, selected_seasons=selected_seasons or [1, 3]
+    )
     torrent = SiteTorrent(
         site_id="adweb",
         torrent_id="episode-5",
@@ -186,6 +190,72 @@ async def test_missing_file_list_rejects_instead_of_claiming_s01_pack(db, monkey
     assert summary.dispatched_units == 0 and summary.rejected == 1
     assert all(row.status == WantedStatus.WANTED for row in wanted)
     assert activities[-1].payload["reason_code"] == "episode_file_list_unavailable"
+
+
+async def test_unparsed_videos_make_file_list_recheck_fail_closed(db, monkeypatch) -> None:
+    """样片可排除，但其余视频认不出单元时不能只凭样片或部分清单认领。"""
+    _install_detail(
+        monkeypatch,
+        [
+            "Absolute.Show.S01E03.sample.mkv",
+            "Absolute.Show/video-01.mkv",
+            "Absolute.Show/video-02.mkv",
+        ],
+    )
+    async with db.session() as session:
+        subscription_id, torrent = await _setup(session, selected_seasons=[2])
+        summary = await evaluate_and_dispatch(session, [torrent], source="被动匹配")
+        wanted = list(
+            (
+                await session.execute(
+                    select(WantedItem).where(WantedItem.subscription_id == subscription_id)
+                )
+            ).scalars()
+        )
+
+    assert summary.dispatched_units == 0 and summary.rejected == 1
+    assert all(row.status == WantedStatus.WANTED for row in wanted)
+
+
+async def test_duplicate_file_units_make_file_list_recheck_fail_closed(db, monkeypatch) -> None:
+    """两个文件归一到同一 TMDB 单元不是单集证据，必须拒绝整份候选。"""
+    _install_detail(
+        monkeypatch,
+        ["Absolute.Show.S01E05.mkv", "Absolute.Show.S03E01.mkv"],
+    )
+    async with db.session() as session:
+        subscription_id, torrent = await _setup(session, selected_seasons=[3])
+        summary = await evaluate_and_dispatch(session, [torrent], source="被动匹配")
+        wanted = list(
+            (
+                await session.execute(
+                    select(WantedItem).where(WantedItem.subscription_id == subscription_id)
+                )
+            ).scalars()
+        )
+
+    assert summary.dispatched_units == 0 and summary.rejected == 1
+    assert all(row.status == WantedStatus.WANTED for row in wanted)
+
+
+async def test_sample_video_does_not_spoil_a_complete_file_list(db, monkeypatch) -> None:
+    """明确 sample 继续沿用既有排除口径，不让附带样片误伤有效单集。"""
+    _install_detail(
+        monkeypatch,
+        ["Absolute.Show.S01E05.mkv", "Absolute.Show.S01E03.sample.mkv"],
+    )
+    async with db.session() as session:
+        subscription_id, torrent = await _setup(session, selected_seasons=[3])
+        summary = await evaluate_and_dispatch(session, [torrent], source="被动匹配")
+        wanted = await session.execute(
+            select(WantedItem).where(WantedItem.subscription_id == subscription_id)
+        )
+
+    status = {
+        (row.season_number, row.episode_number): row.status for row in wanted.scalars()
+    }
+    assert summary.dispatched_units == 1
+    assert status[(3, 5)] == WantedStatus.GRABBED
 
 
 async def test_season_relative_title_maps_without_detail_lookup(db, monkeypatch) -> None:
