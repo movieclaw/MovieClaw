@@ -342,10 +342,8 @@ async def test_corrupt_watermark_self_heals(db) -> None:
     assert watermark.last_id is not None and watermark.last_id >= 1
 
 
-async def test_legacy_watermark_initializes_refresh_cursor_without_replaying_history(
-    db, monkeypatch
-) -> None:
-    """升级前只有 ID 的水位从当前时刻跟随刷新，不把历史缓存当候选重放。"""
+async def test_legacy_watermark_does_not_replay_history(db) -> None:
+    """升级前水位里的旧刷新游标会被忽略，也不把历史缓存当候选重放。"""
     from movieclaw_api.services.torrent_matcher import MatchWatermark
     from movieclaw_api.settings.store import get_setting_store
 
@@ -354,15 +352,14 @@ async def test_legacy_watermark_initializes_refresh_cursor_without_replaying_his
         row = await _insert_torrent(
             session, "history", "Test Show S01 2160p WEB-DL", _S1_PACK_ATTRS
         )
-    monkeypatch.setattr(
-        "movieclaw_api.services.torrent_matcher._refresh_tracking_started_at", utcnow()
+    state = MatchWatermark.model_validate(
+        {"last_id": row.id, "last_updated_at": utcnow(), "last_updated_id": row.id}
     )
-    await get_setting_store().set(MatchWatermark(last_id=row.id))
+    await get_setting_store().set(state)
 
     await process_new_torrents()
 
-    state = await get_setting_store().get(MatchWatermark)
-    assert state.last_updated_at is not None
+    assert (await get_setting_store().get(MatchWatermark)).last_id == row.id
     async with db.session() as session:
         assert not [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
 
@@ -2101,3 +2098,111 @@ async def test_refreshed_torrent_is_reevaluated_after_seeders_rise(db) -> None:
         grabbed = [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
         assert len(grabbed) == 1
         assert all(w.status == WantedStatus.GRABBED for w in wanted.values())
+
+
+async def test_refresh_committed_after_scan_is_not_lost(db) -> None:
+    """扫描看不到尚未提交的刷新时，提交后的候选仍须留待下一轮消费。"""
+    from movieclaw_api.services.torrent_matcher import MatchWatermark
+    from movieclaw_api.settings.store import get_setting_store
+
+    async with db.session() as session:
+        rule = await RuleSetService(session).create("至少 3 做种", {"min_seeders": 3})
+        sub = await _service(session).create(
+            MediaKind.TV, 200, selected_seasons=[1], rule_set_id=rule.id
+        )
+    await process_new_torrents()
+    async with db.session() as session:
+        row = await _insert_torrent(
+            session, "commit-race", "Test Show S01 2160p WEB-DL", _S1_PACK_ATTRS, seeders=1
+        )
+        row_id = row.id
+    await process_new_torrents()
+
+    observation = TorrentObservation(
+        site_id="testsite",
+        torrent_id="commit-race",
+        source=TorrentSource.LIST,
+        title="Test Show S01 2160p WEB-DL",
+        seeders=25,
+    )
+    async with db.session() as writer:
+        repo = TorrentRepository(writer)
+        fresh = await repo.get("testsite", "commit-race")
+        repo._merge_into(fresh, observation)
+        await writer.flush()  # updated_at / 待重评标记已写入，但事务尚未提交
+        changed_at = fresh.updated_at
+
+        async with db.session() as scanner:
+            invisible = (
+                await scanner.execute(
+                    select(SiteTorrent.id).where(
+                        SiteTorrent.id == row_id,
+                        SiteTorrent.updated_at == changed_at,
+                    )
+                )
+            ).scalar_one_or_none()
+        assert invisible is None
+        await writer.commit()
+
+    # 复现旧实现：扫描未看到该行，却把墙钟游标推进到了它的提交之后。
+    unsafe_cursor = utcnow()
+    state = MatchWatermark.model_validate(
+        {"last_id": row_id, "last_updated_at": unsafe_cursor, "last_updated_id": 0}
+    )
+    await get_setting_store().set(state)
+
+    await process_new_torrents()
+    async with db.session() as session:
+        grabbed = [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
+        assert len(grabbed) == 1
+
+
+async def test_refresh_queue_tail_survives_repeated_unchanged_upserts(db, monkeypatch) -> None:
+    """超过单批上限时，无变化复看不能反复把前 500 条排到队尾候选之前。"""
+    from movieclaw_api.services import torrent_matcher
+    from movieclaw_api.services.torrent_matcher import MatchWatermark
+    from movieclaw_api.settings.store import get_setting_store
+
+    count = torrent_matcher.MATCH_BATCH_SIZE + 1
+    first = [
+        TorrentObservation(
+            site_id="testsite",
+            torrent_id=f"queued-{index:04d}",
+            source=TorrentSource.LIST,
+            title=f"Queued {index:04d}",
+            seeders=1,
+        )
+        for index in range(count)
+    ]
+    async with db.session() as session:
+        await TorrentRepository(session).bulk_upsert(first)
+        ids = (await session.execute(select(SiteTorrent.id))).scalars().all()
+        last_id = max(int(torrent_id) for torrent_id in ids)
+    state = MatchWatermark.model_validate(
+        {"last_id": last_id, "last_updated_at": utcnow(), "last_updated_id": 0}
+    )
+    await get_setting_store().set(state)
+
+    seen: list[list[str]] = []
+
+    async def capture(_session, rows, *, source):
+        seen.append([row.torrent_id for row in rows])
+
+    async def no_replacement(_session, _rows):
+        return None
+
+    monkeypatch.setattr(torrent_matcher, "evaluate_and_dispatch", capture)
+    monkeypatch.setattr(torrent_matcher, "try_replacement_candidates", no_replacement)
+    refreshed = [observation.model_copy(update={"seeders": 2}) for observation in first]
+    async with db.session() as session:
+        await TorrentRepository(session).bulk_upsert(refreshed)
+
+    await process_new_torrents()
+    assert len(seen) == 1 and len(seen[0]) == torrent_matcher.MATCH_BATCH_SIZE
+
+    # 同一批数据原样复看；旧实现仍重写 updated_at，使前 500 条再次抢在尾项之前。
+    async with db.session() as session:
+        await TorrentRepository(session).bulk_upsert(refreshed)
+    await process_new_torrents()
+
+    assert "queued-0500" in seen[1]

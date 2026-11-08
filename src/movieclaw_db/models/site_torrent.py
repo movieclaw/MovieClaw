@@ -56,8 +56,8 @@ class SiteTorrent(TimestampMixin, table=True):
         # 发布预测的别名预筛只读这两列（外加隐含的 rowid），走覆盖索引即可，
         # 不必把带 attrs 大 JSON 的整行读出来（见 match_text 字段注释）
         Index("ix_site_torrent_publish_match", "publish_time", "match_text"),
-        # 被动匹配按更新时间游标重评同步刷新的旧行，避免扫描整张历史索引
-        Index("ix_site_torrent_updated_id", "updated_at", "id"),
+        # 被动匹配只消费实际变化的待重评行；入队时间固定，避免尾部饥饿
+        Index("ix_site_torrent_rematch_queue", "rematch_enqueued_at", "id"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -153,6 +153,12 @@ class SiteTorrent(TimestampMixin, table=True):
     # 最近一次成功刷新易变层的时间——下载决策据此判断 free/seeders 是否过期
     volatile_refreshed_at: datetime | None = Field(
         default=None, description="易变层最近成功刷新时间；NULL=从未拿到过易变数据"
+    )
+    # 匹配相关字段发生实际变化时，与快照本身在同一事务内入队。消费者按 revision
+    # 条件清除：若评估期间又有新变化，旧消费者不会误删后续重评请求。
+    rematch_revision: int = Field(default=0, nullable=False, description="待重评变更版本")
+    rematch_enqueued_at: datetime | None = Field(
+        default=None, description="待重评首次入队时间；NULL=当前无待处理变更"
     )
     # 最近一次详情页富化时间；NULL=从未补过详情
     detail_enriched_at: datetime | None = Field(default=None, description="详情层最近富化时间")
