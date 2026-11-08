@@ -62,9 +62,12 @@ import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalGraph
 import io.movieclaw.androidtv.LocalSession
 import io.movieclaw.core.model.generated.CollectionSeriesView
+import io.movieclaw.core.model.generated.EpisodeView
 import io.movieclaw.core.model.generated.LibraryItemDetailView
 import io.movieclaw.core.model.generated.LibraryItemView
 import io.movieclaw.androidtv.ui.components.McIcons
+import io.movieclaw.androidtv.ui.home.ActionMenu
+import io.movieclaw.androidtv.ui.home.MenuAction
 import io.movieclaw.androidtv.ui.components.PosterCard
 import io.movieclaw.androidtv.ui.components.Shelf
 import io.movieclaw.androidtv.ui.components.Spinner
@@ -242,6 +245,11 @@ private fun DetailContent(
     // 在哪个段页签上按确认打开了「全部分集」面板；null 是没开
     var panelFrom by remember { mutableStateOf<Int?>(null) }
     var airOpen by remember { mutableStateOf(false) }
+    // 完整简介（首屏简介、分集卡长按菜单打开，issue #1238）；关掉时焦点回到 [overviewFrom] 那一处
+    var overviewOpen by remember { mutableStateOf<OverviewContent?>(null) }
+    var overviewFrom by remember { mutableStateOf("overview") }
+    // 长按了哪一集（弹「标为已看 / 完整简介」菜单）
+    var episodeMenu by remember { mutableStateOf<EpisodeView?>(null) }
     // 横排直接定位到某一集（换段、从面板选集、锚点变了）：不播一长段滚动动画；[focus] 时焦点跟过去
     fun jumpRow(number: Long, focus: Boolean) {
         state.rowEpisode = number
@@ -297,14 +305,23 @@ private fun DetailContent(
                         info = {
                             val episode = state.selectedEpisode
                             val season = state.season
+                            val headline = if (!isMovie && episode != null && season != null) episodeLine(season, episode.episodeNumber, episode.name) else null
+                            val stageOverview = if (isMovie) detail.localMeta?.plot else (episode?.overview ?: detail.localMeta?.plot)
                             StageInfo(
                                 title = detail.title,
                                 logo = detail.logoUrl,
-                                headline = if (!isMovie && episode != null && season != null) episodeLine(season, episode.episodeNumber, episode.name) else null,
+                                headline = headline,
                                 meta = DetailLogic.metaLine(detail),
                                 badges = remember(detail) { DetailLogic.mediaBadges(detail) },
-                                overview = if (isMovie) detail.localMeta?.plot else (episode?.overview ?: detail.localMeta?.plot),
+                                overview = stageOverview,
                                 overviewLines = 3,
+                                onOverviewClick = {
+                                    stageOverview?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                                        overviewFrom = "overview"
+                                        overviewOpen = OverviewContent(detail.title, headline ?: DetailLogic.metaLine(detail), it)
+                                    }
+                                },
+                                overviewModifier = Modifier.track("overview", DetailZone.Stage),
                             )
                         },
                         actions = { StageActions(state, detail, Modifier, { k -> Modifier.track(k, DetailZone.Stage) }, stageKey = { req(stageKey) }) },
@@ -334,6 +351,7 @@ private fun DetailContent(
                                 },
                                 track = { k -> Modifier.track(k, zoneOf("episodes")) },
                                 req = { req(it) },
+                                onMenu = { episodeMenu = it },
                             )
                         }
                         if (people.isNotEmpty()) {
@@ -442,6 +460,44 @@ private fun DetailContent(
             },
         )
     }
+    episodeMenu?.let { episode ->
+        val actions = listOfNotNull(
+            if (episode.owned) {
+                MenuAction(if (episode.played) "标为未看" else "标为已看", if (episode.played) McIcons.CheckCircle else McIcons.Check) {
+                    scope.launch { state.markEpisode(episode, !episode.played) }
+                }
+            } else null,
+            episode.overview?.trim()?.takeIf { it.isNotEmpty() }?.let { text ->
+                MenuAction("完整简介", McIcons.Info) {
+                    overviewFrom = "ep:${episode.episodeNumber}"
+                    val season = state.browseSeason
+                    overviewOpen = OverviewContent(detail.title, season?.let { episodeLine(it, episode.episodeNumber, episode.name) }, text)
+                }
+            },
+        )
+        if (actions.isEmpty()) {
+            SideEffect { episodeMenu = null }
+        } else {
+            ActionMenu(actions, onDismiss = { episodeMenu = null })
+        }
+    }
+    // 完整简介：盖满整屏，焦点关在里面；返回键回到打开它的简介 / 分集卡
+    overviewOpen?.let { content ->
+        OverviewPanel(
+            content,
+            onClose = {
+                overviewOpen = null
+                val back = overviewFrom
+                scope.launch {
+                    repeat(5) {
+                        delay(16)
+                        if (req(back).tryFocus()) return@launch
+                    }
+                    backToStage()
+                }
+            },
+        )
+    }
     // 全部分集：盖满整屏，焦点关在里面；返回键回到打开它的段页签，选一集回到横排的那一集
     val from = panelFrom
     if (from != null && ranges.isNotEmpty()) {
@@ -512,7 +568,7 @@ private fun StageActions(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (canPlay) {
-                PillButton(onClick = { play(null) }, text = label, icon = McIcons.Play, extraPadding = true, modifier = track("play"))
+                PillButton(onClick = { play(null) }, text = label, icon = McIcons.Play, extraPadding = true, modifier = track("play").testTag("play"))
             }
             if (resumable) {
                 PillButton(onClick = { play(0) }, text = "从头播放", icon = McIcons.Restart, modifier = track("restart"))
@@ -703,9 +759,9 @@ private fun EpisodeRow(
     above: () -> FocusRequester,
     track: (String) -> Modifier,
     req: (String) -> FocusRequester,
+    onMenu: (EpisodeView) -> Unit,
 ) {
     val router = LocalRouter.current
-    val scope = rememberCoroutineScope()
     val episodes = state.browseEpisodes
     // 只在换季（或首次读到分集）时滚；从上层退回来时保留原来的滚动位置
     var handledRequest by rememberSaveable { mutableIntStateOf(-1) }
@@ -765,10 +821,8 @@ private fun EpisodeRow(
                     val season = state.browseSeason
                     if (episode.owned && season != null) router.play(PlayRequest(state.itemId, season, episode.episodeNumber))
                 },
-                onLongClick = {
-                    // tvOS 是长按弹「标为已看 / 标为未看」一项菜单，这里长按直接切换
-                    if (episode.owned) scope.launch { state.markEpisode(episode, !episode.played) }
-                },
+                // 长按弹菜单（同 tvOS）：标为已看 / 未看、完整简介（卡片下面的简介只有四行，issue #1238）
+                onLongClick = { onMenu(episode) },
                 modifier = track("ep:${episode.episodeNumber}")
                     .testTag("ep:${episode.episodeNumber}")
                     // 长季往上直接到当前段页签、有日历到日历条：首屏按钮滑走后在几何上和它们叠着，就近会越过去回首屏
