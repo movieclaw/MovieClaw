@@ -278,6 +278,30 @@ def test_ai_defaults_auto_set_on_first_provider_then_configured(client) -> None:
     assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] is None
 
 
+def test_ai_defaults_update_only_changes_fields_present_in_request(client) -> None:
+    """CLI 省略未传的 flag；API 必须保留缺省字段，同时仍把显式 null 当自动推荐。"""
+    c, _ = client
+    c.post("/api/v1/llm/providers", json=_PAYLOAD)
+    recommended = c.get("/api/v1/llm/defaults").json()["data"]["agent_model"]
+    c.post("/api/v1/llm/providers", json=_COMPAT_PAYLOAD)
+
+    local = "家里的 vLLM/my-local-model"
+    r = c.put(
+        "/api/v1/llm/defaults",
+        json={"agent_model": local, "subtitle_model": local},
+    )
+    assert r.status_code == 200, r.text
+
+    r = c.put("/api/v1/llm/defaults", json={"subtitle_model": "qwen3.7-max"})
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["agent_model"] == local
+
+    r = c.put("/api/v1/llm/defaults", json={"agent_model": None})
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["agent_model"] == recommended
+    assert r.json()["data"]["subtitle_model"] == "百炼/qwen3.7-max"
+
+
 def test_duplicate_name_rejected(client) -> None:
     c, _ = client
     assert c.post("/api/v1/llm/providers", json=_PAYLOAD).status_code == 200

@@ -237,7 +237,7 @@ class LlmDefaultsView(BaseModel):
 
 
 class LlmDefaultsPayload(BaseModel):
-    """保存 AI 设定：各用途的默认模型引用（取自 llm.models 的 ref），传 null 清除。"""
+    """更新 AI 设定：缺省字段保持原值，显式传 null 则回到自动推荐。"""
 
     agent_model: str | None = Field(default=None, description="智能体默认模型引用")
     subtitle_model: str | None = Field(default=None, description="字幕处理默认模型引用")

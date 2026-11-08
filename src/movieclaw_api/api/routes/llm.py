@@ -172,9 +172,12 @@ async def update_llm_defaults(
     payload: LlmDefaultsPayload,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[LlmDefaultsView]:
-    """引用取自 llm.models 的 ref；传 null 则回到自动推荐（最早实例的第一个模型）。"""
+    """只更新请求带来的字段；传 null 则回到自动推荐（最早实例的第一个模型）。"""
     view = await LlmConfigService(session).update_defaults(
-        agent_model=payload.agent_model, subtitle_model=payload.subtitle_model
+        agent_model=(payload.agent_model if "agent_model" in payload.model_fields_set else ...),
+        subtitle_model=(
+            payload.subtitle_model if "subtitle_model" in payload.model_fields_set else ...
+        ),
     )
     return ok(view, message=t("settings.ai.saved"))
 

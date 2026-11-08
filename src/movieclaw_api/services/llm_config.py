@@ -493,12 +493,16 @@ class LlmConfigService:
         )
 
     async def update_defaults(
-        self, *, agent_model: str | None, subtitle_model: str | None
+        self,
+        *,
+        agent_model: str | None | EllipsisType = ...,
+        subtitle_model: str | None | EllipsisType = ...,
     ) -> LlmDefaultsView:
         """保存各用途默认模型；引用必须能在当前清单里找到。
 
-        传 null 表示「回到自动推荐」（最早实例的第一个模型），不会把设定清成
-        空——只要还有实例，两个默认就始终有值，设置页显示的就是真实生效值。
+        ``...`` 表示请求没带该字段，沿用原值；传 null 表示「回到自动推荐」
+        （最早实例的第一个模型），不会把设定清成空——只要还有实例，两个默认
+        就始终有值，设置页显示的就是真实生效值。
         """
         rows = await self._repo.list_all()
         options = build_model_options(rows)
@@ -506,16 +510,22 @@ class LlmConfigService:
             (reference("settings.llm.agentScope"), agent_model),
             (reference("settings.llm.subtitleScope"), subtitle_model),
         ):
-            if ref is not None and qualify_ref(ref, options) is None:
+            if ref is not ... and ref is not None and qualify_ref(ref, options) is None:
                 raise BadRequestException(
                     message_key="errors.llm.defaultModelMissing",
                     params={"scope": label, "ref": ref},
                 )
+        store = get_setting_store()
+        setting = await store.get(LlmDefaultsSetting)
+        if agent_model is ...:
+            agent_model = setting.agent_model
+        if subtitle_model is ...:
+            subtitle_model = setting.subtitle_model
         # API / CLI 直接传裸 id 时存成限定形式
         agent_model = qualify_ref(agent_model, options)
         subtitle_model = qualify_ref(subtitle_model, options)
         recommended = recommended_default(rows, options)
-        await get_setting_store().set(
+        await store.set(
             LlmDefaultsSetting(
                 agent_model=agent_model or recommended,
                 subtitle_model=subtitle_model or recommended,
