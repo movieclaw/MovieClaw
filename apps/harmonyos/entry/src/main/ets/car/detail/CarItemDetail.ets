@@ -45,11 +45,15 @@ import {
   CarStateView
 } from '../components/CarCards';
 import { CarRowCard, CarShelf } from '../components/CarRows';
-import { CarPlayback } from '../player/CarAvPlayerEngine';
+import { CarPlayback } from '../playback/CarPlaybackHost';
 import { CarArt } from '../theme/CarTheme';
 import { CarColors } from '../theme/CarTheme';
 import { CarMetrics } from '../theme/CarTheme';
 import { CarType } from '../theme/CarTheme';
+import { ShellCastPerson, anchorEpisodeOfResult, castPeopleOf, clockOf,
+  resolutionHeightOf } from '../../shell/DetailShared';
+import { EpisodeRange, EpisodeRanges } from '../../library/EpisodeRanges';
+import { ShellPillRow, ShellPillSpec } from '../../shell/ShellPillRow';
 
 /** 相似推荐的轻量载体（@Local 数组元素用稳定类，key 回查业务字段） */
 class LibraryItemViewLite {
@@ -79,151 +83,6 @@ class LibraryItemViewLite {
       view.poster_url ?? null,
       view.backdrop_url ?? null);
   }
-}
-
-/** 首屏右下与演职员行共用的一位影人 */
-class CarCastPerson {
-  readonly name: string;
-  readonly role: string | null;
-  readonly avatarUrl: string;
-  readonly personId: number | null;
-
-  constructor(name: string, role: string | null, avatarUrl: string, personId: number | null) {
-    this.name = name;
-    this.role = role;
-    this.avatarUrl = avatarUrl;
-    this.personId = personId;
-  }
-}
-
-/** 长剧集分段选集的一段（每 50 集一段，docs/design/long-season-episode-ranges.md） */
-class CarEpisodeRange {
-  readonly index: number;
-  readonly first: number;
-  readonly last: number;
-
-  constructor(index: number, first: number, last: number) {
-    this.index = index;
-    this.first = first;
-    this.last = last;
-  }
-
-  label(): string {
-    return `${this.first}–${this.last}`;
-  }
-
-  contains(episodeNumber: number): boolean {
-    return episodeNumber >= this.first && episodeNumber <= this.last;
-  }
-}
-
-/** 「2160p」「4K」「8K」→ 画面高度；解析不出返回 null */
-function resolutionHeightOf(raw: string | null | undefined): number | null {
-  if (raw === null || raw === undefined) {
-    return null;
-  }
-  const normalized: string = raw.trim().toLowerCase();
-  if (normalized === '8k') {
-    return 4320;
-  }
-  if (normalized === '4k' || normalized === 'uhd') {
-    return 2160;
-  }
-  if (normalized === '2k') {
-    return 1440;
-  }
-  const digits: string = normalized.replace(/[^0-9]/g, '');
-  return digits.length === 0 ? null : Number(digits);
-}
-
-/** 毫秒 → 「mm:ss」 */
-function clockOf(ms: number): string {
-  const total: number = Math.floor(ms / 1000);
-  const minutes: number = Math.floor(total / 60);
-  const seconds: number = total % 60;
-  return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-}
-
-/** 本季接着看的那一集（客户端兜底：看了一半的 → 第一个没看过有片源的 → 第一集） */
-function anchorEpisodeOf(episodes: EpisodeView[]): EpisodeView | null {
-  if (episodes.length === 0) {
-    return null;
-  }
-  for (const ep of episodes) {
-    if (ep.position_ms > 0) {
-      return ep;
-    }
-  }
-  for (const ep of episodes) {
-    if (!ep.played && ep.owned) {
-      return ep;
-    }
-  }
-  return episodes[0];
-}
-
-/** 服务端锚点优先（resume_episode），没有走客户端规则 */
-function anchorEpisodeOfResult(result: SeasonEpisodesView): EpisodeView | null {
-  const resume: number | null = result.resume_episode ?? null;
-  if (resume !== null) {
-    for (const ep of result.episodes) {
-      if (ep.episode_number === resume) {
-        return ep;
-      }
-    }
-  }
-  return anchorEpisodeOf(result.episodes);
-}
-
-/** 一季的段：超过 50 集才分段（界面保持原样），段名用段内实际首末集号 */
-function buildEpisodeRanges(episodes: EpisodeView[]): CarEpisodeRange[] {
-  const size: number = 50;
-  if (episodes.length <= size) {
-    return [];
-  }
-  const numbers: number[] = [];
-  for (const ep of episodes) {
-    numbers.push(ep.episode_number);
-  }
-  numbers.sort((a: number, b: number): number => a - b);
-  const out: CarEpisodeRange[] = [];
-  for (const n of numbers) {
-    const index: number = Math.floor(Math.max(0, n - 1) / size);
-    const last: CarEpisodeRange | undefined = out[out.length - 1];
-    if (last !== undefined && last.index === index) {
-      out[out.length - 1] = new CarEpisodeRange(index, last.first, n);
-    } else {
-      out.push(new CarEpisodeRange(index, n, n));
-    }
-  }
-  return out;
-}
-
-/** 详情的演职员：结构化导演在前（没有退回姓名），演员跟着 */
-function castPeopleOf(detail: LibraryItemDetailView, origin: string): CarCastPerson[] {
-  const meta: LocalMetaView | null = detail.local_meta ?? null;
-  if (meta === null) {
-    return [];
-  }
-  const out: CarCastPerson[] = [];
-  if (meta.director_credits.length > 0) {
-    for (const dir of meta.director_credits) {
-      out.push(new CarCastPerson(dir.name, '导演',
-        ImageUrls.resolve(origin, dir.thumb_url ?? null, null) ?? '', dir.tmdb_person_id));
-    }
-  } else {
-    for (const name of meta.directors) {
-      out.push(new CarCastPerson(name, '导演', '', null));
-    }
-  }
-  for (const actor of meta.actors) {
-    const role: string | null = actor.role ?? null;
-    out.push(new CarCastPerson(actor.name,
-      role === null ? null : `饰 ${role}`,
-      ImageUrls.resolve(origin, actor.thumb_url ?? null, null) ?? '',
-      actor.tmdb_person_id ?? null));
-  }
-  return out;
 }
 
 /** 小胶囊（选季 / 分段页签）：选中的垫浅底，触控目标 ≥48vp */
@@ -283,11 +142,11 @@ export struct CarItemDetail {
   @Local browseSeason: number | null = null;
   @Local browseEpisodes: EpisodeView[] = [];
   @Local browseAnchor: number | null = null;
-  @Local browseRanges: CarEpisodeRange[] = [];
+  @Local browseRanges: EpisodeRange[] = [];
   /** 本季有人看过才亮「接着看」角标 */
   @Local browseWatched: boolean = false;
   @Local similar: LibraryItemViewLite[] = [];
-  @Local castPeople: CarCastPerson[] = [];
+  @Local castPeople: ShellCastPerson[] = [];
   @Local pageHeight: number = 0;
 
   private marking: boolean = false;
@@ -439,7 +298,7 @@ export struct CarItemDetail {
     this.browseEpisodes = result.episodes;
     const anchor: EpisodeView | null = anchorEpisodeOfResult(result);
     this.browseAnchor = anchor === null ? null : anchor.episode_number;
-    this.browseRanges = buildEpisodeRanges(result.episodes);
+    this.browseRanges = EpisodeRanges.ranges(result.episodes);
     let watched: boolean = false;
     for (const ep of result.episodes) {
       if (ep.played || ep.position_ms > 0) {
@@ -912,7 +771,7 @@ export struct CarItemDetail {
     return detail === null ? [] : detail.seasons;
   }
 
-  private selectRange(range: CarEpisodeRange): void {
+  private selectRange(range: EpisodeRange): void {
     const anchor: number | null = this.browseAnchor;
     const entry: number = anchor !== null && range.contains(anchor) ? anchor : range.first;
     this.tryScrollToEpisode(entry, true);
@@ -964,7 +823,7 @@ export struct CarItemDetail {
   private castCards(): CarRowCard[] {
     const out: CarRowCard[] = [];
     for (let i = 0; i < this.castPeople.length; i++) {
-      const person: CarCastPerson = this.castPeople[i];
+      const person: ShellCastPerson = this.castPeople[i];
       const card: CarRowCard = new CarRowCard(`cast_${i}`, 'person', person.name);
       card.cardWidth = 160;
       card.role = person.role;
@@ -979,7 +838,7 @@ export struct CarItemDetail {
 
   private openCast(card: CarRowCard): void {
     const index: number = Number(card.key.substring('cast_'.length));
-    const person: CarCastPerson | undefined = this.castPeople[index];
+    const person: ShellCastPerson | undefined = this.castPeople[index];
     if (person === undefined || person.personId === null) {
       return;
     }
@@ -1351,47 +1210,58 @@ export struct CarItemDetail {
   /** 选季胶囊：点哪一季，下面横排就换成那一季（首屏那一季不动） */
   @Builder
   private SeasonTabs() {
-    Scroll() {
-      Row({ space: 10 }) {
-        ForEach(this.seasonNumbers(), (seasonNumber: number) => {
-          CarDetailPill({
-            label: seasonNumber === 0 ? '特别篇' : `第 ${seasonNumber} 季`,
-            selected: seasonNumber === this.browseSeason,
-            onActivate: (): void => {
-              this.loadBrowse(seasonNumber);
-            }
-          })
-        }, (seasonNumber: number) => `season_${seasonNumber}`)
-      }
-      .padding({ left: CarMetrics.edge, right: CarMetrics.edge })
-    }
-    .scrollable(ScrollDirection.Horizontal)
-    .scrollBar(BarState.Off)
-    .fadingEdge(false)
-    .width('100%')
+    ShellPillRow({
+      pills: this.seasonPills(),
+      spacing: 10,
+      edgePadding: CarMetrics.edge,
+      pillRenderer: this.carPillOf
+    })
   }
 
   /** 分段页签（长剧集）：点哪一段，横排跳到那一段的入口集（锚点或段首） */
   @Builder
   private RangeTabs() {
-    Scroll() {
-      Row({ space: 8 }) {
-        ForEach(this.browseRanges, (range: CarEpisodeRange) => {
-          CarDetailPill({
-            label: range.label(),
-            selected: this.browseAnchor !== null && range.contains(this.browseAnchor),
-            onActivate: (): void => {
-              this.selectRange(range);
-            }
-          })
-        }, (range: CarEpisodeRange) => `range_${range.index}_${range.first}_${range.last}`)
-      }
-      .padding({ left: CarMetrics.edge, right: CarMetrics.edge })
+    ShellPillRow({
+      pills: this.rangePills(),
+      spacing: 8,
+      edgePadding: CarMetrics.edge,
+      pillRenderer: this.carPillOf
+    })
+  }
+
+  private seasonPills(): ShellPillSpec[] {
+    const out: ShellPillSpec[] = [];
+    for (const seasonNumber of this.seasonNumbers()) {
+      out.push(new ShellPillSpec(`season_${seasonNumber}`,
+        seasonNumber === 0 ? '特别篇' : `第 ${seasonNumber} 季`,
+        seasonNumber === this.browseSeason,
+        (): void => {
+          this.loadBrowse(seasonNumber);
+        }));
     }
-    .scrollable(ScrollDirection.Horizontal)
-    .scrollBar(BarState.Off)
-    .fadingEdge(false)
-    .width('100%')
+    return out;
+  }
+
+  private rangePills(): ShellPillSpec[] {
+    const out: ShellPillSpec[] = [];
+    for (const range of this.browseRanges) {
+      out.push(new ShellPillSpec(`range_${range.index}_${range.first}_${range.last}`,
+        range.label(),
+        this.browseAnchor !== null && range.contains(this.browseAnchor),
+        (): void => {
+          this.selectRange(range);
+        }));
+    }
+    return out;
+  }
+
+  @Builder
+  private carPillOf(pill: ShellPillSpec) {
+    CarDetailPill({
+      label: pill.label,
+      selected: pill.selected,
+      onActivate: pill.onActivate
+    })
   }
 
   @Builder

@@ -46,7 +46,13 @@ export class ShellChrome {
     this.stack = this.stack.filter((value: string): boolean => value !== tag);
   }
 
-  /** 有没有整屏页在最上面：有就让标签栏收起 */
+  /**
+   * 有没有整屏页在最上面：有就让标签栏收起。
+   * **必须 `@Computed`**：`@Monitor('chrome.immersive')` 监听的是这个成员——
+   * 普通 getter 底下的 `@Trace stack` 变了它不重算、monitor 永远不触发
+   * （实测：会话页底栏没被藏住、盖住输入卡，就是它默默失效造成的）。
+   */
+  @Computed
   get immersive(): boolean {
     return this.stack.length > 0;
   }

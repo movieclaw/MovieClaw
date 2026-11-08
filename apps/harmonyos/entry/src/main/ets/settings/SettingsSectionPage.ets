@@ -30,6 +30,7 @@ import { McpSection } from './McpSection';
 import { ScrapeSection } from './ScrapeSection';
 import { PlaybackSection } from './PlaybackSection';
 import { DeviceApprovalDialog } from './DeviceApprovalDialog';
+import { PairingScanner, ScanOutcome, ScanOutcomeKind } from '../common/PairingScanner';
 import { DetailParams, DeviceGroupDef, GroupListParams } from './DeviceGroupPages';
 import { SettingsSegmentChip, SettingsSwitchRow, SettingsTwoStateSegment } from '../common/SettingsControls';
 
@@ -94,6 +95,10 @@ export struct SettingsSectionPage {
    * 卡片内容由 `DeviceApprovalDialog` 画。`dialogId` 是系统给的弹窗句柄，用来主动关闭。
    */
   @Local private approvalDialogId: number = -1;
+  /** 打开配对码卡片时带进去的码：扫到的二维码原文（`/activate?code=…` 或 `MCLW-XXXX`）；空 = 手输 */
+  private approvalInitialCode: string = '';
+  /** 打开配对码卡片时带进去的提示（扫了但不是登录二维码 / 相机用不了） */
+  private approvalInitialHint: string = '';
 
   aboutToDisappear(): void {
     this.stopPolling();
@@ -759,6 +764,40 @@ export struct SettingsSectionPage {
 
   /** 拉起原生弹窗：底部对齐（卡片贴底）、宽度随屏幕、输入法避让、点遮罩可关 */
   private openApproval(): void {
+    this.approvalInitialCode = '';
+    this.approvalInitialHint = '';
+    this.openApprovalDialog();
+  }
+
+  /**
+   * 拉系统扫码，扫完按结果开配对码卡片。卡片里的「扫描二维码」进来时
+   * `reopenOnCancel` 置 true——用户在扫码界面点了取消，回到手输的卡片。
+   */
+  private async scanForApproval(reopenOnCancel: boolean): Promise<void> {
+    const outcome: ScanOutcome = await PairingScanner.scan();
+    if (outcome.kind === ScanOutcomeKind.cancelled) {
+      if (reopenOnCancel) {
+        this.approvalInitialCode = '';
+        this.approvalInitialHint = '';
+        this.openApprovalDialog();
+      }
+      return;
+    }
+    if (outcome.kind === ScanOutcomeKind.recognized) {
+      this.approvalInitialCode = outcome.text;
+      this.approvalInitialHint = '';
+    } else if (outcome.kind === ScanOutcomeKind.unrecognized) {
+      this.approvalInitialCode = '';
+      this.approvalInitialHint = '这不是 MovieClaw 的登录二维码，换一张试试';
+    } else {
+      this.approvalInitialCode = '';
+      this.approvalInitialHint = '这台设备上用不了相机扫码，请改为手动输入配对码';
+    }
+    this.openApprovalDialog();
+  }
+
+  /** 拉起原生弹窗：底部对齐（卡片贴底）、宽度随屏幕、输入法避让、点遮罩可关 */
+  private openApprovalDialog(): void {
     // 宽度自适应：占满屏宽、左右各留 16vp（同 iOS 卡片 12pt 外边距的手感），不写死数字
     const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
     const options: promptAction.CustomDialogOptions = {
@@ -796,6 +835,13 @@ export struct SettingsSectionPage {
   @Builder
   ApprovalCard() {
     DeviceApprovalDialog({
+      initialCode: this.approvalInitialCode,
+      initialHint: this.approvalInitialHint,
+      onRescan: (): void => {
+        // 弹窗在扫码界面盖上来时保不住：先关弹窗再扫，扫完带着结果重开
+        this.closeApproval();
+        this.scanForApproval(true);
+      },
       onClose: (): void => {
         this.closeApproval();
       }

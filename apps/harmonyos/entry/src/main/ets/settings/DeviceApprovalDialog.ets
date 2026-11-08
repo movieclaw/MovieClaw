@@ -1,6 +1,3 @@
-import { common } from '@kit.AbilityKit';
-import { BusinessError } from '@kit.BasicServicesKit';
-import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
@@ -11,9 +8,6 @@ import { Haptics } from '../common/Haptics';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import { DeviceRequestView } from '../api/Models';
-
-/** Scan Kit：用户自己在扫码界面点了取消（不是失败，不该弹提示） */
-const SCAN_USER_CANCEL: number = 1000500002;
 
 /**
  * 配对码的格子布局：**8 个字符位 + 中间一个固定的 `-`**（服务端码形 `MCLW-XXXX`）。
@@ -56,17 +50,20 @@ enum ApprovalPhase {
  * **查到码也不自动批准**：人必须看过卡片再按，这是防钓鱼的那道闸。
  *
  * **本组件是 V1 `@Component`**（宿主是 V2，V1 子组件可嵌入；内部只用 `@State`，
- * 只往外回一个 `onClose`）。
+ * 往外回 `onClose`（关弹窗）与 `onRescan`（卡片里点了「扫描二维码」））。
+ * **扫码永远不在弹窗存活期间发生**：扫码界面（Scan Kit）盖上来时弹窗保不住，
+ * 所以扫描由宿主做——扫完带着结果（`initialCode`）或提示（`initialHint`）重开弹窗。
  */
 @Component
 export struct DeviceApprovalDialog {
-  /** 进来自带的配对码（站内链接 /activate?code=… 用；空 = 让人扫码或手输） */
+  /** 进来自带的配对码 / 扫到的二维码原文（`/activate?code=…` 网址或 `MCLW-XXXX`；空 = 让人手输） */
   @Prop initialCode: string = '';
-  /** 二维码里的服务器（主机:端口），查不到请求时用来提示「设备连的可能是另一台服务器」 */
-  @Prop scannedHost: string = '';
-  /** 一打开就直接拉扫码界面（「我的」页右上角的扫码钮走这条路，同 iOS `scanFirst`） */
-  @Prop scanFirst: boolean = false;
+  /** 进来就显示的提示（扫了但不是登录二维码 / 相机用不了），写进卡片上的提示行 */
+  @Prop initialHint: string = '';
   onClose: () => void = (): void => {
+  };
+  /** 卡片里点了「扫描二维码」：关掉弹窗、由宿主去拉扫码，扫完带着结果重开弹窗 */
+  onRescan: () => void = (): void => {
   };
 
   @State private phase: ApprovalPhase = ApprovalPhase.entering;
@@ -77,29 +74,28 @@ export struct DeviceApprovalDialog {
   @State private busy: boolean = false;
   @State private errorMessage: string = '';
   @State private request: DeviceRequestView | null = null;
-  /** 正在拉起扫码界面 */
-  @State private scanning: boolean = false;
   /** 卡片上的提示（不是登录二维码 / 相机用不了） */
   @State private scanHint: string = '';
   /** 结果说明（批了还是拒了） */
   @State private resultOk: boolean = true;
   @State private resultText: string = '';
-  private started: boolean = false;
+  /** 二维码里的服务器（主机:端口），查不到请求时用来提示「设备连的可能是另一台服务器」 */
+  private scannedHost: string = '';
 
   aboutToAppear(): void {
-    if (this.scanFirst && !this.started) {
-      // 右上角扫码进来：直接开相机
-      this.started = true;
-      this.scan();
-      return;
-    }
-    if (this.initialCode.length > 0 && !this.started) {
-      this.started = true;
-      // 站内链接进来的整串码：只取后四位填进格子
+    if (this.initialCode.length > 0) {
+      // 站内链接 / 扫码结果带进来的整串码：解析出配对码填进格子、带上二维码里的服务器
       const parsed: PairingScan | null = PairingScan.parse(this.initialCode);
       this.chars = parsed !== null ? parsed.code.replace('-', '') : '';
       this.code = parsed !== null ? parsed.code : this.initialCode;
+      if (parsed !== null && parsed.host !== null) {
+        this.scannedHost = parsed.host;
+      }
       this.lookup();
+      return;
+    }
+    if (this.initialHint.length > 0) {
+      this.scanHint = this.initialHint;
     }
   }
 
@@ -161,44 +157,6 @@ export struct DeviceApprovalDialog {
   }
 
   // MARK: 动作
-
-  /**
-   * 扫码：拉起系统扫码界面（Scan Kit 默认 UI）。
-   *
-   * 只认 MovieClaw 的登录二维码；扫到别的码只提示一句，不把人带进批准卡——
-   * 批准本身不在这里做，人必须在卡片上看过再按（防钓鱼的那道闸）。
-   */
-  private async scan(): Promise<void> {
-    if (this.scanning) {
-      return;
-    }
-    this.scanning = true;
-    this.scanHint = '';
-    this.errorMessage = '';
-    try {
-      const context: common.UIAbilityContext = getContext() as common.UIAbilityContext;
-      const options: scanBarcode.ScanOptions = { scanTypes: [scanCore.ScanType.QR_CODE] };
-      const result: scanBarcode.ScanResult = await scanBarcode.startScanForResult(context, options);
-      const parsed: PairingScan | null = PairingScan.parse(result.originalValue);
-      if (parsed === null) {
-        this.scanHint = '这不是 MovieClaw 的登录二维码，换一张试试';
-        return;
-      }
-      this.code = parsed.code;
-      this.chars = parsed.code.replace('-', '');
-      await this.lookup();
-    } catch (error) {
-      const err = error as BusinessError;
-      if (err.code === SCAN_USER_CANCEL) {
-        // 用户自己在扫码界面点了取消：什么都不说，别把「取消」写成「失败」
-        return;
-      }
-      // 模拟器没有可用相机、或设备没装扫码服务时会走到这里：不崩，指回手输
-      this.scanHint = '这台设备上用不了相机扫码，请改为手动输入配对码';
-    } finally {
-      this.scanning = false;
-    }
-  }
 
   /**
    * 查这条配对请求。码形必须先合法（同 iOS `lookUp`）：形如 MCLW-7F3K，
@@ -399,7 +357,7 @@ export struct DeviceApprovalDialog {
           SymbolGlyph($r('sys.symbol.qrcode'))
             .fontSize(18)
             .fontColor([Theme.text])
-          Text(this.scanning ? '正在打开相机…' : '扫描二维码')
+          Text('扫描二维码')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor(Theme.text)
@@ -413,7 +371,8 @@ export struct DeviceApprovalDialog {
       .clip(true)
       .borderRadius(18)
       .onClick(() => {
-        this.scan();
+        // 弹窗在扫码界面盖上来时保不住：交给宿主关掉弹窗、拉扫码、扫完再重开
+        this.onRescan();
       })
     }
     .width('100%')
