@@ -157,6 +157,11 @@ export class LibraryRowKind extends HomeRowKind {
     this.name = name;
     this.builtin = builtin;
   }
+
+  /** 「查看全部」尾卡上的总数：只有整库都在这一行里时才是库的作品数；观看筛选或「最近观看」时不知道，返回 null */
+  seeAllTotal(): number | null {
+    return !this.unfinished && !this.unwatched && this.sort !== 'last_played' ? this.library.stats.item_count : null;
+  }
 }
 export class CollectionRowKind extends HomeRowKind {
   readonly collection: CollectionView;
