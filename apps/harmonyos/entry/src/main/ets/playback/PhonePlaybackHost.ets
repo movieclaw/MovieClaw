@@ -554,10 +554,20 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       if (this.subtitleRef.length === 0) { this.subtitleRef = view.watch?.subtitle_track ?? ''; }
       this.subtitleIndex = view.decision.subtitles.findIndex((track: SubtitlePlanView): boolean =>
         track.track_ref === this.subtitleRef);
+      // 内核固定「仅 AVPlayer」时不自动套用未烧录的 PGS（记忆轨也一样）：AVPlayer 没有
+      // 图形字幕能力，套上只会把引擎强改成 MPV，手动固定就失效了。只跳自动应用，
+      // subtitleRef 记忆原样保留——切回自动/MPV 后记忆轨照常回来；要看就进面板手动选。
+      if (this.subtitleIndex >= 0 && PlayerPrefs.engine() === 'avplayer'
+        && view.decision.subtitles[this.subtitleIndex].kind === 'pgs') {
+        this.subtitleIndex = -1;
+      }
       // 没有记忆轨（首播、记忆的轨已不在清单里）时退到服务端标记的默认轨
-      // （对齐 iOS initialSelection：'off' 尊重、记忆优先、默认轨兜底、谁都不标就不自动开）
+      // （对齐 iOS initialSelection：'off' 尊重、记忆优先、默认轨兜底、谁都不标就不自动开；
+      // 固定 AVPlayer 时默认轨兜底同样跳过 PGS，免得自动选上又把引擎强改成 MPV）
       if (this.subtitleIndex < 0 && this.subtitleRef !== 'off') {
-        const defIdx = view.decision.subtitles.findIndex((track: SubtitlePlanView): boolean => track.is_default);
+        const pinnedAvp: boolean = PlayerPrefs.engine() === 'avplayer';
+        const defIdx = view.decision.subtitles.findIndex((track: SubtitlePlanView): boolean =>
+          track.is_default && !(pinnedAvp && track.kind === 'pgs'));
         if (defIdx >= 0) {
           this.subtitleIndex = defIdx;
           this.subtitleRef = view.decision.subtitles[defIdx].track_ref;
@@ -1497,6 +1507,11 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       return;
     }
     this.subtitleIndex = index; this.subtitleRef = targetRef; this.subtitleCue = '';
+    // 固定「仅 AVPlayer」却手动点了未烧录的 PGS：按次切 MPV 渲染，明确告知覆盖了手动固定
+    if (this.localSpec === null && index >= 0 && PlayerPrefs.engine() === 'avplayer'
+      && view.decision.subtitles[index].kind === 'pgs') {
+      this.toast('图形字幕需 MPV 渲染，本次播放将使用 MPV');
+    }
     // 已烧录的会话切去任何别的轨（含关闭）都得重开撤烧录
     if (this.localSpec === null && burnedRef !== null) {
       this.startMs = this.positionMs; this.resumeExplicit = true;
