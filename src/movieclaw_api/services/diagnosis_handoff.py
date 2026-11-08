@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.schemas.agent import SESSION_CONTENT_MAX_LENGTH
 from movieclaw_api.services.downloader_paths import diagnose_landing, probe_mappings
 from movieclaw_db.models import (
     ImportWatch,
@@ -396,7 +397,24 @@ def _render(title: str, sections: list[tuple[str, list[str]]], actions: list[str
     # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     out.append("## 请你做什么")
     out.extend(f"{i}. {r}" for i, r in enumerate(_RULES, 1))
-    return "\n".join(out)
+    prompt = "\n".join(out)
+    if len(prompt) <= SESSION_CONTENT_MAX_LENGTH:
+        return prompt
+
+    # 工单的开头含任务 id / info_hash / 告警标题，末尾是动作边界与诊断规则；
+    # 两端都比中间可能很长的错误原文和时间线更重要。保留两端并明确告诉 Agent
+    # 重新按标识读取详情，既不放宽所有普通用户消息的协议上限，也不悄悄伪装成完整工单。
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
+    footer_at = prompt.index("## 你可以执行的动作")
+    footer = prompt[footer_at:]
+    marker = (
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
+        "\n\n## 工单内容已截断\n"
+        "- 详细错误与时间线超过会话输入上限；请根据上方任务、下载或告警标识，"
+        "先用现有只读工具重新读取完整详情。\n\n"
+    )
+    head_limit = SESSION_CONTENT_MAX_LENGTH - len(marker) - len(footer)
+    return prompt[:head_limit].rstrip() + marker + footer
 
 
 # ---------------------------------------------------------------------------

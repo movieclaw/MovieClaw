@@ -16,6 +16,8 @@ from movieclaw_llm.models import THINKING_LEVELS
 #: 思维链档位的对外取值：词汇表 + 「default」（显式清回模型默认）。
 #: None/未传 = 沿用会话最近一条 user 消息的档位。
 _THINKING_LEVEL_CHOICES = {*THINKING_LEVELS, "default"}
+#: 普通用户消息与由它派生的交接工单共用同一协议上限。
+SESSION_CONTENT_MAX_LENGTH = 4000
 
 
 def _validate_thinking_level(value: str | None) -> str | None:
@@ -55,7 +57,9 @@ class SessionStartPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str = Field(
-        default="", max_length=4000, description="用户消息正文；带图片时允许为空"
+        default="",
+        max_length=SESSION_CONTENT_MAX_LENGTH,
+        description="用户消息正文；带图片时允许为空",
     )
     attachments: list[str] = Field(
         default_factory=list,
@@ -140,7 +144,7 @@ class SessionRetryPayload(BaseModel):
     content: str | None = Field(
         default=None,
         min_length=1,
-        max_length=4000,
+        max_length=SESSION_CONTENT_MAX_LENGTH,
         description="替换后的用户消息正文；留空时原文重试",
     )
     attachments: list[str] | None = Field(

@@ -1049,6 +1049,9 @@
   "subtitleJob.circuitBreaker": {
     "sourceHash": "482f33b5ad98d7887e6a61cedc26e909b77fa721bc29ffcb6f8563ffb36fa27a"
   },
+  "subtitleJob.circuitBreakerValidation": {
+    "sourceHash": "40dd73514ff0e0dbf258be554353b7d071ededa90ecba48847edc2a07f7a7bd1"
+  },
   "subtitleJob.enqueued": {
     "sourceHash": "c5409266750ebb6cfbd4135b8954fa951bfa8107dc3a54ebf03764cd0701444f"
   },
