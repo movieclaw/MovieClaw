@@ -11,7 +11,8 @@ import SwiftUI
 /// 关掉播放器后保持全屏（那是用户自己对整个 App 的选择，不归播放器管）。
 ///
 /// 置顶：播放期间窗口浮在所有窗口（含别的 App）前面，边看边干别的不会被盖住；菜单栏「窗口 › 播放时置顶」可关，默认开、
-/// 记在本机。全屏时不置顶（全屏有自己的空间，浮动层级只会让别的 App 的窗口切不过来），关掉播放器回到普通层级。
+/// 记在本机。用户按了暂停就回到普通层级（不看了，别挡着别的窗口），继续播放再浮起来；起播、缓冲时的程序性暂停不算。
+/// 全屏时不置顶（全屏有自己的空间，浮动层级只会让别的 App 的窗口切不过来），关掉播放器回到普通层级。
 @MainActor
 @Observable
 final class MacPlayerWindow {
@@ -36,6 +37,10 @@ final class MacPlayerWindow {
     /// 「播放时置顶」开关（菜单栏「窗口」里），播放器读出来设给这里
     static let floatsOnTopKey = "movieclaw.mac.player.floatsOnTop"
     var floatsOnTop = true {
+        didSet { updateLevel() }
+    }
+    /// 用户按了暂停（播放器读出来设给这里）：暂停期间不置顶
+    var userPaused = false {
         didSet { updateLevel() }
     }
 
@@ -70,7 +75,7 @@ final class MacPlayerWindow {
     }
 
     private func updateLevel() {
-        window?.level = floatsOnTop && !isFullScreen ? .floating : .normal
+        window?.level = floatsOnTop && !userPaused && !isFullScreen ? .floating : .normal
     }
 
     func toggleFullScreen() {
