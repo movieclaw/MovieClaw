@@ -50,7 +50,7 @@
       "cleanupCacheEntriesTitle": "Clean expired persistent cache",
       "cleanupCacheEntriesDescription": "Delete cache_entry rows older than the longest supported cache lifetime to prevent unbounded table growth.",
       "matchNewTorrentsTitle": "Passive subscription matching (fallback scan)",
-      "matchNewTorrentsDescription": "A low-frequency fallback scans torrents added after the index watermark, matches subscription gaps and recalculates new-release forecasts. Site sync normally triggers matching immediately; this task catches misses after restarts or sync failures.",
+      "matchNewTorrentsDescription": "A low-frequency fallback scans torrents added after the index watermark and queued refreshed torrents, matches subscription gaps and recalculates new-release forecasts. Site sync normally triggers matching immediately; this task catches misses after restarts or sync failures.",
       "downloadSourcesOrphanSweepTitle": "Clean download source records",
       "downloadSourcesOrphanSweepDescription": "Remove download source records whose library files were deleted and which remain unprocessed after 7 days.",
       "ratioBoostTitle": "Automatic ratio boosting",

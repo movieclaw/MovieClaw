@@ -2206,3 +2206,151 @@ async def test_refresh_queue_tail_survives_repeated_unchanged_upserts(db, monkey
     await process_new_torrents()
 
     assert "queued-0500" in seen[1]
+
+
+async def test_refresh_queue_tail_survives_front_changes_before_ack(db, monkeypatch) -> None:
+    """前 500 条在 ack 前再次变化时，尾项仍须在下一轮获得评估机会。"""
+    from movieclaw_api.services import torrent_matcher
+    from movieclaw_api.services.torrent_matcher import MatchWatermark
+    from movieclaw_api.settings.store import get_setting_store
+
+    count = torrent_matcher.MATCH_BATCH_SIZE + 1
+    observations = [
+        TorrentObservation(
+            site_id="testsite",
+            torrent_id=f"interleaved-{index:04d}",
+            source=TorrentSource.LIST,
+            title=f"Interleaved {index:04d}",
+            seeders=1,
+        )
+        for index in range(count)
+    ]
+    async with db.session() as session:
+        await TorrentRepository(session).bulk_upsert(observations)
+        ids = (await session.execute(select(SiteTorrent.id))).scalars().all()
+        last_id = max(int(torrent_id) for torrent_id in ids)
+    await get_setting_store().set(MatchWatermark(last_id=last_id))
+
+    async with db.session() as session:
+        await TorrentRepository(session).bulk_upsert(
+            [observation.model_copy(update={"seeders": 2}) for observation in observations]
+        )
+
+    seen: list[list[str]] = []
+
+    async def capture(session, rows, *, source):
+        seen.append([row.torrent_id for row in rows])
+        if len(seen) == 1:
+            # 确定性复现 SELECT 与条件 ack 之间的真实变化：revision 使本轮 ack
+            # 全部失败；排序时间若仍保留首次入队值，下一轮还会选中同一批。
+            await TorrentRepository(session).bulk_upsert(
+                [
+                    TorrentObservation(
+                        site_id=row.site_id,
+                        torrent_id=row.torrent_id,
+                        source=TorrentSource.LIST,
+                        title=row.title,
+                        seeders=3,
+                    )
+                    for row in rows
+                ]
+            )
+
+    async def no_replacement(_session, _rows):
+        return None
+
+    monkeypatch.setattr(torrent_matcher, "evaluate_and_dispatch", capture)
+    monkeypatch.setattr(torrent_matcher, "try_replacement_candidates", no_replacement)
+
+    await process_new_torrents()
+    await process_new_torrents()
+
+    assert seen[0] != seen[1]
+    assert "interleaved-0500" in seen[1]
+
+
+async def test_all_persisted_match_input_changes_enqueue_rematch(db) -> None:
+    """被动匹配读取的每个可刷新字段，实际改变时都必须入队。"""
+    published_at = utcnow() - timedelta(minutes=5)
+    cases = {
+        "attrs": {"attrs": _S1_PACK_ATTRS, "enrich_version": 1},
+        "category": {"category": "music"},
+        "subtitle": {"subtitle": "第一季全"},
+        "size": {"size_bytes": 1024},
+        "imdb": {"source": TorrentSource.DETAIL, "imdb_id": "tt1234567"},
+        "douban": {"source": TorrentSource.DETAIL, "douban_id": "12345678"},
+        "publish": {"publish_time": published_at},
+        "download": {"download_url": "https://tracker.invalid/download/1"},
+    }
+    initial = [
+        TorrentObservation(
+            site_id="testsite",
+            torrent_id=f"match-input-{name}",
+            source=TorrentSource.LIST,
+            title=f"Match input {name}",
+            attrs={} if name == "attrs" else None,
+        )
+        for name in cases
+    ]
+    async with db.session() as session:
+        await TorrentRepository(session).bulk_upsert(initial)
+        refreshed = []
+        for name, values in cases.items():
+            values = dict(values)
+            refreshed.append(
+                TorrentObservation(
+                    site_id="testsite",
+                    torrent_id=f"match-input-{name}",
+                    source=values.pop("source", TorrentSource.LIST),
+                    title=f"Match input {name}",
+                    **values,
+                )
+            )
+        await TorrentRepository(session).bulk_upsert(refreshed)
+        rows = (
+            await session.execute(
+                select(SiteTorrent).where(SiteTorrent.torrent_id.startswith("match-input-"))
+            )
+        ).scalars().all()
+
+    assert len(rows) == len(cases)
+    assert all(row.rematch_revision == 1 for row in rows)
+    assert all(row.rematch_enqueued_at is not None for row in rows)
+
+
+async def test_attrs_refresh_makes_old_torrent_passive_matchable(db) -> None:
+    """旧行补出有效 attrs 后，应重走被动匹配并填补订阅缺口。"""
+    async with db.session() as session:
+        sub = await _service(session).create(MediaKind.TV, 200, selected_seasons=[1])
+    await process_new_torrents()
+
+    async with db.session() as session:
+        await _insert_torrent(
+            session,
+            "attrs-refresh",
+            "Test Show S01 2160p WEB-DL",
+            {},
+            seeders=10,
+        )
+    await process_new_torrents()
+
+    async with db.session() as session:
+        wanted = await _wanted_map(session, sub.id)
+        assert all(row.status == WantedStatus.WANTED for row in wanted.values())
+        await TorrentRepository(session).bulk_upsert(
+            [
+                TorrentObservation(
+                    site_id="testsite",
+                    torrent_id="attrs-refresh",
+                    source=TorrentSource.LIST,
+                    title="Test Show S01 2160p WEB-DL",
+                    attrs=_S1_PACK_ATTRS,
+                    enrich_version=1,
+                )
+            ]
+        )
+
+    await process_new_torrents()
+    async with db.session() as session:
+        wanted = await _wanted_map(session, sub.id)
+        assert all(row.status == WantedStatus.GRABBED for row in wanted.values())

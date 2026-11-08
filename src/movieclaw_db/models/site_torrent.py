@@ -158,7 +158,7 @@ class SiteTorrent(TimestampMixin, table=True):
     # 条件清除：若评估期间又有新变化，旧消费者不会误删后续重评请求。
     rematch_revision: int = Field(default=0, nullable=False, description="待重评变更版本")
     rematch_enqueued_at: datetime | None = Field(
-        default=None, description="待重评首次入队时间；NULL=当前无待处理变更"
+        default=None, description="待重评最近变化时间；NULL=当前无待处理变更"
     )
     # 最近一次详情页富化时间；NULL=从未补过详情
     detail_enriched_at: datetime | None = Field(default=None, description="详情层最近富化时间")
