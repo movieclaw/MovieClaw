@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 
 from movieclaw_db.models.base import utcnow
@@ -390,6 +391,7 @@ class TorrentRepository:
     def _merge_into(self, row: SiteTorrent, obs: TorrentObservation) -> None:
         """把一次观测合并进已有行（刷新），遵循三态与分层覆盖规则。"""
         now = utcnow()
+        rematch = _match_relevant_changed(row, obs)
         # 静态层：补空——仅当旧值为空且本次有值才填
         for name in self._STATIC_FILL_FIELDS:
             new_val = getattr(obs, name)
@@ -408,6 +410,14 @@ class TorrentRepository:
         row.last_seen_at = now
         row.source = obs.source
         row.updated_at = now
+        if rematch:
+            row.rematch_revision += 1
+            if row.rematch_enqueued_at is None:
+                row.rematch_enqueued_at = now
+            else:
+                # 并发消费者可能在本事务读行后清空标记；强制把原入队时间写回，
+                # 保证本次新 revision 不会因 ORM 认为“值没变”而丢失待处理状态。
+                flag_modified(row, "rematch_enqueued_at")
 
     def _apply_volatile(self, row: SiteTorrent, obs: TorrentObservation, now: datetime) -> None:
         """写入易变层：只覆盖本次观测到（非 None）的字段。"""
@@ -558,6 +568,17 @@ class TorrentRepository:
             cursor.next_sync_at = now + timedelta(seconds=next_interval_seconds)
         cursor.updated_at = now
         await self._session.commit()
+
+
+def _match_relevant_changed(row: SiteTorrent, obs: TorrentObservation) -> bool:
+    """本次观测是否实际改变了规则或选优会读取的同步字段。"""
+    if obs.seeders is not None and obs.seeders != row.seeders:
+        return True
+    if obs.download_volume_factor is not None:
+        observed_free = obs.download_volume_factor == 0.0
+        if observed_free != row.is_free:
+            return True
+    return obs.hit_and_run is not None and obs.hit_and_run != row.hit_and_run
 
 
 def _is_empty(value: object) -> bool:

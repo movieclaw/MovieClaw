@@ -4,20 +4,19 @@
 1. ``sync_site_torrents`` 尾部直调（同进程零延迟）；
 2. 低频兜底任务（进程重启期间的漏网 + sync 异常中断后的补扫）。
 
-水位语义：``app_setting`` 里存最后处理过的 ``site_torrent.id``，并用更新时间
-游标补充跟随已存在行的同步刷新。**首次运行把两个水位都初始化到当前末尾**——
-历史缓存不参与匹配，这是"本地缓存只用来追新，补旧永远真实搜索"铁律的实现
-落点：缓存对旧内容覆盖不完整，偶然命中给出的是残缺候选集。
+水位语义：``app_setting`` 里存最后处理过的 ``site_torrent.id``；已存在行的匹配
+相关字段实际变化时，由 upsert 事务在行上持久标记待重评。**首次运行把 ID 水位
+初始化到当前末尾**——历史缓存不参与匹配，这是"本地缓存只用来追新，补旧永远
+真实搜索"铁律的实现落点：缓存对旧内容覆盖不完整，偶然命中给出的是残缺候选集。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 
 from pydantic import Field
-from sqlalchemy import and_, func, or_
+from sqlalchemy import func, update
 from sqlmodel import select
 
 from movieclaw_api.services.subscription import (
@@ -31,14 +30,10 @@ from movieclaw_api.settings.base import SettingSchema, register_setting
 from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import SiteTorrent
-from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.scheduled_task import TriggerType
 from movieclaw_scheduler import register_task
 
 logger = logging.getLogger("movieclaw_api.torrent_matcher")
-# 旧版水位没有刷新游标：升级后的首轮从本进程启动处跟随，既不回扫历史，也不会
-# 漏掉启动后第一次站点同步对旧行的更新（本模块在调度任务启动前注册并导入）。
-_refresh_tracking_started_at = utcnow()
 
 
 @register_setting(namespace="subscription.match_watermark", title="订阅被动匹配水位")
@@ -48,10 +43,6 @@ class MatchWatermark(SettingSchema):
     last_id: int | None = Field(
         default=None, description="最后处理过的 site_torrent.id；None 表示尚未初始化"
     )
-    last_updated_at: datetime | None = Field(
-        default=None, description="最后重评的旧行更新时间；None 表示尚未初始化"
-    )
-    last_updated_id: int = Field(default=0, description="同一更新时间内最后重评的行 id")
 
 
 # 单实例部署假设下，进程内锁足以避免 sync 尾调与兜底任务并发推进水位
@@ -106,15 +97,15 @@ async def _process_locked() -> None:
     store = get_setting_store()
     state = await _read_watermark()
     if state.last_id is None:
-        # 首次运行：两个游标都落到当前末尾，历史缓存不参与匹配（见模块注释）
+        # 首次运行：ID 水位落到当前末尾，历史缓存不参与匹配（见模块注释）
         async with db.session() as session:
             result = await session.execute(select(func.max(SiteTorrent.id)))
             latest = int(result.scalar_one() or 0)
-        await store.set(MatchWatermark(last_id=latest, last_updated_at=utcnow()))
+        await store.set(MatchWatermark(last_id=latest))
         logger.info("被动匹配水位初始化：从 site_torrent #%d 之后开始跟随", latest)
+        await _process_rematch_queue()
         return
 
-    previous_last_id = state.last_id
     while True:
         async with db.session() as session:
             result = await session.execute(
@@ -129,64 +120,65 @@ async def _process_locked() -> None:
 
             # 没有任何缺口时评估管道自己会立即返回（它要加载匹配上下文，这里不再
             # 先加载一遍判空——那样每批都要把全部订阅的上下文多读一次）
+            revisions = _rematch_revisions(rows)
             # i18n-ignore: audit source label for logs and activity payload
             await evaluate_and_dispatch(session, rows, source="被动匹配")
             # 换源退避只约束主动跨站搜索；刚同步进索引的新种是新的事实，
             # 应立即抢跑评估，不能让用户等到 1h/3h/12h/24h 的下个时间点。
             await try_replacement_candidates(session, rows)
+            await _acknowledge_rematches(session, revisions)
         state = state.model_copy(update={"last_id": rows[-1].id or state.last_id})
         await store.set(state)
 
         if len(rows) < MATCH_BATCH_SIZE:
             break  # 已追平
 
-    await _process_refreshed_locked(state, max_id=previous_last_id)
+    await _process_rematch_queue()
 
 
-async def _process_refreshed_locked(state: MatchWatermark, *, max_id: int) -> None:
-    """重评本轮之前已过 ID 水位、后来又被同步 upsert 的行。
-
-    每次最多处理一批，避免站点大批刷新时把被动匹配热路径拖成长任务。首次升级
-    从本进程启动处跟随，不回扫历史；新入库行由上面的 ID 水位处理，本轮也不会
-    重复评估。
-    """
-    store = get_setting_store()
-    if state.last_updated_at is None:
-        state = state.model_copy(update={"last_updated_at": _refresh_tracking_started_at})
-
-    upper = utcnow()
+async def _process_rematch_queue() -> None:
+    """按首次入队顺序重评一批实际变化的旧行。"""
     async with get_database().session() as session:
         result = await session.execute(
             select(SiteTorrent)
-            .where(
-                SiteTorrent.id <= max_id,  # type: ignore[arg-type]
-                SiteTorrent.updated_at <= upper,
-                or_(
-                    SiteTorrent.updated_at > state.last_updated_at,
-                    and_(
-                        SiteTorrent.updated_at == state.last_updated_at,
-                        SiteTorrent.id > state.last_updated_id,  # type: ignore[arg-type]
-                    ),
-                ),
-            )
-            .order_by(SiteTorrent.updated_at, SiteTorrent.id)  # type: ignore[arg-type]
+            .where(SiteTorrent.rematch_enqueued_at.is_not(None))  # type: ignore[union-attr]
+            .order_by(SiteTorrent.rematch_enqueued_at, SiteTorrent.id)  # type: ignore[arg-type]
             .limit(MATCH_BATCH_SIZE)
         )
         rows = list(result.scalars().all())
-        if rows:
-            # i18n-ignore: audit source label for logs and activity payload
-            await evaluate_and_dispatch(session, rows, source="被动匹配（刷新重评）")
-            await try_replacement_candidates(session, rows)
+        if not rows:
+            return
+        revisions = _rematch_revisions(rows)
+        # i18n-ignore: audit source label for logs and activity payload
+        await evaluate_and_dispatch(session, rows, source="被动匹配（刷新重评）")
+        await try_replacement_candidates(session, rows)
+        await _acknowledge_rematches(session, revisions)
 
-    if len(rows) == MATCH_BATCH_SIZE:
-        cursor_at = rows[-1].updated_at
-        cursor_id = rows[-1].id or 0
-    else:
-        cursor_at = upper
-        cursor_id = 0
-    await store.set(
-        state.model_copy(update={"last_updated_at": cursor_at, "last_updated_id": cursor_id})
-    )
+
+def _rematch_revisions(rows: list[SiteTorrent]) -> dict[int, int]:
+    return {
+        row.id: row.rematch_revision
+        for row in rows
+        if row.id is not None and row.rematch_enqueued_at is not None
+    }
+
+
+async def _acknowledge_rematches(session, revisions: dict[int, int]) -> None:
+    """只清除本轮看见的 revision；并发新变化保留给下一轮。"""
+    by_revision: dict[int, list[int]] = {}
+    for torrent_id, revision in revisions.items():
+        by_revision.setdefault(revision, []).append(torrent_id)
+    for revision, torrent_ids in by_revision.items():
+        await session.execute(
+            update(SiteTorrent)
+            .where(
+                SiteTorrent.id.in_(torrent_ids),  # type: ignore[union-attr]
+                SiteTorrent.rematch_revision == revision,
+            )
+            .values(rematch_enqueued_at=None)
+        )
+    if revisions:
+        await session.commit()
 
 
 @register_task(
