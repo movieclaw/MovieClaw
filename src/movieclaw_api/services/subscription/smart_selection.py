@@ -599,6 +599,7 @@ async def change_wait(
             publish_calendar_date,
             to_candidate,
         )
+        from movieclaw_api.services.subscription.unit_recheck import recheck_file_units
 
         cached = (
             (
@@ -626,6 +627,8 @@ async def change_wait(
         contexts = await load_match_context(session, subscription_ids={sub.id})
         ctx = contexts.get(sub.media_item_id)
         match = match_identity(candidate, ctx.identity) if candidate and ctx else None
+        if match is not None:
+            match = await recheck_file_units(session, candidate, ctx.identity, match)
         if (
             not match
             or match.id_conflict

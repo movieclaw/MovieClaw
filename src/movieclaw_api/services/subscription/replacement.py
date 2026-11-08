@@ -25,12 +25,14 @@ from movieclaw_api.services.subscription.attempt_notes import note_fields, set_n
 from movieclaw_api.services.subscription.events import publish_download_stuck
 from movieclaw_api.services.subscription.matching import (
     covered_units,
+    episode_ranges_of,
     load_season_titles,
     publish_calendar_date,
     season_blocks_of,
     to_candidate,
     units_reference,
 )
+from movieclaw_api.services.subscription.unit_recheck import recheck_file_units
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
     ActivityType,
@@ -509,6 +511,7 @@ async def _try_candidates(
         season_titles=await load_season_titles(session, subscription.media_item_id),
         # 站点季号映射（issue #1155）：不带上它，换源救援会找不到站点 S02 的镜像
         season_blocks=season_blocks_of(item),
+        episode_ranges=episode_ranges_of(item),
     )
     excluded = await _excluded_candidates(session, attempt.subscription_id)
     accepted = []
@@ -521,6 +524,8 @@ async def _try_candidates(
         if candidate.seeders == 0:
             continue
         match = match_identity(candidate, identity)
+        if match is not None:
+            match = await recheck_file_units(session, candidate, identity, match)
         if match is None or (subscription.selection_mode == "smart" and match.id_conflict):
             continue
         covered = covered_units(

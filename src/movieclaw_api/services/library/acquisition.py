@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_db.models import LibraryFile, MediaItem
 from movieclaw_matcher import QualitySnapshot, RuleSetSpec
+from movieclaw_matcher.seasons import SeasonMapping, mapping_from_json
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,12 @@ class EntryDelivery(Protocol):
         """去重比较用的档位阶梯；None = 中性阶梯。"""
         ...
 
+    def season_mapping(
+        self, path: str | None, current: list | dict | None
+    ) -> SeasonMapping:
+        """该文件投递时冻结的季集映射；无投递快照时返回当前映射。"""
+        ...
+
     async def file_recorded(
         self,
         session: AsyncSession,
@@ -122,6 +129,11 @@ class NoDelivery:
 
     def rule_spec(self, path: str | None, unit: tuple[int, int] | None) -> RuleSetSpec | None:
         return None
+
+    def season_mapping(
+        self, path: str | None, current: list | dict | None
+    ) -> SeasonMapping:
+        return mapping_from_json(current)
 
     async def file_recorded(
         self,
@@ -221,6 +233,10 @@ class AcquisitionBridge(Protocol):
 
         扫描按路径匹配到某个内容根时，入账后把标记交回 ``file_recorded``；媒体库不解读标记。
         """
+        ...
+
+    def season_mapping(self, token: object | None, current: list | dict | None) -> SeasonMapping:
+        """原地下载文件的投递映射快照；无来源或旧任务无快照时使用当前映射。"""
         ...
 
     async def file_recorded(self, session: AsyncSession, file_id: int, token: object) -> None:
@@ -347,6 +363,9 @@ class NullBridge:
 
     async def download_roots(self, session: AsyncSession) -> dict[str, object]:
         return {}
+
+    def season_mapping(self, token: object | None, current: list | dict | None) -> SeasonMapping:
+        return mapping_from_json(current)
 
     async def file_recorded(self, session: AsyncSession, file_id: int, token: object) -> None:
         return None

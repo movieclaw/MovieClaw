@@ -37,6 +37,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_matcher import QualitySnapshot, RuleSetSpec
+from movieclaw_matcher.seasons import SeasonMapping, mapping_for_task
 
 
 class Acquisition:
@@ -114,33 +115,61 @@ class Acquisition:
         return [(save_path, subtitle) for save_path, subtitle in rows.all()]
 
     async def download_roots(self, session: AsyncSession) -> dict[str, object]:
-        """下载器任务的内容根（``保存目录/内容名``）→ (info_hash, 下载器)。
+        """下载器任务的内容根 → 来源 token（订阅 token 同时带投递快照）。
 
         原地下载（直接下进库根）的文件由扫描入账，作用域里没有种子信息；按订阅下载记录与手动下载意图
         记下的落点反查，删片时才能找到对应的下载器任务。同一内容根投递过多次取最新一次。
         """
         roots: dict[str, object] = {}
-        for model in (SubscriptionDownloadAttempt, ManualDownloadIntent):
-            rows = (
-                await session.execute(
-                    select(
-                        model.save_path, model.download_name, model.info_hash, model.downloader_id
-                    )
-                    .where(model.save_path.is_not(None), model.download_name.is_not(None))
-                    .order_by(model.id.desc())
+        attempts = (
+            await session.execute(
+                select(
+                    SubscriptionDownloadAttempt.save_path,
+                    SubscriptionDownloadAttempt.download_name,
+                    SubscriptionDownloadAttempt.info_hash,
+                    SubscriptionDownloadAttempt.downloader_id,
+                    SubscriptionDownloadAttempt.submission,
                 )
-            ).all()
-            for save_path, download_name, info_hash, downloader_id in rows:
-                if not save_path or not download_name:
-                    continue
+                .where(
+                    SubscriptionDownloadAttempt.save_path.is_not(None),
+                    SubscriptionDownloadAttempt.download_name.is_not(None),
+                )
+                .order_by(SubscriptionDownloadAttempt.id.desc())
+            )
+        ).all()
+        for save_path, download_name, info_hash, downloader_id, submission in attempts:
+            if save_path and download_name:
+                key = str(Path(save_path.rstrip("/")) / download_name)
+                roots.setdefault(key, (info_hash.lower(), downloader_id, submission))
+        manual = (
+            await session.execute(
+                select(
+                    ManualDownloadIntent.save_path,
+                    ManualDownloadIntent.download_name,
+                    ManualDownloadIntent.info_hash,
+                    ManualDownloadIntent.downloader_id,
+                )
+                .where(
+                    ManualDownloadIntent.save_path.is_not(None),
+                    ManualDownloadIntent.download_name.is_not(None),
+                )
+                .order_by(ManualDownloadIntent.id.desc())
+            )
+        ).all()
+        for save_path, download_name, info_hash, downloader_id in manual:
+            if save_path and download_name:
                 key = str(Path(save_path.rstrip("/")) / download_name)
                 roots.setdefault(key, (info_hash.lower(), downloader_id))
         return roots
 
+    def season_mapping(self, token: object | None, current: list | dict | None) -> SeasonMapping:
+        submission = token[2] if isinstance(token, tuple) and len(token) == 3 else None
+        return mapping_for_task(submission, current)
+
     async def file_recorded(self, session: AsyncSession, file_id: int, token: object) -> None:
         from movieclaw_api.services.download_sources import record_source
 
-        info_hash, downloader_id = token  # type: ignore[misc]
+        info_hash, downloader_id = token[:2]  # type: ignore[index]
         await record_source(
             session,
             file_id,

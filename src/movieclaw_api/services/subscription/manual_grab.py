@@ -88,10 +88,12 @@ async def grab_manual(
     from movieclaw_api.services.subscription.dispatch import dispatch
     from movieclaw_api.services.subscription.matching import (
         covered_units,
+        episode_ranges_of,
         load_season_titles,
         publish_calendar_date,
         season_blocks_of,
     )
+    from movieclaw_api.services.subscription.unit_recheck import recheck_file_units
 
     subscription = await session.get(Subscription, subscription_id)
     if subscription is None:
@@ -208,8 +210,11 @@ async def grab_manual(
         season_titles=await load_season_titles(session, subscription.media_item_id),
         # 站点季号映射（issue #1155）：少了它，手动投 S02 包会报 unitsNotCovered
         season_blocks=season_blocks_of(item),
+        episode_ranges=episode_ranges_of(item),
     )
     match = match_identity(candidate, identity)
+    if match is not None:
+        match = await recheck_file_units(session, candidate, identity, match)
     if match is None:
         raise BadRequestException(
             message_key="errors.subscription.identityUnconfirmed",

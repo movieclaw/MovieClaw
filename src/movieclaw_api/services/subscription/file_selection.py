@@ -29,7 +29,7 @@ from pathlib import Path
 from movieclaw_api.i18n.stored import reference, source_render
 from movieclaw_api.services.library.layout import VIDEO_EXTS
 from movieclaw_api.services.library.units import resolve_units
-from movieclaw_matcher.seasons import SeasonMapping, translate_unit
+from movieclaw_matcher.seasons import EPISODE_AMBIGUOUS, SeasonMapping, normalize_unit
 
 
 class UnsatisfiableSelection(ValueError):
@@ -174,10 +174,14 @@ def plan_strict_file_selection(
     sole_season = next(iter(seasons)) if len(seasons) == 1 else None
 
     def _translate(key: tuple[int, int] | None) -> tuple[int, int] | None:
-        # 先翻译再判零集号也安全：translate_unit 不动 E00，S02E00 仍是集号 0
         if key is None or key[0] is None:
             return key
-        return translate_unit(season_mapping, key[0], key[1])
+        translated = normalize_unit(season_mapping, key[0], key[1])
+        if translated.reason == EPISODE_AMBIGUOUS:
+            raise UnsatisfiableSelection(
+                reference("subscription.smart.episodeBaseAmbiguous"), needed_units
+            )
+        return translated.unit
 
     selected, found, unclear = [], set(), []
     for index, path in enumerate(paths):

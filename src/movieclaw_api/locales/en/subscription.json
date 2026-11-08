@@ -73,6 +73,7 @@
     "missingEpisodes": "The torrent has no files for {units}",
     "foreignLanguage": "Foreign language",
     "missingEpisodesUnclear": "The torrent has no files for {units} ({count, plural, one {# more video file has} other {# more video files have}} an unclear episode or several episodes combined, such as {example})",
+    "episodeBaseAmbiguous": "An episode number has multiple possible TMDB targets, so files can’t be selected safely",
     "unsatisfiedAllRemoved": "{reason}; they went back to searching and the paused task created for them was removed from the downloader",
     "extensionRefused": "Couldn’t add these episodes from the existing pack: {error}"
   },

@@ -124,7 +124,13 @@
     "seasonUnmapped": "「{title}」来自 {site}，标的 {seasons} 在本条目里不存在（本条目只有 {known}）；如果是站点把一季拆成了两季发布，可稍后重试或联系管理员",
     "seasonMapped": "{site}按{target}发布，已自动归入对应集参与匹配（来自「{title}」）",
     "seasonRange": "第 {season} 季第 {start}–{end} 集",
-    "seasonRangeSingle": "第 {season} 季第 {start} 集"
+    "seasonRangeSingle": "第 {season} 季第 {start} 集",
+    "episodeNumberRejected": "「{title}」来自 {site}，季集号无法安全对应到 TMDB：{reason}；未认领",
+    "episodeFileListUnavailable": "标题没有集号，也未能从详情文件清单确定具体集",
+    "episodeBaseAmbiguous": "该集号可同时落入多个 TMDB 季区间，无法唯一确定对应集",
+    "episodeOutOfRange": "集号越出台账区间，无法唯一确定对应集",
+    "episodeZeroRejected": "E00 是先导或特辑占位，不能当作正片",
+    "episodeNumberUnresolved": "「{name}」的文件季集号无法安全对应到 {units}，已退回重找"
   },
   "jobActions": {
     "dismissAll": "已忽略 {count} 个失败任务",

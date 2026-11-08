@@ -73,6 +73,7 @@
     "missingEpisodes": "种子文件里没有 {units}",
     "foreignLanguage": "外语",
     "missingEpisodesUnclear": "种子文件里没有 {units}（另有 {count} 个视频文件无法确定季集或为多集合并，如 {example}）",
+    "episodeBaseAmbiguous": "文件集号存在多个可能落点，无法安全选择文件",
     "unsatisfiedAllRemoved": "{reason}；已退回重找，本次新建的暂停任务已从下载器移除",
     "extensionRefused": "无法在已有的包里补选这些集：{error}"
   },

@@ -33,7 +33,7 @@ torrent-ner v1/v2/v3 上分别错 0/2/15 个——结果完全随模型版本漂
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,7 +46,11 @@ from movieclaw_api.services.library.layout import (
     trailing_index_episode,
 )
 from movieclaw_enrich import enrich
-from movieclaw_matcher.seasons import SeasonMapping, translate_unit
+from movieclaw_matcher.seasons import (
+    EPISODE_AMBIGUOUS,
+    SeasonMapping,
+    normalize_unit,
+)
 
 __all__ = ["FileUnit", "resolve_units"]
 
@@ -152,6 +156,7 @@ def resolve_units(
     entry_name: str | None = None,
     known_seasons: Collection[int] | None = None,
     season_mapping: SeasonMapping | None = None,
+    season_mapping_for: Callable[[Path], SeasonMapping] | None = None,
 ) -> dict[Path, FileUnit]:
     """一批文件（同一个包 / 同一个目录）的季集号。
 
@@ -163,6 +168,8 @@ def resolve_units(
     :param season_mapping: 条目的站点季号映射（issue #1155）。**显式声明的季号**
         不在台账里、却命中映射时，把它翻译成 TMDB 季号而不是否决——那是不改原意
         地翻译，翻译后它仍落在真实存在的季里（与"台账不许否决显式声明"不冲突）。
+    :param season_mapping_for: 按文件给出投递时冻结的映射；监听目录混有多个单集任务
+        时，各文件必须沿用各自任务的快照。未给时统一使用 ``season_mapping``。
     :return: 文件路径 → 结论。
     """
     evidence = {file: _file_evidence(file) for file in files}
@@ -202,7 +209,7 @@ def resolve_units(
     # len(certain) > 1 是真·多季合集包：不设批次季号，各文件用各自的，
     # 没有确定季号的那些宁可挂起，也不硬塞进其中某一季
 
-    def _unit(ev: _Evidence) -> tuple[int | None, int]:
+    def _unit(file: Path, ev: _Evidence) -> tuple[int | None, int, dict | None, str | None]:
         """(季, 集)，含站点季号归一（issue #1155）。
 
         站点把 TMDB 的一季拆成 S01/S02 发布时，``S02E01`` / ``Season 02/`` 这类
@@ -214,16 +221,29 @@ def resolve_units(
         """
         season = ev.certain_season if ev.certain_season is not None else batch_season
         if season is None:
-            return season, ev.episode
-        return translate_unit(season_mapping, season, ev.episode)
+            return season, ev.episode, reason, None
+        if ev.explicit_pilot:
+            return season, ev.episode, None, None
+        mapping = season_mapping_for(file) if season_mapping_for is not None else season_mapping
+        translated = normalize_unit(mapping, season, ev.episode)
+        if translated.reason:
+            key = (
+                "library.ingest.episodeAmbiguous"
+                if translated.reason == EPISODE_AMBIGUOUS
+                else "library.ingest.episodeOutOfRange"
+            )
+            return None, ev.episode, reference(key, season=season, episode=ev.episode), None
+        assert translated.unit is not None
+        return *translated.unit, None, translated.mode
 
+    resolved = {file: _unit(file, ev) for file, ev in evidence.items()}
     units: dict[Path, FileUnit] = {}
     for file, ev in evidence.items():
-        season, episode = _unit(ev)
+        season, episode, unit_reason, _mode = resolved[file]
         units[file] = FileUnit(
             season=season,
             episode=episode,
             explicit_pilot=ev.explicit_pilot,
-            rejected_reason=None if ev.certain_season is not None else reason,
+            rejected_reason=unit_reason,
         )
     return units

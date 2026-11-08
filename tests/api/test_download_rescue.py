@@ -31,6 +31,7 @@ from movieclaw_db.migrations import run_migrations
 from movieclaw_db.models import (
     ActivityType,
     DownloadAttemptStatus,
+    MediaItem,
     SubscriptionActivity,
     SubscriptionDownloadAttempt,
     WantedItem,
@@ -249,6 +250,33 @@ def test_observed_units_translates_site_season(monkeypatch) -> None:
     assert _observed_units(files) == {(2, ep) for ep in range(1, 14)}
 
 
+def test_observed_units_relocates_first_season_absolute_episode() -> None:
+    """issue #1224 B：下载核验把文件 S01E892 对到 TMDB S21E892。"""
+    from movieclaw_matcher.seasons import EpisodeRange, SeasonMapping
+
+    mapping = SeasonMapping(
+        episode_ranges=(
+            EpisodeRange(1, 1, 61),
+            EpisodeRange(21, 892, 1088),
+            EpisodeRange(22, 1089, 1155),
+        )
+    )
+
+    assert _observed_units(_files("One.Piece.S01E892.mkv"), mapping) == {(21, 892)}
+
+
+def test_observed_units_accepts_labels_that_resolve_to_the_same_unit() -> None:
+    from movieclaw_matcher.seasons import EpisodeRange, SeasonMapping
+
+    mapping = SeasonMapping(
+        episode_ranges=(EpisodeRange(1, 1, 61), EpisodeRange(21, 892, 1088))
+    )
+    files = _files("One.Piece.S21E01.mkv", "One.Piece.S21E892.mkv")
+
+    assert _observed_units(files, mapping) == {(21, 892)}
+    assert download_progress._observed_unit_rejections(files, mapping) == set()
+
+
 def test_unit_progress_translates_site_season() -> None:
     """详情页逐集进度条同一口径：站点 S02E01 的进度要落到 (1, 13)。"""
     from movieclaw_matcher.seasons import SeasonBlock, SeasonMapping
@@ -438,6 +466,36 @@ async def test_unrecognized_filenames_untouched(db, tmp_path, monkeypatch) -> No
     async with db.session() as session:
         wanted = await _wanted_map(session, sub_id)
         assert all(w.status == WantedStatus.GRABBED for w in wanted.values())
+
+
+@pytest.mark.asyncio
+async def test_out_of_range_absolute_episode_is_requeued_with_explanation(
+    db, tmp_path, monkeypatch
+) -> None:
+    """旧版已在途任务遇到越界绝对号时不静默挂起，也不误记内容缺失。"""
+    async with db.session() as session:
+        sub_id = await _grabbed_subscription(session, MediaKind.TV, 300, selected_seasons=[1])
+        item = (
+            await session.execute(select(MediaItem).where(MediaItem.tmdb_id == 300))
+        ).scalar_one()
+        item.season_mapping = [
+            {"absolute": True, "season": 1, "start": 1, "end": 2},
+            {"absolute": True, "season": 2, "start": 3, "end": 4},
+        ]
+        session.add(item)
+        await session.commit()
+    _stub_query(
+        monkeypatch,
+        _completed_status(tmp_path, ["Show/Show.S01E99.mkv"]),
+    )
+    await _rescue_group(sub_id, _HASH, [(object(), object())])
+
+    async with db.session() as session:
+        wanted = await _wanted_map(session, sub_id)
+        assert all(row.status == WantedStatus.WANTED for row in wanted.values())
+        activities = await _dispatch_failed(session, sub_id)
+        assert activities[-1].payload["reason"] == "unit_unresolved"
+        assert "无法安全对应" in activities[-1].message
 
 
 @pytest.mark.asyncio

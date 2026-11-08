@@ -46,6 +46,7 @@ from movieclaw_db.models import (
 )
 from movieclaw_db.models.manual_download_intent import MANUAL_DOWNLOAD_INTENT_TTL
 from movieclaw_matcher import QualitySnapshot, RuleSetSpec
+from movieclaw_matcher.seasons import SeasonMapping, mapping_for_task
 
 logger = logging.getLogger("movieclaw_api.library_ingest")
 
@@ -561,6 +562,13 @@ class _Delivery:
         # 订阅投递按来源投递所属规则组的偏好序判「同档或更高」（issue #381）
         attempt = self._attempt(path, unit)
         return self._specs.get(attempt.subscription_id) if attempt is not None else None
+
+    def season_mapping(
+        self, path: str | None, current: list | dict | None
+    ) -> SeasonMapping:
+        """逐文件沿用投递时快照，避免下载期间刷新 TMDB 后改口径。"""
+        attempt = self._attempt(path, None)
+        return mapping_for_task(attempt.submission if attempt is not None else None, current)
 
     async def file_recorded(
         self,

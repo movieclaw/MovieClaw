@@ -16,6 +16,7 @@ from movieclaw_api.i18n.stored import source_render
 from movieclaw_api.services.library.layout import explicit_episode
 from movieclaw_api.services.library.units import resolve_units
 from movieclaw_enrich.models import TorrentAttrs
+from movieclaw_matcher.seasons import EpisodeRange, SeasonMapping
 
 
 def _fake_enrich(monkeypatch, mapping: dict[str, TorrentAttrs]):
@@ -34,6 +35,15 @@ def _pack(tmp_path: Path, entry_name: str, names: list[str]) -> tuple[Path, list
         file.touch()
         files.append(file)
     return entry, files
+
+
+_ONE_PIECE_MAPPING = SeasonMapping(
+    episode_ranges=(
+        EpisodeRange(1, 1, 61),
+        EpisodeRange(21, 892, 1088),
+        EpisodeRange(22, 1089, 1155),
+    )
+)
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +97,98 @@ def test_chinese_unit_in_multi_season_pack_keeps_its_own_season(tmp_path) -> Non
     units = resolve_units(files, known_seasons={1})
     assert (units[files[0]].season, units[files[0]].episode) == (1, 1)
     assert units[files[1]].episode == 3 and units[files[1]].season != 1
+
+
+def test_first_season_absolute_episode_relocates_to_unique_tmdb_season(tmp_path) -> None:
+    """issue #1224 B：发布组固定写 S01，但 E892 是 TMDB 的绝对集号。"""
+    _, files = _pack(tmp_path, "One Piece", ["One.Piece.S01E892.mkv"])
+
+    unit = resolve_units(
+        files,
+        known_seasons={1, 21, 22},
+        season_mapping=_ONE_PIECE_MAPPING,
+    )[files[0]]
+
+    assert (unit.season, unit.episode) == (21, 892)
+
+
+def test_absolute_episode_base_preserves_absolute_and_maps_season_relative(tmp_path) -> None:
+    _, files = _pack(
+        tmp_path,
+        "One Piece",
+        ["One.Piece.S21E892.mkv", "One.Piece.S21E01.mkv"],
+    )
+    units = resolve_units(
+        files,
+        known_seasons={1, 21, 22},
+        season_mapping=_ONE_PIECE_MAPPING,
+    )
+
+    assert [(units[file].season, units[file].episode) for file in files] == [
+        (21, 892),
+        (21, 892),
+    ]
+
+
+def test_absolute_episode_out_of_range_is_explained_and_pilot_is_preserved(tmp_path) -> None:
+    _, files = _pack(
+        tmp_path,
+        "One Piece",
+        ["One.Piece.S22E100.mkv", "One.Piece.S21E00.mkv"],
+    )
+    units = resolve_units(
+        files,
+        known_seasons={1, 21, 22},
+        season_mapping=_ONE_PIECE_MAPPING,
+    )
+
+    rejected = units[files[0]]
+    assert rejected.season is None and rejected.episode == 100
+    assert rejected.rejected_reason is not None
+    assert "越出" in source_render(rejected.rejected_reason)
+    pilot = units[files[1]]
+    assert (pilot.season, pilot.episode, pilot.explicit_pilot) == (21, 0, True)
+
+
+def test_relative_and_absolute_episode_labels_can_resolve_to_the_same_unit(tmp_path) -> None:
+    _, files = _pack(
+        tmp_path,
+        "One Piece",
+        ["One.Piece.S21E01.mkv", "One.Piece.S21E892.mkv"],
+    )
+    units = resolve_units(
+        files,
+        known_seasons={1, 21, 22},
+        season_mapping=_ONE_PIECE_MAPPING,
+    )
+
+    assert [(units[file].season, units[file].episode) for file in files] == [
+        (21, 892),
+        (21, 892),
+    ]
+
+
+def test_file_specific_mapping_snapshot_wins_over_refreshed_item_mapping(tmp_path) -> None:
+    _, files = _pack(tmp_path, "Absolute Show", ["Absolute.Show.S01E05.mkv"])
+    refreshed = SeasonMapping(
+        episode_ranges=(EpisodeRange(1, 1, 2), EpisodeRange(2, 3, 6))
+    )
+    frozen = SeasonMapping(
+        episode_ranges=(
+            EpisodeRange(1, 1, 2),
+            EpisodeRange(2, 3, 4),
+            EpisodeRange(3, 5, 6),
+        )
+    )
+
+    unit = resolve_units(
+        files,
+        known_seasons={1, 2, 3},
+        season_mapping=refreshed,
+        season_mapping_for=lambda _file: frozen,
+    )[files[0]]
+
+    assert (unit.season, unit.episode) == (3, 5)
 
 
 # ---------------------------------------------------------------------------

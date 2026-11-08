@@ -12,14 +12,17 @@ from datetime import date, timedelta
 import pytest
 
 from movieclaw_matcher.seasons import (
+    EPISODE_OUT_OF_RANGE,
     SNAPSHOT_KEY,
     SPLIT_GAP_DAYS,
+    EpisodeRange,
     SeasonBlock,
     SeasonMapping,
     derive_season_mapping,
     mapping_for_task,
     mapping_from_json,
     mapping_to_json,
+    normalize_unit,
     translate_unit,
 )
 
@@ -68,6 +71,43 @@ def test_multi_season_show_keeps_every_offset_zero() -> None:
     assert all(block.offset == 0 for block in mapping.blocks)
     # 恒等：站点 S02E01 就是 TMDB S02E01
     assert translate_unit(mapping, 2, 1) == (2, 1)
+
+
+def test_cross_season_absolute_episode_ranges_are_persisted_and_normalized() -> None:
+    """跨季连续绝对号写入同一 JSON 快照；普通绝对号、季内号和固定 S01 都可解释。"""
+    episodes = (
+        _weekly(1, 1, 3, date(2024, 1, 1))
+        + _weekly(2, 4, 2, date(2024, 2, 1))
+        + _weekly(3, 6, 3, date(2024, 3, 1))
+    )
+    mapping = derive_season_mapping(episodes, today=_TODAY)
+
+    assert mapping.episode_ranges == (
+        EpisodeRange(1, 1, 3),
+        EpisodeRange(2, 4, 5),
+        EpisodeRange(3, 6, 8),
+    )
+    stored = mapping_from_json(mapping_to_json(mapping))
+    assert normalize_unit(stored, 2, 4).unit == (2, 4)  # 原生绝对号不动
+    assert normalize_unit(stored, 2, 1).unit == (2, 4)  # 季内号平移
+    assert normalize_unit(stored, 1, 6).unit == (3, 6)  # 固定 S01 + 绝对集号改季
+    assert normalize_unit(stored, 2, 3).reason == EPISODE_OUT_OF_RANGE
+
+
+def test_incomplete_or_ordinary_ranges_do_not_enable_absolute_mapping() -> None:
+    ordinary = _weekly(1, 1, 3, date(2024, 1, 1)) + _weekly(
+        2, 1, 2, date(2024, 2, 1)
+    )
+    missing = _weekly(1, 1, 3, date(2024, 1, 1)) + _weekly(
+        2, 5, 2, date(2024, 2, 1)
+    )
+    missing_season = _weekly(1, 1, 3, date(2024, 1, 1)) + _weekly(
+        3, 4, 2, date(2024, 2, 1)
+    )
+
+    assert derive_season_mapping(ordinary, today=_TODAY).episode_ranges == ()
+    assert derive_season_mapping(missing, today=_TODAY).episode_ranges == ()
+    assert derive_season_mapping(missing_season, today=_TODAY).episode_ranges == ()
 
 
 def test_89_day_gap_does_not_split_but_91_does() -> None:
@@ -341,3 +381,17 @@ def test_task_snapshot_wins_over_current_mapping() -> None:
     assert translate_unit(mapping_for_task(None, current), 2, 1) == (1, 14)
     # 快照里明确"没有映射"也算数：投递时没换算，核验也不换算
     assert translate_unit(mapping_for_task({SNAPSHOT_KEY: []}, current), 2, 1) == (2, 1)
+
+
+def test_absolute_episode_snapshot_wins_over_refreshed_ranges() -> None:
+    frozen = [
+        {"absolute": True, "season": 1, "start": 1, "end": 3},
+        {"absolute": True, "season": 3, "start": 6, "end": 8},
+    ]
+    current = [
+        {"absolute": True, "season": 1, "start": 1, "end": 4},
+        {"absolute": True, "season": 3, "start": 7, "end": 9},
+    ]
+
+    mapping = mapping_for_task({SNAPSHOT_KEY: frozen}, current)
+    assert normalize_unit(mapping, 1, 6).unit == (3, 6)

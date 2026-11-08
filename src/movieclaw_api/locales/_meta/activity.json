@@ -397,5 +397,23 @@
   },
   "subscription.seasonRangeSingle": {
     "sourceHash": "bf32dbfa638f3bcd4d5e9b33f5fb8fe9425cd756280f2286b8e79c8b90925c04"
+  },
+  "subscription.episodeNumberRejected": {
+    "sourceHash": "057f0f2fc53f7356d74d879cec6c5dd4dd7142fc09aa02f096709d6c967e390a"
+  },
+  "subscription.episodeFileListUnavailable": {
+    "sourceHash": "990ca94bf98eaffb09baa3435ec89cf64157fa4c861edfba7cb0f064da06d91f"
+  },
+  "subscription.episodeBaseAmbiguous": {
+    "sourceHash": "e640964f1f8830641a25e07708202614a4bd27b9b1b7b44a0b5fc768a9e8f7f9"
+  },
+  "subscription.episodeOutOfRange": {
+    "sourceHash": "651caa8efe36a0bd850da291e754fadb22bd2b681381f461cfc290465c35e991"
+  },
+  "subscription.episodeZeroRejected": {
+    "sourceHash": "2772d6c797a7bf3a7c5320f5039878f1b20e2ab65055fd315d28f68ed11648b2"
+  },
+  "subscription.episodeNumberUnresolved": {
+    "sourceHash": "28fa76a2ef7f87124a8be3731efd87a3df7717983ba45bcfc1ed7d41b02fe00e"
   }
 }

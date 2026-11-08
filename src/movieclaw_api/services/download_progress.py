@@ -54,7 +54,11 @@ from movieclaw_db.models.system_notice import NoticeSeverity
 from movieclaw_db.repositories import SubscriptionRepository
 from movieclaw_db.repositories.downloader_repo import DownloaderRepository
 from movieclaw_downloader import DownloaderConfig, TorrentStatus, create_downloader
-from movieclaw_matcher.seasons import SeasonMapping, mapping_for_task, translate_unit
+from movieclaw_matcher.seasons import (
+    SeasonMapping,
+    mapping_for_task,
+    normalize_unit,
+)
 from movieclaw_media.models import MediaKind
 from movieclaw_scheduler.registry import register_task
 
@@ -1291,25 +1295,45 @@ def _observed_units(files, mapping: SeasonMapping | None = None) -> set[tuple[in
     「S01.Complete」把另外 67 集也挂在它名下——清单里 208 集「都在」，
     核验判定不缺，67 集以 grabbed 永远挂着「等待入库」。
     """
-    observed: set[tuple[int, int]] = set()
-    for file in files:
-        # 没有选中信息的文件（旧适配器 / 测试替身）按选中算，与 TorrentFile 默认一致
-        if not getattr(file, "selected", True):
-            continue
-        observed.update(_path_units(file.path, mapping))
-    return observed
+    translated = _selected_unit_translations(files, mapping)
+    return {item.unit for item in translated if item.unit is not None}
 
 
 def _path_units(path: str, mapping: SeasonMapping | None = None) -> set[tuple[int, int]]:
     """一个文件路径里能认出的 (季, 集)；口径见 :func:`_observed_units`。"""
     units: set[tuple[int, int]] = set()
+    for translated in _path_unit_translations(path, mapping):
+        if translated.unit is not None:
+            units.add(translated.unit)
+    return units
+
+
+def _path_unit_translations(path: str, mapping: SeasonMapping | None = None):
+    """路径里的每个季集声明及其归一结论；拒绝原因供完成核验解释。"""
+    translated = []
     for match in _FILE_UNIT_RE.finditer(path):
         season = int(match.group(1))
         numbers = [int(n) for n in _FILE_EP_RE.findall(match.group(2))]
         if len(numbers) == 2 and numbers[0] < numbers[1] <= numbers[0] + 200:
             numbers = list(range(numbers[0], numbers[1] + 1))
-        units.update(translate_unit(mapping, season, episode) for episode in numbers)
-    return units
+        translated.extend(normalize_unit(mapping, season, episode) for episode in numbers)
+    return translated
+
+
+def _observed_unit_rejections(files, mapping: SeasonMapping | None = None) -> set[str]:
+    translated = _selected_unit_translations(files, mapping)
+    reasons = {item.reason for item in translated if item.reason is not None}
+    return reasons
+
+
+def _selected_unit_translations(files, mapping: SeasonMapping | None = None):
+    return [
+        translated
+        for file in files
+        # 没有选中信息的文件（旧适配器 / 测试替身）按选中算
+        if getattr(file, "selected", True)
+        for translated in _path_unit_translations(file.path, mapping)
+    ]
 
 
 def _unit_progress(
@@ -1362,6 +1386,24 @@ async def _verify_content(
         return
     mapping = await task_season_mapping(session, rows[0].subscription_id, info_hash, item)
     observed = _observed_units(status.files, mapping)
+    rejections = _observed_unit_rejections(status.files, mapping)
+    if rejections:
+        unresolved = [w for w in rows if (w.season_number, w.episode_number) not in observed]
+        if unresolved:
+            await _requeue(
+                session,
+                repo,
+                item,
+                unresolved,
+                info_hash,
+                message=reference(
+                    "activity.subscription.episodeNumberUnresolved",
+                    name=status.name,
+                    units=units_reference(unresolved),
+                ),
+                reason="unit_unresolved",
+            )
+            return
     if not observed:
         return
     missing = [w for w in rows if (w.season_number, w.episode_number) not in observed]

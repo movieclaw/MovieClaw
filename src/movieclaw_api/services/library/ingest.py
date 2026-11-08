@@ -2327,13 +2327,17 @@ async def _ingest_entry(
                 )
             ).scalars()
         )
+        current_mapping = mapping_from_json(item.season_mapping)
         units = resolve_units(
             files,
             entry_name=entry.name if entry.is_dir() else entry.stem,
             known_seasons=known_seasons,
             # 站点季号映射（issue #1155）：站点 S02 的文件照常归入 TMDB 第 1 季，
             # 文件落 Season 01/、集号顺延成 E13 起——**不新建 Season 02/**
-            season_mapping=mapping_from_json(item.season_mapping),
+            season_mapping=current_mapping,
+            season_mapping_for=lambda file: delivery.season_mapping(
+                rel(file), item.season_mapping
+            ),
         )
     # 季名/集名：命名模板 {season_name}/{episode_title} 的取值（与整理同一来源）
     season_names, episode_names = (

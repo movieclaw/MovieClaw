@@ -47,6 +47,7 @@ from datetime import date
 from typing import TypeVar
 
 from movieclaw_matcher.models import IdentityMatch, MediaIdentity, TorrentCandidate
+from movieclaw_matcher.seasons import EpisodeRange, SeasonMapping, normalize_unit
 
 # 短别名守卫阈值：归一化后 ≤3 个字符的别名（Her / Up / 24 / 色戒）误报风险极高，
 # 必须叠加"提取到的年份与条目年份精确相等"才允许命中
@@ -777,6 +778,32 @@ def _derive_units(
                 is_pack=True,
                 confidence=confidence,
                 matched_alias=alias,
+            )
+        if media.episode_ranges:
+            mapping = SeasonMapping(
+                episode_ranges=tuple(
+                    EpisodeRange(tmdb_season, start, end)
+                    for tmdb_season, start, end in media.episode_ranges
+                )
+            )
+            translated = [normalize_unit(mapping, season, episode) for episode in episodes]
+            reasons = {item.reason for item in translated if item.reason}
+            if reasons:
+                return IdentityMatch(
+                    confidence=confidence,
+                    matched_alias=alias,
+                    site_seasons=frozenset({season}),
+                    unit_rejection=sorted(reasons)[0],
+                )
+            units = frozenset(item.unit for item in translated if item.unit is not None)
+            normalized = any(item.mode != "literal" for item in translated)
+            return IdentityMatch(
+                episodes=units,
+                is_pack=is_pack,
+                confidence=confidence,
+                matched_alias=alias,
+                season_normalized=normalized,
+                site_seasons=frozenset({season}) if normalized else frozenset(),
             )
         if (
             season not in media.season_numbers

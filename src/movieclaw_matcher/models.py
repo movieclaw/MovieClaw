@@ -488,6 +488,9 @@ class MediaIdentity:
     # 空元组=没有映射（普通剧的常态），此时内核行为与改动前逐字节相同。
     # 元组顺序即站点季号顺序，元素是 (站点季号, TMDB 季号, 起始集, 结束集)
     season_blocks: tuple[tuple[int, int, int, int], ...] = ()
+    # TMDB 使用跨季连续绝对集号时的真实季区间，元素是 (TMDB 季号, 起始集, 结束集)。
+    # 只有完整台账证明从 E01 起跨季连续时才提供；普通剧恒为空。
+    episode_ranges: tuple[tuple[int, int, int], ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +545,9 @@ class IdentityMatch:
     # （covered_units）：只认种子发布前已播出的集，未定档的只在声明了总集数
     # 时才认——不能像显式集号那样信到底
     normalized_pack: bool = False
+    # 身份已成立，但季集号无法唯一解释（越界/E00/可落入多个区间）。消费侧据此
+    # 留拒绝活动，而不是把空覆盖静默丢掉。
+    unit_rejection: str | None = None
 
 
 @dataclass(frozen=True)

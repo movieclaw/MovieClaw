@@ -3165,6 +3165,17 @@ def test_unit_for_explicit_sxxeyy(tmp_path) -> None:
     assert explicit_unit("走向共和01") is None
 
 
+def test_unit_for_cross_season_absolute_episode(tmp_path) -> None:
+    from movieclaw_matcher.seasons import EpisodeRange, SeasonMapping
+
+    mapping = SeasonMapping(
+        episode_ranges=(EpisodeRange(1, 1, 61), EpisodeRange(21, 892, 1088))
+    )
+    file = tmp_path / "One.Piece.S01E892.mkv"
+
+    assert scan_mod._unit_for(MediaKind.TV, file, {1, 21}, mapping) == (21, 892)
+
+
 def test_unit_for_season_conflict(tmp_path) -> None:
     """文件名同时含「第一季」与 S09 两个季信号（NAS 实测《妻子的浪漫旅行》
     第 9 季整季错挂到第 1 季）：分集 NFO 的 <season> 是最强证据须优先；
