@@ -144,6 +144,11 @@ def _install_detail(monkeypatch, files: list[str]) -> None:
         "One.Piece.S21E01&E02",
         "One.Piece.S21E01~E02",
         "One.Piece.S21E01-02",
+        "One.Piece.S21E01_E02",
+        "One.Piece.S21E01.E02",
+        "One.Piece.S21E01–E02",
+        "One.Piece.S21E01—E02",
+        "One.Piece.S21E01-S22E02",
     ],
 )
 def test_explicit_unit_does_not_reduce_multi_episode_names_to_the_first(stem: str) -> None:
@@ -265,6 +270,11 @@ async def test_duplicate_file_units_make_file_list_recheck_fail_closed(db, monke
         "Absolute.Show.S03E01-E02.mkv",
         "Absolute.Show.S03E01E02.mkv",
         "Absolute.Show.S03E01+E02.mkv",
+        "Absolute.Show.S03E01_E02.mkv",
+        "Absolute.Show.S03E01.E02.mkv",
+        "Absolute.Show.S03E01–E02.mkv",
+        "Absolute.Show.S03E01—E02.mkv",
+        "Absolute.Show.S03E01-S04E02.mkv",
     ],
 )
 async def test_multi_episode_file_is_never_claimed_as_only_its_first_episode(

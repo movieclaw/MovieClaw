@@ -165,22 +165,44 @@ _CN_DIGITS = {
 # 的 "003" 也因前一位是数字而不中）
 _TRAILING_INDEX = re.compile(r"(?<![0-9A-Za-z])(\d{1,3})\s*$")
 
-# 显式 SxxEyy 标记：场景命名里语义最强的季集声明。前界挡住词内片段
-# （"XS06E01"），后界挡住数字粘连（"S02E051080p" 宁可不中，交回模型通道）
-_EXPLICIT_SXXEYY = re.compile(r"(?i)(?<![0-9A-Za-z])S(\d{1,3})[ ._-]?E(\d{1,4})(?!\d)")
-# 同一 Sxx 后连续声明多集：``S01E01-E02`` / ``S01E01E02`` / ``S01E01+E02``。
-# ``explicit_unit`` 的返回类型只能表达一个单元，因此这类名字必须交回上层，
-# 不能悄悄拿首集冒充整个文件。省略第二个 E 时只认 1~3 位集号，避免把
-# ``S01E01-1080p`` 的分辨率误判成第 1080 集。
-_EXPLICIT_SXX_MULTI = re.compile(
-    r"(?i)(?<![0-9A-Za-z])S\d{1,3}[ ._-]?E\d{1,4}"
-    r"(?:\s*(?:[-~&+._]\s*E|E)\d{1,4}|\s*[-~&+]\s*\d{1,3})(?!\d)"
+# 显式 SxxEyy 标记及同季多集尾巴。ASCII/Unicode 横线、``+ & ~ _ .`` 与
+# 连写 E 都共用这一处；完成核验也调用 :func:`explicit_sxx_units`，避免各自
+# 维护一套更窄的正则。裸第二集仅认 1~3 位，挡住 ``S01E01-1080p``。
+_EXPLICIT_SXX_CHAIN = re.compile(
+    r"(?i)(?<![0-9A-Za-z])S(?P<season>\d{1,3})[ ._-]?"
+    r"E(?P<first>\d{1,4})(?!\d)"
+    r"(?P<tail>(?:"
+    r"\s*(?:(?:[-~&+._\u2010-\u2015\u2212]\s*E)|E)\d{1,4}(?!\d)"
+    r"|\s*[-~&+\u2010-\u2015\u2212]\s*\d{1,3}(?![0-9A-Za-z])"
+    r")*)"
 )
+_EXPLICIT_CHAIN_EPISODE = re.compile(r"(?i)E?(\d{1,4})")
+
+
+def explicit_sxx_units(stem: str) -> tuple[tuple[int, int], ...] | None:
+    """解析文件名里的 SxxEyy 单元串。
+
+    空元组表示没有 SxxEyy；``None`` 表示出现多个完整 SxxEyy（例如跨季范围），
+    无法仅凭文件名可靠展开。单个同季链可确定展开时返回全部单元。
+    """
+    matches = list(_EXPLICIT_SXX_CHAIN.finditer(stem))
+    if not matches:
+        return ()
+    if len(matches) != 1:
+        return None
+    match = matches[0]
+    season = int(match.group("season"))
+    episodes = [int(match.group("first"))]
+    episodes.extend(int(value) for value in _EXPLICIT_CHAIN_EPISODE.findall(match.group("tail")))
+    if len(episodes) == 2 and episodes[0] < episodes[1] <= episodes[0] + 200:
+        episodes = list(range(episodes[0], episodes[1] + 1))
+    return tuple((season, episode) for episode in episodes)
 
 
 def has_explicit_multi_unit(stem: str) -> bool:
-    """名字是否显式声明同季多个集号；单单元解析链必须据此 fail-closed。"""
-    return _EXPLICIT_SXX_MULTI.search(stem) is not None
+    """名字是否显式声明多个集号；单单元解析链必须据此 fail-closed。"""
+    units = explicit_sxx_units(stem)
+    return units is None or len(units) > 1
 
 
 # NxMM 写法（Kodi/Plex/Emby 都认的 "House - 4x01 - Alone"）。季号 1~2 位、
@@ -247,9 +269,12 @@ def explicit_unit(stem: str) -> tuple[int, int] | None:
     (season, 0)：集号 0 在管线里是「无集号」哨兵，入库层据此识别"这是
     显式声明的第 0 集"并按占位跳过，而不是误报解析失败。
     """
-    if has_explicit_multi_unit(stem):
+    sxx_units = explicit_sxx_units(stem)
+    if sxx_units is None or len(sxx_units) > 1:
         return None
-    match = _EXPLICIT_SXXEYY.search(stem) or _EXPLICIT_NXMM.search(stem)
+    if sxx_units:
+        return sxx_units[0]
+    match = _EXPLICIT_NXMM.search(stem)
     if match is not None:
         return int(match.group(1)), int(match.group(2))
     # 中文「第N季 第M集」：名字里只能有一个集号，「第01集-第02集」这类合集不算

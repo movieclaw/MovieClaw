@@ -233,6 +233,29 @@ def test_observed_units_multi_episode_and_range() -> None:
     assert _observed_units(_files("Show.S01E05-E08.mkv")) == {(1, 5), (1, 6), (1, 7), (1, 8)}
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "Show.S01E01_E02.mkv",
+        "Show.S01E01.E02.mkv",
+        "Show.S01E01–E02.mkv",
+        "Show.S01E01—E02.mkv",
+    ],
+)
+def test_observed_units_uses_shared_multi_episode_separators(filename: str) -> None:
+    assert _observed_units(_files(filename)) == {(1, 1), (1, 2)}
+    assert download_progress._observed_unit_rejections(_files(filename)) == set()
+
+
+def test_observed_units_fails_closed_for_cross_season_file() -> None:
+    files = _files("Show.S21E01-S22E02.mkv")
+
+    assert _observed_units(files) == set()
+    assert download_progress._observed_unit_rejections(files) == {
+        "episode_multi_unit_ambiguous"
+    }
+
+
 def test_observed_units_ignores_unselected_files() -> None:
     """下载器里没勾选的文件永远不会落盘，不能算「清单里有」。"""
     files = [
@@ -469,6 +492,88 @@ async def test_all_episodes_present_untouched(db, tmp_path, monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_multi_episode_separator_completion_does_not_record_content_missing(
+    db, tmp_path, monkeypatch
+) -> None:
+    """同季多集文件覆盖全部显式单元，不能只看 E01 后把 E02 永久判缺。"""
+    async with db.session() as session:
+        sub_id = await _grabbed_subscription(session, MediaKind.TV, 300, selected_seasons=[1])
+        session.add(
+            SubscriptionDownloadAttempt(
+                subscription_id=sub_id,
+                info_hash=_HASH,
+                site_id="testsite",
+                torrent_id="multi-separator",
+                units=[[1, 1], [1, 2]],
+                last_progress_at=utcnow(),
+                status=DownloadAttemptStatus.COMPLETED,
+            )
+        )
+        await session.commit()
+    _stub_query(
+        monkeypatch,
+        _completed_status(tmp_path, ["Show/Show.S01E01–E02.mkv"]),
+    )
+
+    await _rescue_group(sub_id, _HASH, [(object(), object())])
+
+    async with db.session() as session:
+        wanted = await _wanted_map(session, sub_id)
+        attempt = (
+            await session.execute(
+                select(SubscriptionDownloadAttempt).where(
+                    SubscriptionDownloadAttempt.subscription_id == sub_id
+                )
+            )
+        ).scalar_one()
+        assert all(row.status == WantedStatus.GRABBED for row in wanted.values())
+        assert not attempt.content_missing
+        assert await _dispatch_failed(session, sub_id) == []
+
+
+@pytest.mark.asyncio
+async def test_cross_season_completion_is_unresolved_not_content_missing(
+    db, tmp_path, monkeypatch
+) -> None:
+    """跨季范围无法只靠文件名展开；保守退回并留下可重试的解析失败记忆。"""
+    async with db.session() as session:
+        sub_id = await _grabbed_subscription(session, MediaKind.TV, 300, selected_seasons=[1, 2])
+        session.add(
+            SubscriptionDownloadAttempt(
+                subscription_id=sub_id,
+                info_hash=_HASH,
+                submission={"season_mapping": []},
+                site_id="testsite",
+                torrent_id="cross-season",
+                units=[[1, 1], [1, 2], [2, 3], [2, 4]],
+                last_progress_at=utcnow(),
+                status=DownloadAttemptStatus.COMPLETED,
+            )
+        )
+        await session.commit()
+    _stub_query(
+        monkeypatch,
+        _completed_status(tmp_path, ["Show/Show.S01E01-S02E04.mkv"]),
+    )
+
+    await _rescue_group(sub_id, _HASH, [(object(), object())])
+
+    async with db.session() as session:
+        wanted = await _wanted_map(session, sub_id)
+        attempt = (
+            await session.execute(
+                select(SubscriptionDownloadAttempt).where(
+                    SubscriptionDownloadAttempt.subscription_id == sub_id
+                )
+            )
+        ).scalar_one()
+        activities = await _dispatch_failed(session, sub_id)
+        assert all(row.status == WantedStatus.WANTED for row in wanted.values())
+        assert not attempt.content_missing
+        assert activities[-1].payload["reason"] == "unit_unresolved"
+
+
+@pytest.mark.asyncio
 async def test_unrecognized_filenames_untouched(db, tmp_path, monkeypatch) -> None:
     """清单一个集数都认不出（原盘目录）：证据不足，保守不动。"""
     async with db.session() as session:
@@ -619,9 +724,11 @@ async def test_partial_unit_unresolved_replaces_snapshot_before_same_hash_retry(
         {"absolute": True, "season": 1, "start": 1, "end": 2},
         {"absolute": True, "season": 2, "start": 3, "end": 4},
     ]
+    # 季边界修正：同一标题 S02E02 从旧快照的 TMDB E04 移到新快照的 E05。
+    # 旧 unresolved 记忆因此与新目标没有单元交集，仍必须按同 hash 更新快照。
     new_mapping = [
-        *old_mapping,
-        {"absolute": True, "season": 3, "start": 5, "end": 6},
+        {"absolute": True, "season": 1, "start": 1, "end": 3},
+        {"absolute": True, "season": 2, "start": 4, "end": 5},
     ]
     async with db.session() as session:
         sub_id = await _grabbed_subscription(session, MediaKind.TV, 300, selected_seasons=[2])
@@ -654,7 +761,17 @@ async def test_partial_unit_unresolved_replaces_snapshot_before_same_hash_retry(
             seeders=10,
             publish_time=utcnow(),
         )
-        session.add_all([item, attempt, torrent])
+        mirror = SiteTorrent(
+            site_id="mirror",
+            torrent_id="partial-bad-unit-mirror",
+            title=torrent.title,
+            attrs=torrent.attrs,
+            enrich_version=1,
+            source=TorrentSource.LIST,
+            seeders=10,
+            publish_time=utcnow(),
+        )
+        session.add_all([item, attempt, torrent, mirror])
         await session.commit()
 
     status = _completed_status(
@@ -684,26 +801,59 @@ async def test_partial_unit_unresolved_replaces_snapshot_before_same_hash_retry(
         ).scalar_one()
         item.season_mapping = new_mapping
         session.add(item)
+        assert item.id is not None
+        session.add(
+            WantedItem(
+                subscription_id=sub_id,
+                media_item_id=item.id,
+                season_number=2,
+                episode_number=5,
+                air_date=_TODAY,
+            )
+        )
         await session.commit()
         torrent = (
             await session.execute(
                 select(SiteTorrent).where(SiteTorrent.torrent_id == "partial-bad-unit")
             )
         ).scalar_one()
+        mirror = (
+            await session.execute(
+                select(SiteTorrent).where(
+                    SiteTorrent.torrent_id == "partial-bad-unit-mirror"
+                )
+            )
+        ).scalar_one()
 
-        # E3 仍等待按旧快照入库；此时不能让 E4 复用同 hash 后改写或沿用快照。
+        # 已证伪的原来源在匹配层直接挡住新目标，避免无意义地再次提交。
         blocked = await evaluate_and_dispatch(session, [torrent], source="主动搜索")
         wanted = await _wanted_map(session, sub_id)
         assert blocked.dispatched_units == 0
         assert submitted_mappings == []
         assert wanted[(2, 3)].status == WantedStatus.GRABBED
-        assert wanted[(2, 4)].status == WantedStatus.WANTED
+        assert wanted[(2, 5)].status == WantedStatus.WANTED
+
+        # 跨站镜像在拿到 hash 前无法预知是同一内容；真实提交返回相同 hash 后，
+        # 投递层必须因 E3 仍受旧快照解释而拒绝挂接，并保持旧快照不变。
+        guarded = await evaluate_and_dispatch(session, [mirror], source="主动搜索")
+        wanted = await _wanted_map(session, sub_id)
+        attempt = (
+            await session.execute(
+                select(SubscriptionDownloadAttempt).where(
+                    SubscriptionDownloadAttempt.subscription_id == sub_id
+                )
+            )
+        ).scalar_one()
+        assert guarded.dispatched_units == 0
+        assert submitted_mappings == [new_mapping]
+        assert attempt.submission["season_mapping"] == old_mapping
+        assert wanted[(2, 5)].status == WantedStatus.WANTED
 
         # 旧快照负责的单元结束后，重投同一 hash；此时必须换成新映射。
         wanted[(2, 3)].status = WantedStatus.IMPORTED
         session.add(wanted[(2, 3)])
         await session.commit()
-        retried = await evaluate_and_dispatch(session, [torrent], source="主动搜索")
+        retried = await evaluate_and_dispatch(session, [mirror], source="主动搜索")
         wanted = await _wanted_map(session, sub_id)
         attempt = (
             await session.execute(
@@ -713,26 +863,28 @@ async def test_partial_unit_unresolved_replaces_snapshot_before_same_hash_retry(
             )
         ).scalar_one()
         assert retried.dispatched_units == 1
-        assert submitted_mappings == [new_mapping]
+        assert submitted_mappings == [new_mapping, new_mapping]
         assert attempt.submission["season_mapping"] == new_mapping
-        assert wanted[(2, 4)].status == WantedStatus.GRABBED
-        wanted[(2, 4)].grabbed_at = utcnow() - timedelta(minutes=25)
-        session.add(wanted[(2, 4)])
+        assert wanted[(2, 5)].status == WantedStatus.GRABBED
+        wanted[(2, 5)].grabbed_at = utcnow() - timedelta(minutes=25)
+        session.add(wanted[(2, 5)])
         await session.commit()
 
     # 新映射下再次证伪会写入新版本记忆；同一来源不再完成→退回→重选。
     await _rescue_group(sub_id, _HASH, [(object(), object())])
     async with db.session() as session:
-        torrent = (
+        mirror = (
             await session.execute(
-                select(SiteTorrent).where(SiteTorrent.torrent_id == "partial-bad-unit")
+                select(SiteTorrent).where(
+                    SiteTorrent.torrent_id == "partial-bad-unit-mirror"
+                )
             )
         ).scalar_one()
-        repeated = await evaluate_and_dispatch(session, [torrent], source="主动搜索")
+        repeated = await evaluate_and_dispatch(session, [mirror], source="主动搜索")
         wanted = await _wanted_map(session, sub_id)
         assert repeated.dispatched_units == 0
-        assert submitted_mappings == [new_mapping]
-        assert wanted[(2, 4)].status == WantedStatus.WANTED
+        assert submitted_mappings == [new_mapping, new_mapping]
+        assert wanted[(2, 5)].status == WantedStatus.WANTED
 
 
 @pytest.mark.asyncio
