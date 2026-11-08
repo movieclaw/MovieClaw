@@ -50,7 +50,7 @@
       "cleanupCacheEntriesTitle": "清理过期的持久缓存",
       "cleanupCacheEntriesDescription": "删除 cache_entry 表中超过最长可用期的缓存行，防止缓存表无限增长。",
       "matchNewTorrentsTitle": "订阅被动匹配（兜底扫描）",
-      "matchNewTorrentsDescription": "低频兜底：扫描种子索引中水位之后的新种子并匹配订阅缺口，并全量重算追新发布预测。主触发在站点同步任务尾部（零延迟），本任务只兜进程重启/同步异常的漏网。",
+      "matchNewTorrentsDescription": "低频兜底：扫描种子索引中水位之后的新种子或刷新行并匹配订阅缺口，并全量重算追新发布预测。主触发在站点同步任务尾部（零延迟），本任务只兜进程重启/同步异常的漏网。",
       "downloadSourcesOrphanSweepTitle": "下载来源记录清扫",
       "downloadSourcesOrphanSweepDescription": "库文件已删除、满 7 天仍没被处理的下载来源记录，清掉",
       "ratioBoostTitle": "自动刷分享率",

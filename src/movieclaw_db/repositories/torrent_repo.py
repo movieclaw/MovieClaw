@@ -16,7 +16,6 @@ from datetime import UTC, datetime, timedelta
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 
 from movieclaw_db.models.base import utcnow
@@ -412,12 +411,9 @@ class TorrentRepository:
         row.updated_at = now
         if rematch:
             row.rematch_revision += 1
-            if row.rematch_enqueued_at is None:
-                row.rematch_enqueued_at = now
-            else:
-                # 并发消费者可能在本事务读行后清空标记；强制把原入队时间写回，
-                # 保证本次新 revision 不会因 ORM 认为“值没变”而丢失待处理状态。
-                flag_modified(row, "rematch_enqueued_at")
+            # 每次真实变化都移到队尾。评估与条件 ack 之间若再变化，revision 会
+            # 阻止旧消费者清标；更新时间则保证这批热行不会永远挡住更早的尾项。
+            row.rematch_enqueued_at = now
 
     def _apply_volatile(self, row: SiteTorrent, obs: TorrentObservation, now: datetime) -> None:
         """写入易变层：只覆盖本次观测到（非 None）的字段。"""
@@ -572,6 +568,18 @@ class TorrentRepository:
 
 def _match_relevant_changed(row: SiteTorrent, obs: TorrentObservation) -> bool:
     """本次观测是否实际改变了规则或选优会读取的同步字段。"""
+    # 这些字段遵循“旧值为空才补”的静态层语义；只按真正会落库的变化入队。
+    for name in ("subtitle", "category", "size_bytes", "publish_time", "download_url"):
+        observed = getattr(obs, name)
+        if observed not in (None, "") and _is_empty(getattr(row, name)):
+            return True
+    if obs.attrs is not None and obs.attrs != row.attrs:
+        return True
+    if obs.source is TorrentSource.DETAIL:
+        if obs.imdb_id and obs.imdb_id != row.imdb_id:
+            return True
+        if obs.douban_id and obs.douban_id != row.douban_id:
+            return True
     if obs.seeders is not None and obs.seeders != row.seeders:
         return True
     if obs.download_volume_factor is not None:

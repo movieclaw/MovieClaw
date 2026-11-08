@@ -2993,7 +2993,7 @@
   "settings.scheduledTasks.catalog.libraryRecycleOrphanSweepTitle": "回收站孤儿清扫",
   "settings.scheduledTasks.catalog.libraryRecyclePurgeDescription": "删除超过保留期的待回收文件；待回收期间已消失的行顺带收敛",
   "settings.scheduledTasks.catalog.libraryRecyclePurgeTitle": "回收站到期清理",
-  "settings.scheduledTasks.catalog.matchNewTorrentsDescription": "低频兜底：扫描种子索引中水位之后的新种子并匹配订阅缺口，并全量重算追新发布预测。主触发在站点同步任务尾部（零延迟），本任务只兜进程重启/同步异常的漏网。",
+  "settings.scheduledTasks.catalog.matchNewTorrentsDescription": "低频兜底：扫描种子索引中水位之后的新种子或刷新行并匹配订阅缺口，并全量重算追新发布预测。主触发在站点同步任务尾部（零延迟），本任务只兜进程重启/同步异常的漏网。",
   "settings.scheduledTasks.catalog.matchNewTorrentsTitle": "订阅被动匹配（兜底扫描）",
   "settings.scheduledTasks.catalog.ratioBoostDescription": "盯各开启刷流站点的免费新种，第一时间抢下做种提高分享率；在站点各自的存储预算内自动汰换上传效率低的任务。",
   "settings.scheduledTasks.catalog.ratioBoostTitle": "自动刷分享率",

@@ -137,7 +137,7 @@ async def _process_locked() -> None:
 
 
 async def _process_rematch_queue() -> None:
-    """按首次入队顺序重评一批实际变化的旧行。"""
+    """按待处理变化时间重评一批实际变化的旧行。"""
     async with get_database().session() as session:
         result = await session.execute(
             select(SiteTorrent)
