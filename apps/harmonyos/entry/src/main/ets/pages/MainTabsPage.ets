@@ -82,6 +82,8 @@ export struct MainTabsPage {
   @Local private tabBarStyle: TabBarStyle = TabBarStyle.shared();
   /** 内容往下滚后底栏收成圆形按钮的信号（各页签根页在滚动时上报） */
   @Local private collapse: TabBarCollapse = TabBarCollapse.shared();
+  /** 收起态圆钮的按压反馈：按下缩到 0.92、松手弹回 */
+  @Local private expandPressed: boolean = false;
 
   /** App 已在跑又点了一条分享链接：推到当前页签的栈上（iOS 同款行为） */
   @Monitor('shareRouter.pendingSlug')
@@ -370,10 +372,28 @@ export struct MainTabsPage {
     return { icon: $r('sys.symbol.person_crop_circle_fill'), title: '我的' };
   }
 
-  /** 悬浮底栏的页签栏宽度（vp）：给「接着看」条对齐用，与 barFloatingStyle.barWidth 同一口径 */
+  /**
+   * 悬浮底栏的页签栏宽度（vp）：给「接着看」条对齐用，与 barFloatingStyle.barWidth 同一口径。
+   * 华为《底部页签》规范（居中布局）：宽度随页签数量与窗口宽度分档，不推荐固定宽度——
+   * ≥5 个上限 360、4 个上限 328；3 个固定 248/272、2 个固定 168/184（600 断点切换）。
+   */
   private tabBarWidth(): number {
     const screenVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
-    return Math.min(364, screenVp - 32);
+    const available: number = screenVp - 32;
+    const count: number = this.visibleTabs().length;
+    if (count >= 5) {
+      return Math.min(360, available);
+    }
+    if (count === 4) {
+      return Math.min(328, available);
+    }
+    if (count === 3) {
+      return Math.min(screenVp < 600 ? 248 : 272, available);
+    }
+    if (count === 2) {
+      return Math.min(screenVp < 600 ? 168 : 184, available);
+    }
+    return available;
   }
 
   /** 「接着看」条左边界：悬浮模式下与居中的页签栏左缘对齐，否则页面 16 边距 */
@@ -417,33 +437,35 @@ export struct MainTabsPage {
     return ImageUrls.resolve(AppModel.origin(), this.model.session?.avatar_url ?? null, null) ?? '';
   }
 
+  /** 图标统一 24vp（规范默认尺寸）；SymbolGlyph 页签选中时向下弹跳（规范推荐 BounceSymbolEffect），imageIcon/头像不走 Symbol 渲染、保持静态 */
   @Builder
-  TabIcon(tab: AppTabItem) {
+  TabIcon(tab: AppTabItem, selected: boolean) {
     if (tab.title === '我的') {
       Stack() {
         Text(Permissions.initialsOf(this.model.session?.nickname ?? ''))
-          .fontSize(13)
+          .fontSize(12)
           .fontWeight(FontWeight.Bold)
           .fontColor(Theme.bg)
         if (this.avatarUrl().length > 0) {
           RemoteImage({ url: this.avatarUrl(), placeholderSymbol: $r('sys.symbol.person_crop_circle_fill') })
-            .width(26).height(26)
+            .width(24).height(24)
         }
       }
-      .width(26).height(26).borderRadius(13).clip(true)
+      .width(24).height(24).borderRadius(12).clip(true)
       .linearGradient({ angle: 180, colors: [[Theme.accentStrong, 0], [Theme.accent2, 1]] })
       .id('app-tab-avatar')
     } else if (tab.imageIcon !== undefined) {
-      Image(tab.imageIcon).width(26).height(26).fillColor(Theme.accentStrong)
+      Image(tab.imageIcon).width(24).height(24).fillColor(Theme.accentStrong)
     } else {
-      SymbolGlyph(tab.icon).fontSize(26).fontColor([Theme.accentStrong])
+      SymbolGlyph(tab.icon).fontSize(24).fontColor([Theme.accentStrong])
+        .symbolEffect(new BounceSymbolEffect(EffectScope.LAYER, EffectDirection.DOWN), selected)
     }
   }
 
   @Builder
   TabLabel(tab: AppTabItem, index: number) {
     Column({ space: 2 }) {
-      this.TabIcon(tab)
+      this.TabIcon(tab, this.currentTab === index)
       if (!this.tabBarStyle.floating) {
         Text(tab.title).fontSize(10).fontColor(Theme.accentStrong)
       }
@@ -465,13 +487,34 @@ export struct MainTabsPage {
       if (this.compactTabs()) {
         Row() {
           Row() {
-            this.TabIcon(this.visibleTabs()[this.currentTab])
+            this.TabIcon(this.visibleTabs()[this.currentTab], true)
           }
           .width(56).height(56).justifyContent(FlexAlign.Center)
-          .backgroundColor(Theme.surfaceRaised).backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-          .border({ width: 0.5, color: Theme.lineStrong }).borderRadius(28)
+          /*
+           * 材质与「接着看」条同一套（深色玻璃 + 厚模糊 + 空间化材质 + 1px 细边 + 投影）：
+           * 收起后两者并排在底部，观感一致。进出场补缩放 + 淡入淡出，与 ResumeBar 的
+           * 320ms FastOutSlowIn 同节奏，消除圆钮瞬间弹出的突兀感；按压缩放提供点按反馈。
+           */
+          .backgroundColor('rgba(18, 21, 27, 0.94)')
+          .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+          .systemMaterial(SpatialMaterial.floating())
+          .borderRadius(28)
+          .border({ width: 1, color: 'rgba(255, 255, 255, 0.10)' })
+          .shadow({ radius: 22, color: 'rgba(0, 0, 0, 0.45)', offsetX: 0, offsetY: 8 })
+          .scale({ x: this.expandPressed ? 0.92 : 1, y: this.expandPressed ? 0.92 : 1 })
+          .animation({ duration: 120, curve: Curve.FastOutSlowIn })
+          .transition(TransitionEffect.OPACITY
+            .combine(TransitionEffect.scale({ x: 0.55, y: 0.55 }))
+            .animation({ duration: 320, curve: Curve.FastOutSlowIn }))
           .id('app-tabs-expand')
           .accessibilityText('展开底部导航')
+          .onTouch((event: TouchEvent): void => {
+            if (event.type === TouchType.Down) {
+              this.expandPressed = true;
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.expandPressed = false;
+            }
+          })
           .onClick((): void => { this.collapse.expand(); })
           Blank()
         }
@@ -492,12 +535,12 @@ export struct MainTabsPage {
             left: this.compactTabs() ? this.resumeCompactLeft() : this.resumeBarLeft(),
             right: this.compactTabs() ? this.resumeCompactRight() : this.resumeBarRight(),
             /*
-             * 展开：底栏高度（悬浮 56+12 / 贴底 56）+ 手势区，再留 12 呼吸；
+             * 展开：底栏高度（悬浮 56+12 / 贴底 48）+ 手势区，再留 12 呼吸；
              * 收起：与底栏圆钮同一条水平线（抬起 12 + 手势区）。
              */
             bottom: this.compactTabs()
               ? 12 + WindowInsets.shared().bottom
-              : (this.tabBarStyle.floating ? 56 + 12 : 56) + WindowInsets.shared().bottom + 12
+              : (this.tabBarStyle.floating ? 56 + 12 : 48) + WindowInsets.shared().bottom + 12
           })
           .id('app-resume-bar')
           .onAppear((): void => { this.syncAccessoryInset(); })
@@ -559,16 +602,18 @@ export struct MainTabsPage {
       }, (tab: AppTabItem, index: number) => `${tab.title}-${index}`)
     }
     .scrollable(false)
-    // 栏高固定 56：悬浮样式的默认值就是 56，贴底模式也按同一个口径（见 Theme.tabBarInset）
-    .barHeight(56)
+    // 栏高：悬浮 56（组件默认）/ 平铺 48（规范平铺式默认高度），Theme.tabBarInset 同口径
+    .barHeight(this.tabBarStyle.floating ? 56 : 48)
     /*
      * 悬浮样式（设置里的「底栏样式」）：官方要求 barPosition=End、vertical=false、
-     * barOverlap=true；切到经典贴底栏时不给 barFloatingStyle，走官方默认整宽底栏。
+     * barOverlap=true；经典贴底栏同样让内容铺到栏下，背景保持透明以透出 HdsTabs
+     * 默认的背板模糊 + 分割线（规范「平铺式适配炫彩透光模糊材质」），不给
+     * barFloatingStyle 即走官方默认整宽底栏。
      */
-    .barOverlap(this.tabBarStyle.floating)
+    .barOverlap(true)
     .vertical(false)
     .barFloatingStyle(this.tabBarStyle.floating ? this.floatingStyle() : undefined)
-    .barBackgroundColor(this.tabBarStyle.floating ? Color.Transparent : Theme.surfaceRaised)
+    .barBackgroundColor(Color.Transparent)
     .onChange((index: number) => {
       this.currentTab = index;
       const title: string = this.visibleTabs()[index].title;

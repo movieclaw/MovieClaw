@@ -1,4 +1,5 @@
 import { Theme } from '../theme/AppTheme';
+import { trackLanguageLabel } from '../common/LanguageLabels';
 import {
   AudioStreamView,
   LibraryFileView,
@@ -6,26 +7,15 @@ import {
   TrackDefaultsView
 } from '../api/Models';
 
-/** 轨道语言的中文名（同 iOS TrackModel.languageLabels 的常用子集）；未收录的回退原码 */
-const LANGUAGE_LABELS: Record<string, string> = {
-  'chs': '简体中文', 'cht': '繁体中文', 'chi': '中文', 'zho': '中文', 'cmn': '中文',
-  'yue': '粤语', 'eng': '英语', 'jpn': '日语', 'kor': '韩语', 'fre': '法语', 'fra': '法语',
-  'ger': '德语', 'deu': '德语', 'spa': '西班牙语', 'rus': '俄语', 'ita': '意大利语',
-  'por': '葡萄牙语', 'tha': '泰语', 'hin': '印地语'
-};
-
 /** 音轨编码 → 用户认知的读法（同 iOS audioCodecLabels） */
 const AUDIO_CODEC_LABELS: Record<string, string> = {
   'aac': 'AAC', 'ac3': 'Dolby Digital', 'eac3': 'Dolby Digital+', 'truehd': 'Dolby TrueHD',
   'dts': 'DTS', 'flac': 'FLAC', 'opus': 'Opus', 'mp3': 'MP3', 'vorbis': 'Vorbis'
 };
 
+/** 语言中文名走 common/LanguageLabels（与播放器轨菜单共用一份）；未标给占位文案 */
 function languageLabel(code: string | null | undefined): string {
-  if (code === null || code === undefined || code.length === 0 || code === 'und') {
-    return '未标语言';
-  }
-  const label: string | undefined = LANGUAGE_LABELS[code.toLowerCase()];
-  return label !== undefined ? label : code;
+  return trackLanguageLabel(code) ?? '未标语言';
 }
 
 function audioCodecName(codec: string | null | undefined): string {

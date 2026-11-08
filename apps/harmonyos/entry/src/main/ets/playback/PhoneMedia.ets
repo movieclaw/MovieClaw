@@ -2,6 +2,7 @@ import { http } from '@kit.NetworkKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { util } from '@kit.ArkTS';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { EngineSource, EngineFailure, EngineId } from '@movieclaw/player-engine';
 import { assToSrt, MediaLease, PlaybackMedia, shiftSubtitleTimeline } from '@movieclaw/playback';
 import { OfflineDisk } from '../offline/OfflineDisk';
@@ -146,6 +147,78 @@ export class PhoneMedia implements PlaybackMedia {
     } finally { request.destroy(); }
   }
 
+}
+
+/** PGS 旁挂 .sup 的会话内缓存：一次下载，重挂/切引擎复用；换文件/换轨作废。 */
+export interface PgsSidecarCache {
+  fileId: number;
+  ref: string;
+  path: string;
+}
+
+let pgsSidecarSequence: number = 0;
+
+/** 回收 PGS 旁挂临时文件（尽力而为；文件仍被引擎持有 fd 时 unlink 也安全）。 */
+export function removePgsSidecar(path: string): void {
+  if (path.length === 0) { return; }
+  try { fileIo.unlinkSync(path); }
+  catch (error) { hilog.warn(0x0000, 'MCSub', 'PGS 旁挂回收失败: %{public}s', `${error}`); }
+}
+
+/**
+ * 后台下载 PGS 旁挂 .sup（网页 libbitsub + fetchSupBytes 的客户端同款路径）。
+ * `requestInStream` 分块落盘，绕开 NETSTACK 内存响应的大小上限（PGS 整轨可达
+ * 几十 MB，12:33 那次 ARRAY_BUFFER 下载正是死在上限上）。服务端首次要通读容器
+ * 抽取、抽完才回包，空窗可能几分钟：readTimeout 给足 10 分钟，对齐网页「一次
+ * 连通等到抽完」的语义（浏览器 fetch 没有首字节超时，nginx 的 proxy_read_timeout
+ * 才是真实上限；客户端断开会反过来取消服务端抽取，读超时绝不能给短）。
+ */
+export async function downloadPgsSidecar(url: string, cacheDirectory: string): Promise<string> {
+  const session = http.createHttp();
+  let file: fileIo.File | null = null;
+  let path: string = '';
+  let received: number = 0;
+  let magicChecked: boolean = false;
+  let magicValid: boolean = false;
+  try {
+    session.on('dataReceive', (chunk: ArrayBuffer): void => {
+      if (!magicChecked) {
+        magicChecked = true;
+        const bytes = new Uint8Array(chunk);
+        magicValid = chunk.byteLength >= 2 && bytes[0] === 0x50 && bytes[1] === 0x47;
+      }
+      if (!magicValid) { return; }
+      if (file === null) {
+        path = `${cacheDirectory}/playback-pgs-${Date.now()}-${pgsSidecarSequence++}.sup`;
+        file = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
+      }
+      fileIo.writeSync(file.fd, chunk);
+      received += chunk.byteLength;
+    });
+    const code: number = await new Promise<number>(
+      (resolve: (value: number) => void,
+        reject: (reason: BusinessError) => void): void => {
+        session.requestInStream(url, { method: http.RequestMethod.GET,
+          connectTimeout: 10000, readTimeout: 600000 }, (error: BusinessError, data: number): void => {
+          if (error !== null && error !== undefined) { reject(error); } else { resolve(data); }
+        });
+      });
+    if (code !== 200 || !magicValid || received <= 0) {
+      throw new EngineFailure('network', code, `图形字幕下载失败（${code}）`);
+    }
+    hilog.info(0x0000, 'MCSub', '%{public}s', `PGS 旁挂下载完成: ${received} 字节`);
+    return path;
+  } catch (error) {
+    const failure: EngineFailure = error instanceof EngineFailure ? error
+      : new EngineFailure('network', 0, '图形字幕下载失败');
+    if (file !== null) { fileIo.closeSync(file); file = null; }
+    removePgsSidecar(path);
+    throw failure;
+  } finally {
+    session.off('dataReceive');
+    session.destroy();
+    if (file !== null) { fileIo.closeSync(file); }
+  }
 }
 
 export function playbackUrl(origin: string, path: string): string {
