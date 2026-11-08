@@ -15,7 +15,7 @@ import {
   UiPreferencesSetting,
   UiPreferencesSettingInput
 } from '../api/Models';
-import { HomeRow, HomeRows, LibraryRowKind, CollectionRowKind } from './HomeRows';
+import { HomeRow, HomeRows, LibraryRowKind, CollectionRowKind, MediaKindRowKind } from './HomeRows';
 
 /** 一行在编辑态的样子：展示用 + 可编辑的偏好 */
 class EditableRow {
@@ -53,6 +53,19 @@ class AddGroup {
   }
 }
 
+/** 「添加一行」里按类型的候选：全部电影 / 全部剧集 / 全部视频 */
+class KindChoice {
+  readonly kind: string;
+  readonly label: string;
+  readonly libraryCount: number;
+
+  constructor(kind: string, label: string, libraryCount: number) {
+    this.kind = kind;
+    this.label = label;
+    this.libraryCount = libraryCount;
+  }
+}
+
 /**
  * 自定义首页（对应 iOS `LibraryCustomizeView` / Web `library-customize-view`）。
  *
@@ -74,6 +87,7 @@ export struct LibraryCustomizeSheet {
   @Local private rows: EditableRow[] = [];
   @Local private libraries: LibraryView[] = [];
   @Local private collections: CollectionView[] = [];
+  @Local private kindChoices: KindChoice[] = [];
   @Local private loading: boolean = true;
   @Local private errorMessage: string = '';
   @Local private saving: boolean = false;
@@ -119,6 +133,7 @@ export struct LibraryCustomizeSheet {
       const cols: CollectionView[] = await api.collectionList(undefined, undefined, true);
       this.libraries = libs;
       this.collections = cols;
+      this.kindChoices = LibraryCustomizeSheet.kindChoicesOf(libs);
       this.rebuild(prefs.home.rows ?? []);
       this.errorMessage = '';
     } catch (error) {
@@ -128,10 +143,11 @@ export struct LibraryCustomizeSheet {
     }
   }
 
-  /** 用偏好 + 库/合集清单算出可编辑的行列表（同首页那套 `HomeRows.build`） */
+  /** 未展示的行存原清单与可编辑 id：保存时 `HomeRows.preserveUnsupportedRows` 按原位置插回 */
   private originalRows: HomeRowPref[] = [];
   private editableIds: string[] = [];
 
+  /** 用偏好 + 库/合集清单算出可编辑的行列表（同首页那套 `HomeRows.build`） */
   private rebuild(prefs: HomeRowPref[]): void {
     const built: HomeRow[] = HomeRows.build(prefs, this.libraries, this.collections);
     const out: EditableRow[] = [];
@@ -139,9 +155,8 @@ export struct LibraryCustomizeSheet {
       out.push(new EditableRow(row, this.prefOf(prefs, row.id)));
     }
     this.rows = out;
-    const editableIds: string[] = built.map((row: HomeRow): string => row.id);
     this.originalRows = prefs.slice();
-    this.editableIds = editableIds;
+    this.editableIds = built.map((row: HomeRow): string => row.id);
   }
 
   private prefOf(prefs: HomeRowPref[], id: string): HomeRowPref {
@@ -151,7 +166,7 @@ export struct LibraryCustomizeSheet {
       }
     }
     const fresh: HomeRowPref = { id: id, sort: null, order: null, name: null,
-      unwatched: null, hidden: null, library_id: null, collection_id: null };
+      unwatched: null, unfinished: null, hidden: null, library_id: null, collection_id: null, media_kind: null };
     return fresh;
   }
 
@@ -167,22 +182,12 @@ export struct LibraryCustomizeSheet {
 
   private currentPrefs(): HomeRowPrefInput[] {
     const out: HomeRowPrefInput[] = [];
+    // 未展示的行按原位置插回：编辑不能改变其它客户端的首页顺序（同 iOS / Web）
     const rows: HomeRowPref[] = HomeRows.preserveUnsupportedRows(
       this.rows.map((row: EditableRow): HomeRowPref => row.pref), this.originalRows, this.editableIds);
     for (const item of rows) {
-      const pref: HomeRowPrefInput = {
-        id: item.id,
-        sort: item.sort ?? null,
-        order: item.order ?? null,
-        name: item.name ?? null,
-        unwatched: item.unwatched ?? null,
-        unfinished: item.unfinished ?? null,
-        hidden: item.hidden ?? null,
-        library_id: item.library_id ?? null,
-        collection_id: item.collection_id ?? null,
-        media_kind: item.media_kind ?? null
-      };
-      out.push(pref);
+      // 逐字段拷贝（含 unfinished / media_kind）：漏一个字段，整份 PUT 会把那一项丢掉
+      out.push(HomeRows.prefInputOf(item));
     }
     return out;
   }
@@ -251,15 +256,6 @@ export struct LibraryCustomizeSheet {
     this.scheduleSave();
   }
 
-  private setWatch(index: number, watch: string): void {
-    const item: EditableRow = this.rows[index];
-    item.pref.unwatched = watch === 'unwatched';
-    item.pref.unfinished = watch === 'unfinished';
-    this.rebuild(HomeRows.preserveUnsupportedRows(
-      this.rows.map((row: EditableRow): HomeRowPref => row.pref), this.originalRows, this.editableIds));
-    this.scheduleSave();
-  }
-
   private move(index: number, delta: number): void {
     const target: number = index + delta;
     if (target < 0 || target >= this.rows.length) {
@@ -269,6 +265,16 @@ export struct LibraryCustomizeSheet {
     const moved: EditableRow = copy.splice(index, 1)[0];
     copy.splice(target, 0, moved);
     this.rows = copy;
+    this.scheduleSave();
+  }
+
+  /** 库行的观看口径三态：全部 / 只看没看过的 / 只看没看完的（互斥，未看完优先） */
+  private setWatch(index: number, watch: string): void {
+    const item: EditableRow = this.rows[index];
+    item.pref.unwatched = watch === 'unwatched';
+    item.pref.unfinished = watch === 'unfinished';
+    this.rebuild(HomeRows.preserveUnsupportedRows(
+      this.rows.map((row: EditableRow): HomeRowPref => row.pref), this.originalRows, this.editableIds));
     this.scheduleSave();
   }
 
@@ -282,9 +288,9 @@ export struct LibraryCustomizeSheet {
       }
     }
     const pref: HomeRowPref = { id: id, sort: null, order: null, name: null,
-      unwatched: null, hidden: null, library_id: library.id, collection_id: null };
+      unwatched: null, unfinished: null, hidden: null, library_id: library.id, collection_id: null, media_kind: null };
     this.rows.push(new EditableRow(
-      new HomeRow(id, false, new LibraryRowKind(library, '', false, false, '', false)), pref));
+      new HomeRow(id, false, new LibraryRowKind(library, '', false, false, false, '', false)), pref));
     this.showAdd = false;
     this.scheduleSave();
   }
@@ -298,9 +304,40 @@ export struct LibraryCustomizeSheet {
       }
     }
     const pref: HomeRowPref = { id: id, sort: null, order: null, name: null,
-      unwatched: null, hidden: null, library_id: null, collection_id: collection.id };
+      unwatched: null, unfinished: null, hidden: null, library_id: null, collection_id: collection.id, media_kind: null };
     this.rows.push(new EditableRow(
       new HomeRow(id, false, new CollectionRowKind(collection, '', false, '')), pref));
+    this.showAdd = false;
+    this.scheduleSave();
+  }
+
+  /** 「添加一行」的类型候选：同类型的库合成一行（iOS：类型排最前，「全部电影」是比单个库更大的来源） */
+  private static kindChoicesOf(libraries: LibraryView[]): KindChoice[] {
+    const groups: Map<string, LibraryView[]> = HomeRows.mediaKindGroups(libraries);
+    const out: KindChoice[] = [];
+    for (const kind of HomeRows.mediaKinds) {
+      const members: LibraryView[] | undefined = groups.get(kind);
+      if (members !== undefined) {
+        out.push(new KindChoice(kind, HomeRows.kindLabel(kind), members.length));
+      }
+    }
+    return out;
+  }
+
+  /** 添加一行「全部电影 / 全部剧集 / 全部视频」：同一类型只加一条 */
+  private addMediaKindRow(choice: KindChoice): void {
+    for (const item of this.rows) {
+      const kind = item.row.kind;
+      if (kind instanceof MediaKindRowKind && kind.kind === choice.kind) {
+        this.toast('这一行已经在首页上了');
+        return;
+      }
+    }
+    const row: HomeRow = HomeRows.newMediaKindRow(HomeRows.newRowId(),
+      choice.kind, choice.libraryCount);
+    const pref: HomeRowPref = { id: row.id, sort: null, order: null, name: null,
+      unwatched: null, unfinished: null, hidden: null, library_id: null, collection_id: null, media_kind: choice.kind };
+    this.rows.push(new EditableRow(row, pref));
     this.showAdd = false;
     this.scheduleSave();
   }
@@ -332,10 +369,16 @@ export struct LibraryCustomizeSheet {
     const kind = item.row.kind;
     if (kind instanceof LibraryRowKind) {
       parts.push(kind.library.name);
-      if (kind.unfinished) { parts.push('未看完'); } else if (kind.unwatched) { parts.push('未看'); }
       if (kind.sort.length > 0) {
         parts.push(HomeRows.preset(kind.sort).name(kind.library.name, kind.reversed));
       }
+      this.pushWatchLabel(parts, kind.unfinished, kind.unwatched);
+    } else if (kind instanceof MediaKindRowKind) {
+      parts.push(`全部${HomeRows.kindLabel(kind.kind)}（${kind.libraryCount} 个库）`);
+      if (kind.sort.length > 0) {
+        parts.push(HomeRows.preset(kind.sort).short(kind.reversed));
+      }
+      this.pushWatchLabel(parts, kind.unfinished, kind.unwatched);
     } else if (kind instanceof CollectionRowKind) {
       parts.push('合集');
     } else {
@@ -345,6 +388,15 @@ export struct LibraryCustomizeSheet {
       parts.push('已隐藏');
     }
     return parts.join('  ·  ');
+  }
+
+  /** 小字里的观看口径标签：「未看完」优先于「只看没看过的」（同 Web rowMeta / zh-Hans 文案） */
+  private pushWatchLabel(parts: string[], unfinished: boolean, unwatched: boolean): void {
+    if (unfinished) {
+      parts.push('未看完');
+    } else if (unwatched) {
+      parts.push('只看没看过的');
+    }
   }
 
   // MARK: 视图
@@ -567,6 +619,24 @@ export struct LibraryCustomizeSheet {
         .padding({ top: 16, bottom: 10 })
       Scroll() {
         Column({ space: 16 }) {
+          Column({ space: 8 }) {
+            Text('按类型')
+              .fontSize(13)
+              .fontColor(Theme.textFaint)
+              .width('100%')
+            Text('同类型的库合成一行，同一部片只出现一次。')
+              .fontSize(12)
+              .fontColor(Theme.textFaint)
+              .width('100%')
+            ForEach(this.kindChoices, (choice: KindChoice) => {
+              this.AddRow(`全部${choice.label}`, `${choice.libraryCount} 个库`, (): void => {
+                this.addMediaKindRow(choice);
+              })
+            }, (choice: KindChoice) => `kind-${choice.kind}`)
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+
           Column({ space: 8 }) {
             Text('按媒体库')
               .fontSize(13)

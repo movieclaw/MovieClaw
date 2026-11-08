@@ -17,6 +17,7 @@ import {
   HomeRows,
   LibrariesKind,
   LibraryRowKind,
+  MediaKindRowKind,
   UpNextKind
 } from './HomeRows';
 
@@ -378,6 +379,10 @@ export class LibraryHomeStore {
       const kind = row.kind;
       return `col:${kind.collection.id}:${kind.sort}:${kind.reversed}`;
     }
+    if (row.kind instanceof MediaKindRowKind) {
+      const kind = row.kind;
+      return `kind:${kind.kind}:${kind.sort}:${kind.reversed}:${kind.unwatched}`;
+    }
     return row.id;
   }
 
@@ -495,6 +500,18 @@ export class LibraryHomeStore {
         const sort: string = kind.sort;
         fetches.set(LibraryHomeStore.fetchKey(row), (): Promise<LibraryItemView[]> =>
           api.collectionItemsList(id, limit, undefined, sort, order));
+      } else if (row.kind instanceof MediaKindRowKind) {
+        const kind = row.kind;
+        // 「最近观看」行只要播过的（w=seen）
+        const watch: string | undefined =
+          kind.sort === 'last_played' ? 'seen' : (kind.unwatched ? 'unwatched' : undefined);
+        const order: string | undefined =
+          HomeRows.preset(kind.sort).direction?.orderParam(kind.reversed) ?? undefined;
+        const mediaKind: string = kind.kind;
+        const sort: string = kind.sort;
+        fetches.set(LibraryHomeStore.fetchKey(row), (): Promise<LibraryItemView[]> =>
+          api.uiLibraryKindItems(mediaKind, sort, order, limit, undefined, undefined,
+            undefined, undefined, watch));
       } else if (row.kind instanceof LibrariesKind) {
         // 库卡片封面与默认的「最近添加」行共用一份条目
         for (const library of libs) {

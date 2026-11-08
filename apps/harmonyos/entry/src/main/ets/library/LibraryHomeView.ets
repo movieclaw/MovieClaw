@@ -6,6 +6,7 @@ import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { ApiClient, ApiError, ApiQuery, QueryPair } from '../api/ApiClient';
+import { MovieClawApi } from '../api/Endpoints';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls, ImageVariant } from '../common/ImageUrls';
 import { AppFooter } from '../common/AppFooter';
@@ -14,6 +15,7 @@ import {
   FavoriteItemView,
   HomeRowPref,
   LibraryItemView,
+  LibraryKindGenreView,
   LibraryView,
   PlaybackHistoryClearView,
   UpNextItemView
@@ -21,6 +23,7 @@ import {
 import { LibraryHomePrefs, LibraryHomeStore } from './LibraryHomeStore';
 import { LibraryCustomizeSheet } from './LibraryCustomizeSheet';
 import { LibraryRouteParams } from './LibraryRouteParams';
+import { KindWallParams } from './LibraryKindWallPage';
 import { CollectionRouteParams } from './CollectionDetailPage';
 import { PlayerParams } from '../player/PlayerParams';
 import { ChatParams } from '../agent/ChatParams';
@@ -33,10 +36,12 @@ import { ItemRouteParams } from './LibraryItemDetailPage';
 import {
   CollectionRowKind,
   FavoritesKind,
+  GenresKind,
   HomeRow,
   HomeRows,
   LibrariesKind,
   LibraryRowKind,
+  MediaKindRowKind,
   UpNextKind
 } from './HomeRows';
 import {
@@ -436,6 +441,8 @@ export struct LibraryHomeView {
   @State private favoritesItems: PosterRowItem[] = [];
   @State private favoritesTotal: number = 0;
   @State private rowItems: Record<string, LibraryItemView[]> = {};
+  /** 「按类型找」行各自的类型格子（按 kind 存；服务端按部数排好） */
+  @State private genresByKind: Record<string, LibraryKindGenreView[]> = {};
   @State private rows: HomeRow[] = [];
   @State private failed: boolean = false;
   /** 扫描/整理结束后的 12 秒快轮询窗口还没过（同 Web recentlyBusy） */
@@ -446,6 +453,8 @@ export struct LibraryHomeView {
   @State private clearingBusy: boolean = false;
   /** 轮询定时器句柄；-1 = 没在轮询 */
   private pollTimer: number = -1;
+  /** 已取到类型分布的 kind（失败不记，下一轮轮询重试） */
+  private genreLoadedKinds: string[] = [];
   /** 竖向列表的滚动器（外层 Scroll 换成 List 后保留，口径不变） */
   /** 首页 List 的滚动器（宿主 bindToScrollable 要用同一个实例驱动标题栏显隐） */
   scroller: Scroller = new Scroller();
@@ -478,6 +487,7 @@ export struct LibraryHomeView {
     this.syncFromStore();
     await settled;
     this.syncFromStore();
+    this.loadGenres(api);
     this.scheduleNextPoll();
   }
 
@@ -505,6 +515,72 @@ export struct LibraryHomeView {
     });
     this.rowItems = record;
     this.rowSource.setRows(this.rows);
+  }
+
+  // MARK: 「按类型找」行
+
+  /** 「按类型找电影 / 剧集」行各自的类型格子（并发取，TV 端 loadGenres 同款） */
+  private loadGenres(api: MovieClawApi): void {
+    const kinds: string[] = [];
+    for (const row of this.rows) {
+      if (row.kind instanceof GenresKind) {
+        const kind: string = row.kind.kind;
+        if (!kinds.includes(kind)) {
+          kinds.push(kind);
+        }
+      }
+    }
+    for (const kind of kinds) {
+      // 已取到的不重复取；失败的回滚记账，下一轮轮询再试
+      if (this.genreLoadedKinds.includes(kind)) {
+        continue;
+      }
+      this.genreLoadedKinds.push(kind);
+      api.uiLibraryKindGenres(kind)
+        .then((list: LibraryKindGenreView[]): void => {
+          this.mergeGenres(kind, list);
+        })
+        .catch((): void => {
+          const at: number = this.genreLoadedKinds.indexOf(kind);
+          if (at >= 0) {
+            this.genreLoadedKinds.splice(at, 1);
+          }
+        });
+    }
+  }
+
+  /** 某个 kind 取到类型分布：并进 @State 副本（整体重赋值触发刷新） */
+  private mergeGenres(kind: string, list: LibraryKindGenreView[]): void {
+    const record: Record<string, LibraryKindGenreView[]> = {};
+    const keys: string[] = Object.keys(this.genresByKind);
+    for (const key of keys) {
+      record[key] = this.genresByKind[key];
+    }
+    record[kind] = list;
+    this.genresByKind = record;
+  }
+
+  /** 这一行要显示的类型格（服务端按部数排好；TMDB id 解析不出的不显示，同 iOS Int(genre.value)） */
+  private genreTiles(kind: string): LibraryKindGenreView[] {
+    const list: LibraryKindGenreView[] = this.genresByKind[kind] ?? [];
+    return list.filter((genre: LibraryKindGenreView): boolean => {
+      return Number.isFinite(Number.parseInt(genre.value, 10));
+    });
+  }
+
+  private genreId(genre: LibraryKindGenreView): number {
+    const parsed: number = Number.parseInt(genre.value, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  /** 「N 部电影 / N 部剧集」（iOS GenreCardFace 的计数文案） */
+  private genreCountLabel(kind: string, count: number): string {
+    return kind === 'tv' ? `${count} 部剧集` : `${count} 部电影`;
+  }
+
+  private genreCoverUrl(genre: LibraryKindGenreView): string {
+    return ImageUrls.resolve(AppModel.origin(), genre.cover_url ?? null,
+      ImageVariant.landscapeCard) ?? '';
   }
 
   private stopPolling(): void {
@@ -1046,6 +1122,13 @@ export struct LibraryHomeView {
     };
   }
 
+  /** 「全部电影 / 全部剧集」行的「查看全部」→ 跨库墙（不带类型筛选） */
+  private moreForMediaKind(kind: MediaKindRowKind): () => void {
+    return (): void => {
+      this.navStack.pushPathByName('libraryKindWall', new KindWallParams(kind.kind, null, null));
+    };
+  }
+
   @Builder
   RowView(row: HomeRow) {
     if (row.kind instanceof UpNextKind) {
@@ -1061,6 +1144,14 @@ export struct LibraryHomeView {
     } else if (row.kind instanceof CollectionRowKind) {
       this.PosterRow(row.title(), '查看全部', this.rowPosterItems(row),
         this.moreForCollection(row.kind as CollectionRowKind))
+    } else if (row.kind instanceof MediaKindRowKind) {
+      // 没条目不占一行（同 iOS：items 为空整行不出现）
+      if (this.rowPosterItems(row).length > 0) {
+        this.PosterRow(row.title(), '查看全部', this.rowPosterItems(row),
+          this.moreForMediaKind(row.kind as MediaKindRowKind))
+      }
+    } else if (row.kind instanceof GenresKind) {
+      this.GenresRow(row.kind as GenresKind)
     }
   }
 
@@ -1185,6 +1276,86 @@ export struct LibraryHomeView {
       .width('100%')
       .alignItems(HorizontalAlign.Start)
     }
+  }
+
+  /** 「按类型找电影 / 剧集」：横排类型色块（对应 iOS case .genres；一格都没有时整段隐藏） */
+  @Builder
+  GenresRow(kind: GenresKind) {
+    if (this.genreTiles(kind.kind).length > 0) {
+      Column({ space: 12 }) {
+        LibrarySectionHeader({ title: kind.kind === 'tv' ? '按类型找剧集' : '按类型找电影' })
+        Scroll() {
+          Row({ space: 14 }) {
+            ForEach(this.genreTiles(kind.kind), (genre: LibraryKindGenreView) => {
+              this.GenreTile(kind.kind, genre)
+            }, (genre: LibraryKindGenreView) => `${kind.kind}:${genre.value}`)
+          }
+          .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
+        }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .width('100%')
+      }
+      .padding({ top: 24 })
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+    }
+  }
+
+  /** 类型色块（对应 iOS GenreCardFace）：横版剧照铺满、左下压暗写类型名与部数；点进跨库墙 */
+  @Builder
+  GenreTile(kind: string, genre: LibraryKindGenreView) {
+    Stack({ alignContent: Alignment.BottomStart }) {
+      if (this.genreCoverUrl(genre).length > 0) {
+        RemoteImage({ url: this.genreCoverUrl(genre) })
+          .width('100%')
+          .height('100%')
+      } else {
+        Stack({ alignContent: Alignment.TopEnd }) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .linearGradient({ angle: 135, colors: [['rgba(72, 72, 82, 1)', 0], ['rgba(30, 30, 38, 1)', 1]] })
+          SymbolGlyph($r('sys.symbol.film'))
+            .fontSize(36)
+            .fontColor(['rgba(255, 255, 255, 0.13)'])
+            .margin(12)
+        }
+        .width('100%')
+        .height('100%')
+      }
+      // 文字保护：左下压一层由深到浅的暗渐变（缓落、无可见边界），右上保持剧照原本的亮度
+      Column()
+        .width('100%')
+        .height('100%')
+        .linearGradient({
+          angle: 270,
+          colors: [['rgba(0, 0, 0, 0.55)', 0], ['rgba(0, 0, 0, 0.3)', 0.4], ['rgba(0, 0, 0, 0)', 0.72]]
+        })
+      Column({ space: 3 }) {
+        Text(genre.label)
+          .fontSize(20)
+          .fontWeight(600)
+          .fontColor('#FFFFFF')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.genreCountLabel(kind, genre.count))
+          .fontSize(11)
+          .fontColor('rgba(255, 255, 255, 0.72)')
+      }
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 14, right: 14, bottom: 13 })
+    }
+    // 手机端 196pt 宽的横版卡（iOS cards.genreTile；高按 GenreCardFace 236:150 的比例）
+    .width(196)
+    .aspectRatio(236 / 150)
+    .borderRadius(12)
+    .clip(true)
+    .border({ width: 1, color: 'rgba(255, 255, 255, 0.1)' })
+    .onClick(() => {
+      this.navStack.pushPathByName('libraryKindWall',
+        new KindWallParams(kind, this.genreId(genre), genre.label));
+    })
   }
 
   /** 库卡片：服务端拼贴封面 + 库名 +「默认」；扫描/整理/刷元数据时封面归进度环 */
