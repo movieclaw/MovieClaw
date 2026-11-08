@@ -303,6 +303,10 @@ jobs:
       - run: node --test apps/web/test/i18n*.test.mjs apps/web/test/time.test.mjs apps/web/test/format.test.mjs
         env:
           TZ: Asia/Shanghai
+      # 鸿蒙首页 / 单库页的主机侧逻辑测试：直接转译执行生产 .ets，不需要 DevEco SDK，借用这里已装好的 TypeScript
+      - run: node --test apps/harmonyos/scripts/tests/library-watch.test.cjs apps/harmonyos/scripts/tests/library-index-gate.test.cjs
+        env:
+          HARMONY_TYPESCRIPT_PATH: ${{ github.workspace }}/apps/web/node_modules/typescript
 
   # macOS Worker 的构建门禁。开发者多数在 Linux/容器里改代码，Swift 侧的
   # 编译错误在本地完全暴露不出来，只能靠这里拦。
