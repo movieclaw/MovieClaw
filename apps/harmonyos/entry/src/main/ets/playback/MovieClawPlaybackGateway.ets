@@ -4,7 +4,7 @@ import { ClientCapabilityIn, PlaybackSessionRequest, PlaybackSessionView, Playba
 
 /** Existing-server adapter. Each candidate is evaluated independently, never unioned. */
 export class MovieClawPlaybackGateway {
-  static capability(engine: string, tier0DirectEmbedded: boolean = false): ClientCapabilityIn {
+  static capability(engine: string, pgsOverlay: boolean = false): ClientCapabilityIn {
     const video: VideoSupportIn[] = [];
     const audio: AudioSupportIn[] = [];
     const videos = engine === 'mpv' ? ['h264', 'hevc', 'vp8', 'vp9', 'mpeg2video', 'mpeg4', 'vc1'] : ['h264', 'hevc'];
@@ -15,9 +15,10 @@ export class MovieClawPlaybackGateway {
     return { video: video, audio: audio, containers: engine === 'mpv'
       ? ['mp4', 'mkv', 'ts', 'avi', 'mov', 'webm', 'flv'] : ['mp4', 'mkv', 'ts'],
       local_tracks: true, hdr_passthrough: false, mse: 'full', native_hls: true, is_mobile: true, universal: false,
-      // Only mpv on a known tier-0 direct file can render native embedded PGS.
-      // A session-level request is made before tier selection, so the default is conservative.
-      pgs_overlay: engine === 'mpv' && tier0DirectEmbedded };
+      // B 方案：未烧录 PGS 由本端渲染——tier-0 直连走 mpv 原生内封 sid，其余档
+      // 下载 .sup 旁挂后按次强制 mpv 渲染（对齐 0.49 网页/Android 的本地渲染
+      // 路线）。申报是 app 级能力，与本次协商的投递引擎无关。
+      pgs_overlay: pgsOverlay };
   }
   private api: MovieClawApi;
   private slug: string;
@@ -33,25 +34,27 @@ export class MovieClawPlaybackGateway {
       max_height: body.max_height };
     return this.slug.length > 0 ? this.api.sharePlaybackDecide(this.slug, request) : this.api.playbackDecide(request);
   }
-  async open(body: PlaybackSessionRequest, preference: string): Promise<PlaybackSessionView> {
-    body.capability = MovieClawPlaybackGateway.capability(preference === 'mpv' ? 'mpv' : 'avplayer');
+  async open(body: PlaybackSessionRequest, preference: string, pgsOverlay: boolean = false): Promise<PlaybackSessionView> {
+    body.capability = MovieClawPlaybackGateway.capability(preference === 'mpv' ? 'mpv' : 'avplayer', pgsOverlay);
     if (preference === 'auto' && !(body.failed_tiers ?? []).includes(0)) {
       // Ask for a playable original before preparing any server conversion.
       // The local controller still tries AVPlayer first, regardless of this delivery capability.
-      body.capability = MovieClawPlaybackGateway.capability('mpv');
+      body.capability = MovieClawPlaybackGateway.capability('mpv', pgsOverlay);
       // Do not let a remembered embedded PGS force the preflight into a
       // transcode before the direct tier is known; the real request below
       // gets the native-PGS capability once tier 0 is established.
-      const probeBody = body.subtitle_track?.startsWith('embedded:')
-        ? { ...body, subtitle_track: null } : body;
-      const original = await this.decide(probeBody);
+      const rememberedTrack: string | null = body.subtitle_track ?? null;
+      const probeStripped: boolean = rememberedTrack !== null && rememberedTrack.startsWith('embedded:');
+      if (probeStripped) { body.subtitle_track = null; }
+      const original = await this.decide(body);
+      if (probeStripped) { body.subtitle_track = rememberedTrack; }
       if (original.outcome === 'plan' && original.tier === 0) {
         // The preflight established a tier-0 direct file, so mpv may claim
         // native embedded PGS for the real session.
         body.capability = MovieClawPlaybackGateway.capability('mpv', true);
         if (original.file_id !== undefined && original.file_id !== null) { body.file_id = original.file_id; }
       } else {
-        body.capability = MovieClawPlaybackGateway.capability('avplayer');
+        body.capability = MovieClawPlaybackGateway.capability('avplayer', pgsOverlay);
       }
     }
     return this.slug.length > 0 ? this.api.sharePlaybackSessionStart(this.slug, body) : this.api.playbackSessionStart(body);

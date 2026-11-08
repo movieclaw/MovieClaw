@@ -18,7 +18,7 @@ import { RemoteImage } from '../common/RemoteImage';
 import { ImmersiveHeroBackdrop } from '../common/ImmersiveHero';
 import { ImageUrls, ImageVariant } from '../common/ImageUrls';
 import { AppFooter } from '../common/AppFooter';
-import { ApiError } from '../api/ApiClient';
+import { ApiClient, ApiError, ApiQuery, QueryPair } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import {
   ChapterView,
@@ -29,6 +29,7 @@ import {
   LibraryItemDetailView,
   LibraryItemView,
   PlaybackMarksRequest,
+  PlaybackHistoryClearView,
   PlaybackStateView,
   SeasonAirScheduleView,
   SeasonEpisodesView,
@@ -1346,20 +1347,20 @@ export struct LibraryItemDetailPage {
           }
         })
           .margin({ right: 8 })
-        // 管理员动作（对应 iOS 条目详情的 ⋯ 菜单）
-        if (this.canManage()) {
-          Stack({ alignContent: Alignment.Center }) {
-            SymbolGlyph($r('sys.symbol.more'))
-              .fontSize(20)
-              .fontColor([Theme.text])
-          }
-          .width(40)
-          .height(40)
-          .backgroundColor('rgba(0, 0, 0, 0.35)')
-          .borderRadius(20)
-          .bindMenu(this.ItemActionsMenu())
-          .margin({ right: 8 })
+        // ⋯ 菜单（对应 Web 条目详情的页面级操作菜单）：清除自己的播放记录对
+        // 所有能开这页的人生效（Web onClearHistory 不挂权限），管理动作在菜单
+        // 内部按 canManage 收起
+        Stack({ alignContent: Alignment.Center }) {
+          SymbolGlyph($r('sys.symbol.more'))
+            .fontSize(20)
+            .fontColor([Theme.text])
         }
+        .width(40)
+        .height(40)
+        .backgroundColor('rgba(0, 0, 0, 0.35)')
+        .borderRadius(20)
+        .bindMenu(this.ItemActionsMenu())
+        .margin({ right: 8 })
         // 分享：生成一条不用登录就能看的公开链接（对应 iOS `LibraryShareSheet`）
         Button() {
           Stack({ alignContent: Alignment.Center }) {
@@ -1390,7 +1391,7 @@ export struct LibraryItemDetailPage {
   }
 
   /** 打开分享面板：先拉一次已有的链接（没有就是「还没建过」） */
-  /** 有没有管理权限（决定 ⋯ 菜单出不出来） */
+  /** 有没有管理权限（决定 ⋯ 菜单里的管理动作出不出来；清除播放记录不受它限） */
   /** 把错误转成人话（`ApiError` 里已经是后端原话） */
   private static describe(error: Object): string {
     if (error instanceof ApiError) {
@@ -1518,32 +1519,40 @@ export struct LibraryItemDetailPage {
   @Builder
   ItemActionsMenu() {
     Menu() {
-      MenuItem({ content: this.actionBusy ? '正在处理…' : '刷新元数据' })
-        .onClick(() => {
-          this.refreshMetadata();
-        })
-      MenuItem({ content: '重新识别…' })
-        .onClick(() => {
-          this.showReidentify = true;
-        })
-      if (this.detail !== null && this.detail.source === 'tmdb') {
-        MenuItem({ content: '更换图片…' })
+      if (this.canManage()) {
+        MenuItem({ content: this.actionBusy ? '正在处理…' : '刷新元数据' })
           .onClick(() => {
-            this.showArtwork = true;
+            this.refreshMetadata();
+          })
+        MenuItem({ content: '重新识别…' })
+          .onClick(() => {
+            this.showReidentify = true;
+          })
+        if (this.detail !== null && this.detail.source === 'tmdb') {
+          MenuItem({ content: '更换图片…' })
+            .onClick(() => {
+              this.showArtwork = true;
+            })
+        }
+        MenuItem({ content: '转移到其他库…' })
+          .onClick(() => {
+            this.showTransfer = true;
+          })
+        // 洗版：已有订阅直接去订阅详情跑一轮；没有则以洗版模式打开订阅对话框（同 iOS `upgrade`）
+        MenuItem({ content: '洗版' })
+          .onClick(() => {
+            this.upgrade();
+          })
+        MenuItem({ content: '删除条目' })
+          .onClick(() => {
+            this.confirmDelete();
           })
       }
-      MenuItem({ content: '转移到其他库…' })
+      // 清除播放记录：只动自己这份（续播进度/已看标记/播放次数），普通成员
+      // 也有（同 Web ⋯ 菜单 onClearHistory 不挂权限）
+      MenuItem({ content: '清除播放记录…' })
         .onClick(() => {
-          this.showTransfer = true;
-        })
-      // 洗版：已有订阅直接去订阅详情跑一轮；没有则以洗版模式打开订阅对话框（同 iOS `upgrade`）
-      MenuItem({ content: '洗版' })
-        .onClick(() => {
-          this.upgrade();
-        })
-      MenuItem({ content: '删除条目' })
-        .onClick(() => {
-          this.confirmDelete();
+          this.confirmClearHistory();
         })
     }
   }
@@ -1588,6 +1597,51 @@ export struct LibraryItemDetailPage {
 
   private toastText(message: string): void {
     this.getUIContext().getPromptAction().showToast({ message: message, duration: 2500 });
+  }
+
+  /**
+   * 清除这部作品**自己的**观看记录（Web 详情页 ⋯ 菜单同款，scope=item）：
+   * 续播进度、已看标记、播放次数一起清掉，「继续观看」行与播放键随即回落。
+   * 确认文案与 Web zh-Hans `library.item.clearHistoryTitle/Hint` 一致。
+   */
+  private confirmClearHistory(): void {
+    const detail: LibraryItemDetailView | null = this.detail;
+    if (detail === null) {
+      return;
+    }
+    this.getUIContext().getPromptAction().showDialog({
+      title: `清除《${detail.title}》的观看记录？`,
+      message: '续播进度、已看标记和播放次数都会清除，无法恢复。只影响你自己的记录。',
+      buttons: [
+        { text: '取消', color: Theme.accent2 },
+        { text: '清除', color: Theme.danger }
+      ]
+    }).then((result: Object): void => {
+      const idx: number = (result as Record<string, number>)['index'] ?? 0;
+      if (idx === 1) {
+        this.performClearHistory();
+      }
+    }).catch((): void => {
+    });
+  }
+
+  private async performClearHistory(): Promise<void> {
+    const client: ApiClient | null = AppModel.shared.client;
+    if (client === null) {
+      return;
+    }
+    const pairs: QueryPair[] = [
+      { key: 'scope', value: 'item' },
+      { key: 'media_item_id', value: this.mediaItemId }
+    ];
+    try {
+      const result = await client.delWithMessage<PlaybackHistoryClearView>(
+        '/playback/history' + ApiQuery.build(pairs), null);
+      this.toastText(result.message.length > 0 ? result.message : '已清除观看记录');
+      await this.reload();
+    } catch (error) {
+      this.toastText(LibraryItemDetailPage.describe(error));
+    }
   }
 
   private async openShare(): Promise<void> {

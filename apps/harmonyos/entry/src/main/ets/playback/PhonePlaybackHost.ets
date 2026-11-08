@@ -11,7 +11,7 @@ import { PlaybackGuard } from '@movieclaw/playback';
 import { PlayerPrefs, SubStyle } from '../player/PlayerPrefs';
 import { PlaybackController, PlaybackSnapshot, PlaybackIntent, PlaybackSessionCoordinator, PlaybackOwnership, SkipSegments } from '@movieclaw/playback';
 import { EngineEvent, EngineFailure } from '@movieclaw/player-engine';
-import { PhoneMedia, playbackUrl } from './PhoneMedia';
+import { PhoneMedia, playbackUrl, downloadPgsSidecar, removePgsSidecar, PgsSidecarCache } from './PhoneMedia';
 import { MovieClawPlaybackSession } from './MovieClawPlaybackSession';
 import { MovieClawPlaybackGateway } from './MovieClawPlaybackGateway';
 
@@ -30,6 +30,7 @@ import { OfflinePlaybackSpec, OfflineProgress, OfflineUnit } from '../offline/Of
 import { ClientCapabilityIn, PlaybackSessionRequest, PlaybackSessionView, PlaybackDecisionView, PlaybackStateView, AudioTrackView, EpisodeView, LibraryItemDetailView, PlaybackChapterMarkView, PlaybackItemView, SeasonEpisodesView, SubtitlePlanView, TrickplayView, PlaybackSegmentView, PlaybackDiagnosticsView, PlaybackPolicyView, PlaybackArtifactUploadView } from '../api/Models';
 
 import { PlayerParams } from '../player/PlayerParams';
+import { trackLanguageLabel } from '../common/LanguageLabels';
 
 /** `PlaybackSessionRequest` 的 capability 是必填，其余可选 */
 export class SessionRequest implements PlaybackSessionRequest {
@@ -283,6 +284,10 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   @Trace displayMode: string = 'fit';
   @Trace subtitleIndex: number = -1;
   subtitleRef: string = '';
+  /** 客户端渲染的 PGS 旁挂 .sup 缓存（一次下载，会话内复用；换文件/换轨作废） */
+  private pgsSidecarFile: PgsSidecarCache | null = null;
+  /** 正在后台预备的 PGS 旁挂键（fileId:ref），防重入 */
+  private pgsPreparingKey: string = '';
   /** 音轨：当前选中的 ref（空 = 服务端自动挑） */
   @Trace audioRef: string = '';
   @Trace showAudio: boolean = false;
@@ -429,6 +434,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (this.disposed) { return; }
     PlaybackTestProbe.record('dispose');
     this.disposed = true; ++this.sessionEpoch;
+    if (this.pgsSidecarFile !== null) { removePgsSidecar(this.pgsSidecarFile.path); this.pgsSidecarFile = null; }
+    this.pgsPreparingKey = '';
     this.surfaceWaiter?.(''); this.surfaceWaiter = null;
     PlaybackOwnership.release(this);
     if (this.chromeTimer >= 0) { clearTimeout(this.chromeTimer); }
@@ -535,7 +542,9 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       body.failed_tiers = this.failedTiers;
       const gateway = new MovieClawPlaybackGateway(api, this.shareSlug);
       await PlayerPrefs.loadEngine();
-      const view = await gateway.open(body, PlayerPrefs.engine());
+      // pgs_overlay：未烧录 PGS 一律由本端自渲（mpv 内封 sid / .sup 旁挂），
+      // 0.48 起服务端不再为选中的 PGS 触发烧录，也就不用为烧录重开会话
+      const view = await gateway.open(body, PlayerPrefs.engine(), true);
       if (epoch !== this.sessionEpoch || this.disposed) { await gateway.stop(view); return; }
       this.session = view;
       PlaybackTestProbe.record('session', `tier=${view.decision.tier};file=${view.decision.file_id}`);
@@ -545,6 +554,15 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       if (this.subtitleRef.length === 0) { this.subtitleRef = view.watch?.subtitle_track ?? ''; }
       this.subtitleIndex = view.decision.subtitles.findIndex((track: SubtitlePlanView): boolean =>
         track.track_ref === this.subtitleRef);
+      // 没有记忆轨（首播、记忆的轨已不在清单里）时退到服务端标记的默认轨
+      // （对齐 iOS initialSelection：'off' 尊重、记忆优先、默认轨兜底、谁都不标就不自动开）
+      if (this.subtitleIndex < 0 && this.subtitleRef !== 'off') {
+        const defIdx = view.decision.subtitles.findIndex((track: SubtitlePlanView): boolean => track.is_default);
+        if (defIdx >= 0) {
+          this.subtitleIndex = defIdx;
+          this.subtitleRef = view.decision.subtitles[defIdx].track_ref;
+        }
+      }
       // 服务端说这片要开软件转码：给同意弹窗（iOS handleSession 的 consent 分支），
       // 用户开了开关再重新协商
       if (view.decision.outcome === 'consent') {
@@ -801,20 +819,76 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     const view = this.session;
     if (view === null) { return; }
     const origin = view.timeline === 'file' || view.decision.tier === 0 ? 0 : view.start_ms;
-    // mpv 直连档选内封轨走原生 sid，不下旁挂字幕（首抽慢/PGS 解不了都绕开）。
-    const selectedPlan = this.subtitleIndex >= 0 && this.subtitleIndex < view.decision.subtitles.length
-      ? view.decision.subtitles[this.subtitleIndex] : null;
-    const subtitleUrl = selectedPlan?.kind !== 'pgs' && this.nativeEmbeddedOrdinal() === null && this.subtitleIndex >= 0
-      && this.subtitleIndex < view.subtitle_urls.length
-      ? playbackUrl(AppModel.origin(), view.subtitle_urls[this.subtitleIndex]) : '';
-    const intent = this.makeIntent();
     const plans = view.decision.subtitles;
-    hilog.info(0x0000, 'MCSub', '%{public}s', `attach: engine=${PlayerPrefs.engine()} tier=${view.decision.tier}` +
-      ` subIndex=${this.subtitleIndex} ref=${this.subtitleIndex >= 0 && this.subtitleIndex < plans.length ? plans[this.subtitleIndex].track_ref : '-'}` +
-      ` nativeOrdinal=${this.nativeEmbeddedOrdinal()} sidecar=${subtitleUrl.length > 0}`);
+    // mpv 直连档选内封轨走原生 sid，不下旁挂字幕（旁挂首抽要通读整个容器，太慢）；
+    // 已烧进画面的轨同样不旁挂——它没有独立可解的流，下载 .sup 只会失败。
+    const burnedRef: string | null = view.decision.video?.burn_subtitle ?? null;
+    const currentRef: string = this.subtitleIndex >= 0 && this.subtitleIndex < plans.length
+      ? plans[this.subtitleIndex].track_ref : '';
+    const currentKind: string = this.subtitleIndex >= 0 && this.subtitleIndex < plans.length
+      ? plans[this.subtitleIndex].kind : '';
+    // PGS 没烧进画面、也不走原生 sid 时只剩客户端自渲一条路：libmpv 自带
+    // ff_sup_demuxer + ff_pgssub_decoder（.sup 旁挂 sub-add 即原生上屏），AVPlayer
+    // 没有位图字幕能力——按次强制 mpv。会话已申报 pgs_overlay（0.48 起选 PGS
+    // 不再触发服务端发烧录），burnedRef 只会出现在不认该申报的老服务器上。
+    const pgsRender: boolean = currentKind === 'pgs' && currentRef !== burnedRef;
+    const enginePref: string = pgsRender ? 'mpv' : PlayerPrefs.engine();
+    const nativeOrdinal: number | null = this.nativeEmbeddedOrdinalFor(enginePref);
+    const subtitleUrl = nativeOrdinal === null && this.subtitleIndex >= 0
+      && this.subtitleIndex < view.subtitle_urls.length && currentRef !== burnedRef && currentKind !== 'pgs'
+      ? playbackUrl(AppModel.origin(), view.subtitle_urls[this.subtitleIndex]) : '';
+    // PGS 旁挂 .sup 的会话级缓存：命中直接喂文件（重挂/切引擎不再重下），未命中
+    // 先裸播、后台下好再重挂补上（对应网页「字幕准备中」的时序）。
+    let pgsPath = '';
+    if (pgsRender && nativeOrdinal === null && this.pgsSidecarFile !== null
+      && this.pgsSidecarFile.fileId === (view.decision.file_id ?? 0)
+      && this.pgsSidecarFile.ref === currentRef) {
+      pgsPath = this.pgsSidecarFile.path;
+    }
+    const intent = this.makeIntent(enginePref);
+    hilog.info(0x0000, 'MCSub', '%{public}s', `attach: engine=${enginePref} tier=${view.decision.tier}` +
+      ` subIndex=${this.subtitleIndex} ref=${currentRef.length > 0 ? currentRef : '-'}` +
+      ` nativeOrdinal=${nativeOrdinal ?? '-'} sidecar=${subtitleUrl.length > 0} pgs=${pgsPath.length > 0}`);
     await this.controller.open(new PhoneMedia(origin, view.watch?.duration_ms ?? 0,
-      PlaybackTestProbe.mediaUrl(playbackUrl(AppModel.origin(), url)), '', subtitleUrl, '',
-      this.getUIContext().getHostContext()?.cacheDir ?? ''), this.surfaceId, intent, PlayerPrefs.engine());
+      PlaybackTestProbe.mediaUrl(playbackUrl(AppModel.origin(), url)), '', subtitleUrl, pgsPath,
+      this.getUIContext().getHostContext()?.cacheDir ?? ''), this.surfaceId, intent, enginePref);
+    // 需要客户端渲染又没有现成文件：起后台预备（不阻塞起播；首抽可能要几分钟）
+    if (pgsRender && nativeOrdinal === null && pgsPath.length === 0
+      && this.subtitleIndex >= 0 && this.subtitleIndex < view.subtitle_urls.length) {
+      this.preparePgsSidecar(playbackUrl(AppModel.origin(), view.subtitle_urls[this.subtitleIndex]),
+        view.decision.file_id ?? 0, currentRef).catch((): void => { });
+    }
+  }
+
+  /**
+   * 后台预备 PGS 旁挂 .sup（对齐网页 libbitsub + fetchSupBytes 的客户端路径）：
+   * `requestInStream` 落盘绕开响应体大小上限，完成后缓存起来并保持当前位置重挂
+   * 一次，让 mpv `sub-add` 带上字幕（fd + sub-delay=-start_ms/1000 与文本旁挂
+   * 同一条链路）。首抽空窗期照常播放，不阻塞起播；中途换轨/离开页面即作废。
+   */
+  private async preparePgsSidecar(url: string, fileId: number, ref: string): Promise<void> {
+    const key = `${fileId}:${ref}`;
+    if (this.pgsPreparingKey === key) { return; }
+    this.pgsPreparingKey = key;
+    this.toast('图形字幕准备中，首次可能需要几分钟');
+    try {
+      const path: string = await downloadPgsSidecar(url, this.getUIContext().getHostContext()?.cacheDir ?? '');
+      if (this.pgsPreparingKey !== key || this.disposed) { removePgsSidecar(path); return; }
+      const previous: PgsSidecarCache | null = this.pgsSidecarFile;
+      if (previous !== null && previous.path !== path) { removePgsSidecar(previous.path); }
+      this.pgsSidecarFile = { fileId: fileId, ref: ref, path: path };
+      hilog.info(0x0000, 'MCSub', '%{public}s', `PGS 旁挂就绪: ${key}`);
+      const view = this.session;
+      if (view !== null && this.localSpec === null && (view.stream_url ?? '').length > 0) {
+        this.pendingSeekMs = this.positionMs;
+        await this.attachPlayer(view.stream_url ?? '');
+      }
+    } catch (error) {
+      if (this.pgsPreparingKey === key) { this.toast('图形字幕加载失败，可稍后重新选择这条字幕重试'); }
+      hilog.warn(0x0000, 'MCSub', 'PGS 旁挂下载失败: %{public}s', `${error}`);
+    } finally {
+      if (this.pgsPreparingKey === key) { this.pgsPreparingKey = ''; }
+    }
   }
 
   async attachLocalPlayer(): Promise<void> {
@@ -828,14 +902,14 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       this.localMediaPath, '', subtitlePath), this.surfaceId, this.makeIntent(), PlayerPrefs.engine());
   }
 
-  makeIntent(): PlaybackIntent {
+  makeIntent(engine: string = PlayerPrefs.engine()): PlaybackIntent {
     const intent = new PlaybackIntent();
     intent.positionMs = this.pendingSeekMs >= 0 ? this.pendingSeekMs : (this.session?.start_ms ?? this.startMs);
     this.pendingSeekMs = -1;
     intent.paused = this.pausedIntent;
     intent.rate = this.holdSpeedActive ? 2 : this.playbackRate;
     intent.subtitlesOff = this.subtitleIndex < 0;
-    if (this.subtitleIndex >= 0) { intent.subtitle = { language: '', title: '', ordinal: this.nativeEmbeddedOrdinal() ?? -1 }; }
+    if (this.subtitleIndex >= 0) { intent.subtitle = { language: '', title: '', ordinal: this.nativeEmbeddedOrdinalFor(engine) ?? -1 }; }
     const tracks = this.session?.decision.audio_tracks ?? [];
     const index = tracks.findIndex((track: AudioTrackView): boolean => track.ref === this.audioRef);
     if (index >= 0 && (this.localSpec !== null || this.session?.decision.tier === 0)) {
@@ -941,8 +1015,17 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     };
     this.controller.onFailure = (failure: EngineFailure): void => {
       PlaybackTestProbe.record('failure', `${failure.kind}:${failure.code}`);
-      if (failure.canFallback() || (this.localUnit !== null && failure.kind === 'source')) { this.onPlaybackFailed(failure.message); }
-      else { this.phase = PlayerPhase.failed; this.errorMessage = failure.message; this.sessionCoordinator.close(); }
+      if (this.localUnit !== null) {
+        // 本机副本维持原判：可降级错误或源读失败才回服务器重开，其余照旧落错误页
+        if (failure.canFallback() || failure.kind === 'source') { this.onPlaybackFailed(failure.message); }
+        else { this.phase = PlayerPhase.failed; this.errorMessage = failure.message; this.sessionCoordinator.close(); }
+        return;
+      }
+      // 会话播放：内核链（avplayer→mpv）走到头的失败一律交给档位重试——外网
+      // 弱网下 mpv 直连原片常以 timeout（25 秒启动超时）/network/source 终结，
+      // 它们不在 canFallback 里，直接判死就是「降成 mpv 还是放不了」；换低档
+      // 转码 HLS 才放得动。档位/次数上限由 onPlaybackFailed 兜底，全部失败才落错误页
+      this.onPlaybackFailed(failure.message);
     };
   }
 
@@ -1387,22 +1470,39 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   }
 
   /**
-   * 字幕轨切换。
+   * 字幕轨切换，按优先级走三条路径（对齐 iOS `selectSubtitle`）：
    *
-   * 后端把 `subtitle_urls` 与 `decision.subtitles` **按同一序**生成（`for s in view.subtitles`），
-   * 所以两边用**同一个下标**就能对上，不需要再拿 track_ref 去匹配。
-   *
-   * 外挂字幕要走两步——`addSubtitleFromUrl` 只是**加载**，加载完还要用
-   * `getTrackDescription()` 拿到它的 track index，再 `selectTrack` 才是**选中**。
-   * 关字幕用 `deselectTrack`。
+   * 1. mpv 直连档的内封轨（含 PGS）——容器轨就在 track-list 里，直接换 sid，
+   *    不必重挂播放器（`liveNativeSubtitleSwitch`）；
+   * 2. 从已烧录的会话切走（含关闭）——已烧进画面的字引擎关不掉，只有重开能
+   *    撤（0.48 起本端申报 pgs_overlay，选中 PGS 不再触发烧录，已烧录会话
+   *    只会出现在不认该申报的老服务器上）；
+   * 3. 其余（含转码档选 PGS 的客户端自渲）——重挂 `attachPlayer`：文本轨照旧
+   *    旁挂下载 + `sub-add`，PGS 按次强制 mpv 走内封 sid / .sup 旁挂。后端把
+   *    `subtitle_urls` 与 `decision.subtitles` **按同一序**生成（`for s in
+   *    view.subtitles`），两边用**同一个下标**就能对上，不需要再拿 track_ref 去匹配。
    */
   async pickSubtitle(index: number): Promise<void> {
     this.showSheet = false;
     const view = this.session;
     if (view === null) { return; }
     if (index >= view.decision.subtitles.length) { return; }
-    this.subtitleIndex = index; this.subtitleRef = index < 0 ? 'off' : view.decision.subtitles[index].track_ref;
-    this.subtitleCue = '';
+    const targetRef: string = index < 0 ? 'off' : view.decision.subtitles[index].track_ref;
+    // 服务端已把哪条轨烧进了画面；没有为 null（本机副本没有会话，恒为 null）
+    const burnedRef: string | null = this.localSpec === null
+      ? view.decision.video?.burn_subtitle ?? null : null;
+    // 点的就是当前已烧录的那条：无事可做
+    if (burnedRef !== null && burnedRef === targetRef) {
+      this.subtitleIndex = index; this.subtitleRef = targetRef;
+      return;
+    }
+    this.subtitleIndex = index; this.subtitleRef = targetRef; this.subtitleCue = '';
+    // 已烧录的会话切去任何别的轨（含关闭）都得重开撤烧录
+    if (this.localSpec === null && burnedRef !== null) {
+      this.startMs = this.positionMs; this.resumeExplicit = true;
+      await this.negotiate();
+      return;
+    }
     if (this.liveNativeSubtitleSwitch()) { return; }
     this.pendingSeekMs = this.positionMs;
     if (this.localSpec !== null) { await this.attachLocalPlayer(); }
@@ -1412,8 +1512,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   /**
    * 直连档（tier 0，非文件夹光盘）的内封轨序号：服务端 `embedded:k` 是 ffprobe
    * 顺序的第 k 条字幕流，mpv track-list 的字幕轨同序，ordinal=k 直接对上。
-   * PGS 只能走这条路——旁挂裸 .sup mpv 解不了。外挂轨 / 转码档 / 本地文件
-   * 返回 null（照旧走旁挂下载 + sub-add）。
+   * 外挂轨 / 转码档 / 本地文件返回 null（照旧走旁挂下载 + sub-add；PGS 的
+   * 旁挂路径见 attachPlayer / preparePgsSidecar）。
    */
   private embeddedOrdinalFor(index: number): number | null {
     const view = this.session;
@@ -1426,9 +1526,9 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     return Number.isNaN(ordinal) || ordinal < 0 ? null : ordinal;
   }
 
-  /** mpv 偏好下的内封轨原生序号；其余偏好无法预知落哪个引擎，一律旁挂。 */
-  private nativeEmbeddedOrdinal(): number | null {
-    if (PlayerPrefs.engine() !== 'mpv') { return null; }
+  /** mpv 下的内封轨原生序号；其余引擎无法预知落点（AVPlayer 无位图字幕能力），一律旁挂。 */
+  private nativeEmbeddedOrdinalFor(engine: string): number | null {
+    if (engine !== 'mpv') { return null; }
     return this.embeddedOrdinalFor(this.subtitleIndex);
   }
 
@@ -1475,10 +1575,9 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     await this.releasePlayer(); this.stopSession(); await this.negotiate();
   }
 
-  /** 音轨行的标题：语言 + 编码 + 声道 + 是否默认 */
+  /** 音轨行的标题：语言中文名 + 编码 + 声道 + 是否默认 */
   audioLabel(track: AudioTrackView, index: number): string {
-    const lang: string | null = track.language ?? null;
-    const head: string = lang !== null && lang.length > 0 ? lang : `音轨 ${index + 1}`;
+    const head: string = trackLanguageLabel(track.language) ?? `音轨 ${index + 1}`;
     const tags: string[] = [];
     const codec: string | null = track.codec ?? null;
     if (codec !== null && codec.length > 0) {
@@ -1514,13 +1613,20 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     return title !== null && title.length > 0 ? title : this.clockText(mark.start_ms);
   }
 
-  /** 字幕行的标题：语言 + 类型 + 是否 AI/默认 */
+  /**
+   * 字幕行的标题：mkv 标题（常自带「简体中文」等标注）优先，语言中文名兜底。
+   * 类型用真实格式名：kind=pgs 恒为 PGS（hdmv_pgs_subtitle）、kind=ass 恒为
+   * ASS/SSA；kind=vtt 不标——服务端把 subrip/mov_text/webvtt/text 全归它，
+   * 标成哪个都是误导（_TEXT_SUBTITLE_CODECS）。
+   */
   subtitleLabel(plan: SubtitlePlanView, index: number): string {
-    const lang: string | null = plan.language ?? null;
-    const head: string = lang !== null && lang.length > 0 ? lang : `字幕 ${index + 1}`;
+    const title: string = (plan.title ?? '').trim();
+    const head: string = title.length > 0 ? title
+      : (trackLanguageLabel(plan.language) ?? `字幕 ${index + 1}`);
     const tags: string[] = [];
-    if (plan.kind.length > 0) {
-      tags.push(plan.kind);
+    const formatLabel: string = plan.kind === 'pgs' ? 'PGS' : plan.kind === 'ass' ? 'ASS' : '';
+    if (formatLabel.length > 0) {
+      tags.push(formatLabel);
     }
     if (plan.is_ai) {
       tags.push('AI 翻译');

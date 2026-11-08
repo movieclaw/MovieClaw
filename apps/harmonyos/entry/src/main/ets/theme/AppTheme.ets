@@ -136,14 +136,14 @@ export class Theme {
      *
      * 底栏现在是官方 HdsTabs 渲染的悬浮页签栏（`barFloatingStyle`）：
      * - **悬浮**：抬起 12 + 栏高 56 + 手势区 + 呼吸 4。
-     * - **经典贴底栏**：栏高 56 + 手势区 + 呼吸 4。
+     * - **经典贴底栏（平铺式）**：栏高 48 + 手势区 + 呼吸 4。
      *
      * 读的是 `TabBarStyle.floating`（@Trace）：V2 页面在 build 里读这个 getter，
      * 设置页切换底栏样式时各页的底部留白会跟着重算。V1 页面另见 `shellLayoutRevision`。
      */
     const bottom: number = WindowInsets.shared().bottom;
     if (!TabBarStyle.shared().floating) {
-      return 56 + bottom + 4 + ShellChrome.shared.bottomAccessoryInset;
+      return 48 + bottom + 4 + ShellChrome.shared.bottomAccessoryInset;
     }
     return 12 + 56 + bottom + 4 + ShellChrome.shared.bottomAccessoryInset;
   }

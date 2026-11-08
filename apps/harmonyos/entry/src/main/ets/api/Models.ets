@@ -673,6 +673,8 @@ export interface ClientCapabilityIn {
   local_tracks?: boolean | null
   dolby_vision_profiles?: number[] | null
   dolby_vision_base_layer_profiles?: number[] | null
+  /// 自己能画内封 PGS：选中 PGS 不再触发服务端发烧录（0.48 起生效，老服务器忽略）
+  pgs_overlay?: boolean | null
 }
 
 export interface CloudConnectionView {
