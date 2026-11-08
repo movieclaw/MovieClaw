@@ -74,7 +74,11 @@ export struct HeroBanner {
       Swiper() {
         ForEach(this.pages(), (item: UpNextItemView) => {
           this.BannerPage(item)
-        }, (item: UpNextItemView) => `${item.media_item_id}`)
+        }, (item: UpNextItemView) =>
+          // 键必须带上驱动卡片视觉的字段：ArkUI 的 ForEach 键相同就不重建，
+          // 快照→新鲜数据只是换了对象，续播进度变了卡片却冻结在旧文案
+          // （SwiftUI/React 同键会用新值重渲染，唯独 ArkUI 不会）
+          `${item.media_item_id}:${item.position_ms}:${item.progress_percent ?? -1}:${item.unwatched_ahead_count}`)
       }
       .autoPlay(this.pages().length > 1)
       .interval(5000)
