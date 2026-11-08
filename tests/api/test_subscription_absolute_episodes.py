@@ -5,10 +5,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import httpx
+import pytest
 import pytest_asyncio
 from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.services.library.layout import explicit_unit
 from movieclaw_api.services.media_library import MediaLibraryService
 from movieclaw_api.services.subscription import SubscriptionService
 from movieclaw_api.services.subscription.matching import evaluate_and_dispatch
@@ -133,6 +135,25 @@ def _install_detail(monkeypatch, files: list[str]) -> None:
     monkeypatch.setattr(site_access, "get_site_access", lambda: _Access())
 
 
+@pytest.mark.parametrize(
+    "stem",
+    [
+        "One.Piece.S21E01-E02",
+        "One.Piece.S21E01E02",
+        "One.Piece.S21E01+E02",
+        "One.Piece.S21E01&E02",
+        "One.Piece.S21E01~E02",
+        "One.Piece.S21E01-02",
+    ],
+)
+def test_explicit_unit_does_not_reduce_multi_episode_names_to_the_first(stem: str) -> None:
+    assert explicit_unit(stem) is None
+
+
+def test_explicit_unit_keeps_resolution_suffix_as_a_single_episode() -> None:
+    assert explicit_unit("One.Piece.S21E01-1080p") == (21, 1)
+
+
 async def test_same_title_single_is_claimed_by_file_unit_not_as_season_pack(
     db, monkeypatch
 ) -> None:
@@ -223,6 +244,33 @@ async def test_duplicate_file_units_make_file_list_recheck_fail_closed(db, monke
         monkeypatch,
         ["Absolute.Show.S01E05.mkv", "Absolute.Show.S03E01.mkv"],
     )
+    async with db.session() as session:
+        subscription_id, torrent = await _setup(session, selected_seasons=[3])
+        summary = await evaluate_and_dispatch(session, [torrent], source="被动匹配")
+        wanted = list(
+            (
+                await session.execute(
+                    select(WantedItem).where(WantedItem.subscription_id == subscription_id)
+                )
+            ).scalars()
+        )
+
+    assert summary.dispatched_units == 0 and summary.rejected == 1
+    assert all(row.status == WantedStatus.WANTED for row in wanted)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "Absolute.Show.S03E01-E02.mkv",
+        "Absolute.Show.S03E01E02.mkv",
+        "Absolute.Show.S03E01+E02.mkv",
+    ],
+)
+async def test_multi_episode_file_is_never_claimed_as_only_its_first_episode(
+    db, monkeypatch, filename: str
+) -> None:
+    _install_detail(monkeypatch, [filename])
     async with db.session() as session:
         subscription_id, torrent = await _setup(session, selected_seasons=[3])
         summary = await evaluate_and_dispatch(session, [torrent], source="被动匹配")

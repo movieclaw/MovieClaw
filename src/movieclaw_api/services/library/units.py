@@ -41,6 +41,7 @@ from movieclaw_api.i18n.stored import reference
 from movieclaw_api.services.library.layout import (
     explicit_episode,
     explicit_unit,
+    has_explicit_multi_unit,
     pack_season,
     season_from_dir,
     trailing_index_episode,
@@ -91,6 +92,9 @@ def _file_evidence(file: Path) -> _Evidence:
     季号只认两个确定性来源，模型季号单独存放待仲裁。
     """
     stem = file.stem
+    if has_explicit_multi_unit(stem):
+        # 一个文件覆盖多个单元，而 FileUnit 只能表达一个；不再退回 NER 取首集。
+        return _Evidence(episode=0, explicit_pilot=False, certain_season=None, model_season=None)
     unit = explicit_unit(stem)
     if unit is not None:
         # 显式 SxxEyy 语义确定，季集一次拿全，无需模型

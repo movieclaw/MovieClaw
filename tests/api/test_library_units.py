@@ -303,6 +303,16 @@ def test_multi_season_pack_does_not_force_a_season(tmp_path) -> None:
     assert units[files[2]].episode == 5
 
 
+@pytest.mark.parametrize("stem", ["Show.S21E01-E02", "Show.S21E01E02", "Show.S21E01+E02"])
+def test_multi_episode_file_is_not_reduced_to_one_library_unit(tmp_path, stem: str) -> None:
+    file = tmp_path / f"{stem}.mkv"
+    unit = resolve_units([file], known_seasons={21})[file]
+
+    # 唯一季号仍可保留，但没有唯一集号，因此不会作为 E01 入库。
+    assert unit.season == 21
+    assert unit.episode == 0
+
+
 def test_batch_consensus_rescues_fingerprint_false_kill(tmp_path, monkeypatch) -> None:
     """幻觉指纹去噪的已知代价，以及批次共识为什么能兜住它。
 
