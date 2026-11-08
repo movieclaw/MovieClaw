@@ -299,6 +299,25 @@ def test_bilingual_quality_checks_each_language_line_separately() -> None:
     assert report.cps_overrun == 0
 
 
+def test_bilingual_cps_overrun_counts_only_target_language_line() -> None:
+    """#1234：第二行（原文语言）超读速不能算进译文的 cps_overrun。"""
+    english = "This official English line is far too long to read in one second."
+    events = [
+        (0, 1000, f"短译文\n{english}"),  # 中文 3 字/秒、英文远超 17/秒
+        (2000, 3000, "这句中文译文在一秒内显然读不完\nShort."),  # 中文超 9/秒
+    ]
+
+    _, report = validate.finalize_events(
+        events,
+        target_language="chs",
+        secondary_language="eng",
+    )
+
+    assert report.cps_overrun == 1
+    assert report.secondary_cps_overrun == 1
+    assert validate.overrun_indices(events, target_language="chs", secondary_language="eng") == [1]
+
+
 def test_fold_line_at_sixteen() -> None:
     text = "这是一句明显超过十六个字上限的很长很长的台词"
     folded = validate.fold_line(text)
