@@ -772,13 +772,9 @@ def _derive_units(
                 return None
             season = regular[0]
         else:
-            # 多季 + 集号并存（S01-S03 E01 之类）：按整季包处理最不易错
-            return IdentityMatch(
-                pack_seasons=frozenset(seasons),
-                is_pack=True,
-                confidence=confidence,
-                matched_alias=alias,
-            )
+            # 多季 + 集号无法确定季集配对（尤其 S21E01-S22E02）。降级为
+            # 多季整包会把每季全部缺口都当成覆盖；保持不可用，不猜。
+            return None
         if media.episode_ranges:
             mapping = SeasonMapping(
                 episode_ranges=tuple(
