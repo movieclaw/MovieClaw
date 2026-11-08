@@ -83,7 +83,8 @@ class QualityReport:
     """机检结论（任务报告呈现，§3.5）。"""
 
     event_count: int = 0
-    cps_overrun: int = 0  # 超 9 字/秒的事件数
+    cps_overrun: int = 0  # 译文超读速的事件数（双语只看第一行译文）
+    secondary_cps_overrun: int = 0  # 双语第二行超读速的事件数，不归译文质量
     overlong: int = 0  # 折行后仍超两行容量（>32 字）的事件数
     kept_original: int = 0  # 翻译失败保留原文的事件数
     compressed: int = 0  # 超读速二次压缩成功的事件数（"浓缩优先"闭环）
@@ -97,19 +98,18 @@ class QualityReport:
 def _reading_overrun(
     text: str,
     duration_s: float,
-    target_language: str,
-    secondary_language: str | None,
+    language: str,
     fixed_limit: float | None = None,
 ) -> bool:
+    limit = fixed_limit or reading_speed_limit(language)
+    return _visible_len(text) / duration_s > limit
+
+
+def _target_text(text: str, secondary_language: str | None) -> str:
+    """译文部分：双语第一行是目标语言，第二行（通常是原文语言）不归翻译考核。"""
     if secondary_language is None:
-        limit = fixed_limit or reading_speed_limit(target_language)
-        return _visible_len(text) / duration_s > limit
-    lines = text.splitlines()
-    languages = (target_language, secondary_language)
-    return any(
-        _visible_len(line) / duration_s > (fixed_limit or reading_speed_limit(language))
-        for line, language in zip(lines, languages, strict=False)
-    )
+        return text
+    return (text.splitlines() or [""])[0]
 
 
 def overrun_indices(
@@ -124,10 +124,9 @@ def overrun_indices(
     for i, (start, end, text) in enumerate(events):
         duration_s = max((end - start) / 1000, 0.001)
         if _reading_overrun(
-            text,
+            _target_text(text, secondary_language),
             duration_s,
             target_language,
-            secondary_language,
             fixed_limit=limit,
         ):
             out.append(i)
@@ -160,13 +159,12 @@ def finalize_events(
                 line_limit(target_language),
             )
         duration_s = max((end - start) / 1000, 0.001)
-        if _reading_overrun(
-            cleaned,
-            duration_s,
-            target_language,
-            secondary_language,
-        ):
+        if _reading_overrun(_target_text(cleaned, secondary_language), duration_s, target_language):
             report.cps_overrun += 1
+        if secondary_language is not None:
+            second_line = cleaned.splitlines()[1:2]
+            if second_line and _reading_overrun(second_line[0], duration_s, secondary_language):
+                report.secondary_cps_overrun += 1
         if secondary_language is None:
             overlong = _visible_len(cleaned) > line_limit(target_language) * 2
         else:
