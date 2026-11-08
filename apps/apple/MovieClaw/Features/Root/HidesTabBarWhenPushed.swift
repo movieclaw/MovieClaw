@@ -8,43 +8,35 @@ import UIKit
 /// 会话页停稳时仍不显示标签栏（与 Web 手机端 `/sessions/*`、`/new` 一样，避免玻璃胶囊压住输入行，
 /// 也避免两层玻璃叠在一起）。重叠只发生在「从会话页返回普通页」：标签栏为了不空底、不淡入，
 /// 在转场一开始就整条出现，而正在滑走的输入框还按 Home 指示条贴底，于是中途叠在一起
-/// （issue #1153）。这段时间给会话页补上底部安全区，让输入框整段抬到胶囊上方；取消则随标签栏收回，
-/// 完成后会话页已经不在，不再改它。
+/// （issue #1153）。这段时间把输入框整段抬到胶囊上方（`composerLift`，页面用它把输入区往上平移；只挪输入框、不改底栏高度，消息列不跟着重排上跳）；
+/// 取消则随标签栏收回，完成后会话页已经不在，不再改它。
+///
+/// 不用 `additionalSafeAreaInsets`：转场期间 UIKit 不把安全区变化应用到正在离开的页面，
+/// 真机日志里写成 67 后实际安全区一直停在 34，取消结束才迟到生效（2026-11-08 iPhone Air 实测，#1219 因此没修好）。
 struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
+    /// 输入区上移的距离；只在返回转场里、标签栏露在这一页上时非 0
+    @Binding var composerLift: CGFloat
+
     func makeUIViewController(context: Context) -> Marker { Marker() }
-    func updateUIViewController(_ controller: Marker, context: Context) {}
+    func updateUIViewController(_ controller: Marker, context: Context) {
+        let lift = $composerLift
+        controller.setLift = { lift.wrappedValue = $0 }
+    }
 
     final class Marker: UIViewController {
-        /// 挂了标记的导航页（导航控制器的直接子控制器）
-        private static let pages = NSHashTable<UIViewController>.weakObjects()
-        /// 正在把安全区写回去，避免 layout 里再次进入
-        private var updatingClearance = false
-        /// 交互返回那一两秒：转场动画会按手势进度改安全区，这里每帧写回算好的距离。
-        /// 链接只留住 Pin，Pin 不留住本页，避免循环引用。
-        private let pinTarget = Pin()
-        private var pin: CADisplayLink?
-
-        @objc private final class Pin: NSObject {
-            weak var marker: Marker?
-            @objc func tick(_ link: CADisplayLink) {
-                guard let marker else {
-                    link.invalidate()
-                    return
-                }
-                marker.pinClearance()
-            }
-        }
+        /// 挂了标记的导航页（导航控制器的直接子控制器）→ 该页的标记
+        private static let pages = NSMapTable<UIViewController, Marker>.weakToWeakObjects()
+        fileprivate var setLift: ((CGFloat) -> Void)?
+        private var lift: CGFloat = 0
 
         override func didMove(toParent parent: UIViewController?) {
             super.didMove(toParent: parent)
-            guard parent != nil else {
-                stopPinning()
-                return
-            }
             var page = parent
             while let current = page, !(current.parent is UINavigationController) { page = current.parent }
-            if let page { Self.pages.add(page) }
+            if let page { Self.pages.setObject(self, forKey: page) }
         }
+
+        private static func isMarked(_ page: UIViewController) -> Bool { pages.object(forKey: page) != nil }
 
         override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
@@ -58,12 +50,11 @@ struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
 
         override func viewDidLayoutSubviews() {
             super.viewDidLayoutSubviews()
-            // 标签栏还盖在会话页上时，每帧按它的真实位置钉住输入框：交互返回会把同一轮里的
-            // 安全区动画跟着手势进度插值，只设一次会被抹掉，中途又叠回去。
+            // 标签栏还盖在会话页上时按它的真实位置补量一次（返回开始时标签栏 frame 可能还没落位）。
             // 栈顶已经回到会话页（停稳或取消结束）时不在这里改，避免和「藏回标签栏」的动画对着抢。
-            guard !updatingClearance, let tabs = tabBarController, !tabs.isTabBarHidden,
+            guard let tabs = tabBarController, !tabs.isTabBarHidden,
                   let navigation = navigationController,
-                  navigation.topViewController.map(Self.pages.contains) == false else { return }
+                  navigation.topViewController.map(Self.isMarked) == false else { return }
             updateClearance(tabs: tabs, navigation: navigation, tabBarHidden: false, animated: false)
         }
 
@@ -73,7 +64,7 @@ struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
             guard let tabs = tabBarController, let navigation = navigationController else { return }
             let apply = { [weak self, weak navigation, weak tabs] in
                 guard let self, let navigation, let tabs else { return }
-                let hidden = navigation.topViewController.map(Self.pages.contains) ?? false
+                let hidden = navigation.topViewController.map(Self.isMarked) ?? false
                 if tabs.isTabBarHidden != hidden { tabs.setTabBarHidden(hidden, animated: true) }
                 self.updateClearance(tabs: tabs, navigation: navigation, tabBarHidden: hidden, animated: true)
             }
@@ -81,18 +72,12 @@ struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
             // 底下列表的白字会透出来，看着闪一下（2026-10-15 真机反馈、录屏逐帧确认）；右滑返回取消时结束后再按栈顶藏回。
             // 输入框同时立刻抬到胶囊上方（不跟手势进度插值），取消动画结束再一起收回。
             if let coordinator = navigation.transitionCoordinator,
-               let from = coordinator.viewController(forKey: .from), Self.pages.contains(from),
-               let top = navigation.topViewController, !Self.pages.contains(top) {
+               let from = coordinator.viewController(forKey: .from), Self.isMarked(from),
+               let top = navigation.topViewController, !Self.isMarked(top) {
                 tabs.setTabBarHidden(false, animated: false)
                 tabs.view.layoutIfNeeded()
                 updateClearance(tabs: tabs, navigation: navigation, tabBarHidden: false, animated: false)
-                startPinning()
-                let pinned = coordinator.animate(alongsideTransition: nil) { [weak self] _ in
-                    self?.stopPinning()
-                    apply()
-                }
-                if !pinned {
-                    stopPinning()
+                if !coordinator.animate(alongsideTransition: nil, completion: { _ in apply() }) {
                     DispatchQueue.main.async(execute: apply)
                 }
                 return
@@ -109,36 +94,9 @@ struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
             }
         }
 
-        private func startPinning() {
-            stopPinning()
-            pinTarget.marker = self
-            let link = CADisplayLink(target: pinTarget, selector: #selector(Pin.tick(_:)))
-            link.add(to: .main, forMode: .common)
-            pin = link
-        }
-
-        private func stopPinning() {
-            pin?.invalidate()
-            pin = nil
-            pinTarget.marker = nil
-        }
-
-        private func pinClearance() {
-            // 整段交互返回（含松手后、转场结束前）都按「标签栏已经出现」来抬。
-            // 停掉留给转场结束回调：那时候再按栈顶把标签栏和这段让位一起收回。
-            guard let tabs = tabBarController, let navigation = navigationController else {
-                stopPinning()
-                return
-            }
-            updateClearance(tabs: tabs, navigation: navigation, tabBarHidden: false, animated: false)
-        }
-
-        /// 标签栏盖住仍在屏幕上的会话页时，把那一页的底部安全区加大，`safeAreaBar` 里的输入框整段上移。
+        /// 标签栏盖住仍在屏幕上的会话页时，让那一页 `safeAreaBar` 里的输入框整段上移。
         /// 只改挂了标记的页，底下的普通页自己已经让开标签栏。
         private func updateClearance(tabs: UITabBarController, navigation: UINavigationController, tabBarHidden: Bool, animated: Bool) {
-            guard !updatingClearance else { return }
-            updatingClearance = true
-            defer { updatingClearance = false }
             for page in Self.markedPages(in: navigation) {
                 let onScreen = page.viewIfLoaded?.window != nil
                 let measured: CGFloat
@@ -150,19 +108,14 @@ struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
                     continue
                 }
                 let inset = AgentTabBarClearance.appliedInset(tabBarHidden: tabBarHidden, pageOnScreen: onScreen, measured: measured)
-                Self.setInset(
-                    inset,
-                    windowBottomInset: page.viewIfLoaded?.window?.safeAreaInsets.bottom,
-                    on: page,
-                    animated: animated && inset == 0
-                )
+                Self.pages.object(forKey: page)?.apply(lift: inset, animated: animated && inset == 0)
             }
         }
 
         private static func markedPages(in navigation: UINavigationController) -> [UIViewController] {
             var result: [UIViewController] = []
             func add(_ page: UIViewController?) {
-                guard let page, pages.contains(page), !result.contains(where: { $0 === page }) else { return }
+                guard let page, isMarked(page), !result.contains(where: { $0 === page }) else { return }
                 guard page.navigationController == nil || page.navigationController === navigation else { return }
                 result.append(page)
             }
@@ -200,31 +153,14 @@ struct HidesTabBarWhenPushed: UIViewControllerRepresentable {
             return frame
         }
 
-        private static func setInset(
-            _ inset: CGFloat,
-            windowBottomInset: CGFloat?,
-            on page: UIViewController,
-            animated: Bool
-        ) {
-            guard AgentTabBarClearance.needsInsetUpdate(
-                currentAdditionalInset: page.additionalSafeAreaInsets.bottom,
-                effectiveBottomInset: page.viewIfLoaded?.safeAreaInsets.bottom,
-                windowBottomInset: windowBottomInset,
-                targetAdditionalInset: inset
-            ) else { return }
-            let updates = {
-                page.additionalSafeAreaInsets.bottom = inset
-                page.viewIfLoaded?.setNeedsLayout()
-                page.viewIfLoaded?.layoutIfNeeded()
-            }
-            guard animated else {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                UIView.performWithoutAnimation(updates)
-                CATransaction.commit()
-                return
-            }
-            UIView.animate(withDuration: 0.35, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut], animations: updates)
+        /// 一次写到位：返回时胶囊不动、页面只横移，转场开始时量的距离整段都对，不用每帧跟。
+        /// 收回（取消结束）时随标签栏藏回一起动画。
+        private func apply(lift newLift: CGFloat, animated: Bool) {
+            guard abs(lift - newLift) > 0.5, let setLift else { return }
+            lift = newLift
+            var transaction = Transaction(animation: animated ? .easeInOut(duration: 0.35) : nil)
+            transaction.disablesAnimations = !animated
+            withTransaction(transaction) { setLift(newLift) }
         }
     }
 }
@@ -260,18 +196,6 @@ struct AgentTabBarClearance {
     static func appliedInset(tabBarHidden: Bool, pageOnScreen: Bool, measured: CGFloat) -> CGFloat {
         guard pageOnScreen, !tabBarHidden else { return 0 }
         return max(0, measured)
-    }
-
-    /// 转场可能仍在插值实际安全区；即使模型值已经相同，只要实际底边还没到目标就继续写回。
-    static func needsInsetUpdate(
-        currentAdditionalInset: CGFloat,
-        effectiveBottomInset: CGFloat?,
-        windowBottomInset: CGFloat?,
-        targetAdditionalInset: CGFloat
-    ) -> Bool {
-        if abs(currentAdditionalInset - targetAdditionalInset) > 0.5 { return true }
-        guard let effectiveBottomInset, let windowBottomInset else { return false }
-        return effectiveBottomInset < windowBottomInset + targetAdditionalInset - 0.5
     }
 
     /// 底边那一条短胶囊，而不是通高的侧栏或贴在顶上的标签栏。

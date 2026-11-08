@@ -56,26 +56,14 @@ struct AgentTabBarClearanceTests {
         #expect(AgentTabBarClearance.appliedInset(tabBarHidden: false, pageOnScreen: true, measured: measured) == measured)
     }
 
-    @Test func pinningReappliesAnInsetWhileTheEffectiveSafeAreaIsStillInterpolating() {
-        let target: CGFloat = 67
-        #expect(AgentTabBarClearance.needsInsetUpdate(
-            currentAdditionalInset: target,
-            effectiveBottomInset: 60,
-            windowBottomInset: 34,
-            targetAdditionalInset: target
-        ))
-        #expect(!AgentTabBarClearance.needsInsetUpdate(
-            currentAdditionalInset: target,
-            effectiveBottomInset: 101,
-            windowBottomInset: 34,
-            targetAdditionalInset: target
-        ))
-        #expect(!AgentTabBarClearance.needsInsetUpdate(
-            currentAdditionalInset: target,
-            effectiveBottomInset: 120,
-            windowBottomInset: 34,
-            targetAdditionalInset: target
-        ))
+    /// 2026-11-08 iPhone Air 真机日志里的几何：页 420×912，胶囊 frame (0, 829, 420, 83)，Home 指示条 34
+    @Test func iPhoneAirMidSwipeGeometryFromDeviceLogs() throws {
+        let page = CGRect(x: 0, y: 0, width: 420, height: 912)
+        let bar = CGRect(x: 0, y: 829, width: 420, height: 83)
+        let padding = AgentComposerBottomGap.padding(keyboardShown: false, windowBottomInset: 34)
+        let lift = try #require(inset(tabBar: bar, page: page, windowBottom: 34))
+        #expect(lift == 67)
+        #expect(visualMaxY(page: page, windowBottom: 34, padding: padding, extra: lift) == bar.minY - AgentTabBarClearance.gap)
     }
 
     @Test func keyboardCoveringTheTabBarDoesNotAddAnotherLift() {

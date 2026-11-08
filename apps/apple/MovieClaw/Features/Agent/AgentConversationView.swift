@@ -44,6 +44,8 @@ struct AgentConversationView: View {
     @State private var composerReady = false
     /// 正在输入（小幕抬头倾听）
     @State private var composerAttentive = false
+    /// 返回转场中标签栏露出来时输入区上移的距离（见 HidesTabBarWhenPushed）
+    @State private var tabBarLift: CGFloat = 0
     /// 上次量到的输入区高度，占位按它留空，换成真输入框时底部不跳（初值取 iPhone Air 实测的单行输入区高度）
     private static var composerHeight: CGFloat = 126
     private static let bottomID = "agent-transcript-bottom"
@@ -66,7 +68,7 @@ struct AgentConversationView: View {
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle(conversation.loaded ? conversation.title : String(localized: .agentConversationPageTitle))
             .navigationBarTitleDisplayMode(.inline)
-            .background { HidesTabBarWhenPushed() }
+            .background { HidesTabBarWhenPushed(composerLift: $tabBarLift) }
             .toolbar {
                 // 右上角只留「⋯」，操作的是当前会话；Web 顶栏的搜索与「+」在会话页里用不上（2026-09-26 用户决定去掉）
                 if conversation.loaded {
@@ -296,6 +298,7 @@ struct AgentConversationView: View {
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .modifier(AgentComposerBottomGap())
+        .offset(y: -tabBarLift)
     }
 
     /// 线上值：没动过不传（服务端沿用）；显式默认传 "default"

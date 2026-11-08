@@ -21,6 +21,8 @@ struct AgentNewSessionView: View {
     @State private var askingConsent = false
     /// 正在输入（小幕抬头倾听）
     @State private var composerAttentive = false
+    /// 返回转场中标签栏露出来时输入区上移的距离（见 HidesTabBarWhenPushed）
+    @State private var tabBarLift: CGFloat = 0
 
     var body: some View {
         let locked = llmConfigured == false
@@ -60,12 +62,13 @@ struct AgentNewSessionView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
                 .modifier(AgentComposerBottomGap())
+                .offset(y: -tabBarLift)
             }
             .agentCompanion(error != nil ? .failed : creating ? .working : .idle, attentive: composerAttentive)
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle(String(localized: .navMainNew))
             .navigationBarTitleDisplayMode(.inline)
-            .background { HidesTabBarWhenPushed() }
+            .background { HidesTabBarWhenPushed(composerLift: $tabBarLift) }
             .sheet(isPresented: $askingConsent) {
                 AgentAIConsentSheet(providers: AgentAIConsent.providers(modelOptions), onAgree: send)
             }
