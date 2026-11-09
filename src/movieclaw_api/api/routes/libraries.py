@@ -132,6 +132,7 @@ from movieclaw_api.schemas.library import (
     UnidentifiedClearPayload,
     UnidentifiedFileView,
     UnidentifiedGroupView,
+    derive_air_status,
 )
 from movieclaw_api.schemas.library_search import LibrarySearchView
 from movieclaw_api.schemas.playback import ItemFileSegmentsView, PlaybackSegmentView
@@ -3319,6 +3320,7 @@ async def get_library_item(
             collections=[
                 ItemCollectionRef(id=row.id or 0, name=row.name) for row in in_collections
             ],
+            air_status=derive_air_status(item.status) if item.kind == "tv" else None,
         )
     )
 

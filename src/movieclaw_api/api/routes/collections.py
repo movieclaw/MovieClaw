@@ -775,7 +775,9 @@ async def list_collection_items(
     )
     if not ids:
         return ok([])
-    views = await _aggregate_wall_views(session, row.library_id, ids, ids, library_ids=visible)
+    views = await _aggregate_wall_views(
+        session, row.library_id, ids, ids, library_ids=visible, member_id=member_id
+    )
     favorites = await favorite_item_ids(session, ids, member_id=member_id)
     for view in views:
         view.is_favorite = view.media_item_id in favorites

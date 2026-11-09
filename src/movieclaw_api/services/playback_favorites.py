@@ -169,7 +169,7 @@ async def favorite_items(
     views = {
         view.media_item_id: view
         for view in await _aggregate_wall_views(
-            session, None, ids, ids, landing_pairs=list(page)
+            session, None, ids, ids, landing_pairs=list(page), member_id=member_id
         )
     }
 

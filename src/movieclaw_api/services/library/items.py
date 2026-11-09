@@ -105,6 +105,8 @@ from movieclaw_api.services.media_probe import (
 )
 from movieclaw_api.services.media_scrape import asset_version, file_version
 from movieclaw_api.services.people_images import avatar_url, profile_path_of
+from movieclaw_api.services.playback_up_next import _progress_percent, _runtime_ms
+from movieclaw_api.services.reels.tracks import is_chinese_subtitle
 from movieclaw_api.services.scrape_config import effective_language, scrape_setting_for_item
 from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_db.models import (
@@ -228,7 +230,7 @@ def _external_subtitles_many(
 
 
 class _FileFacts(NamedTuple):
-    """海报墙聚合用到的十个台账字段（顺序与查询列一致）。
+    """海报墙聚合用到的台账字段（顺序与查询列一致）。
 
     代码读起来与整行取时一模一样，只是不再拖着四十列（含三列 JSON）走。"""
 
@@ -243,6 +245,9 @@ class _FileFacts(NamedTuple):
     added_batch_id: str | None
     # 尚未探出介质规格（audio_streams IS NULL 在 SQL 里算好，不取 JSON 本体）
     unprobed: bool
+    # 海报角标：动态范围标签与时长（进度条的分母），都是标量列
+    hdr: str | None
+    duration_seconds: int | None
 
 
 _PIXEL_SIZE = re.compile(r"^(\d+)x(\d+)$")
@@ -1787,7 +1792,7 @@ async def build_library_wall(
         if limit is None
         else page_ids
     )
-    views = await _aggregate_wall_views(session, library_id, in_page, page_ids)
+    views = await _aggregate_wall_views(session, library_id, in_page, page_ids, member_id=member_id)
     if member_id is not None:
         favorites = await favorite_item_ids(session, page_ids, member_id=member_id)
         for view in views:
@@ -2008,7 +2013,7 @@ async def build_kind_wall(
     if not page_ids:
         return []
     views = await _aggregate_wall_views(
-        session, None, page_ids, page_ids, library_ids=set(library_ids)
+        session, None, page_ids, page_ids, library_ids=set(library_ids), member_id=member_id
     )
     favorites = await favorite_item_ids(session, page_ids, member_id=member_id)
     for view in views:
@@ -2117,6 +2122,148 @@ async def backdrop_facts_many(
     }
 
 
+#: 动态范围标签从好到差（与详情页规格行的排序同一口径）；认不出的标签排最后
+_DYNAMIC_RANGE_RANK = ("Dolby Vision", "HDR10+", "HDR10", "HLG", "HDR")
+
+
+def _best_dynamic_range(labels: Sequence[str | None]) -> str | None:
+    """一批文件的 ``hdr`` 标签里最好的那个（海报角标只印一个）；全是 SDR 为 None。"""
+    present = {label for label in labels if label}
+    if not present:
+        return None
+    rank = {label: i for i, label in enumerate(_DYNAMIC_RANGE_RANK)}
+    return min(present, key=lambda label: (rank.get(label, len(rank)), label))
+
+
+async def _stream_badges_many(
+    session: AsyncSession, file_scope: Sequence
+) -> tuple[set[int], set[int]]:
+    """这批台账行里有中文字幕、有 Atmos 音轨的条目（海报角标），各一组条目 id。
+
+    字幕与音轨在台账里是 JSON 数组，墙聚合刻意不把这些列读回 Python（见
+    ``_aggregate_wall_views`` 的注释）。这里让 SQLite 的 ``json_each`` 在 C 层展开，
+    只带回 (条目, 语言, 标题) 三个短字符串、并在 SQL 里先去重——一部 200 集的剧
+    每集都是同一套「简体 / 繁体 / 英文」，去重后只剩几行。判定沿用刷片挑字幕的
+    ``is_chinese_subtitle``（语言码 zh/chi/zho/cmn/yue…，标题里的 简/繁/中…）；外挂
+    字幕台账的元素与内封轨同样带 ``language`` / ``title``，同一个函数判两种。
+
+    Atmos 只认音轨 ``profile`` / 标题里的 "atmos"（与命名模板的音频标签同一口径），
+    直接在 SQL 里筛完。只看在位文件；剧集任一集有就算。
+    """
+    zh: set[int] = set()
+    for column in (LibraryFile.subtitle_streams, LibraryFile.external_subtitles):
+        each = func.json_each(column).table_valued("value")
+        rows = await session.execute(
+            select(
+                LibraryFile.media_item_id,
+                func.json_extract(each.c.value, "$.language"),
+                func.json_extract(each.c.value, "$.title"),
+            )
+            .select_from(LibraryFile)
+            .join(each, true())
+            .where(*file_scope, LibraryFile.in_place())
+            .distinct()
+        )
+        for item_id, language, title in rows.all():
+            if item_id not in zh and is_chinese_subtitle({"language": language, "title": title}):
+                zh.add(item_id)
+    audio = func.json_each(LibraryFile.audio_streams).table_valued("value")
+    atmos = set(
+        (
+            await session.execute(
+                select(LibraryFile.media_item_id)
+                .select_from(LibraryFile)
+                .join(audio, true())
+                .where(
+                    *file_scope,
+                    LibraryFile.in_place(),
+                    or_(
+                        # SQLite 的 LIKE 对 ASCII 不分大小写：Atmos / ATMOS 都命中
+                        func.json_extract(audio.c.value, "$.profile").like("%atmos%"),
+                        func.json_extract(audio.c.value, "$.title").like("%atmos%"),
+                    ),
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return zh, atmos
+
+
+async def _watch_states_many(
+    session: AsyncSession, in_page, member_id: int
+) -> dict[int, dict[tuple[int, int], tuple[bool, int, datetime | None]]]:
+    """这批条目在当前观看者名下的逐单元观看状态：{条目: {(季,集): (已看, 续播点, 最近播放)}}。
+
+    一条查询取整页（与 ``favorite_item_ids`` 同一思路）——比每格各问一次
+    ``/playback/marks`` 便宜得多。收藏哨兵单元（负的季集号）不是播放事实，排除。
+    """
+    rows = await session.execute(
+        select(
+            PlaybackState.media_item_id,
+            PlaybackState.season_number,
+            PlaybackState.episode_number,
+            PlaybackState.played,
+            PlaybackState.position_ms,
+            PlaybackState.last_played_at,
+        ).where(
+            PlaybackState.member_id == member_id,
+            PlaybackState.media_item_id.in_(in_page),  # type: ignore[attr-defined]
+            PlaybackState.season_number >= 0,
+            PlaybackState.episode_number >= 0,
+        )
+    )
+    states: dict[int, dict[tuple[int, int], tuple[bool, int, datetime | None]]] = {}
+    for item_id, season, episode, played, position_ms, last_played_at in rows.all():
+        states.setdefault(item_id, {})[(season, episode)] = (
+            bool(played),
+            position_ms or 0,
+            last_played_at,
+        )
+    return states
+
+
+def _watch_badges(
+    kind: str,
+    files: list[_FileFacts],
+    available_units: set[tuple[int, int]],
+    states: dict[tuple[int, int], tuple[bool, int, datetime | None]],
+) -> tuple[int | None, int | None]:
+    """一格的 (进度百分比, 未看集数)。
+
+    进度取最近播放、且仍有在位文件的那个看到一半的单元（电影就是 (0,0)）；百分比
+    与首页「接下来继续」同一口径（``_progress_percent``：只给 1~99）。未看集数只对
+    剧集：本墙在位的集里还没看完的有几集（与 ``/playback/marks`` 的 unplayed_count
+    同语义，范围收在这面墙上）。
+    """
+    unplayed = (
+        sum(1 for unit in available_units if not (unit in states and states[unit][0]))
+        if kind == "tv"
+        else None
+    )
+    watching = [
+        (last_played_at, unit, position_ms)
+        for unit, (_played, position_ms, last_played_at) in states.items()
+        if position_ms > 0 and unit in available_units
+    ]
+    if not watching:
+        return None, unplayed
+    _last, unit, position_ms = max(
+        watching, key=lambda w: (w[0] is not None, w[0].timestamp() if w[0] else 0.0, w[1])
+    )
+    duration_seconds = max(
+        (
+            f.duration_seconds or 0
+            for f in files
+            if (f.season_number, f.episode_number) == unit and f.state == FileState.IN_PLACE
+        ),
+        default=0,
+    )
+    return _progress_percent(position_ms, _runtime_ms(duration_seconds, None, None)), unplayed
+
+
 async def _aggregate_wall_views(
     session: AsyncSession,
     library_id: int | None,
@@ -2125,6 +2272,7 @@ async def _aggregate_wall_views(
     *,
     library_ids: set[int] | None = None,
     landing_pairs: list[tuple[int, int]] | None = None,
+    member_id: int | None = None,
 ) -> list[LibraryItemView]:
     """把一批条目在某个库内的台账行聚合成海报墙视图，按 ``ordered_ids`` 排列。
 
@@ -2139,9 +2287,28 @@ async def _aggregate_wall_views(
     一批：[(条目, 库)]，每部只聚合它落点库里的文件，结果与逐库各调一次完全
     相同（视图的落点库就是文件行的库）。收藏行跨库，用它一次聚合完，不必
     按库循环、每个库把下面这一串查询各跑一遍。
+
+    给了 ``member_id`` 才带这位观看者的海报角标观看数据（进度、未看集数）；
+    不给就是 null——与收藏态同一约定，不认人的调用不必多查一次。
     """
     from movieclaw_db.repositories.media_repo import MediaItemRepository
 
+    file_scope = (
+        (
+            LibraryFile.library_id == library_id
+            if library_id is not None
+            else (
+                tuple_in((LibraryFile.media_item_id, LibraryFile.library_id), landing_pairs)
+                if landing_pairs is not None
+                else (
+                    LibraryFile.library_id.in_(library_ids)  # type: ignore[union-attr]
+                    if library_ids is not None
+                    else true()
+                )
+            )
+        ),
+        LibraryFile.media_item_id.in_(in_page),  # type: ignore[union-attr]
+    )
     # 只取聚合真正用得上的六列，不整行取 ORM 对象：台账行有四十来列、其中
     # 三列是 JSON（音轨/字幕/候选），整行取意味着一部三万集的库要反序列化
     # 九万段 JSON——实测 2000 部剧的库因此要跑四秒多，而这些列一个都用不上
@@ -2163,22 +2330,9 @@ async def _aggregate_wall_views(
                 LibraryFile.audio_streams.is_(None),  # type: ignore[union-attr]
                 LibraryFile.file_path.not_like(f"%{STRM_EXT}"),  # type: ignore[union-attr]
             ),
-        ).where(
-            (
-                LibraryFile.library_id == library_id
-                if library_id is not None
-                else (
-                    tuple_in((LibraryFile.media_item_id, LibraryFile.library_id), landing_pairs)
-                    if landing_pairs is not None
-                    else (
-                        LibraryFile.library_id.in_(library_ids)  # type: ignore[union-attr]
-                        if library_ids is not None
-                        else true()
-                    )
-                )
-            ),
-            LibraryFile.media_item_id.in_(in_page),  # type: ignore[union-attr]
-        ),
+            LibraryFile.hdr,
+            LibraryFile.duration_seconds,
+        ).where(*file_scope),
     )
     files_by_item: dict[int, list[_FileFacts]] = {}
     for media_item_id, *facts in file_rows:
@@ -2240,6 +2394,11 @@ async def _aggregate_wall_views(
     posters = await poster_facts_many(session, list(grouped.keys()))
     # 横版剧照与海报同批装配（同一条规则），billboard 横幅位消费
     backdrops = await backdrop_facts_many(session, list(grouped.keys()))
+    # 海报角标：字幕 / 音轨各一条批量查询；观看状态整页一条（只在认人时查）
+    chinese_subtitle_ids, atmos_ids = await _stream_badges_many(session, file_scope)
+    watch_states = (
+        await _watch_states_many(session, in_page, member_id) if member_id is not None else {}
+    )
     by_id: dict[int, LibraryItemView] = {}
     for item, files in grouped.values():
         season_episode_counts = season_episode_counts_by_item.get(item.id, {})  # type: ignore[arg-type]
@@ -2288,6 +2447,11 @@ async def _aggregate_wall_views(
             )
         missing_episodes = missing_by_item.get(item.id, 0) if item.kind == "tv" else 0  # type: ignore[arg-type]
         poster = posters.get(item.id) or PosterFacts()
+        progress_percent, unplayed_count = (
+            _watch_badges(item.kind, files, available_units, watch_states.get(item.id, {}))  # type: ignore[arg-type]
+            if member_id is not None
+            else (None, None)
+        )
         by_id[item.id] = LibraryItemView(  # type: ignore[index]
             media_item_id=item.id,  # type: ignore[arg-type]
             kind=MediaKind(item.kind),
@@ -2329,6 +2493,13 @@ async def _aggregate_wall_views(
             probe_pending_count=sum(
                 1 for f in files if f.unprobed and f.state == FileState.IN_PLACE
             ),
+            dynamic_range=_best_dynamic_range(
+                [f.hdr for f in files if f.state == FileState.IN_PLACE]
+            ),
+            has_atmos=item.id in atmos_ids,
+            has_chinese_subtitle=item.id in chinese_subtitle_ids,
+            progress_percent=progress_percent,
+            unplayed_count=unplayed_count,
         )
     # 顺序以调用方给定的 ordered_ids 为准，不在这里二次排序
     return [by_id[i] for i in ordered_ids if i in by_id]

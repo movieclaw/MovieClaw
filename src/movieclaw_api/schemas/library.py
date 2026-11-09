@@ -941,6 +941,27 @@ class LibraryItemView(BaseModel):
         description="在位但尚未探出介质规格的文件数——扫描补探阶段前端据此"
         "把「还在处理」的条目排到海报墙前面并点亮标记",
     )
+    # 海报角标（用户在「自定义首页」里按需打开，默认全关）的数据：都随墙聚合
+    # 批量算好，前端不再为每格单独拉详情 / 观看标记
+    dynamic_range: str | None = Field(
+        default=None,
+        description=(
+            "在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；SDR 为 null"
+        ),
+    )
+    has_atmos: bool = Field(default=False, description="有在位文件带杜比全景声（Atmos）音轨")
+    has_chinese_subtitle: bool = Field(
+        default=False,
+        description="有中文字幕（内封轨或外挂文件；剧集任一集有即算）",
+    )
+    progress_percent: int | None = Field(
+        default=None,
+        description="当前观看者最近一次看到一半的进度（1~99）；没在看或不认人的调用为 null",
+    )
+    unplayed_count: int | None = Field(
+        default=None,
+        description="剧集：本墙在位集里当前观看者还没看完的集数；电影或不认人的调用为 null",
+    )
 
     @field_serializer("added_at")
     def _serialize_utc(self, value: datetime | None) -> str | None:
@@ -1285,6 +1306,10 @@ class LibraryItemDetailView(BaseModel):
     # 不含系列合集与「我的收藏」——前者已单独一行，后者那颗心就在几十像素外
     collections: list[ItemCollectionRef] = Field(
         default_factory=list, description="这部片所属的合集（不含系列与「我的收藏」）"
+    )
+    air_status: Literal["airing", "ended"] | None = Field(
+        default=None,
+        description="剧集播出状态（同海报墙）：airing=在播 / ended=完结；电影或状态未知为 null",
     )
 
 
