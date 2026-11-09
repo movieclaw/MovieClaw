@@ -191,6 +191,7 @@ class CarSessionRequest implements PlaybackSessionRequest {
   capability: ClientCapabilityIn = new CarCapability();
   failed_tiers?: number[] | null;
   audio_track?: string | null;
+  subtitle_track?: string | null;
   max_height?: number | null;
   start_ms?: number | null;
   client?: string | null;
@@ -207,6 +208,10 @@ class CarProgressRequest implements PlaybackProgressRequest {
   file_id?: number | null;
   device_id?: string | null;
   paused?: boolean | null;
+}
+
+export function selectedSubtitleTrack(touched: boolean, ref: string): string | null {
+  return touched ? (ref.length > 0 ? ref : 'off') : null;
 }
 
 /**
@@ -271,6 +276,7 @@ export class AvPlayerEngine {
   private loadedSubtitleTrack: number = -1;
   /** 用户这一集碰过字幕选择没有（碰过才上报 subtitle_track） */
   private subtitleTouched: boolean = false;
+  private selectedSubtitleRef: string = '';
   private failedTiers: number[] = [];
   private retryCount: number = 0;
   /** 降档窗口内连发的 error 只处理一次 */
@@ -483,6 +489,7 @@ export class AvPlayerEngine {
     const player: media.AVPlayer | null = this.player;
     if (index < 0) {
       this.selectedSubtitleIndex = -1;
+      this.selectedSubtitleRef = 'off';
       this.subtitleCue = '';
       if (this.burnedSubtitleRef().length > 0) {
         // 烧录在流里：关字幕要重新协商一条不带字幕的流
@@ -503,6 +510,7 @@ export class AvPlayerEngine {
     if (index >= plans.length) {
       return;
     }
+    this.selectedSubtitleRef = plans[index].track_ref;
     if (plans[index].track_ref === this.burnedSubtitleRef()) {
       // 选中的就是烧录轨：画面里已经有了，摘掉外挂轨即可
       this.selectedSubtitleIndex = index;
@@ -676,6 +684,7 @@ export class AvPlayerEngine {
     this.retryCount = 0;
     this.selectedSubtitleIndex = -1;
     this.subtitleTouched = false;
+    this.selectedSubtitleRef = '';
     this.loadedSubtitleTrack = -1;
     this.positionMs = 0;
     this.durationMs = 0;
@@ -777,6 +786,7 @@ export class AvPlayerEngine {
       body.capability = this.capability();
       body.failed_tiers = this.failedTiers;
       body.audio_track = this.selectedAudioRef.length > 0 ? this.selectedAudioRef : null;
+      body.subtitle_track = selectedSubtitleTrack(this.subtitleTouched, this.selectedSubtitleRef);
       body.max_height = this.maxHeight > 0 ? this.maxHeight : null;
       body.start_ms = this.resolveBodyStartMs();
       body.client = 'harmony_car';
@@ -1353,8 +1363,7 @@ export class AvPlayerEngine {
     body.position_ms = event === 'start' ? null : this.positionMs;
     // 音轨只报用户点选的（报了会被当成用户选择记下）
     body.audio_track = this.selectedAudioRef.length > 0 ? this.selectedAudioRef : null;
-    body.subtitle_track = this.subtitleTouched
-      ? (this.selectedSubtitleIndex < 0 ? 'off' : this.subtitleRefOf(this.selectedSubtitleIndex)) : null;
+    body.subtitle_track = selectedSubtitleTrack(this.subtitleTouched, this.selectedSubtitleRef);
     body.file_id = view.decision.file_id ?? null;
     body.paused = event === 'progress' ? this.phase !== PlayPhase.playing : null;
     api.playbackProgress(body).then((state: PlaybackStateView): void => {
@@ -1367,14 +1376,6 @@ export class AvPlayerEngine {
       this.fail('管理员已结束本次播放', '可以回到详情页重新开始播放', 'admin');
     }).catch((): void => {
     });
-  }
-
-  private subtitleRefOf(index: number): string {
-    const plans: SubtitlePlanView[] = this.subtitlePlans();
-    if (index < 0 || index >= plans.length) {
-      return '';
-    }
-    return plans[index].track_ref;
   }
 
   /** 显式收掉转码会话（换流 / 换集 / 退出都要，不然服务端会一直转） */

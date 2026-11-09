@@ -212,7 +212,7 @@ fun PlayerPanel(state: PlayerState, controller: PlaybackController) {
                                         val burned = controller.decision?.video?.burnSubtitle == selected.ref
                                         row(
                                             "subtitle-burn",
-                                            if (burned) "取消压制，播放器本地渲染" else "此字幕需服务端转码才能显示（较慢、画质略降）",
+                                            if (burned) "取消压制并关闭字幕" else "此字幕需服务端转码才能显示（较慢、画质略降）",
                                             "服务端转码会稍慢，画质略有降低",
                                             false,
                                             false,

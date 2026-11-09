@@ -1715,7 +1715,7 @@ class PlaybackController(
      */
     private fun exoRenders(option: SubtitleOption?): Boolean {
         if (option == null) return false
-        if (!playsOriginalFile) return option.kind != "pgs" && option.path.isNotEmpty()
+        if (!playsOriginalFile) return option.ref.startsWith(EXTERNAL) && option.kind != "pgs" && option.path.isNotEmpty()
         if (option.ref.startsWith(EXTERNAL)) {
             // 本机副本的 ASS 没有服务端转好的 VTT 可给叠层：调了时间轴也只能交给 Exo
             val toOverlay = subtitleTimingAdjusted && !(localViewing != null && option.kind == "ass")
@@ -1819,7 +1819,7 @@ class PlaybackController(
         }
     }
 
-    /** 取消显式压制，保留当前 PGS 选择并回到播放器本地渲染。 */
+    /** 取消显式压制并关闭当前字幕；当前播放通路未必能本地渲染 PGS。 */
     fun unburnSubtitle() {
         if (burnedSubtitle == null) return
         burnCheck++
