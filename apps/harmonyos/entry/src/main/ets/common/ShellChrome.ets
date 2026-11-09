@@ -32,8 +32,8 @@ export class ShellChrome {
     WindowInsets.bumpRevision();
   }
 
-  /** 当前压在上面的整屏页标记（底 → 顶） */
-  @Trace private stack: string[] = [];
+  /** 当前压在上面的整屏页标记（底 → 顶）。公开给 @Monitor 按路径监听（MainTabsPage 监的就是它） */
+  @Trace stack: string[] = [];
 
   push(tag: string): void {
     if (this.stack.includes(tag)) {

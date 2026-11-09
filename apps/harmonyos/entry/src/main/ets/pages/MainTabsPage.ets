@@ -270,8 +270,13 @@ export struct MainTabsPage {
       });
   }
 
-  /** 整屏页（播放器/会话/片段）关掉了：底栏放回来，最近播放可能也变了，「接着看」重新取一次 */
-  @Monitor('chrome.immersive')
+  /**
+   * 整屏页（播放器/会话/片段）压上来：底栏收起；退干净：底栏放回来，最近播放可能也变了，
+   * 「接着看」重新取一次。监听栈本体——`immersive` 只是 getter，@Monitor 只认 V2 状态属性
+   * （@Trace），写它的话整个监控从未触发过（对应构建警告「needs to monitor the state
+   * variables that exist」）。
+   */
+  @Monitor('chrome.stack')
   onChromeImmersiveChange(): void {
     this.syncAccessoryInset();
     if (this.chrome.immersive) {

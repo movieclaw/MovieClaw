@@ -99,6 +99,8 @@ export struct SubscriptionDetailPage {
 
   @Local private detail: SubscriptionDetailView | null = null;
   @Local private activities: ActivityView[] = [];
+  /** 活动时间轴的取数代数：每次重拉自增。ForEach 同键不重建，键里掺代数才能让「N 分钟前」这类相对时间跟着重拉重算（对齐 iOS 整表重渲染） */
+  @Local private activitiesSeq: number = 0;
   /** 在途种子的实时下载快照（按 info_hash 找；有在途时 5 秒一轮） */
   @Local private downloads: SubscriptionDownloadView[] = [];
   /** 工单 id → 此刻仍未解决的失败活动（入库/投递失败） */
@@ -214,6 +216,7 @@ export struct SubscriptionDetailPage {
       // 取 100 条：里程碑链要按工单回查「最新一条是不是失败活动」
       const list: ActivityView[] = await api.subscriptionsListActivities(this.subscriptionId, 100);
       this.activities = list;
+      this.activitiesSeq = this.activitiesSeq + 1;
       this.failures = WantedLogic.pendingFailures(list);
     } catch (error) {
       this.activities = [];
@@ -2151,7 +2154,7 @@ export struct SubscriptionDetailPage {
           .margin({ top: 6 })
       }
       .width('100%')
-    }, (item: ActivityView) => `${item.id}`)
+    }, (item: ActivityView) => `${item.id}:${this.activitiesSeq}`)
   }
 
   /** 时间轴的竖线：最后一站不画（透明） */
