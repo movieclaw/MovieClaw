@@ -2,6 +2,7 @@ import { Theme } from '../theme/AppTheme';
 import { AppModel } from '../common/AppModel';
 import { AppFooter } from '../common/AppFooter';
 import { PageTopBar } from '../common/PageTopBar';
+import { StaleLoadGuard } from '../common/StaleLoadGuard';
 import { MovieClawApi } from '../api/Endpoints';
 import { LibraryItemView, LibraryKindSummaryView } from '../api/Models';
 import { ItemRouteParams } from './LibraryItemDetailPage';
@@ -111,6 +112,9 @@ struct LibraryKindWallPage {
   private genre: number | null = null;
   private genreLabel: string | null = null;
   private pager: LibraryWallPager = new LibraryWallPager(60);
+  /** 首载/换排序的代次守卫：连点排序时旧一轮 load() 晚醒（概况请求后到）会把
+   * 分页器换回旧数据源——墙显示的还是旧排序。每个 await 后对代次，作废即弃 */
+  private loadGuard: StaleLoadGuard = new StaleLoadGuard();
   /** 主墙的行数据源（LazyForEach 只建可视区附近的行） */
   private wallRows: KindWallRowSource = new KindWallRowSource();
   private scroller: Scroller = new Scroller();
@@ -221,15 +225,18 @@ struct LibraryKindWallPage {
     if (api === null) {
       return;
     }
+    const generation: number = this.loadGuard.begin();
     const kind: string = this.kind;
     const genreQuery: string | undefined = this.genreQuery();
     const sort: string = this.effectiveSort();
     const order: string | null = this.order();
     await this.loadSummary();
+    if (!this.loadGuard.isCurrent(generation)) { return; }
     const fetch = (offset: number, limit: number): Promise<LibraryItemView[]> => {
       return api.uiLibraryKindItems(kind, sort, order ?? undefined, limit, offset, genreQuery);
     };
     await this.pager.reset(fetch, 0);
+    if (!this.loadGuard.isCurrent(generation)) { return; }
     this.syncWall();
   }
 
