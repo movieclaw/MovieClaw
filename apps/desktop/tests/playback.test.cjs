@@ -713,6 +713,34 @@ test('remembered watch tracks take precedence, global languages choose only when
   assert.equal(h.P.snapshot().extras.subtitle_track, undefined);
 });
 
+test('native HLS initializes a burned PGS on the replacement session without renegotiating again', async () => {
+  const h = harness();
+  const context = item({ subtitle_track: 'embedded:0', __pgsNegotiated: true });
+  const view = burned => session({ timeline: 'session', start_ms: 100000,
+    decision: { tier: 3, file_id: 81, video: burned ? { burn_subtitle: 'embedded:0' } : {},
+      subtitles: [{ track_ref: 'embedded:0', kind: 'pgs' }] }, subtitle_urls: ['/playback/pgs.sup'] });
+  h.win.__MOVIECLAW_MPV_ACTIVE = true;
+  h.P.mpvInstanceId = 51;
+  h.P.mpvState = { time: 20, properties: {}, sid: 'no' };
+  const restarts = [];
+  h.A.restartPlaybackAt = position => { restarts.push(position); };
+
+  h.P.adoptSession('Native HLS', view(false), context, 'mpv');
+  await h.P.initializeTracks();
+  assert.deepEqual(restarts, [120000]);
+
+  h.P.adoptSession('Native HLS', view(true), h.P.context, 'mpv');
+  h.P.mpvInstanceId = 52;
+  h.P.mpvState = { time: 0, properties: {}, sid: 19 };
+  await h.P.initializeTracks();
+
+  assert.deepEqual(restarts, [120000]);
+  assert.equal(h.P.selectedSubtitle, 0);
+  assert.equal(h.P.mpvState.sid, 'no');
+  const commands = h.calls.filter(c => c[1] === 'send_mpv_command_embedded').map(c => Array.from(c[2].command));
+  assert.ok(commands.some(c => c[1] === 'sid' && c[2] === 'no'));
+});
+
 test('HTML5 audio and PGS controls renegotiate the common context at file position', async () => {
   const h = harness();
   h.P.open('Title', 'https://server.invalid/a.mp4', [], 0, session({ timeline: 'session', start_ms: 100000,

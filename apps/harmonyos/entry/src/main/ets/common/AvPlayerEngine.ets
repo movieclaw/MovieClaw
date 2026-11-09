@@ -214,6 +214,22 @@ export function selectedSubtitleTrack(touched: boolean, ref: string): string | n
   return touched ? (ref.length > 0 ? ref : 'off') : null;
 }
 
+export function subtitleIndexForRef(plans: SubtitlePlanView[], ref: string): number {
+  if (ref.length === 0 || ref === 'off') {
+    return -1;
+  }
+  return plans.findIndex((plan: SubtitlePlanView): boolean => plan.track_ref === ref);
+}
+
+export function restorableSubtitleIndex(plans: SubtitlePlanView[], urls: string[], ref: string,
+  burnedRef: string): number {
+  if (burnedRef.length > 0) {
+    return -1;
+  }
+  const index: number = subtitleIndexForRef(plans, ref);
+  return index >= 0 && plans[index].kind !== 'pgs' && index < urls.length && urls[index].length > 0 ? index : -1;
+}
+
 /**
  * 车机播放引擎：一个条目（一集）一个实例，换集在实例内完成。
  * 页面只渲染 @Trace 状态、调命令方法；不感知 AVPlayer。
@@ -954,6 +970,7 @@ export class AvPlayerEngine {
         if (player.duration > 0) {
           this.durationMs = player.duration;
         }
+        this.restoreSelectedSubtitle(player);
         // 起播位置不能在 idle 态 seek：这里才是跳续播点的地方
         if (this.pendingSeekMs > 0) {
           player.seek(this.pendingSeekMs, media.SeekMode.SEEK_CLOSEST);
@@ -1023,6 +1040,39 @@ export class AvPlayerEngine {
   }
 
   // MARK: 外挂字幕轨
+
+  /** 新 AVPlayer prepared 后，按持久化 ref 在新会话里重新定位并挂回文字字幕。 */
+  private async restoreSelectedSubtitle(player: media.AVPlayer): Promise<void> {
+    const view: PlaybackSessionView | null = this.session;
+    if (view === null || player !== this.player) {
+      return;
+    }
+    const plans: SubtitlePlanView[] = view.decision.subtitles;
+    const index: number = subtitleIndexForRef(plans, this.selectedSubtitleRef);
+    this.selectedSubtitleIndex = index;
+    const attachIndex: number = restorableSubtitleIndex(
+      plans, view.subtitle_urls, this.selectedSubtitleRef, this.burnedSubtitleRef());
+    if (attachIndex < 0) {
+      return;
+    }
+    try {
+      await player.addSubtitleFromUrl(AppModel.origin() + view.subtitle_urls[attachIndex]);
+      if (player !== this.player) {
+        return;
+      }
+      const found: number = await this.findSubtitleTrack(player);
+      if (player !== this.player || found < 0) {
+        return;
+      }
+      await player.selectTrack(found);
+      if (player === this.player) {
+        this.loadedSubtitleTrack = found;
+        this.selectedSubtitleIndex = attachIndex;
+        this.subtitleCue = '';
+      }
+    } catch (error) {
+    }
+  }
 
   /** 加载完找出字幕轨号并选中（url / fd 两种加载方式共用，同既有端 activateSubtitleTrack） */
   private async findSubtitleTrack(player: media.AVPlayer): Promise<number> {
