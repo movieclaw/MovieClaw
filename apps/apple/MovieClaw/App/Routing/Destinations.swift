@@ -38,8 +38,8 @@ extension AppRoute {
                 LibraryKindWallView(kind: kind, homeRow: row)
             default: EmptyView()
             }
-        case let .library(id, view, pending):
-            LibraryDetailView(libraryId: id, initialView: view.flatMap(LibraryDetailView.WallView.init(rawValue:)) ?? .items, openPending: pending)
+        case let .library(id, view, pending, actor):
+            LibraryDetailView(libraryId: id, initialView: view.flatMap(LibraryDetailView.WallView.init(rawValue:)) ?? .items, openPending: pending, actor: actor)
         case let .libraryKind(kind, genre): LibraryKindWallView(kind: kind, genre: genre)
         case let .libraryItem(libraryId, itemId, season, episode):
             LibraryItemDetailView(libraryId: libraryId, itemId: itemId, season: season, episode: episode)

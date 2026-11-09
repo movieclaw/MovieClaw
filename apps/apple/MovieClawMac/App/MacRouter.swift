@@ -52,8 +52,9 @@ extension MainTab: RawRepresentable {
 enum AppRoute: Hashable {
     /// 条目详情（电影 / 剧集 / 其他）：详情接口按「库 + 条目」取
     case item(libraryId: Int, itemId: Int)
-    /// 某个媒体库的海报墙（从首页「我的媒体库」进；侧边栏点库是直接换页，不压栈）
-    case library(Int)
+    /// 某个媒体库的海报墙（从首页「我的媒体库」进；侧边栏点库是直接换页，不压栈）；actor：进页即按这位演员筛好
+    /// （条目详情里没有影人页的演员——本地/NFO 库只有姓名——点下去落到这里）
+    case library(Int, actor: String? = nil)
     /// 合集：海报墙
     case collection(id: Int, name: String)
     /// 影人页：这个人在我库里的作品。姓名、头像随路由带过来，页面一打开头部就是全的；`fromItem` 是从哪部片点进来的

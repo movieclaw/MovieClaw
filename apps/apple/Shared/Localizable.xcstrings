@@ -132038,6 +132038,81 @@
       },
       "comment": "Opens the untruncated overview on Apple TV."
     },
+    "library.filters.actor": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演员"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演员"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actor"
+          }
+        }
+      },
+      "comment": "Library filter dimension label for an actor name (set from a cast card; no picker in the filter sheet)."
+    },
+    "library.filters.actorCondition": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演员：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演员：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actor: %@"
+          }
+        }
+      },
+      "comment": "Active actor condition shown under the library title on Apple TV and Mac."
+    },
+    "media.cards.actorInLibrary": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在本库查看 %@ 的作品"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在本库查看 %@ 的作品"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View %@'s titles in this library"
+          }
+        }
+      },
+      "comment": "Accessibility text for a cast card without a TMDB person: opens this library filtered by the actor."
+    },
     "library.facets.unfinished": {
       "extractionState": "manual",
       "generatesSymbol": true,

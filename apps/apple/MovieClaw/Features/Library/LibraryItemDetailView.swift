@@ -896,17 +896,23 @@ struct LibraryItemDetailView: View {
             let directors: [CastPerson] = meta.directorCredits.isEmpty
                 ? Array(NSOrderedSet(array: meta.directors)).compactMap { $0 as? String }.map { CastPerson(name: $0, subtitle: String(localized: .libraryItemDirector), avatar: nil, personId: nil) }
                 : meta.directorCredits.map { CastPerson(name: $0.name, subtitle: String(localized: .libraryItemDirector), avatar: $0.thumbUrl, personId: $0.tmdbPersonId) }
-            let cast = directors + meta.actors.map { CastPerson(name: $0.name, subtitle: $0.role.map { String(localized: .mediaPersonCharacter($0)) }, avatar: $0.thumbUrl, personId: $0.tmdbPersonId) }
+            let cast = directors + meta.actors.map { CastPerson(name: $0.name, subtitle: $0.role.map { String(localized: .mediaPersonCharacter($0)) }, avatar: $0.thumbUrl, personId: $0.tmdbPersonId, isActor: true) }
             if !cast.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     LibrarySectionHeader(title: String(localized: .mediaCardsCast))
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: cards.spacing) {
                             ForEach(Array(cast.enumerated()), id: \.offset) { _, person in
-                                if let id = person.personId {
+                                switch CastLink.resolve(personId: person.personId, name: person.name, isActor: person.isActor, libraryId: libraryId) {
+                                case let .person(id)?:
                                     NavigationLink(value: AppRoute.person(tmdbId: id)) { castCard(person) }
                                         .buttonStyle(.plain)
-                                } else {
+                                // 没有 TMDB 影人 id 的演员（NFO / 本地库）：进同库按演员筛的墙，看他在这个库里的其他作品
+                                case let .libraryActor(lib, actor)?:
+                                    NavigationLink(value: AppRoute.library(id: lib, actor: actor)) { castCard(person) }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel(String(localized: .mediaCardsActorInLibrary(person.name)))
+                                case nil:
                                     castCard(person)
                                 }
                             }
@@ -924,6 +930,8 @@ struct LibraryItemDetailView: View {
         var subtitle: String?
         var avatar: String?
         var personId: Int?
+        /// 演员（不是导演）：没有影人 id 时才能落到同库按演员筛的墙
+        var isActor = false
     }
 
     /// 头像占位的首字（同 Web cast-row initialsOf）：中日韩取首字；拉丁名单词取前两个字母、多词取首尾单词首字母，大写

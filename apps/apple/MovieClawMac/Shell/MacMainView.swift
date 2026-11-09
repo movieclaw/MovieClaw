@@ -233,7 +233,7 @@ struct MacDestination: View {
     var body: some View {
         switch route {
         case let .item(libraryId, itemId): MacItemDetailView(libraryId: libraryId, itemId: itemId)
-        case let .library(id): MacLibraryView(libraryId: id)
+        case let .library(id, actor): MacLibraryView(libraryId: id, actor: actor)
         case let .collection(id, name): MacCollectionView(collectionId: id, name: name)
         case let .person(tmdbId, name, avatar, fromItem):
             MacPersonView(tmdbId: tmdbId, name: name, avatar: avatar, fromItem: fromItem)

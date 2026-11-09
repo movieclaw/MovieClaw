@@ -22,13 +22,15 @@ struct LibraryDetailView: View {
     /// 数据到齐后自动打开待处理抽屉（Web `?pending=1`）
     var openPending = false
 
-    init(libraryId: Int, initialView: WallView = .items, openPending: Bool = false, homeRow: HomeRows.Row? = nil) {
+    /// actor：进来时就按这位演员筛好（Web `?actor=`，详情页没有影人页的演员卡带进来）；之后与其他条件一样可摘掉
+    init(libraryId: Int, initialView: WallView = .items, openPending: Bool = false, homeRow: HomeRows.Row? = nil, actor: String? = nil) {
         self.libraryId = libraryId
         self.initialView = initialView
         self.openPending = openPending
         _view = State(initialValue: initialView)
+        _filter = State(initialValue: LibraryFilter(actor: LibraryFilter.normalizedActor(actor)))
         if let homeRow, let rowSort = homeRow.sort {
-            _filter = State(initialValue: LibraryFilter(watch: homeRow.watch))
+            _filter = State(initialValue: LibraryFilter(watch: homeRow.watch, actor: LibraryFilter.normalizedActor(actor)))
             _sort = State(initialValue: WallSortState(sort: rowSort, reversed: homeRow.reversed))
         }
     }

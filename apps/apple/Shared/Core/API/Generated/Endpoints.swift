@@ -1293,7 +1293,7 @@ nonisolated extension APIClient {
 
     /// 按类型的跨库墙概况（由哪些库组成、共几部）
     /// `GET /libraries/kinds/{kind}`
-    func uiLibraryKindSummary(kind: String, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> API.LibraryKindSummaryView {
+    func uiLibraryKindSummary(kind: String, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil, actor: String? = nil) async throws -> API.LibraryKindSummaryView {
         var query: [URLQueryItem] = []
         if let g { query.append(URLQueryItem(name: "g", value: "\(g)")) }
         if let c { query.append(URLQueryItem(name: "c", value: "\(c)")) }
@@ -1306,6 +1306,7 @@ nonisolated extension APIClient {
         if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
         if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
         if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        if let actor { query.append(URLQueryItem(name: "actor", value: "\(actor)")) }
         return try await send("GET", "/libraries/kinds/\(kind)", query: query)
     }
 
@@ -1317,7 +1318,7 @@ nonisolated extension APIClient {
 
     /// 按类型的跨库海报墙（同一部片跨库只出现一次）
     /// `GET /libraries/kinds/{kind}/items`
-    func uiLibraryKindItems(kind: String, sort: String? = nil, order: String? = nil, limit: Int? = nil, offset: Int? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> [API.LibraryItemView] {
+    func uiLibraryKindItems(kind: String, sort: String? = nil, order: String? = nil, limit: Int? = nil, offset: Int? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil, actor: String? = nil) async throws -> [API.LibraryItemView] {
         var query: [URLQueryItem] = []
         if let sort { query.append(URLQueryItem(name: "sort", value: "\(sort)")) }
         if let order { query.append(URLQueryItem(name: "order", value: "\(order)")) }
@@ -1334,6 +1335,7 @@ nonisolated extension APIClient {
         if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
         if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
         if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        if let actor { query.append(URLQueryItem(name: "actor", value: "\(actor)")) }
         return try await send("GET", "/libraries/kinds/\(kind)/items", query: query)
     }
 
@@ -1442,7 +1444,7 @@ nonisolated extension APIClient {
 
     /// 筛选面板的候选值与计数（每一维排除自身条件后算）
     /// `GET /libraries/{library_id}/facets`
-    func libraryItemsFacets(libraryId: Int, tier: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> API.LibraryFacetsView {
+    func libraryItemsFacets(libraryId: Int, tier: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil, actor: String? = nil) async throws -> API.LibraryFacetsView {
         var query: [URLQueryItem] = []
         if let tier { query.append(URLQueryItem(name: "tier", value: "\(tier)")) }
         if let g { query.append(URLQueryItem(name: "g", value: "\(g)")) }
@@ -1456,6 +1458,7 @@ nonisolated extension APIClient {
         if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
         if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
         if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        if let actor { query.append(URLQueryItem(name: "actor", value: "\(actor)")) }
         return try await send("GET", "/libraries/\(libraryId)/facets", query: query)
     }
 
@@ -1473,7 +1476,7 @@ nonisolated extension APIClient {
 
     /// 库内条目的图廊：海报 / 剧照 / 章节场景图按条目分组铺平（图床浏览模式数据源）
     /// `GET /libraries/{library_id}/gallery`
-    func uiLibraryGallery(libraryId: Int, limit: Int? = nil, offset: Int? = nil, sort: String? = nil, order: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> [API.LibraryGalleryGroupView] {
+    func uiLibraryGallery(libraryId: Int, limit: Int? = nil, offset: Int? = nil, sort: String? = nil, order: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil, actor: String? = nil) async throws -> [API.LibraryGalleryGroupView] {
         var query: [URLQueryItem] = []
         if let limit { query.append(URLQueryItem(name: "limit", value: "\(limit)")) }
         if let offset { query.append(URLQueryItem(name: "offset", value: "\(offset)")) }
@@ -1490,6 +1493,7 @@ nonisolated extension APIClient {
         if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
         if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
         if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        if let actor { query.append(URLQueryItem(name: "actor", value: "\(actor)")) }
         return try await send("GET", "/libraries/\(libraryId)/gallery", query: query)
     }
 
@@ -1501,7 +1505,7 @@ nonisolated extension APIClient {
 
     /// 海报墙的跳转索引（按标题：A-Z 首字母档；按内容时间：月份档）
     /// `GET /libraries/{library_id}/item-index`
-    func uiLibraryItemsIndex(libraryId: Int, sort: String? = nil, order: String? = nil, granularity: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> [API.LibraryIndexEntryView] {
+    func uiLibraryItemsIndex(libraryId: Int, sort: String? = nil, order: String? = nil, granularity: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil, actor: String? = nil) async throws -> [API.LibraryIndexEntryView] {
         var query: [URLQueryItem] = []
         if let sort { query.append(URLQueryItem(name: "sort", value: "\(sort)")) }
         if let order { query.append(URLQueryItem(name: "order", value: "\(order)")) }
@@ -1517,6 +1521,7 @@ nonisolated extension APIClient {
         if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
         if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
         if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        if let actor { query.append(URLQueryItem(name: "actor", value: "\(actor)")) }
         return try await send("GET", "/libraries/\(libraryId)/item-index", query: query)
     }
 
@@ -1540,7 +1545,7 @@ nonisolated extension APIClient {
 
     /// 库内媒体条目的库存聚合（单库海报墙数据源）
     /// `GET /libraries/{library_id}/items`
-    func libraryItemsList(libraryId: Int, sort: String? = nil, order: String? = nil, limit: Int? = nil, offset: Int? = nil, identity: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> [API.LibraryItemView] {
+    func libraryItemsList(libraryId: Int, sort: String? = nil, order: String? = nil, limit: Int? = nil, offset: Int? = nil, identity: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil, actor: String? = nil) async throws -> [API.LibraryItemView] {
         var query: [URLQueryItem] = []
         if let sort { query.append(URLQueryItem(name: "sort", value: "\(sort)")) }
         if let order { query.append(URLQueryItem(name: "order", value: "\(order)")) }
@@ -1558,6 +1563,7 @@ nonisolated extension APIClient {
         if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
         if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
         if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        if let actor { query.append(URLQueryItem(name: "actor", value: "\(actor)")) }
         return try await send("GET", "/libraries/\(libraryId)/items", query: query)
     }
 
@@ -1734,7 +1740,7 @@ nonisolated extension APIClient {
 
     /// 筛空时的放宽建议（只列救得回内容的条件）
     /// `GET /libraries/{library_id}/relax`
-    func libraryItemsRelax(libraryId: Int, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> API.LibraryRelaxView {
+    func libraryItemsRelax(libraryId: Int, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil, actor: String? = nil) async throws -> API.LibraryRelaxView {
         var query: [URLQueryItem] = []
         if let g { query.append(URLQueryItem(name: "g", value: "\(g)")) }
         if let c { query.append(URLQueryItem(name: "c", value: "\(c)")) }
@@ -1747,6 +1753,7 @@ nonisolated extension APIClient {
         if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
         if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
         if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        if let actor { query.append(URLQueryItem(name: "actor", value: "\(actor)")) }
         return try await send("GET", "/libraries/\(libraryId)/relax", query: query)
     }
 
@@ -2399,7 +2406,7 @@ nonisolated extension APIClient {
 
     /// 刷片：取一页片段
     /// `GET /reels`
-    func reelsFeed(seed: Int? = nil, offset: Int? = nil, limit: Int? = nil, modes: String? = nil, kind: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> API.ReelFeedView {
+    func reelsFeed(seed: Int? = nil, offset: Int? = nil, limit: Int? = nil, modes: String? = nil, kind: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil, actor: String? = nil) async throws -> API.ReelFeedView {
         var query: [URLQueryItem] = []
         if let seed { query.append(URLQueryItem(name: "seed", value: "\(seed)")) }
         if let offset { query.append(URLQueryItem(name: "offset", value: "\(offset)")) }
@@ -2417,6 +2424,7 @@ nonisolated extension APIClient {
         if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
         if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
         if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        if let actor { query.append(URLQueryItem(name: "actor", value: "\(actor)")) }
         return try await send("GET", "/reels", query: query)
     }
 
@@ -2440,7 +2448,7 @@ nonisolated extension APIClient {
 
     /// 刷片：筛选菜单的候选值与计数（每一维排除自身条件后算）
     /// `GET /reels/facets`
-    func reelsFacets(kind: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> API.ReelFacetsView {
+    func reelsFacets(kind: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil, actor: String? = nil) async throws -> API.ReelFacetsView {
         var query: [URLQueryItem] = []
         if let kind { query.append(URLQueryItem(name: "kind", value: "\(kind)")) }
         if let g { query.append(URLQueryItem(name: "g", value: "\(g)")) }
@@ -2454,6 +2462,7 @@ nonisolated extension APIClient {
         if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
         if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
         if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        if let actor { query.append(URLQueryItem(name: "actor", value: "\(actor)")) }
         return try await send("GET", "/reels/facets", query: query)
     }
 

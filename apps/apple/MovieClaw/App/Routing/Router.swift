@@ -124,7 +124,7 @@ final class Router {
     func adoptSidebarLibraries(_ ids: Set<Int>) {
         sidebarLibraries = ids
         if selection == .tab(.library), currentPath.count == 1,
-           case let .library(id, nil, false)? = currentPath.first, ids.contains(id) {
+           case let .library(id, nil, false, nil)? = currentPath.first, ids.contains(id) {
             currentPath = []
             select(.mediaLibrary(id))
         }
@@ -192,7 +192,7 @@ final class Router {
             rememberRootParameter(of: route)
             return
         }
-        if case let .library(id, nil, false) = route, sidebarLibraries.contains(id) {
+        if case let .library(id, nil, false, nil) = route, sidebarLibraries.contains(id) {
             return select(.mediaLibrary(id))
         }
         // 切到路由归属的标签（该标签对当前账号不可见时——例如成员没有订阅页——留在当前标签）；

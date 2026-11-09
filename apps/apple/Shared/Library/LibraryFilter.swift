@@ -11,6 +11,10 @@ import Foundation
 /// 另有 `seriesKeys`（作品系列键）：界面上**没有这一维的控件**（一个库几百个系列，
 /// 合集才是它正确的呈现形态），只为系列合集与深链服务，所以不计入角标、不画成条件 chip。
 ///
+/// 还有 `actor`（演员名）：面板里同样**没有这一维**，只由详情页的演员卡带进来——本地/NFO 库的演员
+/// 没有 TMDB 影人页，点下去落到同库按演员筛的墙（网页 `?actor=`）。它是用户点出来的条件，
+/// 所以计入角标、在条件行画成可摘掉的 chip；合集规则没有这一维，不进 `rules`。
+///
 /// 为什么筛选不持久化：上次筛的条件下次打开还在，是这类产品最经典的困惑来源
 /// （"我的片怎么少了一半"）。排序是偏好该记，筛选是意图不该记——由持有它的页面
 /// 用 `@State` 保存即可。
@@ -41,6 +45,16 @@ nonisolated struct LibraryFilter: Hashable, Codable, Sendable {
     var stock: [String] = []
     /// 作品系列键（tmdb:1241 / name:xxx）；无界面控件，见类型注释
     var seriesKeys: [String] = []
+    /// 演员名（服务端去首尾空白后整名相等）；无面板控件，见类型注释。读取一律经 `actorName`（去空白、空串当没给）
+    var actor: String?
+
+    /// 规范化后的演员名：去首尾空白，空串 = 没有这一条
+    var actorName: String? { Self.normalizedActor(actor) }
+
+    static func normalizedActor(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
 
     /// 维度的显示顺序与叫法（条件 chip 行用）。**十个维度一个都不能少**：条件行的职责是
     /// 「收起面板之后仍看得见自己筛了什么」，漏画一维，用户就不知道那一维怎么取消。
@@ -55,20 +69,21 @@ nonisolated struct LibraryFilter: Hashable, Codable, Sendable {
         ("resolutions", String(localized: .libraryFiltersQuality)),
         ("hdr", String(localized: .libraryFiltersDynamicRange)),
         ("stock", String(localized: .libraryFiltersStock)),
+        ("actor", String(localized: .libraryFiltersActor)),
     ]
 
     /// 是否为空——为空时一切按「未筛选」走（不显示条件行、不请求计数）。
     var isEmpty: Bool {
         genres.isEmpty && countries.isEmpty && decades.isEmpty && watch == nil
             && ratingGte == nil && runtimes.isEmpty && languages.isEmpty
-            && resolutions.isEmpty && hdr == nil && stock.isEmpty && seriesKeys.isEmpty
+            && resolutions.isEmpty && hdr == nil && stock.isEmpty && seriesKeys.isEmpty && actorName == nil
     }
 
-    /// 已选条件的条数（「筛选」按钮上的角标）。与网页 filterCount 同口径：系列键不计。
+    /// 已选条件的条数（「筛选」按钮上的角标）。与网页 filterCount 同口径：系列键不计，演员算一条。
     var count: Int {
         genres.count + countries.count + decades.count + (watch == nil ? 0 : 1)
             + (ratingGte == nil ? 0 : 1) + runtimes.count + languages.count
-            + resolutions.count + (hdr == nil ? 0 : 1) + stock.count
+            + resolutions.count + (hdr == nil ? 0 : 1) + stock.count + (actorName == nil ? 0 : 1)
     }
 
     /// 条件里有没有二级维度——决定要不要取全份 facet：二级维度的展示名（"gt120" → "> 120′"）
@@ -98,6 +113,7 @@ nonisolated extension LibraryFilter {
         case "hdr": hdr.map { [$0 ? "1" : "0"] } ?? []
         case "stock": stock
         case "series_keys", "series_key": seriesKeys
+        case "actor": actorName.map { [$0] } ?? []
         default: []
         }
     }
@@ -131,6 +147,7 @@ nonisolated extension LibraryFilter {
         case "watch": watch = nil
         case "rating_gte", "ratingGte": ratingGte = nil
         case "hdr": hdr = nil
+        case "actor": actor = nil
         default: setList(dim, values(of: dim).filter { $0 != value })
         }
     }
@@ -165,7 +182,7 @@ nonisolated extension LibraryFilter {
     var key: String {
         if isEmpty { return "" }
         let parts: [(String, [String])] = [
-            ("c", countries), ("d", decades), ("g", genres.map(String.init)),
+            ("a", actorName.map { [$0] } ?? []), ("c", countries), ("d", decades), ("g", genres.map(String.init)),
             ("hdr", hdr.map { [String($0)] } ?? []), ("lang", languages),
             ("r", ratingGte.map { [Self.ratingString($0)] } ?? []), ("res", resolutions),
             ("rt", runtimes), ("sk", seriesKeys), ("st", stock), ("w", watch.map { [$0] } ?? []),
@@ -232,7 +249,7 @@ nonisolated extension LibraryFilter {
 // MARK: - 查询串（深链 / 与网页 URL 同一套参数名）
 
 nonisolated extension LibraryFilter {
-    /// 从查询参数还原（参数名同网页 URL 与后端：g / c / d / w / rating_gte / rt / lang / res / hdr / stock / series_keys）。
+    /// 从查询参数还原（参数名同网页 URL 与后端：g / c / d / w / rating_gte / rt / lang / res / hdr / stock / series_keys / actor）。
     /// 一个筛选参数都没有时返回 nil。解析不出的取值静默丢弃（与后端宽容语义一致，老链接不报错）。
     init?(query: [String: String]) {
         func list(_ key: String) -> [String] {
@@ -249,7 +266,8 @@ nonisolated extension LibraryFilter {
             resolutions: list("res"),
             hdr: query["hdr"].flatMap { $0 == "true" ? true : $0 == "false" ? false : nil },
             stock: list("stock"),
-            seriesKeys: list("series_keys")
+            seriesKeys: list("series_keys"),
+            actor: Self.normalizedActor(query["actor"])
         )
         if isEmpty { return nil }
     }
@@ -260,6 +278,7 @@ nonisolated extension LibraryFilter {
             ("g", qG), ("c", qC), ("d", qD), ("w", watch),
             ("rating_gte", ratingGte.map(Self.ratingString)), ("rt", qRt), ("lang", qLang),
             ("res", qRes), ("hdr", hdr.map { String($0) }), ("stock", qStock), ("series_keys", qSeries),
+            ("actor", actorName),
         ]
         return pairs.compactMap { name, value in value.map { URLQueryItem(name: name, value: $0) } }
     }
@@ -293,7 +312,7 @@ nonisolated extension APIClient {
             libraryId: libraryId, sort: sort, order: order, limit: limit, offset: offset, identity: identity,
             g: filter.qG, c: filter.qC, d: filter.qD, w: filter.watch, ratingGte: filter.ratingGte,
             rt: filter.qRt, lang: filter.qLang, res: filter.qRes, hdr: filter.hdr, stock: filter.qStock,
-            seriesKeys: filter.qSeries
+            seriesKeys: filter.qSeries, actor: filter.actorName
         )
     }
 
@@ -306,7 +325,7 @@ nonisolated extension APIClient {
             libraryId: libraryId, sort: sort, order: order, granularity: granularity,
             g: filter.qG, c: filter.qC, d: filter.qD, w: filter.watch, ratingGte: filter.ratingGte,
             rt: filter.qRt, lang: filter.qLang, res: filter.qRes, hdr: filter.hdr, stock: filter.qStock,
-            seriesKeys: filter.qSeries
+            seriesKeys: filter.qSeries, actor: filter.actorName
         )
     }
 
@@ -318,7 +337,7 @@ nonisolated extension APIClient {
             libraryId: libraryId, limit: limit, offset: offset, sort: sort, order: order,
             g: filter.qG, c: filter.qC, d: filter.qD, w: filter.watch, ratingGte: filter.ratingGte,
             rt: filter.qRt, lang: filter.qLang, res: filter.qRes, hdr: filter.hdr, stock: filter.qStock,
-            seriesKeys: filter.qSeries
+            seriesKeys: filter.qSeries, actor: filter.actorName
         )
     }
 
@@ -329,7 +348,7 @@ nonisolated extension APIClient {
             libraryId: libraryId, tier: allTiers ? "all" : nil,
             g: filter.qG, c: filter.qC, d: filter.qD, w: filter.watch, ratingGte: filter.ratingGte,
             rt: filter.qRt, lang: filter.qLang, res: filter.qRes, hdr: filter.hdr, stock: filter.qStock,
-            seriesKeys: filter.qSeries
+            seriesKeys: filter.qSeries, actor: filter.actorName
         )
     }
 
@@ -342,7 +361,7 @@ nonisolated extension APIClient {
             seed: seed, offset: offset, limit: limit, modes: "seek,clip", kind: kind,
             g: filter.qG, c: filter.qC, d: filter.qD, w: filter.watch, ratingGte: filter.ratingGte,
             rt: filter.qRt, lang: filter.qLang, res: filter.qRes, hdr: filter.hdr, stock: filter.qStock,
-            seriesKeys: filter.qSeries
+            seriesKeys: filter.qSeries, actor: filter.actorName
         )
     }
 
@@ -352,7 +371,7 @@ nonisolated extension APIClient {
             kind: kind,
             g: filter.qG, c: filter.qC, d: filter.qD, w: filter.watch, ratingGte: filter.ratingGte,
             rt: filter.qRt, lang: filter.qLang, res: filter.qRes, hdr: filter.hdr, stock: filter.qStock,
-            seriesKeys: filter.qSeries
+            seriesKeys: filter.qSeries, actor: filter.actorName
         )
     }
 
@@ -362,7 +381,7 @@ nonisolated extension APIClient {
             libraryId: libraryId,
             g: filter.qG, c: filter.qC, d: filter.qD, w: filter.watch, ratingGte: filter.ratingGte,
             rt: filter.qRt, lang: filter.qLang, res: filter.qRes, hdr: filter.hdr, stock: filter.qStock,
-            seriesKeys: filter.qSeries
+            seriesKeys: filter.qSeries, actor: filter.actorName
         )
     }
 }

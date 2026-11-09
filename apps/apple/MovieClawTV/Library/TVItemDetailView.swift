@@ -471,7 +471,7 @@ struct TVItemDetailView: View {
             // 有系列时相似推荐排除了同系列的片，两行不重复
             let people = Self.castPeople(detail)
             if !people.isEmpty {
-                TVCastRow(people: people, itemId: itemId)
+                TVCastRow(people: people, libraryId: libraryId, itemId: itemId)
                     .equatable()
             }
             if !similar.isEmpty {
@@ -738,6 +738,8 @@ struct TVItemDetailView: View {
         let role: String?
         let avatar: String?
         let personId: Int?
+        /// 演员（不是导演）：没有影人 id 时按确认落到同库按演员筛的墙
+        var isActor = false
     }
 
     /// 演职员：导演在前（结构化的优先，没有就退回姓名），演员跟着，同 iPhone 版。带 TMDB 影人 id 的能进影人页
@@ -748,7 +750,7 @@ struct TVItemDetailView: View {
                 .map { CastPerson(name: $0, role: String(localized: .mediaDetailDirector), avatar: nil, personId: nil) }
             : meta.directorCredits.map { CastPerson(name: $0.name, role: String(localized: .mediaDetailDirector), avatar: $0.thumbUrl, personId: $0.tmdbPersonId) }
         return directors + meta.actors.map {
-            CastPerson(name: $0.name, role: $0.role.map { String(localized: .mediaPersonCharacter($0)) }, avatar: $0.thumbUrl, personId: $0.tmdbPersonId)
+            CastPerson(name: $0.name, role: $0.role.map { String(localized: .mediaPersonCharacter($0)) }, avatar: $0.thumbUrl, personId: $0.tmdbPersonId, isActor: true)
         }
     }
 
@@ -1112,23 +1114,35 @@ private struct TVEpisodeRow: View {
 /// 演职员一行：焦点由这一行自己管，按值比较（人没变就不重画），焦点在头像间挪动不惊动页面
 private struct TVCastRow: View, Equatable {
     let people: [TVItemDetailView.CastPerson]
+    let libraryId: Int
     let itemId: Int
 
     @Environment(\.api) private var api
     @Environment(TVRouter.self) private var router
     @FocusState private var focused: Int?
 
-    static func == (lhs: Self, rhs: Self) -> Bool { lhs.people == rhs.people && lhs.itemId == rhs.itemId }
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.people == rhs.people && lhs.libraryId == rhs.libraryId && lhs.itemId == rhs.itemId
+    }
 
     var body: some View {
         TVShelf(title: String(localized: .mediaCardsCast)) {
             ForEach(Array(people.enumerated()), id: \.offset) { index, person in
+                let link = CastLink.resolve(personId: person.personId, name: person.name, isActor: person.isActor, libraryId: libraryId)
                 TVPersonPortraitCard(name: person.name, role: person.role,
                                      imageURL: api.image(person.avatar, width: ImageWidth.tvCard(TVPersonPortraitCard.width))) {
-                    // 没有 TMDB 影人 id 的（NFO 里只有姓名的导演）没有影人页，按确认不跳转
-                    guard let id = person.personId else { return }
-                    router.push(.person(tmdbId: id, name: person.name, avatar: person.avatar, fromItem: itemId))
+                    switch link {
+                    case let .person(id)?:
+                        router.push(.person(tmdbId: id, name: person.name, avatar: person.avatar, fromItem: itemId))
+                    // 没有 TMDB 影人 id 的演员（NFO / 本地库）：同库按演员筛的墙，看他在这个库里的其他作品
+                    case let .libraryActor(lib, actor)?:
+                        router.push(.library(lib, actor: actor))
+                    // 没有影人 id 的导演没有影人页，按确认不跳转
+                    case nil:
+                        break
+                    }
                 }
+                .accessibilityHint(link?.opensLibrary == true ? String(localized: .mediaCardsActorInLibrary(person.name)) : "")
                 .focused($focused, equals: index)
                 .accessibilityIdentifier(person.personId.map { "tv-cast-\($0)" } ?? "tv-cast-none")
             }

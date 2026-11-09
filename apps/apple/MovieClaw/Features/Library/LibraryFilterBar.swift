@@ -214,8 +214,9 @@ private struct FilterConditionRow: View {
                     .expandedHitArea(vertical: 8)
             }
             .buttonStyle(.plain)
-            // 已经等于某个合集时不再提「存为合集」——那只会存出一个重名的孪生体
-            if let onSaveAsCollection, collectionName == nil {
+            // 已经等于某个合集时不再提「存为合集」——那只会存出一个重名的孪生体。
+            // 有演员条件时也不提：合集规则没有演员这一维，存下来会比眼前这面墙多
+            if let onSaveAsCollection, collectionName == nil, filter.actorName == nil {
                 Button(action: onSaveAsCollection) {
                     Text(String(localized: .libraryCollectionsSaveAs))
                         .font(.caption)
@@ -313,7 +314,8 @@ private func facetPool(_ dim: String, _ facets: API.LibraryFacetsView?) -> [API.
 /// 分辨率、语言的取值本身就是人话（"2160p"、"ja"），直接印。
 private func facetLabel(_ dim: String, _ value: String, facets: API.LibraryFacetsView?) -> String {
     if let label = facetPool(dim, facets).first(where: { $0.value == value })?.label { return label }
-    return dim == "resolutions" || dim == "languages" ? value : "…"
+    // 演员没有 facet，取值就是姓名本身
+    return dim == "resolutions" || dim == "languages" || dim == "actor" ? value : "…"
 }
 
 // MARK: - 筛选面板（原生底部面板）
