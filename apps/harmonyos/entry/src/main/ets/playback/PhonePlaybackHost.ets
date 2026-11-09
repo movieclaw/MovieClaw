@@ -12,6 +12,7 @@ import { PlayerPrefs, SubStyle } from '../player/PlayerPrefs';
 import { PlaybackController, PlaybackSnapshot, PlaybackIntent, PlaybackSessionCoordinator, PlaybackOwnership, SkipSegments } from '@movieclaw/playback';
 import { EngineEvent, EngineFailure } from '@movieclaw/player-engine';
 import { PhoneMedia, playbackUrl, downloadPgsSidecar, removePgsSidecar, PgsSidecarCache } from './PhoneMedia';
+import { PgsPrepareGuard } from './PgsPrepareGuard';
 import { MovieClawPlaybackSession } from './MovieClawPlaybackSession';
 import { MovieClawPlaybackGateway } from './MovieClawPlaybackGateway';
 
@@ -284,6 +285,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   @Trace displayMode: string = 'fit';
   @Trace subtitleIndex: number = -1;
   subtitleRef: string = '';
+  /** 切入 PGS 之前的字幕下标（-1 = 之前关着；PGS→PGS 不覆盖）——MPV 拉不起来时的回滚落点 */
+  private subtitleBeforePgsIndex: number = -1;
   /** 客户端渲染的 PGS 旁挂 .sup 缓存（一次下载，会话内复用；换文件/换轨作废） */
   private pgsSidecarFile: PgsSidecarCache | null = null;
   /** 正在后台预备的 PGS 旁挂键（fileId:ref），防重入 */
@@ -872,29 +875,37 @@ export class PhonePlaybackHost implements PlaybackTestHost {
 
   /**
    * 后台预备 PGS 旁挂 .sup（对齐网页 libbitsub + fetchSupBytes 的客户端路径）：
-   * `requestInStream` 落盘绕开响应体大小上限，完成后缓存起来并保持当前位置重挂
-   * 一次，让 mpv `sub-add` 带上字幕（fd + sub-delay=-start_ms/1000 与文本旁挂
-   * 同一条链路）。首抽空窗期照常播放，不阻塞起播；中途换轨/离开页面即作废。
+   * `requestInStream` 落盘绕开响应体大小上限；完成后按起跑时记下的世界对账
+   * （PgsPrepareGuard 三分法）——退出/换集/重协商 → 作废删文件；中途切走这条
+   * 轨 / 改备了别的键 → 只入缓存不重挂，切回来命中缓存再挂；什么都没变 → 驱
+   * 逐旧缓存、保持当前位置重挂一次，让 mpv `sub-add` 带上字幕（fd +
+   * sub-delay=-start_ms/1000 与文本旁挂同一条链路）。首抽空窗期照常播放，
+   * 不阻塞起播。
    */
   private async preparePgsSidecar(url: string, fileId: number, ref: string): Promise<void> {
     const key = `${fileId}:${ref}`;
     if (this.pgsPreparingKey === key) { return; }
+    const sessionView: PlaybackSessionView | null = this.session;
+    if (sessionView === null) { return; }
     this.pgsPreparingKey = key;
+    const guard: PgsPrepareGuard = new PgsPrepareGuard(key, this.sessionEpoch, sessionView, ref);
     this.toast('图形字幕准备中，首次可能需要几分钟');
     try {
       const path: string = await downloadPgsSidecar(url, this.getUIContext().getHostContext()?.cacheDir ?? '');
-      if (this.pgsPreparingKey !== key || this.disposed) { removePgsSidecar(path); return; }
+      const outcome: string = guard.outcome(this.pgsPreparingKey, this.sessionEpoch, this.disposed,
+        this.session, this.subtitleIndex);
+      if (outcome === PgsPrepareGuard.outcomeDiscard) { removePgsSidecar(path); return; }
       const previous: PgsSidecarCache | null = this.pgsSidecarFile;
       if (previous !== null && previous.path !== path) { removePgsSidecar(previous.path); }
       this.pgsSidecarFile = { fileId: fileId, ref: ref, path: path };
-      hilog.info(0x0000, 'MCSub', '%{public}s', `PGS 旁挂就绪: ${key}`);
-      const view = this.session;
-      if (view !== null && this.localSpec === null && (view.stream_url ?? '').length > 0) {
+      hilog.info(0x0000, 'MCSub', '%{public}s', `PGS 旁挂就绪（${outcome}）: ${key}`);
+      if (outcome === PgsPrepareGuard.outcomeRemount && this.localSpec === null
+        && (sessionView.stream_url ?? '').length > 0) {
         this.pendingSeekMs = this.positionMs;
-        await this.attachPlayer(view.stream_url ?? '');
+        await this.attachPlayer(sessionView.stream_url ?? '');
       }
     } catch (error) {
-      if (this.pgsPreparingKey === key) { this.toast('图形字幕加载失败，可稍后重新选择这条字幕重试'); }
+      if (this.pgsPreparingKey === key && !this.disposed) { this.toast('图形字幕加载失败，可稍后重新选择这条字幕重试'); }
       hilog.warn(0x0000, 'MCSub', 'PGS 旁挂下载失败: %{public}s', `${error}`);
     } finally {
       if (this.pgsPreparingKey === key) { this.pgsPreparingKey = ''; }
@@ -1031,6 +1042,19 @@ export class PhonePlaybackHost implements PlaybackTestHost {
         else { this.phase = PlayerPhase.failed; this.errorMessage = failure.message; this.sessionCoordinator.close(); }
         return;
       }
+      if (failure.kind === 'unavailable' || failure.kind === 'internal') {
+        if (this.disposed) { return; }
+        // 按次强制 MPV 渲染 PGS 却拉不起来（'unavailable'：MPV 初始化失败一
+        // 类）：切回进 PGS 之前的字幕设置重挂，别让一次字幕选择把整个播放搞挂
+        //（默认引擎就是 mpv 时与字幕无关，rollbackForcedPgs 自会拒绝）
+        if (failure.kind === 'unavailable' && this.rollbackForcedPgs()) { return; }
+        // 其余的引擎不可用 / internal 异常（画面重建失败、命令异常一类）换档
+        // 救不了，只会空转几轮重协商，直接落错误页。换集/退出途中旧引擎的取消
+        // 打断到不了这里——controller.release 先递增 generation，作废的 open
+        // 在 startAttempt 的 valid 检查里就被吞掉了
+        this.failSession(failure.message);
+        return;
+      }
       // 会话播放：内核链（avplayer→mpv）走到头的失败一律交给档位重试——外网
       // 弱网下 mpv 直连原片常以 timeout（25 秒启动超时）/network/source 终结，
       // 它们不在 canFallback 里，直接判死就是「降成 mpv 还是放不了」；换低档
@@ -1044,6 +1068,13 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     PlaybackOwnership.claim(this, (): void => { this.pause(); });
   }
   pause(): void { this.pausedIntent = true; this.controller.pause(); }
+
+  /** 会话播放里换档救不了的失败（引擎不可用 / internal 异常）：直接落错误页，不空转重试 */
+  private failSession(message: string): void {
+    this.phase = PlayerPhase.failed;
+    this.errorMessage = message.length > 0 ? message : '播放失败';
+    this.sessionCoordinator.close();
+  }
 
   onPlaybackFailed(reason: string): void {
     if (this.localFallingBack) {
@@ -1254,7 +1285,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     this.releasePlayer().then(async (): Promise<void> => {
       this.stopSession();
       if (this.disposed) { return; }
-      this.pausedIntent = false; this.subtitleIndex = -1; this.subtitleRef = ''; this.audioRef = '';
+      this.pausedIntent = false; this.subtitleIndex = -1; this.subtitleRef = ''; this.subtitleBeforePgsIndex = -1; this.audioRef = '';
       this.positionMs = 0;
       this.episodeNumber = target.episode_number;
       this.resumeExplicit = false;
@@ -1506,6 +1537,13 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       this.subtitleIndex = index; this.subtitleRef = targetRef;
       return;
     }
+    // 首次切入 PGS（上一条不是 PGS）时记下回滚落点，MPV 拉不起来时切回来
+    //（PGS→PGS 不覆盖，保留最近一次非 PGS 落点；-1 = 之前关着）
+    if (this.localSpec === null && index >= 0 && view.decision.subtitles[index].kind === 'pgs') {
+      const prevKind: string = this.subtitleIndex >= 0 && this.subtitleIndex < view.decision.subtitles.length
+        ? view.decision.subtitles[this.subtitleIndex].kind : '';
+      if (prevKind !== 'pgs') { this.subtitleBeforePgsIndex = this.subtitleIndex; }
+    }
     this.subtitleIndex = index; this.subtitleRef = targetRef; this.subtitleCue = '';
     // 固定「仅 AVPlayer」却手动点了未烧录的 PGS：按次切 MPV 渲染，明确告知覆盖了手动固定
     if (this.localSpec === null && index >= 0 && PlayerPrefs.engine() === 'avplayer'
@@ -1522,6 +1560,35 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     this.pendingSeekMs = this.positionMs;
     if (this.localSpec !== null) { await this.attachLocalPlayer(); }
     else if (view.stream_url) { await this.attachPlayer(view.stream_url); }
+  }
+
+  /**
+   * 强制 MPV 渲染 PGS 后引擎拉不起来（'unavailable'）的兜底：把字幕切回进 PGS
+   * 之前的落点（pickSubtitle 记录，-1 = 之前关着）重挂播放器——固定 AVPlayer 的
+   * 用户只是想要字幕，不该被一次字幕选择搞到整个播放失败。仅在「引擎确因 PGS
+   * 被强制切到 MPV」时回滚：默认引擎就是 mpv、或选的是已烧录轨时失败与字幕
+   * 无关，照常落错误页；回滚落点越界（换过会话）按关闭处理。
+   */
+  private rollbackForcedPgs(): boolean {
+    const view: PlaybackSessionView | null = this.session;
+    if (view === null || this.localSpec !== null || this.disposed || this.reopening) { return false; }
+    if (this.surfaceId.length === 0 || PlayerPrefs.engine() === 'mpv') { return false; }
+    if (this.subtitleIndex < 0 || this.subtitleIndex >= view.decision.subtitles.length) { return false; }
+    const streamUrl: string = view.stream_url ?? '';
+    const burnedRef: string | null = view.decision.video?.burn_subtitle ?? null;
+    const plan: SubtitlePlanView = view.decision.subtitles[this.subtitleIndex];
+    if (plan.kind !== 'pgs' || plan.track_ref === burnedRef || streamUrl.length === 0) { return false; }
+    const backTo: number = this.subtitleBeforePgsIndex;
+    this.subtitleBeforePgsIndex = -1;
+    this.subtitleIndex = backTo;
+    this.subtitleRef = backTo >= 0 && backTo < view.decision.subtitles.length
+      ? view.decision.subtitles[backTo].track_ref : 'off';
+    this.subtitleCue = '';
+    hilog.warn(0x0000, 'MCSub', '%{public}s', `MPV 初始化失败，切回 PGS 之前的字幕（index=${backTo}）`);
+    this.toast('MPV 初始化失败，已切回之前的字幕设置');
+    this.pendingSeekMs = this.positionMs;
+    this.attachPlayer(streamUrl).catch((): void => { });
+    return true;
   }
 
   /**
