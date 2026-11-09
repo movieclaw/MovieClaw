@@ -58,6 +58,43 @@ def test_legacy_channel_wire_and_positional_constructors_remain_unchanged():
     }
     assert ch.flow_from(ch.flow_dict(state)) == state
     assert ch.spec_parts(ch.driver_spec(Legacy()))[1] == Legacy.binding
+    optional = ch.FlowState(
+        "flow",
+        "need_input",
+        input_optional=True,
+        prefill={"app_id": "cli_app"},
+        resume_token="flow-1",
+    )
+    wire = ch.flow_dict(optional)
+    assert wire["input_optional"] is True
+    assert wire["prefill"] == {"app_id": "cli_app"}
+    assert wire["resume_token"] == "flow-1"
+    assert ch.flow_from(wire) == optional
+    assert "input_optional" not in ch.flow_dict(state)
+    assert "rebind_message" not in ch.bind_result_dict(
+        ch.BindResult("account", "name", {"token": "t"})
+    )
+    noted = ch.BindResult(
+        "account",
+        "name",
+        {"token": "t"},
+        rebind_message="将更新",
+        rebind_message_localized={"en": "Updates"},
+    )
+    dumped = ch.bind_result_dict(noted)
+    assert dumped["rebind_message"] == "将更新"
+    assert ch.bind_result_from(dumped).rebind_message_localized == {"en": "Updates"}
+    limited = ch.driver_spec(
+        type(
+            "Limited",
+            (ch.ChannelDriver,),
+            {
+                "capabilities": ch.Capabilities(photo=True, photo_caption_limit=20000),
+            },
+        )()
+    )
+    assert limited["capabilities"]["photo_caption_limit"] == 20000
+    assert "photo_caption_limit" not in ch.driver_spec(Legacy())["capabilities"]
 
 
 def test_localized_wire_copies_nested_maps_in_both_directions():

@@ -67,7 +67,12 @@ test("generic IM binding renders declared fields and English QR, input and retry
   for (const status of ["pending", "scanned", "need_input", "expired", "failed"]) {
     const html = render(load("channel-bind-dialog", "en", [{ ...binding, status }]).FlowBindBody, { channel });
     assert.doesNotMatch(html, /[\u3400-\u9fff]/);
-    if (status === "need_input") { assert.match(html, /Phone code/); assert.match(html, /Confirm/); }
+    if (status === "need_input") {
+      assert.match(html, /Phone code/);
+      assert.match(html, /Confirm/);
+      assert.doesNotMatch(html, /Send to me/);
+      assert.doesNotMatch(html, /Back to the form/);
+    }
     if (status === "pending") assert.match(html, /QR code to link Fixture channel/);
   }
   const paired = render(load("channel-bind-dialog", "en", [{}, { ...binding, kind: "pairing", status: "pending" }]).FormBindBody, { channel });
@@ -75,4 +80,42 @@ test("generic IM binding renders declared fields and English QR, input and retry
   assert.match(paired, /Valid for 10 minutes/);
   assert.match(paired, /https:\/\/callback.invalid\/path/);
   assert.doesNotMatch(paired, /[\u3400-\u9fff]/);
+
+  const optional = render(
+    load("channel-bind-dialog", "en", [{ ...binding, status: "need_input", input_optional: true, resume_token: "flow-kept", prefill: { app_id: "cli_kept" } }]).FlowBindBody,
+    { channel, onBackToForm: () => {} },
+  );
+  assert.match(optional, /Send to me/);
+  assert.match(optional, /Back to the form/);
+  assert.doesNotMatch(optional, /Send to me[\s\S]*app-secret/);
+  assert.doesNotMatch(optional, /[\u3400-\u9fff]/);
+
+  const review = render(
+    load("channel-bind-dialog", "en", [{ ...binding, status: "confirmed", review: true, message: "Already linked. The push target will be updated" }]).FlowBindBody,
+    { channel, onBound: () => {} },
+  );
+  assert.match(review, /Done/);
+  assert.match(review, /Already linked/);
+  assert.doesNotMatch(review, /[\u3400-\u9fff]/);
+
+  const appChannel = {
+    ...channel,
+    binding: {
+      ...channel.binding,
+      pairing: "none",
+      fields: [
+        { key: "app_id", label: "App ID", required: false, secret: false, placeholder: "cli_", help: "" },
+        { key: "app_secret", label: "App Secret", required: false, secret: true, placeholder: "secret", help: "" },
+      ],
+    },
+  };
+  const kept = render(
+    load("channel-bind-dialog", "en", [{ app_id: "cli_kept" }]).FormBindBody,
+    { channel: appChannel, resumeToken: "flow-kept", initialValues: { app_id: "cli_kept" } },
+  );
+  assert.match(kept, /cli_kept/);
+  assert.match(kept, /Kept on the server/);
+  assert.match(kept, /The App ID from the scan is filled in/);
+  assert.doesNotMatch(kept, /app-secret-value/);
+  assert.doesNotMatch(kept, /[\u3400-\u9fff]/);
 });

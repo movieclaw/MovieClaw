@@ -129,6 +129,9 @@ class _DriverAdapter:
         self.account = account
         self.channel_id = account.channel_id
         self.max_text_len = driver.capabilities.max_text_len
+        limit = driver.capabilities.photo_caption_limit
+        if isinstance(limit, int) and limit > 0:
+            self.photo_caption_limit = limit
         if driver.capabilities.photo:
             self.send_photo = self._send_photo
 
@@ -184,6 +187,14 @@ class Binding:
     callback_note_ref: dict | None = None
     #: 发起绑定的人的界面语言：配对回执（IM 里的确认消息）用它
     locale: str = field(default_factory=current_locale.get)
+    #: 交互式输入可以留空（飞书扫码：留空推给扫码人）。微信等流程保持必填。
+    input_optional: bool = False
+    #: 可回填的非机密字段。密钥已被滤掉。
+    prefill: dict[str, str] = field(default_factory=dict)
+    #: 服务端暂存凭据的令牌。页面拿它重试，拿不到密钥本身。
+    resume_token: str = ""
+    #: 同一账号再次绑定：提示将更新，对话框留到用户点完成，不自动关掉。
+    review: bool = False
 
     def text(self, key: str) -> str:
         with use_locale(self.locale):
@@ -223,6 +234,22 @@ def _message_fields(key: str, **params) -> dict:
         "message": source_render(reference(key, **params)),
         "message_ref": reference(key, **params),
     }
+
+
+_PREFILL_SECRET_KEYS = frozenset({"app_secret", "secret", "token", "password", "client_secret"})
+
+
+def _public_prefill(raw: dict | None) -> dict[str, str]:
+    """回填给页面的字段。任何像密钥的键都丢掉，避免 App Secret 出现在接口里。"""
+    if not raw:
+        return {}
+    clean: dict[str, str] = {}
+    for key, value in raw.items():
+        lowered = str(key).lower()
+        if lowered in _PREFILL_SECRET_KEYS or "secret" in lowered or not isinstance(value, str):
+            continue
+        clean[str(key)] = value
+    return clean
 
 
 def _scan_requested(driver: ChannelDriver, fields: dict[str, str]) -> bool:
@@ -599,13 +626,33 @@ class ChannelHub:
             ) from exc
         if driver.binding.pairing == "code":
             return await self._begin_pairing(channel_id, driver, result)
+        existed = await self._account_exists(channel_id, result.account_id)
         row = await self._commit(channel_id, result)
+        review = bool(existed and result.rebind_message)
+        if review:
+            localized = result.rebind_message_localized
+            message_fields = {
+                "message": result.rebind_message,
+                "message_ref": (
+                    {
+                        "message_text": result.rebind_message,
+                        "message_localized": deepcopy(localized),
+                    }
+                    if localized
+                    else None
+                ),
+            }
+        else:
+            message_fields = _message_fields(
+                "channels.binding.linked", channel=_driver_label(driver)
+            )
         binding = Binding(
             binding_id=uuid.uuid4().hex[:16],
             channel_id=channel_id,
             kind="done",
             status="confirmed",
-            **_message_fields("channels.binding.linked", channel=_driver_label(driver)),
+            review=review,
+            **message_fields,
             account_id=row.account_id,
         )
         await self._attach_callback(binding)
@@ -649,6 +696,11 @@ class ChannelHub:
         await _resolve_notice(channel_id, result.account_id)
         logger.info("通道账号已绑定 channel=%s account=%s", channel_id, result.account_id)
         return row
+
+    async def _account_exists(self, channel_id: str, account_id: str) -> bool:
+        async with get_database().session() as session:
+            row = await ChannelAccountRepository(session).get(channel_id, account_id)
+        return row is not None
 
     # ---- 交互式（插件驱动的流程，如微信扫码）
     async def _begin_flow(self, channel_id: str, driver: ChannelDriver) -> Binding:
@@ -701,11 +753,17 @@ class ChannelHub:
         binding.qr = state.qr
         binding.input_label = state.input_label
         binding.input_label_localized = deepcopy(state.input_label_localized)
+        binding.input_optional = bool(state.input_optional)
+        prefill = _public_prefill(state.prefill)
+        binding.prefill = prefill
+        binding.resume_token = state.resume_token if prefill else ""
         if state.status == "confirmed":
             if state.result is None:
                 binding.status = "failed"
+                binding.review = False
                 binding.set_reason("channels.binding.missingResult")
                 return
+            existed = await self._account_exists(binding.channel_id, state.result.account_id)
             try:
                 row = await self._commit(binding.channel_id, state.result)
             except Exception as exc:  # noqa: BLE001
@@ -717,6 +775,29 @@ class ChannelHub:
                 return
             binding.account_id = row.account_id
             await self._attach_callback(binding)
+            binding.status = state.status
+            binding.input_optional = False
+            binding.review = bool(existed and state.result.rebind_message)
+            if binding.review:
+                localized = state.result.rebind_message_localized
+                binding.set_message(
+                    state.result.rebind_message,
+                    {
+                        "message_text": state.result.rebind_message,
+                        "message_localized": deepcopy(localized),
+                    }
+                    if localized
+                    else None,
+                )
+            else:
+                binding.set_message(
+                    state.message,
+                    {"message_text": state.message, "message_localized": state.message_localized}
+                    if state.message_localized
+                    else None,
+                )
+            return
+        binding.review = False
         binding.status = state.status
         binding.set_message(
             state.message,

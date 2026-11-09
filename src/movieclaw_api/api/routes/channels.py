@@ -20,6 +20,7 @@ from functools import lru_cache
 import qrcode
 import qrcode.image.svg
 from fastapi import APIRouter, Depends
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.exceptions import (
@@ -162,6 +163,10 @@ async def _binding_view(hub: ChannelHub, binding_id: str) -> ChannelBindingView:
         callback_note=render_value(binding.callback_note_ref)
         if binding.callback_note_ref
         else binding.callback_note,
+        input_optional=binding.input_optional,
+        prefill=dict(binding.prefill),
+        resume_token=binding.resume_token,
+        review=binding.review,
     )
 
 
@@ -216,6 +221,27 @@ async def get_binding(binding_id: str) -> ApiResponse[ChannelBindingView]:
     return ok(await _binding_view(_hub(), binding_id))
 
 
+def _reject_required_flow_input(raw: str) -> None:
+    """非可选流程仍按原来的 1–64 拒绝，错误形状与 Pydantic 的 422 一致。"""
+    if len(raw) < 1:
+        error = {
+            "type": "string_too_short",
+            "loc": ("body", "value"),
+            "msg": "String should have at least 1 character",
+            "input": raw,
+            "ctx": {"min_length": 1},
+        }
+    else:
+        error = {
+            "type": "string_too_long",
+            "loc": ("body", "value"),
+            "msg": "String should have at most 64 characters",
+            "input": raw,
+            "ctx": {"max_length": 64},
+        }
+    raise RequestValidationError([error])
+
+
 @router.post(
     "/bindings/{binding_id}/input",
     response_model=ApiResponse[ChannelBindingView],
@@ -226,8 +252,12 @@ async def submit_binding_input(
     binding_id: str, payload: ChannelBindingInputPayload
 ) -> ApiResponse[ChannelBindingView]:
     hub = _hub()
+    raw = payload.value
+    binding = hub.binding(binding_id)
+    if (binding is None or not binding.input_optional) and (len(raw) < 1 or len(raw) > 64):
+        _reject_required_flow_input(raw)
     try:
-        await hub.binding_input(binding_id, payload.value.strip())
+        await hub.binding_input(binding_id, raw.strip())
     except LookupError as exc:
         raise NotFoundException(
             render_value(getattr(exc, "message_ref", None)) or str(exc)

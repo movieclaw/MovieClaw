@@ -2549,7 +2549,11 @@
     "scanCreate": "扫码创建应用",
     "done": "完成",
     "qrAlt": "{channel}绑定二维码",
-    "codeHelp": "10 分钟内有效 · 发码人将成为唯一可对话的用户与推送目标"
+    "codeHelp": "10 分钟内有效 · 发码人将成为唯一可对话的用户与推送目标",
+    "pushToMe": "直接推给我",
+    "backToForm": "返回表单",
+    "secretKept": "凭据已保留在服务器，留空即可",
+    "scanKeptHint": "已填入扫码得到的 App ID。App Secret 仍在服务器上，提交或重新扫码前不必再填。"
   },
   "schema": {
     "unset": "（不设置）",

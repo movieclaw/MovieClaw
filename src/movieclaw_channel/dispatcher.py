@@ -539,7 +539,10 @@ class ChannelDispatcher:
         文字不能丢。
         """
         send_photo = getattr(self._adapter, "send_photo", None)
-        if send_photo is None or len(env.text) > _PHOTO_CAPTION_LIMIT:
+        limit = getattr(self._adapter, "photo_caption_limit", None)
+        if not isinstance(limit, int) or limit <= 0:
+            limit = _PHOTO_CAPTION_LIMIT
+        if send_photo is None or len(env.text) > limit:
             return False
         try:
             await send_photo(env.reply, env.photo, env.text)

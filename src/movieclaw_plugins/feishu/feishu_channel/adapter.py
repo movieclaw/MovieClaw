@@ -28,6 +28,8 @@ class FeishuAdapter:
     channel_id = CHANNEL_ID
     #: 纯文本分片上限:远小于消息体上限,推送文案足够用且留足余量
     max_text_len = 4000
+    #: 宿主默认超过 1000 字就不调 send_photo。飞书卡片会截断简介,这里放宽后海报仍能进卡片。
+    photo_caption_limit = 20_000
 
     def __init__(self, client: FeishuClient, account_id: str) -> None:
         self._client = client

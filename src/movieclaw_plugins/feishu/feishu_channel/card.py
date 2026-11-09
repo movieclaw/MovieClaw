@@ -12,6 +12,9 @@ from urllib.parse import urlsplit
 
 _MAX_BUTTONS = 3
 _MAX_BUTTON_TEXT = 30
+#: 卡片 JSON 大约 30KB。标题和简介截断后仍带海报与按钮；更长的正文不另发一条。
+_MAX_TITLE = 200
+_MAX_SUMMARY = 4000
 #: 正文里的 http(s) 链接；末尾标点在收集时剥掉，避免把句号算进地址
 _URL_RE = re.compile(r"https?://[^\s<>\]\)\"']+")
 _MD_LINK_RE = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")
@@ -31,7 +34,8 @@ def build_card(text: str, image_key: str | None = None) -> dict | None:
             break
     if not title:
         return None
-    summary = "\n".join(line for line in lines[rest_at:] if line).strip()
+    title = _clip_text(title, _MAX_TITLE)
+    summary = _clip_text("\n".join(line for line in lines[rest_at:] if line).strip(), _MAX_SUMMARY)
     elements: list[dict] = []
     if image_key:
         elements.append(
@@ -102,3 +106,9 @@ def _host(url: str) -> str:
 
 def _clip(text: str) -> str:
     return text[:_MAX_BUTTON_TEXT]
+
+
+def _clip_text(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"

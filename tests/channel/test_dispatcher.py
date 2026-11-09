@@ -634,6 +634,22 @@ async def test_oversized_caption_skips_photo():
         await d.close()
 
 
+async def test_declared_caption_limit_sends_photo_past_the_default():
+    """通道声明了更大的 caption 上限时,超过 1000 字仍走 send_photo。"""
+    adapter = FakePhotoAdapter()
+    adapter.photo_caption_limit = 5000
+    adapter.max_text_len = 3900
+    d = make_dispatcher(adapter, is_allowed=lambda _u: True, run_agent=_noop_agent)
+    d.start()
+    try:
+        await d.push_outbound(_push_env("字" * 1001, b"\x89PNG"))
+        await _drain_photos(adapter, expect=1)
+        assert adapter.sent_photos[0][2] == "字" * 1001
+        assert adapter.sent == []
+    finally:
+        await d.close()
+
+
 # ---------------------------------------------------------------------------
 # 图片消息(docs/design/agent-image-input.md §10)
 # ---------------------------------------------------------------------------

@@ -151,6 +151,9 @@ class Capabilities:
     #: 靠平台回调收消息（实现了 ``webhook``）：绑定时中枢给这个账号发回调地址，用户填到平台后台
     #: （docs/design/plugin-callbacks.md §4.5）。插件包须在清单里声明 ``callbacks = ["webhook"]``
     webhook: bool = False
+    #: 图文 caption 上限。缺省时中枢用各通道里最紧的口径（1000）。
+    #: 飞书卡片可以更长，声明后超长文案仍走 ``send_photo``，其它通道不声明则行为不变。
+    photo_caption_limit: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +227,9 @@ class BindResult:
     bound_user: str | None = None
     #: 插件私有状态的初值
     state: dict[str, Any] = field(default_factory=dict)
+    #: 同一账号再次绑定时给用户看的说明。空串表示沿用静默覆盖；中枢只在账号已存在时展示。
+    rebind_message: str = ""
+    rebind_message_localized: LocalizedText = field(default_factory=dict)
 
 
 FlowStatus = Literal[
@@ -247,6 +253,12 @@ class FlowState:
     result: BindResult | None = None
     message_localized: LocalizedText = field(default_factory=dict)
     input_label_localized: LocalizedText = field(default_factory=dict)
+    #: need_input 时允许提交空字符串（飞书留空即推给扫码人）。缺省为假，微信等流程不变。
+    input_optional: bool = False
+    #: 可回填到表单的非机密字段（如 App ID）。密钥不放这里。
+    prefill: dict[str, str] = field(default_factory=dict)
+    #: 服务端暂存凭据的流程 id。配合 prefill 让表单重试时不必把密钥交给页面。
+    resume_token: str = ""
 
     @property
     def terminal(self) -> bool:
@@ -542,17 +554,20 @@ def _localized_fields(value: Any, *names: str) -> dict[str, LocalizedText]:
 def driver_spec(driver: ChannelDriver) -> dict[str, Any]:
     caps = driver.capabilities
     spec = driver.binding
+    capabilities: dict[str, Any] = {
+        "receive": caps.receive,
+        "photo": caps.photo,
+        "typing": caps.typing,
+        "max_text_len": caps.max_text_len,
+        "webhook": caps.webhook,
+    }
+    if isinstance(caps.photo_caption_limit, int) and caps.photo_caption_limit > 0:
+        capabilities["photo_caption_limit"] = caps.photo_caption_limit
     return {
         "title": driver.title,
         "description": driver.description,
         **_localized_fields(driver, "title_localized", "description_localized"),
-        "capabilities": {
-            "receive": caps.receive,
-            "photo": caps.photo,
-            "typing": caps.typing,
-            "max_text_len": caps.max_text_len,
-            "webhook": caps.webhook,
-        },
+        "capabilities": capabilities,
         "binding": {
             "kind": spec.kind,
             "pairing": spec.pairing,
@@ -649,13 +664,18 @@ def message_from(data: dict[str, Any]) -> InboundMessage:
 
 
 def bind_result_dict(result: BindResult) -> dict[str, Any]:
-    return {
+    data: dict[str, Any] = {
         "account_id": result.account_id,
         "display_name": result.display_name,
         "credentials": dict(result.credentials),
         "bound_user": result.bound_user,
         "state": dict(result.state),
     }
+    if result.rebind_message:
+        data["rebind_message"] = result.rebind_message
+    if result.rebind_message_localized:
+        data["rebind_message_localized"] = deepcopy(result.rebind_message_localized)
+    return data
 
 
 def bind_result_from(data: dict[str, Any]) -> BindResult:
@@ -665,10 +685,19 @@ def bind_result_from(data: dict[str, Any]) -> BindResult:
         credentials=dict(data["credentials"]),
         bound_user=data.get("bound_user"),
         state=dict(data.get("state") or {}),
+        rebind_message=str(data.get("rebind_message") or ""),
+        rebind_message_localized=deepcopy(data.get("rebind_message_localized") or {}),
     )
 
 
 def flow_dict(state: FlowState) -> dict[str, Any]:
+    extra: dict[str, Any] = {}
+    if state.input_optional:
+        extra["input_optional"] = True
+    if state.prefill:
+        extra["prefill"] = dict(state.prefill)
+    if state.resume_token:
+        extra["resume_token"] = state.resume_token
     return {
         "flow_id": state.flow_id,
         "status": state.status,
@@ -677,11 +706,13 @@ def flow_dict(state: FlowState) -> dict[str, Any]:
         "input_label": state.input_label,
         "result": bind_result_dict(state.result) if state.result is not None else None,
         **_localized_fields(state, "message_localized", "input_label_localized"),
+        **extra,
     }
 
 
 def flow_from(data: dict[str, Any]) -> FlowState:
     result = data.get("result")
+    prefill = data.get("prefill") or {}
     return FlowState(
         flow_id=data["flow_id"],
         status=data["status"],
@@ -691,4 +722,9 @@ def flow_from(data: dict[str, Any]) -> FlowState:
         result=bind_result_from(result) if result else None,
         message_localized=deepcopy(data.get("message_localized") or {}),
         input_label_localized=deepcopy(data.get("input_label_localized") or {}),
+        input_optional=bool(data.get("input_optional") or False),
+        prefill={str(key): str(value) for key, value in prefill.items()}
+        if isinstance(prefill, dict)
+        else {},
+        resume_token=str(data.get("resume_token") or ""),
     )
