@@ -211,22 +211,48 @@ test('explicit zero remains zero in negotiation and does not reuse an old video 
   assert.equal(h.video.currentTime, 0);
 });
 
-for (const kind of ['ass', 'pgs']) test(`native playback sends the selected embedded ${kind} reference in the first session`, async () => {
+test('native playback sends a selected embedded ASS reference in the first session', async () => {
   const h = harness({ request: () => Promise.resolve(session({
-    decision: { tier: 0, file_id: 81, subtitles: [{ track_ref: 'embedded:1', kind }] },
+    decision: { tier: 0, file_id: 81, subtitles: [{ track_ref: 'embedded:1', kind: 'ass' }] },
     subtitle_urls: ['/playback/subs/1'],
   })) });
   h.A.hasEmbeddedPlayer = async () => true;
   const opened = [];
   h.A.openEmbeddedPlayer = async (...args) => opened.push(args);
   await h.A.startPlayback(item({ file_id: 81, subtitle_track: 'embedded:1',
-    files: [{ id: 81, container: 'mkv', video_codec: 'hevc' }] }));
+    files: [{ id: 81, container: 'mkv', video_codec: 'hevc', subtitle_streams: [{}, { codec: 'ass' }] }] }));
   const body = h.calls.find(c => c[0] === 'request' && c[1] === '/playback/sessions')[2].body;
   assert.equal(body.capability.universal, true);
   assert.equal(body.capability.pgs_overlay, false);
   assert.equal(body.subtitle_track, 'embedded:1');
   assert.equal(opened.length, 1);
   assert.equal(opened[0][2].length, 0);
+});
+
+test('native playback defers a selected embedded PGS until direct play is known', async () => {
+  const h = harness({ request: () => Promise.resolve(session({
+    decision: { tier: 0, file_id: 81, subtitles: [{ track_ref: 'embedded:1', kind: 'pgs' }] },
+    subtitle_urls: ['/playback/subs/1'],
+  })) });
+  h.A.hasEmbeddedPlayer = async () => true;
+  const opened = [];
+  h.A.openEmbeddedPlayer = async (...args) => opened.push(args);
+  await h.A.startPlayback(item({ file_id: 81, subtitle_track: 'embedded:1',
+    files: [{ id: 81, container: 'mp4', video_codec: 'h264', subtitle_streams: [{}, { codec: 'hdmv_pgs_subtitle' }] }] }));
+  const body = h.calls.find(c => c[0] === 'request' && c[1] === '/playback/sessions')[2].body;
+  assert.equal(body.capability.universal, true);
+  assert.equal(body.capability.pgs_overlay, false);
+  assert.equal(body.subtitle_track, undefined);
+  assert.equal(opened.length, 1);
+});
+
+test('explicit PGS renegotiation restores the selected embedded reference', async () => {
+  const h = harness();
+  h.A.hasEmbeddedPlayer = async () => true;
+  await h.A.startPlayback(item({ file_id: 81, subtitle_track: 'embedded:1', __pgsNegotiated: true,
+    files: [{ id: 81, container: 'mp4', video_codec: 'h264', subtitle_streams: [{}, { codec: 'pgs' }] }] }));
+  const body = h.calls.find(c => c[0] === 'request' && c[1] === '/playback/sessions')[2].body;
+  assert.equal(body.subtitle_track, 'embedded:1');
 });
 
 test('authentication and context transitions block old playback buttons before mutating playback state', async () => {
@@ -700,6 +726,7 @@ test('HTML5 audio and PGS controls renegotiate the common context at file positi
   assert.equal(restarted[0].position, 120000); assert.equal(restarted[0].overrides.audio_track, 'embedded:1');
   await h.P.selectSubtitle(0);
   assert.equal(restarted[1].position, 120000); assert.equal(restarted[1].ref, 'embedded:0');
+  assert.equal(h.P.context.__pgsNegotiated, true);
   h.P.sessionData.decision.video.burn_subtitle = 'embedded:0';
   await h.P.adjustSubtitleOffset(1); assert.equal(h.P.subtitleOffset, 0);
   await h.P.selectSubtitle(-1); assert.equal(restarted[2].ref, 'off');

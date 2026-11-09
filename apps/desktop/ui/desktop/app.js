@@ -2717,6 +2717,7 @@ const App = {
       const mpvReady = await this.hasEmbeddedPlayer();
       if (!alive()) return;
       let wantsMpv = false;
+      let unitFile = null;
       if (mpvReady && !item.__forceHtml5 && !item.__forceServerDisc && !qualityCapped) {
         // 详情页起播已把 files 带在 item 上（省一次详情请求）；别的入口没有就现查
         let files = item.files;
@@ -2727,8 +2728,8 @@ const App = {
             if (files) item.files = files;
           } catch (_) { /* 查不到片源元数据就不报 universal，按浏览器真值走 */ }
         }
-        const unitFile = files?.find(f => Number(f.id) === Number(item.file_id)) || this.pickUnitFile(files, item.seasonNumber, item.episodeNumber);
-        wantsMpv = !!unitFile && this.needsNativePlayer(unitFile, unitFile.audio_streams);
+        unitFile = files?.find(f => Number(f.id) === Number(item.file_id)) || this.pickUnitFile(files, item.seasonNumber, item.episodeNumber);
+        wantsMpv = !!unitFile && (this.needsNativePlayer(unitFile, unitFile.audio_streams) || this.selectedEmbeddedPgs(item, unitFile));
       }
       item.__universalClaim = wantsMpv;
 
@@ -2742,7 +2743,8 @@ const App = {
       };
       if (item.file_id != null) body.file_id = Number(item.file_id);
       if (item.audio_track != null) body.audio_track = item.audio_track;
-      if (item.subtitle_track != null) body.subtitle_track = item.subtitle_track;
+      const deferPgs = wantsMpv && !item.__pgsNegotiated && this.selectedEmbeddedPgs(item, unitFile);
+      if (item.subtitle_track != null && !deferPgs) body.subtitle_track = item.subtitle_track;
       if (item.seasonNumber != null) body.season_number = Number(item.seasonNumber);
       if (item.episodeNumber != null) body.episode_number = Number(item.episodeNumber);
       // 上几档播失败了：带上让服务端跳过它们换下一档（decide.py 降档回路）
@@ -3080,6 +3082,13 @@ const App = {
     const vcodec = (source.video_codec || '').toLowerCase();
     if (['vp9', 'vc-1', 'vc1', 'mpeg2', 'mpeg-2', 'theora'].includes(vcodec)) return true;
     return false;
+  },
+
+  selectedEmbeddedPgs(item, file) {
+    const match = String(item.subtitle_track || '').match(/^embedded:(\d+)$/);
+    if (!match) return false;
+    const codec = String(file?.subtitle_streams?.[Number(match[1])]?.codec || '').toLowerCase();
+    return codec === 'pgs' || codec === 'hdmv_pgs_subtitle';
   },
 
   // 嵌入式 mpv 在不在（只查路径，不启动进程）。结果缓存住：起播热路径上不能

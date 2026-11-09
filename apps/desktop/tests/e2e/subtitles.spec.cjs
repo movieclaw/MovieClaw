@@ -26,7 +26,7 @@ test('details choose a version and neutral track refs for actual playback',async
   expect(body).toMatchObject({file_id:11,audio_track:'embedded:1',subtitle_track:'embedded:1'});
 });
 
-test('details keep the selected embedded PGS reference in the first playback request',async({page,request})=>{
+test('details defer selected embedded PGS until native direct play is known',async({page,request})=>{
   await detail(page,request,{mediaFiles:{1:[mediaFile(1,{subtitle_streams:[
     {external:true,file_name:'original.eng.srt',language:'eng',codec:'srt'},
     {language:'zho',codec:'hdmv_pgs_subtitle'},
@@ -35,7 +35,8 @@ test('details keep the selected embedded PGS reference in the first playback req
   await page.locator('#btnPlay').click();
   await expect(page.locator('#playerView')).toBeVisible();
   const body=(await state(request)).requests.find(value=>value.path==='/playback/sessions').body;
-  expect(body).toMatchObject({file_id:1,subtitle_track:'embedded:1',capability:{universal:true,pgs_overlay:false}});
+  expect(body).toMatchObject({file_id:1,capability:{universal:true,pgs_overlay:false}});
+  expect(body).not.toHaveProperty('subtitle_track');
 });
 
 test('generation prechecks bilingual options, reports real progress and refreshes the subtitle list',async({page,request})=>{

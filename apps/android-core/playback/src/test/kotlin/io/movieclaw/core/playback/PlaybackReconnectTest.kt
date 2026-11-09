@@ -113,7 +113,7 @@ class PlaybackReconnectTest {
     }
 
     @Test fun selectingEmbeddedPgsStaysLocalUntilBurnIsExplicit() = runTest {
-        Fixture(this, pgs = true).use { f ->
+        Fixture(this, subtitleKind = "pgs").use { f ->
             f.open()
             f.await { f.controller.state.value.phase == Phase.Buffering }
             f.controller.selectSubtitle("embedded:0")
@@ -134,7 +134,7 @@ class PlaybackReconnectTest {
     }
 
     @Test fun selectingPgsOnHlsFallsBackExplicitlyWithoutPretendingToRenderSidecar() = runTest {
-        Fixture(this, pgs = true, tier = 1).use { f ->
+        Fixture(this, subtitleKind = "pgs", tier = 1).use { f ->
             f.open()
             f.await { f.controller.state.value.phase == Phase.Buffering }
             f.controller.selectSubtitle("embedded:0")
@@ -145,6 +145,18 @@ class PlaybackReconnectTest {
             assertTrue(f.controller.player.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty().none {
                 it.mimeType == androidx.media3.common.MimeTypes.APPLICATION_PGS
             })
+        }
+    }
+
+    @Test fun embeddedTextOnHlsUsesTheOverlayInsteadOfAnUnconfiguredExoTrack() = runTest {
+        Fixture(this, subtitleKind = "vtt", tier = 1).use { f ->
+            f.open()
+            f.await { f.controller.state.value.phase == Phase.Buffering }
+            f.controller.selectSubtitle("embedded:0")
+            runCurrent()
+            assertFalse(f.controller.state.value.engineSubtitles)
+            assertTrue(f.controller.state.value.overlaySubtitleUrl?.contains("/subtitle?token=t&format=vtt") == true)
+            assertTrue(f.controller.player.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty().isEmpty())
         }
     }
 
@@ -265,7 +277,7 @@ class PlaybackReconnectTest {
         val prefs: PrefsStore = MemoryPrefs(),
         private val mediaItemId: Long = 7,
         private val tier: Int = 0,
-        private val pgs: Boolean = false,
+        private val subtitleKind: String? = null,
     ) : AutoCloseable {
         val sessions = CopyOnWriteArrayList<RecordedRequest>()
         val decides = CopyOnWriteArrayList<RecordedRequest>()
@@ -288,11 +300,11 @@ class PlaybackReconnectTest {
                         val sessionBody = McJson.decodeFromString<PlaybackSessionRequest>(request.body!!.utf8())
                         val failed = sessionBody.failedTiers.orEmpty()
                         val nextTier = if (tier.toLong() in failed) tier + 1 else tier
-                        val decision = if (pgs) {
+                        val decision = if (subtitleKind !== null) {
                             val burn = if (sessionBody.burnRequested == true) ",\"burn_subtitle\":\"embedded:0\"" else ""
-                            ",\"subtitles\":[{\"track_ref\":\"embedded:0\",\"kind\":\"pgs\",\"language\":\"eng\",\"is_default\":false}],\"video\":{\"action\":\"copy\"$burn}"
+                            ",\"subtitles\":[{\"track_ref\":\"embedded:0\",\"kind\":\"$subtitleKind\",\"language\":\"eng\",\"is_default\":false}],\"video\":{\"action\":\"copy\"$burn}"
                         } else ""
-                        val urls = if (pgs) "\"subtitle_urls\":[\"/subtitle.sup\"]," else ""
+                        val urls = if (subtitleKind !== null) "\"subtitle_urls\":[\"/subtitle?token=t\"]," else ""
                         return MockResponse.Builder().code(status).body(
                             """{"data":{"decision":{"outcome":"play","tier":$nextTier,"file_id":7$decision},"stream_url":"/stream?token=t","start_ms":45000,$urls"watch":null}}"""
                         ).build()
