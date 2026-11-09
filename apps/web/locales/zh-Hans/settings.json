@@ -2546,6 +2546,7 @@
     "validating": "校验中…",
     "getCode": "获取配对码",
     "finishLinking": "完成接入",
+    "scanCreate": "扫码创建应用",
     "done": "完成",
     "qrAlt": "{channel}绑定二维码",
     "codeHelp": "10 分钟内有效 · 发码人将成为唯一可对话的用户与推送目标"

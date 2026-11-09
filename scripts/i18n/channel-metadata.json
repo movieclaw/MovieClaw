@@ -16,6 +16,53 @@
       "sourceHash": "6c991fe0093557f043c78bca8196fbf20f3bc226aeb46cbed5f7d2bb44b9fdbe"
     }
   },
+  "src/movieclaw_plugins/feishu/feishu_channel/binding.py": {
+    "messages.scan": {
+      "sourceHash": "7870f8c265dd4d5f091775abd12071ec5a3f1b3d1dc646172657556af450ea3e"
+    },
+    "messages.scan_code": {
+      "sourceHash": "266c728ba0ab123f474215f62c56ee4fcaaf41dfafe3e9ce716e15a37a195b7a"
+    },
+    "messages.expired": {
+      "sourceHash": "be5141e2c0f197b2d8c260ce2d92fa43ac8adc6bea8a182ee7b9f13ecc7e54f9"
+    },
+    "messages.denied": {
+      "sourceHash": "17e4676bf52f62d451dcb38eefa6bcc06bbed33b99ccbd3a6e1911d25fcf5045"
+    },
+    "messages.error": {
+      "sourceHash": "bf07659b6918e3921cb824be9325d9af193b68f4e644531662003f5e55731cd9"
+    },
+    "messages.unsupported": {
+      "sourceHash": "de7de08cc985eacb91acab268194932f1a23b7d5a88e27f340efc0e0d89cdf4d"
+    },
+    "messages.target": {
+      "sourceHash": "b9f315110c82949624e59fa1fbddc349fb63b75f8b7bf6cc5f24be8baadf5b42"
+    },
+    "messages.target_missing": {
+      "sourceHash": "bfc12175b01bf27c082b6bbc5297ef2f3830fb6f33f9d42613898f69e8e35f05"
+    },
+    "messages.target_bad": {
+      "sourceHash": "7652832e2fded3734177ef977087e8a5550e24f8e24e456a4aec7c31d3dc058e"
+    },
+    "messages.welcome_failed": {
+      "sourceHash": "d3b9887a54bc57777c83098bdae083457a008a84ad80c97e04e6531fad15d9c3"
+    },
+    "messages.confirmed": {
+      "sourceHash": "06424801f00cc077c16d198d62996770e8367a04b53ff4b33c3476a0e8737aae"
+    },
+    "messages.token_failed": {
+      "sourceHash": "03a868fbafc3bf8454fc7e2489a439aae3b6cdb8b5c6ae1c0358c16bc754372a"
+    },
+    "messages.gone": {
+      "sourceHash": "10a57ee9e982f50160645c7de693bd2fef29335abb615472207a01a5ea6183f5"
+    },
+    "messages.input": {
+      "sourceHash": "6f0cd12089801049624e9e3a945dd86f1e40d425cb49cb26f0fd4cae740974c9"
+    },
+    "messages.replaced": {
+      "sourceHash": "32a15d9bbf46406152b679547820c54af1e66bb1e12dbf3c92fb1b4a34f7f2fa"
+    }
+  },
   "src/movieclaw_plugins/feishu/feishu_channel/client.py": {
     "inputError.1bcc5f496764": {
       "sourceHash": "1bcc5f49676416cc365953f9639d2275d2690a68dc2bbe1a13af61b09c9c70b2"
@@ -32,10 +79,10 @@
       "sourceHash": "7e4419d1de2510947e6b7674779a2c8048f9d1cb749877606ab7fa9b3adbb1fc"
     },
     "FeishuDriver.description": {
-      "sourceHash": "00a10d5d424c509e2fbf8b3c0275bf3dfdc9646847d5fa5cdc26c81589806996"
+      "sourceHash": "6c692f0512a5f168b608e0b67e1711d19480dc0852e0797039ee70bcf5ad2b29"
     },
     "binding.hint": {
-      "sourceHash": "a1b24f0e42b25122f639ce3c4bd12662c339205d349e251d9e6d2025d6108970"
+      "sourceHash": "276d87c68e7a9fdde69a5bb9a10ab4566915481c1ec4326a0184860b7fdb18f4"
     },
     "field.webhook_url.label": {
       "sourceHash": "658c62655296cad44b69ae52880239dacba02283dd8bf2535603496f25ef343a"
@@ -49,8 +96,44 @@
     "field.secret.help": {
       "sourceHash": "93992e8397450b4ad84054d51e6dd35613508df88f53afe39fdab55f74fef425"
     },
+    "field.app_id.help": {
+      "sourceHash": "d3e487ac86572c627c083e7445b4317e1c5fcc07a74496ae17bac279a102dcf6"
+    },
+    "field.app_secret.help": {
+      "sourceHash": "752018ee7049bd40eee25ce626f2ce44802e262ab29861efda84fd37c1c049e4"
+    },
+    "field.receive_id.label": {
+      "sourceHash": "e7e64d3466d45eae56333868d6758491d06cb28332235dc36830716308a5a514"
+    },
+    "field.receive_id.help": {
+      "sourceHash": "364aab1e046974e87a7c864c455e7d3b968fa486ddb1b3f6feded051725e3f9e"
+    },
+    "field.domain.label": {
+      "sourceHash": "222952431147e537ba039e7db280fb092acc66b05726d5f096369c6bedefd00f"
+    },
+    "field.domain.help": {
+      "sourceHash": "49c8c8b5845d3a2202140feb2dd23b9402e1ef12fb8ce43f8562677858f26499"
+    },
+    "inputError.e20b62fc5252": {
+      "sourceHash": "e20b62fc5252eeb3ab3e6ef795306f15ca0627abd510d45b2568645b7297ab4a"
+    },
+    "inputError.cc8e22d1953c": {
+      "sourceHash": "cc8e22d1953c63106bc222ac03944cd06e0466bdda76d3374a644f6f48f211e1"
+    },
+    "inputError.8f41910ee1aa": {
+      "sourceHash": "8f41910ee1aa8bad76ef3cba9e50e35addc8a8637c2d536e8777a47903d709ac"
+    },
+    "inputError.426239191631": {
+      "sourceHash": "426239191631f83c2f2a2d0a36a1e2dea494255262b9340d38815df2212dc37f"
+    },
     "inputError.a5ad0058cb3f": {
       "sourceHash": "a5ad0058cb3f7891ea5282936dc321a933a25c39da18dea679806e9e47f5bc5d"
+    },
+    "inputError.bcc7f5df6c85": {
+      "sourceHash": "bcc7f5df6c85d205f55ad33ae0cecbb485fed3817151bcbe2c52517c8d878d92"
+    },
+    "inputError.b3210c94d1ac": {
+      "sourceHash": "b3210c94d1ac1766917c1d182791cf549dae0badb092a2a845e118f8ec79ef23"
     }
   },
   "src/movieclaw_plugins/telegram/telegram_channel/driver.py": {

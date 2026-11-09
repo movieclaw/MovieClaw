@@ -2,12 +2,12 @@
 id = "feishu-channel"
 title = "飞书通道"
 title_localized = { en = "Feishu channel" }
-version = "1.1.0"
+version = "1.2.0"
 entry = "feishu_channel"
 runtime = "process"
 sdk = "^1.2"
-description = "飞书群自定义机器人：把推送发到群里（不能对话）"
-description_localized = { en = "Send push notifications to a Feishu group through a custom bot. Conversations are not supported." }
+description = "飞书推送：群自定义机器人 Webhook，或自建应用机器人（可扫码创建）发送图文卡片"
+description_localized = { en = "Push to Feishu via a group custom-bot Webhook, or a self-built app bot (create it by scanning) that sends rich cards." }
 
 [requires]
 "im-channels" = "^1.2"

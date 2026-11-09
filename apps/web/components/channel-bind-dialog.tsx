@@ -10,6 +10,7 @@ import { useLocale, useTranslations } from "next-intl";
  *     （微信手机上显示的配对数字）→ 完成；
  *   - 表单（form）：按字段渲染表单 → 提交。带配对码的（Telegram / Discord）显示 6 位码，
  *     用户私聊 bot 发码后完成；不带配对的（飞书 Webhook）提交即完成。
+ *     binding.scan 的表单另有「扫码创建应用」，只提交 flow=1，走下面同一套二维码流程。
  * 未完成的状态靠 2 秒一次的轮询推进（后端只读内存快照，毫秒级返回）。
  *
  * 为什么收进弹窗：绑定是一次性动作，而设置页的常态是「看看已经接好了哪些」。
@@ -35,6 +36,8 @@ import {
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 
 const INPUT_CLASS = `${SETTINGS_INPUT_CLASS} w-full min-w-0`;
+/** 表单通道的扫码入口。中枢只在字段里仅有 flow=1 时才开始交互式流程。 */
+const SCAN_FLOW_FIELDS = { flow: "1" };
 
 const DONE = new Set(["confirmed", "already_bound"]);
 const FAILED = new Set(["expired", "failed"]);
@@ -48,6 +51,8 @@ export interface ChannelBindDialogProps {
 
 export function ChannelBindDialog({ channel, onClose, onBound }: ChannelBindDialogProps) {
   const t = useTranslations();
+  const [scanning, setScanning] = useState(false);
+  const flow = channel.binding.kind === "flow" || scanning;
   return (
     <Modal open onClose={onClose} label={t("settings.imChannels.bindTitle", { channel: channel.title })}>
       <div className="scroll-thin max-h-[76dvh] overflow-y-auto p-6 max-md:p-5">
@@ -57,10 +62,18 @@ export function ChannelBindDialog({ channel, onClose, onBound }: ChannelBindDial
         </p>
 
         <div className="mt-5">
-          {channel.binding.kind === "flow" ? (
-            <FlowBindBody channel={channel} onBound={onBound} />
+          {flow ? (
+            <FlowBindBody
+              channel={channel}
+              onBound={onBound}
+              fields={scanning ? SCAN_FLOW_FIELDS : undefined}
+            />
           ) : (
-            <FormBindBody channel={channel} onBound={onBound} />
+            <FormBindBody
+              channel={channel}
+              onBound={onBound}
+              onScan={channel.binding.scan ? () => setScanning(true) : undefined}
+            />
           )}
         </div>
 
@@ -145,7 +158,16 @@ function useBindingPolling(
 
 /* —— 交互式：二维码 + 可选输入 —— */
 
-function FlowBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () => void }) {
+function FlowBindBody({
+  channel,
+  onBound,
+  fields,
+}: {
+  channel: ChannelInfo;
+  onBound: () => void;
+  /** 表单通道扫码时带上 {flow:"1"}。微信这类纯 flow 不传，避免把 undefined 当成显式参数。 */
+  fields?: Record<string, string>;
+}) {
   const t = useTranslations();
   const [binding, setBinding] = useState<ChannelBinding | null>(null);
   const [value, setValue] = useState("");
@@ -157,13 +179,13 @@ function FlowBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
     setValue("");
     setBusy(true);
     try {
-      setBinding(await startChannelBinding(channel.id));
+      setBinding(await startChannelBinding(channel.id, fields ?? {}));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [channel.id]);
+  }, [channel.id, fields]);
 
   // 进弹窗即发起：点「新增」的意图就是要二维码，不再多一次点击。
   // 只自动发起一次，失败 / 过期后由用户点按钮重来，不无限重试。
@@ -274,7 +296,15 @@ function FlowBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
 
 /* —— 表单：字段 +（可选）配对码 —— */
 
-function FormBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () => void }) {
+function FormBindBody({
+  channel,
+  onBound,
+  onScan,
+}: {
+  channel: ChannelInfo;
+  onBound: () => void;
+  onScan?: () => void;
+}) {
   const t = useTranslations();
   const fields = channel.binding.fields;
   const [values, setValues] = useState<Record<string, string>>({});
@@ -346,6 +376,11 @@ function FormBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
               ? t("settings.imChannels.getCode")
               : t("settings.imChannels.finishLinking")}
         </button>
+        {onScan && (
+          <button type="button" onClick={onScan} className={`${SETTINGS_BUTTON_CLASS} w-full`}>
+            {t("settings.imChannels.scanCreate")}
+          </button>
+        )}
       </div>
     );
   }

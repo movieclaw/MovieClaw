@@ -225,6 +225,18 @@ def _message_fields(key: str, **params) -> dict:
     }
 
 
+def _scan_requested(driver: ChannelDriver, fields: dict[str, str]) -> bool:
+    """表单通道的扫码入口：只有显式 ``flow=1``、且没有别的非空字段时才转入交互式流程。
+
+    空表单不能误开扫码（飞书的字段都是选填）。带了 Webhook 或应用凭据的提交仍走 validate。
+    """
+    if not driver.binding.scan:
+        return False
+    if (fields.get("flow") or "").strip() != "1":
+        return False
+    return not any((value or "").strip() for key, value in fields.items() if key != "flow")
+
+
 def _driver_label(driver: ChannelDriver) -> dict:
     return {"message_text": driver.title, "message_localized": driver.title_localized}
 
@@ -573,7 +585,7 @@ class ChannelHub:
 
     async def begin_binding(self, channel_id: str, fields: dict[str, str]) -> Binding:
         driver = self.driver(channel_id)
-        if driver.binding.kind == "flow":
+        if driver.binding.kind == "flow" or _scan_requested(driver, fields):
             return await self._begin_flow(channel_id, driver)
         try:
             result = await driver.validate(fields)

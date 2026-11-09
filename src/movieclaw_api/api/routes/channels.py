@@ -121,6 +121,7 @@ async def list_channels(session: AsyncSession = Depends(get_session)) -> ApiResp
                         ],
                         pairing=spec.pairing,
                         hint=localized_text(spec.hint, spec.hint_localized),
+                        scan=spec.scan,
                     ),
                 )
             )

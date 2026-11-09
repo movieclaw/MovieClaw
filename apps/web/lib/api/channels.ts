@@ -46,6 +46,8 @@ export interface ChannelInfo {
     /** code：提交后私聊 bot 发 6 位配对码；none：提交即完成 */
     pairing: "code" | "none";
     hint: string;
+    /** 表单通道另提供扫码流程（飞书一键创建应用）。旧服务端没有这个字段 */
+    scan?: boolean;
   };
 }
 

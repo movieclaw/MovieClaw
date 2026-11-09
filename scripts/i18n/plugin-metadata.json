@@ -23,7 +23,7 @@
       "sourceHash": "304be559eb379078d7a6c9e8114f90487570eb6bdba37433003f80558e8598f0"
     },
     "plugin.description": {
-      "sourceHash": "94d9bda98255972de55ec6549faeff701ae975a8d5fa174f1cdcb9360c5ab25a"
+      "sourceHash": "dbca516e54a984096cdc40e9b0d67e0f6ec83338cb1a05b36c8520a2803559b0"
     }
   },
   "src/movieclaw_plugins/qbittorrent/movieclaw-plugin.toml": {
