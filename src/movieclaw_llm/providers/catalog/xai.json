@@ -1,6 +1,6 @@
 {
  "api": null,
- "fetched_at": "2026-10-30T10:25:11Z",
+ "fetched_at": "2026-11-09T09:48:23Z",
  "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
  "models": {
   "grok-4.20-0309-non-reasoning": {
@@ -414,28 +414,6 @@
    "name": "Grok Imagine Image",
    "reasoning": false,
    "release_date": "2026-01-28",
-   "temperature": false,
-   "tool_call": false,
-   "type": "image"
-  },
-  "grok-imagine-image-quality": {
-   "limit": {
-    "context": 16000,
-    "output": 0
-   },
-   "modalities": {
-    "input": [
-     "text",
-     "image"
-    ],
-    "output": [
-     "image"
-    ]
-   },
-   "name": "Grok Imagine Image Quality",
-   "reasoning": false,
-   "release_date": "2026-04-03",
-   "status": "deprecated",
    "temperature": false,
    "tool_call": false,
    "type": "image"

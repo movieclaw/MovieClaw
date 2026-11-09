@@ -1,6 +1,6 @@
 {
  "api": "https://openrouter.ai/api/v1",
- "fetched_at": "2026-10-30T10:25:11Z",
+ "fetched_at": "2026-11-09T09:48:23Z",
  "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
  "models": {
   "aion-labs/aion-2.0": {
@@ -299,6 +299,7 @@
   },
   "anthracite-org/magnum-v4-72b": {
    "cost": {
+    "cache_read": 2.5,
     "input": 2.5,
     "output": 5
    },
@@ -1291,7 +1292,7 @@
    "reasoning": false,
    "release_date": "2025-03-13",
    "temperature": true,
-   "tool_call": false
+   "tool_call": true
   },
   "cohere/command-a-plus": {
    "cost": {
@@ -1390,7 +1391,7 @@
    "reasoning": false,
    "release_date": "2024-12-13",
    "temperature": true,
-   "tool_call": false
+   "tool_call": true
   },
   "cohere/north-mini-code:free": {
    "cost": {
@@ -1422,12 +1423,12 @@
   },
   "deepseek/deepseek-chat": {
    "cost": {
-    "input": 0.2574,
-    "output": 1.0287
+    "input": 0.32,
+    "output": 0.89
    },
    "limit": {
     "context": 163840,
-    "output": 16000
+    "output": 16384
    },
    "modalities": {
     "input": [
@@ -1551,13 +1552,13 @@
   },
   "deepseek/deepseek-v3.2": {
    "cost": {
-    "cache_read": 0.028,
-    "input": 0.28,
-    "output": 0.42
+    "cache_read": 0.13,
+    "input": 0.26,
+    "output": 0.38
    },
    "limit": {
     "context": 163840,
-    "output": 65536
+    "output": 147456
    },
    "modalities": {
     "input": [
@@ -1645,9 +1646,9 @@
   },
   "deepseek/deepseek-v4-flash-0731": {
    "cost": {
-    "cache_read": 0.0238,
-    "input": 0.119,
-    "output": 0.238
+    "cache_read": 0.035,
+    "input": 0.0434,
+    "output": 0.3
    },
    "limit": {
     "context": 1048576,
@@ -1680,13 +1681,13 @@
   },
   "deepseek/deepseek-v4-flash-vision-exp": {
    "cost": {
-    "cache_read": 0.00686,
-    "input": 0.2156,
-    "output": 0.6468
+    "cache_read": 0.014,
+    "input": 0.44,
+    "output": 1.32
    },
    "limit": {
     "context": 1048576,
-    "output": 262144
+    "output": 943717
    },
    "modalities": {
     "input": [
@@ -1716,9 +1717,9 @@
   },
   "deepseek/deepseek-v4-pro": {
    "cost": {
-    "cache_read": 0.06802,
-    "input": 0.816234,
-    "output": 1.632468
+    "cache_read": 0.079605,
+    "input": 0.95526,
+    "output": 1.91052
    },
    "interleaved": {
     "field": "reasoning_content"
@@ -1753,13 +1754,13 @@
   },
   "deepseek/deepseek-v4-pro-0813": {
    "cost": {
-    "cache_read": 0.044,
-    "input": 1.32,
-    "output": 3.96
+    "cache_read": 0.097,
+    "input": 0.111,
+    "output": 4.44
    },
    "limit": {
     "context": 1048576,
-    "output": 393216
+    "output": 943718
    },
    "modalities": {
     "input": [
@@ -1788,9 +1789,9 @@
   },
   "deepseek/deepseek-v4.1-flash": {
    "cost": {
-    "cache_read": 0.006,
-    "input": 0.045,
-    "output": 0.5
+    "cache_read": 0.018,
+    "input": 0.051,
+    "output": 0.567
    },
    "limit": {
     "context": 1048576,
@@ -1824,13 +1825,13 @@
   },
   "deepseek/deepseek-v4.1-flash-1017": {
    "cost": {
-    "cache_read": 0.006,
-    "input": 0.3,
-    "output": 1.2
+    "cache_read": 0.005,
+    "input": 0.006,
+    "output": 0.5
    },
    "limit": {
     "context": 1048576,
-    "output": 393216
+    "output": 943718
    },
    "modalities": {
     "input": [
@@ -2873,6 +2874,77 @@
    "tool_call": true,
    "type": "image"
   },
+  "google/gemini-omni-1.1-flash": {
+   "cost": {
+    "input": 1.5,
+    "output": 9
+   },
+   "limit": {
+    "context": 131072,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text",
+     "video"
+    ]
+   },
+   "name": "Gemini Omni 1.1 Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high"
+     ]
+    }
+   ],
+   "release_date": "2026-08-27",
+   "temperature": true,
+   "tool_call": false,
+   "type": "video"
+  },
+  "google/gemini-omni-1.2-flash": {
+   "cost": {
+    "input": 1.5,
+    "output": 9
+   },
+   "limit": {
+    "context": 131072,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text",
+     "video"
+    ]
+   },
+   "name": "Gemini Omni 1.2 Flash",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high"
+     ]
+    }
+   ],
+   "release_date": "2026-11-05",
+   "temperature": true,
+   "tool_call": false
+  },
   "google/gemma-2-27b-it": {
    "cost": {
     "input": 0.65,
@@ -2924,7 +2996,7 @@
    "cost": {
     "cache_read": 0.04,
     "input": 0.08,
-    "output": 0.35
+    "output": 0.45
    },
    "limit": {
     "context": 131072,
@@ -3167,7 +3239,7 @@
    "cost": {
     "cache_read": 0.015,
     "input": 0.06,
-    "output": 0.15
+    "output": 0.25
    },
    "limit": {
     "context": 131072,
@@ -3194,111 +3266,6 @@
     }
    ],
    "release_date": "2026-08-25",
-   "temperature": true,
-   "tool_call": true
-  },
-  "inception/mercury-2": {
-   "cost": {
-    "cache_read": 0.025,
-    "input": 0.25,
-    "output": 0.75
-   },
-   "limit": {
-    "context": 128000,
-    "output": 50000
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Mercury 2",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "effort",
-     "values": [
-      "none",
-      "low",
-      "medium",
-      "high"
-     ]
-    }
-   ],
-   "release_date": "2026-02-24",
-   "temperature": true,
-   "tool_call": true
-  },
-  "inception/mercury-2.5": {
-   "cost": {
-    "cache_read": 0.004,
-    "input": 0.04,
-    "output": 0.15
-   },
-   "limit": {
-    "context": 260000,
-    "output": 65536
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Mercury 2.5",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "effort",
-     "values": [
-      "none",
-      "low",
-      "medium",
-      "high"
-     ]
-    }
-   ],
-   "release_date": "2026-09-08",
-   "temperature": true,
-   "tool_call": true
-  },
-  "inception/mercury-3": {
-   "cost": {
-    "cache_read": 0.01,
-    "input": 0.1,
-    "output": 0.35
-   },
-   "limit": {
-    "context": 1000000,
-    "output": 131072
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Mercury 3",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "effort",
-     "values": [
-      "none",
-      "low",
-      "medium",
-      "high"
-     ]
-    }
-   ],
-   "release_date": "2026-10-16",
    "temperature": true,
    "tool_call": true
   },
@@ -3362,11 +3329,40 @@
    "temperature": true,
    "tool_call": true
   },
+  "inclusionai/ling-3.0-tiny": {
+   "cost": {
+    "cache_read": 0.003,
+    "input": 0.015,
+    "output": 0.045
+   },
+   "limit": {
+    "context": 262144,
+    "output": 250000
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Ling 3.0 Tiny",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "toggle"
+    }
+   ],
+   "release_date": "2026-08-06",
+   "temperature": true,
+   "tool_call": true
+  },
   "inclusionai/ling-3.1-flash": {
    "cost": {
-    "cache_read": 0.015,
-    "input": 0.075,
-    "output": 0.225
+    "cache_read": 0.009,
+    "input": 0.045,
+    "output": 0.135
    },
    "limit": {
     "context": 1000000,
@@ -3399,7 +3395,7 @@
    },
    "limit": {
     "context": 128000,
-    "output": 4096
+    "output": 8192
    },
    "modalities": {
     "input": [
@@ -3513,8 +3509,58 @@
    "temperature": true,
    "tool_call": true
   },
+  "liquid/lfm-3-1.7b": {
+   "cost": {
+    "cache_read": 0.02,
+    "input": 0.08,
+    "output": 0.2
+   },
+   "limit": {
+    "context": 262144,
+    "output": 8192
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "LFM3-1.7B",
+   "reasoning": true,
+   "reasoning_options": [],
+   "release_date": "2026-11-06",
+   "temperature": true,
+   "tool_call": true
+  },
+  "liquid/lfm-3-1.7b:free": {
+   "cost": {
+    "input": 0,
+    "output": 0
+   },
+   "limit": {
+    "context": 262144,
+    "output": 8192
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "LFM3-1.7B (free)",
+   "reasoning": true,
+   "reasoning_options": [],
+   "release_date": "2026-11-06",
+   "temperature": true,
+   "tool_call": true
+  },
   "mancer/weaver": {
    "cost": {
+    "cache_read": 0.4,
     "input": 0.4,
     "output": 0.75
    },
@@ -3570,12 +3616,12 @@
   },
   "meta-llama/llama-3.1-70b-instruct": {
    "cost": {
-    "input": 0.4,
-    "output": 0.4
+    "input": 0.72,
+    "output": 0.72
    },
    "limit": {
     "context": 131072,
-    "output": 16384
+    "output": 8192
    },
    "modalities": {
     "input": [
@@ -3589,17 +3635,16 @@
    "reasoning": false,
    "release_date": "2024-07-23",
    "temperature": true,
-   "tool_call": true
+   "tool_call": false
   },
   "meta-llama/llama-3.1-8b-instruct": {
    "cost": {
-    "cache_read": 0.025,
-    "input": 0.05,
-    "output": 0.08
+    "input": 0.02,
+    "output": 0.04
    },
    "limit": {
     "context": 131072,
-    "output": 117964
+    "output": 16384
    },
    "modalities": {
     "input": [
@@ -3663,12 +3708,13 @@
   },
   "meta-llama/llama-3.3-70b-instruct": {
    "cost": {
-    "input": 0.1,
-    "output": 0.32
+    "cache_read": 0.295,
+    "input": 0.59,
+    "output": 0.79
    },
    "limit": {
     "context": 131072,
-    "output": 16384
+    "output": 32768
    },
    "modalities": {
     "input": [
@@ -3686,13 +3732,13 @@
   },
   "meta-llama/llama-4-maverick": {
    "cost": {
-    "cache_read": 0.05,
-    "input": 0.1875,
-    "output": 0.6525
+    "cache_read": 0.17,
+    "input": 0.35,
+    "output": 1
    },
    "limit": {
     "context": 524288,
-    "output": 16384
+    "output": 32768
    },
    "modalities": {
     "input": [
@@ -4093,30 +4139,6 @@
    "temperature": true,
    "tool_call": false
   },
-  "minimax/minimax-01": {
-   "cost": {
-    "input": 0.2,
-    "output": 1.1
-   },
-   "limit": {
-    "context": 1000192,
-    "output": 40000
-   },
-   "modalities": {
-    "input": [
-     "text",
-     "image"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "MiniMax-01",
-   "reasoning": false,
-   "release_date": "2025-01-15",
-   "temperature": true,
-   "tool_call": false
-  },
   "minimax/minimax-m1": {
    "cost": {
     "input": 0.55,
@@ -4145,88 +4167,9 @@
    "temperature": true,
    "tool_call": true
   },
-  "minimax/minimax-m2": {
-   "cost": {
-    "input": 0.255,
-    "output": 1.02
-   },
-   "interleaved": {
-    "field": "reasoning_details"
-   },
-   "limit": {
-    "context": 204800,
-    "output": 131072
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "MiniMax-M2",
-   "reasoning": true,
-   "reasoning_options": [],
-   "release_date": "2025-10-27",
-   "temperature": true,
-   "tool_call": true
-  },
-  "minimax/minimax-m2-her": {
-   "cost": {
-    "cache_read": 0.03,
-    "input": 0.3,
-    "output": 1.2
-   },
-   "limit": {
-    "context": 65536,
-    "output": 2048
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "MiniMax-M2 Her",
-   "reasoning": false,
-   "release_date": "2026-01-23",
-   "temperature": true,
-   "tool_call": false
-  },
-  "minimax/minimax-m2.1": {
-   "cost": {
-    "cache_read": 0.03,
-    "input": 0.3,
-    "output": 1.2
-   },
-   "interleaved": {
-    "field": "reasoning_details"
-   },
-   "limit": {
-    "context": 204800,
-    "output": 131072
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "MiniMax-M2.1",
-   "reasoning": true,
-   "reasoning_options": [],
-   "release_date": "2025-12-23",
-   "temperature": true,
-   "tool_call": true
-  },
   "minimax/minimax-m2.5": {
    "cost": {
-    "cache_read": 0.03,
+    "cache_read": 0.06,
     "input": 0.3,
     "output": 1.2
    },
@@ -4235,7 +4178,7 @@
    },
    "limit": {
     "context": 204800,
-    "output": 131072
+    "output": 58982
    },
    "modalities": {
     "input": [
@@ -4254,13 +4197,13 @@
   },
   "minimax/minimax-m2.7": {
    "cost": {
-    "cache_read": 0.06,
-    "input": 0.3,
-    "output": 1.2
+    "cache_read": 0.042,
+    "input": 0.21,
+    "output": 0.84
    },
    "limit": {
     "context": 204800,
-    "output": 131072
+    "output": 176947
    },
    "modalities": {
     "input": [
@@ -4572,7 +4515,8 @@
     {
      "type": "effort",
      "values": [
-      "none",
+      "low",
+      "medium",
       "high"
      ]
     }
@@ -5005,16 +4949,16 @@
   },
   "moonshotai/kimi-k2.5": {
    "cost": {
-    "cache_read": 0.15,
-    "input": 0.5,
-    "output": 2.5
+    "cache_read": 0.209,
+    "input": 0.532,
+    "output": 3.325
    },
    "interleaved": {
     "field": "reasoning_details"
    },
    "limit": {
     "context": 262144,
-    "output": 235929
+    "output": 65536
    },
    "modalities": {
     "input": [
@@ -5071,9 +5015,9 @@
   },
   "moonshotai/kimi-k2.7-code": {
    "cost": {
-    "cache_read": 0.15,
-    "input": 0.56,
-    "output": 3.1
+    "cache_read": 0.16,
+    "input": 0.6,
+    "output": 3.5
    },
    "limit": {
     "context": 262144,
@@ -5099,7 +5043,7 @@
    "cost": {
     "cache_read": 0.182,
     "input": 0.192,
-    "output": 15
+    "output": 16
    },
    "limit": {
     "context": 1048576,
@@ -5166,7 +5110,7 @@
     }
    ],
    "release_date": "2026-10-23",
-   "temperature": false,
+   "temperature": true,
    "tool_call": true
   },
   "morph/morph-v3-fast": {
@@ -5285,54 +5229,6 @@
    "temperature": true,
    "tool_call": true
   },
-  "nousresearch/hermes-3-llama-3.1-405b": {
-   "cost": {
-    "input": 1,
-    "output": 1
-   },
-   "limit": {
-    "context": 131072,
-    "output": 16384
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Hermes 3 405B Instruct",
-   "reasoning": false,
-   "release_date": "2024-08-16",
-   "status": "deprecated",
-   "temperature": true,
-   "tool_call": false
-  },
-  "nousresearch/hermes-3-llama-3.1-70b": {
-   "cost": {
-    "input": 0.7,
-    "output": 0.7
-   },
-   "limit": {
-    "context": 131072,
-    "output": 16384
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Hermes 3 70B Instruct",
-   "reasoning": false,
-   "release_date": "2024-08-18",
-   "status": "deprecated",
-   "temperature": true,
-   "tool_call": false
-  },
   "nousresearch/hermes-4-405b": {
    "cost": {
     "cache_read": 0.2,
@@ -5427,13 +5323,12 @@
   },
   "nvidia/nemotron-3-super-120b-a12b": {
    "cost": {
-    "cache_read": 0.15,
-    "input": 0.3,
-    "output": 2.4
+    "input": 0.075,
+    "output": 0.4
    },
    "limit": {
     "context": 1048576,
-    "output": 262144
+    "output": 16384
    },
    "modalities": {
     "input": [
@@ -5564,35 +5459,6 @@
    "temperature": true,
    "tool_call": false
   },
-  "nvidia/nemotron-3.5-content-safety:free": {
-   "cost": {
-    "input": 0,
-    "output": 0
-   },
-   "limit": {
-    "context": 128000,
-    "output": 8192
-   },
-   "modalities": {
-    "input": [
-     "text",
-     "image"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Nemotron 3.5 Content Safety (free)",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "toggle"
-    }
-   ],
-   "release_date": "2026-06-02",
-   "temperature": true,
-   "tool_call": false
-  },
   "nvidia/nemotron-3.5-lightning": {
    "cost": {
     "cache_read": 0.04,
@@ -5658,7 +5524,7 @@
    },
    "limit": {
     "context": 1048576,
-    "output": 235929
+    "output": 943718
    },
    "modalities": {
     "input": [
@@ -7897,13 +7763,13 @@
   },
   "openai/gpt-oss-20b": {
    "cost": {
-    "cache_read": 0.009,
-    "input": 0.018,
-    "output": 0.09
+    "cache_read": 0.03,
+    "input": 0.03,
+    "output": 0.13
    },
    "limit": {
     "context": 131072,
-    "output": 32768
+    "output": 117964
    },
    "modalities": {
     "input": [
@@ -8135,8 +8001,8 @@
   "particle-ai/particle-1": {
    "cost": {
     "cache_read": 0.003,
-    "input": 0.25,
-    "output": 1
+    "input": 0.05,
+    "output": 0.5
    },
    "limit": {
     "context": 1048576,
@@ -8370,124 +8236,6 @@
    "temperature": true,
    "tool_call": false
   },
-  "poolside/laguna-s-2.1": {
-   "cost": {
-    "cache_read": 0.009,
-    "input": 0.09,
-    "output": 0.18
-   },
-   "limit": {
-    "context": 1048576,
-    "output": 131072
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Laguna S 2.1",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "toggle"
-    }
-   ],
-   "release_date": "2026-07-21",
-   "status": "deprecated",
-   "temperature": true,
-   "tool_call": true
-  },
-  "poolside/laguna-s-2.1:free": {
-   "cost": {
-    "input": 0,
-    "output": 0
-   },
-   "limit": {
-    "context": 262144,
-    "output": 32768
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Laguna S 2.1 (free)",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "toggle"
-    }
-   ],
-   "release_date": "2026-07-21",
-   "status": "deprecated",
-   "temperature": true,
-   "tool_call": true
-  },
-  "poolside/laguna-xs-2.1": {
-   "cost": {
-    "cache_read": 0.03,
-    "input": 0.06,
-    "output": 0.12
-   },
-   "limit": {
-    "context": 262144,
-    "output": 32768
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Laguna XS 2.1",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "toggle"
-    }
-   ],
-   "release_date": "2026-07-02",
-   "status": "deprecated",
-   "temperature": true,
-   "tool_call": true
-  },
-  "poolside/laguna-xs-2.1:free": {
-   "cost": {
-    "input": 0,
-    "output": 0
-   },
-   "limit": {
-    "context": 262144,
-    "output": 32768
-   },
-   "modalities": {
-    "input": [
-     "text"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Laguna XS 2.1 (free)",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "toggle"
-    }
-   ],
-   "release_date": "2026-07-02",
-   "status": "deprecated",
-   "temperature": true,
-   "tool_call": true
-  },
   "prism-ml/ternary-bonsai-2-27b": {
    "cost": {
     "cache_read": 0.0375,
@@ -8720,12 +8468,13 @@
   },
   "qwen/qwen3-235b-a22b-2507": {
    "cost": {
-    "input": 0.09,
-    "output": 0.55
+    "cache_read": 0.05,
+    "input": 0.14,
+    "output": 0.8
    },
    "limit": {
     "context": 262144,
-    "output": 16384
+    "output": 117964
    },
    "modalities": {
     "input": [
@@ -8871,8 +8620,8 @@
   },
   "qwen/qwen3-coder-30b-a3b-instruct": {
    "cost": {
-    "input": 0.07,
-    "output": 0.28
+    "input": 0.15,
+    "output": 0.6
    },
    "limit": {
     "context": 262144,
@@ -9178,13 +8927,13 @@
   },
   "qwen/qwen3.5-397b-a17b": {
    "cost": {
-    "cache_read": 0.3,
-    "input": 0.5,
+    "cache_read": 0.12,
+    "input": 0.6,
     "output": 3.6
    },
    "limit": {
     "context": 262144,
-    "output": 235929
+    "output": 64000
    },
    "modalities": {
     "input": [
@@ -9692,7 +9441,7 @@
     "output": 1.875
    },
    "limit": {
-    "context": 1000000,
+    "context": 1024000,
     "output": 235929
    },
    "modalities": {
@@ -9893,13 +9642,13 @@
   },
   "reflection/beam-1.0-501b-a23b": {
    "cost": {
-    "cache_read": 0.05,
-    "input": 0.25,
+    "cache_read": 0.04,
+    "input": 0.3,
     "output": 1
    },
    "limit": {
     "context": 1048576,
-    "output": 131072
+    "output": 943718
    },
    "modalities": {
     "input": [
@@ -10019,6 +9768,30 @@
    "name": "Relace Search",
    "reasoning": false,
    "release_date": "2025-12-08",
+   "temperature": true,
+   "tool_call": true
+  },
+  "ricursiveai/ripple-65b-preview": {
+   "cost": {
+    "cache_read": 0.05,
+    "input": 0.2,
+    "output": 0.6
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Ripple 65B Preview",
+   "reasoning": false,
+   "release_date": "2026-11-04",
    "temperature": true,
    "tool_call": true
   },
@@ -10292,6 +10065,46 @@
    "temperature": false,
    "tool_call": false
   },
+  "stealth/crouton-alpha": {
+   "cost": {
+    "input": 0,
+    "output": 0
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 943718
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video",
+     "pdf",
+     "audio"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Crouton Alpha",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-11-03",
+   "temperature": true,
+   "tool_call": true
+  },
   "stepfun/step-3.5-flash": {
    "cost": {
     "input": 0.1,
@@ -10556,6 +10369,42 @@
    "temperature": true,
    "tool_call": true
   },
+  "tencent/hy4": {
+   "cost": {
+    "cache_read": 0.021,
+    "input": 0.417,
+    "output": 1.2505
+   },
+   "limit": {
+    "context": 1048576,
+    "input": 983010,
+    "output": 65536
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Hy4",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "none",
+      "low",
+      "high"
+     ]
+    }
+   ],
+   "release_date": "2026-11-04",
+   "temperature": true,
+   "tool_call": true
+  },
   "tencent/hy4-preview": {
    "cost": {
     "cache_read": 0.042,
@@ -10739,82 +10588,6 @@
    "temperature": true,
    "tool_call": true
   },
-  "thinkingmachines/inkling-small:free": {
-   "cost": {
-    "input": 0,
-    "output": 0
-   },
-   "limit": {
-    "context": 1048576,
-    "output": 262144
-   },
-   "modalities": {
-    "input": [
-     "text",
-     "image",
-     "audio"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Inkling Small (free)",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "effort",
-     "values": [
-      "none",
-      "minimal",
-      "low",
-      "medium",
-      "high",
-      "max"
-     ]
-    }
-   ],
-   "release_date": "2026-07-30",
-   "temperature": true,
-   "tool_call": true
-  },
-  "thinkingmachines/inkling:free": {
-   "cost": {
-    "input": 0,
-    "output": 0
-   },
-   "limit": {
-    "context": 1048576,
-    "output": 262144
-   },
-   "modalities": {
-    "input": [
-     "text",
-     "image",
-     "audio"
-    ],
-    "output": [
-     "text"
-    ]
-   },
-   "name": "Inkling (free)",
-   "reasoning": true,
-   "reasoning_options": [
-    {
-     "type": "effort",
-     "values": [
-      "none",
-      "minimal",
-      "low",
-      "medium",
-      "high",
-      "max"
-     ]
-    }
-   ],
-   "release_date": "2026-07-15",
-   "temperature": true,
-   "tool_call": true
-  },
   "unbiased/pareto-26.10": {
    "cost": {
     "cache_read": 0.03,
@@ -10867,6 +10640,7 @@
   },
   "undi95/remm-slerp-l2-13b": {
    "cost": {
+    "cache_read": 0.35,
     "input": 0.35,
     "output": 0.65
    },
@@ -11351,7 +11125,7 @@
     "field": "reasoning_details"
    },
    "limit": {
-    "context": 1050000,
+    "context": 1000000,
     "output": 65536
    },
    "modalities": {
@@ -11685,9 +11459,9 @@
   },
   "z-ai/glm-4.7": {
    "cost": {
-    "cache_read": 0.099,
-    "input": 0.54,
-    "output": 1.98
+    "cache_read": 0.11,
+    "input": 0.6,
+    "output": 2.2
    },
    "interleaved": {
     "field": "reasoning_details"
@@ -11846,7 +11620,7 @@
    "cost": {
     "cache_read": 0.005,
     "input": 0.006,
-    "output": 7
+    "output": 6.8
    },
    "interleaved": {
     "field": "reasoning_content"
@@ -11881,9 +11655,9 @@
   },
   "z-ai/glm-5.3": {
    "cost": {
-    "cache_read": 0.076,
-    "input": 0.08,
-    "output": 3.6
+    "cache_read": 0.0689,
+    "input": 0.0699,
+    "output": 1.4
    },
    "limit": {
     "context": 1048576,
@@ -11916,12 +11690,12 @@
   "z-ai/glm-5.3-flash": {
    "cost": {
     "cache_read": 0.03,
-    "input": 0.15,
-    "output": 0.5
+    "input": 0.0335,
+    "output": 0.083
    },
    "limit": {
     "context": 1048576,
-    "output": 943717
+    "output": 131072
    },
    "modalities": {
     "input": [
@@ -11951,7 +11725,7 @@
   },
   "z-ai/glm-5.3-flashx": {
    "cost": {
-    "cache_read": 0.09,
+    "cache_read": 0.075,
     "input": 0.37,
     "output": 1.25
    },
@@ -11982,6 +11756,42 @@
     }
    ],
    "release_date": "2026-09-18",
+   "temperature": true,
+   "tool_call": true
+  },
+  "z-ai/glm-5.3-flashx-legal": {
+   "cost": {
+    "cache_read": 0.075,
+    "input": 0.37,
+    "output": 1.25
+   },
+   "limit": {
+    "context": 1048576,
+    "output": 131072
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GLM 5.3 FlashX Legal",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "high",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-11-02",
    "temperature": true,
    "tool_call": true
   },
@@ -12221,9 +12031,9 @@
   },
   "~deepseek/deepseek-flash-latest": {
    "cost": {
-    "cache_read": 0.0336,
-    "input": 0.0339,
-    "output": 1.14
+    "cache_read": 0.005,
+    "input": 0.006,
+    "output": 0.5
    },
    "limit": {
     "context": 1048576,
@@ -12257,9 +12067,9 @@
   },
   "~deepseek/deepseek-pro-latest": {
    "cost": {
-    "cache_read": 0.1,
-    "input": 0.1035,
-    "output": 4
+    "cache_read": 0.0999,
+    "input": 0.0999,
+    "output": 8
    },
    "limit": {
     "context": 1048576,
@@ -12292,9 +12102,9 @@
   },
   "~deepseek/deepseek-v4-flash-latest": {
    "cost": {
-    "cache_read": 0.028,
-    "input": 0.0341,
-    "output": 0.1677
+    "cache_read": 0.035,
+    "input": 0.0434,
+    "output": 0.3
    },
    "limit": {
     "context": 1048576,
@@ -12425,9 +12235,9 @@
   },
   "~moonshotai/kimi-latest": {
    "cost": {
-    "cache_read": 0.16,
-    "input": 0.1615,
-    "output": 9.75
+    "cache_read": 0.18,
+    "input": 0.1824,
+    "output": 10.5539
    },
    "limit": {
     "context": 1048576,
@@ -12756,8 +12566,10 @@
   "~x-ai/grok-latest": {
    "cost": {
     "cache_read": 0.5,
+    "cache_write": 0,
     "context_over_200k": {
      "cache_read": 1,
+     "cache_write": 0,
      "input": 4,
      "output": 12
     },
@@ -12766,6 +12578,7 @@
     "tiers": [
      {
       "cache_read": 1,
+      "cache_write": 0,
       "input": 4,
       "output": 12,
       "tier": {
@@ -12809,8 +12622,8 @@
   "~z-ai/glm-flash-latest": {
    "cost": {
     "cache_read": 0.03,
-    "input": 0.0345,
-    "output": 0.0823
+    "input": 0.0335,
+    "output": 0.083
    },
    "limit": {
     "context": 1048576,
