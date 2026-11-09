@@ -1206,6 +1206,8 @@ fun ItemDetailScreen(
     onPlay: (PlayTarget) -> Unit,
     /** 演职员点进「库内影人页」（iOS `LibraryItemDetailView` 的 `AppRoute.person` 同款） */
     onOpenPerson: (Int) -> Unit = {},
+    /** 没有 TMDB 影人 id 的演员（本地/NFO 库）→ 同库按演员名筛的海报墙（库 id, 演员名） */
+    onOpenActorInLibrary: (Long, String) -> Unit = { _, _ -> },
     /** 文件区「处理重复」→ 媒体库管理的「重复文件」页签（iOS `.libraryManage(tab: "duplicates")`） */
     onOpenDuplicates: () -> Unit = {},
     /** 「去接入」→ 设置里的「模型接入」（iOS `.settingsSection(.llm)`） */
@@ -1472,7 +1474,12 @@ fun ItemDetailScreen(
                         ),
                     )
                 }
-                CastSection(detail = s.value.item, origin = origin, onOpenPerson = onOpenPerson)
+                CastSection(
+                    detail = s.value.item,
+                    origin = origin,
+                    onOpenPerson = onOpenPerson,
+                    onOpenActorInLibrary = { name -> onOpenActorInLibrary(libraryId, name) },
+                )
                 // 演职员 → 相似推荐 → 系列（iOS / Apple TV / Mac / Web 同一个顺序）；只读时不显示
                 if (!readOnly) SimilarSection(items = related.similar, libraryId = libraryId, origin = origin, onOpenItem = onOpenItem)
                 related.series?.takeIf { !readOnly }?.let { series ->
@@ -2762,10 +2769,15 @@ private fun pickResumeEpisode(
  * `<thumb>`；没有照片就渲染姓名首字。
  */
 @Composable
-private fun CastSection(detail: LibraryItemDetailView, origin: String?, onOpenPerson: (Int) -> Unit) {
+internal fun CastSection(
+    detail: LibraryItemDetailView,
+    origin: String?,
+    onOpenPerson: (Int) -> Unit,
+    onOpenActorInLibrary: (String) -> Unit = {},
+) {
     val meta = detail.localMeta ?: return
-    // 一格 = 姓名 / 身份 / 头像 / 影人 id（id 非空才可点，进库内影人页——iOS 同款）
-    data class Person(val name: String, val role: String, val avatar: String?, val personId: Int?)
+    // 一格 = 姓名 / 身份 / 头像 / 影人 id（id 非空进库内影人页——iOS 同款）/ 是否演员
+    data class Person(val name: String, val role: String, val avatar: String?, val personId: Int?, val actor: Boolean = false)
     val people = buildList {
         // 导演：库内人物关系（带头像）优先；老条目没有关系表就退回 NFO 里的姓名占位
         if (meta.directorCredits.isNotEmpty()) {
@@ -2788,6 +2800,7 @@ private fun CastSection(detail: LibraryItemDetailView, origin: String?, onOpenPe
                         // 服务端给的是 `thumb_url`（TMDB 图床的绝对地址）
                         actor.thumbUrl,
                         actor.tmdbPersonId,
+                        actor = true,
                     ),
                 )
             }
@@ -2811,8 +2824,15 @@ private fun CastSection(detail: LibraryItemDetailView, origin: String?, onOpenPe
                 Column(
                     Modifier
                         .width(mcCards.castWidth)
-                        // 有 TMDB 影人 id 才可点（进库内影人页）；老条目只有姓名时保持静态（iOS 同款）
-                        .clickable(enabled = person.personId != null) { person.personId?.let(onOpenPerson) },
+                        // 有 TMDB 影人 id 进库内影人页（iOS 同款）；没有的演员（本地/NFO 库）进同库按演员筛的
+                        // 海报墙（网页 CastRow 同款）；导演没有 id 时保持静态——后端按演员表筛，导演点进去是空墙
+                        .clickable(
+                            enabled = person.personId != null || person.actor,
+                            onClickLabel = if (person.personId == null && person.actor) "在本库查看 ${person.name} 的作品" else null,
+                        ) {
+                            val id = person.personId
+                            if (id != null) onOpenPerson(id) else onOpenActorInLibrary(person.name.trim())
+                        },
                 ) {
                     val initials: @Composable () -> Unit = {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

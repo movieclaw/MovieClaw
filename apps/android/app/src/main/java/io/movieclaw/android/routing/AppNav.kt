@@ -17,6 +17,7 @@ import io.movieclaw.android.feature.detail.ItemDetailScreen
 import io.movieclaw.android.feature.discover.CollectionScreen
 import io.movieclaw.android.feature.discover.TitleDetailScreen
 import io.movieclaw.android.feature.library.LibraryDetailScreen
+import io.movieclaw.android.feature.library.libraryActorRoute
 import io.movieclaw.android.feature.notices.NoticeCenterScreen
 import io.movieclaw.android.feature.settings.DevicesSettingsScreen
 import io.movieclaw.android.feature.settings.PlaybackSettingsScreen
@@ -213,10 +214,10 @@ fun AppNav() {
         val tab = tabOf(destRoute)
         if (tab != null && tab != shellTab) shellTab = tab
         val owner = tab ?: shellTab
-        val filled = filledRouteOf(entry) ?: return@LaunchedEffect
+        // 同一层重复上报（重组/旋转）不重复追加；摘过演员的库墙记成不带 actor 的那条
         val chain = tabChains[owner].orEmpty()
-        // 同一层重复上报（重组/旋转）不重复追加
-        if (chain.lastOrNull() != filled) tabChains[owner] = chain + filled
+        val next = TabRouteChain.record(chain, entry)
+        if (next != chain) tabChains[owner] = next
     }
     var shellBackdrop by remember { mutableStateOf<ShellBackdrop?>(null) }
     // 当前所处的库 / 合集 id（路由参数）：侧边栏对应那一行要高亮
@@ -972,13 +973,20 @@ fun AppNav() {
                 )
             }
         }
-        composable("library/{libraryId}?name={name}&w={w}&sort={sort}&order={order}") { entry ->
+        composable(LIBRARY_ROUTE) { entry ->
             val libraryId = entry.arguments?.getString("libraryId")?.toLongOrNull() ?: return@composable
             LibraryDetailScreen(
                 libraryId = libraryId,
                 title = entry.arguments?.getString("name").orEmpty(),
                 onBack = { navController.popBackStack() },
                 onOpenItem = { libraryId2, itemId -> navController.navigate("item/$libraryId2/$itemId") },
+                // 摘掉了路由带来的演员：页签链里这一层也换成不带 actor 的，切页签回来 / 进程重建后不再套回
+                onActorCleared = {
+                    val owner = tabOf(entry.destination.route.orEmpty()) ?: shellTab
+                    val chain = tabChains[owner].orEmpty()
+                    val next = TabRouteChain.clearActor(chain, entry)
+                    if (next != chain) tabChains[owner] = next
+                },
             )
         }
         composable("item/{libraryId}/{itemId}") { entry ->
@@ -994,6 +1002,7 @@ fun AppNav() {
                 },
                 // 演职员 → 库内影人页（iOS `LibraryItemDetailView` 的 `.person`）
                 onOpenPerson = { tmdbPersonId -> navController.navigate("person/$tmdbPersonId") },
+                onOpenActorInLibrary = { lib, name -> navController.navigate(libraryActorRoute(lib, name)) },
                 // 文件区「处理重复」→ 媒体库管理的「重复文件」页签（iOS `.libraryManage(tab: "duplicates")`）
                 onOpenDuplicates = { navController.navigate("libraryManage?tab=2") },
                 // 「去接入」→ 设置「模型接入」（iOS `.settingsSection(.llm)`）
@@ -1172,7 +1181,7 @@ private fun SettingsSectionHost(
  * 拿它去 `navigate` 会把花括号当字面量。这里按模式里的占位符从 `arguments` 取值填回去，
  * 可选查询参数缺值就整段丢掉——用于「切回页签时恢复上一次那一层」。
  */
-private fun filledRouteOf(entry: androidx.navigation.NavBackStackEntry): String? {
+internal fun filledRouteOf(entry: androidx.navigation.NavBackStackEntry): String? {
     val pattern = entry.destination.route ?: return null
     if (!pattern.contains('{')) return pattern
     val args = entry.arguments
@@ -1198,7 +1207,9 @@ private fun filledRouteOf(entry: androidx.navigation.NavBackStackEntry): String?
     val kept = query.split('&').mapNotNull { seg ->
         val name = seg.substringBefore('=')
         val v = args?.getString(name) ?: return@mapNotNull null
-        "$name=" + java.net.URLEncoder.encode(v, "UTF-8")
+        // Uri.encode 而非 URLEncoder：后者把空格编成「+」，Navigation 解码时不还原，
+        // 「Alice Smith」这样的演员名恢复回来就成了「Alice+Smith」
+        "$name=" + Uri.encode(v)
     }
     return if (kept.isEmpty()) sb.toString() else sb.toString() + "?" + kept.joinToString("&")
 }

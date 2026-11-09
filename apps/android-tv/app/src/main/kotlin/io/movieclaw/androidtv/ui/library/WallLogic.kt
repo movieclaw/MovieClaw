@@ -27,6 +27,8 @@ data class WallQuery(
     val d: String? = null,
     val res: String? = null,
     val hdr: Boolean? = null,
+    /** 演员名（只有媒体库墙用：本地/NFO 库详情页点演员进来） */
+    val actor: String? = null,
 ) {
     enum class Endpoint { Library, MediaKind, Collection, Favorites }
 }
@@ -82,6 +84,7 @@ object WallLogic {
         d = filter.d,
         res = filter.res,
         hdr = filter.hdr,
+        actor = filter.actor,
     )
 
     /** 合集墙提供的排序：「合集顺序」= 不传排序，由服务端按合集自己的顺序给 */

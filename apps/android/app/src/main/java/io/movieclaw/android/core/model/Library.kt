@@ -343,13 +343,19 @@ data class LibraryFilter(
     /** null = 不限;true = 只看 HDR;false = 只看 SDR */
     val hdr: Boolean? = null,
     val stock: Set<String> = emptySet(),
+    /**
+     * 演员名(整名相等,服务端去首尾空白、ASCII 不分大小写)。本地/NFO 库没有影人页,
+     * 详情页点演员落到这里看同库作品;筛选面板里没有这一维,只由演员卡带进来、在条件行里可摘掉
+     */
+    val actor: String? = null,
     val sort: String = "title",
     val order: String? = null,
 ) {
     val activeCount: Int
         get() = genres.size + countries.size + decades.size + watch.size +
             runtimes.size + languages.size + resolutions.size + stock.size +
-            (if (ratingGte != null) 1 else 0) + (if (hdr != null) 1 else 0)
+            (if (ratingGte != null) 1 else 0) + (if (hdr != null) 1 else 0) +
+            (if (actor != null) 1 else 0)
 
     fun isEmpty(): Boolean = activeCount == 0
 

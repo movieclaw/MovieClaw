@@ -1,5 +1,6 @@
 package io.movieclaw.androidtv.ui.detail
 
+import io.movieclaw.androidtv.ui.shell.Route
 import io.movieclaw.core.model.generated.ActorView
 import io.movieclaw.core.model.generated.AudioStreamView
 import io.movieclaw.core.model.generated.DirectorView
@@ -212,14 +213,31 @@ class DetailLogicTest {
         val item = movie(meta = meta)
         val people = DetailLogic.castPeople(item)
         assertEquals(CastPerson("克里斯托弗·诺兰", "导演", "d.jpg", 525), people[0])
-        assertEquals(CastPerson("莱昂纳多", "饰 柯布", "a.jpg", 6193), people[1])
-        assertEquals(CastPerson("约瑟夫", null, null, null), people[2])
+        assertEquals(CastPerson("莱昂纳多", "饰 柯布", "a.jpg", 6193, actor = true), people[1])
+        assertEquals(CastPerson("约瑟夫", null, null, null, actor = true), people[2])
         assertEquals("克里斯托弗·诺兰" to listOf("莱昂纳多", "约瑟夫"), DetailLogic.stageCredits(item))
         // 没有结构化导演：退回姓名（去重），没有影人 id
         val names = movie(meta = LocalMetaView(directors = listOf("甲", "甲", "乙")))
         assertEquals(listOf(CastPerson("甲", "导演", null, null), CastPerson("乙", "导演", null, null)), DetailLogic.castPeople(names))
         assertEquals("甲" to emptyList<String>(), DetailLogic.stageCredits(names))
         assertEquals(emptyList<CastPerson>(), DetailLogic.castPeople(movie()))
+    }
+
+    @Test
+    fun castRouteSendsLocalActorsToTheLibraryWall() {
+        val meta = LocalMetaView(
+            directors = listOf("王导"),
+            actors = listOf(ActorView(" 张三 ", "主角"), ActorView("莱昂纳多", "柯布", "a.jpg", 6193), ActorView("  ")),
+        )
+        val people = DetailLogic.castPeople(movie(meta = meta))
+        // 导演没有影人 id：静态（按演员表筛，导演点进去是空墙）
+        assertNull(DetailLogic.castRoute(people[0], 7, 99))
+        // 没有影人 id 的演员：同库按演员名筛，名字去首尾空白
+        assertEquals(Route.Library(7, actor = "张三"), DetailLogic.castRoute(people[1], 7, 99))
+        // 有影人 id：影人页照旧
+        assertEquals(Route.Person(6193, "莱昂纳多", "a.jpg", 99), DetailLogic.castRoute(people[2], 7, 99))
+        // 没有名字的空格子哪儿也不去
+        assertNull(DetailLogic.castRoute(people[3], 7, 99))
     }
 
     @Test

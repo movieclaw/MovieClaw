@@ -14,7 +14,8 @@ enum class MainTab { Account, Search, Home }
 /** 压在页签上的二级页（AppRoute） */
 sealed interface Route {
     data class Item(val libraryId: Long, val itemId: Long) : Route
-    data class Library(val id: Long) : Route
+    /** [actor]：详情页没有影人 id 的演员（本地/NFO 库）点进来，同库按演员名筛 */
+    data class Library(val id: Long, val actor: String? = null) : Route
     data class Collection(val id: Long, val name: String) : Route
     data class Person(val tmdbId: Long, val name: String, val avatar: String?, val fromItem: Long?) : Route
     data class RowWall(val title: String, val source: WallSource) : Route

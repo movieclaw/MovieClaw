@@ -363,8 +363,7 @@ private fun DetailContent(
                                     PersonPortraitCard(
                                         person,
                                         onClick = {
-                                            // 没有 TMDB 影人 id 的（NFO 里只有姓名的导演）没有影人页
-                                            person.personId?.let { router.push(Route.Person(it, person.name, person.avatar, state.itemId)) }
+                                            DetailLogic.castRoute(person, state.libraryId, state.itemId)?.let { router.push(it) }
                                         },
                                         modifier = Modifier.track("person:$index", zoneOf("cast")).testTag("person:$index"),
                                     )

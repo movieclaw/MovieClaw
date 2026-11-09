@@ -78,9 +78,11 @@ private fun <T : Any> rememberPageState(kind: String, create: () -> T): T {
 
 /** 媒体库墙这一次的状态：类型 / 年代 / 画质是这一次的意图，离开页面就清空（排序是偏好，记在本机） */
 @Stable
-private class LibraryWallState {
+private class LibraryWallState(actor: String?) {
     val pager = WallPager()
     var picks by mutableStateOf(WallPicks())
+    /** 详情页演员卡带进来的演员名；在菜单里可摘掉，摘掉后这一页就是整库 */
+    var actor by mutableStateOf(actor?.trim()?.takeIf { it.isNotEmpty() })
     var facets by mutableStateOf<LibraryFacetsView?>(null)
     var facetsFor: WallFilter? = null
     var index by mutableStateOf<List<WallIndexEntry>>(emptyList())
@@ -89,7 +91,7 @@ private class LibraryWallState {
 
 /** 筛选面板候选值与计数：二级维度（画质）的计数要 tier=all 才有 */
 private suspend fun McApi.wallFacets(libraryId: Long, f: WallFilter) =
-    libraryItemsFacets(libraryId, tier = "all", g = f.g, d = f.d, w = f.w, res = f.res, hdr = f.hdr)
+    libraryItemsFacets(libraryId, tier = "all", g = f.g, d = f.d, w = f.w, res = f.res, hdr = f.hdr, actor = f.actor)
 
 /** 跳转索引：order 必须与取墙时同一个值，offset 才对得上；按上映排序要按年分档（旧服务端不认这个参数，回月份档，照样按年并起来） */
 private suspend fun McApi.wallIndex(libraryId: Long, sort: WallSort, f: WallFilter) = uiLibraryItemsIndex(
@@ -97,7 +99,7 @@ private suspend fun McApi.wallIndex(libraryId: Long, sort: WallSort, f: WallFilt
     sort = sort.sort,
     order = WallLogic.orderParam(sort.sort, sort.reversed),
     granularity = if (sort.sort == "release_date") "year" else null,
-    g = f.g, d = f.d, w = f.w, res = f.res, hdr = f.hdr,
+    g = f.g, d = f.d, w = f.w, res = f.res, hdr = f.hdr, actor = f.actor,
 )
 
 /**
@@ -108,10 +110,10 @@ private suspend fun McApi.wallIndex(libraryId: Long, sort: WallSort, f: WallFilt
  * 类型 / 年代 / 画质离开页面就清空。筛空时给出放宽建议，不留空墙。
  */
 @Composable
-fun LibraryWallScreen(libraryId: Long) {
+fun LibraryWallScreen(libraryId: Long, actor: String? = null) {
     val session = LocalSession.current
     val store = LocalGraph.current.store
-    val state = rememberPageState("library") { LibraryWallState() }
+    val state = rememberPageState("library") { LibraryWallState(actor) }
     val pager = state.pager
     val key = WallLogic.sortKey(libraryId)
     var sort by remember { mutableStateOf(WallLogic.decodeSort(store.string(key))) }
@@ -138,7 +140,7 @@ fun LibraryWallScreen(libraryId: Long) {
     }
 
     val picks = state.picks
-    val filter = WallFilters.of(picks, unwatched, unfinished)
+    val filter = WallFilters.of(picks, unwatched, unfinished, state.actor)
     val queryKey = "${sort.sort}-${sort.reversed}-$filter"
 
     suspend fun reload() {
@@ -153,7 +155,7 @@ fun LibraryWallScreen(libraryId: Long) {
             state.index = WallIndex.entries(sortNow.sort, sortNow.reversed, raw.await())
         }
         if (pager.items?.isEmpty() == true && !filter.isEmpty) {
-            state.relax = attempt { session.api.libraryItemsRelax(libraryId, g = filter.g, d = filter.d, w = filter.w, res = filter.res, hdr = filter.hdr) }
+            state.relax = attempt { session.api.libraryItemsRelax(libraryId, g = filter.g, d = filter.d, w = filter.w, res = filter.res, hdr = filter.hdr, actor = filter.actor) }
                 ?.suggestions.orEmpty()
         }
     }
@@ -171,7 +173,7 @@ fun LibraryWallScreen(libraryId: Long) {
     }
 
     val facets = state.facets
-    val conditions = WallFilters.conditions(picks, unwatched, facets, unfinished)
+    val conditions = WallFilters.conditions(picks, unwatched, facets, unfinished, state.actor)
     // 当前条件下共几部：用 facet 的命中数（与墙同一套参数）；还没回来时，没加条件先用库的统计顶上
     val total = facets?.total ?: if (filter.isEmpty) pager.count else null
     val emptyActions = if (!filter.isEmpty && pager.items?.isEmpty() == true) {
@@ -190,6 +192,7 @@ fun LibraryWallScreen(libraryId: Long) {
             }
         } + WallAction("clear", "清除全部条件") {
             state.picks = WallPicks()
+            state.actor = null
             unfinished = false
             store.putString("$key.unfinished", "false")
             unwatched = false
@@ -227,6 +230,7 @@ fun LibraryWallScreen(libraryId: Long) {
                         store.putString("$key.unwatched", "false")
                     },
                     picks = picks,
+                    actor = state.actor,
                     facets = facets,
                     onSort = {
                         sort = WallSort(it)
@@ -239,6 +243,7 @@ fun LibraryWallScreen(libraryId: Long) {
                         store.putString("$key.unwatched", unwatched.toString())
                     },
                     onPicks = { state.picks = it },
+                    onClearActor = { state.actor = null },
                     onDismiss = { menuOpen = false },
                 )
             }
@@ -378,10 +383,12 @@ private fun BoxScope.LibraryMenu(
     unfinished: Boolean,
     onToggleUnfinished: () -> Unit,
     picks: WallPicks,
+    actor: String?,
     facets: LibraryFacetsView?,
     onSort: (String) -> Unit,
     onToggleUnwatched: () -> Unit,
     onPicks: (WallPicks) -> Unit,
+    onClearActor: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var open by remember { mutableStateOf<FacetMenu?>(null) }
@@ -443,6 +450,13 @@ private fun BoxScope.LibraryMenu(
             }
             MenuDivider()
             MenuSection("筛选")
+            // 演员不是菜单里的一维（只由详情页演员卡带进来），这里只给一条摘掉它的路
+            if (actor != null) {
+                MenuRow("移除演员：$actor", icon = McIcons.ClearCircle, enabled = open == null, modifier = Modifier.testTag("menu:actor")) {
+                    onClearActor()
+                    onDismiss()
+                }
+            }
             FacetMenu.entries.forEach { menu ->
                 MenuRow(
                     menu.title,
@@ -456,9 +470,10 @@ private fun BoxScope.LibraryMenu(
                         .testTag("menu:${menu.name}"),
                 ) { open = menu }
             }
-            if (!picks.isEmpty) {
+            if (!picks.isEmpty || actor != null) {
                 MenuRow("清除筛选", icon = McIcons.ClearCircle, enabled = open == null) {
                     onPicks(WallPicks())
+                    onClearActor()
                     onDismiss()
                 }
             }
