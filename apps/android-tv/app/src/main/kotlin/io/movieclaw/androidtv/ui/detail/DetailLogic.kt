@@ -4,12 +4,13 @@ import io.movieclaw.core.model.generated.EpisodeView
 import io.movieclaw.core.model.generated.LibraryItemDetailView
 import io.movieclaw.core.model.generated.PersonCreditView
 import io.movieclaw.core.model.generated.PersonView
+import io.movieclaw.androidtv.ui.shell.Route
 import io.movieclaw.androidtv.ui.stage.StageBadge
 import io.movieclaw.androidtv.ui.theme.Formatters
 import kotlin.math.roundToLong
 
-/** 演职员一格：姓名、身份（导演 / 饰 X）、头像、TMDB 影人 id（没有就进不了影人页） */
-data class CastPerson(val name: String, val role: String?, val avatar: String?, val personId: Long?)
+/** 演职员一格：姓名、身份（导演 / 饰 X）、头像、TMDB 影人 id（没有就进不了影人页）、是否演员（导演为 false） */
+data class CastPerson(val name: String, val role: String?, val avatar: String?, val personId: Long?, val actor: Boolean = false)
 
 /**
  * 详情页的纯逻辑（TVItemDetailView.swift 里的派生计算），单独放这里方便单测。
@@ -138,7 +139,17 @@ object DetailLogic {
         } else {
             meta.directorCredits.map { CastPerson(it.name, "导演", it.thumbUrl, it.tmdbPersonId) }
         }
-        return directors + meta.actors.map { CastPerson(it.name, it.role?.let { role -> "饰 $role" }, it.thumbUrl, it.tmdbPersonId) }
+        return directors + meta.actors.map { CastPerson(it.name, it.role?.let { role -> "饰 $role" }, it.thumbUrl, it.tmdbPersonId, actor = true) }
+    }
+
+    /**
+     * 点演职员一格去哪：有 TMDB 影人 id → 影人页；没有的演员（本地/NFO 库）→ 同库按演员名筛的海报墙
+     * （网页 CastRow 同款）；没有 id 的导演 → 哪儿也不去（后端按演员表筛，导演点进去是空墙）
+     */
+    fun castRoute(person: CastPerson, libraryId: Long, itemId: Long): Route? = when {
+        person.personId != null -> Route.Person(person.personId, person.name, person.avatar, itemId)
+        person.actor && person.name.isNotBlank() -> Route.Library(libraryId, actor = person.name.trim())
+        else -> null
     }
 
     /** 季的胶囊上的字 */

@@ -88,6 +88,8 @@ class WallIndexTest {
         )
         val picks = WallPicks(genre = 37, decade = "2010s", quality = "2160p")
         assertEquals(listOf("西部", "2010 年代", "4K", "未看"), WallFilters.conditions(picks, true, facets))
+        // 演员条件写在最前，与网页条件行「演员：姓名」同一种叫法
+        assertEquals(listOf("演员：张三", "未看"), WallFilters.conditions(WallPicks(), true, facets, actor = "张三"))
         assertEquals("西部 · 4K · 49 部", WallFilters.summary(listOf("西部", "4K"), 49))
         assertNull(WallFilters.summary(emptyList(), null))
         // 画质：分辨率 + 一档 HDR；年代改成「年代」

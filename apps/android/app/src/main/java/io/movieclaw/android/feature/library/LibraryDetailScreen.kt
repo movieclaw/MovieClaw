@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -109,14 +110,21 @@ import io.movieclaw.android.core.designsystem.formSheetScroll
 
 private const val PAGE_SIZE = 60
 
+/** 同库按演员筛的海报墙路由（详情页没有影人 id 的演员卡点进来；库名由墙页按 id 补取） */
+internal fun libraryActorRoute(libraryId: Long, actor: String): String =
+    "library/$libraryId?actor=${android.net.Uri.encode(actor.trim())}"
+
 @HiltViewModel
 class LibraryDetailViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val repository: SessionRepository,
     private val apiFactory: ApiFactory,
 ) : ViewModel() {
 
     val libraryId: Long = savedStateHandle.get<String>("libraryId")?.toLongOrNull() ?: -1L
+
+    /** 详情页演员卡带进来的演员名(本地/NFO 库没有影人页,落到同库按演员筛) */
+    private val initialActor: String? = savedStateHandle.get<String>("actor")?.trim()?.takeIf { it.isNotEmpty() }
 
     data class UiState(
         val loading: Boolean = true,
@@ -133,8 +141,24 @@ class LibraryDetailViewModel @Inject constructor(
         watch = savedStateHandle.get<String>("w")?.takeIf { it in setOf("unwatched", "unfinished", "seen", "watching", "played", "favorite") }?.let { setOf(it) } ?: emptySet(),
         sort = savedStateHandle.get<String>("sort")?.takeIf { it.isNotBlank() } ?: "title",
         order = savedStateHandle.get<String>("order")?.takeIf { it in setOf("asc", "desc") },
+        actor = initialActor,
     )))
     val ui = _ui.asStateFlow()
+
+    /**
+     * 库名。演员卡跳过来时路由里没有库名(详情页不知道),标题空着就按 id 补取一次
+     */
+    private val _libraryName = MutableStateFlow<String?>(null)
+    val libraryName = _libraryName.asStateFlow()
+
+    fun loadNameIfMissing(title: String) {
+        if (title.isNotBlank() || _libraryName.value != null) return
+        viewModelScope.launch {
+            val origin = origin ?: return@launch
+            runCatching { apiFactory.forOrigin(origin).library(libraryId).dataOrThrow() }
+                .onSuccess { _libraryName.value = it.name }
+        }
+    }
 
     private val _facets = MutableStateFlow<Loadable<LibraryFacets>>(Loadable.Loading)
     val facets = _facets.asStateFlow()
@@ -215,6 +239,8 @@ class LibraryDetailViewModel @Inject constructor(
 
     /** 应用筛选:重新拉第一页 + 刷新索引 */
     fun applyFilter(filter: LibraryFilter) {
+        // 摘掉了路由带来的演员：写回 SavedStateHandle，进程重建后 ViewModel 不再按原路由实参套回
+        if (filter.actor == null && savedStateHandle.get<String>("actor") != null) savedStateHandle["actor"] = null
         _ui.update { it.copy(filter = filter) }
         reload()
     }
@@ -291,6 +317,7 @@ private suspend fun io.movieclaw.android.core.api.McApi.libraryPage(
     resolutions = filter.resolutions.takeIf { it.isNotEmpty() }?.joinToString(","),
     hdr = filter.hdr,
     stock = filter.stock.takeIf { it.isNotEmpty() }?.joinToString(","),
+    actor = filter.actor,
 ).dataOrThrow()
 
 private suspend fun io.movieclaw.android.core.api.McApi.libraryFacets(
@@ -310,6 +337,7 @@ private suspend fun io.movieclaw.android.core.api.McApi.libraryFacets(
     resolutions = filter.resolutions.takeIf { it.isNotEmpty() }?.joinToString(","),
     hdr = filter.hdr,
     stock = filter.stock.takeIf { it.isNotEmpty() }?.joinToString(","),
+    actor = filter.actor,
 ).dataOrThrow()
 
 private suspend fun io.movieclaw.android.core.api.McApi.libraryItemIndex(
@@ -329,6 +357,7 @@ private suspend fun io.movieclaw.android.core.api.McApi.libraryItemIndex(
     resolutions = filter.resolutions.takeIf { it.isNotEmpty() }?.joinToString(","),
     hdr = filter.hdr,
     stock = filter.stock.takeIf { it.isNotEmpty() }?.joinToString(","),
+    actor = filter.actor,
 ).dataOrThrow()
 
 /* ---------------- UI ---------------- */
@@ -341,6 +370,8 @@ fun LibraryDetailScreen(
     title: String,
     onBack: () -> Unit,
     onOpenItem: (Long, Long) -> Unit,
+    /** 演员条件没了（条件行摘掉 / 清空）：导航层据此把记下的路由换成不带 actor 的 */
+    onActorCleared: () -> Unit = {},
     vm: LibraryDetailViewModel = hiltViewModel(),
 ) {
     // 离线时换成该库已下载的条目（offline-download.md §1 海报墙）
@@ -353,6 +384,10 @@ fun LibraryDetailScreen(
     val state by vm.ui.collectAsStateWithLifecycle()
     val facets by vm.facets.collectAsStateWithLifecycle()
     val index by vm.index.collectAsStateWithLifecycle()
+    val libraryName by vm.libraryName.collectAsStateWithLifecycle()
+    LaunchedEffect(title) { vm.loadNameIfMissing(title) }
+    val hasActor = state.filter.actor != null
+    LaunchedEffect(hasActor) { if (!hasActor) onActorCleared() }
     // 宽窗口：A–Z 索引条是手机竖屏长列表的导航件，平板横屏上既没用又占宽度
     val wide = io.movieclaw.android.core.designsystem.LocalCardMetrics.current.isWide
     val origin = vm.origin
@@ -379,7 +414,7 @@ fun LibraryDetailScreen(
             val headerInfo: @Composable () -> Unit = {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(title, style = McType.title3, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(title.ifBlank { libraryName.orEmpty() }, style = McType.title3, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.width(8.dp))
                         Text(
                             "默认",
@@ -444,7 +479,11 @@ fun LibraryDetailScreen(
                 }
                 else -> Column {
                     if (!state.filter.isEmpty()) {
-                        ActiveFilterSummary(state.filter) { vm.clearFilter() }
+                        ActiveFilterSummary(
+                            filter = state.filter,
+                            onClearActor = { vm.applyFilter(state.filter.copy(actor = null)) },
+                            onClear = { vm.clearFilter() },
+                        )
                     }
                     LazyVerticalGrid(
                         state = gridState,
@@ -591,11 +630,35 @@ private fun FilterButton(activeCount: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ActiveFilterSummary(filter: LibraryFilter, onClear: () -> Unit) {
+internal fun ActiveFilterSummary(filter: LibraryFilter, onClearActor: () -> Unit, onClear: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
+        // 演员条件不在筛选面板里，只能在这儿摘掉：单列一枚「演员：姓名 ×」
+        filter.actor?.let { actor ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .widthIn(max = 200.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.08f))
+                    .clickable(onClickLabel = "移除演员条件", onClick = onClearActor)
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    "演员：$actor",
+                    style = McType.caption,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("×", style = McType.caption, color = TextMuted)
+            }
+        }
         Text("已应用 ${filter.activeCount} 个条件", style = McType.caption, color = TextMuted)
         Spacer(Modifier.weight(1f))
         TextButton(onClick = onClear) { Text("清空", style = McType.caption, color = Accent) }

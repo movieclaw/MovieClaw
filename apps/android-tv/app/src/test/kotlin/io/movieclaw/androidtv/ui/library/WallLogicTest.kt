@@ -61,6 +61,16 @@ class WallLogicTest {
             WallQuery(WallQuery.Endpoint.Library, id = 3, sort = "rating", hdr = true),
             WallLogic.libraryQuery(3, WallSort("rating"), WallFilters.of(WallPicks(quality = WallPicks.HDR), unwatched = false)),
         )
+        // 演员（详情页演员卡带进来）：去首尾空白、与其他条件 AND；空白等于没给
+        assertEquals(
+            WallQuery(WallQuery.Endpoint.Library, id = 3, sort = "added_at", g = "18", actor = "张三"),
+            WallLogic.libraryQuery(3, WallSort("added_at"), WallFilters.of(WallPicks(genre = 18), unwatched = false, actor = " 张三 ")),
+        )
+        assertEquals(
+            WallQuery(WallQuery.Endpoint.Library, id = 3, sort = "added_at"),
+            WallLogic.libraryQuery(3, WallSort("added_at"), WallFilters.of(WallPicks(), unwatched = false, actor = "  ")),
+        )
+        assertEquals(false, WallFilters.of(WallPicks(), unwatched = false, actor = "张三").isEmpty)
     }
 
     @Test

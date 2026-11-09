@@ -131,7 +131,7 @@ internal fun FavoriteItemView.toWall() = WallItem(mediaItemId, libraryId, title,
 /** 按 [WallQuery] 取一页 */
 internal suspend fun McApi.fetchWall(q: WallQuery, offset: Long, limit: Long): List<WallItem> = when (q.endpoint) {
     WallQuery.Endpoint.Library -> libraryItemsList(
-        q.id ?: 0, sort = q.sort, order = q.order, limit = limit, offset = offset, g = q.g, d = q.d, w = q.w, res = q.res, hdr = q.hdr,
+        q.id ?: 0, sort = q.sort, order = q.order, limit = limit, offset = offset, g = q.g, d = q.d, w = q.w, res = q.res, hdr = q.hdr, actor = q.actor,
     ).map { it.toWall() }
     WallQuery.Endpoint.MediaKind ->
         uiLibraryKindItems(q.kind.orEmpty(), sort = q.sort, order = q.order, limit = limit, offset = offset, g = q.g, w = q.w).map { it.toWall() }

@@ -498,6 +498,7 @@ interface McApi {
         @Query("res") resolutions: String? = null,
         @Query("hdr") hdr: Boolean? = null,
         @Query("stock") stock: String? = null,
+        @Query("actor") actor: String? = null,
     ): McEnvelope<List<LibraryItemView>>
 
     /**
@@ -548,6 +549,7 @@ interface McApi {
         @Query("res") resolutions: String? = null,
         @Query("hdr") hdr: Boolean? = null,
         @Query("stock") stock: String? = null,
+        @Query("actor") actor: String? = null,
     ): McEnvelope<LibraryFacets>
 
     /** 海报墙跳转索引(sort/order 必须与 /items 一致,offset 才对得上) */
@@ -566,6 +568,7 @@ interface McApi {
         @Query("res") resolutions: String? = null,
         @Query("hdr") hdr: Boolean? = null,
         @Query("stock") stock: String? = null,
+        @Query("actor") actor: String? = null,
     ): McEnvelope<List<LibraryIndexEntry>>
 
     @GET("libraries/{libraryId}/items/{itemId}")

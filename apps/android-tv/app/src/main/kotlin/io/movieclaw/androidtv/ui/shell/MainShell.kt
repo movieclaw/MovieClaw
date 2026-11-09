@@ -252,7 +252,7 @@ fun MainShell(args: LaunchArgs) {
                                             MainTab.Account -> AccountsScreen()
                                         }
                                         is Route.Item -> ItemDetailScreen(route.libraryId, route.itemId)
-                                        is Route.Library -> LibraryWallScreen(route.id)
+                                        is Route.Library -> LibraryWallScreen(route.id, route.actor)
                                         is Route.Collection -> CollectionWallScreen(route.id, route.name)
                                         is Route.Person -> PersonScreen(route)
                                         is Route.RowWall -> RowWallScreen(route.title, route.source)
