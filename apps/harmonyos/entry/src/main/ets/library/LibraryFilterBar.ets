@@ -332,7 +332,8 @@ struct FilterConditionRow {
         .onClick(() => {
           this.onClear();
         })
-      if (this.onSaveAsCollection !== null && this.collectionName === null) {
+      // 有演员条件时不提「存为合集」：合集规则没有演员这一维，存下来会悄悄丢掉它（同 Web）
+      if (this.onSaveAsCollection !== null && this.collectionName === null && this.filter.actor === null) {
         Text('存为合集')
           .fontSize(12)
           .fontColor('rgba(255, 255, 255, 0.5)')

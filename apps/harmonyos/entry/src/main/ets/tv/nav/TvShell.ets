@@ -285,7 +285,8 @@ struct TvShellContent {
             kindSource: route.kindSource ?? '',
             collectionId: 0,
             sourceKey: '',
-            title: route.title
+            title: route.title,
+            actor: route.actor ?? ''
           })
         } else if (route instanceof TvRowWallRoute) {
           TvLibraryWall({
@@ -409,7 +410,8 @@ struct TvShellContent {
       return `detail_${route.libraryId}_${route.itemId}`;
     }
     if (route instanceof TvWallRoute) {
-      return `wall_${route.libraryId}_${route.kindSource ?? ''}`;
+      // 演员墙与同库的整库墙可能同时在栈里（墙 → 详情 → 演员墙），key 要分开
+      return `wall_${route.libraryId}_${route.kindSource ?? ''}_${route.actor ?? ''}`;
     }
     if (route instanceof TvRowWallRoute) {
       return `rowWall_${route.sourceKey}`;

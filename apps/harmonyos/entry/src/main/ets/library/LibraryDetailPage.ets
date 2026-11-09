@@ -49,38 +49,7 @@ import { OrganizeSheet } from './OrganizeSheet';
 import { SaveAsCollectionSheet } from './SaveAsCollectionSheet';
 import { GalleryDensity, GalleryPrefs, GalleryWall } from './GalleryWall';
 import { LatestRequestGate } from './LatestRequestGate';
-
-/** 单库页路由参数 */
-export class LibraryRouteParams {
-  readonly libraryId: number;
-  readonly watch: string | null;
-  readonly sort: string | null;
-  readonly reversed: boolean;
-
-  constructor(libraryId: number, watch: string | null = null, sort: string | null = null, reversed: boolean = false) {
-    this.libraryId = libraryId;
-    this.watch = watch;
-    this.sort = sort;
-    this.reversed = reversed;
-  }
-
-  /**
-   * 从 NavDestination 的路由参数里取出库 id；取不到返回 0。
-   *
-   * **不要用 `param instanceof LibraryRouteParams` 判断**：`pushPathByName` 传过来的参数
-   * 会被序列化，到 `onReady` 时已经是个普通对象（真机/模拟器实测 `{"libraryId":1}`，
-   * `instanceof` 恒为 false）。用它判断的话判断永远不成立、`start()` 永远不跑，
-   * 页面就一直是「正在加载媒体库…」——这正是电影库/剧集库点进去没反应的原因。
-   * 所以按字段取值并校验，不依赖原型链。
-   */
-  static idOf(param: Object | undefined | null): number {
-    if (param === undefined || param === null) {
-      return 0;
-    }
-    const raw: number = (param as LibraryRouteParams).libraryId;
-    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
-  }
-}
+import { LibraryRouteParams } from './LibraryRouteParams';
 
 /** 路由表注册用（router_map.json 的 buildMethod） */
 @Builder
@@ -372,7 +341,7 @@ struct LibraryDetailPage {
     return api.uiLibraryGallery(this.libraryId, limit, offset, this.effectiveSort(),
       this.order() ?? undefined, filter.qG(), filter.qC(), filter.qD(), filter.watch ?? undefined,
       filter.ratingGte ?? undefined, filter.qRt(), filter.qLang(), filter.qRes(),
-      filter.hdr ?? undefined, filter.qStock(), filter.qSeries());
+      filter.hdr ?? undefined, filter.qStock(), filter.qSeries(), filter.qActor());
   }
 
   private sortOptions(): WallSortOption[] {
@@ -1009,9 +978,15 @@ struct LibraryDetailPage {
         if (params.sort !== undefined && params.sort !== null) {
           this.sort = new WallSortState(params.sort, params.reversed === true);
         }
-        if (params.watch !== undefined && params.watch !== null) {
+        // 从演员卡进来：首载前就把演员条件放好，墙/索引/计数第一次取数就是筛过的
+        const actor: string | null = LibraryRouteParams.actorOf(ctx.pathInfo.param as Object | undefined);
+        const hasWatch: boolean = params.watch !== undefined && params.watch !== null;
+        if ((hasWatch || actor !== null) && !this.started) {
           const filter: LibraryFilter = new LibraryFilter();
-          filter.watch = params.watch;
+          if (hasWatch) {
+            filter.watch = params.watch;
+          }
+          filter.actor = actor;
           this.filter = filter;
         }
         this.start();
