@@ -91,4 +91,19 @@ export class SearchAccess {
     }
     return new SearchAccess(permissions.canSubscribe, permissions.canSearch, canLibrary, true);
   }
+
+  /**
+   * 搜索入口门控（同 iOS `SearchAccess.canOpenSearch` + MainTabView 顶栏放大镜）：
+   * 任一分区可用就给入口——默认成员（能订阅）、儿童账号（只有可见库）都能进来
+   * 搜媒体库；四个页签宿主据此裁剪右上角放大镜，没有任何可用分区的账号不给。
+   * 管理员/能订阅/能搜资源同步短路；只剩媒体库一种可能的账号由 resolve 查一次
+   * 可见库再定（拉不到按无库）。
+   */
+  static async openSearchGate(api: MovieClawApi | null, permissions: Permissions): Promise<boolean> {
+    if (permissions.isAdmin || permissions.canSubscribe || permissions.canSearch) {
+      return true;
+    }
+    const access: SearchAccess = await SearchAccess.resolve(api, permissions);
+    return access.available().length > 0;
+  }
 }
