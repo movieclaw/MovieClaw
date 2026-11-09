@@ -81,7 +81,9 @@ export class PhoneMedia implements PlaybackMedia {
           subtitle = fileIo.openSync(temporaryPath, fileIo.OpenMode.READ_ONLY);
         } catch (error) {
           if (temporaryPath.length > 0) { fileIo.unlinkSync(temporaryPath); temporaryPath = ''; }
-          hilog.warn(0x0000, 'MCSub', '字幕下载或加载失败，跳过字幕继续播放: %{public}s', `${error}`);
+          // 异常 message 可能整段带签名 URL（token 在查询串里），原样落日志会泄签名，只记分类与码。
+          const reason = error instanceof EngineFailure ? `${error.kind}(${error.code})` : '网络异常';
+          hilog.warn(0x0000, 'MCSub', '字幕下载失败(%{public}s)，跳过字幕继续播放', reason);
         }
       }
       if (this.path.length > 0) { media = fileIo.openSync(this.path, fileIo.OpenMode.READ_ONLY); }
@@ -178,21 +180,35 @@ export async function downloadPgsSidecar(url: string, cacheDirectory: string): P
   let file: fileIo.File | null = null;
   let path: string = '';
   let received: number = 0;
-  let magicChecked: boolean = false;
   let magicValid: boolean = false;
+  // 'PG' 魔数可能跨 chunk 到达（分块传输下首块 0/1 字节并不奇怪）：攒满两个
+  // 字节再判，判过才开文件——此前只看首块，首块太短就把整份合法 PGS 当无效丢了
+  let magicPending: number[] = [];
   try {
     session.on('dataReceive', (chunk: ArrayBuffer): void => {
-      if (!magicChecked) {
-        magicChecked = true;
+      let payload: ArrayBuffer = chunk;
+      if (!magicValid) {
+        if (magicPending.length >= 2) { return; }
         const bytes = new Uint8Array(chunk);
-        magicValid = chunk.byteLength >= 2 && bytes[0] === 0x50 && bytes[1] === 0x47;
+        const take: number = Math.min(bytes.length, 2 - magicPending.length);
+        for (let i = 0; i < take; i++) { magicPending.push(bytes[i]); }
+        if (magicPending.length < 2) { return; }
+        magicValid = magicPending[0] === 0x50 && magicPending[1] === 0x47;
+        if (!magicValid) { return; }
+        payload = chunk.slice(take);
       }
-      if (!magicValid) { return; }
       if (file === null) {
         path = `${cacheDirectory}/playback-pgs-${Date.now()}-${pgsSidecarSequence++}.sup`;
         file = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
       }
-      fileIo.writeSync(file.fd, chunk);
+      if (magicPending.length > 0) {
+        const head: ArrayBuffer = new ArrayBuffer(2);
+        const headView: Uint8Array = new Uint8Array(head);
+        headView[0] = magicPending[0]; headView[1] = magicPending[1];
+        fileIo.writeSync(file.fd, head);
+        magicPending = [];
+      }
+      if (payload.byteLength > 0) { fileIo.writeSync(file.fd, payload); }
       received += chunk.byteLength;
     });
     const code: number = await new Promise<number>(

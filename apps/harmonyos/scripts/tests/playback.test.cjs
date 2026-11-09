@@ -40,7 +40,7 @@ function runtime(overrides = {}, timers = globalThis) {
   };
   function load(file) {
     file = path.resolve(root, file);
-    if (file.endsWith('/offline/OfflineDisk.ets')) { return { OfflineDisk: { fileSize: () => 100 } }; }
+    if (file.replace(/\\/g, '/').endsWith('/offline/OfflineDisk.ets')) { return { OfflineDisk: { fileSize: () => 100 } }; }
     if (cache.has(file)) { return cache.get(file).exports; }
     const module = { exports: {} };
     cache.set(file, module);
@@ -66,7 +66,7 @@ function runtime(overrides = {}, timers = globalThis) {
 
 // Run the same shared suites registered by the on-device Hypium runner.
 const shared = runtime();
-for (const suite of ['PlaybackController', 'PlaybackSession', 'PlaybackGateway']) {
+for (const suite of ['PlaybackController', 'PlaybackSession', 'PlaybackGateway', 'HomeRows', 'StaleLoadGuard', 'PgsPrepareGuard']) {
   shared(`entry/src/test/${suite}.test.ets`).default();
 }
 
@@ -258,8 +258,9 @@ function mpvSurfaceFixture() {
         owners.set(options.wid, id); bindings.push(options.wid); callbacks.set(id, callback);
         callback({ type: 'ready' });
       },
-      command: async (id, args) => {
-        if (args.join(' ') === 'set pause no') {
+      command: async () => {},
+      setProperty: async (id, name, value) => {
+        if (name === 'pause' && value === false) {
           callbacks.get(id)({ type: 'property', name: 'pause', value: 0 });
           callbacks.get(id)({ type: 'property', name: 'time-pos', value: 1 });
         }
@@ -368,7 +369,7 @@ test('exit during Surface replacement cannot reopen a stale episode', async () =
 test('MPV invalidates its native handle without waiting for a blocked command tail', async () => {
   const commandGate = gate(); const teardown = gate(); let destroyed = 0;
   const load = runtime({ 'libmovieclaw_mpv.so': {
-    createEngine: () => 7, command: () => commandGate.promise,
+    createEngine: () => 7, command: () => commandGate.promise, setProperty: () => commandGate.promise,
     destroyEngine: () => { destroyed++; return teardown.promise; },
   } });
   const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
@@ -378,16 +379,20 @@ test('MPV invalidates its native handle without waiting for a blocked command ta
 });
 
 test('MPV skips a rejected optional subtitle command and still plays', async () => {
-  const calls = []; const diagnostics = [];
+  const calls = []; const sets = []; const diagnostics = [];
   const load = runtime({ 'libmovieclaw_mpv.so': {
     createEngine: () => 7, initEngine: async (handle, options, callback) => callback({ type: 'ready' }),
     command: async (handle, args) => { calls.push(args[0]); if (args[0] === 'sub-add') { throw new Error('subtitle'); } },
+    setProperty: async (handle, name, value) => { sets.push([name, value]); },
     destroyEngine: async () => {},
   } });
   const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
   engine.onEvent = (event) => diagnostics.push(event.type);
   await engine.open({ fd: -1, url: 'fixture', subtitleFd: 20, subtitleUrl: '' }, 'surface');
-  await engine.play(); assert.deepEqual(calls, ['loadfile', 'sub-add', 'set', 'set']);
+  await engine.play();
+  assert.deepEqual(calls, ['loadfile', 'sub-add']);
+  assert.deepEqual(sets.map((entry) => entry[0]), ['sub-visibility', 'sub-delay', 'pause']);
+  assert.equal(sets[0][1], 'yes');
   assert.deepEqual(diagnostics, ['diagnostic']); await engine.release();
 });
 
@@ -459,7 +464,7 @@ for (const engine of ['avplayer', 'mpv']) {
                 : new TextEncoder().encode('00:00:32,500 --> 00:00:34,000\nHello').buffer };
           }, destroy: () => { destroyed++; },
         }) } },
-        '@kit.PerformanceAnalysisKit': { hilog: { warn: (...args) => warnings.push(args.join(' ')) } },
+        '@kit.PerformanceAnalysisKit': { hilog: { info: () => {}, warn: (...args) => warnings.push(args.join(' ')) } },
         '@kit.CoreFileKit': { fileIo: { OpenMode: { READ_ONLY: 1, CREATE: 2, WRITE_ONLY: 4, TRUNC: 8 },
           openSync: (name, mode) => ({ fd: name === '/movie.mp4' ? 10 : mode === 1 ? 20 : 30 }),
           writeSync: (fd, data) => files.set(fd, data), closeSync: (file) => closed.push(file.fd),
@@ -470,7 +475,7 @@ for (const engine of ['avplayer', 'mpv']) {
       const media = new PhoneMedia(30000, 100000, '', '/movie.mp4', 'https://signed.invalid/sub?token=secret', '', '/cache');
       const lease = await media.acquire(engine);
       assert.equal(lease.source.fd, 10); assert.equal(lease.source.subtitleUrl, ''); assert.equal(destroyed, 1);
-      assert.equal(options.connectTimeout, 10000); assert.equal(options.readTimeout, 15000);
+      assert.equal(options.connectTimeout, 10000); assert.equal(options.readTimeout, 60000);
       const available = status === 200 || (status === 'bitmap' && engine === 'mpv');
       assert.equal(lease.source.subtitleFd, available ? 20 : -1);
       if (status === 200) {
