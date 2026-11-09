@@ -276,6 +276,7 @@ async def catalog(
                 is_favorite=bool(state and state.is_favorite),
                 updated_at=state.updated_at if state else None,
                 last_played_at=state.last_played_at if state else None,
+                continue_dismissed=bool(state and state.continue_dismissed),
                 watches=watches[unit],
             )
         )
@@ -423,7 +424,7 @@ async def import_records(
 async def apply_state(
     session: AsyncSession, actor: Principal, payload: SyncStateIn
 ) -> list[SyncStateOutcome]:
-    """按单元写回已看 / 续播 / 收藏；compare-and-set，值没变不动版本，不发事件。"""
+    """按单元写回已看 / 续播 / 收藏 / 接下来继续隐藏；compare-and-set，值没变不动版本，不发事件。"""
     owner = await target(session, payload.member_id)
     visible = await visible_library_ids(session, actor) & await visible_library_ids(session, owner)
     outcomes: list[SyncStateOutcome] = []
@@ -479,6 +480,7 @@ async def apply_state(
             "play_count": state.play_count if state else 0,
             "last_played_at": state.last_played_at if state else None,
             "is_favorite": state.is_favorite if state else False,
+            "continue_dismissed": state.continue_dismissed if state else False,
         }
         new = dict(old)
         if change.played is True:
@@ -493,6 +495,10 @@ async def apply_state(
             new["last_played_at"] = max(when, new["last_played_at"] or when)
         if change.is_favorite is not None:
             new["is_favorite"] = change.is_favorite
+        # 只翻这一列：不当已看、不动 play_count / last_played_at（锚点与排序照旧），
+        # 首页按作品最近播放的那一行判定隐藏（playback_up_next）。
+        if change.dismiss_continue is not None:
+            new["continue_dismissed"] = change.dismiss_continue
         if new == old:
             versions.setdefault(unit, initial)
             outcomes.append(

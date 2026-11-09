@@ -77,3 +77,12 @@ class PlaybackState(MemberScopedMixin, TimestampMixin, table=True):
     last_played_at: datetime | None = Field(
         default=None, index=True, description="最近一次播放活动时间；NULL=从未播放"
     )
+    # 「接下来继续」里把这部作品拿掉（清理插件 / 用户「不再显示」）。只作用于首页那一行：
+    # 不是已看、不动 played / play_count / last_played_at / 播放日志。作品级判定在
+    # playback_up_next——这部作品最近播放的那一行带着它，整部作品就不出卡（不跳下一集）。
+    # 真正再播放（开始 / 进度 / 离线观看补传）时清回 False，卡片自然回来。
+    continue_dismissed: bool = Field(
+        default=False,
+        sa_column_kwargs={"server_default": "0"},
+        description="是否从「接下来继续」隐藏（作品级，按最近播放的那一行判定）",
+    )

@@ -53,6 +53,8 @@ class SyncUnit(BaseModel):
     is_favorite: bool
     updated_at: datetime | None
     last_played_at: datetime | None
+    # 这一行是否已从「接下来继续」隐藏（作品级判定看最近播放的那一行）；写回用 dismiss_continue。
+    continue_dismissed: bool
     watches: list[SyncWatch]
 
 
@@ -104,7 +106,7 @@ class SyncImportResult(BaseModel):
 
 
 class SyncChangeIn(BaseModel):
-    """一个单元的状态写回；played / position_ms / is_favorite 省略即不改。
+    """一个单元的状态写回；played / position_ms / is_favorite / dismiss_continue 省略即不改。
 
     单集 / 电影可写全部字段；剧集省略集号（整季）或季集都省略（整剧）时只能写收藏。
     """
@@ -121,6 +123,8 @@ class SyncChangeIn(BaseModel):
     played: bool | None = None
     position_ms: int | None = Field(default=None, ge=0)
     is_favorite: bool | None = None
+    # 从「接下来继续」隐藏 / 取消隐藏这一单元；不改已看、播放次数与最近播放时间。
+    dismiss_continue: bool | None = None
     last_played_at: datetime | None = None
 
     @field_validator("expected_updated_at", "last_played_at")
@@ -130,7 +134,12 @@ class SyncChangeIn(BaseModel):
 
     @model_validator(mode="after")
     def shape(self):
-        if self.played is None and self.position_ms is None and self.is_favorite is None:
+        if (
+            self.played is None
+            and self.position_ms is None
+            and self.is_favorite is None
+            and self.dismiss_continue is None
+        ):
             raise ValueError(t("errors.playbackSync.nothingToWrite"))
         if self.season is None and self.episode is not None:
             raise ValueError(t("errors.playbackSync.seasonRequired"))
@@ -140,7 +149,10 @@ class SyncChangeIn(BaseModel):
             raise ValueError(t("errors.playbackSync.episodeFromOne"))
         folder = self.kind == "tv" and self.episode is None
         if folder and (
-            self.played is not None or self.position_ms is not None or self.last_played_at
+            self.played is not None
+            or self.position_ms is not None
+            or self.dismiss_continue is not None
+            or self.last_played_at
         ):
             raise ValueError(t("errors.playbackSync.favoriteOnly"))
         if self.played and self.position_ms:

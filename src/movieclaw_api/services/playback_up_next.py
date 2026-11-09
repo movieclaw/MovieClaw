@@ -35,6 +35,12 @@ Jellyfin 只负责把播放事实写进 ``playback_state``；首页直接读领�
 标识）取：只认这台设备播过的作品、按它在这台设备上最近一次播放排序。展示
 单元与进度仍读 ``playback_state``——别的设备把这一集看完了，这里照样接下一集，
 进度是人的事实，不是设备的。媒体库首页那一行不传，照旧跨设备。
+
+**从这一行拿掉**（``continue_dismissed``）：清理插件 / 用户说「这部别再摆在这儿」。
+判定是**作品级**的：这部作品最近播放的那一行（与跨设备锚点同一排序）带着它，
+整部作品就不出卡——不当成已看、不往后跳下一集，按设备收窄时也一样（隐藏是人的
+意愿，不是设备的）。真正再播放会刷新那一行的 ``last_played_at`` 并清掉标记，
+卡片自然回来；只隐藏较旧那一集不影响以后从更近的一集起出卡。
 """
 
 from __future__ import annotations
@@ -255,6 +261,40 @@ async def _states(
     }
 
 
+async def _dismissed(session: AsyncSession, member_id: int, item_ids: list[int]) -> set[int]:
+    """这批作品里被从「接下来继续」拿掉的：最近播放的那一行带着 ``continue_dismissed``。
+
+    排序与 :func:`_anchors` 同口径（``last_played_at`` 倒序、id 倒序、排除哨兵行），
+    所以跨设备时它就是锚点那一行；按设备收窄时锚点来自播放日志，隐藏仍按人判定。
+    """
+    if not item_ids:
+        return set()
+    ranked = (
+        select(
+            PlaybackState.media_item_id.label("media_item_id"),  # type: ignore[attr-defined]
+            PlaybackState.continue_dismissed.label("dismissed"),
+            func.row_number()
+            .over(
+                partition_by=PlaybackState.media_item_id,
+                order_by=(PlaybackState.last_played_at.desc(), PlaybackState.id.desc()),
+            )
+            .label("item_rank"),
+        )
+        .where(
+            PlaybackState.member_id == member_id,
+            PlaybackState.media_item_id.in_(item_ids),  # type: ignore[attr-defined]
+            PlaybackState.last_played_at.is_not(None),  # type: ignore[union-attr]
+            PlaybackState.season_number >= 0,
+            PlaybackState.episode_number >= 0,
+        )
+        .subquery()
+    )
+    rows = await session.execute(
+        select(ranked.c.media_item_id).where(ranked.c.item_rank == 1, ranked.c.dismissed.is_(True))
+    )
+    return {int(item_id) for (item_id,) in rows.all()}
+
+
 def _unfinished(state: tuple[bool, int] | None) -> bool:
     """没看完，或看完后重看到一半（有续播点，已看标记保留）——都还能接着看。"""
     return state is None or not state[0] or state[1] > 0
@@ -291,9 +331,11 @@ async def up_next_items(
         item_ids = [a.media_item_id for a in batch]
         units_by_item = await _in_place_units(session, item_ids, visible_library_ids)
         states.update(await _states(session, member_id, item_ids))
+        dismissed = await _dismissed(session, member_id, item_ids)
         for anchor in batch:
             available = units_by_item.get(anchor.media_item_id)
-            if not available:
+            # 拿掉的是整部作品：不往后找下一集
+            if not available or anchor.media_item_id in dismissed:
                 continue
             pending = sorted(
                 unit
