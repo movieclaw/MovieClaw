@@ -21,6 +21,7 @@ import { ItemRouteParams } from './LibraryItemDetailPage';
 import { AppFooter } from '../common/AppFooter';
 import { LibraryHomePrefs } from './LibraryHomeStore';
 import { HomePrefsInput, LibraryHomePrefsHolder } from './LibraryCustomizeSheet';
+import { HomeRows } from './HomeRows';
 import { LibraryFilter } from './LibraryWall';
 import { LibraryFilterBar } from './LibraryFilterBar';
 import { SharePanel, shareMessage } from './ShareSheet';
@@ -648,17 +649,9 @@ export struct CollectionDetailPage {
       if (isThis) {
         found = true;
       }
-      const input: HomeRowPrefInput = {
-        id: row.id,
-        sort: row.sort ?? null,
-        order: row.order ?? null,
-        name: row.name ?? null,
-        unwatched: row.unwatched ?? null,
-        unfinished: row.unfinished ?? null,
-        hidden: isThis ? (wasOnHome ? true : null) : (row.hidden ?? null),
-        library_id: row.library_id ?? null,
-        collection_id: row.collection_id ?? null
-      };
+      // 逐字段拷贝（含 unfinished / media_kind）：漏一个字段，整份 PUT 会把那一项丢掉
+      const input: HomeRowPrefInput = HomeRows.prefInputOf(row);
+      input.hidden = isThis ? (wasOnHome ? true : null) : (row.hidden ?? null);
       next.push(input);
     }
     if (!found) {
@@ -668,9 +661,11 @@ export struct CollectionDetailPage {
         order: null,
         name: null,
         unwatched: null,
+        unfinished: null,
         hidden: null,
         library_id: null,
-        collection_id: view.id
+        collection_id: view.id,
+        media_kind: null
       };
       next.push(added);
     }

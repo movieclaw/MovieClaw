@@ -7,12 +7,14 @@ import {
   FavoritesView,
   HomeRowPref,
   LibraryItemView,
+  LibraryKindGenreView,
   LibraryView,
   UpNextItemView
 } from '../api/Models';
 import {
   CollectionRowKind,
   FavoritesKind,
+  GenresKind,
   HomeRow,
   HomeRows,
   LibrariesKind,
@@ -118,8 +120,9 @@ class HomePlan {
  * 媒体库首页的整页数据（对应 iOS 端 LibraryHomeStore，取数口径同 Web library-view.tsx）。
  *
  * 数据放在跟着账号走的共享对象里，页面只负责渲染：
- * - 刷新：库、接下来继续、收藏、各行条目按依赖并发取；
- * - 库状态、要取的行、合集都没变时不重拉各行条目（空闲时每 30 秒不必打 1+N 个请求）；
+ * - 刷新：库、接下来继续、收藏、各行条目、「按类型找」的类型分布按依赖并发取；
+ * - 库状态、要取的行、类型行的 kind、合集都没变时不重拉各行条目和类型分布
+ *   （空闲时每 30 秒不必打 1+N 个请求）；
  * - 瞬时失败不清已有数据，只置 failed 让页面挂提示条；一次都没成功过才整页报错；
  * - 有库在扫描 / 整理时 busyUntil 往后 12 秒，页面据此保持 3 秒快轮询（同 Web recentlyBusy）。
  * - 整页磁盘快照（cacheDir/library-home-cache.json）：冷启动先上屏缓存，网络完成后二次刷新；
@@ -134,6 +137,10 @@ export class LibraryHomeStore {
   upNext: UpNextItemView[] | null = null;
   favorites: FavoritesView | null = null;
   itemsByKey: Map<string, LibraryItemView[]> = new Map<string, LibraryItemView[]>();
+  /** 「按类型找」行各自的类型格子（按 kind 存，服务端按部数排好）。
+   *  跟各行条目共用同一道指纹闸（同 iOS）：库状态/行的构成变了才重取，
+   *  所以扫描结束、增删类型行后会自动刷新；不再出现「空库首取 [] 之后永远空」。 */
+  genresByKind: Record<string, LibraryKindGenreView[]> = {};
   /** 各行条目至少到过一次 */
   rowsLoaded: boolean = false;
   /** 最近一次刷新失败（页面据此挂提示条 / 整页报错） */
@@ -168,6 +175,7 @@ export class LibraryHomeStore {
     this.upNext = null;
     this.favorites = null;
     this.itemsByKey = new Map<string, LibraryItemView[]>();
+    this.genresByKind = {};
     this.rowsLoaded = false;
     this.failed = false;
     this.busyUntil = 0;
@@ -210,6 +218,8 @@ export class LibraryHomeStore {
         items.set(pair.key, pair.items as LibraryItemView[]);
       }
       this.itemsByKey = items;
+      const emptyGenres: Record<string, LibraryKindGenreView[]> = {};
+      this.genresByKind = raw.genresByKind ?? emptyGenres;
       this.rowsLoaded = raw.rowsLoaded === true;
       this.rowsFingerprint = raw.rowsFingerprint ?? null;
       this.busyUntil = 0;
@@ -244,6 +254,7 @@ export class LibraryHomeStore {
         upNext: this.upNext,
         favorites: this.favorites,
         itemsByKey: pairs,
+        genresByKind: this.genresByKind,
         rowsLoaded: this.rowsLoaded,
         rowsFingerprint: this.rowsFingerprint,
         rows: LibraryHomePrefs.shared.rows
@@ -321,20 +332,35 @@ export class LibraryHomeStore {
         this.busyUntil = Date.now() + 12000;
       }
 
-      // 各行条目：库状态、要取的行、合集都没变时跳过
+      // 各行条目与类型分布：库状态、要取的行、类型行的 kind、合集都没变时跳过
       const rowPrefs: HomeRowPref[] = prefs.rows ?? [];
       const visibleRows: HomeRow[] = HomeRows.build(rowPrefs, libs, cols)
         .filter((row: HomeRow): boolean => !row.hidden);
       const fetches: Map<string, () => Promise<LibraryItemView[]>> =
         LibraryHomeStore.rowFetches(visibleRows, libs, api);
-      const fingerprint: string = LibraryHomeStore.fingerprint(libs, fetches, cols);
+      const genreKinds: string[] = [];
+      for (const row of visibleRows) {
+        if (row.kind instanceof GenresKind) {
+          const kind: string = row.kind.kind;
+          if (!genreKinds.includes(kind)) {
+            genreKinds.push(kind);
+          }
+        }
+      }
+      const fingerprint: string = LibraryHomeStore.fingerprint(libs, fetches, cols, genreKinds);
       if (fingerprint !== this.rowsFingerprint) {
-        const next: Map<string, LibraryItemView[]> = await LibraryHomeStore.fetchRows(fetches);
+        // 行条目与类型分布一起取：同一道闸，要么都旧着、要么一起换新
+        const rowsTask: Promise<Map<string, LibraryItemView[]>> = LibraryHomeStore.fetchRows(fetches);
+        const genresTask: Promise<Record<string, LibraryKindGenreView[]>> =
+          LibraryHomeStore.fetchGenres(api, genreKinds);
+        const next: Map<string, LibraryItemView[]> = await rowsTask;
+        const nextGenres: Record<string, LibraryKindGenreView[]> = await genresTask;
         if (this.owner !== key) {
           return;
         }
         this.rowsFingerprint = fingerprint;
         this.itemsByKey = next;
+        this.genresByKind = nextGenres;
         this.rowsLoaded = true;
       }
 
@@ -369,7 +395,7 @@ export class LibraryHomeStore {
     }
   }
 
-  /** 一行取数的缓存键：同一个库同一种排序同一方向（同一个未看开关）只请求一次 */
+  /** 一行取数的缓存键：同一个库同一种排序同一方向（同一个未看/未看完开关）只请求一次 */
   static fetchKey(row: HomeRow): string {
     if (row.kind instanceof LibraryRowKind) {
       const kind = row.kind;
@@ -381,14 +407,14 @@ export class LibraryHomeStore {
     }
     if (row.kind instanceof MediaKindRowKind) {
       const kind = row.kind;
-      return `kind:${kind.kind}:${kind.sort}:${kind.reversed}:${kind.unwatched}`;
+      return `kind:${kind.kind}:${kind.sort}:${kind.reversed}:${kind.unwatched}:${kind.unfinished}`;
     }
     return row.id;
   }
 
-  /** 库卡片封面用的那批条目，与默认的「最近添加」行共用一份 */
+  /** 库卡片封面用的那批条目，与默认的「最近添加」行共用一份（不反转、不看过滤，同 fetchKey 形状） */
   static coverKey(libraryId: number): string {
-    return `lib:${libraryId}:added_at:false:false`;
+    return `lib:${libraryId}:added_at:false:false:false`;
   }
 
   private static plan(rowPrefs: HomeRowPref[]): HomePlan {
@@ -482,9 +508,9 @@ export class LibraryHomeStore {
     for (const row of rows) {
       if (row.kind instanceof LibraryRowKind) {
         const kind = row.kind;
-        // 「最近观看」行只要播过的（w=seen）
-        const watch: string | undefined =
-          kind.sort === 'last_played' ? 'seen' : (kind.unfinished ? 'unfinished' : kind.unwatched ? 'unwatched' : undefined);
+        // 「最近观看」行只要播过的（w=seen）；「只看没看完的」优先于「只看没看过的」（同 Web homeRowWatch）
+        const watch: string | undefined = kind.sort === 'last_played' ? 'seen'
+          : (kind.unfinished ? 'unfinished' : (kind.unwatched ? 'unwatched' : undefined));
         const order: string | undefined =
           HomeRows.preset(kind.sort).direction?.orderParam(kind.reversed) ?? undefined;
         const id: number = kind.library.id;
@@ -502,9 +528,9 @@ export class LibraryHomeStore {
           api.collectionItemsList(id, limit, undefined, sort, order));
       } else if (row.kind instanceof MediaKindRowKind) {
         const kind = row.kind;
-        // 「最近观看」行只要播过的（w=seen）
-        const watch: string | undefined =
-          kind.sort === 'last_played' ? 'seen' : (kind.unwatched ? 'unwatched' : undefined);
+        // 「最近观看」行只要播过的（w=seen）；「只看没看完的」优先于「只看没看过的」（同 Web homeRowWatch）
+        const watch: string | undefined = kind.sort === 'last_played' ? 'seen'
+          : (kind.unfinished ? 'unfinished' : (kind.unwatched ? 'unwatched' : undefined));
         const order: string | undefined =
           HomeRows.preset(kind.sort).direction?.orderParam(kind.reversed) ?? undefined;
         const mediaKind: string = kind.kind;
@@ -530,11 +556,29 @@ export class LibraryHomeStore {
     return fetches;
   }
 
-  /** 指纹：库状态、要取的行、合集，任一变化才重拉各行条目 */
+  /** 指纹：库状态、要取的行、类型行的 kind、合集，任一变化才重拉各行条目与类型分布 */
   private static fingerprint(libs: LibraryView[], fetches: Map<string, () => Promise<LibraryItemView[]>>,
-    cols: CollectionView[]): string {
+    cols: CollectionView[], genreKinds: string[]): string {
     const keys: string[] = Array.from(fetches.keys()).sort();
-    return `${JSON.stringify(libs)}#${keys.join(',')}#${JSON.stringify(cols)}`;
+    return `${JSON.stringify(libs)}#${keys.join(',')}#${genreKinds.join(',')}#${JSON.stringify(cols)}`;
+  }
+
+  /** 「按类型找」各 kind 的类型分布：并发取；单 kind 失败按空处理，随下一次指纹变化重试（同 iOS） */
+  private static async fetchGenres(api: MovieClawApi, kinds: string[]):
+  Promise<Record<string, LibraryKindGenreView[]>> {
+    const next: Record<string, LibraryKindGenreView[]> = {};
+    const tasks: Promise<void>[] = [];
+    for (const kind of kinds) {
+      tasks.push(api.uiLibraryKindGenres(kind)
+        .then((list: LibraryKindGenreView[]): void => {
+          next[kind] = list;
+        })
+        .catch((): void => {
+          next[kind] = [];
+        }));
+    }
+    await Promise.all(tasks);
+    return next;
   }
 }
 
@@ -553,6 +597,7 @@ interface LibraryHomeSnapshot {
   upNext: UpNextItemView[] | null;
   favorites: FavoritesView | null;
   itemsByKey: SnapshotPair[];
+  genresByKind: Record<string, LibraryKindGenreView[]> | null;
   rowsLoaded: boolean;
   rowsFingerprint: string | null;
   rows: HomeRowPref[] | null;

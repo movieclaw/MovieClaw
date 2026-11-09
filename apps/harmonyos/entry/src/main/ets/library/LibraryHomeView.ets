@@ -18,7 +18,8 @@ import {
   LibraryKindGenreView,
   LibraryView,
   PlaybackHistoryClearView,
-  UpNextItemView
+  UpNextItemView,
+  UpNextView
 } from '../api/Models';
 import { LibraryHomePrefs, LibraryHomeStore } from './LibraryHomeStore';
 import { LibraryCustomizeSheet } from './LibraryCustomizeSheet';
@@ -432,6 +433,8 @@ export struct LibraryHomeView {
   navStack: NavPathStack = new NavPathStack();
   /** 菜单里点「自定义首页」时宿主把它加一；这里接住并弹层 */
   @Prop @Watch('onCustomizeSignal') customizeSignal: number = 0;
+  /** 退回根页（宿主导航栏重新可见）时加一；接住后轻刷「接下来继续」——刚看完的那条立即上/下卡 */
+  @Prop @Watch('onHomeShown') homeShownSignal: number = 0;
   private permissions: Permissions = Permissions.none();
   /** 整页数据在跟着账号走的共享对象里；这里只持 @State 副本，reload 后整体重赋值 */
   @State private libraries: LibraryView[] | null = null;
@@ -441,7 +444,7 @@ export struct LibraryHomeView {
   @State private favoritesItems: PosterRowItem[] = [];
   @State private favoritesTotal: number = 0;
   @State private rowItems: Record<string, LibraryItemView[]> = {};
-  /** 「按类型找」行各自的类型格子（按 kind 存；服务端按部数排好） */
+  /** 「按类型找」行各自的类型格子（Store 里跟着行条目同一道闸刷新，这里只是渲染副本） */
   @State private genresByKind: Record<string, LibraryKindGenreView[]> = {};
   @State private rows: HomeRow[] = [];
   @State private failed: boolean = false;
@@ -453,8 +456,6 @@ export struct LibraryHomeView {
   @State private clearingBusy: boolean = false;
   /** 轮询定时器句柄；-1 = 没在轮询 */
   private pollTimer: number = -1;
-  /** 已取到类型分布的 kind（失败不记，下一轮轮询重试） */
-  private genreLoadedKinds: string[] = [];
   /** 竖向列表的滚动器（外层 Scroll 换成 List 后保留，口径不变） */
   /** 首页 List 的滚动器（宿主 bindToScrollable 要用同一个实例驱动标题栏显隐） */
   scroller: Scroller = new Scroller();
@@ -487,7 +488,6 @@ export struct LibraryHomeView {
     this.syncFromStore();
     await settled;
     this.syncFromStore();
-    this.loadGenres(api);
     this.scheduleNextPoll();
   }
 
@@ -514,51 +514,11 @@ export struct LibraryHomeView {
       record[key] = items;
     });
     this.rowItems = record;
+    this.genresByKind = store.genresByKind;
     this.rowSource.setRows(this.rows);
   }
 
   // MARK: 「按类型找」行
-
-  /** 「按类型找电影 / 剧集」行各自的类型格子（并发取，TV 端 loadGenres 同款） */
-  private loadGenres(api: MovieClawApi): void {
-    const kinds: string[] = [];
-    for (const row of this.rows) {
-      if (row.kind instanceof GenresKind) {
-        const kind: string = row.kind.kind;
-        if (!kinds.includes(kind)) {
-          kinds.push(kind);
-        }
-      }
-    }
-    for (const kind of kinds) {
-      // 已取到的不重复取；失败的回滚记账，下一轮轮询再试
-      if (this.genreLoadedKinds.includes(kind)) {
-        continue;
-      }
-      this.genreLoadedKinds.push(kind);
-      api.uiLibraryKindGenres(kind)
-        .then((list: LibraryKindGenreView[]): void => {
-          this.mergeGenres(kind, list);
-        })
-        .catch((): void => {
-          const at: number = this.genreLoadedKinds.indexOf(kind);
-          if (at >= 0) {
-            this.genreLoadedKinds.splice(at, 1);
-          }
-        });
-    }
-  }
-
-  /** 某个 kind 取到类型分布：并进 @State 副本（整体重赋值触发刷新） */
-  private mergeGenres(kind: string, list: LibraryKindGenreView[]): void {
-    const record: Record<string, LibraryKindGenreView[]> = {};
-    const keys: string[] = Object.keys(this.genresByKind);
-    for (const key of keys) {
-      record[key] = this.genresByKind[key];
-    }
-    record[kind] = list;
-    this.genresByKind = record;
-  }
 
   /** 这一行要显示的类型格（服务端按部数排好；TMDB id 解析不出的不显示，同 iOS Int(genre.value)） */
   private genreTiles(kind: string): LibraryKindGenreView[] {
@@ -640,6 +600,28 @@ export struct LibraryHomeView {
       this.sheetKind = 'customize';
       this.showSheet = true;
     }
+  }
+
+  /** 退回根页：只重取「接下来继续」，整页数据仍交给轮询的 reload */
+  onHomeShown(): void {
+    if (this.homeShownSignal > 0) {
+      this.refreshUpNext();
+    }
+  }
+
+  /** 轻刷「接下来继续」：播放器退回首页后，看完的那条进度立即更新（HeroBanner 卡片），不用等 30 秒轮询 */
+  private refreshUpNext(): void {
+    const api: MovieClawApi | null = AppModel.shared.api;
+    if (api === null) {
+      return;
+    }
+    api.playbackUpNext(LibraryHomeStore.rowCount)
+      .then((view: UpNextView): void => {
+        LibraryHomeStore.shared.upNext = view.items;
+        this.upNext = view.items;
+      })
+      .catch((): void => {
+      });
   }
 
   /** 唯一的弹层内容：按 sheetKind 切换 */
