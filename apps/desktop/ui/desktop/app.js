@@ -978,7 +978,7 @@ const App = {
         await this.renderHome(content, generation);
         break;
       case 'library':
-        await this.renderLibrary(content, params.libraryId, generation);
+        await this.renderLibrary(content, params.libraryId, generation, params.actor);
         break;
       case 'collection':
         await this.renderCollection(content, params.collectionId, generation);
@@ -1160,18 +1160,24 @@ const App = {
   },
 
   // ===== 媒体库 / 合集 / 收藏 / 搜索：共享按需分页 =====
-  async renderLibrary(container, libraryId, generation = this.viewGeneration) {
+  // actor：详情页点没有 TMDB 影人 id 的演员带进来，按演员名（整名）筛同库海报墙
+  async renderLibrary(container, libraryId, generation = this.viewGeneration, actor) {
     const api = this.pageAPI || API;
     const lib = this.libraries.find(l => Number(l.id) === Number(libraryId));
     const prefs = this.wallPreferences('library-' + libraryId);
-    await this.renderPagedWall(container, {
+    actor = actor?.trim() || '';
+    const rendered = this.renderPagedWall(container, {
       title: lib?.name || '媒体库', libraryId, generation, prefs,
       preferenceId: 'library-' + libraryId, unwatched: true,
+      header: actor ? `<div id="libraryFilters"><div class="person-filter">正在看 ${escapeHtml(actor)} 的作品 <button class="text-button" id="clearActorFilter">返回全部作品</button></div></div>` : '',
       fetchPage: async page => this.offsetPage(await api.listLibraryItems(libraryId, {
         offset: page.offset, limit: page.limit, sort: prefs.sort, order: prefs.order,
-        ...(prefs.unwatched ? { w: 'unwatched' } : {}),
-      }), page.limit, prefs.unwatched ? undefined : lib?.stats?.item_count),
+        ...(prefs.unwatched ? { w: 'unwatched' } : {}), ...(actor ? { actor } : {}),
+      }), page.limit, prefs.unwatched || actor ? undefined : lib?.stats?.item_count),
     });
+    // 清掉演员条件：原地换成整库海报墙，不多压一层返回。墙骨架同步写好，首页还在加载时就能点
+    container.querySelector?.('#clearActorFilter')?.addEventListener('click', () => this.navigate('library', { libraryId }, false));
+    await rendered;
   },
 
   async renderCollection(container, collectionId, generation = this.viewGeneration) {
@@ -1921,10 +1927,11 @@ const App = {
           if (id) this.navigate('collection', { collectionId: id });
         });
       });
-      container.querySelectorAll('.person-card[data-person-id]').forEach(card => {
+      container.querySelectorAll('.person-card[data-person-id], .person-card[data-actor-name]').forEach(card => {
         card.addEventListener('click', () => {
           const pid = card.dataset.personId;
           if (pid) this.navigate('person', { personId: pid, fromItem: mediaId });
+          else if (card.dataset.actorName) this.navigate('library', { libraryId: params.libraryId, actor: card.dataset.actorName });
         });
         card.addEventListener('keydown', event => {
           if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); card.click(); }
@@ -2083,6 +2090,7 @@ const App = {
       role: (a.role || '').trim() ? `饰 ${a.role}` : '',
       avatar: a.thumb_url,
       personId: a.tmdb_person_id,
+      actor: true,
     }));
     return people;
   },
@@ -2161,10 +2169,13 @@ const App = {
     `;
   },
 
-  // 演职员一格（同 Mac MacPersonCard）：圆头像 + 姓名 + 身份；有 TMDB 影人 id 的点进人物页
+  // 演职员一格（同 Mac MacPersonCard）：圆头像 + 姓名 + 身份；有 TMDB 影人 id 的点进人物页；
+  // 没有 id 的演员（本地/NFO 库）点进同库按演员名筛的海报墙。导演不给：后端只按演员表筛
   personCardHtml(p) {
+    const actorName = !p.personId && p.actor ? (p.name || '').trim() : '';
     return `
-      <div class="person-card" ${p.personId ? `data-person-id="${Number(p.personId)}" role="button" tabindex="0" aria-label="${escapeHtml(p.name)} ${escapeHtml(p.role)}"` : ''}>
+      <div class="person-card" ${p.personId ? `data-person-id="${Number(p.personId)}" role="button" tabindex="0" aria-label="${escapeHtml(p.name)} ${escapeHtml(p.role)}"`
+        : actorName ? `data-actor-name="${escapeHtml(actorName)}" role="button" tabindex="0" aria-label="在本库查看 ${escapeHtml(actorName)} 的作品"` : ''}>
         ${p.avatar
           ? `<img class="person-card-avatar" src="${escapeHtml(resolveUrl(p.avatar))}" alt="" data-raw="${escapeHtml(p.avatar)}">`
           : `<div class="person-card-avatar person-card-avatar-placeholder" aria-hidden="true">${escapeHtml((p.name || '?').slice(0, 1))}</div>`}

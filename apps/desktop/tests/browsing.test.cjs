@@ -593,3 +593,39 @@ test('an old native status cannot overwrite metadata after its server or account
   stale.resolve({mode:'cookie',session:{username:'old'},accounts:[]});
   assert.equal(await old,null); assert.equal(h.API.nativeAuthStatus.session.username,'new');
 });
+
+test('local actors without a TMDB id link to the same library filtered by name; directors stay static', async () => {
+  const h = harness(() => ({ data: [] }));
+  const cast = h.A.castPeople({ directors: ['导演甲'], actors: [
+    { name: ' 本地演员 ', role: '角色' }, { name: 'TMDB 演员', tmdb_person_id: 9 }, { name: '  ' },
+  ] });
+  const [director, local, tmdb, blank] = cast.map(p => h.A.personCardHtml(p));
+  assert.doesNotMatch(director, /data-actor-name|data-person-id|role="button"/);
+  assert.match(local, /data-actor-name="本地演员" role="button" tabindex="0" aria-label="在本库查看 本地演员 的作品"/);
+  assert.match(tmdb, /data-person-id="9"/); assert.doesNotMatch(tmdb, /data-actor-name/);
+  assert.doesNotMatch(blank, /role="button"/);
+
+  // 墙的每一页请求都带 actor；不再拿整库 item_count 当总数
+  h.A.libraries = [{ id: 9, name: '电影库', stats: { item_count: 500 } }];
+  const container = h.element(); let clear, config;
+  container.querySelector = selector => selector === '#clearActorFilter' ? (clear = h.element()) : null;
+  h.A.renderPagedWall = async (_, value) => { config = value; };
+  await h.A.renderLibrary(container, 9, undefined, ' 本地演员 ');
+  assert.match(config.header, /正在看 本地演员 的作品/);
+  const first = await config.fetchPage({ offset: 0, limit: 60 });
+  await config.fetchPage({ offset: 60, limit: 60 });
+  const paths = h.calls.filter(c => c.command === 'proxy_api').map(c => new URLSearchParams(c.path.split('?')[1]));
+  assert.deepEqual(paths.map(p => p.get('actor')), ['本地演员', '本地演员']);
+  assert.equal(paths[1].get('offset'), '60'); assert.equal(first.total, undefined);
+
+  // 清掉条件：原地换回整库墙，不压返回栈
+  const navigations = [];
+  h.A.navigate = async (...args) => navigations.push(args);
+  await clear.emit('click');
+  assert.deepEqual(JSON.parse(JSON.stringify(navigations)), [['library', { libraryId: 9 }, false]]);
+  await h.A.renderLibrary(h.element(), 9);
+  assert.equal(config.header, '');
+  await config.fetchPage({ offset: 0, limit: 60 });
+  const plain = new URLSearchParams(h.calls.filter(c => c.command === 'proxy_api').at(-1).path.split('?')[1]);
+  assert.equal(plain.has('actor'), false);
+});
