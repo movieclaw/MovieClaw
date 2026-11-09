@@ -440,3 +440,34 @@ test('fixture state inspection survives one connection reset', async ({ page, re
   await openDesktop(page, request, { stateReadResets: 1 });
   expect((await state(request)).stateReadResets).toBe(0);
 });
+
+test('a local actor without a TMDB id opens the same library filtered by name and the filter can be cleared', async ({ page, request }) => {
+  await openDesktop(page, request, { localCast: true });
+  await browseLibrary(page);
+  await page.locator('#posterGrid .poster-card[data-item-id="3"]').click();
+  await expect(page.locator('.person-card[data-person-id="9"]')).toBeVisible();
+  const director = page.locator('.person-card', { hasText: '本地导演' });
+  await expect(director).not.toHaveAttribute('role', 'button');
+  const actor = page.locator('.person-card[data-actor-name="本地演员"]');
+  await expect(actor).toHaveAttribute('aria-label', '在本库查看 本地演员 的作品');
+  if (process.env.SCREENSHOT_DIR) await page.locator('.cast-row').screenshot({ path: `${process.env.SCREENSHOT_DIR}/desktop-detail-cast-row.png` });
+  await actor.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.person-filter')).toContainText('正在看 本地演员 的作品');
+  await expect(page.locator('#posterGrid .poster-card')).toHaveCount(2);
+  const actorRequests = (await state(request)).requests.filter(r => r.path === '/libraries/1/items' && r.query.actor);
+  expect(actorRequests.map(r => r.query.actor)).toEqual(['本地演员']);
+  if (process.env.SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/desktop-library-actor-filter.png` });
+  // 返回仍回到详情；再进来清掉条件，回到整库墙
+  await page.locator('#wallBack').click();
+  await expect(page.locator('.person-card[data-actor-name="本地演员"]')).toBeVisible();
+  await page.locator('.person-card[data-actor-name="本地演员"]').click();
+  await page.locator('#clearActorFilter').click();
+  await expect(page.locator('.person-filter')).toHaveCount(0);
+  await expect(page.locator('#posterGrid .poster-card')).toHaveCount(60);
+  const last = (await state(request)).requests.filter(r => r.path === '/libraries/1/items').at(-1);
+  expect(last.query.actor).toBeUndefined();
+  // 侧栏重新打开这个库不带演员条件
+  await page.locator('#libraryNav [data-library-id="1"]').click();
+  await expect(page.locator('.person-filter')).toHaveCount(0);
+});

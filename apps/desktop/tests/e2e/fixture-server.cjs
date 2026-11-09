@@ -233,7 +233,9 @@ http.createServer(async (req, res) => {
       const offset = Number(url.searchParams.get('offset') || 0);
       const limit = Number(url.searchParams.get('limit') || 20);
       if (limit > 200) return json(res, { message: 'limit must be <=200' }, 422);
-      const total = state.itemCount || 245;
+      // 按演员名筛（同服务端：去首尾空白、整名相等）：本地演员只演了两部
+      const actor = url.searchParams.get('actor')?.trim();
+      const total = actor != null ? (actor === '本地演员' ? 2 : 0) : state.itemCount || 245;
       const reversed = url.searchParams.get('sort') === 'title' && url.searchParams.get('order') === 'desc';
       const page = Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, i) => item(reversed ? total - offset - i : offset + i + 1));
       return json(res, ok(route.startsWith('/libraries/') ? page : { items: page, total }));
@@ -257,7 +259,7 @@ http.createServer(async (req, res) => {
     if (route === '/playback/resume') return json(res, ok({ season_number: 3, episode_number: 2, position_ms: 300000, duration_ms: 3600000 }));
     if (/^\/libraries\/1\/items\/\d+$/.test(route)) {
       const n = Number(route.split('/').pop());
-      return json(res, ok({ ...item(n), files: state.mediaFiles?.[n] || [file(n)], local_meta: { plot: '测试简介', genres: [], runtime_minutes: 60, actors: [{ name: '测试演员', tmdb_person_id: 9, thumb_url: state.images ? '/fixture-images/good.png' : null }] }, collections: [] }));
+      return json(res, ok({ ...item(n), files: state.mediaFiles?.[n] || [file(n)], local_meta: { plot: '测试简介', genres: [], runtime_minutes: 60, ...(state.localCast ? { directors: ['本地导演'] } : {}), actors: [{ name: '测试演员', tmdb_person_id: 9, thumb_url: state.images ? '/fixture-images/good.png' : null }, ...(state.localCast ? [{ name: '本地演员', role: '配角' }] : [])] }, collections: [] }));
     }
     if (route.endsWith('/episodes')) {
       const season = Number(url.searchParams.get('season_number') || 3);
