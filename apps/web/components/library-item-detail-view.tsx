@@ -39,6 +39,7 @@ import {
 } from "@/components/icons";
 import { useConfirm, useToast } from "@/components/feedback";
 import { Modal } from "@/components/modal";
+import { DetailAirStatusLabel } from "@/components/poster-badges";
 import { PosterImage } from "@/components/poster-image";
 import {
   markPlayIntent,
@@ -857,10 +858,13 @@ export function LibraryItemDetailView({
                 onError={() => setFailedLogo(detail.logo_url)}
                 className="max-h-full max-w-[420px] object-contain object-left-bottom drop-shadow-[0_4px_14px_rgba(0,0,0,0.45)] max-md:max-w-[260px]"
               />
+              {/* 剧集播出状态（海报角标里打开了「完结 / 更新中」才标） */}
+              <DetailAirStatusLabel kind={detail.kind} airStatus={detail.air_status} />
             </h1>
           ) : (
             <h1 className="text-on-image break-words text-[42px] font-bold leading-[1.1] tracking-[-0.02em] text-white max-md:text-[28px]">
               {detail.title}
+              <DetailAirStatusLabel kind={detail.kind} airStatus={detail.air_status} />
             </h1>
           )}
           {!isMovie && selectedSeriesEpisode && (

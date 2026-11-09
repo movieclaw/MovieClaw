@@ -2,6 +2,11 @@ import type { AppLocale, LanguagePreference } from "@/lib/i18n/negotiate";
 
 import { request } from "@/lib/http";
 import type { HomeUiPrefs } from "@/lib/home-rows";
+import {
+  DEFAULT_POSTER_BADGES,
+  normalizePosterBadges,
+  type PosterBadgePrefs,
+} from "@/lib/poster-badges";
 import type { PluginApp } from "@/lib/plugin-apps";
 import type { CatalogTheme } from "@/lib/theme-catalog";
 import { isValidThemeId, normalizeThemeId } from "@/lib/themes";
@@ -70,6 +75,8 @@ export interface UiPreferences {
   nav: NavUiPrefs;
   /** 媒体库首页的行清单。合并规则与"为什么空清单即默认"见 lib/home-rows.ts */
   home: HomeUiPrefs;
+  /** 媒体库海报墙的角标开关（默认全关），见 lib/poster-badges.ts */
+  poster_badges: PosterBadgePrefs;
 }
 
 /** 各页面的默认样式（与后端模型默认值一致），拉取失败时前端以此兜底；
@@ -88,6 +95,8 @@ export const DEFAULT_UI_PREFS: UiPreferences = {
   nav: { order: [] },
   // 空清单 = 出厂布局（接下来继续 → 我的收藏 → 我的媒体库 → 每库一行最近添加）
   home: { rows: [] },
+  // 海报角标默认全关：改版前的库存墙只有收藏的心
+  poster_badges: DEFAULT_POSTER_BADGES,
 };
 
 /** 按端主题覆盖的归一化：合法 id 原样保留；垃圾值 / 老后端缺项一律视为
@@ -118,6 +127,7 @@ export function normalizeUiPreferences(
       hidden: Array.isArray(data?.nav?.hidden) ? data.nav.hidden : null,
     },
     home: { rows: Array.isArray(data?.home?.rows) ? data.home.rows : [] },
+    poster_badges: normalizePosterBadges(data?.poster_badges),
   };
 }
 

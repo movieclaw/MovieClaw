@@ -16,9 +16,15 @@ import {
   PlusIcon,
   StarIcon,
 } from "@/components/icons";
+import {
+  PosterBadgeOverlay,
+  usePosterBadgeDescriptions,
+  usePosterBadges,
+} from "@/components/poster-badges";
 import { PosterImage } from "@/components/poster-image";
 import { useSubscribeEntry } from "@/components/subscribe-entry";
 import { useMediaDetail } from "@/lib/media-detail";
+import type { PosterBadgeSet, PosterBadgeSource } from "@/lib/poster-badges";
 import type {
   MediaItem,
   MediaLibraryStatus,
@@ -133,6 +139,9 @@ export interface PosterVisualItem {
   overlayDetails?: MediaOverlayDetails;
   overview?: string;
   libraryStatus?: MediaLibraryStatus | null;
+  /** 库存条目的角标数据（评分 / 规格 / 播出 / 观看状态）；画哪些由用户的
+   *  海报角标偏好决定（components/poster-badges.tsx）。发现页条目不带。 */
+  libraryBadges?: PosterBadgeSource;
 }
 
 /**
@@ -223,6 +232,8 @@ export function PosterCardVisual({
   // 点卡片外任意处收起。之前的方案是在海报角上常驻一枚订阅圆键，但图标
   // 无文案表意不清，且张张海报都印着按钮、墙面很吵。
   const noHover = useMediaQuery("(hover: none)");
+  const badgeSet = usePosterBadges(item.libraryBadges);
+  const badgeDescriptions = usePosterBadgeDescriptions(badgeSet);
   const [revealed, setRevealed] = useState(false);
   const rootRef = useRef<HTMLElement | null>(null);
 
@@ -264,6 +275,7 @@ export function PosterCardVisual({
       action={action}
       showOverlay={showOverlay}
       showOverlayAction={showOverlayAction}
+      badgeSet={badgeSet}
     />
   );
   const interactiveClass =
@@ -283,6 +295,7 @@ export function PosterCardVisual({
       item.overlayDetails?.secondary,
       item.genres && formatList(item.genres, locale, { type: "unit", style: "short" }),
       item.overlayMeta,
+      ...badgeDescriptions,
     ].filter(Boolean);
     return (
       <Link
@@ -318,11 +331,14 @@ function PosterCardContent({
   action = "subscribe",
   showOverlay,
   showOverlayAction,
+  badgeSet,
 }: {
   item: PosterVisualItem;
   action?: PosterCardAction;
   showOverlay: boolean;
   showOverlayAction: boolean;
+  /** 库存条目开着的海报角标；null = 一枚都不亮，按原样渲染 */
+  badgeSet: PosterBadgeSet | null;
 }) {
   const t = useTranslations();
   const badges = item.badges ?? [];
@@ -431,7 +447,15 @@ function PosterCardContent({
         {/* 右上角状态位：收藏的心 + 评分徽章（评分为 0 不渲染，避免展示 0.0）。
             两者排一行，谁都没有就不占位——库存墙不给评分、只可能有心，发现页
             只可能有评分，订阅墙两者都没有（右上角让给上面的洗版徽标） */}
-        {(item.favorite || item.rating > 0) && (
+        {/* 开着海报角标时，收藏的心并进角标层右上那一排（见 PosterBadgeOverlay） */}
+        {badgeSet && (
+          <PosterBadgeOverlay
+            set={badgeSet}
+            favorite={Boolean(item.favorite)}
+            yieldBottom={showOverlay}
+          />
+        )}
+        {!badgeSet && (item.favorite || item.rating > 0) && (
           <div
             className={`absolute right-2 flex items-center gap-1 ${ribbon && !ribbon.compactLeft ? "top-12" : "top-2"}`}
           >

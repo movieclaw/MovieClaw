@@ -4951,5 +4951,80 @@
   },
   "watchFilter.empty": {
     "sourceHash": "b159dae8954467e1a1d576c11aff638ae9798c7c4bed729b2b2a102024a2b8e3"
+  },
+  "posterBadges.title": {
+    "sourceHash": "a3a8680803e4d6abe7b4119fe9015cae2e01e80e56915b51ac4315a4e3f31bd0"
+  },
+  "posterBadges.hint": {
+    "sourceHash": "2695942778acfea0505981af66070daa034b5ff8e1b16e03ae7e33c3b985594a"
+  },
+  "posterBadges.toggleRating": {
+    "sourceHash": "96fff2e26c8d1027df97d60d71f6002bfe509c7adced87a38d2fb92f7700e06c"
+  },
+  "posterBadges.toggleYear": {
+    "sourceHash": "bff0b9e4a39310eeb470b8608699c89597b052cb817f5286d1b065480572812b"
+  },
+  "posterBadges.toggleResolution": {
+    "sourceHash": "9897bfaa7afc337b280633c68e50e13c46e24881f18bfc7a05d9def2635379a8"
+  },
+  "posterBadges.toggleFormat": {
+    "sourceHash": "96d218cd4fbb80fe328f4cc1b1f5f3cda9c8ea07dc43acb4513d7f82914c663d"
+  },
+  "posterBadges.toggleEnded": {
+    "sourceHash": "c3ae3b8a2eef9f9d2048091854e11b2ec74bb03429e703c8c118ee880171bbde"
+  },
+  "posterBadges.toggleAiring": {
+    "sourceHash": "9c8054356548bef2c8068c6611b204b17d9c77d0d98fb5511c89a5cac4ddc8e4"
+  },
+  "posterBadges.toggleChineseSubtitle": {
+    "sourceHash": "f807f714d4f94195157f01d71b78f07f38d2f5c54f7cc01436769f1baf6c0d0d"
+  },
+  "posterBadges.toggleUnwatched": {
+    "sourceHash": "b6010f2fbf236a1c11087330d85790f724344f1c729991b10d3a02424485e42e"
+  },
+  "posterBadges.toggleProgress": {
+    "sourceHash": "a67af13227e7252c52da594d12365db243117a9ca80359ba75bf0765cb80ca1d"
+  },
+  "posterBadges.displayMode": {
+    "sourceHash": "a2baaaef2f1464854c5996bd4ed840aa28d6d13dc8690c40efc0f6776459decf"
+  },
+  "posterBadges.modeAlways": {
+    "sourceHash": "b46fd59d9a84bc9dca9e12408431fa15f502dfd114480006feb743798dc6d672"
+  },
+  "posterBadges.modeHover": {
+    "sourceHash": "14a5e44c26c76658ea8d9a3ef29c3266545fc0958152fd6b8b8d192ade1ff493"
+  },
+  "posterBadges.minRating": {
+    "sourceHash": "dc68726b06c2c1b8b9807fba1d711461060b225282b182bddaf9ca5dfd3d2d34"
+  },
+  "posterBadges.minRatingHint": {
+    "sourceHash": "36c785c3bcc4ad0887f8e2825037487d99b378bb16c96e0a0a5e7a2c3a1c4303"
+  },
+  "posterBadges.minRatingAny": {
+    "sourceHash": "f203d577d14268cd853ce37418cb14f8e268c2bce88220ae131c761e2255954a"
+  },
+  "posterBadges.ended": {
+    "sourceHash": "be41eb1c65fb2b863e81de45daf355116dad2f27134916a81960cfb8c141b2e2"
+  },
+  "posterBadges.airing": {
+    "sourceHash": "aa06c367f0d85408e85702f722c39e719bf872bdc83dada6444eb5efb19514e9"
+  },
+  "posterBadges.chineseSubtitleMark": {
+    "sourceHash": "a567bdaa11367f260f0708391f4d10766b5962f565d9e432f17981a3584fe1e2"
+  },
+  "posterBadges.chineseSubtitle": {
+    "sourceHash": "6c692b76c9a2c4cc48f6d1e24f2e8e04d81f5c3e6fbc1697846a271c6ad7d86b"
+  },
+  "posterBadges.unwatched": {
+    "sourceHash": "fe4d4515b2f4e07fc39a9f6d9d416ff1d355da1919e019f93428c1832edc3989"
+  },
+  "posterBadges.progress": {
+    "sourceHash": "f8472f6b4ca079be921aadc075d06c9cf3f0a424befd16332918faf07ca1cec5"
+  },
+  "posterBadges.rating": {
+    "sourceHash": "63a32a0a4dd37087214b2f8129b1e8cbcd8c57fd30193958f954cf652f831931"
+  },
+  "posterBadges.detailStatus": {
+    "sourceHash": "ecb3d15eea46c755715713797029961165904e9351f0df63fb757c5b7f77857f"
   }
 }

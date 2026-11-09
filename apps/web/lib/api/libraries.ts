@@ -394,6 +394,17 @@ export interface LibraryItem {
   } | null;
   /** 在位但尚未探出介质规格的文件数——扫描补探阶段据此把「还在处理」的条目排到墙前面 */
   probe_pending_count: number;
+  // —— 海报角标（lib/poster-badges.ts）的数据，随墙批量返回；老服务端没有这些字段 ——
+  /** 在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；SDR 为 null */
+  dynamic_range?: string | null;
+  /** 有在位文件带杜比全景声音轨 */
+  has_atmos?: boolean;
+  /** 有中文字幕（内封或外挂；剧集任一集有即算） */
+  has_chinese_subtitle?: boolean;
+  /** 当前观看者最近一次看到一半的进度（1~99）；没在看为 null */
+  progress_percent?: number | null;
+  /** 剧集：本墙在位集里当前观看者还没看完的集数；电影为 null */
+  unplayed_count?: number | null;
 }
 
 /** 收敛器判不了时留下的一个候选（点一下即可认领）。 */
@@ -1697,6 +1708,8 @@ export interface LibraryItemDetail {
    * 只给名字和落点——封面是从成员海报里借的，在这部片的页面上摆它自己的海报没有意义。
    */
   collections: { id: number; name: string }[];
+  /** 剧集播出状态（同海报墙）；电影或状态未知为 null，老服务端没有该字段 */
+  air_status?: "airing" | "ended" | null;
 }
 
 /** 剧集分集区的一集（季集结构 + 本地分集刮削 + TMDB 兜底的合并结果）。 */

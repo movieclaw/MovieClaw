@@ -915,6 +915,8 @@ export function libraryItemToMediaItem(item: LibraryItem, locale?: AppLocale): M
     // 不取原图：宽度由 PosterCard 按格子尺寸生成 srcset 再带上（服务端宽度阶梯），
     // 一屏 60 格直出原图要几十 MB
     posterUrl: imageUrl(item.poster_url),
+    // 首页库行与海报墙同一套角标（用户在「自定义首页」里打开，默认全关）
+    libraryBadges: item,
   };
 }
 

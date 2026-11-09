@@ -159,6 +159,8 @@ export const InventoryCell = memo(function InventoryCell({
     overlayMeta: showRating ? undefined : (ratingText ?? undefined),
     extent: showRating ? (ratingText ?? undefined) : undefined,
     favorite: item.is_favorite,
+    // 海报角标：画哪些由用户偏好决定（默认全关），数据就是这一格本身
+    libraryBadges: item,
     // 海报可能是本地刮削资产的相对路径（断网可用），也可能是 TMDB 图床地址。
     // 这里只解析地址，宽度由 PosterCard 按格子尺寸生成 srcset 再带上：海报墙是
     // 全站最大的一张图片网格，直出原图（TMDB original 可达 2000×3000）不可接受
