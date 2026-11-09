@@ -3,6 +3,9 @@ import { Theme } from '../theme/AppTheme';
 import { AppNavBar, AppNavTitleBar } from '../common/AppNavBar';
 import { NavStacks, ShareRouter } from '../common/ShareLinks';
 import { SharePageParams } from '../share/SharePage';
+import { AppModel } from '../common/AppModel';
+import { Permissions } from '../common/Permissions';
+import { SearchAccess } from '../search/SearchAccess';
 import { SubscriptionsPage } from './SubscriptionsPage';
 import { SearchMode } from '../search/SearchResultsPage';
 import { SearchLaunchParams } from '../search/SearchPage';
@@ -26,6 +29,8 @@ export struct SubscriptionsNavHost {
   private navStack: NavPathStack = new NavPathStack();
   /** 订阅首页内容滚动器：标题栏的渐变模糊 / 滑动显隐靠它驱动（文档 bindToScrollable） */
   private scroller: Scroller = new Scroller();
+  /** 搜索入口门控（iOS `canOpenSearch`）：没有任一可用分区的账号不画放大镜；默认放行，解析后收 */
+  @State private searchGate: boolean = true;
 
   aboutToAppear(): void {
     // 登记本页签的栈；顺带消费冷启动时积压的分享深链（首个建起来的页签接走）
@@ -34,6 +39,15 @@ export struct SubscriptionsNavHost {
     if (slug.length > 0) {
       this.navStack.pushPathByName('sharePage', new SharePageParams(slug));
     }
+    this.refreshSearchGate();
+  }
+
+  /** 解析搜索入口门控（同 iOS MainTabView 顶栏放大镜的显隐口径） */
+  private refreshSearchGate(): void {
+    const permissions: Permissions = Permissions.fromSession(AppModel.shared.session);
+    SearchAccess.openSearchGate(AppModel.shared.api, permissions)
+      .then((open: boolean): void => { this.searchGate = open; })
+      .catch((): void => { });
   }
 
   build() {
@@ -77,13 +91,15 @@ export struct SubscriptionsNavHost {
   /** 右上角搜索（对齐 iOS 订阅页顶栏的放大镜，预选影视分区，压栈搜索首页） */
   @Builder
   SearchButton() {
-    SymbolGlyph($r('sys.symbol.magnifyingglass'))
-      .fontSize(22)
-      .fontColor([Theme.textMuted])
-      .width(36)
-      .height(36)
-      .onClick(() => {
-        this.navStack.pushPathByName('search', new SearchLaunchParams(SearchMode.media));
-      })
+    if (this.searchGate) {
+      SymbolGlyph($r('sys.symbol.magnifyingglass'))
+        .fontSize(22)
+        .fontColor([Theme.textMuted])
+        .width(36)
+        .height(36)
+        .onClick(() => {
+          this.navStack.pushPathByName('search', new SearchLaunchParams(SearchMode.media));
+        })
+    }
   }
 }

@@ -6,6 +6,7 @@ import { Permissions } from '../common/Permissions';
 import { AppModel } from '../common/AppModel';
 import { NavStacks, ShareRouter } from '../common/ShareLinks';
 import { SharePageParams } from '../share/SharePage';
+import { SearchAccess } from '../search/SearchAccess';
 import { LibraryHomeView } from './LibraryHomeView';
 import { ReelsParams } from '../reels/ReelsPage';
 import { ManageParams } from './LibraryManagePage';
@@ -35,6 +36,10 @@ export struct LibraryNavHost {
   private scroller: Scroller = new Scroller();
   /** 每次「自定义首页」加一；LibraryHomeView 用 @Watch 接住（菜单与弹层不在同一层） */
   @State private customizeSignal: number = 0;
+  /** 退回根页（子页/播放器 pop 回来，导航栏重新可见）时加一；LibraryHomeView 接住轻刷「接下来继续」 */
+  @State private homeShownSignal: number = 0;
+  /** 搜索入口门控（iOS `canOpenSearch`）：没有任一可用分区的账号不画放大镜；默认放行，解析后收 */
+  @State private searchGate: boolean = true;
 
   aboutToAppear(): void {
     // 把本页签的栈登记进注册表（深链访客页要推到当前页签的栈上）
@@ -44,6 +49,15 @@ export struct LibraryNavHost {
     if (slug.length > 0) {
       this.navStack.pushPathByName('sharePage', new SharePageParams(slug));
     }
+    this.refreshSearchGate();
+  }
+
+  /** 解析搜索入口门控（同 iOS MainTabView 顶栏放大镜的显隐口径） */
+  private refreshSearchGate(): void {
+    const permissions: Permissions = Permissions.fromSession(AppModel.shared.session);
+    SearchAccess.openSearchGate(AppModel.shared.api, permissions)
+      .then((open: boolean): void => { this.searchGate = open; })
+      .catch((): void => { });
   }
 
   build() {
@@ -51,6 +65,7 @@ export struct LibraryNavHost {
       LibraryHomeView({
         navStack: this.navStack,
         customizeSignal: this.customizeSignal,
+        homeShownSignal: this.homeShownSignal,
         scroller: this.scroller
       })
     }
@@ -63,6 +78,12 @@ export struct LibraryNavHost {
     // 文档要求：绑内容区滚动器 → 渐变模糊/滑动显隐才真正跟着滚
     .bindToScrollable([this.scroller])
     .dynamicHideTitleBar(AppNavBar.dynamicHide())
+    // 退回根页（导航栏重新可见）时通知首页轻刷：刚看完的那条续播进度立即上卡，不用等下一轮轮询
+    .onNavBarStateChange((isVisible: boolean): void => {
+      if (isVisible) {
+        this.homeShownSignal = this.homeShownSignal + 1;
+      }
+    })
     .titleBar({
       // 全屏布局窗口下的官方安全区开关：标题栏自己撑起状态栏避让与组件安全区
       avoidLayoutSafeArea: true,
@@ -102,14 +123,16 @@ export struct LibraryNavHost {
         .width(36)
         .height(36)
         .bindMenu(this.MoreMenu())
-      SymbolGlyph($r('sys.symbol.magnifyingglass'))
-        .fontSize(22)
-        .fontColor([Theme.textMuted])
-        .width(36)
-        .height(36)
-        .onClick(() => {
-          this.navStack.pushPathByName('search', new SearchLaunchParams(SearchMode.library));
-        })
+      if (this.searchGate) {
+        SymbolGlyph($r('sys.symbol.magnifyingglass'))
+          .fontSize(22)
+          .fontColor([Theme.textMuted])
+          .width(36)
+          .height(36)
+          .onClick(() => {
+            this.navStack.pushPathByName('search', new SearchLaunchParams(SearchMode.library));
+          })
+      }
       Button() {
         Row({ space: 4 }) {
           SymbolGlyph($r('sys.symbol.play_circle'))
