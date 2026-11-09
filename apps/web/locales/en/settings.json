@@ -2546,6 +2546,7 @@
     "validating": "Checking…",
     "getCode": "Get pairing code",
     "finishLinking": "Finish linking",
+    "scanCreate": "Create an app by scanning",
     "done": "Done",
     "qrAlt": "QR code to link {channel}",
     "codeHelp": "Valid for 10 minutes. The sender becomes the only user who can chat with the bot and receive notifications."

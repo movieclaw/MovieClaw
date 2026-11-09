@@ -280,9 +280,18 @@ async def _probe_target(service: str, session: AsyncSession) -> tuple[str, dict[
                 raise BadRequestException(
                     message_key="errors.network.feishuCredentialsInvalid"
                 ) from exc
-            # 旧行的裸 URL 落在 token 里（见 feishu_channel.client.parse_credentials）
-            webhook_url = creds.get("webhook_url") or creds.get("token") or ""
-            host = urlsplit(webhook_url).hostname or host
+            # 旧行的裸 URL 落在 token 里（见 feishu_channel.client.parse_credentials）。
+            # 自建应用没有 Webhook：国际版 Lark 测 open.larksuite.com，其余仍是 open.feishu.cn。
+            webhook_url = creds.get("webhook_url") or ""
+            if not webhook_url and not creds.get("app_id"):
+                webhook_url = creds.get("token") or ""
+            host = urlsplit(webhook_url).hostname or ""
+            if not host:
+                host = (
+                    "open.larksuite.com"
+                    if str(creds.get("domain") or "").lower() == "lark"
+                    else "open.feishu.cn"
+                )
         return f"https://{host}/", {}
     if service == "movieclaw_cloud":
         # 用户点测试就是明确要发请求；探测连接第一步读的公开发现文档，不带任何凭据
@@ -391,9 +400,7 @@ def _classify_probe(service: str, status_code: int) -> NetworkTestResult:
     if service == "web_search":
         return _probe_result(
             ok=True,
-            message=(
-                reference("settings.network.responses.search", status=status_code)
-            ),
+            message=(reference("settings.network.responses.search", status=status_code)),
         )
     if service == "github":
         if status_code == 200:
@@ -430,9 +437,7 @@ async def test_service(session: AsyncSession, service: str) -> NetworkTestResult
         ) as client:
             response = await client.get(url, headers=headers)
     except httpx.TimeoutException:
-        return _probe_result(
-            ok=False, message=reference("settings.network.responses.timeout")
-        )
+        return _probe_result(ok=False, message=reference("settings.network.responses.timeout"))
     except httpx.HTTPError as exc:
         logger.info("连通性测试失败：service=%s（%s）", service, exc)
         return _probe_result(

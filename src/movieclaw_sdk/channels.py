@@ -174,6 +174,10 @@ class Binding:
     - ``form``：按字段渲染表单，提交给 ``validate``；``pairing="code"`` 时中枢再生成 6 位配对码，
       用户私聊 bot 发码，发码人成为白名单（Telegram / Discord 这类 bot）；
     - ``flow``：插件维护的交互式流程（微信扫码），中枢渲染 ``FlowState`` 并轮询。
+
+    ``scan`` 不是第三种绑定。表单通道置真后，设置页可以另走一次已有的交互式流程
+    （飞书扫码创建应用）：只有字段里仅有 ``flow=1`` 时中枢才调用 ``begin_flow``，
+    普通表单提交仍走 ``validate``。为假时不写进线上 spec，旧驱动的报文保持不变。
     """
 
     kind: Literal["form", "flow"]
@@ -182,6 +186,7 @@ class Binding:
     #: 绑定对话框顶部的一句说明
     hint: str = ""
     hint_localized: LocalizedText = field(default_factory=dict)
+    scan: bool = False
 
     @classmethod
     def form(
@@ -191,6 +196,7 @@ class Binding:
         pairing: Literal["code", "none"] = "none",
         hint: str = "",
         hint_localized: LocalizedText | None = None,
+        scan: bool = False,
     ) -> Binding:
         return cls(
             kind="form",
@@ -198,6 +204,7 @@ class Binding:
             pairing=pairing,
             hint=hint,
             hint_localized=deepcopy(hint_localized or {}),
+            scan=scan,
         )
 
     @classmethod
@@ -550,6 +557,7 @@ def driver_spec(driver: ChannelDriver) -> dict[str, Any]:
             "kind": spec.kind,
             "pairing": spec.pairing,
             "hint": spec.hint,
+            **({"scan": True} if spec.scan else {}),
             **_localized_fields(spec, "hint_localized"),
             "fields": [
                 {
@@ -576,6 +584,7 @@ def spec_parts(data: dict[str, Any]) -> tuple[Capabilities, Binding]:
         pairing=b["pairing"],
         hint=b["hint"],
         hint_localized=deepcopy(b.get("hint_localized") or {}),
+        scan=bool(b.get("scan") or False),
         fields=tuple(FormField(**deepcopy(f)) for f in b["fields"]),
     )
 

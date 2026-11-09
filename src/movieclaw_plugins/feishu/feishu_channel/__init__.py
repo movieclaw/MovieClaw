@@ -13,4 +13,6 @@ from movieclaw_sdk.channels import IM_CHANNELS
 async def feishu(ctx: Context) -> None:
     from .driver import FeishuDriver
 
-    ctx.contribute(IM_CHANNELS, "feishu", FeishuDriver())
+    driver = FeishuDriver()
+    ctx.effect(driver.close, label="close-feishu")
+    ctx.contribute(IM_CHANNELS, "feishu", driver)

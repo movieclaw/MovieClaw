@@ -23,6 +23,10 @@ class ChannelBindingSpecView(BaseModel):
     fields: list[ChannelFieldView]
     pairing: str = Field(description="code：提交后私聊 bot 发 6 位配对码；none：提交即完成")
     hint: str
+    scan: bool = Field(
+        default=False,
+        description="表单通道另提供扫码流程。设置页以 fields 仅含 flow=1 发起，仍不是新的绑定种类",
+    )
 
 
 class ChannelView(BaseModel):

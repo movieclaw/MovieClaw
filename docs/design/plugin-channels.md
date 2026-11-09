@@ -103,8 +103,10 @@ class ChannelDriver:
 
 | 方式 | 适用 | 中枢做什么 | 插件做什么 |
 |---|---|---|---|
-| **表单**（`Binding.form(fields, pairing=…)`） | Telegram / Discord（token + 配对码）、飞书（Webhook 地址，无配对）、企业微信智能机器人（botId + secret） | 按字段渲染表单；`pairing="code"` 时生成 6 位码，临时起账号只比对配对码，命中即落库、把发码人设为白名单 | `validate(fields)` 校验并返回账号 id、展示名、凭据 |
+| **表单**（`Binding.form(fields, pairing=…)`） | Telegram / Discord（token + 配对码）、飞书（Webhook 或自建应用，无配对；`scan=True` 时可另走扫码）、企业微信智能机器人（botId + secret） | 按字段渲染表单；`pairing="code"` 时生成 6 位码，临时起账号只比对配对码，命中即落库、把发码人设为白名单 | `validate(fields)` 校验并返回账号 id、展示名、凭据 |
 | **交互式**（`Binding.flow()`） | 微信扫码（二维码 → 扫码 → 可能要输入配对数字 → 确认） | 渲染 `FlowState`：状态文案、二维码（插件给内容，中枢渲染成图）、需要时的输入框；前端轮询 | 维护状态机，确认时在 `FlowState.result` 里给出 `BindResult` |
+
+飞书 1.2.0 仍以表单为默认：群自定义机器人 Webhook，或手填 App ID、App Secret 与推送目标。`Binding.scan=True` 时，设置页可以用仅含 `flow=1` 的字段走现有交互式流程（设备码扫码创建应用），这不是新的绑定种类。扫码成功后默认把扫码人的 open_id 当作推送目标，也可以改填群 chat_id。旧的 Webhook 凭据不用迁移。自建应用推送使用交互式卡片：海报经 `im/v1/images` 换成 image_key。卡片失败或正文没有标题时退回纯文本。自定义机器人不能上传图片，带海报的推送改为无图卡片，卡片失败再退回纯文本。
 
 `BindResult`：`account_id`、`display_name`、`credentials`、`bound_user`（可空，配对码流程由中枢补）、
 初始 `state`。

@@ -326,6 +326,23 @@ def test_test_endpoint_probes_feishu(client, monkeypatch):
     assert all("hook-token-123" not in str(r.url) for r in requests)
     assert services == ["feishu", "feishu"]
 
+    monkeypatch.setattr(
+        ChannelAccountRepository,
+        "credentials",
+        lambda row: {
+            "app_id": "cli_app",
+            "app_secret": "app-secret",
+            "receive_id": "ou_user",
+            "receive_id_type": "open_id",
+            "domain": "lark",
+        },
+    )
+    resp = client.post("/api/v1/network/test", json={"service": "feishu"})
+    assert resp.status_code == 200, resp.text
+    assert str(requests[-1].url) == "https://open.larksuite.com/"
+    assert requests[-1].method == "GET"
+    assert "app-secret" not in str(requests[-1].url)
+
 
 def test_test_endpoint_probes_movieclaw_cloud(client, monkeypatch):
     """Cloud 探测连接第一步用的公开发现文档，不带任何凭据。"""

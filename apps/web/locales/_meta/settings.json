@@ -6607,6 +6607,9 @@
   "imChannels.finishLinking": {
     "sourceHash": "6efdcc41c075a92d51709a46d9a368aefe46b3dc55e4e293f7b6006c225f9671"
   },
+  "imChannels.scanCreate": {
+    "sourceHash": "32eb2aaedc874bf18cb2240c6b8d14cb145d5ffe2efc95c459f60bb584c723a7"
+  },
   "imChannels.done": {
     "sourceHash": "c0b3fbff51ccc40b8bf1a81666e7ecced016187cbe2ac6f1d627e0d7a287e04d"
   },
