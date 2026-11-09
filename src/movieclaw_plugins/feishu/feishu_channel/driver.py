@@ -25,8 +25,17 @@ from movieclaw_sdk.channels import (
 )
 
 from .adapter import FeishuAdapter
-from .binding import APP_DISPLAY_NAME, APP_WELCOME, FeishuBindingRegistry, raise_registration
+from .binding import (
+    APP_DISPLAY_NAME,
+    APP_WELCOME,
+    FeishuBindingRegistry,
+    classify_target,
+    input_error,
+    raise_registration,
+    rebind_notice,
+)
 from .client import (
+    FeishuApiError,
     FeishuClient,
     credentials_token,
     feishu_account_id,
@@ -42,7 +51,12 @@ class FeishuDriver(AdapterDriver):
     title_localized = {"en": "Feishu"}
     description = "群 Webhook 或自建应用，只推送"
     description_localized = {"en": "Group Webhook or a self-built app. Push only"}
-    capabilities = Capabilities(receive=False, photo=True, max_text_len=FeishuAdapter.max_text_len)
+    capabilities = Capabilities(
+        receive=False,
+        photo=True,
+        max_text_len=FeishuAdapter.max_text_len,
+        photo_caption_limit=FeishuAdapter.photo_caption_limit,
+    )
     binding = Binding.form(
         (
             FormField(
@@ -165,8 +179,9 @@ class FeishuDriver(AdapterDriver):
         app_secret = (fields.get("app_secret") or "").strip()
         receive_id = (fields.get("receive_id") or "").strip()
         domain = (fields.get("domain") or "").strip().lower()
+        resume = (fields.get("resume_flow") or "").strip()
         webhook_filled = bool(webhook or secret)
-        app_filled = bool(app_id or app_secret or receive_id or domain)
+        app_filled = bool(app_id or app_secret or receive_id or domain or resume)
         if webhook_filled and app_filled:
             raise ChannelInputError(
                 "请只选择一种接入方式:填写 Webhook,或填写自建应用凭据",
@@ -186,10 +201,18 @@ class FeishuDriver(AdapterDriver):
             )
         if webhook_filled:
             return await self._validate_webhook(webhook, secret)
-        return await self._validate_app(app_id, app_secret, receive_id, domain)
+        if not app_secret and resume:
+            app_secret = self._registry.secret_for(resume, app_id)
+            if not app_secret:
+                raise input_error("resume_expired")
+        result = await self._validate_app(app_id, app_secret, receive_id, domain)
+        if resume:
+            self._registry.release(resume)
+        return result
 
     async def begin_flow(self, accounts: list[Account]) -> FlowState:
-        del accounts  # 同一 app_id 再次绑定由中枢覆盖,不在这里挡
+        # 同一 app_id 再次绑定由中枢覆盖。这里只记下已有账号,扫码选目标时提示将更新。
+        self._registry.known_ids = {account.id for account in accounts}
         try:
             return await self._registry.begin()
         except RegistrationError as exc:
@@ -253,20 +276,13 @@ class FeishuDriver(AdapterDriver):
                     )
                 },
             )
-        if receive_id.startswith("oc_"):
+        kind = classify_target(receive_id)
+        if kind == "chat":
             receive_id_type = "chat_id"
-        elif receive_id.startswith("ou_"):
+        elif kind == "open":
             receive_id_type = "open_id"
         else:
-            raise ChannelInputError(
-                "推送目标需要是群 chat_id(oc_ 开头)或用户 open_id(ou_ 开头)",
-                message_localized={
-                    "en": (
-                        "The push target must be a group chat_id (starts with oc_) "
-                        "or a user open_id (starts with ou_)"
-                    )
-                },
-            )
+            raise input_error("target_bad")
         credentials = {
             "app_id": app_id,
             "app_secret": app_secret,
@@ -276,18 +292,35 @@ class FeishuDriver(AdapterDriver):
         }
         client = FeishuClient(credentials_token(credentials))
         try:
-            await client.tenant_access_token()
-            await client.send_text(APP_WELCOME)
-        except Exception as exc:  # noqa: BLE001 -- 原因直接展示给用户
-            raise ChannelInputError(
-                f"飞书应用校验失败：{exc}",
-                message_localized={"en": f"Could not validate the Feishu app: {exc}"},
-            ) from exc
+            try:
+                await client.tenant_access_token()
+            except Exception as exc:  # noqa: BLE001 -- 原因直接展示给用户
+                raise ChannelInputError(
+                    f"飞书应用校验失败：{exc}",
+                    message_localized={"en": f"Could not validate the Feishu app: {exc}"},
+                ) from exc
+            try:
+                await client.send_text(APP_WELCOME)
+            except FeishuApiError as exc:
+                if exc.missing_send_permission:
+                    raise input_error("welcome_permission") from exc
+                raise ChannelInputError(
+                    f"飞书应用校验失败：{exc}",
+                    message_localized={"en": f"Could not validate the Feishu app: {exc}"},
+                ) from exc
+            except Exception as exc:  # noqa: BLE001 -- 原因直接展示给用户
+                raise ChannelInputError(
+                    f"飞书应用校验失败：{exc}",
+                    message_localized={"en": f"Could not validate the Feishu app: {exc}"},
+                ) from exc
         finally:
             await client.aclose()
+        notice, localized = rebind_notice()
         return BindResult(
             account_id=app_id,
             display_name=APP_DISPLAY_NAME,
             credentials=credentials,
             bound_user=receive_id if receive_id_type == "open_id" else None,
+            rebind_message=notice,
+            rebind_message_localized=localized,
         )

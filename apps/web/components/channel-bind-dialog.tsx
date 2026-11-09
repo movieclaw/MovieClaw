@@ -52,6 +52,7 @@ export interface ChannelBindDialogProps {
 export function ChannelBindDialog({ channel, onClose, onBound }: ChannelBindDialogProps) {
   const t = useTranslations();
   const [scanning, setScanning] = useState(false);
+  const [resume, setResume] = useState<{ appId: string; token: string } | null>(null);
   const flow = channel.binding.kind === "flow" || scanning;
   return (
     <Modal open onClose={onClose} label={t("settings.imChannels.bindTitle", { channel: channel.title })}>
@@ -67,12 +68,29 @@ export function ChannelBindDialog({ channel, onClose, onBound }: ChannelBindDial
               channel={channel}
               onBound={onBound}
               fields={scanning ? SCAN_FLOW_FIELDS : undefined}
+              onBackToForm={
+                channel.binding.kind === "form"
+                  ? (prefill, token) => {
+                      setResume({ appId: prefill.app_id ?? "", token });
+                      setScanning(false);
+                    }
+                  : undefined
+              }
             />
           ) : (
             <FormBindBody
               channel={channel}
               onBound={onBound}
-              onScan={channel.binding.scan ? () => setScanning(true) : undefined}
+              initialValues={resume ? { app_id: resume.appId } : undefined}
+              resumeToken={resume?.token}
+              onScan={
+                channel.binding.scan
+                  ? () => {
+                      setResume(null);
+                      setScanning(true);
+                    }
+                  : undefined
+              }
             />
           )}
         </div>
@@ -143,6 +161,10 @@ function useBindingPolling(
         .then((snap) => {
           if (epoch !== requestEpoch.current) return;
           if (DONE.has(snap.status)) {
+            if (snap.review) {
+              setBinding(snap);
+              return;
+            }
             onBound();
             return;
           }
@@ -158,15 +180,38 @@ function useBindingPolling(
 
 /* —— 交互式：二维码 + 可选输入 —— */
 
+function BackToFormButton({
+  binding,
+  onBackToForm,
+}: {
+  binding: ChannelBinding;
+  onBackToForm?: (prefill: Record<string, string>, token: string) => void;
+}) {
+  const t = useTranslations();
+  if (!binding.resume_token || !onBackToForm) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onBackToForm(binding.prefill ?? {}, binding.resume_token ?? "")}
+      className={SETTINGS_BUTTON_CLASS}
+    >
+      {t("settings.imChannels.backToForm")}
+    </button>
+  );
+}
+
 function FlowBindBody({
   channel,
   onBound,
   fields,
+  onBackToForm,
 }: {
   channel: ChannelInfo;
   onBound: () => void;
   /** 表单通道扫码时带上 {flow:"1"}。微信这类纯 flow 不传，避免把 undefined 当成显式参数。 */
   fields?: Record<string, string>;
+  /** 扫码拿到凭据后回到手填表单。不取消流程，密钥仍留在服务端。 */
+  onBackToForm?: (prefill: Record<string, string>, token: string) => void;
 }) {
   const t = useTranslations();
   const [binding, setBinding] = useState<ChannelBinding | null>(null);
@@ -198,14 +243,16 @@ function FlowBindBody({
 
   useBindingPolling(binding, setBinding, onBound);
 
-  async function handleSubmit() {
-    if (binding == null || !value.trim()) return;
+  async function handleSubmit(explicit?: string) {
+    if (binding == null) return;
+    const nextValue = explicit !== undefined ? explicit : value.trim();
+    if (!nextValue && !binding.input_optional) return;
     setBusy(true);
     setError(null);
     try {
-      const next = await submitChannelBindingInput(binding.binding_id, value.trim());
+      const next = await submitChannelBindingInput(binding.binding_id, nextValue);
       setValue("");
-      if (DONE.has(next.status)) onBound();
+      if (DONE.has(next.status) && !next.review) onBound();
       else setBinding(next);
     } catch (e) {
       setError((e as Error).message);
@@ -215,6 +262,21 @@ function FlowBindBody({
   }
 
   const failed = binding != null && FAILED.has(binding.status);
+  const optional = Boolean(binding?.input_optional);
+
+  if (binding?.status === "confirmed" && binding.review) {
+    return (
+      <div className="space-y-4">
+        {error && <ErrorBanner message={error} />}
+        <div className="flex flex-col items-center gap-3 rounded-2xl bg-white/[0.03] px-6 py-8 text-center">
+          <p className="text-body font-medium text-[var(--text)]">{binding.message}</p>
+          <button type="button" onClick={onBound} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
+            {t("settings.imChannels.done")}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -257,37 +319,58 @@ function FlowBindBody({
             <p className="mt-1 text-sub text-[var(--text-muted)]">{binding.message}</p>
           </div>
           {failed && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void begin()}
-              className={SETTINGS_PRIMARY_BUTTON_CLASS}
-            >
-              {t("settings.imChannels.restart")}
-            </button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void begin()}
+                className={SETTINGS_PRIMARY_BUTTON_CLASS}
+              >
+                {t("settings.imChannels.restart")}
+              </button>
+              <BackToFormButton binding={binding} onBackToForm={onBackToForm} />
+            </div>
           )}
         </div>
       )}
 
       {binding?.status === "need_input" && (
-        <div className="flex gap-2">
-          <input
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void handleSubmit()}
-            inputMode="numeric"
-            autoFocus
-            placeholder={binding.input_label ?? t("settings.imChannels.enterValue")}
-            className={INPUT_CLASS}
-          />
-          <button
-            type="button"
-            disabled={busy || !value.trim()}
-            onClick={() => void handleSubmit()}
-            className={SETTINGS_PRIMARY_BUTTON_CLASS}
-          >
-            {t("settings.imChannels.confirm")}
-          </button>
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <input
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void handleSubmit()}
+              inputMode={optional ? "text" : "numeric"}
+              maxLength={optional ? 128 : undefined}
+              autoFocus
+              placeholder={binding.input_label ?? t("settings.imChannels.enterValue")}
+              className={INPUT_CLASS}
+            />
+            <button
+              type="button"
+              disabled={busy || (!optional && !value.trim())}
+              onClick={() => void handleSubmit()}
+              className={SETTINGS_PRIMARY_BUTTON_CLASS}
+            >
+              {t("settings.imChannels.confirm")}
+            </button>
+          </div>
+          {(optional || binding.resume_token) && (
+            <div className="flex flex-wrap gap-2">
+              {optional && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleSubmit("")}
+                  className={SETTINGS_BUTTON_CLASS}
+                >
+                  {t("settings.imChannels.pushToMe")}
+                </button>
+              )}
+              <BackToFormButton binding={binding} onBackToForm={onBackToForm} />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -300,14 +383,20 @@ function FormBindBody({
   channel,
   onBound,
   onScan,
+  initialValues,
+  resumeToken,
 }: {
   channel: ChannelInfo;
   onBound: () => void;
   onScan?: () => void;
+  /** 扫码中断后回填 App ID。密钥不在这里。 */
+  initialValues?: Record<string, string>;
+  /** 服务端暂存凭据的流程 id。App Secret 留空提交时由服务端补上。 */
+  resumeToken?: string;
 }) {
   const t = useTranslations();
   const fields = channel.binding.fields;
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Record<string, string>>(initialValues ?? {});
   const [binding, setBinding] = useState<ChannelBinding | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -322,9 +411,11 @@ function FormBindBody({
       const trimmed = Object.fromEntries(
         Object.entries(values).map(([key, value]) => [key, value.trim()]),
       );
+      if (resumeToken && !trimmed.app_secret) trimmed.resume_flow = resumeToken;
       const next = await startChannelBinding(channel.id, trimmed);
-      // 回调式通道直接接入完成时，先把回调地址给用户看、复制，再关弹窗
-      if (DONE.has(next.status) && !next.callback_url) onBound();
+      // 回调式通道直接接入完成时，先把回调地址给用户看、复制，再关弹窗。
+      // 重复绑定要先看更新说明，等用户点完成。
+      if (DONE.has(next.status) && !next.callback_url && !next.review) onBound();
       else setBinding(next);
     } catch (e) {
       setError((e as Error).message);
@@ -339,6 +430,11 @@ function FormBindBody({
     return (
       <div className="space-y-3">
         {error && <ErrorBanner message={error} />}
+        {resumeToken && (
+          <p className="text-caption leading-5 text-[var(--text-faint)]">
+            {t("settings.imChannels.scanKeptHint")}
+          </p>
+        )}
         {fields.map((field, index) => (
           <label key={field.key} className="block space-y-1.5">
             <span className="text-sub font-medium text-[var(--text)]">
@@ -354,7 +450,11 @@ function FormBindBody({
               autoFocus={index === 0}
               type={field.secret ? "password" : "text"}
               autoComplete="off"
-              placeholder={field.placeholder}
+              placeholder={
+                resumeToken && field.key === "app_secret"
+                  ? t("settings.imChannels.secretKept")
+                  : field.placeholder
+              }
               className={INPUT_CLASS}
             />
             {field.help && (

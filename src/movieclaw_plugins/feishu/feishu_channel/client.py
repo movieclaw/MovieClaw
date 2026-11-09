@@ -37,6 +37,9 @@ _AUTH_ERROR_STATUS = (404,)
 _SIGN_MISMATCH_CODE = 19021
 #: tenant_access_token 失效,清缓存后重试一次
 _STALE_TOKEN_CODES = (99991663, 99991661)
+#: 发消息缺少权限。230027 见发消息接口「Lack of necessary permissions」；
+#: 99991672 是 scope 不足（如未开通 im:message）。其它码按普通失败处理。
+_MISSING_SEND_PERMISSION_CODES = frozenset({230027, 99991672})
 #: 过期前提前刷新,避免卡在边界上用一张即将失效的令牌
 _TOKEN_SKEW_S = 120
 
@@ -48,9 +51,18 @@ _WEBHOOK_PATH_MARK = "/open-apis/bot/v2/hook/"
 class FeishuApiError(Exception):
     """Webhook 或开放平台调用失败时抛出;``auth_failed`` 标记凭据级错误。"""
 
-    def __init__(self, message: str, *, auth_failed: bool = False) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        auth_failed: bool = False,
+        code: int | None = None,
+        missing_send_permission: bool = False,
+    ) -> None:
         super().__init__(message)
         self.auth_failed = auth_failed
+        self.code = code
+        self.missing_send_permission = missing_send_permission
 
 
 def normalize_webhook_url(raw: str) -> str:
@@ -349,23 +361,31 @@ class FeishuClient:
             raise FeishuApiError(
                 "飞书机器人不存在或已被移除,请重新创建机器人并接入", auth_failed=True
             )
+        data: dict[str, Any] | None
+        try:
+            parsed = resp.json()
+        except ValueError:
+            data = None
+        else:
+            data = parsed if isinstance(parsed, dict) else None
+        # 成功响应 {"code": 0, "msg": "success"};旧版网关用 StatusCode 同义。
+        # 缺码不能当成 0:下面的 _as_int 把无法解析的值收成 0,只用于权限码判断。
+        raw_code = data.get("code", data.get("StatusCode")) if data is not None else None
+        code = _as_int(raw_code)
+        if code in _MISSING_SEND_PERMISSION_CODES:
+            raise FeishuApiError("缺少发消息权限", code=code, missing_send_permission=True)
         if resp.status_code != 200:
             raise FeishuApiError(f"飞书机器人接口异常(HTTP {resp.status_code})")
-        try:
-            data = resp.json()
-        except ValueError as exc:
-            raise FeishuApiError(
-                f"飞书机器人接口返回异常响应(HTTP {resp.status_code},非 JSON)"
-            ) from exc
-        # 成功响应 {"code": 0, "msg": "success"};旧版网关用 StatusCode 同义
-        code = data.get("code", data.get("StatusCode"))
-        if code == 0:
+        if data is None:
+            raise FeishuApiError(f"飞书机器人接口返回异常响应(HTTP {resp.status_code},非 JSON)")
+        if raw_code == 0:
             return
-        msg = str(data.get("msg") or data.get("StatusMessage") or code)
-        if code == _SIGN_MISMATCH_CODE:
+        msg = str(data.get("msg") or data.get("StatusMessage") or raw_code)
+        if raw_code == _SIGN_MISMATCH_CODE:
             raise FeishuApiError(
                 "签名校验失败:机器人开启了签名校验但密钥不匹配,请解绑后重新接入并核对签名密钥",
                 auth_failed=True,
+                code=code,
             )
         # 飞书报文是「Key Words Not Found」(带空格):归一后比对,避免误判成普通拒收
         if "keyword" in msg.lower().replace(" ", "").replace("-", ""):
@@ -373,9 +393,10 @@ class FeishuClient:
             # 与其让后续推送静默丢失,不如在接入时就把话说明白
             raise FeishuApiError(
                 "机器人开启了「自定义关键词」安全设置,推送文案未包含该关键词。"
-                "建议重新创建机器人并选择「签名校验」,再填入 Webhook 地址与签名密钥"
+                "建议重新创建机器人并选择「签名校验」,再填入 Webhook 地址与签名密钥",
+                code=code,
             )
-        raise FeishuApiError(f"飞书机器人拒收消息:{msg}")
+        raise FeishuApiError(f"飞书机器人拒收消息:{msg}", code=code or None)
 
 
 def _token_stale(resp: httpx.Response) -> bool:

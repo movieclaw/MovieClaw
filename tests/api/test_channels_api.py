@@ -143,6 +143,60 @@ def wait(predicate, timeout: float = 5.0) -> None:
     raise AssertionError("等待条件超时")
 
 
+def test_public_prefill_drops_secrets() -> None:
+    from movieclaw_api.services.channel_hub import _public_prefill
+
+    assert _public_prefill(
+        {
+            "app_id": "cli_app",
+            "app_secret": "sek",
+            "client_secret": "x",
+            "token": "t",
+            "password": "p",
+            "note": "ok",
+        }
+    ) == {"app_id": "cli_app", "note": "ok"}
+
+
+def test_binding_input_schema_allows_empty_and_128() -> None:
+    from pydantic import ValidationError
+
+    from movieclaw_api.schemas.channels import ChannelBindingInputPayload
+
+    assert ChannelBindingInputPayload(value="").value == ""
+    assert ChannelBindingInputPayload().value == ""
+    assert len(ChannelBindingInputPayload(value="a" * 128).value) == 128
+    with pytest.raises(ValidationError):
+        ChannelBindingInputPayload(value="b" * 129)
+
+
+def test_weixin_flow_input_stays_required_and_capped_at_64(app_env) -> None:
+    with make_client() as client:
+        GATEWAY.qr_statuses = [{"status": "need_verifycode"}]
+        started = client.post("/api/v1/channels/bindings", json={"channel_id": "weixin"})
+        assert started.status_code == 201, started.text
+        binding_id = started.json()["data"]["binding_id"]
+        url = f"/api/v1/channels/bindings/{binding_id}"
+        wait(lambda: client.get(url).json()["data"]["status"] == "need_input")
+        assert client.get(url).json()["data"]["input_optional"] is False
+
+        empty = client.post(f"{url}/input", json={"value": ""})
+        assert empty.status_code == 422
+        assert empty.json()["code"] == "VALIDATION_ERROR"
+        assert empty.json()["details"][0]["type"] == "string_too_short"
+        assert client.get(url).json()["data"]["status"] == "need_input"
+
+        longer = client.post(f"{url}/input", json={"value": "1" * 65})
+        assert longer.status_code == 422
+        assert longer.json()["details"][0]["type"] == "string_too_long"
+        assert "64" in longer.json()["details"][0]["message"]
+        assert client.get(url).json()["data"]["status"] == "need_input"
+
+        submitted = client.post(f"{url}/input", json={"value": "73"})
+        assert submitted.status_code == 200, submitted.text
+        wait(lambda: client.get(url).json()["data"]["status"] == "confirmed")
+
+
 def test_weixin_scan_binding_chat_and_push(app_env) -> None:
     with make_client() as client:
         listed = client.get("/api/v1/channels").json()["data"]

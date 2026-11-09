@@ -25,7 +25,7 @@ from movieclaw_channel.adapter import ChannelContext
 from movieclaw_channel.types import ReplyContext
 from movieclaw_db.engine import dispose_db, init_db
 from movieclaw_plugins.feishu.feishu_channel.adapter import FeishuAdapter
-from movieclaw_plugins.feishu.feishu_channel.card import build_card
+from movieclaw_plugins.feishu.feishu_channel.card import _MAX_SUMMARY, build_card
 from movieclaw_plugins.feishu.feishu_channel.client import (
     FeishuApiError,
     FeishuClient,
@@ -190,6 +190,46 @@ async def test_send_text_error_classification(
         await client.aclose()
     assert match in str(exc_info.value)
     assert exc_info.value.auth_failed is auth_failed
+    assert exc_info.value.missing_send_permission is False
+
+
+@pytest.mark.parametrize(
+    ("status", "payload", "code"),
+    [
+        (400, {"code": 230027, "msg": "Lack of necessary permissions"}, 230027),
+        (200, {"code": "99991672", "msg": "scope required"}, 99991672),
+    ],
+)
+async def test_missing_send_permission_codes(status: int, payload: dict, code: int) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json=payload)
+
+    client = _client_with(json.dumps({"webhook_url": _URL, "secret": "s3cret"}))
+    await _swap_transport(client, handler)
+    try:
+        with pytest.raises(FeishuApiError) as exc_info:
+            await client.send_text("hello")
+    finally:
+        await client.aclose()
+    assert exc_info.value.missing_send_permission is True
+    assert exc_info.value.code == code
+    assert exc_info.value.auth_failed is False
+
+
+async def test_mute_code_is_not_a_missing_scope() -> None:
+    """230035 是禁言/拉黑,不是没开通 im:message。非 200 仍按接口异常。"""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"code": 230035, "msg": "Send Message Permission deny"})
+
+    client = _client_with(json.dumps({"webhook_url": _URL, "secret": "s3cret"}))
+    await _swap_transport(client, handler)
+    try:
+        with pytest.raises(FeishuApiError, match="接口异常") as exc_info:
+            await client.send_text("hello")
+    finally:
+        await client.aclose()
+    assert exc_info.value.missing_send_permission is False
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +340,8 @@ async def test_bind_feishu_end_to_end(hub) -> None:
 async def test_bind_feishu_same_bot_rebind_overwrites(hub) -> None:
     try:
         await hub.begin_binding("feishu", {"webhook_url": _URL, "secret": "old"})
-        await hub.begin_binding("feishu", {"webhook_url": _URL, "secret": "new"})
+        again = await hub.begin_binding("feishu", {"webhook_url": _URL, "secret": "new"})
+        assert again.review is False
         rows = await _list_feishu()
         assert [r.account_id for r in rows] == ["abc-123"]
     finally:
@@ -384,6 +425,22 @@ def test_build_card_poster_and_bare_link_limit() -> None:
 
 def test_build_card_without_title_is_absent() -> None:
     assert build_card("  \n\t") is None
+
+
+def test_build_card_clips_long_summary_and_keeps_late_link() -> None:
+    late = "https://example.com/late"
+    card = build_card("标题\n" + ("简" * 5000) + "\n" + late, image_key="img_k")
+    assert card is not None
+    body = card["elements"][1]["text"]["content"]
+    assert len(body) == _MAX_SUMMARY
+    assert body.endswith("…")
+    assert late not in body
+    assert card["elements"][0]["img_key"] == "img_k"
+    assert card["elements"][-1]["actions"][0]["url"] == late
+    titled = build_card(("题" * 250) + "\n正文")
+    assert titled is not None
+    assert len(titled["header"]["title"]["content"]) == 200
+    assert titled["header"]["title"]["content"].endswith("…")
 
 
 def test_poll_outcome_repr_omits_secret() -> None:
@@ -731,6 +788,9 @@ class AppGateway:
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
         self.client_secret = "app-secret-value"
+        self.open_id = "ou_scanner"
+        self.fail_token = False
+        self.message_replies: list[httpx.Response] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -757,11 +817,14 @@ class AppGateway:
                 json={
                     "client_id": "cli_app",
                     "client_secret": self.client_secret,
-                    "user_info": {"open_id": "ou_scanner"},
+                    "user_info": {"open_id": self.open_id} if self.open_id else {},
                 },
             )
         if url.endswith("/tenant_access_token/internal"):
-            assert json.loads(request.content)["app_secret"] == self.client_secret
+            body = json.loads(request.content)
+            assert body["app_secret"] == self.client_secret
+            if self.fail_token:
+                return httpx.Response(400, json={"code": 10014, "msg": "app secret invalid"})
             return httpx.Response(
                 200, json={"code": 0, "tenant_access_token": "tat-live", "expire": 7200}
             )
@@ -769,6 +832,8 @@ class AppGateway:
             assert b"\x89PNG\r\n\x1a\n" in request.content
             return httpx.Response(200, json={"code": 0, "data": {"image_key": "img_poster"}})
         if "/im/v1/messages" in url:
+            if self.message_replies:
+                return self.message_replies.pop(0)
             return httpx.Response(200, json={"code": 0, "msg": "success"})
         return httpx.Response(404, json={"code": 404, "msg": url})
 
@@ -845,6 +910,7 @@ async def test_scan_bind_then_push_card(db, monkeypatch, caplog) -> None:
     driver, hub = _pinned_hub(gateway)
     assert driver_spec(driver)["binding"]["scan"] is True
     assert driver_spec(driver)["binding"]["kind"] == "form"
+    assert driver_spec(driver)["capabilities"]["photo_caption_limit"] == 20_000
     photo = b"\x89PNG\r\n\x1a\nposter"
     try:
         with caplog.at_level(logging.DEBUG):
@@ -858,8 +924,14 @@ async def test_scan_bind_then_push_card(db, monkeypatch, caplog) -> None:
                     and found.status == "need_input"
                 )
             )
-            done = await hub.binding_input(binding.binding_id, "-")
+            ready = hub.binding(binding.binding_id)
+            assert ready is not None and ready.input_optional is True
+            assert ready.prefill == {"app_id": "cli_app"}
+            assert ready.resume_token == binding.flow_id
+            assert gateway.client_secret not in json.dumps(ready.prefill)
+            done = await hub.binding_input(binding.binding_id, "")
             assert done.status == "confirmed"
+            assert done.review is False
             assert done.account_id == "cli_app"
             await _wait_for(lambda: hub.is_running("feishu", "cli_app"))
             async with get_database().session() as session:
@@ -887,5 +959,297 @@ async def test_scan_bind_then_push_card(db, monkeypatch, caplog) -> None:
         )
         assert "已接入" in json.loads(welcome["content"])["text"]
         assert welcome["receive_id"] == "ou_scanner"
+    finally:
+        await hub.stop()
+
+
+async def _scan_ready(monkeypatch, gateway: AppGateway | None = None):
+    gateway = gateway or AppGateway()
+    _install_transport(monkeypatch, gateway.handler)
+    driver, hub = _pinned_hub(gateway)
+    binding = await hub.begin_binding("feishu", {"flow": "1"})
+    await _wait_for(
+        lambda: (
+            (found := hub.binding(binding.binding_id)) is not None and found.status == "need_input"
+        )
+    )
+    ready = hub.binding(binding.binding_id)
+    assert ready is not None
+    return gateway, driver, hub, ready
+
+
+async def test_scan_rejects_bad_targets_and_accepts_long_open_id(db, monkeypatch) -> None:
+    gateway, _driver, hub, ready = await _scan_ready(monkeypatch)
+    try:
+        for bad in ("-", "oc_", "oc_bad-id", "x" * 129):
+            stayed = await hub.binding_input(ready.binding_id, bad)
+            assert stayed.status == "need_input"
+            assert "128" in stayed.message
+            assert "留空" in stayed.message
+        target = "ou_" + ("a" * 100)
+        done = await hub.binding_input(ready.binding_id, target)
+        assert done.status == "confirmed"
+        from movieclaw_db.engine import get_database
+        from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
+
+        async with get_database().session() as session:
+            stored = await ChannelAccountRepository(session).get("feishu", "cli_app")
+        assert stored is not None
+        assert ChannelAccountRepository.credentials(stored)["receive_id"] == target
+        assert gateway.client_secret not in stayed.message
+    finally:
+        await hub.stop()
+
+
+async def test_scan_without_open_id_requires_a_target(db, monkeypatch) -> None:
+    gateway = AppGateway()
+    gateway.open_id = ""
+    _gateway, _driver, hub, ready = await _scan_ready(monkeypatch, gateway)
+    try:
+        stayed = await hub.binding_input(ready.binding_id, "")
+        assert stayed.status == "need_input"
+        assert "open_id" in stayed.message
+        done = await hub.binding_input(ready.binding_id, "oc_group1")
+        assert done.status == "confirmed"
+    finally:
+        await hub.stop()
+
+
+async def test_cancel_keeps_secret_for_form_resume(db, monkeypatch, caplog) -> None:
+    from movieclaw_sdk.channels import flow_dict
+
+    gateway, driver, hub, ready = await _scan_ready(monkeypatch)
+    secret = gateway.client_secret
+    try:
+        with caplog.at_level(logging.DEBUG):
+            await driver.cancel_flow(ready.flow_id)
+            state = await driver.flow_state(ready.flow_id)
+            assert state.status == "failed"
+            assert "保留" in state.message
+            assert state.prefill == {"app_id": "cli_app"}
+            assert state.resume_token == ready.flow_id
+            assert secret not in json.dumps(flow_dict(state))
+            assert secret not in repr(driver._registry._flows[ready.flow_id])
+            assert secret not in repr(driver._registry._held[ready.flow_id])
+            with pytest.raises(ValueError, match="已失效"):
+                await hub.begin_binding(
+                    "feishu",
+                    {
+                        "app_id": "cli_other",
+                        "receive_id": "ou_scanner",
+                        "resume_flow": ready.flow_id,
+                    },
+                )
+            held = driver._registry._held[ready.flow_id]
+            held.stored_at -= 31 * 60
+            with pytest.raises(ValueError, match="已失效"):
+                await hub.begin_binding(
+                    "feishu",
+                    {
+                        "app_id": "cli_app",
+                        "receive_id": "ou_scanner",
+                        "resume_flow": ready.flow_id,
+                    },
+                )
+            assert ready.flow_id not in driver._registry._held
+        assert secret not in caplog.text
+    finally:
+        await hub.stop()
+
+
+async def test_cancel_resume_before_expiry_binds_without_echoing_secret(
+    db, monkeypatch, caplog
+) -> None:
+    gateway, driver, hub, ready = await _scan_ready(monkeypatch)
+    secret = gateway.client_secret
+    try:
+        with caplog.at_level(logging.DEBUG):
+            await driver.cancel_flow(ready.flow_id)
+            done = await hub.begin_binding(
+                "feishu",
+                {
+                    "app_id": "cli_app",
+                    "receive_id": "oc_group9",
+                    "resume_flow": ready.flow_id,
+                },
+            )
+            assert done.status == "confirmed" and done.review is False
+            assert ready.flow_id not in driver._registry._held
+            from movieclaw_db.engine import get_database
+            from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
+
+            async with get_database().session() as session:
+                stored = await ChannelAccountRepository(session).get("feishu", "cli_app")
+            assert stored is not None
+            creds = ChannelAccountRepository.credentials(stored)
+            assert creds["app_secret"] == secret
+            assert creds["receive_id"] == "oc_group9"
+        assert secret not in caplog.text
+    finally:
+        await hub.stop()
+
+
+async def test_welcome_permission_keeps_credentials_until_retry(db, monkeypatch, caplog) -> None:
+    gateway, _driver, hub, ready = await _scan_ready(monkeypatch)
+    secret = gateway.client_secret
+    try:
+        with caplog.at_level(logging.DEBUG):
+            gateway.message_replies = [
+                httpx.Response(400, json={"code": 230027, "msg": "Lack of necessary permissions"})
+            ]
+            blocked = await hub.binding_input(ready.binding_id, "")
+            assert blocked.status == "need_input"
+            assert "im:message" in blocked.message and "发布" in blocked.message
+            assert blocked.prefill == {"app_id": "cli_app"}
+            assert secret not in blocked.message
+            gateway.message_replies = [
+                httpx.Response(200, json={"code": "99991672", "msg": "scope required"})
+            ]
+            blocked = await hub.binding_input(ready.binding_id, "oc_group1")
+            assert blocked.status == "need_input"
+            assert "im:message" in blocked.message
+            gateway.message_replies = [
+                httpx.Response(400, json={"code": 230035, "msg": "Send Message Permission deny"})
+            ]
+            generic = await hub.binding_input(ready.binding_id, "oc_group1")
+            assert generic.status == "need_input"
+            assert "im:message" not in generic.message
+            assert "欢迎消息没发出去" in generic.message
+            done = await hub.binding_input(ready.binding_id, "")
+            assert done.status == "confirmed"
+            assert done.account_id == "cli_app"
+        assert secret not in caplog.text
+    finally:
+        await hub.stop()
+
+
+async def test_token_failure_keeps_secret_for_form_retry(db, monkeypatch, caplog) -> None:
+    gateway = AppGateway()
+    gateway.fail_token = True
+    _install_transport(monkeypatch, gateway.handler)
+    driver, hub = _pinned_hub(gateway)
+    secret = gateway.client_secret
+    try:
+        with caplog.at_level(logging.DEBUG):
+            binding = await hub.begin_binding("feishu", {"flow": "1"})
+            await _wait_for(
+                lambda: (
+                    (found := hub.binding(binding.binding_id)) is not None
+                    and found.status == "failed"
+                )
+            )
+            failed = hub.binding(binding.binding_id)
+            assert failed is not None
+            assert "保留" in failed.message
+            assert failed.prefill == {"app_id": "cli_app"}
+            assert secret not in failed.message
+            gateway.fail_token = False
+            done = await hub.begin_binding(
+                "feishu",
+                {
+                    "app_id": "cli_app",
+                    "receive_id": "ou_scanner",
+                    "resume_flow": failed.resume_token,
+                },
+            )
+            assert done.status == "confirmed"
+            assert driver._registry.secret_for(failed.resume_token, "cli_app") == ""
+        assert secret not in caplog.text
+    finally:
+        await hub.stop()
+
+
+async def test_same_app_rebind_explains_the_update(db, monkeypatch) -> None:
+    _gateway, _driver, hub, ready = await _scan_ready(monkeypatch)
+    try:
+        first = await hub.binding_input(ready.binding_id, "")
+        assert first.review is False
+        binding = await hub.begin_binding("feishu", {"flow": "1"})
+        await _wait_for(
+            lambda: (
+                (found := hub.binding(binding.binding_id)) is not None
+                and found.status == "need_input"
+            )
+        )
+        again = hub.binding(binding.binding_id)
+        assert again is not None and "已绑定" in again.message
+        second = await hub.binding_input(again.binding_id, "oc_group2")
+        assert second.status == "confirmed" and second.review is True
+        assert "已绑定" in second.message and "更新" in second.message
+        rows = await _list_feishu()
+        assert [row.account_id for row in rows] == ["cli_app"]
+        from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
+
+        assert ChannelAccountRepository.credentials(rows[0])["receive_id"] == "oc_group2"
+    finally:
+        await hub.stop()
+
+
+async def test_long_push_still_sends_a_card(db, monkeypatch) -> None:
+    gateway, _driver, hub, ready = await _scan_ready(monkeypatch)
+    photo = b"\x89PNG\r\n\x1a\nposter"
+    try:
+        assert (await hub.binding_input(ready.binding_id, "")).status == "confirmed"
+        await _wait_for(lambda: hub.is_running("feishu", "cli_app"))
+        text = "长标题\n" + ("简" * 1500) + "\nhttps://example.com/late"
+        assert await hub.push(text, photo=photo) == 1
+        await _wait_for(
+            lambda: any(str(item.url).endswith("/im/v1/images") for item in gateway.requests)
+        )
+        cards = [
+            json.loads(json.loads(item.content)["content"])
+            for item in gateway.requests
+            if "/im/v1/messages" in str(item.url)
+            and json.loads(item.content)["msg_type"] == "interactive"
+        ]
+        assert cards
+        body = cards[-1]["elements"][1]["text"]["content"]
+        assert "简" in body
+        assert cards[-1]["elements"][0]["img_key"] == "img_poster"
+        assert cards[-1]["elements"][-1]["actions"][0]["url"] == "https://example.com/late"
+        before = len(gateway.requests)
+        assert await hub.push("超" * 20_001, photo=photo) == 1
+        await _wait_for(
+            lambda: any(
+                "/im/v1/messages" in str(item.url)
+                and json.loads(item.content).get("msg_type") == "text"
+                and "超" in json.loads(json.loads(item.content)["content"]).get("text", "")
+                for item in gateway.requests[before:]
+            )
+        )
+        assert not any(
+            str(item.url).endswith("/im/v1/images") for item in gateway.requests[before:]
+        )
+    finally:
+        await hub.stop()
+
+
+async def test_manual_target_length_and_permission_retry(db, monkeypatch) -> None:
+    gateway = AppGateway()
+    _install_transport(monkeypatch, gateway.handler)
+    _driver, hub = _pinned_hub(gateway)
+    fields = {
+        "app_id": "cli_form",
+        "app_secret": "app-secret-value",
+        "receive_id": "ou_" + ("b" * 126),
+    }
+    try:
+        with pytest.raises(ValueError, match="128"):
+            await hub.begin_binding("feishu", fields)
+        gateway.message_replies = [
+            httpx.Response(400, json={"code": 230027, "msg": "Lack of necessary permissions"})
+        ]
+        fields["receive_id"] = "ou_" + ("b" * 40)
+        with pytest.raises(ValueError, match="im:message") as exc_info:
+            await hub.begin_binding("feishu", fields)
+        assert "发布" in str(exc_info.value)
+        assert gateway.client_secret not in str(exc_info.value)
+        done = await hub.begin_binding("feishu", fields)
+        assert done.status == "confirmed" and done.review is False
+        again = await hub.begin_binding("feishu", {**fields, "receive_id": "oc_next"})
+        assert again.review is True
+        assert "已绑定" in again.message
+        rows = await _list_feishu()
+        assert [row.account_id for row in rows] == ["cli_form"]
     finally:
         await hub.stop()

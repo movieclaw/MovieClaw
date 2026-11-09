@@ -2549,7 +2549,11 @@
     "scanCreate": "Create an app by scanning",
     "done": "Done",
     "qrAlt": "QR code to link {channel}",
-    "codeHelp": "Valid for 10 minutes. The sender becomes the only user who can chat with the bot and receive notifications."
+    "codeHelp": "Valid for 10 minutes. The sender becomes the only user who can chat with the bot and receive notifications.",
+    "pushToMe": "Send to me",
+    "backToForm": "Back to the form",
+    "secretKept": "Kept on the server. Leave this blank",
+    "scanKeptHint": "The App ID from the scan is filled in. The App Secret stays on the server until you submit or scan again."
   },
   "schema": {
     "unset": "(Not set)",

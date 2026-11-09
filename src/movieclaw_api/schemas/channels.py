@@ -72,9 +72,13 @@ class ChannelBindPayload(BaseModel):
 
 
 class ChannelBindingInputPayload(BaseModel):
-    """交互式绑定里提交输入（如微信配对数字）。"""
+    """交互式绑定里提交输入（如微信配对数字）。
 
-    value: str = Field(min_length=1, max_length=64)
+    空串只对声明了 ``input_optional`` 的流程放行（飞书留空推给扫码人）。
+    其它流程仍由路由按 1–64 拒绝，避免放宽微信配对码。飞书 chat_id / open_id 最长 128。
+    """
+
+    value: str = Field(default="", max_length=128)
 
 
 class ChannelBindingView(BaseModel):
@@ -101,6 +105,14 @@ class ChannelBindingView(BaseModel):
     callback_url: str | None = None
     #: 回调地址的说明（填到哪、是否要先配外部访问地址）
     callback_note: str = ""
+    #: need_input 时可以提交空串（飞书：留空推给扫码人）
+    input_optional: bool = False
+    #: 可回填到表单的非机密字段（如 App ID）
+    prefill: dict[str, str] = Field(default_factory=dict)
+    #: 服务端暂存凭据的流程 id。页面用它重试，密钥不到达浏览器。
+    resume_token: str = ""
+    #: 同一账号再次绑定：展示更新说明，等用户点完成
+    review: bool = False
 
 
 class PushTestPayload(BaseModel):

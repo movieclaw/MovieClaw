@@ -6619,6 +6619,18 @@
   "imChannels.codeHelp": {
     "sourceHash": "7121a7f3a5b1918e9d3ee77dc712ba7f5f6cec7ce9cc6ff52124b84c2fdb22fe"
   },
+  "imChannels.pushToMe": {
+    "sourceHash": "d4709f422c48f84ba722b890c12c202f0c87382562b247c7718240ce76b5134d"
+  },
+  "imChannels.backToForm": {
+    "sourceHash": "19b4304bd71100b36a29c250722a5e99d811093c799d62a29b9296e3378d9465"
+  },
+  "imChannels.secretKept": {
+    "sourceHash": "e672ee1f99942092c5150958e0c7339f6a8a869a9f578dad0ad24383cbf95b14"
+  },
+  "imChannels.scanKeptHint": {
+    "sourceHash": "7a014c709f08b9bdbeef60f9aeec95986e2de3f0b4ffd9f0ac5c2c5383430fad"
+  },
   "mcp.controls.create": {
     "sourceHash": "2432e75587514627983db633bcfb6176fc37c5ee1d3f4cf559bc5276368008c0"
   },

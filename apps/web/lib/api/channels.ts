@@ -93,6 +93,14 @@ export interface ChannelBinding {
   /** 靠平台回调收消息的通道：这个账号的回调地址（发出时是完整地址）；旧服务端没有这个字段 */
   callback_url?: string | null;
   callback_note?: string;
+  /** need_input 可以提交空串（飞书留空推给扫码人）。旧服务端没有这个字段 */
+  input_optional?: boolean;
+  /** 可回填的非机密字段，例如 App ID。不含 App Secret */
+  prefill?: Record<string, string>;
+  /** 服务端暂存凭据的流程 id。重试时交回去，密钥不到达页面 */
+  resume_token?: string;
+  /** 同一账号再次绑定：展示更新说明，等用户点完成 */
+  review?: boolean;
 }
 
 export function listChannels(init?: RequestInit): Promise<{
