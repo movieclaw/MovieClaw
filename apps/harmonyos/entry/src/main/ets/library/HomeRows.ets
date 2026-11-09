@@ -133,16 +133,18 @@ export class MediaKindRowKind extends HomeRowKind {
   readonly sort: string;
   readonly reversed: boolean;
   readonly unwatched: boolean;
+  readonly unfinished: boolean;
   readonly name: string;
 
   constructor(kind: string, libraryCount: number, sort: string, reversed: boolean,
-    unwatched: boolean, name: string) {
+    unwatched: boolean, unfinished: boolean, name: string) {
     super();
     this.kind = kind;
     this.libraryCount = libraryCount;
     this.sort = sort;
     this.reversed = reversed;
     this.unwatched = unwatched;
+    this.unfinished = unfinished;
     this.name = name;
   }
 }
@@ -156,7 +158,7 @@ export class LibraryRowKind extends HomeRowKind {
   readonly builtin: boolean;
 
   constructor(library: LibraryView, sort: string, reversed: boolean,
-    unwatched: boolean, name: string, builtin: boolean, unfinished: boolean = false) {
+    unwatched: boolean, unfinished: boolean, name: string, builtin: boolean) {
     super();
     this.library = library;
     this.sort = sort;
@@ -245,6 +247,9 @@ export class HomeRows {
   /** 库行 / 合集行可选的排序档 */
   static readonly allSorts: string[] =
     ['added_at', 'release_date', 'last_played', 'rating', 'random', 'title'];
+  /** 「我的收藏」行的排序档 */
+  static readonly favoritesSorts: string[] = ['unwatched_first', 'favorited_at', 'rating', 'title'];
+
   /** 未展示的行按原位置插回，编辑筛选不能改变其它客户端的首页顺序。 */
   static preserveUnsupportedRows(edited: HomeRowPref[], original: HomeRowPref[], editableIds: string[]): HomeRowPref[] {
     const result: HomeRowPref[] = edited.slice();
@@ -255,9 +260,6 @@ export class HomeRows {
     });
     return result;
   }
-
-  /** 「我的收藏」行的排序档 */
-  static readonly favoritesSorts: string[] = ['unwatched_first', 'favorited_at', 'rating', 'title'];
 
   static preset(sort: string): SortPreset {
     if (sort === 'release_date') {
@@ -371,7 +373,7 @@ export class HomeRows {
   /** 自定义首页新加的类型行（排序取「最近添加」，名字留空跟随推荐） */
   static newMediaKindRow(id: string, kind: string, libraryCount: number): HomeRow {
     return new HomeRow(id, false,
-      new MediaKindRowKind(kind, libraryCount, 'added_at', false, false, ''));
+      new MediaKindRowKind(kind, libraryCount, 'added_at', false, false, false, ''));
   }
 
   /** 有类型色块行的库类型（TMDB 的类型表只分电影与剧集，同 iOS `genreKinds`） */
@@ -398,7 +400,7 @@ export class HomeRows {
     for (const library of libraries) {
       if (!library.exclude_from_home) {
         rows.push(new HomeRow(`lib:${library.id}`, false,
-          new LibraryRowKind(library, 'added_at', false, false, '', true)));
+          new LibraryRowKind(library, 'added_at', false, false, false, '', true)));
       }
     }
     return rows;
@@ -611,20 +613,43 @@ export class HomeRows {
   private static libraryRow(pref: HomeRowPref, library: LibraryView, builtin: boolean): HomeRow {
     const resolved: ResolvedSort =
       HomeRows.asRowSort(pref.sort ?? null, pref.order ?? null, HomeRows.sortsFor(library.kind));
-    // 「最近观看」只要播过的，与「只看没看过的」互斥：以排序为准，开关作废
+    // 「最近观看」只要播过的，与「只看没看完的 / 只看没看过的」互斥：以排序为准，开关作废；
+    // 「只看没看完的」优先于「只看没看过的」（同 Web home-rows.ts）
+    const unfinished: boolean = pref.unfinished === true && resolved.sort !== 'last_played';
     return new HomeRow(pref.id, pref.hidden === true, new LibraryRowKind(
       library, resolved.sort, resolved.reversed,
-      pref.unwatched === true && pref.unfinished !== true && resolved.sort !== 'last_played',
-      (pref.name ?? '').trim(), builtin, pref.unfinished === true && resolved.sort !== 'last_played'));
+      pref.unwatched === true && !pref.unfinished && resolved.sort !== 'last_played',
+      unfinished,
+      (pref.name ?? '').trim(), builtin));
   }
 
   /** 「全部 xx」跨库行：排序档沿库行同款档案（同 iOS `mediaKindRow`） */
   private static mediaKindRow(pref: HomeRowPref, kind: string, libraryCount: number): HomeRow {
     const resolved: ResolvedSort =
       HomeRows.asRowSort(pref.sort ?? null, pref.order ?? null, HomeRows.sortsFor(kind));
+    // 与库行同一条互斥与优先级（同 Web home-rows.ts）
+    const unfinished: boolean = pref.unfinished === true && resolved.sort !== 'last_played';
     return new HomeRow(pref.id, pref.hidden === true, new MediaKindRowKind(
       kind, libraryCount, resolved.sort, resolved.reversed,
-      pref.unwatched === true && resolved.sort !== 'last_played',
+      pref.unwatched === true && !pref.unfinished && resolved.sort !== 'last_played',
+      unfinished,
       (pref.name ?? '').trim()));
+  }
+
+  /** 行清单的回写形态：把存下来的行逐字段拷成 PUT 要的输入（含 unfinished / media_kind）。
+   *  自定义页与合集页共用——漏一个字段，服务端会把整份清单里这一行对应的能力丢掉。 */
+  static prefInputOf(pref: HomeRowPref): HomeRowPrefInput {
+    return {
+      id: pref.id,
+      sort: pref.sort ?? null,
+      order: pref.order ?? null,
+      name: pref.name ?? null,
+      unwatched: pref.unwatched ?? null,
+      unfinished: pref.unfinished ?? null,
+      hidden: pref.hidden ?? null,
+      library_id: pref.library_id ?? null,
+      collection_id: pref.collection_id ?? null,
+      media_kind: pref.media_kind ?? null
+    };
   }
 }
