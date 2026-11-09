@@ -504,6 +504,35 @@ class HomeUiPrefs(BaseModel):
         return self
 
 
+class PosterBadgePrefs(BaseModel):
+    """媒体库海报墙的角标（每个成员一份，超管走全局域）。
+
+    **默认全关**：上线前库存墙的海报上只有收藏的心（评分刻意不印，理由见前端
+    poster-wall.tsx 的 InventoryCell），老用户升级后墙面一格不变，想要哪个自己打开。
+    数据都随海报墙接口批量返回（LibraryItemView 的 rating / resolutions /
+    dynamic_range / has_atmos / air_status / has_chinese_subtitle /
+    progress_percent / unplayed_count），打开开关不会多发请求。
+    """
+
+    rating: bool = Field(default=False, description="左上角评分")
+    year: bool = Field(default=False, description="左上角年份")
+    resolution: bool = Field(default=False, description="右上角最高分辨率（4K / 1080P …）")
+    format: bool = Field(default=False, description="右上角 HDR / 杜比视界 / Atmos")
+    ended: bool = Field(
+        default=False, description="剧集「完结」标记（详情页标题旁同时标注播出状态）"
+    )
+    airing: bool = Field(default=False, description="剧集「更新中」标记")
+    chinese_subtitle: bool = Field(default=False, description="左下角「中」：有中文字幕")
+    progress: bool = Field(default=False, description="底部观看进度条（看到一半的）")
+    unwatched: bool = Field(default=False, description="右下角剧集未看集数")
+    hover_only: bool = Field(
+        default=False, description="顶部角标只在悬停 / 聚焦时显示；底部标记不受影响"
+    )
+    min_rating: float = Field(
+        default=0.0, ge=0.0, le=10.0, description="评分低于此值不显示评分角标；0 = 都显示"
+    )
+
+
 @register_setting(namespace="ui.preferences", title="界面偏好")
 class UiPreferencesSetting(SettingSchema):
     """全站界面样式偏好，按页面分组。新页面的设定加嵌套模型字段即可。"""
@@ -536,6 +565,9 @@ class UiPreferencesSetting(SettingSchema):
     scrim: ScrimUiPrefs = Field(default_factory=ScrimUiPrefs, description="全站背景蒙版")
     nav: NavUiPrefs = Field(default_factory=NavUiPrefs, description="侧边栏主导航排序")
     home: HomeUiPrefs = Field(default_factory=HomeUiPrefs, description="媒体库首页的行清单")
+    poster_badges: PosterBadgePrefs = Field(
+        default_factory=PosterBadgePrefs, description="媒体库海报墙的角标（默认全关）"
+    )
 
 
 async def get_ui_preferences() -> UiPreferencesSetting:

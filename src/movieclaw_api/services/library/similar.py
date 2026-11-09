@@ -349,7 +349,9 @@ async def build_similar_wall(
     )
     if not ids:
         return []
-    views = await _aggregate_wall_views(session, None, ids, ids, library_ids=set(library_ids))
+    views = await _aggregate_wall_views(
+        session, None, ids, ids, library_ids=set(library_ids), member_id=member_id
+    )
     favorites = await favorite_item_ids(session, ids, member_id=member_id)
     for view in views:
         view.is_favorite = view.media_item_id in favorites

@@ -942,6 +942,26 @@ data class FavoriteItemView(
      * 在位但尚未探出介质规格的文件数——扫描补探阶段前端据此把「还在处理」的条目排到海报墙前面并点亮标记
      */
     @SerialName("probe_pending_count") val probePendingCount: Long = 0,
+    /**
+     * 在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；SDR 为 null
+     */
+    @SerialName("dynamic_range") val dynamicRange: String? = null,
+    /**
+     * 有在位文件带杜比全景声（Atmos）音轨
+     */
+    @SerialName("has_atmos") val hasAtmos: Boolean = false,
+    /**
+     * 有中文字幕（内封轨或外挂文件；剧集任一集有即算）
+     */
+    @SerialName("has_chinese_subtitle") val hasChineseSubtitle: Boolean = false,
+    /**
+     * 当前观看者最近一次看到一半的进度（1~99）；没在看或不认人的调用为 null
+     */
+    @SerialName("progress_percent") val progressPercent: Long? = null,
+    /**
+     * 剧集：本墙在位集里当前观看者还没看完的集数；电影或不认人的调用为 null
+     */
+    @SerialName("unplayed_count") val unplayedCount: Long? = null,
     @SerialName("favorite_season_number") val favoriteSeasonNumber: Long? = null,
     @SerialName("favorite_episode_number") val favoriteEpisodeNumber: Long? = null,
 )
@@ -1485,6 +1505,10 @@ data class LibraryItemDetailView(
      * 这部片所属的合集（不含系列与「我的收藏」）
      */
     @SerialName("collections") val collections: List<ItemCollectionRef> = emptyList(),
+    /**
+     * 剧集播出状态（同海报墙）：airing=在播 / ended=完结；电影或状态未知为 null
+     */
+    @SerialName("air_status") val airStatus: String? = null,
 )
 
 /**
@@ -1602,6 +1626,26 @@ data class LibraryItemView(
      * 在位但尚未探出介质规格的文件数——扫描补探阶段前端据此把「还在处理」的条目排到海报墙前面并点亮标记
      */
     @SerialName("probe_pending_count") val probePendingCount: Long = 0,
+    /**
+     * 在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；SDR 为 null
+     */
+    @SerialName("dynamic_range") val dynamicRange: String? = null,
+    /**
+     * 有在位文件带杜比全景声（Atmos）音轨
+     */
+    @SerialName("has_atmos") val hasAtmos: Boolean = false,
+    /**
+     * 有中文字幕（内封轨或外挂文件；剧集任一集有即算）
+     */
+    @SerialName("has_chinese_subtitle") val hasChineseSubtitle: Boolean = false,
+    /**
+     * 当前观看者最近一次看到一半的进度（1~99）；没在看或不认人的调用为 null
+     */
+    @SerialName("progress_percent") val progressPercent: Long? = null,
+    /**
+     * 剧集：本墙在位集里当前观看者还没看完的集数；电影或不认人的调用为 null
+     */
+    @SerialName("unplayed_count") val unplayedCount: Long? = null,
 )
 
 /**
@@ -2577,6 +2621,62 @@ data class PlaybackStateView(
 )
 
 /**
+ * 媒体库海报墙的角标（每个成员一份，超管走全局域）。
+ * **默认全关**：上线前库存墙的海报上只有收藏的心（评分刻意不印，理由见前端
+ * poster-wall.tsx 的 InventoryCell），老用户升级后墙面一格不变，想要哪个自己打开。
+ * 数据都随海报墙接口批量返回（LibraryItemView 的 rating / resolutions /
+ * dynamic_range / has_atmos / air_status / has_chinese_subtitle /
+ * progress_percent / unplayed_count），打开开关不会多发请求。
+ */
+@Serializable
+data class PosterBadgePrefs(
+    /**
+     * 左上角评分
+     */
+    @SerialName("rating") val rating: Boolean = false,
+    /**
+     * 左上角年份
+     */
+    @SerialName("year") val year: Boolean = false,
+    /**
+     * 右上角最高分辨率（4K / 1080P …）
+     */
+    @SerialName("resolution") val resolution: Boolean = false,
+    /**
+     * 右上角 HDR / 杜比视界 / Atmos
+     */
+    @SerialName("format") val format: Boolean = false,
+    /**
+     * 剧集「完结」标记（详情页标题旁同时标注播出状态）
+     */
+    @SerialName("ended") val ended: Boolean = false,
+    /**
+     * 剧集「更新中」标记
+     */
+    @SerialName("airing") val airing: Boolean = false,
+    /**
+     * 左下角「中」：有中文字幕
+     */
+    @SerialName("chinese_subtitle") val chineseSubtitle: Boolean = false,
+    /**
+     * 底部观看进度条（看到一半的）
+     */
+    @SerialName("progress") val progress: Boolean = false,
+    /**
+     * 右下角剧集未看集数
+     */
+    @SerialName("unwatched") val unwatched: Boolean = false,
+    /**
+     * 顶部角标只在悬停 / 聚焦时显示；底部标记不受影响
+     */
+    @SerialName("hover_only") val hoverOnly: Boolean = false,
+    /**
+     * 评分低于此值不显示评分角标；0 = 都显示
+     */
+    @SerialName("min_rating") val minRating: Double = 0.0,
+)
+
+/**
  * 预检结果三态：ready 可直接渲染弹层；ambiguous 先让用户选候选；
  * not_found 提示该条目暂无法订阅。
  */
@@ -3519,6 +3619,10 @@ data class UiPreferencesSetting(
      * 媒体库首页的行清单
      */
     @SerialName("home") val home: HomeUiPrefs = HomeUiPrefs(),
+    /**
+     * 媒体库海报墙的角标（默认全关）
+     */
+    @SerialName("poster_badges") val posterBadges: PosterBadgePrefs = PosterBadgePrefs(),
 )
 
 /**

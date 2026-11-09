@@ -52,6 +52,20 @@ DEFAULT_PREFS = {
     "nav": {"order": [], "hidden": None},
     # 空清单 = 媒体库首页用出厂布局
     "home": {"rows": []},
+    # 海报角标默认全关：升级前库存墙的海报上只有收藏的心，老用户的墙面不能变
+    "poster_badges": {
+        "rating": False,
+        "year": False,
+        "resolution": False,
+        "format": False,
+        "ended": False,
+        "airing": False,
+        "chinese_subtitle": False,
+        "progress": False,
+        "unwatched": False,
+        "hover_only": False,
+        "min_rating": 0.0,
+    },
 }
 
 
@@ -336,3 +350,50 @@ def test_language_persists_and_old_clients_do_not_reset_it(client: TestClient) -
     invalid = client.put("/api/v1/ui/preferences", json={"language": "ja"})
     assert invalid.status_code == 422
     assert client.get("/api/v1/ui/preferences").json()["data"]["language"] == "auto"
+
+
+def test_poster_badges_persist(client: TestClient) -> None:
+    badges = {**DEFAULT_PREFS["poster_badges"], "rating": True, "unwatched": True}
+    badges["min_rating"] = 6.5
+    resp = client.put("/api/v1/ui/preferences", json={"poster_badges": badges})
+    assert resp.status_code == 200
+    saved = client.get("/api/v1/ui/preferences").json()["data"]["poster_badges"]
+    assert saved == badges
+
+
+def test_poster_badges_partial_payload_fills_defaults(client: TestClient) -> None:
+    """只带一个开关的老 / 精简客户端：其余开关取默认（全关）。"""
+    resp = client.put("/api/v1/ui/preferences", json={"poster_badges": {"resolution": True}})
+    assert resp.status_code == 200
+    saved = resp.json()["data"]["poster_badges"]
+    assert saved == {**DEFAULT_PREFS["poster_badges"], "resolution": True}
+
+
+@pytest.mark.parametrize("min_rating", [-1, 10.5])
+def test_poster_badges_min_rating_out_of_range_rejected(
+    client: TestClient, min_rating: float
+) -> None:
+    resp = client.put(
+        "/api/v1/ui/preferences", json={"poster_badges": {"rating": True, "min_rating": min_rating}}
+    )
+    assert resp.status_code == 422
+    assert client.get("/api/v1/ui/preferences").json()["data"] == DEFAULT_PREFS
+
+
+def test_old_clients_do_not_reset_poster_badges(client: TestClient) -> None:
+    """手机 App 的模型里没有 poster_badges，整体回写时不能把网页上开的角标冲掉。"""
+    client.put("/api/v1/ui/preferences", json={"poster_badges": {"progress": True}})
+    legacy = client.put(
+        "/api/v1/ui/preferences", json={"theme": "silver", "home": {"rows": [{"id": "up-next"}]}}
+    )
+    assert legacy.status_code == 200
+    assert legacy.json()["data"]["poster_badges"]["progress"] is True
+    stored = client.get("/api/v1/ui/preferences").json()["data"]
+    assert stored["poster_badges"]["progress"] is True
+    assert stored["home"]["rows"][0]["id"] == "up-next"
+    # 显式带上就照常覆盖（关掉也能关）
+    client.put("/api/v1/ui/preferences", json={"poster_badges": {"progress": False}})
+    assert (
+        client.get("/api/v1/ui/preferences").json()["data"]["poster_badges"]
+        == DEFAULT_PREFS["poster_badges"]
+    )

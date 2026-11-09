@@ -354,13 +354,17 @@ def test_ui_preferences_isolated_per_member(client: TestClient) -> None:
     member_draft = dict(admin_prefs)
     member_draft["sidebar"] = {**admin_prefs.get("sidebar", {}), "transparency": 0.33}
     member_draft["language"] = "en"
+    member_draft["poster_badges"] = {**admin_prefs["poster_badges"], "unwatched": True}
     saved = client.put("/api/v1/ui/preferences", json=member_draft)
     assert saved.status_code == 200
     member_prefs = client.get("/api/v1/ui/preferences").json()["data"]
     assert member_prefs["sidebar"]["transparency"] == 0.33
     assert member_prefs["language"] == "en"
+    assert member_prefs["poster_badges"]["unwatched"] is True
     legacy = client.put("/api/v1/ui/preferences", json={"theme": "silver"})
     assert legacy.json()["data"]["language"] == "en"
+    # 不带 poster_badges 的老客户端整体回写：成员自己开的角标保留
+    assert legacy.json()["data"]["poster_badges"]["unwatched"] is True
 
     # 超管的全局配置不受影响
     _use(client, admin_cookie)
