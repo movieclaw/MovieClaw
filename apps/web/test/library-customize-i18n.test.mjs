@@ -22,6 +22,8 @@ function load(locale, values = []) {
     "@/components/page-nav": { PageNav: ({ title, fallback }) => React.createElement("div", null, title, fallback.label) },
     "@/components/library-filter-bar": { WallSortControl: ({ options }) => React.createElement("div", null, options.map(([key,label]) => React.createElement("span", { key }, label))) },
     "@/components/icons": new Proxy({}, { get: () => () => null }),
+    // 海报角标设置区自有用例（poster-badges.test.mjs），这里只验行清单
+    "@/components/poster-badge-settings": { PosterBadgeSettings: () => null },
     "@/lib/api/libraries": {}, "@/lib/api/collections": {},
     "@/lib/home-rows": home,
     "@/lib/ui-prefs": { useUiPrefs: () => ({ prefs: preferences, savePrefs: () => {} }) },

@@ -1742,5 +1742,32 @@
     "all": "全部观看状态",
     "seen": "看过的",
     "empty": "没有符合条件的作品，可切换或清除观看筛选。"
+  },
+  "posterBadges": {
+    "title": "海报角标",
+    "hint": "在媒体库海报墙上叠加评分、规格、播出与观看状态。默认全部关闭，只影响你自己的账号，改动立即生效。",
+    "toggleRating": "评分",
+    "toggleYear": "年份",
+    "toggleResolution": "分辨率（4K、1080p…）",
+    "toggleFormat": "HDR、杜比视界与全景声",
+    "toggleEnded": "剧集已完结",
+    "toggleAiring": "剧集更新中",
+    "toggleChineseSubtitle": "中文字幕",
+    "toggleUnwatched": "剧集未看集数",
+    "toggleProgress": "观看进度条",
+    "displayMode": "顶部角标",
+    "modeAlways": "常驻显示",
+    "modeHover": "悬停时显示",
+    "minRating": "最低评分",
+    "minRatingHint": "低于这个分数的不显示评分角标",
+    "minRatingAny": "不限",
+    "ended": "完结",
+    "airing": "更新中",
+    "chineseSubtitleMark": "中",
+    "chineseSubtitle": "有中文字幕",
+    "unwatched": "{count} 集未看",
+    "progress": "已看 {percent}%",
+    "rating": "评分 {rating}",
+    "detailStatus": "播出状态：{status}"
   }
 }

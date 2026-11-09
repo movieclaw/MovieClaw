@@ -1,5 +1,6 @@
 import { appTranslator } from "./i18n/translate.ts";
 import type { AppLocale } from "./i18n/negotiate.ts";
+import type { PosterBadgeSource } from "./poster-badges.ts";
 
 /**
  * 影视数据的前端核心类型（发现页 / 详情页 / 订阅页共用）。
@@ -82,6 +83,8 @@ export interface MediaItem {
   backdropUrl?: string;
   /** 有在位文件时的库存摘要；无匹配或旧接口响应时为空。 */
   libraryStatus?: MediaLibraryStatus | null;
+  /** 库存条目的海报角标数据（见 PosterVisualItem.libraryBadges）；发现页条目不带 */
+  libraryBadges?: PosterBadgeSource;
 }
 
 /** 一行横滚海报的分类数据 */

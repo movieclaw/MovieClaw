@@ -10,6 +10,7 @@ import type { Route } from "next";
 import { ChevronDownIcon, GripIcon, TrashIcon } from "@/components/icons";
 import { WallSortControl } from "@/components/library-filter-bar";
 import { PageNav } from "@/components/page-nav";
+import { PosterBadgeSettings } from "@/components/poster-badge-settings";
 import { type Collection, listCollections } from "@/lib/api/collections";
 import { type MediaLibrary, listLibraries } from "@/lib/api/libraries";
 import {
@@ -456,6 +457,10 @@ export function LibraryCustomizeView() {
         <p className="mt-4 text-caption text-[var(--text-faint)]">
           {t("library.customize.hint")}
         </p>
+
+        {/* 海报角标：首页库行与各海报墙共用的显示偏好（与上面的行清单互不影响，
+            「恢复默认」只管行清单） */}
+        <PosterBadgeSettings />
       </div>
     </div>
   );

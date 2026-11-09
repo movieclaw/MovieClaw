@@ -1742,5 +1742,32 @@
     "all": "All watch states",
     "seen": "Previously watched",
     "empty": "No matching titles. Change or clear the watch filter."
+  },
+  "posterBadges": {
+    "title": "Poster badges",
+    "hint": "Show ratings, specs, airing and watch status on library poster walls. All off by default; only affects your account and applies immediately.",
+    "toggleRating": "Rating",
+    "toggleYear": "Year",
+    "toggleResolution": "Resolution (4K, 1080p…)",
+    "toggleFormat": "HDR, Dolby Vision and Atmos",
+    "toggleEnded": "Series ended",
+    "toggleAiring": "Series airing",
+    "toggleChineseSubtitle": "Chinese subtitles",
+    "toggleUnwatched": "Unwatched episode count",
+    "toggleProgress": "Watch progress bar",
+    "displayMode": "Top badges",
+    "modeAlways": "Always show",
+    "modeHover": "Show on hover",
+    "minRating": "Minimum rating",
+    "minRatingHint": "Ratings below this score are hidden",
+    "minRatingAny": "Any",
+    "ended": "Ended",
+    "airing": "Airing",
+    "chineseSubtitleMark": "ZH",
+    "chineseSubtitle": "Chinese subtitles available",
+    "unwatched": "{count, plural, one {# unwatched episode} other {# unwatched episodes}}",
+    "progress": "{percent}% watched",
+    "rating": "Rating {rating}",
+    "detailStatus": "Airing status: {status}"
   }
 }
