@@ -16,6 +16,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.trackselection.TrackSelectorResult
 import io.movieclaw.core.model.McJson
+import io.movieclaw.core.model.generated.PlaybackProgressRequest
 import io.movieclaw.core.model.generated.PlaybackSessionRequest
 import io.movieclaw.core.network.ClientIdentity
 import io.movieclaw.core.network.OkHttpTransport
@@ -148,8 +149,51 @@ class PlaybackReconnectTest {
         }
     }
 
+    @Test fun unburningPgsClearsUiRenderingAndProgressAcrossTheReplacementSession() = runTest {
+        Fixture(this, subtitleKind = "pgs", tier = 1, unburnTier = 0).use { f ->
+            f.open()
+            f.await { f.controller.state.value.phase == Phase.Buffering }
+            f.controller.selectSubtitle("embedded:0")
+            f.controller.burnSubtitle("embedded:0")
+            f.await { f.decides.size == 1 && f.sessions.size == 2 &&
+                f.controller.decision?.video?.burnSubtitle == "embedded:0" &&
+                f.controller.state.value.phase == Phase.Buffering }
+            assertEquals("embedded:0", f.controller.state.value.selectedSubtitle)
+            f.event("reportStart")
+            f.await { f.progress.size == 1 }
+
+            f.controller.unburnSubtitle()
+            assertEquals(null, f.controller.state.value.selectedSubtitle)
+            assertFalse(f.controller.state.value.engineSubtitles)
+            assertEquals(null, f.controller.state.value.overlaySubtitleUrl)
+            f.await { f.sessions.size == 3 && f.progress.size == 2 && f.controller.decision?.tier == 0L &&
+                f.controller.state.value.phase == Phase.Buffering }
+
+            assertEquals("off", f.sessionRequest(2).subtitleTrack)
+            assertFalse(f.sessionRequest(2).burnRequested == true)
+            assertEquals(null, f.controller.state.value.selectedSubtitle)
+            assertFalse(f.controller.state.value.engineSubtitles)
+            val group = f.emitEmbeddedPgsTrack()
+            assertTrue(f.controller.player.trackSelectionParameters.overrides
+                .get<TrackGroup, TrackSelectionOverride>(group) == null)
+            assertEquals("off", f.progressRequest(1).subtitleTrack)
+        }
+    }
+
     @Test fun embeddedTextOnHlsUsesTheOverlayInsteadOfAnUnconfiguredExoTrack() = runTest {
         Fixture(this, subtitleKind = "vtt", tier = 1).use { f ->
+            f.open()
+            f.await { f.controller.state.value.phase == Phase.Buffering }
+            f.controller.selectSubtitle("embedded:0")
+            runCurrent()
+            assertFalse(f.controller.state.value.engineSubtitles)
+            assertTrue(f.controller.state.value.overlaySubtitleUrl?.contains("/subtitle?token=t&format=vtt") == true)
+            assertTrue(f.controller.player.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty().isEmpty())
+        }
+    }
+
+    @Test fun embeddedAssOnHlsUsesTheOverlayInsteadOfAnUnconfiguredExoTrack() = runTest {
+        Fixture(this, subtitleKind = "ass", tier = 1).use { f ->
             f.open()
             f.await { f.controller.state.value.phase == Phase.Buffering }
             f.controller.selectSubtitle("embedded:0")
@@ -278,15 +322,21 @@ class PlaybackReconnectTest {
         private val mediaItemId: Long = 7,
         private val tier: Int = 0,
         private val subtitleKind: String? = null,
+        private val unburnTier: Int? = null,
     ) : AutoCloseable {
         val sessions = CopyOnWriteArrayList<RecordedRequest>()
         val decides = CopyOnWriteArrayList<RecordedRequest>()
+        val progress = CopyOnWriteArrayList<RecordedRequest>()
         val connections = mutableListOf<Boolean>()
         @Volatile var status = 200
         var connectFailure: IOException? = null
         private val server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.url.encodedPath == "/api/v1/playback/progress") {
+                        progress += request
+                        return MockResponse.Builder().body("""{"data":{"ended_by_admin":false}}""").build()
+                    }
                     if (request.url.encodedPath == "/api/v1/playback/decide") {
                         decides += request
                         val body = McJson.decodeFromString<io.movieclaw.core.model.generated.PlaybackDecideRequest>(request.body!!.utf8())
@@ -300,13 +350,14 @@ class PlaybackReconnectTest {
                         val sessionBody = McJson.decodeFromString<PlaybackSessionRequest>(request.body!!.utf8())
                         val failed = sessionBody.failedTiers.orEmpty()
                         val nextTier = if (tier.toLong() in failed) tier + 1 else tier
+                        val responseTier = if (sessionBody.subtitleTrack == "off") unburnTier ?: nextTier else nextTier
                         val decision = if (subtitleKind !== null) {
                             val burn = if (sessionBody.burnRequested == true) ",\"burn_subtitle\":\"embedded:0\"" else ""
                             ",\"subtitles\":[{\"track_ref\":\"embedded:0\",\"kind\":\"$subtitleKind\",\"language\":\"eng\",\"is_default\":false}],\"video\":{\"action\":\"copy\"$burn}"
                         } else ""
                         val urls = if (subtitleKind !== null) "\"subtitle_urls\":[\"/subtitle?token=t\"]," else ""
                         return MockResponse.Builder().code(status).body(
-                            """{"data":{"decision":{"outcome":"play","tier":$nextTier,"file_id":7$decision},"stream_url":"/stream?token=t","start_ms":45000,$urls"watch":null}}"""
+                            """{"data":{"decision":{"outcome":"play","tier":$responseTier,"file_id":7$decision},"stream_url":"/stream?token=t","start_ms":45000,$urls"watch":null}}"""
                         ).build()
                     }
                     return MockResponse.Builder().body("""{"data":{}}""").build()
@@ -346,6 +397,8 @@ class PlaybackReconnectTest {
         }
 
         fun sessionRequest(index: Int) = McJson.decodeFromString<PlaybackSessionRequest>(sessions[index].body!!.utf8())
+
+        fun progressRequest(index: Int) = McJson.decodeFromString<PlaybackProgressRequest>(progress[index].body!!.utf8())
 
         fun emitEmbeddedPgsTrack(): TrackGroup {
             val group = TrackGroup(Format.Builder().setId("0").setSampleMimeType(androidx.media3.common.MimeTypes.APPLICATION_PGS).build())

@@ -1825,10 +1825,13 @@ class PlaybackController(
         burnCheck++
         burnJob?.cancel()
         burnJob = null
+        subtitleTouched = true
         requestedBurnSubtitle = null
         requestedSubtitle = "off"
-        set { copy(wantsPlay = true) }
+        set { copy(selectedSubtitle = null, wantsPlay = true) }
+        applySubtitle()
         request(s.positionMs, Phase.SessionStarting)
+        if (reportedStart) sendProgress(paused = s.paused)
     }
 
     /** 当前字幕交给谁画：Exo（直连）/ 叠加层（服务端流的文本轨，或 Exo 读不到的内封文本轨）/ 不画（烧录、图形） */

@@ -1426,7 +1426,8 @@ const Player = {
     const generation = this.generation;
     if (this.isMpv()) {
       const track = plan ? this.mpvTracks.subtitles.find(t => t.ref === ref) : null;
-      if (plan?.kind === 'pgs' && !this.playsOriginalFile) {
+      const burned = this.sessionData?.decision?.video?.burn_subtitle;
+      if (plan?.kind === 'pgs' && !this.playsOriginalFile && burned !== ref) {
         // mpv cannot render the server's ffmpeg .sup sidecar on HLS/transcode.
         // Re-negotiate with the conservative capability so the server burns it.
         this.context.subtitle_track = ref;
@@ -1434,12 +1435,12 @@ const Player = {
         if (remember) this.context.__subtitleTouched = true;
         return App.restartPlaybackAt(Math.floor(this.engPos() * 1000));
       }
-      if (plan && !track) { this.controlError('这条字幕尚未被播放器载入'); return false; }
-      const result = await this.mpvCmd(['set_property', 'sid', track?.id ?? 'no']);
+      if (plan && !track && burned !== ref) { this.controlError('这条字幕尚未被播放器载入'); return false; }
+      const result = await this.mpvCmd(['set_property', 'sid', burned === ref ? 'no' : track?.id ?? 'no']);
       if (generation !== this.generation || selection !== this._subtitleSelectionSeq) return false;
       if (!result) { this.controlError('字幕切换失败，请重试'); return false; }
-      if (this.mpvState) this.mpvState.sid = track?.id ?? 'no';
-      await this.mpvCmd(['set_property', 'sub-delay', this.subtitleOffset - (track?.external ? this.originMs / 1000 : 0)]);
+      if (this.mpvState) this.mpvState.sid = burned === ref ? 'no' : track?.id ?? 'no';
+      if (burned !== ref) await this.mpvCmd(['set_property', 'sub-delay', this.subtitleOffset - (track?.external ? this.originMs / 1000 : 0)]);
       if (generation !== this.generation) return false;
     } else {
       const burned = this.sessionData?.decision?.video?.burn_subtitle;
