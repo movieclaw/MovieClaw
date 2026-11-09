@@ -915,7 +915,7 @@
   "errors.playbackSync.futureTime": "不能使用未来时间",
   "errors.playbackSync.memberInactive": "成员不存在或已停用",
   "errors.playbackSync.movieUnits": "电影的季集只能为 0 或省略",
-  "errors.playbackSync.nothingToWrite": "played、position_ms、is_favorite 至少要给一个",
+  "errors.playbackSync.nothingToWrite": "played、position_ms、is_favorite、dismiss_continue 至少要给一个",
   "errors.playbackSync.seasonRequired": "给了集号就必须同时给季号",
   "errors.playbackSync.timezoneRequired": "时间必须包含时区",
   "errors.playbackSync.watchedNoPosition": "已看的单元不能带续播位置",

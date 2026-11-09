@@ -221,6 +221,8 @@ async def _apply_one(
         )
         row.position_ms = outcome.position_ms
         row.played = outcome.played
+        # 比本地更新的一场真实播放：之前从「接下来继续」隐藏的作品回来
+        row.continue_dismissed = False
         row.updated_at = updated
         newly_played = outcome.played and not was_played
     if row.last_played_at is None or updated > row.last_played_at:

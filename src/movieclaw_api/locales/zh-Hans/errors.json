@@ -539,7 +539,7 @@
     "cursorInvalid": "游标无效",
     "timezoneRequired": "时间必须包含时区",
     "futureTime": "不能使用未来时间",
-    "nothingToWrite": "played、position_ms、is_favorite 至少要给一个",
+    "nothingToWrite": "played、position_ms、is_favorite、dismiss_continue 至少要给一个",
     "seasonRequired": "给了集号就必须同时给季号",
     "movieUnits": "电影的季集只能为 0 或省略",
     "episodeFromOne": "集号从 1 开始",

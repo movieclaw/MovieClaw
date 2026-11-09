@@ -539,7 +539,7 @@
     "cursorInvalid": "This cursor is invalid",
     "timezoneRequired": "Times must include a time zone",
     "futureTime": "Times can’t be in the future",
-    "nothingToWrite": "Provide at least one of played, position_ms or is_favorite",
+    "nothingToWrite": "Provide at least one of played, position_ms, is_favorite or dismiss_continue",
     "seasonRequired": "An episode number needs a season number",
     "movieUnits": "Movie season and episode must be 0 or omitted",
     "episodeFromOne": "Episode numbers start at 1",

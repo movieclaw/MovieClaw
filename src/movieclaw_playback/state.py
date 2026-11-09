@@ -160,6 +160,8 @@ async def record_playback_start(
     row = await _get_or_create(session, unit, member_id=member_id)
     row.play_count += 1
     row.last_played_at = utcnow()
+    # 真正再播放：之前从「接下来继续」隐藏的这部作品回来
+    row.continue_dismissed = False
     row.updated_at = utcnow()
     return row
 
@@ -183,6 +185,7 @@ async def record_playback_progress(
     row.position_ms = outcome.position_ms
     row.played = outcome.played
     row.last_played_at = utcnow()
+    row.continue_dismissed = False
     row.updated_at = utcnow()
     return row, (outcome.played and not was_played)
 
