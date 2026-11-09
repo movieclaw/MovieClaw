@@ -279,12 +279,21 @@ struct MacItemDetailView: View {
         if !people.isEmpty {
             MacShelf(title: String(localized: .mediaCardsCast), artHeight: MacMetrics.castWidth * 1.5) {
                 ForEach(Array(people.enumerated()), id: \.offset) { _, person in
+                    let link = CastLink.resolve(personId: person.personId, name: person.name, isActor: person.isActor, libraryId: libraryId)
                     MacPersonCard(name: person.name, role: person.role,
                                   avatarURL: api.image(person.avatar, width: ImageWidth.points(MacMetrics.castWidth)),
-                                  linked: person.personId != nil) {
-                        guard let id = person.personId else { return }
-                        router.push(.person(tmdbId: id, name: person.name, avatar: person.avatar, fromItem: itemId))
+                                  linked: link != nil) {
+                        switch link {
+                        case let .person(id)?:
+                            router.push(.person(tmdbId: id, name: person.name, avatar: person.avatar, fromItem: itemId))
+                        // 没有 TMDB 影人 id 的演员（NFO / 本地库）：同库按演员筛的墙，看他在这个库里的其他作品
+                        case let .libraryActor(lib, actor)?:
+                            router.push(.library(lib, actor: actor))
+                        case nil:
+                            break
+                        }
                     }
+                    .accessibilityHint(link?.opensLibrary == true ? String(localized: .mediaCardsActorInLibrary(person.name)) : "")
                     .accessibilityIdentifier(person.personId.map { "mac-cast-\($0)" } ?? "mac-cast-none")
                 }
             }
@@ -540,15 +549,16 @@ struct MacItemDetailView: View {
         return detail.collections.filter { $0.id != seriesId }
     }
 
-    typealias CastPerson = (name: String, role: String?, avatar: String?, personId: Int?)
+    /// isActor：演员（不是导演），没有影人 id 时点下去落到同库按演员筛的墙
+    typealias CastPerson = (name: String, role: String?, avatar: String?, personId: Int?, isActor: Bool)
 
     /// 演职员：导演在前（结构化的优先，没有就退回姓名），演员跟着
     static func castPeople(_ detail: API.LibraryItemDetailView) -> [CastPerson] {
         guard let meta = detail.localMeta else { return [] }
         let directors: [CastPerson] = meta.directorCredits.isEmpty
-            ? Array(NSOrderedSet(array: meta.directors)).compactMap { $0 as? String }.map { ($0, String(localized: .mediaDetailDirector), nil, nil) }
-            : meta.directorCredits.map { ($0.name, String(localized: .mediaDetailDirector), $0.thumbUrl, $0.tmdbPersonId) }
-        return directors + meta.actors.map { ($0.name, $0.role.flatMap { $0.isEmpty ? nil : String(localized: .mediaPersonCharacter($0)) }, $0.thumbUrl, $0.tmdbPersonId) }
+            ? Array(NSOrderedSet(array: meta.directors)).compactMap { $0 as? String }.map { ($0, String(localized: .mediaDetailDirector), nil, nil, false) }
+            : meta.directorCredits.map { ($0.name, String(localized: .mediaDetailDirector), $0.thumbUrl, $0.tmdbPersonId, false) }
+        return directors + meta.actors.map { ($0.name, $0.role.flatMap { $0.isEmpty ? nil : String(localized: .mediaPersonCharacter($0)) }, $0.thumbUrl, $0.tmdbPersonId, true) }
     }
 
     // MARK: 派生

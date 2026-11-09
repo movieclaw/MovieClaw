@@ -31,8 +31,9 @@ enum AppRoute: Hashable {
     case allCollections
     /// /library/{id}/c/{cid} 或 /library/c/{cid}
     case collection(libraryId: Int?, collectionId: Int)
-    /// /library/{id}?view=collections&pending=1：view 为合集视图，pending 为进页即开待处理抽屉
-    case library(id: Int, view: String? = nil, pending: Bool = false)
+    /// /library/{id}?view=collections&pending=1：view 为合集视图，pending 为进页即开待处理抽屉；
+    /// /library/{id}?actor=姓名：进页即按这位演员筛好（本地/NFO 库的演员卡没有影人页，点下去落到这里）
+    case library(id: Int, view: String? = nil, pending: Bool = false, actor: String? = nil)
     /// /library/kind/{movie|tv|video}?g={TMDB genre id}：按类型的跨库海报墙（首页「全部电影」行的查看全部）；
     /// 带 genre 是首页「按类型找电影 / 剧集」色块的落点，墙按这个 TMDB 类型筛好
     case libraryKind(kind: String, genre: Int? = nil)
@@ -278,7 +279,8 @@ extension AppRoute {
                 } else if parts.count >= 4, parts[2] == "c", let cid = int(parts[3]) {
                     self = .collection(libraryId: lib, collectionId: cid)
                 } else {
-                    self = .library(id: lib, view: query["view"], pending: query["pending"] == "1")
+                    self = .library(id: lib, view: query["view"], pending: query["pending"] == "1",
+                                    actor: LibraryFilter.normalizedActor(query["actor"]))
                 }
             }
         case "search":

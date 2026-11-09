@@ -201,7 +201,8 @@ final class MacWallLoader {
 
 // MARK: - 媒体库
 
-/// 一个媒体库的海报墙：库名 + 总数 + 排序 / 只看没看过的（按库记在本机，同 iPhone、Apple TV 版）
+/// 一个媒体库的海报墙：库名 + 总数 + 排序 / 只看没看过的（按库记在本机，同 iPhone、Apple TV 版）。
+/// 从条目详情的演员卡进来时还带一个演员名（本地/NFO 库的演员没有影人页）：标题下写「演员：姓名」，可在菜单里摘掉
 struct MacLibraryView: View {
     let libraryId: Int
 
@@ -212,6 +213,13 @@ struct MacLibraryView: View {
     @State private var unwatched = false
     @State private var unfinished = false
     @State private var restored = false
+    /// 演员条件：只由路由带进来，是这一次的意图，不记在本机
+    @State private var actor: String?
+
+    init(libraryId: Int, actor: String? = nil) {
+        self.libraryId = libraryId
+        _actor = State(initialValue: LibraryFilter.normalizedActor(actor))
+    }
 
     /// 提供的排序档（同 Apple TV 版）
     private static let sorts = ["added_at", "release_date", "rating", "title"]
@@ -220,14 +228,16 @@ struct MacLibraryView: View {
     private var sortKey: String { "movieclaw.mac.wall-sort.\(libraryId)" }
 
     var body: some View {
-        MacPosterWall(title: library?.name ?? String(localized: .libraryCustomizeLibrary), subtitle: library.map { String(localized: .libraryStatusTitleCount($0.stats.itemCount)) },
+        // 有演员条件时库的总数不再是墙上的部数，副标题改写条件
+        MacPosterWall(title: library?.name ?? String(localized: .libraryCustomizeLibrary),
+                      subtitle: actor.map { String(localized: .libraryFiltersActorCondition($0)) } ?? library.map { String(localized: .libraryStatusTitleCount($0.stats.itemCount)) },
                       wall: wall, fallbackLibrary: libraryId,
-                      emptyTitle: (unfinished || unwatched) ? String(localized: .libraryAllWatched) : String(localized: .libraryLibraryEmpty),
-                      emptyMessage: (unfinished || unwatched) ? nil : String(localized: .libraryScanOnWebHint),
+                      emptyTitle: actor != nil ? String(localized: .mediaDiscoveryNoMatches) : (unfinished || unwatched) ? String(localized: .libraryAllWatched) : String(localized: .libraryLibraryEmpty),
+                      emptyMessage: (unfinished || unwatched) || actor != nil ? nil : String(localized: .libraryScanOnWebHint),
                       retry: { await reload() }) {
             sortMenu
         }
-        .task(id: restored ? "\(sort.sort)-\(sort.reversed)-\(unwatched)-\(unfinished)" : nil) {
+        .task(id: restored ? "\(sort.sort)-\(sort.reversed)-\(unwatched)-\(unfinished)-\(actor ?? "")" : nil) {
             guard restored else { return }
             await reload()
         }
@@ -268,6 +278,12 @@ struct MacLibraryView: View {
                 Text(String(localized: .libraryUnwatched)).tag("unwatched")
                 Text(String(localized: .libraryFacetsUnfinished)).tag("unfinished")
             }
+            if let actor {
+                Divider()
+                Button(String(localized: .libraryFiltersRemoveCondition(String(localized: .libraryFiltersActor), actor)), systemImage: "xmark") {
+                    self.actor = nil
+                }
+            }
         } label: {
             Label(sortLabel, systemImage: "line.3.horizontal.decrease")
         }
@@ -286,8 +302,9 @@ struct MacLibraryView: View {
         let sortValue = sort.sort
         let order = WallSortDirections.of(sortValue)?.orderParam(reversed: sort.reversed)
         let watch = unfinished ? "unfinished" : unwatched ? "unwatched" : nil
+        let actor = actor
         await wall.reset { [api] offset, limit in
-            try await api.libraryItemsList(libraryId: id, sort: sortValue, order: order, limit: limit, offset: offset, w: watch)
+            try await api.libraryItemsList(libraryId: id, sort: sortValue, order: order, limit: limit, offset: offset, w: watch, actor: actor)
         }
     }
 }

@@ -244,7 +244,7 @@ struct TVDestination: View {
     private var page: some View {
         switch route {
         case let .item(libraryId, itemId): TVItemDetailView(libraryId: libraryId, itemId: itemId)
-        case let .library(id): TVLibraryView(libraryId: id)
+        case let .library(id, actor): TVLibraryView(libraryId: id, actor: actor)
         case let .collection(id, name): TVCollectionView(collectionId: id, name: name)
         case let .person(tmdbId, name, avatar, fromItem):
             TVPersonView(tmdbId: tmdbId, name: name, avatar: avatar, fromItem: fromItem)

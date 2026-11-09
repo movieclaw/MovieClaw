@@ -22,8 +22,10 @@ struct TVLibraryView: View {
     /// 电视上提供的排序档
     private static let sorts = ["added_at", "release_date", "rating", "title"]
 
-    init(libraryId: Int) {
+    /// actor：进来时就按这位演员筛好（条目详情的演员卡带进来）；与类型 / 年代 / 画质一样是这一次的意图，可在菜单里摘掉
+    init(libraryId: Int, actor: String? = nil) {
         self.libraryId = libraryId
+        _picks = State(initialValue: TVWallPicks(actor: LibraryFilter.normalizedActor(actor)))
         let key = Self.sortKey(libraryId)
         _sort = State(initialValue: WallSortState.load(key, default: WallSortState(sort: "added_at"), allowed: Self.sorts))
         _unfinished = State(initialValue: UserDefaults.standard.bool(forKey: key + ".unfinished"))
@@ -80,6 +82,7 @@ struct TVLibraryView: View {
             filter.resolutions = [resolution]
         }
         if unfinished { filter.watch = "unfinished" } else if unwatched { filter.watch = "unwatched" }
+        filter.actor = picks.actor
         return filter
     }
 
@@ -91,6 +94,7 @@ struct TVLibraryView: View {
         }
         if let decade = picks.decade { parts.append(Self.decadeLabel(decade, facets?.decades)) }
         if let quality = picks.quality { parts.append(qualityLabel(quality)) }
+        if let actor = picks.actor { parts.append(String(localized: .libraryFiltersActorCondition(actor))) }
         if unfinished { parts.append(String(localized: .libraryFacetsUnfinished)) } else if unwatched { parts.append(String(localized: .libraryUnwatched)) }
         return parts
     }
@@ -157,6 +161,12 @@ struct TVLibraryView: View {
                 facetMenu(String(localized: .libraryFiltersDecades), options: decadeOptions, selected: picks.decade) { picks.decade = $0 }
                 facetMenu(String(localized: .libraryFiltersQuality), options: facets == nil ? nil : qualityOptions, selected: picks.quality,
                           selectedLabel: picks.quality.map(qualityLabel)) { picks.quality = $0 }
+                // 演员没有可选的候选值（只由详情页带进来），只给一个「取消」
+                if let actor = picks.actor {
+                    Button(String(localized: .libraryFiltersRemoveCondition(String(localized: .libraryFiltersActor), actor)), systemImage: "xmark") {
+                        picks.actor = nil
+                    }
+                }
                 if !picks.isEmpty {
                     Button(String(localized: .libraryManageClearFilters), systemImage: "xmark.circle") { picks = TVWallPicks() }
                 }
@@ -266,7 +276,8 @@ struct TVLibraryView: View {
     }
 }
 
-/// 媒体库墙上选的类型 / 年代 / 画质（各单选：电视上一维选一个就够，多选的组合交给网页和 iPhone）
+/// 媒体库墙上选的类型 / 年代 / 画质（各单选：电视上一维选一个就够，多选的组合交给网页和 iPhone），
+/// 外加从条目详情演员卡带进来的演员名
 struct TVWallPicks: Hashable {
     /// 画质里「HDR」的取值（其余取值是分辨率，如 2160p）
     static let hdr = "hdr"
@@ -274,8 +285,9 @@ struct TVWallPicks: Hashable {
     var genre: Int?
     var decade: String?
     var quality: String?
+    var actor: String?
 
-    var isEmpty: Bool { genre == nil && decade == nil && quality == nil }
+    var isEmpty: Bool { genre == nil && decade == nil && quality == nil && actor == nil }
 }
 
 /// 合集：同一套海报墙，条目来自合集接口；排序按合集记在本机，默认是合集自己的顺序
