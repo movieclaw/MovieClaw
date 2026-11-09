@@ -40,7 +40,8 @@ import {
   TvDetailRoute,
   TvPersonRoute,
   TvPlayRequest,
-  TvUiState
+  TvUiState,
+  TvWallRoute
 } from '../model/TvUiState';
 import { TvStageAction, TvStageBackdrop, TvStageBlock } from '../components/TvStage';
 import { TvEpisodeCard, TvFormat, TvStateView } from '../components/TvCards';
@@ -58,12 +59,15 @@ class TvCastPerson {
   readonly role: string | null;
   readonly avatarUrl: string;
   readonly personId: number | null;
+  /** 演员（导演为 false）：没有影人 id 时按确认落到同库按演员筛的墙 */
+  readonly isActor: boolean;
 
-  constructor(name: string, role: string | null, avatarUrl: string, personId: number | null) {
+  constructor(name: string, role: string | null, avatarUrl: string, personId: number | null, isActor: boolean = false) {
     this.name = name;
     this.role = role;
     this.avatarUrl = avatarUrl;
     this.personId = personId;
+    this.isActor = isActor;
   }
 }
 
@@ -192,7 +196,7 @@ function castPeopleOf(detail: LibraryItemDetailView, origin: string): TvCastPers
     out.push(new TvCastPerson(actor.name,
       role === null ? null : `饰 ${role}`,
       ImageUrls.resolve(origin, actor.thumb_url ?? null, null) ?? '',
-      actor.tmdb_person_id ?? null));
+      actor.tmdb_person_id ?? null, true));
   }
   return out;
 }
@@ -976,10 +980,26 @@ export struct TvItemDetail {
   private openCast(card: TvShelfCard): void {
     const index: number = Number(card.key.substring('cast_'.length));
     const person: TvCastPerson | undefined = this.castPeople[index];
-    if (person === undefined || person.personId === null) {
+    if (person === undefined) {
       return;
     }
-    TvUiState.shared.pushRoute(new TvPersonRoute(person.personId, person.name));
+    if (person.personId !== null) {
+      TvUiState.shared.pushRoute(new TvPersonRoute(person.personId, person.name));
+      return;
+    }
+    // 没有 TMDB 影人 id 的演员（本地/NFO 库）：同库按演员名筛的墙（网页 CastRow 同款）；
+    // 没有 id 的导演不跳——后端按演员表筛，导演点进去是空墙
+    const actor: string = person.name.trim();
+    if (!person.isActor || actor === '') {
+      return;
+    }
+    let title: string = '媒体库';
+    for (const library of LibraryHomeStore.shared.libraries ?? []) {
+      if (library.id === this.libraryId) {
+        title = library.name;
+      }
+    }
+    TvUiState.shared.pushRoute(new TvWallRoute(this.libraryId, title, null, actor));
   }
 
   private similarCards(): TvShelfCard[] {

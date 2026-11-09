@@ -6,6 +6,7 @@ import playbackControllerTest from '../../../test/PlaybackController.test';
 import playbackSessionTest from '../../../test/PlaybackSession.test';
 import playbackE2ETest from './Playback.e2e.test';
 import abilityTest from './Ability.test';
+import libraryActorFilterTest from './LibraryActorFilter.test';
 
 export default function testsuite() {
   playerInteractionTest();
@@ -14,6 +15,7 @@ export default function testsuite() {
   playbackControllerTest();
   playbackGatewayTest();
   playbackSessionTest();
+  libraryActorFilterTest();
   playbackE2ETest();
   appTabsE2E();
 }

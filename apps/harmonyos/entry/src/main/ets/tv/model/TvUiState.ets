@@ -43,12 +43,15 @@ export class TvWallRoute extends TvRoute {
   readonly title: string;
   /** kind 墙（「全部电影/全部剧集」）的媒体类型；单库墙为 null */
   readonly kindSource: string | null;
+  /** 演员名：详情页没有影人 id 的演员（本地/NFO 库）点进来，同库按演员名筛；不进本机记忆 */
+  readonly actor: string | null;
 
-  constructor(libraryId: number, title: string, kindSource: string | null) {
+  constructor(libraryId: number, title: string, kindSource: string | null, actor: string | null = null) {
     super('wall');
     this.libraryId = libraryId;
     this.title = title;
     this.kindSource = kindSource;
+    this.actor = actor;
   }
 }
 

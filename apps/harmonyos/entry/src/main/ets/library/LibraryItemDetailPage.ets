@@ -52,6 +52,7 @@ import {
 } from './AirSchedule';
 import { AirScheduleCard, AirScheduleSheet, arrivalColor } from './AirScheduleCard';
 import { PersonParams } from '../discover/PersonDetailPage';
+import { LibraryRouteParams } from './LibraryDetailPage';
 import { DiscoverDetailParams } from '../discover/DiscoverDetailPage';
 import { SubscribeCenter } from '../subscriptions/SubscribeCenter';
 import { SubscriptionParams } from '../subscriptions/SubscriptionDetailPage';
@@ -130,17 +131,37 @@ class CastPerson {
   readonly avatar: string;
   /** TMDB 影人 ID；有值时这一格链到库内影人页（null = 不可点，同 iOS personId） */
   readonly personId: number | null;
+  /** 演员（导演为 false）：没有影人 id 的演员点进同库按演员筛的海报墙 */
+  readonly isActor: boolean;
 
-  constructor(name: string, subtitle: string | null, avatar: string, personId: number | null = null) {
+  constructor(name: string, subtitle: string | null, avatar: string, personId: number | null = null,
+    isActor: boolean = false) {
     this.name = name;
     this.subtitle = subtitle;
     this.avatar = avatar;
     this.personId = personId;
+    this.isActor = isActor;
   }
 
   key(): string {
     return `${this.name}-${this.subtitle ?? ''}`;
   }
+}
+
+/**
+ * 演职员卡点一下去哪（纯判断，单测用）：
+ * - 有 TMDB 影人 id → 'person'（库内影人页，原行为）；
+ * - 没有影人 id 的**演员**（本地 / NFO 库常见）→ 'libraryDetail'（同库海报墙按演员名筛，同 Web）；
+ * - 其余（没有 id 的导演、名字为空、库 id 无效）→ ''，不可点。
+ */
+export function castTapTarget(personId: number | null, isActor: boolean, name: string, libraryId: number): string {
+  if (personId !== null && personId > 0) {
+    return 'person';
+  }
+  if (isActor && libraryId > 0 && name.trim().length > 0) {
+    return 'libraryDetail';
+  }
+  return '';
 }
 
 @Component
@@ -485,9 +506,17 @@ export struct LibraryItemDetailPage {
       out.push(new CastPerson(name,
         role !== null && role.length > 0 ? `饰 ${role}` : null,
         this.avatarUrl(actor.thumb_url ?? null),
-        (actor.tmdb_person_id ?? 0) > 0 ? actor.tmdb_person_id as number : null));
+        (actor.tmdb_person_id ?? 0) > 0 ? actor.tmdb_person_id as number : null, true));
     }
     return out;
+  }
+
+  /** 去同库按演员筛的卡给读屏补一句去向（同 Web media.cards.actorInLibrary）；其余卡不补 */
+  private castTapHint(person: CastPerson): string {
+    if (castTapTarget(person.personId, person.isActor, person.name, this.libraryId) === 'libraryDetail') {
+      return `在本库查看 ${person.name.trim()} 的作品`;
+    }
+    return '';
   }
 
   /** 头像地址（相对路径要拼服务器地址；后端地址自带 ?v= 时也能正确接参数，见 ImageUrls） */
@@ -2467,11 +2496,16 @@ export struct LibraryItemDetailPage {
               }
               .width(96)
               .alignItems(HorizontalAlign.Start)
+              .accessibilityDescription(this.castTapHint(person))
               .onClick(() => {
-                // 有 TMDB 影人 ID 才可点，进库内影人页（同 iOS NavigationLink(.person)）
-                const id: number | null = person.personId;
-                if (id !== null && id > 0) {
-                  this.navStack.pushPathByName('person', new PersonParams(id));
+                // 有 TMDB 影人 ID 进库内影人页（同 iOS NavigationLink(.person)）；
+                // 没有 ID 的演员进同库海报墙、按演员名筛（同 Web cast-row）
+                const target: string = castTapTarget(person.personId, person.isActor, person.name, this.libraryId);
+                if (target === 'person') {
+                  this.navStack.pushPathByName('person', new PersonParams(person.personId as number));
+                } else if (target === 'libraryDetail') {
+                  this.navStack.pushPathByName('libraryDetail',
+                    new LibraryRouteParams(this.libraryId, person.name.trim()));
                 }
               })
             }, (person: CastPerson) => person.key())

@@ -524,6 +524,8 @@ export struct TvLibraryWall {
   @Param sourceKey: string = '';
   @Local rowWatchCleared: boolean = false;
   @Param title: string = '';
+  /** 单库墙的演员名（详情页演员卡带进来）；空串 = 没有 */
+  @Param actor: string = '';
 
   /** 响应式状态（@Local）：build 依赖这些 */
   @Local loading: boolean = true;
@@ -540,6 +542,8 @@ export struct TvLibraryWall {
   @Local cellWidth: number = 218;
   @Local startOffset: number = 0;
   @Local focusedItemId: number = -1;
+  /** 生效中的演员条件：进页取自 [actor]，面板里可摘掉；是这一次的意图，不写进 TvWallPrefs */
+  @Local actorFilter: string = '';
 
   /** 非响应式状态 */
   private readonly wallSource: TvWallDataSource = new TvWallDataSource();
@@ -560,6 +564,7 @@ export struct TvLibraryWall {
 
   aboutToAppear(): void {
     TvUiState.shared.registerRouteBack(this.route, (): boolean => this.handlePanelBack());
+    this.actorFilter = this.actor.trim();
     const key: string = this.wallKey();
     if (key !== '') {
       TvUiState.shared.wallPrefs(key)
@@ -986,7 +991,13 @@ export struct TvLibraryWall {
   // MARK: - 条件与文案
 
   private picksActive(): boolean {
-    return this.prefs.genre !== null || this.prefs.decade !== null || this.prefs.resolution !== null;
+    return this.prefs.genre !== null || this.prefs.decade !== null || this.prefs.resolution !== null ||
+      this.actorFilter !== '';
+  }
+
+  /** 演员条件的查询参数：没有就不带 */
+  private actorParam(): string | undefined {
+    return this.actorFilter !== '' ? this.actorFilter : undefined;
   }
 
   private genreTitle(): string {
@@ -1026,6 +1037,9 @@ export struct TvLibraryWall {
 
   private conditionParts(): string[] {
     const parts: string[] = [];
+    if (this.actorFilter !== '') {
+      parts.push(`演员：${this.actorFilter}`);
+    }
     if (this.prefs.genre !== null) {
       parts.push(this.genreTitle());
     }
@@ -1115,7 +1129,7 @@ export struct TvLibraryWall {
       prefs.resolution !== null && prefs.resolution !== 'hdr' ? prefs.resolution : undefined;
     const hdr: boolean | undefined = prefs.resolution === 'hdr' ? true : undefined;
     api.libraryItemsFacets(this.libraryId, 'all', g, undefined, d, w,
-      undefined, undefined, undefined, res, hdr)
+      undefined, undefined, undefined, res, hdr, undefined, undefined, this.actorParam())
       .then((view: LibraryFacetsView): void => {
         if (gen !== this.generation) {
           return;
@@ -1141,7 +1155,7 @@ export struct TvLibraryWall {
       prefs.resolution !== null && prefs.resolution !== 'hdr' ? prefs.resolution : undefined;
     const hdr: boolean | undefined = prefs.resolution === 'hdr' ? true : undefined;
     api.uiLibraryItemsIndex(this.libraryId, prefs.sort, this.orderParam(), g, undefined, d, w,
-      undefined, undefined, undefined, res, hdr)
+      undefined, undefined, undefined, res, hdr, undefined, undefined, this.actorParam())
       .then((raw: LibraryIndexEntryView[]): void => {
         if (gen !== this.generation) {
           return;
@@ -1169,7 +1183,8 @@ export struct TvLibraryWall {
           prefs.resolution !== null && prefs.resolution !== 'hdr' ? prefs.resolution : undefined;
         const hdr: boolean | undefined = prefs.resolution === 'hdr' ? true : undefined;
         return api.libraryItemsList(this.libraryId, prefs.sort, this.orderParam(), limit, offset,
-          undefined, g, undefined, d, w, undefined, undefined, undefined, res, hdr)
+          undefined, g, undefined, d, w, undefined, undefined, undefined, res, hdr, undefined, undefined,
+          this.actorParam())
           .then((views: LibraryItemView[]): TvWallPage => this.pageOf(views, null));
       }
       return api.uiLibraryKindItems(this.kindSource, prefs.sort, this.orderParam(), limit, offset,
@@ -1694,6 +1709,19 @@ export struct TvLibraryWall {
 
     if (this.picksActive()) {
       rows.push(TvWallRow.header(`${salt}_h_clear`, ''));
+      // 演员不是面板里的一维（只由详情页演员卡带进来），这里只给一条摘掉它的路
+      if (this.actorFilter !== '') {
+        rows.push(TvWallRow.option(
+          `${salt}_opt_actor`,
+          `移除演员：${this.actorFilter}`,
+          null,
+          false,
+          false,
+          (): void => {
+            this.actorFilter = '';
+            this.reload();
+          }));
+      }
       rows.push(TvWallRow.option(
         `${salt}_opt_clear`,
         '清除筛选',
@@ -1769,6 +1797,7 @@ export struct TvLibraryWall {
 
   /** 面板里的「清除筛选」：只清类型/年代/画质，保留排序与「只看没看过的」 */
   private clearPicks(): void {
+    this.actorFilter = '';
     this.mutatePrefs((prefs: TvWallPrefs): void => {
       prefs.genre = null;
       prefs.decade = null;
@@ -1779,6 +1808,7 @@ export struct TvLibraryWall {
 
   /** 筛空页上的「清除全部条件」：连「只看没看过的」一起清 */
   private clearAll(): void {
+    this.actorFilter = '';
     this.mutatePrefs((prefs: TvWallPrefs): void => {
       prefs.genre = null;
       prefs.decade = null;

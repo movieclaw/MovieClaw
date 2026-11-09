@@ -1650,7 +1650,7 @@ export class MovieClawApi {
 
   /** 按类型的跨库海报墙（同一部片跨库只出现一次） */
   /** `GET /libraries/kinds/{kind}/items` */
-  uiLibraryKindItems(kind: string, sort?: string, order?: string, limit?: number, offset?: number, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string): Promise<LibraryItemView[]> {
+  uiLibraryKindItems(kind: string, sort?: string, order?: string, limit?: number, offset?: number, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string): Promise<LibraryItemView[]> {
     const pairs: QueryPair[] = [];
     if (sort !== undefined && sort !== null) { pairs.push({ key: 'sort', value: sort }); }
     if (order !== undefined && order !== null) { pairs.push({ key: 'order', value: order }); }
@@ -1667,6 +1667,7 @@ export class MovieClawApi {
     if (hdr !== undefined && hdr !== null) { pairs.push({ key: 'hdr', value: hdr }); }
     if (stock !== undefined && stock !== null) { pairs.push({ key: 'stock', value: stock }); }
     if (seriesKeys !== undefined && seriesKeys !== null) { pairs.push({ key: 'series_keys', value: seriesKeys }); }
+    if (actor !== undefined && actor !== null) { pairs.push({ key: 'actor', value: actor }); }
     return this.client.get<LibraryItemView[]>(`/libraries/kinds/${kind}/items` + ApiQuery.build(pairs));
   }
 
@@ -1783,7 +1784,7 @@ export class MovieClawApi {
 
   /** 筛选面板的候选值与计数（每一维排除自身条件后算） */
   /** `GET /libraries/{library_id}/facets` */
-  libraryItemsFacets(libraryId: number, tier?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string): Promise<LibraryFacetsView> {
+  libraryItemsFacets(libraryId: number, tier?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string): Promise<LibraryFacetsView> {
     const pairs: QueryPair[] = [];
     if (tier !== undefined && tier !== null) { pairs.push({ key: 'tier', value: tier }); }
     if (g !== undefined && g !== null) { pairs.push({ key: 'g', value: g }); }
@@ -1797,6 +1798,7 @@ export class MovieClawApi {
     if (hdr !== undefined && hdr !== null) { pairs.push({ key: 'hdr', value: hdr }); }
     if (stock !== undefined && stock !== null) { pairs.push({ key: 'stock', value: stock }); }
     if (seriesKeys !== undefined && seriesKeys !== null) { pairs.push({ key: 'series_keys', value: seriesKeys }); }
+    if (actor !== undefined && actor !== null) { pairs.push({ key: 'actor', value: actor }); }
     return this.client.get<LibraryFacetsView>(`/libraries/${libraryId}/facets` + ApiQuery.build(pairs));
   }
 
@@ -1814,7 +1816,7 @@ export class MovieClawApi {
 
   /** 库内条目的图廊：海报 / 剧照 / 章节场景图按条目分组铺平（图床浏览模式数据源） */
   /** `GET /libraries/{library_id}/gallery` */
-  uiLibraryGallery(libraryId: number, limit?: number, offset?: number, sort?: string, order?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string): Promise<LibraryGalleryGroupView[]> {
+  uiLibraryGallery(libraryId: number, limit?: number, offset?: number, sort?: string, order?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string): Promise<LibraryGalleryGroupView[]> {
     const pairs: QueryPair[] = [];
     if (limit !== undefined && limit !== null) { pairs.push({ key: 'limit', value: limit }); }
     if (offset !== undefined && offset !== null) { pairs.push({ key: 'offset', value: offset }); }
@@ -1831,6 +1833,7 @@ export class MovieClawApi {
     if (hdr !== undefined && hdr !== null) { pairs.push({ key: 'hdr', value: hdr }); }
     if (stock !== undefined && stock !== null) { pairs.push({ key: 'stock', value: stock }); }
     if (seriesKeys !== undefined && seriesKeys !== null) { pairs.push({ key: 'series_keys', value: seriesKeys }); }
+    if (actor !== undefined && actor !== null) { pairs.push({ key: 'actor', value: actor }); }
     return this.client.get<LibraryGalleryGroupView[]>(`/libraries/${libraryId}/gallery` + ApiQuery.build(pairs));
   }
 
@@ -1842,7 +1845,7 @@ export class MovieClawApi {
 
   /** 海报墙的跳转索引（按标题：A-Z 首字母档；按内容时间：月份档） */
   /** `GET /libraries/{library_id}/item-index` */
-  uiLibraryItemsIndex(libraryId: number, sort?: string, order?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string): Promise<LibraryIndexEntryView[]> {
+  uiLibraryItemsIndex(libraryId: number, sort?: string, order?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string): Promise<LibraryIndexEntryView[]> {
     const pairs: QueryPair[] = [];
     if (sort !== undefined && sort !== null) { pairs.push({ key: 'sort', value: sort }); }
     if (order !== undefined && order !== null) { pairs.push({ key: 'order', value: order }); }
@@ -1857,6 +1860,7 @@ export class MovieClawApi {
     if (hdr !== undefined && hdr !== null) { pairs.push({ key: 'hdr', value: hdr }); }
     if (stock !== undefined && stock !== null) { pairs.push({ key: 'stock', value: stock }); }
     if (seriesKeys !== undefined && seriesKeys !== null) { pairs.push({ key: 'series_keys', value: seriesKeys }); }
+    if (actor !== undefined && actor !== null) { pairs.push({ key: 'actor', value: actor }); }
     return this.client.get<LibraryIndexEntryView[]>(`/libraries/${libraryId}/item-index` + ApiQuery.build(pairs));
   }
 
@@ -1882,7 +1886,7 @@ export class MovieClawApi {
 
   /** 库内媒体条目的库存聚合（单库海报墙数据源） */
   /** `GET /libraries/{library_id}/items` */
-  libraryItemsList(libraryId: number, sort?: string, order?: string, limit?: number, offset?: number, identity?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string): Promise<LibraryItemView[]> {
+  libraryItemsList(libraryId: number, sort?: string, order?: string, limit?: number, offset?: number, identity?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string): Promise<LibraryItemView[]> {
     const pairs: QueryPair[] = [];
     if (sort !== undefined && sort !== null) { pairs.push({ key: 'sort', value: sort }); }
     if (order !== undefined && order !== null) { pairs.push({ key: 'order', value: order }); }
@@ -1900,6 +1904,7 @@ export class MovieClawApi {
     if (hdr !== undefined && hdr !== null) { pairs.push({ key: 'hdr', value: hdr }); }
     if (stock !== undefined && stock !== null) { pairs.push({ key: 'stock', value: stock }); }
     if (seriesKeys !== undefined && seriesKeys !== null) { pairs.push({ key: 'series_keys', value: seriesKeys }); }
+    if (actor !== undefined && actor !== null) { pairs.push({ key: 'actor', value: actor }); }
     return this.client.get<LibraryItemView[]>(`/libraries/${libraryId}/items` + ApiQuery.build(pairs));
   }
 
@@ -2081,7 +2086,7 @@ export class MovieClawApi {
 
   /** 筛空时的放宽建议（只列救得回内容的条件） */
   /** `GET /libraries/{library_id}/relax` */
-  libraryItemsRelax(libraryId: number, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string): Promise<LibraryRelaxView> {
+  libraryItemsRelax(libraryId: number, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string): Promise<LibraryRelaxView> {
     const pairs: QueryPair[] = [];
     if (g !== undefined && g !== null) { pairs.push({ key: 'g', value: g }); }
     if (c !== undefined && c !== null) { pairs.push({ key: 'c', value: c }); }
@@ -2094,6 +2099,7 @@ export class MovieClawApi {
     if (hdr !== undefined && hdr !== null) { pairs.push({ key: 'hdr', value: hdr }); }
     if (stock !== undefined && stock !== null) { pairs.push({ key: 'stock', value: stock }); }
     if (seriesKeys !== undefined && seriesKeys !== null) { pairs.push({ key: 'series_keys', value: seriesKeys }); }
+    if (actor !== undefined && actor !== null) { pairs.push({ key: 'actor', value: actor }); }
     return this.client.get<LibraryRelaxView>(`/libraries/${libraryId}/relax` + ApiQuery.build(pairs));
   }
 

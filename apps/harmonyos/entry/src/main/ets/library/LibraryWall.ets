@@ -135,6 +135,8 @@ export class FilterDimension {
  * 海报墙筛选条件（Web lib/library-filter.ts 的 LibraryFilter）。
  * 语义：维内 OR、维间 AND。seriesKeys 没有界面控件（合集才是它的呈现形态），
  * 不计入角标、不画成条件 chip。筛选是意图不持久化，由持有它的页面自己保存。
+ * actor（演员名）同样没有面板控件：只从详情页演员卡带进来，条件行里可摘掉；
+ * 合集规则没有这一维，所以不进 rules()、fromRules() 也不会产出它。
  */
 export class LibraryFilter {
   genres: number[] = [];
@@ -148,8 +150,10 @@ export class LibraryFilter {
   hdr: boolean | null = null;
   stock: string[] = [];
   seriesKeys: string[] = [];
+  /** 演员整名（已去首尾空白；null = 不按演员筛，空串一律当 null，同 Web / 后端口径） */
+  actor: string | null = null;
 
-  /** 维度的显示顺序与叫法（十个维度一个都不能少） */
+  /** 维度的显示顺序与叫法（十个维度一个都不能少；演员排最后，只在条件行出现） */
   static readonly dimensions: FilterDimension[] = [
     new FilterDimension('genres', '类型'),
     new FilterDimension('decades', '年代'),
@@ -160,8 +164,18 @@ export class LibraryFilter {
     new FilterDimension('languages', '语言'),
     new FilterDimension('resolutions', '画质'),
     new FilterDimension('hdr', '动态范围'),
-    new FilterDimension('stock', '库存')
+    new FilterDimension('stock', '库存'),
+    new FilterDimension('actor', '演员')
   ];
+
+  /** 演员名规范化：去首尾空白，空串 = 没有这个条件（同 Web readLibraryFilter、后端 strip） */
+  static normalizeActor(raw: string | null | undefined): string | null {
+    if (raw === undefined || raw === null) {
+      return null;
+    }
+    const trimmed: string = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
 
   /** 值拷贝：父页面改条件时一律 clone 后改，再整体替换触发刷新 */
   clone(): LibraryFilter {
@@ -177,6 +191,7 @@ export class LibraryFilter {
     next.hdr = this.hdr;
     next.stock = this.stock.slice();
     next.seriesKeys = this.seriesKeys.slice();
+    next.actor = this.actor;
     return next;
   }
 
@@ -184,14 +199,14 @@ export class LibraryFilter {
     return this.genres.length === 0 && this.countries.length === 0 && this.decades.length === 0
       && this.watch === null && this.ratingGte === null && this.runtimes.length === 0
       && this.languages.length === 0 && this.resolutions.length === 0 && this.hdr === null
-      && this.stock.length === 0 && this.seriesKeys.length === 0;
+      && this.stock.length === 0 && this.seriesKeys.length === 0 && this.actor === null;
   }
 
   /** 已选条件的条数（「筛选」按钮角标）；系列键不计 */
   count(): number {
     return this.genres.length + this.countries.length + this.decades.length + (this.watch === null ? 0 : 1)
       + (this.ratingGte === null ? 0 : 1) + this.runtimes.length + this.languages.length
-      + this.resolutions.length + (this.hdr === null ? 0 : 1) + this.stock.length;
+      + this.resolutions.length + (this.hdr === null ? 0 : 1) + this.stock.length + (this.actor === null ? 0 : 1);
   }
 
   /** 有没有二级维度——决定要不要取全份 facet（二级的展示名只在 tier=all 里有） */
@@ -235,6 +250,9 @@ export class LibraryFilter {
     if (dim === 'series_keys' || dim === 'series_key') {
       return this.seriesKeys;
     }
+    if (dim === 'actor') {
+      return this.actor === null ? [] : [this.actor];
+    }
     return [];
   }
 
@@ -252,6 +270,11 @@ export class LibraryFilter {
     if (dim === 'hdr') {
       const next: boolean = value === '1';
       this.hdr = this.hdr === next ? null : next;
+      return;
+    }
+    if (dim === 'actor') {
+      const next: string | null = LibraryFilter.normalizeActor(value);
+      this.actor = this.actor === next ? null : next;
       return;
     }
     if (this.valuesOf(dim).includes(value)) {
@@ -273,6 +296,10 @@ export class LibraryFilter {
     }
     if (dim === 'hdr') {
       this.hdr = null;
+      return;
+    }
+    if (dim === 'actor') {
+      this.actor = null;
       return;
     }
     this.setList(dim, this.valuesOf(dim).filter((item: string): boolean => item !== value));
@@ -350,6 +377,10 @@ export class LibraryFilter {
     }
     if (this.watch !== null) {
       parts.push(`w${this.watch}`);
+    }
+    if (this.actor !== null) {
+      // 放最后、整名原样拼：名字里可能有「.」「_」，放末尾不会和前面各段混淆
+      parts.push(`a${this.actor}`);
     }
     return parts.join('.');
   }
@@ -440,6 +471,10 @@ export class LibraryFilter {
   qSeries(): string | undefined {
     return this.seriesKeys.length === 0 ? undefined : this.seriesKeys.join(',');
   }
+
+  qActor(): string | undefined {
+    return this.actor === null ? undefined : this.actor;
+  }
   /**
    * 把筛选条件转成后端的规则数组（对应 iOS `LibraryFilter.rules`）。
    *
@@ -483,7 +518,8 @@ export async function fetchWallItems(api: MovieClawApi, libraryId: number, filte
   identity?: string): Promise<LibraryItemView[]> {
   return api.libraryItemsList(libraryId, sort ?? undefined, order ?? undefined, limit, offset, identity ?? undefined,
     filter.qG(), filter.qC(), filter.qD(), filter.watch ?? undefined, filter.ratingGte ?? undefined,
-    filter.qRt(), filter.qLang(), filter.qRes(), filter.hdr ?? undefined, filter.qStock(), filter.qSeries());
+    filter.qRt(), filter.qLang(), filter.qRes(), filter.hdr ?? undefined, filter.qStock(), filter.qSeries(),
+    filter.qActor());
 }
 
 /** A–Z 跳转索引（order 必须与取墙时同一个值，offset 才对得上） */
@@ -491,7 +527,7 @@ export async function fetchWallIndex(api: MovieClawApi, libraryId: number, filte
   sort: string | null, order: string | null): Promise<LibraryIndexEntryView[]> {
   return api.uiLibraryItemsIndex(libraryId, sort ?? undefined, order ?? undefined, filter.qG(), filter.qC(), filter.qD(),
     filter.watch ?? undefined, filter.ratingGte ?? undefined, filter.qRt(), filter.qLang(), filter.qRes(),
-    filter.hdr ?? undefined, filter.qStock(), filter.qSeries());
+    filter.hdr ?? undefined, filter.qStock(), filter.qSeries(), filter.qActor());
 }
 
 /** 筛选面板候选值与计数（allTiers=false 只算一级四维） */
@@ -499,7 +535,7 @@ export async function fetchWallFacets(api: MovieClawApi, libraryId: number, filt
   allTiers: boolean): Promise<LibraryFacetsView> {
   return api.libraryItemsFacets(libraryId, allTiers ? 'all' : undefined, filter.qG(), filter.qC(),
     filter.qD(), filter.watch ?? undefined, filter.ratingGte ?? undefined, filter.qRt(), filter.qLang(), filter.qRes(),
-    filter.hdr ?? undefined, filter.qStock(), filter.qSeries());
+    filter.hdr ?? undefined, filter.qStock(), filter.qSeries(), filter.qActor());
 }
 
 /** 筛空时的放宽建议：服务端只返回救得回内容的条件 */
@@ -507,7 +543,7 @@ export async function fetchWallRelax(api: MovieClawApi, libraryId: number,
   filter: LibraryFilter): Promise<LibraryRelaxView> {
   return api.libraryItemsRelax(libraryId, filter.qG(), filter.qC(), filter.qD(), filter.watch ?? undefined,
     filter.ratingGte ?? undefined, filter.qRt(), filter.qLang(), filter.qRes(), filter.hdr ?? undefined,
-    filter.qStock(), filter.qSeries());
+    filter.qStock(), filter.qSeries(), filter.qActor());
 }
 
 // MARK: - 窗口分页器
@@ -1041,5 +1077,6 @@ export function facetLabel(dim: string, value: string, facets: LibraryFacetsView
       return option.label;
     }
   }
-  return dim === 'resolutions' || dim === 'languages' ? value : '…';
+  // 演员不在 facet 里：取值本身就是展示名
+  return dim === 'resolutions' || dim === 'languages' || dim === 'actor' ? value : '…';
 }
