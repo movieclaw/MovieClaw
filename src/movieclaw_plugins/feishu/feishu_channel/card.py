@@ -5,7 +5,7 @@
 不补写推送里没有的字段。没有可展示的标题时返回 None，调用方改发纯文本。
 
 卡片放不下的正文不丢：``layout_card`` 把卡片承载不了的部分作为 ``overflow`` 交回，
-由适配器在卡片之后按纯文本分片补发。标题超长时完整标题行写进正文开头。
+由适配器在卡片之后按纯文本分片补发。首行超长时标题栏用固定短标题，原文只进正文。
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ _MAX_BUTTON_TEXT = 30
 #: 飞书建议消息 JSON 控制在 30KB 左右。4000 字中文正文约 12KB，留足按钮和海报的余量。
 #: 超出的正文不截断丢弃，交回调用方按文本补发。
 _MAX_TITLE = 200
+#: 首行超过 _MAX_TITLE 时标题栏显示的固定短标题;原文整段进正文
+LONG_TITLE_HEADER = "MovieClaw 通知"
 _MAX_SUMMARY = 4000
 #: 正文里的 http(s) 链接；末尾标点在收集时剥掉，避免把句号算进地址
 _URL_RE = re.compile(r"https?://[^\s<>\]\)\"']+")
@@ -49,9 +51,9 @@ def layout_card(text: str, image_key: str | None = None) -> tuple[dict, str] | N
         return None
     body_lines = [line for line in lines[rest_at:] if line]
     if len(title) > _MAX_TITLE:
-        # 标题栏放不下:标题栏截断,完整标题放回正文开头,不丢字
+        # 标题栏放不下:标题栏换成固定短标题,完整原文只放正文,不丢字也不重复显示
         body_lines.insert(0, title)
-        title = _clip_text(title, _MAX_TITLE)
+        title = LONG_TITLE_HEADER
     summary, overflow = _split_head("\n".join(body_lines).strip(), _MAX_SUMMARY)
     elements: list[dict] = []
     if image_key:
@@ -146,9 +148,3 @@ def _host(url: str) -> str:
 
 def _clip(text: str) -> str:
     return text[:_MAX_BUTTON_TEXT]
-
-
-def _clip_text(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "…"
