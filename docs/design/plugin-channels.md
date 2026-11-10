@@ -221,3 +221,11 @@ class ChannelDriver:
 绑定输入错误可使用 `ChannelInputError("原始错误", message_localized={"en": "Translated error"})`。
 它仍是 `ValueError`，既有表单错误分类不变；独立进程会保留原文与可选消息引用，API 在响应边界
 选取语言。普通 `ValueError` 与未知作者错误仍按原文回退。
+
+### 图文与扫码绑定补充（SDK 1.3 / `im-channels` 1.4）
+
+`Capabilities.photo_caption_limit`（通道能无损承载的图文文案上限）、`Binding.scan`（表单通道另走
+一次交互式流程，如飞书扫码创建应用）、`FlowState` 的 `input_optional` / `prefill` /
+`resume_token`，以及 `BindResult.rebind_message` / `rebind_message_localized` 都是可选字段，
+未声明时线上结构不变。旧宿主反序列化时不认识这些字段会加载失败，所以使用它们的插件应声明
+`sdk = "^1.3"` 和 `"im-channels" = "^1.4"`，让旧宿主在安装时就按版本拒绝。

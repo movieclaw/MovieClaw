@@ -499,7 +499,10 @@ class AdapterDriver(ChannelDriver):
 #: 通道插件往这个注册表贡献驱动（贡献 id 即通道 id；第三方插件自动带插件 id 前缀）
 IM_CHANNELS: RegistryKey[ChannelDriver] = RegistryKey(
     "im-channels",
-    version="1.3",  # 1.3：两阶段停机 quiesce；1.2：可选的多语言元数据
+    # 1.4：Capabilities.photo_caption_limit、Binding.scan、FlowState 的 input_optional /
+    #      prefill / resume_token、BindResult.rebind_message（旧宿主不认识这些线上字段）；
+    # 1.3：两阶段停机 quiesce；1.2：可选的多语言元数据
+    version="1.4",
     stability=Stability.EXPERIMENTAL,
     schema=ChannelDriver,
     doc="IM 通道：插件贡献一个通道驱动（收发与绑定），中枢负责账号、对话与推送",

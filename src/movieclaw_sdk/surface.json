@@ -690,7 +690,7 @@
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.3"
+    "version": "1.4"
   },
   "ingest-steps": {
     "doc": "入库流水线槽位的步骤：暂存完成后为每个步骤建一个挂在入库任务下的持久化任务",

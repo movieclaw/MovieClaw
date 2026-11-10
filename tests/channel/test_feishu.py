@@ -27,6 +27,7 @@ from movieclaw_db.engine import dispose_db, init_db
 from movieclaw_plugins.feishu.feishu_channel.adapter import FeishuAdapter
 from movieclaw_plugins.feishu.feishu_channel.card import (
     _MAX_SUMMARY,
+    LONG_TITLE_HEADER,
     build_card,
     chunk_text,
     layout_card,
@@ -446,11 +447,26 @@ def test_build_card_hands_back_overflow_and_keeps_late_link() -> None:
     assert card["elements"][-1]["actions"][0]["url"] == late
     titled = layout_card(("题" * 250) + "\n正文")
     assert titled is not None
-    assert len(titled[0]["header"]["title"]["content"]) == 200
-    assert titled[0]["header"]["title"]["content"].endswith("…")
-    # 完整标题写回正文开头
+    # 首行超长:标题栏用固定短标题,原文只在正文出现一次
+    assert titled[0]["header"]["title"]["content"] == LONG_TITLE_HEADER
     assert titled[0]["elements"][0]["text"]["content"] == ("题" * 250) + "\n正文"
     assert titled[1] == ""
+    exact = layout_card("题" * 200)
+    assert exact is not None
+    assert exact[0]["header"]["title"]["content"] == "题" * 200
+
+
+def test_single_line_over_200_chars_is_shown_once() -> None:
+    """201 字单行消息:卡片里只显示 201 字,不再出现「截断标题 + 完整正文」的重复。"""
+    text = "字" * 201
+    laid = layout_card(text, image_key="img_k")
+    assert laid is not None
+    card, overflow = laid
+    assert overflow == ""
+    assert card["header"]["title"]["content"] == LONG_TITLE_HEADER
+    shown = [e["text"]["content"] for e in card["elements"] if e.get("tag") == "div"]
+    assert shown == [text]
+    assert json.dumps(card, ensure_ascii=False).count("字") == 201
 
 
 def test_poll_outcome_repr_omits_secret() -> None:
@@ -1328,7 +1344,9 @@ def _delivered(requests: list[httpx.Request]) -> tuple[str, int, list[int]]:
         content = json.loads(payload["content"])
         if payload["msg_type"] == "interactive":
             cards += 1
-            parts.append(content["header"]["title"]["content"])
+            header = content["header"]["title"]["content"]
+            if header != LONG_TITLE_HEADER:
+                parts.append(header)
             for element in content["elements"]:
                 if element.get("tag") == "div":
                     body = element["text"]["content"]
@@ -1341,10 +1359,13 @@ def _delivered(requests: list[httpx.Request]) -> tuple[str, int, list[int]]:
     return "".join(parts), cards, text_lens
 
 
-def _long_text(total: int, *, single_line: bool = False) -> str:
+def _long_text(total: int, shape: str) -> str:
+    """``lines``:短标题 + 多行正文;``long_body``:短标题 + 一整行正文;``single_line``:整条一行。"""
+    if shape == "single_line":
+        return "字" * total
     head = "标题\n"
     room = total - len(head)
-    if single_line:
+    if shape == "long_body":
         return head + ("字" * room)
     line = ("段" * 59) + "\n"
     body = (line * (room // len(line) + 1))[:room]
@@ -1352,25 +1373,29 @@ def _long_text(total: int, *, single_line: bool = False) -> str:
 
 
 @pytest.mark.parametrize(
-    ("total", "single_line", "card"),
+    ("total", "shape", "card"),
     [
-        (4_000, False, True),
-        (4_001, False, True),
-        (4_010, True, True),
-        (20_000, False, True),
-        (20_000, True, True),
-        (20_001, False, False),
+        (4_000, "lines", True),
+        (4_001, "lines", True),
+        (4_010, "long_body", True),
+        (20_000, "lines", True),
+        (20_000, "long_body", True),
+        (201, "single_line", True),
+        (4_001, "single_line", True),
+        (20_000, "single_line", True),
+        (20_001, "lines", False),
+        (20_001, "single_line", False),
     ],
 )
 async def test_long_push_delivers_every_character(
-    db, monkeypatch, total: int, single_line: bool, card: bool
+    db, monkeypatch, total: int, shape: str, card: bool
 ) -> None:
     gateway, _driver, hub, ready = await _scan_ready(monkeypatch)
     photo = b"\x89PNG\r\n\x1a\nposter"
     try:
         assert (await hub.binding_input(ready.binding_id, "")).status == "confirmed"
         await _wait_for(lambda: hub.is_running("feishu", "cli_app"))
-        text = _long_text(total, single_line=single_line)
+        text = _long_text(total, shape)
         assert len(text) == total
         before = len(gateway.requests)
         assert await hub.push(text, photo=photo) == 1
@@ -1389,7 +1414,8 @@ async def test_long_push_delivers_every_character(
         if card:
             assert cards == 1 and uploaded
             # 卡片之后才补发文本,不重复卡片里的内容
-            assert bool(text_lens) == (total - len("标题\n") > _MAX_SUMMARY)
+            body_len = total if shape == "single_line" else total - len("标题\n")
+            assert bool(text_lens) == (body_len > _MAX_SUMMARY)
         else:
             assert cards == 0 and not uploaded
     finally:
@@ -1401,7 +1427,7 @@ async def test_card_failure_falls_back_to_chunked_text(db, monkeypatch) -> None:
     try:
         assert (await hub.binding_input(ready.binding_id, "")).status == "confirmed"
         await _wait_for(lambda: hub.is_running("feishu", "cli_app"))
-        text = _long_text(9_000)
+        text = _long_text(9_000, "lines")
         before = len(gateway.requests)
         # 第一条(卡片)被拒,之后的纯文本正常
         gateway.message_replies = [httpx.Response(400, json={"code": 230099, "msg": "bad card"})]
@@ -1656,3 +1682,57 @@ async def test_registration_rejects_contradictory_tenant_brand() -> None:
         await session.aclose()
     assert outcome.status == "error"
     assert outcome.client_secret == ""
+
+
+# ---------------------------------------------------------------------------
+# 协议版本:新线上字段需要新宿主,旧宿主安装时直接拒绝,不在加载时崩(PR #1251 复审 2)
+# ---------------------------------------------------------------------------
+
+
+def _feishu_manifest():
+    from movieclaw_api.plugins import bundled
+    from movieclaw_api.plugins import packages as pkg
+
+    package = bundled.bundled()["feishu-channel"]
+    manifest = pkg.read_manifest(package.path)
+    assert manifest is not None
+    return pkg, manifest
+
+
+def test_feishu_requires_the_channel_protocol_that_carries_its_fields() -> None:
+    from movieclaw_kernel.contracts import Version, satisfies
+    from movieclaw_plugins.feishu.feishu_channel.driver import FeishuDriver
+    from movieclaw_sdk import SDK_VERSION
+    from movieclaw_sdk.channels import IM_CHANNELS, driver_spec
+
+    _pkg, manifest = _feishu_manifest()
+    # 驱动确实会发出 1.4 新增的线上字段
+    spec = driver_spec(FeishuDriver())
+    assert "photo_caption_limit" in spec["capabilities"]
+    assert spec["binding"].get("scan") is True
+    assert IM_CHANNELS.version >= Version.parse("1.4")
+    assert Version.parse(SDK_VERSION) >= Version.parse("1.3")
+    # 清单的最低要求跟着提高:旧协议 / 旧 SDK 不满足
+    assert not satisfies(manifest.requires["im-channels"], Version.parse("1.3"))
+    assert not satisfies(manifest.plugin.sdk, Version.parse("1.2"))
+    assert satisfies(manifest.requires["im-channels"], IM_CHANNELS.version)
+    assert satisfies(manifest.plugin.sdk, Version.parse(SDK_VERSION))
+
+
+def test_old_host_refuses_new_feishu_package_at_install(monkeypatch) -> None:
+    import movieclaw_sdk
+    from movieclaw_kernel.contracts import CATALOG, Version
+
+    pkg, manifest = _feishu_manifest()
+    pkg.check_compat(manifest, reserved=set(), operations=set())
+
+    # 旧宿主之一:SDK 还是 1.2
+    with monkeypatch.context() as patch:
+        patch.setattr(movieclaw_sdk, "SDK_VERSION", "1.2")
+        with pytest.raises(pkg.PackageError):
+            pkg.check_compat(manifest, reserved=set(), operations=set())
+    # 旧宿主之二:im-channels 还是 1.3(不认识 photo_caption_limit 等字段)
+    with monkeypatch.context() as patch:
+        patch.setattr(CATALOG["im-channels"], "version", Version.parse("1.3"))
+        with pytest.raises(pkg.PackageError):
+            pkg.check_compat(manifest, reserved=set(), operations=set())

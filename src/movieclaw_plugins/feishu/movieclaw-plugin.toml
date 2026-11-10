@@ -5,12 +5,12 @@ title_localized = { en = "Feishu channel" }
 version = "1.2.0"
 entry = "feishu_channel"
 runtime = "process"
-sdk = "^1.2"
+sdk = "^1.3"
 description = "飞书推送：群自定义机器人 Webhook，或自建应用机器人（可扫码创建）发送图文卡片"
 description_localized = { en = "Push to Feishu via a group custom-bot Webhook, or a self-built app bot (create it by scanning) that sends rich cards." }
 
 [requires]
-"im-channels" = "^1.2"
+"im-channels" = "^1.4"
 
 [permissions]
 operations = []

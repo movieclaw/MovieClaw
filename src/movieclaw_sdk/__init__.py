@@ -8,6 +8,6 @@ from __future__ import annotations
 
 from movieclaw_kernel import Context, plugin
 
-SDK_VERSION = "1.2"
+SDK_VERSION = "1.3"
 
 __all__ = ["SDK_VERSION", "Context", "plugin"]
