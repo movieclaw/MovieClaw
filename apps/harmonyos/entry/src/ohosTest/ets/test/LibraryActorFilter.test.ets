@@ -2,7 +2,7 @@ import { describe, it, expect } from '@ohos/hypium';
 import { ApiClient } from '../../../main/ets/api/ApiClient';
 import { MovieClawApi } from '../../../main/ets/api/Endpoints';
 import { LibraryFilter, fetchWallFacets, fetchWallIndex, fetchWallItems, fetchWallRelax } from '../../../main/ets/library/LibraryWall';
-import { LibraryRouteParams } from '../../../main/ets/library/LibraryDetailPage';
+import { LibraryRouteParams } from '../../../main/ets/library/LibraryRouteParams';
 import { castTapTarget } from '../../../main/ets/library/LibraryItemDetailPage';
 
 /** 只记请求路径、不发网络：验证各取数入口拼出来的查询参数 */
@@ -86,7 +86,7 @@ export default function libraryActorFilterTest(): void {
     });
     it('route_params_survive_serialization', 0, () => {
       // pushPathByName 的参数到 onReady 时是普通对象：按字段取
-      const raw: Object = JSON.parse(JSON.stringify(new LibraryRouteParams(3, ' 张三 '))) as Object;
+      const raw: Object = JSON.parse(JSON.stringify(LibraryRouteParams.forActor(3, ' 张三 '))) as Object;
       expect(LibraryRouteParams.idOf(raw)).assertEqual(3);
       expect(LibraryRouteParams.actorOf(raw)).assertEqual('张三');
       const plain: Object = JSON.parse(JSON.stringify(new LibraryRouteParams(3))) as Object;
