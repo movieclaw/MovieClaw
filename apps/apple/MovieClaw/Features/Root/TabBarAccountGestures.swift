@@ -63,11 +63,9 @@ final class AccountGestureHub: NSObject, UIGestureRecognizerDelegate {
         NotificationCenter.default.post(name: .avatarTabDoubleTapped, object: nil)
     }
 
-    /// 只收落在手指下那条标签栏的头像按钮里的触摸
+    /// 只收落在页签栏头像按钮里的触摸
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        var view = touch.view
-        while let current = view, !(current is UITabBar) { view = current.superview }
-        guard let bar = view as? UITabBar, let avatar = Self.avatarButton(in: bar) else { return false }
+        guard let view = touch.view, let avatar = Self.avatarButton(touching: view) else { return false }
         return avatar.bounds.contains(touch.location(in: avatar))
     }
 
@@ -78,24 +76,50 @@ final class AccountGestureHub: NSObject, UIGestureRecognizerDelegate {
         true
     }
 
-    /// 头像页签按钮：找到并排着和页签数一样多按钮（UIControl）的那一排，取最右边那个。
+    /// 手指下这颗是页签按钮时，返回同一排里的头像按钮；不是页签按钮返回 nil。
+    /// 从手指下往上找第一个「父视图里正好并排着页签数那么多按钮」的按钮。不认 `UITabBar`：
+    /// iPhone Duo 的竖排标签栏是另一套系统实现（`_UIFloatingBarContainerView` 里的 `_UITabButton`），
+    /// 父链上根本没有 `UITabBar`，按 `UITabBar` 找时长按、双击全失效（2026-11-10 模拟器查实）。
     /// 标签栏收起时只剩一个选中页签的按钮，凑不齐一排，返回 nil
-    static func avatarButton(in bar: UITabBar) -> UIView? {
-        let count = bar.items?.count ?? 0
-        guard count > 0 else { return nil }
-        var row: [UIControl]?
-        func find(_ view: UIView) {
-            guard row == nil else { return }
-            let controls = view.subviews.compactMap { $0 as? UIControl }.filter { !$0.isHidden && $0.bounds.width > 0 }
-            if controls.count == count {
-                row = controls
-                return
+    static func avatarButton(touching view: UIView) -> UIView? {
+        guard let count = tabCount(owning: view) else { return nil }
+        var current: UIView? = view
+        while let candidate = current {
+            if candidate is UIControl, let parent = candidate.superview, let row = tabRow(in: parent, count: count),
+               row.contains(where: { $0 === candidate }) {
+                return avatar(in: row)
             }
-            view.subviews.forEach(find)
+            current = candidate.superview
         }
-        find(bar)
-        guard let row, let index = lastTabIndex(row.map { $0.convert($0.bounds, to: bar) }) else { return nil }
-        return row[index]
+        return nil
+    }
+
+    /// 这个视图所在页签栏的页签数：沿响应链先碰到 `UITabBar` 或 `UITabBarController` 才算在页签栏里；
+    /// 先碰到别的控制器说明落在页面内容里（内容里并排几个按钮不能误认成页签）
+    private static func tabCount(owning view: UIView) -> Int? {
+        var responder: UIResponder? = view
+        while let current = responder {
+            if let bar = current as? UITabBar { return nonEmpty(bar.items?.count) }
+            if let tabs = current as? UITabBarController { return nonEmpty(tabs.tabBar.items?.count) }
+            if current is UIViewController { return nil }
+            responder = current.next
+        }
+        return nil
+    }
+
+    private static func nonEmpty(_ count: Int?) -> Int? {
+        guard let count, count > 0 else { return nil }
+        return count
+    }
+
+    /// 父视图里并排的可见按钮正好 `count` 个时，就是一排页签按钮
+    private static func tabRow(in parent: UIView, count: Int) -> [UIControl]? {
+        let controls = parent.subviews.compactMap { $0 as? UIControl }.filter { !$0.isHidden && $0.bounds.width > 0 }
+        return controls.count == count ? controls : nil
+    }
+
+    private static func avatar(in row: [UIControl]) -> UIControl? {
+        lastTabIndex(row.map(\.frame)).map { row[$0] }
     }
 
     /// 一排页签按钮里头像那颗的下标：头像页签永远排在最后——横排取最右；竖排（iPhone Duo 外屏和内屏横向，
@@ -107,20 +131,33 @@ final class AccountGestureHub: NSObject, UIGestureRecognizerDelegate {
         return frames.indices.max { vertical ? frames[$0].midY < frames[$1].midY : frames[$0].midX < frames[$1].midX }
     }
 
-    /// 窗口里在屏的那条标签栏上头像按钮的位置（首次提示气泡对准它）。新旧界面交替的那一小会儿两条标签栏
-    /// 叠在同一个位置，取哪条都一样
+    /// 窗口里在屏的页签栏上头像按钮的位置（首次提示气泡对准它）。从页签控制器的视图往下找一排页签按钮，
+    /// 跳过各页面自己的视图（同 `tabCount(owning:)`）。新旧界面交替的那一小会儿两套页签栏叠在同一个位置，取哪套都一样
     static func avatarFrame(in window: UIWindow) -> CGRect? {
-        var queue: [UIView] = [window]
+        guard let tabs = tabBarController(from: window.rootViewController), let count = nonEmpty(tabs.tabBar.items?.count) else {
+            return nil
+        }
+        var queue: [UIView] = [tabs.view]
         var index = 0
         while index < queue.count {
             let view = queue[index]
             index += 1
-            if let bar = view as? UITabBar, bar.window != nil, let button = avatarButton(in: bar) {
+            if view !== tabs.view, let owner = view.next as? UIViewController, owner !== tabs { continue }
+            if let row = tabRow(in: view, count: count), let button = avatar(in: row), button.window != nil {
                 return button.convert(button.bounds, to: nil)
             }
             queue.append(contentsOf: view.subviews)
         }
         return nil
+    }
+
+    private static func tabBarController(from controller: UIViewController?) -> UITabBarController? {
+        guard let controller else { return nil }
+        if let tabs = controller as? UITabBarController { return tabs }
+        for child in controller.children {
+            if let tabs = tabBarController(from: child) { return tabs }
+        }
+        return tabBarController(from: controller.presentedViewController)
     }
 }
 
