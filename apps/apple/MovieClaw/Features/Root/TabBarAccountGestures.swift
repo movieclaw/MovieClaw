@@ -126,14 +126,26 @@ final class AccountGestureHub: NSObject, UIGestureRecognizerDelegate {
     /// 系统把标签栏竖着放在右侧，docs/design/iphone-duo.md §1.1）取最下
     nonisolated static func lastTabIndex(_ frames: [CGRect]) -> Int? {
         guard !frames.isEmpty else { return nil }
-        let xs = frames.map(\.midX), ys = frames.map(\.midY)
-        let vertical = (ys.max()! - ys.min()!) > (xs.max()! - xs.min()!)
+        let vertical = isVertical(frames)
         return frames.indices.max { vertical ? frames[$0].midY < frames[$1].midY : frames[$0].midX < frames[$1].midX }
+    }
+
+    /// 这排页签是竖着排的（纵向跨度大于横向）
+    nonisolated static func isVertical(_ frames: [CGRect]) -> Bool {
+        guard !frames.isEmpty else { return false }
+        let xs = frames.map(\.midX), ys = frames.map(\.midY)
+        return (ys.max()! - ys.min()!) > (xs.max()! - xs.min()!)
+    }
+
+    /// 头像页签在窗口里的位置，及页签栏是不是竖排（首次提示气泡据此摆在头像上方或左边）
+    struct AvatarAnchor: Equatable {
+        var frame: CGRect
+        var vertical: Bool
     }
 
     /// 窗口里在屏的页签栏上头像按钮的位置（首次提示气泡对准它）。从页签控制器的视图往下找一排页签按钮，
     /// 跳过各页面自己的视图（同 `tabCount(owning:)`）。新旧界面交替的那一小会儿两套页签栏叠在同一个位置，取哪套都一样
-    static func avatarFrame(in window: UIWindow) -> CGRect? {
+    static func avatarAnchor(in window: UIWindow) -> AvatarAnchor? {
         guard let tabs = tabBarController(from: window.rootViewController), let count = nonEmpty(tabs.tabBar.items?.count) else {
             return nil
         }
@@ -144,7 +156,7 @@ final class AccountGestureHub: NSObject, UIGestureRecognizerDelegate {
             index += 1
             if view !== tabs.view, let owner = view.next as? UIViewController, owner !== tabs { continue }
             if let row = tabRow(in: view, count: count), let button = avatar(in: row), button.window != nil {
-                return button.convert(button.bounds, to: nil)
+                return AvatarAnchor(frame: button.convert(button.bounds, to: nil), vertical: isVertical(row.map(\.frame)))
             }
             queue.append(contentsOf: view.subviews)
         }
@@ -164,7 +176,7 @@ final class AccountGestureHub: NSObject, UIGestureRecognizerDelegate {
 /// 把 AccountGestureHub 挂到主界面所在的窗口上，并报告头像按钮的位置（首次提示用）。
 /// 冷启动时主界面可能比系统标签栏先上屏：找不到头像就隔 0.3 秒再找，最多找 10 次
 struct TabBarAccountGestures: UIViewRepresentable {
-    let onAvatarFrame: (CGRect) -> Void
+    let onAvatar: (AccountGestureHub.AvatarAnchor) -> Void
 
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
@@ -173,15 +185,15 @@ struct TabBarAccountGestures: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UIView, context: Context) {
-        let report = onAvatarFrame
+        let report = onAvatar
         DispatchQueue.main.async { Self.install(from: view, report: report, attempt: 0) }
     }
 
-    private static func install(from view: UIView, report: @escaping (CGRect) -> Void, attempt: Int) {
+    private static func install(from view: UIView, report: @escaping (AccountGestureHub.AvatarAnchor) -> Void, attempt: Int) {
         guard let window = view.window else { return }
         AccountGestureHub.shared.install(on: window)
-        if let frame = AccountGestureHub.avatarFrame(in: window) {
-            report(frame)
+        if let anchor = AccountGestureHub.avatarAnchor(in: window) {
+            report(anchor)
         } else if attempt < 10 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak view] in
                 if let view { install(from: view, report: report, attempt: attempt + 1) }
@@ -192,19 +204,22 @@ struct TabBarAccountGestures: UIViewRepresentable {
 
 /// 第一次提示账号手势：本机登录了不止一个账号时才有用，所以只在账号数超过一个、且没提示过时出现一次
 /// （刚添加第二个账号时立刻出现；更新前就有多个账号的，更新后第一次打开也出现一次）。
-/// 气泡悬在头像页签正上方、右边与头像对齐（不画小尖角：实心尖角压在液态玻璃上对不上质感，
-/// 挨着头像本身就说明了指的是它），点一下或 6 秒后收起。
+/// 气泡悬在头像页签正上方、右边与头像对齐；竖排标签栏（iPhone Duo）时摆在头像左边、底边与头像对齐，
+/// 不压住栏里别的页签（不画小尖角：实心尖角压在液态玻璃上对不上质感，挨着头像本身就说明了指的是它），
+/// 点一下或 6 秒后收起。
 struct AccountGestureTip: View {
-    /// 头像页签在窗口里的位置
-    let avatarFrame: CGRect
+    /// 头像页签在窗口里的位置，及页签栏是不是竖排
+    let avatar: AccountGestureHub.AvatarAnchor
     let dismiss: () -> Void
 
     var body: some View {
         GeometryReader { proxy in
             let origin = proxy.frame(in: .global).origin
-            // 气泡右边对齐头像右边、底边在头像上方 10pt；两边至少留 12pt
-            let trailing = min(proxy.size.width - 12, avatarFrame.maxX - origin.x)
-            let bottom = max(0, avatarFrame.minY - origin.y - 10)
+            let avatarFrame = avatar.frame
+            // 横排：气泡右边对齐头像右边、底边在头像上方 10pt；竖排：右边在头像左侧 12pt、底边对齐头像底边。
+            // 两边至少留 12pt
+            let trailing = min(proxy.size.width - 12, avatar.vertical ? avatarFrame.minX - origin.x - 12 : avatarFrame.maxX - origin.x)
+            let bottom = max(0, avatar.vertical ? avatarFrame.maxY - origin.y : avatarFrame.minY - origin.y - 10)
             VStack(alignment: .leading, spacing: 6) {
                 Label(String(localized: .navAccountGestureLongPress), systemImage: "hand.tap")
                 Label(String(localized: .navAccountGestureDoubleTap), systemImage: "arrow.left.arrow.right")

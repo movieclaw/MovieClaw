@@ -116,12 +116,14 @@ struct IPhoneDuoLayoutTests {
     @Test func avatarIsRightmostInHorizontalTabBar() {
         let frames = (0..<5).map { CGRect(x: CGFloat($0) * 70, y: 0, width: 60, height: 44) }
         #expect(AccountGestureHub.lastTabIndex(frames) == 4)
+        #expect(!AccountGestureHub.isVertical(frames))
     }
 
     @Test func avatarIsBottommostInVerticalTabBar() {
         // Duo 外屏：标签栏竖在右侧，各按钮横坐标相同（取「最右」会取到任意一个）
         let frames = (0..<5).map { CGRect(x: 410, y: 380 + CGFloat($0) * 52, width: 44, height: 44) }
         #expect(AccountGestureHub.lastTabIndex(frames) == 4)
+        #expect(AccountGestureHub.isVertical(frames))  // 首次提示气泡据此摆到头像左边
         #expect(AccountGestureHub.lastTabIndex([]) == nil)
     }
 
