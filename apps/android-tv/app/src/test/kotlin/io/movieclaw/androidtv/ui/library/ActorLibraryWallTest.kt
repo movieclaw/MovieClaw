@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import io.movieclaw.androidtv.core.session.LocalStore
 import io.movieclaw.androidtv.ui.Responder
 import io.movieclaw.androidtv.ui.TV_QUALIFIERS
+import io.movieclaw.androidtv.ui.LaunchArgs
 import io.movieclaw.androidtv.ui.TvEnv
 import io.movieclaw.androidtv.ui.detail.ItemDetailScreen
 import io.movieclaw.androidtv.ui.focusedText
@@ -18,6 +19,7 @@ import io.movieclaw.androidtv.ui.press
 import io.movieclaw.androidtv.ui.savePreview
 import io.movieclaw.androidtv.ui.setTvContent
 import io.movieclaw.androidtv.ui.shell.LocalRouter
+import io.movieclaw.androidtv.ui.shell.MainShell
 import io.movieclaw.androidtv.ui.shell.Route
 import io.movieclaw.androidtv.ui.shell.Router
 import io.movieclaw.core.model.generated.ActorView
@@ -133,8 +135,8 @@ class ActorLibraryWallTest {
         rule.press(KeyEvent.KEYCODE_DPAD_UP)
         assertEquals("排序与筛选 · A–Z", rule.focusedText())
         rule.press(KeyEvent.KEYCODE_DPAD_CENTER)
-        // 四档排序、只看没看过的，接着就是「筛选」一节的第一行
-        repeat(5) { rule.press(KeyEvent.KEYCODE_DPAD_DOWN) }
+        // 四档排序、未看完、只看没看过的，接着就是「筛选」一节的第一行
+        repeat(6) { rule.press(KeyEvent.KEYCODE_DPAD_DOWN) }
         assertEquals("移除演员：张三", rule.focusedText())
         rule.savePreview("tv-wall-actor-menu")
         rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_000)
@@ -149,5 +151,54 @@ class ActorLibraryWallTest {
         val env = openWall(null)
         assertNull(env.lastQuery("/libraries/1/items")["actor"])
         rule.onNodeWithTag("wall-subtitle", useUnmergedTree = true).assert(hasText("5 部"))
+    }
+
+    private fun pressUntil(key: Int, text: String, max: Int = 10) {
+        var guard = 0
+        while (rule.focusedText()?.contains(text) != true && guard++ < max) rule.press(key, settleMs = 500)
+        assertEquals(true, rule.focusedText()?.contains(text))
+    }
+
+    /**
+     * 真的 MainShell：详情 → 演员墙 → 摘掉演员 → 侧边栏切到「搜索」→ 切回「首页」→ 仍是整库。
+     * （手机平板上同样的路径曾把摘掉的演员带回来；电视按页实例保存墙的状态，这里锁住它。）
+     */
+    @Test
+    fun removedActorStaysRemovedAfterSwitchingTabsAndBack() {
+        LocalStore(rule.activity.application).putString(WallLogic.sortKey(1), WallLogic.encodeSort(WallSort("title")))
+        val env = rule.setTvContent(routes()) { MainShell(LaunchArgs(item = 1L to 1L)) }
+        rule.mainClock.advanceTimeBy(2_000)
+        rule.waitForIdle()
+        pressUntil(KeyEvent.KEYCODE_DPAD_DOWN, "王导", max = 6)
+        rule.press(KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertEquals(true, rule.focusedText()?.contains("张三"))
+        rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_500)
+        rule.onNodeWithTag("wall-subtitle", useUnmergedTree = true).assert(hasText("演员：张三 · 2 部"))
+        assertEquals("张三", env.lastQuery("/libraries/1/items")["actor"])
+
+        // 「排序与筛选」→「移除演员：张三」
+        rule.press(KeyEvent.KEYCODE_DPAD_UP)
+        assertEquals("排序与筛选 · A–Z", rule.focusedText())
+        rule.press(KeyEvent.KEYCODE_DPAD_CENTER)
+        pressUntil(KeyEvent.KEYCODE_DPAD_DOWN, "移除演员：张三")
+        rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_000)
+        rule.onNodeWithTag("wall-subtitle", useUnmergedTree = true).assert(hasText("5 部"))
+
+        // 侧边栏切到「搜索」，再切回「首页」
+        rule.press(KeyEvent.KEYCODE_DPAD_DOWN)
+        pressUntil(KeyEvent.KEYCODE_DPAD_LEFT, "首页")
+        rule.press(KeyEvent.KEYCODE_DPAD_UP)
+        assertEquals("搜索", rule.focusedText())
+        rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_000)
+        rule.onNodeWithTag("wall-subtitle", useUnmergedTree = true).assertDoesNotExist()
+        pressUntil(KeyEvent.KEYCODE_DPAD_LEFT, "搜索")
+        rule.press(KeyEvent.KEYCODE_DPAD_DOWN)
+        assertEquals("首页", rule.focusedText())
+        rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_500)
+
+        // 回到首页页签栈顶的那面墙：整库，没有演员条件
+        rule.onNodeWithTag("wall-subtitle", useUnmergedTree = true).assert(hasText("5 部"))
+        rule.onNodeWithTag("poster:4", useUnmergedTree = true).assertExists()
+        assertNull(env.lastQuery("/libraries/1/items")["actor"])
     }
 }
