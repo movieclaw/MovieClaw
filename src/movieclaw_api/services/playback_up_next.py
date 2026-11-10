@@ -37,10 +37,11 @@ Jellyfin 只负责把播放事实写进 ``playback_state``；首页直接读领�
 进度是人的事实，不是设备的。媒体库首页那一行不传，照旧跨设备。
 
 **从这一行拿掉**（``continue_dismissed``）：清理插件 / 用户说「这部别再摆在这儿」。
-判定是**作品级**的：这部作品最近播放的那一行（与跨设备锚点同一排序）带着它，
-整部作品就不出卡——不当成已看、不往后跳下一集，按设备收窄时也一样（隐藏是人的
-意愿，不是设备的）。真正再播放会刷新那一行的 ``last_played_at`` 并清掉标记，
-卡片自然回来；只隐藏较旧那一集不影响以后从更近的一集起出卡。
+判定是**作品级**的：这部作品任一行带着它，整部作品就不出卡——不当成已看、不往后
+跳下一集，按设备收窄时也一样（隐藏是人的意愿，不是设备的）。标记只能写在作品
+当前的跨设备锚点上（:func:`continue_anchor`，写入时在事务里校验，否则冲突），
+比隐藏时间新的真实播放事实会清掉整部作品的标记（``movieclaw_playback.state.
+note_playback``），卡片自然回来；早于隐藏的旧事实晚到不会。
 """
 
 from __future__ import annotations
@@ -108,27 +109,7 @@ async def _anchors(
     """
     if device_id is not None:
         return await _device_anchors(session, member_id, device_id)
-    ranked = (
-        select(
-            PlaybackState.media_item_id.label("media_item_id"),  # type: ignore[attr-defined]
-            PlaybackState.season_number.label("season_number"),
-            PlaybackState.episode_number.label("episode_number"),
-            PlaybackState.last_played_at.label("last_played_at"),
-            func.row_number()
-            .over(
-                partition_by=PlaybackState.media_item_id,
-                order_by=(PlaybackState.last_played_at.desc(), PlaybackState.id.desc()),
-            )
-            .label("item_rank"),
-        )
-        .where(
-            PlaybackState.member_id == member_id,
-            PlaybackState.last_played_at.is_not(None),  # type: ignore[union-attr]
-            PlaybackState.season_number >= 0,
-            PlaybackState.episode_number >= 0,
-        )
-        .subquery()
-    )
+    ranked = _ranked_states(member_id)
     rows = (
         await session.execute(
             select(
@@ -147,6 +128,49 @@ async def _anchors(
         for item_id, season, episode, played_at in rows
         if played_at is not None
     ]
+
+
+def _ranked_states(member_id: int, media_item_id: int | None = None):
+    """锚点的唯一口径：按作品给状态行排名，``item_rank == 1`` 即锚点。
+
+    ``last_played_at`` 倒序、id 倒序；从没播过的行与哨兵单元（整剧 / 整季收藏行）
+    不是播放事实，排除在外。首页出卡与「接下来继续」隐藏的写入校验共用它，免得两处漂移。
+    """
+    statement = select(
+        PlaybackState.media_item_id.label("media_item_id"),  # type: ignore[attr-defined]
+        PlaybackState.season_number.label("season_number"),
+        PlaybackState.episode_number.label("episode_number"),
+        PlaybackState.last_played_at.label("last_played_at"),
+        func.row_number()
+        .over(
+            partition_by=PlaybackState.media_item_id,
+            order_by=(PlaybackState.last_played_at.desc(), PlaybackState.id.desc()),
+        )
+        .label("item_rank"),
+    ).where(
+        PlaybackState.member_id == member_id,
+        PlaybackState.last_played_at.is_not(None),  # type: ignore[union-attr]
+        PlaybackState.season_number >= 0,
+        PlaybackState.episode_number >= 0,
+    )
+    if media_item_id is not None:
+        statement = statement.where(PlaybackState.media_item_id == media_item_id)
+    return statement.subquery()
+
+
+async def continue_anchor(session: AsyncSession, member_id: int, media_item_id: int) -> Unit | None:
+    """这部作品当前的跨设备锚点单元 (季, 集)；从没播过为 None。
+
+    「接下来继续」隐藏是作品级意图，只能落在这一行上：别的设备在预览之后播了下一集，
+    锚点就变了，按旧那一集写的隐藏应当冲突而不是"成功但卡片还在"（playback_sync）。
+    """
+    ranked = _ranked_states(member_id, media_item_id)
+    row = (
+        await session.execute(
+            select(ranked.c.season_number, ranked.c.episode_number).where(ranked.c.item_rank == 1)
+        )
+    ).first()
+    return (int(row[0]), int(row[1])) if row else None
 
 
 async def _device_anchors(session: AsyncSession, member_id: int, device_id: str) -> list[_Anchor]:
@@ -262,35 +286,22 @@ async def _states(
 
 
 async def _dismissed(session: AsyncSession, member_id: int, item_ids: list[int]) -> set[int]:
-    """这批作品里被从「接下来继续」拿掉的：最近播放的那一行带着 ``continue_dismissed``。
+    """这批作品里被从「接下来继续」拿掉的：任一行带着 ``continue_dismissed``。
 
-    排序与 :func:`_anchors` 同口径（``last_played_at`` 倒序、id 倒序、排除哨兵行），
-    所以跨设备时它就是锚点那一行；按设备收窄时锚点来自播放日志，隐藏仍按人判定。
+    作品级判定，跨设备与按设备收窄同一口径。标记只会写在当时的锚点上，比隐藏新的
+    播放事实会清掉整部作品的标记，所以"还带着标记"就是"隐藏之后没有新的播放"——
+    迟到的旧事实把较早那一集顶成锚点时，隐藏照样成立。
     """
     if not item_ids:
         return set()
-    ranked = (
-        select(
-            PlaybackState.media_item_id.label("media_item_id"),  # type: ignore[attr-defined]
-            PlaybackState.continue_dismissed.label("dismissed"),
-            func.row_number()
-            .over(
-                partition_by=PlaybackState.media_item_id,
-                order_by=(PlaybackState.last_played_at.desc(), PlaybackState.id.desc()),
-            )
-            .label("item_rank"),
-        )
+    rows = await session.execute(
+        select(PlaybackState.media_item_id)
         .where(
             PlaybackState.member_id == member_id,
             PlaybackState.media_item_id.in_(item_ids),  # type: ignore[attr-defined]
-            PlaybackState.last_played_at.is_not(None),  # type: ignore[union-attr]
-            PlaybackState.season_number >= 0,
-            PlaybackState.episode_number >= 0,
+            PlaybackState.continue_dismissed.is_(True),  # type: ignore[attr-defined]
         )
-        .subquery()
-    )
-    rows = await session.execute(
-        select(ranked.c.media_item_id).where(ranked.c.item_rank == 1, ranked.c.dismissed.is_(True))
+        .distinct()
     )
     return {int(item_id) for (item_id,) in rows.all()}
 
@@ -545,4 +556,4 @@ async def _hydrate(
     return result
 
 
-__all__ = ["up_next_items"]
+__all__ = ["continue_anchor", "up_next_items"]

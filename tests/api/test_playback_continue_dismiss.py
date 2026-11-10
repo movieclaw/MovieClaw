@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -371,13 +372,172 @@ def test_this_device_respects_title_level_dismiss(env):
     assert (show, 1, 1) in up_next(env, 1)
 
 
-def test_dismissing_an_older_episode_does_not_hide_the_current_one(env):
+def test_dismissing_an_older_episode_conflicts_and_keeps_the_current_card(env):
     show = env.ids["tv"]
     play(env, 1, show, 1, 1, 100_000)
     play(env, 1, show, 1, 2, 100_000)
     older = catalog_unit(env, 1, show, 1, 1)
-    assert write(env, 1, older, position_ms=0, dismiss_continue=True)["status"] == "applied"
+    # 作品级意图：E1 不是锚点，写了也藏不住卡片 → 冲突，不写
+    assert write(env, 1, older, position_ms=0, dismiss_continue=True)["status"] == "conflict"
     assert (show, 1, 2) in up_next(env, 1)
+    assert catalog_unit(env, 1, show, 1, 1) == older
+
+
+def test_dismiss_conflicts_when_another_device_played_the_next_episode(env):
+    """预览时锚点是 E1，之后另一台设备播了 E2：按旧预览隐藏 E1 必须冲突，卡片照旧。"""
+    show = env.ids["tv"]
+    play(env, 1, show, 1, 1, 100_000, device=5)
+    preview = catalog_unit(env, 1, show, 1, 1)
+    assert (show, 1, 1) in up_next(env, 1)
+    play(env, 1, show, 1, 2, 100_000, device=6)  # 预览之后，别的设备播了下一集
+    # E1 这一行的版本没变（CAS 本身能过），但它已不是作品锚点
+    assert catalog_unit(env, 1, show, 1, 1)["updated_at"] == preview["updated_at"]
+    assert write(env, 1, preview, position_ms=0, dismiss_continue=True)["status"] == "conflict"
+    assert (show, 1, 2) in up_next(env, 1)
+    # this_device：本设备条显示的是 E1，同样冲突、同样还在
+    assert (show, 1, 1) in up_next(env, 1, device=5)
+    assert write(env, 1, preview, dismiss_continue=True)["status"] == "conflict"
+    assert (show, 1, 1) in up_next(env, 1, device=5)
+    assert (show, 1, 2) in up_next(env, 1, device=6)
+    for episode in (1, 2):
+        assert catalog_unit(env, 1, show, 1, episode)["continue_dismissed"] is False
+    assert resume(env, 1, show, 1, 1)["position_ms"] == 100_000  # position_ms=0 也没写进去
+
+    # 重新读、对锚点 E2 隐藏：成功，跨设备与两台设备的条都拿掉
+    current = catalog_unit(env, 1, show, 1, 2)
+    assert write(env, 1, current, dismiss_continue=True)["status"] == "applied"
+    assert [k for k in up_next(env, 1) if k[0] == show] == []
+    assert [k for k in up_next(env, 1, device=5) if k[0] == show] == []
+    assert [k for k in up_next(env, 1, device=6) if k[0] == show] == []
+    # 隐藏之后真的再播（哪一集都行）：整部作品的标记清掉
+    play(env, 1, show, 1, 1, 150_000, device=5)
+    assert (show, 1, 1) in up_next(env, 1)
+    for episode in (1, 2):
+        assert catalog_unit(env, 1, show, 1, episode)["continue_dismissed"] is False
+
+
+def iso(moment):
+    return moment.isoformat().replace("+00:00", "Z")
+
+
+def upload(env, member, item, season, episode, position, at, *, viewing, device=7):
+    record = {
+        "viewing_id": viewing,
+        "media_item_id": item,
+        "season_number": season,
+        "episode_number": episode,
+        "started_at": iso(at - timedelta(minutes=5)),
+        "updated_at": iso(at),
+        "position_ms": position,
+        "watched_ms": 60_000,
+    }
+    r = env.call(
+        env.as_member(member, device),
+        "post",
+        "/api/v1/playback/viewings",
+        json={"sent_at": iso(datetime.now(UTC)), "records": [record]},
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["data"]["results"][0]["status"]
+
+
+def test_late_offline_upload_older_than_dismiss_keeps_title_hidden(env):
+    item = env.ids["movie"]
+    now = datetime.now(UTC)
+    # 服务器上已有一场较早的播放（t0）
+    assert upload(
+        env, 1, item, 0, 0, 60_000, now - timedelta(minutes=30), viewing="v-movie-t0"
+    ) == ("applied")
+    # 手机离线时在 t1 又看了一段，但还没传上来；另一台设备此刻（t2 > t1）隐藏
+    unit = catalog_unit(env, 1, item, 0, 0)
+    assert write(env, 1, unit, dismiss_continue=True)["status"] == "applied"
+    assert (item, 0, 0) not in up_next(env, 1)
+    # 旧离线记录上传：比 last_played_at 新（续播点照常合并），但比隐藏早 → 仍隐藏
+    t1 = now - timedelta(minutes=10)
+    assert upload(env, 1, item, 0, 0, 200_000, t1, viewing="v-movie-t1") == "applied"
+    late = catalog_unit(env, 1, item, 0, 0)
+    assert late["position_ms"] == 200_000
+    assert late["continue_dismissed"] is True
+    assert (item, 0, 0) not in up_next(env, 1)
+    assert (item, 0, 0) not in up_next(env, 1, device=7)
+    # 对照：隐藏之后才发生的离线播放 → 回来
+    assert upload(env, 1, item, 0, 0, 250_000, datetime.now(UTC), viewing="v-movie-t3") == "applied"
+    assert catalog_unit(env, 1, item, 0, 0)["continue_dismissed"] is False
+    assert (item, 0, 0) in up_next(env, 1)
+
+
+def test_late_offline_upload_of_another_episode_does_not_resurface_title(env):
+    """旧离线记录把较早那一集顶成锚点时，隐藏仍是作品级的。"""
+    show = env.ids["tv"]
+    now = datetime.now(UTC)
+    upload(env, 1, show, 1, 2, 60_000, now - timedelta(minutes=30), viewing="v-show-e2")
+    e2 = catalog_unit(env, 1, show, 1, 2)
+    assert write(env, 1, e2, dismiss_continue=True)["status"] == "applied"
+    # E1 在 t1（E2 之后、隐藏之前）离线播过，现在才传：它成了最近播放的一行
+    upload(env, 1, show, 1, 1, 60_000, now - timedelta(minutes=10), viewing="v-show-e1")
+    assert catalog_unit(env, 1, show, 1, 2)["continue_dismissed"] is True
+    assert [k for k in up_next(env, 1) if k[0] == show] == []
+    assert [k for k in up_next(env, 1, device=7) if k[0] == show] == []
+
+
+def history(env, member, unit, watched_at, source_id):
+    media = unit["media"]
+    record = {
+        "media_item_id": media["id"],
+        "kind": media["kind"],
+        "tmdb_id": media["tmdb_id"],
+        "season": unit["season"],
+        "episode": unit["episode"],
+        "source_id": source_id,
+        "watched_at": iso(watched_at),
+        "expected_updated_at": unit["updated_at"],
+    }
+    r = env.c.post(SYNC + "/import", json={"member_id": member, "records": [record]})
+    assert r.status_code == 200, r.text
+    return r.json()["data"]["outcomes"][0]["status"]
+
+
+def test_watch_history_import_restores_only_when_newer_than_dismiss(env):
+    show = env.ids["tv"]
+    play(env, 1, show, 1, 1, 100_000)
+    e1 = catalog_unit(env, 1, show, 1, 1)
+    assert write(env, 1, e1, dismiss_continue=True)["status"] == "applied"
+    # 外部（Trakt / Plex 历史）导入一条比隐藏早的观看：不恢复
+    old = datetime.now(UTC) - timedelta(days=1)
+    assert history(env, 1, catalog_unit(env, 1, show, 1, 1), old, "old") == "applied"
+    assert catalog_unit(env, 1, show, 1, 1)["continue_dismissed"] is True
+    assert [k for k in up_next(env, 1) if k[0] == show] == []
+    # 隐藏之后的观看（插件无需发 dismiss_continue=false）：恢复，接着看 E2
+    assert history(env, 1, catalog_unit(env, 1, show, 1, 1), datetime.now(UTC), "new") == (
+        "applied"
+    )
+    restored = catalog_unit(env, 1, show, 1, 1)
+    assert restored["continue_dismissed"] is False and restored["played"] is True
+    assert (show, 1, 2) in up_next(env, 1)
+
+
+def test_progress_sync_restores_unless_same_request_dismisses(env):
+    item = env.ids["video"]
+    play(env, 1, item, 0, 0, 90_000)
+    unit = catalog_unit(env, 1, item, 0, 0)
+    assert write(env, 1, unit, dismiss_continue=True)["status"] == "applied"
+    # 带着比隐藏早的 last_played_at：旧事实，不恢复（进度照写）
+    hidden = catalog_unit(env, 1, item, 0, 0)
+    stale = iso(datetime.now(UTC) - timedelta(hours=1))
+    assert write(env, 1, hidden, position_ms=95_000, last_played_at=stale)["status"] == "applied"
+    assert catalog_unit(env, 1, item, 0, 0)["continue_dismissed"] is True
+    assert (item, 0, 0) not in up_next(env, 1)
+    # 同一请求里显式 dismiss_continue=true 优先：进度往前走也保持隐藏
+    hidden = catalog_unit(env, 1, item, 0, 0)
+    assert write(env, 1, hidden, position_ms=100_000, dismiss_continue=True)["status"] == "applied"
+    assert catalog_unit(env, 1, item, 0, 0)["continue_dismissed"] is True
+    assert (item, 0, 0) not in up_next(env, 1)
+    # 普通进度同步（旧插件，不带 dismiss_continue、也不带时间）：自动恢复
+    hidden = catalog_unit(env, 1, item, 0, 0)
+    assert write(env, 1, hidden, position_ms=120_000)["status"] == "applied"
+    back = catalog_unit(env, 1, item, 0, 0)
+    assert (back["continue_dismissed"], back["position_ms"]) == (False, 120_000)
+    assert (item, 0, 0) in up_next(env, 1)
 
 
 def test_continue_dismissed_migration_upgrade_downgrade_keeps_rows(tmp_path, monkeypatch):
@@ -423,13 +583,13 @@ def test_continue_dismissed_migration_upgrade_downgrade_keeps_rows(tmp_path, mon
         with sqlite3.connect(path) as db:
             row = db.execute(
                 "select position_ms, played, play_count, is_favorite, last_played_at,"
-                " continue_dismissed from playback_state"
+                " continue_dismissed, continue_dismissed_at from playback_state"
             ).fetchone()
-            assert row == (5000, 0, 2, 1, "2026-01-02", 0)
+            assert row == (5000, 0, 2, 1, "2026-01-02", 0, None)
         command.downgrade(config, "c5f1a8e3b724")
         with sqlite3.connect(path) as db:
             cols = {r[1] for r in db.execute("pragma table_info(playback_state)")}
-            assert "continue_dismissed" not in cols
+            assert not {"continue_dismissed", "continue_dismissed_at"} & cols
             assert db.execute("select play_count from playback_state").fetchone() == (2,)
         command.upgrade(config, "head")
     finally:

@@ -1,4 +1,4 @@
-"""add playback_state.continue_dismissed
+"""add playback_state.continue_dismissed / continue_dismissed_at
 
 「接下来继续」的锚点是这部作品最近播放（``last_played_at``）的那一行，展示单元
 是从锚点起第一个没看完的。清理插件只把 ``position_ms`` 清成 0 时，没看完
@@ -6,10 +6,11 @@
 已看、清 last_played_at 会破坏流水，都不对。
 
 新增一列显式记"用户不想在这一行再看到它"。只影响首页「接下来继续」，真正再
-播放时清回 false。
+播放时清回 false。另记隐藏的服务器时间 ``continue_dismissed_at``：迟到的离线补传、
+外部同步带来的旧播放事实不能把更新的隐藏冲掉——只有比它新的事实才清标记。
 
 向前兼容（CLAUDE.md 硬约束 3）：纯新增、NOT NULL 带 server_default 0，存量
-行一律 false（= 今天的行为）；旧版本回退后不认识它，读写都不碰。
+行一律 false（= 今天的行为）、时间为 NULL；旧版本回退后不认识它们，读写都不碰。
 
 Revision ID: a7d2e9c41b58
 Revises: d6a2e7c4f981
@@ -38,8 +39,10 @@ def upgrade() -> None:
                 server_default=sa.false(),
             )
         )
+        batch.add_column(sa.Column("continue_dismissed_at", sa.DateTime(), nullable=True))
 
 
 def downgrade() -> None:
     with op.batch_alter_table("playback_state") as batch:
+        batch.drop_column("continue_dismissed_at")
         batch.drop_column("continue_dismissed")
