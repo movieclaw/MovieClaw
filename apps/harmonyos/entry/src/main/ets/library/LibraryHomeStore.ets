@@ -121,8 +121,9 @@ class HomePlan {
  *
  * 数据放在跟着账号走的共享对象里，页面只负责渲染：
  * - 刷新：库、接下来继续、收藏、各行条目、「按类型找」的类型分布按依赖并发取；
- * - 库状态、要取的行、类型行的 kind、合集都没变时不重拉各行条目和类型分布
- *   （空闲时每 30 秒不必打 1+N 个请求）；
+ * - 库状态、要取的行、合集都没变时不重拉各行条目；类型行的 kind 没变时不重拉
+ *   类型分布——两道指纹闸各管各的，类型分布瞬时失败保留旧格子、不落指纹，下
+ *   一轮轮询重试（空闲时每 30 秒不必打 1+N 个请求）；
  * - 瞬时失败不清已有数据，只置 failed 让页面挂提示条；一次都没成功过才整页报错；
  * - 有库在扫描 / 整理时 busyUntil 往后 12 秒，页面据此保持 3 秒快轮询（同 Web recentlyBusy）。
  * - 整页磁盘快照（cacheDir/library-home-cache.json）：冷启动先上屏缓存，网络完成后二次刷新；
@@ -138,8 +139,9 @@ export class LibraryHomeStore {
   favorites: FavoritesView | null = null;
   itemsByKey: Map<string, LibraryItemView[]> = new Map<string, LibraryItemView[]>();
   /** 「按类型找」行各自的类型格子（按 kind 存，服务端按部数排好）。
-   *  跟各行条目共用同一道指纹闸（同 iOS）：库状态/行的构成变了才重取，
-   *  所以扫描结束、增删类型行后会自动刷新；不再出现「空库首取 [] 之后永远空」。 */
+   *  有自己的一道指纹闸（只看类型行的 kind）：库状态/行的构成变了才重取，
+   *  所以扫描结束、增删类型行后会自动刷新；瞬时失败保留旧格子、不落指纹，
+   *  下一轮轮询重试——空格子永远不会被指纹记住。 */
   genresByKind: Record<string, LibraryKindGenreView[]> = {};
   /** 各行条目至少到过一次 */
   rowsLoaded: boolean = false;
@@ -151,6 +153,8 @@ export class LibraryHomeStore {
   private owner: string | null = null;
   /** 各行条目上次拉取时的输入指纹（库状态、要取的行、合集），没变就不重拉 */
   private rowsFingerprint: string | null = null;
+  /** 类型分布上次拉取时的输入指纹（类型行的 kind 集合）；失败不提交，下一轮重试 */
+  private genresFingerprint: string | null = null;
   private refreshedAt: number | null = null;
   private inFlight: Promise<void> | null = null;
 
@@ -180,6 +184,7 @@ export class LibraryHomeStore {
     this.failed = false;
     this.busyUntil = 0;
     this.rowsFingerprint = null;
+    this.genresFingerprint = null;
     this.refreshedAt = null;
     this.inFlight = null;
     this.restoredKey = null;
@@ -332,7 +337,9 @@ export class LibraryHomeStore {
         this.busyUntil = Date.now() + 12000;
       }
 
-      // 各行条目与类型分布：库状态、要取的行、类型行的 kind、合集都没变时跳过
+      // 各行条目与类型分布拆成两道闸：行条目看库状态、要取的行、合集；类型分布
+      // 只看类型行的 kind。两闸各管各的——类型接口瞬时失败时保留旧格子、不落指
+      // 纹（空格子一旦被指纹记住就永远不会重试），下一轮轮询再试；行条目照常。
       const rowPrefs: HomeRowPref[] = prefs.rows ?? [];
       const visibleRows: HomeRow[] = HomeRows.build(rowPrefs, libs, cols)
         .filter((row: HomeRow): boolean => !row.hidden);
@@ -347,21 +354,39 @@ export class LibraryHomeStore {
           }
         }
       }
-      const fingerprint: string = LibraryHomeStore.fingerprint(libs, fetches, cols, genreKinds);
-      if (fingerprint !== this.rowsFingerprint) {
-        // 行条目与类型分布一起取：同一道闸，要么都旧着、要么一起换新
-        const rowsTask: Promise<Map<string, LibraryItemView[]>> = LibraryHomeStore.fetchRows(fetches);
-        const genresTask: Promise<Record<string, LibraryKindGenreView[]>> =
-          LibraryHomeStore.fetchGenres(api, genreKinds);
-        const next: Map<string, LibraryItemView[]> = await rowsTask;
-        const nextGenres: Record<string, LibraryKindGenreView[]> = await genresTask;
+      const rowFingerprint: string = LibraryHomeStore.fingerprint(libs, fetches, cols);
+      const genreFingerprint: string = genreKinds.join(',');
+      const rowsNeed: boolean = rowFingerprint !== this.rowsFingerprint;
+      const genresNeed: boolean = genreFingerprint !== this.genresFingerprint;
+      if (rowsNeed || genresNeed) {
+        let rowsTask: Promise<Map<string, LibraryItemView[]> | null>;
+        if (rowsNeed) {
+          rowsTask = LibraryHomeStore.fetchRows(fetches);
+        } else {
+          rowsTask = Promise.resolve(null);
+        }
+        // null 哨兵 = 这轮类型分布没拿到（失败）：不提交、不落指纹，保留旧格子
+        let genresTask: Promise<Record<string, LibraryKindGenreView[]> | null>;
+        if (genresNeed) {
+          genresTask = LibraryHomeStore.fetchGenres(api, genreKinds)
+            .catch((): Record<string, LibraryKindGenreView[]> | null => null);
+        } else {
+          genresTask = Promise.resolve(null);
+        }
+        const next: Map<string, LibraryItemView[]> | null = await rowsTask;
+        const nextGenres: Record<string, LibraryKindGenreView[]> | null = await genresTask;
         if (this.owner !== key) {
           return;
         }
-        this.rowsFingerprint = fingerprint;
-        this.itemsByKey = next;
-        this.genresByKind = nextGenres;
-        this.rowsLoaded = true;
+        if (next !== null) {
+          this.rowsFingerprint = rowFingerprint;
+          this.itemsByKey = next;
+          this.rowsLoaded = true;
+        }
+        if (nextGenres !== null) {
+          this.genresFingerprint = genreFingerprint;
+          this.genresByKind = nextGenres;
+        }
       }
 
       // 刷新到的偏好若改了这两行的取法（极少见：别处刚改过自定义首页），按新的再取一次
@@ -556,14 +581,15 @@ export class LibraryHomeStore {
     return fetches;
   }
 
-  /** 指纹：库状态、要取的行、类型行的 kind、合集，任一变化才重拉各行条目与类型分布 */
+  /** 指纹：库状态、要取的行、合集，任一变化才重拉各行条目（类型分布只看类型行的 kind，独立成闸） */
   private static fingerprint(libs: LibraryView[], fetches: Map<string, () => Promise<LibraryItemView[]>>,
-    cols: CollectionView[], genreKinds: string[]): string {
+    cols: CollectionView[]): string {
     const keys: string[] = Array.from(fetches.keys()).sort();
-    return `${JSON.stringify(libs)}#${keys.join(',')}#${genreKinds.join(',')}#${JSON.stringify(cols)}`;
+    return `${JSON.stringify(libs)}#${keys.join(',')}#${JSON.stringify(cols)}`;
   }
 
-  /** 「按类型找」各 kind 的类型分布：并发取；单 kind 失败按空处理，随下一次指纹变化重试（同 iOS） */
+  /** 「按类型找」各 kind 的类型分布：并发取、整组成败——任一失败整轮作废，调用
+   *  方保留旧格子、不落指纹，下一轮轮询重试；不把空结果写进指纹导致永久空格子 */
   private static async fetchGenres(api: MovieClawApi, kinds: string[]):
   Promise<Record<string, LibraryKindGenreView[]>> {
     const next: Record<string, LibraryKindGenreView[]> = {};
@@ -572,9 +598,6 @@ export class LibraryHomeStore {
       tasks.push(api.uiLibraryKindGenres(kind)
         .then((list: LibraryKindGenreView[]): void => {
           next[kind] = list;
-        })
-        .catch((): void => {
-          next[kind] = [];
         }));
     }
     await Promise.all(tasks);

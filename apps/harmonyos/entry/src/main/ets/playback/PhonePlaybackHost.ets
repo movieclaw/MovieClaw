@@ -291,6 +291,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   private pgsSidecarFile: PgsSidecarCache | null = null;
   /** 正在后台预备的 PGS 旁挂键（fileId:ref），防重入 */
   private pgsPreparingKey: string = '';
+  /** 预备请求代次：每次起跑 +1；旧代次晚完成一律作废（只删自己那份，不碰最新挂上的缓存） */
+  private pgsPrepareSeq: number = 0;
   /** 音轨：当前选中的 ref（空 = 服务端自动挑） */
   @Trace audioRef: string = '';
   @Trace showAudio: boolean = false;
@@ -876,11 +878,12 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   /**
    * 后台预备 PGS 旁挂 .sup（对齐网页 libbitsub + fetchSupBytes 的客户端路径）：
    * `requestInStream` 落盘绕开响应体大小上限；完成后按起跑时记下的世界对账
-   * （PgsPrepareGuard 三分法）——退出/换集/重协商 → 作废删文件；中途切走这条
-   * 轨 / 改备了别的键 → 只入缓存不重挂，切回来命中缓存再挂；什么都没变 → 驱
-   * 逐旧缓存、保持当前位置重挂一次，让 mpv `sub-add` 带上字幕（fd +
-   * sub-delay=-start_ms/1000 与文本旁挂同一条链路）。首抽空窗期照常播放，
-   * 不阻塞起播。
+   * （PgsPrepareGuard 三分法）——退出/换集/重协商/已有更新的预备请求起跑 →
+   * 作废删文件（同会话快切 PGS 轨时旧请求晚完成也只删自己那份，绝不驱逐新请
+   * 求刚挂上的缓存）；中途切走这条轨 → 只入缓存不重挂，切回来命中缓存再挂；
+   * 什么都没变 → 驱逐旧缓存、保持当前位置重挂一次，让 mpv `sub-add` 带上字
+   * 幕（fd + sub-delay=-start_ms/1000 与文本旁挂同一条链路）。首抽空窗期照常
+   * 播放，不阻塞起播。
    */
   private async preparePgsSidecar(url: string, fileId: number, ref: string): Promise<void> {
     const key = `${fileId}:${ref}`;
@@ -888,11 +891,12 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     const sessionView: PlaybackSessionView | null = this.session;
     if (sessionView === null) { return; }
     this.pgsPreparingKey = key;
-    const guard: PgsPrepareGuard = new PgsPrepareGuard(key, this.sessionEpoch, sessionView, ref);
+    const seq: number = ++this.pgsPrepareSeq;
+    const guard: PgsPrepareGuard = new PgsPrepareGuard(seq, this.sessionEpoch, sessionView, ref);
     this.toast('图形字幕准备中，首次可能需要几分钟');
     try {
       const path: string = await downloadPgsSidecar(url, this.getUIContext().getHostContext()?.cacheDir ?? '');
-      const outcome: string = guard.outcome(this.pgsPreparingKey, this.sessionEpoch, this.disposed,
+      const outcome: string = guard.outcome(this.pgsPrepareSeq, this.sessionEpoch, this.disposed,
         this.session, this.subtitleIndex);
       if (outcome === PgsPrepareGuard.outcomeDiscard) { removePgsSidecar(path); return; }
       const previous: PgsSidecarCache | null = this.pgsSidecarFile;
@@ -905,7 +909,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
         await this.attachPlayer(sessionView.stream_url ?? '');
       }
     } catch (error) {
-      if (this.pgsPreparingKey === key && !this.disposed) { this.toast('图形字幕加载失败，可稍后重新选择这条字幕重试'); }
+      if (seq === this.pgsPrepareSeq && !this.disposed) { this.toast('图形字幕加载失败，可稍后重新选择这条字幕重试'); }
       hilog.warn(0x0000, 'MCSub', 'PGS 旁挂下载失败: %{public}s', `${error}`);
     } finally {
       if (this.pgsPreparingKey === key) { this.pgsPreparingKey = ''; }

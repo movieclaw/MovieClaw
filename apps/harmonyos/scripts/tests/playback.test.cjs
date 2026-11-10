@@ -524,3 +524,52 @@ test('episode switch carries immutable choices through the real API report adapt
   assert.deepEqual(stops, ['session-1']);
   coordinator.close(); await drain(); assert.deepEqual(stops, ['session-1', 'session-2']);
 });
+
+test('a transient genre failure keeps the old tiles, retries next round, and never touches the rows gate', async () => {
+  const load = runtime();
+  const { HomeRows } = load('entry/src/main/ets/library/HomeRows.ets');
+  const { LibraryHomeStore } = load('entry/src/main/ets/library/LibraryHomeStore.ets');
+  const library = { id: 1, name: 'Movies', kind: 'movie', viewer_access: true,
+    exclude_from_home: false, stats: { item_count: 5 } };
+  // The default layout is exactly these rows: using it as the row prefs keeps build() from appending anything.
+  const prefs = HomeRows.build([], [library], []).map((row) => ({ id: row.id, hidden: row.hidden }));
+  const rowCalls = [];
+  let genreCalls = 0;
+  let genreFails = true;
+  const api = {
+    uiPrefsShow: async () => ({ home: { rows: prefs } }),
+    libraryList: async () => [library],
+    collectionList: async () => [],
+    playbackUpNext: async () => ({ items: [] }),
+    playbackFavorites: async () => ({ items: [], total: 0 }),
+    libraryItemsList: async () => { rowCalls.push('items'); return []; },
+    uiLibraryKindItems: async () => { rowCalls.push('kindItems'); return []; },
+    uiLibraryKindGenres: async () => {
+      genreCalls++;
+      if (genreFails) { throw new Error('genre 503'); }
+      return [{ name: 'Drama', count: 2 }];
+    },
+  };
+  const store = new LibraryHomeStore();
+  // Round 1: the genre endpoint 503s — rows still commit, genres keep the old value and no fingerprint lands.
+  await store.reload(api, 'owner');
+  assert.equal(store.rowsLoaded, true);
+  assert.equal(genreCalls, 1);
+  assert.deepEqual(store.genresByKind, {});
+  const rowsAfterFirst = rowCalls.length;
+  // Round 2: still failing — the rows gate stays shut, the genre gate keeps retrying.
+  await store.reload(api, 'owner');
+  assert.equal(rowCalls.length, rowsAfterFirst);
+  assert.equal(genreCalls, 2);
+  assert.deepEqual(store.genresByKind, {});
+  // Round 3: recovered — only the genre distribution refetches and lands its fingerprint.
+  genreFails = false;
+  await store.reload(api, 'owner');
+  assert.equal(rowCalls.length, rowsAfterFirst);
+  assert.equal(genreCalls, 3);
+  assert.deepEqual(store.genresByKind, { movie: [{ name: 'Drama', count: 2 }] });
+  // Round 4: both gates shut — nothing is requested at all.
+  await store.reload(api, 'owner');
+  assert.equal(rowCalls.length, rowsAfterFirst);
+  assert.equal(genreCalls, 3);
+});

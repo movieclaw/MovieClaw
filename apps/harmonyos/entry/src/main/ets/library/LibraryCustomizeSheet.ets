@@ -568,7 +568,8 @@ export struct LibraryCustomizeSheet {
           }
           .width('100%')
           .padding({ left: 16, right: 10, top: 11, bottom: 11 })
-          if (item.row.kind instanceof LibraryRowKind && item.pref.sort !== 'last_played') {
+          if ((item.row.kind instanceof LibraryRowKind || item.row.kind instanceof MediaKindRowKind)
+            && item.pref.sort !== 'last_played') {
             Row({ space: 16 }) {
               ForEach(['', 'unwatched', 'unfinished'], (watch: string) => {
                 Button(watch === 'unfinished' ? '未看完' : watch === 'unwatched' ? '未看' : '全部')
