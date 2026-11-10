@@ -184,22 +184,32 @@ def catalog_unit(env, member, item, season, episode):
 
 
 def write(env, member, unit, **fields):
+    r = env.c.post(SYNC + "/state", json={"member_id": member, "changes": [change(unit, **fields)]})
+    assert r.status_code == 200, r.text
+    return r.json()["data"]["outcomes"][0]
+
+
+def write_batch(env, member, changes):
+    r = env.c.post(SYNC + "/state", json={"member_id": member, "changes": changes})
+    assert r.status_code == 200, r.text
+    return [o["status"] for o in r.json()["data"]["outcomes"]]
+
+
+def change(unit, **fields):
     media = unit["media"]
-    change = {
+    body = {
         "media_item_id": media["id"],
         "kind": media["kind"],
         "expected_updated_at": unit["updated_at"],
         **fields,
     }
     if media["tmdb_id"] is None and media["imdb_id"] is None:
-        change["identity"] = media["identity"]
+        body["identity"] = media["identity"]
     else:
-        change["tmdb_id"] = media["tmdb_id"]
+        body["tmdb_id"] = media["tmdb_id"]
     if media["kind"] == "tv":
-        change.update(season=unit["season"], episode=unit["episode"])
-    r = env.c.post(SYNC + "/state", json={"member_id": member, "changes": [change]})
-    assert r.status_code == 200, r.text
-    return r.json()["data"]["outcomes"][0]
+        body.update(season=unit["season"], episode=unit["episode"])
+    return body
 
 
 def facts(env, member, item):
@@ -538,6 +548,100 @@ def test_progress_sync_restores_unless_same_request_dismisses(env):
     back = catalog_unit(env, 1, item, 0, 0)
     assert (back["continue_dismissed"], back["position_ms"]) == (False, 120_000)
     assert (item, 0, 0) in up_next(env, 1)
+
+
+@pytest.mark.parametrize("dismiss_first", [True, False])
+@pytest.mark.parametrize("failure", ["not_anchor", "stale_version", "mismatch", "not_found"])
+def test_failed_dismiss_in_batch_does_not_block_progress_restore(env, failure, dismiss_first):
+    """同一批：合法较新进度 + 没落下的 dismiss_continue=true——进度照常让作品回来。"""
+    show = env.ids["tv"]
+    play(env, 1, show, 1, 1, 100_000)
+    play(env, 1, show, 1, 2, 100_000)
+    assert write(env, 1, catalog_unit(env, 1, show, 1, 2), dismiss_continue=True)["status"] == (
+        "applied"
+    )
+    assert [k for k in up_next(env, 1) if k[0] == show] == []
+    e1, e2 = catalog_unit(env, 1, show, 1, 1), catalog_unit(env, 1, show, 1, 2)
+    dismiss = {
+        "not_anchor": change(e1, dismiss_continue=True),
+        "stale_version": change(e2, dismiss_continue=True)
+        | {"expected_updated_at": iso(datetime.now(UTC) - timedelta(days=3))},
+        "mismatch": change(e1, dismiss_continue=True) | {"tmdb_id": 999},
+        "not_found": change(e1, dismiss_continue=True)
+        | {"episode": 9, "expected_updated_at": None},
+    }[failure]
+    progress = change(e2, position_ms=150_000, last_played_at=iso(datetime.now(UTC)))
+    expected = {"mismatch": "mismatch", "not_found": "not_found"}.get(failure, "conflict")
+    if dismiss_first:
+        assert write_batch(env, 1, [dismiss, progress]) == [expected, "applied"]
+    else:
+        assert write_batch(env, 1, [progress, dismiss]) == ["applied", expected]
+    for episode in (1, 2):
+        assert catalog_unit(env, 1, show, 1, episode)["continue_dismissed"] is False
+    assert catalog_unit(env, 1, show, 1, 2)["position_ms"] == 150_000
+    assert (show, 1, 2) in up_next(env, 1)
+
+
+def test_successful_dismiss_in_batch_still_wins_over_progress(env):
+    """对照：同批隐藏真的落下（applied / unchanged）时，显式意图照旧优先。"""
+    show = env.ids["tv"]
+    play(env, 1, show, 1, 1, 100_000)
+    play(env, 1, show, 1, 2, 100_000)
+    e1, e2 = catalog_unit(env, 1, show, 1, 1), catalog_unit(env, 1, show, 1, 2)
+    batch = [change(e2, dismiss_continue=True), change(e1, position_ms=120_000)]
+    assert write_batch(env, 1, batch) == ["applied", "applied"]
+    assert catalog_unit(env, 1, show, 1, 2)["continue_dismissed"] is True
+    assert [k for k in up_next(env, 1) if k[0] == show] == []
+    # 重发同一隐藏（unchanged）+ 进度：仍隐藏
+    e1, e2 = catalog_unit(env, 1, show, 1, 1), catalog_unit(env, 1, show, 1, 2)
+    batch = [change(e1, position_ms=130_000), change(e2, dismiss_continue=True)]
+    assert write_batch(env, 1, batch) == ["applied", "unchanged"]
+    assert catalog_unit(env, 1, show, 1, 2)["continue_dismissed"] is True
+    assert [k for k in up_next(env, 1) if k[0] == show] == []
+
+
+def test_explicit_restore_clears_every_flag_of_the_title(env):
+    """dismiss_continue=false 是作品级：目标行没标记、别的行带着也清，清完卡片回来。"""
+    show = env.ids["tv"]
+    now = datetime.now(UTC)
+    upload(env, 1, show, 1, 2, 60_000, now - timedelta(minutes=30), viewing="v-show-e2")
+    assert write(env, 1, catalog_unit(env, 1, show, 1, 2), dismiss_continue=True)["status"] == (
+        "applied"
+    )
+    # 较早的离线记录晚到，E1 顶成锚点；标记留在 E2，作品照旧隐藏
+    upload(env, 1, show, 1, 1, 60_000, now - timedelta(minutes=10), viewing="v-show-e1")
+    assert [k for k in up_next(env, 1) if k[0] == show] == []
+    # 对看得见的锚点 E1 取消隐藏：E1 自己没标记，但作品是藏着的 → applied、整部回来
+    e1 = catalog_unit(env, 1, show, 1, 1)
+    assert e1["continue_dismissed"] is False
+    assert write(env, 1, e1, dismiss_continue=False)["status"] == "applied"
+    assert catalog_unit(env, 1, show, 1, 2)["continue_dismissed"] is False
+    assert (show, 1, 1) in up_next(env, 1)
+    # 再隐藏锚点 E1，然后 E1 被重新识别成 E3：观看状态（连同标记）带到 E3，两行都有标记
+    assert write(env, 1, catalog_unit(env, 1, show, 1, 1), dismiss_continue=True)["status"] == (
+        "applied"
+    )
+
+    async def reanchor():
+        from movieclaw_api.services.library.reanchor import migrate_watch_state
+
+        async with get_database().session() as s:
+            await migrate_watch_state(s, (show, 1, 1), (show, 1, 3))
+            await s.commit()
+
+    env.c.portal.call(reanchor)
+    assert [catalog_unit(env, 1, show, 1, e)["continue_dismissed"] for e in (1, 3)] == [True, True]
+    # 对 E1 取消隐藏：作品所有标记都清，卡片回来（以前只清 E1，E3 的标记让整部继续藏着）
+    assert write(env, 1, catalog_unit(env, 1, show, 1, 1), dismiss_continue=False)["status"] == (
+        "applied"
+    )
+    for episode in (1, 2, 3):
+        assert catalog_unit(env, 1, show, 1, episode)["continue_dismissed"] is False
+    assert [k for k in up_next(env, 1) if k[0] == show] != []
+    # 作品没有任何标记时取消隐藏：unchanged，不动版本
+    e1 = catalog_unit(env, 1, show, 1, 1)
+    assert write(env, 1, e1, dismiss_continue=False)["status"] == "unchanged"
+    assert catalog_unit(env, 1, show, 1, 1)["updated_at"] == e1["updated_at"]
 
 
 def test_continue_dismissed_migration_upgrade_downgrade_keeps_rows(tmp_path, monkeypatch):
