@@ -25,7 +25,12 @@ from movieclaw_channel.adapter import ChannelContext
 from movieclaw_channel.types import ReplyContext
 from movieclaw_db.engine import dispose_db, init_db
 from movieclaw_plugins.feishu.feishu_channel.adapter import FeishuAdapter
-from movieclaw_plugins.feishu.feishu_channel.card import _MAX_SUMMARY, build_card
+from movieclaw_plugins.feishu.feishu_channel.card import (
+    _MAX_SUMMARY,
+    build_card,
+    chunk_text,
+    layout_card,
+)
 from movieclaw_plugins.feishu.feishu_channel.client import (
     FeishuApiError,
     FeishuClient,
@@ -427,20 +432,25 @@ def test_build_card_without_title_is_absent() -> None:
     assert build_card("  \n\t") is None
 
 
-def test_build_card_clips_long_summary_and_keeps_late_link() -> None:
+def test_build_card_hands_back_overflow_and_keeps_late_link() -> None:
     late = "https://example.com/late"
-    card = build_card("标题\n" + ("简" * 5000) + "\n" + late, image_key="img_k")
-    assert card is not None
+    laid = layout_card("标题\n" + ("简" * 5000) + "\n" + late, image_key="img_k")
+    assert laid is not None
+    card, overflow = laid
     body = card["elements"][1]["text"]["content"]
     assert len(body) == _MAX_SUMMARY
-    assert body.endswith("…")
     assert late not in body
+    # 卡片没装下的部分原样交回,一个字不丢
+    assert body + overflow == ("简" * 5000) + "\n" + late
     assert card["elements"][0]["img_key"] == "img_k"
     assert card["elements"][-1]["actions"][0]["url"] == late
-    titled = build_card(("题" * 250) + "\n正文")
+    titled = layout_card(("题" * 250) + "\n正文")
     assert titled is not None
-    assert len(titled["header"]["title"]["content"]) == 200
-    assert titled["header"]["title"]["content"].endswith("…")
+    assert len(titled[0]["header"]["title"]["content"]) == 200
+    assert titled[0]["header"]["title"]["content"].endswith("…")
+    # 完整标题写回正文开头
+    assert titled[0]["elements"][0]["text"]["content"] == ("题" * 250) + "\n正文"
+    assert titled[1] == ""
 
 
 def test_poll_outcome_repr_omits_secret() -> None:
@@ -493,7 +503,7 @@ async def test_registration_begin_fields_and_defaults(monkeypatch) -> None:
     assert set(seen[0]) == {"action"}
     assert seen[0]["action"] == ["init"]
     assert set(seen[1]) == {"action", "archetype", "auth_method", "request_user_info"}
-    assert seen[1]["request_user_info"] == ["open_id"]
+    assert seen[1]["request_user_info"] == ["open_id tenant_brand"]
     assert seen[1]["archetype"] == ["PersonalAgent"]
     assert seen[1]["auth_method"] == ["client_secret"]
     assert started.qr == "https://accounts.feishu.cn/verify?user_code=CODE"
@@ -791,6 +801,18 @@ class AppGateway:
         self.open_id = "ou_scanner"
         self.fail_token = False
         self.message_replies: list[httpx.Response] = []
+        #: 扫码人所在租户品牌。lark 时飞书域只报告品牌,凭据只在 Lark 域签发
+        self.brand = "feishu"
+        #: begin 时请求的 user_info 字段;契约:服务端只返回请求过的字段
+        self.requested: set[str] = set()
+
+    def _user_info(self) -> dict[str, str]:
+        info: dict[str, str] = {}
+        if "open_id" in self.requested and self.open_id:
+            info["open_id"] = self.open_id
+        if "tenant_brand" in self.requested:
+            info["tenant_brand"] = self.brand
+        return info
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -801,6 +823,8 @@ class AppGateway:
             if action == "init":
                 return httpx.Response(200, json={"supported_auth_methods": ["client_secret"]})
             if action == "begin":
+                assert request.url.host == "accounts.feishu.cn"
+                self.requested = set(form["request_user_info"][0].split())
                 return httpx.Response(
                     200,
                     json={
@@ -812,12 +836,20 @@ class AppGateway:
                     },
                 )
             assert set(form) == {"action", "device_code"}
+            issuer = "accounts.larksuite.com" if self.brand == "lark" else "accounts.feishu.cn"
+            if request.url.host != issuer:
+                # 跨品牌:签发域之外只报告品牌(且只在被请求时),不给凭据
+                info = {k: v for k, v in self._user_info().items() if k == "tenant_brand"}
+                body: dict = {"error": "authorization_pending"}
+                if info:
+                    body["user_info"] = info
+                return httpx.Response(200, json=body)
             return httpx.Response(
                 200,
                 json={
                     "client_id": "cli_app",
                     "client_secret": self.client_secret,
-                    "user_info": {"open_id": self.open_id} if self.open_id else {},
+                    "user_info": self._user_info(),
                 },
             )
         if url.endswith("/tenant_access_token/internal"):
@@ -927,7 +959,10 @@ async def test_scan_bind_then_push_card(db, monkeypatch, caplog) -> None:
             ready = hub.binding(binding.binding_id)
             assert ready is not None and ready.input_optional is True
             assert ready.prefill == {"app_id": "cli_app"}
-            assert ready.resume_token == binding.flow_id
+            # 续传令牌独立于会进日志的 flow_id,至少 128 bit
+            assert ready.resume_token and ready.resume_token != binding.flow_id
+            assert binding.flow_id not in ready.resume_token
+            assert len(ready.resume_token) >= 32
             assert gateway.client_secret not in json.dumps(ready.prefill)
             done = await hub.binding_input(binding.binding_id, "")
             assert done.status == "confirmed"
@@ -1027,21 +1062,13 @@ async def test_cancel_keeps_secret_for_form_resume(db, monkeypatch, caplog) -> N
             assert state.status == "failed"
             assert "保留" in state.message
             assert state.prefill == {"app_id": "cli_app"}
-            assert state.resume_token == ready.flow_id
+            token = state.resume_token
+            assert token and token == ready.resume_token
             assert secret not in json.dumps(flow_dict(state))
             assert secret not in repr(driver._registry._flows[ready.flow_id])
-            assert secret not in repr(driver._registry._held[ready.flow_id])
-            with pytest.raises(ValueError, match="已失效"):
-                await hub.begin_binding(
-                    "feishu",
-                    {
-                        "app_id": "cli_other",
-                        "receive_id": "ou_scanner",
-                        "resume_flow": ready.flow_id,
-                    },
-                )
-            held = driver._registry._held[ready.flow_id]
-            held.stored_at -= 31 * 60
+            assert secret not in repr(driver._registry._held[token])
+            assert token not in repr(driver._registry._held[token])
+            # flow_id 不能当续传令牌用
             with pytest.raises(ValueError, match="已失效"):
                 await hub.begin_binding(
                     "feishu",
@@ -1051,7 +1078,19 @@ async def test_cancel_keeps_secret_for_form_resume(db, monkeypatch, caplog) -> N
                         "resume_flow": ready.flow_id,
                     },
                 )
-            assert ready.flow_id not in driver._registry._held
+            held = driver._registry._held[token]
+            held.stored_at -= 31 * 60
+            with pytest.raises(ValueError, match="已失效"):
+                await hub.begin_binding(
+                    "feishu",
+                    {
+                        "app_id": "cli_app",
+                        "receive_id": "ou_scanner",
+                        "resume_flow": token,
+                    },
+                )
+            assert token not in driver._registry._held
+            assert held.app_secret == ""
         assert secret not in caplog.text
     finally:
         await hub.stop()
@@ -1070,11 +1109,23 @@ async def test_cancel_resume_before_expiry_binds_without_echoing_secret(
                 {
                     "app_id": "cli_app",
                     "receive_id": "oc_group9",
-                    "resume_flow": ready.flow_id,
+                    "resume_flow": ready.resume_token,
                 },
             )
             assert done.status == "confirmed" and done.review is False
-            assert ready.flow_id not in driver._registry._held
+            assert driver._registry._held == {}
+            # 表单续传成功后 flow 一并删掉
+            assert ready.flow_id not in driver._registry._flows
+            # 同一个令牌不能再用第二次
+            with pytest.raises(ValueError, match="已失效"):
+                await hub.begin_binding(
+                    "feishu",
+                    {
+                        "app_id": "cli_app",
+                        "receive_id": "oc_group9",
+                        "resume_flow": ready.resume_token,
+                    },
+                )
             from movieclaw_db.engine import get_database
             from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
 
@@ -1153,7 +1204,8 @@ async def test_token_failure_keeps_secret_for_form_retry(db, monkeypatch, caplog
                 },
             )
             assert done.status == "confirmed"
-            assert driver._registry.secret_for(failed.resume_token, "cli_app") == ""
+            assert driver._registry.claim(failed.resume_token, "cli_app") is None
+            assert driver._registry._held == {}
         assert secret not in caplog.text
     finally:
         await hub.stop()
@@ -1253,3 +1305,354 @@ async def test_manual_target_length_and_permission_retry(db, monkeypatch) -> Non
         assert [row.account_id for row in rows] == ["cli_form"]
     finally:
         await hub.stop()
+
+
+# ---------------------------------------------------------------------------
+# 长推送:卡片装不下的正文按文本补发,不静默丢字(PR #1251 评审 2)
+# ---------------------------------------------------------------------------
+
+
+def _no_space(text: str) -> str:
+    return "".join(text.split())
+
+
+def _delivered(requests: list[httpx.Request]) -> tuple[str, int, list[int]]:
+    """按发送顺序拼出送达的正文。返回 (正文, 卡片数, 每条纯文本长度)。"""
+    parts: list[str] = []
+    cards = 0
+    text_lens: list[int] = []
+    for item in requests:
+        if "/im/v1/messages" not in str(item.url):
+            continue
+        payload = json.loads(item.content)
+        content = json.loads(payload["content"])
+        if payload["msg_type"] == "interactive":
+            cards += 1
+            parts.append(content["header"]["title"]["content"])
+            for element in content["elements"]:
+                if element.get("tag") == "div":
+                    body = element["text"]["content"]
+                    assert len(body) <= _MAX_SUMMARY
+                    parts.append(body)
+            assert len(payload["content"].encode()) < 30 * 1024
+        else:
+            text_lens.append(len(content["text"]))
+            parts.append(content["text"])
+    return "".join(parts), cards, text_lens
+
+
+def _long_text(total: int, *, single_line: bool = False) -> str:
+    head = "标题\n"
+    room = total - len(head)
+    if single_line:
+        return head + ("字" * room)
+    line = ("段" * 59) + "\n"
+    body = (line * (room // len(line) + 1))[:room]
+    return head + body
+
+
+@pytest.mark.parametrize(
+    ("total", "single_line", "card"),
+    [
+        (4_000, False, True),
+        (4_001, False, True),
+        (4_010, True, True),
+        (20_000, False, True),
+        (20_000, True, True),
+        (20_001, False, False),
+    ],
+)
+async def test_long_push_delivers_every_character(
+    db, monkeypatch, total: int, single_line: bool, card: bool
+) -> None:
+    gateway, _driver, hub, ready = await _scan_ready(monkeypatch)
+    photo = b"\x89PNG\r\n\x1a\nposter"
+    try:
+        assert (await hub.binding_input(ready.binding_id, "")).status == "confirmed"
+        await _wait_for(lambda: hub.is_running("feishu", "cli_app"))
+        text = _long_text(total, single_line=single_line)
+        assert len(text) == total
+        before = len(gateway.requests)
+        assert await hub.push(text, photo=photo) == 1
+        want = _no_space(text)
+        await _wait_for(
+            lambda: len(_no_space(_delivered(gateway.requests[before:])[0])) >= len(want),
+            timeout=5.0,
+        )
+        await asyncio.sleep(0.05)
+        delivered, cards, text_lens = _delivered(gateway.requests[before:])
+        assert _no_space(delivered) == want
+        assert all(size <= FeishuAdapter.max_text_len for size in text_lens)
+        uploaded = any(
+            str(item.url).endswith("/im/v1/images") for item in gateway.requests[before:]
+        )
+        if card:
+            assert cards == 1 and uploaded
+            # 卡片之后才补发文本,不重复卡片里的内容
+            assert bool(text_lens) == (total - len("标题\n") > _MAX_SUMMARY)
+        else:
+            assert cards == 0 and not uploaded
+    finally:
+        await hub.stop()
+
+
+async def test_card_failure_falls_back_to_chunked_text(db, monkeypatch) -> None:
+    gateway, _driver, hub, ready = await _scan_ready(monkeypatch)
+    try:
+        assert (await hub.binding_input(ready.binding_id, "")).status == "confirmed"
+        await _wait_for(lambda: hub.is_running("feishu", "cli_app"))
+        text = _long_text(9_000)
+        before = len(gateway.requests)
+        # 第一条(卡片)被拒,之后的纯文本正常
+        gateway.message_replies = [httpx.Response(400, json={"code": 230099, "msg": "bad card"})]
+        assert await hub.push(text, photo=b"\x89PNG\r\n\x1a\nposter") == 1
+        want = _no_space(text)
+
+        def texts() -> str:
+            return "".join(
+                json.loads(json.loads(item.content)["content"])["text"]
+                for item in gateway.requests[before:]
+                if "/im/v1/messages" in str(item.url)
+                and json.loads(item.content)["msg_type"] == "text"
+            )
+
+        await _wait_for(lambda: len(_no_space(texts())) >= len(want), timeout=5.0)
+        await asyncio.sleep(0.05)
+        assert _no_space(texts()) == want
+    finally:
+        await hub.stop()
+
+
+def test_chunk_text_never_drops_characters() -> None:
+    assert chunk_text("", 10) == []
+    assert chunk_text("a" * 25, 10) == ["a" * 10, "a" * 10, "a" * 5]
+    mixed = "第一行\n" + ("长" * 30) + "\n末行"
+    chunks = chunk_text(mixed, 12)
+    assert all(len(chunk) <= 12 for chunk in chunks)
+    assert _no_space("".join(chunks)) == _no_space(mixed)
+
+
+# ---------------------------------------------------------------------------
+# 扫码会话互不影响、续传令牌一次性、Secret 不长期留在内存(PR #1251 评审 1)
+# ---------------------------------------------------------------------------
+
+
+def _secret_in_registry(driver, secret: str) -> bool:
+    registry = driver._registry
+    for held in registry._held.values():
+        if held.app_secret == secret:
+            return True
+    for flow in registry._flows.values():
+        if flow.result is not None and secret in json.dumps(flow.result.credentials):
+            return True
+    return False
+
+
+async def test_two_scan_sessions_do_not_cancel_each_other(db, monkeypatch) -> None:
+    gateway = AppGateway()
+    _install_transport(monkeypatch, gateway.handler)
+    driver, hub = _pinned_hub(gateway)
+    try:
+        first = await hub.begin_binding("feishu", {"flow": "1"})
+        second = await hub.begin_binding("feishu", {"flow": "1"})
+        assert first.flow_id != second.flow_id
+        for binding in (first, second):
+            await _wait_for(
+                lambda b=binding: (
+                    (found := hub.binding(b.binding_id)) is not None
+                    and found.status == "need_input"
+                )
+            )
+        a, b = hub.binding(first.binding_id), hub.binding(second.binding_id)
+        assert a is not None and b is not None
+        assert a.resume_token and b.resume_token and a.resume_token != b.resume_token
+        done = await hub.binding_input(first.binding_id, "")
+        assert done.status == "confirmed"
+        # 另一个标签页的会话仍在输入步,可以继续完成
+        still = hub.binding(second.binding_id)
+        assert still is not None and still.status == "need_input"
+        assert (await hub.binding_input(second.binding_id, "oc_group2")).status == "confirmed"
+    finally:
+        await hub.stop()
+
+
+async def test_concurrent_double_submit_sends_one_welcome(db, monkeypatch) -> None:
+    gateway, driver, hub, ready = await _scan_ready(monkeypatch)
+    try:
+        before = len(gateway.requests)
+        results = await asyncio.gather(
+            hub.binding_input(ready.binding_id, ""),
+            driver.flow_input(ready.flow_id, ""),
+        )
+        welcomes = [
+            item
+            for item in gateway.requests[before:]
+            if "/im/v1/messages" in str(item.url) and json.loads(item.content)["msg_type"] == "text"
+        ]
+        assert len(welcomes) == 1
+        assert all(state.status == "confirmed" for state in results)
+    finally:
+        await hub.stop()
+
+
+async def test_concurrent_resume_with_one_token_binds_once(db, monkeypatch) -> None:
+    gateway, driver, hub, ready = await _scan_ready(monkeypatch)
+    try:
+        await driver.cancel_flow(ready.flow_id)
+        token = ready.resume_token
+        before = len(gateway.requests)
+        fields = {"app_id": "cli_app", "receive_id": "oc_group9", "resume_flow": token}
+        results = await asyncio.gather(
+            hub.begin_binding("feishu", dict(fields)),
+            hub.begin_binding("feishu", dict(fields)),
+            return_exceptions=True,
+        )
+        ok = [item for item in results if not isinstance(item, BaseException)]
+        failed = [item for item in results if isinstance(item, BaseException)]
+        assert len(ok) == 1 and ok[0].status == "confirmed"
+        assert len(failed) == 1 and "已失效" in str(failed[0])
+        welcomes = [
+            item
+            for item in gateway.requests[before:]
+            if "/im/v1/messages" in str(item.url) and json.loads(item.content)["msg_type"] == "text"
+        ]
+        assert len(welcomes) == 1
+        assert not _secret_in_registry(driver, gateway.client_secret)
+    finally:
+        await hub.stop()
+
+
+async def test_failed_resume_puts_the_token_back(db, monkeypatch) -> None:
+    gateway, driver, hub, ready = await _scan_ready(monkeypatch)
+    try:
+        await driver.cancel_flow(ready.flow_id)
+        token = ready.resume_token
+        gateway.message_replies = [httpx.Response(400, json={"code": 230002, "msg": "no chat"})]
+        with pytest.raises(ValueError):
+            await hub.begin_binding(
+                "feishu", {"app_id": "cli_app", "receive_id": "oc_missing", "resume_flow": token}
+            )
+        # 校验失败不算用掉:同一个令牌还能再试一次
+        done = await hub.begin_binding(
+            "feishu", {"app_id": "cli_app", "receive_id": "oc_group9", "resume_flow": token}
+        )
+        assert done.status == "confirmed"
+        assert driver._registry._held == {}
+    finally:
+        await hub.stop()
+
+
+async def test_secret_is_wiped_after_confirm(db, monkeypatch) -> None:
+    import movieclaw_plugins.feishu.feishu_channel.binding as binding_mod
+
+    monkeypatch.setattr(binding_mod, "_DONE_GRACE_S", 0.05)
+    gateway, driver, hub, ready = await _scan_ready(monkeypatch)
+    try:
+        flow = driver._registry._flows[ready.flow_id]
+        done = await hub.binding_input(ready.binding_id, "")
+        assert done.status == "confirmed"
+        assert driver._registry._held == {}
+        await _wait_for(lambda: ready.flow_id not in driver._registry._flows)
+        assert flow.result is None
+        assert not _secret_in_registry(driver, gateway.client_secret)
+    finally:
+        await hub.stop()
+
+
+async def test_held_secret_expires_without_any_access(db, monkeypatch) -> None:
+    import movieclaw_plugins.feishu.feishu_channel.binding as binding_mod
+
+    # 中枢每秒轮询一次,扫码到输入步要 1 秒左右;暂存时长取 3 秒
+    monkeypatch.setattr(binding_mod, "_HOLD_TTL_S", 3.0)
+    monkeypatch.setattr(binding_mod, "_DONE_GRACE_S", 0.05)
+    gateway, driver, hub, ready = await _scan_ready(monkeypatch)
+    try:
+        await driver.cancel_flow(ready.flow_id)
+        assert _secret_in_registry(driver, gateway.client_secret)
+        # 不访问任何接口,定时器到点主动清
+        await _wait_for(lambda: driver._registry._held == {}, timeout=6.0)
+        await _wait_for(lambda: ready.flow_id not in driver._registry._flows, timeout=3.0)
+        assert not _secret_in_registry(driver, gateway.client_secret)
+        with pytest.raises(ValueError, match="已失效"):
+            await hub.begin_binding(
+                "feishu",
+                {"app_id": "cli_app", "receive_id": "oc_g", "resume_flow": ready.resume_token},
+            )
+    finally:
+        await hub.stop()
+
+
+# ---------------------------------------------------------------------------
+# Lark 国际版:显式请求 tenant_brand,域名按品牌切换(PR #1251 评审 3)
+# ---------------------------------------------------------------------------
+
+
+async def test_lark_tenant_scan_binds_on_lark_domains(db, monkeypatch) -> None:
+    """契约假服务器只返回请求过的 user_info 字段;Lark 租户的凭据只在 Lark 域签发。"""
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
+
+    gateway = AppGateway()
+    gateway.brand = "lark"
+    _gateway, _driver, hub, ready = await _scan_ready(monkeypatch, gateway)
+    try:
+        assert gateway.requested == {"open_id", "tenant_brand"}
+        done = await hub.binding_input(ready.binding_id, "")
+        assert done.status == "confirmed"
+        async with get_database().session() as session:
+            stored = await ChannelAccountRepository(session).get("feishu", "cli_app")
+        assert stored is not None
+        assert ChannelAccountRepository.credentials(stored)["domain"] == "lark"
+        hosts = [item.url.host for item in gateway.requests]
+        assert "accounts.larksuite.com" in hosts
+        open_hosts = {item.url.host for item in gateway.requests if "/open-apis/" in str(item.url)}
+        assert open_hosts == {"open.larksuite.com"}
+    finally:
+        await hub.stop()
+
+
+async def test_registration_without_tenant_brand_request_would_miss_lark() -> None:
+    """服务端只返回请求过的字段:不请求 tenant_brand 就拿不到品牌,也就切不到 Lark 域。"""
+    gateway = AppGateway()
+    gateway.brand = "lark"
+    gateway.requested = {"open_id"}
+    session = _session(gateway.handler)
+    session.deadline = time.monotonic() + 30
+    session.device_code = "device-1"
+    try:
+        outcome = await session.poll_once()
+    finally:
+        await session.aclose()
+    assert outcome.status == "pending" and session.domain == "feishu"
+    gateway.requested = {"open_id", "tenant_brand"}
+    session = _session(gateway.handler)
+    session.deadline = time.monotonic() + 30
+    session.device_code = "device-1"
+    try:
+        outcome = await session.poll_once()
+    finally:
+        await session.aclose()
+    assert outcome.status == "success" and outcome.domain == "lark"
+
+
+async def test_registration_rejects_contradictory_tenant_brand() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "client_id": "cli_x",
+                "client_secret": "s",
+                "user_info": {"tenant_brand": "lark", "open_id": "ou_x"},
+            },
+        )
+
+    session = _session(handler)
+    session.deadline = time.monotonic() + 30
+    session.device_code = "device-1"
+    session.switched = True  # 已切过一次域仍报告另一个品牌
+    try:
+        outcome = await session.poll_once()
+    finally:
+        await session.aclose()
+    assert outcome.status == "error"
+    assert outcome.client_secret == ""

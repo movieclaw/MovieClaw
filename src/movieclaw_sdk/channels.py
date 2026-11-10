@@ -257,7 +257,8 @@ class FlowState:
     input_optional: bool = False
     #: 可回填到表单的非机密字段（如 App ID）。密钥不放这里。
     prefill: dict[str, str] = field(default_factory=dict)
-    #: 服务端暂存凭据的流程 id。配合 prefill 让表单重试时不必把密钥交给页面。
+    #: 服务端暂存凭据的一次性续传令牌（随机、不进日志，不是 flow_id）。
+    #: 配合 prefill 让表单重试时不必把密钥交给页面。
     resume_token: str = ""
 
     @property
