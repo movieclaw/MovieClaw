@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import hmac
+from typing import Annotated
 
-from fastapi import Cookie, Depends, Header
+from fastapi import Cookie, Depends, Header, Query
 from starlette.requests import HTTPConnection
 
 from movieclaw_api.api.client_address import client_address
 from movieclaw_api.exceptions import AppException, ForbiddenException, UnauthorizedException
 from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services.auth import Principal
+from movieclaw_api.services.library.items import WALL_BADGE_GROUPS, parse_wall_badges
 from movieclaw_api.services.server_addresses import AUTHENTICATED_SCOPE_KEY
 from movieclaw_api.settings.schemas import get_sync_setting
 from movieclaw_kernel import AGENT_MARK, Origin, current_origin
@@ -297,3 +299,24 @@ async def require_video_download_capability(
     if not can_download_video(principal):
         raise ForbiddenException(message_key="errors.auth.offlinePermission")
     return principal
+
+
+def wall_badges(
+    badges: Annotated[
+        str | None,
+        Query(
+            description=(
+                "要哪些海报角标（逗号分隔，可选："
+                + ",".join(WALL_BADGE_GROUPS)
+                + "）：zh=中文字幕 / atmos=杜比全景声 / hdr=动态范围 / "
+                "progress=观看进度 / unwatched=剧集未看集数。只算请求了的分组，"
+                "其余角标字段为 null；不传则一个都不算，墙的成本与没有角标时相同。"
+                "认不出的分组忽略"
+            ),
+            examples=["zh,atmos,progress"],
+        ),
+    ] = None,
+) -> frozenset[str]:
+    """海报墙的 ``badges`` 查询参数（几面墙共用）。每个分组都有一份额外查询，
+    所以由画角标的客户端（网页）按用户打开的角标点名要，不画的客户端不付这份钱。"""
+    return parse_wall_badges(badges)

@@ -25,7 +25,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.api.deps import require_admin, require_login
+from movieclaw_api.api.deps import require_admin, require_login, wall_badges
 from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
 from movieclaw_api.exceptions import (
     BadRequestException,
@@ -2657,6 +2657,7 @@ async def list_library_items(
     filters: Annotated[LibraryFilter, Depends(_filter_params)] = None,  # type: ignore[assignment]
     session: AsyncSession = Depends(get_session),
     principal: Principal = Depends(require_library_visible),
+    badges: Annotated[frozenset[str], Depends(wall_badges)] = frozenset(),
 ) -> ApiResponse[list[LibraryItemView]]:
 
     await LibraryConfigService(session).get(library_id)  # 404 检查
@@ -2674,6 +2675,7 @@ async def list_library_items(
             filters=filters,
             content_limit=await content_limit_for(session, principal),
             order=order,
+            badges=badges,
         )
     )
 
@@ -3389,6 +3391,7 @@ async def list_similar_items(
     ] = False,
     session: AsyncSession = Depends(get_session),
     principal: Principal = Depends(require_login),
+    badges: Annotated[frozenset[str], Depends(wall_badges)] = frozenset(),
 ) -> ApiResponse[list[LibraryItemView]]:
     """范围与首页「全部电影/剧集」同一口径（可见、同类型、没被排除出首页的库），
     再并上当前这个库——儿童库这类被排除出首页的库，进去看片时相似推荐仍从库里出。
@@ -3409,6 +3412,7 @@ async def list_similar_items(
             content_limit=await content_limit_for(session, principal),
             limit=limit,
             exclude_series=exclude_series,
+            badges=badges,
         )
     )
 
@@ -5225,6 +5229,7 @@ async def list_library_kind_items(
     filters: Annotated[LibraryFilter, Depends(_filter_params)] = None,  # type: ignore[assignment]
     session: AsyncSession = Depends(get_session),
     principal: Principal = Depends(require_login),
+    badges: Annotated[frozenset[str], Depends(wall_badges)] = frozenset(),
 ) -> ApiResponse[list[LibraryItemView]]:
     """首页「最近添加的电影」这类行、以及点「查看全部」进去的那面墙。
 
@@ -5245,6 +5250,7 @@ async def list_library_kind_items(
             filters=filters,
             content_limit=content_limit,
             order=order,
+            badges=badges,
         )
     )
 

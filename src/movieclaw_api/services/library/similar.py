@@ -334,6 +334,7 @@ async def build_similar_wall(
     content_limit: ContentLimit | None,
     limit: int,
     exclude_series: bool = False,
+    badges: frozenset[str] = frozenset(),
 ) -> list[LibraryItemView]:
     """相似推荐那一行的海报卡：与首页跨库墙同一份聚合，卡片长得一模一样。"""
     if not library_ids:
@@ -350,7 +351,7 @@ async def build_similar_wall(
     if not ids:
         return []
     views = await _aggregate_wall_views(
-        session, None, ids, ids, library_ids=set(library_ids), member_id=member_id
+        session, None, ids, ids, library_ids=set(library_ids), member_id=member_id, badges=badges
     )
     favorites = await favorite_item_ids(session, ids, member_id=member_id)
     for view in views:

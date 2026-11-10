@@ -8,6 +8,7 @@
 
 import re
 import time
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -67,6 +68,24 @@ def test_poster_badges_settings_drive_the_wall(stack, browser):  # noqa: F811
     movie_wall = f"{base}/library/{libraries['movie'][0]}"
     tv_wall = f"{base}/library/{libraries['tv'][0]}"
 
+    # —— 0. 接口本身（真实 HTTP）：不点名就不算、字段为 null；点名哪组算哪组 ——
+    plain = {r["media_item_id"]: r for r in api("get", f"/libraries/{libraries['movie'][0]}/items")}
+    assert all(
+        r["has_chinese_subtitle"] is None and r["has_atmos"] is None and r["dynamic_range"] is None
+        for r in plain.values()
+    )
+    asked = {
+        r["media_item_id"]: r
+        for r in api("get", f"/libraries/{libraries['movie'][0]}/items?badges=zh,atmos,hdr,bogus")
+    }
+    assert (asked[ids["aurora"]]["has_chinese_subtitle"], asked[ids["aurora"]]["has_atmos"]) == (
+        True,
+        True,
+    )
+    assert asked[ids["aurora"]]["dynamic_range"] == "Dolby Vision"
+    assert asked[ids["paper"]]["has_chinese_subtitle"] is False
+    assert asked[ids["aurora"]]["progress_percent"] is None, "progress was not requested"
+
     page = context.new_page()
     page.set_default_timeout(30000)
     errors = []
@@ -75,12 +94,24 @@ def test_poster_badges_settings_drive_the_wall(stack, browser):  # noqa: F811
     def cell(key):
         return page.locator(f'[data-library-item-id="{ids[key]}"]')
 
+    # 海报墙取数请求（/libraries/{id}/items?…）带了哪些 badges：None = 没带参数
+    wall_requests: list[str | None] = []
+
+    def on_request(request):
+        url = urlsplit(request.url)
+        if re.fullmatch(r"/api/v1/libraries/\d+/items", url.path):
+            wall_requests.append(parse_qs(url.query).get("badges", [None])[0])
+
+    page.on("request", on_request)
+
     # —— 1. 新用户：墙面与改版前一致，只有收藏的心 ——
     page.goto(movie_wall)
     expect(cell("aurora")).to_be_visible()
     expect(cell("garden")).to_be_visible()
     assert page.locator("[data-badge]").count() == 0
     assert page.get_by_test_id("poster-badges-top").count() == 0
+    # 全关：墙请求一个 badges 都不带——服务端成本与没有角标时一样
+    assert wall_requests and set(wall_requests) == {None}, wall_requests
     expect(cell("garden").locator('[aria-label="In favorites"]')).to_be_visible()
 
     # —— 2. 在设置区打开几枚（单页内跳转，不整页刷新）——
@@ -124,6 +155,7 @@ def test_poster_badges_settings_drive_the_wall(stack, browser):  # noqa: F811
     }
 
     # —— 3. 回到海报墙（浏览器后退，仍是同一个单页应用）：角标即时出现 ——
+    wall_requests.clear()
     page.go_back()
     expect(cell("aurora").locator('[data-badge="rating"]')).to_have_text("8.4")
     expect(cell("aurora").locator('[data-badge="resolution"]')).to_have_text("4K")
@@ -148,6 +180,8 @@ def test_poster_badges_settings_drive_the_wall(stack, browser):  # noqa: F811
     expect(cell("tide").locator('[data-badge="chinese-subtitle"]')).to_be_visible()
     # 收藏的心并进角标层右上那一排
     assert cell("garden").get_by_test_id("poster-badges-top").locator("svg").count() >= 1
+    # 只点名需要服务端多算的分组（评分、分辨率墙本来就带）
+    assert "atmos,hdr,progress,zh" in wall_requests, wall_requests
     assert not errors, errors
 
     # —— 4. 刷新后仍在（落库），并调最低评分 / 仅悬停 ——
@@ -188,9 +222,12 @@ def test_poster_badges_settings_drive_the_wall(stack, browser):  # noqa: F811
     stored_badges(
         lambda b: b["unwatched"] and b["ended"] and not b["format"] and not b["chinese_subtitle"]
     )
+    wall_requests.clear()
     page.go_back()
     expect(cell("aurora").locator('[data-badge="resolution"]')).to_have_text("4K")
     expect(cell("aurora").locator('[data-badge="format"]')).to_have_count(0)
+    # 关掉的分组不再点名，新开的未看集数点名
+    assert wall_requests and wall_requests[-1] == "progress,unwatched", wall_requests
     expect(cell("aurora").locator('[data-badge="chinese-subtitle"]')).to_have_count(0)
 
     page.goto(tv_wall)
@@ -210,6 +247,18 @@ def test_poster_badges_settings_drive_the_wall(stack, browser):  # noqa: F811
     page.goto(f"{movie_wall}/item/{ids['aurora']}")
     expect(page.get_by_role("heading", level=1)).to_be_visible()
     assert page.get_by_test_id("detail-air-status").count() == 0
+
+    # —— 6b. 别处（另一台设备）新开了「中文字幕」：本页首帧还按本地缓存的旧偏好取墙，
+    #        服务端偏好到了以后墙自动重取一遍，「中」随之出现，不用手动刷新 ——
+    fresh = api("get", "/ui/preferences")
+    fresh["poster_badges"]["chinese_subtitle"] = True
+    api("put", "/ui/preferences", data=fresh)
+    wall_requests.clear()
+    page.goto(movie_wall)
+    expect(cell("aurora").locator('[data-badge="chinese-subtitle"]')).to_have_text("ZH")
+    assert wall_requests[0] == "progress,unwatched", wall_requests  # 首帧：缓存里的旧偏好
+    assert "progress,unwatched,zh" in wall_requests, wall_requests  # 重取：带上新分组
+    assert not errors, errors
 
     # —— 7. 窄屏两列：角标都在卡片里，页面不横向滚动 ——
     phone = browser.new_context(

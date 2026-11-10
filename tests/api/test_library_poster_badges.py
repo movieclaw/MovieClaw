@@ -1,7 +1,8 @@
 """海报墙角标数据：中文字幕 / Atmos / 动态范围 / 观看进度 / 未看集数 + 详情页播出状态。
 
 这些字段随 ``GET /libraries/{id}/items`` 批量返回，前端不再为每格单独拉详情或
-``/playback/marks``。这里验证判定口径，以及「整页固定几条查询、与条目数无关」。
+``/playback/marks``。每组角标都要客户端用 ``badges`` 点名才算（没点名为 null，
+不跑对应 SQL）。这里验证判定口径、按需执行，以及「整页固定几条查询、与条目数无关」。
 """
 
 from __future__ import annotations
@@ -13,10 +14,18 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import event
 
+from movieclaw_api.api.deps import wall_badges
 from movieclaw_api.api.routes.libraries import get_library_item, list_library_items
+from movieclaw_api.app import create_app
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.schemas.library import LibraryItemView
 from movieclaw_api.services.auth import Principal
-from movieclaw_api.services.library.items import _best_dynamic_range
+from movieclaw_api.services.library.items import (
+    WALL_BADGE_GROUPS,
+    _best_dynamic_range,
+    build_library_wall,
+    parse_wall_badges,
+)
 from movieclaw_api.settings.store import init_setting_store, reset_setting_store
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
@@ -31,6 +40,7 @@ from movieclaw_db.models import (
 from movieclaw_db.repositories.library_repo import LibraryRepository
 
 _ADMIN = Principal(kind="admin", name="tester")
+_ALL = frozenset(WALL_BADGE_GROUPS)
 _TMDB_IDS = itertools.count(9000)
 
 
@@ -86,9 +96,47 @@ def _file(
     )
 
 
-async def _wall(session, library_id: int, principal: Principal = _ADMIN) -> dict:
-    resp = await list_library_items(library_id, session=session, principal=principal)
+async def _wall(
+    session,
+    library_id: int,
+    principal: Principal = _ADMIN,
+    badges: frozenset[str] = _ALL,
+    limit: int | None = None,
+) -> dict:
+    resp = await list_library_items(
+        library_id, limit=limit, badges=badges, session=session, principal=principal
+    )
     return {row.media_item_id: row for row in resp.data}
+
+
+class _Statements:
+    """记下一段代码里发到数据库的全部 SQL（断言「没请求就没跑」用）。"""
+
+    def __init__(self, db) -> None:
+        self.engine = db.engine.sync_engine
+        self.all: list[str] = []
+
+    def _capture(self, _conn, _cursor, statement, *_args) -> None:
+        self.all.append(statement)
+
+    def __enter__(self) -> _Statements:
+        event.listen(self.engine, "before_cursor_execute", self._capture)
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        event.remove(self.engine, "before_cursor_execute", self._capture)
+
+    def count(self, needle: str) -> int:
+        return sum(1 for sql in self.all if needle in sql)
+
+    @property
+    def json_each(self) -> int:
+        return self.count("json_each")
+
+    @property
+    def watch_states(self) -> int:
+        # 观看状态查询是唯一取续播点的；收藏态那条（favorite_item_ids）不取它
+        return self.count("playback_state.position_ms")
 
 
 async def test_chinese_subtitle_detection_covers_codes_titles_and_external_files(db) -> None:
@@ -370,11 +418,19 @@ async def test_badge_fields_cost_a_fixed_number_of_queries(db) -> None:
 
         small_count, small_rows = await count_queries(small.id)
         large_count, large_rows = await count_queries(large.id)
+        # 首次调用多一条进程内缓存的查询：全开 / 全关各在热身之后量
+        with _Statements(db) as on:
+            await _wall(session, large.id)
+        with _Statements(db) as off:
+            await _wall(session, large.id, badges=frozenset())
 
     assert len(small_rows) == 2 and len(large_rows) == 12
     assert all(r.has_chinese_subtitle and r.has_atmos for r in large_rows.values())
     assert all(r.unplayed_count == 3 for r in large_rows.values())
     assert large_count == small_count
+    # 全开比全关恰好多 4 条：中文字幕 2（内封 + 外挂）、Atmos 1、观看状态 1
+    assert len(off.all) == len(on.all) - 4
+    assert (off.json_each, off.watch_states) == (0, 0)
 
 
 @pytest.mark.parametrize(
@@ -398,3 +454,165 @@ async def test_item_detail_carries_air_status(db, tmp_path, kind, status, expect
         await session.flush()
         detail = (await get_library_item(library.id, item.id, _ADMIN, session)).data
     assert detail.air_status == expected
+
+
+async def _seed_mixed(session) -> tuple[int, int, int]:
+    """一部带全套角标数据的电影 + 一部看了一集的剧，返回 (库, 电影, 剧)。"""
+    library = await LibraryRepository(session).create(name="混合", kind="tv", root_paths=["/lib"])
+    movie = _item(kind="movie", title="电影", original_title="M")
+    show = _item(kind="tv", title="剧", original_title="S", status="Ended")
+    session.add_all([movie, show])
+    await session.flush()
+    assert library.id and movie.id and show.id
+    session.add_all(
+        [
+            _file(
+                library.id,
+                movie.id,
+                subtitles=[{"language": "chi", "title": None}],
+                audio=[{"codec": "truehd", "profile": "Dolby TrueHD + Dolby Atmos"}],
+                hdr="Dolby Vision",
+                duration=1000,
+            ),
+            *(
+                _file(library.id, show.id, 1, e, subtitles=[{"language": "eng"}], duration=1000)
+                for e in (1, 2, 3)
+            ),
+            PlaybackState(
+                member_id=0, media_item_id=movie.id, position_ms=400_000, last_played_at=utcnow()
+            ),
+            PlaybackState(
+                member_id=0,
+                media_item_id=show.id,
+                season_number=1,
+                episode_number=1,
+                played=True,
+                last_played_at=utcnow(),
+            ),
+        ]
+    )
+    await session.flush()
+    return library.id, movie.id, show.id
+
+
+_BADGE_FIELDS = (
+    "has_chinese_subtitle",
+    "has_atmos",
+    "dynamic_range",
+    "progress_percent",
+    "unplayed_count",
+)
+
+
+@pytest.mark.parametrize("limit", [None, 60], ids=["unpaged", "paged"])
+async def test_no_badges_requested_runs_no_badge_sql_and_returns_null(db, limit) -> None:
+    """不带 badges（老客户端、手机 / 电视）：不展开 JSON、不查观看状态、不取角标列，
+    五个角标字段全是 null——分页与整库两条路都一样。"""
+    async with db.session() as session:
+        library_id, movie_id, show_id = await _seed_mixed(session)
+        with _Statements(db) as sql:
+            rows = await _wall(session, library_id, badges=frozenset(), limit=limit)
+
+    assert set(rows) == {movie_id, show_id}
+    for row in rows.values():
+        assert {name: getattr(row, name) for name in _BADGE_FIELDS} == dict.fromkeys(_BADGE_FIELDS)
+    assert sql.json_each == 0
+    assert sql.watch_states == 0
+    assert sql.count("library_file.hdr") == 0
+    assert sql.count("library_file.duration_seconds") == 0
+    # 墙本来就带的字段不受影响
+    assert rows[show_id].air_status == "ended"
+
+
+@pytest.mark.parametrize(
+    ("groups", "json_each", "watch_states", "expected_movie", "expected_show"),
+    [
+        (
+            {"zh"},
+            2,
+            0,
+            {"has_chinese_subtitle": True},
+            {"has_chinese_subtitle": False},
+        ),
+        ({"atmos"}, 1, 0, {"has_atmos": True}, {"has_atmos": False}),
+        ({"hdr"}, 0, 0, {"dynamic_range": "Dolby Vision"}, {"dynamic_range": None}),
+        ({"progress"}, 0, 1, {"progress_percent": 40}, {"progress_percent": None}),
+        ({"unwatched"}, 0, 1, {"unplayed_count": None}, {"unplayed_count": 2}),
+        # 进度与未看集数共用一次观看状态查询
+        (
+            {"progress", "unwatched"},
+            0,
+            1,
+            {"progress_percent": 40, "unplayed_count": None},
+            {"progress_percent": None, "unplayed_count": 2},
+        ),
+    ],
+    ids=["zh", "atmos", "hdr", "progress", "unwatched", "progress+unwatched"],
+)
+async def test_each_badge_group_runs_only_its_own_query(
+    db, groups, json_each, watch_states, expected_movie, expected_show
+) -> None:
+    async with db.session() as session:
+        library_id, movie_id, show_id = await _seed_mixed(session)
+        with _Statements(db) as sql:
+            rows = await _wall(session, library_id, badges=frozenset(groups))
+
+    assert (sql.json_each, sql.watch_states) == (json_each, watch_states)
+    for item_id, expected in ((movie_id, expected_movie), (show_id, expected_show)):
+        row = rows[item_id]
+        for name in _BADGE_FIELDS:
+            # 请求了的字段给出确定值；没请求的一律 null（未知）
+            assert getattr(row, name) == expected.get(name), (item_id, name)
+
+
+async def test_watch_badges_need_a_viewer(db) -> None:
+    """不认人的内部调用（member_id=None）点名要进度 / 未看集数也不查观看状态，
+    给 null；与观看者无关的角标照常算。"""
+    async with db.session() as session:
+        library_id, movie_id, show_id = await _seed_mixed(session)
+        with _Statements(db) as sql:
+            views = await build_library_wall(session, library_id, member_id=None, badges=_ALL)
+
+    rows = {view.media_item_id: view for view in views}
+    assert sql.watch_states == 0
+    assert all(r.progress_percent is None and r.unplayed_count is None for r in rows.values())
+    assert rows[movie_id].has_chinese_subtitle is True
+    assert rows[movie_id].has_atmos is True
+    assert rows[movie_id].dynamic_range == "Dolby Vision"
+    assert rows[show_id].has_chinese_subtitle is False
+
+
+def test_badges_param_parsing() -> None:
+    assert parse_wall_badges(None) == frozenset()
+    assert parse_wall_badges("") == frozenset()
+    # 空格、重复、空段、认不出的分组（更新的网页连旧服务端）都容忍
+    assert parse_wall_badges(" zh,atmos,,zh,bogus") == {"zh", "atmos"}
+    assert parse_wall_badges(",".join(WALL_BADGE_GROUPS)) == _ALL
+    assert wall_badges("progress,unwatched") == {"progress", "unwatched"}
+
+
+def test_wall_routes_declare_the_badges_query_param() -> None:
+    """画角标的网页要用的五面墙都接受 badges；生成客户端（安卓 / Apple）据 OpenAPI
+    看到的是一个可选的字符串参数。"""
+    spec = create_app().openapi()
+    walls = [
+        ("/api/v1/libraries/{library_id}/items", "get"),
+        ("/api/v1/libraries/kinds/{kind}/items", "get"),
+        ("/api/v1/libraries/{library_id}/items/{media_item_id}/similar", "get"),
+        ("/api/v1/collections/{collection_id}/items", "get"),
+        ("/api/v1/playback/favorites", "get"),
+    ]
+    for path, method in walls:
+        params = {p["name"]: p for p in spec["paths"][path][method]["parameters"]}
+        assert "badges" in params, path
+        assert params["badges"]["required"] is False
+
+
+def test_new_boolean_badge_fields_are_nullable() -> None:
+    """Apple 生成器按「序列化」口径读 Pydantic schema，只有可空的字段才出 Swift 可选
+    （apps/apple/scripts/gen_api.py）。两个布尔必须可空、默认 null，新客户端连旧服务端
+    （没有这两个字段）才不会整墙解码失败。"""
+    for name in ("has_atmos", "has_chinese_subtitle"):
+        field = LibraryItemView.model_fields[name]
+        assert field.annotation == bool | None
+        assert field.default is None
