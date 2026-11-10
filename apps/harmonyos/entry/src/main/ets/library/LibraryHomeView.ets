@@ -20,7 +20,7 @@ import {
 } from '../api/Models';
 import { LibraryHomePrefs, LibraryHomeStore } from './LibraryHomeStore';
 import { LibraryCustomizeSheet } from './LibraryCustomizeSheet';
-import { LibraryRouteParams } from './LibraryDetailPage';
+import { LibraryRouteParams } from './LibraryRouteParams';
 import { CollectionRouteParams } from './CollectionDetailPage';
 import { PlayerParams } from '../player/PlayerParams';
 import { ChatParams } from '../agent/ChatParams';

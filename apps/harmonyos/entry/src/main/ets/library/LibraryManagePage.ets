@@ -27,7 +27,7 @@ import { ManageSharesTab } from './ManageSharesTab';
 import { LibraryFormSheet } from './LibraryFormSheet';
 import { OrganizeSheet } from './OrganizeSheet';
 import { IssueParams } from './IssueDrawerPage';
-import { LibraryRouteParams } from './LibraryDetailPage';
+import { LibraryRouteParams } from './LibraryRouteParams';
 
 /**
  * 媒体库管理页（对应 iOS `Features/Library/LibraryManageView.swift`，口径即 Web `library-manage-view.tsx`）。

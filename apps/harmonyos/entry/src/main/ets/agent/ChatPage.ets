@@ -19,7 +19,7 @@ import {
   SessionTranscriptView
 } from '../api/Models';
 import { JsonValue } from '../api/JsonValue';
-import { LibraryRouteParams } from '../library/LibraryDetailPage';
+import { LibraryRouteParams } from '../library/LibraryRouteParams';
 import { ItemRouteParams } from '../library/LibraryItemDetailPage';
 import { DiscoverDetailParams } from '../discover/DiscoverDetailPage';
 import { SubscriptionParams } from '../subscriptions/SubscriptionDetailPage';

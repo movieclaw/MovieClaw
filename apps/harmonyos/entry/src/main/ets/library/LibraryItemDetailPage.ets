@@ -52,7 +52,7 @@ import {
 } from './AirSchedule';
 import { AirScheduleCard, AirScheduleSheet, arrivalColor } from './AirScheduleCard';
 import { PersonParams } from '../discover/PersonDetailPage';
-import { LibraryRouteParams } from './LibraryDetailPage';
+import { LibraryRouteParams } from './LibraryRouteParams';
 import { DiscoverDetailParams } from '../discover/DiscoverDetailPage';
 import { SubscribeCenter } from '../subscriptions/SubscribeCenter';
 import { SubscriptionParams } from '../subscriptions/SubscriptionDetailPage';
@@ -2505,7 +2505,7 @@ export struct LibraryItemDetailPage {
                   this.navStack.pushPathByName('person', new PersonParams(person.personId as number));
                 } else if (target === 'libraryDetail') {
                   this.navStack.pushPathByName('libraryDetail',
-                    new LibraryRouteParams(this.libraryId, person.name.trim()));
+                    LibraryRouteParams.forActor(this.libraryId, person.name.trim()));
                 }
               })
             }, (person: CastPerson) => person.key())
