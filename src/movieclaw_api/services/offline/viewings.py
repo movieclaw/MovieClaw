@@ -126,8 +126,12 @@ async def apply_viewings(
     latest = max((r.updated_at for r in payload.records), default=None, key=_naive_utc)
     clock = _Clock(payload.sent_at, utcnow(), latest)
     results: list[PlaybackViewingResultView] = []
-    for record in payload.records:
-        located = await _locate(session, principal, record)
+    located_all = [await _locate(session, principal, record) for record in payload.records]
+    # 补传会清「接下来继续」隐藏：作品级锁先于任何写入按 id 升序拿齐（见 lock_titles）
+    await playback_state.lock_titles(
+        session, member_id, [located[0][0] for located in located_all if located is not None]
+    )
+    for record, located in zip(payload.records, located_all, strict=True):
         if located is None:
             results.append(
                 PlaybackViewingResultView(viewing_id=record.viewing_id, status="rejected")

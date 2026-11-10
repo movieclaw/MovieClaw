@@ -294,6 +294,10 @@ async def import_records(
     outcomes: list[SyncOutcome] = []
     # 同一批的同一单元共用扫描时的版本；第二条重看不能与本批第一条自己产生冲突。
     versions = {}
+    # 导入的观看历史会清「接下来继续」隐藏：作品级锁先于任何写入按 id 升序拿齐（见 lock_titles）
+    await playback_state.lock_titles(
+        session, payload.member_id, [record.media_item_id for record in payload.records]
+    )
     for record in payload.records:
         prior = (
             await session.execute(
@@ -444,10 +448,14 @@ async def apply_state(
     outcomes: list[SyncStateOutcome] = []
     # 同一批的同一单元共用扫描时的版本，与导入一致。
     versions: dict[tuple[int, int, int], datetime | None] = {}
-    # 本请求里显式隐藏过的作品：同一请求带来的播放事实不让它回来（显式意图优先）。
-    dismissing = {
-        change.media_item_id for change in payload.changes if change.dismiss_continue is True
-    }
+    # 作品级锁先于任何写入一次拿齐（按 id 升序），隐藏的锚点校验与清标记都在锁内。
+    await playback_state.lock_titles(
+        session, payload.member_id, [change.media_item_id for change in payload.changes]
+    )
+    # 恢复判定按作品推迟到整批之后：只有真正落下（applied / unchanged）的隐藏才压过同批的
+    # 播放事实；冲突 / 错位 / 找不到的隐藏不算数，否则进度报 applied、作品却还藏着。
+    restores: dict[int, tuple[datetime, datetime]] = {}
+    dismissed: set[int] = set()
     for change in payload.changes:
         media = await session.get(MediaItem, change.media_item_id)
         if not same_identity(media, change):
@@ -517,7 +525,13 @@ async def apply_state(
         # 首页按作品判定隐藏（playback_up_next）。
         if change.dismiss_continue is not None:
             new["continue_dismissed"] = change.dismiss_continue
-        if new == old:
+        # 取消隐藏是作品级的：目标行没标记、但同作品别的行带着（换过锚点）也要清，不能报 unchanged
+        restoring = change.dismiss_continue is False and bool(
+            await playback_state.dismissed_rows(session, payload.member_id, unit[0])
+        )
+        if new == old and not restoring:
+            if change.dismiss_continue is True:
+                dismissed.add(unit[0])
             versions.setdefault(unit, initial)
             outcomes.append(
                 SyncStateOutcome(
@@ -571,18 +585,29 @@ async def apply_state(
                     anchor = await continue_anchor(session, payload.member_id, unit[0])
                     if anchor is not None and anchor != unit[1:]:
                         raise _NotAnchor
-                elif played_at is not None and unit[0] not in dismissing:
-                    await playback_state.note_playback(
-                        session,
-                        member_id=payload.member_id,
-                        media_item_id=unit[0],
-                        played_at=played_at,
-                        stamp=stamp,
+                elif change.dismiss_continue is False:
+                    await playback_state.restore_continue(
+                        session, member_id=payload.member_id, media_item_id=unit[0], stamp=stamp
                     )
             versions.setdefault(unit, initial)
             outcomes.append(SyncStateOutcome(status="applied", state_version=stamp))
+            if change.dismiss_continue is True:
+                dismissed.add(unit[0])
+            elif played_at is not None:
+                seen = restores.get(unit[0])
+                if seen is None or played_at > seen[0]:
+                    restores[unit[0]] = (played_at, stamp)
         except (IntegrityError, _NotAnchor):
             # 并发首次写同一单元 / 隐藏的不是当前锚点：不覆盖对方，调用方重新读取后重试。
             outcomes.append(SyncStateOutcome(status="conflict"))
+    for media_item_id, (played_at, stamp) in restores.items():
+        if media_item_id not in dismissed:
+            await playback_state.note_playback(
+                session,
+                member_id=payload.member_id,
+                media_item_id=media_item_id,
+                played_at=played_at,
+                stamp=stamp,
+            )
     await session.commit()
     return outcomes

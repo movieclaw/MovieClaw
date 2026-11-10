@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -153,6 +153,73 @@ async def get_or_create_state(
     return await _get_or_create(session, unit, member_id=member_id)
 
 
+async def lock_titles(session: AsyncSession, member_id: int, media_item_ids: Iterable[int]) -> None:
+    """取得这些作品在该观看者下的作品级锁，持有到事务结束（「接下来继续」隐藏的串行点）。
+
+    隐藏是作品级的：写隐藏时要校验"这一集仍是作品的当前锚点"，播放事实要清掉整部作品
+    的标记。两边读的是不同的行，Postgres ``READ COMMITTED`` 下各自看不到对方未提交的
+    写——隐藏刚过锚点校验、另一台设备同时播了下一集且没看到标记，两边都提交后标记留在
+    旧那一集上，整部作品一直藏着。所以隐藏的校验与每条播放事实的清标记都先拿同一把
+    ``(member_id, media_item_id)`` 锁，串行之后后到的一方总能看到先到一方已提交的结果。
+
+    - Postgres：``pg_advisory_xact_lock(member_id, media_item_id)``，事务结束自动释放，
+      同一事务重复获取不会自锁；不建表、不占行。
+    - SQLite：写事务本来就全库串行，这里什么也不做。
+
+    批量入口要在写任何状态行**之前**一次性按 id 升序拿齐：顺序一致不会互等成死锁；
+    先写行再等锁则可能和持锁方要写的同一行互等。
+    """
+    bind = session.bind
+    if bind is None or bind.dialect.name != "postgresql":
+        return
+    for media_item_id in sorted(set(media_item_ids)):
+        await session.execute(select(func.pg_advisory_xact_lock(member_id, media_item_id)))
+
+
+def _clear_dismissed(
+    rows: Iterable[PlaybackState], *, played_at: datetime | None, stamp: datetime | None
+) -> None:
+    for row in rows:
+        if (
+            played_at is None
+            or row.continue_dismissed_at is None
+            or played_at > row.continue_dismissed_at
+        ):
+            row.continue_dismissed = False
+            row.continue_dismissed_at = None
+            row.updated_at = stamp or utcnow()
+
+
+async def dismissed_rows(
+    session: AsyncSession, member_id: int, media_item_id: int
+) -> list[PlaybackState]:
+    """这部作品该观看者下带「接下来继续」隐藏标记的行。"""
+    return list(
+        (
+            await session.execute(
+                select(PlaybackState).where(
+                    PlaybackState.member_id == member_id,
+                    PlaybackState.media_item_id == media_item_id,
+                    PlaybackState.continue_dismissed.is_(True),  # type: ignore[attr-defined]
+                )
+            )
+        ).scalars()
+    )
+
+
+async def restore_continue(
+    session: AsyncSession, *, member_id: int, media_item_id: int, stamp: datetime | None = None
+) -> None:
+    """显式取消隐藏（``dismiss_continue=false``）：清掉这部作品**所有**行的标记，不比时间。
+
+    首页按"任一行带标记"整部隐藏，只清目标那一行时，换过锚点（重新识别、多身份）后
+    别的行还带着标记，取消隐藏报成功、卡片却不回来。
+    """
+    await lock_titles(session, member_id, [media_item_id])
+    rows = await dismissed_rows(session, member_id, media_item_id)
+    _clear_dismissed(rows, played_at=None, stamp=stamp)
+
+
 async def note_playback(
     session: AsyncSession,
     *,
@@ -172,28 +239,22 @@ async def note_playback(
     - 只动这两列和版本（``updated_at`` 用 ``stamp``，与调用方本次写入同一版本），不碰
       played / play_count / last_played_at，也不发事件。
 
-    同一请求里显式 ``dismiss_continue=true`` 优先：那时调用方不调这里（playback_sync）。
+    同一请求里显式 ``dismiss_continue=true`` 成功时优先：那时调用方不调这里（playback_sync）。
+
+    先拿作品级锁（:func:`lock_titles`，调用方已拿过时是空操作）再读标记，与隐藏的锚点
+    校验串行。
     """
-    rows = (
-        await session.execute(
-            select(PlaybackState).where(
-                PlaybackState.member_id == member_id,
-                PlaybackState.media_item_id == media_item_id,
-                PlaybackState.continue_dismissed.is_(True),  # type: ignore[attr-defined]
-            )
-        )
-    ).scalars()
-    for row in rows:
-        if row.continue_dismissed_at is None or played_at > row.continue_dismissed_at:
-            row.continue_dismissed = False
-            row.continue_dismissed_at = None
-            row.updated_at = stamp or utcnow()
+    await lock_titles(session, member_id, [media_item_id])
+    rows = await dismissed_rows(session, member_id, media_item_id)
+    _clear_dismissed(rows, played_at=played_at, stamp=stamp)
 
 
 async def record_playback_start(
     session: AsyncSession, unit: Unit, *, member_id: int
 ) -> PlaybackState:
     """开始播放：play_count +1、刷新最近播放时间（scrobble 语义的计数点）。"""
+    # 作品级锁要在写这一行之前拿（见 lock_titles）
+    await lock_titles(session, member_id, [unit[0]])
     row = await _get_or_create(session, unit, member_id=member_id)
     row.play_count += 1
     row.last_played_at = utcnow()
@@ -218,6 +279,7 @@ async def record_playback_progress(
     第二个返回值 ``newly_played`` = played 是否在本次从 False 翻转为 True，
     供协议层判定是否发出 ``playback.completed`` webhook 事件。
     """
+    await lock_titles(session, member_id, [unit[0]])
     row = await _get_or_create(session, unit, member_id=member_id)
     was_played = row.played
     outcome = resolve_progress(position_ms, runtime_ms, currently_played=row.played)
