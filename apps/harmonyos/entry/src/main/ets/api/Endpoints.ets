@@ -1626,7 +1626,7 @@ export class MovieClawApi {
 
   /** 按类型的跨库墙概况（由哪些库组成、共几部） */
   /** `GET /libraries/kinds/{kind}` */
-  uiLibraryKindSummary(kind: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string): Promise<LibraryKindSummaryView> {
+  uiLibraryKindSummary(kind: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string): Promise<LibraryKindSummaryView> {
     const pairs: QueryPair[] = [];
     if (g !== undefined && g !== null) { pairs.push({ key: 'g', value: g }); }
     if (c !== undefined && c !== null) { pairs.push({ key: 'c', value: c }); }
@@ -1639,6 +1639,7 @@ export class MovieClawApi {
     if (hdr !== undefined && hdr !== null) { pairs.push({ key: 'hdr', value: hdr }); }
     if (stock !== undefined && stock !== null) { pairs.push({ key: 'stock', value: stock }); }
     if (seriesKeys !== undefined && seriesKeys !== null) { pairs.push({ key: 'series_keys', value: seriesKeys }); }
+    if (actor !== undefined && actor !== null) { pairs.push({ key: 'actor', value: actor }); }
     return this.client.get<LibraryKindSummaryView>(`/libraries/kinds/${kind}` + ApiQuery.build(pairs));
   }
 
@@ -2755,7 +2756,7 @@ export class MovieClawApi {
 
   /** 刷片：取一页片段 */
   /** `GET /reels` */
-  reelsFeed(seed?: number, offset?: number, limit?: number, modes?: string, kind?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string): Promise<ReelFeedView> {
+  reelsFeed(seed?: number, offset?: number, limit?: number, modes?: string, kind?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string): Promise<ReelFeedView> {
     const pairs: QueryPair[] = [];
     if (seed !== undefined && seed !== null) { pairs.push({ key: 'seed', value: seed }); }
     if (offset !== undefined && offset !== null) { pairs.push({ key: 'offset', value: offset }); }
@@ -2773,6 +2774,7 @@ export class MovieClawApi {
     if (hdr !== undefined && hdr !== null) { pairs.push({ key: 'hdr', value: hdr }); }
     if (stock !== undefined && stock !== null) { pairs.push({ key: 'stock', value: stock }); }
     if (seriesKeys !== undefined && seriesKeys !== null) { pairs.push({ key: 'series_keys', value: seriesKeys }); }
+    if (actor !== undefined && actor !== null) { pairs.push({ key: 'actor', value: actor }); }
     return this.client.get<ReelFeedView>('/reels' + ApiQuery.build(pairs));
   }
 
@@ -2797,7 +2799,7 @@ export class MovieClawApi {
 
   /** 刷片：筛选菜单的候选值与计数（每一维排除自身条件后算） */
   /** `GET /reels/facets` */
-  reelsFacets(kind?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string): Promise<ReelFacetsView> {
+  reelsFacets(kind?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string): Promise<ReelFacetsView> {
     const pairs: QueryPair[] = [];
     if (kind !== undefined && kind !== null) { pairs.push({ key: 'kind', value: kind }); }
     if (g !== undefined && g !== null) { pairs.push({ key: 'g', value: g }); }
@@ -2811,6 +2813,7 @@ export class MovieClawApi {
     if (hdr !== undefined && hdr !== null) { pairs.push({ key: 'hdr', value: hdr }); }
     if (stock !== undefined && stock !== null) { pairs.push({ key: 'stock', value: stock }); }
     if (seriesKeys !== undefined && seriesKeys !== null) { pairs.push({ key: 'series_keys', value: seriesKeys }); }
+    if (actor !== undefined && actor !== null) { pairs.push({ key: 'actor', value: actor }); }
     return this.client.get<ReelFacetsView>('/reels/facets' + ApiQuery.build(pairs));
   }
 
