@@ -27,14 +27,11 @@ from movieclaw_api.schemas.playback import (
     PlaybackFileSpec,
 )
 from movieclaw_api.services import auth as auth_service
-from movieclaw_api.services import login_devices
+from movieclaw_api.services import login_devices, playback_progress
 from movieclaw_api.services.media_scrape import asset_version
 from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_api.services.offline.exports import get_export_manager
 from movieclaw_api.services.playback.session import get_session_manager
-
-# 与首页"最近观看"共用同一套时长回退与进度换算口径，避免两处各算各的
-from movieclaw_api.services.playback_up_next import _progress_percent, _runtime_ms
 from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_db.models import (
     JellyfinDevice,
@@ -223,7 +220,8 @@ async def _load_unit_contexts(
         chosen = next((f for f in files if f.id in preferred_file_ids), None)
         if chosen is None and files:
             chosen = files[0]
-        duration_ms = _runtime_ms(
+        # 与首页"最近观看"共用同一套时长回退与进度换算口径，避免两处各算各的
+        duration_ms = playback_progress.runtime_ms(
             max((f.duration_seconds or 0) for f in files) if files else None,
             episode.runtime_minutes if episode and item.kind == "tv" else None,
             meta.runtime_minutes if meta else None,
@@ -454,7 +452,7 @@ async def media_activity_overview(
                 ),
                 position_ms=play.position_ms,
                 duration_ms=ctx.duration_ms,
-                progress_percent=_progress_percent(
+                progress_percent=playback_progress.progress_percent(
                     play.position_ms or 0, ctx.duration_ms
                 ),
                 paused=play.paused,
