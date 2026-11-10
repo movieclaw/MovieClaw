@@ -82,7 +82,10 @@ class LibraryActorFilterTest {
         fail("Timed out waiting for the library wall")
     }
 
-    private suspend fun TestScope.withWall(args: Map<String, String>, block: suspend TestScope.(LibraryDetailViewModel) -> Unit) {
+    private suspend fun TestScope.withWall(args: Map<String, String>, block: suspend TestScope.(LibraryDetailViewModel) -> Unit) =
+        withWall(SavedStateHandle(args), block)
+
+    private suspend fun TestScope.withWall(handle: SavedStateHandle, block: suspend TestScope.(LibraryDetailViewModel) -> Unit) {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
@@ -111,7 +114,7 @@ class LibraryActorFilterTest {
         val state = SessionRepository::class.java.getDeclaredField("_ui").apply { isAccessible = true }
             .get(repository) as MutableStateFlow<SessionUi>
         state.value = SessionUi(phase = SessionPhase.READY, origin = origin, session = SessionView("alice"))
-        val vm = LibraryDetailViewModel(SavedStateHandle(args), repository, factory)
+        val vm = LibraryDetailViewModel(handle, repository, factory)
         val store = ViewModelStore().also { it.put("wall", vm) }
         try {
             waitFor { !vm.ui.value.loading }
@@ -177,6 +180,22 @@ class LibraryActorFilterTest {
             assertTrue(vm.ui.value.filter.isEmpty())
             assertTrue(vm.ui.value.items.size >= narrowed)
             if (backendUrl == null) assertEquals(wall.size, vm.ui.value.items.size)
+        }
+    }
+
+    @Test fun `removed actor is written back so a restored wall does not re-apply it`() = runTest {
+        val handle = SavedStateHandle(mapOf("libraryId" to "$libraryId", "actor" to actor))
+        withWall(handle) { vm ->
+            assertEquals(actor, itemRequests().single().queryParameter("actor"))
+            vm.applyFilter(vm.ui.value.filter.copy(actor = null))
+            waitFor { itemRequests().size == 2 && !vm.ui.value.loading }
+            assertNull(handle.get<String>("actor"))
+        }
+        // 进程重建：ViewModel 拿回同一份（已保存的）SavedStateHandle 重新构造
+        requests.clear()
+        withWall(handle) { vm ->
+            assertNull(vm.ui.value.filter.actor)
+            assertNull(itemRequests().single().queryParameter("actor"))
         }
     }
 
