@@ -125,6 +125,44 @@ struct IPhoneDuoLayoutTests {
         #expect(AccountGestureHub.lastTabIndex([]) == nil)
     }
 
+    /// 合成一个五页签的页签控制器：`bar` 是挂在页签控制器视图上的一排按钮（Duo 竖排栏不是 `UITabBar`，
+    /// 只是并排的 `_UITabButton`），`content` 是第一个页面自己视图里同样并排的五个按钮
+    private func tabFixture(vertical: Bool) -> (tabs: UITabBarController, bar: [UIControl], content: [UIControl]) {
+        let tabs = UITabBarController()
+        let pages = (0..<5).map { _ in UIViewController() }
+        tabs.setViewControllers(pages, animated: false)
+        func row(in parent: UIView) -> [UIControl] {
+            let container = UIView(frame: parent.bounds)
+            parent.addSubview(container)
+            return (0..<5).map { i in
+                let offset = CGFloat(i) * 52
+                let control = UIControl(frame: vertical ? CGRect(x: 400, y: 380 + offset, width: 44, height: 44)
+                                                        : CGRect(x: 20 + offset, y: 600, width: 44, height: 44))
+                container.addSubview(control)
+                return control
+            }
+        }
+        return (tabs, row(in: tabs.view), row(in: pages[0].view))
+    }
+
+    @Test func avatarFoundFromAnyTabButtonInVerticalBar() {
+        let fixture = tabFixture(vertical: true)
+        // 2026-11-10：竖排栏父链上没有 UITabBar，原先按 UITabBar 找导致长按、双击全失效
+        #expect(AccountGestureHub.avatarButton(touching: fixture.bar[0]) === fixture.bar[4])
+        #expect(AccountGestureHub.avatarButton(touching: fixture.bar[4]) === fixture.bar[4])
+    }
+
+    @Test func avatarFoundInHorizontalBar() {
+        let fixture = tabFixture(vertical: false)
+        #expect(AccountGestureHub.avatarButton(touching: fixture.bar[2]) === fixture.bar[4])
+    }
+
+    @Test func pageContentRowIsNotMistakenForTabs() {
+        // 页面里恰好并排五个按钮：响应链先碰到页面自己的控制器，不算页签
+        let fixture = tabFixture(vertical: false)
+        #expect(AccountGestureHub.avatarButton(touching: fixture.content[4]) == nil)
+    }
+
     // MARK: 开合时的外壳
 
     @Test func foldingFromSidebarLibraryLandsOnLibraryTabWithItsPageOnStack() {

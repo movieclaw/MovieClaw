@@ -300,7 +300,7 @@ Netflix 与同行：
 | 版式判断 | `WindowLayout.isWide`：常规宽 × 常规高才是宽版式；宽版式、侧边栏外壳、居中表单、列表限宽都按它 | `Shared/DesignSystem/RemoteImage.swift` |
 | 卡片尺寸 | `CardMetrics.forWindow(wide:)`：宽版式时 iPad 用 `wide`（168）、其余用 `widePhone`（手机卡片尺寸、页边距 24）；有折痕时网格取偶数列（`evenColumns`，`TabRoot` 读保留区域） | 同上、`MainTabView.swift` `TabRoot` |
 | 外壳 | 侧边栏外壳只给 iPad（`sidebarShell` = iPad 且宽版式）。Duo 内屏实测：可展开侧边栏的标签栏样式在 Duo 上没有展开入口，系统还把侧边栏专用的收藏、各个库塞进竖排标签栏、把「活动」「我的」挤进「⋯」，片段页也藏不掉标签栏——按 §8「没有展开入口就不要侧边栏」，Duo 始终是手机外壳，竖排横排交给系统。iPad 窗口拉窄时 `Router.collapseSidebarSelection` 折回「媒体库」页签并清掉侧边栏库清单 | `MainTabView.swift`、`Router.swift` |
-| 头像手势 | 按页签顺序取最后一个按钮（竖排取最下，`lastTabIndex`） | `TabBarAccountGestures.swift` |
+| 头像手势 | 按页签顺序取最后一个按钮（竖排取最下，`lastTabIndex`）。2026-11-10 补：竖排标签栏是另一套系统实现（`_UIFloatingBarContainerView` 里的 `_UITabButton`），父链上没有 `UITabBar`，原先按 `UITabBar` 找导致长按、双击、首次提示全失效；改为从手指下的按钮找「父视图里并排着页签数那么多按钮」的一排，页签数沿响应链取，先碰到页面控制器的不算。Duo 外屏与 iPhone 模拟器端到端验过 | `TabBarAccountGestures.swift` |
 | 屏幕 | `ImageWidth` 取前台窗口场景的屏，冷启动才退回 `UIScreen.main` | `RemoteImage.swift` |
 | 播放器转屏 | `appControlsRotation(wide:)`：宽版式不转屏、返回即退出；展开时 `followDevice` 解开外屏的方向锁 | `PlayerSystemBridges.swift`、`PlayerControls.swift`、`PlayerScreen.swift` |
 | 桌面模式控制台 | 2026-10-28 用户在真机桌面模式下逐版挑定（`PlayerTabletopDeck`）。从上到下：顶栏（右上角网速读数做成「〰 ↓ 网速」胶囊，点开播放诊断）→ 细进度条 → 左边播放卡（白色播放键、两侧只留图标的前进后退、时间）+ 右边 2×2 方块（音轨、字幕、画质、画面，写当前值，打开面板时反白）→ 倍速分段条（直接点，白色药丸滑动）→ 剧集最底一行上一集 / 下一集两张卡片（箭头 + 剧照缩略图 + 集号集名，镜像对称，没有时置灰）。底下垫本集剧照的模糊氛围色（`DeckAmbience`），卡片是液态玻璃。音轨、字幕面板从折痕往上长、盖在画面上；画质、画面是系统菜单（与「⋯」同一份选项，开菜单时收起面板）。<br>挑选过程中试过、未采用的：平铺功能卡片；整行「下一集」横幅（真机控制台比模拟的矮，把方块挤得重叠）；播放卡的三段式、剧照卡、可拖动进度环（太复杂）；整块骨架的胶片时间轴、大字时间、拨盘 | `PlayerTabletopDeck.swift`、`PlayerScreen.swift`（`tabletopChrome`）、`PlayerControls.swift`（`PlayerTopBar.speedOpensDiagnostics`） |
