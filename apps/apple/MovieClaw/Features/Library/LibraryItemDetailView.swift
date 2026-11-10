@@ -382,46 +382,16 @@ struct LibraryItemDetailView: View {
     private func wideStage(_ detail: API.LibraryItemDetailView, heroURL: URL?, plot: String?) -> some View {
         let height = heroURL == nil ? 0 : heroHeight
         let pageTint = edgeTint ?? Theme.background
-        return HStack(alignment: .bottom, spacing: 32) {
-            VStack(alignment: .leading, spacing: 0) {
-                titleArt(detail, logo: wideLogoSize)
-                    .accessibilityValue(String(detail.mediaItemId))
-                    .accessibilityIdentifier("item-title")
-                    .padding(.bottom, 16)
-                let facts = factsLine(detail)
-                if !facts.isEmpty {
-                    Text(facts.joined(separator: " · "))
-                        .font(.subheadline.weight(.semibold))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .padding(.bottom, 4)
-                }
-                if let genres = detail.localMeta?.genres, !genres.isEmpty {
-                    Text(genres.joined(separator: " · "))
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.72))
-                        .lineLimit(1)
-                        .padding(.bottom, 8)
-                }
-                if !isMovie, let selectedEpisode {
-                    Text(String(localized: .libraryItemSeasonEpisodeSpaced(selectedEpisode.season, selectedEpisode.episode.episodeNumber)) + (selectedEpisode.episode.name.map { " · \($0)" } ?? ""))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .lineLimit(1)
-                        .padding(.bottom, 10)
-                }
-                if let plot, !plot.isEmpty {
-                    ExpandablePlot(text: plot)
-                        .frame(maxWidth: 560, alignment: .leading)
-                        .padding(.bottom, 18)
-                }
-                if !availableTrackFiles.isEmpty, isMovie || selectedEpisode != nil {
-                    wideActions()
-                }
+        // 演职员与左栏并排放得下才并排，放不下就不显示（同 Mac 版）。判断放在最外层：包在 HStack 里时
+        // ViewThatFits 拿到的总是够的，演职员不肯让位，窄的常规宽度窗口（iPhone Duo 内屏竖拿 669 点）
+        // 里整块被撑出屏幕、两边裁掉，按钮被挤成两行
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .bottom, spacing: 32) {
+                stageText(detail, plot: plot)
+                Spacer(minLength: 0)
+                stageCredits(detail)
             }
-            .frame(maxWidth: 640, alignment: .leading)
-            Spacer(minLength: 0)
-            stageCredits(detail)
+            stageText(detail, plot: plot)
         }
         .foregroundStyle(.white)
         .shadow(color: .black.opacity(0.4), radius: 8)
@@ -461,6 +431,49 @@ struct LibraryItemDetailView: View {
         }
     }
 
+    /// 大图区左栏：片名 Logo → 事实行 → 类型 → 第几集 → 简介 → 一排按钮
+    private func stageText(_ detail: API.LibraryItemDetailView, plot: String?) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            titleArt(detail, logo: wideLogoSize)
+                .accessibilityValue(String(detail.mediaItemId))
+                .accessibilityIdentifier("item-title")
+                .padding(.bottom, 16)
+            let facts = factsLine(detail)
+            if !facts.isEmpty {
+                Text(facts.joined(separator: " · "))
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .padding(.bottom, 4)
+            }
+            if let genres = detail.localMeta?.genres, !genres.isEmpty {
+                Text(genres.joined(separator: " · "))
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(1)
+                    .padding(.bottom, 8)
+            }
+            if !isMovie, let selectedEpisode {
+                Text(String(localized: .libraryItemSeasonEpisodeSpaced(selectedEpisode.season, selectedEpisode.episode.episodeNumber)) + (selectedEpisode.episode.name.map { " · \($0)" } ?? ""))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .padding(.bottom, 10)
+            }
+            if let plot, !plot.isEmpty {
+                // 理想宽度记 0：外层判断演职员放不放得下时，只看片名、事实行、按钮这些不能折行的宽度，
+                // 简介能折行、不算在内（否则 iPad 竖屏原本放得下的演职员也会被藏掉）
+                ExpandablePlot(text: plot)
+                    .frame(idealWidth: 0, maxWidth: 560, alignment: .leading)
+                    .padding(.bottom, 18)
+            }
+            if !availableTrackFiles.isEmpty, isMovie || selectedEpisode != nil {
+                wideActions()
+            }
+        }
+        .frame(maxWidth: 640, alignment: .leading)
+    }
+
     /// 片名 Logo 的最大宽高：跟着页面宽度走（同 Mac 版 `MacStageLayout.logoSize`）
     private var wideLogoSize: CGSize {
         let width = pageSize.width > 0 ? pageSize.width : ImageWidth.screenSize.width
@@ -468,13 +481,23 @@ struct LibraryItemDetailView: View {
     }
 
     /// 一排按钮（同 Mac 版）：主按钮写明播哪一集、从哪儿接着播；看过一段时多一颗「从头播放」；
-    /// 收藏、标为已看折成圆形玻璃钮；还剩多久写在最后
+    /// 收藏、标为已看折成圆形玻璃钮；还剩多久写在最后。窄的常规宽度窗口（iPhone Duo 内屏竖拿）放不下一整排时
+    /// 先省掉「剩余几分钟」（主按钮里已写了播到哪儿）；再放不下按钮文字截断，不把按钮撑成两行高
     private func wideActions() -> some View {
+        ViewThatFits(in: .horizontal) {
+            wideActionRow(showsProgress: true)
+            wideActionRow(showsProgress: false)
+        }
+        .disabled(marking)
+    }
+
+    private func wideActionRow(showsProgress: Bool) -> some View {
         let state = playButtonState
         return HStack(spacing: 10) {
             Button { play(start: nil) } label: {
                 Label(state.label, systemImage: "play.fill")
                     .heroActionLabel()
+                    .lineLimit(1)
                     .padding(.horizontal, 6)
             }
             .buttonStyle(.glassProminent)
@@ -485,7 +508,7 @@ struct LibraryItemDetailView: View {
             .accessibilityIdentifier("item-play")
             if state.resumable {
                 Button { play(start: 0) } label: {
-                    Label(String(localized: .libraryItemPlayFromStart), systemImage: "backward.end.fill").heroActionLabel()
+                    Label(String(localized: .libraryItemPlayFromStart), systemImage: "backward.end.fill").heroActionLabel().lineLimit(1)
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
@@ -499,7 +522,7 @@ struct LibraryItemDetailView: View {
                                  label: state.finished ? String(localized: .libraryItemMarkUnwatched) : String(localized: .libraryItemMarkWatched)) { Task { await togglePlayed() } }
                     .accessibilityIdentifier("item-played")
             }
-            if let progressText = state.progressText {
+            if showsProgress, let progressText = state.progressText {
                 Text(progressText)
                     .font(.footnote)
                     .monospacedDigit()
@@ -508,7 +531,6 @@ struct LibraryItemDetailView: View {
                     .accessibilityIdentifier("item-progress")
             }
         }
-        .disabled(marking)
     }
 
     private func wideCircleButton(_ symbol: String, tint: Color?, label: String, action: @escaping () -> Void) -> some View {
@@ -525,21 +547,18 @@ struct LibraryItemDetailView: View {
         .accessibilityLabel(label)
     }
 
-    /// 大图区右下角的演职员：「导演 某某」「主演 某某、某某」，标签灰、人名白；放不下时不显示（同 Mac 版）
+    /// 大图区右下角的演职员：「导演 某某」「主演 某某、某某」，标签灰、人名白；放不下时不显示（同 Mac 版，见 `wideStage`）
     @ViewBuilder
     private func stageCredits(_ detail: API.LibraryItemDetailView) -> some View {
         let meta = detail.localMeta
         let directors = (meta?.directorCredits.map(\.name)).flatMap { $0.isEmpty ? nil : $0 } ?? meta?.directors ?? []
         let actors = (meta?.actors ?? []).prefix(3).map(\.name)
         if !directors.isEmpty || !actors.isEmpty {
-            ViewThatFits(in: .horizontal) {
-                VStack(alignment: .leading, spacing: 6) {
-                    if let director = directors.first { creditLine(String(localized: .libraryItemDirector), [director]) }
-                    if !actors.isEmpty { creditLine(String(localized: .libraryItemStarring), Array(actors)) }
-                }
-                .fixedSize()
-                Color.clear.frame(width: 0, height: 0)
+            VStack(alignment: .leading, spacing: 6) {
+                if let director = directors.first { creditLine(String(localized: .libraryItemDirector), [director]) }
+                if !actors.isEmpty { creditLine(String(localized: .libraryItemStarring), Array(actors)) }
             }
+            .fixedSize()
             .padding(.bottom, 6)
             .accessibilityElement(children: .combine)
         }
