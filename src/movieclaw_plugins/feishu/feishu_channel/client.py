@@ -29,7 +29,7 @@ import httpx
 from movieclaw_sdk import net
 from movieclaw_sdk.channels import ChannelInputError
 
-from .card import build_card
+from .card import layout_card
 
 #: 404 = 机器人已被移除(Webhook 随之失效),对应通道层的凭据失效语义
 _AUTH_ERROR_STATUS = (404,)
@@ -234,9 +234,10 @@ class FeishuClient:
             return
         await self._post_webhook({"msg_type": "text", "content": {"text": text}})
 
-    async def send_card(self, text: str, photo: bytes | None = None) -> None:
-        """发交互式卡片。应用模式会先上传海报;上传失败改发无图卡片。
+    async def send_card(self, text: str, photo: bytes | None = None) -> str:
+        """发交互式卡片,返回卡片没装下的正文(调用方按纯文本补发)。
 
+        应用模式会先上传海报;上传失败改发无图卡片。
         没有标题、或卡片接口拒绝时抛 ``FeishuApiError``,由适配器改发纯文本。
         Webhook 不能上传图片,只发无图卡片(仍带签名)。
         """
@@ -246,13 +247,15 @@ class FeishuClient:
                 image_key = await self.upload_image(photo)
             except FeishuApiError:
                 image_key = None
-        card = build_card(text, image_key)
-        if card is None:
+        laid = layout_card(text, image_key)
+        if laid is None:
             raise FeishuApiError("消息缺少标题,无法发送卡片")
+        card, overflow = laid
         if self._mode == "webhook":
             await self._post_webhook({"msg_type": "interactive", "card": card})
-            return
+            return overflow
         await self._send_app("interactive", json.dumps(card, ensure_ascii=False))
+        return overflow
 
     async def tenant_access_token(self) -> str:
         """取应用令牌。内存缓存,过期前两分钟刷新。不写日志。"""

@@ -201,20 +201,28 @@ class FeishuDriver(AdapterDriver):
             )
         if webhook_filled:
             return await self._validate_webhook(webhook, secret)
-        if not app_secret and resume:
-            app_secret = self._registry.secret_for(resume, app_id)
-            if not app_secret:
-                raise input_error("resume_expired")
-        result = await self._validate_app(app_id, app_secret, receive_id, domain)
+        held = None
         if resume:
-            self._registry.release(resume)
+            # 续传令牌一次性:取走即作废,并发的第二个请求拿不到;校验失败才放回
+            held = self._registry.claim(resume, app_id)
+            if not app_secret:
+                if held is None:
+                    raise input_error("resume_expired")
+                app_secret = held.app_secret
+        try:
+            result = await self._validate_app(app_id, app_secret, receive_id, domain)
+        except BaseException:
+            if held is not None:
+                self._registry.restore(held)
+            raise
+        if held is not None:
+            self._registry.settle(held)
         return result
 
     async def begin_flow(self, accounts: list[Account]) -> FlowState:
         # 同一 app_id 再次绑定由中枢覆盖。这里只记下已有账号,扫码选目标时提示将更新。
-        self._registry.known_ids = {account.id for account in accounts}
         try:
-            return await self._registry.begin()
+            return await self._registry.begin({account.id for account in accounts})
         except RegistrationError as exc:
             raise_registration(exc)
 

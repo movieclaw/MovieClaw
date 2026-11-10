@@ -5,11 +5,13 @@
 
 - ``action=init``：``supported_auth_methods`` 须含 ``client_secret``
 - ``action=begin``：``archetype=PersonalAgent``、``auth_method=client_secret``、
-  ``request_user_info=open_id``
+  ``request_user_info=open_id tenant_brand``(两项都要显式请求,服务端只返回请求过的字段)
 - ``action=poll``：``device_code``
 
-总是从飞书账号域发起。轮询看到 ``user_info.tenant_brand=lark`` 时切到 Lark 域立刻再查一次，
-切域那一次响应里的凭据丢掉。``client_secret`` / ``device_code`` 不写日志。
+总是从飞书账号域发起（与官方 Lark CLI 一致）。轮询看到 ``user_info.tenant_brand=lark`` 时切到
+Lark 域立刻再查一次，切域那一次响应里的凭据丢掉；之后应用的开放平台接口也走 Lark 域
+（``open.larksuite.com``）。凭据所在域为准：最终响应里的 tenant_brand 与签发域矛盾时按失败处理。
+``client_secret`` / ``device_code`` 不写日志。
 """
 
 from __future__ import annotations
@@ -28,6 +30,9 @@ _PATH = "/oauth/v1/app/registration"
 _DEFAULT_INTERVAL_S = 5
 _DEFAULT_EXPIRE_S = 600
 _MAX_INTERVAL_S = 60
+#: 必须显式请求 tenant_brand,否则服务端不返回,Lark 用户会一直停在飞书域
+_REQUEST_USER_INFO = "open_id tenant_brand"
+_BRANDS = frozenset({"feishu", "lark"})
 
 
 class RegistrationError(Exception):
@@ -114,7 +119,7 @@ class RegistrationSession:
                 "action": "begin",
                 "archetype": "PersonalAgent",
                 "auth_method": "client_secret",
-                "request_user_info": "open_id",
+                "request_user_info": _REQUEST_USER_INFO,
             },
         )
         device_code = str(begin.get("device_code") or "")
@@ -149,9 +154,13 @@ class RegistrationSession:
             )
         except RegistrationError:
             return PollOutcome(status="pending", interval=self.interval, domain=self.domain)
-        if not self.switched and self.domain == "feishu" and _tenant_brand(data) == "lark":
+        if (
+            not self.switched
+            and _tenant_brand(data) in _BRANDS
+            and _tenant_brand(data) != self.domain
+        ):
             # 切域响应里即使带了凭据也不采用，立刻改到 Lark 域再查
-            self.domain = "lark"
+            self.domain = _tenant_brand(data)
             self.switched = True
             return await self.poll_once()
         return self._outcome(data)
@@ -162,6 +171,15 @@ class RegistrationSession:
             client_id = str(data.get("client_id") or "")
             client_secret = str(data.get("client_secret") or "")
             if client_id and client_secret:
+                brand = _tenant_brand(data)
+                if brand in _BRANDS and brand != self.domain:
+                    # 签发域为准:最终报告的租户品牌和签发域矛盾,属于协议错误,不采用凭据
+                    return PollOutcome(
+                        status="error",
+                        interval=self.interval,
+                        domain=self.domain,
+                        message="contradictory tenant_brand",
+                    )
                 return PollOutcome(
                     status="success",
                     interval=self.interval,
@@ -204,7 +222,7 @@ def _tenant_brand(data: dict[str, Any]) -> str:
     info = data.get("user_info")
     if not isinstance(info, dict):
         return ""
-    return str(info.get("tenant_brand") or "")
+    return str(info.get("tenant_brand") or "").strip().lower()
 
 
 def _open_id(data: dict[str, Any]) -> str:
