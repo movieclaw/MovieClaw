@@ -941,26 +941,41 @@ class LibraryItemView(BaseModel):
         description="在位但尚未探出介质规格的文件数——扫描补探阶段前端据此"
         "把「还在处理」的条目排到海报墙前面并点亮标记",
     )
-    # 海报角标（用户在「自定义首页」里按需打开，默认全关）的数据：都随墙聚合
-    # 批量算好，前端不再为每格单独拉详情 / 观看标记
+    # 海报角标（用户在「自定义首页」里按需打开，默认全关）的数据：随墙批量算好，前端
+    # 不再为每格单独拉详情 / 观看标记。每一项都要客户端用 ``badges`` 参数点名才算
+    # （见 services/library/items.py 的 WALL_BADGE_GROUPS），没点名、老服务端没有、
+    # 或不知道是谁在看时一律 null（= 未知），不画角标的客户端因此不为它们付费
     dynamic_range: str | None = Field(
         default=None,
         description=(
-            "在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；SDR 为 null"
+            "在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；"
+            "SDR 或没请求 badges=hdr 时为 null"
         ),
     )
-    has_atmos: bool = Field(default=False, description="有在位文件带杜比全景声（Atmos）音轨")
-    has_chinese_subtitle: bool = Field(
-        default=False,
-        description="有中文字幕（内封轨或外挂文件；剧集任一集有即算）",
+    has_atmos: bool | None = Field(
+        default=None,
+        description="有在位文件带杜比全景声（Atmos）音轨；没请求 badges=atmos 时为 null（未知）",
+    )
+    has_chinese_subtitle: bool | None = Field(
+        default=None,
+        description=(
+            "有中文字幕（内封轨或外挂文件；剧集任一集有即算）；"
+            "没请求 badges=zh 时为 null（未知）"
+        ),
     )
     progress_percent: int | None = Field(
         default=None,
-        description="当前观看者最近一次看到一半的进度（1~99）；没在看或不认人的调用为 null",
+        description=(
+            "当前观看者最近一次看到一半的进度（1~99）；没在看、没请求 badges=progress "
+            "或不认人的调用为 null"
+        ),
     )
     unplayed_count: int | None = Field(
         default=None,
-        description="剧集：本墙在位集里当前观看者还没看完的集数；电影或不认人的调用为 null",
+        description=(
+            "剧集：本墙在位集里当前观看者还没看完的集数；电影、没请求 badges=unwatched "
+            "或不认人的调用为 null"
+        ),
     )
 
     @field_serializer("added_at")

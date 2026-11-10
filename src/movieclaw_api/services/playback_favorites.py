@@ -143,6 +143,7 @@ async def favorite_items(
     unwatched_first: bool = False,
     sort: FavoriteSort = "favorited_at",
     order: WallOrder | None = None,
+    badges: frozenset[str] = frozenset(),
 ) -> tuple[list[FavoriteItemView], int]:
     """返回一个账号收藏的作品与去重后的总数。
 
@@ -169,7 +170,7 @@ async def favorite_items(
     views = {
         view.media_item_id: view
         for view in await _aggregate_wall_views(
-            session, None, ids, ids, landing_pairs=list(page), member_id=member_id
+            session, None, ids, ids, landing_pairs=list(page), member_id=member_id, badges=badges
         )
     }
 

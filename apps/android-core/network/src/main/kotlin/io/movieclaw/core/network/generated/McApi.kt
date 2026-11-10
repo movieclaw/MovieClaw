@@ -67,13 +67,14 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 我的收藏（`GET /playback/favorites`） */
-    suspend fun playbackFavorites(limit: Long? = null, offset: Long? = null, unwatchedFirst: Boolean? = null, sort: String? = null, order: String? = null): FavoritesView {
+    suspend fun playbackFavorites(limit: Long? = null, offset: Long? = null, unwatchedFirst: Boolean? = null, sort: String? = null, order: String? = null, badges: String? = null): FavoritesView {
         val query = buildList<Pair<String, String>> {
             limit?.let { add("limit" to it.toString()) }
             offset?.let { add("offset" to it.toString()) }
             unwatchedFirst?.let { add("unwatched_first" to it.toString()) }
             sort?.let { add("sort" to it.toString()) }
             order?.let { add("order" to it.toString()) }
+            badges?.let { add("badges" to it.toString()) }
         }
         return transport.send("GET", "/playback/favorites", query, null, serializer<FavoritesView>(), enveloped = true)
     }
@@ -102,7 +103,7 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 按类型的跨库海报墙（同一部片跨库只出现一次）（`GET /libraries/kinds/{kind}/items`） */
-    suspend fun uiLibraryKindItems(kind: String, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): List<LibraryItemView> {
+    suspend fun uiLibraryKindItems(kind: String, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null, badges: String? = null): List<LibraryItemView> {
         val query = buildList<Pair<String, String>> {
             sort?.let { add("sort" to it.toString()) }
             order?.let { add("order" to it.toString()) }
@@ -120,6 +121,7 @@ class McApi(private val transport: ApiTransport) {
             stock?.let { add("stock" to it.toString()) }
             seriesKeys?.let { add("series_keys" to it.toString()) }
             actor?.let { add("actor" to it.toString()) }
+            badges?.let { add("badges" to it.toString()) }
         }
         return transport.send("GET", "/libraries/kinds/${kind}/items", query, null, serializer<List<LibraryItemView>>(), enveloped = true)
     }
@@ -141,12 +143,13 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 合集成员（与单库海报墙同一份聚合）（`GET /collections/{collection_id}/items`） */
-    suspend fun collectionItemsList(collectionId: Long, limit: Long? = null, offset: Long? = null, sort: String? = null, order: String? = null): List<LibraryItemView> {
+    suspend fun collectionItemsList(collectionId: Long, limit: Long? = null, offset: Long? = null, sort: String? = null, order: String? = null, badges: String? = null): List<LibraryItemView> {
         val query = buildList<Pair<String, String>> {
             limit?.let { add("limit" to it.toString()) }
             offset?.let { add("offset" to it.toString()) }
             sort?.let { add("sort" to it.toString()) }
             order?.let { add("order" to it.toString()) }
+            badges?.let { add("badges" to it.toString()) }
         }
         return transport.send("GET", "/collections/${collectionId}/items", query, null, serializer<List<LibraryItemView>>(), enveloped = true)
     }
@@ -158,7 +161,7 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 库内媒体条目的库存聚合（单库海报墙数据源）（`GET /libraries/{library_id}/items`） */
-    suspend fun libraryItemsList(libraryId: Long, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, identity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): List<LibraryItemView> {
+    suspend fun libraryItemsList(libraryId: Long, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, identity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null, badges: String? = null): List<LibraryItemView> {
         val query = buildList<Pair<String, String>> {
             sort?.let { add("sort" to it.toString()) }
             order?.let { add("order" to it.toString()) }
@@ -177,6 +180,7 @@ class McApi(private val transport: ApiTransport) {
             stock?.let { add("stock" to it.toString()) }
             seriesKeys?.let { add("series_keys" to it.toString()) }
             actor?.let { add("actor" to it.toString()) }
+            badges?.let { add("badges" to it.toString()) }
         }
         return transport.send("GET", "/libraries/${libraryId}/items", query, null, serializer<List<LibraryItemView>>(), enveloped = true)
     }
@@ -257,10 +261,11 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 条目详情页的相似推荐（只在观看者可见的同类型库里挑）（`GET /libraries/{library_id}/items/{media_item_id}/similar`） */
-    suspend fun uiLibraryItemsSimilar(libraryId: Long, mediaItemId: Long, limit: Long? = null, excludeSeries: Boolean? = null): List<LibraryItemView> {
+    suspend fun uiLibraryItemsSimilar(libraryId: Long, mediaItemId: Long, limit: Long? = null, excludeSeries: Boolean? = null, badges: String? = null): List<LibraryItemView> {
         val query = buildList<Pair<String, String>> {
             limit?.let { add("limit" to it.toString()) }
             excludeSeries?.let { add("exclude_series" to it.toString()) }
+            badges?.let { add("badges" to it.toString()) }
         }
         return transport.send("GET", "/libraries/${libraryId}/items/${mediaItemId}/similar", query, null, serializer<List<LibraryItemView>>(), enveloped = true)
     }

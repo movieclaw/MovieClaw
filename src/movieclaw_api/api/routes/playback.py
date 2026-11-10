@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.api.deps import require_admin, require_login
+from movieclaw_api.api.deps import require_admin, require_login, wall_badges
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import (
     BadRequestException,
@@ -493,6 +493,7 @@ async def list_favorites(
     order: Annotated[Literal["asc", "desc"] | None, Query(description=_ORDER_DESC)] = None,
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
+    badges: Annotated[frozenset[str], Depends(wall_badges)] = frozenset(),
 ) -> ApiResponse[FavoritesView]:
     """列出当前账号在可见媒体库中收藏的作品（网页与 Jellyfin 客户端点的心同一份），
     默认最近收藏在前。首页横滚行取前 20 且把没看完的提前；「全部收藏」海报墙按
@@ -508,6 +509,7 @@ async def list_favorites(
         unwatched_first=unwatched_first,
         sort=sort,
         order=order,
+        badges=badges,
     )
     return ok(FavoritesView(items=items, total=total))
 

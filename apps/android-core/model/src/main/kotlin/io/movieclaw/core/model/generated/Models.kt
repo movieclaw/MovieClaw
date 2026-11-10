@@ -943,23 +943,23 @@ data class FavoriteItemView(
      */
     @SerialName("probe_pending_count") val probePendingCount: Long = 0,
     /**
-     * 在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；SDR 为 null
+     * 在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；SDR 或没请求 badges=hdr 时为 null
      */
     @SerialName("dynamic_range") val dynamicRange: String? = null,
     /**
-     * 有在位文件带杜比全景声（Atmos）音轨
+     * 有在位文件带杜比全景声（Atmos）音轨；没请求 badges=atmos 时为 null（未知）
      */
-    @SerialName("has_atmos") val hasAtmos: Boolean = false,
+    @SerialName("has_atmos") val hasAtmos: Boolean? = null,
     /**
-     * 有中文字幕（内封轨或外挂文件；剧集任一集有即算）
+     * 有中文字幕（内封轨或外挂文件；剧集任一集有即算）；没请求 badges=zh 时为 null（未知）
      */
-    @SerialName("has_chinese_subtitle") val hasChineseSubtitle: Boolean = false,
+    @SerialName("has_chinese_subtitle") val hasChineseSubtitle: Boolean? = null,
     /**
-     * 当前观看者最近一次看到一半的进度（1~99）；没在看或不认人的调用为 null
+     * 当前观看者最近一次看到一半的进度（1~99）；没在看、没请求 badges=progress 或不认人的调用为 null
      */
     @SerialName("progress_percent") val progressPercent: Long? = null,
     /**
-     * 剧集：本墙在位集里当前观看者还没看完的集数；电影或不认人的调用为 null
+     * 剧集：本墙在位集里当前观看者还没看完的集数；电影、没请求 badges=unwatched 或不认人的调用为 null
      */
     @SerialName("unplayed_count") val unplayedCount: Long? = null,
     @SerialName("favorite_season_number") val favoriteSeasonNumber: Long? = null,
@@ -1627,23 +1627,23 @@ data class LibraryItemView(
      */
     @SerialName("probe_pending_count") val probePendingCount: Long = 0,
     /**
-     * 在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；SDR 为 null
+     * 在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；SDR 或没请求 badges=hdr 时为 null
      */
     @SerialName("dynamic_range") val dynamicRange: String? = null,
     /**
-     * 有在位文件带杜比全景声（Atmos）音轨
+     * 有在位文件带杜比全景声（Atmos）音轨；没请求 badges=atmos 时为 null（未知）
      */
-    @SerialName("has_atmos") val hasAtmos: Boolean = false,
+    @SerialName("has_atmos") val hasAtmos: Boolean? = null,
     /**
-     * 有中文字幕（内封轨或外挂文件；剧集任一集有即算）
+     * 有中文字幕（内封轨或外挂文件；剧集任一集有即算）；没请求 badges=zh 时为 null（未知）
      */
-    @SerialName("has_chinese_subtitle") val hasChineseSubtitle: Boolean = false,
+    @SerialName("has_chinese_subtitle") val hasChineseSubtitle: Boolean? = null,
     /**
-     * 当前观看者最近一次看到一半的进度（1~99）；没在看或不认人的调用为 null
+     * 当前观看者最近一次看到一半的进度（1~99）；没在看、没请求 badges=progress 或不认人的调用为 null
      */
     @SerialName("progress_percent") val progressPercent: Long? = null,
     /**
-     * 剧集：本墙在位集里当前观看者还没看完的集数；电影或不认人的调用为 null
+     * 剧集：本墙在位集里当前观看者还没看完的集数；电影、没请求 badges=unwatched 或不认人的调用为 null
      */
     @SerialName("unplayed_count") val unplayedCount: Long? = null,
 )

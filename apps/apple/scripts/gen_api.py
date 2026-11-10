@@ -46,7 +46,7 @@ BACKWARD_COMPATIBLE_RESPONSE_FIELDS = {
     "NoticeView": {"title_key", "message_key", "message_params"},
     "ActivityView": {"message_key", "message_params"},
     "JobProgressView": {"message_key", "message_params"},
-    "UiPreferencesSetting": {"language"},
+    "UiPreferencesSetting": {"language", "poster_badges"},
     "ModelInfo": {
         "requires_responses_for_tools",
         "chat_tools_require_no_reasoning",

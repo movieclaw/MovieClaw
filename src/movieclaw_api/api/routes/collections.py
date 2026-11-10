@@ -17,7 +17,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.api.deps import require_login
+from movieclaw_api.api.deps import require_login, wall_badges
 from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
 from movieclaw_api.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from movieclaw_api.i18n import t
@@ -752,6 +752,7 @@ async def list_collection_items(
     order: Annotated[Literal["asc", "desc"] | None, Query(description=_ORDER_DESC)] = None,
     session: AsyncSession = Depends(get_session),
     principal: Principal = Depends(require_login),
+    badges: Annotated[frozenset[str], Depends(wall_badges)] = frozenset(),
 ) -> ApiResponse[list[LibraryItemView]]:
     """卡片与主墙长得一模一样——两处走的是同一个 ``_aggregate_wall_views``。
 
@@ -776,7 +777,13 @@ async def list_collection_items(
     if not ids:
         return ok([])
     views = await _aggregate_wall_views(
-        session, row.library_id, ids, ids, library_ids=visible, member_id=member_id
+        session,
+        row.library_id,
+        ids,
+        ids,
+        library_ids=visible,
+        member_id=member_id,
+        badges=badges,
     )
     favorites = await favorite_item_ids(session, ids, member_id=member_id)
     for view in views:
