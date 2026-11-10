@@ -32,7 +32,7 @@ struct MainTabView: View {
     /// 那一次激活不是「回到前台」，不补做身份校验与更新检查（冷启动那份由 AppModel.revalidate、角标轮询首轮做）
     @State private var wasActive = false
     /// 头像页签在窗口里的位置（账号手势提示气泡对准它，见 TabBarAccountGestures）
-    @State private var avatarTabFrame: CGRect = .zero
+    @State private var avatarTab: AccountGestureHub.AvatarAnchor?
     @State private var showAccountTip = false
     /// 成员有没有可见库（搜索的「媒体库」分区要它，见 AppTopBar 的放大镜）；nil = 还没查到。
     /// 只有这一项要异步查：影视 / 资源分区由权限同步得出，超管恒有媒体库分区——放大镜对他们第一帧就在，不闪。
@@ -179,16 +179,16 @@ struct MainTabView: View {
             Task { await switchToPreviousAccount() }
         }
         .overlay {
-            if showAccountTip, avatarTabFrame != .zero {
-                AccountGestureTip(avatarFrame: avatarTabFrame) { withAnimation { showAccountTip = false } }
+            if showAccountTip, let avatarTab {
+                AccountGestureTip(avatar: avatarTab) { withAnimation { showAccountTip = false } }
             }
         }
         // 本机账号超过一个时才提示账号手势（一个账号时这两个手势都没意义），只提示一次；
         // 等找到头像页签的位置再提示（气泡要对准它）
-        .task(id: "\(model.savedAccountCount)|\(avatarTabFrame != .zero)") {
-            guard model.savedAccountCount > 1, !accountTipShown, avatarTabFrame != .zero else { return }
+        .task(id: "\(model.savedAccountCount)|\(avatarTab != nil)") {
+            guard model.savedAccountCount > 1, !accountTipShown, avatarTab != nil else { return }
             try? await Task.sleep(for: .seconds(1.2))
-            guard !Task.isCancelled, avatarTabFrame != .zero else { return }
+            guard !Task.isCancelled, avatarTab != nil else { return }
             accountTipShown = true
             withAnimation { showAccountTip = true }
             try? await Task.sleep(for: .seconds(6))
@@ -482,7 +482,7 @@ extension MainTabView {
     @ViewBuilder
     private var accountGestures: some View {
         if !sidebarShell {
-            TabBarAccountGestures(onAvatarFrame: { if avatarTabFrame != $0 { avatarTabFrame = $0 } })
+            TabBarAccountGestures(onAvatar: { if avatarTab != $0 { avatarTab = $0 } })
         }
     }
 
