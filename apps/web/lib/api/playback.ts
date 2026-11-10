@@ -3,6 +3,7 @@ import { publicEnv } from "@/lib/env";
 import { getPlayerDeviceId } from "@/lib/player/device";
 import type { TrickplayIndex } from "@/lib/player/trickplay";
 import { HttpError, request, resolveRequestUrl } from "@/lib/http";
+import { appendWallBadges } from "@/lib/wall-badges";
 import type {
   LibraryEpisode,
   LibraryGalleryGroup,
@@ -163,6 +164,7 @@ export async function listFavorites(
   const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (unwatchedFirst) query.set("unwatched_first", "true");
   favoriteSortQuery(query, sort);
+  appendWallBadges(query);
   const response = await request<ApiEnvelope<FavoritesPage>>(`/playback/favorites?${query}`);
   return response.data;
 }

@@ -50,6 +50,7 @@ import {
   type PhotoWallDensity,
 } from "@/components/photo-wall";
 import { WallLoadMore, WallLoadPrev, WallRecallPill } from "@/components/wall-chrome";
+import { useWallBadgesRefetch } from "@/components/poster-badges";
 import { InventoryCell, PosterWall, WALL_GRID_WIDE } from "@/components/poster-wall";
 import {
   GALLERY_LOAD_MARGIN,
@@ -598,6 +599,8 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
         if (seq === reloadSeq.current) setFailed(true);
       });
   }, [fetchWall]);
+  // 新打开了要服务端多算的海报角标：当前窗口原地重取（序号闸保证不被旧响应覆盖）
+  useWallBadgesRefetch(reloadWall);
 
   useEffect(() => {
     // 挂载即对账，有会话快照也不例外：快照只负责首帧先把上次的分页窗口画

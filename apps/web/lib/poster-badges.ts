@@ -80,10 +80,36 @@ export interface PosterBadgeSource {
   resolutions: string[];
   air_status: "airing" | "ended" | null;
   dynamic_range?: string | null;
-  has_atmos?: boolean;
-  has_chinese_subtitle?: boolean;
+  /** 以下几项要墙请求带上对应的 badges 分组才有值（见 posterBadgeRequest），否则 null */
+  has_atmos?: boolean | null;
+  has_chinese_subtitle?: boolean | null;
   progress_percent?: number | null;
   unplayed_count?: number | null;
+}
+
+/**
+ * 角标开关 → 海报墙请求的 `badges` 参数（逗号分隔、排好序的分组；一个都不要为 ""）。
+ *
+ * 每个分组在服务端都是一份额外查询（中文字幕、Atmos 要展开字幕 / 音轨 JSON，进度与
+ * 未看集数要查观看状态），所以只点名用户打开了的那几枚；全关时不带参数，墙的成本与
+ * 没有角标时一样。评分、年份、分辨率、播出状态墙本来就带，不需要点名。
+ */
+export function posterBadgeRequest(prefs: PosterBadgePrefs): string {
+  const groups: string[] = [];
+  if (prefs.format) groups.push("atmos", "hdr");
+  if (prefs.progress) groups.push("progress");
+  if (prefs.unwatched) groups.push("unwatched");
+  if (prefs.chinese_subtitle) groups.push("zh");
+  return groups.sort().join(",");
+}
+
+/**
+ * 从 `before` 换到 `after`（都是 posterBadgeRequest 的结果）是否**多**点名了分组——
+ * 是的话已加载的墙缺这几个字段，得重取；只是少了分组则不必（多出的字段不画）。
+ */
+export function addsBadgeGroups(before: string, after: string): boolean {
+  const had = new Set(before.split(",").filter(Boolean));
+  return after.split(",").some((group) => group !== "" && !had.has(group));
 }
 
 /** 一格最终要画的角标；全空 = 什么都不画。 */

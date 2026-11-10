@@ -9,6 +9,7 @@ import ts from "typescript";
 
 import { appTranslator } from "../lib/i18n/translate.ts";
 import * as badges from "../lib/poster-badges.ts";
+import * as wallBadges from "../lib/wall-badges.ts";
 
 const {
   DEFAULT_POSTER_BADGES,
@@ -258,4 +259,68 @@ test("accessible descriptions read every visible badge in the reader's language"
     "Rating 8.3 | Ended | 4K | DV | Atmos | Chinese subtitles available | 3 unwatched episodes | 42% watched",
   );
   assert.equal(overlay.usePosterBadgeDescriptions(null).length, 0);
+});
+
+// —— 按需请求：开着哪些角标 → 墙请求点名哪些分组（服务端只跑这几份查询）——
+
+test("badge request names only the server-computed groups of enabled badges", () => {
+  const { posterBadgeRequest } = badges;
+  // 全关（默认）：不点名任何分组，墙请求与没有角标时一模一样
+  assert.equal(posterBadgeRequest(DEFAULT_POSTER_BADGES), "");
+  // 评分 / 年份 / 分辨率 / 播出状态 / 仅悬停：墙本来就带，不需要服务端多算
+  assert.equal(
+    posterBadgeRequest({
+      ...DEFAULT_POSTER_BADGES,
+      rating: true,
+      year: true,
+      resolution: true,
+      ended: true,
+      airing: true,
+      hover_only: true,
+      min_rating: 7,
+    }),
+    "",
+  );
+  assert.equal(posterBadgeRequest({ ...DEFAULT_POSTER_BADGES, format: true }), "atmos,hdr");
+  assert.equal(posterBadgeRequest({ ...DEFAULT_POSTER_BADGES, chinese_subtitle: true }), "zh");
+  assert.equal(posterBadgeRequest({ ...DEFAULT_POSTER_BADGES, progress: true }), "progress");
+  assert.equal(posterBadgeRequest({ ...DEFAULT_POSTER_BADGES, unwatched: true }), "unwatched");
+  // 全开：五个分组，排好序（同一组开关永远是同一个串，缓存键稳定）
+  assert.equal(posterBadgeRequest(ALL_ON), "atmos,hdr,progress,unwatched,zh");
+});
+
+test("walls refetch only when a badge group is added, not when one is removed", () => {
+  const { addsBadgeGroups } = badges;
+  assert.equal(addsBadgeGroups("", ""), false);
+  assert.equal(addsBadgeGroups("", "zh"), true);
+  assert.equal(addsBadgeGroups("progress", "progress,zh"), true);
+  assert.equal(addsBadgeGroups("atmos,hdr,zh", "zh"), false);
+  assert.equal(addsBadgeGroups("zh", ""), false);
+  assert.equal(addsBadgeGroups("atmos,hdr", "atmos,hdr"), false);
+});
+
+test("wall requests carry badges only when some group is requested", () => {
+  const { setWallBadgeRequest, wallBadgeRequest, appendWallBadges } = wallBadges;
+  try {
+    setWallBadgeRequest("");
+    assert.equal(appendWallBadges(new URLSearchParams("limit=60")).toString(), "limit=60");
+    setWallBadgeRequest("progress,zh");
+    assert.equal(wallBadgeRequest(), "progress,zh");
+    assert.equal(
+      appendWallBadges(new URLSearchParams("limit=60")).toString(),
+      "limit=60&badges=progress%2Czh",
+    );
+  } finally {
+    setWallBadgeRequest("");
+  }
+});
+
+test("null badge data (not requested / older server) draws nothing", () => {
+  const unknown = { ...show, has_atmos: null, has_chinese_subtitle: null, progress_percent: null, unplayed_count: null, dynamic_range: null };
+  const set = posterBadges(unknown, { ...DEFAULT_POSTER_BADGES, format: true, chinese_subtitle: true, progress: true, unwatched: true });
+  assert.deepEqual(set.formats, []);
+  assert.equal(set.chineseSubtitle, false);
+  assert.equal(set.progress, null);
+  assert.equal(set.unwatched, null);
+  assert.equal(hasAnyBadge(set), false);
 });

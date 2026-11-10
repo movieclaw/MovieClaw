@@ -48,7 +48,9 @@ import {
   type ThemeMeta,
 } from "@/lib/themes";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { posterBadgeRequest } from "@/lib/poster-badges";
 import { readUiPrefsCache, writeUiPrefsCache } from "@/lib/ui-prefs-cache";
+import { setWallBadgeRequest } from "@/lib/wall-badges";
 
 /**
  * 界面偏好（按页面分组的样式设定）的全局状态。
@@ -149,6 +151,10 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
   );
   const [preview, setPreview] = useState<UiPreferences | null>(null);
   const [loading, setLoading] = useState(true);
+  // 海报墙取数函数发请求时读的 badges 参数（lib/wall-badges.ts）。在渲染期写而不是
+  // effect 里：子组件（各面墙）的挂载 effect 先于这里的 effect 跑，首轮请求就得带上。
+  // 只是给模块变量赋同一个派生值，重复渲染无副作用
+  setWallBadgeRequest(posterBadgeRequest((preview ?? prefs).poster_badges));
 
   useEffect(() => {
     let cancelled = false;

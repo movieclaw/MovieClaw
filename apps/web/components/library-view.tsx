@@ -30,6 +30,7 @@ import { TipCard } from "@/components/tip-card";
 import { defineTip } from "@/lib/tips/engine";
 import { invalidateTip } from "@/lib/tips/store";
 import { TopBarMenu } from "@/components/top-bar-menu";
+import { useWallBadgesRefetch } from "@/components/poster-badges";
 import type { PosterCardAction } from "@/components/poster-card";
 import { UpNextRow } from "@/components/up-next-row";
 import {
@@ -76,6 +77,7 @@ import { usePermissions } from "@/lib/permissions";
 import { buildRecentAdditionOverlay } from "@/lib/recent-addition";
 import { formatRelativeTime } from "@/lib/time";
 import { useLayout, useUiPrefs } from "@/lib/ui-prefs";
+import { wallBadgeRequest } from "@/lib/wall-badges";
 import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
@@ -336,8 +338,9 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
 
         const fetches = rowFetches(rows, libs);
         const genreKinds = rows.flatMap((row) => (row.kind === "genres" ? [row.mediaKind] : []));
-        // 库状态（含作品数）没变，类型分布也不会变：与条目共用同一个快照闸
-        const snapshot = `${libsSnapshot}|${[...fetches.keys(), ...genreKinds.map((k) => `genres:${k}`)].join(",")}|${collectionsSnapshot}`;
+        // 库状态（含作品数）没变，类型分布也不会变：与条目共用同一个快照闸。
+        // 海报角标点名的分组也算在里面：新打开一枚要服务端算的角标，各行得重取
+        const snapshot = `${libsSnapshot}|${[...fetches.keys(), ...genreKinds.map((k) => `genres:${k}`)].join(",")}|${collectionsSnapshot}|${wallBadgeRequest()}`;
         if (snapshot === lastSnapshot.current) return;
         const [entries, genreEntries] = await Promise.all([
           Promise.all(
@@ -367,6 +370,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
     reloadRef.current = reload;
     reload();
   }, [reload]);
+  useWallBadgesRefetch(() => reloadRef.current());
 
   // 成功到手的数据随手更新模块级快照，供下次重挂载首帧直出（见 lastLoadedHome）。
   // 只在 libraries 已加载时写：加载态/失败态不该顶掉上一份好数据。
