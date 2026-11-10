@@ -31,6 +31,7 @@ from movieclaw_api.schemas.playback_sync import (
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import assert_item_visible, visible_library_ids
 from movieclaw_api.services.playback_stats import _group_viewings, _targets_for, effective_end
+from movieclaw_api.services.playback_up_next import continue_anchor
 from movieclaw_db.models import (
     FileState,
     LibraryFile,
@@ -42,6 +43,7 @@ from movieclaw_db.models import (
 )
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.rowvalues import tuple_in
+from movieclaw_playback import state as playback_state
 
 
 def naive(value: datetime) -> datetime:
@@ -399,6 +401,14 @@ async def import_records(
                         updated_at=stamp,
                     )
                     session.add(state)
+                # 外部观看历史也是播放事实：比隐藏新就让作品回到「接下来继续」
+                await playback_state.note_playback(
+                    session,
+                    member_id=payload.member_id,
+                    media_item_id=unit[0],
+                    played_at=when,
+                    stamp=stamp,
+                )
                 session.add(
                     WatchRecord(
                         member_id=payload.member_id,
@@ -421,6 +431,10 @@ async def import_records(
     return outcomes
 
 
+class _NotAnchor(Exception):
+    """「接下来继续」隐藏写到了不是作品当前锚点的那一行：回滚这次写入，按冲突返回。"""
+
+
 async def apply_state(
     session: AsyncSession, actor: Principal, payload: SyncStateIn
 ) -> list[SyncStateOutcome]:
@@ -430,6 +444,10 @@ async def apply_state(
     outcomes: list[SyncStateOutcome] = []
     # 同一批的同一单元共用扫描时的版本，与导入一致。
     versions: dict[tuple[int, int, int], datetime | None] = {}
+    # 本请求里显式隐藏过的作品：同一请求带来的播放事实不让它回来（显式意图优先）。
+    dismissing = {
+        change.media_item_id for change in payload.changes if change.dismiss_continue is True
+    }
     for change in payload.changes:
         media = await session.get(MediaItem, change.media_item_id)
         if not same_identity(media, change):
@@ -496,7 +514,7 @@ async def apply_state(
         if change.is_favorite is not None:
             new["is_favorite"] = change.is_favorite
         # 只翻这一列：不当已看、不动 play_count / last_played_at（锚点与排序照旧），
-        # 首页按作品最近播放的那一行判定隐藏（playback_up_next）。
+        # 首页按作品判定隐藏（playback_up_next）。
         if change.dismiss_continue is not None:
             new["continue_dismissed"] = change.dismiss_continue
         if new == old:
@@ -511,6 +529,17 @@ async def apply_state(
         values = {**new, "updated_at": stamp}
         if new["is_favorite"] and not old["is_favorite"]:
             values["favorited_at"] = stamp
+        if new["continue_dismissed"] != old["continue_dismissed"]:
+            values["continue_dismissed_at"] = stamp if new["continue_dismissed"] else None
+        # 这次写回本身是不是一条播放事实（发生时间）：给了 last_played_at 就按它；
+        # 没给时间但进度往前走了 / 新标了已看，按现在算。插件不必为此显式发 false。
+        played_at = None
+        if change.last_played_at is not None:
+            played_at = naive(change.last_played_at)
+        elif (new["played"] and not old["played"]) or (
+            new["position_ms"] > 0 and new["position_ms"] != old["position_ms"]
+        ):
+            played_at = stamp
         try:
             async with session.begin_nested():
                 if state is not None:
@@ -536,10 +565,24 @@ async def apply_state(
                         )
                     )
                 await session.flush()
+                if change.dismiss_continue is True:
+                    # 作品级意图：写完仍须是这部作品的当前锚点（与首页同一口径）。别的设备
+                    # 在预览之后播了下一集时这一集已不是锚点，回滚这次写入、报冲突。
+                    anchor = await continue_anchor(session, payload.member_id, unit[0])
+                    if anchor is not None and anchor != unit[1:]:
+                        raise _NotAnchor
+                elif played_at is not None and unit[0] not in dismissing:
+                    await playback_state.note_playback(
+                        session,
+                        member_id=payload.member_id,
+                        media_item_id=unit[0],
+                        played_at=played_at,
+                        stamp=stamp,
+                    )
             versions.setdefault(unit, initial)
             outcomes.append(SyncStateOutcome(status="applied", state_version=stamp))
-        except IntegrityError:
-            # 并发首次写同一单元：不覆盖对方，调用方重新读取后重试。
+        except (IntegrityError, _NotAnchor):
+            # 并发首次写同一单元 / 隐藏的不是当前锚点：不覆盖对方，调用方重新读取后重试。
             outcomes.append(SyncStateOutcome(status="conflict"))
     await session.commit()
     return outcomes

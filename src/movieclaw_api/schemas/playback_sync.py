@@ -53,7 +53,7 @@ class SyncUnit(BaseModel):
     is_favorite: bool
     updated_at: datetime | None
     last_played_at: datetime | None
-    # 这一行是否已从「接下来继续」隐藏（作品级判定看最近播放的那一行）；写回用 dismiss_continue。
+    # 这一行是否已从「接下来继续」隐藏（作品任一行带着即整部隐藏）；写回用 dismiss_continue。
     continue_dismissed: bool
     watches: list[SyncWatch]
 

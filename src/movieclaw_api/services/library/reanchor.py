@@ -101,6 +101,7 @@ async def migrate_watch_state(session: AsyncSession, old_unit: Unit, new_unit: U
                     favorited_at=old.favorited_at,
                     last_played_at=old.last_played_at,
                     continue_dismissed=old.continue_dismissed,
+                    continue_dismissed_at=old.continue_dismissed_at,
                 )
             )
             continue
@@ -111,6 +112,7 @@ async def migrate_watch_state(session: AsyncSession, old_unit: Unit, new_unit: U
             target.subtitle_track = old.subtitle_track or target.subtitle_track
             target.last_played_at = old.last_played_at
             target.continue_dismissed = old.continue_dismissed
+            target.continue_dismissed_at = old.continue_dismissed_at
         target.played = target.played or old.played
         # 收藏时间取两边**较早**的那个：重新识别只是换了个身份锚点，
         # 用户收藏这部作品的那个动作还是当初那一次，不该看起来像刚收藏

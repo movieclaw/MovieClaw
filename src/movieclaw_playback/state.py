@@ -153,6 +153,43 @@ async def get_or_create_state(
     return await _get_or_create(session, unit, member_id=member_id)
 
 
+async def note_playback(
+    session: AsyncSession,
+    *,
+    member_id: int,
+    media_item_id: int,
+    played_at: datetime,
+    stamp: datetime | None = None,
+) -> None:
+    """一条真实播放事实（发生于 ``played_at``）到达：让被「接下来继续」隐藏的作品回来。
+
+    「接下来继续」隐藏的唯一恢复规则，所有播放事实入口（实时开始 / 进度、离线观看补传、
+    外部同步的观看历史导入与状态写回）都走这里，插件不必各自维护：
+
+    - 隐藏是作品级的，所以清的是这部作品**所有**带标记的行，不只是这次播放的那一集；
+    - 只认比隐藏时间（``continue_dismissed_at``）**新**的事实：先离线播放、后在别的设备
+      隐藏、再补传那条旧记录，隐藏照旧；没有隐藏时间的旧标记当作最早；
+    - 只动这两列和版本（``updated_at`` 用 ``stamp``，与调用方本次写入同一版本），不碰
+      played / play_count / last_played_at，也不发事件。
+
+    同一请求里显式 ``dismiss_continue=true`` 优先：那时调用方不调这里（playback_sync）。
+    """
+    rows = (
+        await session.execute(
+            select(PlaybackState).where(
+                PlaybackState.member_id == member_id,
+                PlaybackState.media_item_id == media_item_id,
+                PlaybackState.continue_dismissed.is_(True),  # type: ignore[attr-defined]
+            )
+        )
+    ).scalars()
+    for row in rows:
+        if row.continue_dismissed_at is None or played_at > row.continue_dismissed_at:
+            row.continue_dismissed = False
+            row.continue_dismissed_at = None
+            row.updated_at = stamp or utcnow()
+
+
 async def record_playback_start(
     session: AsyncSession, unit: Unit, *, member_id: int
 ) -> PlaybackState:
@@ -160,9 +197,11 @@ async def record_playback_start(
     row = await _get_or_create(session, unit, member_id=member_id)
     row.play_count += 1
     row.last_played_at = utcnow()
-    # 真正再播放：之前从「接下来继续」隐藏的这部作品回来
-    row.continue_dismissed = False
     row.updated_at = utcnow()
+    # 真正再播放：之前从「接下来继续」隐藏的这部作品回来
+    await note_playback(
+        session, member_id=member_id, media_item_id=unit[0], played_at=row.last_played_at
+    )
     return row
 
 
@@ -185,8 +224,10 @@ async def record_playback_progress(
     row.position_ms = outcome.position_ms
     row.played = outcome.played
     row.last_played_at = utcnow()
-    row.continue_dismissed = False
     row.updated_at = utcnow()
+    await note_playback(
+        session, member_id=member_id, media_item_id=unit[0], played_at=row.last_played_at
+    )
     return row, (outcome.played and not was_played)
 
 
