@@ -26,14 +26,13 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.services import playback_progress
 from movieclaw_api.services.media_scrape import asset_version
 
 # 「看完了吗 / 文件在不在位」与接下来继续同一套判定，直接复用那边的批量查询，
 # 不另写第二份口径
 from movieclaw_api.services.playback_up_next import (
     _in_place_units,
-    _progress_percent,
-    _runtime_ms,
     _states,
 )
 from movieclaw_api.services.tmdb_images import tmdb_image_url
@@ -216,7 +215,7 @@ async def _hydrate(
             elif still_path:
                 still_url = tmdb_image_url(still_path, "still")
         position_ms = states.get((media.id, display), (False, 0))[1]
-        duration_ms = _runtime_ms(
+        duration_ms = playback_progress.runtime_ms(
             durations.get((media.id, display)),
             episode_runtime if is_tv else None,
             item_runtimes.get(media.id),
@@ -229,7 +228,7 @@ async def _hydrate(
                 imported_at=imported_at,
                 episode_name=(name or None) if is_tv else None,
                 still_url=still_url,
-                progress_percent=_progress_percent(position_ms, duration_ms),
+                progress_percent=playback_progress.progress_percent(position_ms, duration_ms),
             )
         )
     return result

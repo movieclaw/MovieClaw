@@ -65,6 +65,7 @@ from movieclaw_api.i18n.content import (
     display_title,
     in_reader_language,
 )
+from movieclaw_api.services import playback_progress
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import (
     NO_CONTENT_LIMIT,
@@ -84,7 +85,6 @@ from movieclaw_api.services.media_scrape import asset_version
 from movieclaw_api.services.people_images import avatar_url
 from movieclaw_api.services.playback import marks as playback_marks
 from movieclaw_api.services.playback.signing import issue_stream_token
-from movieclaw_api.services.playback_up_next import _progress_percent, _runtime_ms
 from movieclaw_api.services.reels import clips
 from movieclaw_api.services.reels.segments import (
     FileRef,
@@ -849,8 +849,9 @@ async def _assemble(
             unit = key
         progress = None
         if (row := states.get(unit)) and not row.played:
-            progress = _progress_percent(
-                row.position_ms, _runtime_ms(file.duration_seconds, None, runtime)
+            progress = playback_progress.progress_percent(
+                row.position_ms,
+                playback_progress.runtime_ms(file.duration_seconds, None, runtime),
             )
         favorite = await playback_marks.get_state(session, favorite_target, member_id=member_id)
         played = (

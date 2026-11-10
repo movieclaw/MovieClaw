@@ -37,6 +37,7 @@ from movieclaw_api.schemas.playback import (
     PlaybackStatsTotals,
     PlaybackWatchStatsView,
 )
+from movieclaw_api.services import playback_progress
 from movieclaw_api.services.playback_activity import (
     VisibilityScope,
     _load_unit_contexts,
@@ -44,7 +45,6 @@ from movieclaw_api.services.playback_activity import (
     _target,
     libraries_by_item,
 )
-from movieclaw_api.services.playback_up_next import _progress_percent
 from movieclaw_db.models import PlaybackLog, PlaybackMetric
 from movieclaw_db.models.base import utcnow
 from movieclaw_media.models import MediaKind
@@ -357,7 +357,9 @@ async def playback_history(
                 start_position_ms=row.start_position_ms,
                 end_position_ms=row.end_position_ms,
                 duration_ms=duration_ms,
-                progress_percent=_progress_percent(row.end_position_ms, duration_ms),
+                progress_percent=playback_progress.progress_percent(
+                    row.end_position_ms, duration_ms
+                ),
                 completed=finished(row, duration_ms),
             )
         )

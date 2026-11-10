@@ -53,6 +53,7 @@ from movieclaw_api.i18n.content import (
     in_reader_language,
 )
 from movieclaw_api.schemas.playback import UpNextItemView
+from movieclaw_api.services import playback_progress
 from movieclaw_api.services.library.thumbs import primary_aspect
 from movieclaw_api.services.media_scrape import asset_version
 from movieclaw_api.services.tmdb_images import tmdb_image_url
@@ -88,25 +89,6 @@ class _Anchor:
     media_item_id: int
     unit: Unit
     last_played_at: datetime
-
-
-def _runtime_ms(
-    file_duration_seconds: int | None,
-    episode_runtime_minutes: int | None,
-    item_runtime_minutes: int | None,
-) -> int | None:
-    """时长优先取真实文件，其次分集档案，最后退回条目常规片长。"""
-    if file_duration_seconds and file_duration_seconds > 0:
-        return file_duration_seconds * 1000
-    runtime_minutes = episode_runtime_minutes or item_runtime_minutes
-    return runtime_minutes * 60_000 if runtime_minutes and runtime_minutes > 0 else None
-
-
-def _progress_percent(position_ms: int, duration_ms: int | None) -> int | None:
-    """生成卡片进度；保留 1%~99%——0 与 100 都不是"接着看"的状态。"""
-    if position_ms <= 0 or not duration_ms:
-        return None
-    return max(1, min(99, round(position_ms * 100 / duration_ms)))
 
 
 async def _anchors(
@@ -484,7 +466,7 @@ async def _hydrate(
                 episode_still_original_url = episode_still_url
             elif still_path:
                 episode_still_original_url = tmdb_image_url(still_path, "still")
-        duration_ms = _runtime_ms(
+        duration_ms = playback_progress.runtime_ms(
             durations.get((item.id, unit)),
             episode_runtime if is_tv else None,
             item_runtime,
@@ -513,7 +495,7 @@ async def _hydrate(
                 unwatched_ahead_count=ahead if is_tv else 0,
                 position_ms=position_ms,
                 duration_ms=duration_ms,
-                progress_percent=_progress_percent(position_ms, duration_ms),
+                progress_percent=playback_progress.progress_percent(position_ms, duration_ms),
                 advanced=unit != anchor.unit,
                 last_played_at=anchor.last_played_at,
             )
@@ -521,4 +503,4 @@ async def _hydrate(
     return result
 
 
-__all__ = ["_progress_percent", "_runtime_ms", "up_next_items"]
+__all__ = ["up_next_items"]
