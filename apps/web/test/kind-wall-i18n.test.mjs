@@ -33,6 +33,7 @@ function load(locale, values = [[], 0, 0, false], pref = "default") {
     "@/components/library-filter-bar": { WallSortControl: ({ options, direction }) => React.createElement("span", null, JSON.stringify(options), direction.label) },
     "@/components/poster-wall": { PosterWall: ({ items, libraryIdOf }) => React.createElement("div", null, JSON.stringify(items.map((item) => [item.media_item_id, libraryIdOf(item)]))) },
     "@/components/wall-chrome": { WallLoadMore: () => null },
+    "@/components/poster-badges": { useWallBadgesRefetch: () => {} },
   };
   const source = readFileSync(new URL("../components/kind-wall-view.tsx", import.meta.url), "utf8") + "\nexport {sortOptions};";
   const exports = {};

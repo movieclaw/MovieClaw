@@ -9,6 +9,7 @@ import { HScroller } from "@/components/h-scroller";
 import { MissingPartCell } from "@/components/library-collection-detail-view";
 import { libraryItemKey, libraryItemToMediaItem } from "@/components/library-view";
 import { MediaRow } from "@/components/media-row";
+import { useWallBadgesRefetch } from "@/components/poster-badges";
 import { PosterCard, PosterCardVisual } from "@/components/poster-card";
 import { useSubscribeEntry } from "@/components/subscribe-entry";
 import { type CollectionSeries, type SeriesPart, getCollectionSeries } from "@/lib/api/collections";
@@ -39,6 +40,9 @@ export function LibraryRelatedRows({
   const t = useTranslations();
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [series, setSeries] = useState<CollectionSeries | null>(null);
+  // 新打开了要服务端多算的海报角标：相似推荐那一行重取一次
+  const [badgeEpoch, setBadgeEpoch] = useState(0);
+  useWallBadgesRefetch(() => setBadgeEpoch((n) => n + 1));
 
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +65,7 @@ export function LibraryRelatedRows({
     return () => {
       cancelled = true;
     };
-  }, [libraryId, mediaItemId, seriesCollectionId]);
+  }, [libraryId, mediaItemId, seriesCollectionId, badgeEpoch]);
 
   const hrefs = useMemo(
     () =>

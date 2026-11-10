@@ -1,12 +1,15 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { useEffect, useRef } from "react";
 
 import { HeartIcon, StarIcon } from "@/components/icons";
 import {
+  addsBadgeGroups,
   detailAirStatus,
   hasAnyBadge,
   hasTopBadges,
+  posterBadgeRequest,
   posterBadges,
   type PosterBadgeSet,
   type PosterBadgeSource,
@@ -22,6 +25,37 @@ export function usePosterBadges(source: PosterBadgeSource | undefined): PosterBa
   if (!source) return null;
   const set = posterBadges(source, prefs.poster_badges);
   return hasAnyBadge(set) ? set : null;
+}
+
+/**
+ * 海报墙已加载的数据缺了新打开的角标分组时，让墙重取一遍。
+ *
+ * 墙请求按当时开着的角标点名要数据（lib/wall-badges.ts）。之后**多**点了某个分组——
+ * 首帧缓存的偏好被服务端的覆盖、或别处改了开关——已加载的格子里那几个字段是 null，
+ * 得重取才画得出来；只是关掉了某些分组则不必重取（多出来的字段本来就不画）。
+ * 首次挂载不触发：墙自己的首轮加载已经带上当前值。
+ *
+ * `busy` 返回 true 时（墙正在翻页 / 重取，取数函数会跳过新的调用）稍后再试，
+ * 免得这次重取被吞掉、墙一直缺字段。
+ */
+export function useWallBadgesRefetch(refetch: () => void, busy?: () => boolean): void {
+  const { prefs } = useUiPrefs();
+  const request = posterBadgeRequest(prefs.poster_badges);
+  const applied = useRef(request);
+  const latest = useRef({ refetch, busy });
+  latest.current = { refetch, busy };
+  useEffect(() => {
+    const before = applied.current;
+    applied.current = request;
+    if (!addsBadgeGroups(before, request)) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const run = () => {
+      if (latest.current.busy?.()) timer = setTimeout(run, 200);
+      else latest.current.refetch();
+    };
+    run();
+    return () => clearTimeout(timer);
+  }, [request]);
 }
 
 /** 角标的读屏文案：卡片本身是一个带 aria-label 的链接，角标要并进那句话里才读得到。 */

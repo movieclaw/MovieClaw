@@ -1,4 +1,5 @@
 import { request } from "@/lib/http";
+import { appendWallBadges } from "@/lib/wall-badges";
 import type { AppLocale } from "@/lib/i18n/negotiate";
 import type {
   LibraryGalleryGroup,
@@ -167,12 +168,15 @@ export interface CollectionSortParams {
 
 function collectionPageQuery(
   params?: { limit?: number; offset?: number } & CollectionSortParams,
+  /** 海报墙那一形态带上海报角标参数（图廊不画角标） */
+  wall = false,
 ): string {
   const query = new URLSearchParams();
   if (params?.limit !== undefined) query.set("limit", String(params.limit));
   if (params?.offset) query.set("offset", String(params.offset));
   if (params?.sort) query.set("sort", params.sort);
   if (params?.order) query.set("order", params.order);
+  if (wall) appendWallBadges(query);
   return query.size > 0 ? `?${query}` : "";
 }
 
@@ -182,7 +186,9 @@ export function listCollectionItems(
   params?: { limit?: number; offset?: number } & CollectionSortParams,
 ): Promise<LibraryItem[]> {
   return unwrap(
-    request<ApiEnvelope<LibraryItem[]>>(`/collections/${id}/items${collectionPageQuery(params)}`),
+    request<ApiEnvelope<LibraryItem[]>>(
+      `/collections/${id}/items${collectionPageQuery(params, true)}`,
+    ),
   );
 }
 

@@ -10,6 +10,7 @@ import type { AppLocale } from "@/lib/i18n/negotiate";
 
 import { WallLoadMore } from "@/components/wall-chrome";
 import { WallSortControl } from "@/components/library-filter-bar";
+import { useWallBadgesRefetch } from "@/components/poster-badges";
 import { PosterWall } from "@/components/poster-wall";
 import { PageNav } from "@/components/page-nav";
 import {
@@ -224,6 +225,11 @@ function KindWallContent({ kind, genre, filter }: {
   const loaded = items?.length ?? 0;
   const hasMore = items !== null && loaded < total;
   const loadMore = useCallback(() => void load(loaded), [load, loaded]);
+  // 新打开了要服务端多算的海报角标：已加载的窗口原地重取（不动滚动位置）
+  useWallBadgesRefetch(
+    () => loaded > 0 && void reload(loaded),
+    () => loading.current,
+  );
   /** 跨库的一面墙，每一格落回它自己的库（服务端给的落点） */
   const ownerLibraryOf = useCallback((item: LibraryItem) => item.library_id ?? 0, []);
   const changeWatch = (watch: string) => {

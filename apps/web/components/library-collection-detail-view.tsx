@@ -8,6 +8,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import type { Route } from "next";
 
 import { CollectionOrderPanel } from "@/components/collection-order-panel";
+import { useWallBadgesRefetch } from "@/components/poster-badges";
 import { ShareDialog } from "@/components/share-dialog";
 import { useConfirm, usePrompt, useToast } from "@/components/feedback";
 import { MoreIcon } from "@/components/icons";
@@ -259,6 +260,8 @@ export function LibraryCollectionDetailView({
     setItems(rows);
     setHasMore(rows.length === PAGE_SIZE);
   }, [collectionId]);
+  // 新打开了要服务端多算的海报角标：重取（合集墙不长，从第一页来即可）
+  useWallBadgesRefetch(() => void reloadItems().catch(() => undefined));
 
   // 第一页：偏好还没从 storage 读出来时先按兵不动——这一帧的排序是默认值，照它
   // 拉一遍再按真正的偏好重拉，墙会闪一下。换了排序同样从第一页重来

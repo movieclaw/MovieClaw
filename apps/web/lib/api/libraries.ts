@@ -4,6 +4,7 @@ import type { AppLocale } from "../i18n/negotiate.ts";
 import { publicEnv } from "@/lib/env";
 import { request, resolveRequestUrl } from "@/lib/http";
 import { snapWidth } from "@/lib/image-width";
+import { appendWallBadges } from "@/lib/wall-badges";
 import type { ItemSource, LibraryKind, MediaType } from "@/lib/media-types";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -397,10 +398,10 @@ export interface LibraryItem {
   // —— 海报角标（lib/poster-badges.ts）的数据，随墙批量返回；老服务端没有这些字段 ——
   /** 在位文件里最好的动态范围：Dolby Vision / HDR10+ / HDR10 / HLG / HDR；SDR 为 null */
   dynamic_range?: string | null;
-  /** 有在位文件带杜比全景声音轨 */
-  has_atmos?: boolean;
-  /** 有中文字幕（内封或外挂；剧集任一集有即算） */
-  has_chinese_subtitle?: boolean;
+  /** 有在位文件带杜比全景声音轨；没请求 badges=atmos 时为 null（未知） */
+  has_atmos?: boolean | null;
+  /** 有中文字幕（内封或外挂；剧集任一集有即算）；没请求 badges=zh 时为 null（未知） */
+  has_chinese_subtitle?: boolean | null;
   /** 当前观看者最近一次看到一半的进度（1~99）；没在看为 null */
   progress_percent?: number | null;
   /** 剧集：本墙在位集里当前观看者还没看完的集数；电影为 null */
@@ -746,6 +747,7 @@ export function listLibraryItems(
   if (params?.limit !== undefined) query.set("limit", String(params.limit));
   if (params?.offset) query.set("offset", String(params.offset));
   filterQuery(params?.filter, query);
+  appendWallBadges(query);
   const suffix = query.size > 0 ? `?${query}` : "";
   return unwrap(request<ApiEnvelope<LibraryItem[]>>(`/libraries/${id}/items${suffix}`));
 }
@@ -781,6 +783,7 @@ export function listKindItems(
   if (params?.limit !== undefined) query.set("limit", String(params.limit));
   if (params?.offset) query.set("offset", String(params.offset));
   filterQuery(params?.filter, query);
+  appendWallBadges(query);
   const suffix = query.size > 0 ? `?${query}` : "";
   return unwrap(request<ApiEnvelope<LibraryItem[]>>(`/libraries/kinds/${kind}/items${suffix}`));
 }
@@ -1896,7 +1899,10 @@ export function listSimilarItems(
   mediaItemId: number,
   params?: { excludeSeries?: boolean },
 ): Promise<LibraryItem[]> {
-  const suffix = params?.excludeSeries ? "?exclude_series=true" : "";
+  const query = new URLSearchParams();
+  if (params?.excludeSeries) query.set("exclude_series", "true");
+  appendWallBadges(query);
+  const suffix = query.size > 0 ? `?${query}` : "";
   return unwrap(
     request<ApiEnvelope<LibraryItem[]>>(
       `/libraries/${libraryId}/items/${mediaItemId}/similar${suffix}`,

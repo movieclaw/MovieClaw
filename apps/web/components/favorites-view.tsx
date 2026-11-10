@@ -10,6 +10,7 @@ import type { Route } from "next";
 
 import { useToast } from "@/components/feedback";
 import { MasonryIcon, MoreIcon, PosterGridIcon } from "@/components/icons";
+import { useWallBadgesRefetch } from "@/components/poster-badges";
 import { WallLoadMore, WallLoadPrev, WallRecallPill } from "@/components/wall-chrome";
 import { WallSortControl } from "@/components/library-filter-bar";
 import { PosterWall } from "@/components/poster-wall";
@@ -292,6 +293,11 @@ export function FavoritesView() {
   const loadMore = useCallback(() => {
     void load(wallStart + loaded);
   }, [load, loaded, wallStart]);
+  // 新打开了要服务端多算的海报角标：已加载的窗口原地重取（不动滚动位置）
+  useWallBadgesRefetch(
+    () => loaded > 0 && void reload(loaded),
+    () => loading.current,
+  );
 
   /* —— 向上补页 ——
      「回到上次位置」会把整个窗口换成从那一段开始的一页，窗口起点因此不为 0：
