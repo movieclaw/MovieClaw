@@ -25,7 +25,7 @@ function runtime(overrides = {}, timers = globalThis) {
     '@kit.NetworkKit': {}, '@kit.CoreFileKit': {}, '@kit.ArkData': {},
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: (bytes) => new TextDecoder().decode(bytes) }) } } },
     '@kit.AbilityKit': {}, '@kit.AVSessionKit': {}, '@kit.BackgroundTasksKit': {},
-    '@kit.PerformanceAnalysisKit': { hilog: { warn() {}, error() {} } },
+    '@kit.PerformanceAnalysisKit': { hilog: { info() {}, warn() {}, error() {} } },
     '@ohos/hypium': {
       describe,
       it: (name, level, run) => test(name, run),
@@ -412,6 +412,32 @@ test('AVPlayer prepares and plays after optional subtitle attachment rejects', a
   const engine = new AVPlayerEngine(); engine.onEvent = (event) => diagnostics.push(event.type);
   await engine.open({ fd: -1, url: 'fixture', subtitleFd: 20, subtitleUrl: '' }, 'surface');
   await engine.play(); assert.deepEqual(calls, ['prepare', 'play']); assert.ok(diagnostics.includes('diagnostic'));
+  await engine.release();
+});
+
+test('AVPlayer ignores focus-gain churn and forwards only explicit interrupt hints', async () => {
+  const handlers = new Map(); const hints = [];
+  const player = {
+    state: 'idle', duration: 100000,
+    on: (name, fn) => handlers.set(name, fn),
+    set url(value) { this.state = 'initialized'; handlers.get('stateChange')('initialized'); },
+    prepare: async () => { player.state = 'prepared'; handlers.get('stateChange')('prepared'); },
+    play: async () => {}, release: async () => {},
+  };
+  const load = runtime({
+    '@kit.MediaKit': { media: { createAVPlayer: async () => player } },
+    '@kit.AudioKit': { audio: { InterruptHint: { INTERRUPT_HINT_NONE: 0, INTERRUPT_HINT_RESUME: 1,
+      INTERRUPT_HINT_PAUSE: 2, INTERRUPT_HINT_STOP: 3, INTERRUPT_HINT_DUCK: 4, INTERRUPT_HINT_UNDUCK: 5 } } },
+  });
+  const { AVPlayerEngine } = load('player_engine/src/main/ets/AVPlayerEngine.ets');
+  const engine = new AVPlayerEngine();
+  engine.onEvent = (event) => { if (event.type === 'interrupt') { hints.push(event.hint); } };
+  await engine.open({ fd: -1, url: 'fixture', subtitleFd: -1, subtitleUrl: '' }, 'surface');
+  const interrupt = handlers.get('audioInterrupt');
+  interrupt({ hintType: 0 });
+  interrupt({ hintType: 2 });
+  interrupt({ hintType: 4 });
+  assert.deepEqual(hints, ['pause', 'duck']);
   await engine.release();
 });
 
