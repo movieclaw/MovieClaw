@@ -2,6 +2,18 @@ import Nuke
 import NukeUI
 import SwiftUI
 
+/// 大图区操作键的标签允许随可用宽度换行，避免大号 Dynamic Type 被强制截成一行。
+struct LibraryWideActionLabel: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .heroActionLabel()
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 /// 媒体库条目详情（Web `library-item-detail-view.tsx`，路由 `/library/{id}/item/{mid}?season=&episode=`）。
 ///
 /// 一屏的阅读动线（与 Web 手机端一致）：剧照 Hero → 片名 / 当前集 / 事实行（年份·片长·评分·画质·HDR）/
@@ -482,7 +494,7 @@ struct LibraryItemDetailView: View {
 
     /// 一排按钮（同 Mac 版）：主按钮写明播哪一集、从哪儿接着播；看过一段时多一颗「从头播放」；
     /// 收藏、标为已看折成圆形玻璃钮；还剩多久写在最后。窄的常规宽度窗口（iPhone Duo 内屏竖拿）放不下一整排时
-    /// 先省掉「剩余几分钟」（主按钮里已写了播到哪儿）；再放不下按钮文字截断，不把按钮撑成两行高
+    /// 先省掉「剩余几分钟」（主按钮里已写了播到哪儿）；再窄时按钮文字换行，Dynamic Type 大字仍须完整可读
     private func wideActions() -> some View {
         ViewThatFits(in: .horizontal) {
             wideActionRow(showsProgress: true)
@@ -495,9 +507,7 @@ struct LibraryItemDetailView: View {
         let state = playButtonState
         return HStack(spacing: 10) {
             Button { play(start: nil) } label: {
-                Label(state.label, systemImage: "play.fill")
-                    .heroActionLabel()
-                    .lineLimit(1)
+                LibraryWideActionLabel(title: state.label, systemImage: "play.fill")
                     .padding(.horizontal, 6)
             }
             .buttonStyle(.glassProminent)
@@ -508,7 +518,7 @@ struct LibraryItemDetailView: View {
             .accessibilityIdentifier("item-play")
             if state.resumable {
                 Button { play(start: 0) } label: {
-                    Label(String(localized: .libraryItemPlayFromStart), systemImage: "backward.end.fill").heroActionLabel().lineLimit(1)
+                    LibraryWideActionLabel(title: String(localized: .libraryItemPlayFromStart), systemImage: "backward.end.fill")
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
