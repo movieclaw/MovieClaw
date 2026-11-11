@@ -14,7 +14,6 @@ class FakeEngine implements PlayerEngine {
   playGate: Promise<void> = Promise.resolve();
   releaseGate: Promise<void> = Promise.resolve();
   afterSeek: () => void = (): void => {};
-  rejectRate: boolean = false;
   public id: EngineId;
   private order: string[];
   constructor(id: EngineId,
@@ -30,10 +29,7 @@ class FakeEngine implements PlayerEngine {
   async play(): Promise<void> { this.calls.push('play'); await this.playGate; this.state('playing'); }
   async pause(): Promise<void> { this.calls.push('pause'); this.state('paused'); }
   async seek(ms: number): Promise<void> { this.calls.push(`seek:${ms}`); await this.seekGate; this.afterSeek(); }
-  async setRate(rate: number): Promise<void> {
-    if (this.rejectRate) { throw new Error('follow-up command rejected'); }
-    this.calls.push(`rate:${rate}`);
-  }
+  async setRate(rate: number): Promise<void> { this.calls.push(`rate:${rate}`); }
   async setGain(gain: number): Promise<void> { this.calls.push(`gain:${gain}`); }
   async setSubtitleStyle(style: SubtitleStyle): Promise<void> {}
   async tracks(): Promise<EngineTrack[]> {
@@ -49,6 +45,9 @@ class FakeEngine implements PlayerEngine {
   }
   time(ms: number): void {
     const event = new EngineEvent(); event.type = 'time'; event.positionMs = ms; event.durationMs = 100000; this.onEvent(event);
+  }
+  frame(): void {
+    const event = new EngineEvent(); event.type = 'firstFrame'; this.onEvent(event);
   }
   interrupt(hint: string): void {
     const event = new EngineEvent(); event.type = 'interrupt'; event.hint = hint; this.onEvent(event);
@@ -212,9 +211,8 @@ export default function playbackControllerTest() {
       await controller.release();
       expect(factory.order.join(',')).assertEqual('avplayer:release,lease:1:close,mpv:release,lease:2:close');
     });
-    it('first_opening_failure_survives_secondary_state_errors_and_rejection', 0, async () => {
+    it('first_deferred_failure_survives_secondary_state_errors', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
-      factory.avp.rejectRate = true;
       factory.avp.afterSeek = (): void => {
         const first = new EngineEvent(); first.type = 'error';
         first.failure = new EngineFailure('decode', 5400103, 'demux failure');
@@ -229,6 +227,7 @@ export default function playbackControllerTest() {
       };
       const intent = new PlaybackIntent(); intent.positionMs = 42000;
       await controller.open(new FakeMedia(factory.order), 'surface', intent);
+      factory.avp.frame(); await microtasks(); await microtasks();
       expect(factory.created.join(',')).assertEqual('avplayer,mpv');
       expect(code).assertEqual(5400103);
       expect(controller.current().playing).assertTrue();
@@ -237,6 +236,7 @@ export default function playbackControllerTest() {
     it('runtime_service_death_reopens_MPV_at_current_position', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       await controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent());
+      factory.avp.frame(); await microtasks();
       factory.avp.time(42000);
       const failure = new EngineEvent(); failure.type = 'error';
       failure.failure = new EngineFailure('unavailable', 5400105, 'service died fixture');
@@ -302,6 +302,7 @@ export default function playbackControllerTest() {
       const factory = new FakeFactory(); const media = new FakeMedia(factory.order); media.originMs = 30000;
       const intent = new PlaybackIntent(); intent.positionMs = 42000;
       const controller = new PlaybackController(factory); await controller.open(media, 'surface', intent);
+      factory.avp.frame(); await microtasks();
       expect(factory.avp.calls.includes('seek:12000')).assertTrue();
       factory.avp.time(15000); expect(controller.current().positionMs).assertEqual(45000);
       expect(controller.current().durationMs).assertEqual(100000);
@@ -339,6 +340,36 @@ export default function playbackControllerTest() {
       expect(factory.avp.calls.filter((call: string): boolean => call === 'play').length).assertEqual(plays);
       await controller.release();
     });
+    it('avplayer_seeks_after_the_first_frame_but_mpv_seeks_at_open', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeMedia(factory.order), 'surface', intent);
+      const playAt = factory.avp.calls.indexOf('play');
+      expect(playAt >= 0).assertTrue();
+      expect(factory.avp.calls.includes('seek:42000')).assertFalse();
+      factory.avp.frame(); await microtasks();
+      expect(factory.avp.calls.includes('seek:42000')).assertTrue();
+      expect(factory.avp.calls.indexOf('seek:42000') > playAt).assertTrue();
+      const mpvIntent = new PlaybackIntent(); mpvIntent.positionMs = 42000;
+      await controller.open(new FakeMedia(factory.order), 'surface', mpvIntent, 'mpv');
+      expect(factory.mpv.calls.includes('seek:42000')).assertTrue();
+      expect(factory.mpv.calls.indexOf('seek:42000') < factory.mpv.calls.indexOf('play')).assertTrue();
+      await controller.release();
+    });
+    for (const hint of ['pause', 'stop']) {
+      it(`${hint}_interrupt_during_engine_switching_is_ignored`, 0, async () => {
+        const factory = new FakeFactory(); const gate = new Gate();
+        factory.avp.gate = gate.promise;
+        const controller = new PlaybackController(factory);
+        const opening = controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent());
+        await microtasks();
+        factory.avp.interrupt(hint);
+        gate.release(); await opening;
+        expect(factory.avp.calls.includes('play')).assertTrue();
+        expect(controller.current().playing).assertTrue();
+        await controller.release();
+      });
+    }
     it('same_language_audio_tracks_keep_the_chosen_ordinal_after_fallback', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       factory.avp.failure = new EngineFailure('unsupported', 5400106, 'fixture');
@@ -360,6 +391,7 @@ export default function playbackControllerTest() {
       ];
       const intent = new PlaybackIntent(); intent.audio = { language: 'eng', title: '', ordinal: 1, sourceCount: 2 };
       await controller.open(new FakeMedia(factory.order), 'surface', intent);
+      factory.avp.frame(); await microtasks(); await microtasks();
       expect(factory.created.join(',')).assertEqual('avplayer,mpv');
       expect(factory.mpv.calls.includes('audio:2')).assertTrue();
       await controller.release();

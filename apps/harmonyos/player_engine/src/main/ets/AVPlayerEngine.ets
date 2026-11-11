@@ -1,6 +1,7 @@
 import { media } from '@kit.MediaKit';
 import { audio } from '@kit.AudioKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { EngineEvent, EngineFailure, EngineSource, EngineTrack, PlayerEngine, SubtitleStyle } from './PlayerEngine';
 
 /** No UI, server sessions or library IDs cross this adapter. */
@@ -27,6 +28,7 @@ export class AVPlayerEngine implements PlayerEngine {
       this.rejectOpen = reject;
     });
     player.on('error', (error: BusinessError): void => {
+      hilog.warn(0x0000, 'MCSub', 'avplayer error 回调: code=%{public}d msg=%{public}s', error.code, error.message);
       if (error.code === 5400107) {
         const event = new EngineEvent(); event.type = 'interrupt'; event.hint = 'pause';
         this.onEvent(event); return;
@@ -93,8 +95,18 @@ export class AVPlayerEngine implements PlayerEngine {
         case audio.InterruptHint.INTERRUPT_HINT_DUCK: event.hint = 'duck'; break;
         case audio.InterruptHint.INTERRUPT_HINT_UNDUCK: event.hint = 'unduck'; break;
         case audio.InterruptHint.INTERRUPT_HINT_STOP: event.hint = 'stop'; break;
-        default: event.hint = 'pause'; break;
+        case audio.InterruptHint.INTERRUPT_HINT_PAUSE: event.hint = 'pause'; break;
+        default:
+          // Focus gain (INTERRUPT_HINT_NONE) and unknown hints are the audio session
+          // churn of an engine swap. Mapping them to pause cancelled the startup
+          // watchdog and froze playback; the audio server re-asserts real
+          // interruptions against the new session, so they are safe to ignore.
+          hilog.info(0x0000, 'MCSub', 'avplayer interrupt 忽略 NONE/未知: hint=%{public}d event=%{public}d',
+            interrupt.hintType, interrupt.eventType);
+          return;
       }
+      hilog.info(0x0000, 'MCSub', 'avplayer interrupt: hint=%{public}s event=%{public}d',
+        event.hint, interrupt.eventType);
       this.onEvent(event);
     });
     if (source.fd >= 0) {

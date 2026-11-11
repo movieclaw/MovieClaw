@@ -74,6 +74,9 @@ export class PlaybackController {
   private cancelStartup: (() => void) | null = null;
   private startupConfirmed: boolean = false;
   private startupPositionMs: number = 0;
+  private startupSeekSuperseded: boolean = false;
+  private deferredResumePending: boolean = false;
+  private firstFrameSignal: (() => void) | null = null;
 
   private factory: EngineFactory;
   constructor(factory: EngineFactory = new DefaultEngineFactory()) {
@@ -104,6 +107,8 @@ export class PlaybackController {
     if (media === null || generation !== this.generation) { return; }
     this.openingFailure = null;
     this.startupConfirmed = false;
+    this.startupSeekSuperseded = false;
+    this.deferredResumePending = false;
     this.snapshot.engine = id; this.snapshot.phase = 'opening'; this.snapshot.playing = false;
     this.snapshot.firstFrame = false; this.snapshot.buffering = false; this.snapshot.failure = null; this.publish();
     let engine: PlayerEngine | null = null;
@@ -121,28 +126,42 @@ export class PlaybackController {
       };
       await this.deadline(engine.open(lease.source, this.surface), 25000);
       if (!this.valid(generation, attempt)) { return; }
-      let restoredPosition = -1;
-      while (restoredPosition !== this.intent.positionMs && this.valid(generation, attempt)) {
-        restoredPosition = this.intent.positionMs;
-        if (restoredPosition > media.originMs) {
-          await this.deadline(engine.seek(Math.max(0, restoredPosition - media.originMs)), PlaybackController.seekTimeoutMs);
+      // AVPlayer's prepared-state resume-seek strands the decoder in FLUSHED: the
+      // pipeline freezes while the state machine still reports playing. Start
+      // playback first and defer seek/track selection until the first frame proves
+      // the decoder is running. MPV has no such hazard and keeps seeking at open.
+      const resumeTargetMs = this.intent.positionMs;
+      const deferUntilRunning = id === 'avplayer' && !this.intent.paused && !this.interrupted;
+      if (!deferUntilRunning) {
+        let restoredPosition = -1;
+        while (restoredPosition !== this.intent.positionMs && this.valid(generation, attempt)) {
+          restoredPosition = this.intent.positionMs;
+          if (restoredPosition > media.originMs) {
+            await this.deadline(engine.seek(Math.max(0, restoredPosition - media.originMs)), PlaybackController.seekTimeoutMs);
+          }
         }
+        if (!this.valid(generation, attempt)) { return; }
       }
-      if (!this.valid(generation, attempt)) { return; }
       await engine.setRate(this.intent.rate);
       if (!this.valid(generation, attempt)) { return; }
       await engine.setGain(this.gain);
       if (!this.valid(generation, attempt)) { return; }
       await engine.setSubtitleStyle(this.style);
       if (!this.valid(generation, attempt)) { return; }
-      await this.restoreTracks(engine);
-      if (!this.valid(generation, attempt)) { return; }
+      if (!deferUntilRunning) {
+        await this.restoreTracks(engine);
+        if (!this.valid(generation, attempt)) { return; }
+      }
       const openingFailure = this.openingFailure;
       if (openingFailure !== null) { throw openingFailure as EngineFailure; }
       this.available = true; this.switching = false;
       this.snapshot.phase = 'ready'; this.publish();
       if (!this.intent.paused && !this.interrupted) { await this.playEngine(engine); }
       else { await engine.pause(); this.snapshot.phase = 'paused'; this.publish(); }
+      if (deferUntilRunning) {
+        this.deferredResumePending = true;
+        this.deferStartupResume(engine, media, resumeTargetMs, generation, attempt);
+      }
     } catch (error) {
       if (!this.valid(generation, attempt)) { return; }
       // Acquisition may fail before the pair becomes the active engine/lease.
@@ -211,7 +230,9 @@ export class PlaybackController {
     if (event.type === 'interrupt') { this.interrupt(event.hint); return; }
     if (event.type === 'time') {
       // Initial zero ticks must not erase the resume target during prepare/seek.
-      if (this.available) {
+      // The same holds for play-first ticks while a deferred resume is pending:
+      // they would also poison the fallback target handed to MPV.
+      if (this.available && !this.deferredResumePending) {
         this.intent.positionMs = (this.media?.originMs ?? 0) + event.positionMs;
         this.snapshot.positionMs = this.intent.positionMs;
       }
@@ -219,6 +240,9 @@ export class PlaybackController {
     } else if (event.type === 'duration') { this.updateDuration(event.durationMs); }
     else if (event.type === 'firstFrame') {
       this.snapshot.firstFrame = true; this.confirmStartup();
+      const signal = this.firstFrameSignal;
+      this.firstFrameSignal = null;
+      if (signal !== null) { signal(); }
     }
     else if (event.type === 'buffering') { this.snapshot.buffering = event.hint === 'start'; }
     else if (event.type === 'state' && this.available) {
@@ -258,6 +282,34 @@ export class PlaybackController {
     // Release/pause can cancel even a play() call which never acknowledges.
     try { await Promise.race([engine.play(), cancelled]); }
     finally { if (confirmed) { cancel(); } }
+  }
+  private waitFirstFrame(): Promise<void> {
+    if (this.snapshot.firstFrame) { return Promise.resolve(); }
+    return new Promise<void>((resolve): void => { this.firstFrameSignal = resolve; });
+  }
+  // The first frame proves the decoder is RUNNING: the deferred seek then takes the
+  // same path as a user seek, and selectTrack stops touching the prepared-state
+  // sidecar subtitle source (whose sub-seek histreamer rejects at prepared).
+  private async deferStartupResume(engine: PlayerEngine, media: PlaybackMedia, targetMs: number,
+    generation: number, attempt: number): Promise<void> {
+    await this.waitFirstFrame();
+    if (!this.valid(generation, attempt)) { return; }
+    const resumeMs = this.startupSeekSuperseded ? this.intent.positionMs : targetMs;
+    hilog.info(0x0000, 'MCSub', 'avplayer 延迟恢复: seek=%{public}d 取代=%{public}s',
+      resumeMs, `${this.startupSeekSuperseded}`);
+    try {
+      if (resumeMs > media.originMs) {
+        await this.deadline(engine.seek(Math.max(0, resumeMs - media.originMs)), PlaybackController.seekTimeoutMs);
+      }
+      if (!this.valid(generation, attempt)) { return; }
+      await this.restoreTracks(engine);
+      if (!this.valid(generation, attempt)) { return; }
+      this.deferredResumePending = false;
+    } catch (error) {
+      if (!this.valid(generation, attempt)) { return; }
+      const failure = error instanceof EngineFailure ? error : new EngineFailure('internal', 0, '播放器操作失败');
+      await this.recover(failure, generation, engine.id);
+    }
   }
   private updateDuration(duration: number): void {
     if ((this.media?.durationMs ?? 0) > 0) { this.snapshot.durationMs = this.media!.durationMs; }
@@ -305,6 +357,7 @@ export class PlaybackController {
     await this.command((engine: PlayerEngine): Promise<void> => engine.pause());
   }
   async seek(fileMs: number): Promise<void> {
+    this.startupSeekSuperseded = true;
     this.intent.positionMs = Math.max(0, fileMs); this.snapshot.positionMs = this.intent.positionMs; this.publish();
     if (fileMs < (this.media?.originMs ?? 0)) { this.onSeekOutsideWindow(fileMs); return; }
     await this.command((engine: PlayerEngine): Promise<void> =>
@@ -370,11 +423,21 @@ export class PlaybackController {
         this.interrupted = false;
         this.command((engine: PlayerEngine): Promise<void> => this.playEngine(engine));
       }
-    } else if (hint === 'stop') { this.pause(); }
-    else if (!this.intent.paused) {
-      this.interrupted = true;
-      this.cancelStartup?.();
-      this.command((engine: PlayerEngine): Promise<void> => engine.pause());
+    } else if (hint === 'stop' || hint === 'pause') {
+      // Engine swaps rebuild the audio session and generate self-inflicted focus
+      // churn. Real interruptions are re-asserted by the audio server once the new
+      // session starts, so pause/stop mid-switch are ignored instead of cancelling
+      // the startup watchdog and freezing the picture.
+      if (this.switching) {
+        hilog.info(0x0000, 'MCSub', 'interrupt 忽略（切换中）: hint=%{public}s', hint);
+        return;
+      }
+      if (hint === 'stop') { this.pause(); return; }
+      if (!this.intent.paused) {
+        this.interrupted = true;
+        this.cancelStartup?.();
+        this.command((engine: PlayerEngine): Promise<void> => engine.pause());
+      }
     }
   }
   private disposeEngine(): Promise<void> {
