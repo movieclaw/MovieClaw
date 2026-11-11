@@ -121,6 +121,11 @@ export class PlaybackController {
       lease = await media.acquire(id);
       if (!this.valid(generation, attempt)) { await engine.release(); await lease.close(); return; }
       this.engine = engine; this.lease = lease; this.engineSurface = this.surface;
+      if (this.intent.positionMs > media.originMs && this.remoteAvplayerSeek(engine)) {
+        hilog.info(0x0000, 'MCSub', 'avplayer 远程流需跳转，拒绝打开: position=%{public}d origin=%{public}d',
+          this.intent.positionMs, media.originMs);
+        throw new EngineFailure('unsupported', 0, '系统播放器不支持流媒体内跳转');
+      }
       engine.onEvent = (event: EngineEvent): void => {
         if (this.valid(generation, attempt)) { this.receive(event, generation); }
       };
@@ -174,6 +179,14 @@ export class PlaybackController {
 
   private valid(generation: number, attempt: number): boolean {
     return generation === this.generation && attempt === this.attempt;
+  }
+  // histreamer acknowledges seeks inside remote (HTTP/HLS) streams with seekDone and
+  // a jumped currentTime while the decoder never renders again: every observable
+  // signal lies, so AVPlayer refuses required seeks on remote sources outright and
+  // recover() hands the session to MPV instead of freezing on a dead pipeline.
+  private remoteAvplayerSeek(engine: PlayerEngine): boolean {
+    const lease = this.lease;
+    return engine.id === 'avplayer' && lease !== null && lease.source.fd < 0 && lease.source.url.length > 0;
   }
   private async recover(failure: EngineFailure, generation: number, id: EngineId): Promise<void> {
     hilog.error(0x0000, 'MCSub', 'engine 失败: id=%{public}s kind=%{public}s code=%{public}d msg=%{public}s',
@@ -299,6 +312,11 @@ export class PlaybackController {
       resumeMs, `${this.startupSeekSuperseded}`);
     try {
       if (resumeMs > media.originMs) {
+        if (this.remoteAvplayerSeek(engine)) {
+          hilog.info(0x0000, 'MCSub', 'avplayer 远程流延迟恢复需跳转，拒绝: position=%{public}d origin=%{public}d',
+            resumeMs, media.originMs);
+          throw new EngineFailure('unsupported', 0, '系统播放器不支持流媒体内跳转');
+        }
         await this.deadline(engine.seek(Math.max(0, resumeMs - media.originMs)), PlaybackController.seekTimeoutMs);
       }
       if (!this.valid(generation, attempt)) { return; }
@@ -360,8 +378,14 @@ export class PlaybackController {
     this.startupSeekSuperseded = true;
     this.intent.positionMs = Math.max(0, fileMs); this.snapshot.positionMs = this.intent.positionMs; this.publish();
     if (fileMs < (this.media?.originMs ?? 0)) { this.onSeekOutsideWindow(fileMs); return; }
-    await this.command((engine: PlayerEngine): Promise<void> =>
-      this.deadline(engine.seek(Math.max(0, fileMs - (this.media?.originMs ?? 0))), PlaybackController.seekTimeoutMs));
+    await this.command((engine: PlayerEngine): Promise<void> => {
+      if (fileMs > (this.media?.originMs ?? 0) && this.remoteAvplayerSeek(engine)) {
+        hilog.info(0x0000, 'MCSub', 'avplayer 远程流拖动跳转，拒绝: position=%{public}d origin=%{public}d',
+          fileMs, this.media?.originMs ?? 0);
+        throw new EngineFailure('unsupported', 0, '系统播放器不支持流媒体内跳转');
+      }
+      return this.deadline(engine.seek(Math.max(0, fileMs - (this.media?.originMs ?? 0))), PlaybackController.seekTimeoutMs);
+    });
   }
   async setRate(rate: number): Promise<void> {
     this.intent.rate = rate; this.publish();

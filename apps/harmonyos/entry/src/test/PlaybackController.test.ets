@@ -91,6 +91,20 @@ class FakeMedia implements PlaybackMedia {
       length: 100, subtitleFd: -1, subtitleUrl: '' }, this.order, this.acquired);
   }
 }
+class FakeRemoteMedia implements PlaybackMedia {
+  originMs: number = 0;
+  durationMs: number = 100000;
+  acquired: number = 0;
+  private order: string[];
+  constructor(order: string[]) {
+    this.order = order;
+  }
+  async acquire(): Promise<MediaLease> {
+    this.acquired++;
+    return new FakeLease({ url: 'https://fixture.invalid/stream', fd: -1,
+      length: 0, subtitleFd: -1, subtitleUrl: '' }, this.order, this.acquired);
+  }
+}
 class Gate {
   release: () => void = (): void => {};
   promise: Promise<void> = new Promise<void>((resolve): void => { this.release = resolve; });
@@ -354,6 +368,62 @@ export default function playbackControllerTest() {
       await controller.open(new FakeMedia(factory.order), 'surface', mpvIntent, 'mpv');
       expect(factory.mpv.calls.includes('seek:42000')).assertTrue();
       expect(factory.mpv.calls.indexOf('seek:42000') < factory.mpv.calls.indexOf('play')).assertTrue();
+      await controller.release();
+    });
+    it('remote_resume_opens_mpv_directly_without_touching_avplayer', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', intent);
+      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
+      expect(factory.avp.calls.join(',')).assertEqual('release');
+      expect(factory.mpv.calls.includes('open:surface')).assertTrue();
+      expect(factory.mpv.calls.includes('seek:42000')).assertTrue();
+      expect(controller.current().engine).assertEqual('mpv');
+      expect(controller.current().playing).assertTrue();
+      await controller.release();
+      expect(factory.order.join(',')).assertEqual('avplayer:release,lease:1:close,mpv:release,lease:2:close');
+    });
+    it('remote_user_seek_swaps_to_mpv_keeping_the_target', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', new PlaybackIntent());
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      await controller.seek(70000);
+      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
+      expect(factory.order.join(',')).assertEqual('avplayer:release,lease:1:close');
+      expect(factory.mpv.calls.includes('seek:70000')).assertTrue();
+      expect(controller.current().engine).assertEqual('mpv');
+      expect(controller.current().positionMs).assertEqual(70000);
+      await controller.release();
+    });
+    it('remote_seek_during_opening_defers_the_refusal_until_first_frame', 0, async () => {
+      const factory = new FakeFactory(); const gate = new Gate(); factory.avp.gate = gate.promise;
+      const controller = new PlaybackController(factory);
+      const opening = controller.open(new FakeRemoteMedia(factory.order), 'surface', new PlaybackIntent());
+      await microtasks();
+      await controller.seek(50000);
+      gate.release(); await opening;
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      factory.avp.frame(); await microtasks(); await microtasks();
+      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
+      expect(factory.mpv.calls.includes('seek:50000')).assertTrue();
+      await controller.release();
+    });
+    it('remote_fixed_avplayer_preference_fails_cleanly_instead_of_freezing', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', intent, 'avplayer');
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      expect(controller.current().phase).assertEqual('failed');
+      expect(controller.current().failure?.kind).assertEqual('unsupported');
+      await controller.release();
+    });
+    it('remote_fresh_start_stays_on_avplayer', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', new PlaybackIntent());
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      expect(factory.avp.calls.includes('open:surface')).assertTrue();
+      expect(factory.mpv.calls.length).assertEqual(0);
+      expect(controller.current().playing).assertTrue();
       await controller.release();
     });
     for (const hint of ['pause', 'stop']) {
