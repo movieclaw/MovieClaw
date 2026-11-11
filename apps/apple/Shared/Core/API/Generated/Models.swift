@@ -8983,6 +8983,7 @@ nonisolated extension API {
         var title: String
         var year: Int?
         var posterUrl: String?
+        var seasons: [Int]?
 
         enum CodingKeys: String, CodingKey {
             case mediaItemId = "media_item_id"
@@ -8991,6 +8992,7 @@ nonisolated extension API {
             case title
             case year
             case posterUrl = "poster_url"
+            case seasons
         }
     }
 

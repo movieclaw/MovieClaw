@@ -11,7 +11,8 @@ import SwiftUI
 /// | 点按左 / 右 | 后退 / 前进 10 秒 |
 /// | 在触控板上左右滑 | 拖动进度，松手跳过去 |
 /// | 下滑 / 点按下 | 信息面板：字幕、音轨、画质 |
-/// | 返回键 | 依次：取消拖动 → 收起面板 → 收起「下一集」卡片 → 退出播放 |
+/// | 上滑 / 点按上 | 剧集：选集剧照排（`TVEpisodeShelf`）；电影：唤出进度条 |
+/// | 返回键 | 依次：取消拖动 → 收起面板 / 剧照排 → 收起「下一集」卡片 → 退出播放 |
 /// | 播完 | 有下一集：「下一集」卡片倒计时接着放；没有（电影、本季最后一集）：退出播放，回到这部片的详情页 |
 ///
 /// 片头片尾时段右下角出现「跳过」按钮、片尾出现「下一集」卡片，焦点自动落在上面，按一下就生效。
@@ -103,6 +104,9 @@ enum TVPlayerFocus: Hashable {
     case qualityOffer
     case panelOption(String)
     case dialog
+    /// 选集剧照排里的一集、一季
+    case episode(Int)
+    case season(Int)
 }
 
 /// 画面与控制层
@@ -117,6 +121,8 @@ private struct TVPlayerContent: View {
     @State private var chromeVisible = true
     @State private var chromeActivity = 0
     @State private var panel: TVPlayerPanelTab?
+    /// 选集剧照排升起着
+    @State private var episodesOpen = false
     @State private var scrubMs: Int?
     @State private var scrubBase = 0
     /// 正按着的左右键：true = 右；nil = 没按
@@ -137,8 +143,8 @@ private struct TVPlayerContent: View {
 
             surface
 
-            // 面板打开时进度条让位：面板底部是字幕预览，两者都在屏幕下方
-            if chromeVisible, panel == nil {
+            // 面板、剧照排打开时进度条让位：它们都在屏幕下方
+            if chromeVisible, panel == nil, !episodesOpen {
                 chrome
                     .transition(.opacity)
             }
@@ -163,6 +169,11 @@ private struct TVPlayerContent: View {
                     .transition(.opacity)
             }
 
+            if episodesOpen {
+                TVEpisodeShelf(controller: controller, focus: $focus, close: closeEpisodes)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             dialogs
         }
         .background {
@@ -173,6 +184,7 @@ private struct TVPlayerContent: View {
         }
         .animation(.easeInOut(duration: 0.25), value: chromeVisible)
         .animation(.easeInOut(duration: 0.25), value: panel)
+        .animation(.spring(duration: 0.45, bounce: 0.08), value: episodesOpen)
         .animation(.easeInOut(duration: 0.2), value: controller.notice)
         .onPlayPauseCommand(perform: togglePlay)
         // 焦点移到「观看片尾」= 要看片尾：立刻停掉倒计时（移回「下一集」也不恢复，卡片只提示）
@@ -191,7 +203,11 @@ private struct TVPlayerContent: View {
         }
         .onExitCommand(perform: back)
         // 面板开着时不许系统拿返回键直接关掉播放器：焦点万一悬空，返回键也只该收起面板（由 back 处理），不能退出播放
-        .interactiveDismissDisabled(panel != nil)
+        .interactiveDismissDisabled(panel != nil || episodesOpen)
+        // 出错 / 要用户同意时剧照排让开，对话框在等用户拍板
+        .onChange(of: isModal) { _, now in
+            if now { episodesOpen = false }
+        }
         .focusScope(focusScope)
         .task(id: contextualFocusTarget) {
             // 跳过按钮、下一集卡片出现时焦点自动落上去（按一下就生效），消失时回到画面。
@@ -263,7 +279,7 @@ private struct TVPlayerContent: View {
         .buttonStyle(TVInvisibleButtonStyle())
         .focused($focus, equals: .surface)
         .prefersDefaultFocus(contextualFocusTarget == nil, in: focusScope)
-        .disabled(panel != nil || isModal)
+        .disabled(panel != nil || isModal || episodesOpen)
         .onMoveCommand(perform: handleMove)
         .ignoresSafeArea()
         .accessibilityLabel(controller.paused ? String(localized: .playerControlsPlay) : String(localized: .playerControlsPause))
@@ -285,6 +301,15 @@ private struct TVPlayerContent: View {
                 }
             Spacer(minLength: 0)
             TVTransportBar(controller: controller, trickplay: trickplay, scrubMs: scrubMs, scrubRate: holdRate)
+                // 往上能升起选集：进度条右上角一个小箭头加「选集」，和顶上「往下拉出面板」的提示对称
+                .overlay(alignment: .topTrailing) {
+                    if canOpenEpisodes {
+                        Label(String(localized: .playerControlsEpisodes), systemImage: "chevron.up")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.7))
+                            .accessibilityIdentifier("tv-player-episodes-hint")
+                    }
+                }
                 .padding(.horizontal, 80)
                 .padding(.bottom, 60)
                 .background(alignment: .bottom) {
@@ -363,10 +388,10 @@ private struct TVPlayerContent: View {
         .padding(.bottom, chromeVisible ? 200 : 80)
         .padding(.horizontal, 80)
         .ignoresSafeArea()
-        .opacity(isModal || panel != nil ? 0 : 1)
+        .opacity(isModal || panel != nil || episodesOpen ? 0 : 1)
         // 面板打开时这些按钮只是看不见、还能拿焦点（且声明了「优先默认焦点」）：面板里的焦点一旦落空，
-        // 系统会把它落到看不见的按钮上。面板开着时整块禁用
-        .disabled(panel != nil)
+        // 系统会把它落到看不见的按钮上。面板、剧照排开着时整块禁用
+        .disabled(panel != nil || episodesOpen)
         .animation(.easeInOut(duration: 0.25), value: contextualFocusTarget)
     }
 
@@ -427,7 +452,7 @@ private struct TVPlayerContent: View {
 
     /// 该自动拿焦点的右下角元素
     private var contextualFocusTarget: TVPlayerFocus? {
-        guard !isModal, panel == nil else { return nil }
+        guard !isModal, panel == nil, !episodesOpen else { return nil }
         if controller.qualityOffer != nil { return .qualityOffer }
         if let notice = controller.skipNotice {
             // 只有「已跳过 · 撤回」能按；「本剧以后自动跳过」只是告知，不抢焦点
@@ -473,7 +498,7 @@ private struct TVPlayerContent: View {
         case .down:
             openPanel()
         case .up:
-            showChrome()
+            if canOpenEpisodes { openEpisodes() } else { showChrome() }
         @unknown default:
             break
         }
@@ -524,7 +549,31 @@ private struct TVPlayerContent: View {
     }
 
     private func handleVerticalSwipe(_ down: Bool) {
-        if down { openPanel() } else { showChrome() }
+        if down {
+            openPanel()
+        } else if canOpenEpisodes {
+            openEpisodes()
+        } else {
+            showChrome()
+        }
+    }
+
+    /// 剧集才有选集；片段模式只放一段、不换集
+    private var canOpenEpisodes: Bool {
+        controller.unit.isEpisode && controller.clip == nil && controller.session != nil && !isModal
+    }
+
+    private func openEpisodes() {
+        guard canOpenEpisodes, panel == nil else { return }
+        controller.noteUserActivity()
+        episodesOpen = true
+    }
+
+    /// 收起剧照排，焦点回到画面、进度条露一下
+    private func closeEpisodes() {
+        episodesOpen = false
+        focus = .surface
+        showChrome()
     }
 
     private func openPanel() {
@@ -580,6 +629,10 @@ private struct TVPlayerContent: View {
         if panel != nil {
             panel = nil
             focus = .surface
+            return
+        }
+        if episodesOpen {
+            closeEpisodes()
             return
         }
         if upNextCardVisible {

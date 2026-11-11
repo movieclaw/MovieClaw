@@ -16,7 +16,8 @@ import SwiftUI
 /// | 按住画面拖动 | 移动窗口（同 Infuse） |
 /// | ← → / ⌥← ⌥→ | 后退 / 前进 10 秒（画面正中闪一下，不唤出控制层）；⌘← ⌘→ 上一集 / 下一集 |
 /// | ↑ ↓ / M | 音量 ±10% / 静音 |
-/// | Esc | 依次：收起面板 → 退出全屏 → 关闭播放器 |
+/// | E | 开合选集侧栏（剧集） |
+/// | Esc | 依次：收起面板 → 收起选集侧栏 → 退出全屏 → 关闭播放器 |
 /// | ⌘. | 关闭播放器 |
 /// | 播完 | 有下一集：「即将播放」卡片倒计时接着放；没有（电影、本季最后一集）：关掉播放器，回到这部片的详情页 |
 ///
@@ -126,8 +127,12 @@ private struct MacPlayerContent: View {
     @State private var chromeActivity = 0
     /// 指针在画面里的位置（不在画面里为 nil）：停在左上角片名一带或底部控制面板一带时控制层不收
     @State private var pointer: CGPoint?
+    /// 画面所在那一块（舞台）的大小；选集侧栏并排时比窗口窄
     @State private var size: CGSize = .zero
+    @State private var windowSize: CGSize = .zero
     @State private var panel: MacPlayerPanelKind?
+    /// 选集侧栏开着。只在这一次播放里记着，下次打开播放器从收起开始
+    @State private var episodesOpen = false
     /// ⋯ 的系统菜单正开着：指针移进菜单时追踪区报的「指针离开」不作数，否则控制层连同菜单本身一起被收掉
     @State private var menuOpen = false
     @State private var scrubMs: Int?
@@ -140,20 +145,31 @@ private struct MacPlayerContent: View {
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
-                video(size: proxy.size)
-                surface
-                if showCover {
-                    MacPlayerCover(controller: controller)
+            let docked = docksEpisodes(in: proxy.size)
+            // 选集侧栏并排时，画面、控制层、右下角卡片都排在侧栏左边这一块（「舞台」）里
+            let stage = docked
+                ? CGSize(width: max(0, proxy.size.width - MacEpisodeSidebar.width - MacEpisodeSidebar.margin * 2), height: proxy.size.height)
+                : proxy.size
+            ZStack(alignment: .topLeading) {
+                if docked {
+                    // 让位后画面四周垫这一集剧照的氛围色（同 iPhone）
+                    DeckAmbience(url: controller.scope.api.image(controller.currentEpisode?.stillUrl ?? controller.info?.posterUrl, width: ImageWidth.macCard(120)))
                         .transition(.opacity)
                 }
-                // 出错时控制层仍在、压在对话框之上：这一档放不出来时（如限了画质而服务端转不了），
-                // 用户能直接在控制面板里改回「自动」画质或换音轨，而不只有「重试 / 关闭」
-                if chromeVisible, controller.infoError == nil, controller.phase != .consent {
-                    chrome(size: proxy.size)
-                        .transition(.opacity)
-                        .zIndex(controller.phase == .error ? 2 : 0)
-                }
+                ZStack {
+                    video(size: stage, docked: docked)
+                    surface
+                    if showCover {
+                        MacPlayerCover(controller: controller)
+                            .transition(.opacity)
+                    }
+                    // 出错时控制层仍在、压在对话框之上：这一档放不出来时（如限了画质而服务端转不了），
+                    // 用户能直接在控制面板里改回「自动」画质或换音轨，而不只有「重试 / 关闭」
+                    if chromeVisible, controller.infoError == nil, controller.phase != .consent {
+                        chrome(size: stage)
+                            .transition(.opacity)
+                            .zIndex(controller.phase == .error ? 2 : 0)
+                    }
                 if controller.phase.isBusy, !isModal {
                     MacPlayerBusyView(controller: controller)
                 }
@@ -171,15 +187,25 @@ private struct MacPlayerContent: View {
                     .padding(.top, 20)
                     .transition(.opacity)
                 }
-                dialogs
-                    .zIndex(1)
+                    dialogs
+                        .zIndex(1)
+                }
+                .frame(width: stage.width, height: stage.height)
+                if episodesOpen, controller.unit.isEpisode, controller.clip == nil, !isModal {
+                    MacEpisodeSidebar(controller: controller, close: { episodesOpen = false })
+                        .frame(height: max(0, proxy.size.height - MacEpisodeSidebar.margin * 2))
+                        .padding(MacEpisodeSidebar.margin)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
             .background(MacPointerTracker(onMove: pointerMoved))
             .coordinateSpace(.named(MacPlayerMetrics.space))
-            .onChange(of: subtitleLiftKey(size: proxy.size)) {
-                applySubtitleLift(size: proxy.size)
+            .onChange(of: subtitleLiftKey(size: stage)) {
+                applySubtitleLift(size: stage)
             }
-            .onChange(of: proxy.size, initial: true) { _, new in size = new }
+            .onChange(of: stage, initial: true) { _, new in size = new }
+            .onChange(of: proxy.size, initial: true) { _, new in windowSize = new }
         }
         // 窗口不在前台时第一下点击也直接生效（点画面就暂停、点进度条就跳），同 IINA；不必先点一下激活窗口
         .allowsWindowActivationEvents(true)
@@ -189,6 +215,7 @@ private struct MacPlayerContent: View {
         .onKeyPress(phases: [.down, .repeat], action: handleKey)
         .animation(.easeInOut(duration: 0.25), value: chromeVisible)
         .animation(.easeOut(duration: 0.18), value: panel)
+        .animation(.spring(duration: 0.4, bounce: 0.1), value: episodesOpen)
         .animation(.easeInOut(duration: 0.2), value: controller.notice)
         .animation(.easeOut(duration: 0.18), value: flash?.id)
         .animation(.easeInOut(duration: 0.45), value: showCover)
@@ -250,11 +277,15 @@ private struct MacPlayerContent: View {
 
     // MARK: 画面
 
+    /// `docked`：选集侧栏并排，画面在舞台里缩进一圈、裁成圆角卡片，四周透出氛围色
     @ViewBuilder
-    private func video(size: CGSize) -> some View {
+    private func video(size: CGSize, docked: Bool) -> some View {
         if let engine = controller.engine {
-            EngineSurface(engineView: engine.view)
+            let inset: CGFloat = docked ? 20 : 0
+            let inner = CGSize(width: max(0, size.width - inset * 2), height: max(0, size.height - inset * 2))
+            EngineSurface(engineView: engine.view, clip: docked ? (Self.fittedRect(engine.videoSize, in: inner), 12) : nil)
                 .id(ObjectIdentifier(engine))
+                .padding(inset)
                 .accessibilityIdentifier("mac-player-video")
             // 服务端流的文字字幕由叠加层画（自研引擎直出时字幕由引擎画在画面里，这里地址为空）
             SubtitleOverlay(
@@ -281,6 +312,8 @@ private struct MacPlayerContent: View {
                     return
                 }
                 panel = nil
+                // 侧栏浮在画面上（窗口窄）时，点画面收起它；并排时侧栏可以一直开着
+                if episodesOpen, !docksEpisodes(in: windowSize) { episodesOpen = false }
                 showChrome()
             }
             .accessibilityElement()
@@ -315,7 +348,7 @@ private struct MacPlayerContent: View {
                 Spacer(minLength: 0)
                 MacPlayerTransport(
                     controller: controller, trickplay: trickplay, volume: volume, isFullScreen: window.isFullScreen,
-                    pointer: pointer, scrubMs: $scrubMs, panel: $panel, togglePlay: { togglePlay(flashes: false) },
+                    pointer: pointer, scrubMs: $scrubMs, panel: $panel, episodesOpen: $episodesOpen, togglePlay: { togglePlay(flashes: false) },
                     skip: { seek(by: $0, flashes: false) }, toggleFullScreen: toggleFullScreen
                 )
                 // 双击控制面板的空白处也全屏（同 Infuse：双击播放器任意位置）；按钮、进度条、音量自己接点击，不受影响
@@ -439,8 +472,14 @@ private struct MacPlayerContent: View {
 
     /// 指针停在控件一带：左上角片名（顶上 70 点、左半边）或底部控制面板那一条
     private var pointerOnChrome: Bool {
-        guard let pointer, size.height > 0 else { return false }
+        guard let pointer, size.height > 0, pointer.x <= size.width else { return false }
         return (pointer.y < 70 && pointer.x < size.width / 2) || pointer.y > size.height - MacPlayerMetrics.chromeHeight - 4
+    }
+
+    /// 侧栏和画面并排（窗口够宽）；窄窗口里侧栏浮在画面上
+    private func docksEpisodes(in windowSize: CGSize) -> Bool {
+        episodesOpen && controller.unit.isEpisode && controller.clip == nil && !isModal
+            && windowSize.width >= MacEpisodeSidebar.dockMinWindowWidth
     }
 
     private var autoHideKey: String {
@@ -553,10 +592,12 @@ private struct MacPlayerContent: View {
         flash = MacPlayerFlash(symbol: volume.symbol, text: volume.muted ? String(localized: .playerControlsMuted) : "\(Int((volume.level * 100).rounded()))%")
     }
 
-    /// Esc：收起面板 → 退出全屏 → 关闭播放器
+    /// Esc：收起面板 → 收起选集侧栏 → 退出全屏 → 关闭播放器
     private func escape() {
         if panel != nil {
             panel = nil
+        } else if episodesOpen {
+            episodesOpen = false
         } else if window.isFullScreen {
             window.toggleFullScreen()
         } else {
@@ -597,6 +638,8 @@ private struct MacPlayerContent: View {
                 if once { toggleFullScreen() }
             } else if character == "m", modifiers.isEmpty {
                 if once { toggleMute() }
+            } else if character == "e", modifiers.isEmpty, controller.unit.isEpisode, controller.clip == nil {
+                if once { episodesOpen.toggle() }
             } else if character == "[" || character == "]", modifiers.isEmpty {
                 // 倍速逐档（同 Windows 版的 [ ]）：到头不再变
                 if once { stepRate(character == "]" ? 1 : -1) }

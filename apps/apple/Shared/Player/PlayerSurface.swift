@@ -7,11 +7,15 @@ import SwiftUI
 #if canImport(UIKit)
 struct EngineSurface: UIViewRepresentable {
     let engineView: UIView
+    /// 只露出这一块（宿主视图自己的坐标）并裁成圆角；nil = 不裁。iPhone 的选集面板开着、画面让位成一张卡片时用，
+    /// 黑边不跟着过去。平时不挂遮罩：视频层带遮罩，每一帧都要多一道离屏合成
+    var clip: (rect: CGRect, radius: CGFloat)?
 
     func makeUIView(context: Context) -> UIView {
         let container = UIView()
         container.backgroundColor = .black
         attach(engineView, to: container)
+        applyClip(to: container)
         return container
     }
 
@@ -20,6 +24,17 @@ struct EngineSurface: UIViewRepresentable {
             container.subviews.forEach { $0.removeFromSuperview() }
             attach(engineView, to: container)
         }
+        applyClip(to: container)
+    }
+
+    private func applyClip(to container: UIView) {
+        guard let clip else {
+            if container.layer.mask != nil { container.layer.mask = nil }
+            return
+        }
+        let mask = container.layer.mask as? CAShapeLayer ?? CAShapeLayer()
+        mask.path = UIBezierPath(roundedRect: clip.rect, cornerRadius: clip.radius).cgPath
+        if container.layer.mask !== mask { container.layer.mask = mask }
     }
 
     private func attach(_ view: UIView, to container: UIView) {
@@ -32,12 +47,16 @@ struct EngineSurface: UIViewRepresentable {
 /// Mac 版：同上，引擎的 NSView 塞进 SwiftUI
 struct EngineSurface: NSViewRepresentable {
     let engineView: NSView
+    /// 同 iPhone 版：只露出画面那一块并裁成圆角（选集侧栏开着、画面让位时用）；nil = 不裁。
+    /// 矩形按画面居中算，上下对称，不用管 AppKit 图层坐标的 y 轴朝上
+    var clip: (rect: CGRect, radius: CGFloat)?
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.black.cgColor
         attach(engineView, to: container)
+        applyClip(to: container)
         return container
     }
 
@@ -46,6 +65,18 @@ struct EngineSurface: NSViewRepresentable {
             container.subviews.forEach { $0.removeFromSuperview() }
             attach(engineView, to: container)
         }
+        applyClip(to: container)
+    }
+
+    private func applyClip(to container: NSView) {
+        guard let layer = container.layer else { return }
+        guard let clip else {
+            if layer.mask != nil { layer.mask = nil }
+            return
+        }
+        let mask = layer.mask as? CAShapeLayer ?? CAShapeLayer()
+        mask.path = CGPath(roundedRect: clip.rect, cornerWidth: clip.radius, cornerHeight: clip.radius, transform: nil)
+        if layer.mask !== mask { layer.mask = mask }
     }
 
     private func attach(_ view: NSView, to container: NSView) {

@@ -351,6 +351,108 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
     }
 
+    /// 选集面板端到端：底栏「选集」打开 → 面板停在正在播的那一集、控制层收起 → 点画面收起 →
+    /// 再打开点另一集，换过去并从头放 → 「下一集」键直接换 → 横屏画面让位到面板左边 →
+    /// 换季（服务端给了季列表且别的季有片源时）点那一季的一集，跨季换过去。
+    @MainActor
+    func testEpisodeDrawerSwitchesEpisodeAndSeason() throws {
+        continueAfterFailure = false
+        let (show, first, second, third) = try XCTUnwrap(try findDrawerEpisodes(), "服务器上没有找到第一季连着三集都在位的剧集")
+        let otherSeason = try findOtherSeasonEpisode(show)
+        var saved: [(Int, Int, [String: Any])] = []
+        for (season, episode) in [(1, first), (1, second), (1, third)] + (otherSeason.map { [$0] } ?? []) {
+            saved.append((season, episode, try resumeState(show, season, episode)))
+        }
+        defer { for (season, episode, state) in saved { try? restoreEpisode(show, episode, state, season: season) } }
+
+        startSeconds = 20
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-mcServer", server, "-mcUser", username, "-mcPass", password,
+            "-mcRoute", String(format: "/play/%d/s01e%02d?t=%d", show, first, startSeconds),
+            "-mcPlayerPinChrome", "YES",
+        ]
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForExistence(timeout: 30), "播放器没有打开")
+        XCTAssertTrue(waitForPosition(app, atLeast: startSeconds + 2, timeout: 90), "进度没有前进")
+
+        // 打开：面板停在正在播的那一集，控制层收起，画面挪到面板上方
+        let drawer = app.descendants(matching: .any)["player-episodes"]
+        let window = app.windows.firstMatch
+        tapControl(app, "player-episodes-button")
+        XCTAssertTrue(drawer.waitForExistence(timeout: 5), "选集面板没有打开")
+        XCTAssertTrue(app.buttons["episode-current"].waitForExistence(timeout: 5), "面板没有停在正在播的那一集")
+        XCTAssertTrue(app.buttons["episode-current"].isHittable, "正在播的那一集不在可见范围里")
+        XCTAssertTrue(app.buttons["player-play-pause"].waitForNonExistence(timeout: 3), "面板开着时控制层应收起")
+        sleep(1)
+        XCTAssertGreaterThan(drawer.frame.minY, window.frame.height * 0.25, "竖屏面板应在画面下方")
+        shot(app, "episodes-portrait")
+
+        // 点画面（面板以外）收起，回到控制层
+        tapEmptyArea(app, dx: 0.5, dy: 0.18)
+        XCTAssertTrue(drawer.waitForNonExistence(timeout: 5), "点画面应收起选集面板")
+        XCTAssertTrue(app.buttons["player-play-pause"].waitForExistence(timeout: 5), "收起面板后控制层应回来")
+
+        // 点另一集：换过去、面板收起、从头放（没看过，续播点是 0）
+        tapControl(app, "player-episodes-button")
+        let target = app.buttons["episode-\(second)"]
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "面板里没有第 \(second) 集")
+        target.tap()
+        XCTAssertTrue(drawer.waitForNonExistence(timeout: 5), "选了一集后面板应收起")
+        assertPlaying(app, season: 1, episode: second)
+
+        // 「下一集」键直接换
+        tapControl(app, "player-next-episode")
+        assertPlaying(app, season: 1, episode: third)
+
+        // 横屏：面板靠右，让位后的画面在它左边
+        tapControl(app, "player-横屏")
+        let rotated = NSPredicate { _, _ in window.frame.width > window.frame.height }
+        wait(for: [expectation(for: rotated, evaluatedWith: nil)], timeout: 10)
+        tapControl(app, "player-episodes-button")
+        XCTAssertTrue(drawer.waitForExistence(timeout: 5), "横屏选集面板没有打开")
+        XCTAssertTrue(app.buttons["episode-current"].waitForExistence(timeout: 5), "横屏面板没有停在正在播的那一集")
+        sleep(1)
+        XCTAssertGreaterThan(drawer.frame.minX, window.frame.width * 0.5, "横屏面板应靠右")
+        shot(app, "episodes-landscape")
+
+        // 换季：只换列表，不动正在播的；点那一季的一集才跨季换过去
+        if let (season, episode) = otherSeason {
+            let seasonMenu = app.buttons["episodes-season"]
+            XCTAssertTrue(seasonMenu.waitForExistence(timeout: 5), "多季的剧应能换季")
+            seasonMenu.tap()
+            let entry = menuItem(app, "第 \(season) 季")
+            XCTAssertTrue(entry.waitForExistence(timeout: 5), "季菜单里没有第 \(season) 季")
+            entry.tap()
+            let other = app.buttons["episode-\(episode)"]
+            XCTAssertTrue(other.waitForExistence(timeout: 10), "没有列出第 \(season) 季的分集")
+            XCTAssertFalse(app.buttons["episode-current"].exists, "看别的季时不该有「正在播放」那张卡")
+            shot(app, "episodes-other-season")
+            other.tap()
+            XCTAssertTrue(drawer.waitForNonExistence(timeout: 5), "选了一集后面板应收起")
+            assertPlaying(app, season: season, episode: episode)
+        } else {
+            tapEmptyArea(app, dx: 0.3, dy: 0.4)
+            XCTAssertTrue(drawer.waitForNonExistence(timeout: 5), "点画面应收起选集面板")
+        }
+
+        tapControl(app, "player-close") // 横屏时是「退出横屏」
+        let portrait = NSPredicate { _, _ in window.frame.width < window.frame.height }
+        wait(for: [expectation(for: portrait, evaluatedWith: nil)], timeout: 10)
+        tapControl(app, "player-close")
+        XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
+    }
+
+    /// 顶栏写着这一集，且在播放（播放头从这一集的开头往前走）
+    @MainActor
+    private func assertPlaying(_ app: XCUIApplication, season: Int, episode: Int, file: StaticString = #filePath, line: UInt = #line) {
+        let code = String(format: "S%02dE%02d", season, episode)
+        revealChrome(app)
+        let label = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", code)).firstMatch
+        XCTAssertTrue(label.waitForExistence(timeout: 20), "顶栏没有显示 \(code)", file: file, line: line)
+        XCTAssertTrue(waitForPosition(app, atLeast: 2, timeout: 90), "\(code) 没有开始播放", file: file, line: line)
+    }
+
     @MainActor
     private func launch(item: Int, diagnostics: Bool) -> XCUIApplication {
         let app = XCUIApplication()
@@ -572,15 +674,53 @@ final class PlayerUITests: XCTestCase {
         try call("GET", "/playback/resume?media_item_id=\(item)&season_number=\(season)&episode_number=\(episode)") as? [String: Any] ?? [:]
     }
 
-    private func restoreEpisode(_ show: Int, _ episode: Int, _ state: [String: Any]) throws {
+    private func restoreEpisode(_ show: Int, _ episode: Int, _ state: [String: Any], season: Int = 1) throws {
         _ = try call("POST", "/playback/progress", body: [
-            "media_item_id": show, "season_number": 1, "episode_number": episode,
+            "media_item_id": show, "season_number": season, "episode_number": episode,
             "event": "stop", "position_ms": state["position_ms"] as? Int ?? 0, "device_id": "ui-test",
         ])
         _ = try call("POST", "/playback/marks", body: [
-            "media_item_id": show, "season_number": 1, "episode_number": episode,
+            "media_item_id": show, "season_number": season, "episode_number": episode,
             "played": state["played"] as? Bool ?? false, "device_id": "ui-test",
         ])
+    }
+
+    /// 选集面板用例的片源：第一季连着三集都在位的剧（条目, 第一集, 第二集, 第三集）。
+    /// 走播放页的分集接口，不开条目详情（服务端开详情会读片子做起播预热）；MC_TEST_EPISODE_SHOW 可直接指定
+    private func findDrawerEpisodes() throws -> (Int, Int, Int, Int)? {
+        var shows: [Int] = []
+        if let pinned = env["MC_TEST_EPISODE_SHOW"].flatMap(Int.init) {
+            shows = [pinned]
+        } else {
+            let libraries = try call("GET", "/libraries") as? [[String: Any]] ?? []
+            for library in libraries where library["kind"] as? String == "tv" {
+                guard let id = library["id"] as? Int else { continue }
+                let items = try call("GET", "/libraries/\(id)/items?limit=30") as? [[String: Any]] ?? []
+                shows += items.compactMap { $0["media_item_id"] as? Int }
+            }
+        }
+        for show in shows {
+            let owned = try ownedEpisodes(show, season: 1)
+            if let first = owned.first(where: { owned.contains($0 + 1) && owned.contains($0 + 2) }) {
+                return (show, first, first + 1, first + 2)
+            }
+        }
+        return nil
+    }
+
+    /// 这部剧第一季以外、有片源的一集（季, 集）；服务端没给季列表（旧版）或别的季都没片源为 nil
+    private func findOtherSeasonEpisode(_ show: Int) throws -> (Int, Int)? {
+        let info = try call("GET", "/playback/items/\(show)") as? [String: Any]
+        for season in info?["seasons"] as? [Int] ?? [] where season != 1 {
+            if let episode = try ownedEpisodes(show, season: season).first { return (season, episode) }
+        }
+        return nil
+    }
+
+    private func ownedEpisodes(_ show: Int, season: Int) throws -> [Int] {
+        let data = try call("GET", "/playback/items/\(show)/episodes?season_number=\(season)") as? [String: Any]
+        let episodes = data?["episodes"] as? [[String: Any]] ?? []
+        return episodes.filter { $0["owned"] as? Bool == true }.compactMap { $0["episode_number"] as? Int }.sorted()
     }
 
     /// 找一部第一季前两集都在位、且都是 1080p 以下 SDR 的剧集：返回 (条目, 本集, 下一集, 本集片长毫秒)。

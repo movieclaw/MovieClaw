@@ -2360,6 +2360,7 @@ data class PlaybackItemView(
     @SerialName("title") val title: String = "",
     @SerialName("year") val year: Long? = null,
     @SerialName("poster_url") val posterUrl: String? = null,
+    @SerialName("seasons") val seasons: List<Long>? = null,
 )
 
 /**

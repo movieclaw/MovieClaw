@@ -1540,7 +1540,7 @@ private struct TVRangeTabStyle: ButtonStyle {
 }
 
 /// 季的胶囊：选中的季垫一层浅底；获得焦点白底黑字、微微放大
-private struct TVSeasonTabStyle: ButtonStyle {
+struct TVSeasonTabStyle: ButtonStyle {
     let selected: Bool
 
     func makeBody(configuration: Configuration) -> some View {

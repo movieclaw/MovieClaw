@@ -841,6 +841,9 @@ class PlaybackItemView(BaseModel):
     year: int | None = None
     #: 海报（本地刮削资产优先、TMDB 兜底），起播前的占位画面用
     poster_url: str | None = None
+    #: 季号列表（与条目详情同口径：元数据里的正片季 ∪ 库里实有的季，特别季 0 只在
+    #: 库里真有文件时出现），播放器的选集面板换季用；电影为 null
+    seasons: list[int] | None = None
 
 
 # ---------------------------------------------------------------------------
