@@ -7,6 +7,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -151,16 +152,27 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
   );
   const [preview, setPreview] = useState<UiPreferences | null>(null);
   const [loading, setLoading] = useState(true);
-  // 海报墙取数函数发请求时读的 badges 参数（lib/wall-badges.ts）。在渲染期写而不是
-  // effect 里：子组件（各面墙）的挂载 effect 先于这里的 effect 跑，首轮请求就得带上。
-  // 只是给模块变量赋同一个派生值，重复渲染无副作用
-  setWallBadgeRequest(posterBadgeRequest((preview ?? prefs).poster_badges));
+  // 写入串行化（PR #1250 第二轮评审）：每次 PUT 都是整份偏好，并发发出去时较旧的请求
+  // 可能后完成，把服务端、界面和缓存一起写回旧值。这里排成一条队，前一个落定才发下一个；
+  // 每次保存领一个递增版本号，只有最新的那次可以改状态 / 缓存或回滚，较旧的只记下服务端确认值。
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const saveVersion = useRef(0);
+  // 服务端最后确认的偏好：最新一次保存失败时回滚到它（而不是某次更旧的乐观值）
+  const confirmed = useRef(prefs);
+  // 海报墙取数函数发请求时读的 badges 参数（lib/wall-badges.ts）。用 layout effect 而不是
+  // 普通 effect：子组件（各面墙）的挂载 / 重取都在普通 effect 里发请求，而同一次提交里
+  // 所有 layout effect 先于普通 effect 跑，首轮请求就能带上。也不在渲染期直接写：
+  // 并发渲染被丢弃时会留下一个没提交的值
+  const wallBadges = posterBadgeRequest((preview ?? prefs).poster_badges);
+  useLayoutEffect(() => setWallBadgeRequest(wallBadges), [wallBadges]);
 
   useEffect(() => {
     let cancelled = false;
     fetchUiPreferences()
       .then((data) => {
-        if (cancelled) return;
+        // 首拉回来之前已经开始保存：这份是更旧的值，不能盖掉保存的结果
+        if (cancelled || saveVersion.current > 0) return;
+        confirmed.current = data;
         setPrefs(data);
         // 服务端值即下次启动的首帧值
         writeUiPrefsCache(data);
@@ -277,24 +289,27 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
     return () => observer.disconnect();
   }, [effectiveTheme]);
 
-  const savePrefs = useCallback(
-    async (next: UiPreferences) => {
-      const previous = prefs;
-      // 乐观更新：开关立即生效；保存失败回滚并抛给调用方提示
-      setPrefs(next);
-      try {
-        const saved = await updateUiPreferences(next);
-        setPrefs(saved);
-        writeUiPrefsCache(saved);
-        // 保存成功后草稿使命完成，撤销以免遮住刚落库的新值
-        setPreview(null);
-      } catch (err) {
-        setPrefs(previous);
-        throw err;
-      }
-    },
-    [prefs],
-  );
+  const savePrefs = useCallback(async (next: UiPreferences) => {
+    const version = ++saveVersion.current;
+    // 乐观更新：开关立即生效；保存失败回滚并抛给调用方提示
+    setPrefs(next);
+    const request = saveQueue.current.then(() => updateUiPreferences(next));
+    saveQueue.current = request.catch(() => undefined);
+    try {
+      const saved = await request;
+      confirmed.current = saved;
+      if (version !== saveVersion.current) return;
+      setPrefs(saved);
+      writeUiPrefsCache(saved);
+      // 保存成功后草稿使命完成，撤销以免遮住刚落库的新值
+      setPreview(null);
+    } catch (err) {
+      // 已有更新的保存排在后面：它带着整份最新值，成败由它决定，这里既不回滚也不报错
+      if (version !== saveVersion.current) return;
+      setPrefs(confirmed.current);
+      throw err;
+    }
+  }, []);
 
   const value = useMemo<UiPrefsContextValue>(
     () => ({
