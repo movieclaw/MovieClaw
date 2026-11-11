@@ -441,6 +441,51 @@ test('AVPlayer ignores focus-gain churn and forwards only explicit interrupt hin
   await engine.release();
 });
 
+function avpSeekFixture(seek) {
+  const handlers = new Map();
+  const player = {
+    state: 'idle', duration: 100000, currentTime: 5000,
+    on: (name, fn) => handlers.set(name, fn),
+    off: (name) => handlers.delete(name),
+    set url(value) { this.state = 'initialized'; handlers.get('stateChange')('initialized'); },
+    prepare: async () => { player.state = 'prepared'; handlers.get('stateChange')('prepared'); },
+    play: async () => { player.state = 'playing'; handlers.get('stateChange')('playing'); },
+    seek,
+    release: async () => {},
+  };
+  const load = runtime({ '@kit.MediaKit': { media: { createAVPlayer: async () => player, SeekMode: { SEEK_CLOSEST: 1 } } } });
+  const { AVPlayerEngine } = load('player_engine/src/main/ets/AVPlayerEngine.ets');
+  return { player, handlers, engine: new AVPlayerEngine(), AVPlayerEngine };
+}
+
+test('AVPlayer seek resolves once the position reaches the target', async () => {
+  const { player, handlers, engine } = avpSeekFixture((ms) => { player.currentTime = ms; handlers.get('seekDone')(); });
+  await engine.open({ fd: -1, url: 'fixture', subtitleFd: -1, subtitleUrl: '' }, 'surface');
+  await engine.play();
+  await engine.seek(90000);
+  assert.equal(player.currentTime, 90000);
+  await engine.release();
+});
+
+test('AVPlayer seek rejects as timeout when the position never reaches the target', async () => {
+  const { handlers, engine, AVPlayerEngine } = avpSeekFixture((ms) => { handlers.get('seekDone')(); });
+  AVPlayerEngine.seekVerifyWindowMs = 50;
+  await engine.open({ fd: -1, url: 'fixture', subtitleFd: -1, subtitleUrl: '' }, 'surface');
+  await engine.play();
+  await assert.rejects(engine.seek(90000), (error) => error.kind === 'timeout');
+  await engine.release();
+});
+
+test('AVPlayer paused seek trusts seekDone without landing verification', async () => {
+  const { player, handlers, engine } = avpSeekFixture((ms) => { handlers.get('seekDone')(); });
+  await engine.open({ fd: -1, url: 'fixture', subtitleFd: -1, subtitleUrl: '' }, 'surface');
+  await engine.play();
+  player.state = 'paused';
+  await engine.seek(90000);
+  assert.equal(player.currentTime, 5000);
+  await engine.release();
+});
+
 test('an old blocked command queue cannot stall commands on the next episode', async () => {
   const f = playerFixture();
   await f.controller.open(f.media, 'old', f.intent);
