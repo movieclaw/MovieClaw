@@ -1,4 +1,5 @@
 import CoreGraphics
+import SwiftUI
 import Testing
 import UIKit
 @testable import MovieClaw
@@ -159,10 +160,45 @@ struct IPhoneDuoLayoutTests {
         #expect(AccountGestureHub.avatarButton(touching: fixture.bar[2]) === fixture.bar[4])
     }
 
+    @Test func extraControlBesideTabsDoesNotHideAvatar() {
+        let fixture = tabFixture(vertical: true)
+        let decoration = UIControl(frame: fixture.bar[0].superview!.bounds)
+        fixture.bar[0].superview!.addSubview(decoration)
+        #expect(AccountGestureHub.avatarButton(touching: fixture.bar[1]) === fixture.bar[4])
+    }
+
     @Test func pageContentRowIsNotMistakenForTabs() {
         // 页面里恰好并排五个按钮：响应链先碰到页面自己的控制器，不算页签
         let fixture = tabFixture(vertical: false)
         #expect(AccountGestureHub.avatarButton(touching: fixture.content[4]) == nil)
+    }
+
+    @Test func englishAccountTipWrapsInsideNarrowDuoSidebarSpace() {
+        let bubble = AccountGestureTipBubble(
+            longPress: "Press and hold the avatar: switch accounts",
+            doubleTap: "Double-tap the avatar: switch back to the previous account"
+        )
+        let host = UIHostingController(rootView: bubble)
+        let wide = host.sizeThatFits(in: CGSize(width: 600, height: 600))
+        let narrow = host.sizeThatFits(in: CGSize(width: 280, height: 600))
+        #expect(wide.width > 280, "英文双击提示的理想宽度应能覆盖原裁切场景")
+        #expect(narrow.width <= 280.5, "气泡必须接受 Duo 竖栏左侧的窄宽度")
+        #expect(narrow.height > wide.height, "英文长文案应换行而不是在左侧被裁切")
+    }
+
+    @Test func detailActionsWrapAtLargestDynamicTypeSize() {
+        for (title, symbol) in [
+            ("Continue season 12, episode 123 · 12:34", "play.fill"),
+            ("Play from beginning", "backward.end.fill"),
+        ] {
+            let label = LibraryWideActionLabel(title: title, systemImage: symbol)
+                .environment(\.dynamicTypeSize, .accessibility5)
+            let host = UIHostingController(rootView: label)
+            let wide = host.sizeThatFits(in: CGSize(width: 800, height: 800))
+            let narrow = host.sizeThatFits(in: CGSize(width: 180, height: 800))
+            #expect(narrow.width <= 180.5, "大字标签不能撑出按钮可用宽度")
+            #expect(narrow.height > wide.height, "大字文案必须增高换行，不能截成单行")
+        }
     }
 
     // MARK: 开合时的外壳

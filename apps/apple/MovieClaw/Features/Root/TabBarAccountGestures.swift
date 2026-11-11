@@ -112,10 +112,22 @@ final class AccountGestureHub: NSObject, UIGestureRecognizerDelegate {
         return count
     }
 
-    /// 父视图里并排的可见按钮正好 `count` 个时，就是一排页签按钮
+    /// 父视图里同尺寸、同轴排列的可见按钮正好 `count` 个时，就是一排页签按钮。
+    /// 系统可以在同层插入尺寸不同的辅助 control，不能因此让整排页签失效。
     private static func tabRow(in parent: UIView, count: Int) -> [UIControl]? {
         let controls = parent.subviews.compactMap { $0 as? UIControl }.filter { !$0.isHidden && $0.bounds.width > 0 }
-        return controls.count == count ? controls : nil
+        guard controls.count >= count else { return nil }
+        if controls.count == count { return controls }
+        for seed in controls {
+            let sameSize = controls.filter {
+                abs($0.bounds.width - seed.bounds.width) < 1 && abs($0.bounds.height - seed.bounds.height) < 1
+            }
+            let horizontal = sameSize.filter { abs($0.frame.midY - seed.frame.midY) < 1 }
+            if horizontal.count == count { return horizontal }
+            let vertical = sameSize.filter { abs($0.frame.midX - seed.frame.midX) < 1 }
+            if vertical.count == count { return vertical }
+        }
+        return nil
     }
 
     private static func avatar(in row: [UIControl]) -> UIControl? {
@@ -220,16 +232,7 @@ struct AccountGestureTip: View {
             // 两边至少留 12pt
             let trailing = min(proxy.size.width - 12, avatar.vertical ? avatarFrame.minX - origin.x - 12 : avatarFrame.maxX - origin.x)
             let bottom = max(0, avatar.vertical ? avatarFrame.maxY - origin.y : avatarFrame.minY - origin.y - 10)
-            VStack(alignment: .leading, spacing: 6) {
-                Label(String(localized: .navAccountGestureLongPress), systemImage: "hand.tap")
-                Label(String(localized: .navAccountGestureDoubleTap), systemImage: "arrow.left.arrow.right")
-            }
-            .font(.subheadline)
-            .foregroundStyle(Theme.text)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .glassEffect(.regular, in: .rect(cornerRadius: 18))
-            .fixedSize()
+            AccountGestureTipBubble()
             .onTapGesture(perform: dismiss)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isButton)
@@ -239,5 +242,32 @@ struct AccountGestureTip: View {
         }
         .ignoresSafeArea()
         .transition(.opacity)
+    }
+}
+
+/// 接受外层给出的窄宽度，让较长的英文提示换行；高度仍按完整文案展开。
+struct AccountGestureTipBubble: View {
+    let longPress: String
+    let doubleTap: String
+
+    init(
+        longPress: String = String(localized: .navAccountGestureLongPress),
+        doubleTap: String = String(localized: .navAccountGestureDoubleTap)
+    ) {
+        self.longPress = longPress
+        self.doubleTap = doubleTap
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(longPress, systemImage: "hand.tap")
+            Label(doubleTap, systemImage: "arrow.left.arrow.right")
+        }
+        .font(.subheadline)
+        .foregroundStyle(Theme.text)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
