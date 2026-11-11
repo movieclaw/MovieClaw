@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -164,15 +164,32 @@ async def lock_titles(session: AsyncSession, member_id: int, media_item_ids: Ite
 
     - Postgres：``pg_advisory_xact_lock(member_id, media_item_id)``，事务结束自动释放，
       同一事务重复获取不会自锁；不建表、不占行。
-    - SQLite：写事务本来就全库串行，这里什么也不做。
+    - SQLite：只有一把全库写锁，就拿它。全库只有一个写者并不够——pysqlite 只在第一条
+      DML 前才隐式 ``BEGIN``，之前的读各自在自动提交里跑；会话又不自动 flush，播放改已有
+      行时直到 commit 才碰写锁。隐藏的锚点校验与播放的清标记因此照样能读到对方提交前的
+      状态。这里发一条不改任何行的 ``UPDATE``：没开事务时它让 pysqlite 开事务并当场拿写锁
+      （拿不到按 ``busy_timeout`` 等，等同 ``BEGIN IMMEDIATE``，此后读到的都是最新已提交
+      状态，别人也提交不了）；已持有写锁时什么也不做（可重入）。不用裸 ``BEGIN IMMEDIATE``：
+      事务已开时它会报错，也绕过 pysqlite / SQLAlchemy 对事务状态的记账。
 
     批量入口要在写任何状态行**之前**一次性按 id 升序拿齐：顺序一致不会互等成死锁；
     先写行再等锁则可能和持锁方要写的同一行互等。
     """
+    ids = sorted(set(media_item_ids))
     bind = session.bind
-    if bind is None or bind.dialect.name != "postgresql":
+    if bind is None or not ids:
         return
-    for media_item_id in sorted(set(media_item_ids)):
+    if bind.dialect.name == "sqlite":
+        await session.execute(
+            update(PlaybackState)
+            .where(PlaybackState.id.is_(None))  # type: ignore[union-attr]
+            .values(member_id=PlaybackState.member_id)
+            .execution_options(synchronize_session=False)
+        )
+        return
+    if bind.dialect.name != "postgresql":
+        return
+    for media_item_id in ids:
         await session.execute(select(func.pg_advisory_xact_lock(member_id, media_item_id)))
 
 
