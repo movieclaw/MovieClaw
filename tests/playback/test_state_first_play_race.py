@@ -51,7 +51,10 @@ async def test_concurrent_first_start_on_two_devices(seeded_db) -> None:
 
 async def test_insert_that_loses_the_race_uses_the_winners_row(seeded_db) -> None:
     """确定性地复现「查到没有 → 别人抢先写入 → 自己插入撞键」：在本会话发出 INSERT
-    之前，另一条连接把同一单元写进去并提交。"""
+    之前，另一条连接把同一单元写进去并提交。
+
+    走收藏：开播 / 进度先拿作品级锁（lock_titles，SQLite 上即写锁），同一成员同一作品的
+    首播已经串行、到不了这条路（见上一个用例）；不拿锁的写入（收藏、标已看）仍可能撞键。"""
     unit = (seeded_db["movie"], 0, 0)
     db_path = get_settings().database_url.removeprefix("sqlite+aiosqlite:///")
 
@@ -74,12 +77,12 @@ async def test_insert_that_loses_the_race_uses_the_winners_row(seeded_db) -> Non
     event.listen(db.engine.sync_engine, "before_cursor_execute", other_device_wins)
     try:
         async with db.session() as session:
-            row = await playback_state.record_playback_start(session, unit, member_id=1)
+            row = await playback_state.set_favorite(session, unit, member_id=1, favorite=True)
             await session.commit()
     finally:
         event.remove(db.engine.sync_engine, "before_cursor_execute", other_device_wins)
 
     assert fired  # 确实走到了撞键那条路
-    assert row.play_count == 2  # 用的是抢先写入的那一行（已计 1 次），再加上本次
+    assert row.play_count == 1  # 用的是抢先写入的那一行（已计 1 次）
     rows = await _state_rows(unit)
-    assert len(rows) == 1 and rows[0].play_count == 2
+    assert len(rows) == 1 and rows[0].play_count == 1 and rows[0].is_favorite

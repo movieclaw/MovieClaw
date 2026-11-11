@@ -644,6 +644,119 @@ def test_explicit_restore_clears_every_flag_of_the_title(env):
     assert catalog_unit(env, 1, show, 1, 1)["updated_at"] == e1["updated_at"]
 
 
+def reanchor(env, old_unit, new_unit):
+    """真实的改锚迁移（重新识别 / 认领共用的 migrate_watch_state），自己的事务。"""
+
+    async def run():
+        from movieclaw_api.services.library.reanchor import migrate_watch_state
+
+        async with get_database().session() as s:
+            await migrate_watch_state(s, old_unit, new_unit)
+            await s.commit()
+
+    env.c.portal.call(run)
+
+
+def dismiss_state(env, member, unit):
+    async def run():
+        async with get_database().session() as s:
+            row = (
+                await s.execute(
+                    select(PlaybackState).where(
+                        PlaybackState.member_id == member,
+                        PlaybackState.media_item_id == unit[0],
+                        PlaybackState.season_number == unit[1],
+                        PlaybackState.episode_number == unit[2],
+                    )
+                )
+            ).scalar_one()
+            return row.continue_dismissed, row.continue_dismissed_at
+
+    return env.c.portal.call(run)
+
+
+# 旧身份（本地视频）→ 目标身份（电影），两边都已有状态行。每步依次发生（时间递增）：
+# ("play", side, 分钟前) 离线补传一条那时的播放；("live", side) 现在实时播一次；
+# ("dismiss", side) 现在隐藏。expected = 迁移后目标行是否仍隐藏，及隐藏时间取自哪一侧。
+MERGE_CASES = {
+    # t1 旧播 < t2 目标播 < t3 旧隐藏：隐藏之后谁都没再播，隐藏要带过去
+    "old_dismiss_after_both_plays": (
+        [("play", "old", 30), ("play", "new", 20), ("dismiss", "old")],
+        "old",
+    ),
+    # 旧隐藏之后目标身份又播了：较新的播放事实赢，不隐藏
+    "old_dismiss_before_newer_target_play": (
+        [("play", "old", 30), ("dismiss", "old"), ("live", "new")],
+        None,
+    ),
+    # t1 目标播 < t2 旧播 < t3 目标隐藏：旧侧进度较新（进度跟旧侧走），但隐藏比它新，要留着
+    "target_dismiss_newer_than_old_play": (
+        [("play", "new", 30), ("play", "old", 20), ("dismiss", "new")],
+        "new",
+    ),
+    # 目标隐藏之后旧身份又播了：带过来的是一条较新的播放事实，作品回来
+    "target_dismiss_before_newer_old_play": (
+        [("play", "new", 30), ("dismiss", "new"), ("live", "old")],
+        None,
+    ),
+    # 两边都隐藏、之后都没再播：保留，隐藏时间取较新的那次
+    "both_dismissed_newer_wins": (
+        [("play", "old", 30), ("play", "new", 20), ("dismiss", "old"), ("dismiss", "new")],
+        "new",
+    ),
+    "both_dismissed_newer_wins_reverse": (
+        [("play", "old", 30), ("play", "new", 20), ("dismiss", "new"), ("dismiss", "old")],
+        "old",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(MERGE_CASES))
+def test_reanchor_merges_dismiss_as_its_own_event_when_target_row_exists(env, case):
+    """跨身份迁移、目标行已存在：隐藏按隐藏时间与两边的播放时间合并，不跟着进度行走。"""
+    steps, expected = MERGE_CASES[case]
+    units = {"old": (env.ids["video"], 0, 0), "new": (env.ids["movie"], 0, 0)}
+    now = datetime.now(UTC)
+    for n, step in enumerate(steps):
+        side = units[step[1]]
+        if step[0] == "play":
+            at = now - timedelta(minutes=step[2])
+            upload(env, 1, *side, 60_000, at, viewing=f"v-{case}-{n}")
+        elif step[0] == "live":
+            play(env, 1, *side, 90_000)
+        else:
+            unit = catalog_unit(env, 1, *side)
+            assert write(env, 1, unit, dismiss_continue=True)["status"] == "applied"
+    before = {name: dismiss_state(env, 1, unit) for name, unit in units.items()}
+
+    reanchor(env, units["old"], units["new"])
+
+    flag, at = dismiss_state(env, 1, units["new"])
+    if expected is None:
+        assert (flag, at) == (False, None)
+        assert units["new"] in up_next(env, 1)
+    else:
+        assert (flag, at) == (True, before[expected][1])
+        assert [k for k in up_next(env, 1) if k[0] == env.ids["movie"]] == []
+    # 非隐藏的合并照旧：进度与最近播放跟 last_played_at 较新的一侧
+    assert catalog_unit(env, 1, *units["new"])["last_played_at"] is not None
+
+
+def test_reanchor_drops_a_dismiss_older_than_a_play_elsewhere_in_the_target_title(env):
+    """迁入的隐藏是作品级的：目标作品别的集在隐藏之后播过，迁过去也不能把整部藏起来。"""
+    video, show = (env.ids["video"], 0, 0), env.ids["tv"]
+    upload(env, 1, *video, 60_000, datetime.now(UTC) - timedelta(minutes=30), viewing="v-old-video")
+    assert write(env, 1, catalog_unit(env, 1, *video), dismiss_continue=True)["status"] == (
+        "applied"
+    )
+    play(env, 1, show, 1, 2, 90_000)  # 隐藏之后，目标作品的 E2 播过
+
+    reanchor(env, video, (show, 1, 3))  # 目标行 E3 原本不存在
+
+    assert dismiss_state(env, 1, (show, 1, 3)) == (False, None)
+    assert [k for k in up_next(env, 1) if k[0] == show] != []
+
+
 def test_continue_dismissed_migration_upgrade_downgrade_keeps_rows(tmp_path, monkeypatch):
     import sqlite3
 
