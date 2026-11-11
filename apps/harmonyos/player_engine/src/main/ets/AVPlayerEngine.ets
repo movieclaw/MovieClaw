@@ -7,6 +7,13 @@ import { EngineEvent, EngineFailure, EngineSource, EngineTrack, PlayerEngine, Su
 /** No UI, server sessions or library IDs cross this adapter. */
 export class AVPlayerEngine implements PlayerEngine {
   readonly id: 'avplayer' = 'avplayer';
+  // histreamer fires 'seekDone' when the seek command is accepted, not when the
+  // target is actually delivered: a starved demuxer still acknowledges the seek
+  // and the surface keeps a stale frame with no audio. The landing check in
+  // seek() turns that silent stall into a recoverable failure.
+  static seekVerifyWindowMs: number = 12000;
+  static seekVerifyToleranceMs: number = 3000;
+  private static readonly seekVerifyPollMs: number = 250;
   onEvent: (event: EngineEvent) => void = (): void => {};
   private player: media.AVPlayer | null = null;
   private released: boolean = false;
@@ -189,6 +196,20 @@ export class AVPlayerEngine implements PlayerEngine {
         reject(new EngineFailure('internal', 0, '系统播放器跳转失败'));
       }
     });
+    if (this.released || player !== this.player || player.state !== 'playing') { return; }
+    const floor = positionMs - AVPlayerEngine.seekVerifyToleranceMs;
+    if (player.currentTime >= floor) { return; }
+    const deadline = Date.now() + AVPlayerEngine.seekVerifyWindowMs;
+    while (Date.now() < deadline && !this.released && this.player === player) {
+      await new Promise<void>((resolve): void => {
+        setTimeout((): void => { resolve(); }, AVPlayerEngine.seekVerifyPollMs);
+      });
+      if (player.currentTime >= floor) { return; }
+    }
+    if (this.released || this.player !== player) { return; }
+    hilog.warn(0x0000, 'MCSub', 'avplayer seek 未到位判停滞: target=%{public}d current=%{public}d',
+      positionMs, player.currentTime);
+    throw new EngineFailure('timeout', 0, '系统播放器跳转无响应');
   }
   async setRate(rate: number): Promise<void> {
     const player = this.player;

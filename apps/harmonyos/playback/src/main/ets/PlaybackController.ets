@@ -302,7 +302,7 @@ export class PlaybackController {
         await this.deadline(engine.seek(Math.max(0, resumeMs - media.originMs)), PlaybackController.seekTimeoutMs);
       }
       if (!this.valid(generation, attempt)) { return; }
-      await this.restoreTracks(engine);
+      await this.deadline(this.restoreTracks(engine), PlaybackController.seekTimeoutMs);
       if (!this.valid(generation, attempt)) { return; }
       this.deferredResumePending = false;
     } catch (error) {
