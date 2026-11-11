@@ -96,6 +96,73 @@ struct EpisodeStageLayoutTests {
         #expect(layout.drawer.minY == 410)
     }
 
+    // MARK: iPhone Duo
+
+    /// 内屏横拿：951 × 669，竖排系统栏在右（安全区只有右边与底边）
+    private let duoInner = CGSize(width: 951, height: 669)
+    private let duoInnerInsets = EdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 62)
+
+    @Test func duoInnerLandscapeClearsTheSideBarWhateverTheOrientationSays() {
+        // 左右安全区不一样宽：照安全区排，不靠界面方向猜灵动岛在哪
+        let picture = fit(CGSize(width: 1920, height: 1080), in: duoInner)
+        for islandTrailing in [false, true] {
+            let layout = EpisodeStageLayout.resolve(container: duoInner, safeArea: duoInnerInsets, picture: picture, islandTrailing: islandTrailing)
+            #expect(layout.drawer.maxX == duoInner.width - 62)
+            #expect(abs(layout.video.minX - 16) < 0.01)
+            #expect(!layout.video.intersects(layout.drawer))
+        }
+    }
+
+    @Test func bookFoldPutsPictureOnTheLeftPageAndDrawerOnTheRight() throws {
+        let picture = fit(CGSize(width: 1920, height: 1080), in: duoInner)
+        let crease = CGRect(x: 463.5, y: 0, width: 24, height: 669)
+        let layout = EpisodeStageLayout.resolve(container: duoInner, safeArea: duoInnerInsets, picture: picture, islandTrailing: false, crease: crease)
+        #expect(layout.yields)
+        // 右页：从折痕右边 12 点起，到系统栏为止
+        #expect(layout.drawer == CGRect(x: 499.5, y: 8, width: 389.5, height: 653))
+        // 左页：画面与集名简介整块在折痕左边，不碰折痕
+        #expect(abs(layout.video.minX - 16) < 0.01)
+        #expect(layout.video.maxX <= crease.minX - 16 + 0.01)
+        let caption = try #require(layout.caption)
+        #expect(caption.maxX <= crease.minX)
+        #expect(abs(layout.video.width / layout.video.height - 16.0 / 9) < 0.001)
+        #expect(close(transformed(picture, by: layout), layout.video))
+    }
+
+    @Test func tabletopKeepsThePictureAndFillsTheLowerHalf() {
+        // 内屏竖拿半折：画面在折痕以上不动，面板占满折痕以下
+        let size = CGSize(width: 669, height: 951)
+        let insets = EdgeInsets(top: 28, leading: 0, bottom: 20, trailing: 0)
+        let picture = CGRect(x: 0, y: 55, width: 669, height: 376.3)
+        let crease = CGRect(x: 0, y: 463.5, width: 669, height: 24)
+        let layout = EpisodeStageLayout.resolve(container: size, safeArea: insets, picture: picture, islandTrailing: false, crease: crease)
+        #expect(!layout.yields)
+        #expect(layout.scale == 1 && layout.offset == .zero)
+        #expect(layout.caption == nil)
+        #expect(layout.drawer == CGRect(x: 8, y: 495.5, width: 653, height: 447.5))
+    }
+
+    @Test func duoOuterPortraitDrawerClearsTheSideIsland() {
+        // 外屏竖拿：灵动岛竖排在右，面板右边让开它；画面照旧占满宽度
+        let size = CGSize(width: 466, height: 678)
+        let insets = EdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 56)
+        let picture = fit(CGSize(width: 1920, height: 1080), in: size)
+        let layout = EpisodeStageLayout.resolve(container: size, safeArea: insets, picture: picture, islandTrailing: false)
+        #expect(layout.video.width == 466)
+        #expect(layout.drawer.minX == 8 && layout.drawer.maxX == 466 - 56)
+    }
+
+    @Test func duoOuterLandscapeDrawerClearsTheTopIsland() {
+        // 外屏横放：灵动岛转到顶边，面板顶部让开它
+        let size = CGSize(width: 678, height: 466)
+        let insets = EdgeInsets(top: 46, leading: 0, bottom: 20, trailing: 0)
+        let picture = fit(CGSize(width: 1920, height: 1080), in: size)
+        let layout = EpisodeStageLayout.resolve(container: size, safeArea: insets, picture: picture, islandTrailing: false)
+        #expect(layout.drawer.minY == 46)
+        #expect(layout.drawer.maxY == size.height - 8)
+        #expect(!layout.video.intersects(layout.drawer))
+    }
+
     @Test func remainingMinutesRoundUpAndNeverReadZero() {
         #expect(EpisodePicker.minutesLeft(position: 18 * 60_000 + 42_000, duration: 53 * 60_000) == 35)
         #expect(EpisodePicker.minutesLeft(position: 52 * 60_000 + 40_000, duration: 53 * 60_000) == 1)

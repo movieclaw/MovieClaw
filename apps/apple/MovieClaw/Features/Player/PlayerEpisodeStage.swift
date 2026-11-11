@@ -31,50 +31,59 @@ nonisolated struct EpisodeStageLayout: Equatable, Sendable {
     static let captionHeight: CGFloat = 62
     static let captionGap: CGFloat = 12
 
+    /// 面板离折痕
+    static let creaseGap: CGFloat = 12
+
     /// - Parameters:
     ///   - picture: 没打开面板时画面在容器里的矩形（适应模式是按片子宽高比居中的那一块，填满 / 拉伸是整个容器）
-    ///   - islandTrailing: 横屏时灵动岛在右边（手机朝另一侧横放）：面板要让开它，画面可以更贴左
-    static func resolve(container: CGSize, safeArea: EdgeInsets, picture: CGRect, islandTrailing: Bool) -> EpisodeStageLayout {
+    ///   - islandTrailing: 横屏时灵动岛在右边（手机朝另一侧横放）：面板要让开它，画面可以更贴左。
+    ///     iPhone 横屏左右安全区一样宽，看不出岛在哪边，只能靠界面方向猜；左右不一样宽（iPhone Duo 的竖排系统栏）就照安全区排
+    ///   - crease: iPhone Duo 半折时的折痕（整屏容器坐标，见 `PlayerFold.crease`）。竖向（书本）按折痕分页：
+    ///     左页画面与集名简介、右页面板；横向（桌面）画面不动，面板占满折痕以下
+    static func resolve(container: CGSize, safeArea: EdgeInsets, picture: CGRect, islandTrailing: Bool, crease: CGRect? = nil) -> EpisodeStageLayout {
         let width = container.width, height = container.height
         let aspect = picture.width > 0 && picture.height > 0 ? picture.width / picture.height : 16.0 / 9
-        var video: CGRect
+        var video = picture
         let drawer: CGRect
         var caption: CGRect?
         var yields = true
 
-        if width > height {
+        // 横屏两侧各让多少：左右安全区不一样宽时照安全区，一样宽时按灵动岛在哪边
+        let asymmetric = abs(safeArea.leading - safeArea.trailing) > 1
+        let trailing = asymmetric || islandTrailing ? max(margin, safeArea.trailing) : margin
+        let leading = asymmetric ? safeArea.leading + 16 : (islandTrailing ? 20 : safeArea.leading + 16)
+
+        if let crease, crease.height > crease.width {
+            // 书本半折：右页整页是面板，左页放画面卡片
+            let top = max(margin, safeArea.top)
+            let drawerX = crease.maxX + creaseGap
+            drawer = CGRect(x: drawerX, y: top, width: width - trailing - drawerX, height: height - margin - top)
+            (video, caption) = card(from: leading, to: crease.minX - 16, height: height, safeArea: safeArea, aspect: aspect)
+        } else if let crease {
+            // 桌面模式：画面本来就在折痕以上，不动；面板占满折痕以下
+            let top = crease.maxY + margin
+            let left = max(margin, safeArea.leading)
+            drawer = CGRect(x: left, y: top, width: width - left - max(margin, safeArea.trailing), height: height - margin - top)
+            yields = false
+        } else if width > height {
             let drawerWidth = min(380, max(300, (width * 0.365).rounded()))
-            let trailing = islandTrailing ? max(margin, safeArea.trailing) : margin
-            drawer = CGRect(x: width - trailing - drawerWidth, y: margin, width: drawerWidth, height: height - margin * 2)
-            let leading = islandTrailing ? 20 : safeArea.leading + 16
-            let available = drawer.minX - gap - leading
-            let top = max(20, safeArea.top + 12)
-            let bottom = height - max(12, safeArea.bottom + 8)
-            // 先按「画面 + 集名简介」排；太矮（分屏的小窗）就不要集名简介，全给画面
-            var budget = bottom - top - captionGap - captionHeight
-            let showsCaption = budget >= 120
-            if !showsCaption { budget = bottom - top }
-            var size = CGSize(width: available, height: available / aspect)
-            if size.height > budget { size = CGSize(width: budget * aspect, height: budget) }
-            let block = size.height + (showsCaption ? captionGap + captionHeight : 0)
-            video = CGRect(x: leading + (available - size.width) / 2, y: top + (bottom - top - block) / 2,
-                           width: size.width, height: size.height)
-            if showsCaption {
-                caption = CGRect(x: video.minX, y: video.maxY + captionGap, width: video.width, height: captionHeight)
-            }
+            let top = max(margin, safeArea.top)
+            drawer = CGRect(x: width - trailing - drawerWidth, y: top, width: drawerWidth, height: height - margin - top)
+            (video, caption) = card(from: leading, to: drawer.minX - gap, height: height, safeArea: safeArea, aspect: aspect)
         } else {
-            let drawerWidth = min(width - margin * 2, 560)
+            // 左右让开竖排的系统栏、灵动岛（iPhone Duo 外屏在右，分屏时可能在左）；普通 iPhone 竖屏两边都是 0
+            let left = max(margin, safeArea.leading), right = width - max(margin, safeArea.trailing)
+            let drawerWidth = min(right - left, 560)
             let drawerTop: CGFloat
             if picture.height < height * 0.6 {
                 // 画面原样挪到顶上（不缩），面板接在下面
                 video = CGRect(x: picture.minX, y: safeArea.top + 4, width: picture.width, height: picture.height)
                 drawerTop = video.maxY + 12
             } else {
-                video = picture
                 drawerTop = (height * 0.45).rounded()
                 yields = false
             }
-            drawer = CGRect(x: (width - drawerWidth) / 2, y: drawerTop, width: drawerWidth, height: height - margin - drawerTop)
+            drawer = CGRect(x: left + (right - left - drawerWidth) / 2, y: drawerTop, width: drawerWidth, height: height - margin - drawerTop)
         }
 
         let scale = picture.width > 0 ? video.width / picture.width : 1
@@ -83,5 +92,22 @@ nonisolated struct EpisodeStageLayout: Equatable, Sendable {
             offset: CGSize(width: video.minX - picture.minX * scale, height: video.minY - picture.minY * scale),
             video: video, drawer: drawer, caption: caption, yields: yields
         )
+    }
+
+    /// 横向一栏里的画面卡片与下面的集名简介：先按「画面 + 集名简介」排，太矮（分屏的小窗）就不要集名简介、全给画面
+    private static func card(from minX: CGFloat, to maxX: CGFloat, height: CGFloat, safeArea: EdgeInsets, aspect: CGFloat) -> (CGRect, CGRect?) {
+        let available = max(0, maxX - minX)
+        let top = max(20, safeArea.top + 12)
+        let bottom = height - max(12, safeArea.bottom + 8)
+        var budget = bottom - top - captionGap - captionHeight
+        let showsCaption = budget >= 120
+        if !showsCaption { budget = bottom - top }
+        var size = CGSize(width: available, height: available / aspect)
+        if size.height > budget { size = CGSize(width: budget * aspect, height: budget) }
+        let block = size.height + (showsCaption ? captionGap + captionHeight : 0)
+        let video = CGRect(x: minX + (available - size.width) / 2, y: top + (bottom - top - block) / 2,
+                           width: size.width, height: size.height)
+        let caption = showsCaption ? CGRect(x: video.minX, y: video.maxY + captionGap, width: video.width, height: captionHeight) : nil
+        return (video, caption)
     }
 }

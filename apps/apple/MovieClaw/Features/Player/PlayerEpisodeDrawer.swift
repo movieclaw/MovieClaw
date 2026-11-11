@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// 选集面板：底栏「选集」打开，点一集就换。摆在哪由 `EpisodeStageLayout` 定（横屏靠右、竖屏接在画面下面），
-/// 这里只管面板里面。
+/// 选集面板：底栏「选集」打开，点一集就换。摆在哪由 `EpisodeStageLayout` 定（横屏靠右、竖屏接在画面下面、
+/// iPhone Duo 桌面模式占满折痕以下），这里只管面板里面。
 ///
 /// 层次靠大小拉开：正在播的那一集单独成卡（剧照更大、实时进度、还剩多久，竖屏再加两行简介），其余的集是紧凑的行。
 /// 简介只给正在播的这一集——没看过的集放简介就是剧透。状态不用标签：看完的集名变暗、带一个对勾，
@@ -9,9 +9,17 @@ import SwiftUI
 ///
 /// 换季只换列表、不动正在播的；别的季现取（`PlaybackController.loadSeason`）。打开时停在正在播的那一集。
 struct PlayerEpisodeDrawer: View {
+    enum Style {
+        /// 横屏侧栏：剧照小一号，简介不进卡片（写在让位后的画面下方）
+        case sidebar
+        /// 竖屏接在画面下面：剧照大一号，正在播的那集带两行简介
+        case sheet
+        /// iPhone Duo 桌面模式的下半屏：列表同竖屏（单列、大剧照、正在播的那集带简介）；收起是回到控制台，头部写「控制台」而不是 ✕
+        case console
+    }
+
     let controller: PlaybackController
-    /// 横屏侧栏：剧照小一号，简介不进卡片（写在让位后的画面下方）
-    let sidebar: Bool
+    let style: Style
     let close: () -> Void
 
     /// 面板里正在看的季（不一定是正在播的季）
@@ -22,14 +30,15 @@ struct PlayerEpisodeDrawer: View {
     @State private var appeared = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(controller: PlaybackController, sidebar: Bool, close: @escaping () -> Void) {
+    init(controller: PlaybackController, style: Style, close: @escaping () -> Void) {
         self.controller = controller
-        self.sidebar = sidebar
+        self.style = style
         self.close = close
         _season = State(initialValue: controller.unit.season)
         _position = State(initialValue: controller.unit.episode)
     }
 
+    private var sidebar: Bool { style == .sidebar }
     private var playingSeason: Bool { season == controller.unit.season }
     private var episodes: [API.EpisodeView]? { playingSeason ? controller.episodes : others[season] }
 
@@ -90,24 +99,49 @@ struct PlayerEpisodeDrawer: View {
                 }
             }
             Spacer(minLength: 8)
-            Button(action: close) {
-                Image(systemName: "xmark")
-                    .font(.footnote.weight(.bold))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .frame(width: 32, height: 32)
-                    .background(.white.opacity(0.14), in: .circle)
-                    // 看得见的圆 32pt，触控区 44pt
-                    .frame(width: 44, height: 44)
+            if style == .console {
+                Button(action: close) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.caption.weight(.bold))
+                        Text(String(localized: .playerControlsDeck))
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.leading, 8)
+                    .padding(.trailing, 12)
+                    .frame(height: 32)
+                    .background(.white.opacity(0.14), in: .capsule)
+                    .frame(height: 44)
+                    .padding(.trailing, 6)
                     .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("episodes-close")
+            } else {
+                closeButton
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(String(localized: .commonClose))
-            .accessibilityIdentifier("episodes-close")
         }
         .padding(.leading, 20)
         .padding(.trailing, 8)
         .padding(.top, 10)
         .padding(.bottom, 2)
+    }
+
+    private var closeButton: some View {
+        Button(action: close) {
+            Image(systemName: "xmark")
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(width: 32, height: 32)
+                .background(.white.opacity(0.14), in: .circle)
+                // 看得见的圆 32pt，触控区 44pt
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: .commonClose))
+        .accessibilityIdentifier("episodes-close")
     }
 
     private var subtitle: String {

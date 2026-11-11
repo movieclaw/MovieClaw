@@ -347,7 +347,8 @@ private struct PlayerContent: View {
             let picture = controller.displayMode
                 .rect(in: container, videoSize: controller.engine?.videoSize ?? .zero)
                 .intersection(container)
-            let layout = EpisodeStageLayout.resolve(container: container.size, safeArea: proxy.safeAreaInsets, picture: picture, islandTrailing: islandTrailing)
+            let layout = EpisodeStageLayout.resolve(container: container.size, safeArea: proxy.safeAreaInsets, picture: picture, islandTrailing: islandTrailing,
+                                                    crease: fold.crease(size: proxy.size, safeArea: proxy.safeAreaInsets))
             let stage = episodesOpen ? layout : nil
             ZStack {
                 // 让位后画面四周垫这一集剧照的氛围色（同桌面模式的控制台）
@@ -405,9 +406,17 @@ private struct PlayerContent: View {
                 if locked {
                     lockOverlay
                 } else if case let .tabletop(videoBottom, deckTop) = fold {
-                    tabletopChrome(videoBottom: videoBottom, deckTop: deckTop)
+                    // 桌面模式开着选集面板：面板换掉控制台、占满折痕以下，画面不动
+                    if let stage {
+                        ZStack(alignment: .top) {
+                            deckAmbience(videoBottom: videoBottom)
+                            episodeStage(stage, style: .console)
+                        }
+                    } else {
+                        tabletopChrome(videoBottom: videoBottom, deckTop: deckTop)
+                    }
                 } else if let stage {
-                    episodeStage(stage, landscape: landscape)
+                    episodeStage(stage, style: landscape ? .sidebar : .sheet)
                 } else {
                     chrome(landscape: landscape, height: proxy.size.height)
                 }
@@ -476,9 +485,8 @@ private struct PlayerContent: View {
                 if !now { finishExitClip() }
             }
             .onGeometryChange(for: PlayerFold.self) { PlayerFold.resolve(size: $0.size, folds: PlayerFold.activeFolds($0)) } action: { now in
+                // 开合时选集面板不关：面板跟着折痕换位置（全开→桌面落进下半屏、全开→书本分页）
                 withAnimation(.easeInOut(duration: 0.3)) { fold = now }
-                // 桌面模式有自己的上一集 / 下一集，没有选集面板
-                if now.isTabletop { episodesOpen = false }
             }
         }
         .onChange(of: episodesOpen) { _, open in
@@ -551,7 +559,7 @@ private struct PlayerContent: View {
 
     /// 选集面板开着时的那一层：面板本体，横屏另在让位后的画面下方写这一集的集名与简介。
     /// 位置都是整屏容器坐标，所以整层铺到安全区外再按坐标摆
-    private func episodeStage(_ stage: EpisodeStageLayout, landscape: Bool) -> some View {
+    private func episodeStage(_ stage: EpisodeStageLayout, style: PlayerEpisodeDrawer.Style) -> some View {
         Color.clear
             .overlay(alignment: .topLeading) {
                 if let caption = stage.caption {
@@ -574,12 +582,14 @@ private struct PlayerContent: View {
                 }
             }
             .overlay(alignment: .topLeading) {
-                PlayerEpisodeDrawer(controller: controller, sidebar: landscape, close: closeEpisodes)
+                PlayerEpisodeDrawer(controller: controller, style: style, close: closeEpisodes)
                     .frame(width: stage.drawer.width, height: stage.drawer.height)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { episodeDrawerFrame = $0 }
                     .onDisappear { episodeDrawerFrame = .zero }
                     .offset(x: stage.drawer.minX, y: stage.drawer.minY)
-                    .transition(.move(edge: landscape ? .trailing : .bottom).combined(with: .opacity))
+                    .transition(style == .sidebar ? .move(edge: .trailing).combined(with: .opacity)
+                                : style == .sheet ? .move(edge: .bottom).combined(with: .opacity)
+                                : .offset(y: 24).combined(with: .opacity))
             }
             .ignoresSafeArea()
     }
@@ -652,7 +662,7 @@ private struct PlayerContent: View {
 
     /// 书本半折：中部按钮组（与转圈）水平挪开折痕的距离
     private var centerShift: CGFloat {
-        if case let .book(shift) = fold { return shift }
+        if case let .book(shift, _, _) = fold { return shift }
         return 0
     }
 
@@ -820,10 +830,7 @@ private struct PlayerContent: View {
     @ViewBuilder
     private func tabletopChrome(videoBottom: CGFloat, deckTop: CGFloat) -> some View {
         ZStack(alignment: .top) {
-            // 折痕以下垫这一集剧照的氛围色（见 DeckAmbience）
-            DeckAmbience(url: controller.scope.api.image(controller.currentEpisode?.stillUrl ?? controller.info?.posterUrl, width: ImageWidth.points(120)))
-                .padding(.top, videoBottom)
-                .ignoresSafeArea(edges: .bottom)
+            deckAmbience(videoBottom: videoBottom)
             VStack(spacing: 0) {
                 if controller.diagnosticsOpen {
                     HStack {
@@ -853,7 +860,7 @@ private struct PlayerContent: View {
                 PlayerBottomBar(controller: controller, trickplay: trickplay, menu: $menu, scrubMs: $scrubMs,
                                 landscape: false, onToggleLandscape: {}, showsButtons: false)
                 Spacer(minLength: 12)
-                PlayerTabletopDeck(controller: controller, menu: $menu)
+                PlayerTabletopDeck(controller: controller, menu: $menu, onEpisodes: openEpisodes)
             }
             .padding(.horizontal, PlayerLayout.edge)
             .padding(.top, deckTop + PlayerLayout.gap)
@@ -862,6 +869,13 @@ private struct PlayerContent: View {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bottomBarFrame = $0 }
         }
         .onChange(of: menu) { chromeActivity += 1 }
+    }
+
+    /// 桌面模式折痕以下垫这一集剧照的氛围色（见 DeckAmbience）：控制台与选集面板底下都是它
+    private func deckAmbience(videoBottom: CGFloat) -> some View {
+        DeckAmbience(url: controller.scope.api.image(controller.currentEpisode?.stillUrl ?? controller.info?.posterUrl, width: ImageWidth.points(120)))
+            .padding(.top, videoBottom)
+            .ignoresSafeArea(edges: .bottom)
     }
 
     /// 菜单从按下的那颗按钮处缩放长出、收回时缩回那里（近似系统菜单从按钮展开的观感）。

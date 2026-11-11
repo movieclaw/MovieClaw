@@ -79,19 +79,32 @@ struct IPhoneDuoLayoutTests {
     @Test func verticalFoldShiftsCenterControlsToRightHalf() {
         let size = CGSize(width: 951, height: 669)
         let fold = CGRect(x: 460.5, y: 0, width: 30, height: 669)
-        guard case let .book(shift) = PlayerFold.resolve(size: size, folds: [fold]) else {
+        guard case let .book(shift, minX, maxX) = PlayerFold.resolve(size: size, folds: [fold]) else {
             Issue.record("应为书本半折")
             return
         }
         // 右半边正中：490.5 + 460.5 / 2 = 720.75，相对整屏中线 475.5 右移 245.25
         #expect(abs(shift - 245.25) < 0.01)
+        #expect(minX == 460.5 && maxX == 490.5)
+    }
+
+    @Test func creaseConvertsToFullScreenCoordinates() {
+        // 书本：竖排系统栏在右，安全区只有右边与底边
+        let insets = EdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 62)
+        let book = PlayerFold.book(centerShift: 0, creaseMinX: 463.5, creaseMaxX: 487.5)
+        #expect(book.crease(size: CGSize(width: 889, height: 649), safeArea: insets) == CGRect(x: 463.5, y: 0, width: 24, height: 669))
+        // 桌面：折痕按 GeometryReader 坐标给，要加上顶部安全区
+        let top = EdgeInsets(top: 28, leading: 0, bottom: 20, trailing: 0)
+        let tabletop = PlayerFold.tabletop(videoBottom: 435.5, deckTop: 459.5)
+        #expect(tabletop.crease(size: CGSize(width: 669, height: 903), safeArea: top) == CGRect(x: 0, y: 463.5, width: 669, height: 24))
+        #expect(PlayerFold.flat.crease(size: CGSize(width: 669, height: 903), safeArea: top) == nil)
     }
 
     @Test func bookShiftNeverPushesControlsOffScreen() {
         // 窄屏（466 宽）的右半边放不下 260 点宽的按钮组：挪到贴右边 16 点为止
         let size = CGSize(width: 466, height: 678)
         let fold = CGRect(x: 221, y: 0, width: 24, height: 678)
-        guard case let .book(shift) = PlayerFold.resolve(size: size, folds: [fold]) else {
+        guard case let .book(shift, _, _) = PlayerFold.resolve(size: size, folds: [fold]) else {
             Issue.record("应为书本半折")
             return
         }
