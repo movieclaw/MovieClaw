@@ -3,7 +3,7 @@ import SwiftUI
 /// 播放器控制层（对应 Web `components/player/player-controls.tsx`，布局照 iOS 26 系统播放器分三块）：
 /// - 顶栏：退出（独立玻璃圆钮）/ 片名 / 实时吞吐 / 右侧一枚玻璃胶囊装隔空播放、画中画；
 /// - 中部：后退 10 秒 / 播放暂停 / 前进 10 秒，三颗玻璃圆钮，播放键更大，对准画面（整屏）正中；
-/// - 底部：左侧玻璃胶囊装音轨 / 字幕 / ⋯ 设置，右侧横屏圆钮；下面是进度条，已播 / 剩余时间紧贴在条下两端；
+/// - 底部：左侧玻璃胶囊装音轨 / 字幕 / ⋯ 设置，右侧剧集有一枚「选集 / 下一集」胶囊、再是横屏圆钮；下面是进度条，已播 / 剩余时间紧贴在条下两端；
 /// - 横屏另有锁屏键，在左缘竖直居中（拇指够得着），锁屏后解锁键出现在同一位置（见 PlayerScreen）。
 ///
 /// 视觉统一走系统液态玻璃（`PlayerGlass`）：按钮压在画面上用透明玻璃叠薄黑、可交互（按下有系统的形变高光），
@@ -361,6 +361,20 @@ private struct PlayerIconButtonStyle: ButtonStyle {
     }
 }
 
+/// 胶囊组里带文字的按钮：按下时垫一枚内缩 4pt 的浅色胶囊（同 `PlayerIconButtonStyle` 的浅色圆）
+private struct PlayerPillButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                Capsule()
+                    .fill(.white.opacity(0.28))
+                    .padding(4)
+                    .opacity(configuration.isPressed ? 1 : 0)
+            }
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
 /// 独立的圆形玻璃按钮（退出、横屏、锁屏 / 解锁）
 struct GlassIconButton: View {
     let systemImage: String
@@ -387,6 +401,8 @@ struct PlayerBottomBar: View {
     let onToggleLandscape: () -> Void
     /// 显示进度条上面那一行按钮；桌面模式的控制台把它们做成了方块（`PlayerTabletopDeck`），只要进度条与时间
     var showsButtons = true
+    /// 打开选集面板；不传就没有「选集 / 下一集」这枚胶囊
+    var onEpisodes: (() -> Void)?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -436,6 +452,9 @@ struct PlayerBottomBar: View {
                     .glassEffect(PlayerGlass.control, in: .capsule)
                     .accessibilityIdentifier("player-watch-full")
                 }
+                if let onEpisodes, controller.unit.isEpisode, controller.clip == nil {
+                    episodeButtons(open: onEpisodes)
+                }
                 // 片段模式只有横屏这一种样子：转回竖屏就是退出全屏、回到刷片
                 // iPad 方向跟随设备，没有横屏键（片段模式的「退出全屏」照留）
                 if canRotate || controller.clip != nil {
@@ -451,6 +470,39 @@ struct PlayerBottomBar: View {
         .opacity(scrubMs == nil ? 1 : 0)
         .allowsHitTesting(scrubMs == nil)
         .animation(.easeOut(duration: 0.2), value: scrubMs == nil)
+    }
+
+    /// 「选集」与「下一集」合成一枚胶囊：换集多数时候就是看下一集，一颗键直接换；要挑某一集才开面板。
+    /// 单指的横滑、竖滑、长按、双击都已经有主了（`PlayerGestureLayer`），选集的入口只能是按钮。
+    /// 「选集」带文字（只有图标认不出来）；一行放不下时（窄屏 + 英文）退成只有图标。没有下一集（或缺集）时下一集置灰
+    private func episodeButtons(open: @escaping () -> Void) -> some View {
+        let title = String(localized: .playerControlsEpisodes)
+        return HStack(spacing: 0) {
+            Button(action: open) {
+                ViewThatFits(in: .horizontal) {
+                    Label(title, systemImage: "rectangle.stack")
+                        .labelStyle(.titleAndIcon)
+                        .padding(.leading, 14)
+                        .padding(.trailing, 10)
+                    Image(systemName: "rectangle.stack")
+                        .frame(width: PlayerLayout.button)
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(height: PlayerLayout.button)
+                .contentShape(.rect)
+            }
+            .buttonStyle(PlayerPillButtonStyle())
+            .accessibilityLabel(title)
+            .accessibilityIdentifier("player-episodes-button")
+            PlayerIconButton(systemImage: "forward.end.fill", label: String(localized: .playerControlsNextEpisode), identifier: "player-next-episode") {
+                controller.noteUserActivity()
+                controller.playNext()
+            }
+            .disabled(controller.nextEpisode == nil)
+            .opacity(controller.nextEpisode == nil ? 0.35 : 1)
+        }
+        .glassEffect(PlayerGlass.control, in: .capsule)
     }
 
     /// 已播放在左、剩余在右，紧贴细条下方 8pt（同系统播放器）。

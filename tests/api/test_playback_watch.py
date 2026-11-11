@@ -20,7 +20,7 @@ from movieclaw_api.services.auth import reset_auth_state
 from movieclaw_api.settings.store import reset_setting_store
 from movieclaw_db.crypto import reset_secret_box
 from movieclaw_db.engine import get_database
-from movieclaw_db.models import FileSource, FileState, LibraryFile, MediaItem
+from movieclaw_db.models import FileSource, FileState, LibraryFile, MediaItem, MediaSeason
 from movieclaw_db.repositories.library_repo import LibraryRepository
 
 _PB = "/api/v1/playback"
@@ -683,6 +683,23 @@ def test_playback_item_info_resolves_library(client, tmp_path):
     assert data["library_id"] == library_id
     assert data["kind"] == "movie"
     assert data["title"].startswith("示例")
+    assert data["seasons"] is None
+
+
+def test_playback_item_info_lists_seasons(client, tmp_path):
+    """选集面板换季用：元数据里的正片季 ∪ 库里实有的季；特别季 0 库里没有文件就不出现。"""
+    item_id = client.portal.call(partial(_seed_show, tmp_path))  # type: ignore[attr-defined]
+
+    async def add_meta_seasons() -> None:
+        async with get_database().session() as session:
+            for number in (0, 1, 2):
+                session.add(MediaSeason(media_item_id=item_id, season_number=number))
+            await session.commit()
+
+    client.portal.call(add_meta_seasons)  # type: ignore[attr-defined]
+    data = client.get(f"{_PB}/items/{item_id}").json()["data"]
+    assert data["kind"] == "tv"
+    assert data["seasons"] == [1, 2]
 
 
 def test_playback_item_outside_visible_libraries_is_not_found(client, tmp_path):

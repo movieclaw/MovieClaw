@@ -590,6 +590,34 @@ final class PlaybackController {
         startUnit(PlaybackUnit(mediaItemId: unit.mediaItemId, season: unit.season, episode: previous.episodeNumber))
     }
 
+    // MARK: - 选集（iPhone 播放器的选集面板）
+
+    /// 这部剧有哪几季。分享访客、离线存档、旧版服务端（条目信息里没有季列表）只有正在播的这一季
+    var seasons: [Int] {
+        guard unit.isEpisode else { return [] }
+        let listed = scope.isShare ? [] : (info?.seasons ?? [])
+        return Set(listed).union([unit.season]).sorted()
+    }
+
+    /// 选集面板看别的季：现取那一季的分集（正在播的这一季直接用 `episodes`）；取不到为 nil
+    func loadSeason(_ season: Int) async -> [API.EpisodeView]? {
+        try? await scope.episodes(unit.mediaItemId, season: season)
+    }
+
+    /// 选集面板打开时重取本季分集：进播放器之后看过的集，进度与「已看完」要跟上
+    func refreshEpisodes() async {
+        await loadEpisodes()
+    }
+
+    /// 选集面板点了一集，季可以和正在播的不同。`seasonEpisodes` 是面板已取到的那一季分集：
+    /// 换季时先用上，免得集名在重新取回来之前还对着旧的那一季
+    func playEpisode(season: Int, episode: Int, seasonEpisodes: [API.EpisodeView]? = nil) {
+        noteUserActivity()
+        guard unit.isEpisode, clip == nil, season != unit.season || episode != unit.episode else { return }
+        if season != unit.season, let seasonEpisodes { episodes = seasonEpisodes }
+        startUnit(PlaybackUnit(mediaItemId: unit.mediaItemId, season: season, episode: episode))
+    }
+
     // MARK: - 自动播下一集（Netflix 同款，对照 Web video-player 的 autoNext）
 
     /// 认出了片尾或已播完、卡片在显示、没取消、没到连播上限：卡片倒计时，走满自动换集

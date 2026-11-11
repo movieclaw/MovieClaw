@@ -1013,6 +1013,8 @@ async def shared_playback_item(
     resp.data.poster_url = _rewrite_url(
         resp.data.poster_url, grant.slug, grant.library_id or 0, media_item_id
     )
+    # 分享可能只给了其中一季：季列表不外露，访客的选集面板只有正在播的这一季
+    resp.data.seasons = None
     return resp
 
 

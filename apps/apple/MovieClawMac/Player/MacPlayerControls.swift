@@ -2,6 +2,7 @@ import SwiftUI
 
 // 播放器的控制层（docs/design/macos-app.md、Mac 设计调研 SPEC §4.7）：
 // - 左上角：返回 + 片名 / 「第 X 季第 Y 集 · 集名」；
+// - 右侧（剧集）：选集侧栏，可一直开着，窗口够宽时画面让到左边（`MacEpisodeSidebar`）；
 // - 底部居中一块两行的液态玻璃面板（排法同 Infuse / QuickTime / IINA 的浮动控制栏）：
 //   上行左边音量（滑条常驻）、正中「上一集 · 后退 10 秒 · 播放 / 暂停 · 前进 10 秒 · 下一集」（上一集 / 下一集只在剧集出现）、
 //   右边音频与字幕、画质、全屏；下行「已播 — 整条进度条（胶囊滑块常驻）— 剩余」。
@@ -146,6 +147,8 @@ struct MacPlayerTransport: View {
     let pointer: CGPoint?
     @Binding var scrubMs: Int?
     @Binding var panel: MacPlayerPanelKind?
+    /// 选集侧栏开着（`MacEpisodeSidebar`）；剧集才有这颗键
+    @Binding var episodesOpen: Bool
     let togglePlay: () -> Void
     let skip: (Double) -> Void
     let toggleFullScreen: () -> Void
@@ -252,7 +255,7 @@ struct MacPlayerTransport: View {
         }
     }
 
-    /// 右边：音频与字幕、⋯（画质 / 倍速）、全屏
+    /// 右边：音频与字幕、⋯（画质 / 倍速）、选集（剧集才有）、全屏
     private var trailingButtons: some View {
         HStack(spacing: 6) {
             MacPlayerIconButton(symbol: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
@@ -260,6 +263,13 @@ struct MacPlayerTransport: View {
                 panel = panel == .tracks ? nil : .tracks
             }
             moreMenu
+            if controller.unit.isEpisode, controller.clip == nil {
+                MacPlayerIconButton(symbol: "rectangle.stack", size: 17, help: String(localized: .playerMacEpisodesShortcut),
+                                    id: "mac-player-episodes", active: episodesOpen) {
+                    episodesOpen.toggle()
+                }
+                .accessibilityLabel(String(localized: .playerControlsEpisodes))
+            }
             MacPlayerIconButton(symbol: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                                 size: 17, help: isFullScreen ? String(localized: .playerMacExitFullscreenShortcut) : String(localized: .playerMacFullscreenShortcut), id: "mac-player-fullscreen",
                                 action: toggleFullScreen)

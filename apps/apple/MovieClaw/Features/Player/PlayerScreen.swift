@@ -317,6 +317,13 @@ private struct PlayerContent: View {
     @State private var centerFrame: CGRect = .zero
     /// iPhone Duo 半折时的排法：桌面模式上看下点、书本半折时中部按钮组躲开折痕（见 `PlayerFold`）
     @State private var fold: PlayerFold = .flat
+    /// 选集面板开着（`PlayerEpisodeDrawer`）：画面让位、控制层收起，点面板以外的地方收起面板
+    @State private var episodesOpen = false
+    @State private var episodeDrawerFrame: CGRect = .zero
+    /// 画面正裁成卡片：面板打开时起，收起的动画放完才撤（见 `EngineSurface.clip`）
+    @State private var stageClipped = false
+    /// 横屏时灵动岛在右边（界面朝 landscapeLeft）：选集面板要让开它
+    @State private var islandTrailing = false
 
     struct AdjustState {
         var side: PlayerGestureLayer.AdjustSide
@@ -331,31 +338,57 @@ private struct PlayerContent: View {
             let videoInset = if case let .tabletop(videoBottom, _) = fold {
                 max(0, proxy.size.height + proxy.safeAreaInsets.bottom - videoBottom)
             } else { CGFloat(0) }
+            // 选集面板开着时画面让位：整屏容器（含安全区）里，画面从原来的矩形缩放、位移到目标矩形
+            let container = CGRect(
+                x: 0, y: 0,
+                width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
+                height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
+            )
+            let picture = controller.displayMode
+                .rect(in: container, videoSize: controller.engine?.videoSize ?? .zero)
+                .intersection(container)
+            let layout = EpisodeStageLayout.resolve(container: container.size, safeArea: proxy.safeAreaInsets, picture: picture, islandTrailing: islandTrailing)
+            let stage = episodesOpen ? layout : nil
             ZStack {
+                // 让位后画面四周垫这一集剧照的氛围色（同桌面模式的控制台）
+                if let stage, stage.yields {
+                    DeckAmbience(url: controller.scope.api.image(controller.currentEpisode?.stillUrl ?? controller.info?.posterUrl, width: ImageWidth.points(120)))
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                }
                 // 画面
                 if let engine = controller.engine {
-                    EngineSurface(engineView: engine.view)
-                        .id(ObjectIdentifier(engine))
+                    ZStack {
+                        // 让位期间（含收起的那段动画）只留画面那一块、裁成圆角卡片，黑边不跟过去
+                        EngineSurface(engineView: engine.view,
+                                      clip: stageClipped && layout.yields ? (picture, EpisodeStageLayout.videoRadius / layout.scale) : nil)
+                            .id(ObjectIdentifier(engine))
+                            .padding(.bottom, videoInset)
+                            .accessibilityIdentifier("player-video")
+                        // 文字字幕两个引擎都由叠加层用系统字体画（没有要画的字幕时地址为空、什么也不显示）
+                        SubtitleOverlay(
+                            url: controller.overlaySubtitleURL,
+                            style: controller.subtitleStyle,
+                            videoSize: engine.videoSize,
+                            displayMode: controller.displayMode,
+                            time: { Double(controller.originMs) / 1000 + (controller.engine?.currentTime ?? 0) },
+                            session: controller.scope.api.session
+                        )
                         .padding(.bottom, videoInset)
-                        .ignoresSafeArea()
-                        .accessibilityIdentifier("player-video")
-                    // 文字字幕两个引擎都由叠加层用系统字体画（没有要画的字幕时地址为空、什么也不显示）
-                    SubtitleOverlay(
-                        url: controller.overlaySubtitleURL,
-                        style: controller.subtitleStyle,
-                        videoSize: engine.videoSize,
-                        displayMode: controller.displayMode,
-                        time: { Double(controller.originMs) / 1000 + (controller.engine?.currentTime ?? 0) },
-                        session: controller.scope.api.session
-                    )
-                    .padding(.bottom, videoInset)
+                    }
+                    // 让位：连字幕一起缩放、挪开。用缩放与位移而不是改尺寸：引擎视图不用跟着重新排版
+                    .scaleEffect(stage?.scale ?? 1, anchor: .topLeading)
+                    .offset(stage?.offset ?? .zero)
                     .ignoresSafeArea()
                 }
 
                 PlayerGestureLayer(
                     enabled: !isModal,
-                    canHold: controller.canHoldSpeed && !locked,
+                    canHold: controller.canHoldSpeed && !locked && !episodesOpen,
                     excludedRects: gestureExclusions,
+                    // 选集面板开着：画面上只认轻点（收起面板），不拖进度、不调亮度音量
+                    adjusts: !episodesOpen,
+                    scrubs: !episodesOpen,
                     onTap: handleTap,
                     onScrub: handleScrub,
                     onAdjust: handleAdjust,
@@ -363,7 +396,7 @@ private struct PlayerContent: View {
                 )
                 .ignoresSafeArea()
 
-                if showPaused {
+                if showPaused, !episodesOpen {
                     LinearGradient(colors: [.black.opacity(0.1), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
@@ -373,16 +406,19 @@ private struct PlayerContent: View {
                     lockOverlay
                 } else if case let .tabletop(videoBottom, deckTop) = fold {
                     tabletopChrome(videoBottom: videoBottom, deckTop: deckTop)
+                } else if let stage {
+                    episodeStage(stage, landscape: landscape)
                 } else {
                     chrome(landscape: landscape, height: proxy.size.height)
                 }
 
                 // 桌面模式的转圈在控制台里、占中央三键的位置（见 tabletopChrome）
                 if controller.phase.isBusy, !fold.isTabletop {
-                    // 与中央三键同一个中心（整屏正中），转圈结束时播放键正好接在原地
+                    // 与中央三键同一个中心（整屏正中），转圈结束时播放键正好接在原地；选集面板开着时跟到让位后的画面中心
                     PlayerBusyView(controller: controller)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .offset(x: centerShift)
+                        .offset(x: stage.map { $0.video.midX - container.midX } ?? centerShift,
+                                y: stage.map { $0.video.midY - container.midY } ?? 0)
                         .ignoresSafeArea()
                 }
 
@@ -427,11 +463,12 @@ private struct PlayerContent: View {
             // 原始触摸层遇到第二指会取消拖进度/倍速，不与捏合争抢。
             .simultaneousGesture(MagnifyGesture(minimumScaleDelta: 0.08).onEnded { value in
                 // 系统设置菜单自行接管触摸，关闭后的标记可能晚于原生菜单消失。
-                guard !locked, !isModal, menu == .none || menu == .settings else { return }
+                guard !locked, !isModal, !episodesOpen, menu == .none || menu == .settings else { return }
                 let mode = controller.displayMode.pinched(scale: value.magnification)
                 if mode != controller.displayMode { controller.selectDisplayMode(mode) }
             })
             .animation(.easeInOut(duration: 0.25), value: chromeVisible)
+            .animation(.spring(duration: 0.5, bounce: 0.12), value: episodesOpen)
             .animation(.easeInOut(duration: 0.2), value: controller.notice)
             .animation(.easeInOut(duration: 0.25), value: controller.qualityOffer)
             // 片段模式退出全屏：转回竖屏了再关（见 exitClip）
@@ -440,7 +477,27 @@ private struct PlayerContent: View {
             }
             .onGeometryChange(for: PlayerFold.self) { PlayerFold.resolve(size: $0.size, folds: PlayerFold.activeFolds($0)) } action: { now in
                 withAnimation(.easeInOut(duration: 0.3)) { fold = now }
+                // 桌面模式有自己的上一集 / 下一集，没有选集面板
+                if now.isTabletop { episodesOpen = false }
             }
+        }
+        .onChange(of: episodesOpen) { _, open in
+            if open {
+                stageClipped = true
+            } else {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(550))
+                    if !episodesOpen { stageClipped = false }
+                }
+            }
+        }
+        // 报错、要用户同意时面板让开，弹窗在等用户拍板
+        .onChange(of: isModal) { _, now in
+            if now { episodesOpen = false }
+        }
+        .onAppear { islandTrailing = Self.islandOnTrailingSide }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            islandTrailing = Self.islandOnTrailingSide
         }
         // 展开成宽窗口（iPhone Duo 内屏）：外屏上锁的横 / 竖屏作废，方向交还给设备。
         // 合上回到外屏时，片段模式（刷片的「全屏观看」）退回信息流里原来那一条、原来的位置（docs/design/iphone-duo.md §6.5）
@@ -469,6 +526,68 @@ private struct PlayerContent: View {
 
     private var isModal: Bool { controller.phase == .error || controller.phase == .consent }
 
+    /// 界面朝 landscapeLeft 时灵动岛在右边（横屏的安全区左右对称，看不出岛在哪一边，只能问界面方向）
+    private static var islandOnTrailingSide: Bool {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        return scene?.effectiveGeometry.interfaceOrientation == .landscapeLeft
+    }
+
+    // MARK: 选集面板
+
+    private func openEpisodes() {
+        controller.noteUserActivity()
+        islandTrailing = Self.islandOnTrailingSide
+        menu = .none
+        episodesOpen = true
+    }
+
+    /// 收起面板，回到控制层
+    private func closeEpisodes() {
+        episodesOpen = false
+        chromeVisible = true
+        chromeActivity += 1
+    }
+
+    /// 选集面板开着时的那一层：面板本体，横屏另在让位后的画面下方写这一集的集名与简介。
+    /// 位置都是整屏容器坐标，所以整层铺到安全区外再按坐标摆
+    private func episodeStage(_ stage: EpisodeStageLayout, landscape: Bool) -> some View {
+        Color.clear
+            .overlay(alignment: .topLeading) {
+                if let caption = stage.caption {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(episodeCaption)
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if let overview = controller.currentEpisode?.overview, !overview.isEmpty {
+                            Text(overview)
+                                .font(.footnote)
+                                .foregroundStyle(.white.opacity(0.66))
+                                .lineLimit(2)
+                        }
+                    }
+                    .frame(width: caption.width, height: caption.height, alignment: .topLeading)
+                    .offset(x: caption.minX, y: caption.minY)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                PlayerEpisodeDrawer(controller: controller, sidebar: landscape, close: closeEpisodes)
+                    .frame(width: stage.drawer.width, height: stage.drawer.height)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { episodeDrawerFrame = $0 }
+                    .onDisappear { episodeDrawerFrame = .zero }
+                    .offset(x: stage.drawer.minX, y: stage.drawer.minY)
+                    .transition(.move(edge: landscape ? .trailing : .bottom).combined(with: .opacity))
+            }
+            .ignoresSafeArea()
+    }
+
+    private var episodeCaption: String {
+        EpisodePicker.caption(controller.unit.episode, name: controller.currentEpisode?.name)
+    }
+
     /// Debug：`-mcPlayerPinChrome YES` 让控制层不自动收起（UI 测试每一步都慢，
     /// 会跨过 4 秒自动收起，造成「刚确认按钮在、点下去时已隐藏」的竞态）。正式构建恒为 false
     private static var debugPinChrome: Bool {
@@ -481,6 +600,7 @@ private struct PlayerContent: View {
 
     /// 手势层的禁区（窗口坐标）：控制层可见时的顶栏、底栏、横屏的锁屏键与打开着的菜单
     private var gestureExclusions: [CGRect] {
+        if episodesOpen { return [episodeDrawerFrame].filter { !$0.isEmpty } }
         guard chromeVisible, !locked else { return [] }
         var rects = [topBarFrame, bottomBarFrame, lockButtonFrame]
         if menu != .none { rects.append(menuFrame) }
@@ -522,7 +642,7 @@ private struct PlayerContent: View {
     private var chromeMustStayVisible: Bool {
         let userPaused = controller.paused && !controller.phase.isBusy && controller.session != nil
         // 桌面模式的控制台在折痕下面、不压画面：一直显示
-        return userPaused || menu != .none || (scrubMs != nil && !scrubbingByGesture) || isModal || fold.isTabletop
+        return userPaused || menu != .none || episodesOpen || (scrubMs != nil && !scrubbingByGesture) || isModal || fold.isTabletop
     }
 
     /// 能不能自己转屏：宽版式窗口（iPad、iPhone Duo 内屏）方向跟随设备，见 `PlayerOrientation.appControlsRotation`
@@ -609,7 +729,8 @@ private struct PlayerContent: View {
                             } else {
                                 PlayerOrientation.request(landscape: !landscape)
                             }
-                        }
+                        },
+                        onEpisodes: openEpisodes
                     )
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bottomBarFrame = $0 }
                     // 菜单用 overlay 挂在底栏上：不参与布局（否则高菜单会把底栏挤扁），
@@ -904,6 +1025,10 @@ private struct PlayerContent: View {
 
     private func handleTap(_ xRatio: CGFloat, _ isDouble: Bool) {
         controller.noteUserActivity()
+        if episodesOpen {
+            closeEpisodes()
+            return
+        }
         if menu != .none {
             menu = .none
             return

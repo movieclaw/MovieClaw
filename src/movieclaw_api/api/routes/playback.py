@@ -178,7 +178,7 @@ from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_api.settings import PlaybackPolicySetting
 from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.engine import get_database, get_session
-from movieclaw_db.models import LibraryFile, MediaItem, PlaybackMetric, PlaybackState
+from movieclaw_db.models import LibraryFile, MediaItem, MediaSeason, PlaybackMetric, PlaybackState
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.repositories.media_repo import MediaItemRepository
 from movieclaw_playback import activity
@@ -3083,6 +3083,33 @@ async def get_playback_item(
         poster_url = tmdb_image_url(item.poster_path, "poster")
     else:
         poster_url = None
+    seasons: list[int] | None = None
+    if item.kind == "tv":
+        # 与条目详情的季列表同口径：特别季 0 只在库里真有文件时出现
+        meta_seasons = (
+            (
+                await session.execute(
+                    select(MediaSeason.season_number).where(MediaSeason.media_item_id == item.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        owned_seasons = (
+            (
+                await session.execute(
+                    select(LibraryFile.season_number)
+                    .where(
+                        LibraryFile.library_id == library_id,
+                        LibraryFile.media_item_id == item.id,
+                    )
+                    .distinct()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        seasons = sorted({s for s in meta_seasons if s > 0} | set(owned_seasons))
     return ok(
         PlaybackItemView(
             media_item_id=item.id,
@@ -3091,6 +3118,7 @@ async def get_playback_item(
             title=display_title(item),
             year=item.year,
             poster_url=poster_url,
+            seasons=seasons,
         )
     )
 
