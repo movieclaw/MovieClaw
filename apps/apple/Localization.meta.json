@@ -20574,6 +20574,9 @@
     "player.controls.episodes": {
       "sourceHash": "3df9d17412fae0dd5321ff7fe3903dd4261356b535c52c36249e458c8a2afe7a"
     },
+    "player.controls.deck": {
+      "sourceHash": "d0d07d15316190364eb4449ebefdb5ad594b4817487848ce9522ec154564e148"
+    },
     "player.mac.episodesShortcut": {
       "sourceHash": "63185161790e6c190cef13a0c130d2328e487991cfb2a4e822c00d3f1afbf986"
     }
