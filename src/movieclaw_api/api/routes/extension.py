@@ -165,11 +165,18 @@ async def push_cookies(
 
     service = SiteConfigService(session)
     # configure 内部会校验该站点是否支持 cookie（不支持则 400），并将状态重置为 PENDING
-    await service.configure(
+    # 不传 enabled：保持站点原有启停（用户停用的站点不会被推送改回启用）
+    row = await service.configure(
         site_id=site.site_id,
         auth_type=AuthType.COOKIE,
         cookie=payload.cookie,
     )
+    if not row.enabled:
+        logger.info("站点 %s 已停用：仅更新 Cookie，保持停用，不触发验证", site.site_id)
+        return ok(
+            CookieSyncResult.from_model(row, display_name=site.display_name, domain=payload.domain),
+            message=t("settings.extension.cookieReceived"),
+        )
     row = await service.start_verification(site.site_id)
     background_tasks.add_task(verify_site, site.site_id)
 

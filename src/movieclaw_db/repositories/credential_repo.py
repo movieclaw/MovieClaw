@@ -63,15 +63,20 @@ class CredentialRepository:
         api_key: str | None = None,
         username: str | None = None,
         password: str | None = None,
-        enabled: bool = True,
+        enabled: bool | None = None,
     ) -> SiteCredential:
         """新增或整体更新一个站点的凭据，返回落库后的记录。
 
         存在则覆盖全部字段（含把未提供的敏感字段重置为 None，语义清晰、避免残留
         旧认证方式的脏数据），不存在则新建。
 
+        ``enabled``：显式 bool 覆盖启停开关；None 表示不改——新建行默认启用，
+        已有行保持原值（扩展推送 Cookie 不得把用户停用的站点改回启用）。
+
         重要：凭据一旦新增或变更，验证状态重置为 ``PENDING`` 并清空历史错误 ——
         新凭据是否有效尚未可知，必须重新走一遍异步验证才能回到 ACTIVE。
+        例外：``enabled`` 为 None 且已有行处于停用时，只更新凭据字段，不动
+        status / last_error——停用站点不会排队验证，重置成 PENDING 只会永久挂起。
         """
         box = get_secret_box()
         cookie_enc = box.encrypt(cookie) if cookie else cookie
@@ -86,7 +91,7 @@ class CredentialRepository:
                 api_key=api_key_enc,
                 username=username,
                 password=password_enc,
-                enabled=enabled,
+                enabled=True if enabled is None else enabled,
                 status=ConfigStatus.PENDING,
             )
             self._session.add(row)
@@ -96,11 +101,15 @@ class CredentialRepository:
             row.api_key = api_key_enc
             row.username = username
             row.password = password_enc
-            row.enabled = enabled
-            # 凭据已变更，作废旧的验证结论
-            row.status = ConfigStatus.PENDING
-            row.last_error = None
-            row.last_error_ref = None
+            # 停用行且未显式改启停：只换凭据，保留原验证状态（不会有人去验证它）
+            keep_status = enabled is None and not row.enabled
+            if enabled is not None:
+                row.enabled = enabled
+            if not keep_status:
+                # 凭据已变更，作废旧的验证结论
+                row.status = ConfigStatus.PENDING
+                row.last_error = None
+                row.last_error_ref = None
             row.updated_at = utcnow()
         await self._session.commit()
         await self._session.refresh(row)

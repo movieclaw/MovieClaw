@@ -210,6 +210,41 @@ def test_update_credentials_drops_stale_cookie_snapshot(client: TestClient) -> N
     assert client.portal.call(load_snapshot) is None
 
 
+def test_create_defaults_enabled_and_honors_explicit_disabled(client: TestClient) -> None:
+    """POST 不带 enabled 默认启用；显式 enabled=false 则建成停用。"""
+    r = client.post(
+        "/api/v1/sites", json={"site_id": "mteam", "auth_type": "apikey", "api_key": "k"}
+    )
+    assert r.status_code == 200
+    assert client.get("/api/v1/sites/mteam").json()["data"]["enabled"] is True
+
+    r = client.post(
+        "/api/v1/sites",
+        json={"site_id": "ttg", "auth_type": "cookie", "cookie": "uid=1", "enabled": False},
+    )
+    assert r.status_code == 200
+    assert client.get("/api/v1/sites/ttg").json()["data"]["enabled"] is False
+
+
+def test_update_with_explicit_enabled_toggles_site(client: TestClient) -> None:
+    """PUT 显式带 enabled 仍然生效：true 能把停用站点重新启用，false 能停用。"""
+    client.post("/api/v1/sites", json={"site_id": "mteam", "auth_type": "apikey", "api_key": "k1"})
+    client.patch("/api/v1/sites/mteam/status", json={"enabled": False})
+    assert client.get("/api/v1/sites/mteam").json()["data"]["enabled"] is False
+
+    r = client.put(
+        "/api/v1/sites/mteam", json={"auth_type": "apikey", "api_key": "k2", "enabled": True}
+    )
+    assert r.status_code == 200
+    assert client.get("/api/v1/sites/mteam").json()["data"]["enabled"] is True
+
+    r = client.put(
+        "/api/v1/sites/mteam", json={"auth_type": "apikey", "api_key": "k3", "enabled": False}
+    )
+    assert r.status_code == 200
+    assert client.get("/api/v1/sites/mteam").json()["data"]["enabled"] is False
+
+
 def test_delete_removes_site(client: TestClient) -> None:
     client.post(
         "/api/v1/sites",
@@ -340,6 +375,41 @@ async def test_profile_upsert_overwrites_single_row(db) -> None:
         assert second.id == first.id  # 同一行，而非新增
         assert second.uploaded_bytes == 999
         assert second.ratio is None  # None（未知）也如实覆盖，不残留旧值
+
+
+async def test_credential_upsert_enabled_none_keeps_existing(db) -> None:
+    """upsert(enabled=None)：新建默认启用；已存在则保持原启停值不动。"""
+    async with db.session() as session:
+        repo = CredentialRepository(session)
+        row = await repo.upsert(
+            site_id="mteam", auth_type=AuthType.APIKEY, api_key="k1", enabled=None
+        )
+        assert row.enabled is True  # 新建默认启用
+
+        await repo.set_enabled("mteam", False)
+        row = await repo.upsert(
+            site_id="mteam", auth_type=AuthType.APIKEY, api_key="k2", enabled=None
+        )
+        assert row.enabled is False  # 保持停用，不被凭据更新改回启用
+        assert CredentialRepository.decrypted_api_key(row) == "k2"
+
+
+async def test_credential_upsert_explicit_enabled_overrides(db) -> None:
+    """upsert 显式传 bool 时覆盖原值（Web 后台编辑的语义）。"""
+    async with db.session() as session:
+        repo = CredentialRepository(session)
+        row = await repo.upsert(
+            site_id="mteam", auth_type=AuthType.APIKEY, api_key="k", enabled=False
+        )
+        assert row.enabled is False
+        row = await repo.upsert(
+            site_id="mteam", auth_type=AuthType.APIKEY, api_key="k", enabled=True
+        )
+        assert row.enabled is True
+        row = await repo.upsert(
+            site_id="mteam", auth_type=AuthType.APIKEY, api_key="k", enabled=False
+        )
+        assert row.enabled is False
 
 
 async def test_delete_site_removes_profile_snapshot(db) -> None:

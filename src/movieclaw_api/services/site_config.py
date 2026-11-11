@@ -96,9 +96,12 @@ class SiteConfigService:
         api_key: str | None = None,
         username: str | None = None,
         password: str | None = None,
-        enabled: bool = True,
+        enabled: bool | None = None,
     ) -> SiteCredential:
         """新增或更新一个站点配置。
+
+        ``enabled`` 原样交给 repo：显式 bool 覆盖启停；None 不改（新建默认启用，
+        已有行保持原值；已停用的行只换凭据、不重置验证状态，见 CredentialRepository.upsert）。
 
         校验顺序：
         0. 若站点已存在且正在验证中 → 409（不允许边验证边改凭据）。
