@@ -4,6 +4,7 @@ import SwiftUI
 /// - `tabletop`：折痕横向——内屏竖着、下半平放在桌上（像笔记本）。上半放画面，下半是常显的控制台：
 ///   按钮、进度条、音轨字幕都在下半屏，功能与全屏时完全一样，只是换了位置（同 Netflix、Prime Video 的桌面模式）；
 /// - `book`：折痕竖向——像捧着一本书。画面不动；正中的后退 / 播放 / 前进正好压在折痕上（折痕处难点），整组挪到折痕外；
+///   选集面板打开时按折痕分页：左页画面与集名简介，右页选集列表；
 /// - `flat`：没有生效的折痕（全开、合上、不是 Duo）。
 ///
 /// 没用系统的 `ArrangementView`：播放器的控制层是画面上的一整套叠层（手势层、控制条、菜单、HUD、各种提示卡），
@@ -12,12 +13,28 @@ nonisolated enum PlayerFold: Equatable, Sendable {
     case flat
     /// 画面区的底边、控制台的顶边（播放器 GeometryReader 坐标）
     case tabletop(videoBottom: CGFloat, deckTop: CGFloat)
-    /// 中部按钮组水平挪多少点：挪到折痕外较宽那一半的正中（一样宽时去右半边，离右手拇指近）
-    case book(centerShift: CGFloat)
+    /// 中部按钮组水平挪多少点：挪到折痕外较宽那一半的正中（一样宽时去右半边，离右手拇指近）；
+    /// `creaseMinX` / `creaseMaxX` 是折痕的左右边（选集面板按它分页，见 `EpisodeStageLayout`）
+    case book(centerShift: CGFloat, creaseMinX: CGFloat, creaseMaxX: CGFloat)
 
     var isTabletop: Bool {
         if case .tabletop = self { return true }
         return false
+    }
+
+    /// 折痕在整屏容器（含安全区、原点在屏幕左上角）里的矩形；没折为 nil。
+    /// `size` 与 `safeArea` 是播放器 GeometryReader 的尺寸与安全区——折痕本来按它的坐标给
+    func crease(size: CGSize, safeArea: EdgeInsets) -> CGRect? {
+        switch self {
+        case .flat:
+            nil
+        case let .tabletop(videoBottom, deckTop):
+            CGRect(x: 0, y: safeArea.top + videoBottom,
+                   width: size.width + safeArea.leading + safeArea.trailing, height: deckTop - videoBottom)
+        case let .book(_, minX, maxX):
+            CGRect(x: safeArea.leading + minX, y: 0,
+                   width: maxX - minX, height: size.height + safeArea.top + safeArea.bottom)
+        }
     }
 
     /// `folds`：生效的折痕区域（与 `size` 同一坐标系）。折痕离边太近（上下或左右某一半不到四分之一）当没折——
@@ -35,7 +52,7 @@ nonisolated enum PlayerFold: Equatable, Sendable {
         let target = right >= left ? fold.maxX + right / 2 : left / 2
         // 那一半放不下整组时，至少别出屏（左右各留 16 点）
         let limit = max(0, size.width / 2 - centerClusterWidth / 2 - 16)
-        return .book(centerShift: min(max(target - size.width / 2, -limit), limit))
+        return .book(centerShift: min(max(target - size.width / 2, -limit), limit), creaseMinX: fold.minX, creaseMaxX: fold.maxX)
     }
 
     /// 中部「后退 / 播放 / 前进」整组的宽（56 + 36 + 76 + 36 + 56，见 `PlayerCenterControls`）
@@ -44,20 +61,26 @@ nonisolated enum PlayerFold: Equatable, Sendable {
     /// 读窗口里生效的折痕（iOS 27.1 起的保留区域；更早的系统没有折叠屏）
     static func activeFolds(_ proxy: GeometryProxy) -> [CGRect] {
         #if DEBUG
-        if let simulated = simulated(size: proxy.size) { return simulated }
+        if let simulated = simulated(size: proxy.size, safeArea: proxy.safeAreaInsets) { return simulated }
         #endif
         guard #available(iOS 27.1, *) else { return [] }
         return proxy.reservedRegions(kind: .division).map(\.frame)
     }
 
     #if DEBUG
-    /// 开发期：`-mcSimulateFold tabletop|book` 在任何模拟器上假装窗口正中有一道折痕（宽 24 点），核对两种排法用。
-    /// 真的开合只能在 DeviceHub 里点（simctl、XCUITest 都没有铰链接口）
-    private static func simulated(size: CGSize) -> [CGRect]? {
+    /// 开发期：`-mcSimulateFold tabletop|book` 在任何模拟器上假装屏幕正中有一道折痕（宽 24 点），核对两种排法用。
+    /// 真的折痕在整块屏幕的物理正中，不在安全区以内那块的正中（左右或上下安全区不一样宽时两者差几十点），
+    /// 所以按整屏算正中、再换回 GeometryReader 坐标。真的开合只能在 DeviceHub 里点（simctl、XCUITest 都没有铰链接口）
+    private static func simulated(size: CGSize, safeArea: EdgeInsets) -> [CGRect]? {
         switch UserDefaults.standard.string(forKey: "mcSimulateFold") {
-        case "tabletop": [CGRect(x: 0, y: size.height / 2 - 12, width: size.width, height: 24)]
-        case "book": [CGRect(x: size.width / 2 - 12, y: 0, width: 24, height: size.height)]
-        default: nil
+        case "tabletop":
+            let mid = (size.height + safeArea.top + safeArea.bottom) / 2 - safeArea.top
+            return [CGRect(x: 0, y: mid - 12, width: size.width, height: 24)]
+        case "book":
+            let mid = (size.width + safeArea.leading + safeArea.trailing) / 2 - safeArea.leading
+            return [CGRect(x: mid - 12, y: 0, width: 24, height: size.height)]
+        default:
+            return nil
         }
     }
     #endif

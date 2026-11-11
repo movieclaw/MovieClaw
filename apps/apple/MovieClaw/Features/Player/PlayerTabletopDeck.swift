@@ -8,12 +8,15 @@ import SwiftUI
 /// - 右边 2×2 方块：音轨、字幕、画质、画面，每块写着当前值（音轨字幕打开与底栏同一张面板，画质画面是系统菜单，
 ///   选项与底栏「⋯」同一份）；
 /// - **倍速**是一排直接可点的分段条（不用再进菜单），选中项是滑过去的白色药丸；
-/// - 剧集最底下一行**上一集 / 下一集**两张卡片，带那一集的剧照与集号集名，与播放区分开；
+/// - 剧集最底下一行是**选集胶囊**：中间一整条写着正在播的这一集（剧照、集号集名），点开选集面板（面板换掉控制台、占满下半屏）；
+///   上一集 / 下一集退成两端的小方键（2026-11-11 用户在 Demo 里挑定；原来的「上一集卡 · 下一集卡」加不进选集，三格太挤）；
 /// - 播放诊断在顶栏右上角的网速胶囊里（`PlayerTopBar.speedOpensDiagnostics`）。
 /// 功能与全屏时完全一样（人机界面指南：别把功能绑在某个姿态上），只是换了排法。底下垫的氛围背景见 `DeckAmbience`
 struct PlayerTabletopDeck: View {
     let controller: PlaybackController
     @Binding var menu: PlayerMenu
+    /// 打开选集面板
+    let onEpisodes: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
@@ -24,10 +27,7 @@ struct PlayerTabletopDeck: View {
             .frame(maxHeight: 240)
             DeckSpeedBar(controller: controller)
             if controller.unit.isEpisode, controller.clip == nil {
-                HStack(spacing: 12) {
-                    DeckEpisodeCard(controller: controller, previous: true)
-                    DeckEpisodeCard(controller: controller, previous: false)
-                }
+                DeckEpisodeBar(controller: controller, onEpisodes: onEpisodes)
             }
         }
     }
@@ -279,74 +279,88 @@ private struct DeckPressStyle: ButtonStyle {
     }
 }
 
-/// 上一集 / 下一集卡片（播放区外最底下一行，左右各一张）：那一集的剧照缩略图、「上一集 / 下一集」与集号集名，
-/// 上一集的箭头与缩略图在左、下一集的在右，两张镜像对称（试过去掉箭头，用户 2026-10-28 定还是带箭头）。没有上一集（第一集）或下一集（最后一集、缺集）时那张置灰
-private struct DeckEpisodeCard: View {
+/// 选集胶囊（播放区外最底下一行）：中间一整条是正在播的这一集——剧照、「选集 · 第 1 季 · 12 集」与集号集名、向上的箭头，
+/// 点它打开选集面板；两端是上一集 / 下一集的小方键，没有上一集（第一集）或下一集（最后一集、缺集）时置灰。
+/// 选集是主角、换集是顺手：主次靠宽窄拉开，整条都能点，手指落在桌面上不容易点偏
+private struct DeckEpisodeBar: View {
     let controller: PlaybackController
-    let previous: Bool
+    let onEpisodes: () -> Void
 
     var body: some View {
+        HStack(spacing: 10) {
+            stepButton(previous: true)
+            Button {
+                controller.noteUserActivity()
+                onEpisodes()
+            } label: {
+                HStack(spacing: 11) {
+                    thumbnail
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(summary)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.6))
+                        Text(EpisodePicker.caption(controller.unit.episode, name: controller.currentEpisode?.name))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .lineLimit(1)
+                .padding(.leading, 9)
+                .padding(.trailing, 14)
+                .frame(maxWidth: .infinity)
+                .frame(height: 60)
+                .glassEffect(.regular.tint(.black.opacity(0.15)).interactive(), in: .rect(cornerRadius: 20))
+                .contentShape(.rect(cornerRadius: 20))
+            }
+            .buttonStyle(DeckPressStyle())
+            .accessibilityLabel(String(localized: .playerControlsEpisodes))
+            .accessibilityValue(EpisodePicker.caption(controller.unit.episode, name: controller.currentEpisode?.name))
+            .accessibilityIdentifier("deck-episodes")
+            stepButton(previous: false)
+        }
+    }
+
+    /// 「选集 · 第 1 季 · 12 集」：分集还没取到时只写「选集 · 第 1 季」
+    private var summary: String {
+        var parts = [String(localized: .playerControlsEpisodes), EpisodePicker.seasonName(controller.unit.season)]
+        if !controller.episodes.isEmpty { parts.append(String(localized: .libraryItemEpisodeCount(controller.episodes.count))) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func stepButton(previous: Bool) -> some View {
         let episode = previous ? controller.previousEpisode : controller.nextEpisode
         let title = previous ? String(localized: .playerControlsPreviousEpisode) : String(localized: .playerControlsNextEpisode)
-        let number = episode.map { String(localized: .mediaEpisodeNumber($0.episodeNumber)) }
-        Button {
+        return Button {
             controller.noteUserActivity()
             if previous { controller.playPrevious() } else { controller.playNext() }
         } label: {
-            HStack(spacing: 10) {
-                if previous {
-                    icon
-                    thumbnail(episode)
-                }
-                VStack(alignment: previous ? .leading : .trailing, spacing: 2) {
-                    Text(title)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.6))
-                    Text(subtitle(number: number, episode: episode))
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.white)
-                }
-                .frame(maxWidth: .infinity, alignment: previous ? .leading : .trailing)
-                if !previous {
-                    thumbnail(episode)
-                    icon
-                }
-            }
-            .lineLimit(1)
-            .padding(8)
-            .frame(height: 56)
-            .glassEffect(.regular.tint(.black.opacity(0.15)).interactive(), in: .rect(cornerRadius: 20))
-            .contentShape(.rect(cornerRadius: 20))
+            Image(systemName: previous ? "backward.end.fill" : "forward.end.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 60)
+                .glassEffect(.regular.tint(.black.opacity(0.15)).interactive(), in: .rect(cornerRadius: 20))
+                .contentShape(.rect(cornerRadius: 20))
         }
         .buttonStyle(DeckPressStyle())
         .disabled(episode == nil)
         .opacity(episode == nil ? 0.35 : 1)
-        .accessibilityLabel([title, number].compactMap { $0 }.joined(separator: "，"))
+        .accessibilityLabel(title)
+        .accessibilityValue(episode.map { EpisodePicker.caption($0.episodeNumber, name: $0.name) } ?? "")
         .accessibilityIdentifier(previous ? "deck-previous" : "deck-next")
     }
 
-    private var icon: some View {
-        Image(systemName: previous ? "backward.end.fill" : "forward.end.fill")
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 20)
-    }
-
-    /// 「第 3 集 · 潮汐之下」；没有集名只写集号，没有这一集写「—」
-    private func subtitle(number: String?, episode: API.EpisodeView?) -> String {
-        guard let number else { return "—" }
-        guard let name = episode?.name, !name.isEmpty else { return number }
-        return "\(number) · \(name)"
-    }
-
-    private func thumbnail(_ episode: API.EpisodeView?) -> some View {
+    private var thumbnail: some View {
         Color.white.opacity(0.08)
             .overlay {
-                if let url = controller.scope.api.image(episode?.stillUrl, width: ImageWidth.points(64)) {
+                if let url = controller.scope.api.image(controller.currentEpisode?.stillUrl, width: ImageWidth.points(66)) {
                     RemoteImage(url: url)
                 }
             }
-            .frame(width: 64, height: 36)
+            .frame(width: 66, height: 37)
             .clipShape(.rect(cornerRadius: 8))
     }
 }

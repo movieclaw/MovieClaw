@@ -443,6 +443,120 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
     }
 
+    /// iPhone Duo 桌面模式（`-mcSimulateFold tabletop`：窗口正中一道横向折痕）：控制台最底一行是选集胶囊，
+    /// 点开后面板换掉控制台、占满折痕以下，画面不动 →「控制台」回去 → 点一集换过去并回到控制台 → 两端小键换下一集 / 上一集。
+    /// 控制台要内屏那么高才放得下：窗口不到 900 点高（合上的外屏、普通 iPhone）就跳过
+    @MainActor
+    func testTabletopEpisodeBar() throws {
+        continueAfterFailure = false
+        let (show, first, second, third) = try XCTUnwrap(try findDrawerEpisodes(), "服务器上没有找到第一季连着三集都在位的剧集")
+        var saved: [(Int, [String: Any])] = []
+        for episode in [first, second, third] { saved.append((episode, try resumeState(show, 1, episode))) }
+        defer { for (episode, state) in saved { try? restoreEpisode(show, episode, state, season: 1) } }
+
+        // 桌面模式是竖拿着折的：iPad 当内屏用时先转成竖屏
+        XCUIDevice.shared.orientation = .portrait
+        let app = launchFolded(show: show, episode: first, fold: "tabletop")
+        // 窗口高度用播放器根视图量：iPad 上 app.windows.firstMatch 取到的是一个零尺寸的窗口
+        let window = app.descendants(matching: .any)["player-screen"]
+        try XCTSkipIf(window.frame.height < 900, "桌面模式要在 iPhone Duo 内屏（展开竖拿）这样的高窗口上测（现在窗口 \(window.frame)）")
+
+        let bar = app.buttons["deck-episodes"]
+        XCTAssertTrue(bar.waitForExistence(timeout: 10), "控制台里没有选集胶囊")
+        // 控制台顶栏（退出键）紧贴折痕下沿：拿它当折痕的位置（播放器根视图在 iPad 上不从屏幕顶端算起，用它的中线不准）
+        let deckTop = app.buttons["player-close"].frame.minY
+        XCTAssertGreaterThan(bar.frame.minY, deckTop, "选集胶囊应在控制台里")
+        // 控制台一行的宽（左右各留 16 点）：面板打开后应同样占满下半屏的宽
+        let deckWidth = app.buttons["deck-next"].frame.maxX - app.buttons["deck-previous"].frame.minX
+        XCTAssertTrue(app.buttons["deck-previous"].exists && app.buttons["deck-next"].exists, "胶囊两端应有上一集 / 下一集")
+        shot(app, "tabletop-deck")
+
+        // 打开：面板占满折痕以下、停在正在播的那一集，控制台让出位置
+        let drawer = app.descendants(matching: .any)["player-episodes"]
+        bar.tap()
+        XCTAssertTrue(drawer.waitForExistence(timeout: 5), "选集面板没有打开")
+        XCTAssertTrue(app.buttons["episode-current"].waitForExistence(timeout: 5), "面板没有停在正在播的那一集")
+        XCTAssertTrue(bar.waitForNonExistence(timeout: 3), "面板开着时控制台应让开")
+        sleep(1)
+        XCTAssertGreaterThanOrEqual(drawer.frame.minY, deckTop - 24, "面板应在折痕以下（控制台原来的位置）")
+        XCTAssertLessThanOrEqual(drawer.frame.minY, deckTop + 24, "面板应从折痕下沿起、占满下半屏")
+        XCTAssertGreaterThan(drawer.frame.width, deckWidth, "面板应占满下半屏的宽")
+        XCTAssertTrue(app.buttons["episode-current"].isHittable, "正在播的那一集不在可见范围里")
+        shot(app, "tabletop-episodes")
+
+        //「控制台」回去
+        tapControl(app, "episodes-close")
+        XCTAssertTrue(drawer.waitForNonExistence(timeout: 5), "点「控制台」应收起面板")
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "收起面板后控制台应回来")
+
+        // 点另一集：换过去，回到控制台
+        bar.tap()
+        let target = app.buttons["episode-\(second)"]
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "面板里没有第 \(second) 集")
+        target.tap()
+        XCTAssertTrue(drawer.waitForNonExistence(timeout: 5), "选了一集后面板应收起")
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "换集后应回到控制台")
+        assertPlaying(app, season: 1, episode: second)
+
+        // 两端小键
+        tapControl(app, "deck-next")
+        assertPlaying(app, season: 1, episode: third)
+        tapControl(app, "deck-previous")
+        assertPlaying(app, season: 1, episode: second)
+    }
+
+    /// iPhone Duo 书本半折（`-mcSimulateFold book`：窗口正中一道竖向折痕）：选集面板按折痕分页——
+    /// 面板整块在右页，左页是缩小的画面；点一集换过去。竖屏的手机先转成横屏（真机只有横拿的内屏能书本半折）
+    @MainActor
+    func testBookFoldEpisodeDrawer() throws {
+        continueAfterFailure = false
+        let (show, first, second, _) = try XCTUnwrap(try findDrawerEpisodes(), "服务器上没有找到第一季连着三集都在位的剧集")
+        var saved: [(Int, [String: Any])] = []
+        for episode in [first, second] { saved.append((episode, try resumeState(show, 1, episode))) }
+        defer { for (episode, state) in saved { try? restoreEpisode(show, episode, state, season: 1) } }
+
+        let app = launchFolded(show: show, episode: first, fold: "book")
+        let window = app.windows.firstMatch
+        if window.frame.width < window.frame.height {
+            tapControl(app, "player-横屏")
+            let rotated = NSPredicate { _, _ in window.frame.width > window.frame.height }
+            wait(for: [expectation(for: rotated, evaluatedWith: nil)], timeout: 10)
+        }
+
+        let drawer = app.descendants(matching: .any)["player-episodes"]
+        tapControl(app, "player-episodes-button")
+        XCTAssertTrue(drawer.waitForExistence(timeout: 5), "选集面板没有打开")
+        XCTAssertTrue(app.buttons["episode-current"].waitForExistence(timeout: 5), "面板没有停在正在播的那一集")
+        sleep(1)
+        shot(app, "book-episodes")
+        // 折痕在正中：面板整块在右页
+        let video = app.descendants(matching: .any)["player-video"].frame
+        XCTAssertGreaterThan(drawer.frame.minX, window.frame.midX, "面板应整块在折痕右边")
+        XCTAssertLessThan(video.maxX, window.frame.midX, "让位后的画面应整块在折痕左边")
+
+        let target = app.buttons["episode-\(second)"]
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "面板里没有第 \(second) 集")
+        target.tap()
+        XCTAssertTrue(drawer.waitForNonExistence(timeout: 5), "选了一集后面板应收起")
+        assertPlaying(app, season: 1, episode: second)
+    }
+
+    /// 带模拟折痕打开某一集，等进度前进
+    @MainActor
+    private func launchFolded(show: Int, episode: Int, fold: String) -> XCUIApplication {
+        startSeconds = 20
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-mcServer", server, "-mcUser", username, "-mcPass", password,
+            "-mcRoute", String(format: "/play/%d/s01e%02d?t=%d", show, episode, startSeconds),
+            "-mcPlayerPinChrome", "YES", "-mcSimulateFold", fold,
+        ]
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForExistence(timeout: 30), "播放器没有打开")
+        XCTAssertTrue(waitForPosition(app, atLeast: startSeconds + 2, timeout: 90), "进度没有前进")
+        return app
+    }
+
     /// 顶栏写着这一集，且在播放（播放头从这一集的开头往前走）
     @MainActor
     private func assertPlaying(_ app: XCUIApplication, season: Int, episode: Int, file: StaticString = #filePath, line: UInt = #line) {
