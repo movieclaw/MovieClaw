@@ -219,3 +219,112 @@ def test_push_requires_token(client: TestClient) -> None:
         json={"domain": "totheglory.im", "cookie": "c=1"},
     )
     assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 推送 Cookie 不得改动站点的启用开关（停用是用户在后台的明确意图）
+# ---------------------------------------------------------------------------
+
+
+def _record_verify(monkeypatch) -> list[str]:
+    """把假验证换成"记录 + 判成功"，返回被排队验证的 site_id 列表。"""
+    calls: list[str] = []
+
+    async def _recording_verify(site_id: str) -> None:
+        calls.append(site_id)
+        await _fake_verify_site(site_id)
+
+    monkeypatch.setattr(ext_routes, "verify_site", _recording_verify)
+    return calls
+
+
+def _load_row(client: TestClient, site_id: str):
+    """在 app 的事件循环里直接读库，返回凭据行（含密文字段，按需解密）。"""
+
+    async def _load():
+        async with get_database().session() as session:
+            return await CredentialRepository(session).get_by_site(site_id)
+
+    return client.portal.call(_load)
+
+
+def test_push_to_disabled_site_keeps_disabled_and_skips_verify(
+    client: TestClient, monkeypatch
+) -> None:
+    """已停用的站点：扩展推送只更新 Cookie，不重新启用、不重置状态、不触发验证。"""
+    token = _new_token(client)
+    calls = _record_verify(monkeypatch)
+    # 先正常推送一次，假验证后为 active
+    client.post(
+        "/api/v1/extension/cookies",
+        headers=_auth(token),
+        json={"domain": "totheglory.im", "cookie": "c_secure_uid=abc; c_secure_pass=old"},
+    )
+    assert client.get("/api/v1/sites/ttg").json()["data"]["status"] == "active"
+    # 用户在后台停用该站点
+    d = client.patch("/api/v1/sites/ttg/status", json={"enabled": False}).json()["data"]
+    assert d["enabled"] is False
+    calls.clear()
+
+    # 扩展自动同步再次推送新 Cookie
+    r = client.post(
+        "/api/v1/extension/cookies",
+        headers=_auth(token),
+        json={"domain": "totheglory.im", "cookie": "c_secure_uid=abc; c_secure_pass=new"},
+    )
+    assert r.status_code == 200
+
+    d = client.get("/api/v1/sites/ttg").json()["data"]
+    assert d["enabled"] is False  # 仍为停用
+    assert d["status"] == "active"  # 保持推送前状态，未被重置为 pending
+    assert calls == []  # 停用站点不排队验证
+    # Cookie 已更新为新值
+    row = _load_row(client, "ttg")
+    assert CredentialRepository.decrypted_cookie(row) == "c_secure_uid=abc; c_secure_pass=new"
+
+
+def test_push_to_enabled_site_keeps_enabled_and_reverifies(
+    client: TestClient, monkeypatch
+) -> None:
+    """已启用的站点：推送行为不变 —— 保持启用、占位 verifying、排队验证。"""
+    token = _new_token(client)
+    calls = _record_verify(monkeypatch)
+    client.post(
+        "/api/v1/extension/cookies",
+        headers=_auth(token),
+        json={"domain": "totheglory.im", "cookie": "c_secure_uid=abc; c_secure_pass=old"},
+    )
+    calls.clear()
+
+    r = client.post(
+        "/api/v1/extension/cookies",
+        headers=_auth(token),
+        json={"domain": "totheglory.im", "cookie": "c_secure_uid=abc; c_secure_pass=new"},
+    )
+    assert r.status_code == 200
+    assert r.json()["data"]["status"] == "verifying"
+    assert calls == ["ttg"]
+
+    d = client.get("/api/v1/sites/ttg").json()["data"]
+    assert d["enabled"] is True
+    assert d["status"] == "active"
+    row = _load_row(client, "ttg")
+    assert CredentialRepository.decrypted_cookie(row) == "c_secure_uid=abc; c_secure_pass=new"
+
+
+def test_push_to_new_site_creates_enabled(client: TestClient, monkeypatch) -> None:
+    """首次推送的新站点：创建并默认启用，排队验证。"""
+    token = _new_token(client)
+    calls = _record_verify(monkeypatch)
+    assert client.get("/api/v1/sites/ttg").status_code == 404
+
+    r = client.post(
+        "/api/v1/extension/cookies",
+        headers=_auth(token),
+        json={"domain": "totheglory.im", "cookie": "c_secure_uid=abc; c_secure_pass=xyz"},
+    )
+    assert r.status_code == 200
+    assert calls == ["ttg"]
+    d = client.get("/api/v1/sites/ttg").json()["data"]
+    assert d["enabled"] is True
+    assert d["status"] == "active"
