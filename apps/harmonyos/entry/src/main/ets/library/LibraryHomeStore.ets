@@ -121,9 +121,10 @@ class HomePlan {
  *
  * 数据放在跟着账号走的共享对象里，页面只负责渲染：
  * - 刷新：库、接下来继续、收藏、各行条目、「按类型找」的类型分布按依赖并发取；
- * - 库状态、要取的行、合集都没变时不重拉各行条目；类型行的 kind 没变时不重拉
- *   类型分布——两道指纹闸各管各的，类型分布瞬时失败保留旧格子、不落指纹，下
- *   一轮轮询重试（空闲时每 30 秒不必打 1+N 个请求）；
+ * - 库状态、要取的行、合集都没变时不重拉各行条目；类型行的 kind 集合与各 kind
+ *   相关库的扫描/整理状态、台账快照都没变时不重拉类型分布——两道指纹闸各管各
+ *   的，类型分布瞬时失败保留旧格子、不落指纹，下一轮轮询重试（空闲时每 30 秒
+ *   不必打 1+N 个请求）；
  * - 瞬时失败不清已有数据，只置 failed 让页面挂提示条；一次都没成功过才整页报错；
  * - 有库在扫描 / 整理时 busyUntil 往后 12 秒，页面据此保持 3 秒快轮询（同 Web recentlyBusy）。
  * - 整页磁盘快照（cacheDir/library-home-cache.json）：冷启动先上屏缓存，网络完成后二次刷新；
@@ -139,9 +140,9 @@ export class LibraryHomeStore {
   favorites: FavoritesView | null = null;
   itemsByKey: Map<string, LibraryItemView[]> = new Map<string, LibraryItemView[]>();
   /** 「按类型找」行各自的类型格子（按 kind 存，服务端按部数排好）。
-   *  有自己的一道指纹闸（只看类型行的 kind）：库状态/行的构成变了才重取，
-   *  所以扫描结束、增删类型行后会自动刷新；瞬时失败保留旧格子、不落指纹，
-   *  下一轮轮询重试——空格子永远不会被指纹记住。 */
+   *  有自己的一道指纹闸（类型行的 kind 集合 + 各 kind 相关库的扫描/整理状态与
+   *  台账快照）：扫描结束、扫描入库、增删类型行后都会自动重取；瞬时失败保留旧
+   *  格子、不落指纹，下一轮轮询重试——空格子永远不会被指纹记住。 */
   genresByKind: Record<string, LibraryKindGenreView[]> = {};
   /** 各行条目至少到过一次 */
   rowsLoaded: boolean = false;
@@ -153,7 +154,8 @@ export class LibraryHomeStore {
   private owner: string | null = null;
   /** 各行条目上次拉取时的输入指纹（库状态、要取的行、合集），没变就不重拉 */
   private rowsFingerprint: string | null = null;
-  /** 类型分布上次拉取时的输入指纹（类型行的 kind 集合）；失败不提交，下一轮重试 */
+  /** 类型分布上次拉取时的输入指纹（类型行的 kind 集合 + 各 kind 相关库的扫描/
+   *  整理状态与台账快照）；失败不提交，下一轮重试 */
   private genresFingerprint: string | null = null;
   private refreshedAt: number | null = null;
   private inFlight: Promise<void> | null = null;
@@ -338,8 +340,9 @@ export class LibraryHomeStore {
       }
 
       // 各行条目与类型分布拆成两道闸：行条目看库状态、要取的行、合集；类型分布
-      // 只看类型行的 kind。两闸各管各的——类型接口瞬时失败时保留旧格子、不落指
-      // 纹（空格子一旦被指纹记住就永远不会重试），下一轮轮询再试；行条目照常。
+      // 看类型行的 kind 集合与各 kind 相关库的扫描/整理状态、台账快照。两闸各
+      // 管各的——类型接口瞬时失败时保留旧格子、不落指纹（空格子一旦被指纹记住
+      // 就永远不会重试），下一轮轮询再试；行条目照常。
       const rowPrefs: HomeRowPref[] = prefs.rows ?? [];
       const visibleRows: HomeRow[] = HomeRows.build(rowPrefs, libs, cols)
         .filter((row: HomeRow): boolean => !row.hidden);
@@ -355,7 +358,7 @@ export class LibraryHomeStore {
         }
       }
       const rowFingerprint: string = LibraryHomeStore.fingerprint(libs, fetches, cols);
-      const genreFingerprint: string = genreKinds.join(',');
+      const genreFingerprint: string = LibraryHomeStore.genresFingerprintOf(genreKinds, libs);
       const rowsNeed: boolean = rowFingerprint !== this.rowsFingerprint;
       const genresNeed: boolean = genreFingerprint !== this.genresFingerprint;
       if (rowsNeed || genresNeed) {
@@ -586,6 +589,26 @@ export class LibraryHomeStore {
     cols: CollectionView[]): string {
     const keys: string[] = Array.from(fetches.keys()).sort();
     return `${JSON.stringify(libs)}#${keys.join(',')}#${JSON.stringify(cols)}`;
+  }
+
+  /** 类型分布指纹：类型行的 kind 集合 + 各 kind 相关库的 id / 扫描与整理状态 /
+   *  台账快照（item_count / file_count）。只拼 kind 集合时，「扫描中类型接口成
+   *  功返回空 → 提交指纹 → 扫描结束 kind 没变」会让类型行一直空白——指纹把空
+   *  结果记成了结论。把相关库的世界拼进来后：扫描结束（scanning 翻转）、扫描
+   *  分批入库（file_count / item_count 增长）都会推动指纹变化，下一轮轮询自动
+   *  重取；库台账没动静时指纹不动，闸照常省流量。 */
+  private static genresFingerprintOf(kinds: string[], libs: LibraryView[]): string {
+    const parts: string[] = [];
+    for (const kind of kinds) {
+      const perLib: string[] = [];
+      for (const lib of libs) {
+        if (lib.kind !== kind) { continue; }
+        perLib.push(`${lib.id}:${lib.scanning ? 1 : 0}:${lib.organizing ? 1 : 0}` +
+          `:${lib.stats.item_count}:${lib.stats.file_count}`);
+      }
+      parts.push(`${kind}=${perLib.join(',')}`);
+    }
+    return parts.join('|');
   }
 
   /** 「按类型找」各 kind 的类型分布：并发取、整组成败——任一失败整轮作废，调用

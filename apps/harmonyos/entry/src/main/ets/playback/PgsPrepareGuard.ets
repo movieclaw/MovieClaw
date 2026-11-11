@@ -44,11 +44,69 @@ export class PgsPrepareGuard {
     return PgsPrepareGuard.outcomeRemount;
   }
 
+  /** 这条在途请求是否仍属于当前会话世界（epoch 与会话对象都没换）。防重入登记
+   *  簿（PgsPrepareTracker）用它区分「同请求重入（拦住）」与「重协商后旧请求
+   *  占位（放行新代次重跑）」——只按 key 防重入时，同文件重开（越出转码窗口、
+   *  档位失败重试、重开音画设置）后的再预备会被旧会话的登记拦掉，而旧请求完成
+   *  时又因世界已换而作废，从此没人再试，字幕一直缺失。 */
+  aliveIn(currentEpoch: number, currentSession: PlaybackSessionView | null): boolean {
+    return this.epoch === currentEpoch && currentSession === this.session;
+  }
+
   /** 这条 PGS 还是不是当前选中的轨（下标越界 = 切走 / 关了） */
   static stillSelected(subtitleIndex: number, ref: string, view: PlaybackSessionView): boolean {
     if (subtitleIndex < 0 || subtitleIndex >= view.decision.subtitles.length) {
       return false;
     }
     return view.decision.subtitles[subtitleIndex].track_ref === ref;
+  }
+}
+
+/**
+ * PGS 旁挂预备的在途登记簿（PhonePlaybackHost 的防重入簿记抽成纯类：宿主是
+ * struct，进不了测试转译管线，抽出来 node / 真机两侧都能做宿主级测试）。
+ *
+ * 只按 key（fileId:ref）登记时有两个洞：
+ * - **重协商被旧请求占位**：同文件重开（越出转码窗口、档位失败重试、重开音画
+ *   设置）后再预备同一条轨，被旧会话留下的在途 key 拦住；旧请求完成时又因
+ *   epoch / 会话已换而作废，谁都不会再试——字幕从此缺失。起跑前多对一次账：
+ *   在途请求已不属当前世界就放行新代次重跑，旧请求完成自会按自己的代次作废、
+ *   只删自己那份文件；
+ * - **晚完成误清后来者的登记**：A1→B→A2 时 A1 的收尾只比 key，会把 A2 的登记
+ *   清掉，下一次同 key 的预备不再被拦，白重复下载几十 MB。登记以请求为单位：
+ *   起跑时登记、收尾时只清自己那笔。
+ */
+export class PgsPrepareTracker {
+  private key: string = '';
+  private guard: PgsPrepareGuard | null = null;
+
+  /** 同 key 的在途请求仍属当前会话世界时返回 false（拦住重入）；key 不同、或在
+   *  途请求已属旧世界（重协商后注定作废）时放行新代次起跑 */
+  canStart(key: string, epoch: number, session: PlaybackSessionView | null): boolean {
+    const inFlight: PgsPrepareGuard | null = this.guard;
+    if (inFlight !== null && this.key === key && inFlight.aliveIn(epoch, session)) {
+      return false;
+    }
+    return true;
+  }
+
+  /** 起跑时登记（新请求覆盖旧请求：换轨 / 换集时旧请求让位） */
+  begin(key: string, guard: PgsPrepareGuard): void {
+    this.key = key;
+    this.guard = guard;
+  }
+
+  /** 收尾时只清自己的登记：晚完成的旧请求（A1→B→A2 里的 A1）碰不到后来者 */
+  end(guard: PgsPrepareGuard): void {
+    if (this.guard === guard) {
+      this.key = '';
+      this.guard = null;
+    }
+  }
+
+  /** 退出播放页时整体作废 */
+  reset(): void {
+    this.key = '';
+    this.guard = null;
   }
 }

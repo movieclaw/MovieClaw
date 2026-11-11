@@ -530,7 +530,8 @@ test('a transient genre failure keeps the old tiles, retries next round, and nev
   const { HomeRows } = load('entry/src/main/ets/library/HomeRows.ets');
   const { LibraryHomeStore } = load('entry/src/main/ets/library/LibraryHomeStore.ets');
   const library = { id: 1, name: 'Movies', kind: 'movie', viewer_access: true,
-    exclude_from_home: false, stats: { item_count: 5 } };
+    exclude_from_home: false, scanning: false, organizing: false,
+    stats: { item_count: 5, file_count: 6 } };
   // The default layout is exactly these rows: using it as the row prefs keeps build() from appending anything.
   const prefs = HomeRows.build([], [library], []).map((row) => ({ id: row.id, hidden: row.hidden }));
   const rowCalls = [];
@@ -572,4 +573,53 @@ test('a transient genre failure keeps the old tiles, retries next round, and nev
   await store.reload(api, 'owner');
   assert.equal(rowCalls.length, rowsAfterFirst);
   assert.equal(genreCalls, 3);
+});
+
+test('a genre answer landed mid-scan does not outlive the scan', async () => {
+  const load = runtime();
+  const { HomeRows } = load('entry/src/main/ets/library/HomeRows.ets');
+  const { LibraryHomeStore } = load('entry/src/main/ets/library/LibraryHomeStore.ets');
+  // Review round 2: while a scan runs the genre endpoint can legitimately answer an
+  // empty list and still commit its fingerprint. Once the scan lands files and ends,
+  // the fingerprint has to move so the next poll brings the tiles back — an empty
+  // answer must never be remembered as the final verdict.
+  let scanning = true;
+  let itemCount = 0;
+  const library = () => ({ id: 7, name: 'Movies', kind: 'movie', viewer_access: true,
+    exclude_from_home: false, scanning, organizing: false,
+    stats: { item_count: itemCount, file_count: itemCount } });
+  const prefs = HomeRows.build([], [library()], []).map((row) => ({ id: row.id, hidden: row.hidden }));
+  let genreCalls = 0;
+  const api = {
+    uiPrefsShow: async () => ({ home: { rows: prefs } }),
+    libraryList: async () => [library()],
+    collectionList: async () => [],
+    playbackUpNext: async () => ({ items: [] }),
+    playbackFavorites: async () => ({ items: [], total: 0 }),
+    libraryItemsList: async () => [],
+    uiLibraryKindItems: async () => [],
+    uiLibraryKindGenres: async () => {
+      genreCalls++;
+      return scanning ? [] : [{ name: 'Drama', count: 2 }];
+    },
+  };
+  const store = new LibraryHomeStore();
+  // Round 1: mid-scan the endpoint succeeds with an empty list — the fingerprint commits.
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 1);
+  assert.deepEqual(store.genresByKind, { movie: [] });
+  // Round 2: still scanning and the ledger has not moved — the genre gate stays shut.
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 1);
+  assert.deepEqual(store.genresByKind, { movie: [] });
+  // Round 3: the scan batch has landed and the scan ended — the fingerprint moves, the tiles come back.
+  scanning = false;
+  itemCount = 2;
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 2);
+  assert.deepEqual(store.genresByKind, { movie: [{ name: 'Drama', count: 2 }] });
+  // Round 4: the world is stable again — nothing is requested.
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 2);
+  assert.deepEqual(store.genresByKind, { movie: [{ name: 'Drama', count: 2 }] });
 });
