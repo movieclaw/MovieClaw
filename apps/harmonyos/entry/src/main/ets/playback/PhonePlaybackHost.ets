@@ -12,7 +12,7 @@ import { PlayerPrefs, SubStyle } from '../player/PlayerPrefs';
 import { PlaybackController, PlaybackSnapshot, PlaybackIntent, PlaybackSessionCoordinator, PlaybackOwnership, SkipSegments } from '@movieclaw/playback';
 import { EngineEvent, EngineFailure } from '@movieclaw/player-engine';
 import { PhoneMedia, playbackUrl, downloadPgsSidecar, removePgsSidecar, PgsSidecarCache } from './PhoneMedia';
-import { PgsPrepareGuard } from './PgsPrepareGuard';
+import { PgsPrepareGuard, PgsPrepareTracker } from './PgsPrepareGuard';
 import { MovieClawPlaybackSession } from './MovieClawPlaybackSession';
 import { MovieClawPlaybackGateway } from './MovieClawPlaybackGateway';
 
@@ -287,10 +287,11 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   subtitleRef: string = '';
   /** 切入 PGS 之前的字幕下标（-1 = 之前关着；PGS→PGS 不覆盖）——MPV 拉不起来时的回滚落点 */
   private subtitleBeforePgsIndex: number = -1;
-  /** 客户端渲染的 PGS 旁挂 .sup 缓存（一次下载，会话内复用；换文件/换轨作废） */
+  /** 客户端渲染的 PGS 旁挂 .sup 缓存（一次下载，会话内复用；确认换文件后立即回收，换轨作废） */
   private pgsSidecarFile: PgsSidecarCache | null = null;
-  /** 正在后台预备的 PGS 旁挂键（fileId:ref），防重入 */
-  private pgsPreparingKey: string = '';
+  /** 预备请求的在途登记簿（key = 在途请求 = 起跑时的世界三元对账）：同请求重入
+   *  拦住；重协商后旧在途不再占位、放行新代次重跑；晚完成的旧请求只清自己的登记 */
+  private pgsPreparing: PgsPrepareTracker = new PgsPrepareTracker();
   /** 预备请求代次：每次起跑 +1；旧代次晚完成一律作废（只删自己那份，不碰最新挂上的缓存） */
   private pgsPrepareSeq: number = 0;
   /** 音轨：当前选中的 ref（空 = 服务端自动挑） */
@@ -440,7 +441,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     PlaybackTestProbe.record('dispose');
     this.disposed = true; ++this.sessionEpoch;
     if (this.pgsSidecarFile !== null) { removePgsSidecar(this.pgsSidecarFile.path); this.pgsSidecarFile = null; }
-    this.pgsPreparingKey = '';
+    this.pgsPreparing.reset();
     this.surfaceWaiter?.(''); this.surfaceWaiter = null;
     PlaybackOwnership.release(this);
     if (this.chromeTimer >= 0) { clearTimeout(this.chromeTimer); }
@@ -552,6 +553,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       const view = await gateway.open(body, PlayerPrefs.engine(), true);
       if (epoch !== this.sessionEpoch || this.disposed) { await gateway.stop(view); return; }
       this.session = view;
+      this.reclaimPgsSidecarIfFileChanged(view);
       PlaybackTestProbe.record('session', `tier=${view.decision.tier};file=${view.decision.file_id}`);
       PlaybackTestProbe.record('delivery', JSON.stringify({ tier: view.decision.tier,
         audio: view.decision.audio, video: view.decision.video }));
@@ -652,7 +654,9 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     this.localMediaPath = media;
     this.localUnit = unit;
     this.localSpec = spec;
-    this.session = this.localSessionView(spec, resumeMs);
+    const localView: PlaybackSessionView = this.localSessionView(spec, resumeMs);
+    this.session = localView;
+    this.reclaimPgsSidecarIfFileChanged(localView);
     this.viewingRecorder = new OfflineViewingRecorder(unit, resumeMs,
       spec.durationMs ?? null, this.api());
     this.phase = PlayerPhase.ready;
@@ -877,22 +881,24 @@ export class PhonePlaybackHost implements PlaybackTestHost {
 
   /**
    * 后台预备 PGS 旁挂 .sup（对齐网页 libbitsub + fetchSupBytes 的客户端路径）：
-   * `requestInStream` 落盘绕开响应体大小上限；完成后按起跑时记下的世界对账
-   * （PgsPrepareGuard 三分法）——退出/换集/重协商/已有更新的预备请求起跑 →
-   * 作废删文件（同会话快切 PGS 轨时旧请求晚完成也只删自己那份，绝不驱逐新请
-   * 求刚挂上的缓存）；中途切走这条轨 → 只入缓存不重挂，切回来命中缓存再挂；
-   * 什么都没变 → 驱逐旧缓存、保持当前位置重挂一次，让 mpv `sub-add` 带上字
-   * 幕（fd + sub-delay=-start_ms/1000 与文本旁挂同一条链路）。首抽空窗期照常
-   * 播放，不阻塞起播。
+   * `requestInStream` 落盘绕开响应体大小上限；防重入按「key + 在途请求的世界」
+   * 对账（PgsPrepareTracker）——同请求重入拦住，重协商后旧在途请求不再占位、
+   * 放行新代次重跑（旧请求完成自会作废，只删自己那份）；完成后按起跑时记下的
+   * 世界对账（PgsPrepareGuard 三分法）——退出/换集/重协商/已有更新的预备请求
+   * 起跑 → 作废删文件（同会话快切 PGS 轨时旧请求晚完成也只删自己那份，绝不驱
+   * 逐新请求刚挂上的缓存）；中途切走这条轨 → 只入缓存不重挂，切回来命中缓存
+   * 再挂；什么都没变 → 驱逐旧缓存、保持当前位置重挂一次，让 mpv `sub-add` 带
+   * 上字幕（fd + sub-delay=-start_ms/1000 与文本旁挂同一条链路）。首抽空窗期
+   * 照常播放，不阻塞起播。
    */
   private async preparePgsSidecar(url: string, fileId: number, ref: string): Promise<void> {
     const key = `${fileId}:${ref}`;
-    if (this.pgsPreparingKey === key) { return; }
     const sessionView: PlaybackSessionView | null = this.session;
     if (sessionView === null) { return; }
-    this.pgsPreparingKey = key;
+    if (!this.pgsPreparing.canStart(key, this.sessionEpoch, sessionView)) { return; }
     const seq: number = ++this.pgsPrepareSeq;
     const guard: PgsPrepareGuard = new PgsPrepareGuard(seq, this.sessionEpoch, sessionView, ref);
+    this.pgsPreparing.begin(key, guard);
     this.toast('图形字幕准备中，首次可能需要几分钟');
     try {
       const path: string = await downloadPgsSidecar(url, this.getUIContext().getHostContext()?.cacheDir ?? '');
@@ -912,7 +918,18 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       if (seq === this.pgsPrepareSeq && !this.disposed) { this.toast('图形字幕加载失败，可稍后重新选择这条字幕重试'); }
       hilog.warn(0x0000, 'MCSub', 'PGS 旁挂下载失败: %{public}s', `${error}`);
     } finally {
-      if (this.pgsPreparingKey === key) { this.pgsPreparingKey = ''; }
+      this.pgsPreparing.end(guard);
+    }
+  }
+
+  /** 确认换文件（新会话落地、file_id 与缓存对不上）后立即回收旧 .sup——几十 MB
+   *  的临时文件不必等到退出播放页才删；同文件重协商（画质 / 音轨 / 重挂）file_id
+   *  不变，不回收——那正是会话级缓存要服务的场景 */
+  private reclaimPgsSidecarIfFileChanged(view: PlaybackSessionView): void {
+    const sidecar: PgsSidecarCache | null = this.pgsSidecarFile;
+    if (sidecar !== null && sidecar.fileId !== (view.decision.file_id ?? 0)) {
+      this.pgsSidecarFile = null;
+      removePgsSidecar(sidecar.path);
     }
   }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { PlaybackSessionView, SubtitlePlanView } from '../main/ets/api/Models';
-import { PgsPrepareGuard } from '../main/ets/playback/PgsPrepareGuard';
+import { PgsPrepareGuard, PgsPrepareTracker } from '../main/ets/playback/PgsPrepareGuard';
 
 /**
  * PGS 旁挂后台下载的完成判定矩阵（含同会话快切 PGS 轨的并发预载）。
@@ -10,6 +10,12 @@ import { PgsPrepareGuard } from '../main/ets/playback/PgsPrepareGuard';
  * 完成时对照当前代次。旧代次无论先完成还是后完成一律作废、只删自己那份文
  * 件，绝不驱逐新请求刚挂上的缓存；「中途切走这条轨」（没有更新的请求起跑）
  * 才只入缓存，切回来命中缓存再挂。
+ *
+ * 防重入的宿主簿记抽成了 PgsPrepareTracker（宿主是 struct，进不了测试转译
+ * 管线）：同 key 同世界的在途请求拦住重入；重协商后旧在途请求不再占位（放
+ * 行新代次重跑——只按 key 拦会把重开后的再预备也拦掉，旧请求完成自会作废，
+ * 没人重试字幕就一直缺失）；晚完成的旧请求只清自己的登记（A1→B→A2 时 A1
+ * 不得清掉 A2 的防重入）。
  */
 
 function makeSubtitle(ref: string, kind: string): SubtitlePlanView {
@@ -103,6 +109,71 @@ export default function pgsPrepareGuardTest() {
       expect(PgsPrepareGuard.stillSelected(0, 'pgs:2', session)).assertFalse();
       expect(PgsPrepareGuard.stillSelected(-1, 'pgs:2', session)).assertFalse();
       expect(PgsPrepareGuard.stillSelected(2, 'pgs:2', session)).assertFalse();
+    });
+
+    it('aliveIn_epoch与会话都没换才算仍属当前世界', 0, () => {
+      const session: PlaybackSessionView = makeSession(['pgs:1']);
+      const reopened: PlaybackSessionView = makeSession(['pgs:1']);
+      const guard: PgsPrepareGuard = new PgsPrepareGuard(1, 7, session, 'pgs:1');
+      expect(guard.aliveIn(7, session)).assertTrue();
+      // negotiate / dispose 把 epoch +1
+      expect(guard.aliveIn(8, session)).assertFalse();
+      // 换集 / 重开拿到的是另一份会话对象（内容可能一样，身份必须不同）
+      expect(guard.aliveIn(7, reopened)).assertFalse();
+      expect(guard.aliveIn(7, null)).assertFalse();
+    });
+  });
+
+  describe('PgsPrepareTracker', () => {
+    it('canStart_同key同世界拦住重入_收尾或整体作废后放行', 0, () => {
+      const session: PlaybackSessionView = makeSession(['pgs:1']);
+      const tracker: PgsPrepareTracker = new PgsPrepareTracker();
+      const guard: PgsPrepareGuard = new PgsPrepareGuard(1, 7, session, 'pgs:1');
+      tracker.begin('42:pgs:1', guard);
+      expect(tracker.canStart('42:pgs:1', 7, session)).assertFalse();
+      // 收尾只清自己那笔 → 放行
+      tracker.end(guard);
+      expect(tracker.canStart('42:pgs:1', 7, session)).assertTrue();
+      // key 不同不拦（快切另一条 PGS 轨各自预备）
+      tracker.begin('42:pgs:1', guard);
+      expect(tracker.canStart('42:pgs:2', 7, session)).assertTrue();
+      // 退出播放页整体作废
+      tracker.reset();
+      expect(tracker.canStart('42:pgs:1', 7, session)).assertTrue();
+    });
+
+    it('canStart_重协商后旧在途不再占位_放行新代次重跑', 0, () => {
+      // 回归（review 第二轮）：同文件重开（越出转码窗口 / 档位失败 / 重开音画
+      // 设置，epoch 与会话对象都换了）后再预备同一条轨，旧会话留下的在途登记
+      // 不能拦——旧请求完成自会作废，没人重试字幕就一直缺失
+      const session1: PlaybackSessionView = makeSession(['pgs:1']);
+      const session2: PlaybackSessionView = makeSession(['pgs:1']);
+      const tracker: PgsPrepareTracker = new PgsPrepareTracker();
+      tracker.begin('42:pgs:1', new PgsPrepareGuard(1, 7, session1, 'pgs:1'));
+      expect(tracker.canStart('42:pgs:1', 8, session2)).assertTrue();
+      tracker.begin('42:pgs:1', new PgsPrepareGuard(2, 8, session2, 'pgs:1'));
+      // 新代次在途且世界未再变 → 拦住（不重复下载）
+      expect(tracker.canStart('42:pgs:1', 8, session2)).assertFalse();
+    });
+
+    it('end_晚完成的旧请求只清自己的登记', 0, () => {
+      // 回归：A1→B→A2 时 A1 的收尾只比 key 会清掉 A2 的登记，下一次同 key 的
+      // 预备不再被拦，白重复下载几十 MB；登记以请求为单位，谁起跑谁收尾
+      const session: PlaybackSessionView = makeSession(['pgs:2', 'pgs:3']);
+      const tracker: PgsPrepareTracker = new PgsPrepareTracker();
+      const guardA1: PgsPrepareGuard = new PgsPrepareGuard(1, 7, session, 'pgs:2');
+      const guardB: PgsPrepareGuard = new PgsPrepareGuard(2, 7, session, 'pgs:3');
+      const guardA2: PgsPrepareGuard = new PgsPrepareGuard(3, 7, session, 'pgs:2');
+      tracker.begin('42:pgs:2', guardA1);
+      tracker.begin('42:pgs:3', guardB);
+      tracker.begin('42:pgs:2', guardA2);
+      // A1 晚完成：只清自己那笔，A2 的防重入不受影响
+      tracker.end(guardA1);
+      expect(tracker.canStart('42:pgs:2', 7, session)).assertFalse();
+      tracker.end(guardB);
+      expect(tracker.canStart('42:pgs:2', 7, session)).assertFalse();
+      tracker.end(guardA2);
+      expect(tracker.canStart('42:pgs:2', 7, session)).assertTrue();
     });
   });
 }
