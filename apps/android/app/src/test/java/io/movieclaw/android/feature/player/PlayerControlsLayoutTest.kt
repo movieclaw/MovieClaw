@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import io.movieclaw.android.core.designsystem.MovieClawTheme
@@ -69,14 +71,16 @@ class PlayerControlsLayoutTest {
         assertTrue("Seek buttons not around play", back.right < play.left && fwd.left > play.right)
         assertTrue("Tool row overlaps transport", subs.top > play.bottom)
         if (series) {
+            // 同 iPhone：右边一枚「选集 / 下一集」胶囊，带文字的「选集」在前，下一集在最右
             val next = compose.onNodeWithContentDescription("下一集").getUnclippedBoundsInRoot()
-            val picker = compose.onNodeWithContentDescription("选集").getUnclippedBoundsInRoot()
-            assertTrue("Next not in tool row", next.top > play.bottom && next.left > fwd.right)
-            assertTrue("Picker clipped", picker.right <= root.right - 35.dp)
-            assertTrue("Next overlaps picker", next.right <= picker.left)
+            val picker = compose.onNodeWithTag("player-episodes-button").getUnclippedBoundsInRoot()
+            compose.onNodeWithText("选集").assertExists()
+            assertTrue("Picker not in tool row", picker.top > play.bottom && picker.left > fwd.right)
+            assertTrue("Next clipped", next.right <= root.right - 35.dp)
+            assertTrue("Picker overlaps next", picker.right <= next.left)
         } else {
             compose.onNodeWithContentDescription("下一集").assertDoesNotExist()
-            compose.onNodeWithContentDescription("选集").assertDoesNotExist()
+            compose.onNodeWithTag("player-episodes-button").assertDoesNotExist()
         }
         File("build/ui-previews").mkdirs()
         File("build/ui-previews/$name.png").outputStream().use {

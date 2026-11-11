@@ -36,6 +36,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException
 import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.session.MediaSession
+import io.movieclaw.core.model.generated.EpisodeView
 import io.movieclaw.core.model.generated.PlaybackAutoSkipView
 import io.movieclaw.core.model.generated.PlaybackBlurayView
 import io.movieclaw.core.model.generated.PlaybackClientLogPayload
@@ -587,10 +588,42 @@ class PlaybackController(
     }
 
     /** 选集面板挑的一集（同一季、有片源）；正在放的这一集不动 */
-    fun playEpisode(number: Long) {
+    fun playEpisode(number: Long) = playEpisode(unit.season, number)
+
+    /**
+     * 选集面板挑的一集，季可以和正在放的不同（同 Apple 端 `playEpisode(season:episode:seasonEpisodes:)`）。
+     * [seasonEpisodes] 是面板已经取到的那一季分集：换季时先用上，免得集名在重新取回来之前还对着旧的那一季
+     */
+    fun playEpisode(season: Long, number: Long, seasonEpisodes: List<EpisodeView>? = null) {
         noteUserActivity()
-        if (!unit.isEpisode || number == unit.episode || s.episodes.none { it.episodeNumber == number && it.owned }) return
-        startUnit(PlaybackUnit(unit.mediaItemId, unit.season, number))
+        if (!unit.isEpisode || (season == unit.season && number == unit.episode)) return
+        val list = if (season == unit.season) s.episodes else seasonEpisodes.orEmpty()
+        if (list.none { it.episodeNumber == number && it.owned }) return
+        if (season != unit.season) set { copy(episodes = list) }
+        startUnit(PlaybackUnit(unit.mediaItemId, season, number))
+    }
+
+    /** 这部剧有哪几季（选集面板换季用）。分享访客、旧服务端（条目信息里没有季列表）只有正在放的这一季 */
+    val seasons: List<Long>
+        get() {
+            if (!unit.isEpisode) return emptyList()
+            val listed = if (isGuest) emptyList() else s.info?.seasons.orEmpty()
+            return (listed + unit.season).distinct().sorted()
+        }
+
+    /** 选集面板看别的季：现取那一季的分集（正在放的这一季直接用 state.episodes）；取不到为 null */
+    suspend fun loadSeason(season: Long): List<EpisodeView>? = try {
+        val remote: suspend () -> io.movieclaw.core.model.generated.SeasonEpisodesView = { backend.episodes(unit.mediaItemId, season) }
+        (local?.episodes(unit.mediaItemId, season, remote) ?: remote()).episodes
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
+
+    /** 选集面板打开时重取本季分集：进播放器之后看过的集，进度与「已看完」要跟上 */
+    fun refreshEpisodes() {
+        scope.launch { loadEpisodes() }
     }
 
     // ======================================================================
