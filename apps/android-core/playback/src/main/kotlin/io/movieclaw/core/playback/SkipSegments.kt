@@ -135,3 +135,41 @@ object EpisodeNavigation {
         return if (!name.isNullOrEmpty()) "$code · $name" else code
     }
 }
+
+/**
+ * 播放器选集面板（手机的抽屉、电视的剧照排）共用的文案与计算，与 Apple 端 `EpisodePicker` 同一套说法：
+ * 缺集 / 已看完（带对勾）/ 看到哪；分集接口不给片长，所以不写时长
+ */
+object EpisodePickerText {
+    /** 季名：0 是特别篇 */
+    fun seasonName(season: Long): String = if (season == 0L) "特别篇" else "第 $season 季"
+
+    /** 集名下面那一行；都不是就不写。second = 带对勾 */
+    fun meta(episode: EpisodeView): Pair<String, Boolean>? = when {
+        !episode.owned -> "缺集" to false
+        episode.played -> "已看完" to true
+        episode.progressPercent != null && episode.positionMs > 0 -> "看到 ${PlayerFormat.clockMs(episode.positionMs)}" to false
+        else -> null
+    }
+
+    /** 看了一半的进度（0..1）；没看、看完、缺集为 null */
+    fun partial(episode: EpisodeView): Float? {
+        val percent = episode.progressPercent ?: return null
+        if (!episode.owned || episode.played) return null
+        return percent / 100f
+    }
+
+    /** 正在放的那一集放到哪（0..1） */
+    fun fraction(positionMs: Long, durationMs: Long?): Float {
+        if (durationMs == null || durationMs <= 0) return 0f
+        return (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+    }
+
+    /** 还剩几分钟：向上取整，最少写 1（剩 20 秒不写「剩 0 分钟」） */
+    fun minutesLeft(positionMs: Long, durationMs: Long): Int =
+        maxOf(1, kotlin.math.ceil((durationMs - positionMs).coerceAtLeast(0L) / 60_000.0).toInt())
+
+    /** 「第 3 集 · 潮汐表」；没有集名只写集号 */
+    fun caption(number: Long, name: String?): String =
+        if (name.isNullOrEmpty()) "第 $number 集" else "第 $number 集 · $name"
+}

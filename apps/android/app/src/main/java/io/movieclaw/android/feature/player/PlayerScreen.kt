@@ -8,6 +8,26 @@ import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.util.Rational
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.util.lerp
+import io.movieclaw.android.core.designsystem.RemoteImage
+import io.movieclaw.core.playback.EpisodePickerText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -40,7 +60,6 @@ import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Forward10
-import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
@@ -104,10 +123,6 @@ import io.movieclaw.android.core.designsystem.GlassCapsule
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.Success
 import io.movieclaw.android.core.designsystem.TextMuted
-import io.movieclaw.android.core.model.EpisodeView
-import io.movieclaw.android.core.network.ApiFactory
-import io.movieclaw.android.core.network.dataOrThrow
-import io.movieclaw.android.core.playback.PlayTarget
 import io.movieclaw.android.core.playback.PlaybackSessionHolder
 import io.movieclaw.android.core.session.SessionRepository
 import io.movieclaw.core.model.generated.PlaybackDecisionView
@@ -133,7 +148,6 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val holder: PlaybackSessionHolder,
-    private val apiFactory: ApiFactory,
     private val sessionRepository: SessionRepository,
     private val subtitleStyles: io.movieclaw.android.core.playback.SubtitleStyleStore,
     private val screenPrefs: io.movieclaw.android.core.playback.ScreenPrefs,
@@ -161,36 +175,8 @@ class PlayerViewModel @Inject constructor(
 
     val state = holder.state
 
-    suspend fun episodeSeasons(target: PlayTarget): List<Int> {
-        val origin = sessionRepository.ui.value.origin ?: error("尚未连接服务器")
-        return (apiFactory.forOrigin(origin).libraryItemDetail(target.libraryId, target.mediaItemId)
-            .dataOrThrow().seasons + target.seasonNumber).distinct().sorted()
-    }
-
-    suspend fun seasonEpisodes(target: PlayTarget, season: Int): List<EpisodeView> {
-        val origin = sessionRepository.ui.value.origin ?: error("尚未连接服务器")
-        return apiFactory.forOrigin(origin).seasonEpisodes(target.libraryId, target.mediaItemId, season)
-            .dataOrThrow().episodes.sortedBy { it.episodeNumber }
-    }
-
-    /** 选集面板挑的一集：同一季交给控制器（换集、续播点、轨记忆都在引擎里）；换季则重开一次播放 */
-    fun playEpisode(active: PlaybackSessionHolder.Active, currentSeason: Int, season: Int, episode: EpisodeView) {
-        if (season == currentSeason) {
-            active.controller.playEpisode(episode.episodeNumber.toLong())
-            return
-        }
-        holder.open(
-            active.target.copy(
-                subtitle = "第 $season 季 第 ${episode.episodeNumber} 集" +
-                    (episode.name?.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""),
-                seasonNumber = season,
-                episodeNumber = episode.episodeNumber,
-                preferredAudio = null,
-                preferredSubtitle = null,
-                startMs = null,
-            ),
-        )
-    }
+    /** 选集面板的剧照按成员身份取图（分享访客的图地址本身就是绝对地址，见 RemoteImage） */
+    val imageOrigin: String? get() = sessionRepository.ui.value.origin
 
     fun exit() = holder.exit()
 }
@@ -240,9 +226,7 @@ fun PlayerScreen(onExit: () -> Unit, vm: PlayerViewModel = hiltViewModel()) {
             )
             is PlaybackSessionHolder.State.Playing -> PlayingSurface(
                 active = s.active,
-                onPlayEpisode = vm::playEpisode,
-                loadSeasons = vm::episodeSeasons,
-                loadEpisodes = vm::seasonEpisodes,
+                imageOrigin = if (s.active.guest) null else vm.imageOrigin,
                 onExit = { vm.exit(); onExit() },
                 subStyle = subStyle,
                 onSubStyle = vm::updateSubtitleStyle,
@@ -263,9 +247,8 @@ private data class TrackItem(val ref: String, val label: String, val unavailable
 @Composable
 private fun PlayingSurface(
     active: PlaybackSessionHolder.Active,
-    onPlayEpisode: (PlaybackSessionHolder.Active, Int, Int, EpisodeView) -> Unit,
-    loadSeasons: suspend (PlayTarget) -> List<Int>,
-    loadEpisodes: suspend (PlayTarget, Int) -> List<EpisodeView>,
+    /** 选集面板取剧照的服务器地址；分享访客为 null */
+    imageOrigin: String?,
     onExit: () -> Unit,
     subStyle: io.movieclaw.android.core.playback.SubtitleStyle,
     onSubStyle: ((io.movieclaw.android.core.playback.SubtitleStyle) -> io.movieclaw.android.core.playback.SubtitleStyle) -> Unit,
@@ -280,8 +263,6 @@ private fun PlayingSurface(
     val engineCues by controller.cues.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val trickplay = remember(controller) { TrickplayImages(active.http, scope, controller::resolve) }
-    // 自动换集之后进来时的 target 就旧了：季、集以引擎当前单元为准
-    val target = active.target.copy(seasonNumber = state.unit.season.toInt(), episodeNumber = state.unit.episode.toInt())
     val series = state.unit.isEpisode
 
     // 调了字幕时间轴：外挂文本字幕改由叠层按偏移画（Exo 解出的字幕时机挪不动）
@@ -315,7 +296,8 @@ private fun PlayingSurface(
     // 有菜单开着就**不许自动隐藏控制层**：菜单是控制层的子节点，控制层一收，
     // 菜单跟着消失——表现就是"没动它自己突然隐藏了"（用户反馈）
     var menuOpen by remember { mutableStateOf(false) }
-    var episodePickerOpen by remember(controller) { mutableStateOf(false) }
+    // 选集面板（同 iPhone）：画面让到左边，面板靠右；点画面、✕、返回键收起
+    var episodesOpen by remember(controller) { mutableStateOf(false) }
     var settingsOpen by remember(controller) { mutableStateOf(false) }
     // 画面缩放（iOS VideoDisplayMode 同款三档）：fit=完整显示 / fill=铺满裁切 / stretch=拉伸铺满
     var displayMode by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("fit") }
@@ -348,21 +330,17 @@ private fun PlayingSurface(
         }
     }
 
-    if (episodePickerOpen) {
-        PlayerEpisodePicker(
-            target = target,
-            loadSeasons = loadSeasons,
-            loadEpisodes = loadEpisodes,
-            onDismiss = { episodePickerOpen = false },
-            onSelect = { season, episode ->
-                episodePickerOpen = false
-                onPlayEpisode(active, target.seasonNumber, season, episode)
-            },
-        )
+    fun closeEpisodes() {
+        episodesOpen = false
+        chromeVisible = true
     }
+    // 返回键先收起选集面板（安卓的返回手势），收起后再按才退出播放
+    BackHandler(enabled = episodesOpen) { closeEpisodes() }
+    // 锁屏、出错 / 要用户同意时面板让开
+    LaunchedEffect(locked, state.isModal) { if (locked || state.isModal) episodesOpen = false }
 
     // 控制层常显条件(iOS):暂停中 / 拖动中 / 调节中
-    val mustStayVisible = !playing || scrubbing || adjusting || menuOpen || episodePickerOpen || settingsOpen
+    val mustStayVisible = !playing || scrubbing || adjusting || menuOpen || episodesOpen || settingsOpen
     var chromeActivity by remember { mutableLongStateOf(0L) }
     LaunchedEffect(chromeVisible, mustStayVisible, chromeActivity) {
         if (chromeVisible && !mustStayVisible) {
@@ -412,32 +390,90 @@ private fun PlayingSurface(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        // 画面：统一引擎的播放器；ASS 特效字幕由 libass 画在它自己的叠加层上
-        val frameScale = when (displayMode) {
-            "fill" -> ContentScale.Crop
-            "stretch" -> ContentScale.FillBounds
-            else -> ContentScale.Fit
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        // 选集打开时画面让位（同 iPhone 横屏）：缩到左边成一张卡片、下面写集名简介，面板靠右，四周垫这一集剧照的氛围色。
+        // 改的是画面的布局尺寸而不是缩放：视频在 SurfaceView 上，图层缩放管不到它（SurfaceView 也裁不出圆角，卡片是直角）
+        val cutout = WindowInsets.displayCutout.asPaddingValues()
+        val layoutDirection = LocalLayoutDirection.current
+        val aspect = if (state.videoWidth > 0 && state.videoHeight > 0) state.videoWidth.toFloat() / state.videoHeight else 16f / 9f
+        val stage = remember(maxWidth, maxHeight, aspect, cutout, layoutDirection) {
+            EpisodeStageLayout.resolve(
+                maxWidth.value, maxHeight.value,
+                cutout.calculateStartPadding(layoutDirection).value, cutout.calculateEndPadding(layoutDirection).value, aspect,
+            )
         }
-        ContentFrame(player = controller.player, modifier = Modifier.fillMaxSize(), contentScale = frameScale, keepContentOnReset = true)
-        AndroidView(factory = controller::assOverlay, modifier = Modifier.fillMaxSize())
-
-        // 文本 / 图形字幕：服务端流的文本字幕与直连时引擎解出的字幕，都按用户的字幕外观画
-        SubtitleOverlayLayer(
-            text = rememberVttText(state.overlaySubtitleUrl, active.http, controller::currentFileMs, subStyle.offsetSeconds),
-            engineCues = engineCues,
-            videoWidth = state.videoWidth,
-            videoHeight = state.videoHeight,
-            style = subStyle,
-            modifier = Modifier.fillMaxSize(),
+        val stageProgress by animateFloatAsState(
+            if (episodesOpen) 1f else 0f,
+            spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
+            label = "episodes-stage",
         )
+        if (stageProgress > 0f) {
+            val still = state.currentEpisode?.stillUrl ?: state.info?.posterUrl
+            Box(Modifier.fillMaxSize().alpha(stageProgress)) {
+                RemoteImage(
+                    still, imageOrigin,
+                    Modifier.fillMaxSize().blur(60.dp).alpha(0.55f),
+                    aspect = 16f / 9f, guest = active.guest, fallback = {},
+                )
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Black.copy(alpha = 0.6f)))))
+            }
+        }
+        val videoX = lerp(0f, stage.video.x, stageProgress)
+        val videoY = lerp(0f, stage.video.y, stageProgress)
+        val videoW = lerp(maxWidth.value, stage.video.width, stageProgress)
+        val videoH = lerp(maxHeight.value, stage.video.height, stageProgress)
+        Box(
+            Modifier
+                .offset(videoX.dp, videoY.dp)
+                .size(videoW.dp, videoH.dp)
+                .clip(RoundedCornerShape((EpisodeStageLayout.VIDEO_CORNER * stageProgress).dp)),
+        ) {
+            // 画面：统一引擎的播放器；ASS 特效字幕由 libass 画在它自己的叠加层上
+            val frameScale = when (displayMode) {
+                "fill" -> ContentScale.Crop
+                "stretch" -> ContentScale.FillBounds
+                else -> ContentScale.Fit
+            }
+            ContentFrame(player = controller.player, modifier = Modifier.fillMaxSize(), contentScale = frameScale, keepContentOnReset = true)
+            AndroidView(factory = controller::assOverlay, modifier = Modifier.fillMaxSize())
+
+            // 文本 / 图形字幕：服务端流的文本字幕与直连时引擎解出的字幕，都按用户的字幕外观画
+            SubtitleOverlayLayer(
+                text = rememberVttText(state.overlaySubtitleUrl, active.http, controller::currentFileMs, subStyle.offsetSeconds),
+                engineCues = engineCues,
+                videoWidth = state.videoWidth,
+                videoHeight = state.videoHeight,
+                style = subStyle,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        // 让位后画面下方：这一集的集名与简介（简介只给正在放的这一集，没看过的集不剧透）
+        stage.caption?.let { caption ->
+            if (stageProgress > 0f) {
+                Column(
+                    Modifier
+                        .offset(caption.x.dp, (caption.y + (1f - stageProgress) * 10f).dp)
+                        .width(caption.width.dp)
+                        .alpha(stageProgress),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Text(
+                        EpisodePickerText.caption(state.unit.episode, state.currentEpisode?.name),
+                        style = McType.headline, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    state.currentEpisode?.overview?.takeIf { it.isNotEmpty() }?.let {
+                        Text(it, style = McType.caption, color = Color.White.copy(alpha = 0.66f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
 
         // 手势层:位于控制层之下的兄弟节点 —— 控件上的触摸不会落到这里(iOS 的排除区等价物)
         Box(
             Modifier
                 .fillMaxSize()
                 .playerGestures(
-                    enabled = !locked && !state.isModal,
+                    enabled = !locked && !state.isModal && !episodesOpen,
                     canHold = playing,
                     onTap = {
                         lastTapChromeState = chromeVisible
@@ -521,6 +557,16 @@ private fun PlayingSurface(
                 ),
         )
 
+        // 选集开着：点面板以外的地方（画面、氛围色）收起，画面上不拖进度、不调亮度音量
+        if (episodesOpen) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) { detectTapGestures { closeEpisodes() } }
+                    .testTag("episodes-scrim"),
+            )
+        }
+
         // 倍速持有期间缓冲跟不上就自动退出(iOS:缓冲 < 1s 时退出并提示)
         LaunchedEffect(holdSpeed) {
             if (!holdSpeed) return@LaunchedEffect
@@ -539,7 +585,12 @@ private fun PlayingSurface(
 
         // 起播 / 换流 / 降档：说清楚卡在哪一段，带实时加载速度
         if (state.phase.isBusy && !state.isModal) {
-            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                Modifier
+                    .align(Alignment.Center)
+                    .offset((videoX + videoW / 2 - maxWidth.value / 2).dp, (videoY + videoH / 2 - maxHeight.value / 2).dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
                 CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(34.dp))
                 Spacer(Modifier.height(10.dp))
                 Text(state.phase.busyLabel, style = McType.footnote, color = Color.White.copy(alpha = 0.85f))
@@ -679,7 +730,7 @@ private fun PlayingSurface(
         // 自动跳过（广告直接跳、片头按剧学）的提示占同一个位置、优先显示：撤回后回到片头里，提示收起才轮到按钮
         val skipNotice = state.skipNotice
         val skip = state.skipSegment
-        if (skipNotice != null && !locked) {
+        if (skipNotice != null && !locked && !episodesOpen) {
             LaunchedEffect(skipNotice.id) {
                 delay(skipNotice.durationMs)
                 controller.expireSkipNotice(skipNotice.id)
@@ -715,7 +766,7 @@ private fun PlayingSurface(
                     )
                 }
             }
-        } else if (skip != null && !locked) {
+        } else if (skip != null && !locked && !episodesOpen) {
             Text(
                 SkipSegments.label(skip),
                 style = McType.subheadlineSemibold,
@@ -738,8 +789,8 @@ private fun PlayingSurface(
         // 自动连播只在「服务端认出一直放到结尾的片尾」时武装：8 秒倒计时、连播 ≤3 集、任何用户操作清零
         // （人半睡着时别让 NAS 白转一晚上）。倒计时 = 「立即播放」按钮本身的填充。
         val next = state.nextEpisode
-        if (state.showsUpNext && next != null && !locked) {
-            val armed = state.autoNextArmed && !episodePickerOpen
+        if (state.showsUpNext && next != null && !locked && !episodesOpen) {
+            val armed = state.autoNextArmed
             // 倒计时的钟挂在卡片上：卡片收起 / 换集 / 拖出片尾，循环随之取消。暂停冻住、播完照走（引擎里判）
             LaunchedEffect(armed, next.episodeNumber) {
                 if (!armed) return@LaunchedEffect
@@ -759,7 +810,7 @@ private fun PlayingSurface(
         }
 
         // 横屏锁屏键:左缘竖直居中(左手拇指落点),与控制层同时出现,锁上后换成解锁键
-        if (chromeVisible && !locked) {
+        if (chromeVisible && !locked && !episodesOpen) {
             Row(
                 Modifier
                     .fillMaxSize()
@@ -795,7 +846,7 @@ private fun PlayingSurface(
             }
         }
 
-        if (chromeVisible) {
+        if (chromeVisible && !episodesOpen) {
             val decision = controller.decision
             Column(Modifier.fillMaxSize()) {
                 Row(
@@ -860,7 +911,11 @@ private fun PlayingSurface(
                         series = series,
                         hasNext = state.nextEpisode != null,
                         onNext = controller::playNext,
-                        onEpisodes = { episodePickerOpen = true; controller.noteUserActivity() },
+                        onEpisodes = {
+                            controller.noteUserActivity()
+                            settingsOpen = false
+                            episodesOpen = true
+                        },
                         tracks = {
                             TrackMenuButton(
                                 icon = Icons.Rounded.GraphicEq,
@@ -1022,6 +1077,35 @@ private fun PlayingSurface(
             }
         }
 
+        // 选集面板：从右边滑进来，落在让位布局给它的位置
+        AnimatedVisibility(
+            visible = episodesOpen,
+            enter = slideInHorizontally(spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(),
+            exit = slideOutHorizontally(tween(260)) { it } + fadeOut(tween(200)),
+            modifier = Modifier.offset(stage.drawer.x.dp, stage.drawer.y.dp).size(stage.drawer.width.dp, stage.drawer.height.dp),
+        ) {
+            PlayerEpisodeDrawer(
+                title = state.title,
+                currentSeason = state.unit.season,
+                currentEpisode = state.unit.episode,
+                playingEpisodes = state.episodes,
+                seasons = controller.seasons,
+                loadSeason = controller::loadSeason,
+                onRefresh = controller::refreshEpisodes,
+                positionMs = positionMs,
+                durationMs = state.durationMs,
+                paused = state.paused,
+                imageOrigin = imageOrigin,
+                guest = active.guest,
+                onPick = { season, number, list ->
+                    controller.playEpisode(season, number, list)
+                    closeEpisodes()
+                },
+                onClose = ::closeEpisodes,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
         PlayerSettingsPanel(
             visible = settingsOpen && !locked,
             quality = state.quality,
@@ -1117,7 +1201,8 @@ private fun CenterGlassButton(
 }
 
 /**
- * 进度条上方的工具行：左胶囊 = 音轨 / 字幕，右胶囊 = 下一集 / 选集 / 倍速（电影只有倍速）。
+ * 进度条上方的工具行：左胶囊 = 音轨 / 字幕，右胶囊 =「选集 / 下一集」（同 iPhone，剧集才有；倍速在右上角 ⋮ 里）。
+ * 「选集」带文字（只有图标认不出来），换集多数时候是看下一集，所以下一集单独一颗键直接换；没有下一集时置灰。
  * 两侧与进度条共用 35dp 边距。
  */
 @Composable
@@ -1137,12 +1222,22 @@ internal fun PlayerBottomControls(
         // 倍速在右上角 ⋮ 里（PlayerSettingsPanel）；电影这边就没有按钮了
         if (series) {
             GlassPill {
-                IconButton(onClick = onNext, enabled = hasNext) {
+                Row(
+                    Modifier
+                        .height(36.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onEpisodes)
+                        .padding(start = 12.dp, end = 10.dp)
+                        .testTag("player-episodes-button"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(Icons.Rounded.VideoLibrary, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Text("选集", style = McType.subSemibold, color = Color.White)
+                }
+                IconButton(onClick = onNext, enabled = hasNext, modifier = Modifier.testTag("player-next-episode")) {
                     Icon(Icons.Rounded.SkipNext, contentDescription = "下一集",
                         tint = Color.White.copy(alpha = if (hasNext) 1f else 0.35f))
-                }
-                IconButton(onClick = onEpisodes) {
-                    Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = "选集", tint = Color.White)
                 }
             }
         }

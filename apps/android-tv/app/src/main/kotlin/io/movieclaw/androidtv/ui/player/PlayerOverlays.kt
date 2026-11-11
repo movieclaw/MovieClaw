@@ -57,9 +57,6 @@ import io.movieclaw.core.playback.SkipSegments
 import io.movieclaw.androidtv.ui.components.McIcons
 import io.movieclaw.androidtv.ui.components.RemoteImage
 import io.movieclaw.androidtv.ui.components.Spinner
-import io.movieclaw.androidtv.ui.detail.DetailLogic
-import io.movieclaw.androidtv.ui.detail.EpisodePanel
-import io.movieclaw.androidtv.ui.detail.EpisodeRanges
 import io.movieclaw.androidtv.ui.stage.episodeTitle
 import io.movieclaw.androidtv.ui.theme.McColors
 import io.movieclaw.androidtv.ui.theme.McType
@@ -394,24 +391,6 @@ fun EpisodeActions(
         }
         ActionButton(McIcons.Info, if (diagnosticsOpen) "关闭诊断" else "播放诊断", onDiagnostics)
     }
-}
-
-/** 选集面板：同详情页的「全部分集」（左栏分段、右边宫格，50 集以内整季一段），焦点落在正在放的这一集 */
-@Composable
-fun EpisodePicker(state: PlayerState, onPick: (Long) -> Unit, onClose: () -> Unit) {
-    val ranges = remember(state.episodes) { EpisodeRanges.panelRanges(state.episodes) }
-    val current = state.unit.episode
-    EpisodePanel(
-        title = listOf(state.title, DetailLogic.seasonLabel(state.unit.season)).joinToString(" · "),
-        episodes = state.episodes,
-        ranges = ranges,
-        anchor = current,
-        startRange = maxOf(0, EpisodeRanges.position(current, ranges)),
-        onPick = onPick,
-        onClose = onClose,
-        heading = "选集",
-        pickHint = "按确认播放这一集",
-    )
 }
 
 @Composable

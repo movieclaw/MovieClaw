@@ -9,6 +9,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -156,7 +157,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
     var chromeVisible by remember { mutableStateOf(true) }
     var chromeActivity by remember { mutableIntStateOf(0) }
     var panelOpen by remember { mutableStateOf(false) }
-    // 选集面板（同详情页的「全部分集」：左栏分段、右边宫格）
+    // 选集剧照排（同 Apple TV、iPhone 的选集）：进度条上方「选集」打开，画面照常在播
     var episodesOpen by remember { mutableStateOf(false) }
     // 播放诊断（Apple 端同款）：工具行里的「播放诊断」开关，左上角常驻，不抢焦点
     var diagnosticsOpen by remember(controller) { mutableStateOf(false) }
@@ -614,17 +615,32 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
             }
         }
 
-        // 9. 选集：盖满整屏（播放照常继续），焦点关在里面；返回键收起，挑一集就切过去
-        if (episodesOpen && episodic) {
-            EpisodePicker(
-                state,
-                onPick = { number ->
+        // 9. 选集剧照排：从底部升起（播放照常继续），焦点关在里面；返回键或往下收起，挑一集就切过去（可以跨季）
+        AnimatedVisibility(
+            episodesOpen && episodic && !state.isModal,
+            enter = fadeIn(tween(250)) + slideInVertically(tween(350)) { it / 6 },
+            exit = fadeOut(tween(200)),
+        ) {
+            EpisodeShelf(
+                title = state.title,
+                currentSeason = state.unit.season,
+                currentEpisode = state.unit.episode,
+                playingEpisodes = state.episodes,
+                currentOverview = state.currentEpisode?.overview,
+                seasons = controller.seasons,
+                loadSeason = controller::loadSeason,
+                onRefresh = controller::refreshEpisodes,
+                positionMs = state.positionMs,
+                durationMs = state.durationMs,
+                onPick = { season, number, list ->
                     episodesOpen = false
-                    controller.playEpisode(number)
+                    controller.playEpisode(season, number, list)
+                    showChrome()
                     focusSurfaceSoon()
                 },
                 onClose = {
                     episodesOpen = false
+                    showChrome()
                     focusSurfaceSoon()
                 },
             )
