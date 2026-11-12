@@ -29,6 +29,12 @@ class EndpointView(BaseModel):
         default_factory=list, description="配置里存在但当前版本已没有的服务域（已忽略）"
     )
     expand_tools: bool = True
+    excluded_tools: list[str] = Field(
+        default_factory=list, description="排除的工具名：不进 tools/list，直接调用也被拒"
+    )
+    missing_excluded_tools: list[str] = Field(
+        default_factory=list, description="配置里存在但当前版本已没有的排除项（已忽略）"
+    )
     enabled: bool = True
     token_hint: str = ""
     timeout_seconds: int = 300
@@ -70,6 +76,9 @@ class EndpointCreateRequest(BaseModel):
     services: list[str] = Field(description="选中的服务域")
     description: str = ""
     expand_tools: bool = True
+    excluded_tools: list[str] = Field(
+        default_factory=list, description="排除的工具名（展开模式的工具名）"
+    )
     timeout_seconds: int = 300
 
 
@@ -80,6 +89,7 @@ class EndpointUpdateRequest(BaseModel):
     description: str | None = None
     services: list[str] | None = None
     expand_tools: bool | None = None
+    excluded_tools: list[str] | None = None
     enabled: bool | None = None
     timeout_seconds: int | None = None
 
@@ -100,6 +110,9 @@ class PreviewRequest(BaseModel):
 
     services: list[str] = Field(default_factory=list)
     expand_tools: bool = True
+    excluded_tools: list[str] = Field(
+        default_factory=list, description="排除的工具名，与端点配置同款参与试算"
+    )
 
 
 class ToolParameter(BaseModel):

@@ -71,6 +71,10 @@ class McpEndpoint(BaseModel):
         default=True,
         description="展开：一条命令一个工具（类型化参数）；关闭则一个服务一个工具",
     )
+    excluded_tools: list[str] = Field(
+        default_factory=list,
+        description="排除的工具名（展开模式的工具名）：不出现在 tools/list，直接调用也被拒",
+    )
     enabled: bool = Field(default=True, description="端点开关；关闭后该地址返回 404")
     token_hash: str = Field(default="", description="令牌明文的 sha256，明文不落库")
     token_hint: str = Field(default="", description="打码后的令牌，仅供列表识别")

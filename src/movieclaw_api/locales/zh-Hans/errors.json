@@ -474,6 +474,7 @@
     "slugInUse": "地址标识「{slug}」已被其他端点占用，换一个",
     "servicesMissing": "这些服务不存在：{services}",
     "servicesRequired": "至少选择一个服务，否则这个端点没有任何工具",
+    "toolsMissing": "这些工具不存在：{tools}",
     "timeoutRange": "超时秒数必须在 5 到 {maximum} 之间",
     "nameRequired": "端点名称不能为空"
   },

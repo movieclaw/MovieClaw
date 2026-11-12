@@ -43,9 +43,11 @@ from movieclaw_mcp.tools import Tool, build_tools, describe_domain
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 
-def _tool_bytes(services: list[str], *, expand: bool) -> int:
+def _tool_bytes(
+    services: list[str], *, expand: bool, excluded: list[str] | None = None
+) -> int:
     """工具定义的大致体积：管理页拿它告诉用户「这套工具面要占多少上下文」。"""
-    tools = build_tools(services, expand=expand)
+    tools = build_tools(services, expand=expand, excluded=excluded)
     return sum(
         len(json.dumps(
             {"name": t.name, "description": t.description, "inputSchema": t.input_schema},
@@ -64,6 +66,8 @@ async def _base_url() -> tuple[str, bool]:
 def _to_view(endpoint: McpEndpoint, base_url: str) -> EndpointView:
     known = set(available_services())
     live = [s for s in endpoint.services if s in known]
+    known_tools = set(tools_by_name())
+    live_excluded = [tool for tool in endpoint.excluded_tools if tool in known_tools]
     return EndpointView(
         id=endpoint.id,
         slug=endpoint.slug,
@@ -72,10 +76,14 @@ def _to_view(endpoint: McpEndpoint, base_url: str) -> EndpointView:
         services=live,
         missing_services=[s for s in endpoint.services if s not in known],
         expand_tools=endpoint.expand_tools,
+        excluded_tools=live_excluded,
+        missing_excluded_tools=[t for t in endpoint.excluded_tools if t not in known_tools],
         enabled=endpoint.enabled,
         token_hint=endpoint.token_hint,
         timeout_seconds=endpoint.timeout_seconds,
-        tool_count=len(build_tools(live, expand=endpoint.expand_tools)),
+        tool_count=len(
+            build_tools(live, expand=endpoint.expand_tools, excluded=live_excluded)
+        ),
         url=f"{base_url}/mcp/{endpoint.slug}",
         created_at=endpoint.created_at,
         last_used_at=endpoint.last_used_at,
@@ -138,6 +146,7 @@ async def create_endpoint(payload: EndpointCreateRequest) -> ApiResponse[Endpoin
         services=payload.services,
         description=payload.description,
         expand_tools=payload.expand_tools,
+        excluded_tools=payload.excluded_tools,
         timeout_seconds=payload.timeout_seconds,
     )
     base_url, _ = await _base_url()
@@ -147,7 +156,7 @@ async def create_endpoint(payload: EndpointCreateRequest) -> ApiResponse[Endpoin
 @router.put(
     "/endpoints/{endpoint_id}",
     response_model=ApiResponse[EndpointView],
-    summary="修改端点的名称、服务、工具模式或启停状态",
+    summary="修改端点的名称、服务、工具模式、排除清单或启停状态",
     operation_id="mcp.endpoints.update",
 )
 async def update_endpoint(
@@ -159,6 +168,7 @@ async def update_endpoint(
         description=payload.description,
         services=payload.services,
         expand_tools=payload.expand_tools,
+        excluded_tools=payload.excluded_tools,
         enabled=payload.enabled,
         timeout_seconds=payload.timeout_seconds,
     )
@@ -283,19 +293,28 @@ def _tool_preview(tool: Tool) -> ToolPreview:
 @router.post(
     "/endpoints/preview",
     response_model=ApiResponse[PreviewView],
-    summary="试算：给定服务集合会暴露哪些工具、占多少上下文",
+    summary="试算：给定服务集合与排除清单，会暴露哪些工具、占多少上下文",
     operation_id="mcp.endpoints.preview",
 )
 async def preview(payload: PreviewRequest) -> ApiResponse[PreviewView]:
-    tools = build_tools(payload.services, expand=payload.expand_tools)
+    tools = build_tools(
+        payload.services, expand=payload.expand_tools, excluded=payload.excluded_tools
+    )
     by_domain = operations_by_domain()
     known = set(by_domain)
-    commands = sum(len(by_domain[d]) for d in payload.services if d in known)
+    skip = set(payload.excluded_tools)
+    commands = sum(
+        sum(1 for op in by_domain[d] if op.tool_name not in skip)
+        for d in payload.services
+        if d in known
+    )
     return ok(
         PreviewView(
             tool_count=len(tools),
             command_count=commands,
-            approx_bytes=_tool_bytes(payload.services, expand=payload.expand_tools),
+            approx_bytes=_tool_bytes(
+                payload.services, expand=payload.expand_tools, excluded=payload.excluded_tools
+            ),
             tools=[
                 _tool_preview(t)
                 for t in tools
