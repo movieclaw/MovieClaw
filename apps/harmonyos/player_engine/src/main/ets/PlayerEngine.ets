@@ -27,6 +27,10 @@ export interface EngineSource {
   subtitleOffsetMs?: number;
   /** Content-sniffed sidecar format: 'ass' | 'srt' | 'vtt' | 'sup' | 'sub' | '' (none/offline-unknown). */
   subtitleFormat?: string;
+  /** 远程 URL 是否 HLS（index.m3u8）：histreamer 的 HLS 管线 seek 后可能假 seekDone
+   * 真冻结，AVPlayer 对这类源拒绝跳转转 mpv；直连 URL（/stream、/disc）走 HTTP
+   * Range，seek 安全。缺省按 HLS 保守处理（旧调用方未标注时宁可转 mpv）。 */
+  isHls?: boolean;
 }
 
 export interface EngineTrack {

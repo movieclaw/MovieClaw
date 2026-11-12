@@ -49,13 +49,15 @@ export class PhoneMedia implements PlaybackMedia {
   private subtitleUrl: string;
   private subtitlePath: string;
   private cacheDirectory: string;
+  private isHls: boolean;
   constructor(originMs: number,
     durationMs: number,
     url: string,
     path: string = '',
     subtitleUrl: string = '',
     subtitlePath: string = '',
-    cacheDirectory: string = '') {
+    cacheDirectory: string = '',
+    isHls: boolean = false) {
     this.originMs = originMs;
     this.durationMs = durationMs;
     this.url = url;
@@ -63,6 +65,7 @@ export class PhoneMedia implements PlaybackMedia {
     this.subtitleUrl = subtitleUrl;
     this.subtitlePath = subtitlePath;
     this.cacheDirectory = cacheDirectory;
+    this.isHls = isHls;
   }
   private static sequence: number = 0;
   async acquire(engine: EngineId): Promise<MediaLease> {
@@ -96,7 +99,7 @@ export class PhoneMedia implements PlaybackMedia {
         length: media === null ? 0 : OfflineDisk.fileSize(this.path),
         subtitleUrl: '', subtitleFd: subtitle?.fd ?? -1,
         subtitleOffsetMs: engine === 'mpv' ? this.originMs : 0,
-        subtitleFormat: subtitleFormat };
+        subtitleFormat: subtitleFormat, isHls: this.isHls };
       return new PhoneMediaLease(source, media, subtitle, temporaryPath);
     } catch (error) {
       if (media !== null) { fileIo.closeSync(media); }

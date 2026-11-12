@@ -591,12 +591,14 @@ export class LibraryHomeStore {
     return `${JSON.stringify(libs)}#${keys.join(',')}#${JSON.stringify(cols)}`;
   }
 
-  /** 类型分布指纹：类型行的 kind 集合 + 各 kind 相关库的 id / 扫描与整理状态 /
-   *  台账快照（item_count / file_count）。只拼 kind 集合时，「扫描中类型接口成
-   *  功返回空 → 提交指纹 → 扫描结束 kind 没变」会让类型行一直空白——指纹把空
-   *  结果记成了结论。把相关库的世界拼进来后：扫描结束（scanning 翻转）、扫描
-   *  分批入库（file_count / item_count 增长）都会推动指纹变化，下一轮轮询自动
-   *  重取；库台账没动静时指纹不动，闸照常省流量。 */
+  /** 类型分布指纹：类型行的 kind 集合 + 各 kind 相关库的完整世界——id / 扫描与
+   *  整理状态 / 首页排除 / 可见范围 / 整库刮削刷新中 / 台账快照（item_count /
+   *  file_count）。只拼 kind 集合时，「扫描中类型接口成功返回空 → 提交指纹 →
+   *  扫描结束 kind 没变」会让类型行一直空白——指纹把空结果记成了结论。把相关
+   *  库的世界拼进来后：扫描结束（scanning 翻转）、扫描分批入库（file_count /
+   *  item_count 增长）、库被从首页排除（exclude_from_home）、超管可见范围变化
+   *  （viewer_access）、整库元数据刷新起止（metadata_refresh.refreshing）都会推
+   *  动指纹变化，下一轮轮询自动重取；库台账没动静时指纹不动，闸照常省流量。 */
   private static genresFingerprintOf(kinds: string[], libs: LibraryView[]): string {
     const parts: string[] = [];
     for (const kind of kinds) {
@@ -604,6 +606,8 @@ export class LibraryHomeStore {
       for (const lib of libs) {
         if (lib.kind !== kind) { continue; }
         perLib.push(`${lib.id}:${lib.scanning ? 1 : 0}:${lib.organizing ? 1 : 0}` +
+          `:${lib.exclude_from_home ? 1 : 0}:${lib.viewer_access ? 1 : 0}` +
+          `:${lib.metadata_refresh?.refreshing ? 1 : 0}` +
           `:${lib.stats.item_count}:${lib.stats.file_count}`);
       }
       parts.push(`${kind}=${perLib.join(',')}`);
