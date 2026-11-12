@@ -13,6 +13,7 @@ class FakeEngine implements PlayerEngine {
   seekGate: Promise<void> = Promise.resolve();
   playGate: Promise<void> = Promise.resolve();
   releaseGate: Promise<void> = Promise.resolve();
+  tracksGate: Promise<void> = Promise.resolve();
   afterSeek: () => void = (): void => {};
   public id: EngineId;
   private order: string[];
@@ -33,6 +34,7 @@ class FakeEngine implements PlayerEngine {
   async setGain(gain: number): Promise<void> { this.calls.push(`gain:${gain}`); }
   async setSubtitleStyle(style: SubtitleStyle): Promise<void> {}
   async tracks(): Promise<EngineTrack[]> {
+    await this.tracksGate;
     if (this.fixtureTracks !== null) { return this.fixtureTracks; }
     return [{ id: this.id === 'avplayer' ? 2 : 17, kind: 'audio', language: 'jpn', title: '', selected: false }];
   }
@@ -102,7 +104,22 @@ class FakeRemoteMedia implements PlaybackMedia {
   async acquire(): Promise<MediaLease> {
     this.acquired++;
     return new FakeLease({ url: 'https://fixture.invalid/stream', fd: -1,
-      length: 0, subtitleFd: -1, subtitleUrl: '' }, this.order, this.acquired);
+      length: 0, subtitleFd: -1, subtitleUrl: '', isHls: true }, this.order, this.acquired);
+  }
+}
+/** 远程直连（/stream 一类 Range 可 seek 的 URL）：AVPlayer 照常跳转，不转 mpv。 */
+class FakeDirectRemoteMedia implements PlaybackMedia {
+  originMs: number = 0;
+  durationMs: number = 100000;
+  acquired: number = 0;
+  private order: string[];
+  constructor(order: string[]) {
+    this.order = order;
+  }
+  async acquire(): Promise<MediaLease> {
+    this.acquired++;
+    return new FakeLease({ url: 'https://fixture.invalid/stream', fd: -1,
+      length: 0, subtitleFd: -1, subtitleUrl: '', isHls: false }, this.order, this.acquired);
   }
 }
 class Gate {
@@ -427,19 +444,112 @@ export default function playbackControllerTest() {
       await controller.release();
     });
     for (const hint of ['pause', 'stop']) {
-      it(`${hint}_interrupt_during_engine_switching_is_ignored`, 0, async () => {
+      it(`${hint}_interrupt_during_engine_switching_is_latched_and_blocks_autoplay`, 0, async () => {
         const factory = new FakeFactory(); const gate = new Gate();
         factory.avp.gate = gate.promise;
         const controller = new PlaybackController(factory);
         const opening = controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent());
         await microtasks();
+        // 来电落在切换中：锁存 interrupted，open 完成停在 paused，绝不自动起播。
         factory.avp.interrupt(hint);
         gate.release(); await opening;
+        expect(factory.avp.calls.includes('play')).assertFalse();
+        expect(controller.current().playing).assertFalse();
+        expect(controller.current().phase).assertEqual('paused');
+        // 系统下发 RESUME：锁存解除，恢复起播。
+        factory.avp.interrupt('resume'); await microtasks(); await microtasks();
         expect(factory.avp.calls.includes('play')).assertTrue();
+        expect(factory.avp.calls.filter((call: string): boolean => call === 'play').length)
+          .assertEqual(1);
         expect(controller.current().playing).assertTrue();
         await controller.release();
       });
     }
+    it('paused_open_defers_the_resume_seek_until_the_first_play_reaches_the_resume_point', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000; intent.paused = true;
+      await controller.open(new FakeMedia(factory.order), 'surface', intent);
+      // 暂停打开：prepare 态不发 resume-seek（会卡死 FLUSHED），停在 paused。
+      expect(factory.avp.calls.includes('seek:42000')).assertFalse();
+      expect(controller.current().phase).assertEqual('paused');
+      await controller.play();
+      expect(factory.avp.calls.includes('seek:42000')).assertFalse();
+      // 首帧证明解码器在跑，续播点才落地。
+      factory.avp.frame(); await microtasks(); await microtasks();
+      expect(factory.avp.calls.includes('seek:42000')).assertTrue();
+      expect(factory.avp.calls.indexOf('seek:42000') > factory.avp.calls.indexOf('play')).assertTrue();
+      expect(controller.current().positionMs).assertEqual(42000);
+      await controller.release();
+    });
+    it('drag_while_paused_before_the_first_frame_merges_into_the_deferred_target', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeMedia(factory.order), 'surface', intent);
+      await controller.pause();
+      // 首帧前拖动：并入延迟恢复目标，不单独发 seek。
+      await controller.seek(60000);
+      expect(factory.avp.calls.includes('seek:60000')).assertFalse();
+      factory.avp.frame(); await microtasks(); await microtasks();
+      expect(factory.avp.calls.includes('seek:60000')).assertTrue();
+      expect(factory.avp.calls.includes('seek:42000')).assertFalse();
+      expect(controller.current().positionMs).assertEqual(60000);
+      await controller.release();
+    });
+    it('remote_direct_out_resume_stays_on_avplayer_and_lands_after_the_first_frame', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeDirectRemoteMedia(factory.order), 'surface', intent);
+      // 直连远程流（Range 可 seek）不再一刀切转 mpv。
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      expect(factory.mpv.calls.length).assertEqual(0);
+      expect(factory.avp.calls.includes('seek:42000')).assertFalse();
+      factory.avp.frame(); await microtasks(); await microtasks();
+      expect(factory.avp.calls.includes('seek:42000')).assertTrue();
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      expect(controller.current().engine).assertEqual('avplayer');
+      await controller.release();
+    });
+    it('remote_direct_out_user_seek_stays_on_avplayer', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      await controller.open(new FakeDirectRemoteMedia(factory.order), 'surface', new PlaybackIntent());
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      factory.avp.frame(); await microtasks();
+      await controller.seek(70000);
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      expect(factory.avp.calls.includes('seek:70000')).assertTrue();
+      expect(controller.current().engine).assertEqual('avplayer');
+      expect(controller.current().positionMs).assertEqual(70000);
+      await controller.release();
+    });
+    it('progress_reporting_resumes_after_landing_while_track_selection_is_still_pending', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const gate = new Gate();
+      factory.avp.tracksGate = gate.promise;
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      intent.subtitle = { language: 'jpn', title: '', ordinal: 0 };
+      await controller.open(new FakeMedia(factory.order), 'surface', intent);
+      factory.avp.frame(); await microtasks(); await microtasks();
+      expect(factory.avp.calls.includes('seek:42000')).assertTrue();
+      // 落点已确认、选轨仍在途（track 描述抽取可达 35s）：时间照走，不再冻结上报。
+      factory.avp.time(45000);
+      expect(controller.current().positionMs).assertEqual(45000);
+      gate.release(); await microtasks();
+      await controller.release();
+    });
+    it('release_unblocks_a_deferred_resume_still_waiting_for_the_first_frame', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeMedia(factory.order), 'surface', intent);
+      // 首帧没到就退出：等待被 abort（不得挂起、不得未处理拒绝），重开照常。
+      await controller.release();
+      expect(controller.current().phase).assertEqual('idle');
+      expect(factory.avp.calls.includes('release')).assertTrue();
+      await controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent());
+      expect(controller.current().phase).assertEqual('playing');
+      expect(factory.avp.calls.filter((call: string): boolean => call.startsWith('open:')).length)
+        .assertEqual(2);
+      await controller.release();
+    });
     it('same_language_audio_tracks_keep_the_chosen_ordinal_after_fallback', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       factory.avp.failure = new EngineFailure('unsupported', 5400106, 'fixture');
@@ -476,6 +586,7 @@ export default function playbackControllerTest() {
     it('replay_seeks_to_the_beginning_before_playing', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       await controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent());
+      factory.avp.frame(); await microtasks();
       factory.avp.time(100000); factory.avp.state('ended');
       await controller.play();
       expect(factory.avp.calls.slice(-2).join(',')).assertEqual('seek:0,play');
@@ -484,6 +595,7 @@ export default function playbackControllerTest() {
     it('on_demand_segment_seek_can_take_more_than_five_seconds', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       await controller.open(new FakeMedia(factory.order), 'surface', new PlaybackIntent());
+      factory.avp.frame(); await microtasks();
       factory.avp.seekGate = new Promise<void>((resolve): void => { setTimeout(resolve, 6000); });
       await controller.seek(30000);
       expect(controller.current().phase === 'failed').assertFalse();

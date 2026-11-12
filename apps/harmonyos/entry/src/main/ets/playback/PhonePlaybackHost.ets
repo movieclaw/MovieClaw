@@ -868,9 +868,14 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     hilog.info(0x0000, 'MCSub', '%{public}s', `attach: engine=${enginePref} tier=${view.decision.tier}` +
       ` subIndex=${this.subtitleIndex} ref=${currentRef.length > 0 ? currentRef : '-'}` +
       ` nativeOrdinal=${nativeOrdinal ?? '-'} sidecar=${subtitleUrl.length > 0} pgs=${pgsPath.length > 0}`);
+    // 服务端交付契约：tier 0 = 直连（/files/{id}/stream 或 /disc 目录清单，HTTP
+    // Range 可 seek），tier ≥ 1 = HLS（/sessions/{id}/index.m3u8，histreamer 的 HLS
+    // seek 会假 seekDone 真冻结）。PhoneMedia 按此标注 isHls，AVPlayer 只拒 HLS 跳
+    // 转，直连远程流照常续播。
+    const isHls: boolean = (view.decision.tier ?? 0) > 0;
     await this.controller.open(new PhoneMedia(origin, view.watch?.duration_ms ?? 0,
       PlaybackTestProbe.mediaUrl(playbackUrl(AppModel.origin(), url)), '', subtitleUrl, pgsPath,
-      this.getUIContext().getHostContext()?.cacheDir ?? ''), this.surfaceId, intent, enginePref);
+      this.getUIContext().getHostContext()?.cacheDir ?? '', isHls), this.surfaceId, intent, enginePref);
     // 需要客户端渲染又没有现成文件：起后台预备（不阻塞起播；首抽可能要几分钟）
     if (pgsRender && nativeOrdinal === null && pgsPath.length === 0
       && this.subtitleIndex >= 0 && this.subtitleIndex < view.subtitle_urls.length) {

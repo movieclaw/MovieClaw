@@ -22,6 +22,7 @@ export class AVPlayerEngine implements PlayerEngine {
   private rejectSeek: ((failure: EngineFailure) => void) | null = null;
   private completeOpen: (() => void) | null = null;
   private rejectOpen: ((error: EngineFailure) => void) | null = null;
+  private timeUpdates: number = 0;
 
   async open(source: EngineSource, surfaceId: string): Promise<void> {
     const player = await media.createAVPlayer();
@@ -66,6 +67,7 @@ export class AVPlayerEngine implements PlayerEngine {
       }
     });
     player.on('timeUpdate', (time: number): void => {
+      this.timeUpdates++;
       const event = new EngineEvent();
       event.type = 'time'; event.positionMs = time; event.durationMs = player.duration;
       this.onEvent(event);
@@ -184,6 +186,14 @@ export class AVPlayerEngine implements PlayerEngine {
   async seek(positionMs: number): Promise<void> {
     const player = this.player;
     if (player === null || this.released) { return; }
+    // histreamer acknowledges seeks with seekDone while the position only reflects
+    // the command afterwards, and remote HLS can jump currentTime without ever
+    // rendering again. Direction decides the landing test (a backward seek must
+    // come back down, a forward seek must climb past the target), and only a
+    // timeUpdate that arrived after this command makes currentTime trustworthy —
+    // a bare seekDone with stale pre-seek ticks proves nothing.
+    const seekWasBackward = positionMs < player.currentTime;
+    const updatesBeforeSeek = this.timeUpdates;
     await new Promise<void>((resolve, reject): void => {
       this.rejectSeek = reject;
       const done = (): void => {
@@ -197,14 +207,17 @@ export class AVPlayerEngine implements PlayerEngine {
       }
     });
     if (this.released || player !== this.player || player.state !== 'playing') { return; }
-    const floor = positionMs - AVPlayerEngine.seekVerifyToleranceMs;
-    if (player.currentTime >= floor) { return; }
+    const tolerance = AVPlayerEngine.seekVerifyToleranceMs;
+    const delivered = (): boolean => this.timeUpdates !== updatesBeforeSeek
+      && (seekWasBackward ? player.currentTime <= positionMs + tolerance
+        : player.currentTime >= positionMs - tolerance);
+    if (delivered()) { return; }
     const deadline = Date.now() + AVPlayerEngine.seekVerifyWindowMs;
     while (Date.now() < deadline && !this.released && this.player === player) {
       await new Promise<void>((resolve): void => {
         setTimeout((): void => { resolve(); }, AVPlayerEngine.seekVerifyPollMs);
       });
-      if (player.currentTime >= floor) { return; }
+      if (delivered()) { return; }
     }
     if (this.released || this.player !== player) { return; }
     hilog.warn(0x0000, 'MCSub', 'avplayer seek 未到位判停滞: target=%{public}d current=%{public}d',

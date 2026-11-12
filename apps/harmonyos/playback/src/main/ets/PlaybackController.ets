@@ -76,7 +76,9 @@ export class PlaybackController {
   private startupPositionMs: number = 0;
   private startupSeekSuperseded: boolean = false;
   private deferredResumePending: boolean = false;
+  private deferredSeekIssued: boolean = false;
   private firstFrameSignal: (() => void) | null = null;
+  private firstFrameAbort: ((failure: EngineFailure) => void) | null = null;
 
   private factory: EngineFactory;
   constructor(factory: EngineFactory = new DefaultEngineFactory()) {
@@ -109,6 +111,7 @@ export class PlaybackController {
     this.startupConfirmed = false;
     this.startupSeekSuperseded = false;
     this.deferredResumePending = false;
+    this.deferredSeekIssued = false;
     this.snapshot.engine = id; this.snapshot.phase = 'opening'; this.snapshot.playing = false;
     this.snapshot.firstFrame = false; this.snapshot.buffering = false; this.snapshot.failure = null; this.publish();
     let engine: PlayerEngine | null = null;
@@ -132,11 +135,12 @@ export class PlaybackController {
       await this.deadline(engine.open(lease.source, this.surface), 25000);
       if (!this.valid(generation, attempt)) { return; }
       // AVPlayer's prepared-state resume-seek strands the decoder in FLUSHED: the
-      // pipeline freezes while the state machine still reports playing. Start
-      // playback first and defer seek/track selection until the first frame proves
-      // the decoder is running. MPV has no such hazard and keeps seeking at open.
+      // pipeline freezes while the state machine still reports playing — paused and
+      // interrupted opens included. Playback always starts first (a paused open
+      // simply stays prepared) and seek/track selection defer until the first frame
+      // proves the decoder is running. MPV has no such hazard and keeps seeking at open.
       const resumeTargetMs = this.intent.positionMs;
-      const deferUntilRunning = id === 'avplayer' && !this.intent.paused && !this.interrupted;
+      const deferUntilRunning = id === 'avplayer';
       if (!deferUntilRunning) {
         let restoredPosition = -1;
         while (restoredPosition !== this.intent.positionMs && this.valid(generation, attempt)) {
@@ -180,13 +184,17 @@ export class PlaybackController {
   private valid(generation: number, attempt: number): boolean {
     return generation === this.generation && attempt === this.attempt;
   }
-  // histreamer acknowledges seeks inside remote (HTTP/HLS) streams with seekDone and
+  // histreamer acknowledges seeks inside remote HLS streams with seekDone and
   // a jumped currentTime while the decoder never renders again: every observable
-  // signal lies, so AVPlayer refuses required seeks on remote sources outright and
-  // recover() hands the session to MPV instead of freezing on a dead pipeline.
+  // signal lies, so AVPlayer refuses required seeks on remote HLS sources outright
+  // and recover() hands the session to MPV instead of freezing on a dead pipeline.
+  // Plain remote URLs (/stream, /disc directory listings) range-request fine and
+  // stay seekable; EngineSource.isHls distinguishes the two (absent = conservative
+  // HLS = refuse, so old media implementations cannot regress into freezing).
   private remoteAvplayerSeek(engine: PlayerEngine): boolean {
     const lease = this.lease;
-    return engine.id === 'avplayer' && lease !== null && lease.source.fd < 0 && lease.source.url.length > 0;
+    return engine.id === 'avplayer' && lease !== null && lease.source.fd < 0
+      && lease.source.url.length > 0 && (lease.source.isHls ?? true);
   }
   private async recover(failure: EngineFailure, generation: number, id: EngineId): Promise<void> {
     hilog.error(0x0000, 'MCSub', 'engine 失败: id=%{public}s kind=%{public}s code=%{public}d msg=%{public}s',
@@ -255,6 +263,7 @@ export class PlaybackController {
       this.snapshot.firstFrame = true; this.confirmStartup();
       const signal = this.firstFrameSignal;
       this.firstFrameSignal = null;
+      this.firstFrameAbort = null;
       if (signal !== null) { signal(); }
     }
     else if (event.type === 'buffering') { this.snapshot.buffering = event.hint === 'start'; }
@@ -296,38 +305,63 @@ export class PlaybackController {
     try { await Promise.race([engine.play(), cancelled]); }
     finally { if (confirmed) { cancel(); } }
   }
+  // Cancellable: disposeEngine aborts a pending wait, so a release/recover during
+  // the deferred window can never strand the waiter (or surface its rejection).
   private waitFirstFrame(): Promise<void> {
     if (this.snapshot.firstFrame) { return Promise.resolve(); }
-    return new Promise<void>((resolve): void => { this.firstFrameSignal = resolve; });
+    return new Promise<void>((resolve, reject): void => {
+      this.firstFrameSignal = resolve;
+      this.firstFrameAbort = (failure: EngineFailure): void => {
+        this.firstFrameSignal = null;
+        this.firstFrameAbort = null;
+        reject(failure);
+      };
+    });
   }
   // The first frame proves the decoder is RUNNING: the deferred seek then takes the
   // same path as a user seek, and selectTrack stops touching the prepared-state
   // sidecar subtitle source (whose sub-seek histreamer rejects at prepared).
-  private async deferStartupResume(engine: PlayerEngine, media: PlaybackMedia, targetMs: number,
-    generation: number, attempt: number): Promise<void> {
-    await this.waitFirstFrame();
-    if (!this.valid(generation, attempt)) { return; }
-    const resumeMs = this.startupSeekSuperseded ? this.intent.positionMs : targetMs;
-    hilog.info(0x0000, 'MCSub', 'avplayer 延迟恢复: seek=%{public}d 取代=%{public}s',
-      resumeMs, `${this.startupSeekSuperseded}`);
-    try {
-      if (resumeMs > media.originMs) {
-        if (this.remoteAvplayerSeek(engine)) {
-          hilog.info(0x0000, 'MCSub', 'avplayer 远程流延迟恢复需跳转，拒绝: position=%{public}d origin=%{public}d',
-            resumeMs, media.originMs);
-          throw new EngineFailure('unsupported', 0, '系统播放器不支持流媒体内跳转');
+  private deferStartupResume(engine: PlayerEngine, media: PlaybackMedia, targetMs: number,
+    generation: number, attempt: number): void {
+    this.waitFirstFrame().then((): void => {
+      if (!this.valid(generation, attempt)) { return; }
+      // The restore rides the command queue: a user seek/track change issued after
+      // the frame lands queues behind it instead of racing the deferred seek, and
+      // AVPlayer's single rejectSeek slot stays serialized.
+      const task = this.commandTail.then(async (): Promise<void> => {
+        if (!this.valid(generation, attempt) || engine !== this.engine) { return; }
+        // Read the target inside the task: a drag during the deferred window (seek()
+        // merges it into intent.positionMs) must land at the latest position, not
+        // the one captured at open.
+        const resumeMs = this.startupSeekSuperseded ? this.intent.positionMs : targetMs;
+        hilog.info(0x0000, 'MCSub', 'avplayer 延迟恢复: seek=%{public}d 取代=%{public}s',
+          resumeMs, `${this.startupSeekSuperseded}`);
+        if (resumeMs > media.originMs) {
+          if (this.remoteAvplayerSeek(engine)) {
+            hilog.info(0x0000, 'MCSub', 'avplayer 远程流延迟恢复需跳转，拒绝: position=%{public}d origin=%{public}d',
+              resumeMs, media.originMs);
+            throw new EngineFailure('unsupported', 0, '系统播放器不支持流媒体内跳转');
+          }
+          this.deferredSeekIssued = true;
+          await this.deadline(engine.seek(Math.max(0, resumeMs - media.originMs)), PlaybackController.seekTimeoutMs);
         }
-        await this.deadline(engine.seek(Math.max(0, resumeMs - media.originMs)), PlaybackController.seekTimeoutMs);
-      }
-      if (!this.valid(generation, attempt)) { return; }
-      await this.deadline(this.restoreTracks(engine), PlaybackController.seekTimeoutMs);
-      if (!this.valid(generation, attempt)) { return; }
-      this.deferredResumePending = false;
-    } catch (error) {
-      if (!this.valid(generation, attempt)) { return; }
-      const failure = error instanceof EngineFailure ? error : new EngineFailure('internal', 0, '播放器操作失败');
-      await this.recover(failure, generation, engine.id);
-    }
+        if (!this.valid(generation, attempt)) { return; }
+        // The landing is confirmed (or no seek was needed): progress reporting
+        // resumes immediately. Track selection can legitimately take tens of
+        // seconds (track description extraction); the clock must keep moving
+        // meanwhile, and a track-timeout reopen must not rewind to a stale target.
+        this.deferredResumePending = false;
+        await this.deadline(this.restoreTracks(engine), PlaybackController.seekTimeoutMs);
+      });
+      this.commandTail = task.catch((): void => {});
+      task.catch((error: Error): Promise<void> => {
+        if (!this.valid(generation, attempt)) { return Promise.resolve(); }
+        const failure = error instanceof EngineFailure ? error : new EngineFailure('internal', 0, '播放器操作失败');
+        return this.recover(failure, generation, engine.id);
+      }).catch((): void => {});
+    }).catch((): void => {
+      // disposeEngine aborted the first-frame wait (release/recover): quiet exit.
+    });
   }
   private updateDuration(duration: number): void {
     if ((this.media?.durationMs ?? 0) > 0) { this.snapshot.durationMs = this.media!.durationMs; }
@@ -377,14 +411,22 @@ export class PlaybackController {
   async seek(fileMs: number): Promise<void> {
     this.startupSeekSuperseded = true;
     this.intent.positionMs = Math.max(0, fileMs); this.snapshot.positionMs = this.intent.positionMs; this.publish();
-    if (fileMs < (this.media?.originMs ?? 0)) { this.onSeekOutsideWindow(fileMs); return; }
+    const originMs = this.media?.originMs ?? 0;
+    if (fileMs < originMs) { this.onSeekOutsideWindow(fileMs); return; }
+    // Before the first frame a drag merges into the deferred resume target (the
+    // restore task reads intent.positionMs when it runs). Remote HLS is the
+    // exception: the drag must refuse straight away and hand the session to MPV
+    // instead of waiting for a frame that may never come.
+    const engine = this.engine;
+    if (this.deferredResumePending && !this.deferredSeekIssued
+      && !(engine !== null && fileMs > originMs && this.remoteAvplayerSeek(engine))) { return; }
     await this.command((engine: PlayerEngine): Promise<void> => {
-      if (fileMs > (this.media?.originMs ?? 0) && this.remoteAvplayerSeek(engine)) {
+      if (fileMs > originMs && this.remoteAvplayerSeek(engine)) {
         hilog.info(0x0000, 'MCSub', 'avplayer 远程流拖动跳转，拒绝: position=%{public}d origin=%{public}d',
-          fileMs, this.media?.originMs ?? 0);
+          fileMs, originMs);
         throw new EngineFailure('unsupported', 0, '系统播放器不支持流媒体内跳转');
       }
-      return this.deadline(engine.seek(Math.max(0, fileMs - (this.media?.originMs ?? 0))), PlaybackController.seekTimeoutMs);
+      return this.deadline(engine.seek(Math.max(0, fileMs - originMs)), PlaybackController.seekTimeoutMs);
     });
   }
   async setRate(rate: number): Promise<void> {
@@ -398,6 +440,10 @@ export class PlaybackController {
   async selectTrack(kind: string, preference: TrackPreference | null): Promise<void> {
     if (kind === 'audio') { this.intent.audio = preference; }
     else { this.intent.subtitle = preference; this.intent.subtitlesOff = preference === null; }
+    // Before the first frame only record the intent: selectTrack at prepared state
+    // touches the sidecar subtitle source whose sub-seek histreamer rejects, and
+    // the deferred restore applies the latest preference once the decoder runs.
+    if (this.deferredResumePending && !this.deferredSeekIssued) { return; }
     await this.command((engine: PlayerEngine): Promise<void> => this.restoreTracks(engine));
   }
   async tracks(): Promise<EngineTrack[]> {
@@ -449,11 +495,15 @@ export class PlaybackController {
       }
     } else if (hint === 'stop' || hint === 'pause') {
       // Engine swaps rebuild the audio session and generate self-inflicted focus
-      // churn. Real interruptions are re-asserted by the audio server once the new
-      // session starts, so pause/stop mid-switch are ignored instead of cancelling
-      // the startup watchdog and freezing the picture.
+      // churn, but only NONE/unknown hints are engine-filtered: a PAUSE/STOP that
+      // reaches the controller during a switch is a real interruption (a call
+      // landing mid-recover). Latch it — the open completes paused instead of
+      // autoplaying over the caller, and the system's RESUME restores playback.
       if (this.switching) {
-        hilog.info(0x0000, 'MCSub', 'interrupt 忽略（切换中）: hint=%{public}s', hint);
+        if (!this.intent.paused && !this.interrupted) {
+          this.interrupted = true;
+          hilog.info(0x0000, 'MCSub', 'interrupt 切换中锁存（RESUME 恢复）: hint=%{public}s', hint);
+        }
         return;
       }
       if (hint === 'stop') { this.pause(); return; }
@@ -469,6 +519,14 @@ export class PlaybackController {
     const surface = this.engineSurface; this.engineSurface = '';
     this.engine = null; this.lease = null; this.available = false;
     this.cancelStartup?.();
+    // Abort a deferred-resume waiter before resetting the queue: release, recover
+    // and reopen all arrive here, and none may strand the first-frame wait.
+    const abortFirstFrame = this.firstFrameAbort;
+    this.firstFrameSignal = null;
+    this.firstFrameAbort = null;
+    if (abortFirstFrame !== null) {
+      abortFirstFrame(new EngineFailure('internal', 0, '播放已取消'));
+    }
     this.commandTail = Promise.resolve();
     if (engine !== null) {
       engine.onEvent = (): void => {};

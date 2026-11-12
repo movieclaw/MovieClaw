@@ -459,7 +459,12 @@ function avpSeekFixture(seek) {
 }
 
 test('AVPlayer seek resolves once the position reaches the target', async () => {
-  const { player, handlers, engine } = avpSeekFixture((ms) => { player.currentTime = ms; handlers.get('seekDone')(); });
+  const { player, handlers, engine } = avpSeekFixture((ms) => {
+    player.currentTime = ms;
+    handlers.get('seekDone')();
+    // A fresh timeUpdate after the command is what makes currentTime trustworthy.
+    handlers.get('timeUpdate')(ms);
+  });
   await engine.open({ fd: -1, url: 'fixture', subtitleFd: -1, subtitleUrl: '' }, 'surface');
   await engine.play();
   await engine.seek(90000);
@@ -473,6 +478,36 @@ test('AVPlayer seek rejects as timeout when the position never reaches the targe
   await engine.open({ fd: -1, url: 'fixture', subtitleFd: -1, subtitleUrl: '' }, 'surface');
   await engine.play();
   await assert.rejects(engine.seek(90000), (error) => error.kind === 'timeout');
+  await engine.release();
+});
+
+test('AVPlayer backward seek rejects as timeout when the position never falls back', async () => {
+  // Review round 5: the old landing check (`currentTime >= target - tolerance`)
+  // accepted backward seeks vacuously — the pre-seek position always sat above the
+  // floor. A backward seek must wait for a fresh timeUpdate proving the position
+  // actually came down.
+  const { player, handlers, engine, AVPlayerEngine } = avpSeekFixture((ms) => { handlers.get('seekDone')(); });
+  AVPlayerEngine.seekVerifyWindowMs = 50;
+  player.currentTime = 90000;
+  await engine.open({ fd: -1, url: 'fixture', subtitleFd: -1, subtitleUrl: '' }, 'surface');
+  await engine.play();
+  const seeking = engine.seek(7000);
+  // Fresh ticks keep flowing, but only at the un-seeked position: no landing.
+  handlers.get('timeUpdate')(90000);
+  await assert.rejects(seeking, (error) => error.kind === 'timeout');
+  await engine.release();
+});
+
+test('AVPlayer backward seek lands once a fresh time update reaches the target', async () => {
+  const { player, handlers, engine } = avpSeekFixture((ms) => { handlers.get('seekDone')(); });
+  player.currentTime = 90000;
+  await engine.open({ fd: -1, url: 'fixture', subtitleFd: -1, subtitleUrl: '' }, 'surface');
+  await engine.play();
+  const seeking = engine.seek(7000);
+  player.currentTime = 7200;
+  handlers.get('timeUpdate')(7200);
+  await seeking;
+  assert.equal(player.currentTime, 7200);
   await engine.release();
 });
 
@@ -693,4 +728,77 @@ test('a genre answer landed mid-scan does not outlive the scan', async () => {
   await store.reload(api, 'owner');
   assert.equal(genreCalls, 2);
   assert.deepEqual(store.genresByKind, { movie: [{ name: 'Drama', count: 2 }] });
+});
+
+test('the genre fingerprint moves with exclude, viewer access, and metadata refresh', async () => {
+  const load = runtime();
+  const { HomeRows } = load('entry/src/main/ets/library/HomeRows.ets');
+  const { LibraryHomeStore } = load('entry/src/main/ets/library/LibraryHomeStore.ets');
+  // Review round 5: the genre aggregate is served per kind, and the server folds each
+  // library in or out by its home visibility, viewer access, and metadata refresh. Those
+  // transitions must move the fingerprint even when the ledger (item/file counts) stands
+  // still, or the tiles go stale until an unrelated counter ticks. A stable sibling
+  // library keeps the genres row itself alive through every flip — a single flipping
+  // library would drag the row down (and the kind list with it) instead.
+  const world = { excluded: false, viewer: true, refreshing: false };
+  const stable = { id: 1, name: 'Movies', kind: 'movie', viewer_access: true,
+    exclude_from_home: false, scanning: false, organizing: false,
+    stats: { item_count: 5, file_count: 6 } };
+  const flipping = () => ({ id: 2, name: 'Archive', kind: 'movie', viewer_access: world.viewer,
+    exclude_from_home: world.excluded, scanning: false, organizing: false,
+    metadata_refresh: world.refreshing
+      ? { refreshing: true, processed: 1, total: 2, failed: 0, stopping: false, active: [] }
+      : undefined,
+    stats: { item_count: 3, file_count: 4 } });
+  const prefs = HomeRows.build([], [stable, flipping()], []).map((row) => ({ id: row.id, hidden: row.hidden }));
+  let genreCalls = 0;
+  const api = {
+    uiPrefsShow: async () => ({ home: { rows: prefs } }),
+    libraryList: async () => [stable, flipping()],
+    collectionList: async () => [],
+    playbackUpNext: async () => ({ items: [] }),
+    playbackFavorites: async () => ({ items: [], total: 0 }),
+    libraryItemsList: async () => [],
+    uiLibraryKindItems: async () => [],
+    uiLibraryKindGenres: async () => {
+      genreCalls++;
+      return [{ name: 'Drama', count: 2 }];
+    },
+  };
+  const store = new LibraryHomeStore();
+  // Round 1: the baseline lands.
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 1);
+  assert.deepEqual(store.genresByKind, { movie: [{ name: 'Drama', count: 2 }] });
+  // Round 2: the ledger and every state bit are unchanged — the gate stays shut.
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 1);
+  // Round 3: the library is excluded from home — the server's aggregate changes.
+  world.excluded = true;
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 2);
+  // Round 4: back in — refetch again.
+  world.excluded = false;
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 3);
+  // Round 5: viewer access drops (locked admin card) — the library leaves the aggregate.
+  world.viewer = false;
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 4);
+  // Round 6: browsable again — refetch.
+  world.viewer = true;
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 5);
+  // Round 7: a whole-library metadata refresh starts — genre names can change mid-run.
+  world.refreshing = true;
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 6);
+  // Round 8: the refresh ends — the final verdict can differ from the mid-run answer.
+  world.refreshing = false;
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 7);
+  assert.deepEqual(store.genresByKind, { movie: [{ name: 'Drama', count: 2 }] });
+  // Round 9: the world is stable — nothing is requested.
+  await store.reload(api, 'owner');
+  assert.equal(genreCalls, 7);
 });
