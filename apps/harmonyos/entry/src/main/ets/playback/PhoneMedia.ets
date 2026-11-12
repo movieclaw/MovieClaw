@@ -49,6 +49,8 @@ export class PhoneMedia implements PlaybackMedia {
   private subtitlePath: string;
   private cacheDirectory: string;
   private isHls: boolean;
+  /** 冻结重开上限的会话标识：同文件换引擎/换档共用一个 key，上限跨 open 累计。 */
+  public sessionKey?: string;
   constructor(originMs: number,
     durationMs: number,
     url: string,
@@ -56,7 +58,8 @@ export class PhoneMedia implements PlaybackMedia {
     subtitleUrl: string = '',
     subtitlePath: string = '',
     cacheDirectory: string = '',
-    isHls: boolean = false) {
+    isHls: boolean = false,
+    sessionKey: string = '') {
     this.originMs = originMs;
     this.durationMs = durationMs;
     this.url = url;
@@ -65,6 +68,8 @@ export class PhoneMedia implements PlaybackMedia {
     this.subtitlePath = subtitlePath;
     this.cacheDirectory = cacheDirectory;
     this.isHls = isHls;
+    // 空串归一为缺省：控制器按「缺省=每次 open 清零」的旧口径处理。
+    this.sessionKey = sessionKey.length > 0 ? sessionKey : undefined;
   }
   private static sequence: number = 0;
   async acquire(engine: EngineId): Promise<MediaLease> {
