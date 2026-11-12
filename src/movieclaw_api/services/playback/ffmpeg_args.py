@@ -954,10 +954,18 @@ def _video_args(
     args = []
     if filters:
         args += ["-vf", filters]
-    if vt_mode == VT_GPU:
-        # GPU 链路由 scale_vt 控制输出尺寸。输入帧的尺寸、色彩范围或硬件帧上下文
-        # 变化时，ffmpeg 重建滤镜图会按上次输出尺寸插入软件 scaler_out；它接不了
-        # videotoolbox_vld，导致 -78 退出。关闭这层自动缩放，保持整条链使用硬件帧。
+    gpu_frame_chain = backend is not None and backend.name in ("vaapi", "qsv", "nvenc")
+    if vt_mode == VT_GPU or (gpu_frame_chain and not software_filters):
+        # 输出是硬件帧的整条 GPU 链：VideoToolbox 的 scale_vt 链由 scale_vt 控制输出
+        # 尺寸；VAAPI / QSV / NVENC 的滤镜链（或没有 -vf 时解码直连编码器）同理。
+        # 输入帧的尺寸、色彩范围或硬件帧上下文变化时，ffmpeg 重建滤镜图会按上次输出
+        # 自动插一个软件 auto_scale；它接不了硬件帧，重建直接失败：VideoToolbox 是
+        # -78，VAAPI 真机是 seek 补片重启连续「Impossible to convert between the
+        # formats supported by the filter 'Parsed_setparams_2' and the filter
+        # 'auto_scale_0'」后以 218 退出（2026-11-12 会话 01M775BPA146ACS88WZ7948535，
+        # tonemap_vaapi → scale_vaapi → setparams 的 HDR 链），分片缺口追不上。链路的
+        # 输出格式由我们自己的滤镜钉死（scale_* 的 format=、setparams 的 BT.709 标签），
+        # 关闭这层自动缩放，重建才走得通。
         args += ["-noautoscale"]
     hevc_codec = hevc_encoder(backend) if backend is not None else None
     hevc = bool(is_hevc_output(plan.video) and hevc_codec)
