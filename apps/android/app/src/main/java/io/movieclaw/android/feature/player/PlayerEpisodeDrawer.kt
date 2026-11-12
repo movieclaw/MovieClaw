@@ -95,6 +95,9 @@ internal object EpisodeStageLayout {
     const val VIDEO_CORNER = 18f
     const val DRAWER_CORNER = 36f
 
+    /** 欠阻尼弹簧会越过目标值；圆角、透明度和布局插值只消费合法进度。 */
+    fun visualProgress(animatedProgress: Float) = animatedProgress.coerceIn(0f, 1f)
+
     /**
      * @param startInset 左侧刘海 / 挖孔的避让（横屏时在哪一侧都可能）
      * @param endInset 右侧刘海 / 挖孔的避让：面板让开它

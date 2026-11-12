@@ -402,11 +402,12 @@ private fun PlayingSurface(
                 cutout.calculateStartPadding(layoutDirection).value, cutout.calculateEndPadding(layoutDirection).value, aspect,
             )
         }
-        val stageProgress by animateFloatAsState(
+        val animatedStageProgress by animateFloatAsState(
             if (episodesOpen) 1f else 0f,
             spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
             label = "episodes-stage",
         )
+        val stageProgress = EpisodeStageLayout.visualProgress(animatedStageProgress)
         if (stageProgress > 0f) {
             val still = state.currentEpisode?.stillUrl ?: state.info?.posterUrl
             Box(Modifier.fillMaxSize().alpha(stageProgress)) {
