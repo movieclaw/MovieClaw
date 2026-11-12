@@ -524,6 +524,7 @@ def _watch_clause(watch: WatchFilter, member_id: int, library_id: LibraryScope |
     if watch == "unfinished":
         # 完成度只看当前库范围内的在架单元，不把未入库集数或别的库混进来。
         # 同集多片源不影响 EXISTS；收藏哨兵 (-1,-1) 不会命中真实库存单元。
+        # 已看标记是完成事实；重播或旧设备写回的续播点不撤销已看。
         completed = (
             select(1)
             .where(
@@ -532,7 +533,6 @@ def _watch_clause(watch: WatchFilter, member_id: int, library_id: LibraryScope |
                 PlaybackState.season_number == LibraryFile.season_number,
                 PlaybackState.episode_number == LibraryFile.episode_number,
                 PlaybackState.played.is_(True),
-                PlaybackState.position_ms == 0,
             )
             .correlate(LibraryFile)
             .exists()
