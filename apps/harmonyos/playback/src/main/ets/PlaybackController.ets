@@ -11,6 +11,9 @@ export interface PlaybackMedia {
   acquire(engine: EngineId): Promise<MediaLease>;
   originMs: number;
   durationMs: number;
+  /** 播放会话标识（如文件 id）：冻结重开上限按它跨 open 累计——同一会话内
+   * 换引擎/换档不重置次数；缺省沿用每次 open 重置的旧口径。 */
+  sessionKey?: string;
 }
 export class PlaybackIntent {
   positionMs: number = 0;
@@ -83,6 +86,11 @@ export class PlaybackController {
   private firstFrameSignal: (() => void) | null = null;
   private firstFrameAbort: ((failure: EngineFailure) => void) | null = null;
   private frozenRecoveries: number = 0;
+  private frozenSessionKey: string | null = null;
+  // 在播挂上的旁挂源（mpv）：冻结就地重开绕过 open()，host 不会重走挂载流程
+  // （media 是挂载前的旧快照），由控制器在重开后补挂。只记可复挂的 path/URL
+  // 型——fd 型的文件生命周期不在控制器手里，重开后多半已失效。
+  private attachedSubtitle: EngineSource | null = null;
 
   private factory: EngineFactory;
   constructor(factory: EngineFactory = new DefaultEngineFactory()) {
@@ -96,7 +104,14 @@ export class PlaybackController {
     preference: string = 'auto'): Promise<void> {
     const generation = ++this.generation;
     this.attempt++;
-    this.frozenRecoveries = 0;
+    // 冻结重开上限按会话累计：同一 sessionKey（同一条媒体）内换引擎/换档不
+    // 重置，真正换会话（换集/重进）才清零；缺省 key 沿用每次 open 清零的旧口径。
+    const sessionKey = media.sessionKey ?? null;
+    if (sessionKey === null || sessionKey !== this.frozenSessionKey) {
+      this.frozenRecoveries = 0;
+      this.frozenSessionKey = sessionKey;
+    }
+    this.attachedSubtitle = null;
     this.media = media; this.surface = surface; this.intent = intent; this.preference = preference;
     this.switching = true; this.available = false; this.interrupted = false;
     this.snapshot = new PlaybackSnapshot();
@@ -153,6 +168,22 @@ export class PlaybackController {
           if (restoredPosition > media.originMs) {
             await this.deadline(engine.seek(Math.max(0, restoredPosition - media.originMs)), PlaybackController.seekTimeoutMs);
           }
+        }
+        if (!this.valid(generation, attempt)) { return; }
+      }
+      // 冻结的就地重开绕过 open()：在播时挂上的旁挂字幕 host 不会重走挂载流程
+      // （media 是挂载前的旧快照，acquire 只会带回旧配方），这里按控制器记录补挂。
+      // 失败只留痕——丢一格字幕不能废掉整次画面恢复。
+      const sidecar = this.attachedSubtitle;
+      if (id === 'mpv' && sidecar !== null) {
+        try {
+          await engine.attachSubtitle(sidecar);
+        } catch (error) {
+          hilog.warn(0x0000, 'MCSub', '冻结重开补挂旁挂字幕失败: %{public}s', `${error}`);
+          const notice = new EngineEvent();
+          notice.type = 'diagnostic';
+          notice.text = '旁挂字幕恢复失败，继续播放';
+          this.onEvent(notice);
         }
         if (!this.valid(generation, attempt)) { return; }
       }
@@ -239,14 +270,23 @@ export class PlaybackController {
   }
 
   /**
-   * 视频画面冻结（mpv 看门狗触发）：dispose 后按 intent 当前位置（音频时钟，
-   * 由 time 事件持续更新，落在坏段之后）就地重开 mpv，服务端从新位置重新起
-   * 转恢复流连续。重开次数超上限说明源/服务端持续异常，转 decode 失败交给
-   * 宿主收尾，绝不无限循环。
+   * 视频画面冻结（mpv 看门狗触发）：dispose 后就地重开 mpv 恢复流连续。重开
+   * 位置取 intent 与看门狗实测的较大值——time 事件可能被事件洪峰（404 风暴）
+   * 整段丢弃，intent 里是旧位置，直接用会把已看过的片段重放一遍，还得让服务
+   * 端重新产段；看门狗上报的是冻结瞬间的引擎位置（+originMs 换算到文件时间），
+   * 绝不让重开位置回退。重开次数超上限说明源/服务端持续异常，转 decode 失败
+   * 交给宿主收尾，绝不无限循环。
    */
-  private async recoverFrozen(generation: number, id: EngineId): Promise<void> {
+  private async recoverFrozen(generation: number, id: EngineId, watchdogPositionMs: number): Promise<void> {
+    const originMs = this.media?.originMs ?? 0;
+    const positionMs = Math.max(this.intent.positionMs, originMs + watchdogPositionMs);
+    if (positionMs !== this.intent.positionMs) {
+      hilog.info(0x0000, 'MCSub', '冻结位置以看门狗实测为准: intent=%{public}d → %{public}d',
+        this.intent.positionMs, positionMs);
+      this.intent.positionMs = positionMs;
+      this.snapshot.positionMs = positionMs;
+    }
     this.frozenRecoveries++;
-    const positionMs = this.intent.positionMs;
     if (this.frozenRecoveries > PlaybackController.maxFrozenRecoveries) {
       hilog.error(0x0000, 'MCSub', '视频冻结自动恢复已达上限 %{public}d 次，转失败: position=%{public}d',
         PlaybackController.maxFrozenRecoveries, positionMs);
@@ -302,8 +342,9 @@ export class PlaybackController {
     if (event.type === 'frozen') {
       // mpv 看门狗：画面停帧而时钟在走（服务端 404 跳段打死了视频 demux）。
       // 切换中/不可用时丢弃（重开由对应路径自己负责），正常在播才就地重开。
+      // 事件带冻结瞬间的实测位置（time 事件可能已被事件洪峰丢弃）。
       if (!this.switching && this.available && this.engine !== null) {
-        this.recoverFrozen(generation, this.engine.id);
+        this.recoverFrozen(generation, this.engine.id, event.positionMs);
       }
       return;
     }
@@ -509,12 +550,19 @@ export class PlaybackController {
     const task = this.commandTail.then(async (): Promise<void> => {
       if (generation !== this.generation || engine !== this.engine || !this.available) { return; }
       await engine.attachSubtitle(source);
+      // 记住可补挂的旁挂源（path/URL 型；全空裸播与 fd 型不记）：冻结就地重开
+      // 绕过 open()，host 不会重走挂载流程，由 startAttempt 重开后补挂。
+      this.attachedSubtitle = this.reattachableSidecar(source);
       // 旁挂轨在 track-list 末尾，ordinal=-1 与 open 时 sidecar 的恢复语义同源
       this.intent.subtitle = { language: '', title: '', ordinal: -1 };
       this.intent.subtitlesOff = false;
     });
     this.commandTail = task.catch((): void => {});
     return task;
+  }
+  private reattachableSidecar(source: EngineSource): EngineSource | null {
+    if ((source.subtitlePath ?? '').length > 0 || source.subtitleUrl.length > 0) { return source; }
+    return null;
   }
   async selectTrack(kind: string, preference: TrackPreference | null): Promise<void> {
     if (kind === 'audio') { this.intent.audio = preference; }
@@ -634,6 +682,8 @@ export class PlaybackController {
   }
   async release(): Promise<void> {
     ++this.generation; ++this.attempt; this.media = null; this.switching = false;
+    // 会话随 release 结束：同一 key 的下一次 open 是新会话，计数与旁挂记忆清零。
+    this.frozenSessionKey = null; this.attachedSubtitle = null;
     try { await this.disposeEngine(); }
     catch (error) {
       const event = new EngineEvent(); event.type = 'diagnostic'; event.text = '播放器释放失败，保留媒体文件句柄'; this.onEvent(event);

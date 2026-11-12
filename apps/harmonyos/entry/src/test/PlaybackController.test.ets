@@ -130,6 +130,22 @@ class FakeDirectRemoteMedia implements PlaybackMedia {
       length: 0, subtitleFd: -1, subtitleUrl: '', isHls: false }, this.order, this.acquired);
   }
 }
+/** 带会话 key 的远程媒体：宿主标注文件 id 后，冻结重开上限跨 open 累计。 */
+class FakeSessionMedia implements PlaybackMedia {
+  originMs: number = 0;
+  durationMs: number = 100000;
+  sessionKey: string = 'file:7';
+  acquired: number = 0;
+  private order: string[];
+  constructor(order: string[]) {
+    this.order = order;
+  }
+  async acquire(): Promise<MediaLease> {
+    this.acquired++;
+    return new FakeLease({ url: 'https://fixture.invalid/stream', fd: -1,
+      length: 0, subtitleFd: -1, subtitleUrl: '', isHls: true }, this.order, this.acquired);
+  }
+}
 class Gate {
   release: () => void = (): void => {};
   promise: Promise<void> = new Promise<void>((resolve): void => { this.release = resolve; });
@@ -688,6 +704,60 @@ export default function playbackControllerTest() {
       gate.release(); await opening;
       expect(factory.created.join(',')).assertEqual('mpv');
       expect(controller.current().phase).assertEqual('playing');
+      await controller.release();
+    });
+    it('frozen_reopen_prefers_the_watchdog_position_when_time_events_were_dropped', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', intent, 'mpv');
+      // 404 风暴把 time 事件整段丢弃：intent 停在旧位置，看门狗实测的冻结位置更靠前，
+      // 重开必须以实测为准——位置回退等于重放已看过的片段、让服务端重新产段。
+      factory.mpv.frozen(58000);
+      await microtasks(); await microtasks();
+      expect(factory.created.join(',')).assertEqual('mpv,mpv');
+      expect(factory.mpv.calls.includes('seek:58000')).assertTrue();
+      expect(controller.current().positionMs).assertEqual(58000);
+      await controller.release();
+    });
+    it('frozen_reopen_reattaches_the_live_sidecar_subtitle', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', intent, 'mpv');
+      const source: EngineSource = { url: '', fd: -1, length: 0, subtitleUrl: '',
+        subtitleFd: -1, subtitlePath: '/cache/playback-sub-1.srt', subtitleFormat: 'srt', subtitleOffsetMs: 0 };
+      await controller.attachSubtitle(source);
+      factory.mpv.calls.length = 0;
+      // 冻结重开绕过 open()，host 不会重走挂载流程：重开后的 mpv 必须按控制器
+      // 记录补挂同一旁挂，位置恢复照常进行。
+      factory.mpv.frozen(45000);
+      await microtasks(); await microtasks();
+      expect(factory.mpv.calls.includes('seek:45000')).assertTrue();
+      expect(factory.mpv.calls.includes('attachSub:/cache/playback-sub-1.srt')).assertTrue();
+      expect(controller.current().phase).assertEqual('playing');
+      await controller.release();
+    });
+    it('frozen_recovery_cap_accumulates_per_session_not_per_open', 0, async () => {
+      // 无 key（旧调用方）：每次 open 清零，换引擎/换档后重新计数，两次冻结后
+      // 重开仍能继续恢复。
+      const plainFactory = new FakeFactory(); const plainController = new PlaybackController(plainFactory);
+      await plainController.open(new FakeRemoteMedia(plainFactory.order), 'surface', new PlaybackIntent(), 'mpv');
+      plainFactory.mpv.frozen(10000); await microtasks(); await microtasks();
+      plainFactory.mpv.frozen(20000); await microtasks(); await microtasks();
+      await plainController.open(new FakeRemoteMedia(plainFactory.order), 'surface', new PlaybackIntent(), 'mpv');
+      plainFactory.mpv.frozen(30000); await microtasks(); await microtasks();
+      expect(plainController.current().phase).assertEqual('playing');
+      await plainController.release();
+      // 有 key（宿主标注会话）：同 key 的 open 不清零，累计到上限转 decode 失败。
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      await controller.open(new FakeSessionMedia(factory.order), 'surface', new PlaybackIntent(), 'mpv');
+      factory.mpv.frozen(10000); await microtasks(); await microtasks();
+      factory.mpv.frozen(20000); await microtasks(); await microtasks();
+      await controller.open(new FakeSessionMedia(factory.order), 'surface', new PlaybackIntent(), 'mpv');
+      factory.mpv.frozen(30000); await microtasks(); await microtasks();
+      expect(controller.current().phase).assertEqual('playing');
+      factory.mpv.frozen(40000); await microtasks(); await microtasks();
+      expect(controller.current().phase).assertEqual('failed');
+      expect(controller.current().failure?.kind).assertEqual('decode');
       await controller.release();
     });
   });

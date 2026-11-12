@@ -875,9 +875,11 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     // seek 会假 seekDone 真冻结）。PhoneMedia 按此标注 isHls，AVPlayer 只拒 HLS 跳
     // 转，直连远程流照常续播。
     const isHls: boolean = (view.decision.tier ?? 0) > 0;
+    // 会话 key 按文件：同文件换引擎/换档共用（冻结重开上限跨 open 累计），换集才换 key。
     await this.controller.open(new PhoneMedia(origin, view.watch?.duration_ms ?? 0,
       PlaybackTestProbe.mediaUrl(playbackUrl(AppModel.origin(), url)), '', subtitleUrl, pgsPath,
-      this.getUIContext().getHostContext()?.cacheDir ?? '', isHls), this.surfaceId, intent, enginePref);
+      this.getUIContext().getHostContext()?.cacheDir ?? '', isHls,
+      `file:${view.decision.file_id ?? 0}`), this.surfaceId, intent, enginePref);
     // 需要客户端渲染又没有现成文件：起后台预备（不阻塞起播；首抽可能要几分钟）
     if (pgsRender && nativeOrdinal === null && pgsPath.length === 0
       && this.subtitleIndex >= 0 && this.subtitleIndex < view.subtitle_urls.length) {
@@ -963,7 +965,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       subtitlePath = `${directory}/subs/${this.localSpec.subtitles[this.subtitleIndex].fileName}`;
     }
     await this.controller.open(new PhoneMedia(0, this.localSpec.durationMs ?? 0, '',
-      this.localMediaPath, '', subtitlePath), this.surfaceId, this.makeIntent(), PlayerPrefs.engine());
+      this.localMediaPath, '', subtitlePath, '', false, `local:${this.localMediaPath}`),
+      this.surfaceId, this.makeIntent(), PlayerPrefs.engine());
   }
 
   makeIntent(engine: string = PlayerPrefs.engine()): PlaybackIntent {
