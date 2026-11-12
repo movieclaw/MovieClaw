@@ -1072,8 +1072,8 @@ async def test_trashed_items_leave_the_wall(db) -> None:
         assert len(ids) > 1
 
 
-async def test_unfinished_movies_include_unstarted_partial_and_rewatch(db) -> None:
-    """未看完是重叠的筛选：未开始、在看、重看都保留，只排除看完的。"""
+async def test_unfinished_movies_respect_watched_mark_during_rewatch(db) -> None:
+    """未开始和未完成的保留；已看勾优先于重播留下的续播点。"""
     async with db.session() as session:
         library_id, ids = await _seed(session)
         for title, played, position in [
@@ -1094,7 +1094,7 @@ async def test_unfinished_movies_include_unstarted_partial_and_rewatch(db) -> No
         await session.flush()
         assert await _titles(session, library_id, filters=LibraryFilter(watch="unfinished")) == set(
             ids
-        ) - {"千与千寻"}
+        ) - {"千与千寻", "寄生虫"}
         assert await _titles(session, library_id, filters=LibraryFilter(watch="unwatched")) == {
             "盗梦空间",
             "霸王别姬",
@@ -1175,11 +1175,14 @@ async def test_unfinished_tv_uses_owned_units_and_scope(db) -> None:
                     season_number=1,
                     episode_number=episode,
                     played=True,
-                    position_ms=0,
+                    position_ms=30_000 if episode == 6 else 0,
                 )
             )
         await session.flush()
         assert await _titles(session, first.id, filters=pending) == set()
+        facets = await build_library_facets(session, first.id, "tv", member_id=_ME, filters=pending)
+        assert facets.total == 0
+        assert next(v.count for v in facets.watch if v.value == "unfinished") == 0
         # 新集在第二库：单库已看完，跨库未看完；多份已看单元只算一次。
         session.add(
             LibraryFile(

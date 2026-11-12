@@ -18,11 +18,12 @@ import time
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
-from movieclaw_db.models import FileSource, FileState, LibraryFile, MediaItem, utcnow
+from movieclaw_db.models import FileSource, FileState, LibraryFile, MediaItem, PlaybackState, utcnow
 from movieclaw_db.repositories.library_repo import LibraryRepository
 
 _MOVIES_PER_LIBRARY = 3000
@@ -158,3 +159,44 @@ async def test_kind_walls_correct_and_fast_without_query_stats(db, client) -> No
                 break
             offset += 200
         assert len(seen) == len(set(seen)) == total
+
+
+async def test_unfinished_http_excludes_completed_show_with_resume_point(db, client) -> None:
+    """24 集都有已看勾、23 集残留旧进度：首页概况与展开列表都应排除。"""
+    total = await _seed_pair(db, "tv", 2, 24)
+    async with db.session() as session:
+        item = (await session.execute(select(MediaItem).order_by(MediaItem.id))).scalars().first()
+        item_id = item.id
+        for episode in range(1, 25):
+            session.add(
+                PlaybackState(
+                    member_id=0,
+                    media_item_id=item_id,
+                    season_number=1,
+                    episode_number=episode,
+                    played=True,
+                    position_ms=2_265_318 if episode == 23 else 0,
+                )
+            )
+        await session.commit()
+
+    base = "/api/v1/libraries/kinds/tv"
+    summary = await _get(client, f"{base}?w=unfinished")
+    assert summary["item_count"] == total - 1
+    rows = await _get(client, f"{base}/items?w=unfinished")
+    assert len(rows) == total - 1
+    assert item_id not in {row["media_item_id"] for row in rows}
+    # 明确取消一集的已看勾后，该剧应重新出现。
+    async with db.session() as session:
+        state = (
+            await session.execute(
+                select(PlaybackState).where(
+                    PlaybackState.media_item_id == item_id, PlaybackState.episode_number == 24
+                )
+            )
+        ).scalar_one()
+        state.played = False
+        await session.commit()
+    assert (await _get(client, f"{base}?w=unfinished"))["item_count"] == total
+    rows = await _get(client, f"{base}/items?w=unfinished")
+    assert item_id in {row["media_item_id"] for row in rows}
