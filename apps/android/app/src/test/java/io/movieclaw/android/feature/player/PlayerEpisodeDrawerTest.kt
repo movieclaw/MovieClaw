@@ -4,6 +4,10 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
+import androidx.compose.animation.core.FloatSpringSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -12,11 +16,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
@@ -26,6 +37,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.MovieClawTheme
 import io.movieclaw.core.model.generated.EpisodeView
@@ -100,6 +112,48 @@ class PlayerEpisodeDrawerTest {
         assertNull(short.caption)
         assertTrue(short.video.bottom <= 220f)
         assertTrue(short.video.right <= short.drawer.x)
+    }
+
+    @Test fun `stage spring overshoot is clamped to legal visual progress`() {
+        val spec = FloatSpringSpec(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
+        val opening = (0L..1_500L).map { millis ->
+            spec.getValueFromNanos(millis * 1_000_000L, initialValue = 0f, targetValue = 1f, initialVelocity = 0f)
+        }
+        val closing = (0L..1_500L).map { millis ->
+            spec.getValueFromNanos(millis * 1_000_000L, initialValue = 1f, targetValue = 0f, initialVelocity = 0f)
+        }
+
+        assertTrue(opening.any { it > 1f })
+        assertTrue(closing.any { it < 0f })
+        assertTrue((opening + closing).all { EpisodeStageLayout.visualProgress(it) in 0f..1f })
+        assertEquals(0f, EpisodeStageLayout.visualProgress(-0.031728577f))
+        assertEquals(1f, EpisodeStageLayout.visualProgress(1.0317286f))
+    }
+
+    @Test fun `stage exit animation renders safely through spring overshoot`() {
+        compose.mainClock.autoAdvance = false
+        var open by mutableStateOf(true)
+        compose.setContent {
+            val animatedProgress by animateFloatAsState(
+                if (open) 1f else 0f,
+                spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
+                label = "test-episodes-stage",
+            )
+            val progress = EpisodeStageLayout.visualProgress(animatedProgress)
+            Box(
+                Modifier
+                    .offset(lerp(0f, 16f, progress).dp, lerp(0f, 20f, progress).dp)
+                    .size(lerp(891f, 534f, progress).dp, lerp(411f, 300f, progress).dp)
+                    .alpha(progress)
+                    .clip(RoundedCornerShape((EpisodeStageLayout.VIDEO_CORNER * progress).dp))
+                    .background(Color.Black)
+                    .testTag("animated-stage-video"),
+            )
+        }
+
+        compose.runOnIdle { open = false }
+        repeat(100) { compose.mainClock.advanceTimeByFrame() }
+        compose.onNodeWithTag("animated-stage-video").assertExists()
     }
 
     @Test fun `episode wording matches the other clients`() {
