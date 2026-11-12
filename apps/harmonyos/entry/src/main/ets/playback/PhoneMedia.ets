@@ -31,7 +31,7 @@ class PhoneMediaLease implements MediaLease {
   }
 }
 
-class DownloadedSubtitle {
+export class DownloadedSubtitle {
   public path: string;
   public format: string;
   constructor(path: string, format: string) {
@@ -39,7 +39,6 @@ class DownloadedSubtitle {
     this.format = format;
   }
 }
-
 /** Immutable source recipe; AVPlayer and MPV never share an open fd or seek offset. */
 export class PhoneMedia implements PlaybackMedia {
   public originMs: number;
@@ -108,6 +107,10 @@ export class PhoneMedia implements PlaybackMedia {
       if (error instanceof EngineFailure) { throw error; }
       throw new EngineFailure('source', 0, '本机媒体或字幕文件不可用');
     }
+  }
+  /** mpv 在播时就地换旁挂只下字幕文件，不走 acquire 整租约（媒体 fd/流不动）。 */
+  async downloadSidecar(engine: EngineId): Promise<DownloadedSubtitle> {
+    return this.downloadSubtitle(engine);
   }
   private async downloadSubtitle(engine: EngineId): Promise<DownloadedSubtitle> {
     const request = http.createHttp();

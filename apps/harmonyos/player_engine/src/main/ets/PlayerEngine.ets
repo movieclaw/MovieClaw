@@ -24,6 +24,8 @@ export interface EngineSource {
   length: number;
   subtitleUrl: string;
   subtitleFd: number;
+  /** 本地字幕文件路径（在播引擎动态挂旁挂用；mpv 自己打开，调用方只管删源文件）。 */
+  subtitlePath?: string;
   subtitleOffsetMs?: number;
   /** Content-sniffed sidecar format: 'ass' | 'srt' | 'vtt' | 'sup' | 'sub' | '' (none/offline-unknown). */
   subtitleFormat?: string;
@@ -67,6 +69,8 @@ export interface PlayerEngine {
   readonly id: EngineId;
   onEvent: (event: EngineEvent) => void;
   open(source: EngineSource, surfaceId: string): Promise<void>;
+  /** 在播引擎就地换旁挂字幕（不重开流）；三个字幕源全空表示只卸不加（裸播）。 */
+  attachSubtitle(source: EngineSource): Promise<void>;
   play(): Promise<void>;
   pause(): Promise<void>;
   seek(positionMs: number): Promise<void>;
