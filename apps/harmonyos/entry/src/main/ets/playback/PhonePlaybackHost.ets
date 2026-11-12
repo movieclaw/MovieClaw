@@ -10,8 +10,8 @@ import { http } from '@kit.NetworkKit';
 import { PlaybackGuard } from '@movieclaw/playback';
 import { PlayerPrefs, SubStyle } from '../player/PlayerPrefs';
 import { PlaybackController, PlaybackSnapshot, PlaybackIntent, PlaybackSessionCoordinator, PlaybackOwnership, SkipSegments } from '@movieclaw/playback';
-import { EngineEvent, EngineFailure } from '@movieclaw/player-engine';
-import { PhoneMedia, playbackUrl, downloadPgsSidecar, removePgsSidecar, PgsSidecarCache } from './PhoneMedia';
+import { EngineEvent, EngineFailure, EngineSource } from '@movieclaw/player-engine';
+import { PhoneMedia, playbackUrl, downloadPgsSidecar, removePgsSidecar, PgsSidecarCache, DownloadedSubtitle } from './PhoneMedia';
 import { PgsPrepareGuard, PgsPrepareTracker } from './PgsPrepareGuard';
 import { MovieClawPlaybackSession } from './MovieClawPlaybackSession';
 import { MovieClawPlaybackGateway } from './MovieClawPlaybackGateway';
@@ -294,6 +294,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   private pgsPreparing: PgsPrepareTracker = new PgsPrepareTracker();
   /** 预备请求代次：每次起跑 +1；旧代次晚完成一律作废（只删自己那份，不碰最新挂上的缓存） */
   private pgsPrepareSeq: number = 0;
+  /** mpv 在播时就地挂的文本旁挂临时文件（换轨/重挂/退出时回收；mpv 持有的句柄不受 unlink 影响） */
+  private textSidecarPath: string = '';
   /** 音轨：当前选中的 ref（空 = 服务端自动挑） */
   @Trace audioRef: string = '';
   @Trace showAudio: boolean = false;
@@ -916,8 +918,23 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       hilog.info(0x0000, 'MCSub', '%{public}s', `PGS 旁挂就绪（${outcome}）: ${key}`);
       if (outcome === PgsPrepareGuard.outcomeRemount && this.localSpec === null
         && (sessionView.stream_url ?? '').length > 0) {
-        this.pendingSeekMs = this.positionMs;
-        await this.attachPlayer(sessionView.stream_url ?? '');
+        // mpv 还在播：就地挂 .sup，不再整段重载（远程重开的 seek-after-open 是
+        // demuxer 死区诱因）；引擎不在播才走重挂
+        if (this.engineLiveMpv()) {
+          const origin: number = sessionView.timeline === 'file' || sessionView.decision.tier === 0
+            ? 0 : sessionView.start_ms;
+          try {
+            await this.controller.attachSubtitle({ url: '', fd: -1, length: 0, subtitleUrl: '',
+              subtitleFd: -1, subtitlePath: path, subtitleFormat: 'sup', subtitleOffsetMs: origin });
+            hilog.info(0x0000, 'MCSub', '%{public}s', 'PGS 旁挂就绪，mpv 在播就地挂载');
+          } catch (error) {
+            this.toast('图形字幕挂载失败，可稍后重新选择这条字幕重试');
+            hilog.warn(0x0000, 'MCSub', 'PGS 旁挂就地挂载失败: %{public}s', `${error}`);
+          }
+        } else {
+          this.pendingSeekMs = this.positionMs;
+          await this.attachPlayer(sessionView.stream_url ?? '');
+        }
       }
     } catch (error) {
       if (seq === this.pgsPrepareSeq && !this.disposed) { this.toast('图形字幕加载失败，可稍后重新选择这条字幕重试'); }
@@ -1142,6 +1159,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   }
 
   async releasePlayer(): Promise<void> {
+    // 就地挂的文本旁挂临时文件随引擎一起走（mpv 已打开的句柄在 unlink 后仍有效）
+    if (this.textSidecarPath.length > 0) { removePgsSidecar(this.textSidecarPath); this.textSidecarPath = ''; }
     await this.controller.release();
     this.engineHwdec = ''; this.engineCodec = ''; this.enginePixel = '';
     this.engineWidth = 0; this.engineHeight = 0;
@@ -1537,16 +1556,18 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   }
 
   /**
-   * 字幕轨切换，按优先级走三条路径（对齐 iOS `selectSubtitle`）：
+   * 字幕轨切换，按优先级走四条路径（对齐 iOS `selectSubtitle`）：
    *
    * 1. mpv 直连档的内封轨（含 PGS）——容器轨就在 track-list 里，直接换 sid，
    *    不必重挂播放器（`liveNativeSubtitleSwitch`）；
-   * 2. 从已烧录的会话切走（含关闭）——已烧进画面的字引擎关不掉，只有重开能
+   * 2. mpv 在播的旁挂轨（转码档文本 / PGS .sup）——就地 `sub-add` 换轨，不重开
+   *    流（`attachLiveSidecar`；PGS 未缓存先卸载裸播，后台下好再就地挂）；
+   * 3. 从已烧录的会话切走（含关闭）——已烧进画面的字引擎关不掉，只有重开能
    *    撤（0.48 起本端申报 pgs_overlay，选中 PGS 不再触发烧录，已烧录会话
    *    只会出现在不认该申报的老服务器上）；
-   * 3. 其余（含转码档选 PGS 的客户端自渲）——重挂 `attachPlayer`：文本轨照旧
-   *    旁挂下载 + `sub-add`，PGS 按次强制 mpv 走内封 sid / .sup 旁挂。后端把
-   *    `subtitle_urls` 与 `decision.subtitles` **按同一序**生成（`for s in
+   * 4. 其余（引擎不在播 / 本机副本 / 没有旁挂地址）——重挂 `attachPlayer`：
+   *    文本轨照旧旁挂下载 + `sub-add`，PGS 按次强制 mpv 走内封 sid / .sup 旁挂。
+   *    后端把 `subtitle_urls` 与 `decision.subtitles` **按同一序**生成（`for s in
    *    view.subtitles`），两边用**同一个下标**就能对上，不需要再拿 track_ref 去匹配。
    */
   async pickSubtitle(index: number): Promise<void> {
@@ -1583,6 +1604,11 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       return;
     }
     if (this.liveNativeSubtitleSwitch()) { return; }
+    // mpv 在播时旁挂轨（转码档文本 / PGS .sup）就地 sub-add 换轨：旧路径把字幕切换
+    // 当引擎切换走 attachPlayer——engine=auto 先定 avplayer，远程流必被守卫拒绝再
+    // 回退 mpv 整段重开（2–5 秒重载、.srt 双份下载、PGS 缓存作废），连续快切时同一
+    // 会话反复 dispose/重开，最终把 mpv demuxer 打进 EOF+视频零包的死区（11-12 真机冻结）。
+    if (this.localSpec === null && await this.attachLiveSidecar(view, index, burnedRef)) { return; }
     this.pendingSeekMs = this.positionMs;
     if (this.localSpec !== null) { await this.attachLocalPlayer(); }
     else if (view.stream_url) { await this.attachPlayer(view.stream_url); }
@@ -1664,6 +1690,78 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     }
     hilog.info(0x0000, 'MCSub', '%{public}s', `liveSwitch: index=${this.subtitleIndex} ordinal=${ordinal}`);
     this.controller.selectTrack('subtitle', { language: '', title: '', ordinal: ordinal }).catch((): void => {});
+    return true;
+  }
+
+  /** 引擎在播（ready/playing/paused/buffering）判定：动态挂字幕只对活引擎有意义。 */
+  private engineLiveMpv(): boolean {
+    const snapshot: PlaybackSnapshot = this.controller.current();
+    const live = snapshot.phase === 'ready' || snapshot.phase === 'playing'
+      || snapshot.phase === 'paused' || snapshot.phase === 'buffering';
+    return snapshot.engine === 'mpv' && live;
+  }
+
+  /**
+   * mpv 在播时就地换旁挂字幕（不重开流）。返回是否已处理完（含失败兜底——画面
+   * 还在播，只是字幕没换成，不落重挂路径）；false 交回上层走原重挂。
+   * PGS 命中会话缓存直接挂 .sup；未缓存先卸载裸播，后台下载完成后由
+   * preparePgsSidecar 的 remount 分支再就地挂。文本轨下载后就地挂；下载失败
+   * toast 后照常播放（与 open 时「字幕下载失败跳过字幕」同口径）。
+   */
+  private async attachLiveSidecar(view: PlaybackSessionView, index: number,
+    burnedRef: string | null): Promise<boolean> {
+    if (!this.engineLiveMpv()) { return false; }
+    if (index < 0 || index >= view.decision.subtitles.length) { return false; }
+    const plan: SubtitlePlanView = view.decision.subtitles[index];
+    if (plan.track_ref === burnedRef) { return false; }
+    const origin: number = view.timeline === 'file' || view.decision.tier === 0 ? 0 : view.start_ms;
+    const epoch: number = this.sessionEpoch;
+    if (plan.kind === 'pgs') {
+      const cached: PgsSidecarCache | null = this.pgsSidecarFile;
+      if (cached !== null && cached.fileId === (view.decision.file_id ?? 0) && cached.ref === plan.track_ref) {
+        const source: EngineSource = { url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1,
+          subtitlePath: cached.path, subtitleFormat: 'sup', subtitleOffsetMs: origin };
+        try {
+          await this.controller.attachSubtitle(source);
+          hilog.info(0x0000, 'MCSub', '%{public}s', `liveSwitch: PGS 旁挂命中缓存就地挂载 index=${index}`);
+        } catch (error) {
+          this.toast('图形字幕挂载失败，可稍后重新选择这条字幕重试');
+          hilog.warn(0x0000, 'MCSub', 'PGS 旁挂就地挂载失败: %{public}s', `${error}`);
+        }
+        return true;
+      }
+      // 未缓存：先卸掉当前旁挂裸播，后台下好再由 remount 分支就地挂
+      try {
+        await this.controller.attachSubtitle({ url: '', fd: -1, length: 0, subtitleUrl: '',
+          subtitleFd: -1, subtitleOffsetMs: origin });
+      } catch (error) {
+        hilog.warn(0x0000, 'MCSub', 'PGS 预备卸载失败: %{public}s', `${error}`);
+      }
+      if (index < view.subtitle_urls.length) {
+        this.preparePgsSidecar(playbackUrl(AppModel.origin(), view.subtitle_urls[index]),
+          view.decision.file_id ?? 0, plan.track_ref).catch((): void => { });
+      }
+      hilog.info(0x0000, 'MCSub', '%{public}s', `liveSwitch: PGS 未缓存，裸播等下载 index=${index}`);
+      return true;
+    }
+    if (index >= view.subtitle_urls.length) { return false; }
+    const media: PhoneMedia = new PhoneMedia(origin, view.watch?.duration_ms ?? 0, '',
+      '', playbackUrl(AppModel.origin(), view.subtitle_urls[index]), '',
+      this.getUIContext().getHostContext()?.cacheDir ?? '');
+    try {
+      const sidecar: DownloadedSubtitle = await media.downloadSidecar('mpv');
+      if (epoch !== this.sessionEpoch || this.disposed) { removePgsSidecar(sidecar.path); return true; }
+      const source: EngineSource = { url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1,
+        subtitlePath: sidecar.path, subtitleFormat: sidecar.format, subtitleOffsetMs: origin };
+      await this.controller.attachSubtitle(source);
+      const previous: string = this.textSidecarPath;
+      this.textSidecarPath = sidecar.path;
+      if (previous.length > 0 && previous !== sidecar.path) { removePgsSidecar(previous); }
+      hilog.info(0x0000, 'MCSub', '%{public}s', `liveSwitch: 文本旁挂就地挂载 index=${index} format=${sidecar.format}`);
+    } catch (error) {
+      if (this.surfaceId.length > 0) { this.toast('字幕加载失败，可稍后重新选择这条字幕重试'); }
+      hilog.warn(0x0000, 'MCSub', '文本旁挂就地挂载失败: %{public}s', `${error}`);
+    }
     return true;
   }
 

@@ -45,6 +45,9 @@ export class PlaybackController {
   private static readonly seekTimeoutMs: number = 35000;
   private static readonly startupTimeoutMs: number = 25000;
   private static readonly releaseTimeoutMs: number = 3000;
+  // mpv 看门狗触发一次画面冻结就地重开一次；超过上限说明源/服务端持续异常，
+  // 转 decode 失败收尾，绝不无限循环。
+  private static readonly maxFrozenRecoveries: number = 3;
   onSnapshot: (snapshot: PlaybackSnapshot) => void = (): void => {};
   onEvent: (event: EngineEvent) => void = (): void => {};
   onSeekOutsideWindow: (positionMs: number) => void = (): void => {};
@@ -79,6 +82,7 @@ export class PlaybackController {
   private deferredSeekIssued: boolean = false;
   private firstFrameSignal: (() => void) | null = null;
   private firstFrameAbort: ((failure: EngineFailure) => void) | null = null;
+  private frozenRecoveries: number = 0;
 
   private factory: EngineFactory;
   constructor(factory: EngineFactory = new DefaultEngineFactory()) {
@@ -92,6 +96,7 @@ export class PlaybackController {
     preference: string = 'auto'): Promise<void> {
     const generation = ++this.generation;
     this.attempt++;
+    this.frozenRecoveries = 0;
     this.media = media; this.surface = surface; this.intent = intent; this.preference = preference;
     this.switching = true; this.available = false; this.interrupted = false;
     this.snapshot = new PlaybackSnapshot();
@@ -233,6 +238,44 @@ export class PlaybackController {
     this.snapshot.failure = failure; this.publish(); this.onFailure(failure);
   }
 
+  /**
+   * 视频画面冻结（mpv 看门狗触发）：dispose 后按 intent 当前位置（音频时钟，
+   * 由 time 事件持续更新，落在坏段之后）就地重开 mpv，服务端从新位置重新起
+   * 转恢复流连续。重开次数超上限说明源/服务端持续异常，转 decode 失败交给
+   * 宿主收尾，绝不无限循环。
+   */
+  private async recoverFrozen(generation: number, id: EngineId): Promise<void> {
+    this.frozenRecoveries++;
+    const positionMs = this.intent.positionMs;
+    if (this.frozenRecoveries > PlaybackController.maxFrozenRecoveries) {
+      hilog.error(0x0000, 'MCSub', '视频冻结自动恢复已达上限 %{public}d 次，转失败: position=%{public}d',
+        PlaybackController.maxFrozenRecoveries, positionMs);
+      await this.recover(new EngineFailure('decode', 0, '视频画面反复卡死，已停止自动恢复'), generation, id);
+      return;
+    }
+    hilog.error(0x0000, 'MCSub', '视频冻结，就地重开恢复: position=%{public}d 第 %{public}d 次',
+      positionMs, this.frozenRecoveries);
+    const notice = new EngineEvent();
+    notice.type = 'diagnostic';
+    notice.text = `视频流卡死，自动恢复中（${this.frozenRecoveries}/${PlaybackController.maxFrozenRecoveries}）`;
+    this.onEvent(notice);
+    this.available = false; this.switching = true; this.attempt++;
+    try { await this.disposeEngine(); }
+    catch (error) {
+      if (generation !== this.generation) { return; }
+      const failure = new EngineFailure('internal', 0, '播放器释放失败，请退出播放页');
+      this.snapshot.phase = 'failed'; this.snapshot.playing = false; this.snapshot.buffering = false; this.snapshot.failure = failure;
+      this.publish(); this.onFailure(failure); return;
+    }
+    if (generation !== this.generation) { return; }
+    try { await this.startAttempt('mpv', generation); }
+    catch (error) {
+      if (generation !== this.generation) { return; }
+      await this.recover(error instanceof EngineFailure ? error
+        : new EngineFailure('internal', 0, '无法重建播放画面'), generation, id);
+    }
+  }
+
   private async resetSurface(generation: number): Promise<void> {
     if (this.onSurfaceReset === null) { throw new EngineFailure('internal', 0, '播放画面仍在释放，请退出后重试'); }
     let surface = '';
@@ -256,6 +299,14 @@ export class PlaybackController {
       return;
     }
     if (event.type === 'interrupt') { this.interrupt(event.hint); return; }
+    if (event.type === 'frozen') {
+      // mpv 看门狗：画面停帧而时钟在走（服务端 404 跳段打死了视频 demux）。
+      // 切换中/不可用时丢弃（重开由对应路径自己负责），正常在播才就地重开。
+      if (!this.switching && this.available && this.engine !== null) {
+        this.recoverFrozen(generation, this.engine.id);
+      }
+      return;
+    }
     if (event.type === 'time') {
       // Initial zero ticks must not erase the resume target during prepare/seek.
       // The same holds for play-first ticks while a deferred resume is pending:
@@ -443,6 +494,27 @@ export class PlaybackController {
   async setSubtitleStyle(style: SubtitleStyle): Promise<void> {
     this.style = style;
     await this.command((engine: PlayerEngine): Promise<void> => engine.setSubtitleStyle(style));
+  }
+  /**
+   * mpv 在播时就地换旁挂字幕：不 dispose、不重开流，命令进 commandTail 与 seek
+   * 等排队。挂载失败原样抛回调用方——画面还在播，绝不为一条字幕 recover 掉整个
+   * 引擎（远程重开的 seek-after-open 正是把 mpv demuxer 打进 EOF 死区的诱因）。
+   */
+  async attachSubtitle(source: EngineSource): Promise<void> {
+    const engine = this.engine;
+    const generation = this.generation;
+    if (engine === null || engine.id !== 'mpv' || !this.available) {
+      throw new EngineFailure('internal', 0, '播放器未就绪，无法挂载字幕');
+    }
+    const task = this.commandTail.then(async (): Promise<void> => {
+      if (generation !== this.generation || engine !== this.engine || !this.available) { return; }
+      await engine.attachSubtitle(source);
+      // 旁挂轨在 track-list 末尾，ordinal=-1 与 open 时 sidecar 的恢复语义同源
+      this.intent.subtitle = { language: '', title: '', ordinal: -1 };
+      this.intent.subtitlesOff = false;
+    });
+    this.commandTail = task.catch((): void => {});
+    return task;
   }
   async selectTrack(kind: string, preference: TrackPreference | null): Promise<void> {
     if (kind === 'audio') { this.intent.audio = preference; }

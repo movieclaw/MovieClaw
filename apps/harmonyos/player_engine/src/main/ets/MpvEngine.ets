@@ -1,6 +1,6 @@
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { createEngine, initEngine, destroyEngine, command, setProperty, tracks, MpvEvent } from 'libmovieclaw_mpv.so';
+import { createEngine, initEngine, destroyEngine, command, setProperty, getProperty, tracks, MpvEvent } from 'libmovieclaw_mpv.so';
 import { EngineEvent, EngineFailure, EngineSource, EngineTrack, PlayerEngine, SubtitleStyle } from './PlayerEngine';
 
 interface NativeTrack {
@@ -43,6 +43,32 @@ export class MpvEngine implements PlayerEngine {
   private ready: boolean = false;
   private eof: boolean = false;
   private paused: boolean = true;
+  /** 本引擎 sub-add 挂上的旁挂轨 id（open 与 attachSubtitle 都记），换轨时 sub-remove。 */
+  private sidecarIds: number[] = [];
+  // ---- 视频冻结看门狗 ---------------------------------------------------
+  // 按需 HLS 流里服务端产不出的分片会 404，mpv 跳段后 per-segment-moov 的视频
+  // 流 demux 死亡（video 0 包），音频却照常整集入队：time-pos 持续走、画面永久
+  // 停帧，一切基于位置的检测全部失明。唯一能区分「在播」与「画面活着」的信
+  // 号是 video-out-pts（最后上屏帧 PTS）。定时采样：时钟在走而上屏帧 PTS 连
+  // 续多拍静止 = 画面冻结，发 frozen 事件交宿主就地重开恢复。
+  private static readonly watchdogIntervalMs: number = 2000;
+  private static readonly frozenSamplesToFire: number = 4;
+  private watchdogTimer: number = -1;
+  private lastTimePos: number = -1;
+  private lastVoPts: number = -1;
+  private frozenSamples: number = 0;
+  private frozenFired: boolean = false;
+  private cachePaused: boolean = false;
+  private watchdogSampleLogged: boolean = false;
+  // time-pos 属性事件水位（receive 记录）：暂停事件被洪峰丢弃 / 属性读取失败时的
+  // 自愈依据——事件仍在推进 = 时钟在走 = 实际在播。
+  private lastTimePosEventMs: number = 0;
+  private lastTimePosEventValue: number = 0;
+  private watchdogTickLogged: boolean = false;
+  private watchdogHealLogged: boolean = false;
+  private watchdogNumberFailLogged: boolean = false;
+  private watchdogEventFallbackLogged: boolean = false;
+  private watchdogDecodedLogged: boolean = false;
 
   async open(source: EngineSource, surfaceId: string): Promise<void> {
     const loaded = new Promise<void>((resolve, reject): void => {
@@ -78,6 +104,7 @@ export class MpvEngine implements PlayerEngine {
       const format = source.subtitleFormat ?? '';
       const textSub = format === 'ass' || format === 'srt' || format === 'vtt';
       await this.set('sub-visibility', textSub ? 'no' : 'yes');
+      const baseIds = await this.subTrackIds();
       try {
         if (source.subtitleFd >= 0) {
           await this.send(['sub-add', `fd://${source.subtitleFd}`, 'select']);
@@ -86,11 +113,13 @@ export class MpvEngine implements PlayerEngine {
           await this.send(['sub-add', source.subtitleUrl, 'select']);
           hilog.info(0x0000, 'MCSub', '%{public}s', 'mpv sub-add url 成功');
         }
+        this.sidecarIds = await this.newSubIds(baseIds);
       } catch (error) {
         hilog.error(0x0000, 'MCSub', 'mpv sub-add 失败: %{public}s', `${error}`);
         const event = new EngineEvent(); event.type = 'diagnostic'; event.text = 'MPV 外挂字幕加载失败，继续播放'; this.onEvent(event);
       }
       await this.set('sub-delay', -(source.subtitleOffsetMs ?? 0) / 1000);
+      this.startWatchdog();
     } catch (error) {
       if (error instanceof EngineFailure) { throw error; }
       const native = error as BusinessError;
@@ -149,6 +178,174 @@ export class MpvEngine implements PlayerEngine {
     await this.set('sub-pos', 100 - style.bottomPercent).catch((): void => {});
     await this.set('sub-border-style', style.background ? 'background-box' : 'outline-and-shadow').catch((): void => {});
   }
+  /**
+   * 在播时就地换旁挂字幕，不重开流。mpv 的 track-list 会随每次 sub-add 一直涨，
+   * 换轨前先把本引擎挂过的旁挂轨 sub-remove 掉；三个字幕源全空 = 只卸不加（裸播，
+   * 等 PGS 后台下载完再挂）。文字轨照旧关原生上屏交给覆盖层，位图（.sup）原生渲染；
+   * sub-delay 对齐时间轴（与 open 同一口径）。id 用 sub-add 前后的 track-list 差集
+   * 认定——不依赖 mpv 是否复用被释放的轨号。
+   */
+  async attachSubtitle(source: EngineSource): Promise<void> {
+    for (const id of this.sidecarIds) {
+      await this.send(['sub-remove', `${id}`]).catch((): void => {});
+    }
+    this.sidecarIds = [];
+    const target = source.subtitlePath ?? (source.subtitleFd >= 0 ? `fd://${source.subtitleFd}` : source.subtitleUrl);
+    if (target.length === 0) {
+      await this.set('sid', 'no');
+      hilog.info(0x0000, 'MCSub', '%{public}s', 'mpv 旁挂已卸载（裸播）');
+      return;
+    }
+    const format = source.subtitleFormat ?? '';
+    const textSub = format === 'ass' || format === 'srt' || format === 'vtt';
+    await this.set('sub-visibility', textSub ? 'no' : 'yes');
+    const baseIds = await this.subTrackIds();
+    await this.send(['sub-add', target, 'select']);
+    await this.set('sub-delay', -(source.subtitleOffsetMs ?? 0) / 1000);
+    this.sidecarIds = await this.newSubIds(baseIds);
+    hilog.info(0x0000, 'MCSub', 'mpv live sub-add 成功: format=%{public}s sid=%{public}s',
+      format, this.sidecarIds.join(','));
+  }
+  private async subTrackIds(): Promise<number[]> {
+    try {
+      const list: NativeTrack[] = JSON.parse(await tracks(this.handle)) as NativeTrack[];
+      return list.filter((track: NativeTrack): boolean => track.type === 'sub')
+        .map((track: NativeTrack): number => track.id);
+    } catch (error) {
+      return [];
+    }
+  }
+  private async newSubIds(base: number[]): Promise<number[]> {
+    const current = await this.subTrackIds();
+    return current.filter((id: number): boolean => !base.includes(id));
+  }
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    this.lastTimePos = -1; this.lastVoPts = -1;
+    this.frozenSamples = 0; this.frozenFired = false;
+    this.watchdogSampleLogged = false;
+    this.watchdogTickLogged = false; this.watchdogHealLogged = false;
+    this.watchdogNumberFailLogged = false; this.watchdogEventFallbackLogged = false;
+    this.watchdogDecodedLogged = false;
+    this.watchdogTimer = setInterval((): void => { this.sampleWatchdog(); }, MpvEngine.watchdogIntervalMs);
+    hilog.info(0x0000, 'MCSub', 'mpv 看门狗启动: interval=%{public}s ms', `${MpvEngine.watchdogIntervalMs}`);
+  }
+  private stopWatchdog(): void {
+    if (this.watchdogTimer >= 0) { clearInterval(this.watchdogTimer); this.watchdogTimer = -1; }
+  }
+  private async sampleWatchdog(): Promise<void> {
+    if (this.released || this.frozenFired || !this.ready) { return; }
+    if (!this.watchdogTickLogged) {
+      this.watchdogTickLogged = true;
+      hilog.info(0x0000, 'MCSub', 'mpv 看门狗首拍: paused=%{public}s eof=%{public}s cachePaused=%{public}s',
+        `${this.paused}`, `${this.eof}`, `${this.cachePaused}`);
+    }
+    // 暂停、缓冲、停在片尾时画面本就静止：重置基线，恢复播放后从新基线起判。
+    // 例外：unpause 属性事件可能在事件洪峰（404 风暴/日志刷屏）里被线程安全队
+    // 列满载丢弃，paused 卡在 true；time-pos 事件两拍内仍在推进说明时钟在走，
+    // 按播放中自愈，避免看门狗在最需要它的卡死场景失明。
+    const eventFreshMs = Date.now() - this.lastTimePosEventMs;
+    const timeEventFresh = this.lastTimePosEventMs > 0 &&
+      eventFreshMs < MpvEngine.watchdogIntervalMs * 2;
+    const pausedStale = this.paused && timeEventFresh;
+    if (pausedStale && !this.watchdogHealLogged) {
+      this.watchdogHealLogged = true;
+      hilog.warn(0x0000, 'MCSub', '%{public}s', 'mpv 看门狗暂停态与时间事件矛盾，按播放中处理');
+    }
+    if ((this.paused && !pausedStale) || this.eof || this.cachePaused) {
+      this.lastTimePos = -1; this.lastVoPts = -1; this.frozenSamples = 0; return;
+    }
+    let timePos = await this.readPos('time-pos');
+    if (this.released || this.frozenFired) { return; }
+    if (!Number.isFinite(timePos) && timeEventFresh) {
+      // getProperty 两条格式都拿不到 time-pos：退用仍在推进的属性事件值。
+      timePos = this.lastTimePosEventValue;
+      if (!this.watchdogEventFallbackLogged) {
+        this.watchdogEventFallbackLogged = true;
+        hilog.warn(0x0000, 'MCSub', 'mpv 看门狗 time-pos 读取失败，改用属性事件值: %{public}s',
+          `${this.lastTimePosEventValue}`);
+      }
+    }
+    let voPts = await this.readPos('video-out-pts');
+    if (this.released || this.frozenFired) { return; }
+    if (!Number.isFinite(voPts)) {
+      // video-out-pts 在个别移植/渲染器上可能不可用：退而求其次用解码帧计数做
+      // 活性信号——解码器断粮时计数静止，与上屏 PTS 停滞同效（判据 |Δ|<0.05
+      // 对整数计数同样成立）。
+      const decoded = await this.readPos('decoded-video-frames');
+      if (this.released || this.frozenFired) { return; }
+      if (Number.isFinite(decoded)) {
+        voPts = decoded;
+        if (!this.watchdogDecodedLogged) {
+          this.watchdogDecodedLogged = true;
+          hilog.warn(0x0000, 'MCSub',
+            'mpv 看门狗 video-out-pts 不可用，改用 decoded-video-frames: %{public}s', `${decoded}`);
+        }
+      }
+    }
+    // 任一属性拿不到（未起播、纯音频没有视频帧）都静默等下一拍，不误报。
+    if (!Number.isFinite(timePos) || !Number.isFinite(voPts)) {
+      this.lastTimePos = -1; this.lastVoPts = -1; this.frozenSamples = 0; return;
+    }
+    // 首次拿到有效采样：证明定时器与属性读取在真机上确实工作（无此日志=看门狗失效）。
+    if (!this.watchdogSampleLogged) {
+      this.watchdogSampleLogged = true;
+      hilog.info(0x0000, 'MCSub', 'mpv 看门狗采样: time-pos=%{public}s vo-pts=%{public}s',
+        timePos.toFixed(1), voPts.toFixed(1));
+    }
+    if (this.lastTimePos < 0 || this.lastVoPts < 0) {
+      this.lastTimePos = timePos; this.lastVoPts = voPts; this.frozenSamples = 0; return;
+    }
+    const clockDelta = timePos - this.lastTimePos;
+    const videoDelta = voPts - this.lastVoPts;
+    this.lastTimePos = timePos; this.lastVoPts = voPts;
+    if (clockDelta >= 1 && Math.abs(videoDelta) < 0.05) {
+      this.frozenSamples++;
+      // 停滞过半（约 4 秒）先留痕：便于事后判断跳段缺口停顿是否逼近触发线。
+      if (this.frozenSamples === 2) {
+        hilog.info(0x0000, 'MCSub', 'mpv 画面疑似停滞: time-pos=%{public}s vo-pts=%{public}s 时钟仍在走',
+          timePos.toFixed(1), voPts.toFixed(1));
+      }
+    } else { this.frozenSamples = 0; }
+    if (this.frozenSamples < MpvEngine.frozenSamplesToFire) { return; }
+    this.frozenFired = true; this.stopWatchdog();
+    hilog.error(0x0000, 'MCSub',
+      'mpv 视频冻结: time-pos=%{public}s vo-pts=%{public}s 静止约 %{public}s 秒，通知宿主重开',
+      timePos.toFixed(1), voPts.toFixed(1),
+      `${Math.round(MpvEngine.frozenSamplesToFire * MpvEngine.watchdogIntervalMs / 1000)}`);
+    const event = new EngineEvent();
+    event.type = 'frozen';
+    event.positionMs = Math.round(timePos * 1000);
+    this.onEvent(event);
+  }
+  /**
+   * 读 mpv 数值属性。number 格式（MPV_FORMAT_DOUBLE）若在真机上抛错/返回非数，
+   * 先留痕再退 string 格式重读解析（mpv_get_property_string 另一条原生路径）；
+   * 两条路都失败才放弃（返回 NaN，调用方静默等下一拍）。
+   */
+  private async readPos(name: string): Promise<number> {
+    try {
+      const value = await getProperty(this.handle, name, 'number');
+      if (typeof value === 'number' && Number.isFinite(value)) { return value; }
+      if (!this.watchdogNumberFailLogged) {
+        this.watchdogNumberFailLogged = true;
+        hilog.warn(0x0000, 'MCSub', 'mpv 看门狗 number 读取异常: %{public}s=%{public}s', name, `${value}`);
+      }
+    } catch (error) {
+      if (!this.watchdogNumberFailLogged) {
+        this.watchdogNumberFailLogged = true;
+        hilog.warn(0x0000, 'MCSub', 'mpv 看门狗 number 读取失败: %{public}s err=%{public}s', name, `${error}`);
+      }
+    }
+    try {
+      const text = await getProperty(this.handle, name, 'string');
+      const parsed = typeof text === 'string' ? Number(text) : NaN;
+      if (Number.isFinite(parsed)) { return parsed; }
+    } catch (error) {
+      // string 路径也失败：NaN 交还调用方静默等下一拍。
+    }
+    return NaN;
+  }
   /** Push the accumulated local decode state so the diagnostics panel can show it. */
   private emitDecode(): void {
     const event = new EngineEvent();
@@ -195,6 +392,8 @@ export class MpvEngine implements PlayerEngine {
         : native.code === 4 ? 'duck' : native.code === 5 ? 'unduck' : 'pause';
     } else if (native.type === 'property') {
       if (native.name === 'time-pos') {
+        this.lastTimePosEventMs = Date.now();
+        this.lastTimePosEventValue = native.value;
         event.type = 'time'; event.positionMs = Math.round(native.value * 1000); event.durationMs = this.duration;
       } else if (native.name === 'demuxer-cache-duration') {
         event.type = 'buffered'; event.bufferedMs = Math.round(native.value * 1000);
@@ -223,6 +422,7 @@ export class MpvEngine implements PlayerEngine {
         if (this.eof) { return; }
         event.type = 'state'; event.state = this.paused ? 'paused' : 'playing';
       } else if (native.name === 'paused-for-cache') {
+        this.cachePaused = native.value === 1;
         event.type = 'buffering'; event.hint = native.value === 1 ? 'start' : 'end';
       } else if (native.name === 'hwdec-current') {
         // Observed as MPV_FORMAT_STRING: runtime decoder id ("h264_ohcodec" etc.),
@@ -248,6 +448,8 @@ export class MpvEngine implements PlayerEngine {
   release(): Promise<void> {
     if (this.releaseTask !== null) { return this.releaseTask; }
     this.released = true; this.onEvent = (): void => {};
+    this.sidecarIds = [];
+    this.stopWatchdog();
     const reject = this.rejectOpen; this.rejectOpen = null; this.resolveOpen = null;
     if (reject !== null) { reject(new EngineFailure('internal', 0, '播放已取消')); }
     // Invalidate the native handle immediately, even if a command is still blocked.

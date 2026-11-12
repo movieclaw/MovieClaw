@@ -424,6 +424,258 @@ test('MPV skips a rejected optional subtitle command and still plays', async () 
   assert.deepEqual(diagnostics, ['diagnostic']); await engine.release();
 });
 
+test('MPV swaps live sidecar subtitles in place without reopening the stream', async () => {
+  const commands = []; const sets = []; let nextId = 0; let subTracks = [];
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7, initEngine: async (handle, options, callback) => callback({ type: 'ready' }),
+    command: async (handle, args) => {
+      commands.push(args.join(' '));
+      if (args[0] === 'sub-add') {
+        nextId += 1;
+        subTracks.push({ id: nextId, type: 'sub', codec: args[1].endsWith('.sup') ? 'hdmv_pgs_subtitle' : 'subrip' });
+      } else if (args[0] === 'sub-remove') {
+        subTracks = subTracks.filter((track) => track.id !== Number(args[1]));
+      }
+    },
+    setProperty: async (handle, name, value) => { sets.push([name, value]); },
+    tracks: async () => JSON.stringify(subTracks),
+    destroyEngine: async () => {},
+  } });
+  const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
+  const empty = { url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1 };
+  await engine.open({ url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1 }, 'surface');
+  assert.deepEqual(commands, ['loadfile  replace']);
+
+  // Text sidecar: attach live, overlay layer off, timeline shifted by sub-delay.
+  await engine.attachSubtitle(Object.assign({}, empty,
+    { subtitlePath: '/cache/playback-sub-1.srt', subtitleFormat: 'srt', subtitleOffsetMs: 15000 }));
+  assert.deepEqual(commands, ['loadfile  replace', 'sub-add /cache/playback-sub-1.srt select']);
+  assert.deepEqual(sets.map((entry) => entry[0]), ['sub-visibility', 'sub-delay', 'sub-visibility', 'sub-delay']);
+  assert.equal(sets[2][1], 'no');
+  assert.equal(sets[3][1], -15);
+
+  // Bitmap sidecar: previous text track removed first, native rendering on.
+  await engine.attachSubtitle(Object.assign({}, empty,
+    { subtitlePath: '/cache/playback-pgs-1.sup', subtitleFormat: 'sup', subtitleOffsetMs: 0 }));
+  assert.deepEqual(commands.slice(-2), ['sub-remove 1', 'sub-add /cache/playback-pgs-1.sup select']);
+  assert.equal(sets[sets.length - 2][0], 'sub-visibility'); assert.equal(sets[sets.length - 2][1], 'yes');
+
+  // Bare playback while PGS is prepared in the background: unload without re-adding.
+  await engine.attachSubtitle(Object.assign({}, empty));
+  assert.deepEqual(commands.slice(-1), ['sub-remove 2']);
+  assert.deepEqual(sets.slice(-1), [['sid', 'no']]);
+
+  // fd sidecars (offline attach path) and URL sidecars still mount after an unload.
+  await engine.attachSubtitle(Object.assign({}, empty, { subtitleFd: 20, subtitleFormat: 'srt' }));
+  assert.deepEqual(commands.slice(-1), ['sub-add fd://20 select']);
+  await engine.attachSubtitle(Object.assign({}, empty,
+    { subtitleUrl: 'https://fixture.invalid/subtitle.vtt', subtitleFormat: 'vtt' }));
+  assert.deepEqual(commands.slice(-2), ['sub-remove 3', 'sub-add https://fixture.invalid/subtitle.vtt select']);
+
+  // The stream was never reloaded: one loadfile across every subtitle switch.
+  assert.equal(commands.filter((entry) => entry.startsWith('loadfile')).length, 1);
+  await engine.release();
+});
+
+// The freeze watchdog polls via setInterval; host tests step it manually.
+function watchdogTimers() {
+  let sequence = 0;
+  const intervals = new Map();
+  return {
+    intervals,
+    setTimeout: () => ++sequence,
+    clearTimeout: () => {},
+    setInterval(fn) { const id = ++sequence; intervals.set(id, fn); return id; },
+    clearInterval(id) { intervals.delete(id); },
+    async tick() { for (const fn of [...intervals.values()]) { fn(); await drain(); } },
+  };
+}
+
+test('MPV watchdog reports a frozen picture while the clock keeps advancing', async () => {
+  const timers = watchdogTimers(); const events = [];
+  const timePosValues = [10, 12, 14, 16, 18, 20, 22];
+  const voPtsValues = [10, 12, 12, 12, 12, 12, 12];
+  let timePick = 0; let voPick = 0; let notify = () => {};
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7,
+    initEngine: async (handle, options, callback) => { notify = callback; callback({ type: 'ready' }); },
+    command: async () => {},
+    setProperty: async (handle, name, value) => {
+      if (name === 'pause' && value === false) { notify({ type: 'property', name: 'pause', value: 0 }); }
+    },
+    getProperty: async (handle, name) => name === 'time-pos'
+      ? timePosValues[Math.min(timePick++, timePosValues.length - 1)]
+      : voPtsValues[Math.min(voPick++, voPtsValues.length - 1)],
+    tracks: async () => '[]',
+    destroyEngine: async () => {},
+  } }, timers);
+  const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
+  engine.onEvent = (event) => events.push(event);
+  await engine.open({ fd: -1, url: 'fixture', subtitleUrl: '', subtitleFd: -1 }, 'surface');
+  await engine.play();
+  // Healthy ticks: the clock and the displayed PTS advance together.
+  await timers.tick(); await timers.tick();
+  assert.deepEqual(events.filter((event) => event.type === 'frozen'), []);
+  // The video pipeline dies: time-pos keeps advancing, video-out-pts freezes.
+  await timers.tick(); await timers.tick(); await timers.tick(); await timers.tick();
+  const frozen = events.filter((event) => event.type === 'frozen');
+  assert.equal(frozen.length, 1);
+  assert.equal(frozen[0].positionMs, 20000);
+  // The watchdog latches: the timer is gone and later ticks emit nothing.
+  assert.equal(timers.intervals.size, 0);
+  await timers.tick();
+  assert.equal(events.filter((event) => event.type === 'frozen').length, 1);
+  await engine.release();
+});
+
+test('MPV watchdog stays quiet while paused, buffering, or before playback starts', async () => {
+  const timers = watchdogTimers(); const events = [];
+  const timePosValues = [10, 14, 18, 20];
+  const voPtsValues = [10, 10, 18, 20];
+  let timePick = 0; let voPick = 0; let notify = () => {};
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7,
+    initEngine: async (handle, options, callback) => { notify = callback; callback({ type: 'ready' }); },
+    command: async () => {},
+    setProperty: async (handle, name, value) => {
+      if (name === 'pause') { notify({ type: 'property', name: 'pause', value: value === true ? 1 : 0 }); }
+    },
+    getProperty: async (handle, name) => name === 'time-pos'
+      ? timePosValues[Math.min(timePick++, timePosValues.length - 1)]
+      : voPtsValues[Math.min(voPick++, voPtsValues.length - 1)],
+    tracks: async () => '[]',
+    destroyEngine: async () => {},
+  } }, timers);
+  const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
+  engine.onEvent = (event) => events.push(event);
+  await engine.open({ fd: -1, url: 'fixture', subtitleUrl: '', subtitleFd: -1 }, 'surface');
+  // Before play() the engine is paused: sampling resets without consuming values.
+  await timers.tick(); await timers.tick();
+  assert.deepEqual(events.filter((event) => event.type === 'frozen'), []);
+  await engine.play();
+  // Baseline tick, then one frozen-looking sample (not yet enough to fire).
+  await timers.tick(); await timers.tick();
+  assert.deepEqual(events.filter((event) => event.type === 'frozen'), []);
+  // A paused-for-cache spell and a user pause both reset the baseline.
+  notify({ type: 'property', name: 'paused-for-cache', value: 1 });
+  await timers.tick();
+  notify({ type: 'property', name: 'paused-for-cache', value: 0 });
+  await engine.pause();
+  await timers.tick();
+  await engine.play();
+  await timers.tick(); await timers.tick();
+  assert.deepEqual(events.filter((event) => event.type === 'frozen'), []);
+  await engine.release();
+});
+
+test('MPV watchdog reads through the string format when the number format fails', async () => {
+  const timers = watchdogTimers(); const events = [];
+  const timePosValues = [10, 12, 14, 16, 18, 20];
+  const voPtsValues = [10, 12, 12, 12, 12, 12];
+  let timePick = 0; let voPick = 0; let notify = () => {};
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7,
+    initEngine: async (handle, options, callback) => { notify = callback; callback({ type: 'ready' }); },
+    command: async () => {},
+    setProperty: async (handle, name, value) => {
+      if (name === 'pause' && value === false) { notify({ type: 'property', name: 'pause', value: 0 }); }
+    },
+    // MPV_FORMAT_DOUBLE rejects on device: every read must retry as a string and parse.
+    getProperty: async (handle, name, format) => {
+      if (format === 'number') { throw new Error('MPV_FORMAT_DOUBLE unavailable'); }
+      const values = name === 'time-pos' ? timePosValues : voPtsValues;
+      const pick = name === 'time-pos' ? timePick++ : voPick++;
+      return `${values[Math.min(pick, values.length - 1)]}`;
+    },
+    tracks: async () => '[]',
+    destroyEngine: async () => {},
+  } }, timers);
+  const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
+  engine.onEvent = (event) => events.push(event);
+  await engine.open({ fd: -1, url: 'fixture', subtitleUrl: '', subtitleFd: -1 }, 'surface');
+  await engine.play();
+  // Healthy ticks parse through the string fallback: clock and displayed PTS advance.
+  await timers.tick(); await timers.tick();
+  assert.deepEqual(events.filter((event) => event.type === 'frozen'), []);
+  // Frozen detection still works end to end when values only arrive as strings.
+  await timers.tick(); await timers.tick(); await timers.tick(); await timers.tick();
+  const frozen = events.filter((event) => event.type === 'frozen');
+  assert.equal(frozen.length, 1);
+  assert.equal(frozen[0].positionMs, 20000);
+  await engine.release();
+});
+
+test('MPV watchdog self-heals a stuck paused flag when time-pos events keep flowing', async () => {
+  const timers = watchdogTimers(); const events = [];
+  const timePosValues = [10, 12, 14, 16, 18, 20];
+  const voPtsValues = [10, 12, 12, 12, 12, 12];
+  let timePick = 0; let voPick = 0; let notify = () => {};
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7,
+    initEngine: async (handle, options, callback) => { notify = callback; callback({ type: 'ready' }); },
+    command: async () => {},
+    // The unpause property event was dropped by the flooded event queue: the engine
+    // stays paused from the watchdog's point of view even though playback runs.
+    setProperty: async () => {},
+    getProperty: async (handle, name) => name === 'time-pos'
+      ? timePosValues[Math.min(timePick++, timePosValues.length - 1)]
+      : voPtsValues[Math.min(voPick++, voPtsValues.length - 1)],
+    tracks: async () => '[]',
+    destroyEngine: async () => {},
+  } }, timers);
+  const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
+  engine.onEvent = (event) => events.push(event);
+  await engine.open({ fd: -1, url: 'fixture', subtitleUrl: '', subtitleFd: -1 }, 'surface');
+  await engine.play();
+  // Property time-pos events keep arriving: the clock is provably running, so the
+  // stuck paused flag must be overridden and the frozen picture still detected.
+  for (const value of [10, 12, 14, 16, 18, 20]) {
+    notify({ type: 'property', name: 'time-pos', value });
+    await timers.tick();
+  }
+  const frozen = events.filter((event) => event.type === 'frozen');
+  assert.equal(frozen.length, 1);
+  assert.equal(frozen[0].positionMs, 20000);
+  await engine.release();
+});
+
+test('MPV watchdog falls back to decoded frame counts when video-out-pts is unavailable', async () => {
+  const timers = watchdogTimers(); const events = [];
+  const timePosValues = [10, 12, 14, 16, 18, 20];
+  const decodedValues = [100, 110, 110, 110, 110, 110];
+  let timePick = 0; let decodedPick = 0; let notify = () => {};
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7,
+    initEngine: async (handle, options, callback) => { notify = callback; callback({ type: 'ready' }); },
+    command: async () => {},
+    setProperty: async (handle, name, value) => {
+      if (name === 'pause' && value === false) { notify({ type: 'property', name: 'pause', value: 0 }); }
+    },
+    // video-out-pts rejects in both formats; the decoder-starved frame counter freezes.
+    getProperty: async (handle, name) => {
+      if (name === 'video-out-pts') { throw new Error('property unavailable'); }
+      const values = name === 'time-pos' ? timePosValues : decodedValues;
+      const pick = name === 'time-pos' ? timePick++ : decodedPick++;
+      return values[Math.min(pick, values.length - 1)];
+    },
+    tracks: async () => '[]',
+    destroyEngine: async () => {},
+  } }, timers);
+  const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
+  engine.onEvent = (event) => events.push(event);
+  await engine.open({ fd: -1, url: 'fixture', subtitleUrl: '', subtitleFd: -1 }, 'surface');
+  await engine.play();
+  // Baseline and a healthy spell through the frame-count proxy.
+  await timers.tick(); await timers.tick();
+  assert.deepEqual(events.filter((event) => event.type === 'frozen'), []);
+  // The counter stops advancing while the clock runs: frozen fires through the proxy.
+  await timers.tick(); await timers.tick(); await timers.tick(); await timers.tick();
+  const frozen = events.filter((event) => event.type === 'frozen');
+  assert.equal(frozen.length, 1);
+  assert.equal(frozen[0].positionMs, 20000);
+  await engine.release();
+});
+
 test('AVPlayer prepares and plays after optional subtitle attachment rejects', async () => {
   const handlers = new Map(); const diagnostics = []; const calls = [];
   const player = {

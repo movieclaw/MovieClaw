@@ -165,6 +165,10 @@ export class AVPlayerEngine implements PlayerEngine {
     }
   }
 
+  /** histreamer 没有运行中换外挂字幕的可靠通道；宿主只在 mpv 在播时走动态挂载。 */
+  async attachSubtitle(source: EngineSource): Promise<void> {
+    throw new EngineFailure('unsupported', 0, '系统播放器不支持动态挂载字幕');
+  }
   async play(): Promise<void> {
     try { await this.player?.play(); }
     catch (error) {

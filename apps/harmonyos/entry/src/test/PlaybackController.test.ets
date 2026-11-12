@@ -33,6 +33,11 @@ class FakeEngine implements PlayerEngine {
   async setRate(rate: number): Promise<void> { this.calls.push(`rate:${rate}`); }
   async setGain(gain: number): Promise<void> { this.calls.push(`gain:${gain}`); }
   async setSubtitleStyle(style: SubtitleStyle): Promise<void> {}
+  attachFailure: EngineFailure | null = null;
+  async attachSubtitle(source: EngineSource): Promise<void> {
+    this.calls.push(`attachSub:${source.subtitlePath ?? source.subtitleUrl}`);
+    if (this.attachFailure !== null) { throw this.attachFailure; }
+  }
   async tracks(): Promise<EngineTrack[]> {
     await this.tracksGate;
     if (this.fixtureTracks !== null) { return this.fixtureTracks; }
@@ -53,6 +58,9 @@ class FakeEngine implements PlayerEngine {
   }
   interrupt(hint: string): void {
     const event = new EngineEvent(); event.type = 'interrupt'; event.hint = hint; this.onEvent(event);
+  }
+  frozen(ms: number): void {
+    const event = new EngineEvent(); event.type = 'frozen'; event.positionMs = ms; this.onEvent(event);
   }
 }
 class FakeFactory implements EngineFactory {
@@ -608,6 +616,79 @@ export default function playbackControllerTest() {
       factory.avp.interrupt('duck'); await microtasks(); factory.avp.interrupt('unduck'); await microtasks();
       expect(factory.avp.calls.includes('gain:0.2')).assertTrue();
       expect(factory.avp.calls[factory.avp.calls.length - 1]).assertEqual('gain:1'); await controller.release();
+    });
+    it('live_subtitle_attach_swaps_the_sidecar_without_reopening_mpv', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', intent, 'mpv');
+      const opens = factory.mpv.calls.filter((call: string): boolean => call.startsWith('open:')).length;
+      const source: EngineSource = { url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1,
+        subtitlePath: '/cache/playback-sub-1.srt', subtitleFormat: 'srt', subtitleOffsetMs: 0 };
+      await controller.attachSubtitle(source);
+      expect(factory.mpv.calls.includes('attachSub:/cache/playback-sub-1.srt')).assertTrue();
+      expect(factory.mpv.calls.filter((call: string): boolean => call.startsWith('open:')).length).assertEqual(opens);
+      expect(factory.order.length).assertEqual(0);
+      expect(controller.desired().subtitle?.ordinal).assertEqual(-1);
+      expect(controller.current().engine).assertEqual('mpv');
+      await controller.release();
+    });
+    it('live_subtitle_attach_failure_keeps_the_engine_running', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', new PlaybackIntent(), 'mpv');
+      factory.mpv.attachFailure = new EngineFailure('source', 0, 'sub-add fixture');
+      let thrown = false;
+      try { await controller.attachSubtitle({ url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1 }); }
+      catch (error) { thrown = true; }
+      expect(thrown).assertTrue();
+      expect(controller.current().phase).assertEqual('playing');
+      expect(controller.current().engine).assertEqual('mpv');
+      expect(factory.order.length).assertEqual(0);
+      expect(controller.desired().subtitle === null).assertTrue();
+      await controller.release();
+    });
+    it('live_subtitle_attach_without_a_live_engine_throws', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      let thrown = false;
+      try { await controller.attachSubtitle({ url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1 }); }
+      catch (error) { thrown = true; }
+      expect(thrown).assertTrue();
+    });
+    it('frozen_video_reopens_mpv_at_the_audio_clock_position', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', intent, 'mpv');
+      factory.mpv.time(45000);
+      factory.mpv.frozen(45000);
+      await microtasks(); await microtasks();
+      expect(factory.created.join(',')).assertEqual('mpv,mpv');
+      expect(factory.order.join(',')).assertEqual('mpv:release,lease:1:close');
+      expect(factory.mpv.calls.includes('seek:45000')).assertTrue();
+      expect(controller.current().phase).assertEqual('playing');
+      await controller.release();
+    });
+    it('frozen_recovery_is_capped_and_fails_as_decode', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', new PlaybackIntent(), 'mpv');
+      for (let round = 1; round <= 4; round++) {
+        factory.mpv.time(40000 + round * 1000);
+        factory.mpv.frozen(40000 + round * 1000);
+        await microtasks(); await microtasks();
+      }
+      expect(factory.created.length).assertEqual(4);
+      expect(controller.current().phase).assertEqual('failed');
+      expect(controller.current().failure?.kind).assertEqual('decode');
+      await controller.release();
+    });
+    it('frozen_during_engine_switching_is_ignored', 0, async () => {
+      const factory = new FakeFactory(); const gate = new Gate(); factory.mpv.gate = gate.promise;
+      const controller = new PlaybackController(factory);
+      const opening = controller.open(new FakeRemoteMedia(factory.order), 'surface', new PlaybackIntent(), 'mpv');
+      await microtasks();
+      factory.mpv.frozen(0);
+      gate.release(); await opening;
+      expect(factory.created.join(',')).assertEqual('mpv');
+      expect(controller.current().phase).assertEqual('playing');
+      await controller.release();
     });
   });
 }
