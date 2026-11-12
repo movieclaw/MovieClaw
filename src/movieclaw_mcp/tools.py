@@ -1,4 +1,4 @@
-"""工具面渲染：端点的服务集合 × 展开开关 → MCP 工具清单（设计文档 §4.1）。
+"""工具面渲染：端点的服务集合 × 展开开关 × 排除清单 → MCP 工具清单（设计文档 §4.1）。
 
 两种形态，共用同一份操作元数据（catalog.py），因此「列出来的」与「能调的」
 永远一致：
@@ -7,6 +7,9 @@
   工具名就是 ``operation_id`` 把点号与连字符换成下划线。
 - **折叠**：一个服务一个工具，参数是 ``command`` 枚举 + ``params`` 对象；
   命令清单与每条命令的字段写进 description，模型据此填 params。
+
+排除清单（``excluded``，按展开模式的工具名匹配）在两种形态里都是**权限边界**：
+命中的操作不进工具面，直接调用也被拒——不是「建议别用」的提示。
 
 排序一律按工具名字典序：``tools/list`` 的顺序确定，客户端缓存与提示词缓存
 才有命中的可能（MCP 规范的 SHOULD）。
@@ -110,11 +113,13 @@ def _input_schema(op: Operation) -> dict[str, Any]:
     return schema
 
 
-def _expanded_tools(domains: list[str]) -> list[Tool]:
+def _expanded_tools(domains: list[str], skip: set[str]) -> list[Tool]:
     tools: list[Tool] = []
     by_domain = operations_by_domain()
     for domain in domains:
         for op in by_domain.get(domain, ()):
+            if op.tool_name in skip:
+                continue
             tools.append(
                 Tool(
                     name=op.tool_name,
@@ -137,12 +142,14 @@ def _command_line(op: Operation) -> str:
     )
 
 
-def _collapsed_tools(domains: list[str]) -> list[Tool]:
+def _collapsed_tools(domains: list[str], skip: set[str]) -> list[Tool]:
     tools: list[Tool] = []
     by_domain = operations_by_domain()
     for domain in domains:
-        ops = by_domain.get(domain, ())
+        ops = tuple(op for op in by_domain.get(domain, ()) if op.tool_name not in skip)
         if not ops:
+            # 一个域的命令被排除光，这个域的工具就没有存在的意义——
+            # 留着只会让模型看到一个空壳枚举
             continue
         headline = describe_domain(domain)
         lines = [headline, "", "可用命令（params 里填对应字段）："]
@@ -181,27 +188,45 @@ def _collapsed_tools(domains: list[str]) -> list[Tool]:
     return sorted(tools, key=lambda t: t.name)
 
 
-def build_tools(services: list[str], *, expand: bool) -> list[Tool]:
-    """按端点配置渲染工具清单。未知的服务域静默忽略（升级后某域消失不至于让端点整个坏掉）。"""
+def build_tools(
+    services: list[str], *, expand: bool, excluded: list[str] | None = None
+) -> list[Tool]:
+    """按端点配置渲染工具清单。未知的服务域静默忽略（升级后某域消失不至于让端点整个坏掉）。
+
+    ``excluded`` 是端点的排除清单（按展开模式的工具名匹配）：命中的操作不进清单，
+    折叠模式同样按它过滤命令。
+    """
     known = operations_by_domain()
     domains = sorted({s for s in services if s in known})
-    return _expanded_tools(domains) if expand else _collapsed_tools(domains)
+    skip = set(excluded or ())
+    return _expanded_tools(domains, skip) if expand else _collapsed_tools(domains, skip)
 
 
 def resolve_tool(
-    services: list[str], *, expand: bool, name: str, arguments: dict[str, Any]
+    services: list[str],
+    *,
+    expand: bool,
+    name: str,
+    arguments: dict[str, Any],
+    excluded: list[str] | None = None,
 ) -> tuple[Operation, dict[str, Any]]:
     """``tools/call`` 的入参 → (目标操作, 扁平参数)。
 
     两种模式的差别只在这一步：展开模式工具名即操作，折叠模式要从 ``command``
     再定位一次。定位失败一律抛 ValueError，由调度层转成 MCP 错误结果。
+    ``excluded`` 命中同样抛 ValueError，且说清是被管理员排除的——排除清单是
+    权限边界，不能只藏在 tools/list 里，直接调用也必须被拒；区别于「没有这个
+    工具」，模型才不会当成笔误去反复重试。
     """
     known = operations_by_domain()
     domains = {s for s in services if s in known}
+    skip = set(excluded or ())
     if expand:
         for domain in domains:
             for op in known[domain]:
                 if op.tool_name == name:
+                    if op.tool_name in skip:
+                        raise ValueError(f"工具 {name} 已被管理员从这个端点排除，无法调用")
                     return op, dict(arguments)
         raise ValueError(f"这个端点没有名为 {name} 的工具")
 
@@ -212,6 +237,8 @@ def resolve_tool(
         raise ValueError("缺少 command 参数：要执行的命令名，取值见工具描述里的清单")
     for op in known[name]:
         if op.command == command:
+            if op.tool_name in skip:
+                raise ValueError(f"命令 {command} 已被管理员从这个端点排除，无法调用")
             params = arguments.get("params") or {}
             if not isinstance(params, dict):
                 raise ValueError("params 必须是一个对象（命令的参数字典）")

@@ -64,7 +64,11 @@ def build_server(app: FastAPI, endpoint: McpEndpoint) -> Server:
     async def on_list_tools(_ctx: ServerRequestContext[Any], _params: Any) -> ListToolsResult:
         return ListToolsResult(
             tools=[
-                _sdk_tool(t) for t in build_tools(endpoint.services, expand=endpoint.expand_tools)
+                _sdk_tool(t) for t in build_tools(
+                    endpoint.services,
+                    expand=endpoint.expand_tools,
+                    excluded=endpoint.excluded_tools,
+                )
             ],
             ttl_ms=_TOOLS_TTL_MS,
             cache_scope="private",
@@ -79,6 +83,7 @@ def build_server(app: FastAPI, endpoint: McpEndpoint) -> Server:
                 expand=endpoint.expand_tools,
                 name=params.name,
                 arguments=dict(params.arguments or {}),
+                excluded=endpoint.excluded_tools,
             )
         except ValueError as exc:
             # 定位不到工具/命令是模型可以自己纠正的错误，回成结果而不是抛协议错误

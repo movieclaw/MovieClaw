@@ -258,6 +258,63 @@ def test_management_input_validation(client: TestClient) -> None:
     assert _create(slug="taken") == 409
 
 
+def test_excluded_tools_must_reference_real_tools(client: TestClient) -> None:
+    """排除项必须是真实工具名——写错名静默吞掉等于「以为排除了其实没有」。"""
+    client.put(f"{_MCP}/status", json={"enabled": True})
+    base = {"name": "x", "slug": "excl", "services": ["jobs"]}
+
+    assert client.post(
+        f"{_MCP}/endpoints", json=base | {"excluded_tools": ["not_a_tool"]}
+    ).status_code == 400
+
+    created = client.post(f"{_MCP}/endpoints", json=base).json()["data"]["endpoint"]
+    updated = client.put(
+        f"{_MCP}/endpoints/{created['id']}", json={"excluded_tools": ["jobs_wait"]}
+    )
+    assert updated.status_code == 200, updated.text
+    view = updated.json()["data"]
+    assert view["excluded_tools"] == ["jobs_wait"]
+    assert view["tool_count"] == len(operations_by_domain()["jobs"]) - 1
+
+
+def test_excluded_tools_never_reach_the_wire(client: TestClient) -> None:
+    """端到端守住排除清单的权限边界：tools/list 不出现，硬调拿到的是
+    明确说「已被管理员排除」的错误结果，而不是含糊的「没有这个工具」。"""
+    slug, token = _make_endpoint(client, excluded_tools=["subscriptions_create", "jobs_wait"])
+
+    listed = _rpc(client, slug, token, "tools/list").json()["result"]["tools"]
+    names = [t["name"] for t in listed]
+    assert "subscriptions_list" in names
+    assert "subscriptions_create" not in names and "jobs_wait" not in names
+
+    rejected = _rpc(
+        client, slug, token, "tools/call",
+        {"name": "subscriptions_create", "arguments": {}},
+        headers={"Mcp-Name": "subscriptions_create"},
+    ).json()["result"]
+    assert rejected["isError"] is True
+    assert "已被管理员" in rejected["content"][0]["text"]
+
+    view = client.get(f"{_MCP}/status").json()["data"]["endpoints"][0]
+    assert view["excluded_tools"] == ["jobs_wait", "subscriptions_create"]
+    assert view["tool_count"] == len(names)
+
+
+def test_stale_exclusions_are_ignored_and_reported() -> None:
+    """升级后工具改名：失配的排除项静默忽略（端点不坏），视图里单独报出来。"""
+    from movieclaw_api.api.routes.mcp import _to_view
+    from movieclaw_api.settings.mcp import McpEndpoint
+
+    endpoint = McpEndpoint(
+        id="e1", slug="s", name="n", services=["jobs"],
+        excluded_tools=["jobs_wait", "gone_tool"], token_hint="mcp_a1b2****",
+    )
+    view = _to_view(endpoint, "")
+    assert view.excluded_tools == ["jobs_wait"]
+    assert view.missing_excluded_tools == ["gone_tool"]
+    assert view.tool_count == len(operations_by_domain()["jobs"]) - 1
+
+
 def test_self_check_walks_the_whole_chain(client: TestClient) -> None:
     """自检要真的跑一遍协议 + 工具面 + 一次只读调用，而不是只看配置。"""
     _make_endpoint(client)
@@ -318,6 +375,17 @@ def test_collapsed_preview_lists_commands_as_data(client: TestClient) -> None:
     assert all(t["commands"] == [] for t in expanded["tools"])
 
 
+def test_preview_respects_the_exclusion_list(client: TestClient) -> None:
+    """试算与端点同权：排除清单参与试算，管理页所见即端点所得。"""
+    body = client.post(
+        f"{_MCP}/endpoints/preview",
+        json={"services": ["jobs"], "expand_tools": True, "excluded_tools": ["jobs_wait"]},
+    ).json()["data"]
+    names = [t["name"] for t in body["tools"]]
+    assert "jobs_wait" not in names and "jobs_list" in names
+    assert body["command_count"] == len(operations_by_domain()["jobs"]) - 1
+
+
 # ---------------------------------------------------------------------------
 # 工具面
 # ---------------------------------------------------------------------------
@@ -350,6 +418,36 @@ def test_excluded_operations_never_reach_the_tool_surface() -> None:
     assert not [op for op in index.values() if op.domain == "mcp"]  # 端点不能增删端点
     # 而正常的只读会话操作应当保留
     assert "session.list" in index
+
+
+def test_excluded_tools_are_removed_from_the_surface_and_rejected() -> None:
+    """排除清单两种模式都守：展开模式工具消失、硬调被拒；折叠模式命令从枚举里
+    消失，一个域被排除光则域工具整个消失。"""
+    services = ["subscriptions", "jobs"]
+
+    expanded = build_tools(services, expand=True, excluded=["subscriptions_create"])
+    names = {t.name for t in expanded}
+    assert "subscriptions_list" in names
+    assert "subscriptions_create" not in names
+    with pytest.raises(ValueError, match="已被管理员"):
+        resolve_tool(
+            services, expand=True, name="subscriptions_create",
+            arguments={}, excluded=["subscriptions_create"],
+        )
+
+    all_jobs = [op.tool_name for op in operations_by_domain()["jobs"]]
+    collapsed = build_tools(services, expand=False, excluded=all_jobs)
+    assert {t.name for t in collapsed} == {"subscriptions"}
+
+    partial = build_tools(["jobs"], expand=False, excluded=["jobs_wait"])
+    assert len(partial) == 1
+    enum = partial[0].input_schema["properties"]["command"]["enum"]
+    assert "wait" not in enum and "list" in enum
+    with pytest.raises(ValueError, match="已被管理员"):
+        resolve_tool(
+            ["jobs"], expand=False, name="jobs",
+            arguments={"command": "wait", "params": {}}, excluded=["jobs_wait"],
+        )
 
 
 def test_tool_names_are_unique_and_client_safe() -> None:

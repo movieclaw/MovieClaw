@@ -938,6 +938,9 @@
   "mcp.servicesRequired": {
     "sourceHash": "46f208a5448b23ff23ab63ef57f2b57e4f929fcfa542ca7ef8456a6fe123ea7b"
   },
+  "mcp.toolsMissing": {
+    "sourceHash": "cc6cf5b3259e6fb268c7eec62686d7f5cd3672bfa701c0f34eeb5492b191c8b0"
+  },
   "mcp.timeoutRange": {
     "sourceHash": "de49e1ac3616fb930eff143059a3ea9308a317baa51499503d451bc48dcfc15e"
   },

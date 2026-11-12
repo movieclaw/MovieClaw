@@ -474,6 +474,7 @@
     "slugInUse": "The URL identifier \"{slug}\" is used by another endpoint. Choose another.",
     "servicesMissing": "These services do not exist: {services}",
     "servicesRequired": "Select at least one service so this endpoint has tools",
+    "toolsMissing": "These tools do not exist: {tools}",
     "timeoutRange": "The timeout must be between 5 and {maximum} seconds",
     "nameRequired": "Enter an endpoint name"
   },

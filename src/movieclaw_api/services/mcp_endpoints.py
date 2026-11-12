@@ -1,13 +1,16 @@
 """MCP 端点的增删改查与鉴权（docs/design/mcp-server.md §4.4 / §5）。
 
 端点是「管理员配的几条记录」，落在 ``mcp.endpoints`` 配置域里。本模块是它唯一的
-写入口，三件事必须在这里保证：
+写入口，四件事必须在这里保证：
 
 1. **令牌只存哈希**。明文只在创建/轮换那一次返回给调用方，服务端此后取不出来
    （与 ``ApiTokenRecord`` 同一立场）——丢了只能轮换，不能找回。
 2. **地址标识唯一且可安全入 URL**。它会成为 ``/mcp/<slug>`` 的一段。
 3. **服务集合必须是 spec 里真实存在的域**。写入时校验，读取时对已消失的域静默
    忽略——升级后某个域被移除，不该让整个端点连同其余服务一起坏掉。
+4. **排除清单必须是 spec 里真实存在的工具名**。写错名静默吞掉等于「以为排除了
+   其实没有」，那是权限边界的失守，所以写入时校验；读取时对已消失的排除项
+   静默忽略（视图里单独报出），升级后工具改名不该让端点坏掉。
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ from movieclaw_api.settings.mcp import (
     hash_token,
     token_hint,
 )
-from movieclaw_mcp.catalog import available_services
+from movieclaw_mcp.catalog import available_services, tools_by_name
 
 logger = logging.getLogger("movieclaw_api.mcp_endpoints")
 
@@ -73,6 +76,17 @@ def _validate_services(services: list[str]) -> list[str]:
     return sorted(set(services))
 
 
+def _validate_excluded_tools(tools: list[str]) -> list[str]:
+    """排除清单按展开模式的工具名匹配，必须是 spec 里真实存在的工具。"""
+    known = set(tools_by_name())
+    unknown = [tool for tool in tools if tool not in known]
+    if unknown:
+        raise BadRequestException(
+            message_key="errors.mcp.toolsMissing", params={"tools": ", ".join(unknown)}
+        )
+    return sorted(set(tools))
+
+
 def _validate_timeout(seconds: int) -> int:
     if not 5 <= seconds <= MAX_TIMEOUT_SECONDS:
         raise BadRequestException(
@@ -88,6 +102,7 @@ async def create_endpoint(
     services: list[str],
     description: str = "",
     expand_tools: bool = True,
+    excluded_tools: list[str] | None = None,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> tuple[McpEndpoint, str]:
     """新建端点，返回 (记录, 令牌明文)。明文仅此一次。"""
@@ -102,6 +117,7 @@ async def create_endpoint(
         description=description.strip(),
         services=_validate_services(services),
         expand_tools=expand_tools,
+        excluded_tools=_validate_excluded_tools(excluded_tools or []),
         timeout_seconds=_validate_timeout(timeout_seconds),
         created_at=_now_iso(),
     )
@@ -130,6 +146,7 @@ async def update_endpoint(
     description: str | None = None,
     services: list[str] | None = None,
     expand_tools: bool | None = None,
+    excluded_tools: list[str] | None = None,
     enabled: bool | None = None,
     timeout_seconds: int | None = None,
 ) -> McpEndpoint:
@@ -147,6 +164,8 @@ async def update_endpoint(
         endpoint.services = _validate_services(services)
     if expand_tools is not None:
         endpoint.expand_tools = expand_tools
+    if excluded_tools is not None:
+        endpoint.excluded_tools = _validate_excluded_tools(excluded_tools)
     if enabled is not None:
         endpoint.enabled = enabled
     if timeout_seconds is not None:
