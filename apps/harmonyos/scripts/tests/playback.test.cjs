@@ -217,6 +217,34 @@ test('opening paused waits for explicit play before starting its deadline', asyn
   assert.equal(f.controller.current().failure, null); await f.controller.release();
 });
 
+test('release while the paused-open pause is unacknowledged cannot hijack the next session', async () => {
+  const f = playerFixture();
+  let resolvePause;
+  f.engine.pause = () => new Promise((resolve) => { resolvePause = resolve; });
+  let seekTarget = -1;
+  f.engine.seek = async (ms) => { seekTarget = ms; };
+  const acquire = f.media.acquire;
+  f.media.acquire = async () => { const lease = await acquire(); lease.source.isHls = false; return lease; };
+  f.intent.paused = true;
+  const opening = f.controller.open(f.media, 'old', f.intent);
+  await drain(); assert.ok(resolvePause !== undefined);
+  await f.controller.release();
+  f.intent.paused = false; f.intent.positionMs = 5000;
+  const reopening = f.controller.open(f.media, 'new', f.intent);
+  await drain(); assert.equal(f.controller.current().phase, 'ready');
+  resolvePause(); await drain();
+  // The stale continuation must neither publish 'paused' over the new session
+  // nor replace its first-frame waiter with one that can never settle.
+  assert.equal(f.controller.current().phase, 'ready');
+  f.emit('firstFrame'); await drain();
+  assert.equal(seekTarget, 5000); // the new session's deferred resume ran
+  f.emit('time', { positionMs: 6000 });
+  assert.equal(f.controller.current().positionMs, 6000);
+  await f.timers.advance(30000);
+  assert.equal(f.controller.current().failure, null);
+  await opening; await reopening; await f.controller.release();
+});
+
 test('a released attempt cannot time out its successor', async () => {
   const f = playerFixture();
   await f.controller.open(f.media, 'old', f.intent); await f.timers.advance(10000);

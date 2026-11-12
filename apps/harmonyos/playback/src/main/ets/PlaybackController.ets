@@ -165,8 +165,15 @@ export class PlaybackController {
       if (openingFailure !== null) { throw openingFailure as EngineFailure; }
       this.available = true; this.switching = false;
       this.snapshot.phase = 'ready'; this.publish();
-      if (!this.intent.paused && !this.interrupted) { await this.playEngine(engine); }
-      else { await engine.pause(); this.snapshot.phase = 'paused'; this.publish(); }
+      const pausedStart = this.intent.paused || this.interrupted;
+      if (!pausedStart) { await this.playEngine(engine); }
+      else { await engine.pause(); }
+      // A play()/pause() can acknowledge long after release()/recover() already
+      // invalidated this attempt. Revalidate before publishing or arming the
+      // deferred waiter: the stale continuation must not paint 'paused' over a
+      // successor session, nor install a first-frame waiter that hijacks its own.
+      if (!this.valid(generation, attempt) || engine !== this.engine) { return; }
+      if (pausedStart) { this.snapshot.phase = 'paused'; this.publish(); }
       if (deferUntilRunning) {
         this.deferredResumePending = true;
         this.deferStartupResume(engine, media, resumeTargetMs, generation, attempt);
