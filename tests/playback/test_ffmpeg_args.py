@@ -473,6 +473,84 @@ def test_vaapi_uses_native_tonemap_filter():
     assert "scale_vaapi" in vf
 
 
+def test_vaapi_seek_restart_keeps_the_gpu_chain_away_from_software_autoscale():
+    """VAAPI 的 HDR 链在 seek 补片重启后以 218 退出（2026-11-12 会话
+    01M775BPA146ACS88WZ7948535）：ffmpeg 重建滤镜图时自动插入的软件 auto_scale
+    接不了 vaapi 硬件帧——「Impossible to convert between the formats supported
+    by the filter 'Parsed_setparams_2' and the filter 'auto_scale_0'」。输出由
+    链路自己钉死，这层自动缩放必须关掉。"""
+    argv = argv_of(
+        plan(
+            PlaybackTier.HARDWARE_TRANSCODE,
+            video=VideoPlan(action="transcode", codec="h264", height=1080, tone_map=True),
+        ),
+        hw_backend="vaapi",
+    )
+    assert pair(argv, "-vf") == (
+        "tonemap_vaapi=format=nv12:t=bt709:m=bt709:p=bt709,"
+        "scale_vaapi=format=nv12:w=-2:h=1080:out_range=tv,"
+        "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
+    )
+    assert "-noautoscale" in argv
+    assert argv.index("-noautoscale") > argv.index("-i")
+
+
+@pytest.mark.parametrize("backend", ["vaapi", "qsv", "nvenc"])
+def test_full_gpu_chains_disable_software_autoscale(backend):
+    """SDR 缩放链同样是硬件帧输出，与上面的 HDR 链一样关掉自动缩放。"""
+    argv = argv_of(
+        plan(
+            PlaybackTier.HARDWARE_TRANSCODE,
+            video=VideoPlan(action="transcode", codec="h264", height=1080),
+        ),
+        hw_backend=backend,
+    )
+    assert "-noautoscale" in argv
+
+
+def test_software_frame_chains_keep_ffmpeg_autoscale():
+    """软件帧之间的 auto_scale 是正常且必要的协商，不能一并关掉。"""
+    # NVENC 自检没确认 tonemap_cuda：HDR 退回软件 tonemapx，软件帧喂 NVENC
+    nvenc_software = argv_of(
+        plan(
+            PlaybackTier.HARDWARE_TRANSCODE,
+            video=VideoPlan(action="transcode", codec="h264", height=1080, tone_map=True),
+        ),
+        hw_backend="nvenc",
+    )
+    assert "tonemapx" in pair(nvenc_software, "-vf")
+    assert "-noautoscale" not in nvenc_software
+    # VideoToolbox 没有金属滤镜的 Worker：硬件帧下载回内存走软件缩放
+    vt_mixed = argv_of(
+        plan(
+            PlaybackTier.HARDWARE_TRANSCODE,
+            video=VideoPlan(
+                action="transcode",
+                codec="h264",
+                height=1080,
+                source_codec="hevc",
+                source_bit_depth=10,
+            ),
+        ),
+        hw_backend="videotoolbox",
+        worker_caps=WorkerVideoCaps(hw_decoders=frozenset({"h264", "hevc"})),
+    )
+    assert "hwdownload" in pair(vt_mixed, "-vf")
+    assert "-noautoscale" not in vt_mixed
+    # 烧录把 VAAPI 拉回软件编码
+    burn = argv_of(
+        plan(
+            PlaybackTier.HARDWARE_TRANSCODE,
+            video=VideoPlan(
+                action="transcode", codec="h264", height=1080, burn_subtitle="embedded:0"
+            ),
+        ),
+        hw_backend="vaapi",
+    )
+    assert pair(burn, "-c:v") == "libx264"
+    assert "-noautoscale" not in burn
+
+
 def test_vaapi_low_power_is_used_only_after_the_probe_confirms_it():
     """issue #763：SR-IOV 虚拟核显上普通编码挂 GPU、低功耗正常。低功耗由自检确认后回写，
     没确认时命令与原来逐字一致（老核显不支持低功耗，不能硬加）。"""
