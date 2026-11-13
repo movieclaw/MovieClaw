@@ -65,8 +65,13 @@ void Post(Engine &engine, Event event) {
   std::lock_guard<std::mutex> lock(engine.events);
   if (engine.closing || !engine.callback) return;
   auto *message = new Event(std::move(event));
+  // ready/end/playbackRestart are control confirmations the JS side reasons on
+  // (open settlement, terminal failure, seek landing). Losing any of them to a
+  // flooded queue permanently blinds a state machine or the freeze watchdog, so
+  // they wait for queue space instead of being dropped.
   if (napi_call_threadsafe_function(engine.callback, message,
-      message->type == "ready" || message->type == "end" ? napi_tsfn_blocking : napi_tsfn_nonblocking) != napi_ok) delete message;
+      message->type == "ready" || message->type == "end" || message->type == "playbackRestart"
+        ? napi_tsfn_blocking : napi_tsfn_nonblocking) != napi_ok) delete message;
 }
 void Pump(Engine *engine) {
   while (!engine->closing) {
