@@ -40,6 +40,20 @@ export class PlaybackSnapshot {
   rate: number = 1;
   failure: EngineFailure | null = null;
 }
+/** 在播字幕操作的记忆三态（P1-2）：冻结就地重开绕过 open()，重开后的字幕恢复
+ * 语义由它决定——untouched 按意图原样恢复；detached 重放空源卸载（restoreTracks
+ * 的 ordinal=-1 会选中轨表末尾的内封轨，把用户已卸的字幕复活）；attached 按记
+ * 录的源补挂。 */
+enum SubtitleMemory {
+  /** open 后从未在播挂载/卸载过旁挂：恢复按意图原样。 */
+  Untouched,
+  /** 用户显式卸载（裸播等 PGS / fd 型旁挂）：重开重放空源卸载，绝不复活内封轨。 */
+  Detached,
+  /** path/URL 型旁挂源在挂：重开按记录的源补挂。 */
+  Attached
+}
+/** 空源字面量（P1-2）：detached 态冻结重开时重放卸载——三个字幕源全空 = 只卸不加。 */
+const BARE_SUBTITLE_SOURCE: EngineSource = { url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1 };
 
 /** Transport-free orchestration shared by phone, Pad and future device hosts. */
 export class PlaybackController {
@@ -87,6 +101,8 @@ export class PlaybackController {
   private firstFrameAbort: ((failure: EngineFailure) => void) | null = null;
   private frozenRecoveries: number = 0;
   private frozenSessionKey: string | null = null;
+  // 字幕记忆三态（P1-2），见 SubtitleMemory。
+  private subtitleMemory: SubtitleMemory = SubtitleMemory.Untouched;
   // 在播挂上的旁挂源（mpv）：冻结就地重开绕过 open()，host 不会重走挂载流程
   // （media 是挂载前的旧快照），由控制器在重开后补挂。只记可复挂的 path/URL
   // 型——fd 型的文件生命周期不在控制器手里，重开后多半已失效。
@@ -112,6 +128,7 @@ export class PlaybackController {
       this.frozenSessionKey = sessionKey;
     }
     this.attachedSubtitle = null;
+    this.subtitleMemory = SubtitleMemory.Untouched;
     this.media = media; this.surface = surface; this.intent = intent; this.preference = preference;
     this.switching = true; this.available = false; this.interrupted = false;
     this.snapshot = new PlaybackSnapshot();
@@ -171,13 +188,19 @@ export class PlaybackController {
         }
         if (!this.valid(generation, attempt)) { return; }
       }
-      // 冻结的就地重开绕过 open()：在播时挂上的旁挂字幕 host 不会重走挂载流程
-      // （media 是挂载前的旧快照，acquire 只会带回旧配方），这里按控制器记录补挂。
-      // 失败只留痕——丢一格字幕不能废掉整次画面恢复。
+      // 冻结的就地重开绕过 open()：在播时的字幕操作 host 不会重走挂载流程
+      // （media 是挂载前的旧快照，acquire 只会带回旧配方），这里按控制器三态
+      // 记忆补做（P1-2）：attached 按源补挂；detached 重放空源卸载——restoreTracks
+      // 的 ordinal=-1 会选中轨表末尾的内封轨，把用户已卸的字幕复活。失败只留痕
+      // ——丢一格字幕不能废掉整次画面恢复。
       const sidecar = this.attachedSubtitle;
-      if (id === 'mpv' && sidecar !== null) {
+      if (id === 'mpv' && this.subtitleMemory !== SubtitleMemory.Untouched) {
         try {
-          await engine.attachSubtitle(sidecar);
+          if (this.subtitleMemory === SubtitleMemory.Attached && sidecar !== null) {
+            await engine.attachSubtitle(sidecar);
+          } else {
+            await engine.attachSubtitle(BARE_SUBTITLE_SOURCE);
+          }
         } catch (error) {
           hilog.warn(0x0000, 'MCSub', '冻结重开补挂旁挂字幕失败: %{public}s', `${error}`);
           const notice = new EngineEvent();
@@ -550,12 +573,21 @@ export class PlaybackController {
     const task = this.commandTail.then(async (): Promise<void> => {
       if (generation !== this.generation || engine !== this.engine || !this.available) { return; }
       await engine.attachSubtitle(source);
-      // 记住可补挂的旁挂源（path/URL 型；全空裸播与 fd 型不记）：冻结就地重开
-      // 绕过 open()，host 不会重走挂载流程，由 startAttempt 重开后补挂。
-      this.attachedSubtitle = this.reattachableSidecar(source);
-      // 旁挂轨在 track-list 末尾，ordinal=-1 与 open 时 sidecar 的恢复语义同源
-      this.intent.subtitle = { language: '', title: '', ordinal: -1 };
-      this.intent.subtitlesOff = false;
+      // 三态记忆（P1-2）：可补挂的 path/URL 型记 attached（源随身）；fd 型与全空
+      // 裸播记 detached——冻结重开重放空源卸载，绝不复活内封轨。
+      const reattachable = this.reattachableSidecar(source);
+      this.attachedSubtitle = reattachable;
+      this.subtitleMemory = reattachable !== null ? SubtitleMemory.Attached : SubtitleMemory.Detached;
+      if (reattachable !== null) {
+        // 旁挂轨在 track-list 末尾，ordinal=-1 与 open 时 sidecar 的恢复语义同源
+        this.intent.subtitle = { language: '', title: '', ordinal: -1 };
+        this.intent.subtitlesOff = false;
+      } else {
+        // 显式卸载：恢复语义必须是「无字幕」。ordinal=-1 会选中轨表末尾的内封
+        // 轨，subtitlesOff 才能让 restoreTracks 走 sid=no。
+        this.intent.subtitle = null;
+        this.intent.subtitlesOff = true;
+      }
     });
     this.commandTail = task.catch((): void => {});
     return task;
@@ -682,8 +714,11 @@ export class PlaybackController {
   }
   async release(): Promise<void> {
     ++this.generation; ++this.attempt; this.media = null; this.switching = false;
-    // 会话随 release 结束：同一 key 的下一次 open 是新会话，计数与旁挂记忆清零。
-    this.frozenSessionKey = null; this.attachedSubtitle = null;
+    // 冻结重启预算随会话 key 存活（P2-1）：跨档切换走 release→open（同 key），
+    // release 清 key 会让三次上限在跨档场景形同虚设；只有 open 换会话（换
+    // key/无 key）才重置。控制器随播放页实例创建，重进播放页天然是全新预算。
+    // 字幕记忆随会话结束复位：release 后没有在播引擎，open 才是权威重置点。
+    this.subtitleMemory = SubtitleMemory.Untouched; this.attachedSubtitle = null;
     try { await this.disposeEngine(); }
     catch (error) {
       const event = new EngineEvent(); event.type = 'diagnostic'; event.text = '播放器释放失败，保留媒体文件句柄'; this.onEvent(event);

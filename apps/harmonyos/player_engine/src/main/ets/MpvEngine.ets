@@ -59,6 +59,11 @@ export class MpvEngine implements PlayerEngine {
   // 续多拍静止 = 画面冻结，发 frozen 事件交宿主就地重开恢复。
   private static readonly watchdogIntervalMs: number = 2000;
   private static readonly frozenSamplesToFire: number = 4;
+  // seek 在途对账时限（P1-1）：playback-restart 确认走线程安全队列，事件洪峰下
+  // 仍可能整段丢失——只等确认会让看门狗永久失明。超过时限仍无确认即视为丢弃，
+  // 清除在途标记恢复冻结判定（native 侧已把 playbackRestart 调成阻塞投递，这是
+  // 第二道保险）。
+  static seekInFlightTimeoutMs: number = 10000;
   private watchdogTimer: number = -1;
   private lastTimePos: number = -1;
   private lastVoPts: number = -1;
@@ -78,6 +83,8 @@ export class MpvEngine implements PlayerEngine {
   // seek 在途（seek 下发到 playback-restart 确认之间）：远端 seek 落定前
   // vo-pts 本就可能静止，看门狗暂停计数，长 seek 不许被判成冻结。
   private seekInFlight: boolean = false;
+  // seek 在途起始时刻：对账超时的依据（见 seekInFlightTimeoutMs）。
+  private seekInFlightSinceMs: number = 0;
   // 采样在途闸：原生属性读取可能超过一个采样周期，重入的采样会与上一拍交叉
   // 读写基线，闸住——上一拍没回来就跳过本拍。
   private watchdogSampling: boolean = false;
@@ -120,19 +127,31 @@ export class MpvEngine implements PlayerEngine {
       const format = source.subtitleFormat ?? '';
       const textSub = format === 'ass' || format === 'srt' || format === 'vtt';
       await this.set('sub-visibility', textSub ? 'no' : 'yes');
-      const baseIds = await this.subTrackIds();
+      // 旁挂轨表基线（P2-3）：严格查询，失败立即放弃本次挂载——吞掉失败会让差集
+      // 基线为空，sub-add 后把内封轨也记成旁挂，后续换轨 sub-remove 误删内封轨。
+      // 开播优先：字幕缺失只留痕，不 fail 整个 open。
+      let baseKnown = true;
+      let baseIds: number[] = [];
       try {
-        if (source.subtitleFd >= 0) {
-          await this.send(['sub-add', `fd://${source.subtitleFd}`, 'select']);
-          hilog.info(0x0000, 'MCSub', '%{public}s', 'mpv sub-add fd 成功');
-        } else if (source.subtitleUrl.length > 0) {
-          await this.send(['sub-add', source.subtitleUrl, 'select']);
-          hilog.info(0x0000, 'MCSub', '%{public}s', 'mpv sub-add url 成功');
-        }
-        this.sidecarIds = await this.newSubIds(baseIds);
+        baseIds = await this.subTrackIdsStrict();
       } catch (error) {
-        hilog.error(0x0000, 'MCSub', 'mpv sub-add 失败: %{public}s', `${error}`);
-        const event = new EngineEvent(); event.type = 'diagnostic'; event.text = 'MPV 外挂字幕加载失败，继续播放'; this.onEvent(event);
+        baseKnown = false;
+        hilog.warn(0x0000, 'MCSub', 'mpv 开播旁挂轨表基线查询失败，跳过本次挂载: %{public}s', `${error}`);
+      }
+      if (baseKnown) {
+        try {
+          if (source.subtitleFd >= 0) {
+            await this.send(['sub-add', `fd://${source.subtitleFd}`, 'select']);
+            hilog.info(0x0000, 'MCSub', '%{public}s', 'mpv sub-add fd 成功');
+          } else if (source.subtitleUrl.length > 0) {
+            await this.send(['sub-add', source.subtitleUrl, 'select']);
+            hilog.info(0x0000, 'MCSub', '%{public}s', 'mpv sub-add url 成功');
+          }
+          this.sidecarIds = await this.newSubIds(baseIds);
+        } catch (error) {
+          hilog.error(0x0000, 'MCSub', 'mpv sub-add 失败: %{public}s', `${error}`);
+          const event = new EngineEvent(); event.type = 'diagnostic'; event.text = 'MPV 外挂字幕加载失败，继续播放'; this.onEvent(event);
+        }
       }
       await this.set('sub-delay', -(source.subtitleOffsetMs ?? 0) / 1000);
       await this.startWatchdog(source);
@@ -162,8 +181,10 @@ export class MpvEngine implements PlayerEngine {
   async pause(): Promise<void> { await this.set('pause', true); }
   async seek(positionMs: number): Promise<void> {
     // 在途标记到 playback-restart 确认才清（见 receive）：远程流 seek 落定可达
-    // 数秒，期间看门狗暂停计数；命令被拒时同步清除，不留永久盲区。
+    // 数秒，期间看门狗暂停计数；命令被拒时同步清除，不留永久盲区。起始时刻供
+    // 对账超时用（P1-1）。
     this.seekInFlight = true;
+    this.seekInFlightSinceMs = Date.now();
     try {
       await this.send(['seek', `${positionMs / 1000}`, 'absolute+exact']);
     } catch (error) {
@@ -206,14 +227,16 @@ export class MpvEngine implements PlayerEngine {
     await this.set('sub-border-style', style.background ? 'background-box' : 'outline-and-shadow').catch((): void => {});
   }
   /**
-   * 在播时就地换旁挂字幕，不重开流。先 sub-add 新轨、成功后才 sub-remove 旧
-   * 轨——换轨失败（文件损坏/网络断）时旧字幕原样在播，绝不让用户两头落空；
-   * sub-visibility/sub-delay 也在 sub-add 成功后才设，失败路径不动旧轨的渲染
-   * 状态。mpv 的 track-list 会随每次 sub-add 一直涨，成功后清掉本引擎挂过的
-   * 旧旁挂轨；三个字幕源全空 = 只卸不加（裸播，等 PGS 后台下载完再挂）。文字
-   * 轨照旧关原生上屏交给覆盖层，位图（.sup）原生渲染；sub-delay 对齐时间轴
-   * （与 open 同一口径）。id 用 sub-add 前后的 track-list 差集认定——不依赖
-   * mpv 是否复用被释放的轨号。
+   * 在播时就地换旁挂字幕，不重开流。轨表/当前选择/渲染态读取失败立即中止
+   * （P2-3）——此刻旧轨原样在播，旧状态分毫未动；吞掉轨表失败会让差集基线为
+   * 空，sub-add 后把内封轨也记成旁挂，后续换轨 sub-remove 会误删内封轨。sub-add
+   * 之后任一步失败按新轨 ID 回滚：移除新轨、恢复旧选择与渲染态、登记留在旧值，
+   * 再把异常抛回调用方。成功路径先记新轨、后 sub-remove 旧轨，换轨失败（文件
+   * 损坏/网络断）时旧字幕原样在播，绝不让用户两头落空。mpv 的 track-list 会随
+   * 每次 sub-add 一直涨，成功后清掉本引擎挂过的旧旁挂轨；三个字幕源全空 = 只卸
+   * 不加（裸播，等 PGS 后台下载完再挂）。文字轨照旧关原生上屏交给覆盖层，位图
+   * （.sup）原生渲染；sub-delay 对齐时间轴（与 open 同一口径）。id 用 sub-add
+   * 前后的 track-list 差集认定——不依赖 mpv 是否复用被释放的轨号。
    */
   async attachSubtitle(source: EngineSource): Promise<void> {
     const previousIds = this.sidecarIds;
@@ -230,11 +253,46 @@ export class MpvEngine implements PlayerEngine {
     }
     const format = source.subtitleFormat ?? '';
     const textSub = format === 'ass' || format === 'srt' || format === 'vtt';
-    const baseIds = await this.subTrackIds();
+    // 前置基线：回滚要用旧选择/渲染态，差集要用旧轨表——任一读不到就不动手。
+    const baseIds = await this.subTrackIdsStrict();
+    const selectedBefore = await this.readStringStrict('sid');
+    const visibilityBefore = await this.readStringStrict('sub-visibility');
+    const delayBefore = await this.readStringStrict('sub-delay');
     await this.send(['sub-add', target, 'select']);
-    await this.set('sub-visibility', textSub ? 'no' : 'yes');
-    await this.set('sub-delay', -(source.subtitleOffsetMs ?? 0) / 1000);
-    this.sidecarIds = await this.newSubIds(baseIds);
+    let newIds: number[] | null = null;
+    try {
+      const currentIds = await this.subTrackIdsStrict();
+      newIds = currentIds.filter((id: number): boolean => !baseIds.includes(id));
+      if (newIds.length === 0) {
+        throw new EngineFailure('source', 0, '字幕轨挂载后未出现在轨表');
+      }
+      await this.set('sub-visibility', textSub ? 'no' : 'yes');
+      await this.set('sub-delay', -(source.subtitleOffsetMs ?? 0) / 1000);
+    } catch (error) {
+      // 回滚（P2-3）：sub-add 已执行，后续任一步失败都退回旧轨。差集查询本身
+      // 失败时轨表已 opaque，尽力再认一次新轨；认不出就保留已入表轨道（旧选择
+      // 已恢复，未选中的轨道不渲染），登记留在旧值。
+      hilog.warn(0x0000, 'MCSub', 'mpv 换轨失败，回滚旧字幕: %{public}s', `${error}`);
+      if (newIds === null) {
+        try {
+          const retryIds = await this.subTrackIdsStrict();
+          newIds = retryIds.filter((id: number): boolean => !baseIds.includes(id));
+        } catch (retryError) {
+          hilog.warn(0x0000, 'MCSub', 'mpv 换轨回滚时轨表不可读，保留已入表轨道: %{public}s', `${retryError}`);
+          newIds = [];
+        }
+      }
+      for (const id of newIds) {
+        await this.send(['sub-remove', `${id}`]).catch((): void => {});
+      }
+      await this.set('sub-visibility', visibilityBefore).catch((): void => {});
+      await this.set('sub-delay', delayBefore).catch((): void => {});
+      await this.set('sid', selectedBefore).catch((): void => {});
+      if (error instanceof EngineFailure) { throw error; }
+      const native = error as BusinessError;
+      throw new EngineFailure('source', native.code ?? 0, `MPV 换轨失败: ${native.message}`);
+    }
+    this.sidecarIds = newIds;
     for (const id of previousIds) {
       // 新轨 id 取自差集不会落进 previousIds；防御 mpv 复用轨号时也绝不停用刚挂上的轨。
       if (!this.sidecarIds.includes(id)) {
@@ -253,6 +311,20 @@ export class MpvEngine implements PlayerEngine {
       return [];
     }
   }
+  /** 严格轨表查询（P2-3）：失败原样抛出，绝不吞成空表——空差集基线会把内封轨记成旁挂。 */
+  private async subTrackIdsStrict(): Promise<number[]> {
+    const list: NativeTrack[] = JSON.parse(await tracks(this.handle)) as NativeTrack[];
+    return list.filter((track: NativeTrack): boolean => track.type === 'sub')
+      .map((track: NativeTrack): number => track.id);
+  }
+  /** 严格读字符串属性：换轨回滚要恢复旧选择/渲染态，读不到就不动手（P2-3）。 */
+  private async readStringStrict(name: string): Promise<string> {
+    const value = await getProperty(this.handle, name, 'string');
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new EngineFailure('internal', 0, `mpv 属性 ${name} 不可读`);
+    }
+    return value;
+  }
   private async newSubIds(base: number[]): Promise<number[]> {
     const current = await this.subTrackIds();
     return current.filter((id: number): boolean => !base.includes(id));
@@ -269,6 +341,7 @@ export class MpvEngine implements PlayerEngine {
     this.stopWatchdog();
     if (this.released) { return; }
     this.seekInFlight = false;
+    this.seekInFlightSinceMs = 0;
     this.lastTimePos = -1; this.lastVoPts = -1;
     this.frozenSamples = 0; this.frozenFired = false;
     this.watchdogSampleLogged = false;
@@ -287,6 +360,9 @@ export class MpvEngine implements PlayerEngine {
       hilog.warn(0x0000, 'MCSub', 'mpv 看门狗视频轨确认失败，不启用: %{public}s', `${error}`);
       return;
     }
+    // tracks() await 期间可能已被 release（P2-2）：此时 release 的 stopWatchdog 已
+    // 跑完，武装出去的定时器再无人回收——复查后再装。
+    if (this.released) { return; }
     if (!hasVideo) {
       hilog.info(0x0000, 'MCSub', '%{public}s', 'mpv 看门狗未启用（无视频轨）');
       return;
@@ -330,8 +406,15 @@ export class MpvEngine implements PlayerEngine {
       this.lastTimePos = -1; this.lastVoPts = -1; this.frozenSamples = 0; return;
     }
     // seek 在途（playback-restart 未确认）：落定前 vo-pts 停在旧帧是 seek 本身
-    // 的形态，重置基线暂停计数，恢复后从新基线起判。
+    // 的形态，重置基线暂停计数，恢复后从新基线起判。对账超时（P1-1）：确认走
+    // 线程安全队列，事件洪峰下可能整段丢弃，只等确认会让看门狗永久失明——超时
+    // 即视为已丢，清除在途标记留痕，恢复冻结判定。
     if (this.seekInFlight) {
+      if (Date.now() - this.seekInFlightSinceMs < MpvEngine.seekInFlightTimeoutMs) {
+        this.lastTimePos = -1; this.lastVoPts = -1; this.frozenSamples = 0; return;
+      }
+      hilog.warn(0x0000, 'MCSub', 'mpv seek 在途确认超时（playback-restart 疑似丢弃），恢复看门狗判定');
+      this.seekInFlight = false;
       this.lastTimePos = -1; this.lastVoPts = -1; this.frozenSamples = 0; return;
     }
     let timePos = await this.readPos('time-pos');

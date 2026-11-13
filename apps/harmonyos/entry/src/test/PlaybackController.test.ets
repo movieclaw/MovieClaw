@@ -760,5 +760,40 @@ export default function playbackControllerTest() {
       expect(controller.current().failure?.kind).assertEqual('decode');
       await controller.release();
     });
+    it('bare_detach_survives_a_frozen_reopen_without_resurrecting_subtitles', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      // 内封字幕轨在轨表末尾：restoreTracks 的 ordinal=-1 会选中它——正是裸播
+      // 重开绝不能踩中的复活路径。
+      factory.mpv.fixtureTracks = [{ id: 31, kind: 'subtitle', language: 'chi', title: '', selected: false }];
+      await controller.open(new FakeRemoteMedia(factory.order), 'surface', new PlaybackIntent(), 'mpv');
+      // 未缓存 PGS 裸播：空源卸载旧旁挂（宿主「先卸后补」路径）。
+      await controller.attachSubtitle({ url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1 });
+      expect(controller.desired().subtitlesOff).assertTrue();
+      factory.mpv.calls.length = 0;
+      factory.mpv.frozen(45000);
+      await microtasks(); await microtasks();
+      // 冻结重开重放空源卸载并走 sid=no：内封轨 31 绝不被选中复活。
+      expect(factory.mpv.calls.includes('attachSub:')).assertTrue();
+      expect(factory.mpv.calls.includes('subtitle:-1')).assertTrue();
+      expect(factory.mpv.calls.includes('subtitle:31')).assertFalse();
+      expect(controller.current().phase).assertEqual('playing');
+      await controller.release();
+    });
+    it('frozen_recovery_budget_survives_release_and_reopen_of_the_same_session', 0, async () => {
+      // 跨档切换走 release→同 key 重进：预算随会话存活，不因 release 清零
+      // （P2-1）——重进后第三次冻结仍能恢复，第四次才转 decode 失败。
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      await controller.open(new FakeSessionMedia(factory.order), 'surface', new PlaybackIntent(), 'mpv');
+      factory.mpv.frozen(10000); await microtasks(); await microtasks();
+      factory.mpv.frozen(20000); await microtasks(); await microtasks();
+      await controller.release();
+      await controller.open(new FakeSessionMedia(factory.order), 'surface', new PlaybackIntent(), 'mpv');
+      factory.mpv.frozen(30000); await microtasks(); await microtasks();
+      expect(controller.current().phase).assertEqual('playing');
+      factory.mpv.frozen(40000); await microtasks(); await microtasks();
+      expect(controller.current().phase).assertEqual('failed');
+      expect(controller.current().failure?.kind).assertEqual('decode');
+      await controller.release();
+    });
   });
 }

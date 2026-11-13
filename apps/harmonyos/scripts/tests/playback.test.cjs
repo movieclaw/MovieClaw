@@ -412,6 +412,7 @@ test('MPV skips a rejected optional subtitle command and still plays', async () 
     createEngine: () => 7, initEngine: async (handle, options, callback) => callback({ type: 'ready' }),
     command: async (handle, args) => { calls.push(args[0]); if (args[0] === 'sub-add') { throw new Error('subtitle'); } },
     setProperty: async (handle, name, value) => { sets.push([name, value]); },
+    tracks: async () => '[]',
     destroyEngine: async () => {},
   } });
   const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
@@ -438,6 +439,7 @@ test('MPV swaps live sidecar subtitles in place without reopening the stream', a
       }
     },
     setProperty: async (handle, name, value) => { sets.push([name, value]); },
+    getProperty: async (handle, name) => (name === 'sid' ? 'no' : name === 'sub-visibility' ? 'no' : '0'),
     tracks: async () => JSON.stringify(subTracks),
     destroyEngine: async () => {},
   } });
@@ -793,6 +795,82 @@ test('MPV watchdog holds off while a seek is in flight and resumes after playbac
   await engine.release();
 });
 
+test('MPV watchdog reconciles a seek whose playback-restart confirmation was dropped', async () => {
+  const timers = watchdogTimers(); const events = [];
+  let timePos = 10; let voPts = 10; let videoFrozen = false; let notify = () => {};
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7,
+    initEngine: async (handle, options, callback) => { notify = callback; callback({ type: 'ready' }); },
+    command: async () => {},
+    setProperty: async (handle, name, value) => {
+      if (name === 'pause' && value === false) { notify({ type: 'property', name: 'pause', value: 0 }); }
+    },
+    getProperty: async (handle, name) => {
+      if (name === 'time-pos') { timePos += 2; return timePos; }
+      if (!videoFrozen) { voPts = timePos; }
+      return voPts;
+    },
+    tracks: async () => '[{"id":1,"type":"video"}]',
+    destroyEngine: async () => {},
+  } }, timers);
+  const { MpvEngine } = load('player_engine/src/main/ets/MpvEngine.ets');
+  // Shrink the reconciliation window so the drop plays out in real milliseconds.
+  MpvEngine.seekInFlightTimeoutMs = 50;
+  const engine = new MpvEngine();
+  engine.onEvent = (event) => events.push(event);
+  await engine.open({ fd: -1, url: 'fixture', subtitleUrl: '', subtitleFd: -1, isHls: true }, 'surface');
+  await engine.play();
+  // Healthy baseline: clock and displayed PTS advance together.
+  await timers.tick(); await timers.tick();
+  // The video pipeline dies mid-seek and the seek's playback-restart confirmation is
+  // dropped by the flooded event queue: the in-flight hold-off must expire by timeout
+  // instead of blinding the watchdog forever.
+  videoFrozen = true;
+  await engine.seek(60000);
+  for (let i = 0; i < 5; i++) { await timers.tick(); }
+  assert.deepEqual(events.filter((event) => event.type === 'frozen'), []);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  // The reconciliation clears the in-flight flag and resets the baseline; the frozen
+  // picture is then detected from the fresh baseline.
+  for (let i = 0; i < 8; i++) { await timers.tick(); }
+  const frozen = events.filter((event) => event.type === 'frozen');
+  assert.equal(frozen.length, 1);
+  await engine.release();
+  // Restore the production default: later tests in this process share the class.
+  MpvEngine.seekInFlightTimeoutMs = 10000;
+});
+
+test('MPV watchdog does not arm when release lands during the video-track probe', async () => {
+  const timers = watchdogTimers(); const events = [];
+  const probeGate = gate(); let notify = () => {}; let trackQueries = 0;
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7,
+    initEngine: async (handle, options, callback) => { notify = callback; callback({ type: 'ready' }); },
+    command: async () => {},
+    setProperty: async () => {},
+    getProperty: async () => 10,
+    // open() queries the track table twice (sidecar baseline + diff) before the
+    // watchdog probes for a video track: the third query is the probe, parked here.
+    tracks: async () => {
+      trackQueries++;
+      if (trackQueries === 3) { await probeGate.promise; }
+      return '[{"id":1,"type":"video"}]';
+    },
+    destroyEngine: async () => {},
+  } }, timers);
+  const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
+  engine.onEvent = (event) => events.push(event);
+  const opening = engine.open({ fd: -1, url: 'fixture', subtitleUrl: '', subtitleFd: -1, isHls: true }, 'surface');
+  await drain();
+  // release() races the probe's await: the watchdog must re-check released after the
+  // await instead of arming a timer nobody will ever clear.
+  const releasing = engine.release();
+  probeGate.resolve();
+  await opening; await releasing; await drain();
+  assert.equal(timers.intervals.size, 0);
+  assert.deepEqual(events.filter((event) => event.type === 'frozen'), []);
+});
+
 test('a slow watchdog sample does not overlap the next tick', async () => {
   const timers = watchdogTimers(); const events = [];
   const parked = pending(); let reads = 0; let notify = () => {};
@@ -840,6 +918,7 @@ test('a failed sidecar switch keeps the previous subtitle track playing', async 
       }
     },
     setProperty: async (handle, name, value) => { sets.push([name, value]); },
+    getProperty: async (handle, name) => (name === 'sid' ? 'no' : name === 'sub-visibility' ? 'no' : '0'),
     tracks: async () => JSON.stringify(subTracks),
     destroyEngine: async () => {},
   } });
@@ -864,6 +943,102 @@ test('a failed sidecar switch keeps the previous subtitle track playing', async 
     { subtitlePath: '/cache/playback-pgs-2.sup', subtitleFormat: 'sup', subtitleOffsetMs: 0 }));
   assert.deepEqual(commands.slice(-2), ['sub-add /cache/playback-pgs-2.sup select', 'sub-remove 1']);
   assert.deepEqual(subTracks.map((track) => track.id), [2]);
+  await engine.release();
+});
+
+test('an opaque track table aborts a live sidecar switch without touching the old track', async () => {
+  const commands = []; const sets = []; let subTracks = [];
+  let nextId = 0; let failTracks = false;
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7, initEngine: async (handle, options, callback) => callback({ type: 'ready' }),
+    command: async (handle, args) => {
+      commands.push(args.join(' '));
+      if (args[0] === 'sub-add') {
+        nextId += 1;
+        subTracks.push({ id: nextId, type: 'sub', codec: args[1].endsWith('.sup') ? 'hdmv_pgs_subtitle' : 'subrip' });
+      } else if (args[0] === 'sub-remove') {
+        subTracks = subTracks.filter((track) => track.id !== Number(args[1]));
+      }
+    },
+    setProperty: async (handle, name, value) => { sets.push([name, value]); },
+    getProperty: async (handle, name) => (name === 'sid' ? 'no' : name === 'sub-visibility' ? 'no' : '0'),
+    tracks: async () => {
+      if (failTracks) { throw new Error('track-list unavailable'); }
+      return JSON.stringify(subTracks);
+    },
+    destroyEngine: async () => {},
+  } });
+  const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
+  const empty = { url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1 };
+  await engine.open(empty, 'surface');
+  // First switch mounts a text sidecar.
+  await engine.attachSubtitle(Object.assign({}, empty,
+    { subtitlePath: '/cache/playback-sub-1.srt', subtitleFormat: 'srt', subtitleOffsetMs: 0 }));
+  const baseline = commands.slice();
+  const baselineSets = sets.slice();
+  // The track table goes opaque mid-switch: with no baseline there is no safe way to
+  // tell sidecar tracks from embedded ones — abort before touching anything rather
+  // than risk a later sub-remove on an embedded track.
+  failTracks = true;
+  await assert.rejects(engine.attachSubtitle(Object.assign({}, empty,
+    { subtitlePath: '/cache/playback-pgs-1.sup', subtitleFormat: 'sup', subtitleOffsetMs: 0 })));
+  assert.deepEqual(commands, baseline);
+  assert.deepEqual(sets, baselineSets);
+  assert.deepEqual(subTracks.map((track) => track.id), [1]);
+  // The table recovers: the next switch replaces the old track normally.
+  failTracks = false;
+  await engine.attachSubtitle(Object.assign({}, empty,
+    { subtitlePath: '/cache/playback-pgs-2.sup', subtitleFormat: 'sup', subtitleOffsetMs: 0 }));
+  assert.deepEqual(commands.slice(-2), ['sub-add /cache/playback-pgs-2.sup select', 'sub-remove 1']);
+  assert.deepEqual(subTracks.map((track) => track.id), [2]);
+  await engine.release();
+});
+
+test('a failed render-state switch rolls the sidecar back to the previous track', async () => {
+  const commands = []; const sets = []; let subTracks = [];
+  let nextId = 0; let failNextVisibility = false;
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7, initEngine: async (handle, options, callback) => callback({ type: 'ready' }),
+    command: async (handle, args) => {
+      commands.push(args.join(' '));
+      if (args[0] === 'sub-add') {
+        nextId += 1;
+        subTracks.push({ id: nextId, type: 'sub', codec: args[1].endsWith('.sup') ? 'hdmv_pgs_subtitle' : 'subrip' });
+      } else if (args[0] === 'sub-remove') {
+        subTracks = subTracks.filter((track) => track.id !== Number(args[1]));
+      }
+    },
+    setProperty: async (handle, name, value) => {
+      if (name === 'sub-visibility' && failNextVisibility) {
+        failNextVisibility = false;
+        throw new Error('render state rejected');
+      }
+      sets.push([name, value]);
+    },
+    getProperty: async (handle, name) => (name === 'sid' ? 'no' : name === 'sub-visibility' ? 'no' : '0'),
+    tracks: async () => JSON.stringify(subTracks),
+    destroyEngine: async () => {},
+  } });
+  const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)();
+  const empty = { url: '', fd: -1, length: 0, subtitleUrl: '', subtitleFd: -1 };
+  await engine.open(empty, 'surface');
+  // First switch mounts a text sidecar.
+  await engine.attachSubtitle(Object.assign({}, empty,
+    { subtitlePath: '/cache/playback-sub-1.srt', subtitleFormat: 'srt', subtitleOffsetMs: 0 }));
+  // The new track mounts but the render-state update rejects: the new track must be
+  // removed, the pre-switch selection/visibility/delay restored, and the exception
+  // surfaced — the old subtitle keeps playing throughout.
+  failNextVisibility = true;
+  await assert.rejects(engine.attachSubtitle(Object.assign({}, empty,
+    { subtitlePath: '/cache/playback-pgs-1.sup', subtitleFormat: 'sup', subtitleOffsetMs: 0 })));
+  assert.deepEqual(commands.slice(-2), ['sub-add /cache/playback-pgs-1.sup select', 'sub-remove 2']);
+  assert.deepEqual(subTracks.map((track) => track.id), [1]);
+  assert.deepEqual(sets.slice(-3), [['sub-visibility', 'no'], ['sub-delay', '0'], ['sid', 'no']]);
+  // The registration still points at the old track: a later switch replaces it.
+  await engine.attachSubtitle(Object.assign({}, empty,
+    { subtitlePath: '/cache/playback-pgs-2.sup', subtitleFormat: 'sup', subtitleOffsetMs: 0 }));
+  assert.deepEqual(commands.slice(-2), ['sub-add /cache/playback-pgs-2.sup select', 'sub-remove 1']);
+  assert.deepEqual(subTracks.map((track) => track.id), [3]);
   await engine.release();
 });
 
