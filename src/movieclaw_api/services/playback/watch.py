@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.i18n import t
 from movieclaw_api.services.playback import events as playback_events
+from movieclaw_api.services.playback.completion import completion_options, completion_runtime_ms
 from movieclaw_api.services.playback.track_context import unit_files_with_contexts
 from movieclaw_db.models import LibraryFile, MediaItem, PlaybackLog, PlaybackState
 from movieclaw_db.models.base import utcnow
@@ -469,13 +470,19 @@ async def record_progress(
     # 混用别的版本的片长当分母，加长版看到 110 分钟会被误判为看过 90%、
     # 标已看并清掉续播点
     played_files = _played_files(files, file_id)
-    runtime_ms = await playback_state.unit_runtime_ms(session, unit, files=played_files)
+    runtime_ms = await completion_runtime_ms(session, unit, files, file_id=file_id)
+    completion_percent, completion_position_ms = await completion_options(
+        session, played_files, runtime_ms, file_id=file_id
+    )
     row, newly_played = await playback_state.record_playback_progress(
         session,
         unit,
         member_id=member_id,
         position_ms=position_ms,
         runtime_ms=runtime_ms,
+        completion_percent=completion_percent,
+        completion_position_ms=completion_position_ms,
+        preserve_unknown_runtime=file_id is not None and runtime_ms is None,
     )
     playback_state.apply_track_selection(
         row,

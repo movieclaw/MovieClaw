@@ -7284,5 +7284,32 @@
   },
   "devices.labels.windowsBody": {
     "sourceHash": "c5f282f55b6a412a5d65d79ce7750b3efb43e6143b6258b9f5cac2b827bcc8b3"
+  },
+  "playback.completion.title": {
+    "sourceHash": "3ca65c9e3447c33d78980260b78a2d0adc13fd17032e65985b9a02fdd6af81ac"
+  },
+  "playback.completion.description": {
+    "sourceHash": "a2d0d4b36286390c08700bdc4fc0b726ec93885292cc3ad6098a6801b98f6877"
+  },
+  "playback.completion.percent": {
+    "sourceHash": "4c01ebec3863a38fd6068508197cd425fbb8aa783ea568ba3d5d208befa9afdb"
+  },
+  "playback.completion.range": {
+    "sourceHash": "1d2c23df704b75f6400dc8a1d7e902ba6ed70820dff2cf8d6201fa89d3f77698"
+  },
+  "playback.completion.outro": {
+    "sourceHash": "5a6f8a8bdaca292517577a58c515b7c76edf7f4b4e73dc9699d944482e0ec3d1"
+  },
+  "playback.completion.outroHint": {
+    "sourceHash": "19c4dc25e6962e6143ca885bc3fb916a34e10d00cd2e4cdc4572f5c2265fe28d"
+  },
+  "playback.completion.footnote": {
+    "sourceHash": "63d52fcfd81f7321bb94ce3f090ffff8bc92ae869417f45782e6c8a1cefcbb88"
+  },
+  "playback.completion.detection": {
+    "sourceHash": "07adcfc7f684451796348158f651423b7369f5c6258264ce9da641491dec345c"
+  },
+  "playback.completion.upgrade": {
+    "sourceHash": "e238060b2c0613ffe1f48861ee2242cd6dc4f8f9a771dd5805410ca1e3346546"
   }
 }

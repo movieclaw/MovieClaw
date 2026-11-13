@@ -949,6 +949,17 @@
       "closeTip": "Dismiss tip",
       "pairHint": "Pair on the computer with MovieClaw Transcoder installed: open the transcoder, choose the MovieClaw server found on your network (or enter its address), then select Connect and pair. It shows a pairing code and opens an approval page. Verify the code and approve it. If the page does not open, enter the code in Settings → Devices. You never need to enter a token: approval sends the worker credential directly to that computer without displaying it.",
       "advancedHint": "The server tells each worker where to fetch source video and upload HLS files. By default, it uses the address the worker connected through, which is reachable and usually the fastest local path. Override it only if a reverse proxy rewrites Host to an upstream address (such as 127.0.0.1:8000) that the worker cannot reach."
+    },
+    "completion": {
+      "title": "Watched status",
+      "description": "All devices use this server’s rules. Changes apply to playback progress reported from now on.",
+      "percent": "Played threshold (%)",
+      "range": "Enter a percentage from 80 to 100.",
+      "outro": "Prefer detected credits",
+      "outroHint": "Valid TV credits replace the percentage threshold and may mark watched earlier or later. Only credits running to the end qualify; otherwise the percentage applies.",
+      "footnote": "Movies, disabled detection, and missing valid credits use the entered percentage. At the default 90%, videos under 5 minutes still count as watched after at least 5% playback; other percentages use the entered value. Marking watched clears the resume position. Enable detection under Edit TV library → Detect intros and credits. 100% allows one second for stored duration precision.",
+      "detection": "Intro and credits detection is enabled for {enabled}/{total} TV libraries. Each episode still needs to be successfully analyzed.",
+      "upgrade": "Update the server to use these options."
     }
   },
   "drives": {

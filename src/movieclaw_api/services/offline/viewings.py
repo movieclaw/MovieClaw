@@ -35,6 +35,7 @@ from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import assert_item_visible, visible_library_ids
 from movieclaw_api.services.playback import events as playback_events
 from movieclaw_api.services.playback import plan as playback_plan
+from movieclaw_api.services.playback.completion import completion_options, completion_runtime_ms
 from movieclaw_db.models import LibraryFile, MediaItem, PlaybackLog
 from movieclaw_db.models.base import utcnow
 from movieclaw_playback import state as playback_state
@@ -160,8 +161,19 @@ async def _apply_one(
     fresh = clock.now - updated <= _FRESH
     files = await playback_state.unit_files(session, unit)
     played_files = [f for f in files if f.id == file_id] or files
-    runtime_ms = await playback_state.unit_runtime_ms(session, unit, files=played_files)
-    runtime_ms = runtime_ms or record.duration_ms
+    runtime_ms = record.duration_ms or await completion_runtime_ms(
+        session, unit, files, file_id=record.file_id
+    )
+    preserve_unknown_runtime = record.file_id is not None and runtime_ms is None
+    completion_percent, completion_position_ms = await completion_options(
+        session, played_files, runtime_ms, file_id=record.file_id
+    )
+    # 客户端的 completed 可能只是播放器自己的百分比估算；有实际位置时以服务器规则为准。
+    completion = resolve_progress(
+        record.position_ms, runtime_ms, currently_played=False,
+        completion_percent=completion_percent, completion_position_ms=completion_position_ms,
+        preserve_unknown_runtime=preserve_unknown_runtime,
+    )
 
     log = (
         await session.execute(
@@ -219,9 +231,12 @@ async def _apply_one(
     if newer:
         was_played = row.played
         outcome = resolve_progress(
-            None if record.completed else record.position_ms,
+            record.position_ms,
             runtime_ms,
             currently_played=row.played,
+            completion_percent=completion_percent,
+            completion_position_ms=completion_position_ms,
+            preserve_unknown_runtime=preserve_unknown_runtime,
         )
         row.position_ms = outcome.position_ms
         row.played = outcome.played
@@ -241,7 +256,7 @@ async def _apply_one(
             log.end_position_ms = record.position_ms
         log.watched_ms = max(log.watched_ms, watched)
         log.updated_at = clock.now
-    log.completed = log.completed or newly_played or record.completed
+    log.completed = log.completed or completion.played
     if record.ended:
         log.ended_at = updated
 

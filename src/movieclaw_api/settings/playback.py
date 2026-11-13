@@ -66,3 +66,5 @@ class PlaybackPolicySetting(SettingSchema):
             "后台把全库处理一遍（有人观看时自动让路），并占用约每部 20 MB 的空间。"
         ),
     )
+    played_threshold_percent: float = Field(default=90, ge=80, le=100)
+    played_use_outro: bool = False

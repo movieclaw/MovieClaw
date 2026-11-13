@@ -514,6 +514,19 @@ def test_viewing_completed_marks_played_and_watch_time_is_capped(
     assert log.watched_ms <= 3 * 60_000 + 2_000
 
 
+def test_viewing_uses_server_percentage_instead_of_client_completion(client, tmp_path):
+    _lib, item_id, _file = seed(client, tmp_path, real=False)
+    response = client.put(f"{_API}/playback/policy", json={"played_threshold_percent": 99})
+    assert response.status_code == 200
+    position = int(_DURATION_S * 1000 * 0.96)
+    record = _viewing(item_id, position_ms=position, completed=True, ended=True)
+    assert _send_viewings(client, [record]) == {"v-0000-0001": "applied"}
+    state = _state(client, item_id)
+    assert state.played is False and state.position_ms == position
+    [log] = _logs(client, item_id)
+    assert log.completed is False
+
+
 def test_viewing_clock_skew_is_corrected(client: TestClient, tmp_path: Path) -> None:
     _lib, item_id, _file = seed(client, tmp_path, real=False)
     skew = timedelta(minutes=30)  # 手机快了半小时
