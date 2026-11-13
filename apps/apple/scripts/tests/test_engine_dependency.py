@@ -30,6 +30,12 @@ class EngineDependencyTests(unittest.TestCase):
     def test_accepts_committed_lock(self):
         prepare.check_lock(self.project, self.lock)
 
+    def test_reel_seeks_request_exact_landing(self):
+        source = (ROOT / "Shared/Reels/ReelPlayer.swift").read_text()
+        calls = [line.strip() for line in source.splitlines() if "core.seek(" in line]
+        self.assertTrue(calls)
+        self.assertTrue(all("exact: true" in call for call in calls), calls)
+
     def test_catalog_languages_are_added_to_generated_project(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

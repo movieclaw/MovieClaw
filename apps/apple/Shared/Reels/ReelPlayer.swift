@@ -338,7 +338,7 @@ final class ReelPlayer {
     /// 跳到原片上某处（秒），夹在片段之内（手势双击 ±10 秒、横滑拖进度）；放完停着时跳回去接着放
     func seek(to seconds: Double) {
         let target = min(max(startSeconds, seconds), max(startSeconds, endSeconds - 0.5))
-        core.seek(to: max(0, target - timeOrigin))
+        core.seek(to: max(0, target - timeOrigin), exact: true)
         if state == .ended {
             core.play()
             state = .playing
@@ -379,7 +379,7 @@ final class ReelPlayer {
 
     /// 从片段起点重放
     func replay() {
-        core.seek(to: max(0, startSeconds - timeOrigin))
+        core.seek(to: max(0, startSeconds - timeOrigin), exact: true)
         core.play()
         state = .playing
     }
