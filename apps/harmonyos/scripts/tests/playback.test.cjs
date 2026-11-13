@@ -676,6 +676,44 @@ test('MPV watchdog falls back to decoded frame counts when video-out-pts is unav
   await engine.release();
 });
 
+test('MPV trusts the host CA bundle for https playback', async () => {
+  for (const caPath of ['/mock/ca.pem', '']) {
+    let seen;
+    const load = runtime({ 'libmovieclaw_mpv.so': {
+      createEngine: () => 7,
+      initEngine: async (handle, options, callback) => { seen = options; callback({ type: 'ready' }); },
+      command: async () => {},
+      setProperty: async () => {},
+      getProperty: async () => 0,
+      tracks: async () => '[]',
+      destroyEngine: async () => {},
+    } });
+    const engine = new (load('player_engine/src/main/ets/MpvEngine.ets').MpvEngine)(caPath);
+    await engine.open({ fd: -1, url: 'https://fixture.invalid/index.m3u8', subtitleUrl: '', subtitleFd: -1 }, 'surface');
+    // A non-empty path installs the trust anchor; an empty one keeps the old behavior (no option).
+    assert.equal(seen['tls-ca-file'], caPath.length > 0 ? caPath : undefined);
+    await engine.release();
+  }
+});
+
+test('DefaultEngineFactory forwards the CA bundle into MPV', async () => {
+  let seen;
+  const load = runtime({ 'libmovieclaw_mpv.so': {
+    createEngine: () => 7,
+    initEngine: async (handle, options, callback) => { seen = options; callback({ type: 'ready' }); },
+    command: async () => {},
+    setProperty: async () => {},
+    getProperty: async () => 0,
+    tracks: async () => '[]',
+    destroyEngine: async () => {},
+  } });
+  const factory = new (load('player_engine/src/main/ets/DefaultEngineFactory.ets').DefaultEngineFactory)('/mock/ca.pem');
+  const engine = await factory.create('mpv');
+  await engine.open({ fd: -1, url: 'https://fixture.invalid/index.m3u8', subtitleUrl: '', subtitleFd: -1 }, 'surface');
+  assert.equal(seen['tls-ca-file'], '/mock/ca.pem');
+  await engine.release();
+});
+
 test('MPV watchdog stays off for local files, direct URLs, and audio-only HLS', async () => {
   const cases = [
     { name: 'local fd source', source: { fd: 7, url: '', isHls: false }, tracks: '[{"id":1,"type":"video"}]' },

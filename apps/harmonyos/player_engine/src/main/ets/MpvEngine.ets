@@ -43,6 +43,12 @@ export class MpvEngine implements PlayerEngine {
   private ready: boolean = false;
   private eof: boolean = false;
   private paused: boolean = true;
+  /** 宿主装入的 CA 信任库路径（空 = 不设 tls-ca-file，维持无信任库旧行为） */
+  private readonly caPath: string;
+
+  constructor(caPath: string = '') {
+    this.caPath = caPath;
+  }
   /** 本引擎 sub-add 挂上的旁挂轨 id（open 与 attachSubtitle 都记），换轨时 sub-remove。 */
   private sidecarIds: number[] = [];
   // ---- 视频冻结看门狗 ---------------------------------------------------
@@ -83,7 +89,7 @@ export class MpvEngine implements PlayerEngine {
     // Install a rejection observer immediately: initialization can fail before loadfile.
     loaded.catch((): void => {});
     try {
-      await initEngine(this.handle, {
+      const options: Record<string, string> = {
         'vo': 'gpu', 'gpu-api': 'vulkan', 'gpu-context': 'ohosvk', 'ao': 'ohaudio',
         // Buffer-mode hardware decode. The dex2oat fork (vd_lavc.c select_and_set_hwdec)
         // only accepts ohcodec surface entries for vo=ohcodec* VOs; under vo=gpu the
@@ -98,7 +104,11 @@ export class MpvEngine implements PlayerEngine {
         // mpv 内部日志按模块放开（其余压到 warn）：字幕加载/选择/渲染走
         // MpvLog 进 hilog，用于排查「sid 选中但不渲染」类问题。
         'msg-level': 'all=warn,sub=v,dec_sub=v,ass=v,osd=v,cplayer=info'
-      }, (event: MpvEvent): void => this.receive(event));
+      };
+      // 外网 https：mbedtls 在鸿蒙上没有系统信任路径，必须显式给 CA 包，
+      // 否则 tls-verify 下证书校验必败（BADCERT_NOT_TRUSTED，打开秒退 -13）。
+      if (this.caPath.length > 0) { options['tls-ca-file'] = this.caPath; }
+      await initEngine(this.handle, options, (event: MpvEvent): void => this.receive(event));
       if (this.released) { return; }
       await this.send(['loadfile', source.fd >= 0 ? `fd://${source.fd}` : source.url, 'replace']);
       await loaded;

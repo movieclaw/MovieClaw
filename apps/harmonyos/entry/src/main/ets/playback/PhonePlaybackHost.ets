@@ -10,8 +10,9 @@ import { http } from '@kit.NetworkKit';
 import { PlaybackGuard } from '@movieclaw/playback';
 import { PlayerPrefs, SubStyle } from '../player/PlayerPrefs';
 import { PlaybackController, PlaybackSnapshot, PlaybackIntent, PlaybackSessionCoordinator, PlaybackOwnership, SkipSegments } from '@movieclaw/playback';
-import { EngineEvent, EngineFailure, EngineSource } from '@movieclaw/player-engine';
+import { EngineEvent, EngineFailure, EngineSource, DefaultEngineFactory } from '@movieclaw/player-engine';
 import { PhoneMedia, playbackUrl, downloadPgsSidecar, removePgsSidecar, PgsSidecarCache, DownloadedSubtitle } from './PhoneMedia';
+import { MpvTrust } from './MpvTrust';
 import { PgsPrepareGuard, PgsPrepareTracker } from './PgsPrepareGuard';
 import { MovieClawPlaybackSession } from './MovieClawPlaybackSession';
 import { MovieClawPlaybackGateway } from './MovieClawPlaybackGateway';
@@ -207,7 +208,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   navStack: NavPathStack = new NavPathStack();
   chrome: ShellChrome = ShellChrome.shared;
   started: boolean = false;
-  controller: PlaybackController = new PlaybackController();
+  controller: PlaybackController = new PlaybackController(
+    new DefaultEngineFactory(MpvTrust.caBundlePath()));
   sessionCoordinator: PlaybackSessionCoordinator = new PlaybackSessionCoordinator();
   sessionEpoch: number = 0;
   pausedIntent: boolean = false;
