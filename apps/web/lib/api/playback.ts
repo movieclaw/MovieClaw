@@ -1101,6 +1101,8 @@ export function reportPlaybackProgressOnUnload(
     进度条预览生成（设置页「播放」分区）。 */
 export interface PlaybackPolicy {
   software_transcode_enabled: boolean;
+  played_threshold_percent?: number | null;
+  played_use_outro?: boolean | null;
   trickplay_enabled: boolean;
   /** 转码产物保留供续播、重看复用（§B）；关闭即会话结束即删 */
   transcode_cache_enabled: boolean;

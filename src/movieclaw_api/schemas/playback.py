@@ -927,6 +927,9 @@ class PlaybackPolicyView(BaseModel):
     """
 
     software_transcode_enabled: bool
+    # 可空，兼容新生成的客户端连接尚未提供这些字段的旧服务器。
+    played_threshold_percent: float | None = Field(default=90, ge=80, le=100)
+    played_use_outro: bool | None = False
     #: 进度条预览缩略图的生成开关（设置页「播放」分区）。已生成的预览不受它
     #: 影响——关掉只是不再生成新的。
     trickplay_enabled: bool = True
@@ -953,6 +956,8 @@ class PlaybackPolicyPayload(BaseModel):
     software_transcode_enabled 一个开关。"""
 
     software_transcode_enabled: bool | None = None
+    played_threshold_percent: float | None = Field(default=None, ge=80, le=100)
+    played_use_outro: bool | None = None
     trickplay_enabled: bool | None = None
     transcode_cache_enabled: bool | None = None
     reel_clips_enabled: bool | None = None

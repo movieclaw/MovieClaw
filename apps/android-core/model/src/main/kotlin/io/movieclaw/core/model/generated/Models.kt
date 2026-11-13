@@ -2485,6 +2485,8 @@ data class PlaybackMetricPayload(
 @Serializable
 data class PlaybackPolicyPayload(
     @SerialName("software_transcode_enabled") val softwareTranscodeEnabled: Boolean? = null,
+    @SerialName("played_threshold_percent") val playedThresholdPercent: Double? = null,
+    @SerialName("played_use_outro") val playedUseOutro: Boolean? = null,
     @SerialName("trickplay_enabled") val trickplayEnabled: Boolean? = null,
     @SerialName("transcode_cache_enabled") val transcodeCacheEnabled: Boolean? = null,
     @SerialName("reel_clips_enabled") val reelClipsEnabled: Boolean? = null,
@@ -2499,6 +2501,8 @@ data class PlaybackPolicyPayload(
 @Serializable
 data class PlaybackPolicyView(
     @SerialName("software_transcode_enabled") val softwareTranscodeEnabled: Boolean = false,
+    @SerialName("played_threshold_percent") val playedThresholdPercent: Double? = null,
+    @SerialName("played_use_outro") val playedUseOutro: Boolean? = null,
     @SerialName("trickplay_enabled") val trickplayEnabled: Boolean = false,
     @SerialName("transcode_cache_enabled") val transcodeCacheEnabled: Boolean = false,
     @SerialName("reel_clips_enabled") val reelClipsEnabled: Boolean? = null,

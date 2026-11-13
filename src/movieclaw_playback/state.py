@@ -290,6 +290,8 @@ async def record_playback_progress(
     member_id: int,
     position_ms: int | None,
     runtime_ms: int | None,
+    completion_percent: float = 90,
+    completion_position_ms: int | None = None,
 ) -> tuple[PlaybackState, bool]:
     """进度上报（Progress 与 Stopped 同入口）：按阈值三分支落库。
 
@@ -299,7 +301,10 @@ async def record_playback_progress(
     await lock_titles(session, member_id, [unit[0]])
     row = await _get_or_create(session, unit, member_id=member_id)
     was_played = row.played
-    outcome = resolve_progress(position_ms, runtime_ms, currently_played=row.played)
+    outcome = resolve_progress(
+        position_ms, runtime_ms, currently_played=row.played,
+        completion_percent=completion_percent, completion_position_ms=completion_position_ms,
+    )
     row.position_ms = outcome.position_ms
     row.played = outcome.played
     row.last_played_at = utcnow()
