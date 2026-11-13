@@ -956,8 +956,8 @@
       "percent": "Played threshold (%)",
       "range": "Enter a percentage from 80 to 100.",
       "outro": "Prefer detected credits",
-      "outroHint": "Use detected TV credits that run to the end. If story or post-credit scenes remain, use the percentage instead.",
-      "footnote": "Movies, disabled detection, and missing valid credits use the entered percentage. Marking watched still clears the resume position. Enable detection under Edit TV library → Detect intros and credits. 100% allows one second for stored duration precision.",
+      "outroHint": "Valid TV credits replace the percentage threshold and may mark watched earlier or later. Only credits running to the end qualify; otherwise the percentage applies.",
+      "footnote": "Movies, disabled detection, and missing valid credits use the entered percentage. At the default 90%, videos under 5 minutes still count as watched after at least 5% playback; other percentages use the entered value. Marking watched clears the resume position. Enable detection under Edit TV library → Detect intros and credits. 100% allows one second for stored duration precision.",
       "detection": "Intro and credits detection is enabled for {enabled}/{total} TV libraries. Each episode still needs to be successfully analyzed.",
       "upgrade": "Update the server to use these options."
     }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TypeVar
@@ -49,6 +50,7 @@ class SettingStore:
         self._secret_box = secret_box
         # namespace -> 已解密并校验过的模型实例
         self._cache: dict[str, SettingSchema] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
 
     def _db(self) -> Database:
         return self._database or get_database()
@@ -70,8 +72,12 @@ class SettingStore:
             return cached  # type: ignore[return-value]
 
         instance = await self._load(descriptor)
-        self._cache[descriptor.namespace] = instance
-        return instance  # type: ignore[return-value]
+        # 读取不能等写锁：离线补传可能已持有 SQLite 写事务；保存配置又在等它提交。
+        # 缓存未命中的读取晚于保存结束时，不得把新缓存覆盖回旧快照。
+        return self._cache.setdefault(descriptor.namespace, instance)  # type: ignore[return-value]
+
+    def _lock(self, namespace: str) -> asyncio.Lock:
+        return self._locks.setdefault(namespace, asyncio.Lock())
 
     async def _load(self, descriptor: SettingDescriptor) -> SettingSchema:
         """从数据库加载并解密、校验成模型实例；无记录时返回默认实例。"""
@@ -93,6 +99,21 @@ class SettingStore:
     async def set(self, instance: SettingSchema) -> None:
         """整体覆盖式保存一个配置域。敏感字段落库前自动加密。"""
         descriptor = get_descriptor_by_model(type(instance))
+        async with self._lock(descriptor.namespace):
+            await self._set(instance)
+
+    async def update(self, model_cls: type[T], changes: dict) -> tuple[T, T]:
+        """按域原子读取、合并、校验、持久化及更新缓存，返回（旧值，新值）。"""
+        descriptor = get_descriptor_by_model(model_cls)
+        async with self._lock(descriptor.namespace):
+            previous = await self.get(model_cls)
+            current = model_cls.model_validate({**previous.model_dump(), **changes})
+            if changes:
+                await self._set(current)
+            return previous, current
+
+    async def _set(self, instance: SettingSchema) -> None:
+        descriptor = get_descriptor_by_model(type(instance))
         # mode="json"：把枚举、datetime 等转成 JSON 原生类型，便于序列化
         data = instance.model_dump(mode="json")
         encrypted = self._encrypt_fields(data, descriptor)
@@ -108,9 +129,10 @@ class SettingStore:
     async def delete(self, model_cls: type[SettingSchema]) -> bool:
         """删除某配置域，返回是否命中记录。"""
         descriptor = get_descriptor_by_model(model_cls)
-        async with self._db().session() as session:
-            hit = await SettingRepository(session).delete(descriptor.namespace)
-        self._cache.pop(descriptor.namespace, None)
+        async with self._lock(descriptor.namespace):
+            async with self._db().session() as session:
+                hit = await SettingRepository(session).delete(descriptor.namespace)
+            self._cache.pop(descriptor.namespace, None)
         if hit:
             logger.info("已删除配置域：%s", descriptor.namespace)
         return hit

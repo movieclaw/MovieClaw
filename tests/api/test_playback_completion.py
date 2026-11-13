@@ -188,3 +188,172 @@ def test_replaced_file_does_not_borrow_current_versions_outro(client, tmp_path, 
             episode_number=1,
         )
     assert state["played"] is False and state["position_ms"] == 500_000
+
+
+@pytest.mark.parametrize("offline", [False, True])
+@pytest.mark.parametrize("historical", [False, True])
+@pytest.mark.parametrize("old_duration,new_duration,position,played", [
+    (7200, 5400, 5100, False),  # 旧版更长：不能按新版 94% 误判完成。
+    (5400, 7200, 5100, True),   # 旧版更短：不能按新版 71% 漏掉完成。
+])
+def test_replaced_version_uses_its_own_duration(
+    client, tmp_path, offline, historical, old_duration, new_duration, position, played
+):
+    from tests.api.test_offline_download import _send_viewings, _viewing
+
+    from movieclaw_db.models import FileState
+
+    _, item = seed(client, tmp_path)
+
+    async def replace():
+        async with get_database().session() as session:
+            current = (await session.execute(
+                select(LibraryFile).where(LibraryFile.media_item_id == item)
+            )).scalar_one()
+            current.duration_seconds = new_duration
+            old = LibraryFile(
+                library_id=current.library_id, media_item_id=item,
+                file_path=current.file_path + ".old", size_bytes=current.size_bytes,
+                source=current.source, state=FileState.MISSING,
+                duration_seconds=old_duration,
+            )
+            session.add(old)
+            await session.flush()
+            old_id = old.id
+            if not historical:
+                await session.delete(old)
+            await session.commit()
+            return old_id
+
+    file_id = client.portal.call(replace)
+    if offline:
+        record = _viewing(item, file_id=file_id, duration_ms=old_duration * 1000,
+                          position_ms=position * 1000, completed=not played, ended=True)
+        assert _send_viewings(client, [record]) == {"v-0000-0001": "applied"}
+        state = resume(client, item)
+    else:
+        state = report(client, item, event="stop", file_id=file_id, position_ms=position * 1000)
+    expected_played = played and (offline or historical)
+    assert state["played"] is expected_played
+    assert state["position_ms"] == (0 if expected_played else position * 1000)
+
+
+def test_unknown_version_without_duration_preserves_online_and_offline_progress(client, tmp_path):
+    from tests.api.test_offline_download import _send_viewings, _viewing
+
+    _, item = seed(client, tmp_path)
+    state = report(client, item, event="progress", file_id=999999, position_ms=599_999)
+    assert state["played"] is False and state["position_ms"] == 599_999
+    state = report(client, item, event="stop", file_id=999999)
+    assert state["played"] is False and state["position_ms"] == 599_999
+    record = _viewing(item, file_id=999999, position_ms=590_000, completed=True, ended=True)
+    assert _send_viewings(client, [record]) == {"v-0000-0001": "applied"}
+    state = resume(client, item)
+    assert state["played"] is False and state["position_ms"] == 590_000
+
+
+def test_offline_record_duration_takes_precedence_over_server_duration(client, tmp_path):
+    from tests.api.test_offline_download import _send_viewings, _viewing
+
+    _, item = seed(client, tmp_path)
+    record = _viewing(item, duration_ms=1_200_000, position_ms=590_000, completed=True, ended=True)
+    assert _send_viewings(client, [record]) == {"v-0000-0001": "applied"}
+    state = resume(client, item)
+    assert state["played"] is False and state["position_ms"] == 590_000
+
+
+@pytest.mark.parametrize("first,second", [
+    ({"played_threshold_percent": 97.5}, {"trickplay_enabled": False}),
+    ({"trickplay_enabled": False}, {"played_threshold_percent": 97.5}),
+])
+def test_concurrent_partial_policy_saves_preserve_both_db_and_cache(
+    client, monkeypatch, first, second
+):
+    import asyncio
+
+    import httpx
+
+    from movieclaw_api.settings import get_setting_store
+    from movieclaw_db.repositories.setting_repo import SettingRepository
+
+    original = SettingRepository.upsert
+
+    async def exercise():
+        writing, release, second_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        calls = 0
+
+        async def pause_first_write(repo, namespace, value_json):
+            nonlocal calls
+            if namespace == "playback.policy":
+                calls += 1
+                if calls == 1:
+                    writing.set()
+                    await release.wait()
+            return await original(repo, namespace, value_json)
+
+        monkeypatch.setattr(SettingRepository, "upsert", pause_first_write)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=client.app),
+            base_url="http://testserver", cookies=dict(client.cookies),
+        ) as http:
+            a = asyncio.create_task(http.put(f"{PB}/policy", json=first))
+            await asyncio.wait_for(writing.wait(), 5)
+
+            async def save_second():
+                second_started.set()
+                return await http.put(f"{PB}/policy", json=second)
+
+            b = asyncio.create_task(save_second())
+            await second_started.wait()
+            # 第一份已读取旧值、但尚未写库，第二份请求此时进入保存流程。
+            await asyncio.sleep(0.05)
+            release.set()
+            responses = await asyncio.gather(a, b)
+            assert all(r.status_code == 200 for r in responses)
+            cached = (await http.get(f"{PB}/policy")).json()["data"]
+            get_setting_store().invalidate()
+            persisted = (await http.get(f"{PB}/policy")).json()["data"]
+            for result in (cached, persisted):
+                assert result["played_threshold_percent"] == 97.5
+                assert result["trickplay_enabled"] is False
+
+    client.portal.call(exercise)
+
+
+def test_offline_database_writer_does_not_wait_for_policy_save_lock(client, tmp_path, monkeypatch):
+    import asyncio
+
+    from movieclaw_api.settings import PlaybackPolicySetting, get_setting_store
+    from movieclaw_db.repositories.setting_repo import SettingRepository
+    from movieclaw_playback.state import lock_titles
+
+    _, item = seed(client, tmp_path)
+    original = SettingRepository.upsert
+
+    async def exercise():
+        writing = asyncio.Event()
+
+        async def signal_write(repo, namespace, value_json):
+            if namespace == "playback.policy":
+                writing.set()
+            return await original(repo, namespace, value_json)
+
+        monkeypatch.setattr(SettingRepository, "upsert", signal_write)
+        store = get_setting_store()
+        # 冷缓存也覆盖：保存者先读配置，离线读取仍不能等待保存者的写锁。
+        store.invalidate()
+        async with get_database().session() as offline:
+            await lock_titles(offline, 0, [item])
+            save = asyncio.create_task(
+                store.update(PlaybackPolicySetting, {"played_threshold_percent": 97})
+            )
+            try:
+                await asyncio.wait_for(writing.wait(), 2)
+                policy = await asyncio.wait_for(store.get(PlaybackPolicySetting), 1)
+                assert policy.played_threshold_percent == 90
+            finally:
+                await offline.rollback()
+                await save
+        assert (await store.get(PlaybackPolicySetting)).played_threshold_percent == 97
+
+    client.portal.call(exercise)
