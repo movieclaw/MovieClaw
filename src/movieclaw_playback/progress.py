@@ -38,6 +38,7 @@ def resolve_progress(
     currently_played: bool,
     completion_percent: float = MAX_RESUME_PCT,
     completion_position_ms: int | None = None,
+    preserve_unknown_runtime: bool = False,
 ) -> ProgressOutcome:
     """按阈值三分支把"播到哪了"折算成落库状态。
 
@@ -48,6 +49,9 @@ def resolve_progress(
     UserDataManager.cs:445 的 ``reportedPositionTicks ?? runtimeTicks``：
     不报位置视同播到结尾（标已看）；报 0 = 拖回开头（清续播点，已看不变）。
     """
+    if preserve_unknown_runtime and not runtime_ms:
+        # 显式片源已经丢失、且没有该版本片长：不能把未知时长当作已播完。
+        return ProgressOutcome(position_ms=max(position_ms or 0, 0), played=currently_played)
     if position_ms is None:
         position_ms = runtime_ms or 0
         if position_ms <= 0:
