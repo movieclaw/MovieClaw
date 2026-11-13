@@ -13,6 +13,7 @@ import { WindowInsets } from '../common/WindowInsets';
 import { ShareRouter, slugFromWantUri } from '../common/ShareLinks';
 import { ShareLocalProgress } from '../share/ShareProgress';
 import { PlayerPrefs } from '../player/PlayerPrefs';
+import { MpvTrust } from '../playback/MpvTrust';
 import { OfflineDisk } from '../offline/OfflineDisk';
 import { OfflineDownloader } from '../offline/OfflineDownloader';
 import { NotifyPrefs } from '../notify/NotifyPrefs';
@@ -47,6 +48,8 @@ export default class EntryAbility extends UIAbility {
     ShareLocalProgress.init(this.context);
     // 播放器的本机偏好：画质记忆 + 字幕样式（独立偏好文件）
     PlayerPrefs.init(this.context);
+    // mpv 内核的 TLS 信任库：内置 CA 包落沙箱，外网 https 转码流才不至于证书校验秒败
+    MpvTrust.init(this.context);
     // 离线下载的存档根目录与下载器（长时任务申请要 UIAbilityContext）
     OfflineDisk.init(this.context);
     OfflineDownloader.shared.activate(this.context);
