@@ -58,6 +58,14 @@
       "sourceHash": "e21ae21c22d97d509dcc6ea013d1a031544e43e9d7cbcb56cc07f6a168a685c0"
     }
   },
+  "src/movieclaw_plugins/trim_media_src/movieclaw-plugin.toml": {
+    "plugin.title": {
+      "sourceHash": "d48ac0d0a066ca1dcd3252ba9b064aea287bcffeff94d61b86a87937e06695e8"
+    },
+    "plugin.description": {
+      "sourceHash": "49f95d091440c5ef30329f5f0e0e53a8096e2ef1ecfde4beb6fa9217371b0ddb"
+    }
+  },
   "src/movieclaw_plugins/weixin/movieclaw-plugin.toml": {
     "plugin.title": {
       "sourceHash": "774cd2631d8ee2e3f44cce669246e2dcca0a2ce49b15f02f75199091931b7ddc"

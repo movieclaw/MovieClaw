@@ -201,7 +201,8 @@ def test_web_only_package_from_upload_to_sidebar(data_dir) -> None:
         assert "acme-web" not in apps(client)
         assert client.get("/api/v1/plugins/acme-web/web/").status_code == 404
         pages = client.get("/api/v1/app/plugins/pages").json()["data"]
-        assert [(p["id"], p["approved"]) for p in pages] == [("acme-web", False)]
+        # 随带插件自带的网页也会在列表里（例如飞牛影视库源），这里只确认 acme-web 的授信被撤销了
+        assert ("acme-web", False) in [(p["id"], p["approved"]) for p in pages]
 
 
 def test_package_without_entry_or_web_is_rejected(data_dir) -> None:
@@ -231,8 +232,9 @@ def test_local_web_plugin_needs_one_confirmation_then_edits_are_live(data_dir) -
         state = client.get("/api/v1/app/plugins/weekly-board").json()["data"]["plugin"]["state"]
         assert state == "active"
         pages = client.get("/api/v1/app/plugins/pages").json()["data"]
-        assert [(p["id"], p["source"], p["approved"]) for p in pages] == [
-            ("weekly-board", "local", False)
+        # 同上：随带插件的网页也在列表里，只确认这个本地插件还没被确认
+        assert ("weekly-board", "local", False) in [
+            (p["id"], p["source"], p["approved"]) for p in pages
         ]
         assert client.get("/api/v1/plugins/weekly-board/web/").status_code == 404
         assert "weekly-board" not in apps(client)
@@ -424,3 +426,31 @@ def test_page_error_cannot_forge_log_lines(caplog) -> None:
     assert "伪造" in lines[0]  # 消息里的换行被压掉，伪造的内容留在第一行里
     assert all(line.startswith("    ") for line in lines[1:])  # 出处逐行缩进
     assert "\x1b" not in text
+
+
+def test_bundled_plugins_with_web_are_hosted(tmp_path, monkeypatch):
+    """随应用携带的插件包只要带 ``web/``，就和已安装的包一样出现在插件网页清单里。
+
+    它们没有安装记录（不经过批准），所以确认记录按「官方插件」默认：进侧边栏、只给管理员。
+    """
+
+    from movieclaw_api.plugins import bundled
+
+    packaged = tmp_path / "movieclaw_plugins"
+    source = packaged / "acme-bundled"
+    (source / "web").mkdir(parents=True)
+    (source / "movieclaw-plugin.toml").write_text(
+        '[plugin]\nid = "acme-bundled"\ntitle = "随带看板"\nversion = "1.0.0"\nentry = "acme"\n',
+        encoding="utf-8",
+    )
+    (source / "web" / "index.html").write_text("<!doctype html><title>hi</title>", encoding="utf-8")
+    monkeypatch.setattr(bundled, "root", lambda: packaged)
+    bundled.bundled.cache_clear()
+    try:
+        found = {p.id: p for p in plugin_web.web_plugins(get_settings())}
+        assert "acme-bundled" in found
+        plugin = found["acme-bundled"]
+        assert plugin.source == "bundled"
+        assert plugin.consent is not None and plugin.consent.nav and not plugin.consent.members
+    finally:
+        bundled.bundled.cache_clear()

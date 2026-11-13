@@ -200,6 +200,26 @@ def web_plugins(settings: object) -> list[WebPlugin]:
                 consent=consents.get(entry_id),
             )
         )
+    # 随应用携带的插件包：出厂自带、没有安装记录，所以没有「批准网页」这一步——
+    # 它是官方代码，默认只给管理员看。同 id 的插件包 / 本地插件已经占了这个位置就不重复
+    # （那两份都会替换随带版本）。
+    from movieclaw_api.plugins import bundled as bundled_pkgs
+
+    taken = {plugin.id for plugin in found}
+    for item in bundled_pkgs.bundled().values():
+        if item.id in taken or not has_web(item.path):
+            continue
+        found.append(
+            WebPlugin(
+                id=item.id,
+                title=localized_text(
+                    item.manifest.plugin.title, item.manifest.plugin.title_localized
+                ),
+                source="bundled",
+                root=item.path / WEB_DIR,
+                consent=Consent(nav=True, members=False),
+            )
+        )
     return found
 
 

@@ -1,0 +1,8 @@
+{
+  "name": "飞牛影视",
+  "short_name": "飞牛",
+  "start_url": ".",
+  "icons": [
+    { "src": "icon.png", "type": "image/png", "sizes": "256x256", "purpose": "any" }
+  ]
+}
