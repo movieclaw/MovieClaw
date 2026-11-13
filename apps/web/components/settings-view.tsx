@@ -30,6 +30,7 @@ import { MembersSection } from "@/components/members-section";
 import { AiSettingsSection } from "@/components/ai-settings-section";
 import { LlmConfigSection } from "@/components/llm-config-section";
 import { CloudStreamModeSection } from "@/components/cloud-stream-mode-section";
+import { PlaybackCompletionSection } from "@/components/playback-completion-section";
 import { DrivesSection } from "@/components/drives-section";
 import { ImPushSection } from "@/components/im-push-section";
 import { NetworkConfigSection } from "@/components/network-config-section";
@@ -706,6 +707,7 @@ function PlaybackSection() {
   const router = useRouter();
   return (
     <div className="space-y-10">
+      <PlaybackCompletionSection />
       {/* 进度条预览与转码缓存各只有一颗开关：同属「拿服务器资源换播放体验」，并成一组 */}
       <SettingsSection
         title={t("settings.playback.experience")}

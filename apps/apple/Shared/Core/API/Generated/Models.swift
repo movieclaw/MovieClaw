@@ -9147,6 +9147,8 @@ nonisolated extension API {
     /// software_transcode_enabled 一个开关。
     struct PlaybackPolicyPayload: Codable, Hashable, Sendable {
         var softwareTranscodeEnabled: Bool?
+        var playedThresholdPercent: Double?
+        var playedUseOutro: Bool?
         var trickplayEnabled: Bool?
         var transcodeCacheEnabled: Bool?
         var reelClipsEnabled: Bool?
@@ -9154,6 +9156,8 @@ nonisolated extension API {
 
         enum CodingKeys: String, CodingKey {
             case softwareTranscodeEnabled = "software_transcode_enabled"
+            case playedThresholdPercent = "played_threshold_percent"
+            case playedUseOutro = "played_use_outro"
             case trickplayEnabled = "trickplay_enabled"
             case transcodeCacheEnabled = "transcode_cache_enabled"
             case reelClipsEnabled = "reel_clips_enabled"
@@ -9166,6 +9170,8 @@ nonisolated extension API {
     /// 自动推导（services/playback/limits.py），不再是配置项。
     struct PlaybackPolicyView: Codable, Hashable, Sendable {
         var softwareTranscodeEnabled: Bool
+        var playedThresholdPercent: Double?
+        var playedUseOutro: Bool?
         var trickplayEnabled: Bool
         var transcodeCacheEnabled: Bool
         var reelClipsEnabled: Bool?
@@ -9176,6 +9182,8 @@ nonisolated extension API {
 
         enum CodingKeys: String, CodingKey {
             case softwareTranscodeEnabled = "software_transcode_enabled"
+            case playedThresholdPercent = "played_threshold_percent"
+            case playedUseOutro = "played_use_outro"
             case trickplayEnabled = "trickplay_enabled"
             case transcodeCacheEnabled = "transcode_cache_enabled"
             case reelClipsEnabled = "reel_clips_enabled"
