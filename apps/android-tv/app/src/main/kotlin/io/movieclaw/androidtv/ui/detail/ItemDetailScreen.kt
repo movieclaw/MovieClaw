@@ -346,6 +346,7 @@ private fun DetailContent(
                                         !lowerShown() -> FocusRequester.Default
                                         ranges.isNotEmpty() -> req("range:${max(0, EpisodeRanges.position(state.rowEpisode ?: state.entryEpisode, ranges))}")
                                         airSchedule != null -> req("air")
+                                        state.hasSeasonTabs -> state.browseSeason?.let { req("season:$it") } ?: FocusRequester.Default
                                         else -> FocusRequester.Default
                                     }
                                 },
@@ -824,8 +825,8 @@ private fun EpisodeRow(
                 onLongClick = { onMenu(episode) },
                 modifier = track("ep:${episode.episodeNumber}")
                     .testTag("ep:${episode.episodeNumber}")
-                    // 长季往上直接到当前段页签、有日历到日历条：首屏按钮滑走后在几何上和它们叠着，就近会越过去回首屏
-                    .then(if (segmented || state.browseSchedule != null) Modifier.focusProperties { up = above() } else Modifier),
+                    // 长季往上直接到当前段页签、有日历到日历条、多季到当前季：首屏按钮滑走后在几何上和它们叠着，就近会越过去回首屏
+                    .then(if (segmented || state.browseSchedule != null || state.hasSeasonTabs) Modifier.focusProperties { up = above() } else Modifier),
                 onFocus = { if (it) state.rowEpisode = episode.episodeNumber },
                 resume = episode.episodeNumber == tagged,
                 schedule = state.browseSchedule,
