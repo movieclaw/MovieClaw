@@ -213,6 +213,12 @@ WATCHED_RESWEEP_SECONDS = 6 * 3600
 # 收不到 inotify 事件，watch 注册得上也不算事件可靠。只对这类目录轮询，
 # 本地目录仍纯事件驱动、零常驻开销（issue #1275）
 NETWORK_POLL_SECONDS = 300
+# 监听目录巡检的触发原因（写进巡检日志，排查「为什么现在扫/为什么没扫」）
+SWEEP_REASON_WATCH_EVENT = "watch event"
+SWEEP_REASON_NETWORK_POLL = "network poll"
+SWEEP_REASON_DOWNLOADER_COMPLETED = "downloader-completed"
+SWEEP_REASON_WATCH_ARMED = "watch armed"
+SWEEP_REASON_RECHECK = "recheck"
 # 静默窗口：指纹连续稳定 5 分钟才认为下载落定（写入中 mtime 持续变化）
 QUIET_SECONDS = 300
 # 挂起条目（下载器报未完成）的状态轮询节奏：优先 API 核对，只有出现新的
@@ -4957,11 +4963,32 @@ async def claim_entry(
     return record
 
 
-def request_sweep(source_path: str) -> None:
+def request_sweep(source_path: str, *, reason: str = "manual request") -> None:
     """请求尽快巡检一个源目录：监听器在时走事件通道（秒级），否则等兜底巡检。"""
     watcher = get_ingest_watcher()
     if watcher is not None:
-        watcher.poke(source_path)
+        watcher.poke(source_path, reason=reason)
+
+
+async def request_sweep_for_download(local_dir: str) -> list[str]:
+    """下载器报告任务完成：请求巡检覆盖其保存目录的监听源目录（issue #1275）。
+
+    ``local_dir`` 是已按下载器路径映射翻译回 MovieClaw 视角的保存目录；
+    保存目录等于某条规则的源目录或位于其下时，种子内容就是该源目录里的
+    一个条目。远端下载器写在网络挂载上时本机收不到文件事件，下载器的完成
+    状态是唯一及时的信号。返回被请求巡检的源目录（日志/测试用）。
+    """
+    target = PurePosixPath(os.path.normpath(local_dir))
+    hits = []
+    for rule, _library in await _load_rules():
+        source = PurePosixPath(os.path.normpath(rule.source_path))
+        if target == source or source in target.parents:
+            hits.append(rule.source_path)
+    for source_path in hits:
+        request_sweep(source_path, reason=SWEEP_REASON_DOWNLOADER_COMPLETED)
+    if not hits:
+        logger.debug("下载完成的保存目录不在任何监听目录下，不触发巡检：%s", local_dir)
+    return hits
 
 
 # ---------------------------------------------------------------------------
@@ -5024,6 +5051,8 @@ class IngestWatcher:
         self._recent_keys: dict[str, float] = {}
         # 静默到点自检任务：每个源目录至多挂一个
         self._rechecks: dict[str, asyncio.Task] = {}
+        # 已入队、尚未巡检的源目录 → 触发原因（巡检时写进日志后清掉）
+        self._reasons: dict[str, set[str]] = {}
         # 串行化重建：并发的规则编辑各自触发 refresh，并发重建会互踩 _observer
         self._refresh_lock = asyncio.Lock()
 
@@ -5100,7 +5129,7 @@ class IngestWatcher:
         # 目录刚就绪/刚加进配置）不会再产生事件，只有这一次主动扫能接住；
         # 之后全靠事件驱动，不再主动扫它。队列操作回到事件循环线程再做
         for key in sorted(newly_watched):
-            self._queue.put_nowait(key)
+            self._put(key, SWEEP_REASON_WATCH_ARMED)
 
     def _apply_watches(self, source_paths: list[str]) -> set[str]:
         """（工作线程）差量调整监听；返回**初次**纳入监听的目录。
@@ -5181,9 +5210,15 @@ class IngestWatcher:
 
     # -- 事件通道 ----------------------------------------------------------
 
-    def poke(self, source_path: str) -> None:
-        """外部请求巡检某源目录（人工恢复处理后的立即重看）。事件循环线程调用。"""
-        self._queue.put_nowait(source_path)
+    def poke(self, source_path: str, *, reason: str = "manual request") -> None:
+        """外部请求巡检某源目录（人工恢复处理后的立即重看、下载器报告完成）。
+        事件循环线程调用。"""
+        self._put(source_path, reason)
+
+    def _put(self, key: str, reason: str) -> None:
+        """（事件循环线程）入队并记下触发原因；同一目录多次入队原因合并。"""
+        self._reasons.setdefault(key, set()).add(reason)
+        self._queue.put_nowait(key)
 
     def _should_enqueue(self, key: str) -> bool:
         """（观察者 dispatch 线程）同目录合并：短窗口内不重复跨线程投递。
@@ -5205,7 +5240,7 @@ class IngestWatcher:
         loop = self._loop
         if loop is None or loop.is_closed():
             return
-        loop.call_soon_threadsafe(self._queue.put_nowait, key)
+        loop.call_soon_threadsafe(self._put, key, SWEEP_REASON_WATCH_EVENT)
 
     async def _consume(self) -> None:
         """去抖消费：首事件后等安静窗口，汇总本批涉及的监听目录逐个巡检。"""
@@ -5223,6 +5258,14 @@ class IngestWatcher:
                 if asyncio.get_running_loop().time() >= deadline:
                     break  # 兜底：持续有事件也要巡检
             for source_path in sorted(pending):
+                reasons = self._reasons.pop(source_path, set())
+                # 下载器完成触发是低频、关键的信号，记 info；事件/轮询是常态，记 debug
+                logger.log(
+                    logging.INFO if SWEEP_REASON_DOWNLOADER_COMPLETED in reasons else logging.DEBUG,
+                    "巡检监听目录 %s（触发原因：%s）",
+                    source_path,
+                    ", ".join(sorted(reasons)) or "unknown",
+                )
                 try:
                     await self._sweep(source_path)
                 except Exception:  # noqa: BLE001 -- 监听消费绝不崩
@@ -5307,9 +5350,8 @@ class IngestWatcher:
                 self._rechecks.pop(key, None)
                 self._arm_recheck(key)
                 return
-        if network:
-            logger.debug("网络挂载上的监听目录到点轮询（远端写入不产生本机文件事件）：%s", key)
-        self._queue.put_nowait(key)
+        # 网络挂载：远端写入不产生本机文件事件，到点轮询是该目录的常规触发
+        self._put(key, SWEEP_REASON_NETWORK_POLL if network else SWEEP_REASON_RECHECK)
 
 
 _watcher: IngestWatcher | None = None
