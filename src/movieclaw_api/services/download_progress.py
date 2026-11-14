@@ -43,6 +43,7 @@ from movieclaw_db.models import (
     ImportWatch,
     IngestEntry,
     IngestStatus,
+    ManualDownloadIntent,
     MediaItem,
     SiteTorrent,
     SubscriptionActivity,
@@ -52,6 +53,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_db.models.downloader_client import DownloaderClient
+from movieclaw_db.models.manual_download_intent import MANUAL_DOWNLOAD_INTENT_TTL
 from movieclaw_db.models.scheduled_task import TriggerType
 from movieclaw_db.models.site_credential import ConfigStatus
 from movieclaw_db.models.system_notice import NoticeSeverity
@@ -82,6 +84,11 @@ _tick_lock = asyncio.Lock()
 # 在途状态：GRABBED 为主；DOWNLOADED 是旧版管线的遗留中间态（新架构不再
 # 写入），存量行按同样语义照看直至库存对账关闭
 _IN_FLIGHT = (WantedStatus.GRABBED, WantedStatus.DOWNLOADED)
+
+# 本进程已为其触发过「下载器完成」巡检的种子 hash：同一任务只触发一次。
+# 订阅下载另有持久化的 completed 状态翻转兜底；手动下载没有工单，靠这张表
+# 识别「转为完成」——任务退回未完成时移出，重新完成会再触发一次
+_completion_swept: set[str] = set()
 
 
 @register_task(
@@ -132,14 +139,18 @@ async def check_download_progress() -> None:
             orphaned = sorted(
                 {(sub_id, h.lower()) for (sub_id, h) in groups} - watched_keys
             )
-            if not attempts and not orphaned:
+            # 手动下载没有订阅工单，只有身份锚：同样照看到完成，完成即触发
+            # 一次监听巡检（远端下载器 + 网络挂载收不到文件事件，issue #1275）
+            manual = await _manual_intents(session)
+            if not attempts and not orphaned and not manual:
                 return
             downloaders = await _usable_downloaders(session)
         if not downloaders:
-            logger.warning(
-                "有 %d 个订阅下载等待照看，但没有可用的下载器",
-                len(attempts) + len(orphaned),
-            )
+            if attempts or orphaned:
+                logger.warning(
+                    "有 %d 个订阅下载等待照看，但没有可用的下载器",
+                    len(attempts) + len(orphaned),
+                )
             return
         for attempt in attempts:
             if attempt.id is None:
@@ -164,6 +175,104 @@ async def check_download_progress() -> None:
                 await _reconcile_orphaned_group(sub_id, info_hash, downloaders)
             except Exception:  # noqa: BLE001 -- 单组失败不拖垮整轮
                 logger.exception("孤儿在途工单对账失败：订阅 #%s 种子 %s", sub_id, info_hash)
+        try:
+            await _observe_manual_downloads(manual, downloaders)
+        except Exception:  # noqa: BLE001 -- 手动下载照看失败不拖垮整轮
+            logger.exception("手动下载的完成巡检失败")
+
+
+async def _manual_intents(session: AsyncSession) -> dict[str, dict]:
+    """有效期内的手动下载身份锚，按 hash 索引；字段与任务中心对账用的一致。
+
+    超出有效期的锚监听导入也不再认领（见 acquisition_ingest），不必再照看。
+    """
+    rows = (
+        (
+            await session.execute(
+                select(ManualDownloadIntent).where(
+                    ManualDownloadIntent.created_at >= utcnow() - MANUAL_DOWNLOAD_INTENT_TTL  # type: ignore[arg-type]
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        row.info_hash.lower(): {
+            "intent_id": row.id,
+            "intent_created_at": row.created_at,
+            "library_id": row.library_id,
+            "media_item_id": row.media_item_id,
+            "downloader_id": row.downloader_id,
+        }
+        for row in rows
+    }
+
+
+async def _observe_manual_downloads(
+    manual: dict[str, dict],
+    downloaders: list[tuple[DownloaderClient, DownloaderConfig]],
+) -> None:
+    """照看手动下载：转为完成时触发一次监听巡检，并回收已入库的残留身份锚。
+
+    此前手动下载只在任务中心被打开时才对账，后台没人看它何时完成——
+    下载器在另一台主机、监听目录是网络挂载时，完成就只能等轮询或兜底。
+    残留锚回收复用任务中心的同一个对账函数，回收后不再照看。
+    """
+    from movieclaw_api.services.download_tasks import _reconcile_completed_manual_intents
+
+    completed: dict[str, tuple[DownloaderClient, TorrentStatus]] = {}
+    for info_hash, meta in manual.items():
+        lookup = await _lookup_torrent(
+            info_hash, downloaders, preferred_downloader_id=meta["downloader_id"]
+        )
+        if lookup.match is None:
+            continue
+        downloader, status = lookup.match
+        if not status.completed:
+            _completion_swept.discard(info_hash)
+            continue
+        completed[info_hash] = (downloader, status)
+        await _request_completed_sweep(info_hash, downloader, status)
+    # 只留仍在照看的手动 hash：订阅触发记的 hash 不需要跨轮保留（订阅靠
+    # 持久化的 completed 翻转去重），已回收/已删的锚也不再占位
+    _completion_swept.intersection_update(manual)
+    if completed:
+        db = get_database()
+        async with db.session() as session:
+            await _reconcile_completed_manual_intents(session, manual, completed)
+
+
+async def _request_completed_sweep(
+    info_hash: str, downloader: DownloaderClient, status: TorrentStatus
+) -> None:
+    """下载器报告任务完成：请求巡检映射后的保存目录（issue #1275）。
+
+    同一 hash 本进程只触发一次（订阅与手动指向同一种子时也只一次）；巡检
+    本身按台账幂等，即便重复也不会重复入库。失败只记日志，不影响照看。
+    """
+    key = info_hash.lower()
+    if key in _completion_swept:
+        return
+    _completion_swept.add(key)
+    from movieclaw_api.services.library.ingest import request_sweep_for_download
+    from movieclaw_api.services.torrent_submit import translate_to_local
+
+    local_dir = translate_to_local(status.save_path, downloader.path_mappings)
+    if not local_dir:
+        return
+    try:
+        sources = await request_sweep_for_download(local_dir)
+    except Exception:  # noqa: BLE001 -- 触发失败仍有网络轮询/兜底巡检接住
+        logger.exception("下载完成后请求监听巡检失败：hash=%s 目录=%s", key, local_dir)
+        return
+    if sources:
+        logger.info(
+            "下载器报告任务完成，请求巡检监听目录：hash=%s 保存目录=%s → %s",
+            key,
+            local_dir,
+            ", ".join(sources),
+        )
 
 
 async def _pipeline_groups(
@@ -644,6 +753,9 @@ async def _observe_attempt(
 
                 await publish_download_completed(session, attempt)
             await session.commit()
+            if first_completion:
+                # 远端下载器写在网络挂载上时本机没有文件事件：完成翻转即请求巡检
+                await _request_completed_sweep(attempt.info_hash, downloader, status)
             pending_trials = list(
                 (
                     await session.execute(

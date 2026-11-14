@@ -148,6 +148,7 @@ from movieclaw_api.services.library.layout import (
     VIDEO_EXTS,
     is_disc_dir,
 )
+from movieclaw_api.services.library.mounts import is_network_root
 from movieclaw_api.services.library.naming import (
     episode_file_name,
     file_attrs,
@@ -208,6 +209,16 @@ FALLBACK_SWEEP_SECONDS = 3600
 # 距上次真正读到该目录顶层超过这个间隔就主动扫一次，最坏 6 小时后完成的
 # 下载一定会被接住，不再需要重启应用（issue #259）
 WATCHED_RESWEEP_SECONDS = 6 * 3600
+# 网络挂载（CIFS/NFS）上的监听目录的短周期轮询：写入方在另一台主机时本机
+# 收不到 inotify 事件，watch 注册得上也不算事件可靠。只对这类目录轮询，
+# 本地目录仍纯事件驱动、零常驻开销（issue #1275）
+NETWORK_POLL_SECONDS = 300
+# 监听目录巡检的触发原因（写进巡检日志，排查「为什么现在扫/为什么没扫」）
+SWEEP_REASON_WATCH_EVENT = "watch event"
+SWEEP_REASON_NETWORK_POLL = "network poll"
+SWEEP_REASON_DOWNLOADER_COMPLETED = "downloader-completed"
+SWEEP_REASON_WATCH_ARMED = "watch armed"
+SWEEP_REASON_RECHECK = "recheck"
 # 静默窗口：指纹连续稳定 5 分钟才认为下载落定（写入中 mtime 持续变化）
 QUIET_SECONDS = 300
 # 挂起条目（下载器报未完成）的状态轮询节奏：优先 API 核对，只有出现新的
@@ -831,7 +842,13 @@ async def ingest_tick() -> None:
     rules = await _load_rules()
     now = time.monotonic()
     for rule, library in rules:
-        if rule.source_path in watched and not _has_pending(rule.source_path):
+        if (
+            rule.source_path in watched
+            and not _has_pending(rule.source_path)
+            # 网络挂载（CIFS/NFS）上写入方在远端时 watch 建得起来但事件不投递，
+            # 不算事件可靠：每轮照扫，顺带续上中断的短周期轮询（issue #1275）
+            and not is_network_root(rule.source_path)
+        ):
             # watchdog 在实时盯着且没有等待中的条目：事件路径负责。但「注册
             # 成功」不等于「事件可靠」，所以这个跳过带保质期——事件路径若已
             # 悄悄死了，_last_swept 不再推进，到点必须主动扫一次（issue #259）。
@@ -4946,11 +4963,32 @@ async def claim_entry(
     return record
 
 
-def request_sweep(source_path: str) -> None:
+def request_sweep(source_path: str, *, reason: str = "manual request") -> None:
     """请求尽快巡检一个源目录：监听器在时走事件通道（秒级），否则等兜底巡检。"""
     watcher = get_ingest_watcher()
     if watcher is not None:
-        watcher.poke(source_path)
+        watcher.poke(source_path, reason=reason)
+
+
+async def request_sweep_for_download(local_dir: str) -> list[str]:
+    """下载器报告任务完成：请求巡检覆盖其保存目录的监听源目录（issue #1275）。
+
+    ``local_dir`` 是已按下载器路径映射翻译回 MovieClaw 视角的保存目录；
+    保存目录等于某条规则的源目录或位于其下时，种子内容就是该源目录里的
+    一个条目。远端下载器写在网络挂载上时本机收不到文件事件，下载器的完成
+    状态是唯一及时的信号。返回被请求巡检的源目录（日志/测试用）。
+    """
+    target = PurePosixPath(os.path.normpath(local_dir))
+    hits = []
+    for rule, _library in await _load_rules():
+        source = PurePosixPath(os.path.normpath(rule.source_path))
+        if target == source or source in target.parents:
+            hits.append(rule.source_path)
+    for source_path in hits:
+        request_sweep(source_path, reason=SWEEP_REASON_DOWNLOADER_COMPLETED)
+    if not hits:
+        logger.debug("下载完成的保存目录不在任何监听目录下，不触发巡检：%s", local_dir)
+    return hits
 
 
 # ---------------------------------------------------------------------------
@@ -4987,6 +5025,8 @@ class IngestWatcher:
 
     事件驱动是本功能的既定形态（不做常驻轮询）：下载写入持续产生 fs
     事件，事件停止即静默的开端；没有下载活动时零开销，NAS 磁盘可以休眠。
+    唯一例外是网络挂载上的源目录：远端写入不产生本机事件，每轮巡检收尾
+    按 NETWORK_POLL_SECONDS 挂下一次轮询（issue #1275）。
     静默窗口的"到点检查"没有事件会叫醒——每轮巡检后若仍有条目在等静默
     或在挂起表里等下载器完成，挂一个一次性自检任务（前者按最近到期时间，
     后者按固定轮询节奏且醒来先通过 API 核对文件进度），全部落定后归零。
@@ -5011,6 +5051,8 @@ class IngestWatcher:
         self._recent_keys: dict[str, float] = {}
         # 静默到点自检任务：每个源目录至多挂一个
         self._rechecks: dict[str, asyncio.Task] = {}
+        # 已入队、尚未巡检的源目录 → 触发原因（巡检时写进日志后清掉）
+        self._reasons: dict[str, set[str]] = {}
         # 串行化重建：并发的规则编辑各自触发 refresh，并发重建会互踩 _observer
         self._refresh_lock = asyncio.Lock()
 
@@ -5087,7 +5129,7 @@ class IngestWatcher:
         # 目录刚就绪/刚加进配置）不会再产生事件，只有这一次主动扫能接住；
         # 之后全靠事件驱动，不再主动扫它。队列操作回到事件循环线程再做
         for key in sorted(newly_watched):
-            self._queue.put_nowait(key)
+            self._put(key, SWEEP_REASON_WATCH_ARMED)
 
     def _apply_watches(self, source_paths: list[str]) -> set[str]:
         """（工作线程）差量调整监听；返回**初次**纳入监听的目录。
@@ -5168,9 +5210,15 @@ class IngestWatcher:
 
     # -- 事件通道 ----------------------------------------------------------
 
-    def poke(self, source_path: str) -> None:
-        """外部请求巡检某源目录（人工恢复处理后的立即重看）。事件循环线程调用。"""
-        self._queue.put_nowait(source_path)
+    def poke(self, source_path: str, *, reason: str = "manual request") -> None:
+        """外部请求巡检某源目录（人工恢复处理后的立即重看、下载器报告完成）。
+        事件循环线程调用。"""
+        self._put(source_path, reason)
+
+    def _put(self, key: str, reason: str) -> None:
+        """（事件循环线程）入队并记下触发原因；同一目录多次入队原因合并。"""
+        self._reasons.setdefault(key, set()).add(reason)
+        self._queue.put_nowait(key)
 
     def _should_enqueue(self, key: str) -> bool:
         """（观察者 dispatch 线程）同目录合并：短窗口内不重复跨线程投递。
@@ -5192,7 +5240,7 @@ class IngestWatcher:
         loop = self._loop
         if loop is None or loop.is_closed():
             return
-        loop.call_soon_threadsafe(self._queue.put_nowait, key)
+        loop.call_soon_threadsafe(self._put, key, SWEEP_REASON_WATCH_EVENT)
 
     async def _consume(self) -> None:
         """去抖消费：首事件后等安静窗口，汇总本批涉及的监听目录逐个巡检。"""
@@ -5210,6 +5258,14 @@ class IngestWatcher:
                 if asyncio.get_running_loop().time() >= deadline:
                     break  # 兜底：持续有事件也要巡检
             for source_path in sorted(pending):
+                reasons = self._reasons.pop(source_path, set())
+                # 下载器完成触发是低频、关键的信号，记 info；事件/轮询是常态，记 debug
+                logger.log(
+                    logging.INFO if SWEEP_REASON_DOWNLOADER_COMPLETED in reasons else logging.DEBUG,
+                    "巡检监听目录 %s（触发原因：%s）",
+                    source_path,
+                    ", ".join(sorted(reasons)) or "unknown",
+                )
                 try:
                     await self._sweep(source_path)
                 except Exception:  # noqa: BLE001 -- 监听消费绝不崩
@@ -5238,13 +5294,15 @@ class IngestWatcher:
         **失败条目按退避到期时间挂**——失败结论落账时静默表/挂起表都已弹出
         该条目、fs 事件也不会再来（下载早已结束），没有这第三个源就没人
         回来重试。取三者中最近的到期时间挂一次即可（自检收尾会重挂）。
+        网络挂载上的源目录另加固定轮询节奏，没有等待中的条目也挂（issue #1275）。
         """
         prefix = source_path.rstrip("/") + "/"
         now = time.monotonic()
         quiet = [since for path, (_fp, since) in _stability.items() if path.startswith(prefix)]
         failed = [since for path, since in _failed_retry.items() if path.startswith(prefix)]
         has_deferred = any(path.startswith(prefix) for path in _deferred)
-        if not quiet and not has_deferred and not failed:
+        network = is_network_root(source_path)
+        if not quiet and not has_deferred and not failed and not network:
             return
         existing = self._rechecks.get(source_path)
         if existing is not None and not existing.done():
@@ -5257,6 +5315,8 @@ class IngestWatcher:
             candidates.append(DEFERRED_POLL_SECONDS)
         if failed:
             candidates.append(max(5.0, min(failed) + FAILED_RETRY_SECONDS - now + 1.0))
+        if network:
+            candidates.append(NETWORK_POLL_SECONDS)
         self._rechecks[source_path] = asyncio.create_task(
             self._recheck_later(source_path, min(candidates))
         )
@@ -5272,7 +5332,13 @@ class IngestWatcher:
             for path, since in _failed_retry.items()
             if path.startswith(prefix)
         )
-        if not failed_due and not any(path.startswith(prefix) for path in _stability):
+        # 网络挂载：远端新完成的下载只有列目录才看得见，到点直接巡检
+        network = is_network_root(key)
+        if (
+            not failed_due
+            and not any(path.startswith(prefix) for path in _stability)
+            and not network
+        ):
             # 只剩挂起条目：先通过 API 核对。没有新的单文件完成证据就只
             # 重挂下一轮；有候选时也只 stat 候选，不扫描整棵目录
             try:
@@ -5284,7 +5350,8 @@ class IngestWatcher:
                 self._rechecks.pop(key, None)
                 self._arm_recheck(key)
                 return
-        self._queue.put_nowait(key)
+        # 网络挂载：远端写入不产生本机文件事件，到点轮询是该目录的常规触发
+        self._put(key, SWEEP_REASON_NETWORK_POLL if network else SWEEP_REASON_RECHECK)
 
 
 _watcher: IngestWatcher | None = None
