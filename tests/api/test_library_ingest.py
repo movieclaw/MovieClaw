@@ -3713,6 +3713,57 @@ async def test_watched_dir_not_reswept_within_window(db, tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_network_mounted_watch_dir_swept_every_fallback_round(db, tmp_path, monkeypatch):
+    """回归 issue #1275：监听目录是 CIFS 挂载、下载器在另一台主机上写入。
+
+    远端的完成改名不产生本机 inotify 事件，但 watch 照样注册得上。此前该目录
+    算「被实时监听」，兜底巡检要等 6 小时保底重扫才看它，完成的下载在源目录
+    里一停数小时。网络挂载上的监听目录不能算事件可靠：每轮兜底都要扫；本地
+    目录仍由事件驱动、不主动扫。
+    """
+    root = tmp_path / "movies"
+    remote, local = tmp_path / "remote", tmp_path / "local"
+    remote.mkdir()
+    local.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    await _make_rule(db, library_id=library_id, source=remote)
+    await _make_rule(db, library_id=library_id, source=local)
+
+    from movieclaw_api.services.library import mounts
+
+    table = mounts.parse_mounts(
+        f"//nas/temp/download {remote} cifs rw 0 0\n/dev/sda1 / ext4 rw 0 0"
+    )
+    monkeypatch.setattr(mounts, "system_mounts", lambda: table)
+
+    swept: list[str] = []
+
+    async def record_sweep(rule, library):
+        swept.append(rule.source_path)
+
+    monkeypatch.setattr(ingest_mod, "_sweep_dir", record_sweep)
+
+    class _StubWatcher:
+        """两个目录都「注册成功」、但一个事件也不投递的假观察者。"""
+
+        def watched_keys(self):
+            return frozenset({str(remote), str(local)})
+
+        async def refresh_watches(self):
+            pass
+
+    monkeypatch.setattr(ingest_mod, "_watcher", _StubWatcher())
+    now = time.monotonic()
+    # 两个目录都刚扫过，离 6 小时保底重扫还远
+    ingest_mod._last_swept[str(remote)] = now
+    ingest_mod._last_swept[str(local)] = now
+
+    await ingest_mod.ingest_tick()
+    await ingest_mod.ingest_tick()
+    assert swept == [str(remote), str(remote)]
+
+
+@pytest.mark.asyncio
 async def test_failed_entry_retried_by_fallback_without_new_events(db, tmp_path, monkeypatch):
     """回归：失败条目必须有唤醒源。此前失败结论落账时静默表/挂起表都被
     弹出、下载结束后也不会再有 fs 事件——三条触发路径同时失灵，台账里
@@ -4270,6 +4321,36 @@ async def test_deferred_recheck_polls_api_and_wakes_on_flip(db, tmp_path, monkey
         brief.completed = True
         await asyncio.sleep(0.1)
         assert watcher._queue.get_nowait() == str(watch)  # 翻转：唤醒巡检
+    finally:
+        for task in watcher._rechecks.values():
+            task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_network_mounted_watch_dir_polled_without_pending_entries(tmp_path, monkeypatch):
+    """回归 issue #1275：网络挂载上的监听目录没有任何等待中的条目、也收不到
+    事件时，巡检收尾仍挂短周期轮询，到点直接唤醒该目录巡检（远端完成的下载
+    只有列目录才看得见）；本地目录不挂常驻轮询。"""
+    remote, local = tmp_path / "remote", tmp_path / "local"
+    remote.mkdir()
+    local.mkdir()
+
+    from movieclaw_api.services.library import mounts
+
+    table = mounts.parse_mounts(
+        f"//nas/temp/download {remote} cifs rw 0 0\n/dev/sda1 / ext4 rw 0 0"
+    )
+    monkeypatch.setattr(mounts, "system_mounts", lambda: table)
+    monkeypatch.setattr(ingest_mod, "NETWORK_POLL_SECONDS", 0.01)
+
+    watcher = ingest_mod.IngestWatcher()
+    try:
+        watcher._arm_recheck(str(local))
+        watcher._arm_recheck(str(remote))
+        assert str(local) not in watcher._rechecks
+        await asyncio.sleep(0.1)
+        assert watcher._queue.get_nowait() == str(remote)
+        assert watcher._queue.empty()
     finally:
         for task in watcher._rechecks.values():
             task.cancel()
