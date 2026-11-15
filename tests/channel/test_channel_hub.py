@@ -383,6 +383,33 @@ async def test_flow_binding_commits_without_polling(db, monkeypatch) -> None:
     assert driver.cancelled == ["f1"]
 
 
+async def test_flow_confirmed_twice_at_once_commits_once(db, monkeypatch, caplog) -> None:
+    """用户输入与后台跟踪同时拿到「已确认」：串行落库，不撞唯一键、绑定不判失败。"""
+    from movieclaw_api.services import channel_hub
+
+    monkeypatch.setattr(channel_hub, "FLOW_POLL_S", 60)  # 后台跟踪不插手，两路并发由测试来造
+    real_get = channel_hub.ChannelAccountRepository.get
+
+    async def slow_get(self, channel_id: str, account_id: str):
+        row = await real_get(self, channel_id, account_id)
+        await asyncio.sleep(0.05)  # 读完先让出：两路都看到「还没有」再各自插入，必定交错
+        return row
+
+    monkeypatch.setattr(channel_hub.ChannelAccountRepository, "get", slow_get)
+    driver = FlowDriver()
+    hub = make_hub({"wx": driver})
+    try:
+        binding = await hub.begin_binding("wx", {})
+        driver.status = "confirmed"
+        state = await driver.flow_state(binding.flow_id)
+        await asyncio.gather(hub._apply_flow(binding, state), hub._apply_flow(binding, state))
+        # 哪一路先落完不定：撞了唯一键的那路判「失败」，可能又被另一路改回「已确认」，所以看日志
+        assert "绑定落库失败" not in caplog.text
+        assert binding.status == "confirmed" and binding.account_id == "wx1"
+    finally:
+        await hub.stop()
+
+
 # ---------------------------------------------------------------------- 表单直绑与推送
 
 
