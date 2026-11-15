@@ -22,9 +22,11 @@ from movieclaw_llm.base import BaseLlmProtocol
 from movieclaw_llm.models import LlmProviderConfig
 from movieclaw_llm.protocols import PROTOCOLS
 
-# 假协议行为开关：key 含 "bad" 时模拟连不上；含 "nolist" 时模拟无 /models 接口
-_BAD_KEY_MARK = "bad"
-_NO_LIST_MARK = "nolist"
+# 假协议行为开关：key 以 "sk-bad" 开头时模拟连不上；以 "sk-nolist" 开头时模拟无 /models 接口。
+# 必须按前缀精确匹配，不能在整个 key 里找子串：ChatGPT 授权把含随机 UUID 与 JWT 签名的
+# 凭据 JSON 存进 api_key，子串匹配会被随机内容偶然碰中（如 UUID 里的 "…0bad…"）而误判失败。
+_BAD_KEY_MARK = "sk-bad"
+_NO_LIST_MARK = "sk-nolist"
 
 # 每次验证收到的领域配置，供断言"传给协议层的 key 已解密"
 _captured_configs: list[LlmProviderConfig] = []
@@ -38,7 +40,7 @@ class _FakeProtocol(BaseLlmProtocol):
     async def chat(self, request, model_id):
         _captured_configs.append(self.config)
         _captured_protocols.append(type(self).__name__)
-        if _BAD_KEY_MARK in self.config.api_key:
+        if self.config.api_key.startswith(_BAD_KEY_MARK):
             raise LlmConnectError("连接模型服务失败，请检查网络与 base_url 配置")
         return ChatResponse(content="pong", finish_reason="stop")
 
@@ -46,7 +48,7 @@ class _FakeProtocol(BaseLlmProtocol):
         yield None
 
     async def test_connection(self) -> ProviderInfo:
-        if _NO_LIST_MARK in self.config.api_key:
+        if self.config.api_key.startswith(_NO_LIST_MARK):
             raise LlmConnectError("该端点不提供模型列表接口")
         return ProviderInfo(models=["qwen-plus", "qwen-max"])
 

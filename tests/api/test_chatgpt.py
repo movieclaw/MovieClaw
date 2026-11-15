@@ -3,6 +3,7 @@ import hashlib
 import json
 import sqlite3
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 import httpx
 import pytest
@@ -33,11 +34,16 @@ def test_only_exact_loopback_callbacks_are_accepted(client, redirect):
 def test_authorization_code_exchange_and_account_catalog(client, monkeypatch):
     c, _ = client
     monkeypatch.setitem(PROTOCOLS, "openai_chatgpt", _FakeProtocol)
+    # 回归：授权主机 UUID 固定为含 "bad" 的值。凭据 JSON 整体存进 api_key，假协议的失败
+    # 开关若按子串匹配，随机 UUID 碰中 "bad" 就会把验证误判为 failed（CI 偶发红灯的原因）。
+    host_uuid = UUID("0bad0bad-0bad-4bad-8bad-0bad0bad0bad")
+    monkeypatch.setattr(chatgpt_auth, "uuid4", lambda: host_uuid)
     redirect = "http://127.0.0.1:54321/auth/callback"
     start = c.post("/api/v1/llm/chatgpt/authorize", json={"redirect_uri": redirect})
     assert start.status_code == 200
     flow = start.json()["data"]
     query = parse_qs(urlparse(flow["authorize_url"]).query)
+    assert query["ext_agent_host_id"] == [f"urn:uuid:{host_uuid}"]
     assert query["client_id"] == ["dynamic_agent_client"]
     assert query["agent_name_hint"] == ["MovieClaw"]
     token, keys = signed_identity(nonce=query["nonce"][0])
