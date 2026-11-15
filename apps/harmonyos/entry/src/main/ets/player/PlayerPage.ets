@@ -4,6 +4,8 @@ import { Theme } from '../theme/AppTheme';
 
 import { RemoteImage } from '../common/RemoteImage';
 
+import { FoldState } from '../common/FoldState';
+
 import { PlaybackSessionView, AudioTrackView, SubtitlePlanView, PlaybackSegmentView, EpisodeView } from '../api/Models';
 
 import { PlayerParams } from '../player/PlayerParams';
@@ -397,7 +399,10 @@ export struct PlayerPage {
           .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
           .borderRadius(22).border({ width: 0.5, color: 'rgba(255,255,255,0.16)' })
           Blank()
-          this.IconAction($r('app.media.player_rotate'), this.host.isLandscape() ? '退出横屏' : '横屏播放', 'player-rotate', (): void => { this.host.toggleLandscape(); })
+          // 折叠外屏（Pura X 方屏）没有横屏可言：收起转屏按钮（折叠/展开由 @Trace 驱动自动重排）
+          if (!FoldState.shared().coverActive) {
+            this.IconAction($r('app.media.player_rotate'), this.host.isLandscape() ? '退出横屏' : '横屏播放', 'player-rotate', (): void => { this.host.toggleLandscape(); })
+          }
         }.width('100%')
           .onAreaChange((_old: Area, area: Area): void => { this.host.menuAnchorTop = this.host.vpOf(area.globalPosition?.y ?? 0) - this.host.layerOriginY; })
         Column() {
