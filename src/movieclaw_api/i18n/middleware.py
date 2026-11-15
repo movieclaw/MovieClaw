@@ -2,7 +2,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.requests import HTTPConnection
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from movieclaw_api.i18n import current_locale, negotiate, normalize_locale
+from movieclaw_api.i18n import current_locale, negotiate, ui_locale
 
 
 class LocaleMiddleware:
@@ -14,7 +14,7 @@ class LocaleMiddleware:
             await self.app(scope, receive, send)
             return
         connection = HTTPConnection(scope)
-        locale = normalize_locale(connection.cookies.get("mc_locale", "")) or negotiate(
+        locale = ui_locale(connection.cookies.get("mc_locale", "")) or negotiate(
             connection.headers.get("accept-language")
         )
         token = current_locale.set(locale)

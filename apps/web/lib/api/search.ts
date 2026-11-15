@@ -1,5 +1,5 @@
 import { appTranslator } from "@/lib/i18n/translate";
-import { HttpError, redirectToLoginOn401, request, resolveRequestUrl } from "@/lib/http";
+import { HttpError, redirectToLoginOn401, request, resolveRequestUrl, withUiLocale } from "@/lib/http";
 import {
   toDiscoveredSearchItem,
   toSearchItem,
@@ -477,7 +477,7 @@ export async function streamSearchTorrents(
 ): Promise<void> {
   const response = await fetch(resolveRequestUrl(`/search/torrents/stream?${searchParamsOf(params)}`), {
     ...init,
-    headers: { Accept: "text/event-stream" },
+    headers: withUiLocale({ Accept: "text/event-stream" }),
   });
 
   if (!response.ok) {

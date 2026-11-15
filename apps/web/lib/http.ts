@@ -42,11 +42,21 @@ export function resolveRequestUrl(path: string): string {
   return `${baseUrl}/${requestPath}`;
 }
 
-function buildHeaders(initHeaders?: HeadersInit, body?: BodyInit | null): HeadersInit {
+/**
+ * Adds the current UI language as Accept-Language, so server messages follow the UI language
+ * rather than the browser's. Raw fetch calls (SSE streams) use this too, not just request().
+ */
+export function withUiLocale(initHeaders?: HeadersInit): Headers {
   const headers = new Headers(initHeaders);
-  headers.set("Accept", "application/json");
   const locale = requestLocale();
   if (locale && !headers.has("Accept-Language")) headers.set("Accept-Language", locale);
+  return headers;
+}
+
+function buildHeaders(initHeaders?: HeadersInit, body?: BodyInit | null): HeadersInit {
+  const headers = withUiLocale(initHeaders);
+  headers.set("Accept", "application/json");
+  const locale = requestLocale();
   if (locale && !headers.has("X-MovieClaw-Timezone")) {
     headers.set("X-MovieClaw-Timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
   }

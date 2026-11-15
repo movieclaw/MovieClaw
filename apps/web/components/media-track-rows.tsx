@@ -493,7 +493,7 @@ function groupByLanguage(entries: TrackEntry[], locale: AppLocale = requestLocal
       Number(b.hasDefault) - Number(a.hasDefault) ||
       a.rank - b.rank ||
       b.entries.length - a.entries.length ||
-      a.language.localeCompare(b.language, locale === "zh-Hans" ? "zh-Hans-CN" : "en"),
+      a.language.localeCompare(b.language, locale === "zh-Hans" ? "zh-Hans-CN" : locale),
   );
   return groups;
 }

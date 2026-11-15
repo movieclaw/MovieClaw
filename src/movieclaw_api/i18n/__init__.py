@@ -25,6 +25,18 @@ def normalize_locale(value: str) -> str | None:
     return None
 
 
+# Web UI languages the server has no catalog for yet: their server messages fall back to English
+# (not to the browser language, which could be Chinese when the UI is set to German).
+_UI_ONLY_LOCALE = re.compile(r"de(?:-[a-z0-9]{1,8})*", re.I)
+
+
+def ui_locale(value: str) -> str | None:
+    """Server locale for a web UI language (the mc_locale cookie)."""
+    if locale := normalize_locale(value):
+        return locale
+    return "en" if _UI_ONLY_LOCALE.fullmatch(value) else None
+
+
 def negotiate(accept_language: str | None) -> str:
     # 不带语言头的是还没本地化的客户端（Android、桌面、鸿蒙、CLI、插件），保持原来的中文；
     # 带了头但都不支持（如 fr）才回落英文

@@ -230,6 +230,8 @@ test("详情页收录范围标出被截断的季", () => {
     "第 1 季（最新 81 集）",
   );
   assert.equal(formatEpisodes(1043), "1,043");
+  assert.equal(formatEpisodes(1043, "en"), "1,043");
+  assert.equal(formatEpisodes(1043, "de"), "1.043");
 });
 
 // --- 订阅墙：被截断的订阅下完这一批后不能说「等待新集播出」 ---
