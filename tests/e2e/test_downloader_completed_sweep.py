@@ -447,10 +447,68 @@ async def test_network_poll_recovers_after_failed_sweep(db, watcher, tmp_path, m
 
 
 @pytest.mark.asyncio
-async def test_same_hash_on_two_downloaders_each_triggers_own_watch_dir(db, tmp_path, monkeypatch):
-    """同一个种子同时在两台下载器里（订阅走 A、手动走 B），各自映射到不同的
-    监听目录：两边的完成都要请求巡检自己的目录，一边先完成不能吞掉另一边；
-    各自仍只触发一次，B 退回未完成后再完成只重新触发 B。"""
+@pytest.mark.parametrize("unmounted", ["local", "unknown"])
+async def test_network_poll_survives_mount_type_change(
+    db, watcher, tmp_path, monkeypatch, unmounted
+):
+    """CIFS 挂载掉了：挂载表里这个目录一度落回本地盘（local）或整张表读不到
+    （unknown）。已确认是网络目录的规则要一直保留恢复检查——之后重新挂上、
+    远端完成了下载，即使没有任何本机文件事件也要被轮询接住入库，不能只等
+    小时级兜底。"""
+    watch = tmp_path / "nas-download"
+    watch.mkdir()
+    table = {"now": "cifs"}
+    reads = {"unmounted": 0}
+    tables = {
+        "cifs": f"//nas/temp/download {watch} cifs rw 0 0\n/dev/sda1 / ext4 rw 0 0",
+        "local": "/dev/sda1 / ext4 rw 0 0",
+        "unknown": "",
+    }
+
+    def system_mounts():
+        if table["now"] != "cifs":
+            reads["unmounted"] += 1
+        return mounts.parse_mounts(tables[table["now"]])
+
+    monkeypatch.setattr(mounts, "system_mounts", system_mounts)
+    assert mounts.is_network_root(str(watch))
+    monkeypatch.setattr(ingest_mod, "NETWORK_POLL_SECONDS", 0.05)
+    root = tmp_path / "movies"
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    await _make_rule(db, library_id=library_id, source=watch)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="远端电影", year=2024)
+    _stub_identify(monkeypatch, item)
+    _no_assets(monkeypatch)
+    await jobs.init_job_dispatcher(max_parallel=1)
+
+    # 挂着 CIFS 时的首轮巡检：确认是网络目录，挂上轮询
+    sweeps = _count_sweeps(monkeypatch)
+    ingest_mod.request_sweep(str(watch), reason=ingest_mod.SWEEP_REASON_WATCH_ARMED)
+    await _wait_sweeps(sweeps, 1)
+
+    # 挂载掉了：等轮询至少醒来一次、看到挂载表已不再是 CIFS
+    table["now"] = unmounted
+    assert not mounts.is_network_root(str(watch))
+    reads["unmounted"] = 0
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while reads["unmounted"] < 2:
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError("挂载掉了之后轮询再没醒来")
+        await asyncio.sleep(0.01)
+
+    # 重新挂上，远端下载完成：本机无事件、无人 poke
+    table["now"] = "cifs"
+    (watch / "Remote.Movie.2024").mkdir()
+    (watch / "Remote.Movie.2024" / "movie.mkv").write_bytes(b"remote bytes")
+    await _wait_ingest_job()
+    async with db.session() as session:
+        [imported] = (await session.execute(select(LibraryFile))).scalars().all()
+    assert imported.media_item_id == item.id
+
+
+async def _same_hash_on_two_downloaders(db, tmp_path, monkeypatch):
+    """同一个种子同时在两台下载器里：订阅尝试走 A（没记下载器，先查到 A），
+    手动锚指明 B；两台各自映射到自己的 CIFS 监听目录，两边都已完成。"""
     watch_a, watch_b = tmp_path / "nas-a", tmp_path / "nas-b"
     watch_a.mkdir()
     watch_b.mkdir()
@@ -505,12 +563,43 @@ async def test_same_hash_on_two_downloaders_each_triggers_own_watch_dir(db, tmp_
     for _ in range(3):
         await download_progress.check_download_progress()
     assert sorted(pokes) == sorted([(str(watch_a), done), (str(watch_b), done)])
+    pokes.clear()
+    return pokes, (watch_a, status_a), (watch_b, status_b)
+
+
+@pytest.mark.asyncio
+async def test_same_hash_on_two_downloaders_each_triggers_own_watch_dir(db, tmp_path, monkeypatch):
+    """同一个种子同时在两台下载器里（订阅走 A、手动走 B），各自映射到不同的
+    监听目录：两边的完成都要请求巡检自己的目录，一边先完成不能吞掉另一边；
+    各自仍只触发一次，B 退回未完成后再完成只重新触发 B。"""
+    pokes, _a, (watch_b, status_b) = await _same_hash_on_two_downloaders(db, tmp_path, monkeypatch)
 
     # B 上的任务重新校验（退回未完成）后再次完成：只重新触发 B
-    pokes.clear()
     status_b.completed = False
     await download_progress.check_download_progress()
     status_b.completed = True
     await download_progress.check_download_progress()
     await download_progress.check_download_progress()
-    assert pokes == [(str(watch_b), done)]
+    assert pokes == [(str(watch_b), ingest_mod.SWEEP_REASON_DOWNLOADER_COMPLETED)]
+
+
+@pytest.mark.asyncio
+async def test_subscription_regression_retriggers_while_manual_anchor_remains(
+    db, tmp_path, monkeypatch
+):
+    """订阅走 A、手动走 B 的同一种子都已完成，B 的手动锚还没回收；A 上的任务
+    重新校验（退回未完成）后再次完成，是 A 的一次新完成：必须再请求巡检 A 的
+    目录——B 的锚还在不能让 A 的旧完成记录一直占着；B 不受影响。"""
+    pokes, (watch_a, status_a), _b = await _same_hash_on_two_downloaders(db, tmp_path, monkeypatch)
+
+    status_a.completed = False
+    await download_progress.check_download_progress()
+    async with db.session() as session:
+        attempt = (await session.execute(select(SubscriptionDownloadAttempt))).scalar_one()
+        assert attempt.status != "completed"
+        # 前提：B 的手动锚仍在照看
+        assert (await session.execute(select(ManualDownloadIntent))).scalars().all()
+    status_a.completed = True
+    await download_progress.check_download_progress()
+    await download_progress.check_download_progress()
+    assert pokes == [(str(watch_a), ingest_mod.SWEEP_REASON_DOWNLOADER_COMPLETED)]
