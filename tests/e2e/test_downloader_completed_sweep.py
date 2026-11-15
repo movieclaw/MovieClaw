@@ -29,6 +29,7 @@ from movieclaw_api.services.library import mounts
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
     DownloaderClient,
+    ImportWatch,
     Job,
     JobStatus,
     Library,
@@ -70,10 +71,10 @@ def _cifs_watch_dir(tmp_path, monkeypatch):
     return watch
 
 
-async def _add_downloader(db, watch) -> DownloaderClient:
+async def _add_downloader(db, watch, *, name: str = "qb-remote") -> DownloaderClient:
     async with db.session() as session:
         row = DownloaderClient(
-            name="qb-remote",
+            name=name,
             client_type="qbittorrent",
             url="http://downloader.invalid",
             status=ConfigStatus.ACTIVE,
@@ -323,3 +324,193 @@ async def test_completed_task_triggers_only_once_across_ticks(db, tmp_path, monk
     await download_progress.check_download_progress()
     await download_progress.check_download_progress()
     assert pokes == expected * 2
+
+
+def _count_sweeps(monkeypatch) -> dict[str, int]:
+    """数一数监听目录巡检做完了几轮（不论成败），供用例等「这一轮确实跑完」。"""
+    done = {"n": 0}
+    real = ingest_mod._sweep_dir
+
+    async def counted(*args, **kwargs):
+        try:
+            return await real(*args, **kwargs)
+        finally:
+            done["n"] += 1
+
+    monkeypatch.setattr(ingest_mod, "_sweep_dir", counted)
+    return done
+
+
+async def _wait_sweeps(done: dict[str, int], at_least: int, timeout: float = 5.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while done["n"] < at_least:
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError(f"监听巡检只跑了 {done['n']} 轮")
+        await asyncio.sleep(0.01)
+
+
+def _cifs_mount(monkeypatch, *paths) -> None:
+    """这些目录都挂在 CIFS 上（目录本身此刻存不存在都行——挂载可能正掉着）。"""
+    lines = [f"//nas/share{i} {path} cifs rw 0 0" for i, path in enumerate(paths)]
+    table = mounts.parse_mounts("\n".join([*lines, "/dev/sda1 / ext4 rw 0 0"]))
+    monkeypatch.setattr(mounts, "system_mounts", lambda: table)
+
+
+@pytest.mark.asyncio
+async def test_network_poll_continues_after_skip_existing_baseline(
+    db, watcher, tmp_path, monkeypatch
+):
+    """「跳过存量」规则的首轮巡检只打基线就收工；之后远端完成的新下载没有
+    任何本机事件、也没有下载器完成信号，只能靠网络轮询发现——首轮基线后
+    轮询必须照常挂上，新下载按新增入库，存量保持忽略。"""
+    watch = _cifs_watch_dir(tmp_path, monkeypatch)
+    monkeypatch.setattr(ingest_mod, "NETWORK_POLL_SECONDS", 0.05)
+    root = tmp_path / "movies"
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    async with db.session() as session:
+        session.add(
+            ImportWatch(
+                source_path=str(watch),
+                strategy="hardlink",
+                library_id=library_id,
+                process_existing=False,
+            )
+        )
+        await session.commit()
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="远端新片", year=2024)
+    _stub_identify(monkeypatch, item)
+    _no_assets(monkeypatch)
+    await jobs.init_job_dispatcher(max_parallel=1)
+    (watch / "Old.Movie.2001").mkdir()
+    (watch / "Old.Movie.2001" / "old.mkv").write_bytes(b"old")
+
+    # 监听建立时的那一次补扫：只打基线
+    sweeps = _count_sweeps(monkeypatch)
+    ingest_mod.request_sweep(str(watch), reason=ingest_mod.SWEEP_REASON_WATCH_ARMED)
+    await _wait_sweeps(sweeps, 1)
+
+    # 远端下载完成：本机无事件、无人 poke
+    (watch / "New.Movie.2024").mkdir()
+    (watch / "New.Movie.2024" / "movie.mkv").write_bytes(b"fresh bytes")
+    await _wait_ingest_job()
+    async with db.session() as session:
+        [imported] = (await session.execute(select(LibraryFile))).scalars().all()
+    assert imported.media_item_id == item.id
+    with open(imported.file_path, "rb") as fh:
+        assert fh.read() == b"fresh bytes"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault", ["mount-missing", "sweep-raises"])
+async def test_network_poll_recovers_after_failed_sweep(db, watcher, tmp_path, monkeypatch, fault):
+    """某一轮巡检失败（挂载暂时掉了 / 巡检中途抛异常）后轮询不能就此断掉：
+    故障恢复后，远端完成的下载在没有任何本机事件的情况下仍被下一轮轮询接住。"""
+    watch = tmp_path / "nas-download"
+    _cifs_mount(monkeypatch, watch)
+    monkeypatch.setattr(ingest_mod, "NETWORK_POLL_SECONDS", 0.05)
+    root = tmp_path / "movies"
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    await _make_rule(db, library_id=library_id, source=watch)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="远端电影", year=2024)
+    _stub_identify(monkeypatch, item)
+    _no_assets(monkeypatch)
+    await jobs.init_job_dispatcher(max_parallel=1)
+
+    failures = {"left": 0}
+    if fault == "sweep-raises":
+        watch.mkdir()
+        failures["left"] = 1
+        real_briefs = acquisition_ingest.downloader_briefs
+
+        async def flaky_briefs():
+            if failures["left"]:
+                failures["left"] -= 1
+                raise RuntimeError("下载器概览查询异常")
+            return await real_briefs()
+
+        monkeypatch.setattr(acquisition_ingest, "downloader_briefs", flaky_briefs)
+
+    # 故障中的那一轮
+    sweeps = _count_sweeps(monkeypatch)
+    ingest_mod.request_sweep(str(watch), reason=ingest_mod.SWEEP_REASON_WATCH_ARMED)
+    await _wait_sweeps(sweeps, 1)
+    assert failures["left"] == 0
+
+    # 故障恢复，远端下载完成：本机无事件、无人 poke
+    watch.mkdir(exist_ok=True)
+    (watch / "Remote.Movie.2024").mkdir()
+    (watch / "Remote.Movie.2024" / "movie.mkv").write_bytes(b"remote bytes")
+    await _wait_ingest_job()
+    async with db.session() as session:
+        [imported] = (await session.execute(select(LibraryFile))).scalars().all()
+    assert imported.media_item_id == item.id
+
+
+@pytest.mark.asyncio
+async def test_same_hash_on_two_downloaders_each_triggers_own_watch_dir(db, tmp_path, monkeypatch):
+    """同一个种子同时在两台下载器里（订阅走 A、手动走 B），各自映射到不同的
+    监听目录：两边的完成都要请求巡检自己的目录，一边先完成不能吞掉另一边；
+    各自仍只触发一次，B 退回未完成后再完成只重新触发 B。"""
+    watch_a, watch_b = tmp_path / "nas-a", tmp_path / "nas-b"
+    watch_a.mkdir()
+    watch_b.mkdir()
+    _cifs_mount(monkeypatch, watch_a, watch_b)
+    monkeypatch.setattr(download_progress, "_completion_swept", set())
+    pokes: list[tuple[str, str]] = []
+
+    class _Recorder:
+        def poke(self, source_path, *, reason):
+            pokes.append((source_path, reason))
+
+    monkeypatch.setattr(ingest_mod, "_watcher", _Recorder())
+    info_hash = "e" * 40
+    sub_id, _wanted_id = await _seed(
+        db, tmdb_id=9, title="两台下载器", info_hash=info_hash, grabbed_at=utcnow()
+    )
+    async with db.session() as session:
+        sub = await session.get(Subscription, sub_id)
+        library_id, media_item_id = sub.library_id, sub.media_item_id
+    await _make_rule(db, library_id=library_id, source=watch_a)
+    await _make_rule(db, library_id=library_id, source=watch_b)
+    downloader_a = await _add_downloader(db, watch_a, name="qb-a")
+    downloader_b = await _add_downloader(db, watch_b, name="qb-b")
+    async with db.session() as session:
+        session.add(
+            ManualDownloadIntent(
+                info_hash=info_hash,
+                media_item_id=media_item_id,
+                library_id=library_id,
+                downloader_id=downloader_b.id,
+            )
+        )
+        await session.commit()
+    status_a = _status(info_hash, "Shared", "Shared.S01E01.mkv", b"x", completed=True)
+    status_b = _status(info_hash, "Shared", "Shared.S01E01.mkv", b"x", completed=True)
+
+    async def lookup(hash_, *args, preferred_downloader_id=None, **kwargs):
+        # 手动锚指明在 B 上；订阅尝试没记下载器，先查到的是 A
+        if preferred_downloader_id == downloader_b.id:
+            return download_progress._TorrentLookup(
+                match=(downloader_b, status_b), reachable_count=2
+            )
+        return download_progress._TorrentLookup(match=(downloader_a, status_a), reachable_count=2)
+
+    async def briefs():
+        return []
+
+    monkeypatch.setattr(download_progress, "_lookup_torrent", lookup)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
+    done = ingest_mod.SWEEP_REASON_DOWNLOADER_COMPLETED
+
+    for _ in range(3):
+        await download_progress.check_download_progress()
+    assert sorted(pokes) == sorted([(str(watch_a), done), (str(watch_b), done)])
+
+    # B 上的任务重新校验（退回未完成）后再次完成：只重新触发 B
+    pokes.clear()
+    status_b.completed = False
+    await download_progress.check_download_progress()
+    status_b.completed = True
+    await download_progress.check_download_progress()
+    await download_progress.check_download_progress()
+    assert pokes == [(str(watch_b), done)]

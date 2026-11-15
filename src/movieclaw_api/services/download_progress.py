@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -85,10 +86,13 @@ _tick_lock = asyncio.Lock()
 # 写入），存量行按同样语义照看直至库存对账关闭
 _IN_FLIGHT = (WantedStatus.GRABBED, WantedStatus.DOWNLOADED)
 
-# 本进程已为其触发过「下载器完成」巡检的种子 hash：同一任务只触发一次。
+# 本进程已为其触发过「下载器完成」巡检的任务：同一任务只触发一次。键是
+# (下载器 id, 种子 hash, 归一化的本地保存目录)——同一 hash 可能同时在两台
+# 下载器里、映射到不同监听目录，各自的完成都要触发自己的巡检。
 # 订阅下载另有持久化的 completed 状态翻转兜底；手动下载没有工单，靠这张表
 # 识别「转为完成」——任务退回未完成时移出，重新完成会再触发一次
-_completion_swept: set[str] = set()
+_CompletionKey = tuple[int | None, str, str]
+_completion_swept: set[_CompletionKey] = set()
 
 
 @register_task(
@@ -230,13 +234,16 @@ async def _observe_manual_downloads(
             continue
         downloader, status = lookup.match
         if not status.completed:
-            _completion_swept.discard(info_hash)
+            # 只放掉这台下载器上的记录：另一台下载器上同 hash 的完成不受影响
+            _completion_swept.difference_update(
+                {key for key in _completion_swept if key[:2] == (downloader.id, info_hash)}
+            )
             continue
         completed[info_hash] = (downloader, status)
         await _request_completed_sweep(info_hash, downloader, status)
-    # 只留仍在照看的手动 hash：订阅触发记的 hash 不需要跨轮保留（订阅靠
+    # 只留仍在照看的手动 hash：订阅触发记的键不需要跨轮保留（订阅靠
     # 持久化的 completed 翻转去重），已回收/已删的锚也不再占位
-    _completion_swept.intersection_update(manual)
+    _completion_swept.difference_update({key for key in _completion_swept if key[1] not in manual})
     if completed:
         db = get_database()
         async with db.session() as session:
@@ -248,28 +255,31 @@ async def _request_completed_sweep(
 ) -> None:
     """下载器报告任务完成：请求巡检映射后的保存目录（issue #1275）。
 
-    同一 hash 本进程只触发一次（订阅与手动指向同一种子时也只一次）；巡检
-    本身按台账幂等，即便重复也不会重复入库。失败只记日志，不影响照看。
+    同一下载器上的同一任务（hash + 映射后的本地目录）本进程只触发一次（订阅
+    与手动指向同一下载器的同一种子时也只一次）；另一台下载器或另一个映射
+    目录里的同 hash 任务各自触发。巡检本身按台账幂等，即便重复也不会重复
+    入库。失败只记日志，不影响照看。
     """
-    key = info_hash.lower()
-    if key in _completion_swept:
-        return
-    _completion_swept.add(key)
     from movieclaw_api.services.library.ingest import request_sweep_for_download
     from movieclaw_api.services.torrent_submit import translate_to_local
 
+    info_hash = info_hash.lower()
     local_dir = translate_to_local(status.save_path, downloader.path_mappings)
     if not local_dir:
         return
+    dedupe = (downloader.id, info_hash, os.path.normpath(local_dir))
+    if dedupe in _completion_swept:
+        return
+    _completion_swept.add(dedupe)
     try:
         sources = await request_sweep_for_download(local_dir)
     except Exception:  # noqa: BLE001 -- 触发失败仍有网络轮询/兜底巡检接住
-        logger.exception("下载完成后请求监听巡检失败：hash=%s 目录=%s", key, local_dir)
+        logger.exception("下载完成后请求监听巡检失败：hash=%s 目录=%s", info_hash, local_dir)
         return
     if sources:
         logger.info(
             "下载器报告任务完成，请求巡检监听目录：hash=%s 保存目录=%s → %s",
-            key,
+            info_hash,
             local_dir,
             ", ".join(sources),
         )
