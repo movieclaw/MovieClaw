@@ -234,10 +234,7 @@ async def _observe_manual_downloads(
             continue
         downloader, status = lookup.match
         if not status.completed:
-            # 只放掉这台下载器上的记录：另一台下载器上同 hash 的完成不受影响
-            _completion_swept.difference_update(
-                {key for key in _completion_swept if key[:2] == (downloader.id, info_hash)}
-            )
+            _forget_completion(downloader.id, info_hash)
             continue
         completed[info_hash] = (downloader, status)
         await _request_completed_sweep(info_hash, downloader, status)
@@ -248,6 +245,19 @@ async def _observe_manual_downloads(
         db = get_database()
         async with db.session() as session:
             await _reconcile_completed_manual_intents(session, manual, completed)
+
+
+def _forget_completion(downloader_id: int | None, info_hash: str) -> None:
+    """这台下载器上的该任务已退回未完成：放掉它的完成记录，再完成时重新触发。
+
+    只放掉这台下载器上的记录：另一台下载器上同 hash 的完成不受影响。订阅与
+    手动都要调用——收尾只按手动锚是否还在决定留不留键，同 hash 的手动锚
+    未回收时，订阅任务的旧键会跨轮留下，订阅回退后再完成就会被它吞掉。
+    """
+    info_hash = info_hash.lower()
+    _completion_swept.difference_update(
+        {key for key in _completion_swept if key[:2] == (downloader_id, info_hash)}
+    )
 
 
 async def _request_completed_sweep(
@@ -637,6 +647,9 @@ async def _observe_attempt(
             attempt.last_progress_at = now
             attempt.stalled_notified_at = None
             attempt.next_search_at = None
+        if not status.completed:
+            # 未完成的任务不该再占着完成去重键：回退后再完成要重新请求巡检
+            _forget_completion(downloader.id, attempt.info_hash)
 
         if status.state == "error":
             # 下载器报告的是**这条任务本身**出错（文件缺失、磁盘、权限），不是没有

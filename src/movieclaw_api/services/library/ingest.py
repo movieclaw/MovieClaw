@@ -5068,6 +5068,9 @@ class IngestWatcher:
         self._rechecks: dict[str, asyncio.Task] = {}
         # 已入队、尚未巡检的源目录 → 触发原因（巡检时写进日志后清掉）
         self._reasons: dict[str, set[str]] = {}
+        # 曾确认挂在网络挂载上的源目录：挂载暂时掉成 local/unknown 时轮询仍
+        # 保留（恢复检查），直到规则删除或源目录改配（issue #1275）
+        self._network_keys: set[str] = set()
         # 串行化重建：并发的规则编辑各自触发 refresh，并发重建会互踩 _observer
         self._refresh_lock = asyncio.Lock()
 
@@ -5138,6 +5141,8 @@ class IngestWatcher:
 
         rules = await _load_rules()
         source_paths = [rule.source_path for rule, _library in rules]
+        # 规则删除或源目录改配：不再为旧目录保留网络恢复检查
+        self._network_keys.intersection_update(source_paths)
         async with self._refresh_lock:
             newly_watched = await asyncio.to_thread(self._apply_watches, source_paths)
         # 初次纳入监听的目录补扫一次：监听建立之前完成的下载（停机期间/
@@ -5302,6 +5307,7 @@ class IngestWatcher:
             raise
         if pair is None:
             # 规则已删除（refresh_watches 稍后会拆掉监听）：不续挂，轮询链到此为止
+            self._network_keys.discard(source_path)
             return
         rule, library = pair
         await _sweep_dir(rule, library)  # 收尾会重挂自检（_sweep_dir 统一负责）
@@ -5315,14 +5321,19 @@ class IngestWatcher:
         **失败条目按退避到期时间挂**——失败结论落账时静默表/挂起表都已弹出
         该条目、fs 事件也不会再来（下载早已结束），没有这第三个源就没人
         回来重试。取三者中最近的到期时间挂一次即可（自检收尾会重挂）。
-        网络挂载上的源目录另加固定轮询节奏，没有等待中的条目也挂（issue #1275）。
+        网络挂载上的源目录另加固定轮询节奏，没有等待中的条目也挂（issue #1275）；
+        曾确认是网络挂载的目录在挂载掉成 local/unknown 时照挂——没有其他等待项
+        时自检只核对挂载、不扫目录（见 _recheck_later），重新挂上后的第一次醒来
+        就恢复巡检；否则重挂后没有文件事件，只能等小时级兜底。
         """
         prefix = source_path.rstrip("/") + "/"
         now = time.monotonic()
         quiet = [since for path, (_fp, since) in _stability.items() if path.startswith(prefix)]
         failed = [since for path, since in _failed_retry.items() if path.startswith(prefix)]
         has_deferred = any(path.startswith(prefix) for path in _deferred)
-        network = is_network_root(source_path)
+        if is_network_root(source_path):
+            self._network_keys.add(source_path)
+        network = source_path in self._network_keys
         if not quiet and not has_deferred and not failed and not network:
             return
         if self._closed:
@@ -5355,7 +5366,9 @@ class IngestWatcher:
             for path, since in _failed_retry.items()
             if path.startswith(prefix)
         )
-        # 网络挂载：远端新完成的下载只有列目录才看得见，到点直接巡检
+        # 网络挂载：远端新完成的下载只有列目录才看得见，到点直接巡检。挂载
+        # 此刻掉成 local/unknown 时不扫底下的空挂载点，按下面的非网络分支
+        # 只核对挂起条目后重挂——_arm_recheck 对曾确认的网络目录照挂轮询
         network = is_network_root(key)
         if (
             not failed_due
