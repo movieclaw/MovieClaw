@@ -1158,6 +1158,9 @@
   "scrape.frenchLanguage": {
     "sourceHash": "e495d53b967a7b049c8a2c25baa519fe124b49c1d0cf9cd8bdffa00d2f9d8ed6"
   },
+  "scrape.germanLanguage": {
+    "sourceHash": "801cfe0fa1182664d16f4aaf7856cc73412f79ef508a866eebc2e5ccf125ff0a"
+  },
   "controls.enabled": {
     "sourceHash": "8a4ef3e48e4e8a5a35b62a6738659ffc2e43f81964e27ecf3704fd020945a07f"
   },
