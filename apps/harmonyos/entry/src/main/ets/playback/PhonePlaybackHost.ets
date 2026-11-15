@@ -3,7 +3,7 @@ import { PlaybackTestProbe, PlaybackTestHost } from './PlaybackTestProbe';
 import { BusinessError, settings } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { common } from '@kit.AbilityKit';
-import { PiPWindow, window, UIContext } from '@kit.ArkUI';
+import { PiPWindow, window, UIContext, display } from '@kit.ArkUI';
 import { audio } from '@kit.AudioKit';
 import { image } from '@kit.ImageKit';
 import { http } from '@kit.NetworkKit';
@@ -19,6 +19,7 @@ import { MovieClawPlaybackGateway } from './MovieClawPlaybackGateway';
 
 import { Formatters } from '../common/Formatters';
 import { ShellChrome } from '../common/ShellChrome';
+import { FoldState } from '../common/FoldState';
 import { AppModel, ClipReturn } from '../common/AppModel';
 
 import { ImageUrls } from '../common/ImageUrls';
@@ -417,6 +418,9 @@ export class PhonePlaybackHost implements PlaybackTestHost {
 
   private ui: UIContext | null = null;
   bindUI(context: UIContext): void { this.ui = context; }
+
+  /** 折叠监听（Pura X：内屏锁横屏后折叠，要把横屏偏好从外屏窗口上摘掉） */
+  private foldListener: ((status: display.FoldStatus) => void) | null = null;
   getUIContext(): UIContext {
     if (this.ui === null) { throw new Error('Player UI is not attached'); }
     return this.ui;
@@ -425,6 +429,20 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     this.bindController();
     PlaybackTestProbe.bind(this);
     this.claimPlayback();
+    // Pura X 折叠感知：内屏锁着横屏时折叠去外屏，横屏偏好会跟着窗口走、
+    // 方屏界面就横过来了——折叠瞬间立刻清锁（restoreOrientation 会置回竖屏偏好）。
+    if (this.foldListener === null) {
+      this.foldListener = (status: display.FoldStatus): void => {
+        if (status === display.FoldStatus.FOLD_STATUS_FOLDED && this.landscapeLocked) {
+          this.restoreOrientation().catch((): void => {
+          });
+        }
+      };
+      try {
+        display.on('foldStatusChange', this.foldListener);
+      } catch (error) {
+      }
+    }
     // 雪碧图异步下载完 → 版本号 +1，驱动横滑预览重查一次
     this.trickplay.onSheetLoaded = (): void => {
       this.trickplayVersion++;
@@ -440,6 +458,13 @@ export class PhonePlaybackHost implements PlaybackTestHost {
 
   aboutToDisappear(): void {
     this.detached = true;
+    if (this.foldListener !== null) {
+      try {
+        display.off('foldStatusChange', this.foldListener);
+      } catch (error) {
+      }
+      this.foldListener = null;
+    }
     if (this.pipActive) { this.chrome.pop('player'); this.restoreBrightness(); this.restoreOrientation(); return; }
     if (this.disposed) { return; }
     PlaybackTestProbe.record('dispose');
@@ -2416,6 +2441,10 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   /** 横竖屏切换（iOS PlayerOrientation）：显式锁进目标方向，不锁会被系统转回去 */
   async toggleLandscape(): Promise<void> {
     this.armChromeTimer();
+    // 折叠外屏（Pura X 方屏）没有横屏可言；正常路径按钮已隐藏，这里兜底竞态
+    if (FoldState.shared().coverActive) {
+      return;
+    }
     try {
       const win: window.Window = await window.getLastWindow(getContext(this));
       if (this.landscapeLocked) {
