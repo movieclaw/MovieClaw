@@ -68,6 +68,7 @@ function commonMetaLangs(t: ReturnType<typeof appTranslator>): ChipOption[] {
     { id: "ja-JP", name: t("settings.scrape.japaneseLanguage") },
     { id: "ko-KR", name: t("settings.scrape.koreanLanguage") },
     { id: "fr-FR", name: t("settings.scrape.frenchLanguage") },
+    { id: "de-DE", name: t("settings.scrape.germanLanguage") },
   ];
 }
 
