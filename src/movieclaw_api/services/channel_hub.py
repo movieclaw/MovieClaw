@@ -195,6 +195,8 @@ class Binding:
     resume_token: str = ""
     #: 同一账号再次绑定：提示将更新，对话框留到用户点完成，不自动关掉。
     review: bool = False
+    #: 交互式：用户输入与后台跟踪可能同时拿到「已确认」，串行落库，免得同一账号插两次
+    apply_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
 
     def text(self, key: str) -> str:
         with use_locale(self.locale):
@@ -748,6 +750,10 @@ class ChannelHub:
             await self._apply_flow(binding, state)
 
     async def _apply_flow(self, binding: Binding, state: FlowState) -> None:
+        async with binding.apply_lock:
+            await self._apply_flow_state(binding, state)
+
+    async def _apply_flow_state(self, binding: Binding, state: FlowState) -> None:
         if binding.terminal:
             return
         binding.qr = state.qr
