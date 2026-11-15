@@ -43,8 +43,10 @@
   Die Demo ist schreibgeschützt und wird täglich zurückgesetzt. (Oberfläche und Logs sind derzeit auf Chinesisch.)
 </p>
 
-> **Hinweis zur Übersetzung:** Die MovieClaw-Oberfläche gibt es derzeit nur auf Englisch und Chinesisch.
-> Menüpfade wie **Settings → Appearance** sind deshalb so belassen, wie sie in der englischen Oberfläche heißen.
+> **Hinweis zur Übersetzung:** Die **Weboberfläche** gibt es auf Deutsch (umschalten unter
+> **Einstellungen → Darstellung und Sprache**); die Menüpfade in dieser Anleitung beziehen sich darauf.
+> Noch nicht übersetzt sind die **nativen Apps** (iPhone, Android, TV, Mac) und **Meldungen vom Server**
+> (manche Fehlertexte, Benachrichtigungen und Antworten des KI-Agenten). Diese erscheinen auf Englisch.
 > Im Zweifel gilt die [englische README](README.md).
 
 ## Eine Installation. Mehr brauchst du nicht.
@@ -97,7 +99,7 @@ E-Mail-Adresse wählen, jederzeit abbestellbar.
 
 Die Web-App ist im Liquid-Glass-Stil gehalten: Seitenleiste, Eingabefelder und schwebende Buttons
 brechen das Hintergrundbild deiner Wahl, mit einem Hauch chromatischer Aberration an den Rändern.
-Den Hintergrund änderst du unter **Settings → Appearance** – er bleibt auf allen Geräten gleich,
+Den Hintergrund änderst du unter **Einstellungen → Darstellung und Sprache** – er bleibt auf allen Geräten gleich,
 die mit derselben Instanz verbunden sind.
 
 
@@ -118,7 +120,7 @@ Du kannst auch über WeChat mit ihm reden, per Text oder Sprache; Telegram und D
 und Feishu-Gruppen lassen sich als reiner Benachrichtigungskanal einbinden. Bevor er etwas löscht, fragt er
 dich, und jedes Tool, das er aufruft, ist für dich sichtbar. Die Regeln dazu stehen unter [Grenzen](#grenzen).
 
-Der Agent braucht ein LLM, das unter **Settings → Model Providers** angebunden wird (jeder OpenAI-kompatible
+Der Agent braucht ein LLM, das unter **Einstellungen → KI-Anbieter** angebunden wird (jeder OpenAI-kompatible
 Endpunkt funktioniert). Lässt du das weg, funktioniert alles andere trotzdem. Du kannst ihm „Skills“ in
 einfachem Markdown beibringen: Lege ein Verzeichnis mit einer `SKILL.md` in `data/agent-skills/` ab
 (eine `description` im Frontmatter, Anweisungen im Hauptteil, Skripte sind willkommen), und der Agent lädt
@@ -204,9 +206,9 @@ Filme, die unter anderem von der Blender Foundation veröffentlicht wurden (CC B
 
 - Beim Öffnen der App siehst du eine Poster-Wand. Inhaltsangaben, Bewertungen, Besetzung und Episodenbilder werden lokal gespeichert, sodass du auch komplett offline stöbern kannst.
 - Umbenennen ist nie Pflicht: Verweise auf deine bestehenden Verzeichnisse, und MovieClaw arbeitet mit ihnen, wie sie sind. Das Organisieren deiner Dateien durch MovieClaw ist eine separate Option und standardmäßig deaktiviert.
-- Scraping ist Geschmackssache, deshalb ist es konfigurierbar: Sprache, Artwork, Benennungsvorlagen, NFO-Dateien, Episodenbilder – alles unter **Settings → Scraping & Organizing**. Dir gefällt ein automatisch gewähltes Poster nicht? Ersetze es und fixiere es.
-- Eine Mediathek vom Typ **„Other“** nimmt Heimvideos und Aufnahmen auf: Nichts wird identifiziert oder umbenannt, eine vorhandene NFO-Datei daneben wird berücksichtigt, und Vorschaubilder werden aus dem Video selbst erzeugt.
-- Eine Mediathek vom Typ **„Photos“** zeigt deine Bilder als Mauerwerk-Raster, gruppiert nach Monat und sortiert nach EXIF-Aufnahmezeit. Die Wand lädt dabei immer nur Vorschaubilder.
+- Scraping ist Geschmackssache, deshalb ist es konfigurierbar: Sprache, Artwork, Benennungsvorlagen, NFO-Dateien, Episodenbilder – alles unter **Einstellungen → Metadaten und Organisation**. Dir gefällt ein automatisch gewähltes Poster nicht? Ersetze es und fixiere es.
+- Eine Mediathek vom Typ **„Sonstiges“** nimmt Heimvideos und Aufnahmen auf: Nichts wird identifiziert oder umbenannt, eine vorhandene NFO-Datei daneben wird berücksichtigt, und Vorschaubilder werden aus dem Video selbst erzeugt.
+- Eine Mediathek vom Typ **„Fotos“** zeigt deine Bilder als Mauerwerk-Raster, gruppiert nach Monat und sortiert nach EXIF-Aufnahmezeit. Die Wand lädt dabei immer nur Vorschaubilder.
 
 ### Wiedergabe
 
@@ -221,12 +223,12 @@ Filme, die unter anderem von der Blender Foundation veröffentlicht wurden (CC B
 ### Wartung
 
 - Updates und Rollbacks sind Buttons in der Weboberfläche. Normale Upgrades laden nur wenige Megabyte, ein fehlerhaftes Update rollt sich selbst zurück, und deine Daten werden nie angetastet.
-- Fehlermeldungen sind für Menschen geschrieben – für Leute, die Dinge deployen, aber keinen Code schreiben. (Log- und Oberflächenmeldungen sind derzeit auf Chinesisch.)
+- Fehlermeldungen sind für Menschen geschrieben – für Leute, die Dinge deployen, aber keinen Code schreiben. (Logs sind derzeit auf Chinesisch; Meldungen vom Server erscheinen bei deutscher Oberfläche auf Englisch.)
 
 ### Plugins
 
 - Der Kern bleibt allgemein; persönliche Setups werden zu Plugins. Messaging-Kanäle, Downloader, Direktlinks zu Cloud-Speichern und mehr liegen im
-  Repo [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins). Installiere sie über **Settings → Plugins → Plugin market**; eine `.mcplugin`-Datei kannst du weiterhin auch manuell hochladen.
+  Repo [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins). Installiere sie über **Einstellungen → Plugins → Plugin-Marktplatz**; eine `.mcplugin`-Datei kannst du weiterhin auch manuell hochladen.
 - Du willst selbst eins schreiben? Starte mit `example/GUIDE.md` in diesem Repo, oder lass den KI-Assistenten das Plugin für dich schreiben.
 
 ## Grenzen
@@ -343,18 +345,18 @@ bereit“) ausgibt. Bricht der Befehl stattdessen mit
 
 **Schritt 4**: Öffne `http://<host-ip>:3000`, leg mit dem Assistenten das Admin-Konto an und dann:
 
-1. **Mediathek hinzufügen**: **Library → Add Library**. Der Stammpfad ist der Pfad **im Container** –
+1. **Mediathek hinzufügen**: **Mediathek → Mediathek hinzufügen**. Der Stammpfad ist der Pfad **im Container** –
    also die rechte Seite des Doppelpunkts aus Schritt 2: im Beispiel oben `/media`, **nicht**
    `/volume1/media`. Der Scan startet sofort; vorhandene Dateien werden identifiziert und gescrapt,
    und alles Mehrdeutige wartet unter *Identifizierung ausstehend* auf deine Bestätigung.
    Gibst du einen falschen Pfad ein, zeigt die Seite trotzdem „Scanne …“ an – endet aber mit 0 Dateien,
    und im Ergebnis steht „Stammpfad existiert nicht, übersprungen“. Diese Zeile bedeutet: Der Pfad ist falsch.
-2. **Download-Client verbinden**: **Settings → Download Clients**, für qBittorrent / Transmission.
+2. **Download-Client verbinden**: **Einstellungen → Downloader**, für qBittorrent / Transmission.
    Sehen Client und MovieClaw unterschiedliche Pfade, richtest du hier die Pfadzuordnung ein.
-3. **Seiten verbinden**: **Settings → Resource Sites** – Cookies / API-Schlüssel einfügen oder sie
+3. **Seiten verbinden**: **Einstellungen → Tracker** – Cookies / API-Schlüssel einfügen oder sie
    automatisch über die Browser-Erweiterung synchronisieren lassen.
-4. Optional: Unter **Settings → Model Providers** ein LLM anbinden (danach unter **Settings → AI** ein
-   Standardmodell wählen) und so den Assistenten freischalten; unter **Settings → Auto-import** Regeln
+4. Optional: Unter **Einstellungen → KI-Anbieter** ein LLM anbinden (danach unter **Einstellungen → KI-Einstellungen** ein
+   Standardmodell wählen) und so den Assistenten freischalten; unter **Einstellungen → Automatischer Import** Regeln
    der Form „Quellverzeichnis → Ziel-Mediathek“ anlegen, damit Downloads aus beliebigen Quellen ebenfalls
    in der Mediathek landen.
 
@@ -364,7 +366,7 @@ bereit“) ausgibt. Bricht der Befehl stattdessen mit
 
 ### Alltägliche Upgrades ohne Image-Pull
 
-Ab dann laufen alltägliche Upgrades über **Settings → Updates & Maintenance**: MovieClaw lädt ein wenige
+Ab dann laufen alltägliche Upgrades über **Einstellungen → Updates und Wartung**: MovieClaw lädt ein wenige
 Megabyte großes Artefaktpaket aus den GitHub-Releases (Mirrors konfigurierbar), wendet es auf dem
 `data`-Volume an, und das Ergebnis übersteht auch ein Neuerstellen des Containers. Macht ein Update
 Probleme, rollst du es auf derselben Seite zurück – und ein wirklich kaputtes rollt sich automatisch selbst zurück.
@@ -385,7 +387,7 @@ MovieClaw spricht die Wiedergabe-API von Jellyfin, daher verbinden sich Drittanb
 | Infuse / VidHub | **Auf Gerät verifiziert** | Verbindung als Jellyfin-Server: Stöbern, Direct Play, Fortschrittssynchronisation – null Änderungen auf Player-Seite |
 | Fileball / SenPlayer | Gleiche API | Nutzt denselben Jellyfin-kompatiblen Weg, wurde aber nicht einzeln auf Geräten verifiziert |
 | Offizielle Emby- / Jellyfin-Apps | Nicht zutreffend | Sie verbinden sich mit ihren eigenen Servern; MovieClaw kann eine Emby-/Jellyfin-Instanz nach Importen zum Aktualisieren auffordern |
-| Automatische LAN-Erkennung | Ja | Erfordert das Mapping von `7359/udp`. Im Bridge-Netzwerk kennt der Container die LAN-Adresse des Hosts nicht: Öffne MovieClaw einmal im Browser über die LAN-Adresse (z. B. `http://192.168.1.10:3000`), dann merkt sich der Server sie – oder setze **Settings → Network → External URL** |
+| Automatische LAN-Erkennung | Ja | Erfordert das Mapping von `7359/udp`. Im Bridge-Netzwerk kennt der Container die LAN-Adresse des Hosts nicht: Öffne MovieClaw einmal im Browser über die LAN-Adresse (z. B. `http://192.168.1.10:3000`), dann merkt sich der Server sie – oder setze **Einstellungen → Netzwerk → Externer Zugriff** |
 | Remote-Hardware-Transkodierung | macOS Apple Silicon | Menüleisten-App, die über VideoToolbox kodiert (ein dauerhaft laufender Mac mini reicht völlig). Das Protokoll ist offen – andere Plattformen können es implementieren |
 
 Details in [jellyfin-compat.md](docs/design/jellyfin-compat.md),
@@ -427,11 +429,11 @@ irm https://raw.githubusercontent.com/movieclaw/movieclaw/main/scripts/install-c
 Anschließend koppelst du mit `mclaw login`. Ohne Argumente durchsucht der Befehl zuerst das lokale
 Netzwerk; über Subnetzgrenzen hinweg oder per VPN gibst du die Adresse selbst an
 (`mclaw login --server http://192.168.1.10:3000`). Der Befehl zeigt einen Kopplungscode an – prüfe und
-bestätige ihn in der Weboberfläche unter **Settings → Devices**. Das Token wird direkt an den Prozess
+bestätige ihn in der Weboberfläche unter **Einstellungen → Geräte**. Das Token wird direkt an den Prozess
 zurückgegeben und nie ausgegeben, landet also weder in der Zwischenablage noch im Shell-Verlauf.
 
 Wo niemand im Browser auf „Bestätigen“ klicken kann (Cron-Jobs auf dem NAS, CI, Headless-Container),
-nutzt du auf derselben Devices-Seite **Create token manually** und übergibst die beiden Zeilen, die du
+nutzt du auf derselben Devices-Seite **Token manuell erstellen** und übergibst die beiden Zeilen, die du
 dort bekommst – `MOVIECLAW_SERVER` und `MOVIECLAW_TOKEN` – als Umgebungsvariablen. Zugangsdaten werden
 nie auf die Festplatte geschrieben.
 
@@ -483,7 +485,7 @@ Stattdessen wird der Besitz durch etwas Stärkeres nachgewiesen: **Wer an das `d
 Rechners herankommt, dem gehört der Server.** Jellyfin, Vaultwarden und Gitea halten es genauso.
 
 Familien**mitglieder**, die ihr Passwort vergessen, brauchen das alles nicht – ein Admin setzt es mit
-einem Klick unter **Settings → Members** zurück.
+einem Klick unter **Einstellungen → Mitglieder** zurück.
 </details>
 
 <details>
@@ -494,7 +496,7 @@ einem Klick unter **Settings → Members** zurück.
 
 Nur bei `--network host` wird der Container-Port zum Host-Port, und nur dann änderst du tatsächlich den
 Port, auf dem gelauscht wird: Füge `-e MOVIECLAW_WEB_PORT=8096` hinzu oder ändere ihn nach der Einrichtung
-unter **Settings → Network** (startet sich beim Speichern selbst neu).
+unter **Einstellungen → Netzwerk** (startet sich beim Speichern selbst neu).
 
 **Host-Networking hat eine weitere Falle**: Das interne Frontend (3001) und das Backend (8000) des
 Containers binden sich ebenfalls direkt auf dem Host. `MOVIECLAW_WEB_PORT` ändert nur den öffentlichen Port
@@ -513,10 +515,10 @@ automatische LAN-Erkennung funktioniert auch im Bridge-Netzwerk (einfach `7359/u
 <summary><b>Scraping schlägt ständig fehl; die Logs sagen, TMDB sei nicht erreichbar</b></summary>
 
 `无法连通 TMDB` („TMDB nicht erreichbar“), `ConnectTimeout`, `CircuitOpenError` oder
-`CERTIFICATE_VERIFY_FAILED` – ob in den Logs oder im Verbindungstest unter **Settings → Network** –
+`CERTIFICATE_VERIFY_FAILED` – ob in den Logs oder im Verbindungstest unter **Einstellungen → Netzwerk** –
 deuten alle auf dasselbe Problem hin.
 
-Kann dein Netzwerk `api.themoviedb.org` nicht direkt erreichen, trag unter **Settings → Network** einen
+Kann dein Netzwerk `api.themoviedb.org` nicht direkt erreichen, trag unter **Einstellungen → Netzwerk** einen
 Proxy oder eine Mirror-Adresse ein und prüfe das mit dem eingebauten Verbindungstest. Standardmäßig deckt
 der Proxy TMDB, das Abrufen von Artwork und GitHub-Updates ab, während Tracker-Seiten direkt verbunden
 bleiben (so ist es meist schneller).

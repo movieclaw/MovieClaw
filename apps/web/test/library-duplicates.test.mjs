@@ -134,6 +134,15 @@ test("扫描状态那一行：从未扫描 / 正在跑 / 上次扫描于何时",
   assert.equal(relativeTime("2026-09-04T02:30:00", now), "10 天前");
 });
 
+test("relativeTime: dates older than 30 days use the UI locale's day/month order", () => {
+  const now = new Date("2026-09-14T02:30:00Z");
+  // April 5: day and month are both ≤ 12, so a US-style 4/5 would read as 4 May in Germany
+  const old = "2026-04-05T12:00:00";
+  assert.equal(relativeTime(old, now, "de"), "5.4.2026");
+  assert.equal(relativeTime(old, now, "en"), "4/5/2026");
+  assert.equal(relativeTime(old, now, "zh-Hans"), "2026/4/5");
+});
+
 test("tierFacts：确认弹窗逐条列出本页会清掉什么", () => {
   const season = { season_number: 1, bucket: "identical", uniform: true, versions: [], units: [unit, unit, unit] };
   const data = {

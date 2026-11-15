@@ -1279,7 +1279,7 @@
       "services": "Dienste",
       "enableService": "MCP aktivieren",
       "noExternal": "(externe Adresse nicht konfiguriert)",
-      "endpointPath": "/mcp/'<endpunkt>'",
+      "endpointPath": "/mcp/'<endpoint>'",
       "endpoints": "Endpunkte",
       "endpointHint": "Endpunkte verbinden KI-Clients mit unabhängig ausgewählten Tool-Katalogen.",
       "configuredCount": "{count, plural, one {# Endpunkt konfiguriert} other {# Endpunkte konfiguriert}}",

@@ -1,5 +1,5 @@
 import { appTranslator } from "@/lib/i18n/translate";
-import { resolveRequestUrl, redirectToLoginOn401, HttpError, request } from "@/lib/http";
+import { resolveRequestUrl, redirectToLoginOn401, HttpError, request, withUiLocale } from "@/lib/http";
 
 /** Agent 执行事件（见 movieclaw_agent.events.AgentEvent）。 */
 export type AgentEventType =
@@ -398,7 +398,7 @@ export async function streamSession(
   for (;;) {
     let response: Response;
     try {
-      const headers = new Headers({ Accept: "text/event-stream" });
+      const headers = withUiLocale({ Accept: "text/event-stream" });
       if (lastEventId > 0) headers.set("Last-Event-ID", String(lastEventId));
       response = await fetch(resolveRequestUrl(`/sessions/${sessionId}/events`), {
         headers,

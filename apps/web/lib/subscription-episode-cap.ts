@@ -24,9 +24,9 @@ export const EPISODE_CAP_BATCH = 20;
 
 type SeasonCounts = Pick<SeasonOverview, "season_number" | "episode_count" | "aired_count">;
 
-/** 千分位的集数：1,043。 */
-export function formatEpisodes(count: number): string {
-  return count.toLocaleString("en-US");
+/** 千分位的集数：1,043（German UI: 1.043）。 */
+export function formatEpisodes(count: number, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return count.toLocaleString(locale);
 }
 
 /** 一季的总集数（弹层只有季概览，取宣称集数与已播集数中大的）。 */

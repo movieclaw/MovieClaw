@@ -14,11 +14,15 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime.js";
 import "dayjs/locale/zh-cn.js";
 import "dayjs/locale/en.js";
+import "dayjs/locale/de.js";
 import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
 import { appTranslator } from "./i18n/translate.ts";
 import { formatDate } from "./i18n/format.ts";
 
 dayjs.extend(relativeTime);
+
+/** App locale → dayjs locale name (relative times like "vor 3 Minuten" follow the UI language). */
+const DAYJS_LOCALE: Record<AppLocale, string> = { "zh-Hans": "zh-cn", en: "en", de: "de" };
 
 /** 时间展示的唯一地区化配置；未来切换语言或格式只改这里。 */
 const TIME_DISPLAY_CONFIG = {
@@ -35,7 +39,7 @@ const TIME_DISPLAY_CONFIG = {
  */
 export function formatRelativeTime(iso: string | null | undefined, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   if (!iso) return appTranslator(locale)("common.never");
-  return dayjs(iso).locale(locale === "zh-Hans" ? "zh-cn" : "en").fromNow();
+  return dayjs(iso).locale(DAYJS_LOCALE[locale]).fromNow();
 }
 
 /**
@@ -52,7 +56,7 @@ export function formatDateTime(iso: string | null | undefined, locale: AppLocale
 /** 时间线的紧凑本地时间；完整日期仍通过卡片提示中的 formatDateTime 提供。 */
 export function formatClockTime(iso: string | null | undefined, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   if (!iso) return TIME_DISPLAY_CONFIG.emptyLabel;
-  return dayjs(iso).locale(locale === "zh-Hans" ? "zh-cn" : "en").format(TIME_DISPLAY_CONFIG.clockTimeFormat);
+  return dayjs(iso).locale(DAYJS_LOCALE[locale]).format(TIME_DISPLAY_CONFIG.clockTimeFormat);
 }
 
 /**

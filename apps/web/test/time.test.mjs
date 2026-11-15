@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  formatRelativeTime,
   formatTimelineDayLabel,
   formatTimelineTime,
   timelineDayKey,
@@ -38,4 +39,11 @@ test("历史 Feed 使用今天早些时候、昨天和具体日期标题", () =>
     formatTimelineDayLabel("2025-08-12T08:00:00+08:00", reference),
     "2025年8月12日",
   );
+});
+
+test("relative times follow the UI language, including German", () => {
+  const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  assert.equal(formatRelativeTime(threeMinutesAgo, "de"), "vor 3 Minuten");
+  assert.equal(formatRelativeTime(threeMinutesAgo, "en"), "3 minutes ago");
+  assert.equal(formatRelativeTime(threeMinutesAgo, "zh-Hans"), "3 分钟前");
 });
