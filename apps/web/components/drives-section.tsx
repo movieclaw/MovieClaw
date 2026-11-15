@@ -463,7 +463,7 @@ function ReadSlots({
   const valid = Number.isInteger(n) && n >= 1 && n <= 10;
   if (!editing) {
     return (
-      <div className={`${locale === "en" ? "flex flex-wrap" : "flex"} items-center gap-2 text-caption text-[var(--text-muted)]`}>
+      <div className={`${locale !== "zh-Hans" ? "flex flex-wrap" : "flex"} items-center gap-2 text-caption text-[var(--text-muted)]`}>
         <span>
           {t.rich("settings.drives.readSlotsValue", { value: account.read_slots, count: (chunks) => <b className="font-semibold text-[var(--text)]">{chunks}</b> })}
         </span>
@@ -482,7 +482,7 @@ function ReadSlots({
     );
   }
   return (
-    <div className={`${locale === "en" ? "flex flex-wrap" : "flex"} items-center gap-2 text-caption text-[var(--text-muted)]`}>
+    <div className={`${locale !== "zh-Hans" ? "flex flex-wrap" : "flex"} items-center gap-2 text-caption text-[var(--text-muted)]`}>
       <span>{t("settings.drives.readSlots")}</span>
       <input
         aria-label={t("settings.drives.readSlots")}

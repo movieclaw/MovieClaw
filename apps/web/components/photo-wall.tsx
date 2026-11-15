@@ -121,7 +121,7 @@ export function formatPhotoMonth(month: string, locale: AppLocale = requestLocal
   // i18n-ignore: stable month bucket shared with the API index
   if (month === "未知") return t("library.gallery.dateUnknown");
   const [year, mon] = month.split("-");
-  if (locale === "en") {
+  if (locale !== "zh-Hans") {
     return new Intl.DateTimeFormat(locale, { year: "numeric", month: "long", timeZone: "UTC" })
       .format(new Date(Date.UTC(Number(year), Number(mon) - 1)));
   }

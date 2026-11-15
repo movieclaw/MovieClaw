@@ -488,7 +488,7 @@ function SummaryCard({
       <SettingsSection title={t("settings.cloudConnect.account")}>
         <SettingsList>
           <SettingsRow
-            stackOnMobile={locale === "en"}
+            stackOnMobile={locale !== "zh-Hans"}
             leading={
               <span className="icon-chip size-10 !rounded-xl">
                 <CloudIcon className="size-5" />
@@ -525,7 +525,7 @@ function SummaryCard({
           {rows.map((row) => (
             <SettingsRow
               key={row.id}
-              stackOnMobile={locale === "en"}
+              stackOnMobile={locale !== "zh-Hans"}
               label={
                 <span className={row.granted ? undefined : "text-[var(--text-muted)]"}>
                   {row.label}

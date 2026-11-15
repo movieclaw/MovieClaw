@@ -292,7 +292,7 @@ function StatusCell({ library, status }: { library: MediaLibrary; status: Librar
   const locale = useLocale();
   if (status.kind === "idle") {
     return (
-      <div className={`min-w-0 ${locale === "en" ? "line-clamp-2" : "truncate"} text-caption text-[var(--text-faint)] max-md:col-span-2`}>
+      <div className={`min-w-0 ${locale !== "zh-Hans" ? "line-clamp-2" : "truncate"} text-caption text-[var(--text-faint)] max-md:col-span-2`}>
         {status.detail}
       </div>
     );

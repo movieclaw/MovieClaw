@@ -251,7 +251,7 @@ export function EpisodeHintBanner({
             )}
           </div>
           {canTune && (
-            <div className={locale === "en" ? "flex min-w-0 flex-wrap gap-2" : "flex shrink-0 gap-2"}>
+            <div className={locale !== "zh-Hans" ? "flex min-w-0 flex-wrap gap-2" : "flex shrink-0 gap-2"}>
               <button
                 type="button"
                 disabled={busy}

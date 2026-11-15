@@ -377,10 +377,10 @@ function FlowStepper({ nodes }: { nodes: FlowNode[] }) {
   return (
     <div className="flex flex-wrap items-center gap-y-2">
       {nodes.map((node, i) => (
-        <div key={node.key} className={`flex items-center ${locale === "en" ? "min-w-0 max-w-full" : ""}`}>
+        <div key={node.key} className={`flex items-center ${locale !== "zh-Hans" ? "min-w-0 max-w-full" : ""}`}>
           {i > 0 && <span className="mx-1.5 h-px w-4 shrink-0 bg-white/20" />}
           <div
-            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${locale === "en" ? "min-w-0" : ""} ${
+            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${locale !== "zh-Hans" ? "min-w-0" : ""} ${
               node.status === "ok"
                 ? "border-white/[0.08] bg-white/[0.03]"
                 : node.status === "warn"
@@ -514,7 +514,7 @@ function LibraryPipelineCard({
 
   return (
     <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3">
-      <div className={`flex items-center gap-3 ${locale === "en" ? "max-md:flex-col max-md:items-stretch" : ""}`}>
+      <div className={`flex items-center gap-3 ${locale !== "zh-Hans" ? "max-md:flex-col max-md:items-stretch" : ""}`}>
         <span className="w-24 shrink-0 max-md:hidden">
           <span className="block truncate text-ui font-medium text-white/90">
             {pipeline.library_name}
@@ -536,7 +536,7 @@ function LibraryPipelineCard({
             </p>
           )}
         </div>
-        <div className={`flex shrink-0 flex-col items-end gap-1 ${locale === "en" ? "max-md:flex-row max-md:items-center max-md:justify-end max-md:gap-3" : ""}`}>
+        <div className={`flex shrink-0 flex-col items-end gap-1 ${locale !== "zh-Hans" ? "max-md:flex-row max-md:items-center max-md:justify-end max-md:gap-3" : ""}`}>
           <span className={`text-sub font-medium ${meta.text}`}>{t(meta.label)}</span>
           <button
             type="button"

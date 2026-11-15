@@ -379,9 +379,9 @@ export function SettingsDrawer({
         {children}
       </div>
       {(hint || actions) && (
-        <footer className={`flex min-h-[56px] shrink-0 items-center justify-between gap-3 border-t border-[var(--line)] bg-black/20 px-5 py-3${locale === "en" ? " flex-wrap" : ""}`}>
-          <div className={`min-w-0 text-caption leading-5 text-[var(--text-faint)]${locale === "en" && hint ? " basis-full" : ""}`}>{hint}</div>
-          {actions && <div className={locale === "en" ? "ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2" : "flex shrink-0 items-center gap-2"}>{actions}</div>}
+        <footer className={`flex min-h-[56px] shrink-0 items-center justify-between gap-3 border-t border-[var(--line)] bg-black/20 px-5 py-3${locale !== "zh-Hans" ? " flex-wrap" : ""}`}>
+          <div className={`min-w-0 text-caption leading-5 text-[var(--text-faint)]${locale !== "zh-Hans" && hint ? " basis-full" : ""}`}>{hint}</div>
+          {actions && <div className={locale !== "zh-Hans" ? "ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2" : "flex shrink-0 items-center gap-2"}>{actions}</div>}
         </footer>
       )}
     </Modal>

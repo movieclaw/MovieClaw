@@ -1168,7 +1168,7 @@ function DownloaderForm({
         {/* 凭证：只画这种下载器要的栏；未开鉴权的可留空 */}
         {(fields.username || fields.password) && (
           <div className={`grid gap-3 ${fields.username && fields.password
-            ? locale === "en" ? "grid-cols-2 max-sm:grid-cols-1" : "grid-cols-2"
+            ? locale !== "zh-Hans" ? "grid-cols-2 max-sm:grid-cols-1" : "grid-cols-2"
             : ""}`}>
             {fields.username && (
               <div>

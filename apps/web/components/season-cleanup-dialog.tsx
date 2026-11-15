@@ -146,7 +146,7 @@ export function SeasonCleanupDialog({
           </p>
         )}
 
-        <div className={`mt-5 flex justify-end gap-2.5 ${locale === "en" ? "flex-wrap" : ""}`}>
+        <div className={`mt-5 flex justify-end gap-2.5 ${locale !== "zh-Hans" ? "flex-wrap" : ""}`}>
           <button type="button" onClick={onClose} disabled={busy} className={CANCEL_BTN_CLS}>
             {t("subscription.seasonCleanup.keep")}
           </button>

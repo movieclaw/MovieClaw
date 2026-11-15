@@ -383,7 +383,7 @@ export function SystemLogsSection() {
         <div className="flex-1" />
 
         {/* 自动刷新分段：关闭 / 3s / 10s / 30s；生效时点亮呼吸绿点 */}
-        <div className={`flex items-center gap-2 ${locale === "en" ? "max-w-full flex-wrap" : ""}`}>
+        <div className={`flex items-center gap-2 ${locale !== "zh-Hans" ? "max-w-full flex-wrap" : ""}`}>
           <span className="flex items-center gap-1.5 text-sub text-[var(--text-muted)]">
             {refreshMs > 0 && isLatestDay && (
               <span className="relative flex size-1.5">
@@ -441,7 +441,7 @@ export function SystemLogsSection() {
     >
         {/* 过滤条：级别 chip（带条数）+ 关键字搜索 */}
         <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-white/[0.03] px-3 py-2">
-          <div role="radiogroup" aria-label={t("settings.logs.viewer.filter")} className={`flex items-center gap-0.5 ${locale === "en" ? "flex-wrap" : ""}`}>
+          <div role="radiogroup" aria-label={t("settings.logs.viewer.filter")} className={`flex items-center gap-0.5 ${locale !== "zh-Hans" ? "flex-wrap" : ""}`}>
             {LEVEL_FILTERS.map((f) => {
               const active = f.id === levelFilter;
               const count = f.id === "ALL" ? entries.length : levelCounts[f.id];
@@ -583,11 +583,11 @@ export function SystemLogsSection() {
       {errorBanner}
       {logWindow}
 
-      <div className={`flex items-start justify-between gap-4 px-1 ${locale === "en" ? "max-sm:flex-col" : ""}`}>
+      <div className={`flex items-start justify-between gap-4 px-1 ${locale !== "zh-Hans" ? "max-sm:flex-col" : ""}`}>
         <p className="text-on-image text-caption leading-5 text-[var(--text-faint)]">
           {t("settings.logs.viewer.archiveHint")}</p>
         {!isLatestDay && activeDay && refreshMs > 0 && (
-          <p className={`shrink-0 text-caption text-[var(--text-faint)] ${locale === "en" ? "max-w-full" : ""}`}>{t("settings.logs.viewer.historical")}</p>
+          <p className={`shrink-0 text-caption text-[var(--text-faint)] ${locale !== "zh-Hans" ? "max-w-full" : ""}`}>{t("settings.logs.viewer.historical")}</p>
         )}
       </div>
     </div>

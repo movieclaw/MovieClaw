@@ -8,7 +8,7 @@ import { useLanguage } from "@/lib/i18n/provider";
 import type { LanguagePreference } from "@/lib/i18n/negotiate";
 
 // i18n-ignore: language autonyms are data and never translated.
-export const LANGUAGE_NAMES = { "zh-Hans": "简体中文", en: "English" } as const;
+export const LANGUAGE_NAMES = { "zh-Hans": "简体中文", en: "English", de: "Deutsch" } as const;
 
 export function LanguagePicker() {
   const t = useTranslations("settings.appearance");
@@ -25,6 +25,7 @@ export function LanguagePicker() {
       >
         <option value="zh-Hans">{LANGUAGE_NAMES["zh-Hans"]}</option>
         <option value="en">{LANGUAGE_NAMES.en}</option>
+        <option value="de">{LANGUAGE_NAMES.de}</option>
       </select>
     </label>
   );
@@ -40,6 +41,7 @@ export function LanguageSettings() {
     { value: "auto", label: t("browser", { language: LANGUAGE_NAMES[browserLocale] }) },
     { value: "zh-Hans", label: LANGUAGE_NAMES["zh-Hans"] },
     { value: "en", label: LANGUAGE_NAMES.en },
+    { value: "de", label: LANGUAGE_NAMES.de },
   ] as const;
 
   async function change(language: LanguagePreference) {

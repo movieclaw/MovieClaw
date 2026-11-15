@@ -238,7 +238,7 @@ export function NetworkConfigSection() {
         action={<SettingsSaveStatus state={saveState} error={saveError} savedLabel={t("settings.network.proxy.saved")} />}
       >
         <SettingsList>
-          <SettingsRow stackOnMobile={locale === "en"} label={t("settings.network.proxy.mode")} description={t(PROXY_MODE_HINT[form.proxy_mode])}>
+          <SettingsRow stackOnMobile={locale !== "zh-Hans"} label={t("settings.network.proxy.mode")} description={t(PROXY_MODE_HINT[form.proxy_mode])}>
             <SettingsTabs
               tabs={PROXY_MODES.map((option) => ({ ...option, label: t(option.label) }))}
               value={form.proxy_mode}
@@ -247,7 +247,7 @@ export function NetworkConfigSection() {
           </SettingsRow>
 
           {form.proxy_mode === "env" && (
-            <SettingsRow stackOnMobile={locale === "en"}
+            <SettingsRow stackOnMobile={locale !== "zh-Hans"}
               label={t("settings.network.proxy.detection")}
               description={
                 view.env_proxy_detected
@@ -264,7 +264,7 @@ export function NetworkConfigSection() {
           )}
 
           {form.proxy_mode === "manual" && (
-            <SettingsRow stackOnMobile={locale === "en"}
+            <SettingsRow stackOnMobile={locale !== "zh-Hans"}
               label={t("settings.network.proxy.address")}
               description={
                 t.rich("settings.network.proxy.addressHint", { empty: !form.proxy_url.trim() ? "yes" : "no", code: (chunks) => <code>{chunks}</code> })
@@ -316,7 +316,7 @@ export function NetworkConfigSection() {
       {view.pypi_index_presets && (
         <SettingsSection title={t("settings.network.proxy.dependencies")}>
           <SettingsList>
-            <SettingsRow stackOnMobile={locale === "en"}
+            <SettingsRow stackOnMobile={locale !== "zh-Hans"}
               label={t("settings.network.proxy.index")}
               description={t("settings.network.proxy.indexHint")}
               error={mirrorErrors.pypi_index_url ? t("settings.network.proxy.invalidHttp") : null}
@@ -416,7 +416,7 @@ export function NetworkConfigSection() {
                       ],
                     ] as const
                   ).map(([field, label, help]) => (
-                    <SettingsRow stackOnMobile={locale === "en"}
+                    <SettingsRow stackOnMobile={locale !== "zh-Hans"}
                       key={field}
                       label={label}
                       description={help}
@@ -481,7 +481,7 @@ function ServiceRow({
   const key = result?.message_key as AppMessageKey | undefined;
   const message = key && t.has(key) ? t(key, result?.message_params ?? undefined) : result?.message;
   return (
-    <SettingsRow stackOnMobile={locale === "en"} label={label} description={description}>
+    <SettingsRow stackOnMobile={locale !== "zh-Hans"} label={label} description={description}>
       {pending && <span className="text-sub text-[var(--text-faint)]">{t("settings.network.proxy.testing")}</span>}
       {result && (
         <Tooltip content={message} placement="top">

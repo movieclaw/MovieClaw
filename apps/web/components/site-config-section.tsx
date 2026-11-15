@@ -1379,7 +1379,7 @@ function SiteBadge({ item }: { item: CatalogItem }) {
 function DetailSection({ label, children }: { label: string; children: React.ReactNode }) {
   const locale = useLocale();
   return (
-    <section className={`grid gap-1.5 py-3 first:pt-1 last:pb-1 ${locale === "en" ? "sm:grid-cols-[100px_minmax(0,1fr)]" : "sm:grid-cols-[46px_minmax(0,1fr)]"} sm:gap-x-4 sm:gap-y-0`}>
+    <section className={`grid gap-1.5 py-3 first:pt-1 last:pb-1 ${locale !== "zh-Hans" ? "sm:grid-cols-[100px_minmax(0,1fr)]" : "sm:grid-cols-[46px_minmax(0,1fr)]"} sm:gap-x-4 sm:gap-y-0`}>
       <p className="text-micro font-medium tracking-wide text-[var(--text-faint)] sm:pt-2">
         {label}
       </p>

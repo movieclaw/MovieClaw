@@ -303,7 +303,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
               />
             </SettingsRow>
             <SettingsRow
-              stackOnMobile={locale === "en"}
+              stackOnMobile={locale !== "zh-Hans"}
               label={t("settings.playback.controls.status")}
               description={
                 config.issues.length > 0 && (
@@ -349,7 +349,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
               {status.workers.map((worker) => (
                 <SettingsRow
                   key={worker.worker_id}
-                  stackOnMobile={locale === "en"}
+                  stackOnMobile={locale !== "zh-Hans"}
                   label={
                     <span className="flex items-center gap-2">
                       <span className="truncate">{worker.worker_id}</span>
@@ -402,7 +402,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
               {offlineWorkers.map((device) => (
                 <SettingsRow
                   key={device.id}
-                  stackOnMobile={locale === "en"}
+                  stackOnMobile={locale !== "zh-Hans"}
                   label={
                     <span className="flex items-center gap-2">
                       <span className="truncate text-[var(--text-muted)]">{device.name}</span>
@@ -448,7 +448,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
       >
         <SettingsList>
           <SettingsRow
-            stackOnMobile={locale === "en"}
+            stackOnMobile={locale !== "zh-Hans"}
             label={t("settings.playback.controls.address")}
             description={
               config.base_url_source === "remote_transcode_setting"
@@ -478,7 +478,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
               placeholder={t("settings.playback.controls.addressPlaceholder")}
               disabled={savingURL}
               spellCheck={false}
-              className={`${SETTINGS_INPUT_CLASS} w-60 ${locale === "en" ? "max-sm:w-full" : "max-sm:w-40"}`}
+              className={`${SETTINGS_INPUT_CLASS} w-60 ${locale !== "zh-Hans" ? "max-sm:w-full" : "max-sm:w-40"}`}
             />
           </SettingsRow>
         </SettingsList>

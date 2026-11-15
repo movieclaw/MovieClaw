@@ -228,7 +228,7 @@ function ChannelList({
         }
         footnote={
           <>
-            {t("settings.pushChannels.relayHint")}{locale === "en" && " "}<a
+            {t("settings.pushChannels.relayHint")}{locale !== "zh-Hans" && " "}<a
               href={RELAY_DEPLOY_URL}
               target="_blank"
               rel="noopener noreferrer"
@@ -319,7 +319,7 @@ function ChannelRow({
         {official ? <CloudIcon className="size-5" /> : <ServerIcon className="size-5" />}
       </span>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 self-center">
-        <p className={`min-w-0 ${locale === "en" ? "break-words" : "truncate"} text-body font-medium text-[var(--text)]`}>{channel.name}</p>
+        <p className={`min-w-0 ${locale !== "zh-Hans" ? "break-words" : "truncate"} text-body font-medium text-[var(--text)]`}>{channel.name}</p>
         <StatusPill tone={pill.tone} label={pill.label} />
         {deviceCount && (
           <span className="text-caption text-[var(--text-faint)]">{deviceCount}</span>
@@ -361,7 +361,7 @@ function ChannelRow({
         )}
         {awaitingCloud && (
           <p className="mt-1 text-caption leading-5 text-[var(--text-muted)]">
-            {t("settings.pushChannels.connectHint")}{locale === "en" && " "}<Link href="/settings/cloud" className={LINK_CLASS}>
+            {t("settings.pushChannels.connectHint")}{locale !== "zh-Hans" && " "}<Link href="/settings/cloud" className={LINK_CLASS}>
               {t("settings.pushChannels.connect")}
             </Link>
           </p>

@@ -131,7 +131,7 @@ export function relativeTime(iso: string, now: Date = new Date(), locale: AppLoc
   if (seconds < 3600) return t("library.duplicates.minutesAgo", { count: Math.floor(seconds / 60) });
   if (seconds < 86400) return t("library.duplicates.hoursAgo", { count: Math.floor(seconds / 3600) });
   if (seconds < 86400 * 30) return t("library.duplicates.daysAgo", { count: Math.floor(seconds / 86400) });
-  return then.toLocaleDateString(locale === "en" ? "en-US" : "zh-CN");
+  return then.toLocaleDateString(locale !== "zh-Hans" ? "en-US" : "zh-CN");
 }
 
 /**

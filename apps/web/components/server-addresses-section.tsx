@@ -149,20 +149,20 @@ export function ServerAddressesSection() {
     >
       <SettingsList>
         {failed && (
-          <SettingsRow stackOnMobile={locale === "en"} label={t("settings.network.addresses.failed")} description={t("settings.network.addresses.failedHint")}>
+          <SettingsRow stackOnMobile={locale !== "zh-Hans"} label={t("settings.network.addresses.failed")} description={t("settings.network.addresses.failedHint")}>
             <button type="button" className={SETTINGS_BUTTON_CLASS} onClick={reload}>
               {t("settings.network.ui.retry")}
             </button>
           </SettingsRow>
         )}
         {items?.length === 0 && !adding && (
-          <SettingsRow stackOnMobile={locale === "en"}
+          <SettingsRow stackOnMobile={locale !== "zh-Hans"}
             label={t("settings.network.addresses.empty")}
             description={t("settings.network.addresses.emptyHint")}
           />
         )}
         {items?.map((item) => (
-          <SettingsRow stackOnMobile={locale === "en"}
+          <SettingsRow stackOnMobile={locale !== "zh-Hans"}
             key={item.url}
             leading={<KindPill kind={item.kind} />}
             label={<span className="break-all font-mono text-sub">{item.url}</span>}

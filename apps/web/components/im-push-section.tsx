@@ -133,15 +133,15 @@ export function ImPushSection() {
     <div className="space-y-10">
       <div className="space-y-4">
         <p className="text-sub leading-6 text-[var(--text-muted)]">
-          {t("settings.imChannels.introBefore")}{locale === "en" && " "}
+          {t("settings.imChannels.introBefore")}{locale !== "zh-Hans" && " "}
           <Link href={"/settings/notifications" as Route} className={`mx-1 ${LINK_CLASS}`}>
             {t("settings.imChannels.notificationsLink")}
           </Link>
-          {t("settings.imChannels.introChat")}{locale === "en" && " "}
+          {t("settings.imChannels.introChat")}{locale !== "zh-Hans" && " "}
           <span className="mx-1 rounded bg-white/[0.08] px-1.5 py-0.5 text-caption">/reset</span>
-          {locale === "en" && " "}{t("settings.imChannels.resetHelp")}{locale === "en" && " "}
+          {locale !== "zh-Hans" && " "}{t("settings.imChannels.resetHelp")}{locale !== "zh-Hans" && " "}
           <span className="mx-1 rounded bg-white/[0.08] px-1.5 py-0.5 text-caption">/stop</span>
-          {locale === "en" && " "}{t("settings.imChannels.stopHelp")}{locale === "en" && " "}
+          {locale !== "zh-Hans" && " "}{t("settings.imChannels.stopHelp")}{locale !== "zh-Hans" && " "}
           <Link href={"/settings/plugins" as Route} className={`mx-1 ${LINK_CLASS}`}>
             {t("settings.imChannels.pluginsLink")}
           </Link>
@@ -262,7 +262,7 @@ function AddChannelMenu({
           align="end"
           sideOffset={6}
           collisionPadding={12}
-          className={`menu-surface z-50 min-w-[14rem] p-1${locale === "en" ? " max-w-[calc(100vw-1.5rem)]" : ""}`}
+          className={`menu-surface z-50 min-w-[14rem] p-1${locale !== "zh-Hans" ? " max-w-[calc(100vw-1.5rem)]" : ""}`}
         >
           {channels.map((channel) => (
             <DropdownMenu.Item
@@ -307,20 +307,20 @@ function ChannelAccountRowView({
 
   return (
     <SettingsRow
-      stackOnMobile={locale === "en"}
+      stackOnMobile={locale !== "zh-Hans"}
       leading={
-        <span className={`icon-chip size-10 !rounded-xl${locale === "en" ? " max-sm:!hidden" : ""}`}>
+        <span className={`icon-chip size-10 !rounded-xl${locale !== "zh-Hans" ? " max-sm:!hidden" : ""}`}>
           <ChatIcon className="size-5" />
         </span>
       }
       label={
-        <span className={`flex items-center gap-2${locale === "en" ? " flex-wrap" : ""}`}>
-          <span className={locale === "en" ? "break-words" : "truncate"}>{channel?.title ?? row.channel_id}</span>
+        <span className={`flex items-center gap-2${locale !== "zh-Hans" ? " flex-wrap" : ""}`}>
+          <span className={locale !== "zh-Hans" ? "break-words" : "truncate"}>{channel?.title ?? row.channel_id}</span>
           <StatusPill tone={pill.tone} label={pill.label} />
         </span>
       }
       description={
-        <span className={locale === "en" ? "block break-words" : "block truncate"}>
+        <span className={locale !== "zh-Hans" ? "block break-words" : "block truncate"}>
           {!row.channel_available
             ? t("settings.imChannels.disabledDescription")
             : row.status === "stale"

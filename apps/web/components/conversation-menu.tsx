@@ -106,7 +106,7 @@ export function ConversationMenu({
 }) {
   const t = useTranslations();
   const locale = useLocale();
-  const menuWidth = locale === "en" ? 244 : 176;
+  const menuWidth = locale !== "zh-Hans" ? 244 : 176;
   // 菜单打开状态即定位坐标（打开瞬间按触发按钮位置计算一次）
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -171,7 +171,7 @@ export function ConversationMenu({
         createPortal(
           <div
             ref={menuRef}
-            className={`menu-surface ${locale === "en" ? "w-[244px] max-w-[calc(100vw-16px)]" : "w-44"} overflow-hidden p-1.5`}
+            className={`menu-surface ${locale !== "zh-Hans" ? "w-[244px] max-w-[calc(100vw-16px)]" : "w-44"} overflow-hidden p-1.5`}
             // z 取菜单档 70：Portal 到 body 后与全站浮层同层比较，须压过 60 档的
             // 全屏面板（撰写面板），否则会被盖住、点 ⋯ 毫无反应
             style={{ position: "fixed", left: menuPos.left, top: menuPos.top, zIndex: 70 }}

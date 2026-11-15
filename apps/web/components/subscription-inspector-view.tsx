@@ -511,7 +511,7 @@ export function SubscriptionInspectorView({
                   detail.media.original_title !== detail.media.title && (
                     <span className="truncate">{detail.media.original_title}</span>
                   )}
-                <span className={locale === "en" ? "min-w-0" : "shrink-0"}>{t("subscription.inspector.subscribedAt", { date: formatDateTime(detail.created_at, locale) })}</span>
+                <span className={locale !== "zh-Hans" ? "min-w-0" : "shrink-0"}>{t("subscription.inspector.subscribedAt", { date: formatDateTime(detail.created_at, locale) })}</span>
               </p>
             </div>
 
@@ -548,7 +548,7 @@ export function SubscriptionInspectorView({
 
             {/* 一套 DOM 同时服务桌面与移动端：桌面右对齐、移动端等宽单行。
                 只有“更多”的承载物因交互范式不同分为下拉菜单与底部抽屉。 */}
-            <div className={`mt-auto flex flex-wrap justify-end gap-2 pt-4 max-md:col-span-2 max-md:grid max-md:pt-3 ${locale === "en" ? "max-md:grid-cols-2 max-md:grid-flow-row" : "max-md:grid-flow-col max-md:auto-cols-fr"}`}>
+            <div className={`mt-auto flex flex-wrap justify-end gap-2 pt-4 max-md:col-span-2 max-md:grid max-md:pt-3 ${locale !== "zh-Hans" ? "max-md:grid-cols-2 max-md:grid-flow-row" : "max-md:grid-flow-col max-md:auto-cols-fr"}`}>
               {/* 缺口存在且未暂停时才有意义；其余情况后端会给可读错误，按钮直接隐藏更干净 */}
               {canTune && detail.progress.wanted > 0 && detail.status !== "paused" && (
                 <button
@@ -1378,7 +1378,7 @@ function ActivityLogSection({ activities }: { activities: SubscriptionActivity[]
         <span className="font-normal text-caption text-[var(--text-faint)] max-md:hidden">
           {t("subscription.inspector.historyDescription")}
         </span>
-        <span className="tnum font-normal text-[var(--text-faint)]">{formatNumber(activities.length, { useGrouping: locale === "en" }, locale)}</span>
+        <span className="tnum font-normal text-[var(--text-faint)]">{formatNumber(activities.length, { useGrouping: locale !== "zh-Hans" }, locale)}</span>
         <ChevronDownIcon
           className={`ml-auto size-4 shrink-0 text-[var(--text-faint)] transition-transform ${
             open ? "rotate-180" : ""
@@ -1465,9 +1465,9 @@ function ActivityTimeline({
                 {!last && <span className="mt-1.5 w-px flex-1 bg-white/[0.08]" />}
               </div>
               <div
-                className={`flex min-w-0 flex-1 items-baseline gap-5 ${locale === "en" ? "max-md:flex-wrap max-md:gap-y-1" : ""} ${last ? "" : "pb-5"}`}
+                className={`flex min-w-0 flex-1 items-baseline gap-5 ${locale !== "zh-Hans" ? "max-md:flex-wrap max-md:gap-y-1" : ""} ${last ? "" : "pb-5"}`}
               >
-                <p className={`min-w-0 flex-1 text-ui leading-6 text-white/85 ${locale === "en" ? "max-md:basis-full [overflow-wrap:anywhere]" : ""}`}>{a.message}</p>
+                <p className={`min-w-0 flex-1 text-ui leading-6 text-white/85 ${locale !== "zh-Hans" ? "max-md:basis-full [overflow-wrap:anywhere]" : ""}`}>{a.message}</p>
                 <span
                   className="tnum shrink-0 text-caption text-[var(--text-faint)]"
                   title={formatDateTime(a.created_at, locale)}
@@ -1633,7 +1633,7 @@ function WantedBreakdown({
                         className="tnum ml-2 font-normal text-[var(--text-faint)]"
                         title={t("subscription.inspector.arranged", { arranged, total: items.length })}
                       >
-                        {formatNumber(arranged, { useGrouping: locale === "en" }, locale)}/{formatNumber(items.length, { useGrouping: locale === "en" }, locale)}
+                        {formatNumber(arranged, { useGrouping: locale !== "zh-Hans" }, locale)}/{formatNumber(items.length, { useGrouping: locale !== "zh-Hans" }, locale)}
                       </span>
                     )}
                     {items.some((w) => w.upgrade?.active) && (

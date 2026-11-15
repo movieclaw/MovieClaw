@@ -120,8 +120,8 @@ export function MediaSourceAnnotationDialog({
           <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02]">
             <ul className="scroll-thin max-h-48 divide-y divide-white/[0.05] overflow-y-auto">
               {candidates.map((c) => (
-                <li key={c.file_id} className={`flex items-center gap-3 px-4 py-2${locale === "en" ? " max-md:flex-wrap" : ""}`}>
-                  <span className={`min-w-0 flex-1 truncate text-sub text-white/80${locale === "en" ? " max-md:basis-full" : ""}`}>
+                <li key={c.file_id} className={`flex items-center gap-3 px-4 py-2${locale !== "zh-Hans" ? " max-md:flex-wrap" : ""}`}>
+                  <span className={`min-w-0 flex-1 truncate text-sub text-white/80${locale !== "zh-Hans" ? " max-md:basis-full" : ""}`}>
                     {c.file_name}
                   </span>
                   {c.media_source_manual && (
@@ -158,7 +158,7 @@ export function MediaSourceAnnotationDialog({
                       ? "border-amber-300/40 bg-amber-400/[0.08]"
                       : "border-[#2dd4bf]/40 bg-[#2dd4bf]/[0.08]"
                     : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07]"
-                }${locale === "en" ? " max-md:flex-col max-md:items-start" : ""}`}
+                }${locale !== "zh-Hans" ? " max-md:flex-col max-md:items-start" : ""}`}
               >
                 <span
                   className={`shrink-0 text-ui font-medium ${

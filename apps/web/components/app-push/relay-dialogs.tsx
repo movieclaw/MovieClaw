@@ -191,7 +191,7 @@ export function AddRelayDialog({
           ))}
 
         <p className="text-caption leading-5 text-[var(--text-faint)]">
-          {t("settings.pushChannels.ownAppHint")}{locale === "en" && " "}<a href={RELAY_DEPLOY_URL} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+          {t("settings.pushChannels.ownAppHint")}{locale !== "zh-Hans" && " "}<a href={RELAY_DEPLOY_URL} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
             {t("settings.pushChannels.deploy")}</a>
         </p>
 

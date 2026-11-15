@@ -1556,14 +1556,14 @@ function GroupHeader({
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className={`solid-card flex w-full items-center gap-3 rounded-2xl border border-white/[0.09] bg-white/[0.045] px-4 py-2.5 text-left backdrop-blur-xl transition-colors hover:border-white/[0.16] hover:bg-white/[0.07] ${locale === "en" ? "max-sm:flex-wrap max-sm:gap-y-2" : ""}`}
+      className={`solid-card flex w-full items-center gap-3 rounded-2xl border border-white/[0.09] bg-white/[0.045] px-4 py-2.5 text-left backdrop-blur-xl transition-colors hover:border-white/[0.16] hover:bg-white/[0.07] ${locale !== "zh-Hans" ? "max-sm:flex-wrap max-sm:gap-y-2" : ""}`}
     >
       <span
         className={`shrink-0 text-micro text-[var(--text-faint)] transition-transform ${open ? "rotate-90" : ""}`}
       >
         ▶
       </span>
-      <span className={`min-w-0 flex-1 truncate ${locale === "en" ? "max-sm:basis-[calc(100%-2rem)]" : ""}`}>
+      <span className={`min-w-0 flex-1 truncate ${locale !== "zh-Hans" ? "max-sm:basis-[calc(100%-2rem)]" : ""}`}>
         <span className="text-body font-semibold text-[var(--text)]">
           {unparsed ? t("search.group.unidentified") : (meta.nameZh ?? meta.nameEn)}
         </span>
@@ -1574,7 +1574,7 @@ function GroupHeader({
           <span className="tnum ml-2 text-sub text-[var(--text-faint)]">{info}</span>
         )}
       </span>
-      <span className={`flex shrink-0 items-center gap-1.5 ${locale === "en" ? "max-sm:ml-6 max-sm:w-[calc(100%-1.5rem)] max-sm:shrink max-sm:flex-wrap" : ""}`}>
+      <span className={`flex shrink-0 items-center gap-1.5 ${locale !== "zh-Hans" ? "max-sm:ml-6 max-sm:w-[calc(100%-1.5rem)] max-sm:shrink max-sm:flex-wrap" : ""}`}>
         <span className="tnum rounded-md bg-white/[0.05] px-1.5 py-0.5 text-micro text-[var(--text-muted)]">
           {t("search.group.versions", { count: rows.length })}
         </span>
@@ -1993,11 +1993,11 @@ function FilterSheet({
       {/* 宽度收着点：右侧浮层少遮结果列表，让「选择即生效」的变化被看见 */}
       <div className="solid-popover absolute right-0 top-full z-30 mt-2 max-h-[60dvh] w-[480px] max-w-[82vw] overflow-y-auto rounded-2xl border border-white/[0.12] bg-[rgba(14,16,22,0.96)] p-4 shadow-2xl backdrop-blur-2xl">
         <div className="mb-4 flex items-center justify-between">
-          <div className={locale === "en" ? "min-w-0 flex-1 pr-2" : undefined}>
+          <div className={locale !== "zh-Hans" ? "min-w-0 flex-1 pr-2" : undefined}>
             <p className="text-ui font-medium text-[var(--text)]">{t("search.filters.title")}</p>
             <p className="mt-0.5 text-caption text-[var(--text-faint)]">{t("search.filters.hint")}</p>
           </div>
-          <button type="button" onClick={onClose} className={`grid size-7 place-items-center rounded-full border text-body ${CHIP_IDLE_CLS} ${locale === "en" ? "shrink-0" : ""}`} aria-label={t("search.filters.close")}>
+          <button type="button" onClick={onClose} className={`grid size-7 place-items-center rounded-full border text-body ${CHIP_IDLE_CLS} ${locale !== "zh-Hans" ? "shrink-0" : ""}`} aria-label={t("search.filters.close")}>
             ×
           </button>
         </div>
@@ -2708,7 +2708,7 @@ function SiteStatusSummary({
             {s.phase === "error" && (s.error || s.error_key) && (
               <p
                 title={siteError(s, locale) ?? undefined}
-                className={`mt-0.5 pl-3.5 text-caption leading-4 text-[#ff9a9a]/80 ${locale === "en" ? "" : "line-clamp-2"}`}
+                className={`mt-0.5 pl-3.5 text-caption leading-4 text-[#ff9a9a]/80 ${locale !== "zh-Hans" ? "" : "line-clamp-2"}`}
               >
                 {siteError(s, locale)}
               </p>

@@ -560,7 +560,7 @@ function DiagRow({
   return (
     <div className="grid grid-cols-[5.5rem_1fr] gap-x-3 text-caption leading-5">
       <dt className="text-[var(--text-faint)]">{label}</dt>
-      <dd className={`min-w-0 ${locale === "en" && !mono ? "break-words" : "break-all"} text-[var(--text-muted)] ${mono ? "font-mono" : ""}`}>
+      <dd className={`min-w-0 ${locale !== "zh-Hans" && !mono ? "break-words" : "break-all"} text-[var(--text-muted)] ${mono ? "font-mono" : ""}`}>
         {children}
       </dd>
     </div>

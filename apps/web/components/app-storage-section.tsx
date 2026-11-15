@@ -322,8 +322,8 @@ function DirRow({
   return (
     <SettingsRow
       label={
-        <span className={`flex items-center gap-1.5 ${locale === "en" ? "min-w-0" : ""}`}>
-          <span className={locale === "en" ? "min-w-0 break-words" : "truncate"}>{dir.title}</span>
+        <span className={`flex items-center gap-1.5 ${locale !== "zh-Hans" ? "min-w-0" : ""}`}>
+          <span className={locale !== "zh-Hans" ? "min-w-0 break-words" : "truncate"}>{dir.title}</span>
           <Tooltip
             content={
               <>
@@ -348,13 +348,13 @@ function DirRow({
         </span>
       }
       description={
-        <span className={`flex items-center gap-1.5 ${locale === "en" ? "max-sm:flex-col max-sm:items-start" : ""}`}>
+        <span className={`flex items-center gap-1.5 ${locale !== "zh-Hans" ? "max-sm:flex-col max-sm:items-start" : ""}`}>
           {expensive && (
             <span className="shrink-0 rounded-full bg-amber-400/10 px-1.5 py-px text-micro font-medium text-amber-300/90">
               {t("settings.storage.ui.expensive")}
             </span>
           )}
-          <span className={locale === "en" ? "min-w-0 break-words" : "truncate"}>{dir.summary}</span>
+          <span className={locale !== "zh-Hans" ? "min-w-0 break-words" : "truncate"}>{dir.summary}</span>
         </span>
       }
     >

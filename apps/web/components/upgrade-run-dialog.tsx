@@ -333,7 +333,7 @@ export function UpgradeRunDialog({
                         type="button"
                         disabled={busy}
                         onClick={() => setRuleSetId(rs.id)}
-                        className={`flex w-full items-center gap-2.5 rounded-xl border px-4 py-2.5 text-left transition disabled:opacity-50 ${locale === "en" ? "flex-wrap" : ""} ${
+                        className={`flex w-full items-center gap-2.5 rounded-xl border px-4 py-2.5 text-left transition disabled:opacity-50 ${locale !== "zh-Hans" ? "flex-wrap" : ""} ${
                           picked
                             ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/[0.08]"
                             : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07]"
@@ -347,7 +347,7 @@ export function UpgradeRunDialog({
                             </span>
                           )}
                         </span>
-                        <span className={`shrink-0 rounded-md bg-[#2dd4bf]/15 px-1.5 py-0.5 text-caption font-medium text-[#2dd4bf] ${locale === "en" ? "basis-full" : ""}`}>
+                        <span className={`shrink-0 rounded-md bg-[#2dd4bf]/15 px-1.5 py-0.5 text-caption font-medium text-[#2dd4bf] ${locale !== "zh-Hans" ? "basis-full" : ""}`}>
                           {t("subscription.upgrade.upgradeTo", { target: upgradeTargetLabel(rs.spec, locale) ?? "" })}
                         </span>
                       </button>
@@ -400,7 +400,7 @@ export function UpgradeRunDialog({
 
           </div>
 
-          <div className={`flex justify-end gap-2 border-t border-white/[0.07] px-6 py-4 max-md:px-5 ${locale === "en" ? "flex-wrap" : ""}`}>
+          <div className={`flex justify-end gap-2 border-t border-white/[0.07] px-6 py-4 max-md:px-5 ${locale !== "zh-Hans" ? "flex-wrap" : ""}`}>
             <button
               type="button"
               onClick={onClose}
@@ -412,7 +412,7 @@ export function UpgradeRunDialog({
               type="button"
               disabled={busy || !canRun}
               onClick={() => void run()}
-              className={`btn-accent inline-flex items-center gap-2 rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale === "en" ? "min-h-10 py-2" : "h-10"}`}
+              className={`btn-accent inline-flex items-center gap-2 rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale !== "zh-Hans" ? "min-h-10 py-2" : "h-10"}`}
             >
               {busy && (
                 <span className="size-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white/90" />
@@ -537,7 +537,7 @@ export function UpgradeRunReportView({
                   return (
                     <li
                       key={`${u.season_number}-${u.episode_number}`}
-                      className={`flex items-center gap-3 px-4 py-2 max-md:items-start ${locale === "en" ? "flex-wrap" : ""}`}
+                      className={`flex items-center gap-3 px-4 py-2 max-md:items-start ${locale !== "zh-Hans" ? "flex-wrap" : ""}`}
                     >
                       <span className="tnum w-12 shrink-0 text-sub font-medium text-white/90">
                         {isMovie ? t("media.kind.feature") : `E${String(u.episode_number).padStart(2, "0")}`}
@@ -548,7 +548,7 @@ export function UpgradeRunReportView({
                       >
                         {t(meta.labelKey)}
                       </span>
-                      <span className={`tnum min-w-0 flex-1 text-sub leading-5 text-[var(--text-muted)] ${locale === "en" ? "basis-full [overflow-wrap:anywhere]" : "md:truncate"}`}>
+                      <span className={`tnum min-w-0 flex-1 text-sub leading-5 text-[var(--text-muted)] ${locale !== "zh-Hans" ? "basis-full [overflow-wrap:anywhere]" : "md:truncate"}`}>
                         {unitNote(u, locale)}
                       </span>
                     </li>

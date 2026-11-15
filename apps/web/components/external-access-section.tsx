@@ -208,7 +208,7 @@ export function ExternalAccessSection() {
     >
       <SettingsList>
         {/* 外部访问地址：未设置时说明换成一句引导，说清动作与收益 */}
-        <SettingsRow stackOnMobile={locale === "en"}
+        <SettingsRow stackOnMobile={locale !== "zh-Hans"}
           label={t("settings.network.external.address")}
           description={
             view.external_url
@@ -251,7 +251,7 @@ export function ExternalAccessSection() {
 
         {/* 对外端口：唯一需要重启的字段，故不走失焦即存，改动要过二次确认。
             原理说明长且只在要改端口时才需要，留在 ⓘ 里 */}
-        <SettingsRow stackOnMobile={locale === "en"}
+        <SettingsRow stackOnMobile={locale !== "zh-Hans"}
           label={
             <LabelWithHelp
               label={t("settings.network.external.port")}

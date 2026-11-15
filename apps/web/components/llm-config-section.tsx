@@ -272,7 +272,7 @@ function ProviderRow({
 
   return (
     <SettingsRow
-      stackOnMobile={locale === "en"}
+      stackOnMobile={locale !== "zh-Hans"}
       leading={
         <span className="icon-chip size-9 !rounded-xl">
           <SparkIcon className="size-[18px]" />

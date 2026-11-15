@@ -59,7 +59,7 @@ export function ExtensionCard() {
     >
       <SettingsList>
         <SettingsRow
-          stackOnMobile={locale === "en"}
+          stackOnMobile={locale !== "zh-Hans"}
           leading={
             <span className="icon-chip size-9 shrink-0 !rounded-xl">
               <PuzzleIcon className="size-[18px]" />
@@ -91,7 +91,7 @@ export function ExtensionCard() {
           )}
         </SettingsRow>
         <SettingsRow
-          stackOnMobile={locale === "en"}
+          stackOnMobile={locale !== "zh-Hans"}
           label={t("settings.extension.token")}
           description={t("settings.extension.tokenHint")}
         >

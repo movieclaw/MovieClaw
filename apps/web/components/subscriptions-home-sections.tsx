@@ -376,8 +376,8 @@ function RestingDivider({ label }: { label: string }) {
       className="flex aspect-[18/189] w-[18px] shrink-0 flex-col items-center gap-2 md:aspect-[18/222]"
     >
       <span className="w-px flex-1 bg-gradient-to-b from-transparent via-white/[0.16] to-transparent" />
-      <span className={`flex flex-col items-center text-[10px] font-semibold leading-[1.15] text-[var(--text-faint)] ${locale === "en" ? "[writing-mode:vertical-rl] whitespace-nowrap" : ""}`}>
-        {locale === "en" ? label : Array.from(label).map((char, offset) => (
+      <span className={`flex flex-col items-center text-[10px] font-semibold leading-[1.15] text-[var(--text-faint)] ${locale !== "zh-Hans" ? "[writing-mode:vertical-rl] whitespace-nowrap" : ""}`}>
+        {locale !== "zh-Hans" ? label : Array.from(label).map((char, offset) => (
           <span key={offset}>{char}</span>
         ))}
       </span>

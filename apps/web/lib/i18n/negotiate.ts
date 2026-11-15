@@ -1,4 +1,4 @@
-export type AppLocale = "zh-Hans" | "en";
+export type AppLocale = "zh-Hans" | "en" | "de";
 export type LanguagePreference = AppLocale | "auto";
 
 export const LOCALE_COOKIE = "mc_locale";
@@ -6,6 +6,7 @@ export const LOCALE_COOKIE = "mc_locale";
 export function normalizeLocale(value: string): AppLocale | null {
   if (/^zh(?:-[a-z0-9]{1,8})*$/i.test(value)) return "zh-Hans";
   if (/^en(?:-[a-z0-9]{1,8})*$/i.test(value)) return "en";
+  if (/^de(?:-[a-z0-9]{1,8})*$/i.test(value)) return "de";
   return null;
 }
 

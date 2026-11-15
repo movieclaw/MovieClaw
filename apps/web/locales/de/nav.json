@@ -1,0 +1,72 @@
+{
+  "main": {
+    "new": "Neue Sitzung",
+    "library": "Mediathek",
+    "subscriptions": "Meine Abos",
+    "activity": "Aktivität",
+    "discover": "Entdecken"
+  },
+  "actions": {
+    "home": "Zur Startseite",
+    "expandSidebar": "Seitenleiste ausklappen",
+    "collapseSidebar": "Seitenleiste einklappen",
+    "back": "Zurück",
+    "library": "Zur Mediathek",
+    "workspace": "Zurück zum Dashboard",
+    "backFallback": "Zurück; ohne Verlauf zu {page}"
+  },
+  "sessions": {
+    "renameTitle": "Sitzung umbenennen",
+    "renameFailed": "Sitzung konnte nicht umbenannt werden: {reason}",
+    "forkFailed": "Konnte nicht in einer neuen Sitzung fortgesetzt werden: {reason}",
+    "idCopied": "Sitzungs-ID kopiert",
+    "copyFailed": "Kopieren fehlgeschlagen: {reason}",
+    "deleteTitle": "Sitzung „{title}“ endgültig löschen?",
+    "deleteDescription": "Die vollständige Unterhaltung auf dem Server wird ebenfalls gelöscht. Das lässt sich nicht rückgängig machen.",
+    "deleteConfirm": "Endgültig löschen",
+    "deleteFailed": "Sitzung konnte nicht gelöscht werden: {reason}",
+    "recent": "Letzte Sitzungen",
+    "empty": "Noch keine Sitzungen. Starte mit „Neue Sitzung“.",
+    "loading": "Wird geladen …",
+    "updated": "Aktualisiert {time}",
+    "pluginOwner": "Gestartet von Plugin {plugin}",
+    "plugin": "Plugin",
+    "actions": "Sitzungsaktionen",
+    "continue": "In neuer Sitzung fortsetzen",
+    "copyId": "Sitzungs-ID kopieren",
+    "rename": "Umbenennen",
+    "delete": "Sitzung löschen"
+  },
+  "tabs": {
+    "subscriptions": "Abos",
+    "my": "Ich",
+    "primary": "Hauptnavigation",
+    "expand": "Tableiste ausklappen"
+  },
+  "badges": {
+    "watching": "Jemand schaut gerade",
+    "update": "Update verfügbar",
+    "attention": "{count, plural, one {# Eintrag erfordert Aufmerksamkeit} other {# Einträge erfordern Aufmerksamkeit}}",
+    "active": "{count, plural, one {# Aufgabe läuft} other {# Aufgaben laufen}}",
+    "noActive": "Keine laufenden Aufgaben",
+    "activityHint": "Aktivität ({hint})"
+  },
+  "cinema": {
+    "browse": "Stöbern",
+    "sessions": "KI-Unterhaltungen",
+    "emptySessions": "Noch keine Unterhaltungen. Starte mit „Neue Aufgabe“.",
+    "myEntries": "Meine Verknüpfungen",
+    "pluginPages": "Plugin-Seiten",
+    "accountActions": "Kontoaktionen",
+    "back": "Zurück",
+    "newTask": "Neue Aufgabe",
+    "accountMenu": "Kontomenü"
+  },
+  "more": {
+    "quickAccess": "Schnellzugriff",
+    "account": "Konto",
+    "noSessions": "Noch keine Sitzungen. Wähle oben „Neue Sitzung“, um zu starten.",
+    "loadingMore": "Weitere Sitzungen werden geladen …",
+    "profileAria": "{name}, Profil ansehen und bearbeiten"
+  }
+}

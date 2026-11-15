@@ -208,8 +208,8 @@ export function DriveFolderPicker({
         )}
       </div>
 
-      <div className={`${locale === "en" ? "flex flex-wrap" : "flex"} items-center gap-3 border-t border-white/[0.08] bg-white/[0.02] px-5 py-3.5`}>
-        <p className={`${locale === "en" ? "w-full break-words" : "min-w-0 flex-1 truncate"} text-sub text-[var(--text-muted)]`} title={current.path}>
+      <div className={`${locale !== "zh-Hans" ? "flex flex-wrap" : "flex"} items-center gap-3 border-t border-white/[0.08] bg-white/[0.02] px-5 py-3.5`}>
+        <p className={`${locale !== "zh-Hans" ? "w-full break-words" : "min-w-0 flex-1 truncate"} text-sub text-[var(--text-muted)]`} title={current.path}>
           {blocked ?? current.path}
         </p>
         <button type="button" onClick={onClose} className="btn-glass h-8 shrink-0 px-3.5 text-ui font-medium">

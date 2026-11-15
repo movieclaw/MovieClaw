@@ -395,7 +395,7 @@ function KeywordCapsule({ keyword, onClick }: { keyword: string; onClick: () => 
       type="button"
       onClick={onClick}
       aria-label={keyword ? t("search.page.keywordHint", { keyword }) : t("search.page.latestHint")}
-      className={`flex h-9 min-w-0 items-center gap-1.5 rounded-full border border-white/[0.09] bg-black/30 px-4 text-white/85 backdrop-blur-md transition active:scale-[0.97] pointer-coarse:h-11 ${locale === "en" ? "max-w-[min(240px,42vw)]" : "max-w-[240px]"}`}
+      className={`flex h-9 min-w-0 items-center gap-1.5 rounded-full border border-white/[0.09] bg-black/30 px-4 text-white/85 backdrop-blur-md transition active:scale-[0.97] pointer-coarse:h-11 ${locale !== "zh-Hans" ? "max-w-[min(240px,42vw)]" : "max-w-[240px]"}`}
     >
       <SearchIcon className="size-4 shrink-0 text-[var(--text-muted)]" />
       <span className="truncate text-body font-semibold text-[var(--text)]">
@@ -446,7 +446,7 @@ function ScopeMenu({
         <button
           type="button"
           aria-label={t("search.page.scopeHint", { scope: searchScopeLabel(scope, locale) ?? t("search.palette.allCategories") })}
-          className={`flex h-9 shrink-0 items-center gap-1 rounded-full border border-white/[0.09] bg-black/30 px-3.5 text-sub font-semibold text-white/85 backdrop-blur-md transition active:scale-[0.97] data-[state=open]:bg-black/50 pointer-coarse:h-11 ${locale === "en" ? "max-w-[31vw]" : "max-w-[8.5rem]"}`}
+          className={`flex h-9 shrink-0 items-center gap-1 rounded-full border border-white/[0.09] bg-black/30 px-3.5 text-sub font-semibold text-white/85 backdrop-blur-md transition active:scale-[0.97] data-[state=open]:bg-black/50 pointer-coarse:h-11 ${locale !== "zh-Hans" ? "max-w-[31vw]" : "max-w-[8.5rem]"}`}
         >
           <span className="truncate">{searchScopeLabel(scope, locale) ?? t("common.all")}</span>
           <ChevronDownIcon className="size-3 shrink-0 opacity-60" />
