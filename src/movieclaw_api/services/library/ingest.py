@@ -902,7 +902,28 @@ async def _sweep_dir(
     决定（_ingest_entry 内），kind 先验取自规则本身。生产路径只负责创建
     ``library.ingest`` Job；``execute_inline`` 仅供领域单测与离线维护脚本复用
     同一套处理原语，Web、监听器和调度器都不得开启。
+
+    巡检收尾必挂自检（放在 finally）：仍有条目在等静默窗口/等下载器翻转/
+    等失败退避时，或源目录在网络挂载上（远端写入没有本机事件，靠固定节奏
+    轮询，issue #1275），保证有人回来看——无论这轮由事件、自检还是兜底
+    触发，也无论本轮是正常收尾、目录缺失/读取失败提前返回、「跳过存量」
+    基线提前返回还是中途抛异常，任何一条路径都不会让轮询链断掉。
     """
+    try:
+        await _sweep_dir_once(rule, library, execute_inline=execute_inline)
+    finally:
+        watcher = get_ingest_watcher()
+        if watcher is not None:
+            watcher._arm_recheck(rule.source_path)
+
+
+async def _sweep_dir_once(
+    rule: ImportWatch,
+    library: Library | None,
+    *,
+    execute_inline: bool,
+) -> None:
+    """_sweep_dir 的单轮巡检本体；自检续挂由 _sweep_dir 的 finally 统一负责。"""
     root = Path(rule.source_path)
     if not root.is_dir():
         return  # 目录未就绪（挂载中/配置超前）：不告警刷屏，下轮再看
@@ -954,12 +975,6 @@ async def _sweep_dir(
             # 取代：见到即全部熄灭，不管条目还在不在
             await resolve_notices(session, prefix=f"ingest:{prefix}")
             await refresh_source_notice(session, rule.source_path, present=seen)
-    # 巡检收尾必挂自检：仍有条目在等静默窗口/等下载器翻转时，保证有人
-    # 回来看——无论这轮巡检由事件、自检还是兜底触发（集中在此处挂，
-    # 任何一条触发路径都不会漏）
-    watcher = get_ingest_watcher()
-    if watcher is not None:
-        watcher._arm_recheck(rule.source_path)
 
 
 async def _baseline_existing(
@@ -5273,15 +5288,21 @@ class IngestWatcher:
 
     async def _sweep(self, source_path: str) -> None:
         db = get_database()
-        async with db.session() as session:
-            result = await session.execute(
-                select(ImportWatch, Library)
-                .outerjoin(Library, ImportWatch.library_id == Library.id)  # type: ignore[arg-type]
-                .where(ImportWatch.source_path == source_path)
-            )
-            pair = result.first()
+        try:
+            async with db.session() as session:
+                result = await session.execute(
+                    select(ImportWatch, Library)
+                    .outerjoin(Library, ImportWatch.library_id == Library.id)  # type: ignore[arg-type]
+                    .where(ImportWatch.source_path == source_path)
+                )
+                pair = result.first()
+        except Exception:
+            # 查不到规则（数据库暂时故障）≠ 规则已删除：照常续挂，下一轮再确认
+            self._arm_recheck(source_path)
+            raise
         if pair is None:
-            return  # 规则已删除（refresh_watches 稍后会拆掉监听）
+            # 规则已删除（refresh_watches 稍后会拆掉监听）：不续挂，轮询链到此为止
+            return
         rule, library = pair
         await _sweep_dir(rule, library)  # 收尾会重挂自检（_sweep_dir 统一负责）
 
@@ -5304,6 +5325,8 @@ class IngestWatcher:
         network = is_network_root(source_path)
         if not quiet and not has_deferred and not failed and not network:
             return
+        if self._closed:
+            return  # 已关停（巡检被取消时 finally 也会走到这里）：不再挂新任务
         existing = self._rechecks.get(source_path)
         if existing is not None and not existing.done():
             return
