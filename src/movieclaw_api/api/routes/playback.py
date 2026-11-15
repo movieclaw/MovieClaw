@@ -839,18 +839,25 @@ async def _with_series_memory(
 ) -> tuple[_RequestT, tuple[str | None, str | None]]:
     """本集没有记忆时，沿用同一部剧最近一集的音轨 / 字幕（按语言换算，见 ``track_memory``）。
 
-    返回（补上记忆的请求，实际补上的（音轨, 字幕））——后者随观看状态带回，
-    客户端据此提示「已沿用上次的选择」。
+    返回（补上记忆的请求，沿用来的（音轨, 字幕））——后者随观看状态带回，
+    客户端据此起播并提示「已沿用上次的选择」。
+
+    请求里显式带了轨时不改请求，但沿用结果照样返回：App 的自研引擎开播时固定带
+    ``subtitle_track="off"``，只是「不要服务端烧录」，不是用户的选择；字幕选哪条由
+    客户端按观看状态落下。若因此不返回，上一集明确关掉的字幕到下一集就被默认字幕顶回来。
     """
-    if request.audio_track is not None and request.subtitle_track is not None:
-        return request, (None, None)
     target = None
     if request.file_id is not None:
         target = await session.get(LibraryFile, request.file_id)
     audio, subtitle = await track_memory.series_track_memory(session, states, unit, target)
-    audio = audio if request.audio_track is None else None
-    subtitle = subtitle if request.subtitle_track is None else None
-    update = {k: v for k, v in (("audio_track", audio), ("subtitle_track", subtitle)) if v}
+    update = {
+        k: v
+        for k, v, given in (
+            ("audio_track", audio, request.audio_track),
+            ("subtitle_track", subtitle, request.subtitle_track),
+        )
+        if v and given is None
+    }
     return (request.model_copy(update=update) if update else request), (audio, subtitle)
 
 
