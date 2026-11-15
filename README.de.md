@@ -45,8 +45,14 @@
 
 > **Hinweis zur Übersetzung:** Die **Weboberfläche** gibt es auf Deutsch (umschalten unter
 > **Einstellungen → Darstellung und Sprache**); die Menüpfade in dieser Anleitung beziehen sich darauf.
-> Noch nicht übersetzt sind die **nativen Apps** (iPhone, Android, TV, Mac) und **Meldungen vom Server**
-> (manche Fehlertexte, Benachrichtigungen und Antworten des KI-Agenten). Diese erscheinen auf Englisch.
+> Was noch nicht auf Deutsch ist:
+> - **Meldungen vom Server in der Weboberfläche** (z. B. Fehlertexte, Suche): erscheinen bei deutscher
+>   Oberfläche auf Englisch.
+> - **Native Apps** (iPhone, Android, TV, Mac): nicht übersetzt, sie laufen auf Englisch oder Chinesisch;
+>   einzelne Texte sind noch fest auf Chinesisch.
+> - **Benachrichtigungen im Hintergrund** (Push, WeChat, Telegram usw.): kommen auf Englisch oder
+>   Chinesisch – je nachdem, welche Sprache zuletzt verwendet wurde.
+>
 > Im Zweifel gilt die [englische README](README.md).
 
 ## Eine Installation. Mehr brauchst du nicht.
