@@ -579,8 +579,9 @@ def test_decide_applies_remembered_tracks_like_session_start(client, tmp_path):
     assert decide(audio_track="embedded:0")["audio"]["track_ref"] == "embedded:0"
 
 
-async def _seed_show(tmp_path: Path) -> int:
-    """两集的剧：第 1 集英语在前、国语第 2 条，第 2 集国语挪到第 1 条；
+async def _seed_show(tmp_path: Path, episodes: int = 2) -> int:
+    """两集的剧（``episodes`` 给更多时，第 3 集起同第 1 集）：
+    第 1 集英语在前、国语第 2 条，第 2 集国语挪到第 1 条；
     外挂字幕（中文、英文）文件名每集不同。
 
     第 2 集的国语恰是默认轨——换算后直出，开会话不牵出重封装（测试里没有 ffmpeg）。
@@ -599,7 +600,8 @@ async def _seed_show(tmp_path: Path) -> int:
         eng = {"codec": "aac", "channels": 2, "language": "eng", "default": True}
         chi = {"codec": "aac", "channels": 2, "language": "chi", "default": False}
         second = [{**chi, "default": True}, {**eng, "default": False}]
-        for episode, audio in ((1, [eng, chi]), (2, second)):
+        layouts = [[eng, chi], second] + [[eng, chi]] * (episodes - 2)
+        for episode, audio in enumerate(layouts, start=1):
             path = root / f"Show.S01E0{episode}.mp4"
             path.write_bytes(b"FAKE-MEDIA-BYTES" * 64)
             externals = []
@@ -667,6 +669,47 @@ def test_new_episode_inherits_the_series_track_choice(client, tmp_path):
         },
     )
     assert resp.json()["data"]["audio"]["track_ref"] == "embedded:1"
+
+
+def test_subtitle_turned_off_stays_off_across_episodes(client, tmp_path):
+    """第 1 集把默认开着的中文字幕关掉，往后几集都不再开字幕。
+
+    App 的自研引擎开播时固定带 ``subtitle_track="off"``（只为挡住服务端烧录），
+    这不能顶掉同剧沿用：观看状态里仍要带回「关闭」，否则客户端按默认中文字幕起播
+    （2026-11-15 用户反馈：关掉字幕，下一集又开了）。网页不带这个参数，口径相同。
+    """
+    show_id = client.portal.call(partial(_seed_show, tmp_path, 3))  # type: ignore[attr-defined]
+    # 没人动过时第 2 集默认开中文字幕：关掉才是用户的选择
+    untouched = start_session(client, show_id, season_number=1, episode_number=2)
+    assert untouched["watch"]["subtitle_track"] == "external:Show.S01E02.chs.srt"
+
+    ep1 = {"season_number": 1, "episode_number": 1}
+    report(client, show_id, event="start", position_ms=0, **ep1)
+    report(client, show_id, event="progress", position_ms=60_000, subtitle_track="off", **ep1)
+
+    for episode in (2, 3):
+        unit = {"season_number": 1, "episode_number": episode}
+        app = start_session(client, show_id, subtitle_track="off", **unit)
+        assert app["watch"]["subtitle_track"] == "off", episode
+        web = start_session(client, show_id, **unit)
+        assert web["watch"]["subtitle_track"] == "off", episode
+        # 像 App 一样把这一集看下去：用户没碰字幕，进度上报不带轨
+        report(client, show_id, event="start", position_ms=0, **unit)
+        report(client, show_id, event="progress", position_ms=60_000, **unit)
+
+    # 中途在第 3 集重新开了英文字幕：之后从第 3 集沿用，不再是第 1 集的「关闭」
+    ep3 = {"season_number": 1, "episode_number": 3}
+    report(
+        client,
+        show_id,
+        event="progress",
+        position_ms=90_000,
+        subtitle_track="external:Show.S01E03.en.srt",
+        **ep3,
+    )
+    again = start_session(client, show_id, subtitle_track="off", season_number=1, episode_number=2)
+    # 第 2 集自己没记，最近有选择的是第 3 集：换算成第 2 集的英文字幕
+    assert again["watch"]["subtitle_track"] == "external:Show.S01E02.en.srt"
 
 
 # ---------------------------------------------------------------------------
