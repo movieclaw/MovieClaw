@@ -96,7 +96,7 @@ async def test_context_reset_and_concurrent_requests():
             "/error", headers={"Cookie": "mc_locale=zh-Hans", "Accept-Language": "en"}
         )
         assert cookie.headers["content-language"] == "zh-Hans"
-        # German web UI on a Chinese browser: no server catalog yet, so English, not the browser's Chinese
+        # German web UI on a Chinese browser: no server catalog yet, so English, not Chinese
         german = await client.get(
             "/error", headers={"Cookie": "mc_locale=de", "Accept-Language": "zh-CN"}
         )
