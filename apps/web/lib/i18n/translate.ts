@@ -7,7 +7,7 @@ export const APP_FORMATS = { number: { elapsedSeconds: { useGrouping: false, min
 const translator = (locale: AppLocale) => createTranslator({
   locale, messages: messagesFor(locale), formats: APP_FORMATS,
 });
-const translators = { "zh-Hans": translator("zh-Hans"), en: translator("en") };
+const translators = { "zh-Hans": translator("zh-Hans"), en: translator("en"), de: translator("de") };
 
 export function appTranslator(locale: AppLocale = requestLocale() ?? "zh-Hans") {
   return translators[locale];

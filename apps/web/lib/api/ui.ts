@@ -114,7 +114,7 @@ export function normalizeUiPreferences(
 ): UiPreferences {
   return {
     // 老后端不认识 theme 字段时返回 undefined，兜底为默认主题（天然向前兼容）
-    language: data?.language === "en" || data?.language === "zh-Hans" ? data.language : "auto",
+    language: data?.language === "en" || data?.language === "zh-Hans" || data?.language === "de" ? data.language : "auto",
     theme: normalizeThemeId(data?.theme),
     theme_desktop: normalizeThemeOverride(data?.theme_desktop),
     theme_mobile: normalizeThemeOverride(data?.theme_mobile),

@@ -1,0 +1,9 @@
+{
+  "duration": {
+    "seconds": "{count, plural, one {# Sekunde} other {# Sekunden}}",
+    "minutes": "{count, plural, one {# Minute} other {# Minuten}}",
+    "hours": "{count, plural, one {# Stunde} other {# Stunden}}",
+    "fractionalHours": "{count, number, oneDecimal} Stunden",
+    "hoursMinutes": "{hours} Std. {minutes} Min."
+  }
+}

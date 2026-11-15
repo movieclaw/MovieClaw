@@ -87,7 +87,7 @@ export function Banner({
           </div>
         )}
       </div>
-      {action && <div className={`shrink-0 self-center max-sm:ml-7${locale === "en" ? " max-sm:max-w-[calc(100%-1.75rem)]" : ""}`}>{action}</div>}
+      {action && <div className={`shrink-0 self-center max-sm:ml-7${locale !== "zh-Hans" ? " max-sm:max-w-[calc(100%-1.75rem)]" : ""}`}>{action}</div>}
       {onDismiss && (
         <button
           type="button"

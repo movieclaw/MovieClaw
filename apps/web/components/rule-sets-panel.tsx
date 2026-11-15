@@ -1079,7 +1079,7 @@ export function RuleSetEditorDialog({
               ))}
               {codecExtras.length > 0 && (
                 <span className="self-center text-caption text-[var(--text-faint)]">
-                  {t("subscription.rules.customValues", { values: codecExtras.join(locale === "en" ? ", " : "、") })}
+                  {t("subscription.rules.customValues", { values: codecExtras.join(locale !== "zh-Hans" ? ", " : "、") })}
                 </span>
               )}
             </div>
@@ -1102,7 +1102,7 @@ export function RuleSetEditorDialog({
             </div>
             {(platformExtras.allow.length > 0 || platformExtras.block.length > 0) && (
               <p className="mt-1.5 text-caption text-[var(--text-faint)]">
-                {t("subscription.rules.customValues", { values: [...platformExtras.allow, ...platformExtras.block].map(value => platformLabel(value, locale)).join(locale === "en" ? ", " : "、") })}
+                {t("subscription.rules.customValues", { values: [...platformExtras.allow, ...platformExtras.block].map(value => platformLabel(value, locale)).join(locale !== "zh-Hans" ? ", " : "、") })}
               </p>
             )}
           </Field>

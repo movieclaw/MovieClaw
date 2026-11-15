@@ -7,6 +7,12 @@ const cases = JSON.parse(fs.readFileSync(new URL("../../../tests/i18n/negotiatio
 for (const { header, locale } of cases) {
   test(`language negotiation: ${header}`, () => assert.equal(negotiate(header), locale));
 }
+test("web UI negotiates German; the server keeps English for it until it has a German catalog", () => {
+  assert.equal(negotiate("de"), "de");
+  assert.equal(negotiate("de-AT,en;q=0.8"), "de");
+  assert.equal(negotiate("fr,de;q=0.5"), "de");
+  assert.equal(resolveLocale("de", "en-US"), "de");
+});
 test("valid cookie takes precedence; auto and invalid values use browser", () => {
   assert.equal(resolveLocale("en", "zh-CN"), "en");
   assert.equal(resolveLocale("zh-Hans", "en-US"), "zh-Hans");

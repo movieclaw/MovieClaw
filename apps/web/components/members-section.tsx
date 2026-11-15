@@ -924,7 +924,7 @@ function CredentialRow({ kind, value, mono = false }: { kind: "account" | "passw
       ariaLabel={kind === "account" ? t("settings.members.credentials.copyAccountAria") : t("settings.members.credentials.copyPasswordAria")}
       className="flex w-full items-center gap-4 border-b border-white/[0.06] px-4 py-3 text-left transition-colors hover:bg-white/[0.045]"
     >
-      <span className={`${locale === "en" ? "w-16" : "w-10"} shrink-0 text-caption text-[var(--text-faint)]`}>{label}</span>
+      <span className={`${locale !== "zh-Hans" ? "w-16" : "w-10"} shrink-0 text-caption text-[var(--text-faint)]`}>{label}</span>
       <span className={`min-w-0 flex-1 break-all text-ui text-white ${mono ? "font-mono" : ""}`}>
         {value}
       </span>
@@ -975,13 +975,13 @@ function CopySurface({
       type="button"
       onClick={() => void copy()}
       aria-label={ariaLabel}
-      className={`${className} ${locale === "en" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""}`}
+      className={`${className} ${locale !== "zh-Hans" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""}`}
     >
       {children}
       {(copied || hint) && (
         <span
           aria-live="polite"
-          className={`shrink-0 text-caption ${locale === "en" ? "max-sm:ml-auto max-sm:w-full max-sm:text-right" : ""} ${copied ? "text-emerald-300" : "text-[var(--text-faint)]"}`}
+          className={`shrink-0 text-caption ${locale !== "zh-Hans" ? "max-sm:ml-auto max-sm:w-full max-sm:text-right" : ""} ${copied ? "text-emerald-300" : "text-[var(--text-faint)]"}`}
         >
           {copied ? t("common.copied") : hint}
         </span>

@@ -110,7 +110,7 @@ export function WebSearchSettings() {
         <SettingsList>
           {config.configured && current ? (
             <SettingsRow
-              stackOnMobile={locale === "en"}
+              stackOnMobile={locale !== "zh-Hans"}
               leading={<RowIcon />}
               label={
                 <span className="flex items-center gap-2">
@@ -233,7 +233,7 @@ function WebSearchDrawer({
       }}
       title={config.configured ? t("settings.webSearch.ui.edit") : t("settings.webSearch.ui.add")}
       description={t("settings.webSearch.ui.drawerHint")}
-      hint={locale === "en" ? <span className="max-md:hidden">{t("settings.webSearch.ui.verifyHint")}</span> : t("settings.webSearch.ui.verifyHint")}
+      hint={locale !== "zh-Hans" ? <span className="max-md:hidden">{t("settings.webSearch.ui.verifyHint")}</span> : t("settings.webSearch.ui.verifyHint")}
       actions={
         <>
           <button
@@ -262,7 +262,7 @@ function WebSearchDrawer({
         }}
       >
         {error && <ErrorBanner>{error}</ErrorBanner>}
-        {locale === "en" && <p className="text-caption leading-5 text-[var(--text-faint)] md:hidden">{t("settings.webSearch.ui.verifyHint")}</p>}
+        {locale !== "zh-Hans" && <p className="text-caption leading-5 text-[var(--text-faint)] md:hidden">{t("settings.webSearch.ui.verifyHint")}</p>}
 
         <fieldset>
           <legend className="mb-2 text-sub font-medium text-[var(--text-muted)]">

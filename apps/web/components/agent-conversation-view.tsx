@@ -377,7 +377,7 @@ function HandoffCard({
   const locale = useLocale();
   const sourceLabel = handoff.sourceTitle || t("agent.conversation.sourceFallback", {id: handoff.sourceSessionId.slice(0, 8)});
   return (
-    <div className={`flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.025] px-4 py-3 text-ui text-[var(--text-muted)] max-md:items-start ${locale === "en" ? "max-md:flex-col" : ""}`}>
+    <div className={`flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.025] px-4 py-3 text-ui text-[var(--text-muted)] max-md:items-start ${locale !== "zh-Hans" ? "max-md:flex-col" : ""}`}>
       <div className="min-w-0">
         <p className="font-medium text-[var(--text)]">{t("agent.conversation.handoff", {name: sourceLabel})}</p>
         <p className="mt-1 text-caption leading-5 text-[var(--text-faint)]">

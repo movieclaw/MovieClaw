@@ -609,7 +609,7 @@ function DialogContent({
                 >
                   <FolderIcon className="mt-0.5 size-4 shrink-0 text-[var(--accent)]/80" />
                   <span className="min-w-0 flex-1">
-                    <span className={`block text-ui font-medium text-[var(--text)] ${locale === "en" && option.kind !== "dir" ? "break-words" : "truncate font-mono"}`}>
+                    <span className={`block text-ui font-medium text-[var(--text)] ${locale !== "zh-Hans" && option.kind !== "dir" ? "break-words" : "truncate font-mono"}`}>
                       {option.label}
                     </span>
                     {option.detail && (
@@ -690,14 +690,14 @@ function DialogContent({
 
       {/* 底栏常驻：确认按钮永远在屏幕上，不必先把长列表滚到底才找得到 */}
       <div className="flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4">
-        <button type="button" onClick={onClose} className={`btn-glass px-4 text-ui font-medium ${locale === "en" ? "min-h-9 py-2" : "h-9"}`}>
+        <button type="button" onClick={onClose} className={`btn-glass px-4 text-ui font-medium ${locale !== "zh-Hans" ? "min-h-9 py-2" : "h-9"}`}>
           {t("common.cancel")}
         </button>
         <button
           type="button"
           onClick={submit}
           disabled={busy || selected === null}
-          className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale === "en" ? "min-h-9 break-words py-2" : "h-9"}`}
+          className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale !== "zh-Hans" ? "min-h-9 break-words py-2" : "h-9"}`}
         >
           {busy
             ? t("download.target.submitting")
@@ -822,7 +822,7 @@ function MemberDialogContent({
               >
                 <FolderIcon className="mt-0.5 size-4 shrink-0 text-[var(--accent)]/80" />
                 <span className="min-w-0 flex-1">
-                  <span className={`block text-ui font-medium text-[var(--text)] ${locale === "en" ? "break-words" : "truncate"}`}>
+                  <span className={`block text-ui font-medium text-[var(--text)] ${locale !== "zh-Hans" ? "break-words" : "truncate"}`}>
                     {t("download.target.libraryDownload", { name: library.name })}
                   </span>
                   <span className="mt-0.5 block text-caption leading-relaxed text-[var(--text-faint)]">
@@ -841,7 +841,7 @@ function MemberDialogContent({
             >
               <FolderIcon className="mt-0.5 size-4 shrink-0 text-[var(--accent)]/80" />
               <span className="min-w-0 flex-1">
-                <span className={`block text-ui font-medium text-[var(--text)] ${locale === "en" ? "break-words" : "truncate"}`}>
+                <span className={`block text-ui font-medium text-[var(--text)] ${locale !== "zh-Hans" ? "break-words" : "truncate"}`}>
                   {t("download.target.downloaderDirectory")}
                 </span>
                 <span className="mt-0.5 block text-caption leading-relaxed text-[var(--text-faint)]">
@@ -854,14 +854,14 @@ function MemberDialogContent({
       </div>
 
       <div className="flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4">
-        <button type="button" onClick={onClose} className={`btn-glass px-4 text-ui font-medium ${locale === "en" ? "min-h-9 py-2" : "h-9"}`}>
+        <button type="button" onClick={onClose} className={`btn-glass px-4 text-ui font-medium ${locale !== "zh-Hans" ? "min-h-9 py-2" : "h-9"}`}>
           {t("common.cancel")}
         </button>
         <button
           type="button"
           onClick={submit}
           disabled={busy || selected === null}
-          className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale === "en" ? "min-h-9 break-words py-2" : "h-9"}`}
+          className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale !== "zh-Hans" ? "min-h-9 break-words py-2" : "h-9"}`}
         >
           {busy ? t("download.target.submitting") : picked ? t("download.target.libraryDownload", { name: picked.name }) : t("download.target.confirm")}
         </button>
@@ -1099,7 +1099,7 @@ export function DownloadTargetConfirmBar({
         </div>
       </div>
 
-      <div className={`flex flex-col gap-2.5 border-t border-white/[0.07] px-5 py-3 ${locale === "en" ? "" : "sm:flex-row sm:items-center sm:justify-between"}`}>
+      <div className={`flex flex-col gap-2.5 border-t border-white/[0.07] px-5 py-3 ${locale !== "zh-Hans" ? "" : "sm:flex-row sm:items-center sm:justify-between"}`}>
         <span className="text-center text-caption text-[var(--text-faint)] sm:text-left">
           {t.rich("download.target.lastUsed", { time: formatRelativeTime(target.updated_at, locale), forget: (chunks) => <button
             type="button"
@@ -1107,11 +1107,11 @@ export function DownloadTargetConfirmBar({
             className="text-[var(--accent-2)] underline underline-offset-2 hover:text-[var(--accent)]"
           >{chunks}</button> })}
         </span>
-        <div className={`flex gap-2 ${locale === "en" ? "justify-end" : ""}`}>
+        <div className={`flex gap-2 ${locale !== "zh-Hans" ? "justify-end" : ""}`}>
           <button
             type="button"
             onClick={onChange}
-            className={`btn-glass flex-1 px-4 text-ui font-medium sm:flex-none ${locale === "en" ? "min-h-9 py-2" : "h-9"}`}
+            className={`btn-glass flex-1 px-4 text-ui font-medium sm:flex-none ${locale !== "zh-Hans" ? "min-h-9 py-2" : "h-9"}`}
           >
             {t("download.target.change")}
           </button>
@@ -1122,7 +1122,7 @@ export function DownloadTargetConfirmBar({
               setBusy(true);
               onConfirm();
             }}
-            className={`btn-accent flex-1 rounded-full px-5 text-ui font-semibold disabled:opacity-40 sm:flex-none ${locale === "en" ? "min-h-9 break-words py-2" : "h-9"}`}
+            className={`btn-accent flex-1 rounded-full px-5 text-ui font-semibold disabled:opacity-40 sm:flex-none ${locale !== "zh-Hans" ? "min-h-9 break-words py-2" : "h-9"}`}
           >
             {busy ? t("download.target.submitting") : t("download.target.confirm")}
           </button>

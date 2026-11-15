@@ -1,0 +1,17 @@
+{
+  "auth": {
+    "wrongPassword": "Benutzername oder Passwort ist falsch"
+  },
+  "siteDiagnostic": {
+    "auth": "Authentifizierung fehlgeschlagen: {error}",
+    "network": "Keine Verbindung zur Seite möglich. Prüfe dein Netzwerk, den Proxy und ob die Seite erreichbar ist.",
+    "loginRedirect": "Die Seite hat auf ihre Anmeldeseite umgeleitet. Deine Cookies sind abgelaufen oder unvollständig. Melde dich im Browser bei der Seite an und synchronisiere die Cookies dann erneut.",
+    "parse": "Unerwartete Antwort der Seite. Die Seite hat sich womöglich geändert, oder abgelaufene Zugangsdaten haben eine Anmeldeseite geliefert.",
+    "challenge": "Durch eine Cloudflare-Prüfung blockiert (Status {code}). cf_clearance ist an den User-Agent des Browsers und die öffentliche IP-Adresse gebunden. Nur die Cookies zu synchronisieren, löst das meist nicht.",
+    "forbidden": "Die Seite hat den Zugriff verweigert (Status {code}). Die Zugangsdaten sind womöglich abgelaufen. Prüfe oder aktualisiere sie.",
+    "rateLimited": "Die Seite hat die Anfragen begrenzt (Status {code}). Anfragen werden automatisch verlangsamt.",
+    "unavailable": "Der Server der Seite ist vorübergehend nicht erreichbar (Status {code}). Das liegt meist an der Seite selbst. Warte, bis sie wieder läuft.",
+    "http": "Die Seite hat einen unerwarteten Status zurückgegeben: {code}. Versuche es später erneut oder prüfe die Zugangsdaten.",
+    "unknown": "Unerwarteter Fehler bei der Prüfung ({kind}): {error}"
+  }
+}

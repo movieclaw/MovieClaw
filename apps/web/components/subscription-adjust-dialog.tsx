@@ -427,7 +427,7 @@ export function SubscriptionAdjustDialog({
       </div>
 
       {/* 底栏常驻：季数一多就要滚，保存按钮不能被滚出屏幕 */}
-      <div className={`flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5 ${locale === "en" ? "flex-wrap" : ""}`}>
+      <div className={`flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5 ${locale !== "zh-Hans" ? "flex-wrap" : ""}`}>
         <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
           {t("common.cancel")}
         </button>
@@ -435,7 +435,7 @@ export function SubscriptionAdjustDialog({
           type="button"
           disabled={saveDisabled}
           onClick={() => void save()}
-          className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale === "en" ? "min-h-9 py-2" : "h-9"}`}
+          className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale !== "zh-Hans" ? "min-h-9 py-2" : "h-9"}`}
         >
           {busy ? t("subscription.adjust.saving") : t("subscription.adjust.save")}
         </button>

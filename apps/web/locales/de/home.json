@@ -1,0 +1,10 @@
+{
+  "metadata": {
+    "description": "MovieClaw-Dashboard – dein Arbeitsbereich für deine Medien.",
+    "manifestDescription": "Dein Arbeitsbereich für deine Medien"
+  },
+  "newSession": {
+    "configureModel": "Verbinde ein KI-Modell, um eine Unterhaltung zu starten",
+    "createFailed": "Sitzung konnte nicht erstellt werden: {reason}"
+  }
+}

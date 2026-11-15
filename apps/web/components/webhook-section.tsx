@@ -470,7 +470,7 @@ function DeliveryList({ records }: { records: WebhookDelivery[] }) {
       {records.map((r) => (
         <div
           key={r.event_id + r.at}
-          className={`${locale === "en" ? "flex-wrap " : ""}flex items-center gap-2.5 px-4 py-2 text-caption text-[var(--text-muted)]`}
+          className={`${locale !== "zh-Hans" ? "flex-wrap " : ""}flex items-center gap-2.5 px-4 py-2 text-caption text-[var(--text-muted)]`}
         >
           <span
             className="size-1.5 shrink-0 rounded-full"
@@ -480,7 +480,7 @@ function DeliveryList({ records }: { records: WebhookDelivery[] }) {
           <span className="shrink-0">
             {t("settings.webhook.ui.deliverySummary", {status: r.status_code != null ? `HTTP ${r.status_code}` : t("settings.webhook.ui.notDelivered"), duration: r.duration_ms, attempts: r.attempts})}
           </span>
-          <span className={locale === "en" && r.error ? "min-w-0 basis-full break-words text-[var(--danger)]" : "min-w-0 flex-1 truncate text-[var(--danger)]"}>{r.error}</span>
+          <span className={locale !== "zh-Hans" && r.error ? "min-w-0 basis-full break-words text-[var(--danger)]" : "min-w-0 flex-1 truncate text-[var(--danger)]"}>{r.error}</span>
           <span className="shrink-0 text-[var(--text-faint)]">{formatRelativeTime(r.at, locale)}</span>
         </div>
       ))}

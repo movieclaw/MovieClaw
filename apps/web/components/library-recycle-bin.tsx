@@ -414,7 +414,7 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
         {!isMobile && (
           <div
             role="row"
-            className={`grid items-center gap-4 border-b border-white/[0.07] px-4 py-2.5 text-caption font-medium text-[var(--text-faint)] ${locale === "en" ? EN_GRID_COLS : GRID_COLS}`}
+            className={`grid items-center gap-4 border-b border-white/[0.07] px-4 py-2.5 text-caption font-medium text-[var(--text-faint)] ${locale !== "zh-Hans" ? EN_GRID_COLS : GRID_COLS}`}
           >
             <span role="columnheader">
               <TriCheckbox state={pageAll ? "all" : pageSome ? "some" : "none"} onChange={togglePage} label={t("library.recycle.selectPage")} />
@@ -489,7 +489,7 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
 
       {/* 勾选后的批量条：底部悬浮，不顶掉摘要行 */}
       {selection.count > 0 && (
-        <div className={`sticky bottom-4 z-10 mx-auto mt-4 flex w-max max-w-full items-center gap-3 rounded-full border border-white/[0.15] bg-[#1b1f2b] py-2 pl-4 pr-2.5 text-ui shadow-[0_14px_40px_rgba(0,0,0,0.55)]${locale === "en" ? " max-sm:bottom-24 max-sm:w-[calc(100%-2rem)] max-sm:flex-wrap max-sm:rounded-2xl" : ""}`}>
+        <div className={`sticky bottom-4 z-10 mx-auto mt-4 flex w-max max-w-full items-center gap-3 rounded-full border border-white/[0.15] bg-[#1b1f2b] py-2 pl-4 pr-2.5 text-ui shadow-[0_14px_40px_rgba(0,0,0,0.55)]${locale !== "zh-Hans" ? " max-sm:bottom-24 max-sm:w-[calc(100%-2rem)] max-sm:flex-wrap max-sm:rounded-2xl" : ""}`}>
           <span className="whitespace-nowrap tabular-nums">
             {t.rich("library.recycle.selected", { count: selection.count, bytes: formatBytes(selection.bytes), selectedCount: (chunks) => <b className="font-semibold">{chunks}</b> })}
           </span>
@@ -556,7 +556,7 @@ function ItemRow(props: RowProps) {
     <div role="rowgroup" className={single?.last_error ? "bg-[rgba(255,107,107,0.06)]" : undefined}>
       <div
         role="row"
-        className={`grid items-center gap-4 px-4 py-3 transition-colors hover:bg-white/[0.025] ${locale === "en" ? EN_GRID_COLS : GRID_COLS} ${
+        className={`grid items-center gap-4 px-4 py-3 transition-colors hover:bg-white/[0.025] ${locale !== "zh-Hans" ? EN_GRID_COLS : GRID_COLS} ${
           itemSelection(item, selected) === "all" ? "bg-[rgba(205,214,230,0.07)]" : ""
         }`}
       >
@@ -568,7 +568,7 @@ function ItemRow(props: RowProps) {
           {single ? (
             <FileName file={single} />
           ) : (
-            <div className={locale === "en" ? "break-words text-ui" : "truncate text-ui"}>
+            <div className={locale !== "zh-Hans" ? "break-words text-ui" : "truncate text-ui"}>
               <b className="font-semibold">{itemFilesSummary(item, locale).split(" · ")[0]}</b>
               {itemFilesSummary(item, locale).includes(" · ") && (
                 <span className="text-[var(--text-muted)]"> · {itemFilesSummary(item, locale).split(" · ")[1]}</span>
@@ -577,11 +577,11 @@ function ItemRow(props: RowProps) {
           )}
           <QualityText line={quality} />
           {single?.kept_in_place && <KeptBadge />}
-          {failedFile && <p className={locale === "en" ? "mt-1 break-words text-caption text-[var(--danger)]" : "mt-1 truncate text-caption text-[var(--danger)]"}>{t("library.recycle.lastFailure")}{failedFile}</p>}
+          {failedFile && <p className={locale !== "zh-Hans" ? "mt-1 break-words text-caption text-[var(--danger)]" : "mt-1 truncate text-caption text-[var(--danger)]"}>{t("library.recycle.lastFailure")}{failedFile}</p>}
         </div>
         <div role="cell" className="min-w-0">
-          <div className={locale === "en" ? "break-words text-ui" : "truncate text-ui"}>{itemReasonText(item, locale)}</div>
-          <div className={locale === "en" ? "break-words text-caption text-[var(--text-faint)]" : "truncate text-caption text-[var(--text-faint)]"}>
+          <div className={locale !== "zh-Hans" ? "break-words text-ui" : "truncate text-ui"}>{itemReasonText(item, locale)}</div>
+          <div className={locale !== "zh-Hans" ? "break-words text-caption text-[var(--text-faint)]" : "truncate text-caption text-[var(--text-faint)]"}>
             {[item.trigger_label, item.latest_trashed_at ? formatRelativeTime(item.latest_trashed_at, locale) : null]
               .filter(Boolean)
               .join(" · ")}
@@ -646,7 +646,7 @@ function FileRow({
   return (
     <div
       role="row"
-      className={`grid items-center gap-4 bg-white/[0.018] px-4 py-2 text-sub ${locale === "en" ? EN_GRID_COLS : GRID_COLS} ${
+      className={`grid items-center gap-4 bg-white/[0.018] px-4 py-2 text-sub ${locale !== "zh-Hans" ? EN_GRID_COLS : GRID_COLS} ${
         checked ? "bg-[rgba(205,214,230,0.07)]" : ""
       } ${last ? "border-b border-white/[0.06]" : ""}`}
     >
@@ -655,7 +655,7 @@ function FileRow({
       </div>
       <div role="cell" className="col-span-2 min-w-0 pl-[58px]">
         <FileName file={file} muted />
-        <div className={locale === "en" ? "break-words text-caption text-[var(--text-faint)]" : "truncate text-caption text-[var(--text-faint)]"}>
+        <div className={locale !== "zh-Hans" ? "break-words text-caption text-[var(--text-faint)]" : "truncate text-caption text-[var(--text-faint)]"}>
           {code && (
             <>
               <span className="font-mono font-semibold text-[var(--text)]">{code}</span>
@@ -666,9 +666,9 @@ function FileRow({
           <QualityText line={quality} inline muted />
         </div>
         {file.kept_in_place && <KeptBadge />}
-        {file.last_error && <p className={locale === "en" ? "mt-0.5 break-words text-caption text-[var(--danger)]" : "mt-0.5 truncate text-caption text-[var(--danger)]"}>{t("library.recycle.lastFailure")}{file.last_error}</p>}
+        {file.last_error && <p className={locale !== "zh-Hans" ? "mt-0.5 break-words text-caption text-[var(--danger)]" : "mt-0.5 truncate text-caption text-[var(--danger)]"}>{t("library.recycle.lastFailure")}{file.last_error}</p>}
       </div>
-      <div role="cell" className={locale === "en" ? "min-w-0 break-words text-caption text-[var(--text-faint)]" : "min-w-0 truncate text-caption text-[var(--text-faint)]"}>
+      <div role="cell" className={locale !== "zh-Hans" ? "min-w-0 break-words text-caption text-[var(--text-faint)]" : "min-w-0 truncate text-caption text-[var(--text-faint)]"}>
         {ownNote}
       </div>
       <OpsCell
@@ -692,7 +692,7 @@ function ItemCard(props: RowProps) {
   const multi = item.file_count > 1;
   const single = !multi ? item.files[0] : null;
   const quality = single ? fileQualityLine(single, locale) : itemQualityLine(item, locale);
-  const due = itemCountdown(item, undefined, locale, locale === "en");
+  const due = itemCountdown(item, undefined, locale, locale !== "zh-Hans");
   return (
     <div className={`px-4 py-3.5 ${itemSelection(item, selected) === "all" ? "bg-[rgba(205,214,230,0.07)]" : ""}`}>
       <div className="flex items-center gap-3">
@@ -714,7 +714,7 @@ function ItemCard(props: RowProps) {
       {single?.kept_in_place && <KeptBadge />}
       {single?.last_error && <p className="mt-1 text-caption text-[var(--danger)]">{t("library.recycle.lastFailure")}{single.last_error}</p>}
       <div className="mt-1 text-sub text-[var(--text-muted)]">{itemReasonText(item, locale)}</div>
-      <div className={`mt-2 flex items-center justify-between gap-2${locale === "en" ? " flex-wrap" : ""}`}>
+      <div className={`mt-2 flex items-center justify-between gap-2${locale !== "zh-Hans" ? " flex-wrap" : ""}`}>
         <DueText due={due} suffix={t("library.recycle.automatic")} />
         <div className="flex items-center gap-1.5">
           <ActionButton disabled={busy} onClick={() => onRestore(item.files)}>
@@ -827,7 +827,7 @@ function ItemIdentity({ item }: { item: TrashedItem }) {
           )}
           {media?.year && <span className="shrink-0 font-normal text-[var(--text-faint)]">{media.year}</span>}
         </div>
-        <div className={locale === "en" ? "break-words text-caption text-[var(--text-faint)]" : "truncate text-caption text-[var(--text-faint)]"}>
+        <div className={locale !== "zh-Hans" ? "break-words text-caption text-[var(--text-faint)]" : "truncate text-caption text-[var(--text-faint)]"}>
           {item.library.name}
           {seasons && ` · ${seasons}`}
         </div>
@@ -858,7 +858,7 @@ function FileName({
   return (
     <Tooltip
       openOnClick
-      maxWidth={locale === "en" ? "min(560px, calc(100vw - 1rem))" : 560}
+      maxWidth={locale !== "zh-Hans" ? "min(560px, calc(100vw - 1rem))" : 560}
       content={
         <div className="space-y-2 text-caption leading-5">
           <div>
@@ -908,8 +908,8 @@ function QualityText({
   wrap?: boolean;
 }) {
   const locale = useLocale();
-  const shouldWrap = wrap || locale === "en";
-  const wrapClass = locale === "en" ? "break-words" : "";
+  const shouldWrap = wrap || locale !== "zh-Hans";
+  const wrapClass = locale !== "zh-Hans" ? "break-words" : "";
   const body = (
     <>
       {line.tiers.map((tier, i) => (

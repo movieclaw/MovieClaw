@@ -814,7 +814,7 @@ export function SubscribeDialog({
                 <CheckIcon className="size-4 text-[var(--ok)]" />
                 {t("subscription.subscribe.existing", { kind: target.kind })}
               </p>
-              <div className={`mt-5 flex justify-end gap-3 ${locale === "en" ? "flex-wrap" : ""}`}>
+              <div className={`mt-5 flex justify-end gap-3 ${locale !== "zh-Hans" ? "flex-wrap" : ""}`}>
                 <button
                   type="button"
                   onClick={onClose}
@@ -853,7 +853,7 @@ export function SubscribeDialog({
 
       {/* 底栏常驻（仅订阅表单态；管理态的按钮短，留在正文里） */}
       {prepared?.status === "ready" && !prepared.existing_subscription_id && (
-        <div className={`flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5 ${locale === "en" ? "flex-wrap" : ""}`}>
+        <div className={`flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5 ${locale !== "zh-Hans" ? "flex-wrap" : ""}`}>
           <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
             {t("common.cancel")}
           </button>
@@ -861,7 +861,7 @@ export function SubscribeDialog({
             type="button"
             disabled={!canSubmit}
             onClick={submit}
-            className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-50 ${locale === "en" ? "min-h-9 py-2" : "h-9"}`}
+            className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-50 ${locale !== "zh-Hans" ? "min-h-9 py-2" : "h-9"}`}
           >
             {busy
               ? upgradeMode
@@ -923,7 +923,7 @@ export function SeasonRow({
           : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05]"
       }`}
     >
-      <span className={`flex items-baseline gap-2.5 ${locale === "en" ? "min-w-0 flex-wrap" : ""}`}>
+      <span className={`flex items-baseline gap-2.5 ${locale !== "zh-Hans" ? "min-w-0 flex-wrap" : ""}`}>
         <span className="text-ui font-medium text-white/90">{name}</span>
         <span className="tnum text-caption text-[var(--text-faint)]">{progress}</span>
         {owned && (

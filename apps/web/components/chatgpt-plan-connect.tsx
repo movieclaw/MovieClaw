@@ -74,7 +74,7 @@ export function ChatGPTPlanConnect({ config, presets, onSelect, onDone }: {
       </div>
       {error && <p role="alert" className="text-[var(--danger)]">{error}</p>}
       {waiting && <p role="status">{t("settings.llm.chatgpt.waiting")}</p>}
-      <div className={`flex gap-3 ${locale === "en" ? "max-sm:flex-col max-sm:items-start" : ""}`}>
+      <div className={`flex gap-3 ${locale !== "zh-Hans" ? "max-sm:flex-col max-sm:items-start" : ""}`}>
         <button type="button" disabled={knownIds === null} onClick={() => { setError(null); setWaiting(!waiting); }} className={SETTINGS_PRIMARY_BUTTON_CLASS}>{waiting ? t("settings.llm.chatgpt.stop") : t("settings.llm.chatgpt.wait")}</button>
         <button type="button" onClick={onDone} className={SETTINGS_BUTTON_CLASS}>{t("settings.llm.chatgpt.refresh")}</button>
       </div>

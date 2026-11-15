@@ -100,7 +100,7 @@ export function SheetScaffold({
           >
             <XIcon className="size-4" />
           </button>
-          <h2 className={`text-center text-ui font-semibold text-white ${locale === "en" ? "[overflow-wrap:anywhere]" : "truncate"}`}>{title}</h2>
+          <h2 className={`text-center text-ui font-semibold text-white ${locale !== "zh-Hans" ? "[overflow-wrap:anywhere]" : "truncate"}`}>{title}</h2>
           {confirm ? (
             busy ? (
               <span

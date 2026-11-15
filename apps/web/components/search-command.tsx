@@ -877,10 +877,10 @@ function SearchPalette({
         onKeyDown={handleKeyDown}
       >
         {/* —— 输入行 —— */}
-        <div className={`flex items-center gap-3 pl-4 pr-3 ${locale === "en" ? "max-md:flex-wrap max-md:gap-y-0" : ""}`}>
+        <div className={`flex items-center gap-3 pl-4 pr-3 ${locale !== "zh-Hans" ? "max-md:flex-wrap max-md:gap-y-0" : ""}`}>
           <SearchIcon className="size-[17px] shrink-0 text-[var(--text-faint)]" />
           {input}
-          <ModeSwitch mode={mode} modes={availableModes} onChange={changeMode} stretch={locale === "en" && isMobile} />
+          <ModeSwitch mode={mode} modes={availableModes} onChange={changeMode} stretch={locale !== "zh-Hans" && isMobile} />
         </div>
 
         {/* —— 分类 chips（仅资源模式；影视/媒体库搜索没有分类维度）—— */}
@@ -934,7 +934,7 @@ function SearchPalette({
         </div>
 
         {/* —— 页脚：左侧模式说明，右侧快捷键 —— */}
-        <div className={`flex ${locale === "en" ? "min-h-10 flex-wrap gap-y-2 py-2" : "h-10"} shrink-0 items-center justify-between border-t border-white/[0.06] px-4`}>
+        <div className={`flex ${locale !== "zh-Hans" ? "min-h-10 flex-wrap gap-y-2 py-2" : "h-10"} shrink-0 items-center justify-between border-t border-white/[0.06] px-4`}>
           <span className="text-caption text-[var(--text-faint)]">
             {mode === "torrent"
               ? t("search.palette.torrentFooter")
@@ -1100,9 +1100,9 @@ function HistoryGroupRow({
         <button
           type="button"
           onClick={onPick}
-          className={`flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-2.5 text-left ${locale === "en" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""}`}
+          className={`flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-2.5 text-left ${locale !== "zh-Hans" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""}`}
         >
-          <span className={`min-w-0 flex-1 truncate text-ui leading-5 text-[var(--text)]/90 ${locale === "en" ? "max-sm:basis-full" : ""}`}>
+          <span className={`min-w-0 flex-1 truncate text-ui leading-5 text-[var(--text)]/90 ${locale !== "zh-Hans" ? "max-sm:basis-full" : ""}`}>
             {group.keyword}
           </span>
           {group.items.length > 1 ? (
@@ -1200,11 +1200,11 @@ function HistorySingleRow({
         type="button"
         onMouseEnter={onHover}
         onClick={onPick}
-        className={`flex w-full items-center gap-2.5 ${locale === "en" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""} rounded-[10px] px-2.5 py-2 text-left transition-colors ${
+        className={`flex w-full items-center gap-2.5 ${locale !== "zh-Hans" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""} rounded-[10px] px-2.5 py-2 text-left transition-colors ${
           active ? "bg-white/[0.07]" : ""
         }`}
       >
-        <span className={`min-w-0 flex-1 truncate text-ui leading-5 text-[var(--text)]/90 ${locale === "en" ? "max-sm:basis-full" : ""}`}>
+        <span className={`min-w-0 flex-1 truncate text-ui leading-5 text-[var(--text)]/90 ${locale !== "zh-Hans" ? "max-sm:basis-full" : ""}`}>
           {item.keyword}
         </span>
         <HistoryTypeBadges item={item} />
@@ -1248,9 +1248,9 @@ function HistoryVariantRow({
       <button
         type="button"
         onClick={onPick}
-        className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-left ${locale === "en" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""}`}
+        className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-left ${locale !== "zh-Hans" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""}`}
       >
-        <span className={`min-w-0 flex-1 truncate text-sub text-[var(--text-muted)] ${locale === "en" ? "max-sm:basis-full" : ""}`}>
+        <span className={`min-w-0 flex-1 truncate text-sub text-[var(--text-muted)] ${locale !== "zh-Hans" ? "max-sm:basis-full" : ""}`}>
           {item.vertical === "titles" ? t("search.vertical.media") : t("search.history.variant", { scope: historyScopeName(item, locale) ?? t("common.all"), also: alsoSuffix(item, locale) })}
         </span>
         {item.has_snapshot && (

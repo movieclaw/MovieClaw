@@ -239,10 +239,10 @@ function DeltaChip({
   return (
     <span
       title={title}
-      className={`tnum inline-flex ${locale === "en" ? "min-w-0 max-w-full shrink-0" : "shrink-0"} items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold leading-4 ${tone}`}
+      className={`tnum inline-flex ${locale !== "zh-Hans" ? "min-w-0 max-w-full shrink-0" : "shrink-0"} items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold leading-4 ${tone}`}
     >
       {arrow && <span className="text-[9px]">{arrow}</span>}
-      {locale === "en" ? <span className="min-w-0 whitespace-normal">{text}</span> : text}
+      {locale !== "zh-Hans" ? <span className="min-w-0 whitespace-normal">{text}</span> : text}
     </span>
   );
 }
@@ -280,7 +280,7 @@ function MetricCard({
         <span className="tnum text-[26px] font-bold tracking-tight text-white">{value}</span>
         <span className="ml-1 text-sub font-medium text-white/45">{unit}</span>
       </p>
-      <div className={`mt-2.5 flex min-w-0 items-center gap-2 ${locale === "en" ? "max-md:flex-col max-md:items-start max-md:gap-1" : ""}`}>
+      <div className={`mt-2.5 flex min-w-0 items-center gap-2 ${locale !== "zh-Hans" ? "max-md:flex-col max-md:items-start max-md:gap-1" : ""}`}>
         <DeltaChip
           current={current}
           previous={previous}
@@ -288,7 +288,7 @@ function MetricCard({
           inPoints={metric.deltaInPoints}
           title={t("activity.watchStats.versusPrevious")}
         />
-        <span className={`tnum truncate text-[11px] text-white/35 ${locale === "en" ? "max-md:max-w-full" : ""}`}>
+        <span className={`tnum truncate text-[11px] text-white/35 ${locale !== "zh-Hans" ? "max-md:max-w-full" : ""}`}>
           {stats.previous_available ? t("activity.watchStats.previousValue", { value: metric.format(previous) }) : t("activity.watchStats.noPrevious")}
         </span>
       </div>
@@ -608,10 +608,10 @@ function BreakdownPanel({
             <>
               {row.leading}
               <div className="min-w-0 flex-1">
-                <div className={`flex items-baseline justify-between gap-3 ${locale === "en" ? "max-md:flex-col max-md:items-start max-md:gap-1" : ""}`}>
+                <div className={`flex items-baseline justify-between gap-3 ${locale !== "zh-Hans" ? "max-md:flex-col max-md:items-start max-md:gap-1" : ""}`}>
                   {/* 附注跟在名称后面而不是另起一行：四块面板的行高才一致，
                       同一行两块面板的高矮只由行数决定 */}
-                  <div className={`flex min-w-0 items-baseline gap-2 ${locale === "en" ? "max-md:flex-col max-md:items-start max-md:gap-0.5" : ""}`}>
+                  <div className={`flex min-w-0 items-baseline gap-2 ${locale !== "zh-Hans" ? "max-md:flex-col max-md:items-start max-md:gap-0.5" : ""}`}>
                     <div
                       className={`min-w-0 text-ui font-medium ${row.muted ? "text-white/50" : "text-white/85"}`}
                     >
@@ -788,7 +788,7 @@ function TopEntry({
       <span
         aria-hidden="true"
         className={`relative inline-block shrink-0 select-none text-left font-black leading-[0.78] tracking-[-0.06em] text-transparent [-webkit-text-stroke:2px_rgba(255,255,255,0.62)] ${
-          hero ? `-mr-[0.12em] w-[0.6em] text-[128px] ${locale === "en" ? "max-md:text-[96px]" : ""}` : "-mr-[0.12em] w-[0.6em] text-[96px]"
+          hero ? `-mr-[0.12em] w-[0.6em] text-[128px] ${locale !== "zh-Hans" ? "max-md:text-[96px]" : ""}` : "-mr-[0.12em] w-[0.6em] text-[96px]"
         }`}
       >
         {rank + 1}
@@ -799,7 +799,7 @@ function TopEntry({
         width={hero ? 120 : 80}
         alt={row.media.title}
         className={`relative z-10 shrink-0 rounded-lg object-cover shadow-[0_18px_40px_rgba(0,0,0,0.6)] ring-1 ring-white/15 ${
-          hero ? `h-[180px] w-[120px] ${locale === "en" ? "max-md:h-[120px] max-md:w-[80px]" : ""}` : "h-[120px] w-[80px]"
+          hero ? `h-[180px] w-[120px] ${locale !== "zh-Hans" ? "max-md:h-[120px] max-md:w-[80px]" : ""}` : "h-[120px] w-[80px]"
         }`}
       />
       <div className="relative z-10 ml-3 min-w-0 flex-1 self-center">
@@ -897,14 +897,14 @@ function FavoritePodium({
         </div>
       )}
       <div className="relative p-4 md:p-5">
-        <div className={`flex items-center gap-2.5 ${locale === "en" ? "max-md:flex-wrap" : ""}`}>
+        <div className={`flex items-center gap-2.5 ${locale !== "zh-Hans" ? "max-md:flex-wrap" : ""}`}>
           <span className="rounded-[3px] bg-[var(--info)] px-1.5 py-[3px] text-[10px] font-black leading-none tracking-[0.12em] text-[#0b0d13]">
             TOP 3
           </span>
           <p className="text-ui font-semibold text-white/90">
             {drilled ? t("activity.watchStats.mostWatchedThis") : t("activity.watchStats.mostPopularThis")}
           </p>
-          <p className={`text-caption text-white/35 ${locale === "en" ? "max-md:basis-full" : ""}`}>
+          <p className={`text-caption text-white/35 ${locale !== "zh-Hans" ? "max-md:basis-full" : ""}`}>
             {drilled ? t("activity.watchStats.byWatchTime") : t("activity.watchStats.byAudience")}
           </p>
         </div>

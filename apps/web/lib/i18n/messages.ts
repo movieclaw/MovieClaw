@@ -32,6 +32,23 @@ import zhErrors from "../../locales/zh-Hans/errors.json" with { type: "json" };
 import enErrors from "../../locales/en/errors.json" with { type: "json" };
 import zhActivity from "../../locales/zh-Hans/activity.json" with { type: "json" };
 import enActivity from "../../locales/en/activity.json" with { type: "json" };
+import deDownload from "../../locales/de/download.json" with { type: "json" };
+import deSearch from "../../locales/de/search.json" with { type: "json" };
+import dePlayer from "../../locales/de/player.json" with { type: "json" };
+import deMedia from "../../locales/de/media.json" with { type: "json" };
+import deLibrary from "../../locales/de/library.json" with { type: "json" };
+import deSubscription from "../../locales/de/subscription.json" with { type: "json" };
+import deAuth from "../../locales/de/auth.json" with { type: "json" };
+import deSetup from "../../locales/de/setup.json" with { type: "json" };
+import deCommon from "../../locales/de/common.json" with { type: "json" };
+import deSettings from "../../locales/de/settings.json" with { type: "json" };
+import deUnits from "../../locales/de/units.json" with { type: "json" };
+import deHome from "../../locales/de/home.json" with { type: "json" };
+import deNav from "../../locales/de/nav.json" with { type: "json" };
+import deAgent from "../../locales/de/agent.json" with { type: "json" };
+import deNotify from "../../locales/de/notify.json" with { type: "json" };
+import deErrors from "../../locales/de/errors.json" with { type: "json" };
+import deActivity from "../../locales/de/activity.json" with { type: "json" };
 import type { AppLocale } from "./negotiate.ts";
 
 export const zhHans = { download: zhDownload, player: zhPlayer, media: zhMedia, library: zhLibrary, subscription: zhSubscription, auth: zhAuth, setup: zhSetup, common: zhCommon, settings: zhSettings, units: zhUnits, home: zhHome, nav: zhNav, search: zhSearch, agent: zhAgent, notify: zhNotify, errors: zhErrors, activity: zhActivity };
@@ -46,10 +63,14 @@ function merge(source: Record<string, unknown>, translated: Record<string, unkno
   ]));
 }
 
+const de = { download: deDownload, search: deSearch, player: dePlayer, media: deMedia, library: deLibrary, subscription: deSubscription, auth: deAuth, setup: deSetup, common: deCommon, settings: deSettings, units: deUnits, home: deHome, nav: deNav, agent: deAgent, notify: deNotify, errors: deErrors, activity: deActivity };
+
 const english = merge(zhHans, en) as typeof zhHans;
+// German falls back to English (then Chinese) for any key not yet translated.
+const german = merge(english, de) as typeof zhHans;
 
 export function messagesFor(locale: AppLocale) {
-  return locale === "zh-Hans" ? zhHans : english;
+  return locale === "zh-Hans" ? zhHans : locale === "de" ? german : english;
 }
 
 declare module "next-intl" {

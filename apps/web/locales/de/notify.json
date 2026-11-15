@@ -1,0 +1,15 @@
+{
+  "center": {
+    "title": "Erfordert Aufmerksamkeit",
+    "ignore": "Ausblenden",
+    "resolve": "Beheben",
+    "description": "Hier erscheinen nur Laufzeitprobleme, um die du dich kümmern musst. Sobald sie behoben sind, verschwinden sie automatisch.",
+    "countTitle": "Erfordert Aufmerksamkeit ({count})",
+    "countShort": "Offen ({count})",
+    "pending": "Offen"
+  },
+  "update": {
+    "appVersion": "Neue Version v{version}",
+    "modelVersion": "Neues Erkennungsmodell {version}"
+  }
+}

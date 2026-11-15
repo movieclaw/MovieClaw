@@ -223,7 +223,7 @@ export function SubtitlePreviewDialog({
               {calibrationNotice}
             </p>
           )}
-          <div className={`flex items-center justify-between gap-4 ${locale === "en" ? "max-sm:flex-wrap" : ""}`}>
+          <div className={`flex items-center justify-between gap-4 ${locale !== "zh-Hans" ? "max-sm:flex-wrap" : ""}`}>
             <span className="text-sub text-[var(--text-muted)]">{t("library.subtitlePreview.cues", { count: data.event_count })}</span>
             <div className="flex items-center gap-2.5">
               {isAdmin && stream.external && stream.file_name && (

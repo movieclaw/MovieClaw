@@ -207,7 +207,7 @@ function TaskRow({
   return (
     <div data-task-key={task.key} className={ROW_ANCHOR_CLASS}>
       <SettingsRow
-        stackOnMobile={locale === "en"}
+        stackOnMobile={locale !== "zh-Hans"}
         label={
           <span className="flex flex-wrap items-baseline gap-x-2">
             {task.title}

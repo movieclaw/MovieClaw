@@ -446,7 +446,7 @@ function NicknameRow() {
   };
 
   return (
-    <SettingsRow label={t("settings.profile.nickname")} error={error} stackOnMobile={locale === "en"}>
+    <SettingsRow label={t("settings.profile.nickname")} error={error} stackOnMobile={locale !== "zh-Hans"}>
       <input
         type="text"
         aria-label={t("settings.profile.nickname")}
@@ -467,7 +467,7 @@ function NicknameRow() {
         }}
         maxLength={32}
         disabled={busy}
-        className={`${SETTINGS_INPUT_CLASS} w-48${locale === "en" ? " max-sm:w-full" : ""}`}
+        className={`${SETTINGS_INPUT_CLASS} w-48${locale !== "zh-Hans" ? " max-sm:w-full" : ""}`}
       />
     </SettingsRow>
   );

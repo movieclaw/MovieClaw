@@ -465,7 +465,7 @@ export function AppUpdateSection() {
         <div className="space-y-3">
           <SettingsList>
             <SettingsRow
-              stackOnMobile={locale === "en"}
+              stackOnMobile={locale !== "zh-Hans"}
               label={t("settings.update.ui.currentVersion")}
               description={
                 <>
@@ -590,7 +590,7 @@ export function AppUpdateSection() {
         >
           <SettingsList>
             <SettingsRow
-              stackOnMobile={locale === "en"}
+              stackOnMobile={locale !== "zh-Hans"}
               label={t("settings.update.ui.currentModel", {tag: status.model_tag ?? t("settings.update.ui.unknownModel")})}
               description={
                 // 手动检查后的两种"装不了"的结论：只有点过按钮才说，避免进页就
@@ -622,7 +622,7 @@ export function AppUpdateSection() {
             </SettingsRow>
             {/* 有可装的新模型：进页就摆出来（快照预填），手动检查后以检查结果为准 */}
             {availableModelTag && (
-              <SettingsRow stackOnMobile={locale === "en"} label={t("settings.update.ui.modelAvailable", {tag: availableModelTag})}>
+              <SettingsRow stackOnMobile={locale !== "zh-Hans"} label={t("settings.update.ui.modelAvailable", {tag: availableModelTag})}>
                 <button
                   type="button"
                   onClick={doModelApply}
@@ -642,7 +642,7 @@ export function AppUpdateSection() {
           <SettingsList>
             {rollback.targets.length > 0 && (
               <SettingsRow
-                stackOnMobile={locale === "en"}
+                stackOnMobile={locale !== "zh-Hans"}
                 label={t("settings.update.ui.rollbackRow")}
                 description={t("settings.update.ui.rollbackHint")}
               >
@@ -656,7 +656,7 @@ export function AppUpdateSection() {
               </SettingsRow>
             )}
             <SettingsRow
-              stackOnMobile={locale === "en"}
+              stackOnMobile={locale !== "zh-Hans"}
               label={t("settings.update.ui.retention")}
               description={t("settings.update.ui.retentionHint", {usage: rollback.versions_dir_bytes > 0 ? t("settings.update.ui.retentionUsage", {size: formatBytes(rollback.versions_dir_bytes)}) : ""})}
             >
@@ -882,7 +882,7 @@ function RollbackDialog({
           type="button"
           disabled={pick == null}
           onClick={() => pick && onConfirm(pick)}
-          className={`${SETTINGS_DANGER_BUTTON_CLASS} ${locale === "en" ? "!h-auto min-h-8 min-w-0 !shrink whitespace-normal py-1.5" : ""}`}
+          className={`${SETTINGS_DANGER_BUTTON_CLASS} ${locale !== "zh-Hans" ? "!h-auto min-h-8 min-w-0 !shrink whitespace-normal py-1.5" : ""}`}
         >
           {pick == null
             ? t("settings.update.ui.selectVersion")

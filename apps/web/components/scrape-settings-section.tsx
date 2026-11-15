@@ -1332,14 +1332,14 @@ export function useScrapeChipOptions() {
     () =>
       languages
         .filter((l) => !commonMetaLangs(t).some((c) => c.id.startsWith(`${l.code}-`)))
-        .map((l) => ({ id: l.code, name: (locale === "en" ? l.english_name : l.name) || l.english_name || l.code })),
+        .map((l) => ({ id: l.code, name: (locale !== "zh-Hans" ? l.english_name : l.name) || l.english_name || l.code })),
     [languages, locale, t],
   );
   const imageLangs = useMemo<ChipOption[]>(
     () =>
       languages
         .filter((l) => !commonImageLangs(t).some((c) => c.id === l.code))
-        .map((l) => ({ id: l.code, name: (locale === "en" ? l.english_name : l.name) || l.english_name || l.code })),
+        .map((l) => ({ id: l.code, name: (locale !== "zh-Hans" ? l.english_name : l.name) || l.english_name || l.code })),
     [languages, locale, t],
   );
   const certCountries = useMemo<ChipOption[]>(

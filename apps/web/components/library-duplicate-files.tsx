@@ -669,7 +669,7 @@ function ScanBar({
     <div className="mt-5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-6 max-md:px-4">
       <div className="flex min-w-0 items-center gap-2 text-ui text-[var(--text-muted)]">
         {scanning && <span className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />}
-        <span className={locale === "en" ? "break-words" : "truncate"}>{scanNote(scan, undefined, locale)}</span>
+        <span className={locale !== "zh-Hans" ? "break-words" : "truncate"}>{scanNote(scan, undefined, locale)}</span>
         {scanning && scan.percent !== null && (
           <span className="shrink-0 text-caption tabular-nums text-[var(--text-faint)]">{Math.round(scan.percent)}%</span>
         )}
@@ -724,7 +724,7 @@ function TierSummary({
         return (
           <div key={tier.key} className={`rounded-2xl border px-4 py-3.5 ${empty ? "border-white/[0.06] bg-white/[0.01] opacity-60" : TIER_TONE[key]}`}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1.5">
-              <h3 className={`flex items-baseline gap-2.5 text-ui font-semibold text-[var(--text)]${locale === "en" ? " flex-wrap" : ""}`}>
+              <h3 className={`flex items-baseline gap-2.5 text-ui font-semibold text-[var(--text)]${locale !== "zh-Hans" ? " flex-wrap" : ""}`}>
                 {tier.label}
                 <span className="text-caption font-normal text-[var(--text-faint)] tabular-nums">
                   {empty ? t("library.duplicates.none") : groupSummary(tier, locale)}
@@ -768,7 +768,7 @@ function TierSummary({
                     <span className="shrink-0 text-caption text-[var(--text-faint)] tabular-nums">
                       {compactSummary(group, locale)}
                     </span>
-                    <div className={`flex basis-full items-center gap-1.5${locale === "en" ? " flex-wrap" : ""}`}>
+                    <div className={`flex basis-full items-center gap-1.5${locale !== "zh-Hans" ? " flex-wrap" : ""}`}>
                       {/* 逐个看 = 这一组的正路（玻璃按钮）；都留着 = 关掉它，不动文件（幽灵） */}
                       <ActionButton disabled={busy} onClick={() => onOpen("review", group.key as DuplicateReviewKind)}>
                         {t("library.duplicates.reviewEach")}
@@ -841,15 +841,15 @@ function SeasonBlock({
 
   return (
     <div className="mb-2.5 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]">
-      <div className={`flex items-center gap-2.5 border-b border-white/[0.07] bg-white/[0.02] px-4 py-2.5${locale === "en" ? " max-md:flex-wrap" : ""}`}>
+      <div className={`flex items-center gap-2.5 border-b border-white/[0.07] bg-white/[0.02] px-4 py-2.5${locale !== "zh-Hans" ? " max-md:flex-wrap" : ""}`}>
         <PosterImage
           src={imageUrl(media.poster_url)}
           width={26}
           alt=""
           className="h-[38px] w-[26px] shrink-0 rounded-[4px] border border-white/[0.08] object-cover"
         />
-        <div className={`flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5${locale === "en" ? " max-md:basis-[calc(100%-3rem)]" : ""}`}>
-          <Link href={`/library/${item.library.id}/item/${media.id}` as Route} className={`${locale === "en" ? "min-w-0 max-w-full break-words md:truncate" : "truncate"} text-ui font-semibold text-[var(--text)] hover:underline`}>
+        <div className={`flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5${locale !== "zh-Hans" ? " max-md:basis-[calc(100%-3rem)]" : ""}`}>
+          <Link href={`/library/${item.library.id}/item/${media.id}` as Route} className={`${locale !== "zh-Hans" ? "min-w-0 max-w-full break-words md:truncate" : "truncate"} text-ui font-semibold text-[var(--text)] hover:underline`}>
             {media.title}
           </Link>
           {media.year && <span className="text-caption text-[var(--text-faint)]">{media.year}</span>}
@@ -870,7 +870,7 @@ function SeasonBlock({
           )}
         </div>
         {season.uniform && (
-          <ActionButton variant="ghost" className={`shrink-0${locale === "en" ? " max-md:ml-auto" : ""}`} onClick={onToggleExpanded}>
+          <ActionButton variant="ghost" className={`shrink-0${locale !== "zh-Hans" ? " max-md:ml-auto" : ""}`} onClick={onToggleExpanded}>
             {expanded ? t("library.duplicates.collapseEpisodes") : t("library.duplicates.expandEpisodes")}
           </ActionButton>
         )}
@@ -881,7 +881,7 @@ function SeasonBlock({
           {season.versions.map((version) => (
             <div key={version.key} className={`px-4 py-2.5 text-sub ${ROW_GRID}`}>
               <QualityLine
-                className={`${CELL_VERSION}${locale === "en" ? " max-md:col-span-2" : ""}`}
+                className={`${CELL_VERSION}${locale !== "zh-Hans" ? " max-md:col-span-2" : ""}`}
                 segments={versionSpecSegments(version, version.suggested ? null : suggestedVersion, locale)}
               />
               <span className={`text-[var(--text-muted)] tabular-nums ${CELL_VERSION_COVER}`}>
@@ -890,13 +890,13 @@ function SeasonBlock({
                 {versionCoverage(version, locale).split(" · ")[1]}
               </span>
               <span
-                className={`${locale === "en" ? "break-words" : "truncate"} text-[var(--text-muted)] ${CELL_VERSION_ORIGIN} ${
+                className={`${locale !== "zh-Hans" ? "break-words" : "truncate"} text-[var(--text-muted)] ${CELL_VERSION_ORIGIN} ${
                   commonOrigin ? "max-md:hidden" : ""
                 }`}
               >
                 {version.origin_label}
               </span>
-              <div className={`flex items-center justify-end gap-1.5 ${CELL_VERSION_ACTION}${locale === "en" ? " flex-wrap max-md:col-span-2 max-md:col-start-1 max-md:justify-self-stretch" : ""}`}>
+              <div className={`flex items-center justify-end gap-1.5 ${CELL_VERSION_ACTION}${locale !== "zh-Hans" ? " flex-wrap max-md:col-span-2 max-md:col-start-1 max-md:justify-self-stretch" : ""}`}>
                 {version.suggested && <Tag tone="keep">{t("library.duplicates.recommended")}</Tag>}
                 <ActionButton disabled={busy} onClick={() => onKeepVersion(version)}>
                   {t("library.duplicates.keepSeasonVersion")}
@@ -1001,7 +1001,7 @@ function FileRow({
       */}
       <Tooltip
         openOnClick
-        maxWidth={locale === "en" ? "min(560px, calc(100vw - 1rem))" : 560}
+        maxWidth={locale !== "zh-Hans" ? "min(560px, calc(100vw - 1rem))" : 560}
         content={
           <div className="space-y-2 text-caption leading-5">
             <div>
@@ -1049,14 +1049,14 @@ function FileRow({
         className={`${CELL_SPEC} ${shared.quality ? "max-md:hidden" : ""}`}
       />
       <span
-        className={`min-w-0 ${locale === "en" ? "break-words" : "truncate"} text-[var(--text-muted)] ${CELL_ORIGIN} ${
+        className={`min-w-0 ${locale !== "zh-Hans" ? "break-words" : "truncate"} text-[var(--text-muted)] ${CELL_ORIGIN} ${
           shared.origin && !note ? "max-md:hidden" : ""
         }`}
       >
         <span className={shared.origin ? "max-md:hidden" : ""}>{file.origin.label}</span>
-        {note && <span className={`block ${locale === "en" ? "break-words" : "truncate"} text-caption text-[var(--text-faint)]`}>{note}</span>}
+        {note && <span className={`block ${locale !== "zh-Hans" ? "break-words" : "truncate"} text-caption text-[var(--text-faint)]`}>{note}</span>}
       </span>
-      <div className={`flex items-center justify-end gap-1.5 ${CELL_ACTION}${locale === "en" ? " flex-wrap" : ""}`}>
+      <div className={`flex items-center justify-end gap-1.5 ${CELL_ACTION}${locale !== "zh-Hans" ? " flex-wrap" : ""}`}>
         {file.suggested && <Tag tone="keep" mobileHidden>{t("library.duplicates.recommended")}</Tag>}
         {file.kept_at && <Tag tone="kept" mobileHidden>{t("library.duplicates.kept")}</Tag>}
         {(live > 1 || unit.files.length > 1) && (
@@ -1096,11 +1096,11 @@ function QualityLine({
     </>
   );
   if (!volume?.length) {
-    return <span className={`${locale === "en" ? "break-words" : "truncate"} text-[var(--text-muted)] tabular-nums ${className}`}>{body}</span>;
+    return <span className={`${locale !== "zh-Hans" ? "break-words" : "truncate"} text-[var(--text-muted)] tabular-nums ${className}`}>{body}</span>;
   }
   return (
-    <span className={`flex min-w-0 items-baseline ${locale === "en" ? "flex-col gap-0.5" : "gap-2"} text-[var(--text-muted)] tabular-nums ${className}`}>
-      <span className={locale === "en" ? "min-w-0 break-words" : "min-w-0 flex-1 truncate"}>{body}</span>
+    <span className={`flex min-w-0 items-baseline ${locale !== "zh-Hans" ? "flex-col gap-0.5" : "gap-2"} text-[var(--text-muted)] tabular-nums ${className}`}>
+      <span className={locale !== "zh-Hans" ? "min-w-0 break-words" : "min-w-0 flex-1 truncate"}>{body}</span>
       <span className="shrink-0 text-[var(--text)]">
         {volume.map((seg, i) => (
           <span key={i}>

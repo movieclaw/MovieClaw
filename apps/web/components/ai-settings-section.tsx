@@ -143,7 +143,7 @@ export function AiSettingsSection() {
               const stale = value == null || !options.some((o) => o.ref === value);
               return (
                 <SettingsRow
-                  stackOnMobile={locale === "en"}
+                  stackOnMobile={locale !== "zh-Hans"}
                   key={purpose.key}
                   label={t(purpose.label)}
                   description={
@@ -162,7 +162,7 @@ export function AiSettingsSection() {
                     value={stale ? "" : value}
                     disabled={saving != null}
                     onChange={(e) => void save(purpose.key, e.target.value || null)}
-                    className={`${SETTINGS_INPUT_CLASS} w-72 max-sm:w-44 ${locale === "en" ? "max-sm:!w-full max-sm:min-w-0" : ""}`}
+                    className={`${SETTINGS_INPUT_CLASS} w-72 max-sm:w-44 ${locale !== "zh-Hans" ? "max-sm:!w-full max-sm:min-w-0" : ""}`}
                   >
                     {stale && (
                       <option value="" disabled>

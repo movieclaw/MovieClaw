@@ -1,0 +1,16 @@
+{
+  "account": {
+    "pageTitle": "Einrichtung",
+    "start": "Los geht’s",
+    "title": "Diesen Server einrichten",
+    "subtitle": "Das ist ein neuer Server. Lege unten das Konto für den Super-Administrator an. Dieser Schritt erscheint nur bei der Ersteinrichtung.",
+    "username": "Benutzername des Administrators",
+    "password": "Passwort (mindestens 8 Zeichen)",
+    "confirmPassword": "Passwort bestätigen",
+    "shortUsername": "Der Benutzername muss mindestens 3 Zeichen lang sein",
+    "shortPassword": "Verwende mindestens 8 Zeichen, am besten eine Mischung aus Buchstaben und Zahlen",
+    "passwordMismatch": "Die Passwörter stimmen nicht überein",
+    "pending": "Konto wird erstellt …",
+    "submit": "Konto erstellen und fortfahren"
+  }
+}
