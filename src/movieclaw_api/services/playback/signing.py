@@ -20,6 +20,9 @@ App 签发时声明的路线（``X-MovieClaw-Route``，docs/design/server-addres
 影片分享访客（docs/design/media-share.md §4.3）的 token 再多带分享 id：验签
 之后回查一次分享行是否仍有效，「取消分享」对直连档也在下一个 Range 请求就
 生效，不必等 token 自然到期。
+
+外部播放器链接（docs/design/external-player.md §3）签出的 token 多带一个外部标记：
+授权范围不变，只让以后的取流统计（活动页、按字节估算进度）分得清这一路不是网页播放器。
 """
 
 from __future__ import annotations
@@ -55,6 +58,8 @@ class StreamGrant:
     attempt_id: str | None = None
     #: 签发时 App 声明的路线（lan / vpn / wan）；网页、第三方与旧 App 没有
     route: str | None = None
+    #: 外部播放器链接签出的 token（external-player.md §3）；旧 token 与其余签发方为 False
+    external: bool = False
 
 
 async def issue_stream_token(
@@ -66,6 +71,7 @@ async def issue_stream_token(
     ttl_seconds: int = STREAM_TOKEN_TTL_S,
     share_id: int | None = None,
     attempt_id: str | None = None,
+    external: bool = False,
 ) -> str:
     serializer = URLSafeSerializer(await get_signing_secret(), salt=_STREAM_SALT)
     payload = {
@@ -82,6 +88,8 @@ async def issue_stream_token(
         payload["a"] = attempt_id
     if route := current_route.get():
         payload["r"] = route
+    if external:
+        payload["x"] = 1
     return serializer.dumps(payload)
 
 
@@ -117,6 +125,7 @@ async def verify_stream_token(
             share_id=int(share_id) if share_id is not None else None,
             attempt_id=str(attempt_id)[:64] if attempt_id else None,
             route=route,
+            external=bool(payload.get("x")),
         )
     except (KeyError, TypeError, ValueError):
         return None

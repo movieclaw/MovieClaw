@@ -106,6 +106,8 @@
     "noMarkableEpisodes": "No season or episode was found to mark",
     "clearLibraryRequired": "Provide library_id to clear a library’s history",
     "clientDisconnected": "The client disconnected",
+    "externalDiscFolder": "A disc folder (BDMV / VIDEO_TS) has no single file for an external player to open. Play it in the web player or the app.",
+    "externalLinkMembersOnly": "Share guests can’t get external player links",
     "startFailed": "Playback failed to start: {reason}",
     "strmUnavailable": "STRM is unavailable: {reason}",
     "remoteAddress": "Cannot determine the remote transcoding address: the worker connection did not provide a valid Host. Set a dedicated address in App → Remote transcoding.",

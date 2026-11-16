@@ -272,6 +272,12 @@
   "playback.clientDisconnected": {
     "sourceHash": "f40b340be423bc53d8b0225457d827b6d2cb82fb7c0b46a96ab3904e0aeb64c1"
   },
+  "playback.externalDiscFolder": {
+    "sourceHash": "c407f1b3173af20eb2c8eaf9c28af392788c7bbc15977b769334d5ad7bbf807a"
+  },
+  "playback.externalLinkMembersOnly": {
+    "sourceHash": "67576fd8460a7b6da2d72cfdd2d9dfb0fbef6de4f438664fe9b1cbc15dac7e7d"
+  },
   "subscription.episodeMissing": {
     "sourceHash": "c08b2cfef389e41d8b60af10a12451dc20a813afa957b7f66f1f441a3afc5142"
   },

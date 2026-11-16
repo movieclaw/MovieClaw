@@ -26,6 +26,7 @@ from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import (
     BadRequestException,
     ConflictException,
+    ForbiddenException,
     NotFoundException,
     ServiceUnavailableException,
     exception_fields,
@@ -55,6 +56,9 @@ from movieclaw_api.schemas.playback import (
     PlaybackDiagnosticsView,
     PlaybackDiscFileView,
     PlaybackDiscListingView,
+    PlaybackExternalLinkRequest,
+    PlaybackExternalLinkView,
+    PlaybackExternalSubtitleView,
     PlaybackFontsView,
     PlaybackHistoryClearView,
     PlaybackHistoryView,
@@ -174,6 +178,7 @@ from movieclaw_api.services.playback_stats import playback_history, playback_sta
 from movieclaw_api.services.playback_up_next import up_next_items
 from movieclaw_api.services.reels import clip_tip
 from movieclaw_api.services.reels import clips as reel_clips
+from movieclaw_api.services.server_addresses import normalize_url
 from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_api.settings import PlaybackPolicySetting
 from movieclaw_api.settings.store import get_setting_store
@@ -183,7 +188,12 @@ from movieclaw_db.models.base import utcnow
 from movieclaw_db.repositories.media_repo import MediaItemRepository
 from movieclaw_playback import activity
 from movieclaw_playback import state as playback_state
-from movieclaw_playback.decide import PlaybackDecision, PlaybackPlan, PlaybackRejected
+from movieclaw_playback.decide import (
+    PlaybackDecision,
+    PlaybackPlan,
+    PlaybackRejected,
+    plan_subtitles,
+)
 from movieclaw_playback.decide import PlaybackTier as Tier
 from movieclaw_playback.hls_vod import (
     build_master_playlist,
@@ -193,6 +203,7 @@ from movieclaw_playback.hls_vod import (
     compute_uniform_plan,
 )
 from movieclaw_playback.keyframes import read_keyframe_index, schedule_background_index
+from movieclaw_playback.profile import media_profile_from_file
 from movieclaw_playback.streaming import (
     ClientDisconnected,
     DisconnectAwareFileResponse,
@@ -2241,6 +2252,12 @@ async def _grant_file(file_id: int) -> LibraryFile | None:
     operation_id="playback.file.stream",
     openapi_extra={"x-cli-hidden": True},
 )
+@stream_router.get(
+    "/files/{file_id}/stream/{filename}",
+    summary="原文件直出（地址末段带文件名）",
+    operation_id="playback.file.stream.named",
+    openapi_extra={"x-cli-hidden": True},
+)
 async def stream_library_file(
     request: Request,
     file_id: Annotated[int, Path()],
@@ -2250,6 +2267,10 @@ async def stream_library_file(
     """档 0 Direct Play：原文件按 Range 直出，零转码零开销。
 
     strm 网盘条目在这里跳转到云端直链——服务器零流量（硬边界 2）。
+
+    带 ``/{filename}`` 的地址是外部播放器链接用的（docs/design/external-player.md §2.6）：
+    IINA、Infuse、VLC 拿地址末段当片名显示。文件名段**不参与寻址**（处理函数根本不收它），
+    取哪个文件只看 ``file_id`` 与 token。
     """
     grant = await verify_stream_token(token, file_id=file_id)
     if grant is None:
@@ -2928,6 +2949,149 @@ async def get_playback_resume(
             duration_ms=await playback_state.unit_runtime_ms(session, unit),
             audio_track=row.audio_track if row else None,
             subtitle_track=row.subtitle_track if row else None,
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# 外部播放器链接（docs/design/external-player.md）
+# ---------------------------------------------------------------------------
+
+
+def _request_origin(request: Request) -> str:
+    """浏览器访问本服务用的源（协议 + 主机）。外部播放器不在浏览器的源里，地址必须是绝对的。
+
+    取法与 Jellyfin 兼容层对外地址的回落相同：``X-Forwarded-Host`` / ``-Proto``（容器内 nginx
+    总会带上；多级代理取最外层），没有再取 ``Host`` 与本层协议。不用「外部访问地址」设置：
+    用户此刻在浏览器里用的地址，才是同一台设备上的播放器一定连得上的那个（在家是内网地址，
+    在外是外网域名）。
+    """
+    headers = request.headers
+    host = headers.get("x-forwarded-host", "").split(",", 1)[0].strip() or headers.get("host", "")
+    proto = headers.get("x-forwarded-proto", "").split(",", 1)[0].strip() or request.url.scheme
+    try:
+        return normalize_url(f"{proto}://{host}")
+    except ValueError:
+        return str(request.base_url).rstrip("/")
+
+
+def _is_disc_folder(file: LibraryFile) -> bool:
+    """原盘目录（BDMV / VIDEO_TS）：没有单个文件可交给外部播放器。ISO 是单个文件，不算。"""
+    return file.is_disc() and (file.container or "") != "iso"
+
+
+def _link_file_name(file: LibraryFile) -> str:
+    """地址末段的文件名：只给播放器显示用。去掉路径分隔符、控制字符与 ``..``，取不出就用
+    ``video.<容器>``。strm 换成它指向的容器后缀，播放器看到的才像个视频文件。"""
+    name = PathLib(file.file_path).name
+    if is_strm(name) and file.container and file.container != "strm":
+        name = f"{PathLib(name).stem}.{file.container}"
+    name = "".join(ch for ch in name if ch.isprintable() and ch not in "/\\")
+    name = re.sub(r"\.{2,}", ".", name).strip(" .")
+    return name or (f"video.{file.container}" if file.container else "video")
+
+
+@router.post(
+    "/external-link",
+    response_model=ApiResponse[PlaybackExternalLinkView],
+    summary="外部播放器链接（原文件签名地址）",
+    operation_id="playback.external-link",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def create_external_link(
+    payload: PlaybackExternalLinkRequest,
+    request: Request,
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[PlaybackExternalLinkView]:
+    """给 PotPlayer / IINA / Infuse / VLC 这类外部播放器一条原文件地址（不转码、不建会话）。
+
+    可见性与开会话同一组判据（``_decide``）：内容分级（``assert_item_visible``）+ 库范围内的
+    在位文件。不建播放会话、不记「已开始」、不动观看状态：外部播放器不回报进度，这里记了
+    只会在活动页和播放记录里留一条假的网页播放。token 不带浏览器设备标识，取流因此也不登记
+    成网页的实时会话（``_register_play_stream``）。
+    """
+    if principal.share is not None:
+        # 分享访客只能在分享页里看，链接一旦交给外部播放器就脱离了分享的管控（media-share.md）
+        raise ForbiddenException(message_key="errors.playback.externalLinkMembersOnly")
+    await assert_item_visible(session, principal, payload.media_item_id)
+    unit = (payload.media_item_id, payload.season_number, payload.episode_number)
+    files = await playback_plan.library_files_for_unit(
+        session, *unit, visible_library_ids=await visible_library_ids(session, principal)
+    )
+    if not files:
+        raise NotFoundException(message_key="errors.playback.noPlayableFile")
+    if payload.file_id is not None:
+        file = next((f for f in files if f.id == payload.file_id), None)
+        if file is None:
+            raise NotFoundException(message_key="errors.playback.fileMissing")
+    else:
+        # 默认版本与全解码客户端开会话时一样：都能直出，同档取分辨率最高的（plan._best）。
+        # 原盘目录给不了外部播放器，有别的版本就不挑它
+        candidates = [f for f in files if not _is_disc_folder(f)] or files
+        file = max(candidates, key=lambda f: media_profile_from_file(f).height or 0)
+    if _is_disc_folder(file):
+        raise ConflictException(message_key="errors.playback.externalDiscFolder")
+    if file.local_bytes and is_strm(file.file_path):
+        # 与直出端点同一道检查：strm 写坏了，播放器拿到地址也只会 404
+        try:
+            parse_strm(file.file_path)
+        except StrmError as exc:
+            raise NotFoundException(
+                message_key="errors.playback.strmUnavailable", params={"reason": str(exc)}
+            ) from exc
+
+    member_id = principal.member_id if principal.member_id is not None else 0
+    token = await issue_stream_token(member_id=member_id, file_id=file.id, external=True)
+    grant = await verify_stream_token(token, file_id=file.id)
+    assert grant is not None
+    origin = _request_origin(request)
+    base = f"{origin}/api/v1/playback/files/{file.id}"
+    file_name = _link_file_name(file)
+
+    subtitles = []
+    profile = media_profile_from_file(file, context=await track_context(session, file))
+    for plan in sorted(plan_subtitles(profile), key=lambda s: not s.is_default):
+        if plan.kind == "vtt":
+            # 文本轨一律给 SRT：外挂 srt 原样、内封文本轨抽出来本来就是 srt，哪个播放器都认
+            fmt, query = "srt", "&format=srt"
+        elif plan.kind == "ass":
+            # 特效轨原样给，转格式就丢样式；外挂 .ssa 仍是 ssa
+            ref = resolve_external_subtitle(file, plan.track_ref)
+            fmt, query = (ref.format if ref is not None else "ass"), ""
+        else:
+            continue  # PGS 等位图轨：外部播放器从原文件自己读
+        subtitles.append(
+            PlaybackExternalSubtitleView(
+                track=plan.track_ref,
+                label=plan.title or plan.language,
+                language=plan.language,
+                format=fmt,
+                url=f"{base}/subtitles?track={quote(plan.track_ref, safe='')}{query}&token={token}",
+            )
+        )
+
+    states = await playback_state.get_states(session, [payload.media_item_id], member_id=member_id)
+    watch_row = states.get(unit)
+    item = await session.get(MediaItem, payload.media_item_id)
+    title = display_title(item) if item is not None else PathLib(file_name).stem
+    if payload.season_number or payload.episode_number:
+        title = f"{title} S{payload.season_number:02d}E{payload.episode_number:02d}"
+    elif item is not None and item.year:
+        title = f"{title} ({item.year})"
+    logger.info("签发外部播放器链接：file_id=%s 主体=%s", file.id, principal)
+    return ok(
+        PlaybackExternalLinkView(
+            file_id=file.id,
+            stream_url=f"{base}/stream/{quote(file_name, safe='')}?token={token}",
+            subtitles=subtitles,
+            title=title,
+            file_name=file_name,
+            container=file.container,
+            # 与开会话同一规则：有续播点就接着播（看完时续播点已清零）
+            start_ms=watch_row.position_ms if watch_row is not None else 0,
+            duration_ms=await playback_state.unit_runtime_ms(session, unit),
+            expires_at=datetime.fromtimestamp(grant.expires_at, UTC),
         )
     )
 
