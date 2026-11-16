@@ -106,6 +106,10 @@ var knownNonGenerated = []string{
 	"playback.session.master",
 	"playback.session.subtitle-playlist",
 	"playback.file.stream",
+	// 外部播放器链接（docs/design/external-player.md）：网页把签名直链交给外部播放器，
+	// 带文件名的取流别名同样是字节端点，CLI 场景无消费方
+	"playback.external-link",
+	"playback.file.stream.named",
 	// 原盘目录直推（disc-direct-play.md）：目录清单与盘内文件的 Range 取流，只给播放引擎用
 	"playback.file.disc.list",
 	"playback.file.disc.file",
