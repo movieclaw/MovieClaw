@@ -106,6 +106,8 @@
     "noMarkableEpisodes": "没有找到可标记的季或集",
     "clearLibraryRequired": "按库清除需要 library_id",
     "clientDisconnected": "客户端已断开",
+    "externalDiscFolder": "原盘目录（BDMV / VIDEO_TS）没有单个文件，外部播放器打不开，请用网页或 App 播放",
+    "externalLinkMembersOnly": "分享访客不能获取外部播放器链接",
     "startFailed": "播放启动失败：{reason}",
     "strmUnavailable": "strm 用不了：{reason}",
     "remoteAddress": "无法确定远程转码地址：Worker 连接未携带可用的 Host，请在「应用 → 远程转码」填写专用地址",

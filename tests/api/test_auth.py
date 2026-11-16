@@ -302,6 +302,8 @@ _PUBLIC_ALLOWLIST = {
     ("GET", "/api/v1/playback/sessions/{session_id}/sub{index}.m3u8"),
     ("GET", "/api/v1/playback/sessions/{session_id}/{name}"),
     ("GET", "/api/v1/playback/files/{file_id}/stream"),
+    # 同一个直出，地址末段多一个文件名（外部播放器拿它当片名显示，external-player.md §3）
+    ("GET", "/api/v1/playback/files/{file_id}/stream/{filename}"),
     # 原盘目录直推（disc-direct-play.md）：App 的自研引擎按文件取字节，与原文件直出一样
     # 只凭查询参数里的签名 token，引擎的读取器不带登录凭据
     ("GET", "/api/v1/playback/files/{file_id}/disc"),
@@ -420,6 +422,7 @@ def fill_path_params(path: str) -> str:
         .replace("{device_id}", "test-device")
         .replace("{task_key}", "library_reconcile")
         .replace("{user_code}", "MCLW-TEST")
+        .replace("{filename}", "movie.mkv")  # 外部播放器直出地址末段的显示用文件名
         .replace("{name}", "seg00000.m4s")
         .replace("{index}", "0")
         .replace("{slug}", "no-such-share")

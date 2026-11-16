@@ -825,6 +825,51 @@ class PlaybackSessionRequest(PlaybackDecideRequest):
     client: str | None = Field(default=None, max_length=16)
 
 
+class PlaybackExternalLinkRequest(BaseModel):
+    """要一条交给外部播放器的原文件地址（docs/design/external-player.md §2）。
+
+    播放单元的表达与 ``/progress``、``/resume`` 相同：电影是 ``(0, 0)`` 哨兵单元。
+    """
+
+    media_item_id: int
+    season_number: int = 0
+    episode_number: int = 0
+    #: 指定版本；必须是这个播放单元的在位文件，否则 404。不给按起播的规则挑默认版本
+    file_id: int | None = None
+
+
+class PlaybackExternalSubtitleView(BaseModel):
+    """一条外部播放器能直接加载的文本字幕（位图轨不给）。"""
+
+    #: 中性轨引用（external:<文件名> / embedded:<序号>）
+    track: str
+    #: 给人看的轨名：台账里的标题，没有就是语言
+    label: str | None = None
+    language: str | None = None
+    #: 地址给出的格式：srt / ass / ssa
+    format: str
+    #: 带签名 token 的绝对地址
+    url: str
+
+
+class PlaybackExternalLinkView(BaseModel):
+    """外部播放器链接：绝对地址、自带签名 token，不建播放会话。"""
+
+    file_id: int
+    #: 原文件直出的绝对地址；路径末段是文件名，只给播放器显示用，不参与寻址
+    stream_url: str
+    subtitles: list[PlaybackExternalSubtitleView] = Field(default_factory=list)
+    #: 「片名 (年份)」或「剧名 S01E02」，给播放器做标题
+    title: str
+    file_name: str
+    container: str | None = None
+    #: 续播点（与开会话同一规则：有续播点就接着播，否则 0）
+    start_ms: int = 0
+    duration_ms: int | None = None
+    #: 地址里 token 的到期时刻
+    expires_at: datetime
+
+
 class PlaybackItemView(BaseModel):
     """播放页要的条目信息，只有播放器用得上的那几样。
 

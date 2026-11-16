@@ -653,6 +653,8 @@ _MEMBER_ALLOWLIST = {
     ("POST", "/api/v1/playback/sessions"),
     ("POST", "/api/v1/playback/sessions/{session_id}/ping"),
     ("DELETE", "/api/v1/playback/sessions/{session_id}"),
+    # 外部播放器链接：可见性与开会话同一组判据，token 只授权成员看得到的那一个文件
+    ("POST", "/api/v1/playback/external-link"),
     # 播放诊断是成员播放器的自助排障入口；使用与取流相同的签名 token，
     # 服务端按 token 中的 member_id 校验会话归属，不暴露其他成员的状态。
     ("GET", "/api/v1/playback/sessions/{session_id}/diagnostics"),
@@ -665,6 +667,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/playback/sessions/{session_id}/sub{index}.m3u8"),
     ("GET", "/api/v1/playback/sessions/{session_id}/{name}"),
     ("GET", "/api/v1/playback/files/{file_id}/stream"),
+    # 外部播放器链接的直出地址：与上一条同一个处理函数，末段文件名只做显示
+    ("GET", "/api/v1/playback/files/{file_id}/stream/{filename}"),
     # 原盘目录直推（disc-direct-play.md）：只凭签名 token，与原文件直出同属公开取流区
     ("GET", "/api/v1/playback/files/{file_id}/disc"),
     ("GET", "/api/v1/playback/files/{file_id}/disc/{relative_path}"),
@@ -809,6 +813,7 @@ _PATH_DUMMIES = {
     "{file_id}": "1",
     "{device_id}": "no-such-device",
     "{user_code}": "MCLW-TEST",
+    "{filename}": "movie.mkv",
     "{name}": "seg00000.m4s",
     "{token_id}": "1",
     "{notice_id}": "1",
