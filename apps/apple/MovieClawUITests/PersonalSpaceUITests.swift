@@ -178,6 +178,84 @@ final class PersonalSpaceUITests: XCTestCase {
         snapshot("personal-space-pagination")
     }
 
+    /// TestFlight 0.13.0 闪退（Invalid number of items in section）：删会话——尤其删到某个日期分组只剩最后一条、
+    /// 分组整段消失时——列表更新不一致。左滑、长按、会话页菜单三条删除路径都走一遍，删空「今天」分组。
+    @MainActor func testDeletingSessionsKeepsListConsistent() {
+        launch()
+        let rows = app.buttons.matching(identifier: "more-session-row")
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["今天"].exists)
+        let confirm = app.alerts.buttons["彻底删除"]
+
+        // 左滑删除：确认框弹出期间行要留在原处，取消后也还在
+        let first = rows.firstMatch
+        let firstLabel = first.label
+        first.swipeLeft()
+        XCTAssertTrue(app.buttons["删除会话"].waitForExistence(timeout: 5))
+        app.buttons["删除会话"].tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        XCTAssertTrue(sessionRow(firstLabel).exists, "确认前不应先把行删掉")
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(sessionRow(firstLabel).waitForExistence(timeout: 5), "取消删除保留会话")
+
+        // 「今天」4 条：左滑删两条、长按删一条、进会话页从菜单删最后一条，分组随之消失
+        for _ in 0..<2 {
+            let row = rows.firstMatch
+            let label = row.label
+            row.swipeLeft()
+            XCTAssertTrue(app.buttons["删除会话"].waitForExistence(timeout: 5))
+            app.buttons["删除会话"].tap()
+            XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+            confirm.tap()
+            XCTAssertTrue(sessionRow(label).waitForNonExistence(timeout: 10), label)
+            XCTAssertEqual(app.state, .runningForeground, "删除后不应闪退")
+        }
+        let pressed = rows.firstMatch
+        let pressedLabel = pressed.label
+        pressed.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["删除会话"].waitForExistence(timeout: 5))
+        app.buttons["删除会话"].tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        XCTAssertTrue(sessionRow(pressedLabel).waitForNonExistence(timeout: 10), pressedLabel)
+        XCTAssertEqual(app.state, .runningForeground, "删除后不应闪退")
+
+        let opened = rows.firstMatch
+        let openedLabel = opened.label
+        opened.tap()
+        let menu = app.buttons["agent-session-menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10))
+        menu.tap()
+        XCTAssertTrue(app.buttons["删除会话"].waitForExistence(timeout: 5))
+        app.buttons["删除会话"].tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        XCTAssertTrue(app.buttons["more-profile-card"].waitForExistence(timeout: 10), "删除后回到「我的」")
+        XCTAssertTrue(sessionRow(openedLabel).waitForNonExistence(timeout: 10), openedLabel)
+        XCTAssertEqual(app.state, .runningForeground, "删除后不应闪退")
+        XCTAssertFalse(app.staticTexts["今天"].exists, "「今天」删空后分组消失")
+        XCTAssertTrue(app.staticTexts["昨天"].exists)
+        XCTAssertEqual(sessionCount(), 25 - 4, "服务器上恰好删掉 4 条")
+        snapshot("personal-space-after-delete")
+    }
+
+    /// 夹具里剩余的会话数（列表懒加载，界面上的行数不等于总数）
+    private func sessionCount() -> Int? {
+        var count: Int?
+        let done = expectation(description: "读取夹具状态")
+        URLSession.shared.dataTask(with: URL(string: server + "/e2e/state")!) { data, _, _ in
+            count = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                .flatMap { $0["data"] as? [String: Any] }?["count"] as? Int
+            done.fulfill()
+        }.resume()
+        wait(for: [done], timeout: 5)
+        return count
+    }
+
+    @MainActor private func sessionRow(_ label: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == 'more-session-row' AND label == %@", label)).firstMatch
+    }
+
     @MainActor func testMemberAndRestrictedCapabilities() {
         launch(user: "member")
         XCTAssertFalse(app.buttons["more-tab-conversations"].exists)
