@@ -65,10 +65,10 @@ class CircuitBreaker:
     # ------------------------------------------------------------------
     # 请求前检查
     # ------------------------------------------------------------------
-    def before_request(self) -> None:
-        """请求发出前调用；熔断打开且不在探测窗口时抛 CircuitOpenError。"""
+    def before_request(self) -> bool:
+        """请求前检查；返回是否占用探测槽，不可放行时抛 CircuitOpenError。"""
         if self._opened_at is None:
-            return
+            return False
         elapsed = time.monotonic() - self._opened_at
         if elapsed < self._cooldown:
             raise CircuitOpenError(self._service, self._cooldown - elapsed)
@@ -76,10 +76,15 @@ class CircuitBreaker:
         if self._probing:
             raise CircuitOpenError(self._service, 0.0)
         self._probing = True
+        return True
 
     # ------------------------------------------------------------------
     # 请求结果回报
     # ------------------------------------------------------------------
+    def release_probe(self) -> None:
+        """探测未得出线路结论时归还槽位，保留失败计数与原冷却起点。"""
+        self._probing = False
+
     def record_success(self) -> None:
         """任意 HTTP 响应（含 4xx/5xx）都算线路通，闭合熔断。"""
         self._consecutive_failures = 0
