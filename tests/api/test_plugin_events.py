@@ -216,6 +216,114 @@ def test_package_events_and_notifications_from_install_to_uninstall(data_dir) ->
         assert "acme-pkg.quota.exceeded" not in {e["key"] for e in prefs}
 
 
+@pytest.mark.parametrize("durable", [False, True])
+@pytest.mark.parametrize("provider_first", [False, True])
+def test_process_plugin_subscribes_to_another_running_plugin(
+    data_dir,  # noqa: F811
+    durable,
+    provider_first,
+) -> None:
+    """自写两个插件包：未登记仍拒绝；登记后跨进程接收，重挂不重复投递。"""
+    from movieclaw_kernel import DURABLE_EVENTS
+
+    source = """
+from fastapi import APIRouter
+from pydantic import BaseModel, ConfigDict
+from movieclaw_api.plugins.keys import PLUGIN_DATA, PLUGIN_ROUTES
+from movieclaw_kernel import DURABLE_EVENTS
+from movieclaw_sdk import plugin
+from movieclaw_sdk.events import plugin_event
+
+class QuotaExceeded(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    site: str
+    remaining_gb: float
+    member_id: int
+
+EXCEEDED = plugin_event("acme-pkg.quota.exceeded", QuotaExceeded, title="站点配额超限")
+
+@plugin("event-listener", title="事件监听器", inject=(PLUGIN_DATA, PLUGIN_ROUTES, DURABLE_EVENTS))
+async def apply(ctx):
+    store = ctx.use(PLUGIN_DATA).scoped(ctx)
+    async def receive(payload):
+        assert isinstance(payload, QuotaExceeded)
+        received = await store.get("received") or []
+        await store.set("received", [*received, payload.model_dump()])
+    ctx.on(EXCEEDED, receive, id="quota", durable=DURABLE)
+    router = APIRouter()
+    @router.get("/received", operation_id="plugins.event-listener.received")
+    async def received():
+        return {"received": await store.get("received") or []}
+    ctx.use(PLUGIN_ROUTES).mount(ctx, router, zone="admin")
+""".replace("durable=DURABLE", f"durable={durable!r}")
+    manifest = """
+[plugin]
+id = "event-listener"
+title = "事件监听器"
+version = "1.0.0"
+entry = "acme_pkg"
+runtime = "process"
+sdk = "^1.0"
+[permissions]
+operations = []
+"""
+    app, client = start()
+    with client:
+        if provider_first:
+            assert upload(client, events_package(audience="admins")).status_code == 200
+            assert approve(client, "1.0.0", operations=()).json()["data"]["status"] == "active"
+            wait_for(lambda: "acme-pkg.quota.exceeded" in plugin_events.catalog())
+        assert upload(client, package(manifest=manifest, source=source)).status_code == 200
+        result = client.post(
+            "/api/v1/app/plugins/packages/event-listener/approve",
+            json={"version": "1.0.0", "operations": []},
+        ).json()["data"]
+        if not provider_first:
+            assert result["status"] == "rolled_back", result
+            assert "acme-pkg.quota.exceeded 不存在或没有开放" in result["error"]
+            assert upload(client, events_package(audience="admins")).status_code == 200
+            assert approve(client, "1.0.0", operations=()).json()["data"]["status"] == "active"
+            wait_for(lambda: "acme-pkg.quota.exceeded" in plugin_events.catalog())
+            # 目录变化不会自动重试已回滚的消费者；须重新安装，不引入隐式等待语义。
+            assert client.get("/api/v1/plugins/event-listener/received").status_code == 404
+            assert upload(client, package(manifest=manifest, source=source)).status_code == 200
+            result = client.post(
+                "/api/v1/app/plugins/packages/event-listener/approve",
+                json={"version": "1.0.0", "operations": []},
+            ).json()["data"]
+        assert result["status"] == "active", result
+        entry = app.state.kernel.fiber("event-listener").entry
+        expected = {"site": "mteam", "remaining_gb": 2.5, "member_id": 1}
+
+        def received():
+            return client.get("/api/v1/plugins/event-listener/received").json()["received"]
+
+        assert client.post("/api/v1/plugins/acme-pkg/fire").status_code == 200
+        wait_for(lambda: received() == [expected])
+        client.portal.call(app.state.kernel.unmount, "event-listener")
+        assert client.get("/api/v1/plugins/event-listener/received").status_code == 404
+        store = app.state.kernel.service(DURABLE_EVENTS)
+        assert "event-listener:quota" not in store._consumers
+        assert not any(
+            listener.entry_id == "event-listener"
+            for listener in app.state.kernel.bus.listeners(
+                plugin_events.catalog()["acme-pkg.quota.exceeded"]
+            )
+        )
+        client.portal.call(app.state.kernel.mount, entry)
+        assert client.post("/api/v1/plugins/acme-pkg/fire").status_code == 200
+        wait_for(lambda: received() == [expected, expected])
+        assert client.delete("/api/v1/app/plugins/packages/event-listener").status_code == 200
+        assert "event-listener:quota" not in store._consumers
+
+
+def test_host_still_rejects_a_plugin_event_without_a_running_provider() -> None:
+    from movieclaw_api.services.plugin_runtime import _proxy
+
+    with pytest.raises(ValueError, match="不存在或没有开放给第三方插件"):
+        _proxy(None, {"event": "missing-producer.result", "id": "result"})
+
+
 SENSITIVE = """
 from movieclaw_sdk import plugin
 from movieclaw_sdk.events import PLAYBACK_STARTED

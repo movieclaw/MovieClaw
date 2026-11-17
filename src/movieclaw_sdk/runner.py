@@ -43,6 +43,7 @@ from movieclaw_kernel import (
 )
 from movieclaw_kernel.observe import current_locale
 from movieclaw_sdk import rpc
+from movieclaw_sdk.events import EventType
 from movieclaw_sdk.http import UnixHttp
 from movieclaw_sdk.ops import (
     OperationRef,
@@ -619,7 +620,10 @@ class RemoteContext:
         priority: int = 0,
         durable: bool = False,
     ) -> None:
-        if known_events().get(event.name) is not event:
+        known = known_events().get(event.name)
+        # 插件事件只在宿主运行时目录里；先上报订阅声明，由宿主核对是否已登记。
+        custom = known is None and isinstance(event, EventType) and event.owner == "plugin"
+        if known is not event and not custom:
             raise ValueError(f"事件 {event.name} 没有开放给第三方插件")
         if durable:
             if not event.durable:
