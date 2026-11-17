@@ -27,7 +27,7 @@ function load(path, locale, options = {}) {
     "@/lib/permissions": { usePermissions: () => ({ isAdmin: options.admin ?? true }) },
     "@/components/settings-ui": { SETTINGS_INPUT_CLASS: "input" },
     "@/components/cloud-push-ui": { Toggle: () => null },
-    "@/lib/http": { HttpError, resolveRequestUrl: (path) => "http://127.0.0.1/api/v1" + path, redirectToLoginOn401: noop },
+    "@/lib/http": { HttpError, resolveRequestUrl: (path) => "http://127.0.0.1/api/v1" + path, redirectToLoginOn401: noop, withUiLocale: (headers) => new Headers(headers) },
   };
   const text = readFileSync(new URL(path, import.meta.url), "utf8");
   const source = text + (path.includes("plugin-app-frame") ? "\nexport {Missing};" : "");
