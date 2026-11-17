@@ -232,8 +232,15 @@ export struct CarPlayerPage {
 
   // MARK: - 驾驶模式联动（无黑屏切换）
 
-  /** 播放模式变化 → 引擎视频表面显隐（音频链路不重建） */
-  @Monitor('ui.drive.playMode')
+  /** 播放模式变化 → 引擎视频表面显隐（音频链路不重建）。
+   * drive 是嵌套 @ObservedV2（readonly，非 @Trace 跳板），@Monitor 不认点路径；
+   * 折一层 @Computed 才是可监听的一级状态变量（syncDriveSurface 仍直读源头，不吃 @Computed 的同步缓存旧值）。 */
+  @Computed
+  get driveAudioLocked(): boolean {
+    return this.ui.drive.isAudioLocked();
+  }
+
+  @Monitor('driveAudioLocked')
   onDriveModeChange(): void {
     this.syncDriveSurface();
   }
@@ -1610,7 +1617,7 @@ export struct CarPlayerPage {
     .width('100%')
     .height('100%')
     .alignContent(Alignment.Center)
-    .id('car_player_root')
+    .id('car_player_audio_root')
   }
 
   // MARK: - 对话框（错误 / 同意 / 还在看吗）

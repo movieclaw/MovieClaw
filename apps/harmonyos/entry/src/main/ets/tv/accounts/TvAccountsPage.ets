@@ -455,7 +455,7 @@ export struct TvAccountsPage {
 
   private confirmLogout(): void {
     const nickname: string = this.currentNickname();
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '退出登录？',
       message: `「${nickname}」在这台电视上的登录会在服务器上一并注销。`
         + '同一台服务器上还有别的账号时会自动切过去。',

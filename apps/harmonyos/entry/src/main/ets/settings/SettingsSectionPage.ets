@@ -32,6 +32,7 @@ import { PlaybackSection } from './PlaybackSection';
 import { DeviceApprovalDialog } from './DeviceApprovalDialog';
 import { DetailParams, DeviceGroupDef, GroupListParams } from './DeviceGroupPages';
 import { SettingsSegmentChip, SettingsSwitchRow, SettingsTwoStateSegment } from '../common/SettingsControls';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 路由表注册用（router_map.json 的 buildMethod） */
 @Builder
@@ -236,6 +237,7 @@ export struct SettingsSectionPage {
         height: SheetSize.FIT_CONTENT,
         dragBar: true,
         showClose: false,
+        systemMaterial: SpatialMaterial.sheet(),
         backgroundColor: Theme.bg
       })
       // 批准设备登录不再挂在页面上：它是**原生命令式弹窗**（`openApproval()` 拉起，

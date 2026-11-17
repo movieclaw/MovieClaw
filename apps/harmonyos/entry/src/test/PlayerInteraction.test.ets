@@ -1,6 +1,8 @@
 import { describe, it, expect } from '@ohos/hypium';
+import { display } from '@kit.ArkUI';
 import { PlaybackController } from '@movieclaw/playback';
 import { PhonePlaybackHost, PlayerPhase } from '../main/ets/playback/PhonePlaybackHost';
+import { FoldState } from '../main/ets/common/FoldState';
 
 class RateController extends PlaybackController {
   rates: number[] = [];
@@ -43,6 +45,29 @@ export default function playerInteractionTest() {
       expect(host.chromeVisible).assertFalse(); expect(host.controlsLocked).assertTrue();
       expect(host.handleBack()).assertTrue(); expect(host.controlsLocked).assertFalse();
       expect(host.chromeVisible).assertTrue();
+    });
+    it('folding_releases_control_lock_and_landscape_lock', 0, () => {
+      const host = new PhonePlaybackHost();
+      host.toggleControlLock(); host.landscapeLocked = true;
+      expect(host.controlsLocked).assertTrue(); expect(host.chromeVisible).assertFalse();
+      host.handleFoldStatus(display.FoldStatus.FOLD_STATUS_FOLDED);
+      expect(host.controlsLocked).assertFalse();
+      expect(host.chromeVisible).assertTrue();
+      expect(host.landscapeLocked).assertFalse();
+    });
+    it('unfold_events_do_not_touch_playback_locks', 0, () => {
+      const host = new PhonePlaybackHost();
+      host.toggleControlLock(); host.landscapeLocked = true;
+      host.handleFoldStatus(display.FoldStatus.FOLD_STATUS_EXPANDED);
+      expect(host.controlsLocked).assertTrue(); expect(host.chromeVisible).assertFalse();
+      expect(host.landscapeLocked).assertTrue();
+    });
+    it('rotate_request_while_folded_is_ignored', 0, async () => {
+      const host = new PhonePlaybackHost();
+      FoldState.shared().coverActive = true;
+      await host.toggleLandscape();
+      expect(host.landscapeLocked).assertFalse();
+      FoldState.shared().coverActive = false;
     });
     it('back_dismisses_menu_before_leaving_player', 0, () => {
       const host = new PhonePlaybackHost(); host.toggleMenu('settings');

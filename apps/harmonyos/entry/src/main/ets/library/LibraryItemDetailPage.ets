@@ -69,6 +69,7 @@ import {
   OfflineItemDownloadButton,
   OfflineProfileSheet
 } from '../offline/OfflineUi';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /**
  * 条目详情页路由参数。
@@ -1286,6 +1287,7 @@ export struct LibraryItemDetailPage {
         height: SheetSize.LARGE,
         dragBar: true,
         showClose: false,
+        systemMaterial: SpatialMaterial.sheet(),
         backgroundColor: Theme.bg
       })
     }
@@ -1303,6 +1305,7 @@ export struct LibraryItemDetailPage {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
     .onReady((ctx: NavDestinationContext) => {
@@ -1399,6 +1402,7 @@ export struct LibraryItemDetailPage {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }
@@ -1845,6 +1849,7 @@ export struct LibraryItemDetailPage {
             height: SheetSize.LARGE,
             dragBar: true,
             showClose: false,
+            systemMaterial: SpatialMaterial.sheet(),
             backgroundColor: Theme.bg
           })
           AppFooter()
@@ -1855,6 +1860,7 @@ export struct LibraryItemDetailPage {
           height: SheetSize.LARGE,
           dragBar: true,
           showClose: false,
+          systemMaterial: SpatialMaterial.sheet(),
           backgroundColor: Theme.bg
         })
       }
@@ -1867,6 +1873,7 @@ export struct LibraryItemDetailPage {
         height: SheetSize.LARGE,
         dragBar: true,
         showClose: false,
+        systemMaterial: SpatialMaterial.sheet(),
         backgroundColor: Theme.bg
       })
     }
@@ -1881,6 +1888,7 @@ export struct LibraryItemDetailPage {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }
@@ -1950,7 +1958,7 @@ export struct LibraryItemDetailPage {
       }
       // 媒体轨道区（iOS MediaTrackSection，位于元数据行下、播放键上）：
       // 只认在位文件（state == "in_place"，同 iOS availableFiles）
-      MediaTrackSection({ files: this.inPlaceFiles() })
+      MediaTrackSection({ files: this.inPlaceFiles(), onChanged: (): void => { this.reload(); } })
       this.PlayAction(detail)
     }
     .width('100%')
@@ -2287,6 +2295,7 @@ export struct LibraryItemDetailPage {
           detents: [SheetSize.MEDIUM, SheetSize.LARGE],
           dragBar: true,
           showClose: false,
+          systemMaterial: SpatialMaterial.sheet(),
           backgroundColor: Theme.bg
         })
       }
@@ -2326,6 +2335,7 @@ export struct LibraryItemDetailPage {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

@@ -462,7 +462,7 @@ export struct ActivityStatsPage {
     if (this.chartWidth > 0) {
       return this.chartWidth;
     }
-    const screen: number = px2vp(display.getDefaultDisplaySync().width);
+    const screen: number = Theme.pxToVp(display.getDefaultDisplaySync().width);
     return Math.max(160, screen - Theme.pagePadding * 2 - 24 - 40);
   }
 

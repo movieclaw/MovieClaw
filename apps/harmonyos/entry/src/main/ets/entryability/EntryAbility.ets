@@ -241,20 +241,20 @@ export default class EntryAbility extends UIAbility {
     // 每次自增版本号会让所有 V1 页面白重建一遍。
     const insets: WindowInsets = WindowInsets.shared();
     if (type === window.AvoidAreaType.TYPE_SYSTEM) {
-      const top: number = px2vp(area.topRect.height);
+      const top: number = Theme.pxToVp(area.topRect.height);
       if (top !== insets.top) {
         insets.top = top;
         WindowInsets.bumpRevision();
       }
     } else if (type === window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR) {
-      const bottom: number = px2vp(area.bottomRect.height);
+      const bottom: number = Theme.pxToVp(area.bottomRect.height);
       if (bottom !== insets.bottom) {
         insets.bottom = bottom;
         WindowInsets.bumpRevision();
       }
     } else if (type === window.AvoidAreaType.TYPE_CUTOUT) {
-      const left: number = px2vp(area.leftRect.width);
-      const right: number = px2vp(area.rightRect.width);
+      const left: number = Theme.pxToVp(area.leftRect.width);
+      const right: number = Theme.pxToVp(area.rightRect.width);
       if (left !== insets.cutoutLeft || right !== insets.cutoutRight) {
         insets.cutoutLeft = left;
         insets.cutoutRight = right;

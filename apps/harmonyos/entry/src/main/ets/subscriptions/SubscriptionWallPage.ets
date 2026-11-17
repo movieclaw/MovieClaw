@@ -156,7 +156,7 @@ export struct SubscriptionWallPage {
 
   /** 自适应列数（2~4，同 `Theme.posterColumns`）：卡片宽按列数算，保证一行正好放下 N 个 */
   private cardWidth(): number {
-    const widthVp: number = px2vp(display.getDefaultDisplaySync().width);
+    const widthVp: number = Theme.pxToVp(display.getDefaultDisplaySync().width);
     const columns: number = Theme.posterColumns();
     const usable: number = widthVp - Theme.pagePadding * 2;
     // 每个卡片右侧留 12 间距：N*(w+12) = usable

@@ -17,6 +17,7 @@ import {
   ScrapeConfigView
 } from '../api/Models';
 import { NamingField, NamingToken, NamingTokenGroup, ScrapeNaming } from './ScrapeNaming';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 九节（对应 iOS 的九张手风琴卡片） */
 class ScrapeCard {
@@ -990,6 +991,7 @@ export struct ScrapeSection {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

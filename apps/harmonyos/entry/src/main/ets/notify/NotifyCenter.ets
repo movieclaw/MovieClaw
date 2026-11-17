@@ -1,6 +1,6 @@
 import { notificationManager } from '@kit.NotificationKit';
 import { workScheduler } from '@kit.BackgroundTasksKit';
-import { Context, Want, WantAgent, bundleManager, wantAgent } from '@kit.AbilityKit';
+import { Context, Want, WantAgent, bundleManager, common, wantAgent } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppModel } from '../common/AppModel';
 import { TokenVault } from '../common/TokenVault';
@@ -115,9 +115,9 @@ export class NotifyCenter {
    * 拉起系统授权弹窗（每个应用只弹一次；用户拒绝过就不再弹，只查当前状态）。
    * 返回最终的授权状态。
    */
-  static async requestPermission(): Promise<boolean> {
+  static async requestPermission(context: common.UIAbilityContext): Promise<boolean> {
     try {
-      await notificationManager.requestEnableNotification();
+      await notificationManager.requestEnableNotification(context);
     } catch (error) {
       // 首次弹窗被拒绝（1600004）或已拒绝过：不阻塞，以查询结果为准
     }

@@ -587,7 +587,7 @@ export struct LibraryCollectionsGrid {
 
   aboutToAppear(): void {
     try {
-      const widthVp: number = px2vp(display.getDefaultDisplaySync().width);
+      const widthVp: number = Theme.pxToVp(display.getDefaultDisplaySync().width);
       this.columns = Math.max(2, Math.floor((widthVp - Theme.pagePadding * 2 + 12) / 152));
     } catch (error) {
       this.columns = 3;

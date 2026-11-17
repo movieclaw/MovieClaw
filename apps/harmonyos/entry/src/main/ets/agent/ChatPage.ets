@@ -48,6 +48,7 @@ import {
   AgentUserBubbleView
 } from './AgentTurnViews';
 import { ChatParams } from './ChatParams';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 路由表注册用（router_map.json 的 buildMethod） */
 @Builder
@@ -249,7 +250,10 @@ export struct ChatPage {
 
   /** 监听输入法高度：弹出把输入区顶上去，收起还原（同 iOS 贴键盘） */
   private observeKeyboard(): void {
-    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    const context: common.Context | undefined = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
     window.getLastWindow(context).then((win: window.Window): void => {
       // 组件可能已在 Promise 落定前销毁：不再注册（否则监听无人解绑，还会回调已销毁组件）
       if (this.disposed) {
@@ -257,7 +261,7 @@ export struct ChatPage {
       }
       this.keyboardWindow = win;
       this.keyboardCallback = (height: number): void => {
-        this.keyboardInset = height > 0 ? px2vp(height) : 0;
+        this.keyboardInset = height > 0 ? this.getUIContext().px2vp(height) : 0;
         // 贴底跟随：键盘升降改变列表高度，意图在底部就重新贴底
         if (this.followsLatest) {
           this.pumpStick();
@@ -873,10 +877,13 @@ export struct ChatPage {
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       target = `${AppModel.origin()}${url.startsWith('/') ? url : `/${url}`}`;
     }
-    const context: common.UIAbilityContext = getContext() as common.UIAbilityContext;
-    context.openLink(target).catch((): void => {
-      this.toast('打不开链接');
-    });
+    const raw: common.Context | undefined = this.getUIContext().getHostContext();
+    if (raw !== undefined) {
+      const host: common.UIAbilityContext = raw as common.UIAbilityContext;
+      host.openLink(target).catch((): void => {
+        this.toast('打不开链接');
+      });
+    }
   }
 
   /** 生成式 UI 卡片：点卡进对应产品页（与发现页 / 媒体库页同一条路由） */
@@ -920,6 +927,7 @@ export struct ChatPage {
         height: SheetSize.FIT_CONTENT,
         dragBar: true,
         showClose: false,
+        systemMaterial: SpatialMaterial.sheet(),
         backgroundColor: Theme.bg
       })
     }
@@ -1450,9 +1458,9 @@ export struct ChatPage {
   /** 三种来源共用：选 → 压缩 → 上传 → 进托盘（逐张，失败只提示不打断其它） */
   private async addImages(source: string): Promise<void> {
     this.uploadError = '';
-    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    const context: common.Context | undefined = this.getUIContext().getHostContext();
     const client = AppModel.shared.client;
-    if (client === null) {
+    if (client === null || context === undefined) {
       return;
     }
     const room: number = AgentAttachments.MAX_PER_MESSAGE - this.attachments.length - this.uploading;

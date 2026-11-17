@@ -25,6 +25,7 @@ import { SharePanel, shareMessage } from '../library/ShareSheet';
 import { PlayerParams } from '../player/PlayerParams';
 import { ItemRouteParams } from '../library/LibraryItemDetailPage';
 import { PersonParams } from '../discover/PersonDetailPage';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 片段页的路由参数（会序列化，不要用 instanceof） */
 export class ReelsParams {
@@ -975,6 +976,7 @@ export struct ReelsPage {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
     .onReady((ctx: NavDestinationContext) => {

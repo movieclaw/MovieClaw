@@ -40,6 +40,7 @@ import {
   TorrentSort,
   TorrentSortKey
 } from './TorrentSearchLogic';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 结果行的种类（拍平进一个懒加载列表：组头 / 命中行 / 展开按钮 / 图览网格行 / 图览提示行） */
 enum RowKind {
@@ -1451,12 +1452,14 @@ export struct TorrentResultsPage {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
     .bindSheet($$this.showSitesSheet, this.SitesSheet(), {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
     .onReady((ctx: NavDestinationContext) => {

@@ -18,6 +18,7 @@ import {
   ThinkingControl,
   ThinkingControlInput
 } from '../api/Models';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 供应商状态（对应 iOS `SettingsBLLMProviderCard` 的 status） */
 class LlmStatus {
@@ -839,6 +840,7 @@ export struct LlmProvidersSection {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }
@@ -2032,6 +2034,7 @@ export struct AiDefaultsSection {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

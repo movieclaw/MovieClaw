@@ -6,6 +6,7 @@ import { MovieClawApi } from '../api/Endpoints';
 import { CollectionView, FacetValueView, LibraryFacetsView, LibraryRelaxView, RelaxSuggestionView } from '../api/Models';
 import { JsonValue } from '../api/JsonValue';
 import { LibraryFilter, facetLabel, facetPool, fetchWallFacets, fetchWallRelax } from './LibraryWall';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 空数组占位（ArkTS 的 ForEach 需要稳定的数组类型） */
 const EMPTY_SUGGESTIONS: RelaxSuggestionView[] = [];
@@ -160,7 +161,11 @@ export struct LibraryFilterBar {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .bindSheet($$this.open, this.FilterSheet(), { height: SheetSize.LARGE })
+    .bindSheet($$this.open, this.FilterSheet(), {
+      height: SheetSize.LARGE,
+      // 半模态沉浸光感材质（规范推荐 ULTRA_THICK）；不支持的设备落回默认底色
+      systemMaterial: SpatialMaterial.sheet()
+    })
   }
 
   /** 筛选按钮：唯一一个带玻璃底的按钮；激活时加角标 */

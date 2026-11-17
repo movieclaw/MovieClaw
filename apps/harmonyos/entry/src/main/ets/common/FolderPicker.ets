@@ -13,8 +13,7 @@ import { common } from '@kit.AbilityKit';
  * 真机上选的是本机目录，能不能用取决于服务端与设备是否同一台——
  * 所以调用方要允许用户手输路径（见 `LibraryCreatePage` 的「手动输入」）。
  */
-export async function pickFolder(): Promise<string> {
-  const context = getContext() as common.UIAbilityContext;
+export async function pickFolder(context: common.Context): Promise<string> {
   const documentPicker = new picker.DocumentViewPicker(context);
   const options = new picker.DocumentSelectOptions();
   options.maxSelectNumber = 1;

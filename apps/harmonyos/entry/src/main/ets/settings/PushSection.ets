@@ -20,6 +20,7 @@ import {
   WeixinBindingStartView,
   WeixinBindingStatusView
 } from '../api/Models';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 一个可接入的通道（对应 iOS `SettingsBPushChannel`：平台文案集中在这里） */
 class ImChannel {
@@ -636,6 +637,7 @@ export struct PushSection {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg,
       onDisappear: (): void => {
         this.stopWeixinPoll();
@@ -757,6 +759,7 @@ export struct PushSection {
       height: SheetSize.FIT_CONTENT,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

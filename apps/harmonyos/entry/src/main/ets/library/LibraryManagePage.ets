@@ -28,6 +28,7 @@ import { LibraryFormSheet } from './LibraryFormSheet';
 import { OrganizeSheet } from './OrganizeSheet';
 import { IssueParams } from './IssueDrawerPage';
 import { LibraryRouteParams } from './LibraryRouteParams';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /**
  * 媒体库管理页（对应 iOS `Features/Library/LibraryManageView.swift`，口径即 Web `library-manage-view.tsx`）。
@@ -1133,6 +1134,7 @@ struct LibraryManagePage {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

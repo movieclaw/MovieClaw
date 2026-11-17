@@ -36,7 +36,10 @@ struct TvIndex {
 
   aboutToAppear(): void {
     // TV 侧偏好（墙记忆 / 配对安装标识）先就位
-    TvUiState.shared.init(getContext(this));
+    const context: common.Context | undefined = this.getUIContext().getHostContext();
+    if (context !== undefined) {
+      TvUiState.shared.init(context);
+    }
     // 冷启动：读回本机的服务器与账号快照，再决定落到哪个 phase
     this.model.restore().catch((error: Error): void => {
       hilog.error(0x0000, 'TvBoot', 'restore 抛异常: %{public}s', `${error}`);
@@ -236,7 +239,7 @@ struct TvIndex {
       return;
     }
     this.exitAsking = true;
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '退出 MovieClaw',
       message: '确定要退出应用吗？',
       autoCancel: true,
@@ -254,8 +257,11 @@ struct TvIndex {
         fontColor: TvColors.danger,
         action: (): void => {
           this.exitAsking = false;
-          const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
-          context.terminateSelf();
+          const raw: common.Context | undefined = this.getUIContext().getHostContext();
+          if (raw !== undefined) {
+            const host: common.UIAbilityContext = raw as common.UIAbilityContext;
+            host.terminateSelf();
+          }
         }
       }
     });

@@ -26,6 +26,7 @@ import {
   OfflineOtherOwnersSection,
   OfflineWatchedCard
 } from '../offline/OfflineStoragePage';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /**
  * 「我的」页（对应 iOS 端 MorePage 重构版）：居中个人信息 + 会话 / 下载 / 服务器胶囊切换。
@@ -678,6 +679,7 @@ export struct MorePage {
       height: SheetSize.FIT_CONTENT,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

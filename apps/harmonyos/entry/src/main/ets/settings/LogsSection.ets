@@ -5,6 +5,7 @@ import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import { LogContent, LogDay, LogDayList } from '../api/Models';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 级别（对应 iOS `SettingsLogEntry.Level`；`CRITICAL` 归到错误） */
 class LogLevel {
@@ -357,6 +358,7 @@ export struct LogsSection {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

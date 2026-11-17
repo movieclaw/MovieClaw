@@ -18,6 +18,7 @@ import {
   MemberStatusRequest,
   MemberUpdateRequest,
   MemberView, CatalogItem } from '../api/Models';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /**
  * `MemberUpdateRequest` **全是可选字段**，对象字面量会被 ArkTS 拒绝
@@ -537,6 +538,7 @@ export struct MembersSection {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

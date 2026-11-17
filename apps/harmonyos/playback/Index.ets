@@ -5,3 +5,4 @@ export { PlaybackSessionCoordinator, PlaybackSessionPort, SessionProgress } from
 export { PlaybackOwnership } from './src/main/ets/PlaybackOwnership';
 export { SkipSegments, PlaybackSegment } from './src/main/ets/SkipSegments';
 export { shiftSubtitleTimeline, assToSrt } from './src/main/ets/SubtitleTimeline';
+export { SubtitleCue, parseSubtitleCues, subtitleCueTextAt } from './src/main/ets/SubtitleCues';

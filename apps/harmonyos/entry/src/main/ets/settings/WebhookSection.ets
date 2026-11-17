@@ -14,6 +14,7 @@ import {
   WebhookEndpointPayload,
   WebhookEndpointView
 } from '../api/Models';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 外发格式（对应后端 endpoint 的 format） */
 class HookFormat {
@@ -536,6 +537,7 @@ export struct WebhookSection {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

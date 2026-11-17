@@ -593,11 +593,29 @@ export default function playbackControllerTest() {
         { id: 1, kind: 'audio', language: 'eng', title: '', selected: false },
         { id: 2, kind: 'audio', language: 'eng', title: '', selected: false }
       ];
-      const intent = new PlaybackIntent(); intent.audio = { language: 'eng', title: '', ordinal: 1, sourceCount: 2 };
+      const intent = new PlaybackIntent(); intent.audio = { language: 'eng', title: '', ordinal: 1, sourceCount: 2, explicit: true };
       await controller.open(new FakeMedia(factory.order), 'surface', intent);
       factory.avp.frame(); await microtasks(); await microtasks();
       expect(factory.created.join(',')).assertEqual('avplayer,mpv');
       expect(factory.mpv.calls.includes('audio:2')).assertTrue();
+      await controller.release();
+    });
+    it('inherited_audio_preference_skips_instead_of_falling_back', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      // 观看状态继承的偏好（无 explicit）：内核少报一条音轨也不整引擎回退——
+      // 跳过选轨继续播（内核默认轨），不把用户锁进 mpv。
+      factory.avp.fixtureTracks = [{ id: 1, kind: 'audio', language: 'eng', title: '', selected: true }];
+      factory.mpv.fixtureTracks = [
+        { id: 1, kind: 'audio', language: 'eng', title: '', selected: false },
+        { id: 2, kind: 'audio', language: 'eng', title: '', selected: false }
+      ];
+      const intent = new PlaybackIntent(); intent.audio = { language: 'eng', title: '', ordinal: 1, sourceCount: 2 };
+      await controller.open(new FakeMedia(factory.order), 'surface', intent);
+      factory.avp.frame(); await microtasks(); await microtasks();
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      expect(factory.avp.calls.filter((call: string): boolean => call.startsWith('audio:')).length)
+        .assertEqual(0);
+      expect(controller.current().phase).assertEqual('playing');
       await controller.release();
     });
     it('track_preferences_are_mapped_to_each_engines_ids', 0, async () => {
@@ -678,6 +696,22 @@ export default function playbackControllerTest() {
       await microtasks(); await microtasks();
       expect(factory.created.join(',')).assertEqual('mpv,mpv');
       expect(factory.order.join(',')).assertEqual('mpv:release,lease:1:close');
+      expect(factory.mpv.calls.includes('seek:45000')).assertTrue();
+      expect(controller.current().phase).assertEqual('playing');
+      await controller.release();
+    });
+    it('frozen_avp_direct_remote_switches_to_mpv', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      await controller.open(new FakeDirectRemoteMedia(factory.order), 'surface', intent);
+      factory.avp.frame(); await microtasks();
+      factory.avp.time(45000);
+      // AVP 远程直连源（非 HLS、无 fd）冻结也直转 mpv：实测冻结根因是服务端中
+      // 继的上游断流，同引擎重开只会把全新实例再撞死在同一个断流窗口里（三次
+      // 重开全部只播 59~87ms）；mpv 缓冲有耐心、熬到上游恢复就能接着播。
+      factory.avp.frozen(45000);
+      await microtasks(); await microtasks();
+      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
       expect(factory.mpv.calls.includes('seek:45000')).assertTrue();
       expect(controller.current().phase).assertEqual('playing');
       await controller.release();

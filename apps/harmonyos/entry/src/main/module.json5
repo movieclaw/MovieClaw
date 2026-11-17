@@ -15,6 +15,19 @@
     "installationFree": false,
     "pages": "$profile:main_pages",
     "routerMap": "$profile:router_map",
+    /*
+     * 沉浸光感应用级开关（ArkUI 沉浸式系统材质，targetSDK≥26 才生效）：
+     * enable 后，未写自定义背景的弹窗类组件默认上材质——Toast/菜单→THICK、
+     * 弹出框→ULTRA_THICK；写死过 backgroundColor 的弹窗不受影响（需显式
+     * systemMaterial 才接管）。组件级设置优先于此开关。低于 26 的系统上
+     * 该配置无效果，由 SpatialMaterial.supported 运行时兜底。
+     */
+    "metadata": [
+      {
+        "name": "ohos.arkui.UIMaterial.state",
+        "value": "enable"
+      }
+    ],
     "requestPermissions": [
       {
         "name": "ohos.permission.INTERNET"

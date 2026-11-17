@@ -32,6 +32,7 @@ import {
 } from '../api/Models';
 import { SmartPreferences } from './SmartSubscription';
 import { SubscribeCenter } from './SubscribeCenter';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 预览三态（对应后端 `POST /ui/subscriptions/title-preview` 的 status） */
 class PrepareStatus {
@@ -681,6 +682,7 @@ export struct SubscribeSheetContent {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

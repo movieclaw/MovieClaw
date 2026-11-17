@@ -4,6 +4,9 @@ import {
   HdsTabsController,
   HdsTabsFloatingStyle,
   HdsAnimationMode,
+  HdsBarLayoutMode,
+  HdsBarStyle,
+  HdsTabsBarChangeMode,
   SystemMaterialParams
 } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
@@ -82,8 +85,8 @@ export struct MainTabsPage {
   @Local private tabBarStyle: TabBarStyle = TabBarStyle.shared();
   /** 内容往下滚后底栏收成圆形按钮的信号（各页签根页在滚动时上报） */
   @Local private collapse: TabBarCollapse = TabBarCollapse.shared();
-  /** 收起态圆钮的按压反馈：按下缩到 0.92、松手弹回 */
-  @Local private expandPressed: boolean = false;
+  /** 官方胶囊是否处于「滑动后」状态（minibar 展开、页签栏收成圆钮的左右一行） */
+  @Local private miniBarExpanded: boolean = false;
 
   /** App 已在跑又点了一条分享链接：推到当前页签的栈上（iOS 同款行为） */
   @Monitor('shareRouter.pendingSlug')
@@ -213,12 +216,19 @@ export struct MainTabsPage {
       }, 400);
     }
     // 「接着看」条：读回叉掉的记录，再取这台设备最近播放的那一条
-    this.resume.init(getContext(this))
-      .then((): Promise<void> => {
-        return this.resume.refresh(this.model.api);
-      })
-      .catch((): void => {
-      });
+    const context = this.getUIContext().getHostContext();
+    if (context !== undefined) {
+      this.resume.init(context)
+        .then((): Promise<void> => {
+          return this.resume.refresh(this.model.api);
+        })
+        .then((): void => {
+          // 取到/取空都重算一次：minibar 行与内容的让位要跟最新的一条对齐
+          this.syncAccessoryInset();
+        })
+        .catch((): void => {
+        });
+    }
     // 离线下载：认领本机存档（对应 iOS `OfflineShell` 的 task(id: origin|username)）
     this.adoptOffline();
     // 通知点按的冷启动兜底：handOff 发生在本页挂载之前，@Monitor 追不到挂载前的值，
@@ -285,16 +295,27 @@ export struct MainTabsPage {
     }
     this.collapse.expand();
     this.tabsController.applyShowAnimation(HdsAnimationMode.CLICK_ANIMATION);
-    this.resume.refresh(this.model.api);
+    this.resume.refresh(this.model.api)
+      .then((): void => {
+        // 退干净后最近播放可能变了：重取完再对齐 minibar 行与内容让位
+        this.syncAccessoryInset();
+      })
+      .catch((): void => {
+      });
   }
 
-  /** 滚动收起只保留当前页签；点圆钮或向上滚动恢复整条导航。 */
+  /**
+   * 滚动收起/放回：悬浮胶囊走官方「上下布局」状态机——收起 = `applyMiniBarStyle(EXPAND)`
+   * 切滑动后（页签栏收成官方圆钮、minibar 展开成左右一行；没有「接着看」时 minibar
+   * 行为空，胶囊就收成一颗圆钮），放回 = COLLAPSE 回滑动前。经典贴底栏不参与。
+   */
   @Monitor('collapse.collapsed', 'tabBarStyle.floating')
   onTabBarCollapsed(): void {
     if (this.chrome.immersive) { return; }
     if (this.compactTabs()) {
-      this.tabsController.applyHideAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+      this.tabsController.applyMiniBarStyle(HdsBarStyle.EXPAND);
     } else {
+      this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
       this.tabsController.applyShowAnimation(HdsAnimationMode.SCROLL_ANIMATION);
     }
   }
@@ -327,9 +348,62 @@ export struct MainTabsPage {
 
   private syncAccessoryInset(): void {
     const quickInput: boolean = this.visibleTabs()[this.currentTab]?.title === '我的' && this.permissions.isAdmin;
+    /*
+     * 「接着看」占的额外高度：官方胶囊滑动后（miniBarExpanded）整条底栏由官方
+     * EXPAND 布局接管、页签让位按整条计，这里不再叠加；其余悬浮形态它是 minibar
+     * 行（56），经典贴底栏时它是悬浮页签上方的独立条（56 条 + 12 间距）。整屏
+     * 页压上来则全让位。
+     */
+    const resumeInset: number = this.tabBarStyle.floating ? (this.miniBarExpanded ? 0 : 56) : 68;
     const inset: number = this.chrome.immersive ? 0 : quickInput ? Theme.agentDockInset
-      : this.resumeItem() !== null ? 68 : 0;
+      : this.resumeItem() !== null ? resumeInset : 0;
     this.chrome.setBottomAccessoryInset(inset);
+    // 让位随「接着看」增减而变，官方收起态的胶囊布局跟着一起对齐
+    this.reconcileCompactBar();
+  }
+
+  /**
+   * 官方收起态的胶囊布局对齐（收起 = 官方 EXPAND 滑动后）：让位重算后顺带调用——
+   * 有内容且尚未展开：先放回整条（此前可能整条不在）再切 EXPAND，交给官方组件摆
+   * 「minibar 一行 + 页签圆钮」；内容没了也停在 EXPAND（minibar 行空着就是一颗
+   * 圆钮，滑动态不变）。非收起态不碰——滑动前/回滚由 onTabBarCollapsed 全权负责。
+   */
+  private reconcileCompactBar(): void {
+    if (this.chrome.immersive || !this.compactTabs()) { return; }
+    if (this.resumeItem() !== null && !this.miniBarExpanded) {
+      this.tabsController.applyShowAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+      this.tabsController.applyMiniBarStyle(HdsBarStyle.EXPAND);
+    }
+  }
+
+  /**
+   * 官方胶囊布局回调：回读 miniBar 实际落位（EXPAND/COLLAPSE）驱动让位重算；
+   * 官方圆钮把页签栏展开回来时同步收起信号，免得自绘圆钮/收起态叠在整条上面。
+   */
+  private onOfficialBarStyleChange(miniBarStyle: HdsBarStyle, tabBarStyle: HdsBarStyle): void {
+    this.miniBarExpanded = miniBarStyle === HdsBarStyle.EXPAND;
+    if (tabBarStyle === HdsBarStyle.EXPAND && this.collapse.collapsed) {
+      this.collapse.expand();
+    }
+    this.syncAccessoryInset();
+  }
+
+  /** 官方胶囊 minibar 行（上下布局变体的上排）：内容交 ResumeBar 的内嵌形态 */
+  @Builder
+  ResumeMiniBar() {
+    ResumeBar({
+      item: this.resumeItem() as UpNextItemView,
+      embedded: true,
+      onHide: (): void => {
+        // 叉掉 minibar：先退回滑动前（COLLAPSE），再把滚动收起信号复位、整条
+        // 放回——EXPAND 的主体就是这行内容，叉掉后只剩官方圆钮行没有意义，回
+        // 到整条页签比停在空壳上自然（顺序：COLLAPSE → 复位 → 隐藏内容 → 重算让位）。
+        this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
+        this.collapse.expand();
+        this.resume.hide();
+        this.syncAccessoryInset();
+      }
+    })
   }
 
   /** 按权限得出可见页签的规格（顺序即底栏从左到右，同 iOS visibleTabs） */
@@ -410,15 +484,6 @@ export struct MainTabsPage {
     return Math.max(16, (screenVp - this.tabBarWidth()) / 2);
   }
 
-  /** 收起态：为左侧 56vp 导航圆钮留出位置，中间保留 12vp 间距。 */
-  private resumeCompactLeft(): number {
-    return 16 + 56 + 12;
-  }
-
-  private resumeCompactRight(): number {
-    return 16;
-  }
-
   private resumeBarRight(): number {
     return this.resumeBarLeft();
   }
@@ -434,6 +499,30 @@ export struct MainTabsPage {
     const material: SystemMaterialParams | undefined = SpatialMaterial.hds();
     if (material !== undefined) {
       style.systemMaterialEffect = material;
+    }
+    /*
+     * 上下布局变体：官方胶囊常配 minibar（「继续播放」叠在页签行上面，背景跟随
+     * 页签栏、合成一颗胶囊）——只在有「接着看」内容时才配：空内容也配的话，官
+     * 方内容条带背景关了仍是块透明占位，挡住底下内容的点击（2026-11-17 真机实
+     * 测），比少一个收圆钮动画伤得多。官方内容区的坑：内容区高度跟页签行走、
+     * 实测小于进度环外径，官方默认 enableMiniBarClip 会把环的上下沿切掉——关
+     * 掉裁剪，内容行高随区域走、环缩小画进区域内。两态布局全由官方组件决定；
+     * onBarStyleChange 回读实际落位，驱动让位与收起信号对齐。
+     */
+    if (this.resumeItem() !== null) {
+      style.miniBar = {
+        miniBarBuilder: (): void => {
+          if (this.resumeItem() !== null) {
+            this.ResumeMiniBar();
+          }
+        },
+        enableMiniBarBackground: true,
+        enableMiniBarClip: false,
+        barLayoutMode: HdsBarLayoutMode.VERTICAL,
+        onBarStyleChange: (miniBarStyle: HdsBarStyle, tabBarStyle: HdsBarStyle): void => {
+          this.onOfficialBarStyleChange(miniBarStyle, tabBarStyle);
+        }
+      };
     }
     return style;
   }
@@ -479,7 +568,7 @@ export struct MainTabsPage {
     .opacity(this.currentTab === index ? 1 : 0.65)
     .backgroundColor(this.currentTab === index ? Theme.accentSoft : Color.Transparent)
     .borderRadius(24)
-    .visibility(this.chrome.immersive || this.compactTabs() ? Visibility.Hidden : Visibility.Visible)
+      .visibility(this.chrome.immersive ? Visibility.Hidden : Visibility.Visible)
     .id(`app-tab-${tab.title}`)
     .accessibilityGroup(true)
     .accessibilityText(tab.title)
@@ -489,63 +578,25 @@ export struct MainTabsPage {
   build() {
     Stack() {
       this.Tabs()
-      if (this.compactTabs()) {
-        Row() {
-          Row() {
-            this.TabIcon(this.visibleTabs()[this.currentTab], true)
-          }
-          .width(56).height(56).justifyContent(FlexAlign.Center)
-          /*
-           * 材质与「接着看」条同一套（深色玻璃 + 厚模糊 + 空间化材质 + 1px 细边 + 投影）：
-           * 收起后两者并排在底部，观感一致。进出场补缩放 + 淡入淡出，与 ResumeBar 的
-           * 320ms FastOutSlowIn 同节奏，消除圆钮瞬间弹出的突兀感；按压缩放提供点按反馈。
-           */
-          .backgroundColor('rgba(18, 21, 27, 0.94)')
-          .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-          .systemMaterial(SpatialMaterial.floating())
-          .borderRadius(28)
-          .border({ width: 1, color: 'rgba(255, 255, 255, 0.10)' })
-          .shadow({ radius: 22, color: 'rgba(0, 0, 0, 0.45)', offsetX: 0, offsetY: 8 })
-          .scale({ x: this.expandPressed ? 0.92 : 1, y: this.expandPressed ? 0.92 : 1 })
-          .animation({ duration: 120, curve: Curve.FastOutSlowIn })
-          .transition(TransitionEffect.OPACITY
-            .combine(TransitionEffect.scale({ x: 0.55, y: 0.55 }))
-            .animation({ duration: 320, curve: Curve.FastOutSlowIn }))
-          .id('app-tabs-expand')
-          .accessibilityText('展开底部导航')
-          .onTouch((event: TouchEvent): void => {
-            if (event.type === TouchType.Down) {
-              this.expandPressed = true;
-            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-              this.expandPressed = false;
-            }
-          })
-          .onClick((): void => { this.collapse.expand(); })
-          Blank()
-        }
-        .width('100%').padding({ left: 16 })
-        .margin({ bottom: 12 + WindowInsets.shared().bottom })
-      }
-      // 官方悬浮底栏上方的「接着看」条（贴底对齐，抬到底栏之上；可见性见 resumeItem）
-      if (this.resumeItem() !== null) {
+      /*
+       * 「接着看」条只剩经典贴底栏一种自绘形态（悬浮页签上方的独立浮条）。悬浮
+       * 胶囊的两种状态都不在这：滑动前它在官方胶囊的 minibar 行（见 ResumeMiniBar），
+       * 滑动后整条底栏由官方 EXPAND 布局接管；没有「接着看」时 minibar 行为空，
+       * 滑动后官方胶囊收成一颗圆钮。
+       */
+      if (this.resumeItem() !== null && !this.tabBarStyle.floating) {
         ResumeBar({
           item: this.resumeItem() as UpNextItemView,
-          // 跟着底栏一起收：滚动向下时整条下移、缩窄，和页签栏的圆钮同高同线
-          compact: this.compactTabs(),
           onHide: (): void => {
             this.resume.hide();
+            this.syncAccessoryInset();
           }
         })
           .margin({
-            left: this.compactTabs() ? this.resumeCompactLeft() : this.resumeBarLeft(),
-            right: this.compactTabs() ? this.resumeCompactRight() : this.resumeBarRight(),
-            /*
-             * 展开：底栏高度（悬浮 56+12 / 贴底 48）+ 手势区，再留 12 呼吸；
-             * 收起：与底栏圆钮同一条水平线（抬起 12 + 手势区）。
-             */
-            bottom: this.compactTabs()
-              ? 12 + WindowInsets.shared().bottom
-              : (this.tabBarStyle.floating ? 56 + 12 : 48) + WindowInsets.shared().bottom + 12
+            left: this.resumeBarLeft(),
+            right: this.resumeBarRight(),
+            // 底栏高度（贴底 48）+ 手势区，再留 12 呼吸
+            bottom: 48 + WindowInsets.shared().bottom + 12
           })
           .id('app-resume-bar')
           .onAppear((): void => { this.syncAccessoryInset(); })
@@ -566,6 +617,7 @@ export struct MainTabsPage {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

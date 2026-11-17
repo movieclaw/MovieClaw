@@ -342,7 +342,7 @@ export struct CarAccountPage {
   }
 
   private confirmLogout(): void {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '退出登录？',
       message: `「${this.currentNickname()}」在这台车机上的登录会在服务器上一并注销。`
         + '同一台服务器上还有别的账号时会自动切过去。',

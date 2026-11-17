@@ -7,6 +7,7 @@ import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import { AppConfigPayload, AppConfigView, WebPortPayload } from '../api/Models';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /**
  * 设置 → 网络 → 外部访问（对应 iOS `ExternalAccessSettingsView`）。
@@ -305,6 +306,7 @@ export struct ExternalAccessPage {
       height: SheetSize.FIT_CONTENT,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

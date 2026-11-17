@@ -24,6 +24,7 @@ import {
   UnidentifiedGroupView
 } from '../api/Models';
 import { AppFooter } from '../common/AppFooter';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /**
  * 三个页签各自的行数据源（LazyForEach 用）。
@@ -590,6 +591,7 @@ export struct IssueDrawerPage {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
     .onReady((ctx: NavDestinationContext) => {
@@ -1145,10 +1147,13 @@ struct UnidentifiedGroupRow {
   }
 
   private openUrl(url: string): void {
-    const context: common.UIAbilityContext = getContext() as common.UIAbilityContext;
-    context.openLink(url).catch((): void => {
-      this.toast('打不开链接');
-    });
+    const raw: common.Context | undefined = this.getUIContext().getHostContext();
+    if (raw !== undefined) {
+      const host: common.UIAbilityContext = raw as common.UIAbilityContext;
+      host.openLink(url).catch((): void => {
+        this.toast('打不开链接');
+      });
+    }
   }
 
   // MARK: 派生
@@ -1539,10 +1544,13 @@ export struct IssueClaimConfirmPanel {
   }
 
   private openUrl(url: string): void {
-    const context: common.UIAbilityContext = getContext() as common.UIAbilityContext;
-    context.openLink(url).catch((): void => {
-      this.getUIContext().getPromptAction().showToast({ message: '打不开链接' });
-    });
+    const raw: common.Context | undefined = this.getUIContext().getHostContext();
+    if (raw !== undefined) {
+      const host: common.UIAbilityContext = raw as common.UIAbilityContext;
+      host.openLink(url).catch((): void => {
+        this.getUIContext().getPromptAction().showToast({ message: '打不开链接' });
+      });
+    }
   }
 
   build() {
@@ -1712,10 +1720,13 @@ export struct IssueClaimSearchPanel {
   }
 
   private openUrl(url: string): void {
-    const context: common.UIAbilityContext = getContext() as common.UIAbilityContext;
-    context.openLink(url).catch((): void => {
-      this.getUIContext().getPromptAction().showToast({ message: '打不开链接' });
-    });
+    const raw: common.Context | undefined = this.getUIContext().getHostContext();
+    if (raw !== undefined) {
+      const host: common.UIAbilityContext = raw as common.UIAbilityContext;
+      host.openLink(url).catch((): void => {
+        this.getUIContext().getPromptAction().showToast({ message: '打不开链接' });
+      });
+    }
   }
 
   private async search(): Promise<void> {
