@@ -95,6 +95,7 @@ macOS 默认 bsdtar 会把扩展属性打成 AppleDouble `._*.py`，初次本地
 
 ## 后续补充的门禁证据
 
+- `tail-completion-race.md`：`0e2e72f` 新 CI 的真实失败、EOF / DONE 交错、v0.50.0 同样确定性失败、最小修复及完整离线 HTTP / FFmpeg 回归；最终 head 仍须通过新 CI，不能拿旧绿色检查放行。
 - `regression-gates.md` / `failure-comparison.json`：原始 12 fail 的精确 node IDs；同 Python 3.11 环境下正式版与候选均 9 fail / 3 pass，逐项一致；独立受控媒体 / loopback 对照；PR #1297 的 Linux 三片 8803 passed / 99 skipped / 6 xfailed / 1 xpassed；四条 error annotations 的完整析构警告解释与 v0.50.0 正式基线证据。原本全量失败不会被重写为通过。
 - `hardware-gate.md` / `hardware-evidence.json`：已授权入口的只读库存结果、M2 Max 合成验证五项 pass、全 GPU / HDR tone-map 实际限制、仍未关闭的 Linux GPU / 真机 P1、最小补测任务与排除 #1263 的策略边界。
 - `synthetic-gpu-check.py`：可交已有授权 NAS 会话的只读库存与合成校验脚本；不部署、不读私有媒体、不使用账号；固定版本 / ffmpeg_args 源码哈希，缺设备或原生 HDR 链时拒绝记 pass。它只补充硬件命令证据，不自动放行 GPU 活动 / 视觉 HDR / 真机矩阵。
