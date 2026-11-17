@@ -1,0 +1,99 @@
+{
+  "baseline": "4afc18515964c89de8e38f71cdc77c40515710ed",
+  "candidate": "c2c1d7d29ef67f323da9ac9eacbe1d7fac525760",
+  "python": "3.11.16",
+  "runner": "pytest -n 4 --dist loadfile --timeout=180 --tb=short --show-capture=no",
+  "result": "Both 9 failed / 3 passed; identical per-node outcomes",
+  "nodes": [
+    {
+      "nodeid": "tests/api/test_bundled_plugins.py::test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it",
+      "baseline": "passed",
+      "candidate": "passed"
+    },
+    {
+      "nodeid": "tests/api/test_jobs.py::test_job_wait_timeout_and_cancellation_keep_parent_lock_and_release_capacity",
+      "baseline": "passed",
+      "candidate": "passed"
+    },
+    {
+      "nodeid": "tests/api/test_media_server_plugin.py::test_probing_specs_reaches_the_server_with_the_token[inline]",
+      "baseline": "failed",
+      "candidate": "failed"
+    },
+    {
+      "nodeid": "tests/api/test_media_server_plugin.py::test_probing_specs_reaches_the_server_with_the_token[process]",
+      "baseline": "failed",
+      "candidate": "failed"
+    },
+    {
+      "nodeid": "tests/jellyfin/test_http_flow.py::test_playback_info_direct_play_no_transcode",
+      "baseline": "failed",
+      "candidate": "failed"
+    },
+    {
+      "nodeid": "tests/jellyfin/test_stream_activity.py::test_detail_prefetch_does_not_report_playing[Infuse]",
+      "baseline": "failed",
+      "candidate": "failed"
+    },
+    {
+      "nodeid": "tests/jellyfin/test_stream_activity.py::test_detail_prefetch_does_not_report_playing[OtherPlayer]",
+      "baseline": "failed",
+      "candidate": "failed"
+    },
+    {
+      "nodeid": "tests/jellyfin/test_stream_activity.py::test_detail_prefetch_does_not_report_playing[Rex]",
+      "baseline": "failed",
+      "candidate": "failed"
+    },
+    {
+      "nodeid": "tests/jellyfin/test_stream_activity.py::test_stream_restores_confirmed_playback_after_process_restart[0]",
+      "baseline": "failed",
+      "candidate": "failed"
+    },
+    {
+      "nodeid": "tests/jellyfin/test_stream_activity.py::test_stream_restores_confirmed_playback_after_process_restart[301.0]",
+      "baseline": "failed",
+      "candidate": "failed"
+    },
+    {
+      "nodeid": "tests/playback/test_lead_throttle.py::test_signal_constants_are_the_expected_ones",
+      "baseline": "failed",
+      "candidate": "failed"
+    },
+    {
+      "nodeid": "tests/tracker/unit/test_hdwing.py::test_factory_search_promotion_detail_download_profile_flow",
+      "baseline": "passed",
+      "candidate": "passed"
+    }
+  ],
+  "test_file_blobs": {
+    "tests/api/test_bundled_plugins.py": {
+      "v0.50.0": "cd9a0a16423ab379d5e529855b7a48a35dd32787",
+      "HEAD": "cd9a0a16423ab379d5e529855b7a48a35dd32787"
+    },
+    "tests/api/test_jobs.py": {
+      "v0.50.0": "f06c17f28fcacc09100f3db4031bfb52f210bae6",
+      "HEAD": "f06c17f28fcacc09100f3db4031bfb52f210bae6"
+    },
+    "tests/api/test_media_server_plugin.py": {
+      "v0.50.0": "69644a3770249494d4d992bd98b7a7a9578ec1a7",
+      "HEAD": "69644a3770249494d4d992bd98b7a7a9578ec1a7"
+    },
+    "tests/jellyfin/test_http_flow.py": {
+      "v0.50.0": "c4d2bc06bdfb33da8f0e3c1ae4533f7683e4b01a",
+      "HEAD": "c4d2bc06bdfb33da8f0e3c1ae4533f7683e4b01a"
+    },
+    "tests/jellyfin/test_stream_activity.py": {
+      "v0.50.0": "0e6e2158e6ba30bfb7b11574312cf38902621624",
+      "HEAD": "0e6e2158e6ba30bfb7b11574312cf38902621624"
+    },
+    "tests/playback/test_lead_throttle.py": {
+      "v0.50.0": "527db2aaf5f249e35f9149fe378649145e3fd1e1",
+      "HEAD": "527db2aaf5f249e35f9149fe378649145e3fd1e1"
+    },
+    "tests/tracker/unit/test_hdwing.py": {
+      "v0.50.0": "32bb769e6f93da92c132ddb1b9edc87a4190d90e",
+      "HEAD": "32bb769e6f93da92c132ddb1b9edc87a4190d90e"
+    }
+  }
+}

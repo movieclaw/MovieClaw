@@ -92,3 +92,12 @@ macOS 默认 bsdtar 会把扩展属性打成 AppleDouble `._*.py`，初次本地
 只有 GitHub 协调方触发一次 `release.yml`，`workflow_dispatch` 参数为 `tag=v0.51.0`，ref 为 `main`。触发前须重新核对合入后的 main SHA、版本与 changelog、CI 与人工门禁、无同版本 tag / 活跃 run。技术会话不同时 push tag。
 
 验收必须检查：正式 Release 非 draft / prerelease 且为服务器 latest；tag 指向已验收 main SHA；12 个必需附件完整（配置签名时另需 manifest.json.sig），清单哈希 / 文件大小正确；Docker amd64 / arm64 digest 及标签完整；发布工作流成功。失败先取日志定位，不盲目重试。
+
+## 后续补充的门禁证据
+
+- `regression-gates.md` / `failure-comparison.json`：原始 12 fail 的精确 node IDs；同 Python 3.11 环境下正式版与候选均 9 fail / 3 pass，逐项一致；独立受控媒体 / loopback 对照；PR #1297 的 Linux 三片 8803 passed / 99 skipped / 6 xfailed / 1 xpassed；四条 error annotations 的完整析构警告解释与 v0.50.0 正式基线证据。原本全量失败不会被重写为通过。
+- `hardware-gate.md` / `hardware-evidence.json`：已授权入口的只读库存结果、M2 Max 合成验证五项 pass、全 GPU / HDR tone-map 实际限制、仍未关闭的 Linux GPU / 真机 P1、最小补测任务与排除 #1263 的策略边界。
+- `synthetic-gpu-check.py`：可交已有授权 NAS 会话的只读库存与合成校验脚本；不部署、不读私有媒体、不使用账号；固定版本 / ffmpeg_args 源码哈希，缺设备或原生 HDR 链时拒绝记 pass。它只补充硬件命令证据，不自动放行 GPU 活动 / 视觉 HDR / 真机矩阵。
+- `apple-followup.md`：用户追加授权的依赖阶段。只有服务器 GitHub 正式发布并验收成功后，主助手才另起 Codex 核 Apple 各平台真实 TF 基线与变化、只打有变化的平台并上传 TF / 验 processing；当前不上传、不改凭据、不提 App Store / 外测审核、不扩 tester。
+
+上述补充不代表发布已完成。PR #1297 的既有绿色检查绑定旧 head；补充文档 / 脚本提交后仍需最终 head 的必需检查与独立审查。硬件 P1 未有相应设备证据或明确维护者处理前，不合并点火、不打 tag、不触发 release。
