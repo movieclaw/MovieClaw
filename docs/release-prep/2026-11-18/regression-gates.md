@@ -37,7 +37,7 @@
 2. Python 三片必须用 CI 的 Python 3.11 与新装仓库依赖。成功基线 run `44006895889` 的依赖为 cssselect 1.6.0、pytest-asyncio 1.5.0；其三片总计 8789 passed，另有 skips / xfails。这只是环境对照证据。
 3. 对照上述 12 项，尤其确认 #1、#3、#8–12 被收集并实际运行；核对 #4/#6 的 ffprobe 条件跳过理由。若日志不足，另用完全相同 Linux 环境运行这些 node IDs 并带 `-vv -ra` / JUnit，不能用汇总绿色推断某条测试执行过。
 4. 若候选新 CI 红：先读具体 job 日志，将同环境、同命令对照正式版；确定性候选回归必须修复并补回归。已有问题也需维护者按真实影响作出明确 gate 决策，不能因“以前也坏”自动忽略。
-5. 代码 review 特别关注这次唯一测试改动：`auxiliary-i18n.test.mjs` 只补 HTTP mock 的 `withUiLocale`，未降低 SSE 错误断言；两处生产源码变动仅是版本号。
+5. 上述 c2 快照只有 `auxiliary-i18n.test.mjs` 补 HTTP mock 的 `withUiLocale`、两处生产版本号改动。后续增量另见 `p2-validation.md`、`tail-completion-race.md`、`plugin-ack-race.md`；不能把历史快照的范围说明当成最终 head 的完整 diff。
 6. CI 全绿仍不覆盖仓库 release 技能第七节的硬件矩阵。需要相应硬件 / 软件 / 真机项证据，或维护者对尚未执行项作出明确记录的处理；不得擅自标 pass。
 
 ## 原始证据位置

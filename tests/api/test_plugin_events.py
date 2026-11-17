@@ -8,6 +8,7 @@ test_cloud_push.py::test_plugin_notifications_go_where_they_were_approved。
 
 from __future__ import annotations
 
+import asyncio
 import textwrap
 
 import pytest
@@ -216,15 +217,44 @@ def test_package_events_and_notifications_from_install_to_uninstall(data_dir) ->
         assert "acme-pkg.quota.exceeded" not in {e["key"] for e in prefs}
 
 
-@pytest.mark.parametrize("durable", [False, True])
+@pytest.mark.parametrize(
+    ("durable", "interrupt_before_ack"),
+    [
+        pytest.param(False, False, id="live"),
+        pytest.param(True, False, id="durable-acked"),
+        pytest.param(True, True, id="durable-unacked"),
+    ],
+)
 @pytest.mark.parametrize("provider_first", [False, True])
 def test_process_plugin_subscribes_to_another_running_plugin(
     data_dir,  # noqa: F811
+    monkeypatch,
     durable,
+    interrupt_before_ack,
     provider_first,
 ) -> None:
-    """自写两个插件包：未登记仍拒绝；登记后跨进程接收，重挂不重复投递。"""
+    """双插件进程：已确认的不重投；未确认的重挂后以同一事件 id 续投。"""
+    from movieclaw_api.services.durable_events import DurableEvents
     from movieclaw_kernel import DURABLE_EVENTS
+
+    before_ack = asyncio.Event()
+    cancelled_before_ack = False
+    if interrupt_before_ack:
+        deliver = DurableEvents._deliver
+
+        async def hold_first_ack(self, consumer, row, attempt):
+            nonlocal cancelled_before_ack
+            result = await deliver(self, consumer, row, attempt)
+            if consumer.consumer_id == "event-listener:quota" and not before_ack.is_set():
+                before_ack.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    cancelled_before_ack = True
+                    raise
+            return result
+
+        monkeypatch.setattr(DurableEvents, "_deliver", hold_first_ack)
 
     source = """
 from fastapi import APIRouter
@@ -247,13 +277,20 @@ async def apply(ctx):
     store = ctx.use(PLUGIN_DATA).scoped(ctx)
     async def receive(payload):
         assert isinstance(payload, QuotaExceeded)
+        assert ctx.delivery is not None
         received = await store.get("received") or []
-        await store.set("received", [*received, payload.model_dump()])
+        await store.set("received", [*received, {
+            "payload": payload.model_dump(), "event_id": ctx.delivery.event_id,
+        }])
     ctx.on(EXCEEDED, receive, id="quota", durable=DURABLE)
     router = APIRouter()
     @router.get("/received", operation_id="plugins.event-listener.received")
     async def received():
-        return {"received": await store.get("received") or []}
+        rows = await store.get("received") or []
+        return {
+            "received": [row["payload"] for row in rows],
+            "delivery_ids": [row["event_id"] for row in rows],
+        }
     ctx.use(PLUGIN_ROUTES).mount(ctx, router, zone="admin")
 """.replace("durable=DURABLE", f"durable={durable!r}")
     manifest = """
@@ -294,15 +331,30 @@ operations = []
         assert result["status"] == "active", result
         entry = app.state.kernel.fiber("event-listener").entry
         expected = {"site": "mteam", "remaining_gb": 2.5, "member_id": 1}
+        store = app.state.kernel.service(DURABLE_EVENTS)
 
         def received():
             return client.get("/api/v1/plugins/event-listener/received").json()["received"]
 
+        def acknowledged():
+            info = client.portal.call(store.describe)
+            [state] = [
+                c for c in info["consumers"] if c["consumer_id"] == "event-listener:quota"
+            ]
+            assert state["attempts"] == 0 and state["last_error"] is None, state
+            return state["backlog"] == 0
+
         assert client.post("/api/v1/plugins/acme-pkg/fire").status_code == 200
         wait_for(lambda: received() == [expected])
+        if interrupt_before_ack:
+            wait_for(before_ack.is_set)
+        elif durable:
+            # 插件写入可见不代表宿主 cursor 已提交；确认后重挂才不应重投。
+            wait_for(acknowledged)
         client.portal.call(app.state.kernel.unmount, "event-listener")
+        if interrupt_before_ack:
+            assert cancelled_before_ack
         assert client.get("/api/v1/plugins/event-listener/received").status_code == 404
-        store = app.state.kernel.service(DURABLE_EVENTS)
         assert "event-listener:quota" not in store._consumers
         assert not any(
             listener.entry_id == "event-listener"
@@ -312,7 +364,17 @@ operations = []
         )
         client.portal.call(app.state.kernel.mount, entry)
         assert client.post("/api/v1/plugins/acme-pkg/fire").status_code == 200
-        wait_for(lambda: received() == [expected, expected])
+        if durable:
+            wait_for(acknowledged)
+        else:
+            wait_for(lambda: received() == [expected, expected])
+            client.portal.call(app.state.kernel.bus.drain)
+        result = client.get("/api/v1/plugins/event-listener/received").json()
+        assert result["received"] == [expected] * (3 if interrupt_before_ack else 2), result
+        ids = result["delivery_ids"]
+        assert all(ids) and len(set(ids)) == 2, result
+        if interrupt_before_ack:
+            assert ids[0] == ids[1] and ids[1] != ids[2], result
         assert client.delete("/api/v1/app/plugins/packages/event-listener").status_code == 200
         assert "event-listener:quota" not in store._consumers
 
