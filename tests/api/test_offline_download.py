@@ -665,6 +665,60 @@ def test_export_tail_streams_while_transcoding(client: TestClient, tmp_path: Pat
     assert resp.content == b"a" * 1000 + b"b" * 1000 + b"c" * 1000
 
 
+@pytest.mark.parametrize(
+    "tail",
+    [
+        pytest.param(b"b" * 1000 + b"c" * 1000, id="complete"),
+        pytest.param(b"", id="missing"),
+        pytest.param(b"b" * 1000, id="truncated"),
+    ],
+)
+def test_export_tail_completion_between_eof_and_state_check(client, tmp_path, monkeypatch, tail):
+    """读到旧 EOF 后生产者才写完并标 done：须重读，但真截短仍须及时掐断。"""
+    _lib, _item, file_id = seed(client, tmp_path, real=False)
+    manager, state = _fake_state(client, file_id, "eof-race", status=exports.STATUS_RUNNING)
+    out = manager.output_path(state)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(b"a" * 1000)
+    original_open = open
+    reads = []
+
+    class FinishAfterEOF:
+        def __init__(self, handle):
+            self.handle = handle
+            self.finished = False
+
+        def read(self, size):
+            reads.append(1)
+            assert len(reads) <= 4, "completed EOF must not spin"
+            chunk = self.handle.read(size)
+            if not chunk and not self.finished:
+                with out.open("ab") as writer:
+                    writer.write(tail)
+                state.final_bytes = 3000
+                state.status = exports.STATUS_DONE
+                self.finished = True
+            return chunk
+
+        def close(self):
+            self.handle.close()
+
+    def open_tail(path, mode):
+        handle = original_open(path, mode)
+        return FinishAfterEOF(handle) if Path(path) == out and mode == "rb" else handle
+
+    monkeypatch.setattr(exports, "open", open_tail, raising=False)
+    if len(tail) < 2000:
+        with pytest.raises(exports.ExportStreamAborted, match="产物不完整"):
+            client.get(f"{_API}/offline/exports/eof-race/content")
+    else:
+        response = client.get(f"{_API}/offline/exports/eof-race/content")
+        assert response.status_code == 200
+        assert "content-length" not in response.headers
+        assert response.content == b"a" * 1000 + tail
+        assert response.headers["etag"] == state.etag
+
+
 def test_export_tail_aborts_when_regenerated(client: TestClient, tmp_path: Path) -> None:
     """中途重转（代号变了）：旧连接掐断，不把两次转码的字节拼在一起。"""
     _lib, _item, file_id = seed(client, tmp_path, real=False)

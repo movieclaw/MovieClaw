@@ -945,6 +945,7 @@ class ExportTailResponse(Response):
     async def _stream(self, send: Send, disconnected: asyncio.Event) -> None:
         sent = 0
         handle = None
+        completion_observed = False
         try:
             while not disconnected.is_set():
                 if handle is None:
@@ -970,6 +971,10 @@ class ExportTailResponse(Response):
                         await send({"type": "http.response.body", "body": b"", "more_body": False})
                         return
                     if state.final_bytes is not None and sent < state.final_bytes:
+                        # 这次 EOF 可能早于 done；确认完成后再读一次，避免漏掉刚写完的尾段。
+                        if not completion_observed:
+                            completion_observed = True
+                            continue
                         # 转完了却读不满（文件被替换、截断）：不能当完成，也不空转
                         # i18n-ignore: server-side abort reason, never shown
                         raise ExportStreamAborted(f"离线导出 {self.export_id} 产物不完整")
