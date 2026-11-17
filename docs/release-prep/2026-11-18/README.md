@@ -56,12 +56,16 @@
 | Web 全量 Node 回归 | 1198/1198 通过 |
 | 已看规则、续看隐藏及 SQLite 并发、迁移保留、字幕记忆、网络挂载导入、下载完成 E2E、绑定、MCP、网络恢复、跨插件事件、GPU 参数、i18n | 541 通过、4 跳过（未配置真实 Postgres 的对应并发用例）；真实 HTTP / DB / 子进程边界均覆盖 |
 | Playwright 真实更新 / 下载校验错误 / 回退 / 双主题语言场景 | 1/1 通过，只运行隔离服务，无用户 App 安装或重启 |
+| 真实 FFmpeg / ffprobe 集成 | 10/10 通过，含 HEVC hvc1、关键帧、seek、音频单转、软件缩放与分片；不代表 GPU 硬件验收 |
 | 完整 `build-release-artifacts.sh` | 通过，Web / 后端 / manifest 三件套；版本 0.51.0、runtime 25 |
 | 产物复核 | SHA256 / 大小与 manifest 一致；Web 无 `.node`，含两种扩展 ZIP 与启动入口；后端有迁移、版本正确的 spec、Linux 双架构 ELF CLI |
+| 解包后端冷启动升级 | 从 v0.50.0 的 `d6a2e7c4f981` 临时库自动迁移到 `a7d2e9c41b58`；原观看位置 / 已看 / 次数 / 收藏 / 最近播放时间保持不变，新字段 false / null；真实 HTTP 返回 0.51.0、初始化 / 登录 / 策略从 90 改到 97 并回读成功 |
 
 首轮 Python 失败的原因是网络挂载 fixture 直接把含空格的临时路径写入 `/proc/mounts` 样例，以及相对 `PYTHONPATH=src` 在插件子进程内失效。使用独立无空格临时根与绝对源码路径后代表测试 16/16、整批回归通过；没有修改生产代码规避问题。
 
 Web 全量回归暴露德语 PR 新增 `withUiLocale` 导入而旧 mock 缺失，SSE 预期错误被重试分支的 `window is not defined` 覆盖。仅给 `auxiliary-i18n.test.mjs` 的 HTTP mock 补一项，原用例不改断言，修后全量通过。
+
+macOS 默认 bsdtar 会把扩展属性打成 AppleDouble `._*.py`，初次本地包冷启动时 Alembic 扫描这些元数据报 null bytes。用 `COPYFILE_DISABLE=1` 重新执行完整构建后，归档无 AppleDouble、哈希检查与上述解包冷启动均通过。正式工作流在 Linux / GNU tar 构建，不上传本地初次生成的包；最终仍须下载正式附件验收。
 
 - 发布必须经过 PR 与分支规则集，`ci-ok` / `apple-ok` / `android-ok` 为必需检查，全量 CI 通过后合入；不直推 main，不强推、不删 tag。传统 branch protection API 返回 404，但分支 rules API 已确认上述规则，不能因此视为无保护。
 - 两处版本为 0.51.0，`scripts/export-spec.sh` 同时导出服务器 / CLI 基线；spec 是忽略的构建产物。
